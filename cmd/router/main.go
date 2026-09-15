@@ -52,6 +52,7 @@ import (
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rl"
@@ -848,6 +849,26 @@ func main() {
 		AvailableProviders: availableProviders,
 		TargetOverrides:    deploymentTargets,
 	}
+	escalationJudgeEnabled, err := strconv.ParseBool(config.GetOr("ROUTER_ESCALATION_JUDGE_ENABLED", "false"))
+	if err != nil {
+		logger.Error("Invalid escalation judge enablement", "err", err)
+		panic(err)
+	}
+	escalationJudgeKey := strings.TrimSpace(os.Getenv("ROUTER_ESCALATION_JUDGE_API_KEY"))
+	escalationJudgeActiveEnabled, err := strconv.ParseBool(config.GetOr("ROUTER_ESCALATION_JUDGE_ACTIVE_ENABLED", "false"))
+	if err != nil {
+		logger.Error("Invalid escalation judge active rollout enablement", "err", err)
+		panic(err)
+	}
+	if escalationJudgeActiveEnabled && !escalationJudgeEnabled {
+		panic("ROUTER_ESCALATION_JUDGE_ACTIVE_ENABLED requires ROUTER_ESCALATION_JUDGE_ENABLED")
+	}
+	if escalationJudgeEnabled {
+		if escalationJudgeKey == "" {
+			panic("ROUTER_ESCALATION_JUDGE_API_KEY is required when the escalation judge is enabled")
+		}
+		inferenceDeployment.EnabledOptionalPurposes = map[policy.Purpose]bool{policy.PurposeEscalationJudge: true}
+	}
 	if err := policy.DefaultRegistry().ValidateDeployment(inferenceDeployment); err != nil {
 		logger.Error("Invalid inference policy deployment; refusing to boot", "err", err)
 		panic(err)
@@ -1089,6 +1110,10 @@ func main() {
 	// effort: the table is never read on the request path, so a failure here
 	// degrades that UI and nothing else.
 	publishFlagRegistry(logger, repo.FlagDefinitions, map[flags.Key]string{
+		flags.KeyEscalationActiveClassifier:           string(flags.EscalationClassifierNone),
+		flags.KeyEscalationShadowClassifier:           string(flags.EscalationClassifierNone),
+		flags.KeyEscalationCadence:                    strconv.Itoa(llmescalation.DefaultCadence),
+		flags.KeyEscalationEpoch:                      "0",
 		flags.KeyEscalationXGBoostEnabled:             boolDefault(false),
 		flags.KeyEscalationXGBoostShadowEnabled:       boolDefault(false),
 		flags.KeyEscalationXGBoostShadowMarkerEnabled: boolDefault(false),
@@ -1135,11 +1160,23 @@ func main() {
 
 	escalationStore := postgres.NewEscalationRepo(pool)
 	safeGo(logger, "escalation-state-sweep", func() { runEscalationSweep(context.Background(), escalationStore) })
+	llmEscalationStore := postgres.NewLLMEscalationRepo(pool)
+	safeGo(logger, "llm-escalation-state-sweep", func() { runEscalationSweep(context.Background(), llmEscalationStore) })
+	var escalationJudge llmescalation.Judge
+	if escalationJudgeEnabled {
+		judge, judgeErr := proxy.NewEscalationJudge(inferencePlans, inferenceExecutor, escalationJudgeKey)
+		if judgeErr != nil {
+			panic(judgeErr)
+		}
+		escalationJudge = judge
+	}
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
 
 	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
 		WithSessionStrategyStore(sessionStrategyStore).
 		WithEscalation(escalationStore, escalationObserver).
+		WithLLMEscalation(llmEscalationStore, escalationJudge).
+		WithEscalationConfiguration(llmEscalationStore, authSvc.InvalidateInstallation, escalationJudgeActiveEnabled).
 		WithTranslationCompatibilityMode(proxy.TranslationCompatibilityMode(translationCompatibilityMode)).
 		WithScopedSearchRequirement(scopedSearchRequirement, searchRequirementDecayTurns).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyRL, Router: rlRouter, Unavailable: rl.ErrPolicyUnavailable}).
@@ -2098,7 +2135,11 @@ func upstreamIDsForProvider(provider string) map[string]string {
 	return out
 }
 
-func runEscalationSweep(ctx context.Context, store escalation.Store) {
+type escalationStateSweeper interface {
+	SweepExpired(context.Context) error
+}
+
+func runEscalationSweep(ctx context.Context, store escalationStateSweeper) {
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 	for {

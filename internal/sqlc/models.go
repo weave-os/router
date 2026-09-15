@@ -101,6 +101,37 @@ type RouterGlobalAutomaticRoutingExclusion struct {
 	CreatedBy *string
 }
 
+type RouterLlmEscalationCompletion struct {
+	Lifetime uuid.UUID
+	Boundary []byte
+}
+
+type RouterLlmEscalationContinuation struct {
+	Activation     []byte
+	ResponseDigest []byte
+	Lifetime       uuid.UUID
+	History        []byte
+}
+
+type RouterLlmEscalationJob struct {
+	ID         uuid.UUID
+	Lifetime   uuid.UUID
+	Generation int64
+	Checkpoint int64
+	Status     string
+	LeaseUntil pgtype.Timestamptz
+	Job        []byte
+}
+
+type RouterLlmEscalationSession struct {
+	Scope          []byte
+	Lifetime       uuid.UUID
+	InstallationID uuid.UUID
+	State          []byte
+	ExpiresAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
+
 // Cyclic tool-call loop detections: ops signal and (session, looping_model) -> looped training labels
 type RouterLoopEscalationEvent struct {
 	ID             uuid.UUID

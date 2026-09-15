@@ -230,6 +230,12 @@ func (s *Service) invalidateInstallation(installationID string) {
 	s.notifier.NotifyInstallationChanged(installationID)
 }
 
+// InvalidateInstallation makes a committed control-plane configuration change
+// visible to subsequent requests on this replica and its peers.
+func (s *Service) InvalidateInstallation(installationID string) {
+	s.invalidateInstallation(installationID)
+}
+
 // IssueAPIKey creates a new routing (data-plane) API key and returns the raw token.
 func (s *Service) IssueAPIKey(ctx context.Context, installationID string, name *string, createdBy *string) (*APIKey, string, error) {
 	return s.IssueScopedAPIKey(ctx, installationID, ScopeRouting, name, createdBy)

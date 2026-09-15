@@ -32,6 +32,7 @@ type DeploymentTargetProjection struct {
 
 // DeploymentPolicyProjection is one purpose as this deployment can serve it.
 type DeploymentPolicyProjection struct {
+	Enabled           bool                        `json:"enabled"`
 	Purpose           Purpose                     `json:"purpose"`
 	PolicyID          PolicyID                    `json:"policy_id"`
 	PolicyRevision    PolicyRevision              `json:"policy_revision"`
@@ -72,6 +73,7 @@ func (r Registry) DeploymentProjection(config DeploymentPolicyConfig) Deployment
 	policies := make([]DeploymentPolicyProjection, 0, len(r.specs))
 	for _, spec := range r.specs {
 		projection := DeploymentPolicyProjection{
+			Enabled:           !spec.Optional || config.EnabledOptionalPurposes[spec.Purpose],
 			Purpose:           spec.Purpose,
 			PolicyID:          spec.PolicyID,
 			PolicyRevision:    spec.PolicyRevision,
@@ -79,7 +81,7 @@ func (r Registry) DeploymentProjection(config DeploymentPolicyConfig) Deployment
 			MigrationStatus:   spec.MigrationStatus,
 		}
 		models := spec.FixedCatalogModels
-		requiredProvider := ""
+		requiredProvider := spec.FixedProvider
 		if override, found := overrides[spec.Purpose]; found {
 			projection.DeploymentTarget = &DeploymentTargetProjection{CatalogID: override.CatalogID, Provider: override.Provider, Effort: override.Effort}
 			models = []string{override.CatalogID}

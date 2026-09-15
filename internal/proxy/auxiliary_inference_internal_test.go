@@ -8,8 +8,11 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/inference"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/handover"
+	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/policy"
 
 	"github.com/google/uuid"
@@ -227,6 +230,23 @@ func TestBillAuxiliaryInferenceTagsSessionAndCost(t *testing.T) {
 	assert.Equal(t, int32(usage.CacheCreation), *row.CacheCreationTokens)
 	require.NotNil(t, row.CacheReadTokens)
 	assert.Equal(t, int32(usage.CacheRead), *row.CacheReadTokens)
+}
+
+func TestEscalationJudgeTelemetryIsPlatformFunded(t *testing.T) {
+	service, billingRepo, telemetryRepo := auxTestService(t)
+	job := llmescalation.Job{ID: "checkpoint-3", Lifetime: "classifier-session", Model: policy.EscalationJudgeModel, Provider: providers.ProviderOpenRouter}
+	judgment := llmescalation.Judgment{
+		Usage:   inference.Usage{Known: true, InputTokens: 1200, OutputTokens: 40},
+		CostUSD: 0.0042, CostKnown: true, CostSource: llmescalation.CostSourceProviderReported,
+	}
+	service.recordEscalationJudgeInference(uuid.NewString(), auxTestRequestID, job, judgment)
+	rows := telemetryRepo.waitForRows(1)
+	require.Len(t, rows, 1)
+	assert.Equal(t, SpanTypePlatformAuxiliaryInference, rows[0].SpanType)
+	assert.Equal(t, job.Lifetime, rows[0].SessionID)
+	assert.Equal(t, job.Model, rows[0].DecisionModel)
+	assert.InDelta(t, judgment.CostUSD, rows[0].ActualInputCostUSD+rows[0].ActualOutputCostUSD, 1e-12)
+	assert.Empty(t, billingRepo.snapshot(), "platform judge calls must never debit customer credit")
 }
 
 // TestBillAuxiliaryInferenceMatchesLedgerAmount proves the telemetry row's

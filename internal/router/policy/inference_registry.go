@@ -19,6 +19,9 @@ const (
 	InferenceRegistrySchemaVersion = "inference_policy_registry_v2"
 	inferencePolicyOwner           = "@steventohme"
 
+	// EscalationJudgeModel is the reviewed Switchyard judge target.
+	EscalationJudgeModel = "deepseek/deepseek-v4-flash"
+
 	// HandoverSummaryDefaultModel is the reviewed default target of the
 	// handover-summary policy. Haiku-class: summarization is cheap.
 	HandoverSummaryDefaultModel = "claude-haiku-4-5"
@@ -66,6 +69,8 @@ type FallbackSpec struct {
 
 // PolicySpec is the checked-in, reviewable policy for one purpose.
 type PolicySpec struct {
+	Optional           bool              `json:"optional,omitempty"`
+	FixedProvider      string            `json:"fixed_provider,omitempty"`
 	Purpose            Purpose           `json:"purpose"`
 	DispatchClass      DispatchClass     `json:"dispatch_class"`
 	PolicyID           PolicyID          `json:"policy_id"`
@@ -182,6 +187,9 @@ func validatePolicySpecs(specs []PolicySpec) error {
 		}
 		if !validDispatchClass(spec.DispatchClass) || !validSelectionStrategy(spec.SelectionStrategy) || !validCandidateSource(spec.CandidateSource) || !validBudgetSource(spec.Budget.Source) || !validFallbackKind(spec.Fallback.Kind) || !validMigrationStatus(spec.MigrationStatus) {
 			return fmt.Errorf("policy %q contains an invalid typed value", spec.PolicyID)
+		}
+		if spec.FixedProvider != "" && spec.SelectionStrategy != SelectionStrategyFixedCatalog {
+			return fmt.Errorf("policy %q requires a provider outside fixed catalog selection", spec.PolicyID)
 		}
 		if spec.SelectionStrategy == SelectionStrategyFixedCatalog && len(spec.FixedCatalogModels) == 0 {
 			return fmt.Errorf("fixed policy %q has no catalog models", spec.PolicyID)
@@ -515,6 +523,24 @@ func defaultPolicySpecs() []PolicySpec {
 	}
 
 	return []PolicySpec{
+		{
+			Purpose:            PurposeEscalationJudge,
+			Optional:           true,
+			FixedProvider:      providers.ProviderOpenRouter,
+			DispatchClass:      DispatchClassAuxiliaryInference,
+			PolicyID:           "aux-escalation-judge",
+			PolicyRevision:     "1",
+			Owner:              inferencePolicyOwner,
+			Rationale:          "Judge a completed conversation prefix asynchronously with the pinned Switchyard rubric; failures leave serving unchanged and inference is funded by Weave.",
+			SelectionStrategy:  SelectionStrategyFixedCatalog,
+			CandidateSource:    CandidateSourceFixedCatalog,
+			FixedCatalogModels: []string{EscalationJudgeModel},
+			HardConstraints:    append([]Constraint(nil), fixedConstraints...),
+			OverridePrecedence: []OverrideSource{OverrideSourcePolicyDefault},
+			Budget:             BudgetSpec{Source: BudgetSourcePolicy, MaxAttempts: 1, TimeoutMillis: 20_000, MaxOutputTokens: 4096},
+			Fallback:           FallbackSpec{Kind: FallbackKindNone},
+			MigrationStatus:    MigrationStatusExecutor,
+		},
 		mainPolicy(PurposeAnthropicMessages, "main-anthropic-messages", "3", MigrationStatusExecutor, "Select an eligible catalog binding for Anthropic Messages while preserving request semantics and tenant boundaries."),
 		mainPolicy(PurposeOpenAIChatCompletions, "main-openai-chat-completions", "3", MigrationStatusExecutor, "Select an eligible catalog binding for OpenAI Chat Completions while preserving request semantics and tenant boundaries."),
 		mainPolicy(PurposeOpenAIResponses, "main-openai-responses", "3", MigrationStatusExecutor, "Select an eligible catalog binding and compatible endpoint for OpenAI Responses requests."),

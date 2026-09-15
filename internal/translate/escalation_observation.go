@@ -18,10 +18,10 @@ type EscalationRole string
 
 const (
 	EscalationRoleSystem    EscalationRole = "system"
+	EscalationRoleDeveloper EscalationRole = "developer"
 	EscalationRoleUser      EscalationRole = "user"
 	EscalationRoleAssistant EscalationRole = "assistant"
 	EscalationRoleTool      EscalationRole = "tool"
-	escalationRoleDeveloper EscalationRole = "developer"
 	escalationRoleModel     EscalationRole = "model"
 	escalationRoleFunction  EscalationRole = "function"
 )
@@ -296,8 +296,10 @@ func (o *EscalationObservation) setTurnType() {
 
 func escalationSemanticRole(role string) (EscalationRole, error) {
 	switch EscalationRole(role) {
-	case EscalationRoleSystem, escalationRoleDeveloper:
+	case EscalationRoleSystem:
 		return EscalationRoleSystem, nil
+	case EscalationRoleDeveloper:
+		return EscalationRoleDeveloper, nil
 	case EscalationRoleUser:
 		return EscalationRoleUser, nil
 	case EscalationRoleAssistant, escalationRoleModel:

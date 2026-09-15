@@ -133,7 +133,7 @@ func TestEscalationObservationExcludesOpaqueReasoningAndMedia(t *testing.T) {
 	observation, err := translate.ParseResponsesEscalationObservation([]byte(`{"input":[{"type":"reasoning","encrypted_content":"secret"},{"type":"message","role":"developer","content":"instructions"},{"type":"message","role":"user","content":[{"type":"input_image","image_url":"secret-image"},{"type":"input_text","text":"check"}]}]}`))
 	require.NoError(t, err)
 	require.Len(t, observation.Messages, 2)
-	assert.Equal(t, translate.EscalationRoleSystem, observation.Messages[0].Role)
+	assert.Equal(t, translate.EscalationRoleDeveloper, observation.Messages[0].Role)
 	encoded, err := json.Marshal(observation)
 	require.NoError(t, err)
 	assert.NotContains(t, string(encoded), "secret")

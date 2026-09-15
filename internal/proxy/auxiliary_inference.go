@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/handover"
+	"weave-os/router/internal/router/llmescalation"
 
 	"github.com/google/uuid"
 )
@@ -24,6 +25,12 @@ import (
 // policy produced). Consumers that want the true session total opt in by
 // naming this span type — see the Weave public session-cost endpoint.
 const SpanTypeAuxiliaryInference = "router.auxiliary_inference"
+
+// SpanTypePlatformAuxiliaryInference is Weave-funded overhead. It remains
+// outside customer session-cost and billing paths while preserving usage.
+const SpanTypePlatformAuxiliaryInference = "router.platform_auxiliary_inference"
+
+const decisionReasonEscalationJudge = "escalation_judge"
 
 // Auxiliary request-id suffixes. They mirror the credit-ledger's
 // router_request_id suffixes exactly, so a ledger row and its telemetry row
@@ -109,5 +116,35 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 		RouterUserID:           auth.UserIDFrom(ctx),
 		ClientApp:              clientID.TelemetryClientApp(),
 		RolloutID:              clientID.RolloutID,
+	})
+}
+
+func (s *Service) recordEscalationJudgeInference(installationID, requestID string, job llmescalation.Job, judgment llmescalation.Judgment) {
+	if s.telemetry == nil || installationID == "" || !judgment.Usage.Known {
+		return
+	}
+	inputCost, outputCost := 0.0, 0.0
+	if pricing, found := catalog.PriceFor(job.Provider, job.Model); found {
+		inputCost = catalog.EffectiveInputCost(judgment.Usage.InputTokens, 0, judgment.Usage.CacheReadTokens, pricing, job.Provider)
+		outputCost = catalog.EffectiveOutputCost(judgment.Usage.InputTokens, judgment.Usage.OutputTokens, pricing)
+	}
+	if judgment.CostSource == llmescalation.CostSourceProviderReported {
+		inputCost, outputCost = judgment.CostUSD, 0
+	}
+	s.fireTelemetry(InsertTelemetryParams{
+		InstallationID:      installationID,
+		RequestID:           requestID + "_escalation_judge_" + job.ID,
+		SpanType:            SpanTypePlatformAuxiliaryInference,
+		TraceID:             requestID,
+		Timestamp:           time.Now(),
+		DecisionModel:       job.Model,
+		DecisionProvider:    job.Provider,
+		DecisionReason:      decisionReasonEscalationJudge,
+		InputTokens:         int32(judgment.Usage.InputTokens),
+		OutputTokens:        int32(judgment.Usage.OutputTokens),
+		CacheReadTokens:     cacheTokenPtr(judgment.Usage.CacheReadTokens),
+		ActualInputCostUSD:  inputCost,
+		ActualOutputCostUSD: outputCost,
+		SessionID:           job.Lifetime,
 	})
 }

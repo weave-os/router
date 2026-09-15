@@ -1,6 +1,6 @@
 {
   "schema_version": "inference_policy_registry_v2",
-  "registry_revision": "sha256:c39f4fd7a0506b0c9ea57d3a3e9291dd0caab4953fed34a53e2114791096e6c7",
+  "registry_revision": "sha256:968575f6857dd26f214959f3dff238a2db1edae6bc9ebd047b770ed6b7ed93fa",
   "policies": [
     {
       "purpose": "agent_shadow_evaluation",
@@ -219,6 +219,40 @@
       },
       "fallback": {
         "kind": "local_recovery"
+      },
+      "migration_status": "executor"
+    },
+    {
+      "optional": true,
+      "fixed_provider": "openrouter",
+      "purpose": "escalation_judge",
+      "dispatch_class": "auxiliary_inference",
+      "policy_id": "aux-escalation-judge",
+      "policy_revision": "1",
+      "owner": "@steventohme",
+      "rationale": "Judge a completed conversation prefix asynchronously with the pinned Switchyard rubric; failures leave serving unchanged and inference is funded by Weave.",
+      "selection_strategy": "fixed_catalog",
+      "candidate_source": "fixed_catalog",
+      "fixed_catalog_models": [
+        "deepseek/deepseek-v4-flash"
+      ],
+      "hard_constraints": [
+        "catalog_binding",
+        "context_window",
+        "model_exclusions",
+        "provider_exclusions"
+      ],
+      "override_precedence": [
+        "policy_default"
+      ],
+      "budget": {
+        "source": "policy",
+        "max_attempts": 1,
+        "timeout_millis": 20000,
+        "max_output_tokens": 4096
+      },
+      "fallback": {
+        "kind": "none"
       },
       "migration_status": "executor"
     },

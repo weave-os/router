@@ -66,6 +66,10 @@ func ParseAuthoritativeUpgradePolicy(raw string) (AuthoritativeUpgradePolicy, er
 
 // Registered flag keys. Each corresponds to exactly one entry in Registry.
 const (
+	KeyEscalationActiveClassifier           Key = "escalation_active_classifier"
+	KeyEscalationShadowClassifier           Key = "escalation_shadow_classifier"
+	KeyEscalationCadence                    Key = "escalation_cadence"
+	KeyEscalationEpoch                      Key = "escalation_epoch"
 	KeyEscalationXGBoostEnabled             Key = "escalation_xgb_enabled"
 	KeyEscalationXGBoostShadowEnabled       Key = "escalation_xgb_shadow_enabled"
 	KeyEscalationXGBoostShadowMarkerEnabled Key = "escalation_xgb_shadow_marker_enabled"
@@ -140,7 +144,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 19
+const RegistryVersion = 20
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -148,6 +152,10 @@ const RegistryVersion = 19
 // are already per-installation columns on model_router_installations, or are
 // consumed at construction time and have no per-request read site to override.
 var Registry = []Definition{
+	{Key: KeyEscalationActiveClassifier, Kind: KindString, Description: "Active escalation classifier: none, xgb, or switchyard_llm_v1. Absent preserves legacy XGB flags.", OrgOverridable: true},
+	{Key: KeyEscalationShadowClassifier, Kind: KindString, Description: "Independent shadow escalation classifier: none, xgb, or switchyard_llm_v1.", OrgOverridable: true},
+	{Key: KeyEscalationCadence, Kind: KindInt, Description: "Completed turns between LLM checkpoints: 3, 4, or 5. Default 3.", OrgOverridable: true},
+	{Key: KeyEscalationEpoch, Kind: KindInt, Description: "Escalation configuration generation; changes invalidate pending judgments.", OrgOverridable: true},
 	{Key: KeyEscalationXGBoostEnabled, Kind: KindBool, Description: "Route to the maximum complexity class on an XGBoost escalation checkpoint. Off by default.", OrgOverridable: true},
 	{Key: KeyEscalationXGBoostShadowEnabled, Kind: KindBool, Description: "Observe XGBoost escalation without changing routing. Off by default.", OrgOverridable: true},
 	{Key: KeyEscalationXGBoostShadowMarkerEnabled, Kind: KindBool, Description: "Show positive shadow escalation notices in assistant responses. Off by default.", OrgOverridable: true},
@@ -515,7 +523,7 @@ func ValidateOverrides(o Overrides) error {
 			}
 		}
 	}
-	return nil
+	return validateEscalationOverrides(o)
 }
 
 // Keys returns every overridden key, sorted, for logging and tests.

@@ -181,6 +181,7 @@ type turnLoopResult struct {
 	EscalationOrdinal      int64
 	escalationActivation   [32]byte
 	escalationObservation  translate.EscalationObservation
+	llmEscalation          *llmEscalationTurn
 
 	Decision       router.Decision
 	SessionKey     [sessionpin.SessionKeyLen]byte
@@ -1540,6 +1541,11 @@ func (s *Service) runTurnLoop(
 	if escalationTurn != nil {
 		req.Escalation = escalationTurn.constraint()
 	}
+	llmTurn := s.beginLLMEscalation(ctx, env, req, &res, apiKeyID)
+	res.llmEscalation = llmTurn
+	if llmTurn != nil && llmTurn.active {
+		req.Escalation = llmTurn.constraint()
+	}
 
 	// Retry only selection after a failed escalation commit. Replaying the
 	// entry path would observe search decay and prefix trimming twice and lose
@@ -1656,6 +1662,9 @@ func (s *Service) runTurnLoop(
 			// removes the intervention. recordTurnUsage still records actual HMM service.
 			res.Decision = fresh
 			res.PinTier = "escalation_xgb"
+			if llmTurn != nil && llmTurn.active {
+				res.PinTier = llmEscalationPinTier
+			}
 			return res, nil
 		}
 		if res.AuthoritativePerTurn {
@@ -2055,6 +2064,18 @@ func (s *Service) runTurnLoop(
 				req = baselineRequest
 				res = baselineTurn
 				res, routeErr = routeRemaining()
+			}
+		}
+	}
+	res.llmEscalation = llmTurn
+	if llmTurn != nil && routeErr == nil {
+		if err := s.applyLLMEscalation(ctx, llmTurn, res.Decision); err != nil {
+			log.Warn("LLM escalation application failed", "err", err)
+			if llmTurn.active && escalationRoutingApplied(res.Decision) {
+				req = baselineRequest
+				res = baselineTurn
+				res, routeErr = routeRemaining()
+				res.llmEscalation = llmTurn
 			}
 		}
 	}

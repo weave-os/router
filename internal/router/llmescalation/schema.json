@@ -1,0 +1,22 @@
+{
+  "type": "json_schema",
+  "json_schema": {
+    "name": "EscalationVerdict",
+    "strict": true,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "escalate": {
+          "type": "boolean",
+          "description": "True when the run is likely doomed without escalation to the strong tier."
+        },
+        "reason": {
+          "type": "string",
+          "description": "One short sentence naming the trouble pattern, or stating why the run is progressing."
+        }
+      },
+      "required": ["escalate", "reason"],
+      "additionalProperties": false
+    }
+  }
+}
