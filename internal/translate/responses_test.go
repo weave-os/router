@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -552,6 +553,76 @@ func TestResponsesWriter_StreamingText(t *testing.T) {
 	usage := final["response"].(map[string]any)["usage"].(map[string]any)
 	assert.EqualValues(t, 3, usage["input_tokens"])
 	assert.EqualValues(t, 2, usage["output_tokens"])
+}
+
+func TestResponsesWriter_TrailingUsageFramePrecedesCompletion(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "")
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+
+	chunks := []string{
+		`data: {"choices":[{"index":0,"delta":{"content":"done"},"finish_reason":null}]}` + "\n\n",
+		`data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":null}` + "\n\n",
+		`data: {"choices":[],"usage":{"prompt_tokens":21,"completion_tokens":4,"total_tokens":25}}` + "\n\n",
+		"data: [DONE]\n\n",
+	}
+	for _, chunk := range chunks {
+		_, err := w.Write([]byte(chunk))
+		require.NoError(t, err)
+	}
+	require.NoError(t, w.Finalize())
+
+	events := parseSSEEvents(t, rec.Body.Bytes())
+	completed := make([]map[string]any, 0, 1)
+	for _, event := range events {
+		if event["type"] == "response.completed" {
+			completed = append(completed, event)
+		}
+	}
+	require.Len(t, completed, 1)
+	usage := completed[0]["response"].(map[string]any)["usage"].(map[string]any)
+	assert.EqualValues(t, 21, usage["input_tokens"])
+	assert.EqualValues(t, 4, usage["output_tokens"])
+	assert.EqualValues(t, 25, usage["total_tokens"])
+}
+
+func TestResponsesWriter_MissingUsageEmitsValidTerminalUsage(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "")
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+
+	_, err := w.Write([]byte(`data: {"choices":[{"index":0,"delta":{"content":"done"},"finish_reason":null}]}` + "\n\n" +
+		`data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}` + "\n\n" +
+		"data: [DONE]\n\n"))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	events := parseSSEEvents(t, rec.Body.Bytes())
+	final := events[len(events)-1]
+	require.Equal(t, "response.completed", final["type"])
+	usage := final["response"].(map[string]any)["usage"].(map[string]any)
+	assert.EqualValues(t, 0, usage["input_tokens"])
+	assert.EqualValues(t, 0, usage["output_tokens"])
+	assert.EqualValues(t, 0, usage["total_tokens"])
+}
+
+func TestResponsesWriter_NonStreamingMissingUsageEmitsValidUsage(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "")
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	_, err := w.Write([]byte(`{"id":"chatcmpl-1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}]}`))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	usage := gjson.GetBytes(rec.Body.Bytes(), "usage")
+	require.True(t, usage.IsObject())
+	assert.Zero(t, usage.Get("input_tokens").Int())
+	assert.Zero(t, usage.Get("output_tokens").Int())
+	assert.Zero(t, usage.Get("total_tokens").Int())
 }
 
 // When upstream already speaks Responses natively, the writer must forward

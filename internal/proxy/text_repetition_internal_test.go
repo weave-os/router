@@ -146,3 +146,27 @@ func TestDetectTextRepetition_NormalizesCaseAndWhitespace(t *testing.T) {
 		t.Fatalf("case/whitespace-variant restatements must all count; looped=%v count=%d", looped, count)
 	}
 }
+
+func TestDetectTextRepetition_FiresOnOpenAIAssistantOnlyContinuations(t *testing.T) {
+	body, err := json.Marshal(map[string]any{
+		"model": "auto",
+		"messages": []any{
+			map[string]any{"role": "user", "content": "investigate auth"},
+			map[string]any{"role": "assistant", "content": loopNarration},
+			map[string]any{"role": "assistant", "content": loopNarration},
+			map[string]any{"role": "assistant", "content": loopNarration},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, err := translate.ParseOpenAI(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	looped, count, _ := detectTextRepetition(env)
+	if !looped || count != 3 {
+		t.Fatalf("OpenAI assistant-only continuation loop must fire; looped=%v count=%d", looped, count)
+	}
+}

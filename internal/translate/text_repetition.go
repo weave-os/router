@@ -8,12 +8,13 @@ import (
 
 // TrailingAssistantTexts returns, in order, the narration text of each
 // assistant message since the last real human turn — the concatenation of a
-// message's `text` blocks, with `thinking` and `tool_use` ignored and empty
-// messages dropped. Tool-result turns with CC `<system-reminder>` injections
-// are not treated as human boundaries (see userIsHumanTurn). Anthropic only;
-// others return nil.
+// message's text blocks, with reasoning and tool calls ignored and empty
+// messages dropped. Tool-result turns with harness-injected wrapper text are
+// not treated as human boundaries (see userIsHumanTurn).
 func (e *RequestEnvelope) TrailingAssistantTexts() []string {
-	if e.format != FormatAnthropic {
+	switch e.format {
+	case FormatAnthropic, FormatOpenAI:
+	default:
 		return nil
 	}
 	msgs := gjson.GetBytes(e.body, "messages")

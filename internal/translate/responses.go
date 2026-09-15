@@ -1004,6 +1004,15 @@ func (t *ResponsesWriter) Finalize() error {
 		if err := t.processFinalSSETail(); err != nil {
 			return err
 		}
+		if !t.completedEmitted && t.finishReason != "" {
+			if err := t.lifecycle.Terminal(); err != nil {
+				return err
+			}
+			t.completedEmitted = true
+			if err := t.emitCompleted(); err != nil {
+				return err
+			}
+		}
 		if err := t.lifecycle.EOF(); err != nil {
 			if t.lifecycle.State() == StreamStarted {
 				if emitErr := t.emitIncompleteFailure(); emitErr != nil {
@@ -1783,7 +1792,7 @@ func (t *ResponsesWriter) translateChunk(raw []byte) error {
 	if m := root.Get("model").Str; m != "" && t.model == "" {
 		t.model = strings.Clone(m)
 	}
-	if usage := root.Get("usage"); usage.Exists() {
+	if usage := root.Get("usage"); usage.Type == gjson.JSON {
 		t.usage = &responsesUsage{
 			prompt:     usage.Get("prompt_tokens").Int(),
 			completion: usage.Get("completion_tokens").Int(),
@@ -1825,13 +1834,15 @@ func (t *ResponsesWriter) translateChunk(raw []byte) error {
 		if err := t.closeOpenItems(); err != nil {
 			return err
 		}
-		if !t.completedEmitted {
-			if err := t.lifecycle.Terminal(); err != nil {
-				return err
-			}
-			t.completedEmitted = true
-			return t.emitCompleted()
+		// OpenAI-compatible streams may put usage in a trailing choices:[] frame.
+		if t.usage == nil || t.completedEmitted {
+			return nil
 		}
+		if err := t.lifecycle.Terminal(); err != nil {
+			return err
+		}
+		t.completedEmitted = true
+		return t.emitCompleted()
 	}
 	return nil
 }
@@ -2276,12 +2287,15 @@ func (t *ResponsesWriter) emitFunctionCallItemDone(item *responsesToolItem) erro
 func (t *ResponsesWriter) emitCompleted() error {
 	env := t.responseEnvelope("completed")
 	env["output"] = t.assembleOutput()
+	// Responses clients require terminal usage even when the Chat upstream omits it.
+	usage := responsesUsage{}
 	if t.usage != nil {
-		env["usage"] = map[string]any{
-			"input_tokens":  t.usage.prompt,
-			"output_tokens": t.usage.completion,
-			"total_tokens":  t.usage.total,
-		}
+		usage = *t.usage
+	}
+	env["usage"] = map[string]any{
+		"input_tokens":  usage.prompt,
+		"output_tokens": usage.completion,
+		"total_tokens":  usage.total,
 	}
 	return t.writeEvent("response.completed", map[string]any{
 		"response": env,
@@ -2442,12 +2456,11 @@ func chatCompletionToResponse(body []byte, responseID, model string, createdAt i
 	}
 	out["output"] = output
 
-	if usage := root.Get("usage"); usage.Exists() {
-		out["usage"] = map[string]any{
-			"input_tokens":  usage.Get("prompt_tokens").Int(),
-			"output_tokens": usage.Get("completion_tokens").Int(),
-			"total_tokens":  usage.Get("total_tokens").Int(),
-		}
+	usage := root.Get("usage")
+	out["usage"] = map[string]any{
+		"input_tokens":  usage.Get("prompt_tokens").Int(),
+		"output_tokens": usage.Get("completion_tokens").Int(),
+		"total_tokens":  usage.Get("total_tokens").Int(),
 	}
 
 	return json.Marshal(out)
