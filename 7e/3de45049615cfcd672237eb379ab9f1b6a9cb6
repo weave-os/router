@@ -1,0 +1,27 @@
+internal/proxy/force_model_exclusions_internal_test.go
+  s_2f40bb97923467::t_3c194474fa3df8 397-398,403-404
+internal/proxy/dispatch_error_test.go
+  s_2f40bb97923467::t_3c194474fa3df8 71-72
+internal/proxy/service.go
+  s_2f40bb97923467::t_3c194474fa3df8 666-668
+internal/router/cluster/scorer_test.go
+  s_2f40bb97923467::t_3c194474fa3df8 1004-1005
+internal/router/policy/resolver_test.go
+  s_2f40bb97923467::t_3c194474fa3df8 256-257
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "7e3de45049615cfcd672237eb379ab9f1b6a9cb6",
+  "prompts": {},
+  "sessions": {
+    "s_2f40bb97923467": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "94fcecb7-2f4d-43f6-bda6-f33d59ff2276",
+        "model": "moonshotai/kimi-k3"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
