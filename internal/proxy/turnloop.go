@@ -1670,8 +1670,10 @@ func (s *Service) runTurnLoop(
 			s.logAuthorityCacheShadow(ctx, res)
 			if res.UpgradeShadow != nil && res.UpgradeShadow.Verdict.Reason == upgradeDemotedModel {
 				// A policy result that is already excluded by the session must never
-				// become the next pin. Keep a live eligible pin when possible; otherwise
-				// ask the policy for one more result with the bad model hard-excluded.
+				// displace a live eligible pin. Keep that pin when possible; otherwise
+				// ask the policy for one more result. Automatic exclusions are soft, so
+				// the router may intentionally return the excluded model as a last resort
+				// when no other candidate is eligible.
 				if pinFound && automaticPinEligible(pin, req) {
 					decision := pinDecision(pin)
 					res.Decision = decision
@@ -1687,7 +1689,6 @@ func (s *Service) runTurnLoop(
 				}
 
 				rerouteReq := req
-				rerouteReq.ExcludedModels = addToSet(req.ExcludedModels, fresh.Model)
 				rerouted, rerouteErr := s.routeFor(ctx, rerouteReq)
 				if rerouteErr != nil {
 					return res, rerouteErr
@@ -1697,7 +1698,7 @@ func (s *Service) runTurnLoop(
 				if s.availableModels != nil {
 					_, available = s.availableModels[rerouted.Model]
 				}
-				if !available || !automaticPinEligible(reroutedPin, rerouteReq) {
+				if !available || !pinEligible(reroutedPin, rerouteReq) {
 					return res, fmt.Errorf("authoritative policy returned excluded model %q after reroute: %w", rerouted.Model, cluster.ErrNoEligibleProvider)
 				}
 				res.Fresh = rerouted

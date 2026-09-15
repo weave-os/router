@@ -432,3 +432,30 @@ func TestEvidenceUpgradeExclusionKeepsEligiblePin(t *testing.T) {
 	require.Len(t, store.upserts, 1)
 	assert.Equal(t, upgradeTestPinModel, store.upserts[0].Model)
 }
+
+func TestEvidenceUpgradeExclusionFailsOpenWhenOnlyDemotedModelIsAvailable(t *testing.T) {
+	store := newStubPinStore()
+	store.getFound = true
+	store.getPin = upgradeTestPin()
+	fresh := upgradeTestFresh()
+	store.getPin.DemotedModels = []string{store.getPin.Model, fresh.Model}
+	strategy := router.Strategy("upgrade-evidence-exclusion-last-resort")
+	svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, upgradeTestPinModel, nil).
+		WithPolicyStrategy(policy.StrategySpec{
+			Strategy: strategy,
+			Router:   &authorityShadowTestRouter{decision: fresh},
+			Capabilities: policy.Capabilities{
+				AuthoritativePerTurnSelection: true,
+			},
+		})
+	env, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"continue"}]}`, catalog.ModelIDClaudeOpus48.String())))
+	require.NoError(t, err)
+	features := env.RoutingFeatures(false)
+	res, err := svc.runTurnLoop(router.WithStrategy(context.Background(), strategy), env, features, "test-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: features.Model})
+	require.NoError(t, err)
+	assert.Equal(t, fresh.Model, res.Decision.Model)
+	assert.False(t, res.StickyHit)
+	assert.Equal(t, string(pinTierAuthoritativeExcludedReroute), res.PinTier)
+	require.Len(t, store.upserts, 1)
+	assert.Equal(t, fresh.Model, store.upserts[0].Model)
+}
