@@ -75,7 +75,18 @@ export function needsEscalationCompaction(previous: Pick<RouteSelection, "model"
 export function registerEscalationCompaction(
 	pi: ExtensionAPI,
 	request: typeof fetch = fetch,
+	version: string = VERSION,
 ): () => boolean {
+	const [major, minor] = version.split(".").map(Number);
+	if (major === 0 && minor < 83) {
+		pi.on("session_start", (_event, ctx) => {
+			if (process.env.WEAVE_PI_ESCALATION_COMPACTION === "0") return;
+			const message = "Weave escalation compaction requires Pi 0.83 or newer. Upgrade Pi to enable it; routing will continue without escalation compaction.";
+			if (ctx.hasUI) ctx.ui.notify(message, "warning");
+			else process.stderr.write(`${message}\n`);
+		});
+		return () => false;
+	}
 	let pending: PendingHandoff | undefined;
 	let previous: Pick<RouteSelection, "model" | "complexity"> | undefined;
 	let dispatched: RouteSelection | undefined;
@@ -127,8 +138,6 @@ export function registerEscalationCompaction(
 		const payload = event.payload;
 		const requestGeneration = generation;
 		try {
-			const [major, minor] = VERSION.split(".").map(Number);
-			if (major === 0 && minor < 83) throw new Error("Escalation compaction requires Pi 0.83 or newer");
 			if (pending?.stage === "ready") {
 				if (pending.sessionId !== ctx.sessionManager.getSessionId() || pending.modelId !== ctx.model.id) {
 					throw new Error("Session changed during compaction");

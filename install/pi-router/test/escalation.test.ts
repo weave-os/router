@@ -6,7 +6,7 @@ import { handoffSummaryPayload, needsEscalationCompaction, parsePreparedRoute, r
 const lowRoute = { token: "low-ticket", model: "model-small", provider: "anthropic", complexity: "low" as const };
 const highRoute = { token: "high-ticket", summary_token: "summary-ticket", model: "model-large", provider: "anthropic", complexity: "high" as const };
 
-function harness() {
+function harness(version?: string) {
 	const listeners = new Map<string, Array<(event: any, ctx: ExtensionContext) => any>>();
 	const messages: string[] = [];
 	const errors: string[] = [];
@@ -35,7 +35,7 @@ function harness() {
 	const pending = registerEscalationCompaction(pi, (async () => {
 		preparations++;
 		return { ok: true, json: async () => selection } as Response;
-	}) as typeof fetch);
+	}) as typeof fetch, version);
 	return {
 		ctx, messages, errors, pending,
 		select: (route: unknown) => { selection = route; },
@@ -77,6 +77,17 @@ test("handoff response validation rejects incomplete tickets and tolerates unkno
 	assert.deepEqual(parsePreparedRoute({ bypass: true }), { bypass: true });
 	assert.throws(() => parsePreparedRoute({ model: "model-large" }));
 	assert.equal((parsePreparedRoute({ ...highRoute, complexity: "future-class" }) as typeof highRoute).complexity, undefined);
+});
+
+test("older Pi warns at startup and preserves routing without handoff preparation", async (t) => {
+	enable(t);
+	const h = harness("0.82.0");
+	await h.emit("session_start");
+	assert.match(h.errors[0], /requires Pi 0.83 or newer/);
+	assert.equal(await h.emit("before_provider_request", { payload: { messages: [] } }), undefined);
+	assert.equal(h.preparations(), 0);
+	assert.equal(h.aborted(), 0);
+	assert.equal(h.pending(), false);
 });
 
 test("explicit opt-out preserves provider requests without preparing a handoff", async (t) => {

@@ -111,7 +111,9 @@ set them yourself.
 
 ## Escalation compaction
 
-Escalation compaction is enabled by default. The router requires the same
+Escalation compaction is enabled by default on Pi 0.83 or newer. Older Pi
+versions warn at startup and continue routing without escalation compaction.
+The router requires the same
 `ROUTER_PI_HANDOFF_SECRET` (at least 32 bytes) on every replica. Set
 `WEAVE_PI_ESCALATION_COMPACTION=0` to opt out. An enabled client stops
 with a visible error if preparation is unavailable; it never falls back to
