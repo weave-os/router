@@ -1,0 +1,23 @@
+install/install.sh
+  s_9fefea60b06ca2::t_300a270f7bdbba 1361-1362,1375-1376,1383-1384,1390-1391,1417-1418,4256-4257,4260-4261
+  s_9fefea60b06ca2::t_6133b10c34b4b1 267-269,1491-1493,1623-1625,2771-2774,2803-2806,2818-2821,2827-2830,3264-3266,4300
+install/cc-statusline.sh
+  s_9fefea60b06ca2::t_300a270f7bdbba 237-238,241-242
+  s_9fefea60b06ca2::t_6133b10c34b4b1 281
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "77c5e0b6724d17ed100c39720431645c2b5918de",
+  "prompts": {},
+  "sessions": {
+    "s_9fefea60b06ca2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06914-2a0c-7201-b07a-5dce404de9a7",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
