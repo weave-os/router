@@ -630,6 +630,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		Metadata: &router.RoutingMetadata{
 			Escalation:                    escalationDecision,
 			CandidateModels:               resolved.CandidateModels(),
+			RescueModels:                  RescueModelOrder(req.ClusterArmOverrides, res.RankedFallback, resolved),
 			CandidateProviders:            resolved.CandidateProviders(),
 			CandidateScores:               resolved.CatalogCandidateScores(res.CandidateScores),
 			CandidateArmProviders:         resolved.CandidateArmProviders(),

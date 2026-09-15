@@ -4276,13 +4276,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// turns (a different model incurs the paid spend that mode forbids). BYOK
 	// normally disables failover, but a gateway-aliased sibling uses the same
 	// held credentials, so it stays eligible.
-	siblingDecision, siblingFound := s.siblingFailoverDecision(ctx, decision, overflowEstimate, env.SignatureTokenSavings(), outputReserve)
+	siblingDecisions := s.siblingFailoverDecisions(ctx, decision, overflowEstimate, env.SignatureTokenSavings(), outputReserve)
 	siblingViable := s.ResolveSiblingFailover(ctx) &&
-		siblingFound &&
+		len(siblingDecisions) > 0 &&
 		!agentShadowMode &&
 		!routeRes.BlindExperimentPassthrough &&
 		decision.Reason != translate.ReasonUserForceModel &&
-		(s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, siblingDecision)) &&
+		(s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, siblingDecisions[0])) &&
 		!billing.SubscriptionOnlyFromContext(ctx)
 
 	primaryProvider := decision.Provider
@@ -4532,7 +4532,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 
 	// Same-cluster failover: all bindings exhausted pre-commit — re-dispatch
-	// the next policy candidate. Last in the rescue chain.
+	// the policy candidates in order until one serves. Last in the rescue chain.
 	siblingFailoverUsed := false
 	siblingRescueRan := false
 	// The decision and error the rescue replaced; the post-turn demotion hook
@@ -4549,52 +4549,64 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			providers.IsUpstreamProviderBillingBlocked(proxyErr) ||
 			isSubscriptionPoolError(proxyErr) ||
 			crossBindingRejected) {
-		siblingOpts := opts
-		siblingOpts.TargetModel = siblingDecision.Model
-		siblingOpts.TargetProvider = siblingDecision.Provider
-		siblingOpts.Capabilities = router.Lookup(siblingDecision.Model)
-		// The turn now serves a model the session hasn't seen, so signed
-		// thinking blocks from the prior model must not be replayed verbatim.
-		siblingOpts.ModelSwitched = true
-		effortServed = s.resolveEffort(ctx, siblingDecision, siblingOpts.Capabilities, routeRes.EscalateEffort)
-		effortServed.apply(&siblingOpts)
-		siblingCtx := resolveAndInjectCredentials(ctx, siblingDecision.Provider, siblingDecision.Model, r.Header)
-		siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
-		siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
-		siblingMarker := suppressMarkerIfRequested(ctx, r.Header, siblingRoutingMarkerFor(routeRes, siblingDecision.Model))
-		siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker)
-		switch {
-		case siblingBuildErr != nil:
-			log.Error("Sibling failover: preparing the candidate request failed; surfacing original error",
-				"err", siblingBuildErr,
-				"sibling_model", siblingDecision.Model)
-		case len(siblingBindings) == 0:
-			log.Warn("Sibling failover: candidate has no usable binding; surfacing original error",
-				"sibling_model", siblingDecision.Model,
-				"sibling_provider", siblingDecision.Provider,
-				"err", proxyErr)
-		default:
-			log.Warn("Sibling failover: routed model exhausted, retrying a same-cluster candidate",
+		for _, siblingDecision := range siblingDecisions {
+			// A rescuer that itself failed pre-commit hands the turn to the next
+			// candidate; a served, committed, or client-cancelled turn ends the walk.
+			if siblingRescueRan && (proxyErr == nil || preludeBuf.Committed() || ctx.Err() != nil) {
+				break
+			}
+			siblingOpts := opts
+			siblingOpts.TargetModel = siblingDecision.Model
+			siblingOpts.TargetProvider = siblingDecision.Provider
+			siblingOpts.Capabilities = router.Lookup(siblingDecision.Model)
+			// The turn now serves a model the session hasn't seen, so signed
+			// thinking blocks from the prior model must not be replayed verbatim.
+			siblingOpts.ModelSwitched = true
+			effortServed = s.resolveEffort(ctx, siblingDecision, siblingOpts.Capabilities, routeRes.EscalateEffort)
+			effortServed.apply(&siblingOpts)
+			siblingCtx := resolveAndInjectCredentials(ctx, siblingDecision.Provider, siblingDecision.Model, r.Header)
+			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
+			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
+			siblingMarker := suppressMarkerIfRequested(ctx, r.Header, siblingRoutingMarkerFor(routeRes, siblingDecision.Model))
+			siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker)
+			if siblingBuildErr != nil {
+				log.Error("Sibling failover: preparing the candidate request failed; trying the next candidate",
+					"err", siblingBuildErr,
+					"sibling_model", siblingDecision.Model)
+				continue
+			}
+			if len(siblingBindings) == 0 {
+				log.Warn("Sibling failover: candidate has no usable binding; trying the next candidate",
+					"sibling_model", siblingDecision.Model,
+					"sibling_provider", siblingDecision.Provider,
+					"err", proxyErr)
+				continue
+			}
+			log.Warn("Sibling failover: model exhausted, retrying a same-cluster candidate",
 				"failed_model", decision.Model,
-				"failed_provider", primaryProvider,
+				"failed_provider", decision.Provider,
+				"primary_model", primaryModel,
 				"sibling_model", siblingDecision.Model,
 				"sibling_provider", siblingDecision.Provider,
 				"upstream_status", upstreamStatus(proxyErr),
 				"err", proxyErr)
+			if !siblingRescueRan {
+				rescuedPrimary = decision
+				rescuedPrimaryErr = proxyErr
+			}
 			siblingRescueRan = true
-			rescuedPrimary = decision
-			rescuedPrimaryErr = proxyErr
 			respSummary = translate.ResponseSummary{}
 			reqStats = providers.RequestMutationStats{}
 			winnerIdx, proxyErr = s.dispatchWithFallback(siblingCtx, failoverInputs{
-				w:               contentSink,
-				buf:             preludeBuf,
-				initialDecision: siblingDecision,
-				bindings:        siblingBindings,
-				attempt:         siblingAttempt,
-				flushErr:        flushErrAsAnthropic,
-				purpose:         routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
-				origin:          routeRes.rescueOrigin(),
+				w:                      contentSink,
+				buf:                    preludeBuf,
+				initialDecision:        siblingDecision,
+				bindings:               siblingBindings,
+				attempt:                siblingAttempt,
+				flushErr:               flushErrAsAnthropic,
+				deferFlushOnExhaustion: true,
+				purpose:                routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
+				origin:                 routeRes.rescueOrigin(),
 			})
 			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 			decision = siblingDecision
@@ -4603,9 +4615,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			siblingFailoverUsed = proxyErr == nil
 		}
 	}
-	// The sibling rescue didn't run; surface the deferred original error now so
-	// it's never dropped.
-	if siblingRescueOwed && !siblingRescueRan && proxyErr != nil && !preludeBuf.Committed() {
+	// No rescuer served (none ran, or the last one failed pre-commit); surface
+	// the held error now so it's never dropped.
+	if siblingRescueOwed && proxyErr != nil && !preludeBuf.Committed() {
 		flushDeferredErr()
 	}
 
@@ -7166,12 +7178,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		!billing.SubscriptionOnlyFromContext(ctx) &&
 		s.openaiFallbackKeyAvailable(ctx)
 
-	siblingDecision, siblingFound := s.siblingFailoverDecision(ctx, decision, overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI)
+	siblingDecisions := s.siblingFailoverDecisions(ctx, decision, overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI)
 	siblingViable := s.ResolveSiblingFailover(ctx) &&
-		siblingFound &&
+		len(siblingDecisions) > 0 &&
 		!routeRes.BlindExperimentPassthrough &&
 		!strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) &&
-		(s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, siblingDecision)) &&
+		(s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, siblingDecisions[0])) &&
 		!billing.SubscriptionOnlyFromContext(ctx)
 
 	primaryProvider := decision.Provider
@@ -7384,49 +7396,61 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			providers.IsUpstreamModelNotFound(proxyErr) ||
 			providers.IsUpstreamProviderBillingBlocked(proxyErr) ||
 			isSubscriptionPoolError(proxyErr)) {
-		siblingOpts := opts
-		siblingOpts.TargetModel = siblingDecision.Model
-		siblingOpts.TargetProvider = siblingDecision.Provider
-		siblingOpts.Capabilities = router.Lookup(siblingDecision.Model)
-		siblingOpts.ModelSwitched = true
-		effortServed = s.resolveEffort(ctx, siblingDecision, siblingOpts.Capabilities, routeRes.EscalateEffort)
-		effortServed.apply(&siblingOpts)
-		siblingCtx := resolveAndInjectCredentials(ctx, siblingDecision.Provider, siblingDecision.Model, r.Header)
-		siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
-		siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
-		siblingMarker := suppressMarkerIfRequested(ctx, r.Header, siblingRoutingMarkerFor(routeRes, siblingDecision.Model))
-		siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker)
-		switch {
-		case siblingBuildErr != nil:
-			log.Error("Sibling failover: preparing the candidate request failed; surfacing original error",
-				"err", siblingBuildErr,
-				"sibling_model", siblingDecision.Model)
-		case len(siblingBindings) == 0:
-			log.Warn("Sibling failover: candidate has no usable binding; surfacing original error",
-				"sibling_model", siblingDecision.Model,
-				"sibling_provider", siblingDecision.Provider,
-				"err", proxyErr)
-		default:
-			log.Warn("Sibling failover: routed model exhausted, retrying a same-cluster candidate",
+		for _, siblingDecision := range siblingDecisions {
+			// A rescuer that itself failed pre-commit hands the turn to the next
+			// candidate; a served, committed, or client-cancelled turn ends the walk.
+			if siblingRescueRan && (proxyErr == nil || preludeBuf.Committed() || ctx.Err() != nil) {
+				break
+			}
+			siblingOpts := opts
+			siblingOpts.TargetModel = siblingDecision.Model
+			siblingOpts.TargetProvider = siblingDecision.Provider
+			siblingOpts.Capabilities = router.Lookup(siblingDecision.Model)
+			siblingOpts.ModelSwitched = true
+			effortServed = s.resolveEffort(ctx, siblingDecision, siblingOpts.Capabilities, routeRes.EscalateEffort)
+			effortServed.apply(&siblingOpts)
+			siblingCtx := resolveAndInjectCredentials(ctx, siblingDecision.Provider, siblingDecision.Model, r.Header)
+			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
+			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
+			siblingMarker := suppressMarkerIfRequested(ctx, r.Header, siblingRoutingMarkerFor(routeRes, siblingDecision.Model))
+			siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker)
+			if siblingBuildErr != nil {
+				log.Error("Sibling failover: preparing the candidate request failed; trying the next candidate",
+					"err", siblingBuildErr,
+					"sibling_model", siblingDecision.Model)
+				continue
+			}
+			if len(siblingBindings) == 0 {
+				log.Warn("Sibling failover: candidate has no usable binding; trying the next candidate",
+					"sibling_model", siblingDecision.Model,
+					"sibling_provider", siblingDecision.Provider,
+					"err", proxyErr)
+				continue
+			}
+			log.Warn("Sibling failover: model exhausted, retrying a same-cluster candidate",
 				"failed_model", decision.Model,
-				"failed_provider", primaryProvider,
+				"failed_provider", decision.Provider,
+				"primary_model", primaryModel,
 				"sibling_model", siblingDecision.Model,
 				"sibling_provider", siblingDecision.Provider,
 				"upstream_status", upstreamStatus(proxyErr),
 				"err", proxyErr)
+			if !siblingRescueRan {
+				rescuedPrimary = decision
+				rescuedPrimaryErr = proxyErr
+			}
 			siblingRescueRan = true
-			rescuedPrimary = decision
-			rescuedPrimaryErr = proxyErr
 			respSummary = translate.ResponseSummary{}
 			winnerIdx, proxyErr = s.dispatchWithFallback(siblingCtx, failoverInputs{
-				w:               contentSink,
-				buf:             preludeBuf,
-				initialDecision: siblingDecision,
-				bindings:        siblingBindings,
-				attempt:         siblingAttempt,
-				flushErr:        flushErrAsOpenAI,
-				purpose:         routeRes.dispatchPurpose(surfacePurpose),
-				origin:          routeRes.rescueOrigin(),
+				w:                      contentSink,
+				buf:                    preludeBuf,
+				initialDecision:        siblingDecision,
+				bindings:               siblingBindings,
+				attempt:                siblingAttempt,
+				flushErr:               flushErrAsOpenAI,
+				deferFlushOnExhaustion: true,
+				purpose:                routeRes.dispatchPurpose(surfacePurpose),
+				origin:                 routeRes.rescueOrigin(),
 			})
 			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 			decision = siblingDecision
@@ -7435,7 +7459,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			siblingFailoverUsed = proxyErr == nil
 		}
 	}
-	if siblingRescueOwed && !siblingRescueRan && proxyErr != nil && !preludeBuf.Committed() {
+	// No rescuer served (none ran, or the last one failed pre-commit); surface
+	// the held error now so it's never dropped.
+	if siblingRescueOwed && proxyErr != nil && !preludeBuf.Committed() {
 		flushDeferredErr()
 	}
 

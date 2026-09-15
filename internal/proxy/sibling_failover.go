@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"slices"
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -11,28 +12,39 @@ import (
 // the routed model's own bindings were exhausted.
 const ReasonSiblingFailover = "sibling_failover"
 
-// siblingFailoverDecision picks a stand-in for a routed model whose bindings
-// all failed. Walks CandidateModels (the policy's scored pool for this turn,
-// already filtered for capability/context), plus PairedModel last for replayed
-// pins. Candidates on the failed provider rank last; context fit uses the same
-// dual-estimator as the pre-route overflow filter to reject under-sized peers.
-func (s *Service) siblingFailoverDecision(ctx context.Context, failed router.Decision, est, sigSavings, outputReserve int) (router.Decision, bool) {
+// siblingFailoverDecisions lists the stand-ins for a routed model whose bindings
+// all failed, in the order the turn tries them: the policy's ranked group
+// fallback (RescueModels), then the rest of the scored pool (CandidateModels),
+// plus PairedModel last for replayed pins. Candidates on the failed provider
+// rank after every cross-provider one; context fit uses the same dual-estimator
+// as the pre-route overflow filter to reject under-sized peers.
+func (s *Service) siblingFailoverDecisions(ctx context.Context, failed router.Decision, est, sigSavings, outputReserve int) []router.Decision {
 	md := failed.Metadata
 	if md == nil {
-		return router.Decision{}, false
+		return nil
 	}
-	return s.rescueDecision(ctx, failed, siblingCandidateOrder(md), ReasonSiblingFailover, est, sigSavings, outputReserve)
+	return s.rescueDecisions(ctx, failed, siblingCandidateOrder(md), ReasonSiblingFailover, est, sigSavings, outputReserve)
 }
 
-// rescueDecision resolves the first candidate the request is allowed to reach,
-// under the same availability, exclusion, context-fit and BYOK-gateway rules for
-// every in-turn rescue (sibling failover, safety-refusal retry).
+// rescueDecision resolves the first candidate the request is allowed to reach.
 func (s *Service) rescueDecision(ctx context.Context, failed router.Decision, candidates []string, reason string, est, sigSavings, outputReserve int) (router.Decision, bool) {
+	decisions := s.rescueDecisions(ctx, failed, candidates, reason, est, sigSavings, outputReserve)
+	if len(decisions) == 0 {
+		return router.Decision{}, false
+	}
+	return decisions[0], true
+}
+
+// rescueDecisions resolves every candidate the request is allowed to reach, in
+// try order, under the same availability, exclusion, context-fit and
+// BYOK-gateway rules for every in-turn rescue (sibling failover,
+// safety-refusal retry).
+func (s *Service) rescueDecisions(ctx context.Context, failed router.Decision, candidates []string, reason string, est, sigSavings, outputReserve int) []router.Decision {
 	if gw := s.gatewayProvidersForRequest(ctx); len(gw) > 0 {
-		return s.gatewayRescueDecision(ctx, failed, candidates, reason, gw, est, sigSavings, outputReserve)
+		return s.gatewayRescueDecisions(ctx, failed, candidates, reason, gw, est, sigSavings, outputReserve)
 	}
 	if s.deploymentKeyedProviders == nil {
-		return router.Decision{}, false
+		return nil
 	}
 	available := s.keyedProvidersExcluding(s.excludedProvidersForRequest(ctx))
 	excludedModels := s.excludedModelsForRequest(ctx)
@@ -44,7 +56,7 @@ func (s *Service) rescueDecision(ctx context.Context, failed router.Decision, ca
 	// model must not be resurrected here after the pool already excluded it.
 	automaticExcluded := s.rescueExcludedModels(ctx)
 
-	var sameProvider []router.Decision
+	var crossProvider, sameProvider []router.Decision
 	for _, id := range candidates {
 		if id == "" || id == failed.Model {
 			continue
@@ -67,12 +79,9 @@ func (s *Service) rescueDecision(ctx context.Context, failed router.Decision, ca
 			sameProvider = append(sameProvider, candidate)
 			continue
 		}
-		return candidate, true
+		crossProvider = append(crossProvider, candidate)
 	}
-	if len(sameProvider) > 0 {
-		return sameProvider[0], true
-	}
-	return router.Decision{}, false
+	return append(crossProvider, sameProvider...)
 }
 
 // rescueExcludedModels is the soft exclusion set an in-turn rescue must honor:
@@ -89,17 +98,17 @@ func (s *Service) rescueExcludedModels(ctx context.Context) map[string]struct{} 
 	return mergeExcludedModels(session, s.globalAutomaticExcludedModels(ctx))
 }
 
-// gatewayRescueDecision rescues a BYOK-gateway turn onto a candidate reachable
+// gatewayRescueDecisions rescues a BYOK-gateway turn onto candidates reachable
 // through a gateway key the request already holds. BYOK disables cross-provider
 // failover (foreign provider would 401); gateway candidates re-use the same
-// credentials so the restriction doesn't apply. A candidate behind a different
-// gateway binding ranks first over one on the same gateway.
-func (s *Service) gatewayRescueDecision(ctx context.Context, failed router.Decision, candidates []string, reason string, gw map[string]struct{}, est, sigSavings, outputReserve int) (router.Decision, bool) {
+// credentials so the restriction doesn't apply. Candidates behind a different
+// gateway binding rank before those on the same gateway.
+func (s *Service) gatewayRescueDecisions(ctx context.Context, failed router.Decision, candidates []string, reason string, gw map[string]struct{}, est, sigSavings, outputReserve int) []router.Decision {
 	custom := s.customBindingsForRequest(ctx)
 	excludedModels := s.excludedModelsForRequest(ctx)
 	automaticExcluded := s.rescueExcludedModels(ctx)
 
-	var sameProvider []router.Decision
+	var crossProvider, sameProvider []router.Decision
 	for _, id := range candidates {
 		if id == "" || id == failed.Model {
 			continue
@@ -122,12 +131,9 @@ func (s *Service) gatewayRescueDecision(ctx context.Context, failed router.Decis
 			sameProvider = append(sameProvider, candidate)
 			continue
 		}
-		return candidate, true
+		crossProvider = append(crossProvider, candidate)
 	}
-	if len(sameProvider) > 0 {
-		return sameProvider[0], true
-	}
-	return router.Decision{}, false
+	return append(crossProvider, sameProvider...)
 }
 
 // gatewaySiblingAllowed reports whether sibling rescue is permitted despite
@@ -160,13 +166,23 @@ func siblingFitsContext(model, provider string, est, sigSavings, outputReserve i
 	return needed <= contextWindowForRequest(model, provider)
 }
 
-// siblingCandidateOrder lists rescue candidates in policy-preference order,
-// with the pin's runner-up last so replayed pins (no candidate vector) still
-// have somewhere to go.
+// siblingCandidateOrder lists rescue candidates in policy-preference order:
+// the ranked group fallback first, then the rest of the scored pool in catalog
+// order, with the pin's runner-up last so replayed pins (no candidate vector)
+// still have somewhere to go. Deduplicated so a rescue never retries a model
+// that already failed this turn.
 func siblingCandidateOrder(md *router.RoutingMetadata) []string {
-	order := make([]string, 0, len(md.CandidateModels)+1)
-	order = append(order, md.CandidateModels...)
-	return append(order, md.PairedModel)
+	merged := slices.Concat(md.RescueModels, md.CandidateModels, []string{md.PairedModel})
+	order := make([]string, 0, len(merged))
+	seen := make(map[string]struct{}, len(merged))
+	for _, id := range merged {
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		order = append(order, id)
+	}
+	return order
 }
 
 // siblingProvider resolves the provider a candidate dispatches to, preferring
