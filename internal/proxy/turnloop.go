@@ -166,7 +166,11 @@ const policyPinTier = "policy_pin"
 
 type pinTier string
 
-const pinTierAuthoritativeUpgradeEvidence pinTier = "authoritative_upgrade_evidence"
+const (
+	pinTierAuthoritativeUpgradeEvidence pinTier = "authoritative_upgrade_evidence"
+	pinTierAuthoritativeExcludedPin     pinTier = "authoritative_excluded_pin"
+	pinTierAuthoritativeExcludedReroute pinTier = "authoritative_excluded_reroute"
+)
 
 // turnLoopResult bundles the routing decision and pin/planner state.
 type turnLoopResult struct {
@@ -1664,6 +1668,49 @@ func (s *Service) runTurnLoop(
 				ctx, req, activePin, hmmHistory, fresh, plannerTokens, prefixBroken,
 			)
 			s.logAuthorityCacheShadow(ctx, res)
+			if res.UpgradeShadow != nil && res.UpgradeShadow.Verdict.Reason == upgradeDemotedModel {
+				// A policy result that is already excluded by the session must never
+				// become the next pin. Keep a live eligible pin when possible; otherwise
+				// ask the policy for one more result with the bad model hard-excluded.
+				if pinFound && automaticPinEligible(pin, req) {
+					decision := pinDecision(pin)
+					res.Decision = decision
+					res.StickyHit = true
+					res.PinTier = string(pinTierAuthoritativeExcludedPin)
+					log.Warn("authoritative policy returned an excluded model; keeping session pin",
+						"pin_model", pin.Model,
+						"fresh_model", fresh.Model,
+						"reason", res.UpgradeShadow.Verdict.Reason,
+					)
+					s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
+					return res, nil
+				}
+
+				rerouteReq := req
+				rerouteReq.ExcludedModels = addToSet(req.ExcludedModels, fresh.Model)
+				rerouted, rerouteErr := s.routeFor(ctx, rerouteReq)
+				if rerouteErr != nil {
+					return res, rerouteErr
+				}
+				reroutedPin := sessionpin.Pin{Model: rerouted.Model, Provider: rerouted.Provider}
+				available := s.availableModels == nil
+				if s.availableModels != nil {
+					_, available = s.availableModels[rerouted.Model]
+				}
+				if !available || !automaticPinEligible(reroutedPin, rerouteReq) {
+					return res, fmt.Errorf("authoritative policy returned excluded model %q after reroute: %w", rerouted.Model, cluster.ErrNoEligibleProvider)
+				}
+				res.Fresh = rerouted
+				res.Decision = rerouted
+				res.PinTier = string(pinTierAuthoritativeExcludedReroute)
+				log.Warn("authoritative policy returned an excluded model; serving rerouted decision",
+					"excluded_model", fresh.Model,
+					"rerouted_model", rerouted.Model,
+					"reason", res.UpgradeShadow.Verdict.Reason,
+				)
+				s.writeNewPin(ctx, installationID, res.SessionKey, res.PinRole, rerouted)
+				return res, nil
+			}
 			if s.evidenceUpgradeApplies(ctx, res.SessionKey) && res.UpgradeShadow != nil {
 				res.UpgradeShadow.Applied = true
 				switch res.UpgradeShadow.Verdict.Outcome {
