@@ -5,9 +5,9 @@ import "strings"
 // Harness values are the sidecar-facing vocabulary for the calling agent
 // harness. The router decides them; sidecars consume them verbatim and must
 // degrade a value outside their own vocabulary to the pooled default, so
-// adding a harness here never changes what an older sidecar serves. Each
-// value doubles as the roster key a Go selection policy may declare per-harness
-// arms, pins, and vendor preferences under (rosterdata.Harness).
+// adding a harness here never changes what an older sidecar serves. The
+// roster policy accepts the subset {*, claude_code, codex, pi, opencode} as
+// per-harness keys; cursor, api, and unknown remain pooled-only identities.
 const (
 	HarnessClaudeCode = "claude_code"
 	HarnessCodex      = "codex"
