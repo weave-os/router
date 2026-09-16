@@ -115,6 +115,18 @@ func (r failingSubscriptionAccountRepository) UpdateSubscriptionRefreshToken(con
 func (r failingSubscriptionAccountRepository) DeleteSubscriptionAccount(context.Context, string, string) error {
 	return r.err
 }
+func (r failingSubscriptionAccountRepository) TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Time, time.Time) (int64, error) {
+	return 0, r.err
+}
+func (r failingSubscriptionAccountRepository) ReleaseSubscriptionRefreshLease(context.Context, string, string, string) error {
+	return r.err
+}
+func (r failingSubscriptionAccountRepository) GetSubscriptionCredentialRecord(context.Context, string, string) (*auth.SubscriptionCredentialRecord, error) {
+	return nil, r.err
+}
+func (r failingSubscriptionAccountRepository) PersistSubscriptionTokens(context.Context, string, string, string, int64, []byte, []byte, time.Time) error {
+	return r.err
+}
 
 func (fakeInstallationRepository) Create(ctx context.Context, params auth.CreateInstallationParams) (*auth.Installation, error) {
 	return nil, errors.New("not used")

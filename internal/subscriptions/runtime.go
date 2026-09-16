@@ -1,6 +1,7 @@
 package subscriptions
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -9,17 +10,29 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
+
+	"github.com/google/uuid"
 )
 
-const defaultAccountSyncTTL = 15 * time.Second
+const (
+	defaultAccountSyncTTL = 15 * time.Second
+	refreshLeaseTTL       = 30 * time.Second
+	refreshWaitInitial    = 50 * time.Millisecond
+	refreshWaitMaximum    = 200 * time.Millisecond
+	refreshRetryLimit     = 3
+)
+
+var errRefreshLeaseLost = errors.New("subscription refresh lease lost")
 
 // AccountStore is the encrypted persistence boundary used by Runtime.
 type AccountStore interface {
 	ListSubscriptionAccounts(context.Context, string) ([]*auth.SubscriptionAccount, error)
-	SubscriptionRefreshToken(context.Context, string, string) ([]byte, error)
-	UpdateSubscriptionRefreshToken(context.Context, string, string, []byte) error
 	UpdateSubscriptionAccountState(context.Context, string, string, bool, *time.Time) error
 	UpdateSubscriptionAccountCooldown(context.Context, string, string, time.Time) error
+	TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Time, time.Time) (bool, error)
+	ReleaseSubscriptionRefreshLease(context.Context, string, string, string) error
+	LoadSubscriptionCredentials(context.Context, string, string) (auth.SubscriptionCredentials, error)
+	PersistSubscriptionTokens(context.Context, string, string, string, int64, []byte, []byte, time.Time) error
 }
 
 // Lease is a short-lived provider credential. Release must be called exactly once.
@@ -167,30 +180,162 @@ func (r *Runtime) providerAccountCount(ownerID string, provider Provider) int {
 
 func (r *Runtime) refresh(ownerID string) Refresher {
 	return func(ctx context.Context, account Account) (Account, error) {
-		refreshToken, err := r.store.SubscriptionRefreshToken(ctx, ownerID, account.ID)
-		if err != nil {
-			return Account{}, err
-		}
-		refreshed, err := r.refresher.Refresh(ctx, account.Provider, string(refreshToken))
-		if err != nil {
-			return Account{}, r.recordRefreshFailure(ctx, ownerID, account.ID, account.Provider, err)
-		}
-		if account.Provider == ProviderCodex && refreshed.AccountID != "" && refreshed.AccountID != account.AccountID {
-			mismatch := &providerAccountMismatchError{}
-			return Account{}, r.recordRefreshFailure(ctx, ownerID, account.ID, account.Provider, mismatch)
-		}
-		if refreshed.RefreshToken != string(refreshToken) {
-			if err := r.store.UpdateSubscriptionRefreshToken(ctx, ownerID, account.ID, []byte(refreshed.RefreshToken)); err != nil {
-				return Account{}, fmt.Errorf("persist rotated subscription refresh token: %w", err)
+		wait := refreshWaitInitial
+		for attempt := 0; attempt < refreshRetryLimit; attempt++ {
+			leaseID := uuid.NewString()
+			now := r.clock()
+			leaseUntil := now.Add(refreshLeaseTTL)
+			acquired, err := r.store.TryAcquireSubscriptionRefreshLease(ctx, ownerID, account.ID, leaseID, now, leaseUntil)
+			if err != nil {
+				observability.FromContext(ctx).Error("Failed to acquire subscription refresh lease", "owner_id", ownerID, "account_id", account.ID, "provider", account.Provider, "err", err)
+				return Account{}, err
 			}
+			if !acquired {
+				credentials, loadErr := r.store.LoadSubscriptionCredentials(ctx, ownerID, account.ID)
+				if loadErr != nil {
+					observability.FromContext(ctx).Error("Failed to load subscription credentials while waiting for refresh", "owner_id", ownerID, "account_id", account.ID, "provider", account.Provider, "err", loadErr)
+					return Account{}, loadErr
+				}
+				if !subscriptionCredentialAvailable(credentials, r.clock()) {
+					return Account{}, ErrNoAvailableAccount
+				}
+				if subscriptionAccessTokenUsable(credentials, r.clock()) {
+					return applySubscriptionCredentials(account, credentials), nil
+				}
+				if err := waitForRefresh(ctx, wait); err != nil {
+					return Account{}, err
+				}
+				if wait < refreshWaitMaximum {
+					wait *= 2
+					if wait > refreshWaitMaximum {
+						wait = refreshWaitMaximum
+					}
+				}
+				attempt--
+				continue
+			}
+
+			credentials, err := r.store.LoadSubscriptionCredentials(ctx, ownerID, account.ID)
+			if err != nil {
+				observability.FromContext(ctx).Error("Failed to load subscription credentials for refresh", "owner_id", ownerID, "account_id", account.ID, "provider", account.Provider, "err", err)
+				return Account{}, r.releaseRefreshLease(ctx, ownerID, account.ID, leaseID, err)
+			}
+			if !subscriptionCredentialAvailable(credentials, r.clock()) {
+				return Account{}, r.releaseRefreshLease(ctx, ownerID, account.ID, leaseID, ErrNoAvailableAccount)
+			}
+			if subscriptionAccessTokenUsable(credentials, r.clock()) {
+				return applySubscriptionCredentials(account, credentials), r.releaseRefreshLease(ctx, ownerID, account.ID, leaseID, nil)
+			}
+
+			refreshed, refreshErr := r.refresher.Refresh(ctx, account.Provider, string(credentials.RefreshToken))
+			if refreshErr != nil {
+				recovered, handleErr := r.handleRefreshError(ctx, ownerID, account, credentials, leaseID, refreshErr)
+				if errors.Is(handleErr, errRefreshLeaseLost) {
+					continue
+				}
+				return recovered, handleErr
+			}
+			if account.Provider == ProviderCodex && refreshed.AccountID != "" && refreshed.AccountID != account.AccountID {
+				mismatch := &providerAccountMismatchError{}
+				recovered, handleErr := r.handleRefreshError(ctx, ownerID, account, credentials, leaseID, mismatch)
+				if errors.Is(handleErr, errRefreshLeaseLost) {
+					continue
+				}
+				return recovered, handleErr
+			}
+			persistErr := r.store.PersistSubscriptionTokens(ctx, ownerID, account.ID, leaseID, credentials.TokenRefreshVersion,
+				[]byte(refreshed.RefreshToken), []byte(refreshed.AccessToken), refreshed.ExpiresAt)
+			if errors.Is(persistErr, auth.ErrSubscriptionRefreshConflict) {
+				latest, loadErr := r.store.LoadSubscriptionCredentials(ctx, ownerID, account.ID)
+				if loadErr == nil && subscriptionCredentialAvailable(latest, r.clock()) && subscriptionAccessTokenUsable(latest, r.clock()) {
+					return applySubscriptionCredentials(account, latest), nil
+				}
+				if loadErr != nil {
+					persistErr = errors.Join(persistErr, loadErr)
+				}
+				if err := waitForRefresh(ctx, wait); err != nil {
+					return Account{}, err
+				}
+				continue
+			}
+			if persistErr != nil {
+				observability.FromContext(ctx).Error("Failed to persist refreshed subscription credentials", "owner_id", ownerID, "account_id", account.ID, "provider", account.Provider, "err", persistErr)
+				return Account{}, r.releaseRefreshLease(ctx, ownerID, account.ID, leaseID, persistErr)
+			}
+			account.AccessToken = refreshed.AccessToken
+			account.AccessTokenExpiresAt = refreshed.ExpiresAt
+			if refreshed.AccountID != "" {
+				account.AccountID = refreshed.AccountID
+			}
+			account.CooldownTil = time.Time{}
+			return account, nil
 		}
-		account.AccessToken = refreshed.AccessToken
-		account.AccessTokenExpiresAt = refreshed.ExpiresAt
-		if refreshed.AccountID != "" {
-			account.AccountID = refreshed.AccountID
+		return Account{}, ErrNoAvailableAccount
+	}
+}
+
+func (r *Runtime) handleRefreshError(ctx context.Context, ownerID string, account Account, credentials auth.SubscriptionCredentials, leaseID string, refreshErr error) (Account, error) {
+	if errors.Is(refreshErr, context.Canceled) || errors.Is(refreshErr, context.DeadlineExceeded) {
+		return Account{}, r.releaseRefreshLease(ctx, ownerID, account.ID, leaseID, refreshErr)
+	}
+	var terminal terminalRefreshError
+	if errors.As(refreshErr, &terminal) && terminal.Terminal() {
+		latest, loadErr := r.store.LoadSubscriptionCredentials(ctx, ownerID, account.ID)
+		if loadErr == nil && (latest.TokenRefreshVersion != credentials.TokenRefreshVersion || !bytes.Equal(latest.RefreshToken, credentials.RefreshToken)) {
+			if subscriptionCredentialAvailable(latest, r.clock()) && subscriptionAccessTokenUsable(latest, r.clock()) {
+				return applySubscriptionCredentials(account, latest), nil
+			}
+			if releaseErr := r.store.ReleaseSubscriptionRefreshLease(ctx, ownerID, account.ID, leaseID); releaseErr != nil {
+				return Account{}, errors.Join(errRefreshLeaseLost, releaseErr)
+			}
+			return Account{}, errRefreshLeaseLost
 		}
-		account.CooldownTil = time.Time{}
-		return account, nil
+		if loadErr != nil {
+			refreshErr = errors.Join(refreshErr, loadErr)
+		}
+	}
+	refreshErr = r.releaseRefreshLease(ctx, ownerID, account.ID, leaseID, refreshErr)
+	return Account{}, r.recordRefreshFailure(ctx, ownerID, account.ID, account.Provider, refreshErr)
+}
+
+func (r *Runtime) releaseRefreshLease(ctx context.Context, ownerID, accountID, leaseID string, err error) error {
+	if releaseErr := r.store.ReleaseSubscriptionRefreshLease(ctx, ownerID, accountID, leaseID); releaseErr != nil {
+		observability.FromContext(ctx).Error("Failed to release subscription refresh lease", "owner_id", ownerID, "account_id", accountID, "err", releaseErr)
+		return errors.Join(err, fmt.Errorf("release subscription refresh lease: %w", releaseErr))
+	}
+	return err
+}
+
+func subscriptionAccessTokenUsable(credentials auth.SubscriptionCredentials, now time.Time) bool {
+	if len(credentials.AccessToken) == 0 {
+		return false
+	}
+	return credentials.AccessTokenExpiresAt == nil || credentials.AccessTokenExpiresAt.IsZero() || credentials.AccessTokenExpiresAt.After(now.Add(time.Minute))
+}
+
+func subscriptionCredentialAvailable(credentials auth.SubscriptionCredentials, now time.Time) bool {
+	return credentials.Enabled && (credentials.CooldownUntil == nil || !credentials.CooldownUntil.After(now))
+}
+
+func applySubscriptionCredentials(account Account, credentials auth.SubscriptionCredentials) Account {
+	account.AccessToken = string(credentials.AccessToken)
+	if credentials.AccessTokenExpiresAt == nil {
+		account.AccessTokenExpiresAt = time.Time{}
+	} else {
+		account.AccessTokenExpiresAt = *credentials.AccessTokenExpiresAt
+	}
+	account.CooldownTil = time.Time{}
+	return account
+}
+
+func waitForRefresh(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
 	}
 }
 

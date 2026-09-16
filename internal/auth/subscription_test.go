@@ -40,6 +40,18 @@ func (*subscriptionAccountRepoStub) UpdateSubscriptionRefreshToken(context.Conte
 func (*subscriptionAccountRepoStub) DeleteSubscriptionAccount(context.Context, string, string) error {
 	return nil
 }
+func (*subscriptionAccountRepoStub) TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Time, time.Time) (int64, error) {
+	return 0, nil
+}
+func (*subscriptionAccountRepoStub) ReleaseSubscriptionRefreshLease(context.Context, string, string, string) error {
+	return nil
+}
+func (*subscriptionAccountRepoStub) GetSubscriptionCredentialRecord(context.Context, string, string) (*SubscriptionCredentialRecord, error) {
+	return nil, ErrSubscriptionAccountNotFound
+}
+func (*subscriptionAccountRepoStub) PersistSubscriptionTokens(context.Context, string, string, string, int64, []byte, []byte, time.Time) error {
+	return nil
+}
 
 func TestAddSubscriptionAccountUpsertsStableProviderIdentity(t *testing.T) {
 	repo := &subscriptionAccountRepoStub{}
@@ -60,4 +72,66 @@ func TestAddSubscriptionAccountUpsertsStableProviderIdentity(t *testing.T) {
 	require.Equal(t, []byte("refresh-new"), repo.account.RefreshTokenCiphertext)
 	require.True(t, repo.account.Enabled)
 	require.Nil(t, repo.account.CooldownUntil)
+}
+
+type coordinatedSubscriptionRepo struct {
+	*subscriptionAccountRepoStub
+	record           *SubscriptionCredentialRecord
+	persistedRefresh []byte
+	persistedAccess  []byte
+}
+
+func (r *coordinatedSubscriptionRepo) TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Time, time.Time) (int64, error) {
+	return 1, nil
+}
+
+func (r *coordinatedSubscriptionRepo) ReleaseSubscriptionRefreshLease(context.Context, string, string, string) error {
+	return nil
+}
+
+func (r *coordinatedSubscriptionRepo) GetSubscriptionCredentialRecord(context.Context, string, string) (*SubscriptionCredentialRecord, error) {
+	return r.record, nil
+}
+
+func (r *coordinatedSubscriptionRepo) PersistSubscriptionTokens(_ context.Context, _ string, _ string, _ string, _ int64, refreshCiphertext, accessCiphertext []byte, _ time.Time) error {
+	r.persistedRefresh = append([]byte(nil), refreshCiphertext...)
+	r.persistedAccess = append([]byte(nil), accessCiphertext...)
+	return nil
+}
+
+func TestLoadSubscriptionCredentialsUsesPurposeBoundAccessEncryption(t *testing.T) {
+	enc := newTestEncryptor(t)
+	const externalAccountID = "chatgpt-account-1"
+	const provider = SubscriptionProviderCodex
+	refreshCiphertext, err := enc.Encrypt([]byte("refresh-secret"), externalAccountID, string(provider))
+	require.NoError(t, err)
+	accessCiphertext, err := enc.Encrypt([]byte("access-secret"), externalAccountID, subscriptionAccessPurpose(provider))
+	require.NoError(t, err)
+	repo := &coordinatedSubscriptionRepo{
+		subscriptionAccountRepoStub: &subscriptionAccountRepoStub{},
+		record: &SubscriptionCredentialRecord{
+			ExternalAccountID: externalAccountID, Provider: provider,
+			RefreshTokenCiphertext: refreshCiphertext, AccessTokenCiphertext: accessCiphertext,
+			AccessTokenExpiresAt: func() *time.Time { value := time.Now().Add(time.Hour); return &value }(),
+			Enabled:              true,
+		},
+	}
+	svc := NewService(nil, nil, nil, nil, NoOpAPIKeyCache{}, nil, time.Now).
+		WithEncryptor(enc).
+		WithSubscriptionAccounts(repo)
+
+	credentials, err := svc.LoadSubscriptionCredentials(context.Background(), "owner-1", "account-1")
+	require.NoError(t, err)
+	require.Equal(t, []byte("refresh-secret"), credentials.RefreshToken)
+	require.Equal(t, []byte("access-secret"), credentials.AccessToken)
+	_, err = enc.Decrypt(accessCiphertext, externalAccountID, string(provider))
+	require.Error(t, err)
+	require.NoError(t, svc.PersistSubscriptionTokens(context.Background(), "owner-1", "account-1", "lease-1", 0,
+		[]byte("refresh-new"), []byte("access-new"), time.Now().Add(time.Hour)))
+	refresh, err := enc.Decrypt(repo.persistedRefresh, externalAccountID, string(provider))
+	require.NoError(t, err)
+	access, err := enc.Decrypt(repo.persistedAccess, externalAccountID, subscriptionAccessPurpose(provider))
+	require.NoError(t, err)
+	require.Equal(t, []byte("refresh-new"), refresh)
+	require.Equal(t, []byte("access-new"), access)
 }

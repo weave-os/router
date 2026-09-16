@@ -483,6 +483,11 @@ type RouterModelRouterSubscriptionAccount struct {
 	CooldownUntil          pgtype.Timestamp
 	CreatedAt              pgtype.Timestamp
 	UpdatedAt              pgtype.Timestamp
+	AccessTokenCiphertext  []byte
+	AccessTokenExpiresAt   pgtype.Timestamp
+	TokenRefreshLeaseUntil pgtype.Timestamp
+	TokenRefreshLeaseID    pgtype.UUID
+	TokenRefreshVersion    int64
 }
 
 // End-user identities seen on inbound requests, scoped to an installation. Replaces the per-user API key pattern.

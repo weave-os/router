@@ -38,7 +38,42 @@ type CreateSubscriptionAccountParams struct {
 	RefreshToken      []byte
 }
 
-// SubscriptionAccountRepository persists encrypted subscription account state.
+// SubscriptionCredentialRecord is the encrypted credential state for one
+// enrolled account. It never crosses the auth service boundary in this form.
+type SubscriptionCredentialRecord struct {
+	ExternalAccountID      string
+	Provider               SubscriptionProvider
+	RefreshTokenCiphertext []byte
+	AccessTokenCiphertext  []byte
+	AccessTokenExpiresAt   *time.Time
+	TokenRefreshVersion    int64
+	Enabled                bool
+	CooldownUntil          *time.Time
+}
+
+// SubscriptionCredentials is the decrypted credential state used by the
+// subscription runtime. The access token is retained only in process memory
+// after this method returns.
+type SubscriptionCredentials struct {
+	RefreshToken         []byte
+	AccessToken          []byte
+	AccessTokenExpiresAt *time.Time
+	TokenRefreshVersion  int64
+	Enabled              bool
+	CooldownUntil        *time.Time
+}
+
+// SubscriptionRefreshRepository coordinates refresh leases and encrypted
+// credential persistence across router replicas.
+type SubscriptionRefreshRepository interface {
+	TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Time, time.Time) (int64, error)
+	ReleaseSubscriptionRefreshLease(context.Context, string, string, string) error
+	GetSubscriptionCredentialRecord(context.Context, string, string) (*SubscriptionCredentialRecord, error)
+	PersistSubscriptionTokens(context.Context, string, string, string, int64, []byte, []byte, time.Time) error
+}
+
+// SubscriptionAccountRepository persists encrypted subscription account state
+// and coordinates cross-replica refresh leases.
 type SubscriptionAccountRepository interface {
 	UpsertSubscriptionAccount(context.Context, CreateSubscriptionAccountParams) (*SubscriptionAccount, error)
 	ListSubscriptionAccounts(context.Context, string) ([]*SubscriptionAccount, error)
@@ -46,11 +81,18 @@ type SubscriptionAccountRepository interface {
 	UpdateSubscriptionAccountCooldown(context.Context, string, string, time.Time) error
 	UpdateSubscriptionRefreshToken(context.Context, string, string, []byte) error
 	DeleteSubscriptionAccount(context.Context, string, string) error
+	SubscriptionRefreshRepository
 }
 
 // ErrSubscriptionAccountNotFound indicates a state mutation did not match the
 // authenticated key owner.
 var ErrSubscriptionAccountNotFound = errors.New("subscription account not found")
+
+// ErrSubscriptionRefreshConflict means another replica persisted a newer
+// refresh result before this holder could publish its result.
+var ErrSubscriptionRefreshConflict = errors.New("subscription refresh lost race")
+
+const subscriptionAccessPurposeSuffix = ":access"
 
 // SubscriptionAccountsEnabled reports whether this deployment wired the
 // optional account repository. Callers use it to leave management routes
@@ -134,6 +176,96 @@ func (s *Service) UpdateSubscriptionRefreshToken(ctx context.Context, apiKeyID, 
 		return s.subscriptionAccounts.UpdateSubscriptionRefreshToken(ctx, accountID, apiKeyID, ciphertext)
 	}
 	return ErrSubscriptionAccountNotFound
+}
+
+func (s *Service) subscriptionRefreshRepository() (SubscriptionRefreshRepository, error) {
+	if s.subscriptionAccounts == nil {
+		return nil, errors.New("subscription accounts are not configured")
+	}
+	return s.subscriptionAccounts, nil
+}
+
+// TryAcquireSubscriptionRefreshLease reserves an account for one replica's
+// provider refresh until leaseUntil. A false result means another holder won.
+func (s *Service) TryAcquireSubscriptionRefreshLease(ctx context.Context, apiKeyID, accountID, leaseID string, now, leaseUntil time.Time) (bool, error) {
+	repo, err := s.subscriptionRefreshRepository()
+	if err != nil {
+		return false, err
+	}
+	rows, err := repo.TryAcquireSubscriptionRefreshLease(ctx, accountID, apiKeyID, leaseID, now, leaseUntil)
+	return rows > 0, err
+}
+
+// ReleaseSubscriptionRefreshLease releases a lease if this replica still
+// owns it. An expired or replaced lease is intentionally left untouched.
+func (s *Service) ReleaseSubscriptionRefreshLease(ctx context.Context, apiKeyID, accountID, leaseID string) error {
+	repo, err := s.subscriptionRefreshRepository()
+	if err != nil {
+		return err
+	}
+	return repo.ReleaseSubscriptionRefreshLease(ctx, accountID, apiKeyID, leaseID)
+}
+
+// LoadSubscriptionCredentials decrypts the current refresh and access tokens
+// for the runtime. Access-token decryption happens on cache fill, not per
+// inference request.
+func (s *Service) LoadSubscriptionCredentials(ctx context.Context, apiKeyID, accountID string) (SubscriptionCredentials, error) {
+	repo, err := s.subscriptionRefreshRepository()
+	if err != nil {
+		return SubscriptionCredentials{}, err
+	}
+	record, err := repo.GetSubscriptionCredentialRecord(ctx, accountID, apiKeyID)
+	if err != nil {
+		return SubscriptionCredentials{}, err
+	}
+	refreshToken, err := s.encryptor.Decrypt(record.RefreshTokenCiphertext, record.ExternalAccountID, string(record.Provider))
+	if err != nil {
+		return SubscriptionCredentials{}, err
+	}
+	credentials := SubscriptionCredentials{
+		RefreshToken:        refreshToken,
+		TokenRefreshVersion: record.TokenRefreshVersion,
+		Enabled:             record.Enabled,
+		CooldownUntil:       record.CooldownUntil,
+	}
+	if len(record.AccessTokenCiphertext) > 0 {
+		accessToken, decryptErr := s.encryptor.Decrypt(record.AccessTokenCiphertext, record.ExternalAccountID, subscriptionAccessPurpose(record.Provider))
+		if decryptErr != nil {
+			return SubscriptionCredentials{}, decryptErr
+		}
+		credentials.AccessToken = accessToken
+		credentials.AccessTokenExpiresAt = record.AccessTokenExpiresAt
+	}
+	return credentials, nil
+}
+
+// PersistSubscriptionTokens encrypts and atomically publishes a provider
+// refresh result. The repository rejects stale lease owners or versions.
+func (s *Service) PersistSubscriptionTokens(ctx context.Context, apiKeyID, accountID, leaseID string, expectedVersion int64, refreshToken, accessToken []byte, expiresAt time.Time) error {
+	if len(refreshToken) == 0 || len(accessToken) == 0 {
+		return errors.New("subscription refresh result is missing credentials")
+	}
+	repo, err := s.subscriptionRefreshRepository()
+	if err != nil {
+		return err
+	}
+	record, err := repo.GetSubscriptionCredentialRecord(ctx, accountID, apiKeyID)
+	if err != nil {
+		return err
+	}
+	refreshCiphertext, err := s.encryptor.Encrypt(refreshToken, record.ExternalAccountID, string(record.Provider))
+	if err != nil {
+		return err
+	}
+	accessCiphertext, err := s.encryptor.Encrypt(accessToken, record.ExternalAccountID, subscriptionAccessPurpose(record.Provider))
+	if err != nil {
+		return err
+	}
+	return repo.PersistSubscriptionTokens(ctx, accountID, apiKeyID, leaseID, expectedVersion, refreshCiphertext, accessCiphertext, expiresAt)
+}
+
+func subscriptionAccessPurpose(provider SubscriptionProvider) string {
+	return string(provider) + subscriptionAccessPurposeSuffix
 }
 
 // UpdateSubscriptionAccountState changes enabled/cooldown state only for the

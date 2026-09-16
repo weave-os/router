@@ -20,7 +20,9 @@ const (
 )
 
 // Account is the non-secret state needed to select a subscription account.
-// AccessToken is returned only from Lease and must never be persisted or logged.
+// AccessToken is returned only from Lease, may be cached in credential storage
+// (encrypted when configured) for cross-replica coordination, and must never
+// be logged.
 type Account struct {
 	ID                   string
 	OwnerID              string
