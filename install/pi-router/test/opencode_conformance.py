@@ -21,6 +21,7 @@ from responses_fixture import Scenario, TEXT
 INSTALL = Path(__file__).resolve().parents[2]
 PINNED_VERSION = json.loads((INSTALL / "opencode-weave/package.json").read_text())["devDependencies"]["@opencode-ai/plugin"]
 COMMAND_TIMEOUT = 60
+PRODUCTION_AGENTS = {"build", "title", "explore", "compaction"}
 
 
 def stop_process_group(process: subprocess.Popen) -> None:
@@ -116,6 +117,10 @@ class OpenCodeConformance(unittest.TestCase):
             self.assertTrue(request["key_present"])
             self.assertEqual(request["key_suffix"], "_key")
             self.assertTrue(request["session_id"])
+            # The production plugin forwards OpenCode's own lifecycle agents verbatim
+            # and nothing else; the test observer's header is the ground truth.
+            self.assertIn(request["agent"], PRODUCTION_AGENTS)
+            self.assertEqual(request["weave_agent"], request["agent"])
         return events, requests
 
     def assert_finished(self, events: list[dict]) -> None:
@@ -187,6 +192,21 @@ class OpenCodeConformance(unittest.TestCase):
         self.assert_finished(resumed)
         self.assertEqual(len(requests), 1)
         self.assertEqual(requests[0]["session_id"], events[0]["sessionID"])
+
+    def test_custom_agent_not_forwarded(self) -> None:
+        agent_dir = self.work / "config" / "opencode" / "agent"
+        agent_dir.mkdir(parents=True, exist_ok=True)
+        (agent_dir / "reviewer.md").write_text("---\ndescription: Custom conformance agent\nmode: primary\n---\nAnswer briefly.\n")
+        before = len(self.requests())
+        completed = self.command([self.opencode, "run", "--format", "json", "--agent", "reviewer",
+                                  "--title", "Custom agent contract", "Return the test marker"])
+        events = [json.loads(line) for line in completed.stdout.splitlines() if line.startswith("{")]
+        self.assert_finished(events)
+        requests = self.requests()[before:]
+        agents = [(request["agent"], request["weave_agent"]) for request in requests]
+        self.assertIn(("reviewer", None), agents, agents)
+        for agent, weave_agent in agents:
+            self.assertEqual(weave_agent, agent if agent in PRODUCTION_AGENTS else None, agents)
 
     def test_upstream_error(self) -> None:
         events, requests = self.run_turn(Scenario.ERROR, "--title", "Error contract")

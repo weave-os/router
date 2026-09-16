@@ -5,6 +5,7 @@ package turntype
 import (
 	"strings"
 
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/translate"
 )
 
@@ -67,6 +68,11 @@ const (
 // Conservative by design: false negatives (MainLoop) are safe, false
 // positives aren't, so each heuristic below is intentionally tight.
 func DetectFromEnvelope(env *translate.RequestEnvelope, feats translate.RoutingFeatures, subAgentHint string) TurnType {
+	return Detect(env, feats, subAgentHint, "")
+}
+
+// Detect classifies an inbound request. Unknown OpenCode agents fall through.
+func Detect(env *translate.RequestEnvelope, feats translate.RoutingFeatures, subAgentHint string, openCodeAgent requestcontext.OpenCodeAgent) TurnType {
 	if env == nil {
 		return MainLoop
 	}
@@ -74,7 +80,9 @@ func DetectFromEnvelope(env *translate.RequestEnvelope, feats translate.RoutingF
 	if isProbe(feats) {
 		return Probe
 	}
-	if isTitleGen(env, feats.HasTools) || (feats.TitleGenHint && env.SourceFormat() == translate.FormatOpenAI) {
+	if openCodeAgent == requestcontext.OpenCodeAgentTitle ||
+		isTitleGen(env, feats.HasTools) ||
+		(feats.TitleGenHint && env.SourceFormat() == translate.FormatOpenAI) {
 		return TitleGen
 	}
 	systemText := env.SystemText()
@@ -83,13 +91,15 @@ func DetectFromEnvelope(env *translate.RequestEnvelope, feats translate.RoutingF
 	// format, which Claude Code always speaks. Gating on format keeps
 	// Codex/OpenAI clients — whose prompts can incidentally mention
 	// "compact" — out of the hard pin.
-	if env.SourceFormat() == translate.FormatAnthropic && isCompaction(systemText, lastUserText) {
+	if openCodeAgent == requestcontext.OpenCodeAgentCompaction ||
+		(env.SourceFormat() == translate.FormatAnthropic && isCompaction(systemText, lastUserText)) {
 		return Compaction
 	}
 	if isCodexCompaction(lastUserText) {
 		return Compaction
 	}
-	if isSubAgentDispatch(env.MetadataUserID(), env.AnthropicBillingHeader(), env.FirstUserMessageText(), subAgentHint) {
+	if openCodeAgent == requestcontext.OpenCodeAgentExplore ||
+		isSubAgentDispatch(env.MetadataUserID(), env.AnthropicBillingHeader(), env.FirstUserMessageText(), subAgentHint) {
 		return SubAgentDispatch
 	}
 	if isClassifier(feats) {

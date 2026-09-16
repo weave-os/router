@@ -742,7 +742,7 @@ func (s *Service) runTurnLoop(
 	res = turnLoopResult{
 		InstallationID:      installationID,
 		Strategy:            router.StrategyFromContext(ctx),
-		TurnType:            turntype.DetectFromEnvelope(env, feats, subAgentHint),
+		TurnType:            turntype.Detect(env, feats, subAgentHint, ClientIdentityFrom(ctx).OpenCodeAgent),
 		PinTier:             "miss",
 		RequestedTier:       catalog.TierFor(feats.Model),
 		StripThinkingBlocks: betaArtifactHistoryFromContext(ctx),

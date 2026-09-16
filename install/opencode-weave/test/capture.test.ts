@@ -37,6 +37,8 @@ const CLAUDE_REFRESH = "claude-refresh-token"
 const PLACEHOLDER_AUTHORIZATION = "Bearer weave-router-oauth"
 const SESSION_ID = "ses_capture_test"
 const ORIGINATOR = "codex_cli_ts"
+const OPENCODE_AGENT_HEADER = "x-weave-opencode-agent"
+const OPENCODE_AGENTS = ["build", "title", "explore", "compaction"] as const
 const SECRET_VALUES = [
   ROUTER_KEY,
   CHATGPT_ACCESS,
@@ -162,19 +164,26 @@ afterEach(async () => {
 
 // Drive the loader's fetch once and capture the upstream request. tokenResponder
 // answers any OAuth /oauth/token call (ChatGPT or Anthropic) so refreshes work.
+// Run the production chat.headers hook the way OpenCode does for the weave provider.
+async function chatHeaders(
+  hooks: Awaited<ReturnType<typeof import("../src/index.ts").WeaveCodex>>,
+  agent: string | undefined,
+): Promise<Record<string, string>> {
+  const output: { headers: Record<string, string> } = { headers: {} }
+  await hooks["chat.headers"]?.({ sessionID: SESSION_ID, agent, model: { providerID: "weave" } } as never, output)
+  expect(output.headers.originator).toBe(ORIGINATOR)
+  expect(output.headers["session-id"]).toBe(SESSION_ID)
+  return output.headers
+}
+
 async function runLoaderFetch(
   getAuth: () => Promise<Record<string, unknown>>,
   tokenResponder?: (url: string) => unknown,
+  agent = "build",
 ): Promise<CapturedRequest> {
   const { WeaveCodex } = await import("../src/index.ts")
   const hooks = await WeaveCodex(fakeInput())
-  const sessionHeaders: { headers: Record<string, string> } = { headers: {} }
-  await hooks["chat.headers"]?.(
-    { sessionID: SESSION_ID, model: { providerID: "weave" } } as never,
-    sessionHeaders,
-  )
-  expect(sessionHeaders.headers.originator).toBe(ORIGINATOR)
-  expect(sessionHeaders.headers["session-id"]).toBe(SESSION_ID)
+  const sessionHeaders = { headers: await chatHeaders(hooks, agent) }
   const loaded = await hooks.auth!.loader!(getAuth as never, {} as never)
 
   let captured: CapturedRequest | undefined
@@ -211,9 +220,61 @@ async function runLoaderFetch(
   })
   if (!captured) throw new Error("upstream request was not captured")
   assertRetainedIdentityHeaders(captured.headers)
+  expect(captured.headers[OPENCODE_AGENT_HEADER]).toBe(agent)
   assertNoSecretLeak()
   return captured
 }
+
+describe("weave chat.headers — OpenCode lifecycle metadata", () => {
+  for (const agent of OPENCODE_AGENTS) {
+    test(`forwards the ${agent} agent`, async () => {
+      const { WeaveCodex } = await import("../src/index.ts")
+      const headers = await chatHeaders(await WeaveCodex(fakeInput()), agent)
+      expect(headers["X-Weave-OpenCode-Agent"]).toBe(agent)
+    })
+  }
+
+  test("omits a user-defined agent name", async () => {
+    const { WeaveCodex } = await import("../src/index.ts")
+    const headers = await chatHeaders(await WeaveCodex(fakeInput()), "my-custom-reviewer")
+    expect(Object.keys(headers).map((key) => key.toLowerCase())).not.toContain(OPENCODE_AGENT_HEADER)
+    expect(headers).toEqual({ originator: ORIGINATOR, "session-id": SESSION_ID })
+  })
+
+  test("omits the header when no agent is provided", async () => {
+    const { WeaveCodex } = await import("../src/index.ts")
+    const headers = await chatHeaders(await WeaveCodex(fakeInput()), undefined)
+    expect(headers).toEqual({ originator: ORIGINATOR, "session-id": SESSION_ID })
+  })
+
+  test("leaves other providers' requests untouched", async () => {
+    const { WeaveCodex } = await import("../src/index.ts")
+    const hooks = await WeaveCodex(fakeInput())
+    const output: { headers: Record<string, string> } = { headers: { "x-existing": "kept" } }
+    await hooks["chat.headers"]?.({ sessionID: SESSION_ID, agent: "title", model: { providerID: "anthropic" } } as never, output)
+    expect(output.headers).toEqual({ "x-existing": "kept" })
+  })
+
+  test("the loader carries the lifecycle header alongside the subscriptions", async () => {
+    await writeFile(
+      authFile,
+      JSON.stringify({
+        "weave-claude": { type: "oauth", access: CLAUDE_ACCESS, refresh: CLAUDE_REFRESH, expires: Date.now() + 3_600_000 },
+      }),
+    )
+    const getAuth = async () => ({
+      type: "oauth",
+      access: CHATGPT_ACCESS,
+      refresh: "cg-refresh",
+      expires: Date.now() + 3_600_000,
+      accountId: CHATGPT_ACCOUNT,
+    })
+    const req = await runLoaderFetch(getAuth, undefined, "compaction")
+    expect(req.headers[OPENCODE_AGENT_HEADER]).toBe("compaction")
+    expect(req.headers["x-weave-openai-subscription"]).toBe(CHATGPT_ACCESS)
+    expect(req.headers["x-weave-anthropic-subscription"]).toBe(CLAUDE_ACCESS)
+  })
+})
 
 describe("weave loader — dual subscription injection", () => {
   test("attaches both subs via dedicated headers, preserves router key, leaves Authorization", async () => {
@@ -519,13 +580,7 @@ describe("weave loader — dual subscription injection", () => {
     expect(weaveHooks.auth?.methods.length).toBeGreaterThan(0)
     expect(claudeHooks.auth?.provider).toBe("weave-claude")
     expect(claudeHooks.auth?.methods.length).toBeGreaterThan(0)
-    const sessionOutput: { headers: Record<string, string> } = { headers: {} }
-    await weaveHooks["chat.headers"]?.(
-      { sessionID: SESSION_ID, model: { providerID: "weave" } } as never,
-      sessionOutput,
-    )
-    expect(sessionOutput.headers.originator).toBe(ORIGINATOR)
-    expect(sessionOutput.headers["session-id"]).toBe(SESSION_ID)
+    const sessionOutput = { headers: await chatHeaders(weaveHooks, "build") }
 
     let chatgptAuth: Record<string, unknown> = { type: "api", key: "x" }
     const loaded = await weaveHooks.auth!.loader!(async () => chatgptAuth as never, {} as never)
@@ -551,6 +606,7 @@ describe("weave loader — dual subscription injection", () => {
     expect(captures[0]?.headers["x-weave-openai-subscription"]).toBeUndefined()
     expect(captures[0]?.headers["x-weave-anthropic-subscription"]).toBeUndefined()
     assertRetainedIdentityHeaders(captures[0]!.headers)
+    expect(captures[0]?.headers[OPENCODE_AGENT_HEADER]).toBe("build")
 
     chatgptAuth = {
       type: "oauth",
@@ -576,6 +632,7 @@ describe("weave loader — dual subscription injection", () => {
     expect(captures[1]?.headers["x-weave-openai-account-id"]).toBe(CHATGPT_ACCOUNT)
     expect(captures[1]?.headers["x-weave-anthropic-subscription"]).toBe(CLAUDE_ACCESS)
     assertRetainedIdentityHeaders(captures[1]!.headers)
+    expect(captures[1]?.headers[OPENCODE_AGENT_HEADER]).toBe("build")
     assertNoSecretLeak()
   })
 })

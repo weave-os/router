@@ -296,6 +296,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": {"message": "unknown conformance scenario"}})
                 return
             agent = self.headers.get("x-conformance-agent", "")
+            weave_agent = self.headers.get("x-weave-opencode-agent")
             inputs = body.get("input") or []
             tool_outputs = [item for item in inputs if isinstance(item, dict)
                             and item.get("type") == "function_call_output"]
@@ -304,7 +305,7 @@ class Handler(BaseHTTPRequestHandler):
                 "method": "POST", "path": path, "rejected": False,
                 "app": self.headers.get("x-app"), "model": body.get("model"),
                 "stream": bool(body.get("stream")), "served": scenario.value,
-                "agent": agent, "session_id": self.headers.get("session-id"),
+                "agent": agent, "weave_agent": weave_agent, "session_id": self.headers.get("session-id"),
                 "key_present": bool(key), "key_suffix": key[-4:],
                 "input": inputs, "tool_outputs": tool_outputs,
             })

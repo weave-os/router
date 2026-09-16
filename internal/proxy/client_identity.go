@@ -30,7 +30,7 @@ func ClientIdentityFrom(ctx context.Context) ClientIdentity {
 // anthropic.stashClientIdentity) overlay those after calling this.
 func ClientIdentityFromHeaders(h http.Header) ClientIdentity {
 	xApp, eval := splitEvalClientApp(h.Get("X-App"))
-	return ClientIdentity{
+	id := ClientIdentity{
 		SessionID:   sessionIDFromHeaders(h),
 		Email:       NormalizeEmail(h.Get("X-Weave-User-Email")),
 		DisplayName: NormalizeDisplayName(h.Get("X-Weave-User-Name")),
@@ -39,6 +39,10 @@ func ClientIdentityFromHeaders(h http.Header) ClientIdentity {
 		Eval:        eval,
 		RolloutID:   NormalizeRolloutID(h.Get(RolloutIDHeader)),
 	}
+	if id.ClientApp == ClientAppOpencode {
+		id.OpenCodeAgent = requestcontext.ParseOpenCodeAgent(h.Get(requestcontext.OpenCodeAgentHeader))
+	}
+	return id
 }
 
 // EvalClientAppPrefix is re-exported for callers building identities by hand.

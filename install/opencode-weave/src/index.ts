@@ -73,6 +73,17 @@ const HEADER_OPENAI_SUB = "X-Weave-OpenAI-Subscription"
 const HEADER_OPENAI_ACCOUNT_ID = "X-Weave-OpenAI-Account-ID"
 const HEADER_ANTHROPIC_SUB = "X-Weave-Anthropic-Subscription"
 
+// Lifecycle metadata for turn classification only (title/subagent/compaction
+// pin safety). Must match internal/requestcontext.OpenCodeAgentHeader; the
+// router ignores it for auth, billing, and provider eligibility.
+const HEADER_OPENCODE_AGENT = "X-Weave-OpenCode-Agent"
+type OpenCodeAgent = "build" | "title" | "explore" | "compaction"
+const OPENCODE_AGENTS: ReadonlySet<string> = new Set<OpenCodeAgent>(["build", "title", "explore", "compaction"])
+
+function knownOpenCodeAgent(agent: string | undefined): OpenCodeAgent | undefined {
+  return agent !== undefined && OPENCODE_AGENTS.has(agent) ? (agent as OpenCodeAgent) : undefined
+}
+
 // Placeholder so the @ai-sdk/openai provider considers auth configured; the
 // loader's fetch carries the real subscriptions in the dedicated headers and the
 // router authenticates off X-Weave-Router-Key, so this value is never used.
@@ -616,6 +627,9 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
       if (hookInput.model.providerID !== PROVIDER_ID) return
       output.headers["originator"] = "codex_cli_ts"
       output.headers["session-id"] = hookInput.sessionID
+      // Custom agents are user-named; only OpenCode's own lifecycle agents are forwarded.
+      const agent = knownOpenCodeAgent(hookInput.agent)
+      if (agent) output.headers[HEADER_OPENCODE_AGENT] = agent
     },
     "chat.params": async (hookInput, output) => {
       if (hookInput.model.providerID !== PROVIDER_ID) return

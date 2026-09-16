@@ -6407,7 +6407,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		maxEligibleWindowOAI := s.maxEligibleContextWindow(baseExcludedOAI, enabledProviders, env.SignatureTokenSavings())
 		var compErrOAI error
 		compResOAI, compErrOAI = s.maybeCompact(ctx, env, compactionInput{
-			TurnType:      turntype.DetectFromEnvelope(env, feats, subAgentHint),
+			TurnType:      turntype.Detect(env, feats, subAgentHint, ClientIdentityFrom(ctx).OpenCodeAgent),
 			OutputReserve: outputReserveOAI,
 			MaxWindow:     maxEligibleWindowOAI,
 			ClientBudget:  requestcontext.ClientBudgetFrom(ctx),
