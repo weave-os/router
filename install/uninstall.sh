@@ -164,13 +164,24 @@ refuse_if_symlink() {
   fi
 }
 
-# weave_command_router_owned accepts legacy marker-bearing wrappers and the
-# markerless wrappers written by current installers. A markerless wrapper is
-# owned only when its rendered body still matches the bundled command source.
+# weave_command_router_owned accepts legacy marker-bearing wrappers and
+# markerless wrappers written by current installers. Current wrappers carry a
+# body copy in a sidecar so ownership survives standalone and piped uninstall.
 weave_command_router_owned() {
-  local command_file="$1" command_name="$2" source_file expected scope_args="" candidate
+  local command_file="$1" command_name="$2" ownership_file ownership_header ownership_body
+  local source_file expected scope_args="" candidate
   if grep -Fq "<!-- weave-router managed command: $command_name -->" "$command_file" 2>/dev/null; then
     return 0
+  fi
+
+  ownership_file="$command_file.weave-router"
+  if [ -f "$ownership_file" ]; then
+    ownership_header="$(sed -n '1p' "$ownership_file" 2>/dev/null || true)"
+    ownership_body="$(sed '1d' "$ownership_file" 2>/dev/null || true)"
+    if [ "$ownership_header" = "weave-router managed command: $command_name" ] \
+       && [ "$(cat "$command_file")" = "$ownership_body" ]; then
+      return 0
+    fi
   fi
 
   if [ -n "$install_dir" ]; then
@@ -553,7 +564,8 @@ if [ "$target" = "opencode" ]; then
         if [ -f "$cmd_file" ]; then
           if weave_command_router_owned "$cmd_file" "$cmd"; then
             refuse_if_symlink "$cmd_file"
-            rm -f "$cmd_file"
+            refuse_if_symlink "$cmd_file.weave-router"
+            rm -f "$cmd_file" "$cmd_file.weave-router"
             ok "Removed $cmd_file"
           else
             warn "Leaving user-owned opencode command at $cmd_file untouched."
@@ -1037,7 +1049,8 @@ if [ -d "$commands_dir" ]; then
     if [ -f "$cmd_file" ]; then
       refuse_if_symlink "$cmd_file"
       if weave_command_router_owned "$cmd_file" "$cmd"; then
-        rm -f "$cmd_file"
+        refuse_if_symlink "$cmd_file.weave-router"
+        rm -f "$cmd_file" "$cmd_file.weave-router"
         ok "Removed $cmd_file"
       else
         warn "Leaving user-owned Claude command at $cmd_file untouched."

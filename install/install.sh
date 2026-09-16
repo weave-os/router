@@ -3579,6 +3579,12 @@ EOF
       fi
     fi
     printf '%s\n' "$body" >"$dst"
+    # Keep ownership metadata in a sidecar so Claude Code never sends it as prompt text.
+    ownership_file="$dst.weave-router"
+    if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
+      refuse_if_symlink "$ownership_file"
+    fi
+    printf 'weave-router managed command: %s\n%s\n' "$cmd" "$body" >"$ownership_file"
   done
   seed_command_baseline "$commands_src_dir" "$cmds"
   ok "Slash commands written to $dst_dir ($installed)"
@@ -4629,7 +4635,8 @@ if [ "$target" = "opencode" ]; then
     for entry in \
       "opencode.json" \
       ".weave/" \
-      ".weave-parked.json"
+      ".weave-parked.json" \
+      ".opencode/commands/*.weave-router"
     do
       if [ ! -f "$gitignore" ] || ! grep -qxF "$entry" "$gitignore"; then
         printf '%s\n' "$entry" >>"$gitignore"
@@ -5021,6 +5028,11 @@ weave_sync_commands() {
           tmp="$installed.tmp.$$"
           if printf '%s\n' "$new_body" >"$tmp" 2>/dev/null; then
             mv "$tmp" "$installed" 2>/dev/null || rm -f "$tmp"
+            ownership_file="$installed.weave-router"
+            if [ ! -L "$ownership_file" ]; then
+              printf 'weave-router managed command: %s\n%s\n' "$name" "$new_body" \
+                >"$ownership_file" 2>/dev/null || true
+            fi
           else
             rm -f "$tmp"
           fi
@@ -5833,7 +5845,8 @@ if [ "$scope" = "project" ] && [ -z "$install_dir" ] && [ -n "${git_root:-}" ]; 
     ".claude/settings.local.json" \
     ".claude/.credentials.json" \
     ".claude/cc-statusline.sh" \
-    ".claude/cc-statusline.sh.weave-router"
+    ".claude/cc-statusline.sh.weave-router" \
+    ".claude/commands/*.weave-router"
   do
     [[ "$entry" == .claude/cc-statusline.sh* ]] && [ "$statusline_install" != "true" ] && continue
     if [ ! -f "$gitignore" ] || ! grep -qxF "$entry" "$gitignore"; then

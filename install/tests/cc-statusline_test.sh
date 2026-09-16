@@ -311,11 +311,10 @@ make_command_install() { # make_command_install <root> <cache_home> [scope_args]
   mkdir -p "$baseline"
   for name in "$script_dir/../commands"/*.md; do
     body="$(cat "$name")"
-    # Mirror install_slash_commands: render the command body without adding
-    # ownership metadata to the prompt Claude Code sends to the model.
-    printf '%s\n' \
-      "${body//\{\{SCOPE\}\}/$scope_args}" \
-      >"$root/.claude/commands/$(basename "$name")"
+    rendered="${body//\{\{SCOPE\}\}/$scope_args}"
+    printf '%s\n' "$rendered" >"$root/.claude/commands/$(basename "$name")"
+    printf 'weave-router managed command: %s\n%s\n' "$(basename "$name" .md)" "$rendered" \
+      >"$root/.claude/commands/$(basename "$name").weave-router"
     cp "$name" "$baseline/$(basename "$name")"
   done
 }
