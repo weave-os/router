@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"testing"
 
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -45,14 +46,14 @@ func TestPrepareAnthropic_NormalizesToolAdditionOnNonSystemMessage(t *testing.T)
 
 	msgs := gjson.GetBytes(out, "messages").Array()
 	require.Len(t, msgs, 3)
-	system := msgs[1]
-	assert.Equal(t, "system", system.Get("role").String())
-	assert.Equal(t, "tool_addition", system.Get("content.0.type").String())
-	second := msgs[2].Get("content")
+	second := msgs[1].Get("content")
 	require.True(t, second.IsArray())
 	require.Equal(t, 1, int(second.Get("#").Int()))
 	assert.Equal(t, "text", second.Get("0.type").String())
 	assert.Equal(t, "# Environment", second.Get("0.text").String())
+	system := msgs[2]
+	assert.Equal(t, "system", system.Get("role").String())
+	assert.Equal(t, "tool_addition", system.Get("content.0.type").String())
 }
 
 func TestPrepareAnthropic_PreservesSystemToolDeltasAfterSystemHandling(t *testing.T) {
@@ -118,10 +119,45 @@ func TestPrepareAnthropicPassthrough_NormalizesToolDeltas(t *testing.T) {
 
 	msgs := gjson.GetBytes(out, "messages").Array()
 	require.Len(t, msgs, 2)
-	assert.Equal(t, "system", msgs[0].Get("role").String())
-	assert.Equal(t, "tool_removal", msgs[0].Get("content.0.type").String())
-	assert.Equal(t, "user", msgs[1].Get("role").String())
-	assert.Equal(t, "continue", msgs[1].Get("content.0.text").String())
+	assert.Equal(t, "user", msgs[0].Get("role").String())
+	assert.Equal(t, "continue", msgs[0].Get("content.0.text").String())
+	assert.Equal(t, "system", msgs[1].Get("role").String())
+	assert.Equal(t, "tool_removal", msgs[1].Get("content.0.type").String())
+}
+
+func TestPrepareAnthropic_AddsToolChangesBeta(t *testing.T) {
+	body := []byte(`{
+		"model": "claude-opus-5",
+		"max_tokens": 1024,
+		"messages": [{"role": "user", "content": [
+			{"type": "tool_addition", "tool": {"type": "tool_reference", "name": "Read"}},
+			{"type": "text", "text": "continue"}
+		]}]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
+		TargetModel:    "claude-opus-5",
+		TargetProvider: providers.ProviderAnthropic,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "mid-conversation-tool-changes-2026-07-01", prep.Headers.Get("anthropic-beta"))
+}
+
+func TestPrepareAnthropicPassthrough_AddsToolChangesBeta(t *testing.T) {
+	body := []byte(`{
+		"model": "claude-opus-5",
+		"max_tokens": 1024,
+		"messages": [{"role": "user", "content": [
+			{"type": "tool_removal", "tool": {"type": "tool_reference", "name": "Edit"}},
+			{"type": "text", "text": "continue"}
+		]}]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropicPassthrough(http.Header{})
+	require.NoError(t, err)
+	assert.Equal(t, "mid-conversation-tool-changes-2026-07-01", prep.Headers.Get("anthropic-beta"))
 }
 
 func TestPrepareAnthropic_LeavesOrdinaryMessagesUnchanged(t *testing.T) {

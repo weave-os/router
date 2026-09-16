@@ -122,6 +122,9 @@ func deriveAnthropicHeaders(in http.Header, opts EmitOptions, body []byte) http.
 	if gjson.GetBytes(body, "speed").Exists() {
 		beta = ensureBetaToken(beta, fastModeBeta)
 	}
+	if opts.TargetProvider == providers.ProviderAnthropic && containsAnthropicSystemOnlyContentBlocks(body) {
+		beta = ensureBetaToken(beta, anthropicMidConversationToolChangesBeta)
+	}
 	if beta != "" {
 		h.Set("anthropic-beta", beta)
 	}
@@ -147,6 +150,10 @@ const contextManagementBeta = "context-management-2025-06-27"
 // serverSideFallbackBeta is the first-party Anthropic beta for server-side
 // fallback; gateways reject the unknown top-level key with a 400.
 const serverSideFallbackBeta = "server-side-fallback-2026-07-01"
+
+// anthropicMidConversationToolChangesBeta enables tool_addition/tool_removal
+// content blocks on role:"system" messages in Anthropic's Messages API.
+const anthropicMidConversationToolChangesBeta = "mid-conversation-tool-changes-2026-07-01"
 
 // applyServerSideFallback injects fallbacks:"default" so Anthropic re-serves
 // a safety-refused turn instead of returning stop_reason:"refusal" (HTTP 200).
@@ -823,15 +830,17 @@ func normalizeAnthropicSystemOnlyContentBlocks(body []byte) ([]byte, error) {
 		}
 		systemMessage.EndArr()
 		systemMessage.EndObj()
+		if len(remaining) > 0 {
+			rewritten, err := sjson.SetRawBytes([]byte(msg.Raw), "content", []byte("["+strings.Join(remaining, ",")+"]"))
+			if err != nil {
+				return nil, fmt.Errorf("strip system-only content blocks: %w", err)
+			}
+			// Anthropic requires a non-directive system message to follow a
+			// user message, so keep the rewritten user turn before its tool
+			// change directive. The directive then applies to the next turn.
+			kept = append(kept, string(rewritten))
+		}
 		kept = append(kept, string(systemMessage.Bytes()))
-		if len(remaining) == 0 {
-			continue
-		}
-		rewritten, err := sjson.SetRawBytes([]byte(msg.Raw), "content", []byte("["+strings.Join(remaining, ",")+"]"))
-		if err != nil {
-			return nil, fmt.Errorf("strip system-only content blocks: %w", err)
-		}
-		kept = append(kept, string(rewritten))
 	}
 	if !changed {
 		return body, nil
@@ -849,6 +858,15 @@ func containsAnthropicSystemOnlyContentBlock(content gjson.Result) bool {
 	}
 	for _, part := range content.Array() {
 		if isAnthropicSystemOnlyContentBlock(part.Get("type").String()) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsAnthropicSystemOnlyContentBlocks(body []byte) bool {
+	for _, msg := range gjson.GetBytes(body, "messages").Array() {
+		if containsAnthropicSystemOnlyContentBlock(msg.Get("content")) {
 			return true
 		}
 	}

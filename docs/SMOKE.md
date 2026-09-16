@@ -111,10 +111,12 @@ rm -f docker-compose.override.yml
 ## Cost
 
 `replay-only` runs make zero upstream calls. `record`/`replay-or-record` pin
-every Anthropic scenario to the cheapest model (`claude-haiku-4-5`) and every
-OpenAI scenario to the cheapest reasoning tier (`gpt-5.4-nano`), both via
-`x-weave-force-model`, and cap `max_tokens` — a full refresh is ~15 real calls
-across both providers, a few cents. Skip recording OpenAI by omitting
+most Anthropic scenarios to the cheapest model (`claude-haiku-4-5`); the
+mid-conversation tool-change scenario uses `claude-opus-5`, the minimum model
+that supports that beta. OpenAI scenarios use the cheapest reasoning tier
+(`gpt-5.4-nano`). All pins use `x-weave-force-model` and cap `max_tokens` — a
+full refresh is ~15 real calls across both providers, a few cents. Skip
+recording OpenAI by omitting
 `OPENAI_API_KEY`; `smoke/openai_test.go` skips itself
 (`SMOKE_OPENAI_ENABLED=0`, set automatically by `run.sh` in that case).
 
@@ -126,6 +128,7 @@ across both providers, a few cents. Skip recording OpenAI by omitting
 | `smoke/basic_test.go` | `/force-model` command turn; non-stream turn (usage + decision headers); streamed turn well-ordered; `x-weave-force-cluster` / unknown `x-weave-force-model` refused with 400 pre-dispatch |
 | `smoke/cache_test.go` | router-injected caching warms then reads; client-at-capacity doesn't over-inject; `ttl=1h` breakpoint not poisoned; overflow rejected cleanly by the router |
 | `smoke/streaming_test.go` | tool-use stream lifecycle: balanced `content_block_start/stop`, exactly one `message_stop`, `stop_reason` present |
+| `smoke/tool_delta_test.go` | non-system `tool_addition` and `tool_removal` blocks are normalized and accepted by Anthropic |
 | `smoke/openai_test.go` | OpenAI Responses-API translation path (gpt-5.x + tools): a genuinely typeless optional tool param round-trips without a 400; basic turn served correctly |
 
 ## Regression proof
