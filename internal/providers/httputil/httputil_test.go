@@ -229,6 +229,17 @@ func TestSSEIdleTimeoutFromEnv_BadValueFallsBack(t *testing.T) {
 	assert.Equal(t, 45*time.Second, idleTimeoutFromEnv("ROUTER_SSE_IDLE_TIMEOUT_SECONDS", 45*time.Second))
 }
 
+// The gateway budget widens the generic one but never narrows it: a deployment
+// that raised ROUTER_SSE_IDLE_TIMEOUT_SECONDS past the gateway default must not
+// see gateway streams cut sooner than every other provider's.
+func TestDefaultGatewaySSEIdleTimeout(t *testing.T) {
+	assert.Equal(t, 180*time.Second, DefaultGatewaySSEIdleTimeout)
+	assert.Equal(t, 45*time.Second, DefaultSSEIdleTimeout, "the generic budget is untouched")
+
+	t.Setenv("ROUTER_GATEWAY_SSE_IDLE_TIMEOUT_SECONDS", "240")
+	assert.Equal(t, 240*time.Second, idleTimeoutFromEnv("ROUTER_GATEWAY_SSE_IDLE_TIMEOUT_SECONDS", max(180*time.Second, DefaultSSEIdleTimeout)))
+}
+
 func TestResponsesSSEIdleTimeoutFromEnv_OverrideRespected(t *testing.T) {
 	t.Setenv("ROUTER_RESPONSES_SSE_IDLE_TIMEOUT_SECONDS", "120")
 	assert.Equal(t, 120*time.Second, idleTimeoutFromEnv("ROUTER_RESPONSES_SSE_IDLE_TIMEOUT_SECONDS", 90*time.Second))

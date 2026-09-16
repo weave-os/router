@@ -45,6 +45,16 @@ func WithAuthScheme(scheme AuthScheme) Option {
 	return func(c *Client) { c.authScheme = scheme }
 }
 
+// WithSSEIdleTimeout replaces httputil.DefaultSSEIdleTimeout as the byte-idle
+// watchdog budget; non-positive values are ignored.
+func WithSSEIdleTimeout(d time.Duration) Option {
+	return func(c *Client) {
+		if d > 0 {
+			c.sseIdleTimeout = d
+		}
+	}
+}
+
 // WithModelListHTTPClient supplies the client used only for model discovery.
 // A nil client is ignored so a misconfigured option cannot strip the
 // constructor's destination-checked default and panic on the first call.
@@ -113,8 +123,9 @@ type Client struct {
 	// protectedHeaders are set after prep.Headers / inbound headers apply, so
 	// provider-mandated values cannot be overridden.
 	protectedHeaders http.Header
-	// sseIdleTimeout overrides httputil.DefaultSSEIdleTimeout when > 0; tests set
-	// it small so the output-stall watchdog fires before this one.
+	// sseIdleTimeout overrides httputil.DefaultSSEIdleTimeout when > 0: the
+	// gateway client widens it (WithSSEIdleTimeout) and tests set it small so
+	// the output-stall watchdog fires before this one.
 	sseIdleTimeout time.Duration
 	// outputStall overrides httputil.DefaultOutputStallTimeout when > 0; used by
 	// tests to trip output-stall without waiting out the real budget.

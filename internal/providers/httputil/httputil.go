@@ -47,6 +47,15 @@ var ErrUpstreamSlowThroughput = providers.ErrUpstreamSlowThroughput
 // of hanging for the full deadline. Tunable via ROUTER_SSE_IDLE_TIMEOUT_SECONDS.
 var DefaultSSEIdleTimeout = idleTimeoutFromEnv("ROUTER_SSE_IDLE_TIMEOUT_SECONDS", 45*time.Second)
 
+// DefaultGatewaySSEIdleTimeout is the byte-idle budget for Anthropic-spec
+// enterprise gateways. Anthropic pings while a model thinks; the gateways seen
+// in prod (Cortex, 2026-09) forward no ping frames, so a thinking block's
+// silence is the whole gap and a budget sized for a pinged stream cut
+// committed Opus turns at 135-148s of silence. Never below
+// DefaultSSEIdleTimeout, under the 350s reaper ceiling. Tunable via
+// ROUTER_GATEWAY_SSE_IDLE_TIMEOUT_SECONDS.
+var DefaultGatewaySSEIdleTimeout = idleTimeoutFromEnv("ROUTER_GATEWAY_SSE_IDLE_TIMEOUT_SECONDS", max(180*time.Second, DefaultSSEIdleTimeout))
+
 // DefaultResponsesSSEIdleTimeout is the idle-progress threshold for OpenAI
 // Responses API streams. More generous than DefaultSSEIdleTimeout because a
 // gpt-5.x reasoning turn can go tens of seconds between SSE frames; any
