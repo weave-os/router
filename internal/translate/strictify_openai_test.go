@@ -166,6 +166,71 @@ func TestStrictify_BailsOnUnsupportedConstructs(t *testing.T) {
 	}
 }
 
+// Prod repro (2026-09, Claude Code Agent tool on gpt-5.x): the optional
+// isolation enum came back as ["string","null"] with an enum lacking null, so
+// strict decoding forced "worktree"/"remote" on every sub-agent call and each
+// one failed outside a git repo.
+func TestStrictify_TypedEnumOptionalAdmitsNull(t *testing.T) {
+	out, ok := strictifyFromJSON(t, `{
+		"type":"object",
+		"properties":{
+			"prompt":{"type":"string"},
+			"isolation":{"type":"string","enum":["worktree","remote"],"description":"Isolation mode."},
+			"level":{"type":"string","enum":["low","high"]}
+		},
+		"required":["prompt","level"]
+	}`)
+	require.True(t, ok)
+
+	props := out["properties"].(map[string]any)
+	isolation := props["isolation"].(map[string]any)
+	assert.Equal(t, []any{"string", "null"}, isolation["type"])
+	assert.Equal(t, []any{"worktree", "remote", nil}, isolation["enum"],
+		"enum constrains the value independently of type; null must be a member or the model is forced to pick one")
+	assert.Equal(t, "Isolation mode. "+optionalNote, isolation["description"])
+
+	level := props["level"].(map[string]any)
+	assert.Equal(t, "string", level["type"])
+	assert.Equal(t, []any{"low", "high"}, level["enum"], "a required enum is left alone")
+	_, hasDesc := level["description"]
+	assert.False(t, hasDesc, "required props get no optional note")
+}
+
+func TestStrictify_OptionalNoteAppendedOnce(t *testing.T) {
+	out, ok := strictifyFromJSON(t, `{
+		"type":"object",
+		"properties":{
+			"timeout":{"type":"number","description":"Optional timeout in ms"},
+			"limit":{"type":"number"}
+		},
+		"required":[]
+	}`)
+	require.True(t, ok)
+
+	props := out["properties"].(map[string]any)
+	assert.Equal(t, "Optional timeout in ms "+optionalNote, props["timeout"].(map[string]any)["description"])
+	assert.Equal(t, optionalNote, props["limit"].(map[string]any)["description"],
+		"a property without a description still gets the note")
+
+	// Re-strictifying the output is stable.
+	again, ok := strictifyOpenAISchema(out)
+	require.True(t, ok)
+	againProps := again.(map[string]any)["properties"].(map[string]any)
+	assert.Equal(t, "Optional timeout in ms "+optionalNote, againProps["timeout"].(map[string]any)["description"])
+}
+
+func TestStrictify_DoesNotMutateInputEnum(t *testing.T) {
+	const raw = `{"type":"object","properties":{"mode":{"type":"string","enum":["a","b"]}},"required":[]}`
+	var parsed any
+	require.NoError(t, json.Unmarshal([]byte(raw), &parsed))
+	_, ok := strictifyOpenAISchema(parsed)
+	require.True(t, ok)
+
+	reMarshaled, err := json.Marshal(parsed)
+	require.NoError(t, err)
+	assert.JSONEq(t, raw, string(reMarshaled))
+}
+
 func TestStrictify_DoesNotMutateInput(t *testing.T) {
 	const raw = `{"type":"object","properties":{"pages":{"type":"string"}},"required":[]}`
 	var parsed any
