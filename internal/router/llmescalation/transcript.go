@@ -24,8 +24,11 @@ func InstructionFingerprint(messages []translate.EscalationMessage) [32]byte {
 		}
 		parts := make([]string, 0)
 		for _, block := range message.Blocks {
-			if block.Type == translate.EscalationBlockText && strings.TrimSpace(block.Text) != "" {
-				parts = append(parts, block.Text)
+			if block.Type == translate.EscalationBlockText {
+				instructionText := translate.WithoutLeadingClientInjectedText(block.Text)
+				if strings.TrimSpace(instructionText) != "" {
+					parts = append(parts, instructionText)
+				}
 			}
 		}
 		if len(parts) > 0 {

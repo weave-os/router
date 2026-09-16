@@ -202,5 +202,11 @@ func TestLLMEscalationContinuationFailureStillCompletesTurn(t *testing.T) {
 	require.Equal(t, 1, store.completeCalls)
 }
 
+func TestLLMEscalationFailureRecognizesCanceledDeadline(t *testing.T) {
+	require.Equal(t, llmescalation.FailureTimeout, llmEscalationFailure(context.Canceled, context.DeadlineExceeded))
+	require.Equal(t, llmescalation.FailureJudge, llmEscalationFailure(context.Canceled, nil))
+	require.Equal(t, llmescalation.FailureInvalid, llmEscalationFailure(ErrInvalidEscalationJudgment, nil))
+}
+
 var _ llmescalation.Store = (*llmEscalationStoreStub)(nil)
 var _ llmescalation.Judge = (*blockingEscalationJudge)(nil)

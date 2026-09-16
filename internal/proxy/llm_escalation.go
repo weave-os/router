@@ -222,15 +222,10 @@ func (s *Service) completeLLMEscalation(ctx context.Context, res turnLoopResult,
 		background = observability.WithRequestID(background, turn.requestID)
 		judgeCtx, judgeCancel := context.WithTimeout(background, llmescalation.JudgeTimeout)
 		judgment, judgeErr := s.llmEscalationJudge.Judge(judgeCtx, llmescalation.JudgeRequest{Transcript: transcript, RequestID: turn.requestID, OperationID: job.ID})
+		judgeContextErr := judgeCtx.Err()
 		judgeCancel()
-		failure := llmescalation.FailureNone
+		failure := llmEscalationFailure(judgeErr, judgeContextErr)
 		if judgeErr != nil {
-			failure = llmescalation.FailureJudge
-			if errors.Is(judgeErr, context.DeadlineExceeded) {
-				failure = llmescalation.FailureTimeout
-			} else if errors.Is(judgeErr, ErrInvalidEscalationJudgment) {
-				failure = llmescalation.FailureInvalid
-			}
 			log.Warn("LLM escalation judge failed", "failure", failure, "error_type", fmt.Sprintf("%T", judgeErr))
 		}
 		if !turn.retainReason {
@@ -246,4 +241,17 @@ func (s *Service) completeLLMEscalation(ctx context.Context, res turnLoopResult,
 		s.recordEscalationJudgeInference(turn.session.InstallationID, turn.requestID, job, judgment)
 		log.Info("LLM escalation checkpoint finished", "failure", failure, "escalate", judgment.Escalate, "usage_known", judgment.Usage.Known, "input_tokens", judgment.Usage.InputTokens, "output_tokens", judgment.Usage.OutputTokens, "cost_usd", judgment.CostUSD)
 	})
+}
+
+func llmEscalationFailure(judgeErr, judgeContextErr error) llmescalation.FailureCode {
+	switch {
+	case judgeErr == nil:
+		return llmescalation.FailureNone
+	case errors.Is(judgeErr, context.DeadlineExceeded), errors.Is(judgeErr, context.Canceled) && errors.Is(judgeContextErr, context.DeadlineExceeded):
+		return llmescalation.FailureTimeout
+	case errors.Is(judgeErr, ErrInvalidEscalationJudgment):
+		return llmescalation.FailureInvalid
+	default:
+		return llmescalation.FailureJudge
+	}
 }

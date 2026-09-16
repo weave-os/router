@@ -1,5 +1,7 @@
 package translate
 
+import "strings"
+
 // WithoutEscalationDecorations copies visible messages without router-authored text.
 func WithoutEscalationDecorations(messages []EscalationMessage) []EscalationMessage {
 	cleaned := make([]EscalationMessage, 0, len(messages))
@@ -21,6 +23,33 @@ func WithoutEscalationDecorations(messages []EscalationMessage) []EscalationMess
 		}
 	}
 	return cleaned
+}
+
+// WithoutLeadingClientInjectedText removes known client-authored wrapper
+// blocks while preserving any human text that follows them.
+func WithoutLeadingClientInjectedText(text string) string {
+	remainder := text
+	stripped := false
+	for {
+		trimmed := strings.TrimLeft(remainder, " \t\r\n")
+		if !isClaudeCodeInjectedBlock(trimmed) {
+			if stripped {
+				return strings.TrimSpace(remainder)
+			}
+			return remainder
+		}
+		openingTagEnd := strings.IndexByte(trimmed, '>')
+		if openingTagEnd < 0 {
+			return remainder
+		}
+		closingTag := "</" + trimmed[1:openingTagEnd] + ">"
+		closingTagStart := strings.Index(trimmed[openingTagEnd+1:], closingTag)
+		if closingTagStart < 0 {
+			return remainder
+		}
+		remainder = trimmed[openingTagEnd+1+closingTagStart+len(closingTag):]
+		stripped = true
+	}
 }
 
 // WithDeveloperRolesAsSystem preserves the established XGBoost observation

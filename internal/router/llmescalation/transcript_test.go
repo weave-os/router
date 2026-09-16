@@ -78,6 +78,17 @@ func TestInstructionFingerprintIgnoresToolOnlyUserMessages(t *testing.T) {
 	require.NotEqual(t, original, InstructionFingerprint(messages))
 }
 
+func TestInstructionFingerprintIgnoresClientInjectedPrefixes(t *testing.T) {
+	initial := []translate.EscalationMessage{transcriptMessage(translate.EscalationRoleUser, "fix tests")}
+	original := InstructionFingerprint(initial)
+	reminder := transcriptMessage(translate.EscalationRoleUser, "<system-reminder>Use task tools.</system-reminder>")
+	require.Equal(t, original, InstructionFingerprint(append(initial, reminder)))
+
+	direct := append(initial, transcriptMessage(translate.EscalationRoleUser, "new direction"))
+	prefixed := append(initial, transcriptMessage(translate.EscalationRoleUser, "<system-reminder>Use task tools.</system-reminder>\nnew direction"))
+	require.Equal(t, InstructionFingerprint(direct), InstructionFingerprint(prefixed))
+}
+
 func TestSwitchyardPromptAndSchemaArePinned(t *testing.T) {
 	require.Equal(t, "69610eeecbac59fc20c7933ef57fa21029fa80c374b3a399b1f1a9557a6de234", fmt.Sprintf("%x", sha256.Sum256([]byte(SystemPrompt))))
 	require.Equal(t, "37e4fa2c09831918c3430a4b56bc5f3ade9ab60439f8a9928e7984cabd1093c5", fmt.Sprintf("%x", sha256.Sum256(ResponseSchema)))
