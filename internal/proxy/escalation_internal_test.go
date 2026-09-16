@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -281,6 +282,26 @@ func TestEscalationResponsesContinuation(t *testing.T) {
 	otherOrg := res
 	otherOrg.InstallationID = uuid.New()
 	require.Nil(t, svc.beginEscalation(ctx, escalationTestEnvelope(t, 2), router.Request{}, &otherOrg, "test-key"))
+}
+
+func TestEscalationResponsesContinuationSupportsLegacyActivation(t *testing.T) {
+	store := newEscalationTestStore()
+	observer := &escalationTestObserver{}
+	svc := (&Service{}).WithEscalation(store, observer)
+	ctx := escalationTestContext(true, false)
+	res := turnLoopResult{Strategy: router.StrategyHMMEmbedding, InstallationID: uuid.New(), TurnType: turntype.MainLoop}
+	turn := svc.beginEscalation(ctx, escalationTestEnvelope(t, 1), router.Request{}, &res, "test-key")
+	require.NoError(t, svc.finishEscalation(ctx, turn, &res, nil))
+	legacyActivation := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%s/%d", res.InstallationID, "test-key", res.Strategy, escalationModeActive, 0)))
+	store.continuations[fmt.Sprintf("%x/%s", legacyActivation, "resp_legacy")] = struct {
+		scope   [32]byte
+		history json.RawMessage
+	}{scope: turn.scope, history: json.RawMessage(`[{"role":"user","blocks":[{"type":"text","text":"start"}]}]`)}
+
+	ctx = context.WithValue(ctx, nativeResponsesBodyContextKey{}, []byte(`{"model":"weave","previous_response_id":"resp_legacy","input":"continue"}`))
+	continued := svc.beginEscalation(ctx, escalationTestEnvelope(t, 2), router.Request{}, &res, "test-key")
+	require.NotNil(t, continued)
+	require.Equal(t, turn.scope, continued.scope)
 }
 
 // The policy implementation's eligibility behavior is tested in policy; this

@@ -56,7 +56,7 @@ func (t *llmEscalationTurn) constraint() *escalation.Constraint {
 
 func (s *Service) beginLLMEscalation(ctx context.Context, env *translate.RequestEnvelope, req router.Request, res *turnLoopResult, apiKeyID string) *llmEscalationTurn {
 	selection := flags.EscalationFromContext(ctx)
-	active := selection.Active == flags.EscalationClassifierSwitchyard
+	active := selection.Active == flags.EscalationClassifierSwitchyard && s.llmEscalationActiveEnabled
 	shadow := selection.Shadow == flags.EscalationClassifierSwitchyard
 	if (!active && !shadow) || s.llmEscalationStore == nil || s.llmEscalationJudge == nil || (active && res.Strategy != router.StrategyHMMEmbedding) || req.ShadowMode || req.ForceModel != "" || req.ForceCluster != "" || res.InstallationID == uuid.Nil || (res.TurnType != turntype.MainLoop && res.TurnType != turntype.ToolResult) {
 		return nil
@@ -181,14 +181,14 @@ func (s *Service) completeLLMEscalation(ctx context.Context, res turnLoopResult,
 	messages := make([]translate.EscalationMessage, 0, len(turn.observation.Messages)+len(completed.Messages))
 	messages = append(messages, turn.observation.Messages...)
 	messages = append(messages, translate.WithoutEscalationDecorations(completed.Messages)...)
-	bookkeepingCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), llmEscalationBookkeepingTimeout)
-	defer cancel()
 	if format == translate.EscalationResponseResponses && completed.ResponseID != "" {
 		history, _ := json.Marshal(messages)
 		if len(history) <= escalationHistoryMaxBytes {
-			if err := s.llmEscalationStore.SaveContinuation(bookkeepingCtx, llmescalation.ContinuationRequest{Session: turn.session, Activation: turn.activation, ResponseID: completed.ResponseID, History: history}); err != nil {
+			continuationCtx, cancelContinuation := context.WithTimeout(context.WithoutCancel(ctx), llmEscalationBookkeepingTimeout)
+			err := s.llmEscalationStore.SaveContinuation(continuationCtx, llmescalation.ContinuationRequest{Session: turn.session, Activation: turn.activation, ResponseID: completed.ResponseID, History: history})
+			cancelContinuation()
+			if err != nil {
 				observability.FromContext(ctx).Warn("LLM escalation continuation save failed", "err", err)
-				return
 			}
 		}
 	}
@@ -201,7 +201,9 @@ func (s *Service) completeLLMEscalation(ctx context.Context, res turnLoopResult,
 		capacity = true
 	default:
 	}
-	completion, err := s.llmEscalationStore.Complete(bookkeepingCtx, llmescalation.CompleteRequest{Session: turn.session, Boundary: turn.boundary, RequestID: turn.requestID, Capacity: capacity})
+	completionCtx, cancelCompletion := context.WithTimeout(context.WithoutCancel(ctx), llmEscalationBookkeepingTimeout)
+	completion, err := s.llmEscalationStore.Complete(completionCtx, llmescalation.CompleteRequest{Session: turn.session, Boundary: turn.boundary, RequestID: turn.requestID, Capacity: capacity})
+	cancelCompletion()
 	if err != nil || completion.Job == nil {
 		if capacity {
 			<-s.llmEscalationSlots

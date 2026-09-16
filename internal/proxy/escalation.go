@@ -95,7 +95,7 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 			retryBackoff := backoff.NewExponentialBackOff()
 			retryBackoff.InitialInterval = 10 * time.Millisecond
 			retryBackoff.MaxInterval = 25 * time.Millisecond
-			_, lookupErr = backoff.Retry(claimCtx, func() (bool, error) {
+			_, _ = backoff.Retry(claimCtx, func() (bool, error) {
 				priorScope, history, found, lookupErr = s.escalationStore.Continuation(claimCtx, activation, observation.ContinuationID)
 				if lookupErr != nil {
 					return false, backoff.Permanent(lookupErr)
@@ -105,6 +105,10 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 				}
 				return true, nil
 			}, backoff.WithBackOff(retryBackoff), backoff.WithMaxTries(5), backoff.WithMaxElapsedTime(100*time.Millisecond))
+		}
+		if lookupErr == nil && !found {
+			legacyActivation := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%s/%d", res.InstallationID, apiKeyID, res.Strategy, mode, selection.Epoch)))
+			priorScope, history, found, lookupErr = s.escalationStore.Continuation(claimCtx, legacyActivation, observation.ContinuationID)
 		}
 		if lookupErr != nil || !found {
 			log.Warn("Escalation continuation unavailable", "err", lookupErr, "found", found)

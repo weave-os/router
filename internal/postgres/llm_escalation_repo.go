@@ -212,6 +212,10 @@ func (r *LLMEscalationRepo) Apply(ctx context.Context, request llmescalation.App
 		if session.Lifetime != request.Session.Lifetime || session.Generation != request.Session.Generation || (session.Config.Mode != llmescalation.ModeActive && session.Config.Mode != llmescalation.ModeShadow) {
 			return nil
 		}
+		if escalation.Rank(session.Floor) >= escalation.Rank(request.Floor) {
+			applied = true
+			return nil
+		}
 		job, found, err := currentLLMJob(ctx, queries, session)
 		if err != nil {
 			return err
