@@ -3,12 +3,17 @@ package policy
 import "strings"
 
 // Harness values are the sidecar-facing vocabulary for the calling agent
-// harness. The router decides them; sidecars consume them verbatim.
+// harness. The router decides them; sidecars consume them verbatim and must
+// degrade a value outside their own vocabulary to the pooled default, so
+// adding a harness here never changes what an older sidecar serves. Each
+// value doubles as the roster key a Go selection policy may declare per-harness
+// arms, pins, and vendor preferences under (rosterdata.Harness).
 const (
 	HarnessClaudeCode = "claude_code"
 	HarnessCodex      = "codex"
 	HarnessPi         = "pi"
 	HarnessCursor     = "cursor"
+	HarnessOpenCode   = "opencode"
 	HarnessAPI        = "api"
 	HarnessUnknown    = "unknown"
 )
@@ -27,7 +32,9 @@ func HarnessForClientApp(clientApp string) string {
 		return HarnessPi
 	case "cursor":
 		return HarnessCursor
-	case "api", "gemini", "gemini-cli", "opencode", "open-code":
+	case "opencode", "open-code":
+		return HarnessOpenCode
+	case "api", "gemini", "gemini-cli":
 		return HarnessAPI
 	default:
 		return HarnessUnknown

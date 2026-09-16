@@ -82,3 +82,41 @@ func TestCompileMapsPooledPinsToAllHarness(t *testing.T) {
 	assert.Equal(t, []string{"x-ai/grok-4.6"}, policy.Clusters["low"].ManualPinsByHarness[rosterdata.HarnessAll])
 	assert.NotContains(t, string(canonical), "pooled")
 }
+
+func TestCompileKeepsOpenCodeHarnessPolicy(t *testing.T) {
+	source := []byte(`{
+  "schema_version": "hmm_router_cluster_roster_v7",
+  "ranking": {
+    "alpha": {"low": 0.4},
+    "alpha_min": {"low": 0.05},
+    "alpha_max": {"low": 0.8},
+    "quality_bias_neutral": 0.7,
+    "wii_score_version": "wii-v1",
+    "wii_normalization_sha256": "wii-sha",
+    "wpi_score_version": "wpi-v1",
+    "wpi_normalization_sha256": "wpi-sha"
+  },
+  "harness_vendor_priority": {"opencode": {"vendors": ["openai"], "clusters": ["low"]}},
+  "clusters": {
+    "low": {
+      "complexity_label": "low",
+      "arms": ["openai/gpt-5.6-sol", "x-ai/grok-4.6"],
+      "arms_by_harness": {"opencode": ["x-ai/grok-4.6", "openai/gpt-5.6-sol"]},
+      "cost_ref_usd": 0.02,
+      "latency_ref_ms": 8000,
+      "arm_scores": {"openai/gpt-5.6-sol": 10, "x-ai/grok-4.6": 12},
+      "arm_indices": {"openai/gpt-5.6-sol": {"wii_v1": 50, "wpi_v1": 10}, "x-ai/grok-4.6": {"wii_v1": 55, "wpi_v1": 15}}
+    }
+  },
+  "manual_pins": {"opencode": {"low": ["x-ai/grok-4.6"]}}
+}`)
+
+	_, policy, err := policycompiler.Compile(source, policycompiler.Options{
+		ClassOrder: []string{"low"},
+	})
+	require.NoError(t, err)
+	low := policy.Clusters["low"]
+	assert.Equal(t, []string{"x-ai/grok-4.6", "openai/gpt-5.6-sol"}, low.ArmsByHarness[rosterdata.HarnessOpenCode])
+	assert.Equal(t, []string{"x-ai/grok-4.6"}, low.ManualPinsByHarness[rosterdata.HarnessOpenCode])
+	assert.Equal(t, []string{"openai"}, low.PreferredVendorsByHarness[rosterdata.HarnessOpenCode])
+}

@@ -29,7 +29,11 @@ const (
 	SchemaVersionPolicyV1 SchemaVersion = "hmm_go_selection_policy_v1"
 )
 
-// Harness identifies a request harness with policy-specific arm ordering.
+// Harness identifies a request harness with policy-specific arm ordering. The
+// values are the sidecar-facing vocabulary in internal/router/policy/harness.go;
+// a policy may only key per-harness arms, membership, pins, and vendor
+// preferences on a harness listed here, and a harness with no entry serves the
+// pooled cluster order.
 type Harness string
 
 const (
@@ -37,6 +41,7 @@ const (
 	HarnessClaudeCode Harness = "claude_code"
 	HarnessCodex      Harness = "codex"
 	HarnessPI         Harness = "pi"
+	HarnessOpenCode   Harness = "opencode"
 )
 
 // Roster is the complete Go-owned HMM serving policy.
@@ -412,7 +417,7 @@ func validateDynamicCluster(r *Roster, label string, cluster Cluster) error {
 
 func knownHarness(harness Harness) bool {
 	switch harness {
-	case HarnessAll, HarnessClaudeCode, HarnessCodex, HarnessPI:
+	case HarnessAll, HarnessClaudeCode, HarnessCodex, HarnessPI, HarnessOpenCode:
 		return true
 	default:
 		return false
