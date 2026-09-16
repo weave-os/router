@@ -157,15 +157,18 @@ func (s *Service) deliverRouterFeedback(ctx context.Context, queue RouterFeedbac
 }
 
 // feedbackCapabilityEnabled honors an explicitly disabled feedback capability.
-// A reporter that declares no capabilities at all (an older sidecar answering
-// an all-zero capability set) is not treated as a refusal: its ReportFeedback
-// is the contract, and skipping would silently drop the rating.
+// A reporter that has negotiated no capabilities at all is not treated as a
+// refusal: its ReportFeedback is the contract, and skipping would silently
+// drop the rating. A negotiated document always carries a schema version, so
+// an all-zero set with one is a sidecar that declared feedback off; its
+// SidecarRouter.ReportFeedback would return nil without sending, and marking
+// that delivered would acknowledge a report nobody received.
 func feedbackCapabilityEnabled(registered registeredStrategy) bool {
 	capabilities := registered.capabilities
 	if source, dynamic := registered.router.(policy.CapabilitySource); dynamic {
 		capabilities = source.CurrentCapabilities()
 	}
-	return capabilities == (policy.Capabilities{}) || capabilities.ReportsFeedback
+	return capabilities.SchemaVersion == "" || capabilities.ReportsFeedback
 }
 
 func routerFeedbackPayload(event RouterFeedbackEvent) map[string]interface{} {

@@ -40,13 +40,20 @@ func blendVectors(a, b []float32, alpha float32) []float32 {
 	return l2Normalize(out)
 }
 
+const (
+	sampleServedModel    = "claude-haiku-4-5"
+	sampleServedProvider = "anthropic"
+)
+
 func sampleResponse(body string) cache.CachedResponse {
 	h := http.Header{}
 	h.Set("Content-Type", "application/json")
 	return cache.CachedResponse{
-		StatusCode: http.StatusOK,
-		Headers:    h,
-		Body:       []byte(body),
+		ServedModel:    sampleServedModel,
+		ServedProvider: sampleServedProvider,
+		StatusCode:     http.StatusOK,
+		Headers:        h,
+		Body:           []byte(body),
 	}
 }
 
@@ -61,6 +68,23 @@ func TestCache_IdenticalEmbeddingHits(t *testing.T) {
 	require.True(t, hit, "identical embedding should hit")
 	assert.Equal(t, want.Body, got.Body)
 	assert.Equal(t, want.StatusCode, got.StatusCode)
+	assert.Equal(t, want.Headers, got.Headers)
+}
+
+// A replay records the producer's identity in completion history, so the
+// served model and provider must round-trip exactly as stored.
+func TestCache_ServedIdentitySurvivesRoundTrip(t *testing.T) {
+	c := cache.New(cache.DefaultConfig())
+	emb := l2Normalize([]float32{1, 0, 0, 0})
+	want := sampleResponse(`{"id":"resp-identity"}`)
+	want.ServedModel, want.ServedProvider = "gpt-5.5", "openai"
+
+	c.Store("inst-1", cache.FormatOpenAI, emb, 0, want, "v1", 0)
+
+	got, hit := c.Lookup("inst-1", cache.FormatOpenAI, emb, []int{0}, "v1", 0)
+	require.True(t, hit)
+	assert.Equal(t, "gpt-5.5", got.ServedModel)
+	assert.Equal(t, "openai", got.ServedProvider)
 }
 
 func TestCache_NearDuplicateHitsAboveThreshold(t *testing.T) {

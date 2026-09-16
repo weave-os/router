@@ -168,6 +168,165 @@ func TestFeedbackCompletionPreservesLargeLengthLimitedResponses(t *testing.T) {
 	require.Len(t, store.records, 1)
 }
 
+// An upstream that never completes an SSE frame must not grow the router's
+// memory for the life of the stream; the hold is capped and the stream fails.
+func TestFeedbackCompletionBoundsIncompleteFrames(t *testing.T) {
+	rec := httptest.NewRecorder()
+	store := &completionTestStore{}
+	gate := newFeedbackCompletion(rec, translate.EscalationResponseAnthropic, true)
+	gate.active, gate.store = true, store
+	chunk := []byte("data: " + strings.Repeat("x", 64<<10))
+	var written int
+	var err error
+	for written <= feedbackCompletionHoldCap+len(chunk) {
+		_, err = gate.Write(chunk)
+		if err != nil {
+			break
+		}
+		written += len(chunk)
+	}
+	require.ErrorIs(t, err, errFeedbackHoldExceeded)
+	require.LessOrEqual(t, gate.partial.Len()+gate.suffix.Len(), feedbackCompletionHoldCap, "retained bytes must stay within the cap")
+	require.Zero(t, gate.partial.Len(), "an over-cap hold is released, not retained")
+	_, err = gate.Write([]byte("more"))
+	require.ErrorIs(t, err, errFeedbackHoldExceeded, "a capped stream stays failed")
+	require.ErrorIs(t, gate.finish(context.Background(), nil), errFeedbackHoldExceeded)
+	require.Empty(t, store.records)
+}
+
+// A frame within the cap is held whole: the Responses terminal event carries
+// the full output, and it must still reach the client intact.
+func TestFeedbackCompletionHoldsLargeFrameWithinCap(t *testing.T) {
+	rec := httptest.NewRecorder()
+	store := &completionTestStore{}
+	gate := newFeedbackCompletion(rec, translate.EscalationResponseAnthropic, true)
+	gate.active, gate.store = true, store
+	prefix := completionStreams[0].prefix
+	suffix := completionStreams[0].suffix
+	large := "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"" + strings.Repeat("y", feedbackCompletionHoldCap/2) + "\"}}\n\n"
+	for _, part := range []string{prefix, large[:len(large)/2], large[len(large)/2:], suffix} {
+		_, err := gate.Write([]byte(part))
+		require.NoError(t, err)
+	}
+	require.NoError(t, gate.finish(context.Background(), nil))
+	require.Equal(t, prefix+large+suffix, rec.Body.String())
+	require.Len(t, store.records, 1)
+}
+
+// Chat and Gemini providers restate the finish reason on a trailing usage or
+// bookkeeping chunk. That repeat is not new output and must not fail a
+// response the client already received in full.
+func TestFeedbackCompletionAcceptsRepeatedFinishReason(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		format translate.EscalationResponseFormat
+		wire   string
+	}{
+		{"chat usage chunk restates finish_reason", translate.EscalationResponseChat,
+			"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hello\"},\"finish_reason\":null}]}\n\n" +
+				"data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+				"data: {\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[]},\"finish_reason\":\"stop\"}],\"usage\":{\"completion_tokens\":1}}\n\n" +
+				"data: [DONE]\n\n"},
+		{"gemini usage chunk restates finishReason", translate.EscalationResponseGemini,
+			"data: {\"candidates\":[{\"index\":0,\"content\":{\"parts\":[{\"text\":\"hello\"}]}}]}\n\n" +
+				"data: {\"candidates\":[{\"index\":0,\"finishReason\":\"STOP\"}]}\n\n" +
+				"data: {\"candidates\":[{\"index\":0,\"content\":{\"parts\":[]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"candidatesTokenCount\":1}}\n\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			store := &completionTestStore{}
+			gate := newFeedbackCompletion(rec, tc.format, true)
+			gate.active, gate.store = true, store
+			_, err := gate.Write([]byte(tc.wire))
+			require.NoError(t, err)
+			require.NoError(t, gate.finish(context.Background(), nil))
+			require.Len(t, store.records, 1)
+			require.Equal(t, tc.wire, rec.Body.String())
+		})
+	}
+}
+
+// Output after a finished choice, or a finish reason that is cleared again,
+// is still a lifecycle violation.
+func TestFeedbackCompletionRejectsOutputAfterFinishedChoice(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		format translate.EscalationResponseFormat
+		wire   string
+	}{
+		{"chat content after finish", translate.EscalationResponseChat,
+			"data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+				"data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"more\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"},
+		{"chat finish cleared", translate.EscalationResponseChat,
+			"data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+				"data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n"},
+		{"gemini parts after finish", translate.EscalationResponseGemini,
+			"data: {\"candidates\":[{\"index\":0,\"finishReason\":\"STOP\"}]}\n\n" +
+				"data: {\"candidates\":[{\"index\":0,\"content\":{\"parts\":[{\"text\":\"more\"}]},\"finishReason\":\"STOP\"}]}\n\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			store := &completionTestStore{}
+			gate := newFeedbackCompletion(rec, tc.format, true)
+			gate.active, gate.store = true, store
+			_, err := gate.Write([]byte(tc.wire))
+			require.NoError(t, err)
+			require.ErrorIs(t, gate.finish(context.Background(), nil), translate.ErrStreamOrder)
+			require.Empty(t, store.records)
+		})
+	}
+}
+
+// A client that disconnects after the answer is on the wire cancels the
+// request context; the history commit must survive that cancellation.
+func TestFeedbackCompletionCommitsHistoryAfterClientCancellation(t *testing.T) {
+	for _, tc := range completionStreams {
+		for _, stream := range []bool{false, true} {
+			t.Run(tc.name+"/"+map[bool]string{true: "stream", false: "body"}[stream], func(t *testing.T) {
+				rec := httptest.NewRecorder()
+				var commitErr error
+				var commitBounded bool
+				store := &contextCapturingStore{capture: func(ctx context.Context) {
+					commitErr = ctx.Err()
+					_, commitBounded = ctx.Deadline()
+				}}
+				gate := newFeedbackCompletion(rec, tc.format, stream)
+				gate.active, gate.store = true, store
+				input := tc.body
+				if stream {
+					input = tc.prefix + tc.suffix
+				}
+				_, err := gate.Write([]byte(input))
+				require.NoError(t, err)
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				require.NoError(t, gate.finish(ctx, nil))
+				require.Len(t, store.records, 1)
+				require.NoError(t, commitErr, "the commit context must not inherit the request's cancellation")
+				require.True(t, commitBounded, "the detached commit is still bounded")
+				require.Equal(t, input, rec.Body.String())
+			})
+		}
+	}
+}
+
+type contextCapturingStore struct {
+	records []FeedbackRequest
+	capture func(context.Context)
+}
+
+func (s *contextCapturingStore) CompleteFeedbackRequest(ctx context.Context, r FeedbackRequest) error {
+	s.capture(ctx)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.records = append(s.records, r)
+	return nil
+}
+func (*contextCapturingStore) AcceptRouterFeedback(_ context.Context, event RouterFeedbackEvent) (RouterFeedbackEvent, error) {
+	return event, nil
+}
+
 func TestFeedbackCompletionTransportFailureNeverCommits(t *testing.T) {
 	for _, tc := range completionStreams {
 		rec := httptest.NewRecorder()

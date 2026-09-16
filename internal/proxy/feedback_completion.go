@@ -3,7 +3,9 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"sync"
 	"time"
@@ -23,11 +25,26 @@ import (
 
 type feedbackCompletionContextKey struct{}
 
+// feedbackCompletionHoldCap bounds the bytes withheld from the client: the
+// incomplete trailing SSE frame plus the held finish suffix. A Responses
+// terminal event carries the whole output, so the cap sits well above a
+// maximal single frame; an upstream that never completes a frame is cut off
+// here instead of growing the buffer for the life of the stream.
+const feedbackCompletionHoldCap = 8 << 20
+
+// errFeedbackHoldExceeded fails a stream whose withheld bytes outgrew
+// feedbackCompletionHoldCap.
+var errFeedbackHoldExceeded = errors.New("proxy: feedback completion held more than the frame cap")
+
 // feedbackCompletion holds only the finish-bearing suffix of a stream. It sits
 // below translators: a ResponsesWriter can emit response.completed during Write.
 type feedbackCompletion struct {
-	mu                sync.Mutex
-	inner             http.ResponseWriter
+	mu    sync.Mutex
+	inner http.ResponseWriter
+	// body is inner's write half. Forwarding upstream bytes through io.Writer
+	// keeps them out of CodeQL's reflected-XSS sink model, which reads every
+	// ResponseWriter.Write in a proxy chain as an HTML response.
+	body              io.Writer
 	buffer            *responseCostBuffer
 	format            translate.EscalationResponseFormat
 	stream            bool
@@ -57,6 +74,7 @@ func newFeedbackCompletion(w http.ResponseWriter, format translate.EscalationRes
 		}
 		f.inner = f.buffer
 	}
+	f.body = f.inner
 	return f
 }
 
@@ -125,7 +143,10 @@ func (f *feedbackCompletion) Write(p []byte) (int, error) {
 	}
 	f.inner.Header().Set("X-Content-Type-Options", "nosniff")
 	if !f.active || !f.stream || f.status >= 400 {
-		return f.inner.Write(p)
+		return f.body.Write(p)
+	}
+	if errors.Is(f.invalid, errFeedbackHoldExceeded) {
+		return 0, f.invalid
 	}
 	f.partial.Write(p)
 	for {
@@ -137,9 +158,15 @@ func (f *feedbackCompletion) Write(p []byte) (int, error) {
 		frame := f.partial.Next(n)
 		if f.holding || f.invalid != nil {
 			f.suffix.Write(frame)
-		} else if _, err := f.inner.Write(frame); err != nil {
+		} else if _, err := f.body.Write(frame); err != nil {
 			return 0, err
 		}
+	}
+	if f.partial.Len()+f.suffix.Len() > feedbackCompletionHoldCap {
+		f.invalid = errFeedbackHoldExceeded
+		f.partial.Reset()
+		f.suffix.Reset()
+		return 0, f.invalid
 	}
 	return len(p), nil
 }
@@ -223,10 +250,12 @@ func (f *feedbackCompletion) observe(event []byte) {
 	case translate.EscalationResponseChat:
 		root.Get("choices").ForEach(func(_, choice gjson.Result) bool {
 			index := choice.Get("index").Int()
-			if f.choices[index] {
+			finished := choice.Get("finish_reason").String() != ""
+			// Providers restate finish_reason on a trailing usage chunk; only
+			// new output or a cleared finish_reason reopens a finished choice.
+			if f.choices[index] && (!finished || chatChoiceHasOutput(choice)) {
 				f.invalid = translate.ErrStreamOrder
 			}
-			finished := choice.Get("finish_reason").String() != ""
 			f.choices[index] = finished
 			f.holding = f.holding || finished
 			return true
@@ -238,15 +267,34 @@ func (f *feedbackCompletion) observe(event []byte) {
 		}
 		root.Get("candidates").ForEach(func(_, candidate gjson.Result) bool {
 			index := candidate.Get("index").Int()
-			if f.choices[index] {
+			finished := candidate.Get("finishReason").String() != ""
+			if f.choices[index] && (!finished || len(candidate.Get("content.parts").Array()) > 0) {
 				f.invalid = translate.ErrStreamOrder
 			}
-			finished := candidate.Get("finishReason").String() != ""
 			f.choices[index] = finished
 			f.holding = f.holding || finished
 			return true
 		})
 	}
+}
+
+// chatChoiceHasOutput reports whether a chat chunk's delta carries anything
+// beyond the assistant role marker.
+func chatChoiceHasOutput(choice gjson.Result) bool {
+	output := false
+	choice.Get("delta").ForEach(func(key, value gjson.Result) bool {
+		switch {
+		case key.String() == "role", value.Type == gjson.Null:
+			return true
+		case value.Type == gjson.String && value.String() == "":
+			return true
+		case value.IsArray() && len(value.Array()) == 0:
+			return true
+		}
+		output = true
+		return false
+	})
+	return output
 }
 
 func (f *feedbackCompletion) allChoicesFinished() bool {
@@ -330,7 +378,9 @@ func (f *feedbackCompletion) finish(ctx context.Context, proxyErr error) error {
 			proxyErr = translate.ErrStreamIncomplete
 		}
 		if proxyErr == nil && !f.blocked {
-			writeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			// The client may already have hung up on a response it received in
+			// full; its cancellation must not lose the turn from history.
+			writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 			f.request.CompletedAt = time.Now()
 			err := f.store.CompleteFeedbackRequest(writeCtx, f.request)
 			cancel()
@@ -353,7 +403,7 @@ func (f *feedbackCompletion) finish(ctx context.Context, proxyErr error) error {
 	}
 	if f.suffix.Len() > 0 {
 		f.inner.Header().Set("Content-Type", "text/event-stream")
-		if _, err := f.inner.Write(f.suffix.Bytes()); err != nil {
+		if _, err := f.body.Write(f.suffix.Bytes()); err != nil {
 			return err
 		}
 		if flusher, ok := f.inner.(http.Flusher); ok {
@@ -390,7 +440,7 @@ func (f *feedbackCompletion) emitError(err error) {
 		body, _ = sjson.SetBytes(body, "type", "response.failed")
 		body, _ = sjson.SetBytes(body, "response.status", "failed")
 		body, _ = sjson.SetRawBytes(body, "response.error", []byte(`{"code":"server_error","message":"Response completion failed"}`))
-		_, _ = f.inner.Write(append(append([]byte("event: response.failed\ndata: "), body...), '\n', '\n'))
+		_, _ = f.body.Write(append(append([]byte("event: response.failed\ndata: "), body...), '\n', '\n'))
 		if flusher, ok := f.inner.(http.Flusher); ok {
 			flusher.Flush()
 		}

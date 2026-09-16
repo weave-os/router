@@ -289,6 +289,8 @@ func TestService_Cache_HitIssuesFreshFeedbackLink(t *testing.T) {
 	require.Equal(t, proxy.RouterCacheHit, rec2.Header().Get(proxy.HeaderRouterCache))
 	assert.NotEmpty(t, rec2.Header().Get(proxy.HeaderRouterFeedbackURL))
 	assert.NotEqual(t, rec1.Header().Get(proxy.HeaderRouterFeedbackURL), rec2.Header().Get(proxy.HeaderRouterFeedbackURL), "cache replay must rate the new request, not the producer")
+	assert.Equal(t, 1, len(rec2.Header().Values(proxy.HeaderRouterFeedbackURL)), "the hit carries one fresh link, never the producer's alongside it")
+	assert.NotContains(t, rec2.Header().Values(proxy.HeaderRouterFeedbackURL), "https://router.example.com/f/STALE", "cache hit must not replay the producer's cached feedback link")
 }
 
 func TestService_Cache_DisabledByNilCache(t *testing.T) {

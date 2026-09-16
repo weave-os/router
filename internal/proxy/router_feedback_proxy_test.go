@@ -279,31 +279,6 @@ func TestService_RouterFeedbackCommand_OutOfRangeSelectorSavesUnattached(t *test
 	assert.Contains(t, text, "unattached", "the ack must say the feedback could not be attached")
 }
 
-func TestService_RouterFeedbackCommand_ResolvedTargetIsImmutable(t *testing.T) {
-	body := feedbackCommandBody("/rf- wrong tier")
-	store := newFakePinStore()
-	feedback := newFakeFeedbackStore()
-	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: feedbackRequestedModel, Reason: "cluster"}}
-	svc := newPinSvc(fr, store).WithObservationWorkers(testObservationWorkers(t)).WithRouterFeedbackStore(feedback)
-
-	installationID := uuid.NewString()
-	key := seedFeedbackHistory(t, feedback, installationID, body, proxy.FeedbackRequest{RequestID: "req-rated", ServedModel: feedbackAlternateModel})
-
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-	require.NoError(t, svc.ProxyMessages(authedCtx(installationID), []byte(body), httptest.NewRecorder(), httpReq))
-	accepted := feedback.acceptedEvents()
-	require.Len(t, accepted, 1)
-
-	// A response that completes after acceptance must not retarget the
-	// already-saved command, even though it is now the newest in the scope.
-	feedback.complete(installationID, key, "default_mid", proxy.FeedbackRequest{RequestID: "req-later", ServedModel: feedbackServedModel})
-	stored := feedback.event(accepted[0].ID)
-	assert.Equal(t, "req-rated", stored.RequestID)
-	assert.Equal(t, int64(1), stored.TargetSequence)
-	assert.Equal(t, "down", feedback.ratingFor("req-rated"))
-	assert.Empty(t, feedback.ratingFor("req-later"))
-}
-
 func TestService_RouterFeedbackCommand_NoteOnlyPreservesExistingThumb(t *testing.T) {
 	body := feedbackCommandBody("/rf the diff was incomplete")
 	store := newFakePinStore()

@@ -128,6 +128,8 @@ func (f *fakeFeedbackStore) AcceptRouterFeedback(_ context.Context, event proxy.
 		if event.Rating != "" {
 			f.ratings[target.RequestID] = event.Rating
 		}
+	} else {
+		event.TrainingAllowed = false
 	}
 	event.DeliveryStatus = proxy.RouterFeedbackPending
 	event.CreatedAt = f.clock()

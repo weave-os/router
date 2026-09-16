@@ -308,6 +308,25 @@ func TestRouterFeedbackProcessor_UndeclaredCapabilitiesStillReport(t *testing.T)
 	assert.Equal(t, proxy.RouterFeedbackDelivered, store.event(saved.ID).DeliveryStatus)
 }
 
+// A negotiated capability document that declares nothing but its schema is a
+// sidecar saying feedback is off, not one that never answered. Its reporter
+// drops the payload without sending, so acknowledging it as delivered would be
+// a lie; the command is skipped with its reason instead.
+func TestRouterFeedbackProcessor_ExplicitlyDisabledCapabilitiesAreSkipped(t *testing.T) {
+	store := newFakeFeedbackStore()
+	saved := acceptedFeedback(t, store, router.StrategyRL)
+	reporter := &capabilityFeedbackRouter{capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1}}
+	svc := processorSvc(t, policy.StrategySpec{Strategy: router.StrategyRL, Router: reporter, FeedbackRetrySafe: true})
+
+	claimed, err := svc.ProcessRouterFeedback(context.Background(), store)
+	require.NoError(t, err)
+	require.True(t, claimed)
+	assert.Empty(t, reporter.Payloads())
+	stored := store.event(saved.ID)
+	assert.Equal(t, proxy.RouterFeedbackSkipped, stored.DeliveryStatus)
+	assert.Contains(t, stored.LastError, "disabled")
+}
+
 func TestRouterFeedbackProcessor_PermissionCheckFailureRetries(t *testing.T) {
 	store := newFakeFeedbackStore()
 	saved := acceptedFeedback(t, store, router.StrategyRL)

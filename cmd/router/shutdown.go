@@ -25,7 +25,11 @@ func shutdownRouter(srv *http.Server, workers *observability.ObservationWorkers,
 	feedbackDone := make(chan struct{})
 	go func() { defer close(feedbackDone); stopFeedback(ctx) }()
 	drainObservations(ctx, workers, emitter, shutdownAPM, log)
-	<-feedbackDone
+	select {
+	case <-feedbackDone:
+	case <-ctx.Done():
+		log.Error("Router feedback processor shutdown exceeded the process budget", "err", ctx.Err())
+	}
 }
 
 func drainObservations(ctx context.Context, workers *observability.ObservationWorkers, emitter observationExporter, shutdownAPM func(context.Context), log *slog.Logger) {

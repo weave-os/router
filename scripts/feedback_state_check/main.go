@@ -337,7 +337,7 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 		return fmt.Errorf("stale owner settled recovered claim: %v", err)
 	}
 	// Simulate remote success followed by process death; retry must use the same event ID.
-	receiver := &deduplicatingReceiver{effects: make(map[string]int)}
+	receiver := &deduplicatingReceiver{effects: make(map[string]int), attempts: make(map[string]int)}
 	if err := receiver.ReportFeedback(ctx, map[string]interface{}{"feedback_id": recovered.ID}); err != nil {
 		return err
 	}
@@ -357,7 +357,13 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 			break
 		}
 	}
-	if receiver.effects[recovered.ID] != 1 {
+	if receiver.attempts[recovered.ID] != 2 {
+		return fmt.Errorf("retry delivered recovered command %d times, want the seeded success plus one redelivery", receiver.attempts[recovered.ID])
+	}
+	if len(receiver.attempts) != 1 {
+		return fmt.Errorf("retry delivered %d distinct command ids, want only the recovered one", len(receiver.attempts))
+	}
+	if receiver.effects[recovered.ID] != 1 || len(receiver.effects) != 1 {
 		return errors.New("redelivery repeated remote effect")
 	}
 	rating, err = repos.Feedback.GetContext(ctx, installation.ID, "B")
@@ -380,9 +386,12 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 	return nil
 }
 
+// deduplicatingReceiver models a learner that keys its effect on feedback_id:
+// attempts counts every delivery, effects only the first per id.
 type deduplicatingReceiver struct {
-	mu      sync.Mutex
-	effects map[string]int
+	mu       sync.Mutex
+	effects  map[string]int
+	attempts map[string]int
 }
 
 func (*deduplicatingReceiver) Route(context.Context, router.Request) (router.Decision, error) {
@@ -395,6 +404,7 @@ func (r *deduplicatingReceiver) ReportFeedback(_ context.Context, p map[string]i
 	if !ok || id == "" {
 		return errors.New("missing feedback id")
 	}
+	r.attempts[id]++
 	if _, exists := r.effects[id]; !exists {
 		r.effects[id] = 1
 	}
