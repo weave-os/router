@@ -1,0 +1,58 @@
+install/directives.tsv
+  s_049874a7166f8d::t_5a88057aa5701a 10
+install/install.sh
+  s_049874a7166f8d::t_5a88057aa5701a 1545
+  s_049874a7166f8d::t_5e083be4bf1ea9 3981-4208,4214-4217
+  s_049874a7166f8d::t_f4985513dd5689 518,524,582-586,1718,1721
+  s_049874a7166f8d::t_bd3c4528027e4c 577-581,589
+  s_049874a7166f8d::t_861134b3b205ad 587-588
+install/codex-directive.sh
+  s_049874a7166f8d::t_001326062d5d1f 1-185
+install/tests/registry_test.sh
+  s_049874a7166f8d::t_b6c1dedd66cd6a 63,212
+install/tests/codex-directive_test.sh
+  s_049874a7166f8d::t_5e68a6fbfcaa28 1-27,36,38-266
+  s_049874a7166f8d::t_4e71b8301e38c2 28-30,37
+  s_049874a7166f8d::t_8eb50a25da3698 31-33,35
+  s_049874a7166f8d::t_1735dadfdb8bb6 34
+install/npm/.gitignore
+  s_049874a7166f8d::t_d5b551bb5d7b25 3,9
+install/codex-skills/router-session/SKILL.md
+  s_049874a7166f8d::t_c50406a114eafb 1-21
+Makefile
+  s_049874a7166f8d::t_8eb50a25da3698 63
+install/npm/scripts/copy-installer.js
+  s_049874a7166f8d::t_004c32707d3188 14
+install/codex-skills/router-session/scripts/emit.sh
+  s_049874a7166f8d::t_363829b4961c54 1-35
+install/tests/packaging_test.sh
+  s_049874a7166f8d::t_004c32707d3188 40
+  s_049874a7166f8d::t_4195efed6e69e4 103
+install/uninstall.sh
+  s_049874a7166f8d::t_0a4f9b0d3da707 550,553,558,595-601
+  s_049874a7166f8d::t_5a88057aa5701a 47
+  s_049874a7166f8d::t_b2a3b238bcb46a 602-604
+install/README.md
+  s_049874a7166f8d::t_7c82031cb1b9e3 124,134,300-322
+  s_049874a7166f8d::t_49d14b9ef3b58e 323
+install/tests/codex_install_test.sh
+  s_049874a7166f8d::t_43ccedb2d6cb83 344-406
+install/npm/package.json
+  s_049874a7166f8d::t_004c32707d3188 23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "50570515ed8e29477e9d2230280d19b02ac4c9a4",
+  "prompts": {},
+  "sessions": {
+    "s_049874a7166f8d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7b6a9f0a-cd46-4fd9-942c-7daea97cec2a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
