@@ -100,6 +100,22 @@ func TestArmSelectorCanonicalizesOpenCodeAlias(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestArmSelectorPreservesPiSubagentIdentity(t *testing.T) {
+	adapter := newSelectorAdapter(classifierOnlyResult())
+	adapter.WithArmSelector(func(_ context.Context, input policy.SelectionInput) (policy.SelectionPick, error) {
+		assert.Equal(t, "pi-subagent", input.Harness)
+		return policy.SelectionPick{
+			Group:          "maximum",
+			Arm:            "anthropic/claude-sonnet-5",
+			RankedFallback: classifierFallback("maximum"),
+		}, nil
+	})
+
+	_, err := adapter.Route(context.Background(), router.Request{ClientApp: "pi-subagent"})
+
+	require.NoError(t, err)
+}
+
 func TestArmSelectorErrorFailsTheTurn(t *testing.T) {
 	adapter := newSelectorAdapter(classifierOnlyResult())
 	adapter.WithArmSelector(func(_ context.Context, _ policy.SelectionInput) (policy.SelectionPick, error) {

@@ -18,6 +18,17 @@ const (
 	HarnessUnknown    = "unknown"
 )
 
+// SelectionHarnessForClientApp canonicalizes OpenCode aliases for Go selection
+// while preserving the existing selection identity of other callers. The
+// latter keeps legacy pi-subagent roster behavior unchanged until its policy
+// rollout is separately evaluated.
+func SelectionHarnessForClientApp(clientApp string) string {
+	if HarnessForClientApp(clientApp) == HarnessOpenCode {
+		return HarnessOpenCode
+	}
+	return clientApp
+}
+
 // HarnessForClientApp maps a normalized client_app (see proxy.NormalizeClientApp)
 // onto the sidecar harness vocabulary.
 func HarnessForClientApp(clientApp string) string {

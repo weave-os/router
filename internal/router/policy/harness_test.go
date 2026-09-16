@@ -30,12 +30,11 @@ func TestHarnessForClientApp(t *testing.T) {
 	}
 }
 
-// Go arm selection keys the roster on router.Request.ClientApp while the
-// classifier request carries HarnessForClientApp(ClientApp); a harness value
-// that does not map onto itself would split one policy identity across the
-// two paths.
-func TestHarnessVocabularyIsStableUnderClientAppMapping(t *testing.T) {
-	for _, harness := range []string{HarnessClaudeCode, HarnessCodex, HarnessPi, HarnessCursor, HarnessOpenCode, HarnessAPI} {
-		assert.Equal(t, harness, HarnessForClientApp(harness), harness)
-	}
+// OpenCode aliases need one selection key so a future OpenCode-specific roster
+// applies consistently. Legacy pi-subagent selection remains unchanged until
+// its policy behavior is evaluated separately.
+func TestSelectionHarnessForClientApp(t *testing.T) {
+	assert.Equal(t, HarnessOpenCode, SelectionHarnessForClientApp("opencode"))
+	assert.Equal(t, HarnessOpenCode, SelectionHarnessForClientApp("open-code"))
+	assert.Equal(t, "pi-subagent", SelectionHarnessForClientApp("pi-subagent"))
 }
