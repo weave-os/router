@@ -179,9 +179,9 @@ run_uninstall() {
 }
 run_piped_uninstall() {
   local home="$1"; shift
-  cat "$uninstaller" | env ${XDG_CONFIG_HOME:+XDG_CONFIG_HOME="$XDG_CONFIG_HOME"} \
+  env ${XDG_CONFIG_HOME:+XDG_CONFIG_HOME="$XDG_CONFIG_HOME"} \
     HOME="$home" PATH="$test_path" NO_COLOR=1 \
-    bash -s -- "$@" >/dev/null 2>&1
+    bash -s -- "$@" <"$uninstaller" >/dev/null 2>&1
 }
 
 installed_names() { # installed_names <dir>
