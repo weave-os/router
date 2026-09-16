@@ -357,14 +357,18 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 			break
 		}
 	}
+	// The drain also delivers the other pending commands once each; only the
+	// recovered one must arrive a second time under its original identity.
 	if receiver.attempts[recovered.ID] != 2 {
 		return fmt.Errorf("retry delivered recovered command %d times, want the seeded success plus one redelivery", receiver.attempts[recovered.ID])
 	}
-	if len(receiver.attempts) != 1 {
-		return fmt.Errorf("retry delivered %d distinct command ids, want only the recovered one", len(receiver.attempts))
-	}
-	if receiver.effects[recovered.ID] != 1 || len(receiver.effects) != 1 {
+	if receiver.effects[recovered.ID] != 1 {
 		return errors.New("redelivery repeated remote effect")
+	}
+	for id, n := range receiver.attempts {
+		if id != recovered.ID && n != 1 {
+			return fmt.Errorf("command %s was delivered %d times without a lost lease", id, n)
+		}
 	}
 	rating, err = repos.Feedback.GetContext(ctx, installation.ID, "B")
 	if err != nil {
