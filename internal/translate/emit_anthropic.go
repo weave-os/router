@@ -16,6 +16,27 @@ import (
 	"github.com/tidwall/sjson"
 )
 
+// Anthropic content-block types that 400 unless they live on role:"system"
+// (the top-level system field, or a system message). Codex/Conductor emit them
+// on later messages; Anthropic then rejects the request with
+// messages.N.content: 'tool_addition'/'tool_removal' blocks are only permitted
+// within role: "system" messages.
+type anthropicSystemOnlyContentBlock string
+
+const (
+	anthropicSystemOnlyContentToolAddition anthropicSystemOnlyContentBlock = "tool_addition"
+	anthropicSystemOnlyContentToolRemoval  anthropicSystemOnlyContentBlock = "tool_removal"
+)
+
+func isAnthropicSystemOnlyContentBlock(blockType string) bool {
+	switch anthropicSystemOnlyContentBlock(blockType) {
+	case anthropicSystemOnlyContentToolAddition, anthropicSystemOnlyContentToolRemoval:
+		return true
+	default:
+		return false
+	}
+}
+
 // PrepareAnthropic builds an Anthropic Messages request body.
 func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (providers.PreparedRequest, error) {
 	var body []byte
@@ -745,8 +766,92 @@ func (e *RequestEnvelope) buildAnthropicFromAnthropic(opts EmitOptions) ([]byte,
 	if err != nil {
 		return nil, fmt.Errorf("hoist system messages: %w", err)
 	}
+	body, err = hoistAnthropicSystemOnlyContentBlocks(body)
+	if err != nil {
+		return nil, fmt.Errorf("hoist system-only content blocks: %w", err)
+	}
 	ov := resolveAnthropicOverrides(body, opts)
 	return applyOverrides(body, ov)
+}
+
+// hoistAnthropicSystemOnlyContentBlocks moves tool_addition/tool_removal content
+// blocks from non-system messages onto the top-level system field. Anthropic
+// rejects those block types anywhere else; the router also demotes mid-turn
+// system messages to user, which would otherwise 400 the same way.
+func hoistAnthropicSystemOnlyContentBlocks(body []byte) ([]byte, error) {
+	msgs := gjson.GetBytes(body, "messages")
+	if !msgs.IsArray() {
+		return body, nil
+	}
+	var systemOnly []string
+	var kept []string
+	changed := false
+	for _, msg := range msgs.Array() {
+		content := msg.Get("content")
+		if !content.IsArray() {
+			kept = append(kept, msg.Raw)
+			continue
+		}
+		var remaining []string
+		msgChanged := false
+		for _, part := range content.Array() {
+			if isAnthropicSystemOnlyContentBlock(part.Get("type").String()) {
+				systemOnly = append(systemOnly, part.Raw)
+				msgChanged = true
+				continue
+			}
+			remaining = append(remaining, part.Raw)
+		}
+		if !msgChanged {
+			kept = append(kept, msg.Raw)
+			continue
+		}
+		changed = true
+		if len(remaining) == 0 {
+			continue
+		}
+		rewritten, err := sjson.SetRawBytes([]byte(msg.Raw), "content", []byte("["+strings.Join(remaining, ",")+"]"))
+		if err != nil {
+			return nil, fmt.Errorf("strip system-only content blocks: %w", err)
+		}
+		kept = append(kept, string(rewritten))
+	}
+	if !changed {
+		return body, nil
+	}
+	out, err := sjson.SetRawBytes(body, "messages", []byte("["+strings.Join(kept, ",")+"]"))
+	if err != nil {
+		return nil, fmt.Errorf("rebuild messages after system-only hoist: %w", err)
+	}
+	return appendAnthropicSystemContentBlocks(out, systemOnly)
+}
+
+func appendAnthropicSystemContentBlocks(body []byte, blocks []string) ([]byte, error) {
+	if len(blocks) == 0 {
+		return body, nil
+	}
+	sw := newJSONWriter()
+	sw.Arr()
+	switch existing := gjson.GetBytes(body, "system"); {
+	case existing.Type == gjson.String:
+		if s := existing.String(); s != "" {
+			writeAnthropicTextBlock(sw, s)
+		}
+	case existing.IsArray():
+		existing.ForEach(func(_, b gjson.Result) bool {
+			sw.Raw(b.Raw)
+			return true
+		})
+	}
+	for _, block := range blocks {
+		sw.Raw(block)
+	}
+	sw.EndArr()
+	out, err := sjson.SetRawBytes(body, "system", sw.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("append system-only content blocks: %w", err)
+	}
+	return out, nil
 }
 
 // hoistAnthropicSystemMessages clears role:"system" entries from "messages"
