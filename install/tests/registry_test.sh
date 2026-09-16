@@ -425,6 +425,16 @@ check "install preserves a user-owned Claude command" "my own wrapper" \
 # Wrappers written before ownership markers existed carry none. One whose body
 # still matches what this installer writes is ours from an older version, so an
 # upgrade must adopt it — otherwise it is never refreshed and never uninstalled.
+sidecar_upgrade_home="$work/claude-sidecar-upgrade"; mkdir -p "$sidecar_upgrade_home"
+run_install "$sidecar_upgrade_home" --claude --scope user
+stale_body=$'---\ndescription: stale force-model wrapper.\n---\n\n/force-model $ARGUMENTS'
+printf '%s\n' "$stale_body" >"$sidecar_upgrade_home/.claude/commands/fm.md"
+printf 'weave-router managed command: fm\n%s\n' "$stale_body" \
+  >"$sidecar_upgrade_home/.claude/commands/fm.md.weave-router"
+run_install "$sidecar_upgrade_home" --claude --scope user
+check "an owned wrapper with a changed body is refreshed" \
+  "$(cat "$install_dir/commands/fm.md")" "$(cat "$sidecar_upgrade_home/.claude/commands/fm.md")"
+
 legacy_home="$work/claude-legacy"; mkdir -p "$legacy_home/.claude/commands"
 legacy_body="$(sed 's/{{SCOPE}}//g' "$install_dir/commands/fm.md")"
 printf '%s\n' "$legacy_body" >"$legacy_home/.claude/commands/fm.md"

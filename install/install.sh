@@ -3557,22 +3557,29 @@ EOF
     src="$commands_src_dir/$cmd.md"
     dst="$dst_dir/$cmd.md"
     [ -f "$src" ] || continue
-    if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
-      refuse_if_symlink "$dst"
-    fi
     # Substitute the {{SCOPE}} placeholder (only the router-* wrappers carry it;
     # cp-equivalent for the others since the token is absent).
     local body; body="$(cat "$src")"
     body="${body//\{\{SCOPE\}\}/$scope_args}"
+    ownership_file="$dst.weave-router"
+    if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
+      refuse_if_symlink "$dst"
+      refuse_if_symlink "$ownership_file"
+    fi
     # Wrappers installed before ownership markers existed carry no marker. A
     # file whose body still matches what this installer would write is one of
     # ours from an older version, so adopt it rather than treating it as
     # user-owned — otherwise every pre-marker install is stranded: never
     # refreshed, never uninstalled, and skipped by the statusline refresh.
-    # Anything that does not match byte-for-byte is left alone.
+    # The sidecar comparison also recognizes a router-owned wrapper after its
+    # bundled body changes, while a user edit breaks that comparison.
     if [ -e "$dst" ] && { [ ! -f "$dst" ] || ! grep -Fq "<!-- weave-router managed command: $cmd -->" "$dst"; }; then
       if [ -f "$dst" ] && [ "$(cat "$dst")" = "$body" ]; then
         : # an unmarked copy of our own wrapper; fall through and adopt it
+      elif [ -f "$ownership_file" ] \
+           && [ "$(sed -n '1p' "$ownership_file")" = "weave-router managed command: $cmd" ] \
+           && [ "$(sed '1d' "$ownership_file")" = "$(cat "$dst")" ]; then
+        : # a markerless wrapper whose sidecar still matches its body
       else
         warn "A user-owned $target command already exists at $dst; leaving it untouched."
         continue
@@ -3580,10 +3587,6 @@ EOF
     fi
     printf '%s\n' "$body" >"$dst"
     # Keep ownership metadata in a sidecar so Claude Code never sends it as prompt text.
-    ownership_file="$dst.weave-router"
-    if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
-      refuse_if_symlink "$ownership_file"
-    fi
     printf 'weave-router managed command: %s\n%s\n' "$cmd" "$body" >"$ownership_file"
   done
   seed_command_baseline "$commands_src_dir" "$cmds"
