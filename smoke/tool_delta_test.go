@@ -9,9 +9,9 @@ import (
 
 const toolDeltaPinModel = "claude-opus-5"
 
-// TestToolDeltaBlocks sends both mid-conversation tool-change blocks on user
-// messages, matching the client shape that previously reached Anthropic with
-// the blocks on a non-system role.
+// TestToolDeltaBlocks sends mid-conversation tool-change blocks on user and
+// assistant messages, matching the client shapes that previously reached
+// Anthropic with the blocks on a non-system role.
 func TestToolDeltaBlocks(t *testing.T) {
 	body := toolDeltaRequest(t)
 	r := callModel(t, body, toolDeltaPinModel)
@@ -34,12 +34,15 @@ func toolDeltaRequest(t *testing.T) []byte {
 				"tool": map[string]any{"type": "tool_reference", "name": "Read"},
 			},
 			map[string]any{"type": "text", "text": "Continue with the available tools."},
+		}},
+		map[string]any{"role": "assistant", "content": []any{
 			map[string]any{
 				"type": "tool_removal",
 				"tool": map[string]any{"type": "tool_reference", "name": "Edit"},
 			},
-			map[string]any{"type": "text", "text": "Now reply with exactly: ok"},
+			map[string]any{"type": "text", "text": "I will continue."},
 		}},
+		map[string]any{"role": "user", "content": "Now reply with exactly: ok"},
 	}
 	out, err := json.Marshal(request)
 	if err != nil {

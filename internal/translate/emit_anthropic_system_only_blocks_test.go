@@ -106,6 +106,32 @@ func TestPrepareAnthropic_DropsMessageThatOnlyHadSystemOnlyBlocks(t *testing.T) 
 	assert.Equal(t, "tool_addition", msgs[1].Get("content.0.type").String())
 }
 
+func TestPrepareAnthropic_PlacesAssistantToolDeltaBeforeAssistantTurn(t *testing.T) {
+	body := []byte(`{
+		"model": "claude-opus-4-8",
+		"max_tokens": 1024,
+		"messages": [
+			{"role": "user", "content": "start"},
+			{"role": "assistant", "content": [
+				{"type": "tool_addition", "toolset_id": "skills"},
+				{"type": "tool_use", "id": "call_1", "name": "Read", "input": {}}
+			]},
+			{"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "ok"}]}
+		]
+	}`)
+	out := prepareAnthropicBody(t, body)
+
+	msgs := gjson.GetBytes(out, "messages").Array()
+	require.Len(t, msgs, 4)
+	assert.Equal(t, "user", msgs[0].Get("role").String())
+	assert.Equal(t, "system", msgs[1].Get("role").String())
+	assert.Equal(t, "tool_addition", msgs[1].Get("content.0.type").String())
+	assert.Equal(t, "assistant", msgs[2].Get("role").String())
+	assert.Equal(t, "tool_use", msgs[2].Get("content.0.type").String())
+	assert.Equal(t, "user", msgs[3].Get("role").String())
+	assert.Equal(t, "tool_result", msgs[3].Get("content.0.type").String())
+}
+
 func TestPrepareAnthropicPassthrough_NormalizesToolDeltas(t *testing.T) {
 	body := []byte(`{
 		"model": "claude-opus-4-8",

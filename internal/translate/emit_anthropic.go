@@ -819,6 +819,7 @@ func normalizeAnthropicSystemOnlyContentBlocks(body []byte) ([]byte, error) {
 			continue
 		}
 		changed = true
+		role := msg.Get("role").String()
 		systemMessage := newJSONWriter()
 		systemMessage.Obj()
 		systemMessage.Key("role")
@@ -830,17 +831,26 @@ func normalizeAnthropicSystemOnlyContentBlocks(body []byte) ([]byte, error) {
 		}
 		systemMessage.EndArr()
 		systemMessage.EndObj()
+		if role == "assistant" {
+			// A system tool-change directive must follow a user turn (or an
+			// assistant turn ending in a server-tool result). Place it before
+			// the rewritten assistant turn so it cannot split tool_use from its
+			// following tool_result user turn.
+			kept = append(kept, string(systemMessage.Bytes()))
+		}
 		if len(remaining) > 0 {
 			rewritten, err := sjson.SetRawBytes([]byte(msg.Raw), "content", []byte("["+strings.Join(remaining, ",")+"]"))
 			if err != nil {
 				return nil, fmt.Errorf("strip system-only content blocks: %w", err)
 			}
+			kept = append(kept, string(rewritten))
+		}
+		if role != "assistant" {
 			// Anthropic requires a non-directive system message to follow a
 			// user message, so keep the rewritten user turn before its tool
 			// change directive. The directive then applies to the next turn.
-			kept = append(kept, string(rewritten))
+			kept = append(kept, string(systemMessage.Bytes()))
 		}
-		kept = append(kept, string(systemMessage.Bytes()))
 	}
 	if !changed {
 		return body, nil
