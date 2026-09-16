@@ -27,6 +27,10 @@ set -euo pipefail
 scope="user"
 scope_explicit="false"
 install_dir=""
+script_dir=""
+if [ -n "${BASH_SOURCE[0]:-}" ]; then
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)" || script_dir=""
+fi
 
 # ---------- directive registry (embedded) ----------
 #
@@ -158,6 +162,34 @@ refuse_if_symlink() {
     err "$target is a symlink (-> $(readlink "$target")). Refusing to operate on it."
     exit 1
   fi
+}
+
+# weave_command_router_owned accepts legacy marker-bearing wrappers and the
+# markerless wrappers written by current installers. A markerless wrapper is
+# owned only when its rendered body still matches the bundled command source.
+weave_command_router_owned() {
+  local command_file="$1" command_name="$2" source_file expected scope_args="" candidate
+  if grep -Fq "<!-- weave-router managed command: $command_name -->" "$command_file" 2>/dev/null; then
+    return 0
+  fi
+
+  if [ -n "$install_dir" ]; then
+    scope_args=" --dir $(printf '%q' "$install_dir")"
+  elif [ "$scope" = "project" ]; then
+    scope_args=" --scope project"
+  fi
+
+  for candidate in \
+    "$script_dir/commands" \
+    "$script_dir/../commands"
+  do
+    source_file="$candidate/$command_name.md"
+    [ -f "$source_file" ] || continue
+    expected="$(cat "$source_file")"
+    expected="${expected//\{\{SCOPE\}\}/$scope_args}"
+    [ "$(cat "$command_file")" = "$expected" ] && return 0
+  done
+  return 1
 }
 
 # claude_statusline_router_owned reports whether a settings entry points at the
@@ -519,7 +551,7 @@ if [ "$target" = "opencode" ]; then
       while IFS= read -r cmd; do
         cmd_file="$opencode_cmds_dir/$cmd.md"
         if [ -f "$cmd_file" ]; then
-          if grep -Fq "<!-- weave-router managed command: $cmd -->" "$cmd_file"; then
+          if weave_command_router_owned "$cmd_file" "$cmd"; then
             refuse_if_symlink "$cmd_file"
             rm -f "$cmd_file"
             ok "Removed $cmd_file"
@@ -1004,7 +1036,7 @@ if [ -d "$commands_dir" ]; then
     cmd_file="$commands_dir/$cmd.md"
     if [ -f "$cmd_file" ]; then
       refuse_if_symlink "$cmd_file"
-      if grep -Fq "<!-- weave-router managed command: $cmd -->" "$cmd_file"; then
+      if weave_command_router_owned "$cmd_file" "$cmd"; then
         rm -f "$cmd_file"
         ok "Removed $cmd_file"
       else

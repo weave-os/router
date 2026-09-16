@@ -311,9 +311,10 @@ make_command_install() { # make_command_install <root> <cache_home> [scope_args]
   mkdir -p "$baseline"
   for name in "$script_dir/../commands"/*.md; do
     body="$(cat "$name")"
-    # Mirror install_slash_commands: rendered body plus the ownership marker.
-    printf '%s\n<!-- weave-router managed command: %s -->' \
-      "${body//\{\{SCOPE\}\}/$scope_args}" "$(basename "$name" .md)" \
+    # Mirror install_slash_commands: render the command body without adding
+    # ownership metadata to the prompt Claude Code sends to the model.
+    printf '%s\n' \
+      "${body//\{\{SCOPE\}\}/$scope_args}" \
       >"$root/.claude/commands/$(basename "$name")"
     cp "$name" "$baseline/$(basename "$name")"
   done
@@ -338,6 +339,8 @@ if wait_for 20 grep -q 'refreshed fm.' "$c/root/.claude/commands/fm.md"; then
 else
   no "an upstream wrapper change reaches the install" "refreshed body" "$(cat "$c/root/.claude/commands/fm.md")"
 fi
+check "a refreshed wrapper has no ownership marker" "" \
+  "$(grep -F '<!-- weave-router managed command:' "$c/root/.claude/commands/fm.md" || true)"
 
 # A wrapper the user edited is theirs. Overwriting it is the one unrecoverable
 # mistake here, so the baseline comparison must veto the swap.

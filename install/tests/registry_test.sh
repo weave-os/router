@@ -192,6 +192,8 @@ run_install "$cc_home" --claude --scope user
 check "claude user install writes exactly the registry's commands" \
   "$(weave_registry_names claude | sort | tr '\n' ' ' | sed 's/ $//')" \
   "$(installed_names "$cc_home/.claude/commands")"
+check "claude commands do not contain ownership markers" "" \
+  "$(grep -rho '<!-- weave-router managed command:' "$cc_home/.claude/commands" || true)"
 
 # Reinstalling repairs a router-owned statusline after its permissions or file
 # contents are damaged, while a same-named user script remains untouched.
@@ -405,11 +407,10 @@ legacy_body="$(sed 's/{{SCOPE}}//g' "$install_dir/commands/fm.md")"
 printf '%s\n' "$legacy_body" >"$legacy_home/.claude/commands/fm.md"
 printf '%s\n' 'MY OWN CUSTOM WRAPPER' >"$legacy_home/.claude/commands/rf.md"
 run_install "$legacy_home" --claude --scope user
-if grep -Fq '<!-- weave-router managed command: fm -->' "$legacy_home/.claude/commands/fm.md"; then
-  ok "an upgrade adopts an unmarked wrapper it previously wrote"
-else
-  no "an upgrade adopts an unmarked wrapper it previously wrote" "marker added" "still unmarked"
-fi
+check "an upgrade adopts an unmarked wrapper it previously wrote" "$legacy_body" \
+  "$(cat "$legacy_home/.claude/commands/fm.md")"
+check "an upgrade does not add an ownership marker to the wrapper" "" \
+  "$(grep -F '<!-- weave-router managed command:' "$legacy_home/.claude/commands/fm.md" || true)"
 check "an upgrade still leaves a genuinely user-authored command alone" "MY OWN CUSTOM WRAPPER" \
   "$(cat "$legacy_home/.claude/commands/rf.md")"
 
