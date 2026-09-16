@@ -12,7 +12,7 @@ import (
 
 type observationExporter interface{ Shutdown(context.Context) error }
 
-func shutdownRouter(srv *http.Server, workers *observability.ObservationWorkers, emitter observationExporter, shutdownAPM func(context.Context), log *slog.Logger) {
+func shutdownRouter(srv *http.Server, workers *observability.ObservationWorkers, emitter observationExporter, shutdownAPM, stopFeedback func(context.Context), log *slog.Logger) {
 	// Keep one nine-second process budget, including HTTP drain and all exporters.
 	ctx, cancel := context.WithTimeout(context.Background(), 9*time.Second)
 	defer cancel()
@@ -22,7 +22,14 @@ func shutdownRouter(srv *http.Server, workers *observability.ObservationWorkers,
 	if err != nil {
 		log.Error("Graceful shutdown failed", "err", err)
 	}
+	feedbackDone := make(chan struct{})
+	go func() { defer close(feedbackDone); stopFeedback(ctx) }()
 	drainObservations(ctx, workers, emitter, shutdownAPM, log)
+	select {
+	case <-feedbackDone:
+	case <-ctx.Done():
+		log.Error("Router feedback processor shutdown exceeded the process budget", "err", ctx.Err())
+	}
 }
 
 func drainObservations(ctx context.Context, workers *observability.ObservationWorkers, emitter observationExporter, shutdownAPM func(context.Context), log *slog.Logger) {

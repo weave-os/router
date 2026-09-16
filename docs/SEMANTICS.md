@@ -76,3 +76,50 @@ historical names:
 New code, documentation, and telemetry should use the terms above. When
 touching legacy docs, prefer updating them to the new terminology or adding a
 note that they use the pre-2026-07-23 convention.
+
+## `/rf` completion history
+
+`/rf` addresses **completed actions**, not user turns or rounds. Successful
+`MainLoop` and `ToolResult` replies count, including forced models, subscription
+bypass, native inference passthrough and cache hits. Command acknowledgments,
+auxiliary/shadow inference, route-only calls and transport-incomplete responses
+do not count. A valid model length-limit ending does count.
+
+History is scoped to the authenticated installation, the existing API-key/session
+digest, and the requested model's logical tier role. Numbering follows the commit
+order of compact completion records, not request start time or telemetry arrival.
+The router streams normal output immediately, commits history, then releases the
+success-ending suffix (or nonstreaming body). A configured database failure fails
+completion rather than releasing an unrecorded success or rerunning inference.
+Deployments without a durable store retain inference but cannot accept `/rf`.
+
+An omitted selector is `-1` (latest). Positive selectors count from the beginning;
+negative selectors count from the end. The parser accepts magnitudes 1–99. The
+acceptance transaction resolves once and commits the command and optional thumb
+rating together before “Feedback saved.” Notes alone preserve an existing thumb.
+Out-of-range submissions remain saved but explicitly unattached; later responses
+cannot give them a target. Telemetry is optional and cannot retarget feedback.
+Separate HTTP submissions are separate commands, not deduplicated human intent.
+
+Server completion order cannot establish which concurrent answer a user intended.
+An assistant response launching the feedback skill can itself occupy a position.
+A completion committed just before a socket failure remains in server history.
+The router does not guess around either limitation.
+
+### Human-controlled cutover and rollback
+
+1. Apply the additive durable-feedback migration using the normal migration
+   procedure; old `router_feedback` rows default to skipped delivery, not replay.
+2. Drain old inference writers before admitting traffic to history-enabled
+   replicas. An old replica completing without history breaks the complete-prefix
+   guarantee. Start numbered history at this cutover; do not backfill incomplete
+   telemetry to invent earlier positions.
+3. Verify completion writes, saved local ratings and pending-work age using the
+   existing database/log tools. Records follow installation retention with no
+   independent history TTL; physical installation deletion cascades to history.
+4. On application rollback, keep the additive schema and accepted feedback.
+   Numbered durable-history guarantees are unavailable while old writers serve.
+   The down migration is for disposable verification or a separately approved
+   destructive rollback, not a way to preserve accepted submissions.
+
+No migration, deployment or production mutation is performed by the build.

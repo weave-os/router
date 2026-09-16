@@ -75,6 +75,7 @@ func TestProxyMessages_OSSOutageFailsOverToBaselineAnthropic(t *testing.T) {
 	defer anthropicUpstream.Close()
 
 	store := newFakePinStore()
+	history := &historyCompletionStore{}
 	// A telemetry sink makes usageRequired() true so the usage extractor runs
 	// and recordTurnUsage fires with the served-turn token counts.
 	tel := newCaptureTelemetry()
@@ -87,7 +88,7 @@ func TestProxyMessages_OSSOutageFailsOverToBaselineAnthropic(t *testing.T) {
 			"anthropic":  anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
 		},
 		nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", tel,
-	).WithObservationWorkers(testObservationWorkers(t)).WithDeploymentKeyedProviders(map[string]struct{}{
+	).WithRouterFeedbackStore(history).WithObservationWorkers(testObservationWorkers(t)).WithDeploymentKeyedProviders(map[string]struct{}{
 		"fireworks":  {},
 		"openrouter": {},
 		"anthropic":  {},
@@ -101,6 +102,9 @@ func TestProxyMessages_OSSOutageFailsOverToBaselineAnthropic(t *testing.T) {
 
 	err := svc.ProxyMessages(authedCtx("11111111-1111-1111-1111-111111111111"), body, rec, req)
 	require.NoError(t, err, "ProxyMessages should succeed via baseline failover to Anthropic")
+	require.Len(t, history.records, 1)
+	assert.Equal(t, providers.ProviderAnthropic, history.records[0].ServedProvider)
+	assert.Equal(t, completionBaselineModel, history.records[0].ServedModel)
 
 	mu.Lock()
 	defer mu.Unlock()

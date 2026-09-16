@@ -99,7 +99,7 @@ func TestPolicySnapshotOwnsTrainingDeltaAndPreservesLargeInteger(t *testing.T) {
 	messages := []router.ConversationMessage{{Role: "assistant", ToolCalls: []router.ConversationToolCall{{Name: "read_file", InputKeys: []string{"path"}, InputJSON: `{"path":"file.go"}`}}}}
 	payload := map[string]any{"training_allowed": true, "selection_head_generation": int64(9007199254740993), "training_conversation_delta": messages}
 	snapshots := make(chan map[string]any, 1)
-	submitObservation(workers.Remote, observability.WorkFeedback, observability.FromContext(context.Background()), payload, time.Second, func(_ context.Context, p map[string]any) error { snapshots <- p; return nil })
+	submitObservation(context.Background(), workers.Remote, observability.WorkFeedback, observability.FromContext(context.Background()), payload, time.Second, func(_ context.Context, p map[string]any) error { snapshots <- p; return nil })
 	messages[0].ToolCalls[0].InputKeys[0] = "secret"
 	messages[0].ToolCalls[0].InputJSON = "mutated"
 	payload["training_allowed"] = false
@@ -116,7 +116,7 @@ func TestPolicyOutcomeSnapshotDeliversFullCaptureWindowIntact(t *testing.T) {
 	responseText := strings.Repeat("\u00e9", policyOutcomeResponseMaxBytes)
 	payload := map[string]any{"route_id": "route-large", "training_allowed": true, "response_text": responseText}
 	snapshots := make(chan map[string]any, 1)
-	submitObservation(workers.Remote, observability.WorkOutcome, observability.FromContext(context.Background()), payload, time.Second, func(_ context.Context, p map[string]any) error { snapshots <- p; return nil })
+	submitObservation(context.Background(), workers.Remote, observability.WorkOutcome, observability.FromContext(context.Background()), payload, time.Second, func(_ context.Context, p map[string]any) error { snapshots <- p; return nil })
 	select {
 	case got := <-snapshots:
 		assert.Equal(t, "route-large", got["route_id"])

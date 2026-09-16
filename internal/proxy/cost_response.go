@@ -64,6 +64,25 @@ func (b *responseCostBuffer) FlushToClient() error {
 	return nil
 }
 
+// Abort discards an unconfirmed success without committing HTTP status or body.
+func (b *responseCostBuffer) Abort() {
+	b.body.Reset()
+	b.inner.Header().Del("Content-Length")
+	b.inner.Header().Del("Content-Encoding")
+	b.flushed = true
+}
+
+func (b *responseCostBuffer) finish(err error) error {
+	if err != nil && b.status < http.StatusBadRequest {
+		b.Abort()
+		return err
+	}
+	if flushErr := b.FlushToClient(); flushErr != nil {
+		return flushErr
+	}
+	return err
+}
+
 type routerResponseCost struct {
 	TotalUSD            float64 `json:"usd"`
 	InputUSD            float64 `json:"input_usd"`

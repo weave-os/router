@@ -249,9 +249,11 @@ func isRouterFeedbackAckOnlyContent(content gjson.Result) bool {
 
 func isRouterFeedbackAckText(text string) bool {
 	trimmed := strings.TrimSpace(text)
-	return strings.HasPrefix(trimmed, "Weave Router: Feedback recorded") ||
+	return strings.HasPrefix(trimmed, "Weave Router: Feedback saved") ||
+		strings.HasPrefix(trimmed, "Weave Router: Feedback recorded") ||
 		strings.HasPrefix(trimmed, "Weave Router: router-feedback needs a verdict") ||
 		strings.HasPrefix(trimmed, "Weave Router: No turn found at that sequence number") ||
+		strings.HasPrefix(trimmed, "✦ **Weave Router** → Feedback saved") ||
 		strings.HasPrefix(trimmed, "✦ **Weave Router** → Feedback recorded") ||
 		strings.HasPrefix(trimmed, "✦ **Weave Router** → Router-feedback needs a verdict") ||
 		strings.HasPrefix(trimmed, "✦ **Weave Router** → No turn found at that sequence number")

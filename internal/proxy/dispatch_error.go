@@ -37,6 +37,7 @@ const (
 	DispatchErrorAllowlistEmptiesPool
 	DispatchErrorContextWindowExceeded
 	DispatchErrorInvalidRoutingKnobs
+	DispatchErrorFeedbackUnavailable
 	DispatchErrorRLPolicyUnavailable
 	DispatchErrorBanditUnavailable
 	DispatchErrorHMMUnavailable
@@ -99,6 +100,14 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	var forcedClusterUnservable *policy.ForcedClusterUnservableError
 	var resolution *policy.ResolutionError
 	switch {
+	case errors.Is(err, ErrFeedbackUnavailable):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorFeedbackUnavailable,
+			Status:     http.StatusServiceUnavailable,
+			Message:    "Durable router feedback is unavailable on this deployment.",
+			LogLevel:   "error",
+			LogMessage: "Durable router feedback unavailable",
+		}, true
 	case errors.Is(err, ErrSubscriptionPoolExhausted):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorSubscriptionPoolExhausted,

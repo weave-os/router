@@ -139,6 +139,11 @@ jobs:
             -database 'postgres://router:router@localhost:5432/router?sslmode=disable&search_path=router' \
             up
 
+      - name: Check durable feedback transactions
+        env:
+          ROUTER_TEST_DATABASE_URL: postgres://router:router@localhost:5432/router?sslmode=disable&search_path=router
+        run: go run ./scripts/feedback_state_check
+
       # Detects schema/query drift: if migrations or queries change
       # without regenerating internal/sqlc/, this fails the build.
       - name: Check sqlc generation is up to date

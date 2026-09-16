@@ -1,6 +1,6 @@
 ---
 description: Submit feedback about router decision or model performance.
-argument-hint: <feedback-text>
+argument-hint: "[±1–99] [+|-|note] [--label=label, with - only] (default: latest completed action)"
 ---
 
 /router-feedback $ARGUMENTS
