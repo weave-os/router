@@ -107,7 +107,9 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 			}, backoff.WithBackOff(retryBackoff), backoff.WithMaxTries(5), backoff.WithMaxElapsedTime(100*time.Millisecond))
 		}
 		if lookupErr == nil && !found {
-			legacyActivation := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%s/%d", res.InstallationID, apiKeyID, res.Strategy, mode, selection.Epoch)))
+			// Compatibility requires the exact pre-HMAC identifier for continuations
+			// written before the credential-pseudonym hardening deployment.
+			legacyActivation := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%s/%d", res.InstallationID, apiKeyID, res.Strategy, mode, selection.Epoch))) // lgtm[go/weak-sensitive-data-hashing]
 			priorScope, history, found, lookupErr = s.escalationStore.Continuation(claimCtx, legacyActivation, observation.ContinuationID)
 		}
 		if lookupErr != nil || !found {
