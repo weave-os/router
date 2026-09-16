@@ -20,7 +20,7 @@ const (
 	inferencePolicyOwner           = "@steventohme"
 
 	// EscalationJudgeModel is the reviewed Switchyard judge target.
-	EscalationJudgeModel = "deepseek/deepseek-v4-flash"
+	EscalationJudgeModel = "z-ai/glm-5.3-flash"
 
 	// HandoverSummaryDefaultModel is the reviewed default target of the
 	// handover-summary policy. Haiku-class: summarization is cheap.
@@ -526,12 +526,12 @@ func defaultPolicySpecs() []PolicySpec {
 		{
 			Purpose:            PurposeEscalationJudge,
 			Optional:           true,
-			FixedProvider:      providers.ProviderOpenRouter,
+			FixedProvider:      providers.ProviderFireworks,
 			DispatchClass:      DispatchClassAuxiliaryInference,
 			PolicyID:           "aux-escalation-judge",
-			PolicyRevision:     "1",
+			PolicyRevision:     "2",
 			Owner:              inferencePolicyOwner,
-			Rationale:          "Judge a completed conversation prefix asynchronously with the pinned Switchyard rubric; failures leave serving unchanged and inference is funded by Weave.",
+			Rationale:          "Judge a completed conversation prefix asynchronously with the pinned Switchyard rubric through Fireworks; failures leave serving unchanged and inference is funded by Weave.",
 			SelectionStrategy:  SelectionStrategyFixedCatalog,
 			CandidateSource:    CandidateSourceFixedCatalog,
 			FixedCatalogModels: []string{EscalationJudgeModel},

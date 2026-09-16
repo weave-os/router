@@ -234,7 +234,7 @@ func TestBillAuxiliaryInferenceTagsSessionAndCost(t *testing.T) {
 
 func TestEscalationJudgeTelemetryIsPlatformFunded(t *testing.T) {
 	service, billingRepo, telemetryRepo := auxTestService(t)
-	job := llmescalation.Job{ID: "checkpoint-3", Lifetime: "classifier-session", Model: policy.EscalationJudgeModel, Provider: providers.ProviderOpenRouter}
+	job := llmescalation.Job{ID: "checkpoint-3", Lifetime: "classifier-session", Model: policy.EscalationJudgeModel, Provider: providers.ProviderFireworks}
 	judgment := llmescalation.Judgment{
 		Usage:   inference.Usage{Known: true, InputTokens: 1200, OutputTokens: 40},
 		CostUSD: 0.0042, CostKnown: true, CostSource: llmescalation.CostSourceProviderReported,

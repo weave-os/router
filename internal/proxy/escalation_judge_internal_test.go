@@ -66,9 +66,9 @@ func (p *escalationJudgeTestProvider) Proxy(ctx context.Context, decision router
 
 func TestEscalationJudgeIsolatesCredentialsAndPreservesPrompt(t *testing.T) {
 	provider := &escalationJudgeTestProvider{fakeHandoverProvider: fakeHandoverProvider{respBody: string(escalationTestResponse(t, `{"escalate":false,"reason":"Progressing."}`))}}
-	plans, err := policy.NewPlanResolver(policy.DefaultRegistry(), policy.NewResolver(map[string]struct{}{policy.EscalationJudgeModel: {}}, map[string]struct{}{providers.ProviderOpenRouter: {}}, func(model catalog.Model) string { return model.ID }, policy.ProviderPolicy{}))
+	plans, err := policy.NewPlanResolver(policy.DefaultRegistry(), policy.NewResolver(map[string]struct{}{policy.EscalationJudgeModel: {}}, map[string]struct{}{providers.ProviderFireworks: {}}, func(model catalog.Model) string { return model.ID }, policy.ProviderPolicy{}))
 	require.NoError(t, err)
-	executor, err := dispatch.NewExecutor(dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenRouter: provider}))
+	executor, err := dispatch.NewExecutor(dispatch.NewClients(map[string]providers.Client{providers.ProviderFireworks: provider}))
 	require.NoError(t, err)
 	judge, err := NewEscalationJudge(plans, executor, "dedicated-test-key")
 	require.NoError(t, err)
@@ -81,7 +81,8 @@ func TestEscalationJudgeIsolatesCredentialsAndPreservesPrompt(t *testing.T) {
 	assert.Empty(t, provider.credentials.IdentityHeader)
 	assert.Equal(t, llmescalation.SystemPrompt, gjson.GetBytes(provider.prepared.Body, "messages.0.content").String())
 	assert.JSONEq(t, string(llmescalation.ResponseSchema), gjson.GetBytes(provider.prepared.Body, "response_format").Raw)
-	assert.False(t, gjson.GetBytes(provider.prepared.Body, "reasoning.enabled").Bool())
+	assert.Equal(t, "accounts/fireworks/models/glm-5p3-flash", gjson.GetBytes(provider.prepared.Body, "model").String())
+	assert.False(t, gjson.GetBytes(provider.prepared.Body, "reasoning").Exists())
 	assert.EqualValues(t, 4096, gjson.GetBytes(provider.prepared.Body, "max_tokens").Int())
 	provider.upstreamErr = &providers.UpstreamStatusError{Status: http.StatusTooManyRequests}
 	_, err = judge.Judge(ctx, llmescalation.JudgeRequest{Transcript: "Synthetic conversation"})

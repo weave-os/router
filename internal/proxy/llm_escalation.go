@@ -61,7 +61,7 @@ func (s *Service) beginLLMEscalation(ctx context.Context, env *translate.Request
 	if (!active && !shadow) || s.llmEscalationStore == nil || s.llmEscalationJudge == nil || (active && res.Strategy != router.StrategyHMMEmbedding) || req.ShadowMode || req.ForceModel != "" || req.ForceCluster != "" || res.InstallationID == uuid.Nil || (res.TurnType != turntype.MainLoop && res.TurnType != turntype.ToolResult) {
 		return nil
 	}
-	if len(req.GatewayProviders) > 0 || slices.Contains(installationExcludedProvidersFromContext(ctx), providers.ProviderOpenRouter) {
+	if len(req.GatewayProviders) > 0 || slices.Contains(installationExcludedProvidersFromContext(ctx), providers.ProviderFireworks) {
 		observability.FromContext(ctx).Info("LLM escalation skipped", "reason", "provider_restricted")
 		return nil
 	}
@@ -73,7 +73,7 @@ func (s *Service) beginLLMEscalation(ctx context.Context, env *translate.Request
 	if active {
 		mode = llmescalation.ModeActive
 	}
-	digest := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%s/%d", llmescalation.Version, llmescalation.SwitchyardRevision, llmescalation.SystemPrompt, llmescalation.ResponseSchema, selection.Cadence)))
+	digest := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%s/%s/%s/%d", llmescalation.Version, policy.EscalationJudgeModel, providers.ProviderFireworks, llmescalation.SwitchyardRevision, llmescalation.SystemPrompt, llmescalation.ResponseSchema, selection.Cadence)))
 	config := llmescalation.Config{Mode: mode, Epoch: selection.Epoch, Cadence: selection.Cadence, Digest: fmt.Sprintf("%x", digest)}
 	scope := sha256.Sum256([]byte(fmt.Sprintf("%s/%x/%s/%s/%d/%s", res.InstallationID, res.SessionKey, res.Strategy, mode, selection.Epoch, config.Digest)))
 	activation := escalationActivationID(res.InstallationID, fmt.Sprintf("%s/%s/%s/%d/%s", apiKeyID, res.Strategy, mode, selection.Epoch, config.Digest))

@@ -1,6 +1,6 @@
 {
   "schema_version": "inference_policy_registry_v2",
-  "registry_revision": "sha256:968575f6857dd26f214959f3dff238a2db1edae6bc9ebd047b770ed6b7ed93fa",
+  "registry_revision": "sha256:8e08bab47e2104c6281cf9f9b26ad7271efe1144d797b04bedce0a7ec7da4577",
   "policies": [
     {
       "purpose": "agent_shadow_evaluation",
@@ -224,17 +224,17 @@
     },
     {
       "optional": true,
-      "fixed_provider": "openrouter",
+      "fixed_provider": "fireworks",
       "purpose": "escalation_judge",
       "dispatch_class": "auxiliary_inference",
       "policy_id": "aux-escalation-judge",
-      "policy_revision": "1",
+      "policy_revision": "2",
       "owner": "@steventohme",
-      "rationale": "Judge a completed conversation prefix asynchronously with the pinned Switchyard rubric; failures leave serving unchanged and inference is funded by Weave.",
+      "rationale": "Judge a completed conversation prefix asynchronously with the pinned Switchyard rubric through Fireworks; failures leave serving unchanged and inference is funded by Weave.",
       "selection_strategy": "fixed_catalog",
       "candidate_source": "fixed_catalog",
       "fixed_catalog_models": [
-        "deepseek/deepseek-v4-flash"
+        "z-ai/glm-5.3-flash"
       ],
       "hard_constraints": [
         "catalog_binding",

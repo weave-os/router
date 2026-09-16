@@ -21,7 +21,7 @@ import (
 	"weave-os/router/internal/router/policy"
 )
 
-const escalationJudgeBaseURL = "https://openrouter.ai/api/v1"
+const escalationJudgeBaseURL = "https://api.fireworks.ai/inference/v1"
 const escalationJudgeResponseLimit = 128 * 1024
 
 // ErrInvalidEscalationJudgment separates paid malformed responses from transport failures.
@@ -34,10 +34,10 @@ type EscalationJudge struct {
 	apiKey   string
 }
 
-// NewEscalationJudge requires dedicated credentials; caller credentials never apply.
+// NewEscalationJudge requires platform credentials; caller credentials never apply.
 func NewEscalationJudge(plans *policy.PlanResolver, executor *dispatch.Executor, apiKey string) (*EscalationJudge, error) {
 	if plans == nil || executor == nil || strings.TrimSpace(apiKey) == "" {
-		return nil, errors.New("escalation judge requires policy resolver, executor, and dedicated key")
+		return nil, errors.New("escalation judge requires policy resolver, executor, and platform key")
 	}
 	return &EscalationJudge{plans: plans, executor: executor, apiKey: apiKey}, nil
 }
@@ -47,7 +47,7 @@ func (j *EscalationJudge) Judge(ctx context.Context, request llmescalation.Judge
 	plan, err := j.plans.Resolve(policy.ResolutionRequest{
 		Purpose: policy.PurposeEscalationJudge,
 		RouterRequest: router.Request{
-			EnabledProviders:     map[string]struct{}{providers.ProviderOpenRouter: {}},
+			EnabledProviders:     map[string]struct{}{providers.ProviderFireworks: {}},
 			EstimatedInputTokens: (len(request.Transcript) + len(llmescalation.SystemPrompt)) / 3,
 		},
 	})
@@ -72,12 +72,9 @@ func (j *EscalationJudge) Judge(ctx context.Context, request llmescalation.Judge
 				Model          string                   `json:"model"`
 				Messages       []escalationJudgeMessage `json:"messages"`
 				ResponseFormat json.RawMessage          `json:"response_format"`
-				Reasoning      struct {
-					Enabled bool `json:"enabled"`
-				} `json:"reasoning"`
-				MaxTokens int  `json:"max_tokens"`
-				Stream    bool `json:"stream"`
-			}{Model: attempt.Target.CatalogID, Messages: []escalationJudgeMessage{{Role: escalationJudgeRoleSystem, Content: llmescalation.SystemPrompt}, {Role: escalationJudgeRoleUser, Content: request.Transcript}}, ResponseFormat: llmescalation.ResponseSchema, MaxTokens: plan.Budget().MaxOutputTokens})
+				MaxTokens      int                      `json:"max_tokens"`
+				Stream         bool                     `json:"stream"`
+			}{Model: attempt.Target.UpstreamID, Messages: []escalationJudgeMessage{{Role: escalationJudgeRoleSystem, Content: llmescalation.SystemPrompt}, {Role: escalationJudgeRoleUser, Content: request.Transcript}}, ResponseFormat: llmescalation.ResponseSchema, MaxTokens: plan.Budget().MaxOutputTokens})
 			if encodeErr != nil {
 				return providers.PreparedRequest{}, nil, encodeErr
 			}
@@ -151,8 +148,8 @@ func parseEscalationJudgment(encoded []byte) (llmescalation.Judgment, error) {
 				judgment.CostUSD = *response.Usage.Cost
 				judgment.CostKnown = true
 				judgment.CostSource = llmescalation.CostSourceProviderReported
-			} else if pricing, found := catalog.PriceFor(providers.ProviderOpenRouter, policy.EscalationJudgeModel); found {
-				judgment.CostUSD = catalog.EffectiveInputCost(prompt, 0, cached, pricing, providers.ProviderOpenRouter) + catalog.EffectiveOutputCost(prompt, completion, pricing)
+			} else if pricing, found := catalog.PriceFor(providers.ProviderFireworks, policy.EscalationJudgeModel); found {
+				judgment.CostUSD = catalog.EffectiveInputCost(prompt, 0, cached, pricing, providers.ProviderFireworks) + catalog.EffectiveOutputCost(prompt, completion, pricing)
 				judgment.CostKnown = true
 				judgment.CostSource = llmescalation.CostSourceCatalogEstimate
 			}

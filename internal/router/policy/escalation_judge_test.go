@@ -10,11 +10,12 @@ import (
 	"weave-os/router/internal/router/policy"
 )
 
-func TestEscalationJudgePolicyOnlyResolvesOpenRouter(t *testing.T) {
-	resolver := newPlanResolver(t, modelSet(policy.EscalationJudgeModel), providerSet(providers.ProviderMakora, providers.ProviderOpenRouter))
+func TestEscalationJudgePolicyOnlyResolvesFireworks(t *testing.T) {
+	resolver := newPlanResolver(t, modelSet(policy.EscalationJudgeModel), providerSet(providers.ProviderMakora, providers.ProviderFireworks))
 	plan, err := resolver.Resolve(policy.ResolutionRequest{Purpose: policy.PurposeEscalationJudge})
 	require.NoError(t, err)
-	assert.Equal(t, providers.ProviderOpenRouter, plan.SelectedTarget().Provider)
+	assert.Equal(t, providers.ProviderFireworks, plan.SelectedTarget().Provider)
+	assert.Equal(t, "accounts/fireworks/models/glm-5p3-flash", plan.SelectedTarget().UpstreamID)
 	assert.Empty(t, plan.AlternativeTargets())
 	assert.Equal(t, 1, plan.Budget().MaxAttempts)
 	assert.EqualValues(t, 20_000, plan.Budget().TimeoutMillis)
@@ -31,6 +32,6 @@ func TestEscalationJudgeDeploymentIsOptional(t *testing.T) {
 	require.NoError(t, policy.DefaultRegistry().ValidateDeployment(config))
 	config.EnabledOptionalPurposes = map[policy.Purpose]bool{policy.PurposeEscalationJudge: true}
 	require.Error(t, policy.DefaultRegistry().ValidateDeployment(config))
-	config.AvailableProviders[providers.ProviderOpenRouter] = struct{}{}
+	config.AvailableProviders[providers.ProviderFireworks] = struct{}{}
 	require.NoError(t, policy.DefaultRegistry().ValidateDeployment(config))
 }

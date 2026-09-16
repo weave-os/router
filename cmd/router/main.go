@@ -854,7 +854,7 @@ func main() {
 		logger.Error("Invalid escalation judge enablement", "err", err)
 		panic(err)
 	}
-	escalationJudgeKey := strings.TrimSpace(os.Getenv("ROUTER_ESCALATION_JUDGE_API_KEY"))
+	escalationJudgeKey := strings.TrimSpace(os.Getenv("FIREWORKS_API_KEY"))
 	escalationJudgeActiveEnabled, err := strconv.ParseBool(config.GetOr("ROUTER_ESCALATION_JUDGE_ACTIVE_ENABLED", "false"))
 	if err != nil {
 		logger.Error("Invalid escalation judge active rollout enablement", "err", err)
@@ -865,7 +865,7 @@ func main() {
 	}
 	if escalationJudgeEnabled {
 		if escalationJudgeKey == "" {
-			panic("ROUTER_ESCALATION_JUDGE_API_KEY is required when the escalation judge is enabled")
+			panic("FIREWORKS_API_KEY is required when the escalation judge is enabled")
 		}
 		inferenceDeployment.EnabledOptionalPurposes = map[policy.Purpose]bool{policy.PurposeEscalationJudge: true}
 	}

@@ -104,7 +104,7 @@ func (j *blockingEscalationJudge) Judge(_ context.Context, request llmescalation
 }
 
 func TestLLMEscalationJudgeRunsAfterCompletionWithoutBlocking(t *testing.T) {
-	job := llmescalation.Job{ID: "job-1", Lifetime: "life-1", Checkpoint: 3, Model: policy.EscalationJudgeModel, Provider: providers.ProviderOpenRouter}
+	job := llmescalation.Job{ID: "job-1", Lifetime: "life-1", Checkpoint: 3, Model: policy.EscalationJudgeModel, Provider: providers.ProviderFireworks}
 	store := &llmEscalationStoreStub{completion: llmescalation.Completion{Job: &job}, finished: make(chan struct{})}
 	judge := &blockingEscalationJudge{started: make(chan llmescalation.JudgeRequest, 1), release: make(chan struct{}), judgment: llmescalation.Judgment{Escalate: true, Reason: "loop"}}
 	service := (&Service{}).WithLLMEscalation(store, judge)

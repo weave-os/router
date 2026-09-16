@@ -109,7 +109,7 @@ func (r *LLMEscalationRepo) Complete(ctx context.Context, request llmescalation.
 				ID: uuid.NewString(), Scope: session.Scope, Lifetime: session.Lifetime,
 				Generation: session.Generation, Checkpoint: session.LatestCheckpoint,
 				RequestID: request.RequestID, Status: llmescalation.JobRunning, CreatedAt: time.Now().UTC(),
-				Model: policy.EscalationJudgeModel, Provider: providers.ProviderOpenRouter,
+				Model: policy.EscalationJudgeModel, Provider: providers.ProviderFireworks,
 				Version: llmescalation.Version, PromptRevision: llmescalation.SwitchyardRevision,
 				SchemaRevision: llmescalation.SwitchyardRevision, RendererRevision: llmescalation.SwitchyardRevision,
 				ConfigDigest: session.Config.Digest,
