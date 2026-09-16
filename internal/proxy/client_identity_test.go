@@ -302,7 +302,7 @@ func TestClientIdentityFromHeaders_OpenCodeAgent(t *testing.T) {
 		h.Set(requestcontext.OpenCodeAgentHeader, "reviewer")
 		assert.Equal(t, requestcontext.OpenCodeAgent(""), proxy.ClientIdentityFromHeaders(h).OpenCodeAgent)
 	})
-	t.Run("case and whitespace are not normalized into a match", func(t *testing.T) {
+	t.Run("case is sensitive and whitespace is trimmed", func(t *testing.T) {
 		h := http.Header{}
 		h.Set("X-App", "opencode")
 		h.Set(requestcontext.OpenCodeAgentHeader, "Title")
