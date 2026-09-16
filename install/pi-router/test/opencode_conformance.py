@@ -24,12 +24,12 @@ COMMAND_TIMEOUT = 60
 
 
 def stop_process_group(process: subprocess.Popen) -> None:
-    # Also reap descendants after a successful parent exit (no orphan watchdogs).
-    if process.poll() is None:
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except ProcessLookupError:
-            pass
+    # Signal the whole session even after the leader exited: a same-group helper
+    # (OpenCode's local server) can outlive a successful `opencode run`.
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
     process.wait(timeout=5)
 
 
