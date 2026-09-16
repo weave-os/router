@@ -1,0 +1,240 @@
+internal/flags/escalation_test.go
+  s_750a9b47d4712c::t_52827cb7471322 1-40
+docs/POLICY_INFERENCE.json
+  s_dcf6051f82ab96::t_7b13c769120f49 3,225-256
+  s_750a9b47d4712c::t_15d0e9fa8b9b0a 257-258
+docs/POLICY_INFERENCE.md
+  s_dcf6051f82ab96::t_7b13c769120f49 6,19
+internal/sqlc/llm_escalation.sql.go
+  s_750a9b47d4712c::t_86279ca6c4b166 38-67
+  s_dcf6051f82ab96::t_d91bd9ec6cff9a 1-37,68-258,263-265,270-273,278,285-302,366-543,573-622
+  s_750a9b47d4712c::t_c5f97903c04c80 303-365
+  s_dcf6051f82ab96::t_4d0e9401a8c121 259-262,266-269,274-277,279-284
+  s_750a9b47d4712c::t_ec07eaad9199d8 544-572
+internal/router/llmescalation/configuration.go
+  s_dcf6051f82ab96::t_5c2aebfd97db97 13-15
+  s_750a9b47d4712c::t_a9f74a7cdc45c7 18-24,29-33,38-39
+  s_dcf6051f82ab96::t_e2703233960798 1-12,16-17,25-28,34-37,40
+cmd/router/main.go
+  s_dcf6051f82ab96::t_a9a3835d5e3b44 1110-1113
+  s_dcf6051f82ab96::t_69b038273cfa50 1160
+  s_dcf6051f82ab96::t_6c97b79807a4e2 848-852,2133-2137
+  s_750a9b47d4712c::t_4794015a7a4b62 1167
+  s_dcf6051f82ab96::t_30e2163bf80a40 55,853,862-867,1159,1161-1163,1168,1174
+  s_dcf6051f82ab96::t_3469c54235bf3b 854-861,1175
+  s_dcf6051f82ab96::t_b3653fd087570f 1164-1166
+internal/router/policy/inference_purpose.go
+  s_dcf6051f82ab96::t_16145d8561f79e 12,38
+internal/auth/service.go
+  s_dcf6051f82ab96::t_6c97b79807a4e2 233-238
+internal/router/llmescalation/LICENSE.switchyard
+  s_750a9b47d4712c::t_a9f74a7cdc45c7 1-204
+internal/postgres/llm_escalation_repo.go
+  s_dcf6051f82ab96::t_23ec0e485fcdce 246-277
+  s_750a9b47d4712c::t_a9f74a7cdc45c7 4-14,16-17,19,23,26-29,33-77,81-88,90-107,117-149,153-197,201-211,213-245,278-305,307-322,325-334,338-349,353-362,364,366-384,386,388,396,398-409,411,435-471,473,475,481
+  s_dcf6051f82ab96::t_cab882b09229b0 476-480
+  s_dcf6051f82ab96::t_d91bd9ec6cff9a 1-3,20-22,24-25,30-32,78-80,150-152,198-200,306,323-324,335-337,350-352,363,365,385,387,410,434,472,474
+  s_dcf6051f82ab96::t_6518d8ca118d44 15,18,112
+  s_dcf6051f82ab96::t_34f1f56d8834f3 389-395,397
+  s_dcf6051f82ab96::t_77b1e66a05eaf9 89,108-111,113-116,212
+  s_dcf6051f82ab96::t_544d1fbe12a1e1 412-433
+internal/router/llmescalation/transcript_test.go
+  s_dcf6051f82ab96::t_a344edb2ba6752 20,27-35
+  s_750a9b47d4712c::t_a9f74a7cdc45c7 1-19,21-26,36-84
+internal/router/policy/inference_registry.go
+  s_dcf6051f82ab96::t_16145d8561f79e 22-24,191-192
+  s_750a9b47d4712c::t_3089e77a747fb6 72-73,526-543
+  s_dcf6051f82ab96::t_9457cd6642437d 193
+internal/postgres/llm_escalation_check_fixture.go
+  s_750a9b47d4712c::t_36d5044b87b53b 1-3,8-10,15-16,23-25,32-34,41
+  s_750a9b47d4712c::t_5bdb933461848b 4-7,11-14,17-22,26-31,35-40
+internal/proxy/service.go
+  s_dcf6051f82ab96::t_48865a20eea979 37
+  s_750a9b47d4712c::t_fccc09fee06767 3741,6541
+  s_dcf6051f82ab96::t_4d0e9401a8c121 93-98
+  s_dcf6051f82ab96::t_77b1e66a05eaf9 99-100
+  s_dcf6051f82ab96::t_3469c54235bf3b 101
+db/queries/llm_escalation_config.sql
+  s_dcf6051f82ab96::t_5c2aebfd97db97 10-12
+  s_dcf6051f82ab96::t_e2703233960798 1-9,13
+db/queries/llm_escalation.sql
+  s_dcf6051f82ab96::t_cab882b09229b0 118-130
+  s_dcf6051f82ab96::t_d91bd9ec6cff9a 8,14,18-19,24,29,33-34,39,43,45,51-52,62-63,70,75,81,92,96,117,131-134
+  s_dcf6051f82ab96::t_62be47180f12ad 54-58
+  s_dcf6051f82ab96::t_fba78175ffd464 1-7,9-13,15-17,20-23,25-28,30-32,35-38,40-42,44,46-50,53,59-61,64-69,71-74,76-80,82-84,88-91,93-95,97,114-116
+  s_dcf6051f82ab96::t_51c27be3d5d37a 98-113
+  s_dcf6051f82ab96::t_34f1f56d8834f3 85-87
+internal/sqlc/llm_escalation_config.sql.go
+  s_dcf6051f82ab96::t_5c2aebfd97db97 35-37,53-55
+  s_750a9b47d4712c::t_36d5044b87b53b 1-34,38-52,56-62
+scripts/llm_escalation_state_check/main.go
+  s_750a9b47d4712c::t_5bdb933461848b 1-279
+internal/server/server.go
+  s_dcf6051f82ab96::t_4eb610363a6de1 190-193
+internal/router/llmescalation/contracts.go
+  s_750a9b47d4712c::t_a9f74a7cdc45c7 22-26,30,39,41,48-51,56-57,81-83,87,89,91-94,99,101-102,104-107,110,115-126,131-143,155-156,158,163-164,166,171-172,189-195,199,202,206-209
+  s_dcf6051f82ab96::t_d110be76dd7142 223-224
+  s_dcf6051f82ab96::t_3e094da0eb4dbf 11,20
+  s_dcf6051f82ab96::t_192846cd51dd27 1-7,9-10,12-14,18-19,21,27-29,31-38,40,42-47,52-55,58-62,69-70,80,84-86,88,90,95-98,100,103,111-114,127-130,151-154,157,159-162,165,167-170,173-175,188,196-198,200-201,203-205,210-216,218-220,222,225-226
+  s_750a9b47d4712c::t_ec07eaad9199d8 63-67
+  s_dcf6051f82ab96::t_62be47180f12ad 68,71-79,108-109,217
+  s_dcf6051f82ab96::t_77b1e66a05eaf9 144-150
+  s_dcf6051f82ab96::t_51c27be3d5d37a 176-187,221
+  s_dcf6051f82ab96::t_9d35a571c21770 8,15-17
+internal/proxy/turnloop.go
+  s_dcf6051f82ab96::t_48865a20eea979 173,1526-1530,1647-1649,1984-1993,1995
+  s_750a9b47d4712c::t_0aaac7f697723e 1994
+internal/proxy/escalation.go
+  s_dcf6051f82ab96::t_48865a20eea979 247,263,269,274
+  s_dcf6051f82ab96::t_f26b50effa4d30 86
+  s_dcf6051f82ab96::t_e30ebb6e9a5705 64-66,74-75
+internal/router/llmescalation/prompt.md
+  s_dcf6051f82ab96::t_0e1503868a109e 1-178
+internal/router/llmescalation/transcript.go
+  s_dcf6051f82ab96::t_f26b50effa4d30 52
+  s_dcf6051f82ab96::t_62be47180f12ad 7,102-104
+  s_dcf6051f82ab96::t_4fa25ee30e98fa 53
+  s_dcf6051f82ab96::t_4c017161399133 1-6,9-15,39-51,54,56,61-63,67-73,81-85,89,92-97,100-101,106,109-115,128,135-137
+  s_750a9b47d4712c::t_a9f74a7cdc45c7 22-24,27-33,36,55,57-60,64-66,74-80,86-88,90-91,98-99,105,107-108,116-127,129-134
+  s_dcf6051f82ab96::t_9d35a571c21770 8,16-21,25-26,34-35,37-38
+internal/proxy/llm_escalation_admin.go
+  s_dcf6051f82ab96::t_3469c54235bf3b 31,34,92-94
+  s_dcf6051f82ab96::t_4d0e9401a8c121 21
+  s_dcf6051f82ab96::t_d26de3fdebb293 1-19,22-30,32-33,35-52,58-91,95-112
+  s_dcf6051f82ab96::t_544d1fbe12a1e1 20,53-57
+internal/router/policy/inference_deployment.go
+  s_dcf6051f82ab96::t_16145d8561f79e 21,63-65,90-94
+  s_750a9b47d4712c::t_3089e77a747fb6 20,22
+internal/proxy/auxiliary_inference.go
+  s_750a9b47d4712c::t_86279ca6c4b166 135-146,148
+  s_dcf6051f82ab96::t_035890cf330293 11,29-34,121-134,147
+  s_dcf6051f82ab96::t_a1e7fe132d6279 149-150
+internal/proxy/llm_escalation_internal_test.go
+  s_dcf6051f82ab96::t_1992a42ae3cc3b 11,80-93,148-165
+  s_dcf6051f82ab96::t_cff7d202f2fb5e 1-10,14-15,17-20,28-65,69-74,78-79,94-100,102-105,107,109-147,166-169
+  s_dcf6051f82ab96::t_290ec0749d05ef 13
+  s_750a9b47d4712c::t_783cc316f5aabc 21-27,75-77,106,108
+  s_dcf6051f82ab96::t_0cb20c6335f0f6 12,16
+  s_dcf6051f82ab96::t_544d1fbe12a1e1 66-68
+  s_dcf6051f82ab96::t_6518d8ca118d44 101
+internal/proxy/auxiliary_inference_internal_test.go
+  s_dcf6051f82ab96::t_e491642d572dbc 11,15,235-236,238,240-249
+  s_dcf6051f82ab96::t_0cb20c6335f0f6 12
+  s_dcf6051f82ab96::t_6518d8ca118d44 237
+  s_750a9b47d4712c::t_4804320d794b72 239
+  s_1022fe4dd27d9e::t_8b01dca70ddfe0 250-251
+internal/postgres/llm_escalation_config.go
+  s_dcf6051f82ab96::t_b3653fd087570f 4-5,7-9,11-14,21-32,37-56,58-62,64-78,82-87
+  s_dcf6051f82ab96::t_6c97b79807a4e2 6,63
+  s_dcf6051f82ab96::t_5c2aebfd97db97 1-3,10,15-20,33-36,79-81,88
+  s_8e92cfe050629d::t_f1b2231a69f465 57
+internal/flags/flags.go
+  s_750a9b47d4712c::t_3089e77a747fb6 47-50
+  s_750a9b47d4712c::t_2a7c13e4bde0e1 108,116-119,470
+internal/translate/escalation_observation_test.go
+  s_dcf6051f82ab96::t_f26b50effa4d30 136
+db/migrations/0090_llm-escalation.up.sql
+  s_dcf6051f82ab96::t_fba78175ffd464 1-27,29-37
+  s_dcf6051f82ab96::t_e30f71221d80d9 28
+internal/translate/escalation_decorations.go
+  s_dcf6051f82ab96::t_e30ebb6e9a5705 1-24
+  s_dcf6051f82ab96::t_f26b50effa4d30 25-36
+internal/router/policy/inference_plan.go
+  s_dcf6051f82ab96::t_16145d8561f79e 170-172
+internal/sqlc/llm_escalation_check_fixtures.sql.go
+  s_750a9b47d4712c::t_36d5044b87b53b 1-52
+internal/proxy/escalation_judge.go
+  s_750a9b47d4712c::t_5d5418b3c2faa4 109-112,128,130,161,167-169,172
+  s_750a9b47d4712c::t_3089e77a747fb6 1-26,30-66,68-108,113-127,129,131-133,137-141,143-149,159-160,163-166,171,173-174,176-177,179-182
+  s_dcf6051f82ab96::t_51f132dd0fdf0f 136,150-151
+  s_750a9b47d4712c::t_ec07eaad9199d8 134-135
+  s_dcf6051f82ab96::t_23ec0e485fcdce 27-29,152-158,162,170,175,178
+  s_dcf6051f82ab96::t_05abf80fb2306c 67,142
+docs/CONFIGURATION.md
+  s_dcf6051f82ab96::t_360564c3316d26 424-426
+internal/router/policy/inference_inspection.go
+  s_750a9b47d4712c::t_3089e77a747fb6 35,76
+  s_dcf6051f82ab96::t_16145d8561f79e 84
+internal/proxy/llm_escalation.go
+  s_dcf6051f82ab96::t_035890cf330293 244
+  s_dcf6051f82ab96::t_f26b50effa4d30 126,130,138-141
+  s_dcf6051f82ab96::t_e33acba88d1863 1-125,127-129,131-137,142-148,152-154,156-170,174-197,203,208,211-228,231-243,245-247
+  s_dcf6051f82ab96::t_62be47180f12ad 149-151,229-230
+  s_750a9b47d4712c::t_fccc09fee06767 155
+  s_9e16b82260f84d::t_d1b11a79b0bc21 171-173,198-202,204-207,209-210
+internal/router/llmescalation/NOTICE
+  s_750a9b47d4712c::t_a9f74a7cdc45c7 1-8
+db/queries/llm_escalation_check_fixtures.sql
+  s_750a9b47d4712c::t_36d5044b87b53b 1-10
+internal/translate/escalation_observation.go
+  s_dcf6051f82ab96::t_f26b50effa4d30 21,299,301-302
+internal/router/llmescalation/schema.json
+  s_dcf6051f82ab96::t_0e1503868a109e 1-22
+internal/api/admin/llm_escalation.go
+  s_dcf6051f82ab96::t_4eb610363a6de1 1-3,5-11,13-48,54-118,121-127
+  s_dcf6051f82ab96::t_e7ca8e9c01a3a7 4,12,49-53,119-120
+internal/flags/escalation.go
+  s_750a9b47d4712c::t_3089e77a747fb6 4-5,12-14,19-23,28-42,46-51,55-74
+  s_750a9b47d4712c::t_2a7c13e4bde0e1 1-3,6-11,15-18,24-27,43-45,52-54,75
+internal/sqlc/models.go
+  s_dcf6051f82ab96::t_d91bd9ec6cff9a 104-134
+internal/router/policy/escalation_judge_test.go
+  s_dcf6051f82ab96::t_9b95e869001242 9,22
+  s_750a9b47d4712c::t_52827cb7471322 1-8,10-21,23-36
+internal/proxy/escalation_judge_internal_test.go
+  s_dcf6051f82ab96::t_73c48fd42b5adf 29-30,36-45
+  s_dcf6051f82ab96::t_7b13c769120f49 1-11,13-28,31-35,46-90
+  s_dcf6051f82ab96::t_5c8db9b866790f 12
+internal/inference/request.go
+  s_dcf6051f82ab96::t_16145d8561f79e 16
+db/migrations/0090_llm-escalation.down.sql
+  s_dcf6051f82ab96::t_fba78175ffd464 1-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "acbc7eee69b3a8015956e7f308b4a6e1054c5f94",
+  "prompts": {},
+  "sessions": {
+    "s_1022fe4dd27d9e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a27b-6b43-76c1-90d6-03153e0c1dcf",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_750a9b47d4712c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0a6a0-9527-7431-a65c-dbf5b2eaadc9",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_8e92cfe050629d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0a693-a7ef-75a3-ad8d-6fc976494d30",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_9e16b82260f84d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a693-a7ef-75a3-ad8d-6fc976494d30",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_dcf6051f82ab96": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a6a0-9527-7431-a65c-dbf5b2eaadc9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
