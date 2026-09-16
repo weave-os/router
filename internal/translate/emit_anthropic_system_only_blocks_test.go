@@ -20,7 +20,16 @@ func prepareAnthropicBody(t *testing.T, body []byte) []byte {
 	return prep.Body
 }
 
-func TestPrepareAnthropic_HoistsToolAdditionOffNonSystemMessage(t *testing.T) {
+func prepareAnthropicPassthroughBody(t *testing.T, body []byte) []byte {
+	t.Helper()
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropicPassthrough(http.Header{})
+	require.NoError(t, err)
+	return prep.Body
+}
+
+func TestPrepareAnthropic_NormalizesToolAdditionOnNonSystemMessage(t *testing.T) {
 	body := []byte(`{
 		"model": "claude-opus-4-8",
 		"max_tokens": 1024,
@@ -35,23 +44,18 @@ func TestPrepareAnthropic_HoistsToolAdditionOffNonSystemMessage(t *testing.T) {
 	out := prepareAnthropicBody(t, body)
 
 	msgs := gjson.GetBytes(out, "messages").Array()
-	require.Len(t, msgs, 2)
-	second := msgs[1].Get("content")
+	require.Len(t, msgs, 3)
+	system := msgs[1]
+	assert.Equal(t, "system", system.Get("role").String())
+	assert.Equal(t, "tool_addition", system.Get("content.0.type").String())
+	second := msgs[2].Get("content")
 	require.True(t, second.IsArray())
 	require.Equal(t, 1, int(second.Get("#").Int()))
 	assert.Equal(t, "text", second.Get("0.type").String())
 	assert.Equal(t, "# Environment", second.Get("0.text").String())
-
-	system := gjson.GetBytes(out, "system")
-	require.True(t, system.IsArray(), string(out))
-	var types []string
-	for _, block := range system.Array() {
-		types = append(types, block.Get("type").String())
-	}
-	assert.Contains(t, types, "tool_addition")
 }
 
-func TestPrepareAnthropic_HoistsToolDeltasAfterSystemDemotion(t *testing.T) {
+func TestPrepareAnthropic_PreservesSystemToolDeltasAfterSystemHandling(t *testing.T) {
 	body := []byte(`{
 		"model": "claude-opus-4-8",
 		"max_tokens": 1024,
@@ -66,6 +70,9 @@ func TestPrepareAnthropic_HoistsToolDeltasAfterSystemDemotion(t *testing.T) {
 	out := prepareAnthropicBody(t, body)
 
 	for _, msg := range gjson.GetBytes(out, "messages").Array() {
+		if msg.Get("role").String() == "system" {
+			continue
+		}
 		content := msg.Get("content")
 		if !content.IsArray() {
 			continue
@@ -75,11 +82,10 @@ func TestPrepareAnthropic_HoistsToolDeltasAfterSystemDemotion(t *testing.T) {
 			assert.NotEqual(t, "tool_addition", part.Get("type").String(), msg.Raw)
 		}
 	}
-	var types []string
-	for _, block := range gjson.GetBytes(out, "system").Array() {
-		types = append(types, block.Get("type").String())
-	}
-	assert.Contains(t, types, "tool_removal")
+	msgs := gjson.GetBytes(out, "messages").Array()
+	require.Len(t, msgs, 2)
+	assert.Equal(t, "system", msgs[1].Get("role").String())
+	assert.Equal(t, "tool_removal", msgs[1].Get("content.0.type").String())
 }
 
 func TestPrepareAnthropic_DropsMessageThatOnlyHadSystemOnlyBlocks(t *testing.T) {
@@ -93,9 +99,29 @@ func TestPrepareAnthropic_DropsMessageThatOnlyHadSystemOnlyBlocks(t *testing.T) 
 	}`)
 	out := prepareAnthropicBody(t, body)
 	msgs := gjson.GetBytes(out, "messages").Array()
-	require.Len(t, msgs, 1)
+	require.Len(t, msgs, 2)
 	assert.Equal(t, "user", msgs[0].Get("role").String())
-	assert.Contains(t, gjson.GetBytes(out, "system").Raw, "tool_addition")
+	assert.Equal(t, "system", msgs[1].Get("role").String())
+	assert.Equal(t, "tool_addition", msgs[1].Get("content.0.type").String())
+}
+
+func TestPrepareAnthropicPassthrough_NormalizesToolDeltas(t *testing.T) {
+	body := []byte(`{
+		"model": "claude-opus-4-8",
+		"max_tokens": 1024,
+		"messages": [{"role": "user", "content": [
+			{"type": "tool_removal", "tool": {"type": "tool_reference", "name": "search"}},
+			{"type": "text", "text": "continue"}
+		]}]
+	}`)
+	out := prepareAnthropicPassthroughBody(t, body)
+
+	msgs := gjson.GetBytes(out, "messages").Array()
+	require.Len(t, msgs, 2)
+	assert.Equal(t, "system", msgs[0].Get("role").String())
+	assert.Equal(t, "tool_removal", msgs[0].Get("content.0.type").String())
+	assert.Equal(t, "user", msgs[1].Get("role").String())
+	assert.Equal(t, "continue", msgs[1].Get("content.0.text").String())
 }
 
 func TestPrepareAnthropic_LeavesOrdinaryMessagesUnchanged(t *testing.T) {

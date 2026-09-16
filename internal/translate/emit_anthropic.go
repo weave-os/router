@@ -762,37 +762,42 @@ func writeAnthropicSharedParams(jw *jsonWriter, body []byte) {
 }
 
 func (e *RequestEnvelope) buildAnthropicFromAnthropic(opts EmitOptions) ([]byte, error) {
-	body, err := hoistAnthropicSystemMessages(e.body)
+	body, err := normalizeAnthropicSystemOnlyContentBlocks(e.body)
+	if err != nil {
+		return nil, fmt.Errorf("normalize system-only content blocks: %w", err)
+	}
+	body, err = hoistAnthropicSystemMessages(body)
 	if err != nil {
 		return nil, fmt.Errorf("hoist system messages: %w", err)
-	}
-	body, err = hoistAnthropicSystemOnlyContentBlocks(body)
-	if err != nil {
-		return nil, fmt.Errorf("hoist system-only content blocks: %w", err)
 	}
 	ov := resolveAnthropicOverrides(body, opts)
 	return applyOverrides(body, ov)
 }
 
-// hoistAnthropicSystemOnlyContentBlocks moves tool_addition/tool_removal content
-// blocks from non-system messages onto the top-level system field. Anthropic
-// rejects those block types anywhere else; the router also demotes mid-turn
-// system messages to user, which would otherwise 400 the same way.
-func hoistAnthropicSystemOnlyContentBlocks(body []byte) ([]byte, error) {
+// normalizeAnthropicSystemOnlyContentBlocks places tool_addition/tool_removal
+// blocks in role:"system" messages, where Anthropic permits them. A client may
+// attach them to a user or assistant message; split those blocks into a system
+// message at the same point in the history and leave the remaining content in
+// its original message.
+func normalizeAnthropicSystemOnlyContentBlocks(body []byte) ([]byte, error) {
 	msgs := gjson.GetBytes(body, "messages")
 	if !msgs.IsArray() {
 		return body, nil
 	}
-	var systemOnly []string
 	var kept []string
 	changed := false
 	for _, msg := range msgs.Array() {
+		if msg.Get("role").String() == "system" {
+			kept = append(kept, msg.Raw)
+			continue
+		}
 		content := msg.Get("content")
 		if !content.IsArray() {
 			kept = append(kept, msg.Raw)
 			continue
 		}
 		var remaining []string
+		var systemOnly []string
 		msgChanged := false
 		for _, part := range content.Array() {
 			if isAnthropicSystemOnlyContentBlock(part.Get("type").String()) {
@@ -807,6 +812,18 @@ func hoistAnthropicSystemOnlyContentBlocks(body []byte) ([]byte, error) {
 			continue
 		}
 		changed = true
+		systemMessage := newJSONWriter()
+		systemMessage.Obj()
+		systemMessage.Key("role")
+		systemMessage.Str("system")
+		systemMessage.Key("content")
+		systemMessage.Arr()
+		for _, block := range systemOnly {
+			systemMessage.Raw(block)
+		}
+		systemMessage.EndArr()
+		systemMessage.EndObj()
+		kept = append(kept, string(systemMessage.Bytes()))
 		if len(remaining) == 0 {
 			continue
 		}
@@ -821,37 +838,21 @@ func hoistAnthropicSystemOnlyContentBlocks(body []byte) ([]byte, error) {
 	}
 	out, err := sjson.SetRawBytes(body, "messages", []byte("["+strings.Join(kept, ",")+"]"))
 	if err != nil {
-		return nil, fmt.Errorf("rebuild messages after system-only hoist: %w", err)
-	}
-	return appendAnthropicSystemContentBlocks(out, systemOnly)
-}
-
-func appendAnthropicSystemContentBlocks(body []byte, blocks []string) ([]byte, error) {
-	if len(blocks) == 0 {
-		return body, nil
-	}
-	sw := newJSONWriter()
-	sw.Arr()
-	switch existing := gjson.GetBytes(body, "system"); {
-	case existing.Type == gjson.String:
-		if s := existing.String(); s != "" {
-			writeAnthropicTextBlock(sw, s)
-		}
-	case existing.IsArray():
-		existing.ForEach(func(_, b gjson.Result) bool {
-			sw.Raw(b.Raw)
-			return true
-		})
-	}
-	for _, block := range blocks {
-		sw.Raw(block)
-	}
-	sw.EndArr()
-	out, err := sjson.SetRawBytes(body, "system", sw.Bytes())
-	if err != nil {
-		return nil, fmt.Errorf("append system-only content blocks: %w", err)
+		return nil, fmt.Errorf("rebuild messages after system-only normalization: %w", err)
 	}
 	return out, nil
+}
+
+func containsAnthropicSystemOnlyContentBlock(content gjson.Result) bool {
+	if !content.IsArray() {
+		return false
+	}
+	for _, part := range content.Array() {
+		if isAnthropicSystemOnlyContentBlock(part.Get("type").String()) {
+			return true
+		}
+	}
+	return false
 }
 
 // hoistAnthropicSystemMessages clears role:"system" entries from "messages"
@@ -874,7 +875,12 @@ func hoistAnthropicSystemMessages(body []byte) ([]byte, error) {
 	rewritten := false
 	for _, msg := range msgs.Array() {
 		isSystem := msg.Get("role").String() == "system"
+		preserveSystem := isSystem && containsAnthropicSystemOnlyContentBlock(msg.Get("content"))
 		switch {
+		case preserveSystem:
+			// Anthropic beta tool-change blocks are valid only in a system-role
+			// message. Keep this message in place instead of demoting it.
+			kept = append(kept, msg.Raw)
 		case isSystem && leading:
 			leadingSystemFound = true
 			hoisted = append(hoisted, anthropicSystemTexts(msg.Get("content"))...)

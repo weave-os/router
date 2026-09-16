@@ -1,6 +1,7 @@
 package translate
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -16,6 +17,10 @@ func (e *RequestEnvelope) PrepareAnthropicPassthrough(in http.Header) (providers
 	body, err := e.emitSameFormat(ov)
 	if err != nil {
 		return providers.PreparedRequest{}, err
+	}
+	body, err = normalizeAnthropicSystemOnlyContentBlocks(body)
+	if err != nil {
+		return providers.PreparedRequest{}, fmt.Errorf("normalize system-only content blocks: %w", err)
 	}
 	return providers.PreparedRequest{Body: body, Headers: AnthropicPassthroughHeaders(in)}, nil
 }
