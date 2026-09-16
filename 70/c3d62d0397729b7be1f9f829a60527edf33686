@@ -1,0 +1,88 @@
+internal/sqlc/models.go
+  s_d5165fb8d3c8eb::t_998d46d3f31ea7 710-714
+internal/proxy/router_feedback.go
+  s_d5165fb8d3c8eb::t_d2a45e3516e4eb 102-103,108-109,111,113-121,123-125,136,138-140,142-148,150-158,212,376,380-396
+  s_d5165fb8d3c8eb::t_6d8107db8d1f86 126-131,377-379
+  s_d5165fb8d3c8eb::t_b383be7390b731 110,112,135
+internal/postgres/session_pin_repo.go
+  s_d5165fb8d3c8eb::t_a30dfb53391b9b 79-80
+  s_d5165fb8d3c8eb::t_f35f968e986db8 83-84
+  s_d5165fb8d3c8eb::t_a45569599ce631 85-87,96,105,109-113,115,221-225
+  s_d5165fb8d3c8eb::t_7993b2a6bc2c3b 92-95,103,114
+internal/proxy/AGENTS.md
+  s_d5165fb8d3c8eb::t_e7d226a27c8e72 301-302,304
+  s_d5165fb8d3c8eb::t_2b3df2a4df0216 303
+db/queries/session_pins.sql
+  s_d5165fb8d3c8eb::t_e2c4f4b2e920f9 223
+  s_d5165fb8d3c8eb::t_93b05f188264c2 184-186,193-196,198-201,203-206,208-211,213-216,218-221,224-226,230-233,251
+  s_d5165fb8d3c8eb::t_427e0de1a1247b 178-183,187-190
+  s_d5165fb8d3c8eb::t_a09134cbefdbc4 241-243
+  s_d5165fb8d3c8eb::t_16a533bbcef78f 177,197,202,207,212,217,222,227,229,234-240,244-249
+internal/proxy/router_feedback_proxy_test.go
+  s_d5165fb8d3c8eb::t_1af927ab8262f7 16,1114-1152,1155,1160-1161,1165,1167-1168,1170-1237
+  s_d5165fb8d3c8eb::t_e82e8b25c4ad58 1046-1047,1067-1069,1071
+  s_d5165fb8d3c8eb::t_c8bc3c378ff13a 1153-1154,1156-1159
+  s_d5165fb8d3c8eb::t_a252e3c6731b2a 1166,1169
+  s_d5165fb8d3c8eb::t_6d8107db8d1f86 97-123,137,220,301,369,417,455-456,463,506-507,510,542,545,610,665,689,721,845,865-867,884,1053
+  s_d5165fb8d3c8eb::t_212999ac06e519 895
+  s_d5165fb8d3c8eb::t_e967db2077f193 896
+  s_d5165fb8d3c8eb::t_00f4a84afcce36 1162-1164
+  s_d5165fb8d3c8eb::t_f31c7481c5a90b 968,1008,1050
+internal/proxy/escalation_internal_test.go
+  s_d5165fb8d3c8eb::t_9733f51934e5a8 375
+internal/proxy/service_session_pin_test.go
+  s_d5165fb8d3c8eb::t_174447e1c4160a 128-135
+db/migrations/0084_session-pin-last-completed-turn.down.sql
+  s_d5165fb8d3c8eb::t_f35f968e986db8 1-10
+db/migrations/0084_session-pin-last-completed-turn.up.sql
+  s_d5165fb8d3c8eb::t_f35f968e986db8 1-10
+internal/postgres/session_strategy_repo_test.go
+  s_d5165fb8d3c8eb::t_e82e8b25c4ad58 226
+internal/proxy/gemini.go
+  s_d5165fb8d3c8eb::t_9733f51934e5a8 386
+  s_d5165fb8d3c8eb::t_427e0de1a1247b 387
+internal/proxy/service.go
+  s_d5165fb8d3c8eb::t_9733f51934e5a8 4554,4933,7280
+  s_d5165fb8d3c8eb::t_d9645c1245bcad 4938,4945-4946,4955,4960-4962,4964-4968,4982-4988,4990-4992,4998-5011,5016,5047-5049,5052-5055,5067-5069,5071-5072
+  s_d5165fb8d3c8eb::t_427e0de1a1247b 4555,4989,4993-4997,7281
+  s_d5165fb8d3c8eb::t_c8bc3c378ff13a 5027
+  s_d5165fb8d3c8eb::t_a09134cbefdbc4 4963,5070
+internal/proxy/turnloop_internal_test.go
+  s_d5165fb8d3c8eb::t_a45569599ce631 1628-1644
+  s_d5165fb8d3c8eb::t_9733f51934e5a8 215,250,285,332,388,434,477,606
+  s_d5165fb8d3c8eb::t_461bcc809e7952 29,49-51,1598-1627
+internal/postgres/session_pin_repo_internal_test.go
+  s_d5165fb8d3c8eb::t_a45569599ce631 1-8,10,12-18,26-53
+  s_d5165fb8d3c8eb::t_d4717ac46c7273 9,11,19-25
+internal/proxy/CLAUDE.md
+  s_d5165fb8d3c8eb::t_e7d226a27c8e72 301-302,304
+  s_d5165fb8d3c8eb::t_2b3df2a4df0216 303
+internal/sqlc/session_pins.sql.go
+  s_d5165fb8d3c8eb::t_998d46d3f31ea7 24,45,75-79,135,153,186-190,400,432,443-447,452,498,529,540-544
+  s_d5165fb8d3c8eb::t_93b05f188264c2 370-399,401-428,433,459-465,468-497,499-526,530
+  s_d5165fb8d3c8eb::t_2eb418b24facdc 453-458
+internal/proxy/turnloop_test.go
+  s_d5165fb8d3c8eb::t_f32c70606edf0a 777-782,815-820
+internal/router/sessionpin/store.go
+  s_d5165fb8d3c8eb::t_e2c4f4b2e920f9 119-121
+  s_d5165fb8d3c8eb::t_a09134cbefdbc4 92,126
+  s_d5165fb8d3c8eb::t_e0d4c1a82bdfbd 88-91,93-94,122-125,127-128
+internal/proxy/force_model_session_internal_test.go
+  s_d5165fb8d3c8eb::t_83ab77437df91d 389
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "70c3d62d0397729b7be1f9f829a60527edf33686",
+  "prompts": {},
+  "sessions": {
+    "s_d5165fb8d3c8eb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "811cfb39-b733-4ed9-a66b-3d449d1adc24",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

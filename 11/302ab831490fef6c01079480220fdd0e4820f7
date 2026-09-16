@@ -1,0 +1,37 @@
+internal/server/middleware/balance_check_test.go
+  s_28c704cbde0a7f::t_c808765a87033e 402-426,428,431-435,442,454,456,459,462-464
+internal/billing/service.go
+  s_28c704cbde0a7f::t_f2dc9a69c4e601 34-38
+  s_28c704cbde0a7f::t_519db14430b344 48-49
+internal/server/middleware/balance_check.go
+  s_28c704cbde0a7f::t_dd5fa7906808d2 72,74
+  s_28c704cbde0a7f::t_8f995bc9a525a7 26-31
+  s_28c704cbde0a7f::t_0713f004d29590 109,113,115
+  s_28c704cbde0a7f::t_36da73494b3d72 62-63
+internal/proxy/service.go
+  s_28c704cbde0a7f::t_2b162728eba4ca 2118,2744,4231
+internal/proxy/subscription_only_openai_test.go
+  s_28c704cbde0a7f::t_b57542778512fd 39
+internal/proxy/subsidy.go
+  s_28c704cbde0a7f::t_68593463592641 117-118
+internal/proxy/usage_bypass.go
+  s_28c704cbde0a7f::t_e3b4d7b81f3c72 109-112,217-218,293
+internal/proxy/usage_bypass_test.go
+  s_28c704cbde0a7f::t_fa80be2dc1818f 462,515
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "11302ab831490fef6c01079480220fdd0e4820f7",
+  "prompts": {},
+  "sessions": {
+    "s_28c704cbde0a7f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "73aed909-c7b3-467e-a0ce-d2938fc8f9ec",
+        "model": "gpt-5.5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
