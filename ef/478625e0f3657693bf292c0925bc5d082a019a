@@ -1,0 +1,31 @@
+internal/proxy/force_model.go
+  s_12b3fc6089a15a::t_dc4d0a0df024a4 146
+internal/router/catalog/catalog.go
+  s_12b3fc6089a15a::t_754972809092c6 584-591,593,596-600,602-606
+install/cc-statusline.sh
+  s_12b3fc6089a15a::t_ad5e1a5f342a9f 533,610
+install/install.sh
+  s_12b3fc6089a15a::t_3be8042ac3524e 3580,3657
+install/pi-router/src/pricing.generated.ts
+  s_12b3fc6089a15a::t_2a812e9924428c 9,85
+internal/router/catalog/catalog_test.go
+  s_12b3fc6089a15a::t_a22148beeff984 282,342-344,370-390,392,453
+internal/router/catalog/family_test.go
+  s_12b3fc6089a15a::t_f5170ada50532f 43-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "ef478625e0f3657693bf292c0925bc5d082a019a",
+  "prompts": {},
+  "sessions": {
+    "s_12b3fc6089a15a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5721e2d7-6090-4ab7-bf50-cce5f1385709",
+        "model": "grok-4.6"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
