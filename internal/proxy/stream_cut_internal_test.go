@@ -218,6 +218,49 @@ func TestStreamCutObserver_TracksCompletedAndOutputBlocks(t *testing.T) {
 	})
 }
 
+// Only a watchdog cut of an Anthropic-shaped stream with nothing final on the
+// wire is one the client re-sends; an open output block, a transport cut, a
+// client cancel, or a non-Anthropic wire all fall back to the immediate strike.
+func TestStreamCutObserver_ClientRetriesCut(t *testing.T) {
+	const thinkingOnly = "event: message_start\ndata: {\"type\":\"message_start\"}\n\n" +
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n\n"
+	const openText = "event: content_block_stop\ndata: {\"type\":\"content_block_stop\",\"index\":0}\n\n" +
+		"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n"
+	const openAIWire = "data: {\"id\":\"chatcmpl-1\",\"choices\":[{\"delta\":{\"role\":\"assistant\"}}]}\n\n"
+
+	cases := []struct {
+		name string
+		wire string
+		err  error
+		want bool
+	}{
+		{name: "idle watchdog during thinking", wire: thinkingOnly, err: fmt.Errorf("stream: %w", providers.ErrUpstreamIdleTimeout), want: true},
+		{name: "idle watchdog after message_start only", wire: "event: message_start\ndata: {\"type\":\"message_start\"}\n\n", err: providers.ErrUpstreamIdleTimeout, want: true},
+		{name: "output stall during thinking", wire: thinkingOnly, err: providers.ErrUpstreamOutputStall, want: true},
+		{name: "idle watchdog with text block open", wire: thinkingOnly + openText, err: providers.ErrUpstreamIdleTimeout, want: false},
+		{name: "upstream EOF during thinking", wire: thinkingOnly, err: io.ErrUnexpectedEOF, want: false},
+		{name: "client canceled during thinking", wire: thinkingOnly, err: fmt.Errorf("copy body: %w", context.Canceled), want: false},
+		{name: "idle watchdog on an OpenAI wire", wire: openAIWire, err: providers.ErrUpstreamIdleTimeout, want: false},
+		{name: "idle watchdog before any frame", wire: "", err: providers.ErrUpstreamIdleTimeout, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			obs := newStreamCutObserver(nil)
+			attempt := obs.attach(httptest.NewRecorder())
+			if tc.wire != "" {
+				_, err := attempt.Write([]byte(tc.wire))
+				require.NoError(t, err)
+			}
+			assert.False(t, obs.clientRetriesCut(), "nothing to report before the cut is noted")
+			obs.noteCut(tc.err)
+			assert.Equal(t, tc.want, obs.clientRetriesCut())
+		})
+	}
+
+	var none *streamCutObserver
+	assert.False(t, none.clientRetriesCut())
+}
+
 type armerRecorder struct {
 	*httptest.ResponseRecorder
 	marks int

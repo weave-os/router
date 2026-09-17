@@ -23,6 +23,15 @@ import (
 // is the whole policy: the turn is already lost, and re-picking the same arm
 // loses the next one too.
 //
+// clientRetries marks the exception: a watchdog cut before anything final
+// reached the client (streamCutObserver.clientRetriesCut), which the client
+// re-sends as the same turn. Demoting there hands the retry to a lower arm
+// for the rest of the session over one stall (prod 2026-09: 9 of 9 such Opus
+// cuts were retried by Claude Code within seconds and finished on the demoted
+// arm), so the first one only counts against the pin's consecutive-error
+// counter and the strike waits for a repeat before a successful turn resets
+// it. Cuts with output already open or completed strike at once as before.
+//
 // Returns the demoted model, or "" when nothing was demoted. No-ops when the
 // flag is off, there is no addressable pin row, the turn was hard-pinned
 // (utility turns and the native web-search passthrough never write session
@@ -39,6 +48,7 @@ import (
 func (s *Service) maybeDemoteArmAfterCommittedStreamFailure(
 	ctx context.Context,
 	committedStream bool,
+	clientRetries bool,
 	hardPinned bool,
 	proxyErr error,
 	model string,
@@ -61,10 +71,41 @@ func (s *Service) maybeDemoteArmAfterCommittedStreamFailure(
 	if !committedStream || !isCommittedStreamFailure(ctx, proxyErr) {
 		return ""
 	}
+	if clientRetries && !s.retriableCutReachedStrikeThreshold(ctx, model, sessionKey, role) {
+		return ""
+	}
 	if !s.demoteArmForSession(ctx, model, sessionpin.DemotionReasonCommittedStreamFailure, upstreamStatus(proxyErr), installationID, sessionKey, role, pinRole) {
 		return ""
 	}
 	return model
+}
+
+// retriableCutReachedStrikeThreshold counts one client-retried cut against
+// the session's consecutive upstream error counter (the row maybeEvictPin
+// AfterUpstreamErr resets on a clean turn) and reports whether the arm has
+// now stalled enough times in a row to be struck. A session with no pin row
+// yet keeps the arm (the row is what carries the count); a counter write
+// failure strikes at once rather than let a stalling arm keep the session.
+func (s *Service) retriableCutReachedStrikeThreshold(ctx context.Context, model string, sessionKey [sessionpin.SessionKeyLen]byte, role string) bool {
+	log := observability.FromContext(ctx)
+	if role == "" {
+		role = sessionpin.DefaultRole
+	}
+	count, err := s.pinStore.IncrementUpstreamErrors(context.Background(), sessionKey, role, router.StrategyFromContext(ctx))
+	if err != nil {
+		log.Error("pin error-counter increment after retriable stream cut failed", "err", err, "role", role, "model", model)
+		return true
+	}
+	if count >= pinEvictionStrikeThreshold {
+		return true
+	}
+	log.Info("model kept for session after client-retried stream cut",
+		"role", role,
+		"model", model,
+		"consecutive_errors", count,
+		"strike_threshold", pinEvictionStrikeThreshold,
+	)
+	return false
 }
 
 // maybeDemoteArmAfterRescuedFailure withdraws the primary arm from the

@@ -406,6 +406,7 @@ func main() {
 		providerMap[providers.ProviderAnthropicGateway] = anthropic.NewClient(
 			gatewayToken, gatewayBaseURL,
 			anthropic.WithAuthScheme(anthropic.AuthBearer),
+			anthropic.WithSSEIdleTimeout(providerHTTP.DefaultGatewaySSEIdleTimeout),
 			anthropic.WithModelListHTTPClient(discoveryHTTPClient))
 		if gatewayToken != "" {
 			envKeyedProviders[providers.ProviderAnthropicGateway] = struct{}{}

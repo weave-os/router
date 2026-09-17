@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"syscall"
 	"time"
 
@@ -177,6 +178,33 @@ func (o *streamCutObserver) noteCut(err error) {
 	}
 	o.cutSnapshot.retryable = streamCutReplayRetryable(o.cutSnapshot.class, err)
 	o.cutClassSeen = true
+}
+
+// clientRetriesCut reports whether the noted cut is one an Anthropic-shaped
+// client re-sends itself: an upstream watchdog fired while the stream had
+// completed no content block and opened no text/tool_use block, so nothing
+// final reached the client and its retry rule (see blocksCompleted) applies.
+// False for any other class, and for a non-Anthropic upstream wire, whose
+// frames never advance the block counters.
+func (o *streamCutObserver) clientRetriesCut() bool {
+	if o == nil || !o.cutClassSeen {
+		return false
+	}
+	s := o.cutSnapshot
+	switch s.class {
+	case streamFailureIdleWatchdog, streamFailureOutputStallWatchdog, streamFailureSlowThroughputWatchdog:
+	default:
+		return false
+	}
+	return isAnthropicStreamEvent(s.lastEvent) && s.blocksCompleted == 0 && !s.outputBlockStarted
+}
+
+// isAnthropicStreamEvent reports whether event is in the Anthropic Messages
+// SSE vocabulary (message_*, content_block_*, ping).
+func isAnthropicStreamEvent(event string) bool {
+	return event == "ping" ||
+		strings.HasPrefix(event, "message_") ||
+		strings.HasPrefix(event, "content_block_")
 }
 
 // completionLogFields returns the stream-cut diagnostics for the completion

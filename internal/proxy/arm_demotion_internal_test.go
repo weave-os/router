@@ -36,6 +36,10 @@ type demotionStubPinStore struct {
 	expired []sessionpin.Pin
 	// upserts records plain Upsert calls, which the demotion path must not make.
 	upserts []sessionpin.Pin
+	// upstreamErrors is the consecutive-error counter a client-retried cut
+	// increments; incrementErr makes that write fail.
+	upstreamErrors int
+	incrementErr   error
 }
 
 func (s *demotionStubPinStore) Get(context.Context, [sessionpin.SessionKeyLen]byte, string) (sessionpin.Pin, bool, error) {
@@ -54,7 +58,13 @@ func (s *demotionStubPinStore) UpdateUsage(context.Context, [sessionpin.SessionK
 }
 
 func (s *demotionStubPinStore) IncrementUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) (int, error) {
-	return 0, nil
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.incrementErr != nil {
+		return 0, s.incrementErr
+	}
+	s.upstreamErrors++
+	return s.upstreamErrors, nil
 }
 
 func (s *demotionStubPinStore) ResetUpstreamErrors(context.Context, [sessionpin.SessionKeyLen]byte, string, router.Strategy) error {
@@ -138,6 +148,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_Classification(t *testing.T) 
 				ctx,
 				tc.committed,
 				false,
+				false,
 				tc.err,
 				demotedArm,
 				"cluster:v0.57 model=claude-opus-4-7 provider=anthropic",
@@ -172,6 +183,71 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_Classification(t *testing.T) 
 	}
 }
 
+// A watchdog cut the client re-sends itself costs the arm a counter strike,
+// not the session: the first one keeps the model, the second in a row demotes,
+// and a cut with output already open still demotes at once.
+func TestMaybeDemoteArmAfterCommittedStreamFailure_ClientRetriedCutStrikesOnRepeat(t *testing.T) {
+	idle := fmt.Errorf("stream: %w", providers.ErrUpstreamIdleTimeout)
+	demote := func(svc *Service, clientRetries bool, err error) string {
+		return svc.maybeDemoteArmAfterCommittedStreamFailure(
+			context.Background(),
+			true,
+			clientRetries,
+			false,
+			err,
+			demotedArm,
+			"hmm:authoritative model=claude-opus-4-7",
+			uuid.New(),
+			nonZeroSessionKey(),
+			sessionpin.DefaultRole, sessionpin.DefaultRole,
+		)
+	}
+
+	t.Run("first retried cut keeps the arm, second strikes", func(t *testing.T) {
+		store := &demotionStubPinStore{}
+		svc := newDemotionTestService(store, true)
+
+		assert.Empty(t, demote(svc, true, idle))
+		assert.Equal(t, 1, store.upstreamErrors, "the cut must land on the counter a clean turn resets")
+		assert.Empty(t, store.demotions)
+		assert.Empty(t, store.upserts)
+
+		assert.Equal(t, demotedArm, demote(svc, true, idle))
+		assert.Equal(t, pinEvictionStrikeThreshold, store.upstreamErrors)
+		assert.Len(t, store.demotions, 2)
+	})
+
+	t.Run("a counter that already stands at the threshold strikes at once", func(t *testing.T) {
+		store := &demotionStubPinStore{upstreamErrors: pinEvictionStrikeThreshold - 1}
+		svc := newDemotionTestService(store, true)
+		assert.Equal(t, demotedArm, demote(svc, true, idle))
+		assert.Len(t, store.demotions, 2)
+	})
+
+	t.Run("a cut with output open strikes at once and leaves the counter alone", func(t *testing.T) {
+		store := &demotionStubPinStore{}
+		svc := newDemotionTestService(store, true)
+		assert.Equal(t, demotedArm, demote(svc, false, idle))
+		assert.Zero(t, store.upstreamErrors)
+		assert.Len(t, store.demotions, 2)
+	})
+
+	t.Run("a failed counter write strikes rather than keeping a stalling arm", func(t *testing.T) {
+		store := &demotionStubPinStore{incrementErr: errors.New("pg down")}
+		svc := newDemotionTestService(store, true)
+		assert.Equal(t, demotedArm, demote(svc, true, idle))
+		assert.Len(t, store.demotions, 2)
+	})
+
+	t.Run("the retry exception does not widen the failure class", func(t *testing.T) {
+		store := &demotionStubPinStore{}
+		svc := newDemotionTestService(store, true)
+		assert.Empty(t, demote(svc, true, fmt.Errorf("copy body: %w", context.Canceled)))
+		assert.Zero(t, store.upstreamErrors, "a client cancel is not an upstream error")
+		assert.Empty(t, store.demotions)
+	})
+}
+
 // A fresh authoritative pick that dies after commit must be demoted too:
 // unlike the overload breaker, this path is not gated on a prior sticky hit.
 func TestMaybeDemoteArmAfterCommittedStreamFailure_FiresWithoutStickyPin(t *testing.T) {
@@ -181,6 +257,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_FiresWithoutStickyPin(t *test
 	demoted := svc.maybeDemoteArmAfterCommittedStreamFailure(
 		context.Background(),
 		true,
+		false,
 		false,
 		&providers.UpstreamStatusError{Status: http.StatusBadGateway},
 		demotedArm,
@@ -204,6 +281,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_HardPinnedSkipped(t *testing.
 	demoted := svc.maybeDemoteArmAfterCommittedStreamFailure(
 		context.Background(),
 		true,
+		false,
 		true,
 		&providers.UpstreamStatusError{Status: http.StatusBadGateway},
 		demotedArm,
@@ -250,6 +328,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_ClusterAllowlistPinSkipped(t 
 			demoted := svc.maybeDemoteArmAfterCommittedStreamFailure(
 				ctx,
 				true,
+				false,
 				false,
 				&providers.UpstreamStatusError{Status: http.StatusBadGateway},
 				demotedArm,
@@ -300,6 +379,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_UserForcedSkipped(t *testing.
 			context.Background(),
 			true,
 			false,
+			false,
 			&providers.UpstreamStatusError{Status: http.StatusBadGateway},
 			demotedArm,
 			reason,
@@ -332,6 +412,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_UnaddressableSkipped(t *testi
 			demoted := svc.maybeDemoteArmAfterCommittedStreamFailure(
 				context.Background(),
 				true,
+				false,
 				false,
 				&providers.UpstreamStatusError{Status: http.StatusBadGateway},
 				demotedArm,
@@ -415,6 +496,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_PersistsWithoutExistingRow(t 
 			demoted := svc.maybeDemoteArmAfterCommittedStreamFailure(
 				context.Background(),
 				true,
+				false,
 				false,
 				&providers.UpstreamStatusError{Status: http.StatusBadGateway},
 				demotedArm,
@@ -542,7 +624,7 @@ func TestRescuedAndCommittedDemotionsAreIndependentlyFlagged(t *testing.T) {
 			key := nonZeroSessionKey()
 
 			committed := svc.maybeDemoteArmAfterCommittedStreamFailure(
-				context.Background(), true, false,
+				context.Background(), true, false, false,
 				&providers.UpstreamStatusError{Status: http.StatusBadGateway},
 				rescuer, "hmm:authoritative model=claude-opus-4-7",
 				installationID, key, sessionpin.DefaultRole, sessionpin.DefaultRole,
@@ -714,6 +796,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_LateFailureLeavesReplacementS
 	demoted := svc.maybeDemoteArmAfterCommittedStreamFailure(
 		ctxA,
 		true,
+		false,
 		false,
 		&providers.UpstreamStatusError{Status: http.StatusBadGateway},
 		demotedArm,
