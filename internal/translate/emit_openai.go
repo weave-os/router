@@ -100,6 +100,12 @@ func (e *RequestEnvelope) PrepareOpenAI(in http.Header, opts EmitOptions) (provi
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}
+	if toolTurnNeedsExplicitEffortNone(opts, hasNonEmptyTools(body)) {
+		body, err = sjson.SetBytes(body, "reasoning_effort", "none")
+		if err != nil {
+			return providers.PreparedRequest{}, fmt.Errorf("set reasoning_effort none: %w", err)
+		}
+	}
 	headers := make(http.Header)
 	body, err = applySessionAffinity(body, headers, opts)
 	if err != nil {
@@ -236,12 +242,6 @@ func (e *RequestEnvelope) buildOpenAIFromOpenAI(opts EmitOptions) ([]byte, error
 		body, err = sjson.SetBytes(body, "reasoning_effort", forced)
 		if err != nil {
 			return nil, fmt.Errorf("set reasoning_effort: %w", err)
-		}
-	}
-	if toolTurnNeedsExplicitEffortNone(opts, hasNonEmptyTools(body)) {
-		body, err = sjson.SetBytes(body, "reasoning_effort", "none")
-		if err != nil {
-			return nil, fmt.Errorf("set reasoning_effort none: %w", err)
 		}
 	}
 	if targetIsOpenRouter(opts) {

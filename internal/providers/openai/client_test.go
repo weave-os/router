@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -21,6 +22,45 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestProxy_ErrorLogIdentifiesEffectiveEndpoint(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		endpoint providers.Endpoint
+		path     string
+	}{
+		{name: "responses", endpoint: providers.EndpointResponses, path: "/v1/responses"},
+		{name: "chat fallback", endpoint: providers.EndpointChatCompletions, path: "/v1/chat/completions"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, tc.path, r.URL.Path)
+				w.WriteHeader(http.StatusNotFound)
+			}))
+			defer upstream.Close()
+			destination, err := url.Parse(upstream.URL)
+			require.NoError(t, err)
+			var logs bytes.Buffer
+			ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)).With("path", "/v1/messages", "request_id", "test-request"))
+			ctx = requestcontext.WithCredentials(ctx, &requestcontext.Credentials{
+				Source: requestcontext.SourceBYOK, APIKey: []byte("test-secret"), BaseURL: upstream.URL,
+			})
+			c := openai.NewClient("", "https://deployment.invalid")
+			prep := providers.PreparedRequest{Body: []byte(`{"model":"test-model"}`), Endpoint: tc.endpoint}
+			err = c.Proxy(ctx, router.Decision{Model: "test-model"}, prep, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+			var upstreamErr *providers.UpstreamErrorResponse
+			require.ErrorAs(t, err, &upstreamErr)
+			assert.Equal(t, http.StatusNotFound, upstreamErr.Status)
+			var entry map[string]any
+			require.NoError(t, json.Unmarshal(logs.Bytes(), &entry))
+			assert.Equal(t, destination.Host, entry["upstream_host"])
+			assert.Equal(t, tc.path, entry["upstream_path"])
+			assert.Equal(t, "/v1/messages", entry["path"])
+			assert.Equal(t, "test-request", entry["request_id"])
+			assert.NotContains(t, logs.String(), "test-secret")
+		})
+	}
+}
 
 func TestProxy_RewritesModelAndForwardsAuth(t *testing.T) {
 	var (

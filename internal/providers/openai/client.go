@@ -358,6 +358,8 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 			"Upstream OpenAI returned error status",
 			resp.StatusCode,
 			"base_url", c.baseURL,
+			"upstream_host", upstream.URL.Host,
+			"upstream_path", path,
 			"routed_model", decision.Model,
 			"body_preview", httputil.PreviewBytes(bufBody),
 			"body_total_bytes", totalRead,
