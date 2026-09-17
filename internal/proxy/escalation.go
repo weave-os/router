@@ -146,6 +146,13 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 		log.Warn("Escalation observation not claimed", "err", err, "claimed", claimed)
 		return nil
 	}
+	epoch := selection.Epoch
+	session.Epoch = &epoch
+	if active {
+		session.Mode = escalation.ModeActive
+	} else {
+		session.Mode = escalation.ModeShadow
+	}
 	turn.session = session
 	checkpoint, found, err := s.escalationStore.Checkpoint(claimCtx, scope, turn.boundary)
 	if err != nil {

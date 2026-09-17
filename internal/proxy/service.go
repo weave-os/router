@@ -32,6 +32,7 @@ import (
 	"weave-os/router/internal/router/cache"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/escalationdashboard"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/llmescalation"
@@ -93,6 +94,7 @@ type Service struct {
 	pinStore                   sessionpin.Store
 	escalationStore            escalation.Store
 	escalationObserver         escalation.Observer
+	escalationDashboardStore   escalationdashboard.Store
 	llmEscalationStore         llmescalation.Store
 	llmEscalationJudge         llmescalation.Judge
 	llmEscalationSlots         chan struct{}

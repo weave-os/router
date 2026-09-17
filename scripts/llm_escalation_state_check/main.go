@@ -19,6 +19,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/escalationdashboard"
 	"weave-os/router/internal/router/llmescalation"
 )
 
@@ -201,6 +202,21 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 	}
 	if appliedJob.AppliedRequestID != "apply-request" || appliedJob.AppliedTurn == nil || *appliedJob.AppliedTurn != 10 {
 		return errors.New("application attribution missing")
+	}
+	dashboard, err := postgres.NewEscalationDashboardRepo(pool).Snapshot(ctx, escalationdashboard.Filter{
+		Service:        escalationdashboard.ServiceSwitchyard,
+		SessionOutcome: escalationdashboard.SessionOutcomeNoEvaluation,
+		Limit:          50,
+		CapturedAt:     time.Now().UTC(),
+	})
+	if err != nil {
+		return err
+	}
+	if dashboard.Summary.ObservedSessions != 1 || dashboard.Summary.Evaluations != 1 || dashboard.Summary.Recommendations != 1 || dashboard.Summary.EscalationsApplied != 1 || dashboard.Summary.InvalidEvaluations < 2 {
+		return fmt.Errorf("Switchyard dashboard metrics did not reconcile: %+v", dashboard.Summary)
+	}
+	if dashboard.MatchingSessions != 0 || len(dashboard.Sessions) != 0 {
+		return errors.New("session outcome filter changed dashboard cohort or returned a mismatched row")
 	}
 	request.InstructionFingerprint = sha256.Sum256([]byte("yet another instruction"))
 	session, err = store.Start(ctx, request)

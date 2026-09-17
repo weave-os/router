@@ -5,14 +5,34 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"time"
 
 	"weave-os/router/internal/flags"
+	"weave-os/router/internal/router/escalationdashboard"
 	"weave-os/router/internal/router/llmescalation"
 )
 
 // ErrEscalationJudgeUnavailable prevents selecting an LLM judge that this
 // deployment cannot execute.
 var ErrEscalationJudgeUnavailable = errors.New("escalation judge is unavailable")
+
+// WithEscalationDashboard wires the common content-free reporting projection.
+func (s *Service) WithEscalationDashboard(store escalationdashboard.Store) *Service {
+	s.escalationDashboardStore = store
+	return s
+}
+
+// EscalationDashboard returns one retained-state snapshot for both classifiers.
+func (s *Service) EscalationDashboard(ctx context.Context, filter escalationdashboard.Filter) (escalationdashboard.Snapshot, error) {
+	if s.escalationDashboardStore == nil {
+		return escalationdashboard.Snapshot{}, ErrEscalationJudgeUnavailable
+	}
+	if filter.Offset < 0 || filter.Limit < 1 || filter.Limit > 200 {
+		return escalationdashboard.Snapshot{}, errors.New("invalid escalation dashboard page")
+	}
+	filter.CapturedAt = time.Now().UTC()
+	return s.escalationDashboardStore.Snapshot(ctx, filter)
+}
 
 // LLMEscalationSnapshot is a bounded operational page without conversation content.
 type LLMEscalationSnapshot struct {

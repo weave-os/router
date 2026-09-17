@@ -20,6 +20,14 @@ const (
 	Maximum Group = "maximum"
 )
 
+// Mode identifies whether an activation could constrain routing.
+type Mode string
+
+const (
+	ModeActive Mode = "active"
+	ModeShadow Mode = "shadow"
+)
+
 // Rank returns -1 for a class outside the supported taxonomy.
 func Rank(group Group) int {
 	switch group {
@@ -148,6 +156,8 @@ type Session struct {
 	Floor           Group            `json:"floor"`
 	ModelID         string           `json:"model_id"`
 	PackageSHA256   string           `json:"package_sha256"`
+	Mode            Mode             `json:"mode,omitempty"`
+	Epoch           *int             `json:"epoch,omitempty"`
 	PreviousOutcome *PreviousOutcome `json:"previous_outcome"`
 }
 
