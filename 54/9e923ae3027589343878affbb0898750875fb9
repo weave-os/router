@@ -1,0 +1,84 @@
+internal/translate/requirements.go
+  s_9d51bb4d3a9096::t_92c4177e746551 77-81
+  s_9d51bb4d3a9096::t_bf94c026a5e711 58-59,64-76,83-84
+  s_9d51bb4d3a9096::t_6e8d004465c160 30-33,51-57,60-63,82
+  s_9d51bb4d3a9096::t_cc3fe0bc5531dd 85
+internal/proxy/service.go
+  s_9d51bb4d3a9096::t_8d64774de74bb0 3671,3793,3807,4081,4113,4259,4316,4387
+  s_9d51bb4d3a9096::t_85b2ce284d3b94 3794-3795,3808-3809,4080
+internal/router/model_test.go
+  s_9d51bb4d3a9096::t_9a7345cbb1e46b 55-81
+internal/proxy/translation_plan_internal_test.go
+  s_9d51bb4d3a9096::t_08dd69db2cb50f 187
+  s_9d51bb4d3a9096::t_2a5e11602ee434 11-12,163-186,188-261,298-308
+  s_9d51bb4d3a9096::t_cc36466c04ad91 15
+internal/proxy/usage_bypass.go
+  s_9d51bb4d3a9096::t_08dd69db2cb50f 87
+internal/proxy/sibling_failover.go
+  s_9d51bb4d3a9096::t_85b2ce284d3b94 19,24,30,32,62-64,86,106-108
+internal/router/router.go
+  s_9d51bb4d3a9096::t_08dd69db2cb50f 177-181
+  s_9d51bb4d3a9096::t_1e94144633d5b6 53
+  s_9d51bb4d3a9096::t_008f78b22a8ec7 50-52,54,65-67
+internal/router/model.go
+  s_9d51bb4d3a9096::t_008f78b22a8ec7 26-37,70-93,169-194,223-226
+internal/translate/cache_control.go
+  s_9d51bb4d3a9096::t_e1e15019c8f7c6 120-126,181-190
+internal/translate/mid_conversation_system_test.go
+  s_9d51bb4d3a9096::t_ba174e547c808d 91
+  s_9d51bb4d3a9096::t_8def725ef1e9ca 64,66
+  s_9d51bb4d3a9096::t_9a7345cbb1e46b 1-50,55-63,67-74,77-79,84,86-88,90,92,94-122,124-128,134-172
+  s_9d51bb4d3a9096::t_aca8aa15431ae9 51-54,80-83,85,89,93
+  s_9d51bb4d3a9096::t_03b81872916bfa 75-76
+  s_9d51bb4d3a9096::t_08dd69db2cb50f 65,123,129-133
+internal/translate/emit_anthropic.go
+  s_9d51bb4d3a9096::t_e1e15019c8f7c6 884-885,892,897,899,929-933,937-940
+  s_9d51bb4d3a9096::t_112d1c47310104 98-109,132,136-137,185-193,765,767-768,797
+  s_9d51bb4d3a9096::t_1e94144633d5b6 133-135
+  s_9d51bb4d3a9096::t_08dd69db2cb50f 766,777-778,786,804,934-936
+  s_9d51bb4d3a9096::t_bf94c026a5e711 790-791,793,796
+  s_9d51bb4d3a9096::t_a7fb88485a04c6 941-942
+internal/proxy/turnloop.go
+  s_9d51bb4d3a9096::t_a4d387545c6e37 509-511,556-558,1113-1114,1135,1151,1156,1175-1176,1324-1325
+internal/proxy/translation_plan.go
+  s_9d51bb4d3a9096::t_08dd69db2cb50f 51-58,135,183-186,427-428
+  s_9d51bb4d3a9096::t_bf94c026a5e711 142-144,218
+  s_9d51bb4d3a9096::t_7e28792ac91d92 146,285,293,303-309
+  s_9d51bb4d3a9096::t_6e0bc2dc36aa44 170-171,188,264
+  s_9d51bb4d3a9096::t_1e94144633d5b6 80
+  s_9d51bb4d3a9096::t_8b3d747bc92556 70-79,81-82,169,172-182,187,189-193,247-250,259-263,265-284,286-292,294-302,310-318,429
+  s_9d51bb4d3a9096::t_570f3a10f42597 194
+  s_9d51bb4d3a9096::t_fd061b1f8963f1 319
+internal/translate/incompatible.go
+  s_9d51bb4d3a9096::t_112d1c47310104 5-8,16-17
+internal/proxy/sibling_failover_internal_test.go
+  s_9d51bb4d3a9096::t_78a65357fb2d1a 42,57,67,80,92,99,102,111,136,162,183,191,197
+internal/translate/emit_same_format_test.go
+  s_9d51bb4d3a9096::t_94b519a77f7b0f 589
+  s_9d51bb4d3a9096::t_bf94c026a5e711 553-554
+  s_9d51bb4d3a9096::t_08dd69db2cb50f 575-576,579-580,588,596-597
+internal/proxy/openai_cyber_refusal.go
+  s_9d51bb4d3a9096::t_85b2ce284d3b94 199
+internal/translate/CLAUDE.md
+  s_9d51bb4d3a9096::t_08dd69db2cb50f 50
+internal/translate/AGENTS.md
+  s_9d51bb4d3a9096::t_8def725ef1e9ca 50
+internal/translate/requirements_test.go
+  s_9d51bb4d3a9096::t_6e8d004465c160 35-74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "549e923ae3027589343878affbb0898750875fb9",
+  "prompts": {},
+  "sessions": {
+    "s_9d51bb4d3a9096": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a091be-1b0b-7383-a0f2-78750d6c15d8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

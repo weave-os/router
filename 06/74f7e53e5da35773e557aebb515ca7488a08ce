@@ -1,0 +1,21 @@
+internal/proxy/turnloop.go
+  s_94c5aff1c61861::t_a136b0d8aa21ec 151
+internal/proxy/turnloop_internal_test.go
+  s_94c5aff1c61861::t_a136b0d8aa21ec 135
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "0674f7e53e5da35773e557aebb515ca7488a08ce",
+  "prompts": {},
+  "sessions": {
+    "s_94c5aff1c61861": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6cc7c8d2-6482-486a-8410-f231e3bec8db",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
