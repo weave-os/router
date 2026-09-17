@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -31,7 +32,7 @@ func TestInternalEscalationDashboardHandlerParsesTypedFilters(t *testing.T) {
 	engine.GET("/internal/v1/escalation/dashboard", admin.InternalEscalationDashboardHandler(service))
 	installationID := uuid.NewString()
 	request := httptest.NewRequest(http.MethodGet,
-		"/internal/v1/escalation/dashboard?service=xgb&mode=shadow&organization_id=org-1&installation_id="+installationID+"&outcome=recommended&limit=25&offset=50", nil)
+		"/internal/v1/escalation/dashboard?service=xgb&mode=shadow&organization_id=org-1&installation_id="+strings.ToUpper(installationID)+"&outcome=recommended&limit=25&offset=50", nil)
 	recorder := httptest.NewRecorder()
 
 	engine.ServeHTTP(recorder, request)

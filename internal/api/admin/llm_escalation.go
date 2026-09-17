@@ -40,10 +40,12 @@ func escalationDashboardFilter(c *gin.Context) (escalationdashboard.Filter, bool
 	}
 	installationID := strings.TrimSpace(c.Query("installation_id"))
 	if installationID != "" {
-		if _, err := uuid.Parse(installationID); err != nil {
+		parsedInstallationID, err := uuid.Parse(installationID)
+		if err != nil {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid installation ID."})
 			return escalationdashboard.Filter{}, false
 		}
+		installationID = parsedInstallationID.String()
 	}
 	filter := escalationdashboard.Filter{
 		Service:        escalationdashboard.Service(c.Query("service")),
