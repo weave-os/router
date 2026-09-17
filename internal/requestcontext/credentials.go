@@ -40,6 +40,9 @@ const (
 type Credentials struct {
 	APIKey []byte // never logged
 	Source string // SourceBYOK | SourceClient | SourceSubscription | SourceCodexSubscription
+	// KeyID is the BYOK key's non-secret row ID; empty for every other source.
+	// Safe to log and to key per-credential caches by, unlike APIKey.
+	KeyID string
 	// OAuth marks a subscription bearer (Claude sk-ant-oat- token, Anthropic
 	// only; or Codex ChatGPT JWT, OpenAI only). Authenticates via
 	// Authorization: Bearer, never x-api-key.

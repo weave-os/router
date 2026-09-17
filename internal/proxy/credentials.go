@@ -77,6 +77,7 @@ func BuildCredentialsMap(keys []*auth.ExternalAPIKey) map[string]*Credentials {
 		m[key.Provider] = &Credentials{
 			APIKey:       key.Plaintext,
 			Source:       credSourceBYOK,
+			KeyID:        key.ID,
 			BaseURL:      key.BaseURL,
 			ModelAliases: key.ModelAliases,
 
