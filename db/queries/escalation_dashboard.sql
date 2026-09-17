@@ -1,5 +1,10 @@
--- name: GetEscalationDashboard :one
--- Projects both classifier stores into one content-free retained-session snapshot.
+-- name: DeleteExpiredEscalationDashboardSnapshots :exec
+-- Removes expired materialized dashboard pages before creating a replacement.
+DELETE FROM router.escalation_dashboard_snapshots
+WHERE expires_at <= @read_at::timestamptz;
+
+-- name: CreateEscalationDashboardSnapshot :one
+-- Materializes a newest-first retained-session cohort and returns its first page.
 WITH xgb_evaluations AS MATERIALIZED (
     SELECT
         encode(c.scope, 'hex') AS session_id,
@@ -104,13 +109,12 @@ WITH xgb_evaluations AS MATERIALIZED (
         OR (@session_outcome::text = 'applied' AND escalations_applied > 0)
         OR (@session_outcome::text = 'shadow_recommendation' AND mode = 'shadow' AND recommendations > 0)
         OR (@session_outcome::text = 'no_evaluation' AND evaluations = 0)
-), pagination AS (
-    SELECT @page_offset::integer AS page_offset, @page_limit::integer AS page_limit
-), session_page AS (
-    SELECT *, service || ':' || session_id AS id
+), ordered_sessions AS MATERIALIZED (
+    SELECT
+        matching_sessions.*,
+        service || ':' || session_id AS id,
+        (row_number() OVER (ORDER BY last_activity_at DESC, service, session_id) - 1)::integer AS position
     FROM matching_sessions
-    ORDER BY last_activity_at DESC, service, session_id
-    LIMIT (SELECT page_limit FROM pagination) OFFSET (SELECT page_offset FROM pagination)
 ), summary AS (
     SELECT
         count(*)::integer AS observed_sessions,
@@ -127,22 +131,22 @@ WITH xgb_evaluations AS MATERIALIZED (
     SELECT service, mode, sum(evaluations)::integer AS evaluations,
         sum(recommendations)::integer AS recommendations,
         sum(invalid_evaluations)::integer AS invalid
-    FROM selected_sessions GROUP BY service, mode ORDER BY service, mode
+    FROM selected_sessions GROUP BY service, mode
 ), progress_distribution AS (
     SELECT service, mode, ((progress - 1) / 10) * 10 + 1 AS first_progress,
         count(*) FILTER (WHERE valid)::integer AS evaluations,
         count(*) FILTER (WHERE valid AND recommended)::integer AS recommendations
     FROM selected_evaluations
     WHERE valid
-    GROUP BY service, mode, first_progress ORDER BY service, mode, first_progress
+    GROUP BY service, mode, first_progress
 ), first_recommendation_distribution AS (
     SELECT service, mode, ((first_recommendation - 1) / 10) * 10 + 1 AS first_progress,
         count(*)::integer AS sessions
     FROM selected_sessions WHERE first_recommendation IS NOT NULL
-    GROUP BY service, mode, first_progress ORDER BY service, mode, first_progress
+    GROUP BY service, mode, first_progress
 ), floor_distribution AS (
     SELECT service, mode, floor, count(*)::integer AS sessions
-    FROM selected_sessions GROUP BY service, mode, floor ORDER BY service, mode, floor
+    FROM selected_sessions GROUP BY service, mode, floor
 ), organization_breakdown AS (
     SELECT organization_id, installation_id, service, mode,
         count(*)::integer AS observed_sessions,
@@ -154,18 +158,79 @@ WITH xgb_evaluations AS MATERIALIZED (
         COALESCE(sum(recommendations) FILTER (WHERE mode = 'shadow'), 0)::integer AS shadow_recommendations
     FROM selected_sessions
     GROUP BY organization_id, installation_id, service, mode
-    ORDER BY recommended_sessions DESC, organization_id, installation_id, service, mode
+), snapshot_insert AS (
+    INSERT INTO router.escalation_dashboard_snapshots (
+        captured_at,
+        expires_at,
+        summary,
+        outcome_breakdown,
+        progress_distribution,
+        first_recommendation_distribution,
+        floor_distribution,
+        organizations,
+        matching_sessions
+    )
+    SELECT
+        @captured_at::timestamptz,
+        @snapshot_expires_at::timestamptz,
+        (SELECT to_jsonb(summary) FROM summary),
+        (SELECT COALESCE(jsonb_agg(to_jsonb(o) ORDER BY o.service, o.mode), '[]'::jsonb) FROM outcome_breakdown o),
+        (SELECT COALESCE(jsonb_agg(to_jsonb(p) ORDER BY p.service, p.mode, p.first_progress), '[]'::jsonb) FROM progress_distribution p),
+        (SELECT COALESCE(jsonb_agg(to_jsonb(f) ORDER BY f.service, f.mode, f.first_progress), '[]'::jsonb) FROM first_recommendation_distribution f),
+        (SELECT COALESCE(jsonb_agg(to_jsonb(f) ORDER BY f.service, f.mode, f.floor), '[]'::jsonb) FROM floor_distribution f),
+        (SELECT COALESCE(jsonb_agg(to_jsonb(o) ORDER BY o.recommended_sessions DESC, o.organization_id, o.installation_id, o.service, o.mode), '[]'::jsonb) FROM organization_breakdown o),
+        (SELECT count(*)::integer FROM matching_sessions)
+    RETURNING *
+), session_insert AS (
+    INSERT INTO router.escalation_dashboard_snapshot_sessions (snapshot_id, position, session)
+    SELECT snapshot_insert.id, ordered_sessions.position, to_jsonb(ordered_sessions) - 'position'
+    FROM snapshot_insert CROSS JOIN ordered_sessions
+    RETURNING position, session
 )
 SELECT jsonb_build_object(
-    'captured_at', @captured_at::timestamptz,
-    'summary', (SELECT to_jsonb(summary) FROM summary),
-    'outcome_breakdown', (SELECT COALESCE(jsonb_agg(to_jsonb(o)), '[]') FROM outcome_breakdown o),
-    'progress_distribution', (SELECT COALESCE(jsonb_agg(to_jsonb(p)), '[]') FROM progress_distribution p),
-    'first_recommendation_distribution', (SELECT COALESCE(jsonb_agg(to_jsonb(f)), '[]') FROM first_recommendation_distribution f),
-    'floor_distribution', (SELECT COALESCE(jsonb_agg(to_jsonb(f)), '[]') FROM floor_distribution f),
-    'organizations', (SELECT COALESCE(jsonb_agg(to_jsonb(o)), '[]') FROM organization_breakdown o),
-    'sessions', (SELECT COALESCE(jsonb_agg(to_jsonb(p)), '[]') FROM session_page p),
-    'matching_sessions', (SELECT count(*) FROM matching_sessions),
-    'has_more', (SELECT count(*) FROM matching_sessions) >
-        (SELECT page_offset + page_limit FROM pagination)
-);
+    'snapshot_id', snapshot_insert.id::text,
+    'captured_at', snapshot_insert.captured_at,
+    'summary', snapshot_insert.summary,
+    'outcome_breakdown', snapshot_insert.outcome_breakdown,
+    'progress_distribution', snapshot_insert.progress_distribution,
+    'first_recommendation_distribution', snapshot_insert.first_recommendation_distribution,
+    'floor_distribution', snapshot_insert.floor_distribution,
+    'organizations', snapshot_insert.organizations,
+    'sessions', (
+        SELECT COALESCE(jsonb_agg(page.session ORDER BY page.position), '[]'::jsonb)
+        FROM (
+            SELECT position, session FROM session_insert
+            ORDER BY position LIMIT @page_limit::integer
+        ) page
+    ),
+    'matching_sessions', snapshot_insert.matching_sessions
+)
+FROM snapshot_insert;
+
+-- name: GetEscalationDashboardSnapshotPage :one
+-- Returns one page from an unexpired immutable dashboard snapshot.
+SELECT jsonb_build_object(
+    'snapshot_id', snapshot.id::text,
+    'captured_at', snapshot.captured_at,
+    'summary', snapshot.summary,
+    'outcome_breakdown', snapshot.outcome_breakdown,
+    'progress_distribution', snapshot.progress_distribution,
+    'first_recommendation_distribution', snapshot.first_recommendation_distribution,
+    'floor_distribution', snapshot.floor_distribution,
+    'organizations', snapshot.organizations,
+    'sessions', (
+        SELECT COALESCE(jsonb_agg(page.session ORDER BY page.position), '[]'::jsonb)
+        FROM (
+            SELECT stored.position, stored.session
+            FROM router.escalation_dashboard_snapshot_sessions stored
+            WHERE stored.snapshot_id = snapshot.id
+                AND stored.position >= @page_start::integer
+            ORDER BY stored.position
+            LIMIT @page_limit::integer
+        ) page
+    ),
+    'matching_sessions', snapshot.matching_sessions
+)
+FROM router.escalation_dashboard_snapshots snapshot
+WHERE snapshot.id = @snapshot_id::uuid
+    AND snapshot.expires_at > @read_at::timestamptz;

@@ -203,15 +203,18 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 	if appliedJob.AppliedRequestID != "apply-request" || appliedJob.AppliedTurn == nil || *appliedJob.AppliedTurn != 10 {
 		return errors.New("application attribution missing")
 	}
-	dashboard, err := postgres.NewEscalationDashboardRepo(pool).Snapshot(ctx, escalationdashboard.Filter{
+	dashboardCapturedAt := time.Now().UTC()
+	storedDashboard, err := postgres.NewEscalationDashboardRepo(pool).CreateSnapshot(ctx, escalationdashboard.Filter{
 		Service:        escalationdashboard.ServiceSwitchyard,
 		SessionOutcome: escalationdashboard.SessionOutcomeNoEvaluation,
 		Limit:          50,
-		CapturedAt:     time.Now().UTC(),
+		CapturedAt:     dashboardCapturedAt,
+		ExpiresAt:      dashboardCapturedAt.Add(time.Minute),
 	})
 	if err != nil {
 		return err
 	}
+	dashboard := storedDashboard.Snapshot
 	if dashboard.Summary.ObservedSessions != 1 || dashboard.Summary.Evaluations != 1 || dashboard.Summary.Recommendations != 1 || dashboard.Summary.EscalationsApplied != 1 || dashboard.Summary.InvalidEvaluations < 2 {
 		return fmt.Errorf("Switchyard dashboard metrics did not reconcile: %+v", dashboard.Summary)
 	}

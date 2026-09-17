@@ -213,14 +213,17 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	if err != nil {
 		return fmt.Errorf("duplicate rollback damaged lease/session: %w", err)
 	}
-	dashboard, err := postgres.NewEscalationDashboardRepo(pool).Snapshot(ctx, escalationdashboard.Filter{
+	dashboardCapturedAt := time.Now().UTC()
+	storedDashboard, err := postgres.NewEscalationDashboardRepo(pool).CreateSnapshot(ctx, escalationdashboard.Filter{
 		Service:    escalationdashboard.ServiceXGB,
 		Limit:      50,
-		CapturedAt: time.Now().UTC(),
+		CapturedAt: dashboardCapturedAt,
+		ExpiresAt:  dashboardCapturedAt.Add(time.Minute),
 	})
 	if err != nil {
 		return err
 	}
+	dashboard := storedDashboard.Snapshot
 	if dashboard.Summary.ObservedSessions != 1 || dashboard.Summary.Evaluations != 2 || dashboard.Summary.Recommendations != 1 || dashboard.Summary.EscalationsApplied != 1 || dashboard.Summary.FloorConstrainedRequests != 1 {
 		return fmt.Errorf("XGB dashboard metrics did not reconcile: %+v", dashboard.Summary)
 	}

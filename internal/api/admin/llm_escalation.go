@@ -33,8 +33,7 @@ func InternalEscalationDashboardHandler(service *proxy.Service) gin.HandlerFunc 
 
 func escalationDashboardFilter(c *gin.Context) (escalationdashboard.Filter, bool) {
 	limit, limitOK := queryInteger(c, "limit", 50)
-	offset, offsetOK := queryInteger(c, "offset", 0)
-	if !limitOK || !offsetOK || limit < 1 || limit > 200 || offset < 0 {
+	if !limitOK || limit < 1 || limit > 200 {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid pagination."})
 		return escalationdashboard.Filter{}, false
 	}
@@ -54,7 +53,7 @@ func escalationDashboardFilter(c *gin.Context) (escalationdashboard.Filter, bool
 		InstallationID: installationID,
 		SessionOutcome: escalationdashboard.SessionOutcome(c.Query("outcome")),
 		Limit:          limit,
-		Offset:         offset,
+		Cursor:         strings.TrimSpace(c.Query("cursor")),
 	}
 	if !validEscalationDashboardFilter(filter) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid escalation dashboard filter."})
@@ -175,6 +174,10 @@ func internalEscalationError(c *gin.Context, err error) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid escalation configuration."})
 	case errors.Is(err, proxy.ErrEscalationJudgeUnavailable):
 		c.AbortWithStatusJSON(http.StatusUnprocessableEntity, gin.H{"error": "Escalation judge is unavailable."})
+	case errors.Is(err, escalationdashboard.ErrInvalidCursor):
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid escalation dashboard cursor."})
+	case errors.Is(err, escalationdashboard.ErrExpiredCursor):
+		c.AbortWithStatusJSON(http.StatusGone, gin.H{"error": "Escalation dashboard snapshot expired."})
 	default:
 		observability.FromGin(c).Error("Internal escalation operation failed", "err", err)
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Escalation operation failed."})

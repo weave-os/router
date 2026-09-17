@@ -3,9 +3,24 @@ package escalationdashboard
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/binary"
+	"errors"
+	"math"
 	"time"
 
+	"github.com/google/uuid"
 	"weave-os/router/internal/router/escalation"
+)
+
+const (
+	cursorVersion = byte(1)
+	cursorBytes   = 21
+)
+
+var (
+	ErrInvalidCursor = errors.New("invalid escalation dashboard cursor")
+	ErrExpiredCursor = errors.New("expired escalation dashboard cursor")
 )
 
 // Service identifies the classifier that produced an evaluation.
@@ -43,8 +58,9 @@ type Filter struct {
 	InstallationID string
 	SessionOutcome SessionOutcome
 	Limit          int32
-	Offset         int32
+	Cursor         string
 	CapturedAt     time.Time
+	ExpiresAt      time.Time
 }
 
 // Summary describes the complete filtered cohort, independent of pagination.
@@ -143,9 +159,49 @@ type Snapshot struct {
 	Sessions                        []Session                   `json:"sessions"`
 	MatchingSessions                int                         `json:"matching_sessions"`
 	HasMore                         bool                        `json:"has_more"`
+	PageStart                       int                         `json:"page_start"`
+	NextCursor                      string                      `json:"next_cursor"`
+	PreviousCursor                  string                      `json:"previous_cursor"`
+}
+
+// StoredSnapshot carries persistence identity without exposing it on the API.
+type StoredSnapshot struct {
+	Snapshot
+	SnapshotID string `json:"snapshot_id"`
+}
+
+// EncodeCursor binds a page position to one immutable snapshot.
+func EncodeCursor(snapshotID string, position int32) (string, error) {
+	parsedSnapshotID, err := uuid.Parse(snapshotID)
+	if err != nil || position < 0 {
+		return "", ErrInvalidCursor
+	}
+	encoded := make([]byte, cursorBytes)
+	encoded[0] = cursorVersion
+	copy(encoded[1:17], parsedSnapshotID[:])
+	binary.BigEndian.PutUint32(encoded[17:], uint32(position))
+	return base64.RawURLEncoding.EncodeToString(encoded), nil
+}
+
+// DecodeCursor returns the immutable snapshot and zero-based page position.
+func DecodeCursor(cursor string) (string, int32, error) {
+	decoded, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil || len(decoded) != cursorBytes || decoded[0] != cursorVersion {
+		return "", 0, ErrInvalidCursor
+	}
+	position := binary.BigEndian.Uint32(decoded[17:])
+	if position > math.MaxInt32 {
+		return "", 0, ErrInvalidCursor
+	}
+	snapshotID, err := uuid.FromBytes(decoded[1:17])
+	if err != nil {
+		return "", 0, ErrInvalidCursor
+	}
+	return snapshotID.String(), int32(position), nil
 }
 
 // Store reads normalized operational state without exposing captured content.
 type Store interface {
-	Snapshot(context.Context, Filter) (Snapshot, error)
+	CreateSnapshot(context.Context, Filter) (StoredSnapshot, error)
+	SnapshotPage(context.Context, string, int32, int32, time.Time) (StoredSnapshot, error)
 }

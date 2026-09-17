@@ -62,6 +62,25 @@ type RouterEscalationContinuation struct {
 	History        []byte
 }
 
+type RouterEscalationDashboardSnapshot struct {
+	ID                              uuid.UUID
+	CapturedAt                      pgtype.Timestamptz
+	ExpiresAt                       pgtype.Timestamptz
+	Summary                         []byte
+	OutcomeBreakdown                []byte
+	ProgressDistribution            []byte
+	FirstRecommendationDistribution []byte
+	FloorDistribution               []byte
+	Organizations                   []byte
+	MatchingSessions                int32
+}
+
+type RouterEscalationDashboardSnapshotSession struct {
+	SnapshotID uuid.UUID
+	Position   int32
+	Session    []byte
+}
+
 type RouterEscalationSession struct {
 	Scope            []byte
 	InstallationID   uuid.UUID
