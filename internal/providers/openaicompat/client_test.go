@@ -33,6 +33,10 @@ func TestMiniMaxBaseURL(t *testing.T) {
 	}
 }
 
+func TestDeepSeekBaseURL(t *testing.T) {
+	assert.Equal(t, "https://api.deepseek.com", openaicompat.DeepSeekBaseURL)
+}
+
 func TestProxy_ForwardsToChatCompletionsUnderVersionedBaseURL(t *testing.T) {
 	var (
 		gotPath string

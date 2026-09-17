@@ -24,6 +24,8 @@ import (
 const (
 	DefaultBaseURL   = "https://openrouter.ai/api/v1"
 	FireworksBaseURL = "https://api.fireworks.ai/inference/v1"
+	// DeepSeekBaseURL is DeepSeek's direct OpenAI-compatible API endpoint.
+	DeepSeekBaseURL = "https://api.deepseek.com"
 	// MakoraBaseURL serves the OSS catalog at higher throughput than commodity
 	// providers; pair with NewClientWithModelIDMap to rewrite slugs to Makora's
 	// upstream IDs.

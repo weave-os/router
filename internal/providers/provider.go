@@ -56,6 +56,7 @@ const (
 	ProviderMakora     = "makora"
 	ProviderMiniMax    = "minimax"
 	ProviderTogether   = "together"
+	ProviderDeepSeek   = "deepseek"
 	ProviderXAI        = "xai"
 	// ProviderMeta is Meta's Model API (api.meta.ai), OpenAI-compatible Chat Completions surface.
 	ProviderMeta = "meta"
@@ -90,7 +91,7 @@ const (
 	// FamilyOpenAICompat speaks the OpenAI Chat Completions wire format
 	// (OpenAI itself plus every OpenAI-compatible upstream: OpenRouter,
 	// Fireworks, Bedrock's OpenAI-compat surface, Makora, MiniMax, Together,
-	// XAI, Wafer).
+	// DeepSeek, XAI, Wafer).
 	FamilyOpenAICompat
 	// FamilyGemini speaks the Google Generative Language (Gemini) wire format.
 	FamilyGemini
@@ -108,6 +109,7 @@ var ProviderFamilies = map[string]TranslationFamily{
 	ProviderMakora:     FamilyOpenAICompat,
 	ProviderMiniMax:    FamilyOpenAICompat,
 	ProviderTogether:   FamilyOpenAICompat,
+	ProviderDeepSeek:   FamilyOpenAICompat,
 	ProviderXAI:        FamilyOpenAICompat,
 	ProviderMeta:       FamilyOpenAICompat,
 	ProviderWafer:      FamilyOpenAICompat,
@@ -189,6 +191,7 @@ var APIKeyEnvVars = map[string]string{
 	ProviderMakora:     "MAKORA_API_KEY",
 	ProviderMiniMax:    "MINIMAX_API_KEY",
 	ProviderTogether:   "TOGETHER_API_KEY",
+	ProviderDeepSeek:   "DEEPSEEK_API_KEY",
 	ProviderXAI:        "XAI_API_KEY",
 	ProviderMeta:       "META_API_KEY",
 	// Wafer's two surfaces share a single account key.
@@ -232,6 +235,7 @@ var CacheTTL = map[string]time.Duration{
 	ProviderOpenRouter:     5 * time.Minute,
 	ProviderFireworks:      5 * time.Minute,
 	ProviderBedrock:        5 * time.Minute,
+	ProviderDeepSeek:       5 * time.Minute,
 	ProviderXAI:            5 * time.Minute,
 	ProviderMeta:           5 * time.Minute,
 	ProviderWafer:          5 * time.Minute,
