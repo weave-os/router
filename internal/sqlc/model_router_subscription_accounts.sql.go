@@ -400,7 +400,6 @@ WITH prior AS (
   SELECT token_refresh_lease_id IS NOT NULL AS took_over
   FROM router.model_router_subscription_accounts
   WHERE id = $1::uuid AND api_key_id = $2::uuid
-  FOR UPDATE
 ),
 acquired AS (
   UPDATE router.model_router_subscription_accounts
@@ -431,13 +430,15 @@ type TryAcquireModelRouterSubscriptionRefreshLeaseParams struct {
 // reports whether an expired lease from a holder that never released was
 // replaced: that holder may already have spent the refresh token, so a
 // terminal provider error on a taken-over lease is not proof the account is
-// dead. Zero rows means the account is unavailable or still leased.
+// dead. Zero rows means the account is unavailable or still leased. Both
+// CTEs see the same snapshot, and the UPDATE's row lock re-checks the lease
+// predicate for concurrent acquirers, so no explicit FOR UPDATE is needed
+// (Postgres rejects locking a row the same statement modifies).
 //
 //	WITH prior AS (
 //	  SELECT token_refresh_lease_id IS NOT NULL AS took_over
 //	  FROM router.model_router_subscription_accounts
 //	  WHERE id = $1::uuid AND api_key_id = $2::uuid
-//	  FOR UPDATE
 //	),
 //	acquired AS (
 //	  UPDATE router.model_router_subscription_accounts
