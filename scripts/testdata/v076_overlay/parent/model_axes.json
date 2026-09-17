@@ -1,0 +1,28 @@
+{
+  "axes": {
+    "deepseek/deepseek-v4-pro": {
+      "input_per_1k_usd": 0.00174,
+      "output_per_1k_usd": 0.00348,
+      "tps": 75.0,
+      "ttft_s": 1.1,
+      "verbosity_tokens": null
+    },
+    "fixture/source-model": {
+      "input_per_1k_usd": 0.002,
+      "output_per_1k_usd": 0.004,
+      "tps": 60.0,
+      "ttft_s": 1.2,
+      "verbosity_tokens": 150
+    },
+    "stable/model": {
+      "input_per_1k_usd": 0.001,
+      "output_per_1k_usd": 0.002,
+      "tps": 100.0,
+      "ttft_s": 0.5,
+      "verbosity_tokens": 100
+    }
+  },
+  "meta": {
+    "k": 2
+  }
+}

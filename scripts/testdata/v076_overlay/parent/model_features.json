@@ -1,0 +1,41 @@
+{
+  "meta": {
+    "comment": "fixture parent",
+    "k": 2,
+    "n_models": 3,
+    "roster_version": "v0.75",
+    "source": "quality_means.json + model_axes.json"
+  },
+  "models": {
+    "deepseek/deepseek-v4-pro": {
+      "operational": {
+        "input_per_1k_usd": 0.00174,
+        "output_per_1k_usd": 0.00348,
+        "tps": 75.0,
+        "ttft_s": 1.1,
+        "verbosity_tokens": null
+      },
+      "psi_probe": [0.7, 0.4]
+    },
+    "fixture/source-model": {
+      "operational": {
+        "input_per_1k_usd": 0.002,
+        "output_per_1k_usd": 0.004,
+        "tps": 60.0,
+        "ttft_s": 1.2,
+        "verbosity_tokens": 150
+      },
+      "psi_probe": [0.5, 0.6]
+    },
+    "stable/model": {
+      "operational": {
+        "input_per_1k_usd": 0.001,
+        "output_per_1k_usd": 0.002,
+        "tps": 100.0,
+        "ttft_s": 0.5,
+        "verbosity_tokens": 100
+      },
+      "psi_probe": [0.3, 0.8]
+    }
+  }
+}

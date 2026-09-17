@@ -1,0 +1,53 @@
+{
+  "collected_at": "2026-09-17",
+  "models": {
+    "deepseek/deepseek-v4-pro-0813": {
+      "bench_column": "routerarena_deepseek/deepseek-v4-pro",
+      "evidence": "same-upstream-alias",
+      "operational": {
+        "input_per_1k_usd": 0.00174,
+        "output_per_1k_usd": 0.00348,
+        "tps": 75.0,
+        "ttft_s": 1.1,
+        "verbosity_tokens": null
+      },
+      "provider": "deepseek",
+      "source": "fixture-alias",
+      "source_model": "deepseek/deepseek-v4-pro"
+    },
+    "fixture/proxy-model": {
+      "bench_column": "routerarena_fixture/source-model",
+      "evidence": "proxy",
+      "operational": {
+        "input_per_1k_usd": 0.002,
+        "output_per_1k_usd": 0.004,
+        "tps": 60.0,
+        "ttft_s": 1.2,
+        "verbosity_tokens": 150
+      },
+      "provider": "openrouter",
+      "proxy_reason": "fixture exercises explicit reviewed proxy behavior",
+      "source": "fixture-proxy-review",
+      "source_model": "fixture/source-model"
+    },
+    "gpt-5.6-luna": {
+      "bench_column": "routerarena_gpt-5.6-luna",
+      "cluster_samples": [12, 9],
+      "evidence": "measured",
+      "operational": {
+        "input_per_1k_usd": 0.0002,
+        "output_per_1k_usd": 0.0012,
+        "tps": 90.0,
+        "ttft_s": 0.8,
+        "verbosity_tokens": null
+      },
+      "provider": "openai",
+      "quality": [0.42, 0.57],
+      "source": "fixture-eval-2026-09-17"
+    }
+  },
+  "parent": "v0.75",
+  "remove_models": ["deepseek/deepseek-v4-pro"],
+  "schema_version": 1,
+  "version": "v0.76"
+}

@@ -1,0 +1,17 @@
+{
+  "meta": {
+    "k": 2
+  },
+  "quality_means": {
+    "0": {
+      "deepseek/deepseek-v4-pro": 0.7,
+      "fixture/source-model": 0.5,
+      "stable/model": 0.3
+    },
+    "1": {
+      "deepseek/deepseek-v4-pro": 0.4,
+      "fixture/source-model": 0.6,
+      "stable/model": 0.8
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "meta": {
+    "alpha": [0.6, 0.6],
+    "expected_output_tokens": 200,
+    "k": 2,
+    "output_cost_ratio": 0.25,
+    "per_model_verbosity": true,
+    "speed_weight": 0.1
+  },
+  "rankings": {
+    "0": {
+      "deepseek/deepseek-v4-pro": 0.7079049944877625,
+      "fixture/source-model": 0.30000001192092896,
+      "stable/model": 0.3999999761581421
+    },
+    "1": {
+      "deepseek/deepseek-v4-pro": 0.10790492594242096,
+      "fixture/source-model": 0.30000004172325134,
+      "stable/model": 1.0
+    }
+  }
+}

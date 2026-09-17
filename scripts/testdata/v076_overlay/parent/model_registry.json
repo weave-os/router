@@ -1,0 +1,22 @@
+{
+  "meta": {
+    "parent": "v0.74"
+  },
+  "deployed_models": [
+    {
+      "bench_column": "routerarena_deepseek/deepseek-v4-pro",
+      "model": "deepseek/deepseek-v4-pro",
+      "provider": "fireworks"
+    },
+    {
+      "bench_column": "routerarena_fixture/source-model",
+      "model": "fixture/source-model",
+      "provider": "openrouter"
+    },
+    {
+      "bench_column": "routerarena_stable/model",
+      "model": "stable/model",
+      "provider": "openai"
+    }
+  ]
+}

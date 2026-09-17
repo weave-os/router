@@ -1,0 +1,27 @@
+format_version: 2
+version: v0.75
+parent: v0.74
+status: candidate
+embedder:
+  model: fixture-embedder
+  embed_dim: 2
+training:
+  k: 2
+  alpha: 0.6
+cache_config:
+  enabled: true
+deployed_providers:
+- fireworks
+- openai
+- openrouter
+deployed_models:
+- deepseek/deepseek-v4-pro
+- fixture/source-model
+- stable/model
+cost_per_1k_input_usd:
+  deepseek/deepseek-v4-pro: 0.00174
+  fixture/source-model: 0.002
+  stable/model: 0.001
+changelog: fixture parent
+unknown_block:
+  preserve: exactly
