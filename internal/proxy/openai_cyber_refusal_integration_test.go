@@ -256,7 +256,7 @@ func TestProxyOpenAIResponses_RoutingBadgeFlushesBeforeDelayedProvider(t *testin
 		close(providerStarted)
 		<-releaseProvider
 		streamResponses("event: response.completed\n" +
-			`data: {"type":"response.completed","sequence_number":0,"response":{"id":"resp_native","status":"completed","output":[]}}` + "\n\n")(w)
+			`data: {"type":"response.completed","sequence_number":0,"response":{"id":"resp_native","status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}]}}` + "\n\n")(w)
 	}}
 	openAIURL, anthropicURL := upstreams.start(t)
 	svc := cyberRefusalService(openAIURL, anthropicURL, "test", newFakePinStore(), newCaptureTelemetry())

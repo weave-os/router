@@ -294,7 +294,7 @@ func TestService_AgentShadowEvaluationNeverRetriesSubscriptionOnDeploymentKey(t 
 func TestService_ProxyOpenAIResponses_CustomToolUsesNativeOpenAIFamily(t *testing.T) {
 	provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"id":"resp_1","object":"response","output":[]}`)
+		_, _ = io.WriteString(w, `{"id":"resp_1","object":"response","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}]}`)
 	}}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.5", Reason: "test"}}
 	svc := proxy.NewService(fr, map[string]providers.Client{
@@ -316,7 +316,7 @@ func TestService_ProxyOpenAIResponses_CustomToolUsesNativeOpenAIFamily(t *testin
 	require.Len(t, provider.proxyBodies, 1)
 	assert.JSONEq(t, `{"model":"gpt-5.5","input":"apply a patch","reasoning":{"effort":"high"},"tools":[{"type":"custom","name":"apply_patch"}]}`, string(provider.proxyBodies[0]))
 	assert.Equal(t, providers.EndpointResponses, provider.proxyEndpoints[0])
-	assert.JSONEq(t, `{"id":"resp_1","object":"response","output":[]}`, rec.Body.String())
+	assert.JSONEq(t, `{"id":"resp_1","object":"response","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}]}`, rec.Body.String())
 }
 
 // A direct-OpenAI Responses caller dispatches on its original bytes rather
@@ -706,7 +706,7 @@ func responsesTextDeltas(t *testing.T, raw []byte) []string {
 func TestService_CodexRequestRoutesInfrastructureOpenAIModelWithoutOAuth(t *testing.T) {
 	provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"id":"resp_1","object":"response","output":[]}`)
+		_, _ = io.WriteString(w, `{"id":"resp_1","object":"response","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}]}`)
 	}}
 	fr := &fakeRouter{decision: router.Decision{
 		Provider: providers.ProviderOpenAI,
@@ -744,7 +744,7 @@ func TestService_CodexForcedModelUsesModelScopedCredential(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
 				w.Header().Set("Content-Type", "application/json")
-				_, _ = io.WriteString(w, `{"id":"resp_1","object":"response","output":[]}`)
+				_, _ = io.WriteString(w, `{"id":"resp_1","object":"response","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}]}`)
 			}}
 			store := newFakePinStore()
 			store.hasPin = true
