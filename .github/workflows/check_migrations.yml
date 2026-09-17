@@ -3,7 +3,7 @@ name: Check Migrations
 
 on:
   # No paths filter: this is a required check, so it must report on every PR. A
-  # PR that adds no migration short-circuits to a pass below.
+  # PR that adds no migration still checks the complete migration sequence.
   pull_request:
 
 jobs:
@@ -43,6 +43,16 @@ jobs:
         run: |
           if grep -niE '\bIF EXISTS\b' db/migrations/*.down.sql; then
             echo "::error::Down migrations must be precise rollbacks"
+            exit 1
+          fi
+
+      - name: Check migration sequence numbers are unique
+        run: |
+          PREFIXES=$(printf '%s\n' db/migrations/*.sql | sed -E 's|.*/||; s/\.(up|down)\.sql$//' | sort -u)
+          DUPLICATES=$(printf '%s\n' "$PREFIXES" | cut -d_ -f1 | sort | uniq -d)
+          if [ -n "$DUPLICATES" ]; then
+            echo "::error::Duplicate migration sequence numbers:"
+            echo "$DUPLICATES"
             exit 1
           fi
 
