@@ -5,14 +5,75 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"time"
 
 	"weave-os/router/internal/flags"
+	"weave-os/router/internal/router/escalationdashboard"
 	"weave-os/router/internal/router/llmescalation"
 )
 
 // ErrEscalationJudgeUnavailable prevents selecting an LLM judge that this
 // deployment cannot execute.
 var ErrEscalationJudgeUnavailable = errors.New("escalation judge is unavailable")
+
+const escalationDashboardSnapshotTTL = 15 * time.Minute
+
+// WithEscalationDashboard wires the common content-free reporting projection.
+func (s *Service) WithEscalationDashboard(store escalationdashboard.Store) *Service {
+	s.escalationDashboardStore = store
+	return s
+}
+
+// EscalationDashboard returns one retained-state snapshot for both classifiers.
+func (s *Service) EscalationDashboard(ctx context.Context, filter escalationdashboard.Filter) (escalationdashboard.Snapshot, error) {
+	if s.escalationDashboardStore == nil {
+		return escalationdashboard.Snapshot{}, ErrEscalationJudgeUnavailable
+	}
+	if filter.Limit < 1 || filter.Limit > 200 {
+		return escalationdashboard.Snapshot{}, errors.New("invalid escalation dashboard page")
+	}
+	now := time.Now().UTC()
+	pageStart := int32(0)
+	var stored escalationdashboard.StoredSnapshot
+	var err error
+	if filter.Cursor == "" {
+		filter.CapturedAt = now
+		filter.ExpiresAt = now.Add(escalationDashboardSnapshotTTL)
+		stored, err = s.escalationDashboardStore.CreateSnapshot(ctx, filter)
+	} else {
+		var snapshotID string
+		snapshotID, pageStart, err = escalationdashboard.DecodeCursor(filter.Cursor)
+		if err == nil {
+			stored, err = s.escalationDashboardStore.SnapshotPage(ctx, snapshotID, pageStart, filter.Limit, now)
+		}
+	}
+	if err != nil {
+		return escalationdashboard.Snapshot{}, err
+	}
+	if pageStart > int32(stored.MatchingSessions) {
+		return escalationdashboard.Snapshot{}, fmt.Errorf("%w: page starts beyond the snapshot", escalationdashboard.ErrInvalidCursor)
+	}
+	stored.PageStart = int(pageStart)
+	pageEnd := int64(pageStart) + int64(len(stored.Sessions))
+	if pageEnd < int64(stored.MatchingSessions) {
+		stored.NextCursor, err = escalationdashboard.EncodeCursor(stored.SnapshotID, int32(pageEnd))
+		if err != nil {
+			return escalationdashboard.Snapshot{}, err
+		}
+	}
+	if pageStart > 0 {
+		previousStart := pageStart - filter.Limit
+		if previousStart < 0 {
+			previousStart = 0
+		}
+		stored.PreviousCursor, err = escalationdashboard.EncodeCursor(stored.SnapshotID, previousStart)
+		if err != nil {
+			return escalationdashboard.Snapshot{}, err
+		}
+	}
+	stored.HasMore = stored.NextCursor != ""
+	return stored.Snapshot, nil
+}
 
 // LLMEscalationSnapshot is a bounded operational page without conversation content.
 type LLMEscalationSnapshot struct {

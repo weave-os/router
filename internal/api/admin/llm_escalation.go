@@ -12,8 +12,62 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router/escalationdashboard"
 	"weave-os/router/internal/router/llmescalation"
 )
+
+func InternalEscalationDashboardHandler(service *proxy.Service) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		filter, ok := escalationDashboardFilter(c)
+		if !ok {
+			return
+		}
+		snapshot, err := service.EscalationDashboard(c.Request.Context(), filter)
+		if err != nil {
+			internalEscalationError(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, snapshot)
+	}
+}
+
+func escalationDashboardFilter(c *gin.Context) (escalationdashboard.Filter, bool) {
+	limit, limitOK := queryInteger(c, "limit", 50)
+	if !limitOK || limit < 1 || limit > 200 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid pagination."})
+		return escalationdashboard.Filter{}, false
+	}
+	installationID := strings.TrimSpace(c.Query("installation_id"))
+	if installationID != "" {
+		parsedInstallationID, err := uuid.Parse(installationID)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid installation ID."})
+			return escalationdashboard.Filter{}, false
+		}
+		installationID = parsedInstallationID.String()
+	}
+	filter := escalationdashboard.Filter{
+		Service:        escalationdashboard.Service(c.Query("service")),
+		Mode:           escalationdashboard.Mode(c.Query("mode")),
+		OrganizationID: strings.TrimSpace(c.Query("organization_id")),
+		InstallationID: installationID,
+		SessionOutcome: escalationdashboard.SessionOutcome(c.Query("outcome")),
+		Limit:          limit,
+		Cursor:         strings.TrimSpace(c.Query("cursor")),
+	}
+	if !validEscalationDashboardFilter(filter) {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid escalation dashboard filter."})
+		return escalationdashboard.Filter{}, false
+	}
+	return filter, true
+}
+
+func validEscalationDashboardFilter(filter escalationdashboard.Filter) bool {
+	validService := filter.Service == "" || filter.Service == escalationdashboard.ServiceXGB || filter.Service == escalationdashboard.ServiceSwitchyard
+	validMode := filter.Mode == "" || filter.Mode == escalationdashboard.ModeActive || filter.Mode == escalationdashboard.ModeShadow || filter.Mode == escalationdashboard.ModeUnknown
+	validOutcome := filter.SessionOutcome == "" || filter.SessionOutcome == escalationdashboard.SessionOutcomeRecommended || filter.SessionOutcome == escalationdashboard.SessionOutcomeApplied || filter.SessionOutcome == escalationdashboard.SessionOutcomeShadow || filter.SessionOutcome == escalationdashboard.SessionOutcomeNoEvaluation
+	return validService && validMode && validOutcome
+}
 
 func InternalLLMEscalationSessionsHandler(service *proxy.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -120,6 +174,10 @@ func internalEscalationError(c *gin.Context, err error) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid escalation configuration."})
 	case errors.Is(err, proxy.ErrEscalationJudgeUnavailable):
 		c.AbortWithStatusJSON(http.StatusUnprocessableEntity, gin.H{"error": "Escalation judge is unavailable."})
+	case errors.Is(err, escalationdashboard.ErrInvalidCursor):
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Invalid escalation dashboard cursor."})
+	case errors.Is(err, escalationdashboard.ErrExpiredCursor):
+		c.AbortWithStatusJSON(http.StatusGone, gin.H{"error": "Escalation dashboard snapshot expired."})
 	default:
 		observability.FromGin(c).Error("Internal escalation operation failed", "err", err)
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Escalation operation failed."})

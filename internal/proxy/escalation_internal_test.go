@@ -126,6 +126,9 @@ func TestEscalationCadenceReplayFloorAndGates(t *testing.T) {
 	for n := 1; n <= 6; n++ {
 		turn := svc.beginEscalation(ctx, escalationTestEnvelope(t, n), req, &res, "test-key")
 		require.NotNil(t, turn)
+		require.Equal(t, escalation.ModeActive, turn.session.Mode)
+		require.NotNil(t, turn.session.Epoch)
+		require.Zero(t, *turn.session.Epoch)
 		constraint := turn.constraint()
 		if n == 5 {
 			require.True(t, constraint.Escalate)
@@ -148,6 +151,9 @@ func TestEscalationCadenceReplayFloorAndGates(t *testing.T) {
 	require.Nil(t, svc.beginEscalation(escalationTestContext(false, false), escalationTestEnvelope(t, 7), req, &res, "test-key"))
 	shadow := svc.beginEscalation(escalationTestContext(false, true), escalationTestEnvelope(t, 7), req, &res, "test-key")
 	require.NotNil(t, shadow)
+	require.Equal(t, escalation.ModeShadow, shadow.session.Mode)
+	require.NotNil(t, shadow.session.Epoch)
+	require.Zero(t, *shadow.session.Epoch)
 	require.Nil(t, shadow.constraint())
 	require.Empty(t, shadow.session.Floor)
 	forced := req
