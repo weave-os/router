@@ -37,6 +37,33 @@ func TestDeepSeekBaseURL(t *testing.T) {
 	assert.Equal(t, "https://api.deepseek.com", openaicompat.DeepSeekBaseURL)
 }
 
+func TestProxy_DeepSeekDirectRewritesModelAndUsesBearerAuth(t *testing.T) {
+	var gotPath, gotAuth string
+	var gotBody map[string]any
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		body, _ := io.ReadAll(r.Body)
+		require.NoError(t, json.Unmarshal(body, &gotBody))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`))
+	}))
+	defer upstream.Close()
+
+	client := openaicompat.NewClientWithModelIDMap("deepseek-key", upstream.URL, map[string]string{
+		"deepseek/deepseek-v4-flash": "deepseek-flash",
+	})
+	prep := providers.PreparedRequest{
+		Body:    []byte(`{"model":"deepseek/deepseek-v4-flash","messages":[{"role":"user","content":"hi"}]}`),
+		Headers: make(http.Header),
+	}
+	err := client.Proxy(context.Background(), router.Decision{Model: "deepseek/deepseek-v4-flash", Provider: providers.ProviderDeepSeek}, prep, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	require.NoError(t, err)
+	assert.Equal(t, "/chat/completions", gotPath)
+	assert.Equal(t, "Bearer deepseek-key", gotAuth)
+	assert.Equal(t, "deepseek-flash", gotBody["model"])
+}
+
 func TestProxy_ForwardsToChatCompletionsUnderVersionedBaseURL(t *testing.T) {
 	var (
 		gotPath string

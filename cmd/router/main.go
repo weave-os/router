@@ -306,6 +306,15 @@ func main() {
 	}
 
 	{
+		deepSeekBaseURL := config.GetOr("DEEPSEEK_BASE_URL", openaiCompatProvider.DeepSeekBaseURL)
+		registerDeploymentKeyedProvider(providerMap, envKeyedProviders, logger,
+			providers.ProviderDeepSeek, "DeepSeek", "DEEPSEEK_API_KEY", deepSeekBaseURL, byokOnly,
+			func(key, baseURL string) providers.Client {
+				return openaiCompatProvider.NewClientWithModelIDMap(key, baseURL, upstreamIDsForProvider(providers.ProviderDeepSeek), openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
+			})
+	}
+
+	{
 		// Primary binding for DeepSeek V4 Pro / GLM-5.1 / MiniMax M2.7 (top of
 		// artificialanalysis.ai throughput tables); also an ordered fallback for
 		// models led by another provider. Uses "Org/Model" IDs vs. the router's
@@ -2091,7 +2100,7 @@ func envVarHint(provider string) string {
 // key (respecting byokOnly), constructs its client via newClient, registers
 // it in providerMap, and logs its BYOK/keyed/passthrough state. Shared by the
 // providers whose registration collapses to "resolve key -> build client ->
-// three-way log switch" (Fireworks, Makora, MiniMax, Together, Bedrock, Google);
+// three-way log switch" (Fireworks, Makora, DeepSeek, MiniMax, Together, Bedrock, Google);
 // OpenRouter and Anthropic/OpenAI have genuinely different gating
 // logic and stay bespoke. extraLogAttrs are appended only to the
 // deployment-keyed log line (e.g. Bedrock's region).
