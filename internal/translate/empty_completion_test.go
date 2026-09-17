@@ -91,10 +91,29 @@ data: {"type":"response.completed","response":{"id":"resp_empty","status":"compl
 	require.ErrorIs(t, err, providers.ErrUpstreamEmptyCompletion)
 }
 
+func TestResponsesWriter_NativeStreamingEmptyTerminalFinalizesAsFailure(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.6-luna")
+	w.SetPassthrough()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(200)
+	_, err := w.Write([]byte(`event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_empty","status":"in_progress","output":[]}}
+
+event: response.completed
+data: {"type":"response.completed","sequence_number":1,"response":{"id":"resp_empty","status":"completed","output":[]}}
+
+`))
+	require.ErrorIs(t, err, providers.ErrUpstreamEmptyCompletion)
+	require.NoError(t, w.FinalizeError(err))
+	assert.Contains(t, rec.Body.String(), `"type":"response.failed"`)
+	assert.NotContains(t, rec.Body.String(), `"type":"response.completed"`)
+}
+
 func TestResponsesWriter_ArrayContentIsUsable(t *testing.T) {
 	rec := httptest.NewRecorder()
 	w := translate.NewResponsesWriter(rec, "gpt-5.6-luna")
-	require.NoError(t, w.Prelude(false))
+	w.WriteHeader(200)
 	_, err := w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":[{"type":"text","text":"ok"}]},"finish_reason":"stop"}]}`))
 	require.NoError(t, err)
 	require.NoError(t, w.Finalize())

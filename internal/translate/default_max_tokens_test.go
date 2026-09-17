@@ -161,7 +161,7 @@ func TestCrossFormat_OpenAIToAnthropic_DefaultMaxTokensInjectedWhenAbsent(t *tes
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
-	assert.Equal(t, float64(8192), out["max_tokens"])
+	assert.Equal(t, float64(16000), out["max_tokens"])
 }
 
 // Source omits max_tokens, non-reasoning target: injection populates max_tokens.

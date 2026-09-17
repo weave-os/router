@@ -675,6 +675,9 @@ type ResponsesWriter struct {
 	nativeBadgeHasContentIndex  bool
 	nativeSyntheticBadgeEmitted bool
 	nativePreludeCreated        bool
+	nativeStreamStarted         bool
+	nativeLastSequence          int64
+	nativeLastSequenceSet       bool
 	nativeOutputIndexShift      int64
 	nativeSequenceShift         int64
 	outputIndexOffset           int
@@ -929,6 +932,9 @@ func (t *ResponsesWriter) Write(data []byte) (int, error) {
 				t.inner.WriteHeader(http.StatusOK)
 				t.httpHeadersSent = true
 			}
+		}
+		if t.streaming && len(data) > 0 {
+			t.nativeStreamStarted = true
 		}
 		// Generic native Responses callers remain byte-for-byte passthrough. Only
 		// the explicitly enabled Codex display path parses native SSE.
@@ -1606,6 +1612,9 @@ func (t *ResponsesWriter) rewriteNativeEventWith(raw []byte, shiftFields bool) [
 func (t *ResponsesWriter) writeNativeEvent(eventType string, sequence int64, payload map[string]any) error {
 	payload["type"] = eventType
 	payload["sequence_number"] = sequence
+	t.nativeStreamStarted = true
+	t.nativeLastSequence = sequence
+	t.nativeLastSequenceSet = true
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -1694,6 +1703,10 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 	if gjson.ValidBytes(data) {
 		eventType = gjson.GetBytes(data, "type").Str
 		itemType = gjson.GetBytes(data, "item.type").Str
+		if sequence := gjson.GetBytes(data, "sequence_number"); sequence.Type == gjson.Number {
+			t.nativeLastSequence = sequence.Int() + t.nativeSequenceShift
+			t.nativeLastSequenceSet = true
+		}
 	}
 	if t.nativePreludeCreated && eventType == "response.created" {
 		return nil
@@ -1713,15 +1726,15 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 			}
 		}
 	}
-	if (eventType == "response.completed" || eventType == "response.incomplete") && !t.nativeBadgeTargetSelected && !t.nativeSyntheticBadgeEmitted {
-		if err := t.emitNativeBadgeBeforeOutput(event); err != nil {
-			return err
-		}
-	}
 	if eventType == "response.completed" || eventType == "response.incomplete" {
 		response := gjson.GetBytes(data, "response")
 		if response.Get("output").IsArray() && !nativeResponsesResponseHasUsableOutput(response) {
 			return emptyCompletionOpenAIError()
+		}
+		if !t.nativeBadgeTargetSelected && !t.nativeSyntheticBadgeEmitted {
+			if err := t.emitNativeBadgeBeforeOutput(event); err != nil {
+				return err
+			}
 		}
 	}
 	rewritten := t.rewriteNativeResponsesEvent(event)
@@ -1834,21 +1847,29 @@ func (t *ResponsesWriter) processFinalPassthroughSSETail() error {
 // error instead), in passthrough mode, or after a terminal event already fired.
 func (t *ResponsesWriter) FinalizeError(_ error) error {
 	if t.passthrough {
-		if !t.streaming || !t.nativePreludeCreated || t.completedEmitted {
+		if !t.streaming || !t.nativeStreamStarted || t.completedEmitted {
 			return nil
 		}
 		env := t.responseEnvelope("failed")
-		env["output"] = []any{map[string]any{
-			"id": t.nativeBadgeItemID, "type": "message", "status": "completed", "role": "assistant",
-			"content": []any{map[string]any{
-				"type": "output_text", "text": t.computeBadgeText(), "annotations": []any{},
-			}},
-		}}
+		if t.nativeBadgeItemID != "" {
+			env["output"] = []any{map[string]any{
+				"id": t.nativeBadgeItemID, "type": "message", "status": "completed", "role": "assistant",
+				"content": []any{map[string]any{
+					"type": "output_text", "text": t.computeBadgeText(), "annotations": []any{},
+				}},
+			}}
+		} else {
+			env["output"] = []any{}
+		}
 		env["error"] = map[string]any{
 			"code":    "upstream_error",
 			"message": "Upstream call failed.",
 		}
-		if err := t.writeNativeEvent("response.failed", 1+t.nativeSequenceShift, map[string]any{"response": env}); err != nil {
+		sequence := int64(1) + t.nativeSequenceShift
+		if t.nativeLastSequenceSet {
+			sequence = t.nativeLastSequence + 1
+		}
+		if err := t.writeNativeEvent("response.failed", sequence, map[string]any{"response": env}); err != nil {
 			return err
 		}
 		t.completedEmitted = true
