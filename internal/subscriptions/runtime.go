@@ -16,12 +16,23 @@ import (
 
 const (
 	defaultAccountSyncTTL = 15 * time.Second
+	// refreshLeaseTTL bounds how long a crashed holder blocks other replicas.
+	// A live holder extends the lease every refreshLeaseHeartbeat while its
+	// provider call runs, so a healthy refresh never loses the lease before
+	// persisting. RefreshHTTPTimeout (oauth.go) must stay below this TTL.
 	refreshLeaseTTL       = 30 * time.Second
+	refreshLeaseHeartbeat = refreshLeaseTTL / 3
 	refreshReleaseTimeout = 2 * time.Second
 	refreshWaitInitial    = 50 * time.Millisecond
 	refreshWaitMaximum    = 200 * time.Millisecond
 	refreshRetryLimit     = 3
 )
+
+// Compile-time check that one provider refresh (RefreshHTTPTimeout) fits
+// inside a single lease window: the index is 0 only while the timeout is
+// shorter than the TTL. With a 15s bound and 10s heartbeat, a crashed holder
+// blocks peers for at most refreshLeaseTTL + refreshLeaseHeartbeat.
+var _ = [1]struct{}{}[RefreshHTTPTimeout/refreshLeaseTTL]
 
 var errRefreshLeaseLost = errors.New("subscription refresh lease lost")
 
@@ -30,7 +41,8 @@ type AccountStore interface {
 	ListSubscriptionAccounts(context.Context, string) ([]*auth.SubscriptionAccount, error)
 	UpdateSubscriptionAccountState(context.Context, string, string, bool, *time.Time) error
 	UpdateSubscriptionAccountCooldown(context.Context, string, string, time.Time) error
-	TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (bool, error)
+	TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (auth.RefreshLeaseAcquisition, error)
+	ExtendSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (bool, error)
 	ReleaseSubscriptionRefreshLease(context.Context, string, string, string) error
 	DisableSubscriptionAccountIfRefreshHolder(context.Context, string, string, string, int64) error
 	CooldownSubscriptionAccountIfRefreshHolder(context.Context, string, string, string, int64, time.Time) error
@@ -68,6 +80,8 @@ type Runtime struct {
 	manager   *Manager
 	clock     func() time.Time
 	syncTTL   time.Duration
+	leaseTTL  time.Duration
+	heartbeat time.Duration
 
 	mu       sync.Mutex
 	syncedAt map[string]time.Time
@@ -88,7 +102,14 @@ func NewRuntime(store AccountStore, refresher TokenRefresher, clock func() time.
 	return &Runtime{
 		store: store, refresher: refresher, manager: NewManager(clock), clock: clock,
 		syncTTL: defaultAccountSyncTTL, syncedAt: make(map[string]time.Time), syncing: make(map[string]*runtimeSyncCall),
+		leaseTTL: refreshLeaseTTL, heartbeat: refreshLeaseHeartbeat,
 	}
+}
+
+// refreshHolder is one replica's live claim on an account's refresh lease.
+type refreshHolder struct {
+	leaseID  string
+	tookOver bool
 }
 
 func (r *Runtime) Lease(ctx context.Context, ownerID string, provider Provider, sessionID string) (Lease, bool, error) {
@@ -186,12 +207,12 @@ func (r *Runtime) refresh(ownerID string) Refresher {
 		wait := refreshWaitInitial
 		for attempt := 0; attempt < refreshRetryLimit; attempt++ {
 			leaseID := uuid.NewString()
-			acquired, err := r.store.TryAcquireSubscriptionRefreshLease(ctx, ownerID, account.ID, leaseID, refreshLeaseTTL)
+			acquisition, err := r.store.TryAcquireSubscriptionRefreshLease(ctx, ownerID, account.ID, leaseID, r.leaseTTL)
 			if err != nil {
 				observability.FromContext(ctx).Error("Failed to acquire subscription refresh lease", "owner_id", ownerID, "account_id", account.ID, "provider", account.Provider, "err", err)
 				return Account{}, err
 			}
-			if !acquired {
+			if !acquisition.Acquired {
 				credentials, loadErr := r.store.LoadSubscriptionCredentials(ctx, ownerID, account.ID)
 				if loadErr != nil {
 					observability.FromContext(ctx).Error("Failed to load subscription credentials while waiting for refresh", "owner_id", ownerID, "account_id", account.ID, "provider", account.Provider, "err", loadErr)
@@ -215,6 +236,7 @@ func (r *Runtime) refresh(ownerID string) Refresher {
 				attempt--
 				continue
 			}
+			holder := refreshHolder{leaseID: leaseID, tookOver: acquisition.TookOver}
 
 			credentials, err := r.store.LoadSubscriptionCredentials(ctx, ownerID, account.ID)
 			if err != nil {
@@ -228,16 +250,16 @@ func (r *Runtime) refresh(ownerID string) Refresher {
 				return applySubscriptionCredentials(account, credentials), r.releaseRefreshLease(ctx, ownerID, account.ID, leaseID, nil)
 			}
 
-			refreshed, refreshErr := r.refresher.Refresh(ctx, account.Provider, string(credentials.RefreshToken))
+			refreshed, refreshErr := r.refreshWithHeartbeat(ctx, ownerID, account, leaseID, string(credentials.RefreshToken))
 			if refreshErr != nil {
-				recovered, handleErr := r.handleRefreshError(ctx, ownerID, account, credentials, leaseID, refreshErr)
+				recovered, handleErr := r.handleRefreshError(ctx, ownerID, account, credentials, holder, refreshErr)
 				if errors.Is(handleErr, errRefreshLeaseLost) {
 					continue
 				}
 				return recovered, handleErr
 			}
 			if account.Provider == ProviderCodex && refreshed.AccountID != "" && refreshed.AccountID != account.AccountID {
-				recovered, handleErr := r.handleRefreshError(ctx, ownerID, account, credentials, leaseID, &providerAccountMismatchError{})
+				recovered, handleErr := r.handleRefreshError(ctx, ownerID, account, credentials, holder, &providerAccountMismatchError{})
 				if errors.Is(handleErr, errRefreshLeaseLost) {
 					continue
 				}
@@ -278,7 +300,53 @@ func (r *Runtime) refresh(ownerID string) Refresher {
 	}
 }
 
-func (r *Runtime) handleRefreshError(ctx context.Context, ownerID string, account Account, credentials auth.SubscriptionCredentials, leaseID string, refreshErr error) (Account, error) {
+// refreshWithHeartbeat runs the provider refresh while renewing the lease so a
+// slow provider cannot let another replica take over and double-spend the
+// refresh token. Extends run on a detached context because a canceled caller
+// still owns the lease until release. A lost lease cancels the refresh; a
+// failed extend only logs, since a database blip is not proof of loss.
+func (r *Runtime) refreshWithHeartbeat(ctx context.Context, ownerID string, account Account, leaseID, refreshToken string) (RefreshedToken, error) {
+	refreshCtx, cancelRefresh := context.WithCancelCause(ctx)
+	defer cancelRefresh(nil)
+	stopHeartbeat := make(chan struct{})
+	heartbeatDone := make(chan struct{})
+	go func() {
+		defer close(heartbeatDone)
+		ticker := time.NewTicker(r.heartbeat)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopHeartbeat:
+				return
+			case <-ticker.C:
+			}
+			extendCtx, cancelExtend := context.WithTimeout(context.WithoutCancel(ctx), refreshReleaseTimeout)
+			extended, err := r.store.ExtendSubscriptionRefreshLease(extendCtx, ownerID, account.ID, leaseID, r.leaseTTL)
+			cancelExtend()
+			if err != nil {
+				observability.FromContext(ctx).Warn("Failed to extend subscription refresh lease", "owner_id", ownerID, "account_id", account.ID, "provider", account.Provider, "err", err)
+				continue
+			}
+			if !extended {
+				cancelRefresh(errRefreshLeaseLost)
+				return
+			}
+		}
+	}()
+	refreshed, err := r.refresher.Refresh(refreshCtx, account.Provider, refreshToken)
+	close(stopHeartbeat)
+	<-heartbeatDone
+	if err != nil && errors.Is(context.Cause(refreshCtx), errRefreshLeaseLost) {
+		return RefreshedToken{}, errRefreshLeaseLost
+	}
+	return refreshed, err
+}
+
+func (r *Runtime) handleRefreshError(ctx context.Context, ownerID string, account Account, credentials auth.SubscriptionCredentials, holder refreshHolder, refreshErr error) (Account, error) {
+	leaseID := holder.leaseID
+	if errors.Is(refreshErr, errRefreshLeaseLost) {
+		return Account{}, r.releaseRefreshLease(ctx, ownerID, account.ID, leaseID, errRefreshLeaseLost)
+	}
 	if errors.Is(refreshErr, context.Canceled) || errors.Is(refreshErr, context.DeadlineExceeded) {
 		return Account{}, r.releaseRefreshLease(ctx, ownerID, account.ID, leaseID, refreshErr)
 	}
@@ -296,6 +364,14 @@ func (r *Runtime) handleRefreshError(ctx context.Context, ownerID string, accoun
 		if loadErr != nil {
 			log.Error("Failed to reload subscription credentials after terminal refresh failure", "err", loadErr)
 			refreshErr = errors.Join(refreshErr, loadErr)
+		}
+		if holder.tookOver {
+			// The previous holder may have spent this refresh token before its
+			// lease expired, so the rejection is not proof the account is dead.
+			// Fail closed: release so the next attempt acquires cleanly and, if
+			// the token is truly revoked, disables with certainty.
+			log.Warn("Subscription credential refresh rejected on a taken-over lease; not disabling", "err", refreshErr)
+			return Account{}, r.releaseRefreshLease(ctx, ownerID, account.ID, leaseID, errRefreshLeaseLost)
 		}
 	} else {
 		log.Warn("Subscription credential refresh failed", "err", refreshErr)

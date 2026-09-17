@@ -535,7 +535,7 @@ func main() {
 		subscriptionRuntime = subscriptions.NewRuntime(
 			authSvc,
 			subscriptions.NewOAuthClient(
-				&http.Client{Timeout: 15 * time.Second},
+				&http.Client{Timeout: subscriptions.RefreshHTTPTimeout},
 				codexTokenURL,
 				config.GetOr("WEAVE_ANTHROPIC_OAUTH_TOKEN", ""),
 				time.Now,

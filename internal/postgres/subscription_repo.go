@@ -137,7 +137,33 @@ func (r *subscriptionAccountRepo) DeleteSubscriptionAccount(ctx context.Context,
 	return nil
 }
 
-func (r *subscriptionAccountRepo) TryAcquireSubscriptionRefreshLease(ctx context.Context, accountID, apiKeyID, leaseID string, leaseTTL time.Duration) (int64, error) {
+func (r *subscriptionAccountRepo) TryAcquireSubscriptionRefreshLease(ctx context.Context, accountID, apiKeyID, leaseID string, leaseTTL time.Duration) (auth.RefreshLeaseAcquisition, error) {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return auth.RefreshLeaseAcquisition{}, err
+	}
+	keyUUID, err := uuid.Parse(apiKeyID)
+	if err != nil {
+		return auth.RefreshLeaseAcquisition{}, err
+	}
+	leaseUUID, err := uuid.Parse(leaseID)
+	if err != nil {
+		return auth.RefreshLeaseAcquisition{}, err
+	}
+	tookOver, err := sqlc.New(r.tx).TryAcquireModelRouterSubscriptionRefreshLease(ctx, sqlc.TryAcquireModelRouterSubscriptionRefreshLeaseParams{
+		ID: accountUUID, APIKeyID: keyUUID, LeaseID: leaseUUID,
+		LeaseSeconds: int64(leaseTTL / time.Second),
+	})
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return auth.RefreshLeaseAcquisition{}, nil
+		}
+		return auth.RefreshLeaseAcquisition{}, err
+	}
+	return auth.RefreshLeaseAcquisition{Acquired: true, TookOver: tookOver}, nil
+}
+
+func (r *subscriptionAccountRepo) ExtendSubscriptionRefreshLease(ctx context.Context, accountID, apiKeyID, leaseID string, leaseTTL time.Duration) (int64, error) {
 	accountUUID, err := uuid.Parse(accountID)
 	if err != nil {
 		return 0, err
@@ -150,7 +176,7 @@ func (r *subscriptionAccountRepo) TryAcquireSubscriptionRefreshLease(ctx context
 	if err != nil {
 		return 0, err
 	}
-	return sqlc.New(r.tx).TryAcquireModelRouterSubscriptionRefreshLease(ctx, sqlc.TryAcquireModelRouterSubscriptionRefreshLeaseParams{
+	return sqlc.New(r.tx).ExtendModelRouterSubscriptionRefreshLease(ctx, sqlc.ExtendModelRouterSubscriptionRefreshLeaseParams{
 		ID: accountUUID, APIKeyID: keyUUID, LeaseID: leaseUUID,
 		LeaseSeconds: int64(leaseTTL / time.Second),
 	})

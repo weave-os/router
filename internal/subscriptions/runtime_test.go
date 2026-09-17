@@ -27,6 +27,8 @@ type runtimeStore struct {
 	enabledUpdates       map[string]bool
 	cooldowns            map[string]time.Time
 	stateErr             error
+	extendErr            error
+	extendCount          atomic.Int32
 }
 
 func (s *runtimeStore) ListSubscriptionAccounts(context.Context, string) ([]*auth.SubscriptionAccount, error) {
@@ -53,20 +55,40 @@ func (s *runtimeStore) UpdateSubscriptionRefreshToken(_ context.Context, _ strin
 	return nil
 }
 
-func (s *runtimeStore) TryAcquireSubscriptionRefreshLease(_ context.Context, _ string, accountID, leaseID string, leaseTTL time.Duration) (bool, error) {
+func (s *runtimeStore) TryAcquireSubscriptionRefreshLease(_ context.Context, _ string, accountID, leaseID string, leaseTTL time.Duration) (auth.RefreshLeaseAcquisition, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
 	for _, account := range s.accounts {
 		if account.ID == accountID && (!account.Enabled || (account.CooldownUntil != nil && account.CooldownUntil.After(now))) {
-			return false, nil
+			return auth.RefreshLeaseAcquisition{}, nil
 		}
 	}
 	if current := s.leaseUntil[accountID]; current.After(now) {
-		return false, nil
+		return auth.RefreshLeaseAcquisition{}, nil
 	}
+	_, tookOver := s.leaseIDs[accountID]
 	s.leaseIDs[accountID] = leaseID
 	s.leaseUntil[accountID] = now.Add(leaseTTL)
+	return auth.RefreshLeaseAcquisition{Acquired: true, TookOver: tookOver}, nil
+}
+
+func (s *runtimeStore) ExtendSubscriptionRefreshLease(_ context.Context, _ string, accountID, leaseID string, leaseTTL time.Duration) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.extendCount.Add(1)
+	if s.extendErr != nil {
+		return false, s.extendErr
+	}
+	for _, account := range s.accounts {
+		if account.ID == accountID && !account.Enabled {
+			return false, nil
+		}
+	}
+	if s.leaseIDs[accountID] != leaseID {
+		return false, nil
+	}
+	s.leaseUntil[accountID] = time.Now().Add(leaseTTL)
 	return true, nil
 }
 
@@ -281,9 +303,9 @@ func TestRuntimeAdoptsAccessTokenWhileAnotherRuntimeRefreshes(t *testing.T) {
 	store.accessTokens["account-1"] = []byte("access-winner")
 	store.accessExpiry["account-1"] = time.Now().Add(time.Hour)
 	leaseID := "00000000-0000-0000-0000-000000000001"
-	acquired, err := store.TryAcquireSubscriptionRefreshLease(context.Background(), "owner-1", "account-1", leaseID, time.Minute)
+	acquisition, err := store.TryAcquireSubscriptionRefreshLease(context.Background(), "owner-1", "account-1", leaseID, time.Minute)
 	require.NoError(t, err)
-	require.True(t, acquired)
+	require.True(t, acquisition.Acquired)
 	var refreshes atomic.Int32
 	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
 		refreshes.Add(1)
@@ -505,9 +527,9 @@ func TestRuntimeReleasesCanceledRefreshLease(t *testing.T) {
 			require.Empty(t, store.leaseUntil)
 			require.Empty(t, store.enabledUpdates)
 			require.Empty(t, store.cooldowns)
-			acquired, err := store.TryAcquireSubscriptionRefreshLease(context.Background(), "owner-1", "account-1", "next-holder", time.Minute)
+			acquisition, err := store.TryAcquireSubscriptionRefreshLease(context.Background(), "owner-1", "account-1", "next-holder", time.Minute)
 			require.NoError(t, err)
-			require.True(t, acquired)
+			require.True(t, acquisition.Acquired)
 		})
 	}
 }
@@ -653,4 +675,155 @@ func TestRuntimeCurrentRefreshFailureSetsCooldownAndReleases(t *testing.T) {
 	require.Equal(t, now.Add(time.Minute), store.cooldowns["account-1"])
 	require.True(t, store.accounts[0].Enabled)
 	require.Empty(t, store.leaseIDs)
+}
+
+// Amin's PR 1353 case: a provider call that outlives one lease window must not
+// let a peer take over and double-spend the refresh token.
+func TestRuntimeHeartbeatKeepsLeaseDuringSlowRefresh(t *testing.T) {
+	store := newRuntimeStore(&auth.SubscriptionAccount{
+		ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+	})
+	store.refreshTokens["account-1"] = []byte("refresh-old")
+	const leaseTTL = 60 * time.Millisecond
+	peerBlocked := make(chan bool, 1)
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
+		// Outlive the original lease window by several heartbeats.
+		time.Sleep(4 * leaseTTL)
+		acquisition, err := store.TryAcquireSubscriptionRefreshLease(context.Background(), "owner-1", "account-1", "peer", leaseTTL)
+		require.NoError(t, err)
+		peerBlocked <- !acquisition.Acquired
+		return subscriptions.RefreshedToken{AccessToken: "access-new", RefreshToken: "refresh-new", ExpiresAt: time.Now().Add(time.Hour)}, nil
+	}), nil)
+	subscriptions.SetRefreshLeaseTimingForTest(runtime, leaseTTL, leaseTTL/3)
+
+	lease, present, err := runtime.Lease(context.Background(), "owner-1", subscriptions.ProviderClaude, "")
+	require.NoError(t, err)
+	require.True(t, present)
+	require.Equal(t, "access-new", lease.AccessToken)
+	require.True(t, <-peerBlocked, "peer acquired a lease that the heartbeat should have kept alive")
+	require.GreaterOrEqual(t, store.extendCount.Load(), int32(1))
+	require.Equal(t, []byte("refresh-new"), store.refreshTokens["account-1"])
+	require.True(t, store.accounts[0].Enabled)
+	require.Empty(t, store.enabledUpdates)
+	lease.Release()
+}
+
+func TestRuntimeLostHeartbeatCancelsRefreshWithoutDisabling(t *testing.T) {
+	store := newRuntimeStore(&auth.SubscriptionAccount{
+		ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+	})
+	store.refreshTokens["account-1"] = []byte("refresh-old")
+	const leaseTTL = 60 * time.Millisecond
+	var refreshes atomic.Int32
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(ctx context.Context, _ subscriptions.Provider, _ string) (subscriptions.RefreshedToken, error) {
+		if refreshes.Add(1) == 1 {
+			// Simulate an operator reset that nulls the lease while we are in flight.
+			store.mu.Lock()
+			delete(store.leaseIDs, "account-1")
+			delete(store.leaseUntil, "account-1")
+			store.mu.Unlock()
+			<-ctx.Done()
+			return subscriptions.RefreshedToken{}, ctx.Err()
+		}
+		return subscriptions.RefreshedToken{AccessToken: "access-new", RefreshToken: "refresh-new", ExpiresAt: time.Now().Add(time.Hour)}, nil
+	}), nil)
+	subscriptions.SetRefreshLeaseTimingForTest(runtime, leaseTTL, leaseTTL/3)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	lease, present, err := runtime.Lease(ctx, "owner-1", subscriptions.ProviderClaude, "")
+	require.NoError(t, err)
+	require.True(t, present)
+	require.Equal(t, "access-new", lease.AccessToken, "lost lease should retry with a clean acquire")
+	require.Equal(t, int32(2), refreshes.Load())
+	require.Empty(t, store.enabledUpdates)
+	require.Empty(t, store.cooldowns)
+	lease.Release()
+}
+
+func TestRuntimeExtendErrorDoesNotCancelRefresh(t *testing.T) {
+	store := newRuntimeStore(&auth.SubscriptionAccount{
+		ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+	})
+	store.refreshTokens["account-1"] = []byte("refresh-old")
+	store.extendErr = errors.New("database blip")
+	const leaseTTL = 60 * time.Millisecond
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(ctx context.Context, _ subscriptions.Provider, _ string) (subscriptions.RefreshedToken, error) {
+		select {
+		case <-time.After(3 * leaseTTL):
+		case <-ctx.Done():
+			return subscriptions.RefreshedToken{}, ctx.Err()
+		}
+		return subscriptions.RefreshedToken{AccessToken: "access-new", RefreshToken: "refresh-new", ExpiresAt: time.Now().Add(time.Hour)}, nil
+	}), nil)
+	subscriptions.SetRefreshLeaseTimingForTest(runtime, leaseTTL, leaseTTL/3)
+
+	lease, present, err := runtime.Lease(context.Background(), "owner-1", subscriptions.ProviderClaude, "")
+	require.NoError(t, err)
+	require.True(t, present)
+	require.Equal(t, "access-new", lease.AccessToken)
+	require.GreaterOrEqual(t, store.extendCount.Load(), int32(1))
+	lease.Release()
+}
+
+// A holder that took over an expired lease cannot tell a revoked token from one
+// the previous holder already rotated, so it must fail closed instead of
+// disabling the account.
+func TestRuntimeTakeoverTerminalRefreshDoesNotDisable(t *testing.T) {
+	store := newRuntimeStore(&auth.SubscriptionAccount{
+		ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+	})
+	store.refreshTokens["account-1"] = []byte("refresh-spent")
+	store.leaseIDs["account-1"] = "crashed-holder"
+	store.leaseUntil["account-1"] = time.Now().Add(-time.Second)
+	var refreshes atomic.Int32
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
+		refreshes.Add(1)
+		return subscriptions.RefreshedToken{}, &subscriptions.OAuthRefreshError{Provider: subscriptions.ProviderClaude, Status: http.StatusBadRequest}
+	}), nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, present, err := runtime.Lease(ctx, "owner-1", subscriptions.ProviderClaude, "")
+	require.True(t, present)
+	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
+	// First attempt took over and failed closed; the retry acquired cleanly and
+	// disabled with certainty. In-memory pool state must not have disabled after
+	// the first attempt, or the second would never have run.
+	require.Equal(t, int32(2), refreshes.Load())
+	require.Contains(t, store.enabledUpdates, "account-1")
+	require.False(t, store.enabledUpdates["account-1"])
+	require.Empty(t, store.cooldowns)
+}
+
+func TestRuntimeTakeoverTerminalRefreshAdoptsWinnerOnRetry(t *testing.T) {
+	store := newRuntimeStore(&auth.SubscriptionAccount{
+		ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+	})
+	store.refreshTokens["account-1"] = []byte("refresh-spent")
+	store.leaseIDs["account-1"] = "slow-holder"
+	store.leaseUntil["account-1"] = time.Now().Add(-time.Second)
+	var refreshes atomic.Int32
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
+		refreshes.Add(1)
+		// The slow holder finishes its persist out of band after our takeover
+		// (lease id/version fencing already rejects it in the real store; here we
+		// model the state it leaves behind: a usable access token published).
+		store.mu.Lock()
+		store.accessTokens["account-1"] = []byte("access-winner")
+		store.accessExpiry["account-1"] = time.Now().Add(time.Hour)
+		store.mu.Unlock()
+		return subscriptions.RefreshedToken{}, &subscriptions.OAuthRefreshError{Provider: subscriptions.ProviderClaude, Status: http.StatusBadRequest}
+	}), nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	lease, present, err := runtime.Lease(ctx, "owner-1", subscriptions.ProviderClaude, "")
+	require.NoError(t, err)
+	require.True(t, present)
+	require.Equal(t, "access-winner", lease.AccessToken)
+	require.Equal(t, int32(1), refreshes.Load())
+	require.Empty(t, store.enabledUpdates)
+	require.Empty(t, store.cooldowns)
+	lease.Release()
 }

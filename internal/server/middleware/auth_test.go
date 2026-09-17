@@ -115,7 +115,10 @@ func (r failingSubscriptionAccountRepository) UpdateSubscriptionRefreshToken(con
 func (r failingSubscriptionAccountRepository) DeleteSubscriptionAccount(context.Context, string, string) error {
 	return r.err
 }
-func (r failingSubscriptionAccountRepository) TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (int64, error) {
+func (r failingSubscriptionAccountRepository) TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (auth.RefreshLeaseAcquisition, error) {
+	return auth.RefreshLeaseAcquisition{}, r.err
+}
+func (r failingSubscriptionAccountRepository) ExtendSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (int64, error) {
 	return 0, r.err
 }
 func (r failingSubscriptionAccountRepository) ReleaseSubscriptionRefreshLease(context.Context, string, string, string) error {

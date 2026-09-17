@@ -65,10 +65,20 @@ type SubscriptionCredentials struct {
 	CooldownUntil        *time.Time
 }
 
+// RefreshLeaseAcquisition is the outcome of one refresh-lease attempt.
+// TookOver means an expired lease from a holder that never released was
+// replaced. That holder may already have spent the refresh token, so the new
+// holder must not treat a terminal provider error as proof the account is dead.
+type RefreshLeaseAcquisition struct {
+	Acquired bool
+	TookOver bool
+}
+
 // SubscriptionRefreshRepository coordinates refresh leases and encrypted
 // credential persistence across router replicas.
 type SubscriptionRefreshRepository interface {
-	TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (int64, error)
+	TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (RefreshLeaseAcquisition, error)
+	ExtendSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (int64, error)
 	ReleaseSubscriptionRefreshLease(context.Context, string, string, string) error
 	DisableSubscriptionAccountIfRefreshHolder(context.Context, string, string, string, int64) error
 	CooldownSubscriptionAccountIfRefreshHolder(context.Context, string, string, string, int64, time.Time) error
@@ -190,13 +200,23 @@ func (s *Service) subscriptionRefreshRepository() (SubscriptionRefreshRepository
 }
 
 // TryAcquireSubscriptionRefreshLease reserves an account for one replica's
-// provider refresh using the database clock. A false result means it is unavailable.
-func (s *Service) TryAcquireSubscriptionRefreshLease(ctx context.Context, apiKeyID, accountID, leaseID string, leaseTTL time.Duration) (bool, error) {
+// provider refresh using the database clock. Acquired=false means it is unavailable.
+func (s *Service) TryAcquireSubscriptionRefreshLease(ctx context.Context, apiKeyID, accountID, leaseID string, leaseTTL time.Duration) (RefreshLeaseAcquisition, error) {
+	repo, err := s.subscriptionRefreshRepository()
+	if err != nil {
+		return RefreshLeaseAcquisition{}, err
+	}
+	return repo.TryAcquireSubscriptionRefreshLease(ctx, accountID, apiKeyID, leaseID, leaseTTL)
+}
+
+// ExtendSubscriptionRefreshLease renews a lease this replica still holds while
+// its provider refresh is in flight. A false result means the lease was lost.
+func (s *Service) ExtendSubscriptionRefreshLease(ctx context.Context, apiKeyID, accountID, leaseID string, leaseTTL time.Duration) (bool, error) {
 	repo, err := s.subscriptionRefreshRepository()
 	if err != nil {
 		return false, err
 	}
-	rows, err := repo.TryAcquireSubscriptionRefreshLease(ctx, accountID, apiKeyID, leaseID, leaseTTL)
+	rows, err := repo.ExtendSubscriptionRefreshLease(ctx, accountID, apiKeyID, leaseID, leaseTTL)
 	return rows > 0, err
 }
 

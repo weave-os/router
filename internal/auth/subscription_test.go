@@ -40,7 +40,10 @@ func (*subscriptionAccountRepoStub) UpdateSubscriptionRefreshToken(context.Conte
 func (*subscriptionAccountRepoStub) DeleteSubscriptionAccount(context.Context, string, string) error {
 	return nil
 }
-func (*subscriptionAccountRepoStub) TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (int64, error) {
+func (*subscriptionAccountRepoStub) TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (RefreshLeaseAcquisition, error) {
+	return RefreshLeaseAcquisition{}, nil
+}
+func (*subscriptionAccountRepoStub) ExtendSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (int64, error) {
 	return 0, nil
 }
 func (*subscriptionAccountRepoStub) ReleaseSubscriptionRefreshLease(context.Context, string, string, string) error {
@@ -81,8 +84,8 @@ type coordinatedSubscriptionRepo struct {
 	persistedAccessCiphertext  []byte
 }
 
-func (r *coordinatedSubscriptionRepo) TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (int64, error) {
-	return 1, nil
+func (r *coordinatedSubscriptionRepo) TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (RefreshLeaseAcquisition, error) {
+	return RefreshLeaseAcquisition{Acquired: true}, nil
 }
 
 func (r *coordinatedSubscriptionRepo) ReleaseSubscriptionRefreshLease(context.Context, string, string, string) error {

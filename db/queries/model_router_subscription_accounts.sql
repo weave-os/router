@@ -65,17 +65,45 @@ DELETE FROM router.model_router_subscription_accounts
 WHERE id = @id::uuid AND api_key_id = @api_key_id::uuid;
 
 -- Try to reserve one account for a cross-replica token refresh. The lease ID
--- fences stale holders after a lease expires and is taken over.
--- name: TryAcquireModelRouterSubscriptionRefreshLease :execrows
+-- fences stale holders after a lease expires and is taken over. took_over
+-- reports whether an expired lease from a holder that never released was
+-- replaced: that holder may already have spent the refresh token, so a
+-- terminal provider error on a taken-over lease is not proof the account is
+-- dead. Zero rows means the account is unavailable or still leased.
+-- name: TryAcquireModelRouterSubscriptionRefreshLease :one
+WITH prior AS (
+  SELECT token_refresh_lease_id IS NOT NULL AS took_over
+  FROM router.model_router_subscription_accounts
+  WHERE id = @id::uuid AND api_key_id = @api_key_id::uuid
+  FOR UPDATE
+),
+acquired AS (
+  UPDATE router.model_router_subscription_accounts
+  SET token_refresh_lease_until = CURRENT_TIMESTAMP + make_interval(secs => @lease_seconds::bigint),
+      token_refresh_lease_id = @lease_id::uuid,
+      updated_at = CURRENT_TIMESTAMP
+  WHERE id = @id::uuid
+    AND api_key_id = @api_key_id::uuid
+    AND enabled = TRUE
+    AND (cooldown_until IS NULL OR cooldown_until <= CURRENT_TIMESTAMP)
+    AND (token_refresh_lease_until IS NULL OR token_refresh_lease_until <= CURRENT_TIMESTAMP)
+  RETURNING id
+)
+SELECT prior.took_over::boolean AS took_over
+FROM acquired
+JOIN prior ON TRUE;
+
+-- Extend a refresh lease while the holder's provider call is still in flight.
+-- Zero rows means the lease was lost (taken over or reset), so the holder must
+-- abandon its refresh.
+-- name: ExtendModelRouterSubscriptionRefreshLease :execrows
 UPDATE router.model_router_subscription_accounts
 SET token_refresh_lease_until = CURRENT_TIMESTAMP + make_interval(secs => @lease_seconds::bigint),
-    token_refresh_lease_id = @lease_id::uuid,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = @id::uuid
   AND api_key_id = @api_key_id::uuid
   AND enabled = TRUE
-  AND (cooldown_until IS NULL OR cooldown_until <= CURRENT_TIMESTAMP)
-  AND (token_refresh_lease_until IS NULL OR token_refresh_lease_until <= CURRENT_TIMESTAMP);
+  AND token_refresh_lease_id = @lease_id::uuid;
 
 -- Release a refresh lease only when this holder still owns it.
 -- name: ReleaseModelRouterSubscriptionRefreshLease :execrows

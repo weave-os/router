@@ -23,6 +23,11 @@ const (
 	defaultTokenLifetime  = time.Hour
 	maxTokenResponseBytes = 1 << 20
 
+	// RefreshHTTPTimeout bounds one provider token exchange. It must stay below
+	// the cross-replica refresh lease TTL so a live holder always finishes or
+	// fails before its lease could be taken over.
+	RefreshHTTPTimeout = 15 * time.Second
+
 	// tokenUserAgent identifies the router on provider token endpoints. Both
 	// issuers rate-limit generic client user agents, so refresh must not rely on
 	// the transport default.
@@ -86,6 +91,11 @@ func (e *OAuthRefreshError) Terminal() bool {
 }
 
 func (c *OAuthClient) Refresh(ctx context.Context, provider Provider, refreshToken string) (RefreshedToken, error) {
+	if deadline, ok := ctx.Deadline(); !ok || deadline.After(c.now().Add(RefreshHTTPTimeout)) {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, RefreshHTTPTimeout)
+		defer cancel()
+	}
 	switch provider {
 	case ProviderClaude:
 		return c.refreshClaude(ctx, refreshToken)

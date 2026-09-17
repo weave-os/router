@@ -51,6 +51,41 @@ func TestOAuthClientClassifiesRejectedRefreshWithoutLeakingToken(t *testing.T) {
 	require.True(t, refreshErr.Terminal())
 }
 
+func TestOAuthClientBoundsRefreshWithoutParentDeadline(t *testing.T) {
+	client := subscriptions.NewOAuthClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		deadline, ok := request.Context().Deadline()
+		require.True(t, ok, "refresh must always carry a deadline below the lease TTL")
+		require.WithinDuration(t, time.Now().Add(subscriptions.RefreshHTTPTimeout), deadline, time.Second)
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"a","refresh_token":"r","expires_in":60}`)),
+			Header:     make(http.Header),
+		}, nil
+	})}, "", "https://token.test/claude", nil)
+
+	_, err := client.Refresh(context.Background(), subscriptions.ProviderClaude, "refresh-secret")
+	require.NoError(t, err)
+}
+
+func TestOAuthClientHonorsShorterParentDeadline(t *testing.T) {
+	parent, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	parentDeadline, _ := parent.Deadline()
+	client := subscriptions.NewOAuthClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		deadline, ok := request.Context().Deadline()
+		require.True(t, ok)
+		require.Equal(t, parentDeadline, deadline)
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"a","refresh_token":"r","expires_in":60}`)),
+			Header:     make(http.Header),
+		}, nil
+	})}, "", "https://token.test/claude", nil)
+
+	_, err := client.Refresh(parent, subscriptions.ProviderClaude, "refresh-secret")
+	require.NoError(t, err)
+}
+
 func TestOAuthClientRefreshesClaudeWithJSONRequest(t *testing.T) {
 	now := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
 	client := subscriptions.NewOAuthClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
