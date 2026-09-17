@@ -488,7 +488,7 @@ func TestResponsesWriter_NativePreludeRewritesFinalServingModel(t *testing.T) {
 	w.SetRoutedModel("gpt-5.6-luna")
 	require.NoError(t, w.EmitRoutingBadge("fallback decision"))
 	_, err := w.Write([]byte("event: response.completed\n" +
-		`data: {"type":"response.completed","sequence_number":1,"response":{"id":"resp_upstream","model":"gpt-5.6-sol","status":"completed","output":[]}}` +
+		`data: {"type":"response.completed","sequence_number":1,"response":{"id":"resp_upstream","model":"gpt-5.6-sol","status":"completed","output":[{"id":"msg_upstream","type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}]}}` +
 		"\n\n"))
 	require.NoError(t, err)
 

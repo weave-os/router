@@ -811,7 +811,7 @@ func (t *ResponsesToAnthropicWriter) finalizeEmptyCompletion() error {
 		t.inner.Header().Del("Content-Length")
 		t.inner.WriteHeader(http.StatusBadGateway)
 	}
-	_, writeErr := t.inner.Write(responsesErrorBody(upstreamEmptyCompletionType, upstreamEmptyCompletionMessage))
+	_, writeErr := t.inner.Write(responsesError(upstreamEmptyCompletionType, upstreamEmptyCompletionMessage))
 	return writeErr
 }
 

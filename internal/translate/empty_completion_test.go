@@ -66,6 +66,64 @@ data: {"type":"response.completed","response":{"id":"resp_empty","status":"compl
 	assert.Contains(t, rec.Body.String(), "upstream_empty_completion")
 }
 
+func TestResponsesWriter_NativeEmptyTerminalIsRetryable(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.6-luna")
+	w.SetPassthrough()
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := w.Write([]byte(`{"id":"resp_empty","status":"completed","output":[]}`))
+	require.NoError(t, err)
+	require.ErrorIs(t, w.Finalize(), providers.ErrUpstreamEmptyCompletion)
+	assert.Empty(t, rec.Body.String())
+}
+
+func TestResponsesWriter_NativeStreamingEmptyTerminalIsRetryable(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.6-luna")
+	w.SetPassthroughBadge()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(200)
+	_, err := w.Write([]byte(`event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_empty","status":"completed","output":[]}}
+
+`))
+	require.ErrorIs(t, err, providers.ErrUpstreamEmptyCompletion)
+}
+
+func TestResponsesWriter_ArrayContentIsUsable(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.6-luna")
+	require.NoError(t, w.Prelude(false))
+	_, err := w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":[{"type":"text","text":"ok"}]},"finish_reason":"stop"}]}`))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+	assert.Contains(t, rec.Body.String(), `"text":"ok"`)
+}
+
+func TestResponsesWriter_ReasoningOnlyTerminalIsRetryable(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.6-luna")
+	require.NoError(t, w.Prelude(false))
+	_, err := w.Write([]byte(`{"choices":[{"message":{"role":"assistant","reasoning_content":"internal"},"finish_reason":"stop"}]}`))
+	require.NoError(t, err)
+	require.ErrorIs(t, w.Finalize(), providers.ErrUpstreamEmptyCompletion)
+}
+
+func TestResponsesToAnthropicWriter_EmptyCompletionUsesAnthropicEnvelope(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesToAnthropicWriter(rec, "claude-opus-5", nil)
+	require.NoError(t, w.Prelude(false))
+	_, err := w.Write([]byte(`event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_empty","status":"completed","output":[]}}
+
+`))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+	assert.Equal(t, 502, rec.Code)
+	assert.Contains(t, rec.Body.String(), `"type":"error"`)
+}
+
 func TestEmptyCompletionErrorUnwrapsRetrySentinel(t *testing.T) {
 	err := errors.New("wrapped")
 	wrapped := &providers.UpstreamErrorResponse{Status: 502, Cause: errors.Join(providers.ErrUpstreamEmptyCompletion, err)}

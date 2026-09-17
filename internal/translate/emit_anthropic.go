@@ -243,7 +243,7 @@ func (e *RequestEnvelope) buildAnthropicFromOpenAI(opts EmitOptions) ([]byte, er
 	}
 
 	writeAnthropicSystemAndMessages(jw, e.body)
-	writeAnthropicMaxTokens(jw, e.body, opts.TargetModel)
+	writeAnthropicMaxTokens(jw, e.body, opts.TargetModel, opts.Capabilities)
 	writeAnthropicStopSequences(jw, e.body)
 
 	// tool_choice "none" suppresses tools entirely — Anthropic has no direct
@@ -670,7 +670,7 @@ func buildAnthropicImageBlock(urlStr string) string {
 	return string(jw.Bytes())
 }
 
-func writeAnthropicMaxTokens(jw *jsonWriter, body []byte, targetModel string) {
+func writeAnthropicMaxTokens(jw *jsonWriter, body []byte, targetModel string, capabilities router.ModelSpec) {
 	if r := gjson.GetBytes(body, "max_tokens"); r.Exists() {
 		jw.Key("max_tokens")
 		jw.Raw(r.Raw)
@@ -682,7 +682,7 @@ func writeAnthropicMaxTokens(jw *jsonWriter, body []byte, targetModel string) {
 		return
 	}
 	jw.Key("max_tokens")
-	jw.Int(defaultOutputTokens(targetModel))
+	jw.Int(defaultAnthropicOutputTokens(targetModel, capabilities))
 }
 
 func writeAnthropicStopSequences(jw *jsonWriter, body []byte) {

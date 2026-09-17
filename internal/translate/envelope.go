@@ -1506,6 +1506,12 @@ func defaultOutputTokens(model string) int64 {
 // reasoning floor. Explicit caller max_tokens values are handled separately
 // and are intentionally not changed here.
 func defaultAnthropicOutputTokens(model string, capabilities router.ModelSpec) int64 {
+	if !capabilities.Supports(router.CapAdaptiveThinking) {
+		catalogCapabilities := router.Lookup(model)
+		if catalogCapabilities.Supports(router.CapAdaptiveThinking) {
+			capabilities = catalogCapabilities
+		}
+	}
 	defaultTokens := defaultOutputTokens(model)
 	if !capabilities.Supports(router.CapAdaptiveThinking) || !capabilities.Reasoning().AlwaysOn {
 		return defaultTokens

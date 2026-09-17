@@ -896,8 +896,10 @@ func (t *ResponsesWriter) WriteHeader(code int) {
 		// Codex backend already sets text/event-stream; only drop length/encoding.
 		t.inner.Header().Del("Content-Length")
 		t.inner.Header().Del("Content-Encoding")
-		t.inner.WriteHeader(code)
-		t.httpHeadersSent = true
+		if t.streaming {
+			t.inner.WriteHeader(code)
+			t.httpHeadersSent = true
+		}
 		return
 	}
 	if t.httpHeadersSent {
@@ -923,8 +925,10 @@ func (t *ResponsesWriter) Write(data []byte) (int, error) {
 		if !t.httpHeadersSent {
 			t.streaming = strings.Contains(t.inner.Header().Get("Content-Type"), "text/event-stream")
 			t.statusCode = http.StatusOK
-			t.inner.WriteHeader(http.StatusOK)
-			t.httpHeadersSent = true
+			if t.streaming {
+				t.inner.WriteHeader(http.StatusOK)
+				t.httpHeadersSent = true
+			}
 		}
 		// Generic native Responses callers remain byte-for-byte passthrough. Only
 		// the explicitly enabled Codex display path parses native SSE.
@@ -959,6 +963,13 @@ func (t *ResponsesWriter) Write(data []byte) (int, error) {
 				}
 			}
 			return n, nil
+		}
+		if !t.streaming {
+			return t.buf.Write(data)
+		}
+		t.buf.Write(data)
+		if err := t.validateNativeResponsesSSEBuffer(); err != nil {
+			return n, err
 		}
 		// Forward verbatim. The upstream emits Responses natively, so there is
 		// nothing to translate for clients that did not opt into the display badge.
@@ -1063,8 +1074,16 @@ func (t *ResponsesWriter) Finalize() error {
 				return err
 			}
 		}
-		if t.passthroughBadge && !t.streaming {
+		if !t.passthroughBadge && t.streaming {
+			if err := t.validateNativeResponsesSSEBuffer(); err != nil {
+				return err
+			}
+		}
+		if !t.streaming {
 			body := t.buf.Bytes()
+			if root := gjson.ParseBytes(body); root.Get("output").IsArray() && !nativeResponsesResponseHasUsableOutput(root) {
+				return emptyCompletionOpenAIError()
+			}
 			t.resetSSEScanState()
 			if rewritten, changed := t.rewriteNativeNonStreamingBody(body); changed {
 				body = rewritten
@@ -1699,6 +1718,12 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 			return err
 		}
 	}
+	if eventType == "response.completed" || eventType == "response.incomplete" {
+		response := gjson.GetBytes(data, "response")
+		if response.Get("output").IsArray() && !nativeResponsesResponseHasUsableOutput(response) {
+			return emptyCompletionOpenAIError()
+		}
+	}
 	rewritten := t.rewriteNativeResponsesEvent(event)
 	if t.shouldHoldNativeEvent(eventType, itemType) {
 		held := append([]byte(nil), rewritten...)
@@ -1766,6 +1791,26 @@ func (t *ResponsesWriter) processPassthroughSSEBuffer() error {
 		if err != nil {
 			return err
 		}
+	}
+}
+
+func (t *ResponsesWriter) validateNativeResponsesSSEBuffer() error {
+	for {
+		event, n := t.nativeStreamScanner.Next(t.buf.Bytes())
+		if n == 0 {
+			return nil
+		}
+		_, data := sse.ParseEvent(event)
+		if gjson.ValidBytes(data) {
+			eventType := gjson.GetBytes(data, "type").Str
+			if eventType == "response.completed" || eventType == "response.incomplete" {
+				response := gjson.GetBytes(data, "response")
+				if response.Get("output").IsArray() && !nativeResponsesResponseHasUsableOutput(response) {
+					return emptyCompletionOpenAIError()
+				}
+			}
+		}
+		t.buf.Next(n)
 	}
 }
 
@@ -1901,6 +1946,16 @@ func (t *ResponsesWriter) translateChunk(raw []byte) error {
 		t.hasUpstreamOutput = true
 		if err := t.appendText(content.Str); err != nil {
 			return err
+		}
+	} else if content := delta.Get("content"); content.IsArray() {
+		for _, part := range content.Array() {
+			if part.Get("text").Type != gjson.String || part.Get("text").Str == "" {
+				continue
+			}
+			t.hasUpstreamOutput = true
+			if err := t.appendText(part.Get("text").Str); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -2508,9 +2563,7 @@ func chatCompletionToResponse(body []byte, responseID, model string, createdAt i
 	choice := root.Get("choices.0.message")
 	output := make([]any, 0, 2)
 	text := badge
-	if content := choice.Get("content"); content.Type == gjson.String {
-		text += content.Str
-	}
+	text += chatContentText(choice.Get("content"))
 	if footer != "" && choice.Get("tool_calls.#").Int() == 0 && !feedbackFooterPattern.MatchString(text) {
 		text += footer
 	}

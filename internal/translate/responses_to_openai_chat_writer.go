@@ -591,7 +591,7 @@ func (t *ResponsesToOpenAIChatWriter) finalizeBuffered() error {
 		t.log().Error("ResponsesToOpenAIChat: translate failed", "err", err)
 		return t.finalizeError()
 	}
-	if !chatCompletionHasUsableOutput(chat) {
+	if !chatCompletionHasUsableOutput(chat) && !chatCompletionHasReasoningOutput(chat) {
 		t.log().Error("ResponsesToOpenAIChat: upstream returned an empty completion",
 			"request_model", t.requestModel)
 		return t.finalizeEmptyCompletion()

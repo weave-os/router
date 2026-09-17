@@ -55,6 +55,33 @@ func TestAnthropicSameFormat_AdaptiveDefaultsHaveReasoningHeadroom(t *testing.T)
 	assert.Equal(t, float64(8192), control["max_tokens"])
 }
 
+func TestAnthropicCrossFormat_AdaptiveDefaultHasReasoningHeadroom(t *testing.T) {
+	body := []byte(`{"model":"gpt-5","messages":[{"role":"user","content":"hi"}]}`)
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(prep.Body, &out))
+	assert.Equal(t, float64(16000), out["max_tokens"])
+
+	responsesBody := []byte(`{"model":"gpt-5","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}]}`)
+	conversion, err := translate.ConvertResponsesToChatCompletions(responsesBody)
+	require.NoError(t, err)
+	env, err = translate.ParseOpenAI(conversion.Body)
+	require.NoError(t, err)
+	prep, err = env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	})
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(prep.Body, &out))
+	assert.Equal(t, float64(16000), out["max_tokens"])
+}
+
 func TestOpenAISameFormat_DefaultMaxTokensInjectedForNonReasoningTarget(t *testing.T) {
 	body := []byte(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`)
 	opts := translate.EmitOptions{
