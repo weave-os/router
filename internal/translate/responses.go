@@ -1906,7 +1906,6 @@ func (t *ResponsesWriter) processFinalPassthroughSSETail() error {
 	return t.flushNativeHeldEvents(t.footerText != "" && !t.sawToolCall)
 }
 
-
 func (t *ResponsesWriter) sealInner() {
 	type sealer interface{ Seal() }
 	if s, ok := t.inner.(sealer); ok {
