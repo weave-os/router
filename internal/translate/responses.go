@@ -1102,7 +1102,7 @@ func (t *ResponsesWriter) Finalize() error {
 			return emptyCompletionOpenAIError()
 		}
 		if !t.passthroughBadge && t.streaming {
-			if err := t.validateNativeResponsesSSEBuffer(); err != nil {
+			if err := t.finalizeNativeResponsesSSE(); err != nil {
 				return err
 			}
 		}
@@ -1815,12 +1815,41 @@ func (t *ResponsesWriter) processPassthroughSSEBuffer() error {
 	}
 }
 
-func (t *ResponsesWriter) validateNativeResponsesSSEBuffer() error {
-	return t.scanNativeResponsesSSE(false)
-}
-
 func (t *ResponsesWriter) forwardValidatedNativeSSE() error {
 	return t.scanNativeResponsesSSE(true)
+}
+
+func (t *ResponsesWriter) finalizeNativeResponsesSSE() error {
+	if err := t.forwardValidatedNativeSSE(); err != nil {
+		return err
+	}
+	if t.buf.Len() == 0 {
+		t.nativeStreamScanner.Reset()
+		return nil
+	}
+
+	// An upstream may close its connection immediately after the final event,
+	// without sending the usual blank-line SSE delimiter. Treat the remaining
+	// bytes as one final event so native passthrough remains lossless at EOF.
+	event := append([]byte(nil), t.buf.Bytes()...)
+	t.buf.Reset()
+	t.nativeStreamScanner.Reset()
+	_, data := sse.ParseEvent(event)
+	if gjson.ValidBytes(data) {
+		eventType := gjson.GetBytes(data, "type").Str
+		if eventType == "response.completed" || eventType == "response.incomplete" {
+			response := gjson.GetBytes(data, "response")
+			if nativeResponsesIsEmptyTerminal(response) {
+				t.nativeEmptyRejected = true
+				return emptyCompletionOpenAIError()
+			}
+		}
+	}
+	if _, err := t.bw.Write(event); err != nil {
+		return err
+	}
+	t.nativeStreamStarted = true
+	return nil
 }
 
 func (t *ResponsesWriter) scanNativeResponsesSSE(forward bool) error {

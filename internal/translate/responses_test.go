@@ -751,6 +751,36 @@ func TestResponsesWriter_PassthroughForwardsVerbatim(t *testing.T) {
 	assert.Equal(t, native, rec.Body.String())
 }
 
+func TestResponsesWriter_PassthroughForwardsUndelimitedFinalEvent(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.5")
+	w.SetPassthrough()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+
+	native := "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"ok\"}\n\n" +
+		"event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"status\":\"completed\",\"output\":[{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"ok\"}]}]}}"
+	_, err := w.Write([]byte(native))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+
+	assert.Equal(t, native, rec.Body.String())
+}
+
+func TestResponsesWriter_PassthroughRejectsUndelimitedEmptyTerminal(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesWriter(rec, "gpt-5.5")
+	w.SetPassthrough()
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+
+	native := "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"status\":\"completed\",\"output\":[]}}"
+	_, err := w.Write([]byte(native))
+	require.NoError(t, err)
+	require.ErrorIs(t, w.Finalize(), providers.ErrUpstreamEmptyCompletion)
+	assert.Empty(t, rec.Body.String())
+}
+
 // passthroughTestMarker stands in for the routing marker the proxy supplies.
 const passthroughTestMarker = "✦ **Weave Router** → gpt-5.6-terra · best pick for this turn"
 
