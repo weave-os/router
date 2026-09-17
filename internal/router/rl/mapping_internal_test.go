@@ -31,12 +31,13 @@ var expectedRosterPrefix = map[string]string{
 // like wafer_anthropic's sibling wafer, or the RL policy roster doesn't need
 // to distinguish them.
 var defaultRosterPrefixProviders = map[string]struct{}{
-	providers.ProviderOpenRouter: {},
-	providers.ProviderFireworks:  {},
-	providers.ProviderBedrock:    {},
-	providers.ProviderMakora:     {},
-	providers.ProviderMiniMax:    {},
-	providers.ProviderTogether:   {},
+	providers.ProviderOpenRouter:    {},
+	providers.ProviderTrustedRouter: {},
+	providers.ProviderFireworks:     {},
+	providers.ProviderBedrock:       {},
+	providers.ProviderMakora:        {},
+	providers.ProviderMiniMax:       {},
+	providers.ProviderTogether:      {},
 	// Muse Spark is not in the trained roster yet; bare ID is best-effort.
 	providers.ProviderMeta: {},
 	// Anthropic-spec surfaces serving non-Claude models (Wafer's Messages API)
