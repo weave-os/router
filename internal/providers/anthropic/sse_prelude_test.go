@@ -24,8 +24,13 @@ func (r *chunkReader) Read(p []byte) (int, error) {
 		return 0, io.EOF
 	}
 	chunk := r.chunks[0]
-	r.chunks = r.chunks[1:]
-	return copy(p, chunk), nil
+	n := copy(p, chunk)
+	if n == len(chunk) {
+		r.chunks = r.chunks[1:]
+	} else {
+		r.chunks[0] = chunk[n:]
+	}
+	return n, nil
 }
 
 func TestInspectSSEPrelude_ClassifiesSplitOverloadAs529(t *testing.T) {
@@ -70,8 +75,8 @@ const preludeHealthyStream = preludeMessageStart +
 	"event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n" +
 	"event: ping\ndata: {\"type\":\"ping\"}\n\n"
 
-// chunkReader copies at most len(p) of a chunk and drops the rest, so fixture
-// chunks must not exceed the adapters' read size.
+// Fixture chunks must not exceed the adapters' read size so each chunk models
+// one provider read during inspection.
 func chunkBytes(t *testing.T, body string, size int) [][]byte {
 	t.Helper()
 	require.LessOrEqual(t, size, httputil.FlushChunk)
