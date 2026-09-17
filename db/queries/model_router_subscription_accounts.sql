@@ -68,14 +68,14 @@ WHERE id = @id::uuid AND api_key_id = @api_key_id::uuid;
 -- fences stale holders after a lease expires and is taken over.
 -- name: TryAcquireModelRouterSubscriptionRefreshLease :execrows
 UPDATE router.model_router_subscription_accounts
-SET token_refresh_lease_until = @lease_until::timestamp,
+SET token_refresh_lease_until = CURRENT_TIMESTAMP + make_interval(secs => @lease_seconds::bigint),
     token_refresh_lease_id = @lease_id::uuid,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = @id::uuid
   AND api_key_id = @api_key_id::uuid
   AND enabled = TRUE
-  AND (cooldown_until IS NULL OR cooldown_until <= @now::timestamp)
-  AND (token_refresh_lease_until IS NULL OR token_refresh_lease_until <= @now::timestamp);
+  AND (cooldown_until IS NULL OR cooldown_until <= CURRENT_TIMESTAMP)
+  AND (token_refresh_lease_until IS NULL OR token_refresh_lease_until <= CURRENT_TIMESTAMP);
 
 -- Release a refresh lease only when this holder still owns it.
 -- name: ReleaseModelRouterSubscriptionRefreshLease :execrows
@@ -96,6 +96,7 @@ SELECT external_account_id,
        access_token_ciphertext,
        access_token_expires_at,
        token_refresh_version,
+       token_refresh_lease_id,
        enabled,
        cooldown_until
 FROM router.model_router_subscription_accounts
@@ -111,6 +112,34 @@ SET refresh_token_ciphertext = @refresh_token_ciphertext::bytea,
     token_refresh_lease_until = NULL,
     token_refresh_lease_id = NULL,
     token_refresh_version = token_refresh_version + 1,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = @id::uuid
+  AND api_key_id = @api_key_id::uuid
+  AND enabled = TRUE
+  AND token_refresh_lease_id = @lease_id::uuid
+  AND token_refresh_version = @expected_version::bigint;
+
+-- A failed refresher may disable only the credentials it still owns. Clearing
+-- the lease in this update avoids a takeover between release and disable.
+-- name: DisableModelRouterSubscriptionAccountIfRefreshHolder :execrows
+UPDATE router.model_router_subscription_accounts
+SET enabled = FALSE,
+    cooldown_until = NULL,
+    token_refresh_lease_until = NULL,
+    token_refresh_lease_id = NULL,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = @id::uuid
+  AND api_key_id = @api_key_id::uuid
+  AND enabled = TRUE
+  AND token_refresh_lease_id = @lease_id::uuid
+  AND token_refresh_version = @expected_version::bigint;
+
+-- A stale refresh failure must not put the winner's credentials on cooldown.
+-- name: CooldownModelRouterSubscriptionAccountIfRefreshHolder :execrows
+UPDATE router.model_router_subscription_accounts
+SET cooldown_until = @cooldown_until::timestamp,
+    token_refresh_lease_until = NULL,
+    token_refresh_lease_id = NULL,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = @id::uuid
   AND api_key_id = @api_key_id::uuid

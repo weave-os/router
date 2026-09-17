@@ -47,6 +47,7 @@ type SubscriptionCredentialRecord struct {
 	AccessTokenCiphertext  []byte
 	AccessTokenExpiresAt   *time.Time
 	TokenRefreshVersion    int64
+	TokenRefreshLeaseID    string
 	Enabled                bool
 	CooldownUntil          *time.Time
 }
@@ -59,6 +60,7 @@ type SubscriptionCredentials struct {
 	AccessToken          []byte
 	AccessTokenExpiresAt *time.Time
 	TokenRefreshVersion  int64
+	TokenRefreshLeaseID  string
 	Enabled              bool
 	CooldownUntil        *time.Time
 }
@@ -66,8 +68,10 @@ type SubscriptionCredentials struct {
 // SubscriptionRefreshRepository coordinates refresh leases and encrypted
 // credential persistence across router replicas.
 type SubscriptionRefreshRepository interface {
-	TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Time, time.Time) (int64, error)
+	TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (int64, error)
 	ReleaseSubscriptionRefreshLease(context.Context, string, string, string) error
+	DisableSubscriptionAccountIfRefreshHolder(context.Context, string, string, string, int64) error
+	CooldownSubscriptionAccountIfRefreshHolder(context.Context, string, string, string, int64, time.Time) error
 	GetSubscriptionCredentialRecord(context.Context, string, string) (*SubscriptionCredentialRecord, error)
 	PersistSubscriptionTokens(context.Context, string, string, string, int64, []byte, []byte, time.Time) error
 }
@@ -88,8 +92,8 @@ type SubscriptionAccountRepository interface {
 // authenticated key owner.
 var ErrSubscriptionAccountNotFound = errors.New("subscription account not found")
 
-// ErrSubscriptionRefreshConflict means another replica persisted a newer
-// refresh result before this holder could publish its result.
+// ErrSubscriptionRefreshConflict means the lease or credential version no longer
+// permits this refresher to publish tokens or record a failure.
 var ErrSubscriptionRefreshConflict = errors.New("subscription refresh lost race")
 
 const subscriptionAccessPurposeSuffix = ":access"
@@ -186,13 +190,13 @@ func (s *Service) subscriptionRefreshRepository() (SubscriptionRefreshRepository
 }
 
 // TryAcquireSubscriptionRefreshLease reserves an account for one replica's
-// provider refresh until leaseUntil. A false result means another holder won.
-func (s *Service) TryAcquireSubscriptionRefreshLease(ctx context.Context, apiKeyID, accountID, leaseID string, now, leaseUntil time.Time) (bool, error) {
+// provider refresh using the database clock. A false result means it is unavailable.
+func (s *Service) TryAcquireSubscriptionRefreshLease(ctx context.Context, apiKeyID, accountID, leaseID string, leaseTTL time.Duration) (bool, error) {
 	repo, err := s.subscriptionRefreshRepository()
 	if err != nil {
 		return false, err
 	}
-	rows, err := repo.TryAcquireSubscriptionRefreshLease(ctx, accountID, apiKeyID, leaseID, now, leaseUntil)
+	rows, err := repo.TryAcquireSubscriptionRefreshLease(ctx, accountID, apiKeyID, leaseID, leaseTTL)
 	return rows > 0, err
 }
 
@@ -206,6 +210,24 @@ func (s *Service) ReleaseSubscriptionRefreshLease(ctx context.Context, apiKeyID,
 	return repo.ReleaseSubscriptionRefreshLease(ctx, accountID, apiKeyID, leaseID)
 }
 
+// DisableSubscriptionAccountIfRefreshHolder rejects failures from stale refreshers.
+func (s *Service) DisableSubscriptionAccountIfRefreshHolder(ctx context.Context, apiKeyID, accountID, leaseID string, expectedVersion int64) error {
+	repo, err := s.subscriptionRefreshRepository()
+	if err != nil {
+		return err
+	}
+	return repo.DisableSubscriptionAccountIfRefreshHolder(ctx, accountID, apiKeyID, leaseID, expectedVersion)
+}
+
+// CooldownSubscriptionAccountIfRefreshHolder rejects failures from stale refreshers.
+func (s *Service) CooldownSubscriptionAccountIfRefreshHolder(ctx context.Context, apiKeyID, accountID, leaseID string, expectedVersion int64, cooldownUntil time.Time) error {
+	repo, err := s.subscriptionRefreshRepository()
+	if err != nil {
+		return err
+	}
+	return repo.CooldownSubscriptionAccountIfRefreshHolder(ctx, accountID, apiKeyID, leaseID, expectedVersion, cooldownUntil)
+}
+
 // LoadSubscriptionCredentials decrypts the current refresh and access tokens
 // for the runtime. Access-token decryption happens on cache fill, not per
 // inference request.
@@ -214,27 +236,28 @@ func (s *Service) LoadSubscriptionCredentials(ctx context.Context, apiKeyID, acc
 	if err != nil {
 		return SubscriptionCredentials{}, err
 	}
-	record, err := repo.GetSubscriptionCredentialRecord(ctx, accountID, apiKeyID)
+	credentialRecord, err := repo.GetSubscriptionCredentialRecord(ctx, accountID, apiKeyID)
 	if err != nil {
 		return SubscriptionCredentials{}, err
 	}
-	refreshToken, err := s.encryptor.Decrypt(record.RefreshTokenCiphertext, record.ExternalAccountID, string(record.Provider))
+	refreshToken, err := s.encryptor.Decrypt(credentialRecord.RefreshTokenCiphertext, credentialRecord.ExternalAccountID, string(credentialRecord.Provider))
 	if err != nil {
 		return SubscriptionCredentials{}, err
 	}
 	credentials := SubscriptionCredentials{
 		RefreshToken:        refreshToken,
-		TokenRefreshVersion: record.TokenRefreshVersion,
-		Enabled:             record.Enabled,
-		CooldownUntil:       record.CooldownUntil,
+		TokenRefreshVersion: credentialRecord.TokenRefreshVersion,
+		TokenRefreshLeaseID: credentialRecord.TokenRefreshLeaseID,
+		Enabled:             credentialRecord.Enabled,
+		CooldownUntil:       credentialRecord.CooldownUntil,
 	}
-	if len(record.AccessTokenCiphertext) > 0 {
-		accessToken, decryptErr := s.encryptor.Decrypt(record.AccessTokenCiphertext, record.ExternalAccountID, subscriptionAccessPurpose(record.Provider))
+	if len(credentialRecord.AccessTokenCiphertext) > 0 {
+		accessToken, decryptErr := s.encryptor.Decrypt(credentialRecord.AccessTokenCiphertext, credentialRecord.ExternalAccountID, subscriptionAccessPurpose(credentialRecord.Provider))
 		if decryptErr != nil {
 			return SubscriptionCredentials{}, decryptErr
 		}
 		credentials.AccessToken = accessToken
-		credentials.AccessTokenExpiresAt = record.AccessTokenExpiresAt
+		credentials.AccessTokenExpiresAt = credentialRecord.AccessTokenExpiresAt
 	}
 	return credentials, nil
 }
@@ -249,15 +272,15 @@ func (s *Service) PersistSubscriptionTokens(ctx context.Context, apiKeyID, accou
 	if err != nil {
 		return err
 	}
-	record, err := repo.GetSubscriptionCredentialRecord(ctx, accountID, apiKeyID)
+	credentialRecord, err := repo.GetSubscriptionCredentialRecord(ctx, accountID, apiKeyID)
 	if err != nil {
 		return err
 	}
-	refreshCiphertext, err := s.encryptor.Encrypt(refreshToken, record.ExternalAccountID, string(record.Provider))
+	refreshCiphertext, err := s.encryptor.Encrypt(refreshToken, credentialRecord.ExternalAccountID, string(credentialRecord.Provider))
 	if err != nil {
 		return err
 	}
-	accessCiphertext, err := s.encryptor.Encrypt(accessToken, record.ExternalAccountID, subscriptionAccessPurpose(record.Provider))
+	accessCiphertext, err := s.encryptor.Encrypt(accessToken, credentialRecord.ExternalAccountID, subscriptionAccessPurpose(credentialRecord.Provider))
 	if err != nil {
 		return err
 	}

@@ -137,7 +137,7 @@ func (r *subscriptionAccountRepo) DeleteSubscriptionAccount(ctx context.Context,
 	return nil
 }
 
-func (r *subscriptionAccountRepo) TryAcquireSubscriptionRefreshLease(ctx context.Context, accountID, apiKeyID, leaseID string, now, leaseUntil time.Time) (int64, error) {
+func (r *subscriptionAccountRepo) TryAcquireSubscriptionRefreshLease(ctx context.Context, accountID, apiKeyID, leaseID string, leaseTTL time.Duration) (int64, error) {
 	accountUUID, err := uuid.Parse(accountID)
 	if err != nil {
 		return 0, err
@@ -152,7 +152,7 @@ func (r *subscriptionAccountRepo) TryAcquireSubscriptionRefreshLease(ctx context
 	}
 	return sqlc.New(r.tx).TryAcquireModelRouterSubscriptionRefreshLease(ctx, sqlc.TryAcquireModelRouterSubscriptionRefreshLeaseParams{
 		ID: accountUUID, APIKeyID: keyUUID, LeaseID: leaseUUID,
-		Now: pgtype.Timestamp{Time: now, Valid: true}, LeaseUntil: pgtype.Timestamp{Time: leaseUntil, Valid: true},
+		LeaseSeconds: int64(leaseTTL / time.Second),
 	})
 }
 
@@ -193,6 +193,10 @@ func (r *subscriptionAccountRepo) GetSubscriptionCredentialRecord(ctx context.Co
 		}
 		return nil, err
 	}
+	var leaseID string
+	if row.TokenRefreshLeaseID.Valid {
+		leaseID = uuid.UUID(row.TokenRefreshLeaseID.Bytes).String()
+	}
 	return &auth.SubscriptionCredentialRecord{
 		ExternalAccountID:      row.ExternalAccountID,
 		Provider:               auth.SubscriptionProvider(row.Provider),
@@ -200,6 +204,7 @@ func (r *subscriptionAccountRepo) GetSubscriptionCredentialRecord(ctx context.Co
 		AccessTokenCiphertext:  row.AccessTokenCiphertext,
 		AccessTokenExpiresAt:   timestampPtr(row.AccessTokenExpiresAt),
 		TokenRefreshVersion:    row.TokenRefreshVersion,
+		TokenRefreshLeaseID:    leaseID,
 		Enabled:                row.Enabled,
 		CooldownUntil:          timestampPtr(row.CooldownUntil),
 	}, nil
@@ -246,4 +251,54 @@ func toAuthSubscriptionAccountFields(id, apiKeyID uuid.UUID, provider, externalA
 		ExternalAccountID: externalAccountID, RefreshTokenCiphertext: refreshTokenCiphertext,
 		Enabled: enabled, CooldownUntil: timestampPtr(cooldownUntil), CreatedAt: timestampOrZero(createdAt),
 	}
+}
+
+func (r *subscriptionAccountRepo) DisableSubscriptionAccountIfRefreshHolder(ctx context.Context, accountID, apiKeyID, leaseID string, expectedVersion int64) error {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return err
+	}
+	keyUUID, err := uuid.Parse(apiKeyID)
+	if err != nil {
+		return err
+	}
+	leaseUUID, err := uuid.Parse(leaseID)
+	if err != nil {
+		return err
+	}
+	rows, err := sqlc.New(r.tx).DisableModelRouterSubscriptionAccountIfRefreshHolder(ctx, sqlc.DisableModelRouterSubscriptionAccountIfRefreshHolderParams{
+		ID: accountUUID, APIKeyID: keyUUID, LeaseID: leaseUUID, ExpectedVersion: expectedVersion,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return auth.ErrSubscriptionRefreshConflict
+	}
+	return nil
+}
+
+func (r *subscriptionAccountRepo) CooldownSubscriptionAccountIfRefreshHolder(ctx context.Context, accountID, apiKeyID, leaseID string, expectedVersion int64, cooldownUntil time.Time) error {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return err
+	}
+	keyUUID, err := uuid.Parse(apiKeyID)
+	if err != nil {
+		return err
+	}
+	leaseUUID, err := uuid.Parse(leaseID)
+	if err != nil {
+		return err
+	}
+	rows, err := sqlc.New(r.tx).CooldownModelRouterSubscriptionAccountIfRefreshHolder(ctx, sqlc.CooldownModelRouterSubscriptionAccountIfRefreshHolderParams{
+		ID: accountUUID, APIKeyID: keyUUID, LeaseID: leaseUUID, ExpectedVersion: expectedVersion, CooldownUntil: pgtype.Timestamp{Time: cooldownUntil, Valid: true},
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return auth.ErrSubscriptionRefreshConflict
+	}
+	return nil
 }

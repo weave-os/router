@@ -115,7 +115,7 @@ func (r failingSubscriptionAccountRepository) UpdateSubscriptionRefreshToken(con
 func (r failingSubscriptionAccountRepository) DeleteSubscriptionAccount(context.Context, string, string) error {
 	return r.err
 }
-func (r failingSubscriptionAccountRepository) TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Time, time.Time) (int64, error) {
+func (r failingSubscriptionAccountRepository) TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (int64, error) {
 	return 0, r.err
 }
 func (r failingSubscriptionAccountRepository) ReleaseSubscriptionRefreshLease(context.Context, string, string, string) error {
@@ -533,4 +533,11 @@ func TestWithAuthMalformedPrefixStays401(t *testing.T) {
 
 	require.Equal(t, http.StatusUnauthorized, rr.Code)
 	assert.Contains(t, rr.Body.String(), "invalid_key")
+}
+
+func (r failingSubscriptionAccountRepository) DisableSubscriptionAccountIfRefreshHolder(context.Context, string, string, string, int64) error {
+	return r.err
+}
+func (r failingSubscriptionAccountRepository) CooldownSubscriptionAccountIfRefreshHolder(context.Context, string, string, string, int64, time.Time) error {
+	return r.err
 }

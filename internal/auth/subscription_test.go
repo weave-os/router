@@ -40,7 +40,7 @@ func (*subscriptionAccountRepoStub) UpdateSubscriptionRefreshToken(context.Conte
 func (*subscriptionAccountRepoStub) DeleteSubscriptionAccount(context.Context, string, string) error {
 	return nil
 }
-func (*subscriptionAccountRepoStub) TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Time, time.Time) (int64, error) {
+func (*subscriptionAccountRepoStub) TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (int64, error) {
 	return 0, nil
 }
 func (*subscriptionAccountRepoStub) ReleaseSubscriptionRefreshLease(context.Context, string, string, string) error {
@@ -76,12 +76,12 @@ func TestAddSubscriptionAccountUpsertsStableProviderIdentity(t *testing.T) {
 
 type coordinatedSubscriptionRepo struct {
 	*subscriptionAccountRepoStub
-	record           *SubscriptionCredentialRecord
-	persistedRefresh []byte
-	persistedAccess  []byte
+	credentialRecord           *SubscriptionCredentialRecord
+	persistedRefreshCiphertext []byte
+	persistedAccessCiphertext  []byte
 }
 
-func (r *coordinatedSubscriptionRepo) TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Time, time.Time) (int64, error) {
+func (r *coordinatedSubscriptionRepo) TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (int64, error) {
 	return 1, nil
 }
 
@@ -90,12 +90,12 @@ func (r *coordinatedSubscriptionRepo) ReleaseSubscriptionRefreshLease(context.Co
 }
 
 func (r *coordinatedSubscriptionRepo) GetSubscriptionCredentialRecord(context.Context, string, string) (*SubscriptionCredentialRecord, error) {
-	return r.record, nil
+	return r.credentialRecord, nil
 }
 
 func (r *coordinatedSubscriptionRepo) PersistSubscriptionTokens(_ context.Context, _ string, _ string, _ string, _ int64, refreshCiphertext, accessCiphertext []byte, _ time.Time) error {
-	r.persistedRefresh = append([]byte(nil), refreshCiphertext...)
-	r.persistedAccess = append([]byte(nil), accessCiphertext...)
+	r.persistedRefreshCiphertext = append([]byte(nil), refreshCiphertext...)
+	r.persistedAccessCiphertext = append([]byte(nil), accessCiphertext...)
 	return nil
 }
 
@@ -109,11 +109,12 @@ func TestLoadSubscriptionCredentialsUsesPurposeBoundAccessEncryption(t *testing.
 	require.NoError(t, err)
 	repo := &coordinatedSubscriptionRepo{
 		subscriptionAccountRepoStub: &subscriptionAccountRepoStub{},
-		record: &SubscriptionCredentialRecord{
+		credentialRecord: &SubscriptionCredentialRecord{
 			ExternalAccountID: externalAccountID, Provider: provider,
 			RefreshTokenCiphertext: refreshCiphertext, AccessTokenCiphertext: accessCiphertext,
 			AccessTokenExpiresAt: func() *time.Time { value := time.Now().Add(time.Hour); return &value }(),
 			Enabled:              true,
+			TokenRefreshLeaseID:  "lease-1",
 		},
 	}
 	svc := NewService(nil, nil, nil, nil, NoOpAPIKeyCache{}, nil, time.Now).
@@ -124,14 +125,22 @@ func TestLoadSubscriptionCredentialsUsesPurposeBoundAccessEncryption(t *testing.
 	require.NoError(t, err)
 	require.Equal(t, []byte("refresh-secret"), credentials.RefreshToken)
 	require.Equal(t, []byte("access-secret"), credentials.AccessToken)
+	require.Equal(t, "lease-1", credentials.TokenRefreshLeaseID)
 	_, err = enc.Decrypt(accessCiphertext, externalAccountID, string(provider))
 	require.Error(t, err)
 	require.NoError(t, svc.PersistSubscriptionTokens(context.Background(), "owner-1", "account-1", "lease-1", 0,
 		[]byte("refresh-new"), []byte("access-new"), time.Now().Add(time.Hour)))
-	refresh, err := enc.Decrypt(repo.persistedRefresh, externalAccountID, string(provider))
+	refresh, err := enc.Decrypt(repo.persistedRefreshCiphertext, externalAccountID, string(provider))
 	require.NoError(t, err)
-	access, err := enc.Decrypt(repo.persistedAccess, externalAccountID, subscriptionAccessPurpose(provider))
+	access, err := enc.Decrypt(repo.persistedAccessCiphertext, externalAccountID, subscriptionAccessPurpose(provider))
 	require.NoError(t, err)
 	require.Equal(t, []byte("refresh-new"), refresh)
 	require.Equal(t, []byte("access-new"), access)
+}
+
+func (*subscriptionAccountRepoStub) DisableSubscriptionAccountIfRefreshHolder(context.Context, string, string, string, int64) error {
+	return nil
+}
+func (*subscriptionAccountRepoStub) CooldownSubscriptionAccountIfRefreshHolder(context.Context, string, string, string, int64, time.Time) error {
+	return nil
 }
