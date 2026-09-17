@@ -190,3 +190,33 @@ func TestTurnLoop_DropsEscalationPinOnDisabledModel(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "claude-haiku-4-5", res.Decision.Model)
 }
+
+// A forced tool_choice withdraws auto-only models from automatic routing for
+// that turn only, alongside whatever the operator disabled deployment-wide.
+func TestRequestAutomaticExclusions_ForcedToolChoiceExcludesAutoOnlyModels(t *testing.T) {
+	store := &stubGlobalExclusionStore{byModel: map[string]string{"claude-opus-5": "too expensive"}}
+	svc := NewService(nil, nil, nil, false, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithGlobalAutomaticExclusions(store)
+
+	forced := svc.withRequestAutomaticExclusions(context.Background(),
+		router.TranslationRequirements{ForcedToolChoice: true})
+	excluded := svc.globalAutomaticExcludedModels(forced)
+	assert.Contains(t, excluded, "claude-fable-5-1")
+	assert.Contains(t, excluded, "claude-opus-5")
+	assert.NotContains(t, excluded, "claude-fable-5")
+
+	reason, ok := svc.globalAutomaticExclusionReason(forced, "claude-fable-5-1")
+	assert.True(t, ok)
+	assert.Equal(t, requestForcedToolChoiceExclusionReason, reason)
+
+	plain := svc.withRequestAutomaticExclusions(context.Background(), router.TranslationRequirements{})
+	assert.Equal(t, map[string]struct{}{"claude-opus-5": {}}, svc.globalAutomaticExcludedModels(plain))
+}
+
+func TestRequestAutomaticExclusions_RespectsRoutableUniverse(t *testing.T) {
+	universe := map[string]struct{}{"claude-fable-5": {}}
+	assert.Empty(t, requestAutomaticExcludedModels(router.TranslationRequirements{ForcedToolChoice: true}, universe))
+	assert.Empty(t, requestAutomaticExcludedModels(router.TranslationRequirements{},
+		map[string]struct{}{"claude-fable-5-1": {}}))
+}

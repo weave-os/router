@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/router"
 )
 
 // globalAutomaticExclusionTTL bounds how stale a replica's snapshot may be.
@@ -90,18 +91,57 @@ func mergeExcludedModels(hard, automatic map[string]struct{}) map[string]struct{
 	return merged
 }
 
-// globalAutomaticExcludedModels returns the deployment-wide soft exclusion set
-// for this request, or nil when nothing is disabled.
-func (s *Service) globalAutomaticExcludedModels(ctx context.Context) map[string]struct{} {
-	if s.globalAutomaticExclusions == nil {
+// RequestAutomaticExcludedModelsContextKey carries models the router must not
+// pick on its own for this turn because the request carries a semantic they
+// cannot honor (a forced tool_choice against CapAutoToolChoiceOnly). Like the
+// deployment-wide list, an explicit pin still reaches them.
+type RequestAutomaticExcludedModelsContextKey struct{}
+
+// withRequestAutomaticExclusions stores the request-derived soft exclusions.
+func (s *Service) withRequestAutomaticExclusions(ctx context.Context, requirements router.TranslationRequirements) context.Context {
+	excluded := requestAutomaticExcludedModels(requirements, s.routableUniverse())
+	if len(excluded) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, RequestAutomaticExcludedModelsContextKey{}, excluded)
+}
+
+// requestAutomaticExcludedModels returns the models in universe whose spec
+// cannot honor the request's semantics.
+func requestAutomaticExcludedModels(requirements router.TranslationRequirements, universe map[string]struct{}) map[string]struct{} {
+	if !requirements.ForcedToolChoice {
 		return nil
+	}
+	var out map[string]struct{}
+	for model := range universe {
+		if !router.Lookup(model).Supports(router.CapAutoToolChoiceOnly) {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]struct{})
+		}
+		out[model] = struct{}{}
+	}
+	return out
+}
+
+// globalAutomaticExcludedModels returns the soft exclusion set for this
+// request — the deployment-wide disabled list plus any request-derived
+// exclusions — or nil when nothing is excluded.
+func (s *Service) globalAutomaticExcludedModels(ctx context.Context) map[string]struct{} {
+	perRequest, _ := ctx.Value(RequestAutomaticExcludedModelsContextKey{}).(map[string]struct{})
+	if s.globalAutomaticExclusions == nil {
+		return perRequest
 	}
 	byModel := s.globalAutomaticExclusions.snapshot(ctx)
 	if len(byModel) == 0 {
-		return nil
+		return perRequest
 	}
-	out := make(map[string]struct{}, len(byModel))
+	out := make(map[string]struct{}, len(byModel)+len(perRequest))
 	for model := range byModel {
+		out[model] = struct{}{}
+	}
+	for model := range perRequest {
 		out[model] = struct{}{}
 	}
 	return out
@@ -110,9 +150,16 @@ func (s *Service) globalAutomaticExcludedModels(ctx context.Context) map[string]
 // globalAutomaticExclusionReason returns the operator's note for a disabled
 // model, so a dropped automatic pin says why in the logs.
 func (s *Service) globalAutomaticExclusionReason(ctx context.Context, model string) (string, bool) {
-	if s.globalAutomaticExclusions == nil {
-		return "", false
+	if s.globalAutomaticExclusions != nil {
+		if reason, disabled := s.globalAutomaticExclusions.snapshot(ctx)[model]; disabled {
+			return reason, true
+		}
 	}
-	reason, disabled := s.globalAutomaticExclusions.snapshot(ctx)[model]
-	return reason, disabled
+	perRequest, _ := ctx.Value(RequestAutomaticExcludedModelsContextKey{}).(map[string]struct{})
+	if _, excluded := perRequest[model]; excluded {
+		return requestForcedToolChoiceExclusionReason, true
+	}
+	return "", false
 }
+
+const requestForcedToolChoiceExclusionReason = "request forces tool_choice; model only supports auto"
