@@ -177,6 +177,12 @@ run_uninstall() {
     HOME="$home" PATH="$test_path" NO_COLOR=1 \
     bash "$uninstaller" "$@" >/dev/null 2>&1
 }
+run_piped_uninstall() {
+  local home="$1"; shift
+  env ${XDG_CONFIG_HOME:+XDG_CONFIG_HOME="$XDG_CONFIG_HOME"} \
+    HOME="$home" PATH="$test_path" NO_COLOR=1 \
+    bash -s -- "$@" <"$uninstaller" >/dev/null 2>&1
+}
 
 installed_names() { # installed_names <dir>
   local f
@@ -192,6 +198,19 @@ run_install "$cc_home" --claude --scope user
 check "claude user install writes exactly the registry's commands" \
   "$(weave_registry_names claude | sort | tr '\n' ' ' | sed 's/ $//')" \
   "$(installed_names "$cc_home/.claude/commands")"
+if [ -f "$cc_home/.claude/commands/rf.md.weave-router" ]; then
+  ok "claude install records command ownership outside the prompt"
+else
+  no "claude install records command ownership outside the prompt" "sidecar" "missing"
+fi
+check "claude commands do not contain ownership markers" "" \
+  "$(grep -rho '<!-- weave-router managed command:' "$cc_home/.claude/commands" || true)"
+
+piped_claude_home="$work/claude-piped"; mkdir -p "$piped_claude_home"
+run_install "$piped_claude_home" --claude --scope user
+run_piped_uninstall "$piped_claude_home" --claude --scope user
+check "piped uninstall removes markerless Claude commands" "" \
+  "$(installed_names "$piped_claude_home/.claude/commands")"
 
 # Reinstalling repairs a router-owned statusline after its permissions or file
 # contents are damaged, while a same-named user script remains untouched.
@@ -285,6 +304,12 @@ oc_cmds="$oc_xdg/opencode/commands"
 check "opencode user install writes exactly the registry's commands" \
   "$(weave_registry_names opencode | sort | tr '\n' ' ' | sed 's/ $//')" \
   "$(installed_names "$oc_cmds")"
+piped_opencode_home="$work/opencode-piped"; mkdir -p "$piped_opencode_home"
+piped_opencode_xdg="$work/opencode-piped-xdg"; mkdir -p "$piped_opencode_xdg"
+XDG_CONFIG_HOME="$piped_opencode_xdg" run_install "$piped_opencode_home" --opencode --scope user
+XDG_CONFIG_HOME="$piped_opencode_xdg" run_piped_uninstall "$piped_opencode_home" --opencode --scope user
+check "piped uninstall removes markerless opencode commands" "" \
+  "$(installed_names "$piped_opencode_xdg/opencode/commands")"
 
 # opencode must not receive the local-config toggles: it has no equivalent of
 # the Claude settings.json the toggles flip.
@@ -400,16 +425,25 @@ check "install preserves a user-owned Claude command" "my own wrapper" \
 # Wrappers written before ownership markers existed carry none. One whose body
 # still matches what this installer writes is ours from an older version, so an
 # upgrade must adopt it — otherwise it is never refreshed and never uninstalled.
+sidecar_upgrade_home="$work/claude-sidecar-upgrade"; mkdir -p "$sidecar_upgrade_home"
+run_install "$sidecar_upgrade_home" --claude --scope user
+stale_body=$'---\ndescription: stale force-model wrapper.\n---\n\n/force-model $ARGUMENTS'
+printf '%s\n' "$stale_body" >"$sidecar_upgrade_home/.claude/commands/fm.md"
+printf 'weave-router managed command: fm\n%s\n' "$stale_body" \
+  >"$sidecar_upgrade_home/.claude/commands/fm.md.weave-router"
+run_install "$sidecar_upgrade_home" --claude --scope user
+check "an owned wrapper with a changed body is refreshed" \
+  "$(cat "$install_dir/commands/fm.md")" "$(cat "$sidecar_upgrade_home/.claude/commands/fm.md")"
+
 legacy_home="$work/claude-legacy"; mkdir -p "$legacy_home/.claude/commands"
 legacy_body="$(sed 's/{{SCOPE}}//g' "$install_dir/commands/fm.md")"
 printf '%s\n' "$legacy_body" >"$legacy_home/.claude/commands/fm.md"
 printf '%s\n' 'MY OWN CUSTOM WRAPPER' >"$legacy_home/.claude/commands/rf.md"
 run_install "$legacy_home" --claude --scope user
-if grep -Fq '<!-- weave-router managed command: fm -->' "$legacy_home/.claude/commands/fm.md"; then
-  ok "an upgrade adopts an unmarked wrapper it previously wrote"
-else
-  no "an upgrade adopts an unmarked wrapper it previously wrote" "marker added" "still unmarked"
-fi
+check "an upgrade adopts an unmarked wrapper it previously wrote" "$legacy_body" \
+  "$(cat "$legacy_home/.claude/commands/fm.md")"
+check "an upgrade does not add an ownership marker to the wrapper" "" \
+  "$(grep -F '<!-- weave-router managed command:' "$legacy_home/.claude/commands/fm.md" || true)"
 check "an upgrade still leaves a genuinely user-authored command alone" "MY OWN CUSTOM WRAPPER" \
   "$(cat "$legacy_home/.claude/commands/rf.md")"
 

@@ -16,6 +16,27 @@ import (
 	"github.com/tidwall/sjson"
 )
 
+// Anthropic content-block types that 400 unless they live on role:"system"
+// (the top-level system field, or a system message). Codex/Conductor emit them
+// on later messages; Anthropic then rejects the request with
+// messages.N.content: 'tool_addition'/'tool_removal' blocks are only permitted
+// within role: "system" messages.
+type anthropicSystemOnlyContentBlock string
+
+const (
+	anthropicSystemOnlyContentToolAddition anthropicSystemOnlyContentBlock = "tool_addition"
+	anthropicSystemOnlyContentToolRemoval  anthropicSystemOnlyContentBlock = "tool_removal"
+)
+
+func isAnthropicSystemOnlyContentBlock(blockType string) bool {
+	switch anthropicSystemOnlyContentBlock(blockType) {
+	case anthropicSystemOnlyContentToolAddition, anthropicSystemOnlyContentToolRemoval:
+		return true
+	default:
+		return false
+	}
+}
+
 // PrepareAnthropic builds an Anthropic Messages request body.
 func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (providers.PreparedRequest, error) {
 	var body []byte
@@ -101,6 +122,9 @@ func deriveAnthropicHeaders(in http.Header, opts EmitOptions, body []byte) http.
 	if gjson.GetBytes(body, "speed").Exists() {
 		beta = ensureBetaToken(beta, fastModeBeta)
 	}
+	if opts.TargetProvider == providers.ProviderAnthropic && containsAnthropicSystemOnlyContentBlocks(body) {
+		beta = ensureBetaToken(beta, anthropicMidConversationToolChangesBeta)
+	}
 	if beta != "" {
 		h.Set("anthropic-beta", beta)
 	}
@@ -126,6 +150,10 @@ const contextManagementBeta = "context-management-2025-06-27"
 // serverSideFallbackBeta is the first-party Anthropic beta for server-side
 // fallback; gateways reject the unknown top-level key with a 400.
 const serverSideFallbackBeta = "server-side-fallback-2026-07-01"
+
+// anthropicMidConversationToolChangesBeta enables tool_addition/tool_removal
+// content blocks on role:"system" messages in Anthropic's Messages API.
+const anthropicMidConversationToolChangesBeta = "mid-conversation-tool-changes-2026-07-01"
 
 // applyServerSideFallback injects fallbacks:"default" so Anthropic re-serves
 // a safety-refused turn instead of returning stop_reason:"refusal" (HTTP 200).
@@ -741,12 +769,118 @@ func writeAnthropicSharedParams(jw *jsonWriter, body []byte) {
 }
 
 func (e *RequestEnvelope) buildAnthropicFromAnthropic(opts EmitOptions) ([]byte, error) {
-	body, err := hoistAnthropicSystemMessages(e.body)
+	body, err := normalizeAnthropicSystemOnlyContentBlocks(e.body)
+	if err != nil {
+		return nil, fmt.Errorf("normalize system-only content blocks: %w", err)
+	}
+	body, err = hoistAnthropicSystemMessages(body)
 	if err != nil {
 		return nil, fmt.Errorf("hoist system messages: %w", err)
 	}
 	ov := resolveAnthropicOverrides(body, opts)
 	return applyOverrides(body, ov)
+}
+
+// normalizeAnthropicSystemOnlyContentBlocks places tool_addition/tool_removal
+// blocks in role:"system" messages, where Anthropic permits them. A client may
+// attach them to a user or assistant message; split those blocks into a system
+// message at the same point in the history and leave the remaining content in
+// its original message.
+func normalizeAnthropicSystemOnlyContentBlocks(body []byte) ([]byte, error) {
+	msgs := gjson.GetBytes(body, "messages")
+	if !msgs.IsArray() {
+		return body, nil
+	}
+	var kept []string
+	changed := false
+	for _, msg := range msgs.Array() {
+		if msg.Get("role").String() == "system" {
+			kept = append(kept, msg.Raw)
+			continue
+		}
+		content := msg.Get("content")
+		if !content.IsArray() {
+			kept = append(kept, msg.Raw)
+			continue
+		}
+		var remaining []string
+		var systemOnly []string
+		msgChanged := false
+		for _, part := range content.Array() {
+			if isAnthropicSystemOnlyContentBlock(part.Get("type").String()) {
+				systemOnly = append(systemOnly, part.Raw)
+				msgChanged = true
+				continue
+			}
+			remaining = append(remaining, part.Raw)
+		}
+		if !msgChanged {
+			kept = append(kept, msg.Raw)
+			continue
+		}
+		changed = true
+		role := msg.Get("role").String()
+		systemMessage := newJSONWriter()
+		systemMessage.Obj()
+		systemMessage.Key("role")
+		systemMessage.Str("system")
+		systemMessage.Key("content")
+		systemMessage.Arr()
+		for _, block := range systemOnly {
+			systemMessage.Raw(block)
+		}
+		systemMessage.EndArr()
+		systemMessage.EndObj()
+		if role == "assistant" {
+			// A system tool-change directive must follow a user turn (or an
+			// assistant turn ending in a server-tool result). Place it before
+			// the rewritten assistant turn so it cannot split tool_use from its
+			// following tool_result user turn.
+			kept = append(kept, string(systemMessage.Bytes()))
+		}
+		if len(remaining) > 0 {
+			rewritten, err := sjson.SetRawBytes([]byte(msg.Raw), "content", []byte("["+strings.Join(remaining, ",")+"]"))
+			if err != nil {
+				return nil, fmt.Errorf("strip system-only content blocks: %w", err)
+			}
+			kept = append(kept, string(rewritten))
+		}
+		if role != "assistant" {
+			// Anthropic requires a non-directive system message to follow a
+			// user message, so keep the rewritten user turn before its tool
+			// change directive. The directive then applies to the next turn.
+			kept = append(kept, string(systemMessage.Bytes()))
+		}
+	}
+	if !changed {
+		return body, nil
+	}
+	out, err := sjson.SetRawBytes(body, "messages", []byte("["+strings.Join(kept, ",")+"]"))
+	if err != nil {
+		return nil, fmt.Errorf("rebuild messages after system-only normalization: %w", err)
+	}
+	return out, nil
+}
+
+func containsAnthropicSystemOnlyContentBlock(content gjson.Result) bool {
+	if !content.IsArray() {
+		return false
+	}
+	for _, part := range content.Array() {
+		if isAnthropicSystemOnlyContentBlock(part.Get("type").String()) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsAnthropicSystemOnlyContentBlocks(body []byte) bool {
+	for _, msg := range gjson.GetBytes(body, "messages").Array() {
+		if containsAnthropicSystemOnlyContentBlock(msg.Get("content")) {
+			return true
+		}
+	}
+	return false
 }
 
 // hoistAnthropicSystemMessages clears role:"system" entries from "messages"
@@ -769,7 +903,12 @@ func hoistAnthropicSystemMessages(body []byte) ([]byte, error) {
 	rewritten := false
 	for _, msg := range msgs.Array() {
 		isSystem := msg.Get("role").String() == "system"
+		preserveSystem := isSystem && containsAnthropicSystemOnlyContentBlock(msg.Get("content"))
 		switch {
+		case preserveSystem:
+			// Anthropic beta tool-change blocks are valid only in a system-role
+			// message. Keep this message in place instead of demoting it.
+			kept = append(kept, msg.Raw)
 		case isSystem && leading:
 			leadingSystemFound = true
 			hoisted = append(hoisted, anthropicSystemTexts(msg.Get("content"))...)

@@ -2865,10 +2865,10 @@ func (s *Service) PassthroughToNamedProvider(ctx context.Context, providerName s
 				return fmt.Errorf("prepare passthrough: %w", err)
 			}
 		} else {
-			prep = providers.PreparedRequest{Body: body, Headers: translate.AnthropicPassthroughHeaders(r.Header)}
+			prep = providers.PreparedRequest{Body: body, Headers: translate.AnthropicPassthroughHeadersForBody(r.Header, body)}
 		}
 	} else if providerName == providers.ProviderAnthropic {
-		prep = providers.PreparedRequest{Body: body, Headers: translate.AnthropicPassthroughHeaders(r.Header)}
+		prep = providers.PreparedRequest{Body: body, Headers: translate.AnthropicPassthroughHeadersForBody(r.Header, body)}
 	} else {
 		prep = providers.PreparedRequest{Body: body, Headers: make(http.Header)}
 	}
