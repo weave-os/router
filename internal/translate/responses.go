@@ -681,6 +681,7 @@ type ResponsesWriter struct {
 	footerText                  string
 	footerEmitted               bool
 	sawToolCall                 bool
+	hasUpstreamOutput           bool
 	nativeHeldEvents            [][]byte
 	nativeFooterCommit          bool
 	textItem                    *responsesTextItem
@@ -1084,6 +1085,9 @@ func (t *ResponsesWriter) Finalize() error {
 			return err
 		}
 		if !t.completedEmitted && t.finishReason != "" {
+			if !t.hasUpstreamOutput {
+				return emptyCompletionOpenAIError()
+			}
 			if err := t.lifecycle.Terminal(); err != nil {
 				return err
 			}
@@ -1117,6 +1121,9 @@ func (t *ResponsesWriter) Finalize() error {
 		t.inner.WriteHeader(http.StatusBadGateway)
 		_, _ = t.inner.Write([]byte(`{"error":{"message":"translation failed","type":"api_error"}}`))
 		return err
+	}
+	if !chatCompletionHasUsableOutput(body) {
+		return emptyCompletionOpenAIError()
 	}
 	t.inner.Header().Set("Content-Type", "application/json")
 	t.inner.WriteHeader(t.statusCode)
@@ -1891,6 +1898,7 @@ func (t *ResponsesWriter) translateChunk(raw []byte) error {
 	delta := choice.Get("delta")
 
 	if content := delta.Get("content"); content.Type == gjson.String && content.Str != "" {
+		t.hasUpstreamOutput = true
 		if err := t.appendText(content.Str); err != nil {
 			return err
 		}
@@ -1912,6 +1920,14 @@ func (t *ResponsesWriter) translateChunk(raw []byte) error {
 		t.finishReason = fr.Str
 		// Reasoning-only turns emit no delta this writer translates, so the
 		// badge would never be reached through appendText/appendToolCall.
+		if !t.hasUpstreamOutput {
+			if len(t.toolMappings) > 0 && len(t.toolItems) > 0 {
+				if err := t.closeOpenItems(); err != nil {
+					return err
+				}
+			}
+			return emptyCompletionOpenAIError()
+		}
 		if err := t.ensureBadgeItem(); err != nil {
 			return err
 		}
@@ -2043,6 +2059,9 @@ func (t *ResponsesWriter) appendToolCall(idx int, tc gjson.Result) error {
 	}
 	if err := t.lifecycle.Output(item.outputIndex); err != nil {
 		return err
+	}
+	if item.opened && item.name != "" {
+		t.hasUpstreamOutput = true
 	}
 	args := tc.Get("function.arguments").Str
 	if args != "" {

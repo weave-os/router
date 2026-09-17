@@ -318,11 +318,16 @@ type UpstreamErrorResponse struct {
 	Status  int
 	Headers http.Header
 	Body    []byte
+	// Cause carries a classified upstream failure that is not represented by
+	// the HTTP status alone, such as a successful HTTP response with no answer.
+	Cause error
 }
 
 func (e *UpstreamErrorResponse) Error() string {
 	return fmt.Sprintf("upstream returned status %d (buffered)", e.Status)
 }
+
+func (e *UpstreamErrorResponse) Unwrap() error { return e.Cause }
 
 // MaxBufferedErrorBytes caps the buffered upstream error body; beyond this
 // it's truncated and the rest of the stream is drained without retention.
@@ -346,6 +351,11 @@ var ErrUpstreamOutputStall = errors.New("upstream sse output stall")
 // tripping). Upstream-owned and retryable; defined here for the same
 // import-cycle reason as the other stall sentinels.
 var ErrUpstreamSlowThroughput = errors.New("upstream sse slow throughput")
+
+// ErrUpstreamEmptyCompletion marks a clean upstream terminal that carried no
+// usable assistant text or tool call. It is retryable because HTTP success is
+// not evidence that the model answered the request.
+var ErrUpstreamEmptyCompletion = errors.New("upstream returned an empty completion")
 
 // IsRetryableStatus reports whether an upstream status is worth retrying on
 // a different provider: 5xx, 408, and 429. Other 4xx are the client's fault
@@ -373,7 +383,7 @@ func IsRetryable(err error) bool {
 	// surfaces them by canceling the request context (which may also chain
 	// context.Canceled) — so they must be checked before the cancellation
 	// guard below.
-	if errors.Is(err, ErrUpstreamIdleTimeout) || errors.Is(err, ErrUpstreamOutputStall) || errors.Is(err, ErrUpstreamSlowThroughput) {
+	if errors.Is(err, ErrUpstreamIdleTimeout) || errors.Is(err, ErrUpstreamOutputStall) || errors.Is(err, ErrUpstreamSlowThroughput) || errors.Is(err, ErrUpstreamEmptyCompletion) {
 		return true
 	}
 	// Caller-side cancellation/deadlines aren't the upstream's fault; a retry

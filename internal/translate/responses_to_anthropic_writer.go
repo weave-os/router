@@ -375,13 +375,20 @@ func (t *ResponsesToAnthropicWriter) translateResponsesEvent(raw []byte) error {
 		errType, msg := responsesFailureFromResponse(resp)
 		return t.emitStreamErrorEvent(errType, msg)
 	case "response.completed", "response.incomplete":
-		// Terminal envelope counts as progress; a post-trip cancel is moot anyway.
-		t.markOutputProgress()
 		resp := gjson.GetBytes(data, "response")
 		if responsesTerminalIsFailure(resp) {
 			errType, msg := responsesFailureFromResponse(resp)
 			return t.emitStreamErrorEvent(errType, msg)
 		}
+		if !t.lifecycle.OutputStarted() && !t.hasPendingOutput() && responsesResponseHasUsableOutput(resp) {
+			if err := t.emitTerminalOutput(resp); err != nil {
+				return err
+			}
+		}
+		if !t.lifecycle.OutputStarted() && !t.hasPendingOutput() {
+			return t.emitEmptyCompletion()
+		}
+		t.markOutputProgress()
 		if err := t.lifecycle.Terminal(); err != nil {
 			return err
 		}
@@ -521,6 +528,9 @@ func (t *ResponsesToAnthropicWriter) emitDoneOnlyItem(oi int, item gjson.Result)
 		t.blockIdx++
 		t.toolUseCount++
 		t.toolName[oi] = name
+		if err := t.lifecycle.Output(idx); err != nil {
+			return err
+		}
 		if err := t.emitContentBlockStartTool(idx, item.Get("call_id").String(), name); err != nil {
 			return err
 		}
@@ -541,6 +551,9 @@ func (t *ResponsesToAnthropicWriter) emitDoneOnlyItem(oi int, item gjson.Result)
 		}
 		idx := t.blockIdx
 		t.blockIdx++
+		if err := t.lifecycle.Output(idx); err != nil {
+			return err
+		}
 		if err := t.emitContentBlockStartText(idx); err != nil {
 			return err
 		}
@@ -556,6 +569,9 @@ func (t *ResponsesToAnthropicWriter) emitDoneOnlyItem(oi int, item gjson.Result)
 		}
 		idx := t.blockIdx
 		t.blockIdx++
+		if err := t.lifecycle.Output(idx); err != nil {
+			return err
+		}
 		if err := t.emitContentBlockStartThinking(idx); err != nil {
 			return err
 		}
@@ -665,6 +681,27 @@ func (t *ResponsesToAnthropicWriter) finishStream() error {
 	return nil
 }
 
+func (t *ResponsesToAnthropicWriter) hasPendingOutput() bool {
+	return t.toolUseCount > 0 || len(t.itemBlocks) > 0 || len(t.toolArgs) > 0
+}
+
+// emitTerminalOutput covers a valid Responses stream whose terminal envelope
+// carries completed output but whose item events were dropped in transit.
+func (t *ResponsesToAnthropicWriter) emitTerminalOutput(resp gjson.Result) error {
+	var emitErr error
+	index := 0
+	resp.Get("output").ForEach(func(_ gjson.Result, item gjson.Result) bool {
+		if emitErr != nil {
+			return false
+		}
+		current := index
+		index++
+		emitErr = t.emitDoneOnlyItem(current, item)
+		return emitErr == nil
+	})
+	return emitErr
+}
+
 // reconciledStopReason enforces that a turn with tool_use blocks reports
 // stop_reason "tool_use" and one without never does, independent of the
 // terminal Responses payload (which can be absent or disagree with what
@@ -711,6 +748,11 @@ func (t *ResponsesToAnthropicWriter) finalizeBuffered() error {
 	if err != nil {
 		t.log().Error("ResponsesToAnthropic: translate failed", "err", err)
 		return t.finalizeError()
+	}
+	if !anthropicResponseHasUsableOutput(anthropic) {
+		t.log().Error("ResponsesToAnthropic: upstream returned an empty completion",
+			"request_model", t.requestModel)
+		return t.finalizeEmptyCompletion()
 	}
 	root := gjson.ParseBytes(anthropic)
 	// Anthropic body is fresh-only for the client; sink keeps OpenAI's cache-inclusive
@@ -761,6 +803,16 @@ func (t *ResponsesToAnthropicWriter) finalizeError() error {
 	}
 	_, err := t.inner.Write(errBody)
 	return err
+}
+
+func (t *ResponsesToAnthropicWriter) finalizeEmptyCompletion() error {
+	if !t.headersEmitted {
+		t.inner.Header().Set("Content-Type", "application/json")
+		t.inner.Header().Del("Content-Length")
+		t.inner.WriteHeader(http.StatusBadGateway)
+	}
+	_, writeErr := t.inner.Write(responsesErrorBody(upstreamEmptyCompletionType, upstreamEmptyCompletionMessage))
+	return writeErr
 }
 
 // anthropicErrorFromBuffer builds an error envelope from buf. With stream:true
@@ -1111,6 +1163,14 @@ func (t *ResponsesToAnthropicWriter) emitStreamErrorEvent(errType, msg string) e
 	}
 	t.closed = true
 	return nil
+}
+
+func (t *ResponsesToAnthropicWriter) emitEmptyCompletion() error {
+	if t.lifecycle.OutputStarted() {
+		return t.emitStreamErrorEvent(upstreamEmptyCompletionType, upstreamEmptyCompletionMessage)
+	}
+	t.closed = true
+	return emptyCompletionAnthropicError()
 }
 
 func (t *ResponsesToAnthropicWriter) flushEvent() error {

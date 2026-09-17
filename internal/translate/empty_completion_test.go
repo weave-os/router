@@ -1,0 +1,74 @@
+package translate_test
+
+import (
+	"errors"
+	"net/http/httptest"
+	"testing"
+
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/translate"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestResponsesWriter_EmptyTerminalIsRetryable(t *testing.T) {
+	for _, finishReason := range []string{"tool_calls", "length", "stop"} {
+		t.Run(finishReason, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			w := translate.NewResponsesWriter(rec, "synthetic-model")
+			require.NoError(t, w.Prelude(true))
+			_, err := w.Write([]byte(`data: {"choices":[{"index":0,"delta":{},"finish_reason":"` + finishReason + `"}],"usage":{"prompt_tokens":2,"completion_tokens":24,"total_tokens":26}}
+
+`))
+			require.ErrorIs(t, err, providers.ErrUpstreamEmptyCompletion)
+			assert.True(t, providers.IsRetryable(err))
+			assert.NotContains(t, rec.Body.String(), `"type":"response.completed"`)
+		})
+	}
+}
+
+func TestResponsesToOpenAIChatWriter_EmptyTerminalIsRetryable(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesToOpenAIChatWriter(rec, "gpt-5.6-luna", nil)
+	require.NoError(t, w.Prelude(true))
+	_, err := w.Write([]byte(`event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_empty","status":"completed","output":[],"usage":{"input_tokens":2,"output_tokens":8192}}}
+
+`))
+	require.ErrorIs(t, err, providers.ErrUpstreamEmptyCompletion)
+	assert.NotContains(t, rec.Body.String(), `data: [DONE]`)
+}
+
+func TestResponsesToAnthropicWriter_EmptyTerminalIsRetryable(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesToAnthropicWriter(rec, "claude-opus-5", nil)
+	require.NoError(t, w.Prelude(true))
+	_, err := w.Write([]byte(`event: response.incomplete
+data: {"type":"response.incomplete","response":{"id":"resp_empty","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[]}}
+
+`))
+	require.ErrorIs(t, err, providers.ErrUpstreamEmptyCompletion)
+	assert.NotContains(t, rec.Body.String(), "event: message_stop")
+}
+
+func TestResponsesToOpenAIChatWriter_NonStreamingEmptyTerminalIsError(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := translate.NewResponsesToOpenAIChatWriter(rec, "gpt-5.6-luna", nil)
+	require.NoError(t, w.Prelude(false))
+	_, err := w.Write([]byte(`event: response.completed
+data: {"type":"response.completed","response":{"id":"resp_empty","status":"completed","output":[]}}
+
+`))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+	assert.Equal(t, 502, rec.Code)
+	assert.Contains(t, rec.Body.String(), "upstream_empty_completion")
+}
+
+func TestEmptyCompletionErrorUnwrapsRetrySentinel(t *testing.T) {
+	err := errors.New("wrapped")
+	wrapped := &providers.UpstreamErrorResponse{Status: 502, Cause: errors.Join(providers.ErrUpstreamEmptyCompletion, err)}
+	assert.ErrorIs(t, wrapped, providers.ErrUpstreamEmptyCompletion)
+	assert.True(t, providers.IsRetryable(wrapped))
+}

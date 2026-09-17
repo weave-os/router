@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -145,6 +146,13 @@ func TestResponsesOutputProgress_OutputEventsCount(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			w, count := newStreamingWriter(t)
 			_, err := w.Write([]byte(tc.event))
+			if tc.name == "terminal completed" {
+				var upstream *providers.UpstreamErrorResponse
+				require.ErrorAs(t, err, &upstream)
+				require.ErrorIs(t, err, providers.ErrUpstreamEmptyCompletion)
+				assert.Zero(t, *count, "an empty terminal is not output progress")
+				return
+			}
 			require.NoError(t, err)
 			assert.Positive(t, *count, "%s must register as output progress", tc.name)
 		})

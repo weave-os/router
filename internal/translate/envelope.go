@@ -1418,7 +1418,7 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 
 	if !gjson.GetBytes(body, "max_tokens").Exists() {
 		ov.DefaultMaxTokensKey = "max_tokens"
-		ov.DefaultMaxTokensValue = defaultOutputTokens(opts.TargetModel)
+		ov.DefaultMaxTokensValue = defaultAnthropicOutputTokens(opts.TargetModel, opts.Capabilities)
 	}
 
 	return ov
@@ -1499,4 +1499,20 @@ func defaultOutputTokens(model string) int64 {
 		return int64(tokenCap)
 	}
 	return defaultMaxOutputTokenCap
+}
+
+// defaultAnthropicOutputTokens leaves enough room for hidden reasoning on
+// always-on adaptive targets while respecting a documented model cap below the
+// reasoning floor. Explicit caller max_tokens values are handled separately
+// and are intentionally not changed here.
+func defaultAnthropicOutputTokens(model string, capabilities router.ModelSpec) int64 {
+	defaultTokens := defaultOutputTokens(model)
+	if !capabilities.Supports(router.CapAdaptiveThinking) || !capabilities.Reasoning().AlwaysOn {
+		return defaultTokens
+	}
+	floored := reasoningOutputFloor(defaultTokens, true)
+	if tokenCap, ok := modelMaxOutputTokens[model]; ok && int64(tokenCap) < floored {
+		return int64(tokenCap)
+	}
+	return floored
 }

@@ -31,16 +31,21 @@ const openCodeResponsesBody = `{
 const openCodeHardPinModel = "gpt-4o-mini"
 
 func newOpenCodeTurnSvc(fr *fakeRouter, store *fakePinStore) *proxy.Service {
-	okResp := func(w http.ResponseWriter) {
+	openAIResp := func(w http.ResponseWriter) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
 	}
+	anthropicResp := func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn"}`)
+	}
 	return proxy.NewService(
 		fr,
 		map[string]providers.Client{
-			providers.ProviderAnthropic: &fakeProvider{proxyResponse: okResp},
-			providers.ProviderOpenAI:    &fakeProvider{proxyResponse: okResp},
+			providers.ProviderAnthropic: &fakeProvider{proxyResponse: anthropicResp},
+			providers.ProviderOpenAI:    &fakeProvider{proxyResponse: openAIResp},
 		},
 		nil, false, nil, store, false,
 		providers.ProviderOpenAI, openCodeHardPinModel, nil,

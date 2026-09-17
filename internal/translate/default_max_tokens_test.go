@@ -13,7 +13,7 @@ import (
 )
 
 // Anthropic Messages requires max_tokens; we inject a per-model default when
-// absent. defaultMaxOutputTokenCap is 8192, floored by per-model caps.
+// absent. Always-on adaptive targets receive the reasoning floor.
 
 func TestAnthropicSameFormat_DefaultMaxTokensInjectedWhenAbsent(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"}]}`)
@@ -22,7 +22,7 @@ func TestAnthropicSameFormat_DefaultMaxTokensInjectedWhenAbsent(t *testing.T) {
 		Capabilities: router.Lookup("claude-opus-4-7"),
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
-	assert.Equal(t, float64(8192), out["max_tokens"])
+	assert.Equal(t, float64(16000), out["max_tokens"])
 }
 
 func TestAnthropicSameFormat_ExistingMaxTokensUnchanged(t *testing.T) {
@@ -33,6 +33,26 @@ func TestAnthropicSameFormat_ExistingMaxTokensUnchanged(t *testing.T) {
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	assert.Equal(t, float64(1024), out["max_tokens"])
+}
+
+func TestAnthropicSameFormat_AdaptiveDefaultsHaveReasoningHeadroom(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"}]}`)
+	for _, model := range []string{
+		"claude-fable-5", "claude-fable-5-1", "claude-opus-5", "claude-opus-4-6",
+		"claude-opus-4-7", "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6",
+	} {
+		t.Run(model, func(t *testing.T) {
+			out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
+				TargetModel: model, Capabilities: router.Lookup(model),
+			})
+			assert.Equal(t, float64(16000), out["max_tokens"])
+		})
+	}
+
+	control := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
+		TargetModel: "claude-opus-4-5", Capabilities: router.Lookup("claude-opus-4-5"),
+	})
+	assert.Equal(t, float64(8192), control["max_tokens"])
 }
 
 func TestOpenAISameFormat_DefaultMaxTokensInjectedForNonReasoningTarget(t *testing.T) {

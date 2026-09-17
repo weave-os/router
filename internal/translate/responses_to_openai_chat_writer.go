@@ -332,12 +332,20 @@ func (t *ResponsesToOpenAIChatWriter) translateEvent(raw []byte) error {
 		errType, msg := responsesFailureFromResponse(gjson.GetBytes(data, "response"))
 		return t.emitStreamError(errType, msg)
 	case "response.completed", "response.incomplete":
-		t.markOutputProgress()
 		resp := gjson.GetBytes(data, "response")
 		if responsesTerminalIsFailure(resp) {
 			errType, msg := responsesFailureFromResponse(resp)
 			return t.emitStreamError(errType, msg)
 		}
+		if !t.lifecycle.OutputStarted() && !t.hasPendingOutput() && responsesResponseHasUsableOutput(resp) {
+			if err := t.emitTerminalOutput(resp); err != nil {
+				return err
+			}
+		}
+		if !t.lifecycle.OutputStarted() && !t.hasPendingOutput() {
+			return t.emitEmptyCompletion()
+		}
+		t.markOutputProgress()
 		if err := t.lifecycle.Terminal(); err != nil {
 			return err
 		}
@@ -491,6 +499,56 @@ func (t *ResponsesToOpenAIChatWriter) finishStream() error {
 	return t.emitDone()
 }
 
+func (t *ResponsesToOpenAIChatWriter) hasPendingOutput() bool {
+	return len(t.toolArgs) > 0 || len(t.toolName) > 0 || len(t.toolSlots) > 0
+}
+
+// emitTerminalOutput covers a valid Responses stream whose terminal envelope
+// carries the completed output but whose item events were dropped in transit.
+func (t *ResponsesToOpenAIChatWriter) emitTerminalOutput(resp gjson.Result) error {
+	var emitErr error
+	index := 0
+	resp.Get("output").ForEach(func(_ gjson.Result, item gjson.Result) bool {
+		if emitErr != nil {
+			return false
+		}
+		oi := index
+		index++
+		switch item.Get("type").String() {
+		case "message":
+			var text strings.Builder
+			item.Get("content").ForEach(func(_, part gjson.Result) bool {
+				if part.Get("type").String() == "output_text" {
+					text.WriteString(part.Get("text").String())
+				}
+				return true
+			})
+			if text.Len() > 0 {
+				emitErr = t.emitContentDelta(oi, text.String())
+			}
+		case "reasoning":
+			emitErr = t.emitReasoningDelta(oi, joinReasoningSummary(item.Get("summary")))
+		case "function_call":
+			name := item.Get("name").String()
+			if name == "" {
+				return true
+			}
+			t.toolSlots[oi] = t.nextToolSlot
+			t.nextToolSlot++
+			t.toolName[oi] = name
+			t.toolCallID[oi] = callIDOrGenerated(item.Get("call_id").String())
+			if args := item.Get("arguments").String(); args != "" {
+				buf := &strings.Builder{}
+				buf.WriteString(args)
+				t.toolArgs[oi] = buf
+			}
+			emitErr = t.emitToolCall(oi, item.Get("arguments").String())
+		}
+		return emitErr == nil
+	})
+	return emitErr
+}
+
 // reconciledFinishReason enforces that a turn which emitted tool calls reports
 // "tool_calls" and one that didn't never does, independent of the terminal
 // Responses payload (which can be absent or disagree with what streamed).
@@ -533,6 +591,11 @@ func (t *ResponsesToOpenAIChatWriter) finalizeBuffered() error {
 		t.log().Error("ResponsesToOpenAIChat: translate failed", "err", err)
 		return t.finalizeError()
 	}
+	if !chatCompletionHasUsableOutput(chat) {
+		t.log().Error("ResponsesToOpenAIChat: upstream returned an empty completion",
+			"request_model", t.requestModel)
+		return t.finalizeEmptyCompletion()
+	}
 	t.recordUsage(resp.Get("usage"))
 	recordOutputLimit(t.usageSink, responsesOutputLimitReached(resp))
 	root := gjson.ParseBytes(chat)
@@ -562,6 +625,16 @@ func (t *ResponsesToOpenAIChatWriter) finalizeError() error {
 	}
 	_, err := t.inner.Write(openAIErrorBody(errType, msg))
 	return err
+}
+
+func (t *ResponsesToOpenAIChatWriter) finalizeEmptyCompletion() error {
+	if !t.headersEmitted {
+		t.inner.Header().Set("Content-Type", "application/json")
+		t.inner.Header().Del("Content-Length")
+		t.inner.WriteHeader(http.StatusBadGateway)
+	}
+	_, writeErr := t.inner.Write(openAIErrorBody(upstreamEmptyCompletionType, upstreamEmptyCompletionMessage))
+	return writeErr
 }
 
 // errorFromBuffer extracts an error type/message from the buffered stream. With
@@ -757,6 +830,14 @@ func (t *ResponsesToOpenAIChatWriter) emitStreamError(errType, msg string) error
 		return err
 	}
 	return t.emitDone()
+}
+
+func (t *ResponsesToOpenAIChatWriter) emitEmptyCompletion() error {
+	if t.lifecycle.OutputStarted() {
+		return t.emitStreamError(upstreamEmptyCompletionType, upstreamEmptyCompletionMessage)
+	}
+	t.closed = true
+	return emptyCompletionOpenAIError()
 }
 
 func (t *ResponsesToOpenAIChatWriter) writeChunkHeader() {

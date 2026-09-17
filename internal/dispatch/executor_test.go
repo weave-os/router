@@ -223,6 +223,22 @@ func TestRunRetriesSingleTargetInPlaceWithinBudget(t *testing.T) {
 	assert.Equal(t, []int{0, 1, 2}, []int{rec.events[0].AttemptIndex, rec.events[1].AttemptIndex, rec.events[2].AttemptIndex})
 }
 
+func TestRunRetriesSingleTargetAfterEmptyCompletion(t *testing.T) {
+	fw := &fakeUpstream{errs: []error{
+		&providers.UpstreamErrorResponse{Status: http.StatusBadGateway, Cause: providers.ErrUpstreamEmptyCompletion},
+	}}
+	exec := newExecutor(t, map[string]providers.Client{providers.ProviderFireworks: fw}, &recorder{})
+
+	result, err := exec.Run(context.Background(), inference.InvocationRequest{},
+		fakePlan{selected: primary},
+		dispatch.Transport{Attempt: attemptWith([]byte(`{"model":"kimi-k2.5"}`))},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, 2, result.Outcome.AttemptCount)
+	assert.False(t, result.Outcome.FallbackUsed)
+	assert.Len(t, fw.models, 2)
+}
+
 func TestRunMaxAttemptsBoundsSameTargetRetries(t *testing.T) {
 	fw := &fakeUpstream{errs: []error{
 		&providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests},

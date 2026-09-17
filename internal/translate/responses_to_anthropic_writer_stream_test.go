@@ -457,7 +457,7 @@ data: {"type":"response.completed","response":{"id":"r","status":"completed","ou
 }
 
 // A function_call with no name is dropped, never opened as a tool_use block;
-// the turn demotes to end_turn.
+// with no other output, the turn is retryable rather than an empty success.
 func TestResponsesToAnthropicWriter_NamelessToolDropped(t *testing.T) {
 	const fixture = `event: response.output_item.added
 data: {"type":"response.output_item.added","output_index":0,"item":{"id":"fc_x","type":"function_call","call_id":"call_x","name":"","arguments":"","status":"in_progress"}}
@@ -476,14 +476,13 @@ data: {"type":"response.completed","response":{"id":"r","status":"completed","ou
 	w := translate.NewResponsesToAnthropicWriter(rec, "gpt-5.5", nil)
 	require.NoError(t, w.Prelude(true))
 	_, err := w.Write([]byte(fixture))
-	require.NoError(t, err)
-	require.NoError(t, w.Finalize())
+	require.ErrorIs(t, err, providers.ErrUpstreamEmptyCompletion)
 
 	body := rec.Body.String()
 	assert.NotContains(t, body, `"type":"tool_use"`, "nameless function_call must not open a tool_use block")
 	assert.NotContains(t, body, "input_json_delta")
-	assert.Contains(t, body, `"stop_reason":"end_turn"`, "no surviving tool_use block → demote to end_turn")
-	assert.Contains(t, body, "event: message_stop")
+	assert.NotContains(t, body, `"stop_reason":"end_turn"`, "no surviving tool_use block must not become a successful turn")
+	assert.NotContains(t, body, "event: message_stop")
 }
 
 // Non-streaming: an `error` event with no terminal response event still
