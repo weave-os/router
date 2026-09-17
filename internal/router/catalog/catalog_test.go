@@ -35,6 +35,7 @@ func TestCatalog_BindingsReferenceCanonicalProviders(t *testing.T) {
 		providers.ProviderMakora:           {},
 		providers.ProviderMiniMax:          {},
 		providers.ProviderTogether:         {},
+		providers.ProviderDeepSeek:         {},
 		providers.ProviderXAI:              {},
 		providers.ProviderMeta:             {},
 		providers.ProviderWafer:            {},
@@ -135,6 +136,56 @@ func TestResolveBinding_PicksFirstAvailable(t *testing.T) {
 	availNoAnthropic := map[string]struct{}{providers.ProviderOpenAI: {}}
 	_, ok = ResolveBinding("claude-opus-4-7", availNoAnthropic)
 	assert.False(t, ok)
+}
+
+func TestDeepSeekDirectBindings(t *testing.T) {
+	tests := []struct {
+		model          string
+		upstreamID     string
+		inputUSDPer1M  float64
+		outputUSDPer1M float64
+		cacheRead      float64
+	}{
+		{"deepseek/deepseek-v4-flash", "deepseek-flash", 0.14, 0.28, 0.20},
+		{"deepseek/deepseek-v4-pro", "deepseek-v4-pro", 1.74, 3.48, 0.145 / 1.74},
+		{"deepseek/deepseek-v4-pro-0813", "deepseek-v4-pro", 1.74, 3.48, 0.145 / 1.74},
+	}
+
+	available := map[string]struct{}{providers.ProviderDeepSeek: {}}
+	for _, tt := range tests {
+		t.Run(tt.model, func(t *testing.T) {
+			binding, ok := ResolveBinding(tt.model, available)
+			require.True(t, ok)
+			assert.Equal(t, providers.ProviderDeepSeek, binding.Provider)
+			assert.Equal(t, tt.upstreamID, binding.UpstreamID)
+			assert.Equal(t, tt.inputUSDPer1M, binding.Price.InputUSDPer1M)
+			assert.Equal(t, tt.outputUSDPer1M, binding.Price.OutputUSDPer1M)
+			assert.InDelta(t, tt.cacheRead, binding.Price.EffectiveCacheReadMultiplier(), 1e-12)
+		})
+	}
+}
+
+func TestDeepSeekBindingPreferenceAndFallback(t *testing.T) {
+	directAndFallback := map[string]struct{}{
+		providers.ProviderDeepSeek:   {},
+		providers.ProviderOpenRouter: {},
+	}
+	binding, ok := ResolveBinding("deepseek/deepseek-v4-flash", directAndFallback)
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderDeepSeek, binding.Provider)
+
+	fallbackOnly := map[string]struct{}{providers.ProviderOpenRouter: {}}
+	binding, ok = ResolveBinding("deepseek/deepseek-v4-flash", fallbackOnly)
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderOpenRouter, binding.Provider)
+
+	proFallback := map[string]struct{}{providers.ProviderTogether: {}}
+	binding, ok = ResolveBinding("deepseek/deepseek-v4-pro-0813", proFallback)
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderTogether, binding.Provider)
+
+	assert.Equal(t, TierUnknown, TierFor("deepseek/deepseek-v4-pro"))
+	assert.Equal(t, TierMid, TierFor("deepseek/deepseek-v4-pro-0813"))
 }
 
 func TestTierFor_KnownAndUnknown(t *testing.T) {

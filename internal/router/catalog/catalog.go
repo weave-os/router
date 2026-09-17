@@ -543,6 +543,8 @@ var Models = []Model{
 	// from V3.2 was filtering requests over ~128K (excludeContextOverflowModels
 	// in proxy/service.go).
 	{ID: "deepseek/deepseek-v4-flash", Tier: TierLow, ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, AgenticUse: AgenticLow, Providers: []ProviderBinding{
+		{Provider: providers.ProviderDeepSeek, UpstreamID: "deepseek-flash",
+			Price: Pricing{InputUSDPer1M: 0.140, OutputUSDPer1M: 0.280, CacheReadMultiplier: 0.028 / 0.140}},
 		{Provider: providers.ProviderMakora, UpstreamID: "deepseek-ai/DeepSeek-V4-Flash",
 			Price: Pricing{InputUSDPer1M: 0.1134, OutputUSDPer1M: 0.2791, CacheReadMultiplier: 0.20}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.140, OutputUSDPer1M: 0.280, CacheReadMultiplier: 0.10}},
@@ -558,8 +560,10 @@ var Models = []Model{
 	// This bare alias is the OLD 0423 release; the routable one is the dated
 	// 0813 entry below, which is what AA actually benchmarks.
 	{ID: "deepseek/deepseek-v4-pro", ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
-		// Together is primary: same $1.74/$3.48 as Fireworks with #1 AA
-		// throughput (~209 t/s vs ~120). Together serves only 512K context.
+		{Provider: providers.ProviderDeepSeek, UpstreamID: "deepseek-v4-pro",
+			Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.145 / 1.740}},
+		// Together is the first fallback at the same $1.74/$3.48 list price;
+		// its endpoint serves only 512K context.
 		{Provider: providers.ProviderTogether, UpstreamID: "deepseek-ai/DeepSeek-V4-Pro",
 			ContextWindow: 512_000, Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.20 / 1.740}},
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/deepseek-v4-pro",
@@ -572,7 +576,9 @@ var Models = []Model{
 	// above resolves to the retired 0423 build, so the HMM roster must target
 	// this dated ID to route to what it was actually ranked on.
 	{ID: "deepseek/deepseek-v4-pro-0813", Tier: TierMid, ContextWindow: 1_048_576, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
-		// Together first: higher throughput (~209 t/s vs Fireworks ~120) at equal price. Together serves only 512K context.
+		{Provider: providers.ProviderDeepSeek, UpstreamID: "deepseek-v4-pro",
+			Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.145 / 1.740}},
+		// Together is the first fallback and serves only 512K context.
 		{Provider: providers.ProviderTogether, UpstreamID: "deepseek-ai/DeepSeek-V4-Pro",
 			ContextWindow: 512_000, Price: Pricing{InputUSDPer1M: 1.740, OutputUSDPer1M: 3.480, CacheReadMultiplier: 0.20 / 1.740}},
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/deepseek-v4-pro",
