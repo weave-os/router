@@ -883,7 +883,11 @@ func writeOpenAIMaxTokensFromAnthropic(jw *jsonWriter, body []byte, opts EmitOpt
 		val = r.Int()
 	}
 	reasoning := opts.Capabilities.Supports(router.CapReasoning)
-	val = reasoningOutputFloor(val, reasoning && resolveReasoningEffortFor(opts) != "none")
+	effort := resolveReasoningEffortFor(opts)
+	if toolTurnNeedsExplicitEffortNone(opts, hasNonEmptyTools(body)) {
+		effort = "none"
+	}
+	val = reasoningOutputFloor(val, reasoning && effort != "none")
 	val = clampToModelOutputCap(val, opts.TargetModel)
 	if reasoning {
 		jw.Key("max_completion_tokens")
