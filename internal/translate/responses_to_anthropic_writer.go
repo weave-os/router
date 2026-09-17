@@ -386,6 +386,7 @@ func (t *ResponsesToAnthropicWriter) translateResponsesEvent(raw []byte) error {
 			}
 		}
 		if !t.lifecycle.OutputStarted() && !t.hasPendingOutput() {
+			t.captureFinalResponse(data)
 			return t.emitEmptyCompletion()
 		}
 		t.markOutputProgress()
@@ -752,6 +753,8 @@ func (t *ResponsesToAnthropicWriter) finalizeBuffered() error {
 	if !anthropicResponseHasUsableOutput(anthropic) {
 		t.log().Error("ResponsesToAnthropic: upstream returned an empty completion",
 			"request_model", t.requestModel)
+		t.recordOpenAIUsage(resp.Get("usage"))
+		recordOutputLimit(t.usageSink, responsesOutputLimitReached(resp))
 		return t.finalizeEmptyCompletion()
 	}
 	root := gjson.ParseBytes(anthropic)
@@ -806,13 +809,7 @@ func (t *ResponsesToAnthropicWriter) finalizeError() error {
 }
 
 func (t *ResponsesToAnthropicWriter) finalizeEmptyCompletion() error {
-	if !t.headersEmitted {
-		t.inner.Header().Set("Content-Type", "application/json")
-		t.inner.Header().Del("Content-Length")
-		t.inner.WriteHeader(http.StatusBadGateway)
-	}
-	_, writeErr := t.inner.Write(responsesError(upstreamEmptyCompletionType, upstreamEmptyCompletionMessage))
-	return writeErr
+	return emptyCompletionAnthropicError()
 }
 
 // anthropicErrorFromBuffer builds an error envelope from buf. With stream:true

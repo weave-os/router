@@ -1,6 +1,7 @@
 package translate
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -28,6 +29,21 @@ func emptyCompletionOpenAIError() error {
 
 func emptyCompletionAnthropicError() error {
 	return newEmptyCompletionError(responsesError(upstreamEmptyCompletionType, upstreamEmptyCompletionMessage))
+}
+
+func upstreamErrorHTTPStatus(err error) (int, bool) {
+	if err == nil {
+		return 0, false
+	}
+	var buffered *providers.UpstreamErrorResponse
+	if errors.As(err, &buffered) && buffered.Status >= 400 {
+		return buffered.Status, true
+	}
+	var status *providers.UpstreamStatusError
+	if errors.As(err, &status) && status.Status >= 400 {
+		return status.Status, true
+	}
+	return 0, false
 }
 
 func chatCompletionHasUsableOutput(body []byte) bool {
@@ -106,13 +122,59 @@ func responsesResponseHasUsableOutput(resp gjson.Result) bool {
 	return false
 }
 
+type nativeResponsesStatus string
+
+const (
+	nativeResponsesStatusCompleted  nativeResponsesStatus = "completed"
+	nativeResponsesStatusIncomplete nativeResponsesStatus = "incomplete"
+	nativeResponsesStatusQueued     nativeResponsesStatus = "queued"
+	nativeResponsesStatusInProgress nativeResponsesStatus = "in_progress"
+	nativeResponsesStatusFailed     nativeResponsesStatus = "failed"
+	nativeResponsesStatusCancelled  nativeResponsesStatus = "cancelled"
+)
+
+func nativeResponsesStatusIsAnswerTerminal(status string) bool {
+	switch nativeResponsesStatus(status) {
+	case nativeResponsesStatusCompleted, nativeResponsesStatusIncomplete:
+		return true
+	case "":
+		// Terminal SSE events sometimes omit status; treat them as answer terminals.
+		return true
+	default:
+		return false
+	}
+}
+
+func nativeResponsesIsEmptyTerminal(resp gjson.Result) bool {
+	if !resp.Get("output").IsArray() {
+		return false
+	}
+	if !nativeResponsesStatusIsAnswerTerminal(resp.Get("status").String()) {
+		return false
+	}
+	return !nativeResponsesResponseHasUsableOutput(resp)
+}
+
 func nativeResponsesResponseHasUsableOutput(resp gjson.Result) bool {
 	if responsesResponseHasUsableOutput(resp) {
 		return true
 	}
 	for _, item := range resp.Get("output").Array() {
-		if item.Get("type").String() == "custom_tool_call" && item.Get("name").String() != "" {
-			return true
+		switch item.Get("type").String() {
+		case "custom_tool_call":
+			if item.Get("name").String() != "" {
+				return true
+			}
+		case "computer_call":
+			if item.Get("call_id").String() != "" || item.Get("action").Exists() {
+				return true
+			}
+		case "message":
+			for _, part := range item.Get("content").Array() {
+				if part.Get("type").String() == "refusal" && part.Get("refusal").String() != "" {
+					return true
+				}
+			}
 		}
 	}
 	return false

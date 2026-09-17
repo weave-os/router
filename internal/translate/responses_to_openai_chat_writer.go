@@ -343,6 +343,7 @@ func (t *ResponsesToOpenAIChatWriter) translateEvent(raw []byte) error {
 			}
 		}
 		if !t.lifecycle.OutputStarted() && !t.hasPendingOutput() {
+			t.captureFinalResponse(resp)
 			return t.emitEmptyCompletion()
 		}
 		t.markOutputProgress()
@@ -594,6 +595,8 @@ func (t *ResponsesToOpenAIChatWriter) finalizeBuffered() error {
 	if !chatCompletionHasUsableOutput(chat) && !chatCompletionHasReasoningOutput(chat) {
 		t.log().Error("ResponsesToOpenAIChat: upstream returned an empty completion",
 			"request_model", t.requestModel)
+		t.recordUsage(resp.Get("usage"))
+		recordOutputLimit(t.usageSink, responsesOutputLimitReached(resp))
 		return t.finalizeEmptyCompletion()
 	}
 	t.recordUsage(resp.Get("usage"))
@@ -628,13 +631,7 @@ func (t *ResponsesToOpenAIChatWriter) finalizeError() error {
 }
 
 func (t *ResponsesToOpenAIChatWriter) finalizeEmptyCompletion() error {
-	if !t.headersEmitted {
-		t.inner.Header().Set("Content-Type", "application/json")
-		t.inner.Header().Del("Content-Length")
-		t.inner.WriteHeader(http.StatusBadGateway)
-	}
-	_, writeErr := t.inner.Write(openAIErrorBody(upstreamEmptyCompletionType, upstreamEmptyCompletionMessage))
-	return writeErr
+	return emptyCompletionOpenAIError()
 }
 
 // errorFromBuffer extracts an error type/message from the buffered stream. With

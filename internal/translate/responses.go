@@ -687,6 +687,8 @@ type ResponsesWriter struct {
 	hasUpstreamOutput           bool
 	nativeHeldEvents            [][]byte
 	nativeFooterCommit          bool
+	finalized                   bool
+	nativeEmptyRejected         bool
 	textItem                    *responsesTextItem
 	toolItems                   map[int]*responsesToolItem
 	finishReason                string
@@ -842,6 +844,21 @@ func (t *ResponsesWriter) resetSSEScanState() {
 	t.nativeSSEClassified = false
 }
 
+// ResetAttempt discards buffered provider bytes from a failed retryable attempt
+// so the next dispatch does not inherit a partial or empty terminal.
+func (t *ResponsesWriter) ResetAttempt() {
+	if t.finalized {
+		return
+	}
+	t.buf.Reset()
+	t.resetSSEScanState()
+	t.nativeStreamStarted = false
+	t.nativeHeldEvents = nil
+	t.sawToolCall = false
+	t.completedEmitted = false
+	t.nativeEmptyRejected = false
+}
+
 // SetPassthrough switches to native Responses mode. Upstream bytes remain in
 // Responses format, while Prelude may synthesize lifecycle and badge events.
 // Must be called before the first write.
@@ -926,15 +943,19 @@ func (t *ResponsesWriter) Write(data []byte) (int, error) {
 	n := len(data)
 	if t.passthrough {
 		if !t.httpHeadersSent {
-			t.streaming = strings.Contains(t.inner.Header().Get("Content-Type"), "text/event-stream")
-			t.statusCode = http.StatusOK
+			ct := t.inner.Header().Get("Content-Type")
+			if t.statusCode >= 400 {
+				t.streaming = false
+			} else {
+				t.streaming = strings.Contains(ct, "text/event-stream")
+				if t.statusCode == 0 {
+					t.statusCode = http.StatusOK
+				}
+			}
 			if t.streaming {
-				t.inner.WriteHeader(http.StatusOK)
+				t.inner.WriteHeader(t.statusCode)
 				t.httpHeadersSent = true
 			}
-		}
-		if t.streaming && len(data) > 0 {
-			t.nativeStreamStarted = true
 		}
 		// Generic native Responses callers remain byte-for-byte passthrough. Only
 		// the explicitly enabled Codex display path parses native SSE.
@@ -974,19 +995,16 @@ func (t *ResponsesWriter) Write(data []byte) (int, error) {
 			return t.buf.Write(data)
 		}
 		t.buf.Write(data)
-		if err := t.validateNativeResponsesSSEBuffer(); err != nil {
+		if err := t.forwardValidatedNativeSSE(); err != nil {
 			return n, err
 		}
-		// Forward verbatim. The upstream emits Responses natively, so there is
-		// nothing to translate for clients that did not opt into the display badge.
-		written, err := t.bw.Write(data)
-		if err == nil {
-			err = t.bw.Flush()
-			if t.flusher != nil {
-				t.flusher.Flush()
-			}
+		if err := t.bw.Flush(); err != nil {
+			return n, err
 		}
-		return written, err
+		if t.flusher != nil {
+			t.flusher.Flush()
+		}
+		return n, nil
 	}
 	t.buf.Write(data)
 	if !t.streaming {
@@ -1080,27 +1098,16 @@ func (t *ResponsesWriter) Finalize() error {
 				return err
 			}
 		}
+		if t.nativeEmptyRejected {
+			return emptyCompletionOpenAIError()
+		}
 		if !t.passthroughBadge && t.streaming {
 			if err := t.validateNativeResponsesSSEBuffer(); err != nil {
 				return err
 			}
 		}
 		if !t.streaming {
-			body := t.buf.Bytes()
-			if root := gjson.ParseBytes(body); root.Get("output").IsArray() && !nativeResponsesResponseHasUsableOutput(root) {
-				return emptyCompletionOpenAIError()
-			}
-			t.resetSSEScanState()
-			if rewritten, changed := t.rewriteNativeNonStreamingBody(body); changed {
-				body = rewritten
-			}
-			if !t.httpHeadersSent {
-				t.inner.Header().Set("Content-Type", "application/json")
-				t.inner.WriteHeader(t.statusCode)
-				t.httpHeadersSent = true
-			}
-			_, err := t.inner.Write(body)
-			return err
+			return t.flushBufferedNativeBody(nil)
 		}
 		// Nothing is synthesized; the upstream remains the event authority.
 		return t.bw.Flush()
@@ -1728,7 +1735,8 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 	}
 	if eventType == "response.completed" || eventType == "response.incomplete" {
 		response := gjson.GetBytes(data, "response")
-		if response.Get("output").IsArray() && !nativeResponsesResponseHasUsableOutput(response) {
+		if nativeResponsesIsEmptyTerminal(response) {
+			t.nativeEmptyRejected = true
 			return emptyCompletionOpenAIError()
 		}
 		if !t.nativeBadgeTargetSelected && !t.nativeSyntheticBadgeEmitted {
@@ -1808,8 +1816,17 @@ func (t *ResponsesWriter) processPassthroughSSEBuffer() error {
 }
 
 func (t *ResponsesWriter) validateNativeResponsesSSEBuffer() error {
+	return t.scanNativeResponsesSSE(false)
+}
+
+func (t *ResponsesWriter) forwardValidatedNativeSSE() error {
+	return t.scanNativeResponsesSSE(true)
+}
+
+func (t *ResponsesWriter) scanNativeResponsesSSE(forward bool) error {
 	for {
-		event, n := t.nativeStreamScanner.Next(t.buf.Bytes())
+		buffered := t.buf.Bytes()
+		event, n := t.nativeStreamScanner.Next(buffered)
 		if n == 0 {
 			return nil
 		}
@@ -1818,13 +1835,61 @@ func (t *ResponsesWriter) validateNativeResponsesSSEBuffer() error {
 			eventType := gjson.GetBytes(data, "type").Str
 			if eventType == "response.completed" || eventType == "response.incomplete" {
 				response := gjson.GetBytes(data, "response")
-				if response.Get("output").IsArray() && !nativeResponsesResponseHasUsableOutput(response) {
+				if nativeResponsesIsEmptyTerminal(response) {
+					t.buf.Next(n)
+					t.nativeEmptyRejected = true
 					return emptyCompletionOpenAIError()
 				}
 			}
 		}
+		frame := append([]byte(nil), buffered[:n]...)
 		t.buf.Next(n)
+		if !forward {
+			continue
+		}
+		if _, err := t.bw.Write(frame); err != nil {
+			return err
+		}
+		t.nativeStreamStarted = true
 	}
+}
+
+func (t *ResponsesWriter) flushBufferedNativeBody(upstreamErr error) error {
+	if t.finalized {
+		return nil
+	}
+	body := t.buf.Bytes()
+	if root := gjson.ParseBytes(body); nativeResponsesIsEmptyTerminal(root) {
+		return emptyCompletionOpenAIError()
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	t.resetSSEScanState()
+	if rewritten, changed := t.rewriteNativeNonStreamingBody(body); changed {
+		body = rewritten
+	}
+	status := t.statusCode
+	if status == 0 {
+		status = http.StatusOK
+	}
+	if status < 400 {
+		if resp, ok := upstreamErrorHTTPStatus(upstreamErr); ok && resp >= 400 {
+			status = resp
+		}
+	}
+	if !t.httpHeadersSent {
+		if t.inner.Header().Get("Content-Type") == "" {
+			t.inner.Header().Set("Content-Type", "application/json")
+		}
+		t.inner.WriteHeader(status)
+		t.httpHeadersSent = true
+	}
+	_, err := t.inner.Write(body)
+	if err == nil {
+		t.finalized = true
+	}
+	return err
 }
 
 func (t *ResponsesWriter) processFinalPassthroughSSETail() error {
@@ -1841,15 +1906,30 @@ func (t *ResponsesWriter) processFinalPassthroughSSETail() error {
 	return t.flushNativeHeldEvents(t.footerText != "" && !t.sawToolCall)
 }
 
+
+func (t *ResponsesWriter) sealInner() {
+	type sealer interface{ Seal() }
+	if s, ok := t.inner.(sealer); ok {
+		s.Seal()
+	}
+}
+
 // FinalizeError emits a response.failed terminal event when upstream fails
 // mid-stream (after response.created), so Codex sees a clean failure instead
 // of a truncated stream. No-op if nothing streamed yet (caller writes a JSON
 // error instead), in passthrough mode, or after a terminal event already fired.
-func (t *ResponsesWriter) FinalizeError(_ error) error {
+func (t *ResponsesWriter) FinalizeError(err error) error {
 	if t.passthrough {
-		if !t.streaming || !t.nativeStreamStarted || t.completedEmitted {
+		if !t.streaming {
+			return t.flushBufferedNativeBody(err)
+		}
+		if t.completedEmitted {
 			return nil
 		}
+		if !t.nativeStreamStarted && !t.nativePreludeCreated {
+			return nil
+		}
+		t.sealInner()
 		env := t.responseEnvelope("failed")
 		if t.nativeBadgeItemID != "" {
 			env["output"] = []any{map[string]any{
@@ -1878,6 +1958,7 @@ func (t *ResponsesWriter) FinalizeError(_ error) error {
 	if !t.streaming || !t.headersEmitted || t.completedEmitted {
 		return nil
 	}
+	t.sealInner()
 	if t.lifecycle.State() == StreamStarted {
 		if err := t.lifecycle.Fail(); err != nil {
 			return err

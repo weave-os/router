@@ -6720,16 +6720,22 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 
 	var responsesPreludeBuf *preludeBuffer
-	if responsesPreludeWillEmit {
-		if rw, ok := contentSink.(*translate.ResponsesWriter); ok {
-			rw.WrapInner(func(inner http.ResponseWriter) http.ResponseWriter {
-				responsesPreludeBuf = newPreludeBuffer(inner)
-				return responsesPreludeBuf
-			})
-		}
+	if rw, ok := contentSink.(*translate.ResponsesWriter); ok && (verbatimPassthrough || responsesPreludeWillEmit) {
+		rw.WrapInner(func(inner http.ResponseWriter) http.ResponseWriter {
+			responsesPreludeBuf = newPreludeBuffer(inner)
+			return responsesPreludeBuf
+		})
 	}
-	preludeBuf := newPreludeBuffer(contentSink)
-	var rootSink http.ResponseWriter = preludeBuf
+	var preludeBuf *preludeBuffer
+	var rootSink http.ResponseWriter
+	if verbatimPassthrough && responsesPreludeBuf != nil {
+		// Native Responses validates before the retry buffer sees bytes.
+		preludeBuf = responsesPreludeBuf
+		rootSink = contentSink
+	} else {
+		preludeBuf = newPreludeBuffer(contentSink)
+		rootSink = preludeBuf
+	}
 
 	// Responses entry point delegates the eager lifecycle and routing badge to
 	// this layer because it has the completed routing decision. Provider output
@@ -6763,8 +6769,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				rw.Flush()
 				if err := responsesPreludeBuf.CommitPrelude(); err != nil {
 					return fmt.Errorf("commit Responses prelude: %w", err)
-				} else if err := responsesPreludeBuf.commit(); err != nil {
-					return fmt.Errorf("open Responses stream: %w", err)
+				} else if !verbatimPassthrough {
+					if err := responsesPreludeBuf.commit(); err != nil {
+						return fmt.Errorf("open Responses stream: %w", err)
+					}
 				}
 			}
 		}
@@ -6860,6 +6868,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// Split from attempt so a native dispatch that finds no Responses surface
 			// can re-emit onto chat/completions while still pre-commit.
 			dispatchOpenAI := func(actx context.Context, d router.Decision, p providers.Client, surface openAISurface, stripPromptCacheKey bool) error {
+				if surface == surfaceResponsesNative {
+					if rw, ok := w.(*translate.ResponsesWriter); ok {
+						rw.ResetAttempt()
+					}
+				}
 				var prep providers.PreparedRequest
 				switch surface {
 				case surfaceResponsesNative:
@@ -6968,6 +6981,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					nativeRespSummary = false
 				} else if nativeTerminal != nil {
 					nativeTerminal.Finalize()
+					if rw, ok := w.(*translate.ResponsesWriter); ok {
+						err = finalizeAfterProxy(err, rw.Finalize)
+					}
 					if nativeTerminal.observed && nativeTerminal.signals.OutputLimitReached {
 						extractor.RecordOutputLimitReached()
 					}

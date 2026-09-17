@@ -143,7 +143,7 @@ func parityCodexIngress() parityIngress {
 		},
 		upstreamOK: func(bool) string {
 			return "data: " + `{"type":"response.output_text.delta","output_index":0,"delta":"hi"}` + "\n\n" +
-				"data: " + `{"type":"response.completed","response":{"id":"resp_1","status":"completed","usage":{"input_tokens":5,"output_tokens":2}}}` + "\n\n"
+				"data: " + `{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}],"usage":{"input_tokens":5,"output_tokens":2}}}` + "\n\n"
 		},
 		call: (*Service).ProxyOpenAIChatCompletion,
 		path: "/v1/chat/completions",

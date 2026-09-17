@@ -61,9 +61,8 @@ data: {"type":"response.completed","response":{"id":"resp_empty","status":"compl
 
 `))
 	require.NoError(t, err)
-	require.NoError(t, w.Finalize())
-	assert.Equal(t, 502, rec.Code)
-	assert.Contains(t, rec.Body.String(), "upstream_empty_completion")
+	require.ErrorIs(t, w.Finalize(), providers.ErrUpstreamEmptyCompletion)
+	assert.Empty(t, rec.Body.String())
 }
 
 func TestResponsesWriter_NativeEmptyTerminalIsRetryable(t *testing.T) {
@@ -138,9 +137,9 @@ data: {"type":"response.completed","response":{"id":"resp_empty","status":"compl
 
 `))
 	require.NoError(t, err)
-	require.NoError(t, w.Finalize())
-	assert.Equal(t, 502, rec.Code)
-	assert.Contains(t, rec.Body.String(), `"type":"error"`)
+	err = w.Finalize()
+	require.ErrorIs(t, err, providers.ErrUpstreamEmptyCompletion)
+	assert.Empty(t, rec.Body.String())
 }
 
 func TestEmptyCompletionErrorUnwrapsRetrySentinel(t *testing.T) {
