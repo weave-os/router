@@ -212,3 +212,41 @@ func TestProxyOpenAIChatCompletion_RetriesNonStreamingEmptyCompletion(t *testing
 	assert.Equal(t, 2, client.calls)
 	assert.Contains(t, rec.Body.String(), "ok")
 }
+
+type emptyThenOKChatCompletionsClient struct{ calls int }
+
+func (c *emptyThenOKChatCompletionsClient) Proxy(_ context.Context, _ router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
+	c.calls++
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	if c.calls == 1 {
+		_, err := io.WriteString(w, "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n")
+		return err
+	}
+	_, err := io.WriteString(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"retry succeeded\"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	return err
+}
+
+func (c *emptyThenOKChatCompletionsClient) Passthrough(context.Context, providers.PreparedRequest, http.ResponseWriter, *http.Request) error {
+	return providers.ErrNotImplemented
+}
+
+func TestProxyOpenAIResponses_RetriesTranslatedStreamingEmptyCompletion(t *testing.T) {
+	const servedModel = "grok-4.6"
+	client := &emptyThenOKChatCompletionsClient{}
+	svc := NewService(
+		staticRouter{decision: router.Decision{Provider: providers.ProviderXAI, Model: servedModel, Reason: "test"}},
+		map[string]providers.Client{providers.ProviderXAI: client},
+		nil, false, nil, nil, false, providers.ProviderXAI, servedModel, nil,
+	)
+	svc.retrySleep = noopSleep
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	body := "{\"model\":\"gpt-6-astra\",\"stream\":true,\"input\":\"Continue the task.\"}"
+	rec := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyOpenAIResponses(ctx, []byte(body), rec,
+		httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))))
+	assert.Equal(t, 2, client.calls)
+	out := rec.Body.String()
+	assert.NotContains(t, out, "response.failed")
+	assert.Contains(t, out, "retry succeeded")
+}

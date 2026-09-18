@@ -862,6 +862,10 @@ func (t *ResponsesWriter) ResetAttempt() {
 	t.sawToolCall = false
 	t.completedEmitted = false
 	t.nativeEmptyRejected = false
+	t.finishReason = ""
+	t.toolItems = map[int]*responsesToolItem{}
+	// Keep headersEmitted, textItem, and prelude lifecycle so a retried
+	// translated stream does not emit a second response.created.
 }
 
 // SetPassthrough switches to native Responses mode. Upstream bytes remain in

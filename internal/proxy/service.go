@@ -6730,8 +6730,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	var preludeBuf *preludeBuffer
 	var rootSink http.ResponseWriter
-	if verbatimPassthrough && responsesPreludeBuf != nil {
-		// Native Responses validates before the retry buffer sees bytes.
+	if responsesPreludeBuf != nil {
+		// ResponsesWriter validates provider bytes before the retry buffer
+		// sees them, for both native passthrough and translated Chat Completions.
 		preludeBuf = responsesPreludeBuf
 		rootSink = contentSink
 	} else {
@@ -6771,10 +6772,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				rw.Flush()
 				if err := responsesPreludeBuf.CommitPrelude(); err != nil {
 					return fmt.Errorf("commit Responses prelude: %w", err)
-				} else if !verbatimPassthrough {
-					if err := responsesPreludeBuf.commit(); err != nil {
-						return fmt.Errorf("open Responses stream: %w", err)
-					}
 				}
 			}
 		}
@@ -6870,10 +6867,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// Split from attempt so a native dispatch that finds no Responses surface
 			// can re-emit onto chat/completions while still pre-commit.
 			dispatchOpenAI := func(actx context.Context, d router.Decision, p providers.Client, surface openAISurface, stripPromptCacheKey bool) error {
-				if surface == surfaceResponsesNative {
-					if rw, ok := w.(*translate.ResponsesWriter); ok {
-						rw.ResetAttempt()
-					}
+				if rw, ok := w.(*translate.ResponsesWriter); ok {
+					rw.ResetAttempt()
 				}
 				var prep providers.PreparedRequest
 				switch surface {
