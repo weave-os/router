@@ -63,4 +63,16 @@ COMMENT ON TABLE router.credential_subjects IS 'Opaque account-owned identity pr
 COMMENT ON TABLE router.installation_profile_assignments IS 'Assignment keys only; exact active revisions are owned by GCS selection sets';
 COMMENT ON TABLE router.session_release_bindings IS 'Conversation release pins; admission transactions lock installation, key, subject, then conversation';
 
+CREATE TABLE router.serving_request_attribution (
+    request_id TEXT PRIMARY KEY,
+    installation_id UUID NOT NULL REFERENCES router.model_router_installations(id) ON DELETE CASCADE,
+    api_key_id UUID NOT NULL,
+    scope JSONB NOT NULL,
+    binding JSONB NOT NULL,
+    admitted_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+);
+
+CREATE INDEX serving_request_attribution_installation_time
+    ON router.serving_request_attribution (installation_id, admitted_at);
+
 COMMIT;

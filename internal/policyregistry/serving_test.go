@@ -362,6 +362,31 @@ func TestServingControllerFailsClosedOnRegistryAndCASFailure(t *testing.T) {
 	}
 }
 
+func TestServingControllerRejectsUnverifiedProposalEvidence(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		payload []byte
+	}{
+		{name: "missing evidence"},
+		{name: "digest mismatch", payload: []byte("changed evidence")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store, controller, set := controllerFixture(t)
+			proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+			ref := store.publish(t, policyregistry.ServingProposals, proposal)
+			delete(store.artifacts, proposal.Evidence[0])
+			if test.payload != nil {
+				store.artifacts[proposal.Evidence[0]] = test.payload
+			}
+			_, err := controller.Prepare(context.Background(), ref)
+			require.ErrorContains(t, err, "verify proposal evidence")
+			_, err = controller.Activate(context.Background(), ref, "workflow", true)
+			require.ErrorContains(t, err, "verify proposal evidence")
+			require.Empty(t, store.states, "invalid evidence must never publish an activation")
+		})
+	}
+}
+
 func TestServingControllerRejectsAttestedCodeMismatch(t *testing.T) {
 	store, controller, set := controllerFixture(t)
 	release := *store.objects[set.Default.Release].(*policyregistry.ServingRelease)

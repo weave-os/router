@@ -1,5 +1,6 @@
 BEGIN;
 
+DROP TABLE router.serving_request_attribution;
 DROP TABLE router.session_release_bindings;
 DROP TABLE router.installation_profile_assignments;
 ALTER TABLE router.model_router_api_keys DROP CONSTRAINT model_router_api_keys_personal_routing_only;

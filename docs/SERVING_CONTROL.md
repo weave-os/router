@@ -118,7 +118,15 @@ An unset or whitespace-only `ROUTER_SERVING_ASSERTION_KEY` keeps the worker on i
 existing managed/self-hosted path. It does not read serving control heads, subject
 projections, session bindings or request-attribution tables. A nonempty weak key
 fails boot; it does not silently fall back. Apply additive router migrations
-`0095` and `0096` through the coordinated migration path before enabling a gateway.
+`0095` through the coordinated migration path before enabling a gateway.
+
+The gateway exposes `/health` for process liveness and `/readyz` for admission
+readiness. Readiness has a five-second total budget to ping PostgreSQL, resolve
+the environment's active default binding from the registry, and acquire a worker
+IAM token. Missing activation or unavailable dependencies return 503; no session
+is admitted and no inference is dispatched. PR2 deployment configuration must use
+`/readyz` for traffic-admission checks, not `/health`. Token acquisition does not
+prove the destination's `run.invoker` grant; private deployment smoke still must.
 
 Managed workers require `ROUTER_SERVING_TARGET`, `ROUTER_SERVING_PROJECT`,
 `ROUTER_SERVING_REGION`, `ROUTER_SERVING_IMAGE_DIGEST`, and

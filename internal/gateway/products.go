@@ -158,24 +158,27 @@ func (h *Handler) forwardDefault(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 	r = r.Clone(ctx)
-	target := policyregistry.TargetStable
-	if h.products.Environment == policyregistry.EnvironmentStaging {
-		target = policyregistry.TargetStaging
-	}
 	prepareCtx, prepareCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer prepareCancel()
-	// Read-only exports and public assets have no conversation, enrollment or
-	// customer policy. Choosing their worker never grants inference authority.
-	admissionDecider := policyregistry.ServingAdmission{Store: h.registry}
-	admission, err := admissionDecider.Decide(prepareCtx, policyregistry.SerializedAdmission{Projection: policyregistry.AdmissionProjection{Target: target}, Clock: func(context.Context) (time.Time, error) { return time.Now(), nil }})
-	if err != nil {
-		h.fail(w, r, requestcontext.ConversationChat, err)
-		return
-	}
-	binding, err := policyregistry.ResolveAdmissionBinding(prepareCtx, h.registry, admission)
+	binding, err := h.defaultBinding(prepareCtx)
 	if err != nil {
 		h.fail(w, r, requestcontext.ConversationChat, err)
 		return
 	}
 	h.forward(w, r, requestcontext.ConversationChat, nil, binding, "")
+}
+
+func (h *Handler) defaultBinding(ctx context.Context) (policyregistry.DeploymentBinding, error) {
+	target := policyregistry.TargetStable
+	if h.products.Environment == policyregistry.EnvironmentStaging {
+		target = policyregistry.TargetStaging
+	}
+	// Read-only exports and public assets have no conversation, enrollment or
+	// customer policy. Choosing their worker never grants inference authority.
+	admissionDecider := policyregistry.ServingAdmission{Store: h.registry}
+	admission, err := admissionDecider.Decide(ctx, policyregistry.SerializedAdmission{Projection: policyregistry.AdmissionProjection{Target: target}, Clock: func(context.Context) (time.Time, error) { return time.Now(), nil }})
+	if err != nil {
+		return policyregistry.DeploymentBinding{}, err
+	}
+	return policyregistry.ResolveAdmissionBinding(ctx, h.registry, admission)
 }

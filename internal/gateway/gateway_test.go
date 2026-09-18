@@ -83,14 +83,18 @@ func servingRef(kind policyregistry.ServingKind, payload []byte) policyregistry.
 	return policyregistry.ObjectRef{URI: registryRoot + "/router_serving/v1/" + string(kind) + "/sha256/" + digest + ".json", SHA256: digest, Generation: 1}
 }
 
+func gatewayBinding(workerURL string) policyregistry.DeploymentBinding {
+	release := servingRef(policyregistry.ServingReleases, []byte("release"))
+	revision := policyregistry.RevisionBinding{Name: "worker-0001", URL: workerURL, Audience: "https://worker.example", ImageDigest: "sha256:" + strings.Repeat("a", 64), Configuration: artifact("configuration")}
+	return policyregistry.DeploymentBinding{SchemaVersion: policyregistry.ServingBindingV1, Target: policyregistry.TargetStable, Project: "project", Region: "region", Release: release, Router: revision, Classifier: revision, ClassifierBundleSHA256: strings.Repeat("b", 64), Attestation: artifact("attestation")}
+}
+
 func gatewayFixture(t *testing.T, worker *httptest.Server, authFailure, admissionFailure error, products ...gateway.ProductSurfaces) (*gateway.Handler, *admissionStore, *policyregistry.AssertionSigner) {
 	t.Helper()
-	release := servingRef(policyregistry.ServingReleases, []byte("release"))
-	revision := policyregistry.RevisionBinding{Name: "worker-0001", URL: worker.URL, Audience: "https://worker.example", ImageDigest: "sha256:" + strings.Repeat("a", 64), Configuration: artifact("configuration")}
-	binding := policyregistry.DeploymentBinding{SchemaVersion: policyregistry.ServingBindingV1, Target: policyregistry.TargetStable, Project: "project", Region: "region", Release: release, Router: revision, Classifier: revision, ClassifierBundleSHA256: strings.Repeat("b", 64), Attestation: artifact("attestation")}
+	binding := gatewayBinding(worker.URL)
 	payload, err := policyregistry.CanonicalBytes(binding)
 	require.NoError(t, err)
-	admissions := &admissionStore{admission: policyregistry.SessionReleaseBinding{Target: policyregistry.TargetStable, ActivationID: "activation", BindingGeneration: 1, Selection: policyregistry.ServingSelection{Release: release, Binding: servingRef(policyregistry.ServingBindings, payload)}}, failure: admissionFailure}
+	admissions := &admissionStore{admission: policyregistry.SessionReleaseBinding{Target: policyregistry.TargetStable, ActivationID: "activation", BindingGeneration: 1, Selection: policyregistry.ServingSelection{Release: binding.Release, Binding: servingRef(policyregistry.ServingBindings, payload)}}, failure: admissionFailure}
 	signer, err := policyregistry.NewAssertionSigner([]byte(strings.Repeat("s", 32)), time.Now)
 	require.NoError(t, err)
 	forwarder, err := gateway.NewHandler(credentialVerifier{authFailure}, admissions, bindingStore{binding: binding}, signer, revisionAuthorizer{}, worker.Client().Transport, products...)
