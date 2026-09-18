@@ -100,6 +100,10 @@ func (e *RequestEnvelope) PrepareOpenAI(in http.Header, opts EmitOptions) (provi
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}
+	body, err = ensureOpenAIToolParameters(body)
+	if err != nil {
+		return providers.PreparedRequest{}, err
+	}
 	if toolTurnNeedsExplicitEffortNone(opts, hasNonEmptyTools(body)) {
 		body, err = sjson.SetBytes(body, "reasoning_effort", "none")
 		if err != nil {
@@ -831,12 +835,14 @@ func writeOpenAIToolsFromAnthropic(jw *jsonWriter, body []byte) {
 			jw.Key("description")
 			jw.Raw(desc.Raw)
 		}
+		paramBytes := emptyOpenAIToolParameters
 		if params != nil {
-			if paramBytes, err := json.Marshal(params); err == nil {
-				jw.Key("parameters")
-				jw.RawBytes(paramBytes)
+			if marshaled, err := json.Marshal(params); err == nil {
+				paramBytes = marshaled
 			}
 		}
+		jw.Key("parameters")
+		jw.RawBytes(paramBytes)
 		jw.EndObj()
 		jw.EndObj()
 		return true
@@ -978,6 +984,49 @@ func deepCopyJSON(node any) any {
 	default:
 		return v
 	}
+}
+
+var emptyOpenAIToolParameters = []byte(`{"type":"object","properties":{}}`)
+
+// ensureOpenAIToolParameters fills a missing function-tool parameters schema.
+// xAI (and some other OpenAI-compat gateways) serde-require the field; a
+// no-arg tool that omitted it 400s as tools[N]: missing field parameters.
+func ensureOpenAIToolParameters(body []byte) ([]byte, error) {
+	tools := gjson.GetBytes(body, "tools")
+	if !tools.IsArray() {
+		return body, nil
+	}
+	out := body
+	var err error
+	for i, tool := range tools.Array() {
+		path, ok := openAIToolParametersPath(tool)
+		if !ok {
+			continue
+		}
+		schema := tool.Get(path)
+		if schema.Exists() && schema.Type != gjson.Null {
+			continue
+		}
+		out, err = sjson.SetRawBytes(out, fmt.Sprintf("tools.%d.%s", i, path), emptyOpenAIToolParameters)
+		if err != nil {
+			return nil, fmt.Errorf("set tools[%d].%s: %w", i, path, err)
+		}
+	}
+	return out, nil
+}
+
+func openAIToolParametersPath(tool gjson.Result) (string, bool) {
+	typ := tool.Get("type").String()
+	if tool.Get("function").Exists() {
+		if typ != "" && typ != "function" {
+			return "", false
+		}
+		return "function.parameters", true
+	}
+	if typ == "function" || (typ == "" && tool.Get("name").Exists()) {
+		return "parameters", true
+	}
+	return "", false
 }
 
 func sanitizeOpenAIToolSchema(node any) {

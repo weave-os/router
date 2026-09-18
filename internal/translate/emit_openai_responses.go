@@ -631,14 +631,18 @@ func writeResponsesFunctionTools(jw *jsonWriter, tools []responsesFunctionTool) 
 			jw.Key("description")
 			jw.Raw(tool.description.Raw)
 		}
+		paramBytes := emptyOpenAIToolParameters
 		if params != nil {
-			if paramBytes, err := json.Marshal(params); err == nil {
-				jw.Key("parameters")
-				jw.RawBytes(paramBytes)
-				jw.Key("strict")
-				jw.Bool(strict)
+			if marshaled, err := json.Marshal(params); err == nil {
+				paramBytes = marshaled
+			} else {
+				strict = false
 			}
 		}
+		jw.Key("parameters")
+		jw.RawBytes(paramBytes)
+		jw.Key("strict")
+		jw.Bool(strict)
 		jw.EndObj()
 	}
 	jw.EndArr()
