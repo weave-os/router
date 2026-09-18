@@ -1,0 +1,24 @@
+internal/translate/anthropic_marker.go
+  s_cf418399adffae::t_2fbaecd972e844 26-29,33-36
+  s_cf418399adffae::t_ac39c00908e445 141-144,148-152
+  s_cf418399adffae::t_4aadc4ec805b9b 37,181,191-239
+  s_cf418399adffae::t_51ba8fdd8c0c22 38,153,240
+internal/translate/anthropic_marker_test.go
+  s_cf418399adffae::t_eef32240913e39 432-513
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "e8e4007f219712e7a7887f7b8708fbf1a3b7b4e5",
+  "prompts": {},
+  "sessions": {
+    "s_cf418399adffae": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "917838df-4804-4164-a17b-8e9e783dd86d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

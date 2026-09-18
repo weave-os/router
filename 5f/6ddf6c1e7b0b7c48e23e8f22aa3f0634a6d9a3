@@ -1,0 +1,32 @@
+internal/postgres/llm_escalation_repo.go
+  s_dcf6051f82ab96::t_ee699acf1889d0 10,398
+internal/proxy/escalation.go
+  s_dcf6051f82ab96::t_ee699acf1889d0 5,76,186-193
+  s_8e92cfe050629d::t_e3334556777e9b 194-195
+internal/proxy/llm_escalation.go
+  s_dcf6051f82ab96::t_ee699acf1889d0 79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5f6ddf6c1e7b0b7c48e23e8f22aa3f0634a6d9a3",
+  "prompts": {},
+  "sessions": {
+    "s_8e92cfe050629d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0a693-a7ef-75a3-ad8d-6fc976494d30",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_dcf6051f82ab96": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a6a0-9527-7431-a65c-dbf5b2eaadc9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

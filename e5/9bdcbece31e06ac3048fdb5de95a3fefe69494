@@ -1,0 +1,30 @@
+internal/translate/router_models_test.go
+  s_049874a7166f8d::t_b875fd50954e88 1-57
+install/README.md
+  s_049874a7166f8d::t_6715d9b47c31f0 313-326
+internal/proxy/service.go
+  s_049874a7166f8d::t_a78163cdede008 6034-6039
+  s_049874a7166f8d::t_2b92a75c33dbba 3171-3178,6032-6033
+internal/proxy/router_models.go
+  s_049874a7166f8d::t_c450d86610991e 1-104
+internal/translate/router_models.go
+  s_049874a7166f8d::t_e8bf74540baa2a 1-62
+internal/proxy/router_models_internal_test.go
+  s_049874a7166f8d::t_8d9ff0ac09ccee 1-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e59bdcbece31e06ac3048fdb5de95a3fefe69494",
+  "prompts": {},
+  "sessions": {
+    "s_049874a7166f8d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7b6a9f0a-cd46-4fd9-942c-7daea97cec2a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

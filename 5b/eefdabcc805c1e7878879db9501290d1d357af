@@ -1,0 +1,29 @@
+db/migrations/0057_installation-allowed-models.up.sql
+  s_2f40bb97923467::t_5c82b9536bfb64 1-13
+db/migrations/0057_installation-allowed-models.down.sql
+  s_2f40bb97923467::t_6741724ca179d9 1-6
+internal/sqlc/model_router_api_keys.sql.go
+  s_2f40bb97923467::t_e134458f32484d 172
+  s_2f40bb97923467::t_a8430564d66844 105,124
+internal/sqlc/model_router_installations.sql.go
+  s_2f40bb97923467::t_e134458f32484d 75,128,182
+  s_2f40bb97923467::t_a8430564d66844 25,46,81,95,134,143
+internal/sqlc/models.go
+  s_2f40bb97923467::t_e134458f32484d 125-126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "5beefdabcc805c1e7878879db9501290d1d357af",
+  "prompts": {},
+  "sessions": {
+    "s_2f40bb97923467": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "94fcecb7-2f4d-43f6-bda6-f33d59ff2276",
+        "model": "qwen/qwen3.8-max"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
