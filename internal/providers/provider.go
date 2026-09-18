@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/tidwall/gjson"
+	"math"
 	"net/http"
 	"net/url"
 	"sort"
@@ -382,6 +383,8 @@ func IsUpstreamRateLimited(err error) bool {
 // either RFC 9110 form: delay-seconds or an HTTP-date, resolved against now.
 // ok is false when the header is absent, negative, or unparseable; a zero
 // delay or an HTTP-date already in the past reports (0, true): retry now.
+// A delay-seconds value too large for time.Duration saturates rather than
+// wrapping negative.
 func RetryAfter(err error, now time.Time) (delay time.Duration, ok bool) {
 	var buffered *UpstreamErrorResponse
 	if !errors.As(err, &buffered) || buffered.Headers == nil {
@@ -394,6 +397,9 @@ func RetryAfter(err error, now time.Time) (delay time.Duration, ok bool) {
 	if seconds, parseErr := strconv.Atoi(raw); parseErr == nil {
 		if seconds < 0 {
 			return 0, false
+		}
+		if seconds > int(math.MaxInt64/int64(time.Second)) {
+			return math.MaxInt64, true
 		}
 		return time.Duration(seconds) * time.Second, true
 	}

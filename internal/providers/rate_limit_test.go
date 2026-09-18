@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"testing"
 	"time"
@@ -44,6 +45,7 @@ func TestRetryAfter(t *testing.T) {
 		{name: "seconds with whitespace", err: with(" 7 "), wantDelay: 7 * time.Second, wantOK: true},
 		{name: "zero seconds", err: with("0"), wantDelay: 0, wantOK: true},
 		{name: "negative seconds", err: with("-1"), wantOK: false},
+		{name: "seconds beyond time.Duration saturate", err: with("100000000000"), wantDelay: math.MaxInt64, wantOK: true},
 		{name: "http-date ahead", err: with(now.Add(90 * time.Second).Format(http.TimeFormat)), wantDelay: 90 * time.Second, wantOK: true},
 		{name: "http-date in the past", err: with(now.Add(-time.Minute).Format(http.TimeFormat)), wantDelay: 0, wantOK: true},
 		{name: "absent", err: with(""), wantOK: false},
