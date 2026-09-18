@@ -897,3 +897,59 @@ type RouterStruggleShadowEvent struct {
 	SessionEverSwitched bool
 	EstInputTokens      int32
 }
+
+type RouterSubscriberAllowanceAction struct {
+	ActionID           string
+	RouterRequestID    string
+	SubscriberID       uuid.UUID
+	EntitlementVersion int64
+	Plan               string
+	BillingPeriodStart pgtype.Timestamptz
+	BillingPeriodEnd   pgtype.Timestamptz
+	SixHourPeriodStart pgtype.Timestamptz
+	SixHourPeriodEnd   pgtype.Timestamptz
+	APIKeyID           uuid.UUID
+	ClientSessionID    *string
+	RequestedModel     string
+	ServedModel        *string
+	ReservedUsdMicros  int64
+	RetailUsdMicros    *int64
+	CapacitySource     string
+	State              string
+	ReservedAt         pgtype.Timestamptz
+	FinalizedAt        pgtype.Timestamptz
+	ReleasedAt         pgtype.Timestamptz
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+}
+
+type RouterSubscriberAllowancePeriod struct {
+	SubscriberID       uuid.UUID
+	PeriodKind         string
+	PeriodStart        pgtype.Timestamptz
+	PeriodEnd          pgtype.Timestamptz
+	EntitlementVersion int64
+	Plan               string
+	LimitUsdMicros     int64
+	ReservedUsdMicros  int64
+	FinalizedUsdMicros int64
+	CreatedAt          pgtype.Timestamptz
+	UpdatedAt          pgtype.Timestamptz
+}
+
+type RouterSubscriberEntitlement struct {
+	SubscriberID                     uuid.UUID
+	Version                          int64
+	Plan                             string
+	Status                           string
+	BillingPeriodStart               pgtype.Timestamptz
+	BillingPeriodEnd                 pgtype.Timestamptz
+	EffectiveAt                      pgtype.Timestamptz
+	MonthlyAllowanceUsdMicros        int64
+	NominalMonthlyAllowanceUsdMicros int64
+	SixHourAllowanceUsdMicros        int64
+	AutoTopUpEnabled                 bool
+	ProjectedAt                      pgtype.Timestamptz
+	CreatedAt                        pgtype.Timestamptz
+	UpdatedAt                        pgtype.Timestamptz
+}
