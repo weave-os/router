@@ -104,9 +104,9 @@ that also carries a session-lifetime strike or cannot take the turn's images,
 and the deployment-wide automatic exclusion still holds in the second walk. The
 same flag makes the same-binding retry Retry-After-aware
 (`dispatch.ThrottlePolicy`: honour ≤10s, else go straight to rescue; 500ms then
-1.5s when the header is absent). Snowflake runs R3-R5 (2026-09) died at 11
-consecutive client-visible 429s because a burst-time rescue had permanently
-demoted the arm that recovered minutes later.
+1.5s when the header is absent). Sessions under a gateway quota (prod 2026-09)
+died at 11 consecutive client-visible 429s because a burst-time rescue had
+permanently demoted the arm that recovered minutes later.
 
 **A wholly non-routable allowlist is rejected at the admin API.** Membership
 validation for `PUT /admin/v1/allowed-models` is catalog-wide on purpose —
