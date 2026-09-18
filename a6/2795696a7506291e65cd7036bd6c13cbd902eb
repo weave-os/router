@@ -1,0 +1,21 @@
+install/pi-router/skills/lsp-guide/SKILL.md
+  s_928d18cf622157::t_3a0d5cba4d0cd4 1-63
+install/pi-router/README.md
+  s_928d18cf622157::t_e3e8b1ba7dc866 53-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "a62795696a7506291e65cd7036bd6c13cbd902eb",
+  "prompts": {},
+  "sessions": {
+    "s_928d18cf622157": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1a744bfb-f40f-4395-b5ba-cd37866e6b0a",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

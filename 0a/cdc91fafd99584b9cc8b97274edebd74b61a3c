@@ -1,0 +1,21 @@
+internal/auth/service.go
+  s_0f9feb492f212a::t_4fd5e33045dbf6 714
+internal/api/admin/onboarding.go
+  s_0f9feb492f212a::t_4fd5e33045dbf6 19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "0acdc91fafd99584b9cc8b97274edebd74b61a3c",
+  "prompts": {},
+  "sessions": {
+    "s_0f9feb492f212a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cfa837bc-ce01-41ce-8e93-ff62d6a7c7b2",
+        "model": "claude-opus-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

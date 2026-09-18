@@ -1,0 +1,20 @@
+internal/translate/responses_codex.go
+  s_6e776831a9cc94::t_657d90da904752 52,54-59,61-62,64,71
+  s_6e776831a9cc94::t_6415b1948d5b72 53,60,63,70,73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "7226f491d96d02ef84110056df08f9a949395ea7",
+  "prompts": {},
+  "sessions": {
+    "s_6e776831a9cc94": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "996189e8-562a-4cd9-8ae8-5b11917a80c9",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
