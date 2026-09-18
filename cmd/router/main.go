@@ -721,6 +721,11 @@ func main() {
 	// Session-level demotion of the primary arm after a sibling rescue. Off
 	// until baked off against the committed-stream demotion.
 	rescuedFailureArmDemotion := config.GetOr("ROUTER_RESCUED_FAILURE_ARM_DEMOTION", "false") == "true"
+	sessionArmPin, err := flags.ParseSessionArmPinMode(config.GetOr("ROUTER_SESSION_ARM_PIN", string(flags.SessionArmPinOff)))
+	if err != nil {
+		logger.Error("Invalid ROUTER_SESSION_ARM_PIN; refusing to boot", "err", err)
+		panic(err)
+	}
 	// nativeAnthropicResponseSignals records the stop reason and tool_use block
 	// count an Anthropic-native turn already streams past the usage extractor;
 	// kill switch for that extraction and the telemetry columns it fills.
@@ -1168,6 +1173,7 @@ func main() {
 		flags.KeyCCWorkspaceSystemAppend:              boolDefault(ccWorkspaceSystemAppend),
 		flags.KeyCommittedStreamArmDemotion:           boolDefault(committedStreamArmDemotion),
 		flags.KeyRescuedFailureArmDemotion:            boolDefault(rescuedFailureArmDemotion),
+		flags.KeySessionArmPin:                        string(sessionArmPin),
 		flags.KeyNativeAnthropicResponseSignals:       boolDefault(nativeAnthropicResponseSignals),
 		flags.KeyNativeOpenAIResponseSignals:          boolDefault(nativeOpenAIResponseSignals),
 		flags.KeyEffortEscalation:                     boolDefault(effortEscalation),
@@ -1238,6 +1244,7 @@ func main() {
 		WithAllowedModelsHeader(allowedModelsHeader).
 		WithCommittedStreamArmDemotion(committedStreamArmDemotion).
 		WithRescuedFailureArmDemotion(rescuedFailureArmDemotion).
+		WithSessionArmPin(sessionArmPin).
 		WithNativeAnthropicResponseSignals(nativeAnthropicResponseSignals).
 		WithNativeOpenAIResponseSignals(nativeOpenAIResponseSignals).
 		WithSSEKeepalive(sseKeepalive).

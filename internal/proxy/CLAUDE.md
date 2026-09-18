@@ -87,6 +87,43 @@ re-anchors, post-command continuations, band swap, sibling failover, the policy
  deadline default, and loop escalation — every path where the router
 picked the model. `forcedPinEligible` deliberately does not.
 
+**The session-pinned arm (`session_arm_pin`, default `off`) sits between those
+gates and every automatic re-route.** Benchmarks score a task by the model the
+router picked on the session's first main-thread turn, so when the flag is on
+for the installation ([sessionarm.go](sessionarm.go)) the first *automatic*
+main-thread decision (MainLoop or ToolResult, no `/force-model`, hard pin,
+usage bypass, policy pin or pass-through) is written once as a
+`role="session_arm"` row keyed by the client session
+(`requestcontext.SessionArmConversationKey`, so a client-side history rewrite
+does not re-key it), and every later covered turn is served from that row with
+`decision_reason=session_arm_pin` ahead of the tool-result sticky, planner
+STAY/SWITCH, HMM stay/re-decide, band swap, downgrade hysteresis, expiry
+re-anchor and loop escalation. Values: `off` = per-turn routing; `main` =
+main-loop + tool-result turns; `all` = additionally lets `sub_agent_dispatch`
+turns of the same client session inherit the arm (they never anchor one).
+Utility turns (probe, title-gen, compaction, classifier) are never covered.
+Precedence is unchanged above the arm: `/force-model` and
+`ROUTER_HARD_PIN_MODEL` return before it; `sessionArmOverride` then re-applies
+every pin-drop guard to the arm itself — request `allowed_models` subset,
+provider eligibility (incl. session provider strikes), image capability,
+`AutomaticExcludedModels` (deployment disable **and** the P14 session
+demotion), the previous-turn output-cap loop breaker, org allow/exclude lists
+and the context-window pre-filter (re-verified with the ÷4 estimate) — and an
+override sends *that turn* to the ordinary scorer while leaving the row alone,
+so the next eligible turn (e.g. a demotion cooldown lapsing) returns to the
+arm. A held decision carries `RescueModels` (the anchoring policy's first
+stand-in, then the routable catalog at or below the arm's tier), so an actual
+upstream failure (429/5xx/header timeout/idle watchdog) is rescued by the
+normal sibling walk for that turn only; `ReasonSiblingFailover` is stamped on
+the served decision, never on the arm row. Telemetry on `ProxyMessages
+complete`: `session_arm_mode`, `session_arm_model`, `session_arm_held`,
+`session_arm_anchored`, `session_arm_override` (`force_model`, `hard_pin`,
+`usage_bypass`, `session_demoted`, `context_window`, `provider_not_enabled`,
+…). A held turn carries no `RouteID`, so `reportPolicyOutcome` skips it and the
+"Authoritative policy model did not match served model" warning still means
+what it says on scored turns. The arm never widens the pool and never
+reconstructs a decision the request could not otherwise have been served by.
+
 **A wholly non-routable allowlist is rejected at the admin API.** Membership
 validation for `PUT /admin/v1/allowed-models` is catalog-wide on purpose —
 force-model and hard-pin reach rows the router never scores — but the
