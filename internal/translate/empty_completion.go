@@ -102,22 +102,25 @@ func anthropicResponseHasUsableOutput(body []byte) bool {
 
 func responsesResponseHasUsableOutput(resp gjson.Result) bool {
 	for _, item := range resp.Get("output").Array() {
-		switch item.Get("type").String() {
-		case "message":
-			for _, part := range item.Get("content").Array() {
-				if part.Get("type").String() == "output_text" && part.Get("text").String() != "" {
-					return true
-				}
-			}
-		case "function_call":
-			if item.Get("name").String() != "" {
-				return true
-			}
-		case "reasoning":
-			if joinReasoningSummary(item.Get("summary")) != "" {
+		if responsesItemHasUsableOutput(item) {
+			return true
+		}
+	}
+	return false
+}
+
+func responsesItemHasUsableOutput(item gjson.Result) bool {
+	switch responsesItemType(item.Get("type").String()) {
+	case responsesMessageItem:
+		for _, part := range item.Get("content").Array() {
+			if responsesContentType(part.Get("type").String()) == responsesOutputText && part.Get("text").String() != "" {
 				return true
 			}
 		}
+	case responsesFunctionCallItem:
+		return item.Get("name").String() != ""
+	case responsesReasoningItem:
+		return joinReasoningSummary(item.Get("summary")) != ""
 	}
 	return false
 }
@@ -156,26 +159,39 @@ func nativeResponsesIsEmptyTerminal(resp gjson.Result) bool {
 }
 
 func nativeResponsesResponseHasUsableOutput(resp gjson.Result) bool {
-	if responsesResponseHasUsableOutput(resp) {
+	for _, item := range resp.Get("output").Array() {
+		if nativeResponsesItemHasUsableOutput(item) {
+			return true
+		}
+	}
+	return false
+}
+
+func nativeResponsesItemHasUsableOutput(item gjson.Result) bool {
+	if responsesItemHasUsableOutput(item) {
 		return true
 	}
-	for _, item := range resp.Get("output").Array() {
-		switch item.Get("type").String() {
-		case "custom_tool_call":
-			if item.Get("name").String() != "" {
+	switch responsesItemType(item.Get("type").String()) {
+	case responsesCustomToolCallItem:
+		return item.Get("name").String() != ""
+	case responsesComputerCallItem:
+		return item.Get("call_id").String() != "" || item.Get("action").Exists()
+	case responsesMessageItem:
+		for _, part := range item.Get("content").Array() {
+			if nativeResponsesContentHasUsableOutput(part) {
 				return true
-			}
-		case "computer_call":
-			if item.Get("call_id").String() != "" || item.Get("action").Exists() {
-				return true
-			}
-		case "message":
-			for _, part := range item.Get("content").Array() {
-				if part.Get("type").String() == "refusal" && part.Get("refusal").String() != "" {
-					return true
-				}
 			}
 		}
+	}
+	return false
+}
+
+func nativeResponsesContentHasUsableOutput(part gjson.Result) bool {
+	switch responsesContentType(part.Get("type").String()) {
+	case responsesOutputText:
+		return part.Get("text").String() != ""
+	case responsesRefusal:
+		return part.Get("refusal").String() != ""
 	}
 	return false
 }

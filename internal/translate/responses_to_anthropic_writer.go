@@ -333,9 +333,9 @@ func (t *ResponsesToAnthropicWriter) translateResponsesEvent(raw []byte) error {
 		return t.emitStreamErrorEvent("api_error", malformedResponsesFrameMessage)
 	}
 	// Match on the payload type: intermediaries may drop the SSE event name.
-	switch responsesProgressEvent(gjson.GetBytes(data, "type").String()) {
+	switch responsesEventType(gjson.GetBytes(data, "type").String()) {
 	case responsesOutputItemAdded:
-		if responsesProgressItem(gjson.GetBytes(data, "item.type").String()) != responsesReasoningItem {
+		if responsesItemType(gjson.GetBytes(data, "item.type").String()) != responsesReasoningItem {
 			t.markOutputProgress()
 		}
 		return t.handleOutputItemAdded(data)
@@ -358,7 +358,7 @@ func (t *ResponsesToAnthropicWriter) translateResponsesEvent(raw []byte) error {
 		t.bufferToolArgs(data, "arguments", false)
 		return nil
 	case responsesOutputItemDone:
-		if responsesProgressItem(gjson.GetBytes(data, "item.type").String()) != responsesReasoningItem {
+		if responsesItemType(gjson.GetBytes(data, "item.type").String()) != responsesReasoningItem {
 			t.markOutputProgress()
 		} else if completedReasoningHasProgress(gjson.GetBytes(data, "item")) {
 			t.markReasoningProgress()

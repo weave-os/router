@@ -676,6 +676,7 @@ type ResponsesWriter struct {
 	nativeSyntheticBadgeEmitted bool
 	nativePreludeCreated        bool
 	nativeStreamStarted         bool
+	nativeResponseID            string
 	nativeLastSequence          int64
 	nativeLastSequenceSet       bool
 	nativeOutputIndexShift      int64
@@ -853,6 +854,10 @@ func (t *ResponsesWriter) ResetAttempt() {
 	t.buf.Reset()
 	t.resetSSEScanState()
 	t.nativeStreamStarted = false
+	t.nativeResponseID = ""
+	t.nativeLastSequence = t.nativeSequenceShift
+	t.nativeLastSequenceSet = t.nativePreludeCreated
+	t.hasUpstreamOutput = false
 	t.nativeHeldEvents = nil
 	t.sawToolCall = false
 	t.completedEmitted = false
@@ -957,8 +962,6 @@ func (t *ResponsesWriter) Write(data []byte) (int, error) {
 				t.httpHeadersSent = true
 			}
 		}
-		// Generic native Responses callers remain byte-for-byte passthrough. Only
-		// the explicitly enabled Codex display path parses native SSE.
 		if t.passthroughBadge && t.streaming {
 			t.buf.Write(data)
 			err := t.processPassthroughSSEBuffer()
@@ -995,7 +998,7 @@ func (t *ResponsesWriter) Write(data []byte) (int, error) {
 			return t.buf.Write(data)
 		}
 		t.buf.Write(data)
-		if err := t.forwardValidatedNativeSSE(); err != nil {
+		if err := t.processPassthroughSSEBuffer(); err != nil {
 			return n, err
 		}
 		if err := t.bw.Flush(); err != nil {
@@ -1093,16 +1096,11 @@ func (t *ResponsesWriter) Flush() {
 // Finalize handles non-streaming bodies and end-of-stream completion events.
 func (t *ResponsesWriter) Finalize() error {
 	if t.passthrough {
-		if t.passthroughBadge && t.streaming {
-			if err := t.processFinalPassthroughSSETail(); err != nil {
-				return err
-			}
-		}
 		if t.nativeEmptyRejected {
 			return emptyCompletionOpenAIError()
 		}
-		if !t.passthroughBadge && t.streaming {
-			if err := t.finalizeNativeResponsesSSE(); err != nil {
+		if t.streaming {
+			if err := t.processFinalPassthroughSSETail(); err != nil {
 				return err
 			}
 		}
@@ -1619,21 +1617,11 @@ func (t *ResponsesWriter) rewriteNativeEventWith(raw []byte, shiftFields bool) [
 func (t *ResponsesWriter) writeNativeEvent(eventType string, sequence int64, payload map[string]any) error {
 	payload["type"] = eventType
 	payload["sequence_number"] = sequence
-	t.nativeStreamStarted = true
-	t.nativeLastSequence = sequence
-	t.nativeLastSequenceSet = true
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-	if _, err := t.bw.WriteString("event: " + eventType + "\ndata: "); err != nil {
-		return err
-	}
-	if _, err := t.bw.Write(body); err != nil {
-		return err
-	}
-	_, err = t.bw.WriteString("\n\n")
-	return err
+	return t.writeNativeResponsesFrame(append([]byte("event: "+eventType+"\ndata: "), body...), []byte("\n\n"))
 }
 
 func (t *ResponsesWriter) emitNativeSyntheticBadge(base, outputIndex int64) error {
@@ -1705,21 +1693,24 @@ func (t *ResponsesWriter) emitNativeBadgeBeforeOutput(event []byte) error {
 
 func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) error {
 	_, data := sse.ParseEvent(event)
-	eventType := ""
-	itemType := ""
+	var eventType responsesEventType
+	var itemType responsesItemType
 	if gjson.ValidBytes(data) {
-		eventType = gjson.GetBytes(data, "type").Str
-		itemType = gjson.GetBytes(data, "item.type").Str
-		if sequence := gjson.GetBytes(data, "sequence_number"); sequence.Type == gjson.Number {
-			t.nativeLastSequence = sequence.Int() + t.nativeSequenceShift
-			t.nativeLastSequenceSet = true
+		root := gjson.ParseBytes(data)
+		if err := t.validateNativeResponsesEvent(root); err != nil {
+			return err
 		}
+		eventType = responsesEventType(root.Get("type").Str)
+		itemType = responsesItemType(root.Get("item.type").Str)
 	}
-	if t.nativePreludeCreated && eventType == "response.created" {
+	if !t.passthroughBadge {
+		return t.writeNativeResponsesFrame(event, delimiter)
+	}
+	if t.nativePreludeCreated && eventType == responsesCreated {
 		return nil
 	}
-	toolCall := eventType == "response.function_call_arguments.delta" || eventType == "response.custom_tool_call_input.delta" || (eventType == "response.output_item.added" && (itemType == "function_call" || itemType == "custom_tool_call")) || (eventType == "response.output_item.done" && (itemType == "function_call" || itemType == "custom_tool_call"))
-	reasoningItem := eventType == "response.output_item.added" && itemType == "reasoning"
+	toolCall := eventType == responsesFunctionCallArgumentsDelta || eventType == responsesCustomToolCallInputDelta || (eventType == responsesOutputItemAdded && (itemType == responsesFunctionCallItem || itemType == responsesCustomToolCallItem)) || (eventType == responsesOutputItemDone && (itemType == responsesFunctionCallItem || itemType == responsesCustomToolCallItem))
+	reasoningItem := eventType == responsesOutputItemAdded && itemType == responsesReasoningItem
 	if toolCall || reasoningItem {
 		if toolCall {
 			t.sawToolCall = true
@@ -1733,12 +1724,7 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 			}
 		}
 	}
-	if eventType == "response.completed" || eventType == "response.incomplete" {
-		response := gjson.GetBytes(data, "response")
-		if nativeResponsesIsEmptyTerminal(response) {
-			t.nativeEmptyRejected = true
-			return emptyCompletionOpenAIError()
-		}
+	if eventType == responsesCompleted || eventType == responsesIncomplete {
 		if !t.nativeBadgeTargetSelected && !t.nativeSyntheticBadgeEmitted {
 			if err := t.emitNativeBadgeBeforeOutput(event); err != nil {
 				return err
@@ -1754,30 +1740,23 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 		t.nativeHeldEvents = append(t.nativeHeldEvents, held)
 		return nil
 	}
-	if eventType == "response.completed" || eventType == "response.incomplete" {
+	if eventType == responsesCompleted || eventType == responsesIncomplete {
 		if err := t.flushNativeHeldEvents(true); err != nil {
 			return err
 		}
 	}
-	if _, err := t.bw.Write(rewritten); err != nil {
-		return err
-	}
-	if len(delimiter) > 0 {
-		_, err := t.bw.Write(delimiter)
-		return err
-	}
-	return nil
+	return t.writeNativeResponsesFrame(rewritten, delimiter)
 }
 
-func (t *ResponsesWriter) shouldHoldNativeEvent(eventType, itemType string) bool {
+func (t *ResponsesWriter) shouldHoldNativeEvent(eventType responsesEventType, itemType responsesItemType) bool {
 	if t.footerText == "" || t.sawToolCall {
 		return false
 	}
 	switch eventType {
-	case "response.output_text.done", "response.content_part.done":
+	case responsesOutputTextDone, responsesContentPartDone:
 		return true
-	case "response.output_item.done":
-		return itemType == "message" || itemType == ""
+	case responsesOutputItemDone:
+		return itemType == responsesMessageItem || itemType == ""
 	}
 	return false
 }
@@ -1793,7 +1772,7 @@ func (t *ResponsesWriter) flushNativeHeldEvents(commitFooter bool) error {
 	t.nativeHeldEvents = nil
 	for _, event := range held {
 		rewritten := t.rewriteNativeHeldEvent(event)
-		if _, err := t.bw.Write(rewritten); err != nil {
+		if err := t.writeNativeResponsesFrame(rewritten, nil); err != nil {
 			return err
 		}
 	}
@@ -1812,74 +1791,6 @@ func (t *ResponsesWriter) processPassthroughSSEBuffer() error {
 		if err != nil {
 			return err
 		}
-	}
-}
-
-func (t *ResponsesWriter) forwardValidatedNativeSSE() error {
-	return t.scanNativeResponsesSSE(true)
-}
-
-func (t *ResponsesWriter) finalizeNativeResponsesSSE() error {
-	if err := t.forwardValidatedNativeSSE(); err != nil {
-		return err
-	}
-	if t.buf.Len() == 0 {
-		t.nativeStreamScanner.Reset()
-		return nil
-	}
-
-	// An upstream may close its connection immediately after the final event,
-	// without sending the usual blank-line SSE delimiter. Treat the remaining
-	// bytes as one final event so native passthrough remains lossless at EOF.
-	event := append([]byte(nil), t.buf.Bytes()...)
-	t.buf.Reset()
-	t.nativeStreamScanner.Reset()
-	_, data := sse.ParseEvent(event)
-	if gjson.ValidBytes(data) {
-		eventType := gjson.GetBytes(data, "type").Str
-		if eventType == "response.completed" || eventType == "response.incomplete" {
-			response := gjson.GetBytes(data, "response")
-			if nativeResponsesIsEmptyTerminal(response) {
-				t.nativeEmptyRejected = true
-				return emptyCompletionOpenAIError()
-			}
-		}
-	}
-	if _, err := t.bw.Write(event); err != nil {
-		return err
-	}
-	t.nativeStreamStarted = true
-	return nil
-}
-
-func (t *ResponsesWriter) scanNativeResponsesSSE(forward bool) error {
-	for {
-		buffered := t.buf.Bytes()
-		event, n := t.nativeStreamScanner.Next(buffered)
-		if n == 0 {
-			return nil
-		}
-		_, data := sse.ParseEvent(event)
-		if gjson.ValidBytes(data) {
-			eventType := gjson.GetBytes(data, "type").Str
-			if eventType == "response.completed" || eventType == "response.incomplete" {
-				response := gjson.GetBytes(data, "response")
-				if nativeResponsesIsEmptyTerminal(response) {
-					t.buf.Next(n)
-					t.nativeEmptyRejected = true
-					return emptyCompletionOpenAIError()
-				}
-			}
-		}
-		frame := append([]byte(nil), buffered[:n]...)
-		t.buf.Next(n)
-		if !forward {
-			continue
-		}
-		if _, err := t.bw.Write(frame); err != nil {
-			return err
-		}
-		t.nativeStreamStarted = true
 	}
 }
 
@@ -1945,7 +1856,7 @@ func (t *ResponsesWriter) sealInner() {
 // FinalizeError emits a response.failed terminal event when upstream fails
 // mid-stream (after response.created), so Codex sees a clean failure instead
 // of a truncated stream. No-op if nothing streamed yet (caller writes a JSON
-// error instead), in passthrough mode, or after a terminal event already fired.
+// error instead) or after a terminal event already fired.
 func (t *ResponsesWriter) FinalizeError(err error) error {
 	if t.passthrough {
 		if !t.streaming {
@@ -1959,6 +1870,9 @@ func (t *ResponsesWriter) FinalizeError(err error) error {
 		}
 		t.sealInner()
 		env := t.responseEnvelope("failed")
+		if t.nativeResponseID != "" {
+			env["id"] = t.nativeResponseID
+		}
 		if t.nativeBadgeItemID != "" {
 			env["output"] = []any{map[string]any{
 				"id": t.nativeBadgeItemID, "type": "message", "status": "completed", "role": "assistant",
