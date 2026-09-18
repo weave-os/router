@@ -111,6 +111,16 @@ check "install preserves an explicit attribution opt-out" \
 check "attribution opt-out still installs the router key" \
   "$(installed_key "$optout_settings")" "rk_optout"
 
+# Only a fully empty commit and PR pair is an opt-out. Partial user attribution
+# must be replaced with the router default rather than being mistaken for one.
+partial_attribution_home="$work/partial-attribution"; mkdir -p "$partial_attribution_home/.claude"
+partial_attribution_settings="$partial_attribution_home/.claude/settings.json"
+printf '%s\n' '{"attribution":{"commit":"","pr":"existing","sessionUrl":false}}' >"$partial_attribution_settings"
+run "$partial_attribution_home" rk_partial -- --claude --scope user --quiet --non-interactive
+check "install replaces partial attribution with the router default" \
+  "$(jq -r '.attribution.commit' "$partial_attribution_settings")" \
+  "Co-Authored-By: Weave Router <router@workweave.ai>"
+
 # ---------- project scope ----------
 #
 # The key lives in the gitignored settings.local.json here, not settings.json,
