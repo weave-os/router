@@ -1,0 +1,21 @@
+internal/translate/emit_gemini.go
+  s_22d8b0fc43f115::t_ac7a0357f14919 16,89
+internal/websearch/anthropic_request.go
+  s_22d8b0fc43f115::t_ac7a0357f14919 65-67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "892ae1333373d59af7c17f3a698ca52679e66f67",
+  "prompts": {},
+  "sessions": {
+    "s_22d8b0fc43f115": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b2fdfc26-7b58-48bf-a3e3-a6a10c8b1ed0",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,30 @@
+internal/proxy/service.go
+  s_dc841142dd86a8::t_4dd5373d08480d 2486-2492
+internal/policyregistry/manager.go
+  s_dc841142dd86a8::t_4dd5373d08480d 269-273
+internal/policyregistry/gcs.go
+  s_dc841142dd86a8::t_4dd5373d08480d 184
+internal/policyregistry/manager_test.go
+  s_dc841142dd86a8::t_4dd5373d08480d 70-72,76-85
+  s_dc841142dd86a8::t_d97c3622cc1071 86-87
+internal/router/policy/contract.go
+  s_dc841142dd86a8::t_4dd5373d08480d 63-69
+internal/proxy/strategy_registry_internal_test.go
+  s_dc841142dd86a8::t_4dd5373d08480d 26-34,115-127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7f3519a77df292cdb496148509d220e62e85f454",
+  "prompts": {},
+  "sessions": {
+    "s_dc841142dd86a8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08c98-6b91-7643-8031-133ff9002149",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
