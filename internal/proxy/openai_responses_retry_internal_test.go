@@ -220,7 +220,7 @@ func (c *emptyThenOKChatCompletionsClient) Proxy(_ context.Context, _ router.Dec
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 	if c.calls == 1 {
-		_, err := io.WriteString(w, "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n")
+		_, err := io.WriteString(w, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":99,\"completion_tokens\":7,\"total_tokens\":106}}\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n")
 		return err
 	}
 	_, err := io.WriteString(w, "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"retry succeeded\"},\"finish_reason\":null}]}\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
@@ -249,4 +249,5 @@ func TestProxyOpenAIResponses_RetriesTranslatedStreamingEmptyCompletion(t *testi
 	out := rec.Body.String()
 	assert.NotContains(t, out, "response.failed")
 	assert.Contains(t, out, "retry succeeded")
+	assert.Contains(t, out, `"input_tokens":0`, "usage from the failed attempt must not leak into the retry")
 }
