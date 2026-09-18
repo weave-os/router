@@ -73,6 +73,26 @@ status_output="$(env "${common_env[@]}" bash "$installer" status --base-url http
 grep -Fq 'Identity: rk_…cret' <<<"$status_output"
 grep -Fq 'Connectivity: connected' <<<"$status_output"
 grep -Fq 'codex  chatgpt-test  enabled  ready' <<<"$status_output"
+
+# An OpenCode-only install stores the router endpoint and key in opencode.json.
+# `login <provider>` must use that config as the source for server-side
+# enrollment instead of requiring a separate Claude Code or Codex install.
+mkdir -p "$work/home/.config/opencode"
+cat >"$work/home/.config/opencode/opencode.json" <<'JSON'
+{
+  "provider": {
+    "weave": {
+      "options": {
+        "baseURL": "https://router.example.test/v1",
+        "headers": {"X-Weave-Router-Key": "rk_test_secret"}
+      }
+    }
+  }
+}
+JSON
+env HOME="$work/home" PATH="$work/bin:$PATH" NO_COLOR=1 \
+  bash "$installer" login codex --quiet | grep -Fq 'Codex subscription enrolled.'
+
 if grep -Fq 'refresh-new' "$FAKE_CURL_LOG"; then
   echo 'refresh token leaked into curl argv log' >&2
   exit 1
