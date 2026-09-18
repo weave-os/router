@@ -319,6 +319,23 @@ func TestService_ProxyOpenAIResponses_CustomToolUsesNativeOpenAIFamily(t *testin
 	assert.JSONEq(t, `{"id":"resp_1","object":"response","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}]}`, rec.Body.String())
 }
 
+func TestService_ProxyOpenAIResponses_CodexFeedbackSkillIsSynthetic(t *testing.T) {
+	provider := &fakeProvider{}
+	fr := &fakeRouter{}
+	svc := proxy.NewService(fr, map[string]providers.Client{
+		providers.ProviderOpenAI: provider,
+	}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-terra", nil)
+	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
+	body := []byte(`{"model":"gpt-5.6-terra","input":[{"type":"message","role":"user","content":"$rf +"},{"type":"message","role":"user","content":"<skill>\n<name>rf</name>\nrun the feedback skill\n</skill>"},{"type":"custom_tool_call","call_id":"call_skill","name":"exec","input":"..."},{"type":"custom_tool_call_output","call_id":"call_skill","output":[{"type":"input_text","text":"Script completed\nOutput:\n /router-feedback +\n"}]}]}`)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+
+	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
+	assert.Empty(t, provider.proxyBodies, "a Codex feedback skill must not dispatch a model turn")
+	assert.Zero(t, fr.routeCalls, "a Codex feedback skill must be answered before routing")
+	assert.Contains(t, rec.Body.String(), "Feedback recorded 👍")
+}
+
 // A direct-OpenAI Responses caller dispatches on its original bytes rather
 // than the chat projection, whatever the model or tool shape.
 func TestService_ProxyOpenAIResponses_StaysNativeForDirectOpenAI(t *testing.T) {

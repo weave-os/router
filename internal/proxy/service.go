@@ -7905,11 +7905,12 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		if err != nil {
 			return err
 		}
-		if !portableCodex {
-			conversionBody, err = stripResponsesVisualArtifacts(body)
-			if err != nil {
-				return err
-			}
+		// Keep router directives in the portable projection so the shared chat
+		// path can record them and identify Codex skill invocations. The native
+		// body has already been sanitized for direct Responses dispatch.
+		conversionBody, err = stripResponsesVisualArtifacts(body)
+		if err != nil {
+			return err
 		}
 	}
 	conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(conversionBody, translate.ResponsesConversionOptions{
