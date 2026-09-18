@@ -56,7 +56,7 @@ func TestServingControllerFailureAuditIncludesProposalAndKnownTarget(t *testing.
 				clock = test.clock()
 			}
 			var audit bytes.Buffer
-			validator := preparedValidator(func(context.Context, policyregistry.PreparedSelection, []policyregistry.ObjectRef) error { return nil })
+			validator := preparedValidator(func(context.Context, policyregistry.PreparedSelection) error { return nil })
 			controller, err := policyregistry.NewServingController(store, validator, clock, slog.New(slog.NewJSONHandler(&audit, nil)))
 			require.NoError(t, err)
 			if test.prepare {

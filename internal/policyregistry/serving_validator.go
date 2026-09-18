@@ -54,7 +54,7 @@ type DestinationValidator struct {
 
 // ValidatePreparedSelection requires complete classifier attestation and an exact worker snapshot smoke.
 // ServingController verifies immutable proposal evidence before invoking this destination-only validator.
-func (v DestinationValidator) ValidatePreparedSelection(ctx context.Context, prepared PreparedSelection, _ []ObjectRef) error {
+func (v DestinationValidator) ValidatePreparedSelection(ctx context.Context, prepared PreparedSelection) error {
 	if v.Endpoints == nil {
 		return errors.New("destination validator requires private revision endpoints")
 	}

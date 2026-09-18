@@ -18,17 +18,17 @@ func TestServingSpanAttributesAreIndependentOfRoutingDecision(t *testing.T) {
 	ctx := requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{Target: string(policyregistry.TargetStable), ReleaseID: "release", BindingID: "binding", ActivationID: "activation", ProfileKey: "profile", ProfileRevision: "version", BindingGeneration: 3})
 	attributes := otel.NewAttrBuilder(7)
 	applyServingSpanAttrs(ctx, attributes)
-	strings := make(map[string]string)
+	attributeValues := make(map[string]string)
 	var generation int64
 	for _, attribute := range attributes.Build() {
-		strings[attribute.Key] = attribute.Value.GetStringValue()
+		attributeValues[attribute.Key] = attribute.Value.GetStringValue()
 		if attribute.Key == "serving.binding_generation" {
 			generation = attribute.Value.GetIntValue()
 		}
 	}
-	require.Equal(t, "release", strings["serving.release_id"])
-	require.Equal(t, "activation", strings["serving.activation_id"])
-	require.Equal(t, "profile", strings["serving.profile_key"])
+	require.Equal(t, "release", attributeValues["serving.release_id"])
+	require.Equal(t, "activation", attributeValues["serving.activation_id"])
+	require.Equal(t, "profile", attributeValues["serving.profile_key"])
 	require.Equal(t, int64(3), generation)
 	legacy := otel.NewAttrBuilder(0)
 	applyServingSpanAttrs(context.Background(), legacy)

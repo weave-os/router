@@ -40,7 +40,7 @@ type PreparedSelection struct {
 // ServingValidator verifies exact revision attestations, catalog compatibility and private endpoint smoke.
 // It must not use the controller binary's catalog as a substitute for the selected worker's catalog.
 type ServingValidator interface {
-	ValidatePreparedSelection(context.Context, PreparedSelection, []ObjectRef) error
+	ValidatePreparedSelection(context.Context, PreparedSelection) error
 }
 
 // ServingController is the only managed activation writer; preparation never calls Activate.
@@ -234,7 +234,7 @@ func (c *ServingController) ValidateProposal(ctx context.Context, proposal Deplo
 	if set.Target != proposal.Target {
 		return errors.New("proposal and selection set targets differ")
 	}
-	base, err := c.validateSelection(ctx, proposal.Target, "", set.Default, proposal.Evidence)
+	base, err := c.validateSelection(ctx, proposal.Target, "", set.Default)
 	if err != nil {
 		return fmt.Errorf("default selection: %w", err)
 	}
@@ -243,7 +243,7 @@ func (c *ServingController) ValidateProposal(ctx context.Context, proposal Deplo
 		return err
 	}
 	for key, selection := range set.Profiles {
-		profileRelease, err := c.validateSelection(ctx, proposal.Target, key, selection, proposal.Evidence)
+		profileRelease, err := c.validateSelection(ctx, proposal.Target, key, selection)
 		if err != nil {
 			return fmt.Errorf("profile %q: %w", key, err)
 		}
@@ -343,7 +343,7 @@ func (c *ServingController) ValidateProposal(ctx context.Context, proposal Deplo
 	return nil
 }
 
-func (c *ServingController) validateSelection(ctx context.Context, target ServingTarget, profileKey string, selection ServingSelection, evidence []ObjectRef) (ServingRelease, error) {
+func (c *ServingController) validateSelection(ctx context.Context, target ServingTarget, profileKey string, selection ServingSelection) (ServingRelease, error) {
 	prepared, err := ReadPreparedSelection(ctx, c.store, target, profileKey, selection)
 	if err != nil {
 		return ServingRelease{}, err
@@ -354,7 +354,7 @@ func (c *ServingController) validateSelection(ctx context.Context, target Servin
 	if err := c.store.VerifyServingArtifact(ctx, prepared.Binding.Attestation); err != nil {
 		return ServingRelease{}, fmt.Errorf("verify physical revision attestation: %w", err)
 	}
-	if err := c.validator.ValidatePreparedSelection(ctx, prepared, evidence); err != nil {
+	if err := c.validator.ValidatePreparedSelection(ctx, prepared); err != nil {
 		return ServingRelease{}, err
 	}
 	return prepared.Release, nil

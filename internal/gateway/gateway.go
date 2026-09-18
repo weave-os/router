@@ -109,6 +109,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
+		observability.FromContext(ctx).Debug("Retired beta request envelope invalid", "surface", surface, "method", r.Method, "err", err)
 		writeError(w, surface, http.StatusBadRequest, "Request envelope is invalid.")
 		return
 	}

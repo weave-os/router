@@ -101,7 +101,12 @@ func (h *Handler) serveFeedback(w http.ResponseWriter, r *http.Request) {
 	r = r.Clone(ctx)
 	const maxFeedbackBodyBytes = 64 * 1024
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxFeedbackBodyBytes+1))
-	if err != nil || len(body) > maxFeedbackBodyBytes {
+	if err != nil {
+		observability.FromContext(ctx).Debug("Feedback request body read failed", "method", r.Method, "err", err)
+		writeError(w, requestcontext.ConversationChat, http.StatusBadRequest, "Invalid feedback body.")
+		return
+	}
+	if len(body) > maxFeedbackBodyBytes {
 		writeError(w, requestcontext.ConversationChat, http.StatusBadRequest, "Invalid feedback body.")
 		return
 	}
@@ -113,6 +118,7 @@ func (h *Handler) serveFeedback(w http.ResponseWriter, r *http.Request) {
 			Token string `json:"token"`
 		}
 		if err := json.Unmarshal(body, &submission); err != nil {
+			observability.FromContext(ctx).Debug("Feedback submission JSON rejected", "method", r.Method, "err", err)
 			writeError(w, requestcontext.ConversationChat, http.StatusBadRequest, "Invalid feedback body.")
 			return
 		}

@@ -52,6 +52,7 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 		key := APIKeyFrom(c)
 		installation := InstallationFrom(c)
 		if key == nil || installation == nil {
+			observability.FromGin(c).Warn("Worker admission identity missing", "method", c.Request.Method, "has_api_key", key != nil, "has_installation", installation != nil)
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "serving_assertion_required"})
 			return
 		}

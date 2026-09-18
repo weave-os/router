@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/policyregistry"
@@ -11,6 +12,38 @@ import (
 )
 
 type stubRouter struct{ router.Router }
+
+func TestServingRuntimeCacheEvictsWithoutChangingPinnedSnapshots(t *testing.T) {
+	store, _, set := controllerFixture(t)
+	builds := 0
+	cache, err := policyregistry.NewServingRuntimeCache(store, func(context.Context, policyregistry.Candidate) (map[router.Strategy]router.Router, error) {
+		builds++
+		return map[router.Strategy]router.Router{router.StrategyHMM: stubRouter{}}, nil
+	})
+	require.NoError(t, err)
+	admission := policyregistry.SessionReleaseBinding{Target: set.Target, Selection: set.Default}
+	first, err := cache.Snapshot(context.Background(), admission)
+	require.NoError(t, err)
+	pinned := policyregistry.WithServingSnapshot(context.Background(), first)
+	base := store.objects[set.Default.Release].(*policyregistry.ServingRelease)
+	for range 256 {
+		profileKey := uuid.NewString()
+		selection := registerProfileFixture(t, store, set.Default, profileKey, base.Policy)
+		_, err := cache.Snapshot(context.Background(), policyregistry.SessionReleaseBinding{Target: set.Target, ProfileKey: profileKey, Selection: selection})
+		require.NoError(t, err)
+	}
+	require.Same(t, first, policyregistry.ServingSnapshotFromContext(pinned))
+	require.Contains(t, first.Routers, router.StrategyHMM)
+	buildsBeforeReload := builds
+	reloaded, err := cache.Snapshot(context.Background(), admission)
+	require.NoError(t, err)
+	require.Equal(t, buildsBeforeReload+1, builds, "the old selection must have been evicted")
+	require.NotSame(t, first, reloaded)
+	require.Equal(t, first.Candidate, reloaded.Candidate, "eviction must not advance a pinned selection")
+	second, err := cache.Snapshot(context.Background(), admission)
+	require.NoError(t, err)
+	require.Same(t, reloaded, second)
+}
 
 func TestServingRuntimeCacheReusesExactAdmission(t *testing.T) {
 	store, _, set := controllerFixture(t)

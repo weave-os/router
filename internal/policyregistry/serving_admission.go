@@ -32,7 +32,6 @@ type AdmissionScope struct {
 
 // SerializedAdmission is held under primary-database identity and conversation locks.
 type SerializedAdmission struct {
-	Scope      AdmissionScope
 	Projection AdmissionProjection
 	Previous   *SessionReleaseBinding
 	Clock      func(context.Context) (time.Time, error)

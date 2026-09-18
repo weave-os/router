@@ -3,14 +3,16 @@ package policyregistry
 import (
 	"context"
 	"errors"
-	"sync"
 
 	"github.com/google/uuid"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/hmm/armid"
 )
 
 type servingSnapshotContextKey struct{}
+
+const servingRuntimeCacheSize = 128
 
 // WithServingAssertion derives attribution and isolated state keys from verified admission.
 func WithServingAssertion(ctx context.Context, assertion ServingAssertion) context.Context {
@@ -64,8 +66,7 @@ func ServingSnapshotFromContext(ctx context.Context) *Snapshot {
 type ServingRuntimeCache struct {
 	store   ServingStore
 	builder Builder
-	mu      sync.Mutex
-	loaded  map[servingSnapshotKey]*Snapshot
+	loaded  *lru.Cache[servingSnapshotKey, *Snapshot]
 }
 
 type servingSnapshotKey struct {
@@ -82,7 +83,13 @@ func NewServingRuntimeCache(store ServingStore, builder Builder) (*ServingRuntim
 	if store == nil || builder == nil {
 		return nil, errors.New("serving runtime cache requires a store and snapshot builder")
 	}
-	return &ServingRuntimeCache{store: store, builder: builder, loaded: map[servingSnapshotKey]*Snapshot{}}, nil
+	loaded, err := lru.New[servingSnapshotKey, *Snapshot](servingRuntimeCacheSize)
+	if err != nil {
+		return nil, err
+	}
+	// Eviction drops only cache ownership: requests keep their snapshot, and later
+	// admissions rebuild the exact immutable selection. Idle HTTP connections time out.
+	return &ServingRuntimeCache{store: store, builder: builder, loaded: loaded}, nil
 }
 
 // Snapshot loads or reuses the immutable runtime for one admission binding.
@@ -95,12 +102,9 @@ func (c *ServingRuntimeCache) Snapshot(ctx context.Context, admission SessionRel
 		key.Profile = *admission.Selection.Profile
 		key.HasProfile = true
 	}
-	c.mu.Lock()
-	if snapshot := c.loaded[key]; snapshot != nil {
-		c.mu.Unlock()
+	if snapshot, exists := c.loaded.Get(key); exists {
 		return snapshot, nil
 	}
-	c.mu.Unlock()
 	prepared, err := ReadPreparedSelection(ctx, c.store, admission.Target, admission.ProfileKey, admission.Selection)
 	if err != nil {
 		return nil, err
@@ -134,8 +138,8 @@ func (c *ServingRuntimeCache) Snapshot(ctx context.Context, admission SessionRel
 		return nil, errors.New("admitted serving snapshot has no routers")
 	}
 	snapshot := &Snapshot{Candidate: candidate, Routers: routers}
-	c.mu.Lock()
-	c.loaded[key] = snapshot
-	c.mu.Unlock()
+	if existing, loaded, _ := c.loaded.PeekOrAdd(key, snapshot); loaded {
+		return existing, nil
+	}
 	return snapshot, nil
 }

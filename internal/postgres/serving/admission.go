@@ -124,7 +124,7 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 			}
 			return stamp.Time, nil
 		}
-		admitted, err = decide(ctx, policyregistry.SerializedAdmission{Scope: scope, Projection: projection, Previous: previous, Clock: clock})
+		admitted, err = decide(ctx, policyregistry.SerializedAdmission{Projection: projection, Previous: previous, Clock: clock})
 		if err != nil {
 			return err
 		}

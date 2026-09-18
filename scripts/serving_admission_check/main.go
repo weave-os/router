@@ -134,6 +134,9 @@ func run() error {
 	if sharedBinding.Target != policyregistry.TargetStable || sharedBinding.ProfileKey != profileKey {
 		return errors.New("shared key gained internal access or lost its assigned profile")
 	}
+	if err := checkRetainedAdmissionClock(ctx, admissions, installation.ID, shared.ID); err != nil {
+		return err
+	}
 	replacement, err := control.Rotate(ctx, externalID, personal.CredentialSubjectID, personal.ID, newKey(installation.ID))
 	if err != nil {
 		return err
@@ -208,6 +211,33 @@ func run() error {
 	_, _, err = admissions.Admit(ctx, installation.ID, shared.ID, "conversation", decide)
 	if err != nil {
 		return fmt.Errorf("subject revocation affected shared credential: %w", err)
+	}
+	return nil
+}
+
+func checkRetainedAdmissionClock(ctx context.Context, admissions *serving.ServingAdmissionRepo, installationID, keyID string) error {
+	startedAt := time.Now().UTC().Truncate(time.Second)
+	var previousBinding *policyregistry.SessionReleaseBinding
+	for _, elapsed := range []time.Duration{0, 12 * time.Hour, 25 * time.Hour, 36 * time.Hour} {
+		now := startedAt.Add(elapsed)
+		_, admitted, err := admissions.Admit(ctx, installationID, keyID, "retained-clock", func(_ context.Context, admission policyregistry.SerializedAdmission) (policyregistry.SessionReleaseBinding, error) {
+			if previousBinding != nil {
+				if admission.Previous == nil || !admission.Previous.LastAdmittedAt.Equal(previousBinding.LastAdmittedAt) {
+					return policyregistry.SessionReleaseBinding{}, errors.New("retained admission did not persist its last-admitted timestamp")
+				}
+				if !now.Before(admission.Previous.LastAdmittedAt.Add(policyregistry.ServingIdleLifetime)) {
+					return policyregistry.SessionReleaseBinding{}, errors.New("active retained session was incorrectly considered idle")
+				}
+			}
+			return fixtureBinding(admission, now), nil
+		})
+		if err != nil {
+			return err
+		}
+		if admitted.BindingGeneration != 1 || !admitted.CreatedAt.Equal(startedAt) || !admitted.LastAdmittedAt.Equal(now) {
+			return errors.New("retained admission changed its generation, creation time or admission clock")
+		}
+		previousBinding = &admitted
 	}
 	return nil
 }

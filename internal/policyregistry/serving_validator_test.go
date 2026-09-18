@@ -65,9 +65,9 @@ func TestDestinationValidatorRequiresActualCompleteDestinationIdentity(t *testin
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			endpoints := validatedEndpoints(prepared)
-			require.NoError(t, (policyregistry.DestinationValidator{Endpoints: endpoints}).ValidatePreparedSelection(context.Background(), prepared, nil))
+			require.NoError(t, (policyregistry.DestinationValidator{Endpoints: endpoints}).ValidatePreparedSelection(context.Background(), prepared))
 			test.alter(&endpoints)
-			require.ErrorContains(t, (policyregistry.DestinationValidator{Endpoints: endpoints}).ValidatePreparedSelection(context.Background(), prepared, nil), test.expected)
+			require.ErrorContains(t, (policyregistry.DestinationValidator{Endpoints: endpoints}).ValidatePreparedSelection(context.Background(), prepared), test.expected)
 		})
 	}
 }

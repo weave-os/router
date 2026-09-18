@@ -283,10 +283,10 @@ func (s *servingMemoryStore) publish(t *testing.T, kind policyregistry.ServingKi
 	return ref
 }
 
-type preparedValidator func(context.Context, policyregistry.PreparedSelection, []policyregistry.ObjectRef) error
+type preparedValidator func(context.Context, policyregistry.PreparedSelection) error
 
-func (f preparedValidator) ValidatePreparedSelection(ctx context.Context, selection policyregistry.PreparedSelection, refs []policyregistry.ObjectRef) error {
-	return f(ctx, selection, refs)
+func (f preparedValidator) ValidatePreparedSelection(ctx context.Context, selection policyregistry.PreparedSelection) error {
+	return f(ctx, selection)
 }
 
 func controllerFixture(t *testing.T) (*servingMemoryStore, *policyregistry.ServingController, policyregistry.SelectionSet) {
@@ -309,7 +309,7 @@ func controllerFixture(t *testing.T) (*servingMemoryStore, *policyregistry.Servi
 	bindingRef := store.publish(t, policyregistry.ServingBindings, binding)
 	set := policyregistry.SelectionSet{SchemaVersion: policyregistry.ServingSelectionSetV1, Target: policyregistry.TargetStable, Default: policyregistry.ServingSelection{Release: releaseRef, Binding: bindingRef}, Profiles: map[string]policyregistry.ServingSelection{}}
 	store.publish(t, policyregistry.ServingSelectionSets, set)
-	validator := preparedValidator(func(_ context.Context, selection policyregistry.PreparedSelection, _ []policyregistry.ObjectRef) error {
+	validator := preparedValidator(func(_ context.Context, selection policyregistry.PreparedSelection) error {
 		if selection.Binding.Router.ImageDigest != "sha256:"+strings.Repeat("1", 64) {
 			return errors.New("worker attestation mismatch")
 		}
@@ -482,7 +482,7 @@ func TestConcurrentServingActivationsHaveOneCASWinner(t *testing.T) {
 	refs := []policyregistry.ObjectRef{store.publish(t, policyregistry.ServingProposals, first), store.publish(t, policyregistry.ServingProposals, second)}
 	ready := make(chan struct{}, 2)
 	releaseValidation := make(chan struct{})
-	validator := preparedValidator(func(ctx context.Context, _ policyregistry.PreparedSelection, _ []policyregistry.ObjectRef) error {
+	validator := preparedValidator(func(ctx context.Context, _ policyregistry.PreparedSelection) error {
 		ready <- struct{}{}
 		select {
 		case <-releaseValidation:

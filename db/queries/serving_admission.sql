@@ -65,7 +65,8 @@ ON CONFLICT (installation_id, credential_scope, conversation_digest) DO UPDATE S
     enrollment_generation = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.enrollment_generation ELSE router.session_release_bindings.enrollment_generation END,
     assignment_generation = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.assignment_generation ELSE router.session_release_bindings.assignment_generation END,
     binding_generation = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.binding_generation ELSE router.session_release_bindings.binding_generation END,
-    binding = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.binding ELSE router.session_release_bindings.binding END,
+    binding = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.binding
+        ELSE jsonb_set(router.session_release_bindings.binding, '{last_admitted_at}', EXCLUDED.binding->'last_admitted_at') END,
     last_admitted_at = EXCLUDED.last_admitted_at
 WHERE router.session_release_bindings.binding_generation < EXCLUDED.binding_generation
    OR (
