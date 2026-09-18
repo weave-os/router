@@ -1163,7 +1163,7 @@ func (s *Service) runTurnLoop(
 		// cooldown is in force.
 		cooling := activeDemotionCooldowns(mergeDemotionCooldowns(pin.DemotionCooldowns, hmmHistory.DemotionCooldowns), s.clockNow())
 		if len(cooling) > 0 {
-			res.SessionCooldownModels = cooling
+			res.SessionCooldownModels = readmittableCooldowns(cooling, demoted, req.HasImages)
 			demoted = mergeSessionStrikes(demoted, cooldownsByExpiry(cooling))
 		}
 	}

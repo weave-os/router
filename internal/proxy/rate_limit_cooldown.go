@@ -2,12 +2,14 @@ package proxy
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"sync"
 	"time"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
 )
 
@@ -150,6 +152,27 @@ func activeDemotionCooldowns(cooldowns map[string]time.Time, now time.Time) map[
 		return nil
 	}
 	return active
+}
+
+// readmittableCooldowns narrows the active cooldowns to the arms an exhausted
+// rescue may readmit this turn: a session-lifetime strike wins over a
+// leftover cooldown on the same model, and a text-only arm cannot take an
+// image-bearing turn the scorer already kept it out of.
+func readmittableCooldowns(cooling map[string]time.Time, permanent []string, hasImages bool) map[string]time.Time {
+	out := make(map[string]time.Time, len(cooling))
+	for model, until := range cooling {
+		if slices.Contains(permanent, model) {
+			continue
+		}
+		if hasImages && !catalog.AcceptsImages(model) {
+			continue
+		}
+		out[model] = until
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // cooldownsByExpiry lists the models in cooldowns soonest-to-recover first,

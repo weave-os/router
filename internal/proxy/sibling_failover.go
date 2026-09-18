@@ -94,14 +94,20 @@ func (s *Service) rescueWalkOrReadmitCooling(
 			pool = append(pool, model)
 		}
 	}
-	// Second walk admits only the cooling arms; the first covered the rest.
-	notCooling := make(map[string]struct{}, len(pool))
-	for _, id := range pool {
-		if _, cooldown := cooling[id]; !cooldown {
-			notCooling[id] = struct{}{}
-		}
+	// Second walk lifts only the cooldowns; every other automatic exclusion
+	// still holds, and the first walk covered the non-cooling candidates.
+	readmitExcluded := make(map[string]struct{}, len(automaticExcluded)+len(pool))
+	for id := range automaticExcluded {
+		readmitExcluded[id] = struct{}{}
 	}
-	readmitted := walkRescueCandidates(failed, pool, reason, excludedModels, notCooling, est, sigSavings, outputReserve, providerFor)
+	for _, id := range pool {
+		if _, cooldown := cooling[id]; cooldown {
+			delete(readmitExcluded, id)
+			continue
+		}
+		readmitExcluded[id] = struct{}{}
+	}
+	readmitted := walkRescueCandidates(failed, pool, reason, excludedModels, readmitExcluded, est, sigSavings, outputReserve, providerFor)
 	sort.SliceStable(readmitted, func(i, j int) bool {
 		return cooling[readmitted[i].Model].Before(cooling[readmitted[j].Model])
 	})

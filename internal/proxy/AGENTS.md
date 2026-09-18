@@ -98,7 +98,10 @@ with no extra state change. Cooldowns are soft in one more way than the
 deployment exclusion: `rescueWalkOrReadmitCooling` appends cooling arms
 (soonest expiry first) *after* every healthy rescue candidate, so a session
 whose whole rescue pool is throttled readmits a cooling arm instead of
-surfacing the 429 — the arm that just 429'd is never re-served that turn. The
+surfacing the 429 — the arm that just 429'd is never re-served that turn.
+Readmission lifts *only* the cooldown: `readmittableCooldowns` drops a model
+that also carries a session-lifetime strike or cannot take the turn's images,
+and the deployment-wide automatic exclusion still holds in the second walk. The
 same flag makes the same-binding retry Retry-After-aware
 (`dispatch.ThrottlePolicy`: honour ≤10s, else go straight to rescue; 500ms then
 1.5s when the header is absent). Snowflake runs R3-R5 (2026-09) died at 11

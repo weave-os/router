@@ -192,6 +192,23 @@ func TestMergeDemotionCooldowns_KeepsLaterExpiry(t *testing.T) {
 	assert.Equal(t, []string{"b", "a", "c"}, cooldownsByExpiry(merged))
 }
 
+// A leftover cooldown never outranks a session-lifetime strike on the same
+// model, and an image-bearing turn cannot readmit a text-only arm.
+func TestReadmittableCooldowns_DropsPermanentAndImageUnsafeArms(t *testing.T) {
+	until := rateLimitTestNow.Add(30 * time.Second)
+	cooling := map[string]time.Time{
+		"claude-opus-5":             until,
+		"glm-5":                     until,
+		"qwen/qwen3-235b-a22b-2507": until,
+	}
+
+	assert.Equal(t, map[string]time.Time{"claude-opus-5": until, "qwen/qwen3-235b-a22b-2507": until},
+		readmittableCooldowns(cooling, []string{"glm-5"}, false))
+	assert.Equal(t, map[string]time.Time{"claude-opus-5": until},
+		readmittableCooldowns(cooling, []string{"glm-5"}, true))
+	assert.Nil(t, readmittableCooldowns(map[string]time.Time{"glm-5": until}, []string{"glm-5"}, false))
+}
+
 // Exhausted pool: every candidate but the failed arm is cooling down, so the
 // rescue readmits the cooling arms, the one that has cooled longest first,
 // and never the arm that just 429'd. A session-lifetime demotion stays out.
@@ -286,6 +303,26 @@ func TestRescueDecisions_ReadmitsCoolingArmAbsentFromScoredCandidates(t *testing
 	assert.Equal(t, providers.ProviderAnthropic, got[1].Provider)
 }
 
+// Lifting the cooldowns lifts only the cooldowns: a deployment-wide
+// automatic exclusion still keeps its model out of the readmission walk.
+func TestRescueDecisions_ReadmissionKeepsGlobalAutomaticExclusions(t *testing.T) {
+	s := siblingService(providers.ProviderAnthropic).
+		WithGlobalAutomaticExclusions(&stubGlobalExclusionStore{byModel: map[string]string{"claude-haiku-4-5": "disabled"}})
+	md := &router.RoutingMetadata{
+		CandidateModels: []string{"claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"},
+		CandidateProviders: map[string]string{
+			"claude-sonnet-5":  providers.ProviderAnthropic,
+			"claude-haiku-4-5": providers.ProviderAnthropic,
+		},
+	}
+	ctx := context.WithValue(context.Background(), SessionDemotedModelsContextKey{}, []string{"claude-sonnet-5"})
+	ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, map[string]time.Time{"claude-sonnet-5": rateLimitTestNow.Add(30 * time.Second)})
+
+	got := s.siblingFailoverDecisions(ctx, overloadedDecision(md), 1_000, 0, 0)
+
+	assert.Equal(t, []string{"claude-sonnet-5"}, siblingModels(got))
+}
+
 // The gateway BYOK walk readmits cooling arms the same way.
 func TestGatewayRescueDecisions_ExhaustedPoolReadmitsCoolingArms(t *testing.T) {
 	s := &Service{}
@@ -329,8 +366,8 @@ func TestThrottleRetryDelay_RecordsHonouredRetryAfter(t *testing.T) {
 	assert.Contains(t, fields, int64(3_000))
 }
 
-func coolingPin(model string, cooldowns map[string]time.Time) sessionpin.Pin {
-	pin := demotedPin(model)
+func coolingPin(model string, cooldowns map[string]time.Time, demoted ...string) sessionpin.Pin {
+	pin := demotedPin(model, demoted...)
 	pin.DemotionCooldowns = cooldowns
 	return pin
 }
@@ -401,6 +438,24 @@ func TestTurnLoopHonoursCooldownRecordedOnHMMHistory(t *testing.T) {
 	require.Len(t, scorer.requests, 1)
 	assert.Contains(t, scorer.requests[0].AutomaticExcludedModels, demotedPinModel)
 	assert.Equal(t, map[string]time.Time{demotedPinModel: until}, res.SessionCooldownModels)
+}
+
+// A model struck for the session and still carrying a stale cooldown entry
+// stays out: the turn loop excludes it and offers nothing for readmission.
+func TestTurnLoopPermanentStrikeOutranksLeftoverCooldown(t *testing.T) {
+	until := rateLimitTestNow.Add(30 * time.Second)
+	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
+		sessionpin.DefaultRole: coolingPin(demotedPinModel, map[string]time.Time{demotedPinModel: until}, demotedPinModel),
+	}}
+	svc, scorer := cooldownTurnLoopService(store, true)
+
+	res := runDemotionTurnLoop(t, svc, context.Background())
+
+	assert.Equal(t, freshTurnModel, res.Decision.Model)
+	require.Len(t, scorer.requests, 1)
+	assert.Contains(t, scorer.requests[0].AutomaticExcludedModels, demotedPinModel)
+	assert.Equal(t, []string{demotedPinModel}, res.SessionDemotedModels)
+	assert.Nil(t, res.SessionCooldownModels, "a lifetime strike is never readmitted")
 }
 
 // Flag off, a stored cooldown is ignored entirely: the turn loop reads only
