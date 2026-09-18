@@ -210,16 +210,6 @@ uninstall_cmd() {
   printf '%s' "$cmd"
 }
 
-# subscription_login_cmd echoes a copy-paste command that enrolls a plan using
-# the same scope and --dir source as the current OpenCode install.
-subscription_login_cmd() {
-  local provider="$1"
-  local cmd="npx $npm_package_name login $provider"
-  cmd="$cmd --scope $scope"
-  [ -n "$install_dir" ] && cmd="$cmd --dir $(printf '%q' "$install_dir")"
-  printf '%s' "$cmd"
-}
-
 # print_uninstall_hint prints the reverse command on its own labeled line so
 # every successful install ends by telling the user exactly how to undo it.
 print_uninstall_hint() {
@@ -1612,11 +1602,9 @@ fi
 # ---------- interactive scope prompt ----------
 
 # If the user didn't pass --scope and we have a controlling terminal, ask which
-# scope to install into. Login enrollment defaults to user scope; the installer
-# prints an explicit scope when it points at a project-scoped OpenCode install.
-# Non-interactive runs (CI, `curl | sh --non-interactive`) also silently use the
-# "user" default.
-if [ "$mode" != "login" ] && [ -z "$install_dir" ] && [ "$scope_explicit" = "false" ] && [ "$non_interactive" = "false" ] && [ -r /dev/tty ]; then
+# scope to install into. Non-interactive runs (CI, `curl | sh --non-interactive`)
+# silently use the "user" default.
+if [ -z "$install_dir" ] && [ "$scope_explicit" = "false" ] && [ "$non_interactive" = "false" ] && [ -r /dev/tty ]; then
   # Per-target paths so the prompt text matches what actually gets written.
   case "$target" in
     codex)
@@ -1896,18 +1884,6 @@ else
   esac
 fi
 
-# Initialize OpenCode's config paths independently of the selected target. Login
-# enrollment can use an OpenCode install as its router-key source even when the
-# provider being enrolled is Claude or Codex.
-initialize_opencode_paths() {
-  case "$scope" in
-    user)    opencode_dir="${XDG_CONFIG_HOME:-$settings_base/.config}/opencode" ;;
-    project) opencode_dir="$settings_base" ;;
-  esac
-  [ -n "$install_dir" ] && opencode_dir="$install_dir"
-  opencode_config_file="$opencode_dir/opencode.json"
-}
-
 if [ "$target" = "claude" ]; then
   statusline_install="true"
   statusline_source_file=""
@@ -2043,7 +2019,20 @@ else
   # opencode.json at the repo root for project scope (the option teammates can
   # commit) and the XDG path for user scope. The router key is embedded so
   # opencode.json goes in .gitignore for project scope, same as Codex.
-  initialize_opencode_paths
+  case "$scope" in
+    user)
+      opencode_dir="${XDG_CONFIG_HOME:-$settings_base/.config}/opencode"
+      ;;
+    project)
+      opencode_dir="$settings_base"
+      ;;
+  esac
+  # --dir overrides both scopes: drop opencode.json straight into <dir>/ so
+  # the sandbox is self-contained (mirrors how --dir behaves for Codex).
+  if [ -n "$install_dir" ]; then
+    opencode_dir="$install_dir"
+  fi
+  opencode_config_file="$opencode_dir/opencode.json"
 
   if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
     refuse_if_symlink "$opencode_dir"
@@ -3279,17 +3268,6 @@ if [ "$mode" = "models" ] || [ "$mode" = "accounts" ] || [ "$mode" = "login" ] |
     if [ -z "$models_base" ] && { [ "$mode" = "accounts" ] || [ "$mode" = "status" ]; } && [ "$target" = "claude" ]; then
       target="codex"
       models_base="$(resolve_installed_endpoint)"
-    fi
-    if [ -z "$models_base" ] && [ "$mode" = "login" ]; then
-      # `login <provider>` names the subscription being enrolled, not the
-      # client whose config stores the router credentials. An OpenCode-only
-      # install has no Claude/Codex config to inspect, so use its config as the
-      # source for the server-side enrollment request.
-      login_source_target="$target"
-      initialize_opencode_paths
-      target="opencode"
-      models_base="$(resolve_installed_endpoint)"
-      [ -n "$models_base" ] || target="$login_source_target"
     fi
     if [ -z "$models_base" ]; then
       err "No Weave Router install found for $target in this scope. Run 'npx $npm_package_name --$target' first, or pass --base-url."
@@ -4698,7 +4676,7 @@ if [ "$target" = "opencode" ]; then
   # can outlive a plugin-less re-install that stripped the provider, which would
   # make these instructions misleading.
   if jq -e '(.provider // {}) | has("weave-claude")' "$opencode_config_file" >/dev/null 2>&1; then
-    info "Optional: connect your AI plans so they pay for the matching turns. Run ${C_BOLD}$(subscription_login_cmd codex)${C_RESET} for ${C_BOLD}ChatGPT Pro/Plus${C_RESET} (GPT/Codex turns) and/or ${C_BOLD}$(subscription_login_cmd claude)${C_RESET} for ${C_BOLD}Claude Pro/Max${C_RESET} (Claude turns). The router still routes every turn; your Weave key pays for the rest."
+    info "Optional: connect your AI plans so they pay for the matching turns. Run ${C_BOLD}opencode auth login${C_RESET} → ${C_BOLD}Weave Router — Codex plan${C_RESET} for ${C_BOLD}ChatGPT Pro/Plus${C_RESET} (GPT/Codex turns) and/or ${C_BOLD}Weave Router — Claude plan${C_RESET} for ${C_BOLD}Claude Pro/Max${C_RESET} (Claude turns). The router still routes every turn; your Weave key pays for the rest."
   fi
   if [ -n "$install_dir" ]; then
     # --dir installs land outside opencode's discovery roots, so the caller
