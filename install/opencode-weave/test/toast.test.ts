@@ -10,7 +10,7 @@ function assistantInfo(overrides: Partial<AssistantMessage> = {}): AssistantMess
     role: "assistant",
     time: { created: 1, completed: 2 },
     parentID: "msg_user",
-    modelID: "anthropic/claude-sonnet-4-5",
+    modelID: "auto",
     providerID: "weave",
     mode: "build",
     path: { cwd: "/", root: "/" },
@@ -24,33 +24,36 @@ function messageUpdated(info: Message): Event {
   return { type: "message.updated", properties: { info } }
 }
 
-async function pluginWithToast(showToast: (opts: unknown) => Promise<unknown>, assistantText = "") {
+async function pluginWithToast(showToast: (opts: unknown) => Promise<unknown>) {
   const input = {
-    client: {
-      tui: { showToast },
-      session: {
-        async message() {
-          return {
-            data: {
-              parts: assistantText ? [{ type: "text", text: assistantText }] : [],
-            },
-          }
-        },
-      },
-    },
+    client: { tui: { showToast } },
   } as unknown as PluginInput
   return WeaveCodex(input)
+}
+
+async function captureRoutedModelHeader(hooks: Awaited<ReturnType<typeof WeaveCodex>>, routedModelID?: string): Promise<void> {
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async () => {
+    const headers = routedModelID ? { "x-router-model": routedModelID } : undefined
+    return new Response("{}", { headers })
+  }) as unknown as typeof fetch
+  try {
+    const loaded = await hooks.auth!.loader!(async () => ({ type: "api", key: "test" }) as never, {} as never)
+    await (loaded.fetch as typeof fetch)("https://router.example.test/v1/responses", {
+      headers: { "session-id": "ses_1" },
+    })
+  } finally {
+    globalThis.fetch = realFetch
+  }
 }
 
 describe("WeaveCodex routed-model toast", () => {
   test("toasts completed weave assistant message with model and cost/tokens", async () => {
     const calls: unknown[] = []
-    const hooks = await pluginWithToast(
-      async (opts) => {
-        calls.push(opts)
-      },
-      "✦ **Weave Router** → claude-opus-4-8 · best pick for this turn\n\nanswer",
-    )
+    const hooks = await pluginWithToast(async (opts) => {
+      calls.push(opts)
+    })
+    await captureRoutedModelHeader(hooks, "claude-opus-4-8")
     await hooks.event!({ event: messageUpdated(assistantInfo()) })
     expect(calls).toHaveLength(1)
     expect(calls[0]).toEqual({
@@ -59,6 +62,20 @@ describe("WeaveCodex routed-model toast", () => {
         message: "→ claude-opus-4-8 · $0.012 · 1.2k in / 340 out",
         variant: "info",
         duration: 6000,
+      },
+    })
+  })
+
+  test("falls back to requested model when response omits routed model metadata", async () => {
+    const calls: unknown[] = []
+    const hooks = await pluginWithToast(async (opts) => {
+      calls.push(opts)
+    })
+    await captureRoutedModelHeader(hooks)
+    await hooks.event!({ event: messageUpdated(assistantInfo()) })
+    expect(calls[0]).toMatchObject({
+      body: {
+        message: "→ auto · $0.012 · 1.2k in / 340 out",
       },
     })
   })

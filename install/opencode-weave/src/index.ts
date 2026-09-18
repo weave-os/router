@@ -66,8 +66,7 @@ const ANTHROPIC_SCOPE = "org:create_api_key user:profile user:inference"
 // opencode's bundled provider plugins, which rewrite the upstream off the router.
 const PROVIDER_ID = "weave"
 const ANTHROPIC_PROVIDER_ID = "weave-claude"
-const ROUTER_MARKER_PREFIX = "✦ **Weave Router** → "
-const ROUTER_BADGE_SENTINEL = "⁣⁠⁣⁠"
+const HEADER_ROUTER_MODEL = "x-router-model"
 const TOAST_TITLE = "Weave Router"
 const TOAST_DURATION_MS = 6000
 
@@ -425,33 +424,6 @@ function waitForOAuthCallback(pkce: PkceCodes, state: string): Promise<TokenResp
 
 // ---- Request provider: `weave` (Responses, both subs) ----------------------
 
-function routedModelFromText(text: string): string | undefined {
-  const firstLine = text.split("\n", 1)[0] ?? ""
-  const marker = firstLine.startsWith(ROUTER_MARKER_PREFIX)
-    ? firstLine.slice(ROUTER_MARKER_PREFIX.length)
-    : firstLine.startsWith(ROUTER_BADGE_SENTINEL + ROUTER_MARKER_PREFIX)
-      ? firstLine.slice((ROUTER_BADGE_SENTINEL + ROUTER_MARKER_PREFIX).length)
-      : undefined
-  if (!marker) return undefined
-  const model = marker.split(" ·", 1)[0].trim()
-  return model || undefined
-}
-
-async function findRoutedModelID(input: PluginInput, info: AssistantMessage): Promise<string> {
-  try {
-    const response = await input.client.session.message({
-      path: { id: info.sessionID, messageID: info.id },
-    })
-    const text = response.data?.parts
-      .filter((part) => part.type === "text")
-      .map((part) => part.text)
-      .join("\n")
-    return routedModelFromText(text ?? "") ?? info.modelID
-  } catch {
-    return info.modelID
-  }
-}
-
 function compactTokenCount(n: number): string {
   if (n >= 1000) {
     const k = n / 1000
@@ -484,6 +456,7 @@ function isCompletedWeaveAssistant(info: Message): info is AssistantMessage {
 }
 
 export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => {
+  const routedModelIDsBySession = new Map<string, string>()
   const toastedMessageIDs = new Set<string>()
   return {
     event: async ({ event }) => {
@@ -492,8 +465,8 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
       if (!isCompletedWeaveAssistant(info)) return
       if (toastedMessageIDs.has(info.id)) return
       toastedMessageIDs.add(info.id)
-      const routedModelID = await findRoutedModelID(input, info)
-      // The message parts carry the router marker; modelID can remain OpenCode's `auto` alias.
+      const routedModelID = routedModelIDsBySession.get(info.sessionID) ?? info.modelID
+      routedModelIDsBySession.delete(info.sessionID)
       try {
         await input.client.tui.showToast({
           body: {
@@ -606,7 +579,11 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
             }
             if (anthropic) headers.set(HEADER_ANTHROPIC_SUB, anthropic)
 
-            return fetch(requestInput, { ...init, headers })
+            const response = await fetch(requestInput, { ...init, headers })
+            const sessionID = headers.get("session-id")
+            const routedModelID = response.headers.get(HEADER_ROUTER_MODEL)
+            if (sessionID && routedModelID) routedModelIDsBySession.set(sessionID, routedModelID)
+            return response
           },
         }
       },
