@@ -239,7 +239,7 @@ func armDemotionLogFields(committedDemoted, rescuedDemoted string) []any {
 //     rememberGatewayLacksModel, so striking the arm would double-count it;
 //   - a 529 is provider capacity, owned by maybeDisableProviderAfterOverload;
 //   - a managed-subscription pool error has no upstream at all and is owned by
-//     maybeExpirePoolArmPin;
+//     maybeExpireSubscriptionArmPin;
 //   - a bare context cancellation is the client going away, not the arm.
 //
 // The upstream watchdog sentinels are checked before the cancellation check

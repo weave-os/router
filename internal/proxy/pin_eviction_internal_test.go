@@ -427,31 +427,32 @@ func TestMaybeEvictPin_SubscriptionPoolExhaustedLeavesStrikeCounter(t *testing.T
 	)
 
 	assert.Zero(t, store.incrementCalls, "pool exhaustion has no upstream status and must not use the 4xx strike counter")
-	assert.Empty(t, store.upserts, "pool-arm expiry is maybeExpirePoolArmPin, keyed off the primary attempt, not the final rescue error")
+	assert.Empty(t, store.upserts, "subscription-arm expiry is keyed off the primary attempt, not the final rescue error")
 }
 
-func TestMaybeExpirePoolArmPin(t *testing.T) {
+func TestMaybeExpireSubscriptionArmPin(t *testing.T) {
 	installationID := uuid.New()
 	sessionKey := nonZeroSessionKey()
 
 	cases := []struct {
 		name           string
-		dead           bool
+		failure        error
 		decisionReason string
-		wantFired      bool
+		wantReason     string
 	}{
-		{"pool exhaustion evicts the pin", true, "loop_escalation", true},
-		{"healthy pool leaves the pin", false, "loop_escalation", false},
-		{"force-model pin is never evicted", true, translate.ReasonUserForceModel, false},
+		{"pool exhaustion evicts the pin", ErrSubscriptionPoolExhausted, "loop_escalation", pinEvictionReasonSubscriptionPool},
+		{"model denial evicts the pin", modelAccessError(), "loop_escalation", pinEvictionReasonSubscriptionModel},
+		{"healthy arm leaves the pin", nil, "loop_escalation", ""},
+		{"force-model pin is never evicted", modelAccessError(), translate.ReasonUserForceModel, ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &evictionStubPinStore{}
 			svc := newEvictionTestService(store)
-			svc.maybeExpirePoolArmPin(context.Background(), tc.dead, tc.decisionReason, installationID, sessionKey, sessionpin.DefaultRole)
-			if tc.wantFired {
+			svc.maybeExpireSubscriptionArmPin(context.Background(), tc.failure, tc.decisionReason, installationID, sessionKey, sessionpin.DefaultRole)
+			if tc.wantReason != "" {
 				require.Len(t, store.upserts, 1)
-				assert.Equal(t, "subscription_pool_exhausted", store.upserts[0].Reason)
+				assert.Equal(t, tc.wantReason, store.upserts[0].Reason)
 			} else {
 				assert.Empty(t, store.upserts)
 			}

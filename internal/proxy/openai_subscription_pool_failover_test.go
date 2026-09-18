@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -16,6 +17,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
 )
 
@@ -125,14 +127,73 @@ func TestProxyMessages_SubscriptionPoolExhaustionRescuesSibling(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "served after retry")
 }
 
-func TestMaybeExpirePoolArmPin_StickyLoopEscalation(t *testing.T) {
+func TestMaybeExpireSubscriptionArmPin_StickyLoopEscalation(t *testing.T) {
 	store := &evictionStubPinStore{}
 	svc := newEvictionTestService(store)
 	installationID := uuid.New()
 	sessionKey := nonZeroSessionKey()
 
-	svc.maybeExpirePoolArmPin(context.Background(), true, translate.ReasonLoopEscalation, installationID, sessionKey, sessionpin.DefaultRole)
+	svc.maybeExpireSubscriptionArmPin(context.Background(), ErrSubscriptionPoolExhausted, translate.ReasonLoopEscalation, installationID, sessionKey, sessionpin.DefaultRole)
 
 	require.Len(t, store.upserts, 1)
-	assert.Equal(t, "subscription_pool_exhausted", store.upserts[0].Reason)
+	assert.Equal(t, pinEvictionReasonSubscriptionPool, store.upserts[0].Reason)
+}
+
+func TestProxyEndpoints_CachedManagedModelDenialEvictsAutomaticPin(t *testing.T) {
+	tests := []struct {
+		name string
+		body []byte
+		run  func(*Service, context.Context, []byte, http.ResponseWriter, *http.Request) error
+	}{
+		{
+			name: "Anthropic messages",
+			body: anthropicMessagesBody(),
+			run: func(svc *Service, ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
+				return svc.ProxyMessages(ctx, body, w, r)
+			},
+		},
+		{
+			name: "OpenAI chat",
+			body: openaiChatBody(),
+			run: func(svc *Service, ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
+				return svc.ProxyOpenAIChatCompletion(ctx, body, w, r)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			leaser := &scriptedSubscriptionLeaser{
+				leases:     []subscriptions.Lease{{AccountID: "opaque-claude", AccessToken: "managed-token"}},
+				repeatLast: true,
+			}
+			upstream := &fakeClient{name: providers.ProviderAnthropic}
+			store := &evictionStubPinStore{}
+			svc := NewService(
+				staticRouter{decision: claudeOpusPinnedDecision()},
+				map[string]providers.Client{providers.ProviderAnthropic: upstream},
+				nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+			).WithManagedSubscriptions(leaser)
+			svc.subscriptionModels.denyManaged("key-1", "opaque-claude", providers.ProviderAnthropic, "claude-opus-5", time.Now().Add(time.Minute))
+
+			installationID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
+			ctx := billing.WithSubscriptionOnly(managedSubscriptionContext(auth.SubscriptionProviderClaude))
+			ctx = context.WithValue(ctx, InstallationIDContextKey{}, installationID.String())
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(tc.body)))
+
+			err := tc.run(svc, ctx, tc.body, rec, req)
+
+			require.Error(t, err)
+			var upstreamErr *providers.UpstreamErrorResponse
+			require.ErrorAs(t, err, &upstreamErr)
+			assert.Equal(t, http.StatusNotFound, upstreamErr.Status)
+			assert.Zero(t, upstream.calls, "a cached denial must not dispatch the rejected account")
+			require.NotEmpty(t, store.upserts)
+			expired := store.upserts[len(store.upserts)-1]
+			assert.Equal(t, pinEvictionReasonSubscriptionModel, expired.Reason)
+			assert.Empty(t, expired.Model)
+			assert.True(t, expired.PinnedUntil.Before(time.Now()))
+		})
+	}
 }

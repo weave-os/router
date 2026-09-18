@@ -28,6 +28,11 @@ import (
 // residual non-deterministic 4xx noise.
 const pinEvictionStrikeThreshold = 2
 
+const (
+	pinEvictionReasonSubscriptionPool  = "subscription_pool_exhausted"
+	pinEvictionReasonSubscriptionModel = "subscription_model_unavailable"
+)
+
 // expireSessionPin writes an already-expired sessionpin.Pin so the next
 // turn's loadPin discards it and the session re-routes via the cluster
 // scorer. Shared by force-model clear, loop-break/no-progress/
@@ -169,31 +174,43 @@ func (s *Service) maybeExpireDeadArmPin(
 	}
 }
 
-// maybeExpirePoolArmPin expires a sticky pin when the managed subscription
-// pool for the pinned provider is empty. The pin is not a quality signal and
-// has no HTTP status, so the two-strike 4xx counter never sees it; without
-// this, Codex retries keep hitting the same dead Claude arm. Also expires a
-// pin written on this first unpinned turn (writeNewPin), so the next request
-// does not sticky-hit the same empty pool. Never expires a user force-model pin.
-func (s *Service) maybeExpirePoolArmPin(
+// maybeExpireSubscriptionArmPin expires a sticky pin when its subscription
+// pool is empty or every available account has denied the selected model.
+// The client-visible errors stay distinct, while both outcomes invalidate an
+// automatic pin. Also expires a pin written on this first unpinned turn so the
+// next request re-scores. Never expires a user force-model pin.
+func (s *Service) maybeExpireSubscriptionArmPin(
 	ctx context.Context,
-	poolArmDead bool,
+	failure error,
 	decisionReason string,
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 ) {
-	if !poolArmDead || s.pinStore == nil || installationID == uuid.Nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) || strings.HasPrefix(decisionReason, translate.ReasonUserForceModel) {
+	reason := subscriptionArmPinEvictionReason(failure)
+	if reason == "" || s.pinStore == nil || installationID == uuid.Nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) || strings.HasPrefix(decisionReason, translate.ReasonUserForceModel) {
 		return
 	}
 	log := observability.FromContext(ctx)
-	if err := s.expireSessionPin(ctx, installationID, sessionKey, role, "subscription_pool_exhausted"); err != nil {
-		log.Error("pin eviction after subscription pool exhaustion failed", "err", err, "role", role)
+	if err := s.expireSessionPin(ctx, installationID, sessionKey, role, reason); err != nil {
+		log.Error("pin eviction after subscription arm became unavailable failed", "err", err, "role", role, "reason", reason)
 		return
 	}
-	log.Info("session pin evicted after subscription pool exhaustion",
+	log.Info("session pin evicted after subscription arm became unavailable",
 		"role", role,
+		"reason", reason,
 	)
+}
+
+func subscriptionArmPinEvictionReason(err error) string {
+	switch {
+	case isSubscriptionPoolError(err):
+		return pinEvictionReasonSubscriptionPool
+	case anthropicSubscriptionModelRejected(err):
+		return pinEvictionReasonSubscriptionModel
+	default:
+		return ""
+	}
 }
 
 // maybeEvictPinAfterUpstreamErr applies the two-strike eviction policy for a
