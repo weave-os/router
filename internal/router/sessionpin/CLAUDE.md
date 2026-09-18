@@ -14,6 +14,8 @@
 
 Stage 1 emits `role="default"` only. The column exists so a turn-type detector can land role-conditioned pinning later without a schema change.
 
+`role="session_arm"` is the flag-gated session-pinned arm (`session_arm_pin`, see [`../../proxy/CLAUDE.md`](../../proxy/CLAUDE.md)): one row per client session holding the model the first automatic main-thread turn chose, keyed by `requestcontext.SessionArmConversationKey` rather than the thread key. Its `PairedModel` is the first rescue stand-in; the row is refreshed, never rewritten, by later turns.
+
 ## TTL sweep
 
 `runSessionPinSweep` in `cmd/router/main.go` runs the TTL sweep loop. The store interface lives here; the loop and the Postgres adapter live outside the inner ring.

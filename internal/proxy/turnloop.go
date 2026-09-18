@@ -166,6 +166,10 @@ func (s *Service) plannerTokensFor(env *translate.RequestEnvelope, feats transla
 // honoured x-weave-policy-pin, bypassing every session short-circuit.
 const policyPinTier = "policy_pin"
 
+// postCommandContinuationPinTier is the PinTier of a turn served by the
+// one-shot continuation written after a router slash command.
+const postCommandContinuationPinTier = "post_command_continuation"
+
 type pinTier string
 
 const (
@@ -293,6 +297,17 @@ type turnLoopResult struct {
 	// stream failure. Stashed on ctx so the in-turn rescue walk honors the
 	// exclusion too, not just this turn's scorer.
 	SessionDemotedModels []string
+	// SessionArmMode is the resolved session_arm_pin mode when it covers this
+	// turn type. SessionArmModel is the arm row's model (or the model just
+	// anchored). SessionArmHeld: the arm served this turn. SessionArmAnchored:
+	// this turn wrote the arm. SessionArmOverride names the hard reason an
+	// existing arm did not serve this turn.
+	SessionArmMode     flags.SessionArmPinMode
+	SessionArmKey      [sessionpin.SessionKeyLen]byte
+	SessionArmModel    string
+	SessionArmHeld     bool
+	SessionArmAnchored bool
+	SessionArmOverride string
 	// SessionCooldownModels are the rate-limit cooldowns still in force
 	// (model → expiry). Also listed in SessionDemotedModels; kept apart so
 	// the in-turn rescue can readmit them when honouring them would leave no
@@ -693,10 +708,12 @@ func (s *Service) runTurnLoop(
 	reqHeaders http.Header,
 	req router.Request,
 ) (res turnLoopResult, routeErr error) {
+	var sessionArm sessionArmState
 	defer func() {
 		if routeErr == nil {
 			routeErr = policyPinServed(ctx, res)
 			if routeErr == nil {
+				s.finishSessionArm(ctx, installationID, sessionArm, &res)
 				logAuthoritativeUpgrade(ctx, res)
 			}
 		}
@@ -762,6 +779,11 @@ func (s *Service) runTurnLoop(
 		"pin_role", res.PinRole,
 		"sub_agent_hint", subAgentHint,
 	)
+	// Loaded ahead of every early return so a force, hard pin or pass-through
+	// that outranks an existing arm is still reported as the arm's override.
+	if s.pinStore != nil {
+		sessionArm = s.loadSessionArm(ctx, env, apiKeyID, threadSessionKey, res.TurnType)
+	}
 
 	// A pinned turn is a replay of one frozen policy, so session state that
 	// would otherwise short-circuit scoring (/force-model, sticky pins, usage
@@ -1079,6 +1101,7 @@ func (s *Service) runTurnLoop(
 		clearedPinReason = pin.Reason
 	}
 	hmmHistory := s.loadHMMHistory(ctx, res.SessionKey, res.PinRole)
+	sessionMaxed := sessionMaxedModels(pin, hmmHistory)
 	forceHistory := sessionpin.Pin{}
 	if forceModelFound || forceModelCleared {
 		forceHistory = s.loadForceModelHistory(ctx, res.SessionKey, res.PinRole)
@@ -1514,7 +1537,7 @@ func (s *Service) runTurnLoop(
 		decision := pinDecision(commandContinuation)
 		res.Decision = decision
 		res.StickyHit = true
-		res.PinTier = "post_command_continuation"
+		res.PinTier = postCommandContinuationPinTier
 		res.PinModel = commandContinuation.Model
 		res.PinAgeSec = pinAge(commandContinuation)
 		if forceModelCleared {
@@ -1548,6 +1571,46 @@ func (s *Service) runTurnLoop(
 		res.Decision = dec
 		res.UsageBypass = true
 		return res, nil
+	}
+
+	// Session-pinned arm: the model chosen on the session's first main-thread
+	// turn serves every later covered turn, ahead of the tool-result sticky,
+	// planner, HMM stay/re-decide, band swap, escalation and re-anchor paths
+	// below. Positioned after the explicit forces, the hard-pin tier, the
+	// pin-drop guards and the usage bypass so none of those lose precedence;
+	// sessionArmOverride re-applies the guards to the arm itself. An override
+	// only skips the arm for this turn — the arm row is untouched, so the next
+	// eligible turn returns to it. A same-turn upstream failure is rescued by
+	// the ordinary sibling walk in dispatch, which never rewrites the arm.
+	if sessionArm.found {
+		if reason := s.sessionArmOverride(ctx, env, feats, req, sessionArm.pin, res.SessionDemotedModels, sessionMaxed); reason != "" {
+			res.SessionArmOverride = reason
+			log.Info("session arm overridden for this turn",
+				"arm_model", sessionArm.pin.Model,
+				"arm_provider", sessionArm.pin.Provider,
+				"override", reason,
+				"turn_type", string(res.TurnType),
+				"role", res.PinRole,
+			)
+			// The arm stays the session's assigned model through the override;
+			// only its TTL is renewed so a long cooldown cannot expire it.
+			s.refreshPin(ctx, installationID, sessionArm.key, sessionArm.pin, sessionArmRole, pinDecision(sessionArm.pin))
+		} else {
+			decision := s.sessionArmDecision(sessionArm.pin)
+			res.Decision = decision
+			res.StickyHit = true
+			res.SessionArmHeld = true
+			res.PinTier = sessionArmPinTier
+			log.Info("session arm held",
+				"arm_model", sessionArm.pin.Model,
+				"arm_provider", sessionArm.pin.Provider,
+				"turn_type", string(res.TurnType),
+				"role", res.PinRole,
+			)
+			s.refreshPin(ctx, installationID, sessionArm.key, sessionArm.pin, sessionArmRole, decision)
+			s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
+			return res, nil
+		}
 	}
 
 	baselineRequest := req

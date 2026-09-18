@@ -79,6 +79,20 @@ func (s *Service) ResolveAuthoritativeUpgradePolicy(ctx context.Context) flags.A
 	return flags.AuthoritativeUpgradePolicy(flags.StringOr(ctx, flags.KeyAuthoritativeUpgradePolicy, string(defaultPolicy)))
 }
 
+// ResolveSessionArmPin reports which threads keep the model chosen on the
+// session's first main-thread turn. Unknown values read as off.
+func (s *Service) ResolveSessionArmPin(ctx context.Context) flags.SessionArmPinMode {
+	defaultMode := s.sessionArmPin
+	if defaultMode == "" {
+		defaultMode = flags.SessionArmPinOff
+	}
+	mode, err := flags.ParseSessionArmPinMode(flags.StringOr(ctx, flags.KeySessionArmPin, string(defaultMode)))
+	if err != nil {
+		return flags.SessionArmPinOff
+	}
+	return mode
+}
+
 func (s *Service) ResolveAuthoritativeUpgradeHoldoutPct(ctx context.Context) int {
 	return flags.IntOr(ctx, flags.KeyAuthoritativeUpgradeHoldoutPct, s.authoritativeUpgradeHoldoutPct)
 }

@@ -13,6 +13,9 @@ const (
 	ForceModelConversationKey ConversationKeyDomain = "force_model_session:"
 	// LegacyBetaConversationKey remains the migration identity even after managed beta retirement.
 	LegacyBetaConversationKey ConversationKeyDomain = "beta_session:"
+	// SessionArmConversationKey scopes the session-pinned arm to the client
+	// session so sub-agent threads can inherit the main thread's model.
+	SessionArmConversationKey ConversationKeyDomain = "session_arm:"
 )
 
 // ConversationKey derives the existing 16-byte preference identity without protocol or runtime dependencies.
