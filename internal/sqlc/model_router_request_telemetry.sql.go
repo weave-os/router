@@ -1869,7 +1869,11 @@ INSERT INTO router.model_router_request_telemetry (
     usage_known,
     client_git_head_sha,
     client_git_branch,
-    client_git_dirty
+    client_git_dirty,
+    effort_arm,
+    effort_selected,
+    effort_sent,
+    effort_source
 ) VALUES (
     $1::uuid,
     $2::uuid,
@@ -2003,7 +2007,11 @@ INSERT INTO router.model_router_request_telemetry (
     $130::boolean,
     $131::varchar,
     $132::varchar,
-    $133::boolean
+    $133::boolean,
+    $134::varchar,
+    $135::varchar,
+    $136::varchar,
+    $137::varchar
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 `
@@ -2142,6 +2150,10 @@ type InsertRequestTelemetryParams struct {
 	ClientGitHeadSha                         *string
 	ClientGitBranch                          *string
 	ClientGitDirty                           *bool
+	EffortArm                                *string
+	EffortSelected                           *string
+	EffortSent                               *string
+	EffortSource                             *string
 }
 
 // Records a completed proxied request for the dashboard UI and routing
@@ -2186,6 +2198,10 @@ type InsertRequestTelemetryParams struct {
 // context parsed from the Claude Code system prompt on a trial-mode session's
 // first turn. NULL on every other turn and whenever the block was absent or
 // unparseable; never read on the routing path.
+// effort_* columns persist the per-turn effort resolution: the arm's own
+// level, the level that won precedence, the level written on the wire after
+// the target menu clamp, and which precedence branch produced it. NULL when
+// the target expresses no effort.
 //
 //	INSERT INTO router.model_router_request_telemetry (
 //	    installation_id,
@@ -2320,7 +2336,11 @@ type InsertRequestTelemetryParams struct {
 //	    usage_known,
 //	    client_git_head_sha,
 //	    client_git_branch,
-//	    client_git_dirty
+//	    client_git_dirty,
+//	    effort_arm,
+//	    effort_selected,
+//	    effort_sent,
+//	    effort_source
 //	) VALUES (
 //	    $1::uuid,
 //	    $2::uuid,
@@ -2454,7 +2474,11 @@ type InsertRequestTelemetryParams struct {
 //	    $130::boolean,
 //	    $131::varchar,
 //	    $132::varchar,
-//	    $133::boolean
+//	    $133::boolean,
+//	    $134::varchar,
+//	    $135::varchar,
+//	    $136::varchar,
+//	    $137::varchar
 //	)
 //	ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestTelemetryParams) error {
@@ -2592,6 +2616,10 @@ func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestT
 		arg.ClientGitHeadSha,
 		arg.ClientGitBranch,
 		arg.ClientGitDirty,
+		arg.EffortArm,
+		arg.EffortSelected,
+		arg.EffortSent,
+		arg.EffortSource,
 	)
 	return err
 }

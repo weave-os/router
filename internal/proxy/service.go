@@ -4915,6 +4915,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			UnifiedLimitHeaders: unifiedLimitHeadersJSON(ctx),
 		}
 		applyPlannerTelemetry(&tel, routeRes)
+		applyEffortTelemetry(&tel, effortServed)
 		applyAuthorityShadowTelemetry(&tel, routeRes)
 		applyBlindExperimentTelemetry(ctx, &tel)
 		applyPolicyPinTelemetry(ctx, &tel, decision.Metadata)
@@ -7816,6 +7817,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			CredentialSource:    credSource,
 		}
 		applyPlannerTelemetry(&telOAI, routeRes)
+		applyEffortTelemetry(&telOAI, effortServed)
 		applyAuthorityShadowTelemetry(&telOAI, routeRes)
 		applyBlindExperimentTelemetry(ctx, &telOAI)
 		applyPolicyPinTelemetry(ctx, &telOAI, decision.Metadata)

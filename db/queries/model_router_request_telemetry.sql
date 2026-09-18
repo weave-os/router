@@ -40,6 +40,10 @@
 -- context parsed from the Claude Code system prompt on a trial-mode session's
 -- first turn. NULL on every other turn and whenever the block was absent or
 -- unparseable; never read on the routing path.
+-- effort_* columns persist the per-turn effort resolution: the arm's own
+-- level, the level that won precedence, the level written on the wire after
+-- the target menu clamp, and which precedence branch produced it. NULL when
+-- the target expresses no effort.
 -- name: InsertRequestTelemetry :exec
 INSERT INTO router.model_router_request_telemetry (
     installation_id,
@@ -174,7 +178,11 @@ INSERT INTO router.model_router_request_telemetry (
     usage_known,
     client_git_head_sha,
     client_git_branch,
-    client_git_dirty
+    client_git_dirty,
+    effort_arm,
+    effort_selected,
+    effort_sent,
+    effort_source
 ) VALUES (
     @installation_id::uuid,
     sqlc.narg('api_key_id')::uuid,
@@ -308,7 +316,11 @@ INSERT INTO router.model_router_request_telemetry (
     sqlc.narg('usage_known')::boolean,
     sqlc.narg('client_git_head_sha')::varchar,
     sqlc.narg('client_git_branch')::varchar,
-    sqlc.narg('client_git_dirty')::boolean
+    sqlc.narg('client_git_dirty')::boolean,
+    sqlc.narg('effort_arm')::varchar,
+    sqlc.narg('effort_selected')::varchar,
+    sqlc.narg('effort_sent')::varchar,
+    sqlc.narg('effort_source')::varchar
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING;
 

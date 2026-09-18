@@ -222,6 +222,10 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.Inse
 		FallbackReason:                           inferenceSummaryString(p.Inference, func(s inference.OperationSummary) string { return s.FallbackReason }),
 		AccountingOutcome:                        inferenceSummaryString(p.Inference, func(s inference.OperationSummary) string { return string(s.AccountingOutcome) }),
 		UsageKnown:                               inferenceUsageKnown(p.Inference),
+		EffortArm:                                stringPtrOrNil(p.EffortArm),
+		EffortSelected:                           stringPtrOrNil(p.EffortSelected),
+		EffortSent:                               stringPtrOrNil(p.EffortSent),
+		EffortSource:                             stringPtrOrNil(p.EffortSource),
 	})
 }
 

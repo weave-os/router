@@ -515,6 +515,14 @@ type RouterModelRouterRequestTelemetry struct {
 	AutonomyAppendFired *bool
 	// TRUE when the served attempt carried the workspace-inspection instruction appended by the router (cross-vendor emitters only). NULL when it did not.
 	WorkspaceAppendFired *bool
+	// Effort level the policy arm is labelled with. NULL when the arm carries none.
+	EffortArm *string
+	// Effort level that won precedence (user > escalation > arm > model policy), pre-clamp.
+	EffortSelected *string
+	// Effort level written on the wire after the target menu clamp (xhigh -> max -> high). NULL when nothing was sent.
+	EffortSent *string
+	// Precedence branch that produced the level: user, escalation, arm, model_policy. NULL when no effort resolved.
+	EffortSource *string
 }
 
 type RouterModelRouterSubscriptionAccount struct {

@@ -257,6 +257,14 @@ type InsertTelemetryParams struct {
 	ClientGitHeadSHA string
 	ClientGitBranch  string
 	ClientGitDirty   *bool
+
+	// Effort* is the per-turn effort resolution the dispatch actually used.
+	// Empty across the group when the target expresses no effort, leaving the
+	// columns NULL rather than recording "" as a resolved level.
+	EffortArm      string
+	EffortSelected string
+	EffortSent     string
+	EffortSource   string
 }
 
 // applyClientGitContextTelemetry stamps the ClientGit* group when the
@@ -388,6 +396,19 @@ func applyPlannerTelemetry(p *InsertTelemetryParams, res turnLoopResult) {
 		shadow := res.PlannerDecision.ShadowExpectedSavingsUSD
 		p.PlannerShadowExpectedSavingsUSD = &shadow
 	}
+}
+
+// applyEffortTelemetry copies the dispatched effort resolution onto p. No-ops
+// when nothing resolved, so a target that expresses no effort leaves the
+// columns NULL instead of claiming an empty level was sent.
+func applyEffortTelemetry(p *InsertTelemetryParams, e effortResolution) {
+	if p == nil || e.Source == "" {
+		return
+	}
+	p.EffortArm = e.Arm
+	p.EffortSelected = e.Selected
+	p.EffortSent = e.Sent
+	p.EffortSource = e.Source
 }
 
 // applyAuthorityShadowTelemetry copies the authority-turn cache-gate shadow onto
