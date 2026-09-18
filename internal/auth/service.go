@@ -287,6 +287,9 @@ func (s *Service) RotateAPIKey(ctx context.Context, installationID, keyID string
 	if target == nil {
 		return nil, "", ErrAPIKeyNotFound
 	}
+	if target.CredentialSubjectID != "" {
+		return nil, "", ErrPersonalCredentialRequired
+	}
 	n, err := s.apiKeys.SoftDelete(ctx, installationID, target.ID)
 	if err != nil {
 		return nil, "", err

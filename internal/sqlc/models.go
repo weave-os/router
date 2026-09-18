@@ -49,6 +49,22 @@ type RouterClusterModelList struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
+// Opaque account-owned identity projection; no private account table dependency
+type RouterCredentialSubject struct {
+	ID                   uuid.UUID
+	ProjectionComplete   bool
+	InternalEnrolled     bool
+	EnrollmentGeneration int64
+	CreatedAt            pgtype.Timestamptz
+	RevokedAt            pgtype.Timestamptz
+}
+
+type RouterCredentialSubjectInstallation struct {
+	SubjectID      uuid.UUID
+	InstallationID uuid.UUID
+	AccessEnabled  bool
+}
+
 type RouterEscalationCheckpoint struct {
 	Scope      []byte
 	Boundary   []byte
@@ -101,6 +117,14 @@ type RouterGlobalAutomaticRoutingExclusion struct {
 	CreatedBy *string
 }
 
+// Assignment keys only; exact active revisions are owned by GCS selection sets
+type RouterInstallationProfileAssignment struct {
+	InstallationID       uuid.UUID
+	ProfileKey           pgtype.UUID
+	AssignmentGeneration int64
+	UpdatedAt            pgtype.Timestamptz
+}
+
 // Cyclic tool-call loop detections: ops signal and (session, looping_model) -> looped training labels
 type RouterLoopEscalationEvent struct {
 	ID             uuid.UUID
@@ -137,7 +161,8 @@ type RouterModelRouterAPIKey struct {
 	SpendCapUsdMicros *int64
 	SpentUsdMicros    int64
 	// routing = rk_ data-plane key (can proxy and spend); analytics_read = ra_ export key (read-only, non-billable)
-	Scope string
+	Scope               string
+	CredentialSubjectID pgtype.UUID
 }
 
 // Customer-owned provider API keys for BYOK routing
@@ -707,6 +732,25 @@ type RouterSessionPin struct {
 	PolicyGroup               string
 	RoutingStrategy           string
 	PinnedEffort              string
+}
+
+// Conversation release pins; admission transactions lock installation, key, subject, then conversation
+type RouterSessionReleaseBinding struct {
+	InstallationID        uuid.UUID
+	CredentialScope       string
+	ConversationDigest    []byte
+	Target                string
+	ActivationID          uuid.UUID
+	ReleaseSha256         string
+	BindingSha256         string
+	ProfileKey            pgtype.UUID
+	ProfileRevisionSha256 *string
+	EnrollmentGeneration  int64
+	AssignmentGeneration  int64
+	BindingGeneration     int64
+	Binding               []byte
+	CreatedAt             pgtype.Timestamptz
+	LastAdmittedAt        pgtype.Timestamptz
 }
 
 // Explicit per-session router strategy preferences

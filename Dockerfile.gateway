@@ -1,0 +1,12 @@
+# syntax=docker/dockerfile:1
+FROM golang:1.25.9-bookworm AS build
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY cmd/router-gateway ./cmd/router-gateway
+COPY internal ./internal
+RUN CGO_ENABLED=0 go build -trimpath -o /router-gateway ./cmd/router-gateway
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /router-gateway /router-gateway
+ENTRYPOINT ["/router-gateway"]

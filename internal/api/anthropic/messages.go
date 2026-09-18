@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
@@ -89,9 +90,7 @@ func stashClientIdentity(ctx context.Context, h http.Header, body []byte) contex
 	id := proxy.ClientIdentityFromHeaders(h)
 	id.DeviceID = proxy.NormalizeClientIdentifier(meta.DeviceID)
 	id.AccountID = proxy.NormalizeClientIdentifier(meta.AccountID)
-	if meta.SessionID != "" {
-		id.SessionID = proxy.NormalizeClientIdentifier(meta.SessionID)
-	}
+	id.SessionID = requestcontext.AnthropicHeaderSessionID(h, meta)
 	if metaEmail := proxy.NormalizeEmail(meta.Email); metaEmail != "" {
 		id.Email = metaEmail
 	}

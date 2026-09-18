@@ -22,7 +22,7 @@ const (
 )
 
 // RouterKeyHeader carries the Weave Router key when clients need to preserve Authorization / x-api-key for the upstream provider.
-const RouterKeyHeader = "X-Weave-Router-Key"
+const RouterKeyHeader = auth.RouterKeyHeader
 
 // AnthropicSubscriptionHeader carries a caller's Claude subscription OAuth
 // token (sk-ant-oat-) alongside an rk_ router key, so the proxy can bill
@@ -258,24 +258,11 @@ func tryAdminCookie(c *gin.Context, svc *auth.Service) *auth.AdminPrincipal {
 
 // extractToken pulls the router token from RouterKeyHeader first, then falls back to Authorization: Bearer or x-api-key.
 func extractToken(c *gin.Context) string {
-	if t := strings.TrimSpace(c.GetHeader(RouterKeyHeader)); t != "" {
-		return t
-	}
-	if t := extractBearer(c.GetHeader("Authorization")); t != "" {
-		return t
-	}
-	return strings.TrimSpace(c.GetHeader("x-api-key"))
+	return auth.RoutingTokenFromHeaders(c.Request.Header)
 }
 
 func extractBearer(header string) string {
-	if header == "" {
-		return ""
-	}
-	const prefix = "Bearer "
-	if len(header) > len(prefix) && strings.EqualFold(header[:len(prefix)], prefix) {
-		return strings.TrimSpace(header[len(prefix):])
-	}
-	return ""
+	return auth.BearerToken(header)
 }
 
 func handleAuthError(c *gin.Context, err error) {

@@ -113,11 +113,24 @@ func (r *Registry) ReadRelease(ctx context.Context, ref ObjectRef) (Release, err
 
 // ReadPolicy reads and fully validates exact immutable Go selection-policy bytes.
 func (r *Registry) ReadPolicy(ctx context.Context, ref ObjectRef) (*rosterdata.Roster, error) {
+	roster, err := r.ReadServingPolicy(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	if err := rosterdata.ValidateCatalog(roster); err != nil {
+		return nil, err
+	}
+	return roster, nil
+}
+
+// ReadServingPolicy validates exact bytes and schema only. Managed compatibility must use
+// the selected worker image's catalog, not whichever catalog the controller was built with.
+func (r *Registry) ReadServingPolicy(ctx context.Context, ref ObjectRef) (*rosterdata.Roster, error) {
 	payload, err := r.readExact(ctx, ref, "router_policy/v1/policies/sha256/")
 	if err != nil {
 		return nil, err
 	}
-	roster, err := rosterdata.ParseValidated(payload)
+	roster, err := rosterdata.Parse(payload)
 	if err != nil {
 		return nil, err
 	}
@@ -128,6 +141,7 @@ func (r *Registry) ReadPolicy(ctx context.Context, ref ObjectRef) (*rosterdata.R
 	if !bytes.Equal(canonical, payload) {
 		return nil, errors.New("selection policy object is not canonical JSON")
 	}
+	roster.SHA256 = rosterdata.SHA256Hex(payload)
 	return roster, nil
 }
 
@@ -237,7 +251,7 @@ func (r *Registry) publishImmutable(ctx context.Context, name string, payload []
 		return ObjectRef{}, errors.New("immutable policy write returned no generation")
 	}
 	ref := ObjectRef{URI: r.objectURI(name), SHA256: digest, Generation: attrs.Generation}
-	stored, err := r.readExact(ctx, ref, "router_policy/v1/")
+	stored, err := r.readObject(ctx, name, ref.Generation)
 	if err != nil {
 		return ObjectRef{}, err
 	}

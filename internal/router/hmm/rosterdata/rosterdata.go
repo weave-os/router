@@ -16,7 +16,7 @@ import (
 	"sort"
 	"strings"
 
-	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/hmm/armid"
 )
 
 type SchemaVersion string
@@ -202,7 +202,7 @@ func ValidateCatalog(roster *Roster) error {
 	if roster == nil {
 		return errors.New("rosterdata: nil roster")
 	}
-	if diagnostics := hmm.ValidateRosterIDs(roster.AllArms()); len(diagnostics) > 0 {
+	if diagnostics := armid.ValidateRosterIDs(roster.AllArms()); len(diagnostics) > 0 {
 		lines := make([]string, 0, len(diagnostics))
 		for _, diagnostic := range diagnostics {
 			lines = append(lines, fmt.Sprintf("%s: %s", diagnostic.RosterID, diagnostic.Reason))
@@ -228,7 +228,7 @@ func CanonicalBytes(roster *Roster) ([]byte, error) {
 }
 
 // Load reads and fully validates the roster at path, including catalog
-// validation of every arm via hmm.ValidateRosterIDs.
+// validation of every arm via armid.ValidateRosterIDs.
 func Load(path string) (*Roster, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

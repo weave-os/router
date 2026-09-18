@@ -104,6 +104,9 @@ type Features struct {
 	// PolicyPinEnabled registers the x-weave-policy-pin middleware. Off means
 	// the header is never read.
 	PolicyPinEnabled bool
+	// ServingAdmission verifies gateway assertions and pins request snapshots.
+	// Nil keeps legacy/self-hosted workers on their existing admission path.
+	ServingAdmission *middleware.ServingAdmissionConfig
 }
 
 // RegisterWithFeatures is Register with optional request features enabled.
@@ -132,6 +135,10 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	var policyPinMiddleware []gin.HandlerFunc
 	if features.PolicyPinEnabled {
 		policyPinMiddleware = []gin.HandlerFunc{middleware.WithPolicyPinOverride()}
+	}
+	var servingAdmissionMiddleware []gin.HandlerFunc
+	if features.ServingAdmission != nil {
+		servingAdmissionMiddleware = []gin.HandlerFunc{middleware.WithServingAdmission(features.ServingAdmission)}
 	}
 
 	engine.GET("/health", middleware.WithTimeout(healthTimeout), admin.HealthHandler)
@@ -251,8 +258,9 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithTimingEntry(),
 		middleware.WithTimeout(messagesTimeout),
 		middleware.WithAuth(authSvc, byokRequiresOptIn),
-		middleware.WithAgentShadowEvaluation(),
 	}
+	messagesMiddleware = append(messagesMiddleware, servingAdmissionMiddleware...)
+	messagesMiddleware = append(messagesMiddleware, middleware.WithAgentShadowEvaluation())
 	if billingSvc != nil {
 		messagesMiddleware = append(messagesMiddleware,
 			middleware.WithBillingSpan(),
@@ -280,6 +288,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithTimeout(chatCompletionTimeout),
 		middleware.WithAuth(authSvc, byokRequiresOptIn),
 	}
+	chatCompletionMiddleware = append(chatCompletionMiddleware, servingAdmissionMiddleware...)
 	if billingSvc != nil {
 		chatCompletionMiddleware = append(chatCompletionMiddleware,
 			middleware.WithBillingSpan(),
@@ -328,6 +337,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithTimeout(routeTimeout),
 		middleware.WithAuth(authSvc, byokRequiresOptIn),
 	}
+	routeMiddleware = append(routeMiddleware, servingAdmissionMiddleware...)
 	if billingSvc != nil {
 		routeMiddleware = append(routeMiddleware,
 			middleware.WithBillingSpan(),
@@ -354,12 +364,15 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithTimingEntry(),
 		middleware.WithTimeout(routeTimeout),
 		middleware.WithAuth(authSvc, byokRequiresOptIn),
+	}
+	previewMiddleware = append(previewMiddleware, servingAdmissionMiddleware...)
+	previewMiddleware = append(previewMiddleware,
 		middleware.WithEmbedOnlyUserMessageOverride(),
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
 		middleware.WithPolicyDebugOverride(),
 		middleware.WithAllowedModelsOverride(proxySvc),
 		middleware.WithRoutingKnobsOverride(),
-	}
+	)
 	previewMiddleware = append(previewMiddleware, policyPinMiddleware...)
 	previewGroup := engine.Group("", previewMiddleware...)
 	previewGroup.POST("/v1/route/preview", anthropicapi.PreviewRouteHandler(proxySvc))

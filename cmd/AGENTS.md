@@ -6,7 +6,7 @@ Composition root. Only place that constructs concrete adapters + wires them toge
 
 ## Rules
 
-- **`cmd/router/main.go` is the only file that imports concrete `internal/providers/*` adapters and `internal/postgres`.** No other place wires things.
+- **`cmd/router/main.go` wires worker provider adapters and persistence. `cmd/router-gateway/main.go` wires only gateway authentication, admission persistence, the registry and IAM forwarding.** The gateway must not construct provider clients, billing, ONNX routing or policy-selection runtimes. Keep its image independent of worker releases.
 - Keep `main.go` focused on wiring. Today's helpers:
   - `buildClusterScorer` — per-version Scorer assembly + embedder warmup
   - `buildExploringRouter` — optionally wraps the cluster router in `banditexplore` (env-flag gated; off by default)

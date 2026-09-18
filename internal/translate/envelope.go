@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/translate/toolcheck"
 
@@ -164,71 +165,20 @@ func (e *RequestEnvelope) MetadataUserID() string {
 	return gjson.GetBytes(e.body, "metadata.user_id").String()
 }
 
-// clientSessionEmbeddedUUID pulls the bare session UUID out of bundled
-// identifiers like Claude Code's "user_<account>_account__session_<session>".
-var clientSessionEmbeddedUUID = regexp.MustCompile(
-	`(?i)session[_\-]?(?:id[=:])?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`,
-)
-
-// clientSessionTrailingUUID matches a UUID at the end of a string. Fallback for
-// formats that just dump the session UUID with no marker prefix.
-var clientSessionTrailingUUID = regexp.MustCompile(
-	`([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$`,
-)
-
-const clientSessionIDMaxLen = 64
-
 // ClientSessionID returns the calling client's own session identifier for log
 // correlation — unlike the internal session_key (sha256 of apiKeyID+user_id),
 // this is the value visible to the client itself (e.g. via `/status`).
 // Extracted from metadata.user_id (Anthropic/Gemini) or user (OpenAI); a
 // UUID-shaped marker is pulled out bare, otherwise the raw value is truncated
-// to clientSessionIDMaxLen. Returns "" when nothing usable is set.
+// to the legacy 64-byte envelope bound. Returns "" when nothing usable is set.
 func (e *RequestEnvelope) ClientSessionID() string {
-	var raw string
 	switch e.format {
-	case FormatAnthropic, FormatGemini:
-		raw = gjson.GetBytes(e.body, "metadata.user_id").String()
+	case FormatAnthropic:
+		return requestcontext.BodySessionID(e.body, requestcontext.ConversationAnthropic)
+	case FormatGemini:
+		return requestcontext.BodySessionID(e.body, requestcontext.ConversationGemini)
 	case FormatOpenAI:
-		raw = gjson.GetBytes(e.body, "user").String()
-		if raw == "" {
-			raw = gjson.GetBytes(e.body, "metadata.user_id").String()
-		}
-	}
-	if raw == "" {
-		return ""
-	}
-	// Claude Code packs the identifier as a stringified JSON object like
-	// {"device_id":"…","session_id":"<uuid>","account_id":"…"}; probe known
-	// keys before falling back to regex.
-	if id := jsonSessionIDField(raw); id != "" {
-		return id
-	}
-	if m := clientSessionEmbeddedUUID.FindStringSubmatch(raw); m != nil {
-		return m[1]
-	}
-	if m := clientSessionTrailingUUID.FindStringSubmatch(raw); m != nil {
-		return m[1]
-	}
-	if len(raw) > clientSessionIDMaxLen {
-		return raw[:clientSessionIDMaxLen]
-	}
-	return raw
-}
-
-// jsonSessionIDField returns the first matching session-id field when raw is
-// a JSON object, else "". Key order matches observed client shapes.
-func jsonSessionIDField(raw string) string {
-	if len(raw) == 0 || raw[0] != '{' {
-		return ""
-	}
-	if !gjson.Valid(raw) {
-		return ""
-	}
-	for _, key := range [...]string{"session_id", "sessionId", "conversation_id", "conversationId"} {
-		if v := gjson.Get(raw, key).String(); v != "" {
-			return v
-		}
+		return requestcontext.BodySessionID(e.body, requestcontext.ConversationChat)
 	}
 	return ""
 }

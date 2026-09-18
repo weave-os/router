@@ -54,6 +54,8 @@ type APIKey struct {
 	CreatedAt      time.Time
 	DeletedAt      *time.Time
 	CreatedBy      *string
+	// CredentialSubjectID is authenticated ownership, unlike client-asserted attribution or CreatedBy.
+	CredentialSubjectID string
 }
 
 type CreateAPIKeyParams struct {

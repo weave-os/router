@@ -28,6 +28,7 @@ const (
 	commandPromote      commandName = "promote"
 	commandRollback     commandName = "rollback"
 	commandStatus       commandName = "status"
+	commandServing      commandName = "serving"
 )
 
 const defaultRegistryURI = "gs://weave_ml/weave_registry"
@@ -54,6 +55,8 @@ func run(ctx context.Context, args []string) error {
 		return errors.New("usage: policyctl <compile|check-rosters|validate|publish|promote|rollback|status> [flags]")
 	}
 	switch commandName(args[0]) {
+	case commandServing:
+		return runServing(ctx, args[1:])
 	case commandCompile:
 		return runCompile(args[1:])
 	case commandCheckRosters:

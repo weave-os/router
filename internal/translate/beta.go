@@ -195,6 +195,7 @@ func isBetaAckOnlyContent(content gjson.Result) bool {
 func isBetaAckText(text string) bool {
 	switch strings.TrimSpace(text) {
 	case "✦ **Weave Router** → Beta enabled. Type /beta again to turn it off.",
+		"✦ **Weave Router** → " + BetaRetiredMessage,
 		"✦ **Weave Router** → Beta disabled. Stable routing restored.",
 		"✦ **Weave Router** → Beta is unavailable for this session.",
 		"✦ **Weave Router** → Usage: /beta":

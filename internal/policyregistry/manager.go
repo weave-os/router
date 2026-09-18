@@ -273,7 +273,7 @@ func (r *DynamicRouter) Available() bool {
 
 // Route delegates the complete request to one immutable runtime snapshot.
 func (r *DynamicRouter) Route(ctx context.Context, request router.Request) (router.Decision, error) {
-	activeRouter, err := r.activeRouter()
+	activeRouter, err := r.activeRouter(ctx)
 	if err != nil {
 		return router.Decision{}, err
 	}
@@ -282,7 +282,7 @@ func (r *DynamicRouter) Route(ctx context.Context, request router.Request) (rout
 
 // PreviewRoute delegates preview to the same immutable router used for serving.
 func (r *DynamicRouter) PreviewRoute(ctx context.Context, request router.Request) (policy.PreviewResult, error) {
-	activeRouter, err := r.activeRouter()
+	activeRouter, err := r.activeRouter(ctx)
 	if err != nil {
 		return policy.PreviewResult{}, err
 	}
@@ -295,7 +295,7 @@ func (r *DynamicRouter) PreviewRoute(ctx context.Context, request router.Request
 
 // CurrentCapabilities reports the active immutable classifier contract.
 func (r *DynamicRouter) CurrentCapabilities() policy.Capabilities {
-	activeRouter, err := r.activeRouter()
+	activeRouter, err := r.activeRouter(context.Background())
 	if err != nil {
 		return policy.Capabilities{}
 	}
@@ -308,7 +308,7 @@ func (r *DynamicRouter) CurrentCapabilities() policy.Capabilities {
 
 // ReportOutcome forwards classifier-learning outcomes without granting Python selection authority.
 func (r *DynamicRouter) ReportOutcome(ctx context.Context, payload map[string]interface{}) error {
-	activeRouter, err := r.activeRouter()
+	activeRouter, err := r.activeRouter(ctx)
 	if err != nil {
 		return err
 	}
@@ -321,7 +321,7 @@ func (r *DynamicRouter) ReportOutcome(ctx context.Context, payload map[string]in
 
 // ReportFeedback forwards explicit classifier feedback to the active revision.
 func (r *DynamicRouter) ReportFeedback(ctx context.Context, payload map[string]interface{}) error {
-	activeRouter, err := r.activeRouter()
+	activeRouter, err := r.activeRouter(ctx)
 	if err != nil {
 		return err
 	}
@@ -334,7 +334,7 @@ func (r *DynamicRouter) ReportFeedback(ctx context.Context, payload map[string]i
 
 // ObserveEscalation forwards one observation to the classifier revision in the active snapshot.
 func (r *DynamicRouter) ObserveEscalation(ctx context.Context, request escalation.ObserveRequest) (escalation.ObserveResponse, error) {
-	activeRouter, err := r.activeRouter()
+	activeRouter, err := r.activeRouter(ctx)
 	if err != nil {
 		return escalation.ObserveResponse{}, err
 	}
@@ -345,11 +345,14 @@ func (r *DynamicRouter) ObserveEscalation(ctx context.Context, request escalatio
 	return observer.ObserveEscalation(ctx, request)
 }
 
-func (r *DynamicRouter) activeRouter() (router.Router, error) {
+func (r *DynamicRouter) activeRouter(ctx context.Context) (router.Router, error) {
 	if r == nil || r.manager == nil {
 		return nil, fmt.Errorf("%w: %w", router.ErrStrategyUnavailable, ErrNoActivePolicy)
 	}
-	snapshot := r.manager.Active()
+	snapshot := ServingSnapshotFromContext(ctx)
+	if snapshot == nil {
+		snapshot = r.manager.Active()
+	}
 	if snapshot == nil {
 		return nil, fmt.Errorf("%w: %w", router.ErrStrategyUnavailable, ErrNoActivePolicy)
 	}

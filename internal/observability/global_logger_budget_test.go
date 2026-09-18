@@ -22,6 +22,8 @@ import (
 var globalLoggerBudget = map[string]int{
 	// Composition root: no request exists yet.
 	"cmd/router": 11,
+	// Independent gateway composition root: startup/shutdown failure only.
+	"cmd/router-gateway": 1,
 
 	// Pure schema-emit / validation helpers with no ctx in scope. Threading a
 	// ctx through these is a wider refactor; they are diagnostics about a

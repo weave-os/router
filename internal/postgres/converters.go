@@ -105,18 +105,19 @@ func toAuthInstallation(row sqlc.RouterModelRouterInstallation) *auth.Installati
 
 func toAuthAPIKey(row sqlc.RouterModelRouterAPIKey) *auth.APIKey {
 	return &auth.APIKey{
-		ID:             row.ID.String(),
-		InstallationID: row.InstallationID.String(),
-		ExternalID:     row.ExternalID,
-		Name:           row.Name,
-		KeyPrefix:      row.KeyPrefix,
-		KeyHash:        row.KeyHash,
-		KeySuffix:      row.KeySuffix,
-		Scope:          auth.APIKeyScope(row.Scope),
-		LastUsedAt:     timestampPtr(row.LastUsedAt),
-		CreatedAt:      timestampOrZero(row.CreatedAt),
-		DeletedAt:      timestampPtr(row.DeletedAt),
-		CreatedBy:      row.CreatedBy,
+		ID:                  row.ID.String(),
+		InstallationID:      row.InstallationID.String(),
+		ExternalID:          row.ExternalID,
+		Name:                row.Name,
+		KeyPrefix:           row.KeyPrefix,
+		KeyHash:             row.KeyHash,
+		KeySuffix:           row.KeySuffix,
+		Scope:               auth.APIKeyScope(row.Scope),
+		CredentialSubjectID: uuidString(row.CredentialSubjectID),
+		LastUsedAt:          timestampPtr(row.LastUsedAt),
+		CreatedAt:           timestampOrZero(row.CreatedAt),
+		DeletedAt:           timestampPtr(row.DeletedAt),
+		CreatedBy:           row.CreatedBy,
 	}
 }
 

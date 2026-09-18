@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -30,7 +29,7 @@ func ClientIdentityFrom(ctx context.Context) ClientIdentity {
 // anthropic.stashClientIdentity) overlay those after calling this.
 func ClientIdentityFromHeaders(h http.Header) ClientIdentity {
 	return ClientIdentity{
-		SessionID:   sessionIDFromHeaders(h),
+		SessionID:   requestcontext.SessionIDFromHeaders(h),
 		Email:       NormalizeEmail(h.Get("X-Weave-User-Email")),
 		DisplayName: NormalizeDisplayName(h.Get("X-Weave-User-Name")),
 		UserAgent:   h.Get("User-Agent"),
@@ -43,18 +42,6 @@ func ClientIdentityFromHeaders(h http.Header) ClientIdentity {
 // sends X-Claude-Code-Session-Id; Codex 0.149+ sends Session-Id (and Thread-Id
 // with the same value on the main thread). First match wins so a mixed
 // client cannot have Claude Code's header overwritten by Codex leftovers.
-func sessionIDFromHeaders(h http.Header) string {
-	for _, key := range [...]string{
-		ClaudeCodeSessionHeader,
-		"Session-Id",
-		"Thread-Id",
-	} {
-		if id := NormalizeClientIdentifier(h.Get(key)); id != "" {
-			return id
-		}
-	}
-	return ""
-}
 
 // ResolveUserFromContext dispatches identity signals from ctx to
 // auth.Service.ResolveAndStashUser. No-op if deps are missing or both email
@@ -90,24 +77,12 @@ func ResolveUserFromContext(ctx context.Context, authSvc *auth.Service, installa
 
 // ClaudeCodeMetadata mirrors the JSON Claude Code encodes into
 // metadata.user_id. Email is promoted to router.model_router_users.
-type ClaudeCodeMetadata struct {
-	DeviceID  string `json:"device_id"`
-	AccountID string `json:"account_uuid"`
-	SessionID string `json:"session_id"`
-	Email     string `json:"email"`
-}
+type ClaudeCodeMetadata = requestcontext.ClaudeCodeMetadata
 
 // ParseClaudeCodeMetadata extracts identity fields from the JSON in
 // metadata.user_id. Best-effort: returns zero on parse failure.
 func ParseClaudeCodeMetadata(raw string) ClaudeCodeMetadata {
-	if raw == "" {
-		return ClaudeCodeMetadata{}
-	}
-	var meta ClaudeCodeMetadata
-	if err := json.Unmarshal([]byte(raw), &meta); err != nil {
-		return ClaudeCodeMetadata{}
-	}
-	return meta
+	return requestcontext.ParseClaudeCodeMetadata(raw)
 }
 
 // MaxEmailLen caps email length per RFC 5321 §4.5.3.1.3 (256 bytes).
@@ -115,15 +90,12 @@ const MaxEmailLen = 254
 
 // MaxClientIdentifierLen bounds caller-controlled opaque identifiers.
 // Claude Code emits ~36-char UUIDs; 128 leaves flood-protection headroom.
-const MaxClientIdentifierLen = 128
+const MaxClientIdentifierLen = requestcontext.MaxClientIdentifierLen
 
 // NormalizeClientIdentifier returns s unchanged if within bounds, else "".
 // Rejects rather than truncates: a truncated id looks valid but no longer correlates.
 func NormalizeClientIdentifier(s string) string {
-	if len(s) > MaxClientIdentifierLen {
-		return ""
-	}
-	return s
+	return requestcontext.NormalizeClientIdentifier(s)
 }
 
 // RolloutIDHeader carries the eval/training-harness rollout correlation id.
