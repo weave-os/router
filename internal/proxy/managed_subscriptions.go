@@ -139,12 +139,18 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 				if len(rejected) > 0 && !billing.SubscriptionOnlyFromContext(ctx) && s.anthropicFallbackKeyAvailable(ctx) {
 					return ctx, subscriptions.Lease{}, false, nil
 				}
+				if len(rejected) > 0 {
+					return ctx, subscriptions.Lease{}, true, anthropicSubscriptionModelUnavailable(model)
+				}
 				return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolExhausted
 			}
 			return ctx, subscriptions.Lease{}, present, errors.Join(ErrSubscriptionPoolUnavailable, err)
 		}
 		if !present && len(rejected) > 0 && !billing.SubscriptionOnlyFromContext(ctx) && s.anthropicFallbackKeyAvailable(ctx) {
 			return ctx, subscriptions.Lease{}, false, nil
+		}
+		if !present && len(rejected) > 0 {
+			return ctx, subscriptions.Lease{}, true, anthropicSubscriptionModelUnavailable(model)
 		}
 		if !present {
 			return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolExhausted
@@ -157,7 +163,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			if !billing.SubscriptionOnlyFromContext(ctx) && s.anthropicFallbackKeyAvailable(ctx) {
 				return ctx, subscriptions.Lease{}, false, nil
 			}
-			return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolExhausted
+			return ctx, subscriptions.Lease{}, true, anthropicSubscriptionModelUnavailable(model)
 		}
 		seen[lease.AccountID] = struct{}{}
 		rejected = append(rejected, lease)

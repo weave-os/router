@@ -335,6 +335,37 @@ func TestDispatchWithFallbackRotatesManagedModelDenialToEligibleAccount(t *testi
 	assert.True(t, servedOnSubscription(ctx))
 }
 
+func TestDispatchWithFallbackKeepsManagedModelDenialModelSpecific(t *testing.T) {
+	leaser := &scriptedSubscriptionLeaser{
+		leases:     []subscriptions.Lease{{AccountID: "opaque-a", AccessToken: "token-a"}},
+		repeatLast: true,
+	}
+	client := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{err: modelAccessError()}}}
+	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: client}).WithManagedSubscriptions(leaser)
+	recorder := httptest.NewRecorder()
+	buffer := newPreludeBuffer(recorder)
+
+	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), failoverInputs{
+		w:               recorder,
+		buf:             buffer,
+		initialDecision: router.Decision{Model: parityAnthropicModel, Provider: providers.ProviderAnthropic},
+		purpose:         inference.PurposeAnthropicMessages,
+		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+		attempt: func(ctx context.Context, decision router.Decision, upstream providers.Client) error {
+			buffer.Seal()
+			return upstream.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+		},
+	})
+
+	require.Error(t, err)
+	var upstreamErr *providers.UpstreamErrorResponse
+	require.ErrorAs(t, err, &upstreamErr)
+	assert.Equal(t, http.StatusNotFound, upstreamErr.Status)
+	assert.True(t, anthropicSubscriptionModelRejected(err))
+	assert.False(t, isSubscriptionPoolError(err))
+	assert.Equal(t, 1, client.calls)
+}
+
 func TestDispatchWithFallbackBoundsManagedAccountRotationByTime(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{
 		{AccountID: "opaque-a", AccessToken: "token-a"},

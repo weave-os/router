@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"hash/maphash"
 	"net/http"
@@ -72,6 +73,17 @@ func anthropicSubscriptionModelRejected(err error) bool {
 	}
 	return gjson.GetBytes(upstream.Body, "error.type").String() == "not_found_error" &&
 		strings.HasPrefix(strings.ToLower(gjson.GetBytes(upstream.Body, "error.message").String()), "model:")
+}
+
+func anthropicSubscriptionModelUnavailable(model string) error {
+	body, _ := json.Marshal(map[string]any{
+		"type": "error",
+		"error": map[string]string{
+			"type":    "not_found_error",
+			"message": "model: " + router.StripDateSuffix(model),
+		},
+	})
+	return &providers.UpstreamErrorResponse{Status: http.StatusNotFound, Body: body}
 }
 
 func (s *Service) recordSubscriptionModelRejection(ctx context.Context, provider, model string, err error) {
