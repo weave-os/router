@@ -36,8 +36,8 @@ CREATE TABLE router.subscriber_allowance_periods (
         period_kind <> 'six_hour'
         OR (
             period_end = period_start + INTERVAL '6 hours'
-            AND period_start = date_trunc('hour', period_start)
-            AND EXTRACT(HOUR FROM period_start) IN (0, 6, 12, 18)
+            AND period_start AT TIME ZONE 'UTC' = date_trunc('hour', period_start AT TIME ZONE 'UTC')
+            AND EXTRACT(HOUR FROM period_start AT TIME ZONE 'UTC') IN (0, 6, 12, 18)
         )
     )
 );
@@ -69,8 +69,8 @@ CREATE TABLE router.subscriber_allowance_actions (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CHECK (billing_period_start < billing_period_end),
     CHECK (six_hour_period_end = six_hour_period_start + INTERVAL '6 hours'),
-    CHECK (six_hour_period_start = date_trunc('hour', six_hour_period_start)),
-    CHECK (EXTRACT(HOUR FROM six_hour_period_start) IN (0, 6, 12, 18)),
+    CHECK (six_hour_period_start AT TIME ZONE 'UTC' = date_trunc('hour', six_hour_period_start AT TIME ZONE 'UTC')),
+    CHECK (EXTRACT(HOUR FROM six_hour_period_start AT TIME ZONE 'UTC') IN (0, 6, 12, 18)),
     CHECK (finalized_at IS NULL OR finalized_at >= reserved_at),
     CHECK (released_at IS NULL OR released_at >= reserved_at),
     CHECK (

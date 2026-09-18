@@ -117,9 +117,7 @@ type Period struct {
 
 // Validate rejects unknown, empty, or non-UTC intervals.
 func (p Period) Validate() error {
-	_, startOffset := p.Start.Zone()
-	_, endOffset := p.End.Zone()
-	if !p.Kind.Valid() || p.Start.IsZero() || p.End.IsZero() || !p.Start.Before(p.End) || startOffset != 0 || endOffset != 0 {
+	if !p.Kind.Valid() || p.Start.IsZero() || p.End.IsZero() || !p.Start.Before(p.End) || !isUTC(p.Start) || !isUTC(p.End) {
 		return ErrInvalidContract
 	}
 	if p.Kind == PeriodKindSixHour && p.End.Sub(p.Start) != 6*time.Hour {
@@ -167,11 +165,9 @@ type Entitlement struct {
 
 // Validate rejects malformed entitlement projections.
 func (e Entitlement) Validate() error {
-	_, effectiveOffset := e.EffectiveAt.Zone()
-	_, projectedOffset := e.ProjectedAt.Zone()
 	if !e.SubscriberID.Valid() || e.Version <= 0 || !e.Plan.Valid() || !e.Status.Valid() ||
 		e.MonthlyAllowanceUsdMicros < 0 || e.NominalMonthlyAllowanceUsdMicros < 0 || e.SixHourAllowanceUsdMicros < 0 ||
-		e.EffectiveAt.IsZero() || e.ProjectedAt.IsZero() || effectiveOffset != 0 || projectedOffset != 0 {
+		e.EffectiveAt.IsZero() || e.ProjectedAt.IsZero() || !isUTC(e.EffectiveAt) || !isUTC(e.ProjectedAt) {
 		return ErrInvalidContract
 	}
 	if e.BillingPeriod.Kind != PeriodKindBilling {
@@ -216,10 +212,9 @@ type Reservation struct {
 
 // Validate rejects malformed reservation commands.
 func (r Reservation) Validate() error {
-	_, reservedOffset := r.ReservedAt.Zone()
 	if r.ActionID == "" || r.RouterRequestID == "" || !r.SubscriberID.Valid() || r.EntitlementVersion <= 0 ||
 		!r.Plan.Valid() || r.APIKeyID == "" || r.RequestedModel == "" || r.ReservedUsdMicros < 0 ||
-		!r.CapacitySource.Valid() || r.ReservedAt.IsZero() || reservedOffset != 0 ||
+		!r.CapacitySource.Valid() || r.ReservedAt.IsZero() || !isUTC(r.ReservedAt) ||
 		r.BillingPeriod.Kind != PeriodKindBilling || r.SixHourPeriod.Kind != PeriodKindSixHour {
 		return ErrInvalidContract
 	}
@@ -240,8 +235,7 @@ type Finalization struct {
 
 // Validate rejects malformed finalization commands.
 func (f Finalization) Validate() error {
-	_, offset := f.FinalizedAt.Zone()
-	if f.ActionID == "" || f.ServedModel == "" || f.RetailUsdMicros < 0 || !f.CapacitySource.Valid() || f.FinalizedAt.IsZero() || offset != 0 {
+	if f.ActionID == "" || f.ServedModel == "" || f.RetailUsdMicros < 0 || !f.CapacitySource.Valid() || f.FinalizedAt.IsZero() || !isUTC(f.FinalizedAt) {
 		return ErrInvalidContract
 	}
 	return nil
@@ -255,8 +249,7 @@ type Release struct {
 
 // Validate rejects malformed release commands.
 func (r Release) Validate() error {
-	_, offset := r.ReleasedAt.Zone()
-	if r.ActionID == "" || r.ReleasedAt.IsZero() || offset != 0 {
+	if r.ActionID == "" || r.ReleasedAt.IsZero() || !isUTC(r.ReleasedAt) {
 		return ErrInvalidContract
 	}
 	return nil
@@ -295,11 +288,11 @@ func (a Action) Validate() error {
 }
 
 func validUTCTime(value *time.Time) bool {
-	if value == nil || value.IsZero() {
-		return false
-	}
-	_, offset := value.Zone()
-	return offset == 0
+	return value != nil && !value.IsZero() && isUTC(*value)
+}
+
+func isUTC(value time.Time) bool {
+	return value.Location() == time.UTC
 }
 
 // EntitlementRepository stores the current monotonic projection per subscriber.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -92,20 +93,28 @@ func toSubscriberEntitlement(row sqlc.RouterSubscriberEntitlement) (entitlement.
 		Status:       entitlement.Status(row.Status),
 		BillingPeriod: entitlement.Period{
 			Kind:  entitlement.PeriodKindBilling,
-			Start: timestamptzOrZero(row.BillingPeriodStart),
-			End:   timestamptzOrZero(row.BillingPeriodEnd),
+			Start: subscriberTimestamptzUTCOrZero(row.BillingPeriodStart),
+			End:   subscriberTimestamptzUTCOrZero(row.BillingPeriodEnd),
 		},
-		EffectiveAt:                      timestamptzOrZero(row.EffectiveAt),
+		EffectiveAt:                      subscriberTimestamptzUTCOrZero(row.EffectiveAt),
 		MonthlyAllowanceUsdMicros:        row.MonthlyAllowanceUsdMicros,
 		NominalMonthlyAllowanceUsdMicros: row.NominalMonthlyAllowanceUsdMicros,
 		SixHourAllowanceUsdMicros:        row.SixHourAllowanceUsdMicros,
 		AutoTopUpEnabled:                 row.AutoTopUpEnabled,
-		ProjectedAt:                      timestamptzOrZero(row.ProjectedAt),
+		ProjectedAt:                      subscriberTimestamptzUTCOrZero(row.ProjectedAt),
 	}
 	if err := projected.Validate(); err != nil {
 		return entitlement.Entitlement{}, fmt.Errorf("decode subscriber entitlement: %w", err)
 	}
 	return projected, nil
+}
+
+func subscriberTimestamptzUTCOrZero(value pgtype.Timestamptz) time.Time {
+	timestamp := timestamptzOrZero(value)
+	if timestamp.IsZero() {
+		return timestamp
+	}
+	return timestamp.UTC()
 }
 
 var _ entitlement.EntitlementRepository = (*SubscriberEntitlementRepo)(nil)
