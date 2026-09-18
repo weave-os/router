@@ -32,6 +32,7 @@ Claude Code keep using the user's logged-in plan.
 | --------------------- | --------------------------------------------------------- | ------ |
 | `OPENROUTER_API_KEY`  | *(none)*                                                  | **Recommended baseline.** Enables OpenRouter and the full OSS-model pool the cluster scorer is trained against. |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1`                            | Override for OpenRouter or any OpenAI-compatible endpoint (vLLM, Together, Fireworks, self-hosted). |
+| `ROUTER_MODEL_ID_MAP` | *(none)* | Comma-separated `catalog=upstream` pairs rewritten on the OpenRouter client's request body only. Catalog IDs, logs, `x-router-model`, and billing stay unchanged. Empty/unset is a no-op; invalid pairs fail boot. |
 | `ANTHROPIC_API_KEY`   | *(none — passthrough)*                                    | Router's own Anthropic key. When unset, client `Authorization` headers pass through. |
 | `OPENAI_API_KEY`      | *(none)*                                                  | Enables the OpenAI provider (Chat Completions API). |
 | `OPENAI_BASE_URL`     | `https://api.openai.com`                                  | Override for OpenAI (e.g. Azure OpenAI). |

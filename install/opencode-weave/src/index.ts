@@ -38,6 +38,7 @@ import type { AssistantMessage, Message } from "@opencode-ai/sdk"
 import { readFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
+import { rewriteDirectiveParts } from "./directives.ts"
 
 // ---- ChatGPT (Codex) OAuth -------------------------------------------------
 const CHATGPT_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
@@ -462,6 +463,9 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
   const routedModelIDsByMessage = new Map<string, string>()
   const toastedMessageIDs = new Set<string>()
   return {
+    "chat.message": async (_hookInput, output) => {
+      rewriteDirectiveParts(output.parts)
+    },
     event: async ({ event }) => {
       if (event.type !== "message.updated") return
       const info = event.properties.info

@@ -274,6 +274,17 @@ describe("weave chat.headers — OpenCode lifecycle metadata", () => {
     expect(req.headers["x-weave-openai-subscription"]).toBe(CHATGPT_ACCESS)
     expect(req.headers["x-weave-anthropic-subscription"]).toBe(CLAUDE_ACCESS)
   })
+
+  test("rewrites $rf into a leading-space router-feedback prompt", async () => {
+    const { WeaveCodex } = await import("../src/index.ts")
+    const hooks = await WeaveCodex(fakeInput())
+    const parts = [{ type: "text" as const, text: "$rf - too slow" }]
+    await hooks["chat.message"]?.(
+      { sessionID: SESSION_ID },
+      { message: { role: "user" }, parts } as never,
+    )
+    expect(parts[0].text).toBe(" /router-feedback - too slow")
+  })
 })
 
 describe("weave loader — dual subscription injection", () => {

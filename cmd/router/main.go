@@ -272,7 +272,16 @@ func main() {
 		if !byokOnly && openRouterPlatformEnabled {
 			openRouterKey = config.GetOr("OPENROUTER_API_KEY", "")
 		}
-		providerMap[providers.ProviderOpenRouter] = openaiCompatProvider.NewClient(openRouterKey, openRouterBaseURL, openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
+		openRouterModelIDMap, err := config.ParseModelIDMap(os.Getenv("ROUTER_MODEL_ID_MAP"))
+		if err != nil {
+			panic(fmt.Sprintf("ROUTER_MODEL_ID_MAP: %v", err))
+		}
+		providerMap[providers.ProviderOpenRouter] = openaiCompatProvider.NewClientWithModelIDMap(
+			openRouterKey,
+			openRouterBaseURL,
+			openRouterModelIDMap,
+			openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient),
+		)
 		switch {
 		case byokOnly:
 			logger.Info("OpenRouter provider enabled (BYOK only)", "base_url", openRouterBaseURL)

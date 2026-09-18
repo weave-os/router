@@ -53,6 +53,15 @@ With neither connected, `weave` is a plain router provider and the Weave key
 pays. Either login activates its matching subscription independently, so a
 Claude-only setup pays Claude turns from that plan without requiring ChatGPT.
 
+## Router directives
+
+OpenCode is a plugin, not a Codex skill runner. The plugin's `chat.message` hook
+rewrites `$rf` / `$router-feedback`, `$fm` / `$force-model`, `$ufm` /
+`$unforce-model`, and `$router-session` (slash forms too) into the leading-space
+`/…` prompts the router already parses. Local toggles (`router-on` / `router-off`
+/ `router-status` / `disable-routing`) stay CLI-only — this installer does not
+own a per-session config flip the way Claude Code and Codex do.
+
 ## Login
 
 `opencode auth login` → **Weave Router — Codex plan** → *ChatGPT Pro/Plus*

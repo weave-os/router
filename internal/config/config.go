@@ -37,6 +37,34 @@ func GetOr(key, defaultValue string) string {
 	return defaultValue
 }
 
+// ParseModelIDMap parses ROUTER_MODEL_ID_MAP: comma-separated catalog=upstream
+// pairs. Empty/unset returns nil (today's no-rewrite behavior). Invalid pairs
+// fail closed so a typo cannot silently skip a mapping.
+func ParseModelIDMap(raw string) (map[string]string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	out := make(map[string]string)
+	for _, pair := range strings.Split(raw, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			return nil, fmt.Errorf("invalid ROUTER_MODEL_ID_MAP pair %q (expected catalog=upstream)", pair)
+		}
+		from, to, ok := strings.Cut(pair, "=")
+		from = strings.TrimSpace(from)
+		to = strings.TrimSpace(to)
+		if !ok || from == "" || to == "" {
+			return nil, fmt.Errorf("invalid ROUTER_MODEL_ID_MAP pair %q (expected catalog=upstream)", pair)
+		}
+		if _, dup := out[from]; dup {
+			return nil, fmt.Errorf("duplicate ROUTER_MODEL_ID_MAP catalog id %q", from)
+		}
+		out[from] = to
+	}
+	return out, nil
+}
+
 // PostgresDSN returns DATABASE_URL when set, otherwise composes one from POSTGRES_* env vars.
 //
 // On Cloud Run with Cloud SQL, POSTGRES_CONNECTION_NAME routes through the Auth Proxy Unix
