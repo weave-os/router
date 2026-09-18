@@ -17,7 +17,7 @@ const ServingAssertionHeader = "X-Weave-Serving-Assertion"
 const ServerlessAuthorizationHeader = "X-Serverless-Authorization"
 
 // ServingAssertionV1 binds one admission to the exact original request and credential.
-const ServingAssertionV1 = "router_serving_assertion_v1"
+const ServingAssertionV1 ServingSchema = "router_serving_assertion_v1"
 
 const assertionLifetime = 2 * time.Minute
 const maxAssertionBytes = 16 * 1024
@@ -25,7 +25,7 @@ const maxAssertionBytes = 16 * 1024
 // ServingAssertion is request-scoped authority; it is never accepted directly from a client.
 // The signature complements private IAM ingress and limits validation identities to their own endpoints.
 type ServingAssertion struct {
-	SchemaVersion    string                `json:"schema_version"`
+	SchemaVersion    ServingSchema         `json:"schema_version"`
 	APIKeyID         string                `json:"api_key_id"`
 	Scope            AdmissionScope        `json:"scope"`
 	Admission        SessionReleaseBinding `json:"admission"`

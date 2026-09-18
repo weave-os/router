@@ -46,6 +46,12 @@ type ServingAdmissionStore interface {
 	Admit(context.Context, string, string, string, AdmissionDecision) (AdmissionScope, SessionReleaseBinding, error)
 }
 
+// RequestAttributionStore preserves the exact tuple behind the existing request-ID
+// joins in telemetry, inference attempts, billing and feedback. It is not a head.
+type RequestAttributionStore interface {
+	RecordServingRequest(context.Context, string, ServingAssertion) error
+}
+
 // ServingAdmission resolves exact manifests; it cannot fail over to another target or a lane default.
 type ServingAdmission struct {
 	Store ServingStore

@@ -10,6 +10,7 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyclient"
+	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/hmm"
 )
@@ -21,6 +22,18 @@ const hmmRosterTTL = 5 * time.Minute
 // hmmRosterRetryBackoff caps how often a failing refresh re-hits the sidecar
 // while stale data is being served, to avoid hammering it during an outage.
 const hmmRosterRetryBackoff = 30 * time.Second
+
+// Admitted snapshots already cache immutable policies. A global TTL cache here
+// would leak the first customer's roster into every subsequent request.
+type admittedHMMRosterSource struct{}
+
+func (admittedHMMRosterSource) HMMDeployedModels(ctx context.Context) ([]cluster.DeployedEntry, error) {
+	arms, err := (policyregistry.AdmittedRosterSource{}).Roster(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return hmm.DeployedModelsForRosterIDs(arms), nil
+}
 
 // rosterFetcher is the active Go policy projection needed for model discovery.
 type rosterFetcher interface {

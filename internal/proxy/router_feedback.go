@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -310,7 +311,10 @@ func (s *Service) reportRouterFeedback(
 		payload["training_conversation_delta"] = trainingDelta
 	}
 	log := observability.FromContext(ctx)
-	observability.SafeGo(log, policyFeedbackReportTimeout, "reportPolicyFeedback", func(reportCtx context.Context) {
+	if identity, managed := requestcontext.ServingIdentityFromContext(ctx); managed {
+		payload["serving_identity"] = identity
+	}
+	observability.SafeGoContext(ctx, log, policyFeedbackReportTimeout, "reportPolicyFeedback", func(reportCtx context.Context) {
 		if err := reporter.ReportFeedback(reportCtx, payload); err != nil {
 			log.Error("/router-feedback: policy feedback report failed", "strategy", strategy, "err", err)
 		}

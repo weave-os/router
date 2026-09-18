@@ -32,9 +32,10 @@ type Loader interface {
 
 // Candidate is a fully read and cross-validated release awaiting runtime construction.
 type Candidate struct {
-	HeadSnapshot HeadSnapshot
-	Release      Release
-	Policy       *rosterdata.Roster
+	HeadSnapshot       HeadSnapshot
+	Release            Release
+	Policy             *rosterdata.Roster
+	ClassifierAudience string
 }
 
 // Snapshot is the immutable policy, classifier binding, and executable routers
@@ -207,11 +208,23 @@ func (m *Manager) CheckHealth(context.Context) error {
 }
 
 // ClusterRoster returns the same Go policy currently used for selection.
-func (m *Manager) ClusterRoster(context.Context) (policy.RosterSnapshot, error) {
-	snapshot := m.active.Load()
+func (m *Manager) ClusterRoster(ctx context.Context) (policy.RosterSnapshot, error) {
+	snapshot := ServingSnapshotFromContext(ctx)
+	if snapshot == nil {
+		snapshot = m.active.Load()
+	}
 	if snapshot == nil {
 		return policy.RosterSnapshot{}, ErrNoActivePolicy
 	}
+	roster := snapshotRoster(snapshot)
+	status := m.Status()
+	roster.Environment, roster.Lane = string(m.environment), string(m.lane)
+	roster.LatestObservedGeneration, roster.RejectedGeneration = status.LatestObservedGeneration, status.RejectedGeneration
+	roster.LastRejectionReason = status.LastRejectionReason
+	return roster, nil
+}
+
+func snapshotRoster(snapshot *Snapshot) policy.RosterSnapshot {
 	clusters := make(map[string][]string, len(snapshot.Policy.Clusters))
 	for label, cluster := range snapshot.Policy.Clusters {
 		clusters[label] = append([]string(nil), cluster.Arms...)
@@ -233,14 +246,11 @@ func (m *Manager) ClusterRoster(context.Context) (policy.RosterSnapshot, error) 
 		}
 		harnesses[harness] = harnessClusters
 	}
-	status := m.Status()
 	return policy.RosterSnapshot{
 		SchemaVersion: string(snapshot.Policy.SchemaVersion), ReleaseID: snapshot.HeadSnapshot.Head.ReleaseSHA256,
 		PolicySHA256: snapshot.Release.Policy.SHA256, RosterSHA256: snapshot.Release.Policy.SHA256,
-		Environment: string(m.environment), Lane: string(m.lane), HeadGeneration: snapshot.HeadSnapshot.Generation,
-		LatestObservedGeneration: status.LatestObservedGeneration, RejectedGeneration: status.RejectedGeneration,
-		LastRejectionReason: status.LastRejectionReason, Clusters: clusters, Harnesses: harnesses,
-	}, nil
+		HeadGeneration: snapshot.HeadSnapshot.Generation, Clusters: clusters, Harnesses: harnesses,
+	}
 }
 
 // AllRosterArms returns the active policy's complete harness-aware arm union.
@@ -259,6 +269,13 @@ func (m *Manager) Roster(context.Context) ([]string, error) { return m.AllRoster
 type DynamicRouter struct {
 	manager  *Manager
 	strategy router.Strategy
+	prepared *Snapshot
+}
+
+// NewAdmittedRouter requires a request-bound runtime for dispatch. The bootstrap
+// closure proves local readiness only; it never becomes a request fallback.
+func NewAdmittedRouter(strategy router.Strategy, prepared *Snapshot) *DynamicRouter {
+	return &DynamicRouter{strategy: strategy, prepared: prepared}
 }
 
 // NewDynamicRouter binds one strategy to a hot-swappable policy manager.
@@ -268,7 +285,7 @@ func NewDynamicRouter(manager *Manager, strategy router.Strategy) *DynamicRouter
 
 // Available reports whether this lane has a validated snapshot to serve.
 func (r *DynamicRouter) Available() bool {
-	return r != nil && r.manager != nil && r.manager.Active() != nil
+	return r != nil && (r.prepared != nil || r.manager != nil && r.manager.Active() != nil)
 }
 
 // Route delegates the complete request to one immutable runtime snapshot.
@@ -295,7 +312,15 @@ func (r *DynamicRouter) PreviewRoute(ctx context.Context, request router.Request
 
 // CurrentCapabilities reports the active immutable classifier contract.
 func (r *DynamicRouter) CurrentCapabilities() policy.Capabilities {
-	activeRouter, err := r.activeRouter(context.Background())
+	if r != nil && r.prepared != nil {
+		return r.CapabilitiesForRequest(WithServingSnapshot(context.Background(), r.prepared))
+	}
+	return r.CapabilitiesForRequest(context.Background())
+}
+
+// CapabilitiesForRequest reads the admitted runtime, including retained profiles.
+func (r *DynamicRouter) CapabilitiesForRequest(ctx context.Context) policy.Capabilities {
+	activeRouter, err := r.activeRouter(ctx)
 	if err != nil {
 		return policy.Capabilities{}
 	}
@@ -346,11 +371,11 @@ func (r *DynamicRouter) ObserveEscalation(ctx context.Context, request escalatio
 }
 
 func (r *DynamicRouter) activeRouter(ctx context.Context) (router.Router, error) {
-	if r == nil || r.manager == nil {
+	if r == nil {
 		return nil, fmt.Errorf("%w: %w", router.ErrStrategyUnavailable, ErrNoActivePolicy)
 	}
 	snapshot := ServingSnapshotFromContext(ctx)
-	if snapshot == nil {
+	if snapshot == nil && r.manager != nil {
 		snapshot = r.manager.Active()
 	}
 	if snapshot == nil {

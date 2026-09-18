@@ -1,0 +1,106 @@
+package servingvalidate_test
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/servingvalidate"
+)
+
+func TestPrivateValidationPreservesIAMAudienceAndExactSnapshot(t *testing.T) {
+	selection := policyregistry.WorkerValidationRequest{Target: policyregistry.TargetStable, ProfileKey: "opaque-profile", Selection: policyregistry.ServingSelection{Release: policyregistry.ObjectRef{SHA256: "release"}, Binding: policyregistry.ObjectRef{SHA256: "binding"}}}
+	worker := policyregistry.WorkerAttestation{Ready: true, Selection: selection.Selection}
+	classifier := policyregistry.ClassifierAttestation{Ready: true, Revision: "classifier-exact"}
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "Bearer private-identity", r.Header.Get("X-Serverless-Authorization"))
+		require.Empty(t, r.Header.Get("Authorization"))
+		switch r.URL.Path {
+		case policyregistry.WorkerValidationPath:
+			require.Equal(t, http.MethodPost, r.Method)
+			var request policyregistry.WorkerValidationRequest
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+			require.Equal(t, selection, request)
+			require.NoError(t, json.NewEncoder(w).Encode(worker))
+		case policyregistry.ClassifierAttestationPath:
+			require.Equal(t, http.MethodGet, r.Method)
+			require.NoError(t, json.NewEncoder(w).Encode(classifier))
+		default:
+			t.Errorf("unexpected validation path %q", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	audience := "https://approved-service.example"
+	client, err := servingvalidate.New(server.Client(), func(_ context.Context, got string) (string, error) {
+		require.Equal(t, audience, got)
+		return "private-identity", nil
+	}, []string{server.URL, audience})
+	require.NoError(t, err)
+	revision := policyregistry.RevisionBinding{URL: server.URL, Audience: audience}
+	observedWorker, err := client.ValidateWorker(context.Background(), revision, selection)
+	require.NoError(t, err)
+	require.Equal(t, worker, observedWorker)
+	observedClassifier, err := client.AttestClassifier(context.Background(), revision)
+	require.NoError(t, err)
+	require.Equal(t, classifier, observedClassifier)
+}
+
+func TestPrivateValidationRejectsRedirectsAndIncompleteWireResponses(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		status   int
+		payload  string
+		expected string
+	}{
+		{"redirect", http.StatusTemporaryRedirect, "", "HTTP 307"},
+		{"unauthorized internal ingress", http.StatusForbidden, "private secret", "HTTP 403"},
+		{"legacy endpoint", http.StatusNotFound, "", "serving attestation support"},
+		{"trailing JSON", http.StatusOK, `{} {}`, "trailing JSON"},
+		{"unknown fields", http.StatusOK, `{"untrusted":true}`, "unknown field"},
+		{"oversized", http.StatusOK, strings.Repeat(" ", (1<<20)+1), "size limit"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != policyregistry.ClassifierAttestationPath {
+					t.Error("followed redirect")
+				}
+				w.Header().Set("Location", "/stolen-token")
+				w.WriteHeader(test.status)
+				_, _ = w.Write([]byte(test.payload))
+			}))
+			defer server.Close()
+			client, err := servingvalidate.New(server.Client(), func(context.Context, string) (string, error) { return "private-identity", nil }, []string{server.URL})
+			require.NoError(t, err)
+			_, err = client.AttestClassifier(context.Background(), policyregistry.RevisionBinding{URL: server.URL, Audience: server.URL})
+			require.ErrorContains(t, err, test.expected)
+			require.NotContains(t, err.Error(), "private secret")
+		})
+	}
+}
+
+func TestPrivateValidationRejectsUnapprovedOriginsBeforeMintingTokens(t *testing.T) {
+	client, err := servingvalidate.New(&http.Client{}, func(context.Context, string) (string, error) {
+		t.Error("token minted for unapproved destination")
+		return "", nil
+	}, []string{"https://approved.example"})
+	require.NoError(t, err)
+	for _, revision := range []policyregistry.RevisionBinding{
+		{URL: "https://attacker.example", Audience: "https://approved.example"},
+		{URL: "https://approved.example", Audience: "https://attacker.example"},
+		{URL: "https://approved.example/path", Audience: "https://approved.example"},
+	} {
+		_, err := client.AttestClassifier(context.Background(), revision)
+		require.ErrorContains(t, err, "approved private validation origin")
+	}
+	for _, origin := range []string{"http://localhost", "https://user:password@example.com", "https://example.com/", "https://example.com?", "https://example.com#fragment"} {
+		_, err := servingvalidate.New(&http.Client{}, func(context.Context, string) (string, error) { return "", nil }, []string{origin})
+		require.Error(t, err)
+	}
+}

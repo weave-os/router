@@ -41,18 +41,33 @@ type Handler struct {
 	signer      *policyregistry.AssertionSigner
 	authorizer  RevisionAuthorizer
 	transport   http.RoundTripper
+	products    *ProductSurfaces
 }
 
 // NewHandler requires authoritative storage and signed, IAM-authenticated forwarding.
-func NewHandler(credentials CredentialVerifier, admissions policyregistry.ServingAdmissionStore, registry policyregistry.ServingStore, signer *policyregistry.AssertionSigner, authorizer RevisionAuthorizer, transport http.RoundTripper) (*Handler, error) {
+func NewHandler(credentials CredentialVerifier, admissions policyregistry.ServingAdmissionStore, registry policyregistry.ServingStore, signer *policyregistry.AssertionSigner, authorizer RevisionAuthorizer, transport http.RoundTripper, products ...ProductSurfaces) (*Handler, error) {
 	if credentials == nil || admissions == nil || registry == nil || signer == nil || authorizer == nil || transport == nil {
 		return nil, errors.New("gateway requires authentication, admission, registry, assertion, IAM and transport dependencies")
 	}
-	return &Handler{credentials: credentials, admissions: admissions, registry: registry, signer: signer, authorizer: authorizer, transport: transport}, nil
+	h := &Handler{credentials: credentials, admissions: admissions, registry: registry, signer: signer, authorizer: authorizer, transport: transport}
+	if len(products) > 1 {
+		return nil, errors.New("gateway accepts one product-surface configuration")
+	}
+	if len(products) == 1 {
+		if err := products[0].validate(); err != nil {
+			return nil, err
+		}
+		h.products = &products[0]
+	}
+	return h, nil
 }
 
 // ServeHTTP preserves original ordinary-request bytes and streams without replay or response buffering.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	policyregistry.StripServingHeaders(r.Header)
+	if h.serveProductSurface(w, r) {
+		return
+	}
 	surface, ok := inferenceSurface(r)
 	if !ok {
 		http.NotFound(w, r)
@@ -61,7 +76,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 600*time.Second)
 	defer cancel()
 	r = r.Clone(ctx)
-	policyregistry.StripServingHeaders(r.Header)
 	credential := auth.RoutingTokenFromHeaders(r.Header)
 	authCtx, authCancel := context.WithTimeout(ctx, 10*time.Second)
 	installation, key, err := h.credentials.VerifyRoutingCredential(authCtx, credential)
@@ -72,6 +86,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, requestcontext.MaxRequestBodyBytes+1))
 	if err != nil {
+		observability.FromContext(ctx).Debug("Gateway request body read failed", "surface", surface, "method", r.Method, "err", err)
 		writeError(w, surface, http.StatusBadRequest, "Failed to read request body.")
 		return
 	}
@@ -79,14 +94,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeError(w, surface, http.StatusRequestEntityTooLarge, "Request body too large.")
 		return
 	}
-	if !gjson.ValidBytes(body) || !gjson.ParseBytes(body).IsObject() {
+	if (r.Method == http.MethodPost || r.Method == http.MethodPatch) && (!gjson.ValidBytes(body) || !gjson.ParseBytes(body).IsObject()) {
 		writeError(w, surface, http.StatusBadRequest, "Request body must be a JSON object.")
 		return
 	}
-	retired, err := translate.WriteRetiredBetaRequest(w, r, body, surface)
+	retired := false
+	if acceptsControlCommands(r) {
+		retired, err = translate.WriteRetiredBetaRequest(w, r, body, surface)
+	}
 	if retired {
 		if err != nil {
-			observability.FromContext(ctx).Debug("Retired beta response could not be delivered", "err", err)
+			observability.FromContext(ctx).Debug("Retired beta response could not be delivered", "surface", surface, "method", r.Method, "err", err)
 		}
 		return
 	}
@@ -95,8 +113,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	conversationID := requestcontext.CanonicalConversationID(r.Header, body, surface)
-	decision := policyregistry.ServingAdmission{Store: h.registry}
-	scope, admission, err := h.admissions.Admit(ctx, installation.ID, key.ID, conversationID, decision.Decide)
+	admissionDecider := policyregistry.ServingAdmission{Store: h.registry}
+	scope, admission, err := h.admissions.Admit(ctx, installation.ID, key.ID, conversationID, admissionDecider.Decide)
 	if err != nil {
 		h.fail(w, r, surface, err)
 		return
@@ -108,12 +126,18 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, surface, err)
 		return
 	}
-	identityToken, err := h.authorizer.IdentityToken(prepareCtx, binding.Router.Audience)
+	assertion, err := h.signer.Sign(policyregistry.ServingAssertion{APIKeyID: key.ID, Scope: scope, Admission: admission}, r, body, credential)
 	if err != nil {
 		h.fail(w, r, surface, err)
 		return
 	}
-	assertion, err := h.signer.Sign(policyregistry.ServingAssertion{APIKeyID: key.ID, Scope: scope, Admission: admission}, r, body, credential)
+	h.forward(w, r, surface, body, binding, assertion)
+}
+
+func (h *Handler) forward(w http.ResponseWriter, r *http.Request, surface requestcontext.ConversationSurface, body []byte, binding policyregistry.DeploymentBinding, assertion string) {
+	authorizeCtx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	identityToken, err := h.authorizer.IdentityToken(authorizeCtx, binding.Router.Audience)
 	if err != nil {
 		h.fail(w, r, surface, err)
 		return
@@ -133,7 +157,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// SetURL preserves path/query; never follow a worker redirect or a client target header.
 			request.SetURL(destination)
 			request.Out.Header.Set(policyregistry.ServerlessAuthorizationHeader, "Bearer "+identityToken)
-			request.Out.Header.Set(policyregistry.ServingAssertionHeader, assertion)
+			if assertion != "" {
+				request.Out.Header.Set(policyregistry.ServingAssertionHeader, assertion)
+			}
 		},
 		ModifyResponse: func(response *http.Response) error {
 			policyregistry.StripServingHeaders(response.Header)
@@ -147,26 +173,66 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func inferenceSurface(r *http.Request) (requestcontext.ConversationSurface, bool) {
+	if subscriptionSurface(r) {
+		return requestcontext.ConversationChat, true
+	}
+	if r.Method == http.MethodGet {
+		switch r.URL.Path {
+		case "/validate", "/v1/models", "/v1/display-settings", "/v1/router/models", "/v1/router/policies", "/v1/router/hmm-roster", "/v1/router/routing-distribution":
+			return requestcontext.ConversationChat, true
+		}
+		if singlePathParameter(r.URL.Path, "/v1/models/", "") || singlePathParameter(r.URL.Path, "/v1/sessions/", "/cost") {
+			return requestcontext.ConversationChat, true
+		}
+	}
 	if r.Method != http.MethodPost {
 		return "", false
 	}
 	switch r.URL.Path {
-	case "/v1/messages":
+	case "/v1/messages", "/v1/messages/count_tokens", "/v1/route", "/v1/route/preview":
 		return requestcontext.ConversationAnthropic, true
 	case "/v1/chat/completions":
 		return requestcontext.ConversationChat, true
 	case "/v1/responses":
 		return requestcontext.ConversationResponses, true
 	default:
-		if strings.HasPrefix(r.URL.Path, "/v1beta/models/") && (strings.HasSuffix(r.URL.Path, ":generateContent") || strings.HasSuffix(r.URL.Path, ":streamGenerateContent")) {
+		if singlePathParameter(r.URL.Path, "/v1beta/models/", ":generateContent") || singlePathParameter(r.URL.Path, "/v1beta/models/", ":streamGenerateContent") {
 			return requestcontext.ConversationGemini, true
 		}
 		return "", false
 	}
 }
 
+func acceptsControlCommands(r *http.Request) bool {
+	if r.Method != http.MethodPost {
+		return false
+	}
+	switch r.URL.Path {
+	case "/v1/messages", "/v1/chat/completions", "/v1/responses":
+		return true
+	default:
+		return strings.HasPrefix(r.URL.Path, "/v1beta/models/")
+	}
+}
+
+func subscriptionSurface(r *http.Request) bool {
+	if r.URL.Path == "/v1/subscriptions/accounts" {
+		return r.Method == http.MethodGet || r.Method == http.MethodPost
+	}
+	return (r.Method == http.MethodPatch || r.Method == http.MethodDelete) && singlePathParameter(r.URL.Path, "/v1/subscriptions/accounts/", "")
+}
+
+func singlePathParameter(path, prefix, suffix string) bool {
+	if !strings.HasPrefix(path, prefix) || !strings.HasSuffix(path, suffix) {
+		return false
+	}
+	parameter := strings.TrimSuffix(strings.TrimPrefix(path, prefix), suffix)
+	return parameter != "" && parameter != "." && parameter != ".." && !strings.Contains(parameter, "/")
+}
+
 func (h *Handler) fail(w http.ResponseWriter, r *http.Request, surface requestcontext.ConversationSurface, err error) {
-	log := observability.FromContext(r.Context())
+	// Feedback tokens are credentials embedded in paths/queries: never log the URL.
+	log := observability.FromContext(r.Context()).With("surface", surface, "method", r.Method)
 	if errors.Is(err, auth.ErrInvalidPrefix) || errors.Is(err, auth.ErrInvalidToken) || errors.Is(err, auth.ErrWrongKeyScope) || errors.Is(err, auth.ErrPersonalCredentialRequired) {
 		log.Debug("Gateway credential admission denied", "err", err)
 		writeError(w, surface, http.StatusUnauthorized, "Routing credential is invalid or no longer eligible.")

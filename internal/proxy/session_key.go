@@ -65,7 +65,7 @@ func bindRequestLogger(
 ) (context.Context, *slog.Logger, [sessionpin.SessionKeyLen]byte) {
 	clientSessionID := clientSessionIDForRequest(ctx, env)
 	ctx = observability.WithClientSessionID(ctx, clientSessionID)
-	key := deriveSessionKey(env, apiKeyID, clientSessionID)
+	key := deriveSessionKeyForRequest(ctx, env, apiKeyID)
 	log := observability.FromContext(ctx).With(
 		"session_key", shortKey(key),
 		"api_key_id", apiKeyID,
@@ -121,8 +121,17 @@ func DeriveSessionKey(env *translate.RequestEnvelope, apiKeyID string) [sessionp
 	return deriveSessionKey(env, apiKeyID, clientSessionID)
 }
 
+func sessionCredentialIdentity(ctx context.Context, apiKeyID string) string {
+	if identity, managed := requestcontext.ServingIdentityFromContext(ctx); managed && identity.CredentialIdentity != "" {
+		return identity.CredentialIdentity
+	}
+	return apiKeyID
+}
+
 func deriveSessionKeyForRequest(ctx context.Context, env *translate.RequestEnvelope, apiKeyID string) [sessionpin.SessionKeyLen]byte {
-	return deriveSessionKey(env, apiKeyID, clientSessionIDForRequest(ctx, env))
+	key := deriveSessionKey(env, sessionCredentialIdentity(ctx, apiKeyID), clientSessionIDForRequest(ctx, env))
+	copy(key[:], requestcontext.ServingStateKey(ctx, key[:]))
+	return key
 }
 
 const (
@@ -160,7 +169,7 @@ func deriveConversationSessionKeyForRequest(
 	threadSessionKey [sessionpin.SessionKeyLen]byte,
 	domain requestcontext.ConversationKeyDomain,
 ) [sessionpin.SessionKeyLen]byte {
-	return requestcontext.ConversationKey(apiKeyID, clientSessionIDForRequest(ctx, env), domain, threadSessionKey)
+	return requestcontext.ConversationKey(sessionCredentialIdentity(ctx, apiKeyID), clientSessionIDForRequest(ctx, env), domain, threadSessionKey)
 }
 
 func clientSessionIDForRequest(ctx context.Context, env *translate.RequestEnvelope) string {

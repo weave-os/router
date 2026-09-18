@@ -9,12 +9,14 @@ import (
 
 func TestServingCommandsRejectUnsafeTargetsBeforeOpeningRegistry(t *testing.T) {
 	for _, target := range []string{"beta", "prod/beta", "prod/unknown", ""} {
-		err := run(context.Background(), []string{"serving", "status", "--target", target})
+		err := run(context.Background(), []string{string(commandServing), string(commandStatus), "--target", target})
 		require.ErrorContains(t, err, "unsupported managed target")
 	}
 }
 
-func TestServingActivationIsNotExposedWithoutValidation(t *testing.T) {
-	err := run(context.Background(), []string{"serving", "activate"})
-	require.ErrorContains(t, err, "unsupported serving command")
+func TestServingLifecycleRequiresExactProposalBeforeOpeningRegistry(t *testing.T) {
+	for _, command := range []commandName{commandActivate, commandPrepare, commandRollback} {
+		err := run(context.Background(), []string{string(commandServing), string(command)})
+		require.ErrorContains(t, err, "exact immutable proposal reference")
+	}
 }

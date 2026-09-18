@@ -4,9 +4,38 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 
 	"cloud.google.com/go/storage"
 )
+
+// VerifyServingArtifact checks audit/provenance bytes, including their exact GCS generation.
+// It does not interpret evidence semantics or substitute metadata for private revision validation.
+func (r *Registry) VerifyServingArtifact(ctx context.Context, ref ObjectRef) error {
+	if err := validateArtifactRef(ref); err != nil {
+		return err
+	}
+	bucket, name, err := parseGCSObjectURI(ref.URI)
+	if err != nil {
+		return err
+	}
+	reader, err := r.client.Bucket(bucket).Object(name).Generation(ref.Generation).NewReader(ctx)
+	if err != nil {
+		return classifyStorageError("read serving evidence artifact", err)
+	}
+	defer reader.Close()
+	payload, err := io.ReadAll(io.LimitReader(reader, maxPolicyObjectBytes+1))
+	if err != nil {
+		return fmt.Errorf("read serving evidence artifact: %w", err)
+	}
+	if len(payload) > maxPolicyObjectBytes {
+		return errors.New("serving evidence artifact exceeds size limit")
+	}
+	if Digest(payload) != ref.SHA256 {
+		return errors.New("serving evidence artifact digest mismatch")
+	}
+	return nil
+}
 
 // PublishServingManifest publishes validated canonical bytes without activating any target.
 func (r *Registry) PublishServingManifest(ctx context.Context, kind ServingKind, payload []byte) (ObjectRef, error) {

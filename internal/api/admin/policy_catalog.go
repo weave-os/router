@@ -37,7 +37,7 @@ func PolicyCatalogHandler(service *proxy.Service, defaultStrategy router.Strateg
 		}}
 		if service != nil {
 			for _, strategy := range service.RegisteredStrategies() {
-				capabilities, _ := service.PolicyCapabilities(strategy)
+				capabilities, _ := service.PolicyCapabilitiesForRequest(c.Request.Context(), strategy)
 				// Derived, not separately negotiated: ranked fallback is the
 				// precondition for cluster overrides taking effect.
 				capabilities.HonorsClusterModelLists = capabilities.ReportsRankedFallback

@@ -74,14 +74,14 @@ const (
 
 // ServingRequirements are checked against the selected image and classifier, not current main.
 type ServingRequirements struct {
-	RuntimeContract      string                   `json:"runtime_contract"`
+	RuntimeContract      ServingSchema            `json:"runtime_contract"`
 	PolicySchema         rosterdata.SchemaVersion `json:"policy_schema"`
 	ClassifierWireSchema string                   `json:"classifier_wire_schema"`
 	TaxonomySHA256       string                   `json:"taxonomy_sha256"`
 }
 
 // ManagedRuntimeContractV1 is the first exact-snapshot worker assertion contract.
-const ManagedRuntimeContractV1 = "router_managed_runtime_v1"
+const ManagedRuntimeContractV1 ServingSchema = "router_managed_runtime_v1"
 
 // ServingProvenance keeps both source identities separate from artifact identity.
 type ServingProvenance struct {

@@ -60,6 +60,11 @@ type CapabilitySource interface {
 	CurrentCapabilities() Capabilities
 }
 
+// RequestCapabilitySource keeps capability-dependent behavior on the admitted runtime.
+type RequestCapabilitySource interface {
+	CapabilitiesForRequest(context.Context) Capabilities
+}
+
 // AvailabilitySource reports whether a policy-backed router has an active
 // serving snapshot. Registration alone is not readiness: a dynamic router can
 // be wired before its first valid policy refresh completes.

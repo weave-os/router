@@ -16,8 +16,8 @@ const defaultDistributionGrid = 21
 // the quality/price dial. Each classifier band contributes equal weight; live
 // traffic weights remain request-dependent and are intentionally not guessed.
 func RoutingDistribution(roster *rosterdata.Roster, gridN int, excludedModels, excludedProviders map[string]struct{}) ([]cluster.DistributionPoint, error) {
-	if roster == nil || (roster.SchemaVersion != rosterdata.SchemaVersionV7 && roster.SchemaVersion != rosterdata.SchemaVersionV75C) {
-		return nil, fmt.Errorf("HMM routing distribution requires a dynamic v7 roster")
+	if roster == nil || !isDynamicRoster(roster) {
+		return nil, fmt.Errorf("HMM routing distribution requires a dynamic roster or compiled serving policy")
 	}
 	if gridN < 2 {
 		gridN = defaultDistributionGrid

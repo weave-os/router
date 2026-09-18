@@ -4,21 +4,46 @@ import (
 	"context"
 	"errors"
 	"sync"
+
+	"github.com/google/uuid"
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router/hmm/armid"
 )
 
 type servingSnapshotContextKey struct{}
 
-type servingAssertionContextKey struct{}
-
-// WithServingAssertion stores verified gateway admission on the worker request.
+// WithServingAssertion derives attribution and isolated state keys from verified admission.
 func WithServingAssertion(ctx context.Context, assertion ServingAssertion) context.Context {
-	return context.WithValue(ctx, servingAssertionContextKey{}, assertion)
-}
-
-// ServingAssertionFromContext returns verified admission when the worker is serving managed traffic.
-func ServingAssertionFromContext(ctx context.Context) (ServingAssertion, bool) {
-	assertion, ok := ctx.Value(servingAssertionContextKey{}).(ServingAssertion)
-	return assertion, ok
+	admission := assertion.Admission
+	namespace, _ := CanonicalBytes(struct {
+		Scope      AdmissionScope
+		Activation string
+		Release    string
+		Generation int64
+	}{assertion.Scope, admission.ActivationID, admission.Selection.Release.SHA256, admission.BindingGeneration})
+	identity := requestcontext.ServingIdentity{
+		Target: string(admission.Target), ActivationID: admission.ActivationID,
+		ReleaseID: admission.Selection.Release.SHA256, BindingID: admission.Selection.Binding.SHA256,
+		ProfileKey: admission.ProfileKey, BindingGeneration: admission.BindingGeneration,
+		StateNamespace:     Digest(namespace),
+		CredentialIdentity: assertion.Scope.CredentialIdentity,
+	}
+	// Shared credentials retain legacy preference key bytes. Personal subjects
+	// survive key rotation but must not share preferences across installations.
+	if assertion.Scope.CredentialIdentity != assertion.APIKeyID {
+		credentialScope, _ := CanonicalBytes(struct {
+			Installation string
+			Subject      string
+		}{assertion.Scope.InstallationID, assertion.Scope.CredentialIdentity})
+		identity.CredentialIdentity = "serving_subject:" + Digest(credentialScope)
+	}
+	if admission.Selection.Profile != nil {
+		identity.ProfileRevision = admission.Selection.Profile.SHA256
+	}
+	if !assertion.Scope.Persistent {
+		identity.StateNamespace = uuid.NewString()
+	}
+	return requestcontext.WithServingIdentity(ctx, identity)
 }
 
 // WithServingSnapshot pins every routing/outcome/feedback call on one admitted runtime.
@@ -40,7 +65,16 @@ type ServingRuntimeCache struct {
 	store   ServingStore
 	builder Builder
 	mu      sync.Mutex
-	loaded  map[string]*Snapshot
+	loaded  map[servingSnapshotKey]*Snapshot
+}
+
+type servingSnapshotKey struct {
+	Target     ServingTarget
+	ProfileKey string
+	Release    ObjectRef
+	Binding    ObjectRef
+	Profile    ObjectRef
+	HasProfile bool
 }
 
 // NewServingRuntimeCache keeps independently validated snapshots for concurrent old and new sessions.
@@ -48,7 +82,7 @@ func NewServingRuntimeCache(store ServingStore, builder Builder) (*ServingRuntim
 	if store == nil || builder == nil {
 		return nil, errors.New("serving runtime cache requires a store and snapshot builder")
 	}
-	return &ServingRuntimeCache{store: store, builder: builder, loaded: map[string]*Snapshot{}}, nil
+	return &ServingRuntimeCache{store: store, builder: builder, loaded: map[servingSnapshotKey]*Snapshot{}}, nil
 }
 
 // Snapshot loads or reuses the immutable runtime for one admission binding.
@@ -56,9 +90,10 @@ func (c *ServingRuntimeCache) Snapshot(ctx context.Context, admission SessionRel
 	if c == nil {
 		return nil, errors.New("serving runtime cache is required for managed admission")
 	}
-	key := admission.Selection.Release.SHA256 + ":" + admission.Selection.Binding.SHA256
+	key := servingSnapshotKey{Target: admission.Target, ProfileKey: admission.ProfileKey, Release: admission.Selection.Release, Binding: admission.Selection.Binding}
 	if admission.Selection.Profile != nil {
-		key += ":" + admission.Selection.Profile.SHA256
+		key.Profile = *admission.Selection.Profile
+		key.HasProfile = true
 	}
 	c.mu.Lock()
 	if snapshot := c.loaded[key]; snapshot != nil {
@@ -70,9 +105,13 @@ func (c *ServingRuntimeCache) Snapshot(ctx context.Context, admission SessionRel
 	if err != nil {
 		return nil, err
 	}
+	if diagnostics := armid.ValidateRosterIDs(prepared.Policy.AllArms()); len(diagnostics) != 0 {
+		return nil, errors.New("admitted policy contains arms absent from the worker catalog")
+	}
 	candidate := Candidate{
 		HeadSnapshot: HeadSnapshot{
-			Generation: admission.BindingGeneration,
+			// Binding generations are request-scoped, not properties of cached bytes.
+			Generation: 0,
 			Head: LaneHead{
 				ReleaseURI:            admission.Selection.Release.URI,
 				ReleaseSHA256:         admission.Selection.Release.SHA256,
@@ -84,7 +123,8 @@ func (c *ServingRuntimeCache) Snapshot(ctx context.Context, admission SessionRel
 			Classifier: prepared.Classifier.Identity,
 			Policy:     prepared.Release.Policy,
 		},
-		Policy: prepared.Policy,
+		Policy:             prepared.Policy,
+		ClassifierAudience: prepared.Binding.Classifier.Audience,
 	}
 	routers, err := c.builder(ctx, candidate)
 	if err != nil {

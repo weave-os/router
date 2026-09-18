@@ -703,6 +703,15 @@ type RouterRouterFeedback struct {
 	RouteID *string
 }
 
+type RouterServingRequestAttribution struct {
+	RequestID      string
+	InstallationID uuid.UUID
+	APIKeyID       uuid.UUID
+	Scope          []byte
+	Binding        []byte
+	AdmittedAt     pgtype.Timestamptz
+}
+
 // Session-sticky routing pins; sliding 1h TTL matching Anthropic prompt cache
 type RouterSessionPin struct {
 	// 16-byte digest derived from api_key_id + (metadata.user_id | system+first-user hashes)

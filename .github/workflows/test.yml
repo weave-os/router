@@ -75,7 +75,7 @@ jobs:
   go-checks:
     name: Go checks
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:15-alpine
@@ -94,6 +94,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -172,6 +174,59 @@ jobs:
         env:
           ROUTER_TEST_DATABASE_URL: postgres://router:router@localhost:5432/router?sslmode=disable&search_path=router
         run: go run ./scripts/serving_admission_check
+
+      - name: Build standalone gateway without worker native dependencies
+        run: CGO_ENABLED=0 go build -o "$RUNNER_TEMP/router-gateway" ./cmd/router-gateway
+
+      - name: Check legacy worker startup with serving dependencies unavailable
+        env:
+          PGPASSWORD: router
+        run: |
+          psql -h localhost -p 5432 -U router -d router -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE legacy_runtime_fixture LOGIN PASSWORD 'fixture-only';
+          GRANT USAGE ON SCHEMA router TO legacy_runtime_fixture;
+          GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA router TO legacy_runtime_fixture;
+          GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA router TO legacy_runtime_fixture;
+          REVOKE ALL ON router.credential_subjects, router.credential_subject_installations,
+            router.installation_profile_assignments, router.session_release_bindings,
+            router.serving_request_attribution FROM legacy_runtime_fixture;
+          SQL
+          native_fixture="$(mktemp -d)"
+          mkdir -p "$native_fixture/native" "$native_fixture/assets/jina-v2-base-code-int8"
+          ort_version="$(awk -F= '/^ARG ONNXRUNTIME_VERSION=/{print $2}' Dockerfile)"
+          tokenizers_version="$(awk -F= '/^ARG TOKENIZERS_VERSION=/{print $2}' Dockerfile)"
+          model_repo="$(awk -F= '/^ARG HF_MODEL_REPO=/{print $2}' Dockerfile)"
+          model_revision="$(awk -F= '/^ARG HF_MODEL_REVISION=/{print $2}' Dockerfile)"
+          curl --fail --silent --show-error --location \
+            "https://github.com/microsoft/onnxruntime/releases/download/v${ort_version}/onnxruntime-linux-x64-${ort_version}.tgz" \
+            | tar -xz -C "$native_fixture/native" --strip-components=1
+          curl --fail --silent --show-error --location \
+            "https://github.com/daulet/tokenizers/releases/download/${tokenizers_version}/libtokenizers.linux-x86_64.tar.gz" \
+            | tar -xz -C "$native_fixture/native/lib"
+          curl --fail --silent --show-error --location \
+            "https://huggingface.co/${model_repo}/resolve/${model_revision}/onnx/model_quantized.onnx" \
+            -o "$native_fixture/assets/jina-v2-base-code-int8/model.onnx"
+          curl --fail --silent --show-error --location \
+            "https://huggingface.co/${model_repo}/resolve/${model_revision}/tokenizer.json" \
+            -o "$native_fixture/assets/jina-v2-base-code-int8/tokenizer.json"
+          CGO_LDFLAGS="-L$native_fixture/native/lib" go build -tags ORT -o "$native_fixture/router" ./cmd/router
+          ROUTER_TEST_DATABASE_URL='postgres://legacy_runtime_fixture:fixture-only@localhost:5432/router?sslmode=disable&search_path=router' \
+            ROUTER_TEST_WORKER_BINARY="$native_fixture/router" \
+            ROUTER_ONNX_ASSETS_DIR="$native_fixture/assets" \
+            ROUTER_ONNX_LIBRARY_DIR="$native_fixture/native/lib" \
+            go run ./scripts/legacy_runtime_check
+          # PR checkout is a merge commit: its first parent is the retained base runtime.
+          mkdir "$native_fixture/old-source"
+          git archive HEAD^ | tar -x -C "$native_fixture/old-source"
+          (
+            cd "$native_fixture/old-source"
+            CGO_LDFLAGS="-L$native_fixture/native/lib" go build -tags ORT -o "$native_fixture/router-old" ./cmd/router
+          )
+          ROUTER_TEST_DATABASE_URL='postgres://legacy_runtime_fixture:fixture-only@localhost:5432/router?sslmode=disable&search_path=router' \
+            ROUTER_TEST_WORKER_BINARY="$native_fixture/router-old" \
+            ROUTER_ONNX_ASSETS_DIR="$native_fixture/assets" \
+            ROUTER_ONNX_LIBRARY_DIR="$native_fixture/native/lib" \
+            go run ./scripts/legacy_runtime_check
 
   # Separate job: needs no Go toolchain, Postgres, or network. The statusline is
   # shipped to users as a standalone script, so a regression there is invisible

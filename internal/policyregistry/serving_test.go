@@ -204,16 +204,32 @@ func TestProfileAssignmentsDoNotFallBackAndGenerationChangesRebind(t *testing.T)
 }
 
 type servingMemoryStore struct {
-	mu       sync.Mutex
-	objects  map[policyregistry.ObjectRef]policyregistry.ServingManifest
-	policies map[policyregistry.ObjectRef]*rosterdata.Roster
-	states   map[policyregistry.ServingTarget]policyregistry.ServingStateSnapshot
-	readErr  error
-	casErr   error
+	mu        sync.Mutex
+	objects   map[policyregistry.ObjectRef]policyregistry.ServingManifest
+	policies  map[policyregistry.ObjectRef]*rosterdata.Roster
+	states    map[policyregistry.ServingTarget]policyregistry.ServingStateSnapshot
+	readErr   error
+	casErr    error
+	artifacts map[policyregistry.ObjectRef][]byte
 }
 
 func newServingMemoryStore() *servingMemoryStore {
-	return &servingMemoryStore{objects: make(map[policyregistry.ObjectRef]policyregistry.ServingManifest), policies: make(map[policyregistry.ObjectRef]*rosterdata.Roster), states: make(map[policyregistry.ServingTarget]policyregistry.ServingStateSnapshot)}
+	artifacts := make(map[policyregistry.ObjectRef][]byte)
+	for _, label := range []string{"build-attestation", "binding-attestation", "evidence"} {
+		artifacts[artifactRef(label)] = []byte(label)
+	}
+	return &servingMemoryStore{objects: make(map[policyregistry.ObjectRef]policyregistry.ServingManifest), policies: make(map[policyregistry.ObjectRef]*rosterdata.Roster), states: make(map[policyregistry.ServingTarget]policyregistry.ServingStateSnapshot), artifacts: artifacts}
+}
+
+func (s *servingMemoryStore) VerifyServingArtifact(_ context.Context, ref policyregistry.ObjectRef) error {
+	payload, exists := s.artifacts[ref]
+	if !exists {
+		return policyregistry.ErrNotFound
+	}
+	if policyregistry.Digest(payload) != ref.SHA256 {
+		return errors.New("artifact digest mismatch")
+	}
+	return nil
 }
 
 func (s *servingMemoryStore) RootURI() string { return testRegistryRoot }
@@ -261,9 +277,9 @@ func (s *servingMemoryStore) publish(t *testing.T, kind policyregistry.ServingKi
 	ref := servingRef(t, kind, manifest)
 	payload, err := policyregistry.CanonicalBytes(manifest)
 	require.NoError(t, err)
-	copy, err := policyregistry.DecodeServingManifest(payload, testRegistryRoot, kind)
+	decodedManifest, err := policyregistry.DecodeServingManifest(payload, testRegistryRoot, kind)
 	require.NoError(t, err)
-	s.objects[ref] = copy
+	s.objects[ref] = decodedManifest
 	return ref
 }
 

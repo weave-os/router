@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -47,8 +48,25 @@ type bindingStore struct {
 }
 
 func (s bindingStore) RootURI() string { return registryRoot }
-func (s bindingStore) ReadServingObject(context.Context, policyregistry.ServingKind, policyregistry.ObjectRef) (policyregistry.ServingManifest, error) {
+func (s bindingStore) selectionSet() policyregistry.SelectionSet {
+	payload, _ := policyregistry.CanonicalBytes(s.binding)
+	return policyregistry.SelectionSet{SchemaVersion: policyregistry.ServingSelectionSetV1, Target: s.binding.Target, Default: policyregistry.ServingSelection{Release: s.binding.Release, Binding: servingRef(policyregistry.ServingBindings, payload)}, Profiles: map[string]policyregistry.ServingSelection{}}
+}
+func (s bindingStore) ReadServingObject(_ context.Context, kind policyregistry.ServingKind, _ policyregistry.ObjectRef) (policyregistry.ServingManifest, error) {
+	if kind == policyregistry.ServingSelectionSets {
+		set := s.selectionSet()
+		return &set, nil
+	}
 	return &s.binding, nil
+}
+func (s bindingStore) ReadServingState(_ context.Context, target policyregistry.ServingTarget) (policyregistry.ServingStateSnapshot, error) {
+	if target != s.binding.Target {
+		return policyregistry.ServingStateSnapshot{}, errors.New("wrong target")
+	}
+	payload, _ := policyregistry.CanonicalBytes(s.selectionSet())
+	id := uuid.NewString()
+	activation := policyregistry.Activation{ID: id, Sequence: 1, SelectionSet: servingRef(policyregistry.ServingSelectionSets, payload), ActivatedAt: time.Now().Add(-time.Hour), Proposal: servingRef(policyregistry.ServingProposals, []byte("proposal")), RequestID: uuid.NewString(), Actor: "operator", WorkflowActor: "workflow"}
+	return policyregistry.ServingStateSnapshot{Generation: 1, State: policyregistry.ServingControlState{SchemaVersion: policyregistry.ServingControlStateV1, Target: target, CurrentActivationID: id, Sequence: 1, Activations: map[string]policyregistry.Activation{id: activation}}}, nil
 }
 
 type revisionAuthorizer struct{}
@@ -65,7 +83,7 @@ func servingRef(kind policyregistry.ServingKind, payload []byte) policyregistry.
 	return policyregistry.ObjectRef{URI: registryRoot + "/router_serving/v1/" + string(kind) + "/sha256/" + digest + ".json", SHA256: digest, Generation: 1}
 }
 
-func gatewayFixture(t *testing.T, worker *httptest.Server, authFailure, admissionFailure error) (*gateway.Handler, *admissionStore, *policyregistry.AssertionSigner) {
+func gatewayFixture(t *testing.T, worker *httptest.Server, authFailure, admissionFailure error, products ...gateway.ProductSurfaces) (*gateway.Handler, *admissionStore, *policyregistry.AssertionSigner) {
 	t.Helper()
 	release := servingRef(policyregistry.ServingReleases, []byte("release"))
 	revision := policyregistry.RevisionBinding{Name: "worker-0001", URL: worker.URL, Audience: "https://worker.example", ImageDigest: "sha256:" + strings.Repeat("a", 64), Configuration: artifact("configuration")}
@@ -75,7 +93,7 @@ func gatewayFixture(t *testing.T, worker *httptest.Server, authFailure, admissio
 	admissions := &admissionStore{admission: policyregistry.SessionReleaseBinding{Target: policyregistry.TargetStable, ActivationID: "activation", BindingGeneration: 1, Selection: policyregistry.ServingSelection{Release: release, Binding: servingRef(policyregistry.ServingBindings, payload)}}, failure: admissionFailure}
 	signer, err := policyregistry.NewAssertionSigner([]byte(strings.Repeat("s", 32)), time.Now)
 	require.NoError(t, err)
-	forwarder, err := gateway.NewHandler(credentialVerifier{authFailure}, admissions, bindingStore{binding: binding}, signer, revisionAuthorizer{}, worker.Client().Transport)
+	forwarder, err := gateway.NewHandler(credentialVerifier{authFailure}, admissions, bindingStore{binding: binding}, signer, revisionAuthorizer{}, worker.Client().Transport, products...)
 	require.NoError(t, err)
 	return forwarder, admissions, signer
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
@@ -50,6 +51,9 @@ func (s *Service) applySessionStrategy(
 	installationID uuid.UUID,
 	preferenceKey [sessionpin.SessionKeyLen]byte,
 ) (context.Context, error) {
+	if _, managed := requestcontext.ServingIdentityFromContext(ctx); managed {
+		return ctx, nil
+	}
 	if s.sessionStrategyStore == nil || installationID == uuid.Nil || preferenceKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return ctx, nil
 	}
@@ -76,6 +80,9 @@ func (s *Service) handleBetaCommand(
 	preferenceKey [sessionpin.SessionKeyLen]byte,
 	inputTokens int,
 ) error {
+	if _, managed := requestcontext.ServingIdentityFromContext(ctx); managed {
+		return writeBetaCommandResponse(w, env, translate.BetaRetiredMessage, inputTokens)
+	}
 	if cmd.Invalid {
 		return writeBetaCommandResponse(w, env, betaUsageMessage, inputTokens)
 	}

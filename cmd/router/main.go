@@ -33,6 +33,7 @@ import (
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/postgres"
+	servingpostgres "weave-os/router/internal/postgres/serving"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/cortexagents"
@@ -928,8 +929,32 @@ func main() {
 	var hmmRosterSources map[router.Strategy]policy.RosterSource
 	var hmmRosterModels admin.HMMRosterSource
 	var hmmBetaCapabilities policy.Capabilities
+	var servingAdmission *middleware.ServingAdmissionConfig
 	policyEnvironmentRaw := strings.TrimSpace(config.GetOr("ROUTER_POLICY_ENVIRONMENT", ""))
-	if policyEnvironmentRaw != "" {
+	if managedServingEnabled() {
+		prepareCtx, cancelPrepare := context.WithTimeout(context.Background(), 60*time.Second)
+		admission, baseline, closeRegistry, err := buildManagedServingRuntime(prepareCtx, availableProviders)
+		cancelPrepare()
+		if err != nil {
+			logger.Error("Managed worker preparation failed; refusing to boot", "target", config.GetOr("ROUTER_SERVING_TARGET", ""), "registry_uri", config.GetOr("ROUTER_SERVING_REGISTRY_URI", ""), "err", err)
+			panic(err)
+		}
+		defer closeRegistry()
+		servingAdmission = admission
+		servingAdmission.Attribution = servingpostgres.NewRequestAttributionRepo(pool)
+		admittedRouter := policyregistry.NewAdmittedRouter(router.StrategyHMM, baseline)
+		hmmRouter = admittedRouter
+		hmmEmbeddingRouter = policyregistry.NewAdmittedRouter(router.StrategyHMMEmbedding, baseline)
+		hmmCapabilities = admittedRouter.CurrentCapabilities()
+		escalationObserver = admittedRouter
+		rosterSource := policyregistry.AdmittedRosterSource{}
+		hmmRosterSources = map[router.Strategy]policy.RosterSource{
+			router.StrategyHMM: rosterSource, router.StrategyHMMEmbedding: rosterSource,
+		}
+		hmmRosterModels = admittedHMMRosterSource{}
+		struggleRoster = proxy.NewStruggleRoster(rosterSource)
+		logger.Info("Managed serving admission enabled", "target", admission.Identity.Target, "revision", admission.Identity.Revision)
+	} else if policyEnvironmentRaw != "" {
 		registryURI := strings.TrimSpace(config.GetOr("WEAVE_REGISTRY_URI", "gs://weave_ml/weave_registry"))
 		policyRegistry, registryErr := policyregistry.NewGCSRegistry(context.Background(), registryURI)
 		if registryErr != nil {
@@ -1308,49 +1333,6 @@ func main() {
 	policyPinEnabled := strings.EqualFold(config.GetOr("ROUTER_POLICY_PIN_ENABLED", "false"), "true")
 	if policyPinEnabled {
 		logger.Info("Policy pin header enabled", "header", middleware.PolicyPinOverrideHeader)
-	}
-	var servingAdmission *middleware.ServingAdmissionConfig
-	if assertionKey := strings.TrimSpace(config.GetOr("ROUTER_SERVING_ASSERTION_KEY", "")); assertionKey != "" {
-		signer, signerErr := policyregistry.NewAssertionSigner([]byte(assertionKey), time.Now)
-		if signerErr != nil {
-			logger.Error("Managed serving assertion key is invalid; refusing to boot", "err", signerErr)
-			panic(signerErr)
-		}
-		identity := policyregistry.WorkerIdentity{
-			Target:      policyregistry.ServingTarget(config.MustGet("ROUTER_SERVING_TARGET")),
-			Project:     config.MustGet("ROUTER_SERVING_PROJECT"),
-			Region:      config.MustGet("ROUTER_SERVING_REGION"),
-			Revision:    config.GetOr("ROUTER_SERVING_REVISION", config.GetOr("K_REVISION", "")),
-			ImageDigest: config.MustGet("ROUTER_SERVING_IMAGE_DIGEST"),
-			Configuration: policyregistry.ObjectRef{
-				URI:        config.MustGet("ROUTER_SERVING_CONFIGURATION_URI"),
-				SHA256:     config.MustGet("ROUTER_SERVING_CONFIGURATION_SHA256"),
-				Generation: int64(parseEnvInt("ROUTER_SERVING_CONFIGURATION_GENERATION", 0)),
-			},
-		}
-		if identErr := identity.Validate(); identErr != nil {
-			logger.Error("Managed worker identity is incomplete; refusing to boot", "err", identErr)
-			panic(identErr)
-		}
-		servingURI := strings.TrimSpace(config.GetOr("ROUTER_SERVING_REGISTRY_URI", config.GetOr("WEAVE_REGISTRY_URI", "gs://weave_ml/weave_registry")))
-		servingRegistry, registryErr := policyregistry.NewGCSRegistry(context.Background(), servingURI)
-		if registryErr != nil {
-			logger.Error("Managed serving registry failed to initialize; refusing to boot", "err", registryErr)
-			panic(registryErr)
-		}
-		hmmTimeout := parseEnvDurationMs("ROUTER_HMM_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout)
-		hmmAttemptTimeout := parseEnvAttemptTimeoutMs("ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS", policyclient.DeriveAttemptTimeout(hmmTimeout))
-		hmmAuthMode := config.GetOr("ROUTER_HMM_SIDECAR_AUTH", policySidecarAuthGoogleIDToken)
-		servingCache, cacheErr := policyregistry.NewServingRuntimeCache(
-			servingRegistry,
-			hmmPolicySnapshotBuilder(availableProviders, []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding, router.StrategyHMMBeta}, hmmAuthMode, hmmTimeout, hmmAttemptTimeout),
-		)
-		if cacheErr != nil {
-			logger.Error("Managed serving snapshot cache is invalid; refusing to boot", "err", cacheErr)
-			panic(cacheErr)
-		}
-		servingAdmission = &middleware.ServingAdmissionConfig{Signer: signer, Store: servingRegistry, Identity: identity, Cache: servingCache}
-		logger.Info("Managed serving admission enabled", "target", identity.Target, "revision", identity.Revision)
 	}
 	server.RegisterWithFeatures(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, server.Features{PolicyPinEnabled: policyPinEnabled, ServingAdmission: servingAdmission})
 

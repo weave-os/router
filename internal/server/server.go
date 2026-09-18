@@ -19,6 +19,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/policyclient"
+	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/rosterdata"
@@ -139,7 +140,14 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	var servingAdmissionMiddleware []gin.HandlerFunc
 	if features.ServingAdmission != nil {
 		servingAdmissionMiddleware = []gin.HandlerFunc{middleware.WithServingAdmission(features.ServingAdmission)}
+		engine.POST(policyregistry.WorkerValidationPath, middleware.WithTimeout(30*time.Second), middleware.ServingValidationHandler(features.ServingAdmission))
 	}
+	var discoveryMiddleware []gin.HandlerFunc
+	if features.ServingAdmission != nil {
+		discoveryMiddleware = append(discoveryMiddleware, middleware.WithAuth(authSvc, byokRequiresOptIn))
+		discoveryMiddleware = append(discoveryMiddleware, servingAdmissionMiddleware...)
+	}
+	discovery := engine.Group("", discoveryMiddleware...)
 
 	engine.GET("/health", middleware.WithTimeout(healthTimeout), admin.HealthHandler)
 	engine.GET("/readyz", middleware.WithTimeout(readinessTimeout), admin.ReadinessHandler(readinessChecker))
@@ -154,7 +162,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		strategyAvailability = proxySvc.PolicyStrategyAvailable
 	}
 	defaultStrategy := middleware.NormalizeRouterStrategyDefault(DefaultStrategyFromEnv(), registeredStrategies...)
-	engine.GET(
+	discovery.GET(
 		"/v1/router/policies",
 		middleware.WithTimeout(healthTimeout),
 		admin.PolicyCatalogHandler(proxySvc, defaultStrategy),
@@ -165,20 +173,23 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	// hand-copying it per gitlink bump. Unauthed: read-only, and the list is
 	// already public on the RouterArena leaderboard.
 	if deployedModels != nil {
-		engine.GET("/v1/router/models", middleware.WithTimeout(catalogModelsTimeout), admin.CatalogModelsHandler(deployedModels, hmmModels))
+		discovery.GET("/v1/router/models", middleware.WithTimeout(catalogModelsTimeout), admin.CatalogModelsHandler(deployedModels, hmmModels))
 
 		// Projects the quality-vs-price dial's model mix across dial positions
 		// for the dashboard's distribution preview. Same unauthed rationale as
 		// /v1/router/models; the assertion skips sources that can't project one.
-		if dist, ok := deployedModels.(admin.RoutingDistributionSource); ok {
-			engine.GET("/v1/router/routing-distribution", middleware.WithTimeout(healthTimeout), admin.RoutingDistributionHandler(dist, hmmDistributionRosters...))
+		if dist, ok := deployedModels.(admin.RoutingDistributionSource); ok && features.ServingAdmission == nil {
+			discovery.GET("/v1/router/routing-distribution", middleware.WithTimeout(healthTimeout), admin.RoutingDistributionHandler(dist, hmmDistributionRosters...))
 		}
+	}
+	if features.ServingAdmission != nil {
+		discovery.GET("/v1/router/routing-distribution", middleware.WithTimeout(healthTimeout), admin.AdmittedRoutingDistributionHandler(policyregistry.AdmittedRosterSource{}))
 	}
 
 	// /v1/router/hmm-roster: frozen per-cluster arm roster mapped to catalog IDs.
 	// Unauthed — read-only and non-sensitive, same rationale as /v1/router/models.
 	if len(hmmRosterSources) > 0 {
-		engine.GET("/v1/router/hmm-roster", middleware.WithTimeout(readinessTimeout), admin.HMMRosterHandler(hmmRosterSources))
+		discovery.GET("/v1/router/hmm-roster", middleware.WithTimeout(readinessTimeout), admin.HMMRosterHandler(hmmRosterSources))
 	}
 
 	// /internal/v1/*: control-plane-to-router calls, authed by a shared secret
@@ -198,9 +209,11 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 
 	// /validate is a token-validity probe used by clients (not the dashboard), so it stays mounted in both modes.
 	adminAuthed := engine.Group("", middleware.WithTimeout(validateTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn))
+	adminAuthed.Use(servingAdmissionMiddleware...)
 	adminAuthed.GET("/validate", admin.ValidateHandler)
 	if authSvc.SubscriptionAccountsEnabled() {
 		subscriptionGroup := engine.Group("/v1", middleware.WithTimeout(adminTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn))
+		subscriptionGroup.Use(servingAdmissionMiddleware...)
 		subscriptionsapi.Register(subscriptionGroup, authSvc)
 	}
 
@@ -325,6 +338,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithTimeout(passthroughTimeout),
 		middleware.WithAuth(authSvc, byokRequiresOptIn),
 	)
+	passthroughGroup.Use(servingAdmissionMiddleware...)
 	passthroughGroup.POST("/v1/messages/count_tokens", anthropicapi.PassthroughHandler(proxySvc))
 	passthroughGroup.GET("/v1/models", openaiapi.ModelsHandler(anthropicapi.PassthroughHandler(proxySvc)))
 	passthroughGroup.GET("/v1/models/:model", anthropicapi.PassthroughHandler(proxySvc))

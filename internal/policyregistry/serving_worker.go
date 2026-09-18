@@ -8,12 +8,12 @@ import (
 // WorkerIdentity is release-owned boot configuration attested during preparation.
 // A policy-only release can reuse it; a different image, target or revision cannot.
 type WorkerIdentity struct {
-	Target        ServingTarget
-	Project       string
-	Region        string
-	Revision      string
-	ImageDigest   string
-	Configuration ObjectRef
+	Target        ServingTarget `json:"target"`
+	Project       string        `json:"project"`
+	Region        string        `json:"region"`
+	Revision      string        `json:"revision"`
+	ImageDigest   string        `json:"image_digest"`
+	Configuration ObjectRef     `json:"configuration"`
 }
 
 // Validate requires exact local identity before the managed worker mounts inference endpoints.
@@ -25,6 +25,17 @@ func (w WorkerIdentity) Validate() error {
 		return errors.New("managed worker requires exact attested boot identity")
 	}
 	return validateArtifactRef(w.Configuration)
+}
+
+// ValidateBinding enforces physical identity for both preparation and request admission.
+func (w WorkerIdentity) ValidateBinding(binding DeploymentBinding) error {
+	if err := w.Validate(); err != nil {
+		return err
+	}
+	if binding.Target != w.Target || binding.Project != w.Project || binding.Region != w.Region || binding.Router.Name != w.Revision || binding.Router.ImageDigest != w.ImageDigest || binding.Router.Configuration != w.Configuration {
+		return errors.New("admission binding differs from attested worker identity")
+	}
+	return nil
 }
 
 // ResolveAdmissionBinding validates the target-local destination without consulting a newer head.
@@ -55,8 +66,28 @@ func ValidateWorkerAdmission(ctx context.Context, store ServingStore, identity W
 	if err != nil {
 		return DeploymentBinding{}, err
 	}
-	if binding.Project != identity.Project || binding.Region != identity.Region || binding.Router.Name != identity.Revision || binding.Router.ImageDigest != identity.ImageDigest || binding.Router.Configuration != identity.Configuration {
-		return DeploymentBinding{}, errors.New("admission binding differs from attested worker identity")
+	if err := identity.ValidateBinding(binding); err != nil {
+		return DeploymentBinding{}, err
 	}
 	return binding, nil
+}
+
+// ValidateWorkerSelection exercises the destination's real loader without provider calls.
+// IAM validation identities can prepare snapshots but cannot mint admission assertions.
+func ValidateWorkerSelection(ctx context.Context, store ServingStore, cache *ServingRuntimeCache, identity WorkerIdentity, request WorkerValidationRequest) (WorkerAttestation, error) {
+	if request.Target != identity.Target {
+		return WorkerAttestation{}, errors.New("validation target differs from worker identity")
+	}
+	prepared, err := ReadPreparedSelection(ctx, store, request.Target, request.ProfileKey, request.Selection)
+	if err != nil {
+		return WorkerAttestation{}, err
+	}
+	if err := identity.ValidateBinding(prepared.Binding); err != nil {
+		return WorkerAttestation{}, err
+	}
+	snapshot, err := cache.Snapshot(ctx, SessionReleaseBinding{Target: request.Target, ProfileKey: request.ProfileKey, Selection: request.Selection})
+	if err != nil {
+		return WorkerAttestation{}, err
+	}
+	return WorkerAttestation{Identity: identity, Requirements: prepared.Release.Requirements, CatalogArms: snapshot.Policy.AllArms(), Selection: request.Selection, Ready: true}, nil
 }

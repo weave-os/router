@@ -7,11 +7,11 @@ import (
 
 func rosterIDFor(model catalog.Model) string { return armid.ForModel(model) }
 
-// SplitEffort preserves the existing roster arm syntax.
+// SplitEffort separates a recognized canonical effort suffix; otherwise the arm stays intact.
 func SplitEffort(id string) (string, string) { return armid.SplitEffort(id) }
 
-// EffortArm composes a roster arm ID from its base and effort.
+// EffortArm appends a nonempty effort suffix, leaving bare arms unchanged.
 func EffortArm(base, effort string) string { return armid.EffortArm(base, effort) }
 
-// CatalogIDForRoster uses the shared catalog mapping used by release validation.
+// CatalogIDForRoster returns the matching catalog ID, or the unchanged arm when unmapped.
 func CatalogIDForRoster(id string) string { return armid.CatalogIDForRoster(id) }

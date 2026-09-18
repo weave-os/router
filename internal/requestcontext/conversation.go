@@ -107,7 +107,8 @@ func BodySessionID(body []byte, surface ConversationSurface) string {
 	return MetadataSessionID(gjson.GetBytes(body, "metadata.user_id").String())
 }
 
-// CanonicalConversationID is shared by gateway admission and worker identity tests.
+// CanonicalConversationID applies header precedence and the Anthropic body overlay,
+// then falls back to envelope metadata without using mutable message content.
 // Callers validate/bound the body before calling; ordinary dispatch retains its original bytes.
 func CanonicalConversationID(headers http.Header, body []byte, surface ConversationSurface) string {
 	id := SessionIDFromHeaders(headers)

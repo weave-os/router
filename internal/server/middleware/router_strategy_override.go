@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 
 	"github.com/gin-gonic/gin"
@@ -59,6 +60,10 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 		}
 
 		strategy := router.Strategy(strings.ToLower(strings.TrimSpace(string(installation.RoutingStrategy))))
+		_, managedServing := requestcontext.ServingIdentityFromContext(c.Request.Context())
+		if managedServing && strategy == router.StrategyHMMBeta {
+			strategy = defaultStrategy
+		}
 		if strategy == "" {
 			strategy = defaultStrategy
 		}
@@ -75,6 +80,8 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 		if raw != "" {
 			requested := router.Strategy(raw)
 			switch {
+			case managedServing && requested == router.StrategyHMMBeta:
+				observability.FromGin(c).Warn("Retired beta strategy override ignored", "effective_strategy", strategy)
 			case !installation.PolicyHeaderOverridesEnabled:
 				observability.FromGin(c).Warn("Router-strategy override ignored: installation is not authorized for policy headers", "installation_id", installation.ID)
 			case !selectable(requested):

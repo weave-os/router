@@ -6,7 +6,7 @@ import (
 	"weave-os/router/internal/router/policy"
 )
 
-// Diagnostic preserves the roster validation API.
+// Diagnostic describes an undispatchable roster arm for conformance and debug inspection.
 type Diagnostic = policy.Diagnostic
 
 // ValidateRosterIDs reports undispatchable roster arms without initializing a router.

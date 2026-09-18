@@ -33,6 +33,24 @@ func NewGoogleIDToken(baseURL string, timeout time.Duration, opts ...Option) (*C
 	if err != nil {
 		return nil, fmt.Errorf("build Google ID-token policy client: %w", err)
 	}
+	return newGoogleIDTokenClient(normalizedBaseURL, audience, timeout, opts...)
+}
+
+// NewGoogleIDTokenForAudience uses a prepared binding's explicit service audience.
+// Managed revisions must not infer authority from mutable URL conventions.
+func NewGoogleIDTokenForAudience(baseURL, audience string, timeout time.Duration, opts ...Option) (*Client, error) {
+	normalizedBaseURL, _, err := googleIDTokenURLs(baseURL)
+	if err != nil {
+		return nil, err
+	}
+	parsed, err := url.Parse(audience)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "" {
+		return nil, fmt.Errorf("classifier audience must be an HTTPS service origin")
+	}
+	return newGoogleIDTokenClient(normalizedBaseURL, audience, timeout, opts...)
+}
+
+func newGoogleIDTokenClient(normalizedBaseURL, audience string, timeout time.Duration, opts ...Option) (*Client, error) {
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}

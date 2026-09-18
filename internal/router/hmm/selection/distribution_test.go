@@ -42,6 +42,10 @@ func TestRoutingDistributionUsesLivePreferenceScorer(t *testing.T) {
 	assert.NotEqual(t, points[0].Models[0].Model, points[2].Models[0].Model)
 	assert.Equal(t, 1.0, points[0].Models[0].Share)
 	assert.Positive(t, points[0].ProjectedCostPer1KInputUSD)
+	roster.SchemaVersion = rosterdata.SchemaVersionPolicyV1
+	compiledPoints, err := selection.RoutingDistribution(roster, 3, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, points, compiledPoints)
 }
 
 func TestRoutingDistributionHonorsExclusions(t *testing.T) {

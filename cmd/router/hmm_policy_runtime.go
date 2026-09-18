@@ -22,10 +22,17 @@ func hmmPolicySnapshotBuilder(
 	attemptTimeout time.Duration,
 ) policyregistry.Builder {
 	return func(ctx context.Context, candidate policyregistry.Candidate) (map[router.Strategy]router.Router, error) {
-		client, err := buildHMMPolicyClient(
+		clientFactory := policyclient.NewGoogleIDToken
+		if candidate.ClassifierAudience != "" {
+			clientFactory = func(url string, timeout time.Duration, options ...policyclient.Option) (*policyclient.Client, error) {
+				return policyclient.NewGoogleIDTokenForAudience(url, candidate.ClassifierAudience, timeout, options...)
+			}
+		}
+		client, err := buildHMMPolicyClientWithGoogleIDTokenFactory(
 			candidate.HeadSnapshot.Head.ClassifierRevisionURL,
 			authMode,
 			timeout,
+			clientFactory,
 			policyclient.WithAttemptTimeout(attemptTimeout),
 		)
 		if err != nil {

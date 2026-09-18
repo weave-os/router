@@ -20,8 +20,17 @@ type ServingStore interface {
 	CompareAndSwapServingState(context.Context, ServingControlState, int64) (ServingStateSnapshot, error)
 }
 
+// ServingValidationStore additionally verifies audit/provenance artifacts by exact immutable reference.
+// Artifact contents are trusted registry-writer evidence, not a controller-defined cryptographic proof format.
+type ServingValidationStore interface {
+	ServingStore
+	VerifyServingArtifact(context.Context, ObjectRef) error
+}
+
 // PreparedSelection contains the complete independently validated effective tuple.
 type PreparedSelection struct {
+	Selection  ServingSelection
+	ProfileKey string
 	Release    ServingRelease
 	Classifier ClassifierBundle
 	Binding    DeploymentBinding
@@ -36,14 +45,14 @@ type ServingValidator interface {
 
 // ServingController is the only managed activation writer; preparation never calls Activate.
 type ServingController struct {
-	store     ServingStore
+	store     ServingValidationStore
 	validator ServingValidator
 	clock     func() time.Time
 	logger    *slog.Logger
 }
 
 // NewServingController requires explicit validation, time and audit dependencies.
-func NewServingController(store ServingStore, validator ServingValidator, clock func() time.Time, logger *slog.Logger) (*ServingController, error) {
+func NewServingController(store ServingValidationStore, validator ServingValidator, clock func() time.Time, logger *slog.Logger) (*ServingController, error) {
 	if store == nil || validator == nil || clock == nil || logger == nil {
 		return nil, errors.New("serving controller requires store, validator, clock and logger")
 	}
@@ -76,14 +85,93 @@ func readServing[T ServingManifest](ctx context.Context, store ServingStore, kin
 	return typed, nil
 }
 
-// Activate requires approval of this exact proposal; retries never reactivate a superseded result.
-func (c *ServingController) Activate(ctx context.Context, proposalRef ObjectRef, workflowActor string, approved bool) (ActivationResult, error) {
+// PreparationResult distinguishes fresh readiness from an already-activated idempotent outcome.
+type PreparationResult struct {
+	Proposal   ObjectRef         `json:"proposal"`
+	Prepared   bool              `json:"prepared"`
+	Activation *ActivationResult `json:"activation,omitempty"`
+}
+
+// Prepare validates a frozen proposal without writes; completed retries never require healthy old revisions.
+func (c *ServingController) Prepare(ctx context.Context, proposalRef ObjectRef) (PreparationResult, error) {
+	logger := c.logger.With("proposal_sha256", proposalRef.SHA256)
 	proposal, err := readServing[*DeploymentProposal](ctx, c.store, ServingProposals, proposalRef)
 	if err != nil {
+		logger.Error("Failed to read immutable proposal for serving preparation", "err", err)
+		return PreparationResult{}, err
+	}
+	logger = logger.With("target", proposal.Target, "operator", proposal.Actor)
+	snapshot, err := c.store.ReadServingState(ctx, proposal.Target)
+	if errors.Is(err, ErrNotFound) {
+		snapshot = ServingStateSnapshot{}
+	} else if err != nil {
+		logger.Error("Failed to read authoritative target for serving preparation", "err", err)
+		return PreparationResult{}, err
+	}
+	transition, err := NextServingActivation(snapshot, *proposal, proposalRef, c.store.RootURI(), proposal.Actor, c.clock().UTC())
+	if err != nil {
+		logger.Warn("Serving preparation transition rejected", "expected_generation", proposal.ExpectedGeneration, "generation", snapshot.Generation, "err", err)
+		return PreparationResult{}, err
+	}
+	if transition.Replayed {
+		logger.Info("Serving preparation reconciled a previous activation", "activation_id", transition.Activation.ID, "outcome", transition.Outcome)
+		return PreparationResult{Proposal: proposalRef, Activation: &transition}, nil
+	}
+	if len(proposal.WithdrawActivations) > 0 {
+		if err := c.validateRollbackSource(ctx, snapshot, *proposal); err != nil {
+			logger.Warn("Serving preparation rollback source rejected", "source_release_sha256", proposal.SourceRelease.SHA256, "err", err)
+			return PreparationResult{}, err
+		}
+	}
+	if err := c.ValidateProposal(ctx, *proposal); err != nil {
+		logger.Error("Serving destination validation blocked preparation", "selection_set_sha256", proposal.SelectionSet.SHA256, "err", err)
+		return PreparationResult{}, err
+	}
+	logger.Info("Serving proposal prepared without activation", "selection_set_sha256", proposal.SelectionSet.SHA256, "expected_generation", proposal.ExpectedGeneration)
+	return PreparationResult{Proposal: proposalRef, Prepared: true}, nil
+}
+
+// Rollback uses the activation CAS path but only accepts a source previously serving this target.
+// Normal rollback retains pins; an approved proposal explicitly lists emergency withdrawals.
+func (c *ServingController) Rollback(ctx context.Context, proposalRef ObjectRef, workflowActor string, approved bool) (ActivationResult, error) {
+	return c.activate(ctx, proposalRef, workflowActor, approved, true)
+}
+
+func (c *ServingController) validateRollbackSource(ctx context.Context, snapshot ServingStateSnapshot, proposal DeploymentProposal) error {
+	for _, activation := range snapshot.State.Activations {
+		set, err := readServing[*SelectionSet](ctx, c.store, ServingSelectionSets, activation.SelectionSet)
+		if err != nil {
+			return err
+		}
+		if set.Target != proposal.Target {
+			return errors.New("rollback history belongs to another target")
+		}
+		selection := set.Default
+		if proposal.Scope == ChangeProfile {
+			selection = set.Profiles[proposal.ProfileKey]
+		}
+		if selection.Release == proposal.SourceRelease {
+			return nil
+		}
+	}
+	return errors.New("rollback requires a known-good source release previously serving the same target and profile")
+}
+
+// Activate requires approval of this exact proposal; retries never reactivate a superseded result.
+func (c *ServingController) Activate(ctx context.Context, proposalRef ObjectRef, workflowActor string, approved bool) (ActivationResult, error) {
+	return c.activate(ctx, proposalRef, workflowActor, approved, false)
+}
+
+func (c *ServingController) activate(ctx context.Context, proposalRef ObjectRef, workflowActor string, approved, rollback bool) (ActivationResult, error) {
+	logger := c.logger.With("proposal_sha256", proposalRef.SHA256, "workflow_actor", workflowActor)
+	proposal, err := readServing[*DeploymentProposal](ctx, c.store, ServingProposals, proposalRef)
+	if err != nil {
+		logger.Error("Failed to read immutable serving activation proposal", "err", err)
 		return ActivationResult{}, err
 	}
-	logger := c.logger.With("target", proposal.Target, "proposal_sha256", proposalRef.SHA256, "operator", proposal.Actor, "workflow_actor", workflowActor)
+	logger = logger.With("target", proposal.Target, "operator", proposal.Actor)
 	if !approved {
+		logger.Warn("Serving activation rejected: proposal approval missing")
 		return ActivationResult{}, errors.New("activation requires approval bound to this immutable proposal")
 	}
 	snapshot, err := c.store.ReadServingState(ctx, proposal.Target)
@@ -95,8 +183,19 @@ func (c *ServingController) Activate(ctx context.Context, proposalRef ObjectRef,
 		snapshot = ServingStateSnapshot{}
 	}
 	transition, err := NextServingActivation(snapshot, *proposal, proposalRef, c.store.RootURI(), workflowActor, c.clock().UTC())
-	if err != nil || transition.Replayed {
+	if err != nil {
+		logger.Warn("Serving activation transition rejected", "expected_generation", proposal.ExpectedGeneration, "generation", snapshot.Generation, "err", err)
 		return transition, err
+	}
+	if transition.Replayed {
+		logger.Info("Serving activation reconciled a previous outcome", "activation_id", transition.Activation.ID, "outcome", transition.Outcome)
+		return transition, nil
+	}
+	if rollback || len(proposal.WithdrawActivations) > 0 {
+		if err := c.validateRollbackSource(ctx, snapshot, *proposal); err != nil {
+			logger.Warn("Serving rollback source validation rejected", "source_release_sha256", proposal.SourceRelease.SHA256, "err", err)
+			return ActivationResult{}, err
+		}
 	}
 	if err := c.ValidateProposal(ctx, *proposal); err != nil {
 		logger.Error("Serving proposal validation blocked activation", "err", err)
@@ -105,6 +204,7 @@ func (c *ServingController) Activate(ctx context.Context, proposalRef ObjectRef,
 	// Validation may be slow; supersession starts at activation, not at the beginning of smoke checks.
 	transition, err = NextServingActivation(snapshot, *proposal, proposalRef, c.store.RootURI(), workflowActor, c.clock().UTC())
 	if err != nil {
+		logger.Warn("Serving activation transition construction rejected", "err", err)
 		return ActivationResult{}, err
 	}
 	committed, err := c.store.CompareAndSwapServingState(ctx, transition.Snapshot.State, snapshot.Generation)
@@ -121,6 +221,11 @@ func (c *ServingController) Activate(ctx context.Context, proposalRef ObjectRef,
 func (c *ServingController) ValidateProposal(ctx context.Context, proposal DeploymentProposal) error {
 	if err := proposal.Validate(c.store.RootURI()); err != nil {
 		return err
+	}
+	for _, evidence := range proposal.Evidence {
+		if err := c.store.VerifyServingArtifact(ctx, evidence); err != nil {
+			return fmt.Errorf("verify proposal evidence: %w", err)
+		}
 	}
 	set, err := readServing[*SelectionSet](ctx, c.store, ServingSelectionSets, proposal.SelectionSet)
 	if err != nil {
@@ -156,6 +261,9 @@ func (c *ServingController) ValidateProposal(ctx context.Context, proposal Deplo
 	source, err := readServing[*ServingRelease](ctx, c.store, ServingReleases, proposal.SourceRelease)
 	if err != nil {
 		return err
+	}
+	if err := c.store.VerifyServingArtifact(ctx, source.Provenance.BuildAttestation); err != nil {
+		return fmt.Errorf("verify source build attestation: %w", err)
 	}
 	if proposal.Scope == ChangeFull && set.Default.Release != proposal.SourceRelease {
 		return errors.New("full promotion must reuse the exact selected source composition")
@@ -240,6 +348,12 @@ func (c *ServingController) validateSelection(ctx context.Context, target Servin
 	if err != nil {
 		return ServingRelease{}, err
 	}
+	if err := c.store.VerifyServingArtifact(ctx, prepared.Release.Provenance.BuildAttestation); err != nil {
+		return ServingRelease{}, fmt.Errorf("verify destination build attestation: %w", err)
+	}
+	if err := c.store.VerifyServingArtifact(ctx, prepared.Binding.Attestation); err != nil {
+		return ServingRelease{}, fmt.Errorf("verify physical revision attestation: %w", err)
+	}
 	if err := c.validator.ValidatePreparedSelection(ctx, prepared, evidence); err != nil {
 		return ServingRelease{}, err
 	}
@@ -288,5 +402,5 @@ func ReadPreparedSelection(ctx context.Context, store ServingStore, target Servi
 			return PreparedSelection{}, errors.New("effective tuple differs from the assigned profile's immutable policy")
 		}
 	}
-	return PreparedSelection{Release: *release, Classifier: *bundle, Binding: *binding, Policy: policy}, nil
+	return PreparedSelection{Selection: selection, ProfileKey: profileKey, Release: *release, Classifier: *bundle, Binding: *binding, Policy: policy}, nil
 }

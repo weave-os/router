@@ -4,74 +4,82 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 )
 
-// WorkerCatalog is the destination worker's own routable model set, never the controller compile catalog.
-type WorkerCatalog interface {
-	ContainsArm(arm string) bool
+const (
+	// WorkerValidationPath loads and validates an exact snapshot without admitting inference.
+	WorkerValidationPath = "/internal/serving/validate"
+	// ClassifierAttestationPath must report loaded models/configuration, not expected environment values.
+	ClassifierAttestationPath = "/internal/serving/attestation"
+)
+
+// WorkerValidationRequest never selects a mutable head or accepts caller-supplied policy bytes.
+type WorkerValidationRequest struct {
+	Target     ServingTarget    `json:"target"`
+	ProfileKey string           `json:"profile_key,omitempty"`
+	Selection  ServingSelection `json:"selection"`
 }
 
-// ClassifierAttestation is the identity reported by a private classifier revision.
+// WorkerAttestation reports capabilities from the selected destination binary after snapshot smoke.
+type WorkerAttestation struct {
+	Identity     WorkerIdentity      `json:"identity"`
+	Requirements ServingRequirements `json:"requirements"`
+	CatalogArms  []string            `json:"catalog_arms"`
+	Selection    ServingSelection    `json:"selection"`
+	Ready        bool                `json:"ready"`
+}
+
+// ClassifierAttestation includes the complete loaded bundle so auxiliary/config changes cannot hide behind image reuse.
 type ClassifierAttestation struct {
-	ArtifactID     string
-	PackageSHA256  string
-	ImageDigest    string
-	WireSchema     string
-	TaxonomySHA256 string
-	ClassOrder     []string
+	Identity        ClassifierIdentity   `json:"identity"`
+	Package         ObjectRef            `json:"package"`
+	AuxiliaryModels map[string]ObjectRef `json:"auxiliary_models"`
+	Configuration   ObjectRef            `json:"configuration"`
+	Revision        string               `json:"revision"`
+	Ready           bool                 `json:"ready"`
 }
 
-// ClassifierAttestor probes the selected classifier revision over its private endpoint.
-type ClassifierAttestor interface {
-	Attest(ctx context.Context, revisionURL string) (ClassifierAttestation, error)
+// DestinationEndpoints performs authenticated private calls to the exact prepared revisions.
+type DestinationEndpoints interface {
+	ValidateWorker(context.Context, RevisionBinding, WorkerValidationRequest) (WorkerAttestation, error)
+	AttestClassifier(context.Context, RevisionBinding) (ClassifierAttestation, error)
 }
 
-// PrivateEndpointProber confirms the prepared worker/classifier revisions answer privately.
-type PrivateEndpointProber interface {
-	Probe(ctx context.Context, binding DeploymentBinding) error
-}
-
-// DestinationValidator is the production ServingValidator: attestation, destination catalog and private smoke.
+// DestinationValidator validates destination runtime capabilities rather than the controller's catalog.
 type DestinationValidator struct {
-	Catalog  WorkerCatalog
-	Attestor ClassifierAttestor
-	Prober   PrivateEndpointProber
+	Endpoints DestinationEndpoints
 }
 
-// ValidatePreparedSelection rejects unknown arms and classifier/schema mismatches before activation.
+// ValidatePreparedSelection requires complete classifier attestation and an exact worker snapshot smoke.
 func (v DestinationValidator) ValidatePreparedSelection(ctx context.Context, prepared PreparedSelection, _ []ObjectRef) error {
-	if v.Catalog == nil || v.Attestor == nil || v.Prober == nil {
-		return errors.New("destination validator requires catalog, attestor and private endpoint probe")
+	if v.Endpoints == nil {
+		return errors.New("destination validator requires private revision endpoints")
 	}
-	attestation, err := v.Attestor.Attest(ctx, prepared.Binding.Classifier.URL)
+	classifier, err := v.Endpoints.AttestClassifier(ctx, prepared.Binding.Classifier)
 	if err != nil {
-		return fmt.Errorf("attest classifier revision: %w", err)
+		return fmt.Errorf("attest classifier revision %q (full serving attestation is required): %w", prepared.Binding.Classifier.Name, err)
 	}
 	identity := prepared.Classifier.Identity
-	switch {
-	case attestation.ArtifactID != identity.ArtifactID:
-		return errors.New("classifier artifact does not match the selected bundle")
-	case attestation.PackageSHA256 != identity.PackageSHA256:
-		return errors.New("classifier package digest does not match the selected bundle")
-	case attestation.ImageDigest != identity.ImageDigest:
-		return errors.New("classifier image digest does not match the selected bundle")
-	case attestation.WireSchema != identity.WireSchema:
-		return errors.New("classifier wire schema does not match the selected bundle")
-	case attestation.TaxonomySHA256 != identity.TaxonomySHA256:
-		return errors.New("classifier taxonomy digest does not match the selected bundle")
+	if !classifier.Ready || classifier.Revision != prepared.Binding.Classifier.Name || classifier.Identity.ArtifactID != identity.ArtifactID || classifier.Identity.PackageSHA256 != identity.PackageSHA256 || classifier.Identity.ImageDigest != identity.ImageDigest || classifier.Identity.WireSchema != identity.WireSchema || classifier.Identity.TaxonomySHA256 != identity.TaxonomySHA256 || !slices.Equal(classifier.Identity.ClassOrder, identity.ClassOrder) {
+		return errors.New("classifier readiness, revision or core identity does not match the selected bundle")
 	}
-	if len(attestation.ClassOrder) != len(identity.ClassOrder) {
-		return errors.New("classifier class order does not match the selected bundle")
+	if classifier.Package != prepared.Classifier.Package || classifier.Configuration != prepared.Classifier.Configuration || classifier.AuxiliaryModels == nil || !maps.Equal(classifier.AuxiliaryModels, prepared.Classifier.AuxiliaryModels) {
+		return errors.New("classifier loaded package, auxiliary model inventory or configuration differs from the selected bundle")
 	}
-	for i := range identity.ClassOrder {
-		if attestation.ClassOrder[i] != identity.ClassOrder[i] {
-			return errors.New("classifier class order does not match the selected bundle")
-		}
+	worker, err := v.Endpoints.ValidateWorker(ctx, prepared.Binding.Router, WorkerValidationRequest{Target: prepared.Binding.Target, ProfileKey: prepared.ProfileKey, Selection: prepared.Selection})
+	if err != nil {
+		return fmt.Errorf("validate destination worker revision %q: %w", prepared.Binding.Router.Name, err)
+	}
+	expected := WorkerIdentity{Target: prepared.Binding.Target, Project: prepared.Binding.Project, Region: prepared.Binding.Region, Revision: prepared.Binding.Router.Name, ImageDigest: prepared.Binding.Router.ImageDigest, Configuration: prepared.Binding.Router.Configuration}
+	if !worker.Ready || worker.Identity != expected || worker.Requirements != prepared.Release.Requirements || !sameSelection(worker.Selection, prepared.Selection) {
+		return errors.New("worker readiness, identity, requirements or validated snapshot differs from the prepared selection")
 	}
 	for _, arm := range prepared.Policy.AllArms() {
-		if !v.Catalog.ContainsArm(arm) {
+		if !slices.Contains(worker.CatalogArms, arm) {
 			return fmt.Errorf("selected policy arm %q is absent from the destination worker catalog", arm)
 		}
 	}
-	return v.Prober.Probe(ctx, prepared.Binding)
+	return nil
 }

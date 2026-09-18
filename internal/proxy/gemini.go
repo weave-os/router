@@ -239,6 +239,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		Float64("catalog.actual_input_per_1m", actDecisionPricing.InputUSDPer1M).
 		Float64("catalog.actual_output_per_1m", actDecisionPricing.OutputUSDPer1M).
 		Int64("latency.route_ms", routeMs)
+	applyServingSpanAttrs(ctx, geminiDecisionBuilder)
 	applySidecarAttrs(geminiDecisionBuilder, routeRes)
 	applyPlannerAttrs(geminiDecisionBuilder, routeRes)
 	applyRoutingStateAttrs(geminiDecisionBuilder, routeRes, decision.ServedIdentity(), sessionKey)

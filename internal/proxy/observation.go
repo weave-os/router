@@ -6,9 +6,24 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/timing"
 )
+
+func applyServingSpanAttrs(ctx context.Context, attributes *otel.AttrBuilder) {
+	identity, managed := requestcontext.ServingIdentityFromContext(ctx)
+	if !managed {
+		return
+	}
+	attributes.String("serving.target", identity.Target).
+		String("serving.activation_id", identity.ActivationID).
+		String("serving.release_id", identity.ReleaseID).
+		String("serving.binding_id", identity.BindingID).
+		String("serving.profile_key", identity.ProfileKey).
+		String("serving.profile_revision", identity.ProfileRevision).
+		Int64("serving.binding_generation", identity.BindingGeneration)
+}
 
 // observationContext bundles per-request routing values shared by the OTel
 // span and telemetry row.

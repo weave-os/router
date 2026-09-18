@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/turntype"
@@ -71,7 +72,8 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 		mode = escalationModeActive
 	}
 	scope := sha256.Sum256([]byte(fmt.Sprintf("%s/%x/%s/%s/%d", res.InstallationID, res.SessionKey, res.Strategy, mode, flags.IntOr(ctx, flags.KeyEscalationXGBoostEpoch, 0))))
-	activation := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%s/%d", res.InstallationID, apiKeyID, res.Strategy, mode, flags.IntOr(ctx, flags.KeyEscalationXGBoostEpoch, 0))))
+	activation := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%s/%d", res.InstallationID, sessionCredentialIdentity(ctx, apiKeyID), res.Strategy, mode, flags.IntOr(ctx, flags.KeyEscalationXGBoostEpoch, 0))))
+	copy(activation[:], requestcontext.ServingStateKey(ctx, activation[:]))
 	log := observability.FromContext(ctx).With("escalation_scope", fmt.Sprintf("%x", scope))
 	observation, err := env.EscalationObservation()
 	if original, ok := ctx.Value(nativeResponsesBodyContextKey{}).([]byte); ok {

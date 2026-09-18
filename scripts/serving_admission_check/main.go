@@ -3,7 +3,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -14,6 +16,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
 
@@ -153,12 +157,15 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	_, disabled, err := admissions.Admit(ctx, installation.ID, replacement.ID, "conversation", decide)
+	disabledScope, disabled, err := admissions.Admit(ctx, installation.ID, replacement.ID, "conversation", decide)
 	if err != nil {
 		return err
 	}
 	if disabled.Target != policyregistry.TargetStable || disabled.ProfileKey != profileKey || disabled.BindingGeneration != 2 {
 		return errors.New("enrollment disable did not rebind while retaining profile")
+	}
+	if err := checkAttribution(ctx, pool, policyregistry.ServingAssertion{APIKeyID: replacement.ID, Scope: disabledScope, Admission: disabled}); err != nil {
+		return err
 	}
 	_, _, err = admissions.Admit(ctx, installation.ID, replacement.ID, "conversation", func(_ context.Context, admission policyregistry.SerializedAdmission) (policyregistry.SessionReleaseBinding, error) {
 		if admission.Previous == nil {
@@ -201,6 +208,47 @@ func run() error {
 	_, _, err = admissions.Admit(ctx, installation.ID, shared.ID, "conversation", decide)
 	if err != nil {
 		return fmt.Errorf("subject revocation affected shared credential: %w", err)
+	}
+	return nil
+}
+
+func checkAttribution(ctx context.Context, pool *pgxpool.Pool, assertion policyregistry.ServingAssertion) error {
+	attributions := serving.NewRequestAttributionRepo(pool)
+	requestID := uuid.NewString()
+	if err := attributions.RecordServingRequest(ctx, requestID, assertion); err != nil {
+		return fmt.Errorf("record admitted request: %w", err)
+	}
+	rebound := assertion
+	rebound.Admission.BindingGeneration++
+	rebound.Admission.Target = policyregistry.TargetInternal
+	err := attributions.RecordServingRequest(ctx, requestID, rebound)
+	var constraintError *pgconn.PgError
+	if !errors.As(err, &constraintError) || constraintError.Code != "23505" {
+		return fmt.Errorf("duplicate request attribution was not rejected: %v", err)
+	}
+	queries := sqlc.New(pool)
+	stored, err := queries.GetServingRequestAttribution(ctx, sqlc.GetServingRequestAttributionParams{RequestID: requestID, InstallationID: uuid.MustParse(assertion.Scope.InstallationID)})
+	if err != nil {
+		return err
+	}
+	var persistedBinding policyregistry.SessionReleaseBinding
+	if err := json.Unmarshal(stored.Binding, &persistedBinding); err != nil {
+		return err
+	}
+	expected, err := json.Marshal(assertion.Admission)
+	if err != nil {
+		return err
+	}
+	actual, err := json.Marshal(persistedBinding)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(expected, actual) || stored.APIKeyID.String() != assertion.APIKeyID {
+		return errors.New("request attribution changed after a later conversation rebind")
+	}
+	_, err = queries.GetServingRequestAttribution(ctx, sqlc.GetServingRequestAttributionParams{RequestID: requestID, InstallationID: uuid.New()})
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("cross-installation request attribution lookup did not fail closed: %v", err)
 	}
 	return nil
 }

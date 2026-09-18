@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/config"
+	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/gateway"
 	"weave-os/router/internal/gateway/iam"
 	"weave-os/router/internal/observability"
@@ -23,7 +25,7 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		observability.Get().Error("Router gateway stopped", "err", err)
+		observability.Get().Error("Router gateway stopped", "component", "router_gateway", "operation", "serve", "err", err)
 		os.Exit(1)
 	}
 }
@@ -35,7 +37,7 @@ func run() error {
 	if err := policyregistry.ValidateEnvironment(environment); err != nil {
 		return err
 	}
-	signer, err := policyregistry.NewAssertionSigner([]byte(config.MustGet("ROUTER_SERVING_ASSERTION_KEY")), time.Now)
+	signer, err := policyregistry.NewAssertionSigner([]byte(strings.TrimSpace(config.MustGet("ROUTER_SERVING_ASSERTION_KEY"))), time.Now)
 	if err != nil {
 		return err
 	}
@@ -70,7 +72,8 @@ func run() error {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.ResponseHeaderTimeout = 120 * time.Second
 	defer transport.CloseIdleConnections()
-	forwarder, err := gateway.NewHandler(credentials, admissions, registry, signer, iam.Authorizer{}, transport)
+	products := gateway.ProductSurfaces{Environment: environment, Analytics: credentials, Feedback: feedback.NewSigner(config.GetOr("ROUTER_FEEDBACK_LINK_SECRET", ""), 0), Attribution: serving.FeedbackLookup{Queries: sqlc.New(pool)}}
+	forwarder, err := gateway.NewHandler(credentials, admissions, registry, signer, iam.Authorizer{}, transport, products)
 	if err != nil {
 		return err
 	}
