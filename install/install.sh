@@ -2462,7 +2462,7 @@ prepare_claude_context_window() {
     sonnet|opus|fable|claude-sonnet-4-6|claude-sonnet-5|claude-opus-4-6|claude-opus-4-7|claude-opus-4-8|claude-opus-5|claude-fable-5|claude-fable-5-1) ;;
     *) err "Cannot assert 1M support for '$model'. Select a supported Sonnet/Opus/Fable model first; leaving it unchanged."; return 1 ;;
   esac
-  context_managed_model="$model[1m]"
+  context_managed_model="${model}[1m]"
 }
 
 apply_claude_context_window() {

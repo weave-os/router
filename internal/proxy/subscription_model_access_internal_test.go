@@ -1,8 +1,10 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -38,6 +40,24 @@ func TestSubscriptionModelAccessRescuesAndRemembers(t *testing.T) {
 			assert.Equal(t, 2, upstream.paidDispatches)
 		})
 	}
+}
+
+func TestSubscriptionModelAccessOpenAIIngressRescuesAndRemembers(t *testing.T) {
+	in := parityAnthropicIngress()
+	upstream := &parityUpstream{subErr: modelAccessError(), okBody: in.upstreamOK(false)}
+	svc := in.parityService(upstream)
+	body := []byte(`{"model":"` + in.model + `","max_tokens":4096,"stream":false,"messages":[{"role":"user","content":"investigate the failing dispatch"}]}`)
+
+	for range 2 {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+		require.NoError(t, svc.ProxyOpenAIChatCompletion(in.subCtx(), body, recorder, request))
+		assert.Equal(t, http.StatusOK, recorder.Code)
+		assert.NotContains(t, recorder.Body.String(), "not_found_error")
+	}
+
+	assert.Equal(t, 1, upstream.subDispatches)
+	assert.Equal(t, 2, upstream.paidDispatches)
 }
 
 func TestSubscriptionModelAccessPreservesFailedAttemptAttribution(t *testing.T) {

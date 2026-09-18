@@ -24,6 +24,7 @@ import (
 type scriptedSubscriptionLeaser struct {
 	leases      []subscriptions.Lease
 	next        int
+	repeatLast  bool
 	providers   []subscriptions.Provider
 	cooldownIDs []string
 	disabledIDs []string
@@ -32,6 +33,9 @@ type scriptedSubscriptionLeaser struct {
 func (s *scriptedSubscriptionLeaser) Lease(_ context.Context, _ string, provider subscriptions.Provider, _ string) (subscriptions.Lease, bool, error) {
 	s.providers = append(s.providers, provider)
 	if s.next >= len(s.leases) {
+		if s.repeatLast && len(s.leases) > 0 {
+			return s.leases[len(s.leases)-1], true, nil
+		}
 		return subscriptions.Lease{}, true, subscriptions.ErrNoAvailableAccount
 	}
 	lease := s.leases[s.next]
@@ -263,6 +267,72 @@ func TestDispatchWithFallbackDoesNotMarkFailedManagedAttemptServed(t *testing.T)
 
 	require.Error(t, err)
 	require.False(t, servedOnSubscription(ctx))
+}
+
+func TestDispatchWithFallbackRecoversManagedModelDenial(t *testing.T) {
+	leaser := &scriptedSubscriptionLeaser{
+		leases:     []subscriptions.Lease{{AccountID: "opaque-a", AccessToken: "token-a"}},
+		repeatLast: true,
+	}
+	upstream := &parityUpstream{subErr: modelAccessError(), okBody: "served"}
+	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: upstream}).
+		WithManagedSubscriptions(leaser).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+	svc.retrySleep = noopSleep
+
+	for range 2 {
+		recorder := httptest.NewRecorder()
+		buffer := newPreludeBuffer(recorder)
+		_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), failoverInputs{
+			w:               recorder,
+			buf:             buffer,
+			initialDecision: router.Decision{Model: parityAnthropicModel, Provider: providers.ProviderAnthropic},
+			purpose:         inference.PurposeAnthropicMessages,
+			bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+			attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
+				buffer.Seal()
+				return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+			},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "served", recorder.Body.String())
+	}
+
+	assert.Equal(t, 1, upstream.subDispatches)
+	assert.Equal(t, 2, upstream.paidDispatches)
+}
+
+func TestDispatchWithFallbackRotatesManagedModelDenialToEligibleAccount(t *testing.T) {
+	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{
+		{AccountID: "opaque-a", AccessToken: "token-a"},
+		{AccountID: "opaque-b", AccessToken: "token-b"},
+	}}
+	client := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{
+		{err: modelAccessError()},
+		{writeBytes: []byte("served")},
+	}}
+	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: client}).WithManagedSubscriptions(leaser)
+	recorder := httptest.NewRecorder()
+	buffer := newPreludeBuffer(recorder)
+	ctx := managedSubscriptionTestContext()
+
+	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
+		w:               recorder,
+		buf:             buffer,
+		initialDecision: router.Decision{Model: parityAnthropicModel, Provider: providers.ProviderAnthropic},
+		purpose:         inference.PurposeAnthropicMessages,
+		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
+		attempt: func(ctx context.Context, decision router.Decision, upstream providers.Client) error {
+			buffer.Seal()
+			return upstream.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+		},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 2, client.calls)
+	assert.Equal(t, 2, leaser.next)
+	assert.Equal(t, "served", recorder.Body.String())
+	assert.True(t, servedOnSubscription(ctx))
 }
 
 func TestDispatchWithFallbackBoundsManagedAccountRotationByTime(t *testing.T) {

@@ -6638,7 +6638,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if s.codexSubscriptionExhausted(ctx, r.Header) {
 		ctx = withSuppressedCodexSubscription(ctx)
 	}
-	ctx = resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
+	ctx = s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
 	opts.FastMode = fastModeForAttempt(ctx, decision.Model, decision.Provider)
 	// fastServed tracks whether the most recent attempt went out on the fast
 	// tier so post-dispatch billing prices the winning attempt.
@@ -7208,6 +7208,13 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		!routeRes.BlindExperimentPassthrough &&
 		!billing.SubscriptionOnlyFromContext(ctx) &&
 		s.openaiFallbackKeyAvailable(ctx)
+	// OpenAI-compatible callers can route to Anthropic too; give their Claude
+	// subscription model-access rejection the same paid recovery as /v1/messages.
+	claudeRetryViable := decision.Provider == providers.ProviderAnthropic &&
+		servedOnSubscription(ctx) &&
+		!routeRes.BlindExperimentPassthrough &&
+		!billing.SubscriptionOnlyFromContext(ctx) &&
+		s.anthropicFallbackKeyAvailable(ctx)
 
 	siblingDecisions := s.siblingFailoverDecisions(ctx, decision, overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI)
 	siblingViable := s.ResolveSiblingFailover(ctx) &&
@@ -7252,7 +7259,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		bindings:               bindings,
 		attempt:                attempt,
 		flushErr:               flushErrAsOpenAI,
-		deferFlushOnExhaustion: cyberRetryViable || codexRetryViable || siblingViable,
+		deferFlushOnExhaustion: cyberRetryViable || codexRetryViable || claudeRetryViable || siblingViable,
 		purpose:                routeRes.dispatchPurpose(surfacePurpose),
 		origin:                 routeRes.dispatchOrigin(decision),
 	})
@@ -7341,9 +7348,53 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			cyberRefusalSeen = cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(proxyErr)
 		}
 	}
-	// The Codex retry declined to run and no other rescue owns the held error;
-	// surface it now so it's never dropped.
-	if codexRetryViable && !codexRetryRan && !cyberRetryViable && !siblingViable && proxyErr != nil && !preludeBuf.Committed() {
+
+	claudeFailoverUsed := false
+	claudeRetryRan := false
+	if claudeRetryViable && proxyErr != nil && !preludeBuf.Committed() && anthropicSubscriptionModelRejected(proxyErr) {
+		subCtx := withSuppressedClaudeSubscription(ctx)
+		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, decision.Model, r.Header)
+		subOpts := opts
+		subOpts.FastMode = fastModeForAttempt(subCtx, decision.Model, providers.ProviderAnthropic)
+		subAttempt, subBuildErr := buildAttempt(decision, subOpts, marker)
+		subBindings := s.resolveBindingsForDispatch(subCtx, decision)
+		switch {
+		case subBuildErr != nil:
+			log.Error("Claude subscription failover: preparing the Weave-key retry failed; surfacing the original error",
+				"err", subBuildErr, "model", decision.Model)
+		case len(subBindings) == 0:
+			log.Warn("Claude subscription failover: no fallback Anthropic binding available; surfacing the original error",
+				"model", decision.Model, "upstream_status", upstreamStatus(proxyErr))
+		default:
+			log.Warn("Claude subscription failover: subscription cannot access model, retrying on Weave credits",
+				"model", decision.Model,
+				"err", proxyErr,
+				"upstream_status", upstreamStatus(proxyErr),
+				"request_id", requestID)
+			claudeRetryRan = true
+			respSummary = translate.ResponseSummary{}
+			winnerIdx, proxyErr = s.dispatchWithFallback(subCtx, failoverInputs{
+				w:                      contentSink,
+				buf:                    preludeBuf,
+				initialDecision:        decision,
+				bindings:               subBindings,
+				attempt:                subAttempt,
+				flushErr:               flushErrAsOpenAI,
+				deferFlushOnExhaustion: cyberRetryViable || siblingViable,
+				purpose:                routeRes.dispatchPurpose(surfacePurpose),
+				origin:                 routeRes.dispatchOrigin(decision),
+			})
+			bindings = subBindings
+			claudeFailoverUsed = proxyErr == nil
+			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
+			cyberRefusalSeen = cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(proxyErr)
+		}
+	}
+
+	// A subscription retry declined to run and no other rescue owns the held
+	// error; surface it now so it is never dropped.
+	if ((codexRetryViable && !codexRetryRan) || (claudeRetryViable && !claudeRetryRan)) &&
+		!cyberRetryViable && !siblingViable && proxyErr != nil && !preludeBuf.Committed() {
 		flushDeferredErr()
 	}
 
@@ -7440,7 +7491,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			siblingOpts.ModelSwitched = true
 			effortServed = s.resolveEffort(ctx, siblingDecision, siblingOpts.Capabilities, routeRes.EscalateEffort)
 			effortServed.apply(&siblingOpts)
-			siblingCtx := resolveAndInjectCredentials(ctx, siblingDecision.Provider, siblingDecision.Model, r.Header)
+			siblingCtx := s.resolveCredentials(ctx, siblingDecision.Provider, siblingDecision.Model, r.Header)
 			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
 			siblingMarker := suppressMarkerIfRequested(ctx, r.Header, siblingRoutingMarkerFor(routeRes, siblingDecision.Model))
@@ -7504,12 +7555,14 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	// Re-resolve credentials for the binding that actually served — each
 	// failover attempt gets its own context with potentially different creds.
-	// Carry the Codex suppression forward once the Weave-key retry succeeded, so
-	// cost.subscription_served and the billing key reflect the key that paid.
+	// Carry subscription suppression forward once a Weave-key retry succeeded,
+	// so cost.subscription_served and the billing key reflect the key that paid.
 	if codexFailoverUsed {
 		ctx = withSuppressedCodexSubscription(ctx)
+	} else if claudeFailoverUsed {
+		ctx = withSuppressedClaudeSubscription(ctx)
 	}
-	ctx = resolveAndInjectCredentials(ctx, finalProvider, decision.Model, r.Header)
+	ctx = s.resolveCredentials(ctx, finalProvider, decision.Model, r.Header)
 
 	// Re-resolve pricing for the binding that actually served (see ProxyMessages).
 	if actBindingPricing, ok := servedPricing(finalProvider, decision.Model, fastServed); ok {
@@ -7584,8 +7637,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		String("dispatch.primary_model", primaryModel).
 		String("dispatch.final_provider", finalProvider).
 		Int64("dispatch.fallback_attempts", int64(winnerIdx)).
-		Bool("dispatch.failover_used", finalProvider != primaryProvider || codexFailoverUsed || siblingFailoverUsed).
-		Bool("dispatch.subscription_failover", codexFailoverUsed).
+		Bool("dispatch.failover_used", finalProvider != primaryProvider || codexFailoverUsed || claudeFailoverUsed || siblingFailoverUsed).
+		Bool("dispatch.subscription_failover", codexFailoverUsed || claudeFailoverUsed).
 		Bool("dispatch.cyber_refusal_retry", cyberRetryRan).
 		Bool("dispatch.sibling_failover", siblingFailoverUsed)
 	applyPlannerAttrs(openaiUpstreamBuilder, routeRes)
@@ -7720,7 +7773,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			InvalidToolArgsBlocks: int32PtrIfKnown(int32(respSummary.InvalidToolArgsBlocks), respSummary.StopReason != "" && !nativeRespSummary),
 			// A subscription->Weave retry keeps the same provider, so OR it in to
 			// match the OTel span + completion log.
-			FailoverUsed: boolPtrTrue(finalProvider != primaryProvider || codexFailoverUsed || siblingFailoverUsed),
+			FailoverUsed: boolPtrTrue(finalProvider != primaryProvider || codexFailoverUsed || claudeFailoverUsed || siblingFailoverUsed),
 			// (session_key, role) join key — see the Anthropic-path write site.
 			SessionKey: sessionKey[:],
 			Role:       routeRes.PinRole,
@@ -7764,7 +7817,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		)
 	}
 
-	log.Info("ProxyOpenAIChatCompletion complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider || codexFailoverUsed || siblingFailoverUsed, "subscription_failover", codexFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(proxyErr)), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, append(armDemotionLogFields(armDemotedOAI, rescuedArmDemotedOAI), plannerLogFields(routeRes)...)...), downgradeShadowLogFields(routeRes)...)...)
+	log.Info("ProxyOpenAIChatCompletion complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider || codexFailoverUsed || claudeFailoverUsed || siblingFailoverUsed, "subscription_failover", codexFailoverUsed || claudeFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(proxyErr)), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, append(armDemotionLogFields(armDemotedOAI, rescuedArmDemotedOAI), plannerLogFields(routeRes)...)...), downgradeShadowLogFields(routeRes)...)...)
 	s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, finalProvider, fastServed, feats.Tokens, in, out, cacheCreation, cacheRead, routeMs, proxyMs, proxyErr, nil)
 
 	// Subscription-only mode disables paid failover by pinning dispatch to the

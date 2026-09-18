@@ -2,8 +2,8 @@ package proxy
 
 import (
 	"context"
-	"crypto/sha256"
 	"errors"
+	"hash/maphash"
 	"net/http"
 	"strings"
 	"sync"
@@ -21,24 +21,48 @@ import (
 const subscriptionModelDenialTTL = 15 * time.Minute
 
 type subscriptionModelKey struct {
-	token [sha256.Size]byte
-	model string
+	token    uint64
+	owner    string
+	account  string
+	provider string
+	model    string
 }
 
 type subscriptionModelAccess struct {
 	once    sync.Once
+	seed    maphash.Seed
 	entries *lru.Cache[subscriptionModelKey, time.Time]
 }
 
 func (a *subscriptionModelAccess) cache() *lru.Cache[subscriptionModelKey, time.Time] {
-	a.once.Do(func() { a.entries, _ = lru.New[subscriptionModelKey, time.Time](4096) })
+	a.once.Do(func() {
+		a.seed = maphash.MakeSeed()
+		a.entries, _ = lru.New[subscriptionModelKey, time.Time](4096)
+	})
 	return a.entries
 }
 
+func (a *subscriptionModelAccess) key(token []byte, model string) subscriptionModelKey {
+	a.cache()
+	return subscriptionModelKey{token: maphash.Bytes(a.seed, token), model: router.StripDateSuffix(model)}
+}
+
+func (a *subscriptionModelAccess) managedKey(owner, account, provider, model string) subscriptionModelKey {
+	return subscriptionModelKey{owner: owner, account: account, provider: provider, model: router.StripDateSuffix(model)}
+}
+
 func (a *subscriptionModelAccess) denied(token []byte, model string, now time.Time) bool {
-	key := subscriptionModelKey{token: sha256.Sum256(token), model: router.StripDateSuffix(model)}
-	until, ok := a.cache().Get(key)
+	until, ok := a.cache().Get(a.key(token, model))
 	return ok && now.Before(until)
+}
+
+func (a *subscriptionModelAccess) managedDenied(owner, account, provider, model string, now time.Time) bool {
+	until, ok := a.cache().Get(a.managedKey(owner, account, provider, model))
+	return ok && now.Before(until)
+}
+
+func (a *subscriptionModelAccess) denyManaged(owner, account, provider, model string, until time.Time) {
+	a.cache().Add(a.managedKey(owner, account, provider, model), until)
 }
 
 func anthropicSubscriptionModelRejected(err error) bool {
@@ -55,8 +79,7 @@ func (s *Service) recordSubscriptionModelRejection(ctx context.Context, provider
 	if provider != providers.ProviderAnthropic || creds == nil || !creds.OAuth || len(creds.APIKey) == 0 || !anthropicSubscriptionModelRejected(err) {
 		return
 	}
-	key := subscriptionModelKey{token: sha256.Sum256(creds.APIKey), model: router.StripDateSuffix(model)}
-	s.subscriptionModels.cache().Add(key, s.clockNow().Add(subscriptionModelDenialTTL))
+	s.subscriptionModels.cache().Add(s.subscriptionModels.key(creds.APIKey, model), s.clockNow().Add(subscriptionModelDenialTTL))
 }
 
 type suppressClaudeModelContextKey struct{}

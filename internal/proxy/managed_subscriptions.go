@@ -120,15 +120,48 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		}
 		return ctx, subscriptions.Lease{}, false, nil
 	}
-	lease, present, err := s.managedSubscriptions.Lease(ctx, apiKeyIDFromContext(ctx), poolProvider, ClientIdentityFrom(ctx).SessionID)
-	if err != nil {
-		if errors.Is(err, subscriptions.ErrNoAvailableAccount) {
+	ownerID := apiKeyIDFromContext(ctx)
+	sessionID := ClientIdentityFrom(ctx).SessionID
+	rejected := make([]subscriptions.Lease, 0, 1)
+	defer func() {
+		for _, skipped := range rejected {
+			skipped.Release()
+		}
+	}()
+	seen := make(map[string]struct{})
+	var lease subscriptions.Lease
+	for {
+		var present bool
+		var err error
+		lease, present, err = s.managedSubscriptions.Lease(ctx, ownerID, poolProvider, sessionID)
+		if err != nil {
+			if errors.Is(err, subscriptions.ErrNoAvailableAccount) {
+				if len(rejected) > 0 && !billing.SubscriptionOnlyFromContext(ctx) && s.anthropicFallbackKeyAvailable(ctx) {
+					return ctx, subscriptions.Lease{}, false, nil
+				}
+				return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolExhausted
+			}
+			return ctx, subscriptions.Lease{}, present, errors.Join(ErrSubscriptionPoolUnavailable, err)
+		}
+		if !present && len(rejected) > 0 && !billing.SubscriptionOnlyFromContext(ctx) && s.anthropicFallbackKeyAvailable(ctx) {
+			return ctx, subscriptions.Lease{}, false, nil
+		}
+		if !present {
 			return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolExhausted
 		}
-		return ctx, subscriptions.Lease{}, present, errors.Join(ErrSubscriptionPoolUnavailable, err)
-	}
-	if !present {
-		return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolExhausted
+		if !s.subscriptionModels.managedDenied(ownerID, lease.AccountID, provider, model, s.clockNow()) {
+			break
+		}
+		if _, duplicate := seen[lease.AccountID]; duplicate {
+			lease.Release()
+			if !billing.SubscriptionOnlyFromContext(ctx) && s.anthropicFallbackKeyAvailable(ctx) {
+				return ctx, subscriptions.Lease{}, false, nil
+			}
+			return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolExhausted
+		}
+		seen[lease.AccountID] = struct{}{}
+		rejected = append(rejected, lease)
+		sessionID = ""
 	}
 	creds := &Credentials{APIKey: []byte(lease.AccessToken), OAuth: true, Source: credSourceSubscription}
 	if poolProvider == subscriptions.ProviderCodex {
@@ -144,6 +177,12 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 		return false
 	}
 	status := upstreamStatus(attemptErr)
+	if provider == providers.ProviderAnthropic && anthropicSubscriptionModelRejected(attemptErr) {
+		s.subscriptionModels.denyManaged(apiKeyIDFromContext(ctx), lease.AccountID, provider, model, s.clockNow().Add(subscriptionModelDenialTTL))
+		observability.FromContext(ctx).Warn("Managed subscription account cannot access model",
+			"provider", poolProvider, "account_id", lease.AccountID, "model", model)
+		return true
+	}
 	switch status {
 	case http.StatusTooManyRequests:
 		resetAt := managedSubscriptionResetAt(attemptErr, s.clockNow())
