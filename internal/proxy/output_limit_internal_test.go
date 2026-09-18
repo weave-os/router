@@ -179,16 +179,24 @@ func TestProxyMessages_OutputLimitEightActionSequence(t *testing.T) {
 					req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(string(body)))
 					require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
 					want := outputLimitFirstModel
-					if trueCap && action == 4 {
+					if trueCap && action >= 4 {
 						want = outputLimitSecondModel
 					}
 					assert.Equal(t, want, rec.Header().Get(HeaderRouterModel), "action %d", action)
-					require.Len(t, routes.requests, action+1)
-					if trueCap && action == 4 {
-						assert.Contains(t, routes.requests[action].SafetyExcludedModels, outputLimitFirstModel)
-					} else {
-						assert.NotContains(t, routes.requests[action].SafetyExcludedModels, outputLimitFirstModel)
-						assert.NotContains(t, routes.requests[action].ExcludedModels, outputLimitFirstModel)
+					switch {
+					case action == 0:
+						require.Len(t, routes.requests, 1)
+						assert.NotContains(t, routes.requests[0].SafetyExcludedModels, outputLimitFirstModel)
+					case trueCap && action == 4:
+						require.Len(t, routes.requests, 2)
+						assert.Contains(t, routes.requests[1].SafetyExcludedModels, outputLimitFirstModel)
+					default:
+						// Eligible tool_result turns keep the pin and do not re-score.
+						wantRoutes := 1
+						if trueCap && action > 4 {
+							wantRoutes = 2
+						}
+						require.Len(t, routes.requests, wantRoutes)
 					}
 					messages = append(messages,
 						map[string]any{"role": "assistant", "content": []any{map[string]any{"type": "tool_use", "id": fmt.Sprintf("call_%d", action), "name": "Read", "input": map[string]any{}}}},

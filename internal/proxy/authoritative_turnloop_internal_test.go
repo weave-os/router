@@ -67,20 +67,6 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 			pinExpires: time.Now().Add(time.Hour),
 		},
 		{
-			name: "tool result ignores sticky kill switch",
-			body: []byte(`{
-				"model":"claude-opus-4-8",
-				"tools":[{"name":"Read","description":"read","input_schema":{"type":"object"}}],
-				"messages":[
-					{"role":"user","content":"inspect the repository"},
-					{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Read","input":{"path":"README.md"}}]},
-					{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"contents"}]}
-				]
-			}`),
-			pinFound:   true,
-			pinExpires: time.Now().Add(time.Hour),
-		},
-		{
 			name:       "expired pin does not reanchor",
 			body:       []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"continue"}]}`),
 			pinFound:   true,
@@ -431,4 +417,71 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 			assert.Equal(t, test.wantTier, result.PinTier)
 		})
 	}
+}
+
+func TestAuthoritativeToolResultHoldsEligiblePin(t *testing.T) {
+	strategy := router.Strategy("authoritative-test")
+	store := newStubPinStore()
+	store.getFound = true
+	store.getPin = sessionpin.Pin{
+		Provider:    providers.ProviderAnthropic,
+		Model:       "claude-opus-4-7",
+		Reason:      "cluster:v0.2",
+		PinnedUntil: time.Now().Add(time.Hour),
+	}
+	policyRouter := &authoritativeTestRouter{decision: router.Decision{
+		Provider: providers.ProviderAnthropic,
+		Model:    "claude-haiku-4-5",
+		Reason:   "authoritative-test_policy",
+	}}
+	svc := NewService(
+		nil,
+		nil,
+		nil,
+		false,
+		nil,
+		store,
+		false,
+		providers.ProviderAnthropic,
+		"claude-haiku-4-5",
+		nil,
+	).WithPolicyStrategy(policy.StrategySpec{
+		Strategy: strategy,
+		Router:   policyRouter,
+		Capabilities: policy.Capabilities{
+			SchemaVersion:                 policy.SchemaVersionV1,
+			AuthoritativePerTurnSelection: true,
+		},
+	})
+	body := []byte(`{
+		"model":"claude-opus-4-8",
+		"tools":[{"name":"Read","description":"read","input_schema":{"type":"object"}}],
+		"messages":[
+			{"role":"user","content":"inspect the repository"},
+			{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Read","input":{"path":"README.md"}}]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"contents"}]}
+		]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	features := env.RoutingFeatures(false)
+	result, err := svc.runTurnLoop(
+		router.WithStrategy(context.Background(), strategy),
+		env,
+		features,
+		"api-key",
+		uuid.New(),
+		"",
+		http.Header{},
+		router.Request{
+			RequestedModel:       features.Model,
+			ConversationMessages: conversationMessagesForRouting(env),
+		},
+	)
+	require.NoError(t, err)
+	assert.True(t, result.AuthoritativePerTurn)
+	assert.True(t, result.StickyHit)
+	assert.Equal(t, "claude-opus-4-7", result.Decision.Model)
+	assert.Equal(t, "authoritative_tool_result_pin", result.PinTier)
+	assert.Empty(t, policyRouter.requests)
 }

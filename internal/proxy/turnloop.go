@@ -1551,19 +1551,24 @@ func (s *Service) runTurnLoop(
 	// entry path would observe search decay and prefix trimming twice and lose
 	// the already-computed translation eligibility and pin-drop evidence.
 	routeRemaining := func() (turnLoopResult, error) {
-		// Tool-result turns: by default, fall through to the scorer + planner for
-		// MainLoop parity. Kill switch preserves the legacy #82 verbatim-reuse path.
-		// The #82 noisy-embedding concern is stale under only_user_message embed mode:
-		// translate.userPromptTextGJSON strips tool_result blocks from the embed input.
-		// Switches degrade safely — handover.RewriteEnvelope strips orphaned tool_results.
-		if req.Escalation == nil && !res.AuthoritativePerTurn &&
-			!s.ResolveScoreToolResultTurns(ctx) &&
+		// Tool-result turns stay on the eligible session pin so a cheaper HMM vote
+		// cannot yank the model mid-loop. Ineligible pins still fall through.
+		if req.Escalation == nil &&
 			res.TurnType == turntype.ToolResult &&
-			pinFound {
+			pinFound &&
+			automaticPinEligible(pin, req) {
 			decision := pinDecision(pin)
 			res.Decision = decision
 			res.StickyHit = true
-			res.PinTier = "postgres_tool_result_sc"
+			if res.AuthoritativePerTurn {
+				res.PinTier = "authoritative_tool_result_pin"
+			} else {
+				res.PinTier = "postgres_tool_result_sc"
+			}
+			log.Info("turnloop held tool_result on session pin",
+				"pin_model", pin.Model,
+				"pin_provider", pin.Provider,
+			)
 			s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
 			return res, nil
 		}

@@ -394,3 +394,19 @@ func TestAuthoritativeDowngradeHysteresisAcrossTurns(t *testing.T) {
 		pin.PinnedUntil = time.Now().Add(time.Hour)
 	}
 }
+
+func TestAuthoritativeDowngradeDefaultsHoldLowConfidence(t *testing.T) {
+	store := newStubPinStore()
+	store.getFound = true
+	store.getPin = authoritativeDowngradePin("claude-opus-4-8", 0)
+	svc := authoritativeDowngradeService(store, router.Decision{
+		Provider: providers.ProviderAnthropic,
+		Model:    "claude-haiku-4-5",
+		Reason:   "hmm_policy(classifier 'fast' (p=0.50))",
+		Metadata: &router.RoutingMetadata{ChosenScore: 0.5},
+	}).WithAuthoritativeDowngradeGate(true).WithHMMDowngradeHysteresisTurns(2)
+	result := runAuthoritativeDowngradeTurn(t, svc)
+	assert.Equal(t, "claude-opus-4-8", result.Decision.Model)
+	assert.True(t, result.StickyHit)
+	assert.Equal(t, "authoritative_hmm_downgrade_confidence_low", result.PinTier)
+}

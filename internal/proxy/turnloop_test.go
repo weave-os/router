@@ -179,9 +179,9 @@ func TestTurnLoop_ToolResultScoringDisabledSkipsScorer(t *testing.T) {
 	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel))
 }
 
-// TestTurnLoop_ToolResultScoringEnabledRunsScorerAndStays verifies the default path:
-// scorer runs (routeCalls==1) but planner STAYs, so the served model is unchanged.
-func TestTurnLoop_ToolResultScoringEnabledRunsScorerAndStays(t *testing.T) {
+// TestTurnLoop_ToolResultScoringEnabledHoldsPin verifies the default path:
+// an eligible pin is reused on tool_result without consulting the scorer.
+func TestTurnLoop_ToolResultScoringEnabledHoldsPin(t *testing.T) {
 	store := newFakePinStore()
 	store.hasPin = true
 	store.pin = sessionpin.Pin{
@@ -200,13 +200,13 @@ func TestTurnLoop_ToolResultScoringEnabledRunsScorerAndStays(t *testing.T) {
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(toolResultPinnedBody), rec, httpReq))
 
-	assert.Equal(t, 1, fr.routeCalls, "tool_result must run the scorer under MainLoop parity")
-	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel), "planner agreement STAYs on the pinned model")
+	assert.Equal(t, 0, fr.routeCalls, "eligible tool_result pin must not invoke the scorer")
+	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel), "tool_result must stay on the pinned model")
 }
 
-// TestTurnLoop_ToolResultScoringEnabledSwitchesSafely verifies a positive-EV switch
-// on a tool_result turn: handover strips the orphaned tool_result from the forwarded body.
-func TestTurnLoop_ToolResultScoringEnabledSwitchesSafely(t *testing.T) {
+// TestTurnLoop_ToolResultScoringEnabledDoesNotSwitch verifies a cheaper fresh
+// decision cannot yank an eligible pin mid tool loop.
+func TestTurnLoop_ToolResultScoringEnabledDoesNotSwitch(t *testing.T) {
 	chunk := strings.Repeat("aaaa ", 4000) // ~5k tokens each, positive EV
 	toolResultLargeBody := []byte(`{
 		"model":"claude-opus-4-7",
@@ -237,15 +237,12 @@ func TestTurnLoop_ToolResultScoringEnabledSwitchesSafely(t *testing.T) {
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, toolResultLargeBody, rec, httpReq))
 
-	assert.Equal(t, 1, fr.routeCalls, "tool_result must run the scorer under MainLoop parity")
-	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel), "positive-EV switch must move off the pinned model")
-	assert.Equal(t, int32(1), sz.calls.Load(), "summarizer must be invoked on a tool_result switch")
-
-	// The forwarded body must not contain the orphaned tool_result: handover
-	// rewrote history to [summary, latestUser-minus-tool_results].
+	assert.Equal(t, 0, fr.routeCalls, "eligible tool_result pin must not invoke the scorer")
+	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel), "tool_result must stay on the pinned model")
+	assert.Equal(t, int32(0), sz.calls.Load(), "no handover when the pin is held")
 	require.NotEmpty(t, up.proxyBodies, "upstream must have been called")
-	assert.NotContains(t, string(up.proxyBodies[0]), "tool_result",
-		"handover must strip the orphaned tool_result on a mid-tool-use switch")
+	assert.Contains(t, string(up.proxyBodies[0]), "tool_result",
+		"held pin forwards the original tool_result turn")
 }
 
 func TestTurnLoop_HMMToolResultCommunicationFollowsFreshDecision(t *testing.T) {
@@ -273,12 +270,9 @@ func TestTurnLoop_HMMToolResultCommunicationFollowsFreshDecision(t *testing.T) {
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(toolResultPinnedBody), rec, httpReq))
 
-	assert.Equal(t, 1, fr.routeCalls, "tool_result must ask HMM for a fresh communication decision")
-	assert.Equal(t, "claude-sonnet-4-5", rec.Header().Get(proxy.HeaderRouterModel),
-		"a completed tool result must not stay pinned to the tool-execution model")
-	store.mu.Lock()
-	assertOnlyHMMHistoryUpserts(t, store)
-	store.mu.Unlock()
+	assert.Equal(t, 0, fr.routeCalls, "eligible tool_result pin must not invoke HMM")
+	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel),
+		"tool_result must stay on the session pin through the tool loop")
 }
 
 func TestTurnLoop_HMMToolResultToolExecutionUsesFreshDecision(t *testing.T) {
@@ -306,12 +300,9 @@ func TestTurnLoop_HMMToolResultToolExecutionUsesFreshDecision(t *testing.T) {
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(toolResultPinnedBody), rec, httpReq))
 
-	assert.Equal(t, 1, fr.routeCalls, "tool_result still scores so HMM can decide whether execution continues")
-	assert.Equal(t, "claude-sonnet-4-5", rec.Header().Get(proxy.HeaderRouterModel),
-		"HMM tool execution must follow the fresh sidecar decision instead of an existing session pin")
-	store.mu.Lock()
-	assertOnlyHMMHistoryUpserts(t, store)
-	store.mu.Unlock()
+	assert.Equal(t, 0, fr.routeCalls, "eligible tool_result pin must not invoke HMM")
+	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel),
+		"tool_result must stay on the session pin through the tool loop")
 }
 
 func TestTurnLoop_HMMToolExecutionStaysWhenWarmCacheEVBeatsCheapFresh(t *testing.T) {
