@@ -323,6 +323,29 @@ func TestRescueDecisions_ReadmissionKeepsGlobalAutomaticExclusions(t *testing.T)
 	assert.Equal(t, []string{"claude-sonnet-5"}, siblingModels(got))
 }
 
+// A cooling arm the deployment has disabled stays out: readmission lifts the
+// cooldown, never the deployment-wide exclusion on the same model.
+func TestRescueDecisions_ReadmissionKeepsGlobalExclusionOnCoolingArm(t *testing.T) {
+	s := siblingService(providers.ProviderAnthropic).
+		WithGlobalAutomaticExclusions(&stubGlobalExclusionStore{byModel: map[string]string{"claude-sonnet-5": "disabled"}})
+	md := &router.RoutingMetadata{
+		CandidateModels: []string{"claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"},
+		CandidateProviders: map[string]string{
+			"claude-sonnet-5":  providers.ProviderAnthropic,
+			"claude-haiku-4-5": providers.ProviderAnthropic,
+		},
+	}
+	ctx := context.WithValue(context.Background(), SessionDemotedModelsContextKey{}, []string{"claude-sonnet-5", "claude-haiku-4-5"})
+	ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, map[string]time.Time{
+		"claude-sonnet-5":  rateLimitTestNow.Add(10 * time.Second),
+		"claude-haiku-4-5": rateLimitTestNow.Add(30 * time.Second),
+	})
+
+	got := s.siblingFailoverDecisions(ctx, overloadedDecision(md), 1_000, 0, 0)
+
+	assert.Equal(t, []string{"claude-haiku-4-5"}, siblingModels(got))
+}
+
 // The gateway BYOK walk readmits cooling arms the same way.
 func TestGatewayRescueDecisions_ExhaustedPoolReadmitsCoolingArms(t *testing.T) {
 	s := &Service{}
