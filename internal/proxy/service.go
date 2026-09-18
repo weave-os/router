@@ -3833,6 +3833,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		AppendAutonomySystem:              s.autonomySystemAppendApplies(ctx, body, env, routeRes.TurnType),
 		AppendWorkspaceSystem:             s.workspaceSystemAppendApplies(ctx, body, env, routeRes.TurnType),
 	}
+	// Names the level that reaches the wire, so a rescue candidate only takes it
+	// over once that candidate is committed to dispatch.
 	effortServed := s.resolveEffort(ctx, decision, opts.Capabilities, routeRes.EscalateEffort)
 	effortServed.apply(&opts)
 
@@ -4429,8 +4431,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		// The arm's level named the failed model's menu; the baseline resolves
 		// its own so the persisted identity matches what goes on the wire.
 		baselineDecision.Effort = ""
-		effortServed = s.resolveEffort(ctx, baselineDecision, baselineOpts.Capabilities, routeRes.EscalateEffort)
-		effortServed.apply(&baselineOpts)
+		baselineEffort := s.resolveEffort(ctx, baselineDecision, baselineOpts.Capabilities, routeRes.EscalateEffort)
+		baselineEffort.apply(&baselineOpts)
 		baselineCtx := ctx
 		baselineSubExhausted := s.claudeSubscriptionExhausted(ctx, r.Header)
 		if baselineSubExhausted {
@@ -4453,6 +4455,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			if baselineSubExhausted {
 				ctx = withSuppressedClaudeSubscription(ctx)
 			}
+			effortServed = baselineEffort
 			baselineBindings := s.resolveBindingsForDispatch(baselineCtx, baselineDecision)
 			baselineMarker := suppressMarkerIfRequested(ctx, r.Header, baselineRoutingMarkerFor(routeRes, baselineModel))
 			baselineAttempt := anthropicTierAttemptFor(baselineOpts, baselinePrep, baselineMarker).attempt(recordFastServed)
@@ -4589,8 +4592,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			// The turn now serves a model the session hasn't seen, so signed
 			// thinking blocks from the prior model must not be replayed verbatim.
 			siblingOpts.ModelSwitched = true
-			effortServed = s.resolveEffort(ctx, siblingDecision, siblingOpts.Capabilities, routeRes.EscalateEffort)
-			effortServed.apply(&siblingOpts)
+			siblingEffort := s.resolveEffort(ctx, siblingDecision, siblingOpts.Capabilities, routeRes.EscalateEffort)
+			siblingEffort.apply(&siblingOpts)
 			siblingCtx := s.resolveCredentials(ctx, siblingDecision.Provider, siblingDecision.Model, r.Header)
 			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
@@ -4622,6 +4625,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				rescuedPrimaryErr = proxyErr
 			}
 			siblingRescueRan = true
+			effortServed = siblingEffort
 			respSummary = translate.ResponseSummary{}
 			reqStats = providers.RequestMutationStats{}
 			winnerIdx, proxyErr = s.dispatchWithFallback(siblingCtx, failoverInputs{
@@ -7435,8 +7439,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		// The turn now serves a model the session hasn't seen, so signed
 		// reasoning from the refusing model must not be replayed verbatim.
 		retryOpts.ModelSwitched = true
-		effortServed = s.resolveEffort(ctx, cyberRetryTarget, retryOpts.Capabilities, routeRes.EscalateEffort)
-		effortServed.apply(&retryOpts)
+		retryEffort := s.resolveEffort(ctx, cyberRetryTarget, retryOpts.Capabilities, routeRes.EscalateEffort)
+		retryEffort.apply(&retryOpts)
 		retryCtx := resolveAndInjectCredentials(ctx, cyberRetryTarget.Provider, cyberRetryTarget.Model, r.Header)
 		retryOpts.FastMode = fastModeForAttempt(retryCtx, cyberRetryTarget.Model, cyberRetryTarget.Provider)
 		retryBindings := s.resolveBindingsForDispatch(retryCtx, cyberRetryTarget)
@@ -7472,6 +7476,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				}
 			}
 			cyberRetryRan = true
+			effortServed = retryEffort
 			respSummary = translate.ResponseSummary{}
 			winnerIdx, proxyErr = s.dispatchWithFallback(retryCtx, failoverInputs{
 				w:                      contentSink,
@@ -7516,8 +7521,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			siblingOpts.TargetProvider = siblingDecision.Provider
 			siblingOpts.Capabilities = router.Lookup(siblingDecision.Model)
 			siblingOpts.ModelSwitched = true
-			effortServed = s.resolveEffort(ctx, siblingDecision, siblingOpts.Capabilities, routeRes.EscalateEffort)
-			effortServed.apply(&siblingOpts)
+			siblingEffort := s.resolveEffort(ctx, siblingDecision, siblingOpts.Capabilities, routeRes.EscalateEffort)
+			siblingEffort.apply(&siblingOpts)
 			siblingCtx := s.resolveCredentials(ctx, siblingDecision.Provider, siblingDecision.Model, r.Header)
 			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
@@ -7549,6 +7554,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				rescuedPrimaryErr = proxyErr
 			}
 			siblingRescueRan = true
+			effortServed = siblingEffort
 			respSummary = translate.ResponseSummary{}
 			winnerIdx, proxyErr = s.dispatchWithFallback(siblingCtx, failoverInputs{
 				w:                      contentSink,
