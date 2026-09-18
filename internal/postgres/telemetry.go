@@ -156,6 +156,11 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.Inse
 		StopReason:                               p.StopReason,
 		ToolUseBlocks:                            p.ToolUseBlocks,
 		InvalidToolArgsBlocks:                    p.InvalidToolArgsBlocks,
+		LastToolUseName:                          stringPtrOrNil(p.LastToolUseName),
+		LastToolUseInputBytes:                    p.LastToolUseInputBytes,
+		ToolErrorCounts:                          p.ToolErrorCounts,
+		AutonomyAppendFired:                      p.AutonomyAppendFired,
+		WorkspaceAppendFired:                     p.WorkspaceAppendFired,
 		FailoverUsed:                             p.FailoverUsed,
 		DegenerateShadow:                         p.DegenerateShadow,
 		PolicyPinRequested:                       p.PolicyPinRequested,
@@ -312,38 +317,6 @@ func (r *TelemetryRepo) InsertLoopEscalationEvent(ctx context.Context, p proxy.L
 func (r *TelemetryRepo) CountLoopEscalationEvents(ctx context.Context, sessionKey []byte, role string) (count int64, err error) {
 	q := sqlc.New(r.tx)
 	return q.CountLoopEscalationEvents(ctx, sqlc.CountLoopEscalationEventsParams{
-		SessionKey: sessionKey,
-		Role:       role,
-	})
-}
-
-var _ proxy.StruggleEscalationStore = (*TelemetryRepo)(nil)
-
-func (r *TelemetryRepo) InsertStruggleEscalationEvent(ctx context.Context, p proxy.StruggleEscalationEvent) error {
-	id, err := uuid.Parse(p.InstallationID)
-	if err != nil {
-		return err
-	}
-	q := sqlc.New(r.tx)
-	return q.InsertStruggleEscalationEvent(ctx, sqlc.InsertStruggleEscalationEventParams{
-		InstallationID:      id,
-		SessionKey:          p.SessionKey,
-		Role:                p.Role,
-		StrugglingModel:     p.StrugglingModel,
-		Action:              p.Action,
-		EscalationTarget:    p.EscalationTarget,
-		TurnCount:           p.TurnCount,
-		WallSeconds:         p.WallSeconds,
-		SessionEverSwitched: p.SessionEverSwitched,
-		ArmingMode:          p.ArmingMode,
-		// Non-null column: a nil slice would encode as NULL.
-		EvidenceReasons: append([]string{}, p.EvidenceReasons...),
-	})
-}
-
-func (r *TelemetryRepo) CountStruggleEscalationEvents(ctx context.Context, sessionKey []byte, role string) (count int64, err error) {
-	q := sqlc.New(r.tx)
-	return q.CountStruggleEscalationEvents(ctx, sqlc.CountStruggleEscalationEventsParams{
 		SessionKey: sessionKey,
 		Role:       role,
 	})

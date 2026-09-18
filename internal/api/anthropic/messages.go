@@ -17,6 +17,15 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+// PrepareHandoffHandler applies Messages authentication and validation before route preparation.
+func PrepareHandoffHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc {
+	messages := MessagesHandler(svc, authSvc)
+	return func(c *gin.Context) {
+		c.Request = c.Request.WithContext(proxy.WithHandoffPreparation(c.Request.Context()))
+		messages(c)
+	}
+}
+
 func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
@@ -96,7 +105,6 @@ func stashClientIdentity(ctx context.Context, h http.Header, body []byte) contex
 	}
 	observability.FromContext(ctx).Debug("anthropic stashClientIdentity",
 		"meta_raw_len", len(metaRaw),
-		"meta_raw_preview", observability.Preview(metaRaw, 200),
 		"parsed_email_present", meta.Email != "",
 		"parsed_account_present", meta.AccountID != "",
 		"parsed_device_present", meta.DeviceID != "",

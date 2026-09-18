@@ -630,6 +630,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		Metadata: &router.RoutingMetadata{
 			Escalation:                    escalationDecision,
 			CandidateModels:               resolved.CandidateModels(),
+			RescueModels:                  RescueModelOrder(req.ClusterArmOverrides, res.RankedFallback, resolved),
 			CandidateProviders:            resolved.CandidateProviders(),
 			CandidateScores:               resolved.CatalogCandidateScores(res.CandidateScores),
 			CandidateArmProviders:         resolved.CandidateArmProviders(),
@@ -650,6 +651,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			ClassifierPredictedLabel:      res.PredictedLabel,
 			ClassifierClassOrder:          append([]string(nil), res.ClassOrder...),
 			ClassifierProbabilities:       cloneProbabilities(res.ClassProbabilities),
+			ClassifierMargin:              res.Margin,
 			SelectionPolicyReleaseID:      selectionPolicyReleaseID,
 			SelectionPolicySHA256:         selectionPolicySHA256,
 			SelectionHeadGeneration:       r.config.SelectionHeadGeneration,

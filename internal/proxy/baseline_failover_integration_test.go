@@ -67,7 +67,7 @@ func TestProxyMessages_OSSOutageFailsOverToBaselineAnthropic(t *testing.T) {
 		mu.Unlock()
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(anthropicMessageSSE))
+		_, _ = w.Write([]byte(strings.ReplaceAll(anthropicMessageSSE, `"output_tokens":1}`, `"output_tokens":32000}`)))
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
 		}
@@ -113,19 +113,20 @@ func TestProxyMessages_OSSOutageFailsOverToBaselineAnthropic(t *testing.T) {
 	assert.Contains(t, respBody, "event: message_start", "client sees the Anthropic stream start")
 	assert.Contains(t, respBody, "event: message_stop", "client sees the Anthropic stream end")
 	assert.Equal(t, "anthropic", rec.Header().Get(proxy.HeaderRouterProvider), "served provider header reflects the baseline failover")
-	// The client sees the initial decision immediately, followed by a correction
-	// when baseline failover changes the model before provider output.
+	// The buffered initial marker is replaced before it becomes visible, so the
+	// client sees only the model that produced provider output.
 	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(proxy.HeaderRouterModel), "x-router-model reflects the baseline model that served")
 	initialMarker := strings.Index(respBody, "deepseek/deepseek-v4-pro")
 	fallbackMarker := strings.Index(respBody, "claude-opus-4-8")
-	require.NotEqual(t, -1, initialMarker, "initial decision marker is visible")
+	require.Equal(t, -1, initialMarker, "failed initial decision marker stays hidden")
 	require.NotEqual(t, -1, fallbackMarker, "fallback correction names the serving model")
-	assert.Less(t, initialMarker, fallbackMarker, "fallback correction follows the initial decision")
 
 	// The session pin must record the baseline model that actually served, not
 	// the cost-routed OSS id — otherwise next-turn switch detection is wrong.
 	require.NotEmpty(t, store.usages, "baseline failover must write pin usage")
 	assert.Equal(t, "claude-opus-4-8", store.usages[len(store.usages)-1].ServedModel, "pin usage records the served baseline model")
+	assert.Equal(t, 32000, store.usages[len(store.usages)-1].OutputTokens)
+	assert.False(t, store.usages[len(store.usages)-1].OutputLimitReached, "the healthy final attempt must not be excluded for its output size")
 }
 
 func TestProxyMessages_AuthoritativePolicyNeverChangesModelOnFailover(t *testing.T) {

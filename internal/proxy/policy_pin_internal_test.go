@@ -202,6 +202,28 @@ func TestRunTurnLoop_HonouredPinKeepsSessionIdentity(t *testing.T) {
 	assert.False(t, noStore.SessionFirstTurn)
 }
 
+func TestRunTurnLoop_HonouredPinClassifierKeepsSessionKeyZero(t *testing.T) {
+	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-haiku-4-5","max_tokens":5,"messages":[{"role":"user","content":"hello"}]}`))
+	require.NoError(t, err)
+	feats := env.RoutingFeatures(false)
+	rt := &countingPinnedRouter{decision: router.Decision{
+		Provider: providers.ProviderOpenAI, Model: "gpt-5.5",
+		Metadata: &router.RoutingMetadata{PolicyPinHonoured: true},
+	}}
+	store := &rolePinStore{byRole: map[string]sessionpin.Pin{}}
+	svc := pinnedTurnLoopService(t, rt, store)
+	var zeroKey [sessionpin.SessionKeyLen]byte
+
+	res, err := svc.runTurnLoop(pinnedContext(true), env, feats, "key", uuid.Nil, "", nil, router.Request{RequestedModel: feats.Model})
+	require.NoError(t, err)
+	assert.Equal(t, turntype.Classifier, res.TurnType)
+	assert.Equal(t, 1, rt.calls, "a pinned classifier is still scored by the pinned policy")
+	assert.Equal(t, "gpt-5.5", res.Decision.Model)
+	assert.Equal(t, policyPinTier, res.PinTier)
+	assert.Equal(t, zeroKey, res.SessionKey, "a classifier never carries the thread session key, so writeback cannot touch the conversation's pin")
+	assert.False(t, res.SessionFirstTurn)
+}
+
 func TestRunTurnLoop_HonouredPinBypassesForceModel(t *testing.T) {
 	env, feats := pinnedTurnLoopEnvelope(t)
 	rt := &countingPinnedRouter{decision: router.Decision{

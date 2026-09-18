@@ -164,6 +164,15 @@ func (d *deferredCallLog) run() {
 	}
 }
 
+// zdrLogField blanks content-bearing log values when the effective capture
+// mode is off, keeping stdout logs content-free for zero-retention installs.
+func (s *Service) zdrLogField(ctx context.Context, v string) string {
+	if s.effectiveCaptureMode(ctx) == CaptureOff {
+		return ""
+	}
+	return v
+}
+
 func (s *Service) redact(content []byte, kind ContentKind) string {
 	if s.redactor == nil {
 		return string(content)

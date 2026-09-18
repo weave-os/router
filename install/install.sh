@@ -5,12 +5,13 @@
 # Configures Claude Code (default), the OpenAI Codex CLI (`--codex`),
 # opencode (`--opencode`), or pi (`--pi`) to permanently route through the
 # Weave Router. For Claude Code this writes the router base URL, router auth
-# header, and a status line into Claude Code's settings.json. For Codex it
-# writes a `model_providers.weave` entry plus `model_provider = "weave"` into
-# ~/.codex/config.toml (managed block delimited by markers). For opencode
-# it merges a `provider.weave` block (anthropic-compatible) into
-# opencode.json — since the file is JSON, install/uninstall are structural
-# (jq) rather than marker-delimited. For pi it merges a `weave` provider into
+# header, and a status line into Claude Code's settings.json unless Claude Code
+# already has an active statusline configured. For Codex it writes a
+# `model_providers.weave` entry plus `model_provider = "weave"` into
+# ~/.codex/config.toml (managed block delimited by markers). For opencode it
+# merges a Responses-format `provider.weave` block into opencode.json — since
+# the file is JSON, install/uninstall are structural (jq) rather than
+# marker-delimited. For pi it merges a `weave` provider into
 # ~/.pi/agent/models.json, sets it as the default in settings.json, and adds
 # the @weave-os/router extension (which also adds a parallel subagent
 # `dispatch` tool) — all structural (jq) merges.
@@ -120,9 +121,9 @@ router_key_header="X-Weave-Router-Key"
 # settings.json; "codex" writes ~/.codex/config.toml; "opencode" merges a
 # provider block into opencode.json. Each target carries its own
 # credential-passthrough story in the router: Claude Code's logged-in
-# Anthropic key flows through unchanged, Codex's `OPENAI_API_KEY` flows
-# through via the same header path, and opencode talks to the router via
-# its anthropic-compatible API surface. target_explicit tracks whether
+# Anthropic key flows through unchanged, Codex's ChatGPT credential flows
+# through its native provider, and opencode uses the Responses API plus
+# dedicated subscription headers. target_explicit tracks whether
 # --claude / --codex / --opencode was passed so an interactive run can
 # prompt for the choice.
 target="claude"
@@ -360,6 +361,37 @@ refuse_if_symlink() {
     err "$target is a symlink (-> $(readlink "$target")). Refusing to write through it."
     exit 1
   fi
+}
+
+# The marker is part of the installed script, so a user-owned script at the
+# same conventional path can be distinguished from one managed by the router.
+CLAUDE_STATUSLINE_MARKER="# Claude Code statusline for the Weave Router."
+
+# claude_statusline_configured reports whether Claude Code has a non-null
+# statusline setting in a settings file.
+claude_statusline_configured() {
+  local settings_path="$1"
+  [ -f "$settings_path" ] || return 1
+  jq -e 'has("statusLine") and (.statusLine != null)' "$settings_path" >/dev/null 2>&1
+}
+
+# claude_statusline_router_owned reports whether a settings entry points at the
+# router's statusline. Existing scripts prove ownership with the marker; when a
+# script is missing, the adjacent ownership marker proves that the router wrote
+# it and should recreate it.
+claude_statusline_router_owned() {
+  local settings_path="$1" expected_command="$2" script_path="$3" ownership_marker_path="$4" configured_command
+  [ -f "$settings_path" ] || return 1
+  configured_command="$(jq -r '.statusLine.command // empty' "$settings_path" 2>/dev/null || true)"
+  [ "$configured_command" = "$expected_command" ] || return 1
+  if [ -f "$script_path" ]; then
+    if grep -Fq "$CLAUDE_STATUSLINE_MARKER" "$script_path" 2>/dev/null; then
+      return 0
+    fi
+    [ -r "$script_path" ] && return 1
+  fi
+  [ -f "$ownership_marker_path" ] \
+    && grep -Fq "$CLAUDE_STATUSLINE_MARKER" "$ownership_marker_path"
 }
 
 # Markers that delimit the block this installer manages inside Codex's
@@ -911,6 +943,9 @@ write_opencode_config() {
   # upstream model for every request, so presenting pinned model names would
   # imply a choice that the router intentionally does not honor. Whichever
   # model serves a turn uses its matching subscription when one is connected.
+  # OpenCode interprets omitted custom-model limits as zero, which disables its
+  # overflow compaction. The 128K/32K virtual contract is the router's
+  # conservative compatibility floor and leaves 96K for model-visible input.
   #
   # npm is @ai-sdk/openai and baseURL KEEPS its /v1 here: opencode's
   # @ai-sdk/openai provider appends /responses, yielding the router's
@@ -930,7 +965,13 @@ write_opencode_config() {
       name: "Weave Router",
       options: { apiKey: $key, baseURL: $url, headers: $headers },
       models: {
-        auto: { name: "Auto" }
+        auto: {
+          name: "Auto",
+          reasoning: true,
+          attachment: true,
+          modalities: { input: ["text", "image", "pdf"], output: ["text"] },
+          limit: { context: 128000, output: 32000 }
+        }
       }
     }
   ')"
@@ -978,11 +1019,29 @@ write_opencode_config() {
     warn "opencode subscription plugin source not found at $plugin_src — skipping the Claude login + subscription routing. (Use a packaged 'npx $npm_package_name' install.)"
   fi
 
+  # Installing must actually activate the router. Preserve a prior direct model
+  # beside the config so off/uninstall can restore the user's exact choice.
+  local parked_file previous_model
+  parked_file="$(dirname "$config_file")/.weave-parked.json"
+  if [ -f "$config_file" ]; then
+    previous_model="$(json_get "$config_file" '.model')"
+    case "$previous_model" in
+      ""|weave/*|weave-codex/*|weave-claude/*) ;;
+      *)
+        if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
+          refuse_if_symlink "$parked_file"
+        fi
+        jq -n --arg direct "$previous_model" --arg router "weave/auto" \
+          '{direct_model: $direct, router_model: $router}' >"$parked_file"
+        chmod 600 "$parked_file"
+        ;;
+    esac
+  fi
+
   # Merge into any existing opencode.json. We always overwrite provider.weave
   # so re-install reflects the latest key/identity, but we leave the rest of the
-  # file (other providers, mcp, agent settings) untouched. A previously
-  # installed `weave/*` model is migrated to `weave/auto`; unrelated provider
-  # choices stay untouched.
+  # file (other providers, mcp, agent settings) untouched. The managed model is
+  # always weave/auto; a prior direct choice was parked above for exact restore.
   #
   # The weave-claude login provider AND the plugin entry are written together
   # only when the bundled plugin was present and copied ($plugin non-empty): the
@@ -1010,12 +1069,7 @@ write_opencode_config() {
                    then (.plugin -= [$pluginspec]) | (if (.plugin | length) == 0 then del(.plugin) else . end)
                    else . end)
          end)
-      | (if (.model // "") == "" then .model = "weave/auto" else . end)
-      # Replace any legacy Weave model choice with the single auto-routing
-      # choice. Models from unrelated providers remain unchanged.
-      | (if (.model // "" | tostring) as $model
-           | ($model | startswith("weave/") or startswith("weave-codex/") or startswith("weave-claude/"))
-           then .model = "weave/auto" else . end)
+      | .model = "weave/auto"
       | (.["$schema"] //= "https://opencode.ai/config.json")
     ' "$config_file")"
   else
@@ -1831,6 +1885,10 @@ else
 fi
 
 if [ "$target" = "claude" ]; then
+  statusline_install="true"
+  statusline_source_file=""
+  statusline_expected_command=""
+  statusline_candidate_file=""
   case "$scope" in
     user)
       settings_dir="$settings_base/.claude"
@@ -1855,6 +1913,37 @@ if [ "$target" = "claude" ]; then
       fi
       ;;
   esac
+  statusline_ownership_file="$statusline_file.weave-router"
+
+  # Check the effective settings layer. A user-owned statusline blocks the
+  # install; a router-owned one is refreshed so reinstall repairs its script.
+  if [ "$scope" = "project" ] \
+     && claude_statusline_configured "$local_settings_file"; then
+    statusline_source_file="$local_settings_file"
+    statusline_expected_command="$statusline_path_for_settings"
+    statusline_candidate_file="$statusline_file"
+  elif claude_statusline_configured "$settings_file"; then
+    statusline_source_file="$settings_file"
+    statusline_expected_command="$statusline_path_for_settings"
+    statusline_candidate_file="$statusline_file"
+  elif [ "$scope" = "project" ] \
+       && claude_statusline_configured "$HOME/.claude/settings.json"; then
+    statusline_source_file="$HOME/.claude/settings.json"
+    statusline_expected_command="$HOME/.weave/cc-statusline.sh"
+    statusline_candidate_file="$HOME/.weave/cc-statusline.sh"
+  fi
+  if [ -n "$statusline_source_file" ] \
+     && ! claude_statusline_router_owned \
+          "$statusline_source_file" "$statusline_expected_command" \
+          "$statusline_candidate_file" "$statusline_candidate_file.weave-router"; then
+    statusline_install="false"
+    skip "Existing Claude Code statusline detected; leaving it unchanged."
+  fi
+  if [ "$statusline_install" = "true" ] \
+     && [ -f "$statusline_candidate_file" ] \
+     && [ ! -w "$statusline_candidate_file" ]; then
+    chmod u+rw "$statusline_candidate_file"
+  fi
 
   # Symlink containment: refuse if any target path is a symlink. User-scope
   # paths under $HOME are trusted; project-scope and --dir paths come from a
@@ -1863,10 +1952,16 @@ if [ "$target" = "claude" ]; then
     refuse_if_symlink "$settings_dir"
     refuse_if_symlink "$settings_file"
     refuse_if_symlink "$local_settings_file"
-    refuse_if_symlink "$statusline_file"
+    if [ "$statusline_install" = "true" ]; then
+      refuse_if_symlink "$statusline_file"
+      refuse_if_symlink "$statusline_ownership_file"
+    fi
   fi
 
-  mkdir -p "$settings_dir" "$statusline_dir"
+  mkdir -p "$settings_dir"
+  if [ "$statusline_install" = "true" ]; then
+    mkdir -p "$statusline_dir"
+  fi
 elif [ "$target" = "codex" ]; then
   # Codex CLI reads config from ~/.codex/config.toml by default. For project
   # scope we write to <repo>/.codex/config.toml; the user invokes Codex with
@@ -2534,20 +2629,22 @@ toggle_codex() {
 
 toggle_opencode() {
   local f="$opencode_config_file" parked="$opencode_dir/.weave-parked.json"
-  local model="" has_weave="false" parked_present="false" on="false" restore_model merged
+  local model="" direct_model="" router_model="weave/auto" has_weave="false" parked_present="false" on="false" merged model_id
   # Symlink containment for the parked sidecar — `off` writes it via shell
   # redirection; a hostile project repo could pre-place it as a symlink. The
   # opencode.json itself is already guarded during path resolution.
   if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
     refuse_if_symlink "$parked"
   fi
-  if [ -f "$parked" ]; then parked_present="true"; fi
+  if [ -f "$parked" ]; then
+    parked_present="true"
+    direct_model="$(json_get "$parked" '.direct_model')"
+    router_model="$(jq -r '.router_model // .model // "weave/auto"' "$parked" 2>/dev/null || echo "weave/auto")"
+  fi
   if [ -f "$f" ]; then
-    model="$(jq -r '.model // empty' "$f" 2>/dev/null || true)"
+    model="$(json_get "$f" '.model')"
     if [ "$(jq -r '((.provider // {}) | has("weave"))' "$f" 2>/dev/null || true)" = "true" ]; then has_weave="true"; fi
   fi
-  # A managed model counts as router-on: the Responses-shaped `weave/…` default,
-  # or a legacy `weave-codex/…` model parked by a pre-upgrade install.
   case "$model" in weave/* | weave-codex/*) on="true" ;; esac
 
   case "$mode" in
@@ -2565,52 +2662,48 @@ toggle_opencode() {
         if [ "$has_weave" = "true" ]; then ok "opencode is already off — nothing to do."; else info "opencode isn't configured for the router. Run the installer first."; fi
         return 0
       fi
-      jq '{model: .model}' "$f" >"$parked"
+      router_model="$model"
+      jq -n --arg direct "$direct_model" --arg router "$router_model" \
+        '{direct_model: $direct, router_model: $router}' >"$parked"
       chmod 600 "$parked"
-      merged="$(jq 'del(.model)' "$f")"
+      if [ -n "$direct_model" ]; then
+        merged="$(jq --arg model "$direct_model" '.model = $model' "$f")"
+      else
+        merged="$(jq 'del(.model)' "$f")"
+      fi
       printf '%s\n' "$merged" >"$f"
       chmod 600 "$f"
       gitignore_add ".weave-parked.json"
-      ok "opencode is ${C_BOLD}off${C_RESET} — pick a non-Weave model with /models. Takes effect on your next opencode run."
+      if [ -n "$direct_model" ]; then
+        ok "opencode is ${C_BOLD}off${C_RESET} — restored $direct_model. Takes effect on your next opencode run."
+      else
+        ok "opencode is ${C_BOLD}off${C_RESET} — choose a direct model with /models. Takes effect on your next opencode run."
+      fi
       ;;
     on)
       if [ "$on" = "true" ]; then ok "opencode is already on — nothing to do."; return 0; fi
-      restore_model="weave/auto"
-      if [ "$parked_present" = "true" ]; then
-        restore_model="$(jq -r '.model // "weave/auto"' "$parked")"
-      elif [ "$has_weave" != "true" ]; then
-        warn "opencode isn't configured for the router. Run the installer first."; return 0
-      else
-        # No parked model (sidecar deleted by hand). Derive the default from the
-        # installed provider.weave.models block rather than a hardcoded literal
-        # that silently diverges when the installer's default changes — prefer
-        # the auto-routing entry, else the first model the installer registered.
-        restore_model="$(jq -r '
-          (.provider.weave.models // {} | keys) as $k
-          | (([$k[] | select(. == "auto")] | first) // $k[0] // "auto")
-          | "weave/" + .
-        ' "$f" 2>/dev/null || echo "weave/auto")"
+      if [ "$has_weave" != "true" ]; then
+        warn "opencode isn't configured for the router. Run the installer first."
+        return 0
       fi
-      # Restore only a registered `weave` model. Legacy installations may have
-      # parked a pinned model, but a current install exposes only `weave/auto`.
-      case "$restore_model" in
+      case "$model" in ""|weave/*|weave-codex/*) ;; *) direct_model="$model" ;; esac
+      case "$router_model" in
         weave/*)
-          local model_id="${restore_model#weave/}"
+          model_id="${router_model#weave/}"
           if ! jq -e --arg id "$model_id" '(.provider.weave.models // {}) | has($id)' "$f" >/dev/null 2>&1; then
-            restore_model="weave/auto"
+            router_model="weave/auto"
           fi
           ;;
-        weave-codex/*)
-          if [ "$(jq -r '((.provider // {}) | has("weave-codex"))' "$f" 2>/dev/null || true)" != "true" ]; then
-            restore_model="weave/auto"
-          fi
-          ;;
+        *) router_model="weave/auto" ;;
       esac
-      merged="$(jq --arg m "$restore_model" '.model = $m' "$f")"
+      merged="$(jq --arg model "$router_model" '.model = $model' "$f")"
       printf '%s\n' "$merged" >"$f"
       chmod 600 "$f"
-      rm -f "$parked"
-      ok "opencode is ${C_BOLD}on${C_RESET} (default model $restore_model via the Weave Router). Takes effect on your next opencode run."
+      jq -n --arg direct "$direct_model" --arg router "$router_model" \
+        '{direct_model: $direct, router_model: $router}' >"$parked"
+      chmod 600 "$parked"
+      gitignore_add ".weave-parked.json"
+      ok "opencode is ${C_BOLD}on${C_RESET} (default model $router_model via the Weave Router). Takes effect on your next opencode run."
       ;;
   esac
 }
@@ -3464,28 +3557,37 @@ EOF
     src="$commands_src_dir/$cmd.md"
     dst="$dst_dir/$cmd.md"
     [ -f "$src" ] || continue
-    if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
-      refuse_if_symlink "$dst"
-    fi
     # Substitute the {{SCOPE}} placeholder (only the router-* wrappers carry it;
     # cp-equivalent for the others since the token is absent).
     local body; body="$(cat "$src")"
     body="${body//\{\{SCOPE\}\}/$scope_args}"
+    ownership_file="$dst.weave-router"
+    if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
+      refuse_if_symlink "$dst"
+      refuse_if_symlink "$ownership_file"
+    fi
     # Wrappers installed before ownership markers existed carry no marker. A
     # file whose body still matches what this installer would write is one of
     # ours from an older version, so adopt it rather than treating it as
     # user-owned — otherwise every pre-marker install is stranded: never
     # refreshed, never uninstalled, and skipped by the statusline refresh.
-    # Anything that does not match byte-for-byte is left alone.
+    # The sidecar comparison also recognizes a router-owned wrapper after its
+    # bundled body changes, while a user edit breaks that comparison.
     if [ -e "$dst" ] && { [ ! -f "$dst" ] || ! grep -Fq "<!-- weave-router managed command: $cmd -->" "$dst"; }; then
       if [ -f "$dst" ] && [ "$(cat "$dst")" = "$body" ]; then
         : # an unmarked copy of our own wrapper; fall through and adopt it
+      elif [ -f "$ownership_file" ] \
+           && [ "$(sed -n '1p' "$ownership_file")" = "weave-router managed command: $cmd" ] \
+           && [ "$(sed '1d' "$ownership_file")" = "$(cat "$dst")" ]; then
+        : # a markerless wrapper whose sidecar still matches its body
       else
         warn "A user-owned $target command already exists at $dst; leaving it untouched."
         continue
       fi
     fi
-    printf '%s\n<!-- weave-router managed command: %s -->' "$body" "$cmd" >"$dst"
+    printf '%s\n' "$body" >"$dst"
+    # Keep ownership metadata in a sidecar so Claude Code never sends it as prompt text.
+    printf 'weave-router managed command: %s\n%s\n' "$cmd" "$body" >"$ownership_file"
   done
   seed_command_baseline "$commands_src_dir" "$cmds"
   ok "Slash commands written to $dst_dir ($installed)"
@@ -4535,7 +4637,9 @@ if [ "$target" = "opencode" ]; then
     refuse_if_symlink "$gitignore"
     for entry in \
       "opencode.json" \
-      ".weave/"
+      ".weave/" \
+      ".weave-parked.json" \
+      ".opencode/commands/*.weave-router"
     do
       if [ ! -f "$gitignore" ] || ! grep -qxF "$entry" "$gitignore"; then
         printf '%s\n' "$entry" >>"$gitignore"
@@ -4552,11 +4656,9 @@ if [ "$target" = "opencode" ]; then
   #
   # Router on/off/status are not installed — they run npx shell commands
   # specific to the Claude Code settings model and don't apply to opencode.
-  if [ "$scope" = "project" ]; then
+  if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
     opencode_commands_dir="$opencode_dir/.opencode/commands"
   else
-    # User scope and --dir installs: use the global commands path that opencode
-    # discovers regardless of working directory.
     opencode_commands_dir="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/commands"
   fi
   install_slash_commands "$opencode_commands_dir"
@@ -4579,7 +4681,7 @@ if [ "$target" = "opencode" ]; then
   if [ -n "$install_dir" ]; then
     # --dir installs land outside opencode's discovery roots, so the caller
     # has to point opencode at the file explicitly.
-    info "Run opencode with OPENCODE_CONFIG=$opencode_config_file opencode."
+    info "Run opencode with OPENCODE_CONFIG=$opencode_config_file OPENCODE_CONFIG_DIR=$opencode_dir/.opencode opencode."
   fi
   [ "$mode" = "update" ] || print_uninstall_hint
   exit 0
@@ -4642,6 +4744,7 @@ fi
 
 # ---------- write the statusline script ----------
 
+if [ "$statusline_install" = "true" ]; then
 cat > "$statusline_file" << 'STATUSLINE_EOF'
 #!/usr/bin/env bash
 #
@@ -4926,8 +5029,13 @@ weave_sync_commands() {
         installed_body="$(sed '/^<!-- weave-router managed command: .* -->$/d' "$installed" 2>/dev/null)" || installed_body=""
         if [ "$prev_body" = "$installed_body" ] && [ "$new_body" != "$installed_body" ]; then
           tmp="$installed.tmp.$$"
-          if printf '%s\n<!-- weave-router managed command: %s -->' "$new_body" "$name" >"$tmp" 2>/dev/null; then
+          if printf '%s\n' "$new_body" >"$tmp" 2>/dev/null; then
             mv "$tmp" "$installed" 2>/dev/null || rm -f "$tmp"
+            ownership_file="$installed.weave-router"
+            if [ ! -L "$ownership_file" ]; then
+              printf 'weave-router managed command: %s\n%s\n' "$name" "$new_body" \
+                >"$ownership_file" 2>/dev/null || true
+            fi
           else
             rm -f "$tmp"
           fi
@@ -5603,7 +5711,10 @@ else
 fi
 STATUSLINE_EOF
 chmod +x "$statusline_file"
+printf '%s\n' "$CLAUDE_STATUSLINE_MARKER" >"$statusline_ownership_file"
+chmod 600 "$statusline_ownership_file"
 ok "Statusline installed at $statusline_file"
+fi
 
 # ---------- patch settings.json ----------
 
@@ -5642,26 +5753,26 @@ write_claude_settings() {
   # Force tool-search deferral to match first-party Claude Code; "auto" can inline
   # every tool schema when the custom endpoint advertises a 200K context window.
   if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
-    jq -n --arg url "$base_url" --arg sl "$statusline_path_for_settings" '{
+    jq -n --arg url "$base_url" --arg sl "$statusline_path_for_settings" --arg statusline_install "$statusline_install" '{
       env: { ANTHROPIC_BASE_URL: $url, ENABLE_TOOL_SEARCH: "true" },
-      statusLine: { type: "command", command: $sl },
       attribution: {
         commit: "Co-Authored-By: Weave Router <router@workweave.ai>",
         pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
       }
-    }' >"$tmp_patch"
+    } + (if $statusline_install == "true" then {statusLine: { type: "command", command: $sl }} else {} end)' >"$tmp_patch"
   else
-    jq -n --arg url "$base_url" --arg header "$custom_headers" --arg sl "$statusline_path_for_settings" '{
+    jq -n --arg url "$base_url" --arg header "$custom_headers" --arg sl "$statusline_path_for_settings" --arg statusline_install "$statusline_install" '{
       env: { ANTHROPIC_BASE_URL: $url, ANTHROPIC_CUSTOM_HEADERS: $header, ENABLE_TOOL_SEARCH: "true" },
-      statusLine: { type: "command", command: $sl },
       attribution: {
         commit: "Co-Authored-By: Weave Router <router@workweave.ai>",
         pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
       }
-    }' >"$tmp_patch"
+    } + (if $statusline_install == "true" then {statusLine: { type: "command", command: $sl }} else {} end)' >"$tmp_patch"
   fi
 
-  # Merge with existing settings. Deep-merge env and replace statusLine.
+  # Merge with existing settings. Deep-merge env and replace statusLine only
+  # when this install owns the statusline slot; otherwise the patch omits it so
+  # the user's existing statusline survives unchanged.
   # We strip router-owned auth from the existing settings BEFORE merging —
   # otherwise switching auth mode (key→dev-mode) would leave stale credentials
   # behind. ANTHROPIC_AUTH_TOKEN/apiKeyHelper are also removed to migrate older
@@ -5730,13 +5841,17 @@ if [ "$scope" = "project" ] && [ -z "$install_dir" ] && [ -n "${git_root:-}" ]; 
   # Same symlink containment as the .claude/ paths above: a hostile repo could
   # commit .gitignore as a symlink so the >> below writes outside the repo.
   refuse_if_symlink "$gitignore"
-  # Keep the statusline script and per-teammate local settings out of git. The
-  # local settings carry the router key header; each teammate gets their own.
+  # Keep the router statusline script (when installed) and per-teammate local
+  # settings out of git. The local settings carry the router key header; each
+  # teammate gets their own.
   for entry in \
     ".claude/settings.local.json" \
     ".claude/.credentials.json" \
-    ".claude/cc-statusline.sh"
+    ".claude/cc-statusline.sh" \
+    ".claude/cc-statusline.sh.weave-router" \
+    ".claude/commands/*.weave-router"
   do
+    [[ "$entry" == .claude/cc-statusline.sh* ]] && [ "$statusline_install" != "true" ] && continue
     if [ ! -f "$gitignore" ] || ! grep -qxF "$entry" "$gitignore"; then
       printf '%s\n' "$entry" >>"$gitignore"
     fi

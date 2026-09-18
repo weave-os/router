@@ -191,23 +191,32 @@ func strictifyNode(node map[string]any, depth int, propCount *int) (out map[stri
 	return res, true
 }
 
+// optionalNote tells the model that null on a made-nullable property means
+// "omit": the strict schema alone reads as all-required, and gpt-5.x fills
+// optionals it should leave out (Bash.timeout, Read.limit, Agent.isolation).
+const optionalNote = "(Optional; pass null to omit.)"
+
 // makeNullable adds null as an accepted type: strict mode requires every
 // property in `required`, so optionality is expressed via null union instead.
 func makeNullable(node map[string]any) map[string]any {
+	node = withOptionalNote(node)
 	switch t := node["type"].(type) {
 	case string:
 		if t == "null" {
 			return node
 		}
 		node["type"] = []any{t, "null"}
+		addNullToEnum(node)
 		return node
 	case []any:
 		for _, v := range t {
 			if s, isStr := v.(string); isStr && s == "null" {
+				addNullToEnum(node)
 				return node
 			}
 		}
 		node["type"] = append(t, "null")
+		addNullToEnum(node)
 		return node
 	}
 	if branches, present := node["anyOf"].([]any); present {
@@ -233,6 +242,37 @@ func makeNullable(node map[string]any) map[string]any {
 		branch[k] = v
 	}
 	return map[string]any{"anyOf": []any{branch, map[string]any{"type": "null"}}}
+}
+
+// addNullToEnum admits null on a typed enum node. `enum` constrains the value
+// independently of `type`, so a ["string","null"] union whose enum lacks null
+// still forces the model to pick a member on every call.
+func addNullToEnum(node map[string]any) {
+	values, present := node["enum"].([]any)
+	if !present {
+		return
+	}
+	for _, v := range values {
+		if v == nil {
+			return
+		}
+	}
+	out := make([]any, 0, len(values)+1)
+	out = append(out, values...)
+	node["enum"] = append(out, nil)
+}
+
+func withOptionalNote(node map[string]any) map[string]any {
+	desc, _ := node["description"].(string)
+	if strings.Contains(desc, optionalNote) {
+		return node
+	}
+	if desc == "" {
+		node["description"] = optionalNote
+	} else {
+		node["description"] = desc + " " + optionalNote
+	}
+	return node
 }
 
 // typeIncludesArray reports whether a node's "type" value (string or union

@@ -174,6 +174,49 @@ func TestParseDynamicRoster(t *testing.T) {
 	assert.Equal(t, []string{"provider/manual"}, roster.Clusters["low"].ManualPinsByHarness["pi"])
 }
 
+// A policy may key every per-harness surface on opencode; any harness outside
+// the shared vocabulary is still rejected so a roster typo cannot silently
+// serve the pooled order.
+func TestParseDynamicRosterHarnessVocabulary(t *testing.T) {
+	const policyWithHarness = `{
+  "schema_version": "hmm_router_cluster_roster_v7",
+  "ranking": {
+    "alpha": {"low": 0.4}, "alpha_min": {"low": 0.05}, "alpha_max": {"low": 0.8},
+    "quality_bias_neutral": 0.7,
+    "wii_score_version": "wii-v1", "wii_normalization_sha256": "wii-sha",
+    "wpi_score_version": "wpi-v1", "wpi_normalization_sha256": "wpi-sha"
+  },
+  "clusters": {
+    "low": {
+      "complexity_label": "low", "arms": ["provider/scored", "provider/other"],
+      "arms_by_harness": {"HARNESS": ["provider/other", "provider/scored"]},
+      "membership_by_harness": {"HARNESS": ["provider/other"]},
+      "cost_ref_usd": 0.02, "latency_ref_ms": 8000,
+      "arm_scores": {"provider/scored": 10, "provider/other": 20},
+      "arm_indices": {"provider/scored": {"wii_v1": 50, "wpi_v1": 10}, "provider/other": {"wii_v1": 60, "wpi_v1": 20}},
+      "manual_pins_by_harness": {"HARNESS": ["provider/other"]},
+      "preferred_vendors_by_harness": {"HARNESS": ["provider"]}
+    }
+  }
+}`
+	policyFor := func(harness string) []byte {
+		return []byte(strings.ReplaceAll(policyWithHarness, "HARNESS", harness))
+	}
+
+	roster, err := rosterdata.Parse(policyFor(string(rosterdata.HarnessOpenCode)))
+	require.NoError(t, err)
+	low := roster.Clusters["low"]
+	assert.Equal(t, []string{"provider/other", "provider/scored"}, low.ArmsByHarness[rosterdata.HarnessOpenCode])
+	assert.Equal(t, []string{"provider/other"}, low.MembershipByHarness[rosterdata.HarnessOpenCode])
+	assert.Equal(t, []string{"provider/other"}, low.ManualPinsByHarness[rosterdata.HarnessOpenCode])
+	assert.Equal(t, []string{"provider"}, low.PreferredVendorsByHarness[rosterdata.HarnessOpenCode])
+
+	_, err = rosterdata.Parse(policyFor("cursor"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `unknown`)
+	assert.Contains(t, err.Error(), `harness "cursor"`)
+}
+
 func TestParseDynamicRosterRejectsMissingIndices(t *testing.T) {
 	_, err := rosterdata.Parse([]byte(`{
   "schema_version": "hmm_router_cluster_roster_v7",

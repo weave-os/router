@@ -24,6 +24,7 @@ type GeminiToOpenAISSETranslator struct {
 	streaming  bool
 	statusCode int
 	buf        bytes.Buffer
+	scanner    sse.Scanner
 
 	model     string
 	chatID    string
@@ -155,6 +156,7 @@ func (t *GeminiToOpenAISSETranslator) Finalize() error {
 			}
 		}
 	}
+	recordOutputLimit(t.usageSink, gjson.GetBytes(body, "candidates.0.finishReason").Str == "MAX_TOKENS")
 
 	translated, err := GeminiToOpenAIResponse(body, t.model)
 	if err != nil {
@@ -171,7 +173,7 @@ func (t *GeminiToOpenAISSETranslator) Finalize() error {
 
 func (t *GeminiToOpenAISSETranslator) processSSEBuffer() error {
 	for {
-		event, n := sse.SplitNext(t.buf.Bytes())
+		event, n := t.scanner.Next(t.buf.Bytes())
 		if n == 0 {
 			return nil
 		}
@@ -189,6 +191,7 @@ func (t *GeminiToOpenAISSETranslator) processFinalSSETail() error {
 	}
 	event := append([]byte(nil), t.buf.Bytes()...)
 	t.buf.Reset()
+	t.scanner.Reset()
 	return t.translateEvent(event)
 }
 
@@ -244,6 +247,7 @@ func (t *GeminiToOpenAISSETranslator) translateEvent(raw []byte) error {
 	usage := geminiUsageFromBytes(data)
 	finishReason := candidate.Get("finishReason").String()
 	if finishReason != "" {
+		recordOutputLimit(t.usageSink, finishReason == "MAX_TOKENS")
 		mapped := mapGeminiFinishReason(finishReason, t.toolIdx > 0)
 		if err := t.emitFinalChunk(mapped, usage); err != nil {
 			return err

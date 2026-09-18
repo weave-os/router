@@ -300,11 +300,16 @@ var ErrNotImplemented = errors.New("provider: not implemented")
 // write their own JSON envelope.
 type UpstreamStatusError struct {
 	Status int
+	// Cause is the dispatch error an in-stream error frame stands in for;
+	// nil when Status was read off a real upstream response.
+	Cause error
 }
 
 func (e *UpstreamStatusError) Error() string {
 	return fmt.Sprintf("upstream returned status %d", e.Status)
 }
+
+func (e *UpstreamStatusError) Unwrap() error { return e.Cause }
 
 // UpstreamErrorResponse is returned by adapters that buffer a non-2xx
 // response instead of streaming it, so the proxy can retry on a different
@@ -313,11 +318,16 @@ type UpstreamErrorResponse struct {
 	Status  int
 	Headers http.Header
 	Body    []byte
+	// Cause carries a classified upstream failure that is not represented by
+	// the HTTP status alone, such as a successful HTTP response with no answer.
+	Cause error
 }
 
 func (e *UpstreamErrorResponse) Error() string {
 	return fmt.Sprintf("upstream returned status %d (buffered)", e.Status)
 }
+
+func (e *UpstreamErrorResponse) Unwrap() error { return e.Cause }
 
 // MaxBufferedErrorBytes caps the buffered upstream error body; beyond this
 // it's truncated and the rest of the stream is drained without retention.
@@ -330,12 +340,9 @@ const MaxBufferedErrorBytes = 64 * 1024
 // re-exports it as httputil.ErrUpstreamIdleTimeout.
 var ErrUpstreamIdleTimeout = errors.New("upstream sse idle timeout")
 
-// ErrUpstreamOutputStall: output-progress watchdog fired — stream stayed alive
-// on non-output frames (reasoning deltas, keepalives) but produced zero
-// output-bearing content for the full budget. Root cause of the 2026-06-16
-// gpt-5.x incident (a /v1/responses stream sat at zero output tokens until the
-// 600s cap). Upstream-owned and retryable, like ErrUpstreamIdleTimeout;
-// defined here for the same import-cycle reason and re-exported by httputil.
+// ErrUpstreamOutputStall: the stream made no output or qualifying reasoning
+// progress for the full budget. Retryable only before client commitment.
+// Defined here to avoid an import cycle and re-exported by httputil.
 var ErrUpstreamOutputStall = errors.New("upstream sse output stall")
 
 // ErrUpstreamSlowThroughput: minimum-throughput watchdog fired — upstream IS
@@ -344,6 +351,11 @@ var ErrUpstreamOutputStall = errors.New("upstream sse output stall")
 // tripping). Upstream-owned and retryable; defined here for the same
 // import-cycle reason as the other stall sentinels.
 var ErrUpstreamSlowThroughput = errors.New("upstream sse slow throughput")
+
+// ErrUpstreamEmptyCompletion marks a clean upstream terminal that carried no
+// usable assistant text or tool call. It is retryable because HTTP success is
+// not evidence that the model answered the request.
+var ErrUpstreamEmptyCompletion = errors.New("upstream returned an empty completion")
 
 // IsRetryableStatus reports whether an upstream status is worth retrying on
 // a different provider: 5xx, 408, and 429. Other 4xx are the client's fault
@@ -371,7 +383,7 @@ func IsRetryable(err error) bool {
 	// surfaces them by canceling the request context (which may also chain
 	// context.Canceled) — so they must be checked before the cancellation
 	// guard below.
-	if errors.Is(err, ErrUpstreamIdleTimeout) || errors.Is(err, ErrUpstreamOutputStall) || errors.Is(err, ErrUpstreamSlowThroughput) {
+	if errors.Is(err, ErrUpstreamIdleTimeout) || errors.Is(err, ErrUpstreamOutputStall) || errors.Is(err, ErrUpstreamSlowThroughput) || errors.Is(err, ErrUpstreamEmptyCompletion) {
 		return true
 	}
 	// Caller-side cancellation/deadlines aren't the upstream's fault; a retry
@@ -736,6 +748,14 @@ type RequestTransformation struct {
 // byte-idle-guarded only.
 type OutputProgressArmer interface {
 	ArmOutputProgress(mark func()) (armed bool)
+}
+
+// ReasoningProgressArmer reports advancing reasoning separately from output,
+// so it can reset the stall watchdog without stamping first-output latency or
+// counting toward output throughput. Arm after output progress is armed;
+// non-streaming writers return false.
+type ReasoningProgressArmer interface {
+	ArmReasoningProgress(mark func()) (armed bool)
 }
 
 type Client interface {

@@ -193,11 +193,11 @@ npx --package @weave-os/router -y -- weave-router disable-routing
 
 OpenCode sends Responses requests through its bundled `@ai-sdk/openai`
 provider, while Weave Router selects and translates to the upstream model.
-Re-running the installer rewrites only the managed `provider.weave` block and
-migrates legacy `weave/*` choices to `weave/auto`; other providers, MCP
-servers, agents, and unrelated top-level model choices stay untouched.
-`--uninstall --opencode` strips the block (and `model` only when it points at
-`weave/...`).
+Installation activates `weave/auto` and parks an existing direct model so
+`off` and uninstall restore it exactly. Re-running the installer rewrites only
+the managed `provider.weave` block and migrates legacy `weave/*` choices to
+`weave/auto`; other providers, MCP servers, and agents stay untouched.
+`--uninstall --opencode` strips the block and restores the parked model.
 
 **Onboarding flow for a new teammate (any target):**
 
@@ -439,8 +439,8 @@ What each `off` does (and `on` reverses byte-for-byte):
   env at launch, so quit and reopen it for an on/off to take effect.**
 - **Codex** — comments the `model_provider = "weave"` line; the
   `[model_providers.weave]` block stays. Takes effect on the next `codex` run.
-- **opencode** — parks and removes the top-level `weave/...` model so opencode
-  reverts to its own default; `provider.weave` stays. Next `opencode` run.
+- **opencode** — swaps the top-level `weave/...` model for the direct model
+  parked during install; `provider.weave` stays. Next `opencode` run.
 
 **Cursor** has no config file we own — its base URL lives in Cursor's own
 settings UI. To toggle it, open **Settings → Models → Override OpenAI Base
@@ -527,8 +527,8 @@ errors invoking `cc-statusline.sh`. The script needs `jq` on PATH.
 1. Open `~/.config/opencode/opencode.json` (or `<repo>/opencode.json` for
    project scope) and confirm `provider.weave` exists with your
    `X-Weave-Router-Key` in `options.headers`.
-2. Run `opencode` and select `weave/auto`. Issue a turn; Weave Router picks
-   the upstream model for that turn.
+2. Run `opencode`; `weave/auto` is selected by the installer. Issue a turn and
+   Weave Router picks the upstream model.
 3. Check the router's dashboard at `<base-url>/ui/dashboard` — traffic
    should be tagged `X-App: opencode`.
 

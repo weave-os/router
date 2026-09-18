@@ -30,6 +30,7 @@ type SSETranslator struct {
 	streaming  bool
 	statusCode int
 	buf        bytes.Buffer
+	scanner    sse.Scanner
 
 	msgID   string
 	model   string
@@ -134,6 +135,7 @@ func (t *SSETranslator) Finalize() error {
 			)
 		}
 	}
+	recordOutputLimit(t.usageSink, gjson.GetBytes(body, "stop_reason").Str == "max_tokens")
 
 	translated, err := AnthropicToOpenAIResponse(body, t.model)
 	if err != nil {
@@ -150,7 +152,7 @@ func (t *SSETranslator) Finalize() error {
 
 func (t *SSETranslator) processSSEBuffer() error {
 	for {
-		event, n := sse.SplitNext(t.buf.Bytes())
+		event, n := t.scanner.Next(t.buf.Bytes())
 		if n == 0 {
 			return nil
 		}
@@ -168,6 +170,7 @@ func (t *SSETranslator) processFinalSSETail() error {
 	}
 	event := append([]byte(nil), t.buf.Bytes()...)
 	t.buf.Reset()
+	t.scanner.Reset()
 	return t.translateEvent(event)
 }
 
@@ -322,7 +325,9 @@ func (t *SSETranslator) handleMessageDelta(data []byte) error {
 		return nil
 	}
 
-	finishReason := mapStopReason(delta.Get("stop_reason").Str)
+	rawStopReason := delta.Get("stop_reason").Str
+	recordOutputLimit(t.usageSink, rawStopReason == "max_tokens")
+	finishReason := mapStopReason(rawStopReason)
 	if err := t.lifecycle.Output(0); err != nil {
 		return err
 	}
@@ -392,6 +397,7 @@ type AnthropicSSETranslator struct {
 	headersEmitted bool
 	statusCode     int
 	buf            bytes.Buffer
+	scanner        sse.Scanner
 
 	requestModel string
 
@@ -887,6 +893,9 @@ func (t *AnthropicSSETranslator) Finalize() error {
 			t.usageSink.RecordCacheUsage(cw, cr)
 		}
 	}
+	// Raw upstream cap, observed before openAIToAnthropicResponse promotes a
+	// surviving tool call to stop_reason=tool_use.
+	recordOutputLimit(t.usageSink, gjson.GetBytes(body, "choices.0.finish_reason").Str == "length")
 
 	translated, issues, err := openAIToAnthropicResponse(body, t.requestModel, t.toolValidator, t.thinkTagReasoning, t.escapeNormalize)
 	t.toolCallIssues = append(t.toolCallIssues, issues...)
@@ -904,7 +913,7 @@ func (t *AnthropicSSETranslator) Finalize() error {
 
 func (t *AnthropicSSETranslator) processOpenAISSEBuffer() error {
 	for {
-		event, n := sse.SplitNext(t.buf.Bytes())
+		event, n := t.scanner.Next(t.buf.Bytes())
 		if n == 0 {
 			return nil
 		}
@@ -922,6 +931,7 @@ func (t *AnthropicSSETranslator) processFinalOpenAISSETail() error {
 	}
 	event := append([]byte(nil), t.buf.Bytes()...)
 	t.buf.Reset()
+	t.scanner.Reset()
 	return t.translateOpenAIEvent(event)
 }
 
@@ -992,6 +1002,9 @@ func (t *AnthropicSSETranslator) translateOpenAIEvent(raw []byte) error {
 
 	if fr := firstChoice.Get("finish_reason").Str; fr != "" {
 		t.finishReason = strings.Clone(fr)
+		// Raw upstream cap, observed before emitMessageDelta promotes a
+		// surviving tool_use block over finish_reason=length.
+		recordOutputLimit(t.usageSink, fr == "length")
 		if err := t.lifecycle.Terminal(); err != nil {
 			return err
 		}

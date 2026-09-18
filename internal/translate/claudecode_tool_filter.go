@@ -80,8 +80,9 @@ func isClaudeCodeOnlyTool(name string) bool {
 //
 // Task-list bookkeeping (claudeCodeTaskBookkeepingToolNames) is excluded:
 // non-Anthropic models obey Claude Code's "task tools haven't been used"
-// reminder literally and burn whole turns on TaskCreate/TaskUpdate.
-// TaskOutput/TaskStop address background agents and stay.
+// reminder literally and burn whole turns on TaskCreate/TaskUpdate. They are
+// re-admitted only by ccToolFilterOptions.KeepTaskTools, on top of
+// KeepOrchestration. TaskOutput/TaskStop address background agents and stay.
 var claudeCodeOrchestrationToolNames = map[string]struct{}{
 	"Task":          {},
 	"Agent":         {},
@@ -113,21 +114,41 @@ func isAlwaysKeptCrossVendorTool(name string) bool {
 	return ok
 }
 
+// ccToolFilterOptions selects which Claude-Code-only tools survive a
+// cross-vendor emit. KeepTaskTools is nested under KeepOrchestration: the
+// task list is part of the orchestration scaffold, and re-admitting it while
+// the model cannot dispatch Task/Agent leaves it bookkeeping work it has no
+// agent to hand off to.
+type ccToolFilterOptions struct {
+	KeepOrchestration bool
+	KeepTaskTools     bool
+}
+
+func (o EmitOptions) ccToolFilter() ccToolFilterOptions {
+	return ccToolFilterOptions{
+		KeepOrchestration: o.KeepCrossVendorOrchestrationTools,
+		KeepTaskTools:     o.KeepCrossVendorTaskTools,
+	}
+}
+
 // shouldStripCCTool reports whether a tool must be dropped from a cross-vendor
 // emit. Non-CC-only tools and the always-kept client tools are retained.
 // Other CC-only tools are dropped, except that orchestration tools are
-// retained when keepOrchestration is set.
-func shouldStripCCTool(name string, keepOrchestration bool) bool {
+// retained per opts.
+func shouldStripCCTool(name string, opts ccToolFilterOptions) bool {
 	if !isClaudeCodeOnlyTool(name) {
 		return false
 	}
 	if isAlwaysKeptCrossVendorTool(name) {
 		return false
 	}
-	if keepOrchestration && isCrossVendorOrchestrationTool(name) {
-		return false
+	if !opts.KeepOrchestration {
+		return true
 	}
-	return true
+	if isTaskBookkeepingTool(name) {
+		return !opts.KeepTaskTools
+	}
+	return !isCrossVendorOrchestrationTool(name)
 }
 
 // claudeCodeTaskBookkeepingToolNames are the task-list tools whose Claude Code
@@ -169,9 +190,10 @@ type ccToolFilterResult struct {
 // without paying a re-serialize cost on the common case.
 //
 // ToolSearch is always retained because it is Claude Code's client-side
-// loader for deferred MCP schemas. When keepOrchestration is set, the
+// loader for deferred MCP schemas. When opts.KeepOrchestration is set, the
 // orchestration subset (Task/Agent, TaskOutput/TaskStop, Workflow, Skill,
-// plan-mode) is also retained; other CC-only tools are still dropped.
+// plan-mode) is also retained — plus the task-list tools when
+// opts.KeepTaskTools is set; other CC-only tools are still dropped.
 //
 // When a task-list bookkeeping tool is dropped, Claude Code's matching
 // "task tools haven't been used recently" <system-reminder> segments are cut
@@ -186,7 +208,7 @@ type ccToolFilterResult struct {
 // because those represent history the model has already acted on —
 // rewriting them would invalidate prompt caches and could leave dangling
 // tool_use_id references.
-func filterClaudeCodeOnlyToolsFromAnthropicBody(body []byte, keepOrchestration bool) (out []byte, res ccToolFilterResult, err error) {
+func filterClaudeCodeOnlyToolsFromAnthropicBody(body []byte, opts ccToolFilterOptions) (out []byte, res ccToolFilterResult, err error) {
 	tools := gjson.GetBytes(body, "tools")
 	if !tools.Exists() || !tools.IsArray() {
 		return body, res, nil
@@ -195,7 +217,7 @@ func filterClaudeCodeOnlyToolsFromAnthropicBody(body []byte, keepOrchestration b
 	bookkeepingRemoved := false
 	tools.ForEach(func(_, t gjson.Result) bool {
 		name := t.Get("name").String()
-		if shouldStripCCTool(name, keepOrchestration) {
+		if shouldStripCCTool(name, opts) {
 			res.ToolsRemoved++
 			bookkeepingRemoved = bookkeepingRemoved || isTaskBookkeepingTool(name)
 		}
@@ -208,7 +230,7 @@ func filterClaudeCodeOnlyToolsFromAnthropicBody(body []byte, keepOrchestration b
 	jw := newJSONWriter()
 	jw.Arr()
 	tools.ForEach(func(_, t gjson.Result) bool {
-		if !shouldStripCCTool(t.Get("name").String(), keepOrchestration) {
+		if !shouldStripCCTool(t.Get("name").String(), opts) {
 			jw.Raw(t.Raw)
 		}
 		return true

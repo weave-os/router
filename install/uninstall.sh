@@ -27,6 +27,10 @@ set -euo pipefail
 scope="user"
 scope_explicit="false"
 install_dir=""
+script_dir=""
+if [ -n "${BASH_SOURCE[0]:-}" ]; then
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)" || script_dir=""
+fi
 
 # ---------- directive registry (embedded) ----------
 #
@@ -141,6 +145,8 @@ EOF
 
 target="claude"
 
+CLAUDE_STATUSLINE_MARKER="# Claude Code statusline for the Weave Router."
+
 err()  { printf "\033[31merror:\033[0m %s\n" "$*" >&2; }
 warn() { printf "\033[33mwarning:\033[0m %s\n" "$*" >&2; }
 info() { printf "\033[36m==>\033[0m %s\n" "$*"; }
@@ -156,6 +162,64 @@ refuse_if_symlink() {
     err "$target is a symlink (-> $(readlink "$target")). Refusing to operate on it."
     exit 1
   fi
+}
+
+# weave_command_router_owned accepts legacy marker-bearing wrappers and
+# markerless wrappers written by current installers. Current wrappers carry a
+# body copy in a sidecar so ownership survives standalone and piped uninstall.
+weave_command_router_owned() {
+  local command_file="$1" command_name="$2" ownership_file ownership_header ownership_body
+  local source_file expected scope_args="" candidate
+  if grep -Fq "<!-- weave-router managed command: $command_name -->" "$command_file" 2>/dev/null; then
+    return 0
+  fi
+
+  ownership_file="$command_file.weave-router"
+  if [ -f "$ownership_file" ]; then
+    ownership_header="$(sed -n '1p' "$ownership_file" 2>/dev/null || true)"
+    ownership_body="$(sed '1d' "$ownership_file" 2>/dev/null || true)"
+    if [ "$ownership_header" = "weave-router managed command: $command_name" ] \
+       && [ "$(cat "$command_file")" = "$ownership_body" ]; then
+      return 0
+    fi
+  fi
+
+  if [ -n "$install_dir" ]; then
+    scope_args=" --dir $(printf '%q' "$install_dir")"
+  elif [ "$scope" = "project" ]; then
+    scope_args=" --scope project"
+  fi
+
+  for candidate in \
+    "$script_dir/commands" \
+    "$script_dir/../commands"
+  do
+    source_file="$candidate/$command_name.md"
+    [ -f "$source_file" ] || continue
+    expected="$(cat "$source_file")"
+    expected="${expected//\{\{SCOPE\}\}/$scope_args}"
+    [ "$(cat "$command_file")" = "$expected" ] && return 0
+  done
+  return 1
+}
+
+# claude_statusline_router_owned reports whether a settings entry points at the
+# router's statusline. Existing scripts prove ownership with the marker; when a
+# script is missing, the adjacent ownership marker proves that the router wrote
+# it and should remove it with the rest of the router config.
+claude_statusline_router_owned() {
+  local settings_path="$1" expected_command="$2" script_path="$3" ownership_marker_path="$4" configured_command
+  [ -f "$settings_path" ] || return 1
+  configured_command="$(jq -r '.statusLine.command // empty' "$settings_path" 2>/dev/null || true)"
+  [ "$configured_command" = "$expected_command" ] || return 1
+  if [ -f "$script_path" ]; then
+    if grep -Fq "$CLAUDE_STATUSLINE_MARKER" "$script_path" 2>/dev/null; then
+      return 0
+    fi
+    [ -r "$script_path" ] && return 1
+  fi
+  [ -f "$ownership_marker_path" ] \
+    && grep -Fq "$CLAUDE_STATUSLINE_MARKER" "$ownership_marker_path"
 }
 
 while [ $# -gt 0 ]; do
@@ -424,7 +488,13 @@ if [ "$target" = "opencode" ]; then
     refuse_if_symlink "$opencode_dir"
   fi
   opencode_config_file="$opencode_dir/opencode.json"
+  opencode_parked="$opencode_dir/.weave-parked.json"
+  opencode_direct_model=""
   refuse_if_symlink "$opencode_config_file"
+  if [ -f "$opencode_parked" ]; then
+    refuse_if_symlink "$opencode_parked"
+    opencode_direct_model="$(jq -r '.direct_model // empty' "$opencode_parked" 2>/dev/null || true)"
+  fi
 
   # Canonicalize the plugin path exactly as install.sh did (`cd … && pwd`) so
   # the `plugin` array entry matches on removal — a raw "$opencode_dir/…" string
@@ -437,19 +507,19 @@ if [ "$target" = "opencode" ]; then
   if [ -f "$opencode_config_file" ]; then
     # Strip every managed provider (`weave`, the login-only `weave-claude`, and
     # the legacy `weave-codex` from pre-upgrade installs), the managed plugin
-    # entry from the `plugin` array, and any router-pointing top-level model
-    # (the `weave/`, `weave-claude/`, and `weave-codex/` prefixes — otherwise a
-    # default survives and points at a deleted provider). Other providers,
-    # user-set models that don't reference the router, other plugins, and any
-    # unrelated keys are preserved.
-    cleaned="$(jq --arg plugin "$opencode_plugin" '
+    # entry from the `plugin` array, and restore the direct model parked during
+    # install. Other providers, direct models selected while routing was off,
+    # other plugins, and unrelated keys are preserved.
+    cleaned="$(jq --arg plugin "$opencode_plugin" --arg direct_model "$opencode_direct_model" '
       (if .provider.weave then del(.provider.weave) else . end)
       | (if .provider["weave-claude"] then del(.provider["weave-claude"]) else . end)
       | (if .provider["weave-codex"] then del(.provider["weave-codex"]) else . end)
       | (if (.provider // {}) == {} then del(.provider) else . end)
       | (if (.plugin | type) == "array" then .plugin -= [$plugin] else . end)
       | (if (.plugin | type) == "array" and (.plugin | length) == 0 then del(.plugin) else . end)
-      | (if (.model // "" | tostring | (startswith("weave/") or startswith("weave-claude/") or startswith("weave-codex/"))) then del(.model) else . end)
+      | (if (.model // "" | tostring | (startswith("weave/") or startswith("weave-claude/") or startswith("weave-codex/")))
+           then (if $direct_model != "" then .model = $direct_model else del(.model) end)
+           else . end)
     ' "$opencode_config_file")"
     printf '%s\n' "$cleaned" >"$opencode_config_file"
 
@@ -476,18 +546,15 @@ if [ "$target" = "opencode" ]; then
     ok "Removed $opencode_plugin"
   fi
 
-  # Drop the toggle parked sidecar (holds the parked router model when off).
-  opencode_parked="$opencode_dir/.weave-parked.json"
+  # Drop the toggle parked sidecar after its prior model has been restored.
   if [ -f "$opencode_parked" ]; then
     refuse_if_symlink "$opencode_parked"
     rm -f "$opencode_parked"
     ok "Removed $opencode_parked"
   fi
 
-  # Remove slash command wrapper files this installer owns. Install mirrors
-  # this split: project scope uses <repo>/.opencode/commands/, while user
-  # scope—including a user-style --dir install—uses the global XDG commands
-  # directory so opencode discovers the wrappers from any working directory.
+  # Remove slash command wrapper files this installer owns. Project and --dir
+  # installs keep commands beside their config; user scope uses global XDG.
   remove_opencode_command_dir() {
     local opencode_cmds_dir="$1" cmd cmd_file
     if [ -d "$opencode_cmds_dir" ]; then
@@ -495,9 +562,10 @@ if [ "$target" = "opencode" ]; then
       while IFS= read -r cmd; do
         cmd_file="$opencode_cmds_dir/$cmd.md"
         if [ -f "$cmd_file" ]; then
-          if grep -Fq "<!-- weave-router managed command: $cmd -->" "$cmd_file"; then
+          if weave_command_router_owned "$cmd_file" "$cmd"; then
             refuse_if_symlink "$cmd_file"
-            rm -f "$cmd_file"
+            refuse_if_symlink "$cmd_file.weave-router"
+            rm -f "$cmd_file" "$cmd_file.weave-router"
             ok "Removed $cmd_file"
           else
             warn "Leaving user-owned opencode command at $cmd_file untouched."
@@ -510,7 +578,7 @@ EOF
     fi
   }
 
-  if [ "$scope" = "project" ]; then
+  if [ "$scope" = "project" ] || [ -n "$install_dir" ]; then
     opencode_commands_dir="$opencode_dir/.opencode/commands"
   else
     opencode_commands_dir="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/commands"
@@ -826,19 +894,25 @@ if [ -n "$install_dir" ]; then
   # uses .claude/. Match the installer's scope-dependent statusline placement.
   if [ "$scope" = "project" ]; then
     statusline_file="$install_dir/.claude/cc-statusline.sh"
+    statusline_command="$statusline_file"
   else
     statusline_file="$install_dir/.weave/cc-statusline.sh"
+    statusline_command="$statusline_file"
   fi
+  statusline_ownership_file="$statusline_file.weave-router"
   # Symlink containment: --dir paths come from a user-supplied directory that may
   # be hostile. The later `>` redirect on settings_file and `rm -f` on the
   # statusline script would otherwise follow links out of the directory.
   refuse_if_symlink "$install_dir/.claude"
   refuse_if_symlink "$settings_file"
   refuse_if_symlink "$statusline_file"
+  refuse_if_symlink "$statusline_ownership_file"
 elif [ "$scope" = "user" ]; then
   settings_file="$HOME/.claude/settings.json"
   local_settings_file=""
   statusline_file="$HOME/.weave/cc-statusline.sh"
+  statusline_command="$statusline_file"
+  statusline_ownership_file="$statusline_file.weave-router"
 else
   # Project scope without --dir: mirror install.sh — directory prompt only when
   # scope_explicit is false (interactive install path); explicit --scope project
@@ -874,6 +948,8 @@ else
   settings_file="$settings_base/.claude/settings.json"
   local_settings_file="$settings_base/.claude/settings.local.json"
   statusline_file="$settings_base/.claude/cc-statusline.sh"
+  statusline_command="\${CLAUDE_PROJECT_DIR}/.claude/cc-statusline.sh"
+  statusline_ownership_file="$statusline_file.weave-router"
   # Symlink containment: paths come from a git repo or user-supplied directory
   # that may be hostile. The later `>` redirect on settings_file and `rm -f` on
   # the scripts would otherwise follow links out of the repo.
@@ -881,6 +957,18 @@ else
   refuse_if_symlink "$settings_file"
   refuse_if_symlink "$local_settings_file"
   refuse_if_symlink "$statusline_file"
+  refuse_if_symlink "$statusline_ownership_file"
+fi
+
+statusline_file_owned="false"
+statusline_setting_owned="false"
+if [ -f "$statusline_file" ] && grep -Fq "$CLAUDE_STATUSLINE_MARKER" "$statusline_file"; then
+  statusline_file_owned="true"
+fi
+if claude_statusline_router_owned \
+     "$settings_file" "$statusline_command" "$statusline_file" "$statusline_ownership_file"; then
+  statusline_setting_owned="true"
+  statusline_file_owned="true"
 fi
 
 if [ -f "$settings_file" ]; then
@@ -888,13 +976,12 @@ if [ -f "$settings_file" ]; then
   # delete `statusLine` / `apiKeyHelper` when they point at scripts this
   # installer used in older versions. Otherwise an unrelated user-configured
   # statusLine or apiKeyHelper would be silently clobbered.
-  cleaned="$(jq '
+  cleaned="$(jq --arg statusline_setting_owned "$statusline_setting_owned" '
     if .env then
       .env |= (del(.ANTHROPIC_BASE_URL, .ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH))
       | (if (.env | length) == 0 then del(.env) else . end)
     else . end
-    | (if (.statusLine.command // "" | tostring | endswith("cc-statusline.sh"))
-         then del(.statusLine) else . end)
+    | (if $statusline_setting_owned == "true" then del(.statusLine) else . end)
     | (if (.apiKeyHelper // "" | tostring | endswith("weave-key.sh"))
          then del(.apiKeyHelper) else . end)
     | (if ((.attribution.commit == "Co-Authored-By: Weave Router <router@workweave.ai>"
@@ -932,9 +1019,23 @@ if [ -f "$parked_file" ]; then
   ok "Removed $parked_file"
 fi
 
-if [ -f "$statusline_file" ]; then
-  rm -f "$statusline_file"
-  ok "Removed $statusline_file"
+if [ "$statusline_file_owned" = "true" ]; then
+  # The installer now leaves an existing statusline alone. A user may already
+  # have a script at the router's conventional filename, so remove this file
+  # only when its content or ownership marker identifies it as our managed
+  # statusline. The marker must also be removed when the script is already
+  # missing; otherwise a later install could mistake the stale marker for
+  # ownership and overwrite a user-owned statusline.
+  if [ -f "$statusline_file" ]; then
+    rm -f "$statusline_file"
+    ok "Removed $statusline_file"
+  fi
+  if [ -f "$statusline_ownership_file" ]; then
+    rm -f "$statusline_ownership_file"
+    ok "Removed $statusline_ownership_file"
+  fi
+elif [ -f "$statusline_file" ]; then
+  warn "Leaving user-owned statusline at $statusline_file untouched."
 fi
 
 # Remove only the slash command files this installer owns; leave any other
@@ -947,8 +1048,9 @@ if [ -d "$commands_dir" ]; then
     cmd_file="$commands_dir/$cmd.md"
     if [ -f "$cmd_file" ]; then
       refuse_if_symlink "$cmd_file"
-      if grep -Fq "<!-- weave-router managed command: $cmd -->" "$cmd_file"; then
-        rm -f "$cmd_file"
+      if weave_command_router_owned "$cmd_file" "$cmd"; then
+        refuse_if_symlink "$cmd_file.weave-router"
+        rm -f "$cmd_file" "$cmd_file.weave-router"
         ok "Removed $cmd_file"
       else
         warn "Leaving user-owned Claude command at $cmd_file untouched."

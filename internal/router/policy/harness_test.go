@@ -18,7 +18,9 @@ func TestHarnessForClientApp(t *testing.T) {
 		"pi_subagent":  HarnessPi,
 		"cursor":       HarnessCursor,
 		"gemini-cli":   HarnessAPI,
-		"opencode":     HarnessAPI,
+		"opencode":     HarnessOpenCode,
+		"open-code":    HarnessOpenCode,
+		"OpenCode":     HarnessOpenCode,
 		"api":          HarnessAPI,
 		"":             HarnessUnknown,
 		"vscode":       HarnessUnknown,
@@ -26,4 +28,13 @@ func TestHarnessForClientApp(t *testing.T) {
 	for clientApp, want := range cases {
 		assert.Equal(t, want, HarnessForClientApp(clientApp), clientApp)
 	}
+}
+
+// OpenCode aliases need one selection key so a future OpenCode-specific roster
+// applies consistently. Legacy pi-subagent selection remains unchanged until
+// its policy behavior is evaluated separately.
+func TestSelectionHarnessForClientApp(t *testing.T) {
+	assert.Equal(t, HarnessOpenCode, SelectionHarnessForClientApp("opencode"))
+	assert.Equal(t, HarnessOpenCode, SelectionHarnessForClientApp("open-code"))
+	assert.Equal(t, "pi-subagent", SelectionHarnessForClientApp("pi-subagent"))
 }

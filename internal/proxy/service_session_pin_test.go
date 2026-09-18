@@ -48,6 +48,14 @@ type fakePinStore struct {
 	disabledProviders      []string
 	commandContinuations   map[string]sessionpin.Pin
 	persistUpserts         bool
+	demotions              []fakeDemotion
+}
+
+// fakeDemotion is one recorded ExpireAndDemoteModel call.
+type fakeDemotion struct {
+	Role   string
+	Model  string
+	Reason sessionpin.DemotionReason
 }
 
 func newFakePinStore() *fakePinStore {
@@ -170,6 +178,13 @@ func (f *fakePinStore) ResetOverloadErrors(ctx context.Context, key [sessionpin.
 	if f.hasPin {
 		f.pin.ConsecutiveOverloadErrors = 0
 	}
+	return nil
+}
+
+func (f *fakePinStore) ExpireAndDemoteModel(_ context.Context, expired sessionpin.Pin, model string, reason sessionpin.DemotionReason) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.demotions = append(f.demotions, fakeDemotion{Role: expired.Role, Model: model, Reason: reason})
 	return nil
 }
 
@@ -605,14 +620,63 @@ func TestService_HardPin_Compaction_ByokOnly_NoEligibleProviderErrors(t *testing
 		"error must be ErrClusterUnavailable so handlers map it to HTTP 503")
 }
 
-// classifierBody: small max_tokens, no tools — DetectFromEnvelope hard-pins
-// this, bypassing the scorer that normally applies excluded_models.
+// classifierBody: small max_tokens, no tools — DetectFromEnvelope tags this
+// Classifier. It is scored like a main-loop turn but never reads or writes a
+// session pin.
 const classifierBody = `{"model":"claude-haiku-4-5","max_tokens":5,"messages":[{"role":"user","content":"hello"}]}`
+
+// A classifier is a fresh context window (its own system prompt, no shared
+// prefix with the main loop), so it takes the scorer's verdict for its own
+// shape rather than the deployment hard pin — prod 2026-09: Gemini 3.x
+// hard-pinned here failed 99.5% of Claude Code's security-monitor verdicts.
+func TestService_Classifier_ScoredNotHardPinned(t *testing.T) {
+	store := newFakePinStore()
+	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
+	svc := newPinSvc(fr, store)
+
+	ctx := authedCtx(uuid.New().String())
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(classifierBody), rec, httpReq))
+
+	assert.Equal(t, 1, fr.routeCalls, "classifier must be scored")
+	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, 1, store.getCalls, "classifier checks force-model state only, never the conversation pin")
+
+	select {
+	case <-store.upsertCh:
+		t.Fatal("classifier turn must not write a session pin (would leak into the conversation that follows)")
+	case <-time.After(100 * time.Millisecond):
+	}
+	select {
+	case <-store.usageCh:
+		t.Fatal("classifier turn must not record pin usage")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// An anchored conversation pin must not be applied to a classifier: the
+// security-monitor prompt is not the conversation the pin was scored for.
+func TestService_Classifier_IgnoresExistingSessionPin(t *testing.T) {
+	store := newFakePinStore()
+	store.pin = sessionpin.Pin{Provider: "anthropic", Model: "claude-haiku-4-5", Reason: "cluster", PinnedUntil: time.Now().Add(30 * time.Minute)}
+	store.hasPin = true
+	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
+	svc := newPinSvc(fr, store)
+
+	ctx := authedCtx(uuid.New().String())
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(classifierBody), rec, httpReq))
+
+	assert.Equal(t, 1, fr.routeCalls, "classifier must be scored even when the session has a pin")
+	assert.Equal(t, "claude-opus-4-7", rec.Header().Get(proxy.HeaderRouterModel))
+}
 
 // Regression guard: excluded_models must be honored on the hard-pin tier too.
 // Prod symptom: an excluded gemini model still got all utility traffic
 // because the hard-pin path never consulted req.ExcludedModels.
-func TestService_HardPin_Classifier_AppliesExcludedModels(t *testing.T) {
+func TestService_HardPin_TitleGen_AppliesExcludedModels(t *testing.T) {
 	store := newFakePinStore()
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
 
@@ -648,9 +712,9 @@ func TestService_HardPin_Classifier_AppliesExcludedModels(t *testing.T) {
 		proxy.InstallationExcludedModelsContextKey{}, []string{excludedModel})
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-	require.NoError(t, svc.ProxyMessages(ctx, []byte(classifierBody), rec, httpReq))
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(titleGenBody), rec, httpReq))
 
-	assert.Equal(t, 0, fr.routeCalls, "classifier must bypass the cluster scorer")
+	assert.Equal(t, 0, fr.routeCalls, "title generation must bypass the cluster scorer")
 	assert.Equal(t, allowedFallback, rec.Header().Get(proxy.HeaderRouterModel),
 		"hard-pin must skip the excluded model and serve an allowed candidate")
 	assert.NotEqual(t, excludedModel, rec.Header().Get(proxy.HeaderRouterModel),
@@ -1280,6 +1344,39 @@ func TestService_SessionPin_OpenAI_ForceModelCommandSetsPin(t *testing.T) {
 	assert.Contains(t, content, "force-model applied: gpt-5")
 }
 
+func TestService_SessionPin_OpenAIResponses_OpenCodeForceModelCommandFromToolOutput(t *testing.T) {
+	const forceBody = `{
+		"model":"auto",
+		"input":[
+			{"type":"function_call","call_id":"call-1","name":"bash","arguments":"{}"},
+			{"type":"function_call_output","call_id":"call-1","output":"/force-model gpt-5"}
+		]
+	}`
+	store := newFakePinStore()
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-4o", Reason: "cluster"}}
+	openAIProvider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `{"id":"chatcmpl_1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`)
+	}}
+	svc := proxy.NewService(fr, map[string]providers.Client{
+		providers.ProviderAnthropic: &fakeProvider{},
+		providers.ProviderOpenAI:    openAIProvider,
+	}, nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+
+	ctx := context.WithValue(authedCtx(uuid.New().String()), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
+	rec := httptest.NewRecorder()
+	httpReq := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
+	require.NoError(t, svc.ProxyOpenAIResponses(ctx, []byte(forceBody), rec, httpReq))
+
+	assert.Equal(t, 0, fr.routeCalls, "force-model command must bypass fresh routing")
+	require.NotEmpty(t, store.upserts)
+	assert.Equal(t, "gpt-5", store.upserts[0].Model)
+	assert.Equal(t, providers.ProviderOpenAI, store.upserts[0].Provider)
+	assert.Equal(t, "gpt-5", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Contains(t, rec.Body.String(), "ok")
+}
+
 func TestService_SessionPin_OpenAI_UnforceModelCommandClearsPin(t *testing.T) {
 	const unforceBody = `{
 		"model":"gpt-4o",
@@ -1696,9 +1793,9 @@ func TestService_ForceModelHeader_UnknownModelRejected(t *testing.T) {
 	assert.Empty(t, store.upserts, "a refused force must not write any pin")
 }
 
-// Prod 2026-08-26: a gateway-only installation 503'd on classifier turns —
+// Prod 2026-08-26: a gateway-only installation 503'd on utility turns —
 // the hard-pin tier never forwarded the key's gateway aliases.
-func TestService_HardPin_Classifier_GatewayExclusive_ResolvesAlias(t *testing.T) {
+func TestService_HardPin_TitleGen_GatewayExclusive_ResolvesAlias(t *testing.T) {
 	const aliasedModel = "claude-haiku-4-5"
 	store := newFakePinStore()
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
@@ -1732,7 +1829,7 @@ func TestService_HardPin_Classifier_GatewayExclusive_ResolvesAlias(t *testing.T)
 	ctx := authedCtxWithGatewayKey(uuid.New().String(), aliasedModel)
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-	require.NoError(t, svc.ProxyMessages(ctx, []byte(classifierBody), rec, httpReq))
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(titleGenBody), rec, httpReq))
 
 	assert.Equal(t, []string{providers.ProviderOpenAIGateway}, seen.CustomBindings[aliasedModel],
 		"hard-pin resolver must receive the key's configuration-declared bindings")
@@ -1742,7 +1839,7 @@ func TestService_HardPin_Classifier_GatewayExclusive_ResolvesAlias(t *testing.T)
 
 // A gateway key that aliases nothing is a configuration problem the customer
 // can fix, so it must report that rather than "router unavailable".
-func TestService_HardPin_Classifier_GatewayExclusive_NoAliasReportsConfigError(t *testing.T) {
+func TestService_HardPin_TitleGen_GatewayExclusive_NoAliasReportsConfigError(t *testing.T) {
 	store := newFakePinStore()
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
 
@@ -1758,7 +1855,7 @@ func TestService_HardPin_Classifier_GatewayExclusive_NoAliasReportsConfigError(t
 	ctx := authedCtxWithGatewayKey(uuid.New().String(), "")
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-	err := svc.ProxyMessages(ctx, []byte(classifierBody), rec, httpReq)
+	err := svc.ProxyMessages(ctx, []byte(titleGenBody), rec, httpReq)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, policy.ErrGatewayServesNoDeployedModel,
 		"gateway-exclusive hard-pin must name the alias list, not report the router unavailable")

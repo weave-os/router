@@ -40,10 +40,24 @@ func TestParseOverridesEmptyIsNotAnError(t *testing.T) {
 	}
 }
 
+func TestParseOverridesIgnoresRetiredFlags(t *testing.T) {
+	o, err := flags.ParseOverrides([]byte(`{
+		"struggle_escalation_enabled": true,
+		"struggle_escalation_holdout_pct": "retired",
+		"struggle_evidence_arming": false,
+		"planner_enabled": false,
+		"loop_escalation_holdout_pct": 25
+	}`))
+	require.NoError(t, err)
+	assert.False(t, o.Bools[flags.KeyPlannerEnabled])
+	assert.Equal(t, 25, o.Ints[flags.KeyLoopEscalationHoldoutPct])
+	assert.NotContains(t, o.Keys(), flags.Key("struggle_escalation_enabled"))
+}
+
 func TestParseOverridesRejectsBadPayloads(t *testing.T) {
 	for name, raw := range map[string]string{
-		// A typo'd or retired key must not be silently dropped: a dropped
-		// override reads at the call site as "the default applied".
+		// A typo'd key must not be silently dropped: a dropped override reads at
+		// the call site as "the default applied".
 		"unknown key":         `{"struggle_shadow_nabled": true}`,
 		"bool given a string": `{"struggle_shadow_enabled": "true"}`,
 		"bool given a number": `{"struggle_shadow_enabled": 1}`,
@@ -88,7 +102,7 @@ func TestValidateOverridesRejectsWrongKindAndSemanticValues(t *testing.T) {
 			Ints: map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: 101},
 		},
 		"holdout below 0": {
-			Ints: map[flags.Key]int{flags.KeyStruggleEscalationHoldout: -1},
+			Ints: map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: -1},
 		},
 		"duplicate key across maps": {
 			Bools: map[flags.Key]bool{flags.KeyPlannerEnabled: true},
@@ -106,8 +120,8 @@ func TestValidateOverridesRejectsWrongKindAndSemanticValues(t *testing.T) {
 
 func TestValidateOverridesAcceptsTypedValues(t *testing.T) {
 	o := flags.Overrides{
-		Bools:   map[flags.Key]bool{flags.KeyStruggleEscalationEnabled: true},
-		Ints:    map[flags.Key]int{flags.KeyStruggleEscalationHoldout: 50},
+		Bools:   map[flags.Key]bool{flags.KeyLoopEscalationEnabled: true},
+		Ints:    map[flags.Key]int{flags.KeyLoopEscalationHoldoutPct: 50},
 		Strings: map[flags.Key]string{flags.KeyCyberRefusalFallback: "claude-opus-5"},
 	}
 	require.NoError(t, flags.ValidateOverrides(o))
@@ -181,6 +195,17 @@ func TestLookupUnknownKey(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestCCTaskToolsCrossVendorIsAnEnvBackedOverridableBoolean(t *testing.T) {
+	def, ok := flags.Lookup(flags.KeyCCTaskToolsCrossVendor)
+	require.True(t, ok)
+	assert.Equal(t, flags.KindBool, def.Kind)
+	assert.Equal(t, "ROUTER_CC_TASK_TOOLS_CROSSVENDOR", def.EnvVar)
+	assert.True(t, def.OrgOverridable)
+
+	overrides := flags.Overrides{Bools: map[flags.Key]bool{flags.KeyCCTaskToolsCrossVendor: true}}
+	require.NoError(t, flags.ValidateOverrides(overrides))
+}
+
 func TestSubscriptionPlanAwareRoutingIsAnOrganizationOnlyBoolean(t *testing.T) {
 	def, ok := flags.Lookup(flags.KeySubscriptionPlanAwareRouting)
 	require.True(t, ok)
@@ -210,4 +235,37 @@ func TestKeysIsSortedAcrossKinds(t *testing.T) {
 		flags.KeyLoopEscalationHoldoutPct,
 		flags.KeyPlannerEnabled,
 	}, o.Keys())
+}
+
+func TestAuthoritativeDowngradeControlsAreOrgOverridable(t *testing.T) {
+	gate, ok := flags.Lookup(flags.KeyAuthoritativeDowngradeGate)
+	require.True(t, ok)
+	assert.Equal(t, flags.KindBool, gate.Kind)
+	assert.Equal(t, "ROUTER_AUTHORITATIVE_DOWNGRADE_GATE", gate.EnvVar)
+	assert.True(t, gate.OrgOverridable)
+
+	hysteresis, ok := flags.Lookup(flags.KeyHMMDowngradeHysteresisTurns)
+	require.True(t, ok)
+	assert.Equal(t, flags.KindInt, hysteresis.Kind)
+	assert.Equal(t, "ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS", hysteresis.EnvVar)
+	assert.True(t, hysteresis.OrgOverridable)
+
+	shadow, ok := flags.Lookup(flags.KeyHMMDowngradeHysteresisShadowTurns)
+	require.True(t, ok)
+	assert.Equal(t, flags.KindInt, shadow.Kind)
+	assert.Equal(t, "ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS", shadow.EnvVar)
+	assert.True(t, shadow.OrgOverridable)
+
+	overrides := flags.Overrides{
+		Bools: map[flags.Key]bool{flags.KeyAuthoritativeDowngradeGate: true},
+		Ints: map[flags.Key]int{
+			flags.KeyHMMDowngradeHysteresisTurns:       3,
+			flags.KeyHMMDowngradeHysteresisShadowTurns: 0,
+		},
+	}
+	require.NoError(t, flags.ValidateOverrides(overrides))
+	ctx := flags.WithOverrides(context.Background(), overrides)
+	assert.True(t, flags.BoolOr(ctx, flags.KeyAuthoritativeDowngradeGate, false))
+	assert.Equal(t, 3, flags.IntOr(ctx, flags.KeyHMMDowngradeHysteresisTurns, 0))
+	assert.Equal(t, 0, flags.IntOr(ctx, flags.KeyHMMDowngradeHysteresisShadowTurns, 2))
 }

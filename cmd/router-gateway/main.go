@@ -69,8 +69,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.ResponseHeaderTimeout = 120 * time.Second
+	transport := newWorkerTransport()
 	defer transport.CloseIdleConnections()
 	products := gateway.ProductSurfaces{Environment: environment, Analytics: credentials, Feedback: feedback.NewSigner(config.GetOr("ROUTER_FEEDBACK_LINK_SECRET", ""), 0), Attribution: serving.FeedbackLookup{Queries: sqlc.New(pool)}}
 	forwarder, err := gateway.NewHandler(credentials, admissions, registry, signer, iam.Authorizer{}, transport, products)
@@ -94,4 +93,11 @@ func run() error {
 		defer drainCancel()
 		return server.Shutdown(drainCtx)
 	}
+}
+
+func newWorkerTransport() *http.Transport {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	// Admission, cold runtime loading and first byte share the gateway request deadline.
+	transport.ResponseHeaderTimeout = 0
+	return transport
 }

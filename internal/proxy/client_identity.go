@@ -28,20 +28,35 @@ func ClientIdentityFrom(ctx context.Context) ClientIdentity {
 // metadata.user_id body field carries them; callers with a body (see
 // anthropic.stashClientIdentity) overlay those after calling this.
 func ClientIdentityFromHeaders(h http.Header) ClientIdentity {
-	return ClientIdentity{
+	xApp, eval := splitEvalClientApp(h.Get("X-App"))
+	id := ClientIdentity{
 		SessionID:   requestcontext.SessionIDFromHeaders(h),
 		Email:       NormalizeEmail(h.Get("X-Weave-User-Email")),
 		DisplayName: NormalizeDisplayName(h.Get("X-Weave-User-Name")),
 		UserAgent:   h.Get("User-Agent"),
-		ClientApp:   NormalizeClientApp(h.Get("X-App"), h.Get("User-Agent")),
+		ClientApp:   NormalizeClientApp(xApp, h.Get("User-Agent")),
+		Eval:        eval,
 		RolloutID:   NormalizeRolloutID(h.Get(RolloutIDHeader)),
 	}
+	if id.ClientApp == ClientAppOpencode {
+		id.OpenCodeAgent = requestcontext.ParseOpenCodeAgent(h.Get(requestcontext.OpenCodeAgentHeader))
+	}
+	return id
 }
 
-// sessionIDFromHeaders picks the first usable client session id. Claude Code
-// sends X-Claude-Code-Session-Id; Codex 0.149+ sends Session-Id (and Thread-Id
-// with the same value on the main thread). First match wins so a mixed
-// client cannot have Claude Code's header overwritten by Codex leftovers.
+// EvalClientAppPrefix is re-exported for callers building identities by hand.
+const EvalClientAppPrefix = requestcontext.EvalClientAppPrefix
+
+// splitEvalClientApp peels the eval-harness prefix off a raw X-App value so
+// "weave-eval-codex" resolves to the codex harness with Eval set, rather than
+// to an unknown client that falls off every codex-keyed code path.
+func splitEvalClientApp(xApp string) (string, bool) {
+	trimmed := strings.ToLower(strings.TrimSpace(xApp))
+	if !strings.HasPrefix(trimmed, EvalClientAppPrefix) || len(trimmed) > MaxClientAppLen {
+		return xApp, false
+	}
+	return strings.TrimPrefix(trimmed, EvalClientAppPrefix), true
+}
 
 // ResolveUserFromContext dispatches identity signals from ctx to
 // auth.Service.ResolveAndStashUser. No-op if deps are missing or both email
@@ -143,6 +158,10 @@ const (
 	ClientAppGeminiCLI  = "gemini-cli"
 	ClientAppOpencode   = "opencode"
 )
+
+func supportsResponsesTerminalSurfaces(clientApp string) bool {
+	return clientApp == ClientAppCodex || clientApp == ClientAppOpencode
+}
 
 // directivePrefix returns the sigil a client's user has to type to reach the
 // router. Codex reserves a leading "/" for its own built-ins: it answers

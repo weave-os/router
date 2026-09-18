@@ -155,6 +155,22 @@ func containsReasoningLevel(levels []string, level string) bool {
 	return false
 }
 
+// minReasoningOutputTokens floors the output budget sent to a target that
+// spends part of it on hidden reasoning: a tiny client budget (1 for a quota
+// probe, 64 for a title or a classifier verdict) is exhausted before a visible
+// token is emitted. The budget is a ceiling, not an allocation, so the floor
+// costs nothing on turns that stop early.
+const minReasoningOutputTokens = 16000
+
+// reasoningOutputFloor returns want, raised to minReasoningOutputTokens when
+// the target will reason before answering.
+func reasoningOutputFloor(want int64, reasoning bool) int64 {
+	if reasoning {
+		return max(want, minReasoningOutputTokens)
+	}
+	return want
+}
+
 func nearestReasoningLevel(levels []string, wanted string) string {
 	order := map[string]int{"low": 0, "medium": 1, "high": 2, "max": 3, "xhigh": 4}
 	wantedRank, known := order[wanted]

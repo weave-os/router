@@ -10,6 +10,7 @@ import (
 
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/hmm/selection"
+	"weave-os/router/internal/router/policy"
 )
 
 func candidateSet(ids ...string) map[string]struct{} {
@@ -154,6 +155,29 @@ func TestArmOrder(t *testing.T) {
 	order, harnessSpecific = selection.ArmOrder(roster.Clusters["balanced"], "claude-code")
 	assert.False(t, harnessSpecific)
 	assert.Equal(t, []string{"vendor-a/mid", "vendor-b/mid", "vendor-a/cheap"}, order)
+}
+
+// OpenCode is its own policy identity: selection keys the roster on the
+// request's client_app, so the roster harness must spell it identically to
+// the sidecar vocabulary. Without a declared order (every promoted policy
+// today) OpenCode serves the pooled cluster order.
+func TestArmOrderOpenCodeHarness(t *testing.T) {
+	require.Equal(t, policy.HarnessOpenCode, string(rosterdata.HarnessOpenCode))
+
+	roster := testRoster()
+	order, harnessSpecific := selection.ArmOrder(roster.Clusters["low"], policy.HarnessOpenCode)
+	assert.False(t, harnessSpecific)
+	assert.Equal(t, []string{"vendor-a/cheap", "vendor-b/cheap"}, order)
+
+	low := roster.Clusters["low"]
+	low.ArmsByHarness[rosterdata.HarnessOpenCode] = []string{"vendor-b/cheap", "vendor-a/cheap"}
+	order, harnessSpecific = selection.ArmOrder(low, policy.HarnessOpenCode)
+	assert.True(t, harnessSpecific)
+	assert.Equal(t, []string{"vendor-b/cheap", "vendor-a/cheap"}, order)
+
+	pick, ok := selection.Select(roster, []string{"low"}, policy.HarnessOpenCode, candidateSet("vendor-a/cheap", "vendor-b/cheap"))
+	require.True(t, ok)
+	assert.Equal(t, selection.Pick{Group: "low", Arm: "vendor-b/cheap", HarnessOrder: true}, pick)
 }
 
 func TestSelect(t *testing.T) {

@@ -392,17 +392,8 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 	providers.CopyUpstreamHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
 
-	// Output-progress watchdog: StreamBody's byte-idle watchdog resets on ANY
-	// byte, so keepalive/empty-delta frames with zero real output ride to the
-	// request cap (2026-06-19 DeepInfra incident). This one is marked only on
-	// output-bearing deltas by the SSE translator (via ArmOutputProgress) and
-	// trips ErrUpstreamOutputStall (retryable). Non-streaming/no-hook writers
-	// stay byte-idle-guarded only.
-	//
-	// A second watchdog shares the same mark: minimum-throughput. It catches a
-	// clean 200 that keeps dribbling output at a crawl (2026-06-25
-	// deepseek-v4-flash ~132s dribble) by counting deltas over a rolling window
-	// and tripping ErrUpstreamSlowThroughput once warmup passes.
+	// Output callbacks feed stall, latency, and throughput tracking. Responses
+	// reasoning feeds only the stall clock; buffered/no-hook writers decline.
 	if arm, ok := w.(providers.OutputProgressArmer); ok {
 		outMark, outStop := httputil.StartIdleWatchdogCause(ctx, cancel, c.outputStallTimeout(), httputil.ErrUpstreamOutputStall)
 		tpWindow, tpMinElapsed, tpMinDeltas := c.throughputParams()
@@ -414,6 +405,9 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 		if arm.ArmOutputProgress(timing.FirstOutputMark(ctx, combined)) {
 			defer outStop()
 			defer tpStop()
+			if reasoningArmer, ok := w.(providers.ReasoningProgressArmer); ok {
+				reasoningArmer.ArmReasoningProgress(outMark)
+			}
 		} else {
 			outStop()
 			tpStop()
@@ -427,9 +421,8 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 	return streamErr
 }
 
-// logStreamStall reports a watchdog trip at ERROR after upstream returned
-// 200 + headers then stalled for the full budget. Both stall kinds are
-// retryable (dispatchWithFallback re-attempts); this is the paper trail.
+// logStreamStall reports the watchdog cause without promising a retry after
+// client output has committed.
 func logStreamStall(ctx context.Context, model, baseURL string, cause error) {
 	stallKind := "byte_idle"
 	switch {
@@ -438,7 +431,7 @@ func logStreamStall(ctx context.Context, model, baseURL string, cause error) {
 	case errors.Is(cause, httputil.ErrUpstreamSlowThroughput):
 		stallKind = "slow_throughput"
 	}
-	observability.FromContext(ctx).Error("Upstream OpenAI-compatible stream stalled mid-response; aborting for retry",
+	observability.FromContext(ctx).Error("Upstream OpenAI-compatible stream stalled mid-response; aborting stream",
 		"model", model,
 		"base_url", baseURL,
 		"stall_kind", stallKind,

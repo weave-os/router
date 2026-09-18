@@ -53,6 +53,7 @@ import (
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rl"
@@ -535,7 +536,7 @@ func main() {
 		subscriptionRuntime = subscriptions.NewRuntime(
 			authSvc,
 			subscriptions.NewOAuthClient(
-				&http.Client{Timeout: 15 * time.Second},
+				&http.Client{Timeout: subscriptions.RefreshHTTPTimeout},
 				codexTokenURL,
 				config.GetOr("WEAVE_ANTHROPIC_OAUTH_TOKEN", ""),
 				time.Now,
@@ -714,6 +715,12 @@ func main() {
 	siblingFailover := config.GetOr("ROUTER_SIBLING_FAILOVER", "true") == "true"
 	openAIResponsesBroad := config.GetOr("ROUTER_OPENAI_RESPONSES_BROAD", "true") == "true"
 	allowedModelsHeader := config.GetOr("ROUTER_ALLOWED_MODELS_HEADER", "false") == "true"
+	// Session-level demotion of an arm whose stream died after commit. Off
+	// until the upstream owner of those cuts is identified.
+	committedStreamArmDemotion := config.GetOr("ROUTER_COMMITTED_STREAM_ARM_DEMOTION", "false") == "true"
+	// Session-level demotion of the primary arm after a sibling rescue. Off
+	// until baked off against the committed-stream demotion.
+	rescuedFailureArmDemotion := config.GetOr("ROUTER_RESCUED_FAILURE_ARM_DEMOTION", "false") == "true"
 	// nativeAnthropicResponseSignals records the stop reason and tool_use block
 	// count an Anthropic-native turn already streams past the usage extractor;
 	// kill switch for that extraction and the telemetry columns it fills.
@@ -723,6 +730,9 @@ func main() {
 	nativeOpenAIResponseSignals := config.GetOr("ROUTER_NATIVE_OPENAI_RESPONSE_SIGNALS", "true") == "true"
 	sseKeepalive := sseKeepaliveInterval()
 	ccOrchToolsCrossVendor := config.GetOr("ROUTER_CC_ORCH_TOOLS_CROSSVENDOR", "true") == "true"
+	ccTaskToolsCrossVendor := config.GetOr("ROUTER_CC_TASK_TOOLS_CROSSVENDOR", "false") == "true"
+	ccAutonomySystemAppend := config.GetOr("ROUTER_CC_AUTONOMY_SYSTEM_APPEND", "false") == "true"
+	ccWorkspaceSystemAppend := config.GetOr("ROUTER_CC_WORKSPACE_SYSTEM_APPEND", "false") == "true"
 	// Per-turn large-vs-small action-classifier swap. Off by default until the
 	// Layer-2 extrinsic validation clears it; enabling loads the compiled-in head.
 	bandSwapEnabled := config.GetOr("ROUTER_BAND_SWAP", "false") == "true"
@@ -752,20 +762,6 @@ func main() {
 	// Switch sheds the per-turn check if it misbehaves; exists for symmetry with the spiral detector.
 	struggleShadowEnabled := config.GetOr("ROUTER_STRUGGLE_SHADOW_ENABLED", "true") == "true"
 
-	struggleEscalationEnabled := config.GetOr("ROUTER_STRUGGLE_ESCALATION_ENABLED", "false") == "true"
-	struggleEscalationHoldoutPct := 50
-	if raw := config.GetOr("ROUTER_STRUGGLE_ESCALATION_HOLDOUT_PCT", ""); raw != "" {
-		var n int
-		if _, scanErr := fmt.Sscanf(raw, "%d", &n); scanErr != nil || n < 0 || n > 100 {
-			logger.Warn("Invalid env var; using default", "key", "ROUTER_STRUGGLE_ESCALATION_HOLDOUT_PCT", "value", raw, "default", struggleEscalationHoldoutPct)
-		} else {
-			struggleEscalationHoldoutPct = n
-		}
-	}
-	// Behavioral evidence arming ships off: the spiral signals' operating points
-	// are still being read off the shadow corpus.
-	struggleEvidenceArming := config.GetOr("ROUTER_STRUGGLE_EVIDENCE_ARMING", "false") == "true"
-	var struggleRoster proxy.StruggleEscalationRoster
 	// Enforcing text-repetition break ships enabled; the switch is the kill
 	// switch if it ever false-positives on legit repeated narration.
 	textRepetitionBreakEnabled := config.GetOr("ROUTER_TEXT_REPETITION_BREAK_ENABLED", "true") == "true"
@@ -778,10 +774,35 @@ func main() {
 	}
 	prefixTrimFreeSwitch := config.GetOr("ROUTER_PREFIX_TRIM_FREE_SWITCH", "true") == "true"
 	hmmUpgradeConfidence := parseEnvFloat("ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD", 0.85)
+	upgradeConfig, err := authoritativeUpgradeConfigFromEnv()
+	if err != nil {
+		logger.Error("Invalid authoritative upgrade shadow configuration; refusing to boot", "err", err)
+		panic(err)
+	}
 	hmmSameTierPin := config.GetOr("ROUTER_HMM_SAME_TIER_PIN", "false") == "true"
 	// authoritativeUpgradeGate keeps the 0.85 escalation floor active for authoritative-per-turn
 	// policies; kill switch for a return to verbatim policy selection.
 	authoritativeUpgradeGate := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_GATE", "true") == "true"
+	authoritativeUpgradePolicy := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_POLICY", string(flags.AuthoritativeUpgradePolicyScore))
+	parsedUpgradePolicy, err := flags.ParseAuthoritativeUpgradePolicy(authoritativeUpgradePolicy)
+	if err != nil {
+		logger.Error("Invalid ROUTER_AUTHORITATIVE_UPGRADE_POLICY; refusing to boot", "err", err)
+		panic(err)
+	}
+	authoritativeUpgradeHoldoutPct := parseEnvNonNegativeInt("ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT", 0)
+	if authoritativeUpgradeHoldoutPct > 100 {
+		logger.Error("ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT must be 0-100; refusing to boot", "value", authoritativeUpgradeHoldoutPct)
+		panic("invalid ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT")
+	}
+	authoritativeUpgradeVotes := parseEnvNonNegativeInt("ROUTER_AUTHORITATIVE_UPGRADE_VOTES", 3)
+	// authoritativeDowngradeGate mirrors the floor for cheaper-than-pin picks; off by default.
+	authoritativeDowngradeGate := config.GetOr("ROUTER_AUTHORITATIVE_DOWNGRADE_GATE", "false") == "true"
+	// hmmDowngradeHysteresisTurns requires N consecutive cheaper-than-pin authoritative
+	// votes before the downgrade is served; 0 keeps today's switch-on-first-vote behavior.
+	hmmDowngradeHysteresisTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS", 0)
+	// hmmDowngradeHysteresisShadowTurns is the threshold every served authoritative
+	// downgrade is shadow-scored against; telemetry only, 0 silences it.
+	hmmDowngradeHysteresisShadowTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS", 2)
 	// authorityCacheShadow records the HMM cache gate's counterfactual verdict on
 	// authoritative-per-turn turns, which return before that gate can run. Pure
 	// observation; kill switch for the added per-turn computation and log line.
@@ -828,6 +849,26 @@ func main() {
 	inferenceDeployment := policy.DeploymentPolicyConfig{
 		AvailableProviders: availableProviders,
 		TargetOverrides:    deploymentTargets,
+	}
+	escalationJudgeEnabled, err := strconv.ParseBool(config.GetOr("ROUTER_ESCALATION_JUDGE_ENABLED", "false"))
+	if err != nil {
+		logger.Error("Invalid escalation judge enablement", "err", err)
+		panic(err)
+	}
+	escalationJudgeKey := strings.TrimSpace(os.Getenv("FIREWORKS_API_KEY"))
+	escalationJudgeActiveEnabled, err := strconv.ParseBool(config.GetOr("ROUTER_ESCALATION_JUDGE_ACTIVE_ENABLED", "false"))
+	if err != nil {
+		logger.Error("Invalid escalation judge active rollout enablement", "err", err)
+		panic(err)
+	}
+	if escalationJudgeActiveEnabled && !escalationJudgeEnabled {
+		panic("ROUTER_ESCALATION_JUDGE_ACTIVE_ENABLED requires ROUTER_ESCALATION_JUDGE_ENABLED")
+	}
+	if escalationJudgeEnabled {
+		if escalationJudgeKey == "" {
+			panic("FIREWORKS_API_KEY is required when the escalation judge is enabled")
+		}
+		inferenceDeployment.EnabledOptionalPurposes = map[policy.Purpose]bool{policy.PurposeEscalationJudge: true}
 	}
 	if err := policy.DefaultRegistry().ValidateDeployment(inferenceDeployment); err != nil {
 		logger.Error("Invalid inference policy deployment; refusing to boot", "err", err)
@@ -952,7 +993,6 @@ func main() {
 			router.StrategyHMM: rosterSource, router.StrategyHMMEmbedding: rosterSource,
 		}
 		hmmRosterModels = admittedHMMRosterSource{}
-		struggleRoster = proxy.NewStruggleRoster(rosterSource)
 		logger.Info("Managed serving admission enabled", "target", admission.Identity.Target, "revision", admission.Identity.Revision)
 	} else if policyEnvironmentRaw != "" {
 		registryURI := strings.TrimSpace(config.GetOr("WEAVE_REGISTRY_URI", "gs://weave_ml/weave_registry"))
@@ -998,7 +1038,6 @@ func main() {
 			router.StrategyHMMEmbedding: stableManager,
 		}
 		hmmRosterModels = newHMMRosterSource(stableManager, hmmTimeout)
-		struggleRoster = proxy.NewStruggleRoster(stableManager)
 		escalationObserver = stableDynamicRouter
 
 		betaManager, betaManagerErr := policyregistry.NewManager(
@@ -1095,15 +1134,16 @@ func main() {
 	// effort: the table is never read on the request path, so a failure here
 	// degrades that UI and nothing else.
 	publishFlagRegistry(logger, repo.FlagDefinitions, map[flags.Key]string{
+		flags.KeyEscalationActiveClassifier:           string(flags.EscalationClassifierNone),
+		flags.KeyEscalationShadowClassifier:           string(flags.EscalationClassifierNone),
+		flags.KeyEscalationCadence:                    strconv.Itoa(llmescalation.DefaultCadence),
+		flags.KeyEscalationEpoch:                      "0",
 		flags.KeyEscalationXGBoostEnabled:             boolDefault(false),
 		flags.KeyEscalationXGBoostShadowEnabled:       boolDefault(false),
 		flags.KeyEscalationXGBoostShadowMarkerEnabled: boolDefault(false),
 		flags.KeyEscalationXGBoostEpoch:               "0",
 		flags.KeySubscriptionPlanAwareRouting:         boolDefault(false),
 		flags.KeyStruggleShadowEnabled:                boolDefault(struggleShadowEnabled),
-		flags.KeyStruggleEscalationEnabled:            boolDefault(struggleEscalationEnabled),
-		flags.KeyStruggleEscalationHoldout:            strconv.Itoa(struggleEscalationHoldoutPct),
-		flags.KeyStruggleEvidenceArming:               boolDefault(struggleEvidenceArming),
 		flags.KeySpiralShadowEnabled:                  boolDefault(spiralShadowEnabled),
 		flags.KeyTurnSignalCapture:                    boolDefault(turnSignalCaptureEnabled),
 		flags.KeyLoopEscalationEnabled:                boolDefault(loopEscalationEnabled),
@@ -1113,10 +1153,21 @@ func main() {
 		flags.KeyScoreToolResultTurns:                 boolDefault(scoreToolResultTurns),
 		flags.KeyPrefixTrimFreeSwitch:                 boolDefault(prefixTrimFreeSwitch),
 		flags.KeyAuthoritativeUpgradeGate:             boolDefault(authoritativeUpgradeGate),
+		flags.KeyAuthoritativeUpgradePolicy:           string(parsedUpgradePolicy),
+		flags.KeyAuthoritativeUpgradeHoldoutPct:       strconv.Itoa(authoritativeUpgradeHoldoutPct),
+		flags.KeyAuthoritativeUpgradeVotes:            strconv.Itoa(authoritativeUpgradeVotes),
+		flags.KeyAuthoritativeDowngradeGate:           boolDefault(authoritativeDowngradeGate),
+		flags.KeyHMMDowngradeHysteresisTurns:          strconv.Itoa(hmmDowngradeHysteresisTurns),
+		flags.KeyHMMDowngradeHysteresisShadowTurns:    strconv.Itoa(hmmDowngradeHysteresisShadowTurns),
 		flags.KeyAuthorityCacheShadow:                 boolDefault(authorityCacheShadow),
 		flags.KeySiblingFailover:                      boolDefault(siblingFailover),
 		flags.KeyOpenAIResponsesBroad:                 boolDefault(openAIResponsesBroad),
 		flags.KeyAllowedModelsHeader:                  boolDefault(allowedModelsHeader),
+		flags.KeyCCTaskToolsCrossVendor:               boolDefault(ccTaskToolsCrossVendor),
+		flags.KeyCCAutonomySystemAppend:               boolDefault(ccAutonomySystemAppend),
+		flags.KeyCCWorkspaceSystemAppend:              boolDefault(ccWorkspaceSystemAppend),
+		flags.KeyCommittedStreamArmDemotion:           boolDefault(committedStreamArmDemotion),
+		flags.KeyRescuedFailureArmDemotion:            boolDefault(rescuedFailureArmDemotion),
 		flags.KeyNativeAnthropicResponseSignals:       boolDefault(nativeAnthropicResponseSignals),
 		flags.KeyNativeOpenAIResponseSignals:          boolDefault(nativeOpenAIResponseSignals),
 		flags.KeyEffortEscalation:                     boolDefault(effortEscalation),
@@ -1132,12 +1183,26 @@ func main() {
 	var sessionStrategyStore sessionstrategy.Store = postgres.NewSessionStrategyRepo(pool)
 
 	escalationStore := postgres.NewEscalationRepo(pool)
+	escalationDashboardStore := postgres.NewEscalationDashboardRepo(pool)
 	safeGo(logger, "escalation-state-sweep", func() { runEscalationSweep(context.Background(), escalationStore) })
+	llmEscalationStore := postgres.NewLLMEscalationRepo(pool)
+	safeGo(logger, "llm-escalation-state-sweep", func() { runEscalationSweep(context.Background(), llmEscalationStore) })
+	var escalationJudge llmescalation.Judge
+	if escalationJudgeEnabled {
+		judge, judgeErr := proxy.NewEscalationJudge(inferencePlans, inferenceExecutor, escalationJudgeKey)
+		if judgeErr != nil {
+			panic(judgeErr)
+		}
+		escalationJudge = judge
+	}
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
 
 	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
 		WithSessionStrategyStore(sessionStrategyStore).
 		WithEscalation(escalationStore, escalationObserver).
+		WithEscalationDashboard(escalationDashboardStore).
+		WithLLMEscalation(llmEscalationStore, escalationJudge).
+		WithEscalationConfiguration(llmEscalationStore, authSvc.InvalidateInstallation, escalationJudgeActiveEnabled).
 		WithTranslationCompatibilityMode(proxy.TranslationCompatibilityMode(translationCompatibilityMode)).
 		WithScopedSearchRequirement(scopedSearchRequirement, searchRequirementDecayTurns).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyRL, Router: rlRouter, Unavailable: rl.ErrPolicyUnavailable}).
@@ -1156,6 +1221,7 @@ func main() {
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyBandit, Router: banditRouter, Unavailable: bandit.ErrBanditUnavailable}).
 		WithContentCapture(captureMode, captureMaxBytes, nil).
 		WithFeedback(repo.Feedback, feedbackSigner, feedbackBaseURL).
+		WithPiHandoffSecret(config.GetOr("ROUTER_PI_HANDOFF_SECRET", "")).
 		WithByokOnly(byokOnly).
 		WithDeploymentKeyedProviders(deploymentEligible).
 		WithPassthroughEligibleProviders(passthroughEligible).
@@ -1170,19 +1236,31 @@ func main() {
 		WithSiblingFailover(siblingFailover).
 		WithOpenAIResponsesBroad(openAIResponsesBroad).
 		WithAllowedModelsHeader(allowedModelsHeader).
+		WithCommittedStreamArmDemotion(committedStreamArmDemotion).
+		WithRescuedFailureArmDemotion(rescuedFailureArmDemotion).
 		WithNativeAnthropicResponseSignals(nativeAnthropicResponseSignals).
 		WithNativeOpenAIResponseSignals(nativeOpenAIResponseSignals).
 		WithSSEKeepalive(sseKeepalive).
 		WithPrefixTrimFreeSwitch(prefixTrimFreeSwitch).
 		WithHMMUpgradeConfidenceThreshold(hmmUpgradeConfidence).
+		WithAuthoritativeUpgradeConfig(upgradeConfig).
 		WithHMMSameTierPin(hmmSameTierPin).
 		WithAuthoritativeUpgradeGate(authoritativeUpgradeGate).
+		WithAuthoritativeUpgradePolicy(parsedUpgradePolicy).
+		WithAuthoritativeUpgradeHoldoutPct(authoritativeUpgradeHoldoutPct).
+		WithAuthoritativeUpgradeVotes(authoritativeUpgradeVotes).
+		WithAuthoritativeDowngradeGate(authoritativeDowngradeGate).
+		WithHMMDowngradeHysteresisTurns(hmmDowngradeHysteresisTurns).
+		WithHMMDowngradeHysteresisShadowTurns(hmmDowngradeHysteresisShadowTurns).
 		WithAuthorityCacheShadow(authorityCacheShadow).
 		WithPolicyDeadlineFallback(policyDeadlineFallback).
 		WithPolicyDeadlineDefaultModel(policyDeadlineDefaultModel).
 		WithEscapeNormalize(escapeNormalize).
 		WithEffortEscalation(effortEscalation).
 		WithCCOrchestrationToolsCrossVendor(ccOrchToolsCrossVendor).
+		WithCCTaskToolsCrossVendor(ccTaskToolsCrossVendor).
+		WithCCAutonomySystemAppend(ccAutonomySystemAppend).
+		WithCCWorkspaceSystemAppend(ccWorkspaceSystemAppend).
 		WithBandSwap(bandSwapEnabled).
 		WithLoopEscalationConfig(loopEscalationEnabled, loopEscalationHoldoutPct).
 		WithLoopEscalationStore(repo.Telemetry).
@@ -1192,10 +1270,6 @@ func main() {
 		WithSpiralShadowStore(repo.Telemetry).
 		WithStruggleShadowConfig(struggleShadowEnabled).
 		WithStruggleShadowStore(repo.Telemetry).
-		WithStruggleEscalationConfig(struggleEscalationEnabled, struggleEscalationHoldoutPct).
-		WithStruggleEvidenceArming(struggleEvidenceArming).
-		WithStruggleEscalationStore(repo.Telemetry).
-		WithStruggleEscalationRoster(struggleRoster).
 		WithTextRepetitionBreak(textRepetitionBreakEnabled).
 		WithRouterFeedbackStore(repo.Telemetry).
 		WithPlanner(plannerCfg).
@@ -1218,7 +1292,7 @@ func main() {
 		logger.Info("Generic policy sidecar wired", "strategy", spec.Strategy, "candidate_models", len(routingTargets))
 	}
 	logger.Info("Effort escalation configured", "enabled", effortEscalation)
-	logger.Info("Cross-vendor Claude Code orchestration tools configured", "enabled", ccOrchToolsCrossVendor)
+	logger.Info("Cross-vendor Claude Code orchestration tools configured", "enabled", ccOrchToolsCrossVendor, "task_tools_enabled", ccTaskToolsCrossVendor)
 	logger.Info("Loop escalation configured", "enabled", loopEscalationEnabled, "holdout_pct", loopEscalationHoldoutPct)
 	logger.Info("Spiral shadow detector configured", "enabled", spiralShadowEnabled)
 	logger.Info("Turn signal capture configured", "enabled", turnSignalCaptureEnabled)
@@ -1698,12 +1772,24 @@ func buildOtelEmitter(deploymentMode string) (*otel.Emitter, error) {
 // parseEnvInt reads an env var as a positive integer. Returns fallback when
 // the var is unset, empty, or unparseable. Logs a warning on bad values.
 func parseEnvInt(key string, fallback int) int {
+	return parseEnvIntAtLeast(key, fallback, 1)
+}
+
+// parseEnvNonNegativeInt reads an env var as an integer for which 0 is a
+// meaningful "off" value rather than a bad input.
+func parseEnvNonNegativeInt(key string, fallback int) int {
+	return parseEnvIntAtLeast(key, fallback, 0)
+}
+
+// parseEnvIntAtLeast reads an env var as an integer of at least minimum,
+// falling back with a warning on anything smaller or unparseable.
+func parseEnvIntAtLeast(key string, fallback, minimum int) int {
 	raw := config.GetOr(key, "")
 	if raw == "" {
 		return fallback
 	}
 	n, err := strconv.Atoi(raw)
-	if err != nil || n <= 0 {
+	if err != nil || n < minimum {
 		observability.Get().Warn("Invalid env var; using default", "key", key, "value", raw, "default", fallback)
 		return fallback
 	}
@@ -2075,7 +2161,11 @@ func upstreamIDsForProvider(provider string) map[string]string {
 	return out
 }
 
-func runEscalationSweep(ctx context.Context, store escalation.Store) {
+type escalationStateSweeper interface {
+	SweepExpired(context.Context) error
+}
+
+func runEscalationSweep(ctx context.Context, store escalationStateSweeper) {
 	ticker := time.NewTicker(time.Hour)
 	defer ticker.Stop()
 	for {

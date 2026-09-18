@@ -578,6 +578,23 @@ func TestService_VerifyAnalyticsKey_DoesNotStampFirstRequestServed(t *testing.T)
 		"reading the analytics export must not mark the installation as having served a request")
 }
 
+type synchronizedLogBuffer struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (b *synchronizedLogBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.Write(p)
+}
+
+func (b *synchronizedLogBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.String()
+}
+
 func TestService_VerifyAPIKey_RecoversFromMarkUsedPanic(t *testing.T) {
 	rawToken := "rk_panic_token_for_test_only"
 	keyHash := auth.HashAPIKeySHA256(rawToken)
@@ -606,7 +623,7 @@ func TestService_VerifyAPIKey_RecoversFromMarkUsedPanic(t *testing.T) {
 	// first Get() call races SetDefault and resets the handler.
 	observability.Get()
 
-	var buf bytes.Buffer
+	var buf synchronizedLogBuffer
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
 	t.Cleanup(func() { slog.SetDefault(prev) })

@@ -167,6 +167,9 @@ func (r *PlanResolver) Resolve(request ResolutionRequest) (ResolvedPlan, error) 
 	}
 
 	routerRequest := request.RouterRequest
+	if spec.FixedProvider != "" {
+		routerRequest.EnabledProviders = restrictProviders(routerRequest.EnabledProviders, spec.FixedProvider)
+	}
 	if routerRequest.ForceModel != "" && (override == nil || override.Source != OverrideSourceRequest || override.CatalogID != routerRequest.ForceModel) {
 		return ResolvedPlan{}, &ResolutionError{
 			Code:      ResolutionErrorInvalidOverride,

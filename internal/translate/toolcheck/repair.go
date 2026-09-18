@@ -7,8 +7,6 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/santhosh-tekuri/jsonschema/v6/kind"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 // maxRepairPasses bounds the repair loop: one coercion can surface the next
@@ -32,6 +30,7 @@ const maxRepairPasses = 3
 // Missing required params and enum violations are NOT repairable — inventing
 // values would change the call's meaning.
 func repairArgs(schema *jsonschema.Schema, args string, verr error) (out string, actions []string) {
+	document := newArgumentDocument(args)
 	out = args
 	current := verr
 	for pass := 0; pass < maxRepairPasses; pass++ {
@@ -39,11 +38,15 @@ func repairArgs(schema *jsonschema.Schema, args string, verr error) (out string,
 		if !errors.As(current, &validationErr) {
 			return out, actions
 		}
-		passActions := applyLeafRepairs(&out, validationErr)
+		passActions := applyLeafRepairs(document, validationErr)
+		if document.failed {
+			return args, nil
+		}
 		if len(passActions) == 0 {
 			return out, actions
 		}
 		actions = append(actions, passActions...)
+		out = document.materialize()
 		current = validate(schema, out)
 		if current == nil {
 			return out, actions
@@ -54,25 +57,30 @@ func repairArgs(schema *jsonschema.Schema, args string, verr error) (out string,
 
 // applyLeafRepairs walks every leaf validation error and mutates out in
 // place. Returns the actions applied this pass.
-func applyLeafRepairs(out *string, verr *jsonschema.ValidationError) (actions []string) {
+func applyLeafRepairs(document *argumentDocument, verr *jsonschema.ValidationError) (actions []string) {
 	for _, leaf := range collectLeaves(verr, nil) {
-		path := instancePath(leaf.InstanceLocation)
 		switch k := leaf.ErrorKind.(type) {
 		case *kind.AdditionalProperties:
 			// The validator only emits this where the schema forbids extra
 			// keys, so the additionalProperties:false gate is implicit.
+			parentPath := leaf.InstanceLocation
+			// The original joinPath omitted an empty encoded parent path.
+			if len(parentPath) == 1 && parentPath[0] == "" {
+				parentPath = nil
+			}
 			for _, prop := range k.Properties {
-				target := joinPath(path, escapeJSONPathToken(prop))
-				if next, err := sjson.Delete(*out, target); err == nil {
-					*out = next
+				target := make([]string, len(parentPath)+1)
+				copy(target, parentPath)
+				target[len(parentPath)] = prop
+				if _, ok := document.delete(target); ok {
 					actions = append(actions, "drop_unknown_key")
 				}
 			}
 		case *kind.Type:
-			if path == "" {
+			if len(leaf.InstanceLocation) == 0 {
 				continue // root-level type mismatch is not repairable
 			}
-			if action, ok := coerceValue(out, path, k); ok {
+			if action, ok := coerceValue(document, leaf.InstanceLocation, k); ok {
 				actions = append(actions, action)
 			}
 		}
@@ -82,56 +90,57 @@ func applyLeafRepairs(out *string, verr *jsonschema.ValidationError) (actions []
 
 // coerceValue attempts one lossless coercion of the value at path toward the
 // schema's wanted types, in fixed preference order.
-func coerceValue(out *string, path string, k *kind.Type) (action string, ok bool) {
-	val := gjson.Get(*out, path)
-	if !val.Exists() {
+func coerceValue(document *argumentDocument, path []string, k *kind.Type) (action string, ok bool) {
+	value := document.lookup(path)
+	if value == nil {
 		return "", false
 	}
-	want := make(map[string]struct{}, len(k.Want))
-	for _, w := range k.Want {
-		want[w] = struct{}{}
+	var wantNumber, wantInteger, wantBool, wantString, wantArray bool
+	for _, wantedType := range k.Want {
+		switch wantedType {
+		case "number":
+			wantNumber = true
+		case "integer":
+			wantInteger = true
+		case "boolean":
+			wantBool = true
+		case "string":
+			wantString = true
+		case "array":
+			wantArray = true
+		}
 	}
-	_, wantNumber := want["number"]
-	_, wantInteger := want["integer"]
-	_, wantBool := want["boolean"]
-	_, wantString := want["string"]
-	_, wantArray := want["array"]
 
-	if val.Type == gjson.String {
-		s := val.Str
+	if value.kind == argumentString {
+		s := value.stringValue
 		if wantNumber || wantInteger {
 			if wantInteger {
 				if n, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64); err == nil {
-					if next, serr := sjson.Set(*out, path, n); serr == nil {
-						*out = next
+					if document.replace(path, strconv.FormatInt(n, 10)) {
 						return "coerce_string_to_number", true
 					}
 				}
 			} else if f, err := strconv.ParseFloat(strings.TrimSpace(s), 64); err == nil {
-				if next, serr := sjson.Set(*out, path, f); serr == nil {
-					*out = next
+				if document.replace(path, strconv.FormatFloat(f, 'f', -1, 64)) {
 					return "coerce_string_to_number", true
 				}
 			}
 		}
 		if wantBool {
 			if b, err := strconv.ParseBool(strings.TrimSpace(s)); err == nil {
-				if next, serr := sjson.Set(*out, path, b); serr == nil {
-					*out = next
+				if document.replace(path, strconv.FormatBool(b)) {
 					return "coerce_string_to_bool", true
 				}
 			}
 		}
 	}
-	if wantString && (val.Type == gjson.Number || val.Type == gjson.True || val.Type == gjson.False) {
-		if next, err := sjson.Set(*out, path, val.Raw); err == nil {
-			*out = next
+	if wantString && (value.kind == argumentNumber || value.kind == argumentBoolean) {
+		if document.replace(path, quoteArgumentString(value.raw)) {
 			return "coerce_to_string", true
 		}
 	}
-	if wantArray && !val.IsArray() {
-		if next, err := sjson.SetRaw(*out, path, "["+val.Raw+"]"); err == nil {
-			*out = next
+	if wantArray && value.kind != argumentArray {
+		if document.wrap(path, value) {
 			return "wrap_scalar_in_array", true
 		}
 	}
@@ -147,23 +156,4 @@ func collectLeaves(verr *jsonschema.ValidationError, acc []*jsonschema.Validatio
 		acc = collectLeaves(c, acc)
 	}
 	return acc
-}
-
-// instancePath converts a ValidationError instance location to a gjson path.
-func instancePath(location []string) string {
-	if len(location) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(location))
-	for _, token := range location {
-		parts = append(parts, escapeJSONPathToken(token))
-	}
-	return strings.Join(parts, ".")
-}
-
-func joinPath(base, key string) string {
-	if base == "" {
-		return key
-	}
-	return base + "." + key
 }

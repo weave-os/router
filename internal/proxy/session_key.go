@@ -109,6 +109,8 @@ func bindRequestLogger(
 // session id alone would collapse concurrent threads onto one pin. Each
 // thread's first user message is stable across turns but distinct per
 // sub-agent, so it separates them while keeping each pin stable.
+// Compacted Pi threads retain their original digest through a verified session
+// ticket, never through a caller-declared client type.
 //
 // System text substitutes for an empty first user message only when no client
 // session id is present, because it is per-turn volatile on the harnesses that
@@ -129,6 +131,9 @@ func sessionCredentialIdentity(ctx context.Context, apiKeyID string) string {
 }
 
 func deriveSessionKeyForRequest(ctx context.Context, env *translate.RequestEnvelope, apiKeyID string) [sessionpin.SessionKeyLen]byte {
+	if claims := piSessionFromContext(ctx); claims != nil && claims.APIKeyID == apiKeyID && claims.matches(ctx, env) {
+		return claims.SessionKey
+	}
 	key := deriveSessionKey(env, sessionCredentialIdentity(ctx, apiKeyID), clientSessionIDForRequest(ctx, env))
 	copy(key[:], requestcontext.ServingStateKey(ctx, key[:]))
 	return key

@@ -163,6 +163,21 @@ const (
 	ImageInputUnsupported
 )
 
+// ModelID is a catalog model identifier. Production lookup still uses string IDs
+// because the table is data, but call sites that name a known catalog model
+// should use these constants instead of repeating raw strings.
+type ModelID string
+
+const (
+	ModelIDClaudeHaiku45 ModelID = "claude-haiku-4-5"
+	ModelIDClaudeOpus48  ModelID = "claude-opus-4-8"
+	ModelIDGPT55         ModelID = "gpt-5.5"
+)
+
+func (id ModelID) String() string {
+	return string(id)
+}
+
 // Model is one logical model — the unit the router decides on.
 type Model struct {
 	// ID is the public slash-form (or bare) model ID exposed to clients,

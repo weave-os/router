@@ -72,6 +72,24 @@ func TestClassifierRequestV4CarriesGoOwnedTurnFacts(t *testing.T) {
 	assert.JSONEq(t, `["Read","Bash"]`, string(wire["invoked_tools"]))
 }
 
+// OpenCode reaches the classifier under its own harness, with the lifecycle
+// turn type PR 1346 classifies from the plugin header, so the sidecar can tell
+// its traffic apart from generic API callers.
+func TestClassifierRequestV4OpenCodeHarness(t *testing.T) {
+	query := turnFactsQuery()
+	query.ClientApp = "opencode"
+	query.TurnContext.TurnType = "title_gen"
+	body, err := marshalRouteRequest(query)
+	require.NoError(t, err)
+	var wire map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(body, &wire))
+
+	assert.JSONEq(t, `"opencode"`, string(wire["harness"]))
+	assert.JSONEq(t, `"opencode"`, string(wire["client_app"]))
+	assert.JSONEq(t, `"title_gen"`, string(wire["turn_type"]))
+	assert.JSONEq(t, `false`, string(wire["is_subagent"]))
+}
+
 func TestClassifierRequestV4TurnFactsAlwaysPresent(t *testing.T) {
 	body, err := marshalRouteRequest(policy.Query{
 		SchemaVersion: policy.SchemaVersionV4,

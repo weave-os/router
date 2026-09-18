@@ -38,8 +38,10 @@ MOCK_PID=""
 KEEP_WORK=0
 
 cleanup() {
-  [ -n "$MOCK_PID" ] && kill "$MOCK_PID" 2>/dev/null || true
-  [ -n "$MOCK_PID" ] && wait "$MOCK_PID" 2>/dev/null || true
+  if [ -n "$MOCK_PID" ]; then
+    kill "$MOCK_PID" 2>/dev/null || true
+    wait "$MOCK_PID" 2>/dev/null || true
+  fi
   if [ "$KEEP_WORK" = "1" ]; then
     echo "diagnostics preserved in $WORK"
   else
@@ -92,34 +94,78 @@ phase "Phase 1 — installer (install.sh --pi)"
 # -------------------------------------------------------------------------
 bash "$INSTALL_SH" --pi --base-url "$BASE_URL" --dir "$WORK" >"$WORK/install.out" 2>&1 </dev/null || true
 
-[ -f "$PI_DIR/models.json" ]       && ok "models.json written"  || bad "models.json missing (see $WORK/install.out)"
-[ -f "$PI_DIR/settings.json" ]     && ok "settings.json written" || bad "settings.json missing"
-[ -f "$PI_DIR/.weave_router_key" ] && ok "router key file written" || bad "key file missing"
+if [ -f "$PI_DIR/models.json" ]; then
+  ok "models.json written"
+else
+  bad "models.json missing (see $WORK/install.out)"
+fi
+if [ -f "$PI_DIR/settings.json" ]; then
+  ok "settings.json written"
+else
+  bad "settings.json missing"
+fi
+if [ -f "$PI_DIR/.weave_router_key" ]; then
+  ok "router key file written"
+else
+  bad "key file missing"
+fi
 
-jq -e --arg u "$BASE_URL" '.providers.weave.baseUrl == $u' "$PI_DIR/models.json" >/dev/null 2>&1 \
-  && ok "models.json baseUrl = $BASE_URL (root, no /v1)" || bad "models.json baseUrl wrong (want root, no /v1)"
-jq -e '.providers.weave.api == "anthropic-messages" and .providers.weave.authHeader == false' "$PI_DIR/models.json" >/dev/null 2>&1 \
-  && ok "provider api=anthropic-messages, authHeader=false" || bad "provider api/authHeader wrong"
-jq -e '.providers.weave.headers["x-weave-routing-alpha"] == "0.8" and .providers.weave.headers["x-weave-routing-speed-weight"] == "0.05"' "$PI_DIR/models.json" >/dev/null 2>&1 \
-  && ok "models.json carries main-loop knobs (0.8 / 0.05)" || bad "models.json knobs wrong"
-jq -e '.providers.weave.headers["X-Weave-User-Email"] == "e2e@workweave.ai"' "$PI_DIR/models.json" >/dev/null 2>&1 \
-  && ok "identity baked into models.json headers" || bad "identity header missing in models.json"
+if jq -e --arg u "$BASE_URL" '.providers.weave.baseUrl == $u' "$PI_DIR/models.json" >/dev/null 2>&1; then
+  ok "models.json baseUrl = $BASE_URL (root, no /v1)"
+else
+  bad "models.json baseUrl wrong (want root, no /v1)"
+fi
+if jq -e '.providers.weave.api == "anthropic-messages" and .providers.weave.authHeader == false' "$PI_DIR/models.json" >/dev/null 2>&1; then
+  ok "provider api=anthropic-messages, authHeader=false"
+else
+  bad "provider api/authHeader wrong"
+fi
+if jq -e '.providers.weave.headers["x-weave-routing-alpha"] == "0.8" and .providers.weave.headers["x-weave-routing-speed-weight"] == "0.05"' "$PI_DIR/models.json" >/dev/null 2>&1; then
+  ok "models.json carries main-loop knobs (0.8 / 0.05)"
+else
+  bad "models.json knobs wrong"
+fi
+if jq -e '.providers.weave.headers["X-Weave-User-Email"] == "e2e@workweave.ai"' "$PI_DIR/models.json" >/dev/null 2>&1; then
+  ok "identity baked into models.json headers"
+else
+  bad "identity header missing in models.json"
+fi
 
 PERM="$(stat -f '%Lp' "$PI_DIR/.weave_router_key" 2>/dev/null || stat -c '%a' "$PI_DIR/.weave_router_key" 2>/dev/null || echo '?')"
-[ "$PERM" = "600" ] && ok "key file mode 600" || bad "key file mode $PERM (want 600)"
+if [ "$PERM" = "600" ]; then
+  ok "key file mode 600"
+else
+  bad "key file mode $PERM (want 600)"
+fi
 
-grep -q '"path":"/health"'   "$LOG" && ok "installer pinged /health"      || bad "no /health probe reached mock"
-grep -q '"path":"/validate"' "$LOG" && ok "installer validated key (/validate)" || bad "no /validate probe reached mock"
+if grep -q '"path":"/health"'   "$LOG"; then
+  ok "installer pinged /health"
+else
+  bad "no /health probe reached mock"
+fi
+if grep -q '"path":"/validate"' "$LOG"; then
+  ok "installer validated key (/validate)"
+else
+  bad "no /validate probe reached mock"
+fi
 
 # Idempotency + legacy migration: seed an old @workweave/pi-router entry (the
 # pre-fold id), re-install, and confirm the new id stays single and the legacy
 # id is dropped.
 tmp="$(jq '.packages += ["npm:@workweave/pi-router"]' "$PI_DIR/settings.json")"; printf '%s\n' "$tmp" >"$PI_DIR/settings.json"
 bash "$INSTALL_SH" --pi --base-url "$BASE_URL" --dir "$WORK" >>"$WORK/install.out" 2>&1 </dev/null || true
-PKGCOUNT="$(jq '[.packages[]? | select(. == "npm:@workweave/router")] | length' "$PI_DIR/settings.json")"
-[ "$PKGCOUNT" = "1" ] && ok "idempotent re-install: single @workweave/router package entry" || bad "package entry count = $PKGCOUNT (want 1)"
-[ "$(jq '[.packages[]? | select(. == "npm:@workweave/pi-router")] | length' "$PI_DIR/settings.json")" = "0" ] \
-  && ok "legacy npm:@workweave/pi-router entry migrated away" || bad "legacy pi-router entry not removed"
+PACKAGE_SOURCE="npm:${WEAVE_ROUTER_NPM_PACKAGE:-@weave-os/router}"
+PKGCOUNT="$(jq --arg source "$PACKAGE_SOURCE" '[.packages[]? | select(. == $source)] | length' "$PI_DIR/settings.json")"
+if [ "$PKGCOUNT" = "1" ]; then
+  ok "idempotent re-install: single $PACKAGE_SOURCE package entry"
+else
+  bad "package entry count = $PKGCOUNT (want 1)"
+fi
+if [ "$(jq '[.packages[]? | select(. == "npm:@workweave/pi-router")] | length' "$PI_DIR/settings.json")" = "0" ]; then
+  ok "legacy npm:@workweave/pi-router entry migrated away"
+else
+  bad "legacy pi-router entry not removed"
+fi
 
 # The npm package is not published pre-merge; drop it so `-e` is the sole loader.
 STRIPPED="$(jq 'del(.packages)' "$PI_DIR/settings.json")"
@@ -133,9 +179,11 @@ phase "Phase 2 — generated pricing + savings contract"
 if with_timeout 30 env PI_CODING_AGENT_DIR="$PI_DIR" \
   pi -e "$UNIT_SUITE" --no-session --offline --model weave/claude-sonnet-4-6 \
   -p "Run the unit suite." >"$WORK/unit.out" 2>&1 </dev/null; then
-  [ "$(grep -Ec '^(✔ |ok [0-9]+ - )' "$WORK/unit.out" || true)" = "96" ] \
-    && ok "pricing, beta, force-model, UI, compaction, served-window, and LSP unit suite passed" \
-    || bad "unit suite did not report all 96 passes (see $WORK/unit.out)"
+  if [ "$(grep -Ec '^(✔ |ok [0-9]+ - )' "$WORK/unit.out" || true)" = "108" ]; then
+    ok "pricing, beta, force-model, UI, compaction, served-window, and LSP unit suite passed"
+  else
+    bad "unit suite did not report all 108 passes (see $WORK/unit.out)"
+  fi
 else
   bad "unit suite failed to load through pi (see $WORK/unit.out)"
 fi
@@ -152,18 +200,36 @@ if [ "$(jqcount '.method=="POST" and .app=="pi" and .path=="/v1/messages" and .r
 else
   bad "no valid main-loop request reached /v1/messages (see $WORK/main.out)"
 fi
-[ "$(jqcount '.app=="pi" and .knobs["x-weave-routing-alpha"]=="0.8" and .knobs["x-weave-routing-speed-weight"]=="0.05" and .knobs["x-weave-routing-output-cost-ratio"]=="0.5" and .knobs["x-weave-routing-expected-output-tokens"]=="3000"')" -ge 1 ] \
-  && ok "main loop: quality knobs 0.8 / 0.05 / 0.5 / 3000" || bad "main-loop knobs wrong"
-[ "$(jqcount '.app=="pi" and (.user_id // "" | startswith("pi:")) and (.user_id // "" | length) > 3')" -ge 1 ] \
-  && ok "main loop: metadata.user_id = pi:<session>" || bad "main-loop user_id wrong"
-[ "$(jqcount '.app=="pi" and .key_present==true')" -ge 1 ] \
-  && ok "main loop: X-Weave-Router-Key forwarded" || bad "router key not forwarded"
-[ "$(jqcount '.app=="pi" and .email=="e2e@workweave.ai"')" -ge 1 ] \
-  && ok "main loop: identity email forwarded" || bad "identity email not forwarded"
-[ "$(jqcount '.app=="pi" and .marker_opt=="off"')" -ge 1 ] \
-  && ok "main loop: opted out of in-band routing marker (X-Weave-Routing-Marker: off)" || bad "routing-marker opt-out header not sent"
-grep -q "weave-routed-model: claude-opus-4-8" "$WORK/main.out" \
-  && ok "x-router-model surfaced (headless stderr marker)" || bad "routed-model marker absent (see $WORK/main.out)"
+if [ "$(jqcount '.app=="pi" and .knobs["x-weave-routing-alpha"]=="0.8" and .knobs["x-weave-routing-speed-weight"]=="0.05" and .knobs["x-weave-routing-output-cost-ratio"]=="0.5" and .knobs["x-weave-routing-expected-output-tokens"]=="3000"')" -ge 1 ]; then
+  ok "main loop: quality knobs 0.8 / 0.05 / 0.5 / 3000"
+else
+  bad "main-loop knobs wrong"
+fi
+if [ "$(jqcount '.app=="pi" and (.user_id // "" | startswith("pi:")) and (.user_id // "" | length) > 3')" -ge 1 ]; then
+  ok "main loop: metadata.user_id = pi:<session>"
+else
+  bad "main-loop user_id wrong"
+fi
+if [ "$(jqcount '.app=="pi" and .key_present==true')" -ge 1 ]; then
+  ok "main loop: X-Weave-Router-Key forwarded"
+else
+  bad "router key not forwarded"
+fi
+if [ "$(jqcount '.app=="pi" and .email=="e2e@workweave.ai"')" -ge 1 ]; then
+  ok "main loop: identity email forwarded"
+else
+  bad "identity email not forwarded"
+fi
+if [ "$(jqcount '.app=="pi" and .marker_opt=="off"')" -ge 1 ]; then
+  ok "main loop: opted out of in-band routing marker (X-Weave-Routing-Marker: off)"
+else
+  bad "routing-marker opt-out header not sent"
+fi
+if grep -q "weave-routed-model: claude-opus-4-8" "$WORK/main.out"; then
+  ok "x-router-model surfaced (headless stderr marker)"
+else
+  bad "routed-model marker absent (see $WORK/main.out)"
+fi
 
 # -------------------------------------------------------------------------
 phase "Phase 4 — dispatch fan-out (real subagent processes)"
@@ -176,22 +242,43 @@ with_timeout 120 env PI_CODING_AGENT_DIR="$PI_DIR" \
   pi -e "$EXT" --no-session --offline --model weave/claude-sonnet-4-6 \
   -p "__DISPATCH__ run two quick parallel checks." >"$WORK/dispatch.out" 2>&1 </dev/null || true
 
-[ "$(jqcount '.app=="pi" and .served=="tool_use"')" -ge 1 ] \
-  && ok "main loop invoked the dispatch tool" || bad "dispatch tool_use was never served (see $WORK/dispatch.out)"
+if [ "$(jqcount '.app=="pi" and .served=="tool_use"')" -ge 1 ]; then
+  ok "main loop invoked the dispatch tool"
+else
+  bad "dispatch tool_use was never served (see $WORK/dispatch.out)"
+fi
 SUBAGENT_REQS="$(jqcount '.app=="pi-subagent"')"
-[ "$SUBAGENT_REQS" -ge 2 ] \
-  && ok "spawned $SUBAGENT_REQS subagent requests (>=2 expected)" || bad "only $SUBAGENT_REQS subagent requests (want >=2)"
-[ "$(jqcount '.app=="pi-subagent" and .knobs["x-weave-routing-alpha"]=="0.25" and .knobs["x-weave-routing-speed-weight"]=="0.45" and .knobs["x-weave-routing-output-cost-ratio"]=="2" and .knobs["x-weave-routing-expected-output-tokens"]=="1500"')" -ge 2 ] \
-  && ok "subagents: speed/cheap knobs 0.25 / 0.45 / 2 / 1500 (parent WEAVE_ROUTING_* not inherited)" || bad "subagent knobs wrong (did parent WEAVE_ROUTING_* leak into children?)"
-[ "$(jqcount '.app=="pi-subagent" and (.user_id // "" | startswith("subagent:"))')" -ge 2 ] \
-  && ok "subagents: metadata.user_id = subagent:<uuid>" || bad "subagent user_id wrong"
-[ "$(jqcount '.app=="pi-subagent" and .marker_opt=="off"')" -ge 2 ] \
-  && ok "subagents: opted out of in-band routing marker (else finalText = the badge)" || bad "subagent routing-marker opt-out not sent"
+if [ "$SUBAGENT_REQS" -ge 2 ]; then
+  ok "spawned $SUBAGENT_REQS subagent requests (>=2 expected)"
+else
+  bad "only $SUBAGENT_REQS subagent requests (want >=2)"
+fi
+if [ "$(jqcount '.app=="pi-subagent" and .knobs["x-weave-routing-alpha"]=="0.25" and .knobs["x-weave-routing-speed-weight"]=="0.45" and .knobs["x-weave-routing-output-cost-ratio"]=="2" and .knobs["x-weave-routing-expected-output-tokens"]=="1500"')" -ge 2 ]; then
+  ok "subagents: speed/cheap knobs 0.25 / 0.45 / 2 / 1500 (parent WEAVE_ROUTING_* not inherited)"
+else
+  bad "subagent knobs wrong (did parent WEAVE_ROUTING_* leak into children?)"
+fi
+if [ "$(jqcount '.app=="pi-subagent" and (.user_id // "" | startswith("subagent:"))')" -ge 2 ]; then
+  ok "subagents: metadata.user_id = subagent:<uuid>"
+else
+  bad "subagent user_id wrong"
+fi
+if [ "$(jqcount '.app=="pi-subagent" and .marker_opt=="off"')" -ge 2 ]; then
+  ok "subagents: opted out of in-band routing marker (else finalText = the badge)"
+else
+  bad "subagent routing-marker opt-out not sent"
+fi
 UNIQUE_SUBAGENT_IDS="$(jq -s '[.[] | select(.app=="pi-subagent") | .user_id] | unique | length' "$LOG")"
-[ "$UNIQUE_SUBAGENT_IDS" -ge 2 ] \
-  && ok "each subagent got a distinct session id ($UNIQUE_SUBAGENT_IDS unique)" || bad "subagent ids not distinct ($UNIQUE_SUBAGENT_IDS)"
-[ "$(jqcount '.app=="pi" and .has_tool_result==true')" -ge 1 ] \
-  && ok "main loop resumed after tool_result (loop terminated cleanly)" || bad "no post-dispatch main turn (loop did not complete)"
+if [ "$UNIQUE_SUBAGENT_IDS" -ge 2 ]; then
+  ok "each subagent got a distinct session id ($UNIQUE_SUBAGENT_IDS unique)"
+else
+  bad "subagent ids not distinct ($UNIQUE_SUBAGENT_IDS)"
+fi
+if [ "$(jqcount '.app=="pi" and .has_tool_result==true')" -ge 1 ]; then
+  ok "main loop resumed after tool_result (loop terminated cleanly)"
+else
+  bad "no post-dispatch main turn (loop did not complete)"
+fi
 
 # -------------------------------------------------------------------------
 phase "Phase 5 — on-disk resolution (no env; key file + models.json)"
@@ -205,8 +292,11 @@ with_timeout 90 env -u WEAVE_ROUTER_KEY -u WEAVE_ROUTER_URL -u WEAVE_USER_EMAIL 
 
 # Requests carrying our test key's suffix prove key-file + models.json resolution
 # worked with no env vars set (the request reached the mock at all == baseUrl ok).
-[ "$(jqcount '.app=="pi" and .key_present==true and .key_suffix=="abcd"')" -ge 1 ] \
-  && ok "resolved key from key file + baseUrl from models.json (no env)" || bad "on-disk resolution failed (see $WORK/resolve.out)"
+if [ "$(jqcount '.app=="pi" and .key_present==true and .key_suffix=="abcd"')" -ge 1 ]; then
+  ok "resolved key from key file + baseUrl from models.json (no env)"
+else
+  bad "on-disk resolution failed (see $WORK/resolve.out)"
+fi
 
 # -------------------------------------------------------------------------
 phase "Result"
@@ -215,9 +305,11 @@ phase "Result"
 # /v1/messages to baseUrl, so a baseUrl ending in /v1 yields /v1/v1/messages and
 # 404s on the real router. Any rejected POST means a wrong baseUrl shipped.
 WRONGPATH="$(jqcount '.method=="POST" and .rejected==true')"
-[ "$WRONGPATH" -eq 0 ] \
-  && ok "all routed POSTs hit /v1/messages (no /v1 doubling)" \
-  || bad "$WRONGPATH POST(s) hit a non-/v1/messages path -> would 404 on the real router"
+if [ "$WRONGPATH" -eq 0 ]; then
+  ok "all routed POSTs hit valid message or handoff paths (no /v1 doubling)"
+else
+  bad "$WRONGPATH POST(s) hit an unsupported path -> would 404 on the real router"
+fi
 
 printf 'requests logged: %s\n' "$(wc -l <"$LOG" | tr -d ' ')"
 printf '\033[1m%s passed, %s failed\033[0m\n' "$PASS" "$FAIL"

@@ -18,24 +18,6 @@ func (s *Service) ResolveStruggleShadowEnabled(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyStruggleShadowEnabled, s.struggleShadowEnabled)
 }
 
-// ResolveStruggleEscalationEnabled reports whether struggling sessions may make
-// an early sideways escalation for this request.
-func (s *Service) ResolveStruggleEscalationEnabled(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyStruggleEscalationEnabled, s.struggleEscalationEnabled)
-}
-
-// ResolveStruggleEscalationHoldoutPct returns the percentage of struggle
-// detections recorded without escalating, as a self-recovery baseline.
-func (s *Service) ResolveStruggleEscalationHoldoutPct(ctx context.Context) int {
-	return flags.IntOr(ctx, flags.KeyStruggleEscalationHoldout, s.struggleEscalationHoldoutPct)
-}
-
-// ResolveStruggleEvidenceArming reports whether behavioral spiral evidence may
-// arm an escalation for this request, ahead of the turn/wall thresholds.
-func (s *Service) ResolveStruggleEvidenceArming(ctx context.Context) bool {
-	return flags.BoolOr(ctx, flags.KeyStruggleEvidenceArming, s.struggleEvidenceArming)
-}
-
 func (s *Service) ResolveSpiralShadowEnabled(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeySpiralShadowEnabled, s.spiralShadowEnabled)
 }
@@ -88,6 +70,42 @@ func (s *Service) ResolveAuthoritativeUpgradeGate(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyAuthoritativeUpgradeGate, s.authoritativeUpgradeGate)
 }
 
+func (s *Service) ResolveAuthoritativeUpgradePolicy(ctx context.Context) flags.AuthoritativeUpgradePolicy {
+	defaultPolicy := s.authoritativeUpgradePolicy
+	if defaultPolicy == "" {
+		defaultPolicy = flags.AuthoritativeUpgradePolicyScore
+	}
+	return flags.AuthoritativeUpgradePolicy(flags.StringOr(ctx, flags.KeyAuthoritativeUpgradePolicy, string(defaultPolicy)))
+}
+
+func (s *Service) ResolveAuthoritativeUpgradeHoldoutPct(ctx context.Context) int {
+	return flags.IntOr(ctx, flags.KeyAuthoritativeUpgradeHoldoutPct, s.authoritativeUpgradeHoldoutPct)
+}
+
+func (s *Service) ResolveAuthoritativeUpgradeVotes(ctx context.Context) int {
+	return flags.IntOr(ctx, flags.KeyAuthoritativeUpgradeVotes, s.authoritativeUpgradeVotes)
+}
+
+// ResolveAuthoritativeDowngradeGate reports whether the confidence floor also
+// applies to authoritative-per-turn downgrades.
+func (s *Service) ResolveAuthoritativeDowngradeGate(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyAuthoritativeDowngradeGate, s.authoritativeDowngradeGate)
+}
+
+// ResolveHMMDowngradeHysteresisTurns returns how many consecutive
+// cheaper-than-pin authoritative votes are required before the downgrade is
+// applied. 0 disables hysteresis.
+func (s *Service) ResolveHMMDowngradeHysteresisTurns(ctx context.Context) int {
+	return flags.IntOr(ctx, flags.KeyHMMDowngradeHysteresisTurns, s.hmmDowngradeHysteresisTurns)
+}
+
+// ResolveHMMDowngradeHysteresisShadowTurns returns the hysteresis threshold a
+// served authoritative downgrade is shadow-scored against. 0 disables the
+// shadow; it never changes routing.
+func (s *Service) ResolveHMMDowngradeHysteresisShadowTurns(ctx context.Context) int {
+	return flags.IntOr(ctx, flags.KeyHMMDowngradeHysteresisShadowTurns, s.hmmDowngradeHysteresisShadowTurns)
+}
+
 // ResolveAuthorityCacheShadow reports whether authoritative-per-turn turns
 // record the cache gate's counterfactual verdict. Observation only.
 func (s *Service) ResolveAuthorityCacheShadow(ctx context.Context) bool {
@@ -111,6 +129,42 @@ func (s *Service) ResolveAllowedModelsHeader(ctx context.Context) bool {
 // off, only the reasoning+tools turn chat/completions rejects is promoted.
 func (s *Service) ResolveOpenAIResponsesBroad(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyOpenAIResponsesBroad, s.openAIResponsesBroad)
+}
+
+// ResolveCCTaskToolsCrossVendor reports the ROUTER_CC_TASK_TOOLS_CROSSVENDOR
+// flag: whether Claude Code's task-list tools and their reminders survive a
+// cross-vendor emit. Ignored when the orchestration tools are stripped.
+func (s *Service) ResolveCCTaskToolsCrossVendor(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyCCTaskToolsCrossVendor, s.ccTaskToolsCrossVendor)
+}
+
+// ResolveCCAutonomySystemAppend reports the ROUTER_CC_AUTONOMY_SYSTEM_APPEND
+// flag: whether Claude Code main-loop and tool-result turns get
+// translate.AutonomySystemText appended to their system prompt.
+func (s *Service) ResolveCCAutonomySystemAppend(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyCCAutonomySystemAppend, s.ccAutonomySystemAppend)
+}
+
+// ResolveCCWorkspaceSystemAppend reports whether Claude Code main-loop and
+// tool-result turns served cross-vendor get translate.WorkspaceSystemText
+// appended (cc_workspace_system_append; org-overridable).
+func (s *Service) ResolveCCWorkspaceSystemAppend(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyCCWorkspaceSystemAppend, s.ccWorkspaceSystemAppend)
+}
+
+// ResolveCommittedStreamArmDemotion reports the
+// ROUTER_COMMITTED_STREAM_ARM_DEMOTION flag: on, a model whose stream failed
+// after the prelude committed leaves the session's automatic selection.
+func (s *Service) ResolveCommittedStreamArmDemotion(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyCommittedStreamArmDemotion, s.committedStreamArmDemotion)
+}
+
+// ResolveRescuedFailureArmDemotion reports the
+// ROUTER_RESCUED_FAILURE_ARM_DEMOTION flag: on, the primary model of a turn
+// whose attempt failed pre-commit and was handed to a same-cluster sibling
+// leaves the session's automatic selection.
+func (s *Service) ResolveRescuedFailureArmDemotion(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyRescuedFailureArmDemotion, s.rescuedFailureArmDemotion)
 }
 
 // ResolveNativeAnthropicResponseSignals reports the

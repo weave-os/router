@@ -40,6 +40,18 @@ already invoked in the full conversation (before any wire truncation);
 field list lives in `internal/policyclient/testdata/classifier_request_v4_fields.txt`;
 adding or removing a wire field is a contract change and updates that fixture.
 
+`harness` is the router's policy identity for the calling agent, derived from
+`client_app` by `policy.HarnessForClientApp`
+(`internal/router/policy/harness.go`): `claude_code`, `codex`, `pi`, `cursor`,
+`opencode`, `api` (generic API and Gemini CLI callers), or `unknown`. For
+`claude_code`, `codex`, `pi`, and `opencode` the same spelling is the roster
+key under which a Go selection policy may declare per-harness arms,
+membership, pins, and vendor preferences (`rosterdata.Harness`); a harness with
+no roster entry serves the pooled cluster order, which is what every promoted
+policy does for `opencode` today. A sidecar must degrade a `harness` value outside its own
+vocabulary to its pooled default rather than reject the route, so adding a
+harness here never changes what an older sidecar serves.
+
 There is no strategy fallback. If a serving policy cannot return a valid
 selection after bounded transient retries, the client receives HTTP 503.
 Availability comes from healthy replicas, readiness gates, immutable artifacts,

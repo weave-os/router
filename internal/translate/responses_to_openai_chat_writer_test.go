@@ -396,14 +396,15 @@ func TestResponsesToOpenAIChatWriter_NonStreamingFailure(t *testing.T) {
 	assert.Equal(t, "upstream_error", root.Get("error.type").String())
 }
 
-// The output-progress watchdog must not be fed by reasoning-only frames, or a
-// stream that reasons forever without answering looks healthy.
-func TestResponsesToOpenAIChatWriter_ReasoningDoesNotMarkOutputProgress(t *testing.T) {
+// Reasoning keeps the stall watchdog alive without becoming answer output.
+func TestResponsesToOpenAIChatWriter_SeparatesReasoningProgress(t *testing.T) {
 	rec := httptest.NewRecorder()
 	w := translate.NewResponsesToOpenAIChatWriter(rec, "gpt-5.6-luna", nil)
 	require.NoError(t, w.Prelude(true))
 	marks := 0
 	require.True(t, w.ArmOutputProgress(func() { marks++ }))
+	reasoningMarks := 0
+	require.True(t, w.ArmReasoningProgress(func() { reasoningMarks++ }))
 
 	_, err := w.Write([]byte(`data: {"type":"response.output_item.added","output_index":0,"item":{"type":"reasoning","summary":[]}}
 
@@ -412,10 +413,12 @@ data: {"type":"response.reasoning_summary_text.delta","output_index":0,"delta":"
 `))
 	require.NoError(t, err)
 	assert.Zero(t, marks, "reasoning is not output")
+	assert.Equal(t, 1, reasoningMarks)
 
 	_, err = w.Write([]byte(`data: {"type":"response.output_text.delta","output_index":1,"delta":"answer"}
 
 `))
 	require.NoError(t, err)
 	assert.Positive(t, marks)
+	assert.Equal(t, 1, reasoningMarks, "answer output must not become reasoning progress")
 }

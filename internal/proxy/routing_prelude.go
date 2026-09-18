@@ -54,14 +54,6 @@ func (s *anthropicPreludeState) emit(
 		if err := writer.Prelude(streaming); err != nil {
 			return err
 		}
-		if !streaming || marker == "" || prelude == nil {
-			return nil
-		}
-		if err := prelude.CommitPrelude(); err != nil {
-			return err
-		}
-		s.visibleBlocks = 1
-		s.lastMarker = marker
 		return nil
 	}
 	if err := writer.ContinueAfterPrelude(streaming, s.visibleBlocks); err != nil {

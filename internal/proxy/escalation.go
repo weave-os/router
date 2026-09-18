@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -62,8 +63,9 @@ func (t *escalationTurn) constraint() *escalation.Constraint {
 }
 
 func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnvelope, req router.Request, res *turnLoopResult, apiKeyID string) *escalationTurn {
-	active := flags.BoolOr(ctx, flags.KeyEscalationXGBoostEnabled, false)
-	shadow := flags.BoolOr(ctx, flags.KeyEscalationXGBoostShadowEnabled, false)
+	selection := flags.EscalationFromContext(ctx)
+	active := selection.Active == flags.EscalationClassifierXGB
+	shadow := selection.Shadow == flags.EscalationClassifierXGB
 	if (!active && !shadow) || s.escalationStore == nil || s.escalationObserver == nil || (active && res.Strategy != router.StrategyHMMEmbedding) || req.ShadowMode || req.ForceModel != "" || req.ForceCluster != "" || res.InstallationID == uuid.Nil || (res.TurnType != turntype.MainLoop && res.TurnType != turntype.ToolResult) {
 		return nil
 	}
@@ -71,9 +73,8 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 	if active {
 		mode = escalationModeActive
 	}
-	scope := sha256.Sum256([]byte(fmt.Sprintf("%s/%x/%s/%s/%d", res.InstallationID, res.SessionKey, res.Strategy, mode, flags.IntOr(ctx, flags.KeyEscalationXGBoostEpoch, 0))))
-	activation := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%s/%d", res.InstallationID, sessionCredentialIdentity(ctx, apiKeyID), res.Strategy, mode, flags.IntOr(ctx, flags.KeyEscalationXGBoostEpoch, 0))))
-	copy(activation[:], requestcontext.ServingStateKey(ctx, activation[:]))
+	scope := sha256.Sum256([]byte(fmt.Sprintf("%s/%x/%s/%s/%d", res.InstallationID, res.SessionKey, res.Strategy, mode, selection.Epoch)))
+	activation := escalationActivationID(ctx, res.InstallationID, fmt.Sprintf("%s/%s/%s/%d", sessionCredentialIdentity(ctx, apiKeyID), res.Strategy, mode, selection.Epoch))
 	log := observability.FromContext(ctx).With("escalation_scope", fmt.Sprintf("%x", scope))
 	observation, err := env.EscalationObservation()
 	if original, ok := ctx.Value(nativeResponsesBodyContextKey{}).([]byte); ok {
@@ -84,6 +85,7 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 		log.Warn("Escalation input unavailable", "error_type", fmt.Sprintf("%T", err))
 		return nil
 	}
+	observation.Messages = translate.WithDeveloperRolesAsSystem(observation.Messages)
 	encodedObservation, _ := json.Marshal(observation)
 	turn := &escalationTurn{activation: activation, scope: scope, boundary: sha256.Sum256(encodedObservation), token: uuid.NewString(), active: active}
 	claimCtx, cancel := context.WithTimeout(ctx, escalationTimeout)
@@ -94,7 +96,7 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 			retryBackoff := backoff.NewExponentialBackOff()
 			retryBackoff.InitialInterval = 10 * time.Millisecond
 			retryBackoff.MaxInterval = 25 * time.Millisecond
-			_, lookupErr = backoff.Retry(claimCtx, func() (bool, error) {
+			_, _ = backoff.Retry(claimCtx, func() (bool, error) {
 				priorScope, history, found, lookupErr = s.escalationStore.Continuation(claimCtx, activation, observation.ContinuationID)
 				if lookupErr != nil {
 					return false, backoff.Permanent(lookupErr)
@@ -104,6 +106,12 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 				}
 				return true, nil
 			}, backoff.WithBackOff(retryBackoff), backoff.WithMaxTries(5), backoff.WithMaxElapsedTime(100*time.Millisecond))
+		}
+		if _, managed := requestcontext.ServingIdentityFromContext(ctx); lookupErr == nil && !found && !managed {
+			// Compatibility requires the exact pre-HMAC identifier for continuations
+			// written before the credential-pseudonym hardening deployment.
+			legacyActivation := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%s/%d", res.InstallationID, apiKeyID, res.Strategy, mode, selection.Epoch))) // lgtm[go/weak-sensitive-data-hashing]
+			priorScope, history, found, lookupErr = s.escalationStore.Continuation(claimCtx, legacyActivation, observation.ContinuationID)
 		}
 		if lookupErr != nil || !found {
 			log.Warn("Escalation continuation unavailable", "err", lookupErr, "found", found)
@@ -138,6 +146,13 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 		s.invalidateEscalation(ctx, scope, turn.boundary, "")
 		log.Warn("Escalation observation not claimed", "err", err, "claimed", claimed)
 		return nil
+	}
+	epoch := selection.Epoch
+	session.Epoch = &epoch
+	if active {
+		session.Mode = escalation.ModeActive
+	} else {
+		session.Mode = escalation.ModeShadow
 	}
 	turn.session = session
 	checkpoint, found, err := s.escalationStore.Checkpoint(claimCtx, scope, turn.boundary)
@@ -180,6 +195,16 @@ func (s *Service) beginEscalation(ctx context.Context, env *translate.RequestEnv
 	turn.session.PackageSHA256 = observed.PackageSHA256
 	turn.checkpoint = escalation.Checkpoint{Ordinal: nextOrdinal, Prediction: observed.Prediction}
 	return turn
+}
+
+// escalationActivationID derives a stable, installation-scoped pseudonym for
+// credential identity without persisting the credential identifier itself.
+func escalationActivationID(ctx context.Context, installationID uuid.UUID, material string) [32]byte {
+	mac := hmac.New(sha256.New, installationID[:])
+	_, _ = mac.Write([]byte(material))
+	var activation [32]byte
+	copy(activation[:], requestcontext.ServingStateKey(ctx, mac.Sum(nil)))
+	return activation
 }
 
 func (s *Service) invalidateEscalation(ctx context.Context, scope, boundary [32]byte, failedToken string) {
@@ -244,7 +269,7 @@ func (s *Service) finishEscalation(ctx context.Context, turn *escalationTurn, re
 // captureEscalationResponse observes client-visible output solely for the opted-in
 // session's bounded operational state, independent of training/content-log consent.
 func (s *Service) captureEscalationResponse(w http.ResponseWriter, res turnLoopResult) (http.ResponseWriter, *captureWriter) {
-	if res.EscalationOrdinal == 0 {
+	if res.EscalationOrdinal == 0 && res.llmEscalation == nil {
 		return w, nil
 	}
 	if responses, ok := w.(*translate.ResponsesWriter); ok {
@@ -260,16 +285,18 @@ func (s *Service) captureEscalationResponse(w http.ResponseWriter, res turnLoopR
 }
 
 func (s *Service) completeEscalation(ctx context.Context, res turnLoopResult, proxyErr error, capture *captureWriter, format translate.EscalationResponseFormat) {
-	if res.EscalationOrdinal == 0 {
+	if res.EscalationOrdinal == 0 && res.llmEscalation == nil {
 		return
 	}
 	if deferred := deferredCallLogFrom(ctx); deferred != nil {
 		deferred.escalation = func(finalErr error) {
 			s.recordEscalationOutcome(ctx, res, finalErr, capture, translate.EscalationResponseResponses)
+			s.completeLLMEscalation(ctx, res, finalErr, capture, translate.EscalationResponseResponses)
 		}
 		return
 	}
 	s.recordEscalationOutcome(ctx, res, proxyErr, capture, format)
+	s.completeLLMEscalation(ctx, res, proxyErr, capture, format)
 }
 
 func (s *Service) recordEscalationOutcome(ctx context.Context, res turnLoopResult, proxyErr error, capture *captureWriter, format translate.EscalationResponseFormat) {

@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: OpenCode latest compatibility
+
+on:
+  schedule:
+    - cron: '23 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Deliberately separate from the required Test gate: latest may break before
+# the supported CLI/plugin pin has been reviewed and updated.
+jobs:
+  latest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24"
+      - name: Install latest OpenCode
+        run: |
+          npm install --global opencode-ai@latest --no-audit --no-fund
+          echo "OPENCODE_EXPECTED_VERSION=$(opencode --version)" >> "$GITHUB_ENV"
+      - name: Run real CLI and plugin-loader compatibility
+        run: bash install/pi-router/test/opencode_smoke.sh

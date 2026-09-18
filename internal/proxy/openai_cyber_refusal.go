@@ -61,6 +61,9 @@ type cyberRefusalGate struct {
 	// scanned counts the held bytes already classified, so a stream arriving in
 	// many writes is scanned once end to end.
 	scanned int
+	// framing resumes the delimiter search inside held[scanned:] across writes;
+	// it is rewound whenever held is discarded.
+	framing sse.Scanner
 }
 
 // newCyberRefusalGate wraps w. When armed the gate withholds the stream
@@ -88,7 +91,7 @@ func (g *cyberRefusalGate) Write(p []byte) (int, error) {
 	switch {
 	case refusal:
 		g.refused, g.withheld, g.holding = true, true, false
-		g.held.Reset()
+		g.discardHeld()
 		return len(p), nil
 	case release:
 		g.holding = false
@@ -104,7 +107,7 @@ func (g *cyberRefusalGate) Write(p []byte) (int, error) {
 func (g *cyberRefusalGate) scanHeld() (refusal, release bool) {
 	b := g.held.Bytes()[g.scanned:]
 	for {
-		event, n := sse.SplitNext(b)
+		event, n := g.framing.Next(b)
 		if n == 0 {
 			// Hold for the rest of an incomplete frame, unless buffering it would
 			// outgrow the cap.
@@ -155,7 +158,7 @@ func (g *cyberRefusalGate) Finalize() error {
 	g.holding = false
 	if providers.ContainsCyberPolicyRefusal(g.held.Bytes()) {
 		g.refused, g.withheld = true, true
-		g.held.Reset()
+		g.discardHeld()
 		return nil
 	}
 	return g.release()
@@ -166,12 +169,19 @@ func (g *cyberRefusalGate) release() error {
 		return nil
 	}
 	out := g.held.Bytes()
-	g.held.Reset()
+	g.discardHeld()
 	// The released bytes may carry a refusal that trails output — unrescuable,
 	// but still the signal that re-pins the session.
 	g.refused = g.refused || providers.ContainsCyberPolicyRefusal(out)
 	_, err := g.body.Write(out)
 	return err
+}
+
+// discardHeld drops the withheld bytes together with the framing cursor that
+// pointed into them.
+func (g *cyberRefusalGate) discardHeld() {
+	g.held.Reset()
+	g.framing.Reset()
 }
 
 // cyberRefusalRetryTarget resolves the model a refused turn is re-dispatched to:

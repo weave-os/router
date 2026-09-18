@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -125,12 +126,15 @@ func TestEscalationCadenceReplayFloorAndGates(t *testing.T) {
 	for n := 1; n <= 6; n++ {
 		turn := svc.beginEscalation(ctx, escalationTestEnvelope(t, n), req, &res, "test-key")
 		require.NotNil(t, turn)
+		require.Equal(t, escalation.ModeActive, turn.session.Mode)
+		require.NotNil(t, turn.session.Epoch)
+		require.Zero(t, *turn.session.Epoch)
 		constraint := turn.constraint()
 		if n == 5 {
 			require.True(t, constraint.Escalate)
-			res.Decision.Metadata = &router.RoutingMetadata{Escalation: &escalation.Decision{Baseline: escalation.Low, Effective: escalation.Medium, Outcome: escalation.OutcomePromoted, Constrained: true}}
+			res.Decision.Metadata = &router.RoutingMetadata{Escalation: &escalation.Decision{Baseline: escalation.Low, Effective: escalation.Maximum, Outcome: escalation.OutcomePromoted, Constrained: true}}
 		} else if n == 6 {
-			require.Equal(t, escalation.Medium, constraint.Floor)
+			require.Equal(t, escalation.Maximum, constraint.Floor)
 			require.False(t, constraint.Escalate)
 		}
 		require.NoError(t, svc.finishEscalation(ctx, turn, &res, nil))
@@ -147,6 +151,9 @@ func TestEscalationCadenceReplayFloorAndGates(t *testing.T) {
 	require.Nil(t, svc.beginEscalation(escalationTestContext(false, false), escalationTestEnvelope(t, 7), req, &res, "test-key"))
 	shadow := svc.beginEscalation(escalationTestContext(false, true), escalationTestEnvelope(t, 7), req, &res, "test-key")
 	require.NotNil(t, shadow)
+	require.Equal(t, escalation.ModeShadow, shadow.session.Mode)
+	require.NotNil(t, shadow.session.Epoch)
+	require.Zero(t, *shadow.session.Epoch)
 	require.Nil(t, shadow.constraint())
 	require.Empty(t, shadow.session.Floor)
 	forced := req
@@ -283,6 +290,26 @@ func TestEscalationResponsesContinuation(t *testing.T) {
 	require.Nil(t, svc.beginEscalation(ctx, escalationTestEnvelope(t, 2), router.Request{}, &otherOrg, "test-key"))
 }
 
+func TestEscalationResponsesContinuationSupportsLegacyActivation(t *testing.T) {
+	store := newEscalationTestStore()
+	observer := &escalationTestObserver{}
+	svc := (&Service{}).WithEscalation(store, observer)
+	ctx := escalationTestContext(true, false)
+	res := turnLoopResult{Strategy: router.StrategyHMMEmbedding, InstallationID: uuid.New(), TurnType: turntype.MainLoop}
+	turn := svc.beginEscalation(ctx, escalationTestEnvelope(t, 1), router.Request{}, &res, "test-key")
+	require.NoError(t, svc.finishEscalation(ctx, turn, &res, nil))
+	legacyActivation := sha256.Sum256([]byte(fmt.Sprintf("%s/%s/%s/%s/%d", res.InstallationID, "test-key", res.Strategy, escalationModeActive, 0)))
+	store.continuations[fmt.Sprintf("%x/%s", legacyActivation, "resp_legacy")] = struct {
+		scope   [32]byte
+		history json.RawMessage
+	}{scope: turn.scope, history: json.RawMessage(`[{"role":"user","blocks":[{"type":"text","text":"start"}]}]`)}
+
+	ctx = context.WithValue(ctx, nativeResponsesBodyContextKey{}, []byte(`{"model":"weave","previous_response_id":"resp_legacy","input":"continue"}`))
+	continued := svc.beginEscalation(ctx, escalationTestEnvelope(t, 2), router.Request{}, &res, "test-key")
+	require.NotNil(t, continued)
+	require.Equal(t, turn.scope, continued.scope)
+}
+
 // The policy implementation's eligibility behavior is tested in policy; this
 // double exposes the orchestration's actual classification intent at dispatch.
 type escalationDispatchRouter struct{}
@@ -293,7 +320,7 @@ func (escalationDispatchRouter) Route(_ context.Context, req router.Request) (ro
 	if req.Escalation != nil {
 		group = escalation.Higher(group, req.Escalation.Floor)
 		if req.Escalation.Escalate {
-			group = escalation.Next(group)
+			group = escalation.Maximum
 		}
 		outcome := escalation.OutcomeFloor
 		if req.Escalation.Escalate {
@@ -332,10 +359,10 @@ func TestEscalationLiveModelThroughTurnLoop(t *testing.T) {
 		if n < 9 {
 			require.Equal(t, "claude-haiku-4-5", last.Decision.Model)
 		} else {
-			require.Equal(t, "claude-sonnet-4-6", last.Decision.Model)
+			require.Equal(t, "claude-opus-4-8", last.Decision.Model)
 		}
 	}
-	require.Equal(t, escalation.Medium, store.sessions[last.EscalationScope].Floor)
+	require.Equal(t, escalation.Maximum, store.sessions[last.EscalationScope].Floor)
 }
 
 func TestEscalationOrdinaryHigherClassificationDoesNotRaiseFloor(t *testing.T) {
@@ -372,7 +399,7 @@ func TestEscalationRecordsServedHistoryWithoutReplacingBaselinePin(t *testing.T)
 	svc := NewService(nil, nil, nil, false, nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 	res := turnLoopResult{Strategy: router.StrategyHMMEmbedding, InstallationID: uuid.New(), PinRole: "default", Decision: router.Decision{Model: "claude-sonnet-4-6", Provider: providers.ProviderAnthropic, Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMMEmbedding), Escalation: &escalation.Decision{Baseline: escalation.Low, Effective: escalation.Medium, Outcome: escalation.OutcomePromoted, Constrained: true}}}}
 	res.SessionKey[0] = 1
-	svc.recordTurnUsage(context.Background(), res, providers.ProviderAnthropic, "claude-sonnet-4-6", 100, 20, 0, 0)
+	svc.recordTurnUsage(context.Background(), res, providers.ProviderAnthropic, "claude-sonnet-4-6", 100, 20, 0, 0, false)
 	require.Len(t, pins.upserts, 1)
 	require.Equal(t, hmmHistoryRole(res.PinRole), pins.upserts[0].Role)
 	require.Equal(t, "claude-sonnet-4-6", pins.lastUsage.ServedModel)

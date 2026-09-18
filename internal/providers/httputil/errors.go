@@ -7,6 +7,7 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 )
 
 // ReadCapped buffers up to limit bytes from r, then drains (without retaining)
@@ -55,6 +56,16 @@ func (c HeaderCapture) WriteHeader(int) {}
 // joinable to the request, so filtering by session never surfaced it.
 func LogUpstreamStatus(ctx context.Context, msg string, status int, attrs ...any) {
 	log := observability.FromContext(ctx)
+	if !requestcontext.ContentLoggingAllowed(ctx) {
+		filtered := make([]any, 0, len(attrs))
+		for i := 0; i+1 < len(attrs); i += 2 {
+			if key, _ := attrs[i].(string); key == "body_preview" {
+				continue
+			}
+			filtered = append(filtered, attrs[i], attrs[i+1])
+		}
+		attrs = filtered
+	}
 	merged := append([]any{"status", status}, attrs...)
 	if status >= 500 || (status >= 400 && status != http.StatusTooManyRequests) {
 		log.Error(msg, merged...)

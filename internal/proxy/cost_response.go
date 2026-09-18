@@ -113,8 +113,12 @@ func setRouterCostHeaders(h http.Header, cost routerResponseCost) {
 // streamCostWriter adds the final turn's authoritative cost to the Anthropic
 // message_delta usage object while preserving all other SSE events verbatim.
 type streamCostWriter struct {
-	inner     http.ResponseWriter
-	pending   bytes.Buffer
+	inner   http.ResponseWriter
+	pending bytes.Buffer
+	// framing resumes the delimiter search across writes. A found event
+	// rewinds it, so when the forward write fails before pending consumes the
+	// event, the next write presents that same event again.
+	framing   sse.Scanner
 	calculate routerCostCalculator
 	// Translated Anthropic usage reports fresh input, while the bound pricing
 	// calculator expects OpenAI/Gemini input to include cached tokens.
@@ -155,7 +159,7 @@ func (w *streamCostWriter) Write(p []byte) (int, error) {
 	}
 	w.pending.Write(p)
 	for {
-		event, consumed := sse.SplitNext(w.pending.Bytes())
+		event, consumed := w.framing.Next(w.pending.Bytes())
 		if consumed == 0 {
 			break
 		}

@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -191,6 +192,49 @@ func TestNormalizeClientApp(t *testing.T) {
 	}
 }
 
+func TestClientIdentityFromHeaders_EvalPrefixKeepsHarness(t *testing.T) {
+	t.Run("eval prefix resolves to the imitated harness", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("X-App", "Weave-Eval-Codex")
+		got := proxy.ClientIdentityFromHeaders(h)
+		assert.Equal(t, proxy.ClientAppCodex, got.ClientApp)
+		assert.True(t, got.Eval)
+		assert.Equal(t, "weave-eval-codex", got.TelemetryClientApp())
+	})
+	t.Run("eval prefix on claude-code alias", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("X-App", "weave-eval-cli")
+		got := proxy.ClientIdentityFromHeaders(h)
+		assert.Equal(t, proxy.ClientAppClaudeCode, got.ClientApp)
+		assert.True(t, got.Eval)
+		assert.Equal(t, "weave-eval-claude-code", got.TelemetryClientApp())
+	})
+	t.Run("production client is untagged", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("X-App", "codex")
+		got := proxy.ClientIdentityFromHeaders(h)
+		assert.Equal(t, proxy.ClientAppCodex, got.ClientApp)
+		assert.False(t, got.Eval)
+		assert.Equal(t, proxy.ClientAppCodex, got.TelemetryClientApp())
+	})
+	t.Run("oversized eval header falls through to UA", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("X-App", "weave-eval-"+strings.Repeat("a", proxy.MaxClientAppLen))
+		h.Set("User-Agent", "codex_cli_rs/0.39.0 (darwin)")
+		got := proxy.ClientIdentityFromHeaders(h)
+		assert.Equal(t, proxy.ClientAppCodex, got.ClientApp)
+		assert.False(t, got.Eval)
+	})
+	t.Run("bare prefix carries no harness", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("X-App", "weave-eval-")
+		got := proxy.ClientIdentityFromHeaders(h)
+		assert.Equal(t, "", got.ClientApp)
+		assert.True(t, got.Eval)
+		assert.Equal(t, "", got.TelemetryClientApp())
+	})
+}
+
 func TestResolveUserFromContext_BothMissingIsNoOp(t *testing.T) {
 	repo := &captureUserRepo{}
 	svc := newTestAuthSvc(repo)
@@ -235,5 +279,50 @@ func TestClientIdentityFromHeaders_SessionIDSources(t *testing.T) {
 	})
 	t.Run("no session headers", func(t *testing.T) {
 		assert.Equal(t, "", proxy.ClientIdentityFromHeaders(http.Header{}).SessionID)
+	})
+}
+
+func TestClientIdentityFromHeaders_OpenCodeAgent(t *testing.T) {
+	for _, agent := range []requestcontext.OpenCodeAgent{
+		requestcontext.OpenCodeAgentBuild,
+		requestcontext.OpenCodeAgentTitle,
+		requestcontext.OpenCodeAgentExplore,
+		requestcontext.OpenCodeAgentCompaction,
+	} {
+		t.Run(string(agent), func(t *testing.T) {
+			h := http.Header{}
+			h.Set("X-App", "opencode")
+			h.Set(requestcontext.OpenCodeAgentHeader, string(agent))
+			assert.Equal(t, agent, proxy.ClientIdentityFromHeaders(h).OpenCodeAgent)
+		})
+	}
+	t.Run("unknown agent is dropped", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("X-App", "opencode")
+		h.Set(requestcontext.OpenCodeAgentHeader, "reviewer")
+		assert.Equal(t, requestcontext.OpenCodeAgent(""), proxy.ClientIdentityFromHeaders(h).OpenCodeAgent)
+	})
+	t.Run("case is sensitive and whitespace is trimmed", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("X-App", "opencode")
+		h.Set(requestcontext.OpenCodeAgentHeader, "Title")
+		assert.Equal(t, requestcontext.OpenCodeAgent(""), proxy.ClientIdentityFromHeaders(h).OpenCodeAgent)
+		h.Set(requestcontext.OpenCodeAgentHeader, " title ")
+		assert.Equal(t, requestcontext.OpenCodeAgentTitle, proxy.ClientIdentityFromHeaders(h).OpenCodeAgent)
+	})
+	t.Run("missing header leaves the field empty", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("X-App", "opencode")
+		assert.Equal(t, requestcontext.OpenCodeAgent(""), proxy.ClientIdentityFromHeaders(h).OpenCodeAgent)
+	})
+	t.Run("ignored for every other client", func(t *testing.T) {
+		for _, app := range []string{proxy.ClientAppCodex, proxy.ClientAppClaudeCode, "pi", ""} {
+			h := http.Header{}
+			if app != "" {
+				h.Set("X-App", app)
+			}
+			h.Set(requestcontext.OpenCodeAgentHeader, "title")
+			assert.Equal(t, requestcontext.OpenCodeAgent(""), proxy.ClientIdentityFromHeaders(h).OpenCodeAgent, app)
+		}
 	})
 }

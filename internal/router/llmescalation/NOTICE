@@ -1,0 +1,8 @@
+Switchyard
+Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+prompt.md and schema.json are unmodified from NVIDIA-NeMo/Switchyard revision
+9c774d2ee6fcac818410419dab3578c3e7abee57. transcript.go adapts its Unicode-aware
+transcript condenser to Weave's normalized conversation representation.
+
+Licensed under the Apache License, Version 2.0; see LICENSE.switchyard.

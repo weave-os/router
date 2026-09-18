@@ -12,6 +12,53 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const cooldownModelRouterSubscriptionAccountIfRefreshHolder = `-- name: CooldownModelRouterSubscriptionAccountIfRefreshHolder :execrows
+UPDATE router.model_router_subscription_accounts
+SET cooldown_until = $1::timestamp,
+    token_refresh_lease_until = NULL,
+    token_refresh_lease_id = NULL,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $2::uuid
+  AND api_key_id = $3::uuid
+  AND enabled = TRUE
+  AND token_refresh_lease_id = $4::uuid
+  AND token_refresh_version = $5::bigint
+`
+
+type CooldownModelRouterSubscriptionAccountIfRefreshHolderParams struct {
+	CooldownUntil   pgtype.Timestamp
+	ID              uuid.UUID
+	APIKeyID        uuid.UUID
+	LeaseID         uuid.UUID
+	ExpectedVersion int64
+}
+
+// A stale refresh failure must not put the winner's credentials on cooldown.
+//
+//	UPDATE router.model_router_subscription_accounts
+//	SET cooldown_until = $1::timestamp,
+//	    token_refresh_lease_until = NULL,
+//	    token_refresh_lease_id = NULL,
+//	    updated_at = CURRENT_TIMESTAMP
+//	WHERE id = $2::uuid
+//	  AND api_key_id = $3::uuid
+//	  AND enabled = TRUE
+//	  AND token_refresh_lease_id = $4::uuid
+//	  AND token_refresh_version = $5::bigint
+func (q *Queries) CooldownModelRouterSubscriptionAccountIfRefreshHolder(ctx context.Context, arg CooldownModelRouterSubscriptionAccountIfRefreshHolderParams) (int64, error) {
+	result, err := q.db.Exec(ctx, cooldownModelRouterSubscriptionAccountIfRefreshHolder,
+		arg.CooldownUntil,
+		arg.ID,
+		arg.APIKeyID,
+		arg.LeaseID,
+		arg.ExpectedVersion,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const deleteModelRouterSubscriptionAccount = `-- name: DeleteModelRouterSubscriptionAccount :execrows
 DELETE FROM router.model_router_subscription_accounts
 WHERE id = $1::uuid AND api_key_id = $2::uuid
@@ -34,29 +81,208 @@ func (q *Queries) DeleteModelRouterSubscriptionAccount(ctx context.Context, arg 
 	return result.RowsAffected(), nil
 }
 
+const disableModelRouterSubscriptionAccountIfRefreshHolder = `-- name: DisableModelRouterSubscriptionAccountIfRefreshHolder :execrows
+UPDATE router.model_router_subscription_accounts
+SET enabled = FALSE,
+    cooldown_until = NULL,
+    token_refresh_lease_until = NULL,
+    token_refresh_lease_id = NULL,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1::uuid
+  AND api_key_id = $2::uuid
+  AND enabled = TRUE
+  AND token_refresh_lease_id = $3::uuid
+  AND token_refresh_version = $4::bigint
+`
+
+type DisableModelRouterSubscriptionAccountIfRefreshHolderParams struct {
+	ID              uuid.UUID
+	APIKeyID        uuid.UUID
+	LeaseID         uuid.UUID
+	ExpectedVersion int64
+}
+
+// A failed refresher may disable only the credentials it still owns. Clearing
+// the lease in this update avoids a takeover between release and disable.
+//
+//	UPDATE router.model_router_subscription_accounts
+//	SET enabled = FALSE,
+//	    cooldown_until = NULL,
+//	    token_refresh_lease_until = NULL,
+//	    token_refresh_lease_id = NULL,
+//	    updated_at = CURRENT_TIMESTAMP
+//	WHERE id = $1::uuid
+//	  AND api_key_id = $2::uuid
+//	  AND enabled = TRUE
+//	  AND token_refresh_lease_id = $3::uuid
+//	  AND token_refresh_version = $4::bigint
+func (q *Queries) DisableModelRouterSubscriptionAccountIfRefreshHolder(ctx context.Context, arg DisableModelRouterSubscriptionAccountIfRefreshHolderParams) (int64, error) {
+	result, err := q.db.Exec(ctx, disableModelRouterSubscriptionAccountIfRefreshHolder,
+		arg.ID,
+		arg.APIKeyID,
+		arg.LeaseID,
+		arg.ExpectedVersion,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const extendModelRouterSubscriptionRefreshLease = `-- name: ExtendModelRouterSubscriptionRefreshLease :execrows
+UPDATE router.model_router_subscription_accounts
+SET token_refresh_lease_until = CURRENT_TIMESTAMP + make_interval(secs => $1::bigint),
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $2::uuid
+  AND api_key_id = $3::uuid
+  AND enabled = TRUE
+  AND token_refresh_lease_id = $4::uuid
+`
+
+type ExtendModelRouterSubscriptionRefreshLeaseParams struct {
+	LeaseSeconds int64
+	ID           uuid.UUID
+	APIKeyID     uuid.UUID
+	LeaseID      uuid.UUID
+}
+
+// Extend a refresh lease while the holder's provider call is still in flight.
+// Zero rows means the lease was lost (taken over or reset), so the holder must
+// abandon its refresh.
+//
+//	UPDATE router.model_router_subscription_accounts
+//	SET token_refresh_lease_until = CURRENT_TIMESTAMP + make_interval(secs => $1::bigint),
+//	    updated_at = CURRENT_TIMESTAMP
+//	WHERE id = $2::uuid
+//	  AND api_key_id = $3::uuid
+//	  AND enabled = TRUE
+//	  AND token_refresh_lease_id = $4::uuid
+func (q *Queries) ExtendModelRouterSubscriptionRefreshLease(ctx context.Context, arg ExtendModelRouterSubscriptionRefreshLeaseParams) (int64, error) {
+	result, err := q.db.Exec(ctx, extendModelRouterSubscriptionRefreshLease,
+		arg.LeaseSeconds,
+		arg.ID,
+		arg.APIKeyID,
+		arg.LeaseID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const getModelRouterSubscriptionCredentialRecord = `-- name: GetModelRouterSubscriptionCredentialRecord :one
+SELECT external_account_id,
+       provider,
+       refresh_token_ciphertext,
+       access_token_ciphertext,
+       access_token_expires_at,
+       token_refresh_version,
+       token_refresh_lease_id,
+       enabled,
+       cooldown_until
+FROM router.model_router_subscription_accounts
+WHERE id = $1::uuid AND api_key_id = $2::uuid
+`
+
+type GetModelRouterSubscriptionCredentialRecordParams struct {
+	ID       uuid.UUID
+	APIKeyID uuid.UUID
+}
+
+type GetModelRouterSubscriptionCredentialRecordRow struct {
+	ExternalAccountID      string
+	Provider               string
+	RefreshTokenCiphertext []byte
+	AccessTokenCiphertext  []byte
+	AccessTokenExpiresAt   pgtype.Timestamp
+	TokenRefreshVersion    int64
+	TokenRefreshLeaseID    pgtype.UUID
+	Enabled                bool
+	CooldownUntil          pgtype.Timestamp
+}
+
+// Load encrypted credentials and the refresh version used for optimistic CAS.
+// The auth service decrypts the ciphertexts before returning them to Runtime.
+//
+//	SELECT external_account_id,
+//	       provider,
+//	       refresh_token_ciphertext,
+//	       access_token_ciphertext,
+//	       access_token_expires_at,
+//	       token_refresh_version,
+//	       token_refresh_lease_id,
+//	       enabled,
+//	       cooldown_until
+//	FROM router.model_router_subscription_accounts
+//	WHERE id = $1::uuid AND api_key_id = $2::uuid
+func (q *Queries) GetModelRouterSubscriptionCredentialRecord(ctx context.Context, arg GetModelRouterSubscriptionCredentialRecordParams) (GetModelRouterSubscriptionCredentialRecordRow, error) {
+	row := q.db.QueryRow(ctx, getModelRouterSubscriptionCredentialRecord, arg.ID, arg.APIKeyID)
+	var i GetModelRouterSubscriptionCredentialRecordRow
+	err := row.Scan(
+		&i.ExternalAccountID,
+		&i.Provider,
+		&i.RefreshTokenCiphertext,
+		&i.AccessTokenCiphertext,
+		&i.AccessTokenExpiresAt,
+		&i.TokenRefreshVersion,
+		&i.TokenRefreshLeaseID,
+		&i.Enabled,
+		&i.CooldownUntil,
+	)
+	return i, err
+}
+
 const listModelRouterSubscriptionAccounts = `-- name: ListModelRouterSubscriptionAccounts :many
-SELECT id, api_key_id, provider, external_account_id, refresh_token_ciphertext, enabled, cooldown_until, created_at, updated_at
+SELECT id,
+       api_key_id,
+       provider,
+       external_account_id,
+       refresh_token_ciphertext,
+       enabled,
+       cooldown_until,
+       created_at,
+       updated_at
 FROM router.model_router_subscription_accounts
 WHERE api_key_id = $1::uuid
 ORDER BY provider, created_at
 `
 
+type ListModelRouterSubscriptionAccountsRow struct {
+	ID                     uuid.UUID
+	APIKeyID               uuid.UUID
+	Provider               string
+	ExternalAccountID      string
+	RefreshTokenCiphertext []byte
+	Enabled                bool
+	CooldownUntil          pgtype.Timestamp
+	CreatedAt              pgtype.Timestamp
+	UpdatedAt              pgtype.Timestamp
+}
+
 // Account state is scoped by api_key_id so a router key can never manage another
 // user's subscription account.
 //
-//	SELECT id, api_key_id, provider, external_account_id, refresh_token_ciphertext, enabled, cooldown_until, created_at, updated_at
+//	SELECT id,
+//	       api_key_id,
+//	       provider,
+//	       external_account_id,
+//	       refresh_token_ciphertext,
+//	       enabled,
+//	       cooldown_until,
+//	       created_at,
+//	       updated_at
 //	FROM router.model_router_subscription_accounts
 //	WHERE api_key_id = $1::uuid
 //	ORDER BY provider, created_at
-func (q *Queries) ListModelRouterSubscriptionAccounts(ctx context.Context, apiKeyID uuid.UUID) ([]RouterModelRouterSubscriptionAccount, error) {
+func (q *Queries) ListModelRouterSubscriptionAccounts(ctx context.Context, apiKeyID uuid.UUID) ([]ListModelRouterSubscriptionAccountsRow, error) {
 	rows, err := q.db.Query(ctx, listModelRouterSubscriptionAccounts, apiKeyID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []RouterModelRouterSubscriptionAccount
+	var items []ListModelRouterSubscriptionAccountsRow
 	for rows.Next() {
-		var i RouterModelRouterSubscriptionAccount
+		var i ListModelRouterSubscriptionAccountsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.APIKeyID,
@@ -76,6 +302,169 @@ func (q *Queries) ListModelRouterSubscriptionAccounts(ctx context.Context, apiKe
 		return nil, err
 	}
 	return items, nil
+}
+
+const persistModelRouterSubscriptionTokens = `-- name: PersistModelRouterSubscriptionTokens :execrows
+UPDATE router.model_router_subscription_accounts
+SET refresh_token_ciphertext = $1::bytea,
+    access_token_ciphertext = $2::bytea,
+    access_token_expires_at = $3::timestamp,
+    token_refresh_lease_until = NULL,
+    token_refresh_lease_id = NULL,
+    token_refresh_version = token_refresh_version + 1,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $4::uuid
+  AND api_key_id = $5::uuid
+  AND enabled = TRUE
+  AND token_refresh_lease_id = $6::uuid
+  AND token_refresh_version = $7::bigint
+`
+
+type PersistModelRouterSubscriptionTokensParams struct {
+	RefreshTokenCiphertext []byte
+	AccessTokenCiphertext  []byte
+	AccessTokenExpiresAt   pgtype.Timestamp
+	ID                     uuid.UUID
+	APIKeyID               uuid.UUID
+	LeaseID                uuid.UUID
+	ExpectedVersion        int64
+}
+
+// Persist a refresh result and publish its access token atomically. The lease
+// ID fences stale refreshers and the version prevents lost refresh rotations.
+//
+//	UPDATE router.model_router_subscription_accounts
+//	SET refresh_token_ciphertext = $1::bytea,
+//	    access_token_ciphertext = $2::bytea,
+//	    access_token_expires_at = $3::timestamp,
+//	    token_refresh_lease_until = NULL,
+//	    token_refresh_lease_id = NULL,
+//	    token_refresh_version = token_refresh_version + 1,
+//	    updated_at = CURRENT_TIMESTAMP
+//	WHERE id = $4::uuid
+//	  AND api_key_id = $5::uuid
+//	  AND enabled = TRUE
+//	  AND token_refresh_lease_id = $6::uuid
+//	  AND token_refresh_version = $7::bigint
+func (q *Queries) PersistModelRouterSubscriptionTokens(ctx context.Context, arg PersistModelRouterSubscriptionTokensParams) (int64, error) {
+	result, err := q.db.Exec(ctx, persistModelRouterSubscriptionTokens,
+		arg.RefreshTokenCiphertext,
+		arg.AccessTokenCiphertext,
+		arg.AccessTokenExpiresAt,
+		arg.ID,
+		arg.APIKeyID,
+		arg.LeaseID,
+		arg.ExpectedVersion,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const releaseModelRouterSubscriptionRefreshLease = `-- name: ReleaseModelRouterSubscriptionRefreshLease :execrows
+UPDATE router.model_router_subscription_accounts
+SET token_refresh_lease_until = NULL,
+    token_refresh_lease_id = NULL,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = $1::uuid
+  AND api_key_id = $2::uuid
+  AND token_refresh_lease_id = $3::uuid
+`
+
+type ReleaseModelRouterSubscriptionRefreshLeaseParams struct {
+	ID       uuid.UUID
+	APIKeyID uuid.UUID
+	LeaseID  uuid.UUID
+}
+
+// Release a refresh lease only when this holder still owns it.
+//
+//	UPDATE router.model_router_subscription_accounts
+//	SET token_refresh_lease_until = NULL,
+//	    token_refresh_lease_id = NULL,
+//	    updated_at = CURRENT_TIMESTAMP
+//	WHERE id = $1::uuid
+//	  AND api_key_id = $2::uuid
+//	  AND token_refresh_lease_id = $3::uuid
+func (q *Queries) ReleaseModelRouterSubscriptionRefreshLease(ctx context.Context, arg ReleaseModelRouterSubscriptionRefreshLeaseParams) (int64, error) {
+	result, err := q.db.Exec(ctx, releaseModelRouterSubscriptionRefreshLease, arg.ID, arg.APIKeyID, arg.LeaseID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const tryAcquireModelRouterSubscriptionRefreshLease = `-- name: TryAcquireModelRouterSubscriptionRefreshLease :one
+WITH prior AS (
+  SELECT token_refresh_lease_id IS NOT NULL AS took_over
+  FROM router.model_router_subscription_accounts
+  WHERE id = $1::uuid AND api_key_id = $2::uuid
+),
+acquired AS (
+  UPDATE router.model_router_subscription_accounts
+  SET token_refresh_lease_until = CURRENT_TIMESTAMP + make_interval(secs => $3::bigint),
+      token_refresh_lease_id = $4::uuid,
+      updated_at = CURRENT_TIMESTAMP
+  WHERE id = $1::uuid
+    AND api_key_id = $2::uuid
+    AND enabled = TRUE
+    AND (cooldown_until IS NULL OR cooldown_until <= CURRENT_TIMESTAMP)
+    AND (token_refresh_lease_until IS NULL OR token_refresh_lease_until <= CURRENT_TIMESTAMP)
+  RETURNING id
+)
+SELECT prior.took_over::boolean AS took_over
+FROM acquired
+JOIN prior ON TRUE
+`
+
+type TryAcquireModelRouterSubscriptionRefreshLeaseParams struct {
+	ID           uuid.UUID
+	APIKeyID     uuid.UUID
+	LeaseSeconds int64
+	LeaseID      uuid.UUID
+}
+
+// Try to reserve one account for a cross-replica token refresh. The lease ID
+// fences stale holders after a lease expires and is taken over. took_over
+// reports whether an expired lease from a holder that never released was
+// replaced: that holder may already have spent the refresh token, so a
+// terminal provider error on a taken-over lease is not proof the account is
+// dead. Zero rows means the account is unavailable or still leased. Both
+// CTEs see the same snapshot, and the UPDATE's row lock re-checks the lease
+// predicate for concurrent acquirers, so no explicit FOR UPDATE is needed
+// (Postgres rejects locking a row the same statement modifies).
+//
+//	WITH prior AS (
+//	  SELECT token_refresh_lease_id IS NOT NULL AS took_over
+//	  FROM router.model_router_subscription_accounts
+//	  WHERE id = $1::uuid AND api_key_id = $2::uuid
+//	),
+//	acquired AS (
+//	  UPDATE router.model_router_subscription_accounts
+//	  SET token_refresh_lease_until = CURRENT_TIMESTAMP + make_interval(secs => $3::bigint),
+//	      token_refresh_lease_id = $4::uuid,
+//	      updated_at = CURRENT_TIMESTAMP
+//	  WHERE id = $1::uuid
+//	    AND api_key_id = $2::uuid
+//	    AND enabled = TRUE
+//	    AND (cooldown_until IS NULL OR cooldown_until <= CURRENT_TIMESTAMP)
+//	    AND (token_refresh_lease_until IS NULL OR token_refresh_lease_until <= CURRENT_TIMESTAMP)
+//	  RETURNING id
+//	)
+//	SELECT prior.took_over::boolean AS took_over
+//	FROM acquired
+//	JOIN prior ON TRUE
+func (q *Queries) TryAcquireModelRouterSubscriptionRefreshLease(ctx context.Context, arg TryAcquireModelRouterSubscriptionRefreshLeaseParams) (bool, error) {
+	row := q.db.QueryRow(ctx, tryAcquireModelRouterSubscriptionRefreshLease,
+		arg.ID,
+		arg.APIKeyID,
+		arg.LeaseSeconds,
+		arg.LeaseID,
+	)
+	var took_over bool
+	err := row.Scan(&took_over)
+	return took_over, err
 }
 
 const updateModelRouterSubscriptionAccountCooldown = `-- name: UpdateModelRouterSubscriptionAccountCooldown :execrows
@@ -148,6 +537,11 @@ func (q *Queries) UpdateModelRouterSubscriptionAccountState(ctx context.Context,
 const updateModelRouterSubscriptionRefreshToken = `-- name: UpdateModelRouterSubscriptionRefreshToken :execrows
 UPDATE router.model_router_subscription_accounts
 SET refresh_token_ciphertext = $1::bytea,
+    access_token_ciphertext = NULL,
+    access_token_expires_at = NULL,
+    token_refresh_lease_until = NULL,
+    token_refresh_lease_id = NULL,
+    token_refresh_version = token_refresh_version + 1,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $2::uuid AND api_key_id = $3::uuid
 `
@@ -162,6 +556,11 @@ type UpdateModelRouterSubscriptionRefreshTokenParams struct {
 //
 //	UPDATE router.model_router_subscription_accounts
 //	SET refresh_token_ciphertext = $1::bytea,
+//	    access_token_ciphertext = NULL,
+//	    access_token_expires_at = NULL,
+//	    token_refresh_lease_until = NULL,
+//	    token_refresh_lease_id = NULL,
+//	    token_refresh_version = token_refresh_version + 1,
 //	    updated_at = CURRENT_TIMESTAMP
 //	WHERE id = $2::uuid AND api_key_id = $3::uuid
 func (q *Queries) UpdateModelRouterSubscriptionRefreshToken(ctx context.Context, arg UpdateModelRouterSubscriptionRefreshTokenParams) (int64, error) {
@@ -182,8 +581,13 @@ DO UPDATE SET
   refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
   enabled = TRUE,
   cooldown_until = NULL,
+  access_token_ciphertext = NULL,
+  access_token_expires_at = NULL,
+  token_refresh_lease_until = NULL,
+  token_refresh_lease_id = NULL,
+  token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
   updated_at = CURRENT_TIMESTAMP
-RETURNING id, api_key_id, provider, external_account_id, refresh_token_ciphertext, enabled, cooldown_until, created_at, updated_at
+RETURNING id, api_key_id, provider, external_account_id, refresh_token_ciphertext, enabled, cooldown_until, created_at, updated_at, access_token_ciphertext, access_token_expires_at, token_refresh_lease_until, token_refresh_lease_id, token_refresh_version
 `
 
 type UpsertModelRouterSubscriptionAccountParams struct {
@@ -204,8 +608,13 @@ type UpsertModelRouterSubscriptionAccountParams struct {
 //	  refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
 //	  enabled = TRUE,
 //	  cooldown_until = NULL,
+//	  access_token_ciphertext = NULL,
+//	  access_token_expires_at = NULL,
+//	  token_refresh_lease_until = NULL,
+//	  token_refresh_lease_id = NULL,
+//	  token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
 //	  updated_at = CURRENT_TIMESTAMP
-//	RETURNING id, api_key_id, provider, external_account_id, refresh_token_ciphertext, enabled, cooldown_until, created_at, updated_at
+//	RETURNING id, api_key_id, provider, external_account_id, refresh_token_ciphertext, enabled, cooldown_until, created_at, updated_at, access_token_ciphertext, access_token_expires_at, token_refresh_lease_until, token_refresh_lease_id, token_refresh_version
 func (q *Queries) UpsertModelRouterSubscriptionAccount(ctx context.Context, arg UpsertModelRouterSubscriptionAccountParams) (RouterModelRouterSubscriptionAccount, error) {
 	row := q.db.QueryRow(ctx, upsertModelRouterSubscriptionAccount,
 		arg.APIKeyID,
@@ -224,6 +633,11 @@ func (q *Queries) UpsertModelRouterSubscriptionAccount(ctx context.Context, arg 
 		&i.CooldownUntil,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.AccessTokenCiphertext,
+		&i.AccessTokenExpiresAt,
+		&i.TokenRefreshLeaseUntil,
+		&i.TokenRefreshLeaseID,
+		&i.TokenRefreshVersion,
 	)
 	return i, err
 }

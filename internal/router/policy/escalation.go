@@ -49,7 +49,7 @@ func constrainEscalation(req router.Request, input SelectionInput, resolved Reso
 		if effective == escalation.Maximum {
 			decision.Outcome = escalation.OutcomeMaximum
 		} else {
-			effective = escalation.Next(effective)
+			effective = escalation.Maximum
 			decision.Effective = effective
 			decision.Outcome = escalation.OutcomePromoted
 		}

@@ -32,6 +32,7 @@ func inspectSSEPrelude(
 	defer stop()
 
 	var buffered bytes.Buffer
+	var framing sse.Scanner
 	readBuf := make([]byte, httputil.FlushChunk)
 	for buffered.Len() < providers.MaxBufferedErrorBytes {
 		n, readErr := body.Read(readBuf)
@@ -44,7 +45,7 @@ func inspectSSEPrelude(
 			}
 			_, _ = buffered.Write(readBuf[:n])
 
-			event, consumed := sse.SplitNext(buffered.Bytes())
+			event, consumed := framing.Next(buffered.Bytes())
 			if consumed != 0 {
 				eventType, data := sse.ParseEvent(event)
 				if bytes.Equal(eventType, []byte("error")) {

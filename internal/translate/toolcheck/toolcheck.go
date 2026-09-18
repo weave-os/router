@@ -316,29 +316,69 @@ func normalizeArgs(args string, required map[string]struct{}) (out string, actio
 	if !parsed.IsObject() {
 		return args, nil
 	}
-	out = args
-	parsed.ForEach(func(key, val gjson.Result) bool {
-		isEmptyString := val.Type == gjson.String && val.Str == ""
-		isNull := val.Type == gjson.Null
-		if !isEmptyString && !isNull {
+	type optionalMember struct {
+		key       string
+		valueType gjson.Type
+	}
+	var first optionalMember
+	firstValueEnd := 0
+	firstIsRootMember := false
+	var optional []optionalMember
+	found := false
+	memberCount := 0
+	parsed.ForEach(func(key, value gjson.Result) bool {
+		memberCount++
+		if (value.Type != gjson.String || value.Str != "") && value.Type != gjson.Null {
 			return true
 		}
-		if _, req := required[key.String()]; req {
+		if _, req := required[key.Str]; req {
 			return true
 		}
-		next, err := sjson.Delete(out, escapeJSONPathToken(key.String()))
-		if err != nil {
+		if !found {
+			first, found = optionalMember{key.Str, value.Type}, true
+			firstValueEnd = value.Index + len(value.Raw)
+			firstIsRootMember = memberCount == 1
 			return true
 		}
-		out = next
-		if isEmptyString {
+		if optional == nil {
+			optional = append(optional, first)
+		}
+		optional = append(optional, optionalMember{key.Str, value.Type})
+		return true
+	})
+	if !found {
+		return args, nil
+	}
+	if optional == nil {
+		// SJSON's string API copies the output twice. GJSON's first-member
+		// spans let a large literal deletion retain the single-copy path.
+		if len(args) >= 512 && firstIsRootMember && first.key != "" && mutationKey(first.key) == first.key && !argumentLibraryPath([]string{first.key}) {
+			out = removeFirstArgumentMember(args, parsed.Index, firstValueEnd)
+		} else {
+			var err error
+			out, err = sjson.Delete(args, argumentMutationPath([]string{first.key}))
+			if err != nil {
+				return args, nil
+			}
+		}
+		if first.valueType == gjson.String {
+			return out, []string{"drop_empty_optional"}
+		}
+		return out, []string{"drop_null_optional"}
+	}
+	document := newArgumentDocument(args)
+	document.rootMemberCapacity = memberCount
+	for _, member := range optional {
+		if _, ok := document.delete([]string{member.key}); !ok {
+			continue
+		}
+		if member.valueType == gjson.String {
 			actions = append(actions, "drop_empty_optional")
 		} else {
 			actions = append(actions, "drop_null_optional")
 		}
-		return true
-	})
-	return out, actions
+	}
+	return document.materialize(), actions
 }
 
 // detailFromError renders the first leaf validation error as
@@ -363,17 +403,4 @@ func firstLeaf(verr *jsonschema.ValidationError) *jsonschema.ValidationError {
 		verr = verr.Causes[0]
 	}
 	return verr
-}
-
-// escapeJSONPathToken escapes a raw object key for use in a gjson/sjson path.
-func escapeJSONPathToken(token string) string {
-	var b strings.Builder
-	for _, r := range token {
-		switch r {
-		case '.', '*', '?', '\\', '|', '#', '@':
-			b.WriteByte('\\')
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
 }

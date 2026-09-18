@@ -307,74 +307,85 @@ func responsesInputItemToMessages(item gjson.Result) ([]map[string]any, error) {
 // upstream.
 var responsesBadgePattern = regexp.MustCompile(`(?is)\A(?:\*\*WEAVE ROUTER\*\* — .*?\n\n|✦ \*\*WEAVE ROUTER\*\* → .*?\n\n)`)
 
-// codexResponsesBadgeSentinel is an invisible router-owned prefix that
+// responsesTerminalBadgeSentinel is an invisible router-owned prefix that
 // distinguishes injected badge text from user-authored assistant prose.
-const codexResponsesBadgeSentinel = "\u2063\u2060\u2063\u2060"
+const responsesTerminalBadgeSentinel = "\u2063\u2060\u2063\u2060"
 
-var codexResponsesBadgePattern = regexp.MustCompile(
-	`(?is)\A` + regexp.QuoteMeta(codexResponsesBadgeSentinel) +
+var responsesTerminalBadgePattern = regexp.MustCompile(
+	`(?is)\A` + regexp.QuoteMeta(responsesTerminalBadgeSentinel) +
 		`(?:\*\*WEAVE ROUTER\*\* — .*?\n\n|✦ \*\*WEAVE ROUTER\*\* → .*?\n\n)`,
 )
 
 // StripRoutingBadgeFromResponsesInput removes a provenance-marked router badge
-// from assistant items. Call only for clients opted into the Codex badge.
+// from assistant items. Call only for clients opted into terminal surfaces.
 func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 	input := gjson.GetBytes(body, "input")
 	if !input.IsArray() {
 		return body, nil
 	}
 
-	out := body
+	itemRaws := input.Array()
+	newItemRaws := make([]string, 0, len(itemRaws))
 	changed := false
-	var emptied []int
-	for itemIndex, item := range input.Array() {
+	for _, item := range itemRaws {
 		itemType := item.Get("type").Str
 		if itemType != "message" && !(itemType == "" && item.Get("role").Str != "") {
+			newItemRaws = append(newItemRaws, item.Raw)
 			continue
 		}
 		if item.Get("role").Str != "assistant" {
+			newItemRaws = append(newItemRaws, item.Raw)
 			continue
 		}
 
 		content := item.Get("content")
 		if content.Type == gjson.String {
-			stripped := codexResponsesBadgePattern.ReplaceAllString(content.Str, "")
+			stripped := responsesTerminalBadgePattern.ReplaceAllString(content.Str, "")
 			if stripped == content.Str {
+				newItemRaws = append(newItemRaws, item.Raw)
 				continue
 			}
 			if stripped == "" {
-				emptied = append(emptied, itemIndex)
 				changed = true
 				continue
 			}
-			var err error
-			out, err = sjson.SetBytes(out, "input."+strconv.Itoa(itemIndex)+".content", stripped)
+			newItem, err := replaceResponsesField(item.Raw, "content", stripped)
 			if err != nil {
 				return nil, fmt.Errorf("strip Responses routing badge from string content: %w", err)
 			}
+			newItemRaws = append(newItemRaws, newItem)
 			changed = true
 			continue
 		}
 		if !content.IsArray() {
+			newItemRaws = append(newItemRaws, item.Raw)
 			continue
 		}
+
+		parts := content.Array()
+		newPartRaws := make([]string, len(parts))
+		for i, part := range parts {
+			newPartRaws[i] = part.Raw
+		}
+		itemChanged := false
+		dropItem := false
 	contentParts:
-		for partIndex, part := range content.Array() {
+		for partIndex, part := range parts {
 			switch part.Get("type").Str {
 			case "input_text", "output_text", "text":
 				text := part.Get("text").Str
-				stripped := codexResponsesBadgePattern.ReplaceAllString(text, "")
+				stripped := responsesTerminalBadgePattern.ReplaceAllString(text, "")
 				if stripped != text {
-					var err error
-					path := "input." + strconv.Itoa(itemIndex) + ".content." + strconv.Itoa(partIndex) + ".text"
-					out, err = sjson.SetBytes(out, path, stripped)
+					newPart, err := replaceResponsesField(part.Raw, "text", stripped)
 					if err != nil {
 						return nil, fmt.Errorf("strip Responses routing badge from content part: %w", err)
 					}
+					newPartRaws[partIndex] = newPart
+					itemChanged = true
 					changed = true
 				}
-				if stripped == "" && !responsesContentHasBody(content, partIndex) {
-					emptied = append(emptied, itemIndex)
+				if stripped == "" && !responsesContentHasBody(parts, partIndex) {
+					dropItem = true
 					changed = true
 				}
 				// The egress marker is only ever prepended to the first text part.
@@ -382,57 +393,73 @@ func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 				break contentParts
 			}
 		}
+		if dropItem {
+			continue
+		}
+		if !itemChanged {
+			newItemRaws = append(newItemRaws, item.Raw)
+			continue
+		}
+		newContent := "[" + strings.Join(newPartRaws, ",") + "]"
+		newItem, err := replaceResponsesRawField([]byte(item.Raw), "content", []byte(newContent))
+		if err != nil {
+			return nil, fmt.Errorf("replace Responses content after routing badge strip: %w", err)
+		}
+		newItemRaws = append(newItemRaws, string(newItem))
 	}
 	if !changed {
 		return body, nil
 	}
-	// Descending: an earlier delete would shift the indices still pending.
-	for i := len(emptied) - 1; i >= 0; i-- {
-		var err error
-		out, err = sjson.DeleteBytes(out, "input."+strconv.Itoa(emptied[i]))
-		if err != nil {
-			return nil, fmt.Errorf("drop badge-only Responses input item: %w", err)
-		}
-	}
-	return out, nil
+	return replaceResponsesRawField(body, "input", []byte("["+strings.Join(newItemRaws, ",")+"]"))
 }
 
 // StripFeedbackFooterFromResponsesInput removes the rating hint from assistant
-// text items so a subsequent native Codex turn does not echo it upstream.
+// text items so a subsequent terminal Responses turn does not echo it upstream.
 func StripFeedbackFooterFromResponsesInput(body []byte) ([]byte, error) {
 	input := gjson.GetBytes(body, "input")
 	if !input.IsArray() {
 		return body, nil
 	}
-	out := body
+	itemRaws := input.Array()
+	newItemRaws := make([]string, 0, len(itemRaws))
 	changed := false
-	for itemIndex, item := range input.Array() {
+	for _, item := range itemRaws {
 		itemType := item.Get("type").Str
 		if itemType != "message" && !(itemType == "" && item.Get("role").Str != "") {
+			newItemRaws = append(newItemRaws, item.Raw)
 			continue
 		}
 		if item.Get("role").Str != "assistant" {
+			newItemRaws = append(newItemRaws, item.Raw)
 			continue
 		}
 		content := item.Get("content")
 		if content.Type == gjson.String {
 			stripped := feedbackFooterPattern.ReplaceAllString(content.Str, "")
 			if stripped == content.Str {
+				newItemRaws = append(newItemRaws, item.Raw)
 				continue
 			}
-			var err error
-			out, err = sjson.SetBytes(out, "input."+strconv.Itoa(itemIndex)+".content", stripped)
+			newItem, err := replaceResponsesField(item.Raw, "content", stripped)
 			if err != nil {
 				return nil, fmt.Errorf("strip Responses feedback footer from string content: %w", err)
 			}
+			newItemRaws = append(newItemRaws, newItem)
 			changed = true
 			continue
 		}
 		if !content.IsArray() {
+			newItemRaws = append(newItemRaws, item.Raw)
 			continue
 		}
-		for partIndex := len(content.Array()) - 1; partIndex >= 0; partIndex-- {
-			part := content.Array()[partIndex]
+
+		parts := content.Array()
+		newPartRaws := make([]string, len(parts))
+		for i, part := range parts {
+			newPartRaws[i] = part.Raw
+		}
+		itemChanged := false
+		for partIndex, part := range parts {
 			switch part.Get("type").Str {
 			case "input_text", "output_text", "text":
 				text := part.Get("text").Str
@@ -440,20 +467,43 @@ func StripFeedbackFooterFromResponsesInput(body []byte) ([]byte, error) {
 				if stripped == text {
 					continue
 				}
-				path := "input." + strconv.Itoa(itemIndex) + ".content." + strconv.Itoa(partIndex) + ".text"
-				var err error
-				out, err = sjson.SetBytes(out, path, stripped)
+				newPart, err := replaceResponsesField(part.Raw, "text", stripped)
 				if err != nil {
 					return nil, fmt.Errorf("strip Responses feedback footer from content part: %w", err)
 				}
+				newPartRaws[partIndex] = newPart
+				itemChanged = true
 				changed = true
 			}
 		}
+		if !itemChanged {
+			newItemRaws = append(newItemRaws, item.Raw)
+			continue
+		}
+		newContent := "[" + strings.Join(newPartRaws, ",") + "]"
+		newItem, err := replaceResponsesRawField([]byte(item.Raw), "content", []byte(newContent))
+		if err != nil {
+			return nil, fmt.Errorf("replace Responses content after feedback footer strip: %w", err)
+		}
+		newItemRaws = append(newItemRaws, string(newItem))
 	}
 	if !changed {
 		return body, nil
 	}
-	return out, nil
+	return replaceResponsesRawField(body, "input", []byte("["+strings.Join(newItemRaws, ",")+"]"))
+}
+
+func replaceResponsesField(raw, path, value string) (string, error) {
+	encoded, err := encodeJSONStringNoHTMLEscape(value)
+	if err != nil {
+		return "", err
+	}
+	updated, err := replaceResponsesRawField([]byte(raw), path, encoded)
+	return string(updated), err
+}
+
+func replaceResponsesRawField(raw []byte, path string, value []byte) ([]byte, error) {
+	return sjson.SetRawBytes(raw, path, value)
 }
 
 // StripRouterCommandsFromResponsesInput removes router directives from
@@ -522,8 +572,8 @@ func stripRouterCommandText(text string) (string, bool) {
 
 // responsesContentHasBody reports whether a content array carries anything
 // beyond the (now stripped) part at skipIndex. Non-text parts always count.
-func responsesContentHasBody(content gjson.Result, skipIndex int) bool {
-	for i, part := range content.Array() {
+func responsesContentHasBody(content []gjson.Result, skipIndex int) bool {
+	for i, part := range content {
 		if i == skipIndex {
 			continue
 		}
@@ -603,6 +653,11 @@ type ResponsesWriter struct {
 	passthroughBadge bool
 	buf              bytes.Buffer
 
+	streamScanner           sse.Scanner
+	nativeStreamScanner     sse.Scanner
+	nativeSSEClassification bool
+	nativeSSEClassified     bool
+
 	seq int64
 
 	// Streaming state.
@@ -610,7 +665,7 @@ type ResponsesWriter struct {
 	completedEmitted            bool
 	badgePrepended              bool
 	badgeText                   string
-	codexBadgeProvenance        bool
+	terminalBadgeProvenance     bool
 	nativeBadgeTargetSelected   bool
 	nativeBadgeDeltaPrepended   bool
 	nativeBadgeItemID           string
@@ -620,14 +675,21 @@ type ResponsesWriter struct {
 	nativeBadgeHasContentIndex  bool
 	nativeSyntheticBadgeEmitted bool
 	nativePreludeCreated        bool
+	nativeStreamStarted         bool
+	nativeResponseID            string
+	nativeLastSequence          int64
+	nativeLastSequenceSet       bool
 	nativeOutputIndexShift      int64
 	nativeSequenceShift         int64
 	outputIndexOffset           int
 	footerText                  string
 	footerEmitted               bool
 	sawToolCall                 bool
+	hasUpstreamOutput           bool
 	nativeHeldEvents            [][]byte
 	nativeFooterCommit          bool
+	finalized                   bool
+	nativeEmptyRejected         bool
 	textItem                    *responsesTextItem
 	toolItems                   map[int]*responsesToolItem
 	finishReason                string
@@ -760,10 +822,10 @@ func (t *ResponsesWriter) EmitRoutingBadge(text string) error {
 	return t.emitTextDelta(t.textItem, t.computeBadgeText())
 }
 
-// EnableCodexBadgeProvenance prefixes in-band badges with the invisible
+// EnableTerminalBadgeProvenance prefixes in-band badges with the invisible
 // sentinel so ingress stripping only removes router-injected text.
-func (t *ResponsesWriter) EnableCodexBadgeProvenance() {
-	t.codexBadgeProvenance = true
+func (t *ResponsesWriter) EnableTerminalBadgeProvenance() {
+	t.terminalBadgeProvenance = true
 }
 
 // SetFooterText appends the rating hint to the last assistant text of a
@@ -774,10 +836,47 @@ func (t *ResponsesWriter) SetFooterText(text string) {
 
 func (t *ResponsesWriter) Header() http.Header { return t.inner.Header() }
 
+// resetSSEScanState discards search state whenever the writer changes mode or
+// replaces its buffered stream. The scanners never own the buffer itself.
+func (t *ResponsesWriter) resetSSEScanState() {
+	t.streamScanner.Reset()
+	t.nativeStreamScanner.Reset()
+	t.nativeSSEClassification = false
+	t.nativeSSEClassified = false
+}
+
+// ResetAttempt discards buffered provider bytes from a failed retryable attempt
+// so the next dispatch does not inherit a partial or empty terminal.
+func (t *ResponsesWriter) ResetAttempt() {
+	if t.finalized {
+		return
+	}
+	t.buf.Reset()
+	t.resetSSEScanState()
+	t.nativeStreamStarted = false
+	t.nativeResponseID = ""
+	t.nativeLastSequence = t.nativeSequenceShift
+	t.nativeLastSequenceSet = t.nativePreludeCreated
+	t.hasUpstreamOutput = false
+	t.nativeHeldEvents = nil
+	t.sawToolCall = false
+	t.completedEmitted = false
+	t.nativeEmptyRejected = false
+	t.finishReason = ""
+	t.toolItems = map[int]*responsesToolItem{}
+	t.usage = nil
+	t.toolLedger = NewToolCallLedger()
+	// Keep headersEmitted, textItem, and prelude lifecycle so a retried
+	// translated stream does not emit a second response.created.
+}
+
 // SetPassthrough switches to native Responses mode. Upstream bytes remain in
 // Responses format, while Prelude may synthesize lifecycle and badge events.
 // Must be called before the first write.
-func (t *ResponsesWriter) SetPassthrough() { t.passthrough = true }
+func (t *ResponsesWriter) SetPassthrough() {
+	t.resetSSEScanState()
+	t.passthrough = true
+}
 
 // ClearPassthrough returns the writer to translation mode, reporting false
 // after provider output prevents a clean continuation. A visible synthetic
@@ -787,6 +886,7 @@ func (t *ResponsesWriter) ClearPassthrough() bool {
 		if err := t.lifecycle.Start(); err != nil {
 			return false
 		}
+		t.resetSSEScanState()
 		t.passthrough = false
 		t.passthroughBadge = false
 		t.headersEmitted = true
@@ -797,16 +897,17 @@ func (t *ResponsesWriter) ClearPassthrough() bool {
 	if t.httpHeadersSent || t.headersEmitted || t.buf.Len() > 0 {
 		return false
 	}
+	t.resetSSEScanState()
 	t.passthrough = false
 	t.passthroughBadge = false
 	return true
 }
 
-// SetPassthroughBadge switches to native Responses passthrough while opting
-// into a Codex-visible badge; text-free turns get a synthetic assistant item
-// so Codex has a visible surface for the badge.
+// SetPassthroughBadge switches to native Responses passthrough with a visible
+// badge. Text-free turns get a synthetic assistant item to carry it.
 func (t *ResponsesWriter) SetPassthroughBadge() {
-	t.EnableCodexBadgeProvenance()
+	t.EnableTerminalBadgeProvenance()
+	t.resetSSEScanState()
 	t.passthrough = true
 	t.passthroughBadge = true
 }
@@ -826,8 +927,10 @@ func (t *ResponsesWriter) WriteHeader(code int) {
 		// Codex backend already sets text/event-stream; only drop length/encoding.
 		t.inner.Header().Del("Content-Length")
 		t.inner.Header().Del("Content-Encoding")
-		t.inner.WriteHeader(code)
-		t.httpHeadersSent = true
+		if t.streaming {
+			t.inner.WriteHeader(code)
+			t.httpHeadersSent = true
+		}
 		return
 	}
 	if t.httpHeadersSent {
@@ -851,13 +954,20 @@ func (t *ResponsesWriter) Write(data []byte) (int, error) {
 	n := len(data)
 	if t.passthrough {
 		if !t.httpHeadersSent {
-			t.streaming = strings.Contains(t.inner.Header().Get("Content-Type"), "text/event-stream")
-			t.statusCode = http.StatusOK
-			t.inner.WriteHeader(http.StatusOK)
-			t.httpHeadersSent = true
+			ct := t.inner.Header().Get("Content-Type")
+			if t.statusCode >= 400 {
+				t.streaming = false
+			} else {
+				t.streaming = strings.Contains(ct, "text/event-stream")
+				if t.statusCode == 0 {
+					t.statusCode = http.StatusOK
+				}
+			}
+			if t.streaming {
+				t.inner.WriteHeader(t.statusCode)
+				t.httpHeadersSent = true
+			}
 		}
-		// Generic native Responses callers remain byte-for-byte passthrough. Only
-		// the explicitly enabled Codex display path parses native SSE.
 		if t.passthroughBadge && t.streaming {
 			t.buf.Write(data)
 			err := t.processPassthroughSSEBuffer()
@@ -871,8 +981,12 @@ func (t *ResponsesWriter) Write(data []byte) (int, error) {
 		}
 		if t.passthroughBadge {
 			t.buf.Write(data)
-			// Some upstreams omit Content-Type; detect SSE from the first buffered event.
-			if nativeResponsesSSEBuffer(t.buf.Bytes()) {
+			// Some upstreams omit Content-Type; inspect the first event without
+			// consuming it, then let the normal drain present it exactly once.
+			if t.detectNativeResponsesSSE() {
+				t.nativeStreamScanner.Reset()
+				t.nativeSSEClassification = false
+				t.nativeSSEClassified = false
 				t.streaming = true
 				if err := t.processPassthroughSSEBuffer(); err != nil {
 					return n, err
@@ -886,16 +1000,20 @@ func (t *ResponsesWriter) Write(data []byte) (int, error) {
 			}
 			return n, nil
 		}
-		// Forward verbatim. The upstream emits Responses natively, so there is
-		// nothing to translate for clients that did not opt into the display badge.
-		written, err := t.bw.Write(data)
-		if err == nil {
-			err = t.bw.Flush()
-			if t.flusher != nil {
-				t.flusher.Flush()
-			}
+		if !t.streaming {
+			return t.buf.Write(data)
 		}
-		return written, err
+		t.buf.Write(data)
+		if err := t.processPassthroughSSEBuffer(); err != nil {
+			return n, err
+		}
+		if err := t.bw.Flush(); err != nil {
+			return n, err
+		}
+		if t.flusher != nil {
+			t.flusher.Flush()
+		}
+		return n, nil
 	}
 	t.buf.Write(data)
 	if !t.streaming {
@@ -913,13 +1031,18 @@ func (t *ResponsesWriter) Write(data []byte) (int, error) {
 	return n, t.processSSEBuffer()
 }
 
-func nativeResponsesSSEBuffer(data []byte) bool {
-	event, n := sse.SplitNext(data)
+func (t *ResponsesWriter) detectNativeResponsesSSE() bool {
+	if t.nativeSSEClassified {
+		return t.nativeSSEClassification
+	}
+	event, n := t.nativeStreamScanner.Next(t.buf.Bytes())
 	if n == 0 {
 		return false
 	}
 	_, payload := sse.ParseEvent(event)
-	return gjson.ValidBytes(payload) && gjson.GetBytes(payload, "type").Str != ""
+	t.nativeSSEClassification = gjson.ValidBytes(payload) && gjson.GetBytes(payload, "type").Str != ""
+	t.nativeSSEClassified = true
+	return t.nativeSSEClassification
 }
 
 // Prelude commits headers and emits response.created immediately so Codex
@@ -979,23 +1102,16 @@ func (t *ResponsesWriter) Flush() {
 // Finalize handles non-streaming bodies and end-of-stream completion events.
 func (t *ResponsesWriter) Finalize() error {
 	if t.passthrough {
-		if t.passthroughBadge && t.streaming {
+		if t.nativeEmptyRejected {
+			return emptyCompletionOpenAIError()
+		}
+		if t.streaming {
 			if err := t.processFinalPassthroughSSETail(); err != nil {
 				return err
 			}
 		}
-		if t.passthroughBadge && !t.streaming {
-			body := t.buf.Bytes()
-			if rewritten, changed := t.rewriteNativeNonStreamingBody(body); changed {
-				body = rewritten
-			}
-			if !t.httpHeadersSent {
-				t.inner.Header().Set("Content-Type", "application/json")
-				t.inner.WriteHeader(t.statusCode)
-				t.httpHeadersSent = true
-			}
-			_, err := t.inner.Write(body)
-			return err
+		if !t.streaming {
+			return t.flushBufferedNativeBody(nil)
 		}
 		// Nothing is synthesized; the upstream remains the event authority.
 		return t.bw.Flush()
@@ -1003,6 +1119,18 @@ func (t *ResponsesWriter) Finalize() error {
 	if t.streaming {
 		if err := t.processFinalSSETail(); err != nil {
 			return err
+		}
+		if !t.completedEmitted && t.finishReason != "" {
+			if !t.hasUpstreamOutput {
+				return emptyCompletionOpenAIError()
+			}
+			if err := t.lifecycle.Terminal(); err != nil {
+				return err
+			}
+			t.completedEmitted = true
+			if err := t.emitCompleted(); err != nil {
+				return err
+			}
 		}
 		if err := t.lifecycle.EOF(); err != nil {
 			if t.lifecycle.State() == StreamStarted {
@@ -1029,6 +1157,9 @@ func (t *ResponsesWriter) Finalize() error {
 		t.inner.WriteHeader(http.StatusBadGateway)
 		_, _ = t.inner.Write([]byte(`{"error":{"message":"translation failed","type":"api_error"}}`))
 		return err
+	}
+	if !chatCompletionHasUsableOutput(body) {
+		return emptyCompletionOpenAIError()
 	}
 	t.inner.Header().Set("Content-Type", "application/json")
 	t.inner.WriteHeader(t.statusCode)
@@ -1157,7 +1288,7 @@ func (t *ResponsesWriter) observeNativeBadgeTarget(ref nativeResponsesBadgeRef) 
 
 func (t *ResponsesWriter) prefixNativeBadge(data []byte, path string) ([]byte, bool) {
 	text := gjson.GetBytes(data, path)
-	if text.Type != gjson.String || text.Str == "" || codexResponsesBadgePattern.MatchString(text.Str) {
+	if text.Type != gjson.String || text.Str == "" || responsesTerminalBadgePattern.MatchString(text.Str) {
 		return data, false
 	}
 	badge := t.computeBadgeText()
@@ -1429,7 +1560,7 @@ func (t *ResponsesWriter) rewriteNativeNonStreamingBody(data []byte) ([]byte, bo
 		return t.prefixNativeBadge(data, path)
 	}
 	for _, item := range output.Array() {
-		if item.Get("id").Str != "" && codexResponsesBadgePattern.MatchString(item.Get("content.0.text").Str) {
+		if item.Get("id").Str != "" && responsesTerminalBadgePattern.MatchString(item.Get("content.0.text").Str) {
 			return data, false
 		}
 	}
@@ -1496,14 +1627,7 @@ func (t *ResponsesWriter) writeNativeEvent(eventType string, sequence int64, pay
 	if err != nil {
 		return err
 	}
-	if _, err := t.bw.WriteString("event: " + eventType + "\ndata: "); err != nil {
-		return err
-	}
-	if _, err := t.bw.Write(body); err != nil {
-		return err
-	}
-	_, err = t.bw.WriteString("\n\n")
-	return err
+	return t.writeNativeResponsesFrame(append([]byte("event: "+eventType+"\ndata: "), body...), []byte("\n\n"))
 }
 
 func (t *ResponsesWriter) emitNativeSyntheticBadge(base, outputIndex int64) error {
@@ -1575,17 +1699,24 @@ func (t *ResponsesWriter) emitNativeBadgeBeforeOutput(event []byte) error {
 
 func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) error {
 	_, data := sse.ParseEvent(event)
-	eventType := ""
-	itemType := ""
+	var eventType responsesEventType
+	var itemType responsesItemType
 	if gjson.ValidBytes(data) {
-		eventType = gjson.GetBytes(data, "type").Str
-		itemType = gjson.GetBytes(data, "item.type").Str
+		root := gjson.ParseBytes(data)
+		if err := t.validateNativeResponsesEvent(root); err != nil {
+			return err
+		}
+		eventType = responsesEventType(root.Get("type").Str)
+		itemType = responsesItemType(root.Get("item.type").Str)
 	}
-	if t.nativePreludeCreated && eventType == "response.created" {
+	if !t.passthroughBadge {
+		return t.writeNativeResponsesFrame(event, delimiter)
+	}
+	if t.nativePreludeCreated && eventType == responsesCreated {
 		return nil
 	}
-	toolCall := eventType == "response.function_call_arguments.delta" || eventType == "response.custom_tool_call_input.delta" || (eventType == "response.output_item.added" && (itemType == "function_call" || itemType == "custom_tool_call")) || (eventType == "response.output_item.done" && (itemType == "function_call" || itemType == "custom_tool_call"))
-	reasoningItem := eventType == "response.output_item.added" && itemType == "reasoning"
+	toolCall := eventType == responsesFunctionCallArgumentsDelta || eventType == responsesCustomToolCallInputDelta || (eventType == responsesOutputItemAdded && (itemType == responsesFunctionCallItem || itemType == responsesCustomToolCallItem)) || (eventType == responsesOutputItemDone && (itemType == responsesFunctionCallItem || itemType == responsesCustomToolCallItem))
+	reasoningItem := eventType == responsesOutputItemAdded && itemType == responsesReasoningItem
 	if toolCall || reasoningItem {
 		if toolCall {
 			t.sawToolCall = true
@@ -1599,9 +1730,11 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 			}
 		}
 	}
-	if (eventType == "response.completed" || eventType == "response.incomplete") && !t.nativeBadgeTargetSelected && !t.nativeSyntheticBadgeEmitted {
-		if err := t.emitNativeBadgeBeforeOutput(event); err != nil {
-			return err
+	if eventType == responsesCompleted || eventType == responsesIncomplete {
+		if !t.nativeBadgeTargetSelected && !t.nativeSyntheticBadgeEmitted {
+			if err := t.emitNativeBadgeBeforeOutput(event); err != nil {
+				return err
+			}
 		}
 	}
 	rewritten := t.rewriteNativeResponsesEvent(event)
@@ -1613,30 +1746,23 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 		t.nativeHeldEvents = append(t.nativeHeldEvents, held)
 		return nil
 	}
-	if eventType == "response.completed" || eventType == "response.incomplete" {
+	if eventType == responsesCompleted || eventType == responsesIncomplete {
 		if err := t.flushNativeHeldEvents(true); err != nil {
 			return err
 		}
 	}
-	if _, err := t.bw.Write(rewritten); err != nil {
-		return err
-	}
-	if len(delimiter) > 0 {
-		_, err := t.bw.Write(delimiter)
-		return err
-	}
-	return nil
+	return t.writeNativeResponsesFrame(rewritten, delimiter)
 }
 
-func (t *ResponsesWriter) shouldHoldNativeEvent(eventType, itemType string) bool {
+func (t *ResponsesWriter) shouldHoldNativeEvent(eventType responsesEventType, itemType responsesItemType) bool {
 	if t.footerText == "" || t.sawToolCall {
 		return false
 	}
 	switch eventType {
-	case "response.output_text.done", "response.content_part.done":
+	case responsesOutputTextDone, responsesContentPartDone:
 		return true
-	case "response.output_item.done":
-		return itemType == "message" || itemType == ""
+	case responsesOutputItemDone:
+		return itemType == responsesMessageItem || itemType == ""
 	}
 	return false
 }
@@ -1652,7 +1778,7 @@ func (t *ResponsesWriter) flushNativeHeldEvents(commitFooter bool) error {
 	t.nativeHeldEvents = nil
 	for _, event := range held {
 		rewritten := t.rewriteNativeHeldEvent(event)
-		if _, err := t.bw.Write(rewritten); err != nil {
+		if err := t.writeNativeResponsesFrame(rewritten, nil); err != nil {
 			return err
 		}
 	}
@@ -1662,7 +1788,7 @@ func (t *ResponsesWriter) flushNativeHeldEvents(commitFooter bool) error {
 func (t *ResponsesWriter) processPassthroughSSEBuffer() error {
 	for {
 		buffered := t.buf.Bytes()
-		event, n := sse.SplitNext(buffered)
+		event, n := t.nativeStreamScanner.Next(buffered)
 		if n == 0 {
 			return nil
 		}
@@ -1674,38 +1800,104 @@ func (t *ResponsesWriter) processPassthroughSSEBuffer() error {
 	}
 }
 
+func (t *ResponsesWriter) flushBufferedNativeBody(upstreamErr error) error {
+	if t.finalized {
+		return nil
+	}
+	body := t.buf.Bytes()
+	if root := gjson.ParseBytes(body); nativeResponsesIsEmptyTerminal(root) {
+		return emptyCompletionOpenAIError()
+	}
+	if len(body) == 0 {
+		return nil
+	}
+	t.resetSSEScanState()
+	if rewritten, changed := t.rewriteNativeNonStreamingBody(body); changed {
+		body = rewritten
+	}
+	status := t.statusCode
+	if status == 0 {
+		status = http.StatusOK
+	}
+	if status < 400 {
+		if resp, ok := upstreamErrorHTTPStatus(upstreamErr); ok && resp >= 400 {
+			status = resp
+		}
+	}
+	if !t.httpHeadersSent {
+		if t.inner.Header().Get("Content-Type") == "" {
+			t.inner.Header().Set("Content-Type", "application/json")
+		}
+		t.inner.WriteHeader(status)
+		t.httpHeadersSent = true
+	}
+	_, err := t.inner.Write(body)
+	if err == nil {
+		t.finalized = true
+	}
+	return err
+}
+
 func (t *ResponsesWriter) processFinalPassthroughSSETail() error {
 	if t.buf.Len() > 0 {
 		event := append([]byte(nil), t.buf.Bytes()...)
 		t.buf.Reset()
+		t.nativeStreamScanner.Reset()
 		if err := t.writeNativeResponsesEvent(event, nil); err != nil {
 			return err
 		}
+	} else {
+		t.nativeStreamScanner.Reset()
 	}
 	return t.flushNativeHeldEvents(t.footerText != "" && !t.sawToolCall)
+}
+
+func (t *ResponsesWriter) sealInner() {
+	type sealer interface{ Seal() }
+	if s, ok := t.inner.(sealer); ok {
+		s.Seal()
+	}
 }
 
 // FinalizeError emits a response.failed terminal event when upstream fails
 // mid-stream (after response.created), so Codex sees a clean failure instead
 // of a truncated stream. No-op if nothing streamed yet (caller writes a JSON
-// error instead), in passthrough mode, or after a terminal event already fired.
-func (t *ResponsesWriter) FinalizeError(_ error) error {
+// error instead) or after a terminal event already fired.
+func (t *ResponsesWriter) FinalizeError(err error) error {
 	if t.passthrough {
-		if !t.streaming || !t.nativePreludeCreated || t.completedEmitted {
+		if !t.streaming {
+			return t.flushBufferedNativeBody(err)
+		}
+		if t.completedEmitted {
 			return nil
 		}
+		if !t.nativeStreamStarted && !t.nativePreludeCreated {
+			return nil
+		}
+		t.sealInner()
 		env := t.responseEnvelope("failed")
-		env["output"] = []any{map[string]any{
-			"id": t.nativeBadgeItemID, "type": "message", "status": "completed", "role": "assistant",
-			"content": []any{map[string]any{
-				"type": "output_text", "text": t.computeBadgeText(), "annotations": []any{},
-			}},
-		}}
+		if t.nativeResponseID != "" {
+			env["id"] = t.nativeResponseID
+		}
+		if t.nativeBadgeItemID != "" {
+			env["output"] = []any{map[string]any{
+				"id": t.nativeBadgeItemID, "type": "message", "status": "completed", "role": "assistant",
+				"content": []any{map[string]any{
+					"type": "output_text", "text": t.computeBadgeText(), "annotations": []any{},
+				}},
+			}}
+		} else {
+			env["output"] = []any{}
+		}
 		env["error"] = map[string]any{
 			"code":    "upstream_error",
 			"message": "Upstream call failed.",
 		}
-		if err := t.writeNativeEvent("response.failed", 1+t.nativeSequenceShift, map[string]any{"response": env}); err != nil {
+		sequence := int64(1) + t.nativeSequenceShift
+		if t.nativeLastSequenceSet {
+			sequence = t.nativeLastSequence + 1
+		}
+		if err := t.writeNativeEvent("response.failed", sequence, map[string]any{"response": env}); err != nil {
 			return err
 		}
 		t.completedEmitted = true
@@ -1714,6 +1906,7 @@ func (t *ResponsesWriter) FinalizeError(_ error) error {
 	if !t.streaming || !t.headersEmitted || t.completedEmitted {
 		return nil
 	}
+	t.sealInner()
 	if t.lifecycle.State() == StreamStarted {
 		if err := t.lifecycle.Fail(); err != nil {
 			return err
@@ -1733,7 +1926,7 @@ func (t *ResponsesWriter) FinalizeError(_ error) error {
 // processSSEBuffer drains complete chat.completion.chunk events.
 func (t *ResponsesWriter) processSSEBuffer() error {
 	for {
-		event, n := sse.SplitNext(t.buf.Bytes())
+		event, n := t.streamScanner.Next(t.buf.Bytes())
 		if n == 0 {
 			return nil
 		}
@@ -1747,10 +1940,12 @@ func (t *ResponsesWriter) processSSEBuffer() error {
 
 func (t *ResponsesWriter) processFinalSSETail() error {
 	if t.buf.Len() == 0 {
+		t.streamScanner.Reset()
 		return nil
 	}
 	event := append([]byte(nil), t.buf.Bytes()...)
 	t.buf.Reset()
+	t.streamScanner.Reset()
 	return t.translateChunk(event)
 }
 
@@ -1783,7 +1978,7 @@ func (t *ResponsesWriter) translateChunk(raw []byte) error {
 	if m := root.Get("model").Str; m != "" && t.model == "" {
 		t.model = strings.Clone(m)
 	}
-	if usage := root.Get("usage"); usage.Exists() {
+	if usage := root.Get("usage"); usage.Type == gjson.JSON {
 		t.usage = &responsesUsage{
 			prompt:     usage.Get("prompt_tokens").Int(),
 			completion: usage.Get("completion_tokens").Int(),
@@ -1798,8 +1993,19 @@ func (t *ResponsesWriter) translateChunk(raw []byte) error {
 	delta := choice.Get("delta")
 
 	if content := delta.Get("content"); content.Type == gjson.String && content.Str != "" {
+		t.hasUpstreamOutput = true
 		if err := t.appendText(content.Str); err != nil {
 			return err
+		}
+	} else if content := delta.Get("content"); content.IsArray() {
+		for _, part := range content.Array() {
+			if part.Get("text").Type != gjson.String || part.Get("text").Str == "" {
+				continue
+			}
+			t.hasUpstreamOutput = true
+			if err := t.appendText(part.Get("text").Str); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -1819,19 +2025,29 @@ func (t *ResponsesWriter) translateChunk(raw []byte) error {
 		t.finishReason = fr.Str
 		// Reasoning-only turns emit no delta this writer translates, so the
 		// badge would never be reached through appendText/appendToolCall.
+		if !t.hasUpstreamOutput {
+			if len(t.toolMappings) > 0 && len(t.toolItems) > 0 {
+				if err := t.closeOpenItems(); err != nil {
+					return err
+				}
+			}
+			return emptyCompletionOpenAIError()
+		}
 		if err := t.ensureBadgeItem(); err != nil {
 			return err
 		}
 		if err := t.closeOpenItems(); err != nil {
 			return err
 		}
-		if !t.completedEmitted {
-			if err := t.lifecycle.Terminal(); err != nil {
-				return err
-			}
-			t.completedEmitted = true
-			return t.emitCompleted()
+		// OpenAI-compatible streams may put usage in a trailing choices:[] frame.
+		if t.usage == nil || t.completedEmitted {
+			return nil
 		}
+		if err := t.lifecycle.Terminal(); err != nil {
+			return err
+		}
+		t.completedEmitted = true
+		return t.emitCompleted()
 	}
 	return nil
 }
@@ -1949,6 +2165,9 @@ func (t *ResponsesWriter) appendToolCall(idx int, tc gjson.Result) error {
 	if err := t.lifecycle.Output(item.outputIndex); err != nil {
 		return err
 	}
+	if item.opened && item.name != "" {
+		t.hasUpstreamOutput = true
+	}
 	args := tc.Get("function.arguments").Str
 	if args != "" {
 		t.toolLedger.AppendArguments(idx, tc.Get("id").Str, tc.Get("function.name").Str, args)
@@ -1976,15 +2195,15 @@ func (t *ResponsesWriter) nextOutputIndex() int {
 }
 
 // computeBadgeText returns the routing badge to surface for this turn, with the
-// Codex provenance sentinel applied when enabled. Empty when the proxy supplied
+// terminal-client provenance sentinel when enabled. Empty when the proxy supplied
 // no marker — suppression is decided there, not here.
 func (t *ResponsesWriter) computeBadgeText() string {
 	if t.badgeText == "" {
 		return ""
 	}
 	badge := t.badgeText
-	if t.codexBadgeProvenance && !strings.HasPrefix(badge, codexResponsesBadgeSentinel) {
-		badge = codexResponsesBadgeSentinel + badge
+	if t.terminalBadgeProvenance && !strings.HasPrefix(badge, responsesTerminalBadgeSentinel) {
+		badge = responsesTerminalBadgeSentinel + badge
 	}
 	return badge
 }
@@ -2276,12 +2495,15 @@ func (t *ResponsesWriter) emitFunctionCallItemDone(item *responsesToolItem) erro
 func (t *ResponsesWriter) emitCompleted() error {
 	env := t.responseEnvelope("completed")
 	env["output"] = t.assembleOutput()
+	// Responses clients require terminal usage even when the Chat upstream omits it.
+	usage := responsesUsage{}
 	if t.usage != nil {
-		env["usage"] = map[string]any{
-			"input_tokens":  t.usage.prompt,
-			"output_tokens": t.usage.completion,
-			"total_tokens":  t.usage.total,
-		}
+		usage = *t.usage
+	}
+	env["usage"] = map[string]any{
+		"input_tokens":  usage.prompt,
+		"output_tokens": usage.completion,
+		"total_tokens":  usage.total,
 	}
 	return t.writeEvent("response.completed", map[string]any{
 		"response": env,
@@ -2391,9 +2613,7 @@ func chatCompletionToResponse(body []byte, responseID, model string, createdAt i
 	choice := root.Get("choices.0.message")
 	output := make([]any, 0, 2)
 	text := badge
-	if content := choice.Get("content"); content.Type == gjson.String {
-		text += content.Str
-	}
+	text += chatContentText(choice.Get("content"))
 	if footer != "" && choice.Get("tool_calls.#").Int() == 0 && !feedbackFooterPattern.MatchString(text) {
 		text += footer
 	}
@@ -2442,12 +2662,11 @@ func chatCompletionToResponse(body []byte, responseID, model string, createdAt i
 	}
 	out["output"] = output
 
-	if usage := root.Get("usage"); usage.Exists() {
-		out["usage"] = map[string]any{
-			"input_tokens":  usage.Get("prompt_tokens").Int(),
-			"output_tokens": usage.Get("completion_tokens").Int(),
-			"total_tokens":  usage.Get("total_tokens").Int(),
-		}
+	usage := root.Get("usage")
+	out["usage"] = map[string]any{
+		"input_tokens":  usage.Get("prompt_tokens").Int(),
+		"output_tokens": usage.Get("completion_tokens").Int(),
+		"total_tokens":  usage.Get("total_tokens").Int(),
 	}
 
 	return json.Marshal(out)

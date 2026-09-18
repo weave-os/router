@@ -24,9 +24,12 @@ import (
 // exceeds the header timeout ("http2: timeout awaiting response headers").
 
 func (e *RequestEnvelope) PrepareOpenAIResponses(in http.Header, opts EmitOptions) (providers.PreparedRequest, error) {
+	e, err := e.withRouterSystemAppends(opts)
+	if err != nil {
+		return providers.PreparedRequest{}, err
+	}
 	var body []byte
 	var stats providers.RequestMutationStats
-	var err error
 	switch e.format {
 	case FormatAnthropic:
 		body, stats, err = e.buildResponsesFromAnthropic(opts)
@@ -254,15 +257,9 @@ func responsesReasoningEffort(eff, model string) string {
 	return eff
 }
 
-// minResponsesOutputTokens floors max_output_tokens for reasoning targets:
-// hidden reasoning exhausts a tiny budget (1 for a quota probe, 64 for title
-// generation) before a visible token is emitted. max_output_tokens is a
-// ceiling, not an allocation.
-const minResponsesOutputTokens = 16000
-
 func (e *RequestEnvelope) buildResponsesFromAnthropic(opts EmitOptions) ([]byte, providers.RequestMutationStats, error) {
 	var stats providers.RequestMutationStats
-	body, ccFilter, err := filterClaudeCodeOnlyToolsFromAnthropicBody(e.body, opts.KeepCrossVendorOrchestrationTools)
+	body, ccFilter, err := filterClaudeCodeOnlyToolsFromAnthropicBody(e.body, opts.ccToolFilter())
 	if err != nil {
 		return nil, stats, fmt.Errorf("strip claude-code-only tools: %w", err)
 	}
@@ -325,12 +322,9 @@ func (e *RequestEnvelope) buildResponsesFromAnthropic(opts EmitOptions) ([]byte,
 	writeOpenAIParallelToolCallsFromAnthropic(jw, body)
 
 	if mt := gjson.GetBytes(body, "max_tokens"); mt.Exists() && mt.Type == gjson.Number {
-		want := mt.Int()
 		// Gated on the target: OpenAI applies its own default effort when we send
 		// none, so a reasoning model burns the budget on hidden reasoning either way.
-		if opts.Capabilities.Supports(router.CapReasoning) {
-			want = max(want, minResponsesOutputTokens)
-		}
+		want := reasoningOutputFloor(mt.Int(), opts.Capabilities.Supports(router.CapReasoning))
 		jw.Key("max_output_tokens")
 		jw.Int(clampToModelOutputCap(want, opts.TargetModel))
 	}
@@ -637,14 +631,18 @@ func writeResponsesFunctionTools(jw *jsonWriter, tools []responsesFunctionTool) 
 			jw.Key("description")
 			jw.Raw(tool.description.Raw)
 		}
+		paramBytes := emptyOpenAIToolParameters
 		if params != nil {
-			if paramBytes, err := json.Marshal(params); err == nil {
-				jw.Key("parameters")
-				jw.RawBytes(paramBytes)
-				jw.Key("strict")
-				jw.Bool(strict)
+			if marshaled, err := json.Marshal(params); err == nil {
+				paramBytes = marshaled
+			} else {
+				strict = false
 			}
 		}
+		jw.Key("parameters")
+		jw.RawBytes(paramBytes)
+		jw.Key("strict")
+		jw.Bool(strict)
 		jw.EndObj()
 	}
 	jw.EndArr()

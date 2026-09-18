@@ -60,7 +60,7 @@ func selectionInputFor(strategy router.Strategy, executionMode string, req route
 		Strategy:                         strategy,
 		ExecutionMode:                    executionMode,
 		RouteID:                          res.RouteID,
-		Harness:                          req.ClientApp,
+		Harness:                          SelectionHarnessForClientApp(req.ClientApp),
 		PredictedLabel:                   res.PredictedLabel,
 		ClassOrder:                       append([]string(nil), res.ClassOrder...),
 		ClassProbabilities:               cloneProbabilities(res.ClassProbabilities),

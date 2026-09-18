@@ -204,6 +204,15 @@ func responsesFinishReason(resp gjson.Result) string {
 	}
 }
 
+// responsesOutputLimitReached reports whether a terminal Responses `response`
+// object states that the output-token cap ended the turn. Unlike
+// responsesFinishReason it is not tool-prioritized: a capped turn that also
+// carries a (possibly partial) function_call is still capped.
+func responsesOutputLimitReached(resp gjson.Result) bool {
+	return resp.Get("status").String() == "incomplete" &&
+		resp.Get("incomplete_details.reason").String() == "max_output_tokens"
+}
+
 // ResponsesTerminalSignals are the turn-ending signals a terminal Responses
 // payload states, for a caller that forwards the response verbatim.
 type ResponsesTerminalSignals struct {
@@ -211,6 +220,9 @@ type ResponsesTerminalSignals struct {
 	FinishReason string
 	// ToolCalls is how many tool calls the turn ended with.
 	ToolCalls int
+	// OutputLimitReached is true when the upstream stated the output-token
+	// cap ended the turn, independent of FinishReason's tool priority.
+	OutputLimitReached bool
 }
 
 // ResponsesTerminal reports the turn-ending signals of a terminal Responses
@@ -242,7 +254,8 @@ func ResponsesTerminal(payload []byte) (signals ResponsesTerminalSignals, ok boo
 		return ResponsesTerminalSignals{}, false
 	}
 	return ResponsesTerminalSignals{
-		FinishReason: responsesFinishReason(resp),
-		ToolCalls:    responsesToolCalls(resp),
+		FinishReason:       responsesFinishReason(resp),
+		ToolCalls:          responsesToolCalls(resp),
+		OutputLimitReached: responsesOutputLimitReached(resp),
 	}, true
 }

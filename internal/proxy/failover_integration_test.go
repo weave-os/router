@@ -208,10 +208,10 @@ func TestProxyMessages_BothBindingsFail(t *testing.T) {
 
 	_ = svc.ProxyMessages(context.Background(), body, rec, req)
 
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
-	assert.Contains(t, rec.Body.String(), "✦ **Weave Router**")
-	assert.Contains(t, rec.Body.String(), "event: error")
+	assert.Equal(t, http.StatusBadGateway, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+	assert.NotContains(t, rec.Body.String(), "✦ **Weave Router**")
+	assert.NotContains(t, rec.Body.String(), "event: error")
 	assert.Contains(t, rec.Body.String(), "openrouter also down")
 }
 
@@ -271,7 +271,7 @@ func TestProxyMessages_SingleBindingPreservesEagerPrelude(t *testing.T) {
 	assert.Empty(t, rec.Header().Get(proxy.HeaderRouterFallbackFrom))
 }
 
-func TestProxyMessages_RoutingMarkerFlushesBeforeDelayedProvider(t *testing.T) {
+func TestProxyMessages_RoutingMarkerWaitsForProviderOutput(t *testing.T) {
 	providerStarted := make(chan struct{})
 	releaseProvider := make(chan struct{})
 	defer func() {
@@ -309,18 +309,19 @@ func TestProxyMessages_RoutingMarkerFlushesBeforeDelayedProvider(t *testing.T) {
 	}
 	select {
 	case <-writer.flushed:
-	case <-time.After(time.Second):
-		t.Fatal("routing marker was not flushed before provider completion")
+		t.Fatal("routing marker committed HTTP 200 before provider output")
+	case <-time.After(50 * time.Millisecond):
 	}
-	assert.Contains(t, writer.BodyString(), "✦ **Weave Router**")
+	assert.Empty(t, writer.BodyString())
 
 	close(releaseProvider)
 	require.NoError(t, <-done)
+	assert.Contains(t, writer.BodyString(), "✦ **Weave Router**")
 }
 
 // TestProxyMessages_SingleBindingStreamingPreCommitError asserts that an
-// upstream failure after an eager routing marker terminates the already-open
-// Anthropic stream with a protocol-valid error event.
+// upstream failure before provider output remains an HTTP error. Claude Code
+// can otherwise treat a marker-only 200 stream as a successful turn.
 func TestProxyMessages_SingleBindingStreamingPreCommitError(t *testing.T) {
 	// Stub upstream OpenAI-compat provider that 503s on every request.
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -348,13 +349,12 @@ func TestProxyMessages_SingleBindingStreamingPreCommitError(t *testing.T) {
 
 	_ = svc.ProxyMessages(context.Background(), body, rec, req)
 
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 
 	respBody := rec.Body.String()
-	assert.Contains(t, respBody, "event: message_start")
-	assert.Contains(t, respBody, "✦ **Weave Router**")
-	assert.Contains(t, respBody, "event: error")
+	assert.NotContains(t, respBody, "event: message_start")
+	assert.NotContains(t, respBody, "✦ **Weave Router**")
 	assert.Contains(t, respBody, "upstream unavailable", "translated upstream message reaches the client")
 }
 
@@ -438,10 +438,10 @@ func TestProxyMessages_AnthropicSSEOverloadExhaustionRecords529(t *testing.T) {
 	mu.Lock()
 	assert.Equal(t, 3, calls, "initial attempt plus two same-binding retries")
 	mu.Unlock()
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
-	assert.Contains(t, rec.Body.String(), "event: message_start")
-	assert.Contains(t, rec.Body.String(), "event: error")
+	assert.Equal(t, 529, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+	assert.NotContains(t, rec.Body.String(), "event: message_start")
+	assert.NotContains(t, rec.Body.String(), "event: error")
 	assert.Contains(t, rec.Body.String(), "overloaded_error")
 	row := telemetry.firstRow(t)
 	assert.Equal(t, int32(529), row.UpstreamStatusCode)

@@ -17,8 +17,9 @@ type PurposeTargetOverride struct {
 // DeploymentPolicyConfig contains the non-secret deployment facts required to
 // prove that boot-resolved policies can produce a dispatchable catalog binding.
 type DeploymentPolicyConfig struct {
-	AvailableProviders map[string]struct{}
-	TargetOverrides    []PurposeTargetOverride
+	AvailableProviders      map[string]struct{}
+	EnabledOptionalPurposes map[Purpose]bool
+	TargetOverrides         []PurposeTargetOverride
 	// RoutableModels is the universe router-selected purposes actually serve
 	// (generic routing targets plus any strategy-only rows such as HMM
 	// targets). Nil means the generic catalog routing set.
@@ -59,6 +60,9 @@ func (r Registry) ValidateDeployment(config DeploymentPolicyConfig) error {
 
 	routingTargets := config.routableModels()
 	for _, spec := range r.Specs() {
+		if spec.Optional && !config.EnabledOptionalPurposes[spec.Purpose] {
+			continue
+		}
 		override, hasOverride := overrides[spec.Purpose]
 		if hasOverride {
 			// Fixed-catalog policies own their membership (checked below), so a
@@ -83,7 +87,11 @@ func (r Registry) ValidateDeployment(config DeploymentPolicyConfig) error {
 				}
 				models = []string{override.CatalogID}
 			}
-			if !deploymentCanResolve(models, override.Provider, config.AvailableProviders) {
+			requiredProvider := override.Provider
+			if spec.FixedProvider != "" {
+				requiredProvider = spec.FixedProvider
+			}
+			if !deploymentCanResolve(models, requiredProvider, config.AvailableProviders) {
 				return fmt.Errorf("deployment inference policy %q has no available fixed catalog binding", spec.PolicyID)
 			}
 		case SelectionStrategyDeploymentHardPin:

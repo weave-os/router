@@ -3,12 +3,15 @@ package httputil
 import (
 	"context"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -70,4 +73,32 @@ func TestWritePassthroughError_NilHooksAreSafe(t *testing.T) {
 	err := WritePassthroughError(context.Background(), rec, resp, nil, nil, "upstream failed")
 	require.Error(t, err)
 	assert.Equal(t, "boom", rec.Body.String())
+}
+
+func TestLogUpstreamStatus_DropsBodyPreviewWhenContentLoggingDisallowed(t *testing.T) {
+	var buf strings.Builder
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	ctx := observability.WithLogger(
+		requestcontext.WithContentLogging(context.Background(), false),
+		log,
+	)
+
+	LogUpstreamStatus(ctx, "upstream failed", http.StatusBadRequest, "body_preview", "secret-echo", "model", "m")
+
+	assert.NotContains(t, buf.String(), "secret-echo")
+	assert.NotContains(t, buf.String(), "body_preview")
+	assert.Contains(t, buf.String(), "model=m")
+}
+
+func TestLogUpstreamStatus_KeepsBodyPreviewWhenContentLoggingAllowed(t *testing.T) {
+	var buf strings.Builder
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	ctx := observability.WithLogger(
+		requestcontext.WithContentLogging(context.Background(), true),
+		log,
+	)
+
+	LogUpstreamStatus(ctx, "upstream failed", http.StatusBadRequest, "body_preview", "err-echo")
+
+	assert.Contains(t, buf.String(), "err-echo")
 }

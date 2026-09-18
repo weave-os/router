@@ -177,6 +177,12 @@ run_uninstall() {
     HOME="$home" PATH="$test_path" NO_COLOR=1 \
     bash "$uninstaller" "$@" >/dev/null 2>&1
 }
+run_piped_uninstall() {
+  local home="$1"; shift
+  env ${XDG_CONFIG_HOME:+XDG_CONFIG_HOME="$XDG_CONFIG_HOME"} \
+    HOME="$home" PATH="$test_path" NO_COLOR=1 \
+    bash -s -- "$@" <"$uninstaller" >/dev/null 2>&1
+}
 
 installed_names() { # installed_names <dir>
   local f
@@ -192,6 +198,101 @@ run_install "$cc_home" --claude --scope user
 check "claude user install writes exactly the registry's commands" \
   "$(weave_registry_names claude | sort | tr '\n' ' ' | sed 's/ $//')" \
   "$(installed_names "$cc_home/.claude/commands")"
+if [ -f "$cc_home/.claude/commands/rf.md.weave-router" ]; then
+  ok "claude install records command ownership outside the prompt"
+else
+  no "claude install records command ownership outside the prompt" "sidecar" "missing"
+fi
+check "claude commands do not contain ownership markers" "" \
+  "$(grep -rho '<!-- weave-router managed command:' "$cc_home/.claude/commands" || true)"
+
+piped_claude_home="$work/claude-piped"; mkdir -p "$piped_claude_home"
+run_install "$piped_claude_home" --claude --scope user
+run_piped_uninstall "$piped_claude_home" --claude --scope user
+check "piped uninstall removes markerless Claude commands" "" \
+  "$(installed_names "$piped_claude_home/.claude/commands")"
+
+# Reinstalling repairs a router-owned statusline after its permissions or file
+# contents are damaged, while a same-named user script remains untouched.
+cc_statusline="$cc_home/.weave/cc-statusline.sh"
+cc_statusline_marker="$cc_statusline.weave-router"
+if [ -f "$cc_statusline_marker" ]; then
+  ok "fresh install records statusline ownership"
+else
+  no "fresh install records statusline ownership" "ownership marker" "missing"
+fi
+chmod 000 "$cc_statusline"
+run_install "$cc_home" --claude --scope user
+if [ -x "$cc_statusline" ] && grep -Fq 'Claude Code statusline for the Weave Router.' "$cc_statusline"; then
+  ok "reinstall repairs a router-owned statusline with broken permissions"
+else
+  no "reinstall repairs a router-owned statusline with broken permissions" \
+    "executable router statusline" "not repaired"
+fi
+mv "$cc_statusline" "$work/missing-cc-statusline.sh"
+run_install "$cc_home" --claude --scope user
+if [ -f "$cc_statusline" ]; then
+  ok "reinstall recreates a missing router-owned statusline"
+else
+  no "reinstall recreates a missing router-owned statusline" "file recreated" "missing"
+fi
+
+custom_statusline_home="$work/claude-statusline-custom"; mkdir -p "$custom_statusline_home/.claude" "$custom_statusline_home/.weave"
+printf '%s\n' '# user statusline' >"$custom_statusline_home/.weave/cc-statusline.sh"
+chmod +x "$custom_statusline_home/.weave/cc-statusline.sh"
+jq -n --arg command "$custom_statusline_home/.weave/cc-statusline.sh" \
+  '{statusLine: {type: "command", command: $command}}' \
+  >"$custom_statusline_home/.claude/settings.json"
+run_install "$custom_statusline_home" --claude --scope user
+check "install preserves a user-owned statusline at the conventional path" \
+  "# user statusline" "$(cat "$custom_statusline_home/.weave/cc-statusline.sh")"
+mv "$custom_statusline_home/.weave/cc-statusline.sh" "$work/missing-user-statusline.sh"
+run_install "$custom_statusline_home" --claude --scope user
+if [ -e "$custom_statusline_home/.weave/cc-statusline.sh" ]; then
+  no "reinstall preserves a missing user-owned statusline" "file stays missing" "file recreated"
+else
+  ok "reinstall preserves a missing user-owned statusline"
+fi
+run_uninstall "$custom_statusline_home" --claude --scope user
+check "uninstall preserves a user-owned statusline setting" \
+  "$custom_statusline_home/.weave/cc-statusline.sh" \
+  "$(jq -r '.statusLine.command' "$custom_statusline_home/.claude/settings.json")"
+
+orphan_statusline_home="$work/claude-statusline-orphan"; mkdir -p "$orphan_statusline_home"
+run_install "$orphan_statusline_home" --claude --scope user
+jq --arg command "$orphan_statusline_home/.claude/custom-statusline.sh" \
+  '.statusLine.command = $command' \
+  "$orphan_statusline_home/.claude/settings.json" \
+  >"$work/orphan-settings.json"
+mv "$work/orphan-settings.json" "$orphan_statusline_home/.claude/settings.json"
+run_uninstall "$orphan_statusline_home" --claude --scope user
+check "uninstall preserves a replacement statusline setting" \
+  "$orphan_statusline_home/.claude/custom-statusline.sh" \
+  "$(jq -r '.statusLine.command' "$orphan_statusline_home/.claude/settings.json")"
+if [ -e "$orphan_statusline_home/.weave/cc-statusline.sh" ]; then
+  no "uninstall removes an orphaned router statusline script" "removed" "still present"
+else
+  ok "uninstall removes an orphaned router statusline script"
+fi
+
+missing_statusline_home="$work/claude-statusline-missing"; mkdir -p "$missing_statusline_home"
+run_install "$missing_statusline_home" --claude --scope user
+missing_statusline="$missing_statusline_home/.weave/cc-statusline.sh"
+missing_statusline_marker="$missing_statusline.weave-router"
+rm -f "$missing_statusline"
+if [ -f "$missing_statusline_marker" ]; then
+  ok "uninstall test leaves the router statusline ownership marker"
+else
+  no "uninstall test leaves the router statusline ownership marker" "ownership marker" "missing"
+fi
+run_uninstall "$missing_statusline_home" --claude --scope user
+if [ -e "$missing_statusline_marker" ]; then
+  no "uninstall removes an orphaned statusline ownership marker" "removed" "still present"
+else
+  ok "uninstall removes an orphaned statusline ownership marker"
+fi
+check "uninstall removes the missing router-owned statusline setting" "false" \
+  "$(jq 'has("statusLine")' "$missing_statusline_home/.claude/settings.json")"
 
 # opencode, user scope: the smaller registry subset, in the XDG commands dir.
 # The installer honours XDG_CONFIG_HOME, so resolve the destination the same
@@ -203,6 +304,12 @@ oc_cmds="$oc_xdg/opencode/commands"
 check "opencode user install writes exactly the registry's commands" \
   "$(weave_registry_names opencode | sort | tr '\n' ' ' | sed 's/ $//')" \
   "$(installed_names "$oc_cmds")"
+piped_opencode_home="$work/opencode-piped"; mkdir -p "$piped_opencode_home"
+piped_opencode_xdg="$work/opencode-piped-xdg"; mkdir -p "$piped_opencode_xdg"
+XDG_CONFIG_HOME="$piped_opencode_xdg" run_install "$piped_opencode_home" --opencode --scope user
+XDG_CONFIG_HOME="$piped_opencode_xdg" run_piped_uninstall "$piped_opencode_home" --opencode --scope user
+check "piped uninstall removes markerless opencode commands" "" \
+  "$(installed_names "$piped_opencode_xdg/opencode/commands")"
 
 # opencode must not receive the local-config toggles: it has no equivalent of
 # the Claude settings.json the toggles flip.
@@ -318,16 +425,25 @@ check "install preserves a user-owned Claude command" "my own wrapper" \
 # Wrappers written before ownership markers existed carry none. One whose body
 # still matches what this installer writes is ours from an older version, so an
 # upgrade must adopt it — otherwise it is never refreshed and never uninstalled.
+sidecar_upgrade_home="$work/claude-sidecar-upgrade"; mkdir -p "$sidecar_upgrade_home"
+run_install "$sidecar_upgrade_home" --claude --scope user
+stale_body=$'---\ndescription: stale force-model wrapper.\n---\n\n/force-model $ARGUMENTS'
+printf '%s\n' "$stale_body" >"$sidecar_upgrade_home/.claude/commands/fm.md"
+printf 'weave-router managed command: fm\n%s\n' "$stale_body" \
+  >"$sidecar_upgrade_home/.claude/commands/fm.md.weave-router"
+run_install "$sidecar_upgrade_home" --claude --scope user
+check "an owned wrapper with a changed body is refreshed" \
+  "$(cat "$install_dir/commands/fm.md")" "$(cat "$sidecar_upgrade_home/.claude/commands/fm.md")"
+
 legacy_home="$work/claude-legacy"; mkdir -p "$legacy_home/.claude/commands"
 legacy_body="$(sed 's/{{SCOPE}}//g' "$install_dir/commands/fm.md")"
 printf '%s\n' "$legacy_body" >"$legacy_home/.claude/commands/fm.md"
 printf '%s\n' 'MY OWN CUSTOM WRAPPER' >"$legacy_home/.claude/commands/rf.md"
 run_install "$legacy_home" --claude --scope user
-if grep -Fq '<!-- weave-router managed command: fm -->' "$legacy_home/.claude/commands/fm.md"; then
-  ok "an upgrade adopts an unmarked wrapper it previously wrote"
-else
-  no "an upgrade adopts an unmarked wrapper it previously wrote" "marker added" "still unmarked"
-fi
+check "an upgrade adopts an unmarked wrapper it previously wrote" "$legacy_body" \
+  "$(cat "$legacy_home/.claude/commands/fm.md")"
+check "an upgrade does not add an ownership marker to the wrapper" "" \
+  "$(grep -F '<!-- weave-router managed command:' "$legacy_home/.claude/commands/fm.md" || true)"
 check "an upgrade still leaves a genuinely user-authored command alone" "MY OWN CUSTOM WRAPPER" \
   "$(cat "$legacy_home/.claude/commands/rf.md")"
 
@@ -359,6 +475,18 @@ run_uninstall "$cc_home" --claude --scope user
 check "uninstall removes every command it owns" "rf" "$(installed_names "$cc_home/.claude/commands")"
 check "uninstall preserves the user-owned command's contents" "my own wrapper" \
   "$(cat "$cc_home/.claude/commands/rf.md")"
+if [ -e "$cc_home/.weave/cc-statusline.sh" ]; then
+  no "uninstall removes the router-owned statusline" "removed" "still present"
+else
+  ok "uninstall removes the router-owned statusline"
+fi
+if [ -e "$cc_statusline_marker" ]; then
+  no "uninstall removes the statusline ownership marker" "removed" "still present"
+else
+  ok "uninstall removes the statusline ownership marker"
+fi
+check "uninstall removes the router-owned statusline setting" "false" \
+  "$(jq 'has("statusLine")' "$cc_home/.claude/settings.json")"
 
 XDG_CONFIG_HOME="$oc_xdg" run_uninstall "$oc_home" --opencode --scope user
 check "uninstall removes every opencode command it owns" "fm" \

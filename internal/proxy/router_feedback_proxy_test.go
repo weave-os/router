@@ -254,10 +254,11 @@ func TestService_RouterFeedbackCommand_DoesNotContinueMaxedPin(t *testing.T) {
 		Model:           "claude-haiku-4-5",
 		Reason:          "hmm_policy(label=balanced)",
 		LastServedModel: "claude-haiku-4-5",
-		// Keep this in sync with prevTurnMaxedOutThreshold. A saturated source
-		// pin must not be copied into a one-shot post-command continuation.
-		LastOutputTokens: 8000,
-		PinnedUntil:      time.Now().Add(time.Minute),
+		// A confirmed capped source must not become a post-command continuation.
+		LastOutputTokens:  8000,
+		LastTurnEndedAt:   time.Unix(100, 0),
+		LastOutputLimitAt: time.Unix(100, 0),
+		PinnedUntil:       time.Now().Add(time.Minute),
 	}
 	policyRouter := &fakePolicyFeedbackRouter{decision: router.Decision{
 		Provider: providers.ProviderAnthropic,

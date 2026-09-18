@@ -29,7 +29,7 @@ type codexTitleProvider struct {
 func (p *codexTitleProvider) Proxy(_ context.Context, _ router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
 	p.endpoints = append(p.endpoints, prep.Endpoint)
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write([]byte(`{"id":"resp_1","object":"response","output":[]}`))
+	_, _ = w.Write([]byte(`{"id":"resp_1","object":"response","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}]}`))
 	return nil
 }
 

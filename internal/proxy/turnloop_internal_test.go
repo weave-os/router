@@ -83,6 +83,10 @@ func (s *stubPinStore) ResetOverloadErrors(context.Context, [sessionpin.SessionK
 	return nil
 }
 
+func (*stubPinStore) ExpireAndDemoteModel(context.Context, sessionpin.Pin, string, sessionpin.DemotionReason) error {
+	return nil
+}
+
 func (s *stubPinStore) DisableProvider(context.Context, [sessionpin.SessionKeyLen]byte, string, string, router.Strategy) error {
 	return nil
 }
@@ -143,15 +147,18 @@ func TestApplyPinEvidence_UsesAvailablePriorTurnData(t *testing.T) {
 	applyPinEvidence(&withHistory, sessionpin.Pin{
 		Provider:        providers.ProviderFireworks,
 		Model:           "accounts/fireworks/models/qwen3-235b-a22b",
+		PolicyGroup:     "high",
 		LastTurnEndedAt: time.Now().Add(-time.Second),
 	})
 	assert.Equal(t, providers.ProviderFireworks, withHistory.PinProvider)
+	assert.Equal(t, "high", withHistory.PinPolicyGroup)
 	require.NotNil(t, withHistory.PriorTurnGapMS)
 	assert.Greater(t, *withHistory.PriorTurnGapMS, int64(0))
 
 	clearPinEvidence(&withHistory)
 	assert.Empty(t, withHistory.PinModel)
 	assert.Empty(t, withHistory.PinProvider)
+	assert.Empty(t, withHistory.PinPolicyGroup)
 	assert.Zero(t, withHistory.PinAgeSec)
 	assert.Nil(t, withHistory.PriorTurnGapMS)
 }
@@ -208,7 +215,7 @@ func TestRecordTurnUsage_WritesToStore(t *testing.T) {
 		SessionKey: sessionKey,
 		PinRole:    sessionpin.DefaultRole,
 	}
-	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900, false)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -243,7 +250,7 @@ func TestRecordTurnUsage_PassthroughDoesNotReadOrWritePins(t *testing.T) {
 		SessionKey:                 sessionKey,
 		PinRole:                    sessionpin.DefaultRole,
 		BlindExperimentPassthrough: true,
-	}, providers.ProviderAnthropic, "claude-sonnet-4-6", 1200, 80, 200, 900)
+	}, providers.ProviderAnthropic, "claude-sonnet-4-6", 1200, 80, 200, 900, false)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -278,7 +285,7 @@ func TestRecordTurnUsage_ForwardsSwitchHistory(t *testing.T) {
 		PriorServedModel:    "claude-opus-4-7",
 		SessionEverSwitched: true,
 	}
-	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900, false)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -325,7 +332,7 @@ func TestRecordTurnUsage_HMMDecisionWritesHistoryOnly(t *testing.T) {
 		// latch has_ever_switched without mutating the active routing role.
 		PriorServedModel: "claude-haiku-4-5",
 	}
-	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900, false)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -381,7 +388,7 @@ func TestRecordTurnUsage_HMMModelChangeWritesCurrentUsageOnly(t *testing.T) {
 		PinTier:          "hmm_fresh_unpinned",
 		PriorServedModel: "claude-haiku-4-5",
 	}
-	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900, false)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -427,7 +434,7 @@ func TestRecordHMMTurnHistory_ZeroUsageRefreshesTTLButSkipsUsageWriteback(t *tes
 		PinRole:    sessionpin.DefaultRole,
 	}
 	// A failed/empty upstream turn: all usage counts zero.
-	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 0, 0, 0, 0)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 0, 0, 0, 0, false)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -470,7 +477,7 @@ func TestRecordHMMTurnHistory_ZeroUsagePreservesPriorProvider(t *testing.T) {
 		PinRole:    sessionpin.DefaultRole,
 	}
 
-	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 0, 0, 0, 0)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 0, 0, 0, 0, false)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -599,7 +606,7 @@ func TestRecordTurnUsage_HMMEVStayWritesHistoryOnly(t *testing.T) {
 		PinRole:    sessionpin.DefaultRole,
 		PinTier:    "hmm_ev_stay_ev_negative",
 	}
-	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900)
+	svc.recordTurnUsage(context.Background(), res, res.Decision.Provider, res.Decision.Model, 1200, 80, 200, 900, false)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -1263,6 +1270,7 @@ func TestHMMCostGate_HonorsHMMReasonedActivePin(t *testing.T) {
 }
 
 func TestHMMCostGate_IgnoresMaxedHistory(t *testing.T) {
+	endedAt := time.Now().Add(-30 * time.Second)
 	svc := NewService(
 		nil,
 		map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderMakora: nil},
@@ -1275,11 +1283,12 @@ func TestHMMCostGate_IgnoresMaxedHistory(t *testing.T) {
 		nil,
 	)
 	history := sessionpin.Pin{
-		Provider:         providers.ProviderAnthropic,
-		LastServedModel:  "claude-sonnet-5",
-		LastOutputTokens: prevTurnMaxedOutThreshold,
-		LastTurnEndedAt:  time.Now().Add(-30 * time.Second),
-		PinnedUntil:      time.Now().Add(time.Hour),
+		Provider:          providers.ProviderAnthropic,
+		LastServedModel:   "claude-sonnet-5",
+		LastOutputTokens:  8192,
+		LastTurnEndedAt:   endedAt,
+		LastOutputLimitAt: endedAt,
+		PinnedUntil:       time.Now().Add(time.Hour),
 	}
 	fresh := router.Decision{
 		Provider: providers.ProviderMakora,

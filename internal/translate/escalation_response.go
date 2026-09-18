@@ -189,7 +189,8 @@ func escalationAnthropicOutput(frames []gjson.Result, streaming bool) (Escalatio
 	complete := false
 	finishReason := escalationFinishReason("")
 	blocks := make(map[int]EscalationBlock)
-	arguments := make(map[int]string)
+	textBuilders := make(map[int]*strings.Builder)
+	arguments := make(map[int]*strings.Builder)
 	for _, frame := range frames {
 		index := int(frame.Get("index").Int())
 		switch escalationResponseEvent(frame.Get("type").String()) {
@@ -214,24 +215,34 @@ func escalationAnthropicOutput(frames []gjson.Result, streaming bool) (Escalatio
 			}
 			if len(parsed) > 0 {
 				blocks[index] = parsed[0]
+				delete(textBuilders, index)
+				if parsed[0].Type == EscalationBlockText {
+					textBuilder := &strings.Builder{}
+					textBuilder.WriteString(parsed[0].Text)
+					textBuilders[index] = textBuilder
+				}
 			}
 		case escalationContentDelta:
-			block, found := blocks[index]
+			_, found := blocks[index]
 			if !found {
 				continue
 			}
 			delta := frame.Get("delta")
 			switch escalationResponseEvent(delta.Get("type").String()) {
 			case escalationTextDelta:
-				block.Text += delta.Get("text").String()
+				escalationFragmentBuilder(textBuilders, index).WriteString(delta.Get("text").String())
 			case escalationInputJSONDelta:
-				arguments[index] += delta.Get("partial_json").String()
+				escalationFragmentBuilder(arguments, index).WriteString(delta.Get("partial_json").String())
 			}
-			blocks[index] = block
 		}
 	}
 	if !complete || !escalationAnthropicCompleted(finishReason) {
 		return EscalationResponse{}, fmt.Errorf("Anthropic stream has no terminal event")
+	}
+	for index, textBuilder := range textBuilders {
+		block := blocks[index]
+		block.Text = textBuilder.String()
+		blocks[index] = block
 	}
 	ordered, err := escalationOrderedBlocks(blocks, arguments)
 	if err != nil {
@@ -242,9 +253,10 @@ func escalationAnthropicOutput(frames []gjson.Result, streaming bool) (Escalatio
 
 func escalationChatOutput(frames []gjson.Result, streaming, done bool) (EscalationResponse, error) {
 	responseID := ""
-	text := ""
+	var text strings.Builder
 	toolCalls := make(map[int]EscalationBlock)
-	arguments := make(map[int]string)
+	toolNames := make(map[int]*strings.Builder)
+	arguments := make(map[int]*strings.Builder)
 	complete := false
 	legacyCall := false
 	legacyCallExpected := false
@@ -276,7 +288,7 @@ func escalationChatOutput(frames []gjson.Result, streaming, done bool) (Escalati
 		if streaming {
 			message = choice.Get("delta")
 		}
-		text += message.Get("content").String()
+		text.WriteString(message.Get("content").String())
 		for position, call := range message.Get("tool_calls").Array() {
 			if legacyCall {
 				return EscalationResponse{}, fmt.Errorf("chat response mixes legacy and current tool calls")
@@ -290,8 +302,8 @@ func escalationChatOutput(frames []gjson.Result, streaming, done bool) (Escalati
 			if call.Get("id").Exists() {
 				block.ID = call.Get("id").String()
 			}
-			block.Name += call.Get("function.name").String()
-			arguments[index] += call.Get("function.arguments").String()
+			escalationFragmentBuilder(toolNames, index).WriteString(call.Get("function.name").String())
+			escalationFragmentBuilder(arguments, index).WriteString(call.Get("function.arguments").String())
 			toolCalls[index] = block
 		}
 		if function := message.Get("function_call"); function.Exists() {
@@ -305,20 +317,25 @@ func escalationChatOutput(frames []gjson.Result, streaming, done bool) (Escalati
 			legacyCall = true
 			block := toolCalls[0]
 			block.Type = EscalationBlockToolCall
-			block.Name += name.String()
-			arguments[0] += input.String()
+			escalationFragmentBuilder(toolNames, 0).WriteString(name.String())
+			escalationFragmentBuilder(arguments, 0).WriteString(input.String())
 			toolCalls[0] = block
 		}
 	}
 	if !complete || (streaming && !done) {
 		return EscalationResponse{}, fmt.Errorf("chat response has no terminal event")
 	}
+	for index, nameBuilder := range toolNames {
+		block := toolCalls[index]
+		block.Name = nameBuilder.String()
+		toolCalls[index] = block
+	}
 	if (legacyCallExpected && !legacyCall) || (legacyCall && strings.TrimSpace(toolCalls[0].Name) == "") {
 		return EscalationResponse{}, fmt.Errorf("chat response has no completed legacy function call")
 	}
 	blocks := make([]EscalationBlock, 0, len(toolCalls)+1)
-	if text != "" {
-		blocks = append(blocks, EscalationBlock{Type: EscalationBlockText, Text: text})
+	if text.Len() > 0 {
+		blocks = append(blocks, EscalationBlock{Type: EscalationBlockText, Text: text.String()})
 	}
 	ordered, err := escalationOrderedBlocks(toolCalls, arguments)
 	if err != nil {
@@ -332,6 +349,14 @@ func escalationGeminiOutput(frames []gjson.Result) (EscalationResponse, error) {
 	responseID := ""
 	complete := false
 	blocks := make([]EscalationBlock, 0)
+	var adjacentText *strings.Builder
+	flushText := func() {
+		if adjacentText == nil {
+			return
+		}
+		blocks = append(blocks, EscalationBlock{Type: EscalationBlockText, Text: adjacentText.String()})
+		adjacentText = nil
+	}
 	for _, frame := range frames {
 		if frame.Get("error").Exists() {
 			return EscalationResponse{}, fmt.Errorf("Gemini response failed")
@@ -358,20 +383,34 @@ func escalationGeminiOutput(frames []gjson.Result) (EscalationResponse, error) {
 			return EscalationResponse{}, err
 		}
 		for _, block := range parsed {
-			if len(blocks) > 0 && block.Type == EscalationBlockText && blocks[len(blocks)-1].Type == EscalationBlockText {
-				blocks[len(blocks)-1].Text += block.Text
-			} else {
-				blocks = append(blocks, block)
+			if block.Type == EscalationBlockText {
+				if adjacentText == nil {
+					adjacentText = &strings.Builder{}
+				}
+				adjacentText.WriteString(block.Text)
+				continue
 			}
+			flushText()
+			blocks = append(blocks, block)
 		}
 	}
 	if !complete {
 		return EscalationResponse{}, fmt.Errorf("Gemini response has no terminal candidate")
 	}
+	flushText()
 	return EscalationResponse{ResponseID: responseID, Messages: []EscalationMessage{{Role: EscalationRoleAssistant, Blocks: blocks}}}, nil
 }
 
-func escalationOrderedBlocks(blocks map[int]EscalationBlock, arguments map[int]string) ([]EscalationBlock, error) {
+func escalationFragmentBuilder(builders map[int]*strings.Builder, index int) *strings.Builder {
+	fragmentBuilder := builders[index]
+	if fragmentBuilder == nil {
+		fragmentBuilder = &strings.Builder{}
+		builders[index] = fragmentBuilder
+	}
+	return fragmentBuilder
+}
+
+func escalationOrderedBlocks(blocks map[int]EscalationBlock, arguments map[int]*strings.Builder) ([]EscalationBlock, error) {
 	indexes := make([]int, 0, len(blocks))
 	for index := range blocks {
 		indexes = append(indexes, index)
@@ -380,7 +419,8 @@ func escalationOrderedBlocks(blocks map[int]EscalationBlock, arguments map[int]s
 	ordered := make([]EscalationBlock, 0, len(blocks))
 	for _, index := range indexes {
 		block := blocks[index]
-		if input, exists := arguments[index]; exists {
+		if inputBuilder, exists := arguments[index]; exists {
+			input := inputBuilder.String()
 			if !json.Valid([]byte(input)) {
 				return nil, fmt.Errorf("completed tool call has invalid arguments")
 			}

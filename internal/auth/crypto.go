@@ -10,8 +10,10 @@ import (
 	"github.com/tink-crypto/tink-go/v2/tink"
 )
 
-// Encryptor encrypts/decrypts external API keys via AES-256-GCM.
-// AAD binds each ciphertext to (externalID, provider).
+// Encryptor encrypts/decrypts secrets via AES-256-GCM.
+// AAD binds each ciphertext to (externalID, purpose). Existing external API
+// keys and refresh tokens use the provider as their purpose; subscription
+// access tokens use a distinct purpose suffix.
 type Encryptor interface {
 	Encrypt(plaintext []byte, externalID, provider string) (ciphertext []byte, err error)
 	Decrypt(ciphertext []byte, externalID, provider string) (plaintext []byte, err error)

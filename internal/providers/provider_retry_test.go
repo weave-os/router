@@ -25,6 +25,15 @@ func TestIsRetryable_UpstreamIdleTimeout(t *testing.T) {
 	assert.True(t, providers.IsRetryable(fmt.Errorf("stream upstream response: %w", providers.ErrUpstreamIdleTimeout)))
 }
 
+func TestIsRetryable_EmptyCompletion(t *testing.T) {
+	assert.True(t, providers.IsRetryable(providers.ErrUpstreamEmptyCompletion))
+	assert.True(t, providers.IsRetryable(fmt.Errorf("translated response: %w", providers.ErrUpstreamEmptyCompletion)))
+	assert.True(t, providers.IsRetryable(&providers.UpstreamErrorResponse{
+		Status: http.StatusBadGateway,
+		Cause:  providers.ErrUpstreamEmptyCompletion,
+	}))
+}
+
 func TestIsRetryable_ResponseHeaderTimeout(t *testing.T) {
 	release := make(chan struct{})
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

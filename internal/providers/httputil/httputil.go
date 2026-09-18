@@ -33,7 +33,7 @@ var ErrUpstreamIdleTimeout = providers.ErrUpstreamIdleTimeout
 
 // ErrUpstreamOutputStall re-exports providers.ErrUpstreamOutputStall: set when
 // the output-progress watchdog trips because the stream stayed byte-alive but
-// produced no output-bearing content.
+// produced no output or qualifying reasoning progress.
 var ErrUpstreamOutputStall = providers.ErrUpstreamOutputStall
 
 // ErrUpstreamSlowThroughput re-exports providers.ErrUpstreamSlowThroughput:
@@ -56,13 +56,10 @@ var DefaultSSEIdleTimeout = idleTimeoutFromEnv("ROUTER_SSE_IDLE_TIMEOUT_SECONDS"
 // Tunable via ROUTER_RESPONSES_SSE_IDLE_TIMEOUT_SECONDS.
 var DefaultResponsesSSEIdleTimeout = idleTimeoutFromEnv("ROUTER_RESPONSES_SSE_IDLE_TIMEOUT_SECONDS", 90*time.Second)
 
-// DefaultResponsesOutputStallTimeout is the OUTPUT-progress threshold for
-// OpenAI Responses streams: max time the upstream may stay byte-alive while
-// producing zero output-bearing content. Set well above the idle timeout so a
-// long-but-real reasoning phase is never clipped, and below the 600s request
-// cap so the watchdog surfaces the stall as retryable first. Fed by the
-// Responses→Anthropic translator, the only place that can tell output frames
-// from reasoning/keepalive frames. Tunable via
+// DefaultResponsesOutputStallTimeout bounds time without output or advancing
+// reasoning on Responses streams. Translators classify progress; keepalives,
+// status events, and empty reasoning frames do not reset it. The request deadline
+// still bounds continuous reasoning. Tunable via
 // ROUTER_RESPONSES_OUTPUT_STALL_TIMEOUT_SECONDS.
 var DefaultResponsesOutputStallTimeout = idleTimeoutFromEnv("ROUTER_RESPONSES_OUTPUT_STALL_TIMEOUT_SECONDS", 240*time.Second)
 
@@ -73,9 +70,9 @@ var DefaultResponsesOutputStallTimeout = idleTimeoutFromEnv("ROUTER_RESPONSES_OU
 // comments or empty/role-only deltas while emitting zero output content would
 // otherwise ride to the request cap (prod incident 2026-06-19: a DeepInfra
 // stream did this for ~10min, then the client retry hit a 404). Fed by the
-// OpenAI→Anthropic SSE translator on output-bearing deltas only; unlike the
-// Responses budget, streamed reasoning_content counts here since OSS models
-// emit it as real rendered tokens. Tunable via ROUTER_OUTPUT_STALL_TIMEOUT_SECONDS.
+// OpenAI→Anthropic SSE translator on output-bearing deltas, including streamed
+// reasoning_content. Responses translators report reasoning separately.
+// Tunable via ROUTER_OUTPUT_STALL_TIMEOUT_SECONDS.
 var DefaultOutputStallTimeout = idleTimeoutFromEnv("ROUTER_OUTPUT_STALL_TIMEOUT_SECONDS", 240*time.Second)
 
 // Minimum-throughput watchdog defaults. The byte-idle and output-stall

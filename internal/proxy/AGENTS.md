@@ -84,7 +84,7 @@ because the existing one is keyed per installation.
 reach sessions already pinned, so `automaticPinEligible` and the pin-drop guard
 in `runTurnLoop` cover tool-result stickies, planner STAY, HMM EV stays, expiry
 re-anchors, post-command continuations, band swap, sibling failover, the policy
-deadline default, and loop/struggle escalation — every path where the router
+ deadline default, and loop escalation — every path where the router
 picked the model. `forcedPinEligible` deliberately does not.
 
 **A wholly non-routable allowlist is rejected at the admin API.** Membership
@@ -157,13 +157,44 @@ gateway key aliasing it has refused, since a second endpoint may serve it. The
 alias itself is still the customer-side fix — this only caps the bill at one 404.
 
 **The hard-pin tier resolves against the same bindings.** Probe/title-gen/
-classifier/compaction turns bypass the scorer, so `hardPinResolver` gets its
+compaction turns bypass the scorer, so `hardPinResolver` gets its
 own `HardPinRequest` carrying `CustomBindings` + `GatewayProviders` and selects
 via `cluster.FastestModelForRequest`. Without them a gateway-only installation
 resolved nothing and every such turn 503'd `ErrClusterUnavailable` ("cluster
 scorer failed") while its scored turns routed fine — prod 2026-08-26. An empty
 result under a gateway now reports `ErrGatewayServesNoDeployedModel` for the
 same reason the resolver does: the alias list is the thing to fix.
+
+**Classifier turns are scored, not hard-pinned.** Claude Code's security
+monitor is a fresh window (own system prompt, ~50k-token transcript as
+payload, `max_tokens=64`, `thinking: disabled`), so `isUnpinnedScoredTurn`
+sends it through `routeWithoutPin`: the scorer picks for its shape, `/force-model`
+still wins, and no session pin is read or written — an anchored pin here would
+leak into the conversation that follows, and the conversation's pin was not
+scored for this prompt. Proactive compaction and routing markers skip it too:
+the transcript is the thing being graded, and the verdict is machine-parsed.
+Hard-pinning it to a Gemini 3.x model truncated 99.5% of verdicts on
+`maxOutputTokens=64` (always-on thinking eats the budget; the emitters now floor
+reasoning targets to 16k, see [translate/CLAUDE.md](../translate/CLAUDE.md)),
+and Claude Code retried each failure 5x before escalating — prod 2026-09.
+
+**A classifier on the caller's Claude subscription is not scored at all.**
+Anthropic bills the Auto-mode classifier to the plan (free on Pro/Max/Team),
+so for a subscription caller the requested Claude model costs $0 extra and any
+model the scorer substitutes is API spend the router adds.
+`classifierPassthroughEngaged` ([usage_bypass.go](usage_bypass.go)) runs in
+`routeWithoutPin` after the force check: Classifier turn + Anthropic-served
+requested model + a presented Claude subscription credential (the narrow
+`presentSubscriptionTokens` set, never a generic bearer) + not
+observed-exhausted → strict pass-through via `bypassToAnthropic` with
+`decision_reason=classifier_subscription_passthrough`. It needs neither the
+`usage_bypass_enabled` opt-in nor a utilization threshold — the classifier is a
+by-product of the conversation's own turns, so conserving quota by re-routing
+it buys nothing. Everything else is the usage-bypass lane's behaviour: an
+exhausted subscription falls to the scorer (deployment-key fallback /
+subscription-only 402 as usual), a retryable upstream error reroutes without
+loading the conversation's pin, and the row stays cost-neutral downstream
+(`subscription_served`), not a "saving".
 
 ## Translation
 
@@ -234,12 +265,12 @@ Multi-binding models (deepseek/qwen/moonshot with Fireworks/Makora/Bedrock prima
 
 **Retries are bounded twice: count AND wall-clock.** `maxSameBindingRetries` caps how many attempts; `sameBindingRetryBudget` (10s) caps how much time they may consume in total. The count alone bounds attempts but not cost — an upstream that accepts the stream and never answers burns a full `ResponseHeaderTimeout` (30s) per attempt, so three of them spend ~90s on a request that was never going to be served (prod 2026-08-26: a gateway hanging deterministically on tool-result turns, where every retry re-sent the identical payload). A transient blip clears on a *quick* retry by definition, so an attempt series that already outran the budget is not the fault class in-place retry was built for; cheap failures (5xx in milliseconds) still get the full attempt count. The budget stopping a retry logs at WARN with `spent_ms`/`budget_ms` — without it, a hang and a blip are indistinguishable in the logs. Tests inject `Service.now` to simulate a slow attempt without burning real time; express the simulated duration as an absolute value, never as a multiple of `sameBindingRetryBudget`, or the test scales with the constant and can never fail.
 
-`preludeBuffer` wraps the client writer on every request and separates a client-visible synthetic prelude from provider-output commitment. `CommitPrelude()` flushes the routing marker immediately after the decision while leaving `Committed()` false; provider bytes remain buffered until the first post-`Seal` write. `Discard()` clears a failed attempt without retracting an already-visible prelude, and continuation-aware writers emit a corrected marker when fallback changes the serving model. Once provider output flips `Committed()`, no further retry is allowed.
+`preludeBuffer` wraps the client writer on every request and separates a synthetic prelude from provider-output commitment. OpenAI responses use `CommitPrelude()` to flush the routing marker immediately after the decision while leaving `Committed()` false. Anthropic responses keep the prelude buffered until provider output arrives, preserving an HTTP error status when every attempt fails before output. `Discard()` clears a failed attempt, and continuation-aware writers emit a corrected marker when fallback changes the serving model. Once provider output flips `Committed()`, no further retry is allowed.
 
 Per-attempt body rebuild: each closure constructs `EmitOptions` with `TargetProvider = d.Provider` so the OpenRouter-only gates in [`emit_openai.go`](../translate/emit_openai.go) (`provider` hint, `reasoning: {enabled:false}`, system reminder for tool turns, tool-temp override) fire on the OpenRouter attempt but not on Fireworks/etc. Otherwise OpenRouter would load-balance to non-DeepSeek-native hosts (no prefix caching) and reasoning would burn the max_tokens budget on hidden thinking.
 
 **Invariants:**
-- Unconditional wrap: `preludeBuffer` engages on every request (single- and multi-binding alike). The routing marker is released at the completed decision boundary; provider output remains buffered and `Committed()` is the retry gate for both cross-binding failover and single-binding in-place retry. A failure after the prelude is represented as a protocol-valid in-stream error because HTTP status is already committed.
+- Unconditional wrap: `preludeBuffer` engages on every request (single- and multi-binding alike). OpenAI routing markers are released at the completed decision boundary; Anthropic markers wait for the first provider output so a pre-output failure retains its HTTP status. `Committed()` is the retry gate for both cross-binding failover and single-binding in-place retry. A failure after provider output is represented as a protocol-valid in-stream error because HTTP status is already committed.
 - Retry gated on `preludeBuf.Committed() == false`. Once committed (first upstream byte flushed through the chain), switching providers mid-stream would interleave two model outputs.
 - Per-attempt `Prepare*` + translator construction. Translators are stateful; a retry must rebuild the chain from scratch.
 - BYOK and inbound-client-credential requests skip failover entirely (`shouldFailover()` returns false) — those keys bind to one provider and would 401 elsewhere.

@@ -143,10 +143,7 @@ func TestCyberRefusalGate_WithholdsRefusalAfterLargePreamble(t *testing.T) {
 	rec := httptest.NewRecorder()
 	gate := newCyberRefusalGate(rec, true)
 
-	created := "event: response.created\n" +
-		`data: {"type":"response.created","response":{"id":"resp_1","instructions":"` +
-		strings.Repeat("x", 256*1024) + `"}}` + "\n\n"
-	_, err := gate.Write([]byte(created))
+	_, err := gate.Write([]byte(responsesLargeCreatedFrame()))
 	require.NoError(t, err)
 	require.Empty(t, rec.Body.String(), "a large preamble frame is still a preamble")
 
@@ -156,4 +153,104 @@ func TestCyberRefusalGate_WithholdsRefusalAfterLargePreamble(t *testing.T) {
 
 	assert.True(t, gate.withheld)
 	assert.Empty(t, rec.Body.String())
+}
+
+// responsesLargeCreatedFrame echoes a Codex-sized instructions string, so the
+// preamble alone spans dozens of provider reads.
+func responsesLargeCreatedFrame() string {
+	return "event: response.created\n" +
+		`data: {"type":"response.created","response":{"id":"resp_1","instructions":"` +
+		strings.Repeat("x", 256*1024) + `"}}` + "\n\n"
+}
+
+// cyberGateOutcome is what dispatch reads off the gate together with what the
+// client was actually sent.
+type cyberGateOutcome struct {
+	refused  bool
+	withheld bool
+	body     string
+}
+
+func outcomeOf(gate *cyberRefusalGate, rec *httptest.ResponseRecorder) cyberGateOutcome {
+	return cyberGateOutcome{refused: gate.refused, withheld: gate.withheld, body: rec.Body.String()}
+}
+
+// Resetting before each write emulates stateless framing while retaining the
+// same write boundaries. After release, refusal matching deliberately remains
+// per-write, so splitting that text can change its observed flag.
+func TestCyberRefusalGate_FragmentationMatchesStatelessFraming(t *testing.T) {
+	fixtures := []struct {
+		name string
+		body string
+	}{
+		{name: "refusal before output", body: responsesCreatedFrame + cyberRefusalFrame},
+		{name: "ordinary output", body: responsesCreatedFrame + responsesOutputFrame},
+		{name: "refusal after output", body: responsesCreatedFrame + responsesOutputFrame + cyberRefusalFrame},
+		{name: "crlf ordinary output", body: strings.ReplaceAll(responsesCreatedFrame+responsesOutputFrame, "\n", "\r\n")},
+		{name: "large preamble then output", body: responsesLargeCreatedFrame() + responsesOutputFrame},
+		{name: "large preamble then refusal", body: responsesLargeCreatedFrame() + cyberRefusalFrame},
+	}
+	checkChunks := func(t *testing.T, body string, chunks []string) {
+		t.Helper()
+		rec, oracleRec := httptest.NewRecorder(), httptest.NewRecorder()
+		gate, oracle := newCyberRefusalGate(rec, true), newCyberRefusalGate(oracleRec, true)
+		for _, chunk := range chunks {
+			oracle.framing.Reset()
+			writeChunks(t, oracle, []string{chunk})
+			writeChunks(t, gate, []string{chunk})
+			require.Equal(t, outcomeOf(oracle, oracleRec), outcomeOf(gate, rec))
+		}
+		require.NoError(t, oracle.Finalize())
+		require.NoError(t, gate.Finalize())
+		assert.Equal(t, outcomeOf(oracle, oracleRec), outcomeOf(gate, rec))
+		if gate.withheld {
+			assert.Empty(t, rec.Body.String())
+		} else {
+			assert.Equal(t, body, rec.Body.String())
+		}
+	}
+	for _, fixture := range fixtures {
+		t.Run(fixture.name, func(t *testing.T) {
+			for _, size := range chunkSizesFor(fixture.body) {
+				checkChunks(t, fixture.body, chunkEvery(fixture.body, size))
+			}
+			if len(fixture.body) <= largeFixtureBytes {
+				for cut := 1; cut < len(fixture.body); cut++ {
+					checkChunks(t, fixture.body, []string{fixture.body[:cut], fixture.body[cut:]})
+				}
+			}
+		})
+	}
+}
+
+// A frame that never completes is held only up to the cap; the write that
+// reaches it commits everything held so far, and later writes flow straight
+// through.
+func TestCyberRefusalGate_ReleasesWhenHeldTailReachesCap(t *testing.T) {
+	rec := httptest.NewRecorder()
+	gate := newCyberRefusalGate(rec, true)
+	writeChunks(t, gate, []string{responsesCreatedFrame})
+	require.Empty(t, rec.Body.String())
+
+	unterminated := "event: response.output_text.delta\ndata: {\"delta\":\"" + strings.Repeat("x", cyberRefusalHoldCap+8192)
+	written := len(responsesCreatedFrame)
+	releasedAt := 0
+	for i, chunk := range chunkEvery(unterminated, 4096) {
+		writeChunks(t, gate, []string{chunk})
+		written += len(chunk)
+		if written < cyberRefusalHoldCap {
+			require.Empty(t, rec.Body.String(), "write %d is still under the cap", i)
+			continue
+		}
+		if releasedAt == 0 {
+			releasedAt = i
+		}
+		require.Equal(t, written, rec.Body.Len(), "write %d: everything held is committed once the cap is reached", i)
+	}
+	require.Positive(t, releasedAt, "the fixture must cross the cap")
+	require.NoError(t, gate.Finalize())
+
+	assert.False(t, gate.refused)
+	assert.False(t, gate.withheld)
+	assert.Equal(t, responsesCreatedFrame+unterminated, rec.Body.String())
 }

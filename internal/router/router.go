@@ -300,9 +300,14 @@ type RoutingMetadata struct {
 	// Escalation preserves the raw classifier group and accepted automatic intervention.
 	Escalation *escalation.Decision
 
-	Embedding            []float32
-	ClusterIDs           []int // Sorted ascending; [0] is NOT necessarily closest.
-	CandidateModels      []string
+	Embedding       []float32
+	ClusterIDs      []int // Sorted ascending; [0] is NOT necessarily closest.
+	CandidateModels []string
+	// RescueModels orders the catalog models an in-turn rescue may fall back
+	// to when the served model's bindings all fail: the policy's ranked group
+	// fallback with per-key allowlists applied. CandidateModels is the
+	// resolver's eligible pool in catalog order and carries no preference.
+	RescueModels         []string
 	ChosenScore          float32
 	ClusterRouterVersion string
 	// Strategy identifies opt-in sidecar routers ("rl", "hmm") when metadata
@@ -332,6 +337,9 @@ type RoutingMetadata struct {
 	ClassifierPredictedLabel string
 	ClassifierClassOrder     []string
 	ClassifierProbabilities  map[string]float64
+	// ClassifierMargin is the fresh top-1 minus top-2 class probability gap.
+	// Nil means unreported; never persist it into a replayed session pin.
+	ClassifierMargin         *float64
 	SelectionPolicyReleaseID string
 	SelectionPolicySHA256    string
 	SelectionHeadGeneration  int64

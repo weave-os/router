@@ -75,6 +75,21 @@ type EmitOptions struct {
 	// tools are always stripped. Set from ROUTER_CC_ORCH_TOOLS_CROSSVENDOR;
 	// zero value false preserves historical strip-all behavior.
 	KeepCrossVendorOrchestrationTools bool
+	// KeepCrossVendorTaskTools additionally preserves the task-list tools
+	// (TaskCreate/TaskUpdate/TaskGet/TaskList) and their system reminders on
+	// cross-vendor emit. Nested under KeepCrossVendorOrchestrationTools. Set
+	// from ROUTER_CC_TASK_TOOLS_CROSSVENDOR; zero value false strips them.
+	KeepCrossVendorTaskTools bool
+	// AppendAutonomySystem adds AutonomySystemText as the last system element
+	// of the outgoing request, after any client cache_control block and
+	// itself uncached; the cross-format emitters carry it into the OpenAI
+	// system message / Responses instructions / Gemini systemInstruction.
+	// The proxy decides eligibility (client, turn type, idempotence).
+	AppendAutonomySystem bool
+	// AppendWorkspaceSystem adds WorkspaceSystemText the same way, but only on
+	// the cross-format emitters (OpenAI chat / Responses instructions / Gemini
+	// systemInstruction); PrepareAnthropic ignores it.
+	AppendWorkspaceSystem bool
 	// StripOutputConfigFormat drops output_config.format. Anthropic-spec
 	// gateways are documented to serve the knob (Cortex does), so the proxy sets
 	// this only on a one-shot retry after one 400s on it.
@@ -1353,7 +1368,7 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 
 	if !gjson.GetBytes(body, "max_tokens").Exists() {
 		ov.DefaultMaxTokensKey = "max_tokens"
-		ov.DefaultMaxTokensValue = defaultOutputTokens(opts.TargetModel)
+		ov.DefaultMaxTokensValue = defaultAnthropicOutputTokens(opts.TargetModel, opts.Capabilities)
 	}
 
 	return ov
@@ -1434,4 +1449,26 @@ func defaultOutputTokens(model string) int64 {
 		return int64(tokenCap)
 	}
 	return defaultMaxOutputTokenCap
+}
+
+// defaultAnthropicOutputTokens leaves enough room for hidden reasoning on
+// always-on adaptive targets while respecting a documented model cap below the
+// reasoning floor. Explicit caller max_tokens values are handled separately
+// and are intentionally not changed here.
+func defaultAnthropicOutputTokens(model string, capabilities router.ModelSpec) int64 {
+	if !capabilities.Supports(router.CapAdaptiveThinking) {
+		catalogCapabilities := router.Lookup(model)
+		if catalogCapabilities.Supports(router.CapAdaptiveThinking) {
+			capabilities = catalogCapabilities
+		}
+	}
+	defaultTokens := defaultOutputTokens(model)
+	if !capabilities.Supports(router.CapAdaptiveThinking) || !capabilities.Reasoning().AlwaysOn {
+		return defaultTokens
+	}
+	floored := reasoningOutputFloor(defaultTokens, true)
+	if tokenCap, ok := modelMaxOutputTokens[model]; ok && int64(tokenCap) < floored {
+		return int64(tokenCap)
+	}
+	return floored
 }

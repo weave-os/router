@@ -6,7 +6,10 @@
     "skipLibCheck": true,
     "strict": true,
     "target": "ES2022",
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@mariozechner/pi-ai": ["./node_modules/@mariozechner/pi-ai/dist/compat.d.ts"]
+    }
   },
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }

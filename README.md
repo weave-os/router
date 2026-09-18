@@ -29,6 +29,9 @@ for *every* request: using a tiny on-box embedder, not a vibes-based prompt.
 [![License: ELv2](https://img.shields.io/badge/License-ELv2-00BFB3.svg)](https://www.elastic.co/licensing/elastic-license)
 [![Managed deployment](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Frouter.workweave.ai%2Fv1%2Fversion&query=%24.display&label=managed%20deployment&color=EC6341&cacheSeconds=1800)](https://github.com/weave-os/router/deployments)
 
+
+[![#1 Product of the Day on Product Hunt](https://api.producthunt.com/widgets/embed-image/v1/top-post-badge.svg?post_id=1247729&theme=light&period=daily)](https://www.producthunt.com/posts/weave-router-2-0?embed=true&utm_source=badge-top-post-badge&utm_medium=badge&utm_campaign=badge-weave-router-2-0)
+
 *Built by [Weave](https://www.workweave.ai): The #1 engineering intelligence platform,
 loved by Robinhood, PostHog, Reducto, and hundreds of others.*
 
@@ -201,11 +204,12 @@ next Codex session back to its normal provider, or run
 
 **opencode.** `npx @weave-os/router --opencode` merges a `provider.weave`
 entry into `~/.config/opencode/opencode.json` (or `<repo>/opencode.json`
-with `--scope project`). It uses opencode's bundled `@ai-sdk/anthropic`
-provider pointed at the router's `/v1` endpoint — the router speaks the
-Anthropic Messages API natively, so opencode works unmodified. The router
-key and identity headers ride alongside the provider config; re-install
-rewrites only the managed block and `--uninstall --opencode` strips it.
+with `--scope project`) and makes `weave/auto` the active model while saving
+any prior default for off/uninstall. OpenCode sends Responses requests through
+its bundled `@ai-sdk/openai` provider, while the router selects and translates
+to the upstream model. The router key and identity headers ride alongside the
+provider config; re-install rewrites only the managed provider and
+`--uninstall --opencode` removes it and restores the prior model.
 
 **pi.** `npx @weave-os/router --pi` keeps stock pi as the runtime and installs
 the router's pi extension. It adds the Loom header, Wooly's animated terminal

@@ -125,6 +125,115 @@ func TestProxyMessages_OverloadedModelDegradesToSameClusterCandidate(t *testing.
 	assert.Equal(t, "deepseek/deepseek-v4-pro", store.usages[len(store.usages)-1].ServedModel)
 }
 
+// rankedRescueFixture routes to an Anthropic model that always overloads and
+// names two Fireworks-served candidates, ranked kimi then deepseek; kimi rejects
+// every request so the rescue must hand off to deepseek.
+type rankedRescueFixture struct {
+	svc             *proxy.Service
+	mu              sync.Mutex
+	fireworksModels []string
+}
+
+func newRankedRescueFixture(t *testing.T) *rankedRescueFixture {
+	t.Helper()
+	f := &rankedRescueFixture{}
+
+	anthropicUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(statusOverloaded)
+		_, _ = w.Write([]byte(overloadedSSE))
+	}))
+	t.Cleanup(anthropicUpstream.Close)
+
+	fireworks := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		model := gjson.GetBytes(body, "model").String()
+		f.mu.Lock()
+		f.fireworksModels = append(f.fireworksModels, model)
+		f.mu.Unlock()
+		if model == "moonshotai/kimi-k2.6" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"unsupported parameter","type":"invalid_request_error"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, `data: {"id":"fw-1","object":"chat.completion.chunk","created":1,"model":"deepseek/deepseek-v4-pro","choices":[{"index":0,"delta":{"role":"assistant","content":"hi"},"finish_reason":null}]}`+"\n\n")
+		_, _ = io.WriteString(w, `data: {"id":"fw-1","object":"chat.completion.chunk","created":1,"model":"deepseek/deepseek-v4-pro","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":1}}`+"\n\n")
+		_, _ = io.WriteString(w, "data: [DONE]\n\n")
+	}))
+	t.Cleanup(fireworks.Close)
+
+	decision := router.Decision{
+		Provider: providers.ProviderAnthropic,
+		Model:    "claude-opus-4-8",
+		Metadata: &router.RoutingMetadata{
+			PolicyGroup: "maximum",
+			// The scored pool lists deepseek first; the ranked fallback puts kimi ahead of it.
+			CandidateModels: []string{"deepseek/deepseek-v4-pro", "moonshotai/kimi-k2.6", "claude-opus-4-8"},
+			RescueModels:    []string{"claude-opus-4-8", "moonshotai/kimi-k2.6", "deepseek/deepseek-v4-pro"},
+			CandidateProviders: map[string]string{
+				"claude-opus-4-8":          providers.ProviderAnthropic,
+				"moonshotai/kimi-k2.6":     providers.ProviderFireworks,
+				"deepseek/deepseek-v4-pro": providers.ProviderFireworks,
+			},
+		},
+	}
+	f.svc = proxy.NewService(
+		&fakeRouter{decision: decision},
+		map[string]providers.Client{
+			providers.ProviderAnthropic: anthropic.NewClient("test-anthropic-key", anthropicUpstream.URL),
+			providers.ProviderFireworks: openaicompat.NewClient("test-fw-key", fireworks.URL),
+		},
+		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+	).WithDeploymentKeyedProviders(map[string]struct{}{
+		providers.ProviderAnthropic: {},
+		providers.ProviderFireworks: {},
+	}).WithRetrySleep(noRetrySleep)
+	return f
+}
+
+func (f *rankedRescueFixture) assertHandedOffToDeepseek(t *testing.T, rec *httptest.ResponseRecorder, terminalFrame string) {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	assert.Equal(t, []string{"moonshotai/kimi-k2.6", "deepseek/deepseek-v4-pro"}, f.fireworksModels,
+		"ranked-fallback order, then hand-off after the first rescuer is rejected")
+	respBody := rec.Body.String()
+	assert.Contains(t, respBody, terminalFrame)
+	assert.NotContains(t, respBody, "overloaded_error")
+	assert.NotContains(t, respBody, "unsupported parameter", "the rejected rescuer's error never reaches the client")
+	assert.Equal(t, "deepseek/deepseek-v4-pro", rec.Header().Get(proxy.HeaderRouterModel))
+}
+
+// TestProxyMessages_FailedRescuerHandsOffToNextRankedCandidate: the ranked
+// fallback names the rescue order, and a rescuer that is itself rejected
+// pre-commit must not end the turn while another candidate remains.
+func TestProxyMessages_FailedRescuerHandsOffToNextRankedCandidate(t *testing.T) {
+	f := newRankedRescueFixture(t)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+
+	err := f.svc.ProxyMessages(authedCtx("11111111-1111-1111-1111-111111111111"), body, rec, req)
+	require.NoError(t, err, "the second ranked candidate serves the turn")
+	f.assertHandedOffToDeepseek(t, rec, "event: message_stop")
+}
+
+// TestProxyOpenAIChatCompletion_FailedRescuerHandsOffToNextRankedCandidate: the
+// chat/completions surface walks the same ranked rescue order.
+func TestProxyOpenAIChatCompletion_FailedRescuerHandsOffToNextRankedCandidate(t *testing.T) {
+	f := newRankedRescueFixture(t)
+	rec := httptest.NewRecorder()
+	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body)))
+
+	err := f.svc.ProxyOpenAIChatCompletion(authedCtx("11111111-1111-1111-1111-111111111111"), body, rec, req)
+	require.NoError(t, err, "the second ranked candidate serves the turn")
+	f.assertHandedOffToDeepseek(t, rec, "data: [DONE]")
+}
+
 // TestProxyMessages_OverloadAfterCommitKeepsServingModel: once the first
 // upstream bytes are on the wire the turn is committed to its model, so a
 // mid-stream overload must be rendered in-stream rather than answered by a

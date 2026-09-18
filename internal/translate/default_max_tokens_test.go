@@ -13,7 +13,7 @@ import (
 )
 
 // Anthropic Messages requires max_tokens; we inject a per-model default when
-// absent. defaultMaxOutputTokenCap is 8192, floored by per-model caps.
+// absent. Always-on adaptive targets receive the reasoning floor.
 
 func TestAnthropicSameFormat_DefaultMaxTokensInjectedWhenAbsent(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"}]}`)
@@ -22,7 +22,7 @@ func TestAnthropicSameFormat_DefaultMaxTokensInjectedWhenAbsent(t *testing.T) {
 		Capabilities: router.Lookup("claude-opus-4-7"),
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
-	assert.Equal(t, float64(8192), out["max_tokens"])
+	assert.Equal(t, float64(16000), out["max_tokens"])
 }
 
 func TestAnthropicSameFormat_ExistingMaxTokensUnchanged(t *testing.T) {
@@ -33,6 +33,53 @@ func TestAnthropicSameFormat_ExistingMaxTokensUnchanged(t *testing.T) {
 	}
 	out := parseAndEmit(t, body, "anthropic", opts)
 	assert.Equal(t, float64(1024), out["max_tokens"])
+}
+
+func TestAnthropicSameFormat_AdaptiveDefaultsHaveReasoningHeadroom(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"}]}`)
+	for _, model := range []string{
+		"claude-fable-5", "claude-fable-5-1", "claude-opus-5", "claude-opus-4-6",
+		"claude-opus-4-7", "claude-opus-4-8", "claude-sonnet-5", "claude-sonnet-4-6",
+	} {
+		t.Run(model, func(t *testing.T) {
+			out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
+				TargetModel: model, Capabilities: router.Lookup(model),
+			})
+			assert.Equal(t, float64(16000), out["max_tokens"])
+		})
+	}
+
+	control := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
+		TargetModel: "claude-opus-4-5", Capabilities: router.Lookup("claude-opus-4-5"),
+	})
+	assert.Equal(t, float64(8192), control["max_tokens"])
+}
+
+func TestAnthropicCrossFormat_AdaptiveDefaultHasReasoningHeadroom(t *testing.T) {
+	body := []byte(`{"model":"gpt-5","messages":[{"role":"user","content":"hi"}]}`)
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	})
+	require.NoError(t, err)
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(prep.Body, &out))
+	assert.Equal(t, float64(16000), out["max_tokens"])
+
+	responsesBody := []byte(`{"model":"gpt-5","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}]}`)
+	conversion, err := translate.ConvertResponsesToChatCompletions(responsesBody)
+	require.NoError(t, err)
+	env, err = translate.ParseOpenAI(conversion.Body)
+	require.NoError(t, err)
+	prep, err = env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
+		TargetModel:  "claude-opus-4-7",
+		Capabilities: router.Lookup("claude-opus-4-7"),
+	})
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(prep.Body, &out))
+	assert.Equal(t, float64(16000), out["max_tokens"])
 }
 
 func TestOpenAISameFormat_DefaultMaxTokensInjectedForNonReasoningTarget(t *testing.T) {
@@ -114,7 +161,7 @@ func TestCrossFormat_OpenAIToAnthropic_DefaultMaxTokensInjectedWhenAbsent(t *tes
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
-	assert.Equal(t, float64(8192), out["max_tokens"])
+	assert.Equal(t, float64(16000), out["max_tokens"])
 }
 
 // Source omits max_tokens, non-reasoning target: injection populates max_tokens.
@@ -132,7 +179,8 @@ func TestCrossFormat_AnthropicToOpenAI_DefaultMaxTokensInjectedWhenAbsent(t *tes
 	assert.Equal(t, float64(8192), out["max_tokens"])
 }
 
-// Reasoning target: injection then rename to max_completion_tokens.
+// Reasoning target: injection, rename to max_completion_tokens, and the
+// reasoning floor on top of the 8192 default.
 func TestCrossFormat_AnthropicToOpenAI_DefaultMaxCompletionTokensForReasoning(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-4-20250514","messages":[{"role":"user","content":"hi"}]}`)
 	env, err := translate.ParseAnthropic(body)
@@ -144,7 +192,7 @@ func TestCrossFormat_AnthropicToOpenAI_DefaultMaxCompletionTokensForReasoning(t 
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
-	assert.Equal(t, float64(8192), out["max_completion_tokens"])
+	assert.Equal(t, float64(16000), out["max_completion_tokens"])
 	assert.NotContains(t, out, "max_tokens")
 }
 

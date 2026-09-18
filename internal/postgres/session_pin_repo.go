@@ -60,25 +60,28 @@ func (r *SessionPinRepo) Consume(ctx context.Context, sessionKey [sessionpin.Ses
 func (r *SessionPinRepo) Upsert(ctx context.Context, p sessionpin.Pin) error {
 	q := sqlc.New(r.tx)
 	return q.UpsertSessionPin(ctx, sqlc.UpsertSessionPinParams{
-		SessionKey:      p.SessionKey[:],
-		Role:            p.Role,
-		InstallationID:  p.InstallationID,
-		PinnedProvider:  p.Provider,
-		PinnedModel:     p.Model,
-		PinnedEffort:    p.Effort,
-		PairedProvider:  p.PairedProvider,
-		PairedModel:     p.PairedModel,
-		DecisionReason:  p.Reason,
-		RoutingStrategy: string(p.Strategy),
-		PolicyGroup:     p.PolicyGroup,
-		TurnCount:       int32(p.TurnCount),
-		PinnedUntil:     pgtype.Timestamp{Time: p.PinnedUntil.UTC(), Valid: true},
+		SessionKey:                p.SessionKey[:],
+		Role:                      p.Role,
+		InstallationID:            p.InstallationID,
+		PinnedProvider:            p.Provider,
+		PinnedModel:               p.Model,
+		PinnedEffort:              p.Effort,
+		PairedProvider:            p.PairedProvider,
+		PairedModel:               p.PairedModel,
+		DecisionReason:            p.Reason,
+		RoutingStrategy:           string(p.Strategy),
+		PolicyGroup:               p.PolicyGroup,
+		TurnCount:                 int32(p.TurnCount),
+		PinnedUntil:               pgtype.Timestamp{Time: p.PinnedUntil.UTC(), Valid: true},
+		ConsecutiveDowngradeVotes: int32(p.ConsecutiveDowngradeVotes),
+		ConsecutiveUpgradeVotes:   int32(p.ConsecutiveUpgradeVotes),
 	})
 }
 
 // UpdateUsage records the previous turn's usage on the pin row. A missing
 // pin (evicted/swept/never created) is a no-op, not an error. A zero
-// EndedAt is stamped with time.Now when the caller omits it.
+// EndedAt is stamped with time.Now when the caller omits it; the output-limit
+// marker is written from that same instant in the same statement.
 func (r *SessionPinRepo) UpdateUsage(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, usage sessionpin.Usage) error {
 	endedAt := usage.EndedAt
 	if endedAt.IsZero() {
@@ -93,6 +96,7 @@ func (r *SessionPinRepo) UpdateUsage(ctx context.Context, sessionKey [sessionpin
 		LastCachedWriteTokens:   int32(usage.CachedWriteTokens),
 		LastOutputTokens:        int32(usage.OutputTokens),
 		LastTurnEndedAt:         pgtype.Timestamptz{Time: endedAt.UTC(), Valid: !endedAt.IsZero()},
+		OutputLimitReached:      usage.OutputLimitReached,
 		LastServedModel:         usage.ServedModel,
 		LastServedProvider:      usage.ServedProvider,
 		PriorServedModel:        usage.PriorServedModel,
@@ -173,6 +177,22 @@ func (r *SessionPinRepo) DisableProvider(ctx context.Context, sessionKey [sessio
 	})
 }
 
+// ExpireAndDemoteModel seeds or expires the (session_key, role) row and
+// appends model to demoted_models in one statement. The ON CONFLICT update is
+// guarded by expired.Strategy, so a row another strategy owns is not touched.
+func (r *SessionPinRepo) ExpireAndDemoteModel(ctx context.Context, expired sessionpin.Pin, model string, _ sessionpin.DemotionReason) error {
+	q := sqlc.New(r.tx)
+	return q.ExpireAndDemoteSessionPinModel(ctx, sqlc.ExpireAndDemoteSessionPinModelParams{
+		SessionKey:              expired.SessionKey[:],
+		Role:                    expired.Role,
+		InstallationID:          expired.InstallationID,
+		DecisionReason:          expired.Reason,
+		ExpectedRoutingStrategy: string(expired.Strategy),
+		PinnedUntil:             pgtype.Timestamp{Time: expired.PinnedUntil.UTC(), Valid: true},
+		Model:                   model,
+	})
+}
+
 func (r *SessionPinRepo) SweepExpired(ctx context.Context) error {
 	q := sqlc.New(r.tx)
 	return q.SweepExpiredSessionPins(ctx)
@@ -199,11 +219,15 @@ func toSessionPin(row sqlc.RouterSessionPin) sessionpin.Pin {
 		LastCachedWriteTokens:     int(row.LastCachedWriteTokens),
 		LastOutputTokens:          int(row.LastOutputTokens),
 		LastTurnEndedAt:           timestamptzOrZero(row.LastTurnEndedAt),
+		LastOutputLimitAt:         timestamptzOrZero(row.LastOutputLimitAt),
 		LastServedModel:           row.LastServedModel,
 		HasEverSwitched:           row.HasEverSwitched,
 		ConsecutiveUpstreamErrors: int(row.ConsecutiveUpstreamErrors),
 		ConsecutiveOverloadErrors: int(row.ConsecutiveOverloadErrors),
+		ConsecutiveDowngradeVotes: int(row.ConsecutiveDowngradeVotes),
+		ConsecutiveUpgradeVotes:   int(row.ConsecutiveUpgradeVotes),
 		DisabledProviders:         row.DisabledProviders,
+		DemotedModels:             row.DemotedModels,
 	}
 	// Bounded copy guards against a corrupt row panicking the request handler.
 	copy(pin.SessionKey[:], row.SessionKey)

@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/router/escalation"
+	"weave-os/router/internal/router/escalationdashboard"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -100,8 +101,13 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 	if count != 1 {
 		return fmt.Errorf("concurrent claims produced %d owners", count)
 	}
-	session := escalation.Session{Ordinal: 1, FeatureTurns: 1, FeatureState: json.RawMessage(`{"turns":1}`), Floor: escalation.Medium}
-	checkpoint := escalation.Checkpoint{Ordinal: 1}
+	epoch := 7
+	session := escalation.Session{Ordinal: 1, FeatureTurns: 1, FeatureState: json.RawMessage(`{"turns":1}`), Floor: escalation.Medium, Mode: escalation.ModeActive, Epoch: &epoch}
+	checkpoint := escalation.Checkpoint{
+		Ordinal:    1,
+		Prediction: &escalation.Prediction{Score: 0.9, Threshold: 0.5, Escalate: true},
+		Decision:   &escalation.Decision{Baseline: escalation.Low, Effective: escalation.Medium, Outcome: escalation.OutcomePromoted, Constrained: true},
+	}
 	err = store.Commit(ctx, scope, boundary, uuid.NewString(), session, checkpoint)
 	if !errors.Is(err, escalation.ErrLeaseLost) {
 		return fmt.Errorf("wrong lease committed: %v", err)
@@ -199,9 +205,30 @@ func checkEscalationState(ctx context.Context, dsn string) (checkErr error) {
 		return errors.New("duplicate boundary committed")
 	}
 	secondBoundary := sha256.Sum256([]byte("second boundary"))
-	err = store.Commit(ctx, scope, secondBoundary, nextToken, next, escalation.Checkpoint{Ordinal: 2})
+	err = store.Commit(ctx, scope, secondBoundary, nextToken, next, escalation.Checkpoint{
+		Ordinal:    2,
+		Prediction: &escalation.Prediction{Score: 0.2, Threshold: 0.5, Escalate: false},
+		Decision:   &escalation.Decision{Baseline: escalation.Low, Effective: escalation.Medium, Outcome: escalation.OutcomeFloor, Constrained: true},
+	})
 	if err != nil {
 		return fmt.Errorf("duplicate rollback damaged lease/session: %w", err)
+	}
+	dashboardCapturedAt := time.Now().UTC()
+	storedDashboard, err := postgres.NewEscalationDashboardRepo(pool).CreateSnapshot(ctx, escalationdashboard.Filter{
+		Service:    escalationdashboard.ServiceXGB,
+		Limit:      50,
+		CapturedAt: dashboardCapturedAt,
+		ExpiresAt:  dashboardCapturedAt.Add(time.Minute),
+	})
+	if err != nil {
+		return err
+	}
+	dashboard := storedDashboard.Snapshot
+	if dashboard.Summary.ObservedSessions != 1 || dashboard.Summary.Evaluations != 2 || dashboard.Summary.Recommendations != 1 || dashboard.Summary.EscalationsApplied != 1 || dashboard.Summary.FloorConstrainedRequests != 1 {
+		return fmt.Errorf("XGB dashboard metrics did not reconcile: %+v", dashboard.Summary)
+	}
+	if len(dashboard.Sessions) != 1 || dashboard.Sessions[0].Mode != escalationdashboard.ModeActive || dashboard.Sessions[0].Epoch == nil || *dashboard.Sessions[0].Epoch != epoch {
+		return fmt.Errorf("XGB dashboard attribution missing: %+v", dashboard.Sessions)
 	}
 	err = store.SaveOutcome(ctx, scope, 1, escalation.PreviousOutcome{IsError: true, StatusCode: 500})
 	if err != nil {

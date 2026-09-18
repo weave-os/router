@@ -78,6 +78,25 @@ type RouterEscalationContinuation struct {
 	History        []byte
 }
 
+type RouterEscalationDashboardSnapshot struct {
+	ID                              uuid.UUID
+	CapturedAt                      pgtype.Timestamptz
+	ExpiresAt                       pgtype.Timestamptz
+	Summary                         []byte
+	OutcomeBreakdown                []byte
+	ProgressDistribution            []byte
+	FirstRecommendationDistribution []byte
+	FloorDistribution               []byte
+	Organizations                   []byte
+	MatchingSessions                int32
+}
+
+type RouterEscalationDashboardSnapshotSession struct {
+	SnapshotID uuid.UUID
+	Position   int32
+	Session    []byte
+}
+
 type RouterEscalationSession struct {
 	Scope            []byte
 	InstallationID   uuid.UUID
@@ -123,6 +142,37 @@ type RouterInstallationProfileAssignment struct {
 	ProfileKey           pgtype.UUID
 	AssignmentGeneration int64
 	UpdatedAt            pgtype.Timestamptz
+}
+
+type RouterLlmEscalationCompletion struct {
+	Lifetime uuid.UUID
+	Boundary []byte
+}
+
+type RouterLlmEscalationContinuation struct {
+	Activation     []byte
+	ResponseDigest []byte
+	Lifetime       uuid.UUID
+	History        []byte
+}
+
+type RouterLlmEscalationJob struct {
+	ID         uuid.UUID
+	Lifetime   uuid.UUID
+	Generation int64
+	Checkpoint int64
+	Status     string
+	LeaseUntil pgtype.Timestamptz
+	Job        []byte
+}
+
+type RouterLlmEscalationSession struct {
+	Scope          []byte
+	Lifetime       uuid.UUID
+	InstallationID uuid.UUID
+	State          []byte
+	ExpiresAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
 }
 
 // Cyclic tool-call loop detections: ops signal and (session, looping_model) -> looped training labels
@@ -455,6 +505,16 @@ type RouterModelRouterRequestTelemetry struct {
 	SelectionPolicySha256           *string
 	SelectionHeadGeneration         *int64
 	SelectionTrace                  []byte
+	// Name of the final tool_use block on a turn that ended with stop_reason = tool_use. NULL on every other turn.
+	LastToolUseName *string
+	// Byte length of the final tool_use block's input JSON as sent to the client, on a turn that ended with stop_reason = tool_use. NULL on every other turn.
+	LastToolUseInputBytes *int32
+	// JSON object of tool name to {calls, errors}: resolved tool calls on this request and how many of their results errored. NULL when the history has no resolved tool call.
+	ToolErrorCounts []byte
+	// TRUE when the router appended the autonomy operating instruction to the outgoing system prompt on this request. NULL when it did not.
+	AutonomyAppendFired *bool
+	// TRUE when the served attempt carried the workspace-inspection instruction appended by the router (cross-vendor emitters only). NULL when it did not.
+	WorkspaceAppendFired *bool
 }
 
 type RouterModelRouterSubscriptionAccount struct {
@@ -467,6 +527,11 @@ type RouterModelRouterSubscriptionAccount struct {
 	CooldownUntil          pgtype.Timestamp
 	CreatedAt              pgtype.Timestamp
 	UpdatedAt              pgtype.Timestamp
+	AccessTokenCiphertext  []byte
+	AccessTokenExpiresAt   pgtype.Timestamp
+	TokenRefreshLeaseUntil pgtype.Timestamp
+	TokenRefreshLeaseID    pgtype.UUID
+	TokenRefreshVersion    int64
 }
 
 // End-user identities seen on inbound requests, scoped to an installation. Replaces the per-user API key pattern.
@@ -741,6 +806,10 @@ type RouterSessionPin struct {
 	PolicyGroup               string
 	RoutingStrategy           string
 	PinnedEffort              string
+	DemotedModels             []string
+	ConsecutiveDowngradeVotes int32
+	LastOutputLimitAt         pgtype.Timestamptz
+	ConsecutiveUpgradeVotes   int32
 }
 
 // Conversation release pins; admission transactions lock installation, key, subject, then conversation
