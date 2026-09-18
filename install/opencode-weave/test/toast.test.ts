@@ -24,9 +24,20 @@ function messageUpdated(info: Message): Event {
   return { type: "message.updated", properties: { info } }
 }
 
-async function pluginWithToast(showToast: (opts: unknown) => Promise<unknown>) {
+async function pluginWithToast(showToast: (opts: unknown) => Promise<unknown>, assistantText = "") {
   const input = {
-    client: { tui: { showToast } },
+    client: {
+      tui: { showToast },
+      session: {
+        async message() {
+          return {
+            data: {
+              parts: assistantText ? [{ type: "text", text: assistantText }] : [],
+            },
+          }
+        },
+      },
+    },
   } as unknown as PluginInput
   return WeaveCodex(input)
 }
@@ -34,15 +45,18 @@ async function pluginWithToast(showToast: (opts: unknown) => Promise<unknown>) {
 describe("WeaveCodex routed-model toast", () => {
   test("toasts completed weave assistant message with model and cost/tokens", async () => {
     const calls: unknown[] = []
-    const hooks = await pluginWithToast(async (opts) => {
-      calls.push(opts)
-    })
+    const hooks = await pluginWithToast(
+      async (opts) => {
+        calls.push(opts)
+      },
+      "✦ **Weave Router** → claude-opus-4-8 · best pick for this turn\n\nanswer",
+    )
     await hooks.event!({ event: messageUpdated(assistantInfo()) })
     expect(calls).toHaveLength(1)
     expect(calls[0]).toEqual({
       body: {
         title: "Weave Router",
-        message: "→ anthropic/claude-sonnet-4-5 · $0.012 · 1.2k in / 340 out",
+        message: "→ claude-opus-4-8 · $0.012 · 1.2k in / 340 out",
         variant: "info",
         duration: 6000,
       },
