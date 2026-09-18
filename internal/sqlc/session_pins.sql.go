@@ -21,7 +21,7 @@ WHERE session_key = $1::bytea
     OR (routing_strategy = '' AND $3::varchar <> 'hmm_beta')
   )
   AND pinned_until > CURRENT_TIMESTAMP
-RETURNING session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, demoted_models, consecutive_downgrade_votes, last_output_limit_at, consecutive_upgrade_votes
+RETURNING session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, demoted_models, consecutive_downgrade_votes, last_output_limit_at, consecutive_upgrade_votes, demotion_cooldowns
 `
 
 type DeleteSessionPinParams struct {
@@ -42,7 +42,7 @@ type DeleteSessionPinParams struct {
 //	    OR (routing_strategy = '' AND $3::varchar <> 'hmm_beta')
 //	  )
 //	  AND pinned_until > CURRENT_TIMESTAMP
-//	RETURNING session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, demoted_models, consecutive_downgrade_votes, last_output_limit_at, consecutive_upgrade_votes
+//	RETURNING session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, demoted_models, consecutive_downgrade_votes, last_output_limit_at, consecutive_upgrade_votes, demotion_cooldowns
 func (q *Queries) DeleteSessionPin(ctx context.Context, arg DeleteSessionPinParams) (RouterSessionPin, error) {
 	row := q.db.QueryRow(ctx, deleteSessionPin, arg.SessionKey, arg.Role, arg.ExpectedRoutingStrategy)
 	var i RouterSessionPin
@@ -76,6 +76,7 @@ func (q *Queries) DeleteSessionPin(ctx context.Context, arg DeleteSessionPinPara
 		&i.ConsecutiveDowngradeVotes,
 		&i.LastOutputLimitAt,
 		&i.ConsecutiveUpgradeVotes,
+		&i.DemotionCooldowns,
 	)
 	return i, err
 }
@@ -126,6 +127,91 @@ func (q *Queries) DisableSessionPinProvider(ctx context.Context, arg DisableSess
 		arg.SessionKey,
 		arg.Role,
 		arg.ExpectedRoutingStrategy,
+	)
+	return err
+}
+
+const expireAndCoolDownSessionPinModel = `-- name: ExpireAndCoolDownSessionPinModel :exec
+INSERT INTO router.session_pins (
+  session_key, role, installation_id, pinned_provider,
+  pinned_model, pinned_effort, paired_provider, paired_model,
+  decision_reason, routing_strategy, policy_group, turn_count, pinned_until,
+  demotion_cooldowns
+) VALUES (
+  $1::bytea, $2::varchar, $3::uuid,
+  '', '', '', '', '',
+  $4::text, $5::varchar, '',
+  1, $6::timestamp,
+  jsonb_build_object($7::varchar, to_jsonb($8::timestamptz))
+)
+ON CONFLICT (session_key, role) DO UPDATE SET
+  pinned_provider  = '',
+  pinned_model     = '',
+  pinned_effort    = '',
+  paired_provider  = '',
+  paired_model     = '',
+  decision_reason  = EXCLUDED.decision_reason,
+  routing_strategy = EXCLUDED.routing_strategy,
+  pinned_until     = EXCLUDED.pinned_until,
+  last_seen_at     = CURRENT_TIMESTAMP,
+  demotion_cooldowns = router.session_pins.demotion_cooldowns || EXCLUDED.demotion_cooldowns
+WHERE router.session_pins.routing_strategy = EXCLUDED.routing_strategy
+  OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy <> 'hmm_beta')
+`
+
+type ExpireAndCoolDownSessionPinModelParams struct {
+	SessionKey              []byte
+	Role                    string
+	InstallationID          uuid.UUID
+	DecisionReason          string
+	ExpectedRoutingStrategy string
+	PinnedUntil             pgtype.Timestamp
+	Model                   string
+	CooldownUntil           pgtype.Timestamptz
+}
+
+// Time-limited counterpart of ExpireAndDemoteSessionPinModel: expires the pin
+// row and records model in demotion_cooldowns until the given instant, so the
+// next turns re-route around a rate-limited arm while it cools down and
+// return to it afterwards. A later cooldown for the same model overwrites the
+// earlier one. Seeding, strategy guard and the untouched newer-strategy row
+// behave exactly as in ExpireAndDemoteSessionPinModel.
+//
+//	INSERT INTO router.session_pins (
+//	  session_key, role, installation_id, pinned_provider,
+//	  pinned_model, pinned_effort, paired_provider, paired_model,
+//	  decision_reason, routing_strategy, policy_group, turn_count, pinned_until,
+//	  demotion_cooldowns
+//	) VALUES (
+//	  $1::bytea, $2::varchar, $3::uuid,
+//	  '', '', '', '', '',
+//	  $4::text, $5::varchar, '',
+//	  1, $6::timestamp,
+//	  jsonb_build_object($7::varchar, to_jsonb($8::timestamptz))
+//	)
+//	ON CONFLICT (session_key, role) DO UPDATE SET
+//	  pinned_provider  = '',
+//	  pinned_model     = '',
+//	  pinned_effort    = '',
+//	  paired_provider  = '',
+//	  paired_model     = '',
+//	  decision_reason  = EXCLUDED.decision_reason,
+//	  routing_strategy = EXCLUDED.routing_strategy,
+//	  pinned_until     = EXCLUDED.pinned_until,
+//	  last_seen_at     = CURRENT_TIMESTAMP,
+//	  demotion_cooldowns = router.session_pins.demotion_cooldowns || EXCLUDED.demotion_cooldowns
+//	WHERE router.session_pins.routing_strategy = EXCLUDED.routing_strategy
+//	  OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy <> 'hmm_beta')
+func (q *Queries) ExpireAndCoolDownSessionPinModel(ctx context.Context, arg ExpireAndCoolDownSessionPinModelParams) error {
+	_, err := q.db.Exec(ctx, expireAndCoolDownSessionPinModel,
+		arg.SessionKey,
+		arg.Role,
+		arg.InstallationID,
+		arg.DecisionReason,
+		arg.ExpectedRoutingStrategy,
+		arg.PinnedUntil,
+		arg.Model,
+		arg.CooldownUntil,
 	)
 	return err
 }
@@ -227,7 +313,7 @@ func (q *Queries) ExpireAndDemoteSessionPinModel(ctx context.Context, arg Expire
 }
 
 const getSessionPin = `-- name: GetSessionPin :one
-SELECT session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, demoted_models, consecutive_downgrade_votes, last_output_limit_at, consecutive_upgrade_votes
+SELECT session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, demoted_models, consecutive_downgrade_votes, last_output_limit_at, consecutive_upgrade_votes, demotion_cooldowns
 FROM router.session_pins
 WHERE session_key = $1::bytea
   AND role        = $2::varchar
@@ -245,7 +331,7 @@ type GetSessionPinParams struct {
 // last_turn_ended_at carry the previous turn's upstream usage; the
 // planner reads them to weigh switch EV against eviction cost.
 //
-//	SELECT session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, demoted_models, consecutive_downgrade_votes, last_output_limit_at, consecutive_upgrade_votes
+//	SELECT session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, demoted_models, consecutive_downgrade_votes, last_output_limit_at, consecutive_upgrade_votes, demotion_cooldowns
 //	FROM router.session_pins
 //	WHERE session_key = $1::bytea
 //	  AND role        = $2::varchar
@@ -282,6 +368,7 @@ func (q *Queries) GetSessionPin(ctx context.Context, arg GetSessionPinParams) (R
 		&i.ConsecutiveDowngradeVotes,
 		&i.LastOutputLimitAt,
 		&i.ConsecutiveUpgradeVotes,
+		&i.DemotionCooldowns,
 	)
 	return i, err
 }
@@ -758,6 +845,11 @@ ON CONFLICT (session_key, role) DO UPDATE SET
     WHEN router.session_pins.routing_strategy = EXCLUDED.routing_strategy
       THEN router.session_pins.demoted_models
     ELSE '{}'
+  END,
+  demotion_cooldowns = CASE
+    WHEN router.session_pins.routing_strategy = EXCLUDED.routing_strategy
+      THEN router.session_pins.demotion_cooldowns
+    ELSE '{}'::jsonb
   END
 `
 
@@ -946,6 +1038,11 @@ type UpsertSessionPinParams struct {
 //	    WHEN router.session_pins.routing_strategy = EXCLUDED.routing_strategy
 //	      THEN router.session_pins.demoted_models
 //	    ELSE '{}'
+//	  END,
+//	  demotion_cooldowns = CASE
+//	    WHEN router.session_pins.routing_strategy = EXCLUDED.routing_strategy
+//	      THEN router.session_pins.demotion_cooldowns
+//	    ELSE '{}'::jsonb
 //	  END
 func (q *Queries) UpsertSessionPin(ctx context.Context, arg UpsertSessionPinParams) error {
 	_, err := q.db.Exec(ctx, upsertSessionPin,

@@ -308,6 +308,11 @@ type turnLoopResult struct {
 	SessionArmHeld     bool
 	SessionArmAnchored bool
 	SessionArmOverride string
+	// SessionCooldownModels are the rate-limit cooldowns still in force
+	// (model → expiry). Also listed in SessionDemotedModels; kept apart so
+	// the in-turn rescue can readmit them when honouring them would leave no
+	// candidate. Empty unless transient_rate_limit is on.
+	SessionCooldownModels map[string]time.Time
 	// AuthorityShadow is the counterfactual HMM cache-gate verdict on an
 	// authoritative-per-turn turn. Observation only: it never touches Decision.
 	AuthorityShadow authorityCacheShadow
@@ -1175,7 +1180,17 @@ func (s *Service) runTurnLoop(
 	// layer that reaches the scorer, the HMM authoritative pick, sibling
 	// failover and every automatic pin reuse at once, and is the only one an
 	// explicit /force-model of the same model still routes through.
-	if demoted := mergeSessionStrikes(pin.DemotedModels, hmmHistory.DemotedModels); len(demoted) > 0 {
+	demoted := mergeSessionStrikes(pin.DemotedModels, hmmHistory.DemotedModels)
+	if s.ResolveTransientRateLimit(ctx) {
+		// A rate-limit strike expires: the arm is only out while its
+		// cooldown is in force.
+		cooling := activeDemotionCooldowns(mergeDemotionCooldowns(pin.DemotionCooldowns, hmmHistory.DemotionCooldowns), s.clockNow())
+		if len(cooling) > 0 {
+			res.SessionCooldownModels = readmittableCooldowns(cooling, demoted, req.HasImages)
+			demoted = mergeSessionStrikes(demoted, cooldownsByExpiry(cooling))
+		}
+	}
+	if len(demoted) > 0 {
 		res.SessionDemotedModels = demoted
 		for _, model := range demoted {
 			req.AutomaticExcludedModels = addToSet(req.AutomaticExcludedModels, model)

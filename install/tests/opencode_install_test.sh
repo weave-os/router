@@ -29,6 +29,13 @@ run_install() {
       --base-url http://127.0.0.1:9 >/dev/null 2>&1
 }
 
+run_install_output() {
+  HOME="$home" XDG_CONFIG_HOME="$home/xdg" PATH="$test_path" NO_COLOR=1 \
+    WEAVE_ROUTER_KEY="rk_opencode_test" \
+    bash "$installer" --opencode --dir "$install_dir" --non-interactive \
+      --base-url http://127.0.0.1:9 2>&1
+}
+
 run_toggle() {
   HOME="$home" XDG_CONFIG_HOME="$home/xdg" PATH="$test_path" NO_COLOR=1 \
     bash "$installer" "$1" --opencode --dir "$install_dir" >/dev/null 2>&1
@@ -53,6 +60,13 @@ cat >"$config" <<'JSON'
 JSON
 
 run_install
+install_output="$(run_install_output)"
+grep -Fq "opencode auth login" <<<"$install_output" || fail "install did not print the OpenCode auth login command"
+grep -Fq "Weave Router — Codex plan" <<<"$install_output" || fail "install did not print the Codex plan provider"
+grep -Fq "Weave Router — Claude plan" <<<"$install_output" || fail "install did not print the Claude plan provider"
+if grep -Fq "npx @weave-os/router login" <<<"$install_output"; then
+  fail "install advertised server-side enrollment as the OpenCode plugin login path"
+fi
 [ "$(jq -r '.model' "$config")" = "weave/auto" ] || fail "install did not activate weave/auto"
 [ "$(jq -r '.direct_model' "$parked")" = "anthropic/claude-sonnet-4-5" ] || fail "install did not park the previous model"
 [ "$(jq -r '.provider.weave.models.auto.limit.context' "$config")" = "128000" ] || fail "virtual model context limit is missing"

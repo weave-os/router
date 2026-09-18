@@ -162,6 +162,27 @@ func TestProxyGeminiGenerateContent_RetriesBuffered429WithoutMarkerLeak(t *testi
 	assert.Contains(t, rec.Body.String(), "retry later")
 }
 
+// Under transient_rate_limit the Gemini path paces same-binding retries like
+// Messages does: a Retry-After above the cap ends them after the first attempt.
+func TestProxyGeminiGenerateContent_TransientRateLimitHonoursRetryAfterCap(t *testing.T) {
+	store := newFakePinStore()
+	googleProv := &fakeProvider{proxyErr: &providers.UpstreamErrorResponse{
+		Status:  http.StatusTooManyRequests,
+		Headers: http.Header{"Retry-After": []string{"30"}},
+		Body:    []byte(`{"error":{"message":"retry later"}}`),
+	}}
+	svc := proxy.NewService(
+		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}},
+		map[string]providers.Client{providers.ProviderGoogle: googleProv},
+		nil, false, nil, store, false, providers.ProviderGoogle, "gemini-2.5-flash", nil,
+	).WithRetrySleep(noRetrySleep).WithTransientRateLimit(true, 45)
+	rec := httptest.NewRecorder()
+	err := svc.ProxyGeminiGenerateContent(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(geminiInjectedBody), rec,
+		httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", nil))
+	require.Error(t, err)
+	assert.Len(t, googleProv.proxyBodies, 1, "a Retry-After above the cap skips further same-binding attempts")
+}
+
 func TestProxyGeminiGenerateContent_PersistsPassthroughExperimentTelemetry(t *testing.T) {
 	const installationID = "22222222-2222-2222-2222-222222222222"
 	routerSpy := &fakeRouter{err: errors.New("scorer must not run for passthrough arm")}

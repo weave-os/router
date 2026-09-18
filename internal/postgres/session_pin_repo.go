@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -24,6 +25,7 @@ func NewSessionPinRepo(tx sqlc.DBTX) *SessionPinRepo {
 }
 
 var _ sessionpin.Store = (*SessionPinRepo)(nil)
+var _ sessionpin.CooldownStore = (*SessionPinRepo)(nil)
 
 func (r *SessionPinRepo) Get(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool, error) {
 	q := sqlc.New(r.tx)
@@ -193,6 +195,20 @@ func (r *SessionPinRepo) ExpireAndDemoteModel(ctx context.Context, expired sessi
 	})
 }
 
+func (r *SessionPinRepo) ExpireAndCoolDownModel(ctx context.Context, expired sessionpin.Pin, model string, until time.Time, _ sessionpin.DemotionReason) error {
+	q := sqlc.New(r.tx)
+	return q.ExpireAndCoolDownSessionPinModel(ctx, sqlc.ExpireAndCoolDownSessionPinModelParams{
+		SessionKey:              expired.SessionKey[:],
+		Role:                    expired.Role,
+		InstallationID:          expired.InstallationID,
+		DecisionReason:          expired.Reason,
+		ExpectedRoutingStrategy: string(expired.Strategy),
+		PinnedUntil:             pgtype.Timestamp{Time: expired.PinnedUntil.UTC(), Valid: true},
+		Model:                   model,
+		CooldownUntil:           pgtype.Timestamptz{Time: until.UTC(), Valid: true},
+	})
+}
+
 func (r *SessionPinRepo) SweepExpired(ctx context.Context) error {
 	q := sqlc.New(r.tx)
 	return q.SweepExpiredSessionPins(ctx)
@@ -228,10 +244,25 @@ func toSessionPin(row sqlc.RouterSessionPin) sessionpin.Pin {
 		ConsecutiveUpgradeVotes:   int(row.ConsecutiveUpgradeVotes),
 		DisabledProviders:         row.DisabledProviders,
 		DemotedModels:             row.DemotedModels,
+		DemotionCooldowns:         demotionCooldowns(row.DemotionCooldowns),
 	}
 	// Bounded copy guards against a corrupt row panicking the request handler.
 	copy(pin.SessionKey[:], row.SessionKey)
 	return pin
+}
+
+// demotionCooldowns decodes the {model: RFC 3339 instant} JSONB column. An
+// unreadable value yields no cooldowns rather than failing the pin read: the
+// worst outcome is one turn that does not skip a throttled arm.
+func demotionCooldowns(raw []byte) map[string]time.Time {
+	if len(raw) == 0 {
+		return nil
+	}
+	var cooldowns map[string]time.Time
+	if err := json.Unmarshal(raw, &cooldowns); err != nil || len(cooldowns) == 0 {
+		return nil
+	}
+	return cooldowns
 }
 
 // timestamptzOrZero mirrors timestampOrZero for TIMESTAMPTZ columns:

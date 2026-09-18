@@ -106,8 +106,9 @@ Precedence is unchanged above the arm: `/force-model` and
 `ROUTER_HARD_PIN_MODEL` return before it; `sessionArmOverride` then re-applies
 every pin-drop guard to the arm itself — request `allowed_models` subset,
 provider eligibility (incl. session provider strikes), image capability,
-`AutomaticExcludedModels` (deployment disable **and** the P14 session
-demotion), the previous-turn output-cap loop breaker, org allow/exclude lists
+`AutomaticExcludedModels` (deployment disable, session strikes **and** an
+active `transient_rate_limit` cooldown), the previous-turn output-cap loop
+breaker, org allow/exclude lists
 and the context-window pre-filter (re-verified with the ÷4 estimate) — and an
 override sends *that turn* to the ordinary scorer while leaving the row alone,
 so the next eligible turn (e.g. a demotion cooldown lapsing) returns to the
@@ -123,6 +124,27 @@ complete`: `session_arm_mode`, `session_arm_model`, `session_arm_held`,
 "Authoritative policy model did not match served model" warning still means
 what it says on scored turns. The arm never widens the pool and never
 reconstructs a decision the request could not otherwise have been served by.
+
+**A rescued 429 is a cooldown, not a session-lifetime strike.** Under
+`transient_rate_limit` (default off), `maybeStrikeArmAfterRescuedFailure`
+records a rescued primary's buffered upstream 429 as
+`DemotionReasonRateLimited` with an expiry (`rate_limit_cooldown_seconds`,
+default 45) in `Pin.DemotionCooldowns`; committed-stream failures and non-429
+rescued failures stay permanent. `runTurnLoop` folds only *active* cooldowns
+into `AutomaticExcludedModels`, so an expired arm is scored and rescued again
+with no extra state change. Cooldowns are soft in one more way than the
+deployment exclusion: `rescueWalkOrReadmitCooling` appends cooling arms
+(soonest expiry first) *after* every healthy rescue candidate, so a session
+whose whole rescue pool is throttled readmits a cooling arm instead of
+surfacing the 429 — the arm that just 429'd is never re-served that turn.
+Readmission lifts *only* the cooldown: `readmittableCooldowns` drops a model
+that also carries a session-lifetime strike or cannot take the turn's images,
+and the deployment-wide automatic exclusion still holds in the second walk. The
+same flag makes the same-binding retry Retry-After-aware
+(`dispatch.ThrottlePolicy`: honour ≤10s, else go straight to rescue; 500ms then
+1.5s when the header is absent). Sessions under a gateway quota (prod 2026-09)
+died at 11 consecutive client-visible 429s because a burst-time rescue had
+permanently demoted the arm that recovered minutes later.
 
 **A wholly non-routable allowlist is rejected at the admin API.** Membership
 validation for `PUT /admin/v1/allowed-models` is catalog-wide on purpose —

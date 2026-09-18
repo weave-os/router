@@ -966,7 +966,7 @@ write_opencode_config() {
     --argjson headers "$headers_json" '
     {
       npm: "@ai-sdk/openai",
-      name: "Weave Router",
+      name: "Weave Router — Codex plan",
       options: { apiKey: $key, baseURL: $url, headers: $headers },
       models: {
         auto: {
@@ -4763,7 +4763,7 @@ if [ "$target" = "opencode" ]; then
   # can outlive a plugin-less re-install that stripped the provider, which would
   # make these instructions misleading.
   if jq -e '(.provider // {}) | has("weave-claude")' "$opencode_config_file" >/dev/null 2>&1; then
-    info "Optional: connect your AI plans so they pay for the matching turns. Run ${C_BOLD}opencode auth login${C_RESET} → ${C_BOLD}Weave Router${C_RESET} for ${C_BOLD}ChatGPT Pro/Plus${C_RESET} (GPT/Codex turns) and/or ${C_BOLD}Weave Router — Claude plan${C_RESET} for ${C_BOLD}Claude Pro/Max${C_RESET} (Claude turns). The router still routes every turn; your Weave key pays for the rest."
+    info "Optional: connect your AI plans so they pay for the matching turns. Run ${C_BOLD}opencode auth login${C_RESET} → ${C_BOLD}Weave Router — Codex plan${C_RESET} for ${C_BOLD}ChatGPT Pro/Plus${C_RESET} (GPT/Codex turns) and/or ${C_BOLD}Weave Router — Claude plan${C_RESET} for ${C_BOLD}Claude Pro/Max${C_RESET} (Claude turns). The router still routes every turn; your Weave key pays for the rest."
   fi
   if [ -n "$install_dir" ]; then
     # --dir installs land outside opencode's discovery roots, so the caller
