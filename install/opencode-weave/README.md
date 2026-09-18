@@ -55,9 +55,10 @@ Claude-only setup pays Claude turns from that plan without requiring ChatGPT.
 
 ## Login
 
-`opencode auth login` → **Weave Router** → *ChatGPT Pro/Plus* (browser or
-headless device code) and/or **Weave Router — Claude plan** → *Claude Pro/Max*
-(browser; paste the `code#state` shown after authorizing).
+`npx @weave-os/router login codex` for ChatGPT Pro/Plus (GPT/Codex turns)
+and/or `npx @weave-os/router login claude` for Claude Pro/Max (Claude turns).
+Prefer these over `opencode auth login`. If you do use OpenCode's picker, the
+providers are **Weave Router — Codex plan** and **Weave Router — Claude plan**.
 
 ## Env overrides (self-host + tests)
 
