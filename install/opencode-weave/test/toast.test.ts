@@ -31,7 +31,11 @@ async function pluginWithToast(showToast: (opts: unknown) => Promise<unknown>) {
   return WeaveCodex(input)
 }
 
-async function captureRoutedModelHeader(hooks: Awaited<ReturnType<typeof WeaveCodex>>, routedModelID?: string): Promise<void> {
+async function captureRoutedModelHeader(
+  hooks: Awaited<ReturnType<typeof WeaveCodex>>,
+  routedModelID?: string,
+  messageID = "msg_user",
+): Promise<void> {
   const realFetch = globalThis.fetch
   globalThis.fetch = (async () => {
     const headers = routedModelID ? { "x-router-model": routedModelID } : undefined
@@ -39,8 +43,15 @@ async function captureRoutedModelHeader(hooks: Awaited<ReturnType<typeof WeaveCo
   }) as unknown as typeof fetch
   try {
     const loaded = await hooks.auth!.loader!(async () => ({ type: "api", key: "test" }) as never, {} as never)
+    const output: { headers: Record<string, string> } = { headers: {} }
+    await hooks["chat.headers"]?.({
+      sessionID: "ses_1",
+      agent: "build",
+      model: { providerID: "weave", modelID: "auto" },
+      message: { id: messageID },
+    } as never, output)
     await (loaded.fetch as typeof fetch)("https://router.example.test/v1/responses", {
-      headers: { "session-id": "ses_1" },
+      headers: output.headers,
     })
   } finally {
     globalThis.fetch = realFetch
@@ -66,6 +77,21 @@ describe("WeaveCodex routed-model toast", () => {
     })
   })
 
+  test("correlates routed model metadata to each request", async () => {
+    const calls: unknown[] = []
+    const hooks = await pluginWithToast(async (opts) => {
+      calls.push(opts)
+    })
+    await captureRoutedModelHeader(hooks, "claude-opus-4-8", "msg_first")
+    await captureRoutedModelHeader(hooks, "gpt-5.6-terra", "msg_second")
+    await hooks.event!({ event: messageUpdated(assistantInfo({ id: "assistant_first", parentID: "msg_first" })) })
+    await hooks.event!({ event: messageUpdated(assistantInfo({ id: "assistant_second", parentID: "msg_second" })) })
+    expect(calls.map((call) => (call as { body: { message: string } }).body.message)).toEqual([
+      "→ claude-opus-4-8 · $0.012 · 1.2k in / 340 out",
+      "→ gpt-5.6-terra · $0.012 · 1.2k in / 340 out",
+    ])
+  })
+
   test("falls back to requested model when response omits routed model metadata", async () => {
     const calls: unknown[] = []
     const hooks = await pluginWithToast(async (opts) => {
@@ -76,6 +102,20 @@ describe("WeaveCodex routed-model toast", () => {
     expect(calls[0]).toMatchObject({
       body: {
         message: "→ auto · $0.012 · 1.2k in / 340 out",
+      },
+    })
+  })
+
+  test("preserves positive sub-mill costs", async () => {
+    const calls: unknown[] = []
+    const hooks = await pluginWithToast(async (opts) => {
+      calls.push(opts)
+    })
+    await captureRoutedModelHeader(hooks, "claude-opus-4-8")
+    await hooks.event!({ event: messageUpdated(assistantInfo({ id: "msg_small_cost", cost: 0.000499 })) })
+    expect(calls[0]).toMatchObject({
+      body: {
+        message: "→ claude-opus-4-8 · <$0.001 · 1.2k in / 340 out",
       },
     })
   })

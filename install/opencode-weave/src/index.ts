@@ -81,6 +81,7 @@ const HEADER_ANTHROPIC_SUB = "X-Weave-Anthropic-Subscription"
 // pin safety). Must match internal/requestcontext.OpenCodeAgentHeader; the
 // router ignores it for auth, billing, and provider eligibility.
 const HEADER_OPENCODE_AGENT = "X-Weave-OpenCode-Agent"
+const HEADER_OPENCODE_REQUEST_ID = "X-Weave-OpenCode-Request-ID"
 type OpenCodeAgent = "build" | "title" | "explore" | "compaction"
 const OPENCODE_AGENTS: ReadonlySet<string> = new Set<OpenCodeAgent>(["build", "title", "explore", "compaction"])
 
@@ -434,6 +435,7 @@ function compactTokenCount(n: number): string {
 
 function formatCost(cost: number): string {
   if (!Number.isFinite(cost) || cost <= 0) return ""
+  if (cost < 0.001) return "<$0.001"
   return `$${cost.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}`
 }
 
@@ -456,7 +458,8 @@ function isCompletedWeaveAssistant(info: Message): info is AssistantMessage {
 }
 
 export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => {
-  const routedModelIDsBySession = new Map<string, string>()
+  const pendingRequestMessageIDs = new Map<string, string>()
+  const routedModelIDsByMessage = new Map<string, string>()
   const toastedMessageIDs = new Set<string>()
   return {
     event: async ({ event }) => {
@@ -465,8 +468,8 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
       if (!isCompletedWeaveAssistant(info)) return
       if (toastedMessageIDs.has(info.id)) return
       toastedMessageIDs.add(info.id)
-      const routedModelID = routedModelIDsBySession.get(info.sessionID) ?? info.modelID
-      routedModelIDsBySession.delete(info.sessionID)
+      const routedModelID = routedModelIDsByMessage.get(info.parentID) ?? info.modelID
+      routedModelIDsByMessage.delete(info.parentID)
       try {
         await input.client.tui.showToast({
           body: {
@@ -579,11 +582,16 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
             }
             if (anthropic) headers.set(HEADER_ANTHROPIC_SUB, anthropic)
 
-            const response = await fetch(requestInput, { ...init, headers })
-            const sessionID = headers.get("session-id")
-            const routedModelID = response.headers.get(HEADER_ROUTER_MODEL)
-            if (sessionID && routedModelID) routedModelIDsBySession.set(sessionID, routedModelID)
-            return response
+            const requestID = headers.get(HEADER_OPENCODE_REQUEST_ID)
+            try {
+              const response = await fetch(requestInput, { ...init, headers })
+              const messageID = requestID ? pendingRequestMessageIDs.get(requestID) : undefined
+              const routedModelID = response.headers.get(HEADER_ROUTER_MODEL)
+              if (messageID && routedModelID) routedModelIDsByMessage.set(messageID, routedModelID)
+              return response
+            } finally {
+              if (requestID) pendingRequestMessageIDs.delete(requestID)
+            }
           },
         }
       },
@@ -689,6 +697,12 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
       if (hookInput.model.providerID !== PROVIDER_ID) return
       output.headers["originator"] = "codex_cli_ts"
       output.headers["session-id"] = hookInput.sessionID
+      const messageID = hookInput.message?.id
+      if (messageID) {
+        const requestID = crypto.randomUUID()
+        pendingRequestMessageIDs.set(requestID, messageID)
+        output.headers[HEADER_OPENCODE_REQUEST_ID] = requestID
+      }
       // Custom agents are user-named; only OpenCode's own lifecycle agents are forwarded.
       const agent = knownOpenCodeAgent(hookInput.agent)
       if (agent) output.headers[HEADER_OPENCODE_AGENT] = agent
