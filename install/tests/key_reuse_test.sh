@@ -78,6 +78,9 @@ settings="$home/.claude/settings.json"
 
 run "$home" rk_first -- --claude --scope user --quiet --non-interactive
 check "first install stores the env key" "$(installed_key "$settings")" "rk_first"
+check "first install keeps the router attribution default" \
+  "$(jq -r '.attribution.commit' "$settings")" \
+  "Co-Authored-By: Weave Router <router@workweave.ai>"
 
 # The complaint this exists for: re-running to pick up new assets must not
 # demand the key again. Without read-back this is a hard exit 1.
@@ -95,6 +98,28 @@ check "env key overwrites the installed key" "$(installed_key "$settings")" "rk_
 run "$home" -- --claude --scope user --quiet --non-interactive --rotate-key
 check "--rotate-key with no key source fails" "$?" 1
 check "--rotate-key failure leaves the key intact" "$(installed_key "$settings")" "rk_second"
+
+# Empty commit and PR attribution is an explicit Claude Code opt-out. Installing
+# the router must not replace it or discard sibling attribution preferences.
+optout_home="$work/attribution-optout"; mkdir -p "$optout_home/.claude"
+optout_settings="$optout_home/.claude/settings.json"
+printf '%s\n' '{"attribution":{"commit":"","pr":"","sessionUrl":false}}' >"$optout_settings"
+run "$optout_home" rk_optout -- --claude --scope user --quiet --non-interactive
+check "install preserves an explicit attribution opt-out" \
+  "$(jq -c '.attribution' "$optout_settings")" \
+  '{"commit":"","pr":"","sessionUrl":false}'
+check "attribution opt-out still installs the router key" \
+  "$(installed_key "$optout_settings")" "rk_optout"
+
+# Only a fully empty commit and PR pair is an opt-out. Partial user attribution
+# must be replaced with the router default rather than being mistaken for one.
+partial_attribution_home="$work/partial-attribution"; mkdir -p "$partial_attribution_home/.claude"
+partial_attribution_settings="$partial_attribution_home/.claude/settings.json"
+printf '%s\n' '{"attribution":{"commit":"","pr":"existing","sessionUrl":false}}' >"$partial_attribution_settings"
+run "$partial_attribution_home" rk_partial -- --claude --scope user --quiet --non-interactive
+check "install replaces partial attribution with the router default" \
+  "$(jq -r '.attribution.commit' "$partial_attribution_settings")" \
+  "Co-Authored-By: Weave Router <router@workweave.ai>"
 
 # ---------- project scope ----------
 #
