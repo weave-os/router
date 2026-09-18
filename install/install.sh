@@ -1612,9 +1612,11 @@ fi
 # ---------- interactive scope prompt ----------
 
 # If the user didn't pass --scope and we have a controlling terminal, ask which
-# scope to install into. Non-interactive runs (CI, `curl | sh --non-interactive`)
-# silently use the "user" default.
-if [ -z "$install_dir" ] && [ "$scope_explicit" = "false" ] && [ "$non_interactive" = "false" ] && [ -r /dev/tty ]; then
+# scope to install into. Login enrollment defaults to user scope; the installer
+# prints an explicit scope when it points at a project-scoped OpenCode install.
+# Non-interactive runs (CI, `curl | sh --non-interactive`) also silently use the
+# "user" default.
+if [ "$mode" != "login" ] && [ -z "$install_dir" ] && [ "$scope_explicit" = "false" ] && [ "$non_interactive" = "false" ] && [ -r /dev/tty ]; then
   # Per-target paths so the prompt text matches what actually gets written.
   case "$target" in
     codex)
