@@ -34,6 +34,7 @@
  */
 
 import type { Hooks, Plugin, PluginInput } from "@opencode-ai/plugin"
+import type { AssistantMessage, Message } from "@opencode-ai/sdk"
 import { readFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
@@ -65,6 +66,8 @@ const ANTHROPIC_SCOPE = "org:create_api_key user:profile user:inference"
 // opencode's bundled provider plugins, which rewrite the upstream off the router.
 const PROVIDER_ID = "weave"
 const ANTHROPIC_PROVIDER_ID = "weave-claude"
+const TOAST_TITLE = "Weave Router"
+const TOAST_DURATION_MS = 6000
 
 // Dedicated router subscription headers. Must match the constants in
 // internal/server/middleware/auth.go so the router stashes each sub and resolves
@@ -420,8 +423,60 @@ function waitForOAuthCallback(pkce: PkceCodes, state: string): Promise<TokenResp
 
 // ---- Request provider: `weave` (Responses, both subs) ----------------------
 
+function compactTokenCount(n: number): string {
+  if (n >= 1000) {
+    const k = n / 1000
+    return `${k >= 10 ? k.toFixed(0) : k.toFixed(1).replace(/\.0$/, "")}k`
+  }
+  return String(n)
+}
+
+function formatCost(cost: number): string {
+  if (!Number.isFinite(cost) || cost <= 0) return ""
+  return `$${cost.toFixed(3).replace(/0+$/, "").replace(/\.$/, "")}`
+}
+
+function formatRoutedToast(modelID: string, cost: number, tokens: { input: number; output: number }): string {
+  const parts = [`→ ${modelID}`]
+  const costLabel = formatCost(cost)
+  if (costLabel) parts.push(costLabel)
+  const usage: string[] = []
+  if (tokens.input > 0) usage.push(`${compactTokenCount(tokens.input)} in`)
+  if (tokens.output > 0) usage.push(`${compactTokenCount(tokens.output)} out`)
+  if (usage.length > 0) parts.push(usage.join(" / "))
+  return parts.join(" · ")
+}
+
+function isCompletedWeaveAssistant(info: Message): info is AssistantMessage {
+  if (info.role !== "assistant") return false
+  if (info.providerID !== PROVIDER_ID) return false
+  if (!info.modelID) return false
+  return info.time.completed !== undefined
+}
+
 export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => {
+  const toastedMessageIDs = new Set<string>()
   return {
+    event: async ({ event }) => {
+      if (event.type !== "message.updated") return
+      const info = event.properties.info
+      if (!isCompletedWeaveAssistant(info)) return
+      if (toastedMessageIDs.has(info.id)) return
+      toastedMessageIDs.add(info.id)
+      // modelID is the OpenCode selected weave model; the event payload has no parts to scrape an in-band marker.
+      try {
+        await input.client.tui.showToast({
+          body: {
+            title: TOAST_TITLE,
+            message: formatRoutedToast(info.modelID, info.cost, info.tokens),
+            variant: "info",
+            duration: TOAST_DURATION_MS,
+          },
+        })
+      } catch {
+        // Toast is best-effort; a TUI miss must not fail the turn.
+      }
+    },
     auth: {
       provider: PROVIDER_ID,
       async loader(getAuth) {
