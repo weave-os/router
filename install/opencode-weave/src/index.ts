@@ -470,6 +470,9 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
       toastedMessageIDs.add(info.id)
       const routedModelID = routedModelIDsByMessage.get(info.parentID) ?? info.modelID
       routedModelIDsByMessage.delete(info.parentID)
+      for (const [requestID, messageID] of pendingRequestMessageIDs) {
+        if (messageID === info.parentID) pendingRequestMessageIDs.delete(requestID)
+      }
       try {
         await input.client.tui.showToast({
           body: {
@@ -583,14 +586,18 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
             if (anthropic) headers.set(HEADER_ANTHROPIC_SUB, anthropic)
 
             const requestID = headers.get(HEADER_OPENCODE_REQUEST_ID)
+            let routedModelCaptured = false
             try {
               const response = await fetch(requestInput, { ...init, headers })
               const messageID = requestID ? pendingRequestMessageIDs.get(requestID) : undefined
               const routedModelID = response.headers.get(HEADER_ROUTER_MODEL)
-              if (messageID && routedModelID) routedModelIDsByMessage.set(messageID, routedModelID)
+              if (messageID && routedModelID) {
+                routedModelIDsByMessage.set(messageID, routedModelID)
+                routedModelCaptured = true
+              }
               return response
             } finally {
-              if (requestID) pendingRequestMessageIDs.delete(requestID)
+              if (requestID && routedModelCaptured) pendingRequestMessageIDs.delete(requestID)
             }
           },
         }

@@ -35,9 +35,13 @@ async function captureRoutedModelHeader(
   hooks: Awaited<ReturnType<typeof WeaveCodex>>,
   routedModelID?: string,
   messageID = "msg_user",
+  retryBeforeSuccess = false,
 ): Promise<void> {
   const realFetch = globalThis.fetch
+  let attempts = 0
   globalThis.fetch = (async () => {
+    attempts += 1
+    if (retryBeforeSuccess && attempts === 1) throw new Error("retryable response")
     const headers = routedModelID ? { "x-router-model": routedModelID } : undefined
     return new Response("{}", { headers })
   }) as unknown as typeof fetch
@@ -50,9 +54,20 @@ async function captureRoutedModelHeader(
       model: { providerID: "weave", modelID: "auto" },
       message: { id: messageID },
     } as never, output)
-    await (loaded.fetch as typeof fetch)("https://router.example.test/v1/responses", {
-      headers: output.headers,
-    })
+    const request = () =>
+      (loaded.fetch as typeof fetch)("https://router.example.test/v1/responses", {
+        headers: output.headers,
+      })
+    if (retryBeforeSuccess) {
+      let firstAttemptFailed = false
+      try {
+        await request()
+      } catch {
+        firstAttemptFailed = true
+      }
+      if (!firstAttemptFailed) throw new Error("expected the first response attempt to fail")
+    }
+    await request()
   } finally {
     globalThis.fetch = realFetch
   }
@@ -90,6 +105,20 @@ describe("WeaveCodex routed-model toast", () => {
       "→ claude-opus-4-8 · $0.012 · 1.2k in / 340 out",
       "→ gpt-5.6-terra · $0.012 · 1.2k in / 340 out",
     ])
+  })
+
+  test("retains routed model correlation across a retry", async () => {
+    const calls: unknown[] = []
+    const hooks = await pluginWithToast(async (opts) => {
+      calls.push(opts)
+    })
+    await captureRoutedModelHeader(hooks, "claude-opus-4-8", "msg_retry", true)
+    await hooks.event!({ event: messageUpdated(assistantInfo({ id: "assistant_retry", parentID: "msg_retry" })) })
+    expect(calls[0]).toMatchObject({
+      body: {
+        message: "→ claude-opus-4-8 · $0.012 · 1.2k in / 340 out",
+      },
+    })
   })
 
   test("falls back to requested model when response omits routed model metadata", async () => {
