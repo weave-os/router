@@ -1551,9 +1551,11 @@ func (s *Service) runTurnLoop(
 	// entry path would observe search decay and prefix trimming twice and lose
 	// the already-computed translation eligibility and pin-drop evidence.
 	routeRemaining := func() (turnLoopResult, error) {
-		// Tool-result turns stay on the eligible session pin so a cheaper HMM vote
-		// cannot yank the model mid-loop. Ineligible pins still fall through.
+		// When tool-result scoring is disabled, stay on the eligible session pin so
+		// a cheaper HMM vote cannot yank the model mid-loop. Ineligible pins still
+		// fall through, and the scoring override keeps its existing behavior.
 		if req.Escalation == nil &&
+			!s.ResolveScoreToolResultTurns(ctx) &&
 			res.TurnType == turntype.ToolResult &&
 			pinFound &&
 			automaticPinEligible(pin, req) {
@@ -1569,7 +1571,7 @@ func (s *Service) runTurnLoop(
 				"pin_model", pin.Model,
 				"pin_provider", pin.Provider,
 			)
-			s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, decision)
+			s.refreshPinVotes(ctx, installationID, res.SessionKey, pin, res.PinRole, decision, pin.ConsecutiveDowngradeVotes, pin.ConsecutiveUpgradeVotes)
 			return res, nil
 		}
 

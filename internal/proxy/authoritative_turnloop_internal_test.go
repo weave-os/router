@@ -424,10 +424,12 @@ func TestAuthoritativeToolResultHoldsEligiblePin(t *testing.T) {
 	store := newStubPinStore()
 	store.getFound = true
 	store.getPin = sessionpin.Pin{
-		Provider:    providers.ProviderAnthropic,
-		Model:       "claude-opus-4-7",
-		Reason:      "cluster:v0.2",
-		PinnedUntil: time.Now().Add(time.Hour),
+		Provider:                  providers.ProviderAnthropic,
+		Model:                     "claude-opus-4-7",
+		Reason:                    "cluster:v0.2",
+		PinnedUntil:               time.Now().Add(time.Hour),
+		ConsecutiveDowngradeVotes: 1,
+		ConsecutiveUpgradeVotes:   2,
 	}
 	policyRouter := &authoritativeTestRouter{decision: router.Decision{
 		Provider: providers.ProviderAnthropic,
@@ -445,7 +447,7 @@ func TestAuthoritativeToolResultHoldsEligiblePin(t *testing.T) {
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
 		nil,
-	).WithPolicyStrategy(policy.StrategySpec{
+	).WithScoreToolResultTurns(false).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: strategy,
 		Router:   policyRouter,
 		Capabilities: policy.Capabilities{
@@ -484,4 +486,7 @@ func TestAuthoritativeToolResultHoldsEligiblePin(t *testing.T) {
 	assert.Equal(t, "claude-opus-4-7", result.Decision.Model)
 	assert.Equal(t, "authoritative_tool_result_pin", result.PinTier)
 	assert.Empty(t, policyRouter.requests)
+	require.Len(t, store.upserts, 1)
+	assert.Equal(t, 1, store.upserts[0].ConsecutiveDowngradeVotes)
+	assert.Equal(t, 2, store.upserts[0].ConsecutiveUpgradeVotes)
 }
