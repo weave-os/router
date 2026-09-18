@@ -133,6 +133,8 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		// A managed-subscription turn never fails over to a paid binding; a
 		// transient error on it still gets the same-binding retries.
 		Bound: func(dispatch.Attempt, error) bool { return managedBinding },
+		// Nil unless transient_rate_limit is on for this request.
+		RetryDelay: s.throttleRetryDelay(ctx),
 	}
 	transport.Attempt = func(attemptCtx context.Context, attempt dispatch.Attempt, client providers.Client) error {
 		decision := in.initialDecision

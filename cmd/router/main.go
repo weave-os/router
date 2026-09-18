@@ -721,6 +721,10 @@ func main() {
 	// Session-level demotion of the primary arm after a sibling rescue. Off
 	// until baked off against the committed-stream demotion.
 	rescuedFailureArmDemotion := config.GetOr("ROUTER_RESCUED_FAILURE_ARM_DEMOTION", "false") == "true"
+	// Upstream 429s as transient throttling: cooldown demotion, fail-open
+	// rescue and Retry-After-aware same-binding retry. Off until baked off.
+	transientRateLimit := config.GetOr("ROUTER_TRANSIENT_RATE_LIMIT", "false") == "true"
+	rateLimitCooldownSeconds := parseEnvInt("ROUTER_RATE_LIMIT_COOLDOWN_SECONDS", proxy.DefaultRateLimitCooldownSeconds)
 	// nativeAnthropicResponseSignals records the stop reason and tool_use block
 	// count an Anthropic-native turn already streams past the usage extractor;
 	// kill switch for that extraction and the telemetry columns it fills.
@@ -1168,6 +1172,8 @@ func main() {
 		flags.KeyCCWorkspaceSystemAppend:              boolDefault(ccWorkspaceSystemAppend),
 		flags.KeyCommittedStreamArmDemotion:           boolDefault(committedStreamArmDemotion),
 		flags.KeyRescuedFailureArmDemotion:            boolDefault(rescuedFailureArmDemotion),
+		flags.KeyTransientRateLimit:                   boolDefault(transientRateLimit),
+		flags.KeyRateLimitCooldownSeconds:             strconv.Itoa(rateLimitCooldownSeconds),
 		flags.KeyNativeAnthropicResponseSignals:       boolDefault(nativeAnthropicResponseSignals),
 		flags.KeyNativeOpenAIResponseSignals:          boolDefault(nativeOpenAIResponseSignals),
 		flags.KeyEffortEscalation:                     boolDefault(effortEscalation),
@@ -1238,6 +1244,7 @@ func main() {
 		WithAllowedModelsHeader(allowedModelsHeader).
 		WithCommittedStreamArmDemotion(committedStreamArmDemotion).
 		WithRescuedFailureArmDemotion(rescuedFailureArmDemotion).
+		WithTransientRateLimit(transientRateLimit, rateLimitCooldownSeconds).
 		WithNativeAnthropicResponseSignals(nativeAnthropicResponseSignals).
 		WithNativeOpenAIResponseSignals(nativeOpenAIResponseSignals).
 		WithSSEKeepalive(sseKeepalive).

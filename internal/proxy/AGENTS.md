@@ -87,6 +87,24 @@ re-anchors, post-command continuations, band swap, sibling failover, the policy
  deadline default, and loop escalation — every path where the router
 picked the model. `forcedPinEligible` deliberately does not.
 
+**A rescued 429 is a cooldown, not a session-lifetime strike.** Under
+`transient_rate_limit` (default off), `maybeStrikeArmAfterRescuedFailure`
+records a rescued primary's buffered upstream 429 as
+`DemotionReasonRateLimited` with an expiry (`rate_limit_cooldown_seconds`,
+default 45) in `Pin.DemotionCooldowns`; committed-stream failures and non-429
+rescued failures stay permanent. `runTurnLoop` folds only *active* cooldowns
+into `AutomaticExcludedModels`, so an expired arm is scored and rescued again
+with no extra state change. Cooldowns are soft in one more way than the
+deployment exclusion: `rescueWalkOrReadmitCooling` appends cooling arms
+(soonest expiry first) *after* every healthy rescue candidate, so a session
+whose whole rescue pool is throttled readmits a cooling arm instead of
+surfacing the 429 — the arm that just 429'd is never re-served that turn. The
+same flag makes the same-binding retry Retry-After-aware
+(`dispatch.ThrottlePolicy`: honour ≤10s, else go straight to rescue; 500ms then
+1.5s when the header is absent). Snowflake runs R3-R5 (2026-09) died at 11
+consecutive client-visible 429s because a burst-time rescue had permanently
+demoted the arm that recovered minutes later.
+
 **A wholly non-routable allowlist is rejected at the admin API.** Membership
 validation for `PUT /admin/v1/allowed-models` is catalog-wide on purpose —
 force-model and hard-pin reach rows the router never scores — but the

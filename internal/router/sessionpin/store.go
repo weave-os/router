@@ -4,6 +4,7 @@ package sessionpin
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"weave-os/router/internal/router"
@@ -104,6 +105,11 @@ type Pin struct {
 	// upstream failure (see ExpireAndDemoteModel and DemotionReason). Only
 	// grows for the life of the row; Upsert never touches it.
 	DemotedModels []string
+	// DemotionCooldowns are models withdrawn from this pin's session only
+	// until the recorded instant (see CooldownStore.ExpireAndCoolDownModel):
+	// a rescued upstream rate limit is throttling, not a dead arm. A model
+	// present in DemotedModels is out regardless of any cooldown here.
+	DemotionCooldowns map[string]time.Time
 }
 
 // DemotionReason names why a model was withdrawn from automatic selection for
@@ -117,6 +123,24 @@ const DemotionReasonCommittedStreamFailure DemotionReason = "committed_stream_fa
 // DemotionReasonRescuedFailure marks the primary arm of a turn whose attempt
 // failed pre-commit and was handed to a same-cluster sibling.
 const DemotionReasonRescuedFailure DemotionReason = "rescued_failure"
+
+// DemotionReasonRateLimited marks the primary arm of a turn whose attempt was
+// rate-limited upstream (429) pre-commit and handed to a same-cluster sibling.
+// Unlike the other reasons the withdrawal is time-limited.
+const DemotionReasonRateLimited DemotionReason = "rate_limited"
+
+// ActiveCooldowns returns the models whose cooldown in cooldowns has not yet
+// elapsed at now, sorted for deterministic exclusion order.
+func ActiveCooldowns(cooldowns map[string]time.Time, now time.Time) []string {
+	active := make([]string, 0, len(cooldowns))
+	for model, until := range cooldowns {
+		if now.Before(until) {
+			active = append(active, model)
+		}
+	}
+	sort.Strings(active)
+	return active
+}
 
 // Usage captures the previous turn's upstream token accounting.
 type Usage struct {
@@ -183,4 +207,16 @@ type Store interface {
 	// The reason is recorded on the pin's eviction trail, not on the row.
 	ExpireAndDemoteModel(ctx context.Context, expired Pin, model string, reason DemotionReason) error
 	SweepExpired(ctx context.Context) error
+}
+
+// CooldownStore is the time-limited counterpart of Store.ExpireAndDemoteModel.
+// It is a separate contract so a Store that only knows lifetime strikes keeps
+// satisfying Store; callers fall back to a lifetime demotion when the store
+// does not implement it.
+type CooldownStore interface {
+	// ExpireAndCoolDownModel writes expired like ExpireAndDemoteModel but
+	// records model in the row's DemotionCooldowns until the given instant
+	// (overwriting an earlier cooldown for the same model) instead of
+	// appending it to DemotedModels. Same seeding and strategy guard.
+	ExpireAndCoolDownModel(ctx context.Context, expired Pin, model string, until time.Time, reason DemotionReason) error
 }

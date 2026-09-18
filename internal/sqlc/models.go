@@ -818,6 +818,7 @@ type RouterSessionPin struct {
 	ConsecutiveDowngradeVotes int32
 	LastOutputLimitAt         pgtype.Timestamptz
 	ConsecutiveUpgradeVotes   int32
+	DemotionCooldowns         []byte
 }
 
 // Conversation release pins; admission transactions lock installation, key, subject, then conversation

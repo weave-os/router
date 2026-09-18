@@ -46,6 +46,11 @@ type Transport struct {
 	// failed over to another target (a caller-bound credential served it, for
 	// example).
 	Bound func(attempt Attempt, err error) bool
+	// RetryDelay, when set, decides the wait before a same-target retry of a
+	// transient failure. backoff is the executor's default for this retry;
+	// returning retry=false ends same-target retries so the operation moves
+	// on to failover. The budget still bounds the returned delay.
+	RetryDelay func(attempt Attempt, err error, backoff time.Duration) (delay time.Duration, retry bool)
 	// OperationID distinguishes this operation from others in the same
 	// request; empty means the purpose is used.
 	OperationID string
@@ -280,11 +285,20 @@ func (e *Executor) Run(ctx context.Context, req inference.InvocationRequest, pla
 			if maxAttempts > 0 && result.Outcome.AttemptCount >= maxAttempts {
 				break
 			}
-			if e.now().Sub(retryStart) >= sameBindingRetryBudget {
+			spent := e.now().Sub(retryStart)
+			if spent >= sameBindingRetryBudget {
 				break
 			}
+			delay := sameBindingBackoffBase << sb
+			if transport.RetryDelay != nil {
+				chosen, retry := transport.RetryDelay(attempt, attemptErr, delay)
+				if !retry || spent+chosen > sameBindingRetryBudget {
+					break
+				}
+				delay = chosen
+			}
 			transport.reset()
-			if err := e.sleep(attemptCtx, sameBindingBackoffBase<<sb); err != nil {
+			if err := e.sleep(attemptCtx, delay); err != nil {
 				return fail(attemptErr, reason)
 			}
 		}

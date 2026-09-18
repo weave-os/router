@@ -106,6 +106,8 @@ const (
 	KeySubscriptionPlanAwareRouting         Key = "subscription_plan_aware_routing_enabled"
 	KeyCommittedStreamArmDemotion           Key = "committed_stream_arm_demotion"
 	KeyRescuedFailureArmDemotion            Key = "rescued_failure_arm_demotion"
+	KeyTransientRateLimit                   Key = "transient_rate_limit"
+	KeyRateLimitCooldownSeconds             Key = "rate_limit_cooldown_seconds"
 	KeyNativeAnthropicResponseSignals       Key = "native_anthropic_response_signals"
 	KeyNativeOpenAIResponseSignals          Key = "native_openai_response_signals"
 )
@@ -144,7 +146,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 20
+const RegistryVersion = 21
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -377,6 +379,20 @@ var Registry = []Definition{
 		OrgOverridable: true,
 	},
 	{
+		Key:            KeyTransientRateLimit,
+		EnvVar:         "ROUTER_TRANSIENT_RATE_LIMIT",
+		Kind:           KindBool,
+		Description:    "Treat an upstream 429 as transient throttling: a rescued 429 demotes the primary model for a cooldown instead of the session, an in-turn rescue ignores cooling-down arms only when honouring them would leave no candidate, and same-binding retries honour Retry-After. Off by default.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyRateLimitCooldownSeconds,
+		EnvVar:         "ROUTER_RATE_LIMIT_COOLDOWN_SECONDS",
+		Kind:           KindInt,
+		Description:    "Seconds a model stays out of a session's automatic selection after a rescued 429 while transient_rate_limit is on. Default 45.",
+		OrgOverridable: true,
+	},
+	{
 		Key:            KeyNativeAnthropicResponseSignals,
 		EnvVar:         "ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS",
 		Kind:           KindBool,
@@ -501,6 +517,9 @@ func ValidateOverrides(o Overrides) error {
 		}
 		if key == KeyAuthoritativeUpgradeVotes && value < 0 {
 			return fmt.Errorf("%w: %q must be nonnegative, got %d", ErrInvalidValue, key, value)
+		}
+		if key == KeyRateLimitCooldownSeconds && value < 1 {
+			return fmt.Errorf("%w: %q must be positive, got %d", ErrInvalidValue, key, value)
 		}
 	}
 	for key := range o.Floats {

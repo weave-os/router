@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"time"
 
 	"weave-os/router/internal/flags"
 )
@@ -165,6 +166,25 @@ func (s *Service) ResolveCommittedStreamArmDemotion(ctx context.Context) bool {
 // leaves the session's automatic selection.
 func (s *Service) ResolveRescuedFailureArmDemotion(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyRescuedFailureArmDemotion, s.rescuedFailureArmDemotion)
+}
+
+// ResolveTransientRateLimit reports the ROUTER_TRANSIENT_RATE_LIMIT flag: on,
+// a rescued upstream 429 cools the primary arm down for
+// ResolveRateLimitCooldown instead of demoting it for the session, the
+// in-turn rescue readmits cooling-down arms when honouring them would leave
+// no candidate, and same-binding retries of a 429 honour Retry-After.
+func (s *Service) ResolveTransientRateLimit(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyTransientRateLimit, s.transientRateLimit)
+}
+
+// ResolveRateLimitCooldown is how long a rescued 429 keeps the primary arm out
+// of the session's automatic selection (ROUTER_RATE_LIMIT_COOLDOWN_SECONDS).
+func (s *Service) ResolveRateLimitCooldown(ctx context.Context) time.Duration {
+	seconds := flags.IntOr(ctx, flags.KeyRateLimitCooldownSeconds, s.rateLimitCooldownSeconds)
+	if seconds < 1 {
+		seconds = DefaultRateLimitCooldownSeconds
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 // ResolveNativeAnthropicResponseSignals reports the

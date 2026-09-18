@@ -191,6 +191,11 @@ ON CONFLICT (session_key, role) DO UPDATE SET
     WHEN router.session_pins.routing_strategy = EXCLUDED.routing_strategy
       THEN router.session_pins.demoted_models
     ELSE '{}'
+  END,
+  demotion_cooldowns = CASE
+    WHEN router.session_pins.routing_strategy = EXCLUDED.routing_strategy
+      THEN router.session_pins.demotion_cooldowns
+    ELSE '{}'::jsonb
   END;
 
 -- Records the previous turn's upstream token usage on an existing pin
@@ -392,6 +397,39 @@ ON CONFLICT (session_key, role) DO UPDATE SET
       THEN router.session_pins.demoted_models
     ELSE array_append(router.session_pins.demoted_models, @model::varchar)
   END
+WHERE router.session_pins.routing_strategy = EXCLUDED.routing_strategy
+  OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy <> 'hmm_beta');
+
+-- Time-limited counterpart of ExpireAndDemoteSessionPinModel: expires the pin
+-- row and records model in demotion_cooldowns until the given instant, so the
+-- next turns re-route around a rate-limited arm while it cools down and
+-- return to it afterwards. A later cooldown for the same model overwrites the
+-- earlier one. Seeding, strategy guard and the untouched newer-strategy row
+-- behave exactly as in ExpireAndDemoteSessionPinModel.
+-- name: ExpireAndCoolDownSessionPinModel :exec
+INSERT INTO router.session_pins (
+  session_key, role, installation_id, pinned_provider,
+  pinned_model, pinned_effort, paired_provider, paired_model,
+  decision_reason, routing_strategy, policy_group, turn_count, pinned_until,
+  demotion_cooldowns
+) VALUES (
+  @session_key::bytea, @role::varchar, @installation_id::uuid,
+  '', '', '', '', '',
+  @decision_reason::text, @expected_routing_strategy::varchar, '',
+  1, @pinned_until::timestamp,
+  jsonb_build_object(@model::varchar, to_jsonb(@cooldown_until::timestamptz))
+)
+ON CONFLICT (session_key, role) DO UPDATE SET
+  pinned_provider  = '',
+  pinned_model     = '',
+  pinned_effort    = '',
+  paired_provider  = '',
+  paired_model     = '',
+  decision_reason  = EXCLUDED.decision_reason,
+  routing_strategy = EXCLUDED.routing_strategy,
+  pinned_until     = EXCLUDED.pinned_until,
+  last_seen_at     = CURRENT_TIMESTAMP,
+  demotion_cooldowns = router.session_pins.demotion_cooldowns || EXCLUDED.demotion_cooldowns
 WHERE router.session_pins.routing_strategy = EXCLUDED.routing_strategy
   OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy <> 'hmm_beta');
 

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -367,6 +368,43 @@ func IsRetryableStatus(status int) bool {
 		return true
 	}
 	return status >= 500 && status <= 599
+}
+
+// IsUpstreamRateLimited reports whether err is a buffered upstream 429: the
+// provider is throttling this caller, which says nothing about the model's
+// health. Committed streams never qualify.
+func IsUpstreamRateLimited(err error) bool {
+	var buffered *UpstreamErrorResponse
+	return errors.As(err, &buffered) && buffered.Status == http.StatusTooManyRequests
+}
+
+// RetryAfter reads the Retry-After header of a buffered upstream error in
+// either RFC 9110 form: delay-seconds or an HTTP-date, resolved against now.
+// ok is false when the header is absent, negative, or unparseable; a zero
+// delay or an HTTP-date already in the past reports (0, true): retry now.
+func RetryAfter(err error, now time.Time) (delay time.Duration, ok bool) {
+	var buffered *UpstreamErrorResponse
+	if !errors.As(err, &buffered) || buffered.Headers == nil {
+		return 0, false
+	}
+	raw := strings.TrimSpace(buffered.Headers.Get("Retry-After"))
+	if raw == "" {
+		return 0, false
+	}
+	if seconds, parseErr := strconv.Atoi(raw); parseErr == nil {
+		if seconds < 0 {
+			return 0, false
+		}
+		return time.Duration(seconds) * time.Second, true
+	}
+	at, parseErr := http.ParseTime(raw)
+	if parseErr != nil {
+		return 0, false
+	}
+	if !at.After(now) {
+		return 0, true
+	}
+	return at.Sub(now), true
 }
 
 // IsRetryable reports whether err is safe to retry on a different provider,

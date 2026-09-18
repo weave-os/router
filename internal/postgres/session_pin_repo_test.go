@@ -56,3 +56,29 @@ func TestToSessionPinOutputLimitMarker(t *testing.T) {
 		assert.Equal(t, endedAt, pin.LastOutputLimitAt)
 	})
 }
+
+func TestToSessionPinDemotionCooldowns(t *testing.T) {
+	t.Parallel()
+
+	until := time.Date(2026, 9, 18, 12, 0, 45, 0, time.UTC)
+
+	t.Run("decodes model to instant map", func(t *testing.T) {
+		t.Parallel()
+		pin := toSessionPin(sqlc.RouterSessionPin{
+			DemotionCooldowns: []byte(`{"claude-opus-4-7":"2026-09-18T12:00:45Z"}`),
+		})
+		assert.Equal(t, map[string]time.Time{"claude-opus-4-7": until}, pin.DemotionCooldowns)
+	})
+
+	t.Run("empty object and NULL are no cooldowns", func(t *testing.T) {
+		t.Parallel()
+		assert.Nil(t, toSessionPin(sqlc.RouterSessionPin{DemotionCooldowns: []byte(`{}`)}).DemotionCooldowns)
+		assert.Nil(t, toSessionPin(sqlc.RouterSessionPin{}).DemotionCooldowns)
+	})
+
+	t.Run("unreadable value fails open to no cooldowns", func(t *testing.T) {
+		t.Parallel()
+		assert.Nil(t, toSessionPin(sqlc.RouterSessionPin{DemotionCooldowns: []byte(`[1,2]`)}).DemotionCooldowns)
+		assert.Nil(t, toSessionPin(sqlc.RouterSessionPin{DemotionCooldowns: []byte(`{"m":"soon"}`)}).DemotionCooldowns)
+	})
+}
