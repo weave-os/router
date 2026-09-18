@@ -493,6 +493,93 @@ func TestSessionArm_ContextWindowOverrides(t *testing.T) {
 	assert.Equal(t, smallWindowArm, store.armRows()[0].Model)
 }
 
+func TestSessionArm_PreFilterExclusionHoldsWhenArmFitsContext(t *testing.T) {
+	store := newKeyedPinStore()
+	scorer := &authoritativeTestRouter{decision: armDecision(armLuna)}
+	svc := sessionArmService(store, scorer)
+	ctx := sessionArmCtx(flags.SessionArmPinMain, "sess-1")
+	env, feats := sessionArmMainLoopEnvelope(t, "short prompt")
+	store.seed(armKeyFor(ctx, env), sessionArmRole, armPin(armOpus))
+
+	// A conservative pre-filter exclusion that the direct fit check clears
+	// keeps the arm, as the thread pin's own pin-drop guard does.
+	res := runSessionArmTurn(t, svc, ctx, env, feats, uuid.New(), func(req *router.Request) {
+		req.ExcludedModels = map[string]struct{}{armOpus: {}}
+	})
+
+	assert.Equal(t, armOpus, res.Decision.Model)
+	assert.True(t, res.SessionArmHeld)
+	assert.Empty(t, res.SessionArmOverride)
+}
+
+func TestSessionArm_UnsignedToolHistoryOverridesGeminiArm(t *testing.T) {
+	const geminiArm = "gemini-3-pro-preview"
+	store := newKeyedPinStore()
+	scorer := &authoritativeTestRouter{decision: armDecision(armLuna)}
+	svc := sessionArmService(store, scorer)
+	ctx := sessionArmCtx(flags.SessionArmPinMain, "sess-1")
+	env, feats := sessionArmToolResultEnvelope(t, "first prompt") // tool_use with no thoughtSignature
+	require.True(t, env.HasUnsignedToolCallHistory())
+	store.seed(armKeyFor(ctx, env), sessionArmRole, sessionpin.Pin{Provider: providers.ProviderGoogle, Model: geminiArm, Reason: ReasonSessionArmPin})
+
+	res := runSessionArmTurn(t, svc, ctx, env, feats, uuid.New(), func(req *router.Request) {
+		req.ExcludedModels, _ = excludeGemini3xOnUnsignedHistory(env, nil, map[string]struct{}{geminiArm: {}, armLuna: {}})
+		require.Contains(t, req.ExcludedModels, geminiArm)
+	})
+
+	assert.Equal(t, armLuna, res.Decision.Model)
+	assert.Equal(t, sessionArmOverrideUnsignedHistory, res.SessionArmOverride)
+	assert.Equal(t, geminiArm, store.armRows()[0].Model, "the arm survives the override")
+}
+
+// --- safety refusal --------------------------------------------------------
+
+func TestSessionArm_RefusalRepinMovesArmOffRefusingModel(t *testing.T) {
+	store := newKeyedPinStore()
+	svc := sessionArmService(store, &authoritativeTestRouter{decision: armDecision(armOpus)})
+	svc.cyberRefusalRepin, svc.cyberRefusalFallbackModel = true, armSonnet
+	ctx := context.WithValue(sessionArmCtx(flags.SessionArmPinMain, "sess-1"), InstallationIDContextKey{}, uuid.New().String())
+	env, feats := sessionArmMainLoopEnvelope(t, "first prompt")
+	store.seed(armKeyFor(ctx, env), sessionArmRole, armPin(armOpus))
+
+	held := runSessionArmTurn(t, svc, ctx, env, feats, uuid.New(), nil)
+	require.True(t, held.SessionArmHeld)
+
+	fallback, ok := svc.maybeRepinOnRefusal(ctx, &refusalObserver{refused: true}, held.SessionKey, stickyStateRole(held), held.Decision)
+	require.True(t, ok)
+	svc.repinSessionArmOffRefusingModel(ctx, held, held.Decision, fallback)
+
+	rows := store.armRows()
+	require.Len(t, rows, 1)
+	assert.Equal(t, armSonnet, rows[0].Model)
+	assert.Equal(t, providers.ProviderAnthropic, rows[0].Provider)
+
+	next := runSessionArmTurn(t, svc, ctx, env, feats, uuid.New(), nil)
+	assert.Equal(t, armSonnet, next.Decision.Model, "the next covered turn must not return to the refusing arm")
+	assert.True(t, next.SessionArmHeld)
+}
+
+func TestSessionArm_RefusalOnRescuedStandInLeavesArm(t *testing.T) {
+	store := newKeyedPinStore()
+	svc := sessionArmService(store, &authoritativeTestRouter{decision: armDecision(armOpus)})
+	svc.cyberRefusalRepin, svc.cyberRefusalFallbackModel = true, armSonnet
+	ctx := context.WithValue(sessionArmCtx(flags.SessionArmPinMain, "sess-1"), InstallationIDContextKey{}, uuid.New().String())
+	env, feats := sessionArmMainLoopEnvelope(t, "first prompt")
+	store.seed(armKeyFor(ctx, env), sessionArmRole, armPin(armOpus))
+
+	held := runSessionArmTurn(t, svc, ctx, env, feats, uuid.New(), nil)
+	standIn := armDecision(armAstra)
+	standIn.Reason = ReasonSiblingFailover
+
+	fallback, ok := svc.maybeRepinOnRefusal(ctx, &refusalObserver{refused: true}, held.SessionKey, stickyStateRole(held), standIn)
+	require.True(t, ok)
+	svc.repinSessionArmOffRefusingModel(ctx, held, standIn, fallback)
+
+	rows := store.armRows()
+	require.Len(t, rows, 1)
+	assert.Equal(t, armOpus, rows[0].Model)
+}
+
 // --- flag off --------------------------------------------------------------
 
 func TestSessionArm_FlagOffLeavesRoutingUntouched(t *testing.T) {

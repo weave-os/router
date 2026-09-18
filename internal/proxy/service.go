@@ -3093,45 +3093,46 @@ func delimitedValue(b, prefix []byte, end byte) (string, bool) {
 }
 
 // maybeRepinOnRefusal re-pins the session off the refusing model post-turn
-// so subsequent turns route to a non-refusing model.
-func (s *Service) maybeRepinOnRefusal(ctx context.Context, obs *refusalObserver, sessionKey [sessionpin.SessionKeyLen]byte, role string, served router.Decision) {
+// so subsequent turns route to a non-refusing model. Returns the written pin.
+func (s *Service) maybeRepinOnRefusal(ctx context.Context, obs *refusalObserver, sessionKey [sessionpin.SessionKeyLen]byte, role string, served router.Decision) (sessionpin.Pin, bool) {
 	if obs == nil || !obs.refused {
-		return
+		return sessionpin.Pin{}, false
 	}
-	s.repinOffRefusingModel(ctx, sessionKey, role, served, obs.category, "")
+	return s.repinOffRefusingModel(ctx, sessionKey, role, served, obs.category, "")
 }
 
 // repinOffRefusingModel moves the session pin to the refusal fallback, whatever
 // vendor signalled the refusal (Anthropic's stop reason, OpenAI's cyber policy).
-func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, served router.Decision, category, avoidProvider string) {
+// Returns the written pin so callers can move sibling rows with it.
+func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, served router.Decision, category, avoidProvider string) (sessionpin.Pin, bool) {
 	if s.pinStore == nil {
-		return
+		return sessionpin.Pin{}, false
 	}
 	// Detection is unconditional so refusals stay measurable; the flag gates
 	// only the re-pin action.
 	if !s.ResolveCyberRefusalRepin(ctx) {
-		return
+		return sessionpin.Pin{}, false
 	}
 	installationID := installationIDFromContext(ctx)
 	if installationID == uuid.Nil {
-		return
+		return sessionpin.Pin{}, false
 	}
 	// Hard-pinned turns (probe, compaction, title-gen) leave SessionKey zero and
 	// skip normal pin read/write — never persist a pin under an empty key.
 	if sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
-		return
+		return sessionpin.Pin{}, false
 	}
 	// A /force-model pin is the user's explicit choice; a refusal must not silently
 	// overwrite it. Prefix check covers ReasonUserForceModel and its tier_clamp suffix.
 	if strings.HasPrefix(served.Reason, translate.ReasonUserForceModel) {
-		return
+		return sessionpin.Pin{}, false
 	}
 	log := observability.FromContext(ctx)
 	fbModel, fbProvider, ok := s.cyberRefusalFallback(ctx, sessionKey, role, served, avoidProvider)
 	if !ok {
 		log.Warn("safety refusal observed but no distinct fallback model available; not re-pinning",
 			"from_model", served.Model, "fallback_model", fbModel, "refusal_category", category)
-		return
+		return sessionpin.Pin{}, false
 	}
 	pin := sessionpin.Pin{
 		SessionKey:     sessionKey,
@@ -3148,7 +3149,7 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [session
 	// client disconnected); a canceled ctx would drop the re-pin write.
 	if err := s.pinStore.Upsert(context.Background(), pin); err != nil {
 		log.Error("cyber-refusal re-pin: pin upsert failed", "err", err, "from_model", served.Model, "to_model", fbModel)
-		return
+		return sessionpin.Pin{}, false
 	}
 	log.Info("safety refusal — re-pinned session off refusing model",
 		"session_key", shortSessionKey(sessionKey),
@@ -3156,6 +3157,7 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [session
 		"from_model", served.Model,
 		"to_model", fbModel,
 		"to_provider", fbProvider)
+	return pin, true
 }
 
 // anthropicPingFrame keeps a client-facing stream byte-alive during long
@@ -4990,7 +4992,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 
 		// Re-pin the session off the refusing model if a safety refusal was observed.
-		s.maybeRepinOnRefusal(ctx, refusalObs, routeRes.SessionKey, stickyStateRole(routeRes), decision)
+		if fallback, ok := s.maybeRepinOnRefusal(ctx, refusalObs, routeRes.SessionKey, stickyStateRole(routeRes), decision); ok {
+			s.repinSessionArmOffRefusingModel(ctx, routeRes, decision, fallback)
+		}
 	}
 
 	// One event per tool_use block that failed toolcheck validation, including
@@ -7844,7 +7848,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Re-pin the session off the refusing model so the next turn skips it,
 	// whether or not this turn was rescued.
 	if cyberRefusalSeen && !routeRes.BlindExperimentPassthrough {
-		s.repinOffRefusingModel(ctx, routeRes.SessionKey, stickyStateRole(routeRes), primaryDecision, providers.CyberPolicyErrorCode, primaryDecision.Provider)
+		if fallback, ok := s.repinOffRefusingModel(ctx, routeRes.SessionKey, stickyStateRole(routeRes), primaryDecision, providers.CyberPolicyErrorCode, primaryDecision.Provider); ok {
+			s.repinSessionArmOffRefusingModel(ctx, routeRes, primaryDecision, fallback)
+		}
 	}
 
 	// One event per tool call that failed toolcheck validation, mirroring the

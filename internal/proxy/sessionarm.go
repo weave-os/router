@@ -44,7 +44,7 @@ const (
 	sessionArmOverrideAllowedModels     = "allowed_models"
 	sessionArmOverrideExcludedModels    = "excluded_models"
 	sessionArmOverrideContextWindow     = "context_window"
-	sessionArmOverrideExcluded          = "excluded"
+	sessionArmOverrideUnsignedHistory   = "unsigned_tool_history"
 
 	sessionArmOverrideForceModel     = "force_model"
 	sessionArmOverrideLoopEscalation = "loop_escalation"
@@ -119,7 +119,9 @@ func sessionMaxedModels(pin, hmmHistory sessionpin.Pin) []string {
 // provider strikes), image capability, automatic exclusions (deployment
 // disable and session demotion), the previous-turn output-cap loop breaker,
 // org allow/exclude lists, and context-window fit re-verified with the
-// pre-filter's own estimate.
+// pre-filter's own estimate. Like the thread pin, an arm the context
+// pre-filter excluded but that fits on re-verification is kept: that
+// exclusion is a conservative estimate, not a compliance rule.
 func (s *Service) sessionArmOverride(
 	ctx context.Context,
 	env *translate.RequestEnvelope,
@@ -162,7 +164,10 @@ func (s *Service) sessionArmOverride(
 	if !sessionArmFitsContext(env, feats, arm) {
 		return sessionArmOverrideContextWindow
 	}
-	return sessionArmOverrideExcluded
+	if env != nil && env.HasUnsignedToolCallHistory() && gemini3xRequiresSignedHistory(arm.Model) {
+		return sessionArmOverrideUnsignedHistory
+	}
+	return ""
 }
 
 // sessionArmFitsContext is the pin path's context re-verification: the
@@ -270,6 +275,7 @@ func (s *Service) finishSessionArm(ctx context.Context, installationID uuid.UUID
 		return
 	}
 	res.SessionArmMode = arm.mode
+	res.SessionArmKey = arm.key
 	if arm.found {
 		res.SessionArmModel = arm.pin.Model
 		if !res.SessionArmHeld && res.SessionArmOverride == "" {
@@ -296,6 +302,33 @@ func (s *Service) finishSessionArm(ctx context.Context, installationID uuid.UUID
 		"mode", string(arm.mode),
 		"turn_type", string(res.TurnType),
 	)
+}
+
+// repinSessionArmOffRefusingModel moves the arm row along with the thread's
+// safety-refusal re-pin when the refusing model was the arm itself. Without
+// it the next covered turn would hold the session back onto the model that
+// just refused; a refusal is a failure of the assigned arm on this task, not
+// a policy re-decision. A rescued stand-in that refuses leaves the arm alone.
+func (s *Service) repinSessionArmOffRefusingModel(ctx context.Context, routeRes turnLoopResult, served router.Decision, fallback sessionpin.Pin) {
+	if routeRes.SessionArmModel == "" || routeRes.SessionArmModel != served.Model {
+		return
+	}
+	if routeRes.SessionArmKey == ([sessionpin.SessionKeyLen]byte{}) {
+		return
+	}
+	arm := fallback
+	arm.SessionKey = routeRes.SessionArmKey
+	arm.Role = sessionArmRole
+	arm.PairedProvider, arm.PairedModel = "", ""
+	log := observability.FromContext(ctx)
+	if err := s.pinStore.Upsert(context.Background(), arm); err != nil {
+		log.Error("safety refusal: session arm upsert failed", "err", err, "from_model", served.Model, "to_model", arm.Model)
+		return
+	}
+	log.Info("safety refusal — session arm moved off refusing model",
+		"from_model", served.Model,
+		"to_model", arm.Model,
+		"to_provider", arm.Provider)
 }
 
 // sessionArmAutomaticDecision reports whether the turn's decision was the

@@ -303,6 +303,7 @@ type turnLoopResult struct {
 	// this turn wrote the arm. SessionArmOverride names the hard reason an
 	// existing arm did not serve this turn.
 	SessionArmMode     flags.SessionArmPinMode
+	SessionArmKey      [sessionpin.SessionKeyLen]byte
 	SessionArmModel    string
 	SessionArmHeld     bool
 	SessionArmAnchored bool
