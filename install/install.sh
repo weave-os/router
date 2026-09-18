@@ -1014,10 +1014,15 @@ write_opencode_config() {
   plugin_dir="$(cd "$(dirname "$config_file")" && pwd)/.weave"
   plugin_spec="$plugin_dir/opencode-weave.ts"
   plugin_src="$script_dir/opencode-weave/src/index.ts"
+  plugin_directives_src="$script_dir/opencode-weave/src/directives.ts"
   if [ -f "$plugin_src" ]; then
     mkdir -p "$plugin_dir"
     cp "$plugin_src" "$plugin_spec"
     chmod 644 "$plugin_spec"
+    if [ -f "$plugin_directives_src" ]; then
+      cp "$plugin_directives_src" "$plugin_dir/directives.ts"
+      chmod 644 "$plugin_dir/directives.ts"
+    fi
     plugin_arg="$plugin_spec"
   else
     warn "opencode subscription plugin source not found at $plugin_src — skipping the Claude login + subscription routing. (Use a packaged 'npx $npm_package_name' install.)"

@@ -76,6 +76,7 @@ fi
 [ "$(jq -r '.provider.other.name' "$config")" = "Other" ] || fail "install replaced an unrelated provider"
 [ "$(jq -r '.mcp.keep.type' "$config")" = "local" ] || fail "install replaced unrelated MCP config"
 [ -f "$managed_plugin" ] || fail "subscription plugin was not copied"
+[ -f "$install_dir/.weave/directives.ts" ] || fail "directive rewrite module was not copied beside the plugin"
 jq -e --arg plugin "$managed_plugin" '.plugin | index($plugin)' "$config" >/dev/null || fail "subscription plugin was not registered"
 [ -f "$install_dir/.opencode/commands/fm.md" ] || fail "--dir commands were not installed beside the config"
 [ ! -e "$home/xdg/opencode/commands/fm.md" ] || fail "--dir install mutated global OpenCode commands"
@@ -101,6 +102,7 @@ run_uninstall
 [ "$(jq -r '(.provider // {}) | has("weave")' "$config")" = "false" ] || fail "uninstall left the Weave provider"
 [ "$(jq -r '.plugin | index("user-plugin") != null' "$config")" = "true" ] || fail "uninstall removed a user plugin"
 [ ! -e "$managed_plugin" ] || fail "uninstall left the subscription plugin"
+[ ! -e "$install_dir/.weave/directives.ts" ] || fail "uninstall left the directive rewrite module"
 [ ! -e "$parked" ] || fail "uninstall left the parked model"
 [ ! -e "$install_dir/.opencode/commands/fm.md" ] || fail "uninstall left managed commands"
 

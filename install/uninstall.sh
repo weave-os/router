@@ -542,6 +542,11 @@ if [ "$target" = "opencode" ]; then
   if [ -f "$opencode_plugin" ]; then
     refuse_if_symlink "$opencode_plugin"
     rm -f "$opencode_plugin"
+    opencode_directives="$(dirname "$opencode_plugin")/directives.ts"
+    if [ -f "$opencode_directives" ]; then
+      refuse_if_symlink "$opencode_directives"
+      rm -f "$opencode_directives"
+    fi
     rmdir "$opencode_dir/.weave" 2>/dev/null || true
     ok "Removed $opencode_plugin"
   fi
