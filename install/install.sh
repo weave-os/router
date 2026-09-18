@@ -17,6 +17,9 @@
 # `dispatch` tool) — all structural (jq) merges.
 #
 # Two scopes (apply to all targets):
+#   --context-window 1m  Opt Claude Code into its selected model's 1M variant.
+#                        Preserves the prior setting for off/uninstall; never disables compaction.
+#
 #   - user (default):  ~/.claude/settings.json  + ~/.weave/cc-statusline.sh
 #                      ~/.codex/config.toml                       (with --codex)
 #                      ~/.config/opencode/opencode.json           (with --opencode)
@@ -110,6 +113,7 @@ npm_package_name="${WEAVE_ROUTER_NPM_PACKAGE:-@weave-os/router}"
 
 
 scope="user"
+context_window=""
 scope_explicit="false"
 install_dir=""
 base_url=""
@@ -1355,6 +1359,11 @@ while [ $# -gt 0 ]; do
       [ "$scope" = "user" ] || [ "$scope" = "project" ] || { err "--scope must be 'user' or 'project'."; exit 2; }
       scope_explicit="true"
       ;;
+    --context-window)
+      context_window="${2:-}"
+      [ "$context_window" = "1m" ] || { err "--context-window requires '1m'."; exit 2; }
+      shift 2
+      ;;
     --base-url)
       base_url="${2:-}"; shift 2
       [ -n "$base_url" ] || { err "--base-url requires a value."; exit 2; }
@@ -1452,6 +1461,14 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
+
+if [ -n "$context_window" ]; then
+  if [ "$target" != "claude" ] || { [ "$mode" != "install" ] && [ "$mode" != "update" ]; }; then
+    err "--context-window is supported only for Claude Code install/update."
+    exit 2
+  fi
+  target_explicit="true"
+fi
 
 if [ "$mode" = "setup" ]; then
   if [ "$setup_claude" != "true" ] && [ "$setup_codex" != "true" ]; then
@@ -2414,6 +2431,74 @@ gitignore_add() {
   fi
 }
 
+prepare_claude_context_window() {
+  context_settings_file="$settings_file"
+  if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
+    context_settings_file="$local_settings_file"
+  fi
+  context_state_file="$settings_dir/.weave-context-window.json"
+  refuse_if_symlink "$context_state_file"
+  [ -n "$context_window" ] || return 0
+
+  local source model="" disabled="${CLAUDE_CODE_DISABLE_1M_CONTEXT:-}" env_model="${ANTHROPIC_MODEL:-}"
+  # Highest-priority settings first; project opt-in is written only locally.
+  for source in "$context_settings_file" "$settings_file" "$HOME/.claude/settings.json"; do
+    [ -f "$source" ] || continue
+    [ -n "$model" ] || model="$(json_get "$source" '.model')"
+    [ -n "$disabled" ] || disabled="$(json_get "$source" '.env.CLAUDE_CODE_DISABLE_1M_CONTEXT')"
+    [ -n "$env_model" ] || env_model="$(json_get "$source" '.env.ANTHROPIC_MODEL')"
+  done
+  if [ -n "$disabled" ] && [ "$disabled" != "0" ] && [ "$disabled" != "false" ]; then
+    err "1M context is disabled in your Claude Code settings; remove that opt-out before using --context-window."
+    return 1
+  fi
+  if [ -n "$env_model" ]; then
+    err "ANTHROPIC_MODEL overrides the model setting. Select its [1m] variant there instead; leaving it unchanged."
+    return 1
+  fi
+  model="${model:-sonnet}"
+  case "$model" in
+    *'[1m]') context_window=""; return 0 ;;
+    sonnet|opus|fable|claude-sonnet-4-6|claude-sonnet-5|claude-opus-4-6|claude-opus-4-7|claude-opus-4-8|claude-opus-5|claude-fable-5|claude-fable-5-1) ;;
+    *) err "Cannot assert 1M support for '$model'. Select a supported Sonnet/Opus/Fable model first; leaving it unchanged."; return 1 ;;
+  esac
+  context_managed_model="$model[1m]"
+}
+
+apply_claude_context_window() {
+  local action="$1" active="$2" state="$settings_dir/.weave-context-window.json" merged tmp
+  refuse_if_symlink "$state"
+  [ -f "$active" ] || return 0
+  if [ "$action" = "install" ] && [ -n "$context_window" ]; then
+    tmp="$(mktemp "$settings_dir/.weave-context.XXXXXX")"
+    jq --arg managed "$context_managed_model" '{had_model: has("model"), original: .model, managed: $managed}' "$active" >"$tmp"
+    chmod 600 "$tmp"
+    mv "$tmp" "$state"
+    merged="$(jq --arg model "$context_managed_model" '.model = $model' "$active")"
+  else
+    [ -f "$state" ] || return 0
+    merged="$(jq --slurpfile state "$state" --arg action "$action" '
+      $state[0] as $s |
+      if $action == "off" then
+        if .model == $s.managed then
+          if $s.had_model then .model = $s.original else del(.model) end
+        else . end
+      elif has("model") == $s.had_model and .model == $s.original then .model = $s.managed
+      else . end
+    ' "$active")"
+  fi
+  tmp="$(mktemp "$settings_dir/.weave-context.XXXXXX")"
+  printf '%s\n' "$merged" >"$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$active"
+  if [ "$action" = "install" ] && [ -n "$context_window" ]; then
+    ok "Claude Code model set to $context_managed_model; automatic compaction stays enabled. Restart Claude Code."
+    if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
+      gitignore_add ".claude/.weave-context-window.json"
+    fi
+  fi
+}
+
 toggle_claude() {
   local parked="$settings_dir/.weave-parked.json"
   local proj="false" active committed_base local_base parked_env merged
@@ -2477,6 +2562,7 @@ toggle_claude() {
         info "Claude Code isn't configured for the router. Run the installer first."
         return 0
       fi
+      apply_claude_context_window off "$active"
       if [ "$proj" = "true" ]; then
         # Park the whole local env (carries the key header), then override the
         # base URL to Anthropic in the local file only — committed settings.json
@@ -2562,6 +2648,7 @@ toggle_claude() {
       merged="$(jq --argjson p "$parked_env" '.env = (((.env // {}) | del(.ANTHROPIC_BASE_URL)) + $p)' "$active")"
       printf '%s\n' "$merged" >"$active"
       [ "$proj" = "true" ] && chmod 600 "$active"
+      apply_claude_context_window on "$active"
       rm -f "$parked"
       ok "Claude Code is ${C_BOLD}on${C_RESET} (routing through the Weave Router). Restart Claude Code for it to take effect."
       ;;
@@ -5734,6 +5821,7 @@ trap '_spin_cleanup; rm -f "$tmp_patch"' EXIT INT TERM HUP
 # replacement key without re-running the whole install.
 write_claude_settings() {
   local block_key="$1"
+  prepare_claude_context_window
 
   # Claude Code splits ANTHROPIC_CUSTOM_HEADERS on newlines, so multiple headers
   # ride in the same env var separated by \n. Append identity headers alongside
@@ -5816,6 +5904,7 @@ write_claude_settings() {
     chmod 600 "$local_settings_file"
     ok "Router key header written to $local_settings_file"
   fi
+  apply_claude_context_window install "$context_settings_file"
 }
 
 # write_claude_settings rewrites the full router config live, so a parked

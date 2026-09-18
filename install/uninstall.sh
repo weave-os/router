@@ -962,6 +962,22 @@ fi
 
 statusline_file_owned="false"
 statusline_setting_owned="false"
+context_state_file="$(dirname "$settings_file")/.weave-context-window.json"
+if [ -f "$context_state_file" ]; then
+  refuse_if_symlink "$context_state_file"
+  context_settings_file="${local_settings_file:-$settings_file}"
+  if [ -f "$context_settings_file" ]; then
+    cleaned="$(jq --slurpfile state "$context_state_file" '
+      $state[0] as $s |
+      if .model == $s.managed then
+        if $s.had_model then .model = $s.original else del(.model) end
+      else . end
+    ' "$context_settings_file")"
+    printf '%s\n' "$cleaned" >"$context_settings_file"
+  fi
+  rm -f "$context_state_file"
+  ok "Restored the previous Claude Code model setting (or kept a newer user selection)."
+fi
 if [ -f "$statusline_file" ] && grep -Fq "$CLAUDE_STATUSLINE_MARKER" "$statusline_file"; then
   statusline_file_owned="true"
 fi

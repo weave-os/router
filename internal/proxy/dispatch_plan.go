@@ -155,6 +155,9 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			}
 			managedBinding = managedBinding || managedAttempt
 			attemptErr := in.attempt(credentialCtx, decision, guarded)
+			if !committed(in.buf) {
+				s.recordSubscriptionModelRejection(credentialCtx, decision.Provider, decision.Model, attemptErr)
+			}
 			lease.Release()
 			if attemptErr == nil {
 				if managedAttempt {

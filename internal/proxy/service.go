@@ -62,7 +62,8 @@ type TelemetryEmitter interface {
 
 // Service orchestrates routing decisions and provider dispatch.
 type Service struct {
-	router router.Router
+	router             router.Router
+	subscriptionModels subscriptionModelAccess
 	// strategies contains every non-default router and its optional lifecycle
 	// reporters. Adding a strategy does not require another Service field.
 	strategies map[router.Strategy]registeredStrategy
@@ -3429,6 +3430,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		outputReserve = feats.MaxTokens
 	}
 	baseExcluded := s.excludeCodexOAuthOnlyModels(ctx, r.Header, enabledProviders, s.excludedModelsForRequest(ctx))
+	baseExcluded = s.excludeUnavailableSubscriptionModels(ctx, r.Header, enabledProviders, baseExcluded)
 
 	// Snapshot inbound (client-sent) state BEFORE any env rewrite. The
 	// compaction tracker, spiral scan, and tool-output telemetry must compare
@@ -3832,7 +3834,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if s.claudeSubscriptionExhausted(ctx, r.Header) {
 		ctx = withSuppressedClaudeSubscription(ctx)
 	}
-	ctx = resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
+	ctx = s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
 	opts.FastMode = fastModeForAttempt(ctx, decision.Model, decision.Provider)
 
 	// Wrap every request (not just multi-binding) in a preludeBuffer so a
@@ -4424,7 +4426,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if baselineSubExhausted {
 			baselineCtx = withSuppressedClaudeSubscription(baselineCtx)
 		}
-		baselineCtx = resolveAndInjectCredentials(baselineCtx, providers.ProviderAnthropic, baselineModel, r.Header)
+		baselineCtx = s.resolveCredentials(baselineCtx, providers.ProviderAnthropic, baselineModel, r.Header)
 		baselineOpts.FastMode = fastModeForAttempt(baselineCtx, baselineModel, providers.ProviderAnthropic)
 		baselinePrep, baselineEmitErr := env.PrepareAnthropic(r.Header, baselineOpts)
 		if baselineEmitErr != nil {
@@ -4477,13 +4479,14 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// Subscription-credit failover: suppress the OAuth token and retry the SAME
 	// model once on the Weave/BYOK key when a subscription-served Anthropic turn
-	// hit a transient fault (429/timeout) or an OAuth rejection (401/403),
+	// hit a transient fault (429/timeout), an OAuth rejection (401/403), or a
+	// model-access 404 (subscription token cannot use that Claude model),
 	// pre-commit. Skipped when baseline failover already ran (non-Anthropic).
 	subscriptionFailoverUsed := false
 	subscriptionRetryRan := false
 	if subscriptionRetryEligible && !baselineAttempted && proxyErr != nil &&
 		!preludeBuf.Committed() &&
-		(providers.IsRetryable(proxyErr) || anthropicOAuthCredentialRejected(proxyErr)) {
+		(providers.IsRetryable(proxyErr) || anthropicOAuthCredentialRejected(proxyErr) || anthropicSubscriptionModelRejected(proxyErr)) {
 		subscriptionRetryRan = true
 		subCtx := withSuppressedClaudeSubscription(ctx)
 		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, decision.Model, r.Header)
@@ -4511,7 +4514,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				flushDeferredErr()
 			}
 		} else {
-			log.Warn("Subscription failover: subscription throttled/timed out, retrying requested model on Weave key",
+			log.Warn("Subscription failover: subscription rejected the turn, retrying requested model on Weave key",
 				"model", decision.Model,
 				"err", proxyErr,
 				"upstream_status", upstreamStatus(proxyErr))
@@ -4578,7 +4581,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			siblingOpts.ModelSwitched = true
 			effortServed = s.resolveEffort(ctx, siblingDecision, siblingOpts.Capabilities, routeRes.EscalateEffort)
 			effortServed.apply(&siblingOpts)
-			siblingCtx := resolveAndInjectCredentials(ctx, siblingDecision.Provider, siblingDecision.Model, r.Header)
+			siblingCtx := s.resolveCredentials(ctx, siblingDecision.Provider, siblingDecision.Model, r.Header)
 			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
 			siblingMarker := suppressMarkerIfRequested(ctx, r.Header, siblingRoutingMarkerFor(routeRes, siblingDecision.Model))
@@ -5816,7 +5819,7 @@ func resolveAndInjectCredentials(ctx context.Context, provider, model string, he
 	// exhausted (Anthropic-only, avoid re-429), toggle off (provider-wide), or
 	// an OpenAI-provider model outside the native Codex OAuth family.
 	subDisabled := subscriptionRoutingDisabledForRequest(ctx)
-	suppressClaudeSub := claudeSubscriptionSuppressed(ctx) || subDisabled
+	suppressClaudeSub := claudeSubscriptionSuppressed(ctx) || subDisabled || claudeModelSuppressed(ctx, model)
 	suppressCodexSub := codexSubscriptionSuppressed(ctx) || subDisabled || !codexSubscriptionCoversModel(model)
 	if provider == providers.ProviderAnthropic && !suppressClaudeSub {
 		// Subscription-first (subscription -> BYOK -> deployment), resolved here
@@ -6404,6 +6407,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		outputReserveOAI = feats.MaxTokens
 	}
 	baseExcludedOAI := s.excludeCodexOAuthOnlyModels(ctx, r.Header, enabledProviders, s.excludedModelsForRequest(ctx))
+	baseExcludedOAI = s.excludeUnavailableSubscriptionModels(ctx, r.Header, enabledProviders, baseExcludedOAI)
 
 	// Snapshot the inbound tool-output size before any env rewrite (proactive
 	// compaction below, or runTurnLoop's switch handover); see toolResultBytesPtr.

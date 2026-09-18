@@ -68,6 +68,7 @@ test-install: ## Run offline installer regression tests
 	@bash install/tests/registry_test.sh
 	@bash install/tests/packaging_test.sh
 	@bash install/tests/tool_search_test.sh
+	@bash install/tests/context_window_test.sh
 
 embed-registry: ## Re-embed install/directives.tsv + registry.sh into install.sh
 	@bash install/scripts/embed-registry.sh

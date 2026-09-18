@@ -1,0 +1,109 @@
+package proxy
+
+import (
+	"context"
+	"crypto/sha256"
+	"errors"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
+	"weave-os/router/internal/billing"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
+
+	lru "github.com/hashicorp/golang-lru/v2"
+	"github.com/tidwall/gjson"
+)
+
+const subscriptionModelDenialTTL = 15 * time.Minute
+
+type subscriptionModelKey struct {
+	token [sha256.Size]byte
+	model string
+}
+
+type subscriptionModelAccess struct {
+	once    sync.Once
+	entries *lru.Cache[subscriptionModelKey, time.Time]
+}
+
+func (a *subscriptionModelAccess) cache() *lru.Cache[subscriptionModelKey, time.Time] {
+	a.once.Do(func() { a.entries, _ = lru.New[subscriptionModelKey, time.Time](4096) })
+	return a.entries
+}
+
+func (a *subscriptionModelAccess) denied(token []byte, model string, now time.Time) bool {
+	key := subscriptionModelKey{token: sha256.Sum256(token), model: router.StripDateSuffix(model)}
+	until, ok := a.cache().Get(key)
+	return ok && now.Before(until)
+}
+
+func anthropicSubscriptionModelRejected(err error) bool {
+	var upstream *providers.UpstreamErrorResponse
+	if !errors.As(err, &upstream) || upstream.Status != http.StatusNotFound {
+		return false
+	}
+	return gjson.GetBytes(upstream.Body, "error.type").String() == "not_found_error" &&
+		strings.HasPrefix(strings.ToLower(gjson.GetBytes(upstream.Body, "error.message").String()), "model:")
+}
+
+func (s *Service) recordSubscriptionModelRejection(ctx context.Context, provider, model string, err error) {
+	creds := CredentialsFromContext(ctx)
+	if provider != providers.ProviderAnthropic || creds == nil || !creds.OAuth || len(creds.APIKey) == 0 || !anthropicSubscriptionModelRejected(err) {
+		return
+	}
+	key := subscriptionModelKey{token: sha256.Sum256(creds.APIKey), model: router.StripDateSuffix(model)}
+	s.subscriptionModels.cache().Add(key, s.clockNow().Add(subscriptionModelDenialTTL))
+}
+
+type suppressClaudeModelContextKey struct{}
+
+func claudeModelSuppressed(ctx context.Context, model string) bool {
+	models, _ := ctx.Value(suppressClaudeModelContextKey{}).(map[string]struct{})
+	_, suppressed := models[router.StripDateSuffix(model)]
+	return suppressed
+}
+
+func (s *Service) resolveCredentials(ctx context.Context, provider, model string, headers http.Header) context.Context {
+	resolved := resolveAndInjectCredentials(ctx, provider, model, headers)
+	creds := CredentialsFromContext(resolved)
+	if provider != providers.ProviderAnthropic || creds == nil || !creds.OAuth ||
+		billing.SubscriptionOnlyFromContext(ctx) || !s.anthropicFallbackKeyAvailable(ctx) ||
+		!s.subscriptionModels.denied(creds.APIKey, model, s.clockNow()) {
+		return resolved
+	}
+	previous, _ := ctx.Value(suppressClaudeModelContextKey{}).(map[string]struct{})
+	models := make(map[string]struct{}, len(previous)+1)
+	for id := range previous {
+		models[id] = struct{}{}
+	}
+	models[router.StripDateSuffix(model)] = struct{}{}
+	return resolveAndInjectCredentials(context.WithValue(ctx, suppressClaudeModelContextKey{}, models), provider, model, headers)
+}
+
+func (s *Service) excludeUnavailableSubscriptionModels(ctx context.Context, headers http.Header, enabled, excluded map[string]struct{}) map[string]struct{} {
+	_, token := presentSubscriptionTokens(ctx, headers)
+	if token == "" || (!billing.SubscriptionOnlyFromContext(ctx) && s.anthropicFallbackKeyAvailable(ctx)) {
+		return excluded
+	}
+	for _, model := range catalog.Models {
+		if !s.subscriptionModels.denied([]byte(token), model.ID, s.clockNow()) {
+			continue
+		}
+		for _, binding := range model.Providers {
+			if enabled != nil {
+				if _, ok := enabled[binding.Provider]; !ok {
+					continue
+				}
+			}
+			if binding.Provider == providers.ProviderAnthropic {
+				excluded = excludingModel(excluded, model.ID)
+			}
+			break
+		}
+	}
+	return excluded
+}

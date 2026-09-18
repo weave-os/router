@@ -92,7 +92,7 @@ func (s *Service) classifierPassthroughEngaged(ctx context.Context, headers http
 		return "", false
 	}
 	provider, token, covered := subscriptionCoveredTarget(ctx, headers, req)
-	if !covered || provider != providers.ProviderAnthropic {
+	if !covered || provider != providers.ProviderAnthropic || s.subscriptionModels.denied([]byte(token), req.RequestedModel, s.clockNow()) {
 		return "", false
 	}
 	if s.usageObserver == nil {
@@ -131,6 +131,9 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 	}
 	provider, token, covered := subscriptionCoveredTarget(ctx, headers, req)
 	if !covered {
+		return "", false
+	}
+	if provider == providers.ProviderAnthropic && s.subscriptionModels.denied([]byte(token), req.RequestedModel, s.clockNow()) {
 		return "", false
 	}
 	threshold := defaultUsageBypassThreshold
@@ -361,7 +364,7 @@ func (s *Service) bypassToAnthropic(
 	// the subscription (or BYOK / client) credential exactly as a routed turn
 	// would, and so servedOnSubscription / the usage observer key off the same
 	// token the upstream call sends.
-	ctx = resolveAndInjectCredentials(ctx, decision.Provider, decision.Model, r.Header)
+	ctx = s.resolveCredentials(ctx, decision.Provider, decision.Model, r.Header)
 
 	outputReserve := contextWindowOutputReserve
 	if feats.MaxTokens > outputReserve {
@@ -435,7 +438,11 @@ func (s *Service) bypassToAnthropic(
 	// Local prep errors (provider-not-configured, emit-body) are returned
 	// directly so the client sees the real failure instead of a silent reroute.
 	var upstreamErr *providers.UpstreamErrorResponse
+	s.recordSubscriptionModelRejection(ctx, decision.Provider, decision.Model, proxyErr)
 	if providers.IsRetryable(proxyErr) {
+		return errBypassRetryable
+	}
+	if anthropicSubscriptionModelRejected(proxyErr) && s.anthropicFallbackKeyAvailable(ctx) && !billing.SubscriptionOnlyFromContext(ctx) {
 		return errBypassRetryable
 	}
 	if errors.As(proxyErr, &upstreamErr) {

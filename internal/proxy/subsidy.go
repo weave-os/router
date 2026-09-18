@@ -301,6 +301,9 @@ func (s *Service) subsidyFactors(ctx context.Context, headers http.Header) map[s
 	if anthroTok != "" {
 		f := s.observedOrOptimisticFactor(anthroTok)
 		for _, m := range claudeCoveredModels() {
+			if s.subscriptionModels.denied([]byte(anthroTok), m, s.clockNow()) {
+				continue
+			}
 			factors[m] = f
 		}
 	}

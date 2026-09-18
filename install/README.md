@@ -382,6 +382,31 @@ match the registry.
 
 ## Switching on and off
 
+### Claude Code context window
+
+A custom API base URL can make Claude Code use a 200k local context budget
+even when the router serves a 1M-capable model. Changing the upstream model or
+adding its beta header does not by itself change that local compaction budget.
+To opt into Claude Code's explicit 1M model variant:
+
+```bash
+npx @weave-os/router update --claude --context-window 1m
+```
+
+This adds `[1m]` to a supported configured Sonnet, Opus, or Fable model (uses
+`sonnet[1m]` when no model is configured). It leaves automatic compaction on.
+Use it with a router/provider pool that can serve long-context requests;
+enabling the client window does not expand any upstream model's capacity.
+Longer retained histories can increase token usage and cost.
+
+The setting is opt-in: ordinary install/update keeps your model unchanged.
+An existing `ANTHROPIC_MODEL` override, a 1M opt-out, or an unrecognized model
+is not overwritten. Project installs write the selection only to
+`settings.local.json`. The previous value is recorded in
+`.claude/.weave-context-window.json`; `off`/uninstall restore it, `on` restores
+the opted-in variant, and a later user model edit is preserved. Restart Claude
+Code after changing this setting; an explicit `--model` argument still wins.
+
 Once installed, flip a client between the Weave Router and talking to its
 provider directly — without losing the router config, so switching back is
 instant. These never prompt for a key and require an explicit client:
