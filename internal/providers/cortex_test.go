@@ -10,24 +10,28 @@ import (
 
 func TestNormalizeSnowflakeCortexOpenAIBaseURL(t *testing.T) {
 	tests := []struct {
-		name    string
-		baseURL string
-		want    string
+		name     string
+		baseURL  string
+		want     string
+		isCortex bool
 	}{
 		{
-			name:    "cortex rest root",
-			baseURL: "https://ACME-PROD1.snowflakecomputing.com/api/v2/cortex",
-			want:    "https://ACME-PROD1.snowflakecomputing.com/api/v2/cortex/v1",
+			name:     "cortex rest root",
+			baseURL:  "https://ACME-PROD1.snowflakecomputing.com/api/v2/cortex",
+			want:     "https://ACME-PROD1.snowflakecomputing.com/api/v2/cortex/v1",
+			isCortex: true,
 		},
 		{
-			name:    "trailing slash",
-			baseURL: "https://acme.snowflakecomputing.com/api/v2/cortex/",
-			want:    "https://acme.snowflakecomputing.com/api/v2/cortex/v1",
+			name:     "trailing slash",
+			baseURL:  "https://acme.snowflakecomputing.com/api/v2/cortex/",
+			want:     "https://acme.snowflakecomputing.com/api/v2/cortex/v1",
+			isCortex: true,
 		},
 		{
-			name:    "already versioned",
-			baseURL: "https://acme.snowflakecomputing.com/api/v2/cortex/v1",
-			want:    "https://acme.snowflakecomputing.com/api/v2/cortex/v1",
+			name:     "already versioned",
+			baseURL:  "https://acme.snowflakecomputing.com/api/v2/cortex/v1",
+			want:     "https://acme.snowflakecomputing.com/api/v2/cortex/v1",
+			isCortex: true,
 		},
 		{
 			name:    "other snowflake path is left alone",
@@ -53,6 +57,7 @@ func TestNormalizeSnowflakeCortexOpenAIBaseURL(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, providers.NormalizeSnowflakeCortexOpenAIBaseURL(tt.baseURL))
+			assert.Equal(t, tt.isCortex, providers.IsSnowflakeCortexBaseURL(tt.baseURL))
 		})
 	}
 }

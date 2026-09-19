@@ -13,6 +13,20 @@ const snowflakeCortexHostSuffix = ".snowflakecomputing.com"
 // gateway base URL; the OpenAI-spec surface hangs one "/v1" below it.
 const snowflakeCortexPath = "/api/v2/cortex"
 
+// IsSnowflakeCortexBaseURL reports whether baseURL targets Cortex's OpenAI
+// surface, before or after the version segment has been normalized.
+func IsSnowflakeCortexBaseURL(baseURL string) bool {
+	u, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return false
+	}
+	if !strings.HasSuffix(strings.ToLower(u.Hostname()), snowflakeCortexHostSuffix) {
+		return false
+	}
+	path := strings.TrimSuffix(u.Path, "/")
+	return path == snowflakeCortexPath || path == snowflakeCortexPath+versionSegment
+}
+
 // NormalizeSnowflakeCortexOpenAIBaseURL rewrites a Snowflake Cortex REST root
 // onto its OpenAI-spec surface (/api/v2/cortex/v1); other hosts/paths pass through.
 func NormalizeSnowflakeCortexOpenAIBaseURL(baseURL string) string {

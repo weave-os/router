@@ -280,6 +280,19 @@ func rewriteModelField(body []byte, modelIDMap map[string]string) []byte {
 	return out
 }
 
+func stripSnowflakeCortexUnsupportedResponsesFields(body []byte, model, baseURL string, endpoint providers.Endpoint) []byte {
+	if endpoint != providers.EndpointResponses ||
+		!strings.HasPrefix(model, "grok-") ||
+		!providers.IsSnowflakeCortexBaseURL(baseURL) {
+		return body
+	}
+	out, err := sjson.DeleteBytes(body, "reasoning.summary")
+	if err != nil {
+		return body
+	}
+	return out
+}
+
 // effectiveBaseURL resolves this request's base URL, folding an Azure resource
 // endpoint onto /openai/v1 and a Snowflake Cortex REST root onto
 // /api/v2/cortex/v1 — the OpenAI-spec surfaces they actually serve.
@@ -307,6 +320,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	// Applied after the catalog map so a BYOK endpoint's own naming wins.
 	body = requestcontext.ApplyModelAlias(ctx, body, decision.Model)
 	baseURL := c.effectiveBaseURL(ctx)
+	body = stripSnowflakeCortexUnsupportedResponsesFields(body, decision.Model, baseURL, prep.Endpoint)
 
 	// EndpointResponses is the Responses surface: reasoning models reject a tool
 	// turn on chat/completions, and gateways that mount /v1/responses (Snowflake
