@@ -808,11 +808,13 @@ func main() {
 		panic("invalid ROUTER_AUTHORITATIVE_UPGRADE_HOLDOUT_PCT")
 	}
 	authoritativeUpgradeVotes := parseEnvNonNegativeInt("ROUTER_AUTHORITATIVE_UPGRADE_VOTES", 3)
-	// authoritativeDowngradeGate mirrors the floor for cheaper-than-pin picks; off by default.
-	authoritativeDowngradeGate := config.GetOr("ROUTER_AUTHORITATIVE_DOWNGRADE_GATE", "false") == "true"
+	// authoritativeDowngradeGate mirrors the floor for cheaper-than-pin picks; on by default
+	// so a single low-confidence cheaper vote cannot dump a live pin.
+	authoritativeDowngradeGate := config.GetOr("ROUTER_AUTHORITATIVE_DOWNGRADE_GATE", "true") == "true"
 	// hmmDowngradeHysteresisTurns requires N consecutive cheaper-than-pin authoritative
-	// votes before the downgrade is served; 0 keeps today's switch-on-first-vote behavior.
-	hmmDowngradeHysteresisTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS", 0)
+	// votes before the downgrade is served; 2 matches the shadow threshold that would
+	// have held the astra-to-luna first-vote dump.
+	hmmDowngradeHysteresisTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS", 2)
 	// hmmDowngradeHysteresisShadowTurns is the threshold every served authoritative
 	// downgrade is shadow-scored against; telemetry only, 0 silences it.
 	hmmDowngradeHysteresisShadowTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS", 2)

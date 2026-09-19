@@ -205,11 +205,11 @@ type Service struct {
 	// authoritativeDowngradeGate applies the same threshold in the other
 	// direction: a cheaper-than-pin fresh decision below
 	// hmmUpgradeConfidenceThreshold keeps the pin. Env
-	// ROUTER_AUTHORITATIVE_DOWNGRADE_GATE, off by default.
+	// ROUTER_AUTHORITATIVE_DOWNGRADE_GATE, on by default.
 	authoritativeDowngradeGate bool
 	// hmmDowngradeHysteresisTurns is how many consecutive authoritative-per-turn
 	// votes for a cheaper-than-pin model are needed before the downgrade is
-	// applied. Env ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS, 0 (downgrade on the
+	// applied. Env ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS, 2 (0 downgrades on the
 	// first vote) by default.
 	hmmDowngradeHysteresisTurns int
 	// hmmDowngradeHysteresisShadowTurns is the threshold a served
@@ -1789,7 +1789,7 @@ func (s *Service) WithAuthoritativeUpgradeVotes(votes int) *Service {
 
 // WithAuthoritativeDowngradeGate sets the deployment default for
 // ROUTER_AUTHORITATIVE_DOWNGRADE_GATE: whether an authoritative-per-turn
-// downgrade must also clear the confidence threshold. Off by default.
+// downgrade must also clear the confidence threshold. On by default.
 func (s *Service) WithAuthoritativeDowngradeGate(enabled bool) *Service {
 	s.authoritativeDowngradeGate = enabled
 	return s
