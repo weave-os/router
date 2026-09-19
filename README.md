@@ -77,6 +77,7 @@ npx @weave-os/router --pi                  # skip the picker, pi + Loom UI
 npx @weave-os/router --scope project       # per-repo, commits settings.json (or .codex/ / opencode.json)
 npx @weave-os/router --local               # self-hosted localhost:8080
 npx @weave-os/router --base-url https://router.acme.internal
+npx @weave-os/router --email you@example.com # set identity without prompting
 npx @weave-os/router@0.1.0                 # pin a version
 ```
 
@@ -187,15 +188,12 @@ sidecar is optional. HMM and forced selections in the native Codex family
 (`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`) use that OAuth credential;
 every other selected model uses its WorkWeave deployment or BYOK credential,
 matching the Claude Code plugin's model-to-credential dispatch.
-Codex does not load third-party slash-command files, so the installer ships the
-router directives as native Codex skills: `$force-model <model-id>` (alias
-`$fm <model-id>`), `$unforce-model` (alias `$ufm`), and
-`$router-feedback <text>` (alias `$rf <text>`). Each skill runs a local
-`scripts/emit.sh` that prints the leading-space directive (for example,
-` /force-model gpt-5.6-terra`); the router intercepts that exec output.
-You can type that form directly instead. Re-install
-and `--uninstall --codex` rewrite/remove only the managed block, leaving the
-rest of your Codex config untouched. Codex also gets `$router-status`,
+Codex does not load third-party slash-command files, so the installer ships
+`$force-model <model-id>` (alias `$fm <model-id>`), `$unforce-model` (alias
+`$ufm`), and `$router-feedback <text>` (alias `$rf <text>`) as native Codex
+skills. Their invocations are handled by the router directly. Re-install and
+`--uninstall --codex` rewrite/remove only the managed block, leaving the rest
+of your Codex config untouched. Codex also gets `$router-status`,
 `$router-off`, `$router-on`, and `$router-models` as skills that call this
 installer's own verbs. Invoke `$disable-routing` (or `$router-off`) to switch the
 next Codex session back to its normal provider, or run

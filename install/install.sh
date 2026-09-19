@@ -52,6 +52,7 @@
 #   npx @weave-os/router --dir /tmp/my-sandbox            # isolated throwaway install
 #   npx @weave-os/router --local                          # local router on localhost:8080
 #   npx @weave-os/router --base-url http://localhost:8080 # self-hosted, custom port
+#   npx @weave-os/router --email you@example.com          # set the router identity email without prompting
 #   npx @weave-os/router --non-interactive                # require WEAVE_ROUTER_KEY env var (defaults target to claude)
 #   npx @weave-os/router --quiet                          # suppress banner, ping check, and trailing tips
 #   npx @weave-os/router --rotate-key                     # ignore the installed key and prompt for a new one
@@ -77,11 +78,11 @@
 # Cursor's base URL lives in its own settings UI (no file we own), so there's
 # nothing to toggle here — flip "Override OpenAI Base URL" in Cursor settings.
 #
-# Which router directives each client gets is declared once in
+# Which router integrations each client gets is declared once in
 # install/directives.tsv and installed from there: Claude Code and opencode get
-# Markdown slash commands, Codex gets native `$name` skills (it reserves `/…`
-# for built-ins), pi registers /fm and /ufm in its extension, and Cursor is
-# manual. See install/README.md for the full matrix.
+# Markdown slash commands, Codex gets native `$name` skills, pi registers /fm
+# and /ufm in its extension, and Cursor is manual. See install/README.md for
+# the full matrix.
 #
 # Inspect and edit which models this installation lets the router pick from —
 # the same lists the router dashboard's settings page renders. The endpoint and
@@ -118,6 +119,8 @@ scope_explicit="false"
 install_dir=""
 base_url=""
 base_url_explicit="false"
+email=""
+email_explicit="false"
 non_interactive="false"
 quiet="false"
 router_key_header="X-Weave-Router-Key"
@@ -466,12 +469,20 @@ normalize_name() {
 
 # resolve_user_email picks the email to plant in router request headers so the
 # router can attribute traffic to a person even on shared API keys. Priority:
-# WEAVE_USER_EMAIL env override → git config user.email → interactive prompt
-# (pre-filled with whatever we found). In --non-interactive mode we never
-# prompt, so unset/invalid means we ship no header (router treats that as
-# account_uuid-only, same as today). Echoes the validated email on stdout.
+# explicit --email → WEAVE_USER_EMAIL env override → git config user.email →
+# interactive prompt (pre-filled with whatever we found). In --non-interactive
+# mode we never prompt, so unset/invalid means we ship no header (router treats
+# that as account_uuid-only, same as today). Echoes the validated email on stdout.
 resolve_user_email() {
   local candidate=""
+  if [ "$email_explicit" = "true" ]; then
+    candidate="$(normalize_email "$email")"
+    if [ -z "$candidate" ]; then
+      warn "--email=\"$email\" is not a valid email; ignoring."
+    fi
+    printf '%s' "$candidate"
+    return
+  fi
   if [ -n "${WEAVE_USER_EMAIL:-}" ]; then
     candidate="$(normalize_email "$WEAVE_USER_EMAIL")"
     if [ -z "$candidate" ]; then
@@ -1374,6 +1385,11 @@ while [ $# -gt 0 ]; do
       [ -n "$base_url" ] || { err "--base-url requires a value."; exit 2; }
       base_url_explicit="true"
       ;;
+    --email)
+      email="${2:-}"; shift 2
+      [ -n "$email" ] || { err "--email requires a value."; exit 2; }
+      email_explicit="true"
+      ;;
     --local)
       # Shorthand for local dev: localhost:8080 (matches `wv mr` / `make dev` default PORT).
       base_url="http://localhost:8080"
@@ -1486,6 +1502,7 @@ if [ "$mode" = "setup" ]; then
   setup_args=(--scope "$scope")
   [ "$non_interactive" = "true" ] && setup_args+=(--non-interactive)
   [ "$base_url_explicit" = "true" ] && setup_args+=(--base-url "$base_url")
+  [ "$email_explicit" = "true" ] && setup_args+=(--email "$email")
   [ -n "$install_dir" ] && setup_args+=(--dir "$install_dir")
   [ "$quiet" = "true" ] && setup_args+=(--quiet)
   [ "$rotate_key" = "true" ] && setup_args+=(--rotate-key)
@@ -4680,7 +4697,6 @@ if [ "$target" = "codex" ]; then
   ok "Codex config written to $codex_config_file"
   remove_obsolete_codex_prompt_wrappers "$codex_dir/prompts"
   install_codex_prompt_skills
-  info "Codex router directives: begin the message with one space, e.g. ' /force-model gpt-5.6-terra'."
 
   # Project scope: ensure the per-teammate config (which holds the router key)
   # is gitignored. The base URL is the same for every teammate, so a

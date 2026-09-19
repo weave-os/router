@@ -20,6 +20,7 @@ npx @weave-os/router --pi                  # skip the picker, target pi + Loom U
 npx @weave-os/router --scope project       # per-repo install, commit settings.json (or .codex/ / opencode.json)
 npx @weave-os/router --local               # self-hosted via docker-compose (localhost:8080)
 npx @weave-os/router --base-url https://router.acme.internal
+npx @weave-os/router --email you@example.com # set identity without prompting
 npx @weave-os/router --non-interactive     # reads $WEAVE_ROUTER_KEY, no prompts (defaults to claude)
 ```
 
@@ -126,18 +127,16 @@ Four install targets:
   every other selected model uses its WorkWeave deployment or BYOK credential.
   The block lives between begin/end markers
   so re-running the installer rewrites it cleanly and `--uninstall --codex`
-  removes it without touching the rest of your config. Codex does not load
-  third-party slash-command files; the installer provides native skills
-  `$force-model` (`$fm`), `$unforce-model` (`$ufm`), and `$router-feedback`
-  (`$rf`), each of which execs a local `scripts/emit.sh` that prints the same
-  leading-space directive Claude Code uses (for example,
-  ` /force-model gpt-5.6-terra`) — you can also type that form directly. It
-  also installs `$router-status`, `$router-off`, `$router-on`, and
-  `$router-models`, which call this installer's own verbs, plus a
-  `$disable-routing` skill that returns the next Codex session to the default
-  provider without logging out or deleting the router configuration. The
-  managed lifecycle hooks also keep the latest routed model in the terminal
-  title and emit a compact status message when the router reports a new route.
+   removes it without touching the rest of your config. Codex does not load
+   third-party slash-command files; the installer provides native skills
+   `$force-model` (`$fm`), `$unforce-model` (`$ufm`), and `$router-feedback`
+   (`$rf`), whose invocations are handled by the router directly. It also
+   installs `$router-status`, `$router-off`, `$router-on`, and `$router-models`,
+   which call this installer's own verbs, plus a `$disable-routing` skill that
+   returns the next Codex session to the default provider without logging out
+   or deleting the router configuration. The managed lifecycle hooks also keep
+   the latest routed model in the terminal title and emit a compact status
+   message when the router reports a new route.
 - **opencode** (`--opencode`) — merges a Responses-format `provider.weave`
   entry backed by `@ai-sdk/openai` into
   `~/.config/opencode/opencode.json` (or `<repo>/opencode.json` with

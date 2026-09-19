@@ -147,30 +147,21 @@ models use their matching WorkWeave deployment or BYOK credentials, just as
 they do when routed from Claude Code.
 
 Codex does not load third-party Markdown slash commands, and reserves `/…` for
-its own built-ins. The installer therefore ships each router directive as a
-native Codex skill, invoked with `$`:
+its own built-ins. The installer therefore ships the router actions as native
+Codex skills, invoked with `$`:
 
-| Skill | Sends |
+| Skill | Purpose |
 | --- | --- |
-| `$force-model <model-id>` / `$fm <model-id>` | ` /force-model <model-id>` |
-| `$unforce-model` / `$ufm` | ` /unforce-model` |
-| `$router-feedback <text>` / `$rf <text>` | ` /router-feedback <text>` |
+| `$force-model <model-id>` / `$fm <model-id>` | Pin the session to a model through the router |
+| `$unforce-model` / `$ufm` | Clear the session model pin |
+| `$router-feedback <text>` / `$rf <text>` | Send feedback through the router |
 
-Each skill submits a normal prompt whose first character is one literal space,
-which is what reaches the router's directive parser. You can always type that
-form yourself instead:
-
-```text
- /force-model gpt-5.6-terra
- /unforce-model
- /rf - the previous response was too slow --label=high
-```
-
-To return to regular Codex, invoke the installer-provided Codex skill as
-`$disable-routing`. It runs the safe local off toggle, preserves the router
-configuration and ChatGPT OAuth, and takes effect when you start the next
-`codex` session. A literal `/disable-routing` is not possible because Codex
-reserves slash commands for its built-ins. The shell equivalent is:
+These skill invocations are handled by the router directly. To return to
+regular Codex, invoke the installer-provided Codex skill as `$disable-routing`.
+It runs the safe local off toggle, preserves the router configuration and
+ChatGPT OAuth, and takes effect when you start the next `codex` session. A
+literal `/disable-routing` is not possible because Codex reserves slash
+commands for its built-ins. The shell equivalent is:
 
 ```bash
 npx --package @weave-os/router -y -- weave-router disable-routing
@@ -223,6 +214,7 @@ so no key paste is needed).
 | `--scope user\|project`    | interactive prompt (default `user`) | User-level install (everywhere) vs project-level (this repo only).      |
 | `--local`                  | off                           | Shortcut for the bundled docker-compose router (`localhost:8080`).      |
 | `--base-url <url>`         | `https://router.workweave.ai` | Override the router endpoint. Use for self-hosted / custom port.        |
+| `--email <email>`          | auto-detected                 | Set the router identity email and skip the email prompt.                |
 | `--non-interactive`        | off                           | Fail if `$WEAVE_ROUTER_KEY` isn't set instead of prompting. Defaults target to Claude Code so existing CI pipelines don't shift semantics. |
 | `--rotate-key`             | off                           | Ignore the key already installed and prompt for a new one (or take `$WEAVE_ROUTER_KEY`). Use when rotating a key. |
 
@@ -295,19 +287,18 @@ toggles — in a detached fork, so no Codex turn blocks on it, and it skips the
 replacement when the bytes are unchanged. The `WEAVE_STATUSLINE_*` variables
 above are accepted as fallbacks for users who configure both clients together.
 
-**Prompt directives are answered by the router.** `$fm`/`$force-model`,
+**Codex skill invocations are answered by the router.** `$fm`/`$force-model`,
 `$ufm`/`$unforce-model`, `$rf`/`$router-feedback` and `$router-session` reach
 the router; the local toggles do not, and are covered below. Codex sends a
-`$name` invocation as two user messages: the text the user typed, then a second message
-carrying the invoked skill's `SKILL.md`. The router reads the directive out of
-the first one, applies it, and answers with a synthetic response — the same
-short-circuit Claude Code's slash commands take — so a directive costs no
-upstream inference and the arguments arrive exactly as typed. That last part is
-why a `$rf - too slow` verdict now survives: nothing paraphrases it.
+`$name` invocation as two user messages: the text the user typed, then a second
+message carrying the invoked skill's `SKILL.md`. The router reads the invocation
+from the first one, applies it, and answers with a synthetic response — the same
+short-circuit Claude Code's slash commands take — so it costs no upstream
+inference and the arguments arrive exactly as typed.
 
 0.2.17 shipped a `UserPromptSubmit` hook to do this client-side, before the
-router could see the directive behind the skill block. It is retired for these
-directives; the hook that remains handles only the local toggles below.
+router could see the invocation behind the skill block. It is retired; the hook
+that remains handles only the local toggles below.
 
 The four local toggles (`$router-on`/`$router-off`/`$router-status`/
 `$disable-routing`) mutate config on disk, which a remote service cannot do, so

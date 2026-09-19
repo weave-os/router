@@ -45,9 +45,21 @@ run() {
     bash "$installer" "$@" --base-url http://127.0.0.1:9 </dev/null >/dev/null 2>&1
 }
 
+run_with_email() {
+  local home="$1"; local flag_email="$2"; shift 2
+  HOME="$home" XDG_CACHE_HOME="$home/.cache" PATH="$test_path" NO_COLOR=1 \
+    WEAVE_ROUTER_KEY="rk_email" WEAVE_USER_EMAIL="env@example.com" \
+    bash "$installer" "$@" --email "$flag_email" --base-url http://127.0.0.1:9 </dev/null >/dev/null 2>&1
+}
+
 installed_key() { # installed_key <settings_file>
   jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // ""' "$1" 2>/dev/null \
     | sed -n 's/^X-Weave-Router-Key: //p'
+}
+
+installed_email() { # installed_email <settings_file>
+  jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // ""' "$1" 2>/dev/null \
+    | sed -n 's/^X-Weave-User-Email: //p'
 }
 
 # Per-target readers for the same key, each pulling from where that client's
@@ -89,6 +101,11 @@ check "re-run keeps the installed key" "$(installed_key "$settings")" "rk_first"
 # user cannot be silently ignored in favor of the stale one on disk.
 run "$home" rk_second -- --claude --scope user --quiet --non-interactive
 check "env key overwrites the installed key" "$(installed_key "$settings")" "rk_second"
+
+email_home="$work/email"; mkdir -p "$email_home"
+email_settings="$email_home/.claude/settings.json"
+run_with_email "$email_home" "Flag@Example.COM" --claude --scope user --quiet --non-interactive
+check "--email overrides the environment email" "$(installed_email "$email_settings")" "flag@example.com"
 
 # --rotate-key deliberately skips read-back. With no env and no tty there is
 # nothing to rotate to, so it must fail rather than reuse or hang.
