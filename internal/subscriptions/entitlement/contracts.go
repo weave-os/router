@@ -20,6 +20,10 @@ var (
 	ErrAllowanceActionNotFound = errors.New("subscriber allowance action not found")
 	// ErrAllowanceActionConflict means a settlement command contradicts the stored action.
 	ErrAllowanceActionConflict = errors.New("conflicting subscriber allowance action")
+	// ErrAllowanceHeldUnsettled means a settlement failed after its hold was
+	// durably recorded. The windows already count the turn's cost, so a caller
+	// falling back to another book must not charge it a second time.
+	ErrAllowanceHeldUnsettled = errors.New("subscriber allowance hold left unsettled")
 )
 
 // SubscriberID is the opaque credential-subject identity authenticated by Router.

@@ -37,15 +37,6 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 			return
 		}
 
-		// A request presenting a Claude/Codex credential covering this route
-		// serves at $0 on the caller's own plan and draws no included Router
-		// capacity, so a spent Max/Boost allowance must not 402 it. Passing it
-		// through unflagged also keeps the turn out of the allowance ledger,
-		// which only accounts included_router capacity.
-		if proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath()) {
-			c.Next()
-			return
-		}
 		subscriberID := entitlement.SubscriberID(apiKey.CredentialSubjectID)
 
 		admission, err := svc.Admit(c.Request.Context(), subscriberID)
@@ -62,6 +53,15 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 		case entitlement.AdmissionNotSubscribed:
 			c.Next()
 		case entitlement.AdmissionExhausted:
+			// A request presenting a Claude/Codex credential covering this route
+			// can serve at $0 on the caller's own plan without drawing included
+			// Router capacity, so a spent allowance must not refuse it. Settlement
+			// stays honest either way: it accounts only included_router capacity,
+			// and this request carries no coverage to settle against.
+			if proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath()) {
+				c.Next()
+				return
+			}
 			window := exhaustedWindow(admission)
 			log.Info("Request rejected: subscriber allowance exhausted",
 				"subscriber_id", apiKey.CredentialSubjectID,

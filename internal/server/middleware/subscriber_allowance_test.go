@@ -261,3 +261,17 @@ func TestWithSubscriberAllowance_PassesThroughCoveringSubscription(t *testing.T)
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Empty(t, coverage.SubscriberID)
 }
+
+func TestWithSubscriberAllowance_CoversCoveringSubscriptionWithAllowanceLeft(t *testing.T) {
+	// Presenting a subscription credential only means the turn *may* serve on
+	// the caller's plan. While allowance remains the request is still admitted
+	// with coverage, so a turn Weave ends up serving meters against the windows
+	// instead of silently falling through to the organization's balance.
+	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
+	w, reached, coverage := runAllowanceMiddlewareWithAuth(
+		t, entitlements, &stubAllowances{}, subscriberAPIKey(), "Bearer sk-ant-oat-abc123")
+
+	assert.True(t, reached)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, entitlement.SubscriberID(allowanceSubscriberID), coverage.SubscriberID)
+}

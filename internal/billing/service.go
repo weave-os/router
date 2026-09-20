@@ -2,6 +2,7 @@ package billing
 
 import (
 	"context"
+	"errors"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router/catalog"
@@ -317,8 +318,8 @@ func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams)
 
 // meterSubscriberAllowance books the turn against the allowance windows the
 // request was admitted under and reports whether the allowance now holds the
-// charge. It returns false on failure so the caller debits the organization
-// instead: the response has already gone out, and a turn recorded on neither
+// charge. A turn the allowance did not record falls back to an ordinary
+// organization debit: the response has already gone out, and a turn on neither
 // book is unbilled usage that never draws the allowance down either.
 func (s *Service) meterSubscriberAllowance(ctx context.Context, p DebitInferenceParams, coverage entitlement.Coverage, retailMicros int64) bool {
 	actionID, ok := entitlement.NextActionID(ctx, p.RouterRequestID)
@@ -335,16 +336,21 @@ func (s *Service) meterSubscriberAllowance(ctx context.Context, p DebitInference
 		RetailUsdMicros: retailMicros,
 		CapacitySource:  entitlement.CapacitySourceIncludedRouter,
 	})
-	if err != nil {
-		observability.FromContext(ctx).Error("Subscriber allowance settlement failed; charging the organization instead",
-			"err", err,
-			"subscriber_id", string(coverage.SubscriberID),
-			"router_request_id", p.RouterRequestID,
-			"retail_usd_micros", retailMicros,
-		)
-		return false
+	if err == nil {
+		return true
 	}
-	return true
+	// A settlement that failed after its hold landed already draws the windows
+	// down by this turn's cost, so charging the organization too would bill it
+	// on both books.
+	held := errors.Is(err, entitlement.ErrAllowanceHeldUnsettled)
+	observability.FromContext(ctx).Error("Subscriber allowance settlement failed",
+		"err", err,
+		"hold_stands", held,
+		"subscriber_id", string(coverage.SubscriberID),
+		"router_request_id", p.RouterRequestID,
+		"retail_usd_micros", retailMicros,
+	)
+	return held
 }
 
 // maybeSignalRecharge fires once, on the debit that crosses the org's

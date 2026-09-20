@@ -286,5 +286,7 @@ func TestSettleSurfacesAccountingFailures(t *testing.T) {
 
 	err = newService(&fakeEntitlements{}, &fakeAllowances{finalizeErr: accountingFailure}).
 		Settle(context.Background(), servedSettlement())
-	require.ErrorIs(t, err, accountingFailure)
+	require.ErrorIs(t, err, entitlement.ErrAllowanceHeldUnsettled,
+		"the hold already draws the windows down, so the caller must not book this turn elsewhere")
+	assert.Contains(t, err.Error(), accountingFailure.Error())
 }

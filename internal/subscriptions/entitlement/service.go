@@ -157,7 +157,9 @@ type Settlement struct {
 // A hold whose finalization fails is left standing on purpose. It holds exactly
 // the retail cost the turn incurred, and held and settled amounts count against
 // the window alike, so the subscriber is metered correctly either way; only the
-// served-model audit detail is lost.
+// served-model audit detail is lost. That failure reports
+// ErrAllowanceHeldUnsettled so a caller falling back to another book can tell
+// it apart from a turn the allowance never recorded.
 func (s *Service) Settle(ctx context.Context, settlement Settlement) error {
 	at := s.now().UTC()
 	reservation := Reservation{
@@ -192,7 +194,7 @@ func (s *Service) Settle(ctx context.Context, settlement Settlement) error {
 		CapacitySource:  settlement.CapacitySource,
 		FinalizedAt:     at,
 	}); err != nil {
-		return fmt.Errorf("settle subscriber allowance: %w", err)
+		return fmt.Errorf("settle subscriber allowance (%v): %w", err, ErrAllowanceHeldUnsettled)
 	}
 	return nil
 }

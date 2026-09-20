@@ -3,6 +3,7 @@ package billing_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -132,6 +133,18 @@ func TestDebitForInferenceChargesTheOrgWhenSettlementFails(t *testing.T) {
 	require.Len(t, repo.ledgerCalls, 1)
 	assert.Equal(t, int64(-3_000_000), repo.ledgerCalls[0].DeltaUsdMicros)
 	assert.Contains(t, buf.String(), "level=ERROR")
+}
+
+func TestDebitForInferenceLeavesTheOrgAloneWhenTheHoldStands(t *testing.T) {
+	repo := &fakeRepo{balanceRowExists: true, balanceMicros: 10_000_000}
+	settler := &fakeSettler{err: fmt.Errorf("settle: %w", entitlement.ErrAllowanceHeldUnsettled)}
+	svc := billing.NewService(repo).WithSubscriberAllowance(settler)
+
+	_, err := svc.DebitForInference(coveredContext(), subscriberParams())
+	require.NoError(t, err)
+	require.Len(t, repo.ledgerCalls, 1)
+	assert.Zero(t, repo.ledgerCalls[0].DeltaUsdMicros,
+		"a hold that stands already draws the windows down, so the org must not be charged as well")
 }
 
 func TestDebitForInferenceKeepsRequestedAndServedModelApart(t *testing.T) {
