@@ -136,6 +136,55 @@ func TestService_Cache_HitShortCircuitsProvider(t *testing.T) {
 	assert.Equal(t, proxy.RouterCacheHit, rec2.Header().Get(proxy.HeaderRouterCache))
 }
 
+func TestService_Cache_ProviderFallbackUsesInitialProvenance(t *testing.T) {
+	emb := embeddingFixture(24)
+	primary := &fakeProvider{proxyErr: &providers.UpstreamErrorResponse{Status: http.StatusServiceUnavailable}}
+	fallback := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		_, _ = w.Write([]byte(`{
+			"id":"chatcmpl_1",
+			"object":"chat.completion",
+			"choices":[{"index":0,"message":{"role":"assistant","content":"fallback"},"finish_reason":"stop"}],
+			"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}
+		}`))
+	}}
+	decision := decisionWithEmbedding(emb, []int{0})
+	decision.Model = "deepseek/deepseek-v4-pro"
+	decision.Provider = providers.ProviderTogether
+	svc := proxy.NewService(
+		&fakeRouter{decision: decision},
+		map[string]providers.Client{
+			providers.ProviderTogether:  primary,
+			providers.ProviderFireworks: fallback,
+		},
+		nil, false, cache.New(cache.DefaultConfig()), nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+	).WithDeploymentKeyedProviders(map[string]struct{}{
+		providers.ProviderTogether:  {},
+		providers.ProviderFireworks: {},
+	})
+	ctx := cacheServingContext(t, "installation-1", "subject-a", "profile-a", "revision-1")
+	body := []byte(`{
+		"model":"gpt-5.6-sol",
+		"stream":false,
+		"tools":[{"type":"function","function":{"name":"noop","description":"placeholder","parameters":{"type":"object"}}}],
+		"messages":[{"role":"user","content":"same fallback request"}]
+	}`)
+
+	first := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, body, first, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))))
+	require.NotEmpty(t, primary.proxyBodies)
+	require.Len(t, fallback.proxyBodies, 1)
+	primaryCalls := len(primary.proxyBodies)
+
+	second := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, body, second, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))))
+
+	assert.Len(t, primary.proxyBodies, primaryCalls, "repeat must not retry the initial provider")
+	assert.Len(t, fallback.proxyBodies, 1, "repeat must replay the fallback-served response")
+	assert.Equal(t, proxy.RouterCacheHit, second.Header().Get(proxy.HeaderRouterCache))
+	assert.Equal(t, first.Body.String(), second.Body.String())
+}
+
 func TestService_Cache_UnrestrictedClosedResponseDoesNotReplayToMax(t *testing.T) {
 	emb := embeddingFixture(21)
 	closed := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
