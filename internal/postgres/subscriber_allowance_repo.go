@@ -203,16 +203,15 @@ func (r *SubscriberAllowanceRepo) readAction(ctx context.Context, actionID strin
 }
 
 // sameReservation reports whether a redelivery carries the identity of the hold
-// already stored under that action identifier. The window limits and the
-// reservation clock are excluded: they seed the period rows and record arrival
-// rather than identify the action, and legitimately differ between retries.
+// already stored under that action identifier. The window limits, the
+// reservation clock, and the windows derived from it are excluded: they seed
+// and key the period rows the hold already accrued against, and a retry that
+// arrives after a window boundary legitimately carries later ones.
 func sameReservation(stored, redelivered entitlement.Reservation) bool {
 	return stored.RouterRequestID == redelivered.RouterRequestID &&
 		stored.SubscriberID == redelivered.SubscriberID &&
 		stored.EntitlementVersion == redelivered.EntitlementVersion &&
 		stored.Plan == redelivered.Plan &&
-		stored.BillingPeriod == redelivered.BillingPeriod &&
-		stored.SixHourPeriod == redelivered.SixHourPeriod &&
 		stored.APIKeyID == redelivered.APIKeyID &&
 		stored.ClientSessionID == redelivered.ClientSessionID &&
 		stored.RequestedModel == redelivered.RequestedModel &&

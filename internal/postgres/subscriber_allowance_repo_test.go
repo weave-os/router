@@ -226,6 +226,20 @@ func TestReserveIsIdempotentForRedeliveredAction(t *testing.T) {
 	assert.Equal(t, entitlement.ActionStateReserved, action.State)
 }
 
+func TestReserveIsIdempotentForRedeliveryAfterWindowBoundary(t *testing.T) {
+	reservation := testReservation()
+	db := &subscriberAllowanceDB{actionRows: []subscriberAllowanceActionRow{{value: reservedActionRow(reservation)}}}
+
+	redelivered := reservation
+	redelivered.ReservedAt = reservation.SixHourPeriod.End.Add(time.Minute)
+	redelivered.SixHourPeriod = entitlement.SixHourWindowAt(redelivered.ReservedAt)
+	action, err := NewSubscriberAllowanceRepo(db).Reserve(context.Background(), redelivered)
+
+	require.NoError(t, err)
+	assert.Equal(t, reservation.SixHourPeriod, action.SixHourPeriod)
+	assert.Equal(t, entitlement.ActionStateReserved, action.State)
+}
+
 func TestReserveRejectsReusedActionIDForDifferentRequest(t *testing.T) {
 	reservation := testReservation()
 	stored := reservedActionRow(reservation)
