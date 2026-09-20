@@ -187,7 +187,15 @@ func TestServingCLIRejectsUnapprovedAndStaleProposalsAndReportsCommittedOutputFa
 	ref := cliPublish(t, registry, policyregistry.ServingProposals, proposal)
 	path := cliProposalFile(t, ref)
 	opened := 0
-	dependencies := servingDependencies{openRegistry: func(context.Context, string) (servingRegistry, error) { opened++; return registry, nil }, endpoints: func([]string) (policyregistry.DestinationEndpoints, error) { return endpoints, nil }, writeOutput: func(any) error { return errors.New("broken output pipe") }, clock: func() time.Time { return proposal.CreatedAt }, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	failOutput := true
+	var output any
+	dependencies := servingDependencies{openRegistry: func(context.Context, string) (servingRegistry, error) { opened++; return registry, nil }, endpoints: func([]string) (policyregistry.DestinationEndpoints, error) { return endpoints, nil }, writeOutput: func(value any) error {
+		if failOutput {
+			return errors.New("broken output pipe")
+		}
+		output = value
+		return nil
+	}, clock: func() time.Time { return proposal.CreatedAt }, logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
 	ctx := context.Background()
 	for _, extra := range [][]string{nil, {"--approved-proposal", ref.SHA256}, {"--approved-proposal", strings.Repeat("f", 64), "--workflow-actor", "workflow"}} {
 		args := append([]string{string(commandActivate), "--proposal", path}, extra...)
@@ -196,6 +204,12 @@ func TestServingCLIRejectsUnapprovedAndStaleProposalsAndReportsCommittedOutputFa
 	require.Zero(t, opened)
 	args := []string{string(commandActivate), "--proposal", path, "--approved-proposal", ref.SHA256, "--workflow-actor", "workflow"}
 	require.ErrorContains(t, runServingWith(ctx, args, dependencies), "activated; output observation degraded")
+	require.Equal(t, 1, registry.writes)
+	failOutput = false
+	require.NoError(t, runServingWith(ctx, []string{string(commandStatus), "--proposal", path}, dependencies))
+	reconciled := output.(policyregistry.ActivationResult)
+	require.True(t, reconciled.Replayed)
+	require.Equal(t, policyregistry.ActivationCurrent, reconciled.Outcome)
 	require.Equal(t, 1, registry.writes)
 	proposal.RequestID = uuid.NewString()
 	stale := cliPublish(t, registry, policyregistry.ServingProposals, proposal)

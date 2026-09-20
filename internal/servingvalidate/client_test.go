@@ -52,6 +52,37 @@ func TestPrivateValidationPreservesIAMAudienceAndExactSnapshot(t *testing.T) {
 	require.Equal(t, classifier, observedClassifier)
 }
 
+func TestPrivateWorkerValidationPreservesEveryManagedTarget(t *testing.T) {
+	requests := make(chan policyregistry.WorkerValidationRequest, 3)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request policyregistry.WorkerValidationRequest
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+		requests <- request
+		require.NoError(t, json.NewEncoder(w).Encode(policyregistry.WorkerAttestation{Ready: true, Selection: request.Selection}))
+	}))
+	defer server.Close()
+	client, err := servingvalidate.New(server.Client(), func(context.Context, string) (string, error) {
+		return "private-identity", nil
+	}, []string{server.URL})
+	require.NoError(t, err)
+	for _, target := range []policyregistry.ServingTarget{
+		policyregistry.TargetStaging,
+		policyregistry.TargetStable,
+		policyregistry.TargetInternal,
+	} {
+		request := policyregistry.WorkerValidationRequest{
+			Target: target,
+			Selection: policyregistry.ServingSelection{
+				Release: policyregistry.ObjectRef{SHA256: "release-" + string(target)},
+				Binding: policyregistry.ObjectRef{SHA256: "binding-" + string(target)},
+			},
+		}
+		_, err := client.ValidateWorker(context.Background(), policyregistry.RevisionBinding{URL: server.URL, Audience: server.URL}, request)
+		require.NoError(t, err)
+		require.Equal(t, request, <-requests)
+	}
+}
+
 func TestPrivateValidationRejectsRedirectsAndIncompleteWireResponses(t *testing.T) {
 	for _, test := range []struct {
 		name     string

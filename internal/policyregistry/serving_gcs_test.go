@@ -142,6 +142,10 @@ func TestGCSManagedServingImmutablePublicationAndDigestTampering(t *testing.T) {
 	require.Equal(t, ref, resolved)
 	_, err = registry.ReadServingObject(ctx, policyregistry.ServingSelectionSets, ref)
 	require.NoError(t, err)
+	wrongGeneration := ref
+	wrongGeneration.Generation++
+	_, err = registry.ReadServingObject(ctx, policyregistry.ServingSelectionSets, wrongGeneration)
+	require.ErrorIs(t, err, policyregistry.ErrNotFound)
 	fixture.mu.Lock()
 	for name, generations := range fixture.objects {
 		if strings.HasSuffix(name, ref.SHA256+".json") {
@@ -153,6 +157,31 @@ func TestGCSManagedServingImmutablePublicationAndDigestTampering(t *testing.T) {
 	require.ErrorContains(t, err, "digest mismatch")
 	_, err = registry.PublishServingManifest(ctx, policyregistry.ServingSelectionSets, payload)
 	require.ErrorContains(t, err, "different bytes")
+}
+
+func TestGCSManagedServingConcurrentRegistrationReturnsOneImmutableReference(t *testing.T) {
+	registry, _ := newServingGCSFixture(t)
+	payload, err := policyregistry.CanonicalBytes(fixtureSet("concurrent"))
+	require.NoError(t, err)
+	const registrations = 8
+	refs := make(chan policyregistry.ObjectRef, registrations)
+	errs := make(chan error, registrations)
+	for range registrations {
+		go func() {
+			ref, err := registry.PublishServingManifest(context.Background(), policyregistry.ServingSelectionSets, payload)
+			refs <- ref
+			errs <- err
+		}()
+	}
+	var expected policyregistry.ObjectRef
+	for range registrations {
+		require.NoError(t, <-errs)
+		ref := <-refs
+		if expected == (policyregistry.ObjectRef{}) {
+			expected = ref
+		}
+		require.Equal(t, expected, ref)
+	}
 }
 
 func TestGCSManagedServingGenerationCASAndAuthoritativeExactRead(t *testing.T) {
