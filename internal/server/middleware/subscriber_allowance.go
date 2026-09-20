@@ -1,10 +1,13 @@
 package middleware
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router/catalog"
@@ -62,8 +65,7 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 			// Router capacity, so a spent allowance must not refuse it. Settlement
 			// stays honest either way: it accounts only included_router capacity,
 			// and this request carries no coverage to settle against.
-			if proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath()) {
-				c.Next()
+			if serveOnCoveringSubscription(c) {
 				return
 			}
 			window := exhaustedWindow(admission)
@@ -135,7 +137,12 @@ func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, adm
 
 	c.Next()
 
-	if err := svc.ReleaseHold(ctx, hold.ActionID); err != nil {
+	// The release outlives the request: a client that disconnects mid-turn
+	// cancels ctx, and releasing under it would leave the bound held for the
+	// rest of the window on every abandoned request.
+	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), releaseHoldTimeout)
+	defer cancel()
+	if err := svc.ReleaseHold(releaseCtx, hold.ActionID); err != nil {
 		// The bound stays held until the window turns. That over-counts the
 		// subscriber's usage, which is the safe direction: the alternative is
 		// serving work the allowance may not cover.
@@ -146,6 +153,10 @@ func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, adm
 // holdActionSuffix distinguishes the request-level hold from the per-action
 // identifiers settlement mints for the same request.
 const holdActionSuffix = ":hold"
+
+// releaseHoldTimeout bounds the detached release so a stalled accounting write
+// cannot pin the served request's goroutine.
+const releaseHoldTimeout = 5 * time.Second
 
 // holdUsdMicros bounds one turn's cost, clamped to the headroom the tightest
 // window still has. Clamping to the limit instead would refuse every turn once
@@ -165,8 +176,7 @@ func holdUsdMicros(usage entitlement.Usage) int64 {
 // refuseExhausted answers a spent window, unless the caller's own linked
 // subscription can serve the route at no cost to the included allowance.
 func refuseExhausted(c *gin.Context, log *slog.Logger, admission entitlement.Admission, period entitlement.PeriodKind) {
-	if proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath()) {
-		c.Next()
+	if serveOnCoveringSubscription(c) {
 		return
 	}
 	admission.ExhaustedPeriod = period
@@ -185,6 +195,19 @@ func refuseExhausted(c *gin.Context, log *slog.Logger, admission entitlement.Adm
 		"allowance_usd_micros": window.LimitUsdMicros,
 		"message":              allowanceExhaustedMessage(period),
 	})
+}
+
+// serveOnCoveringSubscription serves a turn the caller's own linked plan
+// covers, and reports whether it did. The turn is marked subscription-only, as
+// the balance and spend-cap gates mark theirs: without it routing stays free to
+// fall back onto paid capacity, which is the spend a spent allowance refuses.
+func serveOnCoveringSubscription(c *gin.Context) bool {
+	if !proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath()) {
+		return false
+	}
+	c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context()))
+	c.Next()
+	return true
 }
 
 // subscriberAllowanceCovers reports whether this request was admitted against

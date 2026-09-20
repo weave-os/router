@@ -63,6 +63,7 @@ type stubAllowances struct {
 	reserveErr      error
 	held            []entitlement.Reservation
 	released        []string
+	releaseCtxErr   error
 }
 
 func (s *stubAllowances) Reserve(context.Context, entitlement.Reservation) (entitlement.Action, error) {
@@ -84,8 +85,9 @@ func (s *stubAllowances) Finalize(context.Context, entitlement.Finalization) (en
 	return entitlement.Action{}, nil
 }
 
-func (s *stubAllowances) Release(_ context.Context, release entitlement.Release) (entitlement.Action, error) {
+func (s *stubAllowances) Release(ctx context.Context, release entitlement.Release) (entitlement.Action, error) {
 	s.released = append(s.released, release.ActionID)
+	s.releaseCtxErr = ctx.Err()
 	return entitlement.Action{State: entitlement.ActionStateReleased}, nil
 }
 

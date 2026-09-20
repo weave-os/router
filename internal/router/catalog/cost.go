@@ -53,9 +53,10 @@ func USDToMicros(f float64) int64 {
 
 // upperBoundOutputTokens caps the completion half of a worst-case turn.
 // A turn's input is bounded by the model's context window, but its output is
-// only bounded by the client's max_tokens, which is not known before dispatch;
-// this is the largest completion any deployed model will emit in one turn.
-const upperBoundOutputTokens = 64_000
+// only bounded by the client's max_tokens, which is not known before dispatch,
+// so the bound is the highest output cap any deployed model accepts (Grok and
+// Muse clamp at 131072; the gpt-5.x family at 128000).
+const upperBoundOutputTokens = 131_072
 
 // TurnUpperBoundUsdMicros is the most a single turn can retail for across the
 // catalog: the priciest model's whole context window billed as fresh input,
