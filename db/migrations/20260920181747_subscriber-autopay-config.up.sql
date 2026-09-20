@@ -9,6 +9,7 @@ CREATE TABLE router.subscriber_autopay_config (
     state                              VARCHAR(32) NOT NULL DEFAULT 'active'
         CHECK (state IN ('active','recharging','failing','disabled')),
     consecutive_failures               INT         NOT NULL DEFAULT 0 CHECK (consecutive_failures >= 0),
+    checkout_id                        UUID,
     last_attempt_id                    UUID,
     last_attempt_at                    TIMESTAMPTZ,
     last_success_at                    TIMESTAMPTZ,

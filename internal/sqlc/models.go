@@ -955,6 +955,7 @@ type RouterSubscriberAutopayConfig struct {
 	HasPaymentMethod            bool
 	State                       string
 	ConsecutiveFailures         int32
+	CheckoutID                  pgtype.UUID
 	LastAttemptID               pgtype.UUID
 	LastAttemptAt               pgtype.Timestamptz
 	LastSuccessAt               pgtype.Timestamptz
