@@ -43,6 +43,10 @@ const (
 	ExclusionNotAllowlisted ExclusionReason = "not_allowlisted"
 	// ExclusionUnknownCatalogModel means the deployed set named no catalog row.
 	ExclusionUnknownCatalogModel ExclusionReason = "unknown_catalog_model"
+	// ExclusionProductIneligible means the plan the caller bought cannot serve
+	// the model's source classification. Hard and unconditional: it precedes
+	// provider resolution and no funding path or allowlist widens it.
+	ExclusionProductIneligible ExclusionReason = "product_ineligible"
 	// ExclusionUnmappedRoster means the strategy intentionally has no roster ID.
 	ExclusionUnmappedRoster ExclusionReason = "unmapped_roster"
 	// ExclusionNoProvider means no request-enabled provider can dispatch the model.
@@ -315,6 +319,10 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 		model, ok := catalog.ByID(id)
 		if !ok {
 			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: ExclusionUnknownCatalogModel})
+			continue
+		}
+		if !req.ProductEligibility.PermitsSource(model.Source) {
+			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: ExclusionProductIneligible})
 			continue
 		}
 		rosterID := r.mapper(model)

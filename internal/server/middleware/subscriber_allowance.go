@@ -56,6 +56,14 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 			return
 		}
 
+		// The plan's hard model boundary is stamped before the allowance
+		// verdict is acted on, so it governs the turn no matter which book
+		// ends up paying for it — included allowance, prepaid, or the caller's
+		// own covering subscription.
+		if admission.Plan != "" {
+			c.Request = c.Request.WithContext(entitlement.WithProductScope(c.Request.Context(), admission.Plan))
+		}
+
 		switch admission.Outcome {
 		case entitlement.AdmissionNotSubscribed:
 			c.Next()

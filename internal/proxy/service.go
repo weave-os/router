@@ -44,6 +44,7 @@ import (
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/sse"
 	"weave-os/router/internal/subscriptions"
+	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/timing"
 	"weave-os/router/internal/translate"
 	"weave-os/router/internal/websearch"
@@ -2751,6 +2752,13 @@ func (s *Service) routeWithStrategy(ctx context.Context, strategy router.Strateg
 	if err != nil {
 		return decision, err
 	}
+	// Last gate on the product boundary: candidate filtering already removed
+	// ineligible models, so this only catches a router that produced a model
+	// from somewhere other than the filtered pool (a pin, a fallback table, a
+	// deployed-set default). Refusing beats serving what the plan doesn't sell.
+	if err := catalog.CheckEligibility(req.ProductEligibility, decision.Model); err != nil {
+		return router.Decision{}, fmt.Errorf("strategy %q: %w", strategy, err)
+	}
 	if pin, pinned := router.HonouredPolicyPin(ctx); pinned && (decision.Metadata == nil || !decision.Metadata.PolicyPinHonoured) {
 		return router.Decision{}, fmt.Errorf("strategy %q cannot serve policy pin %s: %w", strategy, pin, router.ErrPolicyPinUnavailable)
 	}
@@ -2781,6 +2789,11 @@ func (s *Service) withPolicyRequestContext(ctx context.Context, req router.Reque
 	// bypass the turn loop. Merged, not assigned: the turn loop puts
 	// session-scoped strikes in the same set.
 	req.AutomaticExcludedModels = mergeExcludedModels(req.AutomaticExcludedModels, s.globalAutomaticExcludedModels(ctx))
+	// The plan's hard boundary is also desugared into the request's hard
+	// exclusions so routers that build their own candidate pools drop
+	// ineligible models without each having to know about products.
+	req.ProductEligibility = entitlement.ModelBoundaryFromContext(ctx)
+	req.ExcludedModels = mergeExcludedModels(req.ExcludedModels, modelSet(catalog.IneligibleIDs(req.ProductEligibility)))
 	req.OrganizationID, _ = ctx.Value(ExternalIDContextKey{}).(string)
 	req.InstallationID = ""
 	if installationID := installationIDFromContext(ctx); installationID != uuid.Nil {

@@ -3,6 +3,8 @@ package router
 
 import (
 	"context"
+
+	"weave-os/router/internal/router/eligibility"
 	"weave-os/router/internal/router/escalation"
 )
 
@@ -180,6 +182,13 @@ type Request struct {
 	// soft filter — if honoring it would empty the pool, it is ignored for that
 	// turn rather than failing the request.
 	AutomaticExcludedModels map[string]struct{}
+	// ProductEligibility is the hard boundary of the plan the caller bought:
+	// which model source classifications it may dispatch at all. Distinct from
+	// the sets above — those are installation policy and request-time safety,
+	// which an org can edit, whereas this one is the product. The zero value is
+	// unrestricted; a restricted boundary is also desugared into ExcludedModels
+	// so routers that filter candidates themselves never score past it.
+	ProductEligibility eligibility.Boundary
 	// PreferredModels is the per-installation priority ranking (index 0 =
 	// first). The scorer adds a small rank-decaying bonus to each preferred
 	// model's score — enough to win close calls, not to override a clearly

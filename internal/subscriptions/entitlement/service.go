@@ -40,6 +40,10 @@ type Coverage struct {
 // Admission is the verdict plus the usage that produced it.
 type Admission struct {
 	Outcome AdmissionOutcome
+	// Plan is the subscriber's plan, empty for AdmissionNotSubscribed. It is
+	// reported for an exhausted allowance too: the plan's hard product boundary
+	// governs the turn whether or not the included allowance is paying for it.
+	Plan Plan
 	// Coverage is populated for AdmissionCovered only.
 	Coverage Coverage
 	// ExhaustedPeriod names the spent window for AdmissionExhausted.
@@ -112,10 +116,11 @@ func (s *Service) Admit(ctx context.Context, subscriberID SubscriberID) (Admissi
 	usage.SixHour.LimitUsdMicros = sixHourLimit
 
 	if exhausted, kind := spentWindow(usage); exhausted {
-		return Admission{Outcome: AdmissionExhausted, ExhaustedPeriod: kind, Usage: usage}, nil
+		return Admission{Outcome: AdmissionExhausted, Plan: current.Plan, ExhaustedPeriod: kind, Usage: usage}, nil
 	}
 	return Admission{
 		Outcome: AdmissionCovered,
+		Plan:    current.Plan,
 		Usage:   usage,
 		Coverage: Coverage{
 			SubscriberID:          subscriberID,
