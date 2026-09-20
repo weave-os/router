@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router/eligibility"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -80,6 +81,43 @@ func TestWithSubscriberAllowance_KeepsProductScopeWhenAllowanceIsSpent(t *testin
 	plan, scoped := entitlement.ProductScopeFromContext(ctx)
 	require.True(t, scoped)
 	assert.Equal(t, entitlement.PlanMax, plan)
+}
+
+// An agent-shadow evaluation is Weave's own traffic: it draws no included
+// allowance even when the subscriber's is spent, but the plan still bounds
+// which model its forced route may dispatch.
+func TestWithSubscriberAllowance_ScopesAgentShadowWithoutSpendingAllowance(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	entitlements := &stubEntitlements{current: maxSubscriberEntitlement(), found: true}
+	spent := &stubAllowances{billingConsumed: monthlyAllowance}
+	svc := entitlement.NewService(entitlements, spent).WithClock(func() time.Time { return allowanceNow })
+
+	reached := false
+	observed := context.Background()
+	engine := gin.New()
+	engine.POST("/v1/messages", func(c *gin.Context) {
+		c.Set("router_api_key", subscriberAPIKey())
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), proxy.AgentShadowEvalContextKey{}, proxy.AgentShadowEvaluation{
+			Model:     "claude-opus-4-8",
+			RolloutID: "rollout-1",
+			StateID:   "state-1",
+		}))
+		middleware.WithSubscriberAllowance(svc)(c)
+		if c.IsAborted() {
+			return
+		}
+		reached = true
+		observed = c.Request.Context()
+		c.Status(http.StatusOK)
+	})
+	engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+
+	require.True(t, reached, "a shadow evaluation is not refused by a spent allowance")
+	assert.Empty(t, spent.held, "a shadow evaluation holds nothing against the allowance")
+	plan, scoped := entitlement.ProductScopeFromContext(observed)
+	require.True(t, scoped)
+	assert.Equal(t, entitlement.PlanMax, plan)
+	assert.False(t, entitlement.ModelBoundaryFromContext(observed).PermitsSource(eligibility.SourceClosedSource))
 }
 
 func TestWithSubscriberAllowance_LeavesNonSubscribersUnscoped(t *testing.T) {

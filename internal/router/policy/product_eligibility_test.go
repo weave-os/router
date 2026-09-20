@@ -61,6 +61,38 @@ func TestMaxBoundaryIsHardEvenWhenItEmptiesThePool(t *testing.T) {
 	assert.Empty(t, resolved.Candidates)
 }
 
+// The boundary is also desugared into the request's hard exclusions, so both
+// filters would drop the model. The product reason has to win, or operating
+// the boundary means reading a diagnostic that blames the org's own config.
+func TestProductRefusalOutranksTheDesugaredExclusion(t *testing.T) {
+	resolved := maxResolver().Resolve(router.Request{
+		ProductEligibility: eligibility.MaxOpenSourceOnly,
+		ExcludedModels:     set("claude-opus-4-8", "muse-spark-1.3"),
+	})
+
+	require.Equal(t, []string{"deepseek/deepseek-v4-pro"}, catalogIDs(resolved.Candidates))
+	for _, id := range []string{"claude-opus-4-8", "muse-spark-1.3"} {
+		assert.Containsf(t, resolved.Diagnostics, policy.Diagnostic{
+			CatalogID: id,
+			Reason:    policy.ExclusionProductIneligible,
+		}, "%q should report the product boundary, not the exclusion it was desugared into", id)
+	}
+}
+
+// An eligible model the org excluded is still an ordinary request exclusion.
+func TestEligibleModelStillReportsRequestedExclusion(t *testing.T) {
+	resolved := maxResolver().Resolve(router.Request{
+		ProductEligibility: eligibility.MaxOpenSourceOnly,
+		ExcludedModels:     set("deepseek/deepseek-v4-pro"),
+	})
+
+	assert.Empty(t, resolved.Candidates)
+	assert.Contains(t, resolved.Diagnostics, policy.Diagnostic{
+		CatalogID: "deepseek/deepseek-v4-pro",
+		Reason:    policy.ExclusionRequested,
+	})
+}
+
 func catalogIDs(candidates []policy.Candidate) []string {
 	ids := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {

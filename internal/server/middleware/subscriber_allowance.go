@@ -33,11 +33,6 @@ import (
 func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
-		if _, ok := proxy.AgentShadowEvalFromContext(c.Request.Context()); ok {
-			c.Next()
-			return
-		}
-
 		apiKey := APIKeyFrom(c)
 		if apiKey == nil || apiKey.CredentialSubjectID == "" {
 			c.Next()
@@ -62,6 +57,14 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 		// own covering subscription.
 		if admission.Plan != "" {
 			c.Request = c.Request.WithContext(entitlement.WithProductScope(c.Request.Context(), admission.Plan))
+		}
+
+		// An agent-shadow evaluation draws no included allowance — it is Weave's
+		// own traffic, not the subscriber's turn — but it dispatches a forced
+		// model, so it runs after the boundary above is stamped.
+		if _, shadow := proxy.AgentShadowEvalFromContext(c.Request.Context()); shadow {
+			c.Next()
+			return
 		}
 
 		switch admission.Outcome {

@@ -19,6 +19,9 @@ import (
 	"weave-os/router/internal/router/eligibility"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/subscriptions/entitlement"
+	"weave-os/router/internal/translate"
+
+	"github.com/google/uuid"
 )
 
 func maxScopedContext() context.Context {
@@ -156,6 +159,21 @@ func TestUsageBypassDisengagesForAnIneligibleModel(t *testing.T) {
 	}, nil, turntype.MainLoop)
 
 	assert.False(t, engaged)
+}
+
+// Agent-shadow evaluation forces a preplanned canonical model and skips the
+// scorer entirely, so it is gated on the boundary directly.
+func TestAgentShadowEvaluationRefusesAnIneligibleModel(t *testing.T) {
+	svc := &Service{}
+	env := bypassAnthropicEnvelope(t)
+
+	_, err := svc.runAgentShadowEvaluationRoute(
+		maxScopedContext(), env, translate.RoutingFeatures{Model: "claude-opus-4-8"}, uuid.Nil,
+		router.Request{ProductEligibility: eligibility.MaxOpenSourceOnly},
+		AgentShadowEvaluation{Model: "claude-opus-4-8", RolloutID: "rollout-1", StateID: "state-1"},
+	)
+
+	require.ErrorIs(t, err, eligibility.ErrModelIneligible)
 }
 
 // A refusal is the caller's problem to fix (pick a covered model), not an

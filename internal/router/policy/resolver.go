@@ -312,17 +312,20 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 				continue
 			}
 		}
-		if _, excluded := req.ExcludedModels[id]; excluded {
-			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: ExclusionRequested})
-			continue
-		}
 		model, ok := catalog.ByID(id)
 		if !ok {
 			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: ExclusionUnknownCatalogModel})
 			continue
 		}
+		// Ahead of the generic exclusion set, which the plan's boundary is also
+		// desugared into: reported as a request exclusion, a product refusal
+		// would be indistinguishable from an org's own excluded_models entry.
 		if !req.ProductEligibility.PermitsSource(model.Source) {
 			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: ExclusionProductIneligible})
+			continue
+		}
+		if _, excluded := req.ExcludedModels[id]; excluded {
+			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, Reason: ExclusionRequested})
 			continue
 		}
 		rosterID := r.mapper(model)
