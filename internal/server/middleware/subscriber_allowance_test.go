@@ -21,7 +21,9 @@ import (
 const (
 	allowanceSubscriberID = "11111111-1111-1111-1111-111111111111"
 	monthlyAllowance      = int64(50_000_000)
-	sixHourAllowance      = int64(5_000_000)
+	// The cap of the window covering allowanceNow, derived from the nominal
+	// allowance and the 124 fixed windows the March 2026 period intersects.
+	sixHourAllowance = int64(403_226)
 )
 
 var allowanceNow = time.Date(2026, 3, 14, 9, 30, 0, 0, time.UTC)
@@ -95,7 +97,7 @@ func activeSubscriberEntitlement() entitlement.Entitlement {
 		EffectiveAt:                      time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
 		MonthlyAllowanceUsdMicros:        monthlyAllowance,
 		NominalMonthlyAllowanceUsdMicros: monthlyAllowance,
-		SixHourAllowanceUsdMicros:        sixHourAllowance,
+		SixHourAllowanceUsdMicros:        403_225,
 		ProjectedAt:                      time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
 	}
 }

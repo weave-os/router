@@ -73,6 +73,11 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 // rather than exhausted: those requests are paid for by the org/prepaid paths
 // that already gate them, and a stale projection must not hand out free usage.
 //
+// The month's allowance is the projected one, which Weave prorates across the
+// entitlement segments covering the period. The window cap is derived here
+// instead: it depends on the window being admitted, not only on the
+// entitlement, so it cannot be a single projected scalar.
+//
 // Read failures are surfaced, never swallowed — an allowance that admits
 // everything on a database error is an unbilled-usage hole.
 //
@@ -102,8 +107,9 @@ func (s *Service) Admit(ctx context.Context, subscriberID SubscriberID) (Admissi
 	if err != nil {
 		return Admission{}, fmt.Errorf("read subscriber allowance usage: %w", err)
 	}
+	sixHourLimit := SixHourAllowanceUsdMicros(current.NominalMonthlyAllowanceUsdMicros, current.BillingPeriod, sixHour)
 	usage.Billing.LimitUsdMicros = current.MonthlyAllowanceUsdMicros
-	usage.SixHour.LimitUsdMicros = current.SixHourAllowanceUsdMicros
+	usage.SixHour.LimitUsdMicros = sixHourLimit
 
 	if exhausted, kind := spentWindow(usage); exhausted {
 		return Admission{Outcome: AdmissionExhausted, ExhaustedPeriod: kind, Usage: usage}, nil
@@ -119,7 +125,7 @@ func (s *Service) Admit(ctx context.Context, subscriberID SubscriberID) (Admissi
 			BillingPeriod:         current.BillingPeriod,
 			SixHourPeriod:         sixHour,
 			BillingLimitUsdMicros: current.MonthlyAllowanceUsdMicros,
-			SixHourLimitUsdMicros: current.SixHourAllowanceUsdMicros,
+			SixHourLimitUsdMicros: sixHourLimit,
 		},
 	}, nil
 }

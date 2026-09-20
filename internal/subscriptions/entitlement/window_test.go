@@ -42,6 +42,80 @@ func TestSixHourWindowAtNormalizesNonUTCInstants(t *testing.T) {
 	assert.True(t, window.Covers(local))
 }
 
+func billingPeriod(start, end time.Time) Period {
+	return Period{Kind: PeriodKindBilling, Start: start, End: end}
+}
+
+func TestSixHourWindowsInCountsPartialWindowsAtBothEnds(t *testing.T) {
+	for _, testCase := range []struct {
+		name    string
+		period  Period
+		windows int64
+	}{
+		{
+			name:    "aligned month",
+			period:  billingPeriod(time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC)),
+			windows: 124,
+		},
+		{
+			name:    "month anchored mid-window",
+			period:  billingPeriod(time.Date(2026, 3, 1, 14, 30, 0, 0, time.UTC), time.Date(2026, 4, 1, 14, 30, 0, 0, time.UTC)),
+			windows: 125,
+		},
+		{
+			name:    "single window",
+			period:  billingPeriod(time.Date(2026, 3, 1, 1, 0, 0, 0, time.UTC), time.Date(2026, 3, 1, 5, 0, 0, 0, time.UTC)),
+			windows: 1,
+		},
+		{
+			name:    "empty period",
+			period:  billingPeriod(time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)),
+			windows: 0,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			assert.Equal(t, testCase.windows, SixHourWindowsIn(testCase.period))
+		})
+	}
+}
+
+func TestSixHourAllowanceGivesTheRemainderToTheEarliestWindows(t *testing.T) {
+	period := billingPeriod(time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC))
+	nominal := int64(50_000_000)
+
+	var total int64
+	for index := range SixHourWindowsIn(period) {
+		window := SixHourWindowAt(period.Start.Add(time.Duration(index) * sixHourWindow))
+		allowance := SixHourAllowanceUsdMicros(nominal, period, window)
+		if index < 100 {
+			assert.Equal(t, int64(403_226), allowance, "window %d takes one micro of the remainder", index)
+		} else {
+			assert.Equal(t, int64(403_225), allowance, "window %d is past the remainder", index)
+		}
+		total += allowance
+	}
+
+	assert.Equal(t, nominal, total, "the windows of a period must sum back to the nominal allowance")
+}
+
+func TestSixHourAllowanceIgnoresWindowsOutsideTheBillingPeriod(t *testing.T) {
+	period := billingPeriod(time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC))
+
+	assert.Zero(t, SixHourAllowanceUsdMicros(50_000_000, period, SixHourWindowAt(period.Start.Add(-time.Hour))))
+	assert.Zero(t, SixHourAllowanceUsdMicros(50_000_000, period, SixHourWindowAt(period.End)))
+	assert.Zero(t, SixHourAllowanceUsdMicros(0, period, SixHourWindowAt(period.Start)))
+}
+
+func TestSixHourAllowanceGrantsAFullCapInTheWindowAPeriodStartsMidway(t *testing.T) {
+	period := billingPeriod(time.Date(2026, 3, 14, 9, 30, 0, 0, time.UTC), time.Date(2026, 4, 14, 9, 30, 0, 0, time.UTC))
+	windows := SixHourWindowsIn(period)
+
+	first := SixHourAllowanceUsdMicros(50_000_000, period, SixHourWindowAt(period.Start))
+
+	assert.Equal(t, 50_000_000/windows, first,
+		"a purchase mid-window buys the whole window, not the sliver left in it")
+}
+
 func TestPeriodCoversIsHalfOpen(t *testing.T) {
 	window := SixHourWindowAt(time.Date(2026, 3, 1, 7, 0, 0, 0, time.UTC))
 

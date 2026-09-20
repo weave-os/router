@@ -158,17 +158,23 @@ func (a Allowance) Validate() error {
 
 // Entitlement is the current versioned subscription projection for one subscriber.
 type Entitlement struct {
-	SubscriberID                     SubscriberID
-	Version                          int64
-	Plan                             Plan
-	Status                           Status
-	BillingPeriod                    Period
-	EffectiveAt                      time.Time
+	SubscriberID  SubscriberID
+	Version       int64
+	Plan          Plan
+	Status        Status
+	BillingPeriod Period
+	EffectiveAt   time.Time
+	// MonthlyAllowanceUsdMicros is the period allowance Weave prorated across
+	// the entitlement segments covering the billing period; the nominal one is
+	// the plan's undivided monthly figure, which the window caps derive from.
 	MonthlyAllowanceUsdMicros        int64
 	NominalMonthlyAllowanceUsdMicros int64
-	SixHourAllowanceUsdMicros        int64
-	AutoTopUpEnabled                 bool
-	ProjectedAt                      time.Time
+	// SixHourAllowanceUsdMicros is Weave's period-average window figure, kept
+	// for display. Enforcement uses SixHourAllowanceUsdMicros(), which resolves
+	// the cap of the specific window being admitted.
+	SixHourAllowanceUsdMicros int64
+	AutoTopUpEnabled          bool
+	ProjectedAt               time.Time
 }
 
 // Validate rejects malformed entitlement projections.

@@ -16,7 +16,9 @@ const (
 	testSubscriber = entitlement.SubscriberID("11111111-1111-1111-1111-111111111111")
 	testAPIKeyID   = "22222222-2222-2222-2222-222222222222"
 	maxMonthly     = int64(50_000_000)
-	maxSixHour     = int64(5_000_000)
+	// The March 2026 period spans 124 fixed windows and 50_000_000 leaves a
+	// remainder of 100, so each of the first 100 windows carries one extra micro.
+	maxSixHour = int64(403_226)
 )
 
 var testNow = time.Date(2026, 3, 14, 9, 30, 0, 0, time.UTC)
@@ -114,7 +116,7 @@ func activeEntitlement() entitlement.Entitlement {
 		EffectiveAt:                      time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
 		MonthlyAllowanceUsdMicros:        maxMonthly,
 		NominalMonthlyAllowanceUsdMicros: maxMonthly,
-		SixHourAllowanceUsdMicros:        maxSixHour,
+		SixHourAllowanceUsdMicros:        403_225,
 		ProjectedAt:                      time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
 	}
 }
@@ -169,7 +171,8 @@ func TestAdmitCoversActiveSubscriberWithHeadroom(t *testing.T) {
 	assert.Equal(t, int64(7), admission.Coverage.EntitlementVersion)
 	assert.Equal(t, entitlement.PlanMax, admission.Coverage.Plan)
 	assert.Equal(t, maxMonthly, admission.Coverage.BillingLimitUsdMicros)
-	assert.Equal(t, maxSixHour, admission.Coverage.SixHourLimitUsdMicros)
+	assert.Equal(t, maxSixHour, admission.Coverage.SixHourLimitUsdMicros,
+		"the window cap is derived from the nominal allowance, not from the projected average")
 	// The six-hour window is derived from the clock, not from the projection.
 	assert.Equal(t, time.Date(2026, 3, 14, 6, 0, 0, 0, time.UTC), admission.Coverage.SixHourPeriod.Start)
 	assert.Equal(t, time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC), admission.Coverage.SixHourPeriod.End)
@@ -208,6 +211,29 @@ func TestAdmitReportsExhaustedWindow(t *testing.T) {
 			assert.Equal(t, testCase.expected, admission.ExhaustedPeriod)
 		})
 	}
+}
+
+func TestAdmitDerivesTheWindowCapOfThePlanInForce(t *testing.T) {
+	t.Parallel()
+
+	upgraded := activeEntitlement()
+	upgraded.Version = 8
+	upgraded.Plan = entitlement.PlanBoost
+	upgraded.NominalMonthlyAllowanceUsdMicros = 200_000_000
+	// An upgrade mid-period only prorates the month; the window starts over at
+	// the target plan's cap with the usage already booked in it still counted.
+	upgraded.MonthlyAllowanceUsdMicros = 120_000_000
+	spentUnderMax := &fakeAllowances{billingFinal: 10_000_000, sixHourFinal: 500_000}
+
+	admission, err := newService(&fakeEntitlements{current: upgraded, found: true}, spentUnderMax).
+		Admit(context.Background(), testSubscriber)
+	require.NoError(t, err)
+
+	assert.Equal(t, entitlement.AdmissionCovered, admission.Outcome)
+	assert.Equal(t, int64(1_612_903), admission.Coverage.SixHourLimitUsdMicros)
+	assert.Equal(t, int64(120_000_000), admission.Coverage.BillingLimitUsdMicros)
+	assert.Equal(t, int64(500_000), admission.Usage.SixHour.ConsumedUsdMicros(),
+		"a plan change must not forgive what the window already spent")
 }
 
 func TestAdmitSurfacesReadFailures(t *testing.T) {
