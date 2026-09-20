@@ -210,13 +210,13 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 			leaseID := uuid.NewString()
 			acquisition, err := r.store.TryAcquireSubscriptionRefreshLease(ctx, owner, account.ID, leaseID, r.leaseTTL)
 			if err != nil {
-				observability.FromContext(ctx).Error("Failed to acquire subscription refresh lease", "owner_id", owner.PoolKey(), "account_id", account.ID, "provider", account.Provider, "err", err)
+				observability.FromContext(ctx).Error("Failed to acquire subscription refresh lease", "owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider, "err", err)
 				return Account{}, err
 			}
 			if !acquisition.Acquired {
 				credentials, loadErr := r.store.LoadSubscriptionCredentials(ctx, owner, account.ID)
 				if loadErr != nil {
-					observability.FromContext(ctx).Error("Failed to load subscription credentials while waiting for refresh", "owner_id", owner.PoolKey(), "account_id", account.ID, "provider", account.Provider, "err", loadErr)
+					observability.FromContext(ctx).Error("Failed to load subscription credentials while waiting for refresh", "owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider, "err", loadErr)
 					return Account{}, loadErr
 				}
 				if !subscriptionCredentialAvailable(credentials, r.clock()) {
@@ -241,7 +241,7 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 
 			credentials, err := r.store.LoadSubscriptionCredentials(ctx, owner, account.ID)
 			if err != nil {
-				observability.FromContext(ctx).Error("Failed to load subscription credentials for refresh", "owner_id", owner.PoolKey(), "account_id", account.ID, "provider", account.Provider, "err", err)
+				observability.FromContext(ctx).Error("Failed to load subscription credentials for refresh", "owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider, "err", err)
 				return Account{}, r.releaseRefreshLease(ctx, owner, account.ID, leaseID, err)
 			}
 			if !subscriptionCredentialAvailable(credentials, r.clock()) {
@@ -277,7 +277,7 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 					return applySubscriptionCredentials(account, latest), nil
 				}
 				if loadErr != nil {
-					observability.FromContext(ctx).Error("Failed to reload subscription credentials after refresh conflict", "owner_id", owner.PoolKey(), "account_id", account.ID, "provider", account.Provider, "err", loadErr)
+					observability.FromContext(ctx).Error("Failed to reload subscription credentials after refresh conflict", "owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider, "err", loadErr)
 					return Account{}, errors.Join(persistErr, loadErr)
 				}
 				if err := waitForRefresh(ctx, wait); err != nil {
@@ -286,7 +286,7 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 				continue
 			}
 			if persistErr != nil {
-				observability.FromContext(ctx).Error("Failed to persist refreshed subscription credentials", "owner_id", owner.PoolKey(), "account_id", account.ID, "provider", account.Provider, "err", persistErr)
+				observability.FromContext(ctx).Error("Failed to persist refreshed subscription credentials", "owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider, "err", persistErr)
 				return Account{}, r.releaseRefreshLease(ctx, owner, account.ID, leaseID, persistErr)
 			}
 			account.AccessToken = refreshed.AccessToken
@@ -325,7 +325,7 @@ func (r *Runtime) refreshWithHeartbeat(ctx context.Context, owner auth.Subscript
 			extended, err := r.store.ExtendSubscriptionRefreshLease(extendCtx, owner, account.ID, leaseID, r.leaseTTL)
 			cancelExtend()
 			if err != nil {
-				observability.FromContext(ctx).Warn("Failed to extend subscription refresh lease", "owner_id", owner.PoolKey(), "account_id", account.ID, "provider", account.Provider, "err", err)
+				observability.FromContext(ctx).Warn("Failed to extend subscription refresh lease", "owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider, "err", err)
 				continue
 			}
 			if !extended {
@@ -351,7 +351,7 @@ func (r *Runtime) handleRefreshError(ctx context.Context, owner auth.Subscriptio
 	if errors.Is(refreshErr, context.Canceled) || errors.Is(refreshErr, context.DeadlineExceeded) {
 		return Account{}, r.releaseRefreshLease(ctx, owner, account.ID, leaseID, refreshErr)
 	}
-	log := observability.FromContext(ctx).With("owner_id", owner.PoolKey(), "account_id", account.ID, "provider", account.Provider)
+	log := observability.FromContext(ctx).With("owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider)
 	var terminal terminalRefreshError
 	if errors.As(refreshErr, &terminal) && terminal.Terminal() {
 		log.Debug("Subscription credential refresh rejected", "err", refreshErr)
@@ -385,7 +385,7 @@ func (r *Runtime) releaseRefreshLease(ctx context.Context, owner auth.Subscripti
 	releaseCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), refreshReleaseTimeout)
 	defer cancel()
 	if releaseErr := r.store.ReleaseSubscriptionRefreshLease(releaseCtx, owner, accountID, leaseID); releaseErr != nil {
-		observability.FromContext(ctx).Error("Failed to release subscription refresh lease", "owner_id", owner.PoolKey(), "account_id", accountID, "err", releaseErr)
+		observability.FromContext(ctx).Error("Failed to release subscription refresh lease", "owner_id", owner.LogKey(), "account_id", accountID, "err", releaseErr)
 		return errors.Join(err, fmt.Errorf("release subscription refresh lease: %w", releaseErr))
 	}
 	return err

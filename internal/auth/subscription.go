@@ -45,6 +45,19 @@ func (o SubscriptionOwner) PoolKey() string {
 	}
 }
 
+// LogKey identifies the pool in logs without emitting the api key id: legacy
+// pools are distinguished by the account id logged alongside it.
+func (o SubscriptionOwner) LogKey() string {
+	switch {
+	case o.SubscriberID != "":
+		return "subscriber:" + o.SubscriberID
+	case o.APIKeyID != "":
+		return "api_key"
+	default:
+		return ""
+	}
+}
+
 // SubscriptionOwnerForKey derives linked-account ownership from an
 // authenticated key: its credential subject where one exists, plus the key
 // itself for rows enrolled before ownership moved to the subscriber.

@@ -165,6 +165,10 @@ func TestSubscriptionOwnerForKeyPrefersCredentialSubject(t *testing.T) {
 	require.True(t, legacyOwner.Valid())
 	require.False(t, SubscriptionOwnerForKey(nil).Valid())
 	require.Empty(t, SubscriptionOwner{}.PoolKey())
+
+	require.Equal(t, "subscriber:subscriber-1", subscriberOwner.LogKey())
+	require.NotContains(t, legacyOwner.LogKey(), "key-3")
+	require.Empty(t, SubscriptionOwner{}.LogKey())
 }
 
 func TestListSubscriptionAccountsRejectsUnownedCaller(t *testing.T) {
