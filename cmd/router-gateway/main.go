@@ -88,6 +88,7 @@ func run() error {
 	mux.Handle("/", forwarder)
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
 	mux.Handle("GET /readyz", forwarder.ReadinessHandler(pool.Ping))
+	mux.Handle("GET /startupz", forwarder.StartupHandler(pool.Ping))
 	server := &http.Server{Addr: ":" + config.GetOr("PORT", "8080"), Handler: mux, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 620 * time.Second, IdleTimeout: 90 * time.Second}
 	stopped := make(chan error, 1)
 	go func() { stopped <- server.ListenAndServe() }()

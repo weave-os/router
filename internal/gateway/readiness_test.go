@@ -75,6 +75,27 @@ func TestGatewayReadinessChecksAdmissionDependencies(t *testing.T) {
 	}
 }
 
+func TestGatewayStartupToleratesMissingActivation(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		databaseError  error
+		registryError  error
+		expectedStatus int
+	}{
+		{name: "activation missing", registryError: policyregistry.ErrNotFound, expectedStatus: http.StatusOK},
+		{name: "registry unavailable", registryError: errors.New("private dependency diagnostic"), expectedStatus: http.StatusServiceUnavailable},
+		{name: "database unavailable", databaseError: errors.New("private dependency diagnostic"), expectedStatus: http.StatusServiceUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			forwarder := readinessFixture(t, policyregistry.EnvironmentStaging, test.registryError, nil)
+			probe := forwarder.StartupHandler(func(context.Context) error { return test.databaseError })
+			response := httptest.NewRecorder()
+			probe.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/startupz", nil))
+			require.Equal(t, test.expectedStatus, response.Code)
+		})
+	}
+}
+
 func TestGatewayReadinessDeadline(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		forwarder := readinessFixture(t, policyregistry.EnvironmentProd, nil, nil)

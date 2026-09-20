@@ -120,13 +120,21 @@ projections, session bindings or request-attribution tables. A nonempty weak key
 fails boot; it does not silently fall back. Apply additive router migrations
 `0095` through the coordinated migration path before enabling a gateway.
 
-The gateway exposes `/health` for process liveness and `/readyz` for admission
-readiness. Readiness has a five-second total budget to ping PostgreSQL, resolve
-the environment's active default binding from the registry, and acquire a worker
-IAM token. Missing activation or unavailable dependencies return 503; no session
-is admitted and no inference is dispatched. PR2 deployment configuration must use
-`/readyz` for traffic-admission checks, not `/health`. Token acquisition does not
-prove the destination's `run.invoker` grant; private deployment smoke still must.
+The gateway exposes `/health` for process liveness, `/startupz` for boot
+readiness and `/readyz` for admission readiness. Readiness has a five-second
+total budget to ping PostgreSQL, resolve the environment's active default
+binding from the registry, and acquire a worker IAM token. Missing activation or
+unavailable dependencies return 503; no session is admitted and no inference is
+dispatched. PR2 deployment configuration must use `/readyz` for traffic-admission
+checks, not `/health`. Token acquisition does not prove the destination's
+`run.invoker` grant; private deployment smoke still must.
+
+`/startupz` runs the same checks except that a target with no activation yet is
+boot-ready, because a container gated on an activation can never be the one that
+deploys the first activation. Deployment configuration must use `/startupz` for
+the container startup probe and `/readyz` after activation. Requests remain
+fail-closed on an unactivated target: forwarding resolves the binding per
+request and has nothing to resolve.
 
 Managed workers require `ROUTER_SERVING_TARGET`, `ROUTER_SERVING_PROJECT`,
 `ROUTER_SERVING_REGION`, `ROUTER_SERVING_IMAGE_DIGEST`, and
