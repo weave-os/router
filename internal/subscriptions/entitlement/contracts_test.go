@@ -187,6 +187,21 @@ func TestReservationValidateRequiresBothAccountingPeriods(t *testing.T) {
 	require.ErrorIs(t, reservation.Validate(), entitlement.ErrInvalidContract)
 }
 
+func TestReservationValidateRequiresWindowsContainingTheHold(t *testing.T) {
+	t.Parallel()
+
+	reservation := validReservation()
+	require.NoError(t, reservation.Validate())
+
+	outsideSixHour := reservation
+	outsideSixHour.ReservedAt = reservation.SixHourPeriod.End
+	require.ErrorIs(t, outsideSixHour.Validate(), entitlement.ErrInvalidContract)
+
+	outsideBilling := reservation
+	outsideBilling.BillingPeriod.End = reservation.ReservedAt.Add(-time.Hour)
+	require.ErrorIs(t, outsideBilling.Validate(), entitlement.ErrInvalidContract)
+}
+
 func TestFinalizationAndReleaseValidateLifecycleInputs(t *testing.T) {
 	t.Parallel()
 

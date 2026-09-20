@@ -249,7 +249,16 @@ func (r Reservation) Validate() error {
 	if err := r.BillingPeriod.Validate(); err != nil {
 		return err
 	}
-	return r.SixHourPeriod.Validate()
+	if err := r.SixHourPeriod.Validate(); err != nil {
+		return err
+	}
+	// The period starts are the aggregate keys the hold accrues against, so a
+	// reservation filed outside the windows containing it would draw down one
+	// window while admission reads another.
+	if !r.BillingPeriod.Covers(r.ReservedAt) || r.SixHourPeriod != SixHourWindowAt(r.ReservedAt) {
+		return ErrInvalidContract
+	}
+	return nil
 }
 
 // Finalization records the actual retail cost and serving source for a reserved action.

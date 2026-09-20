@@ -65,7 +65,10 @@ WITH reserved AS (
     FROM reserved
     WHERE reserved.capacity_source = 'included_router'
     ON CONFLICT (subscriber_id, period_kind, period_start) DO UPDATE SET
-        period_end = EXCLUDED.period_end,
+        period_end = CASE
+            WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.period_end
+            ELSE router.subscriber_allowance_periods.period_end
+        END,
         entitlement_version = GREATEST(router.subscriber_allowance_periods.entitlement_version, EXCLUDED.entitlement_version),
         plan = CASE
             WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.plan
@@ -100,7 +103,10 @@ WITH reserved AS (
     FROM reserved
     WHERE reserved.capacity_source = 'included_router'
     ON CONFLICT (subscriber_id, period_kind, period_start) DO UPDATE SET
-        period_end = EXCLUDED.period_end,
+        period_end = CASE
+            WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.period_end
+            ELSE router.subscriber_allowance_periods.period_end
+        END,
         entitlement_version = GREATEST(router.subscriber_allowance_periods.entitlement_version, EXCLUDED.entitlement_version),
         plan = CASE
             WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.plan
@@ -198,6 +204,14 @@ UNION ALL
 SELECT * FROM router.subscriber_allowance_actions
 WHERE action_id = @action_id::varchar
   AND NOT EXISTS (SELECT 1 FROM released);
+
+-- name: GetSubscriberAllowanceAction :one
+-- Reads one stored allowance action. Callers use it after a write statement
+-- declined to transition a row, because that statement's snapshot cannot see a
+-- concurrently committed action.
+SELECT *
+FROM router.subscriber_allowance_actions
+WHERE action_id = @action_id::varchar;
 
 -- name: ListSubscriberAllowanceWindows :many
 -- Reads the consumed amounts for the two enforcement windows covering one

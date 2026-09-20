@@ -164,6 +164,49 @@ func (q *Queries) FinalizeSubscriberAllowance(ctx context.Context, arg FinalizeS
 	return i, err
 }
 
+const getSubscriberAllowanceAction = `-- name: GetSubscriberAllowanceAction :one
+SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at
+FROM router.subscriber_allowance_actions
+WHERE action_id = $1::varchar
+`
+
+// Reads one stored allowance action. Callers use it after a write statement
+// declined to transition a row, because that statement's snapshot cannot see a
+// concurrently committed action.
+//
+//	SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at
+//	FROM router.subscriber_allowance_actions
+//	WHERE action_id = $1::varchar
+func (q *Queries) GetSubscriberAllowanceAction(ctx context.Context, actionID string) (RouterSubscriberAllowanceAction, error) {
+	row := q.db.QueryRow(ctx, getSubscriberAllowanceAction, actionID)
+	var i RouterSubscriberAllowanceAction
+	err := row.Scan(
+		&i.ActionID,
+		&i.RouterRequestID,
+		&i.SubscriberID,
+		&i.EntitlementVersion,
+		&i.Plan,
+		&i.BillingPeriodStart,
+		&i.BillingPeriodEnd,
+		&i.SixHourPeriodStart,
+		&i.SixHourPeriodEnd,
+		&i.APIKeyID,
+		&i.ClientSessionID,
+		&i.RequestedModel,
+		&i.ServedModel,
+		&i.ReservedUsdMicros,
+		&i.RetailUsdMicros,
+		&i.CapacitySource,
+		&i.State,
+		&i.ReservedAt,
+		&i.FinalizedAt,
+		&i.ReleasedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const listSubscriberAllowanceWindows = `-- name: ListSubscriberAllowanceWindows :many
 SELECT subscriber_id, period_kind, period_start, period_end, entitlement_version, plan, limit_usd_micros, reserved_usd_micros, finalized_usd_micros, created_at, updated_at
 FROM router.subscriber_allowance_periods
@@ -414,7 +457,10 @@ WITH reserved AS (
     FROM reserved
     WHERE reserved.capacity_source = 'included_router'
     ON CONFLICT (subscriber_id, period_kind, period_start) DO UPDATE SET
-        period_end = EXCLUDED.period_end,
+        period_end = CASE
+            WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.period_end
+            ELSE router.subscriber_allowance_periods.period_end
+        END,
         entitlement_version = GREATEST(router.subscriber_allowance_periods.entitlement_version, EXCLUDED.entitlement_version),
         plan = CASE
             WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.plan
@@ -449,7 +495,10 @@ WITH reserved AS (
     FROM reserved
     WHERE reserved.capacity_source = 'included_router'
     ON CONFLICT (subscriber_id, period_kind, period_start) DO UPDATE SET
-        period_end = EXCLUDED.period_end,
+        period_end = CASE
+            WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.period_end
+            ELSE router.subscriber_allowance_periods.period_end
+        END,
         entitlement_version = GREATEST(router.subscriber_allowance_periods.entitlement_version, EXCLUDED.entitlement_version),
         plan = CASE
             WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.plan
@@ -581,7 +630,10 @@ type ReserveSubscriberAllowanceRow struct {
 //	    FROM reserved
 //	    WHERE reserved.capacity_source = 'included_router'
 //	    ON CONFLICT (subscriber_id, period_kind, period_start) DO UPDATE SET
-//	        period_end = EXCLUDED.period_end,
+//	        period_end = CASE
+//	            WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.period_end
+//	            ELSE router.subscriber_allowance_periods.period_end
+//	        END,
 //	        entitlement_version = GREATEST(router.subscriber_allowance_periods.entitlement_version, EXCLUDED.entitlement_version),
 //	        plan = CASE
 //	            WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.plan
@@ -616,7 +668,10 @@ type ReserveSubscriberAllowanceRow struct {
 //	    FROM reserved
 //	    WHERE reserved.capacity_source = 'included_router'
 //	    ON CONFLICT (subscriber_id, period_kind, period_start) DO UPDATE SET
-//	        period_end = EXCLUDED.period_end,
+//	        period_end = CASE
+//	            WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.period_end
+//	            ELSE router.subscriber_allowance_periods.period_end
+//	        END,
 //	        entitlement_version = GREATEST(router.subscriber_allowance_periods.entitlement_version, EXCLUDED.entitlement_version),
 //	        plan = CASE
 //	            WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.plan
