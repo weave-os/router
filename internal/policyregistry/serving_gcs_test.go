@@ -182,6 +182,8 @@ func TestGCSManagedServingConcurrentRegistrationReturnsOneImmutableReference(t *
 		}
 		require.Equal(t, expected, ref)
 	}
+	require.Equal(t, policyregistry.Digest(payload), expected.SHA256)
+	require.NoError(t, policyregistry.ValidateServingRef(expected, testRegistryRoot, policyregistry.ServingSelectionSets))
 }
 
 func TestGCSManagedServingGenerationCASAndAuthoritativeExactRead(t *testing.T) {
