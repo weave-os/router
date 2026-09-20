@@ -195,12 +195,36 @@ func TestProfileAssignmentsDoNotFallBackAndGenerationChangesRebind(t *testing.T)
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), next.BindingGeneration)
 	assert.Equal(t, profileKeyOne, next.ProfileKey)
+	projection.SubjectAssignmentGeneration++
+	subjectNext, err := policyregistry.SelectSessionRelease(&next, projection, first, sets, testRegistryRoot, servingEpoch.Add(2*time.Minute))
+	require.NoError(t, err)
+	assert.Equal(t, int64(3), subjectNext.BindingGeneration)
+	assert.Equal(t, profileKeyOne, subjectNext.ProfileKey)
 	projection.ProfileKey = profileKeyTwo
-	_, err = policyregistry.SelectSessionRelease(&initial, projection, first, sets, testRegistryRoot, servingEpoch.Add(time.Minute))
+	_, err = policyregistry.SelectSessionRelease(&subjectNext, projection, first, sets, testRegistryRoot, servingEpoch.Add(3*time.Minute))
 	require.ErrorContains(t, err, "default fallback is forbidden")
 	initial.ActivationID = uuid.NewString()
 	_, err = policyregistry.SelectSessionRelease(&initial, projection, first, sets, testRegistryRoot, servingEpoch.Add(time.Minute))
 	require.ErrorContains(t, err, "unknown activation")
+}
+
+func TestRequiredProfileAssignmentsFailClosedWithoutLaneDefault(t *testing.T) {
+	set := fixtureSet("one")
+	profile := namespaceRef(policyregistry.ServingProfiles, "profile")
+	set.Profiles[profileKeyOne] = policyregistry.ServingSelection{Release: namespaceRef(policyregistry.ServingReleases, "custom"), Binding: namespaceRef(policyregistry.ServingBindings, "custom"), Profile: &profile}
+	first, _ := activateFixture(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	sets := map[string]policyregistry.SelectionSet{servingRef(t, policyregistry.ServingSelectionSets, set).SHA256: set}
+	required := policyregistry.AdmissionProjection{Target: policyregistry.TargetStable, AssignmentSource: policyregistry.AssignmentSourceSubscriberPlan, AssignmentState: policyregistry.AssignmentStatePending, ProfileRequired: true}
+	_, err := policyregistry.SelectSessionRelease(nil, required, first, sets, testRegistryRoot, servingEpoch)
+	require.ErrorContains(t, err, "default fallback is forbidden")
+	required.ProfileKey = profileKeyTwo
+	_, err = policyregistry.SelectSessionRelease(nil, required, first, sets, testRegistryRoot, servingEpoch)
+	require.ErrorContains(t, err, "default fallback is forbidden")
+	defaultFollowing := policyregistry.AdmissionProjection{Target: policyregistry.TargetStable, AssignmentSource: policyregistry.AssignmentSourceLaneDefault, AssignmentState: policyregistry.AssignmentStateDefaultFollowing, AssignmentGeneration: 1}
+	admitted, err := policyregistry.SelectSessionRelease(nil, defaultFollowing, first, sets, testRegistryRoot, servingEpoch)
+	require.NoError(t, err)
+	assert.Equal(t, set.Default, admitted.Selection)
+	assert.Empty(t, admitted.ProfileKey)
 }
 
 type servingMemoryStore struct {

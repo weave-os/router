@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/sqlc"
 )
 
@@ -167,6 +168,55 @@ func (r *CredentialSubjectRepo) ProjectProfile(ctx context.Context, externalID s
 	})
 	if err != nil {
 		return fmt.Errorf("project organization profile assignment: %w", err)
+	}
+	return nil
+}
+
+// ProjectSubjectProfile writes one opaque subject assignment source after profile registration.
+func (r *CredentialSubjectRepo) ProjectSubjectProfile(ctx context.Context, externalID, subjectID, installationID string, source policyregistry.AdmissionAssignmentSource, state policyregistry.AdmissionAssignmentState, desiredGeneration int64, profileKey, evidenceID string, failureDetail *string) error {
+	if desiredGeneration <= 0 {
+		return errors.New("subject profile projection requires a positive desired generation")
+	}
+	if evidenceID == "" {
+		return errors.New("subject profile projection requires evidence identity")
+	}
+	installationUUID, err := uuid.Parse(installationID)
+	if err != nil {
+		return err
+	}
+	subjectUUID, err := uuid.Parse(subjectID)
+	if err != nil {
+		return err
+	}
+	profile := uuidOrNil("")
+	if profileKey != "" {
+		parsed, err := uuid.Parse(profileKey)
+		if err != nil || parsed == uuid.Nil {
+			return errors.New("invalid profile assignment key")
+		}
+		profile = uuidOrNil(parsed.String())
+	}
+	err = pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		queries := sqlc.New(tx)
+		installations, err := queries.GetServingInstallationsForProjection(ctx, sqlc.GetServingInstallationsForProjectionParams{InstallationIds: []uuid.UUID{installationUUID}, ExternalID: externalID})
+		if err != nil {
+			return err
+		}
+		if len(installations) != 1 {
+			return auth.ErrInstallationNotFound
+		}
+		locked, err := queries.GetCredentialSubjectInstallationForProfileProjection(ctx, sqlc.GetCredentialSubjectInstallationForProfileProjectionParams{SubjectID: subjectUUID, InstallationID: installationUUID})
+		if err != nil {
+			return err
+		}
+		if locked != subjectUUID {
+			return auth.ErrPersonalCredentialRequired
+		}
+		_, err = queries.UpsertCredentialSubjectProfileAssignment(ctx, sqlc.UpsertCredentialSubjectProfileAssignmentParams{SubjectID: subjectUUID, InstallationID: installationUUID, AssignmentSource: string(source), AssignmentState: string(state), DesiredGeneration: desiredGeneration, DesiredProfileKey: profile, EvidenceID: evidenceID, LastFailureDetail: failureDetail})
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("project subject profile assignment: %w", err)
 	}
 	return nil
 }

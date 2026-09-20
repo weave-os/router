@@ -55,3 +55,82 @@ ON CONFLICT (installation_id) DO UPDATE SET
     assignment_generation = router.installation_profile_assignments.assignment_generation + 1,
     updated_at = clock_timestamp()
 WHERE router.installation_profile_assignments.profile_key IS DISTINCT FROM EXCLUDED.profile_key;
+
+-- Subject profile writers lock subject access before making a precedence source visible to admission.
+-- name: GetCredentialSubjectInstallationForProfileProjection :one
+SELECT subject_id
+FROM router.credential_subject_installations
+WHERE subject_id = @subject_id::uuid AND installation_id = @installation_id::uuid
+FOR UPDATE;
+
+-- Projection retries preserve the previous effective profile until a desired generation becomes effective.
+-- name: UpsertCredentialSubjectProfileAssignment :one
+INSERT INTO router.credential_subject_profile_assignments (
+    subject_id,
+    installation_id,
+    assignment_source,
+    assignment_state,
+    desired_generation,
+    effective_generation,
+    desired_profile_key,
+    effective_profile_key,
+    evidence_id,
+    projected_at,
+    effective_at,
+    last_failure_detail
+) VALUES (
+    @subject_id::uuid,
+    @installation_id::uuid,
+    @assignment_source::varchar,
+    @assignment_state::varchar,
+    @desired_generation::bigint,
+    CASE
+        WHEN @assignment_state::varchar IN ('effective', 'default_following', 'deliberately_unassigned')
+            THEN @desired_generation::bigint
+        ELSE 0
+    END,
+    sqlc.narg(desired_profile_key)::uuid,
+    CASE
+        WHEN @assignment_state::varchar IN ('effective', 'default_following', 'deliberately_unassigned')
+            THEN sqlc.narg(desired_profile_key)::uuid
+        ELSE NULL::uuid
+    END,
+    @evidence_id::varchar,
+    clock_timestamp(),
+    CASE
+        WHEN @assignment_state::varchar IN ('effective', 'default_following', 'deliberately_unassigned')
+            THEN clock_timestamp()
+        ELSE NULL::timestamptz
+    END,
+    sqlc.narg(last_failure_detail)::varchar
+)
+ON CONFLICT (subject_id, installation_id, assignment_source) DO UPDATE SET
+    assignment_state = EXCLUDED.assignment_state,
+    desired_generation = EXCLUDED.desired_generation,
+    desired_profile_key = EXCLUDED.desired_profile_key,
+    effective_generation = CASE
+        WHEN EXCLUDED.assignment_state IN ('effective', 'default_following', 'deliberately_unassigned')
+            THEN EXCLUDED.desired_generation
+        ELSE router.credential_subject_profile_assignments.effective_generation
+    END,
+    effective_profile_key = CASE
+        WHEN EXCLUDED.assignment_state IN ('effective', 'default_following', 'deliberately_unassigned')
+            THEN EXCLUDED.desired_profile_key
+        ELSE router.credential_subject_profile_assignments.effective_profile_key
+    END,
+    evidence_id = EXCLUDED.evidence_id,
+    projection_attempts = router.credential_subject_profile_assignments.projection_attempts + 1,
+    projected_at = EXCLUDED.projected_at,
+    effective_at = CASE
+        WHEN EXCLUDED.assignment_state IN ('effective', 'default_following', 'deliberately_unassigned')
+            THEN EXCLUDED.effective_at
+        ELSE router.credential_subject_profile_assignments.effective_at
+    END,
+    last_failure_detail = EXCLUDED.last_failure_detail,
+    updated_at = clock_timestamp()
+WHERE router.credential_subject_profile_assignments.desired_generation < EXCLUDED.desired_generation
+   OR (
+       router.credential_subject_profile_assignments.desired_generation = EXCLUDED.desired_generation
+       AND router.credential_subject_profile_assignments.desired_profile_key IS NOT DISTINCT FROM EXCLUDED.desired_profile_key
+   )
+RETURNING *;

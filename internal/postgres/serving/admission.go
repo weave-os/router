@@ -90,13 +90,33 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 		if r.environment == policyregistry.EnvironmentStaging {
 			projection.Target = policyregistry.TargetStaging
 		}
+		var installationAssignmentGeneration int64
 		assignment, err := queries.GetServingProfileAssignment(ctx, installationUUID)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
 		if err == nil {
-			projection.ProfileKey = uuidString(assignment.ProfileKey)
+			installationAssignmentGeneration = assignment.AssignmentGeneration
 			projection.AssignmentGeneration = assignment.AssignmentGeneration
+			if assignment.ProfileKey.Valid {
+				projection.ProfileKey = uuidString(assignment.ProfileKey)
+				projection.AssignmentSource = policyregistry.AssignmentSourceOrganizationOverride
+				projection.AssignmentState = policyregistry.AssignmentStateEffective
+				projection.ProfileRequired = true
+			}
+		}
+		if subject != nil && projection.AssignmentSource != policyregistry.AssignmentSourceOrganizationOverride {
+			assignment, err := queries.GetServingSubjectProfileAssignment(ctx, sqlc.GetServingSubjectProfileAssignmentParams{SubjectID: uuid.UUID(credential.CredentialSubjectID.Bytes), InstallationID: installationUUID})
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			if errors.Is(err, sql.ErrNoRows) {
+				projection.AssignmentSource = policyregistry.AssignmentSourceAbsent
+				projection.AssignmentState = policyregistry.AssignmentStateAbsent
+				projection.ProfileRequired = true
+			} else {
+				applySubjectAssignment(&projection, assignment, installationAssignmentGeneration)
+			}
 		}
 		digest, persistent := policyregistry.ServingConversationDigest(identity, clientSessionID)
 		scope = policyregistry.AdmissionScope{InstallationID: installationID, CredentialIdentity: identity, ConversationDigest: digest, Persistent: persistent}
@@ -157,7 +177,7 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 				return err
 			}
 		}
-		updated, err := queries.UpsertSessionReleaseBinding(ctx, sqlc.UpsertSessionReleaseBindingParams{InstallationID: installationUUID, CredentialScope: identity, ConversationDigest: digest[:], Target: string(admitted.Target), ActivationID: activationUUID, ReleaseSha256: admitted.Selection.Release.SHA256, BindingSha256: admitted.Selection.Binding.SHA256, ProfileKey: profileUUID, ProfileRevisionSha256: profileRevision, EnrollmentGeneration: admitted.EnrollmentGeneration, AssignmentGeneration: admitted.AssignmentGeneration, BindingGeneration: admitted.BindingGeneration, Binding: encoded, CreatedAt: pgtype.Timestamptz{Time: admitted.CreatedAt, Valid: true}, LastAdmittedAt: pgtype.Timestamptz{Time: admitted.LastAdmittedAt, Valid: true}})
+		updated, err := queries.UpsertSessionReleaseBinding(ctx, sqlc.UpsertSessionReleaseBindingParams{InstallationID: installationUUID, CredentialScope: identity, ConversationDigest: digest[:], Target: string(admitted.Target), ActivationID: activationUUID, ReleaseSha256: admitted.Selection.Release.SHA256, BindingSha256: admitted.Selection.Binding.SHA256, ProfileKey: profileUUID, ProfileRevisionSha256: profileRevision, EnrollmentGeneration: admitted.EnrollmentGeneration, AssignmentGeneration: admitted.AssignmentGeneration, SubjectAssignmentGeneration: admitted.SubjectAssignmentGeneration, BindingGeneration: admitted.BindingGeneration, Binding: encoded, CreatedAt: pgtype.Timestamptz{Time: admitted.CreatedAt, Valid: true}, LastAdmittedAt: pgtype.Timestamptz{Time: admitted.LastAdmittedAt, Valid: true}})
 		if err != nil {
 			return err
 		}
@@ -182,6 +202,31 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 		return policyregistry.AdmissionScope{}, policyregistry.SessionReleaseBinding{}, err
 	}
 	return scope, admitted, nil
+}
+
+func applySubjectAssignment(projection *policyregistry.AdmissionProjection, assignment sqlc.GetServingSubjectProfileAssignmentRow, installationGeneration int64) {
+	projection.AssignmentSource = policyregistry.AdmissionAssignmentSource(assignment.AssignmentSource)
+	projection.AssignmentState = policyregistry.AdmissionAssignmentState(assignment.AssignmentState)
+	generation := assignment.EffectiveGeneration
+	if generation == 0 {
+		generation = assignment.DesiredGeneration
+	}
+	projection.AssignmentGeneration = installationGeneration
+	projection.SubjectAssignmentGeneration = generation
+	switch projection.AssignmentState {
+	case policyregistry.AssignmentStateDefaultFollowing, policyregistry.AssignmentStateDeliberatelyUnassigned:
+		projection.ProfileKey = ""
+		projection.ProfileRequired = false
+	case policyregistry.AssignmentStateEffective:
+		projection.ProfileKey = uuidString(assignment.EffectiveProfileKey)
+		projection.ProfileRequired = projection.AssignmentSource != policyregistry.AssignmentSourceLaneDefault || projection.ProfileKey != ""
+	case policyregistry.AssignmentStatePending, policyregistry.AssignmentStateFailed, policyregistry.AssignmentStateIncompatible:
+		projection.ProfileKey = uuidString(assignment.EffectiveProfileKey)
+		projection.ProfileRequired = true
+	default:
+		projection.ProfileKey = ""
+		projection.ProfileRequired = true
+	}
 }
 
 var _ policyregistry.ServingAdmissionStore = (*ServingAdmissionRepo)(nil)

@@ -150,6 +150,99 @@ func (q *Queries) GetServingSubjectForAdmission(ctx context.Context, arg GetServ
 	return i, err
 }
 
+const getServingSubjectProfileAssignment = `-- name: GetServingSubjectProfileAssignment :one
+SELECT
+    assignment_source,
+    assignment_state,
+    desired_generation,
+    effective_generation,
+    desired_profile_key,
+    effective_profile_key,
+    router_acknowledgement_id,
+    evidence_id,
+    projection_attempts,
+    projected_at,
+    effective_at,
+    last_failure_detail
+FROM router.credential_subject_profile_assignments
+WHERE subject_id = $1::uuid
+  AND installation_id = $2::uuid
+ORDER BY CASE assignment_source
+    WHEN 'cohort' THEN 1
+    WHEN 'subscriber_plan' THEN 2
+    WHEN 'lane_default' THEN 3
+    ELSE 4
+END
+LIMIT 1
+FOR SHARE
+`
+
+type GetServingSubjectProfileAssignmentParams struct {
+	SubjectID      uuid.UUID
+	InstallationID uuid.UUID
+}
+
+type GetServingSubjectProfileAssignmentRow struct {
+	AssignmentSource        string
+	AssignmentState         string
+	DesiredGeneration       int64
+	EffectiveGeneration     int64
+	DesiredProfileKey       pgtype.UUID
+	EffectiveProfileKey     pgtype.UUID
+	RouterAcknowledgementID uuid.UUID
+	EvidenceID              string
+	ProjectionAttempts      int32
+	ProjectedAt             pgtype.Timestamptz
+	EffectiveAt             pgtype.Timestamptz
+	LastFailureDetail       *string
+}
+
+// Subject assignment rows are ordered by Router's public precedence after any installation override.
+//
+//	SELECT
+//	    assignment_source,
+//	    assignment_state,
+//	    desired_generation,
+//	    effective_generation,
+//	    desired_profile_key,
+//	    effective_profile_key,
+//	    router_acknowledgement_id,
+//	    evidence_id,
+//	    projection_attempts,
+//	    projected_at,
+//	    effective_at,
+//	    last_failure_detail
+//	FROM router.credential_subject_profile_assignments
+//	WHERE subject_id = $1::uuid
+//	  AND installation_id = $2::uuid
+//	ORDER BY CASE assignment_source
+//	    WHEN 'cohort' THEN 1
+//	    WHEN 'subscriber_plan' THEN 2
+//	    WHEN 'lane_default' THEN 3
+//	    ELSE 4
+//	END
+//	LIMIT 1
+//	FOR SHARE
+func (q *Queries) GetServingSubjectProfileAssignment(ctx context.Context, arg GetServingSubjectProfileAssignmentParams) (GetServingSubjectProfileAssignmentRow, error) {
+	row := q.db.QueryRow(ctx, getServingSubjectProfileAssignment, arg.SubjectID, arg.InstallationID)
+	var i GetServingSubjectProfileAssignmentRow
+	err := row.Scan(
+		&i.AssignmentSource,
+		&i.AssignmentState,
+		&i.DesiredGeneration,
+		&i.EffectiveGeneration,
+		&i.DesiredProfileKey,
+		&i.EffectiveProfileKey,
+		&i.RouterAcknowledgementID,
+		&i.EvidenceID,
+		&i.ProjectionAttempts,
+		&i.ProjectedAt,
+		&i.EffectiveAt,
+		&i.LastFailureDetail,
+	)
+	return i, err
+}
+
 const getSessionReleaseBinding = `-- name: GetSessionReleaseBinding :one
 SELECT binding
 FROM router.session_release_bindings
@@ -182,14 +275,14 @@ const upsertSessionReleaseBinding = `-- name: UpsertSessionReleaseBinding :execr
 INSERT INTO router.session_release_bindings (
     installation_id, credential_scope, conversation_digest, target, activation_id,
     release_sha256, binding_sha256, profile_key, profile_revision_sha256,
-    enrollment_generation, assignment_generation, binding_generation,
+    enrollment_generation, assignment_generation, subject_assignment_generation, binding_generation,
     binding, created_at, last_admitted_at
 ) VALUES (
     $1::uuid, $2::varchar, $3::bytea,
     $4::varchar, $5::uuid, $6::varchar, $7::varchar,
     $8::uuid, $9::varchar,
-    $10::bigint, $11::bigint, $12::bigint,
-    $13::jsonb, $14::timestamptz, $15::timestamptz
+    $10::bigint, $11::bigint, $12::bigint, $13::bigint,
+    $14::jsonb, $15::timestamptz, $16::timestamptz
 )
 ON CONFLICT (installation_id, credential_scope, conversation_digest) DO UPDATE SET
     target = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.target ELSE router.session_release_bindings.target END,
@@ -200,6 +293,7 @@ ON CONFLICT (installation_id, credential_scope, conversation_digest) DO UPDATE S
     profile_revision_sha256 = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.profile_revision_sha256 ELSE router.session_release_bindings.profile_revision_sha256 END,
     enrollment_generation = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.enrollment_generation ELSE router.session_release_bindings.enrollment_generation END,
     assignment_generation = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.assignment_generation ELSE router.session_release_bindings.assignment_generation END,
+    subject_assignment_generation = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.subject_assignment_generation ELSE router.session_release_bindings.subject_assignment_generation END,
     binding_generation = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.binding_generation ELSE router.session_release_bindings.binding_generation END,
     binding = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.binding
         ELSE jsonb_set(router.session_release_bindings.binding, '{last_admitted_at}', EXCLUDED.binding->'last_admitted_at') END,
@@ -213,26 +307,28 @@ WHERE router.session_release_bindings.binding_generation < EXCLUDED.binding_gene
         AND router.session_release_bindings.binding_sha256 = EXCLUDED.binding_sha256
         AND router.session_release_bindings.enrollment_generation = EXCLUDED.enrollment_generation
         AND router.session_release_bindings.assignment_generation = EXCLUDED.assignment_generation
+        AND router.session_release_bindings.subject_assignment_generation = EXCLUDED.subject_assignment_generation
         AND router.session_release_bindings.profile_key IS NOT DISTINCT FROM EXCLUDED.profile_key
     )
 `
 
 type UpsertSessionReleaseBindingParams struct {
-	InstallationID        uuid.UUID
-	CredentialScope       string
-	ConversationDigest    []byte
-	Target                string
-	ActivationID          uuid.UUID
-	ReleaseSha256         string
-	BindingSha256         string
-	ProfileKey            pgtype.UUID
-	ProfileRevisionSha256 *string
-	EnrollmentGeneration  int64
-	AssignmentGeneration  int64
-	BindingGeneration     int64
-	Binding               []byte
-	CreatedAt             pgtype.Timestamptz
-	LastAdmittedAt        pgtype.Timestamptz
+	InstallationID              uuid.UUID
+	CredentialScope             string
+	ConversationDigest          []byte
+	Target                      string
+	ActivationID                uuid.UUID
+	ReleaseSha256               string
+	BindingSha256               string
+	ProfileKey                  pgtype.UUID
+	ProfileRevisionSha256       *string
+	EnrollmentGeneration        int64
+	AssignmentGeneration        int64
+	SubjectAssignmentGeneration int64
+	BindingGeneration           int64
+	Binding                     []byte
+	CreatedAt                   pgtype.Timestamptz
+	LastAdmittedAt              pgtype.Timestamptz
 }
 
 // Called only while the installation/subject/key/conversation admission locks are held.
@@ -240,14 +336,14 @@ type UpsertSessionReleaseBindingParams struct {
 //	INSERT INTO router.session_release_bindings (
 //	    installation_id, credential_scope, conversation_digest, target, activation_id,
 //	    release_sha256, binding_sha256, profile_key, profile_revision_sha256,
-//	    enrollment_generation, assignment_generation, binding_generation,
+//	    enrollment_generation, assignment_generation, subject_assignment_generation, binding_generation,
 //	    binding, created_at, last_admitted_at
 //	) VALUES (
 //	    $1::uuid, $2::varchar, $3::bytea,
 //	    $4::varchar, $5::uuid, $6::varchar, $7::varchar,
 //	    $8::uuid, $9::varchar,
-//	    $10::bigint, $11::bigint, $12::bigint,
-//	    $13::jsonb, $14::timestamptz, $15::timestamptz
+//	    $10::bigint, $11::bigint, $12::bigint, $13::bigint,
+//	    $14::jsonb, $15::timestamptz, $16::timestamptz
 //	)
 //	ON CONFLICT (installation_id, credential_scope, conversation_digest) DO UPDATE SET
 //	    target = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.target ELSE router.session_release_bindings.target END,
@@ -258,6 +354,7 @@ type UpsertSessionReleaseBindingParams struct {
 //	    profile_revision_sha256 = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.profile_revision_sha256 ELSE router.session_release_bindings.profile_revision_sha256 END,
 //	    enrollment_generation = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.enrollment_generation ELSE router.session_release_bindings.enrollment_generation END,
 //	    assignment_generation = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.assignment_generation ELSE router.session_release_bindings.assignment_generation END,
+//	    subject_assignment_generation = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.subject_assignment_generation ELSE router.session_release_bindings.subject_assignment_generation END,
 //	    binding_generation = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.binding_generation ELSE router.session_release_bindings.binding_generation END,
 //	    binding = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.binding
 //	        ELSE jsonb_set(router.session_release_bindings.binding, '{last_admitted_at}', EXCLUDED.binding->'last_admitted_at') END,
@@ -271,6 +368,7 @@ type UpsertSessionReleaseBindingParams struct {
 //	        AND router.session_release_bindings.binding_sha256 = EXCLUDED.binding_sha256
 //	        AND router.session_release_bindings.enrollment_generation = EXCLUDED.enrollment_generation
 //	        AND router.session_release_bindings.assignment_generation = EXCLUDED.assignment_generation
+//	        AND router.session_release_bindings.subject_assignment_generation = EXCLUDED.subject_assignment_generation
 //	        AND router.session_release_bindings.profile_key IS NOT DISTINCT FROM EXCLUDED.profile_key
 //	    )
 func (q *Queries) UpsertSessionReleaseBinding(ctx context.Context, arg UpsertSessionReleaseBindingParams) (int64, error) {
@@ -286,6 +384,7 @@ func (q *Queries) UpsertSessionReleaseBinding(ctx context.Context, arg UpsertSes
 		arg.ProfileRevisionSha256,
 		arg.EnrollmentGeneration,
 		arg.AssignmentGeneration,
+		arg.SubjectAssignmentGeneration,
 		arg.BindingGeneration,
 		arg.Binding,
 		arg.CreatedAt,
