@@ -83,12 +83,37 @@ type Service struct {
 	autopay     AutopayNotifier
 	byokFeeRate float64
 	allowances  SubscriberAllowanceSettler
+	prepaid     *PrepaidBooks
 }
 
 // NewService constructs a billing service. The Repo is required; nil panics
-// at request time, so the composition root must guard against it.
+// at request time, so the composition root must guard against it. Only the
+// organization book is bound here — a deployment that sells individual plans
+// adds the subscriber book with WithSubscriberPrepaid.
 func NewService(repo Repo) *Service {
-	return &Service{repo: repo, byokFeeRate: DefaultByokFeeRate}
+	books := newPrepaidBooks()
+	books.register(OwnerKindOrganization, OrganizationBook(repo))
+	return &Service{repo: repo, byokFeeRate: DefaultByokFeeRate, prepaid: books}
+}
+
+// WithSubscriberPrepaid binds the prepaid book owned by individual Max/Boost
+// subscribers and returns the service for chaining. Without it a subscriber
+// owner resolves to no book at all rather than to organization funds.
+func (s *Service) WithSubscriberPrepaid(book PrepaidBook) *Service {
+	s.prepaid.register(OwnerKindSubscriber, book)
+	return s
+}
+
+// PrepaidBalance reads one owner's prepaid balance. The owner's kind picks the
+// book, so an organization id can only ever read organization funds and a
+// credential subject only its own.
+func (s *Service) PrepaidBalance(ctx context.Context, owner Owner) (int64, error) {
+	return s.prepaid.Balance(ctx, owner)
+}
+
+// DebitPrepaid charges one owner's prepaid book, ledger row included.
+func (s *Service) DebitPrepaid(ctx context.Context, debit PrepaidDebit) (int64, error) {
+	return s.prepaid.Debit(ctx, debit)
 }
 
 // WithByokFeeRate sets the BYOK platform fee as a fraction of upstream cost (e.g. 0.05 = 5%). Negative rates clamp to zero.
@@ -171,7 +196,7 @@ func (s *Service) CheckBalance(ctx context.Context, orgID string) (CheckResult, 
 	if override {
 		return CheckResult{HasOverride: true}, nil
 	}
-	balance, err := s.repo.GetBalance(ctx, orgID)
+	balance, err := s.PrepaidBalance(ctx, OrganizationOwner(orgID))
 	if err != nil {
 		return CheckResult{}, err
 	}
@@ -297,8 +322,8 @@ func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams)
 			delta = 0
 		}
 	}
-	balanceAfter, err := s.repo.DebitInference(ctx, DebitParams{
-		OrganizationID:     p.OrganizationID,
+	balanceAfter, err := s.DebitPrepaid(ctx, PrepaidDebit{
+		Owner:              OrganizationOwner(p.OrganizationID),
 		DeltaUsdMicros:     delta,
 		NotionalCostMicros: notional,
 		EntryType:          EntryTypeInference,

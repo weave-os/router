@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
 )
 
@@ -218,6 +219,14 @@ var errDispatchWithoutPurpose = errors.New("dispatchWithFallback: no inference p
 func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (winnerIdx int, err error) {
 	if len(in.purpose) == 0 {
 		return -1, errDispatchWithoutPurpose
+	}
+	// Terminal gate on the product boundary. Candidate filtering already
+	// dropped ineligible models, so this only catches a decision minted
+	// outside the routed pool — a session pin, a hard-pinned auxiliary turn,
+	// a /force-model, a fallback table. Refusing beats serving what the plan
+	// does not sell.
+	if err := catalog.CheckEligibility(entitlement.ModelBoundaryFromContext(ctx), in.initialDecision.Model); err != nil {
+		return -1, err
 	}
 	if len(in.bindings) == 0 {
 		if in.initialDecision.Reason == translate.ReasonUserForceModel {

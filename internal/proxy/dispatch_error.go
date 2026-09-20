@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandit"
 	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/router/eligibility"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rl"
@@ -62,6 +63,7 @@ const (
 	DispatchErrorPlanUnresolvable
 	DispatchErrorPolicyPinUnavailable
 	DispatchErrorHandoff
+	DispatchErrorProductIneligible
 )
 
 // DispatchErrorClass is the format-agnostic classification of a dispatch
@@ -100,6 +102,14 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	var forcedClusterUnservable *policy.ForcedClusterUnservableError
 	var resolution *policy.ResolutionError
 	switch {
+	case errors.Is(err, eligibility.ErrModelIneligible):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorProductIneligible,
+			Status:     http.StatusForbidden,
+			Message:    "This model is not included in your plan. Pick a model your plan covers.",
+			LogLevel:   "warn",
+			LogMessage: "Rejected request: model is not eligible for the caller's product",
+		}, true
 	case errors.Is(err, ErrSubscriptionPoolExhausted):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorSubscriptionPoolExhausted,
@@ -430,7 +440,7 @@ func unwrapToSentinelMessage(err error) string {
 // rather than "api_error".
 func (k DispatchErrorKind) IsClientError() bool {
 	switch k {
-	case DispatchErrorRequestNotJSONObject, DispatchErrorResponsesChatCompletionsBody, DispatchErrorNoEligibleProvider, DispatchErrorAllowlistEmptiesPool, DispatchErrorContextWindowExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded, DispatchErrorForcedModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy, DispatchErrorForcedClusterUnservable, DispatchErrorGatewayServesNoModel, DispatchErrorNoRoutableModels, DispatchErrorPlanOverrideRejected:
+	case DispatchErrorRequestNotJSONObject, DispatchErrorResponsesChatCompletionsBody, DispatchErrorNoEligibleProvider, DispatchErrorAllowlistEmptiesPool, DispatchErrorContextWindowExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded, DispatchErrorForcedModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy, DispatchErrorForcedClusterUnservable, DispatchErrorGatewayServesNoModel, DispatchErrorNoRoutableModels, DispatchErrorPlanOverrideRejected, DispatchErrorProductIneligible:
 		return true
 	default:
 		return false

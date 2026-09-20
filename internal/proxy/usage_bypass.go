@@ -20,6 +20,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
 )
 
@@ -50,6 +51,12 @@ const (
 // to avoid. The set is passed separately so the two stay distinguishable.
 func (s *Service) usageBypassDecision(ctx context.Context, headers http.Header, req router.Request, sessionDemotedModels []string, turnType turntype.TurnType) (router.Decision, bool) {
 	if slices.Contains(sessionDemotedModels, req.RequestedModel) {
+		return router.Decision{}, false
+	}
+	// The lane serves the requested model verbatim, so a model the product
+	// does not sell disqualifies it: the turn falls through to routed
+	// dispatch, which picks from the eligible pool instead.
+	if !catalog.PermittedBy(req.ProductEligibility, req.RequestedModel) {
 		return router.Decision{}, false
 	}
 	provider, reason, engaged := s.subscriptionPassthroughEngaged(ctx, headers, req, turnType)
@@ -349,6 +356,12 @@ func (s *Service) bypassToAnthropic(
 		Provider: providers.ProviderAnthropic,
 		Model:    feats.Model,
 		Reason:   reason,
+	}
+	// This lane skips routing entirely, so it needs its own product gate: a
+	// plan that does not sell this model must not serve it even on the
+	// caller's own subscription quota.
+	if err := catalog.CheckEligibility(entitlement.ModelBoundaryFromContext(ctx), decision.Model); err != nil {
+		return err
 	}
 	w.Header().Set(HeaderRouterDecision, decision.Reason)
 	w.Header().Set(HeaderRouterProvider, decision.Provider)

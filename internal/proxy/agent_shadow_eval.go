@@ -54,6 +54,9 @@ func (s *Service) runAgentShadowEvaluationRoute(
 	if !known || model != strings.ToLower(rawModel) {
 		return turnLoopResult{}, fmt.Errorf("agent-shadow model must be a canonical catalog id: %q", rawModel)
 	}
+	if err := catalog.CheckEligibility(req.ProductEligibility, model); err != nil {
+		return turnLoopResult{}, fmt.Errorf("agent-shadow planned model %q: %w", model, err)
+	}
 	if _, excluded := req.ExcludedModels[model]; excluded {
 		return turnLoopResult{}, fmt.Errorf("agent-shadow planned model %q is no longer eligible: %w", model, cluster.ErrNoEligibleProvider)
 	}

@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
@@ -180,6 +181,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		SubscriptionStatePreferredModels: subscriptionStatePreferredModelsFromContext(ctx),
 		RoutingKnobs:                     router.RoutingKnobsFromContext(ctx),
 		ClusterArmOverrides:              clusterArmOverridesForRequest(ctx),
+		ProductEligibility:               entitlement.ModelBoundaryFromContext(ctx),
 	}
 	routeStart := time.Now()
 	routeCtx, routeSpan := startRoutingSpan(ctx, routeRequest)

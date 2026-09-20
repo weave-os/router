@@ -44,6 +44,7 @@ import (
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/sse"
 	"weave-os/router/internal/subscriptions"
+	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/timing"
 	"weave-os/router/internal/translate"
 	"weave-os/router/internal/websearch"
@@ -1035,12 +1036,19 @@ func (s *Service) policyExcludedModels(ctx context.Context) map[string]struct{} 
 }
 
 func (s *Service) excludedModelsFor(ctx context.Context, allowed map[string]struct{}) map[string]struct{} {
+	// Merged into every branch, including the operator escape hatch below: a
+	// product boundary is what the caller bought, so no installation-side
+	// override may widen it back out.
+	ineligible := s.productIneligibleModels(ctx)
 	if s.excludedModelsOverride != nil {
-		return s.excludedModelsOverride
+		return mergeExcludedModels(s.excludedModelsOverride, ineligible)
 	}
 	excluded := installationExcludedModelsFromContext(ctx)
-	out := make(map[string]struct{}, len(excluded))
+	out := make(map[string]struct{}, len(excluded)+len(ineligible))
 	for _, m := range excluded {
+		out[m] = struct{}{}
+	}
+	for m := range ineligible {
 		out[m] = struct{}{}
 	}
 	for model := range subscriptionPlanAwareExcludedModelsFromContext(ctx) {
@@ -1060,6 +1068,12 @@ func (s *Service) excludedModelsFor(ctx context.Context, allowed map[string]stru
 		return nil
 	}
 	return out
+}
+
+// productIneligibleModels is the catalog set the request's product may not
+// dispatch, as a hard exclusion set. Empty for an unscoped request.
+func (s *Service) productIneligibleModels(ctx context.Context) map[string]struct{} {
+	return modelSet(catalog.IneligibleIDs(entitlement.ModelBoundaryFromContext(ctx)))
 }
 
 func installationExcludedProvidersFromContext(ctx context.Context) []string {
@@ -2751,6 +2765,13 @@ func (s *Service) routeWithStrategy(ctx context.Context, strategy router.Strateg
 	if err != nil {
 		return decision, err
 	}
+	// Last gate on the product boundary: candidate filtering already removed
+	// ineligible models, so this only catches a router that produced a model
+	// from somewhere other than the filtered pool (a pin, a fallback table, a
+	// deployed-set default). Refusing beats serving what the plan doesn't sell.
+	if err := catalog.CheckEligibility(req.ProductEligibility, decision.Model); err != nil {
+		return router.Decision{}, fmt.Errorf("strategy %q: %w", strategy, err)
+	}
 	if pin, pinned := router.HonouredPolicyPin(ctx); pinned && (decision.Metadata == nil || !decision.Metadata.PolicyPinHonoured) {
 		return router.Decision{}, fmt.Errorf("strategy %q cannot serve policy pin %s: %w", strategy, pin, router.ErrPolicyPinUnavailable)
 	}
@@ -2781,6 +2802,11 @@ func (s *Service) withPolicyRequestContext(ctx context.Context, req router.Reque
 	// bypass the turn loop. Merged, not assigned: the turn loop puts
 	// session-scoped strikes in the same set.
 	req.AutomaticExcludedModels = mergeExcludedModels(req.AutomaticExcludedModels, s.globalAutomaticExcludedModels(ctx))
+	// The plan's hard boundary is also desugared into the request's hard
+	// exclusions so routers that build their own candidate pools drop
+	// ineligible models without each having to know about products.
+	req.ProductEligibility = entitlement.ModelBoundaryFromContext(ctx)
+	req.ExcludedModels = mergeExcludedModels(req.ExcludedModels, s.productIneligibleModels(ctx))
 	req.OrganizationID, _ = ctx.Value(ExternalIDContextKey{}).(string)
 	req.InstallationID = ""
 	if installationID := installationIDFromContext(ctx); installationID != uuid.Nil {
@@ -3570,6 +3596,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		SubscriptionStatePreferredModels: subscriptionStatePreferredModelsFromContext(ctx),
 		RoutingKnobs:                     routingKnobsForRequest(ctx),
 		ClusterArmOverrides:              clusterArmOverridesForRequest(ctx),
+		ProductEligibility:               entitlement.ModelBoundaryFromContext(ctx),
 	}
 	if installationID != uuid.Nil {
 		req.InstallationID = installationID.String()
@@ -6559,6 +6586,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		SubscriptionStatePreferredModels: subscriptionStatePreferredModelsFromContext(ctx),
 		RoutingKnobs:                     routingKnobsForRequest(ctx),
 		ClusterArmOverrides:              clusterArmOverridesForRequest(ctx),
+		ProductEligibility:               entitlement.ModelBoundaryFromContext(ctx),
 	}
 	routeStart := time.Now()
 	routeCtx, routeSpan := startRoutingSpan(ctx, routeRequest)
