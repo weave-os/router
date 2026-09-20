@@ -14,14 +14,23 @@ import (
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
+// AllowanceDB is the database handle allowance accounting needs: a limit-
+// enforcing reservation writes the action and both window accruals as one unit,
+// so it cannot be expressed as a single statement over a plain handle.
+type AllowanceDB interface {
+	sqlc.DBTX
+	BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error)
+}
+
 // SubscriberAllowanceRepo accounts subscriber allowance holds and settlements.
 type SubscriberAllowanceRepo struct {
+	db      AllowanceDB
 	queries *sqlc.Queries
 }
 
 // NewSubscriberAllowanceRepo binds allowance accounting to a SQLC database handle.
-func NewSubscriberAllowanceRepo(db sqlc.DBTX) *SubscriberAllowanceRepo {
-	return &SubscriberAllowanceRepo{queries: sqlc.New(db)}
+func NewSubscriberAllowanceRepo(db AllowanceDB) *SubscriberAllowanceRepo {
+	return &SubscriberAllowanceRepo{db: db, queries: sqlc.New(db)}
 }
 
 // Reserve holds an upper-bound retail cost against both enforcement windows.
@@ -65,6 +74,126 @@ func (r *SubscriberAllowanceRepo) Reserve(ctx context.Context, reservation entit
 		return entitlement.Action{}, entitlement.ErrAllowanceActionConflict
 	}
 	return stored, nil
+}
+
+// ReserveWithinLimits holds an upper-bound retail cost only while both
+// enforcement windows can still pay for it.
+//
+// Every window accrual is gated on the invariant inside the statement that
+// performs it, so a concurrent reservation cannot slip between a check and its
+// write: Postgres re-evaluates the gate against the latest committed row when
+// the upsert conflicts. The two windows are gated separately, so the whole
+// reservation runs in a transaction — an accrual against the month that the
+// six-hour window then refuses must not stand.
+func (r *SubscriberAllowanceRepo) ReserveWithinLimits(ctx context.Context, reservation entitlement.Reservation) (entitlement.Action, error) {
+	if err := reservation.Validate(); err != nil {
+		return entitlement.Action{}, err
+	}
+	subscriberID, err := uuid.Parse(string(reservation.SubscriberID))
+	if err != nil {
+		return entitlement.Action{}, entitlement.ErrInvalidContract
+	}
+	apiKeyID, err := uuid.Parse(reservation.APIKeyID)
+	if err != nil {
+		return entitlement.Action{}, entitlement.ErrInvalidContract
+	}
+	var held entitlement.Action
+	err = pgx.BeginTxFunc(ctx, r.db, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
+		queries := sqlc.New(tx)
+		row, insertErr := queries.InsertSubscriberAllowanceAction(ctx, sqlc.InsertSubscriberAllowanceActionParams{
+			ActionID:           reservation.ActionID,
+			RouterRequestID:    reservation.RouterRequestID,
+			SubscriberID:       subscriberID,
+			EntitlementVersion: reservation.EntitlementVersion,
+			Plan:               string(reservation.Plan),
+			BillingPeriodStart: utcTimestamptz(reservation.BillingPeriod.Start),
+			BillingPeriodEnd:   utcTimestamptz(reservation.BillingPeriod.End),
+			SixHourPeriodStart: utcTimestamptz(reservation.SixHourPeriod.Start),
+			SixHourPeriodEnd:   utcTimestamptz(reservation.SixHourPeriod.End),
+			APIKeyID:           apiKeyID,
+			ClientSessionID:    optionalText(reservation.ClientSessionID),
+			RequestedModel:     reservation.RequestedModel,
+			ReservedUsdMicros:  reservation.ReservedUsdMicros,
+			CapacitySource:     string(reservation.CapacitySource),
+			ReservedAt:         utcTimestamptz(reservation.ReservedAt),
+		})
+		if errors.Is(insertErr, pgx.ErrNoRows) {
+			// Redelivery: the first delivery already drew the windows down.
+			stored, readErr := readAllowanceAction(ctx, queries, reservation.ActionID)
+			if readErr != nil {
+				return readErr
+			}
+			if !sameReservation(stored.Reservation, reservation) {
+				return entitlement.ErrAllowanceActionConflict
+			}
+			held = stored
+			return nil
+		}
+		if insertErr != nil {
+			return fmt.Errorf("hold subscriber allowance: %w", insertErr)
+		}
+		stored, decodeErr := toAllowanceAction(row)
+		if decodeErr != nil {
+			return decodeErr
+		}
+		if reservation.CapacitySource != entitlement.CapacitySourceIncludedRouter {
+			// Linked and prepaid capacity is audited, never drawn from the
+			// subscription's own allowance, so no window gates it.
+			held = stored
+			return nil
+		}
+		if accrueErr := accrueWindow(ctx, queries, subscriberID, reservation, entitlement.PeriodKindBilling); accrueErr != nil {
+			return accrueErr
+		}
+		if accrueErr := accrueWindow(ctx, queries, subscriberID, reservation, entitlement.PeriodKindSixHour); accrueErr != nil {
+			return accrueErr
+		}
+		held = stored
+		return nil
+	})
+	if err != nil {
+		return entitlement.Action{}, err
+	}
+	return held, nil
+}
+
+// accrueWindow draws one window down by the reservation, reporting the window
+// as exhausted when the gate refuses the accrual.
+func accrueWindow(ctx context.Context, queries *sqlc.Queries, subscriberID uuid.UUID, reservation entitlement.Reservation, kind entitlement.PeriodKind) error {
+	period := reservation.BillingPeriod
+	limit := reservation.BillingLimitUsdMicros
+	if kind == entitlement.PeriodKindSixHour {
+		period = reservation.SixHourPeriod
+		limit = reservation.SixHourLimitUsdMicros
+	}
+	_, err := queries.AccrueSubscriberAllowancePeriod(ctx, sqlc.AccrueSubscriberAllowancePeriodParams{
+		SubscriberID:       subscriberID,
+		PeriodKind:         string(kind),
+		PeriodStart:        utcTimestamptz(period.Start),
+		PeriodEnd:          utcTimestamptz(period.End),
+		EntitlementVersion: reservation.EntitlementVersion,
+		Plan:               string(reservation.Plan),
+		LimitUsdMicros:     limit,
+		ReservedUsdMicros:  reservation.ReservedUsdMicros,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return entitlement.ExhaustedError{Period: kind}
+	}
+	if err != nil {
+		return fmt.Errorf("accrue subscriber allowance window: %w", err)
+	}
+	return nil
+}
+
+func readAllowanceAction(ctx context.Context, queries *sqlc.Queries, actionID string) (entitlement.Action, error) {
+	row, err := queries.GetSubscriberAllowanceAction(ctx, actionID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return entitlement.Action{}, entitlement.ErrAllowanceActionNotFound
+	}
+	if err != nil {
+		return entitlement.Action{}, fmt.Errorf("read subscriber allowance action: %w", err)
+	}
+	return toAllowanceAction(row)
 }
 
 // Finalize settles a held action at its actual retail cost.
@@ -192,14 +321,7 @@ func (r *SubscriberAllowanceRepo) rereadUntransitioned(ctx context.Context, stor
 }
 
 func (r *SubscriberAllowanceRepo) readAction(ctx context.Context, actionID string) (entitlement.Action, error) {
-	row, err := r.queries.GetSubscriberAllowanceAction(ctx, actionID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return entitlement.Action{}, entitlement.ErrAllowanceActionNotFound
-	}
-	if err != nil {
-		return entitlement.Action{}, fmt.Errorf("read subscriber allowance action: %w", err)
-	}
-	return toAllowanceAction(row)
+	return readAllowanceAction(ctx, r.queries, actionID)
 }
 
 // sameReservation reports whether a redelivery carries the identity of the hold

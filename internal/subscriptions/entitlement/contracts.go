@@ -20,11 +20,27 @@ var (
 	ErrAllowanceActionNotFound = errors.New("subscriber allowance action not found")
 	// ErrAllowanceActionConflict means a settlement command contradicts the stored action.
 	ErrAllowanceActionConflict = errors.New("conflicting subscriber allowance action")
+	// ErrAllowanceExhausted means a pre-dispatch reservation was refused
+	// because the window it would accrue against has no headroom left.
+	ErrAllowanceExhausted = errors.New("subscriber allowance exhausted")
 	// ErrAllowanceHeldUnsettled means a settlement failed after its hold was
 	// durably recorded. The windows already count the turn's cost, so a caller
 	// falling back to another book must not charge it a second time.
 	ErrAllowanceHeldUnsettled = errors.New("subscriber allowance hold left unsettled")
 )
+
+// ExhaustedError names the enforcement window that refused a reservation, so
+// a caller can tell a spent six-hour window (retry after the window turns)
+// from a spent billing month (retry after renewal or a top-up).
+type ExhaustedError struct {
+	Period PeriodKind
+}
+
+func (e ExhaustedError) Error() string {
+	return "subscriber allowance exhausted: " + string(e.Period) + " window"
+}
+
+func (e ExhaustedError) Unwrap() error { return ErrAllowanceExhausted }
 
 // SubscriberID is the opaque credential-subject identity authenticated by Router.
 type SubscriberID string
@@ -351,6 +367,11 @@ type EntitlementRepository interface {
 // AllowanceRepository stores idempotent reservation, finalization, and release actions.
 type AllowanceRepository interface {
 	Reserve(context.Context, Reservation) (Action, error)
+	// ReserveWithinLimits holds a reservation only while both enforcement
+	// windows can still pay for it, and returns ExhaustedError naming the
+	// window that refused otherwise. The hold and both window accruals are one
+	// atomic unit: a refused window leaves no action and no partial draw-down.
+	ReserveWithinLimits(context.Context, Reservation) (Action, error)
 	Finalize(context.Context, Finalization) (Action, error)
 	Release(context.Context, Release) (Action, error)
 	Usage(ctx context.Context, subscriberID SubscriberID, billing, sixHour Period) (Usage, error)

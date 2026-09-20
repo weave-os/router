@@ -12,6 +12,142 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const accrueSubscriberAllowancePeriod = `-- name: AccrueSubscriberAllowancePeriod :one
+INSERT INTO router.subscriber_allowance_periods (
+    subscriber_id,
+    period_kind,
+    period_start,
+    period_end,
+    entitlement_version,
+    plan,
+    limit_usd_micros,
+    reserved_usd_micros
+)
+SELECT
+    $1::uuid,
+    $2::varchar,
+    $3::timestamptz,
+    $4::timestamptz,
+    $5::bigint,
+    $6::varchar,
+    $7::bigint,
+    $8::bigint
+WHERE $8::bigint <= $7::bigint
+ON CONFLICT (subscriber_id, period_kind, period_start) DO UPDATE SET
+    period_end = CASE
+        WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.period_end
+        ELSE router.subscriber_allowance_periods.period_end
+    END,
+    entitlement_version = GREATEST(router.subscriber_allowance_periods.entitlement_version, EXCLUDED.entitlement_version),
+    plan = CASE
+        WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.plan
+        ELSE router.subscriber_allowance_periods.plan
+    END,
+    limit_usd_micros = CASE
+        WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.limit_usd_micros
+        ELSE router.subscriber_allowance_periods.limit_usd_micros
+    END,
+    reserved_usd_micros = router.subscriber_allowance_periods.reserved_usd_micros + EXCLUDED.reserved_usd_micros,
+    updated_at = CURRENT_TIMESTAMP
+WHERE router.subscriber_allowance_periods.reserved_usd_micros
+        + router.subscriber_allowance_periods.finalized_usd_micros
+        + EXCLUDED.reserved_usd_micros
+      <= CASE
+        WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.limit_usd_micros
+        ELSE router.subscriber_allowance_periods.limit_usd_micros
+    END
+RETURNING subscriber_id, period_kind, period_start, period_end, entitlement_version, plan, limit_usd_micros, reserved_usd_micros, finalized_usd_micros, created_at, updated_at
+`
+
+type AccrueSubscriberAllowancePeriodParams struct {
+	SubscriberID       uuid.UUID
+	PeriodKind         string
+	PeriodStart        pgtype.Timestamptz
+	PeriodEnd          pgtype.Timestamptz
+	EntitlementVersion int64
+	Plan               string
+	LimitUsdMicros     int64
+	ReservedUsdMicros  int64
+}
+
+// Accrues one hold against one enforcement window, refusing it when the hold
+// would carry the window's consumed cost past its limit. Both the conflicting
+// update and the first insert are gated, so the invariant holds for a window
+// whose row does not exist yet. A refusal returns no row: the caller aborts the
+// reservation instead of dispatching work the allowance cannot pay for.
+//
+//	INSERT INTO router.subscriber_allowance_periods (
+//	    subscriber_id,
+//	    period_kind,
+//	    period_start,
+//	    period_end,
+//	    entitlement_version,
+//	    plan,
+//	    limit_usd_micros,
+//	    reserved_usd_micros
+//	)
+//	SELECT
+//	    $1::uuid,
+//	    $2::varchar,
+//	    $3::timestamptz,
+//	    $4::timestamptz,
+//	    $5::bigint,
+//	    $6::varchar,
+//	    $7::bigint,
+//	    $8::bigint
+//	WHERE $8::bigint <= $7::bigint
+//	ON CONFLICT (subscriber_id, period_kind, period_start) DO UPDATE SET
+//	    period_end = CASE
+//	        WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.period_end
+//	        ELSE router.subscriber_allowance_periods.period_end
+//	    END,
+//	    entitlement_version = GREATEST(router.subscriber_allowance_periods.entitlement_version, EXCLUDED.entitlement_version),
+//	    plan = CASE
+//	        WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.plan
+//	        ELSE router.subscriber_allowance_periods.plan
+//	    END,
+//	    limit_usd_micros = CASE
+//	        WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.limit_usd_micros
+//	        ELSE router.subscriber_allowance_periods.limit_usd_micros
+//	    END,
+//	    reserved_usd_micros = router.subscriber_allowance_periods.reserved_usd_micros + EXCLUDED.reserved_usd_micros,
+//	    updated_at = CURRENT_TIMESTAMP
+//	WHERE router.subscriber_allowance_periods.reserved_usd_micros
+//	        + router.subscriber_allowance_periods.finalized_usd_micros
+//	        + EXCLUDED.reserved_usd_micros
+//	      <= CASE
+//	        WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.limit_usd_micros
+//	        ELSE router.subscriber_allowance_periods.limit_usd_micros
+//	    END
+//	RETURNING subscriber_id, period_kind, period_start, period_end, entitlement_version, plan, limit_usd_micros, reserved_usd_micros, finalized_usd_micros, created_at, updated_at
+func (q *Queries) AccrueSubscriberAllowancePeriod(ctx context.Context, arg AccrueSubscriberAllowancePeriodParams) (RouterSubscriberAllowancePeriod, error) {
+	row := q.db.QueryRow(ctx, accrueSubscriberAllowancePeriod,
+		arg.SubscriberID,
+		arg.PeriodKind,
+		arg.PeriodStart,
+		arg.PeriodEnd,
+		arg.EntitlementVersion,
+		arg.Plan,
+		arg.LimitUsdMicros,
+		arg.ReservedUsdMicros,
+	)
+	var i RouterSubscriberAllowancePeriod
+	err := row.Scan(
+		&i.SubscriberID,
+		&i.PeriodKind,
+		&i.PeriodStart,
+		&i.PeriodEnd,
+		&i.EntitlementVersion,
+		&i.Plan,
+		&i.LimitUsdMicros,
+		&i.ReservedUsdMicros,
+		&i.FinalizedUsdMicros,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const finalizeSubscriberAllowance = `-- name: FinalizeSubscriberAllowance :one
 WITH finalized AS (
     UPDATE router.subscriber_allowance_actions
@@ -179,6 +315,153 @@ WHERE action_id = $1::varchar
 //	WHERE action_id = $1::varchar
 func (q *Queries) GetSubscriberAllowanceAction(ctx context.Context, actionID string) (RouterSubscriberAllowanceAction, error) {
 	row := q.db.QueryRow(ctx, getSubscriberAllowanceAction, actionID)
+	var i RouterSubscriberAllowanceAction
+	err := row.Scan(
+		&i.ActionID,
+		&i.RouterRequestID,
+		&i.SubscriberID,
+		&i.EntitlementVersion,
+		&i.Plan,
+		&i.BillingPeriodStart,
+		&i.BillingPeriodEnd,
+		&i.SixHourPeriodStart,
+		&i.SixHourPeriodEnd,
+		&i.APIKeyID,
+		&i.ClientSessionID,
+		&i.RequestedModel,
+		&i.ServedModel,
+		&i.ReservedUsdMicros,
+		&i.RetailUsdMicros,
+		&i.CapacitySource,
+		&i.State,
+		&i.ReservedAt,
+		&i.FinalizedAt,
+		&i.ReleasedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const insertSubscriberAllowanceAction = `-- name: InsertSubscriberAllowanceAction :one
+INSERT INTO router.subscriber_allowance_actions (
+    action_id,
+    router_request_id,
+    subscriber_id,
+    entitlement_version,
+    plan,
+    billing_period_start,
+    billing_period_end,
+    six_hour_period_start,
+    six_hour_period_end,
+    api_key_id,
+    client_session_id,
+    requested_model,
+    reserved_usd_micros,
+    capacity_source,
+    state,
+    reserved_at
+) VALUES (
+    $1::varchar,
+    $2::varchar,
+    $3::uuid,
+    $4::bigint,
+    $5::varchar,
+    $6::timestamptz,
+    $7::timestamptz,
+    $8::timestamptz,
+    $9::timestamptz,
+    $10::uuid,
+    $11::varchar,
+    $12::varchar,
+    $13::bigint,
+    $14::varchar,
+    'reserved',
+    $15::timestamptz
+)
+ON CONFLICT (action_id) DO NOTHING
+RETURNING action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at
+`
+
+type InsertSubscriberAllowanceActionParams struct {
+	ActionID           string
+	RouterRequestID    string
+	SubscriberID       uuid.UUID
+	EntitlementVersion int64
+	Plan               string
+	BillingPeriodStart pgtype.Timestamptz
+	BillingPeriodEnd   pgtype.Timestamptz
+	SixHourPeriodStart pgtype.Timestamptz
+	SixHourPeriodEnd   pgtype.Timestamptz
+	APIKeyID           uuid.UUID
+	ClientSessionID    *string
+	RequestedModel     string
+	ReservedUsdMicros  int64
+	CapacitySource     string
+	ReservedAt         pgtype.Timestamptz
+}
+
+// Records an allowance hold for one action without accruing it against any
+// window. Callers that enforce the limit accrue each window separately, in the
+// same transaction, so a refused window leaves no action behind. A redelivered
+// action identifier returns no row: its windows were already drawn down by the
+// first delivery, and the caller reads the stored action instead.
+//
+//	INSERT INTO router.subscriber_allowance_actions (
+//	    action_id,
+//	    router_request_id,
+//	    subscriber_id,
+//	    entitlement_version,
+//	    plan,
+//	    billing_period_start,
+//	    billing_period_end,
+//	    six_hour_period_start,
+//	    six_hour_period_end,
+//	    api_key_id,
+//	    client_session_id,
+//	    requested_model,
+//	    reserved_usd_micros,
+//	    capacity_source,
+//	    state,
+//	    reserved_at
+//	) VALUES (
+//	    $1::varchar,
+//	    $2::varchar,
+//	    $3::uuid,
+//	    $4::bigint,
+//	    $5::varchar,
+//	    $6::timestamptz,
+//	    $7::timestamptz,
+//	    $8::timestamptz,
+//	    $9::timestamptz,
+//	    $10::uuid,
+//	    $11::varchar,
+//	    $12::varchar,
+//	    $13::bigint,
+//	    $14::varchar,
+//	    'reserved',
+//	    $15::timestamptz
+//	)
+//	ON CONFLICT (action_id) DO NOTHING
+//	RETURNING action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at
+func (q *Queries) InsertSubscriberAllowanceAction(ctx context.Context, arg InsertSubscriberAllowanceActionParams) (RouterSubscriberAllowanceAction, error) {
+	row := q.db.QueryRow(ctx, insertSubscriberAllowanceAction,
+		arg.ActionID,
+		arg.RouterRequestID,
+		arg.SubscriberID,
+		arg.EntitlementVersion,
+		arg.Plan,
+		arg.BillingPeriodStart,
+		arg.BillingPeriodEnd,
+		arg.SixHourPeriodStart,
+		arg.SixHourPeriodEnd,
+		arg.APIKeyID,
+		arg.ClientSessionID,
+		arg.RequestedModel,
+		arg.ReservedUsdMicros,
+		arg.CapacitySource,
+		arg.ReservedAt,
+	)
 	var i RouterSubscriberAllowanceAction
 	err := row.Scan(
 		&i.ActionID,

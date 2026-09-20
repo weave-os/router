@@ -52,6 +52,7 @@ type fakeAllowances struct {
 	usageErr        error
 
 	reserveErr   error
+	exhausted    entitlement.PeriodKind
 	finalizeErr  error
 	storedState  entitlement.ActionState
 	reservations []entitlement.Reservation
@@ -69,6 +70,14 @@ func (f *fakeAllowances) Reserve(_ context.Context, reservation entitlement.Rese
 		state = entitlement.ActionStateReserved
 	}
 	return entitlement.Action{Reservation: reservation, State: state}, nil
+}
+
+func (f *fakeAllowances) ReserveWithinLimits(ctx context.Context, reservation entitlement.Reservation) (entitlement.Action, error) {
+	if f.exhausted != "" {
+		f.reservations = append(f.reservations, reservation)
+		return entitlement.Action{}, entitlement.ExhaustedError{Period: f.exhausted}
+	}
+	return f.Reserve(ctx, reservation)
 }
 
 func (f *fakeAllowances) Finalize(_ context.Context, finalization entitlement.Finalization) (entitlement.Action, error) {

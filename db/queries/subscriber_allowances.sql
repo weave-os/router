@@ -125,6 +125,101 @@ SELECT * FROM router.subscriber_allowance_actions
 WHERE action_id = @action_id::varchar
   AND NOT EXISTS (SELECT 1 FROM reserved);
 
+-- name: InsertSubscriberAllowanceAction :one
+-- Records an allowance hold for one action without accruing it against any
+-- window. Callers that enforce the limit accrue each window separately, in the
+-- same transaction, so a refused window leaves no action behind. A redelivered
+-- action identifier returns no row: its windows were already drawn down by the
+-- first delivery, and the caller reads the stored action instead.
+INSERT INTO router.subscriber_allowance_actions (
+    action_id,
+    router_request_id,
+    subscriber_id,
+    entitlement_version,
+    plan,
+    billing_period_start,
+    billing_period_end,
+    six_hour_period_start,
+    six_hour_period_end,
+    api_key_id,
+    client_session_id,
+    requested_model,
+    reserved_usd_micros,
+    capacity_source,
+    state,
+    reserved_at
+) VALUES (
+    @action_id::varchar,
+    @router_request_id::varchar,
+    @subscriber_id::uuid,
+    @entitlement_version::bigint,
+    @plan::varchar,
+    @billing_period_start::timestamptz,
+    @billing_period_end::timestamptz,
+    @six_hour_period_start::timestamptz,
+    @six_hour_period_end::timestamptz,
+    @api_key_id::uuid,
+    sqlc.narg('client_session_id')::varchar,
+    @requested_model::varchar,
+    @reserved_usd_micros::bigint,
+    @capacity_source::varchar,
+    'reserved',
+    @reserved_at::timestamptz
+)
+ON CONFLICT (action_id) DO NOTHING
+RETURNING *;
+
+-- name: AccrueSubscriberAllowancePeriod :one
+-- Accrues one hold against one enforcement window, refusing it when the hold
+-- would carry the window's consumed cost past its limit. Both the conflicting
+-- update and the first insert are gated, so the invariant holds for a window
+-- whose row does not exist yet. A refusal returns no row: the caller aborts the
+-- reservation instead of dispatching work the allowance cannot pay for.
+INSERT INTO router.subscriber_allowance_periods (
+    subscriber_id,
+    period_kind,
+    period_start,
+    period_end,
+    entitlement_version,
+    plan,
+    limit_usd_micros,
+    reserved_usd_micros
+)
+SELECT
+    @subscriber_id::uuid,
+    @period_kind::varchar,
+    @period_start::timestamptz,
+    @period_end::timestamptz,
+    @entitlement_version::bigint,
+    @plan::varchar,
+    @limit_usd_micros::bigint,
+    @reserved_usd_micros::bigint
+WHERE @reserved_usd_micros::bigint <= @limit_usd_micros::bigint
+ON CONFLICT (subscriber_id, period_kind, period_start) DO UPDATE SET
+    period_end = CASE
+        WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.period_end
+        ELSE router.subscriber_allowance_periods.period_end
+    END,
+    entitlement_version = GREATEST(router.subscriber_allowance_periods.entitlement_version, EXCLUDED.entitlement_version),
+    plan = CASE
+        WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.plan
+        ELSE router.subscriber_allowance_periods.plan
+    END,
+    limit_usd_micros = CASE
+        WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.limit_usd_micros
+        ELSE router.subscriber_allowance_periods.limit_usd_micros
+    END,
+    reserved_usd_micros = router.subscriber_allowance_periods.reserved_usd_micros + EXCLUDED.reserved_usd_micros,
+    updated_at = CURRENT_TIMESTAMP
+WHERE router.subscriber_allowance_periods.reserved_usd_micros
+        + router.subscriber_allowance_periods.finalized_usd_micros
+        + EXCLUDED.reserved_usd_micros
+      <= CASE
+        WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.limit_usd_micros
+        ELSE router.subscriber_allowance_periods.limit_usd_micros
+    END
+RETURNING *;
+
 -- name: FinalizeSubscriberAllowance :one
 -- Settles a reserved action at its actual retail cost, releasing the hold and
 -- accruing the cost against both windows. Matching on the reserved capacity

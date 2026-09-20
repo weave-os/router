@@ -19,9 +19,47 @@ import (
 
 type subscriberAllowanceDB struct {
 	actionRows []subscriberAllowanceActionRow
+	// singleRows answers QueryRow ahead of actionRows, so a transactional
+	// reservation can queue an action row followed by its window accruals.
+	singleRows []pgx.Row
 	periodRows []sqlc.RouterSubscriberAllowancePeriod
 	queryErr   error
 	args       [][]any
+	committed  int
+	rolledBack int
+}
+
+// subscriberAllowanceTx runs the reservation's statements against the same
+// recorded rows, and reports whether the unit committed or unwound.
+type subscriberAllowanceTx struct {
+	pgx.Tx
+	db *subscriberAllowanceDB
+}
+
+func (db *subscriberAllowanceDB) BeginTx(context.Context, pgx.TxOptions) (pgx.Tx, error) {
+	return &subscriberAllowanceTx{db: db}, nil
+}
+
+func (tx *subscriberAllowanceTx) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {
+	return tx.db.Exec(ctx, sql, args...)
+}
+
+func (tx *subscriberAllowanceTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	return tx.db.Query(ctx, sql, args...)
+}
+
+func (tx *subscriberAllowanceTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	return tx.db.QueryRow(ctx, sql, args...)
+}
+
+func (tx *subscriberAllowanceTx) Commit(context.Context) error {
+	tx.db.committed++
+	return nil
+}
+
+func (tx *subscriberAllowanceTx) Rollback(context.Context) error {
+	tx.db.rolledBack++
+	return nil
 }
 
 func (*subscriberAllowanceDB) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
@@ -38,6 +76,11 @@ func (db *subscriberAllowanceDB) Query(_ context.Context, _ string, args ...any)
 
 func (db *subscriberAllowanceDB) QueryRow(_ context.Context, _ string, args ...any) pgx.Row {
 	db.args = append(db.args, args)
+	if len(db.singleRows) > 0 {
+		row := db.singleRows[0]
+		db.singleRows = db.singleRows[1:]
+		return row
+	}
 	if len(db.actionRows) == 0 {
 		return subscriberAllowanceActionRow{err: pgx.ErrNoRows}
 	}
@@ -79,6 +122,33 @@ func (row subscriberAllowanceActionRow) Scan(dest ...any) error {
 		action.ReleasedAt,
 		action.CreatedAt,
 		action.UpdatedAt,
+	})
+}
+
+// subscriberAllowancePeriodRow answers one accrual: a value row when the
+// window paid for the hold, pgx.ErrNoRows when its gate refused it.
+type subscriberAllowancePeriodRow struct {
+	value sqlc.RouterSubscriberAllowancePeriod
+	err   error
+}
+
+func (row subscriberAllowancePeriodRow) Scan(dest ...any) error {
+	if row.err != nil {
+		return row.err
+	}
+	period := row.value
+	return assignScanTargets(dest, []any{
+		period.SubscriberID,
+		period.PeriodKind,
+		period.PeriodStart,
+		period.PeriodEnd,
+		period.EntitlementVersion,
+		period.Plan,
+		period.LimitUsdMicros,
+		period.ReservedUsdMicros,
+		period.FinalizedUsdMicros,
+		period.CreatedAt,
+		period.UpdatedAt,
 	})
 }
 
@@ -211,6 +281,89 @@ func TestReserveStoresHoldWithWindowLimits(t *testing.T) {
 	assert.Equal(t, reservation.SixHourPeriod, action.SixHourPeriod)
 	assert.Contains(t, db.args[0], reservation.BillingLimitUsdMicros)
 	assert.Contains(t, db.args[0], reservation.SixHourLimitUsdMicros)
+}
+
+func accruedPeriodRow(reservation entitlement.Reservation, kind entitlement.PeriodKind) subscriberAllowancePeriodRow {
+	period, limit := reservation.BillingPeriod, reservation.BillingLimitUsdMicros
+	if kind == entitlement.PeriodKindSixHour {
+		period, limit = reservation.SixHourPeriod, reservation.SixHourLimitUsdMicros
+	}
+	return subscriberAllowancePeriodRow{value: sqlc.RouterSubscriberAllowancePeriod{
+		SubscriberID:       allowanceSubscriberID,
+		PeriodKind:         string(kind),
+		PeriodStart:        utcTimestamptz(period.Start),
+		PeriodEnd:          utcTimestamptz(period.End),
+		EntitlementVersion: reservation.EntitlementVersion,
+		Plan:               string(reservation.Plan),
+		LimitUsdMicros:     limit,
+		ReservedUsdMicros:  reservation.ReservedUsdMicros,
+	}}
+}
+
+func TestReserveWithinLimitsHoldsBothWindows(t *testing.T) {
+	reservation := testReservation()
+	db := &subscriberAllowanceDB{singleRows: []pgx.Row{
+		subscriberAllowanceActionRow{value: reservedActionRow(reservation)},
+		accruedPeriodRow(reservation, entitlement.PeriodKindBilling),
+		accruedPeriodRow(reservation, entitlement.PeriodKindSixHour),
+	}}
+
+	action, err := NewSubscriberAllowanceRepo(db).ReserveWithinLimits(context.Background(), reservation)
+
+	require.NoError(t, err)
+	assert.Equal(t, entitlement.ActionStateReserved, action.State)
+	assert.Equal(t, reservation.ReservedUsdMicros, action.ReservedUsdMicros)
+	assert.Equal(t, 1, db.committed)
+	assert.Contains(t, db.args[1], reservation.BillingLimitUsdMicros)
+	assert.Contains(t, db.args[2], reservation.SixHourLimitUsdMicros)
+}
+
+func TestReserveWithinLimitsRefusesSpentWindowWithoutHolding(t *testing.T) {
+	reservation := testReservation()
+	db := &subscriberAllowanceDB{singleRows: []pgx.Row{
+		subscriberAllowanceActionRow{value: reservedActionRow(reservation)},
+		accruedPeriodRow(reservation, entitlement.PeriodKindBilling),
+		subscriberAllowancePeriodRow{err: pgx.ErrNoRows},
+	}}
+
+	_, err := NewSubscriberAllowanceRepo(db).ReserveWithinLimits(context.Background(), reservation)
+
+	require.ErrorIs(t, err, entitlement.ErrAllowanceExhausted)
+	var exhausted entitlement.ExhaustedError
+	require.ErrorAs(t, err, &exhausted)
+	assert.Equal(t, entitlement.PeriodKindSixHour, exhausted.Period)
+	// The refused turn is never dispatched, so neither the action nor the
+	// month's accrual may survive it.
+	assert.Zero(t, db.committed)
+	assert.NotZero(t, db.rolledBack)
+}
+
+func TestReserveWithinLimitsReturnsStoredHoldForRedeliveredAction(t *testing.T) {
+	reservation := testReservation()
+	db := &subscriberAllowanceDB{singleRows: []pgx.Row{
+		subscriberAllowanceActionRow{err: pgx.ErrNoRows},
+		subscriberAllowanceActionRow{value: reservedActionRow(reservation)},
+	}}
+
+	action, err := NewSubscriberAllowanceRepo(db).ReserveWithinLimits(context.Background(), reservation)
+
+	require.NoError(t, err)
+	assert.Equal(t, reservation.ReservedUsdMicros, action.ReservedUsdMicros)
+	assert.Equal(t, 1, db.committed)
+}
+
+func TestReserveWithinLimitsSkipsWindowsForLinkedCapacity(t *testing.T) {
+	reservation := testReservation()
+	reservation.CapacitySource = entitlement.CapacitySourceLinkedClaude
+	stored := reservedActionRow(reservation)
+	stored.CapacitySource = string(entitlement.CapacitySourceLinkedClaude)
+	db := &subscriberAllowanceDB{singleRows: []pgx.Row{subscriberAllowanceActionRow{value: stored}}}
+
+	action, err := NewSubscriberAllowanceRepo(db).ReserveWithinLimits(context.Background(), reservation)
+
+	require.NoError(t, err)
+	assert.Equal(t, entitlement.CapacitySourceLinkedClaude, action.CapacitySource)
+	assert.Len(t, db.args, 1)
 }
 
 func TestReserveIsIdempotentForRedeliveredAction(t *testing.T) {

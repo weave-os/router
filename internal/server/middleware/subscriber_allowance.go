@@ -1,13 +1,17 @@
 package middleware
 
 import (
+	"errors"
+	"log/slog"
 	"net/http"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 )
 
 // WithSubscriberAllowance gates inference on an individual Max/Boost
@@ -78,10 +82,106 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 				"message":              allowanceExhaustedMessage(admission.ExhaustedPeriod),
 			})
 		case entitlement.AdmissionCovered:
-			c.Request = c.Request.WithContext(entitlement.WithCoverage(c.Request.Context(), admission.Coverage))
-			c.Next()
+			ctx := entitlement.WithCoverage(c.Request.Context(), admission.Coverage)
+			c.Request = c.Request.WithContext(ctx)
+			holdRequest(c, log, svc, admission)
 		}
 	}
+}
+
+// holdRequest reserves an upper-bound turn cost before the request is
+// dispatched, and returns the hold once it has been served.
+//
+// The admission check above cannot enforce the allowance on its own: it reads
+// the windows, so concurrent turns all see the same headroom and all pass. The
+// reservation accrues and checks in one atomic write, which is what keeps
+// consumed + reserved within the limit. Settlement books the turn's actual
+// cost under its own action identifiers, so releasing the hold afterwards
+// neither refunds nor double-charges the served work.
+func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, admission entitlement.Admission) {
+	ctx := c.Request.Context()
+	requestID := observability.RequestIDFromContext(ctx)
+	if requestID == "" {
+		// The identifier only has to be unique per delivery for the hold to be
+		// releasable; correlating it with the request's logs is a bonus.
+		requestID = uuid.NewString()
+	}
+
+	hold := entitlement.Hold{
+		Coverage:            admission.Coverage,
+		ActionID:            requestID + holdActionSuffix,
+		RouterRequestID:     requestID,
+		APIKeyID:            APIKeyFrom(c).ID,
+		RequestedModel:      entitlement.ModelUnresolved,
+		UpperBoundUsdMicros: holdUsdMicros(admission.Coverage),
+		CapacitySource:      entitlement.CapacitySourceIncludedRouter,
+	}
+
+	if _, err := svc.Reserve(ctx, hold); errors.Is(err, entitlement.ErrAllowanceExhausted) {
+		var exhausted entitlement.ExhaustedError
+		errors.As(err, &exhausted)
+		refuseExhausted(c, log, admission, exhausted.Period)
+		return
+	} else if err != nil {
+		log.Error("Subscriber allowance reservation failed; refusing request", "err", err, "subscriber_id", string(admission.Coverage.SubscriberID))
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+			"error":   "billing_unavailable",
+			"message": "Billing system is temporarily unavailable. Retry in a few moments.",
+		})
+		return
+	}
+
+	c.Next()
+
+	if err := svc.ReleaseHold(ctx, hold.ActionID); err != nil {
+		// The bound stays held until the window turns. That over-counts the
+		// subscriber's usage, which is the safe direction: the alternative is
+		// serving work the allowance may not cover.
+		log.Error("Subscriber allowance hold left standing", "err", err, "action_id", hold.ActionID)
+	}
+}
+
+// holdActionSuffix distinguishes the request-level hold from the per-action
+// identifiers settlement mints for the same request.
+const holdActionSuffix = ":hold"
+
+// holdUsdMicros bounds one turn's cost, clamped to the tightest window the
+// request is admitted against. Without the clamp a subscriber whose plan is
+// smaller than one worst-case turn could never dispatch anything, since the
+// bound alone would exceed an untouched window.
+func holdUsdMicros(coverage entitlement.Coverage) int64 {
+	bound := catalog.TurnUpperBoundUsdMicros()
+	for _, limit := range []int64{coverage.SixHourLimitUsdMicros, coverage.BillingLimitUsdMicros} {
+		if limit > 0 && limit < bound {
+			bound = limit
+		}
+	}
+	return bound
+}
+
+// refuseExhausted answers a spent window, unless the caller's own linked
+// subscription can serve the route at no cost to the included allowance.
+func refuseExhausted(c *gin.Context, log *slog.Logger, admission entitlement.Admission, period entitlement.PeriodKind) {
+	if proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath()) {
+		c.Next()
+		return
+	}
+	admission.ExhaustedPeriod = period
+	window := exhaustedWindow(admission)
+	log.Info("Request rejected: subscriber allowance exhausted",
+		"subscriber_id", string(admission.Coverage.SubscriberID),
+		"period_kind", period,
+		"consumed_usd_micros", window.ConsumedUsdMicros(),
+		"allowance_usd_micros", window.LimitUsdMicros,
+	)
+	c.AbortWithStatusJSON(http.StatusPaymentRequired, gin.H{
+		"error":                "subscription_allowance_exhausted",
+		"period_kind":          string(period),
+		"period_end":           window.Period.End,
+		"consumed_usd_micros":  window.ConsumedUsdMicros(),
+		"allowance_usd_micros": window.LimitUsdMicros,
+		"message":              allowanceExhaustedMessage(period),
+	})
 }
 
 // subscriberAllowanceCovers reports whether this request was admitted against
