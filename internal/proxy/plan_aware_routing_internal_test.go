@@ -51,6 +51,38 @@ func TestManagedSubscriptionPlanStatesAggregatesAccountCooldowns(t *testing.T) {
 	assert.Equal(t, SubscriptionPlanStateExhausted, states[subscriptions.ProviderCodex])
 }
 
+func TestManagedSubscriptionPlanStatesPreservesUnknownAndUnavailable(t *testing.T) {
+	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+	states := ManagedSubscriptionPlanStates([]*auth.SubscriptionAccount{
+		{
+			Provider: auth.SubscriptionProviderClaude,
+			Enabled:  true,
+			State:    auth.SubscriptionAccountStateUnknown,
+		},
+		{
+			Provider: auth.SubscriptionProviderCodex,
+			Enabled:  false,
+			State:    auth.SubscriptionAccountStateReconnectRequired,
+		},
+	}, now)
+
+	assert.Equal(t, SubscriptionPlanStateUnknown, states[subscriptions.ProviderClaude])
+	assert.Equal(t, SubscriptionPlanStateUnavailable, states[subscriptions.ProviderCodex])
+}
+
+func TestManagedSubscriptionPlanStatesRetriesExhaustedAccountAfterReset(t *testing.T) {
+	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
+	resetAt := now.Add(-time.Second)
+	states := ManagedSubscriptionPlanStates([]*auth.SubscriptionAccount{{
+		Provider:      auth.SubscriptionProviderClaude,
+		Enabled:       true,
+		State:         auth.SubscriptionAccountStateExhausted,
+		CooldownUntil: &resetAt,
+	}}, now)
+
+	assert.Equal(t, SubscriptionPlanStateUnknown, states[subscriptions.ProviderClaude])
+}
+
 func TestPlanAwareRoutingLeavesRosterUnchangedWhenPlansAreActive(t *testing.T) {
 	svc := &Service{
 		availableModels: planAwareUniverse(),

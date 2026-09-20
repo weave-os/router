@@ -28,6 +28,7 @@ type runtimeStore struct {
 	rotatedTokens        map[string][]byte
 	enabledUpdates       map[string]bool
 	cooldowns            map[string]time.Time
+	healthStates         map[string]auth.SubscriptionAccountState
 	stateErr             error
 	extendErr            error
 	extendCount          atomic.Int32
@@ -177,6 +178,17 @@ func (s *runtimeStore) UpdateSubscriptionAccountCooldown(_ context.Context, _ au
 	return s.stateErr
 }
 
+func (s *runtimeStore) UpdateSubscriptionAccountHealth(_ context.Context, _ auth.SubscriptionOwner, accountID string, state auth.SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.healthStates[accountID] = state
+	s.enabledUpdates[accountID] = enabled
+	if cooldownUntil != nil {
+		s.cooldowns[accountID] = *cooldownUntil
+	}
+	return s.stateErr
+}
+
 type runtimeRefreshFunc func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error)
 
 func (f runtimeRefreshFunc) Refresh(ctx context.Context, provider subscriptions.Provider, token string) (subscriptions.RefreshedToken, error) {
@@ -189,6 +201,7 @@ func newRuntimeStore(accounts ...*auth.SubscriptionAccount) *runtimeStore {
 		accessTokens: make(map[string][]byte), accessExpiry: make(map[string]time.Time),
 		tokenRefreshVersions: make(map[string]int64), leaseIDs: make(map[string]string), leaseUntil: make(map[string]time.Time),
 		rotatedTokens: make(map[string][]byte), enabledUpdates: make(map[string]bool), cooldowns: make(map[string]time.Time),
+		healthStates: make(map[string]auth.SubscriptionAccountState),
 	}
 }
 
@@ -209,6 +222,37 @@ func TestRuntimeCooldownDoesNotWriteEnabledState(t *testing.T) {
 	require.NoError(t, runtime.Cooldown(context.Background(), testOwner, subscriptions.ProviderClaude, "account-1", resetAt))
 	require.Equal(t, resetAt, store.cooldowns["account-1"])
 	require.Empty(t, store.enabledUpdates)
+}
+
+func TestRuntimePersistsExhaustedAndReconnectHealth(t *testing.T) {
+	store := newRuntimeStore(&auth.SubscriptionAccount{
+		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1",
+		Provider: auth.SubscriptionProviderClaude, Enabled: true, State: auth.SubscriptionAccountStateUnknown,
+	})
+	store.refreshTokens["account-1"] = []byte("refresh-secret")
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
+		return subscriptions.RefreshedToken{AccessToken: "access", RefreshToken: "refresh-secret", ExpiresAt: time.Now().Add(time.Hour)}, nil
+	}), nil)
+	lease, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "")
+	require.NoError(t, err)
+	require.True(t, present)
+	lease.Release()
+
+	require.NoError(t, runtime.Activate(context.Background(), testOwner, subscriptions.ProviderClaude, "account-1"))
+	lease, present, err = runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "")
+	require.NoError(t, err)
+	require.True(t, present)
+	require.Equal(t, auth.SubscriptionAccountStateActive, lease.State)
+	lease.Release()
+
+	resetAt := time.Now().Add(time.Hour)
+	require.NoError(t, runtime.Exhaust(context.Background(), testOwner, subscriptions.ProviderClaude, "account-1", resetAt))
+	require.Equal(t, auth.SubscriptionAccountStateExhausted, store.healthStates["account-1"])
+	require.Equal(t, resetAt, store.cooldowns["account-1"])
+
+	require.NoError(t, runtime.ReconnectRequired(context.Background(), testOwner, subscriptions.ProviderClaude, "account-1"))
+	require.Equal(t, auth.SubscriptionAccountStateReconnectRequired, store.healthStates["account-1"])
+	require.False(t, store.enabledUpdates["account-1"])
 }
 
 func TestRuntimeCoalescesRefreshAndPersistsRotation(t *testing.T) {

@@ -7,6 +7,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"weave-os/router/internal/auth"
 )
 
 // Provider identifies the subscription family an account can serve.
@@ -31,6 +33,7 @@ type Account struct {
 	AccessTokenExpiresAt time.Time
 	AccountID            string
 	Enabled              bool
+	State                auth.SubscriptionAccountState
 	CooldownTil          time.Time
 }
 
@@ -146,6 +149,7 @@ func (p *Pool) Disable(accountID string) bool {
 	state, ok := p.accounts[accountID]
 	if ok {
 		state.account.Enabled = false
+		state.account.State = auth.SubscriptionAccountStateDisabled
 	}
 	return ok
 }
@@ -162,6 +166,50 @@ func (p *Pool) Cooldown(accountID string, resetAt time.Time) bool {
 	if state.account.CooldownTil.Before(resetAt) {
 		state.account.CooldownTil = resetAt
 	}
+	state.account.State = auth.SubscriptionAccountStateCooldown
+	return true
+}
+
+// Exhaust marks an account unavailable until its quota reset.
+func (p *Pool) Exhaust(accountID string, resetAt time.Time) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	state, ok := p.accounts[accountID]
+	if !ok {
+		return false
+	}
+	if state.account.CooldownTil.Before(resetAt) {
+		state.account.CooldownTil = resetAt
+	}
+	state.account.State = auth.SubscriptionAccountStateExhausted
+	return true
+}
+
+// ReconnectRequired removes an account from selection until it is reauthorized.
+func (p *Pool) ReconnectRequired(accountID string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	state, ok := p.accounts[accountID]
+	if !ok {
+		return false
+	}
+	state.account.Enabled = false
+	state.account.State = auth.SubscriptionAccountStateReconnectRequired
+	state.account.CooldownTil = time.Time{}
+	return true
+}
+
+// Activate makes an account available after a successful provider response.
+func (p *Pool) Activate(accountID string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	state, ok := p.accounts[accountID]
+	if !ok {
+		return false
+	}
+	state.account.Enabled = true
+	state.account.State = auth.SubscriptionAccountStateActive
+	state.account.CooldownTil = time.Time{}
 	return true
 }
 
@@ -207,7 +255,7 @@ func (p *Pool) Lease(ctx context.Context, provider Provider, sessionID string, r
 		}
 		var terminal terminalRefreshError
 		if errors.As(err, &terminal) && terminal.Terminal() {
-			p.Disable(account.ID)
+			p.ReconnectRequired(account.ID)
 			continue
 		}
 		p.Cooldown(account.ID, p.clock().Add(time.Minute))
@@ -233,7 +281,8 @@ func (p *Pool) tryLease(provider Provider, sessionID string) (Account, func(), e
 	now := p.clock()
 	ids := make([]string, 0, len(p.accounts))
 	for id, state := range p.accounts {
-		if state.account.Provider == provider && state.account.Enabled && !state.account.CooldownTil.After(now) {
+		if state.account.Provider == provider && state.account.Enabled &&
+			subscriptionAccountStateRoutable(state.account.State, state.account.CooldownTil, now) {
 			ids = append(ids, id)
 		}
 	}
@@ -263,6 +312,15 @@ func (p *Pool) tryLease(provider Provider, sessionID string) (Account, func(), e
 	account := state.account
 	var releaseOnce sync.Once
 	return account, func() { releaseOnce.Do(func() { p.release(account.ID) }) }, nil
+}
+
+func subscriptionAccountStateRoutable(state auth.SubscriptionAccountState, cooldownUntil, now time.Time) bool {
+	if state == "" || state.Routable() {
+		return !cooldownUntil.After(now)
+	}
+	return (state == auth.SubscriptionAccountStateExhausted || state == auth.SubscriptionAccountStateCooldown) &&
+		!cooldownUntil.IsZero() &&
+		!cooldownUntil.After(now)
 }
 
 func removeString(values []string, target string) []string {

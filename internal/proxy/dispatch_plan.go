@@ -164,6 +164,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			if attemptErr == nil {
 				if managedAttempt {
 					markManagedSubscriptionServed(ctx, credentialCtx)
+					s.recordManagedSubscriptionSuccess(credentialCtx, decision.Provider, decision.Model, lease)
 				}
 				if attempt.Index > 0 {
 					log.Info("dispatchWithFallback: succeeded on fallback",

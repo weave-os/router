@@ -26,6 +26,9 @@ const (
 	// SubscriptionPlanStateUnknown means the account exists but its state
 	// cannot be safely interpreted as quota exhaustion.
 	SubscriptionPlanStateUnknown SubscriptionPlanState = "unknown"
+	// SubscriptionPlanStateUnavailable means every account needs user action
+	// or was explicitly disabled.
+	SubscriptionPlanStateUnavailable SubscriptionPlanState = "unavailable"
 )
 
 // ManagedSubscriptionPlanStatesContextKey carries aggregate managed account
@@ -37,13 +40,13 @@ type ManagedSubscriptionPlanStatesContextKey struct{}
 type SubscriptionPlanAwareExcludedModelsContextKey struct{}
 
 // ManagedSubscriptionPlanStates derives provider-level state from durable
-// managed account metadata. Disabled accounts are unknown rather than
-// exhausted because disabled commonly means authentication or operator state,
-// not quota exhaustion.
+// managed account metadata.
 func ManagedSubscriptionPlanStates(accounts []*auth.SubscriptionAccount, now time.Time) map[subscriptions.Provider]SubscriptionPlanState {
 	states := make(map[subscriptions.Provider]SubscriptionPlanState)
-	enabledAccounts := make(map[subscriptions.Provider]int)
 	activeAccounts := make(map[subscriptions.Provider]int)
+	unknownAccounts := make(map[subscriptions.Provider]int)
+	exhaustedAccounts := make(map[subscriptions.Provider]int)
+	unavailableAccounts := make(map[subscriptions.Provider]int)
 
 	for _, account := range accounts {
 		if account == nil {
@@ -53,24 +56,41 @@ func ManagedSubscriptionPlanStates(accounts []*auth.SubscriptionAccount, now tim
 		if provider != subscriptions.ProviderClaude && provider != subscriptions.ProviderCodex {
 			continue
 		}
-		if !account.Enabled {
-			if _, exists := states[provider]; !exists {
-				states[provider] = SubscriptionPlanStateUnknown
-			}
-			continue
+		state := account.State
+		if state == "" {
+			state = auth.SubscriptionAccountStateActive
 		}
-		enabledAccounts[provider]++
-		if account.CooldownUntil == nil || !account.CooldownUntil.After(now) {
+		switch {
+		case !account.Enabled ||
+			state == auth.SubscriptionAccountStateDisabled ||
+			state == auth.SubscriptionAccountStateReconnectRequired:
+			unavailableAccounts[provider]++
+		case state == auth.SubscriptionAccountStateActive &&
+			(account.CooldownUntil == nil || !account.CooldownUntil.After(now)):
 			activeAccounts[provider]++
+		case state == auth.SubscriptionAccountStateUnknown &&
+			(account.CooldownUntil == nil || !account.CooldownUntil.After(now)):
+			unknownAccounts[provider]++
+		case (state == auth.SubscriptionAccountStateExhausted ||
+			state == auth.SubscriptionAccountStateCooldown) &&
+			account.CooldownUntil != nil &&
+			!account.CooldownUntil.After(now):
+			unknownAccounts[provider]++
+		default:
+			exhaustedAccounts[provider]++
 		}
 	}
 
-	for provider, count := range enabledAccounts {
+	for _, provider := range []subscriptions.Provider{subscriptions.ProviderClaude, subscriptions.ProviderCodex} {
 		switch {
 		case activeAccounts[provider] > 0:
 			states[provider] = SubscriptionPlanStateActive
-		case count > 0:
+		case unknownAccounts[provider] > 0:
+			states[provider] = SubscriptionPlanStateUnknown
+		case exhaustedAccounts[provider] > 0:
 			states[provider] = SubscriptionPlanStateExhausted
+		case unavailableAccounts[provider] > 0:
+			states[provider] = SubscriptionPlanStateUnavailable
 		}
 	}
 	return states
@@ -117,6 +137,8 @@ func subscriptionPlanStatesForRequest(s *Service, ctx context.Context, headers h
 			states[provider] = SubscriptionPlanStateActive
 		case managedState == SubscriptionPlanStateUnknown || state == SubscriptionPlanStateUnknown:
 			states[provider] = SubscriptionPlanStateUnknown
+		case managedState == SubscriptionPlanStateUnavailable:
+			states[provider] = state
 		default:
 			states[provider] = SubscriptionPlanStateExhausted
 		}
@@ -149,6 +171,7 @@ func planAwareExcludedModels(states map[subscriptions.Provider]SubscriptionPlanS
 		case SubscriptionPlanStateUnknown:
 			return nil
 		case SubscriptionPlanStateExhausted:
+		case SubscriptionPlanStateUnavailable:
 		default:
 			return nil
 		}

@@ -22,6 +22,7 @@ adopted AS (
   SET subscriber_id = @subscriber_id::uuid,
       refresh_token_ciphertext = @refresh_token_ciphertext::bytea,
       enabled = TRUE,
+      health_state = 'unknown',
       cooldown_until = NULL,
       access_token_ciphertext = NULL,
       access_token_expires_at = NULL,
@@ -31,7 +32,7 @@ adopted AS (
       updated_at = CURRENT_TIMESTAMP
   WHERE id = (SELECT id FROM owned)
   RETURNING id, subscriber_id, api_key_id, provider, external_account_id,
-            refresh_token_ciphertext, enabled, cooldown_until, created_at
+            refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
 ),
 inserted AS (
   INSERT INTO router.model_router_subscription_accounts (
@@ -44,6 +45,7 @@ inserted AS (
   DO UPDATE SET
     refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
     enabled = TRUE,
+    health_state = 'unknown',
     cooldown_until = NULL,
     access_token_ciphertext = NULL,
     access_token_expires_at = NULL,
@@ -52,14 +54,14 @@ inserted AS (
     token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
     updated_at = CURRENT_TIMESTAMP
   RETURNING id, subscriber_id, api_key_id, provider, external_account_id,
-            refresh_token_ciphertext, enabled, cooldown_until, created_at
+            refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
 )
 SELECT id, subscriber_id, api_key_id, provider, external_account_id,
-       refresh_token_ciphertext, enabled, cooldown_until, created_at
+       refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
 FROM adopted
 UNION ALL
 SELECT id, subscriber_id, api_key_id, provider, external_account_id,
-       refresh_token_ciphertext, enabled, cooldown_until, created_at
+       refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
 FROM inserted;
 
 -- Enroll an account for a key that has no credential subject. Such a row keeps
@@ -73,6 +75,7 @@ ON CONFLICT (api_key_id, provider, external_account_id)
 DO UPDATE SET
   refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
   enabled = TRUE,
+  health_state = 'unknown',
   cooldown_until = NULL,
   access_token_ciphertext = NULL,
   access_token_expires_at = NULL,
@@ -94,6 +97,7 @@ SELECT id,
        external_account_id,
        refresh_token_ciphertext,
        enabled,
+       health_state,
        cooldown_until,
        created_at,
        updated_at
@@ -105,6 +109,7 @@ ORDER BY provider, created_at;
 -- name: UpdateModelRouterSubscriptionAccountState :execrows
 UPDATE router.model_router_subscription_accounts
 SET enabled = @enabled::boolean,
+    health_state = CASE WHEN @enabled::boolean THEN 'unknown' ELSE 'disabled' END,
     cooldown_until = @cooldown_until::timestamp,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = @id::uuid
@@ -116,15 +121,28 @@ WHERE id = @id::uuid
 -- name: UpdateModelRouterSubscriptionAccountCooldown :execrows
 UPDATE router.model_router_subscription_accounts
 SET cooldown_until = @cooldown_until::timestamp,
+    health_state = 'cooldown',
     updated_at = CURRENT_TIMESTAMP
 WHERE id = @id::uuid
   AND (subscriber_id = sqlc.narg(subscriber_id)::uuid
        OR (subscriber_id IS NULL AND api_key_id = sqlc.narg(api_key_id)::uuid))
   AND enabled = TRUE;
 
+-- Updates the internal credential-free routing health for one linked account.
+-- name: UpdateModelRouterSubscriptionAccountHealth :execrows
+UPDATE router.model_router_subscription_accounts
+SET health_state = @health_state::varchar,
+    enabled = @enabled::boolean,
+    cooldown_until = @cooldown_until::timestamp,
+    updated_at = CURRENT_TIMESTAMP
+WHERE id = @id::uuid
+  AND (subscriber_id = sqlc.narg(subscriber_id)::uuid
+       OR (subscriber_id IS NULL AND api_key_id = sqlc.narg(api_key_id)::uuid));
+
 -- name: UpdateModelRouterSubscriptionRefreshToken :execrows
 UPDATE router.model_router_subscription_accounts
 SET refresh_token_ciphertext = @refresh_token_ciphertext::bytea,
+    health_state = 'unknown',
     access_token_ciphertext = NULL,
     access_token_expires_at = NULL,
     token_refresh_lease_until = NULL,
@@ -210,6 +228,7 @@ SELECT external_account_id,
        token_refresh_version,
        token_refresh_lease_id,
        enabled,
+       health_state,
        cooldown_until
 FROM router.model_router_subscription_accounts
 WHERE id = @id::uuid
@@ -223,6 +242,8 @@ UPDATE router.model_router_subscription_accounts
 SET refresh_token_ciphertext = @refresh_token_ciphertext::bytea,
     access_token_ciphertext = @access_token_ciphertext::bytea,
     access_token_expires_at = @access_token_expires_at::timestamp,
+    health_state = 'active',
+    cooldown_until = NULL,
     token_refresh_lease_until = NULL,
     token_refresh_lease_id = NULL,
     token_refresh_version = token_refresh_version + 1,
@@ -239,6 +260,7 @@ WHERE id = @id::uuid
 -- name: DisableModelRouterSubscriptionAccountIfRefreshHolder :execrows
 UPDATE router.model_router_subscription_accounts
 SET enabled = FALSE,
+    health_state = 'reconnect_required',
     cooldown_until = NULL,
     token_refresh_lease_until = NULL,
     token_refresh_lease_id = NULL,
@@ -254,6 +276,7 @@ WHERE id = @id::uuid
 -- name: CooldownModelRouterSubscriptionAccountIfRefreshHolder :execrows
 UPDATE router.model_router_subscription_accounts
 SET cooldown_until = @cooldown_until::timestamp,
+    health_state = 'cooldown',
     token_refresh_lease_until = NULL,
     token_refresh_lease_id = NULL,
     updated_at = CURRENT_TIMESTAMP

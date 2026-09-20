@@ -13,12 +13,13 @@ import (
 )
 
 type accountResponse struct {
-	ID                string                    `json:"id"`
-	Provider          auth.SubscriptionProvider `json:"provider"`
-	ExternalAccountID string                    `json:"external_account_id"`
-	Enabled           bool                      `json:"enabled"`
-	CooldownUntil     *time.Time                `json:"cooldown_until,omitempty"`
-	CreatedAt         time.Time                 `json:"created_at"`
+	ID                string                        `json:"id"`
+	Provider          auth.SubscriptionProvider     `json:"provider"`
+	ExternalAccountID string                        `json:"external_account_id"`
+	Enabled           bool                          `json:"enabled"`
+	State             auth.SubscriptionAccountState `json:"state"`
+	CooldownUntil     *time.Time                    `json:"cooldown_until,omitempty"`
+	CreatedAt         time.Time                     `json:"created_at"`
 }
 
 type createAccountRequest struct {
@@ -54,7 +55,7 @@ func listAccountsHandler(authSvc *auth.Service) gin.HandlerFunc {
 		}
 		response := make([]accountResponse, 0, len(accounts))
 		for _, account := range accounts {
-			response = append(response, accountResponse{ID: account.ID, Provider: account.Provider, ExternalAccountID: account.ExternalAccountID, Enabled: account.Enabled, CooldownUntil: account.CooldownUntil, CreatedAt: account.CreatedAt})
+			response = append(response, accountResponse{ID: account.ID, Provider: account.Provider, ExternalAccountID: account.ExternalAccountID, Enabled: account.Enabled, State: account.State, CooldownUntil: account.CooldownUntil, CreatedAt: account.CreatedAt})
 		}
 		c.JSON(http.StatusOK, response)
 	}
@@ -77,7 +78,7 @@ func createAccountHandler(authSvc *auth.Service) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "subscription_account_rejected"})
 			return
 		}
-		c.JSON(http.StatusCreated, accountResponse{ID: account.ID, Provider: account.Provider, ExternalAccountID: account.ExternalAccountID, Enabled: account.Enabled, CreatedAt: account.CreatedAt})
+		c.JSON(http.StatusCreated, accountResponse{ID: account.ID, Provider: account.Provider, ExternalAccountID: account.ExternalAccountID, Enabled: account.Enabled, State: account.State, CreatedAt: account.CreatedAt})
 	}
 }
 

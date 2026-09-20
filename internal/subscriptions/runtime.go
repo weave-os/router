@@ -55,6 +55,7 @@ type Lease struct {
 	AccountID       string
 	AccessToken     string
 	ProviderAccount string
+	State           auth.SubscriptionAccountState
 	release         func()
 }
 
@@ -126,7 +127,7 @@ func (r *Runtime) Lease(ctx context.Context, owner auth.SubscriptionOwner, provi
 	}
 	return Lease{
 		AccountID: account.ID, AccessToken: account.AccessToken,
-		ProviderAccount: account.AccountID, release: release,
+		ProviderAccount: account.AccountID, State: account.State, release: release,
 	}, true, nil
 }
 
@@ -141,6 +142,42 @@ func (r *Runtime) Cooldown(ctx context.Context, owner auth.SubscriptionOwner, pr
 	return r.store.UpdateSubscriptionAccountCooldown(ctx, owner, accountID, resetAt)
 }
 
+// Exhaust marks provider-reported capacity unavailable until its reset.
+func (r *Runtime) Exhaust(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string, resetAt time.Time) error {
+	exhausted := false
+	for _, poolID := range ownerPools(owner) {
+		exhausted = r.manager.Exhaust(poolID, provider, accountID, resetAt) || exhausted
+	}
+	if !exhausted {
+		return ErrNoAvailableAccount
+	}
+	return r.updateAccountHealth(ctx, owner, accountID, auth.SubscriptionAccountStateExhausted, true, &resetAt)
+}
+
+// ReconnectRequired removes rejected credentials while preserving their identity.
+func (r *Runtime) ReconnectRequired(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string) error {
+	reconnectRequired := false
+	for _, poolID := range ownerPools(owner) {
+		reconnectRequired = r.manager.ReconnectRequired(poolID, provider, accountID) || reconnectRequired
+	}
+	if !reconnectRequired {
+		return ErrNoAvailableAccount
+	}
+	return r.updateAccountHealth(ctx, owner, accountID, auth.SubscriptionAccountStateReconnectRequired, false, nil)
+}
+
+// Activate records a successful provider response for a linked account.
+func (r *Runtime) Activate(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string) error {
+	activated := false
+	for _, poolID := range ownerPools(owner) {
+		activated = r.manager.Activate(poolID, provider, accountID) || activated
+	}
+	if !activated {
+		return ErrNoAvailableAccount
+	}
+	return r.updateAccountHealth(ctx, owner, accountID, auth.SubscriptionAccountStateActive, true, nil)
+}
+
 func (r *Runtime) Disable(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string) error {
 	disabled := false
 	for _, poolID := range ownerPools(owner) {
@@ -150,6 +187,15 @@ func (r *Runtime) Disable(ctx context.Context, owner auth.SubscriptionOwner, pro
 		return ErrNoAvailableAccount
 	}
 	return r.store.UpdateSubscriptionAccountState(ctx, owner, accountID, false, nil)
+}
+
+func (r *Runtime) updateAccountHealth(ctx context.Context, owner auth.SubscriptionOwner, accountID string, state auth.SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) error {
+	if store, ok := r.store.(interface {
+		UpdateSubscriptionAccountHealth(context.Context, auth.SubscriptionOwner, string, auth.SubscriptionAccountState, bool, *time.Time) error
+	}); ok {
+		return store.UpdateSubscriptionAccountHealth(ctx, owner, accountID, state, enabled, cooldownUntil)
+	}
+	return r.store.UpdateSubscriptionAccountState(ctx, owner, accountID, enabled, cooldownUntil)
 }
 
 // ownerPools lists the pools an owner serves, stable capacity first. A
@@ -230,7 +276,7 @@ func (r *Runtime) syncAccounts(ctx context.Context, owner auth.SubscriptionOwner
 			}
 			pooled[poolID] = append(pooled[poolID], Account{
 				ID: account.ID, OwnerID: poolID, Provider: provider, AccountID: providerAccountID,
-				Enabled: account.Enabled, CooldownTil: cooldown,
+				Enabled: account.Enabled, State: account.State, CooldownTil: cooldown,
 			})
 			total++
 		}
@@ -452,7 +498,11 @@ func subscriptionAccessTokenUsable(credentials auth.SubscriptionCredentials, now
 }
 
 func subscriptionCredentialAvailable(credentials auth.SubscriptionCredentials, now time.Time) bool {
-	return credentials.Enabled && (credentials.CooldownUntil == nil || !credentials.CooldownUntil.After(now))
+	var cooldownUntil time.Time
+	if credentials.CooldownUntil != nil {
+		cooldownUntil = *credentials.CooldownUntil
+	}
+	return credentials.Enabled && subscriptionAccountStateRoutable(credentials.State, cooldownUntil, now)
 }
 
 func applySubscriptionCredentials(account Account, credentials auth.SubscriptionCredentials) Account {
@@ -463,6 +513,7 @@ func applySubscriptionCredentials(account Account, credentials auth.Subscription
 		account.AccessTokenExpiresAt = *credentials.AccessTokenExpiresAt
 	}
 	account.CooldownTil = time.Time{}
+	account.State = credentials.State
 	return account
 }
 

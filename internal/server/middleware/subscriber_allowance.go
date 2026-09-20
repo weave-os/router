@@ -139,6 +139,7 @@ func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, bil
 
 	// Coverage is stamped only once the hold is confirmed: a refused request
 	// must not reach settlement as allowance-covered.
+	admission.Coverage.ProjectedUsdMicros = hold.UpperBoundUsdMicros
 	c.Request = c.Request.WithContext(entitlement.WithCoverage(ctx, admission.Coverage))
 
 	c.Next()

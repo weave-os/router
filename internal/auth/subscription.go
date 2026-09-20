@@ -16,6 +16,23 @@ const (
 	SubscriptionProviderCodex SubscriptionProvider = "codex"
 )
 
+// SubscriptionAccountState is the credential-free routing health of a linked account.
+type SubscriptionAccountState string
+
+const (
+	SubscriptionAccountStateActive            SubscriptionAccountState = "active"
+	SubscriptionAccountStateExhausted         SubscriptionAccountState = "exhausted"
+	SubscriptionAccountStateCooldown          SubscriptionAccountState = "cooldown"
+	SubscriptionAccountStateReconnectRequired SubscriptionAccountState = "reconnect_required"
+	SubscriptionAccountStateDisabled          SubscriptionAccountState = "disabled"
+	SubscriptionAccountStateUnknown           SubscriptionAccountState = "unknown"
+)
+
+// Routable reports whether an account may be attempted.
+func (s SubscriptionAccountState) Routable() bool {
+	return s == SubscriptionAccountStateActive || s == SubscriptionAccountStateUnknown
+}
+
 // SubscriptionOwner addresses the linked accounts one authenticated caller may
 // serve and manage. SubscriberID is the Router credential subject and survives
 // API-key rotation, so it is the runtime pool identity. APIKeyID is enrollment
@@ -96,6 +113,7 @@ type SubscriptionAccount struct {
 	ExternalAccountID      string
 	RefreshTokenCiphertext []byte
 	Enabled                bool
+	State                  SubscriptionAccountState
 	CooldownUntil          *time.Time
 	CreatedAt              time.Time
 }
@@ -119,6 +137,7 @@ type SubscriptionCredentialRecord struct {
 	TokenRefreshVersion    int64
 	TokenRefreshLeaseID    string
 	Enabled                bool
+	State                  SubscriptionAccountState
 	CooldownUntil          *time.Time
 }
 
@@ -132,6 +151,7 @@ type SubscriptionCredentials struct {
 	TokenRefreshVersion  int64
 	TokenRefreshLeaseID  string
 	Enabled              bool
+	State                SubscriptionAccountState
 	CooldownUntil        *time.Time
 }
 
@@ -342,6 +362,7 @@ func (s *Service) LoadSubscriptionCredentials(ctx context.Context, owner Subscri
 		TokenRefreshVersion: credentialRecord.TokenRefreshVersion,
 		TokenRefreshLeaseID: credentialRecord.TokenRefreshLeaseID,
 		Enabled:             credentialRecord.Enabled,
+		State:               credentialRecord.State,
 		CooldownUntil:       credentialRecord.CooldownUntil,
 	}
 	if len(credentialRecord.AccessTokenCiphertext) > 0 {
@@ -392,6 +413,19 @@ func (s *Service) UpdateSubscriptionAccountState(ctx context.Context, owner Subs
 	}
 	rowsErr := s.subscriptionAccounts.UpdateSubscriptionAccountState(ctx, accountID, owner, enabled, cooldownUntil)
 	return rowsErr
+}
+
+// UpdateSubscriptionAccountHealth records a routing health transition.
+func (s *Service) UpdateSubscriptionAccountHealth(ctx context.Context, owner SubscriptionOwner, accountID string, state SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) error {
+	if s.subscriptionAccounts == nil {
+		return errors.New("subscription accounts are not configured")
+	}
+	if repository, ok := s.subscriptionAccounts.(interface {
+		UpdateSubscriptionAccountHealth(context.Context, string, SubscriptionOwner, SubscriptionAccountState, bool, *time.Time) error
+	}); ok {
+		return repository.UpdateSubscriptionAccountHealth(ctx, accountID, owner, state, enabled, cooldownUntil)
+	}
+	return s.subscriptionAccounts.UpdateSubscriptionAccountState(ctx, accountID, owner, enabled, cooldownUntil)
 }
 
 // DeleteSubscriptionAccount removes an account only for the authenticated owner.

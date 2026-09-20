@@ -35,6 +35,9 @@ type Coverage struct {
 	SixHourPeriod         Period
 	BillingLimitUsdMicros int64
 	SixHourLimitUsdMicros int64
+	BillingUsedUsdMicros  int64
+	SixHourUsedUsdMicros  int64
+	ProjectedUsdMicros    int64
 }
 
 // Admission is the verdict plus the usage that produced it.
@@ -131,6 +134,8 @@ func (s *Service) Admit(ctx context.Context, subscriberID SubscriberID) (Admissi
 			SixHourPeriod:         sixHour,
 			BillingLimitUsdMicros: current.MonthlyAllowanceUsdMicros,
 			SixHourLimitUsdMicros: sixHourLimit,
+			BillingUsedUsdMicros:  usage.Billing.ConsumedUsdMicros(),
+			SixHourUsedUsdMicros:  usage.SixHour.ConsumedUsdMicros(),
 		},
 	}, nil
 }

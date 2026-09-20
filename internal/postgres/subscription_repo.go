@@ -67,7 +67,7 @@ func (r *subscriptionAccountRepo) UpsertSubscriptionAccount(ctx context.Context,
 		})
 		if err == nil {
 			return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID,
-				row.RefreshTokenCiphertext, row.Enabled, row.CooldownUntil, row.CreatedAt), nil
+				row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt), nil
 		}
 		if attempt == subscriberEnrollmentMaxAttempts-1 || !isSubscriberAccountConflict(err) {
 			return nil, err
@@ -137,6 +137,32 @@ func (r *subscriptionAccountRepo) UpdateSubscriptionAccountState(ctx context.Con
 	}
 	rows, err := sqlc.New(r.tx).UpdateModelRouterSubscriptionAccountState(ctx, sqlc.UpdateModelRouterSubscriptionAccountStateParams{
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, Enabled: enabled, CooldownUntil: cooldown,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return auth.ErrSubscriptionAccountNotFound
+	}
+	return nil
+}
+
+func (r *subscriptionAccountRepo) UpdateSubscriptionAccountHealth(ctx context.Context, accountID string, owner auth.SubscriptionOwner, state auth.SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) error {
+	accountUUID, err := uuid.Parse(accountID)
+	if err != nil {
+		return err
+	}
+	subscriberID, keyID, err := subscriptionOwnerPredicate(owner)
+	if err != nil {
+		return err
+	}
+	var cooldown pgtype.Timestamp
+	if cooldownUntil != nil {
+		cooldown = pgtype.Timestamp{Time: *cooldownUntil, Valid: true}
+	}
+	rows, err := sqlc.New(r.tx).UpdateModelRouterSubscriptionAccountHealth(ctx, sqlc.UpdateModelRouterSubscriptionAccountHealthParams{
+		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID,
+		HealthState: string(state), Enabled: enabled, CooldownUntil: cooldown,
 	})
 	if err != nil {
 		return err
@@ -284,6 +310,7 @@ func (r *subscriptionAccountRepo) GetSubscriptionCredentialRecord(ctx context.Co
 		TokenRefreshVersion:    row.TokenRefreshVersion,
 		TokenRefreshLeaseID:    leaseID,
 		Enabled:                row.Enabled,
+		State:                  auth.SubscriptionAccountState(row.HealthState),
 		CooldownUntil:          timestampPtr(row.CooldownUntil),
 	}, nil
 }
@@ -316,19 +343,20 @@ func (r *subscriptionAccountRepo) PersistSubscriptionTokens(ctx context.Context,
 }
 
 func toAuthSubscriptionAccount(row sqlc.RouterModelRouterSubscriptionAccount) *auth.SubscriptionAccount {
-	return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.RefreshTokenCiphertext, row.Enabled, row.CooldownUntil, row.CreatedAt)
+	return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
 }
 
 func toAuthSubscriptionAccountListRow(row sqlc.ListModelRouterSubscriptionAccountsRow) *auth.SubscriptionAccount {
-	return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.RefreshTokenCiphertext, row.Enabled, row.CooldownUntil, row.CreatedAt)
+	return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
 }
 
-func toAuthSubscriptionAccountFields(id uuid.UUID, subscriberID, apiKeyID pgtype.UUID, provider, externalAccountID string, refreshTokenCiphertext []byte, enabled bool, cooldownUntil, createdAt pgtype.Timestamp) *auth.SubscriptionAccount {
+func toAuthSubscriptionAccountFields(id uuid.UUID, subscriberID, apiKeyID pgtype.UUID, provider, externalAccountID string, refreshTokenCiphertext []byte, enabled bool, healthState string, cooldownUntil, createdAt pgtype.Timestamp) *auth.SubscriptionAccount {
 	return &auth.SubscriptionAccount{
 		ID: id.String(), SubscriberID: uuidString(subscriberID), EnrolledByAPIKeyID: uuidString(apiKeyID),
 		Provider:          auth.SubscriptionProvider(provider),
 		ExternalAccountID: externalAccountID, RefreshTokenCiphertext: refreshTokenCiphertext,
-		Enabled: enabled, CooldownUntil: timestampPtr(cooldownUntil), CreatedAt: timestampOrZero(createdAt),
+		Enabled: enabled, State: auth.SubscriptionAccountState(healthState),
+		CooldownUntil: timestampPtr(cooldownUntil), CreatedAt: timestampOrZero(createdAt),
 	}
 }
 

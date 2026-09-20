@@ -554,6 +554,7 @@ type RouterModelRouterSubscriptionAccount struct {
 	TokenRefreshLeaseID    pgtype.UUID
 	TokenRefreshVersion    int64
 	SubscriberID           pgtype.UUID
+	HealthState            string
 }
 
 // End-user identities seen on inbound requests, scoped to an installation. Replaces the per-user API key pattern.

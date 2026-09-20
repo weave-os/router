@@ -68,3 +68,18 @@ func (m *Manager) Remove(ownerID string, provider Provider, accountID string) bo
 func (m *Manager) Cooldown(ownerID string, provider Provider, accountID string, resetAt time.Time) bool {
 	return m.pool(ownerID, provider).Cooldown(accountID, resetAt)
 }
+
+// Exhaust marks one owner's account unavailable until its quota reset.
+func (m *Manager) Exhaust(ownerID string, provider Provider, accountID string, resetAt time.Time) bool {
+	return m.pool(ownerID, provider).Exhaust(accountID, resetAt)
+}
+
+// ReconnectRequired removes one owner's account from selection until reauthorized.
+func (m *Manager) ReconnectRequired(ownerID string, provider Provider, accountID string) bool {
+	return m.pool(ownerID, provider).ReconnectRequired(accountID)
+}
+
+// Activate makes one owner's account immediately available after a successful request.
+func (m *Manager) Activate(ownerID string, provider Provider, accountID string) bool {
+	return m.pool(ownerID, provider).Activate(accountID)
+}
