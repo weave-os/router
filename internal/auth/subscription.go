@@ -45,6 +45,23 @@ func (o SubscriptionOwner) PoolKey() string {
 	}
 }
 
+// LegacyPoolKey is the pool identity of the rows this owner reaches only
+// through its api key. It stays separate from PoolKey so a second key of one
+// subscriber never serves another key's unattributed accounts, whose
+// subscriber is by definition unknown.
+func (o SubscriptionOwner) LegacyPoolKey() string {
+	if o.APIKeyID == "" {
+		return ""
+	}
+	return "api_key:" + o.APIKeyID
+}
+
+// SyncKey identifies the full set of pools this owner reaches, for callers
+// caching a pool refresh.
+func (o SubscriptionOwner) SyncKey() string {
+	return o.PoolKey() + "|" + o.LegacyPoolKey()
+}
+
 // LogKey identifies the pool in logs without emitting the api key id: legacy
 // pools are distinguished by the account id logged alongside it.
 func (o SubscriptionOwner) LogKey() string {

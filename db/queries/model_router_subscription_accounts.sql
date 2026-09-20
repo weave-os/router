@@ -38,6 +38,17 @@ inserted AS (
   SELECT @subscriber_id::uuid, @api_key_id::uuid, @provider::varchar,
          @external_account_id::varchar, @refresh_token_ciphertext::bytea
   WHERE NOT EXISTS (SELECT 1 FROM owned)
+  ON CONFLICT (subscriber_id, provider, external_account_id) WHERE subscriber_id IS NOT NULL
+  DO UPDATE SET
+    refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
+    enabled = TRUE,
+    cooldown_until = NULL,
+    access_token_ciphertext = NULL,
+    access_token_expires_at = NULL,
+    token_refresh_lease_until = NULL,
+    token_refresh_lease_id = NULL,
+    token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
+    updated_at = CURRENT_TIMESTAMP
   RETURNING id, subscriber_id, api_key_id, provider, external_account_id,
             refresh_token_ciphertext, enabled, cooldown_until, created_at
 )

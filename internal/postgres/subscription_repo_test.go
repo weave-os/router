@@ -2,6 +2,7 @@ package postgres_test
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -220,6 +221,48 @@ func TestSubscriptionAccountReconnectAdoptsLegacyRow(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, accounts, 1)
 	assert.Equal(t, legacyID.String(), accounts[0].ID)
+}
+
+func TestSubscriptionAccountConcurrentFirstEnrollmentConverges(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+
+	// Two harness keys of one subscriber linking the same provider account at
+	// once: neither sees an existing row to lock, so both reach the insert.
+	owners := []auth.SubscriptionOwner{
+		{SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()},
+		{SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA2.String()},
+	}
+	start := make(chan struct{})
+	results := make(chan *auth.SubscriptionAccount, len(owners))
+	errs := make(chan error, len(owners))
+	var wait sync.WaitGroup
+	for _, owner := range owners {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			account, err := repo.UpsertSubscriptionAccount(context.Background(), auth.CreateSubscriptionAccountParams{
+				Owner: owner, Provider: auth.SubscriptionProviderClaude,
+				ExternalAccountID: "claude-concurrent", RefreshToken: []byte("ciphertext"),
+			})
+			results <- account
+			errs <- err
+		}()
+	}
+	close(start)
+	wait.Wait()
+
+	require.NoError(t, <-errs)
+	require.NoError(t, <-errs)
+	first, second := <-results, <-results
+	require.NotNil(t, first)
+	require.NotNil(t, second)
+	assert.Equal(t, first.ID, second.ID, "concurrent enrollment converges on one account")
+
+	accounts, err := repo.ListSubscriptionAccounts(context.Background(), owners[0])
+	require.NoError(t, err)
+	assert.Len(t, accounts, 1)
 }
 
 func TestSubscriptionRefreshLeaseSurvivesKeyRotation(t *testing.T) {

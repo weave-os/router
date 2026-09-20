@@ -120,7 +120,7 @@ func (r *Runtime) Lease(ctx context.Context, owner auth.SubscriptionOwner, provi
 	if err != nil || !present {
 		return Lease{}, present, err
 	}
-	account, release, err := r.manager.Lease(ctx, owner.PoolKey(), provider, sessionID, r.refresh(owner))
+	account, release, err := r.leaseFromPools(ctx, owner, provider, sessionID)
 	if err != nil {
 		return Lease{}, true, err
 	}
@@ -131,26 +131,63 @@ func (r *Runtime) Lease(ctx context.Context, owner auth.SubscriptionOwner, provi
 }
 
 func (r *Runtime) Cooldown(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string, resetAt time.Time) error {
-	if !r.manager.Cooldown(owner.PoolKey(), provider, accountID, resetAt) {
+	cooled := false
+	for _, poolID := range ownerPools(owner) {
+		cooled = r.manager.Cooldown(poolID, provider, accountID, resetAt) || cooled
+	}
+	if !cooled {
 		return ErrNoAvailableAccount
 	}
 	return r.store.UpdateSubscriptionAccountCooldown(ctx, owner, accountID, resetAt)
 }
 
 func (r *Runtime) Disable(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string) error {
-	if !r.manager.Disable(owner.PoolKey(), provider, accountID) {
+	disabled := false
+	for _, poolID := range ownerPools(owner) {
+		disabled = r.manager.Disable(poolID, provider, accountID) || disabled
+	}
+	if !disabled {
 		return ErrNoAvailableAccount
 	}
 	return r.store.UpdateSubscriptionAccountState(ctx, owner, accountID, false, nil)
 }
 
+// ownerPools lists the pools an owner serves, stable capacity first. A
+// subscriber with unmigrated rows has both; every other owner has one.
+func ownerPools(owner auth.SubscriptionOwner) []string {
+	pools := []string{owner.PoolKey()}
+	if legacy := owner.LegacyPoolKey(); legacy != "" && legacy != pools[0] {
+		pools = append(pools, legacy)
+	}
+	return pools
+}
+
+// leaseFromPools exhausts stable subscriber capacity before falling back to
+// the rows this key alone still owns.
+func (r *Runtime) leaseFromPools(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, sessionID string) (Account, func(), error) {
+	pools := ownerPools(owner)
+	for index, poolID := range pools {
+		account, release, err := r.manager.Lease(ctx, poolID, provider, sessionID, r.refresh(owner))
+		if errors.Is(err, ErrNoAvailableAccount) && index < len(pools)-1 {
+			continue
+		}
+		return account, release, err
+	}
+	return Account{}, nil, ErrNoAvailableAccount
+}
+
 func (r *Runtime) syncAccounts(ctx context.Context, owner auth.SubscriptionOwner, provider Provider) (bool, error) {
-	poolID := owner.PoolKey()
-	key := poolKey(poolID, provider)
+	pools := ownerPools(owner)
+	key := poolKey(owner.SyncKey(), provider)
 	r.mu.Lock()
 	if syncedAt := r.syncedAt[key]; !syncedAt.IsZero() && r.clock().Sub(syncedAt) < r.syncTTL {
 		r.mu.Unlock()
-		return r.providerAccountCount(poolID, provider) > 0, nil
+		for _, poolID := range pools {
+			if r.providerAccountCount(poolID, provider) > 0 {
+				return true, nil
+			}
+		}
+		return false, nil
 	}
 	if call, ok := r.syncing[key]; ok {
 		r.mu.Unlock()
@@ -166,10 +203,21 @@ func (r *Runtime) syncAccounts(ctx context.Context, owner auth.SubscriptionOwner
 	r.mu.Unlock()
 
 	accounts, err := r.store.ListSubscriptionAccounts(ctx, owner)
-	providerAccounts := make([]Account, 0, len(accounts))
+	pooled := make(map[string][]Account, len(pools))
+	total := 0
 	if err == nil {
+		for _, poolID := range pools {
+			pooled[poolID] = []Account{}
+		}
 		for _, account := range accounts {
 			if Provider(account.Provider) != provider {
+				continue
+			}
+			poolID := owner.PoolKey()
+			if account.SubscriberID == "" {
+				poolID = owner.LegacyPoolKey()
+			}
+			if _, ok := pooled[poolID]; !ok {
 				continue
 			}
 			providerAccountID := ""
@@ -180,19 +228,24 @@ func (r *Runtime) syncAccounts(ctx context.Context, owner auth.SubscriptionOwner
 			if account.CooldownUntil != nil {
 				cooldown = *account.CooldownUntil
 			}
-			providerAccounts = append(providerAccounts, Account{
+			pooled[poolID] = append(pooled[poolID], Account{
 				ID: account.ID, OwnerID: poolID, Provider: provider, AccountID: providerAccountID,
 				Enabled: account.Enabled, CooldownTil: cooldown,
 			})
+			total++
 		}
-		err = r.manager.Sync(poolID, provider, providerAccounts)
+		for _, poolID := range pools {
+			if err = r.manager.Sync(poolID, provider, pooled[poolID]); err != nil {
+				break
+			}
+		}
 	}
 
 	r.mu.Lock()
 	if err == nil {
 		r.syncedAt[key] = r.clock()
 	}
-	call.present, call.err = len(providerAccounts) > 0, err
+	call.present, call.err = total > 0, err
 	delete(r.syncing, key)
 	close(call.done)
 	r.mu.Unlock()
