@@ -30,6 +30,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/apm"
 	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/pgtls"
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/postgres"
@@ -88,6 +89,14 @@ func main() {
 	if err != nil {
 		logger.Error("Failed to parse postgres DSN", "err", err)
 		panic(err)
+	}
+	clientTLS, err := pgtls.Configure(cfg)
+	if err != nil {
+		logger.Error("Failed to configure postgres client TLS", "err", err)
+		panic(err)
+	}
+	if clientTLS {
+		logger.Info("Postgres connections authenticate with a client certificate")
 	}
 	dbTracer, err := postgres.NewPGXTracer(cfg.ConnConfig.Database)
 	if err != nil {

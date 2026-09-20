@@ -68,9 +68,9 @@ func ParseModelIDMap(raw string) (map[string]string, error) {
 // PostgresDSN returns DATABASE_URL when set, otherwise composes one from POSTGRES_* env vars.
 //
 // On Cloud Run with Cloud SQL, POSTGRES_CONNECTION_NAME routes through the Auth Proxy Unix
-// socket at /cloudsql/<connection-name>, which handles TLS+IAM upstream and bypasses
-// pg_hba.conf's client-cert requirement on the VPC-private-IP path. Self-hosters omit it
-// and fall through to TCP+sslmode for any managed Postgres without certs.
+// socket at /cloudsql/<connection-name>, which handles TLS+IAM upstream. Omitting it falls
+// through to TCP+sslmode; an instance that requires a trusted client certificate on that
+// path is served by the POSTGRES_CLIENT_CERT material in internal/pgtls.
 func PostgresDSN() string {
 	if v := os.Getenv("DATABASE_URL"); v != "" {
 		return v
