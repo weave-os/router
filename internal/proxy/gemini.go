@@ -475,7 +475,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 
 	if proxyErr == nil {
-		s.emitBilling(ctx, requestID, externalID, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
+		s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
 		if compRes.Summarized {
 			s.billCompactionSummary(ctx, requestID, externalID, compRes.SummaryUsage)
 		}

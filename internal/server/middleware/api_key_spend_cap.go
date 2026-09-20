@@ -31,6 +31,13 @@ func WithAPIKeySpendCap(svc *billing.Service) gin.HandlerFunc {
 			return
 		}
 
+		// A turn covered by an individual Max/Boost allowance debits 0, so it
+		// adds nothing to the key's paid spend and the cap does not bound it.
+		if subscriberAllowanceCovers(c) {
+			c.Next()
+			return
+		}
+
 		apiKey := APIKeyFrom(c)
 		if apiKey == nil || apiKey.ID == "" {
 			// Admin-cookie sessions and other non-keyed paths carry no api key.

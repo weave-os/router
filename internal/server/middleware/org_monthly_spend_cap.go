@@ -20,6 +20,13 @@ func WithOrgMonthlySpendCap(svc *billing.Service) gin.HandlerFunc {
 			return
 		}
 
+		// A turn covered by an individual Max/Boost allowance debits 0, so it
+		// adds nothing to the org's monthly spend and the cap does not bound it.
+		if subscriberAllowanceCovers(c) {
+			c.Next()
+			return
+		}
+
 		installation := InstallationFrom(c)
 		if installation == nil || installation.ExternalID == "" {
 			// Should never happen: WithAuth runs first and would have 401'd.

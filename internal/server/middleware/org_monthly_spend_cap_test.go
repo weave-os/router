@@ -162,3 +162,16 @@ func TestOrgMonthlySpendCap_OverridePassesThrough(t *testing.T) {
 	assert.True(t, reached, "billing-override orgs bypass the monthly cap")
 	assert.Equal(t, http.StatusOK, w.Code)
 }
+
+func TestOrgMonthlySpendCap_ExemptsSubscriberAllowanceCoveredRequest(t *testing.T) {
+	// A covered turn debits 0, so it never adds to the org's monthly spend and
+	// a reached cap must not 402 it.
+	repo := &stubBillingRepo{orgMonthSpent: 1_000_000, orgMonthLimit: capPtr(1_000_000)}
+	setInstall := func(c *gin.Context) {
+		withInstallation(c, "org_subscriber")
+		stashSubscriberCoverage(c)
+	}
+	w, reached, _ := runOrgMonthlyCapSub(t, "/v1/messages", setInstall, "", repo)
+	assert.True(t, reached, "an allowance-covered turn is not gated on the org monthly spend cap")
+	assert.Equal(t, http.StatusOK, w.Code)
+}

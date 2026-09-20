@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/server/middleware"
+	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -465,4 +466,27 @@ func TestWithBalanceCheck_NonSubscriptionStill402sBelowZero(t *testing.T) {
 	w, reached := runMiddlewareWith(t, repo, 0, "/v1/messages", setInstall, "")
 	assert.False(t, reached, "a non-subscription request below zero must still gate")
 	assert.Equal(t, http.StatusPaymentRequired, w.Code)
+}
+
+// stashSubscriberCoverage plants the Max/Boost coverage WithSubscriberAllowance
+// attaches upstream of the org billing gates.
+func stashSubscriberCoverage(c *gin.Context) {
+	coverage := entitlement.Coverage{
+		SubscriberID:       "11111111-1111-1111-1111-111111111111",
+		EntitlementVersion: 1,
+		Plan:               entitlement.PlanMax,
+	}
+	c.Request = c.Request.WithContext(entitlement.WithCoverage(c.Request.Context(), coverage))
+}
+
+func TestWithBalanceCheck_ExemptsSubscriberAllowanceCoveredRequest(t *testing.T) {
+	// A covered turn debits 0 on the org balance and settles against the
+	// subscriber's allowance, so a depleted org balance must not 402 it.
+	repo := &stubBillingRepo{balance: 0}
+	w, reached, _ := runMiddlewarePrep(t, repo, 0, "/v1/messages", func(c *gin.Context) {
+		withInstallation(c, "org_subscriber")
+		stashSubscriberCoverage(c)
+	})
+	assert.True(t, reached, "an allowance-covered turn is not gated on org prepaid credits")
+	assert.Equal(t, http.StatusOK, w.Code)
 }

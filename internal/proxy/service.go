@@ -4974,7 +4974,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// No-op when billing is unwired (selfhosted); only reached on a real
 	// upstream call since the cache-hit branch above already returned.
 	if proxyErr == nil && !agentShadowMode {
-		s.emitBilling(ctx, requestID, externalID, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
+		s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
 		if compRes.Summarized {
 			s.billCompactionSummary(ctx, requestID, externalID, compRes.SummaryUsage)
 		}
@@ -6075,7 +6075,7 @@ func (s *Service) fireTelemetry(p InsertTelemetryParams) {
 // (`_summary` request_id suffix). No-op when billing is unwired or
 // externalID is empty. Unknown summarizer model prices as zero rather than
 // skipping the ledger row, keeping the audit trail complete.
-func (s *Service) emitBilling(ctx context.Context, requestID, externalID string, decision router.Decision, actPricing catalog.Pricing, routeRes turnLoopResult, in, out, cacheCreation, cacheRead int) {
+func (s *Service) emitBilling(ctx context.Context, requestID, externalID, requestedModel string, decision router.Decision, actPricing catalog.Pricing, routeRes turnLoopResult, in, out, cacheCreation, cacheRead int) {
 	if s.billing == nil || externalID == "" {
 		return
 	}
@@ -6085,6 +6085,7 @@ func (s *Service) emitBilling(ctx context.Context, requestID, externalID string,
 		OrganizationID:     externalID,
 		RouterRequestID:    requestID,
 		Model:              decision.Model,
+		RequestedModel:     requestedModel,
 		Provider:           decision.Provider,
 		InputTokens:        in,
 		OutputTokens:       out,
@@ -7753,7 +7754,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead, extractor.OutputLimitReached())
 
 	if proxyErr == nil {
-		s.emitBilling(ctx, requestID, externalID, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
+		s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
 		if compResOAI.Summarized {
 			s.billCompactionSummary(ctx, requestID, externalID, compResOAI.SummaryUsage)
 		}

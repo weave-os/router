@@ -45,6 +45,14 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 			return
 		}
 
+		// A turn covered by an individual Max/Boost allowance debits 0 on the
+		// org balance, so gating it on prepaid credits would 402 usage the
+		// subscription already bought.
+		if subscriberAllowanceCovers(c) {
+			c.Next()
+			return
+		}
+
 		installation := InstallationFrom(c)
 		if installation == nil || installation.ExternalID == "" {
 			// Should never happen: WithAuth runs first and would have

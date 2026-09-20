@@ -109,6 +109,18 @@ func runAllowanceMiddleware(
 	allowances *stubAllowances,
 	apiKey *auth.APIKey,
 ) (*httptest.ResponseRecorder, bool, entitlement.Coverage) {
+	return runAllowanceMiddlewareWithAuth(t, entitlements, allowances, apiKey, "")
+}
+
+// runAllowanceMiddlewareWithAuth additionally sets an Authorization header, the
+// way a caller presenting its own Claude/Codex subscription credential would.
+func runAllowanceMiddlewareWithAuth(
+	t *testing.T,
+	entitlements *stubEntitlements,
+	allowances *stubAllowances,
+	apiKey *auth.APIKey,
+	authHeader string,
+) (*httptest.ResponseRecorder, bool, entitlement.Coverage) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	svc := entitlement.NewService(entitlements, allowances).WithClock(func() time.Time { return allowanceNow })
@@ -130,7 +142,11 @@ func runAllowanceMiddleware(
 	})
 
 	w := httptest.NewRecorder()
-	engine.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	if authHeader != "" {
+		req.Header.Set("Authorization", authHeader)
+	}
+	engine.ServeHTTP(w, req)
 	return w, reached, observed
 }
 
@@ -229,4 +245,19 @@ func TestWithSubscriberAllowance_503WhenAllowanceUnreadable(t *testing.T) {
 			assert.Equal(t, "billing_unavailable", body.Error)
 		})
 	}
+}
+
+func TestWithSubscriberAllowance_PassesThroughCoveringSubscription(t *testing.T) {
+	// The caller presents its own Claude subscription on /v1/messages: that turn
+	// serves on their plan at $0 and draws no included Router capacity, so a
+	// spent Max/Boost allowance must not 402 it, and it must carry no coverage
+	// (which would settle it against the allowance it never used).
+	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
+	allowances := &stubAllowances{billingConsumed: monthlyAllowance, sixHourConsumed: sixHourAllowance}
+	w, reached, coverage := runAllowanceMiddlewareWithAuth(
+		t, entitlements, allowances, subscriberAPIKey(), "Bearer sk-ant-oat-abc123")
+
+	assert.True(t, reached, "a turn served on the caller's own subscription is not bounded by the allowance")
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Empty(t, coverage.SubscriberID)
 }

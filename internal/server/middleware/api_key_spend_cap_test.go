@@ -151,3 +151,16 @@ func TestAPIKeySpendCap_CapReachedSubscriptionWithoutBypassServesSubscriptionOnl
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.True(t, subOnly, "the request must be flagged subscription-only")
 }
+
+func TestAPIKeySpendCap_ExemptsSubscriberAllowanceCoveredRequest(t *testing.T) {
+	// A covered turn debits 0, so it never adds to the key's paid spend and a
+	// reached cap must not 402 it.
+	repo := &stubBillingRepo{spendFound: true, capMicros: capPtr(1_000_000), spendMicros: 1_000_000}
+	setInstall := func(c *gin.Context) {
+		withInstallation(c, "org_subscriber")
+		stashSubscriberCoverage(c)
+	}
+	w, reached, _ := runSpendCapSub(t, "/v1/messages", "k7", setInstall, "", repo)
+	assert.True(t, reached, "an allowance-covered turn is not gated on the key's paid spend cap")
+	assert.Equal(t, http.StatusOK, w.Code)
+}

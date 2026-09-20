@@ -8,6 +8,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -161,4 +162,18 @@ func TestCheckUserMonthlySpendLimit_UnderLimitDoesNotFlagSubscriptionOnly(t *tes
 	outCtx, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
 	require.NoError(t, err)
 	assert.False(t, billing.SubscriptionOnlyFromContext(outCtx), "an under-cap turn must not be forced subscription-only")
+}
+
+func TestCheckUserMonthlySpendLimit_ExemptsSubscriberAllowanceCoveredTurn(t *testing.T) {
+	// A turn admitted against an individual Max/Boost allowance debits 0 and
+	// settles against that allowance, so it never adds to the engineer's paid
+	// spend and a reached cap must not 402 it.
+	s := &Service{billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
+	ctx := entitlement.WithCoverage(spendLimitCtx("u1", "org-1"), entitlement.Coverage{
+		SubscriberID:       "cs_max",
+		EntitlementVersion: 1,
+		Plan:               entitlement.PlanMax,
+	})
+	_, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
+	assert.NoError(t, err, "an allowance-covered turn is not gated on the engineer's paid spend limit")
 }

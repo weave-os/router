@@ -119,15 +119,35 @@ func TestDebitForInferenceDoesNotMeterTurnsThePlanDidNotPayFor(t *testing.T) {
 	}
 }
 
-func TestDebitForInferenceSurvivesSettlementFailure(t *testing.T) {
+func TestDebitForInferenceChargesTheOrgWhenSettlementFails(t *testing.T) {
 	buf := captureLogs(t)
 	repo := &fakeRepo{balanceRowExists: true, balanceMicros: 10_000_000}
 	settler := &fakeSettler{err: errors.New("allowance write failed")}
 	svc := billing.NewService(repo).WithSubscriberAllowance(settler)
 
-	_, err := svc.DebitForInference(coveredContext(), subscriberParams())
+	balance, err := svc.DebitForInference(coveredContext(), subscriberParams())
 	require.NoError(t, err, "the turn was already served; a metering failure must not surface as a billing error")
+	assert.Equal(t, int64(7_000_000), balance,
+		"a turn the allowance could not record is charged to the org rather than served free and unmetered")
+	require.Len(t, repo.ledgerCalls, 1)
+	assert.Equal(t, int64(-3_000_000), repo.ledgerCalls[0].DeltaUsdMicros)
 	assert.Contains(t, buf.String(), "level=ERROR")
+}
+
+func TestDebitForInferenceKeepsRequestedAndServedModelApart(t *testing.T) {
+	repo := &fakeRepo{balanceRowExists: true, balanceMicros: 10_000_000}
+	settler := &fakeSettler{}
+	svc := billing.NewService(repo).WithSubscriberAllowance(settler)
+	p := subscriberParams()
+	p.RequestedModel = "claude-opus-4-5"
+
+	_, err := svc.DebitForInference(coveredContext(), p)
+	require.NoError(t, err)
+
+	settlements := settler.recorded()
+	require.Len(t, settlements, 1)
+	assert.Equal(t, "claude-opus-4-5", settlements[0].RequestedModel, "failover must not rewrite what the client asked for")
+	assert.Equal(t, "claude-sonnet-4-5", settlements[0].ServedModel)
 }
 
 func TestDebitForInferenceGivesEachActionOfARequestItsOwnIdentity(t *testing.T) {

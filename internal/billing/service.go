@@ -237,6 +237,19 @@ type DebitInferenceParams struct {
 	// RouterUserID attributes the debit to the resolved engineer identity for
 	// monthly spend-limit tracking; empty leaves per-user spend untouched.
 	RouterUserID string
+	// RequestedModel is the model the client asked for, which routing or
+	// failover may not have served (Model). Empty falls back to Model, for
+	// callers that dispatch exactly the model they name.
+	RequestedModel string
+}
+
+// requestedModel reports the client-requested model, defaulting to the served
+// model for callers that dispatch exactly the model they were handed.
+func (p DebitInferenceParams) requestedModel() string {
+	if p.RequestedModel != "" {
+		return p.RequestedModel
+	}
+	return p.Model
 }
 
 // DebitForInference writes one ledger row at cost — no markup math here;
@@ -252,7 +265,9 @@ type DebitInferenceParams struct {
 // A turn admitted against an individual Max/Boost allowance also debits 0 and
 // meters the retail cost against that allowance instead — the subscription
 // already bought the capacity, so charging the org balance too would bill it
-// twice. An Enterprise turn carries no coverage and is unaffected.
+// twice. If that settlement fails the turn debits the org as an ordinary paid
+// turn, since exactly one of the two books must carry it. An Enterprise turn
+// carries no coverage and is unaffected.
 //
 // Returns the post-debit balance (0 on override, since balance doesn't
 // change).
@@ -272,8 +287,14 @@ func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams)
 		delta = 0
 		fee = -s.byokFeeMicros(notional)
 	case subscriberCovered:
-		// Paid for by the individual subscription's included allowance.
-		delta = 0
+		// Paid for by the individual subscription's included allowance — but
+		// only once the allowance actually holds the charge. Settling before
+		// the ledger write keeps the two books consistent: a turn the
+		// allowance could not record falls back to the organization debit
+		// rather than serving free and unmetered on both.
+		if s.meterSubscriberAllowance(ctx, p, coverage, notional) {
+			delta = 0
+		}
 	}
 	balanceAfter, err := s.repo.DebitInference(ctx, DebitParams{
 		OrganizationID:     p.OrganizationID,
@@ -291,39 +312,39 @@ func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams)
 		return balanceAfter, err
 	}
 	s.maybeSignalRecharge(ctx, p.OrganizationID, delta+fee, balanceAfter)
-	if subscriberCovered {
-		s.meterSubscriberAllowance(ctx, p, coverage, notional)
-	}
 	return balanceAfter, nil
 }
 
 // meterSubscriberAllowance books the turn against the allowance windows the
-// request was admitted under. A settlement failure is logged and dropped
-// rather than failing the served turn: the response has already gone out, and
-// the worst case is one unmetered turn against the next admission read.
-func (s *Service) meterSubscriberAllowance(ctx context.Context, p DebitInferenceParams, coverage entitlement.Coverage, retailMicros int64) {
+// request was admitted under and reports whether the allowance now holds the
+// charge. It returns false on failure so the caller debits the organization
+// instead: the response has already gone out, and a turn recorded on neither
+// book is unbilled usage that never draws the allowance down either.
+func (s *Service) meterSubscriberAllowance(ctx context.Context, p DebitInferenceParams, coverage entitlement.Coverage, retailMicros int64) bool {
 	actionID, ok := entitlement.NextActionID(ctx, p.RouterRequestID)
 	if !ok {
-		return
+		return false
 	}
 	err := s.allowances.Settle(ctx, entitlement.Settlement{
 		Coverage:        coverage,
 		ActionID:        actionID,
 		RouterRequestID: p.RouterRequestID,
 		APIKeyID:        p.APIKeyID,
-		RequestedModel:  p.Model,
+		RequestedModel:  p.requestedModel(),
 		ServedModel:     p.Model,
 		RetailUsdMicros: retailMicros,
 		CapacitySource:  entitlement.CapacitySourceIncludedRouter,
 	})
 	if err != nil {
-		observability.FromContext(ctx).Error("Subscriber allowance settlement failed; turn is unmetered",
+		observability.FromContext(ctx).Error("Subscriber allowance settlement failed; charging the organization instead",
 			"err", err,
 			"subscriber_id", string(coverage.SubscriberID),
 			"router_request_id", p.RouterRequestID,
 			"retail_usd_micros", retailMicros,
 		)
+		return false
 	}
+	return true
 }
 
 // maybeSignalRecharge fires once, on the debit that crosses the org's
