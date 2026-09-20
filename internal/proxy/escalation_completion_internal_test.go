@@ -149,8 +149,8 @@ func TestEscalationTurnsBypassPopulatedSemanticCache(t *testing.T) {
 			semanticCache := cache.New(cache.DefaultConfig())
 			embedding := []float32{1, 0}
 			const externalID = "escalation-cache-test"
-			semanticCache.Store(externalID, tc.format, embedding, 1, cache.CachedResponse{StatusCode: http.StatusOK, Body: []byte(`{"cached":true}`)}, "", 0)
-			_, hit := semanticCache.Lookup(externalID, tc.format, embedding, []int{1}, "", 0)
+			semanticCache.Store(externalID, tc.format, cache.Provenance{}, embedding, 1, cache.CachedResponse{StatusCode: http.StatusOK, Body: []byte(`{"cached":true}`)}, "", 0)
+			_, hit := semanticCache.Lookup(externalID, tc.format, cache.Provenance{}, embedding, []int{1}, "", 0)
 			require.True(t, hit)
 			classifier := &authoritativeTestRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMMEmbedding), Embedding: embedding, ClusterIDs: []int{1}}}}
 			svc := NewService(nil, nil, nil, false, semanticCache, newStubPinStore(), false, providers.ProviderAnthropic, "claude-opus-4-8", nil).WithEscalation(store, &escalationTestObserver{}).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: classifier, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1}})
