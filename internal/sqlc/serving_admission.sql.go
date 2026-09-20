@@ -12,6 +12,37 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const getActiveServingSubscriberPlan = `-- name: GetActiveServingSubscriberPlan :one
+SELECT version, plan
+FROM router.subscriber_entitlements
+WHERE subscriber_id = $1::uuid
+  AND status = 'active'
+  AND billing_period_start <= clock_timestamp()
+  AND clock_timestamp() < billing_period_end
+FOR SHARE
+`
+
+type GetActiveServingSubscriberPlanRow struct {
+	Version int64
+	Plan    string
+}
+
+// Active individual plans override installation assignments before serving selection.
+//
+//	SELECT version, plan
+//	FROM router.subscriber_entitlements
+//	WHERE subscriber_id = $1::uuid
+//	  AND status = 'active'
+//	  AND billing_period_start <= clock_timestamp()
+//	  AND clock_timestamp() < billing_period_end
+//	FOR SHARE
+func (q *Queries) GetActiveServingSubscriberPlan(ctx context.Context, subscriberID uuid.UUID) (GetActiveServingSubscriberPlanRow, error) {
+	row := q.db.QueryRow(ctx, getActiveServingSubscriberPlan, subscriberID)
+	var i GetActiveServingSubscriberPlanRow
+	err := row.Scan(&i.Version, &i.Plan)
+	return i, err
+}
+
 const getServingAdmissionClock = `-- name: GetServingAdmissionClock :one
 SELECT clock_timestamp()::timestamptz AS admitted_at
 `

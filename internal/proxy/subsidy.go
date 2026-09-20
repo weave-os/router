@@ -219,6 +219,9 @@ func (s *Service) withUsageObserver(ctx context.Context, headers http.Header, ro
 // for the covering subscription. An unobserved credential is treated as active
 // so its first eligible turn can establish real usage headroom.
 func (s *Service) withSubscriptionStatePreferences(ctx context.Context, headers http.Header, routePaths ...string) context.Context {
+	if planOwnedServingRequest(ctx) {
+		return ctx
+	}
 	activeModels := installationSubscriptionPreferredModelsWhenActiveFromContext(ctx)
 	inactiveModels := installationSubscriptionPreferredModelsWhenInactiveFromContext(ctx)
 	if s.usageObserver == nil || (len(activeModels) == 0 && len(inactiveModels) == 0) {

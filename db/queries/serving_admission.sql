@@ -25,6 +25,16 @@ SELECT profile_key, assignment_generation
 FROM router.installation_profile_assignments
 WHERE installation_id = @installation_id::uuid;
 
+-- name: GetActiveServingSubscriberPlan :one
+-- Active individual plans override installation assignments before serving selection.
+SELECT version, plan
+FROM router.subscriber_entitlements
+WHERE subscriber_id = @subscriber_id::uuid
+  AND status = 'active'
+  AND billing_period_start <= clock_timestamp()
+  AND clock_timestamp() < billing_period_end
+FOR SHARE;
+
 -- Serialize concurrent first admissions as well as existing bindings. Hash collisions only over-serialize.
 -- name: GetServingConversationLock :exec
 SELECT pg_advisory_xact_lock(hashtextextended(@admission_lock_key::text, 0));

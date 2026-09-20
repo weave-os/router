@@ -345,7 +345,7 @@ func (s *Service) loadForceModelSessionPin(
 	ctx context.Context,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 ) (sessionpin.Pin, bool, bool) {
-	if s.pinStore == nil {
+	if s.pinStore == nil || planOwnedServingRequest(ctx) {
 		return sessionpin.Pin{}, false, false
 	}
 	pin, found, err := s.pinStore.Get(ctx, sessionKey, forceModelSessionRole)
@@ -476,6 +476,9 @@ func (s *Service) applyForceModelHeader(
 	installationID uuid.UUID,
 	forceModelSessionKey [sessionpin.SessionKeyLen]byte,
 ) (context.Context, string, error) {
+	if planOwnedServingRequest(ctx) {
+		return ctx, "", nil
+	}
 	raw := strings.TrimSpace(r.Header.Get(ForceModelHeader))
 	if raw == "" {
 		return ctx, "", nil
@@ -570,6 +573,13 @@ func (s *Service) applyForceModelCommand(
 	// StripRoutingMarkerFromMessages strips it from later inbound requests;
 	// otherwise it'd persist in history and leak router internals upstream.
 	var msg string
+	if planOwnedServingRequest(ctx) && !cmd.Clear {
+		msg = "✦ **Weave Router** → this subscription uses automatic model selection\n\n"
+		if env.SourceFormat() == translate.FormatOpenAI {
+			msg = "Weave Router: this subscription uses automatic model selection."
+		}
+		return "", msg, nil
+	}
 	if cmd.Clear {
 		if err := s.clearLegacyForceModelPins(ctx, installationID, threadSessionKey); err != nil {
 			log.Error("/unforce-model: legacy pin cleanup failed", "err", err)

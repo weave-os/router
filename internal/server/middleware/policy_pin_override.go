@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 
 	"github.com/gin-gonic/gin"
@@ -22,6 +23,10 @@ const PolicyPinOverrideHeader = "x-weave-policy-pin"
 // router can select (or refuse) the pinned artifact and roster.
 func WithPolicyPinOverride() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if identity, managed := requestcontext.ServingIdentityFromContext(c.Request.Context()); managed && identity.Plan != "" {
+			c.Next()
+			return
+		}
 		raw := c.GetHeader(PolicyPinOverrideHeader)
 		if raw == "" {
 			c.Next()

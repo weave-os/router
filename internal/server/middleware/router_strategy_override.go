@@ -1,11 +1,13 @@
 package middleware
 
 import (
+	"net/http"
 	"strings"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/gin-gonic/gin"
 )
@@ -60,7 +62,18 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 		}
 
 		strategy := router.Strategy(strings.ToLower(strings.TrimSpace(string(installation.RoutingStrategy))))
-		_, managedServing := requestcontext.ServingIdentityFromContext(c.Request.Context())
+		identity, managedServing := requestcontext.ServingIdentityFromContext(c.Request.Context())
+		if managedServing && identity.Plan != "" {
+			profile, ok := entitlement.ServingProfileFor(entitlement.Plan(identity.Plan))
+			if !ok || !selectable(profile.Strategy) {
+				observability.FromGin(c).Error("Plan-owned routing profile strategy is unavailable", "plan", identity.Plan)
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "plan_routing_unavailable"})
+				return
+			}
+			c.Request = c.Request.WithContext(router.WithStrategy(c.Request.Context(), profile.Strategy))
+			c.Next()
+			return
+		}
 		if managedServing && strategy == router.StrategyHMMBeta {
 			strategy = defaultStrategy
 		}

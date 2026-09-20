@@ -26,7 +26,8 @@ func WithServingAssertion(ctx context.Context, assertion ServingAssertion) conte
 	identity := requestcontext.ServingIdentity{
 		Target: string(admission.Target), ActivationID: admission.ActivationID,
 		ReleaseID: admission.Selection.Release.SHA256, BindingID: admission.Selection.Binding.SHA256,
-		ProfileKey: admission.ProfileKey, BindingGeneration: admission.BindingGeneration,
+		ProfileKey: admission.ProfileKey, ProfileName: admission.ProfileName, Plan: string(admission.Plan), EntitlementVersion: admission.EntitlementVersion,
+		BindingGeneration:  admission.BindingGeneration,
 		StateNamespace:     Digest(namespace),
 		CredentialIdentity: assertion.Scope.CredentialIdentity,
 	}

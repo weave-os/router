@@ -15,21 +15,23 @@ import (
 )
 
 func TestServingSpanAttributesAreIndependentOfRoutingDecision(t *testing.T) {
-	ctx := requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{Target: string(policyregistry.TargetStable), ReleaseID: "release", BindingID: "binding", ActivationID: "activation", ProfileKey: "profile", ProfileRevision: "version", BindingGeneration: 3})
-	attributes := otel.NewAttrBuilder(7)
+	ctx := requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{Target: string(policyregistry.TargetStable), ReleaseID: "release", BindingID: "binding", ActivationID: "activation", ProfileKey: "profile", ProfileName: "boost-default", ProfileRevision: "version", Plan: "boost", EntitlementVersion: 9, BindingGeneration: 3})
+	attributes := otel.NewAttrBuilder(10)
 	applyServingSpanAttrs(ctx, attributes)
 	attributeValues := make(map[string]string)
-	var generation int64
+	integerValues := make(map[string]int64)
 	for _, attribute := range attributes.Build() {
 		attributeValues[attribute.Key] = attribute.Value.GetStringValue()
-		if attribute.Key == "serving.binding_generation" {
-			generation = attribute.Value.GetIntValue()
-		}
+		integerValues[attribute.Key] = attribute.Value.GetIntValue()
 	}
 	require.Equal(t, "release", attributeValues["serving.release_id"])
 	require.Equal(t, "activation", attributeValues["serving.activation_id"])
 	require.Equal(t, "profile", attributeValues["serving.profile_key"])
-	require.Equal(t, int64(3), generation)
+	require.Equal(t, "boost-default", attributeValues["serving.profile_name"])
+	require.Equal(t, "version", attributeValues["serving.profile_revision"])
+	require.Equal(t, "boost", attributeValues["routing.plan"])
+	require.Equal(t, int64(9), integerValues["routing.entitlement_version"])
+	require.Equal(t, int64(3), integerValues["serving.binding_generation"])
 	legacy := otel.NewAttrBuilder(0)
 	applyServingSpanAttrs(context.Background(), legacy)
 	require.Empty(t, legacy.Build())

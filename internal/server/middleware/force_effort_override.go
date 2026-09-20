@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +17,10 @@ const ForceEffortOverrideHeader = "x-weave-effort"
 // level on the request context. Invalid values abort with 400.
 func WithForceEffortOverride() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if identity, managed := requestcontext.ServingIdentityFromContext(c.Request.Context()); managed && identity.Plan != "" {
+			c.Next()
+			return
+		}
 		raw := strings.TrimSpace(c.GetHeader(ForceEffortOverrideHeader))
 		if raw == "" {
 			c.Next()

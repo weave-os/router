@@ -21,7 +21,10 @@ func applyServingSpanAttrs(ctx context.Context, attributes *otel.AttrBuilder) {
 		String("serving.release_id", identity.ReleaseID).
 		String("serving.binding_id", identity.BindingID).
 		String("serving.profile_key", identity.ProfileKey).
+		String("serving.profile_name", identity.ProfileName).
 		String("serving.profile_revision", identity.ProfileRevision).
+		String("routing.plan", identity.Plan).
+		Int64("routing.entitlement_version", identity.EntitlementVersion).
 		Int64("serving.binding_generation", identity.BindingGeneration)
 }
 

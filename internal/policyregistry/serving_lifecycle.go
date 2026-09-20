@@ -6,6 +6,8 @@ import (
 	"maps"
 	"time"
 
+	"weave-os/router/internal/subscriptions/entitlement"
+
 	"github.com/google/uuid"
 )
 
@@ -206,6 +208,9 @@ type SessionReleaseBinding struct {
 	ActivationID         string           `json:"activation_id"`
 	Selection            ServingSelection `json:"selection"`
 	ProfileKey           string           `json:"profile_key,omitempty"`
+	ProfileName          string           `json:"profile_name,omitempty"`
+	Plan                 entitlement.Plan `json:"plan,omitempty"`
+	EntitlementVersion   int64            `json:"entitlement_version,omitempty"`
 	EnrollmentGeneration int64            `json:"enrollment_generation"`
 	AssignmentGeneration int64            `json:"assignment_generation"`
 	BindingGeneration    int64            `json:"binding_generation"`
@@ -217,6 +222,9 @@ type SessionReleaseBinding struct {
 type AdmissionProjection struct {
 	Target               ServingTarget
 	ProfileKey           string
+	ProfileName          string
+	Plan                 entitlement.Plan
+	EntitlementVersion   int64
 	EnrollmentGeneration int64
 	AssignmentGeneration int64
 }
@@ -233,6 +241,18 @@ func SelectSessionRelease(previous *SessionReleaseBinding, projection AdmissionP
 	if projection.ProfileKey != "" {
 		if err := validateProfileKey(projection.ProfileKey); err != nil {
 			return SessionReleaseBinding{}, err
+		}
+	}
+	if (projection.Plan == "") != (projection.EntitlementVersion == 0) {
+		return SessionReleaseBinding{}, errors.New("plan and entitlement version must be projected together")
+	}
+	if projection.Plan == "" && projection.ProfileName != "" {
+		return SessionReleaseBinding{}, errors.New("profile name requires a subscriber plan")
+	}
+	if projection.Plan != "" {
+		profile, ok := entitlement.ServingProfileFor(projection.Plan)
+		if !ok || projection.EntitlementVersion <= 0 || projection.ProfileKey != profile.Key || projection.ProfileName != profile.Name {
+			return SessionReleaseBinding{}, errors.New("subscriber plan profile projection is invalid")
 		}
 	}
 	current := snapshot.State.Activations[snapshot.State.CurrentActivationID]
@@ -259,7 +279,7 @@ func SelectSessionRelease(previous *SessionReleaseBinding, projection AdmissionP
 			if !sameSelection(selected, previous.Selection) {
 				return SessionReleaseBinding{}, errors.New("persisted session selection differs from its activation")
 			}
-			eligible := previous.ProfileKey == projection.ProfileKey && previous.EnrollmentGeneration == projection.EnrollmentGeneration && previous.AssignmentGeneration == projection.AssignmentGeneration && now.Before(previous.LastAdmittedAt.Add(ServingIdleLifetime)) && activation.WithdrawnAt == nil && (activation.SupersededAt == nil || now.Before(activation.SupersededAt.Add(ServingRetirementLifetime)))
+			eligible := previous.ProfileKey == projection.ProfileKey && previous.ProfileName == projection.ProfileName && previous.Plan == projection.Plan && previous.EntitlementVersion == projection.EntitlementVersion && previous.EnrollmentGeneration == projection.EnrollmentGeneration && previous.AssignmentGeneration == projection.AssignmentGeneration && now.Before(previous.LastAdmittedAt.Add(ServingIdleLifetime)) && activation.WithdrawnAt == nil && (activation.SupersededAt == nil || now.Before(activation.SupersededAt.Add(ServingRetirementLifetime)))
 			if eligible {
 				retained := *previous
 				retained.LastAdmittedAt = now
@@ -271,7 +291,7 @@ func SelectSessionRelease(previous *SessionReleaseBinding, projection AdmissionP
 	if err != nil {
 		return SessionReleaseBinding{}, err
 	}
-	return SessionReleaseBinding{Target: projection.Target, ActivationID: current.ID, Selection: selection, ProfileKey: projection.ProfileKey, EnrollmentGeneration: projection.EnrollmentGeneration, AssignmentGeneration: projection.AssignmentGeneration, BindingGeneration: generation, CreatedAt: createdAt, LastAdmittedAt: now}, nil
+	return SessionReleaseBinding{Target: projection.Target, ActivationID: current.ID, Selection: selection, ProfileKey: projection.ProfileKey, ProfileName: projection.ProfileName, Plan: projection.Plan, EntitlementVersion: projection.EntitlementVersion, EnrollmentGeneration: projection.EnrollmentGeneration, AssignmentGeneration: projection.AssignmentGeneration, BindingGeneration: generation, CreatedAt: createdAt, LastAdmittedAt: now}, nil
 }
 
 func selectionForActivation(activation Activation, profileKey string, sets map[string]SelectionSet, root string, target ServingTarget) (ServingSelection, error) {

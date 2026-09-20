@@ -17,6 +17,7 @@ import (
 
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/subscriptions/entitlement"
 )
 
 const profileKeyOne = "10000000-0000-4000-8000-000000000001"
@@ -201,6 +202,38 @@ func TestProfileAssignmentsDoNotFallBackAndGenerationChangesRebind(t *testing.T)
 	initial.ActivationID = uuid.NewString()
 	_, err = policyregistry.SelectSessionRelease(&initial, projection, first, sets, testRegistryRoot, servingEpoch.Add(time.Minute))
 	require.ErrorContains(t, err, "unknown activation")
+}
+
+func TestSubscriberPlanProfileMustMatchServerOwnedMapping(t *testing.T) {
+	profile, ok := entitlement.ServingProfileFor(entitlement.PlanMax)
+	require.True(t, ok)
+	set := fixtureSet("one")
+	profileRef := namespaceRef(policyregistry.ServingProfiles, "max-profile")
+	set.Profiles[profile.Key] = policyregistry.ServingSelection{Release: namespaceRef(policyregistry.ServingReleases, "max"), Binding: namespaceRef(policyregistry.ServingBindings, "max"), Profile: &profileRef}
+	snapshot, _ := activateFixture(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	sets := map[string]policyregistry.SelectionSet{servingRef(t, policyregistry.ServingSelectionSets, set).SHA256: set}
+	projection := policyregistry.AdmissionProjection{
+		Target:               policyregistry.TargetStable,
+		ProfileKey:           profile.Key,
+		ProfileName:          profile.Name,
+		Plan:                 entitlement.PlanMax,
+		EntitlementVersion:   3,
+		AssignmentGeneration: 3,
+	}
+
+	admitted, err := policyregistry.SelectSessionRelease(nil, projection, snapshot, sets, testRegistryRoot, servingEpoch)
+	require.NoError(t, err)
+	assert.Equal(t, profile.Name, admitted.ProfileName)
+	assert.Equal(t, entitlement.PlanMax, admitted.Plan)
+	assert.Equal(t, int64(3), admitted.EntitlementVersion)
+
+	projection.ProfileName = "customer-profile"
+	_, err = policyregistry.SelectSessionRelease(nil, projection, snapshot, sets, testRegistryRoot, servingEpoch)
+	require.ErrorContains(t, err, "subscriber plan profile projection is invalid")
+	projection.ProfileName = profile.Name
+	projection.ProfileKey = profileKeyOne
+	_, err = policyregistry.SelectSessionRelease(nil, projection, snapshot, sets, testRegistryRoot, servingEpoch)
+	require.ErrorContains(t, err, "subscriber plan profile projection is invalid")
 }
 
 type servingMemoryStore struct {

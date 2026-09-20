@@ -14,7 +14,10 @@ type ServingIdentity struct {
 	ReleaseID          string `json:"release_id"`
 	BindingID          string `json:"binding_id"`
 	ProfileKey         string `json:"profile_key,omitempty"`
+	ProfileName        string `json:"profile_name,omitempty"`
 	ProfileRevision    string `json:"profile_revision,omitempty"`
+	Plan               string `json:"plan,omitempty"`
+	EntitlementVersion int64  `json:"entitlement_version,omitempty"`
 	BindingGeneration  int64  `json:"binding_generation"`
 	StateNamespace     string `json:"-"`
 	CredentialIdentity string `json:"-"`

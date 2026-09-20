@@ -897,6 +897,9 @@ func installationSubscriptionPreferredModelsWhenInactiveFromContext(ctx context.
 }
 
 func subscriptionStatePreferredModelsFromContext(ctx context.Context) []string {
+	if planOwnedServingRequest(ctx) {
+		return nil
+	}
 	v := ctx.Value(SubscriptionStatePreferredModelsContextKey{})
 	if v == nil {
 		return nil
@@ -909,6 +912,9 @@ func subscriptionStatePreferredModelsFromContext(ctx context.Context) []string {
 // set: the installation policy allowlist further narrowed by a request-level
 // AllowedModelsHeader subset when one is present. Nil = no policy.
 func allowedModelsForRequest(ctx context.Context) map[string]struct{} {
+	if planOwnedServingRequest(ctx) {
+		return nil
+	}
 	policy := installationAllowedModelSet(ctx)
 	subset := requestAllowedModelSet(ctx)
 	if subset == nil {
@@ -930,6 +936,9 @@ func allowedModelsForRequest(ctx context.Context) map[string]struct{} {
 // model allowlist as a set. Subscription state is a soft preference and cannot
 // remove providers or models from this set.
 func installationAllowedModelSet(ctx context.Context) map[string]struct{} {
+	if planOwnedServingRequest(ctx) {
+		return nil
+	}
 	base := installationAllowedModelsFromContext(ctx)
 	if len(base) == 0 {
 		return nil
@@ -989,6 +998,9 @@ func hideTerminalSurfacesForRequest(ctx context.Context) bool {
 // wins; otherwise the authed installation's persisted preference applies;
 // otherwise nil leaves the scorer on its tuned bundle defaults.
 func routingKnobsForRequest(ctx context.Context) *router.Overrides {
+	if planOwnedServingRequest(ctx) {
+		return nil
+	}
 	if k := router.RoutingKnobsFromContext(ctx); k != nil {
 		return k
 	}
@@ -1043,7 +1055,10 @@ func (s *Service) excludedModelsFor(ctx context.Context, allowed map[string]stru
 	if s.excludedModelsOverride != nil {
 		return mergeExcludedModels(s.excludedModelsOverride, ineligible)
 	}
-	excluded := installationExcludedModelsFromContext(ctx)
+	var excluded []string
+	if !planOwnedServingRequest(ctx) {
+		excluded = installationExcludedModelsFromContext(ctx)
+	}
 	out := make(map[string]struct{}, len(excluded)+len(ineligible))
 	for _, m := range excluded {
 		out[m] = struct{}{}
@@ -1077,6 +1092,9 @@ func (s *Service) productIneligibleModels(ctx context.Context) map[string]struct
 }
 
 func installationExcludedProvidersFromContext(ctx context.Context) []string {
+	if planOwnedServingRequest(ctx) {
+		return nil
+	}
 	v := ctx.Value(InstallationExcludedProvidersContextKey{})
 	if v == nil {
 		return nil
@@ -1169,6 +1187,9 @@ func installationPreferredModelsFromContext(ctx context.Context) []string {
 // installationFastModeModelsFromContext returns the per-installation fast-mode
 // opt-in list stashed on ctx by the auth middleware, or nil when none is present.
 func installationFastModeModelsFromContext(ctx context.Context) []string {
+	if planOwnedServingRequest(ctx) {
+		return nil
+	}
 	v := ctx.Value(InstallationFastModeModelsContextKey{})
 	if v == nil {
 		return nil
@@ -1179,6 +1200,9 @@ func installationFastModeModelsFromContext(ctx context.Context) []string {
 
 // preferredModelsForRequest returns the installation's ordinary soft ranking.
 func (s *Service) preferredModelsForRequest(ctx context.Context) []string {
+	if planOwnedServingRequest(ctx) {
+		return nil
+	}
 	return installationPreferredModelsFromContext(ctx)
 }
 
@@ -1187,9 +1211,17 @@ func (s *Service) preferredModelsForRequest(ctx context.Context) []string {
 // with the resolved user's own selection — see mergeClusterOverrides for the
 // composition rule. Only consumed by the HMM sidecar router.
 func clusterArmOverridesForRequest(ctx context.Context) map[string][]string {
+	if planOwnedServingRequest(ctx) {
+		return nil
+	}
 	v := ctx.Value(ClusterModelListsContextKey{})
 	keyScoped, _ := v.(map[string][]string)
 	return mergeClusterOverrides(keyScoped, auth.UserClusterModelListsFrom(ctx))
+}
+
+func planOwnedServingRequest(ctx context.Context) bool {
+	identity, managed := requestcontext.ServingIdentityFromContext(ctx)
+	return managed && identity.Plan != ""
 }
 
 // contextWindowOutputReserve is the minimum tokens reserved for the model's

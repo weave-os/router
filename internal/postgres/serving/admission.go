@@ -19,6 +19,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/sqlc"
+	"weave-os/router/internal/subscriptions/entitlement"
 )
 
 // ServingAdmissionRepo serializes identity and session selection on the router primary.
@@ -90,13 +91,34 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 		if r.environment == policyregistry.EnvironmentStaging {
 			projection.Target = policyregistry.TargetStaging
 		}
-		assignment, err := queries.GetServingProfileAssignment(ctx, installationUUID)
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return err
+		var planProjected bool
+		if subject != nil {
+			projected, err := queries.GetActiveServingSubscriberPlan(ctx, uuid.MustParse(subject.ID))
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			if err == nil {
+				planProjection, err := subscriberPlanProjection(projected.Plan, projected.Version)
+				if err != nil {
+					return err
+				}
+				projection.ProfileKey = planProjection.ProfileKey
+				projection.ProfileName = planProjection.ProfileName
+				projection.Plan = planProjection.Plan
+				projection.EntitlementVersion = planProjection.EntitlementVersion
+				projection.AssignmentGeneration = planProjection.AssignmentGeneration
+				planProjected = true
+			}
 		}
-		if err == nil {
-			projection.ProfileKey = uuidString(assignment.ProfileKey)
-			projection.AssignmentGeneration = assignment.AssignmentGeneration
+		if !planProjected {
+			assignment, err := queries.GetServingProfileAssignment(ctx, installationUUID)
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			if err == nil {
+				projection.ProfileKey = uuidString(assignment.ProfileKey)
+				projection.AssignmentGeneration = assignment.AssignmentGeneration
+			}
 		}
 		digest, persistent := policyregistry.ServingConversationDigest(identity, clientSessionID)
 		scope = policyregistry.AdmissionScope{InstallationID: installationID, CredentialIdentity: identity, ConversationDigest: digest, Persistent: persistent}
@@ -185,3 +207,18 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 }
 
 var _ policyregistry.ServingAdmissionStore = (*ServingAdmissionRepo)(nil)
+
+func subscriberPlanProjection(planValue string, version int64) (policyregistry.AdmissionProjection, error) {
+	plan := entitlement.Plan(planValue)
+	profile, ok := entitlement.ServingProfileFor(plan)
+	if !ok || version <= 0 {
+		return policyregistry.AdmissionProjection{}, errors.New("active subscriber plan has no valid server-owned serving profile")
+	}
+	return policyregistry.AdmissionProjection{
+		ProfileKey:           profile.Key,
+		ProfileName:          profile.Name,
+		Plan:                 plan,
+		EntitlementVersion:   version,
+		AssignmentGeneration: version,
+	}, nil
+}
