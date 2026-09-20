@@ -967,6 +967,23 @@ type RouterSubscriberCreditLedger struct {
 	RouterModel           *string
 	Memo                  *string
 	CreatedAt             pgtype.Timestamptz
+	AuthorizationActionID *string
+	ActionID              *string
+	CapacitySource        *string
+}
+
+type RouterSubscriberCreditReservation struct {
+	ActionID          string
+	SubscriberID      uuid.UUID
+	RouterRequestID   string
+	APIKeyID          *string
+	RequestedModel    string
+	ReservedUsdMicros int64
+	SettledUsdMicros  int64
+	State             string
+	CapacitySource    string
+	CreatedAt         pgtype.Timestamptz
+	UpdatedAt         pgtype.Timestamptz
 }
 
 type RouterSubscriberEntitlement struct {

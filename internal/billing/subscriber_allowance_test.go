@@ -120,18 +120,15 @@ func TestDebitForInferenceDoesNotMeterTurnsThePlanDidNotPayFor(t *testing.T) {
 	}
 }
 
-func TestDebitForInferenceChargesTheOrgWhenSettlementFails(t *testing.T) {
+func TestDebitForInferenceDoesNotChargeOrgWhenSettlementFails(t *testing.T) {
 	buf := captureLogs(t)
 	repo := &fakeRepo{balanceRowExists: true, balanceMicros: 10_000_000}
 	settler := &fakeSettler{err: errors.New("allowance write failed")}
 	svc := billing.NewService(repo).WithSubscriberAllowance(settler)
 
-	balance, err := svc.DebitForInference(coveredContext(), subscriberParams())
-	require.NoError(t, err, "the turn was already served; a metering failure must not surface as a billing error")
-	assert.Equal(t, int64(7_000_000), balance,
-		"a turn the allowance could not record is charged to the org rather than served free and unmetered")
-	require.Len(t, repo.ledgerCalls, 1)
-	assert.Equal(t, int64(-3_000_000), repo.ledgerCalls[0].DeltaUsdMicros)
+	_, err := svc.DebitForInference(coveredContext(), subscriberParams())
+	require.Error(t, err)
+	assert.Empty(t, repo.ledgerCalls, "subscriber settlement failures must never fall through to organization funds")
 	assert.Contains(t, buf.String(), "level=ERROR")
 }
 
@@ -141,10 +138,9 @@ func TestDebitForInferenceLeavesTheOrgAloneWhenTheHoldStands(t *testing.T) {
 	svc := billing.NewService(repo).WithSubscriberAllowance(settler)
 
 	_, err := svc.DebitForInference(coveredContext(), subscriberParams())
-	require.NoError(t, err)
-	require.Len(t, repo.ledgerCalls, 1)
-	assert.Zero(t, repo.ledgerCalls[0].DeltaUsdMicros,
-		"a hold that stands already draws the windows down, so the org must not be charged as well")
+	require.ErrorIs(t, err, entitlement.ErrAllowanceHeldUnsettled)
+	assert.Empty(t, repo.ledgerCalls,
+		"a hold that stands already draws the windows down, so the org must not be charged")
 }
 
 func TestDebitForInferenceKeepsRequestedAndServedModelApart(t *testing.T) {

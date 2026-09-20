@@ -34,7 +34,7 @@ func runProductScopeMiddleware(
 	engine := gin.New()
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		c.Set("router_api_key", subscriberAPIKey())
-		middleware.WithSubscriberAllowance(svc)(c)
+		middleware.WithSubscriberAllowance(svc, nil)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -102,7 +102,7 @@ func TestWithSubscriberAllowance_ScopesAgentShadowWithoutSpendingAllowance(t *te
 			RolloutID: "rollout-1",
 			StateID:   "state-1",
 		}))
-		middleware.WithSubscriberAllowance(svc)(c)
+		middleware.WithSubscriberAllowance(svc, nil)(c)
 		if c.IsAborted() {
 			return
 		}

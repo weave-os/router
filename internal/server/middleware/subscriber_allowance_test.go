@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions/entitlement"
 
@@ -64,6 +65,46 @@ type stubAllowances struct {
 	held            []entitlement.Reservation
 	released        []string
 	releaseCtxErr   error
+}
+
+type stubSubscriberPrepaid struct {
+	authorizeErr   error
+	authorizations []billing.PrepaidAuthorizationRequest
+	finalized      []string
+}
+
+func (s *stubSubscriberPrepaid) Balance(context.Context, billing.Owner) (int64, error) {
+	return 1_000_000, nil
+}
+
+func (s *stubSubscriberPrepaid) Debit(context.Context, billing.PrepaidDebit) (int64, error) {
+	panic("subscriber allowance middleware must authorize before dispatch")
+}
+
+func (s *stubSubscriberPrepaid) Authorize(_ context.Context, request billing.PrepaidAuthorizationRequest) (billing.PrepaidAuthorization, error) {
+	s.authorizations = append(s.authorizations, request)
+	if s.authorizeErr != nil {
+		return billing.PrepaidAuthorization{}, s.authorizeErr
+	}
+	return billing.PrepaidAuthorization{
+		Owner:             request.Owner,
+		ActionID:          request.ActionID,
+		RouterRequestID:   request.RouterRequestID,
+		APIKeyID:          request.APIKeyID,
+		RequestedModel:    request.RequestedModel,
+		ReservedUsdMicros: request.UpperBoundUsdMicros,
+		State:             billing.PrepaidAuthorizationReserved,
+		CapacitySource:    entitlement.CapacitySourcePrepaid,
+	}, nil
+}
+
+func (s *stubSubscriberPrepaid) Settle(context.Context, billing.PrepaidSettlement) (int64, error) {
+	return 0, nil
+}
+
+func (s *stubSubscriberPrepaid) Finalize(_ context.Context, actionID string) (int64, error) {
+	s.finalized = append(s.finalized, actionID)
+	return 1_000_000, nil
 }
 
 func (s *stubAllowances) Reserve(context.Context, entitlement.Reservation) (entitlement.Action, error) {
@@ -152,7 +193,7 @@ func runAllowanceMiddlewareWithAuth(
 		if apiKey != nil {
 			c.Set("router_api_key", apiKey)
 		}
-		middleware.WithSubscriberAllowance(svc)(c)
+		middleware.WithSubscriberAllowance(svc, nil)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -237,6 +278,108 @@ func TestWithSubscriberAllowance_402WhenWindowSpent(t *testing.T) {
 			assert.Equal(t, body.AllowanceUSDMicros, body.ConsumedUSDMicros)
 		})
 	}
+}
+
+func TestWithSubscriberAllowance_UsesPrepaidAfterIncludedAllowance(t *testing.T) {
+	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
+	allowances := &stubAllowances{billingConsumed: monthlyAllowance}
+	prepaid := &stubSubscriberPrepaid{}
+	billingSvc := billing.NewService(nil).WithSubscriberPrepaid(prepaid)
+	var observed billing.PrepaidAuthorization
+
+	w, reached := runAllowanceMiddlewareWithBilling(t, entitlements, allowances, billingSvc, func(ctx context.Context) {
+		observed, _ = billing.PrepaidAuthorizationFromContext(ctx)
+	})
+
+	require.True(t, reached)
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.Len(t, prepaid.authorizations, 1)
+	assert.Equal(t, billing.SubscriberOwner(allowanceSubscriberID), prepaid.authorizations[0].Owner)
+	assert.Equal(t, entitlement.ModelUnresolved, prepaid.authorizations[0].RequestedModel)
+	assert.Equal(t, prepaid.authorizations[0].ActionID, observed.ActionID)
+	assert.Equal(t, []string{observed.ActionID}, prepaid.finalized)
+}
+
+func TestWithSubscriberAllowance_DoesNotAuthorizePrepaidWhileIncludedCapacityIsAvailable(t *testing.T) {
+	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
+	prepaid := &stubSubscriberPrepaid{}
+	billingSvc := billing.NewService(nil).WithSubscriberPrepaid(prepaid)
+
+	w, reached := runAllowanceMiddlewareWithBilling(t, entitlements, &stubAllowances{}, billingSvc, nil)
+
+	require.True(t, reached)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Empty(t, prepaid.authorizations)
+}
+
+func TestWithSubscriberAllowance_MapsPrepaidAuthorizationFailures(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		err        error
+		statusCode int
+		bodyError  string
+	}{
+		"insufficient funds": {
+			err:        billing.ErrInsufficientCredits,
+			statusCode: http.StatusPaymentRequired,
+			bodyError:  "insufficient_subscriber_credits",
+		},
+		"storage failure": {
+			err:        errors.New("database unavailable"),
+			statusCode: http.StatusServiceUnavailable,
+			bodyError:  "billing_unavailable",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
+			prepaid := &stubSubscriberPrepaid{authorizeErr: testCase.err}
+			billingSvc := billing.NewService(nil).WithSubscriberPrepaid(prepaid)
+
+			w, reached := runAllowanceMiddlewareWithBilling(
+				t,
+				entitlements,
+				&stubAllowances{billingConsumed: monthlyAllowance},
+				billingSvc,
+				nil,
+			)
+
+			assert.False(t, reached)
+			assert.Equal(t, testCase.statusCode, w.Code)
+			var body struct {
+				Error string `json:"error"`
+			}
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+			assert.Equal(t, testCase.bodyError, body.Error)
+		})
+	}
+}
+
+func runAllowanceMiddlewareWithBilling(
+	t *testing.T,
+	entitlements *stubEntitlements,
+	allowances *stubAllowances,
+	billingSvc *billing.Service,
+	observe func(context.Context),
+) (*httptest.ResponseRecorder, bool) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	svc := entitlement.NewService(entitlements, allowances).WithClock(func() time.Time { return allowanceNow })
+	reached := false
+	engine := gin.New()
+	engine.POST("/v1/messages", func(c *gin.Context) {
+		c.Set("router_api_key", subscriberAPIKey())
+		middleware.WithSubscriberAllowance(svc, billingSvc)(c)
+		if c.IsAborted() {
+			return
+		}
+		reached = true
+		if observe != nil {
+			observe(c.Request.Context())
+		}
+		c.Status(http.StatusOK)
+	})
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	return w, reached
 }
 
 func TestWithSubscriberAllowance_503WhenAllowanceUnreadable(t *testing.T) {

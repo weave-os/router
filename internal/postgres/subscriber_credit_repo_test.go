@@ -6,6 +6,7 @@ import (
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/postgres"
+	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -143,4 +144,128 @@ func TestSubscriberCreditBalanceMissingRow(t *testing.T) {
 	repo := postgres.NewSubscriberCreditRepo(pool)
 	_, err := repo.Balance(context.Background(), billing.SubscriberOwner(uuid.NewString()))
 	assert.ErrorIs(t, err, billing.ErrBalanceRowMissing)
+}
+
+func TestSubscriberCreditAuthorizationSettlesExactCostAndReturnsUnusedHold(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	installationID, _ := seedInstallation(t, pool)
+	subscriberID := seedFundedSubscriber(t, pool, installationID, 10_000_000)
+	repo := postgres.NewSubscriberCreditRepo(pool)
+	request := billing.PrepaidAuthorizationRequest{
+		Owner:               billing.SubscriberOwner(subscriberID.String()),
+		ActionID:            "req_exact:prepaid-hold",
+		RouterRequestID:     "req_exact",
+		APIKeyID:            "key_exact",
+		RequestedModel:      entitlement.ModelUnresolved,
+		UpperBoundUsdMicros: 8_000_000,
+	}
+
+	authorization, err := repo.Authorize(ctx, request)
+	require.NoError(t, err)
+	assert.Equal(t, int64(8_000_000), authorization.ReservedUsdMicros)
+	balance, err := repo.Balance(ctx, request.Owner)
+	require.NoError(t, err)
+	assert.Equal(t, int64(2_000_000), balance)
+
+	after, err := repo.Settle(ctx, billing.PrepaidSettlement{
+		AuthorizationActionID: authorization.ActionID,
+		ActionID:              "req_exact:1",
+		RouterRequestID:       "req_exact",
+		ServedModel:           "deepseek-v3.2",
+		RetailUsdMicros:       3_000_000,
+		CapacitySource:        entitlement.CapacitySourcePrepaid,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(7_000_000), after)
+
+	after, err = repo.Finalize(ctx, authorization.ActionID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(7_000_000), after)
+	balance, err = repo.Balance(ctx, request.Owner)
+	require.NoError(t, err)
+	assert.Equal(t, int64(7_000_000), balance)
+}
+
+func TestSubscriberCreditAuthorizationIsIdempotent(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	installationID, _ := seedInstallation(t, pool)
+	subscriberID := seedFundedSubscriber(t, pool, installationID, 10_000_000)
+	repo := postgres.NewSubscriberCreditRepo(pool)
+	request := billing.PrepaidAuthorizationRequest{
+		Owner:               billing.SubscriberOwner(subscriberID.String()),
+		ActionID:            "req_replay:prepaid-hold",
+		RouterRequestID:     "req_replay",
+		RequestedModel:      entitlement.ModelUnresolved,
+		UpperBoundUsdMicros: 4_000_000,
+	}
+
+	first, err := repo.Authorize(ctx, request)
+	require.NoError(t, err)
+	second, err := repo.Authorize(ctx, request)
+	require.NoError(t, err)
+	assert.Equal(t, first, second)
+
+	settlement := billing.PrepaidSettlement{
+		AuthorizationActionID: first.ActionID,
+		ActionID:              "req_replay:1",
+		RouterRequestID:       "req_replay",
+		ServedModel:           "deepseek-v3.2",
+		RetailUsdMicros:       1_500_000,
+		CapacitySource:        entitlement.CapacitySourcePrepaid,
+	}
+	firstBalance, err := repo.Settle(ctx, settlement)
+	require.NoError(t, err)
+	secondBalance, err := repo.Settle(ctx, settlement)
+	require.NoError(t, err)
+	assert.Equal(t, firstBalance, secondBalance)
+	assert.Equal(t, 1, subscriberLedgerCount(t, pool, subscriberID))
+
+	finalBalance, err := repo.Finalize(ctx, first.ActionID)
+	require.NoError(t, err)
+	replayedBalance, err := repo.Finalize(ctx, first.ActionID)
+	require.NoError(t, err)
+	assert.Equal(t, finalBalance, replayedBalance)
+	assert.Equal(t, int64(8_500_000), finalBalance)
+}
+
+func TestSubscriberCreditAuthorizationRejectsEmptyBalance(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	installationID, _ := seedInstallation(t, pool)
+	subscriberID := seedFundedSubscriber(t, pool, installationID, 0)
+	repo := postgres.NewSubscriberCreditRepo(pool)
+
+	_, err := repo.Authorize(ctx, billing.PrepaidAuthorizationRequest{
+		Owner:               billing.SubscriberOwner(subscriberID.String()),
+		ActionID:            "req_empty:prepaid-hold",
+		RouterRequestID:     "req_empty",
+		RequestedModel:      entitlement.ModelUnresolved,
+		UpperBoundUsdMicros: 1_000_000,
+	})
+	assert.ErrorIs(t, err, billing.ErrInsufficientCredits)
+}
+
+func TestSubscriberCreditAuthorizationCannotSpendAnotherSubscriberBalance(t *testing.T) {
+	pool := testPool(t)
+	ctx := context.Background()
+	installationID, _ := seedInstallation(t, pool)
+	subscriberA := seedFundedSubscriber(t, pool, installationID, 2_000_000)
+	subscriberB := seedFundedSubscriber(t, pool, installationID, 7_000_000)
+	repo := postgres.NewSubscriberCreditRepo(pool)
+
+	authorization, err := repo.Authorize(ctx, billing.PrepaidAuthorizationRequest{
+		Owner:               billing.SubscriberOwner(subscriberA.String()),
+		ActionID:            "req_owner:prepaid-hold",
+		RouterRequestID:     "req_owner",
+		RequestedModel:      entitlement.ModelUnresolved,
+		UpperBoundUsdMicros: 5_000_000,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, int64(2_000_000), authorization.ReservedUsdMicros)
+
+	balanceB, err := repo.Balance(ctx, billing.SubscriberOwner(subscriberB.String()))
+	require.NoError(t, err)
+	assert.Equal(t, int64(7_000_000), balanceB)
 }

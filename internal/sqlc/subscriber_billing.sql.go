@@ -11,6 +11,47 @@ import (
 	"github.com/google/uuid"
 )
 
+const addSubscriberCreditReservationSettlement = `-- name: AddSubscriberCreditReservationSettlement :one
+UPDATE router.subscriber_credit_reservations
+SET settled_usd_micros = settled_usd_micros + $1::bigint,
+    updated_at = NOW()
+WHERE action_id = $2::varchar
+  AND state = 'reserved'
+RETURNING action_id, subscriber_id, router_request_id, api_key_id, requested_model, reserved_usd_micros, settled_usd_micros, state, capacity_source, created_at, updated_at
+`
+
+type AddSubscriberCreditReservationSettlementParams struct {
+	RetailUsdMicros int64
+	ActionID        string
+}
+
+// Adds one exact served action to a still-open prepaid authorization.
+//
+//	UPDATE router.subscriber_credit_reservations
+//	SET settled_usd_micros = settled_usd_micros + $1::bigint,
+//	    updated_at = NOW()
+//	WHERE action_id = $2::varchar
+//	  AND state = 'reserved'
+//	RETURNING action_id, subscriber_id, router_request_id, api_key_id, requested_model, reserved_usd_micros, settled_usd_micros, state, capacity_source, created_at, updated_at
+func (q *Queries) AddSubscriberCreditReservationSettlement(ctx context.Context, arg AddSubscriberCreditReservationSettlementParams) (RouterSubscriberCreditReservation, error) {
+	row := q.db.QueryRow(ctx, addSubscriberCreditReservationSettlement, arg.RetailUsdMicros, arg.ActionID)
+	var i RouterSubscriberCreditReservation
+	err := row.Scan(
+		&i.ActionID,
+		&i.SubscriberID,
+		&i.RouterRequestID,
+		&i.APIKeyID,
+		&i.RequestedModel,
+		&i.ReservedUsdMicros,
+		&i.SettledUsdMicros,
+		&i.State,
+		&i.CapacitySource,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const debitSubscriberCredits = `-- name: DebitSubscriberCredits :one
 WITH updated AS (
     UPDATE router.subscriber_credit_balance
@@ -102,6 +143,47 @@ func (q *Queries) DebitSubscriberCredits(ctx context.Context, arg DebitSubscribe
 	return balance_after_micros, err
 }
 
+const finalizeSubscriberCreditReservation = `-- name: FinalizeSubscriberCreditReservation :one
+UPDATE router.subscriber_credit_reservations
+SET state = $1::varchar,
+    updated_at = NOW()
+WHERE action_id = $2::varchar
+  AND state = 'reserved'
+RETURNING action_id, subscriber_id, router_request_id, api_key_id, requested_model, reserved_usd_micros, settled_usd_micros, state, capacity_source, created_at, updated_at
+`
+
+type FinalizeSubscriberCreditReservationParams struct {
+	State    string
+	ActionID string
+}
+
+// Closes an authorization after returning any unused hold to its owner.
+//
+//	UPDATE router.subscriber_credit_reservations
+//	SET state = $1::varchar,
+//	    updated_at = NOW()
+//	WHERE action_id = $2::varchar
+//	  AND state = 'reserved'
+//	RETURNING action_id, subscriber_id, router_request_id, api_key_id, requested_model, reserved_usd_micros, settled_usd_micros, state, capacity_source, created_at, updated_at
+func (q *Queries) FinalizeSubscriberCreditReservation(ctx context.Context, arg FinalizeSubscriberCreditReservationParams) (RouterSubscriberCreditReservation, error) {
+	row := q.db.QueryRow(ctx, finalizeSubscriberCreditReservation, arg.State, arg.ActionID)
+	var i RouterSubscriberCreditReservation
+	err := row.Scan(
+		&i.ActionID,
+		&i.SubscriberID,
+		&i.RouterRequestID,
+		&i.APIKeyID,
+		&i.RequestedModel,
+		&i.ReservedUsdMicros,
+		&i.SettledUsdMicros,
+		&i.State,
+		&i.CapacitySource,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getSubscriberCreditBalance = `-- name: GetSubscriberCreditBalance :one
 SELECT balance_usd_micros
 FROM router.subscriber_credit_balance
@@ -119,6 +201,313 @@ WHERE subscriber_id = $1::uuid
 //	WHERE subscriber_id = $1::uuid
 func (q *Queries) GetSubscriberCreditBalance(ctx context.Context, subscriberID uuid.UUID) (int64, error) {
 	row := q.db.QueryRow(ctx, getSubscriberCreditBalance, subscriberID)
+	var balance_usd_micros int64
+	err := row.Scan(&balance_usd_micros)
+	return balance_usd_micros, err
+}
+
+const getSubscriberCreditBalanceForUpdate = `-- name: GetSubscriberCreditBalanceForUpdate :one
+SELECT balance_usd_micros
+FROM router.subscriber_credit_balance
+WHERE subscriber_id = $1::uuid
+FOR UPDATE
+`
+
+// Locks one subscriber's prepaid balance while an authorization is created or
+// finalized, serializing concurrent reservations for that owner.
+//
+//	SELECT balance_usd_micros
+//	FROM router.subscriber_credit_balance
+//	WHERE subscriber_id = $1::uuid
+//	FOR UPDATE
+func (q *Queries) GetSubscriberCreditBalanceForUpdate(ctx context.Context, subscriberID uuid.UUID) (int64, error) {
+	row := q.db.QueryRow(ctx, getSubscriberCreditBalanceForUpdate, subscriberID)
+	var balance_usd_micros int64
+	err := row.Scan(&balance_usd_micros)
+	return balance_usd_micros, err
+}
+
+const getSubscriberCreditReservation = `-- name: GetSubscriberCreditReservation :one
+SELECT action_id, subscriber_id, router_request_id, api_key_id, requested_model, reserved_usd_micros, settled_usd_micros, state, capacity_source, created_at, updated_at
+FROM router.subscriber_credit_reservations
+WHERE action_id = $1::varchar
+`
+
+// Returns a durable subscriber prepaid authorization.
+//
+//	SELECT action_id, subscriber_id, router_request_id, api_key_id, requested_model, reserved_usd_micros, settled_usd_micros, state, capacity_source, created_at, updated_at
+//	FROM router.subscriber_credit_reservations
+//	WHERE action_id = $1::varchar
+func (q *Queries) GetSubscriberCreditReservation(ctx context.Context, actionID string) (RouterSubscriberCreditReservation, error) {
+	row := q.db.QueryRow(ctx, getSubscriberCreditReservation, actionID)
+	var i RouterSubscriberCreditReservation
+	err := row.Scan(
+		&i.ActionID,
+		&i.SubscriberID,
+		&i.RouterRequestID,
+		&i.APIKeyID,
+		&i.RequestedModel,
+		&i.ReservedUsdMicros,
+		&i.SettledUsdMicros,
+		&i.State,
+		&i.CapacitySource,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getSubscriberCreditReservationForUpdate = `-- name: GetSubscriberCreditReservationForUpdate :one
+SELECT action_id, subscriber_id, router_request_id, api_key_id, requested_model, reserved_usd_micros, settled_usd_micros, state, capacity_source, created_at, updated_at
+FROM router.subscriber_credit_reservations
+WHERE action_id = $1::varchar
+FOR UPDATE
+`
+
+// Locks a durable subscriber prepaid authorization for settlement/finalization.
+//
+//	SELECT action_id, subscriber_id, router_request_id, api_key_id, requested_model, reserved_usd_micros, settled_usd_micros, state, capacity_source, created_at, updated_at
+//	FROM router.subscriber_credit_reservations
+//	WHERE action_id = $1::varchar
+//	FOR UPDATE
+func (q *Queries) GetSubscriberCreditReservationForUpdate(ctx context.Context, actionID string) (RouterSubscriberCreditReservation, error) {
+	row := q.db.QueryRow(ctx, getSubscriberCreditReservationForUpdate, actionID)
+	var i RouterSubscriberCreditReservation
+	err := row.Scan(
+		&i.ActionID,
+		&i.SubscriberID,
+		&i.RouterRequestID,
+		&i.APIKeyID,
+		&i.RequestedModel,
+		&i.ReservedUsdMicros,
+		&i.SettledUsdMicros,
+		&i.State,
+		&i.CapacitySource,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getSubscriberCreditSettlement = `-- name: GetSubscriberCreditSettlement :one
+SELECT id, subscriber_id, delta_usd_micros, notional_cost_micros, balance_after_micros, entry_type, stripe_payment_intent_id, router_request_id, router_model, memo, created_at, authorization_action_id, action_id, capacity_source
+FROM router.subscriber_credit_ledger
+WHERE action_id = $1::varchar
+`
+
+// Returns an idempotent prepaid settlement by its stable action identifier.
+//
+//	SELECT id, subscriber_id, delta_usd_micros, notional_cost_micros, balance_after_micros, entry_type, stripe_payment_intent_id, router_request_id, router_model, memo, created_at, authorization_action_id, action_id, capacity_source
+//	FROM router.subscriber_credit_ledger
+//	WHERE action_id = $1::varchar
+func (q *Queries) GetSubscriberCreditSettlement(ctx context.Context, actionID string) (RouterSubscriberCreditLedger, error) {
+	row := q.db.QueryRow(ctx, getSubscriberCreditSettlement, actionID)
+	var i RouterSubscriberCreditLedger
+	err := row.Scan(
+		&i.ID,
+		&i.SubscriberID,
+		&i.DeltaUsdMicros,
+		&i.NotionalCostMicros,
+		&i.BalanceAfterMicros,
+		&i.EntryType,
+		&i.StripePaymentIntentID,
+		&i.RouterRequestID,
+		&i.RouterModel,
+		&i.Memo,
+		&i.CreatedAt,
+		&i.AuthorizationActionID,
+		&i.ActionID,
+		&i.CapacitySource,
+	)
+	return i, err
+}
+
+const insertSubscriberCreditReservation = `-- name: InsertSubscriberCreditReservation :one
+INSERT INTO router.subscriber_credit_reservations (
+    action_id,
+    subscriber_id,
+    router_request_id,
+    api_key_id,
+    requested_model,
+    reserved_usd_micros,
+    capacity_source
+)
+VALUES (
+    $1::varchar,
+    $2::uuid,
+    $3::varchar,
+    $4::varchar,
+    $5::varchar,
+    $6::bigint,
+    $7::varchar
+)
+RETURNING action_id, subscriber_id, router_request_id, api_key_id, requested_model, reserved_usd_micros, settled_usd_micros, state, capacity_source, created_at, updated_at
+`
+
+type InsertSubscriberCreditReservationParams struct {
+	ActionID          string
+	SubscriberID      uuid.UUID
+	RouterRequestID   string
+	APIKeyID          *string
+	RequestedModel    string
+	ReservedUsdMicros int64
+	CapacitySource    string
+}
+
+// Inserts the hold that authorizes one request to dispatch against subscriber funds.
+//
+//	INSERT INTO router.subscriber_credit_reservations (
+//	    action_id,
+//	    subscriber_id,
+//	    router_request_id,
+//	    api_key_id,
+//	    requested_model,
+//	    reserved_usd_micros,
+//	    capacity_source
+//	)
+//	VALUES (
+//	    $1::varchar,
+//	    $2::uuid,
+//	    $3::varchar,
+//	    $4::varchar,
+//	    $5::varchar,
+//	    $6::bigint,
+//	    $7::varchar
+//	)
+//	RETURNING action_id, subscriber_id, router_request_id, api_key_id, requested_model, reserved_usd_micros, settled_usd_micros, state, capacity_source, created_at, updated_at
+func (q *Queries) InsertSubscriberCreditReservation(ctx context.Context, arg InsertSubscriberCreditReservationParams) (RouterSubscriberCreditReservation, error) {
+	row := q.db.QueryRow(ctx, insertSubscriberCreditReservation,
+		arg.ActionID,
+		arg.SubscriberID,
+		arg.RouterRequestID,
+		arg.APIKeyID,
+		arg.RequestedModel,
+		arg.ReservedUsdMicros,
+		arg.CapacitySource,
+	)
+	var i RouterSubscriberCreditReservation
+	err := row.Scan(
+		&i.ActionID,
+		&i.SubscriberID,
+		&i.RouterRequestID,
+		&i.APIKeyID,
+		&i.RequestedModel,
+		&i.ReservedUsdMicros,
+		&i.SettledUsdMicros,
+		&i.State,
+		&i.CapacitySource,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const insertSubscriberCreditSettlement = `-- name: InsertSubscriberCreditSettlement :one
+INSERT INTO router.subscriber_credit_ledger (
+    subscriber_id,
+    delta_usd_micros,
+    notional_cost_micros,
+    balance_after_micros,
+    entry_type,
+    router_request_id,
+    router_model,
+    authorization_action_id,
+    action_id,
+    capacity_source
+)
+VALUES (
+    $1::uuid,
+    -@retail_usd_micros::bigint,
+    $2::bigint,
+    $3::bigint,
+    'inference',
+    $4::varchar,
+    $5::varchar,
+    $6::varchar,
+    $7::varchar,
+    $8::varchar
+)
+RETURNING balance_after_micros
+`
+
+type InsertSubscriberCreditSettlementParams struct {
+	SubscriberID          uuid.UUID
+	RetailUsdMicros       int64
+	BalanceAfterMicros    int64
+	RouterRequestID       string
+	RouterModel           string
+	AuthorizationActionID string
+	ActionID              string
+	CapacitySource        string
+}
+
+// Appends one exact subscriber prepaid inference debit. The balance_after
+// value includes unused funds still held by the request authorization.
+//
+//	INSERT INTO router.subscriber_credit_ledger (
+//	    subscriber_id,
+//	    delta_usd_micros,
+//	    notional_cost_micros,
+//	    balance_after_micros,
+//	    entry_type,
+//	    router_request_id,
+//	    router_model,
+//	    authorization_action_id,
+//	    action_id,
+//	    capacity_source
+//	)
+//	VALUES (
+//	    $1::uuid,
+//	    -@retail_usd_micros::bigint,
+//	    $2::bigint,
+//	    $3::bigint,
+//	    'inference',
+//	    $4::varchar,
+//	    $5::varchar,
+//	    $6::varchar,
+//	    $7::varchar,
+//	    $8::varchar
+//	)
+//	RETURNING balance_after_micros
+func (q *Queries) InsertSubscriberCreditSettlement(ctx context.Context, arg InsertSubscriberCreditSettlementParams) (int64, error) {
+	row := q.db.QueryRow(ctx, insertSubscriberCreditSettlement,
+		arg.SubscriberID,
+		arg.RetailUsdMicros,
+		arg.BalanceAfterMicros,
+		arg.RouterRequestID,
+		arg.RouterModel,
+		arg.AuthorizationActionID,
+		arg.ActionID,
+		arg.CapacitySource,
+	)
+	var balance_after_micros int64
+	err := row.Scan(&balance_after_micros)
+	return balance_after_micros, err
+}
+
+const updateSubscriberCreditBalance = `-- name: UpdateSubscriberCreditBalance :one
+UPDATE router.subscriber_credit_balance
+SET balance_usd_micros = balance_usd_micros + $1::bigint,
+    updated_at = NOW()
+WHERE subscriber_id = $2::uuid
+RETURNING balance_usd_micros
+`
+
+type UpdateSubscriberCreditBalanceParams struct {
+	DeltaUsdMicros int64
+	SubscriberID   uuid.UUID
+}
+
+// Applies a signed balance adjustment while the caller holds the subscriber
+// balance lock.
+//
+//	UPDATE router.subscriber_credit_balance
+//	SET balance_usd_micros = balance_usd_micros + $1::bigint,
+//	    updated_at = NOW()
+//	WHERE subscriber_id = $2::uuid
+//	RETURNING balance_usd_micros
+func (q *Queries) UpdateSubscriberCreditBalance(ctx context.Context, arg UpdateSubscriberCreditBalanceParams) (int64, error) {
+	row := q.db.QueryRow(ctx, updateSubscriberCreditBalance, arg.DeltaUsdMicros, arg.SubscriberID)
 	var balance_usd_micros int64
 	err := row.Scan(&balance_usd_micros)
 	return balance_usd_micros, err

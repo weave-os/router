@@ -79,11 +79,12 @@ const MinBalanceMicros int64 = 0
 // Service orchestrates balance reads and debits. No I/O of its own — all
 // persistence flows through the Repo interface.
 type Service struct {
-	repo        Repo
-	autopay     AutopayNotifier
-	byokFeeRate float64
-	allowances  SubscriberAllowanceSettler
-	prepaid     *PrepaidBooks
+	repo              Repo
+	autopay           AutopayNotifier
+	byokFeeRate       float64
+	allowances        SubscriberAllowanceSettler
+	prepaid           *PrepaidBooks
+	subscriberPrepaid SubscriberPrepaidAuthorizer
 }
 
 // NewService constructs a billing service. The Repo is required; nil panics
@@ -101,7 +102,26 @@ func NewService(repo Repo) *Service {
 // owner resolves to no book at all rather than to organization funds.
 func (s *Service) WithSubscriberPrepaid(book PrepaidBook) *Service {
 	s.prepaid.register(OwnerKindSubscriber, book)
+	if authorizer, ok := book.(SubscriberPrepaidAuthorizer); ok {
+		s.subscriberPrepaid = authorizer
+	}
 	return s
+}
+
+// AuthorizeSubscriberPrepaid holds subscriber funds before provider dispatch.
+func (s *Service) AuthorizeSubscriberPrepaid(ctx context.Context, request PrepaidAuthorizationRequest) (PrepaidAuthorization, error) {
+	if s.subscriberPrepaid == nil {
+		return PrepaidAuthorization{}, ErrOwnerKindUnsupported
+	}
+	return s.subscriberPrepaid.Authorize(ctx, request)
+}
+
+// FinalizeSubscriberPrepaid returns the unused portion of a request hold.
+func (s *Service) FinalizeSubscriberPrepaid(ctx context.Context, actionID string) (int64, error) {
+	if s.subscriberPrepaid == nil {
+		return 0, ErrOwnerKindUnsupported
+	}
+	return s.subscriberPrepaid.Finalize(ctx, actionID)
 }
 
 // PrepaidBalance reads one owner's prepaid balance. The owner's kind picks the
@@ -288,12 +308,9 @@ func (p DebitInferenceParams) requestedModel() string {
 // upstream cost (no fee row when the rate is zero).
 // Override and subscription outrank BYOK.
 //
-// A turn admitted against an individual Max/Boost allowance also debits 0 and
-// meters the retail cost against that allowance instead — the subscription
-// already bought the capacity, so charging the org balance too would bill it
-// twice. If that settlement fails the turn debits the org as an ordinary paid
-// turn, since exactly one of the two books must carry it. An Enterprise turn
-// carries no coverage and is unaffected.
+// A turn funded by an individual Max/Boost allowance or subscriber prepaid
+// balance never reaches the organization's book. An Enterprise turn carries no
+// subscriber funding context and is unaffected.
 //
 // Returns the post-debit balance (0 on override, since balance doesn't
 // change).
@@ -302,6 +319,14 @@ func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams)
 	notional := computeNotionalMicros(p)
 	coverage, hasCoverage := entitlement.CoverageFromContext(ctx)
 	subscriberCovered := hasCoverage && s.allowances != nil && !p.HasOverride && !p.SubscriptionServed && !p.ByokServed
+	prepaidAuthorization, hasPrepaidAuthorization := PrepaidAuthorizationFromContext(ctx)
+	if hasPrepaidAuthorization {
+		if p.HasOverride || p.SubscriptionServed || p.ByokServed {
+			return s.PrepaidBalance(ctx, prepaidAuthorization.Owner)
+		}
+		return s.settleSubscriberPrepaid(ctx, p, prepaidAuthorization, notional)
+	}
+
 	delta := -notional
 	var fee int64
 	switch {
@@ -313,14 +338,14 @@ func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams)
 		delta = 0
 		fee = -s.byokFeeMicros(notional)
 	case subscriberCovered:
-		// Paid for by the individual subscription's included allowance — but
-		// only once the allowance actually holds the charge. Settling before
-		// the ledger write keeps the two books consistent: a turn the
-		// allowance could not record falls back to the organization debit
-		// rather than serving free and unmetered on both.
-		if s.meterSubscriberAllowance(ctx, p, coverage, notional) {
-			delta = 0
+		held, err := s.meterSubscriberAllowance(ctx, p, coverage, notional)
+		if err != nil {
+			return 0, err
 		}
+		if !held {
+			return 0, errors.New("subscriber allowance settlement recorded no hold")
+		}
+		delta = 0
 	}
 	balanceAfter, err := s.DebitPrepaid(ctx, PrepaidDebit{
 		Owner:              OrganizationOwner(p.OrganizationID),
@@ -341,15 +366,43 @@ func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams)
 	return balanceAfter, nil
 }
 
-// meterSubscriberAllowance books the turn against the allowance windows the
-// request was admitted under and reports whether the allowance now holds the
-// charge. A turn the allowance did not record falls back to an ordinary
-// organization debit: the response has already gone out, and a turn on neither
-// book is unbilled usage that never draws the allowance down either.
-func (s *Service) meterSubscriberAllowance(ctx context.Context, p DebitInferenceParams, coverage entitlement.Coverage, retailMicros int64) bool {
+func (s *Service) settleSubscriberPrepaid(ctx context.Context, p DebitInferenceParams, authorization PrepaidAuthorization, retailMicros int64) (int64, error) {
+	if s.subscriberPrepaid == nil {
+		MarkPrepaidSettlementFailed(ctx)
+		return 0, ErrOwnerKindUnsupported
+	}
+	actionID, ok := NextPrepaidSettlementActionID(ctx, p.RouterRequestID)
+	if !ok {
+		MarkPrepaidSettlementFailed(ctx)
+		return 0, ErrPrepaidAuthorizationNotFound
+	}
+	balanceAfter, err := s.subscriberPrepaid.Settle(ctx, PrepaidSettlement{
+		AuthorizationActionID: authorization.ActionID,
+		ActionID:              actionID,
+		RouterRequestID:       p.RouterRequestID,
+		ServedModel:           p.Model,
+		RetailUsdMicros:       retailMicros,
+		CapacitySource:        entitlement.CapacitySourcePrepaid,
+	})
+	if err != nil {
+		MarkPrepaidSettlementFailed(ctx)
+		observability.FromContext(ctx).Error("Subscriber prepaid settlement failed",
+			"err", err,
+			"subscriber_id", authorization.Owner.SubscriberID,
+			"router_request_id", p.RouterRequestID,
+			"retail_usd_micros", retailMicros,
+		)
+		return balanceAfter, err
+	}
+	return balanceAfter, nil
+}
+
+// meterSubscriberAllowance books the turn against the admitted windows.
+func (s *Service) meterSubscriberAllowance(ctx context.Context, p DebitInferenceParams, coverage entitlement.Coverage, retailMicros int64) (bool, error) {
 	actionID, ok := entitlement.NextActionID(ctx, p.RouterRequestID)
 	if !ok {
-		return false
+		entitlement.MarkSettlementFailed(ctx)
+		return false, errors.New("subscriber allowance coverage has no action binding")
 	}
 	err := s.allowances.Settle(ctx, entitlement.Settlement{
 		Coverage:        coverage,
@@ -362,11 +415,9 @@ func (s *Service) meterSubscriberAllowance(ctx context.Context, p DebitInference
 		CapacitySource:  entitlement.CapacitySourceIncludedRouter,
 	})
 	if err == nil {
-		return true
+		return true, nil
 	}
-	// A settlement that failed after its hold landed already draws the windows
-	// down by this turn's cost, so charging the organization too would bill it
-	// on both books.
+	entitlement.MarkSettlementFailed(ctx)
 	held := errors.Is(err, entitlement.ErrAllowanceHeldUnsettled)
 	observability.FromContext(ctx).Error("Subscriber allowance settlement failed",
 		"err", err,
@@ -375,7 +426,10 @@ func (s *Service) meterSubscriberAllowance(ctx context.Context, p DebitInference
 		"router_request_id", p.RouterRequestID,
 		"retail_usd_micros", retailMicros,
 	)
-	return held
+	if held {
+		return true, err
+	}
+	return false, err
 }
 
 // maybeSignalRecharge fires once, on the debit that crosses the org's

@@ -30,7 +30,7 @@ import (
 // their org's balance instead is the surprise this gate exists to prevent. An
 // allowance read error fails closed with 503, mirroring WithBalanceCheck: an
 // allowance that admits everything while unreadable is an unbilled-usage hole.
-func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
+func WithSubscriberAllowance(svc *entitlement.Service, billingSvc *billing.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		apiKey := APIKeyFrom(c)
@@ -79,23 +79,12 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 			if serveOnCoveringSubscription(c) {
 				return
 			}
-			window := exhaustedWindow(admission)
-			log.Info("Request rejected: subscriber allowance exhausted",
-				"subscriber_id", apiKey.CredentialSubjectID,
-				"period_kind", admission.ExhaustedPeriod,
-				"consumed_usd_micros", window.ConsumedUsdMicros(),
-				"allowance_usd_micros", window.LimitUsdMicros,
-			)
-			c.AbortWithStatusJSON(http.StatusPaymentRequired, gin.H{
-				"error":                "subscription_allowance_exhausted",
-				"period_kind":          string(admission.ExhaustedPeriod),
-				"period_end":           window.Period.End,
-				"consumed_usd_micros":  window.ConsumedUsdMicros(),
-				"allowance_usd_micros": window.LimitUsdMicros,
-				"message":              allowanceExhaustedMessage(admission.ExhaustedPeriod),
-			})
+			if authorizeSubscriberPrepaid(c, log, billingSvc, apiKey.CredentialSubjectID) {
+				return
+			}
+			refuseExhausted(c, log, apiKey.CredentialSubjectID, admission, admission.ExhaustedPeriod)
 		case entitlement.AdmissionCovered:
-			holdRequest(c, log, svc, admission)
+			holdRequest(c, log, svc, billingSvc, admission)
 		}
 	}
 }
@@ -109,7 +98,7 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 // consumed + reserved within the limit. Settlement books the turn's actual
 // cost under its own action identifiers, so releasing the hold afterwards
 // neither refunds nor double-charges the served work.
-func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, admission entitlement.Admission) {
+func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, billingSvc *billing.Service, admission entitlement.Admission) {
 	ctx := c.Request.Context()
 	requestID := observability.RequestIDFromContext(ctx)
 	if requestID == "" {
@@ -129,9 +118,15 @@ func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, adm
 	}
 
 	if _, err := svc.Reserve(ctx, hold); errors.Is(err, entitlement.ErrAllowanceExhausted) {
+		if serveOnCoveringSubscription(c) {
+			return
+		}
+		if authorizeSubscriberPrepaid(c, log, billingSvc, string(admission.Coverage.SubscriberID)) {
+			return
+		}
 		var exhausted entitlement.ExhaustedError
 		errors.As(err, &exhausted)
-		refuseExhausted(c, log, admission, exhausted.Period)
+		refuseExhausted(c, log, string(admission.Coverage.SubscriberID), admission, exhausted.Period)
 		return
 	} else if err != nil {
 		log.Error("Subscriber allowance reservation failed; refusing request", "err", err, "subscriber_id", string(admission.Coverage.SubscriberID))
@@ -147,6 +142,10 @@ func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, adm
 	c.Request = c.Request.WithContext(entitlement.WithCoverage(ctx, admission.Coverage))
 
 	c.Next()
+	if entitlement.SettlementFailed(c.Request.Context()) {
+		log.Error("Subscriber allowance hold left standing after settlement failure", "action_id", hold.ActionID)
+		return
+	}
 
 	// The release outlives the request: a client that disconnects mid-turn
 	// cancels ctx, and releasing under it would leave the bound held for the
@@ -161,9 +160,60 @@ func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, adm
 	}
 }
 
+func authorizeSubscriberPrepaid(c *gin.Context, log *slog.Logger, svc *billing.Service, subscriberID string) bool {
+	if svc == nil {
+		return false
+	}
+	ctx := c.Request.Context()
+	requestID := observability.RequestIDFromContext(ctx)
+	if requestID == "" {
+		requestID = uuid.NewString()
+	}
+	authorization, err := svc.AuthorizeSubscriberPrepaid(ctx, billing.PrepaidAuthorizationRequest{
+		Owner:               billing.SubscriberOwner(subscriberID),
+		ActionID:            requestID + prepaidHoldActionSuffix,
+		RouterRequestID:     requestID,
+		APIKeyID:            APIKeyFrom(c).ID,
+		RequestedModel:      entitlement.ModelUnresolved,
+		UpperBoundUsdMicros: catalog.TurnUpperBoundUsdMicros(),
+	})
+	if errors.Is(err, billing.ErrInsufficientCredits) || errors.Is(err, billing.ErrBalanceRowMissing) {
+		log.Info("Request rejected: subscriber prepaid credits depleted", "subscriber_id", subscriberID)
+		c.AbortWithStatusJSON(http.StatusPaymentRequired, gin.H{
+			"error":              "insufficient_subscriber_credits",
+			"balance_usd_micros": 0,
+			"message":            "Your prepaid Router balance is depleted. Add credits to continue before the allowance resets.",
+		})
+		return true
+	}
+	if err != nil {
+		log.Error("Subscriber prepaid authorization failed; refusing request", "err", err, "subscriber_id", subscriberID)
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+			"error":   "billing_unavailable",
+			"message": "Billing system is temporarily unavailable. Retry in a few moments.",
+		})
+		return true
+	}
+
+	c.Request = c.Request.WithContext(billing.WithPrepaidAuthorization(ctx, authorization))
+	c.Next()
+	if billing.PrepaidSettlementFailed(c.Request.Context()) {
+		log.Error("Subscriber prepaid hold left standing after settlement failure", "action_id", authorization.ActionID)
+		return true
+	}
+	finalizeCtx, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), releaseHoldTimeout)
+	defer cancel()
+	if _, err := svc.FinalizeSubscriberPrepaid(finalizeCtx, authorization.ActionID); err != nil {
+		log.Error("Subscriber prepaid hold left standing", "err", err, "action_id", authorization.ActionID)
+	}
+	return true
+}
+
 // holdActionSuffix distinguishes the request-level hold from the per-action
 // identifiers settlement mints for the same request.
 const holdActionSuffix = ":hold"
+
+const prepaidHoldActionSuffix = ":prepaid-hold"
 
 // releaseHoldTimeout bounds the detached release so a stalled accounting write
 // cannot pin the served request's goroutine.
@@ -186,14 +236,14 @@ func holdUsdMicros(usage entitlement.Usage) int64 {
 
 // refuseExhausted answers a spent window, unless the caller's own linked
 // subscription can serve the route at no cost to the included allowance.
-func refuseExhausted(c *gin.Context, log *slog.Logger, admission entitlement.Admission, period entitlement.PeriodKind) {
+func refuseExhausted(c *gin.Context, log *slog.Logger, subscriberID string, admission entitlement.Admission, period entitlement.PeriodKind) {
 	if serveOnCoveringSubscription(c) {
 		return
 	}
 	admission.ExhaustedPeriod = period
 	window := exhaustedWindow(admission)
 	log.Info("Request rejected: subscriber allowance exhausted",
-		"subscriber_id", string(admission.Coverage.SubscriberID),
+		"subscriber_id", subscriberID,
 		"period_kind", period,
 		"consumed_usd_micros", window.ConsumedUsdMicros(),
 		"allowance_usd_micros", window.LimitUsdMicros,
@@ -221,13 +271,14 @@ func serveOnCoveringSubscription(c *gin.Context) bool {
 	return true
 }
 
-// subscriberAllowanceCovers reports whether this request was admitted against
-// an individual Max/Boost allowance. Such a turn debits 0 on the organization
-// balance and settles against the subscriber's allowance instead, so the
-// organization's prepaid and spend-cap gates do not apply to it.
+// subscriberAllowanceCovers reports whether subscriber-owned capacity pays for
+// this turn, so organization billing gates must not inspect it.
 func subscriberAllowanceCovers(c *gin.Context) bool {
-	_, covered := entitlement.CoverageFromContext(c.Request.Context())
-	return covered
+	if _, covered := entitlement.CoverageFromContext(c.Request.Context()); covered {
+		return true
+	}
+	_, authorized := billing.PrepaidAuthorizationFromContext(c.Request.Context())
+	return authorized
 }
 
 // exhaustedWindow returns the usage of the window that rejected the request.
