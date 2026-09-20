@@ -38,6 +38,9 @@ func (db *subscriberAllowanceDB) Query(_ context.Context, _ string, args ...any)
 
 func (db *subscriberAllowanceDB) QueryRow(_ context.Context, _ string, args ...any) pgx.Row {
 	db.args = append(db.args, args)
+	if len(db.actionRows) == 0 {
+		return subscriberAllowanceActionRow{err: pgx.ErrNoRows}
+	}
 	row := db.actionRows[0]
 	db.actionRows = db.actionRows[1:]
 	return row
@@ -212,15 +215,40 @@ func TestReserveStoresHoldWithWindowLimits(t *testing.T) {
 
 func TestReserveIsIdempotentForRedeliveredAction(t *testing.T) {
 	reservation := testReservation()
-	stored := reservedActionRow(reservation)
-	stored.RouterRequestID = "request-1-retry-carrier"
-	db := &subscriberAllowanceDB{actionRows: []subscriberAllowanceActionRow{{value: stored}}}
+	db := &subscriberAllowanceDB{actionRows: []subscriberAllowanceActionRow{{value: reservedActionRow(reservation)}}}
 
-	action, err := NewSubscriberAllowanceRepo(db).Reserve(context.Background(), reservation)
+	redelivered := reservation
+	redelivered.ReservedAt = reservation.ReservedAt.Add(time.Second)
+	action, err := NewSubscriberAllowanceRepo(db).Reserve(context.Background(), redelivered)
 
 	require.NoError(t, err)
 	assert.Equal(t, reservation.ReservedUsdMicros, action.ReservedUsdMicros)
 	assert.Equal(t, entitlement.ActionStateReserved, action.State)
+}
+
+func TestReserveRejectsReusedActionIDForDifferentRequest(t *testing.T) {
+	reservation := testReservation()
+	stored := reservedActionRow(reservation)
+	stored.RouterRequestID = "request-2"
+	db := &subscriberAllowanceDB{actionRows: []subscriberAllowanceActionRow{{value: stored}}}
+
+	_, err := NewSubscriberAllowanceRepo(db).Reserve(context.Background(), reservation)
+
+	assert.ErrorIs(t, err, entitlement.ErrAllowanceActionConflict)
+}
+
+func TestReserveReadsActionCommittedByConcurrentDelivery(t *testing.T) {
+	reservation := testReservation()
+	db := &subscriberAllowanceDB{actionRows: []subscriberAllowanceActionRow{
+		{err: pgx.ErrNoRows},
+		{value: reservedActionRow(reservation)},
+	}}
+
+	action, err := NewSubscriberAllowanceRepo(db).Reserve(context.Background(), reservation)
+
+	require.NoError(t, err)
+	assert.Equal(t, entitlement.ActionStateReserved, action.State)
+	assert.Equal(t, reservation.ActionID, action.ActionID)
 }
 
 func TestReserveRejectsConflictingReplayOfSameAction(t *testing.T) {
@@ -288,6 +316,33 @@ func TestFinalizeRejectsAlreadyReleasedAction(t *testing.T) {
 	})
 
 	assert.ErrorIs(t, err, entitlement.ErrAllowanceActionConflict)
+}
+
+func TestFinalizeAcceptsSettlementCommittedByConcurrentDelivery(t *testing.T) {
+	reservation := testReservation()
+	finalizedAt := allowanceReservedAt.Add(time.Minute)
+	retail := int64(18_000)
+	servedModel := "claude-sonnet-4"
+	settled := reservedActionRow(reservation)
+	settled.State = string(entitlement.ActionStateFinalized)
+	settled.ServedModel = &servedModel
+	settled.RetailUsdMicros = &retail
+	settled.FinalizedAt = utcTimestamptz(finalizedAt)
+	db := &subscriberAllowanceDB{actionRows: []subscriberAllowanceActionRow{
+		{value: reservedActionRow(reservation)},
+		{value: settled},
+	}}
+
+	action, err := NewSubscriberAllowanceRepo(db).Finalize(context.Background(), entitlement.Finalization{
+		ActionID:        reservation.ActionID,
+		ServedModel:     servedModel,
+		RetailUsdMicros: retail,
+		CapacitySource:  reservation.CapacitySource,
+		FinalizedAt:     finalizedAt,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, entitlement.ActionStateFinalized, action.State)
 }
 
 func TestFinalizeReportsMissingAction(t *testing.T) {

@@ -57,14 +57,11 @@ func (r *SubscriberAllowanceRepo) Reserve(ctx context.Context, reservation entit
 		BillingLimitUsdMicros: reservation.BillingLimitUsdMicros,
 		SixHourLimitUsdMicros: reservation.SixHourLimitUsdMicros,
 	})
-	if err != nil {
-		return entitlement.Action{}, fmt.Errorf("reserve subscriber allowance: %w", err)
-	}
-	stored, err := toAllowanceAction(sqlc.RouterSubscriberAllowanceAction(row))
+	stored, err := r.decodeOrReread(ctx, reservation.ActionID, sqlc.RouterSubscriberAllowanceAction(row), err)
 	if err != nil {
 		return entitlement.Action{}, err
 	}
-	if stored.ReservedUsdMicros != reservation.ReservedUsdMicros || stored.CapacitySource != reservation.CapacitySource {
+	if !sameReservation(stored.Reservation, reservation) {
 		return entitlement.Action{}, entitlement.ErrAllowanceActionConflict
 	}
 	return stored, nil
@@ -82,13 +79,11 @@ func (r *SubscriberAllowanceRepo) Finalize(ctx context.Context, finalization ent
 		CapacitySource:  string(finalization.CapacitySource),
 		FinalizedAt:     utcTimestamptz(finalization.FinalizedAt),
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return entitlement.Action{}, entitlement.ErrAllowanceActionNotFound
-	}
+	stored, err := r.decodeOrReread(ctx, finalization.ActionID, sqlc.RouterSubscriberAllowanceAction(row), err)
 	if err != nil {
-		return entitlement.Action{}, fmt.Errorf("finalize subscriber allowance: %w", err)
+		return entitlement.Action{}, err
 	}
-	stored, err := toAllowanceAction(sqlc.RouterSubscriberAllowanceAction(row))
+	stored, err = r.rereadUntransitioned(ctx, stored)
 	if err != nil {
 		return entitlement.Action{}, err
 	}
@@ -108,13 +103,11 @@ func (r *SubscriberAllowanceRepo) Release(ctx context.Context, release entitleme
 		ActionID:   release.ActionID,
 		ReleasedAt: utcTimestamptz(release.ReleasedAt),
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		return entitlement.Action{}, entitlement.ErrAllowanceActionNotFound
-	}
+	stored, err := r.decodeOrReread(ctx, release.ActionID, sqlc.RouterSubscriberAllowanceAction(row), err)
 	if err != nil {
-		return entitlement.Action{}, fmt.Errorf("release subscriber allowance: %w", err)
+		return entitlement.Action{}, err
 	}
-	stored, err := toAllowanceAction(sqlc.RouterSubscriberAllowanceAction(row))
+	stored, err = r.rereadUntransitioned(ctx, stored)
 	if err != nil {
 		return entitlement.Action{}, err
 	}
@@ -171,6 +164,60 @@ func (r *SubscriberAllowanceRepo) Usage(ctx context.Context, subscriberID entitl
 		}
 	}
 	return usage, nil
+}
+
+// decodeOrReread turns the result of a write statement into the stored action.
+// A statement that lost to a concurrent delivery of the same action returns no
+// row at all: its insert or update sees the conflict through the index, but its
+// own snapshot predates the winner's commit, so the fallback read inside the
+// statement cannot see the row. A separate read gets fresh visibility.
+func (r *SubscriberAllowanceRepo) decodeOrReread(ctx context.Context, actionID string, row sqlc.RouterSubscriberAllowanceAction, err error) (entitlement.Action, error) {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return r.readAction(ctx, actionID)
+	}
+	if err != nil {
+		return entitlement.Action{}, fmt.Errorf("account subscriber allowance: %w", err)
+	}
+	return toAllowanceAction(row)
+}
+
+// rereadUntransitioned re-reads an action that a settlement statement left
+// reserved, so a transition committed by a concurrent delivery is recognized as
+// the redelivery it is rather than reported as a conflict.
+func (r *SubscriberAllowanceRepo) rereadUntransitioned(ctx context.Context, stored entitlement.Action) (entitlement.Action, error) {
+	if stored.State != entitlement.ActionStateReserved {
+		return stored, nil
+	}
+	return r.readAction(ctx, stored.ActionID)
+}
+
+func (r *SubscriberAllowanceRepo) readAction(ctx context.Context, actionID string) (entitlement.Action, error) {
+	row, err := r.queries.GetSubscriberAllowanceAction(ctx, actionID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return entitlement.Action{}, entitlement.ErrAllowanceActionNotFound
+	}
+	if err != nil {
+		return entitlement.Action{}, fmt.Errorf("read subscriber allowance action: %w", err)
+	}
+	return toAllowanceAction(row)
+}
+
+// sameReservation reports whether a redelivery carries the identity of the hold
+// already stored under that action identifier. The window limits and the
+// reservation clock are excluded: they seed the period rows and record arrival
+// rather than identify the action, and legitimately differ between retries.
+func sameReservation(stored, redelivered entitlement.Reservation) bool {
+	return stored.RouterRequestID == redelivered.RouterRequestID &&
+		stored.SubscriberID == redelivered.SubscriberID &&
+		stored.EntitlementVersion == redelivered.EntitlementVersion &&
+		stored.Plan == redelivered.Plan &&
+		stored.BillingPeriod == redelivered.BillingPeriod &&
+		stored.SixHourPeriod == redelivered.SixHourPeriod &&
+		stored.APIKeyID == redelivered.APIKeyID &&
+		stored.ClientSessionID == redelivered.ClientSessionID &&
+		stored.RequestedModel == redelivered.RequestedModel &&
+		stored.ReservedUsdMicros == redelivered.ReservedUsdMicros &&
+		stored.CapacitySource == redelivered.CapacitySource
 }
 
 func toAllowanceAction(row sqlc.RouterSubscriberAllowanceAction) (entitlement.Action, error) {
