@@ -227,6 +227,7 @@ func servedSettlement() entitlement.Settlement {
 	return entitlement.Settlement{
 		Coverage: entitlement.Coverage{
 			SubscriberID:       testSubscriber,
+			AdmittedAt:         testNow,
 			EntitlementVersion: 7,
 			Plan:               entitlement.PlanMax,
 			BillingPeriod: entitlement.Period{
@@ -264,6 +265,23 @@ func TestSettleHoldsAndFinalizesActualCost(t *testing.T) {
 	require.Len(t, allowances.finalizes, 1)
 	assert.Equal(t, int64(4_200), allowances.finalizes[0].RetailUsdMicros)
 	assert.Equal(t, "claude-sonnet-4", allowances.finalizes[0].ServedModel)
+}
+
+func TestSettleFilesTheHoldInTheAdmittedWindow(t *testing.T) {
+	t.Parallel()
+
+	settlement := servedSettlement()
+	allowances := &fakeAllowances{}
+	crossedBoundary := func() time.Time { return settlement.Coverage.SixHourPeriod.End.Add(time.Minute) }
+
+	require.NoError(t, newService(&fakeEntitlements{}, allowances).WithClock(crossedBoundary).
+		Settle(context.Background(), settlement))
+
+	require.Len(t, allowances.reservations, 1)
+	hold := allowances.reservations[0]
+	assert.Equal(t, settlement.Coverage.SixHourPeriod, hold.SixHourPeriod,
+		"a turn that served past a boundary accrues where admission read it")
+	require.NoError(t, hold.Validate())
 }
 
 func TestSettleIsIdempotentForRedeliveredAction(t *testing.T) {

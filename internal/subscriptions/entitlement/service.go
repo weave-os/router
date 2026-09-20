@@ -24,7 +24,11 @@ const (
 // captured at admission so settlement accrues to the windows the request was
 // admitted under, even when a projection lands mid-flight.
 type Coverage struct {
-	SubscriberID          SubscriberID
+	SubscriberID SubscriberID
+	// AdmittedAt is the reservation clock for the turn: the windows below are
+	// the ones covering it, so a turn that serves past a window boundary still
+	// accrues where admission read it.
+	AdmittedAt            time.Time
 	EntitlementVersion    int64
 	Plan                  Plan
 	BillingPeriod         Period
@@ -109,6 +113,7 @@ func (s *Service) Admit(ctx context.Context, subscriberID SubscriberID) (Admissi
 		Usage:   usage,
 		Coverage: Coverage{
 			SubscriberID:          subscriberID,
+			AdmittedAt:            at,
 			EntitlementVersion:    current.Version,
 			Plan:                  current.Plan,
 			BillingPeriod:         current.BillingPeriod,
@@ -154,6 +159,10 @@ type Settlement struct {
 // duplicate delivery of the same action identifier is absorbed by the
 // repository rather than double-charging.
 //
+// The hold is filed at the coverage's admission clock, not at settlement time:
+// a turn that serves past a window boundary belongs to the windows admission
+// read it against, and those are the windows the coverage carries.
+//
 // A hold whose finalization fails is left standing on purpose. It holds exactly
 // the retail cost the turn incurred, and held and settled amounts count against
 // the window alike, so the subscriber is metered correctly either way; only the
@@ -175,7 +184,7 @@ func (s *Service) Settle(ctx context.Context, settlement Settlement) error {
 		RequestedModel:        settlement.RequestedModel,
 		ReservedUsdMicros:     settlement.RetailUsdMicros,
 		CapacitySource:        settlement.CapacitySource,
-		ReservedAt:            at,
+		ReservedAt:            settlement.Coverage.AdmittedAt,
 		BillingLimitUsdMicros: settlement.Coverage.BillingLimitUsdMicros,
 		SixHourLimitUsdMicros: settlement.Coverage.SixHourLimitUsdMicros,
 	}
