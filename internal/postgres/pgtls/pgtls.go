@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -16,6 +17,7 @@ const (
 	clientCertEnvVar   = "POSTGRES_CLIENT_CERT"
 	clientKeyEnvVar    = "POSTGRES_CLIENT_KEY"
 	serverCACertEnvVar = "POSTGRES_SERVER_CA_CERT"
+	serverNameEnvVar   = "POSTGRES_SERVER_NAME"
 )
 
 // Configure installs a client certificate and server CA from POSTGRES_CLIENT_CERT,
@@ -26,6 +28,10 @@ const (
 // Required by Cloud SQL instances running with ssl_mode
 // TRUSTED_CLIENT_CERTIFICATE_REQUIRED, which reject a private-IP connection that presents
 // no client certificate.
+//
+// POSTGRES_SERVER_NAME, when set, is the identity the server certificate must carry, e.g.
+// the Cloud SQL instance connection name. Set it whenever the server CA signs for more than
+// one database endpoint, since chain validation alone would then accept any of them.
 func Configure(poolConfig *pgxpool.Config) (bool, error) {
 	serverCACert := os.Getenv(serverCACertEnvVar)
 	clientCert := os.Getenv(clientCertEnvVar)
@@ -54,7 +60,7 @@ func Configure(poolConfig *pgxpool.Config) (bool, error) {
 		// below replaces it with a chain check against the configured CA — the connection is
 		// still authenticated, just not by hostname.
 		InsecureSkipVerify:    true, // codeql[go/disabled-certificate-check]
-		VerifyPeerCertificate: verifyAgainst(roots),
+		VerifyPeerCertificate: verifyAgainst(roots, os.Getenv(serverNameEnvVar)),
 	}
 	poolConfig.ConnConfig.TLSConfig = tlsConfig
 
@@ -73,7 +79,7 @@ func Configure(poolConfig *pgxpool.Config) (bool, error) {
 	return true, nil
 }
 
-func verifyAgainst(roots *x509.CertPool) func([][]byte, [][]*x509.Certificate) error {
+func verifyAgainst(roots *x509.CertPool, expectedServerName string) func([][]byte, [][]*x509.Certificate) error {
 	return func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
 		if len(rawCerts) == 0 {
 			return errors.New("postgres server presented no certificate")
@@ -82,7 +88,23 @@ func verifyAgainst(roots *x509.CertPool) func([][]byte, [][]*x509.Certificate) e
 		if err != nil {
 			return err
 		}
-		_, err = serverCert.Verify(x509.VerifyOptions{Roots: roots})
-		return err
+		if _, err = serverCert.Verify(x509.VerifyOptions{Roots: roots}); err != nil {
+			return err
+		}
+		if expectedServerName == "" {
+			return nil
+		}
+		// Cloud SQL puts the instance connection name in the subject rather than a DNS SAN,
+		// so both carry an identity worth matching.
+		if serverCert.Subject.CommonName == expectedServerName ||
+			slices.Contains(serverCert.DNSNames, expectedServerName) {
+			return nil
+		}
+		return fmt.Errorf(
+			"postgres server certificate identifies %q, not the %s %q",
+			serverCert.Subject.CommonName,
+			serverNameEnvVar,
+			expectedServerName,
+		)
 	}
 }
