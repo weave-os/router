@@ -314,6 +314,35 @@ func TestWithSubscriberAllowance_HoldsUpperBoundBeforeDispatch(t *testing.T) {
 		"the bound is returned once the turn is served; settlement books its actual cost")
 }
 
+func TestWithSubscriberAllowance_HoldFitsRemainingHeadroom(t *testing.T) {
+	// A bound drawn against the window's whole cap would exceed what is left
+	// the moment a window carries any usage, refusing turns the allowance can
+	// still pay for.
+	spent := sixHourAllowance - 1_000
+	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
+	allowances := &stubAllowances{sixHourConsumed: spent}
+	w, reached, _ := runAllowanceMiddleware(t, entitlements, allowances, subscriberAPIKey())
+
+	require.True(t, reached)
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.Len(t, allowances.held, 1)
+	assert.Equal(t, sixHourAllowance-spent, allowances.held[0].ReservedUsdMicros)
+}
+
+func TestWithSubscriberAllowance_RefusedReservationCarriesNoCoverage(t *testing.T) {
+	// The caller's own subscription serves the turn after the reservation is
+	// refused. Coverage stamped before the hold was confirmed would settle that
+	// turn against the window that just refused to hold anything for it.
+	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
+	allowances := &stubAllowances{exhausted: entitlement.PeriodKindSixHour}
+	w, reached, coverage := runAllowanceMiddlewareWithAuth(
+		t, entitlements, allowances, subscriberAPIKey(), "Bearer sk-ant-oat-abc123")
+
+	require.True(t, reached)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Empty(t, coverage.SubscriberID)
+}
+
 func TestWithSubscriberAllowance_402WhenReservationRefused(t *testing.T) {
 	// The windows read as unspent, so only the reservation's own gate can
 	// refuse this turn — the concurrency case the hold exists for.

@@ -82,8 +82,6 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 				"message":              allowanceExhaustedMessage(admission.ExhaustedPeriod),
 			})
 		case entitlement.AdmissionCovered:
-			ctx := entitlement.WithCoverage(c.Request.Context(), admission.Coverage)
-			c.Request = c.Request.WithContext(ctx)
 			holdRequest(c, log, svc, admission)
 		}
 	}
@@ -113,7 +111,7 @@ func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, adm
 		RouterRequestID:     requestID,
 		APIKeyID:            APIKeyFrom(c).ID,
 		RequestedModel:      entitlement.ModelUnresolved,
-		UpperBoundUsdMicros: holdUsdMicros(admission.Coverage),
+		UpperBoundUsdMicros: holdUsdMicros(admission.Usage),
 		CapacitySource:      entitlement.CapacitySourceIncludedRouter,
 	}
 
@@ -131,6 +129,10 @@ func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, adm
 		return
 	}
 
+	// Coverage is stamped only once the hold is confirmed: a refused request
+	// must not reach settlement as allowance-covered.
+	c.Request = c.Request.WithContext(entitlement.WithCoverage(ctx, admission.Coverage))
+
 	c.Next()
 
 	if err := svc.ReleaseHold(ctx, hold.ActionID); err != nil {
@@ -145,15 +147,16 @@ func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, adm
 // identifiers settlement mints for the same request.
 const holdActionSuffix = ":hold"
 
-// holdUsdMicros bounds one turn's cost, clamped to the tightest window the
-// request is admitted against. Without the clamp a subscriber whose plan is
-// smaller than one worst-case turn could never dispatch anything, since the
-// bound alone would exceed an untouched window.
-func holdUsdMicros(coverage entitlement.Coverage) int64 {
+// holdUsdMicros bounds one turn's cost, clamped to the headroom the tightest
+// window still has. Clamping to the limit instead would refuse every turn once
+// a window carries any usage, and a subscriber whose remaining allowance is
+// smaller than one worst-case turn could never dispatch at all.
+func holdUsdMicros(usage entitlement.Usage) int64 {
 	bound := catalog.TurnUpperBoundUsdMicros()
-	for _, limit := range []int64{coverage.SixHourLimitUsdMicros, coverage.BillingLimitUsdMicros} {
-		if limit > 0 && limit < bound {
-			bound = limit
+	for _, window := range []entitlement.WindowUsage{usage.SixHour, usage.Billing} {
+		headroom := window.LimitUsdMicros - window.ConsumedUsdMicros()
+		if headroom > 0 && headroom < bound {
+			bound = headroom
 		}
 	}
 	return bound
