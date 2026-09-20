@@ -32,6 +32,15 @@ func TestApplyForceClusterHeader_AbsentIsNoOp(t *testing.T) {
 	assert.Empty(t, label)
 }
 
+func TestApplyForceClusterHeader_PlanOwnedRequestIgnoresHeader(t *testing.T) {
+	ctx := router.WithStrategy(planOwnedContext(), router.StrategyHMM)
+
+	label, err := applyForceClusterHeader(ctx, forceClusterRequest(t, "maximum"))
+
+	require.NoError(t, err)
+	assert.Empty(t, label)
+}
+
 func TestApplyForceClusterHeader_ThreadsLabelOnHMMStrategy(t *testing.T) {
 	for _, strategy := range []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding, router.StrategyHMMBeta} {
 		t.Run(string(strategy), func(t *testing.T) {

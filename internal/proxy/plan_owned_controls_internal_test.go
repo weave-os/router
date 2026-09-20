@@ -5,9 +5,11 @@ import (
 	"net/http"
 	"testing"
 
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -53,4 +55,27 @@ func TestPlanOwnedServingIgnoresForceModelHeader(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, forced)
 	assert.True(t, planOwnedServingRequest(ctx))
+}
+
+func TestPlanOwnedServingIgnoresLegacyForceModelPin(t *testing.T) {
+	t.Parallel()
+
+	sessionKey := [sessionpin.SessionKeyLen]byte{1}
+	role := sessionpin.DefaultRole
+	store := newForceModelMapStore()
+	store.pins[forceModelMapKey(sessionKey, role)] = sessionpin.Pin{
+		SessionKey:  sessionKey,
+		Role:        role,
+		Model:       "claude-opus-5",
+		Provider:    providers.ProviderAnthropic,
+		Reason:      translate.ReasonUserForceModel,
+		PinnedUntil: pinNeverExpires,
+	}
+	svc := &Service{pinStore: store}
+
+	pin, active, noStoredState := svc.loadPinWithStoreState(planOwnedContext(), sessionKey, role)
+
+	assert.Equal(t, "claude-opus-5", pin.Model)
+	assert.False(t, active)
+	assert.False(t, noStoredState)
 }

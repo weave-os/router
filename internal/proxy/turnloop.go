@@ -714,6 +714,10 @@ func (s *Service) runTurnLoop(
 	if compatibilityErr != nil {
 		return turnLoopResult{}, compatibilityErr
 	}
+	if planOwnedServingRequest(ctx) {
+		req.ForceModel = ""
+		req.ForceCluster = ""
+	}
 	ctx = context.WithValue(ctx, translationPlanAppliedContextKey{}, true)
 	// The turn-loop has to load this before any automatic pin or utility hard-pin
 	// branch; routeFor receives a copy and cannot populate the caller's request.
@@ -2500,6 +2504,9 @@ func (s *Service) loadPinWithStoreState(ctx context.Context, sessionKey [session
 	}
 	if !found {
 		return sessionpin.Pin{}, false, true
+	}
+	if planOwnedServingRequest(ctx) && isUserForcedReason(pin.Reason) {
+		return pin, false, false
 	}
 	if !pinMatchesEffectiveStrategy(ctx, pin) {
 		return sessionpin.Pin{}, false, false
