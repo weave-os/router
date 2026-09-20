@@ -174,7 +174,7 @@ func TestProxyEndpoints_CachedManagedModelDenialEvictsAutomaticPin(t *testing.T)
 				map[string]providers.Client{providers.ProviderAnthropic: upstream},
 				nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 			).WithManagedSubscriptions(leaser)
-			svc.subscriptionModels.denyManaged("key-1", "opaque-claude", providers.ProviderAnthropic, "claude-opus-5", time.Now().Add(time.Minute))
+			svc.subscriptionModels.denyManaged(auth.SubscriptionOwner{APIKeyID: "key-1"}.PoolKey(), "opaque-claude", providers.ProviderAnthropic, "claude-opus-5", time.Now().Add(time.Minute))
 
 			installationID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
 			ctx := billing.WithSubscriptionOnly(managedSubscriptionContext(auth.SubscriptionProviderClaude))

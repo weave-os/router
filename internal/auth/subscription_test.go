@@ -15,7 +15,8 @@ type subscriptionAccountRepoStub struct {
 func (r *subscriptionAccountRepoStub) UpsertSubscriptionAccount(_ context.Context, params CreateSubscriptionAccountParams) (*SubscriptionAccount, error) {
 	if r.account == nil {
 		r.account = &SubscriptionAccount{
-			ID: "stable-account-id", APIKeyID: params.APIKeyID, Provider: params.Provider,
+			ID: "stable-account-id", SubscriberID: params.Owner.SubscriberID,
+			EnrolledByAPIKeyID: params.Owner.APIKeyID, Provider: params.Provider,
 			ExternalAccountID: params.ExternalAccountID,
 		}
 	}
@@ -25,34 +26,34 @@ func (r *subscriptionAccountRepoStub) UpsertSubscriptionAccount(_ context.Contex
 	return r.account, nil
 }
 
-func (*subscriptionAccountRepoStub) ListSubscriptionAccounts(context.Context, string) ([]*SubscriptionAccount, error) {
+func (*subscriptionAccountRepoStub) ListSubscriptionAccounts(context.Context, SubscriptionOwner) ([]*SubscriptionAccount, error) {
 	return nil, nil
 }
-func (*subscriptionAccountRepoStub) UpdateSubscriptionAccountState(context.Context, string, string, bool, *time.Time) error {
+func (*subscriptionAccountRepoStub) UpdateSubscriptionAccountState(context.Context, string, SubscriptionOwner, bool, *time.Time) error {
 	return nil
 }
-func (*subscriptionAccountRepoStub) UpdateSubscriptionAccountCooldown(context.Context, string, string, time.Time) error {
+func (*subscriptionAccountRepoStub) UpdateSubscriptionAccountCooldown(context.Context, string, SubscriptionOwner, time.Time) error {
 	return nil
 }
-func (*subscriptionAccountRepoStub) UpdateSubscriptionRefreshToken(context.Context, string, string, []byte) error {
+func (*subscriptionAccountRepoStub) UpdateSubscriptionRefreshToken(context.Context, string, SubscriptionOwner, []byte) error {
 	return nil
 }
-func (*subscriptionAccountRepoStub) DeleteSubscriptionAccount(context.Context, string, string) error {
+func (*subscriptionAccountRepoStub) DeleteSubscriptionAccount(context.Context, string, SubscriptionOwner) error {
 	return nil
 }
-func (*subscriptionAccountRepoStub) TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (RefreshLeaseAcquisition, error) {
+func (*subscriptionAccountRepoStub) TryAcquireSubscriptionRefreshLease(context.Context, string, SubscriptionOwner, string, time.Duration) (RefreshLeaseAcquisition, error) {
 	return RefreshLeaseAcquisition{}, nil
 }
-func (*subscriptionAccountRepoStub) ExtendSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (int64, error) {
+func (*subscriptionAccountRepoStub) ExtendSubscriptionRefreshLease(context.Context, string, SubscriptionOwner, string, time.Duration) (int64, error) {
 	return 0, nil
 }
-func (*subscriptionAccountRepoStub) ReleaseSubscriptionRefreshLease(context.Context, string, string, string) error {
+func (*subscriptionAccountRepoStub) ReleaseSubscriptionRefreshLease(context.Context, string, SubscriptionOwner, string) error {
 	return nil
 }
-func (*subscriptionAccountRepoStub) GetSubscriptionCredentialRecord(context.Context, string, string) (*SubscriptionCredentialRecord, error) {
+func (*subscriptionAccountRepoStub) GetSubscriptionCredentialRecord(context.Context, string, SubscriptionOwner) (*SubscriptionCredentialRecord, error) {
 	return nil, ErrSubscriptionAccountNotFound
 }
-func (*subscriptionAccountRepoStub) PersistSubscriptionTokens(context.Context, string, string, string, int64, []byte, []byte, time.Time) error {
+func (*subscriptionAccountRepoStub) PersistSubscriptionTokens(context.Context, string, SubscriptionOwner, string, int64, []byte, []byte, time.Time) error {
 	return nil
 }
 
@@ -61,7 +62,7 @@ func TestAddSubscriptionAccountUpsertsStableProviderIdentity(t *testing.T) {
 	svc := NewService(nil, nil, nil, nil, NoOpAPIKeyCache{}, nil, time.Now).
 		WithSubscriptionAccounts(repo)
 	params := CreateSubscriptionAccountParams{
-		APIKeyID: "owner-1", Provider: SubscriptionProviderCodex,
+		Owner: SubscriptionOwner{SubscriberID: "subscriber-1", APIKeyID: "key-1"}, Provider: SubscriptionProviderCodex,
 		ExternalAccountID: "chatgpt-account-1", RefreshToken: []byte("refresh-old"),
 	}
 
@@ -84,19 +85,19 @@ type coordinatedSubscriptionRepo struct {
 	persistedAccessCiphertext  []byte
 }
 
-func (r *coordinatedSubscriptionRepo) TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (RefreshLeaseAcquisition, error) {
+func (r *coordinatedSubscriptionRepo) TryAcquireSubscriptionRefreshLease(context.Context, string, SubscriptionOwner, string, time.Duration) (RefreshLeaseAcquisition, error) {
 	return RefreshLeaseAcquisition{Acquired: true}, nil
 }
 
-func (r *coordinatedSubscriptionRepo) ReleaseSubscriptionRefreshLease(context.Context, string, string, string) error {
+func (r *coordinatedSubscriptionRepo) ReleaseSubscriptionRefreshLease(context.Context, string, SubscriptionOwner, string) error {
 	return nil
 }
 
-func (r *coordinatedSubscriptionRepo) GetSubscriptionCredentialRecord(context.Context, string, string) (*SubscriptionCredentialRecord, error) {
+func (r *coordinatedSubscriptionRepo) GetSubscriptionCredentialRecord(context.Context, string, SubscriptionOwner) (*SubscriptionCredentialRecord, error) {
 	return r.credentialRecord, nil
 }
 
-func (r *coordinatedSubscriptionRepo) PersistSubscriptionTokens(_ context.Context, _ string, _ string, _ string, _ int64, refreshCiphertext, accessCiphertext []byte, _ time.Time) error {
+func (r *coordinatedSubscriptionRepo) PersistSubscriptionTokens(_ context.Context, _ string, _ SubscriptionOwner, _ string, _ int64, refreshCiphertext, accessCiphertext []byte, _ time.Time) error {
 	r.persistedRefreshCiphertext = append([]byte(nil), refreshCiphertext...)
 	r.persistedAccessCiphertext = append([]byte(nil), accessCiphertext...)
 	return nil
@@ -124,14 +125,15 @@ func TestLoadSubscriptionCredentialsUsesPurposeBoundAccessEncryption(t *testing.
 		WithEncryptor(enc).
 		WithSubscriptionAccounts(repo)
 
-	credentials, err := svc.LoadSubscriptionCredentials(context.Background(), "owner-1", "account-1")
+	owner := SubscriptionOwner{SubscriberID: "subscriber-1", APIKeyID: "key-1"}
+	credentials, err := svc.LoadSubscriptionCredentials(context.Background(), owner, "account-1")
 	require.NoError(t, err)
 	require.Equal(t, []byte("refresh-secret"), credentials.RefreshToken)
 	require.Equal(t, []byte("access-secret"), credentials.AccessToken)
 	require.Equal(t, "lease-1", credentials.TokenRefreshLeaseID)
 	_, err = enc.Decrypt(accessCiphertext, externalAccountID, string(provider))
 	require.Error(t, err)
-	require.NoError(t, svc.PersistSubscriptionTokens(context.Background(), "owner-1", "account-1", "lease-1", 0,
+	require.NoError(t, svc.PersistSubscriptionTokens(context.Background(), owner, "account-1", "lease-1", 0,
 		[]byte("refresh-new"), []byte("access-new"), time.Now().Add(time.Hour)))
 	refresh, err := enc.Decrypt(repo.persistedRefreshCiphertext, externalAccountID, string(provider))
 	require.NoError(t, err)
@@ -141,9 +143,34 @@ func TestLoadSubscriptionCredentialsUsesPurposeBoundAccessEncryption(t *testing.
 	require.Equal(t, []byte("access-new"), access)
 }
 
-func (*subscriptionAccountRepoStub) DisableSubscriptionAccountIfRefreshHolder(context.Context, string, string, string, int64) error {
+func (*subscriptionAccountRepoStub) DisableSubscriptionAccountIfRefreshHolder(context.Context, string, SubscriptionOwner, string, int64) error {
 	return nil
 }
-func (*subscriptionAccountRepoStub) CooldownSubscriptionAccountIfRefreshHolder(context.Context, string, string, string, int64, time.Time) error {
+func (*subscriptionAccountRepoStub) CooldownSubscriptionAccountIfRefreshHolder(context.Context, string, SubscriptionOwner, string, int64, time.Time) error {
 	return nil
+}
+
+func TestSubscriptionOwnerForKeyPrefersCredentialSubject(t *testing.T) {
+	subscriberOwner := SubscriptionOwnerForKey(&APIKey{ID: "key-1", CredentialSubjectID: "subscriber-1"})
+	require.Equal(t, SubscriptionOwner{SubscriberID: "subscriber-1", APIKeyID: "key-1"}, subscriberOwner)
+	require.Equal(t, "subscriber:subscriber-1", subscriberOwner.PoolKey())
+
+	// A second harness key of the same subscriber draws from the same pool.
+	require.Equal(t, subscriberOwner.PoolKey(),
+		SubscriptionOwnerForKey(&APIKey{ID: "key-2", CredentialSubjectID: "subscriber-1"}).PoolKey())
+
+	// A key with no credential subject keeps its own legacy pool.
+	legacyOwner := SubscriptionOwnerForKey(&APIKey{ID: "key-3"})
+	require.Equal(t, "api_key:key-3", legacyOwner.PoolKey())
+	require.True(t, legacyOwner.Valid())
+	require.False(t, SubscriptionOwnerForKey(nil).Valid())
+	require.Empty(t, SubscriptionOwner{}.PoolKey())
+}
+
+func TestListSubscriptionAccountsRejectsUnownedCaller(t *testing.T) {
+	svc := NewService(nil, nil, nil, nil, NoOpAPIKeyCache{}, nil, time.Now).
+		WithSubscriptionAccounts(&subscriptionAccountRepoStub{})
+	accounts, err := svc.ListSubscriptionAccounts(context.Background(), SubscriptionOwner{})
+	require.NoError(t, err)
+	require.Empty(t, accounts)
 }

@@ -14,6 +14,8 @@ import (
 	"weave-os/router/internal/subscriptions"
 )
 
+var testOwner = auth.SubscriptionOwner{SubscriberID: "subscriber-1", APIKeyID: "key-1"}
+
 type runtimeStore struct {
 	mu                   sync.Mutex
 	accounts             []*auth.SubscriptionAccount
@@ -31,7 +33,7 @@ type runtimeStore struct {
 	extendCount          atomic.Int32
 }
 
-func (s *runtimeStore) ListSubscriptionAccounts(context.Context, string) ([]*auth.SubscriptionAccount, error) {
+func (s *runtimeStore) ListSubscriptionAccounts(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	accounts := make([]*auth.SubscriptionAccount, 0, len(s.accounts))
@@ -42,20 +44,20 @@ func (s *runtimeStore) ListSubscriptionAccounts(context.Context, string) ([]*aut
 	return accounts, nil
 }
 
-func (s *runtimeStore) SubscriptionRefreshToken(_ context.Context, _ string, accountID string) ([]byte, error) {
+func (s *runtimeStore) SubscriptionRefreshToken(_ context.Context, _ auth.SubscriptionOwner, accountID string) ([]byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]byte(nil), s.refreshTokens[accountID]...), nil
 }
 
-func (s *runtimeStore) UpdateSubscriptionRefreshToken(_ context.Context, _ string, accountID string, token []byte) error {
+func (s *runtimeStore) UpdateSubscriptionRefreshToken(_ context.Context, _ auth.SubscriptionOwner, accountID string, token []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.rotatedTokens[accountID] = append([]byte(nil), token...)
 	return nil
 }
 
-func (s *runtimeStore) TryAcquireSubscriptionRefreshLease(_ context.Context, _ string, accountID, leaseID string, leaseTTL time.Duration) (auth.RefreshLeaseAcquisition, error) {
+func (s *runtimeStore) TryAcquireSubscriptionRefreshLease(_ context.Context, _ auth.SubscriptionOwner, accountID, leaseID string, leaseTTL time.Duration) (auth.RefreshLeaseAcquisition, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now()
@@ -73,7 +75,7 @@ func (s *runtimeStore) TryAcquireSubscriptionRefreshLease(_ context.Context, _ s
 	return auth.RefreshLeaseAcquisition{Acquired: true, TookOver: tookOver}, nil
 }
 
-func (s *runtimeStore) ExtendSubscriptionRefreshLease(_ context.Context, _ string, accountID, leaseID string, leaseTTL time.Duration) (bool, error) {
+func (s *runtimeStore) ExtendSubscriptionRefreshLease(_ context.Context, _ auth.SubscriptionOwner, accountID, leaseID string, leaseTTL time.Duration) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.extendCount.Add(1)
@@ -92,7 +94,7 @@ func (s *runtimeStore) ExtendSubscriptionRefreshLease(_ context.Context, _ strin
 	return true, nil
 }
 
-func (s *runtimeStore) ReleaseSubscriptionRefreshLease(ctx context.Context, _ string, accountID, leaseID string) error {
+func (s *runtimeStore) ReleaseSubscriptionRefreshLease(ctx context.Context, _ auth.SubscriptionOwner, accountID, leaseID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := ctx.Err(); err != nil {
@@ -105,7 +107,7 @@ func (s *runtimeStore) ReleaseSubscriptionRefreshLease(ctx context.Context, _ st
 	return nil
 }
 
-func (s *runtimeStore) LoadSubscriptionCredentials(_ context.Context, _ string, accountID string) (auth.SubscriptionCredentials, error) {
+func (s *runtimeStore) LoadSubscriptionCredentials(_ context.Context, _ auth.SubscriptionOwner, accountID string) (auth.SubscriptionCredentials, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	enabled := true
@@ -132,7 +134,7 @@ func (s *runtimeStore) LoadSubscriptionCredentials(_ context.Context, _ string, 
 	return credentials, nil
 }
 
-func (s *runtimeStore) PersistSubscriptionTokens(_ context.Context, _ string, accountID, leaseID string, expectedVersion int64, refreshToken, accessToken []byte, expiresAt time.Time) error {
+func (s *runtimeStore) PersistSubscriptionTokens(_ context.Context, _ auth.SubscriptionOwner, accountID, leaseID string, expectedVersion int64, refreshToken, accessToken []byte, expiresAt time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, account := range s.accounts {
@@ -153,14 +155,14 @@ func (s *runtimeStore) PersistSubscriptionTokens(_ context.Context, _ string, ac
 	return nil
 }
 
-func (s *runtimeStore) UpdateSubscriptionAccountState(_ context.Context, _ string, accountID string, enabled bool, _ *time.Time) error {
+func (s *runtimeStore) UpdateSubscriptionAccountState(_ context.Context, _ auth.SubscriptionOwner, accountID string, enabled bool, _ *time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.enabledUpdates[accountID] = enabled
 	return s.stateErr
 }
 
-func (s *runtimeStore) UpdateSubscriptionAccountCooldown(_ context.Context, _ string, accountID string, cooldownUntil time.Time) error {
+func (s *runtimeStore) UpdateSubscriptionAccountCooldown(_ context.Context, _ auth.SubscriptionOwner, accountID string, cooldownUntil time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.cooldowns[accountID] = cooldownUntil
@@ -184,26 +186,26 @@ func newRuntimeStore(accounts ...*auth.SubscriptionAccount) *runtimeStore {
 
 func TestRuntimeCooldownDoesNotWriteEnabledState(t *testing.T) {
 	store := newRuntimeStore(&auth.SubscriptionAccount{
-		ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("refresh-secret")
 	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
 		return subscriptions.RefreshedToken{AccessToken: "access", RefreshToken: "refresh-secret", ExpiresAt: time.Now().Add(time.Hour)}, nil
 	}), nil)
-	lease, present, err := runtime.Lease(context.Background(), "owner-1", subscriptions.ProviderClaude, "")
+	lease, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "")
 	require.NoError(t, err)
 	require.True(t, present)
 	lease.Release()
 
 	resetAt := time.Now().Add(time.Minute)
-	require.NoError(t, runtime.Cooldown(context.Background(), "owner-1", subscriptions.ProviderClaude, "account-1", resetAt))
+	require.NoError(t, runtime.Cooldown(context.Background(), testOwner, subscriptions.ProviderClaude, "account-1", resetAt))
 	require.Equal(t, resetAt, store.cooldowns["account-1"])
 	require.Empty(t, store.enabledUpdates)
 }
 
 func TestRuntimeCoalescesRefreshAndPersistsRotation(t *testing.T) {
 	store := newRuntimeStore(&auth.SubscriptionAccount{
-		ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderCodex,
+		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderCodex,
 		ExternalAccountID: "chatgpt-1", Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("refresh-old")
@@ -225,7 +227,7 @@ func TestRuntimeCoalescesRefreshAndPersistsRotation(t *testing.T) {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
-			lease, present, err := runtime.Lease(context.Background(), "owner-1", subscriptions.ProviderCodex, "session-1")
+			lease, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderCodex, "session-1")
 			require.NoError(t, err)
 			require.True(t, present)
 			require.Equal(t, "access", lease.AccessToken)
@@ -241,7 +243,7 @@ func TestRuntimeCoalescesRefreshAndPersistsRotation(t *testing.T) {
 
 func TestRuntimeCoordinatesRefreshAcrossRuntimes(t *testing.T) {
 	store := newRuntimeStore(&auth.SubscriptionAccount{
-		ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("refresh-old")
 	refreshStarted := make(chan struct{})
@@ -272,11 +274,11 @@ func TestRuntimeCoordinatesRefreshAcrossRuntimes(t *testing.T) {
 	}
 	leaseResults := make(chan leaseResult, 2)
 	go func() {
-		lease, present, err := runtimeA.Lease(context.Background(), "owner-1", subscriptions.ProviderClaude, "session-a")
+		lease, present, err := runtimeA.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "session-a")
 		leaseResults <- leaseResult{lease: lease, present: present, err: err}
 	}()
 	go func() {
-		lease, present, err := runtimeB.Lease(context.Background(), "owner-1", subscriptions.ProviderClaude, "session-b")
+		lease, present, err := runtimeB.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "session-b")
 		leaseResults <- leaseResult{lease: lease, present: present, err: err}
 	}()
 	<-refreshStarted
@@ -297,13 +299,13 @@ func TestRuntimeCoordinatesRefreshAcrossRuntimes(t *testing.T) {
 
 func TestRuntimeAdoptsAccessTokenWhileAnotherRuntimeRefreshes(t *testing.T) {
 	store := newRuntimeStore(&auth.SubscriptionAccount{
-		ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("refresh-current")
 	store.accessTokens["account-1"] = []byte("access-winner")
 	store.accessExpiry["account-1"] = time.Now().Add(time.Hour)
 	leaseID := "00000000-0000-0000-0000-000000000001"
-	acquisition, err := store.TryAcquireSubscriptionRefreshLease(context.Background(), "owner-1", "account-1", leaseID, time.Minute)
+	acquisition, err := store.TryAcquireSubscriptionRefreshLease(context.Background(), testOwner, "account-1", leaseID, time.Minute)
 	require.NoError(t, err)
 	require.True(t, acquisition.Acquired)
 	var refreshes atomic.Int32
@@ -312,7 +314,7 @@ func TestRuntimeAdoptsAccessTokenWhileAnotherRuntimeRefreshes(t *testing.T) {
 		return subscriptions.RefreshedToken{}, errors.New("refresh should not be called")
 	}), nil)
 
-	lease, present, err := runtime.Lease(context.Background(), "owner-1", subscriptions.ProviderClaude, "session-1")
+	lease, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "session-1")
 	require.NoError(t, err)
 	require.True(t, present)
 	require.Equal(t, "access-winner", lease.AccessToken)
@@ -322,7 +324,7 @@ func TestRuntimeAdoptsAccessTokenWhileAnotherRuntimeRefreshes(t *testing.T) {
 
 func TestRuntimeTakesOverExpiredRefreshLease(t *testing.T) {
 	store := newRuntimeStore(&auth.SubscriptionAccount{
-		ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("refresh-old")
 	store.leaseIDs["account-1"] = "expired-holder"
@@ -333,7 +335,7 @@ func TestRuntimeTakesOverExpiredRefreshLease(t *testing.T) {
 		return subscriptions.RefreshedToken{AccessToken: "access-recovered", RefreshToken: "refresh-new", ExpiresAt: time.Now().Add(time.Hour)}, nil
 	}), nil)
 
-	lease, present, err := runtime.Lease(context.Background(), "owner-1", subscriptions.ProviderClaude, "session-1")
+	lease, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "session-1")
 	require.NoError(t, err)
 	require.True(t, present)
 	require.Equal(t, "access-recovered", lease.AccessToken)
@@ -343,7 +345,7 @@ func TestRuntimeTakesOverExpiredRefreshLease(t *testing.T) {
 
 func TestRuntimeDoesNotDisableAfterStaleTerminalRefresh(t *testing.T) {
 	store := newRuntimeStore(&auth.SubscriptionAccount{
-		ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("refresh-old")
 	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
@@ -358,7 +360,7 @@ func TestRuntimeDoesNotDisableAfterStaleTerminalRefresh(t *testing.T) {
 		return subscriptions.RefreshedToken{}, &subscriptions.OAuthRefreshError{Provider: subscriptions.ProviderClaude, Status: 401}
 	}), nil)
 
-	lease, present, err := runtime.Lease(context.Background(), "owner-1", subscriptions.ProviderClaude, "session-1")
+	lease, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "session-1")
 	require.NoError(t, err)
 	require.True(t, present)
 	require.Equal(t, "access-winner", lease.AccessToken)
@@ -369,7 +371,7 @@ func TestRuntimeDoesNotDisableAfterStaleTerminalRefresh(t *testing.T) {
 
 func TestRuntimeDisablesTerminallyRejectedAccount(t *testing.T) {
 	store := newRuntimeStore(&auth.SubscriptionAccount{
-		ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude,
+		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude,
 		ExternalAccountID: "claude-1", Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("rejected")
@@ -378,7 +380,7 @@ func TestRuntimeDisablesTerminallyRejectedAccount(t *testing.T) {
 	})
 	runtime := subscriptions.NewRuntime(store, refresher, nil)
 
-	_, present, err := runtime.Lease(context.Background(), "owner-1", subscriptions.ProviderClaude, "")
+	_, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "")
 	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
 	require.True(t, present)
 	require.Contains(t, store.enabledUpdates, "account-1")
@@ -387,14 +389,14 @@ func TestRuntimeDisablesTerminallyRejectedAccount(t *testing.T) {
 
 func TestRuntimeDoesNotCooldownCanceledRefresh(t *testing.T) {
 	store := newRuntimeStore(&auth.SubscriptionAccount{
-		ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("refresh-secret")
 	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
 		return subscriptions.RefreshedToken{}, context.Canceled
 	}), nil)
 
-	_, present, err := runtime.Lease(context.Background(), "owner-1", subscriptions.ProviderClaude, "")
+	_, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "")
 	require.ErrorIs(t, err, context.Canceled)
 	require.True(t, present)
 	require.Empty(t, store.enabledUpdates)
@@ -402,7 +404,7 @@ func TestRuntimeDoesNotCooldownCanceledRefresh(t *testing.T) {
 
 func TestRuntimePreservesTerminalClassificationWhenStatePersistenceFails(t *testing.T) {
 	store := newRuntimeStore(&auth.SubscriptionAccount{
-		ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("refresh-secret")
 	store.stateErr = errors.New("database unavailable")
@@ -410,14 +412,14 @@ func TestRuntimePreservesTerminalClassificationWhenStatePersistenceFails(t *test
 		return subscriptions.RefreshedToken{}, &subscriptions.OAuthRefreshError{Provider: subscriptions.ProviderClaude, Status: 401}
 	}), nil)
 
-	_, present, err := runtime.Lease(context.Background(), "owner-1", subscriptions.ProviderClaude, "")
+	_, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "")
 	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
 	require.True(t, present)
 	require.Contains(t, store.enabledUpdates, "account-1")
 	require.False(t, store.enabledUpdates["account-1"])
 }
 
-func (s *runtimeStore) DisableSubscriptionAccountIfRefreshHolder(_ context.Context, _ string, accountID, leaseID string, expectedVersion int64) error {
+func (s *runtimeStore) DisableSubscriptionAccountIfRefreshHolder(_ context.Context, _ auth.SubscriptionOwner, accountID, leaseID string, expectedVersion int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.leaseIDs[accountID] != leaseID || s.tokenRefreshVersions[accountID] != expectedVersion {
@@ -438,7 +440,7 @@ func (s *runtimeStore) DisableSubscriptionAccountIfRefreshHolder(_ context.Conte
 	return nil
 }
 
-func (s *runtimeStore) CooldownSubscriptionAccountIfRefreshHolder(_ context.Context, _ string, accountID, leaseID string, expectedVersion int64, cooldownUntil time.Time) error {
+func (s *runtimeStore) CooldownSubscriptionAccountIfRefreshHolder(_ context.Context, _ auth.SubscriptionOwner, accountID, leaseID string, expectedVersion int64, cooldownUntil time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.leaseIDs[accountID] != leaseID || s.tokenRefreshVersions[accountID] != expectedVersion {
@@ -463,21 +465,21 @@ type refreshFailureRaceStore struct {
 	beforeFailure func()
 }
 
-func (s *refreshFailureRaceStore) DisableSubscriptionAccountIfRefreshHolder(ctx context.Context, ownerID, accountID, leaseID string, expectedVersion int64) error {
+func (s *refreshFailureRaceStore) DisableSubscriptionAccountIfRefreshHolder(ctx context.Context, owner auth.SubscriptionOwner, accountID, leaseID string, expectedVersion int64) error {
 	s.beforeFailure()
-	return s.runtimeStore.DisableSubscriptionAccountIfRefreshHolder(ctx, ownerID, accountID, leaseID, expectedVersion)
+	return s.runtimeStore.DisableSubscriptionAccountIfRefreshHolder(ctx, owner, accountID, leaseID, expectedVersion)
 }
 
-func (s *refreshFailureRaceStore) CooldownSubscriptionAccountIfRefreshHolder(ctx context.Context, ownerID, accountID, leaseID string, expectedVersion int64, cooldownUntil time.Time) error {
+func (s *refreshFailureRaceStore) CooldownSubscriptionAccountIfRefreshHolder(ctx context.Context, owner auth.SubscriptionOwner, accountID, leaseID string, expectedVersion int64, cooldownUntil time.Time) error {
 	s.beforeFailure()
-	return s.runtimeStore.CooldownSubscriptionAccountIfRefreshHolder(ctx, ownerID, accountID, leaseID, expectedVersion, cooldownUntil)
+	return s.runtimeStore.CooldownSubscriptionAccountIfRefreshHolder(ctx, owner, accountID, leaseID, expectedVersion, cooldownUntil)
 }
 
 func TestRuntimeFencesFailureAfterCredentialReload(t *testing.T) {
 	for _, status := range []int{http.StatusUnauthorized, http.StatusServiceUnavailable} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
 			store := &refreshFailureRaceStore{runtimeStore: newRuntimeStore(&auth.SubscriptionAccount{
-				ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+				ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 			})}
 			store.refreshTokens["account-1"] = []byte("refresh-old")
 			store.beforeFailure = func() {
@@ -485,7 +487,7 @@ func TestRuntimeFencesFailureAfterCredentialReload(t *testing.T) {
 				store.leaseIDs["account-1"] = "winner"
 				store.leaseUntil["account-1"] = time.Now().Add(time.Minute)
 				store.mu.Unlock()
-				require.NoError(t, store.PersistSubscriptionTokens(context.Background(), "owner-1", "account-1", "winner", 0,
+				require.NoError(t, store.PersistSubscriptionTokens(context.Background(), testOwner, "account-1", "winner", 0,
 					[]byte("refresh-new"), []byte("access-winner"), time.Now().Add(time.Hour)))
 			}
 			runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
@@ -493,7 +495,7 @@ func TestRuntimeFencesFailureAfterCredentialReload(t *testing.T) {
 			}), nil)
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
-			lease, present, err := runtime.Lease(ctx, "owner-1", subscriptions.ProviderClaude, "")
+			lease, present, err := runtime.Lease(ctx, testOwner, subscriptions.ProviderClaude, "")
 			require.NoError(t, err)
 			require.True(t, present)
 			require.Equal(t, "access-winner", lease.AccessToken)
@@ -508,7 +510,7 @@ func TestRuntimeReleasesCanceledRefreshLease(t *testing.T) {
 	for _, requestErr := range []error{context.Canceled, context.DeadlineExceeded} {
 		t.Run(requestErr.Error(), func(t *testing.T) {
 			store := newRuntimeStore(&auth.SubscriptionAccount{
-				ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+				ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 			})
 			store.refreshTokens["account-1"] = []byte("refresh-current")
 			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
@@ -520,14 +522,14 @@ func TestRuntimeReleasesCanceledRefreshLease(t *testing.T) {
 				<-ctx.Done()
 				return subscriptions.RefreshedToken{}, ctx.Err()
 			}), nil)
-			_, present, err := runtime.Lease(ctx, "owner-1", subscriptions.ProviderClaude, "")
+			_, present, err := runtime.Lease(ctx, testOwner, subscriptions.ProviderClaude, "")
 			require.ErrorIs(t, err, requestErr)
 			require.True(t, present)
 			require.Empty(t, store.leaseIDs)
 			require.Empty(t, store.leaseUntil)
 			require.Empty(t, store.enabledUpdates)
 			require.Empty(t, store.cooldowns)
-			acquisition, err := store.TryAcquireSubscriptionRefreshLease(context.Background(), "owner-1", "account-1", "next-holder", time.Minute)
+			acquisition, err := store.TryAcquireSubscriptionRefreshLease(context.Background(), testOwner, "account-1", "next-holder", time.Minute)
 			require.NoError(t, err)
 			require.True(t, acquisition.Acquired)
 		})
@@ -536,7 +538,7 @@ func TestRuntimeReleasesCanceledRefreshLease(t *testing.T) {
 
 func TestRuntimeReleasesOwnedLeaseWhenAdoptingNewCredentials(t *testing.T) {
 	store := newRuntimeStore(&auth.SubscriptionAccount{
-		ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("refresh-old")
 	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
@@ -548,7 +550,7 @@ func TestRuntimeReleasesOwnedLeaseWhenAdoptingNewCredentials(t *testing.T) {
 		store.accessExpiry["account-1"] = time.Now().Add(time.Hour)
 		return subscriptions.RefreshedToken{}, &subscriptions.OAuthRefreshError{Provider: subscriptions.ProviderClaude, Status: http.StatusUnauthorized}
 	}), nil)
-	lease, present, err := runtime.Lease(context.Background(), "owner-1", subscriptions.ProviderClaude, "")
+	lease, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "")
 	require.NoError(t, err)
 	require.True(t, present)
 	require.Equal(t, "access-new", lease.AccessToken)
@@ -563,8 +565,8 @@ type refreshReleaseStore struct {
 	releasedLeaseIDs chan string
 }
 
-func (s *refreshReleaseStore) ReleaseSubscriptionRefreshLease(ctx context.Context, ownerID, accountID, leaseID string) error {
-	if err := s.runtimeStore.ReleaseSubscriptionRefreshLease(ctx, ownerID, accountID, leaseID); err != nil {
+func (s *refreshReleaseStore) ReleaseSubscriptionRefreshLease(ctx context.Context, owner auth.SubscriptionOwner, accountID, leaseID string) error {
+	if err := s.runtimeStore.ReleaseSubscriptionRefreshLease(ctx, owner, accountID, leaseID); err != nil {
 		return err
 	}
 	s.releasedLeaseIDs <- leaseID
@@ -574,7 +576,7 @@ func (s *refreshReleaseStore) ReleaseSubscriptionRefreshLease(ctx context.Contex
 func TestRuntimeStaleTerminalFailureBeforeWinnerPersists(t *testing.T) {
 	store := &refreshReleaseStore{
 		runtimeStore: newRuntimeStore(&auth.SubscriptionAccount{
-			ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+			ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 		}),
 		releasedLeaseIDs: make(chan string, 10),
 	}
@@ -607,7 +609,7 @@ func TestRuntimeStaleTerminalFailureBeforeWinnerPersists(t *testing.T) {
 	}
 	leaseResults := make(chan leaseResult, 2)
 	go func() {
-		lease, _, err := runtimeA.Lease(ctx, "owner-1", subscriptions.ProviderClaude, "session-a")
+		lease, _, err := runtimeA.Lease(ctx, testOwner, subscriptions.ProviderClaude, "session-a")
 		leaseResults <- leaseResult{lease: lease, err: err}
 	}()
 	select {
@@ -620,7 +622,7 @@ func TestRuntimeStaleTerminalFailureBeforeWinnerPersists(t *testing.T) {
 	store.leaseUntil["account-1"] = time.Now().Add(-time.Second)
 	store.mu.Unlock()
 	go func() {
-		lease, _, err := runtimeB.Lease(ctx, "owner-1", subscriptions.ProviderClaude, "session-b")
+		lease, _, err := runtimeB.Lease(ctx, testOwner, subscriptions.ProviderClaude, "session-b")
 		leaseResults <- leaseResult{lease: lease, err: err}
 	}()
 	select {
@@ -662,14 +664,14 @@ func TestRuntimeStaleTerminalFailureBeforeWinnerPersists(t *testing.T) {
 
 func TestRuntimeCurrentRefreshFailureSetsCooldownAndReleases(t *testing.T) {
 	store := newRuntimeStore(&auth.SubscriptionAccount{
-		ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("refresh-current")
 	now := time.Now()
 	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
 		return subscriptions.RefreshedToken{}, &subscriptions.OAuthRefreshError{Provider: subscriptions.ProviderClaude, Status: http.StatusServiceUnavailable}
 	}), func() time.Time { return now })
-	_, present, err := runtime.Lease(context.Background(), "owner-1", subscriptions.ProviderClaude, "")
+	_, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "")
 	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
 	require.True(t, present)
 	require.Equal(t, now.Add(time.Minute), store.cooldowns["account-1"])
@@ -681,7 +683,7 @@ func TestRuntimeCurrentRefreshFailureSetsCooldownAndReleases(t *testing.T) {
 // let a peer take over and double-spend the refresh token.
 func TestRuntimeHeartbeatKeepsLeaseDuringSlowRefresh(t *testing.T) {
 	store := newRuntimeStore(&auth.SubscriptionAccount{
-		ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("refresh-old")
 	const leaseTTL = 60 * time.Millisecond
@@ -689,14 +691,14 @@ func TestRuntimeHeartbeatKeepsLeaseDuringSlowRefresh(t *testing.T) {
 	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
 		// Outlive the original lease window by several heartbeats.
 		time.Sleep(4 * leaseTTL)
-		acquisition, err := store.TryAcquireSubscriptionRefreshLease(context.Background(), "owner-1", "account-1", "peer", leaseTTL)
+		acquisition, err := store.TryAcquireSubscriptionRefreshLease(context.Background(), testOwner, "account-1", "peer", leaseTTL)
 		require.NoError(t, err)
 		peerBlocked <- !acquisition.Acquired
 		return subscriptions.RefreshedToken{AccessToken: "access-new", RefreshToken: "refresh-new", ExpiresAt: time.Now().Add(time.Hour)}, nil
 	}), nil)
 	subscriptions.SetRefreshLeaseTimingForTest(runtime, leaseTTL, leaseTTL/3)
 
-	lease, present, err := runtime.Lease(context.Background(), "owner-1", subscriptions.ProviderClaude, "")
+	lease, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "")
 	require.NoError(t, err)
 	require.True(t, present)
 	require.Equal(t, "access-new", lease.AccessToken)
@@ -710,7 +712,7 @@ func TestRuntimeHeartbeatKeepsLeaseDuringSlowRefresh(t *testing.T) {
 
 func TestRuntimeLostHeartbeatCancelsRefreshWithoutDisabling(t *testing.T) {
 	store := newRuntimeStore(&auth.SubscriptionAccount{
-		ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("refresh-old")
 	const leaseTTL = 60 * time.Millisecond
@@ -731,7 +733,7 @@ func TestRuntimeLostHeartbeatCancelsRefreshWithoutDisabling(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	lease, present, err := runtime.Lease(ctx, "owner-1", subscriptions.ProviderClaude, "")
+	lease, present, err := runtime.Lease(ctx, testOwner, subscriptions.ProviderClaude, "")
 	require.NoError(t, err)
 	require.True(t, present)
 	require.Equal(t, "access-new", lease.AccessToken, "lost lease should retry with a clean acquire")
@@ -743,7 +745,7 @@ func TestRuntimeLostHeartbeatCancelsRefreshWithoutDisabling(t *testing.T) {
 
 func TestRuntimeExtendErrorDoesNotCancelRefresh(t *testing.T) {
 	store := newRuntimeStore(&auth.SubscriptionAccount{
-		ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("refresh-old")
 	store.extendErr = errors.New("database blip")
@@ -758,7 +760,7 @@ func TestRuntimeExtendErrorDoesNotCancelRefresh(t *testing.T) {
 	}), nil)
 	subscriptions.SetRefreshLeaseTimingForTest(runtime, leaseTTL, leaseTTL/3)
 
-	lease, present, err := runtime.Lease(context.Background(), "owner-1", subscriptions.ProviderClaude, "")
+	lease, present, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderClaude, "")
 	require.NoError(t, err)
 	require.True(t, present)
 	require.Equal(t, "access-new", lease.AccessToken)
@@ -771,7 +773,7 @@ func TestRuntimeExtendErrorDoesNotCancelRefresh(t *testing.T) {
 // disabling the account.
 func TestRuntimeTakeoverTerminalRefreshDoesNotDisable(t *testing.T) {
 	store := newRuntimeStore(&auth.SubscriptionAccount{
-		ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("refresh-spent")
 	store.leaseIDs["account-1"] = "crashed-holder"
@@ -784,7 +786,7 @@ func TestRuntimeTakeoverTerminalRefreshDoesNotDisable(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, present, err := runtime.Lease(ctx, "owner-1", subscriptions.ProviderClaude, "")
+	_, present, err := runtime.Lease(ctx, testOwner, subscriptions.ProviderClaude, "")
 	require.True(t, present)
 	require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
 	// First attempt took over and failed closed; the retry acquired cleanly and
@@ -798,7 +800,7 @@ func TestRuntimeTakeoverTerminalRefreshDoesNotDisable(t *testing.T) {
 
 func TestRuntimeTakeoverTerminalRefreshAdoptsWinnerOnRetry(t *testing.T) {
 	store := newRuntimeStore(&auth.SubscriptionAccount{
-		ID: "account-1", APIKeyID: "owner-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
+		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude, Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("refresh-spent")
 	store.leaseIDs["account-1"] = "slow-holder"
@@ -818,7 +820,7 @@ func TestRuntimeTakeoverTerminalRefreshAdoptsWinnerOnRetry(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	lease, present, err := runtime.Lease(ctx, "owner-1", subscriptions.ProviderClaude, "")
+	lease, present, err := runtime.Lease(ctx, testOwner, subscriptions.ProviderClaude, "")
 	require.NoError(t, err)
 	require.True(t, present)
 	require.Equal(t, "access-winner", lease.AccessToken)
@@ -826,4 +828,32 @@ func TestRuntimeTakeoverTerminalRefreshAdoptsWinnerOnRetry(t *testing.T) {
 	require.Empty(t, store.enabledUpdates)
 	require.Empty(t, store.cooldowns)
 	lease.Release()
+}
+
+// A subscriber presenting a second harness key must reach the pool its first
+// key populated, and a legacy api-key owner must not.
+func TestRuntimeSharesPoolAcrossSubscriberKeys(t *testing.T) {
+	store := newRuntimeStore(&auth.SubscriptionAccount{
+		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1",
+		Provider: auth.SubscriptionProviderClaude, ExternalAccountID: "claude-1", Enabled: true,
+	})
+	store.refreshTokens["account-1"] = []byte("refresh-secret")
+	runtime := subscriptions.NewRuntime(store, runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
+		return subscriptions.RefreshedToken{AccessToken: "access", RefreshToken: "refresh-secret", ExpiresAt: time.Now().Add(time.Hour)}, nil
+	}), nil)
+
+	lease, present, err := runtime.Lease(context.Background(),
+		auth.SubscriptionOwner{SubscriberID: "subscriber-1", APIKeyID: "key-1"}, subscriptions.ProviderClaude, "")
+	require.NoError(t, err)
+	require.True(t, present)
+	lease.Release()
+
+	rotated := auth.SubscriptionOwner{SubscriberID: "subscriber-1", APIKeyID: "key-2"}
+	resetAt := time.Now().Add(time.Minute)
+	require.NoError(t, runtime.Cooldown(context.Background(), rotated, subscriptions.ProviderClaude, "account-1", resetAt))
+	require.Equal(t, resetAt, store.cooldowns["account-1"])
+
+	legacy := auth.SubscriptionOwner{APIKeyID: "key-1"}
+	require.ErrorIs(t, runtime.Cooldown(context.Background(), legacy, subscriptions.ProviderClaude, "account-1", resetAt),
+		subscriptions.ErrNoAvailableAccount)
 }

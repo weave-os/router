@@ -527,7 +527,7 @@ type RouterModelRouterRequestTelemetry struct {
 
 type RouterModelRouterSubscriptionAccount struct {
 	ID                     uuid.UUID
-	APIKeyID               uuid.UUID
+	APIKeyID               pgtype.UUID
 	Provider               string
 	ExternalAccountID      string
 	RefreshTokenCiphertext []byte
@@ -540,6 +540,7 @@ type RouterModelRouterSubscriptionAccount struct {
 	TokenRefreshLeaseUntil pgtype.Timestamp
 	TokenRefreshLeaseID    pgtype.UUID
 	TokenRefreshVersion    int64
+	SubscriberID           pgtype.UUID
 }
 
 // End-user identities seen on inbound requests, scoped to an installation. Replaces the per-user API key pattern.

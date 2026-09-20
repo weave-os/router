@@ -100,34 +100,34 @@ type failingSubscriptionAccountRepository struct{ err error }
 func (r failingSubscriptionAccountRepository) UpsertSubscriptionAccount(context.Context, auth.CreateSubscriptionAccountParams) (*auth.SubscriptionAccount, error) {
 	return nil, r.err
 }
-func (r failingSubscriptionAccountRepository) ListSubscriptionAccounts(context.Context, string) ([]*auth.SubscriptionAccount, error) {
+func (r failingSubscriptionAccountRepository) ListSubscriptionAccounts(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error) {
 	return nil, r.err
 }
-func (r failingSubscriptionAccountRepository) UpdateSubscriptionAccountState(context.Context, string, string, bool, *time.Time) error {
+func (r failingSubscriptionAccountRepository) UpdateSubscriptionAccountState(context.Context, string, auth.SubscriptionOwner, bool, *time.Time) error {
 	return r.err
 }
-func (r failingSubscriptionAccountRepository) UpdateSubscriptionAccountCooldown(context.Context, string, string, time.Time) error {
+func (r failingSubscriptionAccountRepository) UpdateSubscriptionAccountCooldown(context.Context, string, auth.SubscriptionOwner, time.Time) error {
 	return r.err
 }
-func (r failingSubscriptionAccountRepository) UpdateSubscriptionRefreshToken(context.Context, string, string, []byte) error {
+func (r failingSubscriptionAccountRepository) UpdateSubscriptionRefreshToken(context.Context, string, auth.SubscriptionOwner, []byte) error {
 	return r.err
 }
-func (r failingSubscriptionAccountRepository) DeleteSubscriptionAccount(context.Context, string, string) error {
+func (r failingSubscriptionAccountRepository) DeleteSubscriptionAccount(context.Context, string, auth.SubscriptionOwner) error {
 	return r.err
 }
-func (r failingSubscriptionAccountRepository) TryAcquireSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (auth.RefreshLeaseAcquisition, error) {
+func (r failingSubscriptionAccountRepository) TryAcquireSubscriptionRefreshLease(context.Context, string, auth.SubscriptionOwner, string, time.Duration) (auth.RefreshLeaseAcquisition, error) {
 	return auth.RefreshLeaseAcquisition{}, r.err
 }
-func (r failingSubscriptionAccountRepository) ExtendSubscriptionRefreshLease(context.Context, string, string, string, time.Duration) (int64, error) {
+func (r failingSubscriptionAccountRepository) ExtendSubscriptionRefreshLease(context.Context, string, auth.SubscriptionOwner, string, time.Duration) (int64, error) {
 	return 0, r.err
 }
-func (r failingSubscriptionAccountRepository) ReleaseSubscriptionRefreshLease(context.Context, string, string, string) error {
+func (r failingSubscriptionAccountRepository) ReleaseSubscriptionRefreshLease(context.Context, string, auth.SubscriptionOwner, string) error {
 	return r.err
 }
-func (r failingSubscriptionAccountRepository) GetSubscriptionCredentialRecord(context.Context, string, string) (*auth.SubscriptionCredentialRecord, error) {
+func (r failingSubscriptionAccountRepository) GetSubscriptionCredentialRecord(context.Context, string, auth.SubscriptionOwner) (*auth.SubscriptionCredentialRecord, error) {
 	return nil, r.err
 }
-func (r failingSubscriptionAccountRepository) PersistSubscriptionTokens(context.Context, string, string, string, int64, []byte, []byte, time.Time) error {
+func (r failingSubscriptionAccountRepository) PersistSubscriptionTokens(context.Context, string, auth.SubscriptionOwner, string, int64, []byte, []byte, time.Time) error {
 	return r.err
 }
 
@@ -538,9 +538,9 @@ func TestWithAuthMalformedPrefixStays401(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "invalid_key")
 }
 
-func (r failingSubscriptionAccountRepository) DisableSubscriptionAccountIfRefreshHolder(context.Context, string, string, string, int64) error {
+func (r failingSubscriptionAccountRepository) DisableSubscriptionAccountIfRefreshHolder(context.Context, string, auth.SubscriptionOwner, string, int64) error {
 	return r.err
 }
-func (r failingSubscriptionAccountRepository) CooldownSubscriptionAccountIfRefreshHolder(context.Context, string, string, string, int64, time.Time) error {
+func (r failingSubscriptionAccountRepository) CooldownSubscriptionAccountIfRefreshHolder(context.Context, string, auth.SubscriptionOwner, string, int64, time.Time) error {
 	return r.err
 }

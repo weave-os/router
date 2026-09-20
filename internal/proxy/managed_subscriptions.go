@@ -27,6 +27,25 @@ type ManagedSubscriptionEnrollmentUnavailableContextKey struct{}
 // ManagedSubscriptionUsageContextKey carries per-request billing attribution.
 type ManagedSubscriptionUsageContextKey struct{}
 
+// SubscriptionOwnerContextKey carries the linked-account owner resolved by the
+// auth middleware.
+type SubscriptionOwnerContextKey struct{}
+
+// WithSubscriptionOwner records which linked accounts this request may serve.
+func WithSubscriptionOwner(ctx context.Context, owner auth.SubscriptionOwner) context.Context {
+	return context.WithValue(ctx, SubscriptionOwnerContextKey{}, owner)
+}
+
+// subscriptionOwnerFromContext resolves the pool this request draws from. It
+// falls back to the authenticated key so a request authenticated before the
+// owner was resolved still reaches its legacy accounts and nothing else.
+func subscriptionOwnerFromContext(ctx context.Context) auth.SubscriptionOwner {
+	if owner, ok := ctx.Value(SubscriptionOwnerContextKey{}).(auth.SubscriptionOwner); ok && owner.Valid() {
+		return owner
+	}
+	return auth.SubscriptionOwner{APIKeyID: apiKeyIDFromContext(ctx)}
+}
+
 // ManagedSubscriptionUsage is request-local attribution shared by the auth
 // middleware context and provider-specific dispatch attempt contexts.
 type ManagedSubscriptionUsage struct {
@@ -120,7 +139,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		}
 		return ctx, subscriptions.Lease{}, false, nil
 	}
-	ownerID := apiKeyIDFromContext(ctx)
+	owner := subscriptionOwnerFromContext(ctx)
 	sessionID := ClientIdentityFrom(ctx).SessionID
 	rejected := make([]subscriptions.Lease, 0, 1)
 	defer func() {
@@ -133,7 +152,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 	for {
 		var present bool
 		var err error
-		lease, present, err = s.managedSubscriptions.Lease(ctx, ownerID, poolProvider, sessionID)
+		lease, present, err = s.managedSubscriptions.Lease(ctx, owner, poolProvider, sessionID)
 		if err != nil {
 			if errors.Is(err, subscriptions.ErrNoAvailableAccount) {
 				if len(rejected) > 0 && !billing.SubscriptionOnlyFromContext(ctx) && s.anthropicFallbackKeyAvailable(ctx) {
@@ -155,7 +174,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		if !present {
 			return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolExhausted
 		}
-		if !s.subscriptionModels.managedDenied(ownerID, lease.AccountID, provider, model, s.clockNow()) {
+		if !s.subscriptionModels.managedDenied(owner.PoolKey(), lease.AccountID, provider, model, s.clockNow()) {
 			break
 		}
 		if _, duplicate := seen[lease.AccountID]; duplicate {
@@ -183,8 +202,9 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 		return false
 	}
 	status := upstreamStatus(attemptErr)
+	owner := subscriptionOwnerFromContext(ctx)
 	if provider == providers.ProviderAnthropic && anthropicSubscriptionModelRejected(attemptErr) {
-		s.subscriptionModels.denyManaged(apiKeyIDFromContext(ctx), lease.AccountID, provider, model, s.clockNow().Add(subscriptionModelDenialTTL))
+		s.subscriptionModels.denyManaged(owner.PoolKey(), lease.AccountID, provider, model, s.clockNow().Add(subscriptionModelDenialTTL))
 		observability.FromContext(ctx).Warn("Managed subscription account cannot access model",
 			"provider", poolProvider, "account_id", lease.AccountID, "model", model)
 		return true
@@ -192,7 +212,7 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 	switch status {
 	case http.StatusTooManyRequests:
 		resetAt := managedSubscriptionResetAt(attemptErr, s.clockNow())
-		if err := s.managedSubscriptions.Cooldown(ctx, apiKeyIDFromContext(ctx), poolProvider, lease.AccountID, resetAt); err != nil {
+		if err := s.managedSubscriptions.Cooldown(ctx, owner, poolProvider, lease.AccountID, resetAt); err != nil {
 			observability.FromContext(ctx).Error("Failed to persist subscription account cooldown",
 				"provider", poolProvider, "account_id", lease.AccountID, "err", err)
 		}
@@ -200,7 +220,7 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 			"provider", poolProvider, "account_id", lease.AccountID, "cooldown_until", resetAt)
 		return true
 	case http.StatusUnauthorized, http.StatusForbidden:
-		if err := s.managedSubscriptions.Disable(ctx, apiKeyIDFromContext(ctx), poolProvider, lease.AccountID); err != nil {
+		if err := s.managedSubscriptions.Disable(ctx, owner, poolProvider, lease.AccountID); err != nil {
 			observability.FromContext(ctx).Error("Failed to disable rejected subscription account",
 				"provider", poolProvider, "account_id", lease.AccountID, "err", err)
 		}

@@ -26,12 +26,14 @@ type scriptedSubscriptionLeaser struct {
 	next        int
 	repeatLast  bool
 	providers   []subscriptions.Provider
+	owners      []auth.SubscriptionOwner
 	cooldownIDs []string
 	disabledIDs []string
 }
 
-func (s *scriptedSubscriptionLeaser) Lease(_ context.Context, _ string, provider subscriptions.Provider, _ string) (subscriptions.Lease, bool, error) {
+func (s *scriptedSubscriptionLeaser) Lease(_ context.Context, owner auth.SubscriptionOwner, provider subscriptions.Provider, _ string) (subscriptions.Lease, bool, error) {
 	s.providers = append(s.providers, provider)
+	s.owners = append(s.owners, owner)
 	if s.next >= len(s.leases) {
 		if s.repeatLast && len(s.leases) > 0 {
 			return s.leases[len(s.leases)-1], true, nil
@@ -43,12 +45,12 @@ func (s *scriptedSubscriptionLeaser) Lease(_ context.Context, _ string, provider
 	return lease, true, nil
 }
 
-func (s *scriptedSubscriptionLeaser) Cooldown(_ context.Context, _ string, _ subscriptions.Provider, accountID string, _ time.Time) error {
+func (s *scriptedSubscriptionLeaser) Cooldown(_ context.Context, _ auth.SubscriptionOwner, _ subscriptions.Provider, accountID string, _ time.Time) error {
 	s.cooldownIDs = append(s.cooldownIDs, accountID)
 	return nil
 }
 
-func (s *scriptedSubscriptionLeaser) Disable(_ context.Context, _ string, _ subscriptions.Provider, accountID string) error {
+func (s *scriptedSubscriptionLeaser) Disable(_ context.Context, _ auth.SubscriptionOwner, _ subscriptions.Provider, accountID string) error {
 	s.disabledIDs = append(s.disabledIDs, accountID)
 	return nil
 }

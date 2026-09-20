@@ -103,8 +103,10 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
 		if apiKey != nil {
 			ctx = context.WithValue(ctx, proxy.APIKeyIDContextKey{}, apiKey.ID)
 			ctx = proxy.WithManagedSubscriptionUsage(ctx)
+			owner := auth.SubscriptionOwnerForKey(apiKey)
+			ctx = proxy.WithSubscriptionOwner(ctx, owner)
 			if svc.SubscriptionAccountsEnabled() {
-				accounts, listErr := svc.ListSubscriptionAccounts(ctx, apiKey.ID)
+				accounts, listErr := svc.ListSubscriptionAccounts(ctx, owner)
 				if listErr != nil {
 					observability.FromContext(ctx).Error("Failed to load subscription account enrollment", "err", listErr)
 					ctx = context.WithValue(ctx, proxy.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
