@@ -51,7 +51,7 @@ func run() error {
 		return err
 	}
 	if clientTLS {
-		observability.Get().Info("Postgres connections authenticate with a client certificate", "component", "router_gateway", "operation", "boot")
+		observability.FromContext(ctx).Info("Postgres connections authenticate with a client certificate", "component", "router_gateway", "operation", "boot")
 	}
 	poolConfig.ConnConfig.RuntimeParams["search_path"] = "router,public"
 	poolConfig.MaxConns = 6
