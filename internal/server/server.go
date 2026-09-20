@@ -25,6 +25,7 @@ import (
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/server/middleware"
+	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/gin-gonic/gin"
 )
@@ -108,6 +109,10 @@ type Features struct {
 	// ServingAdmission verifies gateway assertions and pins request snapshots.
 	// Nil keeps legacy/self-hosted workers on their existing admission path.
 	ServingAdmission *middleware.ServingAdmissionConfig
+	// SubscriberAllowance gates inference on an individual Max/Boost
+	// subscriber's included Router allowance. Nil leaves every request on the
+	// org/prepaid billing gates alone.
+	SubscriberAllowance *entitlement.Service
 }
 
 // RegisterWithFeatures is Register with optional request features enabled.
@@ -136,6 +141,12 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	var policyPinMiddleware []gin.HandlerFunc
 	if features.PolicyPinEnabled {
 		policyPinMiddleware = []gin.HandlerFunc{middleware.WithPolicyPinOverride()}
+	}
+	// Ahead of the org billing gates: a covered subscriber turn debits no org
+	// balance, so its verdict decides whether those gates see a chargeable turn.
+	var subscriberAllowanceMiddleware []gin.HandlerFunc
+	if features.SubscriberAllowance != nil {
+		subscriberAllowanceMiddleware = []gin.HandlerFunc{middleware.WithSubscriberAllowance(features.SubscriberAllowance)}
 	}
 	var servingAdmissionMiddleware []gin.HandlerFunc
 	if features.ServingAdmission != nil {
@@ -279,6 +290,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	}
 	messagesMiddleware = append(messagesMiddleware, servingAdmissionMiddleware...)
 	messagesMiddleware = append(messagesMiddleware, middleware.WithAgentShadowEvaluation())
+	messagesMiddleware = append(messagesMiddleware, subscriberAllowanceMiddleware...)
 	if billingSvc != nil {
 		messagesMiddleware = append(messagesMiddleware,
 			middleware.WithBillingSpan(),
@@ -308,6 +320,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithAuth(authSvc, byokRequiresOptIn),
 	}
 	chatCompletionMiddleware = append(chatCompletionMiddleware, servingAdmissionMiddleware...)
+	chatCompletionMiddleware = append(chatCompletionMiddleware, subscriberAllowanceMiddleware...)
 	if billingSvc != nil {
 		chatCompletionMiddleware = append(chatCompletionMiddleware,
 			middleware.WithBillingSpan(),

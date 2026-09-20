@@ -5,6 +5,7 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/subscriptions/entitlement"
 )
 
 // hasOverrideContextKeyT lives in billing (not middleware/proxy) so both
@@ -80,6 +81,7 @@ type Service struct {
 	repo        Repo
 	autopay     AutopayNotifier
 	byokFeeRate float64
+	allowances  SubscriberAllowanceSettler
 }
 
 // NewService constructs a billing service. The Repo is required; nil panics
@@ -109,6 +111,20 @@ type AutopayNotifier interface {
 // the service for chaining. Wired only in managed mode.
 func (s *Service) WithAutopayNotifier(n AutopayNotifier) *Service {
 	s.autopay = n
+	return s
+}
+
+// SubscriberAllowanceSettler books a served action's retail cost against an
+// individual subscriber's included Router allowance. Implemented by
+// subscriptions/entitlement.Service; nil leaves subscription metering off.
+type SubscriberAllowanceSettler interface {
+	Settle(context.Context, entitlement.Settlement) error
+}
+
+// WithSubscriberAllowance attaches individual-subscription metering and
+// returns the service for chaining. Wired only in managed mode.
+func (s *Service) WithSubscriberAllowance(settler SubscriberAllowanceSettler) *Service {
+	s.allowances = settler
 	return s
 }
 
@@ -233,11 +249,18 @@ type DebitInferenceParams struct {
 // upstream cost (no fee row when the rate is zero).
 // Override and subscription outrank BYOK.
 //
+// A turn admitted against an individual Max/Boost allowance also debits 0 and
+// meters the retail cost against that allowance instead — the subscription
+// already bought the capacity, so charging the org balance too would bill it
+// twice. An Enterprise turn carries no coverage and is unaffected.
+//
 // Returns the post-debit balance (0 on override, since balance doesn't
 // change).
 func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams) (int64, error) {
 	warnOnUnknownPricing(p)
 	notional := computeNotionalMicros(p)
+	coverage, hasCoverage := entitlement.CoverageFromContext(ctx)
+	subscriberCovered := hasCoverage && s.allowances != nil && !p.HasOverride && !p.SubscriptionServed && !p.ByokServed
 	delta := -notional
 	var fee int64
 	switch {
@@ -248,6 +271,9 @@ func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams)
 		// Customer paid their upstream directly; Weave charges only the fee.
 		delta = 0
 		fee = -s.byokFeeMicros(notional)
+	case subscriberCovered:
+		// Paid for by the individual subscription's included allowance.
+		delta = 0
 	}
 	balanceAfter, err := s.repo.DebitInference(ctx, DebitParams{
 		OrganizationID:     p.OrganizationID,
@@ -265,7 +291,39 @@ func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams)
 		return balanceAfter, err
 	}
 	s.maybeSignalRecharge(ctx, p.OrganizationID, delta+fee, balanceAfter)
+	if subscriberCovered {
+		s.meterSubscriberAllowance(ctx, p, coverage, notional)
+	}
 	return balanceAfter, nil
+}
+
+// meterSubscriberAllowance books the turn against the allowance windows the
+// request was admitted under. A settlement failure is logged and dropped
+// rather than failing the served turn: the response has already gone out, and
+// the worst case is one unmetered turn against the next admission read.
+func (s *Service) meterSubscriberAllowance(ctx context.Context, p DebitInferenceParams, coverage entitlement.Coverage, retailMicros int64) {
+	actionID, ok := entitlement.NextActionID(ctx, p.RouterRequestID)
+	if !ok {
+		return
+	}
+	err := s.allowances.Settle(ctx, entitlement.Settlement{
+		Coverage:        coverage,
+		ActionID:        actionID,
+		RouterRequestID: p.RouterRequestID,
+		APIKeyID:        p.APIKeyID,
+		RequestedModel:  p.Model,
+		ServedModel:     p.Model,
+		RetailUsdMicros: retailMicros,
+		CapacitySource:  entitlement.CapacitySourceIncludedRouter,
+	})
+	if err != nil {
+		observability.FromContext(ctx).Error("Subscriber allowance settlement failed; turn is unmetered",
+			"err", err,
+			"subscriber_id", string(coverage.SubscriberID),
+			"router_request_id", p.RouterRequestID,
+			"retail_usd_micros", retailMicros,
+		)
+	}
 }
 
 // maybeSignalRecharge fires once, on the debit that crosses the org's

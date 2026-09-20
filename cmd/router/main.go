@@ -62,6 +62,7 @@ import (
 	"weave-os/router/internal/server"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions"
+	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/websearch"
 	"weave-os/router/internal/wif"
 
@@ -1424,7 +1425,19 @@ func main() {
 	if policyPinEnabled {
 		logger.Info("Policy pin header enabled", "header", middleware.PolicyPinOverrideHeader)
 	}
-	server.RegisterWithFeatures(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, server.Features{PolicyPinEnabled: policyPinEnabled, ServingAdmission: servingAdmission})
+	// ROUTER_SUBSCRIBER_ALLOWANCE_ENABLED=true enforces and meters individual
+	// Max/Boost allowances. Needs billing wired: enforcement only means
+	// anything where the same turn would otherwise debit an org balance.
+	var subscriberAllowanceSvc *entitlement.Service
+	if billingSvc != nil && strings.EqualFold(config.GetOr("ROUTER_SUBSCRIBER_ALLOWANCE_ENABLED", "false"), "true") {
+		subscriberAllowanceSvc = entitlement.NewService(
+			postgres.NewSubscriberEntitlementRepo(pool),
+			postgres.NewSubscriberAllowanceRepo(pool),
+		)
+		billingSvc = billingSvc.WithSubscriberAllowance(subscriberAllowanceSvc)
+		logger.Info("Individual subscriber allowance enforcement enabled")
+	}
+	server.RegisterWithFeatures(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, server.Features{PolicyPinEnabled: policyPinEnabled, ServingAdmission: servingAdmission, SubscriberAllowance: subscriberAllowanceSvc})
 
 	srv := &http.Server{
 		Addr:    ":" + config.GetOr("PORT", "8080"),
