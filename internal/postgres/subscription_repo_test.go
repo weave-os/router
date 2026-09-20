@@ -229,40 +229,74 @@ func TestSubscriptionAccountConcurrentFirstEnrollmentConverges(t *testing.T) {
 
 	// Two harness keys of one subscriber linking the same provider account at
 	// once: neither sees an existing row to lock, so both reach the insert.
-	owners := []auth.SubscriptionOwner{
-		{SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()},
-		{SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA2.String()},
+	owners := fixture.subscriberAKeys()
+	enrolled := concurrentEnrollments(t, repo, "claude-concurrent", owners)
+	assert.Equal(t, enrolled[0].ID, enrolled[1].ID, "concurrent enrollment converges on one account")
+
+	accounts, err := repo.ListSubscriptionAccounts(context.Background(), owners[0])
+	require.NoError(t, err)
+	assert.Len(t, accounts, 1)
+}
+
+func TestSubscriptionAccountConcurrentLegacyAdoptionConverges(t *testing.T) {
+	fixture := newSubscriptionFixture(t)
+	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
+
+	// The migration leaves duplicates of one provider account api-key-owned, so
+	// two keys of one subscriber reconnecting at once adopt different rows.
+	fixture.legacyRow(t, fixture.keyA1, "claude", "claude-duplicated")
+	fixture.legacyRow(t, fixture.keyA2, "claude", "claude-duplicated")
+
+	owners := fixture.subscriberAKeys()
+	adopted := concurrentEnrollments(t, repo, "claude-duplicated", owners)
+	assert.Equal(t, adopted[0].ID, adopted[1].ID, "concurrent adoption converges on one account")
+
+	var owned, unmerged int
+	require.NoError(t, fixture.pool.QueryRow(context.Background(), `
+		SELECT count(*) FILTER (WHERE subscriber_id IS NOT NULL), count(*) FILTER (WHERE subscriber_id IS NULL)
+		FROM router.model_router_subscription_accounts
+		WHERE external_account_id = 'claude-duplicated'`).Scan(&owned, &unmerged))
+	assert.Equal(t, 1, owned, "only one duplicate becomes subscriber-owned")
+	assert.Equal(t, 1, unmerged, "the losing duplicate stays api-key-owned rather than merged")
+}
+
+func (f subscriptionFixture) subscriberAKeys() []auth.SubscriptionOwner {
+	return []auth.SubscriptionOwner{
+		{SubscriberID: f.subscriberA.String(), APIKeyID: f.keyA1.String()},
+		{SubscriberID: f.subscriberA.String(), APIKeyID: f.keyA2.String()},
 	}
+}
+
+func concurrentEnrollments(
+	t *testing.T,
+	repo auth.SubscriptionAccountRepository,
+	externalAccountID string,
+	owners []auth.SubscriptionOwner,
+) []*auth.SubscriptionAccount {
+	t.Helper()
 	start := make(chan struct{})
-	results := make(chan *auth.SubscriptionAccount, len(owners))
-	errs := make(chan error, len(owners))
+	accounts := make([]*auth.SubscriptionAccount, len(owners))
+	errs := make([]error, len(owners))
 	var wait sync.WaitGroup
-	for _, owner := range owners {
+	for index, owner := range owners {
 		wait.Add(1)
 		go func() {
 			defer wait.Done()
 			<-start
-			account, err := repo.UpsertSubscriptionAccount(context.Background(), auth.CreateSubscriptionAccountParams{
+			accounts[index], errs[index] = repo.UpsertSubscriptionAccount(context.Background(), auth.CreateSubscriptionAccountParams{
 				Owner: owner, Provider: auth.SubscriptionProviderClaude,
-				ExternalAccountID: "claude-concurrent", RefreshToken: []byte("ciphertext"),
+				ExternalAccountID: externalAccountID, RefreshToken: []byte("ciphertext"),
 			})
-			results <- account
-			errs <- err
 		}()
 	}
 	close(start)
 	wait.Wait()
 
-	require.NoError(t, <-errs)
-	require.NoError(t, <-errs)
-	first, second := <-results, <-results
-	require.NotNil(t, first)
-	require.NotNil(t, second)
-	assert.Equal(t, first.ID, second.ID, "concurrent enrollment converges on one account")
-
-	accounts, err := repo.ListSubscriptionAccounts(context.Background(), owners[0])
-	require.NoError(t, err)
-	assert.Len(t, accounts, 1)
+	for index := range owners {
+		require.NoError(t, errs[index])
+		require.NotNil(t, accounts[index])
+	}
+	return accounts
 }
 
 func TestSubscriptionRefreshLeaseSurvivesKeyRotation(t *testing.T) {

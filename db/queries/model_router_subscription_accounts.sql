@@ -2,7 +2,9 @@
 -- subject, so a rotated or second harness key reaches the same row; api_key_id
 -- records which key enrolled it. A legacy row still owned by the enrolling key
 -- is adopted rather than duplicated, and the oldest one wins so concurrent
--- legacy duplicates from other keys are left untouched instead of merged.
+-- legacy duplicates from other keys are left untouched instead of merged. The
+-- id tiebreak keeps that choice deterministic, so two keys adopting at once
+-- converge on one row instead of racing for the subscriber-owned unique index.
 -- name: UpsertModelRouterSubscriptionAccountForSubscriber :one
 WITH owned AS (
   SELECT id
@@ -11,7 +13,7 @@ WITH owned AS (
     AND external_account_id = @external_account_id::varchar
     AND (subscriber_id = @subscriber_id::uuid
          OR (subscriber_id IS NULL AND api_key_id = @api_key_id::uuid))
-  ORDER BY (subscriber_id IS NULL), created_at
+  ORDER BY (subscriber_id IS NULL), created_at, id
   LIMIT 1
   FOR UPDATE
 ),

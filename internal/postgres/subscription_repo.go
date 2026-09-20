@@ -10,7 +10,14 @@ import (
 	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+)
+
+const (
+	uniqueViolationCode             = "23505"
+	subscriberAccountUniqueIndex    = "model_router_subscription_accounts_subscriber_account_idx"
+	subscriberEnrollmentMaxAttempts = 3
 )
 
 type subscriptionAccountRepo struct{ tx sqlc.DBTX }
@@ -50,15 +57,29 @@ func (r *subscriptionAccountRepo) UpsertSubscriptionAccount(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	row, err := sqlc.New(r.tx).UpsertModelRouterSubscriptionAccountForSubscriber(ctx, sqlc.UpsertModelRouterSubscriptionAccountForSubscriberParams{
-		SubscriberID: subscriberID, APIKeyID: apiKeyID, Provider: string(params.Provider),
-		ExternalAccountID: params.ExternalAccountID, RefreshTokenCiphertext: params.RefreshToken,
-	})
-	if err != nil {
-		return nil, err
+	// Concurrent enrollments can each adopt a different legacy duplicate of the
+	// same account, so the loser hits the subscriber-owned unique index. A retry
+	// reads the winning row and adopts that one instead of a second duplicate.
+	for attempt := 0; ; attempt++ {
+		row, err := sqlc.New(r.tx).UpsertModelRouterSubscriptionAccountForSubscriber(ctx, sqlc.UpsertModelRouterSubscriptionAccountForSubscriberParams{
+			SubscriberID: subscriberID, APIKeyID: apiKeyID, Provider: string(params.Provider),
+			ExternalAccountID: params.ExternalAccountID, RefreshTokenCiphertext: params.RefreshToken,
+		})
+		if err == nil {
+			return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID,
+				row.RefreshTokenCiphertext, row.Enabled, row.CooldownUntil, row.CreatedAt), nil
+		}
+		if attempt == subscriberEnrollmentMaxAttempts-1 || !isSubscriberAccountConflict(err) {
+			return nil, err
+		}
 	}
-	return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID,
-		row.RefreshTokenCiphertext, row.Enabled, row.CooldownUntil, row.CreatedAt), nil
+}
+
+func isSubscriberAccountConflict(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) &&
+		pgErr.Code == uniqueViolationCode &&
+		pgErr.ConstraintName == subscriberAccountUniqueIndex
 }
 
 func (r *subscriptionAccountRepo) UpdateSubscriptionAccountCooldown(ctx context.Context, accountID string, owner auth.SubscriptionOwner, cooldownUntil time.Time) error {
