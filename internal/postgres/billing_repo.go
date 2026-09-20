@@ -144,16 +144,35 @@ func (r *BillingRepo) GetOrgMonthlySpendAndLimit(ctx context.Context, organizati
 // Maps pgx.ErrNoRows (org never configured autopay) to enabled=false with a nil
 // error so the debit hook skips the crossing check rather than treating a
 // missing row as a failure.
-func (r *BillingRepo) GetAutopayConfig(ctx context.Context, orgID string) (bool, int64, error) {
+func (r *BillingRepo) GetAutopayConfig(ctx context.Context, owner billing.Owner) (bool, int64, error) {
+	if err := owner.Validate(); err != nil {
+		return false, 0, err
+	}
 	q := sqlc.New(r.tx)
-	row, err := q.GetAutopayConfig(ctx, orgID)
+	var enabled bool
+	var threshold int64
+	var err error
+	switch owner.Kind {
+	case billing.OwnerKindOrganization:
+		row, queryErr := q.GetAutopayConfig(ctx, owner.OrganizationID)
+		enabled, threshold, err = row.Enabled, row.ThresholdUsdMicros, queryErr
+	case billing.OwnerKindSubscriber:
+		subscriberID, parseErr := uuid.Parse(owner.SubscriberID)
+		if parseErr != nil {
+			return false, 0, billing.ErrInvalidOwner
+		}
+		row, queryErr := q.GetSubscriberAutopayConfig(ctx, subscriberID)
+		enabled, threshold, err = row.Enabled, row.ThresholdUsdMicros, queryErr
+	default:
+		return false, 0, billing.ErrInvalidOwner
+	}
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, 0, nil
 		}
 		return false, 0, err
 	}
-	return row.Enabled, row.ThresholdUsdMicros, nil
+	return enabled, threshold, nil
 }
 
 // BillingTablesExist runs the boot-time health check. Returns true when

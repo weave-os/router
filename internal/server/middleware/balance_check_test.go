@@ -59,7 +59,7 @@ func (r *stubBillingRepo) GetOrgMonthlySpendAndLimit(_ context.Context, _ string
 func (r *stubBillingRepo) BillingTablesExist(_ context.Context) (bool, error) {
 	return true, nil
 }
-func (r *stubBillingRepo) GetAutopayConfig(_ context.Context, _ string) (bool, int64, error) {
+func (r *stubBillingRepo) GetAutopayConfig(_ context.Context, _ billing.Owner) (bool, int64, error) {
 	return false, 0, nil
 }
 

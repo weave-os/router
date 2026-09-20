@@ -7,6 +7,8 @@ package sqlc
 
 import (
 	"context"
+
+	"github.com/google/uuid"
 )
 
 const getAutopayConfig = `-- name: GetAutopayConfig :one
@@ -33,6 +35,29 @@ type GetAutopayConfigRow struct {
 func (q *Queries) GetAutopayConfig(ctx context.Context, organizationID string) (GetAutopayConfigRow, error) {
 	row := q.db.QueryRow(ctx, getAutopayConfig, organizationID)
 	var i GetAutopayConfigRow
+	err := row.Scan(&i.Enabled, &i.ThresholdUsdMicros)
+	return i, err
+}
+
+const getSubscriberAutopayConfig = `-- name: GetSubscriberAutopayConfig :one
+SELECT enabled, threshold_usd_micros
+FROM router.subscriber_autopay_config
+WHERE subscriber_id = $1::uuid
+`
+
+type GetSubscriberAutopayConfigRow struct {
+	Enabled            bool
+	ThresholdUsdMicros int64
+}
+
+// Returns the subscriber's autopay configuration read by the prepaid settlement hook.
+//
+//	SELECT enabled, threshold_usd_micros
+//	FROM router.subscriber_autopay_config
+//	WHERE subscriber_id = $1::uuid
+func (q *Queries) GetSubscriberAutopayConfig(ctx context.Context, subscriberID uuid.UUID) (GetSubscriberAutopayConfigRow, error) {
+	row := q.db.QueryRow(ctx, getSubscriberAutopayConfig, subscriberID)
+	var i GetSubscriberAutopayConfigRow
 	err := row.Scan(&i.Enabled, &i.ThresholdUsdMicros)
 	return i, err
 }

@@ -145,12 +145,12 @@ func (s *Service) WithByokFeeRate(rate float64) *Service {
 	return s
 }
 
-// AutopayNotifier signals the control plane that an org's balance just
+// AutopayNotifier signals the control plane that a prepaid owner's balance just
 // crossed below its autopay threshold. Implemented by a Pub/Sub adapter in
 // internal/pubsub; nil disables the crossing check (selfhosted, or topic
 // env unset).
 type AutopayNotifier interface {
-	NotifyRechargeNeeded(organizationID string)
+	NotifyRechargeNeeded(owner Owner)
 }
 
 // WithAutopayNotifier attaches the autopay recharge signaller and returns
@@ -362,7 +362,7 @@ func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams)
 	if err != nil {
 		return balanceAfter, err
 	}
-	s.maybeSignalRecharge(ctx, p.OrganizationID, delta+fee, balanceAfter)
+	s.maybeSignalRecharge(ctx, OrganizationOwner(p.OrganizationID), delta+fee, balanceAfter)
 	return balanceAfter, nil
 }
 
@@ -394,6 +394,7 @@ func (s *Service) settleSubscriberPrepaid(ctx context.Context, p DebitInferenceP
 		)
 		return balanceAfter, err
 	}
+	s.maybeSignalRecharge(ctx, authorization.Owner, -retailMicros, balanceAfter)
 	return balanceAfter, nil
 }
 
@@ -432,19 +433,24 @@ func (s *Service) meterSubscriberAllowance(ctx context.Context, p DebitInference
 	return false, err
 }
 
-// maybeSignalRecharge fires once, on the debit that crosses the org's
+// maybeSignalRecharge fires once, on the debit that crosses the owner's
 // balance from at-or-above its autopay threshold to below it. No-ops if
 // autopay isn't wired, the debit moved nothing, or autopay is disabled.
 // A config-read error is logged and dropped (not returned) since the
 // control-plane reconciliation sweep backstops a missed signal.
-func (s *Service) maybeSignalRecharge(ctx context.Context, orgID string, delta, balanceAfter int64) {
+func (s *Service) maybeSignalRecharge(ctx context.Context, owner Owner, delta, balanceAfter int64) {
 	if s.autopay == nil || delta >= 0 {
 		return
 	}
-	enabled, threshold, err := s.repo.GetAutopayConfig(ctx, orgID)
+	enabled, threshold, err := s.repo.GetAutopayConfig(ctx, owner)
 	if err != nil {
-		observability.FromContext(ctx).Warn("Autopay crossing check skipped: config read failed",
-			"organization_id", orgID, "err", err)
+		log := observability.FromContext(ctx).With("owner_kind", owner.Kind)
+		if owner.Kind == OwnerKindOrganization {
+			log = log.With("organization_id", owner.OrganizationID)
+		} else {
+			log = log.With("subscriber_id", owner.SubscriberID)
+		}
+		log.Warn("Autopay crossing check skipped: config read failed", "err", err)
 		return
 	}
 	if !enabled {
@@ -453,7 +459,7 @@ func (s *Service) maybeSignalRecharge(ctx context.Context, orgID string, delta, 
 	// delta < 0, so the pre-debit balance is strictly greater than balanceAfter.
 	balanceBefore := balanceAfter - delta
 	if balanceBefore >= threshold && balanceAfter < threshold {
-		s.autopay.NotifyRechargeNeeded(orgID)
+		s.autopay.NotifyRechargeNeeded(owner)
 	}
 }
 

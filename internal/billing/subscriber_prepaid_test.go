@@ -88,6 +88,27 @@ func TestDebitForInferenceSettlesSubscriberPrepaidExactly(t *testing.T) {
 	assert.Equal(t, "req_sub:prepaid-hold", subscriber.settlements[0].AuthorizationActionID)
 }
 
+func TestDebitForInferenceSignalsSubscriberAutopayCrossing(t *testing.T) {
+	orgRepo := &fakeRepo{
+		balanceRowExists: true,
+		balanceMicros:    20_000_000,
+		autopayEnabled:   true,
+		autopayThreshold: 8_000_000,
+	}
+	subscriber := &fakeSubscriberPrepaid{balance: 10_000_000}
+	notifier := &fakeAutopayNotifier{}
+	svc := billing.NewService(orgRepo).
+		WithSubscriberPrepaid(subscriber).
+		WithAutopayNotifier(notifier)
+
+	_, err := svc.DebitForInference(prepaidContext(), subscriberParams())
+	require.NoError(t, err)
+	assert.Equal(t, []billing.Owner{
+		billing.SubscriberOwner("11111111-1111-1111-1111-111111111111"),
+	}, notifier.calls())
+	assert.Empty(t, orgRepo.ledgerCalls)
+}
+
 func TestDebitForInferenceDoesNotSettlePrepaidForLinkedCapacity(t *testing.T) {
 	orgRepo := &fakeRepo{balanceRowExists: true, balanceMicros: 20_000_000}
 	subscriber := &fakeSubscriberPrepaid{balance: 10_000_000}

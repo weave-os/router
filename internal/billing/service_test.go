@@ -112,29 +112,29 @@ func (r *fakeRepo) GetOrgMonthlySpendAndLimit(_ context.Context, _ string) (int6
 	return r.orgMonthSpent, r.orgMonthLimit, nil
 }
 
-func (r *fakeRepo) GetAutopayConfig(_ context.Context, _ string) (bool, int64, error) {
+func (r *fakeRepo) GetAutopayConfig(_ context.Context, _ billing.Owner) (bool, int64, error) {
 	if r.autopayErr != nil {
 		return false, 0, r.autopayErr
 	}
 	return r.autopayEnabled, r.autopayThreshold, nil
 }
 
-// fakeAutopayNotifier records the org ids the service asked to recharge.
+// fakeAutopayNotifier records the owners the service asked to recharge.
 type fakeAutopayNotifier struct {
 	mu       sync.Mutex
-	notified []string
+	notified []billing.Owner
 }
 
-func (n *fakeAutopayNotifier) NotifyRechargeNeeded(organizationID string) {
+func (n *fakeAutopayNotifier) NotifyRechargeNeeded(owner billing.Owner) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	n.notified = append(n.notified, organizationID)
+	n.notified = append(n.notified, owner)
 }
 
-func (n *fakeAutopayNotifier) calls() []string {
+func (n *fakeAutopayNotifier) calls() []billing.Owner {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	return append([]string(nil), n.notified...)
+	return append([]billing.Owner(nil), n.notified...)
 }
 
 func TestCheckBalance_Override(t *testing.T) {
@@ -593,7 +593,7 @@ func TestDebitForInference_AutopaySignalsOnDownwardCrossing(t *testing.T) {
 		notifier := &fakeAutopayNotifier{}
 		svc := billing.NewService(repo).WithAutopayNotifier(notifier)
 		require.NoError(t, debit(svc))
-		assert.Equal(t, []string{"org_x"}, notifier.calls(), "the crossing debit signals exactly once")
+		assert.Equal(t, []billing.Owner{billing.OrganizationOwner("org_x")}, notifier.calls(), "the crossing debit signals exactly once")
 	})
 
 	t.Run("does not fire when already below the threshold (below to below)", func(t *testing.T) {
@@ -683,6 +683,6 @@ func TestDebitForInference_ByokFeeCrossingSignalsAutopay(t *testing.T) {
 	require.NoError(t, err)
 
 	// Pre-debit 1_000_000 (>= 975_000), post-debit 950_000 (< 975_000) = a crossing.
-	assert.Equal(t, []string{"org_byok"}, notifier.calls(),
+	assert.Equal(t, []billing.Owner{billing.OrganizationOwner("org_byok")}, notifier.calls(),
 		"a BYOK fee that crosses the autopay threshold must signal a recharge")
 }

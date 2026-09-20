@@ -135,7 +135,7 @@ func (r *auxBillingRepo) GetOrgMonthlySpendAndLimit(context.Context, string) (in
 	return 0, nil, nil
 }
 
-func (r *auxBillingRepo) GetAutopayConfig(context.Context, string) (bool, int64, error) {
+func (r *auxBillingRepo) GetAutopayConfig(context.Context, billing.Owner) (bool, int64, error) {
 	return false, 0, nil
 }
 

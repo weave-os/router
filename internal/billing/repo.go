@@ -32,10 +32,9 @@ type Repo interface {
 	// and its configured monthly cap. nil limitMicros means no cap is set.
 	GetOrgMonthlySpendAndLimit(ctx context.Context, organizationID string) (spentMicros int64, limitMicros *int64, err error)
 
-	// GetAutopayConfig reports the org's autopay state and recharge
-	// threshold. A missing config row returns enabled=false, nil error
-	// ("autopay off"), not an error.
-	GetAutopayConfig(ctx context.Context, orgID string) (enabled bool, thresholdMicros int64, err error)
+	// GetAutopayConfig reports one prepaid owner's autopay state and recharge
+	// threshold. A missing config row returns enabled=false, nil error.
+	GetAutopayConfig(ctx context.Context, owner Owner) (enabled bool, thresholdMicros int64, err error)
 
 	// BillingTablesExist is a boot-time check for the three billing tables.
 	// A missing table means the migration hasn't run yet.

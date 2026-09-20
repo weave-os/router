@@ -51,7 +51,7 @@ func (r *capturingBillingRepo) GetUserMonthlySpendAndLimit(context.Context, stri
 func (r *capturingBillingRepo) GetOrgMonthlySpendAndLimit(context.Context, string) (int64, *int64, error) {
 	return 0, nil, nil
 }
-func (r *capturingBillingRepo) GetAutopayConfig(context.Context, string) (bool, int64, error) {
+func (r *capturingBillingRepo) GetAutopayConfig(context.Context, billing.Owner) (bool, int64, error) {
 	return false, 0, nil
 }
 func (r *capturingBillingRepo) BillingTablesExist(context.Context) (bool, error) { return true, nil }

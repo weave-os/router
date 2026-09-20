@@ -947,6 +947,26 @@ type RouterSubscriberAllowancePeriod struct {
 	UpdatedAt          pgtype.Timestamptz
 }
 
+type RouterSubscriberAutopayConfig struct {
+	SubscriberID                uuid.UUID
+	Enabled                     bool
+	ThresholdUsdMicros          int64
+	RechargeUsdMicros           int64
+	HasPaymentMethod            bool
+	State                       string
+	ConsecutiveFailures         int32
+	LastAttemptID               pgtype.UUID
+	LastAttemptAt               pgtype.Timestamptz
+	LastSuccessAt               pgtype.Timestamptz
+	CooldownUntil               pgtype.Timestamptz
+	MonthlyRechargeCapUsdMicros *int64
+	RechargedMonth              pgtype.Date
+	RechargedMonthUsdMicros     int64
+	CreatedBy                   *string
+	CreatedAt                   pgtype.Timestamptz
+	UpdatedAt                   pgtype.Timestamptz
+}
+
 type RouterSubscriberCreditBalance struct {
 	SubscriberID         uuid.UUID
 	BalanceUsdMicros     int64
