@@ -71,6 +71,12 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 //
 // Read failures are surfaced, never swallowed — an allowance that admits
 // everything on a database error is an unbilled-usage hole.
+//
+// Admission is the only gate, so turns already in flight when a window fills
+// still settle and carry it slightly past its allowance; the next admission
+// then sees the overshoot and rejects. Held cost counts as consumed, so the
+// overshoot is bounded by the concurrent turns in flight and never compounds —
+// the same bound a prepaid balance has on debits in flight when it hits zero.
 func (s *Service) Admit(ctx context.Context, subscriberID SubscriberID) (Admission, error) {
 	if !subscriberID.Valid() {
 		return Admission{Outcome: AdmissionNotSubscribed}, nil
