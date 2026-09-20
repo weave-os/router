@@ -50,6 +50,7 @@ type fakeRepo struct {
 	autopayEnabled   bool
 	autopayThreshold int64
 	autopayErr       error
+	autopayOwners    []billing.Owner
 	userMonthSpent   int64
 	userMonthLimit   *int64
 	userMonthErr     error
@@ -112,11 +113,20 @@ func (r *fakeRepo) GetOrgMonthlySpendAndLimit(_ context.Context, _ string) (int6
 	return r.orgMonthSpent, r.orgMonthLimit, nil
 }
 
-func (r *fakeRepo) GetAutopayConfig(_ context.Context, _ billing.Owner) (bool, int64, error) {
+func (r *fakeRepo) GetAutopayConfig(_ context.Context, owner billing.Owner) (bool, int64, error) {
+	r.mu.Lock()
+	r.autopayOwners = append(r.autopayOwners, owner)
+	r.mu.Unlock()
 	if r.autopayErr != nil {
 		return false, 0, r.autopayErr
 	}
 	return r.autopayEnabled, r.autopayThreshold, nil
+}
+
+func (r *fakeRepo) autopayConfigOwners() []billing.Owner {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]billing.Owner(nil), r.autopayOwners...)
 }
 
 // fakeAutopayNotifier records the owners the service asked to recharge.

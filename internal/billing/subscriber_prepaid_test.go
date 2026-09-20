@@ -105,6 +105,9 @@ func TestDebitForInferenceSignalsSubscriberAutopayCrossing(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []billing.Owner{
 		billing.SubscriberOwner("11111111-1111-1111-1111-111111111111"),
+	}, orgRepo.autopayConfigOwners())
+	assert.Equal(t, []billing.Owner{
+		billing.SubscriberOwner("11111111-1111-1111-1111-111111111111"),
 	}, notifier.calls())
 	assert.Empty(t, orgRepo.ledgerCalls)
 }
