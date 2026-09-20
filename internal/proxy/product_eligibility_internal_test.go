@@ -2,15 +2,22 @@ package proxy
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/eligibility"
+	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
@@ -98,4 +105,80 @@ func TestFundingCannotWidenMaxEligibility(t *testing.T) {
 			require.ErrorIs(t, err, eligibility.ErrModelIneligible)
 		})
 	}
+}
+
+// The turn loop mints decisions the routed pool never produced — a session
+// pin, a hard-pinned auxiliary turn, /force-model. They all reach the
+// provider through dispatchWithFallback, which is where the boundary is
+// terminal.
+func TestDispatchRefusesAnIneligibleDecisionTheTurnLoopMinted(t *testing.T) {
+	anthropic := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{writeBytes: []byte("served")}}}
+	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: anthropic})
+
+	rec := httptest.NewRecorder()
+	in := plannedInputs(rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, nil)
+	in.initialDecision = router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic}
+
+	_, err := svc.dispatchWithFallback(maxScopedContext(), in)
+
+	require.ErrorIs(t, err, eligibility.ErrModelIneligible)
+	assert.Zero(t, anthropic.calls)
+}
+
+func TestDispatchServesAnEligibleDecision(t *testing.T) {
+	fireworks := &fakeClient{name: providers.ProviderFireworks, outcomes: []fakeOutcome{{writeBytes: []byte("served")}}}
+	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderFireworks: fireworks})
+
+	rec := httptest.NewRecorder()
+	in := plannedInputs(rec, newPreludeBuffer(rec), []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, nil)
+
+	_, err := svc.dispatchWithFallback(maxScopedContext(), in)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, fireworks.calls)
+}
+
+// The subscription pass-through lane serves the requested model verbatim
+// without routing, so an ineligible model disengages it and the turn falls
+// through to routed dispatch instead.
+func TestUsageBypassDisengagesForAnIneligibleModel(t *testing.T) {
+	const token = "sk-ant-oat01-test-subscription-token"
+	threshold := 0.80
+	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
+	obs.Record(obs.Key([]byte(token)), usage.Snapshot{Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300}})
+	svc := &Service{usageObserver: obs}
+	ctx := context.WithValue(maxScopedContext(), AnthropicSubscriptionContextKey{}, token)
+	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
+
+	_, engaged := svc.usageBypassDecision(ctx, http.Header{}, router.Request{
+		RequestedModel:     "claude-sonnet-4-6",
+		ProductEligibility: eligibility.MaxOpenSourceOnly,
+	}, nil, turntype.MainLoop)
+
+	assert.False(t, engaged)
+}
+
+// A refusal is the caller's problem to fix (pick a covered model), not an
+// upstream failure: it must not fall through to the generic 502.
+func TestIneligibleModelIsAClassifiedClientError(t *testing.T) {
+	cls, matched := ClassifyDispatchError(fmt.Errorf("strategy %q: %w", "cluster", eligibility.ErrModelIneligible))
+
+	require.True(t, matched)
+	assert.Equal(t, DispatchErrorProductIneligible, cls.Kind)
+	assert.Equal(t, http.StatusForbidden, cls.Status)
+	assert.True(t, cls.Kind.IsClientError())
+}
+
+// The operator escape hatch replaces the exclusion set wholesale; the
+// product boundary still survives it.
+func TestExcludedModelsOverrideCannotWidenTheBoundary(t *testing.T) {
+	svc := &Service{excludedModelsOverride: map[string]struct{}{"gpt-5.5": {}}}
+
+	excluded := svc.excludedModelsForRequest(maxScopedContext())
+
+	assert.Contains(t, excluded, "claude-opus-4-8")
+	assert.Contains(t, excluded, "muse-spark-1.3")
+	assert.Contains(t, excluded, "gpt-5.5")
+	assert.NotContains(t, excluded, "deepseek/deepseek-v4-pro")
+	assert.NotContains(t, svc.excludedModelsOverride, "claude-opus-4-8")
 }
