@@ -174,11 +174,15 @@ func (h *Handler) forwardDefault(w http.ResponseWriter, r *http.Request) {
 	h.forward(w, r, requestcontext.ConversationChat, nil, binding, "")
 }
 
-func (h *Handler) defaultBinding(ctx context.Context) (policyregistry.DeploymentBinding, error) {
-	target := policyregistry.TargetStable
+func (h *Handler) defaultTarget() policyregistry.ServingTarget {
 	if h.products.Environment == policyregistry.EnvironmentStaging {
-		target = policyregistry.TargetStaging
+		return policyregistry.TargetStaging
 	}
+	return policyregistry.TargetStable
+}
+
+func (h *Handler) defaultBinding(ctx context.Context) (policyregistry.DeploymentBinding, error) {
+	target := h.defaultTarget()
 	// Read-only exports and public assets have no conversation, enrollment or
 	// customer policy. Choosing their worker never grants inference authority.
 	admissionDecider := policyregistry.ServingAdmission{Store: h.registry}

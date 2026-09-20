@@ -55,10 +55,14 @@ func (h *Handler) checkDependencies(ctx context.Context, scope probeScope, pingD
 	if err := pingDatabase(ctx); err != nil {
 		return fmt.Errorf("ping admission database: %w", err)
 	}
-	binding, err := h.defaultBinding(ctx)
-	if scope == probeScopeStartup && errors.Is(err, policyregistry.ErrNotFound) {
-		return nil
+	if scope == probeScopeStartup {
+		// Only an unwritten control state is boot-ready. Artifacts missing underneath an existing
+		// activation are a broken target, and ErrNotFound cannot tell those apart further down.
+		if _, err := h.registry.ReadServingState(ctx, h.defaultTarget()); errors.Is(err, policyregistry.ErrNotFound) {
+			return nil
+		}
 	}
+	binding, err := h.defaultBinding(ctx)
 	if err != nil {
 		return fmt.Errorf("read default serving binding: %w", err)
 	}
