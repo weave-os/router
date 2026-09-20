@@ -106,17 +106,11 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 			}
 		}
 		if subject != nil && projection.AssignmentSource != policyregistry.AssignmentSourceOrganizationOverride {
-			assignment, err := queries.GetServingSubjectProfileAssignment(ctx, sqlc.GetServingSubjectProfileAssignmentParams{SubjectID: uuid.UUID(credential.CredentialSubjectID.Bytes), InstallationID: installationUUID})
-			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			assignments, err := queries.GetServingSubjectProfileAssignments(ctx, sqlc.GetServingSubjectProfileAssignmentsParams{SubjectID: uuid.UUID(credential.CredentialSubjectID.Bytes), InstallationID: installationUUID})
+			if err != nil {
 				return err
 			}
-			if errors.Is(err, sql.ErrNoRows) {
-				projection.AssignmentSource = policyregistry.AssignmentSourceAbsent
-				projection.AssignmentState = policyregistry.AssignmentStateAbsent
-				projection.ProfileRequired = true
-			} else {
-				applySubjectAssignment(&projection, assignment, installationAssignmentGeneration)
-			}
+			applySubjectAssignments(&projection, assignments, installationAssignmentGeneration)
 		}
 		digest, persistent := policyregistry.ServingConversationDigest(identity, clientSessionID)
 		scope = policyregistry.AdmissionScope{InstallationID: installationID, CredentialIdentity: identity, ConversationDigest: digest, Persistent: persistent}
@@ -204,15 +198,31 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 	return scope, admitted, nil
 }
 
-func applySubjectAssignment(projection *policyregistry.AdmissionProjection, assignment sqlc.GetServingSubjectProfileAssignmentRow, installationGeneration int64) {
-	projection.AssignmentSource = policyregistry.AdmissionAssignmentSource(assignment.AssignmentSource)
-	projection.AssignmentState = policyregistry.AdmissionAssignmentState(assignment.AssignmentState)
-	generation := assignment.EffectiveGeneration
-	if generation == 0 {
-		generation = assignment.DesiredGeneration
-	}
+func applySubjectAssignments(projection *policyregistry.AdmissionProjection, assignments []sqlc.GetServingSubjectProfileAssignmentsRow, installationGeneration int64) {
 	projection.AssignmentGeneration = installationGeneration
-	projection.SubjectAssignmentGeneration = generation
+	for _, assignment := range assignments {
+		state := policyregistry.AdmissionAssignmentState(assignment.AssignmentState)
+		if state == policyregistry.AssignmentStateAbsent {
+			continue
+		}
+		if state == policyregistry.AssignmentStatePending || state == policyregistry.AssignmentStateFailed || state == policyregistry.AssignmentStateIncompatible {
+			if assignment.EffectiveAssignmentState == nil || policyregistry.AdmissionAssignmentState(*assignment.EffectiveAssignmentState) == policyregistry.AssignmentStateAbsent {
+				continue
+			}
+			state = policyregistry.AdmissionAssignmentState(*assignment.EffectiveAssignmentState)
+		}
+		applySubjectAssignment(projection, assignment, state)
+		return
+	}
+	projection.AssignmentSource = policyregistry.AssignmentSourceAbsent
+	projection.AssignmentState = policyregistry.AssignmentStateAbsent
+	projection.ProfileRequired = true
+}
+
+func applySubjectAssignment(projection *policyregistry.AdmissionProjection, assignment sqlc.GetServingSubjectProfileAssignmentsRow, state policyregistry.AdmissionAssignmentState) {
+	projection.AssignmentSource = policyregistry.AdmissionAssignmentSource(assignment.AssignmentSource)
+	projection.AssignmentState = state
+	projection.SubjectAssignmentGeneration = assignment.EffectiveGeneration
 	switch projection.AssignmentState {
 	case policyregistry.AssignmentStateDefaultFollowing, policyregistry.AssignmentStateDeliberatelyUnassigned:
 		projection.ProfileKey = ""

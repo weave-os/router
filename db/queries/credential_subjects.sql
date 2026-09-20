@@ -72,6 +72,7 @@ INSERT INTO router.credential_subject_profile_assignments (
     assignment_state,
     desired_generation,
     effective_generation,
+    effective_assignment_state,
     desired_profile_key,
     effective_profile_key,
     evidence_id,
@@ -85,20 +86,25 @@ INSERT INTO router.credential_subject_profile_assignments (
     @assignment_state::varchar,
     @desired_generation::bigint,
     CASE
-        WHEN @assignment_state::varchar IN ('effective', 'default_following', 'deliberately_unassigned')
+        WHEN @assignment_state::varchar IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
             THEN @desired_generation::bigint
         ELSE 0
     END,
+    CASE
+        WHEN @assignment_state::varchar IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
+            THEN @assignment_state::varchar
+        ELSE NULL::varchar
+    END,
     sqlc.narg(desired_profile_key)::uuid,
     CASE
-        WHEN @assignment_state::varchar IN ('effective', 'default_following', 'deliberately_unassigned')
+        WHEN @assignment_state::varchar IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
             THEN sqlc.narg(desired_profile_key)::uuid
         ELSE NULL::uuid
     END,
     @evidence_id::varchar,
     clock_timestamp(),
     CASE
-        WHEN @assignment_state::varchar IN ('effective', 'default_following', 'deliberately_unassigned')
+        WHEN @assignment_state::varchar IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
             THEN clock_timestamp()
         ELSE NULL::timestamptz
     END,
@@ -109,12 +115,17 @@ ON CONFLICT (subject_id, installation_id, assignment_source) DO UPDATE SET
     desired_generation = EXCLUDED.desired_generation,
     desired_profile_key = EXCLUDED.desired_profile_key,
     effective_generation = CASE
-        WHEN EXCLUDED.assignment_state IN ('effective', 'default_following', 'deliberately_unassigned')
+        WHEN EXCLUDED.assignment_state IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
             THEN EXCLUDED.desired_generation
         ELSE router.credential_subject_profile_assignments.effective_generation
     END,
+    effective_assignment_state = CASE
+        WHEN EXCLUDED.assignment_state IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
+            THEN EXCLUDED.effective_assignment_state
+        ELSE router.credential_subject_profile_assignments.effective_assignment_state
+    END,
     effective_profile_key = CASE
-        WHEN EXCLUDED.assignment_state IN ('effective', 'default_following', 'deliberately_unassigned')
+        WHEN EXCLUDED.assignment_state IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
             THEN EXCLUDED.desired_profile_key
         ELSE router.credential_subject_profile_assignments.effective_profile_key
     END,
@@ -122,15 +133,27 @@ ON CONFLICT (subject_id, installation_id, assignment_source) DO UPDATE SET
     projection_attempts = router.credential_subject_profile_assignments.projection_attempts + 1,
     projected_at = EXCLUDED.projected_at,
     effective_at = CASE
-        WHEN EXCLUDED.assignment_state IN ('effective', 'default_following', 'deliberately_unassigned')
+        WHEN EXCLUDED.assignment_state IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
             THEN EXCLUDED.effective_at
         ELSE router.credential_subject_profile_assignments.effective_at
     END,
     last_failure_detail = EXCLUDED.last_failure_detail,
     updated_at = clock_timestamp()
-WHERE router.credential_subject_profile_assignments.desired_generation < EXCLUDED.desired_generation
+WHERE (
+       router.credential_subject_profile_assignments.desired_generation < EXCLUDED.desired_generation
    OR (
        router.credential_subject_profile_assignments.desired_generation = EXCLUDED.desired_generation
        AND router.credential_subject_profile_assignments.desired_profile_key IS NOT DISTINCT FROM EXCLUDED.desired_profile_key
+       AND (
+           router.credential_subject_profile_assignments.assignment_state NOT IN (
+               'absent',
+               'default_following',
+               'deliberately_unassigned',
+               'revoked',
+               'effective'
+           )
+           OR router.credential_subject_profile_assignments.assignment_state = EXCLUDED.assignment_state
+       )
    )
+)
 RETURNING *;

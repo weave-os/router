@@ -26,12 +26,13 @@ FROM router.installation_profile_assignments
 WHERE installation_id = @installation_id::uuid;
 
 -- Subject assignment rows are ordered by Router's public precedence after any installation override.
--- name: GetServingSubjectProfileAssignment :one
+-- name: GetServingSubjectProfileAssignments :many
 SELECT
     assignment_source,
     assignment_state,
     desired_generation,
     effective_generation,
+    effective_assignment_state,
     desired_profile_key,
     effective_profile_key,
     router_acknowledgement_id,
@@ -49,7 +50,6 @@ ORDER BY CASE assignment_source
     WHEN 'lane_default' THEN 3
     ELSE 4
 END
-LIMIT 1
 FOR SHARE;
 
 -- Serialize concurrent first admissions as well as existing bindings. Hash collisions only over-serialize.

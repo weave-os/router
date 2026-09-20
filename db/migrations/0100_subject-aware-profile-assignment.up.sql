@@ -8,6 +8,7 @@ CREATE TABLE router.credential_subject_profile_assignments (
     ),
     assignment_state varchar(32) NOT NULL CHECK (
         assignment_state IN (
+            'absent',
             'default_following',
             'deliberately_unassigned',
             'pending',
@@ -21,10 +22,18 @@ CREATE TABLE router.credential_subject_profile_assignments (
     effective_generation bigint NOT NULL DEFAULT 0 CHECK (
         effective_generation >= 0 AND effective_generation <= desired_generation
     ),
+    effective_assignment_state varchar(32) CHECK (
+        effective_assignment_state IN (
+            'absent',
+            'default_following',
+            'deliberately_unassigned',
+            'effective'
+        )
+    ),
     desired_profile_key uuid,
     effective_profile_key uuid,
     router_acknowledgement_id uuid NOT NULL DEFAULT gen_random_uuid(),
-    evidence_id varchar(160) NOT NULL,
+    evidence_id varchar(160) NOT NULL CHECK (evidence_id <> ''),
     projection_attempts integer NOT NULL DEFAULT 1 CHECK (projection_attempts > 0),
     projected_at timestamptz NOT NULL,
     effective_at timestamptz,
@@ -39,10 +48,10 @@ CREATE TABLE router.credential_subject_profile_assignments (
     CHECK (effective_profile_key IS NULL OR effective_profile_key <> '00000000-0000-0000-0000-000000000000'::uuid),
     CHECK (
         assignment_source <> 'lane_default'
-        OR assignment_state IN ('default_following', 'deliberately_unassigned')
+        OR assignment_state IN ('absent', 'default_following', 'deliberately_unassigned')
     ),
     CHECK (
-        assignment_state NOT IN ('default_following', 'deliberately_unassigned')
+        assignment_state NOT IN ('absent', 'default_following', 'deliberately_unassigned')
         OR (desired_profile_key IS NULL AND effective_profile_key IS NULL)
     ),
     CHECK (
@@ -50,9 +59,21 @@ CREATE TABLE router.credential_subject_profile_assignments (
         OR desired_profile_key IS NOT NULL
     ),
     CHECK (
-        assignment_state NOT IN ('effective', 'default_following', 'deliberately_unassigned')
+        (effective_generation = 0) = (effective_assignment_state IS NULL)
+    ),
+    CHECK (
+        effective_assignment_state <> 'effective'
+        OR effective_profile_key IS NOT NULL
+    ),
+    CHECK (
+        effective_assignment_state NOT IN ('absent', 'default_following', 'deliberately_unassigned')
+        OR effective_profile_key IS NULL
+    ),
+    CHECK (
+        assignment_state NOT IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
         OR (
             effective_generation = desired_generation
+            AND effective_assignment_state = assignment_state
             AND effective_profile_key IS NOT DISTINCT FROM desired_profile_key
             AND effective_at IS NOT NULL
             AND last_failure_detail IS NULL
@@ -78,6 +99,7 @@ CREATE INDEX credential_subject_profile_assignments_admission_idx
 
 COMMENT ON TABLE router.credential_subject_profile_assignments IS 'Opaque subject-level serving profile projection state; private account and plan tables remain outside Router';
 COMMENT ON COLUMN router.credential_subject_profile_assignments.assignment_source IS 'Precedence source: organization overrides stay installation-scoped; subject rows cover cohort, subscriber plan and explicit lane-default states';
+COMMENT ON COLUMN router.credential_subject_profile_assignments.effective_assignment_state IS 'Previous effective state is retained when a newer desired projection is pending, failed or incompatible';
 COMMENT ON COLUMN router.credential_subject_profile_assignments.effective_profile_key IS 'Previous effective key is retained when a newer desired projection is pending, failed or incompatible';
 
 ALTER TABLE router.session_release_bindings

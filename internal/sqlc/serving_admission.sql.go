@@ -150,12 +150,13 @@ func (q *Queries) GetServingSubjectForAdmission(ctx context.Context, arg GetServ
 	return i, err
 }
 
-const getServingSubjectProfileAssignment = `-- name: GetServingSubjectProfileAssignment :one
+const getServingSubjectProfileAssignments = `-- name: GetServingSubjectProfileAssignments :many
 SELECT
     assignment_source,
     assignment_state,
     desired_generation,
     effective_generation,
+    effective_assignment_state,
     desired_profile_key,
     effective_profile_key,
     router_acknowledgement_id,
@@ -173,28 +174,28 @@ ORDER BY CASE assignment_source
     WHEN 'lane_default' THEN 3
     ELSE 4
 END
-LIMIT 1
 FOR SHARE
 `
 
-type GetServingSubjectProfileAssignmentParams struct {
+type GetServingSubjectProfileAssignmentsParams struct {
 	SubjectID      uuid.UUID
 	InstallationID uuid.UUID
 }
 
-type GetServingSubjectProfileAssignmentRow struct {
-	AssignmentSource        string
-	AssignmentState         string
-	DesiredGeneration       int64
-	EffectiveGeneration     int64
-	DesiredProfileKey       pgtype.UUID
-	EffectiveProfileKey     pgtype.UUID
-	RouterAcknowledgementID uuid.UUID
-	EvidenceID              string
-	ProjectionAttempts      int32
-	ProjectedAt             pgtype.Timestamptz
-	EffectiveAt             pgtype.Timestamptz
-	LastFailureDetail       *string
+type GetServingSubjectProfileAssignmentsRow struct {
+	AssignmentSource         string
+	AssignmentState          string
+	DesiredGeneration        int64
+	EffectiveGeneration      int64
+	EffectiveAssignmentState *string
+	DesiredProfileKey        pgtype.UUID
+	EffectiveProfileKey      pgtype.UUID
+	RouterAcknowledgementID  uuid.UUID
+	EvidenceID               string
+	ProjectionAttempts       int32
+	ProjectedAt              pgtype.Timestamptz
+	EffectiveAt              pgtype.Timestamptz
+	LastFailureDetail        *string
 }
 
 // Subject assignment rows are ordered by Router's public precedence after any installation override.
@@ -204,6 +205,7 @@ type GetServingSubjectProfileAssignmentRow struct {
 //	    assignment_state,
 //	    desired_generation,
 //	    effective_generation,
+//	    effective_assignment_state,
 //	    desired_profile_key,
 //	    effective_profile_key,
 //	    router_acknowledgement_id,
@@ -221,26 +223,39 @@ type GetServingSubjectProfileAssignmentRow struct {
 //	    WHEN 'lane_default' THEN 3
 //	    ELSE 4
 //	END
-//	LIMIT 1
 //	FOR SHARE
-func (q *Queries) GetServingSubjectProfileAssignment(ctx context.Context, arg GetServingSubjectProfileAssignmentParams) (GetServingSubjectProfileAssignmentRow, error) {
-	row := q.db.QueryRow(ctx, getServingSubjectProfileAssignment, arg.SubjectID, arg.InstallationID)
-	var i GetServingSubjectProfileAssignmentRow
-	err := row.Scan(
-		&i.AssignmentSource,
-		&i.AssignmentState,
-		&i.DesiredGeneration,
-		&i.EffectiveGeneration,
-		&i.DesiredProfileKey,
-		&i.EffectiveProfileKey,
-		&i.RouterAcknowledgementID,
-		&i.EvidenceID,
-		&i.ProjectionAttempts,
-		&i.ProjectedAt,
-		&i.EffectiveAt,
-		&i.LastFailureDetail,
-	)
-	return i, err
+func (q *Queries) GetServingSubjectProfileAssignments(ctx context.Context, arg GetServingSubjectProfileAssignmentsParams) ([]GetServingSubjectProfileAssignmentsRow, error) {
+	rows, err := q.db.Query(ctx, getServingSubjectProfileAssignments, arg.SubjectID, arg.InstallationID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetServingSubjectProfileAssignmentsRow
+	for rows.Next() {
+		var i GetServingSubjectProfileAssignmentsRow
+		if err := rows.Scan(
+			&i.AssignmentSource,
+			&i.AssignmentState,
+			&i.DesiredGeneration,
+			&i.EffectiveGeneration,
+			&i.EffectiveAssignmentState,
+			&i.DesiredProfileKey,
+			&i.EffectiveProfileKey,
+			&i.RouterAcknowledgementID,
+			&i.EvidenceID,
+			&i.ProjectionAttempts,
+			&i.ProjectedAt,
+			&i.EffectiveAt,
+			&i.LastFailureDetail,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const getSessionReleaseBinding = `-- name: GetSessionReleaseBinding :one

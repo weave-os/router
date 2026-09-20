@@ -266,6 +266,7 @@ INSERT INTO router.credential_subject_profile_assignments (
     assignment_state,
     desired_generation,
     effective_generation,
+    effective_assignment_state,
     desired_profile_key,
     effective_profile_key,
     evidence_id,
@@ -279,20 +280,25 @@ INSERT INTO router.credential_subject_profile_assignments (
     $4::varchar,
     $5::bigint,
     CASE
-        WHEN $4::varchar IN ('effective', 'default_following', 'deliberately_unassigned')
+        WHEN $4::varchar IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
             THEN $5::bigint
         ELSE 0
     END,
+    CASE
+        WHEN $4::varchar IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
+            THEN $4::varchar
+        ELSE NULL::varchar
+    END,
     $6::uuid,
     CASE
-        WHEN $4::varchar IN ('effective', 'default_following', 'deliberately_unassigned')
+        WHEN $4::varchar IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
             THEN $6::uuid
         ELSE NULL::uuid
     END,
     $7::varchar,
     clock_timestamp(),
     CASE
-        WHEN $4::varchar IN ('effective', 'default_following', 'deliberately_unassigned')
+        WHEN $4::varchar IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
             THEN clock_timestamp()
         ELSE NULL::timestamptz
     END,
@@ -303,12 +309,17 @@ ON CONFLICT (subject_id, installation_id, assignment_source) DO UPDATE SET
     desired_generation = EXCLUDED.desired_generation,
     desired_profile_key = EXCLUDED.desired_profile_key,
     effective_generation = CASE
-        WHEN EXCLUDED.assignment_state IN ('effective', 'default_following', 'deliberately_unassigned')
+        WHEN EXCLUDED.assignment_state IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
             THEN EXCLUDED.desired_generation
         ELSE router.credential_subject_profile_assignments.effective_generation
     END,
+    effective_assignment_state = CASE
+        WHEN EXCLUDED.assignment_state IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
+            THEN EXCLUDED.effective_assignment_state
+        ELSE router.credential_subject_profile_assignments.effective_assignment_state
+    END,
     effective_profile_key = CASE
-        WHEN EXCLUDED.assignment_state IN ('effective', 'default_following', 'deliberately_unassigned')
+        WHEN EXCLUDED.assignment_state IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
             THEN EXCLUDED.desired_profile_key
         ELSE router.credential_subject_profile_assignments.effective_profile_key
     END,
@@ -316,18 +327,30 @@ ON CONFLICT (subject_id, installation_id, assignment_source) DO UPDATE SET
     projection_attempts = router.credential_subject_profile_assignments.projection_attempts + 1,
     projected_at = EXCLUDED.projected_at,
     effective_at = CASE
-        WHEN EXCLUDED.assignment_state IN ('effective', 'default_following', 'deliberately_unassigned')
+        WHEN EXCLUDED.assignment_state IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
             THEN EXCLUDED.effective_at
         ELSE router.credential_subject_profile_assignments.effective_at
     END,
     last_failure_detail = EXCLUDED.last_failure_detail,
     updated_at = clock_timestamp()
-WHERE router.credential_subject_profile_assignments.desired_generation < EXCLUDED.desired_generation
+WHERE (
+       router.credential_subject_profile_assignments.desired_generation < EXCLUDED.desired_generation
    OR (
        router.credential_subject_profile_assignments.desired_generation = EXCLUDED.desired_generation
        AND router.credential_subject_profile_assignments.desired_profile_key IS NOT DISTINCT FROM EXCLUDED.desired_profile_key
+       AND (
+           router.credential_subject_profile_assignments.assignment_state NOT IN (
+               'absent',
+               'default_following',
+               'deliberately_unassigned',
+               'revoked',
+               'effective'
+           )
+           OR router.credential_subject_profile_assignments.assignment_state = EXCLUDED.assignment_state
+       )
    )
-RETURNING subject_id, installation_id, assignment_source, assignment_state, desired_generation, effective_generation, desired_profile_key, effective_profile_key, router_acknowledgement_id, evidence_id, projection_attempts, projected_at, effective_at, last_failure_detail, created_at, updated_at
+)
+RETURNING subject_id, installation_id, assignment_source, assignment_state, desired_generation, effective_generation, effective_assignment_state, desired_profile_key, effective_profile_key, router_acknowledgement_id, evidence_id, projection_attempts, projected_at, effective_at, last_failure_detail, created_at, updated_at
 `
 
 type UpsertCredentialSubjectProfileAssignmentParams struct {
@@ -350,6 +373,7 @@ type UpsertCredentialSubjectProfileAssignmentParams struct {
 //	    assignment_state,
 //	    desired_generation,
 //	    effective_generation,
+//	    effective_assignment_state,
 //	    desired_profile_key,
 //	    effective_profile_key,
 //	    evidence_id,
@@ -363,20 +387,25 @@ type UpsertCredentialSubjectProfileAssignmentParams struct {
 //	    $4::varchar,
 //	    $5::bigint,
 //	    CASE
-//	        WHEN $4::varchar IN ('effective', 'default_following', 'deliberately_unassigned')
+//	        WHEN $4::varchar IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
 //	            THEN $5::bigint
 //	        ELSE 0
 //	    END,
+//	    CASE
+//	        WHEN $4::varchar IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
+//	            THEN $4::varchar
+//	        ELSE NULL::varchar
+//	    END,
 //	    $6::uuid,
 //	    CASE
-//	        WHEN $4::varchar IN ('effective', 'default_following', 'deliberately_unassigned')
+//	        WHEN $4::varchar IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
 //	            THEN $6::uuid
 //	        ELSE NULL::uuid
 //	    END,
 //	    $7::varchar,
 //	    clock_timestamp(),
 //	    CASE
-//	        WHEN $4::varchar IN ('effective', 'default_following', 'deliberately_unassigned')
+//	        WHEN $4::varchar IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
 //	            THEN clock_timestamp()
 //	        ELSE NULL::timestamptz
 //	    END,
@@ -387,12 +416,17 @@ type UpsertCredentialSubjectProfileAssignmentParams struct {
 //	    desired_generation = EXCLUDED.desired_generation,
 //	    desired_profile_key = EXCLUDED.desired_profile_key,
 //	    effective_generation = CASE
-//	        WHEN EXCLUDED.assignment_state IN ('effective', 'default_following', 'deliberately_unassigned')
+//	        WHEN EXCLUDED.assignment_state IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
 //	            THEN EXCLUDED.desired_generation
 //	        ELSE router.credential_subject_profile_assignments.effective_generation
 //	    END,
+//	    effective_assignment_state = CASE
+//	        WHEN EXCLUDED.assignment_state IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
+//	            THEN EXCLUDED.effective_assignment_state
+//	        ELSE router.credential_subject_profile_assignments.effective_assignment_state
+//	    END,
 //	    effective_profile_key = CASE
-//	        WHEN EXCLUDED.assignment_state IN ('effective', 'default_following', 'deliberately_unassigned')
+//	        WHEN EXCLUDED.assignment_state IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
 //	            THEN EXCLUDED.desired_profile_key
 //	        ELSE router.credential_subject_profile_assignments.effective_profile_key
 //	    END,
@@ -400,18 +434,30 @@ type UpsertCredentialSubjectProfileAssignmentParams struct {
 //	    projection_attempts = router.credential_subject_profile_assignments.projection_attempts + 1,
 //	    projected_at = EXCLUDED.projected_at,
 //	    effective_at = CASE
-//	        WHEN EXCLUDED.assignment_state IN ('effective', 'default_following', 'deliberately_unassigned')
+//	        WHEN EXCLUDED.assignment_state IN ('absent', 'effective', 'default_following', 'deliberately_unassigned')
 //	            THEN EXCLUDED.effective_at
 //	        ELSE router.credential_subject_profile_assignments.effective_at
 //	    END,
 //	    last_failure_detail = EXCLUDED.last_failure_detail,
 //	    updated_at = clock_timestamp()
-//	WHERE router.credential_subject_profile_assignments.desired_generation < EXCLUDED.desired_generation
+//	WHERE (
+//	       router.credential_subject_profile_assignments.desired_generation < EXCLUDED.desired_generation
 //	   OR (
 //	       router.credential_subject_profile_assignments.desired_generation = EXCLUDED.desired_generation
 //	       AND router.credential_subject_profile_assignments.desired_profile_key IS NOT DISTINCT FROM EXCLUDED.desired_profile_key
+//	       AND (
+//	           router.credential_subject_profile_assignments.assignment_state NOT IN (
+//	               'absent',
+//	               'default_following',
+//	               'deliberately_unassigned',
+//	               'revoked',
+//	               'effective'
+//	           )
+//	           OR router.credential_subject_profile_assignments.assignment_state = EXCLUDED.assignment_state
+//	       )
 //	   )
-//	RETURNING subject_id, installation_id, assignment_source, assignment_state, desired_generation, effective_generation, desired_profile_key, effective_profile_key, router_acknowledgement_id, evidence_id, projection_attempts, projected_at, effective_at, last_failure_detail, created_at, updated_at
+//	)
+//	RETURNING subject_id, installation_id, assignment_source, assignment_state, desired_generation, effective_generation, effective_assignment_state, desired_profile_key, effective_profile_key, router_acknowledgement_id, evidence_id, projection_attempts, projected_at, effective_at, last_failure_detail, created_at, updated_at
 func (q *Queries) UpsertCredentialSubjectProfileAssignment(ctx context.Context, arg UpsertCredentialSubjectProfileAssignmentParams) (RouterCredentialSubjectProfileAssignment, error) {
 	row := q.db.QueryRow(ctx, upsertCredentialSubjectProfileAssignment,
 		arg.SubjectID,
@@ -431,6 +477,7 @@ func (q *Queries) UpsertCredentialSubjectProfileAssignment(ctx context.Context, 
 		&i.AssignmentState,
 		&i.DesiredGeneration,
 		&i.EffectiveGeneration,
+		&i.EffectiveAssignmentState,
 		&i.DesiredProfileKey,
 		&i.EffectiveProfileKey,
 		&i.RouterAcknowledgementID,

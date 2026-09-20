@@ -133,6 +133,13 @@ func run() error {
 	if err := control.ProjectSubjectProfile(ctx, externalID, secondPersonal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceSubscriberPlan, policyregistry.AssignmentStateEffective, 1, secondSubscriberProfileKey, "fixture-second-subscriber-plan", nil); err != nil {
 		return err
 	}
+	_, secondPlanBinding, err := admissions.Admit(ctx, installation.ID, secondPersonal.ID, "conversation", decide)
+	if err != nil {
+		return err
+	}
+	if secondPlanBinding.ProfileKey != secondSubscriberProfileKey || secondPlanBinding.AssignmentSource != policyregistry.AssignmentSourceSubscriberPlan {
+		return errors.New("second subject did not receive its subscriber plan")
+	}
 	secondProfileKey := uuid.NewString()
 	if err := control.ProjectSubjectProfile(ctx, externalID, secondPersonal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceCohort, policyregistry.AssignmentStateEffective, 1, secondProfileKey, "fixture-second-cohort", nil); err != nil {
 		return err
@@ -141,19 +148,45 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if secondBinding.ProfileKey != secondProfileKey {
+	if secondBinding.ProfileKey != secondProfileKey || secondBinding.AssignmentSource != policyregistry.AssignmentSourceCohort || secondBinding.BindingGeneration != 2 {
 		return errors.New("cohort assignment did not precede the second subject plan")
 	}
-	if err := control.ProjectSubjectProfile(ctx, externalID, secondPersonal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceCohort, policyregistry.AssignmentStateRevoked, 2, secondProfileKey, "fixture-revoked-cohort", nil); err != nil {
+	if err := control.ProjectSubjectProfile(ctx, externalID, secondPersonal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceCohort, policyregistry.AssignmentStateAbsent, 2, "", "fixture-removed-cohort", nil); err != nil {
+		return err
+	}
+	_, secondFallback, err := admissions.Admit(ctx, installation.ID, secondPersonal.ID, "conversation", decide)
+	if err != nil {
+		return err
+	}
+	if secondFallback.ProfileKey != secondSubscriberProfileKey || secondFallback.AssignmentSource != policyregistry.AssignmentSourceSubscriberPlan || secondFallback.BindingGeneration != 3 {
+		return errors.New("removed cohort did not restore the second subject plan")
+	}
+	if err := control.ProjectSubjectProfile(ctx, externalID, secondPersonal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceCohort, policyregistry.AssignmentStatePending, 3, secondProfileKey, "fixture-pending-cohort", nil); err != nil {
+		return err
+	}
+	_, pendingFallback, err := admissions.Admit(ctx, installation.ID, secondPersonal.ID, "conversation", decide)
+	if err != nil {
+		return err
+	}
+	if pendingFallback.BindingGeneration != secondFallback.BindingGeneration || pendingFallback.AssignmentSource != policyregistry.AssignmentSourceSubscriberPlan {
+		return errors.New("pending cohort displaced the previous effective subject plan")
+	}
+	if err := control.ProjectSubjectProfile(ctx, externalID, secondPersonal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceCohort, policyregistry.AssignmentStateEffective, 3, secondProfileKey, "fixture-restored-cohort", nil); err != nil {
+		return err
+	}
+	if _, secondBinding, err = admissions.Admit(ctx, installation.ID, secondPersonal.ID, "conversation", decide); err != nil || secondBinding.ProfileKey != secondProfileKey || secondBinding.BindingGeneration != 4 {
+		return fmt.Errorf("restored cohort assignment was not admitted: %w", err)
+	}
+	if err := control.ProjectSubjectProfile(ctx, externalID, secondPersonal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceCohort, policyregistry.AssignmentStateRevoked, 4, secondProfileKey, "fixture-revoked-cohort", nil); err != nil {
 		return err
 	}
 	if _, _, err := admissions.Admit(ctx, installation.ID, secondPersonal.ID, "conversation", decide); err == nil {
 		return errors.New("revoked subject assignment remained admissible")
 	}
-	if err := control.ProjectSubjectProfile(ctx, externalID, secondPersonal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceCohort, policyregistry.AssignmentStateEffective, 3, secondProfileKey, "fixture-restored-cohort", nil); err != nil {
+	if err := control.ProjectSubjectProfile(ctx, externalID, secondPersonal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceCohort, policyregistry.AssignmentStateEffective, 5, secondProfileKey, "fixture-restored-cohort-after-revocation", nil); err != nil {
 		return err
 	}
-	if _, secondBinding, err = admissions.Admit(ctx, installation.ID, secondPersonal.ID, "conversation", decide); err != nil || secondBinding.ProfileKey != secondProfileKey {
+	if _, secondBinding, err = admissions.Admit(ctx, installation.ID, secondPersonal.ID, "conversation", decide); err != nil || secondBinding.ProfileKey != secondProfileKey || secondBinding.BindingGeneration != 5 {
 		return fmt.Errorf("restored cohort assignment was not admitted: %w", err)
 	}
 	firstAdmissions.Store(0)
@@ -282,6 +315,9 @@ func run() error {
 	if restoredPlan.ProfileKey != profileKey || restoredPlan.BindingGeneration != 6 {
 		return errors.New("restored subscriber plan did not rebind from lane default")
 	}
+	if err := control.ProjectSubjectProfile(ctx, externalID, personal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceSubscriberPlan, policyregistry.AssignmentStatePending, 4, profileKey, "fixture-regressed-plan", nil); err == nil {
+		return errors.New("terminal subject assignment generation regressed to pending")
+	}
 	if err := control.ProjectSubjectProfile(ctx, externalID, personal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceSubscriberPlan, policyregistry.AssignmentStateEffective, 3, uuid.NewString(), "fixture-stale-plan", nil); err == nil {
 		return errors.New("stale subject assignment generation was accepted")
 	}
@@ -402,7 +438,7 @@ func newKey(installationID string) auth.CreateAPIKeyParams {
 
 func fixtureBinding(admission policyregistry.SerializedAdmission, now time.Time) policyregistry.SessionReleaseBinding {
 	projection := admission.Projection
-	if admission.Previous != nil && admission.Previous.Target == projection.Target && admission.Previous.ProfileKey == projection.ProfileKey && admission.Previous.EnrollmentGeneration == projection.EnrollmentGeneration && admission.Previous.AssignmentGeneration == projection.AssignmentGeneration && admission.Previous.SubjectAssignmentGeneration == projection.SubjectAssignmentGeneration {
+	if admission.Previous != nil && admission.Previous.Target == projection.Target && admission.Previous.ProfileKey == projection.ProfileKey && admission.Previous.EnrollmentGeneration == projection.EnrollmentGeneration && admission.Previous.AssignmentGeneration == projection.AssignmentGeneration && admission.Previous.SubjectAssignmentGeneration == projection.SubjectAssignmentGeneration && admission.Previous.AssignmentSource == projection.AssignmentSource {
 		retained := *admission.Previous
 		retained.LastAdmittedAt = now
 		return retained
@@ -413,7 +449,7 @@ func fixtureBinding(admission policyregistry.SerializedAdmission, now time.Time)
 	if projection.ProfileKey != "" {
 		selection.Profile = &reference
 	}
-	binding := policyregistry.SessionReleaseBinding{Target: projection.Target, ActivationID: uuid.NewString(), Selection: selection, ProfileKey: projection.ProfileKey, EnrollmentGeneration: projection.EnrollmentGeneration, AssignmentGeneration: projection.AssignmentGeneration, SubjectAssignmentGeneration: projection.SubjectAssignmentGeneration, BindingGeneration: 1, CreatedAt: now, LastAdmittedAt: now}
+	binding := policyregistry.SessionReleaseBinding{Target: projection.Target, ActivationID: uuid.NewString(), Selection: selection, ProfileKey: projection.ProfileKey, EnrollmentGeneration: projection.EnrollmentGeneration, AssignmentGeneration: projection.AssignmentGeneration, SubjectAssignmentGeneration: projection.SubjectAssignmentGeneration, AssignmentSource: projection.AssignmentSource, BindingGeneration: 1, CreatedAt: now, LastAdmittedAt: now}
 	if admission.Previous != nil {
 		binding.BindingGeneration = admission.Previous.BindingGeneration + 1
 		binding.CreatedAt = admission.Previous.CreatedAt

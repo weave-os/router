@@ -227,6 +227,23 @@ func TestRequiredProfileAssignmentsFailClosedWithoutLaneDefault(t *testing.T) {
 	assert.Empty(t, admitted.ProfileKey)
 }
 
+func TestAssignmentSourceChangesRebindEquivalentProfiles(t *testing.T) {
+	set := fixtureSet("one")
+	profile := namespaceRef(policyregistry.ServingProfiles, "profile")
+	set.Profiles[profileKeyOne] = policyregistry.ServingSelection{Release: namespaceRef(policyregistry.ServingReleases, "custom"), Binding: namespaceRef(policyregistry.ServingBindings, "custom"), Profile: &profile}
+	first, _ := activateFixture(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	sets := map[string]policyregistry.SelectionSet{servingRef(t, policyregistry.ServingSelectionSets, set).SHA256: set}
+	projection := policyregistry.AdmissionProjection{Target: policyregistry.TargetStable, ProfileKey: profileKeyOne, SubjectAssignmentGeneration: 1, AssignmentSource: policyregistry.AssignmentSourceSubscriberPlan}
+	initial, err := policyregistry.SelectSessionRelease(nil, projection, first, sets, testRegistryRoot, servingEpoch)
+	require.NoError(t, err)
+	projection.AssignmentSource = policyregistry.AssignmentSourceCohort
+	cohort, err := policyregistry.SelectSessionRelease(&initial, projection, first, sets, testRegistryRoot, servingEpoch.Add(time.Minute))
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), cohort.BindingGeneration)
+	assert.Equal(t, policyregistry.AssignmentSourceCohort, cohort.AssignmentSource)
+	assert.Equal(t, initial.Selection, cohort.Selection)
+}
+
 type servingMemoryStore struct {
 	mu        sync.Mutex
 	objects   map[policyregistry.ObjectRef]policyregistry.ServingManifest

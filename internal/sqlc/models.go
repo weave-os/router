@@ -70,11 +70,12 @@ type RouterCredentialSubjectProfileAssignment struct {
 	SubjectID      uuid.UUID
 	InstallationID uuid.UUID
 	// Precedence source: organization overrides stay installation-scoped; subject rows cover cohort, subscriber plan and explicit lane-default states
-	AssignmentSource    string
-	AssignmentState     string
-	DesiredGeneration   int64
-	EffectiveGeneration int64
-	DesiredProfileKey   pgtype.UUID
+	AssignmentSource         string
+	AssignmentState          string
+	DesiredGeneration        int64
+	EffectiveGeneration      int64
+	EffectiveAssignmentState *string
+	DesiredProfileKey        pgtype.UUID
 	// Previous effective key is retained when a newer desired projection is pending, failed or incompatible
 	EffectiveProfileKey     pgtype.UUID
 	RouterAcknowledgementID uuid.UUID
