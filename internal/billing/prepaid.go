@@ -153,11 +153,16 @@ type organizationBook struct {
 }
 
 // OrganizationBook exposes the organization prepaid book over a billing Repo.
+// It revalidates the owner itself, since it is usable directly and not only
+// behind PrepaidBooks' dispatch.
 func OrganizationBook(repo Repo) PrepaidBook {
 	return organizationBook{repo: repo}
 }
 
 func (b organizationBook) Balance(ctx context.Context, owner Owner) (int64, error) {
+	if err := owner.Validate(); err != nil {
+		return 0, err
+	}
 	if owner.Kind != OwnerKindOrganization {
 		return 0, fmt.Errorf("%w: organization book cannot read %q funds", ErrOwnerKindUnsupported, owner.Kind)
 	}
@@ -165,6 +170,9 @@ func (b organizationBook) Balance(ctx context.Context, owner Owner) (int64, erro
 }
 
 func (b organizationBook) Debit(ctx context.Context, debit PrepaidDebit) (int64, error) {
+	if err := debit.Owner.Validate(); err != nil {
+		return 0, err
+	}
 	if debit.Owner.Kind != OwnerKindOrganization {
 		return 0, fmt.Errorf("%w: organization book cannot debit %q funds", ErrOwnerKindUnsupported, debit.Owner.Kind)
 	}

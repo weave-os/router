@@ -94,6 +94,32 @@ func TestPrepaidOrganizationOwnerUsesOrganizationRepo(t *testing.T) {
 	assert.Equal(t, "org_1", repo.ledgerCalls[0].OrganizationID)
 }
 
+func TestOrganizationBookRejectsCrossedOwnerWhenUsedDirectly(t *testing.T) {
+	t.Parallel()
+
+	// The book is exported, so it can be handed an owner that never passed
+	// through PrepaidBooks' dispatch; a crossed owner must still not spend.
+	repo := &fakeRepo{balanceMicros: 5_000_000, balanceRowExists: true}
+	book := billing.OrganizationBook(repo)
+	crossed := billing.Owner{
+		Kind:           billing.OwnerKindOrganization,
+		OrganizationID: "org_1",
+		SubscriberID:   "11111111-1111-4111-8111-111111111111",
+	}
+
+	_, err := book.Balance(context.Background(), crossed)
+	assert.ErrorIs(t, err, billing.ErrInvalidOwner)
+
+	_, err = book.Debit(context.Background(), billing.PrepaidDebit{
+		Owner:          crossed,
+		DeltaUsdMicros: -1_000_000,
+		EntryType:      billing.EntryTypeInference,
+	})
+	assert.ErrorIs(t, err, billing.ErrInvalidOwner)
+	assert.Zero(t, repo.debitCalls.Load())
+	assert.Equal(t, int64(5_000_000), repo.balanceMicros)
+}
+
 func TestPrepaidSubscriberOwnerUnsupportedWithoutSubscriberBook(t *testing.T) {
 	t.Parallel()
 
