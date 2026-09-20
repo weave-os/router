@@ -18,8 +18,8 @@ import (
 	"weave-os/router/internal/gateway"
 	"weave-os/router/internal/gateway/iam"
 	"weave-os/router/internal/observability"
-	"weave-os/router/internal/pgtls"
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/postgres/pgtls"
 	"weave-os/router/internal/postgres/serving"
 	"weave-os/router/internal/sqlc"
 )

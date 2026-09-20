@@ -70,7 +70,7 @@ func ParseModelIDMap(raw string) (map[string]string, error) {
 // On Cloud Run with Cloud SQL, POSTGRES_CONNECTION_NAME routes through the Auth Proxy Unix
 // socket at /cloudsql/<connection-name>, which handles TLS+IAM upstream. Omitting it falls
 // through to TCP+sslmode; an instance that requires a trusted client certificate on that
-// path is served by the POSTGRES_CLIENT_CERT material in internal/pgtls.
+// path is served by the POSTGRES_CLIENT_CERT material in internal/postgres/pgtls.
 func PostgresDSN() string {
 	if v := os.Getenv("DATABASE_URL"); v != "" {
 		return v

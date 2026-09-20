@@ -9,6 +9,7 @@ Postgres adapter: SQLC over pgx, plus the session-pin store impl. Read [root CLA
 - [`repository.go`](repository.go) — generic repo for auth + installation domain.
 - [`converters.go`](converters.go) — adapter-boundary mapping between `pgtype` / `uuid` and the domain types in [`../auth`](../auth) / [`../router/sessionpin`](../router/sessionpin).
 - Sibling files implement narrower repos.
+- `pgtls/` builds the client-certificate `tls.Config` for a `pgxpool.Config` from `POSTGRES_SERVER_CA_CERT`/`_CLIENT_CERT`/`_CLIENT_KEY`. Both composition roots call it, so it must stay independent of this parent package.
 - `serving/` contains the isolated gateway credential/admission SQLC adapters. Keep it independent of this parent package, whose worker telemetry dependencies pull in the inference runtime; the same SQLC and inner-ring import rules apply.
 
 ## Hard rules

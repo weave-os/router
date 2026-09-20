@@ -50,8 +50,10 @@ func Configure(poolConfig *pgxpool.Config) (bool, error) {
 		RootCAs:      roots,
 		Certificates: []tls.Certificate{keyPair},
 		// Cloud SQL server certificates carry the instance connection name rather than the
-		// host being dialed, so hostname verification is replaced by a CA-chain check.
-		InsecureSkipVerify:    true,
+		// IP being dialed, so Go's default hostname check can never pass. VerifyPeerCertificate
+		// below replaces it with a chain check against the configured CA — the connection is
+		// still authenticated, just not by hostname.
+		InsecureSkipVerify:    true, // codeql[go/disabled-certificate-check]
 		VerifyPeerCertificate: verifyAgainst(roots),
 	}
 	poolConfig.ConnConfig.TLSConfig = tlsConfig
