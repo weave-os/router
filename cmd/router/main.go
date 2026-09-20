@@ -1443,7 +1443,12 @@ func main() {
 			postgres.NewSubscriberEntitlementRepo(pool),
 			postgres.NewSubscriberAllowanceRepo(pool),
 		)
-		billingSvc = billingSvc.WithSubscriberAllowance(subscriberAllowanceSvc)
+		// The subscriber's own prepaid book is bound alongside the allowance:
+		// both belong to the credential subject, so an individual plan can
+		// never resolve to the organization's balance.
+		billingSvc = billingSvc.
+			WithSubscriberAllowance(subscriberAllowanceSvc).
+			WithSubscriberPrepaid(postgres.NewSubscriberCreditRepo(pool))
 		logger.Info("Individual subscriber allowance enforcement enabled")
 	}
 	server.RegisterWithFeatures(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, server.Features{PolicyPinEnabled: policyPinEnabled, ServingAdmission: servingAdmission, SubscriberAllowance: subscriberAllowanceSvc})

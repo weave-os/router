@@ -946,6 +946,28 @@ type RouterSubscriberAllowancePeriod struct {
 	UpdatedAt          pgtype.Timestamptz
 }
 
+type RouterSubscriberCreditBalance struct {
+	SubscriberID         uuid.UUID
+	BalanceUsdMicros     int64
+	LowBalanceNotifiedAt pgtype.Timestamptz
+	CreatedAt            pgtype.Timestamptz
+	UpdatedAt            pgtype.Timestamptz
+}
+
+type RouterSubscriberCreditLedger struct {
+	ID                    uuid.UUID
+	SubscriberID          uuid.UUID
+	DeltaUsdMicros        int64
+	NotionalCostMicros    int64
+	BalanceAfterMicros    int64
+	EntryType             string
+	StripePaymentIntentID *string
+	RouterRequestID       *string
+	RouterModel           *string
+	Memo                  *string
+	CreatedAt             pgtype.Timestamptz
+}
+
 type RouterSubscriberEntitlement struct {
 	SubscriberID                     uuid.UUID
 	Version                          int64
