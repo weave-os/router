@@ -9,7 +9,8 @@ INSERT INTO router.model_router_api_keys (
     key_hash,
     key_suffix,
     created_by,
-    scope
+    scope,
+    harness
 )
 VALUES (
     @installation_id::uuid,
@@ -19,7 +20,8 @@ VALUES (
     @key_hash::varchar,
     @key_suffix::varchar,
     @created_by,
-    @scope::varchar
+    @scope::varchar,
+    @harness
 )
 RETURNING *;
 

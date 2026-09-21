@@ -238,6 +238,8 @@ type RouterModelRouterAPIKey struct {
 	// routing = rk_ data-plane key (can proxy and spend); analytics_read = ra_ export key (read-only, non-billable)
 	Scope               string
 	CredentialSubjectID pgtype.UUID
+	// Optional onboarding harness id (claude_code, codex, opencode, pi). Null for keys minted outside harness onboarding.
+	Harness *string
 }
 
 // Customer-owned provider API keys for BYOK routing
