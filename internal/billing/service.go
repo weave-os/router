@@ -417,7 +417,6 @@ func (s *Service) meterSubscriberAllowance(ctx context.Context, p DebitInference
 	if err == nil {
 		return true, nil
 	}
-	entitlement.MarkSettlementFailed(ctx)
 	held := errors.Is(err, entitlement.ErrAllowanceHeldUnsettled)
 	observability.FromContext(ctx).Error("Subscriber allowance settlement failed",
 		"err", err,
@@ -429,6 +428,7 @@ func (s *Service) meterSubscriberAllowance(ctx context.Context, p DebitInference
 	if held {
 		return true, err
 	}
+	entitlement.MarkSettlementFailed(ctx)
 	return false, err
 }
 

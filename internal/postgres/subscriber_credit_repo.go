@@ -211,6 +211,7 @@ func (r *SubscriberCreditRepo) Settle(ctx context.Context, settlement billing.Pr
 	balanceAfter := balance + max(reservation.ReservedUsdMicros-settledTotal, 0)
 	if _, err := queries.InsertSubscriberCreditSettlement(ctx, sqlc.InsertSubscriberCreditSettlementParams{
 		SubscriberID:          reservation.SubscriberID,
+		DebitUsdMicros:        -settlement.RetailUsdMicros,
 		RetailUsdMicros:       settlement.RetailUsdMicros,
 		BalanceAfterMicros:    balanceAfter,
 		RouterRequestID:       settlement.RouterRequestID,

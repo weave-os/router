@@ -417,21 +417,22 @@ INSERT INTO router.subscriber_credit_ledger (
 )
 VALUES (
     $1::uuid,
-    -@retail_usd_micros::bigint,
     $2::bigint,
     $3::bigint,
+    $4::bigint,
     'inference',
-    $4::varchar,
     $5::varchar,
     $6::varchar,
     $7::varchar,
-    $8::varchar
+    $8::varchar,
+    $9::varchar
 )
 RETURNING balance_after_micros
 `
 
 type InsertSubscriberCreditSettlementParams struct {
 	SubscriberID          uuid.UUID
+	DebitUsdMicros        int64
 	RetailUsdMicros       int64
 	BalanceAfterMicros    int64
 	RouterRequestID       string
@@ -458,20 +459,21 @@ type InsertSubscriberCreditSettlementParams struct {
 //	)
 //	VALUES (
 //	    $1::uuid,
-//	    -@retail_usd_micros::bigint,
 //	    $2::bigint,
 //	    $3::bigint,
+//	    $4::bigint,
 //	    'inference',
-//	    $4::varchar,
 //	    $5::varchar,
 //	    $6::varchar,
 //	    $7::varchar,
-//	    $8::varchar
+//	    $8::varchar,
+//	    $9::varchar
 //	)
 //	RETURNING balance_after_micros
 func (q *Queries) InsertSubscriberCreditSettlement(ctx context.Context, arg InsertSubscriberCreditSettlementParams) (int64, error) {
 	row := q.db.QueryRow(ctx, insertSubscriberCreditSettlement,
 		arg.SubscriberID,
+		arg.DebitUsdMicros,
 		arg.RetailUsdMicros,
 		arg.BalanceAfterMicros,
 		arg.RouterRequestID,

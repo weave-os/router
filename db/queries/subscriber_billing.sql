@@ -101,7 +101,7 @@ INSERT INTO router.subscriber_credit_ledger (
 )
 VALUES (
     @subscriber_id::uuid,
-    -@retail_usd_micros::bigint,
+    @debit_usd_micros::bigint,
     @retail_usd_micros::bigint,
     @balance_after_micros::bigint,
     'inference',
