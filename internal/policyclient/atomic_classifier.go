@@ -16,6 +16,7 @@ import (
 
 const atomicClassifierMaxRequestBytes = 1_000_000
 const atomicClassifierMaxResponseBytes = 16_384
+const atomicClassifierMaxInputTokens = 8_192
 
 // AtomicClassifier is the authenticated V3 Modal transport. Its URL and release
 // pins are server configuration, never selected by an inference request.
@@ -88,7 +89,7 @@ func (c *AtomicClassifier) Classify(ctx context.Context, input router.AtomicClas
 		// Avoid echoing untrusted field values from a decoder error.
 		return router.ClassifierPrediction{}, fmt.Errorf("decode classifier facts (%T): %w", err, router.ErrClassifierUnavailable)
 	}
-	if classifierFacts.Prediction == nil || classifierFacts.Release != c.release || classifierFacts.ReleaseSHA256 != c.releaseSHA256 || classifierFacts.InputTokens < 1 || classifierFacts.InputTokens > 32768 || classifierFacts.HistorySource != router.ClassifierHistoricalPrediction {
+	if classifierFacts.Prediction == nil || classifierFacts.Release != c.release || classifierFacts.ReleaseSHA256 != c.releaseSHA256 || classifierFacts.InputTokens < 1 || classifierFacts.InputTokens > atomicClassifierMaxInputTokens || classifierFacts.HistorySource != router.ClassifierHistoricalPrediction {
 		return router.ClassifierPrediction{}, fmt.Errorf("invalid classifier facts or release identity: %w", router.ErrClassifierUnavailable)
 	}
 	prediction := router.ClassifierPrediction{Complexity: *classifierFacts.Prediction, Probabilities: classifierFacts.Probabilities}

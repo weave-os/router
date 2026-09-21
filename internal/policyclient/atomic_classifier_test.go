@@ -24,7 +24,7 @@ func TestAtomicClassifierAuthenticatedFactsAndRelease(t *testing.T) {
 		require.Equal(t, "/classify", r.URL.Path)
 		require.Equal(t, "Bearer "+bearer, r.Header.Get("Authorization"))
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&received))
-		fmt.Fprintf(w, `{"release":%q,"release_sha256":%q,"prediction":2,"probabilities":[0.1,0.2,0.6,0.1],"input_tokens":32768,"history_source":%q}`, release, digest, router.ClassifierHistoricalPrediction)
+		fmt.Fprintf(w, `{"release":%q,"release_sha256":%q,"prediction":2,"probabilities":[0.1,0.2,0.6,0.1],"input_tokens":8192,"history_source":%q}`, release, digest, router.ClassifierHistoricalPrediction)
 	}))
 	defer server.Close()
 	client, err := policyclient.NewAtomicClassifier(server.URL, bearer, release, digest, server.Client())
@@ -55,7 +55,8 @@ func TestAtomicClassifierFailsClosed(t *testing.T) {
 		{"inconsistent_argmax", 200, strings.Replace(valid, `"prediction":2`, `"prediction":1`, 1), router.ErrClassifierUnavailable},
 		{"bad_probabilities", 200, strings.Replace(valid, "0.6", "0.9", 1), router.ErrClassifierUnavailable},
 		{"wrong_provenance", 200, strings.Replace(valid, string(router.ClassifierHistoricalPrediction), "dataset_label", 1), router.ErrClassifierUnavailable},
-		{"overlength_success", 200, strings.Replace(valid, "42", "32769", 1), router.ErrClassifierUnavailable},
+		{"overlength_success", 200, strings.Replace(valid, "42", "8193", 1), router.ErrClassifierUnavailable},
+		{"old_32k_success", 200, strings.Replace(valid, "42", "32768", 1), router.ErrClassifierUnavailable},
 		{"oversized_response", 200, strings.Repeat(" ", 17000) + valid, router.ErrClassifierUnavailable},
 	} {
 		t.Run(test.name, func(t *testing.T) {

@@ -92,8 +92,8 @@ The persisted root digest and historical prediction join reject prefix rewrites
 and missing earlier predictions. A ticket establishes identity, not lost history:
 compaction cannot recover exact counters or missing response blocks. Router
 compaction is disabled for admitted threads. Unrecoverable history returns 409,
-token overflow returns 413, and classifier/storage failure returns 503, without
-truncation or switching to another classifier. Start a new conversation when a
+the transport byte cap returns 413, and classifier/storage failure returns 503,
+without switching to another classifier. Start a new conversation when a
 thread can no longer supply its complete causal prefix.
 
 ## Pi client admission
@@ -132,7 +132,20 @@ The policy must have schema `hmm_go_selection_policy_v1` and class order
 transport has a 25-second timeout, no redirect/retry/fallback, a 1 MB request
 cap and a 16 KiB response cap. Responses must identify the pinned release and
 report valid digit probabilities, historical-prediction provenance and at most
-32,768 formatted tokens. Go alone selects the eligible model/provider.
+8,192 formatted tokens. The classifier validates the full ten-block input, then
+fits the largest contiguous newest suffix by dropping whole oldest response
+blocks. Empty blocks count; whole-prefix counters and historical complexities
+do not change. The exact tokenizer counts the system prompt, JSON and chat
+wrapper for each candidate. There is no six-block minimum.
+
+If the current message alone exceeds the budget, the classifier keeps its
+beginning and end with an explicit middle-omission marker. Response metadata
+reports original/fitted token counts, received/retained/dropped history counts,
+and current-message elision. The release manifest pins this fitting policy as
+`recent_complete_responses_head_tail_v1`; older reject-on-overflow releases are
+not equivalent. This is a classifier-only projection: causal identity, stored
+history and the selected completion model's original conversation/context
+window remain unchanged. Go alone selects the eligible model/provider.
 
 This configuration deliberately refuses `ROUTER_SERVING_ASSERTION_KEY` managed
 admission. A bearer-authenticated Modal endpoint does not satisfy the existing
