@@ -175,7 +175,7 @@ func (p *Pool) Exhaust(accountID string, resetAt time.Time) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	state, ok := p.accounts[accountID]
-	if !ok {
+	if !ok || !state.account.Enabled {
 		return false
 	}
 	if state.account.CooldownTil.Before(resetAt) {
@@ -204,10 +204,9 @@ func (p *Pool) Activate(accountID string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	state, ok := p.accounts[accountID]
-	if !ok {
+	if !ok || !state.account.Enabled {
 		return false
 	}
-	state.account.Enabled = true
 	state.account.State = auth.SubscriptionAccountStateActive
 	state.account.CooldownTil = time.Time{}
 	return true

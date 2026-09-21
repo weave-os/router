@@ -87,10 +87,28 @@ const exhaustedFraction = 0.999
 // window resets). A snapshot with no usable data is never exhausted — absence of
 // a reading is treated as cold-start slack, not a spent plan.
 func (s Snapshot) Exhausted() bool {
+	return s.ExhaustedAsOf(s.ObservedAt)
+}
+
+// ExhaustedAsOf reports whether either window is still spent at now. A window
+// whose ResetAt has already passed is no longer exhausted, even if the cached
+// used-percent is still 100 — the longer sibling window can keep the snapshot
+// cached after the short window refills.
+func (s Snapshot) ExhaustedAsOf(now time.Time) bool {
 	if !s.hasData() {
 		return false
 	}
-	return s.Primary.UsedPercent >= exhaustedFraction || s.Secondary.UsedPercent >= exhaustedFraction
+	return windowExhausted(s.Primary, now) || windowExhausted(s.Secondary, now)
+}
+
+func windowExhausted(window Window, now time.Time) bool {
+	if window.UsedPercent < exhaustedFraction {
+		return false
+	}
+	if !window.ResetAt.IsZero() && !window.ResetAt.After(now) {
+		return false
+	}
+	return true
 }
 
 // CostFactor maps observed utilization to a multiplier on a covered model's

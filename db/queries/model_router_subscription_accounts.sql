@@ -129,10 +129,12 @@ WHERE id = @id::uuid
   AND enabled = TRUE;
 
 -- Updates the internal credential-free routing health for one linked account.
+-- enabled = enabled AND @enabled never re-enables an operator-disabled row
+-- (Activate/Exhaust) while still allowing ReconnectRequired to disable it.
 -- name: UpdateModelRouterSubscriptionAccountHealth :execrows
 UPDATE router.model_router_subscription_accounts
 SET health_state = @health_state::varchar,
-    enabled = @enabled::boolean,
+    enabled = enabled AND @enabled::boolean,
     cooldown_until = @cooldown_until::timestamp,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = @id::uuid
@@ -237,13 +239,13 @@ WHERE id = @id::uuid
 
 -- Persist a refresh result and publish its access token atomically. The lease
 -- ID fences stale refreshers and the version prevents lost refresh rotations.
+-- Quota health and cooldown are left untouched: a successful refresh only
+-- proves credentials still work.
 -- name: PersistModelRouterSubscriptionTokens :execrows
 UPDATE router.model_router_subscription_accounts
 SET refresh_token_ciphertext = @refresh_token_ciphertext::bytea,
     access_token_ciphertext = @access_token_ciphertext::bytea,
     access_token_expires_at = @access_token_expires_at::timestamp,
-    health_state = 'active',
-    cooldown_until = NULL,
     token_refresh_lease_until = NULL,
     token_refresh_lease_id = NULL,
     token_refresh_version = token_refresh_version + 1,

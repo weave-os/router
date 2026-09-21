@@ -393,7 +393,6 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 			if refreshed.AccountID != "" {
 				account.AccountID = refreshed.AccountID
 			}
-			account.CooldownTil = time.Time{}
 			return account, nil
 		}
 		return Account{}, ErrNoAvailableAccount
@@ -512,7 +511,11 @@ func applySubscriptionCredentials(account Account, credentials auth.Subscription
 	} else {
 		account.AccessTokenExpiresAt = *credentials.AccessTokenExpiresAt
 	}
-	account.CooldownTil = time.Time{}
+	if credentials.CooldownUntil == nil {
+		account.CooldownTil = time.Time{}
+	} else {
+		account.CooldownTil = *credentials.CooldownUntil
+	}
 	account.State = credentials.State
 	return account
 }

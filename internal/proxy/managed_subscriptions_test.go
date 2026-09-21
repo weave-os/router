@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
@@ -126,6 +127,33 @@ func TestLeaseManagedSubscriptionSkipsObservedExhaustedAccount(t *testing.T) {
 	lease.Release()
 }
 
+
+func TestLeaseManagedSubscriptionHonorsResetQuotaWindows(t *testing.T) {
+	now := time.Now()
+	leaser := &healthSubscriptionLeaser{scriptedSubscriptionLeaser: &scriptedSubscriptionLeaser{
+		leases: []subscriptions.Lease{
+			{AccountID: "opaque-a", AccessToken: exhaustedSubToken},
+		},
+	}}
+	snap := usage.Snapshot{
+		Primary:    usage.Window{UsedPercent: 1.0, WindowMinutes: 300, ResetAt: now.Add(-time.Minute)},
+		Secondary:  usage.Window{UsedPercent: 0.20, WindowMinutes: 10080, ResetAt: now.Add(48 * time.Hour)},
+		ObservedAt: now.Add(-2 * time.Hour),
+	}
+	svc := newServiceWithProviders(t, nil).
+		WithManagedSubscriptions(leaser).
+		WithUsageObserver(observerWithSnapshot(exhaustedSubToken, snap))
+
+	_, lease, managed, err := svc.leaseManagedSubscription(
+		managedSubscriptionTestContext(), providers.ProviderAnthropic, "claude-opus-4-8",
+	)
+
+	require.NoError(t, err)
+	require.True(t, managed)
+	require.Equal(t, "opaque-a", lease.AccountID)
+	require.Empty(t, leaser.exhaustedIDs)
+	lease.Release()
+}
 func TestDispatchWithFallbackDoesNotCrossManagedProviderFamilies(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "opaque-claude", AccessToken: "token-claude"}}}
 	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)

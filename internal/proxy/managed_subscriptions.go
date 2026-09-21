@@ -178,7 +178,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		}
 		if !s.subscriptionModels.managedDenied(owner.PoolKey(), lease.AccountID, provider, model, s.clockNow()) {
 			snapshot, observed := s.managedSubscriptionUsageSnapshot(lease.AccessToken)
-			if observed && snapshot.Exhausted() {
+			if observed && snapshot.ExhaustedAsOf(s.clockNow()) {
 				resetAt := linkedSubscriptionResetAt(snapshot, s.clockNow())
 				if err := exhaustManagedSubscription(ctx, s.managedSubscriptions, owner, poolProvider, lease.AccountID, resetAt); err != nil {
 					observability.FromContext(ctx).Error("Failed to persist exhausted subscription account",

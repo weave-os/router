@@ -197,6 +197,15 @@ func TestSubscriptionAccountHealthIsOwnerScoped(t *testing.T) {
 	assert.ErrorIs(t, healthRepo.UpdateSubscriptionAccountHealth(
 		ctx, account.ID, otherOwner, auth.SubscriptionAccountStateDisabled, false, nil,
 	), auth.ErrSubscriptionAccountNotFound)
+
+	require.NoError(t, repo.UpdateSubscriptionAccountState(ctx, account.ID, owner, false, nil))
+	require.NoError(t, healthRepo.UpdateSubscriptionAccountHealth(
+		ctx, account.ID, owner, auth.SubscriptionAccountStateActive, true, nil,
+	))
+	accounts, err = repo.ListSubscriptionAccounts(ctx, owner)
+	require.NoError(t, err)
+	require.Len(t, accounts, 1)
+	assert.False(t, accounts[0].Enabled, "health writes must not re-enable an operator-disabled account")
 }
 
 func TestSubscriptionAccountsKeepLegacyAPIKeyOwnership(t *testing.T) {

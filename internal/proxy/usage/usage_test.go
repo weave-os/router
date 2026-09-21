@@ -303,6 +303,18 @@ func TestSnapshot_Exhausted(t *testing.T) {
 	})
 }
 
+
+func TestSnapshot_ExhaustedAsOfHonorsResetWindows(t *testing.T) {
+	now := time.Unix(1_700_000_000, 0)
+	s := usage.Snapshot{
+		Primary:    usage.Window{UsedPercent: 1.0, WindowMinutes: 300, ResetAt: now.Add(-time.Minute)},
+		Secondary:  usage.Window{UsedPercent: 0.10, WindowMinutes: 10080},
+		ObservedAt: now.Add(-time.Hour),
+	}
+	assert.False(t, s.ExhaustedAsOf(now),
+		"an expired primary cap must not keep the account exhausted while the weekly window has slack")
+	assert.True(t, s.Exhausted(), "Exhausted() is evaluated at ObservedAt, when the primary window was still spent")
+}
 func TestParseAnthropicUnifiedHeaders_ResetAt(t *testing.T) {
 	t.Run("RFC3339 reset", func(t *testing.T) {
 		h := http.Header{}

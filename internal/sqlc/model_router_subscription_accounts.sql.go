@@ -356,8 +356,6 @@ UPDATE router.model_router_subscription_accounts
 SET refresh_token_ciphertext = $1::bytea,
     access_token_ciphertext = $2::bytea,
     access_token_expires_at = $3::timestamp,
-    health_state = 'active',
-    cooldown_until = NULL,
     token_refresh_lease_until = NULL,
     token_refresh_lease_id = NULL,
     token_refresh_version = token_refresh_version + 1,
@@ -383,13 +381,13 @@ type PersistModelRouterSubscriptionTokensParams struct {
 
 // Persist a refresh result and publish its access token atomically. The lease
 // ID fences stale refreshers and the version prevents lost refresh rotations.
+// Quota health and cooldown are left untouched: a successful refresh only
+// proves credentials still work.
 //
 //	UPDATE router.model_router_subscription_accounts
 //	SET refresh_token_ciphertext = $1::bytea,
 //	    access_token_ciphertext = $2::bytea,
 //	    access_token_expires_at = $3::timestamp,
-//	    health_state = 'active',
-//	    cooldown_until = NULL,
 //	    token_refresh_lease_until = NULL,
 //	    token_refresh_lease_id = NULL,
 //	    token_refresh_version = token_refresh_version + 1,
@@ -583,7 +581,7 @@ func (q *Queries) UpdateModelRouterSubscriptionAccountCooldown(ctx context.Conte
 const updateModelRouterSubscriptionAccountHealth = `-- name: UpdateModelRouterSubscriptionAccountHealth :execrows
 UPDATE router.model_router_subscription_accounts
 SET health_state = $1::varchar,
-    enabled = $2::boolean,
+    enabled = enabled AND $2::boolean,
     cooldown_until = $3::timestamp,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $4::uuid
@@ -601,10 +599,12 @@ type UpdateModelRouterSubscriptionAccountHealthParams struct {
 }
 
 // Updates the internal credential-free routing health for one linked account.
+// enabled = enabled AND @enabled never re-enables an operator-disabled row
+// (Activate/Exhaust) while still allowing ReconnectRequired to disable it.
 //
 //	UPDATE router.model_router_subscription_accounts
 //	SET health_state = $1::varchar,
-//	    enabled = $2::boolean,
+//	    enabled = enabled AND $2::boolean,
 //	    cooldown_until = $3::timestamp,
 //	    updated_at = CURRENT_TIMESTAMP
 //	WHERE id = $4::uuid

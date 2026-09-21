@@ -105,6 +105,16 @@ func TestPoolCanceledRefreshWaiterDoesNotCooldownAccount(t *testing.T) {
 	release()
 }
 
+
+func TestPoolActivateDoesNotReenableDisabledAccount(t *testing.T) {
+	p := subscriptions.NewPool("user-a", subscriptions.ProviderClaude, nil)
+	require.NoError(t, p.Upsert(subscriptions.Account{
+		ID: "claude", OwnerID: "user-a", Provider: subscriptions.ProviderClaude, Enabled: true, AccessToken: "secret",
+	}))
+	require.True(t, p.Disable("claude"))
+	require.False(t, p.Activate("claude"))
+	require.ErrorIs(t, mustLeaseError(p, subscriptions.ProviderClaude), subscriptions.ErrNoAvailableAccount)
+}
 func TestPoolDisableAndRemove(t *testing.T) {
 	p := subscriptions.NewPool("user-a", subscriptions.ProviderClaude, nil)
 	require.NoError(t, p.Upsert(subscriptions.Account{ID: "claude", OwnerID: "user-a", Provider: subscriptions.ProviderClaude, Enabled: true, AccessToken: "secret"}))
