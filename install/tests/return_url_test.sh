@@ -28,7 +28,11 @@ case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*) opener="explorer.exe" ;;
   *) opener="xdg-open" ;;
 esac
-printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\\n" "$@" >"$OPEN_LOG"' >"$fake_bin/$opener"
+if [ "$opener" = "explorer.exe" ]; then
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\\n" "$@" >"$OPEN_LOG"' 'exit 1' >"$fake_bin/$opener"
+else
+  printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\\n" "$@" >"$OPEN_LOG"' >"$fake_bin/$opener"
+fi
 chmod +x "$fake_bin/$opener"
 
 pass=0
@@ -55,6 +59,11 @@ success_log="$work/success-browser.log"
 run_install "$success_home" "$success_log" 1 1
 check "opens return URL after health and key validation pass" \
   "https://app.example.test/continue?source=router&ok=1" "$(cat "$success_log")"
+if grep -q 'no default-browser opener was available' "$success_home/install.log"; then
+  no "does not warn that the browser opener failed after launch" "no opener-failed warning" "warning present"
+else
+  ok "does not warn that the browser opener failed after launch"
+fi
 
 health_home="$work/health-failure"
 health_log="$work/health-failure-browser.log"
@@ -78,6 +87,23 @@ HOME="$invalid_home" OPEN_LOG="$invalid_log" PATH="$fake_bin:$PATH" NO_COLOR=1 \
     </dev/null >"$invalid_home/install.log" 2>&1 || invalid_rc=$?
 check "rejects non-http return URLs" "2" "$invalid_rc"
 check "does not open a rejected return URL" "" "$(cat "$invalid_log")"
+
+# explorer.exe commonly exits 1 after handing the URL to an already-running
+# shell. Treat launch as success so the installer does not warn falsely.
+win_home="$work/windows-opener"
+mkdir -p "$win_home/bin"
+printf '%s\n' '#!/usr/bin/env bash' 'printf "MSYS_NT-10.0\n"' >"$win_home/bin/uname"
+printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\n" "$@" >"$OPEN_LOG"' 'exit 1' >"$win_home/bin/explorer.exe"
+chmod +x "$win_home/bin/uname" "$win_home/bin/explorer.exe"
+: >"$work/windows-opener.log"
+# Extract just open_url_in_browser from the installer so PATH/uname can be stubbed.
+eval "$(awk '/^open_url_in_browser\(\)/,/^open_return_url_if_verified\(\)/' "$installer" | sed '$d')"
+win_rc=0
+OPEN_LOG="$work/windows-opener.log" PATH="$win_home/bin:$PATH" \
+  open_url_in_browser 'https://app.example.test/continue?source=router&ok=1' || win_rc=$?
+check "Windows opener succeeds when explorer.exe exits 1" "0" "$win_rc"
+check "Windows opener still launches the URL" \
+  "https://app.example.test/continue?source=router&ok=1" "$(cat "$work/windows-opener.log")"
 
 if [ "$fail" -gt 0 ]; then
   printf '\n%d passed, %d failed\n' "$pass" "$fail" >&2
