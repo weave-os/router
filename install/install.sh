@@ -2494,7 +2494,7 @@ apply_claude_context_window() {
   local action="$1" active="$2" state="$settings_dir/.weave-context-window.json" merged tmp
   refuse_if_symlink "$state"
   [ -f "$active" ] || return 0
-  if [ "$action" = "install" ] && [ -n "$context_window" ]; then
+  if [ -n "$context_window" ]; then
     tmp="$(mktemp "$settings_dir/.weave-context.XXXXXX")"
     jq --arg managed "$context_managed_model" '{had_model: has("model"), original: .model, managed: $managed}' "$active" >"$tmp"
     chmod 600 "$tmp"
@@ -2516,7 +2516,7 @@ apply_claude_context_window() {
   printf '%s\n' "$merged" >"$tmp"
   chmod 600 "$tmp"
   mv "$tmp" "$active"
-  if [ "$action" = "install" ] && [ -n "$context_window" ]; then
+  if [ -n "$context_window" ]; then
     ok "Claude Code model set to $context_managed_model; automatic compaction stays enabled. Restart Claude Code."
     if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
       gitignore_add ".claude/.weave-context-window.json"

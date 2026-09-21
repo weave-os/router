@@ -36,6 +36,15 @@ printf '%s\n' '{"model":"opus","statusLine":{"type":"command","command":"my-stat
 run
 test "$(model "$settings")" = opus
 test ! -e "$state"
+
+# A first-time context-window opt-in also works through update mode.
+run_update --context-window 1m
+test "$(model "$settings")" = 'opus[1m]'
+test "$(jq -r '.original' "$state")" = opus
+uninstall
+test "$(model "$settings")" = opus
+test ! -e "$state"
+
 run --context-window 1m
 test "$(model "$settings")" = 'opus[1m]'
 test "$(jq -r '.original' "$state")" = opus
