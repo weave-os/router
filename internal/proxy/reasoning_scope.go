@@ -33,9 +33,10 @@ func (s *Service) reasoningReplayScope(ctx context.Context, d router.Decision) s
 		h.Write([]byte(part))
 		h.Write([]byte{0})
 	}
+	endpoint := normalizeUpstreamEndpoint(requestcontext.EffectiveBaseURL(ctx, ""))
 	write(d.Provider)
 	write(requestcontext.EffectiveUpstreamModel(ctx, d.Model))
-	write(normalizeUpstreamEndpoint(requestcontext.EffectiveBaseURL(ctx, "")))
+	write(endpoint)
 
 	creds := requestcontext.CredentialsFromContext(ctx)
 	if creds == nil {
@@ -46,11 +47,9 @@ func (s *Service) reasoningReplayScope(ctx context.Context, d router.Decision) s
 	write(creds.Source)
 	principal, secret := creds.UpstreamPrincipal()
 	if secret {
-		// A static key is its own identity; hashed because the scope travels
-		// to the client inside the minted signature.
-		sum := sha256.Sum256([]byte(principal))
-		h.Write(sum[:])
-		return hex.EncodeToString(h.Sum(nil)[:8])
+		// A static key is its own identity, derived rather than digested so
+		// the scope the client round-trips is no oracle for the key.
+		principal = providers.CredentialPrincipal(endpoint, principal)
 	}
 	write(principal)
 	return hex.EncodeToString(h.Sum(nil)[:8])

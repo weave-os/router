@@ -209,10 +209,18 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		rejected = append(rejected, lease)
 		sessionID = ""
 	}
-	creds := &Credentials{APIKey: []byte(lease.AccessToken), OAuth: true, Source: credSourceSubscription}
+	// A leased access token is refreshed mid-session; the account it
+	// authenticates is what an upstream decrypts reasoning under.
+	creds := &Credentials{
+		APIKey:      []byte(lease.AccessToken),
+		OAuth:       true,
+		Source:      credSourceSubscription,
+		PrincipalID: "subscription-account:" + lease.AccountID,
+	}
 	if poolProvider == subscriptions.ProviderCodex {
 		creds.Source = credSourceCodexSubscription
 		creds.AccountID = []byte(lease.ProviderAccount)
+		creds.PrincipalID = "chatgpt-account:" + lease.ProviderAccount
 	}
 	return context.WithValue(ctx, CredentialsContextKey{}, creds), lease, true, nil
 }

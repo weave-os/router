@@ -173,7 +173,7 @@ func NewClientWithStallTimeouts(apiKey, baseURL string, headerTimeout, sseIdleTi
 // DeploymentPrincipal fingerprints the account this client's own key
 // authenticates as; see providers.DeploymentPrincipal.
 func (c *Client) DeploymentPrincipal() string {
-	return providers.PrincipalFingerprint(c.baseURL, c.apiKey)
+	return providers.CredentialPrincipal(c.baseURL, c.apiKey)
 }
 
 // idleTimeoutFor picks the idle-progress threshold; /v1/responses gets the

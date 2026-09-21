@@ -1,9 +1,11 @@
 package providers
 
 import (
+	"crypto/pbkdf2"
 	"crypto/sha256"
 	"encoding/hex"
-	"strings"
+
+	lru "github.com/hashicorp/golang-lru/v2"
 )
 
 // DeploymentPrincipal identifies the upstream account an adapter authenticates
@@ -15,17 +17,33 @@ type DeploymentPrincipal interface {
 	DeploymentPrincipal() string
 }
 
-// PrincipalFingerprint hashes the parts identifying one upstream account into
-// a short opaque token. Safe to embed in values the client round-trips: the
-// inputs are one-way and truncated.
-func PrincipalFingerprint(parts ...string) string {
-	if strings.Join(parts, "") == "" {
+const (
+	principalKDFIterations = 100_000
+	principalKDFSalt       = "weave-router/upstream-principal/v1\x00"
+)
+
+var principalCache, _ = lru.New[string, string](1024)
+
+// CredentialPrincipal names the upstream account behind a credential that has
+// no identity other than its own key material, as a short opaque token. The
+// token travels to the client inside the minted reasoning envelope, so the
+// derivation is a password-grade KDF rather than a digest: a bare hash of an
+// API key is an offline oracle for the key. Memoized — the cost is per key,
+// not per request — and endpoint-salted, so the same key on two endpoints is
+// two accounts.
+func CredentialPrincipal(endpoint, key string) string {
+	if key == "" {
 		return ""
 	}
-	h := sha256.New()
-	for _, part := range parts {
-		h.Write([]byte(part))
-		h.Write([]byte{0})
+	cacheKey := endpoint + "\x00" + key
+	if principal, ok := principalCache.Get(cacheKey); ok {
+		return principal
 	}
-	return hex.EncodeToString(h.Sum(nil)[:8])
+	derived, err := pbkdf2.Key(sha256.New, key, []byte(principalKDFSalt+endpoint), principalKDFIterations, 16)
+	if err != nil {
+		return ""
+	}
+	principal := hex.EncodeToString(derived[:8])
+	principalCache.Add(cacheKey, principal)
+	return principal
 }

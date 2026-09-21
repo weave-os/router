@@ -165,7 +165,7 @@ func newClient(apiKey, baseURL string, modelIDMap map[string]string, opts ...Opt
 // DeploymentPrincipal fingerprints the account this client's own key
 // authenticates as; see providers.DeploymentPrincipal.
 func (c *Client) DeploymentPrincipal() string {
-	return providers.PrincipalFingerprint(c.baseURL, c.apiKey)
+	return providers.CredentialPrincipal(c.baseURL, c.apiKey)
 }
 
 // httpFor picks the HTTP client for a routed model: Grok models get the

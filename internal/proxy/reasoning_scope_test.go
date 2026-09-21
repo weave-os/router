@@ -5,11 +5,13 @@ import (
 	"net/http"
 	"testing"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openaicompat"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/subscriptions"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -154,6 +156,28 @@ func TestReasoningReplayScope_DoesNotLeakCredential(t *testing.T) {
 	assert.NotContains(t, scope, "sk-secret-value")
 	assert.NotContains(t, scope, "acct-secret")
 	assert.NotContains(t, openaicompat.NewClient("sk-secret-value", cortexBaseURL).DeploymentPrincipal(), "sk-secret-value")
+}
+
+// A managed Codex lease hands out a refreshed access token, so the lease's
+// ChatGPT account — not the token — is what the scope must key on.
+func TestReasoningReplayScope_SurvivesManagedSubscriptionTokenRefresh(t *testing.T) {
+	decision := router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol"}
+	scopeFor := func(accessToken, providerAccount string) string {
+		leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{
+			{AccountID: "opaque-codex", ProviderAccount: providerAccount, AccessToken: accessToken},
+		}}
+		svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
+		ctx, lease, managed, err := svc.leaseManagedSubscription(
+			managedSubscriptionContext(auth.SubscriptionProviderCodex), providers.ProviderOpenAI, decision.Model,
+		)
+		require.NoError(t, err)
+		require.True(t, managed)
+		defer lease.Release()
+		return svc.reasoningReplayScope(ctx, decision)
+	}
+
+	assert.Equal(t, scopeFor("token-a", "chatgpt-1"), scopeFor("token-b", "chatgpt-1"))
+	assert.NotEqual(t, scopeFor("token-a", "chatgpt-1"), scopeFor("token-a", "chatgpt-2"))
 }
 
 // A Codex subscription refreshes its bearer mid-session; the ChatGPT account
