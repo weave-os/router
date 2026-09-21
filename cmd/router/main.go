@@ -1166,6 +1166,7 @@ func main() {
 		flags.KeyEscalationXGBoostShadowMarkerEnabled: boolDefault(false),
 		flags.KeyEscalationXGBoostEpoch:               "0",
 		flags.KeySubscriptionPlanAwareRouting:         boolDefault(false),
+		flags.KeySubscriberPaidFallback:               boolDefault(true),
 		flags.KeyStruggleShadowEnabled:                boolDefault(struggleShadowEnabled),
 		flags.KeySpiralShadowEnabled:                  boolDefault(spiralShadowEnabled),
 		flags.KeyTurnSignalCapture:                    boolDefault(turnSignalCaptureEnabled),
@@ -1447,12 +1448,8 @@ func main() {
 			postgres.NewSubscriberEntitlementRepo(pool),
 			postgres.NewSubscriberAllowanceRepo(pool),
 		)
-		// The subscriber's own prepaid book is bound alongside the allowance:
-		// both belong to the credential subject, so an individual plan can
-		// never resolve to the organization's balance.
 		billingSvc = billingSvc.
-			WithSubscriberAllowance(subscriberAllowanceSvc).
-			WithSubscriberPrepaid(postgres.NewSubscriberCreditRepo(pool))
+			WithSubscriberAllowance(subscriberAllowanceSvc)
 		logger.Info("Individual subscriber allowance enforcement enabled")
 	}
 	server.RegisterWithFeatures(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, server.Features{PolicyPinEnabled: policyPinEnabled, ServingAdmission: servingAdmission, SubscriberAllowance: subscriberAllowanceSvc})

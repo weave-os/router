@@ -177,3 +177,13 @@ func TestCheckUserMonthlySpendLimit_ExemptsSubscriberAllowanceCoveredTurn(t *tes
 	_, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
 	assert.NoError(t, err, "an allowance-covered turn is not gated on the engineer's paid spend limit")
 }
+
+func TestCheckUserMonthlySpendLimit_AppliesToSubscriberPaidFallback(t *testing.T) {
+	s := &Service{billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
+	ctx := entitlement.WithProductScope(spendLimitCtx("u1", "org-1"), entitlement.PlanMax)
+
+	_, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, billing.ErrUserMonthlySpendLimitReached)
+}

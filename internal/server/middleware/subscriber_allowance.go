@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router/catalog"
@@ -25,12 +26,12 @@ import (
 // organization billing, BYOK, and prepaid keys keep the gates they already had,
 // and this middleware is the only place the included allowance is enforced.
 //
-// An exhausted window answers 402 rather than silently routing onto paid
-// capacity — the subscriber bought a bounded allowance, and quietly spending
-// their org's balance instead is the surprise this gate exists to prevent. An
-// allowance read error fails closed with 503, mirroring WithBalanceCheck: an
-// allowance that admits everything while unreadable is an unbilled-usage hole.
-func WithSubscriberAllowance(svc *entitlement.Service, billingSvc *billing.Service) gin.HandlerFunc {
+// Boost requests prefer compatible linked-provider capacity. When linked and
+// included capacity are unavailable, requests continue through the existing
+// organization balance and spend-limit gates if paid fallback is enabled.
+// Allowance read errors fail closed because treating an unreadable meter as
+// exhausted would incorrectly authorize organization spending.
+func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
 		apiKey := APIKeyFrom(c)
@@ -53,10 +54,17 @@ func WithSubscriberAllowance(svc *entitlement.Service, billingSvc *billing.Servi
 
 		// The plan's hard model boundary is stamped before the allowance
 		// verdict is acted on, so it governs the turn no matter which book
-		// ends up paying for it — included allowance, prepaid, or the caller's
+		// ends up paying for it — included allowance, organization credits, or the caller's
 		// own covering subscription.
 		if admission.Plan != "" {
 			c.Request = c.Request.WithContext(entitlement.WithProductScope(c.Request.Context(), admission.Plan))
+		}
+
+		// Boost preserves linked-provider-first funding. Marking the request
+		// subscription-only prevents a provider failure from silently changing
+		// the selected funding source to paid organization credits.
+		if admission.Plan == entitlement.PlanBoost && serveOnCoveringSubscription(c) {
+			return
 		}
 
 		// An agent-shadow evaluation draws no included allowance — it is Weave's
@@ -69,7 +77,7 @@ func WithSubscriberAllowance(svc *entitlement.Service, billingSvc *billing.Servi
 
 		switch admission.Outcome {
 		case entitlement.AdmissionNotSubscribed:
-			c.Next()
+			continueWithOrganizationFallback(c, log, admission.Plan)
 		case entitlement.AdmissionExhausted:
 			// A request presenting a Claude/Codex credential covering this route
 			// can serve at $0 on the caller's own plan without drawing included
@@ -79,12 +87,9 @@ func WithSubscriberAllowance(svc *entitlement.Service, billingSvc *billing.Servi
 			if serveOnCoveringSubscription(c) {
 				return
 			}
-			if authorizeSubscriberPrepaid(c, log, billingSvc, apiKey.CredentialSubjectID) {
-				return
-			}
-			refuseExhausted(c, log, apiKey.CredentialSubjectID, admission, admission.ExhaustedPeriod)
+			continueWithOrganizationFallback(c, log, admission.Plan)
 		case entitlement.AdmissionCovered:
-			holdRequest(c, log, svc, billingSvc, admission)
+			holdRequest(c, log, svc, admission)
 		}
 	}
 }
@@ -98,7 +103,7 @@ func WithSubscriberAllowance(svc *entitlement.Service, billingSvc *billing.Servi
 // consumed + reserved within the limit. Settlement books the turn's actual
 // cost under its own action identifiers, so releasing the hold afterwards
 // neither refunds nor double-charges the served work.
-func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, billingSvc *billing.Service, admission entitlement.Admission) {
+func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, admission entitlement.Admission) {
 	ctx := c.Request.Context()
 	requestID := observability.RequestIDFromContext(ctx)
 	if requestID == "" {
@@ -121,12 +126,7 @@ func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, bil
 		if serveOnCoveringSubscription(c) {
 			return
 		}
-		if authorizeSubscriberPrepaid(c, log, billingSvc, string(admission.Coverage.SubscriberID)) {
-			return
-		}
-		var exhausted entitlement.ExhaustedError
-		errors.As(err, &exhausted)
-		refuseExhausted(c, log, string(admission.Coverage.SubscriberID), admission, exhausted.Period)
+		continueWithOrganizationFallback(c, log, admission.Plan)
 		return
 	} else if err != nil {
 		log.Error("Subscriber allowance reservation failed; refusing request", "err", err, "subscriber_id", string(admission.Coverage.SubscriberID))
@@ -161,60 +161,9 @@ func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, bil
 	}
 }
 
-func authorizeSubscriberPrepaid(c *gin.Context, log *slog.Logger, svc *billing.Service, subscriberID string) bool {
-	if svc == nil {
-		return false
-	}
-	ctx := c.Request.Context()
-	requestID := observability.RequestIDFromContext(ctx)
-	if requestID == "" {
-		requestID = uuid.NewString()
-	}
-	authorization, err := svc.AuthorizeSubscriberPrepaid(ctx, billing.PrepaidAuthorizationRequest{
-		Owner:               billing.SubscriberOwner(subscriberID),
-		ActionID:            requestID + prepaidHoldActionSuffix,
-		RouterRequestID:     requestID,
-		APIKeyID:            APIKeyFrom(c).ID,
-		RequestedModel:      entitlement.ModelUnresolved,
-		UpperBoundUsdMicros: catalog.TurnUpperBoundUsdMicros(),
-	})
-	if errors.Is(err, billing.ErrInsufficientCredits) || errors.Is(err, billing.ErrBalanceRowMissing) {
-		log.Info("Request rejected: subscriber prepaid credits depleted", "subscriber_id", subscriberID)
-		c.AbortWithStatusJSON(http.StatusPaymentRequired, gin.H{
-			"error":              "insufficient_subscriber_credits",
-			"balance_usd_micros": 0,
-			"message":            "Your prepaid Router balance is depleted. Add credits to continue before the allowance resets.",
-		})
-		return true
-	}
-	if err != nil {
-		log.Error("Subscriber prepaid authorization failed; refusing request", "err", err, "subscriber_id", subscriberID)
-		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
-			"error":   "billing_unavailable",
-			"message": "Billing system is temporarily unavailable. Retry in a few moments.",
-		})
-		return true
-	}
-
-	c.Request = c.Request.WithContext(billing.WithPrepaidAuthorization(ctx, authorization))
-	c.Next()
-	if billing.PrepaidSettlementFailed(c.Request.Context()) {
-		log.Error("Subscriber prepaid hold left standing after settlement failure", "action_id", authorization.ActionID)
-		return true
-	}
-	finalizeCtx, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), releaseHoldTimeout)
-	defer cancel()
-	if _, err := svc.FinalizeSubscriberPrepaid(finalizeCtx, authorization.ActionID); err != nil {
-		log.Error("Subscriber prepaid hold left standing", "err", err, "action_id", authorization.ActionID)
-	}
-	return true
-}
-
 // holdActionSuffix distinguishes the request-level hold from the per-action
 // identifiers settlement mints for the same request.
 const holdActionSuffix = ":hold"
-
-const prepaidHoldActionSuffix = ":prepaid-hold"
 
 // releaseHoldTimeout bounds the detached release so a stalled accounting write
 // cannot pin the served request's goroutine.
@@ -235,34 +184,22 @@ func holdUsdMicros(usage entitlement.Usage) int64 {
 	return bound
 }
 
-// refuseExhausted answers a spent window, unless the caller's own linked
-// subscription can serve the route at no cost to the included allowance.
-func refuseExhausted(c *gin.Context, log *slog.Logger, subscriberID string, admission entitlement.Admission, period entitlement.PeriodKind) {
-	if serveOnCoveringSubscription(c) {
+func continueWithOrganizationFallback(c *gin.Context, log *slog.Logger, plan entitlement.Plan) {
+	if plan == "" || flags.BoolOr(c.Request.Context(), flags.KeySubscriberPaidFallback, true) {
+		c.Next()
 		return
 	}
-	admission.ExhaustedPeriod = period
-	window := exhaustedWindow(admission)
-	log.Info("Request rejected: subscriber allowance exhausted",
-		"subscriber_id", subscriberID,
-		"period_kind", period,
-		"consumed_usd_micros", window.ConsumedUsdMicros(),
-		"allowance_usd_micros", window.LimitUsdMicros,
-	)
+	log.Info("Request rejected: organization paid fallback is disabled", "subscriber_plan", plan)
 	c.AbortWithStatusJSON(http.StatusPaymentRequired, gin.H{
-		"error":                "subscription_allowance_exhausted",
-		"period_kind":          string(period),
-		"period_end":           window.Period.End,
-		"consumed_usd_micros":  window.ConsumedUsdMicros(),
-		"allowance_usd_micros": window.LimitUsdMicros,
-		"message":              allowanceExhaustedMessage(period),
+		"error":   "organization_paid_fallback_disabled",
+		"message": "Your organization has turned off paid Router fallback. Use an eligible linked subscription or wait for included allowance to reset.",
 	})
 }
 
 // serveOnCoveringSubscription serves a turn the caller's own linked plan
-// covers, and reports whether it did. The turn is marked subscription-only, as
-// the balance and spend-cap gates mark theirs: without it routing stays free to
-// fall back onto paid capacity, which is the spend a spent allowance refuses.
+// covers, and reports whether it did. The turn is marked subscription-only so
+// an upstream failure cannot skip linked-first ordering and spend organization
+// credits instead.
 func serveOnCoveringSubscription(c *gin.Context) bool {
 	if !proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath()) {
 		return false
@@ -278,21 +215,5 @@ func subscriberAllowanceCovers(c *gin.Context) bool {
 	if _, covered := entitlement.CoverageFromContext(c.Request.Context()); covered {
 		return true
 	}
-	_, authorized := billing.PrepaidAuthorizationFromContext(c.Request.Context())
-	return authorized
-}
-
-// exhaustedWindow returns the usage of the window that rejected the request.
-func exhaustedWindow(admission entitlement.Admission) entitlement.WindowUsage {
-	if admission.ExhaustedPeriod == entitlement.PeriodKindSixHour {
-		return admission.Usage.SixHour
-	}
-	return admission.Usage.Billing
-}
-
-func allowanceExhaustedMessage(kind entitlement.PeriodKind) string {
-	if kind == entitlement.PeriodKindSixHour {
-		return "This subscription's six-hour usage allowance is spent. Usage resets at the end of the current window."
-	}
-	return "This subscription's monthly usage allowance is spent. Usage resets when the billing period renews."
+	return false
 }

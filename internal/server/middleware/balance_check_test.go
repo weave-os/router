@@ -33,12 +33,15 @@ type stubBillingRepo struct {
 	spendFound  bool
 	spendErr    error
 	// Org monthly spend-cap fields, exercised by WithOrgMonthlySpendCap.
-	orgMonthSpent int64
-	orgMonthLimit *int64
-	orgMonthErr   error
+	orgMonthSpent  int64
+	orgMonthLimit  *int64
+	orgMonthErr    error
+	balanceOrgIDs  []string
+	orgMonthOrgIDs []string
 }
 
-func (r *stubBillingRepo) GetBalance(_ context.Context, _ string) (int64, error) {
+func (r *stubBillingRepo) GetBalance(_ context.Context, organizationID string) (int64, error) {
+	r.balanceOrgIDs = append(r.balanceOrgIDs, organizationID)
 	return r.balance, r.balanceErr
 }
 func (r *stubBillingRepo) HasActiveOverride(_ context.Context, _ string) (bool, error) {
@@ -53,7 +56,8 @@ func (r *stubBillingRepo) GetAPIKeySpend(_ context.Context, _ string) (int64, *i
 func (r *stubBillingRepo) GetUserMonthlySpendAndLimit(_ context.Context, _, _ string) (int64, *int64, error) {
 	return 0, nil, nil
 }
-func (r *stubBillingRepo) GetOrgMonthlySpendAndLimit(_ context.Context, _ string) (int64, *int64, error) {
+func (r *stubBillingRepo) GetOrgMonthlySpendAndLimit(_ context.Context, organizationID string) (int64, *int64, error) {
+	r.orgMonthOrgIDs = append(r.orgMonthOrgIDs, organizationID)
 	return r.orgMonthSpent, r.orgMonthLimit, r.orgMonthErr
 }
 func (r *stubBillingRepo) BillingTablesExist(_ context.Context) (bool, error) {

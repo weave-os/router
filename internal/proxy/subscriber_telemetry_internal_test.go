@@ -75,6 +75,11 @@ func TestApplySubscriberTelemetryCapacitySources(t *testing.T) {
 			want: entitlement.CapacitySourcePrepaid,
 		},
 		{
+			name: "organization-paid subscriber",
+			ctx:  entitlement.WithProductScope(context.Background(), entitlement.PlanBoost),
+			want: entitlement.CapacitySourcePrepaid,
+		},
+		{
 			name: "billing override",
 			ctx:  context.WithValue(context.Background(), billing.HasOverrideContextKey, true),
 			want: entitlement.CapacitySourceBillingOverride,

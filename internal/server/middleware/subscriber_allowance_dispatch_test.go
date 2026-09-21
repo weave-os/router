@@ -31,7 +31,7 @@ func gateServing(
 
 	engine := gin.New()
 	engine.Use(func(c *gin.Context) { c.Set("router_api_key", subscriberAPIKey()) })
-	engine.Use(middleware.WithSubscriberAllowance(svc, nil))
+	engine.Use(middleware.WithSubscriberAllowance(svc))
 	engine.POST("/v1/messages", serve)
 	return engine
 }

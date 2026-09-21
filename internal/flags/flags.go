@@ -104,6 +104,7 @@ const (
 	KeyCCAutonomySystemAppend               Key = "cc_autonomy_system_append"
 	KeyCCWorkspaceSystemAppend              Key = "cc_workspace_system_append"
 	KeySubscriptionPlanAwareRouting         Key = "subscription_plan_aware_routing_enabled"
+	KeySubscriberPaidFallback               Key = "subscriber_paid_fallback_enabled"
 	KeyCommittedStreamArmDemotion           Key = "committed_stream_arm_demotion"
 	KeyRescuedFailureArmDemotion            Key = "rescued_failure_arm_demotion"
 	KeyTransientRateLimit                   Key = "transient_rate_limit"
@@ -146,7 +147,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 21
+const RegistryVersion = 22
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -166,6 +167,12 @@ var Registry = []Definition{
 		Key:            KeySubscriptionPlanAwareRouting,
 		Kind:           KindBool,
 		Description:    "Avoid models covered only by exhausted Claude/Codex plans while another plan has headroom. Off by default; ignored when subscription routing is disabled.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeySubscriberPaidFallback,
+		Kind:           KindBool,
+		Description:    "Allow Max and Boost subscribers to use organization prepaid credits after linked and included capacity are unavailable. On by default.",
 		OrgOverridable: true,
 	},
 	{

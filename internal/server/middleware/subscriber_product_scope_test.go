@@ -34,7 +34,7 @@ func runProductScopeMiddleware(
 	engine := gin.New()
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		c.Set("router_api_key", subscriberAPIKey())
-		middleware.WithSubscriberAllowance(svc, nil)(c)
+		middleware.WithSubscriberAllowance(svc)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -83,6 +83,20 @@ func TestWithSubscriberAllowance_KeepsProductScopeWhenAllowanceIsSpent(t *testin
 	assert.Equal(t, entitlement.PlanMax, plan)
 }
 
+func TestWithSubscriberAllowance_KeepsMaxScopeAfterEntitlementEnds(t *testing.T) {
+	ended := maxSubscriberEntitlement()
+	ended.Status = entitlement.StatusEnded
+	entitlements := &stubEntitlements{current: ended, found: true}
+
+	reached, ctx := runProductScopeMiddleware(t, entitlements, &stubAllowances{}, "")
+
+	require.True(t, reached)
+	plan, scoped := entitlement.ProductScopeFromContext(ctx)
+	require.True(t, scoped)
+	assert.Equal(t, entitlement.PlanMax, plan)
+	assert.False(t, entitlement.ModelBoundaryFromContext(ctx).PermitsSource(eligibility.SourceClosedSource))
+}
+
 // An agent-shadow evaluation is Weave's own traffic: it draws no included
 // allowance even when the subscriber's is spent, but the plan still bounds
 // which model its forced route may dispatch.
@@ -102,7 +116,7 @@ func TestWithSubscriberAllowance_ScopesAgentShadowWithoutSpendingAllowance(t *te
 			RolloutID: "rollout-1",
 			StateID:   "state-1",
 		}))
-		middleware.WithSubscriberAllowance(svc, nil)(c)
+		middleware.WithSubscriberAllowance(svc)(c)
 		if c.IsAborted() {
 			return
 		}

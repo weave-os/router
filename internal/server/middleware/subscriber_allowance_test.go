@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/flags"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions/entitlement"
 
@@ -65,46 +66,6 @@ type stubAllowances struct {
 	held            []entitlement.Reservation
 	released        []string
 	releaseCtxErr   error
-}
-
-type stubSubscriberPrepaid struct {
-	authorizeErr   error
-	authorizations []billing.PrepaidAuthorizationRequest
-	finalized      []string
-}
-
-func (s *stubSubscriberPrepaid) Balance(context.Context, billing.Owner) (int64, error) {
-	return 1_000_000, nil
-}
-
-func (s *stubSubscriberPrepaid) Debit(context.Context, billing.PrepaidDebit) (int64, error) {
-	panic("subscriber allowance middleware must authorize before dispatch")
-}
-
-func (s *stubSubscriberPrepaid) Authorize(_ context.Context, request billing.PrepaidAuthorizationRequest) (billing.PrepaidAuthorization, error) {
-	s.authorizations = append(s.authorizations, request)
-	if s.authorizeErr != nil {
-		return billing.PrepaidAuthorization{}, s.authorizeErr
-	}
-	return billing.PrepaidAuthorization{
-		Owner:             request.Owner,
-		ActionID:          request.ActionID,
-		RouterRequestID:   request.RouterRequestID,
-		APIKeyID:          request.APIKeyID,
-		RequestedModel:    request.RequestedModel,
-		ReservedUsdMicros: request.UpperBoundUsdMicros,
-		State:             billing.PrepaidAuthorizationReserved,
-		CapacitySource:    entitlement.CapacitySourcePrepaid,
-	}, nil
-}
-
-func (s *stubSubscriberPrepaid) Settle(context.Context, billing.PrepaidSettlement) (int64, error) {
-	return 0, nil
-}
-
-func (s *stubSubscriberPrepaid) Finalize(_ context.Context, actionID string) (int64, error) {
-	s.finalized = append(s.finalized, actionID)
-	return 1_000_000, nil
 }
 
 func (s *stubAllowances) Reserve(context.Context, entitlement.Reservation) (entitlement.Action, error) {
@@ -193,7 +154,7 @@ func runAllowanceMiddlewareWithAuth(
 		if apiKey != nil {
 			c.Set("router_api_key", apiKey)
 		}
-		middleware.WithSubscriberAllowance(svc, nil)(c)
+		middleware.WithSubscriberAllowance(svc)(c)
 		if c.IsAborted() {
 			return
 		}
@@ -240,110 +201,177 @@ func TestWithSubscriberAllowance_AttachesCoverageForActiveSubscriber(t *testing.
 	assert.Equal(t, time.Date(2026, 3, 14, 6, 0, 0, 0, time.UTC), coverage.SixHourPeriod.Start)
 }
 
-func TestWithSubscriberAllowance_402WhenWindowSpent(t *testing.T) {
+func TestWithSubscriberAllowance_UsesOrganizationFallbackWhenWindowSpent(t *testing.T) {
 	for name, testCase := range map[string]struct {
-		allowances   *stubAllowances
-		expectedKind string
-		expectedEnd  time.Time
+		allowances *stubAllowances
 	}{
 		"billing month spent": {
-			allowances:   &stubAllowances{billingConsumed: monthlyAllowance},
-			expectedKind: string(entitlement.PeriodKindBilling),
-			expectedEnd:  time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+			allowances: &stubAllowances{billingConsumed: monthlyAllowance},
 		},
 		"six-hour window spent": {
-			allowances:   &stubAllowances{sixHourConsumed: sixHourAllowance},
-			expectedKind: string(entitlement.PeriodKindSixHour),
-			expectedEnd:  time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC),
+			allowances: &stubAllowances{sixHourConsumed: sixHourAllowance},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
 			w, reached, _ := runAllowanceMiddleware(t, entitlements, testCase.allowances, subscriberAPIKey())
 
-			assert.False(t, reached, "a spent allowance must not route onto paid capacity")
-			require.Equal(t, http.StatusPaymentRequired, w.Code)
-
-			var body struct {
-				Error              string    `json:"error"`
-				PeriodKind         string    `json:"period_kind"`
-				PeriodEnd          time.Time `json:"period_end"`
-				ConsumedUSDMicros  int64     `json:"consumed_usd_micros"`
-				AllowanceUSDMicros int64     `json:"allowance_usd_micros"`
-			}
-			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-			assert.Equal(t, "subscription_allowance_exhausted", body.Error)
-			assert.Equal(t, testCase.expectedKind, body.PeriodKind)
-			assert.Equal(t, testCase.expectedEnd, body.PeriodEnd.UTC(), "the client is told when the window it hit reopens")
-			assert.Equal(t, body.AllowanceUSDMicros, body.ConsumedUSDMicros)
+			assert.True(t, reached)
+			require.Equal(t, http.StatusOK, w.Code)
 		})
 	}
 }
 
-func TestWithSubscriberAllowance_UsesPrepaidAfterIncludedAllowance(t *testing.T) {
+func TestWithSubscriberAllowance_UsesOrganizationFallbackAfterIncludedAllowance(t *testing.T) {
 	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
 	allowances := &stubAllowances{billingConsumed: monthlyAllowance}
-	prepaid := &stubSubscriberPrepaid{}
-	billingSvc := billing.NewService(nil).WithSubscriberPrepaid(prepaid)
-	var observed billing.PrepaidAuthorization
+	w, reached, coverage := runAllowanceMiddleware(t, entitlements, allowances, subscriberAPIKey())
 
-	w, reached := runAllowanceMiddlewareWithBilling(t, entitlements, allowances, billingSvc, func(ctx context.Context) {
-		observed, _ = billing.PrepaidAuthorizationFromContext(ctx)
+	require.True(t, reached)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Empty(t, coverage.SubscriberID)
+}
+
+func runSubscriberOrganizationBillingChain(
+	t *testing.T,
+	allowances *stubAllowances,
+	repository *stubBillingRepo,
+) (*httptest.ResponseRecorder, bool) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
+	allowanceService := entitlement.NewService(entitlements, allowances).WithClock(func() time.Time { return allowanceNow })
+	billingService := billing.NewService(repository)
+	engine := gin.New()
+	engine.Use(func(c *gin.Context) {
+		withInstallation(c, "trusted-org")
+		c.Set("router_api_key", subscriberAPIKey())
+		c.Next()
+	})
+	engine.Use(middleware.WithSubscriberAllowance(allowanceService))
+	engine.Use(middleware.WithBalanceCheck(billingService, billing.MinBalanceMicros))
+	engine.Use(middleware.WithAPIKeySpendCap(billingService))
+	engine.Use(middleware.WithOrgMonthlySpendCap(billingService))
+	reached := false
+	engine.POST("/v1/messages", func(c *gin.Context) {
+		reached = true
+		c.Status(http.StatusOK)
 	})
 
-	require.True(t, reached)
-	assert.Equal(t, http.StatusOK, w.Code)
-	require.Len(t, prepaid.authorizations, 1)
-	assert.Equal(t, billing.SubscriberOwner(allowanceSubscriberID), prepaid.authorizations[0].Owner)
-	assert.Equal(t, entitlement.ModelUnresolved, prepaid.authorizations[0].RequestedModel)
-	assert.Equal(t, prepaid.authorizations[0].ActionID, observed.ActionID)
-	assert.Equal(t, []string{observed.ActionID}, prepaid.finalized)
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	return recorder, reached
 }
 
-func TestWithSubscriberAllowance_DoesNotAuthorizePrepaidWhileIncludedCapacityIsAvailable(t *testing.T) {
-	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
-	prepaid := &stubSubscriberPrepaid{}
-	billingSvc := billing.NewService(nil).WithSubscriberPrepaid(prepaid)
-
-	w, reached := runAllowanceMiddlewareWithBilling(t, entitlements, &stubAllowances{}, billingSvc, nil)
-
-	require.True(t, reached)
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Empty(t, prepaid.authorizations)
-}
-
-func TestWithSubscriberAllowance_MapsPrepaidAuthorizationFailures(t *testing.T) {
+func TestSubscriberOrganizationBillingChain(t *testing.T) {
 	for name, testCase := range map[string]struct {
-		err        error
-		statusCode int
-		bodyError  string
+		allowances    *stubAllowances
+		repository    *stubBillingRepo
+		expectedError string
+		reached       bool
 	}{
-		"insufficient funds": {
-			err:        billing.ErrInsufficientCredits,
-			statusCode: http.StatusPaymentRequired,
-			bodyError:  "insufficient_subscriber_credits",
+		"included allowance bypasses paid balance and caps": {
+			allowances: &stubAllowances{},
+			repository: &stubBillingRepo{
+				balance:       0,
+				spendFound:    true,
+				spendMicros:   1,
+				capMicros:     capPtr(1),
+				orgMonthSpent: 1,
+				orgMonthLimit: capPtr(1),
+			},
+			reached: true,
 		},
-		"storage failure": {
-			err:        errors.New("database unavailable"),
-			statusCode: http.StatusServiceUnavailable,
-			bodyError:  "billing_unavailable",
+		"exhausted allowance spends trusted organization balance": {
+			allowances: &stubAllowances{billingConsumed: monthlyAllowance},
+			repository: &stubBillingRepo{balance: 1, spendFound: true},
+			reached:    true,
+		},
+		"exhausted allowance respects empty wallet": {
+			allowances:    &stubAllowances{billingConsumed: monthlyAllowance},
+			repository:    &stubBillingRepo{balance: 0},
+			expectedError: "insufficient_credits",
+		},
+		"exhausted allowance respects key cap": {
+			allowances: &stubAllowances{billingConsumed: monthlyAllowance},
+			repository: &stubBillingRepo{
+				balance:     1,
+				spendFound:  true,
+				spendMicros: 1,
+				capMicros:   capPtr(1),
+			},
+			expectedError: "key_spend_cap_reached",
+		},
+		"exhausted allowance respects organization cap": {
+			allowances: &stubAllowances{billingConsumed: monthlyAllowance},
+			repository: &stubBillingRepo{
+				balance:       1,
+				spendFound:    true,
+				orgMonthSpent: 1,
+				orgMonthLimit: capPtr(1),
+			},
+			expectedError: "org_monthly_spend_limit_reached",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
-			prepaid := &stubSubscriberPrepaid{authorizeErr: testCase.err}
-			billingSvc := billing.NewService(nil).WithSubscriberPrepaid(prepaid)
+			recorder, reached := runSubscriberOrganizationBillingChain(t, testCase.allowances, testCase.repository)
+			assert.Equal(t, testCase.reached, reached)
+			if testCase.expectedError != "" {
+				assert.Equal(t, http.StatusPaymentRequired, recorder.Code)
+				assert.Contains(t, recorder.Body.String(), testCase.expectedError)
+			}
+			if len(testCase.repository.balanceOrgIDs) > 0 {
+				assert.Equal(t, []string{"trusted-org"}, testCase.repository.balanceOrgIDs)
+			}
+			for _, organizationID := range testCase.repository.orgMonthOrgIDs {
+				assert.Equal(t, "trusted-org", organizationID)
+			}
+		})
+	}
+}
 
-			w, reached := runAllowanceMiddlewareWithBilling(
-				t,
-				entitlements,
-				&stubAllowances{billingConsumed: monthlyAllowance},
-				billingSvc,
-				nil,
-			)
+func runAllowanceMiddlewareWithFallbackPolicy(t *testing.T, enabled bool) (*httptest.ResponseRecorder, bool) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
+	allowances := &stubAllowances{billingConsumed: monthlyAllowance}
+	svc := entitlement.NewService(entitlements, allowances).WithClock(func() time.Time { return allowanceNow })
+	reached := false
+	engine := gin.New()
+	engine.POST("/v1/messages", func(c *gin.Context) {
+		c.Set("router_api_key", subscriberAPIKey())
+		c.Request = c.Request.WithContext(flags.WithOverrides(c.Request.Context(), flags.Overrides{
+			Bools: map[flags.Key]bool{flags.KeySubscriberPaidFallback: enabled},
+		}))
+		middleware.WithSubscriberAllowance(svc)(c)
+		if c.IsAborted() {
+			return
+		}
+		reached = true
+		c.Status(http.StatusOK)
+	})
+	w := httptest.NewRecorder()
+	engine.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	return w, reached
+}
 
-			assert.False(t, reached)
+func TestWithSubscriberAllowance_PaidFallbackPolicy(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		enabled    bool
+		reached    bool
+		statusCode int
+		bodyError  string
+	}{
+		"enabled":  {enabled: true, reached: true, statusCode: http.StatusOK},
+		"disabled": {enabled: false, reached: false, statusCode: http.StatusPaymentRequired, bodyError: "organization_paid_fallback_disabled"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w, reached := runAllowanceMiddlewareWithFallbackPolicy(t, testCase.enabled)
+			assert.Equal(t, testCase.reached, reached)
 			assert.Equal(t, testCase.statusCode, w.Code)
+			if testCase.bodyError == "" {
+				return
+			}
 			var body struct {
 				Error string `json:"error"`
 			}
@@ -351,35 +379,6 @@ func TestWithSubscriberAllowance_MapsPrepaidAuthorizationFailures(t *testing.T) 
 			assert.Equal(t, testCase.bodyError, body.Error)
 		})
 	}
-}
-
-func runAllowanceMiddlewareWithBilling(
-	t *testing.T,
-	entitlements *stubEntitlements,
-	allowances *stubAllowances,
-	billingSvc *billing.Service,
-	observe func(context.Context),
-) (*httptest.ResponseRecorder, bool) {
-	t.Helper()
-	gin.SetMode(gin.TestMode)
-	svc := entitlement.NewService(entitlements, allowances).WithClock(func() time.Time { return allowanceNow })
-	reached := false
-	engine := gin.New()
-	engine.POST("/v1/messages", func(c *gin.Context) {
-		c.Set("router_api_key", subscriberAPIKey())
-		middleware.WithSubscriberAllowance(svc, billingSvc)(c)
-		if c.IsAborted() {
-			return
-		}
-		reached = true
-		if observe != nil {
-			observe(c.Request.Context())
-		}
-		c.Status(http.StatusOK)
-	})
-	w := httptest.NewRecorder()
-	engine.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
-	return w, reached
 }
 
 func TestWithSubscriberAllowance_503WhenAllowanceUnreadable(t *testing.T) {
@@ -425,18 +424,14 @@ func TestWithSubscriberAllowance_PassesThroughCoveringSubscription(t *testing.T)
 	assert.Empty(t, coverage.SubscriberID)
 }
 
-func TestWithSubscriberAllowance_CoversCoveringSubscriptionWithAllowanceLeft(t *testing.T) {
-	// Presenting a subscription credential only means the turn *may* serve on
-	// the caller's plan. While allowance remains the request is still admitted
-	// with coverage, so a turn Weave ends up serving meters against the windows
-	// instead of silently falling through to the organization's balance.
+func TestWithSubscriberAllowance_UsesCoveringSubscriptionBeforeBoostAllowance(t *testing.T) {
 	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
 	w, reached, coverage := runAllowanceMiddlewareWithAuth(
 		t, entitlements, &stubAllowances{}, subscriberAPIKey(), "Bearer sk-ant-oat-abc123")
 
 	assert.True(t, reached)
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Equal(t, entitlement.SubscriberID(allowanceSubscriberID), coverage.SubscriberID)
+	assert.Empty(t, coverage.SubscriberID)
 }
 
 func TestWithSubscriberAllowance_HoldsUpperBoundBeforeDispatch(t *testing.T) {
@@ -488,23 +483,15 @@ func TestWithSubscriberAllowance_RefusedReservationCarriesNoCoverage(t *testing.
 	assert.Empty(t, coverage.SubscriberID)
 }
 
-func TestWithSubscriberAllowance_402WhenReservationRefused(t *testing.T) {
+func TestWithSubscriberAllowance_UsesOrganizationFallbackWhenReservationRefused(t *testing.T) {
 	// The windows read as unspent, so only the reservation's own gate can
 	// refuse this turn — the concurrency case the hold exists for.
 	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
 	allowances := &stubAllowances{exhausted: entitlement.PeriodKindSixHour}
 	w, reached, _ := runAllowanceMiddleware(t, entitlements, allowances, subscriberAPIKey())
 
-	assert.False(t, reached, "a refused reservation must not dispatch work the allowance cannot pay for")
-	require.Equal(t, http.StatusPaymentRequired, w.Code)
-
-	var body struct {
-		Error      string `json:"error"`
-		PeriodKind string `json:"period_kind"`
-	}
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	assert.Equal(t, "subscription_allowance_exhausted", body.Error)
-	assert.Equal(t, string(entitlement.PeriodKindSixHour), body.PeriodKind)
+	assert.True(t, reached)
+	require.Equal(t, http.StatusOK, w.Code)
 	assert.Empty(t, allowances.released, "a refused reservation leaves nothing to release")
 }
 

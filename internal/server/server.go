@@ -143,11 +143,11 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	if features.PolicyPinEnabled {
 		policyPinMiddleware = []gin.HandlerFunc{middleware.WithPolicyPinOverride()}
 	}
-	// Ahead of the org billing gates: a covered subscriber turn debits no org
-	// balance, so its verdict decides whether those gates see a chargeable turn.
+	// Ahead of the org billing gates: included turns skip them, while exhausted
+	// turns continue into the same organization balance and spend-limit path.
 	var subscriberAllowanceMiddleware []gin.HandlerFunc
 	if features.SubscriberAllowance != nil {
-		subscriberAllowanceMiddleware = []gin.HandlerFunc{middleware.WithSubscriberAllowance(features.SubscriberAllowance, billingSvc)}
+		subscriberAllowanceMiddleware = []gin.HandlerFunc{middleware.WithSubscriberAllowance(features.SubscriberAllowance)}
 	}
 	var servingAdmissionMiddleware []gin.HandlerFunc
 	if features.ServingAdmission != nil {

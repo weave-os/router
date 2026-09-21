@@ -106,7 +106,7 @@ func (s *Service) Admit(ctx context.Context, subscriberID SubscriberID) (Admissi
 	}
 	at := s.now().UTC()
 	if current.Status != StatusActive || !current.BillingPeriod.Covers(at) {
-		return Admission{Outcome: AdmissionNotSubscribed}, nil
+		return Admission{Outcome: AdmissionNotSubscribed, Plan: current.Plan}, nil
 	}
 
 	sixHour := SixHourWindowAt(at)
