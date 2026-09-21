@@ -27,9 +27,9 @@ func gjsonStopReason(b []byte) string {
 	return s
 }
 
-func openAIReasoningTestSignature(t *testing.T, id, enc string) string {
+func openAIReasoningTestSignature(t *testing.T, id, enc, scope string) string {
 	t.Helper()
-	b, err := json.Marshal(map[string]any{"v": 1, "provider": "openai", "id": id, "enc": enc})
+	b, err := json.Marshal(map[string]any{"v": 1, "provider": "openai", "id": id, "enc": enc, "scope": scope})
 	require.NoError(t, err)
 	return base64.StdEncoding.EncodeToString(b)
 }
@@ -357,7 +357,7 @@ func TestPrepareOpenAIResponses_ClampsGeminiThoughtSignatureCallID(t *testing.T)
 }
 
 func TestPrepareOpenAIResponses_ReplaysSignedReasoning(t *testing.T) {
-	sig := openAIReasoningTestSignature(t, "rs_prev", "enc_prev")
+	sig := openAIReasoningTestSignature(t, "rs_prev", "enc_prev", "scope_a")
 	body := []byte(`{
 		"model":"claude-opus-4-8","max_tokens":1024,
 		"thinking":{"type":"enabled","budget_tokens":8192},
@@ -372,7 +372,7 @@ func TestPrepareOpenAIResponses_ReplaysSignedReasoning(t *testing.T) {
 	}`)
 	env, err := translate.ParseAnthropic(body)
 	require.NoError(t, err)
-	prep, err := env.PrepareOpenAIResponses(http.Header{}, translate.EmitOptions{TargetModel: "gpt-5.5", Capabilities: router.Lookup("gpt-5.5"), ForceReasoningEffort: "high"})
+	prep, err := env.PrepareOpenAIResponses(http.Header{}, translate.EmitOptions{TargetModel: "gpt-5.5", Capabilities: router.Lookup("gpt-5.5"), ForceReasoningEffort: "high", ReasoningReplayScope: "scope_a"})
 	require.NoError(t, err)
 
 	var out map[string]any
@@ -392,7 +392,7 @@ func TestPrepareOpenAIResponses_ReplaysSignedReasoning(t *testing.T) {
 }
 
 func TestPrepareOpenAIResponses_ReplaysSignedReasoningAfterModelSwitch(t *testing.T) {
-	sig := openAIReasoningTestSignature(t, "rs_prev", "enc_prev")
+	sig := openAIReasoningTestSignature(t, "rs_prev", "enc_prev", "scope_a")
 	body := []byte(`{
 		"model":"claude-opus-4-8","max_tokens":1024,
 		"thinking":{"type":"enabled","budget_tokens":8192},
@@ -413,6 +413,7 @@ func TestPrepareOpenAIResponses_ReplaysSignedReasoningAfterModelSwitch(t *testin
 		Capabilities:         router.Lookup("gpt-5.5"),
 		ModelSwitched:        true,
 		ForceReasoningEffort: "high",
+		ReasoningReplayScope: "scope_a",
 	})
 	require.NoError(t, err)
 
@@ -426,6 +427,61 @@ func TestPrepareOpenAIResponses_ReplaysSignedReasoningAfterModelSwitch(t *testin
 	assert.Equal(t, "enc_prev", reasoning["encrypted_content"])
 	toolCall, _ := input[3].(map[string]any)
 	assert.Equal(t, "toolu_1", toolCall["call_id"])
+}
+
+// Encrypted reasoning is bound to the account+model that produced it: Cortex
+// answers "encrypted reasoning was created for a different account or model"
+// and the rejected turn ends the client session, so a turn dispatched
+// anywhere else drops the item instead of replaying it.
+func TestPrepareOpenAIResponses_DropsReasoningMintedOnAnotherAccount(t *testing.T) {
+	sig := openAIReasoningTestSignature(t, "rs_prev", "enc_prev", "scope_a")
+	// Claude Code drops the thinking block but echoes the tool_use id, so the
+	// envelope rides on both carriers and both must honor the scope.
+	carrierID := "toolu_1__openai_reasoning__" + base64.RawURLEncoding.EncodeToString([]byte(sig))
+	body := []byte(`{
+		"model":"claude-opus-4-8","max_tokens":1024,
+		"thinking":{"type":"enabled","budget_tokens":8192},
+		"messages":[
+			{"role":"user","content":"continue"},
+			{"role":"assistant","content":[
+				{"type":"text","text":"I'll inspect it."},
+				{"type":"thinking","thinking":"summary","signature":` + strconv.Quote(sig) + `},
+				{"type":"tool_use","id":` + strconv.Quote(carrierID) + `,"name":"Read","input":{"file_path":"main.go"}}
+			]}
+		]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+
+	for name, scope := range map[string]string{
+		"another account or model": "scope_b",
+		"unknown target":           "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			prep, err := env.PrepareOpenAIResponses(http.Header{}, translate.EmitOptions{
+				TargetModel:          "gpt-5.5",
+				Capabilities:         router.Lookup("gpt-5.5"),
+				ForceReasoningEffort: "high",
+				ReasoningReplayScope: scope,
+			})
+			require.NoError(t, err)
+
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(prep.Body, &out))
+			input, _ := out["input"].([]any)
+			var toolCall map[string]any
+			for _, item := range input {
+				m, _ := item.(map[string]any)
+				require.NotEqual(t, "reasoning", m["type"], "foreign encrypted reasoning must not be replayed")
+				if m["type"] == "function_call" {
+					toolCall = m
+				}
+			}
+			// The turn still goes out; only the undecryptable item is dropped.
+			require.NotNil(t, toolCall)
+			assert.Equal(t, "toolu_1", toolCall["call_id"])
+		})
+	}
 }
 
 // Explicit levels retain their client-selected value; GPT-5 no longer promotes
@@ -458,7 +514,7 @@ func TestResponsesToAnthropicResponse(t *testing.T) {
       ],
       "usage":{"input_tokens":1200,"output_tokens":340,"output_tokens_details":{"reasoning_tokens":256},"input_tokens_details":{"cached_tokens":800,"cache_write_tokens":256}}
     }`)
-	out, err := translate.ResponsesToAnthropicResponse(body, "gpt-5.5")
+	out, err := translate.ResponsesToAnthropicResponse(body, "gpt-5.5", "scope_a")
 	require.NoError(t, err)
 	var msg map[string]any
 	require.NoError(t, json.Unmarshal(out, &msg))
@@ -499,16 +555,16 @@ func TestResponsesToAnthropicResponse(t *testing.T) {
 func TestResponsesToAnthropicResponse_StopReasons(t *testing.T) {
 	// max tokens
 	mx := []byte(`{"id":"r","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"partial"}]}],"usage":{"input_tokens":1,"output_tokens":2}}`)
-	out, err := translate.ResponsesToAnthropicResponse(mx, "gpt-5.5")
+	out, err := translate.ResponsesToAnthropicResponse(mx, "gpt-5.5", "scope_a")
 	require.NoError(t, err)
 	assert.Equal(t, "max_tokens", gjsonStopReason(out))
 	// plain end_turn
 	et := []byte(`{"id":"r","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}],"usage":{"input_tokens":1,"output_tokens":2}}`)
-	out, err = translate.ResponsesToAnthropicResponse(et, "gpt-5.5")
+	out, err = translate.ResponsesToAnthropicResponse(et, "gpt-5.5", "scope_a")
 	require.NoError(t, err)
 	assert.Equal(t, "end_turn", gjsonStopReason(out))
 	filtered := []byte(`{"id":"r","status":"incomplete","incomplete_details":{"reason":"content_filter"},"output":[]}`)
-	_, err = translate.ResponsesToAnthropicResponse(filtered, "gpt-5.5")
+	_, err = translate.ResponsesToAnthropicResponse(filtered, "gpt-5.5", "scope_a")
 	require.Error(t, err)
 }
 

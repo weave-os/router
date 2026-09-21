@@ -339,7 +339,7 @@ func (e *RequestEnvelope) buildResponsesFromAnthropic(opts EmitOptions) ([]byte,
 		}
 	}
 
-	writeResponsesInputFromAnthropic(jw, body)
+	writeResponsesInputFromAnthropic(jw, body, opts.ReasoningReplayScope)
 
 	jw.EndObj()
 	return jw.Bytes(), stats, nil
@@ -347,7 +347,7 @@ func (e *RequestEnvelope) buildResponsesFromAnthropic(opts EmitOptions) ([]byte,
 
 // writeResponsesInputFromAnthropic converts Anthropic messages into Responses
 // input items (text/image messages, reasoning, function_call, function_call_output).
-func writeResponsesInputFromAnthropic(jw *jsonWriter, body []byte) {
+func writeResponsesInputFromAnthropic(jw *jsonWriter, body []byte, scope string) {
 	jw.Key("input")
 	jw.Arr()
 	gjson.GetBytes(body, "messages").ForEach(func(_, msg gjson.Result) bool {
@@ -384,11 +384,11 @@ func writeResponsesInputFromAnthropic(jw *jsonWriter, body []byte) {
 				}
 			case "thinking":
 				sig := block.Get("signature").String()
-				if _, emitted := emittedReasoningSignatures[sig]; emitted || !decodeOpenAIReasoningSignatureValid(sig) {
+				if _, emitted := emittedReasoningSignatures[sig]; emitted || !openAIReasoningSignatureReplayable(sig, scope) {
 					return true
 				}
 				flushContent()
-				emitResponsesReasoningItem(jw, sig)
+				emitResponsesReasoningItem(jw, sig, scope)
 				emittedReasoningSignatures[sig] = struct{}{}
 			case "tool_use":
 				callID, sig := extractOpenAIReasoningSignatureFromID(block.Get("id").String())
@@ -396,7 +396,7 @@ func writeResponsesInputFromAnthropic(jw *jsonWriter, body []byte) {
 				// Claude Code's round-trip drops the thinking block but keeps
 				// the tool_use id, so replay the reasoning item carried on it.
 				if sig != "" {
-					if _, emitted := emittedReasoningSignatures[sig]; !emitted && emitResponsesReasoningItem(jw, sig) {
+					if _, emitted := emittedReasoningSignatures[sig]; !emitted && emitResponsesReasoningItem(jw, sig, scope) {
 						emittedReasoningSignatures[sig] = struct{}{}
 					}
 				}
@@ -444,13 +444,11 @@ func writeResponsesInputFromAnthropic(jw *jsonWriter, body []byte) {
 	jw.EndArr()
 }
 
-func decodeOpenAIReasoningSignatureValid(sig string) bool {
-	_, _, ok := decodeOpenAIReasoningSignature(sig)
-	return ok
-}
-
-func emitResponsesReasoningItem(jw *jsonWriter, sig string) bool {
-	id, enc, ok := decodeOpenAIReasoningSignature(sig)
+// emitResponsesReasoningItem replays encrypted reasoning only to the account
+// and model that minted it. Anywhere else the upstream rejects the whole turn
+// rather than ignoring the item, which ends the session.
+func emitResponsesReasoningItem(jw *jsonWriter, sig, scope string) bool {
+	id, enc, ok := openAIReasoningSignatureForScope(sig, scope)
 	if !ok {
 		return false
 	}

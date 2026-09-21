@@ -38,27 +38,46 @@ func TestUniqueToolUseIDWithNoncePreservesEmbeddedThoughtSignature(t *testing.T)
 }
 
 func TestOpenAIReasoningSignatureRoundTrip(t *testing.T) {
-	sig := encodeOpenAIReasoningSignature("rs_123", "enc_opaque")
+	sig := encodeOpenAIReasoningSignature("rs_123", "enc_opaque", "scope_a")
 	require.NotEmpty(t, sig)
 
-	id, enc, ok := decodeOpenAIReasoningSignature(sig)
+	id, enc, ok := openAIReasoningSignatureForScope(sig, "scope_a")
 	require.True(t, ok)
 	assert.Equal(t, "rs_123", id)
 	assert.Equal(t, "enc_opaque", enc)
 }
 
+func TestOpenAIReasoningSignatureRejectsForeignScope(t *testing.T) {
+	// Encrypted reasoning only decrypts under the account+model that minted
+	// it; replaying it elsewhere 400s the turn and kills the session.
+	sig := encodeOpenAIReasoningSignature("rs_123", "enc_opaque", "scope_a")
+
+	_, _, ok := openAIReasoningSignatureForScope(sig, "scope_b")
+	assert.False(t, ok, "reasoning minted on another account/model must not replay")
+
+	_, _, ok = openAIReasoningSignatureForScope(sig, "")
+	assert.False(t, ok, "an unknown target scope must not replay reasoning")
+
+	_, _, ok = openAIReasoningSignatureForScope(encodeOpenAIReasoningSignature("rs_123", "enc_opaque", ""), "")
+	assert.False(t, ok, "a scopeless (pre-scoping) envelope must not replay")
+
+	// Still recognizable as router-minted, so Anthropic targets keep stripping it.
+	_, decoded := decodeOpenAIReasoningSignature(sig)
+	assert.True(t, decoded)
+}
+
 func TestOpenAIReasoningSignatureRejectsUnknownEnvelope(t *testing.T) {
-	_, _, ok := decodeOpenAIReasoningSignature("not-base64")
+	_, ok := decodeOpenAIReasoningSignature("not-base64")
 	assert.False(t, ok)
 
-	assert.Empty(t, encodeOpenAIReasoningSignature("", "enc"))
-	assert.Empty(t, encodeOpenAIReasoningSignature("rs_123", ""))
+	assert.Empty(t, encodeOpenAIReasoningSignature("", "enc", "scope_a"))
+	assert.Empty(t, encodeOpenAIReasoningSignature("rs_123", "", "scope_a"))
 }
 
 func TestEmbedOpenAIReasoningSignatureInID_RoundTrip(t *testing.T) {
 	// The reasoning envelope rides on the following tool_use id because the
 	// Claude Code round-trip drops the thinking block but preserves the id.
-	sig := encodeOpenAIReasoningSignature("rs_1", "enc_1")
+	sig := encodeOpenAIReasoningSignature("rs_1", "enc_1", "scope_a")
 	id := embedOpenAIReasoningSignatureInID("call_abc", sig)
 	require.NotEqual(t, "call_abc", id)
 	assert.True(t, strings.HasPrefix(id, "call_abc"))
@@ -67,7 +86,7 @@ func TestEmbedOpenAIReasoningSignatureInID_RoundTrip(t *testing.T) {
 	assert.Equal(t, "call_abc", clean, "the upstream call_id must be recovered verbatim")
 	assert.Equal(t, sig, got)
 
-	rid, enc, ok := decodeOpenAIReasoningSignature(got)
+	rid, enc, ok := openAIReasoningSignatureForScope(got, "scope_a")
 	require.True(t, ok)
 	assert.Equal(t, "rs_1", rid)
 	assert.Equal(t, "enc_1", enc)

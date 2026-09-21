@@ -12,8 +12,8 @@ import (
 // `response` object into a non-streaming Anthropic Messages response. The
 // Responses `output` array carries reasoning / message / function_call items,
 // which map to Anthropic thinking / text / tool_use content blocks.
-func ResponsesToAnthropicResponse(body []byte, requestModel string) ([]byte, error) {
-	out, _, err := responsesToAnthropicResponse(body, requestModel, nil)
+func ResponsesToAnthropicResponse(body []byte, requestModel, reasoningScope string) ([]byte, error) {
+	out, _, err := responsesToAnthropicResponse(body, requestModel, reasoningScope, nil)
 	return out, err
 }
 
@@ -21,7 +21,7 @@ func ResponsesToAnthropicResponse(body []byte, requestModel string) ([]byte, err
 // inputs are checked (and safely repaired) against the request's tool schemas
 // via toolValidator, with one toolcheck.Issue returned per offending block. A
 // nil validator degrades to syntax-check-only.
-func responsesToAnthropicResponse(body []byte, requestModel string, toolValidator *toolcheck.Validator) ([]byte, []toolcheck.Issue, error) {
+func responsesToAnthropicResponse(body []byte, requestModel, reasoningScope string, toolValidator *toolcheck.Validator) ([]byte, []toolcheck.Issue, error) {
 	if !gjson.ValidBytes(body) {
 		return nil, nil, fmt.Errorf("unmarshal responses response: invalid JSON")
 	}
@@ -71,7 +71,7 @@ func responsesToAnthropicResponse(body []byte, requestModel string, toolValidato
 		switch item.Get("type").String() {
 		case "reasoning":
 			text := joinReasoningSummary(item.Get("summary"))
-			sig := encodeOpenAIReasoningSignature(item.Get("id").String(), item.Get("encrypted_content").String())
+			sig := encodeOpenAIReasoningSignature(item.Get("id").String(), item.Get("encrypted_content").String(), reasoningScope)
 			if sig != "" {
 				pendingReasoningSignature = sig
 			}

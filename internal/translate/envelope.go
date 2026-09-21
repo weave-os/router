@@ -100,6 +100,11 @@ type EmitOptions struct {
 	// proxy sets this on a one-shot retry after such a 400 since AUTO skips
 	// compilation. No-op when VALIDATED wouldn't have been used.
 	DowngradeGeminiValidatedToAuto bool
+	// ReasoningReplayScope identifies the upstream account+model this request
+	// dispatches to, so encrypted reasoning carried on the history is replayed
+	// only where it was minted (see openai_reasoning_signature.go). Empty
+	// replays nothing.
+	ReasoningReplayScope string
 	// FastMode dispatches on the provider's paid fast tier: OpenAI
 	// service_tier:"priority", Anthropic speed:"fast" (+ beta). Honored only
 	// for first-party OpenAI/Anthropic targets; gateways relay their own tier.
@@ -852,7 +857,7 @@ func isForeignSignedThinkingBlock(block gjson.Result) bool {
 	if block.Get("type").String() != "thinking" {
 		return false
 	}
-	_, _, ok := decodeOpenAIReasoningSignature(block.Get("signature").String())
+	_, ok := decodeOpenAIReasoningSignature(block.Get("signature").String())
 	return ok
 }
 

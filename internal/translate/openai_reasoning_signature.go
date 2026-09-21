@@ -13,9 +13,15 @@ type openAIReasoningSignatureEnvelope struct {
 	Provider string `json:"provider"`
 	ID       string `json:"id"`
 	Enc      string `json:"enc"`
+	// Scope identifies the upstream account+model the encrypted reasoning was
+	// minted for. An upstream decrypts its own reasoning only under the issuing
+	// account and model, so a replay outside the minting scope is a 400
+	// ("encrypted reasoning was created for a different account or model").
+	// Empty on envelopes minted before scoping; those replay nowhere.
+	Scope string `json:"scope,omitempty"`
 }
 
-func encodeOpenAIReasoningSignature(id, enc string) string {
+func encodeOpenAIReasoningSignature(id, enc, scope string) string {
 	if id == "" || enc == "" {
 		return ""
 	}
@@ -24,6 +30,7 @@ func encodeOpenAIReasoningSignature(id, enc string) string {
 		Provider: providers.ProviderOpenAI,
 		ID:       id,
 		Enc:      enc,
+		Scope:    scope,
 	})
 	if err != nil {
 		return ""
@@ -31,19 +38,35 @@ func encodeOpenAIReasoningSignature(id, enc string) string {
 	return base64.StdEncoding.EncodeToString(b)
 }
 
-func decodeOpenAIReasoningSignature(sig string) (id, enc string, ok bool) {
+// decodeOpenAIReasoningSignature recognizes a router-minted envelope. Use it to
+// detect one (e.g. to strip it); replaying its payload additionally requires a
+// scope match, see openAIReasoningSignatureForScope.
+func decodeOpenAIReasoningSignature(sig string) (openAIReasoningSignatureEnvelope, bool) {
 	if sig == "" {
-		return "", "", false
+		return openAIReasoningSignatureEnvelope{}, false
 	}
 	b, err := base64.StdEncoding.DecodeString(sig)
 	if err != nil {
-		return "", "", false
+		return openAIReasoningSignatureEnvelope{}, false
 	}
 	var env openAIReasoningSignatureEnvelope
 	if err := json.Unmarshal(b, &env); err != nil {
-		return "", "", false
+		return openAIReasoningSignatureEnvelope{}, false
 	}
 	if env.Version != 1 || env.Provider != providers.ProviderOpenAI || env.ID == "" || env.Enc == "" {
+		return openAIReasoningSignatureEnvelope{}, false
+	}
+	return env, true
+}
+
+func openAIReasoningSignatureReplayable(sig, scope string) bool {
+	_, _, ok := openAIReasoningSignatureForScope(sig, scope)
+	return ok
+}
+
+func openAIReasoningSignatureForScope(sig, scope string) (id, enc string, ok bool) {
+	env, decoded := decodeOpenAIReasoningSignature(sig)
+	if !decoded || scope == "" || env.Scope != scope {
 		return "", "", false
 	}
 	return env.ID, env.Enc, true

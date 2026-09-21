@@ -39,6 +39,9 @@ type ResponsesToAnthropicWriter struct {
 	routingMarker        string
 	estimatedInputTokens int
 	requestHadTools      bool
+	// reasoningScope binds minted reasoning signatures to the account+model
+	// serving this attempt, so a later turn on another one cannot replay them.
+	reasoningScope string
 
 	buf            bytes.Buffer
 	scanner        sse.Scanner
@@ -124,6 +127,14 @@ func NewResponsesToAnthropicWriter(w http.ResponseWriter, requestModel string, s
 // emitted tool args are validated and repaired before reaching the client.
 func (t *ResponsesToAnthropicWriter) WithToolValidator(v *toolcheck.Validator) *ResponsesToAnthropicWriter {
 	t.toolValidator = v
+	return t
+}
+
+// WithReasoningScope binds the reasoning signatures this writer mints to the
+// upstream account+model serving the attempt; only a later turn dispatched to
+// the same one replays them.
+func (t *ResponsesToAnthropicWriter) WithReasoningScope(scope string) *ResponsesToAnthropicWriter {
+	t.reasoningScope = scope
 	return t
 }
 
@@ -588,7 +599,7 @@ func (t *ResponsesToAnthropicWriter) emitDoneOnlyItem(oi int, item gjson.Result)
 }
 
 func (t *ResponsesToAnthropicWriter) captureReasoningSignature(oi int, item gjson.Result) {
-	if sig := encodeOpenAIReasoningSignature(item.Get("id").String(), item.Get("encrypted_content").String()); sig != "" {
+	if sig := encodeOpenAIReasoningSignature(item.Get("id").String(), item.Get("encrypted_content").String(), t.reasoningScope); sig != "" {
 		t.reasoningSignatures[oi] = sig
 	}
 }
@@ -744,7 +755,7 @@ func (t *ResponsesToAnthropicWriter) finalizeBuffered() error {
 		)
 		return t.finalizeError()
 	}
-	anthropic, issues, err := responsesToAnthropicResponse(finalResp, t.requestModel, t.toolValidator)
+	anthropic, issues, err := responsesToAnthropicResponse(finalResp, t.requestModel, t.reasoningScope, t.toolValidator)
 	t.toolCallIssues = append(t.toolCallIssues, issues...)
 	if err != nil {
 		t.log().Error("ResponsesToAnthropic: translate failed", "err", err)
