@@ -5002,8 +5002,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// No-op when billing is unwired (selfhosted); only reached on a real
 	// upstream call since the cache-hit branch above already returned.
+	var subscriberSettlement subscriberSettlementState
 	if proxyErr == nil && !agentShadowMode {
-		s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
+		subscriberSettlement = s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
 		if compRes.Summarized {
 			s.billCompactionSummary(ctx, requestID, externalID, compRes.SummaryUsage)
 		}
@@ -5013,7 +5014,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	if subscriberTelemetry != nil {
 		if proxyErr == nil {
-			applySubscriberSettlementTelemetry(ctx, subscriberTelemetry)
+			applySubscriberSettlementTelemetry(subscriberSettlement, subscriberTelemetry)
 		}
 		s.fireTelemetry(*subscriberTelemetry)
 	}
@@ -6110,9 +6111,9 @@ func (s *Service) fireTelemetry(p InsertTelemetryParams) {
 // (`_summary` request_id suffix). No-op when billing is unwired or
 // externalID is empty. Unknown summarizer model prices as zero rather than
 // skipping the ledger row, keeping the audit trail complete.
-func (s *Service) emitBilling(ctx context.Context, requestID, externalID, requestedModel string, decision router.Decision, actPricing catalog.Pricing, routeRes turnLoopResult, in, out, cacheCreation, cacheRead int) {
+func (s *Service) emitBilling(ctx context.Context, requestID, externalID, requestedModel string, decision router.Decision, actPricing catalog.Pricing, routeRes turnLoopResult, in, out, cacheCreation, cacheRead int) subscriberSettlementState {
 	if s.billing == nil || externalID == "" {
-		return
+		return captureSubscriberSettlementState(ctx)
 	}
 	hasOverride := billing.HasOverrideFromContext(ctx)
 	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
@@ -6133,6 +6134,7 @@ func (s *Service) emitBilling(ctx context.Context, requestID, externalID, reques
 		APIKeyID:           apiKeyID,
 		RouterUserID:       auth.UserIDFrom(ctx),
 	})
+	settlement := captureSubscriberSettlementState(ctx)
 
 	// The handover summary runs on the deployment/BYOK key, never the subscription
 	// token. If a BYOK key was used, that spend hit the customer's account —
@@ -6140,6 +6142,7 @@ func (s *Service) emitBilling(ctx context.Context, requestID, externalID, reques
 	if routeRes.Handover.Invoked && !routeRes.Handover.FallbackToFullHistory {
 		s.billAuxiliaryInference(ctx, requestID, auxSuffixHandoverSummary, externalID, routeRes.Handover.SummaryUsage)
 	}
+	return settlement
 }
 
 // fireBilling debits the org's prepaid credit balance for one upstream call.
@@ -7789,8 +7792,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead, extractor.OutputLimitReached())
 
+	var subscriberSettlement subscriberSettlementState
 	if proxyErr == nil {
-		s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
+		subscriberSettlement = s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
 		if compResOAI.Summarized {
 			s.billCompactionSummary(ctx, requestID, externalID, compResOAI.SummaryUsage)
 		}
@@ -7909,7 +7913,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		applyPolicyPinTelemetry(ctx, &telOAI, decision.Metadata)
 		applySubscriberTelemetry(ctx, &telOAI)
 		if proxyErr == nil {
-			applySubscriberSettlementTelemetry(ctx, &telOAI)
+			applySubscriberSettlementTelemetry(subscriberSettlement, &telOAI)
 		}
 		s.fireTelemetry(telOAI)
 	}

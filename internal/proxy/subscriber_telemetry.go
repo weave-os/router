@@ -35,7 +35,7 @@ func applySubscriberTelemetry(ctx context.Context, telemetry *InsertTelemetryPar
 		telemetry.ServingBindingID = identity.BindingID
 	}
 	source := telemetryCapacitySource(ctx, telemetry.CredentialSource)
-	if source == "" {
+	if source == "" || !subscriberUsageObserved(telemetry) {
 		return
 	}
 	telemetry.CapacitySource = string(source)
@@ -54,13 +54,25 @@ func applySubscriberTelemetry(ctx context.Context, telemetry *InsertTelemetryPar
 	}
 }
 
-func applySubscriberSettlementTelemetry(ctx context.Context, telemetry *InsertTelemetryParams) {
+type subscriberSettlementState struct {
+	includedFailed bool
+	prepaidFailed  bool
+}
+
+func captureSubscriberSettlementState(ctx context.Context) subscriberSettlementState {
+	return subscriberSettlementState{
+		includedFailed: entitlement.SettlementFailed(ctx),
+		prepaidFailed:  billing.PrepaidSettlementFailed(ctx),
+	}
+}
+
+func applySubscriberSettlementTelemetry(state subscriberSettlementState, telemetry *InsertTelemetryParams) {
 	switch entitlement.CapacitySource(telemetry.CapacitySource) {
 	case entitlement.CapacitySourceIncludedRouter:
-		failed := entitlement.SettlementFailed(ctx)
+		failed := state.includedFailed
 		telemetry.SettlementFailed = &failed
 	case entitlement.CapacitySourcePrepaid:
-		failed := billing.PrepaidSettlementFailed(ctx)
+		failed := state.prepaidFailed
 		telemetry.SettlementFailed = &failed
 	}
 }
@@ -74,6 +86,8 @@ func telemetryCapacitySource(ctx context.Context, credentialSource string) entit
 		return entitlement.CapacitySourceLinkedClaude
 	case credSourceCodexSubscription:
 		return entitlement.CapacitySourceLinkedCodex
+	case credSourceBYOK:
+		return ""
 	}
 	if _, ok := billing.PrepaidAuthorizationFromContext(ctx); ok {
 		return entitlement.CapacitySourcePrepaid
@@ -82,4 +96,11 @@ func telemetryCapacitySource(ctx context.Context, credentialSource string) entit
 		return entitlement.CapacitySourceIncludedRouter
 	}
 	return ""
+}
+
+func subscriberUsageObserved(telemetry *InsertTelemetryParams) bool {
+	return telemetry.InputTokens != 0 ||
+		telemetry.OutputTokens != 0 ||
+		telemetry.CacheCreationTokens != nil ||
+		telemetry.CacheReadTokens != nil
 }

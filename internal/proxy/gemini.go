@@ -403,6 +403,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	// has cache-hit and output-limit evidence.
 	s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead, extractor.OutputLimitReached())
 
+	var subscriberTelemetry *InsertTelemetryParams
 	if installationID != uuid.Nil {
 		credentialKeyPrefix, credentialKeySuffix, credentialSource := s.credentialKeyParts(ctx)
 		telemetryParams := InsertTelemetryParams{
@@ -473,14 +474,22 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		applyAuthorityShadowTelemetry(&telemetryParams, routeRes)
 		applyBlindExperimentTelemetry(ctx, &telemetryParams)
 		applyPolicyPinTelemetry(ctx, &telemetryParams, decision.Metadata)
-		s.fireTelemetry(telemetryParams)
+		applySubscriberTelemetry(ctx, &telemetryParams)
+		subscriberTelemetry = &telemetryParams
 	}
 
+	var subscriberSettlement subscriberSettlementState
 	if proxyErr == nil {
-		s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
+		subscriberSettlement = s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
 		if compRes.Summarized {
 			s.billCompactionSummary(ctx, requestID, externalID, compRes.SummaryUsage)
 		}
+	}
+	if subscriberTelemetry != nil {
+		if proxyErr == nil {
+			applySubscriberSettlementTelemetry(subscriberSettlement, subscriberTelemetry)
+		}
+		s.fireTelemetry(*subscriberTelemetry)
 	}
 
 	// Two-strike provider disable: see ProxyMessages. Gemini rarely produces a

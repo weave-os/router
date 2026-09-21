@@ -27,6 +27,7 @@ func TestApplySubscriberTelemetryIncludedUsage(t *testing.T) {
 	telemetry := InsertTelemetryParams{
 		ActualInputCostUSD:  0.0000015,
 		ActualOutputCostUSD: 0.0000025,
+		InputTokens:         1,
 	}
 
 	applySubscriberTelemetry(ctx, &telemetry)
@@ -86,6 +87,7 @@ func TestApplySubscriberTelemetryCapacitySources(t *testing.T) {
 				ActualInputCostUSD:  0.25,
 				ActualOutputCostUSD: 0.75,
 				CredentialSource:    tt.credentialSource,
+				InputTokens:         1,
 			}
 
 			applySubscriberTelemetry(tt.ctx, &telemetry)
@@ -113,20 +115,54 @@ func TestApplySubscriberSettlementTelemetry(t *testing.T) {
 	includedContext := entitlement.WithCoverage(context.Background(), entitlement.Coverage{})
 	entitlement.MarkSettlementFailed(includedContext)
 	included := InsertTelemetryParams{CapacitySource: string(entitlement.CapacitySourceIncludedRouter)}
-	applySubscriberSettlementTelemetry(includedContext, &included)
+	applySubscriberSettlementTelemetry(captureSubscriberSettlementState(includedContext), &included)
 	require.NotNil(t, included.SettlementFailed)
 	assert.True(t, *included.SettlementFailed)
 
 	prepaidContext := billing.WithPrepaidAuthorization(context.Background(), billing.PrepaidAuthorization{})
 	billing.MarkPrepaidSettlementFailed(prepaidContext)
 	prepaid := InsertTelemetryParams{CapacitySource: string(entitlement.CapacitySourcePrepaid)}
-	applySubscriberSettlementTelemetry(prepaidContext, &prepaid)
+	applySubscriberSettlementTelemetry(captureSubscriberSettlementState(prepaidContext), &prepaid)
 	require.NotNil(t, prepaid.SettlementFailed)
 	assert.True(t, *prepaid.SettlementFailed)
 
 	linked := InsertTelemetryParams{CapacitySource: string(entitlement.CapacitySourceLinkedClaude)}
-	applySubscriberSettlementTelemetry(context.Background(), &linked)
+	applySubscriberSettlementTelemetry(subscriberSettlementState{}, &linked)
 	assert.Nil(t, linked.SettlementFailed)
+}
+
+func TestApplySubscriberSettlementTelemetryUsesCapturedState(t *testing.T) {
+	ctx := entitlement.WithCoverage(context.Background(), entitlement.Coverage{})
+	state := captureSubscriberSettlementState(ctx)
+	entitlement.MarkSettlementFailed(ctx)
+
+	telemetry := InsertTelemetryParams{
+		CapacitySource: string(entitlement.CapacitySourceIncludedRouter),
+	}
+	applySubscriberSettlementTelemetry(state, &telemetry)
+
+	require.NotNil(t, telemetry.SettlementFailed)
+	assert.False(t, *telemetry.SettlementFailed)
+}
+
+func TestApplySubscriberTelemetryLeavesBYOKAndUnknownUsageUnattributed(t *testing.T) {
+	ctx := entitlement.WithCoverage(context.Background(), entitlement.Coverage{
+		EntitlementVersion: 17,
+		Plan:               entitlement.PlanMax,
+	})
+	for _, telemetry := range []InsertTelemetryParams{
+		{
+			CredentialSource:   credSourceBYOK,
+			InputTokens:        1,
+			ActualInputCostUSD: 0.25,
+		},
+		{},
+	} {
+		applySubscriberTelemetry(ctx, &telemetry)
+		assert.Empty(t, telemetry.CapacitySource)
+		assert.Nil(t, telemetry.RetailUsageMicros)
+		assert.Nil(t, telemetry.IncludedUsageMicros)
+	}
 }
 
 func TestApplySubscriberTelemetryLeavesUsageEmptyWithoutCapacitySource(t *testing.T) {

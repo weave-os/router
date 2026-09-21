@@ -9,9 +9,11 @@ import (
 	"testing"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -224,6 +226,65 @@ func TestProxyGeminiGenerateContent_PersistsPassthroughExperimentTelemetry(t *te
 	assert.Zero(t, row.UpstreamStatusCode, "successful rows follow the existing telemetry convention of zero status")
 	assert.Positive(t, row.ActualInputCostUSD)
 	assert.Positive(t, row.ActualOutputCostUSD)
+}
+
+func TestProxyGeminiGenerateContent_PersistsSubscriberTelemetry(t *testing.T) {
+	tests := []struct {
+		name string
+		ctx  func(context.Context) context.Context
+		want entitlement.CapacitySource
+	}{
+		{
+			name: "included",
+			ctx: func(ctx context.Context) context.Context {
+				return entitlement.WithCoverage(ctx, entitlement.Coverage{
+					EntitlementVersion: 17,
+					Plan:               entitlement.PlanMax,
+				})
+			},
+			want: entitlement.CapacitySourceIncludedRouter,
+		},
+		{
+			name: "prepaid",
+			ctx: func(ctx context.Context) context.Context {
+				return billing.WithPrepaidAuthorization(ctx, billing.PrepaidAuthorization{
+					CapacitySource: entitlement.CapacitySourcePrepaid,
+				})
+			},
+			want: entitlement.CapacitySourcePrepaid,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			googleProvider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+				_, _ = w.Write([]byte(`{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1200,"candidatesTokenCount":4,"totalTokenCount":1204}}`))
+			}}
+			telemetry := newCaptureTelemetry()
+			service := proxy.NewService(
+				&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}},
+				map[string]providers.Client{providers.ProviderGoogle: googleProvider},
+				nil, false, nil, newFakePinStore(), false,
+				providers.ProviderGoogle, "gemini-2.5-flash", telemetry,
+			)
+			ctx := tt.ctx(authedCtx("44444444-4444-4444-4444-444444444444"))
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", nil)
+
+			require.NoError(t, service.ProxyGeminiGenerateContent(ctx, []byte(geminiInjectedBody), recorder, request))
+
+			row := telemetry.firstRow(t)
+			assert.Equal(t, string(tt.want), row.CapacitySource)
+			require.NotNil(t, row.RetailUsageMicros)
+			require.NotNil(t, row.SettlementFailed)
+			assert.False(t, *row.SettlementFailed)
+			if tt.want == entitlement.CapacitySourceIncludedRouter {
+				require.NotNil(t, row.IncludedUsageMicros)
+				assert.Equal(t, int64(17), *row.EntitlementVersion)
+			} else {
+				require.NotNil(t, row.PrepaidUsageMicros)
+			}
+		})
+	}
 }
 
 func TestProxyGeminiGenerateContent_PersistsExperimentUpstreamError(t *testing.T) {
