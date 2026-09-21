@@ -15,12 +15,39 @@ import (
 // autopay threshold. The Weave control-plane subscriber picks it up and charges
 // the saved card; a reconciliation sweep backstops any dropped signal.
 type AutopayNotifier struct {
-	publisher *gcppubsub.Publisher
+	publisher autopayPublisher
+}
+
+// autopayPublisher is the narrow seam NotifyRechargeNeeded needs from a GCP
+// Pub/Sub Publisher: publish a message and return a handle whose result can be
+// awaited. Abstracting it behind an interface (rather than the concrete
+// *gcppubsub.Publisher, whose Publish returns a SDK-internal PublishResult
+// future) lets tests assert the exact wire payload with an in-memory fake.
+type autopayPublisher interface {
+	Publish(ctx context.Context, msg *gcppubsub.Message) autopayPublishResult
+	Stop()
+}
+
+type autopayPublishResult interface {
+	Get(ctx context.Context) (string, error)
+}
+
+// gcpAutopayPublisher adapts a real *gcppubsub.Publisher to autopayPublisher.
+type gcpAutopayPublisher struct {
+	inner *gcppubsub.Publisher
+}
+
+func (p gcpAutopayPublisher) Publish(ctx context.Context, msg *gcppubsub.Message) autopayPublishResult {
+	return p.inner.Publish(ctx, msg)
+}
+
+func (p gcpAutopayPublisher) Stop() {
+	p.inner.Stop()
 }
 
 // NewAutopayNotifier constructs a notifier backed by the supplied Publisher.
 func NewAutopayNotifier(publisher *gcppubsub.Publisher) *AutopayNotifier {
-	return &AutopayNotifier{publisher: publisher}
+	return &AutopayNotifier{publisher: gcpAutopayPublisher{inner: publisher}}
 }
 
 type subscriberRechargePayload struct {

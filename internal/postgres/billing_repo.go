@@ -176,7 +176,7 @@ func (r *BillingRepo) GetAutopayConfig(ctx context.Context, owner billing.Owner)
 }
 
 // BillingTablesExist runs the boot-time health check. Returns true when
-// all three billing tables exist in the router schema.
+// every table the billing debit path touches exists in the router schema.
 func (r *BillingRepo) BillingTablesExist(ctx context.Context) (bool, error) {
 	q := sqlc.New(r.tx)
 	return q.CheckBillingTablesExist(ctx)

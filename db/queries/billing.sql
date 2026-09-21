@@ -187,7 +187,9 @@ LIMIT @row_limit::int;
 -- router schema. Used by the router boot-time health check so a
 -- missing-migration state disables billing rather than 500ing on every
 -- request. Includes the monthly-spend counter and limit tables because
--- DebitOrgCredits writes the counters in the same statement as the debit.
+-- DebitOrgCredits writes the counters in the same statement as the debit,
+-- and the subscriber autopay config because prepaid settlement reads it for
+-- the recharge-signal crossing check.
 -- name: CheckBillingTablesExist :one
 SELECT (
     SELECT COUNT(*) FROM information_schema.tables
@@ -199,6 +201,7 @@ SELECT (
         'model_router_user_monthly_spend',
         'organization_monthly_spend',
         'organization_spend_limits',
-        'model_router_user_spend_limits'
+        'model_router_user_spend_limits',
+        'subscriber_autopay_config'
       )
-) = 7 AS billing_tables_exist;
+) = 8 AS billing_tables_exist;
