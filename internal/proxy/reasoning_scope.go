@@ -38,21 +38,25 @@ func (s *Service) reasoningReplayScope(ctx context.Context, d router.Decision) s
 	write(requestcontext.EffectiveUpstreamModel(ctx, d.Model))
 	write(endpoint)
 
+	// A principal already derived from key material is appended rather than
+	// digested: the scope the client round-trips must not put key material
+	// through a fast hash, whatever the truncation.
+	digest := func(derived string) string {
+		return hex.EncodeToString(h.Sum(nil)[:8]) + derived
+	}
+
 	creds := requestcontext.CredentialsFromContext(ctx)
 	if creds == nil {
 		write("deployment")
-		write(s.deploymentPrincipal(d.Provider))
-		return hex.EncodeToString(h.Sum(nil)[:8])
+		return digest(s.deploymentPrincipal(d.Provider))
 	}
 	write(creds.Source)
 	principal, secret := creds.UpstreamPrincipal()
 	if secret {
-		// A static key is its own identity, derived rather than digested so
-		// the scope the client round-trips is no oracle for the key.
-		principal = providers.CredentialPrincipal(endpoint, principal)
+		return digest(providers.CredentialPrincipal(endpoint, principal))
 	}
 	write(principal)
-	return hex.EncodeToString(h.Sum(nil)[:8])
+	return digest("")
 }
 
 // deploymentPrincipal reports the provider adapter's own account fingerprint,
