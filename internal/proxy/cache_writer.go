@@ -2,8 +2,28 @@ package proxy
 
 import (
 	"bytes"
+	"context"
 	"net/http"
+
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/cache"
+	"weave-os/router/internal/subscriptions/entitlement"
 )
+
+func semanticCacheProvenance(ctx context.Context, decision router.Decision) cache.Provenance {
+	provenance := cache.Provenance{
+		CredentialIdentity: sessionCredentialIdentity(ctx, apiKeyIDFromContext(ctx)),
+		Product:            string(entitlement.ModelBoundaryFromContext(ctx).Product()),
+		Model:              decision.Model,
+		Provider:           decision.Provider,
+	}
+	if identity, managed := requestcontext.ServingIdentityFromContext(ctx); managed {
+		provenance.ProfileKey = identity.ProfileKey
+		provenance.ProfileRevision = identity.ProfileRevision
+	}
+	return provenance
+}
 
 // captureWriter mirrors writes into a buffer for post-response cache storage.
 // Bodies exceeding maxBytes mark the capture as overflowed: streaming continues

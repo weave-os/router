@@ -33,7 +33,7 @@ func TestBucket_InvalidMaxBucketsPerInstallationNoOpsInsteadOfPanic(t *testing.T
 	c := newBrokenCache(t, cfg)
 
 	assert.NotPanics(t, func() {
-		b := c.bucket("inst-1", FormatAnthropic, 0, "v1", 0, true)
+		b := c.bucket("inst-1", FormatAnthropic, Provenance{}, 0, "v1", 0, true)
 		assert.Nil(t, b, "bucket allocation failure must surface as nil, not panic")
 	})
 }
@@ -46,7 +46,7 @@ func TestBucket_InvalidBucketSizeNoOpsInsteadOfPanic(t *testing.T) {
 	c := newBrokenCache(t, cfg)
 
 	assert.NotPanics(t, func() {
-		b := c.bucket("inst-1", FormatAnthropic, 0, "v1", 0, true)
+		b := c.bucket("inst-1", FormatAnthropic, Provenance{}, 0, "v1", 0, true)
 		assert.Nil(t, b, "bucket allocation failure must surface as nil, not panic")
 	})
 }
@@ -61,12 +61,12 @@ func TestLookupAndStore_SurviveBrokenBucketAllocation(t *testing.T) {
 	emb := []float32{1, 0, 0, 0}
 
 	assert.NotPanics(t, func() {
-		c.Store("inst-1", FormatAnthropic, emb, 0, CachedResponse{StatusCode: http.StatusOK}, "v1", 0)
+		c.Store("inst-1", FormatAnthropic, Provenance{}, emb, 0, CachedResponse{StatusCode: http.StatusOK}, "v1", 0)
 	})
 
 	var hit bool
 	assert.NotPanics(t, func() {
-		_, hit = c.Lookup("inst-1", FormatAnthropic, emb, []int{0}, "v1", 0)
+		_, hit = c.Lookup("inst-1", FormatAnthropic, Provenance{}, emb, []int{0}, "v1", 0)
 	})
 	assert.False(t, hit, "broken bucket allocation must degrade to a cache miss")
 }

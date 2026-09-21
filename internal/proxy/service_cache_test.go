@@ -13,9 +13,11 @@ import (
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/cache"
 	"weave-os/router/internal/subscriptions"
+	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -81,6 +83,30 @@ func proxyContextWithExternalID(t *testing.T, externalID string) context.Context
 	return ctx
 }
 
+func cacheServingContext(t *testing.T, externalID, subject, profile, revision string) context.Context {
+	t.Helper()
+	ctx := proxyContextWithExternalID(t, externalID)
+	ctx = context.WithValue(ctx, proxy.APIKeyIDContextKey{}, "key-"+subject)
+	return requestcontext.WithServingIdentity(ctx, requestcontext.ServingIdentity{
+		CredentialIdentity: subject,
+		ProfileKey:         profile,
+		ProfileRevision:    revision,
+	})
+}
+
+type productAwareCacheRouter struct {
+	embedding []float32
+}
+
+func (r *productAwareCacheRouter) Route(_ context.Context, req router.Request) (router.Decision, error) {
+	decision := decisionWithEmbedding(r.embedding, []int{0})
+	if req.ProductEligibility.Restricts() {
+		decision.Model = "deepseek/deepseek-v4-pro"
+		decision.Provider = providers.ProviderFireworks
+	}
+	return decision, nil
+}
+
 func TestService_Cache_HitShortCircuitsProvider(t *testing.T) {
 	emb := embeddingFixture(1)
 	provider := &fakeProvider{
@@ -108,6 +134,140 @@ func TestService_Cache_HitShortCircuitsProvider(t *testing.T) {
 
 	assert.Equal(t, `{"id":"first","content":"hi"}`, rec2.Body.String())
 	assert.Equal(t, proxy.RouterCacheHit, rec2.Header().Get(proxy.HeaderRouterCache))
+}
+
+func TestService_Cache_ProviderFallbackUsesInitialProvenance(t *testing.T) {
+	emb := embeddingFixture(24)
+	primary := &fakeProvider{proxyErr: &providers.UpstreamErrorResponse{Status: http.StatusServiceUnavailable}}
+	fallback := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		_, _ = w.Write([]byte(`{
+			"id":"chatcmpl_1",
+			"object":"chat.completion",
+			"choices":[{"index":0,"message":{"role":"assistant","content":"fallback"},"finish_reason":"stop"}],
+			"usage":{"prompt_tokens":10,"completion_tokens":2,"total_tokens":12}
+		}`))
+	}}
+	decision := decisionWithEmbedding(emb, []int{0})
+	decision.Model = "deepseek/deepseek-v4-pro"
+	decision.Provider = providers.ProviderTogether
+	svc := proxy.NewService(
+		&fakeRouter{decision: decision},
+		map[string]providers.Client{
+			providers.ProviderTogether:  primary,
+			providers.ProviderFireworks: fallback,
+		},
+		nil, false, cache.New(cache.DefaultConfig()), nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+	).WithDeploymentKeyedProviders(map[string]struct{}{
+		providers.ProviderTogether:  {},
+		providers.ProviderFireworks: {},
+	})
+	ctx := cacheServingContext(t, "installation-1", "subject-a", "profile-a", "revision-1")
+	body := []byte(`{
+		"model":"gpt-5.6-sol",
+		"stream":false,
+		"tools":[{"type":"function","function":{"name":"noop","description":"placeholder","parameters":{"type":"object"}}}],
+		"messages":[{"role":"user","content":"same fallback request"}]
+	}`)
+
+	first := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, body, first, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))))
+	require.NotEmpty(t, primary.proxyBodies)
+	require.Len(t, fallback.proxyBodies, 1)
+	primaryCalls := len(primary.proxyBodies)
+
+	second := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, body, second, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))))
+
+	assert.Len(t, primary.proxyBodies, primaryCalls, "repeat must not retry the initial provider")
+	assert.Len(t, fallback.proxyBodies, 1, "repeat must replay the fallback-served response")
+	assert.Equal(t, proxy.RouterCacheHit, second.Header().Get(proxy.HeaderRouterCache))
+	assert.Equal(t, first.Body.String(), second.Body.String())
+}
+
+func TestService_Cache_UnrestrictedClosedResponseDoesNotReplayToMax(t *testing.T) {
+	emb := embeddingFixture(21)
+	closed := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		_, _ = w.Write([]byte(`{"model":"closed"}`))
+	}}
+	open := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		_, _ = w.Write([]byte(`{"model":"open"}`))
+	}}
+	svc := proxy.NewService(
+		&productAwareCacheRouter{embedding: emb},
+		map[string]providers.Client{
+			providers.ProviderAnthropic: closed,
+			providers.ProviderFireworks: open,
+		},
+		nil, false, cache.New(cache.DefaultConfig()), nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+	)
+	ctx := cacheServingContext(t, "installation-1", "subject-a", "profile-a", "revision-1")
+	body := anthropicBody("same semantic request", false)
+
+	unrestricted := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyMessages(ctx, body, unrestricted, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+	max := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyMessages(entitlement.WithProductScope(ctx, entitlement.PlanMax), body, max, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+
+	assert.Equal(t, `{"model":"closed"}`, unrestricted.Body.String())
+	assert.Contains(t, max.Body.String(), `"model":"deepseek/deepseek-v4-pro"`)
+	assert.Len(t, closed.proxyBodies, 1)
+	assert.Len(t, open.proxyBodies, 1, "Max must dispatch its eligible model instead of replaying a closed-model response")
+	assert.Empty(t, max.Header().Get(proxy.HeaderRouterCache))
+}
+
+func TestService_Cache_EffectiveProfileAndRevisionIsolation(t *testing.T) {
+	emb := embeddingFixture(22)
+	provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		_, _ = w.Write([]byte(`{"id":"profile"}`))
+	}}
+	svc := proxy.NewService(
+		&fakeRouter{decision: decisionWithEmbedding(emb, []int{0})},
+		map[string]providers.Client{providers.ProviderAnthropic: provider},
+		nil, false, cache.New(cache.DefaultConfig()), nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+	)
+	body := anthropicBody("same semantic request", false)
+	contexts := []context.Context{
+		cacheServingContext(t, "installation-1", "subject-a", "profile-a", "revision-1"),
+		cacheServingContext(t, "installation-1", "subject-a", "profile-b", "revision-1"),
+		cacheServingContext(t, "installation-1", "subject-a", "profile-b", "revision-2"),
+		cacheServingContext(t, "installation-1", "subject-a", "profile-b", "revision-2"),
+	}
+
+	for _, ctx := range contexts {
+		rec := httptest.NewRecorder()
+		require.NoError(t, svc.ProxyMessages(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+	}
+
+	assert.Len(t, provider.proxyBodies, 3, "profile and revision changes must miss while an equivalent repeat hits")
+}
+
+func TestService_Cache_CredentialSubjectIsolation(t *testing.T) {
+	emb := embeddingFixture(23)
+	provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		_, _ = w.Write([]byte(`{"id":"subject"}`))
+	}}
+	svc := proxy.NewService(
+		&fakeRouter{decision: decisionWithEmbedding(emb, []int{0})},
+		map[string]providers.Client{providers.ProviderAnthropic: provider},
+		nil, false, cache.New(cache.DefaultConfig()), nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+	)
+	body := anthropicBody("same semantic request", false)
+	contexts := []context.Context{
+		cacheServingContext(t, "installation-1", "subject-a", "profile-a", "revision-1"),
+		cacheServingContext(t, "installation-1", "subject-b", "profile-a", "revision-1"),
+		cacheServingContext(t, "installation-1", "subject-b", "profile-a", "revision-1"),
+	}
+
+	for _, ctx := range contexts {
+		rec := httptest.NewRecorder()
+		require.NoError(t, svc.ProxyMessages(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+	}
+
+	assert.Len(t, provider.proxyBodies, 2, "subjects must miss across identities while an equivalent repeat hits")
 }
 
 func TestService_Cache_SubscriptionStatePreferencesBypass(t *testing.T) {
