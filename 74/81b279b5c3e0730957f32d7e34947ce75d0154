@@ -1,0 +1,23 @@
+install/opencode-weave/test/toast.test.ts
+  s_dc8a04f63ff294::t_a3d94242311191 110-123
+  s_dc8a04f63ff294::t_45b2788efbeadf 38,41,43-44,57-70
+install/opencode-weave/src/index.ts
+  s_dc8a04f63ff294::t_8e6088ebe22e97 589,594-597,600
+  s_dc8a04f63ff294::t_0af7505105f6fc 473-475
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7481b279b5c3e0730957f32d7e34947ce75d0154",
+  "prompts": {},
+  "sessions": {
+    "s_dc8a04f63ff294": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f812e4f7-8ca2-4a30-82a8-02cdc427306c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

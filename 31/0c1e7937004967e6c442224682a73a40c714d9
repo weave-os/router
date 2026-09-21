@@ -1,0 +1,21 @@
+internal/proxy/AGENTS.md
+  s_7fa428a6b6817b::t_6b2b3e19124d04 48
+internal/proxy/CLAUDE.md
+  s_7fa428a6b6817b::t_6b2b3e19124d04 48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "310c1e7937004967e6c442224682a73a40c714d9",
+  "prompts": {},
+  "sessions": {
+    "s_7fa428a6b6817b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "92be9f94-6f27-4e58-a8fb-0fe9429576cf",
+        "model": "grok-4.6"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
