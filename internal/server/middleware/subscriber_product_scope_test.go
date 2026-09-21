@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/flags"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router/eligibility"
 	"weave-os/router/internal/server/middleware"
@@ -25,6 +26,7 @@ func runProductScopeMiddleware(
 	entitlements *stubEntitlements,
 	allowances *stubAllowances,
 	authHeader string,
+	paidFallbackEnabled *bool,
 ) (bool, context.Context) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
@@ -35,6 +37,11 @@ func runProductScopeMiddleware(
 	engine := gin.New()
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		c.Set("router_api_key", subscriberAPIKey())
+		if paidFallbackEnabled != nil {
+			c.Request = c.Request.WithContext(flags.WithOverrides(c.Request.Context(), flags.Overrides{
+				Bools: map[flags.Key]bool{flags.KeySubscriberPaidFallback: *paidFallbackEnabled},
+			}))
+		}
 		middleware.WithSubscriberAllowance(svc)(c)
 		if c.IsAborted() {
 			return
@@ -61,7 +68,7 @@ func maxSubscriberEntitlement() entitlement.Entitlement {
 func TestWithSubscriberAllowance_StampsMaxProductScope(t *testing.T) {
 	entitlements := &stubEntitlements{current: maxSubscriberEntitlement(), found: true}
 
-	reached, ctx := runProductScopeMiddleware(t, entitlements, &stubAllowances{billingConsumed: 1_000}, "")
+	reached, ctx := runProductScopeMiddleware(t, entitlements, &stubAllowances{billingConsumed: 1_000}, "", nil)
 
 	require.True(t, reached)
 	plan, scoped := entitlement.ProductScopeFromContext(ctx)
@@ -76,7 +83,7 @@ func TestWithSubscriberAllowance_KeepsProductScopeWhenAllowanceIsSpent(t *testin
 	entitlements := &stubEntitlements{current: maxSubscriberEntitlement(), found: true}
 	spent := &stubAllowances{billingConsumed: monthlyAllowance}
 
-	reached, ctx := runProductScopeMiddleware(t, entitlements, spent, "Bearer sk-ant-oat01-covering-subscription")
+	reached, ctx := runProductScopeMiddleware(t, entitlements, spent, "Bearer sk-ant-oat01-covering-subscription", nil)
 
 	require.True(t, reached, "a covering subscription still serves a spent allowance")
 	plan, scoped := entitlement.ProductScopeFromContext(ctx)
@@ -89,7 +96,7 @@ func TestWithSubscriberAllowance_KeepsMaxScopeAfterEntitlementEnds(t *testing.T)
 	ended.Status = entitlement.StatusEnded
 	entitlements := &stubEntitlements{current: ended, found: true}
 
-	reached, ctx := runProductScopeMiddleware(t, entitlements, &stubAllowances{}, "")
+	reached, ctx := runProductScopeMiddleware(t, entitlements, &stubAllowances{}, "", nil)
 
 	require.True(t, reached)
 	plan, scoped := entitlement.ProductScopeFromContext(ctx)
@@ -98,12 +105,30 @@ func TestWithSubscriberAllowance_KeepsMaxScopeAfterEntitlementEnds(t *testing.T)
 	assert.False(t, entitlement.ModelBoundaryFromContext(ctx).PermitsSource(eligibility.SourceClosedSource))
 }
 
-func TestWithSubscriberAllowance_EndedMaxUsesCoveringSubscription(t *testing.T) {
+func TestWithSubscriberAllowance_EndedMaxKeepsOrganizationFallback(t *testing.T) {
 	ended := maxSubscriberEntitlement()
 	ended.Status = entitlement.StatusEnded
 	entitlements := &stubEntitlements{current: ended, found: true}
 
-	reached, ctx := runProductScopeMiddleware(t, entitlements, &stubAllowances{}, "Bearer sk-ant-oat01-covering-subscription")
+	reached, ctx := runProductScopeMiddleware(t, entitlements, &stubAllowances{}, "Bearer sk-ant-oat01-covering-subscription", nil)
+
+	require.True(t, reached)
+	assert.False(t, billing.SubscriptionOnlyFromContext(ctx), "subscription-only would disable organization-funded PAYG failover")
+}
+
+func TestWithSubscriberAllowance_EndedMaxUsesCoveringSubscriptionWhenFallbackDisabled(t *testing.T) {
+	ended := maxSubscriberEntitlement()
+	ended.Status = entitlement.StatusEnded
+	entitlements := &stubEntitlements{current: ended, found: true}
+	paidFallbackEnabled := false
+
+	reached, ctx := runProductScopeMiddleware(
+		t,
+		entitlements,
+		&stubAllowances{},
+		"Bearer sk-ant-oat01-covering-subscription",
+		&paidFallbackEnabled,
+	)
 
 	require.True(t, reached)
 	assert.True(t, billing.SubscriptionOnlyFromContext(ctx))
@@ -150,7 +175,7 @@ func TestWithSubscriberAllowance_ScopesAgentShadowWithoutSpendingAllowance(t *te
 }
 
 func TestWithSubscriberAllowance_LeavesNonSubscribersUnscoped(t *testing.T) {
-	reached, ctx := runProductScopeMiddleware(t, &stubEntitlements{}, &stubAllowances{}, "")
+	reached, ctx := runProductScopeMiddleware(t, &stubEntitlements{}, &stubAllowances{}, "", nil)
 
 	require.True(t, reached)
 	_, scoped := entitlement.ProductScopeFromContext(ctx)

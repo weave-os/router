@@ -77,9 +77,6 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 
 		switch admission.Outcome {
 		case entitlement.AdmissionNotSubscribed:
-			if admission.Plan != "" && serveOnCoveringSubscription(c) {
-				return
-			}
 			continueWithOrganizationFallback(c, log, admission.Plan)
 		case entitlement.AdmissionExhausted:
 			// A request presenting a Claude/Codex credential covering this route
@@ -190,6 +187,13 @@ func holdUsdMicros(usage entitlement.Usage) int64 {
 func continueWithOrganizationFallback(c *gin.Context, log *slog.Logger, plan entitlement.Plan) {
 	if plan == "" || flags.BoolOr(c.Request.Context(), flags.KeySubscriberPaidFallback, true) {
 		c.Next()
+		return
+	}
+	// Disabling organization-paid fallback must not reject a request the
+	// caller's own linked plan can cover. Only force subscription-only after
+	// fallback is disabled: while fallback is enabled, that marker would also
+	// suppress the shared-credit PAYG path promised after entitlement ends.
+	if serveOnCoveringSubscription(c) {
 		return
 	}
 	log.Info("Request rejected: organization paid fallback is disabled", "subscriber_plan", plan)
