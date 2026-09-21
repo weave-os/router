@@ -142,6 +142,8 @@ var (
 	openaiAstra = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh", "max"}, SupportsBudget: true, AlwaysOn: true}, CapReasoning, CapXhighEffort)
 	// grok-4.6: openaiReasoning + the extra "xhigh" level.
 	grok46 = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh"}, SupportsBudget: true}, CapReasoning, CapXhighEffort)
+	// Grok 4.7 exposes the same four reasoning effort levels as Grok 4.6.
+	grok47 = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh"}, SupportsBudget: true}, CapReasoning, CapXhighEffort)
 	// museSpark: reasoning_effort minimal/low/medium/high/xhigh; "none" is a 400
 	// (always reasons), so AlwaysOn maps a disable to the floor level. The
 	// router canonicalizes "minimal" to "low" before dispatch.
@@ -199,6 +201,7 @@ var registry = map[string]ModelSpec{
 	// grok-4.6: grok-4.5 added an "xhigh" effort that xAI didn't document for 4.5;
 	// xAI's 4.6 docs keep the low/medium/high/xhigh menu. CapReasoning + CapXhighEffort.
 	"grok-4.6": grok46,
+	"grok-4.7": grok47,
 
 	"muse-spark-1.3": museSpark,
 

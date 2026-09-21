@@ -235,6 +235,7 @@ export const WEAVE_MODELS: ProviderModelConfig[] = [
 	model("claude-sonnet-4-6", "Claude Sonnet 4.6 (via Weave Router)", 64000, 1_000_000),
 	model("claude-haiku-4-5", "Claude Haiku 4.5 (via Weave Router)", 32000, 200_000),
 	model("grok-4.6", "Grok 4.6 (via Weave Router)", 131072, 500_000),
+	model("grok-4.7", "Grok 4.7 (via Weave Router)", 131072, 500_000),
 	model("qwen/qwen3.8-max", "Qwen 3.8 Max (via Weave Router)", 131072, 1_000_000),
 ];
 

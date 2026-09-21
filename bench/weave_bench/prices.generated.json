@@ -1,5 +1,5 @@
 {
-  "pricing_version": "catalog-sha256:a96c21de7b4ad8ef",
+  "pricing_version": "catalog-sha256:d1898e95669c5daf",
   "models": {
     "claude-fable-5": {
       "input_usd_per_million": 10,
@@ -332,6 +332,12 @@
       "cache_write_multiplier": 1.25
     },
     "grok-4.6": {
+      "input_usd_per_million": 2,
+      "output_usd_per_million": 6,
+      "cache_read_multiplier": 0.25,
+      "cache_write_multiplier": 1.25
+    },
+    "grok-4.7": {
       "input_usd_per_million": 2,
       "output_usd_per_million": 6,
       "cache_read_multiplier": 0.25,

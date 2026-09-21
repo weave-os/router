@@ -454,6 +454,9 @@ var Models = []Model{
 	{ID: "grok-4.6", Source: SourceClosedSource, Tier: TierHigh, ContextWindow: 500_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderXAI, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 6.00, CacheReadMultiplier: 0.25}},
 	}},
+	{ID: "grok-4.7", Source: SourceClosedSource, Tier: TierHigh, ContextWindow: 500_000, Providers: []ProviderBinding{
+		{Provider: providers.ProviderXAI, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 6.00, CacheReadMultiplier: 0.25}},
+	}},
 
 	// --- Meta Muse Spark --- native Model API (api.meta.ai); standard (non-contributor) rate.
 	// SourceUnknown: served only from Meta's hosted API here, with no confirmed

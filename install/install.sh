@@ -1178,7 +1178,8 @@ write_pi_models_config() {
         { id: "gpt-6-astra",       name: "GPT-6 Astra (via Weave Router)",       reasoning: true, input: ["text","image"], contextWindow: 1050000, maxTokens: 128000 },
         { id: "gpt-5.6-sol",       name: "GPT-5.6 Sol (via Weave Router)",       reasoning: true, input: ["text","image"], contextWindow: 1050000, maxTokens: 128000 },
         { id: "grok-4.5",          name: "Grok 4.5 (via Weave Router)",          reasoning: true, input: ["text","image"], contextWindow: 500000, maxTokens: 131072 },
-        { id: "grok-4.6",          name: "Grok 4.6 (via Weave Router)",          reasoning: true, input: ["text","image"], contextWindow: 500000, maxTokens: 131072 }
+        { id: "grok-4.6",          name: "Grok 4.6 (via Weave Router)",          reasoning: true, input: ["text","image"], contextWindow: 500000, maxTokens: 131072 },
+        { id: "grok-4.7",          name: "Grok 4.7 (via Weave Router)",          reasoning: true, input: ["text","image"], contextWindow: 500000, maxTokens: 131072 }
       ]
     }
   ')"
@@ -5380,6 +5381,7 @@ prices='{
     "gpt-6-astra":                      0.01,
     "grok-4.5":                         0.002,
     "grok-4.6":                         0.002,
+    "grok-4.7":                         0.002,
     "minimax/minimax-m2.7":             0.0003,
     "minimax/minimax-m3":               0.0003,
     "mistralai/mistral-small-2603":     0.0002,
@@ -5461,6 +5463,7 @@ prices='{
     "gpt-6-astra":                      0.05,
     "grok-4.5":                         0.006,
     "grok-4.6":                         0.006,
+    "grok-4.7":                         0.006,
     "minimax/minimax-m2.7":             0.0012,
     "minimax/minimax-m3":               0.0012,
     "mistralai/mistral-small-2603":     0.0006,
@@ -5542,6 +5545,7 @@ prices='{
     "gpt-6-astra":                      0.1,
     "grok-4.5":                         0.25,
     "grok-4.6":                         0.25,
+    "grok-4.7":                         0.25,
     "minimax/minimax-m2.7":             0.2,
     "minimax/minimax-m3":               0.2,
     "mistralai/mistral-small-2603":     0.1,

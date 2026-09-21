@@ -213,6 +213,7 @@ func TestCatalogRoutingTargetsResolveCurrentHMMRosterArmsToProviders(t *testing.
 		"z-ai/glm-5.2",
 		"google/gemini-3.1-pro-preview",
 		"x-ai/grok-4.6",
+		"x-ai/grok-4.7",
 	} {
 		assert.Contains(t, gotRosterIDs, rosterID)
 	}
@@ -231,6 +232,11 @@ func TestRosterIDForMapsBareGrokIDsToXAIRosterSlugs(t *testing.T) {
 	// consumes, not echo the prefixed roster slug back.
 	assert.Equal(t, "grok-4.6", CatalogIDForRoster("x-ai/grok-4.6"))
 	assert.Equal(t, "grok-4.5", CatalogIDForRoster("x-ai/grok-4.5"))
+
+	grok47, ok := catalog.ByID("grok-4.7")
+	require.True(t, ok)
+	assert.Equal(t, "x-ai/grok-4.7", rosterIDFor(grok47))
+	assert.Equal(t, "grok-4.7", CatalogIDForRoster("x-ai/grok-4.7"))
 }
 
 func TestRosterIDForMapsBareMuseSparkToMetaRosterSlug(t *testing.T) {
