@@ -55,6 +55,17 @@ uninstall
 test "$(model "$settings")" = opus
 test ! -e "$state"
 
+# A routine update preserves a user's explicit model change instead of restoring
+# the previously managed 1M variant without an explicit context-window request.
+printf '%s\n' '{"model":"opus"}' >"$settings"
+run --context-window 1m
+jq '.model = "opus"' "$settings" >"$work/edited.json"
+mv "$work/edited.json" "$settings"
+run_update
+test "$(model "$settings")" = opus
+uninstall
+test "$(model "$settings")" = opus
+
 # An intentional later selection wins over our saved model on off/on/uninstall.
 run --context-window 1m
 jq '.model = "haiku"' "$settings" >"$work/edited.json"

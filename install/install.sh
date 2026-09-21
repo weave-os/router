@@ -2502,13 +2502,13 @@ apply_claude_context_window() {
     merged="$(jq --arg model "$context_managed_model" '.model = $model' "$active")"
   else
     [ -f "$state" ] || return 0
-    merged="$(jq --slurpfile state "$state" --arg action "$action" '
+    merged="$(jq --slurpfile state "$state" --arg action "$action" --arg context_window "$context_window" '
       $state[0] as $s |
       if $action == "off" then
         if .model == $s.managed then
           if $s.had_model then .model = $s.original else del(.model) end
         else . end
-      elif has("model") == $s.had_model and .model == $s.original then .model = $s.managed
+      elif ($action == "install" or $action == "on" or $context_window != "") and has("model") == $s.had_model and .model == $s.original then .model = $s.managed
       else . end
     ' "$active")"
   fi
@@ -5964,7 +5964,11 @@ write_claude_settings() {
     chmod 600 "$local_settings_file"
     ok "Router key header written to $local_settings_file"
   fi
-  apply_claude_context_window install "$context_settings_file"
+  context_window_action="install"
+  if [ "$mode" = "update" ] && [ ! -f "$settings_dir/.weave-parked.json" ]; then
+    context_window_action="update"
+  fi
+  apply_claude_context_window "$context_window_action" "$context_settings_file"
 }
 
 # write_claude_settings rewrites the full router config live, so a parked
