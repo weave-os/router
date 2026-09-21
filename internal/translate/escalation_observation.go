@@ -218,7 +218,10 @@ func ParseResponsesEscalationObservation(body []byte) (EscalationObservation, er
 	root := gjson.ParseBytes(body)
 	observation.ContinuationID = root.Get("previous_response_id").String()
 	observation.HistoryComplete = observation.ContinuationID == ""
-	if instructions := root.Get("instructions"); instructions.Type == gjson.String {
+	if instructions := root.Get("instructions"); instructions.Exists() && instructions.Type != gjson.Null {
+		if instructions.Type != gjson.String {
+			return observation, fmt.Errorf("Responses instructions must be a string or null")
+		}
 		observation.Messages = append(observation.Messages, EscalationMessage{Role: EscalationRoleSystem, Blocks: []EscalationBlock{{Type: EscalationBlockText, Text: instructions.String()}}})
 	}
 	input := root.Get("input")

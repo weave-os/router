@@ -45,6 +45,8 @@ raw prompts just to recover a digit.
 System/developer instructions participate in the causal digest without entering
 the classifier prompt or feature counts. An instruction change within a user
 turn requires a new human boundary; it cannot reuse that turn's old prediction.
+Responses `instructions` must be a string or null; unsupported shapes are
+rejected instead of silently disappearing from that identity.
 
 The pure builder rejects partial Responses continuations/item references,
 unmatched or repeated tool IDs/results, open calls at a user boundary or at the
