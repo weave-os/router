@@ -51,6 +51,9 @@ func (s *Service) applySessionStrategy(
 	installationID uuid.UUID,
 	preferenceKey [sessionpin.SessionKeyLen]byte,
 ) (context.Context, error) {
+	if router.StrategyFromContext(ctx) == router.StrategyLLMClassifier {
+		return ctx, nil
+	}
 	if _, managed := requestcontext.ServingIdentityFromContext(ctx); managed {
 		return ctx, nil
 	}

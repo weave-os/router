@@ -64,6 +64,9 @@ const (
 	DispatchErrorPolicyPinUnavailable
 	DispatchErrorHandoff
 	DispatchErrorProductIneligible
+	DispatchErrorClassifierHistory
+	DispatchErrorClassifierInputTooLong
+	DispatchErrorClassifierUnavailable
 )
 
 // DispatchErrorClass is the format-agnostic classification of a dispatch
@@ -102,6 +105,12 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	var forcedClusterUnservable *policy.ForcedClusterUnservableError
 	var resolution *policy.ResolutionError
 	switch {
+	case errors.Is(err, router.ErrClassifierHistoryUnavailable), errors.Is(err, router.ErrClassifierThreadInvalid):
+		return DispatchErrorClass{Kind: DispatchErrorClassifierHistory, Status: http.StatusConflict, Message: "Classifier thread history is unavailable or changed. Restore the complete original history; do not re-enroll a compacted thread.", LogLevel: "warn", LogMessage: "Classifier history rejected"}, true
+	case errors.Is(err, router.ErrClassifierInputTooLong):
+		return DispatchErrorClass{Kind: DispatchErrorClassifierInputTooLong, Status: http.StatusRequestEntityTooLarge, Message: "Classifier input exceeds its inference limit. No history was truncated and no alternate policy was used.", LogLevel: "warn", LogMessage: "Classifier input exceeds inference limit"}, true
+	case errors.Is(err, router.ErrClassifierUnavailable):
+		return DispatchErrorClass{Kind: DispatchErrorClassifierUnavailable, Status: http.StatusServiceUnavailable, Message: "The thread's classifier release is unavailable. No alternate policy was used.", LogLevel: "warn", LogMessage: "Classifier release unavailable"}, true
 	case errors.Is(err, eligibility.ErrModelIneligible):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorProductIneligible,
@@ -440,6 +449,8 @@ func unwrapToSentinelMessage(err error) string {
 // rather than "api_error".
 func (k DispatchErrorKind) IsClientError() bool {
 	switch k {
+	case DispatchErrorClassifierHistory, DispatchErrorClassifierInputTooLong:
+		return true
 	case DispatchErrorRequestNotJSONObject, DispatchErrorResponsesChatCompletionsBody, DispatchErrorNoEligibleProvider, DispatchErrorAllowlistEmptiesPool, DispatchErrorContextWindowExceeded, DispatchErrorInvalidRoutingKnobs, DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorAnthropicCacheControlInvalid, DispatchErrorForcedModelExcluded, DispatchErrorForcedModelUnknown, DispatchErrorForcedClusterUnsupportedStrategy, DispatchErrorForcedClusterUnservable, DispatchErrorGatewayServesNoModel, DispatchErrorNoRoutableModels, DispatchErrorPlanOverrideRejected, DispatchErrorProductIneligible:
 		return true
 	default:

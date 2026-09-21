@@ -1,0 +1,109 @@
+package postgres
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/sqlc"
+)
+
+// ClassifierSessionRepo keeps thread admission and prediction commits on primary.
+type ClassifierSessionRepo struct{ pool *pgxpool.Pool }
+
+// NewClassifierSessionRepo requires the writable router database.
+func NewClassifierSessionRepo(pool *pgxpool.Pool) *ClassifierSessionRepo {
+	return &ClassifierSessionRepo{pool: pool}
+}
+
+// Create returns the original binding on an idempotent handshake retry.
+func (r *ClassifierSessionRepo) Create(ctx context.Context, thread router.ClassifierThread) (router.ClassifierThread, error) {
+	stored, err := sqlc.New(r.pool).InsertClassifierThread(ctx, sqlc.InsertClassifierThreadParams{
+		ThreadID: thread.ThreadID, InstallationID: thread.InstallationID,
+		CredentialSha256: thread.CredentialSHA256[:], RequestID: thread.RequestID,
+		Release: thread.Release, ReleaseSha256: thread.ReleaseSHA256,
+		SelectionPolicySha256: thread.SelectionPolicySHA256,
+		ExpiresAt:             pgtype.Timestamptz{Time: thread.ExpiresAt, Valid: true},
+	})
+	if err != nil {
+		return router.ClassifierThread{}, err
+	}
+	thread.ThreadID, thread.Release, thread.ReleaseSHA256 = stored.ThreadID, stored.Release, stored.ReleaseSha256
+	thread.SelectionPolicySHA256 = stored.SelectionPolicySha256
+	thread.ExpiresAt = stored.ExpiresAt.Time
+	return thread, nil
+}
+
+// WithThread holds a primary row lock until the prediction is committed.
+func (r *ClassifierSessionRepo) WithThread(ctx context.Context, thread router.ClassifierThread, classify func(router.ClassifierTurnStore) error) error {
+	return pgx.BeginTxFunc(ctx, r.pool, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
+		queries := sqlc.New(tx)
+		_, err := queries.GetClassifierThreadForUpdate(ctx, sqlc.GetClassifierThreadForUpdateParams{
+			ThreadID: thread.ThreadID, InstallationID: thread.InstallationID,
+			CredentialSha256: thread.CredentialSHA256[:], Release: thread.Release, ReleaseSha256: thread.ReleaseSHA256,
+			SelectionPolicySha256: thread.SelectionPolicySHA256,
+		})
+		if errors.Is(err, sql.ErrNoRows) {
+			return router.ErrClassifierThreadInvalid
+		}
+		if err != nil {
+			return err
+		}
+		return classify(classifierTurnRepo{queries: queries, threadID: thread.ThreadID})
+	})
+}
+
+type classifierTurnRepo struct {
+	queries  *sqlc.Queries
+	threadID uuid.UUID
+}
+
+func (r classifierTurnRepo) RootTurnDigest(ctx context.Context) (string, error) {
+	root, err := r.queries.GetClassifierThreadRoot(ctx, r.threadID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return root, err
+}
+
+func (r classifierTurnRepo) Get(ctx context.Context, digest string) (router.ClassifierPrediction, bool, error) {
+	stored, err := r.queries.GetClassifierPrediction(ctx, sqlc.GetClassifierPredictionParams{ThreadID: r.threadID, TurnDigest: digest})
+	if errors.Is(err, sql.ErrNoRows) {
+		return router.ClassifierPrediction{}, false, nil
+	}
+	if err != nil {
+		return router.ClassifierPrediction{}, false, err
+	}
+	prediction := router.ClassifierPrediction{
+		TurnDigest: stored.TurnDigest, RootTurnDigest: stored.RootTurnDigest,
+		Features:               router.ClassifierFeatures{UserMessageCount: int(stored.UserMessageCount), ToolCallCount: int(stored.ToolCallCount), ToolErrorCount: int(stored.ToolErrorCount)},
+		CompletedResponseCount: int(stored.CompletedResponseCount),
+		Complexity:             router.ClassifierComplexity(stored.Complexity), Probabilities: stored.Probabilities,
+	}
+	return prediction, true, prediction.Validate()
+}
+
+func (r classifierTurnRepo) Insert(ctx context.Context, prediction router.ClassifierPrediction) error {
+	if err := prediction.Validate(); err != nil {
+		return err
+	}
+	err := r.queries.InsertClassifierPrediction(ctx, sqlc.InsertClassifierPredictionParams{
+		ThreadID: r.threadID, TurnDigest: prediction.TurnDigest, RootTurnDigest: prediction.RootTurnDigest,
+		UserMessageCount: int32(prediction.Features.UserMessageCount), ToolCallCount: int32(prediction.Features.ToolCallCount), ToolErrorCount: int32(prediction.Features.ToolErrorCount),
+		CompletedResponseCount: int32(prediction.CompletedResponseCount), Complexity: int16(prediction.Complexity), Probabilities: prediction.Probabilities,
+	})
+	var constraintError *pgconn.PgError
+	if errors.As(err, &constraintError) && constraintError.Code == "23505" {
+		return router.ErrClassifierHistoryUnavailable
+	}
+	return err
+}
+
+var _ router.ClassifierSessionStore = (*ClassifierSessionRepo)(nil)

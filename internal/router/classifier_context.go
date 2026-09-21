@@ -44,6 +44,9 @@ type ClassifierResponse struct {
 // are joined. TurnDigest identifies the causal input, not an HTTP request/retry.
 type ClassifierContext struct {
 	TurnDigest             string
+	RootTurnDigest         string
+	PreviousTurnDigest     string
+	AtUserBoundary         bool
 	CurrentUserMessage     string
 	PrecedingResponses     []ClassifierResponse
 	CompletedResponseCount int

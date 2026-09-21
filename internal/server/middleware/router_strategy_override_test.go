@@ -17,6 +17,16 @@ import (
 // allRegisteredLive stands in for a deployment whose every registered lane has a loaded snapshot.
 func allRegisteredLive(router.Strategy) bool { return true }
 
+func TestClassifierCannotBeSelectedWithoutThreadAdmission(t *testing.T) {
+	installation := overrideEnabledInstallation()
+	installation.RoutingStrategy = router.StrategyLLMClassifier
+	for _, header := range []string{"", string(router.StrategyLLMClassifier)} {
+		observed := runStrategyOverride(t, installation, header, router.StrategyLLMClassifier)
+		assert.Equal(t, router.StrategyCluster, observed)
+	}
+	assert.Equal(t, router.StrategyCluster, middleware.NormalizeRouterStrategyDefault(router.StrategyLLMClassifier, router.StrategyLLMClassifier))
+}
+
 func runStrategyOverride(t *testing.T, installation *auth.Installation, header string, available ...router.Strategy) router.Strategy {
 	t.Helper()
 	return runStrategyOverrideWithAvailability(t, installation, header, allRegisteredLive, available...)

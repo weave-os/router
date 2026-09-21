@@ -31,6 +31,8 @@ const (
 	// ts_posterior.json (cluster×model reward posterior). Opt-in only; wired
 	// when ROUTER_BANDIT_POSTERIOR_FILE is set at boot.
 	StrategyBandit Strategy = "bandit"
+	// StrategyLLMClassifier requires an authenticated, release-bound thread handshake.
+	StrategyLLMClassifier Strategy = "llm_classifier"
 )
 
 // IsHMMStrategy reports whether strategy uses the HMM policy contract and

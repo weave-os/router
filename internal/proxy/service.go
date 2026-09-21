@@ -106,6 +106,7 @@ type Service struct {
 	// sessionStrategyStore persists the explicit per-session /beta selection.
 	// Stable routing is represented by no row.
 	sessionStrategyStore sessionstrategy.Store
+	classifierSessions   *classifierSessions
 	// noProgress tracks per-session dispatch fingerprints to catch the
 	// cross-envelope subagent loop (parent agent re-spawning identical
 	// sub-conversations). Nil disables the detector.
@@ -3241,6 +3242,10 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [session
 var anthropicPingFrame = []byte(sseEvent("ping", `{"type":"ping"}`))
 
 func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
+	ctx, returnErr = s.withClassifierInput(ctx, body, router.EndpointAnthropicMessages)
+	if returnErr != nil {
+		return returnErr
+	}
 	if managedSubscriptionEnrollmentUnavailable(ctx) {
 		return ErrSubscriptionPoolUnavailable
 	}
@@ -6284,6 +6289,10 @@ const (
 // ProxyOpenAIChatCompletion routes an OpenAI Chat Completion request,
 // translating cross-format when the decision picks a non-OpenAI provider.
 func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
+	ctx, returnErr = s.withClassifierInput(ctx, body, router.EndpointOpenAIChat)
+	if returnErr != nil {
+		return returnErr
+	}
 	if managedSubscriptionEnrollmentUnavailable(ctx) {
 		return ErrSubscriptionPoolUnavailable
 	}
@@ -8014,6 +8023,10 @@ func stripResponsesTerminalArtifacts(body []byte) ([]byte, error) {
 // re-emitted as Responses-shaped SSE / JSON. This keeps the turn loop, cache,
 // pricing, and translation matrix unchanged.
 func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
+	ctx, inputErr := s.withClassifierInput(ctx, body, router.EndpointOpenAIResponses)
+	if inputErr != nil {
+		return inputErr
+	}
 	ctx = s.withUsageObserver(ctx, r.Header, routePathResponses)
 	clientApp := ClientIdentityFrom(ctx).ClientApp
 	portableCodex := clientApp == ClientAppCodex

@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/api/admin"
 	analyticsapi "weave-os/router/internal/api/analytics"
 	anthropicapi "weave-os/router/internal/api/anthropic"
+	classifierapi "weave-os/router/internal/api/classifier"
 	feedbackapi "weave-os/router/internal/api/feedback"
 	geminiapi "weave-os/router/internal/api/gemini"
 	openaiapi "weave-os/router/internal/api/openai"
@@ -230,6 +231,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 
 	// /validate is a token-validity probe used by clients (not the dashboard), so it stays mounted in both modes.
 	adminAuthed := engine.Group("", middleware.WithTimeout(validateTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn))
+	adminAuthed.POST("/v1/router/threads", classifierapi.StartThreadHandler(proxySvc))
 	adminAuthed.Use(servingAdmissionMiddleware...)
 	adminAuthed.GET("/validate", admin.ValidateHandler)
 	if authSvc.SubscriptionAccountsEnabled() {
@@ -315,6 +317,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithForceEffortOverride(),
 	)
 	messagesMiddleware = append(messagesMiddleware, policyPinMiddleware...)
+	messagesMiddleware = append(messagesMiddleware, middleware.WithClassifierThread(proxySvc))
 	messagesGroup := engine.Group("", messagesMiddleware...)
 	messagesGroup.POST("/v1/messages", anthropicapi.MessagesHandler(proxySvc, authSvc))
 	messagesGroup.POST("/v1/route/handoff", anthropicapi.PrepareHandoffHandler(proxySvc, authSvc))
@@ -344,6 +347,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
 	)
+	chatCompletionMiddleware = append(chatCompletionMiddleware, middleware.WithClassifierThread(proxySvc))
 	chatCompletionWithoutPolicyPin := append([]gin.HandlerFunc(nil), chatCompletionMiddleware...)
 	chatCompletionMiddleware = append(chatCompletionMiddleware, policyPinMiddleware...)
 	chatCompletionGroup := engine.Group("", chatCompletionMiddleware...)
@@ -395,6 +399,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithForceEffortOverride(),
 	)
 	routeMiddleware = append(routeMiddleware, policyPinMiddleware...)
+	routeMiddleware = append(routeMiddleware, middleware.WithClassifierThread(proxySvc))
 	routeGroup := engine.Group("", routeMiddleware...)
 	routeGroup.POST("/v1/route", anthropicapi.RouteHandler(proxySvc))
 
@@ -412,6 +417,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithRoutingKnobsOverride(),
 	)
 	previewMiddleware = append(previewMiddleware, policyPinMiddleware...)
+	previewMiddleware = append(previewMiddleware, middleware.WithClassifierThread(proxySvc))
 	previewGroup := engine.Group("", previewMiddleware...)
 	previewGroup.POST("/v1/route/preview", anthropicapi.PreviewRouteHandler(proxySvc))
 

@@ -37,6 +37,7 @@ import json
 import os
 import sys
 import threading
+from uuid import UUID
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from responses_fixture import Scenario, responses_fixture
@@ -52,6 +53,8 @@ DISPATCH_MARKER = os.environ.get("DISPATCH_MARKER", "__DISPATCH__")
 MESSAGES_PATH = "/v1/messages"
 RESPONSES_PATH = "/v1/responses"
 HANDOFF_PATH = "/v1/route/handoff"
+CLASSIFIER_THREAD_PATH = "/v1/router/threads"
+CLASSIFIER_DENIED_KEY = "rk_e2e_classifier_denied"
 
 KNOB_HEADERS = (
     "x-weave-routing-alpha",
@@ -274,6 +277,17 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length) if length else b""  # always drain the body
         path = self.path.split("?")[0]
 
+        if path == CLASSIFIER_THREAD_PATH:
+            try:
+                new_chat_id = str(UUID(json.loads(raw)["new_chat_id"]))
+            except (ValueError, KeyError, TypeError):
+                self._send_json(400, {"error": "invalid_new_chat_id"})
+                return
+            denied = self.headers.get("x-weave-router-key") == CLASSIFIER_DENIED_KEY
+            log_request({"method": "POST", "path": path, "new_chat_id": new_chat_id, "classifier_denied": denied})
+            self._send_json(503 if denied else 200, {"thread_token": f"fixture-{new_chat_id}"})
+            return
+
         if path == HANDOFF_PATH:
             log_request(
                 {"method": "POST", "path": path, "app": self.headers.get("x-app")}
@@ -429,6 +443,7 @@ class Handler(BaseHTTPRequestHandler):
                 "user_text": user_text[:60],
                 "served": served,
                 "forced_model": forced_model,
+                "classifier_thread": body.get("weave_classifier_thread"),
             }
         )
 

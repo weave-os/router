@@ -83,6 +83,7 @@ type StrategySpec struct {
 
 // Query contains the strategy-neutral request context supplied to a policy.
 type Query struct {
+	ClassifierPrediction *router.ClassifierPrediction
 	SchemaVersion        string
 	Strategy             router.Strategy
 	ExecutionMode        string

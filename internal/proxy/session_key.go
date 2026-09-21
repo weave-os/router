@@ -8,6 +8,7 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
@@ -131,6 +132,10 @@ func sessionCredentialIdentity(ctx context.Context, apiKeyID string) string {
 }
 
 func deriveSessionKeyForRequest(ctx context.Context, env *translate.RequestEnvelope, apiKeyID string) [sessionpin.SessionKeyLen]byte {
+	if thread, ok := ctx.Value(classifierThreadContextKey{}).(router.ClassifierThread); ok {
+		digest := sha256.Sum256([]byte("classifier-thread:" + thread.InstallationID.String() + ":" + thread.ThreadID.String()))
+		return [sessionpin.SessionKeyLen]byte(digest[:sessionpin.SessionKeyLen])
+	}
 	if claims := piSessionFromContext(ctx); claims != nil && claims.APIKeyID == apiKeyID && claims.matches(ctx, env) {
 		return claims.SessionKey
 	}

@@ -1,8 +1,10 @@
-# Atomic classifier context (staged)
+# Atomic classifier sessions (opt-in)
 
-This is input-contract groundwork for the `llm_classifier` strategy, not a
-registered serving strategy or a production rollout. No deployment default,
-installation setting, network call, or persistence behavior changes here.
+`llm_classifier` is an explicitly enrolled, release-bound strategy. It is off
+unless configured at startup; neither a strategy header, an installation default,
+nor a deployment default can enroll a conversation. This implementation is not
+production activation. Managed gateway admission remains blocked until the
+release controller can attest the classifier's deployment and authentication.
 
 ## V3 boundary
 
@@ -33,14 +35,29 @@ all blocks from that turn receive its recorded prediction. Missing predictions,
 gapped suffixes and invalid classes fail closed. Selected model tiers, offline
 labels and retrospective classifications are not historical predictions.
 
-## Identity and recovery requirements before wiring
+## Identity, persistence and recovery
 
-A turn digest is **not** a session or authorization key. Persistence must scope
-it by authenticated installation, credential/thread identity and immutable
-classifier release. Identical retry inputs produce the same digest. Branches
-with different prefixes produce different digests. Persist the prediction before
-dispatch, with atomic first-writer behavior for overlapping retries; do not store
-raw prompts just to recover a digit.
+A turn digest is **not** a session or authorization key. The authenticated
+`POST /v1/router/threads` handshake takes a fresh `new_chat_id` UUID and returns
+a `thread_token`. Clients persist the UUID before the call, retry it unchanged,
+and create a distinct UUID for each genuinely new child conversation. The
+server binds the ticket to the installation, credential, classifier release,
+Go selection-policy hash and expiry.
+Tickets expire after 30 days without renewal or release rebinding.
+
+Send the ticket as `X-Weave-Classifier-Thread` or the top-level JSON field
+`weave_classifier_thread`. Middleware consumes both before request capture and
+provider dispatch. Conflicting/empty tokens fail closed. Tickets apply to
+Messages, Chat Completions, Responses and Gemini inference; dry-run routing,
+handoff, router commands, force-model/cluster, shadow evaluation and policy-pin
+overrides are not supported for admitted threads.
+
+Postgres `classifier_threads` and `classifier_predictions` store hashes,
+counters and classification facts, not prompts. A primary-database row lock
+serializes inference and prediction commit before provider dispatch. Retries
+and tool loops reuse the committed facts; another replica reads the same row.
+Different histories at an already committed user ordinal are rejected. Ordinary
+unticketed traffic retains its current strategy.
 
 System/developer instructions participate in the causal digest without entering
 the classifier prompt or feature counts. An instruction change within a user
@@ -62,15 +79,63 @@ the escalation wire. The builder must consume the original parsed observation,
 not a JSON round-trip that loses that flag. User messages with no retained text
 blocks are also rejected; explicit empty text remains distinguishable and valid.
 
-It cannot detect a client silently replacing the entire prefix with a summary.
-Nor can it recover predictions from sessions that predate this classifier.
-Production therefore needs an admission/recovery policy and a stable,
-subagent-safe identity across compaction. Never infer continuity solely from a
-shared parent session ID, reset lifetime counts silently, or fall back to another
-strategy after admitting a classifier session.
+The persisted root digest and historical prediction join reject prefix rewrites
+and missing earlier predictions. A ticket establishes identity, not lost history:
+compaction cannot recover exact counters or missing response blocks. Router
+compaction is disabled for admitted threads. Unrecoverable history returns 409,
+token overflow returns 413, and classifier/storage failure returns 503, without
+truncation or switching to another classifier. Start a new conversation when a
+thread can no longer supply its complete causal prefix.
 
-Remaining integration: durable prediction lookup and retry handling, authenticated
-classifier transport and immutable release verification, Go-owned arm selection,
-installation-scoped admission, compaction/continuation recovery, and staging
-decision/first-token latency measurements. The ordinary
-[policy release gates](POLICY_ROUTER_HARNESS.md#release-gates) still apply.
+## Pi client admission
+
+Set `WEAVE_PI_LLM_CLASSIFIER=1` on Pi 0.83+ with this bundled extension. Only an
+explicit new session or empty fresh startup using the Weave provider enrolls.
+Existing/resumed, seeded, forked and unsupported unticketed sessions stay on
+their existing strategy. New child processes enroll independently; they must
+not copy their parent's ticket. Other clients may implement the handshake only
+at a verified new-thread lifecycle event, never inferred from message count.
+
+Enrollment is retained in session entries across reload/resume/tree navigation.
+Changing router URL/provider, losing enrollment, or a failed pending handshake
+aborts the provider request instead of sending it unticketed. Turning the opt-in
+off affects only future enrollments. Admitted sessions disable Pi compaction,
+extension auto-compaction and legacy handoff/escalation.
+
+## Server configuration and rollout gates
+
+Apply migration `0105_classifier-threads` before enabling. Set
+`ROUTER_LLM_CLASSIFIER_CONFIG` to a server-owned JSON file containing:
+
+| Field | Contract |
+| --- | --- |
+| `release` | Immutable `llm-classifier-vMAJOR.MINOR.PATCH` name |
+| `release_sha256` | Lowercase SHA-256 of the classifier release manifest |
+| `endpoint` | HTTPS origin, without query/userinfo; transport calls `/classify` |
+| `selection_policy_file` | Local Go-selection-policy JSON |
+| `selection_policy_sha256` | SHA-256 of that exact policy file |
+| `installation_ids` | Nonempty server-owned enrollment allowlist |
+
+Set `ROUTER_LLM_CLASSIFIER_BEARER` and
+`ROUTER_LLM_CLASSIFIER_SIGNING_KEY` from secrets (at least 32 bytes each).
+The policy must have schema `hmm_go_selection_policy_v1` and class order
+`low`, `medium`, `high`, `maximum`. Startup validates these pins. The HTTPS
+transport has a 25-second timeout, no redirect/retry/fallback, a 1 MB request
+cap and a 16 KiB response cap. Responses must identify the pinned release and
+report valid digit probabilities, historical-prediction provenance and at most
+32,768 formatted tokens. Go alone selects the eligible model/provider.
+
+This configuration deliberately refuses `ROUTER_SERVING_ASSERTION_KEY` managed
+admission. A bearer-authenticated Modal endpoint does not satisfy the existing
+Cloud Run IAM/revision/OCI attestation contract. Do not bypass deployment
+ownership by enabling a legacy staging lane. A controller integration, full
+trained-artifact quality gates, actual staging router decision/first-token
+latency and replica-recovery checks remain required before production. Model
+endpoint latency alone does not pass the
+[policy release gates](POLICY_ROUTER_HARNESS.md#release-gates).
+
+Local persistence validation on a migrated disposable database:
+
+```sh
+ROUTER_TEST_DATABASE_URL=postgres://... go run ./scripts/classifier_session_check
+```

@@ -111,6 +111,8 @@ func TestClassifierContextRetriesAndToolLoopsReuseUserBoundary(t *testing.T) {
 	for range 3 {
 		input, err := classifierContextAtUserBoundary(loop)
 		require.NoError(t, err)
+		require.False(t, input.AtUserBoundary)
+		input.AtUserBoundary = initial.AtUserBoundary
 		require.Equal(t, initial, input)
 	}
 	loop.Messages = append(loop.Messages, classifierTestText(translate.EscalationRoleUser, "next"))

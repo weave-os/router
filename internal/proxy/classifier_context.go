@@ -31,6 +31,7 @@ func classifierContextAtUserBoundary(observation translate.EscalationObservation
 	resolvedToolCallIDs := make(map[string]bool)
 	instructionsAfterBoundary := false
 	for _, message := range observation.Messages {
+		classifierContext.AtUserBoundary = false
 		if message.HasOmittedMedia {
 			return router.ClassifierContext{}, fmt.Errorf("media identity unavailable: %w", router.ErrClassifierHistoryUnavailable)
 		}
@@ -73,7 +74,12 @@ func classifierContextAtUserBoundary(observation translate.EscalationObservation
 				Features router.ClassifierFeatures
 			}{priorPrefix, currentUserMessage, features})
 			turnDigest := sha256.Sum256(encodedTurnInput)
+			rootDigest := classifierContext.RootTurnDigest
+			if rootDigest == "" {
+				rootDigest = hex.EncodeToString(turnDigest[:])
+			}
 			classifierContext = router.ClassifierContext{
+				RootTurnDigest: rootDigest, PreviousTurnDigest: classifierContext.TurnDigest, AtUserBoundary: true,
 				TurnDigest: hex.EncodeToString(turnDigest[:]), CurrentUserMessage: currentUserMessage,
 				PrecedingResponses:     append([]router.ClassifierResponse{}, responseHistory...),
 				CompletedResponseCount: completedResponses, Features: features,

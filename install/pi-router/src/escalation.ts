@@ -79,6 +79,7 @@ export function registerEscalationCompaction(
 	pi: ExtensionAPI,
 	request: typeof fetch = fetch,
 	version: string = VERSION,
+	classifierThreadActive = () => false,
 ): () => boolean {
 	const [major, minor] = version.split(".").map(Number);
 	if (major === 0 && minor < 83) {
@@ -142,6 +143,7 @@ export function registerEscalationCompaction(
 	};
 
 	pi.on("before_provider_request", async (event, ctx) => {
+		if (classifierThreadActive()) return;
 		if (process.env.WEAVE_PI_ESCALATION_COMPACTION === "0" || isSubagent() || ctx.model?.provider !== PROVIDER_NAME) return;
 		if (!isRecord(event.payload)) return;
 		let payload = sessionToken ? { ...event.payload, weave_session: sessionToken } : event.payload;

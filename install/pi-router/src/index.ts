@@ -22,6 +22,7 @@
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { registerBetaCommand } from "./beta.js";
+import { registerClassifierThread } from "./classifier-thread.js";
 import { isSubagent } from "./config.js";
 import { registerCompaction } from "./compaction.js";
 import { registerEscalationCompaction } from "./escalation.js";
@@ -44,13 +45,14 @@ export default function (pi: ExtensionAPI): void {
 	pi.on("session_start", () => registerWeave(pi));
 
 	registerMetadata(pi);
+	const classifierThreadActive = registerClassifierThread(pi);
 	registerBetaCommand(pi);
 	registerForceModelCommands(pi);
 	registerRoutedModel(pi);
 	if (!isSubagent()) registerWooly(pi);
 	let handoffPending = () => false;
-	registerCompaction(pi, undefined, () => handoffPending());
-	handoffPending = registerEscalationCompaction(pi);
+	registerCompaction(pi, undefined, () => handoffPending() || classifierThreadActive());
+	handoffPending = registerEscalationCompaction(pi, undefined, undefined, classifierThreadActive);
 
 	if (process.env.WEAVE_NO_SAFETY !== "1") registerSafety(pi);
 

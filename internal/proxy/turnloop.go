@@ -760,6 +760,9 @@ func (s *Service) runTurnLoop(
 	res.AuthoritativePerTurn = authoritativePolicyTurn(res.TurnType) &&
 		s.authoritativePerTurnSelection(ctx)
 	res.PinRole = roleForTier(res.RequestedTier)
+	if res.Strategy == router.StrategyLLMClassifier {
+		return s.runClassifierTurn(ctx, req, res, threadSessionKey)
+	}
 	log.Info("turnloop classified",
 		"turn_type", string(res.TurnType),
 		"requested_tier", res.RequestedTier.String(),

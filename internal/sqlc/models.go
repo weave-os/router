@@ -39,6 +39,31 @@ type RouterBlindRouterExperimentSubjectOverride struct {
 	UpdatedAt           pgtype.Timestamptz
 }
 
+type RouterClassifierPrediction struct {
+	ThreadID               uuid.UUID
+	TurnDigest             string
+	RootTurnDigest         string
+	UserMessageCount       int32
+	ToolCallCount          int32
+	ToolErrorCount         int32
+	CompletedResponseCount int32
+	Complexity             int16
+	Probabilities          []float64
+	CreatedAt              pgtype.Timestamptz
+}
+
+type RouterClassifierThread struct {
+	ThreadID              uuid.UUID
+	InstallationID        uuid.UUID
+	CredentialSha256      []byte
+	RequestID             uuid.UUID
+	Release               string
+	ReleaseSha256         string
+	SelectionPolicySha256 string
+	ExpiresAt             pgtype.Timestamptz
+	CreatedAt             pgtype.Timestamptz
+}
+
 type RouterClusterModelList struct {
 	ID             uuid.UUID
 	OrganizationID string

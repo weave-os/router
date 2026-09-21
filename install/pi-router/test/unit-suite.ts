@@ -12,6 +12,7 @@ import "./savings.test.js";
 import "./ui.test.js";
 import "./compaction.test.js";
 import "./escalation.test.js";
+import "./classifier-thread.test.js";
 import "./routed-model.test.js";
 import "./lsp.test.js";
 

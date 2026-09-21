@@ -1309,6 +1309,10 @@ func main() {
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc)
 	inferenceDeployment.RoutableModels = servedModels
+	if err := configureAtomicClassifier(proxySvc, pool, availableProviders); err != nil {
+		logger.Error("Failed to configure atomic classifier", "err", err)
+		panic(err)
+	}
 	proxySvc = proxySvc.WithInferenceExecutor(inferenceExecutor).WithInferencePlans(inferencePlans).WithInferenceDeployment(inferenceDeployment)
 	if subscriptionRuntime != nil {
 		proxySvc.WithManagedSubscriptions(subscriptionRuntime)

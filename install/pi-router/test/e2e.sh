@@ -8,7 +8,7 @@
 # main loop, for dispatch subagents, and for on-disk (key-file + models.json)
 # resolution. No real model spend; no network beyond localhost.
 #
-# Requires: pi, jq, python3, curl. Run from anywhere:
+# Requires: pi 0.83+, jq, python3, curl. Run from anywhere:
 #   install/pi-router/test/e2e.sh
 #
 set -euo pipefail
@@ -179,10 +179,10 @@ phase "Phase 2 — generated pricing + savings contract"
 if with_timeout 30 env PI_CODING_AGENT_DIR="$PI_DIR" \
   pi -e "$UNIT_SUITE" --no-session --offline --model weave/claude-sonnet-4-6 \
   -p "Run the unit suite." >"$WORK/unit.out" 2>&1 </dev/null; then
-  if [ "$(grep -Ec '^(✔ |ok [0-9]+ - )' "$WORK/unit.out" || true)" = "108" ]; then
+  if [ "$(grep -Ec '^(✔ |ok [0-9]+ - )' "$WORK/unit.out" || true)" = "116" ]; then
     ok "pricing, beta, force-model, UI, compaction, served-window, and LSP unit suite passed"
   else
-    bad "unit suite did not report all 108 passes (see $WORK/unit.out)"
+    bad "unit suite did not report all 116 passes (see $WORK/unit.out)"
   fi
 else
   bad "unit suite failed to load through pi (see $WORK/unit.out)"
@@ -299,6 +299,39 @@ else
 fi
 
 # -------------------------------------------------------------------------
+phase "Phase 6 — explicit classifier admission and independent children (Pi 0.83+)"
+MESSAGES_BEFORE="$(jqcount '.path=="/v1/messages"')"
+HANDOFFS_BEFORE="$(jqcount '.path=="/v1/route/handoff"')"
+with_timeout 60 env PI_CODING_AGENT_DIR="$PI_DIR" WEAVE_PI_LLM_CLASSIFIER=1 \
+  pi -e "$EXT" --no-session --offline --model weave/claude-sonnet-4-6 \
+  -p "__DISPATCH__ run two classifier checks." >"$WORK/classifier.out" 2>&1 </dev/null || true
+
+if [ "$(jqcount '.path=="/v1/router/threads" and .classifier_denied==false')" = "3" ] && \
+   [ "$(jq -s '[.[] | select(.classifier_thread != null) | .classifier_thread] | unique | length' "$LOG")" = "3" ]; then
+  ok "classifier parent and child processes enrolled three distinct threads"
+else
+  bad "classifier thread enrollment/isolation failed (see $WORK/classifier.out)"
+fi
+if [ "$(jqcount '.classifier_thread != null')" = "4" ] && \
+   [ "$(jqcount '.path=="/v1/messages"')" = "$((MESSAGES_BEFORE + 4))" ] && \
+   [ "$(jqcount '.path=="/v1/route/handoff"')" = "$HANDOFFS_BEFORE" ]; then
+  ok "every classifier inference carried a ticket; tool loop reused it without handoff"
+else
+  bad "classifier request lost its ticket or used a legacy handoff"
+fi
+
+MESSAGES_BEFORE="$(jqcount '.path=="/v1/messages"')"
+with_timeout 30 env PI_CODING_AGENT_DIR="$PI_DIR" WEAVE_PI_LLM_CLASSIFIER=1 \
+  WEAVE_ROUTER_KEY=rk_e2e_classifier_denied \
+  pi -e "$EXT" --no-session --offline --model weave/claude-sonnet-4-6 \
+  -p "Enrollment must fail closed." >"$WORK/classifier-denied.out" 2>&1 </dev/null || true
+if [ "$(jqcount '.classifier_denied==true')" -ge 1 ] && \
+   [ "$(jqcount '.path=="/v1/messages"')" = "$MESSAGES_BEFORE" ]; then
+  ok "failed classifier enrollment aborted the real Pi provider request"
+else
+  bad "failed classifier enrollment sent an unticketed request"
+fi
+
 phase "Result"
 # -------------------------------------------------------------------------
 # Endpoint correctness across every phase: the Anthropic SDK appends

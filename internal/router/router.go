@@ -87,6 +87,8 @@ type Overrides struct {
 }
 
 type Request struct {
+	// ClassifierPrediction is set only after release-bound durable classification.
+	ClassifierPrediction *ClassifierPrediction `json:"-"`
 	// Escalation constrains automatic class selection for an opted-in session.
 	Escalation *escalation.Constraint
 
