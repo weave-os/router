@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"reflect"
 	"strings"
@@ -20,6 +21,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
+	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 )
 
@@ -35,11 +37,16 @@ func main() {
 		slog.Error("Classifier session database check failed", "err", err)
 		os.Exit(1)
 	}
-	slog.Info("Classifier database check passed: idempotent enrollment, concurrent commit, replica recovery, rollback, divergence, credential/release/expiry fencing and cascading cleanup")
+	slog.Info("Classifier database check passed: bounded transaction capacity, idempotent enrollment, concurrent commit, replica recovery, rollback, divergence, credential/release/expiry fencing and cascading cleanup")
 }
 
 func check(ctx context.Context, dsn string) (checkErr error) {
-	pool, err := pgxpool.New(ctx, dsn)
+	config, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return err
+	}
+	config.MaxConns = 6
+	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		return err
 	}
@@ -73,6 +80,7 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 	prediction := router.ClassifierPrediction{TurnDigest: strings.Repeat("b", 64), RootTurnDigest: strings.Repeat("b", 64), Features: router.ClassifierFeatures{UserMessageCount: 1}, Complexity: router.ClassifierMedium, Probabilities: []float64{0.1, 0.7, 0.1, 0.1}}
 	var inferenceCalls atomic.Int32
 	var concurrent errgroup.Group
+	concurrent.SetLimit(2)
 	for range 8 {
 		concurrent.Go(func() error {
 			return store.WithThread(ctx, thread, func(turns router.ClassifierTurnStore) error {
@@ -90,6 +98,9 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 	}
 	if inferenceCalls.Load() != 1 {
 		return fmt.Errorf("overlapping replicas classified %d times", inferenceCalls.Load())
+	}
+	if err := checkClassifierCapacity(ctx, pool, store, thread); err != nil {
+		return err
 	}
 	replica := postgres.NewClassifierSessionRepo(pool)
 	err = replica.WithThread(ctx, thread, func(turns router.ClassifierTurnStore) error {
@@ -164,6 +175,87 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 	err = store.WithThread(ctx, thread, func(router.ClassifierTurnStore) error { return errors.New("deleted installation entered callback") })
 	if !errors.Is(err, router.ErrClassifierThreadInvalid) {
 		return fmt.Errorf("deleted installation retained classifier thread: %v", err)
+	}
+	return nil
+}
+
+func checkClassifierCapacity(ctx context.Context, pool *pgxpool.Pool, store *postgres.ClassifierSessionRepo, original router.ClassifierThread) error {
+	for _, cancelTransactions := range []bool{false, true, false} {
+		err := func() error {
+			transactionCtx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			release := make(chan struct{}, 2)
+			defer close(release)
+			entered := make(chan struct{}, 2)
+			var active errgroup.Group
+			for range 2 {
+				thread := original
+				thread.ThreadID, thread.RequestID = uuid.New(), uuid.New()
+				thread, err := store.Create(ctx, thread)
+				if err != nil {
+					return err
+				}
+				active.Go(func() error {
+					return store.WithThread(transactionCtx, thread, func(router.ClassifierTurnStore) error {
+						entered <- struct{}{}
+						select {
+						case <-release:
+							return nil
+						case <-transactionCtx.Done():
+							return transactionCtx.Err()
+						}
+					})
+				})
+			}
+			for range 2 {
+				select {
+				case <-entered:
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			var reserved []*pgxpool.Conn
+			defer func() {
+				for _, connection := range reserved {
+					connection.Release()
+				}
+			}()
+			availableCtx, availableCancel := context.WithTimeout(ctx, time.Second)
+			defer availableCancel()
+			for range 4 {
+				connection, err := pool.Acquire(availableCtx)
+				if err != nil {
+					return fmt.Errorf("classifier work consumed unrelated connection capacity: %w", err)
+				}
+				reserved = append(reserved, connection)
+			}
+			rejectCtx, rejectCancel := context.WithTimeout(ctx, 250*time.Millisecond)
+			defer rejectCancel()
+			err := store.WithThread(rejectCtx, original, func(router.ClassifierTurnStore) error {
+				return errors.New("saturated classifier reached inference")
+			})
+			status, classified := proxy.ClassifyDispatchError(err)
+			if !errors.Is(err, router.ErrClassifierUnavailable) || !classified || status.Status != http.StatusServiceUnavailable {
+				return fmt.Errorf("saturated classifier did not reject before pool acquisition with 503: %v", err)
+			}
+			if cancelTransactions {
+				cancel()
+			} else {
+				release <- struct{}{}
+				release <- struct{}{}
+			}
+			err = active.Wait()
+			if cancelTransactions {
+				if !errors.Is(err, context.Canceled) {
+					return fmt.Errorf("classifier cancellation was not propagated: %v", err)
+				}
+				return nil
+			}
+			return err
+		}()
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -20,6 +20,8 @@ import (
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/hmm/selection"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/translate"
 )
 
 type classifierResponseProvider struct{ betaCaptureProvider }
@@ -166,4 +168,45 @@ func TestClassifierInputRejectsControlBypasses(t *testing.T) {
 		_, err := svc.withClassifierInput(override, []byte(`{"messages":[{"role":"user","content":"first"}]}`), router.EndpointAnthropicMessages)
 		require.ErrorIs(t, err, router.ErrClassifierThreadInvalid)
 	}
+}
+
+func TestClassifierUtilityRequestsDoNotEstablishThreadRoot(t *testing.T) {
+	const utilityModel catalog.ModelID = "claude-sonnet-4-6"
+	fixture, principal, store := classifierSessionFixture(t, classifierMedium)
+	upstream := &classifierResponseProvider{}
+	baseline := &betaTestRouter{}
+	pins := newStubPinStore()
+	svc := NewService(baseline, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, false, nil, pins, false, providers.ProviderAnthropic, utilityModel.String(), nil)
+	require.NoError(t, svc.WithClassifierSessions(fixture.classifierSessions.config, store, fixture.classifierSessions.classifier))
+	ctx := classifierAdmit(t, svc, principal)
+	for _, utility := range []struct {
+		turn turntype.TurnType
+		body string
+	}{
+		{turntype.Probe, `{"model":"auto","max_tokens":1,"messages":[{"role":"user","content":"quota"}]}`},
+		{turntype.TitleGen, `{"model":"auto","max_tokens":1024,"output_config":{"format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}}},"messages":[{"role":"user","content":"title"}]}`},
+		{turntype.Compaction, `{"model":"auto","max_tokens":1024,"system":"Your task is to create a detailed summary","messages":[{"role":"user","content":"summary"}]}`},
+	} {
+		t.Run(string(utility.turn), func(t *testing.T) {
+			err := svc.ProxyMessages(ctx, []byte(utility.body), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+			require.ErrorIs(t, err, router.ErrClassifierHistoryUnavailable)
+			status, classified := ClassifyDispatchError(err)
+			require.True(t, classified)
+			require.Equal(t, http.StatusConflict, status.Status)
+			require.Empty(t, upstream.body)
+			require.Zero(t, baseline.calls)
+			for _, predictions := range store.turns {
+				require.Empty(t, predictions)
+			}
+			pins.mu.Lock()
+			defer pins.mu.Unlock()
+			require.Empty(t, pins.upserts)
+		})
+	}
+	input, err := classifierContextAtUserBoundary(classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "real request")))
+	require.NoError(t, err)
+	prediction, err := svc.classifyThread(ctx, input)
+	require.NoError(t, err)
+	require.Equal(t, input.RootTurnDigest, prediction.RootTurnDigest)
+	require.Equal(t, router.ClassifierMedium, prediction.Complexity)
 }

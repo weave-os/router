@@ -4,23 +4,30 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/sync/semaphore"
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/sqlc"
 )
 
+const classifierTransactionLimit = 2
+
 // ClassifierSessionRepo keeps thread admission and prediction commits on primary.
-type ClassifierSessionRepo struct{ pool *pgxpool.Pool }
+type ClassifierSessionRepo struct {
+	pool         *pgxpool.Pool
+	transactions *semaphore.Weighted
+}
 
 // NewClassifierSessionRepo requires the writable router database.
 func NewClassifierSessionRepo(pool *pgxpool.Pool) *ClassifierSessionRepo {
-	return &ClassifierSessionRepo{pool: pool}
+	return &ClassifierSessionRepo{pool: pool, transactions: semaphore.NewWeighted(classifierTransactionLimit)}
 }
 
 // Create returns the original binding on an idempotent handshake retry.
@@ -43,6 +50,11 @@ func (r *ClassifierSessionRepo) Create(ctx context.Context, thread router.Classi
 
 // WithThread holds a primary row lock until the prediction is committed.
 func (r *ClassifierSessionRepo) WithThread(ctx context.Context, thread router.ClassifierThread, classify func(router.ClassifierTurnStore) error) error {
+	// Bound inference and row-lock waiters before taking a shared connection.
+	if !r.transactions.TryAcquire(1) {
+		return fmt.Errorf("classifier transaction capacity reached: %w", router.ErrClassifierUnavailable)
+	}
+	defer r.transactions.Release(1)
 	return pgx.BeginTxFunc(ctx, r.pool, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
 		queries := sqlc.New(tx)
 		_, err := queries.GetClassifierThreadForUpdate(ctx, sqlc.GetClassifierThreadForUpdateParams{

@@ -6,8 +6,10 @@ import (
 
 	"github.com/tidwall/gjson"
 
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
 )
 
@@ -72,6 +74,11 @@ func (s *Service) withClassifierInput(ctx context.Context, body []byte, endpoint
 // This path skips legacy sticky/utility/planner bypasses: every admitted action
 // must join its original user-turn prediction before provider dispatch.
 func (s *Service) runClassifierTurn(ctx context.Context, request router.Request, turn turnLoopResult, sessionKey [sessionpin.SessionKeyLen]byte) (turnLoopResult, error) {
+	switch turn.TurnType {
+	case turntype.TitleGen, turntype.Probe, turntype.Compaction:
+		observability.FromContext(ctx).Warn("Classifier thread rejects utility request", "turn_type", turn.TurnType)
+		return turn, router.ErrClassifierHistoryUnavailable
+	}
 	input, ok := ctx.Value(classifierInputContextKey{}).(router.ClassifierContext)
 	if !ok || request.ForceModel != "" || request.ForceCluster != "" {
 		return turn, router.ErrClassifierThreadInvalid

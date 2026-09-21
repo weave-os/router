@@ -51,6 +51,9 @@ provider dispatch. Conflicting/empty tokens fail closed. Tickets apply to
 Messages, Chat Completions, Responses and Gemini inference; dry-run routing,
 handoff, router commands, force-model/cluster, shadow evaluation and policy-pin
 overrides are not supported for admitted threads.
+Title-generation, quota probes and compaction requests carrying a thread ticket
+return 409 before creating classifier facts or session pins; they cannot establish
+or replace the conversation root.
 
 Postgres `classifier_threads` and `classifier_predictions` store hashes,
 counters and classification facts, not prompts. A primary-database row lock
@@ -58,6 +61,12 @@ serializes inference and prediction commit before provider dispatch. Retries
 and tool loops reuse the committed facts; another replica reads the same row.
 Different histories at an already committed user ordinal are rejected. Ordinary
 unticketed traffic retains its current strategy.
+
+Each replica admits at most two concurrent classifier transactions, including
+row-lock waiters. Admission happens before acquiring a shared database connection;
+saturation returns 503 immediately without inference or provider dispatch. This
+leaves four of the router's six connections available to other traffic. Capacity
+is released after commit, rollback or cancellation; no additional pool is opened.
 
 System/developer instructions participate in the causal digest without entering
 the classifier prompt or feature counts. An instruction change within a user
