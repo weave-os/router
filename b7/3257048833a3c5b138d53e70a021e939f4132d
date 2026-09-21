@@ -1,0 +1,24 @@
+internal/proxy/usage/usage_test.go
+  s_78d861ce362aaa::t_a4fd295e931439 69-70,78-80,83-84,88-115
+  s_78d861ce362aaa::t_97c9eba4fa8242 311-312,319,327
+internal/proxy/usage/usage.go
+  s_78d861ce362aaa::t_1ff28a3e64731b 360-379
+  s_78d861ce362aaa::t_531e27e008bba0 288-292,295-298,308
+  s_78d861ce362aaa::t_ec7f5a85238bcf 340-344
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "b73257048833a3c5b138d53e70a021e939f4132d",
+  "prompts": {},
+  "sessions": {
+    "s_78d861ce362aaa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8d83bc4f-4a28-42de-bca5-de8b8180f5c6",
+        "model": "claude-fable-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+internal/proxy/escalation_internal_test.go
+  s_fc12c125adae65::t_ff922480c45d02 178-185,188-196,420
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0f4e3c7937afc13690087d42f112e5f63155375a",
+  "prompts": {},
+  "sessions": {
+    "s_fc12c125adae65": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0872c-1993-76d1-bd9a-9a9c26a4cffb",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
