@@ -2461,8 +2461,7 @@ prepare_claude_context_window() {
   if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
     context_settings_file="$local_settings_file"
   fi
-  context_state_file="$settings_dir/.weave-context-window.json"
-  refuse_if_symlink "$context_state_file"
+  refuse_if_symlink "$settings_dir/.weave-context-window.json"
   [ -n "$context_window" ] || return 0
 
   local source model="" disabled="${CLAUDE_CODE_DISABLE_1M_CONTEXT:-}" env_model="${ANTHROPIC_MODEL:-}"
@@ -2508,7 +2507,7 @@ apply_claude_context_window() {
         if .model == $s.managed then
           if $s.had_model then .model = $s.original else del(.model) end
         else . end
-      elif ($action == "install" or $action == "on" or $context_window != "") and has("model") == $s.had_model and .model == $s.original then .model = $s.managed
+      elif $action == "on" and has("model") == $s.had_model and .model == $s.original then .model = $s.managed
       else . end
     ' "$active")"
   fi
@@ -4782,8 +4781,7 @@ if [ "$target" = "opencode" ]; then
     for entry in \
       "opencode.json" \
       ".weave/" \
-      ".weave-parked.json" \
-      ".opencode/commands/*.weave-router"
+      ".weave-parked.json"
     do
       if [ ! -f "$gitignore" ] || ! grep -qxF "$entry" "$gitignore"; then
         printf '%s\n' "$entry" >>"$gitignore"
@@ -6001,8 +5999,7 @@ if [ "$scope" = "project" ] && [ -z "$install_dir" ] && [ -n "${git_root:-}" ]; 
     ".claude/settings.local.json" \
     ".claude/.credentials.json" \
     ".claude/cc-statusline.sh" \
-    ".claude/cc-statusline.sh.weave-router" \
-    ".claude/commands/*.weave-router"
+    ".claude/cc-statusline.sh.weave-router"
   do
     [[ "$entry" == .claude/cc-statusline.sh* ]] && [ "$statusline_install" != "true" ] && continue
     if [ ! -f "$gitignore" ] || ! grep -qxF "$entry" "$gitignore"; then
