@@ -64,6 +64,7 @@ test-install: ## Run offline installer regression tests
 	@bash install/tests/codex-status_test.sh
 	@bash install/tests/codex-toggle_test.sh
 	@bash install/tests/key_reuse_test.sh
+	@bash install/tests/return_url_test.sh
 	@bash install/tests/subscription_cli_test.sh
 	@bash install/tests/models_test.sh
 	@bash install/tests/registry_test.sh

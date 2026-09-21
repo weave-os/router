@@ -15,6 +15,7 @@ npx @weave-os/router
 npx @weave-os/router --claude                     # Claude Code, user scope
 npx @weave-os/router --codex                      # Codex, user scope
 npx @weave-os/router --opencode                   # opencode, user scope
+npx @weave-os/router --claude --return-url https://app.example.com/onboarding # continue after a verified install
 
 # Project scope — only when running inside this repo:
 npx @weave-os/router --claude   --scope project   # Claude Code
@@ -215,6 +216,7 @@ so no key paste is needed).
 | `--local`                  | off                           | Shortcut for the bundled docker-compose router (`localhost:8080`).      |
 | `--base-url <url>`         | `https://router.workweave.ai` | Override the router endpoint. Use for self-hosted / custom port.        |
 | `--email <email>`          | auto-detected                 | Set the router identity email and skip the email prompt.                |
+| `--return-url <url>`       | off                           | Open the URL in the default browser after `/health` and `/validate` both succeed. |
 | `--non-interactive`        | off                           | Fail if `$WEAVE_ROUTER_KEY` isn't set instead of prompting. Defaults target to Claude Code so existing CI pipelines don't shift semantics. |
 | `--rotate-key`             | off                           | Ignore the key already installed and prompt for a new one (or take `$WEAVE_ROUTER_KEY`). Use when rotating a key. |
 

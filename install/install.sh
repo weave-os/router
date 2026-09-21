@@ -53,8 +53,9 @@
 #   npx @weave-os/router --local                          # local router on localhost:8080
 #   npx @weave-os/router --base-url http://localhost:8080 # self-hosted, custom port
 #   npx @weave-os/router --email you@example.com          # set the router identity email without prompting
+#   npx @weave-os/router --return-url https://example.com # open a URL after a verified install
 #   npx @weave-os/router --non-interactive                # require WEAVE_ROUTER_KEY env var (defaults target to claude)
-#   npx @weave-os/router --quiet                          # suppress banner, ping check, and trailing tips
+#   npx @weave-os/router --quiet                          # suppress banner, ping check, and trailing tips (return-url still verifies)
 #   npx @weave-os/router --rotate-key                     # ignore the installed key and prompt for a new one
 #   npx @weave-os/router --uninstall                      # remove a previous install (delegates to uninstall.sh)
 #
@@ -121,6 +122,7 @@ base_url=""
 base_url_explicit="false"
 email=""
 email_explicit="false"
+return_url=""
 non_interactive="false"
 quiet="false"
 router_key_header="X-Weave-Router-Key"
@@ -164,6 +166,8 @@ rotate_key="false"
 # Where $api_key came from: env | disk | prompt. Drives the fallback re-prompt
 # when /validate rejects a key we read back off disk.
 api_key_source=""
+# Set by verify_install; a return URL is opened only after both probes pass.
+install_verification_succeeded="false"
 
 # ---------- helpers ----------
 
@@ -1391,6 +1395,10 @@ while [ $# -gt 0 ]; do
       [ -n "$email" ] || { err "--email requires a value."; exit 2; }
       email_explicit="true"
       ;;
+    --return-url)
+      return_url="${2:-}"; shift 2
+      [ -n "$return_url" ] || { err "--return-url requires a value."; exit 2; }
+      ;;
     --local)
       # Shorthand for local dev: localhost:8080 (matches `wv mr` / `make dev` default PORT).
       base_url="http://localhost:8080"
@@ -1504,12 +1512,22 @@ if [ "$mode" = "setup" ]; then
   [ "$non_interactive" = "true" ] && setup_args+=(--non-interactive)
   [ "$base_url_explicit" = "true" ] && setup_args+=(--base-url "$base_url")
   [ "$email_explicit" = "true" ] && setup_args+=(--email "$email")
+  if [ -n "$return_url" ] && [ "$setup_claude" = "true" ] && [ "$setup_codex" = "true" ]; then
+    err "--return-url with setup requires a single target: use setup --claude or setup --codex."
+    exit 2
+  fi
+  [ -n "$return_url" ] && setup_args+=(--return-url "$return_url")
   [ -n "$install_dir" ] && setup_args+=(--dir "$install_dir")
   [ "$quiet" = "true" ] && setup_args+=(--quiet)
   [ "$rotate_key" = "true" ] && setup_args+=(--rotate-key)
   [ "$setup_claude" = "true" ] && bash "$0" "${setup_args[@]}" --claude
   [ "$setup_codex" = "true" ] && bash "$0" "${setup_args[@]}" --codex
   exit 0
+fi
+
+if [ -n "$return_url" ] && [ "$mode" != "install" ]; then
+  err "--return-url is supported only for install (or setup with one explicit target)."
+  exit 2
 fi
 
 # --lsp is a pi-extension feature, so it implies the pi target; combining it
@@ -3185,6 +3203,42 @@ oauth_base64url() {
   openssl base64 -A | tr '+/' '-_' | tr -d '='
 }
 
+# open_url_in_browser asks the operating system to open a URL with the user's
+# default browser. Keep this best-effort: a successful install must not be
+# rolled back just because a headless shell has no browser opener available.
+open_url_in_browser() {
+  local url="$1" os
+  os="$(uname -s 2>/dev/null || printf '')"
+  case "$os" in
+    Darwin*)
+      command -v open >/dev/null 2>&1 || return 1
+      open "$url" >/dev/null 2>&1
+      ;;
+    MINGW*|MSYS*|CYGWIN*)
+      command -v cmd.exe >/dev/null 2>&1 || return 1
+      cmd.exe /c start "" "$url" >/dev/null 2>&1
+      ;;
+    *)
+      command -v xdg-open >/dev/null 2>&1 || return 1
+      xdg-open "$url" >/dev/null 2>&1
+      ;;
+  esac
+}
+
+open_return_url_if_verified() {
+  [ "$mode" = "install" ] || return 0
+  [ -n "$return_url" ] || return 0
+  if [ "${install_verification_succeeded:-false}" != "true" ]; then
+    warn "Skipping return URL because router verification did not complete successfully."
+    return 0
+  fi
+  if open_url_in_browser "$return_url"; then
+    info "Opened return URL in your browser: $return_url"
+  else
+    warn "Install succeeded, but no default-browser opener was available. Open this URL to continue: $return_url"
+  fi
+}
+
 open_oauth_url() {
   local url="$1"
   if command -v open >/dev/null 2>&1; then
@@ -3910,15 +3964,25 @@ rewrite_installed_key() {
 }
 
 verify_install() {
-  if [ "$quiet" != "true" ]; then
-    if ! spin "Pinging $base_url/health" curl -fsS --max-time 5 "$base_url/health"; then
+  local health_verified="false"
+  install_verification_succeeded="false"
+
+  # --quiet normally skips the health probe, but a return URL is only safe to
+  # open after both probes have actually run and passed.
+  if [ "$quiet" != "true" ] || [ -n "$return_url" ]; then
+    if spin "Pinging $base_url/health" curl -fsS --max-time 5 "$base_url/health"; then
+      health_verified="true"
+    else
       warn "Could not reach $base_url/health within 5s. Settings are written; verify the router is running."
     fi
   fi
 
   [ -n "$api_key" ] || return 0
 
-  spin "Validating API key" validate_key && return 0
+  if spin "Validating API key" validate_key; then
+    [ "$health_verified" = "true" ] && install_verification_succeeded="true"
+    return 0
+  fi
 
   # A key we read back off disk can have been revoked or rotated since it was
   # installed, and reusing it silently would leave a broken install behind
@@ -3931,7 +3995,9 @@ verify_install() {
     warn "The router key already installed was rejected (revoked or rotated)."
     prompt_for_key
     rewrite_installed_key "$api_key"
-    if ! spin "Validating API key" validate_key; then
+    if spin "Validating API key" validate_key; then
+      [ "$health_verified" = "true" ] && install_verification_succeeded="true"
+    else
       warn "Router rejected the API key (check it matches the dashboard at $base_url)."
     fi
     return 0
@@ -3966,6 +4032,7 @@ announce_done() {
   fi
   printf "%s✓%s %s%sWeave Router installed for %s.%s\n" \
     "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_BRAND" "$1" "$C_RESET"
+  open_return_url_if_verified
 }
 
 # ---------- codex install path (dispatch + exit before the Claude-only writes) ----------

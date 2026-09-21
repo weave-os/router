@@ -77,6 +77,7 @@ npx @weave-os/router --scope project       # per-repo, commits settings.json (or
 npx @weave-os/router --local               # self-hosted localhost:8080
 npx @weave-os/router --base-url https://router.acme.internal
 npx @weave-os/router --email you@example.com # set identity without prompting
+npx @weave-os/router --claude --return-url https://app.example.com/onboarding # continue after health + key verification
 npx @weave-os/router@0.1.0                 # pin a version
 ```
 
