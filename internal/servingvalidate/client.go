@@ -15,7 +15,10 @@ import (
 	"weave-os/router/internal/policyregistry"
 )
 
-const maxAttestationBytes = 1 << 20
+const (
+	maxAttestationBytes      = 1 << 20
+	privateValidationTimeout = 2 * time.Minute
+)
 
 // TokenSource mints a Google identity token only for an explicitly approved service audience.
 type TokenSource func(context.Context, string) (string, error)
@@ -42,7 +45,7 @@ func New(client *http.Client, token TokenSource, allowedOrigins []string) (*Clie
 	}
 	bounded := *client
 	bounded.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	bounded.Timeout = 30 * time.Second
+	bounded.Timeout = privateValidationTimeout
 	return &Client{http: &bounded, token: token, origins: origins}, nil
 }
 
@@ -71,7 +74,7 @@ func (c *Client) call(ctx context.Context, revision policyregistry.RevisionBindi
 	if _, approved := c.origins[revision.Audience]; !approved {
 		return errors.New("revision audience is not an approved private validation origin")
 	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, privateValidationTimeout)
 	defer cancel()
 	token, err := c.token(ctx, revision.Audience)
 	if err != nil {

@@ -3,10 +3,12 @@ package servingvalidate_test
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -134,4 +136,36 @@ func TestPrivateValidationRejectsUnapprovedOriginsBeforeMintingTokens(t *testing
 		_, err := servingvalidate.New(&http.Client{}, func(context.Context, string) (string, error) { return "", nil }, []string{origin})
 		require.Error(t, err)
 	}
+}
+
+func TestPrivateValidationAllowsScaleFromZeroBeforeEndpointWork(t *testing.T) {
+	httpClient := &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		deadline, ok := request.Context().Deadline()
+		require.True(t, ok)
+		require.GreaterOrEqual(t, time.Until(deadline), 90*time.Second)
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"revision":"classifier-exact","ready":true}`)),
+			Header:     make(http.Header),
+			Request:    request,
+		}, nil
+	})}
+	client, err := servingvalidate.New(httpClient, func(context.Context, string) (string, error) {
+		return "private-identity", nil
+	}, []string{"https://classifier.example"})
+	require.NoError(t, err)
+
+	attestation, err := client.AttestClassifier(context.Background(), policyregistry.RevisionBinding{
+		URL:      "https://classifier.example",
+		Audience: "https://classifier.example",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "classifier-exact", attestation.Revision)
+	require.True(t, attestation.Ready)
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
 }

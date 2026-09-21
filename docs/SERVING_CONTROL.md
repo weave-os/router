@@ -85,7 +85,8 @@ private revisions. Pass each exact worker/classifier revision HTTPS origin and
 each IAM service audience as a repeated `--validation-origin`. Obtain this
 allowlist from trusted deployment configuration, not an arbitrary proposal.
 There is no wildcard, HTTP, redirect, public-readiness, or control-plane-only
-bypass. Requests have a 30-second deadline and responses a 1 MiB bound.
+bypass. Requests have a two-minute end-to-end deadline so zero-traffic revisions
+can cold-start, and responses have a 1 MiB bound.
 Google identity tokens travel in `X-Serverless-Authorization`, preserving the
 normal routing/subscription `Authorization` header.
 
