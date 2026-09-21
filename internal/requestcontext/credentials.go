@@ -63,6 +63,26 @@ type Credentials struct {
 	// AuthType is the BYOK key's auth mode (see auth.AuthType*). APIKey already holds
 	// the derived credential; this tells the adapter how the upstream must read it.
 	AuthType string
+	// PrincipalID names the upstream account this credential authenticates as,
+	// independent of the bytes in APIKey: a workload-identity or keypair-JWT
+	// credential mints a fresh short-lived bearer per request, so the key is no
+	// identity at all. Non-secret and safe to fingerprint; empty when the
+	// credential is only known by its key material.
+	PrincipalID string
+}
+
+// UpstreamPrincipal identifies the account this credential authenticates as,
+// preferring the stable PrincipalID and falling back to the key material for
+// a static credential that has no other identity. The second return reports
+// whether the value is secret and must be hashed before it travels.
+func (c *Credentials) UpstreamPrincipal() (principal string, secret bool) {
+	if c == nil {
+		return "", false
+	}
+	if c.PrincipalID != "" {
+		return c.PrincipalID, false
+	}
+	return string(c.APIKey), true
 }
 
 // CredentialsContextKey is the request-context key for resolved per-request credentials.
@@ -213,11 +233,14 @@ func CodexSubscriptionCreds(token, accountID string) *Credentials {
 	if auth.HasAPIKeyPrefix(token) || strings.HasPrefix(token, "sk-") {
 		return nil
 	}
+	// The bearer is a refreshed OAuth JWT; the account id is what stays put
+	// across a refresh, so it is this credential's principal.
 	return &Credentials{
-		APIKey:    []byte(token),
-		AccountID: []byte(accountID),
-		Source:    SourceCodexSubscription,
-		OAuth:     true,
+		APIKey:      []byte(token),
+		AccountID:   []byte(accountID),
+		Source:      SourceCodexSubscription,
+		OAuth:       true,
+		PrincipalID: "chatgpt-account:" + accountID,
 	}
 }
 

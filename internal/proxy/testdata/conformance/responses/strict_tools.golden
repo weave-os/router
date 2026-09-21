@@ -55,7 +55,7 @@
     "event": "content_block_delta",
     "data": {
       "delta": {
-        "signature": "eyJ2IjoxLCJwcm92aWRlciI6Im9wZW5haSIsImlkIjoicnNfMSIsImVuYyI6ImVuY18xIiwic2NvcGUiOiJkOTlhYzI1Y2Q2NTdmNWE2In0=",
+        "signature": "eyJ2IjoxLCJwcm92aWRlciI6Im9wZW5haSIsImlkIjoicnNfMSIsImVuYyI6ImVuY18xIiwic2NvcGUiOiI8c2NvcGU+In0=",
         "type": "signature_delta"
       },
       "index": 0,
@@ -113,7 +113,7 @@
     "event": "content_block_start",
     "data": {
       "content_block": {
-        "id": "call_xyz__openai_reasoning__ZXlKMklqb3hMQ0p3Y205MmFXUmxjaUk2SW05d1pXNWhhU0lzSW1sa0lqb2ljbk5mTVNJc0ltVnVZeUk2SW1WdVkxOHhJaXdpYzJOdmNHVWlPaUprT1RsaFl6STFZMlEyTlRkbU5XRTJJbjA9",
+        "id": "call_xyz__openai_reasoning__ZXlKMklqb3hMQ0p3Y205MmFXUmxjaUk2SW05d1pXNWhhU0lzSW1sa0lqb2ljbk5mTVNJc0ltVnVZeUk2SW1WdVkxOHhJaXdpYzJOdmNHVWlPaUk4YzJOdmNHVStJbjA9",
         "input": {},
         "name": "get_weather",
         "type": "tool_use"

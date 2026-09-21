@@ -7,6 +7,7 @@ package proxy_test
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"os"
@@ -141,6 +142,44 @@ var synthToolID = regexp.MustCompile(`^call_[0-9a-f]{8}$`)
 // an unrelated stable id ending in _<12hex> is left untouched in goldens.
 var nonceSuffixedToolID = regexp.MustCompile(`^((?:call_|toolu_|tc_|functions?[._]).*)_[0-9a-f]{12}$`)
 
+// reasoningEnvelopeScope matches the scope the router mints into the reasoning
+// envelope it smuggles through Anthropic `signature` / `tool_use.id`. It
+// fingerprints the dispatch target, whose base URL is a per-run httptest port
+// here, so it is volatile in exactly the way a golden must not be.
+var reasoningEnvelopeScope = regexp.MustCompile(`"scope":"[0-9a-f]+"`)
+
+// redactReasoningScope rewrites the scope inside a base64 reasoning envelope,
+// through either carrier, leaving the rest of the envelope diffable.
+func redactReasoningScope(s string) (string, bool) {
+	prefix, encoded, split := strings.Cut(s, "__openai_reasoning__")
+	if !split {
+		prefix, encoded = "", s
+	}
+	decode, encode := base64.StdEncoding.DecodeString, base64.StdEncoding.EncodeToString
+	if split {
+		decode, encode = base64.RawURLEncoding.DecodeString, base64.RawURLEncoding.EncodeToString
+	}
+	raw, err := decode(encoded)
+	if err != nil {
+		return "", false
+	}
+	inner := raw
+	if split {
+		// The id carrier wraps the base64 envelope in another base64 layer.
+		if inner, err = base64.StdEncoding.DecodeString(string(raw)); err != nil {
+			return "", false
+		}
+	}
+	if !bytes.Contains(inner, []byte(`"enc":`)) || !reasoningEnvelopeScope.Match(inner) {
+		return "", false
+	}
+	inner = reasoningEnvelopeScope.ReplaceAll(inner, []byte(`"scope":"<scope>"`))
+	if split {
+		return prefix + "__openai_reasoning__" + encode([]byte(base64.StdEncoding.EncodeToString(inner))), true
+	}
+	return encode(inner), true
+}
+
 // redactVolatile walks a decoded frame, replacing message ids and synthesized
 // tool-call ids with placeholders and dropping wire timestamps.
 func redactVolatile(v interface{}) {
@@ -159,6 +198,10 @@ func redactVolatile(v interface{}) {
 		delete(x, "created")
 		for k, val := range x {
 			if s, ok := val.(string); ok {
+				if redacted, ok := redactReasoningScope(s); ok {
+					x[k] = redacted
+					continue
+				}
 				// Nonce suffix (uniqueToolUseIDWithNonce) is volatile; strip it,
 				// then redact a synthetic prefix or keep an upstream-echoed one.
 				prefix := s

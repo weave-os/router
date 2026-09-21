@@ -4,39 +4,100 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"net/url"
+	"strings"
 
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 )
 
 // reasoningReplayScope fingerprints the upstream an attempt dispatches to:
-// provider, wire model, endpoint, and credential. An upstream decrypts a
-// reasoning item only under the account and model that produced it — Snowflake
-// Cortex answers "encrypted reasoning was created for a different account or
-// model", xAI "Encrypted content could not be decrypted or parsed" — and a
-// rejected turn ends the client session rather than degrading it. Carrying the
-// fingerprint inside the signature the router mints lets the next turn replay
-// the reasoning only where it still decrypts.
+// provider, wire model, endpoint, and the account behind the credential. An
+// upstream decrypts a reasoning item only under the account and model that
+// produced it — Snowflake Cortex answers "encrypted reasoning was created for
+// a different account or model", xAI "Encrypted content could not be
+// decrypted or parsed" — and a rejected turn ends the client session rather
+// than degrading it. Carrying the fingerprint inside the signature the router
+// mints lets the next turn replay the reasoning only where it still decrypts.
 //
-// The credential is hashed, never carried: the signature travels through the
-// client.
-func reasoningReplayScope(ctx context.Context, d router.Decision) string {
+// The account is identified by its stable principal, never by the bearer:
+// Cortex decrypted a Grok item under a freshly minted workload-identity token
+// (verified against prod's Snowflake account, 2026-09-21), so keying on the
+// per-request bearer would drop reasoning the upstream would have accepted.
+// With no request-scoped credential the answer rests on the adapter's own
+// deployment key, so its principal stands in.
+func (s *Service) reasoningReplayScope(ctx context.Context, d router.Decision) string {
 	h := sha256.New()
-	for _, part := range []string{
-		d.Provider,
-		requestcontext.EffectiveUpstreamModel(ctx, d.Model),
-		requestcontext.EffectiveBaseURL(ctx, ""),
-	} {
+	write := func(part string) {
 		h.Write([]byte(part))
 		h.Write([]byte{0})
 	}
-	if creds := requestcontext.CredentialsFromContext(ctx); creds != nil {
-		key := sha256.Sum256(creds.APIKey)
-		account := sha256.Sum256(creds.AccountID)
-		h.Write([]byte(creds.Source))
-		h.Write([]byte{0})
-		h.Write(key[:])
-		h.Write(account[:])
+	write(d.Provider)
+	write(requestcontext.EffectiveUpstreamModel(ctx, d.Model))
+	write(normalizeUpstreamEndpoint(requestcontext.EffectiveBaseURL(ctx, "")))
+
+	creds := requestcontext.CredentialsFromContext(ctx)
+	if creds == nil {
+		write("deployment")
+		write(s.deploymentPrincipal(d.Provider))
+		return hex.EncodeToString(h.Sum(nil)[:8])
 	}
+	write(creds.Source)
+	principal, secret := creds.UpstreamPrincipal()
+	if secret {
+		// A static key is its own identity; hashed because the scope travels
+		// to the client inside the minted signature.
+		sum := sha256.Sum256([]byte(principal))
+		h.Write(sum[:])
+		return hex.EncodeToString(h.Sum(nil)[:8])
+	}
+	write(principal)
 	return hex.EncodeToString(h.Sum(nil)[:8])
+}
+
+// deploymentPrincipal reports the provider adapter's own account fingerprint,
+// or "" for an adapter that does not publish one.
+func (s *Service) deploymentPrincipal(provider string) string {
+	if s == nil {
+		return ""
+	}
+	client, err := s.clients.Client(provider)
+	if err != nil {
+		return ""
+	}
+	identified, ok := client.(providers.DeploymentPrincipal)
+	if !ok {
+		return ""
+	}
+	return identified.DeploymentPrincipal()
+}
+
+// normalizeUpstreamEndpoint reduces an endpoint to what distinguishes one
+// upstream account from another, so a cosmetic difference (case, trailing
+// slash, default port) does not spuriously invalidate a replay.
+func normalizeUpstreamEndpoint(raw string) string {
+	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return strings.ToLower(raw)
+	}
+	host := strings.ToLower(u.Hostname())
+	if port := u.Port(); port != "" && !defaultPortForScheme(u.Scheme, port) {
+		host += ":" + port
+	}
+	return strings.ToLower(u.Scheme) + "://" + host + strings.TrimRight(u.Path, "/")
+}
+
+func defaultPortForScheme(scheme, port string) bool {
+	switch strings.ToLower(scheme) {
+	case "https":
+		return port == "443"
+	case "http":
+		return port == "80"
+	}
+	return false
 }
