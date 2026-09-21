@@ -184,6 +184,7 @@ func TestClassifierUtilityRequestsDoNotEstablishThreadRoot(t *testing.T) {
 		body string
 	}{
 		{turntype.Probe, `{"model":"auto","max_tokens":1,"messages":[{"role":"user","content":"quota"}]}`},
+		{turntype.Classifier, `{"model":"auto","max_tokens":64,"system":"Classify the request","messages":[{"role":"user","content":"classify"}]}`},
 		{turntype.TitleGen, `{"model":"auto","max_tokens":1024,"output_config":{"format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}},"required":["title"]}}},"messages":[{"role":"user","content":"title"}]}`},
 		{turntype.Compaction, `{"model":"auto","max_tokens":1024,"system":"Your task is to create a detailed summary","messages":[{"role":"user","content":"summary"}]}`},
 	} {

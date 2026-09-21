@@ -75,7 +75,7 @@ func (s *Service) withClassifierInput(ctx context.Context, body []byte, endpoint
 // must join its original user-turn prediction before provider dispatch.
 func (s *Service) runClassifierTurn(ctx context.Context, request router.Request, turn turnLoopResult, sessionKey [sessionpin.SessionKeyLen]byte) (turnLoopResult, error) {
 	switch turn.TurnType {
-	case turntype.TitleGen, turntype.Probe, turntype.Compaction:
+	case turntype.TitleGen, turntype.Probe, turntype.Compaction, turntype.Classifier:
 		observability.FromContext(ctx).Warn("Classifier thread rejects utility request", "turn_type", turn.TurnType)
 		return turn, router.ErrClassifierHistoryUnavailable
 	}

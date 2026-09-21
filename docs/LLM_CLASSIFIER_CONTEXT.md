@@ -51,9 +51,9 @@ provider dispatch. Conflicting/empty tokens fail closed. Tickets apply to
 Messages, Chat Completions, Responses and Gemini inference; dry-run routing,
 handoff, router commands, force-model/cluster, shadow evaluation and policy-pin
 overrides are not supported for admitted threads.
-Title-generation, quota probes and compaction requests carrying a thread ticket
-return 409 before creating classifier facts or session pins; they cannot establish
-or replace the conversation root.
+Title-generation, quota probes, short-form classification and compaction requests
+carrying a thread ticket return 409 before creating classifier facts or session
+pins; they cannot establish or replace the conversation root.
 
 Postgres `classifier_threads` and `classifier_predictions` store hashes,
 counters and classification facts, not prompts. A primary-database row lock
