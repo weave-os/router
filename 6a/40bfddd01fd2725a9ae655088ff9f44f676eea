@@ -1,0 +1,48 @@
+internal/translate/router_feedback.go
+  s_9ef40d94c2b5d1::t_f3a83388846feb 252-253,256
+internal/router/cache/cache_test.go
+  s_9ef40d94c2b5d1::t_f3a83388846feb 43-47,52-56,71-87
+install/commands/router-feedback.md
+  s_9ef40d94c2b5d1::t_f3a83388846feb 3
+internal/proxy/service_cache_test.go
+  s_9ef40d94c2b5d1::t_f3a83388846feb 292-293
+internal/proxy/feedback_processor_test.go
+  s_9ef40d94c2b5d1::t_3a1572c6a5c1ae 311-329
+internal/proxy/dispatch_error.go
+  s_9ef40d94c2b5d1::t_f3a83388846feb 105-109
+scripts/feedback_state_check/main.go
+  s_9ef40d94c2b5d1::t_3a1572c6a5c1ae 340,360-366,389-390,392-394,407
+internal/proxy/feedback_processor.go
+  s_9ef40d94c2b5d1::t_f3a83388846feb 160-165,171
+internal/proxy/feedback_completion.go
+  s_9ef40d94c2b5d1::t_33c1cf8bbccfba 6,8,28-38,42-47,77,146-149,161,165-170,253-256,270-271,281-299,381-383,406,443
+.github/workflows/test.yml
+  s_9ef40d94c2b5d1::t_f3a83388846feb 147-148
+install/commands/rf.md
+  s_9ef40d94c2b5d1::t_f3a83388846feb 3
+internal/proxy/feedback_completion_internal_test.go
+  s_9ef40d94c2b5d1::t_3a1572c6a5c1ae 171-286,293-304,307-329
+  s_9ef40d94c2b5d1::t_b91547193a3e26 287-292,305-306
+internal/proxy/feedback_store_fake_test.go
+  s_9ef40d94c2b5d1::t_f3a83388846feb 131-132
+cmd/router/shutdown.go
+  s_9ef40d94c2b5d1::t_f3a83388846feb 28-32
+internal/translate/strip_seq_ack_test.go
+  s_9ef40d94c2b5d1::t_3a1572c6a5c1ae 37-66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6a40bfddd01fd2725a9ae655088ff9f44f676eea",
+  "prompts": {},
+  "sessions": {
+    "s_9ef40d94c2b5d1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5df3b4a0-ad3e-4421-a33e-f459b7fff8d3",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

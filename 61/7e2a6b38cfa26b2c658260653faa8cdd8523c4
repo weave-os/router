@@ -1,0 +1,44 @@
+install/directives.tsv
+  s_ceefd8963cf671::t_185ae47719d43b 10
+internal/config/config_test.go
+  s_ceefd8963cf671::t_6ba111ade04ddb 12-40
+install/opencode-weave/test/capture.test.ts
+  s_ceefd8963cf671::t_1afb40d46fb066 277-287
+install/opencode-weave/src/index.ts
+  s_ceefd8963cf671::t_0bc95537b5f74f 41,466-468
+docs/CONFIGURATION.md
+  s_ceefd8963cf671::t_2d31a654e47974 35
+internal/config/config.go
+  s_ceefd8963cf671::t_efe82bb32a9be6 40-67
+internal/providers/openaicompat/client_test.go
+  s_ceefd8963cf671::t_0ffa1f091c3f48 69-131
+install/opencode-weave/test/directives.test.ts
+  s_ceefd8963cf671::t_0bc95537b5f74f 1-36
+cmd/router/main.go
+  s_ceefd8963cf671::t_87b460c19d60ed 275-284
+.env.example
+  s_ceefd8963cf671::t_1315bad3d4e92c 35-38
+install/README.md
+  s_ceefd8963cf671::t_dacca241b95345 440
+  s_ceefd8963cf671::t_6bac965107d9d5 444-447
+install/opencode-weave/src/directives.ts
+  s_ceefd8963cf671::t_0bc95537b5f74f 1-72
+install/opencode-weave/README.md
+  s_ceefd8963cf671::t_194ff6f01b8c09 56-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "617e2a6b38cfa26b2c658260653faa8cdd8523c4",
+  "prompts": {},
+  "sessions": {
+    "s_ceefd8963cf671": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cf3d9b91-4071-434c-af7b-d28f84ad47fa",
+        "model": "grok-4.6"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
