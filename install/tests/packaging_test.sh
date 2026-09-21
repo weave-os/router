@@ -97,6 +97,19 @@ home="$work/home"; mkdir -p "$home/bin"
 printf '%s\n' '#!/usr/bin/env bash' 'exit 22' >"$home/bin/curl"
 chmod +x "$home/bin/curl"
 
+browser_log="$work/browser.log"
+browser_opener="xdg-open"
+case "$(uname -s)" in
+  Darwin) browser_opener="open" ;;
+esac
+printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\\n" "$@" >"'"$browser_log"'"' >"$home/bin/$browser_opener"
+chmod +x "$home/bin/$browser_opener"
+
+HOME="$home" PATH="$home/bin:$PATH" NO_COLOR=1 \
+  node "$root/bin.js" >/dev/null 2>&1
+check "the canonical no-argument entrypoint opens the hosted start page" \
+  "https://router.workweave.ai/start" "$(cat "$browser_log" 2>/dev/null || true)"
+
 # Drive bin.js exactly as `npx @weave-os/router` does. A tarball missing any
 # runtime asset fails here even though every string assertion above passed.
 HOME="$home" PATH="$home/bin:$PATH" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \

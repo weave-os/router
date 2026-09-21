@@ -7,7 +7,7 @@ published as a compatibility alias and continues to receive the same releases;
 it prints a migration warning directing users to `@weave-os/router`.
 
 ```bash
-npx @weave-os/router                       # interactive: pick Claude Code / Codex / opencode / pi, then scope
+npx @weave-os/router                       # open the hosted setup page
 npx @weave-os/router --claude              # skip the picker, target Claude Code
 npx @weave-os/router --codex               # skip the picker, target the OpenAI Codex CLI
 npx @weave-os/router setup --claude --codex # configure both native clients

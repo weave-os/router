@@ -65,9 +65,8 @@ Weave Router with one command. No clone, no Docker, no Postgres.
 npx @weave-os/router
 ```
 
-That's it. The installer asks which tool (Claude Code, Codex, opencode, or pi),
-walks you through scope (user vs. project), grabs a router key, and wires
-the right config file. Other flavors:
+That's it. Your browser opens the hosted setup page. To install directly from
+the terminal, choose a target explicitly. Other flavors:
 
 ```bash
 npx @weave-os/router --claude              # skip the picker, Claude Code
