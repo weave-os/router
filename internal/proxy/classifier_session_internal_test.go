@@ -39,7 +39,9 @@ func (s *classifierMemoryStore) Create(_ context.Context, thread router.Classifi
 func (s *classifierMemoryStore) WithThread(ctx context.Context, thread router.ClassifierThread, classify func(router.ClassifierTurnStore) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if stored, ok := s.threads[thread.ThreadID]; !ok || stored != thread {
+	stored, ok := s.threads[thread.ThreadID]
+	stored.ExpiresAt, thread.ExpiresAt = stored.ExpiresAt.UTC(), thread.ExpiresAt.UTC()
+	if !ok || stored != thread {
 		return router.ErrClassifierThreadInvalid
 	}
 	turns := classifierMemoryTurns(maps.Clone(s.turns[thread.ThreadID]))
@@ -155,6 +157,22 @@ func TestClassifierThreadReleaseCannotDrift(t *testing.T) {
 	require.ErrorIs(t, err, router.ErrClassifierThreadInvalid)
 	_, err = svc.AdmitClassifierThread(ctx, ticket)
 	require.ErrorIs(t, err, router.ErrClassifierThreadInvalid)
+}
+
+func TestClassifierThreadTicketRoundTripAcrossTimeZones(t *testing.T) {
+	for _, zone := range []*time.Location{time.FixedZone("UTC clock", 0), time.FixedZone("offset clock", -7*60*60)} {
+		t.Run(zone.String(), func(t *testing.T) {
+			svc, ctx, _ := classifierSessionFixture(t, classifierMedium)
+			now := time.Now().In(zone)
+			svc.now = func() time.Time { return now }
+			ctx = classifierAdmit(t, svc, ctx)
+			input, err := classifierContextAtUserBoundary(classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "first")))
+			require.NoError(t, err)
+			prediction, err := svc.classifyThread(ctx, input)
+			require.NoError(t, err)
+			require.Equal(t, router.ClassifierMedium, prediction.Complexity)
+		})
+	}
 }
 
 func TestClassifierPredictionsSurviveRetriesReplicasAndToolLoops(t *testing.T) {
