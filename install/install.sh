@@ -1398,6 +1398,10 @@ while [ $# -gt 0 ]; do
     --return-url)
       return_url="${2:-}"; shift 2
       [ -n "$return_url" ] || { err "--return-url requires a value."; exit 2; }
+      case "$return_url" in
+        http://*|https://*) ;;
+        *) err "--return-url must be an http:// or https:// URL."; exit 2 ;;
+      esac
       ;;
     --local)
       # Shorthand for local dev: localhost:8080 (matches `wv mr` / `make dev` default PORT).
@@ -3215,8 +3219,10 @@ open_url_in_browser() {
       open "$url" >/dev/null 2>&1
       ;;
     MINGW*|MSYS*|CYGWIN*)
-      command -v cmd.exe >/dev/null 2>&1 || return 1
-      cmd.exe /c start "" "$url" >/dev/null 2>&1
+      # explorer.exe is a direct process launch; cmd.exe /c start would parse
+      # URL query separators such as '&' as shell syntax.
+      command -v explorer.exe >/dev/null 2>&1 || return 1
+      explorer.exe "$url" >/dev/null 2>&1
       ;;
     *)
       command -v xdg-open >/dev/null 2>&1 || return 1

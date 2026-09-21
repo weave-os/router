@@ -25,14 +25,10 @@ chmod +x "$fake_bin/curl"
 
 case "$(uname -s)" in
   Darwin*) opener="open" ;;
-  MINGW*|MSYS*|CYGWIN*) opener="cmd.exe" ;;
+  MINGW*|MSYS*|CYGWIN*) opener="explorer.exe" ;;
   *) opener="xdg-open" ;;
 esac
-if [ "$opener" = "cmd.exe" ]; then
-  printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\\n" "${@: -1}" >"$OPEN_LOG"' >"$fake_bin/$opener"
-else
-  printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\\n" "$@" >"$OPEN_LOG"' >"$fake_bin/$opener"
-fi
+printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\\n" "$@" >"$OPEN_LOG"' >"$fake_bin/$opener"
 chmod +x "$fake_bin/$opener"
 
 pass=0
@@ -69,6 +65,19 @@ validate_home="$work/validate-failure"
 validate_log="$work/validate-failure-browser.log"
 run_install "$validate_home" "$validate_log" 1 0
 check "does not open return URL when key validation fails" "" "$(cat "$validate_log")"
+
+invalid_home="$work/invalid-url"
+invalid_log="$work/invalid-url-browser.log"
+mkdir -p "$invalid_home"
+: >"$invalid_log"
+invalid_rc=0
+HOME="$invalid_home" OPEN_LOG="$invalid_log" PATH="$fake_bin:$PATH" NO_COLOR=1 \
+  WEAVE_ROUTER_KEY="rk_return_url_test" \
+  bash "$installer" --claude --scope user --quiet --non-interactive \
+    --base-url http://127.0.0.1:9 --return-url 'javascript:alert(1)' \
+    </dev/null >"$invalid_home/install.log" 2>&1 || invalid_rc=$?
+check "rejects non-http return URLs" "2" "$invalid_rc"
+check "does not open a rejected return URL" "" "$(cat "$invalid_log")"
 
 if [ "$fail" -gt 0 ]; then
   printf '\n%d passed, %d failed\n' "$pass" "$fail" >&2
