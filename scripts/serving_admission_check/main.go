@@ -70,6 +70,9 @@ func run() error {
 	}
 	var firstAdmissions atomic.Int64
 	decide := func(ctx context.Context, admission policyregistry.SerializedAdmission) (policyregistry.SessionReleaseBinding, error) {
+		if admission.Projection.ProfileRequired && admission.Projection.ProfileKey == "" {
+			return policyregistry.SessionReleaseBinding{}, errors.New("required profile projection missing")
+		}
 		if admission.Previous == nil {
 			firstAdmissions.Add(1)
 		}
@@ -105,9 +108,88 @@ func run() error {
 		return err
 	}
 	profileKey := uuid.NewString()
-	if err := control.ProjectProfile(ctx, externalID, []string{installation.ID}, profileKey); err != nil {
+	_, _, err = admissions.Admit(ctx, installation.ID, personal.ID, "conversation", decide)
+	if err == nil {
+		return errors.New("subject without explicit assignment reached lane default")
+	}
+	if err := control.ProjectSubjectProfile(ctx, externalID, personal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceSubscriberPlan, policyregistry.AssignmentStateEffective, 1, profileKey, "fixture-subscriber-plan", nil); err != nil {
 		return err
 	}
+	secondPersonal, err := control.CreatePending(ctx, externalID, newKey(installation.ID))
+	if err != nil {
+		return err
+	}
+	secondSubjectID := uuid.MustParse(secondPersonal.CredentialSubjectID)
+	if _, err := queries.UpdateCredentialSubjectProjection(ctx, secondSubjectID); err != nil {
+		return err
+	}
+	if _, err := queries.UpdateCredentialSubjectInstallationAccess(ctx, sqlc.UpdateCredentialSubjectInstallationAccessParams{SubjectID: secondSubjectID, InstallationID: installationUUID, AccessEnabled: true}); err != nil {
+		return err
+	}
+	if _, err := queries.UpdateCredentialSubjectEnrollment(ctx, sqlc.UpdateCredentialSubjectEnrollmentParams{SubjectID: secondSubjectID, Enrolled: true}); err != nil {
+		return err
+	}
+	secondSubscriberProfileKey := uuid.NewString()
+	if err := control.ProjectSubjectProfile(ctx, externalID, secondPersonal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceSubscriberPlan, policyregistry.AssignmentStateEffective, 1, secondSubscriberProfileKey, "fixture-second-subscriber-plan", nil); err != nil {
+		return err
+	}
+	_, secondPlanBinding, err := admissions.Admit(ctx, installation.ID, secondPersonal.ID, "conversation", decide)
+	if err != nil {
+		return err
+	}
+	if secondPlanBinding.ProfileKey != secondSubscriberProfileKey || secondPlanBinding.AssignmentSource != policyregistry.AssignmentSourceSubscriberPlan {
+		return errors.New("second subject did not receive its subscriber plan")
+	}
+	secondProfileKey := uuid.NewString()
+	if err := control.ProjectSubjectProfile(ctx, externalID, secondPersonal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceCohort, policyregistry.AssignmentStateEffective, 1, secondProfileKey, "fixture-second-cohort", nil); err != nil {
+		return err
+	}
+	_, secondBinding, err := admissions.Admit(ctx, installation.ID, secondPersonal.ID, "conversation", decide)
+	if err != nil {
+		return err
+	}
+	if secondBinding.ProfileKey != secondProfileKey || secondBinding.AssignmentSource != policyregistry.AssignmentSourceCohort || secondBinding.BindingGeneration != 2 {
+		return errors.New("cohort assignment did not precede the second subject plan")
+	}
+	if err := control.ProjectSubjectProfile(ctx, externalID, secondPersonal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceCohort, policyregistry.AssignmentStateAbsent, 2, "", "fixture-removed-cohort", nil); err != nil {
+		return err
+	}
+	_, secondFallback, err := admissions.Admit(ctx, installation.ID, secondPersonal.ID, "conversation", decide)
+	if err != nil {
+		return err
+	}
+	if secondFallback.ProfileKey != secondSubscriberProfileKey || secondFallback.AssignmentSource != policyregistry.AssignmentSourceSubscriberPlan || secondFallback.BindingGeneration != 3 {
+		return errors.New("removed cohort did not restore the second subject plan")
+	}
+	if err := control.ProjectSubjectProfile(ctx, externalID, secondPersonal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceCohort, policyregistry.AssignmentStatePending, 3, secondProfileKey, "fixture-pending-cohort", nil); err != nil {
+		return err
+	}
+	_, pendingFallback, err := admissions.Admit(ctx, installation.ID, secondPersonal.ID, "conversation", decide)
+	if err != nil {
+		return err
+	}
+	if pendingFallback.BindingGeneration != secondFallback.BindingGeneration || pendingFallback.AssignmentSource != policyregistry.AssignmentSourceSubscriberPlan {
+		return errors.New("pending cohort displaced the previous effective subject plan")
+	}
+	if err := control.ProjectSubjectProfile(ctx, externalID, secondPersonal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceCohort, policyregistry.AssignmentStateEffective, 3, secondProfileKey, "fixture-restored-cohort", nil); err != nil {
+		return err
+	}
+	if _, secondBinding, err = admissions.Admit(ctx, installation.ID, secondPersonal.ID, "conversation", decide); err != nil || secondBinding.ProfileKey != secondProfileKey || secondBinding.BindingGeneration != 4 {
+		return fmt.Errorf("restored cohort assignment was not admitted: %w", err)
+	}
+	if err := control.ProjectSubjectProfile(ctx, externalID, secondPersonal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceCohort, policyregistry.AssignmentStateRevoked, 4, secondProfileKey, "fixture-revoked-cohort", nil); err != nil {
+		return err
+	}
+	if _, _, err := admissions.Admit(ctx, installation.ID, secondPersonal.ID, "conversation", decide); err == nil {
+		return errors.New("revoked subject assignment remained admissible")
+	}
+	if err := control.ProjectSubjectProfile(ctx, externalID, secondPersonal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceCohort, policyregistry.AssignmentStateEffective, 5, secondProfileKey, "fixture-restored-cohort-after-revocation", nil); err != nil {
+		return err
+	}
+	if _, secondBinding, err = admissions.Admit(ctx, installation.ID, secondPersonal.ID, "conversation", decide); err != nil || secondBinding.ProfileKey != secondProfileKey || secondBinding.BindingGeneration != 5 {
+		return fmt.Errorf("restored cohort assignment was not admitted: %w", err)
+	}
+	firstAdmissions.Store(0)
 	group, concurrentCtx := errgroup.WithContext(ctx)
 	for range 16 {
 		group.Go(func() error {
@@ -131,8 +213,29 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if sharedBinding.Target != policyregistry.TargetStable || sharedBinding.ProfileKey != profileKey {
-		return errors.New("shared key gained internal access or lost its assigned profile")
+	if sharedBinding.Target != policyregistry.TargetStable || sharedBinding.ProfileKey != "" {
+		return errors.New("shared key gained internal access or subject profile")
+	}
+	orgProfileKey := uuid.NewString()
+	if err := control.ProjectProfile(ctx, externalID, []string{installation.ID}, orgProfileKey); err != nil {
+		return err
+	}
+	_, overrideBinding, err := admissions.Admit(ctx, installation.ID, personal.ID, "conversation", decide)
+	if err != nil {
+		return err
+	}
+	if overrideBinding.ProfileKey != orgProfileKey || overrideBinding.BindingGeneration != 2 {
+		return errors.New("organization override did not take precedence over subject assignment")
+	}
+	if err := control.ProjectProfile(ctx, externalID, []string{installation.ID}, ""); err != nil {
+		return err
+	}
+	_, restoredBinding, err := admissions.Admit(ctx, installation.ID, personal.ID, "conversation", decide)
+	if err != nil {
+		return err
+	}
+	if restoredBinding.ProfileKey != profileKey || restoredBinding.BindingGeneration != 3 {
+		return errors.New("cleared organization override did not restore subject assignment")
 	}
 	if err := checkRetainedAdmissionClock(ctx, admissions, installation.ID, shared.ID); err != nil {
 		return err
@@ -145,7 +248,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if rotatedBinding.BindingGeneration != 1 || replacement.CredentialSubjectID != personal.CredentialSubjectID {
+	if rotatedBinding.BindingGeneration != restoredBinding.BindingGeneration || replacement.CredentialSubjectID != personal.CredentialSubjectID {
 		return errors.New("personal rotation lost subject or conversation continuity")
 	}
 	_, _, err = admissions.Admit(ctx, installation.ID, personal.ID, "conversation", decide)
@@ -164,7 +267,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if disabled.Target != policyregistry.TargetStable || disabled.ProfileKey != profileKey || disabled.BindingGeneration != 2 {
+	if disabled.Target != policyregistry.TargetStable || disabled.ProfileKey != profileKey || disabled.BindingGeneration != 4 {
 		return errors.New("enrollment disable did not rebind while retaining profile")
 	}
 	if err := checkAttribution(ctx, pool, policyregistry.ServingAssertion{APIKeyID: replacement.ID, Scope: disabledScope, Admission: disabled}); err != nil {
@@ -181,14 +284,54 @@ func run() error {
 	if !errors.Is(err, policyregistry.ErrStaleServingGeneration) {
 		return fmt.Errorf("stale generation overwrote rebound session: %v", err)
 	}
+	failureDetail := "fixture missing target profile"
+	if err := control.ProjectSubjectProfile(ctx, externalID, personal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceSubscriberPlan, policyregistry.AssignmentStateFailed, 2, uuid.NewString(), "fixture-failed-plan", &failureDetail); err != nil {
+		return err
+	}
+	_, preserved, err := admissions.Admit(ctx, installation.ID, replacement.ID, "conversation", decide)
+	if err != nil {
+		return err
+	}
+	if preserved.ProfileKey != profileKey || preserved.AssignmentGeneration != disabled.AssignmentGeneration {
+		return errors.New("failed subject projection altered the effective profile")
+	}
+	if err := control.ProjectSubjectProfile(ctx, externalID, personal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceSubscriberPlan, policyregistry.AssignmentStateDefaultFollowing, 3, "", "fixture-default-following", nil); err != nil {
+		return err
+	}
+	_, defaulted, err := admissions.Admit(ctx, installation.ID, replacement.ID, "conversation", decide)
+	if err != nil {
+		return err
+	}
+	if defaulted.ProfileKey != "" || defaulted.BindingGeneration != 5 {
+		return errors.New("explicit default-following subject did not use lane default")
+	}
+	if err := control.ProjectSubjectProfile(ctx, externalID, personal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceSubscriberPlan, policyregistry.AssignmentStateEffective, 4, profileKey, "fixture-restored-plan", nil); err != nil {
+		return err
+	}
+	_, restoredPlan, err := admissions.Admit(ctx, installation.ID, replacement.ID, "conversation", decide)
+	if err != nil {
+		return err
+	}
+	if restoredPlan.ProfileKey != profileKey || restoredPlan.BindingGeneration != 6 {
+		return errors.New("restored subscriber plan did not rebind from lane default")
+	}
+	if err := control.ProjectSubjectProfile(ctx, externalID, personal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceSubscriberPlan, policyregistry.AssignmentStatePending, 4, profileKey, "fixture-regressed-plan", nil); err == nil {
+		return errors.New("terminal subject assignment generation regressed to pending")
+	}
+	if err := control.ProjectSubjectProfile(ctx, externalID, personal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceSubscriberPlan, policyregistry.AssignmentStateEffective, 3, uuid.NewString(), "fixture-stale-plan", nil); err == nil {
+		return errors.New("stale subject assignment generation was accepted")
+	}
+	if err := control.ProjectSubjectProfile(ctx, externalID, personal.CredentialSubjectID, installation.ID, policyregistry.AssignmentSourceSubscriberPlan, policyregistry.AssignmentStateEffective, 4, uuid.NewString(), "fixture-conflicting-plan", nil); err == nil {
+		return errors.New("conflicting subject assignment generation was accepted")
+	}
 	if err := control.ProjectProfile(ctx, "wrong-owner", []string{installation.ID}, uuid.NewString()); !errors.Is(err, auth.ErrInstallationNotFound) {
-		return errors.New("wrong organization projected a profile")
+		return errors.New("wrong organization projected an installation profile")
 	}
 	_, unchanged, err := admissions.Admit(ctx, installation.ID, replacement.ID, "conversation", decide)
 	if err != nil {
 		return err
 	}
-	if unchanged.ProfileKey != profileKey || unchanged.AssignmentGeneration != disabled.AssignmentGeneration {
+	if unchanged.ProfileKey != profileKey || unchanged.AssignmentGeneration != restoredPlan.AssignmentGeneration {
 		return errors.New("failed projection altered the effective profile")
 	}
 	for range 2 {
@@ -211,6 +354,10 @@ func run() error {
 	_, _, err = admissions.Admit(ctx, installation.ID, shared.ID, "conversation", decide)
 	if err != nil {
 		return fmt.Errorf("subject revocation affected shared credential: %w", err)
+	}
+	_, survivingSubject, err := admissions.Admit(ctx, installation.ID, secondPersonal.ID, "conversation", decide)
+	if err != nil || survivingSubject.ProfileKey != secondProfileKey {
+		return fmt.Errorf("subject revocation affected another subject: %w", err)
 	}
 	return nil
 }
@@ -291,7 +438,7 @@ func newKey(installationID string) auth.CreateAPIKeyParams {
 
 func fixtureBinding(admission policyregistry.SerializedAdmission, now time.Time) policyregistry.SessionReleaseBinding {
 	projection := admission.Projection
-	if admission.Previous != nil && admission.Previous.Target == projection.Target && admission.Previous.EnrollmentGeneration == projection.EnrollmentGeneration && admission.Previous.AssignmentGeneration == projection.AssignmentGeneration {
+	if admission.Previous != nil && admission.Previous.Target == projection.Target && admission.Previous.ProfileKey == projection.ProfileKey && admission.Previous.EnrollmentGeneration == projection.EnrollmentGeneration && admission.Previous.AssignmentGeneration == projection.AssignmentGeneration && admission.Previous.SubjectAssignmentGeneration == projection.SubjectAssignmentGeneration && admission.Previous.AssignmentSource == projection.AssignmentSource {
 		retained := *admission.Previous
 		retained.LastAdmittedAt = now
 		return retained
@@ -302,7 +449,7 @@ func fixtureBinding(admission policyregistry.SerializedAdmission, now time.Time)
 	if projection.ProfileKey != "" {
 		selection.Profile = &reference
 	}
-	binding := policyregistry.SessionReleaseBinding{Target: projection.Target, ActivationID: uuid.NewString(), Selection: selection, ProfileKey: projection.ProfileKey, EnrollmentGeneration: projection.EnrollmentGeneration, AssignmentGeneration: projection.AssignmentGeneration, BindingGeneration: 1, CreatedAt: now, LastAdmittedAt: now}
+	binding := policyregistry.SessionReleaseBinding{Target: projection.Target, ActivationID: uuid.NewString(), Selection: selection, ProfileKey: projection.ProfileKey, EnrollmentGeneration: projection.EnrollmentGeneration, AssignmentGeneration: projection.AssignmentGeneration, SubjectAssignmentGeneration: projection.SubjectAssignmentGeneration, AssignmentSource: projection.AssignmentSource, BindingGeneration: 1, CreatedAt: now, LastAdmittedAt: now}
 	if admission.Previous != nil {
 		binding.BindingGeneration = admission.Previous.BindingGeneration + 1
 		binding.CreatedAt = admission.Previous.CreatedAt

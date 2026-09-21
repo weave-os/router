@@ -202,29 +202,73 @@ func NextServingActivation(snapshot ServingStateSnapshot, proposal DeploymentPro
 
 // SessionReleaseBinding is the release decision persisted under an authenticated conversation scope.
 type SessionReleaseBinding struct {
-	Target               ServingTarget    `json:"target"`
-	ActivationID         string           `json:"activation_id"`
-	Selection            ServingSelection `json:"selection"`
-	ProfileKey           string           `json:"profile_key,omitempty"`
-	EnrollmentGeneration int64            `json:"enrollment_generation"`
-	AssignmentGeneration int64            `json:"assignment_generation"`
-	BindingGeneration    int64            `json:"binding_generation"`
-	CreatedAt            time.Time        `json:"created_at"`
-	LastAdmittedAt       time.Time        `json:"last_admitted_at"`
+	Target                      ServingTarget             `json:"target"`
+	ActivationID                string                    `json:"activation_id"`
+	Selection                   ServingSelection          `json:"selection"`
+	ProfileKey                  string                    `json:"profile_key,omitempty"`
+	EnrollmentGeneration        int64                     `json:"enrollment_generation"`
+	AssignmentGeneration        int64                     `json:"assignment_generation"`
+	SubjectAssignmentGeneration int64                     `json:"subject_assignment_generation,omitempty"`
+	AssignmentSource            AdmissionAssignmentSource `json:"assignment_source,omitempty"`
+	BindingGeneration           int64                     `json:"binding_generation"`
+	CreatedAt                   time.Time                 `json:"created_at"`
+	LastAdmittedAt              time.Time                 `json:"last_admitted_at"`
 }
+
+// AdmissionAssignmentSource identifies the Router-side source that supplied an assignment.
+type AdmissionAssignmentSource string
+
+const (
+	// AssignmentSourceAbsent records a missing subject assignment projection.
+	AssignmentSourceAbsent AdmissionAssignmentSource = "absent"
+	// AssignmentSourceOrganizationOverride records an installation-scoped override.
+	AssignmentSourceOrganizationOverride AdmissionAssignmentSource = "organization_override"
+	// AssignmentSourceCohort records an explicit cohort profile variant.
+	AssignmentSourceCohort AdmissionAssignmentSource = "cohort"
+	// AssignmentSourceSubscriberPlan records a subscriber plan profile default.
+	AssignmentSourceSubscriberPlan AdmissionAssignmentSource = "subscriber_plan"
+	// AssignmentSourceLaneDefault records an explicit default-following or unassigned state.
+	AssignmentSourceLaneDefault AdmissionAssignmentSource = "lane_default"
+)
+
+// AdmissionAssignmentState identifies whether an assignment is usable for admission.
+type AdmissionAssignmentState string
+
+const (
+	// AssignmentStateAbsent removes one assignment source from precedence.
+	AssignmentStateAbsent AdmissionAssignmentState = "absent"
+	// AssignmentStateDefaultFollowing records an explicit return to lane default.
+	AssignmentStateDefaultFollowing AdmissionAssignmentState = "default_following"
+	// AssignmentStateDeliberatelyUnassigned records an intentional lane-default admission.
+	AssignmentStateDeliberatelyUnassigned AdmissionAssignmentState = "deliberately_unassigned"
+	// AssignmentStatePending records a desired assignment that has not become effective.
+	AssignmentStatePending AdmissionAssignmentState = "pending"
+	// AssignmentStateFailed records a desired assignment projection failure.
+	AssignmentStateFailed AdmissionAssignmentState = "failed"
+	// AssignmentStateRevoked records assignment withdrawal for a revoked subject.
+	AssignmentStateRevoked AdmissionAssignmentState = "revoked"
+	// AssignmentStateIncompatible records an assignment whose profile cannot serve the lane.
+	AssignmentStateIncompatible AdmissionAssignmentState = "incompatible"
+	// AssignmentStateEffective records an assignment usable for exact profile selection.
+	AssignmentStateEffective AdmissionAssignmentState = "effective"
+)
 
 // AdmissionProjection is read from authenticated router storage, never caller headers.
 type AdmissionProjection struct {
-	Target               ServingTarget
-	ProfileKey           string
-	EnrollmentGeneration int64
-	AssignmentGeneration int64
+	Target                      ServingTarget
+	ProfileKey                  string
+	EnrollmentGeneration        int64
+	AssignmentGeneration        int64
+	SubjectAssignmentGeneration int64
+	AssignmentSource            AdmissionAssignmentSource
+	AssignmentState             AdmissionAssignmentState
+	ProfileRequired             bool
 }
 
 // SelectSessionRelease applies pin lifetimes to an authoritative target read inside session serialization.
 // A nil previous binding is request-scoped when no canonical client conversation ID exists.
 func SelectSessionRelease(previous *SessionReleaseBinding, projection AdmissionProjection, snapshot ServingStateSnapshot, sets map[string]SelectionSet, root string, now time.Time) (SessionReleaseBinding, error) {
-	if snapshot.Generation <= 0 || now.IsZero() || projection.EnrollmentGeneration < 0 || projection.AssignmentGeneration < 0 {
+	if snapshot.Generation <= 0 || now.IsZero() || projection.EnrollmentGeneration < 0 || projection.AssignmentGeneration < 0 || projection.SubjectAssignmentGeneration < 0 {
 		return SessionReleaseBinding{}, errors.New("admission requires authoritative state, projection and clock")
 	}
 	if err := snapshot.State.Validate(root, projection.Target); err != nil {
@@ -234,6 +278,9 @@ func SelectSessionRelease(previous *SessionReleaseBinding, projection AdmissionP
 		if err := validateProfileKey(projection.ProfileKey); err != nil {
 			return SessionReleaseBinding{}, err
 		}
+	}
+	if projection.ProfileRequired && projection.ProfileKey == "" {
+		return SessionReleaseBinding{}, errors.New("required assigned profile unavailable; default fallback is forbidden")
 	}
 	current := snapshot.State.Activations[snapshot.State.CurrentActivationID]
 	if now.Before(current.ActivatedAt) {
@@ -259,7 +306,7 @@ func SelectSessionRelease(previous *SessionReleaseBinding, projection AdmissionP
 			if !sameSelection(selected, previous.Selection) {
 				return SessionReleaseBinding{}, errors.New("persisted session selection differs from its activation")
 			}
-			eligible := previous.ProfileKey == projection.ProfileKey && previous.EnrollmentGeneration == projection.EnrollmentGeneration && previous.AssignmentGeneration == projection.AssignmentGeneration && now.Before(previous.LastAdmittedAt.Add(ServingIdleLifetime)) && activation.WithdrawnAt == nil && (activation.SupersededAt == nil || now.Before(activation.SupersededAt.Add(ServingRetirementLifetime)))
+			eligible := previous.ProfileKey == projection.ProfileKey && previous.EnrollmentGeneration == projection.EnrollmentGeneration && previous.AssignmentGeneration == projection.AssignmentGeneration && previous.SubjectAssignmentGeneration == projection.SubjectAssignmentGeneration && previous.AssignmentSource == projection.AssignmentSource && now.Before(previous.LastAdmittedAt.Add(ServingIdleLifetime)) && activation.WithdrawnAt == nil && (activation.SupersededAt == nil || now.Before(activation.SupersededAt.Add(ServingRetirementLifetime)))
 			if eligible {
 				retained := *previous
 				retained.LastAdmittedAt = now
@@ -271,7 +318,7 @@ func SelectSessionRelease(previous *SessionReleaseBinding, projection AdmissionP
 	if err != nil {
 		return SessionReleaseBinding{}, err
 	}
-	return SessionReleaseBinding{Target: projection.Target, ActivationID: current.ID, Selection: selection, ProfileKey: projection.ProfileKey, EnrollmentGeneration: projection.EnrollmentGeneration, AssignmentGeneration: projection.AssignmentGeneration, BindingGeneration: generation, CreatedAt: createdAt, LastAdmittedAt: now}, nil
+	return SessionReleaseBinding{Target: projection.Target, ActivationID: current.ID, Selection: selection, ProfileKey: projection.ProfileKey, EnrollmentGeneration: projection.EnrollmentGeneration, AssignmentGeneration: projection.AssignmentGeneration, SubjectAssignmentGeneration: projection.SubjectAssignmentGeneration, AssignmentSource: projection.AssignmentSource, BindingGeneration: generation, CreatedAt: createdAt, LastAdmittedAt: now}, nil
 }
 
 func selectionForActivation(activation Activation, profileKey string, sets map[string]SelectionSet, root string, target ServingTarget) (ServingSelection, error) {

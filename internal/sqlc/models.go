@@ -65,6 +65,30 @@ type RouterCredentialSubjectInstallation struct {
 	AccessEnabled  bool
 }
 
+// Opaque subject-level serving profile projection state; private account and plan tables remain outside Router
+type RouterCredentialSubjectProfileAssignment struct {
+	SubjectID      uuid.UUID
+	InstallationID uuid.UUID
+	// Precedence source: organization overrides stay installation-scoped; subject rows cover cohort, subscriber plan and explicit lane-default states
+	AssignmentSource    string
+	AssignmentState     string
+	DesiredGeneration   int64
+	EffectiveGeneration int64
+	// Previous effective state is retained when a newer desired projection is pending, failed or incompatible
+	EffectiveAssignmentState *string
+	DesiredProfileKey        pgtype.UUID
+	// Previous effective key is retained when a newer desired projection is pending, failed or incompatible
+	EffectiveProfileKey     pgtype.UUID
+	RouterAcknowledgementID uuid.UUID
+	EvidenceID              string
+	ProjectionAttempts      int32
+	ProjectedAt             pgtype.Timestamptz
+	EffectiveAt             pgtype.Timestamptz
+	LastFailureDetail       *string
+	CreatedAt               pgtype.Timestamptz
+	UpdatedAt               pgtype.Timestamptz
+}
+
 type RouterEscalationCheckpoint struct {
 	Scope      []byte
 	Boundary   []byte
@@ -824,21 +848,22 @@ type RouterSessionPin struct {
 
 // Conversation release pins; admission transactions lock installation, key, subject, then conversation
 type RouterSessionReleaseBinding struct {
-	InstallationID        uuid.UUID
-	CredentialScope       string
-	ConversationDigest    []byte
-	Target                string
-	ActivationID          uuid.UUID
-	ReleaseSha256         string
-	BindingSha256         string
-	ProfileKey            pgtype.UUID
-	ProfileRevisionSha256 *string
-	EnrollmentGeneration  int64
-	AssignmentGeneration  int64
-	BindingGeneration     int64
-	Binding               []byte
-	CreatedAt             pgtype.Timestamptz
-	LastAdmittedAt        pgtype.Timestamptz
+	InstallationID              uuid.UUID
+	CredentialScope             string
+	ConversationDigest          []byte
+	Target                      string
+	ActivationID                uuid.UUID
+	ReleaseSha256               string
+	BindingSha256               string
+	ProfileKey                  pgtype.UUID
+	ProfileRevisionSha256       *string
+	EnrollmentGeneration        int64
+	AssignmentGeneration        int64
+	BindingGeneration           int64
+	Binding                     []byte
+	CreatedAt                   pgtype.Timestamptz
+	LastAdmittedAt              pgtype.Timestamptz
+	SubjectAssignmentGeneration int64
 }
 
 // Explicit per-session router strategy preferences

@@ -25,6 +25,33 @@ SELECT profile_key, assignment_generation
 FROM router.installation_profile_assignments
 WHERE installation_id = @installation_id::uuid;
 
+-- Subject assignment rows are ordered by Router's public precedence after any installation override.
+-- name: GetServingSubjectProfileAssignments :many
+SELECT
+    assignment_source,
+    assignment_state,
+    desired_generation,
+    effective_generation,
+    effective_assignment_state,
+    desired_profile_key,
+    effective_profile_key,
+    router_acknowledgement_id,
+    evidence_id,
+    projection_attempts,
+    projected_at,
+    effective_at,
+    last_failure_detail
+FROM router.credential_subject_profile_assignments
+WHERE subject_id = @subject_id::uuid
+  AND installation_id = @installation_id::uuid
+ORDER BY CASE assignment_source
+    WHEN 'cohort' THEN 1
+    WHEN 'subscriber_plan' THEN 2
+    WHEN 'lane_default' THEN 3
+    ELSE 4
+END
+FOR SHARE;
+
 -- Serialize concurrent first admissions as well as existing bindings. Hash collisions only over-serialize.
 -- name: GetServingConversationLock :exec
 SELECT pg_advisory_xact_lock(hashtextextended(@admission_lock_key::text, 0));
@@ -46,13 +73,13 @@ WHERE installation_id = @installation_id::uuid
 INSERT INTO router.session_release_bindings (
     installation_id, credential_scope, conversation_digest, target, activation_id,
     release_sha256, binding_sha256, profile_key, profile_revision_sha256,
-    enrollment_generation, assignment_generation, binding_generation,
+    enrollment_generation, assignment_generation, subject_assignment_generation, binding_generation,
     binding, created_at, last_admitted_at
 ) VALUES (
     @installation_id::uuid, @credential_scope::varchar, @conversation_digest::bytea,
     @target::varchar, @activation_id::uuid, @release_sha256::varchar, @binding_sha256::varchar,
     sqlc.narg(profile_key)::uuid, sqlc.narg(profile_revision_sha256)::varchar,
-    @enrollment_generation::bigint, @assignment_generation::bigint, @binding_generation::bigint,
+    @enrollment_generation::bigint, @assignment_generation::bigint, @subject_assignment_generation::bigint, @binding_generation::bigint,
     @binding::jsonb, @created_at::timestamptz, @last_admitted_at::timestamptz
 )
 ON CONFLICT (installation_id, credential_scope, conversation_digest) DO UPDATE SET
@@ -64,6 +91,7 @@ ON CONFLICT (installation_id, credential_scope, conversation_digest) DO UPDATE S
     profile_revision_sha256 = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.profile_revision_sha256 ELSE router.session_release_bindings.profile_revision_sha256 END,
     enrollment_generation = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.enrollment_generation ELSE router.session_release_bindings.enrollment_generation END,
     assignment_generation = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.assignment_generation ELSE router.session_release_bindings.assignment_generation END,
+    subject_assignment_generation = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.subject_assignment_generation ELSE router.session_release_bindings.subject_assignment_generation END,
     binding_generation = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.binding_generation ELSE router.session_release_bindings.binding_generation END,
     binding = CASE WHEN router.session_release_bindings.binding_generation < EXCLUDED.binding_generation THEN EXCLUDED.binding
         ELSE jsonb_set(router.session_release_bindings.binding, '{last_admitted_at}', EXCLUDED.binding->'last_admitted_at') END,
@@ -77,5 +105,6 @@ WHERE router.session_release_bindings.binding_generation < EXCLUDED.binding_gene
         AND router.session_release_bindings.binding_sha256 = EXCLUDED.binding_sha256
         AND router.session_release_bindings.enrollment_generation = EXCLUDED.enrollment_generation
         AND router.session_release_bindings.assignment_generation = EXCLUDED.assignment_generation
+        AND router.session_release_bindings.subject_assignment_generation = EXCLUDED.subject_assignment_generation
         AND router.session_release_bindings.profile_key IS NOT DISTINCT FROM EXCLUDED.profile_key
     );
