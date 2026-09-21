@@ -3,7 +3,10 @@ package auth
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // SubscriptionProvider identifies a provider-specific account pool.
@@ -106,11 +109,13 @@ func SubscriptionOwnerForKey(key *APIKey) SubscriptionOwner {
 // account. RefreshTokenCiphertext is encrypted storage and must not cross the
 // auth/service boundary into an API response.
 type SubscriptionAccount struct {
-	ID                     string
-	SubscriberID           string
-	EnrolledByAPIKeyID     string
-	Provider               SubscriptionProvider
-	ExternalAccountID      string
+	ID                 string
+	SubscriberID       string
+	EnrolledByAPIKeyID string
+	Provider           SubscriptionProvider
+	ExternalAccountID  string
+	// DisplayName is provider-supplied metadata for humans; it is not identity.
+	DisplayName            string
 	RefreshTokenCiphertext []byte
 	Enabled                bool
 	State                  SubscriptionAccountState
@@ -123,6 +128,7 @@ type CreateSubscriptionAccountParams struct {
 	Owner             SubscriptionOwner
 	Provider          SubscriptionProvider
 	ExternalAccountID string
+	DisplayName       string
 	RefreshToken      []byte
 }
 
@@ -223,8 +229,24 @@ func (s *Service) AddSubscriptionAccount(ctx context.Context, params CreateSubsc
 	}
 	return s.subscriptionAccounts.UpsertSubscriptionAccount(ctx, CreateSubscriptionAccountParams{
 		Owner: params.Owner, Provider: params.Provider,
-		ExternalAccountID: params.ExternalAccountID, RefreshToken: ciphertext,
+		ExternalAccountID: params.ExternalAccountID,
+		DisplayName:       normalizeSubscriptionAccountDisplayName(params.DisplayName),
+		RefreshToken:      ciphertext,
 	})
+}
+
+func normalizeSubscriptionAccountDisplayName(value string) string {
+	value = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, value)
+	value = strings.Join(strings.Fields(value), " ")
+	if utf8.RuneCountInString(value) > 512 {
+		value = string([]rune(value)[:512])
+	}
+	return value
 }
 
 // UpdateSubscriptionAccountCooldown records quota state without changing the

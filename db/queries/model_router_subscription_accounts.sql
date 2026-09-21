@@ -21,6 +21,7 @@ adopted AS (
   UPDATE router.model_router_subscription_accounts
   SET subscriber_id = @subscriber_id::uuid,
       refresh_token_ciphertext = @refresh_token_ciphertext::bytea,
+      display_name = COALESCE(sqlc.narg('display_name')::text, display_name),
       enabled = TRUE,
       health_state = 'unknown',
       cooldown_until = NULL,
@@ -31,19 +32,21 @@ adopted AS (
       token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
       updated_at = CURRENT_TIMESTAMP
   WHERE id = (SELECT id FROM owned)
-  RETURNING id, subscriber_id, api_key_id, provider, external_account_id,
+  RETURNING id, subscriber_id, api_key_id, provider, external_account_id, display_name,
             refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
 ),
 inserted AS (
   INSERT INTO router.model_router_subscription_accounts (
-    subscriber_id, api_key_id, provider, external_account_id, refresh_token_ciphertext
+    subscriber_id, api_key_id, provider, external_account_id, refresh_token_ciphertext, display_name
   )
   SELECT @subscriber_id::uuid, @api_key_id::uuid, @provider::varchar,
-         @external_account_id::varchar, @refresh_token_ciphertext::bytea
+         @external_account_id::varchar, @refresh_token_ciphertext::bytea,
+         sqlc.narg('display_name')::text
   WHERE NOT EXISTS (SELECT 1 FROM owned)
   ON CONFLICT (subscriber_id, provider, external_account_id) WHERE subscriber_id IS NOT NULL
   DO UPDATE SET
     refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
+    display_name = COALESCE(EXCLUDED.display_name, router.model_router_subscription_accounts.display_name),
     enabled = TRUE,
     health_state = 'unknown',
     cooldown_until = NULL,
@@ -53,14 +56,14 @@ inserted AS (
     token_refresh_lease_id = NULL,
     token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
     updated_at = CURRENT_TIMESTAMP
-  RETURNING id, subscriber_id, api_key_id, provider, external_account_id,
+  RETURNING id, subscriber_id, api_key_id, provider, external_account_id, display_name,
             refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
 )
-SELECT id, subscriber_id, api_key_id, provider, external_account_id,
+SELECT id, subscriber_id, api_key_id, provider, external_account_id, display_name,
        refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
 FROM adopted
 UNION ALL
-SELECT id, subscriber_id, api_key_id, provider, external_account_id,
+SELECT id, subscriber_id, api_key_id, provider, external_account_id, display_name,
        refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
 FROM inserted;
 
@@ -68,12 +71,14 @@ FROM inserted;
 -- legacy api-key ownership until the subscriber reconnects it.
 -- name: UpsertModelRouterSubscriptionAccount :one
 INSERT INTO router.model_router_subscription_accounts (
-  api_key_id, provider, external_account_id, refresh_token_ciphertext
+  api_key_id, provider, external_account_id, refresh_token_ciphertext, display_name
 )
-VALUES (@api_key_id::uuid, @provider::varchar, @external_account_id::varchar, @refresh_token_ciphertext::bytea)
+VALUES (@api_key_id::uuid, @provider::varchar, @external_account_id::varchar, @refresh_token_ciphertext::bytea,
+        sqlc.narg('display_name')::text)
 ON CONFLICT (api_key_id, provider, external_account_id)
 DO UPDATE SET
   refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
+  display_name = COALESCE(EXCLUDED.display_name, router.model_router_subscription_accounts.display_name),
   enabled = TRUE,
   health_state = 'unknown',
   cooldown_until = NULL,
@@ -95,6 +100,7 @@ SELECT id,
        api_key_id,
        provider,
        external_account_id,
+       display_name,
        refresh_token_ciphertext,
        enabled,
        health_state,

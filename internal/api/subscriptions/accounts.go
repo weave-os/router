@@ -16,6 +16,7 @@ type accountResponse struct {
 	ID                string                        `json:"id"`
 	Provider          auth.SubscriptionProvider     `json:"provider"`
 	ExternalAccountID string                        `json:"external_account_id"`
+	DisplayName       string                        `json:"display_name,omitempty"`
 	Enabled           bool                          `json:"enabled"`
 	State             auth.SubscriptionAccountState `json:"state"`
 	CooldownUntil     *time.Time                    `json:"cooldown_until,omitempty"`
@@ -25,6 +26,7 @@ type accountResponse struct {
 type createAccountRequest struct {
 	Provider          auth.SubscriptionProvider `json:"provider" binding:"required"`
 	ExternalAccountID string                    `json:"external_account_id" binding:"required"`
+	DisplayName       string                    `json:"display_name,omitempty"`
 	RefreshToken      string                    `json:"refresh_token" binding:"required"`
 }
 
@@ -55,7 +57,7 @@ func listAccountsHandler(authSvc *auth.Service) gin.HandlerFunc {
 		}
 		response := make([]accountResponse, 0, len(accounts))
 		for _, account := range accounts {
-			response = append(response, accountResponse{ID: account.ID, Provider: account.Provider, ExternalAccountID: account.ExternalAccountID, Enabled: account.Enabled, State: account.State, CooldownUntil: account.CooldownUntil, CreatedAt: account.CreatedAt})
+			response = append(response, accountResponse{ID: account.ID, Provider: account.Provider, ExternalAccountID: account.ExternalAccountID, DisplayName: account.DisplayName, Enabled: account.Enabled, State: account.State, CooldownUntil: account.CooldownUntil, CreatedAt: account.CreatedAt})
 		}
 		c.JSON(http.StatusOK, response)
 	}
@@ -73,12 +75,12 @@ func createAccountHandler(authSvc *auth.Service) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_subscription_account"})
 			return
 		}
-		account, err := authSvc.AddSubscriptionAccount(c.Request.Context(), auth.CreateSubscriptionAccountParams{Owner: auth.SubscriptionOwnerForKey(key), Provider: request.Provider, ExternalAccountID: request.ExternalAccountID, RefreshToken: []byte(request.RefreshToken)})
+		account, err := authSvc.AddSubscriptionAccount(c.Request.Context(), auth.CreateSubscriptionAccountParams{Owner: auth.SubscriptionOwnerForKey(key), Provider: request.Provider, ExternalAccountID: request.ExternalAccountID, DisplayName: request.DisplayName, RefreshToken: []byte(request.RefreshToken)})
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "subscription_account_rejected"})
 			return
 		}
-		c.JSON(http.StatusCreated, accountResponse{ID: account.ID, Provider: account.Provider, ExternalAccountID: account.ExternalAccountID, Enabled: account.Enabled, State: account.State, CreatedAt: account.CreatedAt})
+		c.JSON(http.StatusCreated, accountResponse{ID: account.ID, Provider: account.Provider, ExternalAccountID: account.ExternalAccountID, DisplayName: account.DisplayName, Enabled: account.Enabled, State: account.State, CreatedAt: account.CreatedAt})
 	}
 }
 

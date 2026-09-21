@@ -582,6 +582,8 @@ type RouterModelRouterSubscriptionAccount struct {
 	TokenRefreshVersion    int64
 	SubscriberID           pgtype.UUID
 	HealthState            string
+	// Provider-supplied human-readable account label; never used for identity or deduplication.
+	DisplayName *string
 }
 
 // End-user identities seen on inbound requests, scoped to an installation. Replaces the per-user API key pattern.

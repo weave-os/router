@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"weave-os/router/internal/observability"
 )
 
@@ -40,6 +41,19 @@ type RefreshedToken struct {
 	RefreshToken string
 	AccountID    string
 	ExpiresAt    time.Time
+}
+
+// ClaudeExternalAccountID returns the stable identity used to deduplicate a
+// Claude account within one organization. Claude account UUIDs can belong to
+// multiple organizations, and each organization has its own subscription
+// entitlement and refresh credential.
+func ClaudeExternalAccountID(accountUUID, organizationUUID string) string {
+	account, accountErr := uuid.Parse(accountUUID)
+	organization, organizationErr := uuid.Parse(organizationUUID)
+	if accountErr != nil || organizationErr != nil {
+		return ""
+	}
+	return account.String() + ":" + organization.String()
 }
 
 // TokenRefresher exchanges provider refresh tokens for short-lived access tokens.
@@ -156,6 +170,12 @@ func (c *OAuthClient) refreshClaude(ctx context.Context, refreshToken string) (R
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
 		ExpiresIn    int64  `json:"expires_in"`
+		Account      struct {
+			UUID string `json:"uuid"`
+		} `json:"account"`
+		Organization struct {
+			UUID string `json:"uuid"`
+		} `json:"organization"`
 	}
 	if err := c.doTokenRequest(req, ProviderClaude, &response); err != nil {
 		return RefreshedToken{}, err
@@ -163,7 +183,8 @@ func (c *OAuthClient) refreshClaude(ctx context.Context, refreshToken string) (R
 	if response.RefreshToken == "" {
 		response.RefreshToken = refreshToken
 	}
-	return c.validatedToken(ProviderClaude, response.AccessToken, response.RefreshToken, "", response.ExpiresIn)
+	return c.validatedToken(ProviderClaude, response.AccessToken, response.RefreshToken,
+		ClaudeExternalAccountID(response.Account.UUID, response.Organization.UUID), response.ExpiresIn)
 }
 
 func (c *OAuthClient) doTokenRequest(req *http.Request, provider Provider, response any) error {

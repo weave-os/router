@@ -268,6 +268,7 @@ SELECT id,
        api_key_id,
        provider,
        external_account_id,
+       display_name,
        refresh_token_ciphertext,
        enabled,
        health_state,
@@ -291,6 +292,7 @@ type ListModelRouterSubscriptionAccountsRow struct {
 	APIKeyID               pgtype.UUID
 	Provider               string
 	ExternalAccountID      string
+	DisplayName            *string
 	RefreshTokenCiphertext []byte
 	Enabled                bool
 	HealthState            string
@@ -309,6 +311,7 @@ type ListModelRouterSubscriptionAccountsRow struct {
 //	       api_key_id,
 //	       provider,
 //	       external_account_id,
+//	       display_name,
 //	       refresh_token_ciphertext,
 //	       enabled,
 //	       health_state,
@@ -334,6 +337,7 @@ func (q *Queries) ListModelRouterSubscriptionAccounts(ctx context.Context, arg L
 			&i.APIKeyID,
 			&i.Provider,
 			&i.ExternalAccountID,
+			&i.DisplayName,
 			&i.RefreshTokenCiphertext,
 			&i.Enabled,
 			&i.HealthState,
@@ -739,12 +743,14 @@ func (q *Queries) UpdateModelRouterSubscriptionRefreshToken(ctx context.Context,
 
 const upsertModelRouterSubscriptionAccount = `-- name: UpsertModelRouterSubscriptionAccount :one
 INSERT INTO router.model_router_subscription_accounts (
-  api_key_id, provider, external_account_id, refresh_token_ciphertext
+  api_key_id, provider, external_account_id, refresh_token_ciphertext, display_name
 )
-VALUES ($1::uuid, $2::varchar, $3::varchar, $4::bytea)
+VALUES ($1::uuid, $2::varchar, $3::varchar, $4::bytea,
+        $5::text)
 ON CONFLICT (api_key_id, provider, external_account_id)
 DO UPDATE SET
   refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
+  display_name = COALESCE(EXCLUDED.display_name, router.model_router_subscription_accounts.display_name),
   enabled = TRUE,
   health_state = 'unknown',
   cooldown_until = NULL,
@@ -754,7 +760,7 @@ DO UPDATE SET
   token_refresh_lease_id = NULL,
   token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
   updated_at = CURRENT_TIMESTAMP
-RETURNING id, api_key_id, provider, external_account_id, refresh_token_ciphertext, enabled, cooldown_until, created_at, updated_at, access_token_ciphertext, access_token_expires_at, token_refresh_lease_until, token_refresh_lease_id, token_refresh_version, subscriber_id, health_state
+RETURNING id, api_key_id, provider, external_account_id, refresh_token_ciphertext, enabled, cooldown_until, created_at, updated_at, access_token_ciphertext, access_token_expires_at, token_refresh_lease_until, token_refresh_lease_id, token_refresh_version, subscriber_id, health_state, display_name
 `
 
 type UpsertModelRouterSubscriptionAccountParams struct {
@@ -762,18 +768,21 @@ type UpsertModelRouterSubscriptionAccountParams struct {
 	Provider               string
 	ExternalAccountID      string
 	RefreshTokenCiphertext []byte
+	DisplayName            *string
 }
 
 // Enroll an account for a key that has no credential subject. Such a row keeps
 // legacy api-key ownership until the subscriber reconnects it.
 //
 //	INSERT INTO router.model_router_subscription_accounts (
-//	  api_key_id, provider, external_account_id, refresh_token_ciphertext
+//	  api_key_id, provider, external_account_id, refresh_token_ciphertext, display_name
 //	)
-//	VALUES ($1::uuid, $2::varchar, $3::varchar, $4::bytea)
+//	VALUES ($1::uuid, $2::varchar, $3::varchar, $4::bytea,
+//	        $5::text)
 //	ON CONFLICT (api_key_id, provider, external_account_id)
 //	DO UPDATE SET
 //	  refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
+//	  display_name = COALESCE(EXCLUDED.display_name, router.model_router_subscription_accounts.display_name),
 //	  enabled = TRUE,
 //	  health_state = 'unknown',
 //	  cooldown_until = NULL,
@@ -783,13 +792,14 @@ type UpsertModelRouterSubscriptionAccountParams struct {
 //	  token_refresh_lease_id = NULL,
 //	  token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
 //	  updated_at = CURRENT_TIMESTAMP
-//	RETURNING id, api_key_id, provider, external_account_id, refresh_token_ciphertext, enabled, cooldown_until, created_at, updated_at, access_token_ciphertext, access_token_expires_at, token_refresh_lease_until, token_refresh_lease_id, token_refresh_version, subscriber_id, health_state
+//	RETURNING id, api_key_id, provider, external_account_id, refresh_token_ciphertext, enabled, cooldown_until, created_at, updated_at, access_token_ciphertext, access_token_expires_at, token_refresh_lease_until, token_refresh_lease_id, token_refresh_version, subscriber_id, health_state, display_name
 func (q *Queries) UpsertModelRouterSubscriptionAccount(ctx context.Context, arg UpsertModelRouterSubscriptionAccountParams) (RouterModelRouterSubscriptionAccount, error) {
 	row := q.db.QueryRow(ctx, upsertModelRouterSubscriptionAccount,
 		arg.APIKeyID,
 		arg.Provider,
 		arg.ExternalAccountID,
 		arg.RefreshTokenCiphertext,
+		arg.DisplayName,
 	)
 	var i RouterModelRouterSubscriptionAccount
 	err := row.Scan(
@@ -809,6 +819,7 @@ func (q *Queries) UpsertModelRouterSubscriptionAccount(ctx context.Context, arg 
 		&i.TokenRefreshVersion,
 		&i.SubscriberID,
 		&i.HealthState,
+		&i.DisplayName,
 	)
 	return i, err
 }
@@ -829,6 +840,7 @@ adopted AS (
   UPDATE router.model_router_subscription_accounts
   SET subscriber_id = $3::uuid,
       refresh_token_ciphertext = $5::bytea,
+      display_name = COALESCE($6::text, display_name),
       enabled = TRUE,
       health_state = 'unknown',
       cooldown_until = NULL,
@@ -839,19 +851,21 @@ adopted AS (
       token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
       updated_at = CURRENT_TIMESTAMP
   WHERE id = (SELECT id FROM owned)
-  RETURNING id, subscriber_id, api_key_id, provider, external_account_id,
+  RETURNING id, subscriber_id, api_key_id, provider, external_account_id, display_name,
             refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
 ),
 inserted AS (
   INSERT INTO router.model_router_subscription_accounts (
-    subscriber_id, api_key_id, provider, external_account_id, refresh_token_ciphertext
+    subscriber_id, api_key_id, provider, external_account_id, refresh_token_ciphertext, display_name
   )
   SELECT $3::uuid, $4::uuid, $1::varchar,
-         $2::varchar, $5::bytea
+         $2::varchar, $5::bytea,
+         $6::text
   WHERE NOT EXISTS (SELECT 1 FROM owned)
   ON CONFLICT (subscriber_id, provider, external_account_id) WHERE subscriber_id IS NOT NULL
   DO UPDATE SET
     refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
+    display_name = COALESCE(EXCLUDED.display_name, router.model_router_subscription_accounts.display_name),
     enabled = TRUE,
     health_state = 'unknown',
     cooldown_until = NULL,
@@ -861,14 +875,14 @@ inserted AS (
     token_refresh_lease_id = NULL,
     token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
     updated_at = CURRENT_TIMESTAMP
-  RETURNING id, subscriber_id, api_key_id, provider, external_account_id,
+  RETURNING id, subscriber_id, api_key_id, provider, external_account_id, display_name,
             refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
 )
-SELECT id, subscriber_id, api_key_id, provider, external_account_id,
+SELECT id, subscriber_id, api_key_id, provider, external_account_id, display_name,
        refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
 FROM adopted
 UNION ALL
-SELECT id, subscriber_id, api_key_id, provider, external_account_id,
+SELECT id, subscriber_id, api_key_id, provider, external_account_id, display_name,
        refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
 FROM inserted
 `
@@ -879,6 +893,7 @@ type UpsertModelRouterSubscriptionAccountForSubscriberParams struct {
 	SubscriberID           uuid.UUID
 	APIKeyID               uuid.UUID
 	RefreshTokenCiphertext []byte
+	DisplayName            *string
 }
 
 type UpsertModelRouterSubscriptionAccountForSubscriberRow struct {
@@ -887,6 +902,7 @@ type UpsertModelRouterSubscriptionAccountForSubscriberRow struct {
 	APIKeyID               pgtype.UUID
 	Provider               string
 	ExternalAccountID      string
+	DisplayName            *string
 	RefreshTokenCiphertext []byte
 	Enabled                bool
 	HealthState            string
@@ -917,6 +933,7 @@ type UpsertModelRouterSubscriptionAccountForSubscriberRow struct {
 //	  UPDATE router.model_router_subscription_accounts
 //	  SET subscriber_id = $3::uuid,
 //	      refresh_token_ciphertext = $5::bytea,
+//	      display_name = COALESCE($6::text, display_name),
 //	      enabled = TRUE,
 //	      health_state = 'unknown',
 //	      cooldown_until = NULL,
@@ -927,19 +944,21 @@ type UpsertModelRouterSubscriptionAccountForSubscriberRow struct {
 //	      token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
 //	      updated_at = CURRENT_TIMESTAMP
 //	  WHERE id = (SELECT id FROM owned)
-//	  RETURNING id, subscriber_id, api_key_id, provider, external_account_id,
+//	  RETURNING id, subscriber_id, api_key_id, provider, external_account_id, display_name,
 //	            refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
 //	),
 //	inserted AS (
 //	  INSERT INTO router.model_router_subscription_accounts (
-//	    subscriber_id, api_key_id, provider, external_account_id, refresh_token_ciphertext
+//	    subscriber_id, api_key_id, provider, external_account_id, refresh_token_ciphertext, display_name
 //	  )
 //	  SELECT $3::uuid, $4::uuid, $1::varchar,
-//	         $2::varchar, $5::bytea
+//	         $2::varchar, $5::bytea,
+//	         $6::text
 //	  WHERE NOT EXISTS (SELECT 1 FROM owned)
 //	  ON CONFLICT (subscriber_id, provider, external_account_id) WHERE subscriber_id IS NOT NULL
 //	  DO UPDATE SET
 //	    refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
+//	    display_name = COALESCE(EXCLUDED.display_name, router.model_router_subscription_accounts.display_name),
 //	    enabled = TRUE,
 //	    health_state = 'unknown',
 //	    cooldown_until = NULL,
@@ -949,14 +968,14 @@ type UpsertModelRouterSubscriptionAccountForSubscriberRow struct {
 //	    token_refresh_lease_id = NULL,
 //	    token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
 //	    updated_at = CURRENT_TIMESTAMP
-//	  RETURNING id, subscriber_id, api_key_id, provider, external_account_id,
+//	  RETURNING id, subscriber_id, api_key_id, provider, external_account_id, display_name,
 //	            refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
 //	)
-//	SELECT id, subscriber_id, api_key_id, provider, external_account_id,
+//	SELECT id, subscriber_id, api_key_id, provider, external_account_id, display_name,
 //	       refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
 //	FROM adopted
 //	UNION ALL
-//	SELECT id, subscriber_id, api_key_id, provider, external_account_id,
+//	SELECT id, subscriber_id, api_key_id, provider, external_account_id, display_name,
 //	       refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
 //	FROM inserted
 func (q *Queries) UpsertModelRouterSubscriptionAccountForSubscriber(ctx context.Context, arg UpsertModelRouterSubscriptionAccountForSubscriberParams) (UpsertModelRouterSubscriptionAccountForSubscriberRow, error) {
@@ -966,6 +985,7 @@ func (q *Queries) UpsertModelRouterSubscriptionAccountForSubscriber(ctx context.
 		arg.SubscriberID,
 		arg.APIKeyID,
 		arg.RefreshTokenCiphertext,
+		arg.DisplayName,
 	)
 	var i UpsertModelRouterSubscriptionAccountForSubscriberRow
 	err := row.Scan(
@@ -974,6 +994,7 @@ func (q *Queries) UpsertModelRouterSubscriptionAccountForSubscriber(ctx context.
 		&i.APIKeyID,
 		&i.Provider,
 		&i.ExternalAccountID,
+		&i.DisplayName,
 		&i.RefreshTokenCiphertext,
 		&i.Enabled,
 		&i.HealthState,

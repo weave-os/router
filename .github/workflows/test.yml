@@ -185,6 +185,11 @@ jobs:
           ROUTER_TEST_DATABASE_URL: postgres://router:router@localhost:5432/router?sslmode=disable&search_path=router
         run: go run ./scripts/subscriber_entitlement_check
 
+      - name: Check subscription login and reconnect on ephemeral Postgres
+        env:
+          ROUTER_TEST_DATABASE_URL: postgres://router:router@localhost:5432/router?sslmode=disable&search_path=router
+        run: go test -count=1 ./scripts/subscription_enrollment_check
+
       - name: Build standalone gateway without worker native dependencies
         run: CGO_ENABLED=0 go build -o "$RUNNER_TEMP/router-gateway" ./cmd/router-gateway
 

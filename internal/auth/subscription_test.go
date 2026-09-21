@@ -17,7 +17,7 @@ func (r *subscriptionAccountRepoStub) UpsertSubscriptionAccount(_ context.Contex
 		r.account = &SubscriptionAccount{
 			ID: "stable-account-id", SubscriberID: params.Owner.SubscriberID,
 			EnrolledByAPIKeyID: params.Owner.APIKeyID, Provider: params.Provider,
-			ExternalAccountID: params.ExternalAccountID,
+			ExternalAccountID: params.ExternalAccountID, DisplayName: params.DisplayName,
 		}
 	}
 	r.account.RefreshTokenCiphertext = append([]byte(nil), params.RefreshToken...)
@@ -63,7 +63,7 @@ func TestAddSubscriptionAccountUpsertsStableProviderIdentity(t *testing.T) {
 		WithSubscriptionAccounts(repo)
 	params := CreateSubscriptionAccountParams{
 		Owner: SubscriptionOwner{SubscriberID: "subscriber-1", APIKeyID: "key-1"}, Provider: SubscriptionProviderCodex,
-		ExternalAccountID: "chatgpt-account-1", RefreshToken: []byte("refresh-old"),
+		ExternalAccountID: "chatgpt-account-1", DisplayName: "Acme: person@example.com", RefreshToken: []byte("refresh-old"),
 	}
 
 	first, err := svc.AddSubscriptionAccount(context.Background(), params)
@@ -74,8 +74,22 @@ func TestAddSubscriptionAccountUpsertsStableProviderIdentity(t *testing.T) {
 
 	require.Equal(t, first.ID, second.ID)
 	require.Equal(t, []byte("refresh-new"), repo.account.RefreshTokenCiphertext)
+	require.Equal(t, "Acme: person@example.com", repo.account.DisplayName)
 	require.True(t, repo.account.Enabled)
 	require.Nil(t, repo.account.CooldownUntil)
+}
+
+func TestAddSubscriptionAccountNormalizesDisplayName(t *testing.T) {
+	repo := &subscriptionAccountRepoStub{}
+	svc := NewService(nil, nil, nil, nil, NoOpAPIKeyCache{}, nil, time.Now).
+		WithSubscriptionAccounts(repo)
+
+	_, err := svc.AddSubscriptionAccount(context.Background(), CreateSubscriptionAccountParams{
+		Owner: SubscriptionOwner{SubscriberID: "subscriber-1", APIKeyID: "key-1"}, Provider: SubscriptionProviderCodex,
+		ExternalAccountID: "chatgpt-account-1", DisplayName: "  Acme:\n\tperson@example.com  ", RefreshToken: []byte("refresh"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "Acme: person@example.com", repo.account.DisplayName)
 }
 
 type coordinatedSubscriptionRepo struct {

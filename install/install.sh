@@ -3159,7 +3159,7 @@ run_accounts() {
       if [ "$models_json" = "true" ]; then
         printf '%s\n' "$models_http_body"
       else
-        printf '%s\n' "$models_http_body" | jq -r '.[] | "\(.id)\t\(.provider)\t\(.external_account_id)\t\(if .enabled then "enabled" else "disabled" end)\t\(if .cooldown_until then "cooldown until " + .cooldown_until else "ready" end)"'
+        printf '%s\n' "$models_http_body" | jq -r '.[] | "\(.id)\t\(.provider)\t\(.external_account_id)" + (if (.display_name // "") != "" then "\t" + .display_name else "" end) + "\t" + (if .enabled then "enabled" else "disabled" end) + "\t" + (if .cooldown_until then "cooldown until " + .cooldown_until else "ready" end)'
       fi
       ;;
     disable|remove)
@@ -3204,6 +3204,24 @@ jwt_account_id() {
   printf '%s' "$decoded" | jq -r '.chatgpt_account_id // .["https://api.openai.com/auth"].chatgpt_account_id // .organizations[0].id // empty' 2>/dev/null || true
 }
 
+jwt_account_label() {
+  local token="$1" payload padding decoded
+  payload="$(printf '%s' "$token" | cut -d. -f2 | tr '_-' '/+')"
+  padding=$(( (4 - ${#payload} % 4) % 4 ))
+  while [ "$padding" -gt 0 ]; do payload="${payload}="; padding=$((padding - 1)); done
+  decoded="$(printf '%s' "$payload" | base64 --decode 2>/dev/null || printf '%s' "$payload" | base64 -D 2>/dev/null || true)"
+  printf '%s' "$decoded" | jq -r '
+    def clean: if type == "string" then gsub("[[:cntrl:]]"; " ") | gsub("[[:space:]]+"; " ") | sub("^ +"; "") | sub(" +$"; "") else "" end;
+    (.organizations[0].name // .organizations[0].display_name // .organization.name // "" | clean) as $organization |
+    (.email // .email_address // .["https://api.openai.com/profile"].email // .["https://api.openai.com/auth"].email // "" | clean) as $email |
+    (.name // .preferred_username // "" | clean) as $name |
+    if $organization != "" and $email != "" then ($organization + ": " + $email)
+    elif $email != "" then $email
+    elif $organization != "" then $organization
+    else $name end
+  ' 2>/dev/null || true
+}
+
 # OAuth issuers rate-limit curl's default user agent, which fails the token
 # exchange (and every later refresh) with a 429 before the request is even
 # read, so identify the installer explicitly.
@@ -3232,7 +3250,7 @@ oauth_post_form() {
 }
 
 run_login_claude() {
-  local verifier challenge expected_state authorize_endpoint authorize_url pasted_code auth_code returned_state token_response refresh_token external_account_id body
+  local verifier challenge expected_state authorize_endpoint authorize_url pasted_code auth_code returned_state token_response refresh_token account_uuid organization_uuid account_email organization_name display_name external_account_id body
   verifier="$(openssl rand 32 | oauth_base64url)"
   challenge="$(printf '%s' "$verifier" | openssl dgst -sha256 -binary | oauth_base64url)"
   expected_state="$(openssl rand 32 | oauth_base64url)"
@@ -3254,14 +3272,27 @@ run_login_claude() {
     || { err "Claude token exchange failed."; exit 1; }
   refresh_token="$(printf '%s' "$token_response" | jq -r '.refresh_token // empty')"
   [ -n "$refresh_token" ] || { err "Claude token exchange returned no refresh token."; exit 1; }
-  external_account_id="claude-$(openssl rand 12 | oauth_base64url)"
-  body="$(jq -nc --arg provider claude --arg account "$external_account_id" --arg token "$refresh_token" '{provider:$provider,external_account_id:$account,refresh_token:$token}')"
+  account_uuid="$(printf '%s' "$token_response" | jq -er '.account.uuid | select(type == "string" and test("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")) | ascii_downcase' 2>/dev/null)" \
+    || { err "Claude token exchange returned no valid account UUID; subscription was not enrolled. Update the installer and try again."; exit 1; }
+  organization_uuid="$(printf '%s' "$token_response" | jq -er '.organization.uuid | select(type == "string" and test("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")) | ascii_downcase' 2>/dev/null)" \
+    || { err "Claude token exchange returned no valid organization UUID; subscription was not enrolled. Update the installer and try again."; exit 1; }
+  account_email="$(printf '%s' "$token_response" | jq -r '.account.email_address // .account.email // empty' 2>/dev/null || true)"
+  organization_name="$(printf '%s' "$token_response" | jq -r '.organization.name // .organization.display_name // empty' 2>/dev/null || true)"
+  display_name="$(jq -nr --arg organization "$organization_name" --arg email "$account_email" '
+    def clean: gsub("[[:cntrl:]]"; " ") | gsub("[[:space:]]+"; " ") | sub("^ +"; "") | sub(" +$"; "");
+    ($organization | clean) as $organization | ($email | clean) as $email |
+    if $organization != "" and $email != "" then ($organization + ": " + $email)
+    elif $email != "" then $email
+    else $organization end
+  ')"
+  external_account_id="${account_uuid}:${organization_uuid}"
+  body="$(jq -nc --arg provider claude --arg account "$external_account_id" --arg token "$refresh_token" --arg label "$display_name" '{provider:$provider,external_account_id:$account,refresh_token:$token} | if $label != "" then .display_name = $label else . end')"
   models_api POST "/v1/subscriptions/accounts" "$body" || models_fail "enrolling Claude subscription"
   ok "Claude subscription enrolled."
 }
 
 run_login_codex() {
-  local issuer device_response device_auth_id user_code interval authorization_response authorization_code verifier token_response refresh_token account_id body attempts token_form
+  local issuer device_response device_auth_id user_code interval authorization_response authorization_code verifier token_response refresh_token account_id display_name identity_token body attempts token_form
   issuer="${WEAVE_CODEX_OAUTH_ISSUER:-https://auth.openai.com}"
   device_response="$(oauth_post_json "$issuer/api/accounts/deviceauth/usercode" '{"client_id":"app_EMoamEEZ73f0CkXaXp7hrann"}')" \
     || { err "Could not start Codex device authorization."; exit 1; }
@@ -3294,12 +3325,14 @@ run_login_codex() {
   token_response="$(oauth_post_form "$issuer/oauth/token" "$token_form")" \
     || { err "Codex token exchange failed."; exit 1; }
   refresh_token="$(printf '%s' "$token_response" | jq -r '.refresh_token // empty')"
-  account_id="$(jwt_account_id "$(printf '%s' "$token_response" | jq -r '.id_token // .access_token // empty')")"
+  identity_token="$(printf '%s' "$token_response" | jq -r '.id_token // .access_token // empty')"
+  account_id="$(jwt_account_id "$identity_token")"
+  display_name="$(jwt_account_label "$identity_token")"
   if [ -z "$refresh_token" ] || [ -z "$account_id" ]; then
     err "Codex token exchange omitted account identity or refresh credentials."
     exit 1
   fi
-  body="$(jq -nc --arg provider codex --arg account "$account_id" --arg token "$refresh_token" '{provider:$provider,external_account_id:$account,refresh_token:$token}')"
+  body="$(jq -nc --arg provider codex --arg account "$account_id" --arg token "$refresh_token" --arg label "$display_name" '{provider:$provider,external_account_id:$account,refresh_token:$token} | if $label != "" then .display_name = $label else . end')"
   models_api POST "/v1/subscriptions/accounts" "$body" || models_fail "enrolling Codex subscription"
   ok "Codex subscription enrolled."
 }
@@ -3351,7 +3384,7 @@ run_router_status() {
     if [ "$(printf '%s' "$models_http_body" | jq 'length')" -eq 0 ]; then
       printf '  none enrolled\n'
     else
-      printf '%s\n' "$models_http_body" | jq -r '.[] | "  " + .provider + "  " + .external_account_id + "  " + (if .enabled then "enabled" else "disabled" end) + (if .cooldown_until then "  cooldown until " + .cooldown_until else "  ready" end)'
+      printf '%s\n' "$models_http_body" | jq -r '.[] | "  " + .provider + "  " + .external_account_id + (if (.display_name // "") != "" then "  [" + .display_name + "]" else "" end) + "  " + (if .enabled then "enabled" else "disabled" end) + (if .cooldown_until then "  cooldown until " + .cooldown_until else "  ready" end)'
     fi
   elif [ "$models_http_status" = "404" ]; then
     printf 'Subscription accounts: server-side pools disabled\n'

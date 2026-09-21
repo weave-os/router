@@ -96,7 +96,7 @@ func TestOAuthClientRefreshesClaudeWithJSONRequest(t *testing.T) {
 		require.JSONEq(t, `{"client_id":"`+subscriptions.ClaudeClientID+`","grant_type":"refresh_token","refresh_token":"refresh-secret"}`, string(requestBody))
 		return &http.Response{
 			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader(`{"access_token":"access-new","refresh_token":"refresh-new","expires_in":1800}`)),
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"access-new","refresh_token":"refresh-new","expires_in":1800,"account":{"uuid":"11111111-1111-4111-8111-111111111111"},"organization":{"uuid":"22222222-2222-4222-8222-222222222222"}}`)),
 			Header:     make(http.Header),
 		}, nil
 	})}, "", "https://token.test/claude", func() time.Time { return now })
@@ -105,5 +105,29 @@ func TestOAuthClientRefreshesClaudeWithJSONRequest(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "access-new", token.AccessToken)
 	require.Equal(t, "refresh-new", token.RefreshToken)
+	require.Equal(t, "11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222", token.AccountID)
 	require.Equal(t, now.Add(30*time.Minute), token.ExpiresAt)
+}
+
+func TestOAuthClientClaudeRefreshMayOmitAccountAndRotatedToken(t *testing.T) {
+	client := subscriptions.NewOAuthClient(&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"access_token":"access-new","expires_in":1800,"organization":{"uuid":"22222222-2222-4222-8222-222222222222"}}`)),
+			Header:     make(http.Header),
+		}, nil
+	})}, "", "https://token.test/claude", nil)
+
+	token, err := client.Refresh(context.Background(), subscriptions.ProviderClaude, "refresh-secret")
+	require.NoError(t, err)
+	require.Empty(t, token.AccountID, "both Claude account and organization identities are required")
+	require.Equal(t, "refresh-secret", token.RefreshToken)
+}
+
+func TestClaudeExternalAccountIDCanonicalizesAccountAndOrganization(t *testing.T) {
+	require.Equal(t,
+		"11111111-1111-4111-8111-111111111111:22222222-2222-4222-8222-222222222222",
+		subscriptions.ClaudeExternalAccountID("11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"))
+	require.Empty(t, subscriptions.ClaudeExternalAccountID("account", "22222222-2222-4222-8222-222222222222"))
+	require.Empty(t, subscriptions.ClaudeExternalAccountID("11111111-1111-4111-8111-111111111111", "organization"))
 }

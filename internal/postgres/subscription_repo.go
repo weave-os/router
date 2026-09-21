@@ -46,7 +46,7 @@ func (r *subscriptionAccountRepo) UpsertSubscriptionAccount(ctx context.Context,
 	if params.Owner.SubscriberID == "" {
 		row, legacyErr := sqlc.New(r.tx).UpsertModelRouterSubscriptionAccount(ctx, sqlc.UpsertModelRouterSubscriptionAccountParams{
 			APIKeyID: apiKeyID, Provider: string(params.Provider), ExternalAccountID: params.ExternalAccountID,
-			RefreshTokenCiphertext: params.RefreshToken,
+			DisplayName: optionalSubscriptionAccountDisplayName(params.DisplayName), RefreshTokenCiphertext: params.RefreshToken,
 		})
 		if legacyErr != nil {
 			return nil, legacyErr
@@ -63,11 +63,11 @@ func (r *subscriptionAccountRepo) UpsertSubscriptionAccount(ctx context.Context,
 	for attempt := 0; ; attempt++ {
 		row, err := sqlc.New(r.tx).UpsertModelRouterSubscriptionAccountForSubscriber(ctx, sqlc.UpsertModelRouterSubscriptionAccountForSubscriberParams{
 			SubscriberID: subscriberID, APIKeyID: apiKeyID, Provider: string(params.Provider),
-			ExternalAccountID: params.ExternalAccountID, RefreshTokenCiphertext: params.RefreshToken,
+			ExternalAccountID: params.ExternalAccountID, DisplayName: optionalSubscriptionAccountDisplayName(params.DisplayName), RefreshTokenCiphertext: params.RefreshToken,
 		})
 		if err == nil {
 			return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID,
-				row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt), nil
+				row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt), nil
 		}
 		if attempt == subscriberEnrollmentMaxAttempts-1 || !isSubscriberAccountConflict(err) {
 			return nil, err
@@ -343,21 +343,32 @@ func (r *subscriptionAccountRepo) PersistSubscriptionTokens(ctx context.Context,
 }
 
 func toAuthSubscriptionAccount(row sqlc.RouterModelRouterSubscriptionAccount) *auth.SubscriptionAccount {
-	return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
+	return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
 }
 
 func toAuthSubscriptionAccountListRow(row sqlc.ListModelRouterSubscriptionAccountsRow) *auth.SubscriptionAccount {
-	return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
+	return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
 }
 
-func toAuthSubscriptionAccountFields(id uuid.UUID, subscriberID, apiKeyID pgtype.UUID, provider, externalAccountID string, refreshTokenCiphertext []byte, enabled bool, healthState string, cooldownUntil, createdAt pgtype.Timestamp) *auth.SubscriptionAccount {
+func toAuthSubscriptionAccountFields(id uuid.UUID, subscriberID, apiKeyID pgtype.UUID, provider, externalAccountID string, displayName *string, refreshTokenCiphertext []byte, enabled bool, healthState string, cooldownUntil, createdAt pgtype.Timestamp) *auth.SubscriptionAccount {
+	var label string
+	if displayName != nil {
+		label = *displayName
+	}
 	return &auth.SubscriptionAccount{
 		ID: id.String(), SubscriberID: uuidString(subscriberID), EnrolledByAPIKeyID: uuidString(apiKeyID),
 		Provider:          auth.SubscriptionProvider(provider),
-		ExternalAccountID: externalAccountID, RefreshTokenCiphertext: refreshTokenCiphertext,
+		ExternalAccountID: externalAccountID, DisplayName: label, RefreshTokenCiphertext: refreshTokenCiphertext,
 		Enabled: enabled, State: auth.SubscriptionAccountState(healthState),
 		CooldownUntil: timestampPtr(cooldownUntil), CreatedAt: timestampOrZero(createdAt),
 	}
+}
+
+func optionalSubscriptionAccountDisplayName(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 func (r *subscriptionAccountRepo) DisableSubscriptionAccountIfRefreshHolder(ctx context.Context, accountID string, owner auth.SubscriptionOwner, leaseID string, expectedVersion int64) error {

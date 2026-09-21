@@ -24,26 +24,6 @@ npx @weave-os/router --email you@example.com # set identity without prompting
 npx @weave-os/router --non-interactive     # reads $WEAVE_ROUTER_KEY, no prompts (defaults to claude)
 ```
 
-Re-running the installer to pick up changes reuses the key already on disk, so
-you paste it once and never again — for every client, not just Claude Code.
-`update` is the never-prompting form of that (safe for cron; errors instead of
-asking when no key can be found):
-
-```bash
-npx @weave-os/router --claude                # reuses the installed key
-npx @weave-os/router --codex                 # same for Codex, opencode, and pi
-npx @weave-os/router --claude --rotate-key   # ignore it and prompt for a new one
-npx @weave-os/router update --claude         # non-interactive refresh in place
-npx @weave-os/router update --claude --context-window 1m # opt into Claude's 1M local context
-```
-
-Claude Code normally keeps a 200k local context budget when using a custom
-router endpoint. The explicit `--context-window 1m` option selects the
-supported `[1m]` model variant, preserves automatic compaction, and records
-the prior model so `off` or uninstall can restore it. It is opt-in: longer
-histories can increase token usage and cost, and the upstream provider still
-needs to support the requested context size.
-
 For Claude Code the installed statusline and `/force-model`, `/router-*` slash
 commands also refresh themselves in the background about once a week (never
 overwriting a wrapper you edited). Opt out with `WEAVE_STATUSLINE_UPDATE=0`, or
