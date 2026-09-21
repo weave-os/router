@@ -105,7 +105,6 @@ func TestPoolCanceledRefreshWaiterDoesNotCooldownAccount(t *testing.T) {
 	release()
 }
 
-
 func TestPoolActivateDoesNotReenableDisabledAccount(t *testing.T) {
 	p := subscriptions.NewPool("user-a", subscriptions.ProviderClaude, nil)
 	require.NoError(t, p.Upsert(subscriptions.Account{

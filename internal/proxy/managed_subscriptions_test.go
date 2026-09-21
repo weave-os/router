@@ -127,7 +127,6 @@ func TestLeaseManagedSubscriptionSkipsObservedExhaustedAccount(t *testing.T) {
 	lease.Release()
 }
 
-
 func TestLeaseManagedSubscriptionHonorsResetQuotaWindows(t *testing.T) {
 	now := time.Now()
 	leaser := &healthSubscriptionLeaser{scriptedSubscriptionLeaser: &scriptedSubscriptionLeaser{

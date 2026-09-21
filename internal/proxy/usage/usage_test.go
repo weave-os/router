@@ -303,7 +303,6 @@ func TestSnapshot_Exhausted(t *testing.T) {
 	})
 }
 
-
 func TestSnapshot_ExhaustedAsOfHonorsResetWindows(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	s := usage.Snapshot{
