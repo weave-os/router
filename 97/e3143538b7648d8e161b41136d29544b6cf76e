@@ -1,0 +1,32 @@
+db/queries/model_router_api_keys.sql
+  s_f1ddfc363ee6c2::t_3bb0dde2520637 9-10,19-20
+internal/auth/api_key.go
+  s_f1ddfc363ee6c2::t_3bb0dde2520637 9-20,24-31
+internal/postgres/repository.go
+  s_f1ddfc363ee6c2::t_3bb0dde2520637 213-220
+internal/auth/rotate_spend_cap_test.go
+  s_f1ddfc363ee6c2::t_3bb0dde2520637 1-95
+internal/postgres/converters.go
+  s_f1ddfc363ee6c2::t_3bb0dde2520637 54-65
+internal/sqlc/model_router_api_keys.sql.go
+  s_f1ddfc363ee6c2::t_3bb0dde2520637 22-23,32-33,39-46,58-59,68-69,81
+internal/auth/service.go
+  s_f1ddfc363ee6c2::t_341d3a3ef32934 172
+  s_f1ddfc363ee6c2::t_3bb0dde2520637 118-123,128-135,175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "97e3143538b7648d8e161b41136d29544b6cf76e",
+  "prompts": {},
+  "sessions": {
+    "s_f1ddfc363ee6c2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8cda2423-38d2-448a-b281-0fd69c42cb07",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
