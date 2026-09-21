@@ -25,6 +25,7 @@ type Decision struct {
 	TraceID     string    `json:"trace_id"`
 
 	SessionID       *string `json:"session_id"`
+	RolloutID       *string `json:"rollout_id"`
 	DeviceID        *string `json:"device_id"`
 	ClientApp       *string `json:"client_app"`
 	TurnType        *string `json:"turn_type"`
@@ -32,11 +33,15 @@ type Decision struct {
 	UserEmail       *string `json:"user_email"`
 	UserAccountUUID *string `json:"user_account_uuid"`
 
-	RequestedModel   *string  `json:"requested_model"`
-	DecisionModel    *string  `json:"decision_model"`
-	DecisionProvider *string  `json:"decision_provider"`
-	CandidateModels  []string `json:"candidate_models"`
-	ChosenScore      *float64 `json:"chosen_score"`
+	RequestedModel       *string  `json:"requested_model"`
+	DecisionModel        *string  `json:"decision_model"`
+	DecisionProvider     *string  `json:"decision_provider"`
+	RouteID              *string  `json:"route_id"`
+	RoutingStrategy      *string  `json:"routing_strategy"`
+	PolicyRouteKey       *string  `json:"policy_route_key"`
+	ClusterRouterVersion *string  `json:"cluster_router_version"`
+	CandidateModels      []string `json:"candidate_models"`
+	ChosenScore          *float64 `json:"chosen_score"`
 	// DecisionReason is free-form diagnostic prose whose format changes between
 	// router versions; do not parse it — group on DecisionModel / StickyHit /
 	// CandidateModels instead.
@@ -63,15 +68,33 @@ type Decision struct {
 	ActualInputCostUSD  *float64 `json:"actual_input_cost_usd"`
 	ActualOutputCostUSD *float64 `json:"actual_output_cost_usd"`
 
-	RouteLatencyMs        *int64  `json:"route_latency_ms"`
-	UpstreamLatencyMs     *int64  `json:"upstream_latency_ms"`
-	TotalLatencyMs        *int64  `json:"total_latency_ms"`
-	TTFTMs                *int64  `json:"ttft_ms"`
-	UpstreamStatusCode    *int64  `json:"upstream_status_code"`
-	UpstreamFinishReason  *string `json:"upstream_finish_reason"`
-	StopReason            *string `json:"stop_reason"`
-	ToolUseBlocks         *int64  `json:"tool_use_blocks"`
-	InvalidToolArgsBlocks *int64  `json:"invalid_tool_args_blocks"`
+	RouteLatencyMs           *int64  `json:"route_latency_ms"`
+	UpstreamLatencyMs        *int64  `json:"upstream_latency_ms"`
+	TotalLatencyMs           *int64  `json:"total_latency_ms"`
+	TTFTMs                   *int64  `json:"ttft_ms"`
+	UpstreamStatusCode       *int64  `json:"upstream_status_code"`
+	UpstreamFinishReason     *string `json:"upstream_finish_reason"`
+	StopReason               *string `json:"stop_reason"`
+	ToolUseBlocks            *int64  `json:"tool_use_blocks"`
+	InvalidToolArgsBlocks    *int64  `json:"invalid_tool_args_blocks"`
+	SubscriberPlan           *string `json:"subscriber_plan"`
+	EntitlementVersion       *int64  `json:"entitlement_version"`
+	CapacitySource           *string `json:"capacity_source"`
+	RetailUsageUSDMicros     *int64  `json:"retail_usage_usd_micros"`
+	IncludedUsageUSDMicros   *int64  `json:"included_usage_usd_micros"`
+	LinkedUsageUSDMicros     *int64  `json:"linked_usage_usd_micros"`
+	PrepaidUsageUSDMicros    *int64  `json:"prepaid_usage_usd_micros"`
+	SettlementFailed         *bool   `json:"settlement_failed"`
+	ServingProfileID         *string `json:"serving_profile_id"`
+	ServingProfileVersion    *string `json:"serving_profile_version"`
+	ServingReleaseID         *string `json:"serving_release_id"`
+	ServingBindingID         *string `json:"serving_binding_id"`
+	BoostOptimizerVersion    *string `json:"boost_optimizer_version"`
+	PolicyArtifactID         *string `json:"policy_artifact_id"`
+	PolicyArtifactSHA256     *string `json:"policy_artifact_sha256"`
+	RosterVersion            *string `json:"roster_version"`
+	SelectionPolicyReleaseID *string `json:"selection_policy_release_id"`
+	SelectionPolicySHA256    *string `json:"selection_policy_sha256"`
 
 	// ClientGit* is the client-reported starting tree of a trial-mode session,
 	// captured on its first turn only. Null everywhere else. HeadSHA is

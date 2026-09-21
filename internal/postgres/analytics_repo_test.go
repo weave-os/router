@@ -148,3 +148,36 @@ func TestDecisionFromExportRowPreservesNullBlindExperimentFields(t *testing.T) {
 	assert.Nil(t, got.BlindExperimentAssignmentSource)
 	assert.Nil(t, got.BlindExperimentSubjectKey)
 }
+
+func TestDecisionFromExportRowMapsBenchmarkAttribution(t *testing.T) {
+	plan := "boost"
+	capacitySource := "linked_claude"
+	rolloutID := "benchmark-run-1"
+	routeID := "route-1"
+	retailUsage := int64(900)
+	linkedUsage := int64(900)
+	settlementFailed := false
+	entitlementVersion := int64(12)
+
+	got := decisionFromExportRow(sqlc.GetRoutingDecisionsForExportRow{
+		RolloutID:            &rolloutID,
+		RouteID:              &routeID,
+		SubscriberPlan:       &plan,
+		EntitlementVersion:   &entitlementVersion,
+		CapacitySource:       &capacitySource,
+		RetailUsageUsdMicros: &retailUsage,
+		LinkedUsageUsdMicros: &linkedUsage,
+		SettlementFailed:     &settlementFailed,
+	})
+
+	assert.Equal(t, &rolloutID, got.RolloutID)
+	assert.Equal(t, &routeID, got.RouteID)
+	assert.Equal(t, &plan, got.SubscriberPlan)
+	assert.Equal(t, &entitlementVersion, got.EntitlementVersion)
+	assert.Equal(t, &capacitySource, got.CapacitySource)
+	assert.Equal(t, &retailUsage, got.RetailUsageUSDMicros)
+	assert.Equal(t, &linkedUsage, got.LinkedUsageUSDMicros)
+	assert.Equal(t, &settlementFailed, got.SettlementFailed)
+	assert.Nil(t, got.IncludedUsageUSDMicros)
+	assert.Nil(t, got.PrepaidUsageUSDMicros)
+}

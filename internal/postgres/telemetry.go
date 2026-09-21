@@ -226,6 +226,19 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.Inse
 		EffortSelected:                           stringPtrOrNil(p.EffortSelected),
 		EffortSent:                               stringPtrOrNil(p.EffortSent),
 		EffortSource:                             stringPtrOrNil(p.EffortSource),
+		SubscriberPlan:                           stringPtrOrNil(p.SubscriberPlan),
+		EntitlementVersion:                       p.EntitlementVersion,
+		CapacitySource:                           stringPtrOrNil(p.CapacitySource),
+		RetailUsageUsdMicros:                     p.RetailUsageMicros,
+		IncludedUsageUsdMicros:                   p.IncludedUsageMicros,
+		LinkedUsageUsdMicros:                     p.LinkedUsageMicros,
+		PrepaidUsageUsdMicros:                    p.PrepaidUsageMicros,
+		SettlementFailed:                         p.SettlementFailed,
+		ServingProfileID:                         stringPtrOrNil(p.ServingProfileID),
+		ServingProfileVersion:                    stringPtrOrNil(p.ServingProfileVersion),
+		ServingReleaseID:                         stringPtrOrNil(p.ServingReleaseID),
+		ServingBindingID:                         stringPtrOrNil(p.ServingBindingID),
+		BoostOptimizerVersion:                    stringPtrOrNil(p.BoostOptimizerVersion),
 	})
 }
 

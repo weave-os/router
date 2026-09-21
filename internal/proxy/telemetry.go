@@ -128,15 +128,28 @@ type InsertTelemetryParams struct {
 	TrainingAllowed          bool
 	CaptureMode              string
 	// DebugRef is populated only when authorized policy debug mode is enabled.
-	DebugRef            string
-	TTFTMs              *int64
-	CacheCreationTokens *int32
-	CacheReadTokens     *int32
-	DeviceID            string
-	SessionID           string
-	RouterUserID        string
-	ClientApp           string
-	TurnType            string
+	DebugRef              string
+	TTFTMs                *int64
+	CacheCreationTokens   *int32
+	CacheReadTokens       *int32
+	DeviceID              string
+	SessionID             string
+	RouterUserID          string
+	ClientApp             string
+	TurnType              string
+	SubscriberPlan        string
+	EntitlementVersion    *int64
+	CapacitySource        string
+	RetailUsageMicros     *int64
+	IncludedUsageMicros   *int64
+	LinkedUsageMicros     *int64
+	PrepaidUsageMicros    *int64
+	SettlementFailed      *bool
+	ServingProfileID      string
+	ServingProfileVersion string
+	ServingReleaseID      string
+	ServingBindingID      string
+	BoostOptimizerVersion string
 	// RolloutID joins eval/training-harness rollout rewards onto decisions
 	// (x-weave-rollout-id header). Empty for normal traffic → NULL column.
 	RolloutID string

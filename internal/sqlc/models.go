@@ -522,7 +522,20 @@ type RouterModelRouterRequestTelemetry struct {
 	// Effort level written on the wire after the target menu clamp (xhigh -> max -> high). NULL when nothing was sent.
 	EffortSent *string
 	// Precedence branch that produced the level: user, escalation, arm, model_policy. NULL when no effort resolved.
-	EffortSource *string
+	EffortSource           *string
+	SubscriberPlan         *string
+	EntitlementVersion     *int64
+	CapacitySource         *string
+	RetailUsageUsdMicros   *int64
+	IncludedUsageUsdMicros *int64
+	LinkedUsageUsdMicros   *int64
+	PrepaidUsageUsdMicros  *int64
+	SettlementFailed       *bool
+	ServingProfileID       *string
+	ServingProfileVersion  *string
+	ServingReleaseID       *string
+	ServingBindingID       *string
+	BoostOptimizerVersion  *string
 }
 
 type RouterModelRouterSubscriptionAccount struct {

@@ -79,6 +79,7 @@ SELECT
     t.request_id,
     t.trace_id,
     t.session_id,
+    t.rollout_id,
     t.device_id,
     t.client_app,
     t.turn_type,
@@ -88,6 +89,10 @@ SELECT
     t.requested_model,
     t.decision_model,
     t.decision_provider,
+    t.route_id,
+    t.strategy,
+    t.policy_route_key,
+    t.cluster_router_version,
     t.candidate_models,
     t.chosen_score,
     t.decision_reason,
@@ -121,6 +126,24 @@ SELECT
     t.stop_reason,
     t.tool_use_blocks,
     t.invalid_tool_args_blocks,
+    t.subscriber_plan,
+    t.entitlement_version,
+    t.capacity_source,
+    t.retail_usage_usd_micros,
+    t.included_usage_usd_micros,
+    t.linked_usage_usd_micros,
+    t.prepaid_usage_usd_micros,
+    t.settlement_failed,
+    t.serving_profile_id,
+    t.serving_profile_version,
+    t.serving_release_id,
+    t.serving_binding_id,
+    t.boost_optimizer_version,
+    t.policy_artifact_id,
+    t.policy_artifact_sha256,
+    t.roster_version,
+    t.selection_policy_release_id,
+    t.selection_policy_sha256,
     t.client_git_head_sha,
     t.client_git_branch,
     t.client_git_dirty
@@ -156,6 +179,7 @@ type GetRoutingDecisionsForExportRow struct {
 	RequestID                       string
 	TraceID                         string
 	SessionID                       *string
+	RolloutID                       *string
 	DeviceID                        *string
 	ClientApp                       *string
 	TurnType                        *string
@@ -165,6 +189,10 @@ type GetRoutingDecisionsForExportRow struct {
 	RequestedModel                  *string
 	DecisionModel                   *string
 	DecisionProvider                *string
+	RouteID                         *string
+	Strategy                        *string
+	PolicyRouteKey                  *string
+	ClusterRouterVersion            *string
 	CandidateModels                 []string
 	ChosenScore                     *float64
 	DecisionReason                  *string
@@ -193,6 +221,24 @@ type GetRoutingDecisionsForExportRow struct {
 	StopReason                      *string
 	ToolUseBlocks                   *int32
 	InvalidToolArgsBlocks           *int32
+	SubscriberPlan                  *string
+	EntitlementVersion              *int64
+	CapacitySource                  *string
+	RetailUsageUsdMicros            *int64
+	IncludedUsageUsdMicros          *int64
+	LinkedUsageUsdMicros            *int64
+	PrepaidUsageUsdMicros           *int64
+	SettlementFailed                *bool
+	ServingProfileID                *string
+	ServingProfileVersion           *string
+	ServingReleaseID                *string
+	ServingBindingID                *string
+	BoostOptimizerVersion           *string
+	PolicyArtifactID                *string
+	PolicyArtifactSha256            *string
+	RosterVersion                   *string
+	SelectionPolicyReleaseID        *string
+	SelectionPolicySha256           *string
 	ClientGitHeadSha                *string
 	ClientGitBranch                 *string
 	ClientGitDirty                  *bool
@@ -205,8 +251,8 @@ type GetRoutingDecisionsForExportRow struct {
 // so only ingest order can guarantee "resume here and miss nothing".
 // cursor_created_at / cursor_id are NULL on the first page and carry the last
 // row of the previous page thereafter. The columns selected are the tier-b
-// export set; scorer internals (cluster_ids, candidate_scores, propensity,
-// alpha_breakdown, policy artifacts) and credential fragments are withheld.
+// export set; immutable policy and roster identities are included for benchmark
+// joins, while scorer internals and credential fragments remain withheld.
 //
 //	SELECT
 //	    t.id,
@@ -215,6 +261,7 @@ type GetRoutingDecisionsForExportRow struct {
 //	    t.request_id,
 //	    t.trace_id,
 //	    t.session_id,
+//	    t.rollout_id,
 //	    t.device_id,
 //	    t.client_app,
 //	    t.turn_type,
@@ -224,6 +271,10 @@ type GetRoutingDecisionsForExportRow struct {
 //	    t.requested_model,
 //	    t.decision_model,
 //	    t.decision_provider,
+//	    t.route_id,
+//	    t.strategy,
+//	    t.policy_route_key,
+//	    t.cluster_router_version,
 //	    t.candidate_models,
 //	    t.chosen_score,
 //	    t.decision_reason,
@@ -257,6 +308,24 @@ type GetRoutingDecisionsForExportRow struct {
 //	    t.stop_reason,
 //	    t.tool_use_blocks,
 //	    t.invalid_tool_args_blocks,
+//	    t.subscriber_plan,
+//	    t.entitlement_version,
+//	    t.capacity_source,
+//	    t.retail_usage_usd_micros,
+//	    t.included_usage_usd_micros,
+//	    t.linked_usage_usd_micros,
+//	    t.prepaid_usage_usd_micros,
+//	    t.settlement_failed,
+//	    t.serving_profile_id,
+//	    t.serving_profile_version,
+//	    t.serving_release_id,
+//	    t.serving_binding_id,
+//	    t.boost_optimizer_version,
+//	    t.policy_artifact_id,
+//	    t.policy_artifact_sha256,
+//	    t.roster_version,
+//	    t.selection_policy_release_id,
+//	    t.selection_policy_sha256,
 //	    t.client_git_head_sha,
 //	    t.client_git_branch,
 //	    t.client_git_dirty
@@ -297,6 +366,7 @@ func (q *Queries) GetRoutingDecisionsForExport(ctx context.Context, arg GetRouti
 			&i.RequestID,
 			&i.TraceID,
 			&i.SessionID,
+			&i.RolloutID,
 			&i.DeviceID,
 			&i.ClientApp,
 			&i.TurnType,
@@ -306,6 +376,10 @@ func (q *Queries) GetRoutingDecisionsForExport(ctx context.Context, arg GetRouti
 			&i.RequestedModel,
 			&i.DecisionModel,
 			&i.DecisionProvider,
+			&i.RouteID,
+			&i.Strategy,
+			&i.PolicyRouteKey,
+			&i.ClusterRouterVersion,
 			&i.CandidateModels,
 			&i.ChosenScore,
 			&i.DecisionReason,
@@ -334,6 +408,24 @@ func (q *Queries) GetRoutingDecisionsForExport(ctx context.Context, arg GetRouti
 			&i.StopReason,
 			&i.ToolUseBlocks,
 			&i.InvalidToolArgsBlocks,
+			&i.SubscriberPlan,
+			&i.EntitlementVersion,
+			&i.CapacitySource,
+			&i.RetailUsageUsdMicros,
+			&i.IncludedUsageUsdMicros,
+			&i.LinkedUsageUsdMicros,
+			&i.PrepaidUsageUsdMicros,
+			&i.SettlementFailed,
+			&i.ServingProfileID,
+			&i.ServingProfileVersion,
+			&i.ServingReleaseID,
+			&i.ServingBindingID,
+			&i.BoostOptimizerVersion,
+			&i.PolicyArtifactID,
+			&i.PolicyArtifactSha256,
+			&i.RosterVersion,
+			&i.SelectionPolicyReleaseID,
+			&i.SelectionPolicySha256,
 			&i.ClientGitHeadSha,
 			&i.ClientGitBranch,
 			&i.ClientGitDirty,
@@ -1873,7 +1965,20 @@ INSERT INTO router.model_router_request_telemetry (
     effort_arm,
     effort_selected,
     effort_sent,
-    effort_source
+    effort_source,
+    subscriber_plan,
+    entitlement_version,
+    capacity_source,
+    retail_usage_usd_micros,
+    included_usage_usd_micros,
+    linked_usage_usd_micros,
+    prepaid_usage_usd_micros,
+    settlement_failed,
+    serving_profile_id,
+    serving_profile_version,
+    serving_release_id,
+    serving_binding_id,
+    boost_optimizer_version
 ) VALUES (
     $1::uuid,
     $2::uuid,
@@ -2011,7 +2116,20 @@ INSERT INTO router.model_router_request_telemetry (
     $134::varchar,
     $135::varchar,
     $136::varchar,
-    $137::varchar
+    $137::varchar,
+    $138::varchar,
+    $139::bigint,
+    $140::varchar,
+    $141::bigint,
+    $142::bigint,
+    $143::bigint,
+    $144::bigint,
+    $145::boolean,
+    $146::varchar,
+    $147::varchar,
+    $148::varchar,
+    $149::varchar,
+    $150::varchar
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 `
@@ -2154,6 +2272,19 @@ type InsertRequestTelemetryParams struct {
 	EffortSelected                           *string
 	EffortSent                               *string
 	EffortSource                             *string
+	SubscriberPlan                           *string
+	EntitlementVersion                       *int64
+	CapacitySource                           *string
+	RetailUsageUsdMicros                     *int64
+	IncludedUsageUsdMicros                   *int64
+	LinkedUsageUsdMicros                     *int64
+	PrepaidUsageUsdMicros                    *int64
+	SettlementFailed                         *bool
+	ServingProfileID                         *string
+	ServingProfileVersion                    *string
+	ServingReleaseID                         *string
+	ServingBindingID                         *string
+	BoostOptimizerVersion                    *string
 }
 
 // Records a completed proxied request for the dashboard UI and routing
@@ -2340,7 +2471,20 @@ type InsertRequestTelemetryParams struct {
 //	    effort_arm,
 //	    effort_selected,
 //	    effort_sent,
-//	    effort_source
+//	    effort_source,
+//	    subscriber_plan,
+//	    entitlement_version,
+//	    capacity_source,
+//	    retail_usage_usd_micros,
+//	    included_usage_usd_micros,
+//	    linked_usage_usd_micros,
+//	    prepaid_usage_usd_micros,
+//	    settlement_failed,
+//	    serving_profile_id,
+//	    serving_profile_version,
+//	    serving_release_id,
+//	    serving_binding_id,
+//	    boost_optimizer_version
 //	) VALUES (
 //	    $1::uuid,
 //	    $2::uuid,
@@ -2478,7 +2622,20 @@ type InsertRequestTelemetryParams struct {
 //	    $134::varchar,
 //	    $135::varchar,
 //	    $136::varchar,
-//	    $137::varchar
+//	    $137::varchar,
+//	    $138::varchar,
+//	    $139::bigint,
+//	    $140::varchar,
+//	    $141::bigint,
+//	    $142::bigint,
+//	    $143::bigint,
+//	    $144::bigint,
+//	    $145::boolean,
+//	    $146::varchar,
+//	    $147::varchar,
+//	    $148::varchar,
+//	    $149::varchar,
+//	    $150::varchar
 //	)
 //	ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestTelemetryParams) error {
@@ -2620,6 +2777,19 @@ func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestT
 		arg.EffortSelected,
 		arg.EffortSent,
 		arg.EffortSource,
+		arg.SubscriberPlan,
+		arg.EntitlementVersion,
+		arg.CapacitySource,
+		arg.RetailUsageUsdMicros,
+		arg.IncludedUsageUsdMicros,
+		arg.LinkedUsageUsdMicros,
+		arg.PrepaidUsageUsdMicros,
+		arg.SettlementFailed,
+		arg.ServingProfileID,
+		arg.ServingProfileVersion,
+		arg.ServingReleaseID,
+		arg.ServingBindingID,
+		arg.BoostOptimizerVersion,
 	)
 	return err
 }

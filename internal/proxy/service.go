@@ -4856,6 +4856,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead, extractor.OutputLimitReached())
 	}
 
+	var subscriberTelemetry *InsertTelemetryParams
 	// Eval rows must not enter serving telemetry; they would corrupt offline policy analysis.
 	if !agentShadowMode && installationID != uuid.Nil {
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
@@ -4986,6 +4987,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		applyAuthorityShadowTelemetry(&tel, routeRes)
 		applyBlindExperimentTelemetry(ctx, &tel)
 		applyPolicyPinTelemetry(ctx, &tel, decision.Metadata)
+		applySubscriberTelemetry(ctx, &tel)
 		// Hard-pinned turn types carry history shapes that mimic failure signals,
 		// so only the detector's trusted turn types enter the training corpus.
 		signalTurn := tt == turntype.MainLoop || tt == turntype.ToolResult
@@ -4995,7 +4997,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			obs.TrainingAllowed,
 			s.effectiveCaptureMode(ctx))
 		applyClientGitContextTelemetry(ctx, &tel, routeRes.SessionFirstTurn, env.SystemBlocks())
-		s.fireTelemetry(tel)
+		subscriberTelemetry = &tel
 	}
 
 	// No-op when billing is unwired (selfhosted); only reached on a real
@@ -5008,6 +5010,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if compactionHandoverOutcome.Invoked && !compactionHandoverOutcome.FallbackToFullHistory {
 			s.billAuxiliaryInference(ctx, requestID, auxSuffixCompactionHandoverSummry, externalID, compactionHandoverOutcome.SummaryUsage)
 		}
+	}
+	if subscriberTelemetry != nil {
+		if proxyErr == nil {
+			applySubscriberSettlementTelemetry(ctx, subscriberTelemetry)
+		}
+		s.fireTelemetry(*subscriberTelemetry)
 	}
 
 	// Two-strike eviction: a session pinned to a model returning non-retryable
@@ -7899,6 +7907,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		applyAuthorityShadowTelemetry(&telOAI, routeRes)
 		applyBlindExperimentTelemetry(ctx, &telOAI)
 		applyPolicyPinTelemetry(ctx, &telOAI, decision.Metadata)
+		applySubscriberTelemetry(ctx, &telOAI)
+		if proxyErr == nil {
+			applySubscriberSettlementTelemetry(ctx, &telOAI)
+		}
 		s.fireTelemetry(telOAI)
 	}
 
