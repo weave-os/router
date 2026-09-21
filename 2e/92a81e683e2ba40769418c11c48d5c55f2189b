@@ -1,0 +1,19 @@
+internal/translate/envelope.go
+  s_2921c831dd4797::t_756cac5d9d6f0e 370-371
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "2e92a81e683e2ba40769418c11c48d5c55f2189b",
+  "prompts": {},
+  "sessions": {
+    "s_2921c831dd4797": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e720616c-29a8-477d-a955-a4080f429d60",
+        "model": "grok-4.6"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

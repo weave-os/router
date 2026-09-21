@@ -1,0 +1,19 @@
+db/migrations/0066_telemetry-planner-decision.up.sql
+  s_058485d2635629::t_9139903fb18a21 13-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "9d3542866db6a0db7a8570514bd51656093731a2",
+  "prompts": {},
+  "sessions": {
+    "s_058485d2635629": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bc459cec-44c1-4e73-9977-ec456ecc2a56",
+        "model": "grok-4.6"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

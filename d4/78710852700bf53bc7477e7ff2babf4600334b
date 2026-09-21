@@ -1,0 +1,21 @@
+internal/server/middleware/api_key_spend_cap.go
+  s_eb7d5586a843a9::t_0ecfda7755f979 52,71,80
+internal/observability/global_logger_budget_test.go
+  s_eb7d5586a843a9::t_72f9e4997444f9 152-167,170-171,181-182,209-222,229,231,238
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "d478710852700bf53bc7477e7ff2babf4600334b",
+  "prompts": {},
+  "sessions": {
+    "s_eb7d5586a843a9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4eefe1e2-e358-4c67-97fc-e634928a5ad4",
+        "model": "claude-opus-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
