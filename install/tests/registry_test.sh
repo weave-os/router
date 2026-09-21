@@ -423,6 +423,22 @@ else
   ok "project command ownership is not gitignored"
 fi
 
+opencode_project_scope="$work/opencode-project-scope"
+opencode_project_scope_home="$work/opencode-project-scope-home"
+mkdir -p "$opencode_project_scope" "$opencode_project_scope_home"
+git -C "$opencode_project_scope" init -q .
+(cd "$opencode_project_scope" && run_install "$opencode_project_scope_home" --opencode --scope project)
+if [ -f "$opencode_project_scope/.opencode/commands/fm.md.weave-router" ]; then
+  ok "OpenCode project command ownership is persisted alongside the wrapper"
+else
+  no "OpenCode project command ownership is persisted alongside the wrapper" "sidecar" "missing"
+fi
+if grep -qF '.opencode/commands/*.weave-router' "$opencode_project_scope/.gitignore" 2>/dev/null; then
+  no "OpenCode project command ownership is not gitignored" "no sidecar ignore" "ignored"
+else
+  ok "OpenCode project command ownership is not gitignored"
+fi
+
 # Re-installing refreshes in place rather than duplicating.
 before="$(installed_names "$cc_home/.claude/commands")"
 run_install "$cc_home" --claude --scope user

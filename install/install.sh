@@ -2507,7 +2507,7 @@ apply_claude_context_window() {
         if .model == $s.managed then
           if $s.had_model then .model = $s.original else del(.model) end
         else . end
-      elif $action == "on" and has("model") == $s.had_model and .model == $s.original then .model = $s.managed
+      elif ($action == "install" or $action == "on") and has("model") == $s.had_model and .model == $s.original then .model = $s.managed
       else . end
     ' "$active")"
   fi

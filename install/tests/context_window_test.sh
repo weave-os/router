@@ -59,7 +59,7 @@ run on
 test "$(model "$settings")" = 'opus[1m]'
 run off
 run_update
-test "$(model "$settings")" = opus
+test "$(model "$settings")" = 'opus[1m]'
 uninstall
 test "$(model "$settings")" = opus
 test ! -e "$state"
