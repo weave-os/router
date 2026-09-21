@@ -2,6 +2,7 @@
 #
 # Regression coverage for --return-url. The browser must open only after both
 # post-install probes succeed, including when --quiet is set.
+# shellcheck disable=SC2016  # generated fixture scripts need their own runtime expansions
 
 set -euo pipefail
 
