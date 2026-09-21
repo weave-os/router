@@ -5015,6 +5015,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if subscriberTelemetry != nil {
 		if proxyErr == nil {
 			applySubscriberSettlementTelemetry(subscriberSettlement, subscriberTelemetry)
+		} else {
+			markSubscriberTelemetryUnsettled(subscriberTelemetry)
 		}
 		s.fireTelemetry(*subscriberTelemetry)
 	}
@@ -7914,6 +7916,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		applySubscriberTelemetry(ctx, &telOAI)
 		if proxyErr == nil {
 			applySubscriberSettlementTelemetry(subscriberSettlement, &telOAI)
+		} else {
+			markSubscriberTelemetryUnsettled(&telOAI)
 		}
 		s.fireTelemetry(telOAI)
 	}

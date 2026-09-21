@@ -66,6 +66,17 @@ func captureSubscriberSettlementState(ctx context.Context) subscriberSettlementS
 	}
 }
 
+// markSubscriberTelemetryUnsettled flags subscriber usage on a turn that
+// failed before settlement ran, so reconciliation does not read its usage
+// columns as settled spend.
+func markSubscriberTelemetryUnsettled(telemetry *InsertTelemetryParams) {
+	if telemetry.RetailUsageMicros == nil {
+		return
+	}
+	failed := true
+	telemetry.SettlementFailed = &failed
+}
+
 func applySubscriberSettlementTelemetry(state subscriberSettlementState, telemetry *InsertTelemetryParams) {
 	switch entitlement.CapacitySource(telemetry.CapacitySource) {
 	case entitlement.CapacitySourceIncludedRouter:

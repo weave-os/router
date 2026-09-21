@@ -488,6 +488,8 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	if subscriberTelemetry != nil {
 		if proxyErr == nil {
 			applySubscriberSettlementTelemetry(subscriberSettlement, subscriberTelemetry)
+		} else {
+			markSubscriberTelemetryUnsettled(subscriberTelemetry)
 		}
 		s.fireTelemetry(*subscriberTelemetry)
 	}
