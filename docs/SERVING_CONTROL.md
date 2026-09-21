@@ -30,8 +30,20 @@ withdrawals. Publishing never activates it. The exported Go contracts in
 
 Targets are `staging`, `prod/stable`, and `prod/weave-internal`; beta is rejected.
 Profile registration/version changes use a `profile`-scoped proposal, not another
-target or writer. Rollback still validates the complete proposed selection set;
-it cannot remove a now-registered profile or silently substitute the default.
+target or writer. Forward scopes preserve registered profile keys and revisions.
+An exact whole-selection rollback uses the immutable proposal scope `rollback`:
+its selection-set URI, digest, and storage generation must match an activation
+in the same target's history, and its source release must equal that set's default
+release. Only this scope can restore the historical profile inventory, including
+removing profiles introduced later or restoring older profile revisions.
+
+Both `prepare` and `activate` enforce this scope; `serving rollback` additionally
+checks historical source provenance for legacy component/profile rollback callers.
+All destination tuples still require artifact and private readiness validation.
+The same approval and generation CAS apply. Normal rollback retains existing
+session pins; a fresh request for a profile absent from the restored set fails
+closed instead of falling back to the default. Historical manifests and revisions
+remain retention roots and are not deleted.
 
 ## Non-circular configuration and evidence
 

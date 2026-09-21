@@ -70,6 +70,7 @@ const (
 	ChangeClassifier ChangeScope = "classifier"
 	ChangeProfile    ChangeScope = "profile"
 	ChangeCustom     ChangeScope = "custom"
+	ChangeRollback   ChangeScope = "rollback"
 )
 
 // ServingRequirements are checked against the selected image and classifier, not current main.
@@ -379,7 +380,7 @@ func (p DeploymentProposal) Validate(root string) error {
 		return err
 	}
 	switch p.Scope {
-	case ChangeFull, ChangeRouter, ChangeRoster, ChangeClassifier, ChangeCustom:
+	case ChangeFull, ChangeRouter, ChangeRoster, ChangeClassifier, ChangeCustom, ChangeRollback:
 		if p.ProfileKey != "" {
 			return errors.New("only profile scope accepts a profile key")
 		}
@@ -392,6 +393,9 @@ func (p DeploymentProposal) Validate(root string) error {
 	}
 	if (p.ExpectedGeneration > 0) != (p.PreviousSelectionSet != nil) {
 		return errors.New("proposal must bind the previous selection set unless bootstrapping")
+	}
+	if p.Scope == ChangeRollback && p.PreviousSelectionSet == nil {
+		return errors.New("exact rollback requires an existing target activation")
 	}
 	if p.PreviousSelectionSet != nil {
 		if err := ValidateServingRef(*p.PreviousSelectionSet, root, ServingSelectionSets); err != nil {
