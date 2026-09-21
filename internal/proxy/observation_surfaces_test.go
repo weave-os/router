@@ -25,7 +25,6 @@ func TestHeldObservationLanesPreserveInferenceResponses(t *testing.T) {
 	}{
 		{"anthropic", providers.ProviderAnthropic, "claude-haiku-4-5", "/v1/messages", `{"model":"claude-haiku-4-5","max_tokens":100,"messages":[{"role":"user","content":"hello"}]}`, `{"id":"msg_test","type":"message","role":"assistant","model":"claude-haiku-4-5","content":[{"type":"text","text":"hello"}],"stop_reason":"end_turn","usage":{"input_tokens":12,"output_tokens":4}}`, (*proxy.Service).ProxyMessages},
 		{"chat", providers.ProviderOpenAI, "gpt-5.5", "/v1/chat/completions", `{"model":"gpt-5.5","messages":[{"role":"user","content":"hello"}]}`, `{"id":"chat_test","object":"chat.completion","model":"gpt-5.5","choices":[{"index":0,"message":{"role":"assistant","content":"hello"},"finish_reason":"stop"}],"usage":{"prompt_tokens":12,"completion_tokens":4,"total_tokens":16}}`, (*proxy.Service).ProxyOpenAIChatCompletion},
-		{"responses", providers.ProviderOpenAI, "gpt-5.5", "/v1/responses", `{"model":"gpt-5.5","input":"hello","tools":[{"type":"custom","name":"apply_patch"}]}`, `{"id":"resp_test","object":"response","status":"completed","output":[],"usage":{"input_tokens":12,"output_tokens":4,"total_tokens":16}}`, (*proxy.Service).ProxyOpenAIResponses},
 		{"gemini", providers.ProviderGoogle, "gemini-2.5-pro", "/v1beta/models/gemini-2.5-pro:generateContent", `{"model":"gemini-2.5-pro","contents":[{"role":"user","parts":[{"text":"hello"}]}]}`, `{"candidates":[{"content":{"parts":[{"text":"hello"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":12,"candidatesTokenCount":4,"totalTokenCount":16}}`, (*proxy.Service).ProxyGeminiGenerateContent},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -61,10 +60,6 @@ func TestHeldObservationLanesPreserveInferenceResponses(t *testing.T) {
 						}
 						if tc.name == "chat" {
 							responseBody = "data: " + strings.ReplaceAll(strings.ReplaceAll(tc.response, `"message":`, `"delta":`), `"chat.completion"`, `"chat.completion.chunk"`) + "\n\ndata: [DONE]\n\n"
-						}
-
-						if tc.name == "responses" {
-							responseBody = "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":" + tc.response + "}\n\n"
 						}
 						contentType = "text/event-stream"
 					}

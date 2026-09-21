@@ -131,7 +131,7 @@ func (s *Service) recordEscalationJudgeInference(installationID, requestID strin
 	if judgment.CostSource == llmescalation.CostSourceProviderReported {
 		inputCost, outputCost = judgment.CostUSD, 0
 	}
-	s.fireTelemetry(InsertTelemetryParams{
+	s.fireTelemetry(context.Background(), InsertTelemetryParams{
 		InstallationID:      installationID,
 		RequestID:           requestID + "_escalation_judge_" + job.ID,
 		SpanType:            SpanTypePlatformAuxiliaryInference,

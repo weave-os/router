@@ -5056,7 +5056,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		} else {
 			markSubscriberTelemetryUnsettled(subscriberTelemetry)
 		}
-		s.fireTelemetry(*subscriberTelemetry)
+		s.fireTelemetry(ctx, *subscriberTelemetry)
 	}
 
 	// Two-strike eviction: a session pinned to a model returning non-retryable
@@ -5547,12 +5547,12 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 		log.Debug("Skipping policy outcome report for canceled request", "err", err)
 		return
 	}
-		if identity, managed := requestcontext.ServingIdentityFromContext(ctx); managed {
-			payload["serving_identity"] = identity
-		}
-		if s.observations != nil {
-			submitObservation(s.observations.Remote, observability.WorkOutcome, log, payload, policyOutcomeReportTimeout, reporter.ReportOutcome)
-		}
+	if identity, managed := requestcontext.ServingIdentityFromContext(ctx); managed {
+		payload["serving_identity"] = identity
+	}
+	if s.observations != nil {
+		submitObservation(s.observations.Remote, observability.WorkOutcome, log, payload, policyOutcomeReportTimeout, reporter.ReportOutcome)
+	}
 }
 
 // pinDecision rehydrates a router.Decision from a stored pin. Metadata is nil
@@ -7952,7 +7952,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		} else {
 			markSubscriberTelemetryUnsettled(&telOAI)
 		}
-			s.fireTelemetry(ctx, telOAI)
+		s.fireTelemetry(ctx, telOAI)
 	}
 
 	// Re-pin the session off the refusing model so the next turn skips it,

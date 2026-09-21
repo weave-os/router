@@ -495,7 +495,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		} else {
 			markSubscriberTelemetryUnsettled(subscriberTelemetry)
 		}
-		s.fireTelemetry(*subscriberTelemetry)
+		s.fireTelemetry(ctx, *subscriberTelemetry)
 	}
 
 	// Two-strike provider disable: see ProxyMessages. Gemini rarely produces a
