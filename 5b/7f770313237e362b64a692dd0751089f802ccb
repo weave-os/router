@@ -23,6 +23,7 @@ AGENTS.md
 internal/proxy/service.go
   s_d5165fb8d3c8eb::t_83d49b71ed93db 5481,6132-6133
   s_d5165fb8d3c8eb::t_1c99bfb30f29d8 6134,6137
+  s_9ef40d94c2b5d1::t_541d61254a0192 66,5550-5554,7955
 internal/proxy/observation_surfaces_test.go
   s_d5165fb8d3c8eb::t_dbb8048c766875 1-88,92-110
   s_d5165fb8d3c8eb::t_d8d592abd41113 89-91
@@ -57,6 +58,7 @@ internal/proxy/openai_cyber_refusal_integration_test.go
   s_d5165fb8d3c8eb::t_cf14587e668b15 98,146,182,208,235,263,314
 internal/proxy/router_feedback.go
   s_d5165fb8d3c8eb::t_83d49b71ed93db 279
+  s_9ef40d94c2b5d1::t_541d61254a0192 314-318
 internal/proxy/observation_workers_test.go
   s_d5165fb8d3c8eb::t_1c99bfb30f29d8 4-6,8,12-19
   s_d5165fb8d3c8eb::t_40db0b86b0d7c8 1-3,7,9-11,20
@@ -143,6 +145,14 @@ internal/observability/safego_test.go
   "base_commit_sha": "5b7f770313237e362b64a692dd0751089f802ccb",
   "prompts": {},
   "sessions": {
+    "s_9ef40d94c2b5d1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5df3b4a0-ad3e-4421-a33e-f459b7fff8d3",
+        "model": "grok-4.6"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
     "s_d5165fb8d3c8eb": {
       "agent_id": {
         "tool": "claude",
