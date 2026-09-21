@@ -133,9 +133,19 @@ WHERE id = @id::uuid
 -- (Activate/Exhaust) while still allowing ReconnectRequired to disable it.
 -- name: UpdateModelRouterSubscriptionAccountHealth :execrows
 UPDATE router.model_router_subscription_accounts
-SET health_state = @health_state::varchar,
+SET health_state = CASE
+        WHEN @health_state::varchar = 'active'
+             AND cooldown_until > CURRENT_TIMESTAMP
+        THEN health_state
+        ELSE @health_state::varchar
+    END,
     enabled = enabled AND @enabled::boolean,
-    cooldown_until = @cooldown_until::timestamp,
+    cooldown_until = CASE
+        WHEN @health_state::varchar = 'active'
+             AND cooldown_until > CURRENT_TIMESTAMP
+        THEN cooldown_until
+        ELSE @cooldown_until::timestamp
+    END,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = @id::uuid
   AND (subscriber_id = sqlc.narg(subscriber_id)::uuid

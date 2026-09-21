@@ -193,6 +193,16 @@ func TestSubscriptionAccountHealthIsOwnerScoped(t *testing.T) {
 	require.NotNil(t, accounts[0].CooldownUntil)
 	assert.WithinDuration(t, resetAt, *accounts[0].CooldownUntil, time.Microsecond)
 
+	require.NoError(t, healthRepo.UpdateSubscriptionAccountHealth(
+		ctx, account.ID, owner, auth.SubscriptionAccountStateActive, true, nil,
+	))
+	accounts, err = repo.ListSubscriptionAccounts(ctx, owner)
+	require.NoError(t, err)
+	require.Len(t, accounts, 1)
+	assert.Equal(t, auth.SubscriptionAccountStateExhausted, accounts[0].State)
+	require.NotNil(t, accounts[0].CooldownUntil)
+	assert.WithinDuration(t, resetAt, *accounts[0].CooldownUntil, time.Microsecond)
+
 	otherOwner := auth.SubscriptionOwner{SubscriberID: fixture.subscriberB.String(), APIKeyID: fixture.keyB1.String()}
 	assert.ErrorIs(t, healthRepo.UpdateSubscriptionAccountHealth(
 		ctx, account.ID, otherOwner, auth.SubscriptionAccountStateDisabled, false, nil,

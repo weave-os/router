@@ -70,3 +70,23 @@ func TestLinkedSubscriptionResetAtPreservesNearTermReset(t *testing.T) {
 
 	assert.Equal(t, now.Add(15*time.Second), linkedSubscriptionResetAt(snapshot, now))
 }
+
+func TestPreferIncludedRouterIgnoresExpiredLinkedWindow(t *testing.T) {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	coverage := entitlement.Coverage{
+		BillingPeriod:         entitlement.Period{Start: now.Add(-15 * 24 * time.Hour), End: now.Add(15 * 24 * time.Hour)},
+		SixHourPeriod:         entitlement.Period{Start: now.Add(-3 * time.Hour), End: now.Add(3 * time.Hour)},
+		BillingLimitUsdMicros: 200_000_000,
+		SixHourLimitUsdMicros: 20_000_000,
+		BillingUsedUsdMicros:  20_000_000,
+		SixHourUsedUsdMicros:  2_000_000,
+	}
+	linked := usage.Snapshot{
+		Primary: usage.Window{
+			UsedPercent: 1, WindowMinutes: 300, ResetAt: now.Add(-time.Minute),
+		},
+		ObservedAt: now,
+	}
+
+	assert.False(t, preferIncludedRouter(coverage, linked, true, now))
+}

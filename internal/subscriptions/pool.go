@@ -207,6 +207,9 @@ func (p *Pool) Activate(accountID string) bool {
 	if !ok || !state.account.Enabled {
 		return false
 	}
+	if state.account.CooldownTil.After(p.clock()) {
+		return true
+	}
 	state.account.State = auth.SubscriptionAccountStateActive
 	state.account.CooldownTil = time.Time{}
 	return true

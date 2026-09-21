@@ -123,6 +123,18 @@ func TestPoolDisableAndRemove(t *testing.T) {
 	require.False(t, p.Remove("claude"))
 }
 
+func TestPoolActivatePreservesActiveCooldown(t *testing.T) {
+	now := time.Date(2026, 9, 20, 12, 0, 0, 0, time.UTC)
+	resetAt := now.Add(time.Hour)
+	p := subscriptions.NewPool("user-a", subscriptions.ProviderClaude, func() time.Time { return now })
+	require.NoError(t, p.Upsert(subscriptions.Account{
+		ID: "claude", OwnerID: "user-a", Provider: subscriptions.ProviderClaude, Enabled: true, AccessToken: "secret",
+	}))
+	require.True(t, p.Exhaust("claude", resetAt))
+	require.True(t, p.Activate("claude"))
+	require.ErrorIs(t, mustLeaseError(p, subscriptions.ProviderClaude), subscriptions.ErrNoAvailableAccount)
+}
+
 func TestPoolCooldownRotatesStickyAccount(t *testing.T) {
 	now := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
 	p := subscriptions.NewPool("user-a", subscriptions.ProviderClaude, func() time.Time { return now })

@@ -580,9 +580,19 @@ func (q *Queries) UpdateModelRouterSubscriptionAccountCooldown(ctx context.Conte
 
 const updateModelRouterSubscriptionAccountHealth = `-- name: UpdateModelRouterSubscriptionAccountHealth :execrows
 UPDATE router.model_router_subscription_accounts
-SET health_state = $1::varchar,
+SET health_state = CASE
+        WHEN $1::varchar = 'active'
+             AND cooldown_until > CURRENT_TIMESTAMP
+        THEN health_state
+        ELSE $1::varchar
+    END,
     enabled = enabled AND $2::boolean,
-    cooldown_until = $3::timestamp,
+    cooldown_until = CASE
+        WHEN $1::varchar = 'active'
+             AND cooldown_until > CURRENT_TIMESTAMP
+        THEN cooldown_until
+        ELSE $3::timestamp
+    END,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $4::uuid
   AND (subscriber_id = $5::uuid
@@ -603,9 +613,19 @@ type UpdateModelRouterSubscriptionAccountHealthParams struct {
 // (Activate/Exhaust) while still allowing ReconnectRequired to disable it.
 //
 //	UPDATE router.model_router_subscription_accounts
-//	SET health_state = $1::varchar,
+//	SET health_state = CASE
+//	        WHEN $1::varchar = 'active'
+//	             AND cooldown_until > CURRENT_TIMESTAMP
+//	        THEN health_state
+//	        ELSE $1::varchar
+//	    END,
 //	    enabled = enabled AND $2::boolean,
-//	    cooldown_until = $3::timestamp,
+//	    cooldown_until = CASE
+//	        WHEN $1::varchar = 'active'
+//	             AND cooldown_until > CURRENT_TIMESTAMP
+//	        THEN cooldown_until
+//	        ELSE $3::timestamp
+//	    END,
 //	    updated_at = CURRENT_TIMESTAMP
 //	WHERE id = $4::uuid
 //	  AND (subscriber_id = $5::uuid

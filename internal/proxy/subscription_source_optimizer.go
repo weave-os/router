@@ -21,7 +21,7 @@ func preferIncludedRouter(coverage entitlement.Coverage, snapshot usage.Snapshot
 	}
 	linkedPressure := unknownLinkedSourcePressure
 	if observed {
-		linkedPressure = linkedSubscriptionPressure(snapshot)
+		linkedPressure = linkedSubscriptionPressure(snapshot, now)
 	}
 	return includedPressure+sourcePressureSafetyMargin < linkedPressure
 }
@@ -73,10 +73,14 @@ func includedRouterPressure(coverage entitlement.Coverage, now time.Time) (float
 	}
 }
 
-func linkedSubscriptionPressure(snapshot usage.Snapshot) float64 {
+func linkedSubscriptionPressure(snapshot usage.Snapshot, now time.Time) float64 {
 	pressures := make([]float64, 0, 2)
 	for _, window := range []usage.Window{snapshot.Primary, snapshot.Secondary} {
 		if window.WindowMinutes <= 0 && window.UsedPercent <= 0 {
+			continue
+		}
+		if !window.ResetAt.IsZero() && !window.ResetAt.After(now) {
+			pressures = append(pressures, 0)
 			continue
 		}
 		pressure := math.Max(0, window.UsedPercent)
