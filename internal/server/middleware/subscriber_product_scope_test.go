@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router/eligibility"
 	"weave-os/router/internal/server/middleware"
@@ -97,6 +98,17 @@ func TestWithSubscriberAllowance_KeepsMaxScopeAfterEntitlementEnds(t *testing.T)
 	assert.False(t, entitlement.ModelBoundaryFromContext(ctx).PermitsSource(eligibility.SourceClosedSource))
 }
 
+func TestWithSubscriberAllowance_EndedMaxUsesCoveringSubscription(t *testing.T) {
+	ended := maxSubscriberEntitlement()
+	ended.Status = entitlement.StatusEnded
+	entitlements := &stubEntitlements{current: ended, found: true}
+
+	reached, ctx := runProductScopeMiddleware(t, entitlements, &stubAllowances{}, "Bearer sk-ant-oat01-covering-subscription")
+
+	require.True(t, reached)
+	assert.True(t, billing.SubscriptionOnlyFromContext(ctx))
+}
+
 // An agent-shadow evaluation is Weave's own traffic: it draws no included
 // allowance even when the subscriber's is spent, but the plan still bounds
 // which model its forced route may dispatch.
@@ -124,10 +136,13 @@ func TestWithSubscriberAllowance_ScopesAgentShadowWithoutSpendingAllowance(t *te
 		observed = c.Request.Context()
 		c.Status(http.StatusOK)
 	})
-	engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req.Header.Set("Authorization", "Bearer sk-ant-oat01-covering-subscription")
+	engine.ServeHTTP(httptest.NewRecorder(), req)
 
 	require.True(t, reached, "a shadow evaluation is not refused by a spent allowance")
 	assert.Empty(t, spent.held, "a shadow evaluation holds nothing against the allowance")
+	assert.False(t, billing.SubscriptionOnlyFromContext(observed), "shadow traffic must not use a subscriber's linked credential")
 	plan, scoped := entitlement.ProductScopeFromContext(observed)
 	require.True(t, scoped)
 	assert.Equal(t, entitlement.PlanMax, plan)

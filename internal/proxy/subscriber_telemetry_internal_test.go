@@ -77,7 +77,6 @@ func TestApplySubscriberTelemetryCapacitySources(t *testing.T) {
 		{
 			name: "organization-paid subscriber",
 			ctx:  entitlement.WithProductScope(context.Background(), entitlement.PlanBoost),
-			want: entitlement.CapacitySourcePrepaid,
 		},
 		{
 			name: "billing override",
@@ -98,6 +97,14 @@ func TestApplySubscriberTelemetryCapacitySources(t *testing.T) {
 			applySubscriberTelemetry(tt.ctx, &telemetry)
 
 			assert.Equal(t, string(tt.want), telemetry.CapacitySource)
+			if tt.want == "" {
+				assert.Equal(t, string(entitlement.PlanBoost), telemetry.SubscriberPlan)
+				assert.Nil(t, telemetry.RetailUsageMicros)
+				assert.Nil(t, telemetry.IncludedUsageMicros)
+				assert.Nil(t, telemetry.LinkedUsageMicros)
+				assert.Nil(t, telemetry.PrepaidUsageMicros)
+				return
+			}
 			require.NotNil(t, telemetry.RetailUsageMicros)
 			assert.Equal(t, int64(1_000_000), *telemetry.RetailUsageMicros)
 			switch tt.want {

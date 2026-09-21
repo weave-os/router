@@ -106,9 +106,6 @@ func telemetryCapacitySource(ctx context.Context, credentialSource string) entit
 	if _, ok := entitlement.CoverageFromContext(ctx); ok {
 		return entitlement.CapacitySourceIncludedRouter
 	}
-	if _, ok := entitlement.ProductScopeFromContext(ctx); ok {
-		return entitlement.CapacitySourcePrepaid
-	}
 	return ""
 }
 

@@ -60,13 +60,6 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 			c.Request = c.Request.WithContext(entitlement.WithProductScope(c.Request.Context(), admission.Plan))
 		}
 
-		// Boost preserves linked-provider-first funding. Marking the request
-		// subscription-only prevents a provider failure from silently changing
-		// the selected funding source to paid organization credits.
-		if admission.Plan == entitlement.PlanBoost && serveOnCoveringSubscription(c) {
-			return
-		}
-
 		// An agent-shadow evaluation draws no included allowance — it is Weave's
 		// own traffic, not the subscriber's turn — but it dispatches a forced
 		// model, so it runs after the boundary above is stamped.
@@ -75,8 +68,18 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 			return
 		}
 
+		// Boost preserves linked-provider-first funding. Marking the request
+		// subscription-only prevents a provider failure from silently changing
+		// the selected funding source to paid organization credits.
+		if admission.Plan == entitlement.PlanBoost && serveOnCoveringSubscription(c) {
+			return
+		}
+
 		switch admission.Outcome {
 		case entitlement.AdmissionNotSubscribed:
+			if admission.Plan != "" && serveOnCoveringSubscription(c) {
+				return
+			}
 			continueWithOrganizationFallback(c, log, admission.Plan)
 		case entitlement.AdmissionExhausted:
 			// A request presenting a Claude/Codex credential covering this route
