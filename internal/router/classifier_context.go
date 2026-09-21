@@ -37,13 +37,13 @@ type ClassifierFeatures struct {
 type ClassifierResponse struct {
 	ResponseIndex int
 	Content       string
-	TurnKey       string
+	TurnDigest    string
 }
 
 // ClassifierContext is the untruncated V3 input before historical predictions
-// are joined. TurnKey identifies the causal input, not an HTTP request/retry.
+// are joined. TurnDigest identifies the causal input, not an HTTP request/retry.
 type ClassifierContext struct {
-	TurnKey                string
+	TurnDigest             string
 	CurrentUserMessage     string
 	PrecedingResponses     []ClassifierResponse
 	CompletedResponseCount int
@@ -78,17 +78,17 @@ type PredictedClassifierResponse struct {
 // thread and immutable classifier release. Missing history is never defaulted.
 func (c ClassifierContext) WithHistoricalPredictions(predictions map[string]ClassifierComplexity) (AtomicClassificationRequest, error) {
 	features := c.Features
-	if c.TurnKey == "" || features.UserMessageCount < 1 || features.ToolCallCount < 0 || features.ToolErrorCount < 0 || features.ToolErrorCount > features.ToolCallCount || c.CompletedResponseCount < 0 || (features.UserMessageCount == 1 && c.CompletedResponseCount != 0) {
+	if c.TurnDigest == "" || features.UserMessageCount < 1 || features.ToolCallCount < 0 || features.ToolErrorCount < 0 || features.ToolErrorCount > features.ToolCallCount || c.CompletedResponseCount < 0 || (features.UserMessageCount == 1 && c.CompletedResponseCount != 0) {
 		return AtomicClassificationRequest{}, fmt.Errorf("invalid causal classifier features: %w", ErrClassifierHistoryUnavailable)
 	}
-	firstResponse := max(0, c.CompletedResponseCount-10)
-	if len(c.PrecedingResponses) != c.CompletedResponseCount-firstResponse {
+	firstResponseIndex := max(0, c.CompletedResponseCount-10)
+	if len(c.PrecedingResponses) != c.CompletedResponseCount-firstResponseIndex {
 		return AtomicClassificationRequest{}, fmt.Errorf("incomplete response suffix: %w", ErrClassifierHistoryUnavailable)
 	}
 	responses := make([]PredictedClassifierResponse, 0, len(c.PrecedingResponses))
 	for offset, response := range c.PrecedingResponses {
-		complexity, exists := predictions[response.TurnKey]
-		if response.ResponseIndex != firstResponse+offset || response.TurnKey == "" || response.TurnKey == c.TurnKey || !exists || complexity < ClassifierLow || complexity > ClassifierMaximum {
+		complexity, exists := predictions[response.TurnDigest]
+		if response.ResponseIndex != firstResponseIndex+offset || response.TurnDigest == "" || response.TurnDigest == c.TurnDigest || !exists || complexity < ClassifierLow || complexity > ClassifierMaximum {
 			return AtomicClassificationRequest{}, fmt.Errorf("missing or invalid historical prediction at response %d: %w", response.ResponseIndex, ErrClassifierHistoryUnavailable)
 		}
 		responses = append(responses, PredictedClassifierResponse{ResponseIndex: response.ResponseIndex, Content: response.Content, Complexity: complexity})

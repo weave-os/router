@@ -11,7 +11,7 @@ import (
 	"weave-os/router/internal/translate"
 )
 
-const classifierHistoryResponses = 10
+const classifierHistoryResponseLimit = 10
 
 // classifierContextAtUserBoundary preserves V3's user-turn supervision: tool
 // continuations reuse that turn's input; their responses become history only
@@ -22,15 +22,27 @@ func classifierContextAtUserBoundary(observation translate.EscalationObservation
 	}
 	var classifierContext router.ClassifierContext
 	features := router.ClassifierFeatures{}
-	history := make([]router.ClassifierResponse, 0, classifierHistoryResponses)
+	responseHistory := make([]router.ClassifierResponse, 0, classifierHistoryResponseLimit)
 	completedResponses := 0
 	// Retain only digests in the rolling identity; neither tool arguments nor
 	// results enter the model input. Framing comes from encoding/json.
 	prefix := ""
 	toolCallIDs := make(map[string]bool)
 	resolvedToolCallIDs := make(map[string]bool)
+	instructionsAfterBoundary := false
 	for _, message := range observation.Messages {
+		if message.HasOmittedMedia {
+			return router.ClassifierContext{}, fmt.Errorf("media identity unavailable: %w", router.ErrClassifierHistoryUnavailable)
+		}
+		priorPrefix := prefix
+		encodedPrefixMessage, _ := json.Marshal(struct {
+			Prefix  string
+			Message translate.EscalationMessage
+		}{prefix, message})
+		prefixDigest := sha256.Sum256(encodedPrefixMessage)
+		prefix = hex.EncodeToString(prefixDigest[:])
 		if message.Role == translate.EscalationRoleSystem || message.Role == translate.EscalationRoleDeveloper {
+			instructionsAfterBoundary = true
 			continue
 		}
 		userText := make([]string, 0)
@@ -49,31 +61,38 @@ func classifierContextAtUserBoundary(observation translate.EscalationObservation
 			return router.ClassifierContext{}, fmt.Errorf("ambiguous mixed user/tool boundary: %w", router.ErrClassifierHistoryUnavailable)
 		}
 		if message.Role == translate.EscalationRoleUser && !hasToolResult {
+			if len(userText) == 0 || len(toolCallIDs) != len(resolvedToolCallIDs) {
+				return router.ClassifierContext{}, fmt.Errorf("incomplete user boundary: %w", router.ErrClassifierHistoryUnavailable)
+			}
+			instructionsAfterBoundary = false
 			features.UserMessageCount++
 			currentUserMessage := strings.Join(userText, "\n\n")
-			encoded, _ := json.Marshal(struct {
+			encodedTurnInput, _ := json.Marshal(struct {
 				Prefix   string
 				User     string
 				Features router.ClassifierFeatures
-			}{prefix, currentUserMessage, features})
-			digest := sha256.Sum256(encoded)
+			}{priorPrefix, currentUserMessage, features})
+			turnDigest := sha256.Sum256(encodedTurnInput)
 			classifierContext = router.ClassifierContext{
-				TurnKey: hex.EncodeToString(digest[:]), CurrentUserMessage: currentUserMessage,
-				PrecedingResponses:     append([]router.ClassifierResponse{}, history...),
+				TurnDigest: hex.EncodeToString(turnDigest[:]), CurrentUserMessage: currentUserMessage,
+				PrecedingResponses:     append([]router.ClassifierResponse{}, responseHistory...),
 				CompletedResponseCount: completedResponses, Features: features,
 			}
 		}
-		if classifierContext.TurnKey == "" {
+		if classifierContext.TurnDigest == "" {
 			return router.ClassifierContext{}, fmt.Errorf("history starts before its human request: %w", router.ErrClassifierHistoryUnavailable)
+		}
+		if instructionsAfterBoundary {
+			return router.ClassifierContext{}, fmt.Errorf("instructions changed within a user turn: %w", router.ErrClassifierHistoryUnavailable)
 		}
 		for _, block := range message.Blocks {
 			switch block.Type {
 			case translate.EscalationBlockText:
 				if message.Role == translate.EscalationRoleAssistant {
-					history = append(history, router.ClassifierResponse{ResponseIndex: completedResponses, Content: block.Text, TurnKey: classifierContext.TurnKey})
+					responseHistory = append(responseHistory, router.ClassifierResponse{ResponseIndex: completedResponses, Content: block.Text, TurnDigest: classifierContext.TurnDigest})
 					completedResponses++
-					if len(history) > classifierHistoryResponses {
-						history = history[1:]
+					if len(responseHistory) > classifierHistoryResponseLimit {
+						responseHistory = responseHistory[1:]
 					}
 				}
 			case translate.EscalationBlockToolCall:
@@ -94,14 +113,8 @@ func classifierContextAtUserBoundary(observation translate.EscalationObservation
 				return router.ClassifierContext{}, fmt.Errorf("unsupported classifier event: %w", router.ErrClassifierHistoryUnavailable)
 			}
 		}
-		encoded, _ := json.Marshal(struct {
-			Prefix  string
-			Message translate.EscalationMessage
-		}{prefix, message})
-		digest := sha256.Sum256(encoded)
-		prefix = hex.EncodeToString(digest[:])
 	}
-	if classifierContext.TurnKey == "" {
+	if classifierContext.TurnDigest == "" || instructionsAfterBoundary || len(toolCallIDs) != len(resolvedToolCallIDs) {
 		return router.ClassifierContext{}, router.ErrClassifierHistoryUnavailable
 	}
 	return classifierContext, nil

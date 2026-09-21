@@ -179,15 +179,16 @@ func escalationAnthropicOutput(frames []gjson.Result, streaming bool) (Escalatio
 		if !escalationAnthropicCompleted(escalationFinishReason(frames[0].Get("stop_reason").String())) {
 			return EscalationResponse{}, fmt.Errorf("Anthropic response did not complete")
 		}
-		blocks, err := escalationContentBlocks(frames[0].Get("content"))
+		blocks, hasOmittedMedia, err := escalationContentBlocks(frames[0].Get("content"))
 		if err != nil {
 			return EscalationResponse{}, err
 		}
-		return EscalationResponse{ResponseID: frames[0].Get("id").String(), Messages: []EscalationMessage{{Role: EscalationRoleAssistant, Blocks: blocks}}}, nil
+		return EscalationResponse{ResponseID: frames[0].Get("id").String(), Messages: []EscalationMessage{{Role: EscalationRoleAssistant, Blocks: blocks, HasOmittedMedia: hasOmittedMedia}}}, nil
 	}
 	responseID := ""
 	complete := false
 	finishReason := escalationFinishReason("")
+	hasOmittedMedia := false
 	blocks := make(map[int]EscalationBlock)
 	textBuilders := make(map[int]*strings.Builder)
 	arguments := make(map[int]*strings.Builder)
@@ -209,10 +210,11 @@ func escalationAnthropicOutput(frames []gjson.Result, streaming bool) (Escalatio
 			complete = true
 		case escalationContentStart:
 			content := frame.Get("content_block")
-			parsed, err := escalationContentBlocks(gjson.Parse("[" + content.Raw + "]"))
+			parsed, omittedMedia, err := escalationContentBlocks(gjson.Parse("[" + content.Raw + "]"))
 			if err != nil {
 				return EscalationResponse{}, err
 			}
+			hasOmittedMedia = hasOmittedMedia || omittedMedia
 			if len(parsed) > 0 {
 				blocks[index] = parsed[0]
 				delete(textBuilders, index)
@@ -248,7 +250,7 @@ func escalationAnthropicOutput(frames []gjson.Result, streaming bool) (Escalatio
 	if err != nil {
 		return EscalationResponse{}, err
 	}
-	return EscalationResponse{ResponseID: responseID, Messages: []EscalationMessage{{Role: EscalationRoleAssistant, Blocks: ordered}}}, nil
+	return EscalationResponse{ResponseID: responseID, Messages: []EscalationMessage{{Role: EscalationRoleAssistant, Blocks: ordered, HasOmittedMedia: hasOmittedMedia}}}, nil
 }
 
 func escalationChatOutput(frames []gjson.Result, streaming, done bool) (EscalationResponse, error) {
@@ -348,6 +350,7 @@ func escalationChatOutput(frames []gjson.Result, streaming, done bool) (Escalati
 func escalationGeminiOutput(frames []gjson.Result) (EscalationResponse, error) {
 	responseID := ""
 	complete := false
+	hasOmittedMedia := false
 	blocks := make([]EscalationBlock, 0)
 	var adjacentText *strings.Builder
 	flushText := func() {
@@ -378,10 +381,11 @@ func escalationGeminiOutput(frames []gjson.Result) (EscalationResponse, error) {
 			}
 			complete = true
 		}
-		parsed, err := escalationGeminiBlocks(candidate.Get("content.parts"))
+		parsed, omittedMedia, err := escalationGeminiBlocks(candidate.Get("content.parts"))
 		if err != nil {
 			return EscalationResponse{}, err
 		}
+		hasOmittedMedia = hasOmittedMedia || omittedMedia
 		for _, block := range parsed {
 			if block.Type == EscalationBlockText {
 				if adjacentText == nil {
@@ -398,7 +402,7 @@ func escalationGeminiOutput(frames []gjson.Result) (EscalationResponse, error) {
 		return EscalationResponse{}, fmt.Errorf("Gemini response has no terminal candidate")
 	}
 	flushText()
-	return EscalationResponse{ResponseID: responseID, Messages: []EscalationMessage{{Role: EscalationRoleAssistant, Blocks: blocks}}}, nil
+	return EscalationResponse{ResponseID: responseID, Messages: []EscalationMessage{{Role: EscalationRoleAssistant, Blocks: blocks, HasOmittedMedia: hasOmittedMedia}}}, nil
 }
 
 func escalationFragmentBuilder(builders map[int]*strings.Builder, index int) *strings.Builder {

@@ -22,7 +22,7 @@ user boundary, matching the training example construction. Reclassifying every
 tool continuation with these new events would be a different input contract.
 
 `internal/proxy/classifier_context.go` builds that boundary from the existing
-lossless `translate.EscalationObservation`, independently of the clipped generic
+unclipped `translate.EscalationObservation`, independently of the clipped generic
 policy wire. Native Responses must be parsed from the original request, never
 the chat-completions projection. Text is not trimmed or truncated. Token limits
 remain the classifier tokenizer's responsibility.
@@ -42,11 +42,23 @@ with different prefixes produce different digests. Persist the prediction before
 dispatch, with atomic first-writer behavior for overlapping retries; do not store
 raw prompts just to recover a digit.
 
+System/developer instructions participate in the causal digest without entering
+the classifier prompt or feature counts. An instruction change within a user
+turn requires a new human boundary; it cannot reuse that turn's old prediction.
+
 The pure builder rejects partial Responses continuations/item references,
-unmatched or repeated tool IDs/results, and mixed human/tool-result messages
+unmatched or repeated tool IDs/results, open calls at a user boundary or at the
+end of history, and mixed human/tool-result messages
 whose boundary cannot be determined. ID-less legacy/Gemini tool calls require
 an explicit pairing contract before admission. Unknown outcomes do not increment
 the error count; text heuristics from spiral telemetry are deliberately not used.
+
+Media-bearing observations (including text mixed with images, audio or files)
+are rejected because their omitted payloads cannot establish classifier identity.
+Translation retains an in-memory omission flag, not media bytes, without changing
+the escalation wire. The builder must consume the original parsed observation,
+not a JSON round-trip that loses that flag. User messages with no retained text
+blocks are also rejected; explicit empty text remains distinguishable and valid.
 
 It cannot detect a client silently replacing the entire prefix with a summary.
 Nor can it recover predictions from sessions that predate this classifier.

@@ -134,9 +134,12 @@ func TestEscalationObservationExcludesOpaqueReasoningAndMedia(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, observation.Messages, 2)
 	assert.Equal(t, translate.EscalationRoleDeveloper, observation.Messages[0].Role)
+	assert.False(t, observation.Messages[0].HasOmittedMedia)
+	assert.True(t, observation.Messages[1].HasOmittedMedia)
 	encoded, err := json.Marshal(observation)
 	require.NoError(t, err)
 	assert.NotContains(t, string(encoded), "secret")
+	assert.NotContains(t, string(encoded), "HasOmittedMedia")
 	assert.Contains(t, string(encoded), "check")
 }
 
