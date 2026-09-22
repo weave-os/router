@@ -191,6 +191,48 @@ func TestWithSubscriberAllowance_PassesThroughNonSubscribers(t *testing.T) {
 	}
 }
 
+// A caller with no entitlement at all is billed at API pricing, and its own
+// covering plan still funds the turn before the organization does.
+func TestWithSubscriberAllowance_ServesCoveringSubscriptionForApiPricing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := entitlement.NewService(&stubEntitlements{}, &stubAllowances{}).WithClock(func() time.Time { return allowanceNow })
+
+	reached := false
+	subscriptionOnly := false
+	engine := gin.New()
+	engine.POST("/v1/messages", func(c *gin.Context) {
+		c.Set("router_api_key", subscriberAPIKey())
+		middleware.WithSubscriberAllowance(svc)(c)
+		if c.IsAborted() {
+			return
+		}
+		reached = true
+		subscriptionOnly = billing.SubscriptionOnlyFromContext(c.Request.Context())
+		c.Status(http.StatusOK)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req.Header.Set("Authorization", "Bearer sk-ant-oat-abc123")
+	engine.ServeHTTP(httptest.NewRecorder(), req)
+
+	require.True(t, reached)
+	assert.True(t, subscriptionOnly)
+}
+
+// A credential that cannot serve the route leaves the turn on its ordinary
+// billing path: a Codex bearer can't take /v1/messages.
+func TestWithSubscriberAllowance_IgnoresSubscriptionThatCannotServeRoute(t *testing.T) {
+	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
+	allowances := &stubAllowances{}
+	w, reached, coverage := runAllowanceMiddlewareWithAuth(
+		t, entitlements, allowances, subscriberAPIKey(), "Bearer sk-proj-codex-abc123")
+
+	require.True(t, reached)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, entitlement.SubscriberID(allowanceSubscriberID), coverage.SubscriberID)
+	assert.Len(t, allowances.held, 1, "the included allowance funds a turn the caller's plan cannot cover")
+}
+
 func TestWithSubscriberAllowance_AttachesCoverageForActiveSubscriber(t *testing.T) {
 	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
 	w, reached, coverage := runAllowanceMiddleware(t, entitlements, &stubAllowances{billingConsumed: 1_000}, subscriberAPIKey())
@@ -405,14 +447,26 @@ func TestWithSubscriberAllowance_PassesThroughCoveringSubscription(t *testing.T)
 	assert.Empty(t, coverage.SubscriberID)
 }
 
-func TestWithSubscriberAllowance_UsesCoveringSubscriptionBeforeBoostAllowance(t *testing.T) {
-	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
-	w, reached, coverage := runAllowanceMiddlewareWithAuth(
-		t, entitlements, &stubAllowances{}, subscriberAPIKey(), "Bearer sk-ant-oat-abc123")
+// Included allowance is metered capacity Weave pays for, so an unspent one is
+// drawn only after the caller's own plan cannot take the turn — on every plan,
+// not just the one whose funding order was written first.
+func TestWithSubscriberAllowance_UsesCoveringSubscriptionBeforeIncludedAllowance(t *testing.T) {
+	for name, current := range map[string]entitlement.Entitlement{
+		"boost": activeSubscriberEntitlement(),
+		"max":   maxSubscriberEntitlement(),
+	} {
+		t.Run(name, func(t *testing.T) {
+			entitlements := &stubEntitlements{current: current, found: true}
+			allowances := &stubAllowances{}
+			w, reached, coverage := runAllowanceMiddlewareWithAuth(
+				t, entitlements, allowances, subscriberAPIKey(), "Bearer sk-ant-oat-abc123")
 
-	assert.True(t, reached)
-	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Empty(t, coverage.SubscriberID)
+			assert.True(t, reached)
+			assert.Equal(t, http.StatusOK, w.Code)
+			assert.Empty(t, coverage.SubscriberID)
+			assert.Empty(t, allowances.held, "a turn the caller's own plan covers holds no included capacity")
+		})
+	}
 }
 
 func TestWithSubscriberAllowance_HoldsUpperBoundBeforeDispatch(t *testing.T) {

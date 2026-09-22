@@ -25,11 +25,13 @@ import (
 // organization billing, BYOK, and prepaid keys keep the gates they already had,
 // and this middleware is the only place the included allowance is enforced.
 //
-// Boost requests prefer compatible linked-provider capacity. When linked and
-// included capacity are unavailable, requests continue through the existing
-// organization balance and spend-limit gates if paid fallback is enabled.
-// Allowance read errors fail closed because treating an unreadable meter as
-// exhausted would incorrectly authorize organization spending.
+// Every caller prefers compatible linked-provider capacity, on either plan and
+// on API pricing: a turn the caller's own Claude/Codex plan covers serves at $0
+// there before any metered capacity is drawn. When linked and included capacity
+// are unavailable, requests continue through the existing organization balance
+// and spend-limit gates. Allowance read errors fail closed because treating an
+// unreadable meter as exhausted would incorrectly authorize organization
+// spending.
 func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
@@ -67,25 +69,20 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 			return
 		}
 
-		// Boost preserves linked-provider-first funding. Marking the request
-		// subscription-only prevents a provider failure from silently changing
-		// the selected funding source to paid organization credits.
-		if admission.Plan == entitlement.PlanBoost && serveOnCoveringSubscription(c) {
+		// Linked-provider-first funding, independent of the admission verdict: a
+		// request presenting a Claude/Codex credential covering this route serves
+		// at $0 on the caller's own plan, so capacity the subscriber (or their
+		// organization) pays for is spent only once that plan cannot take the
+		// turn. Marking the request subscription-only prevents a provider failure
+		// from silently changing the funding source to metered capacity.
+		// Settlement stays honest: it accounts only included_router capacity, and
+		// this request carries no coverage to settle against.
+		if serveOnCoveringSubscription(c) {
 			return
 		}
 
 		switch admission.Outcome {
-		case entitlement.AdmissionNotSubscribed:
-			c.Next()
-		case entitlement.AdmissionExhausted:
-			// A request presenting a Claude/Codex credential covering this route
-			// can serve at $0 on the caller's own plan without drawing included
-			// Router capacity, so a spent allowance must not refuse it. Settlement
-			// stays honest either way: it accounts only included_router capacity,
-			// and this request carries no coverage to settle against.
-			if serveOnCoveringSubscription(c) {
-				return
-			}
+		case entitlement.AdmissionNotSubscribed, entitlement.AdmissionExhausted:
 			c.Next()
 		case entitlement.AdmissionCovered:
 			holdRequest(c, log, svc, admission)

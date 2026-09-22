@@ -98,7 +98,10 @@ func TestWithSubscriberAllowance_KeepsMaxScopeAfterEntitlementEnds(t *testing.T)
 	assert.False(t, entitlement.ModelBoundaryFromContext(ctx).PermitsSource(eligibility.SourceClosedSource))
 }
 
-func TestWithSubscriberAllowance_EndedMaxKeepsOrganizationFallback(t *testing.T) {
+// A caller billed at API pricing (here: an ended Max entitlement) funds a
+// covered turn from its own plan too — organization spend is what the linked
+// subscription is there to avoid.
+func TestWithSubscriberAllowance_EndedMaxServesCoveringSubscriptionFirst(t *testing.T) {
 	ended := maxSubscriberEntitlement()
 	ended.Status = entitlement.StatusEnded
 	entitlements := &stubEntitlements{current: ended, found: true}
@@ -106,7 +109,20 @@ func TestWithSubscriberAllowance_EndedMaxKeepsOrganizationFallback(t *testing.T)
 	reached, ctx := runProductScopeMiddleware(t, entitlements, &stubAllowances{}, "Bearer sk-ant-oat01-covering-subscription")
 
 	require.True(t, reached)
-	assert.False(t, billing.SubscriptionOnlyFromContext(ctx), "subscription-only would disable organization-funded PAYG failover")
+	assert.True(t, billing.SubscriptionOnlyFromContext(ctx))
+}
+
+// Without a credential covering the route there is nothing to hold the turn
+// to, so organization-funded PAYG failover stays available.
+func TestWithSubscriberAllowance_EndedMaxKeepsOrganizationFallbackWithoutSubscription(t *testing.T) {
+	ended := maxSubscriberEntitlement()
+	ended.Status = entitlement.StatusEnded
+	entitlements := &stubEntitlements{current: ended, found: true}
+
+	reached, ctx := runProductScopeMiddleware(t, entitlements, &stubAllowances{}, "")
+
+	require.True(t, reached)
+	assert.False(t, billing.SubscriptionOnlyFromContext(ctx))
 }
 
 // An agent-shadow evaluation is Weave's own traffic: it draws no included
