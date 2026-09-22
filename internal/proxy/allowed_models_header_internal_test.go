@@ -26,7 +26,7 @@ func ctxWithRequestSubset(ctx context.Context, models ...string) context.Context
 }
 
 func TestParseAllowedModelsHeader_ResolvesAliasesAndDedupes(t *testing.T) {
-	got, err := ParseAllowedModelsHeader(" sol, terra ,gpt-5.6-sol,", nil)
+	got, err := ParseAllowedModelsHeader(" gpt-5-6-sol, terra ,gpt-5.6-sol,", nil)
 	require.NoError(t, err)
 	assert.Equal(t, []string{testSol, testTerra}, got.Requested)
 	assert.Equal(t, []string{testSol, testTerra}, got.Effective)
@@ -46,7 +46,7 @@ func TestParseAllowedModelsHeader_BlankRejected(t *testing.T) {
 }
 
 func TestParseAllowedModelsHeader_IntersectsInstallationAllowlist(t *testing.T) {
-	got, err := ParseAllowedModelsHeader("sol,terra", []string{testSol, testOpus})
+	got, err := ParseAllowedModelsHeader("gpt-5-6-sol,terra", []string{testSol, testOpus})
 	require.NoError(t, err)
 	assert.Equal(t, []string{testSol, testTerra}, got.Requested)
 	assert.Equal(t, []string{testSol}, got.Effective)

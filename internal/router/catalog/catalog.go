@@ -454,6 +454,26 @@ var Models = []Model{
 			LongContext: &LongContextPricing{ThresholdTokens: 272_000, InputUSDPer1M: 40.00, OutputUSDPer1M: 150.00, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.10},
 		}},
 	}},
+	// --- OpenAI GPT-6 Sol/Luna --- same >272K (2x in, 1.5x out) and 2x fast
+	// schedule as Astra.
+	{ID: "gpt-6-sol", Source: SourceClosedSource, Tier: TierHigh, ContextWindow: 1_050_000, Providers: []ProviderBinding{
+		{Provider: providers.ProviderOpenAI, Price: Pricing{
+			InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.10,
+			LongContext: &LongContextPricing{ThresholdTokens: 272_000, InputUSDPer1M: 4.00, OutputUSDPer1M: 15.00, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.10},
+		}, FastPrice: Pricing{
+			InputUSDPer1M: 4.00, OutputUSDPer1M: 20.00, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.10,
+			LongContext: &LongContextPricing{ThresholdTokens: 272_000, InputUSDPer1M: 8.00, OutputUSDPer1M: 30.00, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.10},
+		}},
+	}},
+	{ID: "gpt-6-luna", Source: SourceClosedSource, Tier: TierMid, ContextWindow: 1_050_000, Providers: []ProviderBinding{
+		{Provider: providers.ProviderOpenAI, Price: Pricing{
+			InputUSDPer1M: 0.10, OutputUSDPer1M: 0.50, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.10,
+			LongContext: &LongContextPricing{ThresholdTokens: 272_000, InputUSDPer1M: 0.20, OutputUSDPer1M: 0.75, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.10},
+		}, FastPrice: Pricing{
+			InputUSDPer1M: 0.20, OutputUSDPer1M: 1.00, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.10,
+			LongContext: &LongContextPricing{ThresholdTokens: 272_000, InputUSDPer1M: 0.40, OutputUSDPer1M: 1.50, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.10},
+		}},
+	}},
 
 	// --- xAI Grok --- native only; OpenRouter unused in prod.
 	// Standard rate (<200K) used; long-context repricing is a future Pricing follow-up.

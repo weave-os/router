@@ -140,6 +140,9 @@ var (
 	openai56 = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh"}, SupportsBudget: true}, CapReasoning, CapXhighEffort)
 	// GPT-6 Astra exposes max on the public Responses API and always reasons.
 	openaiAstra = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh", "max"}, SupportsBudget: true, AlwaysOn: true}, CapReasoning, CapXhighEffort)
+	// GPT-6 Sol/Luna expose Astra's menu but also accept reasoning.effort=none,
+	// so a disable passes through instead of clamping to the floor.
+	openai6 = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh", "max"}, SupportsBudget: true}, CapReasoning, CapXhighEffort)
 	// grok-4.6: openaiReasoning + the extra "xhigh" level.
 	grok46 = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh"}, SupportsBudget: true}, CapReasoning, CapXhighEffort)
 	// Grok 4.7 exposes the same four reasoning effort levels as Grok 4.6.
@@ -183,6 +186,8 @@ var registry = map[string]ModelSpec{
 	"claude-sonnet-4-0": NewSpec(),
 
 	"gpt-6-astra": openaiAstra,
+	"gpt-6-sol":   openai6,
+	"gpt-6-luna":  openai6,
 
 	"gpt-5.6-sol":      openai56,
 	"gpt-5.6-sol-pro":  openai56,

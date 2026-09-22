@@ -398,7 +398,8 @@ func TestCompactionHardPin_CodexKeepsNonAnthropicSessionModel(t *testing.T) {
 	}
 
 	// A Codex thread the HMM has been serving on gpt-5.6-sol: its compaction
-	// turn stays on Sol instead of crossing to the Anthropic summarizer.
+	// turn stays in the Sol family (upgraded to its newest version) instead of
+	// crossing to the Anthropic summarizer.
 	hmmServed := &rolePinStore{byRole: map[string]sessionpin.Pin{
 		hmmHistoryRole(sessionpin.DefaultRole): {Provider: providers.ProviderOpenAI, LastServedModel: "gpt-5.6-sol", LastTurnEndedAt: time.Now(), PinnedUntil: live},
 	}}
@@ -406,7 +407,7 @@ func TestCompactionHardPin_CodexKeepsNonAnthropicSessionModel(t *testing.T) {
 	p, m, source, ok := s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{}))
 	require.True(t, ok)
 	assert.Equal(t, providers.ProviderOpenAI, p)
-	assert.Equal(t, "gpt-5.6-sol", m)
+	assert.Equal(t, "gpt-6-sol", m)
 	assert.Equal(t, policy.OverrideSourceSession, source, "the session's own model fixed the turn")
 
 	// Claude Code's compaction turn is Anthropic-format: the same history keeps
@@ -425,7 +426,7 @@ func TestCompactionHardPin_CodexKeepsNonAnthropicSessionModel(t *testing.T) {
 	s = &Service{compactionHardPinEnabled: true, pinStore: switched, clients: dispatch.NewClients(openAIProviders)}
 	_, m, _, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{}))
 	require.True(t, ok)
-	assert.Equal(t, "gpt-5.6-sol", m)
+	assert.Equal(t, "gpt-6-sol", m)
 
 	// An expired thread pin no longer speaks for the session.
 	expired := &rolePinStore{byRole: map[string]sessionpin.Pin{
@@ -444,10 +445,11 @@ func TestCompactionHardPin_CodexKeepsNonAnthropicSessionModel(t *testing.T) {
 	assert.Equal(t, policy.PrecompactionDefaultModel, m, "served vendor disabled → Sonnet-class default")
 
 	// Org exclusions and the deployment-wide automatic disable still apply.
-	_, m, _, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{ExcludedModels: map[string]struct{}{"gpt-5.6-sol": {}}}))
+	solFamily := map[string]struct{}{"gpt-5.6-sol": {}, "gpt-6-sol": {}}
+	_, m, _, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{ExcludedModels: solFamily}))
 	require.True(t, ok)
 	assert.Equal(t, policy.PrecompactionDefaultModel, m)
-	_, m, _, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{AutomaticExcludedModels: map[string]struct{}{"gpt-5.6-sol": {}}}))
+	_, m, _, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{AutomaticExcludedModels: solFamily}))
 	require.True(t, ok)
 	assert.Equal(t, policy.PrecompactionDefaultModel, m)
 
@@ -528,7 +530,7 @@ func TestCompactionHardPin_CodexKeepsUntieredSessionFamily(t *testing.T) {
 }
 
 func TestTurnLoop_CompactionReadsClientIdentityBeforeHardPin(t *testing.T) {
-	const sessionModel = "gpt-5.6-sol"
+	const sessionModel = "gpt-6-sol"
 	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
 		hmmHistoryRole(roleForTier(catalog.TierMid)): {
 			Provider: providers.ProviderOpenAI, LastServedModel: sessionModel,

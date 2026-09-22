@@ -53,7 +53,7 @@ func TestResolveForceModel(t *testing.T) {
 		{
 			name:         "alias gpt",
 			input:        "gpt",
-			wantID:       "gpt-5.6-sol",
+			wantID:       "gpt-6-sol",
 			wantProvider: providers.ProviderOpenAI,
 			wantKnown:    true,
 		},
@@ -81,7 +81,7 @@ func TestResolveForceModel(t *testing.T) {
 		{
 			name:         "native openai prefix with model alias",
 			input:        "openai/luna",
-			wantID:       "gpt-5.6-luna",
+			wantID:       "gpt-6-luna",
 			wantProvider: providers.ProviderOpenAI,
 			wantKnown:    true,
 		},
