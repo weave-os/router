@@ -120,7 +120,7 @@ logged-in user's Team/Pro/Max/individual plan.
 
 | Path                       | Purpose                                                       |
 | -------------------------- | ------------------------------------------------------------- |
-| `~/.codex/config.toml`     | Adds a managed `[model_providers.weave]` block and sets top-level `model_provider = "weave"`. Fresh installs select `model = "weave-auto"`; reinstalling preserves a model you already chose. The provider preserves the existing ChatGPT OAuth login and keeps the target router's default routing strategy. Anything outside the markers is preserved. |
+| `~/.codex/config.toml`     | Adds a managed `[model_providers.weave]` block and sets top-level `model_provider = "weave"`. Fresh installs select `model = "weave-auto"`; the model and reasoning effort stay outside the managed markers so reinstalling preserves your selection. The provider preserves the existing ChatGPT OAuth login and keeps the target router's default routing strategy. |
 | `~/.weave/codex-status.sh` | Codex `SessionStart`/`Stop` hook helper. Keeps the latest routed model in the terminal title without adding status messages to the conversation. |
 
 The status helper is installed with mode `0700`, stores only the session's requested and routed model IDs under `${XDG_CACHE_HOME:-~/.cache}/weave-router/codex/`, and never stores prompts, credentials, or response bodies. Existing Codex hooks are preserved and the managed hooks are safe to reinstall or remove.
@@ -137,9 +137,10 @@ The status helper is installed with mode `0700`, stores only the session's reque
 Run Codex from the repo with `CODEX_HOME=<repo>/.codex codex` so it picks
 up the project-local config instead of `~/.codex/`.
 
-Re-running the installer rewrites only the managed block (TOML between the
-markers + a top-level `model_provider =` outside it). Everything else —
-profiles, alternate providers, comments — stays untouched.
+Re-running the installer rewrites the managed block and top-level
+`model_provider`. It also moves model and effort selections out of older
+managed blocks so they survive future reinstalls. Profiles, alternate
+providers, and unrelated settings stay untouched.
 
 Run `npx @weave-os/router --codex` again to enable native `/model` selection on
 an existing install, then restart Codex. `/model` shows the models available to

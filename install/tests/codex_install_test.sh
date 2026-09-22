@@ -52,6 +52,19 @@ fail() {
   exit 1
 }
 
+assert_top_level_setting() {
+  local setting="$1" expected="$2"
+  python3 - "$config" "$setting" "$expected" <<'PY' \
+    || fail "Codex $setting is not top-level $expected"
+import sys
+import tomllib
+
+with open(sys.argv[1], "rb") as config_file:
+    config = tomllib.load(config_file)
+assert config.get(sys.argv[2]) == sys.argv[3], config.get(sys.argv[2])
+PY
+}
+
 # Old installer versions placed Markdown wrappers here, but current Codex does
 # not discover them as slash commands. The upgrade must remove only those
 # canonical files and leave unrelated user prompts alone.
@@ -68,6 +81,7 @@ grep -qx 'model_provider = "weave"' "$config" \
   || fail "Weave was not selected as the default provider"
 grep -qx 'model = "weave-auto"' "$config" \
   || fail "fresh Codex installs do not start in automatic routing mode"
+assert_top_level_setting model weave-auto
 grep -Fq '"X-Weave-Codex-Native-Model-Pin" = "1"' "$config" \
   || fail "Codex native model selection was not enabled"
 grep -qx 'requires_openai_auth = true' "$config" \
@@ -158,6 +172,21 @@ run_uninstall
 [ ! -e "$skill" ] || fail "uninstall did not remove the Codex disable-routing skill"
 [ ! -e "$status_helper" ] || fail "uninstall did not remove the Codex status helper"
 
+# Reinstalling while routing is off must clear the old installer comments.
+# Otherwise a later off/on cycle restores duplicate top-level TOML keys.
+run_hosted_install
+run_disable_routing
+run_hosted_install
+run_disable_routing
+HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" on --codex --scope user --quiet >/dev/null
+assert_top_level_setting model_provider weave
+assert_top_level_setting model weave-auto
+run_disable_routing
+run_uninstall
+if grep -Fq 'weave-router: off' "$config"; then
+  fail "uninstall left Codex off-state comments behind"
+fi
+
 printf 'model = "gpt-6-sol"\n' >"$config"
 run_hosted_install
 [ "$(grep -cx 'model = "gpt-6-sol"' "$config")" -eq 1 ] \
@@ -168,6 +197,67 @@ fi
 run_uninstall
 grep -qx 'model = "gpt-6-sol"' "$config" \
   || fail "uninstall removed the user's native model selection"
+
+# Earlier installs kept the default model inside the managed block. If Codex
+# changed that line, reinstall must promote the selected model and effort to
+# top-level user settings before replacing the block.
+rm -f "$config"
+run_hosted_install
+awk '
+  /^model = "weave-auto"$/ { next }
+  /^# >>> weave-router managed/ {
+    print
+    print "model = \"gpt-6-sol\""
+    print "model_reasoning_effort = \"max\""
+    next
+  }
+  { print }
+' "$config" >"$work/old-codex-config.toml"
+mv "$work/old-codex-config.toml" "$config"
+run_hosted_install
+assert_top_level_setting model gpt-6-sol
+assert_top_level_setting model_reasoning_effort max
+run_hosted_install
+assert_top_level_setting model gpt-6-sol
+run_uninstall
+assert_top_level_setting model gpt-6-sol
+assert_top_level_setting model_reasoning_effort max
+
+# An older block could also leave Codex's newly written selection after its
+# end marker, which TOML scopes to the last table in that block.
+rm -f "$config"
+run_hosted_install
+awk '
+  /^model = "weave-auto"$/ { next }
+  /^# >>> weave-router managed/ { print; print "model = \"weave-auto\""; next }
+  /^# <<< weave-router managed/ {
+    print
+    print "model = \"gpt-6-sol\""
+    print "model_reasoning_effort = \"max\""
+    next
+  }
+  { print }
+' "$config" >"$work/after-marker-config.toml"
+mv "$work/after-marker-config.toml" "$config"
+run_hosted_install
+assert_top_level_setting model gpt-6-sol
+assert_top_level_setting model_reasoning_effort max
+run_uninstall
+
+# A selection written after the Weave provider header is scoped to that table
+# by TOML, not to Codex. Reinstall repairs its scope while replacing the table.
+cat >"$config" <<'MISPLACED'
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "https://router.workweave.ai/v1"
+model = "gpt-5.6-sol"
+model_reasoning_effort = "high"
+MISPLACED
+run_hosted_install
+assert_top_level_setting model gpt-5.6-sol
+assert_top_level_setting model_reasoning_effort high
+run_uninstall
 
 for name in force-model fm unforce-model ufm router-feedback rf \
             router-off router-on router-status router-models; do
@@ -291,6 +381,31 @@ fi
 HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" on --codex --scope user --quiet >/dev/null
 grep -qx 'model = "weave-auto"' "$config" \
   || fail "router-on did not restore automatic mode after Codex rewrote config"
+
+# Codex may serialize an off-state without comments, leaving the configured
+# provider but no model_provider line. Router-on must restore it at top level.
+seed_codex_normalized_config
+HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" off --codex --scope user --quiet >/dev/null
+awk '!/^[[:space:]]*#/' "$config" >"$work/markerless-off.toml"
+mv "$work/markerless-off.toml" "$config"
+HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" on --codex --scope user --quiet >/dev/null
+assert_top_level_setting model_provider weave
+assert_top_level_setting model weave-auto
+assert_config_parses "router-on produced invalid TOML from a markerless off-state"
+[ "$(grep -c '^\[model_providers\.weave\]$' "$config")" -eq 1 ] \
+  || fail "router-on duplicated the markerless Weave provider"
+
+# A named model remains the user's choice across the same off/on recovery.
+seed_codex_normalized_config
+sed 's/^model = "weave-auto"$/model = "gpt-6-sol"/' "$config" >"$work/named-codex-config.toml"
+mv "$work/named-codex-config.toml" "$config"
+HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" off --codex --scope user --quiet >/dev/null
+awk '!/^[[:space:]]*#/' "$config" >"$work/markerless-named-off.toml"
+mv "$work/markerless-named-off.toml" "$config"
+HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" on --codex --scope user --quiet >/dev/null
+assert_top_level_setting model_provider weave
+assert_top_level_setting model gpt-6-sol
+seed_codex_normalized_config
 run_hosted_install
 assert_config_parses "install over a Codex-rewritten config produced unparseable TOML"
 [ "$(grep -c '^\[model_providers\.weave\]$' "$config")" -eq 1 ] \
