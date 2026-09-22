@@ -60,7 +60,19 @@ var SubscriptionOnlyContextKey = subscriptionOnlyContextKeyT{}
 // required argument rather than a default so a gate added later must decide
 // what the caller is told, instead of silently inheriting the depleted-credits
 // warning — which is how linked-first turns came to claim credits were gone.
+//
+// A funding failure outranks a funding preference: once a gate has recorded
+// credits_depleted, linked-first cannot take it back, because the caller still
+// needs to be told paid fallback is off. Today the inference routes mount the
+// allowance gate ahead of the balance and spend-cap gates, so the escalation
+// only ever runs in that direction; the precedence is enforced here rather than
+// left resting on that registration order, which neither gate can see.
 func WithSubscriptionOnly(ctx context.Context, reason SubscriptionOnlyReason) context.Context {
+	if reason == SubscriptionOnlyLinkedFirst {
+		if existing, ok := subscriptionOnlyReason(ctx); ok && existing == SubscriptionOnlyCreditsDepleted {
+			return ctx
+		}
+	}
 	return context.WithValue(ctx, SubscriptionOnlyContextKey, reason)
 }
 
