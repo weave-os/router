@@ -302,6 +302,15 @@ var Models = []Model{
 		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10}},
 		{Provider: providers.ProviderOpenAIGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00}},
 	}},
+	// Opus 5.5: $4/$20, cache reads at $0.20/MTok (0.05x), fast mode $8/$40.
+	// Native 1M context, adaptive thinking always on, forced tool_choice
+	// rejected like Fable 5.1. Not a cluster roster member until it has
+	// quality labels.
+	{ID: "claude-opus-5-5", Source: SourceClosedSource, Tier: TierHigh, ContextWindow: 1_000_000, Providers: []ProviderBinding{
+		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 4.00, OutputUSDPer1M: 20.00, CacheReadMultiplier: 0.05}, FastPrice: Pricing{InputUSDPer1M: 8.00, OutputUSDPer1M: 40.00}},
+		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 4.00, OutputUSDPer1M: 20.00, CacheReadMultiplier: 0.05}},
+		{Provider: providers.ProviderOpenAIGateway, Price: Pricing{InputUSDPer1M: 4.00, OutputUSDPer1M: 20.00}},
+	}},
 	// Fable 5 retired from routing; kept as priced passthrough so lingering
 	// BYOK/direct pins and the compaction summarizer bill at real cost.
 	// Safety classifiers can return stop_reason "refusal" (HTTP 200); see

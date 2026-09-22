@@ -1257,7 +1257,7 @@ func TestService_SessionPin_AgentForceModelCommandContinuesOnForcedModel(t *test
 		Provider: providers.ProviderOpenAI, Model: "gpt-5.5", Reason: "cluster:v0.2",
 		PinnedUntil: time.Now().Add(time.Hour),
 	}
-	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-5", Reason: translate.ReasonUserForceModel}}
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-5-5", Reason: translate.ReasonUserForceModel}}
 	svc := newOpenAIPinSvc(fr, store)
 
 	ctx := authedCtx(uuid.New().String())
@@ -1266,10 +1266,10 @@ func TestService_SessionPin_AgentForceModelCommandContinuesOnForcedModel(t *test
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), rec, httpReq))
 
 	assert.Equal(t, 0, fr.routeCalls, "the newly forced pin must bypass automatic routing")
-	assert.Equal(t, "claude-opus-5", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-opus-5-5", rec.Header().Get(proxy.HeaderRouterModel))
 	assert.NotContains(t, rec.Body.String(), "force-model applied", "only a user-issued command gets a synthetic acknowledgment")
 	require.NotEmpty(t, store.upserts)
-	assert.Equal(t, "claude-opus-5", store.upserts[0].Model)
+	assert.Equal(t, "claude-opus-5-5", store.upserts[0].Model)
 	assert.Equal(t, translate.ReasonUserForceModel, store.upserts[0].Reason)
 }
 
@@ -1762,10 +1762,10 @@ func TestService_ForceModelHeader_WritesUserForcedPin(t *testing.T) {
 		}
 	}
 	require.NotNil(t, forced, "header must write a user_forced pin upsert")
-	assert.Equal(t, "claude-opus-5", forced.Model, "alias 'opus' resolves to the canonical id")
+	assert.Equal(t, "claude-opus-5-5", forced.Model, "alias 'opus' resolves to the canonical id")
 	assert.Equal(t, providers.ProviderAnthropic, forced.Provider)
 	assert.Equal(t, 0, fr.routeCalls, "a valid force bypasses automatic routing")
-	assert.Equal(t, "claude-opus-5", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, "claude-opus-5-5", rec.Header().Get(proxy.HeaderRouterModel))
 }
 
 // An unrecognized x-weave-force-model value fails the request: routing on

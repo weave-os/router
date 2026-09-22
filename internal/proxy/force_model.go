@@ -47,10 +47,18 @@ func (e *ForcedModelUnknownError) Error() string {
 func (e *ForcedModelUnknownError) Unwrap() error { return ErrForcedModelUnknown }
 
 var forceModelAliases = map[string]string{
-	"anthropic":   "claude-opus-5",
-	"claude":      "claude-opus-5",
-	"opus":        "claude-opus-5",
-	"claude-opus": "claude-opus-5",
+	// Opus family aliases follow 5.5; Opus 5's own-name aliases keep
+	// resolving so existing direct pins still serve.
+	"anthropic":   "claude-opus-5-5",
+	"claude":      "claude-opus-5-5",
+	"opus":        "claude-opus-5-5",
+	"claude-opus": "claude-opus-5-5",
+	"opus-5.5":    "claude-opus-5-5",
+	"opus-5-5":    "claude-opus-5-5",
+	"opus5.5":     "claude-opus-5-5",
+	"opus55":      "claude-opus-5-5",
+	"claude-5.5":  "claude-opus-5-5",
+	"claude-5-5":  "claude-opus-5-5",
 	"opus-5":      "claude-opus-5",
 	"opus-5.0":    "claude-opus-5",
 	"opus5":       "claude-opus-5",

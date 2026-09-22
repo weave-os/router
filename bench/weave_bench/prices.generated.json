@@ -1,5 +1,5 @@
 {
-  "pricing_version": "catalog-sha256:d1898e95669c5daf",
+  "pricing_version": "catalog-sha256:cf50db465a53f7d1",
   "models": {
     "claude-fable-5": {
       "input_usd_per_million": 10,
@@ -59,6 +59,12 @@
       "input_usd_per_million": 5,
       "output_usd_per_million": 25,
       "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "claude-opus-5-5": {
+      "input_usd_per_million": 4,
+      "output_usd_per_million": 20,
+      "cache_read_multiplier": 0.05,
       "cache_write_multiplier": 1.25
     },
     "claude-sonnet-4-5": {

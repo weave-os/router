@@ -126,8 +126,8 @@ var (
 	anthropicAdaptiveXhigh = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort)
 	// Opus 5 / Fable 5 add server-side fallback on top of the xhigh menu.
 	anthropicAdaptiveFallback = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback)
-	// Fable 5.1 additionally rejects tool_choice any/tool ("not supported for
-	// this model"); opus-5 and fable-5 accept them.
+	// Fable 5.1 and Opus 5.5 additionally reject tool_choice any/tool ("not
+	// supported for this model"); opus-5 and fable-5 accept them.
 	anthropicAdaptiveFallbackAutoTools = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true}, CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback, CapAutoToolChoiceOnly)
 	anthropicExtended                  = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, SupportsBudget: true}, CapExtendedThinking)
 )
@@ -162,6 +162,7 @@ var registry = map[string]ModelSpec{
 	// 1M context is native, so CapExtendedContext's beta header is a no-op.
 	"claude-fable-5":   anthropicAdaptiveFallback,
 	"claude-fable-5-1": anthropicAdaptiveFallbackAutoTools,
+	"claude-opus-5-5":  anthropicAdaptiveFallbackAutoTools,
 	"claude-opus-5":    anthropicAdaptiveFallback,
 	"claude-opus-4-8":  anthropicAdaptiveXhigh,
 	"claude-opus-4-7":  anthropicAdaptiveXhigh,

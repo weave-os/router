@@ -199,13 +199,13 @@ func TestWithCompaction_ZeroPctDisables(t *testing.T) {
 func TestSelectCompactionSummarizer_WindowAware(t *testing.T) {
 	s := &Service{}
 	assert.Equal(t, policy.PrecompactionDefaultModel, s.selectCompactionSummarizer(1_000, "", nil), "small history → Sonnet-class default")
-	assert.Equal(t, policy.PrecompactionLargeWindowModel, s.selectCompactionSummarizer(300_000, "", nil), "history over the default's window → large-window model")
+	assert.Equal(t, "claude-opus-5-5", s.selectCompactionSummarizer(300_000, "", nil), "history over the default's window → newest large-window family member")
 	assert.Equal(t, "", s.selectCompactionSummarizer(5_000_000, "", nil), "history over every window → none")
 
-	assert.Equal(t, "claude-opus-5", s.selectCompactionSummarizer(1_000, "claude-opus-4-8", nil), "session family upgrades to its newest eligible version")
+	assert.Equal(t, "claude-opus-5-5", s.selectCompactionSummarizer(1_000, "claude-opus-4-8", nil), "session family upgrades to its newest eligible version")
 	assert.Equal(t, policy.PrecompactionDefaultModel, s.selectCompactionSummarizer(1_000, "claude-haiku-4-5", nil), "low-tier pin is not reused as summarizer")
 	assert.Equal(t, policy.PrecompactionDefaultModel, s.selectCompactionSummarizer(1_000, "gpt-5.5", nil), "non-Anthropic pin is not reused as summarizer")
-	assert.Equal(t, policy.PrecompactionLargeWindowModel, s.selectCompactionSummarizer(300_000, "claude-opus-4-8", nil), "upgraded pin can ingest the larger history")
+	assert.Equal(t, "claude-opus-5-5", s.selectCompactionSummarizer(300_000, "claude-opus-4-8", nil), "upgraded pin can ingest the larger history")
 
 	custom := &Service{compactionModel: "claude-sonnet-4-5"}
 	assert.Equal(t, "claude-sonnet-5", custom.selectCompactionSummarizer(1_000, "", nil), "ROUTER_COMPACTION_MODEL selects a family, not an obsolete version")
@@ -213,6 +213,8 @@ func TestSelectCompactionSummarizer_WindowAware(t *testing.T) {
 	excluded := map[string]struct{}{policy.PrecompactionDefaultModel: {}}
 	assert.Equal(t, "claude-sonnet-4-6", s.selectCompactionSummarizer(1_000, "claude-sonnet-4-5", excluded))
 	excluded[policy.PrecompactionLargeWindowModel] = struct{}{}
+	assert.Equal(t, "claude-opus-5-5", s.selectCompactionSummarizer(300_000, "claude-sonnet-4-5", excluded), "excluding one family member still upgrades to a newer one")
+	excluded["claude-opus-5-5"] = struct{}{}
 	assert.Empty(t, s.selectCompactionSummarizer(300_000, "claude-sonnet-4-5", excluded))
 }
 
@@ -467,7 +469,7 @@ func TestCompactionHardPin_CodexKeepsNonAnthropicSessionModel(t *testing.T) {
 	p, m, _, ok = s.compactionHardPin(ctx, key, sessionpin.DefaultRole, codex(router.Request{}))
 	require.True(t, ok)
 	assert.Equal(t, providers.ProviderAnthropic, p)
-	assert.Equal(t, "claude-opus-5", m)
+	assert.Equal(t, "claude-opus-5-5", m)
 }
 
 func TestCompactionHardPin_FamilyUpgradeHonorsRestrictions(t *testing.T) {

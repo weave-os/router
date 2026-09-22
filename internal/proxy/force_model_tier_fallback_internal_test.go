@@ -309,7 +309,7 @@ func TestForceModelHeader_OverridesHardPin(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, "claude-opus-5", res.Decision.Model,
+	assert.Equal(t, "claude-opus-5-5", res.Decision.Model,
 		"the x-weave-force-model pin must outrank the automatic compaction hard-pin")
 	assert.Equal(t, translate.ReasonUserForceModel, res.Decision.Reason)
 	assert.False(t, res.HardPinned)

@@ -31,9 +31,9 @@ func TestForceModelCommand_PersistsEffortOnPin(t *testing.T) {
 		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
 
 	require.Len(t, store.upserts, 1)
-	assert.Equal(t, "claude-opus-5", store.upserts[0].Model)
+	assert.Equal(t, "claude-opus-5-5", store.upserts[0].Model)
 	assert.Equal(t, "xhigh", store.upserts[0].Effort)
-	assert.Contains(t, rec.Body.String(), "claude-opus-5:xhigh")
+	assert.Contains(t, rec.Body.String(), "claude-opus-5-5:xhigh")
 }
 
 // The tool-result form of the command dispatches on the same turn through
@@ -48,11 +48,11 @@ func TestApplyForceModelCommand_ReturnsEffortQualifiedSpec(t *testing.T) {
 		translate.ForceModelResult{Model: "opus:xhigh", FromToolResult: true},
 		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"))
 	require.NoError(t, err)
-	assert.Equal(t, "claude-opus-5:xhigh", spec)
+	assert.Equal(t, "claude-opus-5-5:xhigh", spec)
 
 	model, _, known, effort := resolveForceModelWithEffort(spec)
 	require.True(t, known)
-	assert.Equal(t, "claude-opus-5", model)
+	assert.Equal(t, "claude-opus-5-5", model)
 	assert.Equal(t, "xhigh", effort)
 }
 
@@ -130,7 +130,7 @@ func TestRunTurnLoop_RequestForceModelCarriesEffort(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	assert.Equal(t, "claude-opus-5", res.Decision.Model)
+	assert.Equal(t, "claude-opus-5-5", res.Decision.Model)
 	assert.Equal(t, "medium", res.Decision.Effort)
 }
 

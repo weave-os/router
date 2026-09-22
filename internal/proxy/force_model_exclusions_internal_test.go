@@ -77,7 +77,7 @@ func TestForceModelCommand_RejectsExcludedModel(t *testing.T) {
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
 	ctx := context.WithValue(context.Background(),
-		InstallationExcludedModelsContextKey{}, []string{"claude-opus-5"})
+		InstallationExcludedModelsContextKey{}, []string{"claude-opus-5-5"})
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
 	require.NoError(t, svc.handleForceModelCommand(ctx, rec, env,
@@ -186,7 +186,7 @@ func TestForceModelHeader_UnfencedInstallationUnaffected(t *testing.T) {
 		context.Background(), req, uuid.New(), DeriveSessionKey(env, "key-1"))
 
 	require.NoError(t, forceErr)
-	assert.Equal(t, "claude-opus-5", model)
+	assert.Equal(t, "claude-opus-5-5", model)
 	require.Len(t, store.upserts, 1)
 }
 
@@ -208,7 +208,7 @@ func TestForceModelHeader_EffortSuffixLandsOnReturnedContext(t *testing.T) {
 		context.Background(), req, uuid.New(), DeriveSessionKey(env, "key-1"))
 
 	require.NoError(t, forceErr)
-	assert.Equal(t, "claude-opus-5", model)
+	assert.Equal(t, "claude-opus-5-5", model)
 	knobs := routingKnobsForRequest(ctx)
 	require.NotNil(t, knobs)
 	assert.Equal(t, "xhigh", knobs.ForceEffort)
@@ -296,7 +296,7 @@ func TestForceModelCommand_RejectsDeploymentExcludedModel(t *testing.T) {
 	svc := NewService(nil, nil, nil, false, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic)).
-		WithExcludedModelsOverride([]string{"claude-opus-5"})
+		WithExcludedModelsOverride([]string{"claude-opus-5-5"})
 
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
