@@ -16,6 +16,7 @@ type internalSubscriptionAccountResponse struct {
 	ID                string                        `json:"id"`
 	Provider          auth.SubscriptionProvider     `json:"provider"`
 	ExternalAccountID string                        `json:"external_account_id"`
+	DisplayName       string                        `json:"display_name,omitempty"`
 	Enabled           bool                          `json:"enabled"`
 	State             auth.SubscriptionAccountState `json:"state"`
 	CooldownUntil     *time.Time                    `json:"cooldown_until,omitempty"`
@@ -46,6 +47,7 @@ func InternalListSubscriptionAccountsHandler(authSvc *auth.Service) gin.HandlerF
 				ID:                account.ID,
 				Provider:          account.Provider,
 				ExternalAccountID: account.ExternalAccountID,
+				DisplayName:       account.DisplayName,
 				Enabled:           account.Enabled,
 				State:             account.State,
 				CooldownUntil:     account.CooldownUntil,

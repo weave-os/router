@@ -118,7 +118,7 @@ func internalSubscriptionAccountsRequest(method, path string, body []byte) *http
 func TestInternalSubscriptionAccountsListsSafeHealthMetadata(t *testing.T) {
 	resetAt := time.Date(2026, time.September, 20, 12, 0, 0, 0, time.UTC)
 	repo := &internalSubscriptionAccountRepo{accounts: []*auth.SubscriptionAccount{{
-		ID: testAccountID, Provider: auth.SubscriptionProviderClaude, ExternalAccountID: "claude@example.com",
+		ID: testAccountID, Provider: auth.SubscriptionProviderClaude, ExternalAccountID: "claude@example.com", DisplayName: "Claude account",
 		Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt,
 		RefreshTokenCiphertext: []byte("never-returned"),
 	}}}
@@ -137,6 +137,7 @@ func TestInternalSubscriptionAccountsListsSafeHealthMetadata(t *testing.T) {
 	assert.Equal(t, "claude", body[0]["provider"])
 	assert.Equal(t, "exhausted", body[0]["state"])
 	assert.Equal(t, "claude@example.com", body[0]["external_account_id"])
+	assert.Equal(t, "Claude account", body[0]["display_name"])
 	assert.NotContains(t, response.Body.String(), "never-returned")
 }
 
