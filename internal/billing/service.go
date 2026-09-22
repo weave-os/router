@@ -33,29 +33,54 @@ func HasOverrideFromContext(ctx context.Context) bool {
 // hasOverrideContextKeyT.
 type subscriptionOnlyContextKeyT struct{}
 
-// SubscriptionOnlyContextKey flags a request whose org balance is depleted (or
-// missing) while the request presents a covering subscription credential. Set by
-// middleware.WithBalanceCheck instead of returning a 402: the proxy must serve
-// the turn on the caller's own subscription (no paid failover, no debit) or
-// refuse it. Bool value.
+// SubscriptionOnlyReason names why a request was flagged subscription-only.
+// Every reason is served identically — on the caller's own subscription, with
+// no paid failover and no debit — but only a funding failure is a billing state
+// change the caller needs to hear about, so the reason decides the marker.
+type SubscriptionOnlyReason string
+
+const (
+	// SubscriptionOnlyCreditsDepleted marks a turn the organization cannot pay
+	// for: prepaid credits are gone, a balance row is missing, or a spend cap is
+	// reached. The caller's own plan is absorbing work Weave would otherwise
+	// have billed, so the turn carries the top-up CTA.
+	SubscriptionOnlyCreditsDepleted SubscriptionOnlyReason = "credits_depleted"
+	// SubscriptionOnlyLinkedFirst marks a turn the caller's own linked plan
+	// funds by preference, ahead of any metered capacity. Nothing is depleted,
+	// so the turn keeps its ordinary routing marker.
+	SubscriptionOnlyLinkedFirst SubscriptionOnlyReason = "linked_first"
+)
+
+// SubscriptionOnlyContextKey carries the SubscriptionOnlyReason for a request
+// the proxy must serve on the caller's own subscription (no paid failover, no
+// debit) or refuse. Unset unless a gate flagged the request.
 var SubscriptionOnlyContextKey = subscriptionOnlyContextKeyT{}
 
-// WithSubscriptionOnly marks ctx so the proxy serves the turn subscription-only
-// (see SubscriptionOnlyContextKey).
-func WithSubscriptionOnly(ctx context.Context) context.Context {
-	return context.WithValue(ctx, SubscriptionOnlyContextKey, true)
+// WithSubscriptionOnly marks ctx subscription-only for reason. The reason is a
+// required argument rather than a default so a gate added later must decide
+// what the caller is told, instead of silently inheriting the depleted-credits
+// warning — which is how linked-first turns came to claim credits were gone.
+func WithSubscriptionOnly(ctx context.Context, reason SubscriptionOnlyReason) context.Context {
+	return context.WithValue(ctx, SubscriptionOnlyContextKey, reason)
 }
 
-// SubscriptionOnlyFromContext reports whether WithBalanceCheck flagged the
-// current request as subscription-only because prepaid credits are unavailable
-// but the request presents a covering subscription credential.
+// SubscriptionOnlyFromContext reports whether a gate flagged the current
+// request subscription-only, for any reason.
 func SubscriptionOnlyFromContext(ctx context.Context) bool {
-	v := ctx.Value(SubscriptionOnlyContextKey)
-	if v == nil {
-		return false
-	}
-	b, _ := v.(bool)
-	return b
+	_, ok := subscriptionOnlyReason(ctx)
+	return ok
+}
+
+// SubscriptionOnlyReasonFromContext returns why the current request was flagged
+// subscription-only, and whether it was flagged at all.
+func SubscriptionOnlyReasonFromContext(ctx context.Context) (reason SubscriptionOnlyReason, ok bool) {
+	reason, ok = subscriptionOnlyReason(ctx)
+	return reason, ok
+}
+
+func subscriptionOnlyReason(ctx context.Context) (reason SubscriptionOnlyReason, ok bool) {
+	reason, ok = ctx.Value(SubscriptionOnlyContextKey).(SubscriptionOnlyReason)
+	return reason, ok
 }
 
 // EntryTypeInference is the canonical entry_type for per-request debits.

@@ -55,7 +55,7 @@ func TestSubscriptionOnly_OpenAI_ServesOnCodexSub(t *testing.T) {
 	body := `{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"hi"}],"max_tokens":100,"stream":true}`
 	rec, req := codexSubRequest(t, body)
 
-	ctx := billing.WithSubscriptionOnly(context.Background())
+	ctx := billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlyCreditsDepleted)
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, req))
 
 	require.Len(t, p.proxyBodies, 1, "the turn must serve on the subscription exactly once (no paid failover)")
@@ -85,7 +85,7 @@ func TestSubscriptionOnly_OpenAI_PaidRoute_Refuses402(t *testing.T) {
 	body := `{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"Refactor the auth middleware and add tests."}],"max_tokens":4096,"tools":[{"type":"function","function":{"name":"edit_file","parameters":{"type":"object"}}}]}`
 	rec, req := codexSubRequest(t, body)
 
-	ctx := billing.WithSubscriptionOnly(context.Background())
+	ctx := billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlyCreditsDepleted)
 	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, req)
 	require.Error(t, err)
 	require.Positive(t, fr.routeCalls, "the scorer must be consulted so the decision is the paid route under test")
@@ -105,7 +105,7 @@ func TestSubscriptionOnly_OpenAI_InfrastructureModelRefusesWithoutDispatch(t *te
 	body := `{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"Refactor the auth middleware and add tests."}],"max_tokens":4096,"tools":[{"type":"function","function":{"name":"edit_file","parameters":{"type":"object"}}}]}`
 	rec, req := codexSubRequest(t, body)
 
-	err := svc.ProxyOpenAIChatCompletion(billing.WithSubscriptionOnly(context.Background()), []byte(body), rec, req)
+	err := svc.ProxyOpenAIChatCompletion(billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlyCreditsDepleted), []byte(body), rec, req)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, proxy.ErrCreditsExhaustedSubscriptionUnavailable)
 	require.NotNil(t, fr.capturedReq)
@@ -128,7 +128,7 @@ func TestSubscriptionOnly_OpenAI_SubFailure_NoPaidFailover(t *testing.T) {
 	body := `{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"hi"}],"max_tokens":100}`
 	rec, req := codexSubRequest(t, body)
 
-	ctx := billing.WithSubscriptionOnly(context.Background())
+	ctx := billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlyCreditsDepleted)
 	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, req)
 	require.Error(t, err)
 	var statusErr *providers.UpstreamStatusError

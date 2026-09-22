@@ -63,7 +63,7 @@ func (s *Service) checkUserMonthlySpendLimit(ctx context.Context, headers http.H
 				"spent_usd_micros", result.SpentMicros,
 				"monthly_limit_usd_micros", *result.LimitMicros,
 			)
-			return billing.WithSubscriptionOnly(ctx), nil
+			return billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted), nil
 		}
 		observability.FromContext(ctx).Info("Request rejected: engineer monthly spend limit reached",
 			"organization_id", orgID,

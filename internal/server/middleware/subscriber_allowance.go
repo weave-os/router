@@ -188,7 +188,7 @@ func serveOnCoveringSubscription(c *gin.Context) bool {
 	if !proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath()) {
 		return false
 	}
-	c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context()))
+	c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context(), billing.SubscriptionOnlyLinkedFirst))
 	c.Next()
 	return true
 }

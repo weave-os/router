@@ -76,7 +76,7 @@ func WithAPIKeySpendCap(svc *billing.Service) gin.HandlerFunc {
 					"spent_usd_micros", result.SpentMicros,
 					"spend_cap_usd_micros", *result.CapMicros,
 				)
-				c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context()))
+				c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context(), billing.SubscriptionOnlyCreditsDepleted))
 				c.Next()
 				return
 			}

@@ -680,7 +680,7 @@ func TestSubscriptionFailoverParity_RescueDispatch(t *testing.T) {
 			svc := in.parityService(upstream)
 			rec, req, body := in.request(t, false)
 
-			require.Error(t, in.call(svc, billing.WithSubscriptionOnly(in.subCtx()), body, rec, req))
+			require.Error(t, in.call(svc, billing.WithSubscriptionOnly(in.subCtx(), billing.SubscriptionOnlyCreditsDepleted), body, rec, req))
 			assert.Zero(t, upstream.paidDispatches,
 				"subscription-only mode exists to forbid exactly this paid spend")
 		})

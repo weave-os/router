@@ -79,7 +79,7 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 				if subscriptionExempt {
 					log.Warn("Balance row missing: serving subscription-only, paid failover disabled",
 						"organization_id", orgID)
-					c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context()))
+					c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context(), billing.SubscriptionOnlyCreditsDepleted))
 					c.Next()
 					return
 				}
@@ -125,7 +125,7 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 					"balance_usd_micros", result.BalanceMicros,
 					"threshold_usd_micros", threshold,
 				)
-				c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context()))
+				c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context(), billing.SubscriptionOnlyCreditsDepleted))
 				c.Next()
 				return
 			}

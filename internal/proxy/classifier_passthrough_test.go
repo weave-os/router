@@ -179,7 +179,7 @@ func TestClassifier_SubscriptionOnly_Exhausted_Refuses402(t *testing.T) {
 	svc, _, p, _ := classifierPassthroughFixture(t, exhaustedObserver())
 	rec, req := classifierRequest()
 
-	err := svc.ProxyMessages(billing.WithSubscriptionOnly(classifierSubscriptionCtx()), []byte(classifierBody), rec, req)
+	err := svc.ProxyMessages(billing.WithSubscriptionOnly(classifierSubscriptionCtx(), billing.SubscriptionOnlyCreditsDepleted), []byte(classifierBody), rec, req)
 
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, proxy.ErrCreditsExhaustedSubscriptionUnavailable))

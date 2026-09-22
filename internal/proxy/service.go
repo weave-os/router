@@ -4040,12 +4040,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	var reqStats providers.RequestMutationStats
 
 	marker := suppressMarkerIfRequested(ctx, r.Header, routingMarkerFor(routeRes))
-	// Subscription-only served-on-sub turn: replace the routing marker with the
-	// depleted-credits warning (like the OpenAI path and the usage-bypass path),
-	// not gated by the routing-marker opt-out. The pre-dispatch guard above has
-	// already refused any turn that wouldn't run on the caller's own sub, so a
-	// turn reaching here is served free and should carry the top-up CTA.
-	if billing.SubscriptionOnlyFromContext(ctx) {
+	// Subscription-only turn covering for unfundable capacity: replace the
+	// routing marker with the depleted-credits warning (like the OpenAI path and
+	// the usage-bypass path), not gated by the routing-marker opt-out. The
+	// pre-dispatch guard above has already refused any turn that wouldn't run on
+	// the caller's own sub, so a turn reaching here is served free and should
+	// carry the top-up CTA. A linked-first turn keeps its ordinary marker.
+	if subscriptionOnlyWarnsDepleted(ctx) {
 		marker = subscriptionOnlyWarningMarker
 	}
 	// toolValidator compiles the request's tool schemas once (LRU-cached);
@@ -6822,9 +6823,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
 
 	marker := suppressMarkerIfRequested(ctx, r.Header, routingMarkerFor(routeRes))
-	if billing.SubscriptionOnlyFromContext(ctx) {
+	if subscriptionOnlyWarnsDepleted(ctx) {
 		// Always surface the depleted-credits warning (not gated by the
 		// routing-marker opt-out): a billing state change the caller must see.
+		// A linked-first turn changes no billing state, so it keeps its marker.
 		marker = subscriptionOnlyWarningMarkerCodex
 	}
 

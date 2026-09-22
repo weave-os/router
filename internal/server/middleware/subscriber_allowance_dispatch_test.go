@@ -82,3 +82,29 @@ func TestWithSubscriberAllowance_SpentAllowanceServesSubscriptionOnly(t *testing
 		})
 	}
 }
+
+func TestWithSubscriberAllowance_CoveringSubscriptionIsLinkedFirstNotDepleted(t *testing.T) {
+	// Linked-first funding marks the turn subscription-only on every plan,
+	// including one whose allowance is untouched. Reusing the depleted-credits
+	// reason here told healthy, fully-funded organizations their credits were
+	// gone on every turn, because the proxy picks the caller-facing marker from
+	// the reason alone.
+	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
+	allowances := &stubAllowances{}
+
+	var reason billing.SubscriptionOnlyReason
+	var flagged bool
+	engine := gateServing(t, entitlements, allowances, func(c *gin.Context) {
+		reason, flagged = billing.SubscriptionOnlyReasonFromContext(c.Request.Context())
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req.Header.Set("Authorization", "Bearer sk-ant-oat-abc123")
+	engine.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.True(t, flagged, "a covering subscription must still pin the turn to the caller's own plan")
+	assert.Equal(t, billing.SubscriptionOnlyLinkedFirst, reason)
+	assert.Empty(t, allowances.held, "linked-first funding must not draw the included allowance")
+}

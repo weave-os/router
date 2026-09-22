@@ -81,7 +81,7 @@ func TestSubscriptionModelAccessDoesNotSpendWithoutPermission(t *testing.T) {
 			svc := in.parityService(upstream)
 			ctx := in.subCtx()
 			if subscriptionOnly {
-				ctx = billing.WithSubscriptionOnly(ctx)
+				ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
 			} else {
 				svc.WithDeploymentKeyedProviders(map[string]struct{}{})
 			}
@@ -107,7 +107,7 @@ func TestSubscriptionModelAccessScopeAndExpiry(t *testing.T) {
 	assert.Nil(t, CredentialsFromContext(resolveAndInjectCredentials(resolved, in.provider, in.model, nil)))
 	assert.True(t, servedOnSubscription(svc.resolveCredentials(resolved, in.provider, accessOtherModel, nil)))
 	assert.True(t, servedOnSubscription(svc.resolveCredentials(context.WithValue(in.subCtx(), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-other"), in.provider, in.model, nil)))
-	assert.True(t, servedOnSubscription(svc.resolveCredentials(billing.WithSubscriptionOnly(in.subCtx()), in.provider, in.model, nil)))
+	assert.True(t, servedOnSubscription(svc.resolveCredentials(billing.WithSubscriptionOnly(in.subCtx(), billing.SubscriptionOnlyCreditsDepleted), in.provider, in.model, nil)))
 	assert.Nil(t, svc.excludeUnavailableSubscriptionModels(in.subCtx(), nil, nil, nil), "paid-backed model remains routable")
 	now = now.Add(16 * time.Minute)
 	assert.True(t, servedOnSubscription(svc.resolveCredentials(in.subCtx(), in.provider, in.model, nil)), "access changes are rechecked after expiry")

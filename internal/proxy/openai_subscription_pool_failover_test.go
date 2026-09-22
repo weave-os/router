@@ -88,7 +88,7 @@ func TestProxyOpenAIChatCompletion_SubscriptionOnlyKeepsPoolExhaustion(t *testin
 			providers.ProviderOpenAI:    {},
 		})
 
-	ctx := billing.WithSubscriptionOnly(managedSubscriptionContext(auth.SubscriptionProviderClaude))
+	ctx := billing.WithSubscriptionOnly(managedSubscriptionContext(auth.SubscriptionProviderClaude), billing.SubscriptionOnlyCreditsDepleted)
 	ctx = context.WithValue(ctx, InstallationIDContextKey{}, "33333333-3333-3333-3333-333333333333")
 	rec := httptest.NewRecorder()
 	body := openaiChatBody()
@@ -177,7 +177,7 @@ func TestProxyEndpoints_CachedManagedModelDenialEvictsAutomaticPin(t *testing.T)
 			svc.subscriptionModels.denyManaged(auth.SubscriptionOwner{APIKeyID: "key-1"}.PoolKey(), "opaque-claude", providers.ProviderAnthropic, "claude-opus-5", time.Now().Add(time.Minute))
 
 			installationID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
-			ctx := billing.WithSubscriptionOnly(managedSubscriptionContext(auth.SubscriptionProviderClaude))
+			ctx := billing.WithSubscriptionOnly(managedSubscriptionContext(auth.SubscriptionProviderClaude), billing.SubscriptionOnlyCreditsDepleted)
 			ctx = context.WithValue(ctx, InstallationIDContextKey{}, installationID.String())
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(tc.body)))

@@ -315,6 +315,16 @@ const subscriptionOnlyWarningMarkerCodex = routingMarkerPrefix +
 	"your Weave router credits are depleted, so this turn is running on your own ChatGPT (Codex) subscription and paid model fallback is disabled. Add credits to restore full routing: " +
 	topUpURL + "\n\n"
 
+// subscriptionOnlyWarnsDepleted reports whether a subscription-only turn is
+// standing in for capacity the organization could not fund, and so must carry
+// the depleted-credits warning and its top-up CTA. A linked-first turn is the
+// ordinary funded path — the caller's own plan paying first by design — and
+// keeps its routing marker, so it no longer claims credits are gone.
+func subscriptionOnlyWarnsDepleted(ctx context.Context) bool {
+	reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx)
+	return ok && reason == billing.SubscriptionOnlyCreditsDepleted
+}
+
 // ErrCreditsExhaustedSubscriptionUnavailable is returned by ProxyMessages and
 // ProxyOpenAIChatCompletion when the org is in subscription-only mode but the
 // turn cannot be served on the caller's own
@@ -423,7 +433,7 @@ func (s *Service) bypassToAnthropic(
 		streamCost.SetCostCalculator(routerCostCalculatorFor(decision.Model, decision.Provider, opts.FastMode), false)
 		respW = streamCost
 	}
-	if billing.SubscriptionOnlyFromContext(ctx) {
+	if subscriptionOnlyWarnsDepleted(ctx) {
 		respW = translate.NewAnthropicRoutingMarkerWriter(respW, decision.Model, subscriptionOnlyWarningMarker)
 	}
 

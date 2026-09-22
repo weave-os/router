@@ -275,7 +275,7 @@ func TestExcludeCodexOAuthOnlyModels(t *testing.T) {
 			},
 			passthroughEligibleProviders: map[string]struct{}{},
 		}
-		got := s.excludeCodexOAuthOnlyModels(billing.WithSubscriptionOnly(ctx), http.Header{}, enabled, nil)
+		got := s.excludeCodexOAuthOnlyModels(billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted), http.Header{}, enabled, nil)
 		assert.Contains(t, got, "gpt-5.4-nano")
 		assert.NotContains(t, got, "gpt-5.6-sol")
 	})
