@@ -59,9 +59,12 @@ SELECT
     action.subscriber_id,
     'weekly',
     action.weekly_period_start,
-    action.weekly_period_end,
+    -- A mid-period entitlement change moves the billing end the week is clipped
+    -- to, so actions sharing a start can disagree on the end: the newest
+    -- entitlement wins, as it does for the period row's plan and version.
+    (ARRAY_AGG(action.weekly_period_end ORDER BY action.entitlement_version DESC, action.reserved_at DESC))[1],
     MAX(action.entitlement_version),
-    (ARRAY_AGG(action.plan ORDER BY action.reserved_at DESC))[1],
+    (ARRAY_AGG(action.plan ORDER BY action.entitlement_version DESC, action.reserved_at DESC))[1],
     0,
     COALESCE(SUM(action.reserved_usd_micros) FILTER (WHERE action.state = 'reserved'), 0),
     COALESCE(SUM(action.retail_usd_micros) FILTER (WHERE action.state = 'finalized'), 0)
@@ -69,6 +72,6 @@ FROM router.subscriber_allowance_actions AS action
 WHERE action.capacity_source = 'included_router'
   AND action.state IN ('reserved', 'finalized')
   AND action.weekly_period_end > CURRENT_TIMESTAMP
-GROUP BY action.subscriber_id, action.weekly_period_start, action.weekly_period_end;
+GROUP BY action.subscriber_id, action.weekly_period_start;
 
 COMMIT;
