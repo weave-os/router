@@ -249,7 +249,7 @@ func CodexSubscriptionCreds(token, accountID string) *Credentials {
 // allowlist, not "every OpenAI model": infrastructure-served OpenAI models
 // share ProviderOpenAI with the native Codex family, but must use BYOK or the
 // router deployment credential instead of chatgpt.com/backend-api/codex.
-var codexCoveredModels = []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"}
+var codexCoveredModels = []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-sol"}
 
 // CodexCoveredModels returns a copy of the models a Codex subscription may serve.
 func CodexCoveredModels() []string {

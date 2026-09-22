@@ -185,7 +185,7 @@ func TestResolveAndInjectCredentials_RouterKeyedInboundCodexSubscription(t *test
 }
 
 func TestCodexSubscriptionCoversModel(t *testing.T) {
-	for _, model := range []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"} {
+	for _, model := range []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-sol"} {
 		assert.Truef(t, codexSubscriptionCoversModel(model), "%s must use the caller's Codex OAuth", model)
 	}
 	for _, model := range []string{"gpt-5.4-nano", "gpt-5.5", "gpt-4o", "gpt-5.6", ""} {
@@ -194,7 +194,7 @@ func TestCodexSubscriptionCoversModel(t *testing.T) {
 }
 
 func TestResolveAndInjectCredentials_CodexCoverageIsModelScoped(t *testing.T) {
-	for _, model := range []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"} {
+	for _, model := range []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-sol"} {
 		t.Run(model+" uses Codex OAuth", func(t *testing.T) {
 			ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, testInstallationID)
 			ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{

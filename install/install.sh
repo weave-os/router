@@ -734,11 +734,22 @@ write_codex_config() {
   # Tag the client so telemetry can attribute traffic to Codex vs other CLIs
   # that share the same router key. The router otherwise has to guess from
   # User-Agent.
-  headers_parts="${headers_parts}, \"X-App\" = \"codex\""
+  headers_parts="${headers_parts}, \"X-App\" = \"codex\", \"X-Weave-Codex-Native-Model-Pin\" = \"1\""
   # No strategy header: pinning one here freezes installed clients on whatever
   # policy was current at install time, so a deployment-default change never
   # reaches them. Every endpoint, hosted or self-hosted, uses its own default.
   local headers_line="http_headers = { ${headers_parts} }"
+  local codex_model_line='model = "weave-auto"'
+  if [ -f "$config_file" ] && awk -v begin="$WEAVE_CODEX_BEGIN_MARKER" -v end="$WEAVE_CODEX_END_MARKER" '
+    $0 == begin { skip = 1; next }
+    $0 == end { skip = 0; next }
+    skip { next }
+    /^[[:space:]]*\[/ { in_section = 1 }
+    !in_section && /^[[:space:]]*model[[:space:]]*=/ { found = 1 }
+    END { exit(found ? 0 : 1) }
+  ' "$config_file"; then
+    codex_model_line=""
+  fi
 
   local hook_feature_line="features.hooks = true"
   local hook_block=""
@@ -799,6 +810,7 @@ ${WEAVE_CODEX_BEGIN_MARKER}
 # uninstalling, change the model_provider value below.
 ${hook_feature_line}
 model_provider = "weave"
+${codex_model_line}
 
 [model_providers.weave]
 name = "Weave Router"
@@ -2707,12 +2719,12 @@ toggle_claude() {
 toggle_codex() {
   local f="$codex_config_file" state="absent" tmp
   if [ -f "$f" ]; then
-    state="$(awk -v b="$WEAVE_CODEX_BEGIN_MARKER" -v e="$WEAVE_CODEX_END_MARKER" '
-      $0==b{inblk=1; next}
-      $0==e{inblk=0; next}
-      inblk && /^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"/ {st="on"}
-      inblk && /^[[:space:]]*#[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"/ {if(st=="")st="off"}
-      END{print (st==""?"absent":st)}
+    state="$(awk '
+      /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*\]/ { has_weave = 1 }
+      /^[[:space:]]*\[/ { in_section = 1 }
+      !in_section && /^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"[[:space:]]*$/ { st = "on" }
+      !in_section && /^[[:space:]]*#[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave".*weave-router: off/ { st = "off" }
+      END { print (has_weave && st != "" ? st : "absent") }
     ' "$f")"
   fi
 
@@ -2728,10 +2740,12 @@ toggle_codex() {
       if [ "$state" = "absent" ]; then info "Codex isn't configured for the router. Run the installer first."; return 0; fi
       if [ "$state" = "off" ]; then ok "Codex is already off — nothing to do."; return 0; fi
       tmp="$(mktemp -t weave-codex-toggle.XXXXXX)"
-      awk -v b="$WEAVE_CODEX_BEGIN_MARKER" -v e="$WEAVE_CODEX_END_MARKER" '
-        $0==b{inblk=1; print; next}
-        $0==e{inblk=0; print; next}
-        inblk && /^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"[[:space:]]*$/ {
+      awk '
+        /^[[:space:]]*\[/ { in_section = 1 }
+        !in_section && /^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"[[:space:]]*$/ {
+          print "# " $0 "  # weave-router: off (run on to re-enable)"; next
+        }
+        !in_section && /^[[:space:]]*model[[:space:]]*=[[:space:]]*"weave-auto"[[:space:]]*$/ {
           print "# " $0 "  # weave-router: off (run on to re-enable)"; next
         }
         {print}
@@ -2746,11 +2760,13 @@ toggle_codex() {
       if [ "$state" = "absent" ]; then warn "No managed Weave block in $f. Run the installer to set up Codex."; return 0; fi
       if [ "$state" = "on" ]; then ok "Codex is already on — nothing to do."; return 0; fi
       tmp="$(mktemp -t weave-codex-toggle.XXXXXX)"
-      awk -v b="$WEAVE_CODEX_BEGIN_MARKER" -v e="$WEAVE_CODEX_END_MARKER" '
-        $0==b{inblk=1; print; next}
-        $0==e{inblk=0; print; next}
-        inblk && /^[[:space:]]*#[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"/ {
+      awk '
+        /^[[:space:]]*\[/ { in_section = 1 }
+        !in_section && /^[[:space:]]*#[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave".*weave-router: off/ {
           print "model_provider = \"weave\""; next
+        }
+        !in_section && /^[[:space:]]*#[[:space:]]*model[[:space:]]*=[[:space:]]*"weave-auto".*weave-router: off/ {
+          print "model = \"weave-auto\""; next
         }
         {print}
       ' "$f" >"$tmp" && mv "$tmp" "$f"

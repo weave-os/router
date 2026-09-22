@@ -431,6 +431,7 @@ strip_codex_block() {
     }
     in_weave_provider { next }
     !in_section && /^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"[[:space:]]*$/ { next }
+    !in_section && /^[[:space:]]*model[[:space:]]*=[[:space:]]*"weave-auto"[[:space:]]*$/ { next }
     { print }
   ' "$config_file" >"$tmp"
   mv "$tmp" "$config_file"

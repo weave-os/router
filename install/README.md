@@ -120,7 +120,7 @@ logged-in user's Team/Pro/Max/individual plan.
 
 | Path                       | Purpose                                                       |
 | -------------------------- | ------------------------------------------------------------- |
-| `~/.codex/config.toml`     | Adds a managed `[model_providers.weave]` block + sets top-level `model_provider = "weave"`, both between `# >>> weave-router managed` markers. The provider preserves the existing ChatGPT OAuth login and keeps the target router's default routing strategy. Anything outside the markers is preserved. |
+| `~/.codex/config.toml`     | Adds a managed `[model_providers.weave]` block and sets top-level `model_provider = "weave"`. Fresh installs select `model = "weave-auto"`; reinstalling preserves a model you already chose. The provider preserves the existing ChatGPT OAuth login and keeps the target router's default routing strategy. Anything outside the markers is preserved. |
 | `~/.weave/codex-status.sh` | Codex `SessionStart`/`Stop` hook helper. Keeps the latest routed model in the terminal title without adding status messages to the conversation. |
 
 The status helper is installed with mode `0700`, stores only the session's requested and routed model IDs under `${XDG_CACHE_HOME:-~/.cache}/weave-router/codex/`, and never stores prompts, credentials, or response bodies. Existing Codex hooks are preserved and the managed hooks are safe to reinstall or remove.
@@ -141,11 +141,19 @@ Re-running the installer rewrites only the managed block (TOML between the
 markers + a top-level `model_provider =` outside it). Everything else —
 profiles, alternate providers, comments — stays untouched.
 
-Routing is model-aware after HMM or force-model selection. The native Codex
-models `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna` use the caller's
-ChatGPT OAuth plan. Other OpenAI, Anthropic, Gemini, and OpenAI-compatible
-models use their matching WorkWeave deployment or BYOK credentials, just as
-they do when routed from Claude Code.
+Run `npx @weave-os/router --codex` again to enable native `/model` selection on
+an existing install, then restart Codex. `/model` shows the models available to
+your active ChatGPT login plus **Weave Router (automatic)**. Selecting a named
+model forces that model for each request, and Codex's selected reasoning effort
+is sent with it. Selecting **Weave Router (automatic)** returns to Weave's
+per-request routing. An existing `$fm` session pin still takes precedence in
+automatic mode; clear it with `$ufm` to resume automatic routing. The native
+selection itself does not write a persistent `$fm` pin.
+
+`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, and `gpt-6-sol` can use the
+active ChatGPT OAuth plan. Other OpenAI, Anthropic, Gemini, and
+OpenAI-compatible models use their matching WorkWeave deployment or BYOK
+credentials, just as they do when routed from Claude Code.
 
 Codex does not load third-party Markdown slash commands, and reserves `/…` for
 its own built-ins. The installer therefore ships the router actions as native
@@ -459,8 +467,9 @@ What each `off` does (and `on` reverses byte-for-byte):
   project scope only the gitignored `settings.local.json` is touched, so the
   committed `settings.json` never shows up in `git diff`. **Claude Code reads
   env at launch, so quit and reopen it for an on/off to take effect.**
-- **Codex** — comments the `model_provider = "weave"` line; the
-  `[model_providers.weave]` block stays. Takes effect on the next `codex` run.
+- **Codex** — comments the `model_provider = "weave"` line and the Weave-only
+  `model = "weave-auto"` selection, if active. The `[model_providers.weave]`
+  block stays. Takes effect on the next `codex` run.
 - **opencode** — swaps the top-level `weave/...` model for the direct model
   parked during install; `provider.weave` stays. Next `opencode` run.
 

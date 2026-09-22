@@ -101,11 +101,17 @@ Four install targets:
   api.anthropic.com.
 - **Codex** (`--codex`) — patches `~/.codex/config.toml` (or
   `<repo>/.codex/config.toml`) with a managed `[model_providers.weave]`
-  block plus `model_provider = "weave"`. The provider preserves the existing
-  ChatGPT OAuth login. No install pins `X-Weave-Router-Strategy`; every
-  endpoint keeps its router's configured default. HMM or forced
-  `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna` turns use that plan;
-  every other selected model uses its WorkWeave deployment or BYOK credential.
+  block plus `model_provider = "weave"`. Fresh installs select `weave-auto`,
+  while reinstalling preserves an existing model choice. The provider preserves
+  the active ChatGPT OAuth login. No install pins `X-Weave-Router-Strategy`;
+  every endpoint keeps its router's configured default. Codex's native
+  `/model` picker can force a named model and its selected reasoning effort;
+  **Weave Router (automatic)** resumes per-request routing. An existing `$fm`
+  session pin still applies in automatic mode until `$ufm` clears it. Re-run
+  `npx @weave-os/router --codex` and restart Codex to enable this on an older
+  install. `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, and `gpt-6-sol`
+  can use the active ChatGPT plan; other selected models use their WorkWeave
+  deployment or BYOK credential.
   The block lives between begin/end markers
   so re-running the installer rewrites it cleanly and `--uninstall --codex`
    removes it without touching the rest of your config. Codex does not load

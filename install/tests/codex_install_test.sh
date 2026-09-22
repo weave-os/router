@@ -66,6 +66,10 @@ config="$home/.codex/config.toml"
 [ -f "$config" ] || fail "Codex config was not created"
 grep -qx 'model_provider = "weave"' "$config" \
   || fail "Weave was not selected as the default provider"
+grep -qx 'model = "weave-auto"' "$config" \
+  || fail "fresh Codex installs do not start in automatic routing mode"
+grep -Fq '"X-Weave-Codex-Native-Model-Pin" = "1"' "$config" \
+  || fail "Codex native model selection was not enabled"
 grep -qx 'requires_openai_auth = true' "$config" \
   || fail "Weave provider does not require ChatGPT OAuth"
 grep -qx 'features.hooks = true' "$config" \
@@ -137,8 +141,13 @@ fi
 run_disable_routing
 grep -qx '# model_provider = "weave"  # weave-router: off (run on to re-enable)' "$config" \
   || fail "disable-routing did not turn off the Codex provider"
+grep -qx '# model = "weave-auto"  # weave-router: off (run on to re-enable)' "$config" \
+  || fail "disable-routing left the Weave-only model active on the direct provider"
 [ "$(grep -c '^\[model_providers\.weave\]$' "$config")" -eq 1 ] \
   || fail "disable-routing removed or duplicated the managed provider"
+HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" on --codex --scope user --quiet >/dev/null
+grep -qx 'model = "weave-auto"' "$config" \
+  || fail "router-on did not restore automatic routing"
 
 # A repeat install must refresh one managed block, not duplicate its auth rule.
 run_hosted_install
@@ -148,6 +157,17 @@ run_hosted_install
 run_uninstall
 [ ! -e "$skill" ] || fail "uninstall did not remove the Codex disable-routing skill"
 [ ! -e "$status_helper" ] || fail "uninstall did not remove the Codex status helper"
+
+printf 'model = "gpt-6-sol"\n' >"$config"
+run_hosted_install
+[ "$(grep -cx 'model = "gpt-6-sol"' "$config")" -eq 1 ] \
+  || fail "install replaced a user-selected native model"
+if grep -qx 'model = "weave-auto"' "$config"; then
+  fail "install duplicated a user-selected native model"
+fi
+run_uninstall
+grep -qx 'model = "gpt-6-sol"' "$config" \
+  || fail "uninstall removed the user's native model selection"
 
 for name in force-model fm unforce-model ufm router-feedback rf \
             router-off router-on router-status router-models; do
@@ -225,6 +245,7 @@ seed_codex_normalized_config() {
   mkdir -p "$home/.codex"
   cat >"$config" <<'NORMALIZED'
 model_provider = "weave"
+model = "weave-auto"
 
 [features]
 hooks = true
@@ -242,6 +263,7 @@ wire_api = "responses"
 [model_providers.weave.http_headers]
 X-App = "codex"
 X-Weave-Router-Key = "rk_normalized_key"
+X-Weave-Codex-Native-Model-Pin = "1"
 
 [projects."/Users/a/Code/weave"]
 trust_level = "trusted"
@@ -262,6 +284,13 @@ PARSE
 }
 
 seed_codex_normalized_config
+HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" off --codex --scope user --quiet >/dev/null
+if grep -qx 'model = "weave-auto"' "$config"; then
+  fail "router-off left automatic mode active after Codex rewrote config"
+fi
+HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" on --codex --scope user --quiet >/dev/null
+grep -qx 'model = "weave-auto"' "$config" \
+  || fail "router-on did not restore automatic mode after Codex rewrote config"
 run_hosted_install
 assert_config_parses "install over a Codex-rewritten config produced unparseable TOML"
 [ "$(grep -c '^\[model_providers\.weave\]$' "$config")" -eq 1 ] \
@@ -270,6 +299,8 @@ assert_config_parses "install over a Codex-rewritten config produced unparseable
   || fail "install over a Codex-rewritten config left the serializer's headers subtable"
 [ "$(grep -c '^model_provider = "weave"$' "$config")" -eq 1 ] \
   || fail "install over a Codex-rewritten config duplicated the top-level model_provider"
+[ "$(grep -c '^model = "weave-auto"$' "$config")" -eq 1 ] \
+  || fail "install over a Codex-rewritten config duplicated the automatic model"
 # Unrelated Codex-owned state is not ours to drop while rewriting around it.
 grep -Fq '[hooks.state."/Users/a/.codex/config.toml:stop:0:0"]' "$config" \
   || fail "install over a Codex-rewritten config dropped Codex hook state"
@@ -318,6 +349,9 @@ if grep -Fq 'rk_normalized_key' "$config"; then
 fi
 if grep -Fq 'model_provider = "weave"' "$config"; then
   fail "uninstall left Codex routed at the Weave provider"
+fi
+if grep -Fq 'model = "weave-auto"' "$config"; then
+  fail "uninstall left a Weave-only model on the direct provider"
 fi
 # Codex's own state still has to survive an uninstall.
 grep -Fq '[projects."/Users/a/Code/weave"]' "$config" \

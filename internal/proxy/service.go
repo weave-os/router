@@ -6490,6 +6490,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if headerForceModel != "" {
 		forceModel = headerForceModel
 	}
+	if forceModel == "" {
+		forceModel = codexSelectedModel(ctx)
+	}
 	forceCluster, forceErr := applyForceClusterHeader(ctx, r)
 	if forceErr != nil {
 		return forceErr
@@ -8062,6 +8065,9 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		return fmt.Errorf("translate responses request: %w", err)
 	}
 	chatBody, model := conversion.Body, conversion.Model
+	if portableCodex && r.Header.Get(CodexNativeModelPinHeader) == "1" {
+		ctx = withCodexSelectedModel(ctx, model, nativeBody)
+	}
 	if conversion.CodexFeedbackSkill {
 		ctx = context.WithValue(ctx, codexFeedbackSkillContextKey{}, true)
 	}
