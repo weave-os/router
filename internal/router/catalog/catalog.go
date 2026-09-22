@@ -592,6 +592,14 @@ var Models = []Model{
 		{Provider: providers.ProviderWaferAnthropic, UpstreamID: "DeepSeek-V4-Flash-0731-Fast",
 			Price: Pricing{InputUSDPer1M: 0.280, OutputUSDPer1M: 0.560, CacheReadMultiplier: 0.07 / 0.280}},
 	}},
+	// V4.1-Flash: 552B MoE (8B active prefill / 16B decode), natively
+	// multimodal, 1M context. Fireworks serverless is primary; OpenRouter
+	// trails as the self-hoster fallback.
+	{ID: "deepseek/deepseek-v4.1-flash", Source: SourceOpenSource, Tier: TierLow, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/deepseek-v4p1-flash",
+			Price: Pricing{InputUSDPer1M: 0.220, OutputUSDPer1M: 0.660, CacheReadMultiplier: 0.007 / 0.220}},
+		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.100, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.10}},
+	}},
 	// Untiered: Makora EOL'd V4-Pro and recommends V4-Flash, which takes the
 	// tier. Priced and bound so session pins and /force-model still dispatch.
 	// This bare alias is the OLD 0423 release; the routable one is the dated
