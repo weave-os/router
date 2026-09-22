@@ -11,7 +11,6 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
-	"weave-os/router/internal/flags"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions/entitlement"
 
@@ -330,8 +329,7 @@ func TestSubscriberOrganizationBillingChain(t *testing.T) {
 	}
 }
 
-func runAllowanceMiddlewareWithFallbackPolicy(t *testing.T, enabled bool) (*httptest.ResponseRecorder, bool) {
-	t.Helper()
+func TestWithSubscriberAllowance_ExhaustedServesOnOrganizationCredits(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
 	allowances := &stubAllowances{billingConsumed: monthlyAllowance}
@@ -340,9 +338,6 @@ func runAllowanceMiddlewareWithFallbackPolicy(t *testing.T, enabled bool) (*http
 	engine := gin.New()
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		c.Set("router_api_key", subscriberAPIKey())
-		c.Request = c.Request.WithContext(flags.WithOverrides(c.Request.Context(), flags.Overrides{
-			Bools: map[flags.Key]bool{flags.KeySubscriberPaidFallback: enabled},
-		}))
 		middleware.WithSubscriberAllowance(svc)(c)
 		if c.IsAborted() {
 			return
@@ -352,33 +347,9 @@ func runAllowanceMiddlewareWithFallbackPolicy(t *testing.T, enabled bool) (*http
 	})
 	w := httptest.NewRecorder()
 	engine.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
-	return w, reached
-}
 
-func TestWithSubscriberAllowance_PaidFallbackPolicy(t *testing.T) {
-	for name, testCase := range map[string]struct {
-		enabled    bool
-		reached    bool
-		statusCode int
-		bodyError  string
-	}{
-		"enabled":  {enabled: true, reached: true, statusCode: http.StatusOK},
-		"disabled": {enabled: false, reached: false, statusCode: http.StatusPaymentRequired, bodyError: "organization_paid_fallback_disabled"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			w, reached := runAllowanceMiddlewareWithFallbackPolicy(t, testCase.enabled)
-			assert.Equal(t, testCase.reached, reached)
-			assert.Equal(t, testCase.statusCode, w.Code)
-			if testCase.bodyError == "" {
-				return
-			}
-			var body struct {
-				Error string `json:"error"`
-			}
-			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-			assert.Equal(t, testCase.bodyError, body.Error)
-		})
-	}
+	assert.True(t, reached, "a spent allowance falls back to organization credits")
+	assert.Equal(t, http.StatusOK, w.Code)
 }
 
 func TestWithSubscriberAllowance_503WhenAllowanceUnreadable(t *testing.T) {

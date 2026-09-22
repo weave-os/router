@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"weave-os/router/internal/billing"
-	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router/catalog"
@@ -77,7 +76,7 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 
 		switch admission.Outcome {
 		case entitlement.AdmissionNotSubscribed:
-			continueWithOrganizationFallback(c, log, admission.Plan)
+			c.Next()
 		case entitlement.AdmissionExhausted:
 			// A request presenting a Claude/Codex credential covering this route
 			// can serve at $0 on the caller's own plan without drawing included
@@ -87,7 +86,7 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 			if serveOnCoveringSubscription(c) {
 				return
 			}
-			continueWithOrganizationFallback(c, log, admission.Plan)
+			c.Next()
 		case entitlement.AdmissionCovered:
 			holdRequest(c, log, svc, admission)
 		}
@@ -126,7 +125,7 @@ func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, adm
 		if serveOnCoveringSubscription(c) {
 			return
 		}
-		continueWithOrganizationFallback(c, log, admission.Plan)
+		c.Next()
 		return
 	} else if err != nil {
 		log.Error("Subscriber allowance reservation failed; refusing request", "err", err, "subscriber_id", string(admission.Coverage.SubscriberID))
@@ -182,25 +181,6 @@ func holdUsdMicros(usage entitlement.Usage) int64 {
 		}
 	}
 	return bound
-}
-
-func continueWithOrganizationFallback(c *gin.Context, log *slog.Logger, plan entitlement.Plan) {
-	if plan == "" || flags.BoolOr(c.Request.Context(), flags.KeySubscriberPaidFallback, true) {
-		c.Next()
-		return
-	}
-	// Disabling organization-paid fallback must not reject a request the
-	// caller's own linked plan can cover. Only force subscription-only after
-	// fallback is disabled: while fallback is enabled, that marker would also
-	// suppress the shared-credit PAYG path promised after entitlement ends.
-	if serveOnCoveringSubscription(c) {
-		return
-	}
-	log.Info("Request rejected: organization paid fallback is disabled", "subscriber_plan", plan)
-	c.AbortWithStatusJSON(http.StatusPaymentRequired, gin.H{
-		"error":   "organization_paid_fallback_disabled",
-		"message": "Your organization has turned off paid Router fallback. Use an eligible linked subscription or wait for included allowance to reset.",
-	})
 }
 
 // serveOnCoveringSubscription serves a turn the caller's own linked plan

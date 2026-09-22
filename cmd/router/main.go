@@ -1166,7 +1166,6 @@ func main() {
 		flags.KeyEscalationXGBoostShadowMarkerEnabled: boolDefault(false),
 		flags.KeyEscalationXGBoostEpoch:               "0",
 		flags.KeySubscriptionPlanAwareRouting:         boolDefault(false),
-		flags.KeySubscriberPaidFallback:               boolDefault(true),
 		flags.KeyStruggleShadowEnabled:                boolDefault(struggleShadowEnabled),
 		flags.KeySpiralShadowEnabled:                  boolDefault(spiralShadowEnabled),
 		flags.KeyTurnSignalCapture:                    boolDefault(turnSignalCaptureEnabled),
