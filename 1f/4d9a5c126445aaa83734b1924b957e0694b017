@@ -1,0 +1,21 @@
+internal/sqlc/models.go
+  s_207247076ca5f3::t_97651705f6eb19 93-94
+internal/sqlc/model_router_external_api_keys.sql.go
+  s_207247076ca5f3::t_97651705f6eb19 51,113,156,162,172,208,294,312,338
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "1f4d9a5c126445aaa83734b1924b957e0694b017",
+  "prompts": {},
+  "sessions": {
+    "s_207247076ca5f3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9424eef5-fe6a-4eb5-b900-2449bf3c0301",
+        "model": "deepseek/deepseek-v4-flash"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

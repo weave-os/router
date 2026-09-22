@@ -1,0 +1,19 @@
+internal/observability/workers_test.go
+  s_d5165fb8d3c8eb::t_227d6919320657 107-110,144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "54dbe064645c613f22fb4267acde5cceea6cb3fd",
+  "prompts": {},
+  "sessions": {
+    "s_d5165fb8d3c8eb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "811cfb39-b733-4ed9-a66b-3d449d1adc24",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
