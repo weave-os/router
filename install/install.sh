@@ -1175,6 +1175,7 @@ write_pi_models_config() {
       models: [
         { id: "claude-fable-5-1",  name: "Claude Fable 5.1 (via Weave Router)",  reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 128000 },
         { id: "claude-fable-5",    name: "Claude Fable 5 (via Weave Router)",    reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 128000 },
+        { id: "claude-opus-5-5",   name: "Claude Opus 5.5 (via Weave Router)",   reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 128000 },
         { id: "claude-opus-5",     name: "Claude Opus 5 (via Weave Router)",     reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 128000 },
         { id: "claude-opus-4-7",   name: "Claude Opus 4.7 (via Weave Router)",   reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 64000 },
         { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6 (via Weave Router)", reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 64000 },
@@ -2505,7 +2506,7 @@ prepare_claude_context_window() {
   model="${model:-sonnet}"
   case "$model" in
     *'[1m]') context_window=""; return 0 ;;
-    sonnet|opus|fable|claude-sonnet-4-6|claude-sonnet-5|claude-opus-4-6|claude-opus-4-7|claude-opus-4-8|claude-opus-5|claude-fable-5|claude-fable-5-1) ;;
+    sonnet|opus|fable|claude-sonnet-4-6|claude-sonnet-5|claude-opus-4-6|claude-opus-4-7|claude-opus-4-8|claude-opus-5|claude-opus-5-5|claude-fable-5|claude-fable-5-1) ;;
     *) err "Cannot assert 1M support for '$model'. Select a supported Sonnet/Opus/Fable model first; leaving it unchanged."; return 1 ;;
   esac
   context_managed_model="${model}[1m]"
