@@ -38,6 +38,7 @@ func (h Hold) reservation() Reservation {
 		EntitlementVersion:    h.Coverage.EntitlementVersion,
 		Plan:                  h.Coverage.Plan,
 		BillingPeriod:         h.Coverage.BillingPeriod,
+		WeeklyPeriod:          h.Coverage.WeeklyPeriod,
 		SixHourPeriod:         h.Coverage.SixHourPeriod,
 		APIKeyID:              h.APIKeyID,
 		ClientSessionID:       h.ClientSessionID,
@@ -46,6 +47,7 @@ func (h Hold) reservation() Reservation {
 		CapacitySource:        h.CapacitySource,
 		ReservedAt:            h.Coverage.AdmittedAt,
 		BillingLimitUsdMicros: h.Coverage.BillingLimitUsdMicros,
+		WeeklyLimitUsdMicros:  h.Coverage.WeeklyLimitUsdMicros,
 		SixHourLimitUsdMicros: h.Coverage.SixHourLimitUsdMicros,
 	}
 }

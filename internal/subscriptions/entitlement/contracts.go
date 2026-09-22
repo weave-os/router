@@ -31,7 +31,8 @@ var (
 
 // ExhaustedError names the enforcement window that refused a reservation, so
 // a caller can tell a spent six-hour window (retry after the window turns)
-// from a spent billing month (retry after renewal or a top-up).
+// from a spent week or billing month (retry after the week turns, or after
+// renewal or a top-up).
 type ExhaustedError struct {
 	Period PeriodKind
 }
@@ -117,19 +118,22 @@ func (s CapacitySource) Valid() bool {
 	}
 }
 
-// PeriodKind distinguishes billing periods from fixed six-hour windows.
+// PeriodKind distinguishes billing periods from the shorter enforcement
+// windows that pace consumption within one.
 type PeriodKind string
 
 const (
 	// PeriodKindBilling is the projected commerce billing period.
 	PeriodKindBilling PeriodKind = "billing"
+	// PeriodKindWeekly is a seven-day allowance window of a billing period.
+	PeriodKindWeekly PeriodKind = "weekly"
 	// PeriodKindSixHour is a fixed UTC six-hour allowance window.
 	PeriodKindSixHour PeriodKind = "six_hour"
 )
 
 // Valid reports whether the period kind is recognized.
 func (k PeriodKind) Valid() bool {
-	return k == PeriodKindBilling || k == PeriodKindSixHour
+	return k == PeriodKindBilling || k == PeriodKindWeekly || k == PeriodKindSixHour
 }
 
 // Period identifies one allowance accounting interval.
@@ -148,6 +152,12 @@ func (p Period) Validate() error {
 		return ErrInvalidContract
 	}
 	if p.Kind == PeriodKindSixHour && (p.Start.Hour()%6 != 0 || p.Start.Minute() != 0 || p.Start.Second() != 0 || p.Start.Nanosecond() != 0) {
+		return ErrInvalidContract
+	}
+	// A weekly window is only shorter than seven days when it is the last one
+	// of a billing period that does not divide evenly; its alignment to the
+	// period start cannot be checked without the period itself.
+	if p.Kind == PeriodKindWeekly && p.End.Sub(p.Start) > weeklyWindow {
 		return ErrInvalidContract
 	}
 	return nil
@@ -219,9 +229,10 @@ func (u WindowUsage) ConsumedUsdMicros() int64 {
 	return u.ReservedUsdMicros + u.FinalizedUsdMicros
 }
 
-// Usage reports consumption of both enforcement windows covering one request.
+// Usage reports consumption of every enforcement window covering one request.
 type Usage struct {
 	Billing WindowUsage
+	Weekly  WindowUsage
 	SixHour WindowUsage
 }
 
@@ -250,6 +261,7 @@ type Reservation struct {
 	EntitlementVersion int64
 	Plan               Plan
 	BillingPeriod      Period
+	WeeklyPeriod       Period
 	SixHourPeriod      Period
 	APIKeyID           string
 	ClientSessionID    string
@@ -260,6 +272,7 @@ type Reservation struct {
 	// Window limits seed the accounting periods the hold accrues against, so a
 	// mid-period plan change lands with the reservation that observed it.
 	BillingLimitUsdMicros int64
+	WeeklyLimitUsdMicros  int64
 	SixHourLimitUsdMicros int64
 }
 
@@ -268,11 +281,15 @@ func (r Reservation) Validate() error {
 	if r.ActionID == "" || r.RouterRequestID == "" || !r.SubscriberID.Valid() || r.EntitlementVersion <= 0 ||
 		!r.Plan.Valid() || r.APIKeyID == "" || r.RequestedModel == "" || r.ReservedUsdMicros < 0 ||
 		!r.CapacitySource.Valid() || r.ReservedAt.IsZero() || !isUTC(r.ReservedAt) ||
-		r.BillingLimitUsdMicros < 0 || r.SixHourLimitUsdMicros < 0 ||
-		r.BillingPeriod.Kind != PeriodKindBilling || r.SixHourPeriod.Kind != PeriodKindSixHour {
+		r.BillingLimitUsdMicros < 0 || r.WeeklyLimitUsdMicros < 0 || r.SixHourLimitUsdMicros < 0 ||
+		r.BillingPeriod.Kind != PeriodKindBilling || r.WeeklyPeriod.Kind != PeriodKindWeekly ||
+		r.SixHourPeriod.Kind != PeriodKindSixHour {
 		return ErrInvalidContract
 	}
 	if err := r.BillingPeriod.Validate(); err != nil {
+		return err
+	}
+	if err := r.WeeklyPeriod.Validate(); err != nil {
 		return err
 	}
 	if err := r.SixHourPeriod.Validate(); err != nil {
@@ -281,7 +298,8 @@ func (r Reservation) Validate() error {
 	// The period starts are the aggregate keys the hold accrues against, so a
 	// reservation filed outside the windows containing it would draw down one
 	// window while admission reads another.
-	if !r.BillingPeriod.Covers(r.ReservedAt) || r.SixHourPeriod != SixHourWindowAt(r.ReservedAt) {
+	if !r.BillingPeriod.Covers(r.ReservedAt) || r.SixHourPeriod != SixHourWindowAt(r.ReservedAt) ||
+		r.WeeklyPeriod != WeeklyWindowAt(r.BillingPeriod, r.ReservedAt) {
 		return ErrInvalidContract
 	}
 	return nil
@@ -367,12 +385,12 @@ type EntitlementRepository interface {
 // AllowanceRepository stores idempotent reservation, finalization, and release actions.
 type AllowanceRepository interface {
 	Reserve(context.Context, Reservation) (Action, error)
-	// ReserveWithinLimits holds a reservation only while both enforcement
-	// windows can still pay for it, and returns ExhaustedError naming the
-	// window that refused otherwise. The hold and both window accruals are one
+	// ReserveWithinLimits holds a reservation only while every enforcement
+	// window can still pay for it, and returns ExhaustedError naming the
+	// window that refused otherwise. The hold and the window accruals are one
 	// atomic unit: a refused window leaves no action and no partial draw-down.
 	ReserveWithinLimits(context.Context, Reservation) (Action, error)
 	Finalize(context.Context, Finalization) (Action, error)
 	Release(context.Context, Release) (Action, error)
-	Usage(ctx context.Context, subscriberID SubscriberID, billing, sixHour Period) (Usage, error)
+	Usage(ctx context.Context, subscriberID SubscriberID, billing, weekly, sixHour Period) (Usage, error)
 }

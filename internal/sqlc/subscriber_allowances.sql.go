@@ -159,7 +159,7 @@ WITH finalized AS (
     WHERE action_id = $4::varchar
       AND state = 'reserved'
       AND capacity_source = $5::varchar
-    RETURNING action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at
+    RETURNING action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at, weekly_period_start, weekly_period_end
 ), billing_window AS (
     UPDATE router.subscriber_allowance_periods
     SET reserved_usd_micros = GREATEST(router.subscriber_allowance_periods.reserved_usd_micros - finalized.reserved_usd_micros, 0),
@@ -169,6 +169,16 @@ WITH finalized AS (
     WHERE router.subscriber_allowance_periods.subscriber_id = finalized.subscriber_id
       AND router.subscriber_allowance_periods.period_kind = 'billing'
       AND router.subscriber_allowance_periods.period_start = finalized.billing_period_start
+      AND finalized.capacity_source = 'included_router'
+), weekly_window AS (
+    UPDATE router.subscriber_allowance_periods
+    SET reserved_usd_micros = GREATEST(router.subscriber_allowance_periods.reserved_usd_micros - finalized.reserved_usd_micros, 0),
+        finalized_usd_micros = router.subscriber_allowance_periods.finalized_usd_micros + finalized.retail_usd_micros,
+        updated_at = CURRENT_TIMESTAMP
+    FROM finalized
+    WHERE router.subscriber_allowance_periods.subscriber_id = finalized.subscriber_id
+      AND router.subscriber_allowance_periods.period_kind = 'weekly'
+      AND router.subscriber_allowance_periods.period_start = finalized.weekly_period_start
       AND finalized.capacity_source = 'included_router'
 ), six_hour_window AS (
     UPDATE router.subscriber_allowance_periods
@@ -181,9 +191,9 @@ WITH finalized AS (
       AND router.subscriber_allowance_periods.period_start = finalized.six_hour_period_start
       AND finalized.capacity_source = 'included_router'
 )
-SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at FROM finalized
+SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at, weekly_period_start, weekly_period_end FROM finalized
 UNION ALL
-SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at FROM router.subscriber_allowance_actions
+SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at, weekly_period_start, weekly_period_end FROM router.subscriber_allowance_actions
 WHERE action_id = $4::varchar
   AND NOT EXISTS (SELECT 1 FROM finalized)
 `
@@ -219,10 +229,12 @@ type FinalizeSubscriberAllowanceRow struct {
 	ReleasedAt         pgtype.Timestamptz
 	CreatedAt          pgtype.Timestamptz
 	UpdatedAt          pgtype.Timestamptz
+	WeeklyPeriodStart  pgtype.Timestamptz
+	WeeklyPeriodEnd    pgtype.Timestamptz
 }
 
 // Settles a reserved action at its actual retail cost, releasing the hold and
-// accruing the cost against both windows. Matching on the reserved capacity
+// accruing the cost against every window. Matching on the reserved capacity
 // source keeps a turn that ended up served elsewhere from silently settling
 // against the subscription allowance. A redelivered finalization returns the
 // stored action unchanged.
@@ -237,7 +249,7 @@ type FinalizeSubscriberAllowanceRow struct {
 //	    WHERE action_id = $4::varchar
 //	      AND state = 'reserved'
 //	      AND capacity_source = $5::varchar
-//	    RETURNING action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at
+//	    RETURNING action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at, weekly_period_start, weekly_period_end
 //	), billing_window AS (
 //	    UPDATE router.subscriber_allowance_periods
 //	    SET reserved_usd_micros = GREATEST(router.subscriber_allowance_periods.reserved_usd_micros - finalized.reserved_usd_micros, 0),
@@ -247,6 +259,16 @@ type FinalizeSubscriberAllowanceRow struct {
 //	    WHERE router.subscriber_allowance_periods.subscriber_id = finalized.subscriber_id
 //	      AND router.subscriber_allowance_periods.period_kind = 'billing'
 //	      AND router.subscriber_allowance_periods.period_start = finalized.billing_period_start
+//	      AND finalized.capacity_source = 'included_router'
+//	), weekly_window AS (
+//	    UPDATE router.subscriber_allowance_periods
+//	    SET reserved_usd_micros = GREATEST(router.subscriber_allowance_periods.reserved_usd_micros - finalized.reserved_usd_micros, 0),
+//	        finalized_usd_micros = router.subscriber_allowance_periods.finalized_usd_micros + finalized.retail_usd_micros,
+//	        updated_at = CURRENT_TIMESTAMP
+//	    FROM finalized
+//	    WHERE router.subscriber_allowance_periods.subscriber_id = finalized.subscriber_id
+//	      AND router.subscriber_allowance_periods.period_kind = 'weekly'
+//	      AND router.subscriber_allowance_periods.period_start = finalized.weekly_period_start
 //	      AND finalized.capacity_source = 'included_router'
 //	), six_hour_window AS (
 //	    UPDATE router.subscriber_allowance_periods
@@ -259,9 +281,9 @@ type FinalizeSubscriberAllowanceRow struct {
 //	      AND router.subscriber_allowance_periods.period_start = finalized.six_hour_period_start
 //	      AND finalized.capacity_source = 'included_router'
 //	)
-//	SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at FROM finalized
+//	SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at, weekly_period_start, weekly_period_end FROM finalized
 //	UNION ALL
-//	SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at FROM router.subscriber_allowance_actions
+//	SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at, weekly_period_start, weekly_period_end FROM router.subscriber_allowance_actions
 //	WHERE action_id = $4::varchar
 //	  AND NOT EXISTS (SELECT 1 FROM finalized)
 func (q *Queries) FinalizeSubscriberAllowance(ctx context.Context, arg FinalizeSubscriberAllowanceParams) (FinalizeSubscriberAllowanceRow, error) {
@@ -296,12 +318,14 @@ func (q *Queries) FinalizeSubscriberAllowance(ctx context.Context, arg FinalizeS
 		&i.ReleasedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.WeeklyPeriodStart,
+		&i.WeeklyPeriodEnd,
 	)
 	return i, err
 }
 
 const getSubscriberAllowanceAction = `-- name: GetSubscriberAllowanceAction :one
-SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at
+SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at, weekly_period_start, weekly_period_end
 FROM router.subscriber_allowance_actions
 WHERE action_id = $1::varchar
 `
@@ -310,7 +334,7 @@ WHERE action_id = $1::varchar
 // declined to transition a row, because that statement's snapshot cannot see a
 // concurrently committed action.
 //
-//	SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at
+//	SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at, weekly_period_start, weekly_period_end
 //	FROM router.subscriber_allowance_actions
 //	WHERE action_id = $1::varchar
 func (q *Queries) GetSubscriberAllowanceAction(ctx context.Context, actionID string) (RouterSubscriberAllowanceAction, error) {
@@ -339,6 +363,8 @@ func (q *Queries) GetSubscriberAllowanceAction(ctx context.Context, actionID str
 		&i.ReleasedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.WeeklyPeriodStart,
+		&i.WeeklyPeriodEnd,
 	)
 	return i, err
 }
@@ -352,6 +378,8 @@ INSERT INTO router.subscriber_allowance_actions (
     plan,
     billing_period_start,
     billing_period_end,
+    weekly_period_start,
+    weekly_period_end,
     six_hour_period_start,
     six_hour_period_end,
     api_key_id,
@@ -371,16 +399,18 @@ INSERT INTO router.subscriber_allowance_actions (
     $7::timestamptz,
     $8::timestamptz,
     $9::timestamptz,
-    $10::uuid,
-    $11::varchar,
-    $12::varchar,
-    $13::bigint,
+    $10::timestamptz,
+    $11::timestamptz,
+    $12::uuid,
+    $13::varchar,
     $14::varchar,
+    $15::bigint,
+    $16::varchar,
     'reserved',
-    $15::timestamptz
+    $17::timestamptz
 )
 ON CONFLICT (action_id) DO NOTHING
-RETURNING action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at
+RETURNING action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at, weekly_period_start, weekly_period_end
 `
 
 type InsertSubscriberAllowanceActionParams struct {
@@ -391,6 +421,8 @@ type InsertSubscriberAllowanceActionParams struct {
 	Plan               string
 	BillingPeriodStart pgtype.Timestamptz
 	BillingPeriodEnd   pgtype.Timestamptz
+	WeeklyPeriodStart  pgtype.Timestamptz
+	WeeklyPeriodEnd    pgtype.Timestamptz
 	SixHourPeriodStart pgtype.Timestamptz
 	SixHourPeriodEnd   pgtype.Timestamptz
 	APIKeyID           uuid.UUID
@@ -415,6 +447,8 @@ type InsertSubscriberAllowanceActionParams struct {
 //	    plan,
 //	    billing_period_start,
 //	    billing_period_end,
+//	    weekly_period_start,
+//	    weekly_period_end,
 //	    six_hour_period_start,
 //	    six_hour_period_end,
 //	    api_key_id,
@@ -434,16 +468,18 @@ type InsertSubscriberAllowanceActionParams struct {
 //	    $7::timestamptz,
 //	    $8::timestamptz,
 //	    $9::timestamptz,
-//	    $10::uuid,
-//	    $11::varchar,
-//	    $12::varchar,
-//	    $13::bigint,
+//	    $10::timestamptz,
+//	    $11::timestamptz,
+//	    $12::uuid,
+//	    $13::varchar,
 //	    $14::varchar,
+//	    $15::bigint,
+//	    $16::varchar,
 //	    'reserved',
-//	    $15::timestamptz
+//	    $17::timestamptz
 //	)
 //	ON CONFLICT (action_id) DO NOTHING
-//	RETURNING action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at
+//	RETURNING action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at, weekly_period_start, weekly_period_end
 func (q *Queries) InsertSubscriberAllowanceAction(ctx context.Context, arg InsertSubscriberAllowanceActionParams) (RouterSubscriberAllowanceAction, error) {
 	row := q.db.QueryRow(ctx, insertSubscriberAllowanceAction,
 		arg.ActionID,
@@ -453,6 +489,8 @@ func (q *Queries) InsertSubscriberAllowanceAction(ctx context.Context, arg Inser
 		arg.Plan,
 		arg.BillingPeriodStart,
 		arg.BillingPeriodEnd,
+		arg.WeeklyPeriodStart,
+		arg.WeeklyPeriodEnd,
 		arg.SixHourPeriodStart,
 		arg.SixHourPeriodEnd,
 		arg.APIKeyID,
@@ -486,6 +524,8 @@ func (q *Queries) InsertSubscriberAllowanceAction(ctx context.Context, arg Inser
 		&i.ReleasedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.WeeklyPeriodStart,
+		&i.WeeklyPeriodEnd,
 	)
 	return i, err
 }
@@ -496,17 +536,19 @@ FROM router.subscriber_allowance_periods
 WHERE subscriber_id = $1::uuid
   AND (
       (period_kind = 'billing' AND period_start = $2::timestamptz)
-      OR (period_kind = 'six_hour' AND period_start = $3::timestamptz)
+      OR (period_kind = 'weekly' AND period_start = $3::timestamptz)
+      OR (period_kind = 'six_hour' AND period_start = $4::timestamptz)
   )
 `
 
 type ListSubscriberAllowanceWindowsParams struct {
 	SubscriberID       uuid.UUID
 	BillingPeriodStart pgtype.Timestamptz
+	WeeklyPeriodStart  pgtype.Timestamptz
 	SixHourPeriodStart pgtype.Timestamptz
 }
 
-// Reads the consumed amounts for the two enforcement windows covering one
+// Reads the consumed amounts for the enforcement windows covering one
 // request. A window with no activity yet has no row.
 //
 //	SELECT subscriber_id, period_kind, period_start, period_end, entitlement_version, plan, limit_usd_micros, reserved_usd_micros, finalized_usd_micros, created_at, updated_at
@@ -514,10 +556,16 @@ type ListSubscriberAllowanceWindowsParams struct {
 //	WHERE subscriber_id = $1::uuid
 //	  AND (
 //	      (period_kind = 'billing' AND period_start = $2::timestamptz)
-//	      OR (period_kind = 'six_hour' AND period_start = $3::timestamptz)
+//	      OR (period_kind = 'weekly' AND period_start = $3::timestamptz)
+//	      OR (period_kind = 'six_hour' AND period_start = $4::timestamptz)
 //	  )
 func (q *Queries) ListSubscriberAllowanceWindows(ctx context.Context, arg ListSubscriberAllowanceWindowsParams) ([]RouterSubscriberAllowancePeriod, error) {
-	rows, err := q.db.Query(ctx, listSubscriberAllowanceWindows, arg.SubscriberID, arg.BillingPeriodStart, arg.SixHourPeriodStart)
+	rows, err := q.db.Query(ctx, listSubscriberAllowanceWindows,
+		arg.SubscriberID,
+		arg.BillingPeriodStart,
+		arg.WeeklyPeriodStart,
+		arg.SixHourPeriodStart,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -556,7 +604,7 @@ WITH released AS (
         updated_at = CURRENT_TIMESTAMP
     WHERE action_id = $2::varchar
       AND state = 'reserved'
-    RETURNING action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at
+    RETURNING action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at, weekly_period_start, weekly_period_end
 ), billing_window AS (
     UPDATE router.subscriber_allowance_periods
     SET reserved_usd_micros = GREATEST(router.subscriber_allowance_periods.reserved_usd_micros - released.reserved_usd_micros, 0),
@@ -565,6 +613,15 @@ WITH released AS (
     WHERE router.subscriber_allowance_periods.subscriber_id = released.subscriber_id
       AND router.subscriber_allowance_periods.period_kind = 'billing'
       AND router.subscriber_allowance_periods.period_start = released.billing_period_start
+      AND released.capacity_source = 'included_router'
+), weekly_window AS (
+    UPDATE router.subscriber_allowance_periods
+    SET reserved_usd_micros = GREATEST(router.subscriber_allowance_periods.reserved_usd_micros - released.reserved_usd_micros, 0),
+        updated_at = CURRENT_TIMESTAMP
+    FROM released
+    WHERE router.subscriber_allowance_periods.subscriber_id = released.subscriber_id
+      AND router.subscriber_allowance_periods.period_kind = 'weekly'
+      AND router.subscriber_allowance_periods.period_start = released.weekly_period_start
       AND released.capacity_source = 'included_router'
 ), six_hour_window AS (
     UPDATE router.subscriber_allowance_periods
@@ -576,9 +633,9 @@ WITH released AS (
       AND router.subscriber_allowance_periods.period_start = released.six_hour_period_start
       AND released.capacity_source = 'included_router'
 )
-SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at FROM released
+SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at, weekly_period_start, weekly_period_end FROM released
 UNION ALL
-SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at FROM router.subscriber_allowance_actions
+SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at, weekly_period_start, weekly_period_end FROM router.subscriber_allowance_actions
 WHERE action_id = $2::varchar
   AND NOT EXISTS (SELECT 1 FROM released)
 `
@@ -611,9 +668,11 @@ type ReleaseSubscriberAllowanceRow struct {
 	ReleasedAt         pgtype.Timestamptz
 	CreatedAt          pgtype.Timestamptz
 	UpdatedAt          pgtype.Timestamptz
+	WeeklyPeriodStart  pgtype.Timestamptz
+	WeeklyPeriodEnd    pgtype.Timestamptz
 }
 
-// Returns a non-billable hold to both windows. A redelivered release returns
+// Returns a non-billable hold to every window. A redelivered release returns
 // the stored action unchanged.
 //
 //	WITH released AS (
@@ -623,7 +682,7 @@ type ReleaseSubscriberAllowanceRow struct {
 //	        updated_at = CURRENT_TIMESTAMP
 //	    WHERE action_id = $2::varchar
 //	      AND state = 'reserved'
-//	    RETURNING action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at
+//	    RETURNING action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at, weekly_period_start, weekly_period_end
 //	), billing_window AS (
 //	    UPDATE router.subscriber_allowance_periods
 //	    SET reserved_usd_micros = GREATEST(router.subscriber_allowance_periods.reserved_usd_micros - released.reserved_usd_micros, 0),
@@ -632,6 +691,15 @@ type ReleaseSubscriberAllowanceRow struct {
 //	    WHERE router.subscriber_allowance_periods.subscriber_id = released.subscriber_id
 //	      AND router.subscriber_allowance_periods.period_kind = 'billing'
 //	      AND router.subscriber_allowance_periods.period_start = released.billing_period_start
+//	      AND released.capacity_source = 'included_router'
+//	), weekly_window AS (
+//	    UPDATE router.subscriber_allowance_periods
+//	    SET reserved_usd_micros = GREATEST(router.subscriber_allowance_periods.reserved_usd_micros - released.reserved_usd_micros, 0),
+//	        updated_at = CURRENT_TIMESTAMP
+//	    FROM released
+//	    WHERE router.subscriber_allowance_periods.subscriber_id = released.subscriber_id
+//	      AND router.subscriber_allowance_periods.period_kind = 'weekly'
+//	      AND router.subscriber_allowance_periods.period_start = released.weekly_period_start
 //	      AND released.capacity_source = 'included_router'
 //	), six_hour_window AS (
 //	    UPDATE router.subscriber_allowance_periods
@@ -643,9 +711,9 @@ type ReleaseSubscriberAllowanceRow struct {
 //	      AND router.subscriber_allowance_periods.period_start = released.six_hour_period_start
 //	      AND released.capacity_source = 'included_router'
 //	)
-//	SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at FROM released
+//	SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at, weekly_period_start, weekly_period_end FROM released
 //	UNION ALL
-//	SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at FROM router.subscriber_allowance_actions
+//	SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at, weekly_period_start, weekly_period_end FROM router.subscriber_allowance_actions
 //	WHERE action_id = $2::varchar
 //	  AND NOT EXISTS (SELECT 1 FROM released)
 func (q *Queries) ReleaseSubscriberAllowance(ctx context.Context, arg ReleaseSubscriberAllowanceParams) (ReleaseSubscriberAllowanceRow, error) {
@@ -674,6 +742,8 @@ func (q *Queries) ReleaseSubscriberAllowance(ctx context.Context, arg ReleaseSub
 		&i.ReleasedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.WeeklyPeriodStart,
+		&i.WeeklyPeriodEnd,
 	)
 	return i, err
 }
@@ -688,6 +758,8 @@ WITH reserved AS (
         plan,
         billing_period_start,
         billing_period_end,
+        weekly_period_start,
+        weekly_period_end,
         six_hour_period_start,
         six_hour_period_end,
         api_key_id,
@@ -707,16 +779,18 @@ WITH reserved AS (
         $7::timestamptz,
         $8::timestamptz,
         $9::timestamptz,
-        $10::uuid,
-        $11::varchar,
-        $12::varchar,
-        $13::bigint,
+        $10::timestamptz,
+        $11::timestamptz,
+        $12::uuid,
+        $13::varchar,
         $14::varchar,
+        $15::bigint,
+        $16::varchar,
         'reserved',
-        $15::timestamptz
+        $17::timestamptz
     )
     ON CONFLICT (action_id) DO NOTHING
-    RETURNING action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at
+    RETURNING action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at, weekly_period_start, weekly_period_end
 ), billing_window AS (
     INSERT INTO router.subscriber_allowance_periods (
         subscriber_id,
@@ -735,7 +809,45 @@ WITH reserved AS (
         reserved.billing_period_end,
         reserved.entitlement_version,
         reserved.plan,
-        $16::bigint,
+        $18::bigint,
+        reserved.reserved_usd_micros
+    FROM reserved
+    WHERE reserved.capacity_source = 'included_router'
+    ON CONFLICT (subscriber_id, period_kind, period_start) DO UPDATE SET
+        period_end = CASE
+            WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.period_end
+            ELSE router.subscriber_allowance_periods.period_end
+        END,
+        entitlement_version = GREATEST(router.subscriber_allowance_periods.entitlement_version, EXCLUDED.entitlement_version),
+        plan = CASE
+            WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.plan
+            ELSE router.subscriber_allowance_periods.plan
+        END,
+        limit_usd_micros = CASE
+            WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.limit_usd_micros
+            ELSE router.subscriber_allowance_periods.limit_usd_micros
+        END,
+        reserved_usd_micros = router.subscriber_allowance_periods.reserved_usd_micros + EXCLUDED.reserved_usd_micros,
+        updated_at = CURRENT_TIMESTAMP
+), weekly_window AS (
+    INSERT INTO router.subscriber_allowance_periods (
+        subscriber_id,
+        period_kind,
+        period_start,
+        period_end,
+        entitlement_version,
+        plan,
+        limit_usd_micros,
+        reserved_usd_micros
+    )
+    SELECT
+        reserved.subscriber_id,
+        'weekly',
+        reserved.weekly_period_start,
+        reserved.weekly_period_end,
+        reserved.entitlement_version,
+        reserved.plan,
+        $19::bigint,
         reserved.reserved_usd_micros
     FROM reserved
     WHERE reserved.capacity_source = 'included_router'
@@ -773,7 +885,7 @@ WITH reserved AS (
         reserved.six_hour_period_end,
         reserved.entitlement_version,
         reserved.plan,
-        $17::bigint,
+        $20::bigint,
         reserved.reserved_usd_micros
     FROM reserved
     WHERE reserved.capacity_source = 'included_router'
@@ -794,9 +906,9 @@ WITH reserved AS (
         reserved_usd_micros = router.subscriber_allowance_periods.reserved_usd_micros + EXCLUDED.reserved_usd_micros,
         updated_at = CURRENT_TIMESTAMP
 )
-SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at FROM reserved
+SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at, weekly_period_start, weekly_period_end FROM reserved
 UNION ALL
-SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at FROM router.subscriber_allowance_actions
+SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at, weekly_period_start, weekly_period_end FROM router.subscriber_allowance_actions
 WHERE action_id = $1::varchar
   AND NOT EXISTS (SELECT 1 FROM reserved)
 `
@@ -809,6 +921,8 @@ type ReserveSubscriberAllowanceParams struct {
 	Plan                  string
 	BillingPeriodStart    pgtype.Timestamptz
 	BillingPeriodEnd      pgtype.Timestamptz
+	WeeklyPeriodStart     pgtype.Timestamptz
+	WeeklyPeriodEnd       pgtype.Timestamptz
 	SixHourPeriodStart    pgtype.Timestamptz
 	SixHourPeriodEnd      pgtype.Timestamptz
 	APIKeyID              uuid.UUID
@@ -818,6 +932,7 @@ type ReserveSubscriberAllowanceParams struct {
 	CapacitySource        string
 	ReservedAt            pgtype.Timestamptz
 	BillingLimitUsdMicros int64
+	WeeklyLimitUsdMicros  int64
 	SixHourLimitUsdMicros int64
 }
 
@@ -844,10 +959,12 @@ type ReserveSubscriberAllowanceRow struct {
 	ReleasedAt         pgtype.Timestamptz
 	CreatedAt          pgtype.Timestamptz
 	UpdatedAt          pgtype.Timestamptz
+	WeeklyPeriodStart  pgtype.Timestamptz
+	WeeklyPeriodEnd    pgtype.Timestamptz
 }
 
 // Records an allowance hold for one action and accrues it against the
-// subscriber's billing and six-hour windows. A redelivered action_id returns
+// subscriber's billing, weekly, and six-hour windows. A redelivered action_id returns
 // the stored action without accruing a second hold. Only included-Router
 // capacity draws down the windows; a turn served on a linked or prepaid source
 // is audited without consuming the subscription allowance.
@@ -861,6 +978,8 @@ type ReserveSubscriberAllowanceRow struct {
 //	        plan,
 //	        billing_period_start,
 //	        billing_period_end,
+//	        weekly_period_start,
+//	        weekly_period_end,
 //	        six_hour_period_start,
 //	        six_hour_period_end,
 //	        api_key_id,
@@ -880,16 +999,18 @@ type ReserveSubscriberAllowanceRow struct {
 //	        $7::timestamptz,
 //	        $8::timestamptz,
 //	        $9::timestamptz,
-//	        $10::uuid,
-//	        $11::varchar,
-//	        $12::varchar,
-//	        $13::bigint,
+//	        $10::timestamptz,
+//	        $11::timestamptz,
+//	        $12::uuid,
+//	        $13::varchar,
 //	        $14::varchar,
+//	        $15::bigint,
+//	        $16::varchar,
 //	        'reserved',
-//	        $15::timestamptz
+//	        $17::timestamptz
 //	    )
 //	    ON CONFLICT (action_id) DO NOTHING
-//	    RETURNING action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at
+//	    RETURNING action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at, weekly_period_start, weekly_period_end
 //	), billing_window AS (
 //	    INSERT INTO router.subscriber_allowance_periods (
 //	        subscriber_id,
@@ -908,7 +1029,45 @@ type ReserveSubscriberAllowanceRow struct {
 //	        reserved.billing_period_end,
 //	        reserved.entitlement_version,
 //	        reserved.plan,
-//	        $16::bigint,
+//	        $18::bigint,
+//	        reserved.reserved_usd_micros
+//	    FROM reserved
+//	    WHERE reserved.capacity_source = 'included_router'
+//	    ON CONFLICT (subscriber_id, period_kind, period_start) DO UPDATE SET
+//	        period_end = CASE
+//	            WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.period_end
+//	            ELSE router.subscriber_allowance_periods.period_end
+//	        END,
+//	        entitlement_version = GREATEST(router.subscriber_allowance_periods.entitlement_version, EXCLUDED.entitlement_version),
+//	        plan = CASE
+//	            WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.plan
+//	            ELSE router.subscriber_allowance_periods.plan
+//	        END,
+//	        limit_usd_micros = CASE
+//	            WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.limit_usd_micros
+//	            ELSE router.subscriber_allowance_periods.limit_usd_micros
+//	        END,
+//	        reserved_usd_micros = router.subscriber_allowance_periods.reserved_usd_micros + EXCLUDED.reserved_usd_micros,
+//	        updated_at = CURRENT_TIMESTAMP
+//	), weekly_window AS (
+//	    INSERT INTO router.subscriber_allowance_periods (
+//	        subscriber_id,
+//	        period_kind,
+//	        period_start,
+//	        period_end,
+//	        entitlement_version,
+//	        plan,
+//	        limit_usd_micros,
+//	        reserved_usd_micros
+//	    )
+//	    SELECT
+//	        reserved.subscriber_id,
+//	        'weekly',
+//	        reserved.weekly_period_start,
+//	        reserved.weekly_period_end,
+//	        reserved.entitlement_version,
+//	        reserved.plan,
+//	        $19::bigint,
 //	        reserved.reserved_usd_micros
 //	    FROM reserved
 //	    WHERE reserved.capacity_source = 'included_router'
@@ -946,7 +1105,7 @@ type ReserveSubscriberAllowanceRow struct {
 //	        reserved.six_hour_period_end,
 //	        reserved.entitlement_version,
 //	        reserved.plan,
-//	        $17::bigint,
+//	        $20::bigint,
 //	        reserved.reserved_usd_micros
 //	    FROM reserved
 //	    WHERE reserved.capacity_source = 'included_router'
@@ -967,9 +1126,9 @@ type ReserveSubscriberAllowanceRow struct {
 //	        reserved_usd_micros = router.subscriber_allowance_periods.reserved_usd_micros + EXCLUDED.reserved_usd_micros,
 //	        updated_at = CURRENT_TIMESTAMP
 //	)
-//	SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at FROM reserved
+//	SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at, weekly_period_start, weekly_period_end FROM reserved
 //	UNION ALL
-//	SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at FROM router.subscriber_allowance_actions
+//	SELECT action_id, router_request_id, subscriber_id, entitlement_version, plan, billing_period_start, billing_period_end, six_hour_period_start, six_hour_period_end, api_key_id, client_session_id, requested_model, served_model, reserved_usd_micros, retail_usd_micros, capacity_source, state, reserved_at, finalized_at, released_at, created_at, updated_at, weekly_period_start, weekly_period_end FROM router.subscriber_allowance_actions
 //	WHERE action_id = $1::varchar
 //	  AND NOT EXISTS (SELECT 1 FROM reserved)
 func (q *Queries) ReserveSubscriberAllowance(ctx context.Context, arg ReserveSubscriberAllowanceParams) (ReserveSubscriberAllowanceRow, error) {
@@ -981,6 +1140,8 @@ func (q *Queries) ReserveSubscriberAllowance(ctx context.Context, arg ReserveSub
 		arg.Plan,
 		arg.BillingPeriodStart,
 		arg.BillingPeriodEnd,
+		arg.WeeklyPeriodStart,
+		arg.WeeklyPeriodEnd,
 		arg.SixHourPeriodStart,
 		arg.SixHourPeriodEnd,
 		arg.APIKeyID,
@@ -990,6 +1151,7 @@ func (q *Queries) ReserveSubscriberAllowance(ctx context.Context, arg ReserveSub
 		arg.CapacitySource,
 		arg.ReservedAt,
 		arg.BillingLimitUsdMicros,
+		arg.WeeklyLimitUsdMicros,
 		arg.SixHourLimitUsdMicros,
 	)
 	var i ReserveSubscriberAllowanceRow
@@ -1016,6 +1178,8 @@ func (q *Queries) ReserveSubscriberAllowance(ctx context.Context, arg ReserveSub
 		&i.ReleasedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.WeeklyPeriodStart,
+		&i.WeeklyPeriodEnd,
 	)
 	return i, err
 }

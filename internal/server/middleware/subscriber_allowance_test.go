@@ -24,8 +24,11 @@ const (
 	allowanceSubscriberID = "11111111-1111-1111-1111-111111111111"
 	monthlyAllowance      = int64(50_000_000)
 	// The cap of the window covering allowanceNow, derived from the nominal
-	// allowance and the 124 fixed windows the March 2026 period intersects.
-	sixHourAllowance = int64(403_226)
+	// allowance, the 124 fixed windows the March 2026 period intersects, and
+	// the burst factor.
+	sixHourAllowance = 4 * int64(403_226)
+	// The cap of the week covering allowanceNow: the period holds five.
+	weeklyAllowance = int64(10_000_000)
 )
 
 var allowanceNow = time.Date(2026, 3, 14, 9, 30, 0, 0, time.UTC)
@@ -59,6 +62,7 @@ func (s *stubEntitlements) Get(context.Context, entitlement.SubscriberID) (entit
 // stubAllowances answers the usage read; accounting commands are unused here.
 type stubAllowances struct {
 	billingConsumed int64
+	weeklyConsumed  int64
 	sixHourConsumed int64
 	usageErr        error
 	exhausted       entitlement.PeriodKind
@@ -93,12 +97,13 @@ func (s *stubAllowances) Release(ctx context.Context, release entitlement.Releas
 	return entitlement.Action{State: entitlement.ActionStateReleased}, nil
 }
 
-func (s *stubAllowances) Usage(_ context.Context, _ entitlement.SubscriberID, billing, sixHour entitlement.Period) (entitlement.Usage, error) {
+func (s *stubAllowances) Usage(_ context.Context, _ entitlement.SubscriberID, billing, weekly, sixHour entitlement.Period) (entitlement.Usage, error) {
 	if s.usageErr != nil {
 		return entitlement.Usage{}, s.usageErr
 	}
 	return entitlement.Usage{
 		Billing: entitlement.WindowUsage{Period: billing, FinalizedUsdMicros: s.billingConsumed},
+		Weekly:  entitlement.WindowUsage{Period: weekly, FinalizedUsdMicros: s.weeklyConsumed},
 		SixHour: entitlement.WindowUsage{Period: sixHour, FinalizedUsdMicros: s.sixHourConsumed},
 	}, nil
 }
@@ -198,7 +203,9 @@ func TestWithSubscriberAllowance_AttachesCoverageForActiveSubscriber(t *testing.
 	assert.Equal(t, entitlement.PlanBoost, coverage.Plan)
 	assert.Equal(t, monthlyAllowance, coverage.BillingLimitUsdMicros)
 	assert.Equal(t, sixHourAllowance, coverage.SixHourLimitUsdMicros)
+	assert.Equal(t, weeklyAllowance, coverage.WeeklyLimitUsdMicros)
 	assert.Equal(t, time.Date(2026, 3, 14, 6, 0, 0, 0, time.UTC), coverage.SixHourPeriod.Start)
+	assert.Equal(t, time.Date(2026, 3, 8, 0, 0, 0, 0, time.UTC), coverage.WeeklyPeriod.Start)
 }
 
 func TestWithSubscriberAllowance_UsesOrganizationFallbackWhenWindowSpent(t *testing.T) {
@@ -210,6 +217,9 @@ func TestWithSubscriberAllowance_UsesOrganizationFallbackWhenWindowSpent(t *test
 		},
 		"six-hour window spent": {
 			allowances: &stubAllowances{sixHourConsumed: sixHourAllowance},
+		},
+		"weekly window spent": {
+			allowances: &stubAllowances{weeklyConsumed: weeklyAllowance},
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -415,7 +425,7 @@ func TestWithSubscriberAllowance_PassesThroughCoveringSubscription(t *testing.T)
 	// spent Max/Boost allowance must not 402 it, and it must carry no coverage
 	// (which would settle it against the allowance it never used).
 	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
-	allowances := &stubAllowances{billingConsumed: monthlyAllowance, sixHourConsumed: sixHourAllowance}
+	allowances := &stubAllowances{billingConsumed: monthlyAllowance, weeklyConsumed: weeklyAllowance, sixHourConsumed: sixHourAllowance}
 	w, reached, coverage := runAllowanceMiddlewareWithAuth(
 		t, entitlements, allowances, subscriberAPIKey(), "Bearer sk-ant-oat-abc123")
 
@@ -467,6 +477,20 @@ func TestWithSubscriberAllowance_HoldFitsRemainingHeadroom(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 	require.Len(t, allowances.held, 1)
 	assert.Equal(t, sixHourAllowance-spent, allowances.held[0].ReservedUsdMicros)
+}
+
+func TestWithSubscriberAllowance_HoldFitsRemainingWeeklyHeadroom(t *testing.T) {
+	// The week is the narrower window once a burst has drawn it down, so the
+	// bound must clamp to it rather than to the six-hour cap above it.
+	spent := weeklyAllowance - 1_000
+	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
+	allowances := &stubAllowances{weeklyConsumed: spent}
+	w, reached, _ := runAllowanceMiddleware(t, entitlements, allowances, subscriberAPIKey())
+
+	require.True(t, reached)
+	assert.Equal(t, http.StatusOK, w.Code)
+	require.Len(t, allowances.held, 1)
+	assert.Equal(t, weeklyAllowance-spent, allowances.held[0].ReservedUsdMicros)
 }
 
 func TestWithSubscriberAllowance_RefusedReservationCarriesNoCoverage(t *testing.T) {

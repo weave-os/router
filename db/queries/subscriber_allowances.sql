@@ -1,6 +1,6 @@
 -- name: ReserveSubscriberAllowance :one
 -- Records an allowance hold for one action and accrues it against the
--- subscriber's billing and six-hour windows. A redelivered action_id returns
+-- subscriber's billing, weekly, and six-hour windows. A redelivered action_id returns
 -- the stored action without accruing a second hold. Only included-Router
 -- capacity draws down the windows; a turn served on a linked or prepaid source
 -- is audited without consuming the subscription allowance.
@@ -13,6 +13,8 @@ WITH reserved AS (
         plan,
         billing_period_start,
         billing_period_end,
+        weekly_period_start,
+        weekly_period_end,
         six_hour_period_start,
         six_hour_period_end,
         api_key_id,
@@ -30,6 +32,8 @@ WITH reserved AS (
         @plan::varchar,
         @billing_period_start::timestamptz,
         @billing_period_end::timestamptz,
+        @weekly_period_start::timestamptz,
+        @weekly_period_end::timestamptz,
         @six_hour_period_start::timestamptz,
         @six_hour_period_end::timestamptz,
         @api_key_id::uuid,
@@ -61,6 +65,44 @@ WITH reserved AS (
         reserved.entitlement_version,
         reserved.plan,
         @billing_limit_usd_micros::bigint,
+        reserved.reserved_usd_micros
+    FROM reserved
+    WHERE reserved.capacity_source = 'included_router'
+    ON CONFLICT (subscriber_id, period_kind, period_start) DO UPDATE SET
+        period_end = CASE
+            WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.period_end
+            ELSE router.subscriber_allowance_periods.period_end
+        END,
+        entitlement_version = GREATEST(router.subscriber_allowance_periods.entitlement_version, EXCLUDED.entitlement_version),
+        plan = CASE
+            WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.plan
+            ELSE router.subscriber_allowance_periods.plan
+        END,
+        limit_usd_micros = CASE
+            WHEN EXCLUDED.entitlement_version >= router.subscriber_allowance_periods.entitlement_version THEN EXCLUDED.limit_usd_micros
+            ELSE router.subscriber_allowance_periods.limit_usd_micros
+        END,
+        reserved_usd_micros = router.subscriber_allowance_periods.reserved_usd_micros + EXCLUDED.reserved_usd_micros,
+        updated_at = CURRENT_TIMESTAMP
+), weekly_window AS (
+    INSERT INTO router.subscriber_allowance_periods (
+        subscriber_id,
+        period_kind,
+        period_start,
+        period_end,
+        entitlement_version,
+        plan,
+        limit_usd_micros,
+        reserved_usd_micros
+    )
+    SELECT
+        reserved.subscriber_id,
+        'weekly',
+        reserved.weekly_period_start,
+        reserved.weekly_period_end,
+        reserved.entitlement_version,
+        reserved.plan,
+        @weekly_limit_usd_micros::bigint,
         reserved.reserved_usd_micros
     FROM reserved
     WHERE reserved.capacity_source = 'included_router'
@@ -139,6 +181,8 @@ INSERT INTO router.subscriber_allowance_actions (
     plan,
     billing_period_start,
     billing_period_end,
+    weekly_period_start,
+    weekly_period_end,
     six_hour_period_start,
     six_hour_period_end,
     api_key_id,
@@ -156,6 +200,8 @@ INSERT INTO router.subscriber_allowance_actions (
     @plan::varchar,
     @billing_period_start::timestamptz,
     @billing_period_end::timestamptz,
+    @weekly_period_start::timestamptz,
+    @weekly_period_end::timestamptz,
     @six_hour_period_start::timestamptz,
     @six_hour_period_end::timestamptz,
     @api_key_id::uuid,
@@ -222,7 +268,7 @@ RETURNING *;
 
 -- name: FinalizeSubscriberAllowance :one
 -- Settles a reserved action at its actual retail cost, releasing the hold and
--- accruing the cost against both windows. Matching on the reserved capacity
+-- accruing the cost against every window. Matching on the reserved capacity
 -- source keeps a turn that ended up served elsewhere from silently settling
 -- against the subscription allowance. A redelivered finalization returns the
 -- stored action unchanged.
@@ -247,6 +293,16 @@ WITH finalized AS (
       AND router.subscriber_allowance_periods.period_kind = 'billing'
       AND router.subscriber_allowance_periods.period_start = finalized.billing_period_start
       AND finalized.capacity_source = 'included_router'
+), weekly_window AS (
+    UPDATE router.subscriber_allowance_periods
+    SET reserved_usd_micros = GREATEST(router.subscriber_allowance_periods.reserved_usd_micros - finalized.reserved_usd_micros, 0),
+        finalized_usd_micros = router.subscriber_allowance_periods.finalized_usd_micros + finalized.retail_usd_micros,
+        updated_at = CURRENT_TIMESTAMP
+    FROM finalized
+    WHERE router.subscriber_allowance_periods.subscriber_id = finalized.subscriber_id
+      AND router.subscriber_allowance_periods.period_kind = 'weekly'
+      AND router.subscriber_allowance_periods.period_start = finalized.weekly_period_start
+      AND finalized.capacity_source = 'included_router'
 ), six_hour_window AS (
     UPDATE router.subscriber_allowance_periods
     SET reserved_usd_micros = GREATEST(router.subscriber_allowance_periods.reserved_usd_micros - finalized.reserved_usd_micros, 0),
@@ -265,7 +321,7 @@ WHERE action_id = @action_id::varchar
   AND NOT EXISTS (SELECT 1 FROM finalized);
 
 -- name: ReleaseSubscriberAllowance :one
--- Returns a non-billable hold to both windows. A redelivered release returns
+-- Returns a non-billable hold to every window. A redelivered release returns
 -- the stored action unchanged.
 WITH released AS (
     UPDATE router.subscriber_allowance_actions
@@ -283,6 +339,15 @@ WITH released AS (
     WHERE router.subscriber_allowance_periods.subscriber_id = released.subscriber_id
       AND router.subscriber_allowance_periods.period_kind = 'billing'
       AND router.subscriber_allowance_periods.period_start = released.billing_period_start
+      AND released.capacity_source = 'included_router'
+), weekly_window AS (
+    UPDATE router.subscriber_allowance_periods
+    SET reserved_usd_micros = GREATEST(router.subscriber_allowance_periods.reserved_usd_micros - released.reserved_usd_micros, 0),
+        updated_at = CURRENT_TIMESTAMP
+    FROM released
+    WHERE router.subscriber_allowance_periods.subscriber_id = released.subscriber_id
+      AND router.subscriber_allowance_periods.period_kind = 'weekly'
+      AND router.subscriber_allowance_periods.period_start = released.weekly_period_start
       AND released.capacity_source = 'included_router'
 ), six_hour_window AS (
     UPDATE router.subscriber_allowance_periods
@@ -309,12 +374,13 @@ FROM router.subscriber_allowance_actions
 WHERE action_id = @action_id::varchar;
 
 -- name: ListSubscriberAllowanceWindows :many
--- Reads the consumed amounts for the two enforcement windows covering one
+-- Reads the consumed amounts for the enforcement windows covering one
 -- request. A window with no activity yet has no row.
 SELECT *
 FROM router.subscriber_allowance_periods
 WHERE subscriber_id = @subscriber_id::uuid
   AND (
       (period_kind = 'billing' AND period_start = @billing_period_start::timestamptz)
+      OR (period_kind = 'weekly' AND period_start = @weekly_period_start::timestamptz)
       OR (period_kind = 'six_hour' AND period_start = @six_hour_period_start::timestamptz)
   );

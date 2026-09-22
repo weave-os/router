@@ -175,7 +175,7 @@ const releaseHoldTimeout = 5 * time.Second
 // smaller than one worst-case turn could never dispatch at all.
 func holdUsdMicros(usage entitlement.Usage) int64 {
 	bound := catalog.TurnUpperBoundUsdMicros()
-	for _, window := range []entitlement.WindowUsage{usage.SixHour, usage.Billing} {
+	for _, window := range []entitlement.WindowUsage{usage.SixHour, usage.Weekly, usage.Billing} {
 		headroom := window.LimitUsdMicros - window.ConsumedUsdMicros()
 		if headroom > 0 && headroom < bound {
 			bound = headroom

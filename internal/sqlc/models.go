@@ -974,6 +974,8 @@ type RouterSubscriberAllowanceAction struct {
 	ReleasedAt         pgtype.Timestamptz
 	CreatedAt          pgtype.Timestamptz
 	UpdatedAt          pgtype.Timestamptz
+	WeeklyPeriodStart  pgtype.Timestamptz
+	WeeklyPeriodEnd    pgtype.Timestamptz
 }
 
 type RouterSubscriberAllowancePeriod struct {

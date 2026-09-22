@@ -122,6 +122,8 @@ func (row subscriberAllowanceActionRow) Scan(dest ...any) error {
 		action.ReleasedAt,
 		action.CreatedAt,
 		action.UpdatedAt,
+		action.WeeklyPeriodStart,
+		action.WeeklyPeriodEnd,
 	})
 }
 
@@ -224,17 +226,19 @@ var (
 
 func testReservation() entitlement.Reservation {
 	sixHour := entitlement.SixHourWindowAt(allowanceReservedAt)
+	billing := entitlement.Period{
+		Kind:  entitlement.PeriodKindBilling,
+		Start: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+		End:   time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+	}
 	return entitlement.Reservation{
-		ActionID:           "action-1",
-		RouterRequestID:    "request-1",
-		SubscriberID:       entitlement.SubscriberID(allowanceSubscriberID.String()),
-		EntitlementVersion: 7,
-		Plan:               entitlement.PlanMax,
-		BillingPeriod: entitlement.Period{
-			Kind:  entitlement.PeriodKindBilling,
-			Start: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
-			End:   time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
-		},
+		ActionID:              "action-1",
+		RouterRequestID:       "request-1",
+		SubscriberID:          entitlement.SubscriberID(allowanceSubscriberID.String()),
+		EntitlementVersion:    7,
+		Plan:                  entitlement.PlanMax,
+		BillingPeriod:         billing,
+		WeeklyPeriod:          entitlement.WeeklyWindowAt(billing, allowanceReservedAt),
 		SixHourPeriod:         sixHour,
 		APIKeyID:              allowanceAPIKeyID.String(),
 		ClientSessionID:       "session-1",
@@ -243,6 +247,7 @@ func testReservation() entitlement.Reservation {
 		CapacitySource:        entitlement.CapacitySourceIncludedRouter,
 		ReservedAt:            allowanceReservedAt,
 		BillingLimitUsdMicros: 50_000_000,
+		WeeklyLimitUsdMicros:  10_000_000,
 		SixHourLimitUsdMicros: 12_500_000,
 	}
 }
@@ -257,6 +262,8 @@ func reservedActionRow(reservation entitlement.Reservation) sqlc.RouterSubscribe
 		Plan:               string(reservation.Plan),
 		BillingPeriodStart: utcTimestamptz(reservation.BillingPeriod.Start),
 		BillingPeriodEnd:   utcTimestamptz(reservation.BillingPeriod.End),
+		WeeklyPeriodStart:  utcTimestamptz(reservation.WeeklyPeriod.Start),
+		WeeklyPeriodEnd:    utcTimestamptz(reservation.WeeklyPeriod.End),
 		SixHourPeriodStart: utcTimestamptz(reservation.SixHourPeriod.Start),
 		SixHourPeriodEnd:   utcTimestamptz(reservation.SixHourPeriod.End),
 		APIKeyID:           allowanceAPIKeyID,
@@ -280,12 +287,16 @@ func TestReserveStoresHoldWithWindowLimits(t *testing.T) {
 	assert.Equal(t, reservation.ReservedUsdMicros, action.ReservedUsdMicros)
 	assert.Equal(t, reservation.SixHourPeriod, action.SixHourPeriod)
 	assert.Contains(t, db.args[0], reservation.BillingLimitUsdMicros)
+	assert.Contains(t, db.args[0], reservation.WeeklyLimitUsdMicros)
 	assert.Contains(t, db.args[0], reservation.SixHourLimitUsdMicros)
 }
 
 func accruedPeriodRow(reservation entitlement.Reservation, kind entitlement.PeriodKind) subscriberAllowancePeriodRow {
 	period, limit := reservation.BillingPeriod, reservation.BillingLimitUsdMicros
-	if kind == entitlement.PeriodKindSixHour {
+	switch kind {
+	case entitlement.PeriodKindWeekly:
+		period, limit = reservation.WeeklyPeriod, reservation.WeeklyLimitUsdMicros
+	case entitlement.PeriodKindSixHour:
 		period, limit = reservation.SixHourPeriod, reservation.SixHourLimitUsdMicros
 	}
 	return subscriberAllowancePeriodRow{value: sqlc.RouterSubscriberAllowancePeriod{
@@ -300,11 +311,12 @@ func accruedPeriodRow(reservation entitlement.Reservation, kind entitlement.Peri
 	}}
 }
 
-func TestReserveWithinLimitsHoldsBothWindows(t *testing.T) {
+func TestReserveWithinLimitsHoldsEveryWindow(t *testing.T) {
 	reservation := testReservation()
 	db := &subscriberAllowanceDB{singleRows: []pgx.Row{
 		subscriberAllowanceActionRow{value: reservedActionRow(reservation)},
 		accruedPeriodRow(reservation, entitlement.PeriodKindBilling),
+		accruedPeriodRow(reservation, entitlement.PeriodKindWeekly),
 		accruedPeriodRow(reservation, entitlement.PeriodKindSixHour),
 	}}
 
@@ -315,7 +327,8 @@ func TestReserveWithinLimitsHoldsBothWindows(t *testing.T) {
 	assert.Equal(t, reservation.ReservedUsdMicros, action.ReservedUsdMicros)
 	assert.Equal(t, 1, db.committed)
 	assert.Contains(t, db.args[1], reservation.BillingLimitUsdMicros)
-	assert.Contains(t, db.args[2], reservation.SixHourLimitUsdMicros)
+	assert.Contains(t, db.args[2], reservation.WeeklyLimitUsdMicros)
+	assert.Contains(t, db.args[3], reservation.SixHourLimitUsdMicros)
 }
 
 func TestReserveWithinLimitsRefusesSpentWindowWithoutHolding(t *testing.T) {
@@ -323,6 +336,7 @@ func TestReserveWithinLimitsRefusesSpentWindowWithoutHolding(t *testing.T) {
 	db := &subscriberAllowanceDB{singleRows: []pgx.Row{
 		subscriberAllowanceActionRow{value: reservedActionRow(reservation)},
 		accruedPeriodRow(reservation, entitlement.PeriodKindBilling),
+		accruedPeriodRow(reservation, entitlement.PeriodKindWeekly),
 		subscriberAllowancePeriodRow{err: pgx.ErrNoRows},
 	}}
 
@@ -565,7 +579,25 @@ func TestReleaseRejectsFinalizedAction(t *testing.T) {
 	assert.ErrorIs(t, err, entitlement.ErrAllowanceActionConflict)
 }
 
-func TestUsageReportsBothWindows(t *testing.T) {
+func TestReserveWithinLimitsRefusesSpentWeekBeforeTheWindowAccrues(t *testing.T) {
+	reservation := testReservation()
+	db := &subscriberAllowanceDB{singleRows: []pgx.Row{
+		subscriberAllowanceActionRow{value: reservedActionRow(reservation)},
+		accruedPeriodRow(reservation, entitlement.PeriodKindBilling),
+		subscriberAllowancePeriodRow{err: pgx.ErrNoRows},
+	}}
+
+	_, err := NewSubscriberAllowanceRepo(db).ReserveWithinLimits(context.Background(), reservation)
+
+	var exhausted entitlement.ExhaustedError
+	require.ErrorAs(t, err, &exhausted)
+	assert.Equal(t, entitlement.PeriodKindWeekly, exhausted.Period)
+	assert.Len(t, db.args, 3, "a refused week must not go on to draw the six-hour window down")
+	assert.Zero(t, db.committed)
+	assert.NotZero(t, db.rolledBack)
+}
+
+func TestUsageReportsEveryWindow(t *testing.T) {
 	reservation := testReservation()
 	db := &subscriberAllowanceDB{periodRows: []sqlc.RouterSubscriberAllowancePeriod{
 		{
@@ -581,6 +613,17 @@ func TestUsageReportsBothWindows(t *testing.T) {
 		},
 		{
 			SubscriberID:       allowanceSubscriberID,
+			PeriodKind:         string(entitlement.PeriodKindWeekly),
+			PeriodStart:        utcTimestamptz(reservation.WeeklyPeriod.Start),
+			PeriodEnd:          utcTimestamptz(reservation.WeeklyPeriod.End),
+			EntitlementVersion: reservation.EntitlementVersion,
+			Plan:               string(reservation.Plan),
+			LimitUsdMicros:     10_000_000,
+			ReservedUsdMicros:  25_000,
+			FinalizedUsdMicros: 750_000,
+		},
+		{
+			SubscriberID:       allowanceSubscriberID,
 			PeriodKind:         string(entitlement.PeriodKindSixHour),
 			PeriodStart:        utcTimestamptz(reservation.SixHourPeriod.Start),
 			PeriodEnd:          utcTimestamptz(reservation.SixHourPeriod.End),
@@ -592,10 +635,12 @@ func TestUsageReportsBothWindows(t *testing.T) {
 		},
 	}}
 
-	usage, err := NewSubscriberAllowanceRepo(db).Usage(context.Background(), reservation.SubscriberID, reservation.BillingPeriod, reservation.SixHourPeriod)
+	usage, err := NewSubscriberAllowanceRepo(db).Usage(
+		context.Background(), reservation.SubscriberID, reservation.BillingPeriod, reservation.WeeklyPeriod, reservation.SixHourPeriod)
 
 	require.NoError(t, err)
 	assert.Equal(t, int64(1_025_000), usage.Billing.ConsumedUsdMicros())
+	assert.Equal(t, int64(775_000), usage.Weekly.ConsumedUsdMicros())
 	assert.Equal(t, int64(525_000), usage.SixHour.ConsumedUsdMicros())
 	assert.Equal(t, int64(12_500_000), usage.SixHour.LimitUsdMicros)
 }
@@ -604,19 +649,23 @@ func TestUsageReportsZeroForWindowsWithoutActivity(t *testing.T) {
 	reservation := testReservation()
 	db := &subscriberAllowanceDB{}
 
-	usage, err := NewSubscriberAllowanceRepo(db).Usage(context.Background(), reservation.SubscriberID, reservation.BillingPeriod, reservation.SixHourPeriod)
+	usage, err := NewSubscriberAllowanceRepo(db).Usage(
+		context.Background(), reservation.SubscriberID, reservation.BillingPeriod, reservation.WeeklyPeriod, reservation.SixHourPeriod)
 
 	require.NoError(t, err)
 	assert.Zero(t, usage.Billing.ConsumedUsdMicros())
+	assert.Zero(t, usage.Weekly.ConsumedUsdMicros())
 	assert.Zero(t, usage.SixHour.ConsumedUsdMicros())
 	assert.Equal(t, reservation.SixHourPeriod, usage.SixHour.Period)
+	assert.Equal(t, reservation.WeeklyPeriod, usage.Weekly.Period)
 }
 
 func TestUsageFailsClosedOnReadError(t *testing.T) {
 	reservation := testReservation()
 	db := &subscriberAllowanceDB{queryErr: errors.New("connection reset")}
 
-	_, err := NewSubscriberAllowanceRepo(db).Usage(context.Background(), reservation.SubscriberID, reservation.BillingPeriod, reservation.SixHourPeriod)
+	_, err := NewSubscriberAllowanceRepo(db).Usage(
+		context.Background(), reservation.SubscriberID, reservation.BillingPeriod, reservation.WeeklyPeriod, reservation.SixHourPeriod)
 
 	assert.Error(t, err)
 }

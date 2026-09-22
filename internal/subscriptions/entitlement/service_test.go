@@ -17,8 +17,11 @@ const (
 	testAPIKeyID   = "22222222-2222-2222-2222-222222222222"
 	maxMonthly     = int64(50_000_000)
 	// The March 2026 period spans 124 fixed windows and 50_000_000 leaves a
-	// remainder of 100, so each of the first 100 windows carries one extra micro.
-	maxSixHour = int64(403_226)
+	// remainder of 100, so each of the first 100 windows carries one extra
+	// micro before the burst factor multiplies it.
+	maxSixHour = 4 * int64(403_226)
+	// The period holds five weekly windows, the last one three days long.
+	maxWeekly = int64(10_000_000)
 )
 
 var testNow = time.Date(2026, 3, 14, 9, 30, 0, 0, time.UTC)
@@ -47,6 +50,8 @@ func (f *fakeEntitlements) Get(context.Context, entitlement.SubscriberID) (entit
 type fakeAllowances struct {
 	billingReserved int64
 	billingFinal    int64
+	weeklyReserved  int64
+	weeklyFinal     int64
 	sixHourReserved int64
 	sixHourFinal    int64
 	usageErr        error
@@ -93,7 +98,7 @@ func (f *fakeAllowances) Release(_ context.Context, release entitlement.Release)
 	return entitlement.Action{State: entitlement.ActionStateReleased}, nil
 }
 
-func (f *fakeAllowances) Usage(_ context.Context, _ entitlement.SubscriberID, billing, sixHour entitlement.Period) (entitlement.Usage, error) {
+func (f *fakeAllowances) Usage(_ context.Context, _ entitlement.SubscriberID, billing, weekly, sixHour entitlement.Period) (entitlement.Usage, error) {
 	if f.usageErr != nil {
 		return entitlement.Usage{}, f.usageErr
 	}
@@ -102,6 +107,11 @@ func (f *fakeAllowances) Usage(_ context.Context, _ entitlement.SubscriberID, bi
 			Period:             billing,
 			ReservedUsdMicros:  f.billingReserved,
 			FinalizedUsdMicros: f.billingFinal,
+		},
+		Weekly: entitlement.WindowUsage{
+			Period:             weekly,
+			ReservedUsdMicros:  f.weeklyReserved,
+			FinalizedUsdMicros: f.weeklyFinal,
 		},
 		SixHour: entitlement.WindowUsage{
 			Period:             sixHour,
@@ -182,9 +192,26 @@ func TestAdmitCoversActiveSubscriberWithHeadroom(t *testing.T) {
 	assert.Equal(t, maxMonthly, admission.Coverage.BillingLimitUsdMicros)
 	assert.Equal(t, maxSixHour, admission.Coverage.SixHourLimitUsdMicros,
 		"the window cap is derived from the nominal allowance, not from the projected average")
+	assert.Equal(t, maxWeekly, admission.Coverage.WeeklyLimitUsdMicros)
 	// The six-hour window is derived from the clock, not from the projection.
 	assert.Equal(t, time.Date(2026, 3, 14, 6, 0, 0, 0, time.UTC), admission.Coverage.SixHourPeriod.Start)
 	assert.Equal(t, time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC), admission.Coverage.SixHourPeriod.End)
+	// Weeks run from the billing period start, not from a calendar weekday.
+	assert.Equal(t, time.Date(2026, 3, 8, 0, 0, 0, 0, time.UTC), admission.Coverage.WeeklyPeriod.Start)
+	assert.Equal(t, time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC), admission.Coverage.WeeklyPeriod.End)
+}
+
+func TestAdmitBurstsAboveThePeriodAverageWindowShare(t *testing.T) {
+	t.Parallel()
+
+	admission, err := newService(&fakeEntitlements{current: activeEntitlement(), found: true}, &fakeAllowances{}).
+		Admit(context.Background(), testSubscriber)
+	require.NoError(t, err)
+
+	assert.Equal(t, 4*int64(403_226), admission.Coverage.SixHourLimitUsdMicros,
+		"a six-hour window carries four times its even share of the allowance")
+	assert.Less(t, admission.Coverage.WeeklyLimitUsdMicros, 28*admission.Coverage.SixHourLimitUsdMicros,
+		"the week must bind before a subscriber can burst every window of it")
 }
 
 func TestAdmitReportsExhaustedWindow(t *testing.T) {
@@ -198,6 +225,10 @@ func TestAdmitReportsExhaustedWindow(t *testing.T) {
 			allowances: &fakeAllowances{billingFinal: maxMonthly},
 			expected:   entitlement.PeriodKindBilling,
 		},
+		"weekly window spent": {
+			allowances: &fakeAllowances{weeklyFinal: maxWeekly},
+			expected:   entitlement.PeriodKindWeekly,
+		},
 		"six-hour window spent": {
 			allowances: &fakeAllowances{sixHourFinal: maxSixHour},
 			expected:   entitlement.PeriodKindSixHour,
@@ -206,9 +237,13 @@ func TestAdmitReportsExhaustedWindow(t *testing.T) {
 			allowances: &fakeAllowances{sixHourReserved: maxSixHour},
 			expected:   entitlement.PeriodKindSixHour,
 		},
-		"both spent reports the month": {
-			allowances: &fakeAllowances{billingFinal: maxMonthly, sixHourFinal: maxSixHour},
+		"all spent reports the month": {
+			allowances: &fakeAllowances{billingFinal: maxMonthly, weeklyFinal: maxWeekly, sixHourFinal: maxSixHour},
 			expected:   entitlement.PeriodKindBilling,
+		},
+		"week and window spent reports the week": {
+			allowances: &fakeAllowances{weeklyFinal: maxWeekly, sixHourFinal: maxSixHour},
+			expected:   entitlement.PeriodKindWeekly,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -239,7 +274,8 @@ func TestAdmitDerivesTheWindowCapOfThePlanInForce(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, entitlement.AdmissionCovered, admission.Outcome)
-	assert.Equal(t, int64(1_612_903), admission.Coverage.SixHourLimitUsdMicros)
+	assert.Equal(t, 4*int64(1_612_903), admission.Coverage.SixHourLimitUsdMicros)
+	assert.Equal(t, int64(40_000_000), admission.Coverage.WeeklyLimitUsdMicros)
 	assert.Equal(t, int64(120_000_000), admission.Coverage.BillingLimitUsdMicros)
 	assert.Equal(t, int64(500_000), admission.Usage.SixHour.ConsumedUsdMicros(),
 		"a plan change must not forgive what the window already spent")
@@ -270,8 +306,14 @@ func servedSettlement() entitlement.Settlement {
 				Start: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
 				End:   time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
 			},
+			WeeklyPeriod: entitlement.WeeklyWindowAt(entitlement.Period{
+				Kind:  entitlement.PeriodKindBilling,
+				Start: time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC),
+				End:   time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+			}, testNow),
 			SixHourPeriod:         entitlement.SixHourWindowAt(testNow),
 			BillingLimitUsdMicros: maxMonthly,
+			WeeklyLimitUsdMicros:  maxWeekly,
 			SixHourLimitUsdMicros: maxSixHour,
 		},
 		ActionID:        "req-1:0",

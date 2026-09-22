@@ -15,7 +15,7 @@ import (
 )
 
 // AllowanceDB is the database handle allowance accounting needs: a limit-
-// enforcing reservation writes the action and both window accruals as one unit,
+// enforcing reservation writes the action and every window accrual as one unit,
 // so it cannot be expressed as a single statement over a plain handle.
 type AllowanceDB interface {
 	sqlc.DBTX
@@ -33,7 +33,7 @@ func NewSubscriberAllowanceRepo(db AllowanceDB) *SubscriberAllowanceRepo {
 	return &SubscriberAllowanceRepo{db: db, queries: sqlc.New(db)}
 }
 
-// Reserve holds an upper-bound retail cost against both enforcement windows.
+// Reserve holds an upper-bound retail cost against every enforcement window.
 // A redelivered action identifier returns the stored action without holding twice.
 func (r *SubscriberAllowanceRepo) Reserve(ctx context.Context, reservation entitlement.Reservation) (entitlement.Action, error) {
 	if err := reservation.Validate(); err != nil {
@@ -55,6 +55,8 @@ func (r *SubscriberAllowanceRepo) Reserve(ctx context.Context, reservation entit
 		Plan:                  string(reservation.Plan),
 		BillingPeriodStart:    utcTimestamptz(reservation.BillingPeriod.Start),
 		BillingPeriodEnd:      utcTimestamptz(reservation.BillingPeriod.End),
+		WeeklyPeriodStart:     utcTimestamptz(reservation.WeeklyPeriod.Start),
+		WeeklyPeriodEnd:       utcTimestamptz(reservation.WeeklyPeriod.End),
 		SixHourPeriodStart:    utcTimestamptz(reservation.SixHourPeriod.Start),
 		SixHourPeriodEnd:      utcTimestamptz(reservation.SixHourPeriod.End),
 		APIKeyID:              apiKeyID,
@@ -64,6 +66,7 @@ func (r *SubscriberAllowanceRepo) Reserve(ctx context.Context, reservation entit
 		CapacitySource:        string(reservation.CapacitySource),
 		ReservedAt:            utcTimestamptz(reservation.ReservedAt),
 		BillingLimitUsdMicros: reservation.BillingLimitUsdMicros,
+		WeeklyLimitUsdMicros:  reservation.WeeklyLimitUsdMicros,
 		SixHourLimitUsdMicros: reservation.SixHourLimitUsdMicros,
 	})
 	stored, err := r.decodeOrReread(ctx, reservation.ActionID, sqlc.RouterSubscriberAllowanceAction(row), err)
@@ -76,13 +79,13 @@ func (r *SubscriberAllowanceRepo) Reserve(ctx context.Context, reservation entit
 	return stored, nil
 }
 
-// ReserveWithinLimits holds an upper-bound retail cost only while both
-// enforcement windows can still pay for it.
+// ReserveWithinLimits holds an upper-bound retail cost only while every
+// enforcement window can still pay for it.
 //
 // Every window accrual is gated on the invariant inside the statement that
 // performs it, so a concurrent reservation cannot slip between a check and its
 // write: Postgres re-evaluates the gate against the latest committed row when
-// the upsert conflicts. The two windows are gated separately, so the whole
+// the upsert conflicts. The windows are gated separately, so the whole
 // reservation runs in a transaction — an accrual against the month that the
 // six-hour window then refuses must not stand.
 func (r *SubscriberAllowanceRepo) ReserveWithinLimits(ctx context.Context, reservation entitlement.Reservation) (entitlement.Action, error) {
@@ -108,6 +111,8 @@ func (r *SubscriberAllowanceRepo) ReserveWithinLimits(ctx context.Context, reser
 			Plan:               string(reservation.Plan),
 			BillingPeriodStart: utcTimestamptz(reservation.BillingPeriod.Start),
 			BillingPeriodEnd:   utcTimestamptz(reservation.BillingPeriod.End),
+			WeeklyPeriodStart:  utcTimestamptz(reservation.WeeklyPeriod.Start),
+			WeeklyPeriodEnd:    utcTimestamptz(reservation.WeeklyPeriod.End),
 			SixHourPeriodStart: utcTimestamptz(reservation.SixHourPeriod.Start),
 			SixHourPeriodEnd:   utcTimestamptz(reservation.SixHourPeriod.End),
 			APIKeyID:           apiKeyID,
@@ -142,11 +147,10 @@ func (r *SubscriberAllowanceRepo) ReserveWithinLimits(ctx context.Context, reser
 			held = stored
 			return nil
 		}
-		if accrueErr := accrueWindow(ctx, queries, subscriberID, reservation, entitlement.PeriodKindBilling); accrueErr != nil {
-			return accrueErr
-		}
-		if accrueErr := accrueWindow(ctx, queries, subscriberID, reservation, entitlement.PeriodKindSixHour); accrueErr != nil {
-			return accrueErr
+		for _, kind := range []entitlement.PeriodKind{entitlement.PeriodKindBilling, entitlement.PeriodKindWeekly, entitlement.PeriodKindSixHour} {
+			if accrueErr := accrueWindow(ctx, queries, subscriberID, reservation, kind); accrueErr != nil {
+				return accrueErr
+			}
 		}
 		held = stored
 		return nil
@@ -162,7 +166,11 @@ func (r *SubscriberAllowanceRepo) ReserveWithinLimits(ctx context.Context, reser
 func accrueWindow(ctx context.Context, queries *sqlc.Queries, subscriberID uuid.UUID, reservation entitlement.Reservation, kind entitlement.PeriodKind) error {
 	period := reservation.BillingPeriod
 	limit := reservation.BillingLimitUsdMicros
-	if kind == entitlement.PeriodKindSixHour {
+	switch kind {
+	case entitlement.PeriodKindWeekly:
+		period = reservation.WeeklyPeriod
+		limit = reservation.WeeklyLimitUsdMicros
+	case entitlement.PeriodKindSixHour:
 		period = reservation.SixHourPeriod
 		limit = reservation.SixHourLimitUsdMicros
 	}
@@ -223,7 +231,7 @@ func (r *SubscriberAllowanceRepo) Finalize(ctx context.Context, finalization ent
 	return stored, nil
 }
 
-// Release returns a non-billable hold to both enforcement windows.
+// Release returns a non-billable hold to every enforcement window.
 func (r *SubscriberAllowanceRepo) Release(ctx context.Context, release entitlement.Release) (entitlement.Action, error) {
 	if err := release.Validate(); err != nil {
 		return entitlement.Action{}, err
@@ -246,17 +254,16 @@ func (r *SubscriberAllowanceRepo) Release(ctx context.Context, release entitleme
 	return stored, nil
 }
 
-// Usage reads consumption of the two enforcement windows covering one request.
+// Usage reads consumption of the enforcement windows covering one request.
 // A window with no activity yet reports zero consumption rather than an error.
-func (r *SubscriberAllowanceRepo) Usage(ctx context.Context, subscriberID entitlement.SubscriberID, billing, sixHour entitlement.Period) (entitlement.Usage, error) {
-	if billing.Kind != entitlement.PeriodKindBilling || sixHour.Kind != entitlement.PeriodKindSixHour {
+func (r *SubscriberAllowanceRepo) Usage(ctx context.Context, subscriberID entitlement.SubscriberID, billing, weekly, sixHour entitlement.Period) (entitlement.Usage, error) {
+	if billing.Kind != entitlement.PeriodKindBilling || weekly.Kind != entitlement.PeriodKindWeekly || sixHour.Kind != entitlement.PeriodKindSixHour {
 		return entitlement.Usage{}, entitlement.ErrInvalidContract
 	}
-	if err := billing.Validate(); err != nil {
-		return entitlement.Usage{}, err
-	}
-	if err := sixHour.Validate(); err != nil {
-		return entitlement.Usage{}, err
+	for _, period := range []entitlement.Period{billing, weekly, sixHour} {
+		if err := period.Validate(); err != nil {
+			return entitlement.Usage{}, err
+		}
 	}
 	id, err := uuid.Parse(string(subscriberID))
 	if err != nil {
@@ -265,6 +272,7 @@ func (r *SubscriberAllowanceRepo) Usage(ctx context.Context, subscriberID entitl
 	rows, err := r.queries.ListSubscriberAllowanceWindows(ctx, sqlc.ListSubscriberAllowanceWindowsParams{
 		SubscriberID:       id,
 		BillingPeriodStart: utcTimestamptz(billing.Start),
+		WeeklyPeriodStart:  utcTimestamptz(weekly.Start),
 		SixHourPeriodStart: utcTimestamptz(sixHour.Start),
 	})
 	if err != nil {
@@ -272,6 +280,7 @@ func (r *SubscriberAllowanceRepo) Usage(ctx context.Context, subscriberID entitl
 	}
 	usage := entitlement.Usage{
 		Billing: entitlement.WindowUsage{Period: billing},
+		Weekly:  entitlement.WindowUsage{Period: weekly},
 		SixHour: entitlement.WindowUsage{Period: sixHour},
 	}
 	for _, row := range rows {
@@ -288,6 +297,8 @@ func (r *SubscriberAllowanceRepo) Usage(ctx context.Context, subscriberID entitl
 		switch window.Period.Kind {
 		case entitlement.PeriodKindBilling:
 			usage.Billing = window
+		case entitlement.PeriodKindWeekly:
+			usage.Weekly = window
 		case entitlement.PeriodKindSixHour:
 			usage.SixHour = window
 		}
@@ -353,6 +364,11 @@ func toAllowanceAction(row sqlc.RouterSubscriberAllowanceAction) (entitlement.Ac
 				Kind:  entitlement.PeriodKindBilling,
 				Start: subscriberTimestamptzUTCOrZero(row.BillingPeriodStart),
 				End:   subscriberTimestamptzUTCOrZero(row.BillingPeriodEnd),
+			},
+			WeeklyPeriod: entitlement.Period{
+				Kind:  entitlement.PeriodKindWeekly,
+				Start: subscriberTimestamptzUTCOrZero(row.WeeklyPeriodStart),
+				End:   subscriberTimestamptzUTCOrZero(row.WeeklyPeriodEnd),
 			},
 			SixHourPeriod: entitlement.Period{
 				Kind:  entitlement.PeriodKindSixHour,

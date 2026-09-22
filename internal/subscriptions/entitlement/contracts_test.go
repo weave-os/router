@@ -171,7 +171,7 @@ func TestTimestampValidationRequiresCanonicalUTC(t *testing.T) {
 	}
 }
 
-func TestReservationValidateRequiresBothAccountingPeriods(t *testing.T) {
+func TestReservationValidateRequiresEveryAccountingPeriod(t *testing.T) {
 	t.Parallel()
 
 	reservation := validReservation()
@@ -185,6 +185,11 @@ func TestReservationValidateRequiresBothAccountingPeriods(t *testing.T) {
 		End:   reservation.BillingPeriod.Start.Add(7 * time.Hour),
 	}
 	require.ErrorIs(t, reservation.Validate(), entitlement.ErrInvalidContract)
+
+	offWeek := validReservation()
+	offWeek.WeeklyPeriod.Start = offWeek.WeeklyPeriod.Start.Add(24 * time.Hour)
+	require.ErrorIs(t, offWeek.Validate(), entitlement.ErrInvalidContract,
+		"weeks run from the billing period start, not from the hold")
 }
 
 func TestReservationValidateRequiresWindowsContainingTheHold(t *testing.T) {
@@ -196,6 +201,11 @@ func TestReservationValidateRequiresWindowsContainingTheHold(t *testing.T) {
 	outsideSixHour := reservation
 	outsideSixHour.ReservedAt = reservation.SixHourPeriod.End
 	require.ErrorIs(t, outsideSixHour.Validate(), entitlement.ErrInvalidContract)
+
+	outsideWeek := reservation
+	outsideWeek.ReservedAt = reservation.WeeklyPeriod.End
+	outsideWeek.SixHourPeriod = entitlement.SixHourWindowAt(outsideWeek.ReservedAt)
+	require.ErrorIs(t, outsideWeek.Validate(), entitlement.ErrInvalidContract)
 
 	outsideBilling := reservation
 	outsideBilling.BillingPeriod.End = reservation.ReservedAt.Add(-time.Hour)
@@ -253,6 +263,7 @@ func validReservation() entitlement.Reservation {
 		EntitlementVersion: 7,
 		Plan:               entitlement.PlanBoost,
 		BillingPeriod:      entitlement.Period{Kind: entitlement.PeriodKindBilling, Start: start, End: start.AddDate(0, 1, 0)},
+		WeeklyPeriod:       entitlement.Period{Kind: entitlement.PeriodKindWeekly, Start: start, End: start.Add(7 * 24 * time.Hour)},
 		SixHourPeriod:      entitlement.Period{Kind: entitlement.PeriodKindSixHour, Start: start, End: start.Add(6 * time.Hour)},
 		APIKeyID:           "f8fc3d54-3652-46c5-be85-6727f5572e5a",
 		RequestedModel:     "claude-opus-4-1",
