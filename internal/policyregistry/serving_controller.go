@@ -343,8 +343,9 @@ func (c *ServingController) ValidateProposal(ctx context.Context, proposal Deplo
 	}
 	switch proposal.Scope {
 	case ChangeRouter:
-		if base.RouterImageDigest != source.RouterImageDigest || base.Policy != oldBase.Policy || base.Classifier != oldBase.Classifier {
-			return errors.New("router-only promotion must retain destination policy and classifier")
+		if err := c.validateRouterOnlyLanes(ctx, set, previous, *source); err != nil {
+			c.logger.Warn("Rejected router-only proposal", "target", proposal.Target, "selection_set_sha256", proposal.SelectionSet.SHA256, "err", err)
+			return err
 		}
 	case ChangeRoster:
 		if base.Policy != source.Policy || base.RouterImageDigest != oldBase.RouterImageDigest || base.Classifier != oldBase.Classifier {
@@ -354,6 +355,87 @@ func (c *ServingController) ValidateProposal(ctx context.Context, proposal Deplo
 		if base.Classifier != source.Classifier || base.RouterImageDigest != oldBase.RouterImageDigest || base.Policy != oldBase.Policy {
 			return errors.New("classifier-only promotion must retain destination image and policy")
 		}
+	}
+	return nil
+}
+
+// validateRouterOnlyLanes admits a Router-only update only when Default and every predecessor
+// profile move together: each lane receives a new release and binding that differ from their
+// predecessors solely by the source Router image, and every successor lane shares one new Router
+// revision. Runs after structural selection validation and forward profile preservation.
+func (c *ServingController) validateRouterOnlyLanes(ctx context.Context, next, previous *SelectionSet, source ServingRelease) error {
+	if len(next.Profiles) != len(previous.Profiles) {
+		return errors.New("router-only promotion must retain the destination profile inventory")
+	}
+	previousDefaultBinding, err := readServing[*DeploymentBinding](ctx, c.store, ServingBindings, previous.Default.Binding)
+	if err != nil {
+		return fmt.Errorf("read predecessor default binding: %w", err)
+	}
+	nextDefaultBinding, err := readServing[*DeploymentBinding](ctx, c.store, ServingBindings, next.Default.Binding)
+	if err != nil {
+		return fmt.Errorf("read successor default binding: %w", err)
+	}
+	predecessorRouterConfiguration := previousDefaultBinding.Router.Configuration
+	sharedRouter := nextDefaultBinding.Router
+	if err := c.validateRouterOnlyLane(ctx, previous.Default, next.Default, source, predecessorRouterConfiguration, sharedRouter); err != nil {
+		return fmt.Errorf("default lane: %w", err)
+	}
+	for key, previousSelection := range previous.Profiles {
+		nextSelection, exists := next.Profiles[key]
+		if !exists {
+			return errors.New("registered profile keys cannot be removed")
+		}
+		if err := c.validateRouterOnlyLane(ctx, previousSelection, nextSelection, source, predecessorRouterConfiguration, sharedRouter); err != nil {
+			return fmt.Errorf("profile %s lane: %w", key, err)
+		}
+	}
+	return nil
+}
+
+// validateRouterOnlyLane compares one predecessor/successor lane pair. The successor release may
+// differ only in Router image digest and provenance; the successor binding may differ only in
+// release, attestation, and the shared Router revision.
+func (c *ServingController) validateRouterOnlyLane(ctx context.Context, previous, next ServingSelection, source ServingRelease, predecessorRouterConfiguration ObjectRef, sharedRouter RevisionBinding) error {
+	if next.Release == previous.Release || next.Binding == previous.Binding {
+		return errors.New("router-only promotion must publish a new release and binding for every lane")
+	}
+	previousRelease, err := readServing[*ServingRelease](ctx, c.store, ServingReleases, previous.Release)
+	if err != nil {
+		return fmt.Errorf("read predecessor release: %w", err)
+	}
+	nextRelease, err := readServing[*ServingRelease](ctx, c.store, ServingReleases, next.Release)
+	if err != nil {
+		return fmt.Errorf("read successor release: %w", err)
+	}
+	previousBinding, err := readServing[*DeploymentBinding](ctx, c.store, ServingBindings, previous.Binding)
+	if err != nil {
+		return fmt.Errorf("read predecessor binding: %w", err)
+	}
+	nextBinding, err := readServing[*DeploymentBinding](ctx, c.store, ServingBindings, next.Binding)
+	if err != nil {
+		return fmt.Errorf("read successor binding: %w", err)
+	}
+	if previousBinding.Router.Configuration != predecessorRouterConfiguration {
+		return errors.New("router-only promotion requires an identical predecessor Router configuration across lanes")
+	}
+	if nextRelease.RouterImageDigest != source.RouterImageDigest || nextRelease.Provenance != source.Provenance {
+		return errors.New("router-only promotion must carry the source Router image and provenance")
+	}
+	expectedRelease := *previousRelease
+	expectedRelease.RouterImageDigest = nextRelease.RouterImageDigest
+	expectedRelease.Provenance = nextRelease.Provenance
+	if expectedRelease != *nextRelease {
+		return errors.New("router-only promotion must retain destination policy, classifier, and requirements")
+	}
+	if nextBinding.Router == previousBinding.Router || nextBinding.Router != sharedRouter {
+		return errors.New("router-only promotion must share one new Router revision across every lane")
+	}
+	expectedBinding := *previousBinding
+	expectedBinding.Release = nextBinding.Release
+	expectedBinding.Attestation = nextBinding.Attestation
+	expectedBinding.Router = nextBinding.Router
+	if expectedBinding != *nextBinding {
+		return errors.New("router-only promotion must retain destination target, project, region, and classifier revision")
 	}
 	return nil
 }

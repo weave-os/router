@@ -233,3 +233,307 @@ func TestServingProposalTargetMatrixRejectsCrossTargetBindings(t *testing.T) {
 		})
 	}
 }
+
+func permissiveController(t *testing.T, store *servingMemoryStore) *policyregistry.ServingController {
+	t.Helper()
+	controller, err := policyregistry.NewServingController(
+		store,
+		preparedValidator(func(context.Context, policyregistry.PreparedSelection) error { return nil }),
+		func() time.Time { return servingEpoch },
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+	)
+	require.NoError(t, err)
+	return controller
+}
+
+// heterogeneousLaneFixture activates a Default lane plus two profiles whose policies differ from
+// each other, mirroring a target where customers run lane-local rosters.
+func heterogeneousLaneFixture(t *testing.T) (*servingMemoryStore, *policyregistry.ServingController, policyregistry.SelectionSet, policyregistry.ActivationResult) {
+	t.Helper()
+	store, _, initialSet := controllerFixture(t)
+	base := *store.objects[initialSet.Default.Release].(*policyregistry.ServingRelease)
+	basePolicy := store.policies[policyregistry.ObjectRef{URI: base.Policy.URI, SHA256: base.Policy.SHA256, Generation: base.Policy.Generation}]
+	initialSet.Profiles[profileKeyOne] = registerProfileFixture(t, store, initialSet.Default, profileKeyOne, base.Policy)
+	initialSet.Profiles[profileKeyTwo] = registerProfileFixture(t, store, initialSet.Default, profileKeyTwo, publishChangedPolicy(t, store, basePolicy, 0.55))
+	store.publish(t, policyregistry.ServingSelectionSets, initialSet)
+	controller := permissiveController(t, store)
+	initialProposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
+	initial, err := controller.Activate(context.Background(), store.publish(t, policyregistry.ServingProposals, initialProposal), "workflow", true)
+	require.NoError(t, err)
+	return store, controller, initialSet, initial
+}
+
+// routerOnlySource publishes a source release that carries a new Router image and provenance
+// alongside a foreign policy and classifier, which a Router-only proposal must ignore.
+func routerOnlySource(t *testing.T, store *servingMemoryStore, initialSet policyregistry.SelectionSet, digit string) (policyregistry.ServingRelease, policyregistry.ObjectRef) {
+	t.Helper()
+	base := *store.objects[initialSet.Default.Release].(*policyregistry.ServingRelease)
+	basePolicy := store.policies[policyregistry.ObjectRef{URI: base.Policy.URI, SHA256: base.Policy.SHA256, Generation: base.Policy.Generation}]
+	source := base
+	source.RouterImageDigest = "sha256:" + strings.Repeat(digit, 64)
+	source.Policy = publishChangedPolicy(t, store, basePolicy, 0.65)
+	source.Provenance.RouterRevision = strings.Repeat(digit, 40)
+	source.Provenance.WeaveRevision = strings.Repeat("a", 40)
+	attestation := "build-attestation-" + digit
+	source.Provenance.BuildAttestation = artifactRef(attestation)
+	store.artifacts[source.Provenance.BuildAttestation] = []byte(attestation)
+	return source, store.publish(t, policyregistry.ServingReleases, source)
+}
+
+func routerOnlyRelease(store *servingMemoryStore, previous policyregistry.ServingSelection, source policyregistry.ServingRelease) policyregistry.ServingRelease {
+	release := *store.objects[previous.Release].(*policyregistry.ServingRelease)
+	release.RouterImageDigest = source.RouterImageDigest
+	release.Provenance = source.Provenance
+	return release
+}
+
+func sharedRouterRevision(store *servingMemoryStore, initialSet policyregistry.SelectionSet, source policyregistry.ServingRelease, name string) policyregistry.RevisionBinding {
+	router := store.objects[initialSet.Default.Binding].(*policyregistry.DeploymentBinding).Router
+	router.Name = name
+	router.URL = "https://" + name + ".example"
+	router.ImageDigest = source.RouterImageDigest
+	return router
+}
+
+// routerOnlyLane publishes the canonical successor lane: same policy, classifier, requirements,
+// project, region, and classifier revision; new release, binding, and shared Router revision.
+func routerOnlyLane(t *testing.T, store *servingMemoryStore, previous policyregistry.ServingSelection, source policyregistry.ServingRelease, router policyregistry.RevisionBinding) policyregistry.ServingSelection {
+	t.Helper()
+	classifier := store.objects[previous.Binding].(*policyregistry.DeploymentBinding).Classifier
+	return publishSelection(t, store, previous, routerOnlyRelease(store, previous, source), router, classifier, previous.Profile)
+}
+
+func routerOnlySet(t *testing.T, store *servingMemoryStore, initialSet policyregistry.SelectionSet, source policyregistry.ServingRelease, router policyregistry.RevisionBinding) policyregistry.SelectionSet {
+	t.Helper()
+	nextSet := initialSet
+	nextSet.Profiles = make(map[string]policyregistry.ServingSelection, len(initialSet.Profiles))
+	nextSet.Default = routerOnlyLane(t, store, initialSet.Default, source, router)
+	for key, previous := range initialSet.Profiles {
+		nextSet.Profiles[key] = routerOnlyLane(t, store, previous, source, router)
+	}
+	return nextSet
+}
+
+func routerOnlyProposal(t *testing.T, store *servingMemoryStore, snapshot policyregistry.ServingStateSnapshot, set policyregistry.SelectionSet, sourceRef policyregistry.ObjectRef) policyregistry.DeploymentProposal {
+	t.Helper()
+	store.publish(t, policyregistry.ServingSelectionSets, set)
+	proposal := fixtureProposal(t, snapshot, set, servingEpoch)
+	proposal.Scope = policyregistry.ChangeRouter
+	proposal.SourceRelease = sourceRef
+	return proposal
+}
+
+func TestServingProposalScopeMatrixRouterOnlyUpdatesEveryLaneAtomically(t *testing.T) {
+	ctx := context.Background()
+	store, controller, initialSet, initial := heterogeneousLaneFixture(t)
+	source, sourceRef := routerOnlySource(t, store, initialSet, "4")
+	nextRouter := sharedRouterRevision(store, initialSet, source, "worker-0002")
+	nextSet := routerOnlySet(t, store, initialSet, source, nextRouter)
+	proposal := routerOnlyProposal(t, store, initial.Snapshot, nextSet, sourceRef)
+	require.NoError(t, controller.ValidateProposal(ctx, proposal))
+	forward, err := controller.Activate(ctx, store.publish(t, policyregistry.ServingProposals, proposal), "workflow", true)
+	require.NoError(t, err)
+	require.Equal(t, proposal.SelectionSet, forward.Activation.SelectionSet)
+
+	lanes := map[string][2]policyregistry.ServingSelection{"default": {initialSet.Default, nextSet.Default}}
+	for key, previous := range initialSet.Profiles {
+		lanes[key] = [2]policyregistry.ServingSelection{previous, nextSet.Profiles[key]}
+	}
+	require.Len(t, lanes, 3)
+	for lane, pair := range lanes {
+		previous, next := pair[0], pair[1]
+		require.NotEqual(t, previous.Release, next.Release, lane)
+		require.NotEqual(t, previous.Binding, next.Binding, lane)
+		require.Equal(t, previous.Profile, next.Profile, lane)
+		previousRelease := *store.objects[previous.Release].(*policyregistry.ServingRelease)
+		nextRelease := *store.objects[next.Release].(*policyregistry.ServingRelease)
+		require.Equal(t, source.RouterImageDigest, nextRelease.RouterImageDigest, lane)
+		require.Equal(t, source.Provenance, nextRelease.Provenance, lane)
+		require.Equal(t, previousRelease.SchemaVersion, nextRelease.SchemaVersion, lane)
+		require.Equal(t, previousRelease.Policy, nextRelease.Policy, lane)
+		require.Equal(t, previousRelease.Classifier, nextRelease.Classifier, lane)
+		require.Equal(t, previousRelease.Requirements, nextRelease.Requirements, lane)
+		previousBinding := *store.objects[previous.Binding].(*policyregistry.DeploymentBinding)
+		nextBinding := *store.objects[next.Binding].(*policyregistry.DeploymentBinding)
+		require.Equal(t, nextRouter, nextBinding.Router, lane)
+		require.NotEqual(t, previousBinding.Router, nextBinding.Router, lane)
+		require.Equal(t, previousBinding.Target, nextBinding.Target, lane)
+		require.Equal(t, previousBinding.Project, nextBinding.Project, lane)
+		require.Equal(t, previousBinding.Region, nextBinding.Region, lane)
+		require.Equal(t, previousBinding.Classifier, nextBinding.Classifier, lane)
+		require.Equal(t, previousBinding.ClassifierBundleSHA256, nextBinding.ClassifierBundleSHA256, lane)
+	}
+	defaultPolicy := store.objects[nextSet.Default.Release].(*policyregistry.ServingRelease).Policy
+	require.NotEqual(t, defaultPolicy, store.objects[nextSet.Profiles[profileKeyTwo].Release].(*policyregistry.ServingRelease).Policy, "heterogeneous lane policies survive")
+	require.NotEqual(t, source.Policy, defaultPolicy, "source policy must not leak into the default lane")
+
+	t.Run("exact same-target rollback restores heterogeneous lanes", func(t *testing.T) {
+		rollbackProposal := fixtureProposal(t, forward.Snapshot, initialSet, servingEpoch)
+		rollbackProposal.Scope = policyregistry.ChangeRollback
+		rollbackRef := store.publish(t, policyregistry.ServingProposals, rollbackProposal)
+		prepared, err := controller.Prepare(ctx, rollbackRef)
+		require.NoError(t, err)
+		require.True(t, prepared.Prepared)
+		rollback, err := controller.Activate(ctx, rollbackRef, "workflow", true)
+		require.NoError(t, err)
+		require.Equal(t, initial.Activation.SelectionSet, rollback.Activation.SelectionSet)
+		require.Greater(t, rollback.Snapshot.Generation, forward.Snapshot.Generation)
+
+		crossTarget := fixtureProposal(t, rollback.Snapshot, initialSet, servingEpoch)
+		crossTarget.Scope = policyregistry.ChangeRollback
+		crossTarget.Target = policyregistry.TargetStaging
+		require.ErrorContains(t, controller.ValidateProposal(ctx, crossTarget), "targets differ")
+
+		neverActivated := routerOnlySet(t, store, initialSet, source, sharedRouterRevision(store, initialSet, source, "worker-0009"))
+		unserved := routerOnlyProposal(t, store, rollback.Snapshot, neverActivated, neverActivated.Default.Release)
+		unserved.Scope = policyregistry.ChangeRollback
+		require.ErrorContains(t, controller.ValidateProposal(ctx, unserved), "previously activated on the same target")
+	})
+}
+
+func TestServingProposalScopeMatrixRouterOnlyRejectsPartialOrDriftingLanes(t *testing.T) {
+	ctx := context.Background()
+	store, controller, initialSet, initial := heterogeneousLaneFixture(t)
+	source, sourceRef := routerOnlySource(t, store, initialSet, "4")
+	nextRouter := sharedRouterRevision(store, initialSet, source, "worker-0002")
+	canonical := routerOnlySet(t, store, initialSet, source, nextRouter)
+	nextClassifier := store.objects[initialSet.Default.Binding].(*policyregistry.DeploymentBinding).Classifier
+	basePolicy := store.policies[policyregistry.ObjectRef{
+		URI: source.Policy.URI, SHA256: source.Policy.SHA256, Generation: source.Policy.Generation,
+	}]
+
+	cases := []struct {
+		name     string
+		mutate   func(set *policyregistry.SelectionSet)
+		expected string
+	}{
+		{
+			name: "subset update leaves a profile on the predecessor router",
+			mutate: func(set *policyregistry.SelectionSet) {
+				set.Profiles[profileKeyTwo] = initialSet.Profiles[profileKeyTwo]
+			},
+			expected: "profile must share its lane's worker image",
+		},
+		{
+			name: "default lane retains predecessor release and binding",
+			mutate: func(set *policyregistry.SelectionSet) {
+				set.Default = initialSet.Default
+			},
+			expected: "profile must share its lane's worker image",
+		},
+		{
+			name: "lane addition",
+			mutate: func(set *policyregistry.SelectionSet) {
+				added := routerOnlyLane(t, store, registerProfileFixture(t, store, initialSet.Default, "10000000-0000-4000-8000-000000000003", source.Policy), source, nextRouter)
+				set.Profiles["10000000-0000-4000-8000-000000000003"] = added
+			},
+			expected: "explicit named-profile proposal",
+		},
+		{
+			name: "lane removal",
+			mutate: func(set *policyregistry.SelectionSet) {
+				delete(set.Profiles, profileKeyOne)
+			},
+			expected: "registered profile keys cannot be removed",
+		},
+		{
+			name: "profile lane on a different router revision",
+			mutate: func(set *policyregistry.SelectionSet) {
+				other := nextRouter
+				other.Name = "worker-0003"
+				set.Profiles[profileKeyOne] = routerOnlyLane(t, store, initialSet.Profiles[profileKeyOne], source, other)
+			},
+			expected: "reuse its lane's prepared worker and classifier revisions",
+		},
+		{
+			name: "profile lane on an incompatible router configuration",
+			mutate: func(set *policyregistry.SelectionSet) {
+				other := nextRouter
+				other.Configuration = artifactRef("worker-config-other")
+				set.Profiles[profileKeyOne] = routerOnlyLane(t, store, initialSet.Profiles[profileKeyOne], source, other)
+			},
+			expected: "reuse its lane's prepared worker and classifier revisions",
+		},
+		{
+			name: "default lane policy drift",
+			mutate: func(set *policyregistry.SelectionSet) {
+				release := routerOnlyRelease(store, initialSet.Default, source)
+				release.Policy = publishChangedPolicy(t, store, basePolicy, 0.75)
+				set.Default = publishSelection(t, store, initialSet.Default, release, nextRouter, nextClassifier, nil)
+			},
+			expected: "retain destination policy, classifier, and requirements",
+		},
+		{
+			name: "profile lane policy drift",
+			mutate: func(set *policyregistry.SelectionSet) {
+				previous := initialSet.Profiles[profileKeyOne]
+				release := routerOnlyRelease(store, previous, source)
+				release.Policy = publishChangedPolicy(t, store, basePolicy, 0.75)
+				profileRef := store.publish(t, policyregistry.ServingProfiles, policyregistry.RoutingProfile{
+					SchemaVersion: policyregistry.ServingProfileV1,
+					ProfileKey:    profileKeyOne,
+					Policy:        release.Policy,
+					Requirements:  release.Requirements,
+				})
+				set.Profiles[profileKeyOne] = publishSelection(t, store, previous, release, nextRouter, nextClassifier, &profileRef)
+			},
+			expected: "retain destination profile revisions",
+		},
+		{
+			name: "profile lane provenance drift",
+			mutate: func(set *policyregistry.SelectionSet) {
+				previous := initialSet.Profiles[profileKeyOne]
+				release := routerOnlyRelease(store, previous, source)
+				release.Provenance.WeaveRevision = strings.Repeat("b", 40)
+				set.Profiles[profileKeyOne] = publishSelection(t, store, previous, release, nextRouter, nextClassifier, previous.Profile)
+			},
+			expected: "carry the source Router image and provenance",
+		},
+		{
+			name: "profile lane relocates region",
+			mutate: func(set *policyregistry.SelectionSet) {
+				previous := initialSet.Profiles[profileKeyOne]
+				lane := routerOnlyLane(t, store, previous, source, nextRouter)
+				binding := *store.objects[lane.Binding].(*policyregistry.DeploymentBinding)
+				binding.Region = "other-region"
+				lane.Binding = store.publish(t, policyregistry.ServingBindings, binding)
+				set.Profiles[profileKeyOne] = lane
+			},
+			expected: "retain destination target, project, region, and classifier revision",
+		},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			set := canonical
+			set.Profiles = maps.Clone(canonical.Profiles)
+			test.mutate(&set)
+			proposal := routerOnlyProposal(t, store, initial.Snapshot, set, sourceRef)
+			require.ErrorContains(t, controller.ValidateProposal(ctx, proposal), test.expected)
+		})
+	}
+
+	t.Run("canonical set still admitted after rejected variants", func(t *testing.T) {
+		require.NoError(t, controller.ValidateProposal(ctx, routerOnlyProposal(t, store, initial.Snapshot, canonical, sourceRef)))
+	})
+}
+
+func TestServingProposalScopeMatrixRouterOnlyRejectsHeterogeneousPredecessorConfiguration(t *testing.T) {
+	ctx := context.Background()
+	store, _, initialSet := controllerFixture(t)
+	base := *store.objects[initialSet.Default.Release].(*policyregistry.ServingRelease)
+	initialSet.Profiles[profileKeyOne] = registerProfileFixture(t, store, initialSet.Default, profileKeyOne, base.Policy)
+	drifted := initialSet.Profiles[profileKeyOne]
+	driftedBinding := *store.objects[drifted.Binding].(*policyregistry.DeploymentBinding)
+	driftedBinding.Router.Configuration = artifactRef("worker-config-legacy")
+	drifted.Binding = store.publish(t, policyregistry.ServingBindings, driftedBinding)
+	initialSet.Profiles[profileKeyOne] = drifted
+	store.publish(t, policyregistry.ServingSelectionSets, initialSet)
+	snapshot, _ := activateFixture(t, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
+	store.states[initialSet.Target] = snapshot
+	controller := permissiveController(t, store)
+
+	source, sourceRef := routerOnlySource(t, store, initialSet, "5")
+	nextSet := routerOnlySet(t, store, initialSet, source, sharedRouterRevision(store, initialSet, source, "worker-0002"))
+	proposal := routerOnlyProposal(t, store, snapshot, nextSet, sourceRef)
+	require.ErrorContains(t, controller.ValidateProposal(ctx, proposal), "identical predecessor Router configuration across lanes")
+}
