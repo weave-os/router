@@ -109,6 +109,7 @@ func TestClaudeLoginReconnectsThroughAPIAndPostgres(t *testing.T) {
 			c.AbortWithStatus(http.StatusUnauthorized)
 			return
 		}
+		c.Set("router_installation", &auth.Installation{ID: installation.ID.String(), ExternalID: installation.ExternalID})
 		c.Set("router_api_key", key)
 	})
 	subscriptionsapi.Register(group, svc)
