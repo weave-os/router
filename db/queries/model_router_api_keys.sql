@@ -46,13 +46,21 @@ WHERE installation_id = @installation_id::uuid
   AND deleted_at IS NULL
 ORDER BY created_at DESC;
 
--- Records that a key was used. Called fire-and-forget by the Service after successful
--- auth. Idempotent on retry.
--- name: MarkModelRouterAPIKeyUsed :exec
-UPDATE router.model_router_api_keys
+-- Updates last use and reports the first use of this key. Lock before reading
+-- the old timestamp so concurrent callers cannot both observe a NULL value.
+-- name: MarkModelRouterAPIKeyUsed :one
+WITH previous AS (
+  SELECT id, last_used_at
+  FROM router.model_router_api_keys
+  WHERE id = @id::uuid
+    AND deleted_at IS NULL
+  FOR UPDATE
+)
+UPDATE router.model_router_api_keys k
 SET last_used_at = NOW()
-WHERE id = @id::uuid
-  AND deleted_at IS NULL;
+FROM previous
+WHERE k.id = previous.id
+RETURNING (previous.last_used_at IS NULL)::boolean AS first_use;
 
 -- Fresh per-request read of a key's lifetime spend cap and spend-to-date for
 -- the spend-cap gate. Read straight from Postgres (not the auth cache) so a

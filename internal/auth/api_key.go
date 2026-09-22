@@ -56,6 +56,8 @@ type APIKey struct {
 	CreatedBy      *string
 	// CredentialSubjectID is authenticated ownership, unlike client-asserted attribution or CreatedBy.
 	CredentialSubjectID string
+	// Harness is the stored agent that minted this key (claude_code, codex, opencode, pi).
+	Harness string
 }
 
 type CreateAPIKeyParams struct {
@@ -73,7 +75,8 @@ type APIKeyRepository interface {
 	Create(ctx context.Context, params CreateAPIKeyParams) (*APIKey, error)
 	GetActiveByHashWithInstallation(ctx context.Context, keyHash string) (*APIKey, *Installation, error)
 	ListForInstallation(ctx context.Context, installationID string) ([]*APIKey, error)
-	MarkUsed(ctx context.Context, id string) error
+	// MarkUsed stamps last_used_at and reports whether this call made the first-use transition.
+	MarkUsed(ctx context.Context, id string) (firstUse bool, err error)
 	// SoftDelete soft-deletes the key and returns the rows-affected count; 0 means the key was already gone.
 	SoftDelete(ctx context.Context, installationID, id string) (int64, error)
 }

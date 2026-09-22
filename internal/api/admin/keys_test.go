@@ -66,7 +66,7 @@ func (f *fakeAPIKeyRepository) ListForInstallation(_ context.Context, installati
 	return out, nil
 }
 
-func (f *fakeAPIKeyRepository) MarkUsed(context.Context, string) error { return nil }
+func (f *fakeAPIKeyRepository) MarkUsed(context.Context, string) (bool, error) { return false, nil }
 
 func (f *fakeAPIKeyRepository) SoftDelete(_ context.Context, installationID, id string) (int64, error) {
 	f.mu.Lock()

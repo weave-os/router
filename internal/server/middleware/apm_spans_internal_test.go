@@ -38,8 +38,8 @@ func (*tracingAPIKeyRepository) ListForInstallation(context.Context, string) ([]
 	return nil, errors.New("not used")
 }
 
-func (*tracingAPIKeyRepository) MarkUsed(context.Context, string) error {
-	return errors.New("not used")
+func (*tracingAPIKeyRepository) MarkUsed(context.Context, string) (bool, error) {
+	return false, errors.New("not used")
 }
 
 func (*tracingAPIKeyRepository) SoftDelete(context.Context, string, string) (int64, error) {

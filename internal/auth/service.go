@@ -106,11 +106,19 @@ type Service struct {
 	// adminLoginFailures throttles per-IP brute-force login attempts.
 	adminLoginFailures *expirable.LRU[string, int]
 	adminLoginMu       sync.Mutex
+
+	onboarding OnboardingObserver
 }
 
 // WithSubscriptionAccounts wires encrypted server-side subscription storage.
 func (s *Service) WithSubscriptionAccounts(repo SubscriptionAccountRepository) *Service {
 	s.subscriptionAccounts = repo
+	return s
+}
+
+// WithOnboardingObserver attaches an optional observer before serving requests.
+func (s *Service) WithOnboardingObserver(observer OnboardingObserver) *Service {
+	s.onboarding = observer
 	return s
 }
 
@@ -713,7 +721,7 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 			if cached.APIKey.Scope.Normalized() != ScopeRouting {
 				return nil, nil, nil, nil, ErrWrongKeyScope
 			}
-			s.fireMarkUsed(cached.APIKey.ID)
+			s.fireMarkUsed(cached.APIKey, cached.Installation)
 			s.fireMarkFirstRequestServed(cached.APIKey.InstallationID)
 			return cached.Installation, cached.APIKey, s.resolveUpstreamSecrets(ctx, cached.ExternalKeys), cached.ClusterModelLists, nil
 		}
@@ -761,7 +769,7 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 	if clusterModelListsFetchOK {
 		s.cache.Set(keyHash, CachedKey{APIKey: apiKey, Installation: installation, ExternalKeys: externalKeys, ClusterModelLists: clusterModelLists})
 	}
-	s.fireMarkUsed(apiKey.ID)
+	s.fireMarkUsed(apiKey, installation)
 	s.fireMarkFirstRequestServed(apiKey.InstallationID)
 	return installation, apiKey, s.resolveUpstreamSecrets(ctx, externalKeys), clusterModelLists, nil
 }
@@ -940,11 +948,25 @@ func userIdentityKey(email, claudeAccountUUID string) string {
 
 // fireMarkUsed runs the last_used_at update off the request path. Uses context.Background because
 // the parent ctx is often canceled (response written) before the UPDATE completes.
-func (s *Service) fireMarkUsed(apiKeyID string) {
-	log := observability.Get().With("api_key_id", apiKeyID)
+func (s *Service) fireMarkUsed(apiKey *APIKey, installation *Installation) {
+	if apiKey == nil {
+		return
+	}
+	log := observability.Get().With("api_key_id", apiKey.ID)
 	observability.SafeGo(log, 2*time.Second, "fireMarkUsed", func(ctx context.Context) {
-		if err := s.apiKeys.MarkUsed(ctx, apiKeyID); err != nil {
+		firstUse, err := s.apiKeys.MarkUsed(ctx, apiKey.ID)
+		if err != nil {
 			log.Warn("Failed to mark router api key used", "err", err)
+			return
+		}
+		if firstUse && s.onboarding != nil && installation != nil && apiKey.Scope.Normalized() == ScopeRouting {
+			s.onboarding.APIKeyFirstUsed(APIKeyFirstUsedEvent{
+				InstallationExternalID: installation.ExternalID,
+				CredentialSubjectID:    apiKey.CredentialSubjectID,
+				APIKeyID:               apiKey.ID,
+				Harness:                apiKey.Harness,
+				OccurredAt:             s.now(),
+			})
 		}
 	})
 }

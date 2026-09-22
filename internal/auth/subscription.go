@@ -130,6 +130,22 @@ type CreateSubscriptionAccountParams struct {
 	ExternalAccountID string
 	DisplayName       string
 	RefreshToken      []byte
+	// InstallationExternalID identifies the authenticated installation for onboarding.
+	InstallationExternalID string
+}
+
+// SubscriptionUpsertKind reports whether an upsert inserted, adopted a legacy row, or refreshed an existing identity.
+type SubscriptionUpsertKind string
+
+const (
+	SubscriptionUpsertUpdated  SubscriptionUpsertKind = "updated"
+	SubscriptionUpsertInserted SubscriptionUpsertKind = "inserted"
+	SubscriptionUpsertAdopted  SubscriptionUpsertKind = "adopted"
+)
+
+// FirstConnected reports a genuine first registration, including legacy-row adoption.
+func (k SubscriptionUpsertKind) FirstConnected() bool {
+	return k == SubscriptionUpsertInserted || k == SubscriptionUpsertAdopted
 }
 
 // SubscriptionCredentialRecord is the encrypted credential state for one
@@ -185,7 +201,7 @@ type SubscriptionRefreshRepository interface {
 // SubscriptionAccountRepository persists encrypted subscription account state
 // and coordinates cross-replica refresh leases.
 type SubscriptionAccountRepository interface {
-	UpsertSubscriptionAccount(context.Context, CreateSubscriptionAccountParams) (*SubscriptionAccount, error)
+	UpsertSubscriptionAccount(context.Context, CreateSubscriptionAccountParams) (*SubscriptionAccount, SubscriptionUpsertKind, error)
 	ListSubscriptionAccounts(context.Context, SubscriptionOwner) ([]*SubscriptionAccount, error)
 	UpdateSubscriptionAccountState(context.Context, string, SubscriptionOwner, bool, *time.Time) error
 	UpdateSubscriptionAccountCooldown(context.Context, string, SubscriptionOwner, time.Time) error
@@ -227,12 +243,26 @@ func (s *Service) AddSubscriptionAccount(ctx context.Context, params CreateSubsc
 	if err != nil {
 		return nil, err
 	}
-	return s.subscriptionAccounts.UpsertSubscriptionAccount(ctx, CreateSubscriptionAccountParams{
+	account, kind, err := s.subscriptionAccounts.UpsertSubscriptionAccount(ctx, CreateSubscriptionAccountParams{
 		Owner: params.Owner, Provider: params.Provider,
 		ExternalAccountID: params.ExternalAccountID,
 		DisplayName:       normalizeSubscriptionAccountDisplayName(params.DisplayName),
 		RefreshToken:      ciphertext,
 	})
+	if err != nil {
+		return nil, err
+	}
+	if kind.FirstConnected() && s.onboarding != nil {
+		s.onboarding.SubscriptionConnected(SubscriptionConnectedEvent{
+			InstallationExternalID: params.InstallationExternalID,
+			CredentialSubjectID:    params.Owner.SubscriberID,
+			APIKeyID:               params.Owner.APIKeyID,
+			AccountID:              account.ID,
+			Provider:               account.Provider,
+			OccurredAt:             s.now(),
+		})
+	}
+	return account, nil
 }
 
 func normalizeSubscriptionAccountDisplayName(value string) string {

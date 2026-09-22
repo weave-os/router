@@ -12,18 +12,21 @@ type subscriptionAccountRepoStub struct {
 	account *SubscriptionAccount
 }
 
-func (r *subscriptionAccountRepoStub) UpsertSubscriptionAccount(_ context.Context, params CreateSubscriptionAccountParams) (*SubscriptionAccount, error) {
+func (r *subscriptionAccountRepoStub) UpsertSubscriptionAccount(_ context.Context, params CreateSubscriptionAccountParams) (*SubscriptionAccount, SubscriptionUpsertKind, error) {
+	kind := SubscriptionUpsertInserted
 	if r.account == nil {
 		r.account = &SubscriptionAccount{
 			ID: "stable-account-id", SubscriberID: params.Owner.SubscriberID,
 			EnrolledByAPIKeyID: params.Owner.APIKeyID, Provider: params.Provider,
 			ExternalAccountID: params.ExternalAccountID, DisplayName: params.DisplayName,
 		}
+	} else {
+		kind = SubscriptionUpsertUpdated
 	}
 	r.account.RefreshTokenCiphertext = append([]byte(nil), params.RefreshToken...)
 	r.account.Enabled = true
 	r.account.CooldownUntil = nil
-	return r.account, nil
+	return r.account, kind, nil
 }
 
 func (*subscriptionAccountRepoStub) ListSubscriptionAccounts(context.Context, SubscriptionOwner) ([]*SubscriptionAccount, error) {

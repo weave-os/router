@@ -119,11 +119,12 @@ func TestSubscriptionAccountsFollowSubscriberAcrossKeys(t *testing.T) {
 		{auth.SubscriptionProviderClaude, "claude-two"},
 		{auth.SubscriptionProviderCodex, "codex-one"},
 	} {
-		account, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+		account, kind, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
 			Owner: enrollingOwner, Provider: enrollment.provider,
 			ExternalAccountID: enrollment.externalAccountID, RefreshToken: []byte("ciphertext"),
 		})
 		require.NoError(t, err)
+		assert.Equal(t, auth.SubscriptionUpsertInserted, kind)
 		assert.Equal(t, fixture.subscriberA.String(), account.SubscriberID)
 		assert.Equal(t, fixture.keyA1.String(), account.EnrolledByAPIKeyID, "enrolling key is kept as attribution")
 	}
@@ -143,7 +144,7 @@ func TestSubscriptionAccountsFollowSubscriberAcrossKeys(t *testing.T) {
 	// The same external account linked by another subscriber of the same
 	// installation is a separate row that neither subscriber can reach.
 	otherOwner := auth.SubscriptionOwner{SubscriberID: fixture.subscriberB.String(), APIKeyID: fixture.keyB1.String()}
-	otherAccount, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+	otherAccount, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
 		Owner: otherOwner, Provider: auth.SubscriptionProviderClaude,
 		ExternalAccountID: "claude-one", RefreshToken: []byte("other-ciphertext"),
 	})
@@ -156,11 +157,12 @@ func TestSubscriptionAccountsFollowSubscriberAcrossKeys(t *testing.T) {
 
 	// Re-enrolling an existing account through the rotated key updates the same
 	// row rather than creating a duplicate.
-	readopted, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+	readopted, kind, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
 		Owner: rotatedOwner, Provider: auth.SubscriptionProviderClaude,
 		ExternalAccountID: "claude-one", RefreshToken: []byte("rotated-ciphertext"),
 	})
 	require.NoError(t, err)
+	assert.Equal(t, auth.SubscriptionUpsertUpdated, kind, "refreshing an existing subscriber identity is not a first registration")
 	assert.Equal(t, accounts[0].SubscriberID, readopted.SubscriberID)
 	accounts, err = repo.ListSubscriptionAccounts(ctx, rotatedOwner)
 	require.NoError(t, err)
@@ -175,7 +177,7 @@ func TestSubscriptionAccountHealthIsOwnerScoped(t *testing.T) {
 	})
 	ctx := context.Background()
 	owner := auth.SubscriptionOwner{SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
-	account, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+	account, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
 		Owner: owner, Provider: auth.SubscriptionProviderClaude,
 		ExternalAccountID: "claude-health", RefreshToken: []byte("ciphertext"),
 	})
@@ -258,11 +260,12 @@ func TestSubscriptionAccountReconnectAdoptsLegacyRow(t *testing.T) {
 	legacyID := fixture.legacyRow(t, fixture.keyA1, "codex", "codex-legacy")
 	owner := auth.SubscriptionOwner{SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
 
-	adopted, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+	adopted, kind, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
 		Owner: owner, Provider: auth.SubscriptionProviderCodex,
 		ExternalAccountID: "codex-legacy", RefreshToken: []byte("reconnected-ciphertext"),
 	})
 	require.NoError(t, err)
+	assert.Equal(t, auth.SubscriptionUpsertAdopted, kind, "legacy-row adoption counts as a first registration")
 	assert.Equal(t, legacyID.String(), adopted.ID, "reconnect adopts the legacy row instead of duplicating it")
 	assert.Equal(t, fixture.subscriberA.String(), adopted.SubscriberID)
 
@@ -334,7 +337,7 @@ func concurrentEnrollments(
 		go func() {
 			defer wait.Done()
 			<-start
-			accounts[index], errs[index] = repo.UpsertSubscriptionAccount(context.Background(), auth.CreateSubscriptionAccountParams{
+			accounts[index], _, errs[index] = repo.UpsertSubscriptionAccount(context.Background(), auth.CreateSubscriptionAccountParams{
 				Owner: owner, Provider: auth.SubscriptionProviderClaude,
 				ExternalAccountID: externalAccountID, RefreshToken: []byte("ciphertext"),
 			})
@@ -356,7 +359,7 @@ func TestSubscriptionRefreshLeaseSurvivesKeyRotation(t *testing.T) {
 	ctx := context.Background()
 
 	enrollingOwner := auth.SubscriptionOwner{SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
-	account, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
+	account, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
 		Owner: enrollingOwner, Provider: auth.SubscriptionProviderClaude,
 		ExternalAccountID: "claude-lease", RefreshToken: []byte("ciphertext"),
 	})

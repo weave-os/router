@@ -29,6 +29,7 @@ type fakeAPIKeyRepository struct {
 
 	// markUsedPanic, when true, causes MarkUsed to panic so fireMarkUsed recovery can be exercised.
 	markUsedPanic bool
+	markUsedErr   error
 
 	mu       sync.Mutex
 	markUsed []string
@@ -79,14 +80,25 @@ func (f *fakeAPIKeyRepository) ListForInstallation(ctx context.Context, installa
 	return nil, errors.New("not used by these tests")
 }
 
-func (f *fakeAPIKeyRepository) MarkUsed(ctx context.Context, id string) error {
+func (f *fakeAPIKeyRepository) MarkUsed(ctx context.Context, id string) (bool, error) {
 	if f.markUsedPanic {
 		panic("boom: mark used")
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.markUsedErr != nil {
+		f.markUsed = append(f.markUsed, id)
+		return false, f.markUsedErr
+	}
+	firstUse := true
+	for _, seen := range f.markUsed {
+		if seen == id {
+			firstUse = false
+			break
+		}
+	}
 	f.markUsed = append(f.markUsed, id)
-	return nil
+	return firstUse, nil
 }
 
 func (f *fakeAPIKeyRepository) SoftDelete(ctx context.Context, installationID, id string) (int64, error) {
@@ -130,9 +142,7 @@ func (f *fakeExternalAPIKeyRepo) UpdateModelAliases(ctx context.Context, install
 	return nil, f.err
 }
 
-func (f *fakeExternalAPIKeyRepo) MarkUsed(ctx context.Context, id string) error {
-	return nil
-}
+func (f *fakeExternalAPIKeyRepo) MarkUsed(ctx context.Context, id string) error { return nil }
 
 type fakeInstallationRepository struct {
 	excludedModelsByID              map[string][]string

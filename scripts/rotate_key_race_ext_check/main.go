@@ -318,7 +318,7 @@ func (r *signalListRepo) ListForInstallation(ctx context.Context, installationID
 	<-r.release
 	return keys, nil
 }
-func (r *signalListRepo) MarkUsed(ctx context.Context, id string) error {
+func (r *signalListRepo) MarkUsed(ctx context.Context, id string) (bool, error) {
 	return r.inner.MarkUsed(ctx, id)
 }
 func (r *signalListRepo) SoftDelete(ctx context.Context, installationID, id string) (int64, error) {
@@ -598,7 +598,7 @@ func (r *timedListRepo) ListForInstallation(ctx context.Context, installationID 
 	}
 	return keys, nil
 }
-func (r *timedListRepo) MarkUsed(ctx context.Context, id string) error {
+func (r *timedListRepo) MarkUsed(ctx context.Context, id string) (bool, error) {
 	return r.inner.MarkUsed(ctx, id)
 }
 func (r *timedListRepo) SoftDelete(ctx context.Context, installationID, id string) (int64, error) {
@@ -667,7 +667,7 @@ func (r *holdingAPIKeyRepo) ListForInstallation(ctx context.Context, installatio
 	r.hold.Wait()
 	return keys, nil
 }
-func (r *holdingAPIKeyRepo) MarkUsed(ctx context.Context, id string) error {
+func (r *holdingAPIKeyRepo) MarkUsed(ctx context.Context, id string) (bool, error) {
 	return r.inner.MarkUsed(ctx, id)
 }
 func (r *holdingAPIKeyRepo) SoftDelete(ctx context.Context, installationID, id string) (int64, error) {

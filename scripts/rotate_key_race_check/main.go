@@ -227,7 +227,7 @@ func (r *holdingAPIKeyRepo) ListForInstallation(ctx context.Context, installatio
 	return keys, nil
 }
 
-func (r *holdingAPIKeyRepo) MarkUsed(ctx context.Context, id string) error {
+func (r *holdingAPIKeyRepo) MarkUsed(ctx context.Context, id string) (bool, error) {
 	return r.inner.MarkUsed(ctx, id)
 }
 

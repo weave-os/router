@@ -61,7 +61,7 @@ func (r *statefulAPIKeyRepo) ListForInstallation(_ context.Context, installation
 	return out, nil
 }
 
-func (r *statefulAPIKeyRepo) MarkUsed(context.Context, string) error { return nil }
+func (r *statefulAPIKeyRepo) MarkUsed(context.Context, string) (bool, error) { return false, nil }
 
 func (r *statefulAPIKeyRepo) SoftDelete(_ context.Context, installationID, id string) (int64, error) {
 	r.mu.Lock()
@@ -145,7 +145,7 @@ func (r *listHoldRepo) ListForInstallation(ctx context.Context, installationID s
 	<-release
 	return keys, nil
 }
-func (r *listHoldRepo) MarkUsed(ctx context.Context, id string) error {
+func (r *listHoldRepo) MarkUsed(ctx context.Context, id string) (bool, error) {
 	return r.inner.MarkUsed(ctx, id)
 }
 func (r *listHoldRepo) SoftDelete(ctx context.Context, installationID, id string) (int64, error) {
@@ -175,7 +175,7 @@ func (r *signalListRepo) ListForInstallation(ctx context.Context, installationID
 	<-r.release
 	return keys, nil
 }
-func (r *signalListRepo) MarkUsed(ctx context.Context, id string) error {
+func (r *signalListRepo) MarkUsed(ctx context.Context, id string) (bool, error) {
 	return r.inner.MarkUsed(ctx, id)
 }
 func (r *signalListRepo) SoftDelete(ctx context.Context, installationID, id string) (int64, error) {

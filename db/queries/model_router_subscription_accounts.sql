@@ -7,7 +7,7 @@
 -- converge on one row instead of racing for the subscriber-owned unique index.
 -- name: UpsertModelRouterSubscriptionAccountForSubscriber :one
 WITH owned AS (
-  SELECT id
+  SELECT id, subscriber_id
   FROM router.model_router_subscription_accounts
   WHERE provider = @provider::varchar
     AND external_account_id = @external_account_id::varchar
@@ -57,14 +57,19 @@ inserted AS (
     token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
     updated_at = CURRENT_TIMESTAMP
   RETURNING id, subscriber_id, api_key_id, provider, external_account_id, display_name,
-            refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
+            refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
+            (xmax = 0)::boolean AS inserted
 )
 SELECT id, subscriber_id, api_key_id, provider, external_account_id, display_name,
-       refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
+       refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
+       FALSE::boolean AS inserted,
+       (SELECT subscriber_id IS NULL FROM owned)::boolean AS adopted
 FROM adopted
 UNION ALL
 SELECT id, subscriber_id, api_key_id, provider, external_account_id, display_name,
-       refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
+       refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
+       inserted::boolean,
+       FALSE::boolean AS adopted
 FROM inserted;
 
 -- Enroll an account for a key that has no credential subject. Such a row keeps
@@ -88,7 +93,9 @@ DO UPDATE SET
   token_refresh_lease_id = NULL,
   token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
   updated_at = CURRENT_TIMESTAMP
-RETURNING *;
+RETURNING id, subscriber_id, api_key_id, provider, external_account_id, display_name,
+          refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
+          (xmax = 0)::boolean AS inserted, FALSE::boolean AS adopted;
 
 -- Account state is scoped by owner so a router key can never manage another
 -- subscriber's account: subscriber-owned rows answer to the credential subject,

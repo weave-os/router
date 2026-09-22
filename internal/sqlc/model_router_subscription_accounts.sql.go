@@ -760,7 +760,9 @@ DO UPDATE SET
   token_refresh_lease_id = NULL,
   token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
   updated_at = CURRENT_TIMESTAMP
-RETURNING id, api_key_id, provider, external_account_id, refresh_token_ciphertext, enabled, cooldown_until, created_at, updated_at, access_token_ciphertext, access_token_expires_at, token_refresh_lease_until, token_refresh_lease_id, token_refresh_version, subscriber_id, health_state, display_name
+RETURNING id, subscriber_id, api_key_id, provider, external_account_id, display_name,
+          refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
+          (xmax = 0)::boolean AS inserted, FALSE::boolean AS adopted
 `
 
 type UpsertModelRouterSubscriptionAccountParams struct {
@@ -769,6 +771,22 @@ type UpsertModelRouterSubscriptionAccountParams struct {
 	ExternalAccountID      string
 	RefreshTokenCiphertext []byte
 	DisplayName            *string
+}
+
+type UpsertModelRouterSubscriptionAccountRow struct {
+	ID                     uuid.UUID
+	SubscriberID           pgtype.UUID
+	APIKeyID               pgtype.UUID
+	Provider               string
+	ExternalAccountID      string
+	DisplayName            *string
+	RefreshTokenCiphertext []byte
+	Enabled                bool
+	HealthState            string
+	CooldownUntil          pgtype.Timestamp
+	CreatedAt              pgtype.Timestamp
+	Inserted               bool
+	Adopted                bool
 }
 
 // Enroll an account for a key that has no credential subject. Such a row keeps
@@ -792,8 +810,10 @@ type UpsertModelRouterSubscriptionAccountParams struct {
 //	  token_refresh_lease_id = NULL,
 //	  token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
 //	  updated_at = CURRENT_TIMESTAMP
-//	RETURNING id, api_key_id, provider, external_account_id, refresh_token_ciphertext, enabled, cooldown_until, created_at, updated_at, access_token_ciphertext, access_token_expires_at, token_refresh_lease_until, token_refresh_lease_id, token_refresh_version, subscriber_id, health_state, display_name
-func (q *Queries) UpsertModelRouterSubscriptionAccount(ctx context.Context, arg UpsertModelRouterSubscriptionAccountParams) (RouterModelRouterSubscriptionAccount, error) {
+//	RETURNING id, subscriber_id, api_key_id, provider, external_account_id, display_name,
+//	          refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
+//	          (xmax = 0)::boolean AS inserted, FALSE::boolean AS adopted
+func (q *Queries) UpsertModelRouterSubscriptionAccount(ctx context.Context, arg UpsertModelRouterSubscriptionAccountParams) (UpsertModelRouterSubscriptionAccountRow, error) {
 	row := q.db.QueryRow(ctx, upsertModelRouterSubscriptionAccount,
 		arg.APIKeyID,
 		arg.Provider,
@@ -801,32 +821,28 @@ func (q *Queries) UpsertModelRouterSubscriptionAccount(ctx context.Context, arg 
 		arg.RefreshTokenCiphertext,
 		arg.DisplayName,
 	)
-	var i RouterModelRouterSubscriptionAccount
+	var i UpsertModelRouterSubscriptionAccountRow
 	err := row.Scan(
 		&i.ID,
+		&i.SubscriberID,
 		&i.APIKeyID,
 		&i.Provider,
 		&i.ExternalAccountID,
+		&i.DisplayName,
 		&i.RefreshTokenCiphertext,
 		&i.Enabled,
+		&i.HealthState,
 		&i.CooldownUntil,
 		&i.CreatedAt,
-		&i.UpdatedAt,
-		&i.AccessTokenCiphertext,
-		&i.AccessTokenExpiresAt,
-		&i.TokenRefreshLeaseUntil,
-		&i.TokenRefreshLeaseID,
-		&i.TokenRefreshVersion,
-		&i.SubscriberID,
-		&i.HealthState,
-		&i.DisplayName,
+		&i.Inserted,
+		&i.Adopted,
 	)
 	return i, err
 }
 
 const upsertModelRouterSubscriptionAccountForSubscriber = `-- name: UpsertModelRouterSubscriptionAccountForSubscriber :one
 WITH owned AS (
-  SELECT id
+  SELECT id, subscriber_id
   FROM router.model_router_subscription_accounts
   WHERE provider = $1::varchar
     AND external_account_id = $2::varchar
@@ -876,14 +892,19 @@ inserted AS (
     token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
     updated_at = CURRENT_TIMESTAMP
   RETURNING id, subscriber_id, api_key_id, provider, external_account_id, display_name,
-            refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
+            refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
+            (xmax = 0)::boolean AS inserted
 )
 SELECT id, subscriber_id, api_key_id, provider, external_account_id, display_name,
-       refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
+       refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
+       FALSE::boolean AS inserted,
+       (SELECT subscriber_id IS NULL FROM owned)::boolean AS adopted
 FROM adopted
 UNION ALL
 SELECT id, subscriber_id, api_key_id, provider, external_account_id, display_name,
-       refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
+       refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
+       inserted::boolean,
+       FALSE::boolean AS adopted
 FROM inserted
 `
 
@@ -908,6 +929,8 @@ type UpsertModelRouterSubscriptionAccountForSubscriberRow struct {
 	HealthState            string
 	CooldownUntil          pgtype.Timestamp
 	CreatedAt              pgtype.Timestamp
+	Inserted               bool
+	Adopted                bool
 }
 
 // Enroll an account for a subscriber. The stable owner is the credential
@@ -919,7 +942,7 @@ type UpsertModelRouterSubscriptionAccountForSubscriberRow struct {
 // converge on one row instead of racing for the subscriber-owned unique index.
 //
 //	WITH owned AS (
-//	  SELECT id
+//	  SELECT id, subscriber_id
 //	  FROM router.model_router_subscription_accounts
 //	  WHERE provider = $1::varchar
 //	    AND external_account_id = $2::varchar
@@ -969,14 +992,19 @@ type UpsertModelRouterSubscriptionAccountForSubscriberRow struct {
 //	    token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
 //	    updated_at = CURRENT_TIMESTAMP
 //	  RETURNING id, subscriber_id, api_key_id, provider, external_account_id, display_name,
-//	            refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
+//	            refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
+//	            (xmax = 0)::boolean AS inserted
 //	)
 //	SELECT id, subscriber_id, api_key_id, provider, external_account_id, display_name,
-//	       refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
+//	       refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
+//	       FALSE::boolean AS inserted,
+//	       (SELECT subscriber_id IS NULL FROM owned)::boolean AS adopted
 //	FROM adopted
 //	UNION ALL
 //	SELECT id, subscriber_id, api_key_id, provider, external_account_id, display_name,
-//	       refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
+//	       refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
+//	       inserted::boolean,
+//	       FALSE::boolean AS adopted
 //	FROM inserted
 func (q *Queries) UpsertModelRouterSubscriptionAccountForSubscriber(ctx context.Context, arg UpsertModelRouterSubscriptionAccountForSubscriberParams) (UpsertModelRouterSubscriptionAccountForSubscriberRow, error) {
 	row := q.db.QueryRow(ctx, upsertModelRouterSubscriptionAccountForSubscriber,
@@ -1000,6 +1028,8 @@ func (q *Queries) UpsertModelRouterSubscriptionAccountForSubscriber(ctx context.
 		&i.HealthState,
 		&i.CooldownUntil,
 		&i.CreatedAt,
+		&i.Inserted,
+		&i.Adopted,
 	)
 	return i, err
 }

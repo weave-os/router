@@ -274,23 +274,41 @@ func (q *Queries) ListModelRouterAPIKeysForInstallation(ctx context.Context, ins
 	return items, nil
 }
 
-const markModelRouterAPIKeyUsed = `-- name: MarkModelRouterAPIKeyUsed :exec
-UPDATE router.model_router_api_keys
+const markModelRouterAPIKeyUsed = `-- name: MarkModelRouterAPIKeyUsed :one
+WITH previous AS (
+  SELECT id, last_used_at
+  FROM router.model_router_api_keys
+  WHERE id = $1::uuid
+    AND deleted_at IS NULL
+  FOR UPDATE
+)
+UPDATE router.model_router_api_keys k
 SET last_used_at = NOW()
-WHERE id = $1::uuid
-  AND deleted_at IS NULL
+FROM previous
+WHERE k.id = previous.id
+RETURNING (previous.last_used_at IS NULL)::boolean AS first_use
 `
 
-// Records that a key was used. Called fire-and-forget by the Service after successful
-// auth. Idempotent on retry.
+// Updates last use and reports the first use of this key. Lock before reading
+// the old timestamp so concurrent callers cannot both observe a NULL value.
 //
-//	UPDATE router.model_router_api_keys
+//	WITH previous AS (
+//	  SELECT id, last_used_at
+//	  FROM router.model_router_api_keys
+//	  WHERE id = $1::uuid
+//	    AND deleted_at IS NULL
+//	  FOR UPDATE
+//	)
+//	UPDATE router.model_router_api_keys k
 //	SET last_used_at = NOW()
-//	WHERE id = $1::uuid
-//	  AND deleted_at IS NULL
-func (q *Queries) MarkModelRouterAPIKeyUsed(ctx context.Context, id uuid.UUID) error {
-	_, err := q.db.Exec(ctx, markModelRouterAPIKeyUsed, id)
-	return err
+//	FROM previous
+//	WHERE k.id = previous.id
+//	RETURNING (previous.last_used_at IS NULL)::boolean AS first_use
+func (q *Queries) MarkModelRouterAPIKeyUsed(ctx context.Context, id uuid.UUID) (bool, error) {
+	row := q.db.QueryRow(ctx, markModelRouterAPIKeyUsed, id)
+	var first_use bool
+	err := row.Scan(&first_use)
+	return first_use, err
 }
 
 const softDeleteModelRouterAPIKey = `-- name: SoftDeleteModelRouterAPIKey :execrows

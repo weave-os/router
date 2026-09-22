@@ -618,6 +618,7 @@ func main() {
 	var telemetryEmitter proxy.TelemetryEmitter
 	if emitter != nil {
 		telemetryEmitter = emitter
+		authSvc.WithOnboardingObserver(otel.NewOnboardingObserver(emitter))
 	}
 
 	semanticCache := buildSemanticCache(rtr)

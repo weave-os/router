@@ -38,10 +38,10 @@ func subscriptionOwnerPredicate(owner auth.SubscriptionOwner) (subscriberID, api
 	return subscriberID, apiKeyID, nil
 }
 
-func (r *subscriptionAccountRepo) UpsertSubscriptionAccount(ctx context.Context, params auth.CreateSubscriptionAccountParams) (*auth.SubscriptionAccount, error) {
+func (r *subscriptionAccountRepo) UpsertSubscriptionAccount(ctx context.Context, params auth.CreateSubscriptionAccountParams) (*auth.SubscriptionAccount, auth.SubscriptionUpsertKind, error) {
 	apiKeyID, err := uuid.Parse(params.Owner.APIKeyID)
 	if err != nil {
-		return nil, err
+		return nil, auth.SubscriptionUpsertUpdated, err
 	}
 	if params.Owner.SubscriberID == "" {
 		row, legacyErr := sqlc.New(r.tx).UpsertModelRouterSubscriptionAccount(ctx, sqlc.UpsertModelRouterSubscriptionAccountParams{
@@ -49,13 +49,14 @@ func (r *subscriptionAccountRepo) UpsertSubscriptionAccount(ctx context.Context,
 			DisplayName: optionalSubscriptionAccountDisplayName(params.DisplayName), RefreshTokenCiphertext: params.RefreshToken,
 		})
 		if legacyErr != nil {
-			return nil, legacyErr
+			return nil, auth.SubscriptionUpsertUpdated, legacyErr
 		}
-		return toAuthSubscriptionAccount(row), nil
+		return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID,
+			row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt), subscriptionUpsertKind(row.Inserted, row.Adopted), nil
 	}
 	subscriberID, err := uuid.Parse(params.Owner.SubscriberID)
 	if err != nil {
-		return nil, err
+		return nil, auth.SubscriptionUpsertUpdated, err
 	}
 	// Concurrent enrollments can each adopt a different legacy duplicate of the
 	// same account, so the loser hits the subscriber-owned unique index. A retry
@@ -67,10 +68,10 @@ func (r *subscriptionAccountRepo) UpsertSubscriptionAccount(ctx context.Context,
 		})
 		if err == nil {
 			return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID,
-				row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt), nil
+				row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt), subscriptionUpsertKind(row.Inserted, row.Adopted), nil
 		}
 		if attempt == subscriberEnrollmentMaxAttempts-1 || !isSubscriberAccountConflict(err) {
-			return nil, err
+			return nil, auth.SubscriptionUpsertUpdated, err
 		}
 	}
 }
@@ -420,4 +421,15 @@ func (r *subscriptionAccountRepo) CooldownSubscriptionAccountIfRefreshHolder(ctx
 		return auth.ErrSubscriptionRefreshConflict
 	}
 	return nil
+}
+
+func subscriptionUpsertKind(inserted, adopted bool) auth.SubscriptionUpsertKind {
+	switch {
+	case inserted:
+		return auth.SubscriptionUpsertInserted
+	case adopted:
+		return auth.SubscriptionUpsertAdopted
+	default:
+		return auth.SubscriptionUpsertUpdated
+	}
 }

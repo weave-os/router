@@ -34,7 +34,7 @@ type internalSubscriptionAccountRepo struct {
 	mutationErr  error
 }
 
-func (r *internalSubscriptionAccountRepo) UpsertSubscriptionAccount(context.Context, auth.CreateSubscriptionAccountParams) (*auth.SubscriptionAccount, error) {
+func (r *internalSubscriptionAccountRepo) UpsertSubscriptionAccount(context.Context, auth.CreateSubscriptionAccountParams) (*auth.SubscriptionAccount, auth.SubscriptionUpsertKind, error) {
 	panic("not used")
 }
 

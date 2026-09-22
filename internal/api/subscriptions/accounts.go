@@ -66,7 +66,8 @@ func listAccountsHandler(authSvc *auth.Service) gin.HandlerFunc {
 func createAccountHandler(authSvc *auth.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		key := middleware.APIKeyFrom(c)
-		if key == nil {
+		installation := middleware.InstallationFrom(c)
+		if key == nil || installation == nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "router_key_required"})
 			return
 		}
@@ -75,7 +76,7 @@ func createAccountHandler(authSvc *auth.Service) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_subscription_account"})
 			return
 		}
-		account, err := authSvc.AddSubscriptionAccount(c.Request.Context(), auth.CreateSubscriptionAccountParams{Owner: auth.SubscriptionOwnerForKey(key), Provider: request.Provider, ExternalAccountID: request.ExternalAccountID, DisplayName: request.DisplayName, RefreshToken: []byte(request.RefreshToken)})
+		account, err := authSvc.AddSubscriptionAccount(c.Request.Context(), auth.CreateSubscriptionAccountParams{Owner: auth.SubscriptionOwnerForKey(key), Provider: request.Provider, ExternalAccountID: request.ExternalAccountID, DisplayName: request.DisplayName, RefreshToken: []byte(request.RefreshToken), InstallationExternalID: installation.ExternalID})
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "subscription_account_rejected"})
 			return

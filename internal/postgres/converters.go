@@ -114,6 +114,7 @@ func toAuthAPIKey(row sqlc.RouterModelRouterAPIKey) *auth.APIKey {
 		KeySuffix:           row.KeySuffix,
 		Scope:               auth.APIKeyScope(row.Scope),
 		CredentialSubjectID: uuidString(row.CredentialSubjectID),
+		Harness:             derefString(row.Harness),
 		LastUsedAt:          timestampPtr(row.LastUsedAt),
 		CreatedAt:           timestampOrZero(row.CreatedAt),
 		DeletedAt:           timestampPtr(row.DeletedAt),
