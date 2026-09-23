@@ -316,6 +316,35 @@ func servingFamilyManifest(kind ServingKind, schema ServingSchema) (ServingManif
 	}
 }
 
+// ServingFoldedKind names the v2 kind that absorbed a v1 kind. It reports false for kinds that
+// are already publishable.
+func ServingFoldedKind(kind ServingKind) (ServingKind, bool) {
+	switch kind {
+	case ServingReleases, ServingClassifiers:
+		return ServingCandidate, true
+	case ServingBindings, ServingProfiles, ServingSelectionSets:
+		return ServingSelectionSet, true
+	case ServingProposals:
+		return ServingProposal, true
+	default:
+		return "", false
+	}
+}
+
+// ValidatePublishableServingKind rejects the v1 kinds, which remain readable but are no longer
+// written, with the kind an operator should publish instead.
+func ValidatePublishableServingKind(kind ServingKind) error {
+	if folded, isV1 := ServingFoldedKind(kind); isV1 {
+		return fmt.Errorf("serving kind %q is read-only: folded into %q", kind, folded)
+	}
+	switch kind {
+	case ServingCandidate, ServingSelectionSet, ServingProposal:
+		return nil
+	default:
+		return fmt.Errorf("unsupported serving object kind %q", kind)
+	}
+}
+
 // isServingV2Manifest reports whether a decoded manifest is one of the artifacts/ kinds.
 func isServingV2Manifest(manifest ServingManifest) bool {
 	switch manifest.(type) {

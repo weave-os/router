@@ -73,6 +73,17 @@ func fixtureSet(label string) policyregistry.SelectionSet {
 	return policyregistry.SelectionSet{SchemaVersion: policyregistry.ServingSelectionSetV1, Target: policyregistry.TargetStable, Default: policyregistry.ServingSelection{Release: namespaceRef(policyregistry.ServingReleases, label), Binding: namespaceRef(policyregistry.ServingBindings, label)}, Profiles: map[string]policyregistry.ServingSelection{}}
 }
 
+// fixtureSetV2 is a self-contained v2 selection set whose candidate is referenced but not stored;
+// it exercises publish/read plumbing, not lane resolution.
+func fixtureSetV2(label string) policyregistry.SelectionSetV2 {
+	image := "sha256:" + strings.Repeat("1", 64)
+	binding := policyregistry.LaneBinding{Project: "test-project", Region: "test-region",
+		Router:      policyregistry.RevisionBinding{Name: "worker-0001", URL: "https://worker-0001.example", Audience: "https://worker.example", ImageDigest: image, Configuration: artifactRef("worker-config")},
+		Classifier:  policyregistry.RevisionBinding{Name: "classifier-0001", URL: "https://classifier-0001.example", Audience: "https://classifier.example", ImageDigest: image, Configuration: artifactRef("classifier-config")},
+		Attestation: artifactRef("binding-attestation")}
+	return policyregistry.SelectionSetV2{SchemaVersion: policyregistry.ServingSelectionSetV2, Target: policyregistry.TargetStable, Default: policyregistry.ServingLane{Candidate: artifactStoredRef([]byte(label)), LaneBinding: binding}, Profiles: map[string]policyregistry.ServingLane{}}
+}
+
 func fixtureProposal(t *testing.T, snapshot policyregistry.ServingStateSnapshot, set policyregistry.SelectionSet, now time.Time) policyregistry.DeploymentProposal {
 	t.Helper()
 	proposal := policyregistry.DeploymentProposal{SchemaVersion: policyregistry.ServingProposalV1, Target: set.Target, ExpectedGeneration: snapshot.Generation, SelectionSet: servingRef(t, policyregistry.ServingSelectionSets, set), SourceRelease: set.Default.Release, Scope: policyregistry.ChangeFull, Actor: "test-operator", Reason: "release validation", RequestID: uuid.NewString(), CreatedAt: now, Evidence: []policyregistry.ObjectRef{artifactRef("evidence")}, WithdrawActivations: []string{}}
@@ -422,7 +433,7 @@ func (s *servingMemoryStore) ReadServingObject(_ context.Context, kind policyreg
 	if !exists {
 		return nil, nil, policyregistry.ErrNotFound
 	}
-	manifest, err := policyregistry.DecodeServingManifest(payload, testRegistryRoot, kind)
+	manifest, err := policyregistry.DecodeServingObject(payload, testRegistryRoot, kind, ref)
 	if err != nil {
 		return nil, nil, err
 	}

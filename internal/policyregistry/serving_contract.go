@@ -220,14 +220,6 @@ func servingNamespaces(kind ServingKind) ([]string, error) {
 	}
 }
 
-func servingNamespace(kind ServingKind) (string, error) {
-	namespaces, err := servingNamespaces(kind)
-	if err != nil {
-		return "", err
-	}
-	return namespaces[0], nil
-}
-
 // ValidateServingRef prevents cross-kind substitution and paths outside the registry. A v2 kind
 // admits both the artifacts/ layout and the legacy namespace of the v1 object it folds.
 func ValidateServingRef(ref ObjectRef, root string, kind ServingKind) error {

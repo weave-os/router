@@ -102,7 +102,7 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 	}
 	flags := flag.NewFlagSet("serving "+string(command), flag.ContinueOnError)
 	registryURI := flags.String("registry", defaultRegistryURI, "GCS registry root")
-	kindRaw := flags.String("kind", "", "releases, classifiers, bindings, profiles, selection_sets or proposals")
+	kindRaw := flags.String("kind", "", "candidate, selection_set or proposal")
 	manifestPath := flags.String("manifest", "", "immutable manifest JSON file")
 	targetRaw := flags.String("target", "", "staging, prod/stable or prod/weave-internal")
 	proposalPath := flags.String("proposal", "", "JSON file containing the exact published proposal ObjectRef")
@@ -233,6 +233,9 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 func servingManifestOperation(ctx context.Context, dependencies servingDependencies, command commandName, root string, kind policyregistry.ServingKind, path string, stored bool) error {
 	if path == "" || kind == "" {
 		return errors.New("serving manifest operation requires --kind and --manifest")
+	}
+	if err := policyregistry.ValidatePublishableServingKind(kind); err != nil {
+		return err
 	}
 	payload, err := os.ReadFile(path)
 	if err != nil {

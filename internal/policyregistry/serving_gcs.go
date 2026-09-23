@@ -38,22 +38,21 @@ func (r *Registry) VerifyServingArtifact(ctx context.Context, ref ObjectRef) err
 	return nil
 }
 
-// PublishServingManifest publishes validated manifest bytes, addressed by their own digest,
-// without activating any target.
+// PublishServingManifest publishes validated v2 manifest bytes to artifacts/, addressed by their
+// own digest, without activating any target. The v1 namespaces are read-only.
 func (r *Registry) PublishServingManifest(ctx context.Context, kind ServingKind, payload []byte) (ObjectRef, error) {
+	if err := ValidatePublishableServingKind(kind); err != nil {
+		return ObjectRef{}, err
+	}
 	manifest, err := DecodeServingManifest(payload, r.rootURI, kind)
 	if err != nil {
 		return ObjectRef{}, err
 	}
-	namespace, err := servingNamespace(kind)
-	if err != nil {
-		return ObjectRef{}, err
-	}
-	if isServingV2Manifest(manifest) != (namespace == servingArtifactsNamespace) {
-		return ObjectRef{}, errors.New("serving object schema does not belong to its storage layout")
+	if !isServingV2Manifest(manifest) {
+		return ObjectRef{}, fmt.Errorf("%s publication requires a v2 schema; v1 objects are read-only", kind)
 	}
 	digest := Digest(payload)
-	return r.publishImmutable(ctx, r.prefix+"/"+namespace+digest+".json", payload, digest)
+	return r.publishImmutable(ctx, r.prefix+"/"+servingArtifactsNamespace+digest+".json", payload, digest)
 }
 
 // ReadServingObject validates the reference, namespace and schema, and returns the manifest

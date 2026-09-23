@@ -72,11 +72,18 @@ func (r *cliServingRegistry) CompareAndSwapServingState(_ context.Context, state
 	r.state = policyregistry.ServingStateSnapshot{State: state, Generation: generation + 1}
 	return r.state, nil
 }
+
+// PublishServingManifest also accepts v1 kinds so fixtures can seed the legacy objects that a
+// real registry only reads.
 func (r *cliServingRegistry) PublishServingManifest(_ context.Context, kind policyregistry.ServingKind, payload []byte) (policyregistry.ObjectRef, error) {
 	if _, err := policyregistry.DecodeServingManifest(payload, r.RootURI(), kind); err != nil {
 		return policyregistry.ObjectRef{}, err
 	}
-	ref := policyregistry.ObjectRef{URI: r.RootURI() + "/router_serving/v1/" + string(kind) + "/sha256/" + policyregistry.Digest(payload) + ".json", SHA256: policyregistry.Digest(payload), Generation: 1}
+	digest := policyregistry.Digest(payload)
+	ref := policyregistry.ObjectRef{URI: r.RootURI() + "/router_serving/v1/" + string(kind) + "/sha256/" + digest + ".json", SHA256: digest, Generation: 1}
+	if policyregistry.ValidatePublishableServingKind(kind) == nil {
+		ref.URI = r.RootURI() + "/artifacts/" + digest + ".json"
+	}
 	r.objects[ref] = payload
 	return ref, nil
 }
@@ -250,7 +257,7 @@ func TestServingCLIValidateAcceptsAnyValidEncoding(t *testing.T) {
 		logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	ctx := context.Background()
-	args := []string{string(commandValidate), "--kind", string(policyregistry.ServingProposals), "--manifest", path}
+	args := []string{string(commandValidate), "--kind", string(policyregistry.ServingProposal), "--manifest", path}
 	require.NoError(t, runServingWith(ctx, args, dependencies))
 	encoded, err := json.Marshal(output)
 	require.NoError(t, err)
@@ -259,5 +266,41 @@ func TestServingCLIValidateAcceptsAnyValidEncoding(t *testing.T) {
 	encoded, err = json.Marshal(output)
 	require.NoError(t, err)
 	require.Contains(t, string(encoded), policyregistry.Digest(drifted), "stored validation reports the digest of the exact bytes")
-	require.ErrorContains(t, runServingWith(ctx, []string{string(commandPublish), "--kind", string(policyregistry.ServingProposals), "--manifest", path, "--stored"}, dependencies), "--stored only applies to serving validate")
+	require.ErrorContains(t, runServingWith(ctx, []string{string(commandPublish), "--kind", string(policyregistry.ServingProposal), "--manifest", path, "--stored"}, dependencies), "--stored only applies to serving validate")
+}
+
+func TestServingCLIKindAcceptsOnlyV2KindsWithFoldingGuidance(t *testing.T) {
+	registry, _, proposal := cliServingFixture(t)
+	payload, err := policyregistry.CanonicalBytes(proposal)
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), "manifest.json")
+	require.NoError(t, os.WriteFile(path, payload, 0o600))
+	opened := 0
+	var output any
+	dependencies := servingDependencies{
+		openRegistry: func(context.Context, string) (servingRegistry, error) { opened++; return registry, nil },
+		writeOutput:  func(value any) error { output = value; return nil },
+		clock:        func() time.Time { return proposal.CreatedAt },
+		logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	ctx := context.Background()
+	for kind, folded := range map[string]string{"releases": "candidate", "classifiers": "candidate", "bindings": "selection_set", "profiles": "selection_set", "selection_sets": "selection_set", "proposals": "proposal"} {
+		for _, command := range []commandName{commandValidate, commandPublish} {
+			err := runServingWith(ctx, []string{string(command), "--kind", kind, "--manifest", path}, dependencies)
+			require.ErrorContains(t, err, "folded into \""+folded+"\"", "%s --kind %s", command, kind)
+		}
+	}
+	require.ErrorContains(t, runServingWith(ctx, []string{string(commandPublish), "--kind", "lanes", "--manifest", path}, dependencies), "unsupported serving object kind")
+	require.Zero(t, opened, "kind guidance is offered before the registry is opened")
+
+	v2 := policyregistry.DeploymentProposalV2{SchemaVersion: policyregistry.ServingProposalV2, Target: proposal.Target, SelectionSet: proposal.SelectionSet, SourceCandidate: proposal.SourceRelease, Scope: proposal.Scope, Actor: proposal.Actor, Reason: proposal.Reason, RequestID: proposal.RequestID, CreatedAt: proposal.CreatedAt, Evidence: proposal.Evidence, WithdrawActivations: []string{}}
+	v2Payload, err := policyregistry.CanonicalBytes(v2)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, v2Payload, 0o600))
+	require.NoError(t, runServingWith(ctx, []string{string(commandPublish), "--kind", string(policyregistry.ServingProposal), "--manifest", path}, dependencies))
+	ref := output.(policyregistry.ObjectRef)
+	require.Equal(t, defaultRegistryURI+"/artifacts/"+policyregistry.Digest(v2Payload)+".json", ref.URI)
+	manifest, _, err := registry.ReadServingObject(ctx, policyregistry.ServingProposal, ref)
+	require.NoError(t, err)
+	require.Equal(t, &v2, manifest)
 }

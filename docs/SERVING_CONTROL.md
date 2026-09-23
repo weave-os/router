@@ -8,17 +8,26 @@ interface; they must not be used to manage migrated targets.
 
 ## Immutable proposal lifecycle
 
-Publish canonical manifests with `serving publish --kind <kind> --manifest <file>`;
-`serving validate` checks the same bytes without opening the registry. Supported
-kinds are `classifiers`, `releases`, `bindings`, `profiles`, `selection_sets`, and
-`proposals`. All commands accept `--registry gs://<bucket>/<prefix>`.
+Publish manifests with `serving publish --kind <kind> --manifest <file>`;
+`serving validate` checks the same bytes without opening the registry. Publishable
+kinds are the v2 families `candidate`, `selection_set`, and `proposal`; they are
+stored content-addressed under `<root>/artifacts/<sha256>.json`. The v1 kinds
+(`releases`, `classifiers` → `candidate`; `bindings`, `profiles`, `selection_sets`
+→ `selection_set`; `proposals` → `proposal`) are read-only: objects already stored
+under `router_serving/v1/<kind>/sha256/` stay readable through their family kind,
+but a publish with a v1 kind is rejected with the kind it folded into. All commands
+accept `--registry gs://<bucket>/<prefix>`.
 
 The workflow composes the full destination selection set and proposal, preserving
-registered destination profiles. A proposal binds the source release, target,
-scope, complete selection set, previous selection set and expected GCS generation,
-operator, reason, request UUID, evidence references, and explicit emergency
+registered destination profiles. A candidate folds the router image, selection
+policy, classifier identity/package/configuration, requirements and provenance;
+a selection set embeds each lane's candidate reference, physical bindings and
+profile fields. A proposal binds the source candidate, target, scope, complete
+selection set, previous selection set, operator, reason, request ID (any non-empty
+string up to 128 characters), evidence references, and explicit emergency
 withdrawals. Publishing never activates it. The exported Go contracts in
-`internal/policyregistry/serving_contract.go` define the exact JSON schemas.
+`internal/policyregistry/serving_contract.go` (v1) and
+`internal/policyregistry/serving_contract_v2.go` (v2) define the exact JSON schemas.
 
 | Command | Required inputs | Effect |
 | --- | --- | --- |
