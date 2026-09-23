@@ -4362,7 +4362,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// BYOK/inbound-credential bound (those resolve to a single provider),
 	// Anthropic isn't excluded for the installation (else failing over would
 	// violate the exclusion contract), the routed model isn't already
-	// Anthropic, and the baseline is a distinct known Anthropic catalog model.
+	// Anthropic, the baseline is a distinct known Anthropic catalog model, and
+	// the prompt fits its context window (a larger-window routed model can
+	// carry a prompt the baseline would 400 as "prompt is too long").
 	// Computed pre-dispatch so the primary dispatch defers its exhaustion flush.
 	baselineModel := s.baselineFor(feats.Model)
 	baselineCatalog, baselineKnown := catalog.ByID(baselineModel)
@@ -4379,7 +4381,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		baselineAllowed &&
 		decision.Provider != providers.ProviderAnthropic &&
 		baselineModel != decision.Model &&
-		baselineKnown && baselineCatalog.PrimaryProvider() == providers.ProviderAnthropic
+		baselineKnown && baselineCatalog.PrimaryProvider() == providers.ProviderAnthropic &&
+		siblingFitsContext(baselineModel, providers.ProviderAnthropic, overflowEstimate, env.SignatureTokenSavings(), outputReserve)
 	baselineEligible := !routeRes.AuthoritativePerTurn && baselineViable
 
 	// Subscription-credit failover eligibility. A Claude turn served on the

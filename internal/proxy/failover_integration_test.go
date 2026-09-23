@@ -628,6 +628,41 @@ func TestProxyMessages_ResponsesFailureBeforeOutputFallsBackToBaseline(t *testin
 	assert.NotContains(t, rec.Body.String(), "event: error")
 }
 
+// A routed model with a larger window than the requested baseline can carry a
+// prompt the baseline cannot; a pre-commit exhaustion on the routed model must
+// not rescue onto a baseline that Anthropic would 400 as "prompt is too long".
+func TestProxyMessages_BaselineFailoverSkipsBaselineOverContextWindow(t *testing.T) {
+	openAIUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte(`{"error":{"message":"bad gateway"}}`))
+	}))
+	defer openAIUpstream.Close()
+
+	baseline := &fakeProvider{}
+	svc := proxy.NewService(
+		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.5", Reason: "test"}},
+		map[string]providers.Client{
+			providers.ProviderOpenAI:    openai.NewClient("test-key", openAIUpstream.URL),
+			providers.ProviderAnthropic: baseline,
+		},
+		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
+	).WithDeploymentKeyedProviders(map[string]struct{}{
+		providers.ProviderOpenAI:    {},
+		providers.ProviderAnthropic: {},
+	}).WithRetrySleep(noRetrySleep)
+
+	// ~230K estimated tokens: fits gpt-5.5 (1.05M) but not claude-haiku-4-5 (200K).
+	filler := strings.Repeat("tool output line ", 230_000*4/len("tool output line "))
+	body := []byte(`{"model":"claude-haiku-4-5","stream":true,"messages":[{"role":"user","content":"` + filler + `"}]}`)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	err := svc.ProxyMessages(context.Background(), body, rec, req)
+	require.Error(t, err, "the routed model's 502 surfaces when no baseline can fit the prompt")
+	assert.Empty(t, baseline.proxyBodies, "baseline failover must not dispatch a prompt larger than the baseline's context window")
+}
+
 // sequencedClient is a providers.Client that returns a scripted result
 // per call (and captures the prepared body each time) so a test can assert the
 // router re-emitted a different body on retry.
