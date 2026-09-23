@@ -257,6 +257,25 @@ func TestAdmitReportsExhaustedWindow(t *testing.T) {
 	}
 }
 
+func TestAdmissionHeldCapacityOnly(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		allowances *fakeAllowances
+		wantHeld   bool
+	}{
+		"only outstanding holds reached cap": {allowances: &fakeAllowances{sixHourReserved: maxSixHour}, wantHeld: true},
+		"mixed settled and held":             {allowances: &fakeAllowances{sixHourFinal: 100, sixHourReserved: maxSixHour - 100}, wantHeld: true},
+		"already settled":                    {allowances: &fakeAllowances{sixHourFinal: maxSixHour}},
+		"month settled while hour held":      {allowances: &fakeAllowances{billingFinal: maxMonthly, sixHourReserved: maxSixHour}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			admission, err := newService(&fakeEntitlements{current: activeEntitlement(), found: true}, testCase.allowances).
+				Admit(context.Background(), testSubscriber)
+			require.NoError(t, err)
+			assert.Equal(t, testCase.wantHeld, admission.HeldCapacityOnly())
+		})
+	}
+}
+
 func TestAdmitDerivesTheWindowCapOfThePlanInForce(t *testing.T) {
 	t.Parallel()
 

@@ -57,6 +57,25 @@ type Admission struct {
 	Usage           Usage
 }
 
+// HeldCapacityOnly reports that the limiting windows would have headroom
+// without in-flight reservations. A subscriber whose finalized usage actually
+// reached a limit can still use their organization's normal payment fallback.
+func (a Admission) HeldCapacityOnly() bool {
+	if a.Outcome != AdmissionExhausted {
+		return false
+	}
+	held := false
+	for _, window := range []WindowUsage{a.Usage.Billing, a.Usage.Weekly, a.Usage.SixHour} {
+		if window.FinalizedUsdMicros >= window.LimitUsdMicros {
+			return false
+		}
+		if window.ConsumedUsdMicros() >= window.LimitUsdMicros {
+			held = true
+		}
+	}
+	return held
+}
+
 // Service admits requests against a subscriber's included Router allowance and
 // settles their actual retail cost.
 type Service struct {

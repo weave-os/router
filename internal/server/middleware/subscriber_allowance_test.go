@@ -63,8 +63,13 @@ type stubAllowances struct {
 	billingConsumed int64
 	weeklyConsumed  int64
 	sixHourConsumed int64
+	sixHourReserved int64
 	usageErr        error
 	exhausted       entitlement.PeriodKind
+	exhaustedOnce   bool
+	releaseOnRead   int
+	finalizeOnRead  int
+	usageReads      int
 	reserveErr      error
 	held            []entitlement.Reservation
 	released        []string
@@ -79,6 +84,9 @@ func (s *stubAllowances) ReserveWithinLimits(_ context.Context, reservation enti
 	s.held = append(s.held, reservation)
 	if s.exhausted != "" {
 		return entitlement.Action{}, entitlement.ExhaustedError{Period: s.exhausted}
+	}
+	if s.exhaustedOnce && len(s.held) == 1 {
+		return entitlement.Action{}, entitlement.ExhaustedError{Period: entitlement.PeriodKindSixHour}
 	}
 	if s.reserveErr != nil {
 		return entitlement.Action{}, s.reserveErr
@@ -97,13 +105,21 @@ func (s *stubAllowances) Release(ctx context.Context, release entitlement.Releas
 }
 
 func (s *stubAllowances) Usage(_ context.Context, _ entitlement.SubscriberID, billing, weekly, sixHour entitlement.Period) (entitlement.Usage, error) {
+	s.usageReads++
 	if s.usageErr != nil {
 		return entitlement.Usage{}, s.usageErr
+	}
+	if s.releaseOnRead > 0 && s.usageReads >= s.releaseOnRead {
+		s.sixHourReserved = 0
+	}
+	if s.finalizeOnRead > 0 && s.usageReads >= s.finalizeOnRead {
+		s.sixHourReserved = 0
+		s.sixHourConsumed = sixHourAllowance
 	}
 	return entitlement.Usage{
 		Billing: entitlement.WindowUsage{Period: billing, FinalizedUsdMicros: s.billingConsumed},
 		Weekly:  entitlement.WindowUsage{Period: weekly, FinalizedUsdMicros: s.weeklyConsumed},
-		SixHour: entitlement.WindowUsage{Period: sixHour, FinalizedUsdMicros: s.sixHourConsumed},
+		SixHour: entitlement.WindowUsage{Period: sixHour, ReservedUsdMicros: s.sixHourReserved, FinalizedUsdMicros: s.sixHourConsumed},
 	}, nil
 }
 
@@ -532,16 +548,52 @@ func TestWithSubscriberAllowance_RefusedReservationCarriesNoCoverage(t *testing.
 	assert.Empty(t, coverage.SubscriberID)
 }
 
-func TestWithSubscriberAllowance_UsesOrganizationFallbackWhenReservationRefused(t *testing.T) {
-	// The windows read as unspent, so only the reservation's own gate can
-	// refuse this turn — the concurrency case the hold exists for.
+func TestWithSubscriberAllowance_RetriesReservationRefusedByConcurrentHold(t *testing.T) {
+	// Admission reads stale headroom once; the atomic reservation refuses it.
+	// A fresh admission and reservation should keep the turn on the subscriber.
 	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
-	allowances := &stubAllowances{exhausted: entitlement.PeriodKindSixHour}
-	w, reached, _ := runAllowanceMiddleware(t, entitlements, allowances, subscriberAPIKey())
+	allowances := &stubAllowances{exhaustedOnce: true}
+	w, reached, coverage := runAllowanceMiddleware(t, entitlements, allowances, subscriberAPIKey())
 
 	assert.True(t, reached)
 	require.Equal(t, http.StatusOK, w.Code)
-	assert.Empty(t, allowances.released, "a refused reservation leaves nothing to release")
+	assert.Equal(t, entitlement.SubscriberID(allowanceSubscriberID), coverage.SubscriberID)
+	assert.Len(t, allowances.held, 2)
+	assert.Len(t, allowances.released, 1)
+}
+
+func TestWithSubscriberAllowance_WaitsForHeldCapacityToRelease(t *testing.T) {
+	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
+	allowances := &stubAllowances{sixHourReserved: sixHourAllowance, releaseOnRead: 2}
+	w, reached, coverage := runAllowanceMiddleware(t, entitlements, allowances, subscriberAPIKey())
+
+	assert.True(t, reached)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, entitlement.SubscriberID(allowanceSubscriberID), coverage.SubscriberID)
+	assert.GreaterOrEqual(t, allowances.usageReads, 2)
+	assert.Len(t, allowances.held, 1)
+	assert.Len(t, allowances.released, 1)
+}
+
+func TestWithSubscriberAllowance_RefusesOrganizationBillingWhileAllowanceHeld(t *testing.T) {
+	allowances := &stubAllowances{sixHourReserved: sixHourAllowance}
+	recorder, reached := runSubscriberOrganizationBillingChain(t, allowances, &stubBillingRepo{balance: 100_000_000})
+
+	assert.False(t, reached)
+	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	assert.Contains(t, recorder.Body.String(), "subscription_capacity_busy")
+	assert.Equal(t, "1", recorder.Header().Get("Retry-After"))
+	assert.Greater(t, allowances.usageReads, 1)
+}
+
+func TestWithSubscriberAllowance_UsesOrganizationBillingAfterConcurrentHoldSettlesAtLimit(t *testing.T) {
+	allowances := &stubAllowances{sixHourReserved: sixHourAllowance, finalizeOnRead: 2}
+	recorder, reached := runSubscriberOrganizationBillingChain(t, allowances, &stubBillingRepo{balance: 100_000_000})
+
+	assert.True(t, reached)
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.GreaterOrEqual(t, allowances.usageReads, 2)
+	assert.Empty(t, allowances.held)
 }
 
 func TestWithSubscriberAllowance_503WhenReservationFails(t *testing.T) {

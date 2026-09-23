@@ -13,6 +13,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions/entitlement"
 
+	"github.com/cenkalti/backoff/v5"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 )
@@ -81,12 +82,12 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 			return
 		}
 
-		switch admission.Outcome {
-		case entitlement.AdmissionNotSubscribed, entitlement.AdmissionExhausted:
+		if admission.Outcome == entitlement.AdmissionNotSubscribed ||
+			(admission.Outcome == entitlement.AdmissionExhausted && !admission.HeldCapacityOnly()) {
 			c.Next()
-		case entitlement.AdmissionCovered:
-			holdRequest(c, log, svc, admission)
+			return
 		}
+		holdRequest(c, log, svc, admission)
 	}
 }
 
@@ -108,35 +109,75 @@ func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, adm
 		requestID = uuid.NewString()
 	}
 
-	hold := entitlement.Hold{
-		Coverage:            admission.Coverage,
-		ActionID:            requestID + holdActionSuffix,
-		RouterRequestID:     requestID,
-		APIKeyID:            APIKeyFrom(c).ID,
-		RequestedModel:      entitlement.ModelUnresolved,
-		UpperBoundUsdMicros: holdUsdMicros(admission.Usage),
-		CapacitySource:      entitlement.CapacitySourceIncludedRouter,
+	retryPolicy := backoff.NewExponentialBackOff()
+	retryPolicy.InitialInterval = 40 * time.Millisecond
+	retryPolicy.MaxInterval = 250 * time.Millisecond
+	firstAttempt := true
+	hold, err := backoff.Retry(ctx, func() (entitlement.Hold, error) {
+		if !firstAttempt {
+			var readErr error
+			admission, readErr = svc.Admit(ctx, entitlement.SubscriberID(APIKeyFrom(c).CredentialSubjectID))
+			if readErr != nil {
+				return entitlement.Hold{}, backoff.Permanent(readErr)
+			}
+		}
+		firstAttempt = false
+		if admission.Outcome == entitlement.AdmissionNotSubscribed ||
+			(admission.Outcome == entitlement.AdmissionExhausted && !admission.HeldCapacityOnly()) {
+			return entitlement.Hold{}, nil
+		}
+		if admission.Outcome == entitlement.AdmissionExhausted {
+			return entitlement.Hold{}, entitlement.ErrAllowanceExhausted
+		}
+		hold := entitlement.Hold{
+			Coverage:            admission.Coverage,
+			ActionID:            requestID + holdActionSuffix,
+			RouterRequestID:     requestID,
+			APIKeyID:            APIKeyFrom(c).ID,
+			RequestedModel:      entitlement.ModelUnresolved,
+			UpperBoundUsdMicros: holdUsdMicros(admission.Usage),
+			CapacitySource:      entitlement.CapacitySourceIncludedRouter,
+		}
+		if _, reserveErr := svc.Reserve(ctx, hold); reserveErr != nil {
+			if errors.Is(reserveErr, entitlement.ErrAllowanceExhausted) {
+				return entitlement.Hold{}, reserveErr
+			}
+			return entitlement.Hold{}, backoff.Permanent(reserveErr)
+		}
+		return hold, nil
+	}, backoff.WithBackOff(retryPolicy), backoff.WithMaxElapsedTime(2*time.Second))
+	if errors.Is(err, entitlement.ErrAllowanceExhausted) {
+		log.Warn("Subscriber allowance temporarily held by concurrent turns", "subscriber_id", APIKeyFrom(c).CredentialSubjectID, "period", admission.ExhaustedPeriod)
+		c.Header("Retry-After", "1")
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+			"error":   "subscription_capacity_busy",
+			"message": "Subscription capacity is temporarily reserved by another request. Retry shortly.",
+		})
+		return
 	}
-
-	if _, err := svc.Reserve(ctx, hold); errors.Is(err, entitlement.ErrAllowanceExhausted) {
-		if serveOnCoveringSubscription(c) {
+	if err != nil {
+		if ctx.Err() != nil {
 			return
 		}
-		c.Next()
-		return
-	} else if err != nil {
-		log.Error("Subscriber allowance reservation failed; refusing request", "err", err, "subscriber_id", string(admission.Coverage.SubscriberID))
+		log.Error("Subscriber allowance reservation failed; refusing request", "err", err, "subscriber_id", APIKeyFrom(c).CredentialSubjectID)
 		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
 			"error":   "billing_unavailable",
 			"message": "Billing system is temporarily unavailable. Retry in a few moments.",
 		})
 		return
 	}
+	if admission.Plan != "" {
+		c.Request = c.Request.WithContext(entitlement.WithProductScope(c.Request.Context(), admission.Plan))
+	}
+	if hold.ActionID == "" {
+		c.Next()
+		return
+	}
 
 	// Coverage is stamped only once the hold is confirmed: a refused request
 	// must not reach settlement as allowance-covered.
-	admission.Coverage.ProjectedUsdMicros = hold.UpperBoundUsdMicros
-	c.Request = c.Request.WithContext(entitlement.WithCoverage(ctx, admission.Coverage))
+	hold.Coverage.ProjectedUsdMicros = hold.UpperBoundUsdMicros
+	c.Request = c.Request.WithContext(entitlement.WithCoverage(c.Request.Context(), hold.Coverage))
 
 	c.Next()
 	if entitlement.SettlementFailed(c.Request.Context()) {
