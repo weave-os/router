@@ -4253,6 +4253,9 @@ set -euo pipefail
 # WEAVE_STATUSLINE_UPDATE and WEAVE_STATUSLINE_UPDATE_INTERVAL_DAYS variables
 # remain accepted as aliases for users who configure both clients together.
 weave_self_refresh() {
+  # The published helper may predate classifier lifecycle forwarding. Do not
+  # replace the hook implementation underneath an opted-in session.
+  [ "${WEAVE_CAPTURE_LLM_CLASSIFIER:-}" = "1" ] && return 0
   [ "${WEAVE_CODEX_STATUS_UPDATE:-${WEAVE_STATUSLINE_UPDATE:-1}}" = "0" ] && return 0
   command -v curl >/dev/null 2>&1 || return 0
 
@@ -4319,9 +4322,10 @@ emit_title() {
   local title="$1"
   if [ -n "${WEAVE_CODEX_STATUS_TITLE_FILE:-}" ]; then
     printf '%s\n' "$title" >"$WEAVE_CODEX_STATUS_TITLE_FILE"
-  elif [ -w /dev/tty ]; then
+  elif [ -t 2 ] && [ -w /dev/tty ]; then
     printf '\033]0;%s\007' "$title" >/dev/tty
   fi
+  return 0
 }
 
 safe_session_id() {
@@ -4549,12 +4553,31 @@ command -v jq >/dev/null 2>&1 || exit 0
 jq -e . >/dev/null 2>&1 <<<"$payload" || exit 0
 
 hook_event_name="$(jq -r '.hook_event_name // ""' <<<"$payload")"
+if [ "${WEAVE_CAPTURE_LLM_CLASSIFIER:-}" = "1" ] && [ -n "${WEAVE_CAPTURE_HOOK_TOKEN:-}" ]; then
+  classifier_hook_url="${WEAVE_CAPTURE_HOOK_URL:-http://127.0.0.1:41984/classifier/hook}"
+  if [[ "$classifier_hook_url" =~ ^http://(127\.0\.0\.1|localhost):[0-9]+/classifier/hook$ ]]; then
+  case "$hook_event_name" in
+    SessionStart|PreToolUse|PreCompact)
+      # Send lifecycle identifiers only. A failed hook cannot enroll a thread;
+      # the opted-in capture proxy rejects its inference request instead.
+      jq -c '{hook_event_name,session_id,source,tool_name}' <<<"$payload" |
+        curl -fsS --max-time 2 -H 'Content-Type: application/json' \
+          -H "X-Weave-Capture-Hook-Token: $WEAVE_CAPTURE_HOOK_TOKEN" \
+          --data-binary @- "$classifier_hook_url" >/dev/null 2>&1 || true
+      ;;
+  esac
+  fi
+fi
 if [ "$hook_event_name" = "SessionStart" ]; then
   if [ -f "$disabled_marker" ]; then
     emit_title "Codex · direct"
   else
     emit_title "Weave Router · active"
   fi
+  exit 0
+fi
+
+if [ "$hook_event_name" = "PreToolUse" ] || [ "$hook_event_name" = "PreCompact" ]; then
   exit 0
 fi
 

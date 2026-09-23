@@ -45,7 +45,9 @@ import { rewriteDirectiveParts } from "./directives.ts"
 const CHATGPT_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
 // Overridable for self-hosted OpenAI auth proxies and for tests (mirrors the
 // bundled codex plugin's `options.issuer`).
-const CHATGPT_ISSUER = process.env.WEAVE_CODEX_OAUTH_ISSUER ?? "https://auth.openai.com"
+function chatGPTIssuer(): string {
+  return process.env.WEAVE_CODEX_OAUTH_ISSUER ?? "https://auth.openai.com"
+}
 const OAUTH_PORT = 1455
 const OAUTH_TIMEOUT_MS = 5 * 60 * 1000
 const OAUTH_POLLING_SAFETY_MARGIN_MS = 3000
@@ -58,7 +60,9 @@ const ACCESS_TOKEN_REFRESH_MARGIN_MS = 60 * 1000
 // bearer; the router applies the Bearer + oauth beta header on the upstream leg.
 const ANTHROPIC_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 const ANTHROPIC_AUTHORIZE_BASE = process.env.WEAVE_ANTHROPIC_OAUTH_AUTHORIZE ?? "https://claude.ai"
-const ANTHROPIC_TOKEN_URL = process.env.WEAVE_ANTHROPIC_OAUTH_TOKEN ?? "https://console.anthropic.com/v1/oauth/token"
+function anthropicTokenURL(): string {
+  return process.env.WEAVE_ANTHROPIC_OAUTH_TOKEN ?? "https://console.anthropic.com/v1/oauth/token"
+}
 const ANTHROPIC_REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
 const ANTHROPIC_SCOPE = "org:create_api_key user:profile user:inference"
 
@@ -178,11 +182,11 @@ function buildAuthorizeUrl(redirectUri: string, pkce: PkceCodes, state: string):
     state,
     originator: "codex_cli_ts",
   })
-  return `${CHATGPT_ISSUER}/oauth/authorize?${params.toString()}`
+  return `${chatGPTIssuer()}/oauth/authorize?${params.toString()}`
 }
 
 async function exchangeCodeForTokens(code: string, redirectUri: string, pkce: PkceCodes): Promise<TokenResponse> {
-  const response = await fetch(`${CHATGPT_ISSUER}/oauth/token`, {
+  const response = await fetch(`${chatGPTIssuer()}/oauth/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -198,7 +202,7 @@ async function exchangeCodeForTokens(code: string, redirectUri: string, pkce: Pk
 }
 
 async function refreshAccessToken(refreshToken: string): Promise<TokenResponse> {
-  const response = await fetch(`${CHATGPT_ISSUER}/oauth/token`, {
+  const response = await fetch(`${chatGPTIssuer()}/oauth/token`, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -241,7 +245,7 @@ async function exchangeAnthropicCode(code: string, verifier: string): Promise<An
     throw new Error(`Expected the pasted code in "code#state" format; got: ${code.trim().slice(0, 24)}…`)
   }
   const [authCode, state] = code.trim().split("#")
-  const response = await fetch(ANTHROPIC_TOKEN_URL, {
+  const response = await fetch(anthropicTokenURL(), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -259,7 +263,7 @@ async function exchangeAnthropicCode(code: string, verifier: string): Promise<An
 }
 
 async function refreshAnthropicToken(refreshToken: string): Promise<AnthropicTokens> {
-  const response = await fetch(ANTHROPIC_TOKEN_URL, {
+  const response = await fetch(anthropicTokenURL(), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -650,7 +654,7 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
           label: "ChatGPT Pro/Plus — pays for GPT/Codex turns (headless device code)",
           type: "oauth",
           authorize: async () => {
-            const deviceResponse = await fetch(`${CHATGPT_ISSUER}/api/accounts/deviceauth/usercode`, {
+            const deviceResponse = await fetch(`${chatGPTIssuer()}/api/accounts/deviceauth/usercode`, {
               method: "POST",
               headers: { "Content-Type": "application/json", "User-Agent": USER_AGENT },
               body: JSON.stringify({ client_id: CHATGPT_CLIENT_ID }),
@@ -663,14 +667,14 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
             }
             const interval = Math.max(parseInt(deviceData.interval) || 5, 1) * 1000
             return {
-              url: `${CHATGPT_ISSUER}/codex/device`,
+              url: `${chatGPTIssuer()}/codex/device`,
               instructions: `Enter code: ${deviceData.user_code}`,
               method: "auto" as const,
               async callback() {
                 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
                 const deadline = Date.now() + OAUTH_TIMEOUT_MS
                 while (Date.now() < deadline) {
-                  const response = await fetch(`${CHATGPT_ISSUER}/api/accounts/deviceauth/token`, {
+                  const response = await fetch(`${chatGPTIssuer()}/api/accounts/deviceauth/token`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json", "User-Agent": USER_AGENT },
                     body: JSON.stringify({
@@ -680,13 +684,13 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
                   })
                   if (response.ok) {
                     const data = (await response.json()) as { authorization_code: string; code_verifier: string }
-                    const tokenResponse = await fetch(`${CHATGPT_ISSUER}/oauth/token`, {
+                    const tokenResponse = await fetch(`${chatGPTIssuer()}/oauth/token`, {
                       method: "POST",
                       headers: { "Content-Type": "application/x-www-form-urlencoded" },
                       body: new URLSearchParams({
                         grant_type: "authorization_code",
                         code: data.authorization_code,
-                        redirect_uri: `${CHATGPT_ISSUER}/deviceauth/callback`,
+                        redirect_uri: `${chatGPTIssuer()}/deviceauth/callback`,
                         client_id: CHATGPT_CLIENT_ID,
                         code_verifier: data.code_verifier,
                       }).toString(),

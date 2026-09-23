@@ -137,6 +137,8 @@ function assertRetainedIdentityHeaders(headers: Record<string, string>): void {
 }
 
 beforeEach(async () => {
+  process.env.WEAVE_ANTHROPIC_OAUTH_TOKEN = ANTHROPIC_TOKEN_URL
+  process.env.WEAVE_CODEX_OAUTH_ISSUER = CHATGPT_ISSUER
   authDir = await mkdtemp(join(tmpdir(), "weave-auth-"))
   authFile = join(authDir, "auth.json")
   process.env.WEAVE_OPENCODE_AUTH_FILE = authFile
