@@ -1,7 +1,9 @@
 package policyregistry_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -29,14 +31,37 @@ func artifactRef(label string) policyregistry.ObjectRef {
 	return policyregistry.ObjectRef{URI: testRegistryRoot + "/fixtures/" + label, SHA256: policyregistry.Digest([]byte(label)), Generation: 1}
 }
 
-func servingRef(t *testing.T, kind policyregistry.ServingKind, manifest policyregistry.ServingManifest) policyregistry.ObjectRef {
+func servingPayload(t *testing.T, manifest policyregistry.ServingManifest) []byte {
 	t.Helper()
 	payload, err := policyregistry.CanonicalBytes(manifest)
 	require.NoError(t, err)
-	_, err = policyregistry.DecodeServingManifest(payload, testRegistryRoot, kind)
+	return payload
+}
+
+func servingRef(t *testing.T, kind policyregistry.ServingKind, manifest policyregistry.ServingManifest) policyregistry.ObjectRef {
+	t.Helper()
+	payload := servingPayload(t, manifest)
+	_, err := policyregistry.DecodeServingManifest(payload, testRegistryRoot, kind)
 	require.NoError(t, err)
+	return servingStoredRef(t, kind, payload)
+}
+
+func servingStoredRef(t *testing.T, kind policyregistry.ServingKind, payload []byte) policyregistry.ObjectRef {
+	t.Helper()
 	digest := policyregistry.Digest(payload)
 	return policyregistry.ObjectRef{URI: testRegistryRoot + "/router_serving/v1/" + string(kind) + "/sha256/" + digest + ".json", SHA256: digest, Generation: 1}
+}
+
+// driftedPayload re-encodes canonical manifest bytes the way the drifted registry objects
+// were written: a non-Go producer emitted semantically identical JSON with sorted object
+// keys instead of Go struct order, plus a trailing newline.
+func driftedPayload(t *testing.T, canonical []byte) []byte {
+	t.Helper()
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(canonical, &decoded))
+	payload, err := json.Marshal(decoded)
+	require.NoError(t, err)
+	return append(payload, '\n')
 }
 
 func namespaceRef(kind policyregistry.ServingKind, label string) policyregistry.ObjectRef {
@@ -62,7 +87,7 @@ func activateFixture(t *testing.T, snapshot policyregistry.ServingStateSnapshot,
 	t.Helper()
 	proposal := fixtureProposal(t, snapshot, set, now)
 	proposal.WithdrawActivations = withdraw
-	activated, err := policyregistry.NextServingActivation(snapshot, proposal, servingRef(t, policyregistry.ServingProposals, proposal), testRegistryRoot, "test-workflow", now)
+	activated, err := policyregistry.NextServingActivation(snapshot, servingPayload(t, proposal), servingRef(t, policyregistry.ServingProposals, proposal), testRegistryRoot, "test-workflow", now)
 	require.NoError(t, err)
 	activated.Snapshot.Generation++
 	return activated.Snapshot, proposal
@@ -97,6 +122,74 @@ func TestServingDecoderRejectsUnknownFieldsSchemaAndNoncanonicalBytes(t *testing
 	assert.Error(t, set.Validate(testRegistryRoot))
 }
 
+func TestStoredServingManifestToleratesProducerEncodingDrift(t *testing.T) {
+	set := fixtureSet("drifted")
+	drifted := driftedPayload(t, servingPayload(t, set))
+	require.NotEqual(t, servingPayload(t, set), drifted)
+
+	_, err := policyregistry.DecodeServingManifest(drifted, testRegistryRoot, policyregistry.ServingSelectionSets)
+	require.ErrorContains(t, err, "canonical", "pre-publish decode must still reject drifted bytes")
+
+	var warnings bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&warnings, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	manifest, err := policyregistry.DecodeStoredServingManifest(drifted, testRegistryRoot, policyregistry.ServingSelectionSets)
+	require.NoError(t, err)
+	require.Equal(t, &set, manifest)
+	require.NoError(t, manifest.Validate(testRegistryRoot))
+	require.Contains(t, warnings.String(), "not canonical JSON", "operators must see drift without it blocking reads")
+
+	canonical, err := policyregistry.CanonicalBytes(set)
+	require.NoError(t, err)
+	manifest, err = policyregistry.DecodeStoredServingManifest(canonical, testRegistryRoot, policyregistry.ServingSelectionSets)
+	require.NoError(t, err)
+	require.Equal(t, &set, manifest)
+
+	invalid := driftedPayload(t, canonical)
+	invalid = bytes.Replace(invalid, []byte(string(policyregistry.ServingSelectionSetV1)), []byte("future_v2"), 1)
+	_, err = policyregistry.DecodeStoredServingManifest(invalid, testRegistryRoot, policyregistry.ServingSelectionSets)
+	require.Error(t, err, "tolerance is for byte encoding, not semantics")
+
+	invalid = bytes.Replace(drifted, []byte(`"schema_version":`), []byte(`"unknown":true,"schema_version":`), 1)
+	_, err = policyregistry.DecodeStoredServingManifest(invalid, testRegistryRoot, policyregistry.ServingSelectionSets)
+	require.Error(t, err)
+}
+
+func TestActivationBindsStoredProposalPayloadNotCanonicalReencoding(t *testing.T) {
+	set := fixtureSet("one")
+	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	drifted := driftedPayload(t, servingPayload(t, proposal))
+	ref := servingStoredRef(t, policyregistry.ServingProposals, drifted)
+	transition, err := policyregistry.NextServingActivation(policyregistry.ServingStateSnapshot{}, drifted, ref, testRegistryRoot, "workflow", servingEpoch)
+	require.NoError(t, err)
+	require.Equal(t, proposal.RequestID, transition.Activation.RequestID)
+	require.Equal(t, ref, transition.Activation.Proposal)
+
+	mismatched := servingStoredRef(t, policyregistry.ServingProposals, servingPayload(t, proposal))
+	_, err = policyregistry.NextServingActivation(policyregistry.ServingStateSnapshot{}, drifted, mismatched, testRegistryRoot, "workflow", servingEpoch)
+	require.ErrorContains(t, err, "digest", "approval must bind the stored bytes' digest")
+}
+
+func TestServingStoreReadsDriftedObjectsThroughControllerPaths(t *testing.T) {
+	ctx := context.Background()
+	store, _, initialSet := controllerFixture(t)
+	driftedSet := driftedPayload(t, servingPayload(t, initialSet))
+	setRef := servingStoredRef(t, policyregistry.ServingSelectionSets, driftedSet)
+	store.putRaw(setRef, driftedSet)
+
+	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
+	proposal.SelectionSet = setRef
+	driftedProposal := driftedPayload(t, servingPayload(t, proposal))
+	proposalRef := servingStoredRef(t, policyregistry.ServingProposals, driftedProposal)
+	store.putRaw(proposalRef, driftedProposal)
+
+	controller := permissiveController(t, store)
+	preparation, err := controller.Prepare(ctx, proposalRef)
+	require.NoError(t, err)
+	require.True(t, preparation.Prepared)
+}
+
 func TestActivationIncarnationsNeverResetEarlierRetirement(t *testing.T) {
 	firstSet, secondSet := fixtureSet("one"), fixtureSet("two")
 	first, firstProposal := activateFixture(t, policyregistry.ServingStateSnapshot{}, firstSet, servingEpoch)
@@ -108,7 +201,7 @@ func TestActivationIncarnationsNeverResetEarlierRetirement(t *testing.T) {
 	assert.Equal(t, servingEpoch.Add(time.Hour), *third.State.Activations[firstID].SupersededAt)
 	assert.Nil(t, first.State.Activations[firstID].SupersededAt, "pure transition must not mutate the input snapshot")
 	assert.Equal(t, int64(3), third.State.Sequence)
-	retry, err := policyregistry.NextServingActivation(third, firstProposal, servingRef(t, policyregistry.ServingProposals, firstProposal), testRegistryRoot, "retry-workflow", servingEpoch.Add(3*time.Hour))
+	retry, err := policyregistry.NextServingActivation(third, servingPayload(t, firstProposal), servingRef(t, policyregistry.ServingProposals, firstProposal), testRegistryRoot, "retry-workflow", servingEpoch.Add(3*time.Hour))
 	require.NoError(t, err)
 	assert.True(t, retry.Replayed)
 	assert.Equal(t, policyregistry.ActivationSuperseded, retry.Outcome)
@@ -120,10 +213,10 @@ func TestActivationRejectsStalePreviewAndReusedRequestID(t *testing.T) {
 	set := fixtureSet("one")
 	first, proposal := activateFixture(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
 	stale := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
-	_, err := policyregistry.NextServingActivation(first, stale, servingRef(t, policyregistry.ServingProposals, stale), testRegistryRoot, "workflow", servingEpoch)
+	_, err := policyregistry.NextServingActivation(first, servingPayload(t, stale), servingRef(t, policyregistry.ServingProposals, stale), testRegistryRoot, "workflow", servingEpoch)
 	require.ErrorIs(t, err, policyregistry.ErrConflict)
 	proposal.Reason = "different preview"
-	_, err = policyregistry.NextServingActivation(first, proposal, servingRef(t, policyregistry.ServingProposals, proposal), testRegistryRoot, "workflow", servingEpoch)
+	_, err = policyregistry.NextServingActivation(first, servingPayload(t, proposal), servingRef(t, policyregistry.ServingProposals, proposal), testRegistryRoot, "workflow", servingEpoch)
 	require.ErrorIs(t, err, policyregistry.ErrConflict)
 }
 
@@ -238,7 +331,7 @@ func TestSubscriberPlanProfileMustMatchServerOwnedMapping(t *testing.T) {
 
 type servingMemoryStore struct {
 	mu        sync.Mutex
-	objects   map[policyregistry.ObjectRef]policyregistry.ServingManifest
+	objects   map[policyregistry.ObjectRef][]byte
 	policies  map[policyregistry.ObjectRef]*rosterdata.Roster
 	states    map[policyregistry.ServingTarget]policyregistry.ServingStateSnapshot
 	readErr   error
@@ -251,7 +344,7 @@ func newServingMemoryStore() *servingMemoryStore {
 	for _, label := range []string{"build-attestation", "binding-attestation", "evidence"} {
 		artifacts[artifactRef(label)] = []byte(label)
 	}
-	return &servingMemoryStore{objects: make(map[policyregistry.ObjectRef]policyregistry.ServingManifest), policies: make(map[policyregistry.ObjectRef]*rosterdata.Roster), states: make(map[policyregistry.ServingTarget]policyregistry.ServingStateSnapshot), artifacts: artifacts}
+	return &servingMemoryStore{objects: make(map[policyregistry.ObjectRef][]byte), policies: make(map[policyregistry.ObjectRef]*rosterdata.Roster), states: make(map[policyregistry.ServingTarget]policyregistry.ServingStateSnapshot), artifacts: artifacts}
 }
 
 func (s *servingMemoryStore) VerifyServingArtifact(_ context.Context, ref policyregistry.ObjectRef) error {
@@ -266,12 +359,19 @@ func (s *servingMemoryStore) VerifyServingArtifact(_ context.Context, ref policy
 }
 
 func (s *servingMemoryStore) RootURI() string { return testRegistryRoot }
-func (s *servingMemoryStore) ReadServingObject(_ context.Context, _ policyregistry.ServingKind, ref policyregistry.ObjectRef) (policyregistry.ServingManifest, error) {
-	manifest, exists := s.objects[ref]
+func (s *servingMemoryStore) ReadServingObject(_ context.Context, kind policyregistry.ServingKind, ref policyregistry.ObjectRef) (policyregistry.ServingManifest, []byte, error) {
+	payload, exists := s.objects[ref]
 	if !exists {
-		return nil, policyregistry.ErrNotFound
+		return nil, nil, policyregistry.ErrNotFound
 	}
-	return manifest, nil
+	if policyregistry.Digest(payload) != ref.SHA256 {
+		return nil, nil, errors.New("serving object digest mismatch")
+	}
+	manifest, err := policyregistry.DecodeStoredServingManifest(payload, testRegistryRoot, kind)
+	if err != nil {
+		return nil, nil, err
+	}
+	return manifest, payload, nil
 }
 func (s *servingMemoryStore) ReadServingPolicy(_ context.Context, ref policyregistry.ObjectRef) (*rosterdata.Roster, error) {
 	policy, exists := s.policies[ref]
@@ -310,10 +410,22 @@ func (s *servingMemoryStore) publish(t *testing.T, kind policyregistry.ServingKi
 	ref := servingRef(t, kind, manifest)
 	payload, err := policyregistry.CanonicalBytes(manifest)
 	require.NoError(t, err)
-	decodedManifest, err := policyregistry.DecodeServingManifest(payload, testRegistryRoot, kind)
-	require.NoError(t, err)
-	s.objects[ref] = decodedManifest
+	s.putRaw(ref, payload)
 	return ref
+}
+
+// putRaw stores arbitrary bytes under an existing reference, mirroring an object published
+// under an older binary's canonical encoding.
+func (s *servingMemoryStore) putRaw(ref policyregistry.ObjectRef, payload []byte) {
+	s.objects[ref] = payload
+}
+
+// object decodes a stored payload for test assertions without going through ServingStore reads.
+func (s *servingMemoryStore) object(t *testing.T, kind policyregistry.ServingKind, ref policyregistry.ObjectRef) policyregistry.ServingManifest {
+	t.Helper()
+	manifest, _, err := s.ReadServingObject(context.Background(), kind, ref)
+	require.NoError(t, err)
+	return manifest
 }
 
 type preparedValidator func(context.Context, policyregistry.PreparedSelection) error
@@ -422,7 +534,7 @@ func TestServingControllerRejectsUnverifiedProposalEvidence(t *testing.T) {
 
 func TestServingControllerRejectsAttestedCodeMismatch(t *testing.T) {
 	store, controller, set := controllerFixture(t)
-	release := *store.objects[set.Default.Release].(*policyregistry.ServingRelease)
+	release := *store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease)
 	release.RouterImageDigest = "sha256:" + strings.Repeat("9", 64)
 	set.Default.Release = store.publish(t, policyregistry.ServingReleases, release)
 	store.publish(t, policyregistry.ServingSelectionSets, set)
@@ -435,8 +547,8 @@ func TestServingControllerRejectsAttestedCodeMismatch(t *testing.T) {
 
 func TestClassifierBundleIdentityIncludesAuxiliaryModels(t *testing.T) {
 	store, _, set := controllerFixture(t)
-	release := store.objects[set.Default.Release].(*policyregistry.ServingRelease)
-	bundle := *store.objects[release.Classifier].(*policyregistry.ClassifierBundle)
+	release := store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease)
+	bundle := *store.object(t, policyregistry.ServingClassifiers, release.Classifier).(*policyregistry.ClassifierBundle)
 	bundle.AuxiliaryModels = maps.Clone(bundle.AuxiliaryModels)
 	bundle.AuxiliaryModels["escalation"] = artifactRef("different-escalation")
 	changed := servingRef(t, policyregistry.ServingClassifiers, bundle)
@@ -447,11 +559,11 @@ func TestClassifierBundleIdentityIncludesAuxiliaryModels(t *testing.T) {
 
 func registerProfileFixture(t *testing.T, store *servingMemoryStore, base policyregistry.ServingSelection, key string, policy policyregistry.PolicyObject) policyregistry.ServingSelection {
 	t.Helper()
-	release := *store.objects[base.Release].(*policyregistry.ServingRelease)
+	release := *store.object(t, policyregistry.ServingReleases, base.Release).(*policyregistry.ServingRelease)
 	release.Policy = policy
 	releaseRef := store.publish(t, policyregistry.ServingReleases, release)
 	profileRef := store.publish(t, policyregistry.ServingProfiles, policyregistry.RoutingProfile{SchemaVersion: policyregistry.ServingProfileV1, ProfileKey: key, Policy: policy, Requirements: release.Requirements})
-	binding := *store.objects[base.Binding].(*policyregistry.DeploymentBinding)
+	binding := *store.object(t, policyregistry.ServingBindings, base.Binding).(*policyregistry.DeploymentBinding)
 	binding.Release = releaseRef
 	bindingRef := store.publish(t, policyregistry.ServingBindings, binding)
 	return policyregistry.ServingSelection{Release: releaseRef, Binding: bindingRef, Profile: &profileRef}
@@ -459,7 +571,7 @@ func registerProfileFixture(t *testing.T, store *servingMemoryStore, base policy
 
 func TestProfileVersionAdvancePreservesOtherCustomerAndDefault(t *testing.T) {
 	store, controller, initialSet := controllerFixture(t)
-	base := *store.objects[initialSet.Default.Release].(*policyregistry.ServingRelease)
+	base := *store.object(t, policyregistry.ServingReleases, initialSet.Default.Release).(*policyregistry.ServingRelease)
 	initialSet.Profiles[profileKeyOne] = registerProfileFixture(t, store, initialSet.Default, profileKeyOne, base.Policy)
 	initialSet.Profiles[profileKeyTwo] = registerProfileFixture(t, store, initialSet.Default, profileKeyTwo, base.Policy)
 	initialSetRef := store.publish(t, policyregistry.ServingSelectionSets, initialSet)

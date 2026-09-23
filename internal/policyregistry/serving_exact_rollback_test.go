@@ -22,7 +22,7 @@ func TestExactRollbackRestoresProfileInventoryAndRetainsSessions(t *testing.T) {
 
 	profileSet := initialSet
 	profileSet.Profiles = maps.Clone(initialSet.Profiles)
-	defaultRelease := store.objects[initialSet.Default.Release].(*policyregistry.ServingRelease)
+	defaultRelease := store.object(t, policyregistry.ServingReleases, initialSet.Default.Release).(*policyregistry.ServingRelease)
 	profileSet.Profiles[profileKeyOne] = registerProfileFixture(t, store, initialSet.Default, profileKeyOne, defaultRelease.Policy)
 	profileSetRef := store.publish(t, policyregistry.ServingSelectionSets, profileSet)
 	profileProposal := fixtureProposal(t, initial.Snapshot, profileSet, servingEpoch)
@@ -85,7 +85,7 @@ func TestExactRollbackRejectsUnservedSetEvenWithHistoricalSource(t *testing.T) {
 	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, selectionSet, servingEpoch)
 	initial, err := controller.Activate(ctx, store.publish(t, policyregistry.ServingProposals, proposal), "workflow", true)
 	require.NoError(t, err)
-	defaultRelease := store.objects[selectionSet.Default.Release].(*policyregistry.ServingRelease)
+	defaultRelease := store.object(t, policyregistry.ServingReleases, selectionSet.Default.Release).(*policyregistry.ServingRelease)
 	selectionSet.Profiles[profileKeyOne] = registerProfileFixture(t, store, selectionSet.Default, profileKeyOne, defaultRelease.Policy)
 	store.publish(t, policyregistry.ServingSelectionSets, selectionSet)
 	proposal = fixtureProposal(t, initial.Snapshot, selectionSet, servingEpoch)
@@ -141,9 +141,9 @@ func TestExactRollbackBindsHistoricalGenerationAndSource(t *testing.T) {
 			switch mismatch {
 			case "generation":
 				proposal.SelectionSet.Generation++
-				store.objects[proposal.SelectionSet] = &selectionSet
+				store.putRaw(proposal.SelectionSet, servingPayload(t, &selectionSet))
 			case "source":
-				release := *store.objects[selectionSet.Default.Release].(*policyregistry.ServingRelease)
+				release := *store.object(t, policyregistry.ServingReleases, selectionSet.Default.Release).(*policyregistry.ServingRelease)
 				release.Provenance.RouterRevision = "4444444444444444444444444444444444444444"
 				proposal.SourceRelease = store.publish(t, policyregistry.ServingReleases, release)
 				expectedError = "exact selected source composition"

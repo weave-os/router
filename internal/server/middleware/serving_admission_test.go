@@ -40,7 +40,7 @@ func (f admissionAttributionFunc) RecordServingRequest(ctx context.Context, requ
 
 type admissionManifestStore struct {
 	policyregistry.ServingStore // Unexpected mutable-head reads fail the test instead of supplying a fallback.
-	objects                     map[policyregistry.ObjectRef]policyregistry.ServingManifest
+	objects                     map[policyregistry.ObjectRef][]byte
 	policy                      *rosterdata.Roster
 	policyRef                   policyregistry.ObjectRef
 	objectReads                 []policyregistry.ServingKind
@@ -49,13 +49,17 @@ type admissionManifestStore struct {
 
 func (*admissionManifestStore) RootURI() string { return admissionTestRoot }
 
-func (s *admissionManifestStore) ReadServingObject(_ context.Context, kind policyregistry.ServingKind, ref policyregistry.ObjectRef) (policyregistry.ServingManifest, error) {
+func (s *admissionManifestStore) ReadServingObject(_ context.Context, kind policyregistry.ServingKind, ref policyregistry.ObjectRef) (policyregistry.ServingManifest, []byte, error) {
 	s.objectReads = append(s.objectReads, kind)
-	manifest, ok := s.objects[ref]
+	payload, ok := s.objects[ref]
 	if !ok {
-		return nil, policyregistry.ErrNotFound
+		return nil, nil, policyregistry.ErrNotFound
 	}
-	return manifest, nil
+	manifest, err := policyregistry.DecodeStoredServingManifest(payload, admissionTestRoot, kind)
+	if err != nil {
+		return nil, nil, err
+	}
+	return manifest, payload, nil
 }
 
 func (s *admissionManifestStore) ReadServingPolicy(_ context.Context, ref policyregistry.ObjectRef) (*rosterdata.Roster, error) {
@@ -73,7 +77,7 @@ func (s *admissionManifestStore) put(t *testing.T, kind policyregistry.ServingKi
 	require.NoError(t, err)
 	digest := policyregistry.Digest(payload)
 	ref := policyregistry.ObjectRef{URI: admissionTestRoot + "/router_serving/v1/" + string(kind) + "/sha256/" + digest + ".json", SHA256: digest, Generation: 1}
-	s.objects[ref] = manifest
+	s.objects[ref] = payload
 	return ref
 }
 
@@ -94,7 +98,7 @@ func admissionMiddlewareFixture(t *testing.T) (*ServingAdmissionConfig, policyre
 	require.NoError(t, err)
 	policySHA := policyregistry.Digest(policyBytes)
 	policyRef := policyregistry.ObjectRef{URI: admissionTestRoot + "/router_policy/v1/policies/sha256/" + policySHA + ".json", SHA256: policySHA, Generation: 1}
-	store := &admissionManifestStore{objects: make(map[policyregistry.ObjectRef]policyregistry.ServingManifest), policy: policy, policyRef: policyRef}
+	store := &admissionManifestStore{objects: make(map[policyregistry.ObjectRef][]byte), policy: policy, policyRef: policyRef}
 	artifact := func(name string) policyregistry.ObjectRef {
 		return policyregistry.ObjectRef{URI: admissionTestRoot + "/artifacts/" + name, SHA256: policyregistry.Digest([]byte(name)), Generation: 1}
 	}

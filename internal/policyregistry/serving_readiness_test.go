@@ -13,7 +13,7 @@ import (
 
 func TestPrepareWorkerDoesNotDependOnBootstrapClassifierOrOtherTargets(t *testing.T) {
 	store, _, set := controllerFixture(t)
-	binding := *store.objects[set.Default.Binding].(*policyregistry.DeploymentBinding)
+	binding := *store.object(t, policyregistry.ServingBindings, set.Default.Binding).(*policyregistry.DeploymentBinding)
 	identity := policyregistry.WorkerIdentity{Target: binding.Target, Project: binding.Project, Region: binding.Region, Revision: binding.Router.Name, ImageDigest: binding.Router.ImageDigest, Configuration: binding.Router.Configuration}
 	builds := 0
 	cache, err := policyregistry.NewServingRuntimeCache(store, func(context.Context, policyregistry.Candidate) (map[router.Strategy]router.Router, error) {
@@ -51,7 +51,7 @@ func TestPrepareWorkerDoesNotDependOnBootstrapClassifierOrOtherTargets(t *testin
 
 func TestPrepareWorkerRejectsUnavailableAssignedProfile(t *testing.T) {
 	store, _, set := controllerFixture(t)
-	binding := *store.objects[set.Default.Binding].(*policyregistry.DeploymentBinding)
+	binding := *store.object(t, policyregistry.ServingBindings, set.Default.Binding).(*policyregistry.DeploymentBinding)
 	identity := policyregistry.WorkerIdentity{Target: binding.Target, Project: binding.Project, Region: binding.Region, Revision: binding.Router.Name, ImageDigest: binding.Router.ImageDigest, Configuration: binding.Router.Configuration}
 	profile := namespaceRef(policyregistry.ServingProfiles, "unavailable")
 	selection := set.Default

@@ -123,18 +123,22 @@ func (s ServingControlState) Validate(root string, target ServingTarget) error {
 
 // NextServingActivation is pure; persistence must CAS the returned state against snapshot.Generation.
 // Callers must validate the proposed selection set and its prepared bindings before invoking it.
-func NextServingActivation(snapshot ServingStateSnapshot, proposal DeploymentProposal, proposalRef ObjectRef, root, workflowActor string, now time.Time) (ActivationResult, error) {
-	if err := proposal.Validate(root); err != nil {
+// proposalPayload must be the exact stored bytes proposalRef names: the transition derives the
+// proposal from those digest-verified bytes so approval binds the immutable object, not this
+// binary's canonical re-encoding.
+func NextServingActivation(snapshot ServingStateSnapshot, proposalPayload []byte, proposalRef ObjectRef, root, workflowActor string, now time.Time) (ActivationResult, error) {
+	manifest, err := DecodeStoredServingManifest(proposalPayload, root, ServingProposals)
+	if err != nil {
 		return ActivationResult{}, err
+	}
+	proposal, ok := manifest.(*DeploymentProposal)
+	if !ok {
+		return ActivationResult{}, errors.New("registry returned the wrong proposal manifest kind")
 	}
 	if err := ValidateServingRef(proposalRef, root, ServingProposals); err != nil {
 		return ActivationResult{}, err
 	}
-	canonical, err := CanonicalBytes(proposal)
-	if err != nil {
-		return ActivationResult{}, err
-	}
-	if Digest(canonical) != proposalRef.SHA256 || workflowActor == "" || now.IsZero() {
+	if Digest(proposalPayload) != proposalRef.SHA256 || workflowActor == "" || now.IsZero() {
 		return ActivationResult{}, errors.New("proposal digest, execution identity or activation clock is invalid")
 	}
 	if snapshot.Generation < 0 {
@@ -231,6 +235,8 @@ type AdmissionProjection struct {
 
 // SelectSessionRelease applies pin lifetimes to an authoritative target read inside session serialization.
 // A nil previous binding is request-scoped when no canonical client conversation ID exists.
+// sets must hold each activation's selection set keyed by its activation-declared SHA256, as
+// returned by digest- and generation-verified store reads.
 func SelectSessionRelease(previous *SessionReleaseBinding, projection AdmissionProjection, snapshot ServingStateSnapshot, sets map[string]SelectionSet, root string, now time.Time) (SessionReleaseBinding, error) {
 	if snapshot.Generation <= 0 || now.IsZero() || projection.EnrollmentGeneration < 0 || projection.AssignmentGeneration < 0 {
 		return SessionReleaseBinding{}, errors.New("admission requires authoritative state, projection and clock")
@@ -302,11 +308,7 @@ func selectionForActivation(activation Activation, profileKey string, sets map[s
 	if err := set.Validate(root); err != nil {
 		return ServingSelection{}, err
 	}
-	payload, err := CanonicalBytes(set)
-	if err != nil {
-		return ServingSelection{}, err
-	}
-	if set.Target != target || Digest(payload) != activation.SelectionSet.SHA256 {
+	if set.Target != target {
 		return ServingSelection{}, errors.New("activation selection-set identity mismatch")
 	}
 	if profileKey == "" {

@@ -52,12 +52,17 @@ func (s bindingStore) selectionSet() policyregistry.SelectionSet {
 	payload, _ := policyregistry.CanonicalBytes(s.binding)
 	return policyregistry.SelectionSet{SchemaVersion: policyregistry.ServingSelectionSetV1, Target: s.binding.Target, Default: policyregistry.ServingSelection{Release: s.binding.Release, Binding: servingRef(policyregistry.ServingBindings, payload)}, Profiles: map[string]policyregistry.ServingSelection{}}
 }
-func (s bindingStore) ReadServingObject(_ context.Context, kind policyregistry.ServingKind, _ policyregistry.ObjectRef) (policyregistry.ServingManifest, error) {
+func (s bindingStore) ReadServingObject(_ context.Context, kind policyregistry.ServingKind, _ policyregistry.ObjectRef) (policyregistry.ServingManifest, []byte, error) {
+	var manifest policyregistry.ServingManifest = &s.binding
 	if kind == policyregistry.ServingSelectionSets {
 		set := s.selectionSet()
-		return &set, nil
+		manifest = &set
 	}
-	return &s.binding, nil
+	payload, err := policyregistry.CanonicalBytes(manifest)
+	if err != nil {
+		return nil, nil, err
+	}
+	return manifest, payload, nil
 }
 func (s bindingStore) ReadServingState(_ context.Context, target policyregistry.ServingTarget) (policyregistry.ServingStateSnapshot, error) {
 	if target != s.binding.Target {

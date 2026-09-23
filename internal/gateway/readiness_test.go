@@ -29,9 +29,9 @@ func (s readinessStore) ReadServingState(ctx context.Context, target policyregis
 	return s.bindingStore.ReadServingState(ctx, target)
 }
 
-func (s readinessStore) ReadServingObject(ctx context.Context, kind policyregistry.ServingKind, ref policyregistry.ObjectRef) (policyregistry.ServingManifest, error) {
+func (s readinessStore) ReadServingObject(ctx context.Context, kind policyregistry.ServingKind, ref policyregistry.ObjectRef) (policyregistry.ServingManifest, []byte, error) {
 	if s.artifactFailure != nil {
-		return nil, s.artifactFailure
+		return nil, nil, s.artifactFailure
 	}
 	return s.bindingStore.ReadServingObject(ctx, kind, ref)
 }

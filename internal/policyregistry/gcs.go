@@ -125,6 +125,8 @@ func (r *Registry) ReadPolicy(ctx context.Context, ref ObjectRef) (*rosterdata.R
 
 // ReadServingPolicy validates exact bytes and schema only. Managed compatibility must use
 // the selected worker image's catalog, not whichever catalog the controller was built with.
+// Integrity comes from the verified reference digest and generation, so stored bytes that
+// predate this binary's canonical encoding remain readable.
 func (r *Registry) ReadServingPolicy(ctx context.Context, ref ObjectRef) (*rosterdata.Roster, error) {
 	payload, err := r.readExact(ctx, ref, "router_policy/v1/policies/sha256/")
 	if err != nil {
@@ -139,7 +141,7 @@ func (r *Registry) ReadServingPolicy(ctx context.Context, ref ObjectRef) (*roste
 		return nil, err
 	}
 	if !bytes.Equal(canonical, payload) {
-		return nil, errors.New("selection policy object is not canonical JSON")
+		logStorageDrift("router_policy_selection_policy", payload)
 	}
 	roster.SHA256 = rosterdata.SHA256Hex(payload)
 	return roster, nil

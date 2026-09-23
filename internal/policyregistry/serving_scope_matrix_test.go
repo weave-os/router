@@ -45,7 +45,7 @@ func publishSelection(
 ) policyregistry.ServingSelection {
 	t.Helper()
 	releaseRef := store.publish(t, policyregistry.ServingReleases, release)
-	binding := *store.objects[template.Binding].(*policyregistry.DeploymentBinding)
+	binding := *store.object(t, policyregistry.ServingBindings, template.Binding).(*policyregistry.DeploymentBinding)
 	binding.Release = releaseRef
 	binding.Router = router
 	binding.Classifier = classifier
@@ -66,7 +66,7 @@ func TestServingProposalScopeMatrixPreservesCompleteProfileInventory(t *testing.
 	for _, scope := range scopes {
 		t.Run(string(scope), func(t *testing.T) {
 			store, _, initialSet := controllerFixture(t)
-			base := *store.objects[initialSet.Default.Release].(*policyregistry.ServingRelease)
+			base := *store.object(t, policyregistry.ServingReleases, initialSet.Default.Release).(*policyregistry.ServingRelease)
 			initialSet.Profiles[profileKeyOne] = registerProfileFixture(t, store, initialSet.Default, profileKeyOne, base.Policy)
 			secondPolicy := publishChangedPolicy(t, store, store.policies[policyregistry.ObjectRef{
 				URI: base.Policy.URI, SHA256: base.Policy.SHA256, Generation: base.Policy.Generation,
@@ -84,8 +84,8 @@ func TestServingProposalScopeMatrixPreservesCompleteProfileInventory(t *testing.
 			initial, err := controller.Activate(context.Background(), store.publish(t, policyregistry.ServingProposals, initialProposal), "workflow", true)
 			require.NoError(t, err)
 
-			oldBinding := *store.objects[initialSet.Default.Binding].(*policyregistry.DeploymentBinding)
-			oldBundle := *store.objects[base.Classifier].(*policyregistry.ClassifierBundle)
+			oldBinding := *store.object(t, policyregistry.ServingBindings, initialSet.Default.Binding).(*policyregistry.DeploymentBinding)
+			oldBundle := *store.object(t, policyregistry.ServingClassifiers, base.Classifier).(*policyregistry.ClassifierBundle)
 			nextBundle := oldBundle
 			nextBundle.Identity.ArtifactID = "fixture-next"
 			nextBundle.Package = artifactRef("classifier-package-next")
@@ -127,7 +127,7 @@ func TestServingProposalScopeMatrixPreservesCompleteProfileInventory(t *testing.
 				nextClassifierBinding.ImageDigest = nextBundle.Identity.ImageDigest
 				nextClassifierBinding.Configuration = nextBundle.Configuration
 			case policyregistry.ChangeProfile:
-				profileRelease := *store.objects[initialSet.Profiles[profileKeyOne].Release].(*policyregistry.ServingRelease)
+				profileRelease := *store.object(t, policyregistry.ServingReleases, initialSet.Profiles[profileKeyOne].Release).(*policyregistry.ServingRelease)
 				profileRelease.Policy = source.Policy
 				profileRef := store.publish(t, policyregistry.ServingProfiles, policyregistry.RoutingProfile{
 					SchemaVersion: policyregistry.ServingProfileV1,
@@ -146,7 +146,7 @@ func TestServingProposalScopeMatrixPreservesCompleteProfileInventory(t *testing.
 				}
 				if scope != policyregistry.ChangeRoster {
 					for key, previous := range initialSet.Profiles {
-						profileRelease := *store.objects[previous.Release].(*policyregistry.ServingRelease)
+						profileRelease := *store.object(t, policyregistry.ServingReleases, previous.Release).(*policyregistry.ServingRelease)
 						profileRelease.RouterImageDigest = defaultRelease.RouterImageDigest
 						profileRelease.Classifier = defaultRelease.Classifier
 						nextSet.Profiles[key] = publishSelection(t, store, previous, profileRelease, nextRouter, nextClassifierBinding, previous.Profile)
@@ -178,7 +178,7 @@ func TestServingProposalScopeMatrixPreservesCompleteProfileInventory(t *testing.
 				expectedError = "out-of-scope customer tuple"
 			}
 			selection := tampered.Profiles[tamperedKey]
-			release := *store.objects[selection.Release].(*policyregistry.ServingRelease)
+			release := *store.object(t, policyregistry.ServingReleases, selection.Release).(*policyregistry.ServingRelease)
 			release.Policy = nextPolicy
 			profileRef := store.publish(t, policyregistry.ServingProfiles, policyregistry.RoutingProfile{
 				SchemaVersion: policyregistry.ServingProfileV1,
@@ -186,7 +186,7 @@ func TestServingProposalScopeMatrixPreservesCompleteProfileInventory(t *testing.
 				Policy:        nextPolicy,
 				Requirements:  release.Requirements,
 			})
-			binding := *store.objects[selection.Binding].(*policyregistry.DeploymentBinding)
+			binding := *store.object(t, policyregistry.ServingBindings, selection.Binding).(*policyregistry.DeploymentBinding)
 			tampered.Profiles[tamperedKey] = publishSelection(t, store, selection, release, binding.Router, binding.Classifier, &profileRef)
 			proposal.SelectionSet = store.publish(t, policyregistry.ServingSelectionSets, tampered)
 			require.ErrorContains(t, controller.ValidateProposal(context.Background(), proposal), expectedError)
@@ -203,7 +203,7 @@ func TestServingProposalTargetMatrixRejectsCrossTargetBindings(t *testing.T) {
 		t.Run(string(target), func(t *testing.T) {
 			store, _, set := controllerFixture(t)
 			set.Target = target
-			binding := *store.objects[set.Default.Binding].(*policyregistry.DeploymentBinding)
+			binding := *store.object(t, policyregistry.ServingBindings, set.Default.Binding).(*policyregistry.DeploymentBinding)
 			binding.Target = target
 			set.Default.Binding = store.publish(t, policyregistry.ServingBindings, binding)
 			store.publish(t, policyregistry.ServingSelectionSets, set)
@@ -251,7 +251,7 @@ func permissiveController(t *testing.T, store *servingMemoryStore) *policyregist
 func heterogeneousLaneFixture(t *testing.T) (*servingMemoryStore, *policyregistry.ServingController, policyregistry.SelectionSet, policyregistry.ActivationResult) {
 	t.Helper()
 	store, _, initialSet := controllerFixture(t)
-	base := *store.objects[initialSet.Default.Release].(*policyregistry.ServingRelease)
+	base := *store.object(t, policyregistry.ServingReleases, initialSet.Default.Release).(*policyregistry.ServingRelease)
 	basePolicy := store.policies[policyregistry.ObjectRef{URI: base.Policy.URI, SHA256: base.Policy.SHA256, Generation: base.Policy.Generation}]
 	initialSet.Profiles[profileKeyOne] = registerProfileFixture(t, store, initialSet.Default, profileKeyOne, base.Policy)
 	initialSet.Profiles[profileKeyTwo] = registerProfileFixture(t, store, initialSet.Default, profileKeyTwo, publishChangedPolicy(t, store, basePolicy, 0.55))
@@ -267,7 +267,7 @@ func heterogeneousLaneFixture(t *testing.T) (*servingMemoryStore, *policyregistr
 // alongside a foreign policy and classifier, which a Router-only proposal must ignore.
 func routerOnlySource(t *testing.T, store *servingMemoryStore, initialSet policyregistry.SelectionSet, digit string) (policyregistry.ServingRelease, policyregistry.ObjectRef) {
 	t.Helper()
-	base := *store.objects[initialSet.Default.Release].(*policyregistry.ServingRelease)
+	base := *store.object(t, policyregistry.ServingReleases, initialSet.Default.Release).(*policyregistry.ServingRelease)
 	basePolicy := store.policies[policyregistry.ObjectRef{URI: base.Policy.URI, SHA256: base.Policy.SHA256, Generation: base.Policy.Generation}]
 	source := base
 	source.RouterImageDigest = "sha256:" + strings.Repeat(digit, 64)
@@ -280,15 +280,15 @@ func routerOnlySource(t *testing.T, store *servingMemoryStore, initialSet policy
 	return source, store.publish(t, policyregistry.ServingReleases, source)
 }
 
-func routerOnlyRelease(store *servingMemoryStore, previous policyregistry.ServingSelection, source policyregistry.ServingRelease) policyregistry.ServingRelease {
-	release := *store.objects[previous.Release].(*policyregistry.ServingRelease)
+func routerOnlyRelease(t *testing.T, store *servingMemoryStore, previous policyregistry.ServingSelection, source policyregistry.ServingRelease) policyregistry.ServingRelease {
+	release := *store.object(t, policyregistry.ServingReleases, previous.Release).(*policyregistry.ServingRelease)
 	release.RouterImageDigest = source.RouterImageDigest
 	release.Provenance = source.Provenance
 	return release
 }
 
-func sharedRouterRevision(store *servingMemoryStore, initialSet policyregistry.SelectionSet, source policyregistry.ServingRelease, name string) policyregistry.RevisionBinding {
-	router := store.objects[initialSet.Default.Binding].(*policyregistry.DeploymentBinding).Router
+func sharedRouterRevision(t *testing.T, store *servingMemoryStore, initialSet policyregistry.SelectionSet, source policyregistry.ServingRelease, name string) policyregistry.RevisionBinding {
+	router := store.object(t, policyregistry.ServingBindings, initialSet.Default.Binding).(*policyregistry.DeploymentBinding).Router
 	router.Name = name
 	router.URL = "https://" + name + ".example"
 	router.ImageDigest = source.RouterImageDigest
@@ -299,8 +299,8 @@ func sharedRouterRevision(store *servingMemoryStore, initialSet policyregistry.S
 // project, region, and classifier revision; new release, binding, and shared Router revision.
 func routerOnlyLane(t *testing.T, store *servingMemoryStore, previous policyregistry.ServingSelection, source policyregistry.ServingRelease, router policyregistry.RevisionBinding) policyregistry.ServingSelection {
 	t.Helper()
-	classifier := store.objects[previous.Binding].(*policyregistry.DeploymentBinding).Classifier
-	return publishSelection(t, store, previous, routerOnlyRelease(store, previous, source), router, classifier, previous.Profile)
+	classifier := store.object(t, policyregistry.ServingBindings, previous.Binding).(*policyregistry.DeploymentBinding).Classifier
+	return publishSelection(t, store, previous, routerOnlyRelease(t, store, previous, source), router, classifier, previous.Profile)
 }
 
 func routerOnlySet(t *testing.T, store *servingMemoryStore, initialSet policyregistry.SelectionSet, source policyregistry.ServingRelease, router policyregistry.RevisionBinding) policyregistry.SelectionSet {
@@ -327,7 +327,7 @@ func TestServingProposalScopeMatrixRouterOnlyUpdatesEveryLaneAtomically(t *testi
 	ctx := context.Background()
 	store, controller, initialSet, initial := heterogeneousLaneFixture(t)
 	source, sourceRef := routerOnlySource(t, store, initialSet, "4")
-	nextRouter := sharedRouterRevision(store, initialSet, source, "worker-0002")
+	nextRouter := sharedRouterRevision(t, store, initialSet, source, "worker-0002")
 	nextSet := routerOnlySet(t, store, initialSet, source, nextRouter)
 	proposal := routerOnlyProposal(t, store, initial.Snapshot, nextSet, sourceRef)
 	require.NoError(t, controller.ValidateProposal(ctx, proposal))
@@ -345,16 +345,16 @@ func TestServingProposalScopeMatrixRouterOnlyUpdatesEveryLaneAtomically(t *testi
 		require.NotEqual(t, previous.Release, next.Release, lane)
 		require.NotEqual(t, previous.Binding, next.Binding, lane)
 		require.Equal(t, previous.Profile, next.Profile, lane)
-		previousRelease := *store.objects[previous.Release].(*policyregistry.ServingRelease)
-		nextRelease := *store.objects[next.Release].(*policyregistry.ServingRelease)
+		previousRelease := *store.object(t, policyregistry.ServingReleases, previous.Release).(*policyregistry.ServingRelease)
+		nextRelease := *store.object(t, policyregistry.ServingReleases, next.Release).(*policyregistry.ServingRelease)
 		require.Equal(t, source.RouterImageDigest, nextRelease.RouterImageDigest, lane)
 		require.Equal(t, source.Provenance, nextRelease.Provenance, lane)
 		require.Equal(t, previousRelease.SchemaVersion, nextRelease.SchemaVersion, lane)
 		require.Equal(t, previousRelease.Policy, nextRelease.Policy, lane)
 		require.Equal(t, previousRelease.Classifier, nextRelease.Classifier, lane)
 		require.Equal(t, previousRelease.Requirements, nextRelease.Requirements, lane)
-		previousBinding := *store.objects[previous.Binding].(*policyregistry.DeploymentBinding)
-		nextBinding := *store.objects[next.Binding].(*policyregistry.DeploymentBinding)
+		previousBinding := *store.object(t, policyregistry.ServingBindings, previous.Binding).(*policyregistry.DeploymentBinding)
+		nextBinding := *store.object(t, policyregistry.ServingBindings, next.Binding).(*policyregistry.DeploymentBinding)
 		require.Equal(t, nextRouter, nextBinding.Router, lane)
 		require.NotEqual(t, previousBinding.Router, nextBinding.Router, lane)
 		require.Equal(t, previousBinding.Target, nextBinding.Target, lane)
@@ -363,8 +363,8 @@ func TestServingProposalScopeMatrixRouterOnlyUpdatesEveryLaneAtomically(t *testi
 		require.Equal(t, previousBinding.Classifier, nextBinding.Classifier, lane)
 		require.Equal(t, previousBinding.ClassifierBundleSHA256, nextBinding.ClassifierBundleSHA256, lane)
 	}
-	defaultPolicy := store.objects[nextSet.Default.Release].(*policyregistry.ServingRelease).Policy
-	require.NotEqual(t, defaultPolicy, store.objects[nextSet.Profiles[profileKeyTwo].Release].(*policyregistry.ServingRelease).Policy, "heterogeneous lane policies survive")
+	defaultPolicy := store.object(t, policyregistry.ServingReleases, nextSet.Default.Release).(*policyregistry.ServingRelease).Policy
+	require.NotEqual(t, defaultPolicy, store.object(t, policyregistry.ServingReleases, nextSet.Profiles[profileKeyTwo].Release).(*policyregistry.ServingRelease).Policy, "heterogeneous lane policies survive")
 	require.NotEqual(t, source.Policy, defaultPolicy, "source policy must not leak into the default lane")
 
 	t.Run("exact same-target rollback restores heterogeneous lanes", func(t *testing.T) {
@@ -384,7 +384,7 @@ func TestServingProposalScopeMatrixRouterOnlyUpdatesEveryLaneAtomically(t *testi
 		crossTarget.Target = policyregistry.TargetStaging
 		require.ErrorContains(t, controller.ValidateProposal(ctx, crossTarget), "targets differ")
 
-		neverActivated := routerOnlySet(t, store, initialSet, source, sharedRouterRevision(store, initialSet, source, "worker-0009"))
+		neverActivated := routerOnlySet(t, store, initialSet, source, sharedRouterRevision(t, store, initialSet, source, "worker-0009"))
 		unserved := routerOnlyProposal(t, store, rollback.Snapshot, neverActivated, neverActivated.Default.Release)
 		unserved.Scope = policyregistry.ChangeRollback
 		require.ErrorContains(t, controller.ValidateProposal(ctx, unserved), "previously activated on the same target")
@@ -395,9 +395,9 @@ func TestServingProposalScopeMatrixRouterOnlyRejectsPartialOrDriftingLanes(t *te
 	ctx := context.Background()
 	store, controller, initialSet, initial := heterogeneousLaneFixture(t)
 	source, sourceRef := routerOnlySource(t, store, initialSet, "4")
-	nextRouter := sharedRouterRevision(store, initialSet, source, "worker-0002")
+	nextRouter := sharedRouterRevision(t, store, initialSet, source, "worker-0002")
 	canonical := routerOnlySet(t, store, initialSet, source, nextRouter)
-	nextClassifier := store.objects[initialSet.Default.Binding].(*policyregistry.DeploymentBinding).Classifier
+	nextClassifier := store.object(t, policyregistry.ServingBindings, initialSet.Default.Binding).(*policyregistry.DeploymentBinding).Classifier
 	basePolicy := store.policies[policyregistry.ObjectRef{
 		URI: source.Policy.URI, SHA256: source.Policy.SHA256, Generation: source.Policy.Generation,
 	}]
@@ -457,7 +457,7 @@ func TestServingProposalScopeMatrixRouterOnlyRejectsPartialOrDriftingLanes(t *te
 		{
 			name: "default lane policy drift",
 			mutate: func(set *policyregistry.SelectionSet) {
-				release := routerOnlyRelease(store, initialSet.Default, source)
+				release := routerOnlyRelease(t, store, initialSet.Default, source)
 				release.Policy = publishChangedPolicy(t, store, basePolicy, 0.75)
 				set.Default = publishSelection(t, store, initialSet.Default, release, nextRouter, nextClassifier, nil)
 			},
@@ -467,7 +467,7 @@ func TestServingProposalScopeMatrixRouterOnlyRejectsPartialOrDriftingLanes(t *te
 			name: "profile lane policy drift",
 			mutate: func(set *policyregistry.SelectionSet) {
 				previous := initialSet.Profiles[profileKeyOne]
-				release := routerOnlyRelease(store, previous, source)
+				release := routerOnlyRelease(t, store, previous, source)
 				release.Policy = publishChangedPolicy(t, store, basePolicy, 0.75)
 				profileRef := store.publish(t, policyregistry.ServingProfiles, policyregistry.RoutingProfile{
 					SchemaVersion: policyregistry.ServingProfileV1,
@@ -483,7 +483,7 @@ func TestServingProposalScopeMatrixRouterOnlyRejectsPartialOrDriftingLanes(t *te
 			name: "profile lane provenance drift",
 			mutate: func(set *policyregistry.SelectionSet) {
 				previous := initialSet.Profiles[profileKeyOne]
-				release := routerOnlyRelease(store, previous, source)
+				release := routerOnlyRelease(t, store, previous, source)
 				release.Provenance.WeaveRevision = strings.Repeat("b", 40)
 				set.Profiles[profileKeyOne] = publishSelection(t, store, previous, release, nextRouter, nextClassifier, previous.Profile)
 			},
@@ -494,7 +494,7 @@ func TestServingProposalScopeMatrixRouterOnlyRejectsPartialOrDriftingLanes(t *te
 			mutate: func(set *policyregistry.SelectionSet) {
 				previous := initialSet.Profiles[profileKeyOne]
 				lane := routerOnlyLane(t, store, previous, source, nextRouter)
-				binding := *store.objects[lane.Binding].(*policyregistry.DeploymentBinding)
+				binding := *store.object(t, policyregistry.ServingBindings, lane.Binding).(*policyregistry.DeploymentBinding)
 				binding.Region = "other-region"
 				lane.Binding = store.publish(t, policyregistry.ServingBindings, binding)
 				set.Profiles[profileKeyOne] = lane
@@ -520,10 +520,10 @@ func TestServingProposalScopeMatrixRouterOnlyRejectsPartialOrDriftingLanes(t *te
 func TestServingProposalScopeMatrixRouterOnlyRejectsHeterogeneousPredecessorConfiguration(t *testing.T) {
 	ctx := context.Background()
 	store, _, initialSet := controllerFixture(t)
-	base := *store.objects[initialSet.Default.Release].(*policyregistry.ServingRelease)
+	base := *store.object(t, policyregistry.ServingReleases, initialSet.Default.Release).(*policyregistry.ServingRelease)
 	initialSet.Profiles[profileKeyOne] = registerProfileFixture(t, store, initialSet.Default, profileKeyOne, base.Policy)
 	drifted := initialSet.Profiles[profileKeyOne]
-	driftedBinding := *store.objects[drifted.Binding].(*policyregistry.DeploymentBinding)
+	driftedBinding := *store.object(t, policyregistry.ServingBindings, drifted.Binding).(*policyregistry.DeploymentBinding)
 	driftedBinding.Router.Configuration = artifactRef("worker-config-legacy")
 	drifted.Binding = store.publish(t, policyregistry.ServingBindings, driftedBinding)
 	initialSet.Profiles[profileKeyOne] = drifted
@@ -533,7 +533,7 @@ func TestServingProposalScopeMatrixRouterOnlyRejectsHeterogeneousPredecessorConf
 	controller := permissiveController(t, store)
 
 	source, sourceRef := routerOnlySource(t, store, initialSet, "5")
-	nextSet := routerOnlySet(t, store, initialSet, source, sharedRouterRevision(store, initialSet, source, "worker-0002"))
+	nextSet := routerOnlySet(t, store, initialSet, source, sharedRouterRevision(t, store, initialSet, source, "worker-0002"))
 	proposal := routerOnlyProposal(t, store, snapshot, nextSet, sourceRef)
 	require.ErrorContains(t, controller.ValidateProposal(ctx, proposal), "identical predecessor Router configuration across lanes")
 }

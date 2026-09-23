@@ -50,20 +50,26 @@ func (r *Registry) PublishServingManifest(ctx context.Context, kind ServingKind,
 	return r.publishImmutable(ctx, r.prefix+"/"+namespace+digest+".json", payload, digest)
 }
 
-// ReadServingObject validates exact storage generation, digest, namespace and schema.
-func (r *Registry) ReadServingObject(ctx context.Context, kind ServingKind, ref ObjectRef) (ServingManifest, error) {
+// ReadServingObject validates exact storage generation, digest, namespace and schema, and
+// returns the manifest decoded from the exact stored payload. Integrity is verified against
+// ref.SHA256; stored encodings may predate this binary's canonical form.
+func (r *Registry) ReadServingObject(ctx context.Context, kind ServingKind, ref ObjectRef) (ServingManifest, []byte, error) {
 	if err := ValidateServingRef(ref, r.rootURI, kind); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	namespace, err := servingNamespace(kind)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	payload, err := r.readExact(ctx, ref, namespace)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return DecodeServingManifest(payload, r.rootURI, kind)
+	manifest, err := DecodeStoredServingManifest(payload, r.rootURI, kind)
+	if err != nil {
+		return nil, nil, err
+	}
+	return manifest, payload, nil
 }
 
 // ServingRef resolves a selected digest once, before proposal approval.

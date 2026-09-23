@@ -58,7 +58,7 @@ func TestServingAssertionBindsRequestAndExpires(t *testing.T) {
 
 func TestWorkerAdmissionRequiresExactLocalIdentity(t *testing.T) {
 	store, _, set := controllerFixture(t)
-	binding := store.objects[set.Default.Binding].(*policyregistry.DeploymentBinding)
+	binding := store.object(t, policyregistry.ServingBindings, set.Default.Binding).(*policyregistry.DeploymentBinding)
 	assertion := policyregistry.ServingAssertion{APIKeyID: "key", Scope: policyregistry.AdmissionScope{InstallationID: "installation"}, Admission: policyregistry.SessionReleaseBinding{Target: policyregistry.TargetStable, Selection: set.Default}}
 	identity := policyregistry.WorkerIdentity{Target: binding.Target, Project: binding.Project, Region: binding.Region, Revision: binding.Router.Name, ImageDigest: binding.Router.ImageDigest, Configuration: binding.Router.Configuration}
 	_, err := policyregistry.ValidateWorkerAdmission(context.Background(), store, identity, assertion, "installation", "key")

@@ -140,11 +140,12 @@ func TestGCSManagedServingImmutablePublicationAndDigestTampering(t *testing.T) {
 	resolved, err := registry.ServingRef(ctx, policyregistry.ServingSelectionSets, ref.SHA256)
 	require.NoError(t, err)
 	require.Equal(t, ref, resolved)
-	_, err = registry.ReadServingObject(ctx, policyregistry.ServingSelectionSets, ref)
+	_, storedPayload, err := registry.ReadServingObject(ctx, policyregistry.ServingSelectionSets, ref)
 	require.NoError(t, err)
+	require.Equal(t, payload, storedPayload)
 	wrongGeneration := ref
 	wrongGeneration.Generation++
-	_, err = registry.ReadServingObject(ctx, policyregistry.ServingSelectionSets, wrongGeneration)
+	_, _, err = registry.ReadServingObject(ctx, policyregistry.ServingSelectionSets, wrongGeneration)
 	require.ErrorIs(t, err, policyregistry.ErrNotFound)
 	fixture.mu.Lock()
 	for name, generations := range fixture.objects {
@@ -153,10 +154,33 @@ func TestGCSManagedServingImmutablePublicationAndDigestTampering(t *testing.T) {
 		}
 	}
 	fixture.mu.Unlock()
-	_, err = registry.ReadServingObject(ctx, policyregistry.ServingSelectionSets, ref)
+	_, _, err = registry.ReadServingObject(ctx, policyregistry.ServingSelectionSets, ref)
 	require.ErrorContains(t, err, "digest mismatch")
 	_, err = registry.PublishServingManifest(ctx, policyregistry.ServingSelectionSets, payload)
 	require.ErrorContains(t, err, "different bytes")
+}
+
+func TestGCSManagedServingPublishRequiresCanonicalBytesWhileStoredReadsTolerateDrift(t *testing.T) {
+	registry, fixture := newServingGCSFixture(t)
+	ctx := context.Background()
+	set := fixtureSet("drifted")
+	canonical, err := policyregistry.CanonicalBytes(set)
+	require.NoError(t, err)
+	drifted := driftedPayload(t, canonical)
+
+	_, err = registry.PublishServingManifest(ctx, policyregistry.ServingSelectionSets, drifted)
+	require.ErrorContains(t, err, "canonical", "publish must not regress to accepting drifted bytes")
+
+	name := "weave_registry/router_serving/v1/selection_sets/sha256/" + policyregistry.Digest(drifted) + ".json"
+	fixture.mu.Lock()
+	fixture.objects[name] = map[int64][]byte{1: drifted}
+	fixture.current[name] = 1
+	fixture.mu.Unlock()
+	ref := policyregistry.ObjectRef{URI: testRegistryRoot + "/router_serving/v1/selection_sets/sha256/" + policyregistry.Digest(drifted) + ".json", SHA256: policyregistry.Digest(drifted), Generation: 1}
+	manifest, payload, err := registry.ReadServingObject(ctx, policyregistry.ServingSelectionSets, ref)
+	require.NoError(t, err)
+	require.Equal(t, drifted, payload)
+	require.Equal(t, &set, manifest)
 }
 
 func TestGCSManagedServingConcurrentRegistrationReturnsOneImmutableReference(t *testing.T) {
@@ -193,7 +217,7 @@ func TestGCSManagedServingGenerationCASAndAuthoritativeExactRead(t *testing.T) {
 	require.ErrorIs(t, err, policyregistry.ErrNotFound)
 	set := fixtureSet("active")
 	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
-	transition, err := policyregistry.NextServingActivation(policyregistry.ServingStateSnapshot{}, proposal, servingRef(t, policyregistry.ServingProposals, proposal), testRegistryRoot, "workflow", servingEpoch)
+	transition, err := policyregistry.NextServingActivation(policyregistry.ServingStateSnapshot{}, servingPayload(t, proposal), servingRef(t, policyregistry.ServingProposals, proposal), testRegistryRoot, "workflow", servingEpoch)
 	require.NoError(t, err)
 	first, err := registry.CompareAndSwapServingState(ctx, transition.Snapshot.State, 0)
 	require.NoError(t, err)
@@ -204,7 +228,7 @@ func TestGCSManagedServingGenerationCASAndAuthoritativeExactRead(t *testing.T) {
 	_, err = registry.CompareAndSwapServingState(ctx, transition.Snapshot.State, 0)
 	require.ErrorIs(t, err, policyregistry.ErrConflict)
 	proposal = fixtureProposal(t, first, set, servingEpoch)
-	transition, err = policyregistry.NextServingActivation(first, proposal, servingRef(t, policyregistry.ServingProposals, proposal), testRegistryRoot, "workflow", servingEpoch)
+	transition, err = policyregistry.NextServingActivation(first, servingPayload(t, proposal), servingRef(t, policyregistry.ServingProposals, proposal), testRegistryRoot, "workflow", servingEpoch)
 	require.NoError(t, err)
 	second, err := registry.CompareAndSwapServingState(ctx, transition.Snapshot.State, first.Generation)
 	require.NoError(t, err)

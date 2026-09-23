@@ -130,7 +130,7 @@ func TestServingControllerVerifiesSourceBuildEvidenceForDerivedCompositions(t *t
 	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
 	initial, err := controller.Activate(context.Background(), store.publish(t, policyregistry.ServingProposals, proposal), "workflow", true)
 	require.NoError(t, err)
-	source := *store.objects[set.Default.Release].(*policyregistry.ServingRelease)
+	source := *store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease)
 	source.Provenance.BuildAttestation = artifactRef("unpublished-source-attestation")
 	proposal = fixtureProposal(t, initial.Snapshot, set, servingEpoch)
 	proposal.Scope = policyregistry.ChangeRouter

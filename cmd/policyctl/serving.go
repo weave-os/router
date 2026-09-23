@@ -90,6 +90,7 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 	proposalDigest := flags.String("proposal-sha256", "", "resolve this immutable proposal digest once before approval")
 	approvedDigest := flags.String("approved-proposal", "", "SHA256 of the exact proposal approved by the protected workflow")
 	workflowActor := flags.String("workflow-actor", "", "authenticated workflow identity; separate from proposal operator")
+	stored := flags.Bool("stored", false, "validate manifest bytes fetched from the registry; encoding may predate this binary's canonical form")
 	var origins []string
 	flags.Func("validation-origin", "approved private HTTPS revision origin or IAM service audience (repeatable)", func(value string) error { origins = append(origins, value); return nil })
 	if err := flags.Parse(args[1:]); err != nil {
@@ -102,7 +103,10 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 		return errors.New("--target is only accepted for target status; lifecycle destinations are bound by the immutable proposal")
 	}
 	if command == commandValidate || command == commandPublish {
-		return servingManifestOperation(ctx, dependencies, command, *registryURI, policyregistry.ServingKind(*kindRaw), *manifestPath)
+		if *stored && command == commandPublish {
+			return errors.New("--stored only applies to serving validate; publish always requires canonical manifest bytes")
+		}
+		return servingManifestOperation(ctx, dependencies, command, *registryURI, policyregistry.ServingKind(*kindRaw), *manifestPath, *stored)
 	}
 	if command == commandResolve {
 		if *proposalDigest == "" {
@@ -117,7 +121,7 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 		if err != nil {
 			return err
 		}
-		if _, err := registry.ReadServingObject(ctx, policyregistry.ServingProposals, ref); err != nil {
+		if _, _, err := registry.ReadServingObject(ctx, policyregistry.ServingProposals, ref); err != nil {
 			return err
 		}
 		return dependencies.writeOutput(ref)
@@ -192,7 +196,7 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 	return nil
 }
 
-func servingManifestOperation(ctx context.Context, dependencies servingDependencies, command commandName, root string, kind policyregistry.ServingKind, path string) error {
+func servingManifestOperation(ctx context.Context, dependencies servingDependencies, command commandName, root string, kind policyregistry.ServingKind, path string, stored bool) error {
 	if path == "" || kind == "" {
 		return errors.New("serving manifest operation requires --kind and --manifest")
 	}
@@ -200,8 +204,14 @@ func servingManifestOperation(ctx context.Context, dependencies servingDependenc
 	if err != nil {
 		return fmt.Errorf("read serving manifest: %w", err)
 	}
-	payload = bytes.TrimSpace(payload)
-	if _, err := policyregistry.DecodeServingManifest(payload, root, kind); err != nil {
+	if !stored {
+		payload = bytes.TrimSpace(payload)
+	}
+	decode := policyregistry.DecodeServingManifest
+	if stored {
+		decode = policyregistry.DecodeStoredServingManifest
+	}
+	if _, err := decode(payload, root, kind); err != nil {
 		return err
 	}
 	if command == commandValidate {
@@ -247,7 +257,7 @@ func readServingReference(path string, reference *policyregistry.ObjectRef) erro
 }
 
 func servingProposalStatus(ctx context.Context, registry servingRegistry, ref policyregistry.ObjectRef, writeOutput func(any) error) error {
-	manifest, err := registry.ReadServingObject(ctx, policyregistry.ServingProposals, ref)
+	manifest, _, err := registry.ReadServingObject(ctx, policyregistry.ServingProposals, ref)
 	if err != nil {
 		return err
 	}

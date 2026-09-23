@@ -20,7 +20,7 @@ import (
 )
 
 type cliServingRegistry struct {
-	objects   map[policyregistry.ObjectRef]policyregistry.ServingManifest
+	objects   map[policyregistry.ObjectRef][]byte
 	policy    *rosterdata.Roster
 	state     policyregistry.ServingStateSnapshot
 	writes    int
@@ -41,12 +41,19 @@ func (r *cliServingRegistry) VerifyServingArtifact(_ context.Context, ref policy
 
 func (r *cliServingRegistry) RootURI() string { return defaultRegistryURI }
 func (r *cliServingRegistry) Close() error    { return nil }
-func (r *cliServingRegistry) ReadServingObject(_ context.Context, _ policyregistry.ServingKind, ref policyregistry.ObjectRef) (policyregistry.ServingManifest, error) {
-	manifest, ok := r.objects[ref]
+func (r *cliServingRegistry) ReadServingObject(_ context.Context, kind policyregistry.ServingKind, ref policyregistry.ObjectRef) (policyregistry.ServingManifest, []byte, error) {
+	payload, ok := r.objects[ref]
 	if !ok {
-		return nil, policyregistry.ErrNotFound
+		return nil, nil, policyregistry.ErrNotFound
 	}
-	return manifest, nil
+	if policyregistry.Digest(payload) != ref.SHA256 {
+		return nil, nil, errors.New("serving object digest mismatch")
+	}
+	manifest, err := policyregistry.DecodeStoredServingManifest(payload, r.RootURI(), kind)
+	if err != nil {
+		return nil, nil, err
+	}
+	return manifest, payload, nil
 }
 func (r *cliServingRegistry) ReadServingPolicy(context.Context, policyregistry.ObjectRef) (*rosterdata.Roster, error) {
 	return r.policy, nil
@@ -69,12 +76,11 @@ func (r *cliServingRegistry) CompareAndSwapServingState(_ context.Context, state
 	return r.state, nil
 }
 func (r *cliServingRegistry) PublishServingManifest(_ context.Context, kind policyregistry.ServingKind, payload []byte) (policyregistry.ObjectRef, error) {
-	manifest, err := policyregistry.DecodeServingManifest(payload, r.RootURI(), kind)
-	if err != nil {
+	if _, err := policyregistry.DecodeServingManifest(payload, r.RootURI(), kind); err != nil {
 		return policyregistry.ObjectRef{}, err
 	}
 	ref := policyregistry.ObjectRef{URI: r.RootURI() + "/router_serving/v1/" + string(kind) + "/sha256/" + policyregistry.Digest(payload) + ".json", SHA256: policyregistry.Digest(payload), Generation: 1}
-	r.objects[ref] = manifest
+	r.objects[ref] = payload
 	return ref, nil
 }
 func (r *cliServingRegistry) ServingRef(_ context.Context, kind policyregistry.ServingKind, digest string) (policyregistry.ObjectRef, error) {
@@ -125,7 +131,7 @@ func cliServingFixture(t *testing.T) (*cliServingRegistry, *cliDestinationEndpoi
 	t.Helper()
 	policy, err := rosterdata.ParseValidated([]byte(`{"schema_version":"hmm_go_selection_policy_v1","class_order":["low"],"ranking":{"alpha":{"low":0.4},"alpha_min":{"low":0.1},"alpha_max":{"low":0.8},"quality_bias_neutral":0.7,"wii_score_version":"wii-v1","wii_normalization_sha256":"wii","wpi_score_version":"wpi-v1","wpi_normalization_sha256":"wpi"},"preferences":{"preferred_model_bonus":0.5,"subscription_bonus":0.35},"clusters":{"low":{"complexity_label":"low","arms":["openai/gpt-5.6-sol"],"cost_ref_usd":1,"latency_ref_ms":1,"arm_scores":{"openai/gpt-5.6-sol":1},"arm_indices":{"openai/gpt-5.6-sol":{"wii_v1":80,"wpi_v1":40}}}}}`))
 	require.NoError(t, err)
-	registry := &cliServingRegistry{objects: make(map[policyregistry.ObjectRef]policyregistry.ServingManifest), policy: policy}
+	registry := &cliServingRegistry{objects: make(map[policyregistry.ObjectRef][]byte), policy: policy}
 	artifact := policyregistry.ObjectRef{URI: defaultRegistryURI + "/fixture/artifact", SHA256: policyregistry.Digest([]byte("artifact")), Generation: 1}
 	registry.artifacts = map[policyregistry.ObjectRef][]byte{artifact: []byte("artifact")}
 	image := "sha256:" + strings.Repeat("b", 64)
@@ -215,4 +221,35 @@ func TestServingCLIRejectsUnapprovedAndStaleProposalsAndReportsCommittedOutputFa
 	stale := cliPublish(t, registry, policyregistry.ServingProposals, proposal)
 	require.ErrorIs(t, runServingWith(ctx, []string{string(commandPrepare), "--proposal", cliProposalFile(t, stale)}, dependencies), policyregistry.ErrConflict)
 	require.Equal(t, 1, registry.writes)
+}
+
+func TestServingCLIValidateStoredToleratesDriftedManifestBytes(t *testing.T) {
+	_, _, proposal := cliServingFixture(t)
+	canonical, err := policyregistry.CanonicalBytes(proposal)
+	require.NoError(t, err)
+	var decoded map[string]any
+	require.NoError(t, json.Unmarshal(canonical, &decoded))
+	drifted, err := json.Marshal(decoded)
+	require.NoError(t, err)
+	drifted = append(drifted, '\n')
+	path := filepath.Join(t.TempDir(), "proposal.json")
+	require.NoError(t, os.WriteFile(path, drifted, 0o600))
+
+	var output any
+	dependencies := servingDependencies{
+		openRegistry: func(context.Context, string) (servingRegistry, error) {
+			return nil, errors.New("registry must not be opened for stored validation")
+		},
+		writeOutput: func(value any) error { output = value; return nil },
+		clock:       func() time.Time { return proposal.CreatedAt },
+		logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+	ctx := context.Background()
+	args := []string{string(commandValidate), "--kind", string(policyregistry.ServingProposals), "--manifest", path}
+	require.ErrorContains(t, runServingWith(ctx, args, dependencies), "canonical", "strict validate remains the pre-publish gate")
+	require.NoError(t, runServingWith(ctx, append(args, "--stored"), dependencies))
+	encoded, err := json.Marshal(output)
+	require.NoError(t, err)
+	require.Contains(t, string(encoded), policyregistry.Digest(drifted), "stored validation reports the digest of the exact bytes")
+	require.ErrorContains(t, runServingWith(ctx, []string{string(commandPublish), "--kind", string(policyregistry.ServingProposals), "--manifest", path, "--stored"}, dependencies), "--stored only applies to serving validate")
 }

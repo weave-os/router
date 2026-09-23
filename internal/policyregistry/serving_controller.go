@@ -12,9 +12,12 @@ import (
 )
 
 // ServingStore is shared by admission, proposal validation and the single activation controller.
+// ReadServingObject returns the stored object alongside its exact payload bytes; implementations
+// must verify the bytes against the reference digest and generation. Stored encodings may predate
+// this binary's canonical form.
 type ServingStore interface {
 	RootURI() string
-	ReadServingObject(context.Context, ServingKind, ObjectRef) (ServingManifest, error)
+	ReadServingObject(context.Context, ServingKind, ObjectRef) (ServingManifest, []byte, error)
 	ReadServingPolicy(context.Context, ObjectRef) (*rosterdata.Roster, error)
 	ReadServingState(context.Context, ServingTarget) (ServingStateSnapshot, error)
 	CompareAndSwapServingState(context.Context, ServingControlState, int64) (ServingStateSnapshot, error)
@@ -60,29 +63,32 @@ func NewServingController(store ServingValidationStore, validator ServingValidat
 }
 
 func readServing[T ServingManifest](ctx context.Context, store ServingStore, kind ServingKind, ref ObjectRef) (T, error) {
+	typed, _, err := readServingPayload[T](ctx, store, kind, ref)
+	return typed, err
+}
+
+// readServingPayload additionally returns the exact stored payload so callers can bind later
+// checks to the immutable bytes instead of this binary's canonical re-encoding.
+func readServingPayload[T ServingManifest](ctx context.Context, store ServingStore, kind ServingKind, ref ObjectRef) (T, []byte, error) {
 	var zero T
 	if err := ValidateServingRef(ref, store.RootURI(), kind); err != nil {
-		return zero, err
+		return zero, nil, err
 	}
-	manifest, err := store.ReadServingObject(ctx, kind, ref)
+	manifest, payload, err := store.ReadServingObject(ctx, kind, ref)
 	if err != nil {
-		return zero, err
+		return zero, nil, err
+	}
+	if Digest(payload) != ref.SHA256 {
+		return zero, nil, errors.New("registry serving manifest digest mismatch")
 	}
 	typed, ok := manifest.(T)
 	if !ok {
-		return zero, errors.New("registry returned the wrong manifest kind")
+		return zero, nil, errors.New("registry returned the wrong manifest kind")
 	}
 	if err := typed.Validate(store.RootURI()); err != nil {
-		return zero, err
+		return zero, nil, err
 	}
-	payload, err := CanonicalBytes(typed)
-	if err != nil {
-		return zero, err
-	}
-	if Digest(payload) != ref.SHA256 {
-		return zero, errors.New("registry serving manifest digest mismatch")
-	}
-	return typed, nil
+	return typed, payload, nil
 }
 
 // PreparationResult distinguishes fresh readiness from an already-activated idempotent outcome.
@@ -95,7 +101,7 @@ type PreparationResult struct {
 // Prepare validates a frozen proposal without writes; completed retries never require healthy old revisions.
 func (c *ServingController) Prepare(ctx context.Context, proposalRef ObjectRef) (PreparationResult, error) {
 	logger := c.logger.With("proposal_sha256", proposalRef.SHA256)
-	proposal, err := readServing[*DeploymentProposal](ctx, c.store, ServingProposals, proposalRef)
+	proposal, proposalPayload, err := readServingPayload[*DeploymentProposal](ctx, c.store, ServingProposals, proposalRef)
 	if err != nil {
 		logger.Error("Failed to read immutable proposal for serving preparation", "err", err)
 		return PreparationResult{}, err
@@ -108,7 +114,7 @@ func (c *ServingController) Prepare(ctx context.Context, proposalRef ObjectRef) 
 		logger.Error("Failed to read authoritative target for serving preparation", "err", err)
 		return PreparationResult{}, err
 	}
-	transition, err := NextServingActivation(snapshot, *proposal, proposalRef, c.store.RootURI(), proposal.Actor, c.clock().UTC())
+	transition, err := NextServingActivation(snapshot, proposalPayload, proposalRef, c.store.RootURI(), proposal.Actor, c.clock().UTC())
 	if err != nil {
 		logger.Warn("Serving preparation transition rejected", "expected_generation", proposal.ExpectedGeneration, "generation", snapshot.Generation, "err", err)
 		return PreparationResult{}, err
@@ -164,7 +170,7 @@ func (c *ServingController) Activate(ctx context.Context, proposalRef ObjectRef,
 
 func (c *ServingController) activate(ctx context.Context, proposalRef ObjectRef, workflowActor string, approved, rollback bool) (ActivationResult, error) {
 	logger := c.logger.With("proposal_sha256", proposalRef.SHA256, "workflow_actor", workflowActor)
-	proposal, err := readServing[*DeploymentProposal](ctx, c.store, ServingProposals, proposalRef)
+	proposal, proposalPayload, err := readServingPayload[*DeploymentProposal](ctx, c.store, ServingProposals, proposalRef)
 	if err != nil {
 		logger.Error("Failed to read immutable serving activation proposal", "err", err)
 		return ActivationResult{}, err
@@ -182,7 +188,7 @@ func (c *ServingController) activate(ctx context.Context, proposalRef ObjectRef,
 	if errors.Is(err, ErrNotFound) {
 		snapshot = ServingStateSnapshot{}
 	}
-	transition, err := NextServingActivation(snapshot, *proposal, proposalRef, c.store.RootURI(), workflowActor, c.clock().UTC())
+	transition, err := NextServingActivation(snapshot, proposalPayload, proposalRef, c.store.RootURI(), workflowActor, c.clock().UTC())
 	if err != nil {
 		logger.Warn("Serving activation transition rejected", "expected_generation", proposal.ExpectedGeneration, "generation", snapshot.Generation, "err", err)
 		return transition, err
@@ -202,7 +208,7 @@ func (c *ServingController) activate(ctx context.Context, proposalRef ObjectRef,
 		return ActivationResult{}, err
 	}
 	// Validation may be slow; supersession starts at activation, not at the beginning of smoke checks.
-	transition, err = NextServingActivation(snapshot, *proposal, proposalRef, c.store.RootURI(), workflowActor, c.clock().UTC())
+	transition, err = NextServingActivation(snapshot, proposalPayload, proposalRef, c.store.RootURI(), workflowActor, c.clock().UTC())
 	if err != nil {
 		logger.Warn("Serving activation transition construction rejected", "err", err)
 		return ActivationResult{}, err
