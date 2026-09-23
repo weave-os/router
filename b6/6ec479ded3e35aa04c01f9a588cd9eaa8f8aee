@@ -1,0 +1,29 @@
+internal/proxy/llm_escalation_internal_test.go
+  s_dcf6051f82ab96::t_aa16222132548a 63
+internal/proxy/llm_escalation_admin.go
+  s_dcf6051f82ab96::t_0a5bc0ae7cca0b 49,51
+  s_dcf6051f82ab96::t_aa16222132548a 38
+internal/postgres/llm_escalation_repo.go
+  s_dcf6051f82ab96::t_aa16222132548a 408
+  s_dcf6051f82ab96::t_27bf93d3f22609 388
+internal/api/admin/llm_escalation.go
+  s_dcf6051f82ab96::t_aa16222132548a 104,109-110
+internal/router/llmescalation/contracts.go
+  s_dcf6051f82ab96::t_aa16222132548a 223
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b66ec479ded3e35aa04c01f9a588cd9eaa8f8aee",
+  "prompts": {},
+  "sessions": {
+    "s_dcf6051f82ab96": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a6a0-9527-7431-a65c-dbf5b2eaadc9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

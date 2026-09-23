@@ -1,0 +1,16 @@
+install/install.sh
+  h_b69b8da058dd5d 2464,2510,4784,6002
+install/tests/registry_test.sh
+  h_b69b8da058dd5d 410-425
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ee1be500bfec9e3f62bec5b9f62fe0827de2471b",
+  "prompts": {},
+  "humans": {
+    "h_b69b8da058dd5d": {
+      "author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+docs/ROUTE_DECISION_API.md
+  s_f1929ee44adfce::t_a93e8a91c280dd 90-104
+  s_f1929ee44adfce::t_49e291c40d161a 62-69
+clients/python/README.md
+  s_f1929ee44adfce::t_3dd99354e240df 78-82,87,95-99
+clients/python/weave_router_client/client.py
+  s_f1929ee44adfce::t_754eafe5ee56ed 74-76,81-82
+  s_f1929ee44adfce::t_92777504aedad7 364-367
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "41b53b49937b490cd730b8105657a918404255d9",
+  "prompts": {},
+  "sessions": {
+    "s_f1929ee44adfce": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7b9c796f-2c8e-433a-a836-220f5b2f761d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
