@@ -127,3 +127,30 @@ func TestGCSCompareAndSwapServingStateMigratesLegacyStateToNewPathOnce(t *testin
 	require.NoError(t, err)
 	assert.Equal(t, policyregistry.ServingStateSnapshot{State: secondSnapshot.State, Generation: advanced.Generation}, final)
 }
+
+// v2 proposals carry no expected_generation, so previous_selection_set alone must decide whether a
+// proposal is a bootstrap: naming an incumbent on an empty target cannot slip a non-full scope in as
+// the first activation.
+func TestActivationRejectsV2ProposalBindingIncumbentOnEmptyTarget(t *testing.T) {
+	ctx := context.Background()
+	store, controller, set := controllerFixture(t)
+	fixture := newV2Fixture(t, store, set)
+	phantom := namespaceRef(policyregistry.ServingSelectionSets, "never-activated")
+	proposal := fixtureProposalV2(fixture, &phantom)
+	proposal.Scope = policyregistry.ChangeRoster
+	require.NoError(t, proposal.Validate(testRegistryRoot))
+
+	_, err := policyregistry.NextServingActivation(policyregistry.ServingStateSnapshot{}, servingPayload(t, proposal), store.publishArtifact(t, policyregistry.ServingProposal, proposal), testRegistryRoot, "workflow", servingEpoch)
+	require.ErrorIs(t, err, policyregistry.ErrConflict)
+	assert.ErrorContains(t, err, "no activation")
+
+	_, err = controller.Activate(ctx, store.publishArtifact(t, policyregistry.ServingProposal, proposal), "workflow")
+	require.ErrorIs(t, err, policyregistry.ErrConflict)
+	_, err = store.ReadServingState(ctx, set.Target)
+	require.ErrorIs(t, err, policyregistry.ErrNotFound, "a rejected bootstrap must not create target state")
+
+	bootstrap := fixtureProposalV2(fixture, nil)
+	activation, err := controller.Activate(ctx, store.publishArtifact(t, policyregistry.ServingProposal, bootstrap), "workflow")
+	require.NoError(t, err)
+	assert.Equal(t, fixture.setRef, activation.Activation.SelectionSet)
+}

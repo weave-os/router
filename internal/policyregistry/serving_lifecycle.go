@@ -179,6 +179,8 @@ func NextServingActivation(snapshot ServingStateSnapshot, proposalPayload []byte
 		}
 	} else if snapshot.State.CurrentActivationID != "" || len(snapshot.State.Activations) != 0 || snapshot.State.Sequence != 0 {
 		return ActivationResult{}, errors.New("bootstrap requires an absent target state")
+	} else if proposal.PreviousSelectionSet != nil {
+		return ActivationResult{}, fmt.Errorf("proposal binds a previous selection set but the target has no activation: %w", ErrConflict)
 	}
 	if proposal.ExpectedGeneration != nil && snapshot.Generation != *proposal.ExpectedGeneration {
 		return ActivationResult{}, fmt.Errorf("target generation changed; create a new preview: %w", ErrConflict)
