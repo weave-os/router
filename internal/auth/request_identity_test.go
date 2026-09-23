@@ -76,6 +76,28 @@ func TestSubscriptionOwnerForRequestSeparatesCallersSharingAKey(t *testing.T) {
 	require.Equal(t, keyOwnerSubject, key.CredentialSubjectID)
 }
 
+func TestSubscriptionOwnerForRequestUncachedSeesAWithdrawnProjection(t *testing.T) {
+	repo := teamProjection()
+	svc := requestIdentityService(repo)
+	key := sharedKey()
+
+	owner, err := svc.SubscriptionOwnerForRequest(context.Background(), key, "ali@weave.test")
+	require.NoError(t, err)
+	require.Equal(t, aliSubject, owner.SubscriberID)
+
+	delete(repo.projected[installationOne], "ali@weave.test")
+
+	cached, err := svc.SubscriptionOwnerForRequest(context.Background(), key, "ali@weave.test")
+	require.NoError(t, err)
+	require.Equal(t, aliSubject, cached.SubscriberID)
+
+	// Managing a linked account reads the projection as it stands, so the
+	// withdrawn address stops naming Ali's pool straight away.
+	live, err := svc.SubscriptionOwnerForRequestUncached(context.Background(), key, "ali@weave.test")
+	require.NoError(t, err)
+	require.Equal(t, keyOwnerSubject, live.SubscriberID)
+}
+
 func TestSubscriptionOwnerForRequestFallsBackToTheKeysOwner(t *testing.T) {
 	svc := requestIdentityService(teamProjection())
 

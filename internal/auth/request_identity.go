@@ -44,12 +44,25 @@ func (s *Service) WithRequestIdentities(repo RequestIdentityRepository) *Service
 // another organization, resolves to nothing and leaves the key's own identity
 // in place rather than silently selecting someone else's pool.
 func (s *Service) SubscriptionOwnerForRequest(ctx context.Context, key *APIKey, email string) (SubscriptionOwner, error) {
+	return s.subscriptionOwnerForRequest(ctx, key, email, true)
+}
+
+// SubscriptionOwnerForRequestUncached resolves the caller against the live
+// projection, ignoring the cache. Managing a subscription account is rare and
+// destructive, so it reads the projection Weave has now rather than the one it
+// had up to a TTL ago, and a withdrawn identity stops naming its former owner
+// immediately.
+func (s *Service) SubscriptionOwnerForRequestUncached(ctx context.Context, key *APIKey, email string) (SubscriptionOwner, error) {
+	return s.subscriptionOwnerForRequest(ctx, key, email, false)
+}
+
+func (s *Service) subscriptionOwnerForRequest(ctx context.Context, key *APIKey, email string, cached bool) (SubscriptionOwner, error) {
 	owner := SubscriptionOwnerForKey(key)
 	if key == nil || s.requestIdentities == nil || s.requestIdentityCache == nil ||
 		email == "" || key.InstallationID == "" {
 		return owner, nil
 	}
-	subscriberID, err := s.resolveRequestSubscriber(ctx, key.InstallationID, email)
+	subscriberID, err := s.resolveRequestSubscriber(ctx, key.InstallationID, email, cached)
 	if err != nil {
 		return owner, err
 	}
@@ -59,10 +72,12 @@ func (s *Service) SubscriptionOwnerForRequest(ctx context.Context, key *APIKey, 
 	return owner, nil
 }
 
-func (s *Service) resolveRequestSubscriber(ctx context.Context, installationID, email string) (string, error) {
+func (s *Service) resolveRequestSubscriber(ctx context.Context, installationID, email string, cached bool) (string, error) {
 	cacheKey := installationID + "|" + email
-	if subscriberID, cached := s.requestIdentityCache.Get(cacheKey); cached {
-		return subscriberID, nil
+	if cached {
+		if subscriberID, hit := s.requestIdentityCache.Get(cacheKey); hit {
+			return subscriberID, nil
+		}
 	}
 	subscriberID, err := s.requestIdentities.GetSubscriberForEmail(ctx, installationID, email)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {

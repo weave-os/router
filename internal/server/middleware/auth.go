@@ -321,6 +321,24 @@ func SubscriptionOwnerFrom(c *gin.Context) auth.SubscriptionOwner {
 	return auth.SubscriptionOwnerForKey(APIKeyFrom(c))
 }
 
+// SubscriptionOwnerLive re-resolves the caller against the live projection,
+// for the subscription-management endpoints: their owner decides whose linked
+// account is listed, disabled or deleted, so they must not act on an identity
+// the cache still remembers after Weave withdrew it.
+func SubscriptionOwnerLive(c *gin.Context, svc *auth.Service) auth.SubscriptionOwner {
+	apiKey := APIKeyFrom(c)
+	if apiKey == nil || svc == nil {
+		return SubscriptionOwnerFrom(c)
+	}
+	email := proxy.ClientIdentityFromHeaders(c.Request.Header).Email
+	owner, err := svc.SubscriptionOwnerForRequestUncached(c.Request.Context(), apiKey, email)
+	if err != nil {
+		observability.FromGin(c).Error("Failed to resolve request identity for subscription management", "err", err)
+		return SubscriptionOwnerFrom(c)
+	}
+	return owner
+}
+
 // subscriptionOwnerForRequest resolves the caller behind the request email.
 // The resolution never writes to the *auth.APIKey: VerifyAPIKey hands out a
 // cached pointer shared by every concurrent request presenting that key, so a
