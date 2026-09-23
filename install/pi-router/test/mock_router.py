@@ -466,7 +466,6 @@ class Handler(BaseHTTPRequestHandler):
                 "claude_agent_id": self.headers.get("x-claude-code-agent-id"),
                 "claude_parent_agent_id": self.headers.get("x-claude-code-parent-agent-id"),
                 "claude_header_names": [header for header in self.headers if "claude" in header.lower() or "session" in header.lower()],
-                "classifier_thread": self.headers.get("x-weave-classifier-thread"),
                 "tool_names": [tool.get("name") for tool in body.get("tools", []) if isinstance(tool, dict)],
                 "model": body.get("model"),
                 "stream": stream,
