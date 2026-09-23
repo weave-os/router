@@ -372,8 +372,8 @@ func (p DeploymentProposal) Validate(root string) error {
 	if p.SchemaVersion != ServingProposalV1 || p.ExpectedGeneration < 0 || strings.TrimSpace(p.Actor) == "" || strings.TrimSpace(p.Reason) == "" || p.CreatedAt.IsZero() {
 		return errors.New("invalid proposal schema, generation or audit identity")
 	}
-	if _, err := uuid.Parse(p.RequestID); err != nil || p.RequestID == uuid.Nil.String() {
-		return errors.New("proposal request ID must be a nonzero UUID")
+	if err := ValidateServingRequestID(p.RequestID); err != nil {
+		return fmt.Errorf("proposal %w", err)
 	}
 	if _, err := p.Target.Environment(); err != nil {
 		return err

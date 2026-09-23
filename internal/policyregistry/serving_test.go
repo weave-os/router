@@ -220,15 +220,61 @@ func TestActivationIncarnationsNeverResetEarlierRetirement(t *testing.T) {
 	assert.Equal(t, thirdID, retry.Snapshot.State.CurrentActivationID)
 }
 
-func TestActivationRejectsStalePreviewAndReusedRequestID(t *testing.T) {
+func TestActivationRejectsStalePreview(t *testing.T) {
 	set := fixtureSet("one")
-	first, proposal := activateFixture(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	first, _ := activateFixture(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
 	stale := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
 	_, err := policyregistry.NextServingActivation(first, servingPayload(t, stale), servingRef(t, policyregistry.ServingProposals, stale), testRegistryRoot, "workflow", servingEpoch)
 	require.ErrorIs(t, err, policyregistry.ErrConflict)
-	proposal.Reason = "different preview"
-	_, err = policyregistry.NextServingActivation(first, servingPayload(t, proposal), servingRef(t, policyregistry.ServingProposals, proposal), testRegistryRoot, "workflow", servingEpoch)
-	require.ErrorIs(t, err, policyregistry.ErrConflict)
+}
+
+func TestActivationReplayIsKeyedOnProposalRefNotRequestID(t *testing.T) {
+	set := fixtureSet("one")
+	first, firstProposal := activateFixture(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	firstID := first.State.CurrentActivationID
+
+	secondProposal := fixtureProposal(t, first, fixtureSet("two"), servingEpoch.Add(time.Hour))
+	secondProposal.RequestID = firstProposal.RequestID
+	secondRef := servingRef(t, policyregistry.ServingProposals, secondProposal)
+	second, err := policyregistry.NextServingActivation(first, servingPayload(t, secondProposal), secondRef, testRegistryRoot, "workflow", servingEpoch.Add(time.Hour))
+	require.NoError(t, err, "a different proposal sharing a request ID is a second activation, not a conflict")
+	require.False(t, second.Replayed)
+	require.NotEqual(t, firstID, second.Activation.ID)
+	require.Equal(t, int64(2), second.Activation.Sequence)
+	require.Equal(t, firstProposal.RequestID, second.Activation.RequestID)
+	require.Equal(t, firstProposal.RequestID, second.Snapshot.State.Activations[firstID].RequestID)
+	require.NoError(t, second.Snapshot.State.Validate(testRegistryRoot, set.Target), "shared request IDs are audit metadata, not a state invariant")
+
+	second.Snapshot.Generation++
+	replay, err := policyregistry.NextServingActivation(second.Snapshot, servingPayload(t, secondProposal), secondRef, testRegistryRoot, "retry-workflow", servingEpoch.Add(2*time.Hour))
+	require.NoError(t, err)
+	require.True(t, replay.Replayed)
+	require.Equal(t, second.Activation.ID, replay.Activation.ID)
+	require.Equal(t, policyregistry.ActivationCurrent, replay.Outcome)
+	require.Equal(t, second.Snapshot, replay.Snapshot, "replay must not build a new transition")
+}
+
+func TestServingRequestIDIsAnyNonEmptyBoundedString(t *testing.T) {
+	set := fixtureSet("one")
+	for _, requestID := range []string{"run-123456789:lane-0", "a", strings.Repeat("x", policyregistry.MaxServingRequestIDLength)} {
+		proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+		proposal.RequestID = requestID
+		require.NoError(t, proposal.Validate(testRegistryRoot))
+		activated, err := policyregistry.NextServingActivation(policyregistry.ServingStateSnapshot{}, servingPayload(t, proposal), servingRef(t, policyregistry.ServingProposals, proposal), testRegistryRoot, "workflow", servingEpoch)
+		require.NoError(t, err)
+		require.Equal(t, requestID, activated.Activation.RequestID)
+		require.NoError(t, activated.Snapshot.State.Validate(testRegistryRoot, set.Target))
+	}
+	for _, requestID := range []string{"", "   ", strings.Repeat("x", policyregistry.MaxServingRequestIDLength+1)} {
+		proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+		proposal.RequestID = requestID
+		require.ErrorContains(t, proposal.Validate(testRegistryRoot), "request ID")
+		activated, _ := activateFixture(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+		current := activated.State.Activations[activated.State.CurrentActivationID]
+		current.RequestID = requestID
+		activated.State.Activations[current.ID] = current
+		require.ErrorContains(t, activated.State.Validate(testRegistryRoot, set.Target), "request identity")
+	}
 }
 
 func TestSessionReleaseIdleAndSupersessionBoundaries(t *testing.T) {
@@ -347,6 +393,7 @@ type servingMemoryStore struct {
 	states    map[policyregistry.ServingTarget]policyregistry.ServingStateSnapshot
 	readErr   error
 	casErr    error
+	casCalls  int
 	artifacts map[policyregistry.ObjectRef][]byte
 }
 
@@ -403,6 +450,7 @@ func (s *servingMemoryStore) ReadServingState(_ context.Context, target policyre
 func (s *servingMemoryStore) CompareAndSwapServingState(_ context.Context, next policyregistry.ServingControlState, expected int64) (policyregistry.ServingStateSnapshot, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.casCalls++
 	if s.casErr != nil {
 		return policyregistry.ServingStateSnapshot{}, s.casErr
 	}
@@ -495,6 +543,52 @@ func TestServingControllerApprovalCASAndIdempotency(t *testing.T) {
 	staleRef := store.publish(t, policyregistry.ServingProposals, proposal)
 	_, err = controller.Activate(context.Background(), staleRef, "workflow", true)
 	require.ErrorIs(t, err, policyregistry.ErrConflict)
+}
+
+func TestServingControllerCommitsTheSingleTransitionBuiltBeforeValidation(t *testing.T) {
+	store, _, set := controllerFixture(t)
+	clockCalls := 0
+	clock := func() time.Time {
+		clockCalls++
+		return servingEpoch.Add(time.Duration(clockCalls) * time.Minute)
+	}
+	validations := 0
+	var moveGeneration func()
+	validator := preparedValidator(func(context.Context, policyregistry.PreparedSelection) error {
+		validations++
+		if moveGeneration != nil {
+			moveGeneration()
+		}
+		return nil
+	})
+	controller, err := policyregistry.NewServingController(store, validator, clock, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	require.NoError(t, err)
+	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	ref := store.publish(t, policyregistry.ServingProposals, proposal)
+
+	activated, err := controller.Activate(context.Background(), ref, "workflow", true)
+	require.NoError(t, err)
+	require.Equal(t, 1, clockCalls, "the transition is computed once, before destination validation")
+	require.Equal(t, 1, validations)
+	require.Equal(t, 1, store.casCalls)
+	require.Equal(t, servingEpoch.Add(time.Minute), activated.Activation.ActivatedAt)
+	require.Equal(t, activated.Snapshot, store.states[set.Target])
+
+	// A concurrent writer landing during slow destination validation is caught by the CAS write alone.
+	moveGeneration = func() {
+		store.mu.Lock()
+		defer store.mu.Unlock()
+		moved := store.states[set.Target]
+		moved.Generation++
+		store.states[set.Target] = moved
+	}
+	next := fixtureProposal(t, activated.Snapshot, set, servingEpoch)
+	nextRef := store.publish(t, policyregistry.ServingProposals, next)
+	_, err = controller.Activate(context.Background(), nextRef, "workflow", true)
+	require.ErrorIs(t, err, policyregistry.ErrConflict)
+	require.Equal(t, 2, clockCalls)
+	require.Equal(t, 2, store.casCalls)
+	require.Equal(t, activated.Snapshot.State, store.states[set.Target].State, "a lost CAS race must not commit the stale transition")
 }
 
 func TestServingControllerFailsClosedOnRegistryAndCASFailure(t *testing.T) {

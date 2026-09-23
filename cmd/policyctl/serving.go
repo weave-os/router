@@ -272,11 +272,8 @@ func servingProposalStatus(ctx context.Context, registry servingRegistry, ref po
 		snapshot = policyregistry.ServingStateSnapshot{}
 	}
 	for _, activation := range snapshot.State.Activations {
-		if activation.RequestID != proposal.RequestID {
-			continue
-		}
 		if activation.Proposal != ref {
-			return fmt.Errorf("request ID belongs to a different proposal: %w", policyregistry.ErrConflict)
+			continue
 		}
 		outcome := policyregistry.ActivationCurrent
 		if activation.ID != snapshot.State.CurrentActivationID {

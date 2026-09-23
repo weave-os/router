@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/policyregistry"
@@ -143,7 +142,7 @@ func cliServingFixture(t *testing.T) (*cliServingRegistry, *cliDestinationEndpoi
 	binding := policyregistry.DeploymentBinding{SchemaVersion: policyregistry.ServingBindingV1, Target: policyregistry.TargetStable, Project: "test-project", Region: "test-region", Release: releaseRef, Router: policyregistry.RevisionBinding{Name: "worker-1", URL: "https://worker-1.example", Audience: "https://worker.example", ImageDigest: image, Configuration: artifact}, Classifier: policyregistry.RevisionBinding{Name: "classifier-1", URL: "https://classifier-1.example", Audience: "https://classifier.example", ImageDigest: image, Configuration: artifact}, ClassifierBundleSHA256: bundleRef.SHA256, Attestation: artifact}
 	bindingRef := cliPublish(t, registry, policyregistry.ServingBindings, binding)
 	setRef := cliPublish(t, registry, policyregistry.ServingSelectionSets, policyregistry.SelectionSet{SchemaVersion: policyregistry.ServingSelectionSetV1, Target: binding.Target, Default: policyregistry.ServingSelection{Release: releaseRef, Binding: bindingRef}, Profiles: map[string]policyregistry.ServingSelection{}})
-	proposal := policyregistry.DeploymentProposal{SchemaVersion: policyregistry.ServingProposalV1, Target: binding.Target, SelectionSet: setRef, SourceRelease: releaseRef, Scope: policyregistry.ChangeFull, Actor: "original-operator", Reason: "fixture activation", RequestID: uuid.NewString(), CreatedAt: time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC), Evidence: []policyregistry.ObjectRef{artifact}, WithdrawActivations: []string{}}
+	proposal := policyregistry.DeploymentProposal{SchemaVersion: policyregistry.ServingProposalV1, Target: binding.Target, SelectionSet: setRef, SourceRelease: releaseRef, Scope: policyregistry.ChangeFull, Actor: "original-operator", Reason: "fixture activation", RequestID: "run-1:lane-0", CreatedAt: time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC), Evidence: []policyregistry.ObjectRef{artifact}, WithdrawActivations: []string{}}
 	return registry, &cliDestinationEndpoints{registry: registry, bundle: bundle}, proposal
 }
 
@@ -164,7 +163,6 @@ func TestServingCLIProposalPreparationActivationRollbackAndReconciliation(t *tes
 	require.Equal(t, "original-operator", first.Activation.Actor)
 	require.Equal(t, "workflow-service", first.Activation.WorkflowActor)
 	rollback := proposal
-	rollback.RequestID = uuid.NewString()
 	rollback.ExpectedGeneration = first.Snapshot.Generation
 	rollback.PreviousSelectionSet = &proposal.SelectionSet
 	rollback.WithdrawActivations = []string{first.Activation.ID}
@@ -173,6 +171,7 @@ func TestServingCLIProposalPreparationActivationRollbackAndReconciliation(t *tes
 	require.NoError(t, runServingWith(ctx, []string{string(commandRollback), "--proposal", rollbackPath, "--approved-proposal", rollbackRef.SHA256, "--workflow-actor", "rollback-service"}, dependencies))
 	second := output.(policyregistry.ActivationResult)
 	require.NotEqual(t, first.Activation.ID, second.Activation.ID)
+	require.Equal(t, first.Activation.RequestID, second.Activation.RequestID, "a shared request ID is audit metadata; the distinct proposal ref makes this a second activation")
 	require.Equal(t, second.Activation.ID, second.Snapshot.State.Activations[first.Activation.ID].ReplacementID)
 	endpoints.err = errors.New("destination offline")
 	require.NoError(t, runServingWith(ctx, []string{string(commandPrepare), "--proposal", path}, dependencies))
@@ -183,6 +182,8 @@ func TestServingCLIProposalPreparationActivationRollbackAndReconciliation(t *tes
 	require.Equal(t, policyregistry.ActivationSuperseded, output.(policyregistry.ActivationResult).Outcome)
 	require.NoError(t, runServingWith(ctx, []string{string(commandStatus), "--proposal", path}, dependencies))
 	require.Equal(t, first.Activation.ID, output.(policyregistry.ActivationResult).Activation.ID)
+	require.NoError(t, runServingWith(ctx, []string{string(commandStatus), "--proposal", rollbackPath}, dependencies))
+	require.Equal(t, second.Activation.ID, output.(policyregistry.ActivationResult).Activation.ID, "status reconciles by proposal ref, not request ID")
 	require.Equal(t, 2, registry.writes)
 }
 
@@ -215,7 +216,7 @@ func TestServingCLIRejectsUnapprovedAndStaleProposalsAndReportsCommittedOutputFa
 	require.True(t, reconciled.Replayed)
 	require.Equal(t, policyregistry.ActivationCurrent, reconciled.Outcome)
 	require.Equal(t, 1, registry.writes)
-	proposal.RequestID = uuid.NewString()
+	proposal.RequestID = "run-2:lane-0"
 	stale := cliPublish(t, registry, policyregistry.ServingProposals, proposal)
 	require.ErrorIs(t, runServingWith(ctx, []string{string(commandPrepare), "--proposal", cliProposalFile(t, stale)}, dependencies), policyregistry.ErrConflict)
 	require.Equal(t, 1, registry.writes)

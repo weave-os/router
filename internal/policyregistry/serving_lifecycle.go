@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"strings"
 	"time"
 
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -19,6 +20,18 @@ const (
 	// ServingDrainGrace exceeds the current maximum 600-second worker request duration.
 	ServingDrainGrace = 15 * time.Minute
 )
+
+// MaxServingRequestIDLength bounds the workflow-minted audit key recorded on proposals and activations.
+const MaxServingRequestIDLength = 128
+
+// ValidateServingRequestID accepts any non-empty bounded string; request IDs are audit metadata,
+// not identity. Replay is keyed on the proposal reference.
+func ValidateServingRequestID(id string) error {
+	if strings.TrimSpace(id) == "" || len(id) > MaxServingRequestIDLength {
+		return errors.New("request ID must be a non-empty string of at most 128 bytes")
+	}
+	return nil
+}
 
 // Activation is an incarnation, not an artifact ID; identical selections can have many incarnations.
 type Activation struct {
@@ -79,7 +92,6 @@ func (s ServingControlState) Validate(root string, target ServingTarget) error {
 		return errors.New("current activation is missing, superseded or withdrawn")
 	}
 	sequences := make(map[int64]struct{}, len(s.Activations))
-	requests := make(map[string]struct{}, len(s.Activations))
 	for id, activation := range s.Activations {
 		parsedID, err := uuid.Parse(id)
 		if err != nil || parsedID == uuid.Nil || id != parsedID.String() || id != activation.ID || activation.Sequence <= 0 || activation.Sequence > s.Sequence || activation.ActivatedAt.IsZero() || activation.Actor == "" || activation.WorkflowActor == "" {
@@ -89,13 +101,9 @@ func (s ServingControlState) Validate(root string, target ServingTarget) error {
 			return errors.New("duplicate activation sequence")
 		}
 		sequences[activation.Sequence] = struct{}{}
-		if _, err := uuid.Parse(activation.RequestID); err != nil || activation.RequestID == uuid.Nil.String() {
-			return errors.New("invalid activation request identity")
+		if err := ValidateServingRequestID(activation.RequestID); err != nil {
+			return fmt.Errorf("invalid activation request identity: %w", err)
 		}
-		if _, exists := requests[activation.RequestID]; exists {
-			return errors.New("duplicate activation idempotency identity")
-		}
-		requests[activation.RequestID] = struct{}{}
 		if err := ValidateServingRef(activation.SelectionSet, root, ServingSelectionSets); err != nil {
 			return err
 		}
@@ -148,11 +156,8 @@ func NextServingActivation(snapshot ServingStateSnapshot, proposalPayload []byte
 			return ActivationResult{}, err
 		}
 		for _, previous := range snapshot.State.Activations {
-			if previous.RequestID != proposal.RequestID {
-				continue
-			}
 			if previous.Proposal != proposalRef {
-				return ActivationResult{}, fmt.Errorf("request ID already belongs to a different proposal: %w", ErrConflict)
+				continue
 			}
 			outcome := ActivationCurrent
 			if previous.ID != snapshot.State.CurrentActivationID {

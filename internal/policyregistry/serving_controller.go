@@ -205,12 +205,6 @@ func (c *ServingController) activate(ctx context.Context, proposalRef ObjectRef,
 		logger.Error("Serving proposal validation blocked activation", "err", err)
 		return ActivationResult{}, err
 	}
-	// Validation may be slow; supersession starts at activation, not at the beginning of smoke checks.
-	transition, err = NextServingActivation(snapshot, proposalPayload, proposalRef, c.store.RootURI(), workflowActor, c.clock().UTC())
-	if err != nil {
-		logger.Warn("Serving activation transition construction rejected", "err", err)
-		return ActivationResult{}, err
-	}
 	committed, err := c.store.CompareAndSwapServingState(ctx, transition.Snapshot.State, snapshot.Generation)
 	if err != nil {
 		logger.Error("Serving activation CAS failed; keep the proposal for outcome reconciliation", "err", err)

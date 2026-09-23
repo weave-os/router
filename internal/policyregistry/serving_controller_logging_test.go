@@ -23,23 +23,13 @@ func TestServingControllerFailureAuditIncludesProposalAndKnownTarget(t *testing.
 		rollback        bool
 		missingProposal bool
 		mutate          func(*servingMemoryStore)
-		clock           func() func() time.Time
 	}{
 		{name: "proposal read", prepare: true, missingProposal: true, message: "Failed to read immutable proposal for serving preparation"},
 		{name: "target read", prepare: true, message: "Failed to read authoritative target for serving preparation", mutate: func(store *servingMemoryStore) { store.readErr = errors.New("storage unavailable") }},
 		{name: "evidence validation", prepare: true, message: "Serving destination validation blocked preparation", mutate: func(store *servingMemoryStore) { delete(store.artifacts, artifactRef("evidence")) }},
 		{name: "approval", message: "Serving activation rejected: proposal approval missing"},
 		{name: "rollback source", approved: true, rollback: true, message: "Serving rollback source validation rejected"},
-		{name: "final transition", approved: true, message: "Serving activation transition construction rejected", clock: func() func() time.Time {
-			calls := 0
-			return func() time.Time {
-				calls++
-				if calls == 1 {
-					return servingEpoch
-				}
-				return servingEpoch.Add(-time.Nanosecond)
-			}
-		}},
+		{name: "state write", approved: true, message: "Serving activation CAS failed; keep the proposal for outcome reconciliation", mutate: func(store *servingMemoryStore) { store.casErr = errors.New("storage unavailable") }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store, _, set := controllerFixture(t)
@@ -52,9 +42,6 @@ func TestServingControllerFailureAuditIncludesProposalAndKnownTarget(t *testing.
 				test.mutate(store)
 			}
 			clock := func() time.Time { return servingEpoch }
-			if test.clock != nil {
-				clock = test.clock()
-			}
 			var audit bytes.Buffer
 			validator := preparedValidator(func(context.Context, policyregistry.PreparedSelection) error { return nil })
 			controller, err := policyregistry.NewServingController(store, validator, clock, slog.New(slog.NewJSONHandler(&audit, nil)))
