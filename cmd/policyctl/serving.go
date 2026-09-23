@@ -77,9 +77,10 @@ func runServing(ctx context.Context, args []string) (runErr error) {
 	})
 }
 
-// workflowActorFor names the executing identity: a GitHub Actions run when present, else the local
-// user, else the proposal's own operator.
 func workflowActorFor(getenv func(string) string, proposal policyregistry.DeploymentProposal) string {
+	if actor := getenv("WORKFLOW_ACTOR"); actor != "" {
+		return actor
+	}
 	if actor, run := getenv("GITHUB_ACTOR"), getenv("GITHUB_RUN_ID"); actor != "" && run != "" {
 		return actor + "@run:" + run
 	}

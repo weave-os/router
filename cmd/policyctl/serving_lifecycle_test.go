@@ -152,7 +152,7 @@ func TestServingCLIProposalPreparationActivationRollbackAndReconciliation(t *tes
 	path := cliProposalFile(t, ref)
 	var output any
 	var stderr bytes.Buffer
-	env := map[string]string{"GITHUB_ACTOR": "ci-bot", "GITHUB_RUN_ID": "4242", "USER": "local-operator"}
+	env := map[string]string{"WORKFLOW_ACTOR": "github-actions:weave-os/weave:4242:1", "GITHUB_ACTOR": "ci-bot", "GITHUB_RUN_ID": "4242", "USER": "local-operator"}
 	dependencies := servingDependencies{openRegistry: func(context.Context, string) (servingRegistry, error) { return registry, nil }, endpoints: func() (policyregistry.DestinationEndpoints, error) { return endpoints, nil }, writeOutput: func(value any) error { output = value; return nil }, clock: func() time.Time { return proposal.CreatedAt }, logger: slog.New(slog.NewTextHandler(io.Discard, nil)), stderr: &stderr, getenv: func(key string) string { return env[key] }}
 	ctx := context.Background()
 	require.NoError(t, runServingWith(ctx, []string{string(commandResolve), "--proposal-sha256", ref.SHA256}, dependencies))
@@ -164,11 +164,13 @@ func TestServingCLIProposalPreparationActivationRollbackAndReconciliation(t *tes
 	require.NoError(t, runServingWith(ctx, args, dependencies))
 	first := output.(policyregistry.ActivationResult)
 	require.Equal(t, "original-operator", first.Activation.Actor)
-	require.Equal(t, "ci-bot@run:4242", first.Activation.WorkflowActor, "the executing identity comes from the environment, not the ignored flag")
+	require.Equal(t, "github-actions:weave-os/weave:4242:1", first.Activation.WorkflowActor, "the Cloud Run workflow identity takes precedence over the local environment and ignored flag")
 	for _, name := range deprecatedServingFlags {
 		require.Contains(t, stderr.String(), "--"+name+" is deprecated")
 	}
 	require.Equal(t, 3, strings.Count(stderr.String(), "\n"), "one warning line per ignored flag")
+	delete(env, "WORKFLOW_ACTOR")
+	require.Equal(t, "ci-bot@run:4242", workflowActorFor(dependencies.getenv, proposal))
 	delete(env, "GITHUB_RUN_ID")
 	rollback := proposal
 	rollback.ExpectedGeneration = first.Snapshot.Generation
