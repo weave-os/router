@@ -54,6 +54,29 @@ func publishSelection(
 	return policyregistry.ServingSelection{Release: releaseRef, Binding: bindingRef, Profile: profile}
 }
 
+// proposalShape selects which contract version a matrix row publishes: v1 objects throughout, a v2
+// proposal whose previous_selection_set and rollback history are v1 (the layout transition), or a
+// v2 proposal on a v2 history.
+type proposalShape string
+
+const (
+	shapeV1      proposalShape = "v1"
+	shapeV2Mixed proposalShape = "v2_on_v1_history"
+	shapeV2      proposalShape = "v2"
+)
+
+var proposalShapes = []proposalShape{shapeV1, shapeV2Mixed, shapeV2}
+
+// publishShaped publishes a fixture proposal in the row's shape; v2 shapes fold its selection set and
+// source into artifacts/ objects. The returned manifest is what ValidateProposal sees.
+func publishShaped(t *testing.T, store *servingMemoryStore, shape proposalShape, proposal policyregistry.DeploymentProposal) (policyregistry.ProposalManifest, policyregistry.ObjectRef) {
+	t.Helper()
+	if shape == shapeV1 {
+		return proposal, store.publish(t, policyregistry.ServingProposals, proposal)
+	}
+	return foldProposal(t, store, proposal)
+}
+
 func TestServingProposalScopeMatrixPreservesCompleteProfileInventory(t *testing.T) {
 	scopes := []policyregistry.ChangeScope{
 		policyregistry.ChangeFull,
@@ -63,134 +86,147 @@ func TestServingProposalScopeMatrixPreservesCompleteProfileInventory(t *testing.
 		policyregistry.ChangeProfile,
 		policyregistry.ChangeCustom,
 	}
-	for _, scope := range scopes {
-		t.Run(string(scope), func(t *testing.T) {
-			store, _, initialSet := controllerFixture(t)
-			base := *store.object(t, policyregistry.ServingReleases, initialSet.Default.Release).(*policyregistry.ServingRelease)
-			initialSet.Profiles[profileKeyOne] = registerProfileFixture(t, store, initialSet.Default, profileKeyOne, base.Policy)
-			secondPolicy := publishChangedPolicy(t, store, store.policies[policyregistry.ObjectRef{
-				URI: base.Policy.URI, SHA256: base.Policy.SHA256, Generation: base.Policy.Generation,
-			}], 0.55)
-			initialSet.Profiles[profileKeyTwo] = registerProfileFixture(t, store, initialSet.Default, profileKeyTwo, secondPolicy)
-			store.publish(t, policyregistry.ServingSelectionSets, initialSet)
-			controller, err := policyregistry.NewServingController(
-				store,
-				preparedValidator(func(context.Context, policyregistry.PreparedSelection) error { return nil }),
-				func() time.Time { return servingEpoch },
-				slog.New(slog.NewTextHandler(io.Discard, nil)),
-			)
-			require.NoError(t, err)
-			initialProposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
-			initial, err := controller.Activate(context.Background(), store.publish(t, policyregistry.ServingProposals, initialProposal), "workflow")
-			require.NoError(t, err)
-
-			oldBinding := *store.object(t, policyregistry.ServingBindings, initialSet.Default.Binding).(*policyregistry.DeploymentBinding)
-			oldBundle := *store.object(t, policyregistry.ServingClassifiers, base.Classifier).(*policyregistry.ClassifierBundle)
-			nextBundle := oldBundle
-			nextBundle.Identity.ArtifactID = "fixture-next"
-			nextBundle.Package = artifactRef("classifier-package-next")
-			nextBundle.Identity.PackageSHA256 = nextBundle.Package.SHA256
-			nextBundle.Configuration = artifactRef("classifier-config-next")
-			nextBundle.AuxiliaryModels = maps.Clone(oldBundle.AuxiliaryModels)
-			nextClassifier := store.publish(t, policyregistry.ServingClassifiers, nextBundle)
-			nextPolicy := publishChangedPolicy(t, store, store.policies[policyregistry.ObjectRef{
-				URI: base.Policy.URI, SHA256: base.Policy.SHA256, Generation: base.Policy.Generation,
-			}], 0.65)
-			source := base
-			source.RouterImageDigest = "sha256:" + strings.Repeat("4", 64)
-			source.Policy = nextPolicy
-			source.Classifier = nextClassifier
-			sourceRef := store.publish(t, policyregistry.ServingReleases, source)
-
-			nextSet := initialSet
-			nextSet.Profiles = maps.Clone(initialSet.Profiles)
-			nextRouter := oldBinding.Router
-			nextClassifierBinding := oldBinding.Classifier
-			defaultRelease := base
-			switch scope {
-			case policyregistry.ChangeFull, policyregistry.ChangeCustom:
-				defaultRelease = source
-				nextRouter.Name = "worker-0002"
-				nextRouter.ImageDigest = source.RouterImageDigest
-				nextClassifierBinding.Name = "classifier-0002"
-				nextClassifierBinding.ImageDigest = nextBundle.Identity.ImageDigest
-				nextClassifierBinding.Configuration = nextBundle.Configuration
-			case policyregistry.ChangeRouter:
-				defaultRelease.RouterImageDigest = source.RouterImageDigest
-				nextRouter.Name = "worker-0002"
-				nextRouter.ImageDigest = source.RouterImageDigest
-			case policyregistry.ChangeRoster:
-				defaultRelease.Policy = source.Policy
-			case policyregistry.ChangeClassifier:
-				defaultRelease.Classifier = source.Classifier
-				nextClassifierBinding.Name = "classifier-0002"
-				nextClassifierBinding.ImageDigest = nextBundle.Identity.ImageDigest
-				nextClassifierBinding.Configuration = nextBundle.Configuration
-			case policyregistry.ChangeProfile:
-				profileRelease := *store.object(t, policyregistry.ServingReleases, initialSet.Profiles[profileKeyOne].Release).(*policyregistry.ServingRelease)
-				profileRelease.Policy = source.Policy
-				profileRef := store.publish(t, policyregistry.ServingProfiles, policyregistry.RoutingProfile{
-					SchemaVersion: policyregistry.ServingProfileV1,
-					ProfileKey:    profileKeyOne,
-					Policy:        source.Policy,
-					Requirements:  profileRelease.Requirements,
-				})
-				nextSet.Profiles[profileKeyOne] = publishSelection(t, store, initialSet.Profiles[profileKeyOne], profileRelease, oldBinding.Router, oldBinding.Classifier, &profileRef)
-			}
-			if scope != policyregistry.ChangeProfile {
-				if scope == policyregistry.ChangeFull {
-					nextSet.Default = publishSelection(t, store, initialSet.Default, source, nextRouter, nextClassifierBinding, nil)
-					nextSet.Default.Release = sourceRef
-				} else {
-					nextSet.Default = publishSelection(t, store, initialSet.Default, defaultRelease, nextRouter, nextClassifierBinding, nil)
+	for _, shape := range proposalShapes {
+		for _, scope := range scopes {
+			t.Run(string(shape)+"/"+string(scope), func(t *testing.T) {
+				store, _, initialSet := controllerFixture(t)
+				base := *store.object(t, policyregistry.ServingReleases, initialSet.Default.Release).(*policyregistry.ServingRelease)
+				initialSet.Profiles[profileKeyOne] = registerProfileFixture(t, store, initialSet.Default, profileKeyOne, base.Policy)
+				secondPolicy := publishChangedPolicy(t, store, store.policies[policyregistry.ObjectRef{
+					URI: base.Policy.URI, SHA256: base.Policy.SHA256, Generation: base.Policy.Generation,
+				}], 0.55)
+				initialSet.Profiles[profileKeyTwo] = registerProfileFixture(t, store, initialSet.Default, profileKeyTwo, secondPolicy)
+				store.publish(t, policyregistry.ServingSelectionSets, initialSet)
+				controller, err := policyregistry.NewServingController(
+					store,
+					preparedValidator(func(context.Context, policyregistry.PreparedSelection) error { return nil }),
+					func() time.Time { return servingEpoch },
+					slog.New(slog.NewTextHandler(io.Discard, nil)),
+				)
+				require.NoError(t, err)
+				initialShape := shape
+				if shape == shapeV2Mixed {
+					initialShape = shapeV1
 				}
-				if scope != policyregistry.ChangeRoster {
-					for key, previous := range initialSet.Profiles {
-						profileRelease := *store.object(t, policyregistry.ServingReleases, previous.Release).(*policyregistry.ServingRelease)
-						profileRelease.RouterImageDigest = defaultRelease.RouterImageDigest
-						profileRelease.Classifier = defaultRelease.Classifier
-						nextSet.Profiles[key] = publishSelection(t, store, previous, profileRelease, nextRouter, nextClassifierBinding, previous.Profile)
+				_, initialRef := publishShaped(t, store, initialShape, fixtureProposal(t, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch))
+				initial, err := controller.Activate(context.Background(), initialRef, "workflow")
+				require.NoError(t, err)
+
+				oldBinding := *store.object(t, policyregistry.ServingBindings, initialSet.Default.Binding).(*policyregistry.DeploymentBinding)
+				oldBundle := *store.object(t, policyregistry.ServingClassifiers, base.Classifier).(*policyregistry.ClassifierBundle)
+				nextBundle := oldBundle
+				nextBundle.Identity.ArtifactID = "fixture-next"
+				nextBundle.Package = artifactRef("classifier-package-next")
+				nextBundle.Identity.PackageSHA256 = nextBundle.Package.SHA256
+				nextBundle.Configuration = artifactRef("classifier-config-next")
+				nextBundle.AuxiliaryModels = maps.Clone(oldBundle.AuxiliaryModels)
+				nextClassifier := store.publish(t, policyregistry.ServingClassifiers, nextBundle)
+				nextPolicy := publishChangedPolicy(t, store, store.policies[policyregistry.ObjectRef{
+					URI: base.Policy.URI, SHA256: base.Policy.SHA256, Generation: base.Policy.Generation,
+				}], 0.65)
+				source := base
+				source.RouterImageDigest = "sha256:" + strings.Repeat("4", 64)
+				source.Policy = nextPolicy
+				source.Classifier = nextClassifier
+				sourceRef := store.publish(t, policyregistry.ServingReleases, source)
+
+				nextSet := initialSet
+				nextSet.Profiles = maps.Clone(initialSet.Profiles)
+				nextRouter := oldBinding.Router
+				nextClassifierBinding := oldBinding.Classifier
+				defaultRelease := base
+				switch scope {
+				case policyregistry.ChangeFull, policyregistry.ChangeCustom:
+					defaultRelease = source
+					nextRouter.Name = "worker-0002"
+					nextRouter.ImageDigest = source.RouterImageDigest
+					nextClassifierBinding.Name = "classifier-0002"
+					nextClassifierBinding.ImageDigest = nextBundle.Identity.ImageDigest
+					nextClassifierBinding.Configuration = nextBundle.Configuration
+				case policyregistry.ChangeRouter:
+					defaultRelease.RouterImageDigest = source.RouterImageDigest
+					nextRouter.Name = "worker-0002"
+					nextRouter.ImageDigest = source.RouterImageDigest
+				case policyregistry.ChangeRoster:
+					defaultRelease.Policy = source.Policy
+				case policyregistry.ChangeClassifier:
+					defaultRelease.Classifier = source.Classifier
+					nextClassifierBinding.Name = "classifier-0002"
+					nextClassifierBinding.ImageDigest = nextBundle.Identity.ImageDigest
+					nextClassifierBinding.Configuration = nextBundle.Configuration
+				case policyregistry.ChangeProfile:
+					profileRelease := *store.object(t, policyregistry.ServingReleases, initialSet.Profiles[profileKeyOne].Release).(*policyregistry.ServingRelease)
+					profileRelease.Policy = source.Policy
+					profileRef := store.publish(t, policyregistry.ServingProfiles, policyregistry.RoutingProfile{
+						SchemaVersion: policyregistry.ServingProfileV1,
+						ProfileKey:    profileKeyOne,
+						Policy:        source.Policy,
+						Requirements:  profileRelease.Requirements,
+					})
+					nextSet.Profiles[profileKeyOne] = publishSelection(t, store, initialSet.Profiles[profileKeyOne], profileRelease, oldBinding.Router, oldBinding.Classifier, &profileRef)
+				}
+				if scope != policyregistry.ChangeProfile {
+					if scope == policyregistry.ChangeFull {
+						nextSet.Default = publishSelection(t, store, initialSet.Default, source, nextRouter, nextClassifierBinding, nil)
+						nextSet.Default.Release = sourceRef
+					} else {
+						nextSet.Default = publishSelection(t, store, initialSet.Default, defaultRelease, nextRouter, nextClassifierBinding, nil)
+					}
+					if scope != policyregistry.ChangeRoster {
+						for key, previous := range initialSet.Profiles {
+							profileRelease := *store.object(t, policyregistry.ServingReleases, previous.Release).(*policyregistry.ServingRelease)
+							profileRelease.RouterImageDigest = defaultRelease.RouterImageDigest
+							profileRelease.Classifier = defaultRelease.Classifier
+							nextSet.Profiles[key] = publishSelection(t, store, previous, profileRelease, nextRouter, nextClassifierBinding, previous.Profile)
+						}
 					}
 				}
-			}
-			store.publish(t, policyregistry.ServingSelectionSets, nextSet)
-			proposal := fixtureProposal(t, initial.Snapshot, nextSet, servingEpoch)
-			proposal.Scope = scope
-			proposal.SourceRelease = sourceRef
-			if scope == policyregistry.ChangeProfile {
-				proposal.ProfileKey = profileKeyOne
-				proposal.SourceRelease = nextSet.Profiles[profileKeyOne].Release
-			}
-			require.NoError(t, controller.ValidateProposal(context.Background(), proposal))
-			if scope == policyregistry.ChangeProfile {
-				require.NotEqual(t, initialSet.Profiles[profileKeyOne].Profile, nextSet.Profiles[profileKeyOne].Profile)
-			} else {
-				require.Equal(t, initialSet.Profiles[profileKeyOne].Profile, nextSet.Profiles[profileKeyOne].Profile)
-			}
-			require.Equal(t, initialSet.Profiles[profileKeyTwo].Profile, nextSet.Profiles[profileKeyTwo].Profile)
+				store.publish(t, policyregistry.ServingSelectionSets, nextSet)
+				proposal := fixtureProposal(t, initial.Snapshot, nextSet, servingEpoch)
+				proposal.Scope = scope
+				proposal.SourceRelease = sourceRef
+				if scope == policyregistry.ChangeProfile {
+					proposal.ProfileKey = profileKeyOne
+					proposal.SourceRelease = nextSet.Profiles[profileKeyOne].Release
+				}
+				shaped, shapedRef := publishShaped(t, store, shape, proposal)
+				require.NoError(t, controller.ValidateProposal(context.Background(), shaped))
+				if scope == policyregistry.ChangeProfile {
+					require.NotEqual(t, initialSet.Profiles[profileKeyOne].Profile, nextSet.Profiles[profileKeyOne].Profile)
+				} else {
+					require.Equal(t, initialSet.Profiles[profileKeyOne].Profile, nextSet.Profiles[profileKeyOne].Profile)
+				}
+				require.Equal(t, initialSet.Profiles[profileKeyTwo].Profile, nextSet.Profiles[profileKeyTwo].Profile)
+				activated, err := controller.Activate(context.Background(), shapedRef, "workflow")
+				require.NoError(t, err)
+				require.Equal(t, shapedRef, activated.Activation.Proposal)
+				require.Equal(t, shaped.View().SelectionSet, activated.Activation.SelectionSet)
+				require.Equal(t, initial.Snapshot.Generation+1, activated.Snapshot.Generation)
 
-			tampered := nextSet
-			tampered.Profiles = maps.Clone(nextSet.Profiles)
-			tamperedKey := profileKeyOne
-			expectedError := "retain destination profile revisions"
-			if scope == policyregistry.ChangeProfile {
-				tamperedKey = profileKeyTwo
-				expectedError = "out-of-scope customer tuple"
-			}
-			selection := tampered.Profiles[tamperedKey]
-			release := *store.object(t, policyregistry.ServingReleases, selection.Release).(*policyregistry.ServingRelease)
-			release.Policy = nextPolicy
-			profileRef := store.publish(t, policyregistry.ServingProfiles, policyregistry.RoutingProfile{
-				SchemaVersion: policyregistry.ServingProfileV1,
-				ProfileKey:    tamperedKey,
-				Policy:        nextPolicy,
-				Requirements:  release.Requirements,
+				tampered := nextSet
+				tampered.Profiles = maps.Clone(nextSet.Profiles)
+				tamperedKey := profileKeyOne
+				expectedError := "retain destination profile revisions"
+				if scope == policyregistry.ChangeProfile {
+					tamperedKey = profileKeyTwo
+					expectedError = "out-of-scope customer tuple"
+				}
+				selection := tampered.Profiles[tamperedKey]
+				release := *store.object(t, policyregistry.ServingReleases, selection.Release).(*policyregistry.ServingRelease)
+				release.Policy = nextPolicy
+				profileRef := store.publish(t, policyregistry.ServingProfiles, policyregistry.RoutingProfile{
+					SchemaVersion: policyregistry.ServingProfileV1,
+					ProfileKey:    tamperedKey,
+					Policy:        nextPolicy,
+					Requirements:  release.Requirements,
+				})
+				binding := *store.object(t, policyregistry.ServingBindings, selection.Binding).(*policyregistry.DeploymentBinding)
+				tampered.Profiles[tamperedKey] = publishSelection(t, store, selection, release, binding.Router, binding.Classifier, &profileRef)
+				proposal.SelectionSet = store.publish(t, policyregistry.ServingSelectionSets, tampered)
+				shaped, _ = publishShaped(t, store, shape, proposal)
+				require.ErrorContains(t, controller.ValidateProposal(context.Background(), shaped), expectedError)
 			})
-			binding := *store.object(t, policyregistry.ServingBindings, selection.Binding).(*policyregistry.DeploymentBinding)
-			tampered.Profiles[tamperedKey] = publishSelection(t, store, selection, release, binding.Router, binding.Classifier, &profileRef)
-			proposal.SelectionSet = store.publish(t, policyregistry.ServingSelectionSets, tampered)
-			require.ErrorContains(t, controller.ValidateProposal(context.Background(), proposal), expectedError)
-		})
+		}
 	}
 }
 

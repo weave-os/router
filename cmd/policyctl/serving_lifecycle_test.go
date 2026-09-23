@@ -177,7 +177,7 @@ func TestServingCLIProposalPreparationActivationRollbackAndReconciliation(t *tes
 	}
 	require.Equal(t, 3, strings.Count(stderr.String(), "\n"), "one warning line per ignored flag")
 	delete(env, "WORKFLOW_ACTOR")
-	require.Equal(t, "ci-bot@run:4242", workflowActorFor(dependencies.getenv, proposal))
+	require.Equal(t, "ci-bot@run:4242", workflowActorFor(dependencies.getenv, proposal.View()))
 	delete(env, "GITHUB_RUN_ID")
 	rollback := proposal
 	rollback.ExpectedGeneration = first.Snapshot.Generation
@@ -303,4 +303,46 @@ func TestServingCLIKindAcceptsOnlyV2KindsWithFoldingGuidance(t *testing.T) {
 	manifest, _, err := registry.ReadServingObject(ctx, policyregistry.ServingProposal, ref)
 	require.NoError(t, err)
 	require.Equal(t, &v2, manifest)
+}
+
+func TestServingCLILifecycleAcceptsV2ProposalsOverV1History(t *testing.T) {
+	registry, endpoints, proposal := cliServingFixture(t)
+	var output any
+	env := map[string]string{"GITHUB_ACTOR": "ci-bot", "GITHUB_RUN_ID": "4243"}
+	dependencies := servingDependencies{openRegistry: func(context.Context, string) (servingRegistry, error) { return registry, nil }, endpoints: func() (policyregistry.DestinationEndpoints, error) { return endpoints, nil }, writeOutput: func(value any) error { output = value; return nil }, clock: func() time.Time { return proposal.CreatedAt }, logger: slog.New(slog.NewTextHandler(io.Discard, nil)), getenv: func(key string) string { return env[key] }}
+	ctx := context.Background()
+	require.NoError(t, runServingWith(ctx, []string{string(commandActivate), "--proposal", cliProposalFile(t, cliPublish(t, registry, policyregistry.ServingProposals, proposal))}, dependencies))
+	require.EqualValues(t, 1, output.(policyregistry.ActivationResult).Snapshot.Generation)
+
+	v2 := policyregistry.DeploymentProposalV2{SchemaVersion: policyregistry.ServingProposalV2, Target: proposal.Target, PreviousSelectionSet: &proposal.SelectionSet, SelectionSet: proposal.SelectionSet, SourceCandidate: proposal.SourceRelease, Scope: policyregistry.ChangeFull, Actor: "v2-operator", Reason: "v2 proposal on v1 history", RequestID: "run-2:lane-0", CreatedAt: proposal.CreatedAt, Evidence: proposal.Evidence, WithdrawActivations: []string{}}
+	ref := cliPublish(t, registry, policyregistry.ServingProposal, v2)
+	require.Contains(t, ref.URI, "/artifacts/")
+	path := cliProposalFile(t, ref)
+	require.NoError(t, runServingWith(ctx, []string{string(commandResolve), "--proposal-sha256", ref.SHA256}, dependencies))
+	require.Equal(t, ref, output)
+	require.NoError(t, runServingWith(ctx, []string{string(commandPrepare), "--proposal", path}, dependencies))
+	require.True(t, output.(policyregistry.PreparationResult).Prepared)
+	require.NoError(t, runServingWith(ctx, []string{string(commandActivate), "--proposal", path}, dependencies))
+	activated := output.(policyregistry.ActivationResult)
+	require.Equal(t, "v2-operator", activated.Activation.Actor)
+	require.Equal(t, "ci-bot@run:4243", activated.Activation.WorkflowActor)
+	require.Equal(t, ref, activated.Activation.Proposal)
+	require.EqualValues(t, 2, activated.Snapshot.Generation)
+	require.NoError(t, runServingWith(ctx, []string{string(commandStatus), "--proposal", path}, dependencies))
+	require.Equal(t, activated.Activation.ID, output.(policyregistry.ActivationResult).Activation.ID)
+
+	rollback := v2
+	rollback.RequestID = "run-3:lane-0"
+	rollback.WithdrawActivations = []string{activated.Activation.ID}
+	rollbackPath := cliProposalFile(t, cliPublish(t, registry, policyregistry.ServingProposal, rollback))
+	require.NoError(t, runServingWith(ctx, []string{string(commandRollback), "--proposal", rollbackPath}, dependencies))
+	rolled := output.(policyregistry.ActivationResult)
+	require.NotEqual(t, activated.Activation.ID, rolled.Activation.ID)
+	require.Equal(t, rolled.Activation.ID, rolled.Snapshot.State.Activations[activated.Activation.ID].ReplacementID)
+	require.EqualValues(t, 3, rolled.Snapshot.Generation)
+
+	proposal.RequestID = "run-4:lane-0"
+	stale := cliProposalFile(t, cliPublish(t, registry, policyregistry.ServingProposals, proposal))
+	require.ErrorIs(t, runServingWith(ctx, []string{string(commandPrepare), "--proposal", stale}, dependencies), policyregistry.ErrConflict, "v1 proposals still carry expected_generation and freeze against it")
+	require.Equal(t, 3, registry.writes)
 }

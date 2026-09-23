@@ -54,7 +54,7 @@ func (s bindingStore) selectionSet() policyregistry.SelectionSet {
 }
 func (s bindingStore) ReadServingObject(_ context.Context, kind policyregistry.ServingKind, _ policyregistry.ObjectRef) (policyregistry.ServingManifest, []byte, error) {
 	var manifest policyregistry.ServingManifest = &s.binding
-	if kind == policyregistry.ServingSelectionSets {
+	if kind == policyregistry.ServingSelectionSet {
 		set := s.selectionSet()
 		manifest = &set
 	}

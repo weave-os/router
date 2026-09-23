@@ -158,6 +158,10 @@ func (r *Registry) readServingStateObject(ctx context.Context, name string, targ
 
 // CompareAndSwapServingState commits current activation, supersession and withdrawals in one write.
 // This persistence primitive is used only by ServingController, after complete proposal validation.
+// Writes always land on state/<environment>/<target>.json: a target still served from the legacy
+// runtime_state object is migrated by its first write, which the caller issues with generation 0
+// (ServingStateSnapshot.WriteGeneration) so that DoesNotExist guards the bootstrap. The legacy
+// object is never rewritten.
 func (r *Registry) CompareAndSwapServingState(ctx context.Context, next ServingControlState, expectedGeneration int64) (ServingStateSnapshot, error) {
 	if expectedGeneration < 0 {
 		return ServingStateSnapshot{}, errors.New("negative expected serving generation")
@@ -165,7 +169,7 @@ func (r *Registry) CompareAndSwapServingState(ctx context.Context, next ServingC
 	if err := next.Validate(r.rootURI, next.Target); err != nil {
 		return ServingStateSnapshot{}, err
 	}
-	name, err := r.servingLegacyStateName(next.Target)
+	name, err := r.servingStateName(next.Target)
 	if err != nil {
 		return ServingStateSnapshot{}, err
 	}
@@ -191,5 +195,5 @@ func (r *Registry) CompareAndSwapServingState(ctx context.Context, next ServingC
 		return ServingStateSnapshot{}, errors.New("serving activation committed without a newer generation; retry the same proposal to resolve outcome")
 	}
 	// Do not turn a successful CAS into a deployment failure because a subsequent read fails.
-	return ServingStateSnapshot{State: next, Generation: attrs.Generation, LegacyPath: true}, nil
+	return ServingStateSnapshot{State: next, Generation: attrs.Generation}, nil
 }

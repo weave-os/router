@@ -13,7 +13,7 @@ import (
 // classifiers. A reused revision must cold-start after its bootstrap classifier
 // retires. Private destination validation and admission load the live runtime.
 func (c *ServingRuntimeCache) PrepareWorker(ctx context.Context, identity WorkerIdentity, ref ObjectRef) (*Snapshot, error) {
-	set, err := readServing[*SelectionSet](ctx, c.store, ServingSelectionSets, ref)
+	set, err := readSelectionSetView(ctx, c.store, ref)
 	if err != nil {
 		return nil, err
 	}

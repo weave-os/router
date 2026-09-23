@@ -72,7 +72,7 @@ func (a ServingAdmission) Decide(ctx context.Context, admission SerializedAdmiss
 	if admission.Previous != nil && admission.Previous.Target == admission.Projection.Target && admission.Previous.ActivationID != snapshot.State.CurrentActivationID {
 		activationIDs = append(activationIDs, admission.Previous.ActivationID)
 	}
-	sets := make(map[string]SelectionSet, len(activationIDs))
+	sets := make(map[string]SelectionSetView, len(activationIDs))
 	for _, id := range activationIDs {
 		activation, exists := snapshot.State.Activations[id]
 		if !exists {
@@ -81,11 +81,11 @@ func (a ServingAdmission) Decide(ctx context.Context, admission SerializedAdmiss
 		if _, exists := sets[activation.SelectionSet.SHA256]; exists {
 			continue
 		}
-		set, err := readServing[*SelectionSet](ctx, a.Store, ServingSelectionSets, activation.SelectionSet)
+		set, err := readSelectionSetView(ctx, a.Store, activation.SelectionSet)
 		if err != nil {
 			return SessionReleaseBinding{}, err
 		}
-		sets[activation.SelectionSet.SHA256] = *set
+		sets[activation.SelectionSet.SHA256] = set
 	}
 	// Sample after the authoritative read so an activation during GCS I/O cannot
 	// appear to come from the future merely because transaction setup started earlier.

@@ -281,6 +281,96 @@ func (p DeploymentProposalV2) Validate(root string) error {
 	return validateWithdrawals(p.WithdrawActivations)
 }
 
+// ProposalView is the version-neutral reading of a stored proposal. ExpectedGeneration is set
+// only by v1 proposals, which pinned the state generation they previewed; v2 proposals bind the
+// incumbent by previous_selection_set content alone.
+type ProposalView struct {
+	Target               ServingTarget
+	PreviousSelectionSet *ObjectRef
+	SelectionSet         ObjectRef
+	SourceCandidate      ObjectRef
+	Scope                ChangeScope
+	ProfileKey           string
+	Actor                string
+	Reason               string
+	RequestID            string
+	CreatedAt            time.Time
+	Evidence             []ObjectRef
+	WithdrawActivations  []string
+	ExpectedGeneration   *int64
+}
+
+// ProposalManifest is either proposal version; lifecycle code operates on the View.
+type ProposalManifest interface {
+	ServingManifest
+	View() ProposalView
+}
+
+// View exposes a v1 proposal with source_release as its source candidate.
+func (p DeploymentProposal) View() ProposalView {
+	expected := p.ExpectedGeneration
+	return ProposalView{Target: p.Target, PreviousSelectionSet: p.PreviousSelectionSet, SelectionSet: p.SelectionSet, SourceCandidate: p.SourceRelease, Scope: p.Scope, ProfileKey: p.ProfileKey, Actor: p.Actor, Reason: p.Reason, RequestID: p.RequestID, CreatedAt: p.CreatedAt, Evidence: p.Evidence, WithdrawActivations: p.WithdrawActivations, ExpectedGeneration: &expected}
+}
+
+// View exposes a v2 proposal unchanged.
+func (p DeploymentProposalV2) View() ProposalView {
+	return ProposalView{Target: p.Target, PreviousSelectionSet: p.PreviousSelectionSet, SelectionSet: p.SelectionSet, SourceCandidate: p.SourceCandidate, Scope: p.Scope, ProfileKey: p.ProfileKey, Actor: p.Actor, Reason: p.Reason, RequestID: p.RequestID, CreatedAt: p.CreatedAt, Evidence: p.Evidence, WithdrawActivations: p.WithdrawActivations}
+}
+
+// SelectionSetView is the version-neutral reading of a stored selection set: the exact tuple each
+// profile key resolves to, in the form activations and session bindings record. A v2 lane is
+// identified by its candidate plus the selection set that embeds it.
+type SelectionSetView struct {
+	Target   ServingTarget
+	Default  ServingSelection
+	Profiles map[string]ServingSelection
+}
+
+// View exposes a v1 selection set's decomposed tuples.
+func (s SelectionSet) View() SelectionSetView {
+	return SelectionSetView{Target: s.Target, Default: s.Default, Profiles: s.Profiles}
+}
+
+// View names each lane of a v2 selection set through the reference the set was read by.
+func (s SelectionSetV2) View(ref ObjectRef) SelectionSetView {
+	profiles := make(map[string]ServingSelection, len(s.Profiles))
+	for key, lane := range s.Profiles {
+		profileRef := ref
+		profiles[key] = ServingSelection{Release: lane.Candidate, Binding: ref, Profile: &profileRef}
+	}
+	return SelectionSetView{Target: s.Target, Default: ServingSelection{Release: s.Default.Candidate, Binding: ref}, Profiles: profiles}
+}
+
+func (v SelectionSetView) validate(root string) error {
+	if v.Profiles == nil {
+		return errors.New("selection set requires an explicit profile map")
+	}
+	if _, err := v.Target.Environment(); err != nil {
+		return err
+	}
+	if err := v.Default.validate(root, false); err != nil {
+		return err
+	}
+	for key, selection := range v.Profiles {
+		if err := validateProfileKey(key); err != nil {
+			return err
+		}
+		if err := selection.validate(root, true); err != nil {
+			return fmt.Errorf("profile %q: %w", key, err)
+		}
+	}
+	return nil
+}
+
+// selection returns the tuple for a profile key; the empty key is the default.
+func (v SelectionSetView) selection(profileKey string) (ServingSelection, bool) {
+	if profileKey == "" {
+		return v.Default, true
+	}
+	selection, exists := v.Profiles[profileKey]
+	return selection, exists
+}
+
 // servingSchemaOf reports the declared schema without enforcing the rest of the contract, so
 // family kinds can pick the concrete type before the strict decode.
 func servingSchemaOf(payload []byte) (ServingSchema, error) {
