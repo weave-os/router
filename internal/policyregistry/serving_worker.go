@@ -28,11 +28,11 @@ func (w WorkerIdentity) Validate() error {
 }
 
 // ValidateBinding enforces physical identity for both preparation and request admission.
-func (w WorkerIdentity) ValidateBinding(binding DeploymentBinding) error {
+func (w WorkerIdentity) ValidateBinding(target ServingTarget, binding LaneBinding) error {
 	if err := w.Validate(); err != nil {
 		return err
 	}
-	if binding.Target != w.Target || binding.Project != w.Project || binding.Region != w.Region || binding.Router.Name != w.Revision || binding.Router.ImageDigest != w.ImageDigest || binding.Router.Configuration != w.Configuration {
+	if target != w.Target || binding.Project != w.Project || binding.Region != w.Region || binding.Router.Name != w.Revision || binding.Router.ImageDigest != w.ImageDigest || binding.Router.Configuration != w.Configuration {
 		return errors.New("admission binding differs from attested worker identity")
 	}
 	return nil
@@ -40,34 +40,41 @@ func (w WorkerIdentity) ValidateBinding(binding DeploymentBinding) error {
 
 // ResolveAdmissionBinding validates the target-local destination without consulting a newer head.
 // Reading lifecycle again here would change the decision of an already admitted request.
-func ResolveAdmissionBinding(ctx context.Context, store ServingStore, admission SessionReleaseBinding) (DeploymentBinding, error) {
+func ResolveAdmissionBinding(ctx context.Context, store ServingStore, admission SessionReleaseBinding) (LaneBinding, error) {
 	if err := admission.Selection.validate(store.RootURI(), admission.ProfileKey != ""); err != nil {
-		return DeploymentBinding{}, err
+		return LaneBinding{}, err
+	}
+	if admission.Selection.isLane(store.RootURI()) {
+		lane, err := readLane(ctx, store, admission.Target, admission.ProfileKey, admission.Selection)
+		if err != nil {
+			return LaneBinding{}, err
+		}
+		return lane.LaneBinding, nil
 	}
 	binding, err := readServing[*DeploymentBinding](ctx, store, ServingBindings, admission.Selection.Binding)
 	if err != nil {
-		return DeploymentBinding{}, err
+		return LaneBinding{}, err
 	}
 	if binding.Target != admission.Target || binding.Release != admission.Selection.Release {
-		return DeploymentBinding{}, errors.New("admitted destination differs from immutable binding")
+		return LaneBinding{}, errors.New("admitted destination differs from immutable binding")
 	}
-	return *binding, nil
+	return binding.lane(), nil
 }
 
 // ValidateWorkerAdmission rejects a signed request addressed to a different physical worker.
-func ValidateWorkerAdmission(ctx context.Context, store ServingStore, identity WorkerIdentity, assertion ServingAssertion, installationID, apiKeyID string) (DeploymentBinding, error) {
+func ValidateWorkerAdmission(ctx context.Context, store ServingStore, identity WorkerIdentity, assertion ServingAssertion, installationID, apiKeyID string) (LaneBinding, error) {
 	if err := identity.Validate(); err != nil {
-		return DeploymentBinding{}, err
+		return LaneBinding{}, err
 	}
 	if assertion.Scope.InstallationID != installationID || assertion.APIKeyID != apiKeyID || assertion.Admission.Target != identity.Target {
-		return DeploymentBinding{}, errors.New("serving assertion does not match authenticated credential or worker target")
+		return LaneBinding{}, errors.New("serving assertion does not match authenticated credential or worker target")
 	}
 	binding, err := ResolveAdmissionBinding(ctx, store, assertion.Admission)
 	if err != nil {
-		return DeploymentBinding{}, err
+		return LaneBinding{}, err
 	}
-	if err := identity.ValidateBinding(binding); err != nil {
-		return DeploymentBinding{}, err
+	if err := identity.ValidateBinding(assertion.Admission.Target, binding); err != nil {
+		return LaneBinding{}, err
 	}
 	return binding, nil
 }
@@ -82,12 +89,12 @@ func ValidateWorkerSelection(ctx context.Context, store ServingStore, cache *Ser
 	if err != nil {
 		return WorkerAttestation{}, err
 	}
-	if err := identity.ValidateBinding(prepared.Binding); err != nil {
+	if err := identity.ValidateBinding(prepared.Target, prepared.Binding); err != nil {
 		return WorkerAttestation{}, err
 	}
 	snapshot, err := cache.Snapshot(ctx, SessionReleaseBinding{Target: request.Target, ProfileKey: request.ProfileKey, Selection: request.Selection})
 	if err != nil {
 		return WorkerAttestation{}, err
 	}
-	return WorkerAttestation{Identity: identity, Requirements: prepared.Release.Requirements, CatalogArms: snapshot.Policy.AllArms(), Selection: request.Selection, Ready: true}, nil
+	return WorkerAttestation{Identity: identity, Requirements: prepared.Candidate.Requirements, CatalogArms: snapshot.Policy.AllArms(), Selection: request.Selection, Ready: true}, nil
 }

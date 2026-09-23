@@ -513,7 +513,7 @@ func controllerFixture(t *testing.T) (*servingMemoryStore, *policyregistry.Servi
 		if selection.Binding.Router.ImageDigest != "sha256:"+strings.Repeat("1", 64) {
 			return errors.New("worker attestation mismatch")
 		}
-		if selection.Classifier.AuxiliaryModels["escalation"] != artifactRef("escalation") {
+		if selection.Candidate.Classifier.AuxiliaryModels["escalation"] != artifactRef("escalation") {
 			return errors.New("auxiliary model mismatch")
 		}
 		return nil

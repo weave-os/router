@@ -57,10 +57,13 @@ type ServingControlState struct {
 	Activations         map[string]Activation `json:"activations"`
 }
 
-// ServingStateSnapshot binds state bytes to the concurrency token read with them.
+// ServingStateSnapshot binds state bytes to the concurrency token read with them. LegacyPath
+// marks a snapshot served from the pre-v2 state object, whose generation does not govern the
+// new state path.
 type ServingStateSnapshot struct {
 	State      ServingControlState `json:"state"`
 	Generation int64               `json:"generation"`
+	LegacyPath bool                `json:"legacy_path,omitempty"`
 }
 
 // ActivationOutcome describes a successful CAS or a previous idempotent success.

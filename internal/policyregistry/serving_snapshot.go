@@ -125,8 +125,8 @@ func (c *ServingRuntimeCache) Snapshot(ctx context.Context, admission SessionRel
 			},
 		},
 		Release: Release{
-			Classifier: prepared.Classifier.Identity,
-			Policy:     prepared.Release.Policy,
+			Classifier: prepared.Candidate.Classifier.Identity,
+			Policy:     prepared.Candidate.Policy,
 		},
 		Policy:             prepared.Policy,
 		ClassifierAudience: prepared.Binding.Classifier.Audience,

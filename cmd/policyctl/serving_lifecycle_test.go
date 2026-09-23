@@ -103,7 +103,7 @@ func (e *cliDestinationEndpoints) ValidateWorker(ctx context.Context, _ policyre
 	if err != nil {
 		return policyregistry.WorkerAttestation{}, err
 	}
-	return policyregistry.WorkerAttestation{Ready: true, Selection: request.Selection, Requirements: prepared.Release.Requirements, CatalogArms: e.registry.policy.AllArms(), Identity: policyregistry.WorkerIdentity{Target: request.Target, Project: prepared.Binding.Project, Region: prepared.Binding.Region, Revision: prepared.Binding.Router.Name, ImageDigest: prepared.Binding.Router.ImageDigest, Configuration: prepared.Binding.Router.Configuration}}, e.err
+	return policyregistry.WorkerAttestation{Ready: true, Selection: request.Selection, Requirements: prepared.Candidate.Requirements, CatalogArms: e.registry.policy.AllArms(), Identity: policyregistry.WorkerIdentity{Target: request.Target, Project: prepared.Binding.Project, Region: prepared.Binding.Region, Revision: prepared.Binding.Router.Name, ImageDigest: prepared.Binding.Router.ImageDigest, Configuration: prepared.Binding.Router.Configuration}}, e.err
 }
 
 func cliPublish(t *testing.T, registry *cliServingRegistry, kind policyregistry.ServingKind, manifest policyregistry.ServingManifest) policyregistry.ObjectRef {

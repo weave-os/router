@@ -30,13 +30,15 @@ type ServingValidationStore interface {
 	VerifyServingArtifact(context.Context, ObjectRef) error
 }
 
-// PreparedSelection contains the complete independently validated effective tuple.
+// PreparedSelection contains the complete independently validated effective tuple. It is the
+// same DTO whether the selection was stored as v1 release/classifier/binding/profile objects or
+// as a lane embedded in a v2 selection set.
 type PreparedSelection struct {
 	Selection  ServingSelection
 	ProfileKey string
-	Release    ServingRelease
-	Classifier ClassifierBundle
-	Binding    DeploymentBinding
+	Target     ServingTarget
+	Candidate  CandidateComposition
+	Binding    LaneBinding
 	Policy     *rosterdata.Roster
 }
 
@@ -228,31 +230,24 @@ func (c *ServingController) ValidateProposal(ctx context.Context, proposal Deplo
 	if set.Target != proposal.Target {
 		return errors.New("proposal and selection set targets differ")
 	}
-	base, err := c.validateSelection(ctx, proposal.Target, "", set.Default)
+	prepared, err := c.validateSelection(ctx, proposal.Target, "", set.Default)
 	if err != nil {
 		return fmt.Errorf("default selection: %w", err)
 	}
-	baseBinding, err := readServing[*DeploymentBinding](ctx, c.store, ServingBindings, set.Default.Binding)
-	if err != nil {
-		return err
-	}
+	base, baseBinding := prepared.Candidate, prepared.Binding
 	for key, selection := range set.Profiles {
-		profileRelease, err := c.validateSelection(ctx, proposal.Target, key, selection)
+		profile, err := c.validateSelection(ctx, proposal.Target, key, selection)
 		if err != nil {
 			return fmt.Errorf("profile %q: %w", key, err)
 		}
-		if profileRelease.RouterImageDigest != base.RouterImageDigest || profileRelease.Classifier != base.Classifier {
+		if profile.Candidate.RouterImageDigest != base.RouterImageDigest || !profile.Candidate.Classifier.Equal(base.Classifier) {
 			return errors.New("profile must share its lane's worker image and classifier bundle")
 		}
-		profileBinding, err := readServing[*DeploymentBinding](ctx, c.store, ServingBindings, selection.Binding)
-		if err != nil {
-			return err
-		}
-		if profileBinding.Router != baseBinding.Router || profileBinding.Classifier != baseBinding.Classifier {
+		if profile.Binding.Router != baseBinding.Router || profile.Binding.Classifier != baseBinding.Classifier {
 			return errors.New("profile must reuse its lane's prepared worker and classifier revisions")
 		}
 	}
-	source, err := readServing[*ServingRelease](ctx, c.store, ServingReleases, proposal.SourceRelease)
+	source, err := readCandidate(ctx, c.store, proposal.SourceRelease)
 	if err != nil {
 		return err
 	}
@@ -312,16 +307,16 @@ func (c *ServingController) ValidateProposal(ctx context.Context, proposal Deplo
 		if !exists || !sameSelection(previous.Default, set.Default) {
 			return errors.New("profile-only promotion must preserve the default and name a registered profile")
 		}
-		profileRelease, err := readServing[*ServingRelease](ctx, c.store, ServingReleases, selection.Release)
+		profileCandidate, err := readCandidate(ctx, c.store, selection.Release)
 		if err != nil {
 			return err
 		}
-		if profileRelease.Policy != source.Policy {
+		if profileCandidate.Policy != source.Policy {
 			return errors.New("profile promotion does not use the selected source policy")
 		}
 		return nil
 	}
-	oldBase, err := readServing[*ServingRelease](ctx, c.store, ServingReleases, previous.Default.Release)
+	oldBase, err := readCandidate(ctx, c.store, previous.Default.Release)
 	if err != nil {
 		return err
 	}
@@ -337,16 +332,16 @@ func (c *ServingController) ValidateProposal(ctx context.Context, proposal Deplo
 	}
 	switch proposal.Scope {
 	case ChangeRouter:
-		if err := c.validateRouterOnlyLanes(ctx, set, previous, *source); err != nil {
+		if err := c.validateRouterOnlyLanes(ctx, set, previous, source); err != nil {
 			c.logger.Warn("Rejected router-only proposal", "target", proposal.Target, "selection_set_sha256", proposal.SelectionSet.SHA256, "err", err)
 			return err
 		}
 	case ChangeRoster:
-		if base.Policy != source.Policy || base.RouterImageDigest != oldBase.RouterImageDigest || base.Classifier != oldBase.Classifier {
+		if base.Policy != source.Policy || base.RouterImageDigest != oldBase.RouterImageDigest || !base.Classifier.Equal(oldBase.Classifier) {
 			return errors.New("roster-only promotion must retain destination image and classifier")
 		}
 	case ChangeClassifier:
-		if base.Classifier != source.Classifier || base.RouterImageDigest != oldBase.RouterImageDigest || base.Policy != oldBase.Policy {
+		if !base.Classifier.Equal(source.Classifier) || base.RouterImageDigest != oldBase.RouterImageDigest || base.Policy != oldBase.Policy {
 			return errors.New("classifier-only promotion must retain destination image and policy")
 		}
 	}
@@ -357,7 +352,7 @@ func (c *ServingController) ValidateProposal(ctx context.Context, proposal Deplo
 // profile move together: each lane receives a new release and binding that differ from their
 // predecessors solely by the source Router image, and every successor lane shares one new Router
 // revision. Runs after structural selection validation and forward profile preservation.
-func (c *ServingController) validateRouterOnlyLanes(ctx context.Context, next, previous *SelectionSet, source ServingRelease) error {
+func (c *ServingController) validateRouterOnlyLanes(ctx context.Context, next, previous *SelectionSet, source CandidateComposition) error {
 	if len(next.Profiles) != len(previous.Profiles) {
 		return errors.New("router-only promotion must retain the destination profile inventory")
 	}
@@ -389,7 +384,7 @@ func (c *ServingController) validateRouterOnlyLanes(ctx context.Context, next, p
 // validateRouterOnlyLane compares one predecessor/successor lane pair. The successor release may
 // differ only in Router image digest and provenance; the successor binding may differ only in
 // release, attestation, and the shared Router revision.
-func (c *ServingController) validateRouterOnlyLane(ctx context.Context, previous, next ServingSelection, source ServingRelease, predecessorRouterConfiguration ObjectRef, sharedRouter RevisionBinding) error {
+func (c *ServingController) validateRouterOnlyLane(ctx context.Context, previous, next ServingSelection, source CandidateComposition, predecessorRouterConfiguration ObjectRef, sharedRouter RevisionBinding) error {
 	if next.Release == previous.Release || next.Binding == previous.Binding {
 		return errors.New("router-only promotion must publish a new release and binding for every lane")
 	}
@@ -434,64 +429,147 @@ func (c *ServingController) validateRouterOnlyLane(ctx context.Context, previous
 	return nil
 }
 
-func (c *ServingController) validateSelection(ctx context.Context, target ServingTarget, profileKey string, selection ServingSelection) (ServingRelease, error) {
+func (c *ServingController) validateSelection(ctx context.Context, target ServingTarget, profileKey string, selection ServingSelection) (PreparedSelection, error) {
 	prepared, err := ReadPreparedSelection(ctx, c.store, target, profileKey, selection)
 	if err != nil {
-		return ServingRelease{}, err
+		return PreparedSelection{}, err
 	}
-	if err := c.store.VerifyServingArtifact(ctx, prepared.Release.Provenance.BuildAttestation); err != nil {
-		return ServingRelease{}, fmt.Errorf("verify destination build attestation: %w", err)
+	if err := c.store.VerifyServingArtifact(ctx, prepared.Candidate.Provenance.BuildAttestation); err != nil {
+		return PreparedSelection{}, fmt.Errorf("verify destination build attestation: %w", err)
 	}
 	if err := c.store.VerifyServingArtifact(ctx, prepared.Binding.Attestation); err != nil {
-		return ServingRelease{}, fmt.Errorf("verify physical revision attestation: %w", err)
+		return PreparedSelection{}, fmt.Errorf("verify physical revision attestation: %w", err)
 	}
 	if err := c.validator.ValidatePreparedSelection(ctx, prepared); err != nil {
-		return ServingRelease{}, err
+		return PreparedSelection{}, err
 	}
-	return prepared.Release, nil
+	return prepared, nil
+}
+
+// readServingFamily reads a reference of a v2 kind, which may resolve to either the v2 object or
+// the v1 object it folds. The stored layout must agree with the decoded schema.
+func readServingFamily(ctx context.Context, store ServingStore, kind ServingKind, ref ObjectRef) (ServingManifest, []byte, error) {
+	if err := ValidateServingRef(ref, store.RootURI(), kind); err != nil {
+		return nil, nil, err
+	}
+	manifest, payload, err := store.ReadServingObject(ctx, kind, ref)
+	if err != nil {
+		return nil, nil, err
+	}
+	if isServingV2Manifest(manifest) != isServingArtifactURI(ref.URI, store.RootURI()) {
+		return nil, nil, errors.New("serving object schema does not belong to its storage layout")
+	}
+	if err := manifest.Validate(store.RootURI()); err != nil {
+		return nil, nil, err
+	}
+	return manifest, payload, nil
+}
+
+// readCandidate resolves a candidate-family reference into its effective composition. A v1
+// release is completed from its classifier bundle; a v2 candidate already carries it.
+func readCandidate(ctx context.Context, store ServingStore, ref ObjectRef) (CandidateComposition, error) {
+	manifest, _, err := readServingFamily(ctx, store, ServingCandidate, ref)
+	if err != nil {
+		return CandidateComposition{}, err
+	}
+	switch typed := manifest.(type) {
+	case *CandidateV2:
+		return typed.CandidateComposition, nil
+	case *ServingRelease:
+		bundle, err := readServing[*ClassifierBundle](ctx, store, ServingClassifiers, typed.Classifier)
+		if err != nil {
+			return CandidateComposition{}, err
+		}
+		if typed.Requirements.ClassifierWireSchema != bundle.Identity.WireSchema || typed.Requirements.TaxonomySHA256 != bundle.Identity.TaxonomySHA256 {
+			return CandidateComposition{}, errors.New("release requirements do not match classifier bundle")
+		}
+		return typed.composition(bundle.component()), nil
+	default:
+		return CandidateComposition{}, errors.New("registry returned the wrong manifest kind")
+	}
+}
+
+// readLane resolves the lane a normalized v2 selection names inside its selection set.
+func readLane(ctx context.Context, store ServingStore, target ServingTarget, profileKey string, selection ServingSelection) (ServingLane, error) {
+	manifest, _, err := readServingFamily(ctx, store, ServingSelectionSet, selection.Binding)
+	if err != nil {
+		return ServingLane{}, err
+	}
+	set, ok := manifest.(*SelectionSetV2)
+	if !ok {
+		return ServingLane{}, errors.New("lane selection must name a v2 selection set")
+	}
+	if set.Target != target {
+		return ServingLane{}, errors.New("selection set belongs to another target")
+	}
+	lane, exists := set.lane(profileKey)
+	if !exists || lane.Candidate != selection.Release {
+		return ServingLane{}, errors.New("selection set has no lane for the selected candidate and profile")
+	}
+	return lane, nil
 }
 
 // ReadPreparedSelection reads and cross-validates one exact tuple without consulting mutable heads.
+// v1 selections traverse release, binding, classifier and profile objects; v2 selections read the
+// lane embedded in their selection set. Both normalize to the same PreparedSelection.
 func ReadPreparedSelection(ctx context.Context, store ServingStore, target ServingTarget, profileKey string, selection ServingSelection) (PreparedSelection, error) {
 	if err := selection.validate(store.RootURI(), profileKey != ""); err != nil {
 		return PreparedSelection{}, err
 	}
-	release, err := readServing[*ServingRelease](ctx, store, ServingReleases, selection.Release)
-	if err != nil {
-		return PreparedSelection{}, err
-	}
-	binding, err := readServing[*DeploymentBinding](ctx, store, ServingBindings, selection.Binding)
-	if err != nil {
-		return PreparedSelection{}, err
-	}
-	bundle, err := readServing[*ClassifierBundle](ctx, store, ServingClassifiers, release.Classifier)
-	if err != nil {
-		return PreparedSelection{}, err
-	}
-	if binding.Target != target || binding.Release != selection.Release || binding.Router.ImageDigest != release.RouterImageDigest || binding.Classifier.ImageDigest != bundle.Identity.ImageDigest || binding.ClassifierBundleSHA256 != release.Classifier.SHA256 || binding.Classifier.Configuration != bundle.Configuration {
-		return PreparedSelection{}, errors.New("deployment binding differs from release or classifier identity/configuration")
-	}
-	if release.Requirements.ClassifierWireSchema != bundle.Identity.WireSchema || release.Requirements.TaxonomySHA256 != bundle.Identity.TaxonomySHA256 {
-		return PreparedSelection{}, errors.New("release requirements do not match classifier bundle")
-	}
-	policy, err := store.ReadServingPolicy(ctx, ObjectRef{URI: release.Policy.URI, SHA256: release.Policy.SHA256, Generation: release.Policy.Generation})
-	if err != nil {
-		return PreparedSelection{}, err
-	}
-	if policy.SchemaVersion != release.Requirements.PolicySchema || !slices.Equal(policy.ClassOrder, bundle.Identity.ClassOrder) {
-		return PreparedSelection{}, errors.New("compiled policy does not match classifier schema/taxonomy")
-	}
-	if profileKey != "" {
-		if selection.Profile == nil {
-			return PreparedSelection{}, errors.New("assigned profile has no exact revision")
-		}
-		profile, err := readServing[*RoutingProfile](ctx, store, ServingProfiles, *selection.Profile)
+	var candidate CandidateComposition
+	var binding LaneBinding
+	if selection.isLane(store.RootURI()) {
+		lane, err := readLane(ctx, store, target, profileKey, selection)
 		if err != nil {
 			return PreparedSelection{}, err
 		}
-		if profile.ProfileKey != profileKey || profile.Policy != release.Policy || profile.Requirements != release.Requirements {
+		if candidate, err = readCandidate(ctx, store, lane.Candidate); err != nil {
+			return PreparedSelection{}, err
+		}
+		if profileKey != "" && (*lane.ProfilePolicy != candidate.Policy || *lane.ProfileRequirements != candidate.Requirements) {
 			return PreparedSelection{}, errors.New("effective tuple differs from the assigned profile's immutable policy")
 		}
+		binding = lane.LaneBinding
+	} else {
+		release, err := readServing[*ServingRelease](ctx, store, ServingReleases, selection.Release)
+		if err != nil {
+			return PreparedSelection{}, err
+		}
+		deployment, err := readServing[*DeploymentBinding](ctx, store, ServingBindings, selection.Binding)
+		if err != nil {
+			return PreparedSelection{}, err
+		}
+		bundle, err := readServing[*ClassifierBundle](ctx, store, ServingClassifiers, release.Classifier)
+		if err != nil {
+			return PreparedSelection{}, err
+		}
+		if deployment.Target != target || deployment.Release != selection.Release || deployment.ClassifierBundleSHA256 != release.Classifier.SHA256 {
+			return PreparedSelection{}, errors.New("deployment binding differs from release or classifier identity/configuration")
+		}
+		if release.Requirements.ClassifierWireSchema != bundle.Identity.WireSchema || release.Requirements.TaxonomySHA256 != bundle.Identity.TaxonomySHA256 {
+			return PreparedSelection{}, errors.New("release requirements do not match classifier bundle")
+		}
+		if profileKey != "" {
+			profile, err := readServing[*RoutingProfile](ctx, store, ServingProfiles, *selection.Profile)
+			if err != nil {
+				return PreparedSelection{}, err
+			}
+			if profile.ProfileKey != profileKey || profile.Policy != release.Policy || profile.Requirements != release.Requirements {
+				return PreparedSelection{}, errors.New("effective tuple differs from the assigned profile's immutable policy")
+			}
+		}
+		candidate = release.composition(bundle.component())
+		binding = deployment.lane()
 	}
-	return PreparedSelection{Selection: selection, ProfileKey: profileKey, Release: *release, Classifier: *bundle, Binding: *binding, Policy: policy}, nil
+	if binding.Router.ImageDigest != candidate.RouterImageDigest || binding.Classifier.ImageDigest != candidate.Classifier.Identity.ImageDigest || binding.Classifier.Configuration != candidate.Classifier.Configuration {
+		return PreparedSelection{}, errors.New("deployment binding differs from release or classifier identity/configuration")
+	}
+	policy, err := store.ReadServingPolicy(ctx, ObjectRef{URI: candidate.Policy.URI, SHA256: candidate.Policy.SHA256, Generation: candidate.Policy.Generation})
+	if err != nil {
+		return PreparedSelection{}, err
+	}
+	if policy.SchemaVersion != candidate.Requirements.PolicySchema || !slices.Equal(policy.ClassOrder, candidate.Classifier.Identity.ClassOrder) {
+		return PreparedSelection{}, errors.New("compiled policy does not match classifier schema/taxonomy")
+	}
+	return PreparedSelection{Selection: selection, ProfileKey: profileKey, Target: target, Candidate: candidate, Binding: binding, Policy: policy}, nil
 }

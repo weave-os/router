@@ -135,7 +135,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.forward(w, r, surface, body, binding, assertion)
 }
 
-func (h *Handler) forward(w http.ResponseWriter, r *http.Request, surface requestcontext.ConversationSurface, body []byte, binding policyregistry.DeploymentBinding, assertion string) {
+func (h *Handler) forward(w http.ResponseWriter, r *http.Request, surface requestcontext.ConversationSurface, body []byte, binding policyregistry.LaneBinding, assertion string) {
 	authorizeCtx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	identityToken, err := h.authorizer.IdentityToken(authorizeCtx, binding.Router.Audience)

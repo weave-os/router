@@ -181,14 +181,14 @@ func (h *Handler) defaultTarget() policyregistry.ServingTarget {
 	return policyregistry.TargetStable
 }
 
-func (h *Handler) defaultBinding(ctx context.Context) (policyregistry.DeploymentBinding, error) {
+func (h *Handler) defaultBinding(ctx context.Context) (policyregistry.LaneBinding, error) {
 	target := h.defaultTarget()
 	// Read-only exports and public assets have no conversation, enrollment or
 	// customer policy. Choosing their worker never grants inference authority.
 	admissionDecider := policyregistry.ServingAdmission{Store: h.registry}
 	admission, err := admissionDecider.Decide(ctx, policyregistry.SerializedAdmission{Projection: policyregistry.AdmissionProjection{Target: target}, Clock: func(context.Context) (time.Time, error) { return time.Now(), nil }})
 	if err != nil {
-		return policyregistry.DeploymentBinding{}, err
+		return policyregistry.LaneBinding{}, err
 	}
 	return policyregistry.ResolveAdmissionBinding(ctx, h.registry, admission)
 }

@@ -30,8 +30,8 @@ func (e staticDestinationEndpoints) AttestClassifier(context.Context, policyregi
 
 func validatedEndpoints(prepared policyregistry.PreparedSelection) staticDestinationEndpoints {
 	return staticDestinationEndpoints{
-		classifier: policyregistry.ClassifierAttestation{Identity: prepared.Classifier.Identity, Package: prepared.Classifier.Package, Configuration: prepared.Classifier.Configuration, AuxiliaryModels: maps.Clone(prepared.Classifier.AuxiliaryModels), Revision: prepared.Binding.Classifier.Name, Ready: true},
-		worker:     policyregistry.WorkerAttestation{Identity: policyregistry.WorkerIdentity{Target: prepared.Binding.Target, Project: prepared.Binding.Project, Region: prepared.Binding.Region, Revision: prepared.Binding.Router.Name, ImageDigest: prepared.Binding.Router.ImageDigest, Configuration: prepared.Binding.Router.Configuration}, Requirements: prepared.Release.Requirements, Selection: prepared.Selection, CatalogArms: prepared.Policy.AllArms(), Ready: true},
+		classifier: policyregistry.ClassifierAttestation{Identity: prepared.Candidate.Classifier.Identity, Package: prepared.Candidate.Classifier.Package, Configuration: prepared.Candidate.Classifier.Configuration, AuxiliaryModels: maps.Clone(prepared.Candidate.Classifier.AuxiliaryModels), Revision: prepared.Binding.Classifier.Name, Ready: true},
+		worker:     policyregistry.WorkerAttestation{Identity: policyregistry.WorkerIdentity{Target: prepared.Target, Project: prepared.Binding.Project, Region: prepared.Binding.Region, Revision: prepared.Binding.Router.Name, ImageDigest: prepared.Binding.Router.ImageDigest, Configuration: prepared.Binding.Router.Configuration}, Requirements: prepared.Candidate.Requirements, Selection: prepared.Selection, CatalogArms: prepared.Policy.AllArms(), Ready: true},
 	}
 }
 

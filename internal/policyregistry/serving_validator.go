@@ -62,19 +62,19 @@ func (v DestinationValidator) ValidatePreparedSelection(ctx context.Context, pre
 	if err != nil {
 		return fmt.Errorf("attest classifier revision %q (full serving attestation is required): %w", prepared.Binding.Classifier.Name, err)
 	}
-	identity := prepared.Classifier.Identity
+	identity := prepared.Candidate.Classifier.Identity
 	if !classifier.Ready || classifier.Revision != prepared.Binding.Classifier.Name || classifier.Identity.ArtifactID != identity.ArtifactID || classifier.Identity.PackageSHA256 != identity.PackageSHA256 || classifier.Identity.ImageDigest != identity.ImageDigest || classifier.Identity.WireSchema != identity.WireSchema || classifier.Identity.TaxonomySHA256 != identity.TaxonomySHA256 || !slices.Equal(classifier.Identity.ClassOrder, identity.ClassOrder) {
 		return errors.New("classifier readiness, revision or core identity does not match the selected bundle")
 	}
-	if classifier.Package != prepared.Classifier.Package || classifier.Configuration != prepared.Classifier.Configuration || classifier.AuxiliaryModels == nil || !maps.Equal(classifier.AuxiliaryModels, prepared.Classifier.AuxiliaryModels) {
+	if classifier.Package != prepared.Candidate.Classifier.Package || classifier.Configuration != prepared.Candidate.Classifier.Configuration || classifier.AuxiliaryModels == nil || !maps.Equal(classifier.AuxiliaryModels, prepared.Candidate.Classifier.AuxiliaryModels) {
 		return errors.New("classifier loaded package, auxiliary model inventory or configuration differs from the selected bundle")
 	}
-	worker, err := v.Endpoints.ValidateWorker(ctx, prepared.Binding.Router, WorkerValidationRequest{Target: prepared.Binding.Target, ProfileKey: prepared.ProfileKey, Selection: prepared.Selection})
+	worker, err := v.Endpoints.ValidateWorker(ctx, prepared.Binding.Router, WorkerValidationRequest{Target: prepared.Target, ProfileKey: prepared.ProfileKey, Selection: prepared.Selection})
 	if err != nil {
 		return fmt.Errorf("validate destination worker revision %q: %w", prepared.Binding.Router.Name, err)
 	}
-	expected := WorkerIdentity{Target: prepared.Binding.Target, Project: prepared.Binding.Project, Region: prepared.Binding.Region, Revision: prepared.Binding.Router.Name, ImageDigest: prepared.Binding.Router.ImageDigest, Configuration: prepared.Binding.Router.Configuration}
-	if !worker.Ready || worker.Identity != expected || worker.Requirements != prepared.Release.Requirements || !sameSelection(worker.Selection, prepared.Selection) {
+	expected := WorkerIdentity{Target: prepared.Target, Project: prepared.Binding.Project, Region: prepared.Binding.Region, Revision: prepared.Binding.Router.Name, ImageDigest: prepared.Binding.Router.ImageDigest, Configuration: prepared.Binding.Router.Configuration}
+	if !worker.Ready || worker.Identity != expected || worker.Requirements != prepared.Candidate.Requirements || !sameSelection(worker.Selection, prepared.Selection) {
 		return errors.New("worker readiness, identity, requirements or validated snapshot differs from the prepared selection")
 	}
 	for _, arm := range prepared.Policy.AllArms() {

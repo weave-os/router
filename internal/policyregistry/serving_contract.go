@@ -199,28 +199,57 @@ func validateArtifactRef(ref ObjectRef) error {
 	return err
 }
 
-func servingNamespace(kind ServingKind) (string, error) {
+func servingLegacyNamespace(kind ServingKind) string {
+	return "router_serving/v1/" + string(kind) + "/sha256/"
+}
+
+// servingNamespaces lists every content-addressed layout a kind may be read from. The first
+// entry is the layout new objects of that kind are published to.
+func servingNamespaces(kind ServingKind) ([]string, error) {
 	switch kind {
 	case ServingReleases, ServingClassifiers, ServingBindings, ServingProfiles, ServingSelectionSets, ServingProposals:
-		return "router_serving/v1/" + string(kind) + "/sha256/", nil
+		return []string{servingLegacyNamespace(kind)}, nil
+	case ServingCandidate:
+		return []string{servingArtifactsNamespace, servingLegacyNamespace(ServingReleases)}, nil
+	case ServingSelectionSet:
+		return []string{servingArtifactsNamespace, servingLegacyNamespace(ServingSelectionSets)}, nil
+	case ServingProposal:
+		return []string{servingArtifactsNamespace, servingLegacyNamespace(ServingProposals)}, nil
 	default:
-		return "", fmt.Errorf("unsupported serving object kind %q", kind)
+		return nil, fmt.Errorf("unsupported serving object kind %q", kind)
 	}
 }
 
-// ValidateServingRef prevents cross-kind substitution and paths outside the registry.
-func ValidateServingRef(ref ObjectRef, root string, kind ServingKind) error {
-	namespace, err := servingNamespace(kind)
+func servingNamespace(kind ServingKind) (string, error) {
+	namespaces, err := servingNamespaces(kind)
 	if err != nil {
-		return err
+		return "", err
+	}
+	return namespaces[0], nil
+}
+
+// ValidateServingRef prevents cross-kind substitution and paths outside the registry. A v2 kind
+// admits both the artifacts/ layout and the legacy namespace of the v1 object it folds.
+func ValidateServingRef(ref ObjectRef, root string, kind ServingKind) error {
+	_, err := servingRefNamespace(ref, root, kind)
+	return err
+}
+
+// servingRefNamespace returns the layout a reference of the given kind lives in.
+func servingRefNamespace(ref ObjectRef, root string, kind ServingKind) (string, error) {
+	namespaces, err := servingNamespaces(kind)
+	if err != nil {
+		return "", err
 	}
 	if err := validateArtifactRef(ref); err != nil {
-		return err
+		return "", err
 	}
-	if !withinRegistry(ref.URI, root, namespace+ref.SHA256+".json") {
-		return errors.New("serving reference is outside its exact content-addressed namespace")
+	for _, namespace := range namespaces {
+		if withinRegistry(ref.URI, root, namespace+ref.SHA256+".json") {
+			return namespace, nil
+		}
 	}
-	return nil
+	return "", errors.New("serving reference is outside its exact content-addressed namespace")
 }
 
 func validImageDigest(digest string) bool {
@@ -229,28 +258,10 @@ func validImageDigest(digest string) bool {
 
 // Validate rejects partial classifier identities, including unpinned auxiliary models.
 func (b ClassifierBundle) Validate(string) error {
-	identity := b.Identity
-	if b.SchemaVersion != ServingClassifierV1 || strings.TrimSpace(identity.ArtifactID) == "" || !validImageDigest(identity.ImageDigest) || identity.WireSchema != ClassifierWireSchemaV4 || len(identity.ClassOrder) == 0 || TaxonomyDigest(identity.ClassOrder) != identity.TaxonomySHA256 {
+	if b.SchemaVersion != ServingClassifierV1 {
 		return errors.New("invalid classifier bundle identity or schema")
 	}
-	if err := validateArtifactRef(b.Package); err != nil {
-		return err
-	}
-	if b.Package.SHA256 != identity.PackageSHA256 {
-		return errors.New("classifier package reference does not match attested identity")
-	}
-	if b.AuxiliaryModels == nil {
-		return errors.New("classifier auxiliary model inventory is required, even when empty")
-	}
-	for name, ref := range b.AuxiliaryModels {
-		if strings.TrimSpace(name) == "" {
-			return errors.New("auxiliary model name is required")
-		}
-		if err := validateArtifactRef(ref); err != nil {
-			return fmt.Errorf("auxiliary model %q: %w", name, err)
-		}
-	}
-	return validateArtifactRef(b.Configuration)
+	return b.component().validate()
 }
 
 var sourceRevisionPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -269,10 +280,7 @@ func (r ServingRelease) Validate(root string) error {
 	if err := r.Requirements.validate(); err != nil {
 		return err
 	}
-	if !sourceRevisionPattern.MatchString(r.Provenance.RouterRevision) || !sourceRevisionPattern.MatchString(r.Provenance.WeaveRevision) {
-		return errors.New("serving provenance requires exact router and Weave source revisions")
-	}
-	return validateArtifactRef(r.Provenance.BuildAttestation)
+	return r.Provenance.validate()
 }
 
 func validateProfileKey(key string) error {
@@ -329,20 +337,39 @@ func (b DeploymentBinding) Validate(root string) error {
 	return validateArtifactRef(b.Attestation)
 }
 
+// validate accepts either a v1 tuple (release, binding, profile revision) or the normalized
+// form of a v2 lane, whose binding and profile revision are both the selection set that embeds it.
 func (s ServingSelection) validate(root string, profile bool) error {
+	if profile != (s.Profile != nil) {
+		return errors.New("only named profile selections must carry an exact profile revision")
+	}
+	if s.isLane(root) {
+		if err := ValidateServingRef(s.Release, root, ServingCandidate); err != nil {
+			return err
+		}
+		if err := ValidateServingRef(s.Binding, root, ServingSelectionSet); err != nil {
+			return err
+		}
+		if s.Profile != nil && *s.Profile != s.Binding {
+			return errors.New("lane profile revision must be the selection set that embeds the lane")
+		}
+		return nil
+	}
 	if err := ValidateServingRef(s.Release, root, ServingReleases); err != nil {
 		return err
 	}
 	if err := ValidateServingRef(s.Binding, root, ServingBindings); err != nil {
 		return err
 	}
-	if profile != (s.Profile != nil) {
-		return errors.New("only named profile selections must carry an exact profile revision")
-	}
 	if s.Profile != nil {
 		return ValidateServingRef(*s.Profile, root, ServingProfiles)
 	}
 	return nil
+}
+
+// isLane reports whether the selection names a lane embedded in a v2 selection set.
+func (s ServingSelection) isLane(root string) bool {
+	return isServingArtifactURI(s.Binding.URI, root)
 }
 
 // Validate requires an explicit profile inventory, including for default-only activations.
@@ -378,17 +405,8 @@ func (p DeploymentProposal) Validate(root string) error {
 	if _, err := p.Target.Environment(); err != nil {
 		return err
 	}
-	switch p.Scope {
-	case ChangeFull, ChangeRouter, ChangeRoster, ChangeClassifier, ChangeCustom, ChangeRollback:
-		if p.ProfileKey != "" {
-			return errors.New("only profile scope accepts a profile key")
-		}
-	case ChangeProfile:
-		if err := validateProfileKey(p.ProfileKey); err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("unknown deployment scope %q", p.Scope)
+	if err := validateProposalScope(p.Scope, p.ProfileKey); err != nil {
+		return err
 	}
 	if (p.ExpectedGeneration > 0) != (p.PreviousSelectionSet != nil) {
 		return errors.New("proposal must bind the previous selection set unless bootstrapping")
@@ -407,16 +425,41 @@ func (p DeploymentProposal) Validate(root string) error {
 	if err := ValidateServingRef(p.SourceRelease, root, ServingReleases); err != nil {
 		return err
 	}
-	if len(p.Evidence) == 0 {
+	if err := validateProposalEvidence(p.Evidence); err != nil {
+		return err
+	}
+	return validateWithdrawals(p.WithdrawActivations)
+}
+
+func validateProposalScope(scope ChangeScope, profileKey string) error {
+	switch scope {
+	case ChangeFull, ChangeRouter, ChangeRoster, ChangeClassifier, ChangeCustom, ChangeRollback:
+		if profileKey != "" {
+			return errors.New("only profile scope accepts a profile key")
+		}
+		return nil
+	case ChangeProfile:
+		return validateProfileKey(profileKey)
+	default:
+		return fmt.Errorf("unknown deployment scope %q", scope)
+	}
+}
+
+func validateProposalEvidence(evidence []ObjectRef) error {
+	if len(evidence) == 0 {
 		return errors.New("proposal requires compatibility and target-local validation evidence")
 	}
-	for _, ref := range p.Evidence {
+	for _, ref := range evidence {
 		if err := validateArtifactRef(ref); err != nil {
 			return err
 		}
 	}
-	seen := make(map[string]struct{}, len(p.WithdrawActivations))
-	for _, activationID := range p.WithdrawActivations {
+	return nil
+}
+
+func validateWithdrawals(activationIDs []string) error {
+	seen := make(map[string]struct{}, len(activationIDs))
+	for _, activationID := range activationIDs {
 		if _, err := uuid.Parse(activationID); err != nil {
 			return errors.New("withdrawal requires exact activation UUIDs")
 		}
@@ -436,7 +479,8 @@ type ServingManifest interface {
 // DecodeServingManifest validates manifest bytes, whether supplied for publication or read
 // back from the registry: strict decode, supported schema and semantic contract. The JSON
 // encoding is not part of the contract; an object's identity is the digest of the exact
-// bytes it was published with.
+// bytes it was published with. A v1 kind decodes exactly its own type; a v2 kind selects the
+// v1 or v2 type from the declared schema_version.
 func DecodeServingManifest(payload []byte, root string, kind ServingKind) (ServingManifest, error) {
 	var manifest ServingManifest
 	switch kind {
@@ -452,6 +496,14 @@ func DecodeServingManifest(payload []byte, root string, kind ServingKind) (Servi
 		manifest = &SelectionSet{}
 	case ServingProposals:
 		manifest = &DeploymentProposal{}
+	case ServingCandidate, ServingSelectionSet, ServingProposal:
+		schema, err := servingSchemaOf(payload)
+		if err != nil {
+			return nil, err
+		}
+		if manifest, err = servingFamilyManifest(kind, schema); err != nil {
+			return nil, err
+		}
 	default:
 		return nil, fmt.Errorf("unsupported serving kind %q", kind)
 	}
@@ -460,6 +512,23 @@ func DecodeServingManifest(payload []byte, root string, kind ServingKind) (Servi
 	}
 	if err := manifest.Validate(root); err != nil {
 		return nil, err
+	}
+	return manifest, nil
+}
+
+// DecodeServingObject decodes stored bytes for a reference and binds the object's version to
+// its layout: artifacts/ holds only v2 objects and legacy namespaces only v1 objects, so a
+// reference cannot be relabeled across layouts.
+func DecodeServingObject(payload []byte, root string, kind ServingKind, ref ObjectRef) (ServingManifest, error) {
+	if err := ValidateServingRef(ref, root, kind); err != nil {
+		return nil, err
+	}
+	manifest, err := DecodeServingManifest(payload, root, kind)
+	if err != nil {
+		return nil, err
+	}
+	if isServingV2Manifest(manifest) != isServingArtifactURI(ref.URI, root) {
+		return nil, errors.New("serving object schema does not belong to its storage layout")
 	}
 	return manifest, nil
 }
