@@ -1,0 +1,43 @@
+db/queries/model_router_subscription_accounts.sql
+  s_55e2e0c8b01ca3::t_8bc6c416a155f1 68-99,106
+internal/auth/subscription_test.go
+  s_55e2e0c8b01ca3::t_e8633c266f0fc0 43-46,87-88
+internal/subscriptions/runtime_test.go
+  s_55e2e0c8b01ca3::t_98c169647d0de6 30-31,58,64,68,70,73-91,306,308,530,532
+  s_55e2e0c8b01ca3::t_f35ea517dd9b78 679-829
+internal/subscriptions/oauth.go
+  s_55e2e0c8b01ca3::t_832ec287acc71a 26-30,94-98
+internal/postgres/subscription_repo.go
+  s_55e2e0c8b01ca3::t_4a4baadb08a220 140-166,179
+internal/auth/subscription.go
+  s_55e2e0c8b01ca3::t_d6d025f4f5c7aa 68-76,80-81,203-214,219
+internal/server/middleware/auth_test.go
+  s_55e2e0c8b01ca3::t_1d9653f4c1059f 118-121
+internal/subscriptions/oauth_test.go
+  s_55e2e0c8b01ca3::t_88127042926ce0 54-88
+internal/subscriptions/runtime.go
+  s_55e2e0c8b01ca3::t_87275db890e175 19-22,24,35-36,44-45,83-84,105,109-114,210,215,239,253,255,262,303-349,368-375
+  s_55e2e0c8b01ca3::t_c9e8c774bfa437 31-34
+internal/sqlc/model_router_subscription_accounts.sql.go
+  s_55e2e0c8b01ca3::t_a2158043777559 132-172,398-419,425-426,430-434,436-458,461-462,464-466
+cmd/router/main.go
+  s_55e2e0c8b01ca3::t_4067d2756ec08e 538
+internal/subscriptions/export_test.go
+  s_55e2e0c8b01ca3::t_4d4d5d62a06564 1-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1370b35a404356029986875775d31a33c422eb5b",
+  "prompts": {},
+  "sessions": {
+    "s_55e2e0c8b01ca3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b0a3-72e6-7ec3-b3dc-599831026237",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

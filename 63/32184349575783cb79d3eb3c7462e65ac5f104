@@ -1,0 +1,73 @@
+internal/proxy/force_model_tier_fallback_internal_test.go
+  s_4c61613b7e2c61::t_e5c2c61a866568 108-116
+  s_4c61613b7e2c61::t_debfa8eac74ad6 68-76
+internal/proxy/turnloop.go
+  s_4c61613b7e2c61::t_0d2244de7e681a 440-452
+  s_4c61613b7e2c61::t_29f246f1f003a0 432-439,453-454
+  s_4c61613b7e2c61::t_9a9592b7f917da 124-129
+internal/proxy/failover_integration_test.go
+  s_4c61613b7e2c61::t_0d3826812cb3b9 12,20,22
+  s_4c61613b7e2c61::t_7b197ff7a83c8f 374-438
+internal/sqlc/session_pins.sql.go
+  s_4c61613b7e2c61::t_ef51505fcdefb7 15-51,53,71,99-100,105-138,171-196
+  s_4c61613b7e2c61::t_f2162a586869dd 197
+internal/proxy/gemini.go
+  s_4c61613b7e2c61::t_e870d45dbed713 118-120
+  s_4c61613b7e2c61::t_bd6745631ef117 234,243-246
+  s_4c61613b7e2c61::t_9aa66c73cb9f02 291,297-301
+  s_4c61613b7e2c61::t_29c89d8fbfa4d1 302
+internal/sqlc/models.go
+  s_4c61613b7e2c61::t_ef51505fcdefb7 432-433
+internal/proxy/pin_eviction_internal_test.go
+  s_4c61613b7e2c61::t_f22741f63024b0 64-75
+db/migrations/0043_session-pin-overload-tracking.up.sql
+  s_4c61613b7e2c61::t_3f95ba898db069 1-21
+internal/proxy/provider_overload.go
+  s_4c61613b7e2c61::t_c67f423236a649 1-119
+internal/proxy/service_session_pin_test.go
+  s_4c61613b7e2c61::t_7afb36f6c1ee42 31-44
+  s_4c61613b7e2c61::t_c6242e5d2d70b2 128-133,140-142
+  s_4c61613b7e2c61::t_3b696d55eeb846 45-47
+  s_4c61613b7e2c61::t_31c40e166995dd 121-127,134-139,143-161
+db/queries/session_pins.sql
+  s_4c61613b7e2c61::t_090bcbc11a4a98 141-181
+internal/router/sessionpin/store.go
+  s_4c61613b7e2c61::t_38ae3480c4a3c7 67-77
+  s_4c61613b7e2c61::t_f154621a33ac9a 114-123
+internal/proxy/service.go
+  s_4c61613b7e2c61::t_ed99883aafaf1f 3191-3197
+  s_4c61613b7e2c61::t_0810cd29d61c45 2263-2270
+  s_4c61613b7e2c61::t_e506c7b5d69444 4393-4395
+  s_4c61613b7e2c61::t_d6faa6d0ed4170 4865-4866
+  s_4c61613b7e2c61::t_ede628bc8c32cc 634-651,653,655-660,662-664,666-670
+  s_4c61613b7e2c61::t_2798f28a66c60c 325-332
+internal/proxy/cyber_refusal_internal_test.go
+  s_4c61613b7e2c61::t_62bd9d2513c932 43-51
+internal/proxy/force_model_pin_ttl_internal_test.go
+  s_4c61613b7e2c61::t_001c8369fdeb0c 40-48
+internal/proxy/provider_overload_internal_test.go
+  s_4c61613b7e2c61::t_148fa92f26e336 1-312
+internal/postgres/session_pin_repo.go
+  s_4c61613b7e2c61::t_fde9a8d9a14e2e 110-148
+  s_4c61613b7e2c61::t_9b84f4f54fc5df 175-176
+internal/proxy/turnloop_internal_test.go
+  s_4c61613b7e2c61::t_e13082ec446c51 69-80
+db/migrations/0043_session-pin-overload-tracking.down.sql
+  s_4c61613b7e2c61::t_fcda722463f0b8 1-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "6332184349575783cb79d3eb3c7462e65ac5f104",
+  "prompts": {},
+  "sessions": {
+    "s_4c61613b7e2c61": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "492210c9-6bab-4a94-875c-30c060355ebf",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

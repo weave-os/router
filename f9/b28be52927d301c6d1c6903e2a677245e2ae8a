@@ -1,0 +1,16 @@
+internal/proxy/authority_cache_shadow_internal_test.go
+  h_66ba6bc4d87222 333-334
+internal/proxy/turnloop.go
+  h_66ba6bc4d87222 1492
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "f9b28be52927d301c6d1c6903e2a677245e2ae8a",
+  "prompts": {},
+  "humans": {
+    "h_66ba6bc4d87222": {
+      "author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

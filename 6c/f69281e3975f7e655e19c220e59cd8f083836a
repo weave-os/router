@@ -1,0 +1,221 @@
+internal/observability/global_logger_budget_test.go
+  s_19ff66ebf25d61::t_9650446037489a 25-26
+internal/requestcontext/conversation_key_test.go
+  s_19ff66ebf25d61::t_dd7bc0c0b2ef23 12-13,15-17
+  s_19ff66ebf25d61::t_ba3f0635365b76 1-11,14,18
+internal/proxy/limits.go
+  s_19ff66ebf25d61::t_8755fcddb07bfe 3-4,11
+cmd/policyctl/serving.go
+  s_19ff66ebf25d61::t_a5491dddb96c07 1-52
+  s_19ff66ebf25d61::t_23b052a2fec3d8 53-79
+internal/proxy/session_key.go
+  s_19ff66ebf25d61::t_a5973c48e1b996 10,129-130,161,163
+internal/architecture/gateway_test.go
+  s_19ff66ebf25d61::t_6f49f282b08472 1-24
+internal/postgres/CLAUDE.md
+  s_19ff66ebf25d61::t_e05e0b353d0dd0 12
+internal/requestcontext/conversation.go
+  s_19ff66ebf25d61::t_7f4ee69e8f44cf 16,18,47,50,71
+  s_19ff66ebf25d61::t_e05e0b353d0dd0 15
+  s_19ff66ebf25d61::t_8755fcddb07bfe 1-14,17,19-46,48-49,51-70,72-121
+internal/auth/credential_subject.go
+  s_19ff66ebf25d61::t_4c585f1cb27858 1-37
+internal/policyregistry/serving_gcs.go
+  s_19ff66ebf25d61::t_e5bb95e2e06949 1-120
+internal/policyregistry/serving_worker.go
+  s_19ff66ebf25d61::t_11a4e546c9c01a 1-48,50
+  s_19ff66ebf25d61::t_c8582c82ca0e25 49,51-62
+internal/policyregistry/serving_admission.go
+  s_19ff66ebf25d61::t_b2b04f8a30b2cc 38,56-57,85-91
+  s_19ff66ebf25d61::t_9adb14e64817c1 1-6,9-21,23-26,31-34,36,39-55,58-84,92
+  s_19ff66ebf25d61::t_a5973c48e1b996 7-8,22,35,37
+  s_19ff66ebf25d61::t_11a4e546c9c01a 27-30
+cmd/router-gateway/main.go
+  s_19ff66ebf25d61::t_5291cf40ea55a4 1-19,22-25,27-31,33-34,46-47,54,56,64,70,72,77,83-84,88-89,91-94
+  s_19ff66ebf25d61::t_e05e0b353d0dd0 20-21,26,32,35-45,48-53,55,57-63,65-69,71,73-76,78-82,85-87,90
+db/queries/serving_admission.sql
+  s_19ff66ebf25d61::t_ea73f932129c6b 1-69
+  s_331408f9d60160::t_61f4b9a1125012 70-80
+internal/requestcontext/conversation_test.go
+  s_19ff66ebf25d61::t_0b38bc086d920f 1-51
+  s_19ff66ebf25d61::t_504c224bfdae11 52-53
+internal/postgres/serving/admission.go
+  s_19ff66ebf25d61::t_fc7fa8a92c8e1b 1-169
+  s_331408f9d60160::t_340156b847cad9 170-187
+cmd/CLAUDE.md
+  s_19ff66ebf25d61::t_5291cf40ea55a4 9
+internal/auth/service.go
+  s_19ff66ebf25d61::t_4c585f1cb27858 290-292
+internal/policyregistry/serving_controller.go
+  s_19ff66ebf25d61::t_1347b851f94e83 239,246-250,254,256,258,260,262,264,267,270,274,277,281,283,285,288,291
+  s_19ff66ebf25d61::t_e39067dcc44e8d 18,240-245,251-253,272
+  s_19ff66ebf25d61::t_e5bb95e2e06949 1-17,19-24,26,29-38,40,43-135,140-146,151,155-207,212-213,220-238,255,257,259,261,263,265-266,268-269,271,273,275-276,278-280,282,284,286-287,289-290,292
+  s_19ff66ebf25d61::t_ed3e1328e6512b 25,27-28,39,41-42,136-139,147-150,152-154,208-211,214-219
+cmd/policyctl/commands.go
+  s_19ff66ebf25d61::t_a5491dddb96c07 31,58-59
+internal/policyregistry/serving_lifecycle.go
+  s_19ff66ebf25d61::t_e24a79d351f151 1-22,34-37,43-46,49-54,56-60,65-204,214-217,220-258,261-307
+  s_19ff66ebf25d61::t_233fa50228a545 23-33,38-42,47-48,55,61-64,205-213,218-219,259-260
+internal/policyregistry/serving_test.go
+  s_19ff66ebf25d61::t_e39067dcc44e8d 227
+  s_19ff66ebf25d61::t_f3d73d01bbc16a 137-146,207-208,210-212,222-224,229-231,237-239,241-243,249-255,271-274,283,290,297-302,305,333,338-342,352,372-485
+  s_19ff66ebf25d61::t_f2e6e1fda5fb6f 292
+  s_19ff66ebf25d61::t_07346c050cfab1 1-136,147-206,209,213-221,225-226,228,232-236,240,244-248,256-270,275-282,284-289,291,293-296,303-304,306-332,334-337,343-351,353-371,486
+internal/postgres/serving/credential.go
+  s_19ff66ebf25d61::t_e05e0b353d0dd0 1-33
+  s_19ff66ebf25d61::t_90d44844b9ccb2 34-39
+internal/api/anthropic/messages.go
+  s_19ff66ebf25d61::t_8755fcddb07bfe 13,93
+internal/auth/request_token.go
+  s_19ff66ebf25d61::t_8601e96f9c6133 1-29
+internal/auth/request_token_test.go
+  s_19ff66ebf25d61::t_0b38bc086d920f 1-20,22,24,26,28-31,33-35,38-40,51,63-65
+  s_19ff66ebf25d61::t_e05e0b353d0dd0 54
+  s_19ff66ebf25d61::t_bc1de4e4e4dacc 21,23,25,27,32,36-37,41-50,52-53,55-62
+internal/policyregistry/serving_assertion_test.go
+  s_19ff66ebf25d61::t_8a4ce5021759a1 1-62
+  s_19ff66ebf25d61::t_7835e706325754 63-86
+internal/policyregistry/serving_contract.go
+  s_19ff66ebf25d61::t_a507183fe12da4 1-20,23-41,46,48-53,58,60-66,70,73-76,81-87,90-95,99,101-104,111-114,119-122,127-131,141-144,147-151,156-159,174-300,305-466
+  s_19ff66ebf25d61::t_f2e6e1fda5fb6f 21-22,42-45,47,54-57,59,67-69,71-72,77-80,88-89,96-98,100,105-110,115-118,123-126,132-140,145-146,152-155,160-173,301-304
+internal/router/hmm/rosterdata/rosterdata.go
+  s_19ff66ebf25d61::t_9650446037489a 19,205,231
+cmd/policyctl/serving_test.go
+  s_19ff66ebf25d61::t_a5491dddb96c07 1-20
+db/queries/credential_subjects.sql
+  s_19ff66ebf25d61::t_ea73f932129c6b 1-9,18-57
+  s_19ff66ebf25d61::t_4c585f1cb27858 10-17
+internal/router/hmm/armid/validate.go
+  s_19ff66ebf25d61::t_9650446037489a 1-52
+internal/gateway/iam/authorizer.go
+  s_19ff66ebf25d61::t_eb49fbf0765eb3 1-20
+  s_19ff66ebf25d61::t_cbe7449a5ea167 21-24
+Dockerfile.gateway
+  s_19ff66ebf25d61::t_5291cf40ea55a4 1-12
+CLAUDE.md
+  s_19ff66ebf25d61::t_5291cf40ea55a4 138
+internal/router/hmm/armid/mapping.go
+  s_19ff66ebf25d61::t_9650446037489a 1-83
+internal/server/middleware/auth.go
+  s_19ff66ebf25d61::t_8601e96f9c6133 25,261,265
+.github/workflows/test.yml
+  s_19ff66ebf25d61::t_a5491dddb96c07 171-175
+internal/router/hmm/validate.go
+  s_19ff66ebf25d61::t_9650446037489a 13
+  s_19ff66ebf25d61::t_a66c98b39e2fe6 5,9,12,15-16
+internal/translate/envelope.go
+  s_19ff66ebf25d61::t_8601e96f9c6133 10,173,176-179,181
+internal/auth/api_key.go
+  s_19ff66ebf25d61::t_4c585f1cb27858 57-58
+internal/auth/credential_subject_test.go
+  s_19ff66ebf25d61::t_4c585f1cb27858 1-37
+internal/router/hmm/mapping.go
+  s_19ff66ebf25d61::t_9650446037489a 10-11,13-14,16
+  s_19ff66ebf25d61::t_a01e98970aa8d3 5,8,17
+internal/requestcontext/conversation_key.go
+  s_19ff66ebf25d61::t_a5973c48e1b996 1-34
+internal/gateway/gateway.go
+  s_19ff66ebf25d61::t_eb49fbf0765eb3 1-22,24-27,29-32,34-38,44-46,48,50,52-54,62-65,68,100,121-124,128-129,132,134-136,139-140,142-143,148,155,158,160-162,164,168-169,172-173,176-177,188-190
+  s_19ff66ebf25d61::t_aa99f4986eda75 23,28,33,39-43,47,49,51,55-61,66-67,69-99,101-120,125-127,130-131,133,137-138,141,144-147,149-154,156-157,159,163,165-167,170-171,174-175,178-187
+  s_19ff66ebf25d61::t_76d7fc69dc48bf 191-195
+internal/proxy/force_model.go
+  s_19ff66ebf25d61::t_bc4b935662c11a 656,660
+db/migrations/0084_managed-serving-foundation.down.sql
+  s_19ff66ebf25d61::t_ea73f932129c6b 1-11
+internal/proxy/client_identity.go
+  s_19ff66ebf25d61::t_8755fcddb07bfe 32,80,85,93,98
+internal/gateway/gateway_test.go
+  s_19ff66ebf25d61::t_8a4ce5021759a1 1-20,22-25,27,30-31,53-54,59,67,69,85,166,206,216
+  s_19ff66ebf25d61::t_6f49f282b08472 21,26,28-29,32-52,55-58,60-66,68,70-84,86-165,167-205,207-215
+  s_19ff66ebf25d61::t_6e6a4953eeb56c 217-227
+db/migrations/0084_managed-serving-foundation.up.sql
+  s_19ff66ebf25d61::t_ea73f932129c6b 1-63,65-66
+  s_19ff66ebf25d61::t_233fa50228a545 64
+internal/translate/CLAUDE.md
+  s_19ff66ebf25d61::t_aa99f4986eda75 11
+internal/policyregistry/serving_assertion.go
+  s_19ff66ebf25d61::t_1c4582bce3b943 1-112,114-115
+  s_19ff66ebf25d61::t_cb3bf5d1317dd2 113,116-143
+internal/auth/routing_credential.go
+  s_19ff66ebf25d61::t_fc7fa8a92c8e1b 1-34
+internal/translate/beta.go
+  s_19ff66ebf25d61::t_aa99f4986eda75 198
+internal/postgres/credential_subject_repo.go
+  s_19ff66ebf25d61::t_987218e74c35ef 1-110
+  s_19ff66ebf25d61::t_c8cccb8ed185e0 111-172
+internal/policyregistry/gcs.go
+  s_19ff66ebf25d61::t_e39067dcc44e8d 116-124
+  s_19ff66ebf25d61::t_7790973c627b0a 125-128,133,144,254
+internal/translate/command_response.go
+  s_19ff66ebf25d61::t_bc4b935662c11a 1-208
+internal/translate/beta_retirement.go
+  s_19ff66ebf25d61::t_aa99f4986eda75 1-69
+  s_19ff66ebf25d61::t_f8f571feb20403 70-87
+internal/postgres/converters.go
+  s_19ff66ebf25d61::t_4c585f1cb27858 116
+  s_19ff66ebf25d61::t_36338c63193266 108-115,117-120
+scripts/serving_admission_check/main.go
+  s_19ff66ebf25d61::t_bb5457553af92d 1-22,24-27,32-34,39-40,42,47,67,108,117-118,129,205-207,212-213,219,231-233
+  s_19ff66ebf25d61::t_e05e0b353d0dd0 23,63
+  s_19ff66ebf25d61::t_b2b04f8a30b2cc 28-31,35-38,41,43-46,48-62,64-66,68-107,109-116,119-128,130-204,208-211,214-218,220-230
+AGENTS.md
+  s_19ff66ebf25d61::t_ff9619d16efc93 138
+cmd/AGENTS.md
+  s_19ff66ebf25d61::t_d4e2454c1bf64d 9
+cmd/router/main.go
+  s_19ff66ebf25d61::t_c8d796fb57af6b 1312-1355
+internal/policyregistry/manager.go
+  s_19ff66ebf25d61::t_42ef91ac80d571 276,285,298,311,324,337,348,352-355
+internal/policyregistry/serving_generation.go
+  s_19ff66ebf25d61::t_9a29de314ef866 1-14
+internal/policyregistry/serving_generation_test.go
+  s_19ff66ebf25d61::t_7efad99e06ffa0 1-15
+internal/policyregistry/serving_snapshot.go
+  s_19ff66ebf25d61::t_bb38e9af9b4ea1 1-101
+internal/policyregistry/serving_snapshot_test.go
+  s_19ff66ebf25d61::t_85240e6e202e00 1-33
+internal/policyregistry/serving_validator.go
+  s_19ff66ebf25d61::t_71870d55981318 1-77
+internal/policyregistry/serving_validator_test.go
+  s_19ff66ebf25d61::t_15bee8f4015a20 1-51
+internal/postgres/AGENTS.md
+  s_19ff66ebf25d61::t_743ddc9813f58c 12
+internal/server/middleware/serving_admission.go
+  s_19ff66ebf25d61::t_611c4ed5034bbc 1-91
+internal/server/server.go
+  s_19ff66ebf25d61::t_43b55502c01482 107-109,139-142,262-263,291,340,367-369,375
+internal/sqlc/credential_subjects.sql.go
+  s_331408f9d60160::t_85a8c8b6a5d788 1-266
+internal/sqlc/model_router_api_keys.sql.go
+  s_331408f9d60160::t_69d247f2236529 35,72,100,106,125,149,218,227,256
+internal/sqlc/models.go
+  s_331408f9d60160::t_5b22f586694bcb 52-67,120-127,164-165,737-755
+internal/sqlc/serving_admission.sql.go
+  s_331408f9d60160::t_d006cdbc436edb 1-296
+internal/translate/AGENTS.md
+  s_19ff66ebf25d61::t_668255061b4f25 11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6cf69281e3975f7e655e19c220e59cd8f083836a",
+  "prompts": {},
+  "sessions": {
+    "s_19ff66ebf25d61": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a098e3-0657-74d2-b731-3f3a0a196f5e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_331408f9d60160": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b1c7-b04a-79e2-82ea-887d83fbac20",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

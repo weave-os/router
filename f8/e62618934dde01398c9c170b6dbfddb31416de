@@ -1,0 +1,20 @@
+scripts/feedback_state_check/main.go
+  s_9ef40d94c2b5d1::t_6de23e76438edb 360-361,365,368-371
+  s_9ef40d94c2b5d1::t_908db2a5ca2a02 372
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f8e62618934dde01398c9c170b6dbfddb31416de",
+  "prompts": {},
+  "sessions": {
+    "s_9ef40d94c2b5d1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5df3b4a0-ad3e-4421-a33e-f459b7fff8d3",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
