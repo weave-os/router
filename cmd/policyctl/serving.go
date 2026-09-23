@@ -20,11 +20,15 @@ import (
 	"weave-os/router/internal/servingvalidate"
 )
 
-const (
-	commandResolve  commandName = "resolve"
-	commandPrepare  commandName = "prepare"
-	commandActivate commandName = "activate"
-)
+const commandApply commandName = "apply"
+
+// removedServingVerbs maps each retired verb to the invocation that absorbed it.
+var removedServingVerbs = map[commandName]string{
+	"validate": "publish --dry-run",
+	"resolve":  "apply --proposal-sha256 <sha256>",
+	"prepare":  "apply --dry-run",
+	"activate": "apply",
+}
 
 type servingRegistry interface {
 	policyregistry.ServingValidationStore
@@ -92,24 +96,37 @@ func workflowActorFor(getenv func(string) string, proposal policyregistry.Propos
 
 func runServingWith(ctx context.Context, args []string, dependencies servingDependencies) error {
 	if len(args) == 0 {
-		return errors.New("usage: policyctl serving <validate|publish|resolve|prepare|activate|rollback|status> [flags]")
+		return errors.New("usage: policyctl serving <publish|apply|status|rollback> [flags]")
 	}
 	command := commandName(args[0])
-	switch command {
-	case commandValidate, commandPublish, commandResolve, commandPrepare, commandActivate, commandRollback, commandStatus:
-	default:
-		return fmt.Errorf("unsupported serving command %q", command)
+	if replacement, removed := removedServingVerbs[command]; removed {
+		return fmt.Errorf("serving %s was removed; use `policyctl serving %s`", command, replacement)
 	}
 	flags := flag.NewFlagSet("serving "+string(command), flag.ContinueOnError)
 	registryURI := flags.String("registry", defaultRegistryURI, "GCS registry root")
-	kindRaw := flags.String("kind", "", "candidate, selection_set or proposal")
-	manifestPath := flags.String("manifest", "", "immutable manifest JSON file")
-	targetRaw := flags.String("target", "", "staging, prod/stable or prod/weave-internal")
-	proposalPath := flags.String("proposal", "", "JSON file containing the exact published proposal ObjectRef")
-	proposalDigest := flags.String("proposal-sha256", "", "resolve this immutable proposal digest once before activation")
-	stored := flags.Bool("stored", false, "validate manifest bytes exactly as fetched from the registry, without trimming surrounding whitespace")
-	for _, name := range deprecatedServingFlags {
-		flags.Func(name, "deprecated; parsed and ignored", func(string) error { return nil })
+	var kindRaw, manifestPath, targetRaw, proposalPath, proposalDigest *string
+	var dryRun *bool
+	switch command {
+	case commandPublish:
+		kindRaw = flags.String("kind", "", "candidate, selection_set or proposal")
+		manifestPath = flags.String("manifest", "", "immutable manifest JSON file")
+		dryRun = flags.Bool("dry-run", false, "decode, validate and report the digest without writing to the registry")
+	case commandApply:
+		proposalPath = flags.String("proposal", "", "JSON file containing the exact published proposal ObjectRef")
+		proposalDigest = flags.String("proposal-sha256", "", "resolve this immutable proposal digest instead of reading an ObjectRef file")
+		dryRun = flags.Bool("dry-run", false, "validate the proposal and its destinations without activating")
+	case commandRollback:
+		proposalPath = flags.String("proposal", "", "JSON file containing the exact published rollback proposal ObjectRef")
+	case commandStatus:
+		targetRaw = flags.String("target", "", "staging, prod/stable or prod/weave-internal")
+		proposalPath = flags.String("proposal", "", "JSON file containing the exact published proposal ObjectRef")
+	default:
+		return fmt.Errorf("unsupported serving command %q", command)
+	}
+	if command == commandApply || command == commandRollback {
+		for _, name := range deprecatedServingFlags {
+			flags.Func(name, "deprecated; parsed and ignored", func(string) error { return nil })
+		}
 	}
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
@@ -124,36 +141,21 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 	if flags.NArg() != 0 {
 		return errors.New("unexpected positional serving arguments")
 	}
-	if *targetRaw != "" && (command != commandStatus || *proposalPath != "") {
-		return errors.New("--target is only accepted for target status; lifecycle destinations are bound by the immutable proposal")
-	}
-	if command == commandValidate || command == commandPublish {
-		if *stored && command == commandPublish {
-			return errors.New("--stored only applies to serving validate; publish digests the trimmed manifest bytes")
+	switch command {
+	case commandPublish:
+		return servingPublish(ctx, dependencies, *registryURI, policyregistry.ServingKind(*kindRaw), *manifestPath, *dryRun)
+	case commandStatus:
+		if (*targetRaw == "") == (*proposalPath == "") {
+			return errors.New("serving status requires exactly one of --target or --proposal")
 		}
-		return servingManifestOperation(ctx, dependencies, command, *registryURI, policyregistry.ServingKind(*kindRaw), *manifestPath, *stored)
-	}
-	if command == commandResolve {
-		if *proposalDigest == "" {
-			return errors.New("serving resolve requires --proposal-sha256")
+		if *targetRaw != "" {
+			return servingTargetStatus(ctx, dependencies, *registryURI, policyregistry.ServingTarget(*targetRaw))
 		}
-		registry, err := dependencies.openRegistry(ctx, *registryURI)
-		if err != nil {
+		var ref policyregistry.ObjectRef
+		if err := readServingReference(*proposalPath, &ref); err != nil {
 			return err
 		}
-		defer registry.Close()
-		ref, err := registry.ServingRef(ctx, policyregistry.ServingProposal, *proposalDigest)
-		if err != nil {
-			return err
-		}
-		if _, _, err := registry.ReadServingObject(ctx, policyregistry.ServingProposal, ref); err != nil {
-			return err
-		}
-		return dependencies.writeOutput(ref)
-	}
-	if command == commandStatus && *proposalPath == "" {
-		target := policyregistry.ServingTarget(*targetRaw)
-		if _, err := target.Environment(); err != nil {
+		if err := policyregistry.ValidateServingRef(ref, *registryURI, policyregistry.ServingProposal); err != nil {
 			return err
 		}
 		registry, err := dependencies.openRegistry(ctx, *registryURI)
@@ -161,93 +163,35 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 			return err
 		}
 		defer registry.Close()
-		snapshot, err := registry.ReadServingState(ctx, target)
-		if err != nil {
-			return err
+		return servingProposalStatus(ctx, registry, ref, dependencies.writeOutput)
+	case commandApply:
+		if (*proposalPath == "") == (*proposalDigest == "") {
+			return errors.New("serving apply requires exactly one of --proposal with an exact immutable proposal reference or --proposal-sha256")
 		}
-		return dependencies.writeOutput(snapshot)
-	}
-	if *proposalPath == "" {
-		return errors.New("serving lifecycle operation requires --proposal with an exact immutable proposal reference")
-	}
-	var proposalRef policyregistry.ObjectRef
-	if err := readServingReference(*proposalPath, &proposalRef); err != nil {
-		return err
-	}
-	if err := policyregistry.ValidateServingRef(proposalRef, *registryURI, policyregistry.ServingProposal); err != nil {
-		return err
-	}
-	var validator policyregistry.DestinationValidator
-	if command != commandStatus {
-		endpoints, err := dependencies.endpoints()
-		if err != nil {
-			return err
+		return servingApply(ctx, dependencies, *registryURI, *proposalPath, *proposalDigest, *dryRun, false)
+	default:
+		if *proposalPath == "" {
+			return errors.New("serving rollback requires --proposal with an exact immutable proposal reference")
 		}
-		validator.Endpoints = endpoints
+		return servingApply(ctx, dependencies, *registryURI, *proposalPath, "", false, true)
 	}
-	registry, err := dependencies.openRegistry(ctx, *registryURI)
-	if err != nil {
-		return err
-	}
-	defer registry.Close()
-	if command == commandStatus {
-		return servingProposalStatus(ctx, registry, proposalRef, dependencies.writeOutput)
-	}
-	controller, err := policyregistry.NewServingController(registry, validator, dependencies.clock, dependencies.logger)
-	if err != nil {
-		return err
-	}
-	if command == commandPrepare {
-		preparation, err := controller.Prepare(ctx, proposalRef)
-		if err != nil {
-			return err
-		}
-		return dependencies.writeOutput(preparation)
-	}
-	proposal, _, err := registry.ReadServingObject(ctx, policyregistry.ServingProposal, proposalRef)
-	if err != nil {
-		return err
-	}
-	typed, ok := proposal.(policyregistry.ProposalManifest)
-	if !ok {
-		return errors.New("registry returned the wrong manifest kind for the proposal")
-	}
-	getenv := dependencies.getenv
-	if getenv == nil {
-		getenv = func(string) string { return "" }
-	}
-	activate := controller.Activate
-	if command == commandRollback {
-		activate = controller.Rollback
-	}
-	activation, err := activate(ctx, proposalRef, workflowActorFor(getenv, typed.View()))
-	if err != nil {
-		return err
-	}
-	if err := dependencies.writeOutput(activation); err != nil {
-		return fmt.Errorf("activated; output observation degraded; reconcile the same proposal without creating another activation: %w", err)
-	}
-	return nil
 }
 
-func servingManifestOperation(ctx context.Context, dependencies servingDependencies, command commandName, root string, kind policyregistry.ServingKind, path string, stored bool) error {
+// servingPublish digests the manifest bytes exactly as they would be stored; a dry run performs
+// every pre-write check and reports that digest without opening the registry.
+func servingPublish(ctx context.Context, dependencies servingDependencies, root string, kind policyregistry.ServingKind, path string, dryRun bool) error {
 	if path == "" || kind == "" {
-		return errors.New("serving manifest operation requires --kind and --manifest")
-	}
-	if err := policyregistry.ValidatePublishableServingKind(kind); err != nil {
-		return err
+		return errors.New("serving publish requires --kind and --manifest")
 	}
 	payload, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read serving manifest: %w", err)
 	}
-	if !stored {
-		payload = bytes.TrimSpace(payload)
-	}
-	if _, err := policyregistry.DecodeServingManifest(payload, root, kind); err != nil {
+	payload = bytes.TrimSpace(payload)
+	if _, err := policyregistry.DecodePublishableServingManifest(payload, root, kind); err != nil {
 		return err
 	}
-	if command == commandValidate {
+	if dryRun {
 		return dependencies.writeOutput(struct {
 			Kind   policyregistry.ServingKind `json:"kind"`
 			SHA256 string                     `json:"sha256"`
@@ -263,6 +207,90 @@ func servingManifestOperation(ctx context.Context, dependencies servingDependenc
 		return err
 	}
 	return dependencies.writeOutput(reference)
+}
+
+func servingTargetStatus(ctx context.Context, dependencies servingDependencies, root string, target policyregistry.ServingTarget) error {
+	if _, err := target.Environment(); err != nil {
+		return err
+	}
+	registry, err := dependencies.openRegistry(ctx, root)
+	if err != nil {
+		return err
+	}
+	defer registry.Close()
+	snapshot, err := registry.ReadServingState(ctx, target)
+	if err != nil {
+		return err
+	}
+	return dependencies.writeOutput(snapshot)
+}
+
+// servingApply drives one proposal through the controller. A dry run stops after destination
+// validation; rollback additionally requires the proposal to declare the rollback scope so the
+// operator's stated intent and the proposal's transition cannot disagree.
+func servingApply(ctx context.Context, dependencies servingDependencies, root, proposalPath, proposalDigest string, dryRun, rollback bool) error {
+	var proposalRef policyregistry.ObjectRef
+	if proposalPath != "" {
+		if err := readServingReference(proposalPath, &proposalRef); err != nil {
+			return err
+		}
+		if err := policyregistry.ValidateServingRef(proposalRef, root, policyregistry.ServingProposal); err != nil {
+			return err
+		}
+	}
+	endpoints, err := dependencies.endpoints()
+	if err != nil {
+		return err
+	}
+	registry, err := dependencies.openRegistry(ctx, root)
+	if err != nil {
+		return err
+	}
+	defer registry.Close()
+	if proposalPath == "" {
+		if proposalRef, err = registry.ServingRef(ctx, policyregistry.ServingProposal, proposalDigest); err != nil {
+			return err
+		}
+	}
+	controller, err := policyregistry.NewServingController(registry, policyregistry.DestinationValidator{Endpoints: endpoints}, dependencies.clock, dependencies.logger)
+	if err != nil {
+		return err
+	}
+	if dryRun {
+		preparation, err := controller.Prepare(ctx, proposalRef)
+		if err != nil {
+			return err
+		}
+		return dependencies.writeOutput(preparation)
+	}
+	manifest, _, err := registry.ReadServingObject(ctx, policyregistry.ServingProposal, proposalRef)
+	if err != nil {
+		return err
+	}
+	typed, ok := manifest.(policyregistry.ProposalManifest)
+	if !ok {
+		return errors.New("registry returned the wrong manifest kind for the proposal")
+	}
+	proposal := typed.View()
+	activate := controller.Activate
+	if rollback {
+		if proposal.Scope != policyregistry.ChangeRollback {
+			return fmt.Errorf("serving rollback requires a proposal with scope %q, got %q; use `policyctl serving apply` for forward changes", policyregistry.ChangeRollback, proposal.Scope)
+		}
+		activate = controller.Rollback
+	}
+	getenv := dependencies.getenv
+	if getenv == nil {
+		getenv = func(string) string { return "" }
+	}
+	activation, err := activate(ctx, proposalRef, workflowActorFor(getenv, proposal))
+	if err != nil {
+		return err
+	}
+	if err := dependencies.writeOutput(activation); err != nil {
+		return fmt.Errorf("activated; output observation degraded; reconcile the same proposal without creating another activation: %w", err)
+	}
+	return nil
 }
 
 func readServingReference(path string, reference *policyregistry.ObjectRef) error {

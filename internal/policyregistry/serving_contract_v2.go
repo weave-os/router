@@ -435,6 +435,22 @@ func ValidatePublishableServingKind(kind ServingKind) error {
 	}
 }
 
+// DecodePublishableServingManifest applies every check a publish performs before it writes:
+// the kind must be a v2 family and the bytes must strictly decode to a valid v2 object.
+func DecodePublishableServingManifest(payload []byte, root string, kind ServingKind) (ServingManifest, error) {
+	if err := ValidatePublishableServingKind(kind); err != nil {
+		return nil, err
+	}
+	manifest, err := DecodeServingManifest(payload, root, kind)
+	if err != nil {
+		return nil, err
+	}
+	if !isServingV2Manifest(manifest) {
+		return nil, fmt.Errorf("%s publication requires a v2 schema; v1 objects are read-only", kind)
+	}
+	return manifest, nil
+}
+
 // isServingV2Manifest reports whether a decoded manifest is one of the artifacts/ kinds.
 func isServingV2Manifest(manifest ServingManifest) bool {
 	switch manifest.(type) {
