@@ -7036,6 +7036,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 						log.Error("Failed to set routed model on Codex Responses body", "err", setErr, "decision_model", d.Model)
 						return fmt.Errorf("set codex model: %w", setErr)
 					}
+					outBody, setErr = translate.ClampResponsesInputCallIDs(outBody)
+					if setErr != nil {
+						return fmt.Errorf("clamp codex call_id: %w", setErr)
+					}
 					nativeOpts := targetOpts
 					nativeOpts.TargetProvider = d.Provider
 					nativeOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
