@@ -19,6 +19,10 @@ import (
 // ClassifierThreadHeader is a router-only token; clients must not forward a
 // parent's token to a subagent or create a new token when compacting a thread.
 const ClassifierThreadHeader = "X-Weave-Classifier-Thread"
+
+// ClassifierThreadUnavailableToken lets a client fail closed when its hook
+// runtime swallows an enrollment error. It is never a valid signed ticket.
+const ClassifierThreadUnavailableToken = "weave-classifier-unavailable"
 const classifierThreadIssuer = "weave-classifier-thread-v1"
 const classifierThreadLifetime = 30 * 24 * time.Hour
 

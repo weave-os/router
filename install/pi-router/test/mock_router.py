@@ -104,7 +104,7 @@ def latest_user_text(messages: list) -> str:
             parts = [
                 b.get("text", "")
                 for b in content
-                if isinstance(b, dict) and b.get("type") == "text"
+                if isinstance(b, dict) and b.get("type") in {"text", "input_text"}
             ]
             return " ".join(parts)
         return ""
@@ -269,6 +269,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802 (stdlib naming)
         path = self.path.split("?")[0]
+
         log_request({"method": "GET", "path": path, "app": self.headers.get("x-app")})
         self._send_json(200, {"status": "ok"})
 
@@ -296,6 +297,12 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == RESPONSES_PATH:
+            if self.headers.get("x-weave-classifier-thread") == "weave-classifier-unavailable":
+                log_request({"method": "POST", "path": path, "rejected": True,
+                             "classifier_thread_unavailable": True})
+                self._send_json(400, {"error": {"type": "invalid_request_error",
+                                                "message": "classifier_client_unavailable"}})
+                return
             try:
                 body = json.loads(raw or b"{}")
             except json.JSONDecodeError:
@@ -320,6 +327,13 @@ class Handler(BaseHTTPRequestHandler):
                 "app": self.headers.get("x-app"), "model": body.get("model"),
                 "stream": bool(body.get("stream")), "served": scenario.value,
                 "agent": agent, "weave_agent": weave_agent, "session_id": self.headers.get("session-id"),
+                "codex_agent_id": self.headers.get("x-codex-agent-id"),
+                "codex_parent_agent_id": self.headers.get("x-codex-parent-agent-id"),
+                "codex_header_names": [key for key in self.headers if "codex" in key.lower() or "session" in key.lower()],
+                "codex_parent_thread_id": self.headers.get("x-codex-parent-thread-id"),
+                "codex_window_id": self.headers.get("x-codex-window-id"),
+                "classifier_thread": self.headers.get("x-weave-classifier-thread"),
+                "tool_names": [tool.get("name") for tool in body.get("tools", []) if isinstance(tool, dict)],
                 "key_present": bool(key), "key_suffix": key[-4:],
                 "input": inputs, "tool_outputs": tool_outputs,
             })
@@ -334,9 +348,19 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json(400, {"error": {"type": "invalid_request_error", "message": "MOCK_REJECTED"}})
                 return
             fixture_scenario = scenario
+            if scenario == Scenario.CODEX_CHILD and "CODEX_CHILD_PROBE" not in latest_user_text(inputs):
+                fixture_scenario = Scenario.TEXT
             if scenario == Scenario.COMPACTION and request_count > 1:
                 fixture_scenario = Scenario.TEXT
-            response, events = responses_fixture(fixture_scenario, agent, bool(tool_outputs))
+            child_agent_id = ""
+            for tool_output in tool_outputs:
+                if tool_output.get("call_id") == "call_codex_child":
+                    try:
+                        child_agent_id = json.loads(tool_output.get("output", "")).get("agent_id", "")
+                    except (json.JSONDecodeError, AttributeError):
+                        pass
+            response, events = responses_fixture(fixture_scenario, agent, bool(tool_outputs),
+                                                 child_agent_id, any(output.get("call_id") == "call_codex_wait" for output in tool_outputs))
             if body.get("stream"):
                 self._send_sse(events, MAIN_MODEL)
             else:
@@ -383,6 +407,7 @@ class Handler(BaseHTTPRequestHandler):
         want_dispatch = (
             DISPATCH_MARKER in user_text and not is_subagent and not tool_result_present
         )
+        want_claude_child = "CLAUDE_CHILD_PROBE" in user_text and not tool_result_present
         with _pin_lock:
             forced_model = _forced_models.get(user_id)
         routed_model = SUBAGENT_MODEL if is_subagent else forced_model or MAIN_MODEL
@@ -404,6 +429,13 @@ class Handler(BaseHTTPRequestHandler):
                 served = "force_model"
             block = {"type": "text", "text": reply}
             stop_reason = "end_turn"
+        elif want_claude_child:
+            block = {
+                "type": "tool_use", "id": "toolu_mock_claude_child", "name": "Agent",
+                "input": {"description": "Mock child", "prompt": "Return only CHILD_OK.", "subagent_type": "general-purpose"},
+            }
+            stop_reason = "tool_use"
+            served = "claude_child"
         elif want_dispatch:
             block = {
                 "type": "tool_use",
@@ -430,6 +462,12 @@ class Handler(BaseHTTPRequestHandler):
                 "path": path,
                 "rejected": False,
                 "app": app,
+                "claude_session_id": self.headers.get("x-claude-code-session-id"),
+                "claude_agent_id": self.headers.get("x-claude-code-agent-id"),
+                "claude_parent_agent_id": self.headers.get("x-claude-code-parent-agent-id"),
+                "claude_header_names": [header for header in self.headers if "claude" in header.lower() or "session" in header.lower()],
+                "classifier_thread": self.headers.get("x-weave-classifier-thread"),
+                "tool_names": [tool.get("name") for tool in body.get("tools", []) if isinstance(tool, dict)],
                 "model": body.get("model"),
                 "stream": stream,
                 "user_id": user_id,
@@ -440,10 +478,9 @@ class Handler(BaseHTTPRequestHandler):
                 "knobs": {h: self.headers.get(h) for h in KNOB_HEADERS},
                 "marker_opt": self.headers.get("x-weave-routing-marker"),
                 "has_tool_result": tool_result_present,
-                "user_text": user_text[:60],
                 "served": served,
                 "forced_model": forced_model,
-                "classifier_thread": body.get("weave_classifier_thread"),
+                "classifier_thread": self.headers.get("x-weave-classifier-thread") or body.get("weave_classifier_thread"),
             }
         )
 

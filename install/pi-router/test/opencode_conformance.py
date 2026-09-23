@@ -105,7 +105,7 @@ class OpenCodeConformance(unittest.TestCase):
         completed = self.command([self.opencode, "run", "--format", "json", *flags, "Return the test marker"],
                                  scenario, expected_exit=1 if scenario == Scenario.ERROR else 0)
         events = [json.loads(line) for line in completed.stdout.splitlines() if line.startswith("{")]
-        requests = self.requests()[before:]
+        requests = [request for request in self.requests()[before:] if request["path"] == "/v1/responses"]
         self.assertTrue(events, completed.stdout + completed.stderr)
         self.assertTrue(requests, completed.stdout + completed.stderr)
         for request in requests:
@@ -178,6 +178,45 @@ class OpenCodeConformance(unittest.TestCase):
         self.assertNotEqual(requests[0]["session_id"], requests[1]["session_id"])
         self.assertEqual(requests[2]["tool_outputs"][0]["call_id"], "call_task")
         self.assertIn(TEXT, requests[2]["tool_outputs"][0]["output"])
+
+    def test_classifier_new_parent_child_and_resume(self) -> None:
+        self.env["WEAVE_OPENCODE_LLM_CLASSIFIER"] = "1"
+        try:
+            before = len(self.requests())
+            events, requests = self.run_turn(Scenario.TASK, "--title", "Classifier task")
+            self.assertEqual([request["agent"] for request in requests], ["build", "explore", "build"])
+            parent, child, continuation = requests
+            self.assertEqual(parent["classifier_thread"], continuation["classifier_thread"])
+            self.assertNotEqual(parent["classifier_thread"], child["classifier_thread"])
+            self.assertTrue(parent["classifier_thread"])
+            handshakes = [request for request in self.requests()[before:] if request["path"] == "/v1/router/threads"]
+            self.assertEqual(len(handshakes), 2)
+            self.assertEqual(len({request["new_chat_id"] for request in handshakes}), 2)
+            session = events[0]["sessionID"]
+            _, resumed = self.run_turn(Scenario.TEXT, "--session", session)
+            self.assertEqual(len(resumed), 1)
+            self.assertEqual(resumed[0]["classifier_thread"], parent["classifier_thread"])
+            self.assertEqual(len([request for request in self.requests()[before:]
+                                  if request["path"] == "/v1/router/threads"]), 2)
+        finally:
+            del self.env["WEAVE_OPENCODE_LLM_CLASSIFIER"]
+
+    def test_classifier_enrollment_failure_cannot_dispatch(self) -> None:
+        self.env["WEAVE_OPENCODE_LLM_CLASSIFIER"] = "1"
+        configured = json.loads(self.config_path.read_text())
+        configured["provider"]["weave"]["options"]["headers"]["X-Weave-Router-Key"] = mock_router.CLASSIFIER_DENIED_KEY
+        self.config_path.write_text(json.dumps(configured))
+        try:
+            before = len(self.requests())
+            self.command([self.opencode, "run", "--format", "json", "--title", "Denied classifier",
+                          "Return the test marker"], expected_exit=1)
+            requests = self.requests()[before:]
+            self.assertTrue([request for request in requests if request["path"] == "/v1/router/threads"])
+            self.assertFalse([request for request in requests if request["path"] == "/v1/responses"
+                              and not request.get("rejected")])
+        finally:
+            del self.env["WEAVE_OPENCODE_LLM_CLASSIFIER"]
+            self.config_path.write_text(json.dumps(self.config))
 
     def test_compaction(self) -> None:
         events, requests = self.run_turn(Scenario.COMPACTION, "--title", "Compaction contract")

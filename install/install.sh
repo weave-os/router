@@ -731,6 +731,24 @@ write_codex_config() {
   local block_email="${4:-}"
   local block_name="${5:-}"
 
+  if [ "${WEAVE_CAPTURE_LLM_CLASSIFIER:-}" = "1" ]; then
+    local capture_url="${WEAVE_CAPTURE_PROXY_URL:-http://127.0.0.1:41984}"
+    if ! [[ "$capture_url" =~ ^http://(127\.0\.0\.1|localhost):[0-9]+$ ]]; then
+      err "Classifier opt-in requires a loopback WEAVE_CAPTURE_PROXY_URL"
+      return 1
+    fi
+    block_url="$capture_url"
+    if ! command -v jq >/dev/null 2>&1; then
+      err "Classifier opt-in requires jq to verify the capture proxy"
+      return 1
+    fi
+    if ! curl -fsS --max-time 2 "$capture_url/healthz" | jq -e --arg upstream "$2" \
+      '.classifier_enabled == true and .upstream == $upstream' >/dev/null; then
+      err "Classifier capture proxy is unavailable or targets a different router"
+      return 1
+    fi
+  fi
+
   # Escape `\` and `"` for TOML basic strings. Order matters: replace
   # backslashes first so the quotes we add next aren't double-escaped. A
   # display name like `John "J" Doe` would otherwise produce invalid TOML and
@@ -797,6 +815,10 @@ write_codex_config() {
   if [ -f "$config_file" ] && grep -q '^\[features\]$' "$config_file"; then
     hook_feature_line=""
   fi
+  if [ "${WEAVE_CAPTURE_LLM_CLASSIFIER:-}" = "1" ] && [ "$codex_hooks_enabled" != "true" ]; then
+    err "Classifier opt-in requires managed Codex lifecycle hooks; existing hook configuration is incompatible"
+    return 1
+  fi
   if [ "$codex_hooks_enabled" = "true" ]; then
     # UserPromptSubmit is registered only when OUR hook is actually on disk.
     # Existence alone is the wrong test: install_codex_directive_script leaves
@@ -830,6 +852,22 @@ type = "command"
 command = "${esc_status}"
 TOML
 )${directive_hook_block}"
+    if [ "${WEAVE_CAPTURE_LLM_CLASSIFIER:-}" = "1" ]; then
+      hook_block="${hook_block}$(cat <<TOML
+
+[[hooks.PreToolUse]]
+matcher = "spawn_agent"
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "${esc_status}"
+
+[[hooks.PreCompact]]
+[[hooks.PreCompact.hooks]]
+type = "command"
+command = "${esc_status}"
+TOML
+)"
+    fi
   fi
   local block
   block="$(cat <<TOML
@@ -1072,19 +1110,20 @@ write_opencode_config() {
   # config; ChatGPT tokens live in opencode's own auth store), so 644 is fine.
   # Source is bundled alongside install.sh by the npm prepack
   # (scripts/copy-installer.js), same as commands/ + pi-router/.
-  local plugin_dir plugin_spec plugin_src plugin_arg=""
+  local plugin_dir plugin_spec plugin_src plugin_directives_src plugin_classifier_src plugin_arg=""
   plugin_dir="$(cd "$(dirname "$config_file")" && pwd)/.weave"
   plugin_spec="$plugin_dir/opencode-weave.ts"
   plugin_src="$script_dir/opencode-weave/src/index.ts"
   plugin_directives_src="$script_dir/opencode-weave/src/directives.ts"
-  if [ -f "$plugin_src" ]; then
+  plugin_classifier_src="$script_dir/opencode-weave/src/classifier-thread.ts"
+  if [ -f "$plugin_src" ] && [ -f "$plugin_directives_src" ] && [ -f "$plugin_classifier_src" ]; then
     mkdir -p "$plugin_dir"
     cp "$plugin_src" "$plugin_spec"
     chmod 644 "$plugin_spec"
-    if [ -f "$plugin_directives_src" ]; then
-      cp "$plugin_directives_src" "$plugin_dir/directives.ts"
-      chmod 644 "$plugin_dir/directives.ts"
-    fi
+    cp "$plugin_directives_src" "$plugin_dir/directives.ts"
+    chmod 644 "$plugin_dir/directives.ts"
+    cp "$plugin_classifier_src" "$plugin_dir/classifier-thread.ts"
+    chmod 644 "$plugin_dir/classifier-thread.ts"
     plugin_arg="$plugin_spec"
   else
     warn "opencode subscription plugin source not found at $plugin_src — skipping the Claude login + subscription routing. (Use a packaged 'npx $npm_package_name' install.)"

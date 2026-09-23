@@ -22,6 +22,11 @@ func WithClassifierThread(service *proxy.Service) gin.HandlerFunc {
 		threadToken := c.GetHeader(proxy.ClassifierThreadHeader)
 		headerValues := c.Request.Header.Values(proxy.ClassifierThreadHeader)
 		c.Request.Header.Del(proxy.ClassifierThreadHeader)
+		if len(headerValues) == 1 && threadToken == proxy.ClassifierThreadUnavailableToken {
+			observability.FromGin(c).Warn("Client could not enroll classifier thread", "path", c.FullPath())
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "classifier_client_unavailable"})
+			return
+		}
 		if len(headerValues) > 1 || (len(headerValues) == 1 && threadToken == "") {
 			observability.FromGin(c).Debug("Invalid classifier thread header", "path", c.FullPath(), "header_count", len(headerValues))
 			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "invalid_classifier_thread"})

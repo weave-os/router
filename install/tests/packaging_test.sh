@@ -41,7 +41,7 @@ root="$pkg/package"
 
 # The registry itself must ship: install.sh sources it at runtime, so a tarball
 # without it is an installer that cannot resolve a single directive.
-for asset in registry.sh directives.tsv install.sh uninstall.sh cc-statusline.sh codex-status.sh bin.js opencode-weave/src/index.ts opencode-weave/src/directives.ts; do
+for asset in registry.sh directives.tsv install.sh uninstall.sh cc-statusline.sh codex-status.sh bin.js opencode-weave/src/index.ts opencode-weave/src/directives.ts opencode-weave/src/classifier-thread.ts; do
   if [ -f "$root/$asset" ]; then ok "the tarball ships $asset"; else no "the tarball ships $asset" "present" "missing"; fi
 done
 

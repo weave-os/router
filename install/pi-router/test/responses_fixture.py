@@ -14,6 +14,7 @@ class Scenario(str, Enum):
     MALFORMED = "malformed"
     TRUNCATED = "truncated"
     UNSUPPORTED = "unsupported"
+    CODEX_CHILD = "codex_child"
 
 
 TEXT = "OPENCODE_OK"
@@ -27,10 +28,22 @@ USAGE = {
 
 
 def responses_fixture(
-    scenario: Scenario, agent: str, has_tool_output: bool
+    scenario: Scenario, agent: str, has_tool_output: bool, child_agent_id: str = "", waited_for_child: bool = False,
 ) -> tuple[dict, list[tuple[str, dict]]]:
     items: list[dict] = []
-    if agent == "build" and not has_tool_output:
+    if scenario == Scenario.CODEX_CHILD and child_agent_id and not waited_for_child:
+        items.append({
+            "id": "fc_codex_wait", "type": "function_call", "status": "completed",
+            "call_id": "call_codex_wait", "name": "wait_agent", "namespace": "multi_agent_v1",
+            "arguments": json.dumps({"targets": [child_agent_id], "timeout_ms": 30_000}),
+        })
+    elif scenario == Scenario.CODEX_CHILD and not has_tool_output:
+        items.append({
+            "id": "fc_codex_child", "type": "function_call", "status": "completed",
+            "call_id": "call_codex_child", "name": "spawn_agent", "namespace": "multi_agent_v1",
+            "arguments": json.dumps({"message": "Return only CHILD_OK."}),
+        })
+    elif agent == "build" and not has_tool_output:
         if scenario == Scenario.TOOLS:
             for index in range(2):
                 items.append({

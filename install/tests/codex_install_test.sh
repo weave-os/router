@@ -92,6 +92,9 @@ grep -Fq '[[hooks.SessionStart]]' "$config" \
   || fail "Codex SessionStart hook was not installed"
 grep -Fq '[[hooks.Stop]]' "$config" \
   || fail "Codex Stop hook was not installed"
+if grep -Fq '[[hooks.PreToolUse]]' "$config"; then
+  fail "ordinary Codex installs registered classifier-only hooks"
+fi
 status_helper="$home/.weave/codex-status.sh"
   [ "$(grep -Fc "command = \"$status_helper\"" "$config")" -eq 2 ] \
   || fail "Codex hooks do not point at the installed status helper"
@@ -941,6 +944,16 @@ run_uninstall || fail "uninstall failed with the local-toggle hook installed"
 [ ! -e "$hook" ] || fail "uninstall left the local-toggle hook on disk"
 if [ -f "$config" ] && grep -Fq 'hooks.UserPromptSubmit' "$config"; then
   fail "uninstall left a UserPromptSubmit registration behind"
+fi
+
+# A classifier opt-in must never write the local proxy into config unless
+# healthz proves it is armed and chained to the intended router. This test's
+# fake curl refuses that probe.
+if WEAVE_CAPTURE_LLM_CLASSIFIER=1 WEAVE_CAPTURE_PROXY_URL=http://127.0.0.1:41984 run_hosted_install; then
+  fail "classifier install succeeded with an unavailable capture proxy"
+fi
+if [ -f "$config" ] && grep -Fq 'base_url = "http://127.0.0.1:41984/v1"' "$config"; then
+  fail "failed classifier probe modified the Codex provider"
 fi
 
 echo "Codex installer routing regression tests passed"

@@ -38,6 +38,7 @@ import type { AssistantMessage, Message } from "@opencode-ai/sdk"
 import { readFile } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
+import { CLASSIFIER_THREAD_HEADER, CLASSIFIER_UNAVAILABLE_TICKET, ClassifierThreads } from "./classifier-thread.ts"
 import { rewriteDirectiveParts } from "./directives.ts"
 
 // ---- ChatGPT (Codex) OAuth -------------------------------------------------
@@ -459,6 +460,7 @@ function isCompletedWeaveAssistant(info: Message): info is AssistantMessage {
 }
 
 export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => {
+  const classifierThreads = new ClassifierThreads()
   const pendingRequestMessageIDs = new Map<string, string>()
   const routedModelIDsByMessage = new Map<string, string>()
   const toastedMessageIDs = new Set<string>()
@@ -467,6 +469,14 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
       rewriteDirectiveParts(output.parts)
     },
     event: async ({ event }) => {
+      if (event.type === "session.created") {
+        await classifierThreads.created(event.properties.info)
+        return
+      }
+      if (event.type === "session.compacted") {
+        await classifierThreads.compacted(event.properties.sessionID)
+        return
+      }
       if (event.type !== "message.updated") return
       const info = event.properties.info
       if (!isCompletedWeaveAssistant(info)) return
@@ -706,6 +716,26 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
     // Scoped to our provider so other providers are untouched.
     "chat.headers": async (hookInput, output) => {
       if (hookInput.model.providerID !== PROVIDER_ID) return
+      if (hookInput.agent !== "title") {
+        // OpenCode swallows plugin hook exceptions. A failure must reach the
+        // router as an invalid ticket, never as an unticketed HMM request.
+        output.headers[CLASSIFIER_THREAD_HEADER] = CLASSIFIER_UNAVAILABLE_TICKET
+        try {
+          const enrolled = await classifierThreads.hasThread(hookInput.sessionID)
+          if (!enrolled && process.env.WEAVE_OPENCODE_LLM_CLASSIFIER !== "1") {
+            delete output.headers[CLASSIFIER_THREAD_HEADER]
+          } else {
+            if (!hookInput.provider?.options?.baseURL) throw new Error("Weave router origin unavailable")
+            const routerOrigin = new URL(hookInput.provider.options.baseURL).origin
+            const configuredHeaders = new Headers(hookInput.provider.options.headers as HeadersInit | undefined)
+            Object.assign(output.headers, await classifierThreads.header(hookInput.sessionID, routerOrigin,
+              configuredHeaders.get("X-Weave-Router-Key") ?? "", hookInput.agent))
+          }
+        } catch (error) {
+          console.error("Classifier enrollment blocked this OpenCode request", hookInput.sessionID,
+            error instanceof Error ? error.message : "unknown failure")
+        }
+      }
       output.headers["originator"] = "codex_cli_ts"
       output.headers["session-id"] = hookInput.sessionID
       const messageID = hookInput.message?.id

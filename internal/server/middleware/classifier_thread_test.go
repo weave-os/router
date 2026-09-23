@@ -89,6 +89,9 @@ func TestClassifierThreadHTTPContract(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, request(context.Background(), "/v1/router/threads", start, "").Code)
 	for _, path := range []string{"/v1/messages", "/v1/chat/completions", "/v1/responses", "/v1beta/models/test:generateContent"} {
 		t.Run(path, func(t *testing.T) {
+			denied := request(ctx, path, `{}`, proxy.ClassifierThreadUnavailableToken)
+			require.Equal(t, http.StatusBadRequest, denied.Code)
+			require.Contains(t, denied.Body.String(), "classifier_client_unavailable")
 			baseline := request(ctx, path, `{"model":"test","messages":[]}`, "")
 			require.Equal(t, http.StatusOK, baseline.Code)
 			require.Contains(t, baseline.Body.String(), `"strategy":"hmm_embedding"`)

@@ -76,6 +76,15 @@ are not a replacement for these plugin logins.
 
 ## Env overrides (self-host + tests)
 
+- `WEAVE_OPENCODE_LLM_CLASSIFIER=1` — enroll only sessions created while this
+  plugin is running. The plugin stores a separate handshake UUID and router
+  ticket for each parent/child session under OpenCode's data directory. An
+  enrollment failure or missing new-session event blocks inference while the
+  opt-in is set; resume an older session with the opt-in unset. Classifier
+  sessions cannot compact or change router origins; start
+  a new session instead. Requires a router deployment with the exact release
+  and installation explicitly allowlisted. Deploy the router's non-retryable
+  client-failure response before enabling this opt-in on developer machines.
 - `WEAVE_CODEX_OAUTH_ISSUER` — OpenAI auth issuer.
 - `WEAVE_ANTHROPIC_OAUTH_AUTHORIZE` / `WEAVE_ANTHROPIC_OAUTH_TOKEN` — Anthropic
   OAuth authorize host / token endpoint.
