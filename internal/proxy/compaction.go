@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/handover"
+	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
@@ -491,6 +492,7 @@ func (s *Service) compactionSessionModel(ctx context.Context, sessionKey [sessio
 	if model == "" {
 		model = served.Model
 	}
+	model, _ = hmm.SplitEffort(model)
 	model = catalog.LatestInFamily(model, func(candidate string) bool {
 		m, known := catalog.ByID(candidate)
 		if !known || m.Tier == catalog.TierLow {

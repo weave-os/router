@@ -474,6 +474,28 @@ func TestCompactionHardPin_CodexKeepsNonAnthropicSessionModel(t *testing.T) {
 	assert.Equal(t, "claude-opus-5-5", m)
 }
 
+func TestCompactionHardPin_CodexEffortQualifiedSessionModel(t *testing.T) {
+	const sessionModel = "gpt-5.6-luna"
+	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
+		hmmHistoryRole(sessionpin.DefaultRole): {
+			Provider: providers.ProviderOpenAI, LastServedModel: sessionModel + ":xhigh",
+			LastTurnEndedAt: time.Now(), PinnedUntil: time.Now().Add(time.Hour),
+		},
+	}}
+	s := &Service{
+		compactionHardPinEnabled: true,
+		pinStore:                 store,
+		clients:                  dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: nil}),
+		availableModels:          map[string]struct{}{sessionModel: {}},
+	}
+
+	provider, model, source, ok := s.compactionHardPin(context.Background(), [sessionpin.SessionKeyLen]byte{}, sessionpin.DefaultRole, router.Request{ClientApp: ClientAppCodex})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderOpenAI, provider)
+	assert.Equal(t, sessionModel, model)
+	assert.Equal(t, policy.OverrideSourceSession, source)
+}
+
 func TestCompactionHardPin_FamilyUpgradeHonorsRestrictions(t *testing.T) {
 	const olderModel = "z-ai/glm-5.2"
 	const newerModel = "z-ai/glm-5.3"
