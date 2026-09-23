@@ -334,7 +334,7 @@ jq -e . >/dev/null 2>&1 <<<"$payload" || exit 0
 hook_event_name="$(jq -r '.hook_event_name // ""' <<<"$payload")"
 if [ "${WEAVE_CAPTURE_LLM_CLASSIFIER:-}" = "1" ] && [ -n "${WEAVE_CAPTURE_HOOK_TOKEN:-}" ]; then
   classifier_hook_url="${WEAVE_CAPTURE_HOOK_URL:-http://127.0.0.1:41984/classifier/hook}"
-  if [[ "$classifier_hook_url" =~ ^http://(127\.0\.0\.1|localhost):[0-9]+/classifier/hook$ ]]; then
+  if [[ "$classifier_hook_url" =~ ^http://(127\.0\.0\.1|localhost|\[::1\]):[0-9]+/classifier/hook$ ]]; then
   case "$hook_event_name" in
     SessionStart|PreToolUse|PreCompact)
       # Send lifecycle identifiers only. A failed hook cannot enroll a thread;
