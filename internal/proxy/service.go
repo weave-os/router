@@ -1210,14 +1210,19 @@ func (s *Service) preferredModelsForRequest(ctx context.Context) []string {
 // clusterArmOverridesForRequest returns per-cluster arm overrides from ctx, or
 // nil when none are configured. Merges the API-key-scoped list (org default)
 // with the resolved user's own selection — see mergeClusterOverrides for the
-// composition rule. Only consumed by the HMM sidecar router.
+// composition rule. A Max subscriber's roster pins stand in for the user's own
+// selection. Only consumed by the HMM sidecar router.
 func clusterArmOverridesForRequest(ctx context.Context) map[string][]string {
 	if planOwnedServingRequest(ctx) {
 		return nil
 	}
 	v := ctx.Value(ClusterModelListsContextKey{})
 	keyScoped, _ := v.(map[string][]string)
-	return mergeClusterOverrides(keyScoped, auth.UserClusterModelListsFrom(ctx))
+	userScoped := auth.UserClusterModelListsFrom(ctx)
+	if pins := maxPlanRosterPins(ctx); pins != nil {
+		userScoped = pins
+	}
+	return mergeClusterOverrides(keyScoped, userScoped)
 }
 
 func planOwnedServingRequest(ctx context.Context) bool {
