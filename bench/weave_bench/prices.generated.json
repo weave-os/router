@@ -1,5 +1,5 @@
 {
-  "pricing_version": "catalog-sha256:f5bce061754bde61",
+  "pricing_version": "catalog-sha256:ecb506fcec0b73ed",
   "models": {
     "claude-fable-5": {
       "input_usd_per_million": 10,
@@ -367,6 +367,12 @@
       "cache_read_multiplier": 0.25,
       "cache_write_multiplier": 1.25
     },
+    "inclusionai/ling-3.0-flash": {
+      "input_usd_per_million": 0.06,
+      "output_usd_per_million": 0.18,
+      "cache_read_multiplier": 0.2,
+      "cache_write_multiplier": 1.25
+    },
     "minimax/minimax-m2.7": {
       "input_usd_per_million": 0.3,
       "output_usd_per_million": 1.2,
@@ -473,6 +479,18 @@
       "input_usd_per_million": 1,
       "output_usd_per_million": 3,
       "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "xiaomi/mimo-v2.6-flash": {
+      "input_usd_per_million": 0.14,
+      "output_usd_per_million": 0.28,
+      "cache_read_multiplier": 0.02,
+      "cache_write_multiplier": 1.25
+    },
+    "xiaomi/mimo-v2.6-pro": {
+      "input_usd_per_million": 0.435,
+      "output_usd_per_million": 0.87,
+      "cache_read_multiplier": 0.00827586,
       "cache_write_multiplier": 1.25
     },
     "z-ai/glm-5": {

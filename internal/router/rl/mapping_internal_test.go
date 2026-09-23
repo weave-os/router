@@ -33,6 +33,7 @@ var expectedRosterPrefix = map[string]string{
 var defaultRosterPrefixProviders = map[string]struct{}{
 	providers.ProviderOpenRouter: {},
 	providers.ProviderFireworks:  {},
+	providers.ProviderDeepInfra:  {},
 	providers.ProviderBedrock:    {},
 	providers.ProviderMakora:     {},
 	providers.ProviderMiniMax:    {},

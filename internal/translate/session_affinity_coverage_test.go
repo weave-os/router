@@ -47,6 +47,7 @@ var expectedSessionAffinityMechanism = map[string]sessionAffinityMechanism{
 // x-session-affinity header default is correct for them.
 var defaultMechanismProviders = map[string]struct{}{
 	providers.ProviderFireworks: {},
+	providers.ProviderDeepInfra: {},
 	providers.ProviderMakora:    {},
 	providers.ProviderMiniMax:   {},
 	providers.ProviderTogether:  {},

@@ -600,6 +600,29 @@ var Models = []Model{
 			Price: Pricing{InputUSDPer1M: 0.220, OutputUSDPer1M: 0.660, CacheReadMultiplier: 0.007 / 0.220}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.100, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.10}},
 	}},
+	// Ling-3.0-Flash: DeepInfra is the primary managed OSS route. OpenRouter
+	// remains a trailing self-hosted fallback, but is intentionally never the
+	// first binding for Max traffic.
+	{ID: "inclusionai/ling-3.0-flash", Source: SourceOpenSource, Tier: TierLow, ContextWindow: 262_144, ImageInput: ImageInputUnsupported, Providers: []ProviderBinding{
+		{Provider: providers.ProviderDeepInfra, UpstreamID: "inclusionAI/Ling-3.0-flash",
+			Price: Pricing{InputUSDPer1M: 0.060, OutputUSDPer1M: 0.180, CacheReadMultiplier: 0.20}},
+		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.060, OutputUSDPer1M: 0.180, CacheReadMultiplier: 0.10}},
+	}},
+	// MiMo-V2.6 Flash: DeepInfra serves the native OpenAI-compatible endpoint
+	// and exposes Xiaomi's canonical model ID. The model is multimodal and has
+	// a 1M context window; its cache-read rate is 2% of input.
+	{ID: "xiaomi/mimo-v2.6-flash", Source: SourceOpenSource, Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderDeepInfra, UpstreamID: "XiaomiMiMo/MiMo-V2.6-Flash",
+			Price: Pricing{InputUSDPer1M: 0.140, OutputUSDPer1M: 0.280, CacheReadMultiplier: 0.02}},
+		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.140, OutputUSDPer1M: 0.280, CacheReadMultiplier: 0.10}},
+	}},
+	// MiMo-V2.6 Pro: same DeepInfra-first policy as Flash, with the higher
+	// capability tier reserved for maximum-complexity Max requests.
+	{ID: "xiaomi/mimo-v2.6-pro", Source: SourceOpenSource, Tier: TierHigh, ContextWindow: 1_048_576, ThinkTagReasoning: true, Providers: []ProviderBinding{
+		{Provider: providers.ProviderDeepInfra, UpstreamID: "XiaomiMiMo/MiMo-V2.6-Pro",
+			Price: Pricing{InputUSDPer1M: 0.435, OutputUSDPer1M: 0.870, CacheReadMultiplier: 0.00827586}},
+		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.435, OutputUSDPer1M: 0.870, CacheReadMultiplier: 0.10}},
+	}},
 	// Untiered: Makora EOL'd V4-Pro and recommends V4-Flash, which takes the
 	// tier. Priced and bound so session pins and /force-model still dispatch.
 	// This bare alias is the OLD 0423 release; the routable one is the dated
@@ -745,6 +768,8 @@ var Models = []Model{
 	// 1,048,576 (Makora/Together/Fireworks served max); 1,310,720 is
 	// Cloudflare-only.
 	{ID: "z-ai/glm-5.3-flash", Source: SourceOpenSource, Tier: TierLow, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderDeepInfra, UpstreamID: "zai-org/GLM-5.3-Flash",
+			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.20}},
 		{Provider: providers.ProviderMakora, UpstreamID: "zai-org/GLM-5.3-Flash",
 			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.500, CacheReadMultiplier: 0.03 / 0.150}},
 		{Provider: providers.ProviderTogether, UpstreamID: "zai-org/GLM-5.3-Flash",

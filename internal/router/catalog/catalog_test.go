@@ -31,6 +31,7 @@ func TestCatalog_BindingsReferenceCanonicalProviders(t *testing.T) {
 		providers.ProviderGoogle:           {},
 		providers.ProviderOpenRouter:       {},
 		providers.ProviderFireworks:        {},
+		providers.ProviderDeepInfra:        {},
 		providers.ProviderBedrock:          {},
 		providers.ProviderMakora:           {},
 		providers.ProviderMiniMax:          {},
@@ -426,8 +427,14 @@ func TestValidateDeployed_FlagsMissingAndUntiered(t *testing.T) {
 // Wafer only resolves when the earlier providers are absent, so a deploy with
 // Makora/Together/Fireworks wired never displaces them onto Wafer.
 func TestResolveBinding_WaferTrailingBindings(t *testing.T) {
-	// glm-5.3-flash: Makora leads; Together and Wafer trail it, Fireworks last.
-	b, ok := ResolveBinding("z-ai/glm-5.3-flash", map[string]struct{}{
+	// glm-5.3-flash: DeepInfra leads; Makora, Together, and Wafer trail it,
+	// with Fireworks last.
+	b, ok := ResolveBinding("z-ai/glm-5.3-flash", map[string]struct{}{providers.ProviderDeepInfra: {}})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderDeepInfra, b.Provider)
+	assert.Equal(t, "zai-org/GLM-5.3-Flash", b.UpstreamID)
+
+	b, ok = ResolveBinding("z-ai/glm-5.3-flash", map[string]struct{}{
 		providers.ProviderMakora: {}, providers.ProviderTogether: {}, providers.ProviderFireworks: {},
 	})
 	require.True(t, ok)
@@ -509,7 +516,7 @@ func TestResolveBinding_WaferTrailingBindings(t *testing.T) {
 }
 
 func TestGLM53FlashProviderPricing(t *testing.T) {
-	for _, provider := range []string{providers.ProviderMakora, providers.ProviderFireworks} {
+	for _, provider := range []string{providers.ProviderDeepInfra, providers.ProviderMakora, providers.ProviderFireworks} {
 		t.Run(provider, func(t *testing.T) {
 			p, ok := PriceFor(provider, "z-ai/glm-5.3-flash")
 			require.True(t, ok)
@@ -518,6 +525,25 @@ func TestGLM53FlashProviderPricing(t *testing.T) {
 			assert.InDelta(t, 0.03/0.150, p.CacheReadMultiplier, 1e-9)
 		})
 	}
+}
+
+func TestMaxCandidateProviders(t *testing.T) {
+	for _, model := range []string{
+		"inclusionai/ling-3.0-flash",
+		"xiaomi/mimo-v2.6-flash",
+		"xiaomi/mimo-v2.6-pro",
+	} {
+		binding, ok := ResolveBinding(model, map[string]struct{}{providers.ProviderDeepInfra: {}})
+		require.True(t, ok, "DeepInfra should resolve %s", model)
+		assert.Equal(t, providers.ProviderDeepInfra, binding.Provider)
+	}
+
+	deepSeekBinding, ok := ResolveBinding("deepseek/deepseek-v4.1-flash", map[string]struct{}{
+		providers.ProviderDeepInfra: {}, providers.ProviderFireworks: {},
+	})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderFireworks, deepSeekBinding.Provider,
+		"DeepSeek V4.1 Flash remains Fireworks-primary")
 }
 
 // TestWaferPricing pins the per-1M rates and cache multipliers as published on

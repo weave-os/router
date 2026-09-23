@@ -49,6 +49,7 @@ func TestFamilyForKnownProviders(t *testing.T) {
 		providers.ProviderGoogle:         providers.FamilyGemini,
 		providers.ProviderOpenRouter:     providers.FamilyOpenAICompat,
 		providers.ProviderFireworks:      providers.FamilyOpenAICompat,
+		providers.ProviderDeepInfra:      providers.FamilyOpenAICompat,
 		providers.ProviderBedrock:        providers.FamilyOpenAICompat,
 		providers.ProviderMakora:         providers.FamilyOpenAICompat,
 		providers.ProviderMiniMax:        providers.FamilyOpenAICompat,
