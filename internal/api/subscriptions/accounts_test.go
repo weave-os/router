@@ -3,6 +3,7 @@ package subscriptions_test
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -74,4 +75,56 @@ func TestCreateAccountAttributesConnectionToInstallation(t *testing.T) {
 		InstallationExternalID: "org-test", APIKeyID: "key", AccountID: "account",
 		Provider: auth.SubscriptionProviderCodex, OccurredAt: now,
 	}}, events.events)
+}
+
+// ownerRecordingRepo captures who a connection was enrolled for.
+type ownerRecordingRepo struct {
+	auth.SubscriptionAccountRepository
+	owner auth.SubscriptionOwner
+}
+
+func (r *ownerRecordingRepo) ListSubscriptionAccounts(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error) {
+	return nil, nil
+}
+
+func (r *ownerRecordingRepo) UpsertSubscriptionAccount(_ context.Context, params auth.CreateSubscriptionAccountParams) (*auth.SubscriptionAccount, auth.SubscriptionUpsertKind, error) {
+	r.owner = params.Owner
+	return &auth.SubscriptionAccount{ID: "account", Provider: params.Provider}, auth.SubscriptionUpsertInserted, nil
+}
+
+// projectedIdentities is Weave's email-to-person projection for one installation.
+type projectedIdentities map[string]string
+
+func (p projectedIdentities) GetSubscriberForEmail(_ context.Context, _, email string) (string, error) {
+	subjectID, projected := p[email]
+	if !projected {
+		return "", sql.ErrNoRows
+	}
+	return subjectID, nil
+}
+
+// A key handed to a teammate enrolls the teammate's own login, so the person
+// who authenticated the call does not end up owning their subscription.
+func TestCreateAccountEnrollsTheCallerBehindASharedKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	accounts := &ownerRecordingRepo{}
+	svc := auth.NewService(installationRepo{}, keyRepo{}, nil, nil, auth.NoOpAPIKeyCache{}, nil, time.Now).
+		WithSubscriptionAccounts(accounts).
+		WithRequestIdentities(projectedIdentities{"sam@weave.test": "subject-sam"})
+	engine := gin.New()
+	group := engine.Group("/v1", middleware.WithAuth(svc, false))
+	subscriptionsapi.Register(group, svc)
+	body, err := json.Marshal(gin.H{
+		"provider": auth.SubscriptionProviderCodex, "external_account_id": "external-account", "refresh_token": "refresh",
+	})
+	require.NoError(t, err)
+	request := httptest.NewRequest(http.MethodPost, "/v1/subscriptions/accounts", bytes.NewReader(body))
+	request.Header.Set("Authorization", "Bearer rk_test")
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Weave-User-Email", "Sam@Weave.test")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusCreated, response.Code, response.Body.String())
+	require.Equal(t, auth.SubscriptionOwner{SubscriberID: "subject-sam", APIKeyID: "key"}, accounts.owner)
 }

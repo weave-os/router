@@ -16,9 +16,10 @@ import (
 )
 
 const (
-	ctxKeyInstallation   = "router_installation"
-	ctxKeyAPIKey         = "router_api_key"
-	ctxKeyAdminPrincipal = "router_admin_principal"
+	ctxKeyInstallation      = "router_installation"
+	ctxKeyAPIKey            = "router_api_key"
+	ctxKeyAdminPrincipal    = "router_admin_principal"
+	ctxKeySubscriptionOwner = "router_subscription_owner"
 )
 
 // RouterKeyHeader carries the Weave Router key when clients need to preserve Authorization / x-api-key for the upstream provider.
@@ -103,7 +104,8 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
 		if apiKey != nil {
 			ctx = context.WithValue(ctx, proxy.APIKeyIDContextKey{}, apiKey.ID)
 			ctx = proxy.WithManagedSubscriptionUsage(ctx)
-			owner := auth.SubscriptionOwnerForKey(apiKey)
+			owner := subscriptionOwnerForRequest(c, svc, apiKey)
+			c.Set(ctxKeySubscriptionOwner, owner)
 			ctx = proxy.WithSubscriptionOwner(ctx, owner)
 			if svc.SubscriptionAccountsEnabled() {
 				accounts, listErr := svc.ListSubscriptionAccounts(ctx, owner)
@@ -303,6 +305,37 @@ func APIKeyFrom(c *gin.Context) *auth.APIKey {
 	}
 	apiKey, _ := v.(*auth.APIKey)
 	return apiKey
+}
+
+// SubscriptionOwnerFrom retrieves the person this request draws subscriptions
+// and included allowance from. It is the caller the request identified itself
+// as, which on a key shared across an organization is not the key's owner.
+// Requests authenticated before the owner was resolved fall back to the key.
+func SubscriptionOwnerFrom(c *gin.Context) auth.SubscriptionOwner {
+	if owner, ok := c.Get(ctxKeySubscriptionOwner); ok {
+		resolved, _ := owner.(auth.SubscriptionOwner)
+		if resolved.Valid() {
+			return resolved
+		}
+	}
+	return auth.SubscriptionOwnerForKey(APIKeyFrom(c))
+}
+
+// subscriptionOwnerForRequest resolves the caller behind the request email.
+// The resolution never writes to the *auth.APIKey: VerifyAPIKey hands out a
+// cached pointer shared by every concurrent request presenting that key, so a
+// per-request identity written there would leak across callers.
+//
+// A resolution failure falls back to the key's own identity rather than
+// refusing the turn: the projection is an attribution improvement, and an
+// unavailable one must not take routing down.
+func subscriptionOwnerForRequest(c *gin.Context, svc *auth.Service, apiKey *auth.APIKey) auth.SubscriptionOwner {
+	email := proxy.ClientIdentityFromHeaders(c.Request.Header).Email
+	owner, err := svc.SubscriptionOwnerForRequest(c.Request.Context(), apiKey, email)
+	if err != nil {
+		observability.FromGin(c).Error("Failed to resolve request identity; billing the key's own subscriber", "err", err)
+	}
+	return owner
 }
 
 // AdminPrincipalFrom retrieves the admin principal set when the request authenticated via the session cookie. Returns nil for rk_-keyed or unauthed requests.

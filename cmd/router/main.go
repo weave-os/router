@@ -555,7 +555,8 @@ func main() {
 		WithBlindExperiments(repo.BlindExperiments, blindExperimentCache).
 		WithWIFTokenSource(buildWIFTokenSource(logger)).
 		WithEntraTokenSource(buildEntraTokenSource(logger)).
-		WithFlagOverridesDisabled(flagOverridesDisabled)
+		WithFlagOverridesDisabled(flagOverridesDisabled).
+		WithRequestIdentities(repo.RequestIdentities)
 	subscriptionPoolsEnabled := config.GetOr("ROUTER_SUBSCRIPTION_POOLS_ENABLED", "false") == "true"
 	var subscriptionRuntime *subscriptions.Runtime
 	if subscriptionPoolsEnabled {

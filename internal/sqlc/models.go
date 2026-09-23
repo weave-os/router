@@ -87,6 +87,16 @@ type RouterCredentialSubject struct {
 	RevokedAt            pgtype.Timestamptz
 }
 
+// Email to credential subject per installation; lets a shared routing key serve each caller their own subscriptions and allowance
+type RouterCredentialSubjectIdentity struct {
+	SubjectID      uuid.UUID
+	InstallationID uuid.UUID
+	Email          string
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+	RevokedAt      pgtype.Timestamptz
+}
+
 type RouterCredentialSubjectInstallation struct {
 	SubjectID      uuid.UUID
 	InstallationID uuid.UUID

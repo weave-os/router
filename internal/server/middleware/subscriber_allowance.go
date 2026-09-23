@@ -36,17 +36,20 @@ import (
 func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
-		apiKey := APIKeyFrom(c)
-		if apiKey == nil || apiKey.CredentialSubjectID == "" {
+		// The allowance follows the person the request identified itself as,
+		// not the key it authenticated with: a key shared across an
+		// organization must spend each caller's own included capacity.
+		owner := SubscriptionOwnerFrom(c)
+		if owner.SubscriberID == "" {
 			c.Next()
 			return
 		}
 
-		subscriberID := entitlement.SubscriberID(apiKey.CredentialSubjectID)
+		subscriberID := entitlement.SubscriberID(owner.SubscriberID)
 
 		admission, err := svc.Admit(c.Request.Context(), subscriberID)
 		if err != nil {
-			log.Error("Subscriber allowance check failed; refusing request", "err", err, "subscriber_id", apiKey.CredentialSubjectID)
+			log.Error("Subscriber allowance check failed; refusing request", "err", err, "subscriber_id", subscriberID)
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
 				"error":   "billing_unavailable",
 				"message": "Billing system is temporarily unavailable. Retry in a few moments.",
@@ -87,7 +90,7 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		holdRequest(c, log, svc, admission)
+		holdRequest(c, log, svc, subscriberID, admission)
 	}
 }
 
@@ -100,7 +103,7 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 // consumed + reserved within the limit. Settlement books the turn's actual
 // cost under its own action identifiers, so releasing the hold afterwards
 // neither refunds nor double-charges the served work.
-func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, admission entitlement.Admission) {
+func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, subscriberID entitlement.SubscriberID, admission entitlement.Admission) {
 	ctx := c.Request.Context()
 	requestID := observability.RequestIDFromContext(ctx)
 	if requestID == "" {
@@ -116,7 +119,7 @@ func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, adm
 	hold, err := backoff.Retry(ctx, func() (entitlement.Hold, error) {
 		if !firstAttempt {
 			var readErr error
-			admission, readErr = svc.Admit(ctx, entitlement.SubscriberID(APIKeyFrom(c).CredentialSubjectID))
+			admission, readErr = svc.Admit(ctx, subscriberID)
 			if readErr != nil {
 				return entitlement.Hold{}, backoff.Permanent(readErr)
 			}
@@ -147,7 +150,7 @@ func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, adm
 		return hold, nil
 	}, backoff.WithBackOff(retryPolicy), backoff.WithMaxElapsedTime(2*time.Second))
 	if errors.Is(err, entitlement.ErrAllowanceExhausted) {
-		log.Warn("Subscriber allowance temporarily held by concurrent turns", "subscriber_id", APIKeyFrom(c).CredentialSubjectID, "period", admission.ExhaustedPeriod)
+		log.Warn("Subscriber allowance temporarily held by concurrent turns", "subscriber_id", subscriberID, "period", admission.ExhaustedPeriod)
 		c.Header("Retry-After", "1")
 		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
 			"error":   "subscription_capacity_busy",
@@ -160,7 +163,7 @@ func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, adm
 			c.Abort()
 			return
 		}
-		log.Error("Subscriber allowance reservation failed; refusing request", "err", err, "subscriber_id", APIKeyFrom(c).CredentialSubjectID)
+		log.Error("Subscriber allowance reservation failed; refusing request", "err", err, "subscriber_id", subscriberID)
 		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
 			"error":   "billing_unavailable",
 			"message": "Billing system is temporarily unavailable. Retry in a few moments.",

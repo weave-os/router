@@ -26,10 +26,13 @@ type Repository struct {
 	UserClusterModelLists auth.UserClusterModelListRepository
 	BlindExperiments      auth.BlindExperimentRepository
 	SubscriptionAccounts  auth.SubscriptionAccountRepository
-	Telemetry             *TelemetryRepo
-	Feedback              *FeedbackRepo
-	Analytics             *AnalyticsRepo
-	FlagDefinitions       *FlagDefinitionRepo
+	// RequestIdentities resolves the caller behind a request email, which a
+	// shared routing key cannot identify on its own.
+	RequestIdentities auth.RequestIdentityRepository
+	Telemetry         *TelemetryRepo
+	Feedback          *FeedbackRepo
+	Analytics         *AnalyticsRepo
+	FlagDefinitions   *FlagDefinitionRepo
 	// GlobalAutomaticExclusions is deployment-scoped rather than
 	// installation-scoped: it is the control plane's list of models withdrawn
 	// from automatic routing for every tenant.
@@ -47,6 +50,7 @@ func NewRepository(tx sqlc.DBTX, encryptor auth.Encryptor) *Repository {
 		UserClusterModelLists:     NewUserClusterModelListRepo(tx),
 		BlindExperiments:          NewBlindExperimentRepo(tx),
 		SubscriptionAccounts:      NewSubscriptionAccountRepo(tx),
+		RequestIdentities:         NewRequestIdentityRepo(tx),
 		Telemetry:                 NewTelemetryRepo(tx),
 		Feedback:                  NewFeedbackRepo(tx),
 		Analytics:                 NewAnalyticsRepo(tx),

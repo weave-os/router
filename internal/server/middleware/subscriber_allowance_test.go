@@ -44,11 +44,15 @@ type stubEntitlements struct {
 	current entitlement.Entitlement
 	found   bool
 	err     error
+	observe func(entitlement.SubscriberID)
 }
 
 func (s *stubEntitlements) Project(context.Context, entitlement.Entitlement) error { return nil }
 
-func (s *stubEntitlements) Get(context.Context, entitlement.SubscriberID) (entitlement.Entitlement, error) {
+func (s *stubEntitlements) Get(_ context.Context, subscriberID entitlement.SubscriberID) (entitlement.Entitlement, error) {
+	if s.observe != nil {
+		s.observe(subscriberID)
+	}
 	if s.err != nil {
 		return entitlement.Entitlement{}, s.err
 	}
@@ -626,4 +630,30 @@ func TestWithSubscriberAllowance_503WhenReservationFails(t *testing.T) {
 
 	assert.False(t, reached, "an unwritable reservation fails closed rather than serving unbilled usage")
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+}
+
+// A key can be handed around an organization, so the allowance is spent by the
+// person the request identified itself as, not by the key's own owner.
+func TestWithSubscriberAllowance_ChargesTheResolvedCaller(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	callerSubscriberID := "22222222-2222-2222-2222-222222222222"
+	entitlements := &stubEntitlements{}
+	svc := entitlement.NewService(entitlements, &stubAllowances{}).WithClock(func() time.Time { return allowanceNow })
+
+	var metered entitlement.SubscriberID
+	engine := gin.New()
+	engine.POST("/v1/messages", func(c *gin.Context) {
+		c.Set("router_api_key", subscriberAPIKey())
+		c.Set("router_subscription_owner", auth.SubscriptionOwner{
+			SubscriberID: callerSubscriberID,
+			APIKeyID:     subscriberAPIKey().ID,
+		})
+		entitlements.observe = func(id entitlement.SubscriberID) { metered = id }
+		middleware.WithSubscriberAllowance(svc)(c)
+		c.Status(http.StatusOK)
+	})
+
+	engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+
+	assert.Equal(t, entitlement.SubscriberID(callerSubscriberID), metered)
 }
