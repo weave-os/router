@@ -123,7 +123,7 @@ func TestClassifierResponsesToolLoopSwitchesDispatchedModel(t *testing.T) {
 	svc.WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyLLMClassifier, Router: routing, Capabilities: capabilities, Unavailable: router.ErrClassifierUnavailable})
 	ctx := classifierAdmit(t, svc, principal)
 	const first = `{"model":"auto","stream":true,"input":[{"role":"user","content":"Synthetic task"}]}`
-	const continuation = `{"model":"auto","stream":true,"input":[{"role":"user","content":"Synthetic task"},{"role":"assistant","content":[{"type":"output_text","text":"Checking"}]},{"type":"function_call","call_id":"c1","name":"test","arguments":"{}"},{"type":"function_call_output","call_id":"c1","status":"failed","output":"Synthetic failure"}]}`
+	const continuation = `{"model":"auto","stream":true,"input":[{"role":"user","content":"Synthetic task"},{"role":"assistant","content":[{"type":"output_text","text":"Checking"}]},{"type":"function_call","call_id":"c1","name":"exec_command","arguments":"{\"cmd\":\"exit 7\"}"},{"type":"function_call_output","call_id":"c1","output":"Chunk ID: abc123\nWall time: 0.0001 seconds\nProcess exited with code 7\nOriginal token count: 1\nOutput:\nSynthetic output\n"}]}`
 	for index, body := range []string{first, continuation, continuation} {
 		recorder := httptest.NewRecorder()
 		err := svc.ProxyOpenAIResponses(ctx, []byte(body), recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
@@ -139,6 +139,48 @@ func TestClassifierResponsesToolLoopSwitchesDispatchedModel(t *testing.T) {
 	require.Equal(t, router.ClassifierFeatures{UserMessageCount: 1, ToolCallCount: 1, ToolErrorCount: 1}, inputs[1].User.Features)
 	require.Equal(t, []router.PredictedClassifierResponse{{ResponseIndex: 0, Content: "Checking", Complexity: router.ClassifierLow}}, inputs[1].User.PrecedingResponses)
 	require.Zero(t, baseline.calls)
+}
+
+func TestClassifierCodexExitErrorsAdvanceWithoutChangingReplay(t *testing.T) {
+	var inputs []router.AtomicClassificationRequest
+	svc, principal, _ := classifierSessionFixture(t, func(_ context.Context, input router.AtomicClassificationRequest) (router.ClassifierPrediction, error) {
+		inputs = append(inputs, input)
+		return classifierMedium(context.Background(), input)
+	})
+	ctx := classifierAdmit(t, svc, principal)
+	items := []json.RawMessage{json.RawMessage(`{"role":"user","content":"Synthetic task"}`)}
+	var previousPrefixes []string
+	for completed := 0; completed <= 12; completed++ {
+		body, err := json.Marshal(map[string]any{"input": items})
+		require.NoError(t, err)
+		observation, err := translate.ParseResponsesEscalationObservation(body)
+		require.NoError(t, err)
+		original, err := json.Marshal(observation)
+		require.NoError(t, err)
+		input, err := classifierContextForCall(observation)
+		require.NoError(t, err)
+		replayed, err := json.Marshal(observation)
+		require.NoError(t, err)
+		require.Equal(t, original, replayed)
+		if completed > 0 {
+			require.Equal(t, previousPrefixes, input.PrefixDigests[:len(previousPrefixes)])
+			require.Nil(t, observation.Messages[len(observation.Messages)-1].Blocks[0].IsError)
+		}
+		previousPrefixes = input.PrefixDigests
+		_, err = svc.classifyThread(ctx, input)
+		require.NoError(t, err)
+		require.Equal(t, router.ClassifierFeatures{UserMessageCount: 1, ToolCallCount: completed, ToolErrorCount: completed}, inputs[completed].User.Features)
+		require.Equal(t, completed, inputs[completed].CompletedResponseCount)
+		require.Len(t, inputs[completed].User.PrecedingResponses, min(10, completed))
+		_, err = svc.classifyThread(ctx, input)
+		require.NoError(t, err)
+		require.Len(t, inputs, completed+1, "exact-prefix retries reuse their prediction")
+		items = append(items,
+			json.RawMessage(`{"role":"assistant","content":[{"type":"output_text","text":""}]}`),
+			json.RawMessage(fmt.Sprintf(`{"type":"function_call","call_id":"exec-%d","name":"exec_command","arguments":"{\"cmd\":\"exit 7\"}"}`, completed)),
+			json.RawMessage(fmt.Sprintf(`{"type":"function_call_output","call_id":"exec-%d","output":"Chunk ID: abc123\nWall time: 0.0001 seconds\nProcess exited with code 7\nOriginal token count: 1\nOutput:\nSynthetic output\n"}`, completed)),
+		)
+	}
 }
 
 func TestClassifierLegacyPredictionsCannotBecomeCallHistory(t *testing.T) {
