@@ -71,6 +71,7 @@ type stubAllowances struct {
 	finalizeOnRead  int
 	usageReads      int
 	reserveErr      error
+	cancelOnReserve context.CancelFunc
 	held            []entitlement.Reservation
 	released        []string
 	releaseCtxErr   error
@@ -82,6 +83,9 @@ func (s *stubAllowances) Reserve(context.Context, entitlement.Reservation) (enti
 
 func (s *stubAllowances) ReserveWithinLimits(_ context.Context, reservation entitlement.Reservation) (entitlement.Action, error) {
 	s.held = append(s.held, reservation)
+	if s.cancelOnReserve != nil {
+		s.cancelOnReserve()
+	}
 	if s.exhausted != "" {
 		return entitlement.Action{}, entitlement.ExhaustedError{Period: s.exhausted}
 	}
@@ -560,6 +564,25 @@ func TestWithSubscriberAllowance_RetriesReservationRefusedByConcurrentHold(t *te
 	assert.Equal(t, entitlement.SubscriberID(allowanceSubscriberID), coverage.SubscriberID)
 	assert.Len(t, allowances.held, 2)
 	assert.Len(t, allowances.released, 1)
+}
+
+func TestWithSubscriberAllowance_CanceledRetryDoesNotDispatch(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
+	allowances := &stubAllowances{exhausted: entitlement.PeriodKindSixHour, cancelOnReserve: cancel}
+	reached := false
+	engine := gateServing(t, entitlements, allowances, func(c *gin.Context) {
+		reached = true
+		c.Status(http.StatusBadGateway)
+	})
+
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/messages", nil).WithContext(ctx))
+
+	require.ErrorIs(t, ctx.Err(), context.Canceled)
+	assert.False(t, reached, "a canceled allowance retry must not reach downstream billing or proxy handlers")
+	assert.Len(t, allowances.held, 1)
 }
 
 func TestWithSubscriberAllowance_WaitsForHeldCapacityToRelease(t *testing.T) {

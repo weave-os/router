@@ -157,6 +157,7 @@ func holdRequest(c *gin.Context, log *slog.Logger, svc *entitlement.Service, adm
 	}
 	if err != nil {
 		if ctx.Err() != nil {
+			c.Abort()
 			return
 		}
 		log.Error("Subscriber allowance reservation failed; refusing request", "err", err, "subscriber_id", APIKeyFrom(c).CredentialSubjectID)
