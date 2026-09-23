@@ -1,10 +1,8 @@
 package policyregistry
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"regexp"
 	"strings"
@@ -435,21 +433,11 @@ type ServingManifest interface {
 	Validate(string) error
 }
 
-// DecodeServingManifest validates caller-supplied manifest bytes before publication:
-// strict decode, supported schema, semantic contract, and exact canonical encoding.
+// DecodeServingManifest validates manifest bytes, whether supplied for publication or read
+// back from the registry: strict decode, supported schema and semantic contract. The JSON
+// encoding is not part of the contract; an object's identity is the digest of the exact
+// bytes it was published with.
 func DecodeServingManifest(payload []byte, root string, kind ServingKind) (ServingManifest, error) {
-	return decodeServingManifest(payload, root, kind, true)
-}
-
-// DecodeStoredServingManifest validates manifest bytes fetched from the registry: strict
-// decode and the semantic contract, without requiring the stored encoding to match this
-// binary's canonical form. Byte integrity comes from the verified reference digest and
-// generation; canonical form can drift when contract structs evolve between binary versions.
-func DecodeStoredServingManifest(payload []byte, root string, kind ServingKind) (ServingManifest, error) {
-	return decodeServingManifest(payload, root, kind, false)
-}
-
-func decodeServingManifest(payload []byte, root string, kind ServingKind, requireCanonical bool) (ServingManifest, error) {
 	var manifest ServingManifest
 	switch kind {
 	case ServingReleases:
@@ -473,22 +461,5 @@ func decodeServingManifest(payload []byte, root string, kind ServingKind, requir
 	if err := manifest.Validate(root); err != nil {
 		return nil, err
 	}
-	canonical, err := CanonicalBytes(manifest)
-	if err != nil {
-		return nil, err
-	}
-	if !bytes.Equal(canonical, payload) {
-		if requireCanonical {
-			return nil, errors.New("serving manifest is not canonical JSON")
-		}
-		logStorageDrift(string(kind), payload)
-	}
 	return manifest, nil
-}
-
-// logStorageDrift reports stored registry bytes that decode and validate but no longer
-// re-encode to this binary's canonical form. Reads tolerate the drift; a republish of the
-// object rewrites canonical bytes.
-func logStorageDrift(object string, payload []byte) {
-	slog.Warn("Stored registry object is valid but not canonical JSON; encoding drifted since publish", "object", object, "sha256", Digest(payload))
 }

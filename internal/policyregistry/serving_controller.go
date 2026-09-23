@@ -67,8 +67,9 @@ func readServing[T ServingManifest](ctx context.Context, store ServingStore, kin
 	return typed, err
 }
 
-// readServingPayload additionally returns the exact stored payload so callers can bind later
-// checks to the immutable bytes instead of this binary's canonical re-encoding.
+// readServingPayload additionally returns the exact stored payload. Reads trust the
+// generation-pinned reference; only the proposal anchor re-verifies its digest, inside
+// NextServingActivation, because replay and status are keyed on the recorded proposal ref.
 func readServingPayload[T ServingManifest](ctx context.Context, store ServingStore, kind ServingKind, ref ObjectRef) (T, []byte, error) {
 	var zero T
 	if err := ValidateServingRef(ref, store.RootURI(), kind); err != nil {
@@ -77,9 +78,6 @@ func readServingPayload[T ServingManifest](ctx context.Context, store ServingSto
 	manifest, payload, err := store.ReadServingObject(ctx, kind, ref)
 	if err != nil {
 		return zero, nil, err
-	}
-	if Digest(payload) != ref.SHA256 {
-		return zero, nil, errors.New("registry serving manifest digest mismatch")
 	}
 	typed, ok := manifest.(T)
 	if !ok {

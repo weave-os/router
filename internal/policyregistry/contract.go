@@ -133,8 +133,6 @@ func Digest(payload []byte) string {
 }
 
 // DecodeRelease strictly decodes and semantically validates a stored immutable release.
-// Integrity comes from the verified reference digest and generation, so stored bytes
-// that predate this binary's canonical encoding remain readable.
 func DecodeRelease(payload []byte, registryRoot string) (Release, error) {
 	var release Release
 	if err := strictDecode(payload, &release); err != nil {
@@ -142,13 +140,6 @@ func DecodeRelease(payload []byte, registryRoot string) (Release, error) {
 	}
 	if err := release.Validate(registryRoot); err != nil {
 		return Release{}, err
-	}
-	canonical, err := CanonicalBytes(release)
-	if err != nil {
-		return Release{}, err
-	}
-	if !bytes.Equal(canonical, payload) {
-		logStorageDrift("router_policy_release", payload)
 	}
 	return release, nil
 }

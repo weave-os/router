@@ -2,6 +2,7 @@ package policyregistry
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -37,7 +38,8 @@ func (r *Registry) VerifyServingArtifact(ctx context.Context, ref ObjectRef) err
 	return nil
 }
 
-// PublishServingManifest publishes validated canonical bytes without activating any target.
+// PublishServingManifest publishes validated manifest bytes, addressed by their own digest,
+// without activating any target.
 func (r *Registry) PublishServingManifest(ctx context.Context, kind ServingKind, payload []byte) (ObjectRef, error) {
 	if _, err := DecodeServingManifest(payload, r.rootURI, kind); err != nil {
 		return ObjectRef{}, err
@@ -50,9 +52,8 @@ func (r *Registry) PublishServingManifest(ctx context.Context, kind ServingKind,
 	return r.publishImmutable(ctx, r.prefix+"/"+namespace+digest+".json", payload, digest)
 }
 
-// ReadServingObject validates exact storage generation, digest, namespace and schema, and
-// returns the manifest decoded from the exact stored payload. Integrity is verified against
-// ref.SHA256; stored encodings may predate this binary's canonical form.
+// ReadServingObject validates the reference, namespace and schema, and returns the manifest
+// decoded from the exact stored payload at the referenced generation.
 func (r *Registry) ReadServingObject(ctx context.Context, kind ServingKind, ref ObjectRef) (ServingManifest, []byte, error) {
 	if err := ValidateServingRef(ref, r.rootURI, kind); err != nil {
 		return nil, nil, err
@@ -65,7 +66,7 @@ func (r *Registry) ReadServingObject(ctx context.Context, kind ServingKind, ref 
 	if err != nil {
 		return nil, nil, err
 	}
-	manifest, err := DecodeStoredServingManifest(payload, r.rootURI, kind)
+	manifest, err := DecodeServingManifest(payload, r.rootURI, kind)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -129,7 +130,7 @@ func (r *Registry) CompareAndSwapServingState(ctx context.Context, next ServingC
 	if err != nil {
 		return ServingStateSnapshot{}, err
 	}
-	payload, err := CanonicalBytes(next)
+	payload, err := json.Marshal(next)
 	if err != nil {
 		return ServingStateSnapshot{}, err
 	}

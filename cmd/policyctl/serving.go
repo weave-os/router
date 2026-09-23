@@ -84,13 +84,13 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 	flags := flag.NewFlagSet("serving "+string(command), flag.ContinueOnError)
 	registryURI := flags.String("registry", defaultRegistryURI, "GCS registry root")
 	kindRaw := flags.String("kind", "", "releases, classifiers, bindings, profiles, selection_sets or proposals")
-	manifestPath := flags.String("manifest", "", "canonical immutable manifest JSON file")
+	manifestPath := flags.String("manifest", "", "immutable manifest JSON file")
 	targetRaw := flags.String("target", "", "staging, prod/stable or prod/weave-internal")
 	proposalPath := flags.String("proposal", "", "JSON file containing the exact published proposal ObjectRef")
 	proposalDigest := flags.String("proposal-sha256", "", "resolve this immutable proposal digest once before approval")
 	approvedDigest := flags.String("approved-proposal", "", "SHA256 of the exact proposal approved by the protected workflow")
 	workflowActor := flags.String("workflow-actor", "", "authenticated workflow identity; separate from proposal operator")
-	stored := flags.Bool("stored", false, "validate manifest bytes fetched from the registry; encoding may predate this binary's canonical form")
+	stored := flags.Bool("stored", false, "validate manifest bytes exactly as fetched from the registry, without trimming surrounding whitespace")
 	var origins []string
 	flags.Func("validation-origin", "approved private HTTPS revision origin or IAM service audience (repeatable)", func(value string) error { origins = append(origins, value); return nil })
 	if err := flags.Parse(args[1:]); err != nil {
@@ -104,7 +104,7 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 	}
 	if command == commandValidate || command == commandPublish {
 		if *stored && command == commandPublish {
-			return errors.New("--stored only applies to serving validate; publish always requires canonical manifest bytes")
+			return errors.New("--stored only applies to serving validate; publish digests the trimmed manifest bytes")
 		}
 		return servingManifestOperation(ctx, dependencies, command, *registryURI, policyregistry.ServingKind(*kindRaw), *manifestPath, *stored)
 	}
@@ -207,11 +207,7 @@ func servingManifestOperation(ctx context.Context, dependencies servingDependenc
 	if !stored {
 		payload = bytes.TrimSpace(payload)
 	}
-	decode := policyregistry.DecodeServingManifest
-	if stored {
-		decode = policyregistry.DecodeStoredServingManifest
-	}
-	if _, err := decode(payload, root, kind); err != nil {
+	if _, err := policyregistry.DecodeServingManifest(payload, root, kind); err != nil {
 		return err
 	}
 	if command == commandValidate {
@@ -257,9 +253,12 @@ func readServingReference(path string, reference *policyregistry.ObjectRef) erro
 }
 
 func servingProposalStatus(ctx context.Context, registry servingRegistry, ref policyregistry.ObjectRef, writeOutput func(any) error) error {
-	manifest, _, err := registry.ReadServingObject(ctx, policyregistry.ServingProposals, ref)
+	manifest, payload, err := registry.ReadServingObject(ctx, policyregistry.ServingProposals, ref)
 	if err != nil {
 		return err
+	}
+	if policyregistry.Digest(payload) != ref.SHA256 {
+		return errors.New("proposal digest mismatch; status is keyed on the recorded proposal reference")
 	}
 	proposal, ok := manifest.(*policyregistry.DeploymentProposal)
 	if !ok {

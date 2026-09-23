@@ -110,11 +110,11 @@ func TestServingContractsRejectMutableTargetsAndReferences(t *testing.T) {
 	assert.Error(t, policyregistry.ValidateServingRef(ref, testRegistryRoot, policyregistry.ServingReleases))
 }
 
-func TestServingDecoderRejectsUnknownFieldsSchemaAndNoncanonicalBytes(t *testing.T) {
+func TestServingDecoderRejectsUnknownFieldsSchemaAndTrailingValues(t *testing.T) {
 	set := fixtureSet("one")
 	payload, err := policyregistry.CanonicalBytes(set)
 	require.NoError(t, err)
-	for _, invalid := range [][]byte{append(append([]byte(nil), payload...), '\n'), []byte(strings.Replace(string(payload), `"schema_version":`, `"unknown":true,"schema_version":`, 1)), []byte(strings.Replace(string(payload), string(policyregistry.ServingSelectionSetV1), "future_v2", 1)), append(append([]byte(nil), payload...), []byte(`{}`)...)} {
+	for _, invalid := range [][]byte{[]byte(strings.Replace(string(payload), `"schema_version":`, `"unknown":true,"schema_version":`, 1)), []byte(strings.Replace(string(payload), string(policyregistry.ServingSelectionSetV1), "future_v2", 1)), append(append([]byte(nil), payload...), []byte(`{}`)...)} {
 		_, err := policyregistry.DecodeServingManifest(invalid, testRegistryRoot, policyregistry.ServingSelectionSets)
 		require.Error(t, err)
 	}
@@ -122,41 +122,28 @@ func TestServingDecoderRejectsUnknownFieldsSchemaAndNoncanonicalBytes(t *testing
 	assert.Error(t, set.Validate(testRegistryRoot))
 }
 
-func TestStoredServingManifestToleratesProducerEncodingDrift(t *testing.T) {
+func TestServingDecoderAcceptsAnyValidEncodingButNotSemanticDrift(t *testing.T) {
 	set := fixtureSet("drifted")
-	drifted := driftedPayload(t, servingPayload(t, set))
-	require.NotEqual(t, servingPayload(t, set), drifted)
+	canonical := servingPayload(t, set)
+	drifted := driftedPayload(t, canonical)
+	require.NotEqual(t, canonical, drifted)
 
-	_, err := policyregistry.DecodeServingManifest(drifted, testRegistryRoot, policyregistry.ServingSelectionSets)
-	require.ErrorContains(t, err, "canonical", "pre-publish decode must still reject drifted bytes")
+	for _, payload := range [][]byte{canonical, drifted, append([]byte("  \n"), canonical...)} {
+		manifest, err := policyregistry.DecodeServingManifest(payload, testRegistryRoot, policyregistry.ServingSelectionSets)
+		require.NoError(t, err)
+		require.Equal(t, &set, manifest)
+	}
 
-	var warnings bytes.Buffer
-	previous := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&warnings, nil)))
-	t.Cleanup(func() { slog.SetDefault(previous) })
-	manifest, err := policyregistry.DecodeStoredServingManifest(drifted, testRegistryRoot, policyregistry.ServingSelectionSets)
-	require.NoError(t, err)
-	require.Equal(t, &set, manifest)
-	require.NoError(t, manifest.Validate(testRegistryRoot))
-	require.Contains(t, warnings.String(), "not canonical JSON", "operators must see drift without it blocking reads")
-
-	canonical, err := policyregistry.CanonicalBytes(set)
-	require.NoError(t, err)
-	manifest, err = policyregistry.DecodeStoredServingManifest(canonical, testRegistryRoot, policyregistry.ServingSelectionSets)
-	require.NoError(t, err)
-	require.Equal(t, &set, manifest)
-
-	invalid := driftedPayload(t, canonical)
-	invalid = bytes.Replace(invalid, []byte(string(policyregistry.ServingSelectionSetV1)), []byte("future_v2"), 1)
-	_, err = policyregistry.DecodeStoredServingManifest(invalid, testRegistryRoot, policyregistry.ServingSelectionSets)
-	require.Error(t, err, "tolerance is for byte encoding, not semantics")
+	invalid := bytes.Replace(drifted, []byte(string(policyregistry.ServingSelectionSetV1)), []byte("future_v2"), 1)
+	_, err := policyregistry.DecodeServingManifest(invalid, testRegistryRoot, policyregistry.ServingSelectionSets)
+	require.Error(t, err, "encoding freedom does not extend to schema")
 
 	invalid = bytes.Replace(drifted, []byte(`"schema_version":`), []byte(`"unknown":true,"schema_version":`), 1)
-	_, err = policyregistry.DecodeStoredServingManifest(invalid, testRegistryRoot, policyregistry.ServingSelectionSets)
+	_, err = policyregistry.DecodeServingManifest(invalid, testRegistryRoot, policyregistry.ServingSelectionSets)
 	require.Error(t, err)
 }
 
-func TestActivationBindsStoredProposalPayloadNotCanonicalReencoding(t *testing.T) {
+func TestActivationBindsStoredProposalPayloadDigest(t *testing.T) {
 	set := fixtureSet("one")
 	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
 	drifted := driftedPayload(t, servingPayload(t, proposal))
@@ -168,7 +155,7 @@ func TestActivationBindsStoredProposalPayloadNotCanonicalReencoding(t *testing.T
 
 	mismatched := servingStoredRef(t, policyregistry.ServingProposals, servingPayload(t, proposal))
 	_, err = policyregistry.NextServingActivation(policyregistry.ServingStateSnapshot{}, drifted, mismatched, testRegistryRoot, "workflow", servingEpoch)
-	require.ErrorContains(t, err, "digest", "approval must bind the stored bytes' digest")
+	require.ErrorContains(t, err, "digest", "replay is keyed on the recorded proposal ref, so its digest must match the activated bytes")
 }
 
 func TestServingStoreReadsDriftedObjectsThroughControllerPaths(t *testing.T) {
@@ -187,6 +174,30 @@ func TestServingStoreReadsDriftedObjectsThroughControllerPaths(t *testing.T) {
 	controller := permissiveController(t, store)
 	preparation, err := controller.Prepare(ctx, proposalRef)
 	require.NoError(t, err)
+	require.True(t, preparation.Prepared)
+}
+
+func TestControllerVerifiesOnlyTheProposalDigestOnRead(t *testing.T) {
+	ctx := context.Background()
+	store, _, set := controllerFixture(t)
+	controller := permissiveController(t, store)
+
+	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	payload := servingPayload(t, proposal)
+	mislabeled := servingStoredRef(t, policyregistry.ServingProposals, append(append([]byte(nil), payload...), '\n'))
+	store.putRaw(mislabeled, payload)
+	_, err := controller.Prepare(ctx, mislabeled)
+	require.ErrorContains(t, err, "digest")
+	_, err = controller.Activate(ctx, mislabeled, "workflow", true)
+	require.ErrorContains(t, err, "digest")
+	require.Empty(t, store.states)
+
+	relabeledSet := servingStoredRef(t, policyregistry.ServingSelectionSets, []byte("relabeled"))
+	store.putRaw(relabeledSet, servingPayload(t, set))
+	proposal.SelectionSet = relabeledSet
+	ref := store.publish(t, policyregistry.ServingProposals, proposal)
+	preparation, err := controller.Prepare(ctx, ref)
+	require.NoError(t, err, "traversal reads trust the generation-pinned reference")
 	require.True(t, preparation.Prepared)
 }
 
@@ -364,10 +375,7 @@ func (s *servingMemoryStore) ReadServingObject(_ context.Context, kind policyreg
 	if !exists {
 		return nil, nil, policyregistry.ErrNotFound
 	}
-	if policyregistry.Digest(payload) != ref.SHA256 {
-		return nil, nil, errors.New("serving object digest mismatch")
-	}
-	manifest, err := policyregistry.DecodeStoredServingManifest(payload, testRegistryRoot, kind)
+	manifest, err := policyregistry.DecodeServingManifest(payload, testRegistryRoot, kind)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -414,8 +422,7 @@ func (s *servingMemoryStore) publish(t *testing.T, kind policyregistry.ServingKi
 	return ref
 }
 
-// putRaw stores arbitrary bytes under an existing reference, mirroring an object published
-// under an older binary's canonical encoding.
+// putRaw stores arbitrary bytes under a reference without publish-time validation.
 func (s *servingMemoryStore) putRaw(ref policyregistry.ObjectRef, payload []byte) {
 	s.objects[ref] = payload
 }

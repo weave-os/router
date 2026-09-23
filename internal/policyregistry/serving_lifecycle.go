@@ -123,11 +123,10 @@ func (s ServingControlState) Validate(root string, target ServingTarget) error {
 
 // NextServingActivation is pure; persistence must CAS the returned state against snapshot.Generation.
 // Callers must validate the proposed selection set and its prepared bindings before invoking it.
-// proposalPayload must be the exact stored bytes proposalRef names: the transition derives the
-// proposal from those digest-verified bytes so approval binds the immutable object, not this
-// binary's canonical re-encoding.
+// proposalPayload must be the exact stored bytes proposalRef names: replay and status are keyed
+// on the recorded proposal ref, so the activated bytes must carry the digest that ref records.
 func NextServingActivation(snapshot ServingStateSnapshot, proposalPayload []byte, proposalRef ObjectRef, root, workflowActor string, now time.Time) (ActivationResult, error) {
-	manifest, err := DecodeStoredServingManifest(proposalPayload, root, ServingProposals)
+	manifest, err := DecodeServingManifest(proposalPayload, root, ServingProposals)
 	if err != nil {
 		return ActivationResult{}, err
 	}

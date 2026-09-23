@@ -1,6 +1,7 @@
 package policyregistry_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -58,6 +59,26 @@ func TestDecodeLaneHeadRejectsUnknownFieldsAndWrongFacet(t *testing.T) {
 	_, err = policyregistry.DecodeLaneHead(payload, testRegistryRoot, policyregistry.EnvironmentStaging, policyregistry.LaneStable)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "facet")
+}
+
+func TestDecodeReleaseAcceptsAnyValidEncodingButNotUnknownFields(t *testing.T) {
+	release := validRelease()
+	canonical, err := policyregistry.CanonicalBytes(release)
+	require.NoError(t, err)
+	var generic map[string]any
+	require.NoError(t, json.Unmarshal(canonical, &generic))
+	reencoded, err := json.MarshalIndent(generic, "", "  ")
+	require.NoError(t, err)
+	reencoded = append(reencoded, '\n')
+	require.NotEqual(t, canonical, reencoded)
+
+	decoded, err := policyregistry.DecodeRelease(reencoded, testRegistryRoot)
+	require.NoError(t, err)
+	assert.Equal(t, release, decoded)
+
+	_, err = policyregistry.DecodeRelease([]byte(strings.Replace(string(reencoded), `"schema_version":`, `"python_roster":"forbidden","schema_version":`, 1)), testRegistryRoot)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "unknown field")
 }
 
 func TestReleaseIDChangesWhenEitherClassifierOrPolicyChanges(t *testing.T) {

@@ -55,7 +55,7 @@ func (s *admissionManifestStore) ReadServingObject(_ context.Context, kind polic
 	if !ok {
 		return nil, nil, policyregistry.ErrNotFound
 	}
-	manifest, err := policyregistry.DecodeStoredServingManifest(payload, admissionTestRoot, kind)
+	manifest, err := policyregistry.DecodeServingManifest(payload, admissionTestRoot, kind)
 	if err != nil {
 		return nil, nil, err
 	}

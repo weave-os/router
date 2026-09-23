@@ -127,7 +127,7 @@ func newServingGCSFixture(t *testing.T) (*policyregistry.Registry, *servingGCSFi
 	return registry, fixture
 }
 
-func TestGCSManagedServingImmutablePublicationAndDigestTampering(t *testing.T) {
+func TestGCSManagedServingImmutablePublicationRejectsDifferentBytes(t *testing.T) {
 	registry, fixture := newServingGCSFixture(t)
 	ctx := context.Background()
 	payload, err := policyregistry.CanonicalBytes(fixtureSet("published"))
@@ -150,37 +150,37 @@ func TestGCSManagedServingImmutablePublicationAndDigestTampering(t *testing.T) {
 	fixture.mu.Lock()
 	for name, generations := range fixture.objects {
 		if strings.HasSuffix(name, ref.SHA256+".json") {
-			generations[ref.Generation] = []byte(`{"tampered":true}`)
+			generations[ref.Generation] = []byte(`{"replaced":true}`)
 		}
 	}
 	fixture.mu.Unlock()
-	_, _, err = registry.ReadServingObject(ctx, policyregistry.ServingSelectionSets, ref)
-	require.ErrorContains(t, err, "digest mismatch")
 	_, err = registry.PublishServingManifest(ctx, policyregistry.ServingSelectionSets, payload)
-	require.ErrorContains(t, err, "different bytes")
+	require.ErrorContains(t, err, "different bytes", "publication read-back binds the digest path to the exact bytes")
 }
 
-func TestGCSManagedServingPublishRequiresCanonicalBytesWhileStoredReadsTolerateDrift(t *testing.T) {
-	registry, fixture := newServingGCSFixture(t)
+func TestGCSManagedServingPublishesAndReadsAnyValidEncodingByItsOwnDigest(t *testing.T) {
+	registry, _ := newServingGCSFixture(t)
 	ctx := context.Background()
 	set := fixtureSet("drifted")
 	canonical, err := policyregistry.CanonicalBytes(set)
 	require.NoError(t, err)
 	drifted := driftedPayload(t, canonical)
 
-	_, err = registry.PublishServingManifest(ctx, policyregistry.ServingSelectionSets, drifted)
-	require.ErrorContains(t, err, "canonical", "publish must not regress to accepting drifted bytes")
+	canonicalRef, err := registry.PublishServingManifest(ctx, policyregistry.ServingSelectionSets, canonical)
+	require.NoError(t, err)
+	driftedRef, err := registry.PublishServingManifest(ctx, policyregistry.ServingSelectionSets, drifted)
+	require.NoError(t, err)
+	require.Equal(t, policyregistry.Digest(drifted), driftedRef.SHA256)
+	require.NotEqual(t, canonicalRef.SHA256, driftedRef.SHA256, "identity is the digest of the submitted bytes, not of a re-encoding")
 
-	name := "weave_registry/router_serving/v1/selection_sets/sha256/" + policyregistry.Digest(drifted) + ".json"
-	fixture.mu.Lock()
-	fixture.objects[name] = map[int64][]byte{1: drifted}
-	fixture.current[name] = 1
-	fixture.mu.Unlock()
-	ref := policyregistry.ObjectRef{URI: testRegistryRoot + "/router_serving/v1/selection_sets/sha256/" + policyregistry.Digest(drifted) + ".json", SHA256: policyregistry.Digest(drifted), Generation: 1}
-	manifest, payload, err := registry.ReadServingObject(ctx, policyregistry.ServingSelectionSets, ref)
+	manifest, payload, err := registry.ReadServingObject(ctx, policyregistry.ServingSelectionSets, driftedRef)
 	require.NoError(t, err)
 	require.Equal(t, drifted, payload)
 	require.Equal(t, &set, manifest)
+
+	invalid := strings.Replace(string(drifted), string(policyregistry.ServingSelectionSetV1), "future_v2", 1)
+	_, err = registry.PublishServingManifest(ctx, policyregistry.ServingSelectionSets, []byte(invalid))
+	require.Error(t, err, "encoding freedom does not relax schema validation at publish")
 }
 
 func TestGCSManagedServingConcurrentRegistrationReturnsOneImmutableReference(t *testing.T) {

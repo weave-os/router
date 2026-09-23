@@ -123,10 +123,8 @@ func (r *Registry) ReadPolicy(ctx context.Context, ref ObjectRef) (*rosterdata.R
 	return roster, nil
 }
 
-// ReadServingPolicy validates exact bytes and schema only. Managed compatibility must use
-// the selected worker image's catalog, not whichever catalog the controller was built with.
-// Integrity comes from the verified reference digest and generation, so stored bytes that
-// predate this binary's canonical encoding remain readable.
+// ReadServingPolicy validates schema only. Managed compatibility must use the selected
+// worker image's catalog, not whichever catalog the controller was built with.
 func (r *Registry) ReadServingPolicy(ctx context.Context, ref ObjectRef) (*rosterdata.Roster, error) {
 	payload, err := r.readExact(ctx, ref, "router_policy/v1/policies/sha256/")
 	if err != nil {
@@ -135,13 +133,6 @@ func (r *Registry) ReadServingPolicy(ctx context.Context, ref ObjectRef) (*roste
 	roster, err := rosterdata.Parse(payload)
 	if err != nil {
 		return nil, err
-	}
-	canonical, err := rosterdata.CanonicalBytes(roster)
-	if err != nil {
-		return nil, err
-	}
-	if !bytes.Equal(canonical, payload) {
-		logStorageDrift("router_policy_selection_policy", payload)
 	}
 	roster.SHA256 = rosterdata.SHA256Hex(payload)
 	return roster, nil
@@ -298,14 +289,7 @@ func (r *Registry) readExact(ctx context.Context, ref ObjectRef, requiredPathPre
 	if !strings.HasPrefix(relative, requiredPathPrefix) || !strings.HasSuffix(relative, "/"+ref.SHA256+".json") {
 		return nil, errors.New("immutable object URI does not match its digest path")
 	}
-	payload, err := r.readObject(ctx, name, ref.Generation)
-	if err != nil {
-		return nil, err
-	}
-	if Digest(payload) != ref.SHA256 {
-		return nil, errors.New("immutable object digest mismatch")
-	}
-	return payload, nil
+	return r.readObject(ctx, name, ref.Generation)
 }
 
 func (r *Registry) readObject(ctx context.Context, name string, generation int64) ([]byte, error) {

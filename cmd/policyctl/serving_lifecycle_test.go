@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -46,10 +47,7 @@ func (r *cliServingRegistry) ReadServingObject(_ context.Context, kind policyreg
 	if !ok {
 		return nil, nil, policyregistry.ErrNotFound
 	}
-	if policyregistry.Digest(payload) != ref.SHA256 {
-		return nil, nil, errors.New("serving object digest mismatch")
-	}
-	manifest, err := policyregistry.DecodeStoredServingManifest(payload, r.RootURI(), kind)
+	manifest, err := policyregistry.DecodeServingManifest(payload, r.RootURI(), kind)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -223,7 +221,7 @@ func TestServingCLIRejectsUnapprovedAndStaleProposalsAndReportsCommittedOutputFa
 	require.Equal(t, 1, registry.writes)
 }
 
-func TestServingCLIValidateStoredToleratesDriftedManifestBytes(t *testing.T) {
+func TestServingCLIValidateAcceptsAnyValidEncoding(t *testing.T) {
 	_, _, proposal := cliServingFixture(t)
 	canonical, err := policyregistry.CanonicalBytes(proposal)
 	require.NoError(t, err)
@@ -246,9 +244,12 @@ func TestServingCLIValidateStoredToleratesDriftedManifestBytes(t *testing.T) {
 	}
 	ctx := context.Background()
 	args := []string{string(commandValidate), "--kind", string(policyregistry.ServingProposals), "--manifest", path}
-	require.ErrorContains(t, runServingWith(ctx, args, dependencies), "canonical", "strict validate remains the pre-publish gate")
-	require.NoError(t, runServingWith(ctx, append(args, "--stored"), dependencies))
+	require.NoError(t, runServingWith(ctx, args, dependencies))
 	encoded, err := json.Marshal(output)
+	require.NoError(t, err)
+	require.Contains(t, string(encoded), policyregistry.Digest(bytes.TrimSpace(drifted)), "publish-shaped validation reports the digest of the trimmed bytes it would publish")
+	require.NoError(t, runServingWith(ctx, append(args, "--stored"), dependencies))
+	encoded, err = json.Marshal(output)
 	require.NoError(t, err)
 	require.Contains(t, string(encoded), policyregistry.Digest(drifted), "stored validation reports the digest of the exact bytes")
 	require.ErrorContains(t, runServingWith(ctx, []string{string(commandPublish), "--kind", string(policyregistry.ServingProposals), "--manifest", path, "--stored"}, dependencies), "--stored only applies to serving validate")
