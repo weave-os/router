@@ -15,14 +15,17 @@ func TestCodexToolResultFailures(t *testing.T) {
 	const success = "Wall time: 1.2500 seconds\nProcess exited with code 0\nOutput:\nProcess exited with code 7\n"
 	failed, succeeded := true, false
 	for _, fixture := range []struct {
-		name     string
-		tool     string
-		output   any
-		explicit *bool
-		failed   bool
+		name      string
+		tool      string
+		namespace string
+		output    any
+		explicit  *bool
+		failed    bool
 	}{
 		{name: "exec nonzero", tool: "exec_command", output: failure, failed: true},
 		{name: "stdin nonzero", tool: "write_stdin", output: failure, failed: true},
+		{name: "functions namespace", tool: "exec_command", namespace: "functions", output: failure, failed: true},
+		{name: "client namespace", tool: "exec_command", namespace: "client_tools", output: failure},
 		{name: "negative status", tool: "exec_command", output: strings.Replace(failure, "code 7", "code -1", 1), failed: true},
 		{name: "content item", tool: "exec_command", output: []map[string]string{{"type": "input_text", "text": failure}}, failed: true},
 		{name: "success with failure in stdout", tool: "exec_command", output: success},
@@ -44,7 +47,9 @@ func TestCodexToolResultFailures(t *testing.T) {
 			require.NoError(t, err)
 			block := translate.EscalationBlock{Type: translate.EscalationBlockToolResult, ContentJSON: string(encoded), IsError: fixture.explicit}
 			original := block
-			require.Equal(t, fixture.failed, block.ToolResultFailed(fixture.tool))
+			call := translate.EscalationBlock{Type: translate.EscalationBlockToolCall, Name: fixture.tool, Namespace: fixture.namespace}
+			require.Equal(t, fixture.failed, block.ToolResultFailed(call, true))
+			require.Equal(t, fixture.explicit != nil && *fixture.explicit, block.ToolResultFailed(call, false), "other clients require explicit protocol error flags")
 			require.Equal(t, original, block, "feature extraction must not alter replay identity")
 		})
 	}

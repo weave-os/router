@@ -52,6 +52,9 @@ type EscalationObservation struct {
 	HistoryComplete  bool                    `json:"history_complete"`
 	ContinuationID   string                  `json:"continuation_id,omitempty"`
 	ItemReferenceIDs []string                `json:"item_reference_ids,omitempty"`
+	// CodexToolResults is set by the proxy for identified Codex Responses ingress,
+	// never from tool names or body fields. It is not part of replay identity.
+	CodexToolResults bool `json:"-"`
 }
 
 // EscalationMessage keeps text and tool events in their original relative order.

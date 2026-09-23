@@ -122,6 +122,7 @@ func TestClassifierResponsesToolLoopSwitchesDispatchedModel(t *testing.T) {
 		policy.AtomicClassifierFacts{Release: config.Release, ReleaseSHA256: config.ReleaseSHA256}, resolver).WithCapabilities(capabilities).WithArmSelector(selection.Selector(roster))
 	svc.WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyLLMClassifier, Router: routing, Capabilities: capabilities, Unavailable: router.ErrClassifierUnavailable})
 	ctx := classifierAdmit(t, svc, principal)
+	ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 	const first = `{"model":"auto","stream":true,"input":[{"role":"user","content":"Synthetic task"}]}`
 	const continuation = `{"model":"auto","stream":true,"input":[{"role":"user","content":"Synthetic task"},{"role":"assistant","content":[{"type":"output_text","text":"Checking"}]},{"type":"function_call","call_id":"c1","name":"exec_command","arguments":"{\"cmd\":\"exit 7\"}"},{"type":"function_call_output","call_id":"c1","output":"Chunk ID: abc123\nWall time: 0.0001 seconds\nProcess exited with code 7\nOriginal token count: 1\nOutput:\nSynthetic output\n"}]}`
 	for index, body := range []string{first, continuation, continuation} {
@@ -157,6 +158,7 @@ func TestClassifierCodexExitErrorsAdvanceWithoutChangingReplay(t *testing.T) {
 		require.NoError(t, err)
 		original, err := json.Marshal(observation)
 		require.NoError(t, err)
+		observation.CodexToolResults = true
 		input, err := classifierContextForCall(observation)
 		require.NoError(t, err)
 		replayed, err := json.Marshal(observation)

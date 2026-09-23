@@ -32,7 +32,7 @@ func classifierContextForCall(observation translate.EscalationObservation) (rout
 	// results enter the model input. Framing comes from encoding/json.
 	prefix := ""
 	prefixDigests := make([]string, 0, len(observation.Messages))
-	toolCallNames := make(map[string]string)
+	toolCalls := make(map[string]translate.EscalationBlock)
 	resolvedToolCallIDs := make(map[string]bool)
 	for index, message := range observation.Messages {
 		boundaryOpen := classifierContext.AtUserBoundary
@@ -76,7 +76,7 @@ func classifierContextForCall(observation translate.EscalationObservation) (rout
 			return router.ClassifierContext{}, fmt.Errorf("ambiguous mixed user/tool boundary: %w", router.ErrClassifierHistoryUnavailable)
 		}
 		if message.Role == translate.EscalationRoleUser && !hasToolResult {
-			if len(userText) == 0 || len(toolCallNames) != len(resolvedToolCallIDs) {
+			if len(userText) == 0 || len(toolCalls) != len(resolvedToolCallIDs) {
 				return router.ClassifierContext{}, fmt.Errorf("incomplete user boundary: %w", router.ErrClassifierHistoryUnavailable)
 			}
 			features.UserMessageCount++
@@ -107,19 +107,19 @@ func classifierContextForCall(observation translate.EscalationObservation) (rout
 					}
 				}
 			case translate.EscalationBlockToolCall:
-				_, alreadyCalled := toolCallNames[block.ID]
+				_, alreadyCalled := toolCalls[block.ID]
 				if message.Role != translate.EscalationRoleAssistant || block.ID == "" || alreadyCalled {
 					return router.ClassifierContext{}, fmt.Errorf("missing or repeated tool identity: %w", router.ErrClassifierHistoryUnavailable)
 				}
-				toolCallNames[block.ID] = block.Name
+				toolCalls[block.ID] = block
 				features.ToolCallCount++
 			case translate.EscalationBlockToolResult:
-				toolName, called := toolCallNames[block.CallID]
+				toolCall, called := toolCalls[block.CallID]
 				if (message.Role != translate.EscalationRoleUser && message.Role != translate.EscalationRoleTool) || !called || resolvedToolCallIDs[block.CallID] {
 					return router.ClassifierContext{}, fmt.Errorf("unmatched or repeated tool result: %w", router.ErrClassifierHistoryUnavailable)
 				}
 				resolvedToolCallIDs[block.CallID] = true
-				if block.ToolResultFailed(toolName) {
+				if block.ToolResultFailed(toolCall, observation.CodexToolResults) {
 					features.ToolErrorCount++
 				}
 			default:
@@ -127,7 +127,7 @@ func classifierContextForCall(observation translate.EscalationObservation) (rout
 			}
 		}
 	}
-	if features.UserMessageCount == 0 || len(toolCallNames) != len(resolvedToolCallIDs) {
+	if features.UserMessageCount == 0 || len(toolCalls) != len(resolvedToolCallIDs) {
 		return router.ClassifierContext{}, router.ErrClassifierHistoryUnavailable
 	}
 	classifierContext.PrefixDigests = prefixDigests

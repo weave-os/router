@@ -20,11 +20,14 @@ var codexExecExitHeader = regexp.MustCompile(`^(?:Chunk ID: [^\r\n]+\n)?Wall tim
 
 // ToolResultFailed recognizes explicit protocol errors and Codex exec exit status.
 // It leaves the observed wire untouched: replay digests must survive feature fixes.
-func (block EscalationBlock) ToolResultFailed(toolName string) bool {
+func (block EscalationBlock) ToolResultFailed(call EscalationBlock, codexToolResults bool) bool {
 	if block.IsError != nil {
 		return *block.IsError
 	}
-	switch codexExecTool(toolName) {
+	if !codexToolResults || (call.Namespace != "" && call.Namespace != responsesDefaultToolNamespace) {
+		return false
+	}
+	switch codexExecTool(call.Name) {
 	case codexExecCommand, codexWriteStdin:
 	default:
 		return false
