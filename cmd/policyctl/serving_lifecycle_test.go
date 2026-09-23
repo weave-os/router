@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -390,20 +389,22 @@ func TestServingCLIApplyCommittedOutputFailureReconcilesThroughStatus(t *testing
 	require.Equal(t, 1, registry.writes)
 }
 
-func TestServingCLIApplyParsesDeprecatedWorkflowFlagsWithWarnings(t *testing.T) {
+func TestServingCLIRejectsRetiredApprovalFlagsBeforeReadingTheProposal(t *testing.T) {
 	registry, endpoints, fixture := cliServingFixture(t)
 	path := cliProposalFile(t, cliPublish(t, registry, policyregistry.ServingProposal, cliV2Proposal(fixture, "run-1:lane-0")))
 	var output any
-	var stderr bytes.Buffer
 	dependencies := cliDependencies(registry, endpoints, &output, map[string]string{"GITHUB_ACTOR": "ci-bot", "GITHUB_RUN_ID": "4242"})
-	dependencies.stderr = &stderr
-	args := []string{string(commandApply), "--proposal", path, "--approved-proposal", strings.Repeat("f", 64), "--workflow-actor", "workflow-service", "--validation-origin", "https://ignored.example"}
-	require.NoError(t, runServingWith(context.Background(), args, dependencies))
-	require.Equal(t, "ci-bot@run:4242", output.(policyregistry.ActivationResult).Activation.WorkflowActor, "the executing identity comes from the environment, not the ignored flag")
-	for _, name := range deprecatedServingFlags {
-		require.Contains(t, stderr.String(), "--"+name+" is deprecated")
+	for _, command := range []commandName{commandApply, commandRollback} {
+		for flagName, value := range map[string]string{"approved-proposal": strings.Repeat("f", 64), "workflow-actor": "workflow-service", "validation-origin": "https://ignored.example", "stored": ""} {
+			args := []string{string(command), "--proposal", path, "--" + flagName}
+			if value != "" {
+				args = append(args, value)
+			}
+			require.ErrorContains(t, runServingWith(context.Background(), args, dependencies), "flag provided but not defined: -"+flagName, "%s --%s", command, flagName)
+		}
 	}
-	require.Equal(t, 3, strings.Count(stderr.String(), "\n"), "one warning line per ignored flag")
+	require.Nil(t, output)
+	require.Zero(t, registry.writes)
 }
 
 func TestServingCLIRemovedVerbsPointToTheirReplacement(t *testing.T) {

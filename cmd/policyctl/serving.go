@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"slices"
 	"time"
 
 	"google.golang.org/api/idtoken"
@@ -43,12 +42,8 @@ type servingDependencies struct {
 	writeOutput  func(any) error
 	clock        func() time.Time
 	logger       *slog.Logger
-	stderr       io.Writer
 	getenv       func(string) string
 }
-
-// deprecatedServingFlags are parsed and ignored so existing workflow invocations keep working.
-var deprecatedServingFlags = []string{"approved-proposal", "workflow-actor", "validation-origin"}
 
 func runServing(ctx context.Context, args []string) (runErr error) {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
@@ -77,7 +72,7 @@ func runServing(ctx context.Context, args []string) (runErr error) {
 				return token.AccessToken, nil
 			})
 		},
-		writeOutput: writeJSON, clock: time.Now, logger: logger, stderr: os.Stderr, getenv: os.Getenv,
+		writeOutput: writeJSON, clock: time.Now, logger: logger, getenv: os.Getenv,
 	})
 }
 
@@ -123,20 +118,8 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 	default:
 		return fmt.Errorf("unsupported serving command %q", command)
 	}
-	if command == commandApply || command == commandRollback {
-		for _, name := range deprecatedServingFlags {
-			flags.Func(name, "deprecated; parsed and ignored", func(string) error { return nil })
-		}
-	}
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
-	}
-	if dependencies.stderr != nil {
-		flags.Visit(func(f *flag.Flag) {
-			if slices.Contains(deprecatedServingFlags, f.Name) {
-				fmt.Fprintf(dependencies.stderr, "warning: --%s is deprecated and ignored; it will be removed in a future release\n", f.Name)
-			}
-		})
 	}
 	if flags.NArg() != 0 {
 		return errors.New("unexpected positional serving arguments")

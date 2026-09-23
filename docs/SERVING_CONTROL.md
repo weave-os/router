@@ -39,10 +39,9 @@ policyctl serving status   --target staging|prod/stable|prod/weave-internal | --
 Removed verbs `validate`, `resolve`, `prepare`, and `activate` exit non-zero with a
 message naming the replacement (`publish --dry-run`, `apply --proposal-sha256`,
 `apply --dry-run`, `apply`). Each verb defines only the flags listed above; any
-other flag is a usage error. `--approved-proposal`, `--workflow-actor`, and
-`--validation-origin` are still parsed on `apply` and `rollback` but ignored with a
-`warning:` line on stderr, and are removed once the deployment workflow stops passing
-them: approval is the protected environment the command runs in, the execution
+other flag — including the retired `--approved-proposal`, `--workflow-actor`,
+`--validation-origin`, and `--stored` — is a usage error before the registry is
+opened. Approval is the protected environment the command runs in, the execution
 identity recorded on the activation is derived from the environment
 (`GITHUB_ACTOR@run:GITHUB_RUN_ID`, else `USER`, else the proposal's `actor`), and
 destination validation calls the HTTPS origins the selection set's lanes declare.
