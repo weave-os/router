@@ -20,33 +20,24 @@ const (
 	privateValidationTimeout = 2 * time.Minute
 )
 
-// TokenSource mints a Google identity token only for an explicitly approved service audience.
+// TokenSource mints a Google identity token for the revision's IAM service audience.
 type TokenSource func(context.Context, string) (string, error)
 
-// Client never follows redirects or infers trusted origins from an artifact being validated.
+// Client never follows redirects; the revisions it calls come from immutable, validated bindings.
 type Client struct {
-	http    *http.Client
-	token   TokenSource
-	origins map[string]struct{}
+	http  *http.Client
+	token TokenSource
 }
 
-// New binds validation to origins supplied by trusted workflow configuration, not proposal contents.
-func New(client *http.Client, token TokenSource, allowedOrigins []string) (*Client, error) {
-	if client == nil || token == nil || len(allowedOrigins) == 0 {
-		return nil, errors.New("private validation requires an HTTP client, IAM token source and approved origins")
-	}
-	origins := make(map[string]struct{}, len(allowedOrigins))
-	for _, origin := range allowedOrigins {
-		parsed, err := url.Parse(origin)
-		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil || parsed.Path != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.ForceQuery || parsed.Opaque != "" {
-			return nil, errors.New("validation origins must be exact credential-free HTTPS origins without a trailing slash")
-		}
-		origins[origin] = struct{}{}
+// New bounds the HTTP client: no redirects, a fixed timeout, and a capped attestation body.
+func New(client *http.Client, token TokenSource) (*Client, error) {
+	if client == nil || token == nil {
+		return nil, errors.New("private validation requires an HTTP client and IAM token source")
 	}
 	bounded := *client
 	bounded.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	bounded.Timeout = privateValidationTimeout
-	return &Client{http: &bounded, token: token, origins: origins}, nil
+	return &Client{http: &bounded, token: token}, nil
 }
 
 // ValidateWorker forces the exact revision to load and validate this immutable default/profile snapshot.
@@ -68,11 +59,11 @@ func (c *Client) AttestClassifier(ctx context.Context, revision policyregistry.R
 }
 
 func (c *Client) call(ctx context.Context, revision policyregistry.RevisionBinding, method, path string, payload []byte, attestation any) error {
-	if _, approved := c.origins[revision.URL]; !approved {
-		return errors.New("revision URL is not an approved private validation origin")
-	}
-	if _, approved := c.origins[revision.Audience]; !approved {
-		return errors.New("revision audience is not an approved private validation origin")
+	for _, raw := range []string{revision.URL, revision.Audience} {
+		parsed, err := url.Parse(raw)
+		if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+			return errors.New("revision URL and audience must be credential-free HTTPS origins")
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, privateValidationTimeout)
 	defer cancel()

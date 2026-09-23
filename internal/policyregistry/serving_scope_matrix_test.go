@@ -81,7 +81,7 @@ func TestServingProposalScopeMatrixPreservesCompleteProfileInventory(t *testing.
 			)
 			require.NoError(t, err)
 			initialProposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
-			initial, err := controller.Activate(context.Background(), store.publish(t, policyregistry.ServingProposals, initialProposal), "workflow", true)
+			initial, err := controller.Activate(context.Background(), store.publish(t, policyregistry.ServingProposals, initialProposal), "workflow")
 			require.NoError(t, err)
 
 			oldBinding := *store.object(t, policyregistry.ServingBindings, initialSet.Default.Binding).(*policyregistry.DeploymentBinding)
@@ -258,7 +258,7 @@ func heterogeneousLaneFixture(t *testing.T) (*servingMemoryStore, *policyregistr
 	store.publish(t, policyregistry.ServingSelectionSets, initialSet)
 	controller := permissiveController(t, store)
 	initialProposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
-	initial, err := controller.Activate(context.Background(), store.publish(t, policyregistry.ServingProposals, initialProposal), "workflow", true)
+	initial, err := controller.Activate(context.Background(), store.publish(t, policyregistry.ServingProposals, initialProposal), "workflow")
 	require.NoError(t, err)
 	return store, controller, initialSet, initial
 }
@@ -331,7 +331,7 @@ func TestServingProposalScopeMatrixRouterOnlyUpdatesEveryLaneAtomically(t *testi
 	nextSet := routerOnlySet(t, store, initialSet, source, nextRouter)
 	proposal := routerOnlyProposal(t, store, initial.Snapshot, nextSet, sourceRef)
 	require.NoError(t, controller.ValidateProposal(ctx, proposal))
-	forward, err := controller.Activate(ctx, store.publish(t, policyregistry.ServingProposals, proposal), "workflow", true)
+	forward, err := controller.Activate(ctx, store.publish(t, policyregistry.ServingProposals, proposal), "workflow")
 	require.NoError(t, err)
 	require.Equal(t, proposal.SelectionSet, forward.Activation.SelectionSet)
 
@@ -374,7 +374,7 @@ func TestServingProposalScopeMatrixRouterOnlyUpdatesEveryLaneAtomically(t *testi
 		prepared, err := controller.Prepare(ctx, rollbackRef)
 		require.NoError(t, err)
 		require.True(t, prepared.Prepared)
-		rollback, err := controller.Activate(ctx, rollbackRef, "workflow", true)
+		rollback, err := controller.Activate(ctx, rollbackRef, "workflow")
 		require.NoError(t, err)
 		require.Equal(t, initial.Activation.SelectionSet, rollback.Activation.SelectionSet)
 		require.Greater(t, rollback.Snapshot.Generation, forward.Snapshot.Generation)

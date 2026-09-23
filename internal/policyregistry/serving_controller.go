@@ -136,9 +136,9 @@ func (c *ServingController) Prepare(ctx context.Context, proposalRef ObjectRef) 
 }
 
 // Rollback uses the activation CAS path but only accepts a source previously serving this target.
-// Normal rollback retains pins; an approved proposal explicitly lists emergency withdrawals.
-func (c *ServingController) Rollback(ctx context.Context, proposalRef ObjectRef, workflowActor string, approved bool) (ActivationResult, error) {
-	return c.activate(ctx, proposalRef, workflowActor, approved, true)
+// Normal rollback retains pins; the proposal explicitly lists emergency withdrawals.
+func (c *ServingController) Rollback(ctx context.Context, proposalRef ObjectRef, workflowActor string) (ActivationResult, error) {
+	return c.activate(ctx, proposalRef, workflowActor, true)
 }
 
 func (c *ServingController) validateRollbackSource(ctx context.Context, snapshot ServingStateSnapshot, proposal DeploymentProposal) error {
@@ -161,12 +161,12 @@ func (c *ServingController) validateRollbackSource(ctx context.Context, snapshot
 	return errors.New("rollback requires a known-good source release previously serving the same target and profile")
 }
 
-// Activate requires approval of this exact proposal; retries never reactivate a superseded result.
-func (c *ServingController) Activate(ctx context.Context, proposalRef ObjectRef, workflowActor string, approved bool) (ActivationResult, error) {
-	return c.activate(ctx, proposalRef, workflowActor, approved, false)
+// Activate commits this exact proposal; retries never reactivate a superseded result.
+func (c *ServingController) Activate(ctx context.Context, proposalRef ObjectRef, workflowActor string) (ActivationResult, error) {
+	return c.activate(ctx, proposalRef, workflowActor, false)
 }
 
-func (c *ServingController) activate(ctx context.Context, proposalRef ObjectRef, workflowActor string, approved, rollback bool) (ActivationResult, error) {
+func (c *ServingController) activate(ctx context.Context, proposalRef ObjectRef, workflowActor string, rollback bool) (ActivationResult, error) {
 	logger := c.logger.With("proposal_sha256", proposalRef.SHA256, "workflow_actor", workflowActor)
 	proposal, proposalPayload, err := readServingPayload[*DeploymentProposal](ctx, c.store, ServingProposals, proposalRef)
 	if err != nil {
@@ -174,10 +174,6 @@ func (c *ServingController) activate(ctx context.Context, proposalRef ObjectRef,
 		return ActivationResult{}, err
 	}
 	logger = logger.With("target", proposal.Target, "operator", proposal.Actor)
-	if !approved {
-		logger.Warn("Serving activation rejected: proposal approval missing")
-		return ActivationResult{}, errors.New("activation requires approval bound to this immutable proposal")
-	}
 	snapshot, err := c.store.ReadServingState(ctx, proposal.Target)
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		logger.Error("Failed to read authoritative serving state", "err", err)

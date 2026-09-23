@@ -23,8 +23,8 @@ withdrawals. Publishing never activates it. The exported Go contracts in
 | Command | Required inputs | Effect |
 | --- | --- | --- |
 | `serving resolve` | `--proposal-sha256 <digest>` | Resolves and validates the immutable proposal; outputs its URI/digest/storage-generation `ObjectRef`. Run before approval. |
-| `serving prepare` | `--proposal <ObjectRef.json>`, repeated `--validation-origin` | Checks the bound destination generation, every default/profile tuple, private classifier attestation, and private worker snapshot readiness. No activation or infrastructure writes. |
-| `serving activate` | Same proposal/origins, `--approved-proposal <same-digest>`, `--workflow-actor <identity>` | Revalidates then CASes the target's single control-state object, atomically superseding its outgoing activation. |
+| `serving prepare` | `--proposal <ObjectRef.json>` | Checks the bound destination generation, every default/profile tuple, private classifier attestation, and private worker snapshot readiness. No activation or infrastructure writes. |
+| `serving activate` | `--proposal <ObjectRef.json>` | Revalidates then CASes the target's single control-state object, atomically superseding its outgoing activation. |
 | `serving rollback` | Same inputs as activation | Uses the same CAS path and requires a source previously serving the same target/profile. Normal rollback retains pins; emergency withdrawals must already be in the approved proposal. |
 | `serving status` | `--target <target>` **or** `--proposal <ObjectRef.json>` | Authoritative target state or outcome reconciliation for that exact proposal. Never validates against currently reachable workers. |
 
@@ -75,11 +75,12 @@ customer or component-only tuples do not inherit a source whole-release evaluati
 claim; their own fresh destination validation is mandatory.
 
 Approval is enforced by the orchestrator's protected environment and restricted
-registry-writer identity. `--approved-proposal` binds that external approval to
-the exact immutable digest; it is not itself proof of a person's authorization.
-`--workflow-actor` records the authenticated execution identity separately from
-the original operator frozen in the proposal. Neither identity should come from
-untrusted request text.
+registry-writer identity. The activation records the executing identity as
+`<GITHUB_ACTOR>@run:<GITHUB_RUN_ID>`, else `$USER`, else the proposal's operator.
+
+**Deprecated flags:** `--approved-proposal`, `--workflow-actor`, and
+`--validation-origin` are still parsed but ignored (a one-line warning is written
+to stderr) and will be removed.
 
 A CAS conflict requires a fresh preview/confirmation, not a changed generation
 inside the old proposal. Reusing a request UUID with different proposal bytes is
@@ -93,10 +94,9 @@ new activation incarnation without resetting older supersession deadlines.
 ## Private destination validation
 
 Validation runs from an authorized environment-local runner that can reach both
-private revisions. Pass each exact worker/classifier revision HTTPS origin and
-each IAM service audience as a repeated `--validation-origin`. Obtain this
-allowlist from trusted deployment configuration, not an arbitrary proposal.
-There is no wildcard, HTTP, redirect, public-readiness, or control-plane-only
+private revisions. The worker/classifier revision HTTPS origins and IAM service
+audiences come from the immutable binding selected by the proposal.
+There is no HTTP, redirect, public-readiness, or control-plane-only
 bypass. Requests have a two-minute end-to-end deadline so zero-traffic revisions
 can cold-start, and responses have a 1 MiB bound.
 Google identity tokens travel in `X-Serverless-Authorization`, preserving the

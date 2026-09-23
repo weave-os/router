@@ -17,7 +17,7 @@ func TestExactRollbackRestoresProfileInventoryAndRetainsSessions(t *testing.T) {
 	store, controller, initialSet := controllerFixture(t)
 	initialProposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
 	initialRef := store.publish(t, policyregistry.ServingProposals, initialProposal)
-	initial, err := controller.Activate(ctx, initialRef, "workflow", true)
+	initial, err := controller.Activate(ctx, initialRef, "workflow")
 	require.NoError(t, err)
 
 	profileSet := initialSet
@@ -30,7 +30,7 @@ func TestExactRollbackRestoresProfileInventoryAndRetainsSessions(t *testing.T) {
 	profileProposal.ProfileKey = profileKeyOne
 	profileProposal.SourceRelease = profileSet.Profiles[profileKeyOne].Release
 	profileRef := store.publish(t, policyregistry.ServingProposals, profileProposal)
-	forward, err := controller.Activate(ctx, profileRef, "workflow", true)
+	forward, err := controller.Activate(ctx, profileRef, "workflow")
 	require.NoError(t, err)
 
 	selectionSets := map[string]policyregistry.SelectionSet{initialProposal.SelectionSet.SHA256: initialSet, profileSetRef.SHA256: profileSet}
@@ -42,7 +42,7 @@ func TestExactRollbackRestoresProfileInventoryAndRetainsSessions(t *testing.T) {
 	forwardRemovalRef := store.publish(t, policyregistry.ServingProposals, rollbackProposal)
 	_, err = controller.Prepare(ctx, forwardRemovalRef)
 	require.ErrorContains(t, err, "registered profile keys cannot be removed")
-	_, err = controller.Activate(ctx, forwardRemovalRef, "workflow", true)
+	_, err = controller.Activate(ctx, forwardRemovalRef, "workflow")
 	require.ErrorContains(t, err, "registered profile keys cannot be removed")
 
 	rollbackProposal.Scope = policyregistry.ChangeRollback
@@ -51,9 +51,7 @@ func TestExactRollbackRestoresProfileInventoryAndRetainsSessions(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, prepared.Prepared)
 	require.Equal(t, forward.Snapshot, store.states[initialSet.Target])
-	_, err = controller.Activate(ctx, rollbackRef, "workflow", false)
-	require.ErrorContains(t, err, "approval")
-	rollback, err := controller.Activate(ctx, rollbackRef, "workflow", true)
+	rollback, err := controller.Activate(ctx, rollbackRef, "workflow")
 	require.NoError(t, err)
 	require.Equal(t, initialProposal.SelectionSet, rollback.Activation.SelectionSet)
 	require.NotEqual(t, initial.Activation.ID, rollback.Activation.ID)
@@ -72,7 +70,7 @@ func TestExactRollbackRestoresProfileInventoryAndRetainsSessions(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, rollback.Activation.ID, fresh.ActivationID)
 
-	retry, err := controller.Activate(ctx, profileRef, "workflow", true)
+	retry, err := controller.Activate(ctx, profileRef, "workflow")
 	require.NoError(t, err)
 	require.True(t, retry.Replayed)
 	require.Equal(t, policyregistry.ActivationSuperseded, retry.Outcome)
@@ -83,7 +81,7 @@ func TestExactRollbackRejectsUnservedSetEvenWithHistoricalSource(t *testing.T) {
 	ctx := context.Background()
 	store, controller, selectionSet := controllerFixture(t)
 	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, selectionSet, servingEpoch)
-	initial, err := controller.Activate(ctx, store.publish(t, policyregistry.ServingProposals, proposal), "workflow", true)
+	initial, err := controller.Activate(ctx, store.publish(t, policyregistry.ServingProposals, proposal), "workflow")
 	require.NoError(t, err)
 	defaultRelease := store.object(t, policyregistry.ServingReleases, selectionSet.Default.Release).(*policyregistry.ServingRelease)
 	selectionSet.Profiles[profileKeyOne] = registerProfileFixture(t, store, selectionSet.Default, profileKeyOne, defaultRelease.Policy)
@@ -93,8 +91,8 @@ func TestExactRollbackRejectsUnservedSetEvenWithHistoricalSource(t *testing.T) {
 	ref := store.publish(t, policyregistry.ServingProposals, proposal)
 	_, err = controller.Prepare(ctx, ref)
 	require.ErrorContains(t, err, "selection set previously activated on the same target")
-	for _, rollbackOperation := range []func(context.Context, policyregistry.ObjectRef, string, bool) (policyregistry.ActivationResult, error){controller.Activate, controller.Rollback} {
-		_, err = rollbackOperation(ctx, ref, "workflow", true)
+	for _, rollbackOperation := range []func(context.Context, policyregistry.ObjectRef, string) (policyregistry.ActivationResult, error){controller.Activate, controller.Rollback} {
+		_, err = rollbackOperation(ctx, ref, "workflow")
 		require.ErrorContains(t, err, "selection set previously activated on the same target")
 	}
 	require.Equal(t, initial.Snapshot, store.states[selectionSet.Target])
@@ -107,19 +105,19 @@ func TestExactRollbackCannotBootstrapAndPreservesValidationAndCAS(t *testing.T) 
 	proposal.Scope = policyregistry.ChangeRollback
 	require.ErrorContains(t, proposal.Validate(testRegistryRoot), "existing target activation")
 	proposal.Scope = policyregistry.ChangeFull
-	initial, err := controller.Activate(ctx, store.publish(t, policyregistry.ServingProposals, proposal), "workflow", true)
+	initial, err := controller.Activate(ctx, store.publish(t, policyregistry.ServingProposals, proposal), "workflow")
 	require.NoError(t, err)
 	proposal = fixtureProposal(t, initial.Snapshot, selectionSet, servingEpoch)
 	proposal.Scope = policyregistry.ChangeRollback
 	ref := store.publish(t, policyregistry.ServingProposals, proposal)
 	store.casErr = policyregistry.ErrConflict
-	_, err = controller.Activate(ctx, ref, "workflow", true)
+	_, err = controller.Activate(ctx, ref, "workflow")
 	require.ErrorIs(t, err, policyregistry.ErrConflict)
 	store.casErr = nil
 	delete(store.artifacts, artifactRef("binding-attestation"))
 	_, err = controller.Prepare(ctx, ref)
 	require.ErrorContains(t, err, "verify physical revision attestation")
-	_, err = controller.Activate(ctx, ref, "workflow", true)
+	_, err = controller.Activate(ctx, ref, "workflow")
 	require.ErrorContains(t, err, "verify physical revision attestation")
 	require.Equal(t, initial.Snapshot, store.states[selectionSet.Target])
 	store.readErr = errors.New("registry unavailable")
@@ -133,7 +131,7 @@ func TestExactRollbackBindsHistoricalGenerationAndSource(t *testing.T) {
 			ctx := context.Background()
 			store, controller, selectionSet := controllerFixture(t)
 			initialProposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, selectionSet, servingEpoch)
-			initial, err := controller.Activate(ctx, store.publish(t, policyregistry.ServingProposals, initialProposal), "workflow", true)
+			initial, err := controller.Activate(ctx, store.publish(t, policyregistry.ServingProposals, initialProposal), "workflow")
 			require.NoError(t, err)
 			proposal := fixtureProposal(t, initial.Snapshot, selectionSet, servingEpoch)
 			proposal.Scope = policyregistry.ChangeRollback

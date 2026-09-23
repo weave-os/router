@@ -19,7 +19,6 @@ func TestServingControllerFailureAuditIncludesProposalAndKnownTarget(t *testing.
 		name            string
 		message         string
 		prepare         bool
-		approved        bool
 		rollback        bool
 		missingProposal bool
 		mutate          func(*servingMemoryStore)
@@ -27,9 +26,8 @@ func TestServingControllerFailureAuditIncludesProposalAndKnownTarget(t *testing.
 		{name: "proposal read", prepare: true, missingProposal: true, message: "Failed to read immutable proposal for serving preparation"},
 		{name: "target read", prepare: true, message: "Failed to read authoritative target for serving preparation", mutate: func(store *servingMemoryStore) { store.readErr = errors.New("storage unavailable") }},
 		{name: "evidence validation", prepare: true, message: "Serving destination validation blocked preparation", mutate: func(store *servingMemoryStore) { delete(store.artifacts, artifactRef("evidence")) }},
-		{name: "approval", message: "Serving activation rejected: proposal approval missing"},
-		{name: "rollback source", approved: true, rollback: true, message: "Serving rollback source validation rejected"},
-		{name: "state write", approved: true, message: "Serving activation CAS failed; keep the proposal for outcome reconciliation", mutate: func(store *servingMemoryStore) { store.casErr = errors.New("storage unavailable") }},
+		{name: "rollback source", rollback: true, message: "Serving rollback source validation rejected"},
+		{name: "state write", message: "Serving activation CAS failed; keep the proposal for outcome reconciliation", mutate: func(store *servingMemoryStore) { store.casErr = errors.New("storage unavailable") }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store, _, set := controllerFixture(t)
@@ -49,9 +47,9 @@ func TestServingControllerFailureAuditIncludesProposalAndKnownTarget(t *testing.
 			if test.prepare {
 				_, err = controller.Prepare(context.Background(), ref)
 			} else if test.rollback {
-				_, err = controller.Rollback(context.Background(), ref, "workflow", test.approved)
+				_, err = controller.Rollback(context.Background(), ref, "workflow")
 			} else {
-				_, err = controller.Activate(context.Background(), ref, "workflow", test.approved)
+				_, err = controller.Activate(context.Background(), ref, "workflow")
 			}
 			require.Error(t, err)
 			var entry map[string]any

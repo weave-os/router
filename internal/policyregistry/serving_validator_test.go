@@ -85,7 +85,7 @@ func TestServingPreparationNeverActivatesAndRetryDoesNotRequireHealthyDestinatio
 	require.True(t, preparation.Prepared)
 	require.Nil(t, preparation.Activation)
 	require.Empty(t, store.states)
-	activation, err := controller.Activate(context.Background(), ref, "workflow", true)
+	activation, err := controller.Activate(context.Background(), ref, "workflow")
 	require.NoError(t, err)
 	proposal.RequestID = uuid.NewString()
 	stale := store.publish(t, policyregistry.ServingProposals, proposal)
@@ -97,7 +97,7 @@ func TestServingPreparationNeverActivatesAndRetryDoesNotRequireHealthyDestinatio
 	require.NoError(t, err)
 	require.False(t, preparation.Prepared)
 	require.Equal(t, activation.Activation.ID, preparation.Activation.Activation.ID)
-	replayed, err := unavailable.Activate(context.Background(), ref, "retry", true)
+	replayed, err := unavailable.Activate(context.Background(), ref, "retry")
 	require.NoError(t, err)
 	require.True(t, replayed.Replayed)
 	require.Equal(t, activation.Activation.ID, replayed.Activation.ID)
@@ -117,7 +117,7 @@ func TestServingControllerRejectsMissingOrTamperedAuditArtifactsBeforeActivation
 				}
 				_, err := controller.Prepare(context.Background(), ref)
 				require.Error(t, err)
-				_, err = controller.Activate(context.Background(), ref, "workflow", true)
+				_, err = controller.Activate(context.Background(), ref, "workflow")
 				require.Error(t, err)
 				require.Empty(t, store.states)
 			})
@@ -128,14 +128,14 @@ func TestServingControllerRejectsMissingOrTamperedAuditArtifactsBeforeActivation
 func TestServingControllerVerifiesSourceBuildEvidenceForDerivedCompositions(t *testing.T) {
 	store, controller, set := controllerFixture(t)
 	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
-	initial, err := controller.Activate(context.Background(), store.publish(t, policyregistry.ServingProposals, proposal), "workflow", true)
+	initial, err := controller.Activate(context.Background(), store.publish(t, policyregistry.ServingProposals, proposal), "workflow")
 	require.NoError(t, err)
 	source := *store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease)
 	source.Provenance.BuildAttestation = artifactRef("unpublished-source-attestation")
 	proposal = fixtureProposal(t, initial.Snapshot, set, servingEpoch)
 	proposal.Scope = policyregistry.ChangeRouter
 	proposal.SourceRelease = store.publish(t, policyregistry.ServingReleases, source)
-	_, err = controller.Activate(context.Background(), store.publish(t, policyregistry.ServingProposals, proposal), "workflow", true)
+	_, err = controller.Activate(context.Background(), store.publish(t, policyregistry.ServingProposals, proposal), "workflow")
 	require.ErrorContains(t, err, "source build attestation")
 	require.Equal(t, initial.Snapshot.Generation, store.states[set.Target].Generation)
 }

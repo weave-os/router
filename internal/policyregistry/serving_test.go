@@ -188,7 +188,7 @@ func TestControllerVerifiesOnlyTheProposalDigestOnRead(t *testing.T) {
 	store.putRaw(mislabeled, payload)
 	_, err := controller.Prepare(ctx, mislabeled)
 	require.ErrorContains(t, err, "digest")
-	_, err = controller.Activate(ctx, mislabeled, "workflow", true)
+	_, err = controller.Activate(ctx, mislabeled, "workflow")
 	require.ErrorContains(t, err, "digest")
 	require.Empty(t, store.states)
 
@@ -523,17 +523,14 @@ func controllerFixture(t *testing.T) (*servingMemoryStore, *policyregistry.Servi
 	return store, controller, set
 }
 
-func TestServingControllerApprovalCASAndIdempotency(t *testing.T) {
+func TestServingControllerCASAndIdempotency(t *testing.T) {
 	store, controller, set := controllerFixture(t)
 	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
 	ref := store.publish(t, policyregistry.ServingProposals, proposal)
-	_, err := controller.Activate(context.Background(), ref, "workflow", false)
-	require.ErrorContains(t, err, "approval")
-	assert.Empty(t, store.states)
-	activated, err := controller.Activate(context.Background(), ref, "workflow", true)
+	activated, err := controller.Activate(context.Background(), ref, "workflow")
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), activated.Snapshot.Generation)
-	retry, err := controller.Activate(context.Background(), ref, "workflow-retry", true)
+	retry, err := controller.Activate(context.Background(), ref, "workflow-retry")
 	require.NoError(t, err)
 	assert.True(t, retry.Replayed)
 	assert.Equal(t, activated.Activation.ID, retry.Activation.ID)
@@ -541,7 +538,7 @@ func TestServingControllerApprovalCASAndIdempotency(t *testing.T) {
 	assert.Equal(t, "workflow", retry.Activation.WorkflowActor)
 	proposal.RequestID = uuid.NewString()
 	staleRef := store.publish(t, policyregistry.ServingProposals, proposal)
-	_, err = controller.Activate(context.Background(), staleRef, "workflow", true)
+	_, err = controller.Activate(context.Background(), staleRef, "workflow")
 	require.ErrorIs(t, err, policyregistry.ErrConflict)
 }
 
@@ -566,7 +563,7 @@ func TestServingControllerCommitsTheSingleTransitionBuiltBeforeValidation(t *tes
 	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
 	ref := store.publish(t, policyregistry.ServingProposals, proposal)
 
-	activated, err := controller.Activate(context.Background(), ref, "workflow", true)
+	activated, err := controller.Activate(context.Background(), ref, "workflow")
 	require.NoError(t, err)
 	require.Equal(t, 1, clockCalls, "the transition is computed once, before destination validation")
 	require.Equal(t, 1, validations)
@@ -584,7 +581,7 @@ func TestServingControllerCommitsTheSingleTransitionBuiltBeforeValidation(t *tes
 	}
 	next := fixtureProposal(t, activated.Snapshot, set, servingEpoch)
 	nextRef := store.publish(t, policyregistry.ServingProposals, next)
-	_, err = controller.Activate(context.Background(), nextRef, "workflow", true)
+	_, err = controller.Activate(context.Background(), nextRef, "workflow")
 	require.ErrorIs(t, err, policyregistry.ErrConflict)
 	require.Equal(t, 2, clockCalls)
 	require.Equal(t, 2, store.casCalls)
@@ -602,7 +599,7 @@ func TestServingControllerFailsClosedOnRegistryAndCASFailure(t *testing.T) {
 		} else {
 			store.casErr = failure
 		}
-		_, err := controller.Activate(context.Background(), ref, "workflow", true)
+		_, err := controller.Activate(context.Background(), ref, "workflow")
 		require.ErrorIs(t, err, failure)
 		assert.Empty(t, store.states)
 	}
@@ -626,7 +623,7 @@ func TestServingControllerRejectsUnverifiedProposalEvidence(t *testing.T) {
 			}
 			_, err := controller.Prepare(context.Background(), ref)
 			require.ErrorContains(t, err, "verify proposal evidence")
-			_, err = controller.Activate(context.Background(), ref, "workflow", true)
+			_, err = controller.Activate(context.Background(), ref, "workflow")
 			require.ErrorContains(t, err, "verify proposal evidence")
 			require.Empty(t, store.states, "invalid evidence must never publish an activation")
 		})
@@ -641,7 +638,7 @@ func TestServingControllerRejectsAttestedCodeMismatch(t *testing.T) {
 	store.publish(t, policyregistry.ServingSelectionSets, set)
 	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
 	ref := store.publish(t, policyregistry.ServingProposals, proposal)
-	_, err := controller.Activate(context.Background(), ref, "workflow", true)
+	_, err := controller.Activate(context.Background(), ref, "workflow")
 	require.ErrorContains(t, err, "binding differs")
 	assert.Empty(t, store.states)
 }
@@ -677,7 +674,7 @@ func TestProfileVersionAdvancePreservesOtherCustomerAndDefault(t *testing.T) {
 	initialSet.Profiles[profileKeyTwo] = registerProfileFixture(t, store, initialSet.Default, profileKeyTwo, base.Policy)
 	initialSetRef := store.publish(t, policyregistry.ServingSelectionSets, initialSet)
 	initialProposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
-	initial, err := controller.Activate(context.Background(), store.publish(t, policyregistry.ServingProposals, initialProposal), "workflow", true)
+	initial, err := controller.Activate(context.Background(), store.publish(t, policyregistry.ServingProposals, initialProposal), "workflow")
 	require.NoError(t, err)
 	policyRef := policyregistry.ObjectRef{URI: base.Policy.URI, SHA256: base.Policy.SHA256, Generation: base.Policy.Generation}
 	policyBytes, err := rosterdata.CanonicalBytes(store.policies[policyRef])
@@ -699,7 +696,7 @@ func TestProfileVersionAdvancePreservesOtherCustomerAndDefault(t *testing.T) {
 	proposal.Scope = policyregistry.ChangeProfile
 	proposal.ProfileKey = profileKeyOne
 	proposal.SourceRelease = updatedSet.Profiles[profileKeyOne].Release
-	updated, err := controller.Activate(context.Background(), store.publish(t, policyregistry.ServingProposals, proposal), "workflow", true)
+	updated, err := controller.Activate(context.Background(), store.publish(t, policyregistry.ServingProposals, proposal), "workflow")
 	require.NoError(t, err)
 	assert.Equal(t, initialSet.Default, updatedSet.Default)
 	assert.Equal(t, initialSet.Profiles[profileKeyTwo], updatedSet.Profiles[profileKeyTwo])
@@ -744,7 +741,7 @@ func TestConcurrentServingActivationsHaveOneCASWinner(t *testing.T) {
 	outcomes := make(chan error, 2)
 	for _, ref := range refs {
 		go func() {
-			_, err := controller.Activate(ctx, ref, "workflow", true)
+			_, err := controller.Activate(ctx, ref, "workflow")
 			outcomes <- err
 		}()
 	}

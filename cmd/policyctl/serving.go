@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"time"
 
 	"google.golang.org/api/idtoken"
@@ -34,11 +35,16 @@ type servingRegistry interface {
 
 type servingDependencies struct {
 	openRegistry func(context.Context, string) (servingRegistry, error)
-	endpoints    func([]string) (policyregistry.DestinationEndpoints, error)
+	endpoints    func() (policyregistry.DestinationEndpoints, error)
 	writeOutput  func(any) error
 	clock        func() time.Time
 	logger       *slog.Logger
+	stderr       io.Writer
+	getenv       func(string) string
 }
+
+// deprecatedServingFlags are parsed and ignored so existing workflow invocations keep working.
+var deprecatedServingFlags = []string{"approved-proposal", "workflow-actor", "validation-origin"}
 
 func runServing(ctx context.Context, args []string) (runErr error) {
 	logger := slog.New(slog.NewJSONHandler(os.Stderr, nil))
@@ -54,7 +60,7 @@ func runServing(ctx context.Context, args []string) (runErr error) {
 		openRegistry: func(ctx context.Context, root string) (servingRegistry, error) {
 			return policyregistry.NewGCSRegistry(ctx, root)
 		},
-		endpoints: func(origins []string) (policyregistry.DestinationEndpoints, error) {
+		endpoints: func() (policyregistry.DestinationEndpoints, error) {
 			return servingvalidate.New(&http.Client{}, func(ctx context.Context, audience string) (string, error) {
 				source, err := idtoken.NewTokenSource(ctx, audience)
 				if err != nil {
@@ -65,10 +71,22 @@ func runServing(ctx context.Context, args []string) (runErr error) {
 					return "", err
 				}
 				return token.AccessToken, nil
-			}, origins)
+			})
 		},
-		writeOutput: writeJSON, clock: time.Now, logger: logger,
+		writeOutput: writeJSON, clock: time.Now, logger: logger, stderr: os.Stderr, getenv: os.Getenv,
 	})
+}
+
+// workflowActorFor names the executing identity: a GitHub Actions run when present, else the local
+// user, else the proposal's own operator.
+func workflowActorFor(getenv func(string) string, proposal policyregistry.DeploymentProposal) string {
+	if actor, run := getenv("GITHUB_ACTOR"), getenv("GITHUB_RUN_ID"); actor != "" && run != "" {
+		return actor + "@run:" + run
+	}
+	if user := getenv("USER"); user != "" {
+		return user
+	}
+	return proposal.Actor
 }
 
 func runServingWith(ctx context.Context, args []string, dependencies servingDependencies) error {
@@ -87,14 +105,20 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 	manifestPath := flags.String("manifest", "", "immutable manifest JSON file")
 	targetRaw := flags.String("target", "", "staging, prod/stable or prod/weave-internal")
 	proposalPath := flags.String("proposal", "", "JSON file containing the exact published proposal ObjectRef")
-	proposalDigest := flags.String("proposal-sha256", "", "resolve this immutable proposal digest once before approval")
-	approvedDigest := flags.String("approved-proposal", "", "SHA256 of the exact proposal approved by the protected workflow")
-	workflowActor := flags.String("workflow-actor", "", "authenticated workflow identity; separate from proposal operator")
+	proposalDigest := flags.String("proposal-sha256", "", "resolve this immutable proposal digest once before activation")
 	stored := flags.Bool("stored", false, "validate manifest bytes exactly as fetched from the registry, without trimming surrounding whitespace")
-	var origins []string
-	flags.Func("validation-origin", "approved private HTTPS revision origin or IAM service audience (repeatable)", func(value string) error { origins = append(origins, value); return nil })
+	for _, name := range deprecatedServingFlags {
+		flags.Func(name, "deprecated; parsed and ignored", func(string) error { return nil })
+	}
 	if err := flags.Parse(args[1:]); err != nil {
 		return err
+	}
+	if dependencies.stderr != nil {
+		flags.Visit(func(f *flag.Flag) {
+			if slices.Contains(deprecatedServingFlags, f.Name) {
+				fmt.Fprintf(dependencies.stderr, "warning: --%s is deprecated and ignored; it will be removed in a future release\n", f.Name)
+			}
+		})
 	}
 	if flags.NArg() != 0 {
 		return errors.New("unexpected positional serving arguments")
@@ -152,12 +176,9 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 	if err := policyregistry.ValidateServingRef(proposalRef, *registryURI, policyregistry.ServingProposals); err != nil {
 		return err
 	}
-	if (command == commandActivate || command == commandRollback) && (*approvedDigest != proposalRef.SHA256 || *workflowActor == "") {
-		return errors.New("activation requires --approved-proposal matching the exact proposal digest and --workflow-actor")
-	}
 	var validator policyregistry.DestinationValidator
 	if command != commandStatus {
-		endpoints, err := dependencies.endpoints(origins)
+		endpoints, err := dependencies.endpoints()
 		if err != nil {
 			return err
 		}
@@ -182,11 +203,23 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 		}
 		return dependencies.writeOutput(preparation)
 	}
+	proposal, _, err := registry.ReadServingObject(ctx, policyregistry.ServingProposals, proposalRef)
+	if err != nil {
+		return err
+	}
+	typed, ok := proposal.(*policyregistry.DeploymentProposal)
+	if !ok {
+		return errors.New("registry returned the wrong manifest kind for the proposal")
+	}
+	getenv := dependencies.getenv
+	if getenv == nil {
+		getenv = func(string) string { return "" }
+	}
 	activate := controller.Activate
 	if command == commandRollback {
 		activate = controller.Rollback
 	}
-	activation, err := activate(ctx, proposalRef, *workflowActor, true)
+	activation, err := activate(ctx, proposalRef, workflowActorFor(getenv, *typed))
 	if err != nil {
 		return err
 	}
