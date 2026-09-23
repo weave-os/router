@@ -29,18 +29,32 @@ FOR UPDATE;
 SELECT * FROM router.classifier_predictions
 WHERE thread_id = @thread_id::uuid AND turn_digest = @turn_digest::text;
 
+-- Output items belong to the latest admitted call before their input position,
+-- not necessarily to a separate invocation per assistant message/text block.
+-- name: GetClassifierPredictionBeforeMessage :one
+SELECT * FROM router.classifier_predictions
+WHERE thread_id = @thread_id::uuid
+  AND input_message_count > 0 AND input_message_count <= @message_index::integer
+ORDER BY input_message_count DESC LIMIT 1;
+
 -- Root identity survives compaction and rules out re-enrollment of an old thread.
 -- name: GetClassifierThreadRoot :one
 SELECT turn_digest FROM router.classifier_predictions
-WHERE thread_id = @thread_id::uuid AND user_message_count = 1;
+WHERE thread_id = @thread_id::uuid AND turn_digest = root_turn_digest;
+
+-- The authenticated thread lock serializes append-only request checkpoints.
+-- name: UpdateClassifierThreadPrefix :exec
+UPDATE router.classifier_threads
+SET prefix_message_count = @prefix_message_count::integer, prefix_digest = @prefix_digest::text
+WHERE thread_id = @thread_id::uuid;
 
 -- Unique ordinal and digest constraints reject divergent histories; no overwrite.
 -- name: InsertClassifierPrediction :exec
 INSERT INTO router.classifier_predictions (
     thread_id, turn_digest, root_turn_digest, user_message_count, tool_call_count,
-    tool_error_count, completed_response_count, complexity, probabilities
+    tool_error_count, completed_response_count, complexity, probabilities, input_message_count
 ) VALUES (
     @thread_id::uuid, @turn_digest::text, @root_turn_digest::text,
     @user_message_count::integer, @tool_call_count::integer, @tool_error_count::integer,
-    @completed_response_count::integer, @complexity::smallint, @probabilities::double precision[]
+    @completed_response_count::integer, @complexity::smallint, @probabilities::double precision[], @input_message_count::integer
 );

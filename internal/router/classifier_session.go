@@ -35,6 +35,7 @@ type ClassifierThread struct {
 type ClassifierPrediction struct {
 	TurnDigest             string
 	RootTurnDigest         string
+	InputMessageCount      int
 	Features               ClassifierFeatures
 	CompletedResponseCount int
 	Complexity             ClassifierComplexity
@@ -62,9 +63,19 @@ func (p ClassifierPrediction) Validate() error {
 	return nil
 }
 
+// ClassifierPrefixCheckpoint fences rewrites of previously admitted tool loops
+// and instruction updates without persisting any conversation content.
+type ClassifierPrefixCheckpoint struct {
+	MessageCount int
+	Digest       string
+}
+
 // ClassifierTurnStore is scoped to one locked thread and immutable release.
 type ClassifierTurnStore interface {
+	PrefixCheckpoint() ClassifierPrefixCheckpoint
+	SetPrefixCheckpoint(context.Context, ClassifierPrefixCheckpoint) error
 	Get(context.Context, string) (ClassifierPrediction, bool, error)
+	PredictionBeforeMessage(context.Context, int) (ClassifierPrediction, bool, error)
 	RootTurnDigest(context.Context) (string, error)
 	Insert(context.Context, ClassifierPrediction) error
 }

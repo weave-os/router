@@ -24,7 +24,7 @@ const ClassifierHistoricalPrediction ClassifierHistorySource = "historical_predi
 // masquerading as the complete causal prefix expected by the classifier.
 var ErrClassifierHistoryUnavailable = errors.New("classifier history unavailable")
 
-// ClassifierFeatures are whole-prefix counts at a human-message boundary, not
+// ClassifierFeatures are whole-prefix counts at an API-call boundary, not
 // counts in the ten-response window. Unknown tool outcomes are not successes.
 type ClassifierFeatures struct {
 	UserMessageCount int `json:"user_message_count"`
@@ -32,20 +32,24 @@ type ClassifierFeatures struct {
 	ToolErrorCount   int `json:"tool_error_count"`
 }
 
-// ClassifierResponse associates one text block with the prediction made before
-// its owning user turn. Empty text blocks occupy a history position.
+// ClassifierResponse locates one text block in the causal prefix. Several
+// messages/blocks can belong to one invocation. Empty text blocks count.
 type ClassifierResponse struct {
-	ResponseIndex int
-	Content       string
-	TurnDigest    string
+	ResponseIndex    int
+	MessageIndex     int
+	UserMessageCount int
+	Content          string
+	PrefixDigest     string
 }
 
 // ClassifierContext is the untruncated V3 input before historical predictions
-// are joined. TurnDigest identifies the causal input, not an HTTP request/retry.
+// are joined. TurnDigest is the complete API-call prefix digest (the name is
+// retained for persisted compatibility), identical only for retries of that input.
 type ClassifierContext struct {
+	PrefixDigests          []string
 	TurnDigest             string
 	RootTurnDigest         string
-	PreviousTurnDigest     string
+	HasAssistantHistory    bool
 	AtUserBoundary         bool
 	CurrentUserMessage     string
 	PrecedingResponses     []ClassifierResponse
@@ -81,7 +85,7 @@ type PredictedClassifierResponse struct {
 // thread and immutable classifier release. Missing history is never defaulted.
 func (c ClassifierContext) WithHistoricalPredictions(predictions map[string]ClassifierComplexity) (AtomicClassificationRequest, error) {
 	features := c.Features
-	if c.TurnDigest == "" || features.UserMessageCount < 1 || features.ToolCallCount < 0 || features.ToolErrorCount < 0 || features.ToolErrorCount > features.ToolCallCount || c.CompletedResponseCount < 0 || (features.UserMessageCount == 1 && c.CompletedResponseCount != 0) {
+	if c.TurnDigest == "" || features.UserMessageCount < 1 || features.ToolCallCount < 0 || features.ToolErrorCount < 0 || features.ToolErrorCount > features.ToolCallCount || c.CompletedResponseCount < 0 {
 		return AtomicClassificationRequest{}, fmt.Errorf("invalid causal classifier features: %w", ErrClassifierHistoryUnavailable)
 	}
 	firstResponseIndex := max(0, c.CompletedResponseCount-10)
@@ -90,8 +94,8 @@ func (c ClassifierContext) WithHistoricalPredictions(predictions map[string]Clas
 	}
 	responses := make([]PredictedClassifierResponse, 0, len(c.PrecedingResponses))
 	for offset, response := range c.PrecedingResponses {
-		complexity, exists := predictions[response.TurnDigest]
-		if response.ResponseIndex != firstResponseIndex+offset || response.TurnDigest == "" || response.TurnDigest == c.TurnDigest || !exists || complexity < ClassifierLow || complexity > ClassifierMaximum {
+		complexity, exists := predictions[response.PrefixDigest]
+		if response.ResponseIndex != firstResponseIndex+offset || response.PrefixDigest == "" || response.PrefixDigest == c.TurnDigest || !exists || complexity < ClassifierLow || complexity > ClassifierMaximum {
 			return AtomicClassificationRequest{}, fmt.Errorf("missing or invalid historical prediction at response %d: %w", response.ResponseIndex, ErrClassifierHistoryUnavailable)
 		}
 		responses = append(responses, PredictedClassifierResponse{ResponseIndex: response.ResponseIndex, Content: response.Content, Complexity: complexity})

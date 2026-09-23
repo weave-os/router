@@ -50,6 +50,7 @@ type RouterClassifierPrediction struct {
 	Complexity             int16
 	Probabilities          []float64
 	CreatedAt              pgtype.Timestamptz
+	InputMessageCount      int32
 }
 
 type RouterClassifierThread struct {
@@ -62,6 +63,8 @@ type RouterClassifierThread struct {
 	SelectionPolicySha256 string
 	ExpiresAt             pgtype.Timestamptz
 	CreatedAt             pgtype.Timestamptz
+	PrefixMessageCount    int32
+	PrefixDigest          string
 }
 
 type RouterClusterModelList struct {

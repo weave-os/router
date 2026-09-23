@@ -37,7 +37,7 @@ func main() {
 		slog.Error("Classifier session database check failed", "err", err)
 		os.Exit(1)
 	}
-	slog.Info("Classifier database check passed: bounded transaction capacity, idempotent enrollment, concurrent commit, replica recovery, rollback, divergence, credential/release/expiry fencing and cascading cleanup")
+	slog.Info("Classifier database check passed: bounded transaction capacity, idempotent enrollment, concurrent commit, replica recovery, rollback, divergence, credential/release/expiry fencing, per-call response ownership, and cascading cleanup")
 }
 
 func check(ctx context.Context, dsn string) (checkErr error) {
@@ -77,7 +77,8 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 	if err != nil || retry != thread {
 		return fmt.Errorf("handshake retry rebound original thread: %w", err)
 	}
-	prediction := router.ClassifierPrediction{TurnDigest: strings.Repeat("b", 64), RootTurnDigest: strings.Repeat("b", 64), Features: router.ClassifierFeatures{UserMessageCount: 1}, Complexity: router.ClassifierMedium, Probabilities: []float64{0.1, 0.7, 0.1, 0.1}}
+	prediction := router.ClassifierPrediction{TurnDigest: strings.Repeat("b", 64), RootTurnDigest: strings.Repeat("b", 64), InputMessageCount: 3, Features: router.ClassifierFeatures{UserMessageCount: 2}, Complexity: router.ClassifierMedium, Probabilities: []float64{0.1, 0.7, 0.1, 0.1}}
+	prefixCheckpoint := router.ClassifierPrefixCheckpoint{MessageCount: 3, Digest: prediction.TurnDigest}
 	var inferenceCalls atomic.Int32
 	var concurrent errgroup.Group
 	concurrent.SetLimit(2)
@@ -89,6 +90,10 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 					return err
 				}
 				inferenceCalls.Add(1)
+				if err := turns.SetPrefixCheckpoint(ctx, prefixCheckpoint); err != nil {
+					slog.Error("Failed to persist classifier prefix checkpoint", "thread_id", thread.ThreadID, "message_count", prefixCheckpoint.MessageCount, "err", err)
+					return err
+				}
 				return turns.Insert(ctx, prediction)
 			})
 		})
@@ -104,6 +109,9 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 	}
 	replica := postgres.NewClassifierSessionRepo(pool)
 	err = replica.WithThread(ctx, thread, func(turns router.ClassifierTurnStore) error {
+		if turns.PrefixCheckpoint() != prefixCheckpoint {
+			return errors.New("request prefix did not survive replica replacement")
+		}
 		stored, found, err := turns.Get(ctx, prediction.TurnDigest)
 		if err != nil || !found || !reflect.DeepEqual(stored, prediction) {
 			return fmt.Errorf("committed prediction did not survive replica replacement: %w", err)
@@ -123,9 +131,13 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 	if !errors.Is(err, router.ErrClassifierHistoryUnavailable) {
 		return fmt.Errorf("divergent ordinal was not rejected: %v", err)
 	}
-	divergent.Features.UserMessageCount = 2
+	divergent.InputMessageCount = 5
 	abort := errors.New("fixture abort before commit")
 	err = store.WithThread(ctx, thread, func(turns router.ClassifierTurnStore) error {
+		if err := turns.SetPrefixCheckpoint(ctx, router.ClassifierPrefixCheckpoint{MessageCount: 5, Digest: strings.Repeat("f", 64)}); err != nil {
+			slog.Error("Failed to persist rollback test checkpoint", "thread_id", thread.ThreadID, "message_count", 5, "err", err)
+			return err
+		}
 		if err := turns.Insert(ctx, divergent); err != nil {
 			return err
 		}
@@ -135,6 +147,9 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 		return fmt.Errorf("rollback did not propagate failure: %v", err)
 	}
 	err = replica.WithThread(ctx, thread, func(turns router.ClassifierTurnStore) error {
+		if turns.PrefixCheckpoint() != prefixCheckpoint {
+			return errors.New("rolled back request prefix persisted")
+		}
 		_, found, err := turns.Get(ctx, divergent.TurnDigest)
 		if found {
 			return errors.New("rolled back prediction persisted")
@@ -142,6 +157,10 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 		return err
 	})
 	if err != nil {
+		return err
+	}
+	if err = checkPerCallPredictions(ctx, store, thread, prediction); err != nil {
+		slog.Error("Per-call classifier prediction check failed", "thread_id", thread.ThreadID, "err", err)
 		return err
 	}
 	for _, mutate := range []func(*router.ClassifierThread){
@@ -177,6 +196,37 @@ func check(ctx context.Context, dsn string) (checkErr error) {
 		return fmt.Errorf("deleted installation retained classifier thread: %v", err)
 	}
 	return nil
+}
+
+func checkPerCallPredictions(ctx context.Context, sessionStore *postgres.ClassifierSessionRepo, thread router.ClassifierThread, prediction router.ClassifierPrediction) error {
+	next := prediction
+	next.TurnDigest = strings.Repeat("c", 64)
+	next.InputMessageCount = 5
+	next.Features.ToolCallCount = 1
+	next.Features.ToolErrorCount = 1
+	err := sessionStore.WithThread(ctx, thread, func(turns router.ClassifierTurnStore) error { return turns.Insert(ctx, next) })
+	if err != nil {
+		slog.Error("Failed to insert per-call classifier prediction", "thread_id", thread.ThreadID, "input_message_count", next.InputMessageCount, "err", err)
+		return err
+	}
+	return sessionStore.WithThread(ctx, thread, func(turns router.ClassifierTurnStore) error {
+		for _, messageIndex := range []int{3, 4, 5, 6} {
+			owner, found, err := turns.PredictionBeforeMessage(ctx, messageIndex)
+			want := prediction
+			if messageIndex >= 5 {
+				want = next
+			}
+			if err != nil {
+				slog.Error("Failed to find per-call prediction owner", "thread_id", thread.ThreadID, "message_index", messageIndex, "err", err)
+				return err
+			}
+			if !found || !reflect.DeepEqual(owner, want) {
+				slog.Error("Per-call prediction ownership mismatch", "thread_id", thread.ThreadID, "message_index", messageIndex, "found", found, "owner_input_message_count", owner.InputMessageCount, "expected_input_message_count", want.InputMessageCount)
+				return fmt.Errorf("response at %d did not retain its API-call prediction", messageIndex)
+			}
+		}
+		return nil
+	})
 }
 
 func checkClassifierCapacity(ctx context.Context, pool *pgxpool.Pool, store *postgres.ClassifierSessionRepo, original router.ClassifierThread) error {

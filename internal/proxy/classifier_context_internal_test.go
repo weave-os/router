@@ -45,7 +45,7 @@ func TestClassifierContextProtocolParity(t *testing.T) {
 			require.NoError(t, err)
 			observation, err := envelope.EscalationObservation()
 			require.NoError(t, err)
-			input, err := classifierContextAtUserBoundary(observation)
+			input, err := classifierContextForCall(observation)
 			require.NoError(t, err)
 			require.Equal(t, "second", input.CurrentUserMessage)
 			require.Equal(t, router.ClassifierFeatures{UserMessageCount: 2, ToolCallCount: 1, ToolErrorCount: 1}, input.Features)
@@ -54,8 +54,8 @@ func TestClassifierContextProtocolParity(t *testing.T) {
 			require.Equal(t, "  answer  ", input.PrecedingResponses[0].Content)
 			require.Equal(t, "", input.PrecedingResponses[1].Content)
 			require.Equal(t, 1, input.PrecedingResponses[1].ResponseIndex)
-			require.Equal(t, input.PrecedingResponses[0].TurnDigest, input.PrecedingResponses[1].TurnDigest)
-			require.NotEqual(t, input.TurnDigest, input.PrecedingResponses[0].TurnDigest)
+			require.Equal(t, input.PrecedingResponses[0].PrefixDigest, input.PrecedingResponses[1].PrefixDigest)
+			require.NotEqual(t, input.TurnDigest, input.PrecedingResponses[0].PrefixDigest)
 		})
 	}
 }
@@ -84,7 +84,7 @@ func TestClassifierContextWindowAndWholePrefixCounters(t *testing.T) {
 		)
 	}
 	messages = append(messages, classifierTestText(translate.EscalationRoleUser, "next"))
-	input, err := classifierContextAtUserBoundary(classifierTestObservation(messages...))
+	input, err := classifierContextForCall(classifierTestObservation(messages...))
 	require.NoError(t, err)
 	require.Equal(t, 14, input.CompletedResponseCount)
 	require.Equal(t, router.ClassifierFeatures{UserMessageCount: 2, ToolCallCount: 14, ToolErrorCount: 14}, input.Features)
@@ -95,9 +95,9 @@ func TestClassifierContextWindowAndWholePrefixCounters(t *testing.T) {
 	}
 }
 
-func TestClassifierContextRetriesAndToolLoopsReuseUserBoundary(t *testing.T) {
+func TestClassifierContextRetriesReuseCallButToolLoopsRefresh(t *testing.T) {
 	first := classifierTestText(translate.EscalationRoleUser, "first")
-	initial, err := classifierContextAtUserBoundary(classifierTestObservation(first))
+	initial, err := classifierContextForCall(classifierTestObservation(first))
 	require.NoError(t, err)
 	loop := classifierTestObservation(first,
 		translate.EscalationMessage{Role: translate.EscalationRoleAssistant, Blocks: []translate.EscalationBlock{
@@ -108,18 +108,26 @@ func TestClassifierContextRetriesAndToolLoopsReuseUserBoundary(t *testing.T) {
 			{Type: translate.EscalationBlockToolResult, CallID: "call"},
 		}},
 	)
-	for range 3 {
-		input, err := classifierContextAtUserBoundary(loop)
+	var continuation router.ClassifierContext
+	for attempt := range 3 {
+		input, err := classifierContextForCall(loop)
 		require.NoError(t, err)
 		require.False(t, input.AtUserBoundary)
-		input.AtUserBoundary = initial.AtUserBoundary
-		require.Equal(t, initial, input)
+		require.Equal(t, initial.PrefixDigests, input.PrefixDigests[:len(initial.PrefixDigests)])
+		require.NotEqual(t, initial.TurnDigest, input.TurnDigest)
+		require.Equal(t, "first", input.CurrentUserMessage)
+		require.Equal(t, router.ClassifierFeatures{UserMessageCount: 1, ToolCallCount: 1}, input.Features)
+		require.Equal(t, 1, input.CompletedResponseCount)
+		if attempt > 0 {
+			require.Equal(t, continuation, input)
+		}
+		continuation = input
 	}
 	loop.Messages = append(loop.Messages, classifierTestText(translate.EscalationRoleUser, "next"))
-	next, err := classifierContextAtUserBoundary(loop)
+	next, err := classifierContextForCall(loop)
 	require.NoError(t, err)
 	require.NotEqual(t, initial.TurnDigest, next.TurnDigest)
-	require.Equal(t, initial.TurnDigest, next.PrecedingResponses[0].TurnDigest)
+	require.Equal(t, initial.TurnDigest, next.PrecedingResponses[0].PrefixDigest)
 	require.Equal(t, router.ClassifierFeatures{UserMessageCount: 2, ToolCallCount: 1}, next.Features)
 }
 
@@ -130,14 +138,14 @@ func TestClassifierContextNoClippingAndBranchIdentity(t *testing.T) {
 		classifierTestText(translate.EscalationRoleAssistant, longResponse),
 		classifierTestText(translate.EscalationRoleUser, "next"),
 	)
-	input, err := classifierContextAtUserBoundary(prefix)
+	input, err := classifierContextForCall(prefix)
 	require.NoError(t, err)
 	require.Equal(t, longResponse, input.PrecedingResponses[0].Content)
 	prefix.Messages[1].Blocks[0].Text += "changed"
-	branch, err := classifierContextAtUserBoundary(prefix)
+	branch, err := classifierContextForCall(prefix)
 	require.NoError(t, err)
 	require.NotEqual(t, input.TurnDigest, branch.TurnDigest)
-	require.Equal(t, input.PrecedingResponses[0].TurnDigest, branch.PrecedingResponses[0].TurnDigest)
+	require.Equal(t, input.PrecedingResponses[0].PrefixDigest, branch.PrecedingResponses[0].PrefixDigest)
 }
 
 func TestClassifierContextRejectsIncompleteAndAmbiguousHistory(t *testing.T) {
@@ -145,7 +153,6 @@ func TestClassifierContextRejectsIncompleteAndAmbiguousHistory(t *testing.T) {
 	call := translate.EscalationMessage{Role: translate.EscalationRoleAssistant, Blocks: []translate.EscalationBlock{{Type: translate.EscalationBlockToolCall, ID: "call", Name: "test"}}}
 	toolResult := translate.EscalationMessage{Role: translate.EscalationRoleTool, Blocks: []translate.EscalationBlock{{Type: translate.EscalationBlockToolResult, CallID: "call"}}}
 	next := classifierTestText(translate.EscalationRoleUser, "next")
-	instructions := classifierTestText(translate.EscalationRoleSystem, "new instructions")
 	fixtures := map[string]translate.EscalationObservation{
 		"empty":                            classifierTestObservation(),
 		"partial":                          {Messages: []translate.EscalationMessage{user}},
@@ -160,16 +167,14 @@ func TestClassifierContextRejectsIncompleteAndAmbiguousHistory(t *testing.T) {
 		"late result across user boundary": classifierTestObservation(user, call, next, toolResult),
 		"one of two calls unresolved": classifierTestObservation(user, call,
 			translate.EscalationMessage{Role: translate.EscalationRoleAssistant, Blocks: []translate.EscalationBlock{{Type: translate.EscalationBlockToolCall, ID: "other", Name: "test"}}}, toolResult),
-		"user with no text blocks":  classifierTestObservation(translate.EscalationMessage{Role: translate.EscalationRoleUser}),
-		"instructions after user":   classifierTestObservation(user, instructions),
-		"instructions in tool loop": classifierTestObservation(user, call, toolResult, instructions, classifierTestText(translate.EscalationRoleAssistant, "answer")),
+		"user with no text blocks": classifierTestObservation(translate.EscalationMessage{Role: translate.EscalationRoleUser}),
 		"mixed result and text": classifierTestObservation(user, call, translate.EscalationMessage{Role: translate.EscalationRoleUser, Blocks: []translate.EscalationBlock{
 			{Type: translate.EscalationBlockToolResult, CallID: "call"}, {Type: translate.EscalationBlockText, Text: "new user or reminder?"},
 		}}),
 	}
 	for name, fixture := range fixtures {
 		t.Run(name, func(t *testing.T) {
-			_, err := classifierContextAtUserBoundary(fixture)
+			_, err := classifierContextForCall(fixture)
 			require.ErrorIs(t, err, router.ErrClassifierHistoryUnavailable)
 		})
 	}

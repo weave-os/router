@@ -13,8 +13,8 @@ func TestClassifierContextJoinsOnlyRecordedPredictions(t *testing.T) {
 		TurnDigest: "current", CurrentUserMessage: "next", CompletedResponseCount: 2,
 		Features: router.ClassifierFeatures{UserMessageCount: 2, ToolCallCount: 12, ToolErrorCount: 3},
 		PrecedingResponses: []router.ClassifierResponse{
-			{ResponseIndex: 0, Content: "answer", TurnDigest: "prior"},
-			{ResponseIndex: 1, Content: "", TurnDigest: "prior"},
+			{ResponseIndex: 0, Content: "answer", PrefixDigest: "prior"},
+			{ResponseIndex: 1, Content: "", PrefixDigest: "prior"},
 		},
 	}
 	_, err := input.WithHistoricalPredictions(nil)
@@ -41,17 +41,16 @@ func TestClassifierFirstTurnSerializesEmptyArray(t *testing.T) {
 }
 
 func TestClassifierContextRejectsInvalidProvenance(t *testing.T) {
-	valid := router.ClassifierContext{TurnDigest: "current", CompletedResponseCount: 1, Features: router.ClassifierFeatures{UserMessageCount: 2}, PrecedingResponses: []router.ClassifierResponse{{ResponseIndex: 0, TurnDigest: "prior"}}}
+	valid := router.ClassifierContext{TurnDigest: "current", CompletedResponseCount: 1, Features: router.ClassifierFeatures{UserMessageCount: 1}, PrecedingResponses: []router.ClassifierResponse{{ResponseIndex: 0, PrefixDigest: "prior"}}}
 	fixtures := map[string]func(*router.ClassifierContext){
-		"no boundary":             func(c *router.ClassifierContext) { c.TurnDigest = "" },
-		"no user":                 func(c *router.ClassifierContext) { c.Features.UserMessageCount = 0 },
-		"negative tools":          func(c *router.ClassifierContext) { c.Features.ToolCallCount = -1 },
-		"errors exceed calls":     func(c *router.ClassifierContext) { c.Features.ToolErrorCount = 1 },
-		"negative errors":         func(c *router.ClassifierContext) { c.Features.ToolErrorCount = -1 },
-		"negative responses":      func(c *router.ClassifierContext) { c.CompletedResponseCount = -1 },
-		"first user with history": func(c *router.ClassifierContext) { c.Features.UserMessageCount = 1 },
-		"wrong ordinal":           func(c *router.ClassifierContext) { c.PrecedingResponses[0].ResponseIndex = 1 },
-		"own response":            func(c *router.ClassifierContext) { c.PrecedingResponses[0].TurnDigest = "current" },
+		"no boundary":         func(c *router.ClassifierContext) { c.TurnDigest = "" },
+		"no user":             func(c *router.ClassifierContext) { c.Features.UserMessageCount = 0 },
+		"negative tools":      func(c *router.ClassifierContext) { c.Features.ToolCallCount = -1 },
+		"errors exceed calls": func(c *router.ClassifierContext) { c.Features.ToolErrorCount = 1 },
+		"negative errors":     func(c *router.ClassifierContext) { c.Features.ToolErrorCount = -1 },
+		"negative responses":  func(c *router.ClassifierContext) { c.CompletedResponseCount = -1 },
+		"wrong ordinal":       func(c *router.ClassifierContext) { c.PrecedingResponses[0].ResponseIndex = 1 },
+		"own response":        func(c *router.ClassifierContext) { c.PrecedingResponses[0].PrefixDigest = "current" },
 	}
 	for name, mutate := range fixtures {
 		t.Run(name, func(t *testing.T) {

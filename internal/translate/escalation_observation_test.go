@@ -47,6 +47,59 @@ func TestEscalationObservationRejectsMalformedNamedTools(t *testing.T) {
 	}
 }
 
+func TestResponsesEscalationObservationNativeWebSearch(t *testing.T) {
+	for _, status := range []translate.EscalationToolStatus{translate.EscalationToolStatusCompleted, translate.EscalationToolStatusFailed} {
+		t.Run(string(status), func(t *testing.T) {
+			search := fmt.Sprintf(`{"type":"web_search_call","id":"ws_1","status":%q,"action":{"type":"search","query":"synthetic query","sources":[{"type":"url","url":"https://example.com"}]}}`, status)
+			observation, err := translate.ParseResponsesEscalationObservation([]byte(`{"input":[` + search + `]}`))
+			require.NoError(t, err)
+			require.Len(t, observation.Messages, 2)
+			assert.Equal(t, translate.EscalationRoleAssistant, observation.Messages[0].Role)
+			assert.Equal(t, translate.EscalationRoleTool, observation.Messages[1].Role)
+			call := observation.Messages[0].Blocks[0]
+			output := observation.Messages[1].Blocks[0]
+			assert.Equal(t, translate.EscalationBlockToolCall, call.Type)
+			assert.Equal(t, "ws_1", call.ID)
+			assert.Equal(t, "web_search_call", call.Name)
+			assert.JSONEq(t, `{"type":"search","query":"synthetic query","sources":[{"type":"url","url":"https://example.com"}]}`, call.ArgumentsJSON)
+			assert.Equal(t, translate.EscalationBlockToolResult, output.Type)
+			assert.Equal(t, "ws_1", output.CallID)
+			assert.JSONEq(t, search, output.ContentJSON)
+			require.NotNil(t, output.IsError)
+			assert.Equal(t, status == translate.EscalationToolStatusFailed, *output.IsError)
+		})
+	}
+	for _, search := range []string{
+		`{"id":"ws_1","status":"in_progress","action":{}}`,
+		`{"id":"ws_1","status":"searching","action":{}}`,
+		`{"id":"ws_1","status":"unknown","action":{}}`,
+		`{"id":"ws_1","action":{}}`,
+		`{"id":"","status":"completed","action":{}}`,
+		`{"id":null,"status":"completed","action":{}}`,
+		`{"id":42,"status":"completed","action":{}}`,
+		`{"id":"ws_1","status":"completed"}`,
+		`{"id":"ws_1","status":"completed","action":"search"}`,
+	} {
+		_, err := translate.ParseResponsesEscalationObservation([]byte(`{"input":[{"type":"web_search_call",` + search[1:] + `]}`))
+		require.Error(t, err, search)
+	}
+}
+
+func TestResponsesNativeSearchReplayWithoutIDs(t *testing.T) {
+	search := `{"type":"web_search_call","status":"completed","action":{"type":"open_page","url":"https://example.com"}}`
+	body := []byte(`{"input":[` + search + `,` + search + `]}`)
+	observation, err := translate.ParseResponsesEscalationObservation(body)
+	require.NoError(t, err)
+	require.Len(t, observation.Messages, 4)
+	firstID, secondID := observation.Messages[0].Blocks[0].ID, observation.Messages[2].Blocks[0].ID
+	require.NotEmpty(t, firstID)
+	require.NotEqual(t, firstID, secondID, "identical repeated searches are distinct calls")
+	require.Equal(t, firstID, observation.Messages[1].Blocks[0].CallID)
+	require.Equal(t, secondID, observation.Messages[3].Blocks[0].CallID)
+	require.JSONEq(t, search, observation.Messages[1].Blocks[0].ContentJSON)
+	require.NotContains(t, string(body), `"id"`, "observation IDs never rewrite provider input")
+}
+
 func TestEscalationObservationPreservesToolIdentityAcrossProtocols(t *testing.T) {
 	fixtures := []struct {
 		name  string

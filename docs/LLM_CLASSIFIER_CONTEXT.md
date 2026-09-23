@@ -6,10 +6,10 @@ nor a deployment default can enroll a conversation. This implementation is not
 production activation. Managed gateway admission remains blocked until the
 release controller can attest the classifier's deployment and authentication.
 
-## V3 boundary
+## Per-API-call boundary
 
-The trained target is a **user turn**, not an independently labeled API call.
-Before each human message is answered, the input contains:
+Serving classifies **every new API-call prefix**, including tool continuations
+within one human turn. Before dispatch, the input contains:
 
 - the current user message;
 - the last ten completed assistant text-response blocks, oldest first,
@@ -19,9 +19,12 @@ Before each human message is answered, the input contains:
 
 Reasoning, planning, tool arguments and result payloads are not response history.
 Tool-only messages are not invented empty text responses. Tool continuations
-reuse the current user boundary; their new responses and counts enter the next
-user boundary, matching the training example construction. Reclassifying every
-tool continuation with these new events would be a different input contract.
+retain the latest human request but immediately incorporate newly completed
+response blocks and cumulative tool/error counts. A changed prediction can
+select a different model on that call, without waiting for another human message.
+Training labels were assigned per user turn; this checkpoint has not been
+retrained with independently labeled API calls. Per-call serving quality must
+therefore be evaluated separately from its user-turn training metrics.
 
 `internal/proxy/classifier_context.go` builds that boundary from the existing
 unclipped `translate.EscalationObservation`, independently of the clipped generic
@@ -30,14 +33,15 @@ the chat-completions projection. Text is not trimmed or truncated. Token limits
 remain the classifier tokenizer's responsibility.
 
 `router.ClassifierContext.WithHistoricalPredictions` constructs the V3
-`/classify` JSON. Each response refers to its owning turn's causal digest;
-all blocks from that turn receive its recorded prediction. Missing predictions,
+`/classify` JSON. Each response is joined to the latest committed API-call
+checkpoint preceding its message position. Multiple output items or text blocks
+from one invocation share that call's recorded prediction. Missing predictions,
 gapped suffixes and invalid classes fail closed. Selected model tiers, offline
 labels and retrospective classifications are not historical predictions.
 
 ## Identity, persistence and recovery
 
-A turn digest is **not** a session or authorization key. The authenticated
+A call digest is **not** a session or authorization key. The authenticated
 `POST /v1/router/threads` handshake takes a fresh `new_chat_id` UUID and returns
 a `thread_token`. Clients persist the UUID before the call, retry it unchanged,
 and create a distinct UUID for each genuinely new child conversation. The
@@ -58,9 +62,24 @@ pins; they cannot establish or replace the conversation root.
 Postgres `classifier_threads` and `classifier_predictions` store hashes,
 counters and classification facts, not prompts. A primary-database row lock
 serializes inference and prediction commit before provider dispatch. Retries
-and tool loops reuse the committed facts; another replica reads the same row.
-Different histories at an already committed user ordinal are rejected. Ordinary
+of the exact call prefix reuse committed facts; another replica reads the same
+row. Tool-loop calls append new facts even when the human-message count is
+unchanged. The legacy `turn_digest` column now identifies the complete call
+prefix; `input_message_count` locates its causal boundary. Conflicting histories
+at an already committed call position are rejected. Ordinary
 unticketed traffic retains its current strategy.
+
+Claude Code's native one-shot WebSearch helper inherits the parent's process-wide
+header. Go recognizes its exact helper system instruction, single search query
+and sole native-search tool before deriving the session key. It validates the
+persisted parent, then creates an isolated child bound to the same credential,
+release, selection policy and expiry. A parent-scoped root digest makes identical
+one-shot requests reuse that child across retries/replicas, including after the
+parent advances. Different queries or parents get separate children. The child
+does not inherit or update parent predictions, counters, checkpoints or pins;
+provider eligibility still goes through the normal Go policy. This exception
+does not infer new chats from shortened history and does not support arbitrary
+subagents or compaction resets.
 
 Each replica admits at most two concurrent classifier transactions, including
 row-lock waiters. Admission happens before acquiring a shared database connection;
@@ -69,8 +88,34 @@ leaves four of the router's six connections available to other traffic. Capacity
 is released after commit, rollback or cancellation; no additional pool is opened.
 
 System/developer instructions participate in the causal digest without entering
-the classifier prompt or feature counts. An instruction change within a user
-turn requires a new human boundary; it cannot reuse that turn's old prediction.
+the classifier prompt or feature counts.
+Consecutive user messages before any assistant event form one input boundary:
+all their text is retained, each still counts as a user message, and no prediction
+is fabricated for setup-only messages. Trailing system/developer messages at
+that boundary enter its digest before the first assistant event. Append-only
+instruction events during a tool loop change the next API-call digest, just
+like appended tool events, and trigger a new classification. Root
+identity is the first committed boundary, not necessarily user-message count one.
+Every admitted request also commits its complete prefix's message count and
+rolling digest under the same thread lock. Subsequent requests must extend
+that exact prefix, so changes to already admitted instructions, responses or
+tool results fail before inference. Shortened histories (including stale retries
+after a newer request commits) fail closed. Only hashes and counts are stored.
+Legacy user-turn predictions (`input_message_count=0`) cannot be reused as
+per-call predictions. Those threads must start fresh; the server does not
+invent API-call boundaries for previously stored facts.
+One replay canonicalization is Claude Code's exact transient parallel-tool
+hint following a terminal `<total_tokens>` instruction, optionally followed by
+Claude's numeric USD-budget line. Other instructions before that budget remain
+identity-bearing, including periodic progress reminders. Claude omits that hint
+on replay, so it is excluded from the persisted prefix, not from the provider
+request. A second recognizes the leading system block's structured Git snapshot
+and the first user block's wrapped `currentDate` field, which the client refreshes
+on resume. Only those metadata fields are canonicalized for identity; surrounding
+repository/user instructions remain identity-bearing. Neither provider bytes nor
+classifier input text is rewritten. The token-budget instruction remains
+identity-bearing; arbitrary text, modified hints, unrecognized suffixes and
+history rewrites are not normalized away.
 Responses `instructions` must be a string or null; unsupported shapes are
 rejected instead of silently disappearing from that identity.
 
@@ -80,6 +125,16 @@ end of history, and mixed human/tool-result messages
 whose boundary cannot be determined. ID-less legacy/Gemini tool calls require
 an explicit pairing contract before admission. Unknown outcomes do not increment
 the error count; text heuristics from spiral telemetry are deliberately not used.
+
+Responses native `web_search_call` items with terminal `completed` or `failed`
+status become a paired tool invocation/result: the result retains the entire
+native event for prefix identity. They increment tool counts, and only `failed`
+increments the error count. They are not response history. Older clients omit
+native IDs on replay; those events receive an observation-only ID based on their
+stable input position. Identical repeated searches still count separately, and
+the complete original event remains identity-bearing. Explicit malformed IDs,
+missing actions and unfinished search statuses are rejected rather than treated
+as completed calls. The original provider conversation is never rewritten.
 
 Media-bearing observations (including text mixed with images, audio or files)
 are rejected because their omitted payloads cannot establish classifier identity.
@@ -113,7 +168,13 @@ extension auto-compaction and legacy handoff/escalation.
 
 ## Server configuration and rollout gates
 
-Apply migration `0105_classifier-threads` before enabling. Set
+Apply migrations through `0110_classifier-per-call` before enabling. Deploy
+the updated V3 inference validator as well: older workers reject prior responses
+while `user_message_count=1`. Publish the router/serving change under a new
+release and enroll fresh threads; do not silently reuse a human-turn release.
+The down migration refuses to discard per-call predictions to restore the old
+unique-user-count constraint. Rollback requires draining those threads and an
+explicit history-retention decision, not automatic deletion. Set
 `ROUTER_LLM_CLASSIFIER_CONFIG` to a server-owned JSON file containing:
 
 | Field | Contract |

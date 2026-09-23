@@ -13,7 +13,7 @@ import (
 )
 
 const getClassifierPrediction = `-- name: GetClassifierPrediction :one
-SELECT thread_id, turn_digest, root_turn_digest, user_message_count, tool_call_count, tool_error_count, completed_response_count, complexity, probabilities, created_at FROM router.classifier_predictions
+SELECT thread_id, turn_digest, root_turn_digest, user_message_count, tool_call_count, tool_error_count, completed_response_count, complexity, probabilities, created_at, input_message_count FROM router.classifier_predictions
 WHERE thread_id = $1::uuid AND turn_digest = $2::text
 `
 
@@ -24,7 +24,7 @@ type GetClassifierPredictionParams struct {
 
 // A prediction lookup is always under an authenticated thread lock.
 //
-//	SELECT thread_id, turn_digest, root_turn_digest, user_message_count, tool_call_count, tool_error_count, completed_response_count, complexity, probabilities, created_at FROM router.classifier_predictions
+//	SELECT thread_id, turn_digest, root_turn_digest, user_message_count, tool_call_count, tool_error_count, completed_response_count, complexity, probabilities, created_at, input_message_count FROM router.classifier_predictions
 //	WHERE thread_id = $1::uuid AND turn_digest = $2::text
 func (q *Queries) GetClassifierPrediction(ctx context.Context, arg GetClassifierPredictionParams) (RouterClassifierPrediction, error) {
 	row := q.db.QueryRow(ctx, getClassifierPrediction, arg.ThreadID, arg.TurnDigest)
@@ -40,12 +40,51 @@ func (q *Queries) GetClassifierPrediction(ctx context.Context, arg GetClassifier
 		&i.Complexity,
 		&i.Probabilities,
 		&i.CreatedAt,
+		&i.InputMessageCount,
+	)
+	return i, err
+}
+
+const getClassifierPredictionBeforeMessage = `-- name: GetClassifierPredictionBeforeMessage :one
+SELECT thread_id, turn_digest, root_turn_digest, user_message_count, tool_call_count, tool_error_count, completed_response_count, complexity, probabilities, created_at, input_message_count FROM router.classifier_predictions
+WHERE thread_id = $1::uuid
+  AND input_message_count > 0 AND input_message_count <= $2::integer
+ORDER BY input_message_count DESC LIMIT 1
+`
+
+type GetClassifierPredictionBeforeMessageParams struct {
+	ThreadID     uuid.UUID
+	MessageIndex int32
+}
+
+// Output items belong to the latest admitted call before their input position,
+// not necessarily to a separate invocation per assistant message/text block.
+//
+//	SELECT thread_id, turn_digest, root_turn_digest, user_message_count, tool_call_count, tool_error_count, completed_response_count, complexity, probabilities, created_at, input_message_count FROM router.classifier_predictions
+//	WHERE thread_id = $1::uuid
+//	  AND input_message_count > 0 AND input_message_count <= $2::integer
+//	ORDER BY input_message_count DESC LIMIT 1
+func (q *Queries) GetClassifierPredictionBeforeMessage(ctx context.Context, arg GetClassifierPredictionBeforeMessageParams) (RouterClassifierPrediction, error) {
+	row := q.db.QueryRow(ctx, getClassifierPredictionBeforeMessage, arg.ThreadID, arg.MessageIndex)
+	var i RouterClassifierPrediction
+	err := row.Scan(
+		&i.ThreadID,
+		&i.TurnDigest,
+		&i.RootTurnDigest,
+		&i.UserMessageCount,
+		&i.ToolCallCount,
+		&i.ToolErrorCount,
+		&i.CompletedResponseCount,
+		&i.Complexity,
+		&i.Probabilities,
+		&i.CreatedAt,
+		&i.InputMessageCount,
 	)
 	return i, err
 }
 
 const getClassifierThreadForUpdate = `-- name: GetClassifierThreadForUpdate :one
-SELECT thread_id, installation_id, credential_sha256, request_id, release, release_sha256, selection_policy_sha256, expires_at, created_at FROM router.classifier_threads
+SELECT thread_id, installation_id, credential_sha256, request_id, release, release_sha256, selection_policy_sha256, expires_at, created_at, prefix_message_count, prefix_digest FROM router.classifier_threads
 WHERE thread_id = $1::uuid
   AND installation_id = $2::uuid
   AND credential_sha256 = $3::bytea
@@ -68,7 +107,7 @@ type GetClassifierThreadForUpdateParams struct {
 // The lock covers inference and prediction commit, preventing competing replicas
 // from producing different historical predictions for one thread.
 //
-//	SELECT thread_id, installation_id, credential_sha256, request_id, release, release_sha256, selection_policy_sha256, expires_at, created_at FROM router.classifier_threads
+//	SELECT thread_id, installation_id, credential_sha256, request_id, release, release_sha256, selection_policy_sha256, expires_at, created_at, prefix_message_count, prefix_digest FROM router.classifier_threads
 //	WHERE thread_id = $1::uuid
 //	  AND installation_id = $2::uuid
 //	  AND credential_sha256 = $3::bytea
@@ -97,19 +136,21 @@ func (q *Queries) GetClassifierThreadForUpdate(ctx context.Context, arg GetClass
 		&i.SelectionPolicySha256,
 		&i.ExpiresAt,
 		&i.CreatedAt,
+		&i.PrefixMessageCount,
+		&i.PrefixDigest,
 	)
 	return i, err
 }
 
 const getClassifierThreadRoot = `-- name: GetClassifierThreadRoot :one
 SELECT turn_digest FROM router.classifier_predictions
-WHERE thread_id = $1::uuid AND user_message_count = 1
+WHERE thread_id = $1::uuid AND turn_digest = root_turn_digest
 `
 
 // Root identity survives compaction and rules out re-enrollment of an old thread.
 //
 //	SELECT turn_digest FROM router.classifier_predictions
-//	WHERE thread_id = $1::uuid AND user_message_count = 1
+//	WHERE thread_id = $1::uuid AND turn_digest = root_turn_digest
 func (q *Queries) GetClassifierThreadRoot(ctx context.Context, threadID uuid.UUID) (string, error) {
 	row := q.db.QueryRow(ctx, getClassifierThreadRoot, threadID)
 	var turn_digest string
@@ -120,11 +161,11 @@ func (q *Queries) GetClassifierThreadRoot(ctx context.Context, threadID uuid.UUI
 const insertClassifierPrediction = `-- name: InsertClassifierPrediction :exec
 INSERT INTO router.classifier_predictions (
     thread_id, turn_digest, root_turn_digest, user_message_count, tool_call_count,
-    tool_error_count, completed_response_count, complexity, probabilities
+    tool_error_count, completed_response_count, complexity, probabilities, input_message_count
 ) VALUES (
     $1::uuid, $2::text, $3::text,
     $4::integer, $5::integer, $6::integer,
-    $7::integer, $8::smallint, $9::double precision[]
+    $7::integer, $8::smallint, $9::double precision[], $10::integer
 )
 `
 
@@ -138,17 +179,18 @@ type InsertClassifierPredictionParams struct {
 	CompletedResponseCount int32
 	Complexity             int16
 	Probabilities          []float64
+	InputMessageCount      int32
 }
 
 // Unique ordinal and digest constraints reject divergent histories; no overwrite.
 //
 //	INSERT INTO router.classifier_predictions (
 //	    thread_id, turn_digest, root_turn_digest, user_message_count, tool_call_count,
-//	    tool_error_count, completed_response_count, complexity, probabilities
+//	    tool_error_count, completed_response_count, complexity, probabilities, input_message_count
 //	) VALUES (
 //	    $1::uuid, $2::text, $3::text,
 //	    $4::integer, $5::integer, $6::integer,
-//	    $7::integer, $8::smallint, $9::double precision[]
+//	    $7::integer, $8::smallint, $9::double precision[], $10::integer
 //	)
 func (q *Queries) InsertClassifierPrediction(ctx context.Context, arg InsertClassifierPredictionParams) error {
 	_, err := q.db.Exec(ctx, insertClassifierPrediction,
@@ -161,6 +203,7 @@ func (q *Queries) InsertClassifierPrediction(ctx context.Context, arg InsertClas
 		arg.CompletedResponseCount,
 		arg.Complexity,
 		arg.Probabilities,
+		arg.InputMessageCount,
 	)
 	return err
 }
@@ -174,7 +217,7 @@ INSERT INTO router.classifier_threads (
 )
 ON CONFLICT (installation_id, credential_sha256, request_id)
 DO UPDATE SET request_id = EXCLUDED.request_id
-RETURNING thread_id, installation_id, credential_sha256, request_id, release, release_sha256, selection_policy_sha256, expires_at, created_at
+RETURNING thread_id, installation_id, credential_sha256, request_id, release, release_sha256, selection_policy_sha256, expires_at, created_at, prefix_message_count, prefix_digest
 `
 
 type InsertClassifierThreadParams struct {
@@ -199,7 +242,7 @@ type InsertClassifierThreadParams struct {
 //	)
 //	ON CONFLICT (installation_id, credential_sha256, request_id)
 //	DO UPDATE SET request_id = EXCLUDED.request_id
-//	RETURNING thread_id, installation_id, credential_sha256, request_id, release, release_sha256, selection_policy_sha256, expires_at, created_at
+//	RETURNING thread_id, installation_id, credential_sha256, request_id, release, release_sha256, selection_policy_sha256, expires_at, created_at, prefix_message_count, prefix_digest
 func (q *Queries) InsertClassifierThread(ctx context.Context, arg InsertClassifierThreadParams) (RouterClassifierThread, error) {
 	row := q.db.QueryRow(ctx, insertClassifierThread,
 		arg.ThreadID,
@@ -222,6 +265,30 @@ func (q *Queries) InsertClassifierThread(ctx context.Context, arg InsertClassifi
 		&i.SelectionPolicySha256,
 		&i.ExpiresAt,
 		&i.CreatedAt,
+		&i.PrefixMessageCount,
+		&i.PrefixDigest,
 	)
 	return i, err
+}
+
+const updateClassifierThreadPrefix = `-- name: UpdateClassifierThreadPrefix :exec
+UPDATE router.classifier_threads
+SET prefix_message_count = $1::integer, prefix_digest = $2::text
+WHERE thread_id = $3::uuid
+`
+
+type UpdateClassifierThreadPrefixParams struct {
+	PrefixMessageCount int32
+	PrefixDigest       string
+	ThreadID           uuid.UUID
+}
+
+// The authenticated thread lock serializes append-only request checkpoints.
+//
+//	UPDATE router.classifier_threads
+//	SET prefix_message_count = $1::integer, prefix_digest = $2::text
+//	WHERE thread_id = $3::uuid
+func (q *Queries) UpdateClassifierThreadPrefix(ctx context.Context, arg UpdateClassifierThreadPrefixParams) error {
+	_, err := q.db.Exec(ctx, updateClassifierThreadPrefix, arg.PrefixMessageCount, arg.PrefixDigest, arg.ThreadID)
+	return err
 }

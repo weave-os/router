@@ -16,6 +16,24 @@ const serverToolPrefix = "web_search_"
 // claudeCodeSearchPrompt is the sub-turn Claude Code sends when its WebSearch
 // tool fires: a single user message whose text is this prefix plus the query.
 const claudeCodeSearchPrompt = "Perform a web search for the query: "
+const claudeCodeSearchSystemPrompt = "You are an assistant for performing a web search tool use"
+
+// IsClaudeCodeWebSearchHelper recognizes the one-shot child conversation created by
+// Claude Code's WebSearch tool, not a parent merely offering native search.
+func IsClaudeCodeWebSearchHelper(body []byte) bool {
+	if len(gjson.GetBytes(body, "tools").Array()) != 1 {
+		return false
+	}
+	if _, search := DetectSearchTurn(body); !search {
+		return false
+	}
+	system := gjson.GetBytes(body, "system")
+	if system.Type == gjson.String {
+		return system.String() == claudeCodeSearchSystemPrompt
+	}
+	blocks := system.Array()
+	return len(blocks) > 0 && blocks[len(blocks)-1].Get("text").String() == claudeCodeSearchSystemPrompt
+}
 
 // ServerTool is an inbound native web-search tool declaration.
 type ServerTool struct {

@@ -79,11 +79,13 @@ type EscalationBlock struct {
 
 type escalationWireType string
 
-type escalationToolStatus string
+// EscalationToolStatus is a wire status used to count explicit tool failures.
+type EscalationToolStatus string
 
 const (
-	escalationToolStatusError  escalationToolStatus = "error"
-	escalationToolStatusFailed escalationToolStatus = "failed"
+	EscalationToolStatusError     EscalationToolStatus = "error"
+	EscalationToolStatusFailed    EscalationToolStatus = "failed"
+	EscalationToolStatusCompleted EscalationToolStatus = "completed"
 )
 
 const (
@@ -98,6 +100,7 @@ const (
 	escalationWireCustomCall       escalationWireType = "custom_tool_call"
 	escalationWireFunctionOutput   escalationWireType = "function_call_output"
 	escalationWireCustomOutput     escalationWireType = "custom_tool_call_output"
+	escalationWireWebSearchCall    escalationWireType = "web_search_call"
 	escalationWireReference        escalationWireType = "item_reference"
 	escalationWireThinking         escalationWireType = "thinking"
 	escalationWireRedactedThinking escalationWireType = "redacted_thinking"
@@ -230,7 +233,7 @@ func ParseResponsesEscalationObservation(body []byte) (EscalationObservation, er
 	} else if input.Exists() && !input.IsArray() {
 		return observation, fmt.Errorf("Responses input must be a string or array")
 	} else {
-		for _, item := range input.Array() {
+		for itemIndex, item := range input.Array() {
 			kind := escalationWireType(item.Get("type").String())
 			if kind == "" && item.Get("role").Exists() {
 				kind = escalationWireMessage
@@ -268,6 +271,26 @@ func ParseResponsesEscalationObservation(body []byte) (EscalationObservation, er
 				observation.Messages = append(observation.Messages, EscalationMessage{Role: EscalationRoleAssistant, Blocks: []EscalationBlock{{Type: EscalationBlockToolCall, ID: callID, Name: item.Get("name").String(), Namespace: item.Get("namespace").String(), ArgumentsJSON: arguments}}})
 			case escalationWireFunctionOutput, escalationWireCustomOutput:
 				observation.Messages = append(observation.Messages, EscalationMessage{Role: EscalationRoleTool, Blocks: []EscalationBlock{{Type: EscalationBlockToolResult, CallID: item.Get("call_id").String(), ContentJSON: escalationJSON(item.Get("output")), IsError: escalationErrorFlag(item)}}})
+			case escalationWireWebSearchCall:
+				callID := item.Get("id")
+				status := EscalationToolStatus(item.Get("status").String())
+				if (callID.Exists() && (callID.Type != gjson.String || strings.TrimSpace(callID.String()) == "")) || !item.Get("action").IsObject() ||
+					(status != EscalationToolStatusCompleted && status != EscalationToolStatusFailed) {
+					return observation, fmt.Errorf("invalid or unfinished Responses web search call")
+				}
+				searchID := callID.String()
+				if !callID.Exists() {
+					// Older clients omit native IDs on replay. The input position
+					// is stable under the append-only checkpoint and counts repeats.
+					searchID = fmt.Sprintf("__weave_native_web_search_%d", itemIndex)
+				}
+				// Server-executed searches have no separate client output item.
+				// Keep the terminal event intact as the paired result for identity.
+				failed := status == EscalationToolStatusFailed
+				observation.Messages = append(observation.Messages,
+					EscalationMessage{Role: EscalationRoleAssistant, Blocks: []EscalationBlock{{Type: EscalationBlockToolCall, ID: searchID, Name: string(kind), ArgumentsJSON: escalationJSON(item.Get("action"))}}},
+					EscalationMessage{Role: EscalationRoleTool, Blocks: []EscalationBlock{{Type: EscalationBlockToolResult, CallID: searchID, ContentJSON: escalationJSON(item), IsError: &failed}}},
+				)
 			case escalationWireReference:
 				referenceID := item.Get("id").String()
 				if referenceID == "" {
@@ -412,8 +435,8 @@ func escalationErrorFlag(value gjson.Result) *bool {
 		verdict := flag.Bool()
 		return &verdict
 	}
-	switch escalationToolStatus(value.Get("status").String()) {
-	case escalationToolStatusError, escalationToolStatusFailed:
+	switch EscalationToolStatus(value.Get("status").String()) {
+	case EscalationToolStatusError, EscalationToolStatusFailed:
 		verdict := true
 		return &verdict
 	}

@@ -118,24 +118,42 @@ func TestClassifierDispatchAcrossProtocols(t *testing.T) {
 				require.NoError(t, err)
 				require.NotEmpty(t, upstream.body)
 				if index < 2 {
-					require.Len(t, inputs, 2, "tool loops must reuse the existing user-turn facts")
+					require.Len(t, inputs, 3, "each tool continuation classifies once; exact retries reuse it")
 				}
 			}
-			require.Len(t, inputs, 3)
-			require.Equal(t, router.ClassifierFeatures{UserMessageCount: 3, ToolCallCount: 1, ToolErrorCount: 1}, inputs[2].User.Features)
+			require.Len(t, inputs, 4)
+			require.Equal(t, router.ClassifierFeatures{UserMessageCount: 2, ToolCallCount: 1, ToolErrorCount: 1}, inputs[2].User.Features)
+			require.Equal(t, router.ClassifierFeatures{UserMessageCount: 3, ToolCallCount: 1, ToolErrorCount: 1}, inputs[3].User.Features)
 			require.Equal(t, inputs[1].User.PrecedingResponses, inputs[2].User.PrecedingResponses, "tool payloads must not become response history")
 			require.Zero(t, baseline.calls)
+			if test.name == "messages" {
+				for _, body := range []string{classifierSearchBody, classifierSearchBody, third} {
+					upstream.body = nil
+					err := test.proxyRequest(svc, ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, test.path, nil))
+					require.NoError(t, err)
+					require.NotEmpty(t, upstream.body)
+					if body == classifierSearchBody {
+						require.Equal(t, "web_search_20250305", gjson.GetBytes(upstream.body, "tools.0.type").String())
+						require.Equal(t, gjson.Get(body, "messages.0.content").String(), gjson.GetBytes(upstream.body, "messages.0.content.0.text").String())
+					}
+				}
+				require.Len(t, inputs, 5, "search retries reuse a child; parent resumes without reclassification")
+				require.Equal(t, router.ClassifierFeatures{UserMessageCount: 1}, inputs[4].User.Features)
+				require.Zero(t, baseline.calls)
+			}
+			classificationCount := len(inputs)
 			upstream.body = nil
 			compacted := strings.ReplaceAll(test.firstBody, "first", "compacted")
 			err := test.proxyRequest(svc, ctx, []byte(compacted), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, test.path, nil))
 			require.ErrorIs(t, err, router.ErrClassifierHistoryUnavailable)
 			require.Empty(t, upstream.body)
-			require.Len(t, inputs, 3)
+			require.Len(t, inputs, classificationCount)
 			for _, failure := range []error{router.ErrClassifierInputTooLong, router.ErrClassifierUnavailable} {
 				svc.classifierSessions.classifier = atomicClassifierFunc(func(context.Context, router.AtomicClassificationRequest) (router.ClassifierPrediction, error) {
 					return router.ClassifierPrediction{}, failure
 				})
-				err := test.proxyRequest(svc, ctx, []byte(strings.ReplaceAll(third, "third", "different")), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, test.path, nil))
+				failureCtx := classifierAdmit(t, svc, principal)
+				err := test.proxyRequest(svc, failureCtx, []byte(test.firstBody), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, test.path, nil))
 				require.ErrorIs(t, err, failure)
 				require.Empty(t, upstream.body, "classification failure must not dispatch a provider")
 				require.Zero(t, baseline.calls)
@@ -204,7 +222,7 @@ func TestClassifierUtilityRequestsDoNotEstablishThreadRoot(t *testing.T) {
 			require.Empty(t, pins.upserts)
 		})
 	}
-	input, err := classifierContextAtUserBoundary(classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "real request")))
+	input, err := classifierContextForCall(classifierTestObservation(classifierTestText(translate.EscalationRoleUser, "real request")))
 	require.NoError(t, err)
 	prediction, err := svc.classifyThread(ctx, input)
 	require.NoError(t, err)
