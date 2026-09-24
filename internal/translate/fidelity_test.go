@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/translate"
 
@@ -333,6 +334,35 @@ func TestPrepareOpenAIResponses_PreservesMediumReasoningEffort(t *testing.T) {
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(prep.Body, &out))
 	assert.Equal(t, "medium", out["reasoning"].(map[string]any)["effort"])
+}
+
+// OmitReasoningSummary drops only the summary knob: effort, encrypted-reasoning
+// include, and tools still go out, and the default keeps requesting summaries.
+func TestPrepareOpenAIResponses_OmitReasoningSummaryKeepsEffortAndTools(t *testing.T) {
+	env, err := translate.ParseAnthropic([]byte(`{"messages":[{"role":"user","content":"list files"}],"reasoning_effort":"low",` +
+		`"tools":[{"name":"read_file","input_schema":{"type":"object","properties":{"path":{"type":"string"}}}}]}`))
+	require.NoError(t, err)
+	emit := func(omit bool) map[string]any {
+		prep, err := env.PrepareOpenAIResponses(http.Header{}, translate.EmitOptions{
+			TargetModel:          "grok-4.6",
+			TargetProvider:       providers.ProviderOpenAIGateway,
+			Capabilities:         router.Lookup("grok-4.6"),
+			OmitReasoningSummary: omit,
+		})
+		require.NoError(t, err)
+		var out map[string]any
+		require.NoError(t, json.Unmarshal(prep.Body, &out))
+		return out
+	}
+
+	withSummary := emit(false)
+	assert.Equal(t, map[string]any{"effort": "low", "summary": "detailed"}, withSummary["reasoning"])
+
+	omitted := emit(true)
+	assert.Equal(t, map[string]any{"effort": "low"}, omitted["reasoning"])
+	assert.Equal(t, []any{"reasoning.encrypted_content"}, omitted["include"])
+	require.Len(t, omitted["tools"], 1)
+	assert.Equal(t, "read_file", omitted["tools"].([]any)[0].(map[string]any)["name"])
 }
 
 func TestAdaptiveReasoningDelegatesToCrossFormatTargetDefault(t *testing.T) {
