@@ -71,6 +71,20 @@ func TestParseForceModelCommand_ForceModel(t *testing.T) {
 			wantStripped: "",
 		},
 		{
+			name:         "model alias",
+			input:        "/model haiku",
+			wantModel:    "haiku",
+			wantFound:    true,
+			wantStripped: "",
+		},
+		{
+			// Aliases must have a space boundary so ordinary words are not
+			// interpreted as model commands.
+			name:      "model alias without space boundary is ignored",
+			input:     "/modelled this file",
+			wantFound: false,
+		},
+		{
 			// /fmt (or any /fm<x>) must not match the alias prefix.
 			name:      "fm alias without space boundary is ignored",
 			input:     "/fmt this file",

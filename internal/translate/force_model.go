@@ -28,7 +28,8 @@ type ForceModelResult struct {
 }
 
 // ExtractForceModelCommand scans the trailing user or tool-result message in env for a
-// /force-model <model> or /unforce-model directive, stripping it from env.body.
+// /force-model <model> (aliases /model and /fm) or /unforce-model directive,
+// stripping it from env.body.
 // FromToolResult distinguishes agent-issued commands from user-typed ones.
 // Returns (zero, false) when no command is present.
 func (env *RequestEnvelope) ExtractForceModelCommand() (ForceModelResult, bool) {
@@ -292,8 +293,8 @@ func followsAssistantToolUse(messages []gjson.Result, userIdx int) bool {
 	return false
 }
 
-// parseForceModelCommand scans text for a /force-model (alias /fm) or
-// /unforce-model (alias /ufm) directive on the first non-empty line. The
+// parseForceModelCommand scans text for a /force-model (aliases /model and /fm)
+// or /unforce-model (alias /ufm) directive on the first non-empty line. The
 // dollar-prefixed forms are accepted for clients whose native skill namespace
 // is `$` (notably Codex) when they forward the token verbatim.
 // Restricted to the leading line so pasted content (snippets, transcripts)
@@ -322,7 +323,7 @@ func parseForceModelCommand(text string) (res ForceModelResult, found bool, stri
 		if trimmed == "" {
 			continue
 		}
-		if after, ok := cutAnyPrefix(trimmed, "/force-model ", "/fm ", "$force-model ", "$fm "); ok {
+		if after, ok := cutAnyPrefix(trimmed, "/force-model ", "/model ", "/fm ", "$force-model ", "$fm "); ok {
 			// Fields+Join collapses runs of whitespace so "/fm  qwen   3.8"
 			// and "/fm qwen 3.8" are the same string to the resolver.
 			if name := strings.Join(strings.Fields(after), " "); name != "" {

@@ -514,10 +514,12 @@ with nowhere to go (HTTP 503 from the scorer), so exclude deliberately.
 
 ## Forcing a model or a routing cluster
 
-`/force-model <model>` (alias `/fm`) pins the client session to one model. The
+`/force-model <model>` (aliases `/model` and `/fm`) pins the client session to one model. The
 pin applies to parent and child agent threads that share the same client-session
 identity, regardless of their first prompt or active routing strategy. Clients
 that send no session identity can only be pinned at the current thread scope.
+Codex handles its own `/model` locally and never sends it, so in Codex the
+installed `$force-model` / `$fm` skill remains the way to reach the router.
 The name is matched **exactly** — it must be a canonical catalog ID
 (`qwen/qwen3.8-max`), that model's bare name without the vendor prefix
 (`qwen3.8-max`), or an alias (`opus`, `qwen-max`), optionally with a `:level`
