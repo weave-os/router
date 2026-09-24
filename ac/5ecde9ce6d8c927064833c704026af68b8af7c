@@ -1,0 +1,37 @@
+install/opencode-weave/src/classifier-thread.ts
+  s_a14098de17bb7f::t_bb6b5a14b78aac 115
+  s_a14098de17bb7f::t_7dd2c9408aa761 96,103-104,106
+  s_a14098de17bb7f::t_462f3b90e89230 7-8,67-71,105,109
+  s_a14098de17bb7f::t_ff3812feadc436 1-6,9-66,72-95,97-102,107-108,110-114,116-145
+install/opencode-weave/test/classifier-thread.test.ts
+  s_c2608be38ef25d::t_4de040c37ce3a1 41,64,69,85,88
+  s_a14098de17bb7f::t_506de19b617f06 60,63
+  s_a14098de17bb7f::t_1f75d338270833 53-54
+  s_a14098de17bb7f::t_b508ded7cb0260 48
+  s_a14098de17bb7f::t_7e75eb4cb959db 1-39,43-47,49-52,56-59,61-62,65-68,70-84,86-87,89-93
+  s_a14098de17bb7f::t_c783122e059e36 40,42,55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ac5ecde9ce6d8c927064833c704026af68b8af7c",
+  "prompts": {},
+  "sessions": {
+    "s_a14098de17bb7f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0cc3f-4873-7fb3-8e9d-b91dc3b824cf",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_c2608be38ef25d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ccaf-87ab-7112-900a-670858d3609c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

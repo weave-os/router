@@ -1,0 +1,28 @@
+cmd/policyctl/commands.go
+  s_dc841142dd86a8::t_699507f01c610a 361-362
+cmd/router/hmm_policy_runtime.go
+  s_dc841142dd86a8::t_699507f01c610a 44-45
+internal/api/admin/catalog.go
+  s_dc841142dd86a8::t_699507f01c610a 23
+internal/policyclient/client.go
+  s_dc841142dd86a8::t_699507f01c610a 126,153
+internal/policyregistry/contract_test.go
+  s_dc841142dd86a8::t_699507f01c610a 44-60,68-71
+  s_dc841142dd86a8::t_8e519d4d2c5311 72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e0515847102c8d8d28c85b32b27fe5dea5079eb8",
+  "prompts": {},
+  "sessions": {
+    "s_dc841142dd86a8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08c98-6b91-7643-8031-133ff9002149",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+internal/translate/emit_openai.go
+  s_324b4cb293e3aa::t_bcbba039a6e4c0 568-569
+internal/translate/crossformat_request_test.go
+  s_324b4cb293e3aa::t_24461cd1aa74fd 924-925
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "bad423977004c5e17a3411b5fda3a68a308436e2",
+  "prompts": {},
+  "sessions": {
+    "s_324b4cb293e3aa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c66d667e-3ada-4c92-84bc-7fb684688b60",
+        "model": "moonshotai/kimi-k3"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

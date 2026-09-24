@@ -1,0 +1,182 @@
+internal/server/middleware/router_strategy_override.go
+  s_395fcfacea68ca::t_4094478ffe9b4f 52-54,124
+cmd/router/atomic_classifier.go
+  s_395fcfacea68ca::t_017d2a866f913f 70
+  s_395fcfacea68ca::t_99be36be0f82dd 1-61,64-69,71-82
+  s_395fcfacea68ca::t_1bbd15d116e367 62-63
+install/pi-router/test/classifier-thread.test.ts
+  s_395fcfacea68ca::t_6ae84c42349300 1-4,6-28,30-152,154-169,171
+  s_395fcfacea68ca::t_07e89ab1e5ce09 5,29,153,170
+internal/proxy/session_key.go
+  s_395fcfacea68ca::t_4094478ffe9b4f 11,135-138
+internal/proxy/classifier_context_internal_test.go
+  s_395fcfacea68ca::t_15f0261c934e27 114-115
+internal/server/middleware/classifier_thread_test.go
+  s_395fcfacea68ca::t_017d2a866f913f 49
+  s_395fcfacea68ca::t_61f727e05389a4 63
+  s_395fcfacea68ca::t_8eb7adf2fe841d 1-48,50-62,64-115
+internal/proxy/beta.go
+  s_395fcfacea68ca::t_4094478ffe9b4f 54-56
+internal/proxy/classifier_dispatch_internal_test.go
+  s_395fcfacea68ca::t_32de129977501d 45,47,76,83,97,100,111,115,127-128,136
+  s_395fcfacea68ca::t_b815cdc2705ae8 1-4,7-16,18-24,43-44,48-51,54,60,66-69,72-75,77-79,81-82,90-96,98-99,101-110,126,129-130,141-156,169
+  s_395fcfacea68ca::t_de9f37a41ef7ce 5-6,17,25-42,55-57,61-63,80,84-89
+  s_395fcfacea68ca::t_788ba06f6da762 46,52-53,58-59,64-65,70-71,112-114,116-125,131
+  s_395fcfacea68ca::t_397a4623548106 132-135,137-140
+  s_395fcfacea68ca::t_64798db74f0518 157-168
+db/migrations/0105_classifier-threads.down.sql
+  s_395fcfacea68ca::t_eeb7d51550193a 1-4
+internal/proxy/classifier_session.go
+  s_395fcfacea68ca::t_15f0261c934e27 142-144,146-147,160
+  s_395fcfacea68ca::t_7dcb4c1ac04e8a 1-32,34-39,41-53,55-56,58-61,63-64,66-79,81-82,84-96,98-101,103-110,113-118,120-122,124,126-140,148-157,161-204,210-212
+  s_395fcfacea68ca::t_1bbd15d116e367 40,57,62,65,80,205-209
+  s_395fcfacea68ca::t_017d2a866f913f 33,54,83,102,125
+  s_395fcfacea68ca::t_64cd97bdc7787e 97
+  s_395fcfacea68ca::t_7738a7cc9ff107 111-112,119,123,141,145
+  s_395fcfacea68ca::t_86938fdb9d4f3b 158-159
+.github/workflows/test.yml
+  s_395fcfacea68ca::t_852d07a61f1330 178-182
+internal/router/policy/contract.go
+  s_395fcfacea68ca::t_4094478ffe9b4f 86
+internal/proxy/classifier_context.go
+  s_395fcfacea68ca::t_11eab1cd03b6e9 34,77-80,82
+install/pi-router/src/escalation.ts
+  s_395fcfacea68ca::t_657af36ab2c13c 82,146
+internal/server/middleware/classifier_thread.go
+  s_395fcfacea68ca::t_1bbd15d116e367 70
+  s_395fcfacea68ca::t_56270ba9eb330e 64
+  s_395fcfacea68ca::t_7738a7cc9ff107 22,25-26,32,43-46,50,54,63,68
+  s_395fcfacea68ca::t_a9831e38cf7bf8 1-3,7-12,14-15,18-21,24,69,71-77
+  s_395fcfacea68ca::t_0c72b6c8b5c538 4-6,13,16-17,23,27-31,33-42,47-49,51-53,55-62,65-67
+internal/proxy/gemini.go
+  s_395fcfacea68ca::t_0c72b6c8b5c538 40-43
+internal/server/middleware/router_strategy_override_test.go
+  s_395fcfacea68ca::t_397a4623548106 20-21,23-29
+  s_395fcfacea68ca::t_852d07a61f1330 22
+internal/api/classifier/threads.go
+  s_395fcfacea68ca::t_a9831e38cf7bf8 1-22,24-27,31-34,36-38,40,42-51
+  s_395fcfacea68ca::t_1bbd15d116e367 23,28,39,41
+  s_395fcfacea68ca::t_7738a7cc9ff107 29-30,35
+install/pi-router/test/mock_router.py
+  s_395fcfacea68ca::t_32de129977501d 40,56-57,280-290,446
+internal/server/server.go
+  s_395fcfacea68ca::t_a9831e38cf7bf8 15,234,320,350
+  s_395fcfacea68ca::t_0c72b6c8b5c538 402,420
+db/migrations/0105_classifier-threads.up.sql
+  s_395fcfacea68ca::t_eeb7d51550193a 1-9,11-31
+  s_395fcfacea68ca::t_017d2a866f913f 10
+install/pi-router/test/e2e.sh
+  s_395fcfacea68ca::t_571dcc03ad75fc 11
+  s_395fcfacea68ca::t_574e5e0a0b66d5 182,185
+  s_395fcfacea68ca::t_32de129977501d 302-334
+internal/proxy/compaction.go
+  s_395fcfacea68ca::t_4094478ffe9b4f 270-274
+cmd/router/main.go
+  s_395fcfacea68ca::t_99be36be0f82dd 1312,1314-1315
+  s_395fcfacea68ca::t_32de129977501d 1313
+internal/proxy/service.go
+  s_395fcfacea68ca::t_0c72b6c8b5c538 3245-3248,6292-6295,8026-8029
+  s_395fcfacea68ca::t_7dcb4c1ac04e8a 109
+cmd/router/atomic_classifier_test.go
+  s_395fcfacea68ca::t_64798db74f0518 1-46,49-78
+  s_fcb6a8820128de::t_315bc177d0a291 47-48
+internal/proxy/turnloop.go
+  s_395fcfacea68ca::t_0c72b6c8b5c538 764
+  s_395fcfacea68ca::t_4094478ffe9b4f 763,765
+internal/proxy/classifier_session_internal_test.go
+  s_395fcfacea68ca::t_0edd8d58728c1d 1-61,63-90,93-127,129-137,140-147,154-251
+  s_395fcfacea68ca::t_7738a7cc9ff107 62
+  s_395fcfacea68ca::t_017d2a866f913f 91,138-139
+  s_395fcfacea68ca::t_8d8a985d7738bc 92,128
+  s_395fcfacea68ca::t_7333d6ed9b9805 148-153
+internal/router/classifier_session.go
+  s_395fcfacea68ca::t_3b6ad42c802c1c 18-20
+  s_395fcfacea68ca::t_11eab1cd03b6e9 1-17,21-29,31-67,69-82
+  s_395fcfacea68ca::t_017d2a866f913f 30
+  s_395fcfacea68ca::t_7738a7cc9ff107 68
+internal/router/router.go
+  s_395fcfacea68ca::t_4094478ffe9b4f 90-91
+scripts/classifier_session_check/main.go
+  s_395fcfacea68ca::t_bcafe66856dd96 1-62,64-99,102-140,142-169
+  s_395fcfacea68ca::t_017d2a866f913f 63,141
+  s_395fcfacea68ca::t_7738a7cc9ff107 100-101
+internal/policyclient/atomic_classifier.go
+  s_395fcfacea68ca::t_aab23b3b1dd38b 1-51,53-64,68-72,75,80-85,90,92-93,95-96
+  s_fcb6a8820128de::t_deeb7d02766aac 65-67
+  s_395fcfacea68ca::t_1bbd15d116e367 79,94
+  s_395fcfacea68ca::t_7738a7cc9ff107 73-74,76-78,86-89,91
+  s_395fcfacea68ca::t_3b6ad42c802c1c 52
+install/pi-router/src/index.ts
+  s_395fcfacea68ca::t_657af36ab2c13c 25,48,54-55
+docs/LLM_CLASSIFIER_CONTEXT.md
+  s_395fcfacea68ca::t_0f3d38e27094ba 1,3-7,38,40-43,46-60,82-141
+  s_395fcfacea68ca::t_571dcc03ad75fc 44-45
+internal/router/policy/sidecar_router.go
+  s_395fcfacea68ca::t_4094478ffe9b4f 378
+internal/router/strategy.go
+  s_395fcfacea68ca::t_11eab1cd03b6e9 34-35
+install/pi-router/test/unit-suite.ts
+  s_395fcfacea68ca::t_e21b9916b66bb9 15
+internal/proxy/classifier_turn.go
+  s_395fcfacea68ca::t_4094478ffe9b4f 1-4,6,9-13,57-58,65,79-83,85-90,94-95
+  s_395fcfacea68ca::t_0c72b6c8b5c538 5,7-8,14-20,27-44,46-53,59-60,64,66-73,75-78,91,93
+  s_395fcfacea68ca::t_eeb7d51550193a 21-26,54-56,61-63
+  s_395fcfacea68ca::t_1bbd15d116e367 74,84,92
+  s_395fcfacea68ca::t_a9831e38cf7bf8 45
+internal/postgres/classifier_session_repo.go
+  s_395fcfacea68ca::t_eeb7d51550193a 10,97,102-106
+  s_395fcfacea68ca::t_15f0261c934e27 69-75
+  s_395fcfacea68ca::t_7dcb4c1ac04e8a 1-9,11-31,33-38,40-50,52-67,76-96,98-101,107-109
+  s_395fcfacea68ca::t_7738a7cc9ff107 68
+  s_395fcfacea68ca::t_017d2a866f913f 32,39,51
+cmd/router/policy_sidecars.go
+  s_395fcfacea68ca::t_4094478ffe9b4f 25
+  s_fcb6a8820128de::t_9915dfc16a390b 26-31
+internal/policyclient/atomic_classifier_test.go
+  s_395fcfacea68ca::t_07e89ab1e5ce09 27,41,57
+  s_fcb6a8820128de::t_deeb7d02766aac 19-21,23-26,28-36,40,42-56,58-70,75-90
+  s_395fcfacea68ca::t_3b6ad42c802c1c 1-18,22,37-39,71-74,91
+install/pi-router/src/classifier-thread.ts
+  s_395fcfacea68ca::t_6ae84c42349300 44
+  s_395fcfacea68ca::t_657af36ab2c13c 1-9,11,13-18,20-40,45,47-51,53-54,56-59,62-63,65,67-74,76-86,88-104,107-119
+  s_395fcfacea68ca::t_07e89ab1e5ce09 10,12,19,41-43,46,52,55,60-61,64,66,75,87,105-106
+internal/router/policy/atomic_classifier.go
+  s_395fcfacea68ca::t_4094478ffe9b4f 1-25,29-32,34
+  s_395fcfacea68ca::t_1bbd15d116e367 26-28,33
+internal/proxy/dispatch_error.go
+  s_395fcfacea68ca::t_3b6ad42c802c1c 67-69,108-113,452-453
+db/queries/classifier_sessions.sql
+  s_395fcfacea68ca::t_017d2a866f913f 5,8,23
+  s_395fcfacea68ca::t_15f0261c934e27 32-36
+  s_395fcfacea68ca::t_75f9de54b13e9d 1-4,6-7,9-22,24-31,37-46
+internal/router/classifier_context.go
+  s_395fcfacea68ca::t_11eab1cd03b6e9 47-49
+internal/sqlc/classifier_sessions.sql.go
+  s_fcb6a8820128de::t_0618ef80793fcb 1-227
+internal/sqlc/models.go
+  s_fcb6a8820128de::t_a77544a37ada24 42-66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "08e0fda89c8937d8d080374dc44b6f6125668a83",
+  "prompts": {},
+  "sessions": {
+    "s_395fcfacea68ca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bd20-5294-7431-af5a-fda13c268f77",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_fcb6a8820128de": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0bd20-5294-7431-af5a-fda13c268f77",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
