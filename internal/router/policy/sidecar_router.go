@@ -706,7 +706,7 @@ func (r *SidecarRouter) RouteWithoutUserText(ctx context.Context, req router.Req
 			input.MinimumGroup = escalation.Maximum
 		}
 		if escalation.Rank(input.MinimumGroup) < 0 {
-			return router.Decision{}, fmt.Errorf("%s: unscorable escalation has no valid floor: %w", r.config.Strategy, ErrNoEligibleArm)
+			return router.Decision{}, fmt.Errorf("%s: unscorable escalation has no valid floor: %w: %w", r.config.Strategy, ErrNoEligibleArm, r.config.Unavailable)
 		}
 	} else {
 		for _, candidate := range resolved.Candidates {
@@ -718,7 +718,16 @@ func (r *SidecarRouter) RouteWithoutUserText(ctx context.Context, req router.Req
 	}
 	pick, err := r.armSelector(ctx, input)
 	if err != nil {
-		return router.Decision{}, fmt.Errorf("%s: unscorable roster selection: %w", r.config.Strategy, err)
+		if errors.Is(err, ErrNoEligibleArm) && req.ForceCluster != "" {
+			return router.Decision{}, &ForcedClusterUnservableError{
+				Cluster: req.ForceCluster,
+				Reason:  fmt.Sprintf("no model in cluster %q can serve this request", req.ForceCluster),
+			}
+		}
+		if errors.Is(err, router.ErrPolicyPinUnavailable) {
+			return router.Decision{}, fmt.Errorf("%s: unscorable roster selection: %w", r.config.Strategy, err)
+		}
+		return router.Decision{}, fmt.Errorf("%s: unscorable roster selection: %w: %w", r.config.Strategy, err, r.config.Unavailable)
 	}
 	selectedArm := pick.Arm
 	selectedGroup := pick.Group
@@ -741,7 +750,7 @@ func (r *SidecarRouter) RouteWithoutUserText(ctx context.Context, req router.Req
 	}
 	binding, found := resolved.BindingForSelection("", selectedArm)
 	if !found {
-		return router.Decision{}, fmt.Errorf("%s: unscorable roster selected an ineligible arm: %w", r.config.Strategy, ErrNoEligibleArm)
+		return router.Decision{}, fmt.Errorf("%s: unscorable roster selected an ineligible arm: %w: %w", r.config.Strategy, ErrNoEligibleArm, r.config.Unavailable)
 	}
 	observability.FromContext(ctx).Info("HMM turn has no user text; selected eligible roster arm",
 		"strategy", r.config.Strategy, "model", binding.CatalogID, "provider", binding.Provider, "group", selectedGroup)
