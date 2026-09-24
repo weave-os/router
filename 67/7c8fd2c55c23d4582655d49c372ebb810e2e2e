@@ -1,0 +1,28 @@
+install/opencode-weave/test/toast.test.ts
+  s_dc8a04f63ff294::t_d3f16ce426cef6 3,6,23-24,63-64
+  s_dc8a04f63ff294::t_a77d064ad80447 1-2,4-5,7-22,25-62,65-96
+install/opencode-weave/src/index.ts
+  s_dc8a04f63ff294::t_dd4351e8165796 436
+  s_dc8a04f63ff294::t_3a0cdb73bdb7b1 426-433,439-440,443-449,451-456,458,461-479
+  s_dc8a04f63ff294::t_cb0542a30e0958 37
+  s_dc8a04f63ff294::t_914da37110ab94 69-70
+  s_dc8a04f63ff294::t_cb819f4bb0a8d9 450
+  s_dc8a04f63ff294::t_b4c11a8a24df36 434-435,437-438,441-442
+  s_dc8a04f63ff294::t_66667121e6adbc 460
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "677c8fd2c55c23d4582655d49c372ebb810e2e2e",
+  "prompts": {},
+  "sessions": {
+    "s_dc8a04f63ff294": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f812e4f7-8ca2-4a30-82a8-02cdc427306c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

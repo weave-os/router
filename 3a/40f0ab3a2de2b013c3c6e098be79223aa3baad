@@ -1,0 +1,30 @@
+internal/translate/responses.go
+  s_cdb849fc599ed0::t_09ae54bc867fa4 1105,1822-1852
+  s_3419f993a30abd::t_74d4c9a6b5e483 1853-1854
+internal/translate/responses_test.go
+  s_cdb849fc599ed0::t_09ae54bc867fa4 754-783
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "3a40f0ab3a2de2b013c3c6e098be79223aa3baad",
+  "prompts": {},
+  "sessions": {
+    "s_3419f993a30abd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b1b6-c4af-7670-96c3-eda8ec37003c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
+    "s_cdb849fc599ed0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b16d-ba8c-7d42-8a74-acda4d8d2237",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
