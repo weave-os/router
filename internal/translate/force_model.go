@@ -111,9 +111,10 @@ func isSkillInstructionsOnly(content gjson.Result) bool {
 }
 
 type commandTextCandidate struct {
-	path     string
-	dropPath string
-	text     string
+	path           string
+	dropPath       string
+	text           string
+	fromToolResult bool
 }
 
 // extractLeadingCommandWithSource returns whether the command came from a
@@ -182,7 +183,7 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 	switch {
 	case lastContent.Type == gjson.String:
 		candidates = append(candidates, commandTextCandidate{
-			path: idxPath, dropPath: dropPathFor("messages." + strconv.Itoa(lastIdx)), text: lastContent.String(),
+			path: idxPath, dropPath: dropPathFor("messages." + strconv.Itoa(lastIdx)), text: lastContent.String(), fromToolResult: isToolMessage,
 		})
 	case lastContent.IsArray():
 		lastContent.ForEach(func(key, block gjson.Result) bool {
@@ -190,7 +191,7 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 			switch block.Get("type").String() {
 			case "text":
 				candidates = append(candidates, commandTextCandidate{
-					path: blockPath + ".text", dropPath: dropPathFor(blockPath), text: block.Get("text").String(),
+					path: blockPath + ".text", dropPath: dropPathFor(blockPath), text: block.Get("text").String(), fromToolResult: isToolMessage,
 				})
 			case "tool_result":
 				fromToolResult = true
@@ -203,7 +204,7 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 	}
 
 	for _, candidate := range candidates {
-		found, stripped := parse(candidate.text, fromToolResult)
+		found, stripped := parse(candidate.text, candidate.fromToolResult)
 		if !found {
 			continue
 		}
@@ -243,7 +244,11 @@ func dropCommandBlock(body []byte, dropPath string, msgIdx int) ([]byte, bool) {
 
 func toolResultCommandCandidates(blockPath string, content gjson.Result) []commandTextCandidate {
 	if content.Type == gjson.String {
-		return []commandTextCandidate{{path: blockPath + ".content", text: content.String()}}
+		return []commandTextCandidate{{
+			path:           blockPath + ".content",
+			text:           content.String(),
+			fromToolResult: true,
+		}}
 	}
 	if !content.IsArray() {
 		return nil
@@ -252,8 +257,9 @@ func toolResultCommandCandidates(blockPath string, content gjson.Result) []comma
 	content.ForEach(func(key, part gjson.Result) bool {
 		if part.Get("type").String() == "text" {
 			candidates = append(candidates, commandTextCandidate{
-				path: blockPath + ".content." + strconv.Itoa(int(key.Int())) + ".text",
-				text: part.Get("text").String(),
+				path:           blockPath + ".content." + strconv.Itoa(int(key.Int())) + ".text",
+				text:           part.Get("text").String(),
+				fromToolResult: true,
 			})
 		}
 		return true

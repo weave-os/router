@@ -369,6 +369,29 @@ func TestExtractForceModelCommand_AgentToolResultBlock(t *testing.T) {
 	assert.True(t, cmd.FromToolResult)
 }
 
+func TestExtractForceModelCommand_ModelAliasInUserTextAfterAnthropicToolUse(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "claude-sonnet-4-6",
+		"messages": []any{
+			map[string]any{
+				"role": "assistant",
+				"content": []any{map[string]any{
+					"type": "tool_use", "id": "toolu_output", "name": "exec", "input": map[string]any{},
+				}},
+			},
+			map[string]any{"role": "user", "content": "/model opus"},
+		},
+		"max_tokens": 1024,
+	})
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+
+	cmd, found := env.ExtractForceModelCommand()
+	require.True(t, found, "direct user text must remain eligible after assistant tool use")
+	assert.Equal(t, "opus", cmd.Model)
+	assert.True(t, cmd.FromToolResult, "the continuation is still agent-issued")
+}
+
 func TestExtractForceModelCommand_ModelAliasInAnthropicToolResultIsIgnored(t *testing.T) {
 	body := mustMarshalJSON(t, map[string]any{
 		"model": "claude-sonnet-4-6",
@@ -498,6 +521,30 @@ func TestExtractForceModelCommand_OpenAIToolResult(t *testing.T) {
 	require.Len(t, msgs, 3, "the tool message must remain to answer the assistant tool call")
 	tool, _ := msgs[2].(map[string]any)
 	assert.Equal(t, "", tool["content"], "only the command text is stripped")
+}
+
+func TestExtractForceModelCommand_ModelAliasInUserTextAfterOpenAIToolUse(t *testing.T) {
+	body := mustMarshalJSON(t, map[string]any{
+		"model": "gpt-4o",
+		"messages": []any{
+			map[string]any{"role": "user", "content": "analyze usage"},
+			map[string]any{
+				"role": "assistant",
+				"tool_calls": []any{map[string]any{
+					"id": "call_exec", "type": "function",
+					"function": map[string]any{"name": "exec", "arguments": `{}`},
+				}},
+			},
+			map[string]any{"role": "user", "content": "/model opus"},
+		},
+	})
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+
+	cmd, found := env.ExtractForceModelCommand()
+	require.True(t, found, "direct user text must remain eligible after assistant tool use")
+	assert.Equal(t, "opus", cmd.Model)
+	assert.True(t, cmd.FromToolResult, "the continuation is still agent-issued")
 }
 
 func TestExtractForceModelCommand_ModelAliasInOpenAIToolResultIsIgnored(t *testing.T) {
