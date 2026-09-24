@@ -1,0 +1,19 @@
+internal/translate/force_model_test.go
+  s_27d10642cc12f3::t_e6a6c14eec0838 372-394,526-549
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "91873d0407323896c6e8d6a22dfe45cee95c293c",
+  "prompts": {},
+  "sessions": {
+    "s_27d10642cc12f3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "36e853b3-f6d9-4ba5-8adc-82817ee523fe",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
