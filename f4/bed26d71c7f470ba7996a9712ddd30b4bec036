@@ -1,0 +1,29 @@
+internal/proxy/service.go
+  s_3646222c89c9de::t_d53ecfdd202c92 2873
+  s_3646222c89c9de::t_8decf86d3ecf99 2834
+  s_3646222c89c9de::t_17485ddda136fa 2835-2836,2840-2872,2874-2888
+  s_3646222c89c9de::t_102ad343549e4d 2889
+internal/proxy/hmm_user_boundary_internal_test.go
+  s_3646222c89c9de::t_8decf86d3ecf99 53
+  s_3646222c89c9de::t_bde618d7710b00 1-7,9-16,18-52,54-68,95
+  s_3646222c89c9de::t_55baf2a521b4ae 8,17,69-94
+internal/proxy/turnloop.go
+  s_3646222c89c9de::t_33fb125162c62e 421-422,1578-1580,1582-1595
+  s_3646222c89c9de::t_8decf86d3ecf99 1581
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f4bed26d71c7f470ba7996a9712ddd30b4bec036",
+  "prompts": {},
+  "sessions": {
+    "s_3646222c89c9de": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d48f-6a48-7bb3-993e-868143b73e5d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+internal/flags/flags_test.go
+  s_2dcf7284a72067::t_502f43dca76c2b 43-56,59-60
+internal/sqlc/models.go
+  s_2dcf7284a72067::t_cd5093755aaa73 758-773
+  s_2dcf7284a72067::t_4356f552fa32d1 774-775
+internal/flags/flags.go
+  s_2dcf7284a72067::t_502f43dca76c2b 108-114,116-120,122-123,533-535,549-551
+  s_2dcf7284a72067::t_249c2cfdd7aaf2 115,121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c8b4f080a347fe928d310c08e1bd97a6f0432242",
+  "prompts": {},
+  "sessions": {
+    "s_2dcf7284a72067": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a70c-046e-7a50-853b-c11251db858b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
