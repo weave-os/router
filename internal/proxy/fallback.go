@@ -450,6 +450,9 @@ func emitAnthropicSSEErrorEvent(sink http.ResponseWriter, err error) error {
 	case classified:
 		status = cls.Status
 		body = anthropicErrorFrameBody(cls)
+	case providers.IsRetryable(err):
+		// HTTP 200 is already committed; clients such as Pi classify retries from the error message.
+		body = []byte(`{"type":"error","error":{"type":"api_error","message":"upstream stream failed (502); please retry your request"}}`)
 	}
 	_, _ = sink.Write([]byte("event: error\ndata: "))
 	_, _ = sink.Write(body)
