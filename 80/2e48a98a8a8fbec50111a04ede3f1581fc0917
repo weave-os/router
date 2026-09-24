@@ -1,0 +1,21 @@
+internal/proxy/service.go
+  s_daddca850ac23d::t_b86c74de426186 2541-2542
+internal/translate/force_model.go
+  s_daddca850ac23d::t_b86c74de426186 22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "802e48a98a8a8fbec50111a04ede3f1581fc0917",
+  "prompts": {},
+  "sessions": {
+    "s_daddca850ac23d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e3098e4-eb30-4e8b-823c-74a083bc8bae",
+        "model": "moonshotai/kimi-k3"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

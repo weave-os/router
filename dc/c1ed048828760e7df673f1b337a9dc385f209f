@@ -1,0 +1,21 @@
+install/npm/package.json
+  s_c3a894d0f8f412::t_6fcd76980c9700 3
+internal/proxy/force_model.go
+  s_c3a894d0f8f412::t_5bfcd340bb6d2a 100-103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "dcc1ed048828760e7df673f1b337a9dc385f209f",
+  "prompts": {},
+  "sessions": {
+    "s_c3a894d0f8f412": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b89221a0-2a6e-4b57-ab91-5b896dc1b8ba",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

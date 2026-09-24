@@ -1,0 +1,19 @@
+install/opencode-weave/test/capture.test.ts
+  s_4a9e207784ff57::t_aeb40a6ac222e7 310,312-315
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2c64bc342a3a25da70432b4d91db213a8ac6d068",
+  "prompts": {},
+  "sessions": {
+    "s_4a9e207784ff57": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f5f86a39-06ab-4a77-9015-a88abf0943e8",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

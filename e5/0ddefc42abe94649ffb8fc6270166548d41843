@@ -1,0 +1,55 @@
+internal/sqlc/escalation_sessions.sql.go
+  s_d4f50ccf8209db::t_c0c02e9e6f6481 162-165,168,186-189,192,212-220,223-228,231-241,274,285,294,296,302-306,318,324,326,332-336,343-348
+db/queries/escalation_sessions.sql
+  s_1711b1cdf285a5::t_8b67b9b7f2ec70 9,11,17-21,39-42,45,58,71,74,81
+  s_d4f50ccf8209db::t_c0c02e9e6f6481 73,75-80
+internal/router/escalation/escalation.go
+  s_1711b1cdf285a5::t_8b67b9b7f2ec70 180,184
+internal/postgres/escalation_repo.go
+  s_1711b1cdf285a5::t_8b67b9b7f2ec70 28,45,129-131
+internal/proxy/escalation_internal_test.go
+  s_1711b1cdf285a5::t_203d3d716d76b4 42,69,287-297
+  s_1711b1cdf285a5::t_d170ed9fcddd85 298
+internal/proxy/escalation.go
+  s_1711b1cdf285a5::t_203d3d716d76b4 81,134,136,183,186
+internal/sqlc/models.go
+  s_d4f50ccf8209db::t_c0c02e9e6f6481 36-44
+internal/proxy/turnloop.go
+  s_1711b1cdf285a5::t_203d3d716d76b4 1416-1417
+db/migrations/0078_escalation-session-state.up.sql
+  s_1711b1cdf285a5::t_8b67b9b7f2ec70 10-11,13-14
+internal/translate/escalation_observation.go
+  s_1711b1cdf285a5::t_b50269382e42ac 6,159,165-167,250-252,329-331,358-360,373-375,391-393
+  s_1711b1cdf285a5::t_3ac21c82feeb9a 394-395
+scripts/escalation_state_check/main.go
+  s_d4f50ccf8209db::t_c0c02e9e6f6481 71,106,153,202,221,271
+  s_d4f50ccf8209db::t_c6f620369e0211 113-116,157,238,240,247,251,255-257,259-260,263-268,272-274,276-326,331
+  s_d4f50ccf8209db::t_f06f3cfbc43f59 209-212,225-226,261,275,330
+internal/translate/escalation_observation_test.go
+  s_1711b1cdf285a5::t_69aa45ccdf1347 5,13-48
+  s_d4f50ccf8209db::t_9b91f1756e056c 49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "e50ddefc42abe94649ffb8fc6270166548d41843",
+  "prompts": {},
+  "sessions": {
+    "s_1711b1cdf285a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0833b-a9ba-7153-8d32-00b7bc91c073",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_d4f50ccf8209db": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0833b-a9ba-7153-8d32-00b7bc91c073",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
