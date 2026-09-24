@@ -1,0 +1,21 @@
+internal/proxy/hmm_user_boundary_internal_test.go
+  s_3646222c89c9de::t_6614ceb6e69546 131-134,159-169
+internal/router/policy/sidecar_router.go
+  s_3646222c89c9de::t_6614ceb6e69546 709,721-730,753
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6c764ac0c1a88d4bc6374dfebacb57a23505c03f",
+  "prompts": {},
+  "sessions": {
+    "s_3646222c89c9de": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d48f-6a48-7bb3-993e-868143b73e5d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
