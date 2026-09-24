@@ -718,7 +718,7 @@ func (r *SidecarRouter) RouteWithoutUserText(ctx context.Context, req router.Req
 	}
 	pick, err := r.armSelector(ctx, input)
 	if err != nil {
-		if errors.Is(err, ErrNoEligibleArm) && req.ForceCluster != "" {
+		if errors.Is(err, ErrNoEligibleArm) && req.ForceCluster != "" && input.ForcedGroup == req.ForceCluster {
 			return router.Decision{}, &ForcedClusterUnservableError{
 				Cluster: req.ForceCluster,
 				Reason:  fmt.Sprintf("no model in cluster %q can serve this request", req.ForceCluster),
