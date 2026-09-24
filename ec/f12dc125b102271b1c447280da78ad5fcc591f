@@ -1,0 +1,53 @@
+docs/POLICY_INFERENCE.md
+  s_b9346bf0d69abe::t_31f81a512fd2bb 6,19
+internal/postgres/llm_escalation_repo.go
+  s_d94ffb0464bee6::t_65478d27ecb800 112
+internal/proxy/escalation_judge.go
+  s_d94ffb0464bee6::t_65478d27ecb800 37
+  s_d94ffb0464bee6::t_893fd657486a04 24,50,77,151-152
+  s_d94ffb0464bee6::t_54b34c6889b049 40
+  s_d94ffb0464bee6::t_4970380a092292 75-76
+internal/router/policy/inference_registry.go
+  s_d94ffb0464bee6::t_893fd657486a04 23,529,534
+  s_d94ffb0464bee6::t_65478d27ecb800 532
+internal/proxy/llm_escalation.go
+  s_d94ffb0464bee6::t_65478d27ecb800 64,76
+cmd/router/main.go
+  s_d94ffb0464bee6::t_893fd657486a04 857,868
+internal/proxy/escalation_judge_internal_test.go
+  s_d94ffb0464bee6::t_893fd657486a04 69,71,84-85
+internal/proxy/llm_escalation_internal_test.go
+  s_d94ffb0464bee6::t_65478d27ecb800 107
+docs/CONFIGURATION.md
+  s_d94ffb0464bee6::t_65478d27ecb800 424
+internal/router/policy/escalation_judge_test.go
+  s_d94ffb0464bee6::t_893fd657486a04 13-14,17-18,35
+internal/proxy/auxiliary_inference_internal_test.go
+  s_d94ffb0464bee6::t_54b34c6889b049 237
+docs/POLICY_INFERENCE.json
+  s_b9346bf0d69abe::t_31f81a512fd2bb 3,227,231,233,237
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ecf12dc125b102271b1c447280da78ad5fcc591f",
+  "prompts": {},
+  "sessions": {
+    "s_b9346bf0d69abe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0a822-4905-79b3-a637-c99551e4524e",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_d94ffb0464bee6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a822-4905-79b3-a637-c99551e4524e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

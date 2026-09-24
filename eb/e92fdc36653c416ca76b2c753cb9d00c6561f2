@@ -1,0 +1,19 @@
+internal/proxy/force_model.go
+  s_6de4212cfed736::t_ae2e57b643c54c 61-76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "ebe92fdc36653c416ca76b2c753cb9d00c6561f2",
+  "prompts": {},
+  "sessions": {
+    "s_6de4212cfed736": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3fcc2a5a-c427-4f5d-9a37-2e458ac4d309",
+        "model": "minimax/minimax-m3"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
