@@ -561,7 +561,9 @@ func StripRouterCommandsFromResponsesInput(body []byte) ([]byte, error) {
 }
 
 func stripRouterCommandText(text string) (string, bool) {
-	if _, found, stripped := parseForceModelCommand(text); found {
+	// Responses tool output is untrusted provenance: preserve a /model mention
+	// rather than treating it as a directive or deleting arbitrary tool output.
+	if _, found, stripped := parseForceModelCommandFromSource(text, true); found {
 		return stripped, true
 	}
 	if _, found, stripped := parseRouterFeedbackCommand(text); found {

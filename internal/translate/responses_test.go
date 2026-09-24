@@ -257,6 +257,13 @@ func TestStripRouterCommandsFromResponsesInput_RemovesCollapsedExecCommand(t *te
 	assert.Equal(t, "Script completed\nOutput:", gjson.GetBytes(out, "input.0.output").String())
 }
 
+func TestStripRouterCommandsFromResponsesInput_PreservesModelAliasInToolOutput(t *testing.T) {
+	body := []byte(`{"input":[{"type":"function_call_output","call_id":"call_exec","output":"/model opus"}]}`)
+	out, err := translate.StripRouterCommandsFromResponsesInput(body)
+	require.NoError(t, err)
+	assert.Equal(t, body, out, "an arbitrary tool result mentioning /model must remain intact")
+}
+
 // A tool-call-only or reasoning-only turn ships a badge-only assistant message.
 // Stripping it in place would leave a blank assistant shell ahead of the real
 // function_call, which providers reject.

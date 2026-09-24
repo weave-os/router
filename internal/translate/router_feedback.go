@@ -49,7 +49,7 @@ var RouterFeedbackLabels = map[string]struct{}{
 // usage guidance. Returns (zero, false) when no command is present.
 func (env *RequestEnvelope) ExtractRouterFeedbackCommand() (RouterFeedbackResult, bool) {
 	var res RouterFeedbackResult
-	found, fromToolResult := env.extractLeadingCommandWithSource(func(text string) (bool, string) {
+	found, fromToolResult := env.extractLeadingCommandWithSource(func(text string, _ bool) (bool, string) {
 		r, ok, stripped := parseRouterFeedbackCommand(text)
 		if ok {
 			res = r

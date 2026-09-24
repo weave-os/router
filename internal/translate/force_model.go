@@ -34,8 +34,8 @@ type ForceModelResult struct {
 // Returns (zero, false) when no command is present.
 func (env *RequestEnvelope) ExtractForceModelCommand() (ForceModelResult, bool) {
 	var res ForceModelResult
-	found, fromToolResult := env.extractLeadingCommandWithSource(func(text string) (bool, string) {
-		r, ok, stripped := parseForceModelCommand(text)
+	found, fromToolResult := env.extractLeadingCommandWithSource(func(text string, fromToolResult bool) (bool, string) {
+		r, ok, stripped := parseForceModelCommandFromSource(text, fromToolResult)
 		if ok {
 			res = r
 		}
@@ -49,7 +49,9 @@ func (env *RequestEnvelope) ExtractForceModelCommand() (ForceModelResult, bool) 
 // (Anthropic/OpenAI shapes only) for a directive recognized by parse.
 func (env *RequestEnvelope) extractLeadingCommand(parse func(text string) (found bool, stripped string)) bool {
 	originalBody := env.body
-	found, fromToolResult := env.extractLeadingCommandWithSource(parse)
+	found, fromToolResult := env.extractLeadingCommandWithSource(func(text string, _ bool) (bool, string) {
+		return parse(text)
+	})
 	if fromToolResult {
 		env.body = originalBody
 		return false
@@ -115,8 +117,10 @@ type commandTextCandidate struct {
 }
 
 // extractLeadingCommandWithSource returns whether the command came from a
-// tool-result turn as well as whether it matched.
-func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text string) (found bool, stripped string)) (bool, bool) {
+// tool-result turn as well as whether it matched. The parser receives that
+// provenance so commands with different trust requirements can make the
+// decision before stripping the candidate.
+func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text string, fromToolResult bool) (found bool, stripped string)) (bool, bool) {
 	switch env.format {
 	case FormatAnthropic, FormatOpenAI:
 	default:
@@ -199,7 +203,7 @@ func (env *RequestEnvelope) extractLeadingCommandWithSource(parse func(text stri
 	}
 
 	for _, candidate := range candidates {
-		found, stripped := parse(candidate.text)
+		found, stripped := parse(candidate.text, fromToolResult)
 		if !found {
 			continue
 		}
@@ -297,6 +301,15 @@ func followsAssistantToolUse(messages []gjson.Result, userIdx int) bool {
 // or /unforce-model (alias /ufm) directive on the first non-empty line. The
 // dollar-prefixed forms are accepted for clients whose native skill namespace
 // is `$` (notably Codex) when they forward the token verbatim.
+func parseForceModelCommand(text string) (res ForceModelResult, found bool, stripped string) {
+	return parseForceModelCommandFromSource(text, false)
+}
+
+// parseForceModelCommandFromSource applies the trust boundary for the model
+// alias before the command text can be stripped. Tool results may contain
+// arbitrary model documentation or output, so only the established skill
+// commands are accepted from that provenance.
+//
 // Restricted to the leading line so pasted content (snippets, transcripts)
 // starting with "/" can't silently rewrite session routing. The short
 // aliases are a fallback for clients without local slash-command expansion
@@ -311,7 +324,7 @@ func followsAssistantToolUse(messages []gjson.Result, userIdx int) bool {
 // Leading <tag>...</tag> blocks (e.g. <system-reminder>, <command-name>
 // injected by Claude Code) are skipped before the leading-line check, and
 // preserved in the stripped output.
-func parseForceModelCommand(text string) (res ForceModelResult, found bool, stripped string) {
+func parseForceModelCommandFromSource(text string, fromToolResult bool) (res ForceModelResult, found bool, stripped string) {
 	prefixEnd := leadingInjectedPrefixEnd(text)
 	prefix := text[:prefixEnd]
 	body := text[prefixEnd:]
@@ -324,6 +337,9 @@ func parseForceModelCommand(text string) (res ForceModelResult, found bool, stri
 			continue
 		}
 		if after, ok := cutAnyPrefix(trimmed, "/force-model ", "/model ", "/fm ", "$force-model ", "$fm "); ok {
+			if fromToolResult && strings.HasPrefix(trimmed, "/model ") {
+				return ForceModelResult{}, false, text
+			}
 			// Fields+Join collapses runs of whitespace so "/fm  qwen   3.8"
 			// and "/fm qwen 3.8" are the same string to the resolver.
 			if name := strings.Join(strings.Fields(after), " "); name != "" {
@@ -352,7 +368,7 @@ func parseForceModelCommand(text string) (res ForceModelResult, found bool, stri
 					if strings.TrimSpace(lines[i]) == "" {
 						continue
 					}
-					candidate, ok, _ := parseForceModelCommand(lines[i])
+					candidate, ok, _ := parseForceModelCommandFromSource(lines[i], fromToolResult)
 					if !ok {
 						break
 					}
