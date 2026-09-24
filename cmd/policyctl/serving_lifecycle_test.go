@@ -240,6 +240,36 @@ func TestServingCLIPublishDryRunAppliesEveryPublishRejection(t *testing.T) {
 	require.Nil(t, output)
 }
 
+func TestWorkflowActorIgnoresCallerOverride(t *testing.T) {
+	for _, scenario := range []struct {
+		name     string
+		env      map[string]string
+		expected string
+	}{
+		{
+			name:     "GitHub run",
+			env:      map[string]string{"GITHUB_ACTOR": "ci-bot", "GITHUB_RUN_ID": "4242", "USER": "local-operator"},
+			expected: "ci-bot@run:4242",
+		},
+		{
+			name:     "local operator",
+			env:      map[string]string{"USER": "local-operator"},
+			expected: "local-operator",
+		},
+		{
+			name:     "proposal actor",
+			env:      map[string]string{},
+			expected: "proposal-operator",
+		},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			scenario.env["WORKFLOW_ACTOR"] = "spoofed-operator"
+			actor := workflowActorFor(func(key string) string { return scenario.env[key] }, policyregistry.ProposalView{Actor: "proposal-operator"})
+			require.Equal(t, scenario.expected, actor)
+		})
+	}
+}
+
 func TestServingCLIApplyResolvesDigestDryRunsActivatesAndReplays(t *testing.T) {
 	registry, endpoints, fixture := cliServingFixture(t)
 	proposal := cliV2Proposal(fixture, "run-1:lane-0")
@@ -265,11 +295,9 @@ func TestServingCLIApplyResolvesDigestDryRunsActivatesAndReplays(t *testing.T) {
 	require.Equal(t, policyregistry.ActivationCurrent, first.Outcome)
 	require.Equal(t, ref, first.Activation.Proposal)
 	require.Equal(t, "v2-operator", first.Activation.Actor)
-	require.Equal(t, "github-actions:example/workflows:4242:1", first.Activation.WorkflowActor, "the workflow identity takes precedence over the local GitHub run environment")
+	require.Equal(t, "ci-bot@run:4242", first.Activation.WorkflowActor, "the GitHub run identity ignores the caller-supplied override")
 	require.EqualValues(t, 1, first.Snapshot.Generation)
 	require.Equal(t, 1, registry.writes)
-	delete(env, "WORKFLOW_ACTOR")
-	require.Equal(t, "ci-bot@run:4242", workflowActorFor(dependencies.getenv, proposal.View()))
 
 	endpoints.err = errors.New("destination offline")
 	require.NoError(t, runServingWith(ctx, []string{string(commandApply), "--proposal-sha256", ref.SHA256}, dependencies))
