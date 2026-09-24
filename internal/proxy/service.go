@@ -2831,7 +2831,60 @@ func (s *Service) routeWithStrategyUnchecked(ctx context.Context, strategy route
 		}
 		return router.Decision{}, fmt.Errorf("strategy %q requested but no router configured: %w", strategy, unavailable)
 	}
+	if router.IsHMMStrategy(strategy) && req.ConversationMessages != nil && !hasTextUserBoundary(req.ConversationMessages) {
+		return s.unscorableHMMDecision(ctx, req)
+	}
 	return registered.router.Route(ctx, req)
+}
+
+const unscorableHMMDecisionReason = "hmm_no_user_boundary_passthrough"
+
+func hasTextUserBoundary(messages []router.ConversationMessage) bool {
+	for _, message := range messages {
+		if strings.EqualFold(message.Role, "user") && strings.TrimSpace(message.Text) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// Raw-V5 requires user-authored text. A Claude Code slash-command continuation
+// can contain only injected reminders and command output, which the translator
+// correctly excludes from user text. Preserve the requested baseline instead
+// of fabricating a policy input from those untrusted wrappers.
+func (s *Service) unscorableHMMDecision(ctx context.Context, req router.Request) (router.Decision, error) {
+	model := s.baselineFor(req.RequestedModel)
+	if model == "" || !modelPermittedByAllowlist(ctx, model) || !modelInRequestSubset(ctx, model) {
+		return router.Decision{}, fmt.Errorf("no eligible baseline for HMM turn without user text: %w", policy.ErrNoRoutableModels)
+	}
+	if _, excluded := req.ExcludedModels[model]; excluded {
+		return router.Decision{}, fmt.Errorf("baseline %q excluded for HMM turn without user text: %w", model, policy.ErrNoRoutableModels)
+	}
+	if _, excluded := req.SafetyExcludedModels[model]; excluded {
+		return router.Decision{}, fmt.Errorf("baseline %q unsafe for HMM turn without user text: %w", model, policy.ErrNoRoutableModels)
+	}
+	if req.HasImages && !catalog.AcceptsImages(model) {
+		return router.Decision{}, fmt.Errorf("baseline %q cannot accept images: %w", model, policy.ErrNoRoutableModels)
+	}
+	if len(req.GatewayProviders) > 0 {
+		provider, found := gatewayProviderFor(model, req.CustomBindings, req.GatewayProviders)
+		if !found {
+			return router.Decision{}, fmt.Errorf("baseline %q has no gateway alias: %w", model, policy.ErrGatewayServesNoDeployedModel)
+		}
+		log := observability.FromContext(ctx)
+		log.Info("HMM turn has no user text; passing through to eligible baseline", "model", model, "provider", provider)
+		return router.Decision{Provider: provider, Model: model, Reason: unscorableHMMDecisionReason}, nil
+	}
+	providersForRequest := req.EnabledProviders
+	if providersForRequest == nil {
+		providersForRequest = s.clients.NameSet()
+	}
+	binding, found := catalog.ResolveBindingWithCustom(model, providersForRequest, req.CustomBindings)
+	if !found {
+		return router.Decision{}, fmt.Errorf("baseline %q has no available provider: %w", model, policy.ErrNoRoutableModels)
+	}
+	observability.FromContext(ctx).Info("HMM turn has no user text; passing through to eligible baseline", "model", model, "provider", binding.Provider)
+	return router.Decision{Provider: binding.Provider, Model: model, Reason: unscorableHMMDecisionReason}, nil
 }
 
 func (s *Service) withPolicyRequestContext(ctx context.Context, req router.Request) router.Request {

@@ -418,6 +418,8 @@ const policyDeadlineFallbackReason = "policy_deadline_last_known_good"
 // policyDeadlineDefaultReason is the Decision.Reason when a deadline miss with no pin falls to the tier-3 default.
 const policyDeadlineDefaultReason = "policy_deadline_default_model"
 
+const unscorableHMMStickyReason = "hmm_no_user_boundary_sticky"
+
 // isPolicyDeadlineErr reports whether err is a policy sidecar deadline/transport
 // failure (safe to degrade) rather than a contract violation (must fail closed).
 // Both context.DeadlineExceeded/Canceled and hmm.ErrHMMUnavailable must be present —
@@ -1573,6 +1575,24 @@ func (s *Service) runTurnLoop(
 	// entry path would observe search decay and prefix trimming twice and lose
 	// the already-computed translation eligibility and pin-drop evidence.
 	routeRemaining := func() (turnLoopResult, error) {
+		// A command-only continuation has no user-authored text to classify.
+		// Keep an eligible session model instead of rescoring synthetic client
+		// wrappers or switching to the requested baseline mid-conversation.
+		if req.Escalation == nil && pinFound && automaticPinEligible(pin, req) && req.ConversationMessages != nil &&
+			router.IsHMMStrategy(router.StrategyFromContext(ctx)) &&
+			!hasTextUserBoundary(req.ConversationMessages) {
+			if _, honoured := router.HonouredPolicyPin(ctx); !honoured {
+				decision := pinDecision(pin)
+				decision.Reason = unscorableHMMStickyReason
+				res.Decision = decision
+				res.StickyHit = true
+				res.PinTier = unscorableHMMStickyReason
+				log.Info("HMM turn has no user text; preserving eligible session pin",
+					"pin_model", pin.Model, "pin_provider", pin.Provider)
+				s.refreshPin(ctx, installationID, res.SessionKey, pin, res.PinRole, pinDecision(pin))
+				return res, nil
+			}
+		}
 		// Tool-result turns: by default, fall through to the scorer + planner for
 		// MainLoop parity. Kill switch preserves the legacy #82 verbatim-reuse path.
 		// The #82 noisy-embedding concern is stale under only_user_message embed mode:
