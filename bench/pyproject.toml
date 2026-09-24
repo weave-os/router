@@ -3,7 +3,7 @@ name = "weave-bench"
 version = "0.1.0"
 description = "Reproducible Codex-harness benchmarks (SWE-Atlas QnA, Terminal-Bench 4.0) for the Weave router"
 requires-python = ">=3.12"
-license = { text = "Elastic-2.0" }
+license = { text = "Apache-2.0" }
 dependencies = []
 
 [project.optional-dependencies]

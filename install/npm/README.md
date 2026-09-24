@@ -142,6 +142,13 @@ Four install targets:
 See the [main installer docs](https://github.com/weave-os/router/tree/main/install)
 for the full reference.
 
+## License
+
+Apache-2.0 starting with version `0.2.24` of both `@weave-os/router` and
+`@workweave/router`. See the bundled `LICENSE` and `NOTICE` files.
+Earlier published versions retain their original licenses. Third-party peer
+dependencies are separately licensed and are not bundled in this package.
+
 ## Requirements
 
 - Node ≥ 18 (ships with `npx`)

@@ -1,6 +1,6 @@
 {
   "name": "@weave-os/router",
-  "version": "0.2.23",
+  "version": "0.2.24",
   "description": "One-command installer that points Claude Code, Codex, opencode, or pi at the Weave Router. For pi it also ships the routing extension, loaded via pi.extensions.",
   "bin": {
     "weave-router": "bin.js",
@@ -28,7 +28,8 @@
     "pi-router/",
     "opencode-weave/",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE"
   ],
   "scripts": {
     "prepack": "node ./scripts/copy-installer.js"
@@ -66,7 +67,7 @@
     "directory": "install/npm"
   },
   "homepage": "https://workweave.ai",
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "Apache-2.0",
   "keywords": [
     "weave",
     "router",

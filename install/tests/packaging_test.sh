@@ -50,6 +50,16 @@ done
 check "the canonical package name is published" "@weave-os/router" \
   "$(node -p 'require(process.argv[1]).name' "$root/package.json")"
 
+check "the package declares Apache-2.0" "Apache-2.0" \
+  "$(node -p 'require(process.argv[1]).license' "$root/package.json")"
+for asset in LICENSE NOTICE; do
+  if cmp -s "$install_dir/../$asset" "$root/$asset"; then
+    ok "the tarball ships the canonical $asset"
+  else
+    no "the tarball ships the canonical $asset" "identical to repository root" "missing or different"
+  fi
+done
+
 missing=""
 while IFS= read -r name; do
   [ -f "$root/commands/$name.md" ] || missing="$missing $name"

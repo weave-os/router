@@ -230,5 +230,10 @@ section, sorted by `Created` ascending.
 
 ## License
 
+This project is licensed under the [Apache License 2.0](LICENSE).
 By contributing, you agree that your contributions will be licensed
-under the project's [LICENSE](LICENSE).
+under Apache-2.0. Keep the DCO sign-off on every commit (`git commit -s`).
+
+The DCO certifies you have the right to submit the change under Apache-2.0.
+It is not a copyright assignment. If your employer owns your work, you still
+need authority to contribute it.

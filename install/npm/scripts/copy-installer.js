@@ -125,7 +125,7 @@ for (const f of ["package.json", "README.md"]) {
 }
 console.log("Copied opencode-weave/ (plugin).");
 
-// LICENSE lives at the repo root and applies to the whole project. npm
-// surfaces it on the package page when bundled alongside package.json.
-copyFileSync(path.join(repoRoot, "LICENSE"), path.join(root, "LICENSE"));
-console.log("Copied LICENSE.");
+for (const f of ["LICENSE", "NOTICE"]) {
+  copyFileSync(path.join(repoRoot, f), path.join(root, f));
+  console.log(`Copied ${f}.`);
+}

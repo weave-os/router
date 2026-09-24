@@ -26,7 +26,7 @@ for *every* request: using a tiny on-box embedder, not a vibes-based prompt.
 [![Weave Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fapp.workweave.ai%2Fapi%2Frepository%2Fbadge%2Forg_QWsHDcRQWQEs6RpkdEZrlFK8%2F1222789989%2Fhttps%253A%252F%252Fgithub.com&cacheSeconds=3600)](https://app.workweave.ai/reports/repository/org_QWsHDcRQWQEs6RpkdEZrlFK8/https%3A%2F%2Fgithub.com/1222789989)
 [![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go)](go.mod)
 [![Tests](https://github.com/weave-os/router/actions/workflows/test.yml/badge.svg)](https://github.com/weave-os/router/actions/workflows/test.yml)
-[![License: ELv2](https://img.shields.io/badge/License-ELv2-00BFB3.svg)](https://www.elastic.co/licensing/elastic-license)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![Managed deployment](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Frouter.workweave.ai%2Fv1%2Fversion&query=%24.display&label=managed%20deployment&color=EC6341&cacheSeconds=1800)](https://github.com/weave-os/router/deployments)
 
 
@@ -280,6 +280,21 @@ the final Anthropic `message_delta` usage event.
   migrations, tests, the whole engineering loop.
 - 🏗️ [**Architecture**](AGENTS.md): package layout, import contracts,
   recipes for adding endpoints / providers / strategies.
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE). Copyright 2025-2026 Workweave, Inc.
+See [NOTICE](NOTICE) for attribution.
+
+The Apache-2.0 release line begins with `router-v0.2.24` (npm packages
+`@weave-os/router` and `@workweave/router` version `0.2.24`). Earlier tags and
+published packages retain the licenses shipped with them; this change does
+not rewrite historical releases.
+
+Apache-2.0 permits commercial use, hosted services, and proprietary derivatives,
+subject to its terms, and includes a patent grant. It does not grant general
+rights to Workweave's trademarks. Third-party code, dependencies, model weights,
+and datasets retain their own licenses; see [THIRD_PARTY.md](THIRD_PARTY.md).
 
 
 ---
