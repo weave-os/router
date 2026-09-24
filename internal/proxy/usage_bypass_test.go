@@ -569,6 +569,19 @@ func TestSubscriptionOnly_ServesOnSubscription_EvenAboveThreshold(t *testing.T) 
 	assert.Contains(t, rec.Body.String(), "weave-router", "the warning must surface the top-up CTA")
 }
 
+func TestSubscriptionOnlyWarning_RespectsRoutingMarkerOptOut(t *testing.T) {
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl}}
+	p := &fakeProvider{proxyResponse: bypassStreamResponse}
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil)
+
+	rec, req, body := bypassRequest(t)
+	req.Header.Set("X-Weave-Routing-Marker", "off")
+	ctx := billing.WithSubscriptionOnly(bypassCtx(0.80), billing.SubscriptionOnlyCreditsDepleted)
+	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
+
+	assert.NotContains(t, rec.Body.String(), "credits are depleted", "the routing-marker opt-out must also suppress the depletion warning")
+}
+
 // TestSubscriptionOnly_ExhaustedSubscription_Refuses402: in subscription-only
 // mode, a turn that can't stay on the subscription (here: the sub is exhausted,
 // so the bypass disengages) must be refused with the credits-exhausted sentinel

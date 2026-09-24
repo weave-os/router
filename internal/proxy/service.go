@@ -674,9 +674,9 @@ type policyOutcomeResponse struct {
 }
 
 // suppressMarkerIfRequested returns "" when the request opted out via
-// routingMarkerHeader or the installation has hidden terminal surfaces,
-// otherwise the marker unchanged. Only applies to the per-turn routing badge;
-// no-progress/loop/force-model markers always fire.
+// routingMarkerHeader or the installation has hidden terminal surfaces;
+// otherwise it returns marker unchanged. Safety and control-flow markers
+// (no-progress, loop, and force-model) do not use this helper.
 func suppressMarkerIfRequested(ctx context.Context, h http.Header, marker string) string {
 	if hideTerminalSurfacesForRequest(ctx) {
 		return ""
@@ -4100,12 +4100,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
 	// Subscription-only turn covering for unfundable capacity: replace the
 	// routing marker with the depleted-credits warning (like the OpenAI path and
-	// the usage-bypass path), not gated by the routing-marker opt-out. The
-	// pre-dispatch guard above has already refused any turn that wouldn't run on
-	// the caller's own sub, so a turn reaching here is served free and should
-	// carry the top-up CTA. A linked-first turn keeps its ordinary marker.
-	if subscriptionOnlyWarnsDepleted(ctx) {
-		marker = subscriptionOnlyWarningMarker
+	// the usage-bypass path) when terminal surfaces are enabled. The pre-dispatch
+	// guard above has already refused any turn that wouldn't run on the caller's
+	// own sub, so a turn reaching here is served free and should carry the top-up
+	// CTA. A linked-first turn keeps its ordinary marker.
+	if warning := subscriptionOnlyWarningMarkerForRequest(ctx, r.Header, subscriptionOnlyWarningMarker); warning != "" {
+		marker = warning
 	}
 	// toolValidator compiles the request's tool schemas once (LRU-cached);
 	// translators validate/repair model tool calls against it. Nil if no tools.
@@ -6887,11 +6887,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
 
 	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
-	if subscriptionOnlyWarnsDepleted(ctx) {
-		// Always surface the depleted-credits warning (not gated by the
-		// routing-marker opt-out): a billing state change the caller must see.
-		// A linked-first turn changes no billing state, so it keeps its marker.
-		marker = subscriptionOnlyWarningMarkerCodex
+	if warning := subscriptionOnlyWarningMarkerForRequest(ctx, r.Header, subscriptionOnlyWarningMarkerCodex); warning != "" {
+		marker = warning
 	}
 
 	// gpt-5.6 applies its own effort on chat/completions, so a /v1/responses
@@ -6969,8 +6966,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		// single-binding GPT model with no cross-format fallback to retry
 		// into. If a GPT model ever gains a fallback, gate this per-attempt.
 		if verbatimPassthrough {
-			// marker already carries the depleted-credits warning in
-			// subscription-only mode, which overrides the opt-out above.
+			// marker already carries the depleted-credits warning when terminal
+			// surfaces are enabled.
 			// Parse native SSE when this client needs a badge and/or footer.
 			if supportsResponsesTerminalSurfaces(clientID.ClientApp) && (marker != "" || s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn) != "") {
 				if marker != "" {
