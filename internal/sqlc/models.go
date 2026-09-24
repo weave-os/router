@@ -368,6 +368,7 @@ type RouterModelRouterInstallation struct {
 	TrialEnrollmentID                pgtype.UUID
 	TrialShadowSampleRate            pgtype.Numeric
 	TrialShadowDailyCeilingUsdMicros *int64
+	ShowModelSelectionReasoning      bool
 }
 
 type RouterModelRouterRequestTelemetry struct {

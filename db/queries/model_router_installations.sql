@@ -127,6 +127,16 @@ WHERE id = @id::uuid
   AND external_id = @external_id::varchar
   AND deleted_at IS NULL;
 
+-- Toggles the optional model-selection explanation shown alongside the routing
+-- marker. Scoped to the installation's external_id to prevent tenant crossover.
+-- name: UpdateModelRouterInstallationShowModelSelectionReasoning :execrows
+UPDATE router.model_router_installations
+SET show_model_selection_reasoning = @show_model_selection_reasoning::boolean,
+    updated_at = NOW()
+WHERE id = @id::uuid
+  AND external_id = @external_id::varchar
+  AND deleted_at IS NULL;
+
 -- Stamps first_request_served_at the first time this installation routes a
 -- request. WHERE IS NULL makes the update a no-op after the first write, so
 -- the timestamp records the *first* request and rotation never resets it.

@@ -26,6 +26,7 @@ var sampleMarkers = []string{
 	"✦ **Weave Router** → deepseek/deepseek-v4-pro\n\n",
 	"✦ **Weave Router** → claude-haiku-4-5 · best pick for this turn · second-choice pick at low tier (would have used deepseek/deepseek-v4-pro)\n\n",
 	"✦ **Weave Router** → Delegating work with moonshotai/kimi-k2.7-code\n↳ label: delegated_work\n\n",
+	"✦ **Weave Router** → claude-sonnet-5 · best pick for this turn\nREASONING: This part of the conversation was classified as high difficulty.\n\n",
 }
 
 func TestStripRoutingMarker_AssistantBlockExactMatch(t *testing.T) {
@@ -115,6 +116,18 @@ func TestStripRoutingMarker_AllPlannerReasonShapes(t *testing.T) {
 			assert.Equal(t, "trailing model text", gjson.GetBytes(out, "messages.0.content.0.text").String())
 		})
 	}
+}
+
+func TestStripRoutingMarker_GeminiContentsRemovesReasoning(t *testing.T) {
+	marker := sampleMarkers[len(sampleMarkers)-1]
+	body, err := json.Marshal(map[string]any{"contents": []any{map[string]any{
+		"role": "model", "parts": []any{map[string]any{"text": marker}, map[string]any{"text": "answer"}},
+	}}})
+	require.NoError(t, err)
+	cleaned, err := translate.StripRoutingMarkerFromGeminiContents(body)
+	require.NoError(t, err)
+	assert.Equal(t, "answer", gjson.GetBytes(cleaned, "contents.0.parts.0.text").String())
+	assert.NotContains(t, string(cleaned), "REASONING:")
 }
 
 func TestStripRoutingMarker_NonTextBlocksUntouched(t *testing.T) {

@@ -174,6 +174,9 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
 			if installation.HideTerminalSurfaces {
 				ctx = context.WithValue(ctx, proxy.InstallationHideTerminalSurfacesContextKey{}, true)
 			}
+			if installation.ShowModelSelectionReasoning {
+				ctx = context.WithValue(ctx, proxy.InstallationShowModelSelectionReasoningContextKey{}, true)
+			}
 			if installation.TrialCaptureEnabled {
 				ctx = context.WithValue(ctx, proxy.InstallationTrialCaptureContextKey{}, true)
 			}

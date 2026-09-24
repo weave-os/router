@@ -74,6 +74,11 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	} else {
 		body = strippedBody
 	}
+	if strippedBody, stripErr := translate.StripRoutingMarkerFromGeminiContents(body); stripErr != nil {
+		log.Error("Failed to strip routing marker from Gemini contents", "err", stripErr)
+	} else {
+		body = strippedBody
+	}
 
 	env, parseErr := translate.ParseGemini(body)
 	if parseErr != nil {
@@ -308,7 +313,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
 	// preludeBuf delays commit so a 429 or empty stream stays retryable.
 	preludeBuf := newPreludeBuffer(contentSink)
-	marker := suppressMarkerIfRequested(ctx, r.Header, routingMarkerFor(routeRes))
+	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
 	bindings := s.resolveBindingsForDispatch(ctx, decision)
 	attempt := func(actx context.Context, d router.Decision, p providers.Client) error {
 		attemptSink := http.ResponseWriter(preludeBuf)

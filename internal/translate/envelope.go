@@ -1081,6 +1081,16 @@ func stripPatternFromMessages(body []byte, pattern *regexp.Regexp) ([]byte, erro
 // it back as a standalone part on the next turn; stripping it on ingress keeps
 // it out of upstream context. Parts whose text becomes empty are dropped.
 func StripFeedbackFooterFromGeminiContents(body []byte) ([]byte, error) {
+	return stripPatternFromGeminiContents(body, feedbackFooterPattern)
+}
+
+// StripRoutingMarkerFromGeminiContents removes the router-owned selection
+// marker, including its optional reasoning line, from echoed model text.
+func StripRoutingMarkerFromGeminiContents(body []byte) ([]byte, error) {
+	return stripPatternFromGeminiContents(body, routingMarkerPattern)
+}
+
+func stripPatternFromGeminiContents(body []byte, pattern *regexp.Regexp) ([]byte, error) {
 	contents := gjson.GetBytes(body, "contents")
 	if !contents.Exists() || !contents.IsArray() {
 		return body, nil
@@ -1106,11 +1116,11 @@ func StripFeedbackFooterFromGeminiContents(body []byte) ([]byte, error) {
 				return true
 			}
 			text := textNode.String()
-			if !feedbackFooterPattern.MatchString(text) {
+			if !pattern.MatchString(text) {
 				newParts = append(newParts, part.Raw)
 				return true
 			}
-			stripped := feedbackFooterPattern.ReplaceAllString(text, "")
+			stripped := pattern.ReplaceAllString(text, "")
 			contentChanged = true
 			if strings.TrimSpace(stripped) == "" {
 				return true

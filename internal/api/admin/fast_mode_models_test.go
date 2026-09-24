@@ -71,6 +71,9 @@ func (*fastModeInstallationRepo) UpdateContentCaptureMode(context.Context, strin
 func (*fastModeInstallationRepo) UpdateHideTerminalSurfaces(context.Context, string, string, bool) error {
 	return errFastModeRepoNotUsed
 }
+func (*fastModeInstallationRepo) UpdateShowModelSelectionReasoning(context.Context, string, string, bool) error {
+	return errFastModeRepoNotUsed
+}
 func (*fastModeInstallationRepo) UpdateFlagOverrides(context.Context, string, string, flags.Overrides) error {
 	return errFastModeRepoNotUsed
 }

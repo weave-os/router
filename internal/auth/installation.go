@@ -95,6 +95,9 @@ type Installation struct {
 	// HideTerminalSurfaces suppresses the routing marker, feedback footer, and
 	// statusline; routing and feedback recording are unaffected. Defaults false.
 	HideTerminalSurfaces bool
+	// ShowModelSelectionReasoning enables a short explanation in newly emitted
+	// model-selection markers. It does not change the routing decision.
+	ShowModelSelectionReasoning bool
 	// TrialCaptureEnabled opts the installation into the consented trial-period
 	// benchmark's extra telemetry capture (client git context on a session's
 	// first turn). Written by WorkWeave; never influences routing. Defaults false.
@@ -155,6 +158,7 @@ type InstallationRepository interface {
 	// UpdateHideTerminalSurfaces toggles hiding the router's terminal surfaces
 	// (routing marker, feedback footer, statusline) for the installation.
 	UpdateHideTerminalSurfaces(ctx context.Context, externalID, id string, hide bool) error
+	UpdateShowModelSelectionReasoning(ctx context.Context, externalID, id string, show bool) error
 	// UpdateFlagOverrides replaces the per-installation behavioral flag override
 	// set. The whole sparse set is written, not a delta, so clearing one override
 	// means omitting its key. An empty Overrides clears every override.

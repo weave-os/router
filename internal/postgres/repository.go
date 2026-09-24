@@ -319,6 +319,23 @@ func (r *installationRepo) UpdateHideTerminalSurfaces(ctx context.Context, exter
 	return nil
 }
 
+func (r *installationRepo) UpdateShowModelSelectionReasoning(ctx context.Context, externalID, id string, show bool) error {
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return err
+	}
+	rows, err := sqlc.New(r.tx).UpdateModelRouterInstallationShowModelSelectionReasoning(ctx, sqlc.UpdateModelRouterInstallationShowModelSelectionReasoningParams{
+		ID: parsed, ExternalID: externalID, ShowModelSelectionReasoning: show,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return auth.ErrInstallationNotFound
+	}
+	return nil
+}
+
 // UpdateFlagOverrides writes the whole sparse override set. Callers pass the
 // post-modification set (read-modify-write), so an override is cleared by
 // omitting its key rather than by writing a sentinel value.

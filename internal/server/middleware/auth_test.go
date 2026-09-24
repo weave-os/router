@@ -177,6 +177,10 @@ func (fakeInstallationRepository) UpdateSubscriptionRoutingDisabled(ctx context.
 func (fakeInstallationRepository) UpdateContentCaptureMode(ctx context.Context, externalID, id string, mode *string) error {
 	return errors.New("not used")
 }
+
+func (fakeInstallationRepository) UpdateShowModelSelectionReasoning(context.Context, string, string, bool) error {
+	return errors.New("not used")
+}
 func (fakeInstallationRepository) UpdateHideTerminalSurfaces(ctx context.Context, externalID, id string, hide bool) error {
 	return errors.New("not used")
 }
@@ -194,6 +198,7 @@ func TestWithAuthPrefersRouterKeyHeader(t *testing.T) {
 		ID: "inst-1", ExternalID: "ext-1", RoutingRolloutID: "rollout-1",
 		PolicyShadowStrategy: "future-policy", PolicyDebugEnabled: true,
 		PolicyRoutingIntent: "high", AITrainingAllowed: true,
+		ShowModelSelectionReasoning: true,
 	}
 	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{
 		hash: {apiKey: apiKey, installation: installation},
@@ -213,6 +218,7 @@ func TestWithAuthPrefersRouterKeyHeader(t *testing.T) {
 		assert.Equal(t, true, ctx.Value(proxy.PolicyDebugEnabledContextKey{}))
 		assert.Equal(t, "high", ctx.Value(proxy.PolicyRoutingIntentContextKey{}))
 		assert.Equal(t, true, ctx.Value(proxy.PolicyTrainingAllowedContextKey{}))
+		assert.Equal(t, true, ctx.Value(proxy.InstallationShowModelSelectionReasoningContextKey{}))
 		c.Status(http.StatusOK)
 	})
 

@@ -654,6 +654,14 @@ func (s *Service) SetInstallationHideTerminalSurfaces(ctx context.Context, exter
 	return nil
 }
 
+func (s *Service) SetInstallationShowModelSelectionReasoning(ctx context.Context, externalID, installationID string, show bool) error {
+	if err := s.installations.UpdateShowModelSelectionReasoning(ctx, externalID, installationID, show); err != nil {
+		return err
+	}
+	s.invalidateInstallation(installationID)
+	return nil
+}
+
 // ErrInvalidCaptureMode is returned for a content-capture mode outside the
 // off/hashed/full set.
 var ErrInvalidCaptureMode = errors.New("auth: invalid content capture mode")

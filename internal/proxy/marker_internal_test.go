@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -12,6 +13,47 @@ import (
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/translate"
 )
+
+func TestModelSelectionReasoningIsOptInAndUsesRecordedClassification(t *testing.T) {
+	ctx := context.WithValue(context.Background(), InstallationShowModelSelectionReasoningContextKey{}, true)
+	turn := turnLoopResult{Decision: router.Decision{Model: "chosen-model", Metadata: &router.RoutingMetadata{
+		ClassifierPredictedLabel: "high", PolicyGroup: "low",
+	}}}
+	marker := routingMarkerFor(turn)
+	assert.NotContains(t, modelSelectionMarkerForRequest(context.Background(), turn, marker, turn.Decision.Model, ""), "REASONING:")
+	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, marker, turn.Decision.Model, ""),
+		"\nREASONING: This part of the conversation was classified as high difficulty.\n")
+
+	turn.Decision.Metadata.ClassifierPredictedLabel = "unrecognized"
+	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, marker, turn.Decision.Model, ""), "classified as low difficulty")
+	turn.Decision.Metadata.PolicyGroup = "fast"
+	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, marker, turn.Decision.Model, ""), "Routing classified this part of the conversation as fast.")
+	turn.Decision.Metadata.PolicyGroup = "unknown-group"
+	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, marker, turn.Decision.Model, ""), "best pick for this turn")
+	assert.NotContains(t, modelSelectionMarkerForRequest(ctx, turn, marker, turn.Decision.Model, ""), "unknown-group")
+	turn.Decision.Metadata.ClassifierPredictedLabel = "high"
+	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, siblingRoutingMarkerFor(turn, "rescue-model"), "rescue-model", markerReasonSibling), "classified as high difficulty")
+}
+
+func TestModelSelectionReasoningOnlyForNewlyServedModel(t *testing.T) {
+	ctx := context.WithValue(context.Background(), InstallationShowModelSelectionReasoningContextKey{}, true)
+	turn := turnLoopResult{Decision: router.Decision{Model: "new-model"}, PriorServedModel: "old-model"}
+	marker := routingMarkerFor(turn)
+	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, marker, turn.Decision.Model, ""), "REASONING:")
+	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, siblingRoutingMarkerFor(turn, "rescue-model"), "rescue-model", markerReasonSibling), "REASONING: "+markerReasonSibling)
+	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, baselineRoutingMarkerFor(turn, "baseline-model"), "baseline-model", markerReasonBaseline), "REASONING: "+markerReasonBaseline)
+	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, cyberRefusalRoutingMarkerFor(turn, "retry-model"), "retry-model", markerReasonCyberRefusal), "REASONING: "+markerReasonCyberRefusal)
+
+	turn.PriorServedModel = "new-model"
+	assert.NotContains(t, modelSelectionMarkerForRequest(ctx, turn, "✦ **Weave Router** → new-model\n\n", turn.Decision.Model, ""), "REASONING:")
+	turn.PriorServedModel = "old-model"
+	turn.SuggestionMode = true
+	assert.NotContains(t, modelSelectionMarkerForRequest(ctx, turn, marker, turn.Decision.Model, ""), "REASONING:")
+	turn.SuggestionMode = false
+	turn.HardPinned = true
+	assert.NotContains(t, modelSelectionMarkerForRequest(ctx, turn, marker, turn.Decision.Model, ""), "REASONING:")
+	assert.Empty(t, modelSelectionMarkerForRequest(ctx, turn, "", turn.Decision.Model, ""))
+}
 
 func TestRoutingMarkerFor_PlannerPaths(t *testing.T) {
 	decision := router.Decision{Model: "deepseek/deepseek-v4-pro", Provider: "openrouter"}

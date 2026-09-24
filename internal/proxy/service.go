@@ -605,6 +605,10 @@ type InstallationSubscriptionRoutingDisabledContextKey struct{}
 // suppresses the routing marker, feedback footer, and feedback-link header.
 type InstallationHideTerminalSurfacesContextKey struct{}
 
+// InstallationShowModelSelectionReasoningContextKey carries the org's opt-in
+// for an explanatory line in newly emitted serving-model markers.
+type InstallationShowModelSelectionReasoningContextKey struct{}
+
 // InstallationTrialCaptureContextKey is the context key for the installation's
 // trial-mode capture opt-in (bool; absent == false); enables the first-turn
 // client git-context telemetry parse. Never read by routing.
@@ -738,6 +742,55 @@ func routingMarkerFor(res turnLoopResult) string {
 		parts = append(parts, reason)
 	}
 	return strings.Join(parts, " · ") + "\n\n"
+}
+
+type modelSelectionComplexity string
+
+const (
+	selectionComplexityFast     modelSelectionComplexity = "fast"
+	selectionComplexityExplore  modelSelectionComplexity = "explore"
+	selectionComplexityBalanced modelSelectionComplexity = "balanced"
+	selectionComplexityLow      modelSelectionComplexity = "low"
+	selectionComplexityMid      modelSelectionComplexity = "mid"
+	selectionComplexityMedium   modelSelectionComplexity = "medium"
+	selectionComplexityHigh     modelSelectionComplexity = "high"
+	selectionComplexityMaximum  modelSelectionComplexity = "maximum"
+)
+
+func modelSelectionReason(res turnLoopResult, failoverReason string) string {
+	if res.Decision.Metadata != nil {
+		for _, label := range []string{res.Decision.Metadata.ClassifierPredictedLabel, res.Decision.Metadata.PolicyGroup} {
+			classification := modelSelectionComplexity(strings.ToLower(strings.TrimSpace(label)))
+			switch classification {
+			case selectionComplexityMid:
+				return "This part of the conversation was classified as medium difficulty."
+			case selectionComplexityLow, selectionComplexityMedium, selectionComplexityHigh, selectionComplexityMaximum:
+				return "This part of the conversation was classified as " + string(classification) + " difficulty."
+			case selectionComplexityFast, selectionComplexityExplore, selectionComplexityBalanced:
+				return "Routing classified this part of the conversation as " + string(classification) + "."
+			}
+		}
+	}
+	if failoverReason != "" {
+		return failoverReason
+	}
+	if reason := routingReasonShort(res); reason != "" {
+		return reason + "."
+	}
+	return "A model was selected for this turn."
+}
+
+func modelSelectionMarkerForRequest(ctx context.Context, res turnLoopResult, marker, servedModel, failoverReason string) string {
+	show, _ := ctx.Value(InstallationShowModelSelectionReasoningContextKey{}).(bool)
+	if !show || marker == "" || servedModel == "" || res.SuggestionMode || res.HardPinned ||
+		isUnpinnedScoredTurn(res.TurnType) || baseModelOf(res.PriorServedModel) == servedModel {
+		return marker
+	}
+	lineEnd := strings.IndexByte(marker, '\n')
+	if lineEnd == -1 {
+		return marker
+	}
+	return marker[:lineEnd+1] + "REASONING: " + modelSelectionReason(res, failoverReason) + "\n" + marker[lineEnd+1:]
 }
 
 func sanitizeSidecarDisplayMarker(raw string) string {
@@ -4044,7 +4097,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// request body. Zero for Anthropic-native passthrough.
 	var reqStats providers.RequestMutationStats
 
-	marker := suppressMarkerIfRequested(ctx, r.Header, routingMarkerFor(routeRes))
+	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
 	// Subscription-only turn covering for unfundable capacity: replace the
 	// routing marker with the depleted-credits warning (like the OpenAI path and
 	// the usage-bypass path), not gated by the routing-marker opt-out. The
@@ -4567,7 +4620,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			}
 			effortServed = baselineEffort
 			baselineBindings := s.resolveBindingsForDispatch(baselineCtx, baselineDecision)
-			baselineMarker := suppressMarkerIfRequested(ctx, r.Header, baselineRoutingMarkerFor(routeRes, baselineModel))
+			baselineMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, baselineRoutingMarkerFor(routeRes, baselineModel), baselineModel, markerReasonBaseline))
 			baselineAttempt := anthropicTierAttemptFor(baselineOpts, baselinePrep, baselineMarker).attempt(recordFastServed)
 			fastServed = baselineOpts.FastMode
 			crossFormat = false
@@ -4707,7 +4760,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			siblingCtx := s.resolveCredentials(ctx, siblingDecision.Provider, siblingDecision.Model, r.Header)
 			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
-			siblingMarker := suppressMarkerIfRequested(ctx, r.Header, siblingRoutingMarkerFor(routeRes, siblingDecision.Model))
+			siblingMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, siblingDecision.Model), siblingDecision.Model, markerReasonSibling))
 			siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker)
 			if siblingBuildErr != nil {
 				log.Error("Sibling failover: preparing the candidate request failed; trying the next candidate",
@@ -6833,7 +6886,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	clientSink, escalationCapture = s.captureEscalationResponse(clientSink, routeRes)
 	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
 
-	marker := suppressMarkerIfRequested(ctx, r.Header, routingMarkerFor(routeRes))
+	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
 	if subscriptionOnlyWarnsDepleted(ctx) {
 		// Always surface the depleted-credits warning (not gated by the
 		// routing-marker opt-out): a billing state change the caller must see.
@@ -7588,7 +7641,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		retryCtx := resolveAndInjectCredentials(ctx, cyberRetryTarget.Provider, cyberRetryTarget.Model, r.Header)
 		retryOpts.FastMode = fastModeForAttempt(retryCtx, cyberRetryTarget.Model, cyberRetryTarget.Provider)
 		retryBindings := s.resolveBindingsForDispatch(retryCtx, cyberRetryTarget)
-		retryMarker := suppressMarkerIfRequested(ctx, r.Header, cyberRefusalRoutingMarkerFor(routeRes, cyberRetryTarget.Model))
+		retryMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, cyberRefusalRoutingMarkerFor(routeRes, cyberRetryTarget.Model), cyberRetryTarget.Model, markerReasonCyberRefusal))
 		retryAttempt, retryBuildErr := buildAttempt(cyberRetryTarget, retryOpts, retryMarker)
 		rw, responsesIngress := w.(*translate.ResponsesWriter)
 		switch {
@@ -7670,7 +7723,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			siblingCtx := s.resolveCredentials(ctx, siblingDecision.Provider, siblingDecision.Model, r.Header)
 			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
-			siblingMarker := suppressMarkerIfRequested(ctx, r.Header, siblingRoutingMarkerFor(routeRes, siblingDecision.Model))
+			siblingMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, siblingDecision.Model), siblingDecision.Model, markerReasonSibling))
 			siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker)
 			if siblingBuildErr != nil {
 				log.Error("Sibling failover: preparing the candidate request failed; trying the next candidate",

@@ -242,6 +242,13 @@ func TestStripRoutingBadgeFromResponsesInput_PreservesNativeFields(t *testing.T)
 	assert.True(t, root.Get("metadata.keep").Bool())
 }
 
+func TestStripRoutingBadgeFromResponsesInput_RemovesSelectionReasoning(t *testing.T) {
+	body := []byte(`{"input":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"\u2063\u2060\u2063\u2060✦ **Weave Router** → claude-sonnet-5\nREASONING: This part of the conversation was classified as high difficulty.\n\nanswer"}]}]}`)
+	cleaned, err := translate.StripRoutingBadgeFromResponsesInput(body)
+	require.NoError(t, err)
+	assert.Equal(t, "answer", gjson.GetBytes(cleaned, "input.0.content.0.text").String())
+}
+
 func TestStripRouterCommandsFromResponsesInput_RemovesAgentToolCommand(t *testing.T) {
 	body := []byte(`{"model":"gpt-5.6-sol","input":[{"type":"custom_tool_call_output","call_id":"call_skill","output":" /router-feedback too slow"},{"type":"function_call_output","call_id":"call_fm","output":[{"type":"input_text","text":" /force-model gpt-5"}]}]}`)
 	out, err := translate.StripRouterCommandsFromResponsesInput(body)
