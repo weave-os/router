@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"strings"
@@ -19,6 +20,8 @@ import (
 // ReasonRenderer converts policy metadata into the compact internal reason
 // consumed by the existing pin/planner layer.
 type ReasonRenderer func(Result) string
+
+const UnscorableHMMDecisionReason = "hmm_no_user_boundary_policy"
 
 // SidecarRouterConfig is the small strategy-specific registration required to
 // plug a versioned policy sidecar into the shared routing harness.
@@ -668,6 +671,94 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			BindingIndex:                  binding.BindingIndex,
 			CandidateArmIDs:               resolved.CandidateArmIDs(),
 			ArmScores:                     res.ArmScores,
+		},
+	}, nil
+}
+
+// RouteWithoutUserText resolves a command-only continuation against the same
+// eligible candidates and promoted roster as scored HMM turns, without asking
+// the classifier to score client-injected wrappers as user-authored text.
+func (r *SidecarRouter) RouteWithoutUserText(ctx context.Context, req router.Request) (router.Decision, error) {
+	if _, pinned := router.HonouredPolicyPin(ctx); pinned {
+		return router.Decision{}, router.ErrPolicyPinUnavailable
+	}
+	if r.armSelector == nil {
+		return router.Decision{}, fmt.Errorf("%s: no promoted roster for unscorable turn: %w", r.config.Strategy, r.config.Unavailable)
+	}
+	if len(req.SafetyExcludedModels) > 0 {
+		req.ExcludedModels = maps.Clone(req.ExcludedModels)
+		if req.ExcludedModels == nil {
+			req.ExcludedModels = make(map[string]struct{}, len(req.SafetyExcludedModels))
+		}
+		for model := range req.SafetyExcludedModels {
+			req.ExcludedModels[model] = struct{}{}
+		}
+	}
+	resolved := r.resolver.Resolve(req)
+	if len(resolved.Candidates) == 0 {
+		return router.Decision{}, fmt.Errorf("%s: no eligible candidate for unscorable turn: %w", r.config.Strategy, emptyCandidateError(resolved.Diagnostics))
+	}
+	input := selectionInputFor(r.config.Strategy, ExecutionModeServing, req, Result{}, resolved)
+	input.Unscorable = true
+	if req.Escalation != nil && req.ForceCluster == "" {
+		input.MinimumGroup = escalation.Higher(req.PreviousPolicyGroup, req.Escalation.Floor)
+		if req.Escalation.Escalate {
+			input.MinimumGroup = escalation.Maximum
+		}
+		if escalation.Rank(input.MinimumGroup) < 0 {
+			return router.Decision{}, fmt.Errorf("%s: unscorable escalation has no valid floor: %w", r.config.Strategy, ErrNoEligibleArm)
+		}
+	} else {
+		for _, candidate := range resolved.Candidates {
+			if candidate.CatalogID == req.RequestedModel {
+				input.PreferredRosterID = candidate.RosterID
+				break
+			}
+		}
+	}
+	pick, err := r.armSelector(ctx, input)
+	if err != nil {
+		return router.Decision{}, fmt.Errorf("%s: unscorable roster selection: %w", r.config.Strategy, err)
+	}
+	selectedArm := pick.Arm
+	selectedGroup := pick.Group
+	if req.ForceCluster != "" {
+		override, err := ApplyClusterArmOverridesRequireMatch(req.ClusterArmOverrides, pick.RankedFallback, resolved, selectedArm, req.ForceCluster)
+		if err != nil {
+			return router.Decision{}, err
+		}
+		selectedArm, selectedGroup = override.RosterID, override.Group
+	} else if len(req.ClusterArmOverrides) > 0 {
+		if req.Escalation != nil {
+			override, err := ApplyClusterArmOverridesRequireMatch(req.ClusterArmOverrides, pick.RankedFallback, resolved, selectedArm, selectedGroup)
+			if err != nil {
+				return router.Decision{}, err
+			}
+			selectedArm = override.RosterID
+		} else if override := ApplyClusterArmOverrides(req.ClusterArmOverrides, pick.RankedFallback, resolved, selectedArm); override.Applied && override.Constrained {
+			selectedArm, selectedGroup = override.RosterID, override.Group
+		}
+	}
+	binding, found := resolved.BindingForSelection("", selectedArm)
+	if !found {
+		return router.Decision{}, fmt.Errorf("%s: unscorable roster selected an ineligible arm: %w", r.config.Strategy, ErrNoEligibleArm)
+	}
+	observability.FromContext(ctx).Info("HMM turn has no user text; selected eligible roster arm",
+		"strategy", r.config.Strategy, "model", binding.CatalogID, "provider", binding.Provider, "group", selectedGroup)
+	return router.Decision{
+		Provider: binding.Provider,
+		Model:    binding.CatalogID,
+		Effort:   binding.Effort,
+		Reason:   UnscorableHMMDecisionReason,
+		Metadata: &router.RoutingMetadata{
+			Strategy:            string(r.config.Strategy),
+			PolicyGroup:         selectedGroup,
+			CandidateModels:     resolved.CandidateModels(),
+			CandidateProviders:  resolved.CandidateProviders(),
+			SelectedArmID:       binding.ArmID,
+			SelectedRosterArmID: selectedArm,
+			SelectedUpstreamID:  binding.UpstreamID,
+			BindingIndex:        binding.BindingIndex,
 		},
 	}, nil
 }

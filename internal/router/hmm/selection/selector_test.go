@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/hmm/selection"
 	"weave-os/router/internal/router/policy"
@@ -33,6 +34,25 @@ func TestSelectorFailsClosedWithoutClassification(t *testing.T) {
 	_, err := selector(context.Background(), policy.SelectionInput{Harness: "claude-code"})
 
 	assert.ErrorIs(t, err, selection.ErrNoEligibleArm)
+}
+
+func TestSelectorUnscorableUsesRosterAndDoesNotDowngradeEscalation(t *testing.T) {
+	roster := testRoster()
+	roster.ClassOrder = []string{"low", "high"}
+	selector := selection.Selector(roster)
+	input := policy.SelectionInput{
+		Unscorable:         true,
+		PreferredRosterID:  "vendor-a/top",
+		CandidateRosterIDs: []string{"vendor-a/cheap", "vendor-a/top"},
+	}
+	pick, err := selector(context.Background(), input)
+	require.NoError(t, err)
+	assert.Equal(t, "high", pick.Group)
+
+	input.MinimumGroup = escalation.High
+	input.CandidateRosterIDs = []string{"vendor-a/cheap"}
+	_, err = selector(context.Background(), input)
+	require.ErrorIs(t, err, selection.ErrNoEligibleArm)
 }
 
 func TestSelectorFailsClosedWhenNoRankedGroupHoldsAnEligibleArm(t *testing.T) {

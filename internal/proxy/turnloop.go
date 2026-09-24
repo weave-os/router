@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/planner"
@@ -1569,6 +1570,9 @@ func (s *Service) runTurnLoop(
 	res.llmEscalation = llmTurn
 	if llmTurn != nil && llmTurn.active {
 		req.Escalation = llmTurn.constraint()
+	}
+	if pinFound {
+		req.PreviousPolicyGroup = escalation.Group(pin.PolicyGroup)
 	}
 
 	// Retry only selection after a failed escalation commit. Replaying the

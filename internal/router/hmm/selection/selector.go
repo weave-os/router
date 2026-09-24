@@ -10,6 +10,7 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/policy"
@@ -29,10 +30,16 @@ func Selector(roster *rosterdata.Roster) policy.ArmSelector {
 		if input.RosterSHA256 != "" && input.RosterSHA256 != roster.SHA256 {
 			return policy.SelectionPick{}, fmt.Errorf("roster %q is not the loaded serving roster: %w", input.RosterSHA256, router.ErrPolicyPinUnavailable)
 		}
-		if len(roster.ClassOrder) > 0 && !slices.Equal(input.ClassOrder, roster.ClassOrder) {
+		if !input.Unscorable && len(roster.ClassOrder) > 0 && !slices.Equal(input.ClassOrder, roster.ClassOrder) {
 			return policy.SelectionPick{}, fmt.Errorf("classifier class order does not match the promoted roster: %w", ErrClassifierTaxonomyMismatch)
 		}
-		rankedGroups, err := classifierGroups(input)
+		var rankedGroups []string
+		var err error
+		if input.Unscorable {
+			rankedGroups, err = unscorableGroups(roster, input)
+		} else {
+			rankedGroups, err = classifierGroups(input)
+		}
 		if err != nil {
 			return policy.SelectionPick{}, err
 		}
@@ -111,6 +118,42 @@ func Selector(roster *rosterdata.Roster) policy.ArmSelector {
 			},
 		}, nil
 	}
+}
+
+// unscorableGroups selects only from the promoted roster. A session floor
+// cannot fall through to a weaker group when its eligible arms are exhausted.
+func unscorableGroups(roster *rosterdata.Roster, input policy.SelectionInput) ([]string, error) {
+	groups := append([]string(nil), roster.ClassOrder...)
+	if len(groups) == 0 {
+		for group := range roster.Clusters {
+			groups = append(groups, group)
+		}
+		sort.Strings(groups)
+	}
+	if input.MinimumGroup != "" && escalation.Rank(input.MinimumGroup) < 0 {
+		return nil, ErrNoEligibleArm
+	}
+	eligible := make([]string, 0, len(groups))
+	for _, group := range groups {
+		if input.MinimumGroup != "" && escalation.Rank(escalation.Group(group)) < escalation.Rank(input.MinimumGroup) {
+			continue
+		}
+		eligible = append(eligible, group)
+	}
+	if input.MinimumGroup != "" && len(eligible) == 0 {
+		return nil, ErrNoEligibleArm
+	}
+	if input.PreferredRosterID != "" {
+		for index, group := range eligible {
+			for _, arm := range roster.Clusters[group].Arms {
+				baseID, _ := hmm.SplitEffort(arm)
+				if baseID == input.PreferredRosterID {
+					return append([]string{group}, append(eligible[:index], eligible[index+1:]...)...), nil
+				}
+			}
+		}
+	}
+	return eligible, nil
 }
 
 func cloneModelFactors(factors map[string]float64) map[string]float64 {

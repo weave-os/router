@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/escalation"
 )
 
 // ErrNoEligibleArm is returned when deterministic selection exhausts every
@@ -29,6 +30,11 @@ type SelectionInput struct {
 	// RosterSHA256 pins selection to one boot-loaded roster; empty uses the
 	// default. Unknown digests fail with router.ErrPolicyPinUnavailable.
 	RosterSHA256 string
+	// Unscorable selects without classifier probabilities, constrained to the
+	// reviewed roster and never below MinimumGroup when escalation is active.
+	Unscorable        bool
+	PreferredRosterID string
+	MinimumGroup      escalation.Group
 }
 
 // SelectionPick is the router's selected arm.

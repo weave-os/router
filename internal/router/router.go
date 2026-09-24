@@ -91,6 +91,9 @@ type Request struct {
 	ClassifierPrediction *ClassifierPrediction `json:"-"`
 	// Escalation constrains automatic class selection for an opted-in session.
 	Escalation *escalation.Constraint
+	// PreviousPolicyGroup is the last scored HMM group, used only when a
+	// continuation has no user text to classify and escalation is active.
+	PreviousPolicyGroup escalation.Group
 
 	RequestedModel string
 	ClientBudget   ClientBudget
