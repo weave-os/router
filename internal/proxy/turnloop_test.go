@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
@@ -193,9 +194,11 @@ func TestTurnLoop_ToolResultScoringEnabledRunsScorerAndStays(t *testing.T) {
 	// Scorer agrees with the pin, so the planner STAYs and the served model
 	// is the pin's — but the scorer MUST have been consulted (routeCalls==1).
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster:v0.2"}}
-	svc := newPinSvc(fr, store) // default: scoreToolResultTurns == true
+	svc := newPinSvc(fr, store).WithScoreToolResultTurns(false)
 
-	ctx := authedCtx(uuid.New().String())
+	ctx := flags.WithOverrides(authedCtx(uuid.New().String()), flags.Overrides{
+		Bools: map[flags.Key]bool{flags.KeyScoreToolResultTurns: true},
+	})
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(toolResultPinnedBody), rec, httpReq))
