@@ -563,7 +563,7 @@ func (s *Service) bypassToAnthropic(
 			CredentialSource:       credSource,
 			UnifiedLimitHeaders:    unifiedLimitHeadersJSON(ctx),
 		}
-		applyBlindExperimentTelemetry(ctx, &telemetryParams)
+		applyBlindExperimentTelemetry(ctx, &telemetryParams, nil)
 		applyPolicyPinTelemetry(ctx, &telemetryParams, nil)
 		s.fireTelemetry(telemetryParams)
 	}

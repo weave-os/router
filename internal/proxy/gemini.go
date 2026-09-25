@@ -481,7 +481,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		applyPlannerTelemetry(&telemetryParams, routeRes)
 		applyEffortTelemetry(&telemetryParams, effortServed)
 		applyAuthorityShadowTelemetry(&telemetryParams, routeRes)
-		applyBlindExperimentTelemetry(ctx, &telemetryParams)
+		applyBlindExperimentTelemetry(ctx, &telemetryParams, &routeRes)
 		applyPolicyPinTelemetry(ctx, &telemetryParams, decision.Metadata)
 		applySubscriberTelemetry(ctx, &telemetryParams)
 		subscriberTelemetry = &telemetryParams

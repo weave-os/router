@@ -5104,7 +5104,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		applyPlannerTelemetry(&tel, routeRes)
 		applyEffortTelemetry(&tel, effortServed)
 		applyAuthorityShadowTelemetry(&tel, routeRes)
-		applyBlindExperimentTelemetry(ctx, &tel)
+		applyBlindExperimentTelemetry(ctx, &tel, &routeRes)
 		applyPolicyPinTelemetry(ctx, &tel, decision.Metadata)
 		applySubscriberTelemetry(ctx, &tel)
 		// Hard-pinned turn types carry history shapes that mimic failure signals,
@@ -8040,7 +8040,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		applyPlannerTelemetry(&telOAI, routeRes)
 		applyEffortTelemetry(&telOAI, effortServed)
 		applyAuthorityShadowTelemetry(&telOAI, routeRes)
-		applyBlindExperimentTelemetry(ctx, &telOAI)
+		applyBlindExperimentTelemetry(ctx, &telOAI, &routeRes)
 		applyPolicyPinTelemetry(ctx, &telOAI, decision.Metadata)
 		applySubscriberTelemetry(ctx, &telOAI)
 		if proxyErr == nil {

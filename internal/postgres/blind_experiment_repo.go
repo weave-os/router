@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/sqlc"
@@ -32,6 +34,14 @@ func (repo *blindExperimentRepo) GetForUser(ctx context.Context, installationID,
 	if err != nil {
 		return auth.BlindExperimentRecord{}, err
 	}
+	var cohortSchedule []auth.BlindExperimentPhase
+	if err := json.Unmarshal([]byte(row.CohortSchedule), &cohortSchedule); err != nil {
+		return auth.BlindExperimentRecord{}, fmt.Errorf("decode blind experiment cohort schedule: %w", err)
+	}
+	var cohortOverrides []auth.BlindExperimentEmergencyOverride
+	if err := json.Unmarshal([]byte(row.CohortOverrides), &cohortOverrides); err != nil {
+		return auth.BlindExperimentRecord{}, fmt.Errorf("decode blind experiment emergency overrides: %w", err)
+	}
 	return auth.BlindExperimentRecord{
 		Configured:          row.Configured,
 		Enabled:             row.Enabled,
@@ -40,5 +50,12 @@ func (repo *blindExperimentRepo) GetForUser(ctx context.Context, installationID,
 		CanonicalSubjectKey: derefString(row.CanonicalSubjectKey),
 		AutomaticArm:        auth.BlindExperimentArm(derefString(row.AutomaticArm)),
 		ManualOverride:      auth.BlindExperimentArm(derefString(row.ManualOverride)),
+		CohortExperimentID:  row.CohortExperimentID,
+		CohortStartsAt:      row.CohortStartsAt.Time,
+		CohortEndsAt:        row.CohortEndsAt.Time,
+		CohortRevision:      int(row.CohortRevision),
+		CohortGroupID:       int(row.CohortGroupID),
+		CohortSchedule:      cohortSchedule,
+		CohortOverrides:     cohortOverrides,
 	}, nil
 }

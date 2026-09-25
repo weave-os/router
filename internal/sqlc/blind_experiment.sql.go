@@ -9,6 +9,7 @@ import (
 	"context"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const getBlindRouterExperimentForUser = `-- name: GetBlindRouterExperimentForUser :one
@@ -19,13 +20,46 @@ SELECT
     COALESCE(configuration.seed::text, '')::text AS seed,
     assignment.canonical_subject_key,
     assignment.automatic_arm,
-    assignment.manual_override
+    assignment.manual_override,
+    COALESCE(configuration.cohort_experiment_id::text, '')::text AS cohort_experiment_id,
+    COALESCE(configuration.cohort_starts_at, 'epoch'::timestamptz)::timestamptz AS cohort_starts_at,
+    COALESCE(configuration.cohort_ends_at, 'epoch'::timestamptz)::timestamptz AS cohort_ends_at,
+    COALESCE(configuration.cohort_revision, 0)::integer AS cohort_revision,
+    COALESCE(membership.group_id, 0)::smallint AS cohort_group_id,
+    COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+            'phase_index', phase.phase_index,
+            'starts_at', phase.starts_at,
+            'ends_at', phase.ends_at,
+            'arm', phase.arm
+        ) ORDER BY phase.starts_at)
+        FROM router.blind_router_experiment_schedule phase
+        WHERE phase.installation_id = router_user.installation_id
+          AND phase.experiment_id = configuration.cohort_experiment_id
+          AND phase.revision = configuration.cohort_revision
+          AND phase.group_id = membership.group_id
+    ), '[]'::jsonb)::text AS cohort_schedule,
+    COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+            'starts_at', emergency.starts_at,
+            'ends_at', LEAST(emergency.ends_at, COALESCE(emergency.revoked_at, emergency.ends_at)),
+            'arm', emergency.arm
+        ) ORDER BY emergency.starts_at)
+        FROM router.blind_router_experiment_emergency_overrides emergency
+        WHERE emergency.installation_id = router_user.installation_id
+          AND emergency.experiment_id = configuration.cohort_experiment_id
+          AND emergency.canonical_subject_key = membership.canonical_subject_key
+    ), '[]'::jsonb)::text AS cohort_overrides
 FROM router.model_router_users router_user
 LEFT JOIN router.blind_router_experiment_configurations configuration
     ON configuration.installation_id = router_user.installation_id
 LEFT JOIN router.blind_router_experiment_assignments assignment
     ON assignment.router_user_id = router_user.id
     AND assignment.installation_id = router_user.installation_id
+LEFT JOIN router.blind_router_experiment_group_memberships membership
+    ON membership.installation_id = router_user.installation_id
+    AND membership.experiment_id = configuration.cohort_experiment_id
+    AND membership.canonical_subject_key = assignment.canonical_subject_key
 WHERE router_user.id = $1::uuid
   AND router_user.installation_id = $2::uuid
   AND router_user.deleted_at IS NULL
@@ -44,6 +78,13 @@ type GetBlindRouterExperimentForUserRow struct {
 	CanonicalSubjectKey *string
 	AutomaticArm        *string
 	ManualOverride      *string
+	CohortExperimentID  string
+	CohortStartsAt      pgtype.Timestamptz
+	CohortEndsAt        pgtype.Timestamptz
+	CohortRevision      int32
+	CohortGroupID       int16
+	CohortSchedule      string
+	CohortOverrides     string
 }
 
 // Loads the installation experiment and the materialized assignment for one
@@ -57,13 +98,46 @@ type GetBlindRouterExperimentForUserRow struct {
 //	    COALESCE(configuration.seed::text, '')::text AS seed,
 //	    assignment.canonical_subject_key,
 //	    assignment.automatic_arm,
-//	    assignment.manual_override
+//	    assignment.manual_override,
+//	    COALESCE(configuration.cohort_experiment_id::text, '')::text AS cohort_experiment_id,
+//	    COALESCE(configuration.cohort_starts_at, 'epoch'::timestamptz)::timestamptz AS cohort_starts_at,
+//	    COALESCE(configuration.cohort_ends_at, 'epoch'::timestamptz)::timestamptz AS cohort_ends_at,
+//	    COALESCE(configuration.cohort_revision, 0)::integer AS cohort_revision,
+//	    COALESCE(membership.group_id, 0)::smallint AS cohort_group_id,
+//	    COALESCE((
+//	        SELECT jsonb_agg(jsonb_build_object(
+//	            'phase_index', phase.phase_index,
+//	            'starts_at', phase.starts_at,
+//	            'ends_at', phase.ends_at,
+//	            'arm', phase.arm
+//	        ) ORDER BY phase.starts_at)
+//	        FROM router.blind_router_experiment_schedule phase
+//	        WHERE phase.installation_id = router_user.installation_id
+//	          AND phase.experiment_id = configuration.cohort_experiment_id
+//	          AND phase.revision = configuration.cohort_revision
+//	          AND phase.group_id = membership.group_id
+//	    ), '[]'::jsonb)::text AS cohort_schedule,
+//	    COALESCE((
+//	        SELECT jsonb_agg(jsonb_build_object(
+//	            'starts_at', emergency.starts_at,
+//	            'ends_at', LEAST(emergency.ends_at, COALESCE(emergency.revoked_at, emergency.ends_at)),
+//	            'arm', emergency.arm
+//	        ) ORDER BY emergency.starts_at)
+//	        FROM router.blind_router_experiment_emergency_overrides emergency
+//	        WHERE emergency.installation_id = router_user.installation_id
+//	          AND emergency.experiment_id = configuration.cohort_experiment_id
+//	          AND emergency.canonical_subject_key = membership.canonical_subject_key
+//	    ), '[]'::jsonb)::text AS cohort_overrides
 //	FROM router.model_router_users router_user
 //	LEFT JOIN router.blind_router_experiment_configurations configuration
 //	    ON configuration.installation_id = router_user.installation_id
 //	LEFT JOIN router.blind_router_experiment_assignments assignment
 //	    ON assignment.router_user_id = router_user.id
 //	    AND assignment.installation_id = router_user.installation_id
+//	LEFT JOIN router.blind_router_experiment_group_memberships membership
+//	    ON membership.installation_id = router_user.installation_id
+//	    AND membership.experiment_id = configuration.cohort_experiment_id
+//	    AND membership.canonical_subject_key = assignment.canonical_subject_key
 //	WHERE router_user.id = $1::uuid
 //	  AND router_user.installation_id = $2::uuid
 //	  AND router_user.deleted_at IS NULL
@@ -78,6 +152,13 @@ func (q *Queries) GetBlindRouterExperimentForUser(ctx context.Context, arg GetBl
 		&i.CanonicalSubjectKey,
 		&i.AutomaticArm,
 		&i.ManualOverride,
+		&i.CohortExperimentID,
+		&i.CohortStartsAt,
+		&i.CohortEndsAt,
+		&i.CohortRevision,
+		&i.CohortGroupID,
+		&i.CohortSchedule,
+		&i.CohortOverrides,
 	)
 	return i, err
 }

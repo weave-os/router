@@ -28,6 +28,52 @@ type RouterBlindRouterExperimentConfiguration struct {
 	Seed               uuid.UUID
 	CreatedAt          pgtype.Timestamptz
 	UpdatedAt          pgtype.Timestamptz
+	CohortExperimentID pgtype.UUID
+	CohortStartsAt     pgtype.Timestamptz
+	CohortEndsAt       pgtype.Timestamptz
+	CohortTimezone     *string
+	CohortRevision     *int32
+}
+
+type RouterBlindRouterExperimentEmergencyOverride struct {
+	ID                  uuid.UUID
+	InstallationID      uuid.UUID
+	ExperimentID        uuid.UUID
+	CanonicalSubjectKey string
+	Arm                 string
+	StartsAt            pgtype.Timestamptz
+	EndsAt              pgtype.Timestamptz
+	Reason              string
+	CreatedBy           string
+	CreatedAt           pgtype.Timestamptz
+	RevokedAt           pgtype.Timestamptz
+	RevokedBy           *string
+	RevocationReason    *string
+}
+
+type RouterBlindRouterExperimentGroup struct {
+	InstallationID uuid.UUID
+	ExperimentID   uuid.UUID
+	GroupID        int16
+	Label          string
+}
+
+type RouterBlindRouterExperimentGroupMembership struct {
+	InstallationID      uuid.UUID
+	ExperimentID        uuid.UUID
+	CanonicalSubjectKey string
+	GroupID             int16
+}
+
+type RouterBlindRouterExperimentSchedule struct {
+	InstallationID uuid.UUID
+	ExperimentID   uuid.UUID
+	Revision       int32
+	GroupID        int16
+	PhaseIndex     int16
+	StartsAt       pgtype.Timestamptz
+	EndsAt         pgtype.Timestamptz
+	Arm            string
 }
 
 type RouterBlindRouterExperimentSubjectOverride struct {
@@ -577,6 +623,13 @@ type RouterModelRouterRequestTelemetry struct {
 	ServingReleaseID       *string
 	ServingBindingID       *string
 	BoostOptimizerVersion  *string
+	CohortExperimentID     pgtype.UUID
+	CohortGroupID          *int16
+	CohortPhaseIndex       *int16
+	CohortRevision         *int32
+	CohortScheduledArm     *string
+	CohortTreatmentApplied *bool
+	CohortBypassReason     *string
 }
 
 type RouterModelRouterSubscriptionAccount struct {
