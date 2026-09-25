@@ -120,10 +120,13 @@ func (s *Service) rescueWalkOrReadmitCooling(
 	for _, model := range cooldownsByExpiry(cooling) {
 		if failed.Metadata != nil && failed.Metadata.RosterFailover {
 			md := failed.Metadata
-			if md.ClusterRouterVersion == "" ||
-				!slices.Contains(md.ScorerRescuePool, model) ||
-				catalog.TierFor(model) < catalog.TierFor(failed.Model) ||
-				catalog.TierFor(model) > catalog.TierHigh {
+			if md.ClusterRouterVersion != "" {
+				if !slices.Contains(md.ScorerRescuePool, model) ||
+					catalog.TierFor(model) < catalog.TierFor(failed.Model) ||
+					catalog.TierFor(model) > catalog.TierHigh {
+					continue
+				}
+			} else if !slices.Contains(md.RescueModels, model) && !slices.Contains(md.SidecarRescuePool, model) {
 				continue
 			}
 		}

@@ -626,6 +626,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		"roster_model", overrideRosterID,
 		"score", res.Score,
 	)
+	rescueGroups := EscalatingRescueGroups(res.PolicyGroup, req.ForceCluster, res.RankedFallback)
 	return router.Decision{
 		Provider: binding.Provider,
 		Model:    binding.CatalogID,
@@ -634,7 +635,8 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		Metadata: &router.RoutingMetadata{
 			Escalation:                    escalationDecision,
 			CandidateModels:               resolved.CandidateModels(),
-			RescueModels:                  RescueModelOrder(req.ClusterArmOverrides, EscalatingRescueGroups(res.PolicyGroup, req.ForceCluster, res.RankedFallback), resolved),
+			RescueModels:                  RescueModelOrder(req.ClusterArmOverrides, rescueGroups, resolved),
+			SidecarRescuePool:             RescueCoolingPool(req.ClusterArmOverrides, rescueGroups, resolved),
 			RosterFailover:                len(res.RankedFallback) > 0 && (req.ForceCluster != "" || escalation.Rank(escalation.Group(res.PolicyGroup)) >= 0),
 			CandidateProviders:            resolved.CandidateProviders(),
 			CandidateScores:               resolved.CatalogCandidateScores(res.CandidateScores),
@@ -755,6 +757,7 @@ func (r *SidecarRouter) RouteWithoutUserText(ctx context.Context, req router.Req
 	}
 	observability.FromContext(ctx).Info("HMM turn has no user text; selected eligible roster arm",
 		"strategy", r.config.Strategy, "model", binding.CatalogID, "provider", binding.Provider, "group", selectedGroup)
+	rescueGroups := EscalatingRescueGroups(selectedGroup, req.ForceCluster, pick.RankedFallback)
 	return router.Decision{
 		Provider: binding.Provider,
 		Model:    binding.CatalogID,
@@ -764,7 +767,8 @@ func (r *SidecarRouter) RouteWithoutUserText(ctx context.Context, req router.Req
 			Strategy:            string(r.config.Strategy),
 			PolicyGroup:         selectedGroup,
 			CandidateModels:     resolved.CandidateModels(),
-			RescueModels:        RescueModelOrder(req.ClusterArmOverrides, EscalatingRescueGroups(selectedGroup, req.ForceCluster, pick.RankedFallback), resolved),
+			RescueModels:        RescueModelOrder(req.ClusterArmOverrides, rescueGroups, resolved),
+			SidecarRescuePool:   RescueCoolingPool(req.ClusterArmOverrides, rescueGroups, resolved),
 			RosterFailover:      len(pick.RankedFallback) > 0 && (req.ForceCluster != "" || escalation.Rank(escalation.Group(selectedGroup)) >= 0),
 			CandidateProviders:  resolved.CandidateProviders(),
 			SelectedArmID:       binding.ArmID,
