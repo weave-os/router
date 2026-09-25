@@ -74,7 +74,7 @@ def responses_fixture(
     if scenario != Scenario.MISSING_USAGE:
         response["usage"] = USAGE
     if scenario == Scenario.COMPACTION and agent == "build":
-        response["usage"] = {**USAGE, "input_tokens": 127_500, "total_tokens": 127_508}
+        response["usage"] = {**USAGE, "input_tokens": 399_500, "total_tokens": 399_508}
 
     events: list[tuple[str, dict]] = []
 

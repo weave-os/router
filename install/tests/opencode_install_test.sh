@@ -60,6 +60,9 @@ cat >"$config" <<'JSON'
 JSON
 
 run_install
+# Reinstall must upgrade a pre-400K managed limit, not preserve it.
+jq '.provider.weave.models.auto.limit.context = 128000' "$config" >"$config.tmp"
+mv "$config.tmp" "$config"
 install_output="$(run_install_output)"
 grep -Fq "opencode auth login" <<<"$install_output" || fail "install did not print the OpenCode auth login command"
 grep -Fq "Weave Router — Codex plan" <<<"$install_output" || fail "install did not print the Codex plan provider"
