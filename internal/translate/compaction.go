@@ -1,12 +1,197 @@
 package translate
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"strings"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
+
+var ErrUnsafeCompactionBoundary = errors.New("no safe compaction boundary")
+
+func (e *RequestEnvelope) SupportsHistoryCompaction() bool {
+	if e == nil {
+		return false
+	}
+	if e.format != FormatOpenAI {
+		return true
+	}
+	seenConversation := false
+	for _, message := range gjson.GetBytes(e.body, "messages").Array() {
+		switch message.Get("role").String() {
+		case "system", "developer":
+			if seenConversation {
+				return false
+			}
+		default:
+			seenConversation = true
+		}
+	}
+	return true
+}
+
+func (e *RequestEnvelope) CompactionTailBoundary(keepRecent int) int {
+	boundaries := e.CompactionBoundaries()
+	if len(boundaries) < 2 {
+		return 0
+	}
+	target := max(boundaries[len(boundaries)-1]-keepRecent, 0)
+	boundary := 0
+	for _, candidate := range boundaries[1 : len(boundaries)-1] {
+		if candidate > target {
+			break
+		}
+		boundary = candidate
+	}
+	return boundary
+}
+
+func (e *RequestEnvelope) CompactionPrefixDigest(boundary int) ([sha256.Size]byte, error) {
+	var zero [sha256.Size]byte
+	boundaries := e.CompactionBoundaries()
+	valid := false
+	for _, b := range boundaries {
+		valid = valid || b == boundary
+	}
+	if !valid || e == nil {
+		return zero, ErrUnsafeCompactionBoundary
+	}
+	field := "messages"
+	if e.format == FormatGemini {
+		field = "contents"
+	}
+	all := gjson.GetBytes(e.body, field).Array()
+	if boundary >= len(all) {
+		return zero, ErrUnsafeCompactionBoundary
+	}
+	prefix := make([]json.RawMessage, boundary)
+	for i, message := range all[:boundary] {
+		prefix[i] = json.RawMessage(message.Raw)
+	}
+	relevant, err := json.Marshal(struct {
+		Format       Format            `json:"format"`
+		System       string            `json:"system"`
+		Instructions string            `json:"instructions"`
+		Prefix       []json.RawMessage `json:"prefix"`
+	}{
+		Format:       e.format,
+		System:       gjson.GetBytes(e.body, "system").Raw,
+		Instructions: gjson.GetBytes(e.body, "instructions").Raw,
+		Prefix:       prefix,
+	})
+	if err != nil {
+		return zero, err
+	}
+	return sha256.Sum256(relevant), nil
+}
+
+func (e *RequestEnvelope) CompactionBoundaries() []int {
+	if e == nil {
+		return nil
+	}
+	field := "messages"
+	if e.format == FormatGemini {
+		field = "contents"
+	}
+	all := gjson.GetBytes(e.body, field).Array()
+	boundaries := []int{0}
+	for i := 1; i < len(all); i++ {
+		if e.format == FormatOpenAI && (all[i].Get("role").String() == "system" || all[i].Get("role").String() == "developer") {
+			continue
+		}
+		if isTextBearingUserMessage(all[i], e.format) && !containsToolResult(all[i], e.format) {
+			boundaries = append(boundaries, i)
+		} else if isAssistantMessage(all[i], e.format) && containsToolResult(all[i-1], e.format) {
+			boundaries = append(boundaries, i)
+		}
+	}
+	if len(all) > 0 {
+		boundaries = append(boundaries, len(all))
+	}
+	return boundaries
+}
+
+func containsToolResult(message gjson.Result, format Format) bool {
+	switch format {
+	case FormatAnthropic:
+		for _, b := range message.Get("content").Array() {
+			if b.Get("type").String() == "tool_result" {
+				return true
+			}
+		}
+	case FormatOpenAI:
+		return message.Get("role").String() == "tool"
+	case FormatGemini:
+		for _, p := range message.Get("parts").Array() {
+			if p.Get("functionResponse").Exists() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (e *RequestEnvelope) CompactionChunk(start, end int, summary string) (*RequestEnvelope, error) {
+	if !e.SupportsHistoryCompaction() {
+		return nil, ErrUnsafeCompactionBoundary
+	}
+	field := "messages"
+	if e.format == FormatGemini {
+		field = "contents"
+	}
+	all := gjson.GetBytes(e.body, field).Array()
+	boundaries := e.CompactionBoundaries()
+	validStart, validEnd := false, false
+	for _, boundary := range boundaries {
+		validStart = validStart || boundary == start
+		validEnd = validEnd || boundary == end
+	}
+	if !validStart || !validEnd || end <= start {
+		return nil, ErrUnsafeCompactionBoundary
+	}
+	rebuilt := make([]string, 0, end-start+3)
+	if e.format == FormatOpenAI && start > 0 {
+		for _, msg := range all[:start] {
+			if role := msg.Get("role").String(); role == "system" || role == "developer" {
+				rebuilt = append(rebuilt, msg.Raw)
+			}
+		}
+	}
+	if summary != "" {
+		switch e.format {
+		case FormatAnthropic:
+			rebuilt = append(rebuilt, anthropicAssistantSummaryBlock(summary))
+		case FormatOpenAI:
+			rebuilt = append(rebuilt, openAIAssistantSummaryMessage(summary))
+		case FormatGemini:
+			raw, _ := json.Marshal(map[string]any{"role": "model", "parts": []any{map[string]any{"text": HandoverSummaryTag + summary}}})
+			rebuilt = append(rebuilt, string(raw))
+		}
+	}
+	if isAssistantMessage(all[start], e.format) {
+		switch e.format {
+		case FormatAnthropic:
+			rebuilt = append(rebuilt, `{"role":"user","content":"Continue from the preceding conversation summary."}`)
+		case FormatOpenAI:
+			rebuilt = append(rebuilt, `{"role":"user","content":"Continue from the preceding conversation summary."}`)
+		case FormatGemini:
+			rebuilt = append(rebuilt, `{"role":"user","parts":[{"text":"Continue from the preceding conversation summary."}]}`)
+		}
+	}
+	for _, msg := range all[start:end] {
+		rebuilt = append(rebuilt, msg.Raw)
+	}
+	chunk := e.Clone()
+	var err error
+	chunk.body, err = sjson.SetRawBytes(chunk.body, field, []byte("["+strings.Join(rebuilt, ",")+"]"))
+	if err != nil {
+		return nil, err
+	}
+	return chunk, nil
+}
 
 // ClearedToolResultPlaceholder replaces the body of an old tool result during
 // Tier-1 compaction cleanup. Mirrors Claude Code's own placeholder so a reader
@@ -36,14 +221,14 @@ func (e *RequestEnvelope) ClearOldToolResults(keepRecent int) int {
 }
 
 // RewriteForCompaction rewrites history to [summary + recent keepRecentTurns
-// non-system messages], aligned to begin on a text-bearing user turn so the
-// request retains a routing boundary. Orphaned tool results (whose tool_use
-// was elided) are stripped to keep the request wire-valid. Unlike
+// non-system messages], aligned to a text-bearing user turn or the start of
+// a complete assistant/tool-result batch. Orphaned tool results (whose tool
+// use was elided) are stripped to keep the request wire-valid. Unlike
 // RewriteForHandover, a tail is kept so the model retains immediate working
 // context. Returns the number of messages elided. Pure: no I/O.
 // keepRecentTurns <= 0 is treated as 1.
 func (e *RequestEnvelope) RewriteForCompaction(summary string, keepRecentTurns int) int {
-	if e == nil {
+	if !e.SupportsHistoryCompaction() {
 		return 0
 	}
 	keepRecentTurns = max(keepRecentTurns, 1)
@@ -76,6 +261,43 @@ func userTextAlignedStart(msgs []gjson.Result, keepRecent int, format Format) in
 		return len(msgs)
 	}
 	return start
+}
+
+func compactionTailStart(msgs []gjson.Result, keepRecent int, format Format) int {
+	start := userTextAlignedStart(msgs, keepRecent, format)
+	target := max(len(msgs)-keepRecent, 0)
+	if start >= target {
+		return start
+	}
+	if containsToolResult(msgs[start], format) {
+		return start
+	}
+	for i := target; i < len(msgs); i++ {
+		if i > 0 && isAssistantMessage(msgs[i], format) && containsToolResult(msgs[i-1], format) {
+			return i
+		}
+	}
+	for i := target - 1; i > start; i-- {
+		if isAssistantMessage(msgs[i], format) && containsToolResult(msgs[i-1], format) {
+			return i
+		}
+	}
+	return start
+}
+
+func compactionUserAnchor(msgs []gjson.Result, start int, format Format) string {
+	if start == 0 || start >= len(msgs) || !isAssistantMessage(msgs[start], format) {
+		return ""
+	}
+	for i := start - 1; i >= 0; i-- {
+		if isTextBearingUserMessage(msgs[i], format) {
+			if !containsToolResult(msgs[i], format) {
+				return msgs[i].Raw
+			}
+			return ""
+		}
+	}
+	return ""
 }
 
 func (e *RequestEnvelope) clearOldToolResultsAnthropic(keepRecent int) int {
@@ -279,9 +501,17 @@ func (e *RequestEnvelope) rewriteAnthropicForCompaction(summary string, keepRece
 	if len(all) == 0 {
 		return 0
 	}
-	start := userTextAlignedStart(all, keepRecent, FormatAnthropic)
+	start := compactionTailStart(all, keepRecent, FormatAnthropic)
 	cleaned, _ := stripOrphanedAnthropicToolResults(all[start:])
-	rebuilt := append([]string{anthropicAssistantSummaryBlock(summary)}, cleaned...)
+	rebuilt := []string{anthropicAssistantSummaryBlock(summary)}
+	if start < len(all) && isAssistantMessage(all[start], FormatAnthropic) {
+		anchor := compactionUserAnchor(all, start, FormatAnthropic)
+		if anchor == "" {
+			anchor = `{"role":"user","content":"Continue from the preceding conversation summary."}`
+		}
+		rebuilt = append(rebuilt, anchor)
+	}
+	rebuilt = append(rebuilt, cleaned...)
 	elided := max(len(all)-len(cleaned), 0)
 	return e.setMessages(rebuilt, elided)
 }
@@ -307,7 +537,7 @@ func (e *RequestEnvelope) rewriteOpenAIForCompaction(summary string, keepRecent 
 	if len(others) == 0 {
 		return 0
 	}
-	start := userTextAlignedStart(others, keepRecent, FormatOpenAI)
+	start := compactionTailStart(others, keepRecent, FormatOpenAI)
 	keptRaw := make([]string, 0, len(others)-start)
 	for _, m := range others[start:] {
 		keptRaw = append(keptRaw, m.Raw)
@@ -316,6 +546,13 @@ func (e *RequestEnvelope) rewriteOpenAIForCompaction(summary string, keepRecent 
 	rebuilt := make([]string, 0, len(systems)+1+len(cleaned))
 	rebuilt = append(rebuilt, systems...)
 	rebuilt = append(rebuilt, openAIAssistantSummaryMessage(summary))
+	if start < len(others) && isAssistantMessage(others[start], FormatOpenAI) {
+		anchor := compactionUserAnchor(others, start, FormatOpenAI)
+		if anchor == "" {
+			anchor = `{"role":"user","content":"Continue from the preceding conversation summary."}`
+		}
+		rebuilt = append(rebuilt, anchor)
+	}
 	rebuilt = append(rebuilt, cleaned...)
 	elided := max(len(others)-len(cleaned), 0)
 	return e.setMessages(rebuilt, elided)
@@ -330,7 +567,7 @@ func (e *RequestEnvelope) rewriteGeminiForCompaction(summary string, keepRecent 
 	if len(all) == 0 {
 		return 0
 	}
-	start := userTextAlignedStart(all, keepRecent, FormatGemini)
+	start := compactionTailStart(all, keepRecent, FormatGemini)
 	kept := stripLeadingGeminiOrphanFunctionResponses(all[start:])
 
 	tagged := HandoverSummaryTag + summary
@@ -342,6 +579,13 @@ func (e *RequestEnvelope) rewriteGeminiForCompaction(summary string, keepRecent 
 
 	rebuilt := make([]string, 0, len(kept)+1)
 	rebuilt = append(rebuilt, string(summaryRaw))
+	if start < len(all) && isAssistantMessage(all[start], FormatGemini) {
+		anchor := compactionUserAnchor(all, start, FormatGemini)
+		if anchor == "" {
+			anchor = `{"role":"user","parts":[{"text":"Continue from the preceding conversation summary."}]}`
+		}
+		rebuilt = append(rebuilt, anchor)
+	}
 	rebuilt = append(rebuilt, kept...)
 	elided := max(len(all)-len(kept), 0)
 	out, err := sjson.SetRawBytes(e.body, "contents", []byte("["+strings.Join(rebuilt, ",")+"]"))

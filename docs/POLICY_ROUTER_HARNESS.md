@@ -94,8 +94,11 @@ When `authoritative_per_turn_selection=true`, each eligible main-loop or
 tool-result `/route` selection is model-authoritative for that turn. Go still
 owns hard eligibility, explicit force-model/operator pins, credentials, and
 same-model provider retries. It disables automatic session reuse, EV planner
-overrides, model-changing baseline failover, semantic-cache hits, and
-router-generated summarizer calls for those turns. Post-selection synthetic
+overrides, model-changing baseline failover, and semantic-cache hits for those
+turns. The independently reviewed `precompaction_summary` inference purpose
+may run before selection when the request approaches the eligible context
+window; its plan must still pass the tenant's provider and model restrictions.
+Post-selection synthetic
 loop breakers are also bypassed so one accepted policy action maps to one
 selected model dispatch attempt.
 

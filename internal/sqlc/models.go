@@ -77,6 +77,18 @@ type RouterClusterModelList struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
+type RouterCompactionCheckpoint struct {
+	CredentialIdentity string
+	SessionKey         []byte
+	Endpoint           string
+	PrefixDigest       []byte
+	PolicyDigest       []byte
+	Boundary           int32
+	SummaryCiphertext  []byte
+	SummaryModel       string
+	ExpiresAt          pgtype.Timestamptz
+}
+
 // Opaque account-owned identity projection; no private account table dependency
 type RouterCredentialSubject struct {
 	ID                   uuid.UUID

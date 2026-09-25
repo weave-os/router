@@ -8,11 +8,12 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"weave-os/router/internal/dispatch"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/compactioncheckpoint"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -22,6 +23,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 type fakeCompactionSummarizer struct {
@@ -31,12 +33,42 @@ type fakeCompactionSummarizer struct {
 	calls      int
 	lastModel  string
 	lastSource policy.OverrideSource
+	failOnCall int
+}
+
+type memoryCompactionCheckpoints struct {
+	checkpoint compactioncheckpoint.Checkpoint
+	writes     int
+	reads      int
+	getErr     error
+	putErr     error
+}
+
+func (m *memoryCompactionCheckpoints) Get(_ context.Context, identity string, key [16]byte, endpoint string) (compactioncheckpoint.Checkpoint, bool, error) {
+	m.reads++
+	if m.getErr != nil {
+		return compactioncheckpoint.Checkpoint{}, false, m.getErr
+	}
+	cp := m.checkpoint
+	return cp, m.writes > 0 && cp.CredentialIdentity == identity && cp.SessionKey == key && cp.Endpoint == endpoint && cp.ExpiresAt.After(time.Now()), nil
+}
+
+func (m *memoryCompactionCheckpoints) Upsert(_ context.Context, cp compactioncheckpoint.Checkpoint) error {
+	if m.putErr != nil {
+		return m.putErr
+	}
+	m.checkpoint = cp
+	m.writes++
+	return nil
 }
 
 func (f *fakeCompactionSummarizer) SummarizeForCompaction(_ context.Context, _ *translate.RequestEnvelope, target CompactionTarget, _ router.Request, _ int) (string, handover.Usage, error) {
 	f.calls++
 	f.lastModel = target.CatalogID
 	f.lastSource = target.Source
+	if f.calls == f.failOnCall {
+		return "", f.usage, errors.New("summary provider unavailable")
+	}
 	return f.summary, f.usage, f.err
 }
 
@@ -78,6 +110,294 @@ func toolHeavyAnthropicBody(nPairs, contentBytes int) []byte {
 	}
 	sb.WriteString(`]}`)
 	return []byte(sb.String())
+}
+
+func incidentShapeAnthropicBody() []byte {
+	var sb strings.Builder
+	sb.WriteString(`{"model":"claude-opus-5-5","messages":[`)
+	for i := range 575 {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		sb.WriteString(`{"role":"assistant","content":[{"type":"text","text":"`)
+		sb.WriteString(strings.Repeat("a", 8000))
+		sb.WriteString(`"},{"type":"tool_use","id":"`)
+		sb.WriteString(fmt.Sprintf("t%d", i))
+		sb.WriteString(`","name":"read","input":{}}`)
+		if i < 33 {
+			sb.WriteString(`,{"type":"tool_use","id":"`)
+			sb.WriteString(fmt.Sprintf("extra%d", i))
+			sb.WriteString(`","name":"read","input":{}}`)
+		}
+		sb.WriteString(`]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"`)
+		sb.WriteString(fmt.Sprintf("t%d", i))
+		sb.WriteString(`","content":"`)
+		sb.WriteString(strings.Repeat("b", 1000))
+		sb.WriteString(`"}`)
+		if i < 33 {
+			sb.WriteString(`,{"type":"tool_result","tool_use_id":"`)
+			sb.WriteString(fmt.Sprintf("extra%d", i))
+			sb.WriteString(`","content":"`)
+			sb.WriteString(strings.Repeat("b", 1000))
+			sb.WriteString(`"}`)
+		}
+		sb.WriteString(`]}`)
+	}
+	sb.WriteString(`,{"role":"user","content":"Continue with the task."}]}`)
+	return []byte(sb.String())
+}
+
+func TestMaybeCompact_IncidentShapeNoSilentHistoryLoss(t *testing.T) {
+	body := incidentShapeAnthropicBody()
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	cleaned := env.Clone()
+	require.Equal(t, 603, cleaned.ClearOldToolResults(5))
+	window := cleaned.ContextOverflowTokenEstimate() - 373
+	require.Greater(t, cleaned.ContextOverflowTokenEstimate(), 1_000_000)
+
+	s := &Service{compactionTriggerPct: DefaultCompactionTriggerPct}
+	res, err := s.maybeCompact(context.Background(), env, compactionInput{
+		TurnType: turntype.MainLoop, MaxWindow: window, Headers: http.Header{},
+	})
+	require.ErrorIs(t, err, ErrContextWindowExceeded)
+	assert.Zero(t, res.TrimmedToRecent)
+	assert.Equal(t, cleaned.RoutingFeatures(false).MessageCount, env.RoutingFeatures(false).MessageCount)
+}
+
+func TestMaybeCompact_IncidentShapeSummarizesInChunks(t *testing.T) {
+	body := incidentShapeAnthropicBody()
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	cleaned := env.Clone()
+	require.Equal(t, 603, cleaned.ClearOldToolResults(5))
+	window := cleaned.ContextOverflowTokenEstimate() - 373
+
+	fake := &fakeCompactionSummarizer{summary: "Preserved decisions and tool results"}
+	s := &Service{compactionTriggerPct: DefaultCompactionTriggerPct, compactionSummarizer: fake}
+	result, err := s.maybeCompact(context.Background(), env, compactionInput{
+		TurnType: turntype.MainLoop, ClientApp: ClientAppClaudeCode, MaxWindow: window, Headers: http.Header{},
+	})
+	require.NoError(t, err)
+	assert.True(t, result.Summarized)
+	assert.GreaterOrEqual(t, fake.calls, 2)
+	assert.Zero(t, result.TrimmedToRecent)
+	assert.LessOrEqual(t, result.FinalEstimate, window)
+	prepared, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: "claude-opus-5-5"})
+	require.NoError(t, err)
+	messages := gjson.GetBytes(prepared.Body, "messages").Array()
+	assert.Less(t, len(messages), len(gjson.GetBytes(body, "messages").Array()))
+	assert.Contains(t, string(prepared.Body), "Preserved decisions and tool results")
+	assert.Contains(t, string(prepared.Body), "Continue with the task.")
+}
+
+func TestMaybeCompact_ReusesOnlyMatchingSessionPrefixAndPolicy(t *testing.T) {
+	body := alternatingAnthropicBody(32, 400)
+	first, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	window := first.ContextOverflowTokenEstimate() + first.ContextOverflowTokenEstimate()/10
+	store := &memoryCompactionCheckpoints{}
+	fake := &fakeCompactionSummarizer{summary: "Decisions from preceding turns"}
+	s := &Service{compactionTriggerPct: DefaultCompactionTriggerPct, compactionSummarizer: fake, compactionCheckpoints: store}
+	in := compactionInput{
+		TurnType: turntype.MainLoop, ClientApp: ClientAppClaudeCode,
+		CredentialIdentity: "key-a", SessionKey: [16]byte{1},
+		Endpoint: string(router.EndpointAnthropicMessages), MaxWindow: window,
+		Headers: http.Header{},
+	}
+	firstResult, err := s.maybeCompact(context.Background(), first, in)
+	require.NoError(t, err)
+	require.True(t, firstResult.Summarized)
+	require.Equal(t, 1, store.writes)
+	require.Positive(t, store.checkpoint.Boundary)
+	initial := store.checkpoint
+	s = &Service{compactionTriggerPct: DefaultCompactionTriggerPct, compactionSummarizer: fake, compactionCheckpoints: store}
+
+	resume := strings.TrimSuffix(string(body), `]}`) + `,{"role":"user","content":"next request"}]}`
+	second, err := translate.ParseAnthropic([]byte(resume))
+	require.NoError(t, err)
+	secondResult, err := s.maybeCompact(context.Background(), second, in)
+	require.NoError(t, err)
+	require.True(t, secondResult.CheckpointReused)
+	assert.Equal(t, 1, fake.calls)
+	prepared, err := second.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: "claude-opus-5-5"})
+	require.NoError(t, err)
+	assert.Contains(t, string(prepared.Body), "Decisions from preceding turns")
+	assert.Contains(t, string(prepared.Body), "next request")
+
+	for _, tc := range []struct {
+		name       string
+		body       string
+		edit       func(*compactionInput)
+		checkpoint func(*memoryCompactionCheckpoints)
+	}{
+		{name: "forked prefix", body: strings.Replace(resume, `"system":"sys"`, `"system":"changed"`, 1)},
+		{name: "other credential", body: resume, edit: func(in *compactionInput) { in.CredentialIdentity = "key-b" }},
+		{name: "other session", body: resume, edit: func(in *compactionInput) { in.SessionKey = [16]byte{2} }},
+		{name: "other endpoint", body: resume, edit: func(in *compactionInput) { in.Endpoint = string(router.EndpointOpenAIChat) }},
+		{name: "other policy", body: resume, edit: func(in *compactionInput) { in.Scope.ExcludedModels = map[string]struct{}{"claude-haiku-4-5": {}} }},
+		{name: "expired", body: resume, checkpoint: func(store *memoryCompactionCheckpoints) { store.checkpoint.ExpiresAt = time.Now().Add(-time.Second) }},
+		{name: "invalid boundary", body: resume, checkpoint: func(store *memoryCompactionCheckpoints) { store.checkpoint.Boundary++ }},
+		{name: "empty summary", body: resume, checkpoint: func(store *memoryCompactionCheckpoints) { store.checkpoint.Summary = " " }},
+		{name: "store failure", body: resume, checkpoint: func(store *memoryCompactionCheckpoints) { store.getErr = errors.New("db unavailable") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store.checkpoint = initial
+			store.getErr = nil
+			if tc.checkpoint != nil {
+				tc.checkpoint(store)
+			}
+			candidate, parseErr := translate.ParseAnthropic([]byte(tc.body))
+			require.NoError(t, parseErr)
+			request := in
+			if tc.edit != nil {
+				tc.edit(&request)
+			}
+			summaryCalls := fake.calls
+			result, compactErr := s.maybeCompact(context.Background(), candidate, request)
+			require.NoError(t, compactErr)
+			assert.False(t, result.CheckpointReused)
+			assert.Greater(t, fake.calls, summaryCalls)
+		})
+	}
+}
+
+func TestMaybeCompact_UnverifiedClientsKeepOriginalHistory(t *testing.T) {
+	for _, clientApp := range []string{"", "unknown", "pi", ClientAppCursor} {
+		t.Run(clientApp, func(t *testing.T) {
+			body := alternatingAnthropicBody(32, 400)
+			env, err := translate.ParseAnthropic(body)
+			require.NoError(t, err)
+			before, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: "claude-opus-5-5"})
+			require.NoError(t, err)
+			fake := &fakeCompactionSummarizer{summary: "unverified summary"}
+			s := &Service{compactionTriggerPct: DefaultCompactionTriggerPct, compactionSummarizer: fake}
+			result, err := s.maybeCompact(context.Background(), env, compactionInput{
+				TurnType: turntype.MainLoop, ClientApp: clientApp,
+				MaxWindow: env.ContextOverflowTokenEstimate() / 2, Headers: http.Header{},
+			})
+			require.ErrorIs(t, err, ErrContextWindowExceeded)
+			assert.False(t, result.Summarized)
+			assert.Zero(t, fake.calls)
+			prepared, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: "claude-opus-5-5"})
+			require.NoError(t, err)
+			assert.JSONEq(t, string(before.Body), string(prepared.Body))
+		})
+	}
+}
+
+func TestMaybeCompact_MidConversationInstructionsStayInPlace(t *testing.T) {
+	body := []byte(`{"messages":[{"role":"system","content":"initial"},{"role":"user","content":"first"},{"role":"assistant","content":"answer"},{"role":"developer","content":"new constraint"},{"role":"user","content":"second"}]}`)
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+	fake := &fakeCompactionSummarizer{summary: "Earlier answer"}
+	s := &Service{compactionTriggerPct: DefaultCompactionTriggerPct, compactionSummarizer: fake}
+	result, err := s.maybeCompact(context.Background(), env, compactionInput{
+		TurnType: turntype.MainLoop, ClientApp: ClientAppOpencode, MaxWindow: 10, Headers: http.Header{},
+	})
+	require.ErrorIs(t, err, ErrContextWindowExceeded)
+	assert.False(t, result.Summarized)
+	assert.Zero(t, fake.calls)
+	prepared, err := env.PrepareOpenAI(nil, translate.EmitOptions{TargetModel: "gpt-4o"})
+	require.NoError(t, err)
+	assert.JSONEq(t, gjson.GetBytes(body, "messages").Raw, gjson.GetBytes(prepared.Body, "messages").Raw)
+}
+
+func TestMaybeCompact_FourteenPercentOverflowSummarizes(t *testing.T) {
+	env, err := translate.ParseAnthropic(alternatingAnthropicBody(40, 400))
+	require.NoError(t, err)
+	before := env.ContextOverflowTokenEstimate()
+	window := before * 100 / 114
+	fake := &fakeCompactionSummarizer{summary: "Preserved previous decisions"}
+	s := &Service{compactionTriggerPct: DefaultCompactionTriggerPct, compactionSummarizer: fake}
+	result, err := s.maybeCompact(context.Background(), env, compactionInput{
+		TurnType: turntype.MainLoop, ClientApp: ClientAppClaudeCode,
+		MaxWindow: window, Headers: http.Header{},
+	})
+	require.NoError(t, err)
+	assert.True(t, result.Summarized)
+	assert.Equal(t, 1, fake.calls)
+	assert.LessOrEqual(t, result.FinalEstimate, window)
+}
+
+func TestMaybeCompact_CheckpointFailuresDoNotLoseHistory(t *testing.T) {
+	body := alternatingAnthropicBody(32, 400)
+	source, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	store := &memoryCompactionCheckpoints{putErr: errors.New("db unavailable")}
+	fake := &fakeCompactionSummarizer{summary: "Remember the decisions"}
+	s := &Service{compactionTriggerPct: DefaultCompactionTriggerPct, compactionSummarizer: fake, compactionCheckpoints: store}
+	in := compactionInput{
+		TurnType: turntype.MainLoop, ClientApp: ClientAppClaudeCode,
+		CredentialIdentity: "key-a", SessionKey: [16]byte{1},
+		Endpoint:  string(router.EndpointAnthropicMessages),
+		MaxWindow: source.ContextOverflowTokenEstimate() + source.ContextOverflowTokenEstimate()/10,
+		Headers:   http.Header{},
+	}
+	result, err := s.maybeCompact(context.Background(), source, in)
+	require.NoError(t, err)
+	assert.True(t, result.Summarized)
+	assert.Zero(t, store.writes)
+
+	store.putErr = nil
+	retry, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	_, err = s.maybeCompact(context.Background(), retry, in)
+	require.NoError(t, err)
+	require.Equal(t, 1, store.writes)
+
+	in.MaxWindow = 100
+	oversized, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	before, err := oversized.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: "claude-opus-5-5"})
+	require.NoError(t, err)
+	result, err = s.maybeCompact(context.Background(), oversized, in)
+	require.ErrorIs(t, err, ErrContextWindowExceeded)
+	assert.False(t, result.CheckpointReused)
+	after, err := oversized.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: "claude-opus-5-5"})
+	require.NoError(t, err)
+	assert.JSONEq(t, string(before.Body), string(after.Body))
+}
+
+func TestMaybeCompact_PartialChunkFailureRetainsHistoryAndUsage(t *testing.T) {
+	env, err := translate.ParseAnthropic(incidentShapeAnthropicBody())
+	require.NoError(t, err)
+	before, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: "claude-opus-5-5"})
+	require.NoError(t, err)
+	cleaned := env.Clone()
+	require.Equal(t, 603, cleaned.ClearOldToolResults(5))
+
+	fake := &fakeCompactionSummarizer{
+		summary:    "Preserved task state",
+		usage:      handover.Usage{InputTokens: 12, OutputTokens: 3},
+		failOnCall: 2,
+	}
+	service := &Service{compactionTriggerPct: DefaultCompactionTriggerPct, compactionSummarizer: fake}
+	result, err := service.maybeCompact(context.Background(), env, compactionInput{
+		TurnType: turntype.MainLoop, ClientApp: ClientAppClaudeCode, MaxWindow: cleaned.ContextOverflowTokenEstimate() - 373,
+		Headers: http.Header{},
+	})
+	require.ErrorIs(t, err, ErrContextWindowExceeded)
+	assert.Equal(t, 2, fake.calls)
+	assert.Equal(t, 24, result.SummaryUsage.InputTokens)
+	assert.Equal(t, 6, result.SummaryUsage.OutputTokens)
+	after, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: "claude-opus-5-5"})
+	require.NoError(t, err)
+	assert.JSONEq(t, string(before.Body), string(after.Body))
+}
+
+func TestSelectCompactionSummarizer_MeasuresPreparedProjection(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-5-5","tools":[{"name":"read","description":"` +
+		strings.Repeat("x", 1_000_000) +
+		`","input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"Keep this"}]}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	require.Greater(t, env.ContextOverflowTokenEstimate(), 200_000)
+	model := (&Service{}).selectCompactionSummarizer(env, "", nil)
+	assert.Equal(t, policy.PrecompactionDefaultModel, model)
+	projected, err := compactionSummaryEstimate(env, model)
+	require.NoError(t, err)
+	assert.Less(t, projected, 2_000)
 }
 
 func TestMaybeCompact_UnderThresholdIsNoop(t *testing.T) {
@@ -125,7 +445,7 @@ func TestMaybeCompact_Tier3Summarizes(t *testing.T) {
 
 	// Window that Tier-1 (no tool results here) can't satisfy but a
 	// summarize + recent-12 rewrite can.
-	res, err := s.maybeCompact(context.Background(), env, compactionInput{TurnType: turntype.MainLoop, OutputReserve: 0, MaxWindow: 900, Headers: http.Header{}})
+	res, err := s.maybeCompact(context.Background(), env, compactionInput{TurnType: turntype.MainLoop, ClientApp: ClientAppClaudeCode, OutputReserve: 0, MaxWindow: 900, Headers: http.Header{}})
 	require.NoError(t, err)
 	assert.True(t, res.Applied)
 	assert.True(t, res.Summarized)
@@ -161,9 +481,9 @@ func TestMaybeCompact_SkipsHardPinnedTurns(t *testing.T) {
 	assert.Equal(t, before, env.ContextOverflowTokenEstimate(), "env must be untouched")
 }
 
-func TestMaybeCompact_AuthoritativePolicyNeverCallsSummarizer(t *testing.T) {
+func TestMaybeCompact_AuthoritativePolicyAllowsAuxiliarySummarizer(t *testing.T) {
 	strategy := router.Strategy("authoritative-compaction-test")
-	fake := &fakeCompactionSummarizer{summary: "must not run"}
+	fake := &fakeCompactionSummarizer{summary: "Preserved context"}
 	s := (&Service{
 		compactionTriggerPct: DefaultCompactionTriggerPct,
 		compactionSummarizer: fake,
@@ -178,11 +498,12 @@ func TestMaybeCompact_AuthoritativePolicyNeverCallsSummarizer(t *testing.T) {
 	require.NoError(t, err)
 	ctx := router.WithStrategy(context.Background(), strategy)
 
-	result, _ := s.maybeCompact(ctx, env, compactionInput{TurnType: turntype.MainLoop, OutputReserve: 100, MaxWindow: 700, Headers: http.Header{}})
+	result, err := s.maybeCompact(ctx, env, compactionInput{TurnType: turntype.MainLoop, ClientApp: ClientAppClaudeCode, OutputReserve: 100, MaxWindow: 1_200, Headers: http.Header{}})
 
-	assert.Equal(t, 0, fake.calls)
-	assert.False(t, result.Summarized)
-	assert.Positive(t, result.TrimmedToRecent, "authoritative routing must still rescue-trim when cleanup does not fit")
+	require.NoError(t, err)
+	assert.Equal(t, 1, fake.calls)
+	assert.True(t, result.Summarized)
+	assert.Zero(t, result.TrimmedToRecent)
 }
 
 func TestWithCompaction_ZeroPctDisables(t *testing.T) {
@@ -198,24 +519,30 @@ func TestWithCompaction_ZeroPctDisables(t *testing.T) {
 
 func TestSelectCompactionSummarizer_WindowAware(t *testing.T) {
 	s := &Service{}
-	assert.Equal(t, policy.PrecompactionDefaultModel, s.selectCompactionSummarizer(1_000, "", nil), "small history → Sonnet-class default")
-	assert.Equal(t, "claude-opus-5-5", s.selectCompactionSummarizer(300_000, "", nil), "history over the default's window → newest large-window family member")
-	assert.Equal(t, "", s.selectCompactionSummarizer(5_000_000, "", nil), "history over every window → none")
+	small, err := translate.ParseAnthropic(alternatingAnthropicBody(2, 2_000))
+	require.NoError(t, err)
+	large, err := translate.ParseAnthropic(alternatingAnthropicBody(2, 600_000))
+	require.NoError(t, err)
+	tooLarge, err := translate.ParseAnthropic(alternatingAnthropicBody(2, 2_100_000))
+	require.NoError(t, err)
+	assert.Equal(t, policy.PrecompactionDefaultModel, s.selectCompactionSummarizer(small, "", nil))
+	assert.Equal(t, "claude-opus-5-5", s.selectCompactionSummarizer(large, "", nil))
+	assert.Empty(t, s.selectCompactionSummarizer(tooLarge, "", nil))
 
-	assert.Equal(t, "claude-opus-5-5", s.selectCompactionSummarizer(1_000, "claude-opus-4-8", nil), "session family upgrades to its newest eligible version")
-	assert.Equal(t, policy.PrecompactionDefaultModel, s.selectCompactionSummarizer(1_000, "claude-haiku-4-5", nil), "low-tier pin is not reused as summarizer")
-	assert.Equal(t, policy.PrecompactionDefaultModel, s.selectCompactionSummarizer(1_000, "gpt-5.5", nil), "non-Anthropic pin is not reused as summarizer")
-	assert.Equal(t, "claude-opus-5-5", s.selectCompactionSummarizer(300_000, "claude-opus-4-8", nil), "upgraded pin can ingest the larger history")
+	assert.Equal(t, "claude-opus-5-5", s.selectCompactionSummarizer(small, "claude-opus-4-8", nil))
+	assert.Equal(t, policy.PrecompactionDefaultModel, s.selectCompactionSummarizer(small, "claude-haiku-4-5", nil))
+	assert.Equal(t, policy.PrecompactionDefaultModel, s.selectCompactionSummarizer(small, "gpt-5.5", nil))
+	assert.Equal(t, "claude-opus-5-5", s.selectCompactionSummarizer(large, "claude-opus-4-8", nil))
 
 	custom := &Service{compactionModel: "claude-sonnet-4-5"}
-	assert.Equal(t, "claude-sonnet-5", custom.selectCompactionSummarizer(1_000, "", nil), "ROUTER_COMPACTION_MODEL selects a family, not an obsolete version")
+	assert.Equal(t, "claude-sonnet-5", custom.selectCompactionSummarizer(small, "", nil), "ROUTER_COMPACTION_MODEL selects a family, not an obsolete version")
 
 	excluded := map[string]struct{}{policy.PrecompactionDefaultModel: {}}
-	assert.Equal(t, "claude-sonnet-4-6", s.selectCompactionSummarizer(1_000, "claude-sonnet-4-5", excluded))
+	assert.Equal(t, "claude-sonnet-4-6", s.selectCompactionSummarizer(small, "claude-sonnet-4-5", excluded))
 	excluded[policy.PrecompactionLargeWindowModel] = struct{}{}
-	assert.Equal(t, "claude-opus-5-5", s.selectCompactionSummarizer(300_000, "claude-sonnet-4-5", excluded), "excluding one family member still upgrades to a newer one")
+	assert.Equal(t, "claude-opus-5-5", s.selectCompactionSummarizer(large, "claude-sonnet-4-5", excluded), "excluding one family member still upgrades to a newer one")
 	excluded["claude-opus-5-5"] = struct{}{}
-	assert.Empty(t, s.selectCompactionSummarizer(300_000, "claude-sonnet-4-5", excluded))
+	assert.Empty(t, s.selectCompactionSummarizer(large, "claude-sonnet-4-5", excluded))
 }
 
 func TestCompactionTargetFor_TypesTheCascadeChoice(t *testing.T) {

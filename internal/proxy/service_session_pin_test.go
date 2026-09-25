@@ -865,9 +865,10 @@ func TestService_HMMFeedbackKeyUsesClientSessionBeforeCompaction(t *testing.T) {
 	svc := newPinSvc(fr, store).
 		WithHMMRouter(fr).
 		WithAvailableModels(map[string]struct{}{"claude-haiku-4-5": {}}).
-		WithCompaction(nil, proxy.DefaultCompactionTriggerPct)
+		WithCompaction(&fakeChatCompactionSummarizer{summary: "Earlier user task and decisions"}, proxy.DefaultCompactionTriggerPct)
 
 	ctx := router.WithStrategy(authedCtx(uuid.NewString()), router.StrategyHMM)
+	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppClaudeCode})
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))
@@ -875,7 +876,9 @@ func TestService_HMMFeedbackKeyUsesClientSessionBeforeCompaction(t *testing.T) {
 	require.NotNil(t, fr.capturedReq)
 	assert.Equal(t, beforeKey, fr.capturedReq.FeedbackKey)
 	assert.NotEqual(t, afterKey, fr.capturedReq.FeedbackKey)
-	assert.Equal(t, "latest request", fr.capturedReq.ConversationMessages[0].Text)
+	require.NotEmpty(t, fr.capturedReq.ConversationMessages)
+	assert.Contains(t, fr.capturedReq.ConversationMessages[0].Text, "Earlier user task and decisions")
+	assert.Equal(t, "latest request", fr.capturedReq.ConversationMessages[len(fr.capturedReq.ConversationMessages)-1].Text)
 }
 
 func TestService_HMMFeedbackKeyOpenAIUsesClientSessionBeforeCompaction(t *testing.T) {
@@ -910,9 +913,10 @@ func TestService_HMMFeedbackKeyOpenAIUsesClientSessionBeforeCompaction(t *testin
 	svc := newOpenAIPinSvc(fr, store).
 		WithHMMRouter(fr).
 		WithAvailableModels(map[string]struct{}{"gpt-4o": {}}).
-		WithCompaction(nil, proxy.DefaultCompactionTriggerPct)
+		WithCompaction(&fakeChatCompactionSummarizer{summary: "Earlier user task and decisions"}, proxy.DefaultCompactionTriggerPct)
 
 	ctx := router.WithStrategy(authedCtx(uuid.NewString()), router.StrategyHMM)
+	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, body, rec, httpReq))
@@ -920,7 +924,9 @@ func TestService_HMMFeedbackKeyOpenAIUsesClientSessionBeforeCompaction(t *testin
 	require.NotNil(t, fr.capturedReq)
 	assert.Equal(t, beforeKey, fr.capturedReq.FeedbackKey)
 	assert.NotEqual(t, afterKey, fr.capturedReq.FeedbackKey)
-	assert.Equal(t, "latest request", fr.capturedReq.ConversationMessages[0].Text)
+	require.NotEmpty(t, fr.capturedReq.ConversationMessages)
+	assert.Contains(t, fr.capturedReq.ConversationMessages[0].Text, "Earlier user task and decisions")
+	assert.Equal(t, "latest request", fr.capturedReq.ConversationMessages[len(fr.capturedReq.ConversationMessages)-1].Text)
 }
 
 func TestService_HardPin_ExploreFallsThroughWhenFlagOff(t *testing.T) {
