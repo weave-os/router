@@ -19,7 +19,7 @@ const MaxPlanRosterPinsEnabledEnv = "ROUTER_MAX_PLAN_ROSTER_PINS"
 // model that is excluded, undeployed, or unprovidered falls open to ordinary
 // selection rather than failing the turn.
 var maxPlanClusterPins = map[string][]string{
-	"low":     {"inclusionai/ling-3.0-flash", "xiaomi/mimo-v2.6-flash"},
+	"low":     {"deepseek/deepseek-v4.1-flash", "xiaomi/mimo-v2.6-flash"},
 	"medium":  {"xiaomi/mimo-v2.6-flash", "z-ai/glm-5.3-flash"},
 	"high":    {"deepseek/deepseek-v4.1-flash", "z-ai/glm-5.3-flash"},
 	"maximum": {"xiaomi/mimo-v2.6-pro", "deepseek/deepseek-v4.1-flash"},
