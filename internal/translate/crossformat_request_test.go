@@ -2045,6 +2045,32 @@ func TestSanitizeToolUseIDs_AnthropicToAnthropic(t *testing.T) {
 	assert.Equal(t, "functions_Grep_11", result["tool_use_id"], "tool_use_id must be sanitized in same-format path")
 }
 
+func TestSanitizeToolUseIDs_AnthropicTargetDropsOpenAIReasoningCarrier(t *testing.T) {
+	reasoningID := "call_abc__openai_reasoning__" + strings.Repeat("Q", 8000)
+	thoughtID := "toolu_def__thought__" + strings.Repeat("R", 600)
+	body := []byte(`{"model":"claude-opus-4-7","messages":[
+		{"role":"assistant","content":[
+			{"type":"tool_use","id":"` + reasoningID + `","name":"Read","input":{}},
+			{"type":"tool_use","id":"` + thoughtID + `","name":"Grep","input":{}}]},
+		{"role":"user","content":[
+			{"type":"tool_result","tool_use_id":"` + reasoningID + `","content":"a"},
+			{"type":"tool_result","tool_use_id":"` + thoughtID + `","content":"b"}]}]}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-7"})
+	require.NoError(t, err)
+
+	uses := gjson.GetBytes(prep.Body, "messages.0.content.#.id").Array()
+	results := gjson.GetBytes(prep.Body, "messages.1.content.#.tool_use_id").Array()
+	require.Len(t, uses, 2)
+	require.Len(t, results, 2)
+	assert.Equal(t, "call_abc", uses[0].String(), "OpenAI reasoning carrier is not sent to Anthropic")
+	assert.Equal(t, thoughtID, uses[1].String(), "Gemini thought carrier keeps its documented round-trip")
+	assert.Equal(t, uses[0].String(), results[0].String(), "tool_use/tool_result pairing survives")
+	assert.Equal(t, uses[1].String(), results[1].String())
+	assert.Less(t, len(prep.Body), 3000, "OpenAI carrier bytes are gone from the dispatched body")
+}
+
 func TestSanitizeOverlongToolUseNames(t *testing.T) {
 	overlongName := "Bname</arg_key><arg_value>" + strings.Repeat("x", 220)
 	tests := []struct {

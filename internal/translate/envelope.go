@@ -483,9 +483,10 @@ type EmitOverrides struct {
 	// is a router-minted cross-format envelope (`encodeOpenAIReasoningSignature`),
 	// not a real Anthropic signature. Set unconditionally for Anthropic targets.
 	StripForeignSignedThinkingBlocks bool
-	// SanitizeToolUseIDs rewrites tool_use.id / tool_use_id values outside
-	// ^[a-zA-Z0-9_-]+$. Always set for Anthropic targets: upstreams like
-	// Kimi-k2.6 emit IDs (e.g. "functions.Read:0") Anthropic rejects on replay.
+	// SanitizeToolUseIDs strips the router-minted OpenAI reasoning carrier and rewrites
+	// tool_use.id / tool_use_id values outside ^[a-zA-Z0-9_-]+$. Always set for
+	// Anthropic targets: upstreams like Kimi-k2.6 emit IDs (e.g.
+	// "functions.Read:0") Anthropic rejects on replay.
 	SanitizeToolUseIDs bool
 	// StripThoughtSignature removes `thought_signature` from content blocks.
 	// Set for Anthropic targets: the field is Gemini-only and Anthropic 400s
@@ -876,13 +877,22 @@ func blockNeedsToolUseIDSanitize(block gjson.Result) bool {
 	switch block.Get("type").String() {
 	case "tool_use":
 		id := block.Get("id").String()
-		return sanitizeToolUseID(id) != id
+		return anthropicRequestToolUseID(id) != id
 	case "tool_result":
 		id := block.Get("tool_use_id").String()
-		return sanitizeToolUseID(id) != id
+		return anthropicRequestToolUseID(id) != id
 	default:
 		return false
 	}
+}
+
+// anthropicRequestToolUseID drops the router-minted OpenAI reasoning carrier
+// before sanitizing: Anthropic cannot use it, and it costs up to ~8KB of prompt
+// per echoed id. Both ends of a tool_use/tool_result pair reduce to the same id.
+// The Gemini thought carrier stays (see StripThoughtSignature).
+func anthropicRequestToolUseID(id string) string {
+	id, _ = extractOpenAIReasoningSignatureFromID(id)
+	return sanitizeToolUseID(id)
 }
 
 func sanitizeBlockToolUseID(raw string) (string, error) {
@@ -890,14 +900,14 @@ func sanitizeBlockToolUseID(raw string) (string, error) {
 	switch block.Get("type").String() {
 	case "tool_use":
 		id := block.Get("id").String()
-		out, err := sjson.Set(raw, "id", sanitizeToolUseID(id))
+		out, err := sjson.Set(raw, "id", anthropicRequestToolUseID(id))
 		if err != nil {
 			return "", fmt.Errorf("rewrite tool_use id: %w", err)
 		}
 		return out, nil
 	case "tool_result":
 		id := block.Get("tool_use_id").String()
-		out, err := sjson.Set(raw, "tool_use_id", sanitizeToolUseID(id))
+		out, err := sjson.Set(raw, "tool_use_id", anthropicRequestToolUseID(id))
 		if err != nil {
 			return "", fmt.Errorf("rewrite tool_use_id: %w", err)
 		}

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestBase64SignatureBytes sums the byte length of every base64
@@ -105,4 +106,56 @@ func TestContextOverflowTokenEstimate_ImagesRepriced(t *testing.T) {
 	assert.Greater(t, len(body)/contentBytesPerToken, 1_000_000, "raw body ÷4 falsely overflows")
 	// Repriced, the same body is well below any compaction trigger.
 	assert.Less(t, e.ContextOverflowTokenEstimate(), 100_000, "repriced estimate stays far below the window")
+}
+
+// TestContextOverflowTokenEstimate_ExcludesToolIDCarriers is the regression
+// for Claude Code sessions served by GPT reasoning models: every echoed tool
+// id carries ~8KB of router-minted reasoning, which inflated a ~20K-token
+// request to a multi-million-token estimate and tripped the compaction cascade.
+func TestContextOverflowTokenEstimate_ExcludesToolIDCarriers(t *testing.T) {
+	blob := strings.Repeat("A", 8_000)
+	var sb strings.Builder
+	sb.WriteString(`{"messages":[`)
+	for i := range 200 {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		id := "call_" + strings.Repeat("x", 4) + openAIReasoningSignatureIDDelimiter + blob
+		sb.WriteString(`{"role":"assistant","content":[{"type":"tool_use","id":"` + id + `","name":"Read","input":{}}]},`)
+		sb.WriteString(`{"role":"user","content":[{"type":"tool_result","tool_use_id":"` + id + `","content":"ok"}]}`)
+	}
+	sb.WriteString(`]}`)
+	body := []byte(sb.String())
+	e := &RequestEnvelope{body: body, format: FormatAnthropic}
+
+	assert.Greater(t, len(body)/contentBytesPerToken, 800_000, "raw ÷4 counts every echoed carrier")
+	assert.Less(t, e.ContextOverflowTokenEstimate(), 20_000, "carriers are transport, not prompt tokens")
+	assert.Less(t, e.FullTokenEstimate(), 20_000)
+}
+
+func TestOpenAIReasoningIDBytes(t *testing.T) {
+	marker := len(openAIReasoningSignatureIDDelimiter)
+	assert.Equal(t, 0, openAIReasoningIDBytes([]byte(`{"id":"toolu_1"}`)), "plain id has no carrier")
+	assert.Equal(t, 0, openAIReasoningIDBytes([]byte(`{"id":"t`+thoughtSignatureIDDelimiter+`QUJD"}`)), "Gemini carrier reaches Anthropic and stays counted")
+	two := `{"id":"a` + openAIReasoningSignatureIDDelimiter + `XX"},{"tool_use_id":"a` + openAIReasoningSignatureIDDelimiter + `YYY"}`
+	assert.Equal(t, 2*marker+5, openAIReasoningIDBytes([]byte(two)), "both ends of a pair count")
+	assert.Equal(t, 0, openAIReasoningIDBytes([]byte(`{"id":"a`+openAIReasoningSignatureIDDelimiter+`XX`)), "unterminated carrier is skipped")
+}
+
+func TestRouterMintedSignaturesExcludedFromEstimate(t *testing.T) {
+	minted := encodeOpenAIReasoningSignature("rs_1", strings.Repeat("E", 6000), "scope")
+	require.True(t, strings.HasPrefix(minted, string(routerMintedSignaturePrefix)), "prefix must track the envelope encoding")
+	anthropicSig := strings.Repeat("S", 800)
+	text := strings.Repeat("x", 400)
+	body := []byte(`{"messages":[{"role":"assistant","content":[` +
+		`{"type":"thinking","thinking":"","signature":"` + minted + `"},` +
+		`{"type":"thinking","thinking":"","signature":"` + anthropicSig + `"},` +
+		`{"type":"text","text":"` + text + `"}]}]}`)
+	e := &RequestEnvelope{body: body, format: FormatAnthropic}
+
+	all, routerMinted := signatureBytes(body)
+	assert.Equal(t, len(minted)+len(anthropicSig), all)
+	assert.Equal(t, len(minted), routerMinted)
+	assert.Equal(t, (len(body)-len(minted))/contentBytesPerToken, e.ContextOverflowTokenEstimate(), "router-minted signature is never dispatched as prompt")
+	assert.Equal(t, len(anthropicSig)/contentBytesPerToken, e.SignatureTokenSavings(), "only real Anthropic signatures remain to be saved")
 }
