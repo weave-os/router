@@ -319,30 +319,42 @@ the exact-tuple private validation required before activation.
 ### Product compatibility and retention
 
 The gateway preserves inference, authenticated preview, subscription,
-analytics-key export, version, and signed-feedback surfaces. Catalog discovery
-(`GET /v1/router/models`, `/v1/router/policies`, `/v1/router/hmm-roster`, and
-`/v1/router/routing-distribution`) accepts keyless control-plane reads of the
-current public default: stable in production, staging in staging. Requests with
-a routing credential retain authenticated release/profile admission; an invalid
-credential never falls back to the public catalog.
+analytics-key export, version, and signed-feedback surfaces. Managed public catalog
+GETs under `/v1/router/` retain routing-key authentication and release/profile
+admission. Self-hosted discovery is unchanged.
 
-For keyless discovery, the gateway resolves the default once and forwards its
-immutable selection in `X-Weave-Internal-Discovery-Selection` on the private IAM
-hop. Caller-supplied internal headers are stripped. The worker validates the
-default selection and its own physical binding, then attaches the exact runtime
-snapshot without creating credential identity, session admission or request
-attribution. This metadata is accepted only on the four discovery GETs; it cannot
-authorize inference. Direct worker access still requires private ingress and
-Cloud Run IAM, as for destination validation. Query parameters and response
-schemas remain unchanged, including full-catalog scope and exclusion filters.
+Backend metadata reads use the four corresponding GETs under
+`/internal/v1/router/`: `models`, `policies`, `hmm-roster`, and
+`routing-distribution`. The gateway verifies a Google-signed ID token from
+`X-Weave-Internal-Service-Authorization` against `ROUTER_DISCOVERY_AUDIENCE` and
+`ROUTER_DISCOVERY_ALLOWED_SUBJECTS` (comma-separated immutable service-account
+subjects). Missing configuration disables this surface. The public load balancer
+must not expose `/internal`; direct internal calls still require service identity.
+On IAM-private gateways, configure the same Cloud Run custom audience, grant only
+the backend invocation, and send the token in `X-Serverless-Authorization` as well.
+Cloud Run consumes that copy; the dedicated header retains its signature for
+application verification. No customer routing key or shared service secret is used.
 
-Deploy worker support before activating a gateway that sends discovery metadata.
-Both components must contain the repair; a gateway-only update leaves old
-workers rejecting keyless reads. Use the managed release process to validate
-the four keyless responses, a credentialed profile roster, and rejection of
-unauthenticated inference in staging before production promotion. Verify the
-selected roster rather than only HTTP 200, and retain an approved compatible
-rollback selection. No organization settings or data repair is needed.
+The backend authorizes the organization and derives its assigned profile. It sends
+`selection=default` or `selection=profile&profile_key=<UUID>`. The gateway derives
+the environment target, resolves the current exact release once without persisting
+an inference admission, and forwards immutable metadata in
+`X-Weave-Internal-Discovery-Selection` on its existing private worker IAM hop.
+Caller-supplied selection/assertion/IAM headers are stripped, and the backend ID
+token is never forwarded. The worker validates the selection and physical binding,
+then attaches only the exact runtime snapshot. No credential identity, session
+admission, inference attribution, billing, or provider call occurs. The new metadata
+is accepted only by the four private discovery GETs and cannot authorize inference.
+Response schemas, full-catalog scope, strategies, and exclusion filters are retained.
+An unavailable assigned profile fails explicitly; it never selects the default.
+
+Deploy worker support, then gateway auth/configuration, then the backend client.
+Gateway environment variables are release-controller owned, so update and verify
+them on prepared revisions, not just Terraform bootstrap. In staging, verify real
+backend identity succeeds, anonymous/wrong-service calls fail, a profile roster
+matches its selected release, and keyed public discovery/inference remain intact.
+Retain compatible backend/gateway/worker versions for rollback. No organization
+settings or data repair is needed.
 
 Historical feedback looks up the original request's installation-scoped immutable attribution and
 forwards to that worker; it never substitutes the current release. Configure the

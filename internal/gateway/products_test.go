@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -209,15 +210,19 @@ func TestCatalogDiscoveryUsesEnvironmentDefault(t *testing.T) {
 			binding.Target = test.target
 			signer, err := policyregistry.NewAssertionSigner([]byte(strings.Repeat("s", 32)), time.Now)
 			require.NoError(t, err)
-			forwarder, err := gateway.NewHandler(credentialVerifier{failure: auth.ErrInvalidToken}, &admissionStore{failure: errors.New("must not admit catalog")}, bindingStore{binding: binding}, signer, revisionAuthorizer{}, worker.Client().Transport, gateway.ProductSurfaces{Environment: test.environment, Analytics: &analyticsVerifier{err: auth.ErrInvalidToken}})
+			forwarder, err := gateway.NewHandler(credentialVerifier{failure: auth.ErrInvalidToken}, &admissionStore{failure: errors.New("must not admit catalog")}, bindingStore{binding: binding}, signer, revisionAuthorizer{}, worker.Client().Transport, gateway.ProductSurfaces{Environment: test.environment, Analytics: &analyticsVerifier{err: auth.ErrInvalidToken}, Discovery: discoveryServiceIdentity{}})
 			require.NoError(t, err)
 			for _, path := range []string{
-				"/v1/router/models?scope=catalog",
-				"/v1/router/policies",
-				"/v1/router/hmm-roster?strategy=" + string(router.StrategyHMM),
-				"/v1/router/routing-distribution?strategy=" + string(router.StrategyHMM) + "&grid=2&excluded_models=a%2Cb&excluded_providers=" + providers.ProviderGoogle,
+				"/internal/v1/router/models?scope=catalog",
+				"/internal/v1/router/policies",
+				"/internal/v1/router/hmm-roster?strategy=" + string(router.StrategyHMM),
+				"/internal/v1/router/routing-distribution?strategy=" + string(router.StrategyHMM) + "&grid=2&excluded_models=a%2Cb&excluded_providers=" + providers.ProviderGoogle,
 			} {
 				request := httptest.NewRequest(http.MethodGet, path, nil)
+				query := request.URL.Query()
+				query.Set("selection", "default")
+				request.URL.RawQuery = query.Encode()
+				request.Header.Set(gateway.DiscoveryServiceAuthorizationHeader, "Bearer backend-identity")
 				request.Header.Set(policyregistry.DiscoverySelectionHeader, "caller-controlled")
 				request.Header.Set(policyregistry.ServingAssertionHeader, "caller-controlled")
 				request.Header.Set(policyregistry.ServerlessAuthorizationHeader, "Bearer caller-iam")
@@ -226,7 +231,10 @@ func TestCatalogDiscoveryUsesEnvironmentDefault(t *testing.T) {
 				response := httptest.NewRecorder()
 				forwarder.ServeHTTP(response, request)
 				require.Equal(t, http.StatusOK, response.Code, response.Body.String())
-				assert.Equal(t, path, response.Body.String())
+				expected, parseErr := url.Parse(path)
+				require.NoError(t, parseErr)
+				expected.RawQuery = expected.Query().Encode()
+				assert.Equal(t, expected.String(), response.Body.String())
 				assert.Empty(t, response.Header().Get(policyregistry.DiscoverySelectionHeader))
 			}
 		})
@@ -255,10 +263,12 @@ func TestCatalogDiscoveryFailsWithoutSelectedReleaseOrIAM(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store := readinessStore{bindingStore: bindingStore{binding: gatewayBinding(worker.URL)}, failure: test.stateError, artifactFailure: test.artifactError}
-			forwarder, err := gateway.NewHandler(credentialVerifier{failure: auth.ErrInvalidToken}, &admissionStore{failure: errors.New("must not admit catalog")}, store, signer, readinessAuthorizer{failure: test.iamError}, worker.Client().Transport, gateway.ProductSurfaces{Environment: policyregistry.EnvironmentProd, Analytics: &analyticsVerifier{}})
+			forwarder, err := gateway.NewHandler(credentialVerifier{failure: auth.ErrInvalidToken}, &admissionStore{failure: errors.New("must not admit catalog")}, store, signer, readinessAuthorizer{failure: test.iamError}, worker.Client().Transport, gateway.ProductSurfaces{Environment: policyregistry.EnvironmentProd, Analytics: &analyticsVerifier{}, Discovery: discoveryServiceIdentity{}})
 			require.NoError(t, err)
 			response := httptest.NewRecorder()
-			forwarder.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/router/models?scope=catalog", nil))
+			request := httptest.NewRequest(http.MethodGet, "/internal/v1/router/models?scope=catalog&selection=default", nil)
+			request.Header.Set(gateway.DiscoveryServiceAuthorizationHeader, "Bearer backend-identity")
+			forwarder.ServeHTTP(response, request)
 			assert.Equal(t, http.StatusServiceUnavailable, response.Code)
 			assert.Zero(t, calls.Load(), "an unavailable selection must not reach another worker")
 		})

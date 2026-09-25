@@ -12,6 +12,9 @@ import (
 	"github.com/google/uuid"
 )
 
+// ErrAssignedProfileUnavailable means the active selection has no authorized profile lane.
+var ErrAssignedProfileUnavailable = errors.New("assigned profile unavailable; default fallback is forbidden")
+
 const (
 	// ServingIdleLifetime is measured from the last admitted request, not stream completion.
 	ServingIdleLifetime = 24 * time.Hour
@@ -334,7 +337,7 @@ func selectionForActivation(activation Activation, profileKey string, sets map[s
 	}
 	selection, exists := set.Profiles[profileKey]
 	if !exists {
-		return ServingSelection{}, errors.New("assigned profile unavailable; default fallback is forbidden")
+		return ServingSelection{}, ErrAssignedProfileUnavailable
 	}
 	return selection, nil
 }

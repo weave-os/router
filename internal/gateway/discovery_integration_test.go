@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -242,6 +243,10 @@ func newDiscoveryFixture(t *testing.T, target policyregistry.ServingTarget) *dis
 			return
 		}
 		assert.Empty(t, r.Header.Get("X-Weave-Serving-Target"))
+		assert.Empty(t, r.Header.Get(gateway.DiscoveryServiceAuthorizationHeader))
+		if strings.HasPrefix(r.URL.Path, "/internal/v1/router/") {
+			assert.Empty(t, auth.RoutingTokenFromHeaders(r.Header))
+		}
 		if auth.RoutingTokenFromHeaders(r.Header) == "" {
 			assert.Empty(t, r.Header.Get(policyregistry.ServingAssertionHeader))
 		}
@@ -323,7 +328,7 @@ func newDiscoveryFixture(t *testing.T, target policyregistry.ServingTarget) *dis
 	server.RegisterWithFeatures(f.worker, authSvc, proxySvc, discoveryModels{}, discoveryModels{}, server.DeploymentModeManaged, nil, nil, map[router.Strategy]policy.RosterSource{router.StrategyHMM: policyregistry.AdmittedRosterSource{}}, nil, server.Features{ServingAdmission: cfg})
 	environment, err := target.Environment()
 	require.NoError(t, err)
-	f.forwarder, err = gateway.NewHandler(f.credentials, f.accounting, f.store, signer, revisionAuthorizer{}, worker.Client().Transport, gateway.ProductSurfaces{Environment: environment, Analytics: &analyticsVerifier{err: auth.ErrInvalidToken}})
+	f.forwarder, err = gateway.NewHandler(f.credentials, f.accounting, f.store, signer, revisionAuthorizer{}, worker.Client().Transport, gateway.ProductSurfaces{Environment: environment, Analytics: &analyticsVerifier{err: auth.ErrInvalidToken}, Discovery: discoveryServiceIdentity{}})
 	require.NoError(t, err)
 	return f
 }
@@ -342,12 +347,39 @@ func (f *discoveryFixture) request(t *testing.T, method, path string, headers ht
 	return response
 }
 
+type discoveryServiceIdentity struct{}
+
+func (discoveryServiceIdentity) VerifyServiceIdentity(_ context.Context, token string) error {
+	if token != "backend-identity" {
+		return errors.New("untrusted backend identity")
+	}
+	return nil
+}
+
+func (f *discoveryFixture) privateRequest(t *testing.T, method, path string, headers http.Header) *httptest.ResponseRecorder {
+	t.Helper()
+	parsed, err := url.Parse("/internal" + path)
+	require.NoError(t, err)
+	query := parsed.Query()
+	if query.Get("selection") == "" {
+		query.Set("selection", "default")
+	}
+	parsed.RawQuery = query.Encode()
+	if headers == nil {
+		headers = http.Header{}
+	} else {
+		headers = headers.Clone()
+	}
+	headers.Set(gateway.DiscoveryServiceAuthorizationHeader, "Bearer backend-identity")
+	return f.request(t, method, parsed.String(), headers)
+}
+
 func (f *discoveryFixture) assertNoAdmission(t *testing.T) {
 	t.Helper()
-	assert.Zero(t, f.credentials.gatewayCalls.Load(), "public discovery verified a routing credential")
-	assert.Zero(t, f.credentials.workerCalls.Load(), "public discovery authenticated at the worker")
-	assert.Zero(t, f.accounting.admissions.Load(), "public discovery persisted an admission")
-	assert.Zero(t, f.accounting.attributions.Load(), "public discovery attributed an inference request")
+	assert.Zero(t, f.credentials.gatewayCalls.Load(), "private discovery verified a routing credential")
+	assert.Zero(t, f.credentials.workerCalls.Load(), "private discovery authenticated at the worker")
+	assert.Zero(t, f.accounting.admissions.Load(), "private discovery persisted an admission")
+	assert.Zero(t, f.accounting.attributions.Load(), "private discovery attributed an inference request")
 }
 
 type discoveryModel struct{ Model, Provider string }
@@ -378,18 +410,18 @@ func discoveryJSON[T any](t *testing.T, response *httptest.ResponseRecorder) T {
 	return decoded
 }
 
-func TestPublicDiscoveryThroughGatewayAndManagedWorker(t *testing.T) {
+func TestPrivateDiscoveryThroughGatewayAndManagedWorker(t *testing.T) {
 	for _, target := range []policyregistry.ServingTarget{policyregistry.TargetStable, policyregistry.TargetStaging} {
 		t.Run(string(target), func(t *testing.T) {
 			f := newDiscoveryFixture(t, target)
 			for _, path := range []string{"/v1/router/models", "/v1/router/models?strategy=" + string(router.StrategyHMM)} {
-				models := discoveryJSON[struct{ Models []discoveryModel }](t, f.request(t, http.MethodGet, path, nil))
+				models := discoveryJSON[struct{ Models []discoveryModel }](t, f.privateRequest(t, http.MethodGet, path, nil))
 				assert.ElementsMatch(t, []discoveryModel{{Model: catalog.ModelIDGPT55.String(), Provider: providers.ProviderOpenAI}, {Model: catalog.ModelIDClaudeHaiku45.String(), Provider: providers.ProviderAnthropic}}, models.Models)
 			}
-			full := discoveryJSON[struct{ Models []discoveryModel }](t, f.request(t, http.MethodGet, "/v1/router/models?scope=catalog&strategy="+string(router.StrategyHMM), nil))
+			full := discoveryJSON[struct{ Models []discoveryModel }](t, f.privateRequest(t, http.MethodGet, "/v1/router/models?scope=catalog&strategy="+string(router.StrategyHMM), nil))
 			assert.Greater(t, len(full.Models), 2)
 			assert.Contains(t, full.Models, discoveryModel{Model: catalog.ModelIDClaudeOpus48.String(), Provider: providers.ProviderAnthropic})
-			policies := discoveryJSON[discoveryPolicyCatalog](t, f.request(t, http.MethodGet, "/v1/router/policies", nil))
+			policies := discoveryJSON[discoveryPolicyCatalog](t, f.privateRequest(t, http.MethodGet, "/v1/router/policies", nil))
 			assert.Equal(t, router.StrategyHMM, policies.Default)
 			var foundHMM bool
 			for _, entry := range policies.Strategies {
@@ -403,7 +435,7 @@ func TestPublicDiscoveryThroughGatewayAndManagedWorker(t *testing.T) {
 				}
 			}
 			assert.True(t, foundHMM)
-			roster := discoveryJSON[discoveryRoster](t, f.request(t, http.MethodGet, "/v1/router/hmm-roster?strategy="+string(router.StrategyHMM), nil))
+			roster := discoveryJSON[discoveryRoster](t, f.privateRequest(t, http.MethodGet, "/v1/router/hmm-roster?strategy="+string(router.StrategyHMM), nil))
 			assert.Equal(t, f.initial.Release.SHA256, roster.ReleaseID)
 			assert.Equal(t, f.initialPolicy.SHA256, roster.PolicySHA256)
 			require.Len(t, roster.Clusters, 1)
@@ -411,7 +443,7 @@ func TestPublicDiscoveryThroughGatewayAndManagedWorker(t *testing.T) {
 			assert.ElementsMatch(t, []string{discoveryOpenAIArm, discoveryAnthropicArm}, roster.Clusters[0].Arms)
 			assert.ElementsMatch(t, []string{catalog.ModelIDGPT55.String(), catalog.ModelIDClaudeHaiku45.String()}, roster.Clusters[0].Models)
 			for _, exclusion := range []string{"excluded_models=" + catalog.ModelIDGPT55.String(), "excluded_providers=" + providers.ProviderOpenAI} {
-				distribution := discoveryJSON[struct{ Points []cluster.DistributionPoint }](t, f.request(t, http.MethodGet, "/v1/router/routing-distribution?strategy="+string(router.StrategyHMM)+"&grid=2&"+exclusion, nil))
+				distribution := discoveryJSON[struct{ Points []cluster.DistributionPoint }](t, f.privateRequest(t, http.MethodGet, "/v1/router/routing-distribution?strategy="+string(router.StrategyHMM)+"&grid=2&"+exclusion, nil))
 				require.Len(t, distribution.Points, 2)
 				for i, point := range distribution.Points {
 					assert.Equal(t, float64(i), point.QualityBias)
@@ -424,7 +456,7 @@ func TestPublicDiscoveryThroughGatewayAndManagedWorker(t *testing.T) {
 	}
 }
 
-func TestPublicDiscoveryPinsSelectionAcrossActivationAndIgnoresSpoofedHeaders(t *testing.T) {
+func TestPrivateDiscoveryPinsSelectionAcrossActivationAndIgnoresSpoofedHeaders(t *testing.T) {
 	f := newDiscoveryFixture(t, policyregistry.TargetStable)
 	spoofed, err := policyregistry.EncodeDiscoverySelection(policyregistry.WorkerValidationRequest{Target: policyregistry.TargetStable, Selection: f.next})
 	require.NoError(t, err)
@@ -433,19 +465,22 @@ func TestPublicDiscoveryPinsSelectionAcrossActivationAndIgnoresSpoofedHeaders(t 
 	headers.Set(policyregistry.ServingAssertionHeader, "caller-assertion")
 	headers.Set(policyregistry.ServerlessAuthorizationHeader, "Bearer caller-iam")
 	headers.Set("X-Weave-Serving-Target", string(policyregistry.TargetInternal))
-	first := discoveryJSON[discoveryRoster](t, f.request(t, http.MethodGet, "/v1/router/hmm-roster?strategy="+string(router.StrategyHMM), headers))
+	headers.Set("Authorization", "Bearer ignored-routing-key")
+	headers.Set(auth.RouterKeyHeader, "ignored-dedicated-key")
+	headers.Set("X-Api-Key", "ignored-api-key")
+	first := discoveryJSON[discoveryRoster](t, f.privateRequest(t, http.MethodGet, "/v1/router/hmm-roster?strategy="+string(router.StrategyHMM), headers))
 	assert.Equal(t, f.initial.Release.SHA256, first.ReleaseID)
 	f.activateNextOnHop.Store(true)
-	inFlight := discoveryJSON[discoveryRoster](t, f.request(t, http.MethodGet, "/v1/router/hmm-roster?strategy="+string(router.StrategyHMM), nil))
+	inFlight := discoveryJSON[discoveryRoster](t, f.privateRequest(t, http.MethodGet, "/v1/router/hmm-roster?strategy="+string(router.StrategyHMM), nil))
 	assert.Equal(t, f.initial.Release.SHA256, inFlight.ReleaseID)
 	assert.Equal(t, f.initialPolicy.SHA256, inFlight.PolicySHA256)
-	next := discoveryJSON[discoveryRoster](t, f.request(t, http.MethodGet, "/v1/router/hmm-roster?strategy="+string(router.StrategyHMM), nil))
+	next := discoveryJSON[discoveryRoster](t, f.privateRequest(t, http.MethodGet, "/v1/router/hmm-roster?strategy="+string(router.StrategyHMM), nil))
 	assert.Equal(t, f.next.Release.SHA256, next.ReleaseID)
 	require.Len(t, next.Clusters, 1)
 	assert.Equal(t, []string{discoveryAnthropicArm}, next.Clusters[0].Arms)
-	models := discoveryJSON[struct{ Models []discoveryModel }](t, f.request(t, http.MethodGet, "/v1/router/models?strategy="+string(router.StrategyHMM), nil))
+	models := discoveryJSON[struct{ Models []discoveryModel }](t, f.privateRequest(t, http.MethodGet, "/v1/router/models?strategy="+string(router.StrategyHMM), nil))
 	assert.Equal(t, []discoveryModel{{Model: catalog.ModelIDClaudeHaiku45.String(), Provider: providers.ProviderAnthropic}}, models.Models)
-	policies := discoveryJSON[discoveryPolicyCatalog](t, f.request(t, http.MethodGet, "/v1/router/policies", nil))
+	policies := discoveryJSON[discoveryPolicyCatalog](t, f.privateRequest(t, http.MethodGet, "/v1/router/policies", nil))
 	var foundHMM bool
 	for _, entry := range policies.Strategies {
 		if entry.Strategy == router.StrategyHMM {
@@ -455,7 +490,7 @@ func TestPublicDiscoveryPinsSelectionAcrossActivationAndIgnoresSpoofedHeaders(t 
 		}
 	}
 	assert.True(t, foundHMM)
-	distribution := discoveryJSON[struct{ Points []cluster.DistributionPoint }](t, f.request(t, http.MethodGet, "/v1/router/routing-distribution?strategy="+string(router.StrategyHMM)+"&grid=2", nil))
+	distribution := discoveryJSON[struct{ Points []cluster.DistributionPoint }](t, f.privateRequest(t, http.MethodGet, "/v1/router/routing-distribution?strategy="+string(router.StrategyHMM)+"&grid=2", nil))
 	require.Len(t, distribution.Points, 2)
 	for _, point := range distribution.Points {
 		assert.Equal(t, []cluster.ModelShare{{Model: catalog.ModelIDClaudeHaiku45.String(), Share: 1}}, point.Models)
@@ -481,8 +516,8 @@ func TestCredentialedDiscoveryPreservesProfileAndCredentialPrecedence(t *testing
 	denied := f.request(t, http.MethodGet, "/v1/router/hmm-roster?strategy="+string(router.StrategyHMM), http.Header{auth.RouterKeyHeader: []string{"rk_invalid"}, "Authorization": []string{"Bearer " + discoveryCredential}})
 	assert.Equal(t, http.StatusUnauthorized, denied.Code)
 	assert.Equal(t, int32(2), f.workerCalls.Load())
-	anonymous := discoveryJSON[discoveryRoster](t, f.request(t, http.MethodGet, "/v1/router/hmm-roster?strategy="+string(router.StrategyHMM), nil))
-	assert.Equal(t, f.initial.Release.SHA256, anonymous.ReleaseID)
+	anonymous := f.request(t, http.MethodGet, "/v1/router/hmm-roster?strategy="+string(router.StrategyHMM), nil)
+	assert.Equal(t, http.StatusUnauthorized, anonymous.Code)
 	assert.Equal(t, int32(2), f.accounting.admissions.Load())
 	assert.Equal(t, int32(2), f.accounting.attributions.Load())
 }
@@ -503,10 +538,14 @@ func TestDiscoverySelectionCannotAuthorizeOtherRoutes(t *testing.T) {
 		{http.MethodHead, "/v1/router/policies", http.StatusNotFound},
 		{http.MethodGet, "/v1/router/unknown", http.StatusNotFound},
 		{http.MethodGet, "/admin/v1/config", http.StatusNotFound},
+		{http.MethodPost, "/internal/v1/router/models", http.StatusNotFound},
+		{http.MethodHead, "/internal/v1/router/policies", http.StatusNotFound},
+		{http.MethodGet, "/internal/v1/router/unknown", http.StatusNotFound},
 	} {
 		t.Run(test.method+" "+test.path, func(t *testing.T) {
 			headers := http.Header{}
 			headers.Set(policyregistry.DiscoverySelectionHeader, encoded)
+			headers.Set(gateway.DiscoveryServiceAuthorizationHeader, "Bearer backend-identity")
 			response := f.request(t, test.method, test.path, headers)
 			assert.Equal(t, test.status, response.Code, response.Body.String())
 			request := httptest.NewRequest(test.method, test.path, nil)
@@ -538,8 +577,51 @@ func TestManagedDiscoveryKeepsQueryErrors(t *testing.T) {
 		{"routing-distribution?strategy=" + string(router.StrategyHMMBeta) + "&grid=2", http.StatusBadRequest},
 		{"hmm-roster?strategy=" + string(router.StrategyHMMBeta), http.StatusServiceUnavailable},
 	} {
-		response := f.request(t, http.MethodGet, "/v1/router/"+test.query, nil)
+		response := f.privateRequest(t, http.MethodGet, "/v1/router/"+test.query, nil)
 		assert.Equal(t, test.status, response.Code, test.query+": "+response.Body.String())
 	}
+	f.assertNoAdmission(t)
+}
+
+func TestPrivateDiscoveryReadsAssignedProfileWithoutRoutingKey(t *testing.T) {
+	f := newDiscoveryFixture(t, policyregistry.TargetStable)
+	roster := discoveryJSON[discoveryRoster](t, f.privateRequest(t, http.MethodGet, "/v1/router/hmm-roster?selection=profile&profile_key="+discoveryProfileKey, nil))
+	assert.Equal(t, f.profile.Release.SHA256, roster.ReleaseID)
+	require.Len(t, roster.Clusters, 1)
+	assert.Equal(t, []string{discoveryProfileArm}, roster.Clusters[0].Arms)
+	f.assertNoAdmission(t)
+}
+
+func TestPrivateDiscoveryRejectsIdentityAndSelectorsBeforeRegistryRead(t *testing.T) {
+	for _, test := range []struct {
+		name, token, query string
+		status             int
+	}{
+		{"missing identity", "", "selection=default", http.StatusUnauthorized},
+		{"wrong identity", "Bearer another-service", "selection=default", http.StatusUnauthorized},
+		{"routing key", "Bearer " + discoveryCredential, "selection=default", http.StatusUnauthorized},
+		{"missing selection", "Bearer backend-identity", "", http.StatusBadRequest},
+		{"default with profile", "Bearer backend-identity", "selection=default&profile_key=" + discoveryProfileKey, http.StatusBadRequest},
+		{"invalid profile", "Bearer backend-identity", "selection=profile&profile_key=invalid", http.StatusBadRequest},
+		{"duplicate selection", "Bearer backend-identity", "selection=profile&selection=default&profile_key=" + discoveryProfileKey, http.StatusBadRequest},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f := newDiscoveryFixture(t, policyregistry.TargetStable)
+			headers := http.Header{}
+			headers.Set(gateway.DiscoveryServiceAuthorizationHeader, test.token)
+			response := f.request(t, http.MethodGet, "/internal/v1/router/models?"+test.query, headers)
+			assert.Equal(t, test.status, response.Code, response.Body.String())
+			assert.Zero(t, f.store.stateReads.Load())
+			assert.Zero(t, f.workerCalls.Load())
+			f.assertNoAdmission(t)
+		})
+	}
+}
+
+func TestPrivateDiscoveryUnavailableProfileNeverFallsBack(t *testing.T) {
+	f := newDiscoveryFixture(t, policyregistry.TargetStable)
+	response := f.privateRequest(t, http.MethodGet, "/v1/router/models?selection=profile&profile_key="+uuid.NewString(), nil)
+	assert.Equal(t, http.StatusNotFound, response.Code)
+	assert.Zero(t, f.workerCalls.Load())
 	f.assertNoAdmission(t)
 }

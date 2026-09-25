@@ -3,15 +3,17 @@ package policyregistry
 import (
 	"encoding/base64"
 	"errors"
+
+	"github.com/google/uuid"
 )
 
-// DiscoverySelectionHeader carries default-release metadata over the private IAM hop.
+// DiscoverySelectionHeader carries exact release metadata over the private IAM hop.
 // It is not an inference admission assertion.
 const DiscoverySelectionHeader = "X-Weave-Internal-Discovery-Selection"
 
 const maxDiscoverySelectionBytes = 16 * 1024
 
-// EncodeDiscoverySelection permits only public default targets, never customer profiles.
+// EncodeDiscoverySelection permits environment-default targets and their assigned profiles.
 func EncodeDiscoverySelection(request WorkerValidationRequest) (string, error) {
 	if err := validateDiscoverySelection(request); err != nil {
 		return "", err
@@ -50,8 +52,17 @@ func validateDiscoverySelection(request WorkerValidationRequest) error {
 	if request.Target != TargetStable && request.Target != TargetStaging {
 		return errors.New("discovery requires a public serving target")
 	}
-	if request.ProfileKey != "" || request.Selection.Profile != nil {
-		return errors.New("discovery cannot select a customer profile")
+	if (request.ProfileKey == "") != (request.Selection.Profile == nil) {
+		return errors.New("discovery profile key and reference must be supplied together")
+	}
+	if request.ProfileKey != "" {
+		key, err := uuid.Parse(request.ProfileKey)
+		if err != nil || key == uuid.Nil || key.String() != request.ProfileKey {
+			return errors.New("discovery profile key must be a UUID")
+		}
+		if err := validateArtifactRef(*request.Selection.Profile); err != nil {
+			return err
+		}
 	}
 	if err := validateArtifactRef(request.Selection.Release); err != nil {
 		return err

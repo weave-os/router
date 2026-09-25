@@ -26,11 +26,11 @@ func discoveryMetadata(t *testing.T, admitted policyregistry.ServingAssertion) s
 }
 
 func runDiscoveryMiddleware(cfg *ServingAdmissionConfig, encoded string, discovery gin.HandlerFunc) *httptest.ResponseRecorder {
-	request := httptest.NewRequest(http.MethodGet, "/v1/router/hmm-roster?strategy="+string(router.StrategyHMM), nil)
+	request := httptest.NewRequest(http.MethodGet, "/internal/v1/router/hmm-roster?strategy="+string(router.StrategyHMM), nil)
 	request.Header.Set(policyregistry.DiscoverySelectionHeader, encoded)
 	engine := gin.New()
-	chain := append(WithServingDiscovery(nil, true, cfg), discovery)
-	engine.GET("/v1/router/hmm-roster", chain...)
+	chain := gin.HandlersChain{WithServingDiscovery(cfg), discovery}
+	engine.GET("/internal/v1/router/hmm-roster", chain...)
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request)
 	return response
@@ -40,7 +40,7 @@ func TestServingDiscoveryLoadsExactSnapshotWithoutInferenceIdentityOrAttribution
 	cfg, admitted, _, builds := admissionMiddlewareFixture(t)
 	cfg.Signer = nil
 	cfg.Attribution = admissionAttributionFunc(func(context.Context, string, policyregistry.ServingAssertion) error {
-		t.Fatal("public discovery wrote inference attribution")
+		t.Fatal("private discovery wrote inference attribution")
 		return nil
 	})
 	response := runDiscoveryMiddleware(cfg, discoveryMetadata(t, admitted), func(c *gin.Context) {
@@ -149,9 +149,9 @@ func TestServingDiscoveryUsesRequestDeadlineForRegistryReads(t *testing.T) {
 	cfg.Store = blockedStore
 	engine := gin.New()
 	engine.Use(WithTimeout(0))
-	chain := append(WithServingDiscovery(nil, true, cfg), func(*gin.Context) { t.Fatal("canceled discovery served a snapshot") })
-	engine.GET("/v1/router/models", chain...)
-	request := httptest.NewRequest(http.MethodGet, "/v1/router/models", nil)
+	chain := gin.HandlersChain{WithServingDiscovery(cfg), func(*gin.Context) { t.Fatal("canceled discovery served a snapshot") }}
+	engine.GET("/internal/v1/router/models", chain...)
+	request := httptest.NewRequest(http.MethodGet, "/internal/v1/router/models", nil)
 	request.Header.Set(policyregistry.DiscoverySelectionHeader, discoveryMetadata(t, admitted))
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request)
