@@ -132,10 +132,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, surface, err)
 		return
 	}
-	h.forward(w, r, surface, body, binding, assertion)
+	h.forward(w, r, surface, body, binding, assertion, "")
 }
 
-func (h *Handler) forward(w http.ResponseWriter, r *http.Request, surface requestcontext.ConversationSurface, body []byte, binding policyregistry.LaneBinding, assertion string) {
+func (h *Handler) forward(w http.ResponseWriter, r *http.Request, surface requestcontext.ConversationSurface, body []byte, binding policyregistry.LaneBinding, assertion, discoverySelection string) {
 	authorizeCtx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	identityToken, err := h.authorizer.IdentityToken(authorizeCtx, binding.Router.Audience)
@@ -160,6 +160,9 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, surface reques
 			request.Out.Header.Set(policyregistry.ServerlessAuthorizationHeader, "Bearer "+identityToken)
 			if assertion != "" {
 				request.Out.Header.Set(policyregistry.ServingAssertionHeader, assertion)
+			}
+			if discoverySelection != "" {
+				request.Out.Header.Set(policyregistry.DiscoverySelectionHeader, discoverySelection)
 			}
 		},
 		ModifyResponse: func(response *http.Response) error {

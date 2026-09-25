@@ -67,8 +67,23 @@ func (h *Handler) serveProductSurface(w http.ResponseWriter, r *http.Request) bo
 	case feedbackSurface(r):
 		h.serveFeedback(w, r)
 		return true
+	case catalogDiscoverySurface(r) && auth.RoutingTokenFromHeaders(r.Header) == "":
+		h.forwardDiscovery(w, r)
+		return true
 	case r.Method == http.MethodGet && (r.URL.Path == "/v1/version" || h.products.Feedback != nil && (r.URL.Path == "/v1/feedback/assets/wooly-wave.png" || r.URL.Path == "/v1/feedback/assets/weave.svg")):
 		h.forwardDefault(w, r)
+		return true
+	default:
+		return false
+	}
+}
+
+func catalogDiscoverySurface(r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	switch r.URL.Path {
+	case "/v1/router/models", "/v1/router/policies", "/v1/router/hmm-roster", "/v1/router/routing-distribution":
 		return true
 	default:
 		return false
@@ -157,7 +172,31 @@ func (h *Handler) serveFeedback(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, requestcontext.ConversationChat, err)
 		return
 	}
-	h.forward(w, r, requestcontext.ConversationChat, body, binding, "")
+	h.forward(w, r, requestcontext.ConversationChat, body, binding, "", "")
+}
+
+func (h *Handler) forwardDiscovery(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
+	defer cancel()
+	r = r.Clone(ctx)
+	prepareCtx, prepareCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer prepareCancel()
+	admission, err := h.defaultAdmission(prepareCtx)
+	if err != nil {
+		h.fail(w, r, requestcontext.ConversationChat, err)
+		return
+	}
+	binding, err := policyregistry.ResolveAdmissionBinding(prepareCtx, h.registry, admission)
+	if err != nil {
+		h.fail(w, r, requestcontext.ConversationChat, err)
+		return
+	}
+	selection, err := policyregistry.EncodeDiscoverySelection(policyregistry.WorkerValidationRequest{Target: admission.Target, Selection: admission.Selection})
+	if err != nil {
+		h.fail(w, r, requestcontext.ConversationChat, err)
+		return
+	}
+	h.forward(w, r, requestcontext.ConversationChat, nil, binding, "", selection)
 }
 
 func (h *Handler) forwardDefault(w http.ResponseWriter, r *http.Request) {
@@ -171,7 +210,7 @@ func (h *Handler) forwardDefault(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, requestcontext.ConversationChat, err)
 		return
 	}
-	h.forward(w, r, requestcontext.ConversationChat, nil, binding, "")
+	h.forward(w, r, requestcontext.ConversationChat, nil, binding, "", "")
 }
 
 func (h *Handler) defaultTarget() policyregistry.ServingTarget {
@@ -182,13 +221,15 @@ func (h *Handler) defaultTarget() policyregistry.ServingTarget {
 }
 
 func (h *Handler) defaultBinding(ctx context.Context) (policyregistry.LaneBinding, error) {
-	target := h.defaultTarget()
-	// Read-only exports and public assets have no conversation, enrollment or
-	// customer policy. Choosing their worker never grants inference authority.
-	admissionDecider := policyregistry.ServingAdmission{Store: h.registry}
-	admission, err := admissionDecider.Decide(ctx, policyregistry.SerializedAdmission{Projection: policyregistry.AdmissionProjection{Target: target}, Clock: func(context.Context) (time.Time, error) { return time.Now(), nil }})
+	admission, err := h.defaultAdmission(ctx)
 	if err != nil {
 		return policyregistry.LaneBinding{}, err
 	}
 	return policyregistry.ResolveAdmissionBinding(ctx, h.registry, admission)
+}
+
+func (h *Handler) defaultAdmission(ctx context.Context) (policyregistry.SessionReleaseBinding, error) {
+	// Public metadata has no credential or conversation. Resolve without persisting an admission.
+	admissionDecider := policyregistry.ServingAdmission{Store: h.registry}
+	return admissionDecider.Decide(ctx, policyregistry.SerializedAdmission{Projection: policyregistry.AdmissionProjection{Target: h.defaultTarget()}, Clock: func(context.Context) (time.Time, error) { return time.Now(), nil }})
 }

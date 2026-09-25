@@ -318,9 +318,33 @@ the exact-tuple private validation required before activation.
 
 ### Product compatibility and retention
 
-The gateway preserves inference, authenticated catalog/roster/preview, subscription,
-analytics-key export, version, and signed-feedback surfaces. Historical feedback
-looks up the original request's installation-scoped immutable attribution and
+The gateway preserves inference, authenticated preview, subscription,
+analytics-key export, version, and signed-feedback surfaces. Catalog discovery
+(`GET /v1/router/models`, `/v1/router/policies`, `/v1/router/hmm-roster`, and
+`/v1/router/routing-distribution`) accepts keyless control-plane reads of the
+current public default: stable in production, staging in staging. Requests with
+a routing credential retain authenticated release/profile admission; an invalid
+credential never falls back to the public catalog.
+
+For keyless discovery, the gateway resolves the default once and forwards its
+immutable selection in `X-Weave-Internal-Discovery-Selection` on the private IAM
+hop. Caller-supplied internal headers are stripped. The worker validates the
+default selection and its own physical binding, then attaches the exact runtime
+snapshot without creating credential identity, session admission or request
+attribution. This metadata is accepted only on the four discovery GETs; it cannot
+authorize inference. Direct worker access still requires private ingress and
+Cloud Run IAM, as for destination validation. Query parameters and response
+schemas remain unchanged, including full-catalog scope and exclusion filters.
+
+Deploy worker support before activating a gateway that sends discovery metadata.
+Both components must contain the repair; a gateway-only update leaves old
+workers rejecting keyless reads. Use the managed release process to validate
+the four keyless responses, a credentialed profile roster, and rejection of
+unauthenticated inference in staging before production promotion. Verify the
+selected roster rather than only HTTP 200, and retain an approved compatible
+rollback selection. No organization settings or data repair is needed.
+
+Historical feedback looks up the original request's installation-scoped immutable attribution and
 forwards to that worker; it never substitutes the current release. Configure the
 same `ROUTER_FEEDBACK_LINK_SECRET` on gateway and workers when feedback is enabled.
 Pre-cutover links without attribution fail explicitly, so environment cutover must

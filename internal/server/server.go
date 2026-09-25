@@ -156,8 +156,8 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	}
 	var discoveryMiddleware []gin.HandlerFunc
 	if features.ServingAdmission != nil {
-		discoveryMiddleware = append(discoveryMiddleware, middleware.WithAuth(authSvc, byokRequiresOptIn))
-		discoveryMiddleware = append(discoveryMiddleware, servingAdmissionMiddleware...)
+		discoveryMiddleware = append(discoveryMiddleware, middleware.WithTimeout(catalogModelsTimeout))
+		discoveryMiddleware = append(discoveryMiddleware, middleware.WithServingDiscovery(authSvc, byokRequiresOptIn, features.ServingAdmission)...)
 	}
 	discovery := engine.Group("", discoveryMiddleware...)
 
