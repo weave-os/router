@@ -73,6 +73,9 @@ const ANTHROPIC_SCOPE = "org:create_api_key user:profile user:inference"
 const PROVIDER_ID = "weave"
 const ANTHROPIC_PROVIDER_ID = "weave-claude"
 const HEADER_ROUTER_MODEL = "x-router-model"
+// The routed model's context window. Must match proxy.HeaderRouterContextWindow.
+const HEADER_ROUTER_CONTEXT_WINDOW = "x-router-context-window"
+const HEADER_SESSION_ID = "session-id"
 const TOAST_TITLE = "Weave Router"
 const TOAST_DURATION_MS = 6000
 
@@ -93,6 +96,18 @@ const OPENCODE_AGENTS: ReadonlySet<string> = new Set<OpenCodeAgent>(["build", "t
 
 function knownOpenCodeAgent(agent: string | undefined): OpenCodeAgent | undefined {
   return agent !== undefined && OPENCODE_AGENTS.has(agent) ? (agent as OpenCodeAgent) : undefined
+}
+
+// Title and compaction turns are served by utility models whose window says
+// nothing about the conversation the session's main loop is budgeting.
+function servesSessionContext(agent: string | null): boolean {
+  return agent !== "title" && agent !== "compaction"
+}
+
+function parseServedContextWindow(value: string | null): number | undefined {
+  if (!value || !/^[1-9]\d*$/.test(value)) return undefined
+  const contextWindow = Number(value)
+  return Number.isSafeInteger(contextWindow) ? contextWindow : undefined
 }
 
 // Placeholder so the @ai-sdk/openai provider considers auth configured; the
@@ -468,6 +483,16 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
   const pendingRequestMessageIDs = new Map<string, string>()
   const routedModelIDsByMessage = new Map<string, string>()
   const toastedMessageIDs = new Set<string>()
+  // OpenCode compacts against weave/auto's limit.context, read from one model
+  // object shared by every session in the process. Each session's latest
+  // served window is kept separately and written onto that object before its
+  // request and as its response arrives, so the overflow check at the end of
+  // the step sees the model that actually served it. Concurrent sessions can
+  // briefly see each other's window: too small compacts early, too large ends
+  // in the router's 413 overflow, which OpenCode also answers by compacting.
+  const servedContextWindows = new Map<string, number>()
+  let weaveModelLimit: { context: number } | undefined
+  let configuredContextWindow: number | undefined
   return {
     "chat.message": async (_hookInput, output) => {
       rewriteDirectiveParts(output.parts)
@@ -475,6 +500,10 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
     event: async ({ event }) => {
       if (event.type === "session.created") {
         await classifierThreads.created(event.properties.info)
+        return
+      }
+      if (event.type === "session.deleted") {
+        servedContextWindows.delete(event.properties.info.id)
         return
       }
       if (event.type === "session.compacted") {
@@ -607,6 +636,12 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
             let routedModelCaptured = false
             try {
               const response = await fetch(requestInput, { ...init, headers })
+              const servedWindow = parseServedContextWindow(response.headers.get(HEADER_ROUTER_CONTEXT_WINDOW))
+              const sessionID = headers.get(HEADER_SESSION_ID)
+              if (response.ok && servedWindow && sessionID && servesSessionContext(headers.get(HEADER_OPENCODE_AGENT))) {
+                servedContextWindows.set(sessionID, servedWindow)
+                if (weaveModelLimit) weaveModelLimit.context = servedWindow
+              }
               const messageID = requestID ? pendingRequestMessageIDs.get(requestID) : undefined
               const routedModelID = response.headers.get(HEADER_ROUTER_MODEL)
               if (messageID && routedModelID) {
@@ -756,6 +791,11 @@ export const WeaveCodex: Plugin = async (input: PluginInput): Promise<Hooks> => 
       if (hookInput.model.providerID !== PROVIDER_ID) return
       // Match codex cli: the Codex backend rejects an explicit max output cap.
       output.maxOutputTokens = undefined
+      weaveModelLimit = hookInput.model.limit
+      configuredContextWindow ??= hookInput.model.limit.context
+      if (servesSessionContext(hookInput.agent)) {
+        weaveModelLimit.context = servedContextWindows.get(hookInput.sessionID) ?? configuredContextWindow
+      }
     },
   }
 }

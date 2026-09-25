@@ -1048,10 +1048,10 @@ write_opencode_config() {
   # imply a choice that the router intentionally does not honor. Whichever
   # model serves a turn uses its matching subscription when one is connected.
   # OpenCode interprets omitted custom-model limits as zero, which disables its
-  # overflow compaction. 400K sits under the smallest window in the Auto roster
-  # (grok-4.6, 500K) so every arm stays eligible; a 128K floor left ~96K of
-  # input, and re-injected instruction files refilled it within a few turns,
-  # compacting every ~3 replies.
+  # overflow compaction. This is only the budget before the first routed
+  # response: the plugin then compacts against the router-served window
+  # (x-router-context-window). 400K sits under the smallest Auto-roster window
+  # (grok-4.6, 500K); a 128K floor compacted every ~3 replies.
   #
   # npm is @ai-sdk/openai and baseURL KEEPS its /v1 here: opencode's
   # @ai-sdk/openai provider appends /responses, yielding the router's

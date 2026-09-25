@@ -747,3 +747,66 @@ describe("opencode plugin-loading contract", () => {
     assertNoSecretLeak()
   })
 })
+
+describe("weave served context window", () => {
+  const CONFIGURED_WINDOW = 400_000
+  const OTHER_SESSION_ID = "ses_other"
+
+  async function servedWindowHarness() {
+    const { WeaveCodex } = await import("../src/index.ts")
+    const hooks = await WeaveCodex(fakeInput())
+    const loaded = await hooks.auth!.loader!((async () => ({ type: "api" })) as never, {} as never)
+    const model = { providerID: "weave", limit: { context: CONFIGURED_WINDOW, output: 32_000 } }
+    const params = async (sessionID: string, agent = "build") =>
+      hooks["chat.params"]?.({ sessionID, agent, model } as never, { options: {} } as never)
+    const respond = async (sessionID: string, served: string | undefined, agent = "build", status = 200) => {
+      globalThis.fetch = (async () =>
+        new Response("{}", { status, headers: served ? { "x-router-context-window": served } : {} })) as typeof fetch
+      await (loaded.fetch as typeof fetch)("https://router.example.test/v1/responses", {
+        method: "POST",
+        headers: { "session-id": sessionID, "x-weave-opencode-agent": agent },
+      })
+    }
+    return { model, params, respond }
+  }
+
+  test("compaction budgets against the window of the model the router served", async () => {
+    const { model, params, respond } = await servedWindowHarness()
+    await params(SESSION_ID)
+    expect(model.limit.context).toBe(CONFIGURED_WINDOW)
+
+    await respond(SESSION_ID, "1000000")
+    expect(model.limit.context).toBe(1_000_000)
+
+    await respond(SESSION_ID, "200000")
+    expect(model.limit.context).toBe(200_000)
+    await params(SESSION_ID)
+    expect(model.limit.context).toBe(200_000)
+  })
+
+  test("each session re-applies its own served window before its request", async () => {
+    const { model, params, respond } = await servedWindowHarness()
+    await params(SESSION_ID)
+    await respond(SESSION_ID, "200000")
+
+    await params(OTHER_SESSION_ID)
+    expect(model.limit.context).toBe(CONFIGURED_WINDOW)
+    await respond(OTHER_SESSION_ID, "1050000")
+
+    await params(SESSION_ID)
+    expect(model.limit.context).toBe(200_000)
+  })
+
+  test("utility turns, failed responses, and malformed headers leave the budget alone", async () => {
+    const { model, params, respond } = await servedWindowHarness()
+    await params(SESSION_ID)
+    await respond(SESSION_ID, "1000000")
+
+    await respond(SESSION_ID, "200000", "title")
+    await respond(SESSION_ID, "200000", "compaction")
+    await respond(SESSION_ID, "200000", "build", 500)
+    await respond(SESSION_ID, "1e6")
+    await respond(SESSION_ID, undefined)
+    expect(model.limit.context).toBe(1_000_000)
+  })
+})
