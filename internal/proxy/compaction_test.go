@@ -267,6 +267,61 @@ func TestMaybeCompact_ReusesOnlyMatchingSessionPrefixAndPolicy(t *testing.T) {
 	}
 }
 
+func TestMaybeCompact_CheckpointKeepsToolResultPrefixStable(t *testing.T) {
+	base := []byte(strings.Replace(string(toolHeavyAnthropicBody(32, 500)),
+		`{"role":"assistant","content":[{"type":"tool_use","id":"t26"`,
+		`{"role":"user","content":"Continue reading."},{"role":"assistant","content":[{"type":"tool_use","id":"t26"`, 1))
+	cleaned, err := translate.ParseAnthropic(base)
+	require.NoError(t, err)
+	require.Positive(t, cleaned.ClearOldToolResults(5))
+	store := &memoryCompactionCheckpoints{}
+	fake := &fakeCompactionSummarizer{summary: "Preserved decisions"}
+	s := &Service{compactionTriggerPct: DefaultCompactionTriggerPct, compactionSummarizer: fake, compactionCheckpoints: store}
+	in := compactionInput{
+		TurnType: turntype.MainLoop, ClientApp: ClientAppCodex,
+		CredentialIdentity: "key-a", SessionKey: [16]byte{1},
+		Endpoint:  string(router.EndpointAnthropicMessages),
+		MaxWindow: cleaned.ContextOverflowTokenEstimate() + 100,
+		Headers:   http.Header{},
+	}
+	appendPair := func(body []byte, id int) []byte {
+		return []byte(strings.TrimSuffix(string(body), `]}`) +
+			fmt.Sprintf(`,{"role":"assistant","content":[{"type":"tool_use","id":"t%d","name":"read","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"t%d","content":"%s"}]}]}`, id, id, strings.Repeat("y", 500)))
+	}
+	messages := func(env *translate.RequestEnvelope) []gjson.Result {
+		prepared, prepErr := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: "claude-opus-5-5"})
+		require.NoError(t, prepErr)
+		return gjson.GetBytes(prepared.Body, "messages").Array()
+	}
+
+	first, err := translate.ParseAnthropic(base)
+	require.NoError(t, err)
+	result, err := s.maybeCompact(context.Background(), first, in)
+	require.NoError(t, err)
+	require.True(t, result.Summarized)
+	require.Equal(t, 1, store.writes)
+	firstMessages := messages(first)
+	require.Greater(t, len(firstMessages), 6)
+
+	second, err := translate.ParseAnthropic(appendPair(base, 32))
+	require.NoError(t, err)
+	result, err = s.maybeCompact(context.Background(), second, in)
+	require.NoError(t, err)
+	require.True(t, result.CheckpointReused)
+	secondMessages := messages(second)
+	require.Equal(t, firstMessages[:len(firstMessages)-1], secondMessages[:len(firstMessages)-1])
+
+	third, err := translate.ParseAnthropic(appendPair(appendPair(base, 32), 33))
+	require.NoError(t, err)
+	result, err = s.maybeCompact(context.Background(), third, in)
+	require.NoError(t, err)
+	require.True(t, result.CheckpointReused)
+	thirdMessages := messages(third)
+	require.Equal(t, secondMessages[:len(secondMessages)-1], thirdMessages[:len(secondMessages)-1])
+	assert.Equal(t, 1, fake.calls)
+	assert.Equal(t, 1, store.writes)
+}
+
 func TestMaybeCompact_GeminiCheckpointRejectsChangedSystemInstruction(t *testing.T) {
 	var body strings.Builder
 	body.WriteString(`{"systemInstruction":{"parts":[{"text":"original policy"}]},"contents":[`)

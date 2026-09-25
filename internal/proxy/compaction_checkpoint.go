@@ -86,7 +86,6 @@ func (s *Service) reuseCompactionCheckpoint(ctx context.Context, env, original *
 		log.Info("Compaction checkpoint miss", "reason", "unsafe_boundary", "err", err)
 		return false
 	}
-	chunk.ClearOldToolResults(pol.ToolResultKeep)
 	estimate := chunk.ContextOverflowTokenEstimate() + in.OutputReserve
 	if estimate > in.MaxWindow {
 		log.Info("Compaction checkpoint miss", "reason", "window_exceeded", "needed", estimate)

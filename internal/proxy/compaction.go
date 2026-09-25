@@ -33,6 +33,7 @@ const (
 	// compactionSummaryOutputReserve is headroom (summary output + margin) the
 	// selected summarizer model needs above the history it must ingest.
 	compactionSummaryOutputReserve = DefaultCompactionMaxTokens + 8_000
+	maxCompactionSummaryCalls      = 4
 )
 
 // compactionPolicy controls the router's context handling per harness.
@@ -361,7 +362,7 @@ func (s *Service) maybeCompact(ctx context.Context, env *translate.RequestEnvelo
 			fitBefore, before := fits(), env.Clone()
 			res.SummaryModel = model
 			for _, n := range []int{pol.RecentTurns, 6, 3, 1} {
-				*env = *before.Clone()
+				*env = *original.Clone()
 				env.RewriteForCompaction(summary, n)
 				if fits() {
 					res.Applied = true
@@ -490,6 +491,10 @@ func (s *Service) runChunkedCompactionSummary(ctx context.Context, env *translat
 	var total handover.Usage
 	var usages []handover.Usage
 	for index := 0; index < len(boundaries)-1; {
+		if len(usages) >= maxCompactionSummaryCalls {
+			observability.FromContext(ctx).Warn("Compaction summary call limit reached", "reason", "call_limit", "calls", len(usages))
+			return "", total, usages, "", false
+		}
 		lo, hi, best := index+1, len(boundaries)-1, 0
 		for lo <= hi {
 			mid := lo + (hi-lo)/2

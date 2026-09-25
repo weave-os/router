@@ -197,6 +197,31 @@ func TestCompactionPrefixDigest_ChangesWithGeminiSystemInstruction(t *testing.T)
 	assert.NotEqual(t, before, after)
 }
 
+func TestCompactionTailBoundary_ReconstructsRewrittenHistory(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		parse      func([]byte) (*RequestEnvelope, error)
+	}{
+		{"anthropic", `{"messages":[{"role":"user","content":"old"},{"role":"assistant","content":"answer"},{"role":"user","content":"continue"},{"role":"assistant","content":"more"},{"role":"user","content":"last"}]}`, ParseAnthropic},
+		{"openai", `{"messages":[{"role":"system","content":"rules"},{"role":"user","content":"old"},{"role":"assistant","content":"answer"},{"role":"user","content":"continue"},{"role":"assistant","content":"more"},{"role":"user","content":"last"}]}`, ParseOpenAI},
+		{"openai developer", `{"messages":[{"role":"system","content":"rules"},{"role":"developer","content":"required instruction"},{"role":"user","content":"old"},{"role":"assistant","content":"answer"},{"role":"user","content":"continue"},{"role":"assistant","content":"more"},{"role":"user","content":"last"}]}`, ParseOpenAI},
+		{"gemini", `{"contents":[{"role":"user","parts":[{"text":"old"}]},{"role":"model","parts":[{"text":"answer"}]},{"role":"user","parts":[{"text":"continue"}]},{"role":"model","parts":[{"text":"more"}]},{"role":"user","parts":[{"text":"last"}]}]}`, ParseGemini},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env, err := tc.parse([]byte(tc.body))
+			require.NoError(t, err)
+			boundary := env.CompactionTailBoundary(2)
+			require.Positive(t, boundary)
+			boundaries := env.CompactionBoundaries()
+			chunk, err := env.CompactionChunk(boundary, boundaries[len(boundaries)-1], "remember old state")
+			require.NoError(t, err)
+			rewritten := env.Clone()
+			rewritten.RewriteForCompaction("remember old state", 2)
+			assert.JSONEq(t, string(rewritten.body), string(chunk.body))
+		})
+	}
+}
+
 func TestRewriteForCompaction_Anthropic_KeepsSummaryAndRecent(t *testing.T) {
 	// 8 alternating messages; keep recent 3 turns.
 	var b strings.Builder
