@@ -255,11 +255,10 @@ var Models = []Model{
 		{Provider: providers.ProviderOpenAIGateway, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00}},
 	}},
 	// 1M context is behind the context-1m beta (catalog carries 200K like the
-	// rest of Sonnet). Priced at standard $3/$15, not the $2/$10 introductory
-	// rate (through 2026-08-31) — avoids a compile-time price going stale.
+	// rest of Sonnet).
 	{ID: "claude-sonnet-5", Source: SourceClosedSource, Tier: TierMid, ContextWindow: 200_000, Providers: []ProviderBinding{
-		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.10}},
-		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.10}},
 	}},
 	// Legacy Opus IDs kept passthrough-priced (no Tier — not a routing
 	// target; see gpt-4o below for the same pattern) so BYOK/direct-model

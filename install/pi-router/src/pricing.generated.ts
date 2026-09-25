@@ -7,7 +7,7 @@ export interface ModelPricing {
 	cacheReadMultiplier: number;
 }
 
-export const PRICING_VERSION = "catalog-sha256:ecb506fcec0b73ed";
+export const PRICING_VERSION = "catalog-sha256:f21420ab5e47f94a";
 
 export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.freeze({
 	"claude-fable-5": { inputUsdPerMillion: 10, outputUsdPerMillion: 50, cacheReadMultiplier: 0.1 },
@@ -23,7 +23,7 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.free
 	"claude-opus-5-5": { inputUsdPerMillion: 4, outputUsdPerMillion: 20, cacheReadMultiplier: 0.05 },
 	"claude-sonnet-4-5": { inputUsdPerMillion: 3, outputUsdPerMillion: 15, cacheReadMultiplier: 0.1 },
 	"claude-sonnet-4-6": { inputUsdPerMillion: 3, outputUsdPerMillion: 15, cacheReadMultiplier: 0.1 },
-	"claude-sonnet-5": { inputUsdPerMillion: 3, outputUsdPerMillion: 15, cacheReadMultiplier: 0.1 },
+	"claude-sonnet-5": { inputUsdPerMillion: 2, outputUsdPerMillion: 10, cacheReadMultiplier: 0.1 },
 	"deepseek/deepseek-v4-flash": { inputUsdPerMillion: 0.1134, outputUsdPerMillion: 0.2791, cacheReadMultiplier: 0.2 },
 	"deepseek/deepseek-v4-pro": { inputUsdPerMillion: 1.74, outputUsdPerMillion: 3.48, cacheReadMultiplier: 0.11494252873563218 },
 	"deepseek/deepseek-v4-pro-0813": { inputUsdPerMillion: 1.74, outputUsdPerMillion: 3.48, cacheReadMultiplier: 0.11494252873563218 },
