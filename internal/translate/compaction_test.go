@@ -70,6 +70,33 @@ func TestClearOldToolResults_OpenAI(t *testing.T) {
 	assert.Contains(t, got, ClearedToolResultPlaceholder)
 }
 
+func TestGeminiCompactionSummaryBody_PreservesVisibleHistory(t *testing.T) {
+	env, err := ParseGemini([]byte(`{"systemInstruction":{"parts":[{"text":"follow project policy"}]},"contents":[{"role":"user","parts":[{"text":"inspect this image"},{"inlineData":{"mimeType":"image/png","data":"aGVsbG8="}}]},{"role":"model","parts":[{"functionCall":{"name":"read","args":{"path":"main.go"}},"thoughtSignature":"opaque-signature"}]},{"role":"user","parts":[{"functionResponse":{"name":"read","response":{"result":"source code"}}}]}]}`))
+	require.NoError(t, err)
+	projected, err := env.GeminiCompactionSummaryBody()
+	require.NoError(t, err)
+	assert.Equal(t, "follow project policy\n", gjson.GetBytes(projected, "system").String())
+	assert.Equal(t, "image/png", gjson.GetBytes(projected, "messages.0.content.1.source.media_type").String())
+	assert.Equal(t, "aGVsbG8=", gjson.GetBytes(projected, "messages.0.content.1.source.data").String())
+	assert.Equal(t, "Function call read: {\"path\":\"main.go\"}", gjson.GetBytes(projected, "messages.1.content.0.text").String())
+	assert.Equal(t, "Function response read: {\"result\":\"source code\"}", gjson.GetBytes(projected, "messages.2.content.0.text").String())
+	assert.NotContains(t, string(projected), "opaque-signature")
+	assert.Contains(t, string(env.body), "opaque-signature", "summary projection must not mutate the client transcript")
+}
+
+func TestGeminiCompactionSummaryBody_RejectsUnsupportedMedia(t *testing.T) {
+	for _, part := range []string{
+		`{"fileData":{"mimeType":"image/png","fileUri":"gs://image"}}`,
+		`{"inlineData":{"mimeType":"application/pdf","data":"cGRm"}}`,
+		`{"text":"hello","functionCall":{"name":"read","args":{}}}`,
+	} {
+		env, err := ParseGemini([]byte(`{"contents":[{"role":"user","parts":[` + part + `]}]}`))
+		require.NoError(t, err)
+		_, err = env.GeminiCompactionSummaryBody()
+		require.Error(t, err)
+	}
+}
+
 func TestCompactionChunk_PreservesToolPairsAndSignatures(t *testing.T) {
 	tests := []struct {
 		name, body string

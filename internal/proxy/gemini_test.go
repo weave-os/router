@@ -70,6 +70,45 @@ func TestProxyGeminiGenerateContent_RoutesToGoogleProvider(t *testing.T) {
 		"streaming is signalled via GeminiStreamHintHeader")
 }
 
+func TestProxyGeminiGenerateContent_BillsSummaryWhenUpstreamFails(t *testing.T) {
+	repo := &capturingBillingRepo{}
+	summarizer := &fakeChatCompactionSummarizer{summary: "Earlier decisions and pending work"}
+	googleProv := &fakeProvider{proxyErr: errors.New("upstream unavailable")}
+	svc := proxy.NewService(
+		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}},
+		map[string]providers.Client{providers.ProviderGoogle: googleProv, providers.ProviderAnthropic: &fakeProvider{}},
+		nil, false, nil, nil, false, providers.ProviderGoogle, "gemini-2.5-flash", nil,
+	).WithAvailableModels(map[string]struct{}{"claude-sonnet-4-5": {}}).
+		WithCompaction(summarizer, 0.01).
+		WithBillingService(billing.NewService(repo))
+
+	var body strings.Builder
+	body.WriteString(`{"model":"gemini-1.5-pro","stream":false,"contents":[`)
+	for i := range 50 {
+		if i > 0 {
+			body.WriteByte(',')
+		}
+		role := "user"
+		if i%2 == 1 {
+			role = "model"
+		}
+		body.WriteString(`{"role":"` + role + `","parts":[{"text":"` + strings.Repeat("history ", 100) + `"}]}`)
+	}
+	body.WriteString(`]}`)
+
+	ctx := context.WithValue(authedCtx("00000000-0000-0000-0000-000000000001"), proxy.ExternalIDContextKey{}, "tenant-gemini-summary")
+	ctx = context.WithValue(ctx, proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppGeminiCLI})
+	req := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", strings.NewReader(body.String()))
+	err := svc.ProxyGeminiGenerateContent(ctx, []byte(body.String()), httptest.NewRecorder(), req)
+	require.Error(t, err)
+	require.Positive(t, summarizer.calls)
+	require.NotEmpty(t, googleProv.proxyBodies, "the failure must follow successful compaction")
+	assert.Contains(t, string(googleProv.proxyBodies[0]), "Earlier decisions and pending work")
+	debits := repo.recordedDebits()
+	require.Len(t, debits, 1, "the failed turn still owes the summary inference")
+	assert.Equal(t, "claude-sonnet-5", debits[0].RouterModel)
+}
+
 func TestProxyGeminiGenerateContent_RestrictsRoutingToGeminiFamily(t *testing.T) {
 	store := newFakePinStore()
 	googleProv := &fakeProvider{}

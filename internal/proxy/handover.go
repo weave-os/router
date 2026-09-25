@@ -383,12 +383,21 @@ func extractAnthropicUsage(body []byte) handover.Usage {
 // from the envelope's prior conversation, injecting the given summary
 // instruction and overriding model/max_tokens/stream.
 func buildSummaryRequestBody(env *translate.RequestEnvelope, model, instruction string, maxTokens int) ([]byte, error) {
-	prep, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: model})
-	if err != nil {
-		return nil, fmt.Errorf("prepare anthropic body: %w", err)
+	var body []byte
+	if env.SourceFormat() == translate.FormatGemini {
+		var err error
+		body, err = env.GeminiCompactionSummaryBody()
+		if err != nil {
+			return nil, fmt.Errorf("prepare Gemini summary body: %w", err)
+		}
+	} else {
+		prep, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: model})
+		if err != nil {
+			return nil, fmt.Errorf("prepare anthropic body: %w", err)
+		}
+		body = prep.Body
 	}
-	body := prep.Body
-
+	var err error
 	body, err = sjson.SetBytes(body, "model", model)
 	if err != nil {
 		return nil, fmt.Errorf("set model: %w", err)

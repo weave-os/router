@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -11,6 +12,111 @@ import (
 )
 
 var ErrUnsafeCompactionBoundary = errors.New("no safe compaction boundary")
+
+type geminiSummaryImageSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
+}
+
+type geminiSummaryBlock struct {
+	Type   string                    `json:"type"`
+	Text   string                    `json:"text,omitempty"`
+	Source *geminiSummaryImageSource `json:"source,omitempty"`
+}
+
+func (e *RequestEnvelope) GeminiCompactionSummaryBody() ([]byte, error) {
+	if e == nil || e.format != FormatGemini {
+		return nil, fmt.Errorf("gemini summary requires a Gemini request")
+	}
+	type message struct {
+		Role    string               `json:"role"`
+		Content []geminiSummaryBlock `json:"content"`
+	}
+	projection := struct {
+		System   string    `json:"system,omitempty"`
+		Messages []message `json:"messages"`
+	}{Messages: make([]message, 0)}
+	system := gjson.GetBytes(e.body, "systemInstruction")
+	if system.Exists() {
+		for _, part := range system.Get("parts").Array() {
+			if !part.IsObject() || len(part.Map()) != 1 || !part.Get("text").Exists() {
+				return nil, fmt.Errorf("unsupported Gemini system instruction part")
+			}
+			projection.System += part.Get("text").String() + "\n"
+		}
+		if projection.System == "" {
+			return nil, fmt.Errorf("empty Gemini system instruction")
+		}
+	}
+	for _, content := range gjson.GetBytes(e.body, "contents").Array() {
+		role := "user"
+		if content.Get("role").String() == "model" {
+			role = "assistant"
+		} else if r := content.Get("role").String(); r != "" && r != "user" {
+			return nil, fmt.Errorf("unsupported Gemini role %q", r)
+		}
+		out := message{Role: role}
+		for _, part := range content.Get("parts").Array() {
+			contentFields := 0
+			for key := range part.Map() {
+				switch key {
+				case "text", "functionCall", "functionResponse", "inlineData", "thoughtSignature", "thought":
+					if key != "thoughtSignature" && key != "thought" {
+						contentFields++
+					}
+				default:
+					return nil, fmt.Errorf("unsupported Gemini summary part %q", key)
+				}
+			}
+			if contentFields != 1 {
+				return nil, fmt.Errorf("Gemini summary part has %d content fields", contentFields)
+			}
+			switch {
+			case part.Get("text").Exists():
+				out.Content = append(out.Content, geminiSummaryBlock{Type: "text", Text: part.Get("text").String()})
+			case part.Get("functionCall").Exists():
+				call := part.Get("functionCall")
+				if call.Get("name").String() == "" {
+					return nil, fmt.Errorf("Gemini function call missing name")
+				}
+				args := call.Get("args").Raw
+				if args == "" {
+					args = "{}"
+				}
+				out.Content = append(out.Content, geminiSummaryBlock{Type: "text", Text: fmt.Sprintf("Function call %s: %s", call.Get("name").String(), args)})
+			case part.Get("functionResponse").Exists():
+				response := part.Get("functionResponse")
+				if response.Get("name").String() == "" || !response.Get("response").Exists() {
+					return nil, fmt.Errorf("Gemini function response missing name or body")
+				}
+				out.Content = append(out.Content, geminiSummaryBlock{Type: "text", Text: fmt.Sprintf("Function response %s: %s", response.Get("name").String(), response.Get("response").Raw)})
+			case part.Get("inlineData").Exists():
+				image := part.Get("inlineData")
+				mime := image.Get("mimeType").String()
+				switch mime {
+				case "image/jpeg", "image/png", "image/gif", "image/webp":
+				default:
+					return nil, fmt.Errorf("unsupported Gemini summary media type %q", mime)
+				}
+				if image.Get("data").String() == "" {
+					return nil, fmt.Errorf("Gemini image missing data")
+				}
+				out.Content = append(out.Content, geminiSummaryBlock{Type: "image", Source: &geminiSummaryImageSource{Type: "base64", MediaType: mime, Data: image.Get("data").String()}})
+			default:
+				return nil, fmt.Errorf("Gemini summary part has no supported content")
+			}
+		}
+		if len(out.Content) == 0 {
+			return nil, fmt.Errorf("Gemini summary message is empty")
+		}
+		projection.Messages = append(projection.Messages, out)
+	}
+	if len(projection.Messages) == 0 {
+		return nil, fmt.Errorf("Gemini summary has no messages")
+	}
+	return json.Marshal(projection)
+}
 
 func (e *RequestEnvelope) SupportsHistoryCompaction() bool {
 	if e == nil {
