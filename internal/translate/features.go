@@ -2,7 +2,6 @@ package translate
 
 import (
 	"bytes"
-	"encoding/base64"
 	"strings"
 
 	"weave-os/router/internal/observability"
@@ -31,18 +30,6 @@ const imageTokenEstimate = 1600
 // signatureFieldMarker precedes a base64 thought-signature payload in an
 // Anthropic request body.
 var signatureFieldMarker = []byte(`"signature":"`)
-
-// routerMintedSignaturePrefix is the fixed leading base64 of every
-// encodeOpenAIReasoningSignature envelope. Anthropic targets drop thinking
-// blocks carrying one (StripForeignSignedThinkingBlocks), so like the id
-// carrier below it is transport, not prompt. The JSON prefix is a multiple of
-// three bytes, so its encoding is a stable prefix of the full envelope's.
-var routerMintedSignaturePrefix = []byte(base64.StdEncoding.EncodeToString([]byte(`{"v":1,"provider":"openai",`)))
-
-// openAIReasoningIDMarker precedes router-minted OpenAI reasoning smuggled in a
-// tool id. Clients echo it on every turn, but no upstream reads it as prompt
-// text: Anthropic targets strip it and OpenAI targets replay it as reasoning.
-var openAIReasoningIDMarker = []byte(openAIReasoningSignatureIDDelimiter)
 
 // RoutingFeatures bundles router inputs and per-request metadata for logging.
 type RoutingFeatures struct {
@@ -75,7 +62,8 @@ func (e *RequestEnvelope) FullTokenEstimate() int {
 	// falsely evict Opus for exceeding its context window. Base64 image payloads
 	// are repriced separately (÷6 still over-counts them).
 	imgBytes, imgCount := e.base64ImageStats()
-	return (len(e.body)-imgBytes-routerReasoningTransportBytes(e.body))/fullBytesPerToken + imgCount*imageTokenEstimate
+	signatureBytes, idBytes := e.routerReasoningTransportBytes()
+	return (len(e.body)-imgBytes-signatureBytes-idBytes)/fullBytesPerToken + imgCount*imageTokenEstimate
 }
 
 // ContextOverflowTokenEstimate estimates tokens for context-window overflow
@@ -89,7 +77,8 @@ func (e *RequestEnvelope) ContextOverflowTokenEstimate() int {
 	// Base64 image bytes are transport, not tokens; subtract them and reprice
 	// per image to avoid phantom token inflation on multi-page PDF reads.
 	imgBytes, imgCount := e.base64ImageStats()
-	return (len(e.body)-imgBytes-routerReasoningTransportBytes(e.body))/contentBytesPerToken + imgCount*imageTokenEstimate
+	signatureBytes, idBytes := e.routerReasoningTransportBytes()
+	return (len(e.body)-imgBytes-signatureBytes-idBytes)/contentBytesPerToken + imgCount*imageTokenEstimate
 }
 
 // SignatureTokenSavings returns the tokens a signature-STRIPPING target saves
@@ -101,22 +90,51 @@ func (e *RequestEnvelope) SignatureTokenSavings() int {
 		return 0
 	}
 	// Router-minted signatures are already excluded from the base estimate.
-	all, routerMinted := signatureBytes(e.body)
-	return (all - routerMinted) / contentBytesPerToken
+	routerSignatureBytes, _ := e.routerReasoningTransportBytes()
+	return (base64SignatureBytes(e.body) - routerSignatureBytes) / contentBytesPerToken
+}
+
+// routerReasoningTransportBytes sums the router-minted OpenAI reasoning an
+// Anthropic-format client echoes back, in thinking signatures and in tool-id
+// carriers. Only payloads that decode as router envelopes count: Anthropic
+// targets strip exactly those and OpenAI targets consume them as reasoning, so
+// neither reaches an upstream as prompt text. Forged markers, marker text in
+// message content, and undecodable suffixes stay in the estimate.
+func (e *RequestEnvelope) routerReasoningTransportBytes() (signatureBytes, idBytes int) {
+	if e.format != FormatAnthropic {
+		return 0, 0
+	}
+	carrierBytes := func(id string) int {
+		if clean, stripped := stripOpenAIReasoningCarrier(id); stripped {
+			return len(id) - len(clean)
+		}
+		return 0
+	}
+	gjson.GetBytes(e.body, "messages").ForEach(func(_, message gjson.Result) bool {
+		message.Get("content").ForEach(func(_, block gjson.Result) bool {
+			switch block.Get("type").String() {
+			case "thinking":
+				signature := block.Get("signature").String()
+				if _, ok := decodeOpenAIReasoningSignature(signature); ok {
+					signatureBytes += len(signature)
+				}
+			case "tool_use":
+				idBytes += carrierBytes(block.Get("id").String())
+			case "tool_result":
+				idBytes += carrierBytes(block.Get("tool_use_id").String())
+			}
+			return true
+		})
+		return true
+	})
+	return signatureBytes, idBytes
 }
 
 // base64SignatureBytes sums the byte length of every base64 thought-signature
-// payload in body.
+// payload in body. Signatures contain no quotes/backslashes, so each payload
+// runs from its field marker to the next double quote.
 func base64SignatureBytes(body []byte) int {
-	all, _ := signatureBytes(body)
-	return all
-}
-
-// signatureBytes sums every base64 thought-signature payload in body, and
-// separately those minted by the router. Signatures contain no
-// quotes/backslashes, so each payload runs from its field marker to the next
-// double quote.
-func signatureBytes(body []byte) (all, routerMinted int) {
+	total := 0
 	for i := 0; ; {
 		rel := bytes.Index(body[i:], signatureFieldMarker)
 		if rel < 0 {
@@ -127,38 +145,7 @@ func signatureBytes(body []byte) (all, routerMinted int) {
 		if end < 0 {
 			break
 		}
-		all += end
-		if bytes.HasPrefix(body[start:start+end], routerMintedSignaturePrefix) {
-			routerMinted += end
-		}
-		i = start + end + 1
-	}
-	return all, routerMinted
-}
-
-// routerReasoningTransportBytes is the router-minted OpenAI reasoning a client
-// echoes back, whether carried in a thinking signature or a tool id.
-func routerReasoningTransportBytes(body []byte) int {
-	_, routerMinted := signatureBytes(body)
-	return routerMinted + openAIReasoningIDBytes(body)
-}
-
-// openAIReasoningIDBytes sums the bytes of every router-minted OpenAI
-// reasoning carrier (marker plus payload). Payloads are raw-URL base64, so each
-// runs from its marker to the id's closing quote.
-func openAIReasoningIDBytes(body []byte) int {
-	total := 0
-	for i := 0; ; {
-		rel := bytes.Index(body[i:], openAIReasoningIDMarker)
-		if rel < 0 {
-			break
-		}
-		start := i + rel + len(openAIReasoningIDMarker)
-		end := bytes.IndexByte(body[start:], '"')
-		if end < 0 {
-			break
-		}
-		total += len(openAIReasoningIDMarker) + end
+		total += end
 		i = start + end + 1
 	}
 	return total

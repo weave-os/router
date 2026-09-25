@@ -47,11 +47,8 @@ type compactionPolicy struct {
 	// ToolResultKeep is how many trailing tool results Tier-1 cleanup leaves
 	// intact; older ones are replaced with a placeholder.
 	ToolResultKeep int
-	// DeferToClient hands history ownership to the harness: a fitting request
-	// passes through untouched and an overflow returns prompt-too-long so the
-	// client compacts. The client re-sends its full history every turn, so a
-	// router rewrite would repeat on every turn while the rewritten request's
-	// usage hides the real size from the client's own compaction.
+	// DeferToClient permits deferral when a supported client budget is known
+	// and the eligible pool can serve it; it never substitutes provider capacity.
 	DeferToClient bool
 }
 
@@ -114,7 +111,7 @@ type compactionResult struct {
 	TrimmedToRecent    int
 	FinalEstimate      int
 	// DeferredToClient is true when the harness policy left compaction to the
-	// client, whether or not the request fit.
+	// client because the routable pool can serve the window it believes in.
 	DeferredToClient bool
 }
 
@@ -253,6 +250,13 @@ func (s *Service) compactionPreferredSummarizer(ctx context.Context, sessionKey 
 	return pin.Model
 }
 
+// clientWouldCompact defers only when the pool can serve the harness default.
+// A private lower override can compact sooner; unknown harnesses never borrow a provider window.
+func clientWouldCompact(pol compactionPolicy, budget router.ClientBudget, maxWindow int) bool {
+	return pol.DeferToClient && budget.Evidence == router.ClientBudgetHarnessDefault &&
+		budget.DefaultCompactThreshold > 0 && budget.DefaultCompactThreshold <= maxWindow
+}
+
 // maybeCompact runs the compaction cascade when needed ≥ compactionTriggerPct
 // of in.MaxWindow: (1) clear old tool results, (2) summarize with a
 // window-aware model, (3) progressive trim. Mutates env in place — caller MUST
@@ -262,8 +266,7 @@ func (s *Service) compactionPreferredSummarizer(ctx context.Context, sessionKey 
 // (Claude Code's own compaction turn must not be rewritten, and
 // probe/title-gen turns bypass the scorer), the turn is a classifier grading
 // a transcript it carries as payload, or the harness policy defers to the
-// client's own compaction (which returns ErrContextWindowExceeded instead of
-// rewriting when the request cannot fit).
+// client's own compaction.
 func (s *Service) maybeCompact(ctx context.Context, env *translate.RequestEnvelope, in compactionInput) (compactionResult, error) {
 	// The classifier requires the exact causal prefix. Compaction must never
 	// silently replace the context from which its counters and digests derive.
@@ -283,21 +286,16 @@ func (s *Service) maybeCompact(ctx context.Context, env *translate.RequestEnvelo
 	if needed() < trigger {
 		return res, nil
 	}
-	if pol.DeferToClient {
+	if fits() && clientWouldCompact(pol, in.ClientBudget, in.MaxWindow) {
 		res.DeferredToClient = true
-		res.FinalEstimate = needed()
 		log.Info("Compaction deferred to client harness",
 			"client_app", in.ClientApp,
-			"needed", res.FinalEstimate,
+			"needed", needed(),
 			"max_window", in.MaxWindow,
-			"fits", fits(),
 			"client_default_window", in.ClientBudget.DefaultWindow,
 			"client_budget_evidence", in.ClientBudget.Evidence,
 		)
-		if fits() {
-			return res, nil
-		}
-		return res, fmt.Errorf("context ~%d tokens over largest window %d, client must compact: %w", res.FinalEstimate, in.MaxWindow, ErrContextWindowExceeded)
+		return res, nil
 	}
 	log.Info("Compaction cascade engaged",
 		"client_app", in.ClientApp,

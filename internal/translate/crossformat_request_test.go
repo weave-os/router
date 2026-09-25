@@ -1,6 +1,7 @@
 package translate_test
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -2045,16 +2046,27 @@ func TestSanitizeToolUseIDs_AnthropicToAnthropic(t *testing.T) {
 	assert.Equal(t, "functions_Grep_11", result["tool_use_id"], "tool_use_id must be sanitized in same-format path")
 }
 
+// routerReasoningID builds a tool id carrying a router-minted OpenAI reasoning
+// envelope, the shape the Responses→Anthropic writer emits.
+func routerReasoningID(id string) string {
+	envelope, _ := json.Marshal(map[string]any{"v": 1, "provider": "openai", "id": "rs_1", "enc": strings.Repeat("E", 6000), "scope": "scope"})
+	sig := base64.StdEncoding.EncodeToString(envelope)
+	return id + "__openai_reasoning__" + base64.RawURLEncoding.EncodeToString([]byte(sig))
+}
+
 func TestSanitizeToolUseIDs_AnthropicTargetDropsOpenAIReasoningCarrier(t *testing.T) {
-	reasoningID := "call_abc__openai_reasoning__" + strings.Repeat("Q", 8000)
+	reasoningID := routerReasoningID("call_abc")
 	thoughtID := "toolu_def__thought__" + strings.Repeat("R", 600)
+	undecodableID := "call_abc__openai_reasoning__" + strings.Repeat("Q", 40)
 	body := []byte(`{"model":"claude-opus-4-7","messages":[
 		{"role":"assistant","content":[
 			{"type":"tool_use","id":"` + reasoningID + `","name":"Read","input":{}},
-			{"type":"tool_use","id":"` + thoughtID + `","name":"Grep","input":{}}]},
+			{"type":"tool_use","id":"` + thoughtID + `","name":"Grep","input":{}},
+			{"type":"tool_use","id":"` + undecodableID + `","name":"Glob","input":{}}]},
 		{"role":"user","content":[
 			{"type":"tool_result","tool_use_id":"` + reasoningID + `","content":"a"},
-			{"type":"tool_result","tool_use_id":"` + thoughtID + `","content":"b"}]}]}`)
+			{"type":"tool_result","tool_use_id":"` + thoughtID + `","content":"b"},
+			{"type":"tool_result","tool_use_id":"` + undecodableID + `","content":"c"}]}]}`)
 	env, err := translate.ParseAnthropic(body)
 	require.NoError(t, err)
 	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-7"})
@@ -2062,13 +2074,15 @@ func TestSanitizeToolUseIDs_AnthropicTargetDropsOpenAIReasoningCarrier(t *testin
 
 	uses := gjson.GetBytes(prep.Body, "messages.0.content.#.id").Array()
 	results := gjson.GetBytes(prep.Body, "messages.1.content.#.tool_use_id").Array()
-	require.Len(t, uses, 2)
-	require.Len(t, results, 2)
-	assert.Equal(t, "call_abc", uses[0].String(), "OpenAI reasoning carrier is not sent to Anthropic")
+	require.Len(t, uses, 3)
+	require.Len(t, results, 3)
+	assert.Equal(t, "call_abc", uses[0].String(), "router reasoning carrier is not sent to Anthropic")
 	assert.Equal(t, thoughtID, uses[1].String(), "Gemini thought carrier keeps its documented round-trip")
-	assert.Equal(t, uses[0].String(), results[0].String(), "tool_use/tool_result pairing survives")
-	assert.Equal(t, uses[1].String(), results[1].String())
-	assert.Less(t, len(prep.Body), 3000, "OpenAI carrier bytes are gone from the dispatched body")
+	assert.Equal(t, undecodableID, uses[2].String(), "an undecodable suffix is caller data and keeps the id distinct")
+	for i := range uses {
+		assert.Equal(t, uses[i].String(), results[i].String(), "tool_use/tool_result pairing survives")
+	}
+	assert.NotContains(t, string(prep.Body), strings.TrimPrefix(reasoningID, "call_abc"), "router reasoning bytes are gone from the dispatched body")
 }
 
 func TestSanitizeOverlongToolUseNames(t *testing.T) {

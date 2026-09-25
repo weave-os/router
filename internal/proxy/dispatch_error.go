@@ -302,7 +302,7 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 		return DispatchErrorClass{
 			Kind:       DispatchErrorContextWindowExceeded,
 			Status:     http.StatusRequestEntityTooLarge,
-			Message:    "prompt is too long: the conversation exceeds every available model's context window. Run /compact or start a new session.",
+			Message:    "Request context exceeds the largest available model's context window even after compaction. Reduce the conversation (e.g. /compact or start a new session).",
 			LogLevel:   "warn",
 			LogMessage: "Request context exceeds every eligible model's window after compaction",
 		}, true

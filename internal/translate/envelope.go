@@ -891,7 +891,7 @@ func blockNeedsToolUseIDSanitize(block gjson.Result) bool {
 // per echoed id. Both ends of a tool_use/tool_result pair reduce to the same id.
 // The Gemini thought carrier stays (see StripThoughtSignature).
 func anthropicRequestToolUseID(id string) string {
-	id, _ = extractOpenAIReasoningSignatureFromID(id)
+	id, _ = stripOpenAIReasoningCarrier(id)
 	return sanitizeToolUseID(id)
 }
 

@@ -81,6 +81,17 @@ func embedOpenAIReasoningSignatureInID(id, sig string) string {
 	return id + openAIReasoningSignatureIDDelimiter + base64.RawURLEncoding.EncodeToString([]byte(sig))
 }
 
+// stripOpenAIReasoningCarrier removes a router-minted reasoning carrier from id.
+// A suffix that does not decode as a router envelope is caller data and is kept,
+// so distinct ids never collapse onto one.
+func stripOpenAIReasoningCarrier(id string) (cleanID string, stripped bool) {
+	cleanID, sig := extractOpenAIReasoningSignatureFromID(id)
+	if _, ok := decodeOpenAIReasoningSignature(sig); !ok {
+		return id, false
+	}
+	return cleanID, true
+}
+
 func extractOpenAIReasoningSignatureFromID(id string) (cleanID, sig string) {
 	i := strings.Index(id, openAIReasoningSignatureIDDelimiter)
 	if i < 0 {

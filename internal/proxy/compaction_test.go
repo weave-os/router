@@ -283,6 +283,18 @@ func TestCompactionSummaryHonorsAllowlistOutsideRoutingPool(t *testing.T) {
 	}
 }
 
+func TestClientWouldCompact(t *testing.T) {
+	cc := compactionPolicyFor(ClientAppClaudeCode)
+	// Pool serves the 200K window the client sizes against: the client's
+	// own auto-compact (at 167K) fires before the router needs to.
+	assert.True(t, clientWouldCompact(cc, smallClientBudget(), 200_000))
+	// Pool's largest window is below the client's compaction point: router
+	// must compact or the request dead-ends.
+	assert.False(t, clientWouldCompact(cc, smallClientBudget(), 128_000))
+	assert.False(t, clientWouldCompact(compactionPolicyFor(ClientAppCodex), smallClientBudget(), 1_000_000), "non-deferring harness never defers")
+	assert.False(t, clientWouldCompact(cc, router.ClientBudget{}, 200_000), "unknown requested model → no deferral")
+}
+
 func TestMaybeCompact_ClaudeCodeDefersWhenPoolServesClientWindow(t *testing.T) {
 	fake := &fakeCompactionSummarizer{summary: "x"}
 	// Tiny trigger so a small fixture is "over threshold" against a 200K pool
@@ -311,44 +323,30 @@ func TestMaybeCompact_ClaudeCodeDefersWhenPoolServesClientWindow(t *testing.T) {
 	assert.True(t, res.Applied, "Codex gets Tier-1 tool-result cleanup")
 	assert.Positive(t, res.ToolResultsCleared)
 
-	// Claude Code against a pool smaller than its believed window still owns
-	// its history: a fitting request passes through untouched.
+	// Claude Code against a pool smaller than its believed window: the
+	// client's own compaction would fire too late, so the router compacts.
 	env3, err := translate.ParseAnthropic(toolHeavyAnthropicBody(20, 300))
 	require.NoError(t, err)
 	res, err = s.maybeCompact(context.Background(), env3, compactionInput{
 		TurnType: turntype.MainLoop, MaxWindow: 128_000, ClientBudget: smallClientBudget(), ClientApp: ClientAppClaudeCode, Headers: http.Header{},
 	})
 	require.NoError(t, err)
-	assert.True(t, res.DeferredToClient)
-	assert.False(t, res.Applied)
-	assert.Equal(t, before, env3.ContextOverflowTokenEstimate())
+	assert.False(t, res.DeferredToClient)
+	assert.True(t, res.Applied)
 }
 
-func TestMaybeCompact_ClaudeCodeOverflowReturnsPromptTooLong(t *testing.T) {
-	// Rewriting Claude Code's history would repeat on every turn (it re-sends
-	// the full transcript) and hide the true size from its own compaction, so
-	// an overflow is handed back for the client to compact.
-	fake := &fakeCompactionSummarizer{summary: "x"}
-	s := &Service{compactionTriggerPct: DefaultCompactionTriggerPct, compactionSummarizer: fake}
+func TestMaybeCompact_OverflowNeverDefers(t *testing.T) {
+	// Even a deferring harness must be compacted when the request already
+	// overflows the pool: the client can't help on this turn.
+	s := &Service{compactionTriggerPct: DefaultCompactionTriggerPct}
 	env, err := translate.ParseAnthropic(toolHeavyAnthropicBody(20, 300))
 	require.NoError(t, err)
 	before := env.ContextOverflowTokenEstimate()
 	res, err := s.maybeCompact(context.Background(), env, compactionInput{
 		TurnType: turntype.MainLoop, MaxWindow: before * 3 / 4, ClientBudget: smallClientBudget(), ClientApp: ClientAppClaudeCode, Headers: http.Header{},
 	})
-	require.ErrorIs(t, err, ErrContextWindowExceeded)
-	assert.True(t, res.DeferredToClient)
-	assert.Zero(t, res.ToolResultsCleared)
-	assert.Zero(t, fake.calls, "no router summary for a client that compacts itself")
-	assert.Equal(t, before, env.ContextOverflowTokenEstimate(), "history is never rewritten")
-
-	// Codex keeps the router cascade for the same overflow.
-	codexEnv, err := translate.ParseAnthropic(toolHeavyAnthropicBody(20, 300))
 	require.NoError(t, err)
-	res, err = s.maybeCompact(context.Background(), codexEnv, compactionInput{
-		TurnType: turntype.MainLoop, MaxWindow: before * 3 / 4, ClientApp: ClientAppCodex, Headers: http.Header{},
-	})
-	require.NoError(t, err)
+	assert.False(t, res.DeferredToClient)
 	assert.Positive(t, res.ToolResultsCleared)
 }
 
@@ -591,7 +589,6 @@ func TestClassifyDispatchError_ContextWindowExceeded(t *testing.T) {
 	cls, ok := ClassifyDispatchError(fmt.Errorf("wrapped: %w", ErrContextWindowExceeded))
 	require.True(t, ok)
 	assert.Equal(t, http.StatusRequestEntityTooLarge, cls.Status)
-	assert.True(t, strings.HasPrefix(cls.Message, "prompt is too long"), "Claude Code keys reactive compaction off Anthropic's wording")
 	assert.Equal(t, DispatchErrorContextWindowExceeded, cls.Kind)
 	assert.True(t, cls.Kind.IsClientError())
 }
