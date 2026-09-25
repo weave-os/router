@@ -401,6 +401,8 @@ func TestScorer_DropsTextOnlyModelOnImageTurn(t *testing.T) {
 	assert.Equal(t, "claude-opus-4-7", imageTurn.Model, "image turn must skip the text-only model")
 	assert.NotContains(t, imageTurn.Metadata.CandidateModels, "z-ai/glm-5.1",
 		"text-only model must be absent from the image-turn candidate set")
+	assert.NotContains(t, imageTurn.Metadata.ScorerRescuePool, "z-ai/glm-5.1")
+	assert.Contains(t, imageTurn.Metadata.ScorerRescuePool, "claude-opus-4-7")
 }
 
 func TestScorer_KeepsTextOnlyPoolWhenNoImageCapableCandidate(t *testing.T) {
@@ -419,6 +421,7 @@ func TestScorer_KeepsTextOnlyPoolWhenNoImageCapableCandidate(t *testing.T) {
 	got, err := s.Route(context.Background(), router.Request{PromptText: strings.Repeat("x", 100), HasImages: true})
 	require.NoError(t, err)
 	assert.Equal(t, "z-ai/glm-5.1", got.Model)
+	assert.Empty(t, got.Metadata.ScorerRescuePool)
 }
 
 func TestScorer_ReturnsErrOnEmbedderError(t *testing.T) {

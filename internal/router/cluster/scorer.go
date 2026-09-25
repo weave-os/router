@@ -581,6 +581,16 @@ func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision
 	}
 
 	preAutomaticModels := append([]string(nil), eligibleModels...)
+	if req.HasImages {
+		textOnly := catalog.ImageUnsupportedSet()
+		filtered := preAutomaticModels[:0:0]
+		for _, model := range preAutomaticModels {
+			if _, unsupported := textOnly[model]; !unsupported {
+				filtered = append(filtered, model)
+			}
+		}
+		preAutomaticModels = filtered
+	}
 	// Deployment-wide automatic exclusions are soft: unlike ExcludedModels they
 	// must never fail a turn, because a user can still reach these models by
 	// pinning them explicitly. Emptying the pool means the operator disabled
