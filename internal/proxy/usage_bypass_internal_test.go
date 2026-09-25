@@ -12,8 +12,9 @@ import (
 	"sync"
 	"testing"
 	"time"
-	"weave-os/router/internal/dispatch"
 
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
@@ -689,6 +690,11 @@ func TestBypass_PersistsTelemetryRowWithUnifiedHeaders(t *testing.T) {
 
 	installationID := uuid.New()
 	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, installationID.String())
+	ctx = context.WithValue(ctx, auth.BlindExperimentContextKey{}, auth.BlindExperimentState{
+		Active: true, Enabled: true, Arm: auth.BlindExperimentArmRouterOn,
+		ScheduledArm: auth.BlindExperimentArmRouterOn, CohortExperimentID: uuid.NewString(),
+		CohortGroupID: 2, CohortPhaseIndex: 1, CohortRevision: 1,
+	})
 	// Same wiring ProxyMessages does before the bypass branch: install the
 	// capture holder + observer, then simulate the provider reporting headers.
 	ctx = svc.withUsageObserver(ctx, req.Header)
@@ -716,6 +722,9 @@ func TestBypass_PersistsTelemetryRowWithUnifiedHeaders(t *testing.T) {
 	assert.Equal(t, installationID.String(), row.InstallationID)
 	assert.Equal(t, "router.upstream", row.SpanType, "bypass rows must land in the same span the dashboard queries filter on")
 	assert.Equal(t, "usage_bypass", row.DecisionReason)
+	assert.Equal(t, auth.CohortBypassUsageBypass, row.CohortBypassReason)
+	require.NotNil(t, row.CohortTreatmentApplied)
+	assert.False(t, *row.CohortTreatmentApplied)
 	assert.Equal(t, string(turntype.MainLoop), row.TurnType)
 	require.NotNil(t, row.UnifiedLimitHeaders, "captured unified headers must reach the telemetry row")
 	var headers map[string]string

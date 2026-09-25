@@ -1,5 +1,7 @@
 BEGIN;
 
+CREATE EXTENSION IF NOT EXISTS btree_gist WITH SCHEMA router;
+
 ALTER TABLE router.blind_router_experiment_configurations
     ADD COLUMN cohort_experiment_id UUID,
     ADD COLUMN cohort_starts_at TIMESTAMPTZ,
@@ -56,7 +58,14 @@ CREATE TABLE router.blind_router_experiment_schedule (
     FOREIGN KEY (installation_id, experiment_id, group_id)
         REFERENCES router.blind_router_experiment_groups (installation_id, experiment_id, group_id)
         ON DELETE CASCADE,
-    CHECK (starts_at < ends_at)
+    CHECK (starts_at < ends_at),
+    CONSTRAINT blind_router_experiment_schedule_no_overlap EXCLUDE USING gist (
+        installation_id WITH =,
+        experiment_id WITH =,
+        revision WITH =,
+        group_id WITH =,
+        tstzrange(starts_at, ends_at, '[)') WITH &&
+    )
 );
 
 CREATE INDEX blind_router_experiment_schedule_window_idx
