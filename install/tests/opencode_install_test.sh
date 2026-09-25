@@ -60,6 +60,9 @@ cat >"$config" <<'JSON'
 JSON
 
 run_install
+# Reinstall must upgrade a pre-400K managed limit, not preserve it.
+jq '.provider.weave.models.auto.limit.context = 128000' "$config" >"$config.tmp"
+mv "$config.tmp" "$config"
 install_output="$(run_install_output)"
 grep -Fq "opencode auth login" <<<"$install_output" || fail "install did not print the OpenCode auth login command"
 grep -Fq "Weave Router — Codex plan" <<<"$install_output" || fail "install did not print the Codex plan provider"
@@ -69,7 +72,7 @@ if grep -Fq "npx @weave-os/router login" <<<"$install_output"; then
 fi
 [ "$(jq -r '.model' "$config")" = "weave/auto" ] || fail "install did not activate weave/auto"
 [ "$(jq -r '.direct_model' "$parked")" = "anthropic/claude-sonnet-4-5" ] || fail "install did not park the previous model"
-[ "$(jq -r '.provider.weave.models.auto.limit.context' "$config")" = "128000" ] || fail "virtual model context limit is missing"
+[ "$(jq -r '.provider.weave.models.auto.limit.context' "$config")" = "400000" ] || fail "virtual model context limit is missing"
 [ "$(jq -r '.provider.weave.models.auto.limit.output' "$config")" = "32000" ] || fail "virtual model output limit is missing"
 [ "$(jq -r '.provider.weave.models.auto.reasoning' "$config")" = "true" ] || fail "virtual model reasoning capability is missing"
 [ "$(jq -r '.provider.weave.models.auto.attachment' "$config")" = "true" ] || fail "virtual model attachment capability is missing"
