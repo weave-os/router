@@ -1,0 +1,28 @@
+internal/policyregistry/serving_test.go
+  s_10b5814ed56527::t_70b3a2d68d23ca 345-380
+cmd/router/main.go
+  s_10b5814ed56527::t_a7be39941cd00d 80-91
+cmd/router/startup_egress.go
+  s_10b5814ed56527::t_b058010fde48fc 66-67,84
+  s_10b5814ed56527::t_a7be39941cd00d 1-65,68-83,85-98
+.env.example
+  s_10b5814ed56527::t_a7be39941cd00d 81-86
+cmd/router/startup_egress_test.go
+  s_10b5814ed56527::t_b058010fde48fc 1-146
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "59bdafde674ed91680712b1d20719ec1999aa184",
+  "prompts": {},
+  "sessions": {
+    "s_10b5814ed56527": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d421-d964-7190-8384-83d2a0dc0641",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
