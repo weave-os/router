@@ -634,7 +634,8 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		Metadata: &router.RoutingMetadata{
 			Escalation:                    escalationDecision,
 			CandidateModels:               resolved.CandidateModels(),
-			RescueModels:                  RescueModelOrder(req.ClusterArmOverrides, res.RankedFallback, resolved),
+			RescueModels:                  RescueModelOrder(req.ClusterArmOverrides, EscalatingRescueGroups(res.PolicyGroup, req.ForceCluster, res.RankedFallback), resolved),
+			RosterFailover:                len(res.RankedFallback) > 0 && (req.ForceCluster != "" || escalation.Rank(escalation.Group(res.PolicyGroup)) >= 0),
 			CandidateProviders:            resolved.CandidateProviders(),
 			CandidateScores:               resolved.CatalogCandidateScores(res.CandidateScores),
 			CandidateArmProviders:         resolved.CandidateArmProviders(),
@@ -763,6 +764,8 @@ func (r *SidecarRouter) RouteWithoutUserText(ctx context.Context, req router.Req
 			Strategy:            string(r.config.Strategy),
 			PolicyGroup:         selectedGroup,
 			CandidateModels:     resolved.CandidateModels(),
+			RescueModels:        RescueModelOrder(req.ClusterArmOverrides, EscalatingRescueGroups(selectedGroup, req.ForceCluster, pick.RankedFallback), resolved),
+			RosterFailover:      len(pick.RankedFallback) > 0 && (req.ForceCluster != "" || escalation.Rank(escalation.Group(selectedGroup)) >= 0),
 			CandidateProviders:  resolved.CandidateProviders(),
 			SelectedArmID:       binding.ArmID,
 			SelectedRosterArmID: selectedArm,

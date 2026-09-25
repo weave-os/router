@@ -169,7 +169,8 @@ func newRankedRescueFixture(t *testing.T) *rankedRescueFixture {
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-opus-4-8",
 		Metadata: &router.RoutingMetadata{
-			PolicyGroup: "maximum",
+			PolicyGroup:    "medium",
+			RosterFailover: true,
 			// The scored pool lists deepseek first; the ranked fallback puts kimi ahead of it.
 			CandidateModels: []string{"deepseek/deepseek-v4-pro", "moonshotai/kimi-k2.6", "claude-opus-4-8"},
 			RescueModels:    []string{"claude-opus-4-8", "moonshotai/kimi-k2.6", "deepseek/deepseek-v4-pro"},

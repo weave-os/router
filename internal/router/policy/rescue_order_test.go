@@ -50,3 +50,38 @@ func TestRescueModelOrder_SkipsArmsWithoutABinding(t *testing.T) {
 	assert.Equal(t, []string{"astra"}, policy.RescueModelOrder(nil, ranked, resolved))
 	assert.Nil(t, policy.RescueModelOrder(nil, nil, resolved), "no ranked fallback yields no order")
 }
+
+func TestEscalatingRescueGroups_ExhaustsSelectedClassBeforeHigherClasses(t *testing.T) {
+	ranked := []policy.PreviewGroup{
+		{Group: "high", EligibleArms: []string{"anthropic/opus"}},
+		{Group: "low", EligibleArms: []string{"openai/astra", "anthropic/haiku"}},
+		{Group: "maximum", EligibleArms: []string{"openai/nova"}},
+		{Group: "medium", EligibleArms: []string{"openai/luna"}},
+	}
+	resolved := resolvedFor(map[string]string{
+		"astra": "openai/astra", "haiku": "anthropic/haiku",
+		"luna": "openai/luna", "opus": "anthropic/opus", "nova": "openai/nova",
+	})
+
+	got := policy.RescueModelOrder(nil, policy.EscalatingRescueGroups("low", "", ranked), resolved)
+	assert.Equal(t, []string{"astra", "haiku", "luna", "opus", "nova"}, got)
+	assert.Equal(t, []string{"luna", "opus", "nova"},
+		policy.RescueModelOrder(nil, policy.EscalatingRescueGroups("medium", "", ranked), resolved))
+	assert.Equal(t, []string{"astra", "haiku"},
+		policy.RescueModelOrder(nil, policy.EscalatingRescueGroups("low", "low", ranked), resolved))
+	assert.Nil(t, policy.EscalatingRescueGroups("low", "absent", ranked))
+}
+
+func TestEscalatingRescueGroups_HonorsPerKeyRosterRestrictions(t *testing.T) {
+	ranked := []policy.PreviewGroup{
+		{Group: "low", EligibleArms: []string{"openai/astra", "anthropic/haiku"}},
+		{Group: "medium", EligibleArms: []string{"openai/luna"}},
+	}
+	resolved := resolvedFor(map[string]string{
+		"astra": "openai/astra", "haiku": "anthropic/haiku", "luna": "openai/luna",
+	})
+	overrides := map[string][]string{"low": {"haiku"}}
+
+	got := policy.RescueModelOrder(overrides, policy.EscalatingRescueGroups("low", "", ranked), resolved)
+	assert.Equal(t, []string{"haiku", "luna"}, got)
+}

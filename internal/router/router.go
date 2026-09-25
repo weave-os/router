@@ -319,9 +319,11 @@ type RoutingMetadata struct {
 	CandidateModels []string
 	// RescueModels orders the catalog models an in-turn rescue may fall back
 	// to when the served model's bindings all fail: the policy's ranked group
-	// fallback with per-key allowlists applied. CandidateModels is the
-	// resolver's eligible pool in catalog order and carries no preference.
+	// fallback with per-key allowlists applied. RosterFailover restricts rescue
+	// to this ordered roster; CandidateModels is the resolver's eligible pool
+	// in catalog order and carries no preference.
 	RescueModels         []string
+	RosterFailover       bool
 	ChosenScore          float32
 	ClusterRouterVersion string
 	// Strategy identifies opt-in sidecar routers ("rl", "hmm") when metadata

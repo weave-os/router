@@ -1,5 +1,31 @@
 package policy
 
+import "weave-os/router/internal/router/escalation"
+
+func EscalatingRescueGroups(selectedGroup, forcedGroup string, rankedFallback []PreviewGroup) []PreviewGroup {
+	if forcedGroup != "" {
+		for _, group := range rankedFallback {
+			if group.Group == forcedGroup {
+				return []PreviewGroup{group}
+			}
+		}
+		return nil
+	}
+	start := escalation.Rank(escalation.Group(selectedGroup))
+	if start < 0 {
+		return rankedFallback
+	}
+	groups := make([]PreviewGroup, 0, len(rankedFallback))
+	for rank := start; rank <= escalation.Rank(escalation.Maximum); rank++ {
+		for _, group := range rankedFallback {
+			if escalation.Rank(escalation.Group(group.Group)) == rank {
+				groups = append(groups, group)
+			}
+		}
+	}
+	return groups
+}
+
 // RescueModelOrder lists the catalog models an in-turn rescue may fall back to
 // once the served model's bindings fail, in ranked-fallback order: each group's
 // effective arms (per-key allowlists applied, so a model the key excluded never
