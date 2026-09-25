@@ -166,7 +166,15 @@ func (e *RequestEnvelope) CompactionTailBoundary(keepRecent int) int {
 			return boundary
 		}
 	}
+	if mixedCompactionBoundary(all, boundary-instructionCount, e.format) {
+		return boundary
+	}
 	return 0
+}
+
+func mixedCompactionBoundary(all []gjson.Result, boundary int, format Format) bool {
+	return boundary > 0 && boundary < len(all) &&
+		isTextBearingUserMessage(all[boundary], format) && containsToolResult(all[boundary], format)
 }
 
 func (e *RequestEnvelope) CompactionPrefixDigest(boundary int) ([sha256.Size]byte, error) {
@@ -175,6 +183,13 @@ func (e *RequestEnvelope) CompactionPrefixDigest(boundary int) ([sha256.Size]byt
 	valid := false
 	for _, b := range boundaries {
 		valid = valid || b == boundary
+	}
+	if e != nil {
+		field := "messages"
+		if e.format == FormatGemini {
+			field = "contents"
+		}
+		valid = valid || mixedCompactionBoundary(gjson.GetBytes(e.body, field).Array(), boundary, e.format)
 	}
 	if !valid || e == nil {
 		return zero, ErrUnsafeCompactionBoundary
@@ -279,6 +294,7 @@ func (e *RequestEnvelope) compactionChunk(start, end int, summary string, forSum
 		validStart = validStart || boundary == start
 		validEnd = validEnd || boundary == end
 	}
+	validStart = validStart || mixedCompactionBoundary(all, start, e.format)
 	if !validStart || !validEnd || end <= start {
 		return nil, ErrUnsafeCompactionBoundary
 	}
@@ -325,8 +341,18 @@ func (e *RequestEnvelope) compactionChunk(start, end int, summary string, forSum
 		}
 		rebuilt = append(rebuilt, anchor)
 	}
-	for _, msg := range all[start:end] {
-		rebuilt = append(rebuilt, msg.Raw)
+	if mixedCompactionBoundary(all, start, e.format) {
+		switch e.format {
+		case FormatAnthropic:
+			cleaned, _ := stripOrphanedAnthropicToolResults(all[start:end])
+			rebuilt = append(rebuilt, cleaned...)
+		case FormatGemini:
+			rebuilt = append(rebuilt, stripLeadingGeminiOrphanFunctionResponses(all[start:end])...)
+		}
+	} else {
+		for _, msg := range all[start:end] {
+			rebuilt = append(rebuilt, msg.Raw)
+		}
 	}
 	chunk := e.Clone()
 	var err error

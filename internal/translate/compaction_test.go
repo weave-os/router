@@ -222,6 +222,35 @@ func TestCompactionTailBoundary_ReconstructsRewrittenHistory(t *testing.T) {
 	}
 }
 
+func TestCompactionTailBoundary_MixedToolResultReconstructsRewrittenTail(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, field, marker string
+		parse                     func([]byte) (*RequestEnvelope, error)
+	}{
+		{"anthropic", `{"messages":[{"role":"user","content":"initial"},{"role":"assistant","content":"answer"},{"role":"user","content":"previous"},{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"read","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"output"},{"type":"text","text":"new constraint"}]},{"role":"assistant","content":"next"},{"role":"user","content":"latest"}]}`, "messages", "new constraint", ParseAnthropic},
+		{"gemini", `{"contents":[{"role":"user","parts":[{"text":"initial"}]},{"role":"model","parts":[{"text":"answer"}]},{"role":"user","parts":[{"text":"previous"}]},{"role":"model","parts":[{"functionCall":{"name":"read","args":{}}}]},{"role":"user","parts":[{"functionResponse":{"name":"read","response":{"result":"output"}}},{"text":"new constraint"}]},{"role":"model","parts":[{"text":"next"}]},{"role":"user","parts":[{"text":"latest"}]}]}`, "contents", "new constraint", ParseGemini},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env, err := tc.parse([]byte(tc.body))
+			require.NoError(t, err)
+			boundary := env.CompactionTailBoundary(3)
+			require.Equal(t, 4, boundary)
+			bounds := env.CompactionBoundaries()
+			assert.NotContains(t, bounds, boundary)
+			_, err = env.CompactionPrefixDigest(boundary)
+			require.NoError(t, err)
+			chunk, err := env.CompactionChunk(boundary, bounds[len(bounds)-1], "prior context")
+			require.NoError(t, err)
+			rewritten := env.Clone()
+			require.Positive(t, rewritten.RewriteForCompaction("prior context", 3))
+			assert.JSONEq(t, string(chunk.body), string(rewritten.body))
+			assert.Contains(t, string(chunk.body), tc.marker)
+			assert.Len(t, gjson.GetBytes(chunk.body, tc.field).Array(), 4)
+			assert.NotContains(t, string(chunk.body), "output")
+		})
+	}
+}
+
 func TestRewriteForCompaction_Anthropic_KeepsSummaryAndRecent(t *testing.T) {
 	// 8 alternating messages; keep recent 3 turns.
 	var b strings.Builder
