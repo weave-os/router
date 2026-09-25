@@ -149,6 +149,39 @@ func TestDecisionFromExportRowPreservesNullBlindExperimentFields(t *testing.T) {
 	assert.Nil(t, got.BlindExperimentSubjectKey)
 }
 
+func TestDecisionFromExportRowMapsCohortAttribution(t *testing.T) {
+	cohortID := uuid.New()
+	groupID := int16(2)
+	phaseIndex := int16(3)
+	revision := int32(4)
+	scheduledArm := string(auth.BlindExperimentArmPassthrough)
+	applied := false
+	reason := string(auth.CohortBypassHardPin)
+	decision := decisionFromExportRow(sqlc.GetRoutingDecisionsForExportRow{
+		CohortExperimentID:     pgtype.UUID{Bytes: cohortID, Valid: true},
+		CohortGroupID:          &groupID,
+		CohortPhaseIndex:       &phaseIndex,
+		CohortRevision:         &revision,
+		CohortScheduledArm:     &scheduledArm,
+		CohortTreatmentApplied: &applied,
+		CohortBypassReason:     &reason,
+	})
+
+	assert.Equal(t, cohortID.String(), *decision.CohortExperimentID)
+	assert.Equal(t, int64(groupID), *decision.CohortGroupID)
+	assert.Equal(t, int64(phaseIndex), *decision.CohortPhaseIndex)
+	assert.Equal(t, int64(revision), *decision.CohortRevision)
+	assert.Equal(t, auth.BlindExperimentArmPassthrough, *decision.CohortScheduledArm)
+	assert.False(t, *decision.CohortTreatmentApplied)
+	assert.Equal(t, auth.CohortBypassHardPin, *decision.CohortBypassReason)
+
+	empty := decisionFromExportRow(sqlc.GetRoutingDecisionsForExportRow{})
+	assert.Nil(t, empty.CohortExperimentID)
+	assert.Nil(t, empty.CohortGroupID)
+	assert.Nil(t, empty.CohortScheduledArm)
+	assert.Nil(t, empty.CohortTreatmentApplied)
+}
+
 func TestDecisionFromExportRowMapsBenchmarkAttribution(t *testing.T) {
 	plan := "boost"
 	capacitySource := "linked_claude"

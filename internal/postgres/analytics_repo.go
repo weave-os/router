@@ -76,6 +76,13 @@ func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.D
 		BlindExperimentArm:              blindExperimentArmPtr(row.BlindExperimentArm),
 		BlindExperimentAssignmentSource: blindExperimentAssignmentSourcePtr(row.BlindExperimentAssignmentSource),
 		BlindExperimentSubjectKey:       row.BlindExperimentSubjectKey,
+		CohortExperimentID:              uuidStringPtr(row.CohortExperimentID),
+		CohortGroupID:                   int16PtrToInt64(row.CohortGroupID),
+		CohortPhaseIndex:                int16PtrToInt64(row.CohortPhaseIndex),
+		CohortRevision:                  int32PtrToInt64(row.CohortRevision),
+		CohortScheduledArm:              blindExperimentArmPtr(row.CohortScheduledArm),
+		CohortTreatmentApplied:          row.CohortTreatmentApplied,
+		CohortBypassReason:              cohortBypassReasonPtr(row.CohortBypassReason),
 		PolicyPinRequested:              row.PolicyPinRequested,
 		PolicyPinHonoured:               row.PolicyPinHonoured,
 		StickyHit:                       row.StickyHit != nil && *row.StickyHit,
@@ -140,6 +147,22 @@ func blindExperimentAssignmentSourcePtr(value *string) *auth.BlindExperimentAssi
 	}
 	source := auth.BlindExperimentAssignmentSource(*value)
 	return &source
+}
+
+func cohortBypassReasonPtr(value *string) *auth.CohortBypassReason {
+	if value == nil {
+		return nil
+	}
+	reason := auth.CohortBypassReason(*value)
+	return &reason
+}
+
+func int16PtrToInt64(value *int16) *int64 {
+	if value == nil {
+		return nil
+	}
+	converted := int64(*value)
+	return &converted
 }
 
 func int32PtrToInt64(v *int32) *int64 {

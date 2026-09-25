@@ -24,6 +24,69 @@ type recordingPolicy struct {
 	feedback     map[string]interface{}
 }
 
+func TestSidecarRouter_OrdersRescueBySelectedGroupAndForceCluster(t *testing.T) {
+	models := []string{"claude-haiku-4-5", "gpt-4.1-mini", "claude-sonnet-5", "claude-opus-4-8"}
+	decider := &recordingPolicy{result: policy.Result{
+		SchemaVersion: policy.SchemaVersionV1,
+		Model:         "claude-haiku-4-5",
+		Provider:      providers.ProviderAnthropic,
+		PolicyGroup:   "low",
+		RankedFallback: []policy.PreviewGroup{
+			{Group: "high", EligibleArms: []string{"claude-opus-4-8"}},
+			{Group: "medium", EligibleArms: []string{"claude-sonnet-5"}},
+			{Group: "low", EligibleArms: []string{"claude-haiku-4-5", "gpt-4.1-mini"}},
+		},
+	}}
+	adapter := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyHMM}, decider,
+		policy.NewResolver(set(models...), set(providers.ProviderAnthropic, providers.ProviderOpenAI), catalogRosterID, policy.ManagedProviderPolicy()))
+
+	decision, err := adapter.Route(context.Background(), router.Request{})
+	require.NoError(t, err)
+	assert.True(t, decision.Metadata.RosterFailover)
+	assert.Equal(t, []string{"claude-haiku-4-5", "gpt-4.1-mini", "claude-sonnet-5", "claude-opus-4-8"}, decision.Metadata.RescueModels)
+
+	forced, err := adapter.Route(context.Background(), router.Request{ForceCluster: "low"})
+	require.NoError(t, err)
+	assert.True(t, forced.Metadata.RosterFailover)
+	assert.Equal(t, []string{"claude-haiku-4-5", "gpt-4.1-mini"}, forced.Metadata.RescueModels)
+}
+
+func TestSidecarRouter_CoolingRescuePoolStaysWithinEligibleGroups(t *testing.T) {
+	models := []string{"claude-haiku-4-5", "gpt-4.1-mini", "claude-opus-4-8", "gpt-5", "claude-sonnet-5"}
+	decider := &recordingPolicy{result: policy.Result{
+		SchemaVersion: policy.SchemaVersionV1,
+		Model:         "claude-haiku-4-5",
+		Provider:      providers.ProviderAnthropic,
+		PolicyGroup:   "low",
+		RankedFallback: []policy.PreviewGroup{
+			{Group: "low", RosterArms: []string{"claude-haiku-4-5", "gpt-4.1-mini"}, EligibleArms: []string{"claude-haiku-4-5", "gpt-4.1-mini"}},
+			{Group: "high", RosterArms: []string{"claude-opus-4-8", "claude-sonnet-5"}, EligibleArms: nil},
+		},
+	}}
+	adapter := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyHMM}, decider,
+		policy.NewResolver(set(models...), set(providers.ProviderAnthropic, providers.ProviderOpenAI), catalogRosterID, policy.ManagedProviderPolicy()))
+	req := router.Request{
+		AutomaticExcludedModels: set("claude-opus-4-8", "gpt-5"),
+		ExcludedModels:          set("claude-sonnet-5"),
+	}
+
+	decision, err := adapter.Route(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"claude-opus-4-8"}, decision.Metadata.SidecarRescuePool)
+	assert.Equal(t, []string{"claude-haiku-4-5", "gpt-4.1-mini"}, decision.Metadata.RescueModels)
+
+	req.ForceCluster = "low"
+	forced, err := adapter.Route(context.Background(), req)
+	require.NoError(t, err)
+	assert.Empty(t, forced.Metadata.SidecarRescuePool)
+
+	req.ForceCluster = ""
+	req.ClusterArmOverrides = map[string][]string{"high": {"claude-sonnet-5"}}
+	limited, err := adapter.Route(context.Background(), req)
+	require.NoError(t, err)
+	assert.Empty(t, limited.Metadata.SidecarRescuePool)
+}
+
 func (p *recordingPolicy) Decide(_ context.Context, query policy.Query) (policy.Result, error) {
 	p.query = query
 	return p.result, nil

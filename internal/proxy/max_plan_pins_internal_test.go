@@ -20,6 +20,7 @@ func TestMaxSubscriberPinsEveryClusterToTheOpenWeightRoster(t *testing.T) {
 	overrides := clusterArmOverridesForRequest(maxSubscriberContext(t))
 
 	require.Equal(t, maxPlanClusterPins, overrides)
+	assert.Equal(t, []string{"deepseek/deepseek-v4.1-flash", "xiaomi/mimo-v2.6-flash"}, overrides["low"])
 }
 
 func TestPinsApplyOnlyToMaxSubscribers(t *testing.T) {

@@ -196,6 +196,91 @@ func TestResolveAndStashUserBlindExperimentOverrideAndCache(t *testing.T) {
 	assert.Equal(t, 1, experiments.calls)
 }
 
+func TestBlindExperimentCohortChangesAtBoundaryWithoutCacheRefresh(t *testing.T) {
+	start := time.Date(2026, time.October, 5, 7, 0, 0, 0, time.UTC)
+	now := start.Add(time.Hour)
+	users := &fakeUserRepo{user: &auth.User{ID: "user-42", InstallationID: "inst-1", Email: "alice@example.com"}}
+	experiments := &fakeBlindExperimentRepository{record: auth.BlindExperimentRecord{
+		Configured: true, Enabled: true, CanonicalSubjectKey: "account-7",
+		CohortExperimentID: "experiment-1", CohortGroupID: 3, CohortRevision: 1,
+		CohortStartsAt: start, CohortEndsAt: start.Add(14 * 24 * time.Hour),
+		CohortSchedule: []auth.BlindExperimentPhase{
+			{Index: 1, StartsAt: start, EndsAt: start.Add(7 * 24 * time.Hour), Arm: auth.BlindExperimentArmPassthrough},
+			{Index: 2, StartsAt: start.Add(7 * 24 * time.Hour), EndsAt: start.Add(14 * 24 * time.Hour), Arm: auth.BlindExperimentArmRouterOn},
+		},
+	}}
+	service := auth.NewService(&fakeInstallationRepository{}, &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}},
+		nil, users, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return now }).
+		WithBlindExperiments(experiments, auth.NewLRUBlindExperimentCache(10, time.Hour, func() time.Time { return now }))
+
+	first, active := auth.BlindExperimentFrom(service.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", ""))
+	require.True(t, active)
+	assert.Equal(t, auth.BlindExperimentArmPassthrough, first.Arm)
+	assert.Equal(t, 1, first.CohortPhaseIndex)
+
+	now = start.Add(7 * 24 * time.Hour)
+	second, active := auth.BlindExperimentFrom(service.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", ""))
+	require.True(t, active)
+	assert.Equal(t, auth.BlindExperimentArmRouterOn, second.Arm)
+	assert.Equal(t, 2, second.CohortPhaseIndex)
+	assert.Equal(t, 3, second.CohortGroupID)
+	assert.Equal(t, 1, experiments.calls)
+
+	now = start.Add(14 * 24 * time.Hour)
+	_, active = auth.BlindExperimentFrom(service.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", ""))
+	assert.False(t, active)
+}
+
+func TestBlindExperimentCohortManualArmDoesNotChangeGroup(t *testing.T) {
+	start := time.Date(2026, time.October, 5, 0, 0, 0, 0, time.UTC)
+	state := auth.BlindExperimentState{
+		Active: true, Enabled: true, CohortExperimentID: "experiment-1", CohortGroupID: 3,
+		CohortStartsAt: start, CohortEndsAt: start.Add(24 * time.Hour),
+		ManualOverride: auth.BlindExperimentArmRouterOn,
+		CohortSchedule: []auth.BlindExperimentPhase{{Index: 1, StartsAt: start, EndsAt: start.Add(24 * time.Hour), Arm: auth.BlindExperimentArmPassthrough}},
+	}.AtTime(start)
+	assert.True(t, state.Active)
+	assert.Equal(t, auth.BlindExperimentArmPassthrough, state.ScheduledArm)
+	assert.Equal(t, auth.BlindExperimentArmRouterOn, state.Arm)
+	assert.Equal(t, auth.BlindExperimentAssignmentManual, state.AssignmentSource)
+	assert.Equal(t, 3, state.CohortGroupID)
+}
+
+func TestBlindExperimentEmergencyOverrideChangesAtExactBoundaries(t *testing.T) {
+	start := time.Date(2026, time.October, 5, 0, 0, 0, 0, time.UTC)
+	state := auth.BlindExperimentState{Enabled: true, CohortExperimentID: "experiment-1", CohortGroupID: 3,
+		CohortStartsAt: start, CohortEndsAt: start.Add(24 * time.Hour),
+		CohortSchedule:  []auth.BlindExperimentPhase{{Index: 1, StartsAt: start, EndsAt: start.Add(24 * time.Hour), Arm: auth.BlindExperimentArmRouterOn}},
+		CohortOverrides: []auth.BlindExperimentEmergencyOverride{{StartsAt: start.Add(time.Hour), EndsAt: start.Add(2 * time.Hour), Arm: auth.BlindExperimentArmPassthrough}},
+	}
+	before := state.AtTime(start.Add(time.Hour - time.Nanosecond))
+	assert.Equal(t, auth.BlindExperimentArmRouterOn, before.Arm)
+	atStart := state.AtTime(start.Add(time.Hour))
+	assert.Equal(t, auth.BlindExperimentArmPassthrough, atStart.Arm)
+	assert.Equal(t, auth.BlindExperimentArmRouterOn, atStart.ScheduledArm)
+	assert.Equal(t, auth.BlindExperimentAssignmentManual, atStart.AssignmentSource)
+	assert.Equal(t, 3, atStart.CohortGroupID)
+	after := state.AtTime(start.Add(2 * time.Hour))
+	assert.Equal(t, auth.BlindExperimentArmRouterOn, after.Arm)
+	assert.Equal(t, auth.BlindExperimentAssignmentAutomatic, after.AssignmentSource)
+}
+
+func TestBlindExperimentCohortDstBoundaryUsesAbsoluteInstants(t *testing.T) {
+	location, err := time.LoadLocation("America/Los_Angeles")
+	require.NoError(t, err)
+	first := time.Date(2026, time.October, 26, 0, 0, 0, 0, location).UTC()
+	second := time.Date(2026, time.November, 2, 0, 0, 0, 0, location).UTC()
+	end := time.Date(2026, time.November, 9, 0, 0, 0, 0, location).UTC()
+	assert.Equal(t, time.Hour*169, second.Sub(first))
+	state := auth.BlindExperimentState{Enabled: true, CohortExperimentID: "experiment-1", CohortGroupID: 1,
+		CohortStartsAt: first, CohortEndsAt: end, CohortSchedule: []auth.BlindExperimentPhase{
+			{Index: 1, StartsAt: first, EndsAt: second, Arm: auth.BlindExperimentArmRouterOn},
+			{Index: 2, StartsAt: second, EndsAt: end, Arm: auth.BlindExperimentArmPassthrough},
+		}}
+	assert.Equal(t, auth.BlindExperimentArmRouterOn, state.AtTime(second.Add(-time.Nanosecond)).Arm)
+	assert.Equal(t, auth.BlindExperimentArmPassthrough, state.AtTime(second).Arm)
+}
+
 func TestResolveAndStashUserBlindExperimentWithoutCache(t *testing.T) {
 	users := &fakeUserRepo{user: &auth.User{ID: "user-42", InstallationID: "inst-1", Email: "alice@example.com"}}
 	experiments := &fakeBlindExperimentRepository{record: auth.BlindExperimentRecord{

@@ -129,6 +129,40 @@ func TestRoutingDecisionsStreamsBlindExperimentFields(t *testing.T) {
 	require.Equal(t, subjectKey, rows[0]["blind_experiment_subject_key"])
 }
 
+func TestRoutingDecisionsStreamsCohortAttribution(t *testing.T) {
+	cohortID := "cohort-1"
+	groupID := int64(2)
+	phaseIndex := int64(3)
+	revision := int64(4)
+	scheduledArm := auth.BlindExperimentArmPassthrough
+	intendedArm := auth.BlindExperimentArmRouterOn
+	applied := false
+	reason := auth.CohortBypassForceModel
+	decisions := rowsAt(1)
+	decisions[0].CohortExperimentID = &cohortID
+	decisions[0].CohortGroupID = &groupID
+	decisions[0].CohortPhaseIndex = &phaseIndex
+	decisions[0].CohortRevision = &revision
+	decisions[0].CohortScheduledArm = &scheduledArm
+	decisions[0].BlindExperimentArm = &intendedArm
+	decisions[0].CohortTreatmentApplied = &applied
+	decisions[0].CohortBypassReason = &reason
+	engine := newRouter(&fakeRepo{rows: decisions}, &auth.Installation{ID: "inst"})
+
+	recorder := get(engine, "/v1/analytics/routing-decisions?since=2026-01-01T00:00:00Z", nil)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	rows := decodeNDJSON(t, recorder.Body)
+	require.Len(t, rows, 1)
+	require.Equal(t, cohortID, rows[0]["cohort_experiment_id"])
+	require.Equal(t, float64(groupID), rows[0]["cohort_group_id"])
+	require.Equal(t, float64(phaseIndex), rows[0]["cohort_phase_index"])
+	require.Equal(t, float64(revision), rows[0]["cohort_revision"])
+	require.Equal(t, string(scheduledArm), rows[0]["cohort_scheduled_arm"])
+	require.Equal(t, string(intendedArm), rows[0]["blind_experiment_arm"])
+	require.Equal(t, applied, rows[0]["cohort_treatment_applied"])
+	require.Equal(t, string(reason), rows[0]["cohort_bypass_reason"])
+}
+
 // Cursor and has-more travel as headers so the body stays pure rows.
 func TestRoutingDecisionsReturnsCursorHeaders(t *testing.T) {
 	engine := newRouter(&fakeRepo{rows: rowsAt(3)}, &auth.Installation{ID: "inst"})

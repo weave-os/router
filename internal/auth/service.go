@@ -943,7 +943,11 @@ func (s *Service) withBlindExperiment(ctx context.Context, installationID, route
 			}
 		}
 	}
+	state = state.AtTime(s.now())
 	if !state.Active {
+		if state.CohortExperimentID != "" {
+			return context.WithValue(ctx, BlindExperimentContextKey{}, state)
+		}
 		return ctx
 	}
 	return context.WithValue(ctx, BlindExperimentContextKey{}, state)

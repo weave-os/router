@@ -195,7 +195,7 @@ func TestBlindExperimentRouterOnUsesScorer(t *testing.T) {
 
 func TestApplyBlindExperimentTelemetry(t *testing.T) {
 	telemetry := InsertTelemetryParams{TrainingAllowed: true}
-	applyBlindExperimentTelemetry(blindExperimentContext(auth.BlindExperimentArmPassthrough), &telemetry)
+	applyBlindExperimentTelemetry(blindExperimentContext(auth.BlindExperimentArmPassthrough), &telemetry, nil)
 
 	assert.Equal(t, auth.BlindExperimentArmPassthrough, telemetry.BlindExperimentArm)
 	assert.Equal(t, auth.BlindExperimentAssignmentAutomatic, telemetry.BlindExperimentAssignmentSource)
@@ -209,4 +209,62 @@ func TestApplyBlindExperimentTelemetry(t *testing.T) {
 		CaptureOff,
 	)
 	assert.False(t, observation.TrainingAllowed)
+}
+
+func TestCohortTelemetrySeparatesScheduledIntendedAndApplied(t *testing.T) {
+	state := auth.BlindExperimentState{Active: true, Enabled: true, Arm: auth.BlindExperimentArmPassthrough,
+		ScheduledArm: auth.BlindExperimentArmRouterOn, CohortExperimentID: uuid.NewString(),
+		CohortGroupID: 3, CohortPhaseIndex: 2, CohortRevision: 4,
+		AssignmentSource: auth.BlindExperimentAssignmentManual, CanonicalSubjectKey: "account-1"}
+	ctx := context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, state)
+	params := InsertTelemetryParams{}
+	applyBlindExperimentTelemetry(ctx, &params, &turnLoopResult{
+		Decision: router.Decision{Model: "claude-sonnet-4-6"}, BlindExperimentPassthrough: true})
+	assert.Equal(t, auth.BlindExperimentArmRouterOn, params.CohortScheduledArm)
+	assert.Equal(t, auth.BlindExperimentArmPassthrough, params.BlindExperimentArm)
+	require.NotNil(t, params.CohortTreatmentApplied)
+	assert.True(t, *params.CohortTreatmentApplied)
+
+	state.Arm = auth.BlindExperimentArmRouterOn
+	ctx = context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, state)
+	params = InsertTelemetryParams{}
+	applyBlindExperimentTelemetry(ctx, &params, &turnLoopResult{Decision: router.Decision{Model: "claude-sonnet-4-6"}, HardPinned: true})
+	require.NotNil(t, params.CohortTreatmentApplied)
+	assert.False(t, *params.CohortTreatmentApplied)
+	assert.Equal(t, auth.CohortBypassHardPin, params.CohortBypassReason)
+}
+
+func TestCohortTelemetryRecordsUnassignedIdentityWithoutRoutingTreatment(t *testing.T) {
+	state := auth.BlindExperimentState{Enabled: true, CohortExperimentID: uuid.NewString()}
+	ctx := context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, state)
+	params := InsertTelemetryParams{}
+	applyBlindExperimentTelemetry(ctx, &params, nil)
+	assert.Equal(t, state.CohortExperimentID, params.CohortExperimentID)
+	assert.Nil(t, params.CohortTreatmentApplied)
+	assert.Equal(t, auth.CohortBypassUnassigned, params.CohortBypassReason)
+}
+
+func TestCohortTelemetryExplainsBypassedTreatment(t *testing.T) {
+	state := auth.BlindExperimentState{Active: true, Enabled: true, Arm: auth.BlindExperimentArmRouterOn,
+		ScheduledArm: auth.BlindExperimentArmRouterOn, CohortExperimentID: uuid.NewString(),
+		CohortGroupID: 2, CohortPhaseIndex: 1, CohortRevision: 1}
+	ctx := context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, state)
+	for _, testCase := range []struct {
+		name   string
+		routed *turnLoopResult
+		reason auth.CohortBypassReason
+	}{
+		{name: "force model", routed: &turnLoopResult{Decision: router.Decision{Model: "model", Reason: translate.ReasonUserForceModel}}, reason: auth.CohortBypassForceModel},
+		{name: "hard pin", routed: &turnLoopResult{HardPinned: true, Decision: router.Decision{Model: "model"}}, reason: auth.CohortBypassHardPin},
+		{name: "usage bypass", routed: &turnLoopResult{UsageBypass: true, Decision: router.Decision{Model: "model"}}, reason: auth.CohortBypassUsageBypass},
+		{name: "not dispatched", routed: nil, reason: auth.CohortBypassNotDispatched},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			params := InsertTelemetryParams{}
+			applyBlindExperimentTelemetry(ctx, &params, testCase.routed)
+			require.NotNil(t, params.CohortTreatmentApplied)
+			assert.False(t, *params.CohortTreatmentApplied)
+			assert.Equal(t, testCase.reason, params.CohortBypassReason)
+		})
+	}
 }

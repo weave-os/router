@@ -303,6 +303,55 @@ func TestRescueDecisions_ReadmitsCoolingArmAbsentFromScoredCandidates(t *testing
 	assert.Equal(t, providers.ProviderAnthropic, got[1].Provider)
 }
 
+func TestSiblingFailover_ScorerReadmitsOnlyEligibleCoolingPeersAtOrAboveSelectedTier(t *testing.T) {
+	s := siblingService(providers.ProviderAnthropic, providers.ProviderOpenAI)
+	failed := router.Decision{
+		Provider: providers.ProviderAnthropic,
+		Model:    "claude-sonnet-5",
+		Metadata: &router.RoutingMetadata{
+			ClusterRouterVersion: "v-test",
+			CandidateModels:      []string{"claude-sonnet-5", "gpt-5"},
+			ScorerRescuePool:     []string{"claude-sonnet-5", "gpt-5", "claude-opus-5", "claude-haiku-4-5"},
+			CandidateProviders:   map[string]string{"gpt-5": providers.ProviderOpenAI},
+		},
+	}
+	ctx := context.WithValue(context.Background(), SessionDemotedModelsContextKey{}, []string{"claude-opus-5", "claude-haiku-4-5", "gpt-4.1-mini"})
+	ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, map[string]time.Time{
+		"claude-opus-5":    rateLimitTestNow.Add(30 * time.Second),
+		"claude-haiku-4-5": rateLimitTestNow.Add(10 * time.Second),
+		"gpt-4.1-mini":     rateLimitTestNow.Add(5 * time.Second),
+	})
+
+	got := s.siblingFailoverDecisions(ctx, failed, 1_000, 0, 0)
+
+	assert.Equal(t, []string{"gpt-5", "claude-opus-5"}, siblingModels(got))
+	assert.Equal(t, providers.ProviderAnthropic, got[1].Provider)
+}
+
+func TestSiblingFailover_SidecarReadmitsCoolingRosterArmLast(t *testing.T) {
+	s := siblingService(providers.ProviderAnthropic, providers.ProviderOpenAI)
+	failed := router.Decision{
+		Provider: providers.ProviderAnthropic,
+		Model:    "claude-haiku-4-5",
+		Metadata: &router.RoutingMetadata{
+			RosterFailover:     true,
+			RescueModels:       []string{"claude-haiku-4-5", "gpt-4.1-mini"},
+			SidecarRescuePool:  []string{"claude-opus-5"},
+			CandidateProviders: map[string]string{"gpt-4.1-mini": providers.ProviderOpenAI},
+		},
+	}
+	ctx := context.WithValue(context.Background(), SessionDemotedModelsContextKey{}, []string{"claude-opus-5", "gpt-5"})
+	ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, map[string]time.Time{
+		"claude-opus-5": rateLimitTestNow.Add(30 * time.Second),
+		"gpt-5":         rateLimitTestNow.Add(10 * time.Second),
+	})
+
+	got := s.siblingFailoverDecisions(ctx, failed, 1_000, 0, 0)
+
+	assert.Equal(t, []string{"gpt-4.1-mini", "claude-opus-5"}, siblingModels(got))
+	assert.Equal(t, providers.ProviderAnthropic, got[1].Provider)
+}
+
 // Lifting the cooldowns lifts only the cooldowns: a deployment-wide
 // automatic exclusion still keeps its model out of the readmission walk.
 func TestRescueDecisions_ReadmissionKeepsGlobalAutomaticExclusions(t *testing.T) {

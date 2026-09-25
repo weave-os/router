@@ -16,17 +16,45 @@ import (
 const ReasonSiblingFailover = "sibling_failover"
 
 // siblingFailoverDecisions lists the stand-ins for a routed model whose bindings
-// all failed, in the order the turn tries them: the policy's ranked group
-// fallback (RescueModels), then the rest of the scored pool (CandidateModels),
-// plus PairedModel last for replayed pins. Candidates on the failed provider
-// rank after every cross-provider one; context fit uses the same dual-estimator
-// as the pre-route overflow filter to reject under-sized peers.
+// all failed. Roster-backed routes use only their ordered eligible groups;
+// legacy routes append the scored pool and paired model, then prefer other
+// providers. Context fit rejects under-sized peers.
 func (s *Service) siblingFailoverDecisions(ctx context.Context, failed router.Decision, est, sigSavings, outputReserve int) []router.Decision {
 	md := failed.Metadata
 	if md == nil {
 		return nil
 	}
+	if md.ClusterRouterVersion != "" && !md.RosterFailover {
+		if order := tierRescueModels(failed.Model, md.CandidateModels, md.CandidateScores); len(order) > 0 {
+			ordered := *md
+			ordered.RescueModels = order
+			ordered.RosterFailover = true
+			failed.Metadata = &ordered
+			md = &ordered
+		}
+	}
 	return s.rescueDecisions(ctx, failed, siblingCandidateOrder(md), ReasonSiblingFailover, est, sigSavings, outputReserve)
+}
+
+func tierRescueModels(selected string, candidates []string, scores map[string]float32) []string {
+	tier := catalog.TierFor(selected)
+	if tier == catalog.TierUnknown {
+		return nil
+	}
+	var ordered []string
+	for level := tier; level <= catalog.TierHigh; level++ {
+		var group []string
+		for _, model := range candidates {
+			if catalog.TierFor(model) == level {
+				group = append(group, model)
+			}
+		}
+		sort.SliceStable(group, func(i, j int) bool {
+			return scores[group[i]] > scores[group[j]]
+		})
+		ordered = append(ordered, group...)
+	}
+	return ordered
 }
 
 // rescueDecision resolves the first candidate the request is allowed to reach.
@@ -90,6 +118,18 @@ func (s *Service) rescueWalkOrReadmitCooling(
 	pool := make([]string, 0, len(candidates)+len(cooling))
 	pool = append(pool, candidates...)
 	for _, model := range cooldownsByExpiry(cooling) {
+		if failed.Metadata != nil && failed.Metadata.RosterFailover {
+			md := failed.Metadata
+			if md.ClusterRouterVersion != "" {
+				if !slices.Contains(md.ScorerRescuePool, model) ||
+					catalog.TierFor(model) < catalog.TierFor(failed.Model) ||
+					catalog.TierFor(model) > catalog.TierHigh {
+					continue
+				}
+			} else if !slices.Contains(md.RescueModels, model) && !slices.Contains(md.SidecarRescuePool, model) {
+				continue
+			}
+		}
 		if !slices.Contains(pool, model) {
 			pool = append(pool, model)
 		}
@@ -128,9 +168,8 @@ func (s *Service) noteRescueReadmission(ctx context.Context, failed, rescuer rou
 	)
 }
 
-// walkRescueCandidates resolves the reachable candidates in try order, cross-
-// provider before same-provider, skipping the failed model, every excluded
-// model, candidates without a provider, and those the context won't fit.
+// walkRescueCandidates resolves reachable candidates, preserving roster order
+// for policy rescue and preferring cross-provider candidates for legacy rescue.
 func walkRescueCandidates(
 	failed router.Decision,
 	candidates []string,
@@ -139,7 +178,7 @@ func walkRescueCandidates(
 	est, sigSavings, outputReserve int,
 	providerFor func(id string) (string, bool),
 ) []router.Decision {
-	var crossProvider, sameProvider []router.Decision
+	var ordered, crossProvider, sameProvider []router.Decision
 	for _, id := range candidates {
 		if id == "" || id == failed.Model {
 			continue
@@ -158,11 +197,15 @@ func walkRescueCandidates(
 			continue
 		}
 		candidate := rescueDecisionFor(failed, id, provider, reason)
+		ordered = append(ordered, candidate)
 		if provider == failed.Provider {
 			sameProvider = append(sameProvider, candidate)
 			continue
 		}
 		crossProvider = append(crossProvider, candidate)
+	}
+	if reason == ReasonSiblingFailover && failed.Metadata != nil && failed.Metadata.RosterFailover {
+		return ordered
 	}
 	return append(crossProvider, sameProvider...)
 }
@@ -226,13 +269,14 @@ func siblingFitsContext(model, provider string, est, sigSavings, outputReserve i
 	return needed <= contextWindowForRequest(model, provider)
 }
 
-// siblingCandidateOrder lists rescue candidates in policy-preference order:
-// the ranked group fallback first, then the rest of the scored pool in catalog
-// order, with the pin's runner-up last so replayed pins (no candidate vector)
-// still have somewhere to go. Deduplicated so a rescue never retries a model
-// that already failed this turn.
+// siblingCandidateOrder deduplicates the roster's eligible rescue order.
+// Without a bounded roster, the scored pool and replayed pin's runner-up
+// remain eligible after policy-preferred models.
 func siblingCandidateOrder(md *router.RoutingMetadata) []string {
-	merged := slices.Concat(md.RescueModels, md.CandidateModels, []string{md.PairedModel})
+	merged := md.RescueModels
+	if !md.RosterFailover {
+		merged = slices.Concat(merged, md.CandidateModels, []string{md.PairedModel})
+	}
 	order := make([]string, 0, len(merged))
 	seen := make(map[string]struct{}, len(merged))
 	for _, id := range merged {

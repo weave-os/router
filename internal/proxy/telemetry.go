@@ -79,6 +79,13 @@ type InsertTelemetryParams struct {
 	BlindExperimentArm              auth.BlindExperimentArm
 	BlindExperimentAssignmentSource auth.BlindExperimentAssignmentSource
 	BlindExperimentSubjectKey       string
+	CohortExperimentID              string
+	CohortGroupID                   *int16
+	CohortPhaseIndex                *int16
+	CohortRevision                  *int32
+	CohortScheduledArm              auth.BlindExperimentArm
+	CohortTreatmentApplied          *bool
+	CohortBypassReason              auth.CohortBypassReason
 	EstimatedInputTokens            int32
 	StickyHit                       bool
 	// PinTier is the actual served-path turn-loop tier. Empty leaves the column NULL.
@@ -315,14 +322,57 @@ func applyPolicyPinTelemetry(ctx context.Context, params *InsertTelemetryParams,
 	params.PolicyPinHonoured = &honoured
 }
 
-func applyBlindExperimentTelemetry(ctx context.Context, params *InsertTelemetryParams) {
-	state, active := auth.BlindExperimentFrom(ctx)
-	if params == nil || !active {
+func applyBlindExperimentTelemetry(ctx context.Context, params *InsertTelemetryParams, routed *turnLoopResult) {
+	state, present := auth.BlindExperimentStatusFrom(ctx)
+	if params == nil || !present {
+		return
+	}
+	if state.CohortExperimentID != "" {
+		params.CohortExperimentID = state.CohortExperimentID
+		if state.CohortGroupID > 0 {
+			groupID := int16(state.CohortGroupID)
+			params.CohortGroupID = &groupID
+		}
+		revision := int32(state.CohortRevision)
+		params.CohortRevision = &revision
+		if !state.Enabled {
+			params.CohortBypassReason = auth.CohortBypassDisabled
+		} else if state.CohortGroupID == 0 {
+			params.CohortBypassReason = auth.CohortBypassUnassigned
+		} else if !state.Active {
+			params.CohortBypassReason = auth.CohortBypassOutsideWindow
+		}
+	}
+	if !state.Active {
 		return
 	}
 	params.BlindExperimentArm = state.Arm
 	params.BlindExperimentAssignmentSource = state.AssignmentSource
 	params.BlindExperimentSubjectKey = state.CanonicalSubjectKey
+	if state.CohortExperimentID != "" {
+		phaseIndex := int16(state.CohortPhaseIndex)
+		params.CohortPhaseIndex = &phaseIndex
+		params.CohortScheduledArm = state.ScheduledArm
+		applied := false
+		switch {
+		case routed == nil || routed.Decision.Model == "":
+			params.CohortBypassReason = auth.CohortBypassNotDispatched
+		case routed.UsageBypass:
+			params.CohortBypassReason = auth.CohortBypassUsageBypass
+		case isUserForcedReason(routed.Decision.Reason):
+			params.CohortBypassReason = auth.CohortBypassForceModel
+		case routed.HardPinned:
+			params.CohortBypassReason = auth.CohortBypassHardPin
+		case state.Arm == auth.BlindExperimentArmPassthrough:
+			applied = routed.BlindExperimentPassthrough
+			if !applied {
+				params.CohortBypassReason = auth.CohortBypassNotDispatched
+			}
+		default:
+			applied = true
+		}
+		params.CohortTreatmentApplied = &applied
+	}
 	if state.Arm == auth.BlindExperimentArmPassthrough {
 		params.TrainingAllowed = false
 	}
@@ -574,7 +624,7 @@ func (s *Service) recordPolicyPinRouteFailure(ctx context.Context, requestID str
 	if !errors.Is(routeErr, router.ErrPolicyPinUnavailable) {
 		params.DecisionReason = DecisionReasonRoutingFailed
 	}
-	applyBlindExperimentTelemetry(ctx, &params)
+	applyBlindExperimentTelemetry(ctx, &params, nil)
 	applyPolicyPinTelemetry(ctx, &params, nil)
 	s.fireTelemetry(params)
 }

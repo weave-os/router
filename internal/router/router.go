@@ -317,11 +317,19 @@ type RoutingMetadata struct {
 	Embedding       []float32
 	ClusterIDs      []int // Sorted ascending; [0] is NOT necessarily closest.
 	CandidateModels []string
+	// ScorerRescuePool contains the request-eligible bundle models before
+	// soft automatic exclusions, for bounded cooldown readmission.
+	ScorerRescuePool []string
+	// SidecarRescuePool contains roster arms removed by soft automatic exclusions
+	// after request compatibility and provider eligibility checks.
+	SidecarRescuePool []string
 	// RescueModels orders the catalog models an in-turn rescue may fall back
 	// to when the served model's bindings all fail: the policy's ranked group
-	// fallback with per-key allowlists applied. CandidateModels is the
-	// resolver's eligible pool in catalog order and carries no preference.
+	// fallback with per-key allowlists applied. RosterFailover restricts rescue
+	// to this ordered roster; CandidateModels is the resolver's eligible pool
+	// in catalog order and carries no preference.
 	RescueModels         []string
+	RosterFailover       bool
 	ChosenScore          float32
 	ClusterRouterVersion string
 	// Strategy identifies opt-in sidecar routers ("rl", "hmm") when metadata
