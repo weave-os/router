@@ -11,10 +11,11 @@ import (
 
 const (
 	// Verified against the shipped client's custom-base-URL window calculation.
-	claudeCodeBudgetVersion        = "2.1.257"
-	claudeCodeDefaultWindow        = 200_000
-	claudeCodeCompactOutputReserve = 20_000
-	claudeCodeAutoCompactBuffer    = 13_000
+	claudeCodeBudgetVersion           = "2.1.257"
+	claudeCodeDefaultWindow           = 200_000
+	claudeCodeCompactOutputReserve    = 20_000
+	claudeCodeAutoCompactBuffer       = 13_000
+	claudeCodeOverflowRecoveryVersion = "2.1.282"
 )
 
 func resolveClientBudget(clientIdentity ClientIdentity, headers http.Header, model string, hadVariant bool) router.ClientBudget {

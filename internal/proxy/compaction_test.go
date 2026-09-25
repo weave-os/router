@@ -823,9 +823,7 @@ func TestMaybeCompact_ClaudeCodeDefersWhenPoolServesClientWindow(t *testing.T) {
 	assert.True(t, res.Applied)
 }
 
-func TestMaybeCompact_OverflowNeverDefers(t *testing.T) {
-	// Even a deferring harness must be compacted when the request already
-	// overflows the pool: the client can't help on this turn.
+func TestMaybeCompact_BudgetOnlyVersionDoesNotDeferOnOverflow(t *testing.T) {
 	s := &Service{compactionTriggerPct: DefaultCompactionTriggerPct}
 	env, err := translate.ParseAnthropic(toolHeavyAnthropicBody(20, 300))
 	require.NoError(t, err)
@@ -836,6 +834,56 @@ func TestMaybeCompact_OverflowNeverDefers(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, res.DeferredToClient)
 	assert.Positive(t, res.ToolResultsCleared)
+}
+
+func TestMaybeCompact_ClaudeCodeVerifiedOverflowRecovery(t *testing.T) {
+	fake := &fakeCompactionSummarizer{summary: "SUMMARY"}
+	s := &Service{compactionTriggerPct: 0.01, compactionSummarizer: fake}
+	body := toolHeavyAnthropicBody(20, 300)
+	budget := resolveClientBudget(ClientIdentity{ClientApp: ClientAppClaudeCode, UserAgent: "claude-cli/2.1.282 (external, sdk-ts)"}, nil, testOpus, false)
+	require.Equal(t, "2.1.282", budget.Version)
+	for _, tt := range []struct {
+		name     string
+		window   func(int) int
+		overflow bool
+	}{
+		{"fits", func(needed int) int { return needed + 1 }, false},
+		{"overflow", func(needed int) int { return needed / 2 }, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			env, err := translate.ParseAnthropic(body)
+			require.NoError(t, err)
+			before := env.ContextOverflowTokenEstimate()
+			res, err := s.maybeCompact(context.Background(), env, compactionInput{
+				TurnType: turntype.MainLoop, MaxWindow: tt.window(before), ClientBudget: budget, ClientApp: ClientAppClaudeCode, Headers: http.Header{},
+			})
+			if tt.overflow {
+				require.ErrorIs(t, err, ErrClientCompactionRequired)
+				cls, classified := ClassifyDispatchError(err)
+				require.True(t, classified)
+				assert.Equal(t, http.StatusRequestEntityTooLarge, cls.Status)
+				assert.Regexp(t, `^prompt is too long`, cls.Message)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.True(t, res.DeferredToClient)
+			assert.False(t, res.Applied)
+			assert.Equal(t, before, env.ContextOverflowTokenEstimate())
+			assert.Zero(t, fake.calls)
+		})
+	}
+
+	for _, version := range []string{"2.1.281", "2.1.283"} {
+		env, err := translate.ParseAnthropic(body)
+		require.NoError(t, err)
+		unknown := router.ClientBudget{Version: version}
+		res, _ := s.maybeCompact(context.Background(), env, compactionInput{
+			TurnType: turntype.MainLoop, MaxWindow: env.ContextOverflowTokenEstimate() / 2,
+			ClientBudget: unknown, ClientApp: ClientAppClaudeCode, Headers: http.Header{},
+		})
+		assert.False(t, res.DeferredToClient, "unknown version %s must use router compaction", version)
+		assert.Positive(t, res.ToolResultsCleared)
+	}
 }
 
 func TestCompactionHardPin(t *testing.T) {

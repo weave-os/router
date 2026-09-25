@@ -24,6 +24,8 @@ import (
 // eligible model's window. Maps to HTTP 413, distinct from ErrNoEligibleProvider.
 var ErrContextWindowExceeded = errors.New("proxy: request context exceeds every eligible model's window")
 
+var ErrClientCompactionRequired = fmt.Errorf("client compaction required: %w", ErrContextWindowExceeded)
+
 const (
 	// DefaultCompactionTriggerPct is the fraction of the largest eligible
 	// model's window at which the cascade engages. Compacting below the window
@@ -44,8 +46,7 @@ type compactionPolicy struct {
 	// ToolResultKeep is how many trailing tool results Tier-1 cleanup leaves
 	// intact; older ones are replaced with a placeholder.
 	ToolResultKeep int
-	// DeferToClient permits deferral when a supported client budget is known
-	// and the eligible pool can serve it; it never substitutes provider capacity.
+	// DeferToClient permits a harness with verified compaction behavior to own its history.
 	DeferToClient bool
 }
 
@@ -282,6 +283,10 @@ func clientWouldCompact(pol compactionPolicy, budget router.ClientBudget, maxWin
 		budget.DefaultCompactThreshold > 0 && budget.DefaultCompactThreshold <= maxWindow
 }
 
+func clientRecoversFromOverflow(pol compactionPolicy, budget router.ClientBudget) bool {
+	return pol.DeferToClient && budget.Version == claudeCodeOverflowRecoveryVersion
+}
+
 // maybeCompact runs the compaction cascade when needed ≥ compactionTriggerPct
 // of in.MaxWindow: (1) clear old tool results, (2) summarize with
 // capacity-bounded calls, (3) retain a complete recent tool batch alongside
@@ -313,6 +318,20 @@ func (s *Service) maybeCompact(ctx context.Context, env *translate.RequestEnvelo
 		return res, nil
 	}
 	original := env.Clone()
+	if clientRecoversFromOverflow(pol, in.ClientBudget) {
+		res.DeferredToClient = true
+		res.FinalEstimate = needed()
+		log.Info("Compaction deferred to verified client harness",
+			"client_app", in.ClientApp,
+			"client_version", in.ClientBudget.Version,
+			"needed", res.FinalEstimate,
+			"max_window", in.MaxWindow,
+		)
+		if fits() {
+			return res, nil
+		}
+		return res, fmt.Errorf("context estimate %d tokens exceeds largest window %d: %w", res.FinalEstimate, in.MaxWindow, ErrClientCompactionRequired)
+	}
 	if fits() && clientWouldCompact(pol, in.ClientBudget, in.MaxWindow) {
 		res.DeferredToClient = true
 		log.Info("Compaction deferred to client harness",
