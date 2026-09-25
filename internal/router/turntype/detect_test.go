@@ -307,6 +307,28 @@ func TestDetectFromEnvelope_Anthropic(t *testing.T) {
 			body: `{"model":"claude-opus-4-7","max_tokens":64,"metadata":{"user_id":"subagent:Explore"},"messages":[{"role":"user","content":"grep"}]}`,
 			want: turntype.SubAgentDispatch,
 		},
+		{
+			// Claude Code's away summary forks the conversation (tools and all)
+			// and appends the recap instruction as the trailing user turn.
+			name: "claude code away-summary recap is recap",
+			body: `{"model":"claude-opus-5","max_tokens":32000,"tools":[{"name":"Bash","input_schema":{"type":"object"}}],"messages":[
+				{"role":"user","content":"review the PR"},
+				{"role":"assistant","content":[{"type":"text","text":"Ready to merge."}]},
+				{"role":"user","content":"The user stepped away and is coming back. Recap in under 40 words, 1-2 plain sentences, no markdown. Lead with the overall goal and current task, then the one next action."}
+			]}`,
+			want: turntype.Recap,
+		},
+		{
+			// Only the trailing turn is sniffed: the next real turn carries the
+			// recap exchange in history and must stay a normal turn.
+			name: "turn after a recap stays main_loop",
+			body: `{"model":"claude-opus-5","max_tokens":32000,"tools":[{"name":"Bash","input_schema":{"type":"object"}}],"messages":[
+				{"role":"user","content":"The user stepped away and is coming back. Recap in under 40 words, 1-2 plain sentences, no markdown. Lead with the overall goal and current task, then the one next action."},
+				{"role":"assistant","content":[{"type":"text","text":"Reviewing the PR; next, merge it."}]},
+				{"role":"user","content":"ok merge it"}
+			]}`,
+			want: turntype.MainLoop,
+		},
 	}
 
 	for _, tc := range tests {

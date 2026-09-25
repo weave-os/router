@@ -25,6 +25,10 @@ const (
 	// TitleGen: harness sidebar-title generation. Hard-pinned AND skips
 	// session-pin creation.
 	TitleGen TurnType = "title_gen"
+	// Recap: Claude Code's away-summary turn, a fork of the conversation
+	// asking for a short "welcome back" recap. Scored AND skips session-pin
+	// reads/writes; renders without router surfaces.
+	Recap TurnType = "recap"
 	// Classifier: short-form classification call (security monitor, etc.).
 	// Hard-pinned AND skips session-pin creation.
 	Classifier TurnType = "classifier"
@@ -45,6 +49,10 @@ const compactionNoToolsPhrase = "do not call any tools"
 // which Codex issues as the trailing user message when it hands a thread over
 // (e.g. on a mid-thread model switch). Distinctive enough to match alone.
 const codexCompactionMarkerPhrase = "you are performing a context checkpoint compaction"
+
+// recapMarkerPhrase opens Claude Code's away-summary instruction, which it
+// appends as the trailing user message of a forked copy of the conversation.
+const recapMarkerPhrase = "the user stepped away and is coming back. recap in under"
 
 // compactionSniffLen bounds the trailing-user-message scan; both harnesses'
 // preambles place the phrase within ~200 bytes, so long pasted messages are excluded.
@@ -97,6 +105,9 @@ func Detect(env *translate.RequestEnvelope, feats translate.RoutingFeatures, sub
 	}
 	if isCodexCompaction(lastUserText) {
 		return Compaction
+	}
+	if env.SourceFormat() == translate.FormatAnthropic && isRecap(lastUserText) {
+		return Recap
 	}
 	if openCodeAgent == requestcontext.OpenCodeAgentExplore ||
 		isSubAgentDispatch(env.MetadataUserID(), env.AnthropicBillingHeader(), env.FirstUserMessageText(), subAgentHint) {
@@ -166,6 +177,16 @@ func isCodexCompaction(lastUserText string) bool {
 		lastUserText = lastUserText[:compactionSniffLen]
 	}
 	return strings.Contains(strings.ToLower(lastUserText), codexCompactionMarkerPhrase)
+}
+
+// isRecap reports whether the trailing user message is Claude Code's
+// away-summary instruction. Only the trailing turn is checked: once the recap
+// renders, later real turns carry it in history and must stay MainLoop.
+func isRecap(lastUserText string) bool {
+	if len(lastUserText) > compactionSniffLen {
+		lastUserText = lastUserText[:compactionSniffLen]
+	}
+	return strings.Contains(strings.ToLower(lastUserText), recapMarkerPhrase)
 }
 
 // isSubAgentDispatch reports whether the request originates from a sub-agent:

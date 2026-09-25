@@ -534,8 +534,10 @@ func (s *Service) isHardPinnedTurn(ctx context.Context, tt turntype.TurnType) bo
 // nothing pinned applies to it, and its cheap verdict decision must not leak
 // into the conversation that follows. Proactive compaction skips it too: the
 // transcript it grades is the payload, not history the router may rewrite.
+// A recap is a side fork shown beneath the reply the user just read, so it
+// gets no routing marker, and its decision must not move the session pin.
 func isUnpinnedScoredTurn(tt turntype.TurnType) bool {
-	return tt == turntype.Classifier
+	return tt == turntype.Classifier || tt == turntype.Recap
 }
 
 // routeWithoutPin scores a turn that has no session pin to honor or anchor:

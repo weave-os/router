@@ -14,6 +14,7 @@ Classifies inbound requests into:
 - `Compaction` — harness-issued compaction turn (Claude Code's summary instruction, or Codex's "CONTEXT CHECKPOINT COMPACTION" handoff prompt); hard-pinned
 - `Probe` — proxy bypasses routing entirely
 - `TitleGen` — harness sidebar-title generation; hard-pinned AND skips session-pin creation (an anchored pin here would leak the cheap-model decision into the real conversation that follows ~25ms later). Claude Code is identified by its title JSON schema; Codex title requests are trusted only on Codex Responses ingress and match either the closed title schema or Conductor's fresh hidden-session prompt fingerprint.
+- `Recap` — Claude Code's away-summary turn (the "user stepped away and is coming back" instruction appended as the trailing user message of a forked conversation); scored like `Classifier`, never reads or writes the session pin, and renders without the routing marker or `/rf` footer, since it prints beneath the reply the user just read. Anthropic format only, trailing turn only
 - `Classifier` — short-form classification call (e.g. Claude Code's security monitor); scored like a main-loop turn (it is a fresh window with its own system prompt) but never reads or writes a session pin
 
 Used by [`../../proxy`](../../proxy) to keep the action loop cheap + correct.

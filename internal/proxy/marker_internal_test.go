@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/planner"
+	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
 )
 
@@ -337,6 +338,18 @@ func TestRoutingMarkerFor_SuggestionModeSuppressed(t *testing.T) {
 	}
 	got := routingMarkerFor(res)
 	assert.Empty(t, got, "suggestion-mode responses must not emit the routing badge")
+}
+
+func TestRoutingMarkerFor_RecapSuppressed(t *testing.T) {
+	res := turnLoopResult{
+		Decision: router.Decision{Model: "gpt-5.6-luna", Provider: "openai"},
+		TurnType: turntype.Recap,
+		PlannerDecision: planner.Decision{
+			Reason: planner.ReasonNoPin,
+		},
+	}
+	got := routingMarkerFor(res)
+	assert.Empty(t, got, "a recap renders beneath the reply the user just read and must not repeat the routing badge")
 }
 
 func TestRoutingMarkerFor_DropsProviderEvenWhenSet(t *testing.T) {

@@ -99,7 +99,7 @@ function ClientAppLabel({ clientApp }: { clientApp: string }) {
 }
 
 /** Turn-type value → display label. Mirrors `internal/router/turntype` on the
- *  Go side. System turn types (probe, title_gen, compaction, classifier) are
+ *  Go side. System turn types (probe, title_gen, compaction, classifier, recap) are
  *  automated traffic — render them muted so user turns stand out. */
 const TURN_TYPE_LABEL: Record<string, string> = {
   main_loop: "Main loop",
@@ -109,9 +109,10 @@ const TURN_TYPE_LABEL: Record<string, string> = {
   probe: "Probe",
   title_gen: "Title gen",
   classifier: "Classifier",
+  recap: "Recap",
 };
 
-const SYSTEM_TURN_TYPES = new Set(["probe", "title_gen", "compaction", "classifier"]);
+const SYSTEM_TURN_TYPES = new Set(["probe", "title_gen", "compaction", "classifier", "recap"]);
 
 function TurnTypeLabel({ turnType }: { turnType: string }) {
   if (turnType === "") return <>—</>;

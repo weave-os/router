@@ -4,7 +4,7 @@
 -- cluster_router_version, ttft_ms, cache_*_tokens, device_id, session_id) are
 -- nullable; non-cluster decisions and pinned-route turns leave them NULL.
 -- turn_type is the turntype classification (main_loop, tool_result, probe,
--- title_gen, compaction, classifier, sub_agent_dispatch); NULL only on rows
+-- title_gen, compaction, classifier, recap, sub_agent_dispatch); NULL only on rows
 -- written before the column existed.
 -- rollout_id is the client-supplied x-weave-rollout-id correlation id used by
 -- eval/training harnesses to join graded rollout rewards onto decisions; NULL

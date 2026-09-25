@@ -28,7 +28,7 @@ func Schema() []Field {
 		{"rollout_id", "string", true, "Client-supplied rollout identifier used to join benchmark tasks and rewards."},
 		{"device_id", "string", true, "Client device id, when the client supplied one."},
 		{"client_app", "string", true, "Calling application as reported by the client."},
-		{"turn_type", "string", true, "Turn classification: main_loop, tool_result, probe, title_gen, compaction, classifier, sub_agent_dispatch. Filter on main_loop to count user-visible turns."},
+		{"turn_type", "string", true, "Turn classification: main_loop, tool_result, probe, title_gen, compaction, classifier, recap, sub_agent_dispatch. Filter on main_loop to count user-visible turns."},
 		{"user_id", "string", true, "Router-assigned end-user id, stable within the installation."},
 		{"user_email", "string", true, "End-user email as supplied by the client."},
 		{"user_account_uuid", "string", true, "End-user account uuid as supplied by the client."},

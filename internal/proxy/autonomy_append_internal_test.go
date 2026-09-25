@@ -73,6 +73,7 @@ func TestAutonomySystemAppendApplies_GateAndTurnType(t *testing.T) {
 			turntype.Probe:            false,
 			turntype.TitleGen:         false,
 			turntype.Classifier:       false,
+			turntype.Recap:            false,
 		}
 		for tt, expect := range want {
 			assert.Equal(t, expect, svc.autonomySystemAppendApplies(ctx, []byte(autonomyGateBody), env, tt), "turn type %s", tt)

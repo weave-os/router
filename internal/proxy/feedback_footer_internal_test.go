@@ -64,6 +64,7 @@ func TestFeedbackFooter_TurnTypeGating(t *testing.T) {
 		for _, tt := range []turntype.TurnType{
 			turntype.SubAgentDispatch,
 			turntype.Compaction,
+			turntype.Recap,
 			turntype.Probe,
 			turntype.TitleGen,
 			turntype.Classifier,
