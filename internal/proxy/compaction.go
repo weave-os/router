@@ -116,6 +116,7 @@ type compactionResult struct {
 	Summarized         bool
 	SummaryModel       string
 	SummaryUsage       handover.Usage
+	SummaryUsages      []handover.Usage
 	CheckpointReused   bool
 	TrimmedToRecent    int
 	FinalEstimate      int
@@ -353,8 +354,9 @@ func (s *Service) maybeCompact(ctx context.Context, env *translate.RequestEnvelo
 		if in.PreferredSummarizer != nil {
 			preferred = in.PreferredSummarizer()
 		}
-		summary, usage, model, ok := s.runCompactionSummary(ctx, env, preferred, in.Scope, in.Headers)
+		summary, usage, usages, model, ok := s.runCompactionSummary(ctx, env, preferred, in.Scope, in.Headers)
 		res.SummaryUsage = usage
+		res.SummaryUsages = usages
 		if ok {
 			fitBefore, before := fits(), env.Clone()
 			res.SummaryModel = model
@@ -392,25 +394,27 @@ func (s *Service) maybeCompact(ctx context.Context, env *translate.RequestEnvelo
 	return res, fmt.Errorf("context estimate %d tokens exceeds largest window %d: %w", res.FinalEstimate, in.MaxWindow, ErrContextWindowExceeded)
 }
 
-// billCompactionSummary debits the compaction summary call as its own ledger
-// row and records its session-tagged telemetry row (mirrors the
-// switch-handover summary billing). No-ops when billing is unwired or the
-// usage carries no tokens.
-func (s *Service) billCompactionSummary(ctx context.Context, requestID, externalID string, usage handover.Usage) {
-	s.billAuxiliaryInference(ctx, requestID, auxSuffixPrecompactionSummary, externalID, usage)
+func (s *Service) billCompactionSummaries(ctx context.Context, requestID, externalID string, usages []handover.Usage) {
+	for i, usage := range usages {
+		suffix := auxSuffixPrecompactionSummary
+		if i > 0 {
+			suffix = fmt.Sprintf("%s_%d", suffix, i+1)
+		}
+		s.billAuxiliaryInference(ctx, requestID, suffix, externalID, usage)
+	}
 }
 
 // runCompactionSummary picks a window-aware summarizer model and dispatches the
 // structured summary call, honoring the tenant-boundary credential rules used
 // by the switch-handover path. Returns ok=false (and logs) when no summarizer
 // fits the history, the tenant boundary forbids the call, or the call fails.
-func (s *Service) runCompactionSummary(ctx context.Context, env *translate.RequestEnvelope, preferred string, scope router.Request, reqHeaders http.Header) (string, handover.Usage, string, bool) {
+func (s *Service) runCompactionSummary(ctx context.Context, env *translate.RequestEnvelope, preferred string, scope router.Request, reqHeaders http.Header) (string, handover.Usage, []handover.Usage, string, bool) {
 	log := observability.FromContext(ctx)
 
 	if scope.EnabledProviders != nil {
 		if _, enabled := scope.EnabledProviders[s.compactionSummarizer.Provider()]; !enabled {
 			log.Info("Compaction skipped: summary provider disabled", "reason", "tenant_restriction")
-			return "", handover.Usage{}, "", false
+			return "", handover.Usage{}, nil, "", false
 		}
 	}
 	excluded := mergeExcludedModels(s.excludedModelsForRequest(ctx), s.globalAutomaticExcludedModels(ctx))
@@ -429,18 +433,23 @@ func (s *Service) runCompactionSummary(ctx context.Context, env *translate.Reque
 	if model == "" {
 		if !s.hasEligibleCompactionSummarizer(preferred, excluded) {
 			log.Info("Compaction skipped: no eligible summary model", "reason", "no_eligible_model")
-			return "", handover.Usage{}, "", false
+			return "", handover.Usage{}, nil, "", false
 		}
 		log.Info("Compaction Tier-3: no single summary request fits or is authorized",
 			"reason", "no_single_model", "history", env.ContextOverflowTokenEstimate())
 		return s.runChunkedCompactionSummary(ctx, env, preferred, scope, reqHeaders, excluded)
 	}
 
+	return s.dispatchCompactionSummary(ctx, env, model, preferred, scope, reqHeaders)
+}
+
+func (s *Service) dispatchCompactionSummary(ctx context.Context, env *translate.RequestEnvelope, model, preferred string, scope router.Request, reqHeaders http.Header) (string, handover.Usage, []handover.Usage, string, bool) {
+	log := observability.FromContext(ctx)
 	sumProvider := s.compactionSummarizer.Provider()
 	sumCreds := resolveSummarizerCreds(ctx, sumProvider, reqHeaders)
 	if sumCreds == nil && s.requestUsesNonDeploymentCreds(ctx, reqHeaders) {
 		log.Info("Compaction Tier-3 skipped: would cross tenant boundary", "reason", "tenant_boundary", "sum_provider", sumProvider)
-		return "", handover.Usage{}, "", false
+		return "", handover.Usage{}, nil, "", false
 	}
 	summCtx := ctx
 	if sumCreds != nil {
@@ -463,29 +472,30 @@ func (s *Service) runCompactionSummary(ctx context.Context, env *translate.Reque
 			reason = "empty_output"
 		}
 		log.Warn("Compaction summarizer failed", "err", err, "model", model, "reason", reason)
-		return "", usage, "", false
+		return "", usage, []handover.Usage{usage}, "", false
 	}
 	if strings.TrimSpace(summary) == "" {
 		log.Warn("Compaction summarizer returned empty", "model", model, "reason", "empty_output")
-		return "", usage, "", false
+		return "", usage, []handover.Usage{usage}, "", false
 	}
-	return summary, usage, model, true
+	return summary, usage, []handover.Usage{usage}, model, true
 }
 
-func (s *Service) runChunkedCompactionSummary(ctx context.Context, env *translate.RequestEnvelope, preferred string, scope router.Request, headers http.Header, excluded map[string]struct{}) (string, handover.Usage, string, bool) {
+func (s *Service) runChunkedCompactionSummary(ctx context.Context, env *translate.RequestEnvelope, preferred string, scope router.Request, headers http.Header, excluded map[string]struct{}) (string, handover.Usage, []handover.Usage, string, bool) {
 	boundaries := env.CompactionBoundaries()
 	if len(boundaries) < 3 {
-		return "", handover.Usage{}, "", false
+		return "", handover.Usage{}, nil, "", false
 	}
 	var summary, model string
 	var total handover.Usage
+	var usages []handover.Usage
 	for index := 0; index < len(boundaries)-1; {
 		lo, hi, best := index+1, len(boundaries)-1, 0
 		for lo <= hi {
 			mid := lo + (hi-lo)/2
-			chunk, err := env.CompactionChunk(boundaries[index], boundaries[mid], summary)
+			chunk, err := env.CompactionSummaryChunk(boundaries[index], boundaries[mid], summary)
 			if err != nil {
-				return "", total, "", false
+				return "", total, usages, "", false
 			}
 			if s.selectCompactionSummarizer(chunk, preferred, excluded) != "" {
 				best = mid
@@ -496,25 +506,32 @@ func (s *Service) runChunkedCompactionSummary(ctx context.Context, env *translat
 		}
 		if best == 0 {
 			observability.FromContext(ctx).Warn("Compaction chunk cannot fit summarizer", "start", boundaries[index])
-			return "", total, "", false
+			return "", total, usages, "", false
 		}
-		chunk, err := env.CompactionChunk(boundaries[index], boundaries[best], summary)
+		chunk, err := env.CompactionSummaryChunk(boundaries[index], boundaries[best], summary)
 		if err != nil {
-			return "", total, "", false
+			return "", total, usages, "", false
 		}
-		next, usage, selected, ok := s.runCompactionSummary(ctx, chunk, preferred, scope, headers)
+		selected := s.selectCompactionSummarizer(chunk, preferred, excluded)
+		next, usage, _, _, ok := s.dispatchCompactionSummary(ctx, chunk, selected, preferred, scope, headers)
+		usages = append(usages, usage)
 		total.InputTokens += usage.InputTokens
 		total.OutputTokens += usage.OutputTokens
 		total.CacheCreation += usage.CacheCreation
 		total.CacheRead += usage.CacheRead
-		total.Provider, total.Model = usage.Provider, usage.Model
+		if usage.Provider != "" {
+			total.Provider = usage.Provider
+		}
+		if usage.Model != "" {
+			total.Model = usage.Model
+		}
 		if !ok {
-			return "", total, "", false
+			return "", total, usages, "", false
 		}
 		summary, model = next, selected
 		index = best
 	}
-	return summary, total, model, true
+	return summary, total, usages, model, true
 }
 
 // compactionHardPin picks the model for a harness's own compaction turn: the

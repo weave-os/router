@@ -29,6 +29,7 @@ import (
 type fakeCompactionSummarizer struct {
 	summary    string
 	usage      handover.Usage
+	usages     []handover.Usage
 	err        error
 	calls      int
 	lastModel  string
@@ -66,10 +67,14 @@ func (f *fakeCompactionSummarizer) SummarizeForCompaction(_ context.Context, _ *
 	f.calls++
 	f.lastModel = target.CatalogID
 	f.lastSource = target.Source
-	if f.calls == f.failOnCall {
-		return "", f.usage, errors.New("summary provider unavailable")
+	usage := f.usage
+	if f.calls <= len(f.usages) {
+		usage = f.usages[f.calls-1]
 	}
-	return f.summary, f.usage, f.err
+	if f.calls == f.failOnCall {
+		return "", usage, errors.New("summary provider unavailable")
+	}
+	return f.summary, usage, f.err
 }
 
 func (f *fakeCompactionSummarizer) Provider() string { return providers.ProviderAnthropic }
@@ -262,6 +267,52 @@ func TestMaybeCompact_ReusesOnlyMatchingSessionPrefixAndPolicy(t *testing.T) {
 	}
 }
 
+func TestMaybeCompact_GeminiCheckpointRejectsChangedSystemInstruction(t *testing.T) {
+	var body strings.Builder
+	body.WriteString(`{"systemInstruction":{"parts":[{"text":"original policy"}]},"contents":[`)
+	for i := range 32 {
+		if i > 0 {
+			body.WriteByte(',')
+		}
+		role := "user"
+		if i%2 == 1 {
+			role = "model"
+		}
+		body.WriteString(`{"role":"` + role + `","parts":[{"text":"` + strings.Repeat("x", 400) + `"}]}`)
+	}
+	body.WriteString(`]}`)
+	first, err := translate.ParseGemini([]byte(body.String()))
+	require.NoError(t, err)
+	store := &memoryCompactionCheckpoints{}
+	fake := &fakeCompactionSummarizer{summary: "Earlier Gemini context"}
+	s := &Service{compactionTriggerPct: DefaultCompactionTriggerPct, compactionSummarizer: fake, compactionCheckpoints: store}
+	in := compactionInput{
+		TurnType: turntype.MainLoop, ClientApp: ClientAppGeminiCLI,
+		CredentialIdentity: "key-a", SessionKey: [16]byte{1},
+		Endpoint:  string(router.EndpointGeminiGenerate),
+		MaxWindow: first.ContextOverflowTokenEstimate() * 11 / 10,
+		Headers:   http.Header{},
+	}
+	result, err := s.maybeCompact(context.Background(), first, in)
+	require.NoError(t, err)
+	require.True(t, result.Summarized)
+	require.Equal(t, 1, store.writes)
+
+	matching, err := translate.ParseGemini([]byte(body.String()))
+	require.NoError(t, err)
+	result, err = s.maybeCompact(context.Background(), matching, in)
+	require.NoError(t, err)
+	assert.True(t, result.CheckpointReused)
+	require.Equal(t, 1, fake.calls)
+
+	changed, err := translate.ParseGemini([]byte(strings.Replace(body.String(), "original policy", "updated policy", 1)))
+	require.NoError(t, err)
+	result, err = s.maybeCompact(context.Background(), changed, in)
+	require.NoError(t, err)
+	assert.False(t, result.CheckpointReused)
+	assert.Equal(t, 2, fake.calls)
+}
+
 func TestMaybeCompact_UnverifiedClientsKeepOriginalHistory(t *testing.T) {
 	for _, clientApp := range []string{"", "unknown", "pi", ClientAppCursor} {
 		t.Run(clientApp, func(t *testing.T) {
@@ -384,6 +435,61 @@ func TestMaybeCompact_PartialChunkFailureRetainsHistoryAndUsage(t *testing.T) {
 	after, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: "claude-opus-5-5"})
 	require.NoError(t, err)
 	assert.JSONEq(t, string(before.Body), string(after.Body))
+}
+
+func TestMaybeCompact_EmptyFailedChunkStillBillsPriorUsage(t *testing.T) {
+	env, err := translate.ParseAnthropic(incidentShapeAnthropicBody())
+	require.NoError(t, err)
+	cleaned := env.Clone()
+	require.Equal(t, 603, cleaned.ClearOldToolResults(5))
+	firstUsage := auxTestUsage()
+	fake := &fakeCompactionSummarizer{
+		summary:    "Preserved task state",
+		usages:     []handover.Usage{firstUsage, {}},
+		failOnCall: 2,
+	}
+	s, billingRepo, telemetryRepo := auxTestService(t)
+	s.compactionTriggerPct = DefaultCompactionTriggerPct
+	s.compactionSummarizer = fake
+	result, err := s.maybeCompact(context.Background(), env, compactionInput{
+		TurnType: turntype.MainLoop, ClientApp: ClientAppClaudeCode,
+		MaxWindow: cleaned.ContextOverflowTokenEstimate() - 373,
+		Headers:   http.Header{},
+	})
+	require.ErrorIs(t, err, ErrContextWindowExceeded)
+	require.Equal(t, 2, fake.calls)
+	assert.Equal(t, firstUsage.Model, result.SummaryUsage.Model)
+	assert.Equal(t, firstUsage.Provider, result.SummaryUsage.Provider)
+	s.billCompactionSummaries(auxTestContext(uuid.New(), auxTestSessionID), auxTestRequestID, auxTestOrgID, result.SummaryUsages)
+	debits := billingRepo.snapshot()
+	require.Len(t, debits, 1)
+	assert.Equal(t, firstUsage.Model, debits[0].RouterModel)
+	assert.Equal(t, auxTestRequestID+auxSuffixPrecompactionSummary, debits[0].RouterRequestID)
+	assert.Len(t, telemetryRepo.waitForRows(1), 1)
+}
+
+func TestCompactionSummaryChunk_PreparedAnthropicStartsWithUser(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		body  string
+		parse func([]byte) (*translate.RequestEnvelope, error)
+	}{
+		{"anthropic", `{"messages":[{"role":"user","content":"first"},{"role":"assistant","content":"answer"},{"role":"user","content":"second"}]}`, translate.ParseAnthropic},
+		{"openai", `{"messages":[{"role":"system","content":"rules"},{"role":"user","content":"first"},{"role":"assistant","content":"answer"},{"role":"user","content":"second"}]}`, translate.ParseOpenAI},
+		{"gemini", `{"contents":[{"role":"user","parts":[{"text":"first"}]},{"role":"model","parts":[{"text":"answer"}]},{"role":"user","parts":[{"text":"second"}]}]}`, translate.ParseGemini},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env, err := tc.parse([]byte(tc.body))
+			require.NoError(t, err)
+			boundaries := env.CompactionBoundaries()
+			chunk, err := env.CompactionSummaryChunk(boundaries[1], boundaries[len(boundaries)-1], "prior decisions")
+			require.NoError(t, err)
+			prepared, err := buildSummaryRequestBody(chunk, policy.PrecompactionDefaultModel, compactionInstruction, DefaultCompactionMaxTokens)
+			require.NoError(t, err)
+			assert.Equal(t, "user", gjson.GetBytes(prepared, "messages.0.role").String())
+			assert.Contains(t, string(prepared), "prior decisions")
+		})
+	}
 }
 
 func TestSelectCompactionSummarizer_MeasuresPreparedProjection(t *testing.T) {
@@ -597,7 +703,7 @@ func TestCompactionSummaryHonorsAllowlistOutsideRoutingPool(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			summarizer := &fakeCompactionSummarizer{summary: "preserved session context"}
 			s := &Service{compactionSummarizer: summarizer, availableModels: map[string]struct{}{testSol: {}}}
-			summary, _, model, ok := s.runCompactionSummary(test.ctx, env, "", router.Request{}, nil)
+			summary, _, _, model, ok := s.runCompactionSummary(test.ctx, env, "", router.Request{}, nil)
 			assert.Equal(t, test.want != "", ok)
 			assert.Equal(t, test.want, model)
 			if test.want == "" {

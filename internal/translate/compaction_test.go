@@ -149,6 +149,54 @@ func TestCompactionChunk_RejectsMidConversationInstructions(t *testing.T) {
 	require.ErrorIs(t, err, ErrUnsafeCompactionBoundary)
 }
 
+func TestCompactionSummaryChunk_StartsWithUserAndKeepsDispatchChunkUnchanged(t *testing.T) {
+	for _, tt := range []struct {
+		name, body, field string
+		parse             func([]byte) (*RequestEnvelope, error)
+	}{
+		{"anthropic", `{"messages":[{"role":"user","content":"first"},{"role":"assistant","content":"answer"},{"role":"user","content":"next"},{"role":"assistant","content":"reply"}]}`, "messages", ParseAnthropic},
+		{"openai", `{"messages":[{"role":"system","content":"rules"},{"role":"user","content":"first"},{"role":"assistant","content":"answer"},{"role":"user","content":"next"},{"role":"assistant","content":"reply"}]}`, "messages", ParseOpenAI},
+		{"gemini", `{"contents":[{"role":"user","parts":[{"text":"first"}]},{"role":"model","parts":[{"text":"answer"}]},{"role":"user","parts":[{"text":"next"}]},{"role":"model","parts":[{"text":"reply"}]}]}`, "contents", ParseGemini},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			env, err := tt.parse([]byte(tt.body))
+			require.NoError(t, err)
+			start := env.CompactionBoundaries()[1]
+			end := env.CompactionBoundaries()[len(env.CompactionBoundaries())-1]
+			chunk, err := env.CompactionSummaryChunk(start, end, "prior decisions")
+			require.NoError(t, err)
+			messages := gjson.GetBytes(chunk.body, tt.field).Array()
+			if tt.name == "openai" {
+				assert.Equal(t, "system", messages[0].Get("role").String())
+				messages = messages[1:]
+			}
+			assert.Equal(t, "user", messages[0].Get("role").String())
+			assert.Contains(t, messages[0].Raw, "prior decisions")
+			if tt.name == "anthropic" {
+				prepared, err := chunk.PrepareAnthropic(nil, EmitOptions{TargetModel: "claude-sonnet-5"})
+				require.NoError(t, err)
+				assert.Equal(t, "user", gjson.GetBytes(prepared.Body, "messages.0.role").String())
+			}
+			dispatch, err := env.CompactionChunk(start, end, "prior decisions")
+			require.NoError(t, err)
+			assert.NotEqual(t, "user", gjson.GetBytes(dispatch.body, tt.field).Array()[len(gjson.GetBytes(dispatch.body, tt.field).Array())-3].Get("role").String())
+		})
+	}
+}
+
+func TestCompactionPrefixDigest_ChangesWithGeminiSystemInstruction(t *testing.T) {
+	body := `{"systemInstruction":{"parts":[{"text":"first policy"}]},"contents":[{"role":"user","parts":[{"text":"old request"}]},{"role":"model","parts":[{"text":"old answer"}]},{"role":"user","parts":[{"text":"new request"}]}]}`
+	env, err := ParseGemini([]byte(body))
+	require.NoError(t, err)
+	before, err := env.CompactionPrefixDigest(2)
+	require.NoError(t, err)
+	changed, err := ParseGemini([]byte(strings.Replace(body, "first policy", "second policy", 1)))
+	require.NoError(t, err)
+	after, err := changed.CompactionPrefixDigest(2)
+	require.NoError(t, err)
+	assert.NotEqual(t, before, after)
+}
+
 func TestRewriteForCompaction_Anthropic_KeepsSummaryAndRecent(t *testing.T) {
 	// 8 alternating messages; keep recent 3 turns.
 	var b strings.Builder

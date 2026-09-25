@@ -3653,7 +3653,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			Scope:   s.summarizerScope(ctx, enabledProviders, baseExcluded),
 		})
 		if compErr != nil {
-			s.billCompactionSummary(ctx, requestID, externalID, compRes.SummaryUsage)
+			s.billCompactionSummaries(ctx, requestID, externalID, compRes.SummaryUsages)
 			log.Warn("Compaction could not fit request to any eligible model",
 				"err", compErr, "final_estimate", compRes.FinalEstimate, "max_window", maxEligibleWindow, "requested_model", feats.Model)
 			return compErr
@@ -5135,15 +5135,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	var subscriberSettlement subscriberSettlementState
 	if proxyErr == nil && !agentShadowMode {
 		subscriberSettlement = s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
-		if compRes.SummaryUsage.InputTokens > 0 || compRes.SummaryUsage.OutputTokens > 0 {
-			s.billCompactionSummary(ctx, requestID, externalID, compRes.SummaryUsage)
-		}
+		s.billCompactionSummaries(ctx, requestID, externalID, compRes.SummaryUsages)
 		if compactionHandoverOutcome.Invoked && !compactionHandoverOutcome.FallbackToFullHistory {
 			s.billAuxiliaryInference(ctx, requestID, auxSuffixCompactionHandoverSummry, externalID, compactionHandoverOutcome.SummaryUsage)
 		}
 	}
 	if proxyErr != nil {
-		s.billCompactionSummary(ctx, requestID, externalID, compRes.SummaryUsage)
+		s.billCompactionSummaries(ctx, requestID, externalID, compRes.SummaryUsages)
 	}
 	if subscriberTelemetry != nil {
 		if proxyErr == nil {
@@ -6676,7 +6674,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			Scope:   s.summarizerScope(ctx, enabledProviders, baseExcludedOAI),
 		})
 		if compErrOAI != nil {
-			s.billCompactionSummary(ctx, requestID, externalID, compResOAI.SummaryUsage)
+			s.billCompactionSummaries(ctx, requestID, externalID, compResOAI.SummaryUsages)
 			log.Warn("Compaction could not fit request to any eligible model",
 				"err", compErrOAI, "final_estimate", compResOAI.FinalEstimate, "max_window", maxEligibleWindowOAI, "requested_model", feats.Model)
 			return compErrOAI
@@ -7944,12 +7942,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	var subscriberSettlement subscriberSettlementState
 	if proxyErr == nil {
 		subscriberSettlement = s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
-		if compResOAI.SummaryUsage.InputTokens > 0 || compResOAI.SummaryUsage.OutputTokens > 0 {
-			s.billCompactionSummary(ctx, requestID, externalID, compResOAI.SummaryUsage)
-		}
+		s.billCompactionSummaries(ctx, requestID, externalID, compResOAI.SummaryUsages)
 	}
 	if proxyErr != nil {
-		s.billCompactionSummary(ctx, requestID, externalID, compResOAI.SummaryUsage)
+		s.billCompactionSummaries(ctx, requestID, externalID, compResOAI.SummaryUsages)
 	}
 
 	// See ProxyMessages for the two-strike eviction rationale.

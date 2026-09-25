@@ -178,15 +178,17 @@ func (e *RequestEnvelope) CompactionPrefixDigest(boundary int) ([sha256.Size]byt
 		prefix[i] = json.RawMessage(message.Raw)
 	}
 	relevant, err := json.Marshal(struct {
-		Format       Format            `json:"format"`
-		System       string            `json:"system"`
-		Instructions string            `json:"instructions"`
-		Prefix       []json.RawMessage `json:"prefix"`
+		Format            Format            `json:"format"`
+		System            string            `json:"system"`
+		SystemInstruction string            `json:"system_instruction"`
+		Instructions      string            `json:"instructions"`
+		Prefix            []json.RawMessage `json:"prefix"`
 	}{
-		Format:       e.format,
-		System:       gjson.GetBytes(e.body, "system").Raw,
-		Instructions: gjson.GetBytes(e.body, "instructions").Raw,
-		Prefix:       prefix,
+		Format:            e.format,
+		System:            gjson.GetBytes(e.body, "system").Raw,
+		SystemInstruction: gjson.GetBytes(e.body, "systemInstruction").Raw,
+		Instructions:      gjson.GetBytes(e.body, "instructions").Raw,
+		Prefix:            prefix,
 	})
 	if err != nil {
 		return zero, err
@@ -241,6 +243,14 @@ func containsToolResult(message gjson.Result, format Format) bool {
 }
 
 func (e *RequestEnvelope) CompactionChunk(start, end int, summary string) (*RequestEnvelope, error) {
+	return e.compactionChunk(start, end, summary, false)
+}
+
+func (e *RequestEnvelope) CompactionSummaryChunk(start, end int, summary string) (*RequestEnvelope, error) {
+	return e.compactionChunk(start, end, summary, true)
+}
+
+func (e *RequestEnvelope) compactionChunk(start, end int, summary string, forSummary bool) (*RequestEnvelope, error) {
 	if !e.SupportsHistoryCompaction() {
 		return nil, ErrUnsafeCompactionBoundary
 	}
@@ -267,17 +277,29 @@ func (e *RequestEnvelope) CompactionChunk(start, end int, summary string) (*Requ
 		}
 	}
 	if summary != "" {
-		switch e.format {
-		case FormatAnthropic:
-			rebuilt = append(rebuilt, anthropicAssistantSummaryBlock(summary))
-		case FormatOpenAI:
-			rebuilt = append(rebuilt, openAIAssistantSummaryMessage(summary))
-		case FormatGemini:
-			raw, _ := json.Marshal(map[string]any{"role": "model", "parts": []any{map[string]any{"text": HandoverSummaryTag + summary}}})
-			rebuilt = append(rebuilt, string(raw))
+		if forSummary {
+			text, _ := json.Marshal(HandoverSummaryTag + summary)
+			switch e.format {
+			case FormatAnthropic:
+				rebuilt = append(rebuilt, `{"role":"user","content":[{"type":"text","text":`+string(text)+`}]}`)
+			case FormatOpenAI:
+				rebuilt = append(rebuilt, `{"role":"user","content":`+string(text)+`}`)
+			case FormatGemini:
+				rebuilt = append(rebuilt, `{"role":"user","parts":[{"text":`+string(text)+`}]}`)
+			}
+		} else {
+			switch e.format {
+			case FormatAnthropic:
+				rebuilt = append(rebuilt, anthropicAssistantSummaryBlock(summary))
+			case FormatOpenAI:
+				rebuilt = append(rebuilt, openAIAssistantSummaryMessage(summary))
+			case FormatGemini:
+				raw, _ := json.Marshal(map[string]any{"role": "model", "parts": []any{map[string]any{"text": HandoverSummaryTag + summary}}})
+				rebuilt = append(rebuilt, string(raw))
+			}
 		}
 	}
-	if isAssistantMessage(all[start], e.format) {
+	if isAssistantMessage(all[start], e.format) && (summary == "" || !forSummary) {
 		switch e.format {
 		case FormatAnthropic:
 			rebuilt = append(rebuilt, `{"role":"user","content":"Continue from the preceding conversation summary."}`)

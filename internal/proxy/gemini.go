@@ -152,7 +152,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		},
 		Headers: r.Header,
 	})
-	defer s.billCompactionSummary(ctx, requestID, externalID, compRes.SummaryUsage)
+	defer s.billCompactionSummaries(ctx, requestID, externalID, compRes.SummaryUsages)
 	if compErr != nil {
 		log.Warn("Compaction could not fit request to any eligible model",
 			"err", compErr, "final_estimate", compRes.FinalEstimate, "max_window", maxEligibleWindow, "requested_model", feats.Model)
