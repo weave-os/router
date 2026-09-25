@@ -1,0 +1,19 @@
+internal/websearch/anthropic_request.go
+  s_22d8b0fc43f115::t_8603ae2089057c 62-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "7b9386c7fe99110907d90ab27d750f17168c0728",
+  "prompts": {},
+  "sessions": {
+    "s_22d8b0fc43f115": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b2fdfc26-7b58-48bf-a3e3-a6a10c8b1ed0",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

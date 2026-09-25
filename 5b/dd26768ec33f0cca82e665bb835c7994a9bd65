@@ -1,0 +1,160 @@
+internal/proxy/force_model_exclusions_internal_test.go
+  s_dc841142dd86a8::t_00e790204987d8 419-422
+internal/translate/bare_directive.go
+  s_dc841142dd86a8::t_00e790204987d8 1-57
+internal/proxy/client_identity.go
+  s_dc841142dd86a8::t_00e790204987d8 175-191
+db/migrations/0081_trial-mode-git-context.up.sql
+  s_dc841142dd86a8::t_00e790204987d8 1-30
+internal/translate/envelope.go
+  s_dc841142dd86a8::t_00e790204987d8 250-263
+Makefile
+  s_dc841142dd86a8::t_00e790204987d8 63
+sidecars/hmm/tests/test_artifacts.py
+  s_dc841142dd86a8::t_00e790204987d8 4,8,133-246
+internal/api/gemini/generate_content.go
+  s_dc841142dd86a8::t_00e790204987d8 137
+internal/proxy/dispatch_error.go
+  s_dc841142dd86a8::t_00e790204987d8 63,124-128,293-300
+  s_dc841142dd86a8::t_73e73d64093dcc 301
+install/README.md
+  s_dc841142dd86a8::t_00e790204987d8 299-300,309-347
+internal/proxy/router_session.go
+  s_dc841142dd86a8::t_00e790204987d8 1-59
+internal/translate/force_model.go
+  s_dc841142dd86a8::t_00e790204987d8 437-471
+internal/postgres/converters_test.go
+  s_dc841142dd86a8::t_00e790204987d8 10,62-75
+  s_dc841142dd86a8::t_2c83acbdfa79ae 76-77
+sidecars/hmm/hmm_sidecar/artifacts.py
+  s_dc841142dd86a8::t_00e790204987d8 4,22-25,37-63,72-78,83-126,216,222-238,240-248,250,252,255,257
+internal/proxy/force_model.go
+  s_dc841142dd86a8::t_00e790204987d8 637-638,640
+sidecars/hmm/tests/test_api.py
+  s_dc841142dd86a8::t_00e790204987d8 3,5-6,8-9,12,14-15,365-537
+internal/proxy/router_models.go
+  s_dc841142dd86a8::t_00e790204987d8 1-133
+db/migrations/0081_trial-mode-git-context.down.sql
+  s_dc841142dd86a8::t_00e790204987d8 1-14
+install/tests/codex_install_test.sh
+  s_dc841142dd86a8::t_00e790204987d8 345,347-353,403-420,688-795
+docs/ANALYTICS_EXPORT.md
+  s_dc841142dd86a8::t_00e790204987d8 176
+internal/router/policy_pin_test.go
+  s_dc841142dd86a8::t_00e790204987d8 1-63
+internal/postgres/converters.go
+  s_dc841142dd86a8::t_00e790204987d8 99-100
+internal/proxy/usage_bypass.go
+  s_dc841142dd86a8::t_00e790204987d8 442
+internal/proxy/policy_pin_internal_test.go
+  s_dc841142dd86a8::t_00e790204987d8 1-249
+internal/server/middleware/policy_pin_override_test.go
+  s_dc841142dd86a8::t_00e790204987d8 1-162
+docs/CONFIGURATION.md
+  s_dc841142dd86a8::t_00e790204987d8 566-567
+internal/router/hmm/rosterdata/set.go
+  s_dc841142dd86a8::t_00e790204987d8 1-71
+install/tests/codex-toggle_test.sh
+  s_dc841142dd86a8::t_00e790204987d8 1-287
+internal/proxy/client_git_context_telemetry_test.go
+  s_dc841142dd86a8::t_00e790204987d8 1-103
+db/migrations/0082_telemetry-policy-pin.down.sql
+  s_dc841142dd86a8::t_00e790204987d8 1-7
+internal/postgres/analytics_repo.go
+  s_dc841142dd86a8::t_00e790204987d8 74-75,99-102
+internal/analytics/analytics.go
+  s_dc841142dd86a8::t_00e790204987d8 47-52,75-81
+db/migrations/0082_telemetry-policy-pin.up.sql
+  s_dc841142dd86a8::t_00e790204987d8 1-7
+internal/translate/router_session.go
+  s_dc841142dd86a8::t_00e790204987d8 1-33
+internal/proxy/router_models_internal_test.go
+  s_dc841142dd86a8::t_00e790204987d8 1-87
+internal/proxy/turnloop.go
+  s_dc841142dd86a8::t_00e790204987d8 161-164,182-187,562-581,592-596,659-679,977-978,2208-2216,2222,2225,2228,2231,2233
+sidecars/hmm/hmm_sidecar/api.py
+  s_dc841142dd86a8::t_00e790204987d8 13,15,49-94,99-104,107-111,115,117,130-168,188,221,223,225-227,254-256,284-286
+internal/router/gitcontext/gitcontext_test.go
+  s_dc841142dd86a8::t_00e790204987d8 1-168
+internal/router/policy_pin.go
+  s_dc841142dd86a8::t_00e790204987d8 1-107
+internal/translate/router_session_test.go
+  s_dc841142dd86a8::t_00e790204987d8 1-88
+internal/api/anthropic/messages_test.go
+  s_dc841142dd86a8::t_00e790204987d8 8,368-378
+  s_dc841142dd86a8::t_250bbcb0ea883e 379-380
+sidecars/hmm/README.md
+  s_dc841142dd86a8::t_00e790204987d8 27-46
+internal/analytics/schema.go
+  s_dc841142dd86a8::t_00e790204987d8 43-44,65-67
+install/install.sh
+  s_dc841142dd86a8::t_00e790204987d8 555-559,670,710-728,741,3730-3735,4193-4472,4479-4484
+internal/translate/router_models.go
+  s_dc841142dd86a8::t_00e790204987d8 1-33
+internal/translate/router_models_test.go
+  s_dc841142dd86a8::t_00e790204987d8 1-105
+install/npm/scripts/copy-installer.js
+  s_dc841142dd86a8::t_00e790204987d8 14
+internal/api/anthropic/route.go
+  s_dc841142dd86a8::t_00e790204987d8 45-49,101-105
+install/npm/.gitignore
+  s_dc841142dd86a8::t_00e790204987d8 3,9
+internal/server/middleware/policy_pin_override.go
+  s_dc841142dd86a8::t_00e790204987d8 1-81
+internal/router/gitcontext/gitcontext.go
+  s_dc841142dd86a8::t_00e790204987d8 1-211
+internal/proxy/router_feedback.go
+  s_dc841142dd86a8::t_00e790204987d8 8,91-92,94,112-113,115
+internal/router/policy/policy_pin_test.go
+  s_dc841142dd86a8::t_00e790204987d8 1-139
+internal/proxy/directive_prefix_internal_test.go
+  s_dc841142dd86a8::t_00e790204987d8 1-119
+.env.example
+  s_dc841142dd86a8::t_00e790204987d8 113-120
+internal/translate/bare_directive_test.go
+  s_dc841142dd86a8::t_00e790204987d8 1-58
+install/npm/package.json
+  s_dc841142dd86a8::t_00e790204987d8 3,23
+internal/translate/message_tail_test.go
+  s_dc841142dd86a8::t_00e790204987d8 153-189
+install/codex-toggle.sh
+  s_dc841142dd86a8::t_00e790204987d8 1-203
+db/queries/model_router_request_telemetry.sql
+  s_dc841142dd86a8::t_f5e6bb9f14ca32 39-42,124-125,169-172,253-254,298-301,682-683,708-711
+internal/auth/installation.go
+  s_dc841142dd86a8::t_c3b832b075e05e 98-104
+internal/policyclient/client.go
+  s_dc841142dd86a8::t_a9628ee3141dd3 247,546-548,676-678,791,1016-1024
+internal/postgres/telemetry.go
+  s_dc841142dd86a8::t_651dabe646ac8a 161-162,208-210
+internal/proxy/gemini.go
+  s_dc841142dd86a8::t_5b174fc7b978c8 190,458
+internal/proxy/service.go
+  s_dc841142dd86a8::t_d92ff5fdd6cc71 554-558,2561-2571,3153-3168,3384,4663,4672,5744-5746,6036-6051,6246,7328
+internal/proxy/telemetry.go
+  s_dc841142dd86a8::t_d2940291ebb59e 5,14-17,150-151,239-280,492-532
+internal/router/policy/contract.go
+  s_dc841142dd86a8::t_c25435c20555df 101-103
+internal/server/middleware/auth.go
+  s_dc841142dd86a8::t_db1e439a2d3a3c 173-175
+internal/sqlc/model_router_api_keys.sql.go
+  s_dc841142dd86a8::t_3f95a4638da938 105,124,178-181
+internal/sqlc/model_router_installations.sql.go
+  s_dc841142dd86a8::t_bdb3517e2a9cb9 25,46,81-84,90,104,143-146,152,161,206-209
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5bdd26768ec33f0cca82e665bb835c7994a9bd65",
+  "prompts": {},
+  "sessions": {
+    "s_dc841142dd86a8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08c98-6b91-7643-8031-133ff9002149",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
