@@ -54,6 +54,11 @@ const codexCompactionMarkerPhrase = "you are performing a context checkpoint com
 // appends as the trailing user message of a forked copy of the conversation.
 const recapMarkerPhrase = "the user stepped away and is coming back. recap in under"
 
+const (
+	systemReminderOpen  = "<system-reminder>"
+	systemReminderClose = "</system-reminder>"
+)
+
 // compactionSniffLen bounds the trailing-user-message scan; both harnesses'
 // preambles place the phrase within ~200 bytes, so long pasted messages are excluded.
 const compactionSniffLen = 4096
@@ -180,13 +185,23 @@ func isCodexCompaction(lastUserText string) bool {
 }
 
 // isRecap reports whether the trailing user message is Claude Code's
-// away-summary instruction. Only the trailing turn is checked: once the recap
-// renders, later real turns carry it in history and must stay MainLoop.
+// away-summary instruction. The instruction must open the message (after any
+// harness <system-reminder> blocks) so a user quoting it mid-message stays
+// MainLoop. Only the trailing turn is checked: once the recap renders, later
+// real turns carry it in history and must stay MainLoop.
 func isRecap(lastUserText string) bool {
 	if len(lastUserText) > compactionSniffLen {
 		lastUserText = lastUserText[:compactionSniffLen]
 	}
-	return strings.Contains(strings.ToLower(lastUserText), recapMarkerPhrase)
+	text := strings.TrimSpace(lastUserText)
+	for strings.HasPrefix(text, systemReminderOpen) {
+		end := strings.Index(text, systemReminderClose)
+		if end == -1 {
+			return false
+		}
+		text = strings.TrimSpace(text[end+len(systemReminderClose):])
+	}
+	return strings.HasPrefix(strings.ToLower(text), recapMarkerPhrase)
 }
 
 // isSubAgentDispatch reports whether the request originates from a sub-agent:

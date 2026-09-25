@@ -319,6 +319,26 @@ func TestDetectFromEnvelope_Anthropic(t *testing.T) {
 			want: turntype.Recap,
 		},
 		{
+			name: "recap after harness system-reminder blocks is recap",
+			body: `{"model":"claude-opus-5","max_tokens":32000,"messages":[
+				{"role":"user","content":"review the PR"},
+				{"role":"assistant","content":[{"type":"text","text":"Ready to merge."}]},
+				{"role":"user","content":[
+					{"type":"text","text":"<system-reminder>todo list is empty</system-reminder>"},
+					{"type":"text","text":"The user stepped away and is coming back. Recap in under 40 words, 1-2 plain sentences, no markdown."}
+				]}
+			]}`,
+			want: turntype.Recap,
+		},
+		{
+			// A user quoting the instruction is asking about it, not for a recap.
+			name: "user quoting the recap instruction stays main_loop",
+			body: `{"model":"claude-opus-5","max_tokens":32000,"messages":[
+				{"role":"user","content":"what does this Claude Code prompt do: The user stepped away and is coming back. Recap in under 40 words, 1-2 plain sentences, no markdown."}
+			]}`,
+			want: turntype.MainLoop,
+		},
+		{
 			// Only the trailing turn is sniffed: the next real turn carries the
 			// recap exchange in history and must stay a normal turn.
 			name: "turn after a recap stays main_loop",

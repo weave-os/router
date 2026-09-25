@@ -97,14 +97,19 @@ func (s *Service) runClassifierTurn(ctx context.Context, request router.Request,
 		return turn, err
 	}
 	request.ClassifierPrediction = &prediction
-	turn.SessionKey, turn.AuthoritativePerTurn = sessionKey, true
+	// A recap is scored but, as on the scorer path, never anchors the session.
+	unpinned := isUnpinnedScoredTurn(turn.TurnType)
+	if !unpinned {
+		turn.SessionKey = sessionKey
+	}
+	turn.AuthoritativePerTurn = true
 	request.PolicyTurnContext = buildPolicyTurnContext(request, turn, sessionpin.Pin{}, sessionpin.Pin{})
 	decision, err := s.routeFor(ctx, request)
 	if err != nil {
 		return turn, err
 	}
 	turn.Decision, turn.Fresh, turn.PinTier = decision, decision, string(router.StrategyLLMClassifier)
-	if s.pinStore != nil {
+	if s.pinStore != nil && !unpinned {
 		s.writeNewPin(ctx, turn.InstallationID, sessionKey, turn.PinRole, decision)
 	}
 	return turn, nil

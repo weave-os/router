@@ -162,6 +162,46 @@ func TestClassifierDispatchAcrossProtocols(t *testing.T) {
 	}
 }
 
+func TestClassifierRecapServesWithoutAnchoringPin(t *testing.T) {
+	const model = "claude-sonnet-4-6"
+	fixtureService, principal, store := classifierSessionFixture(t, classifierMedium)
+	upstream := &classifierResponseProvider{}
+	pins := newStubPinStore()
+	svc := NewService(&betaTestRouter{}, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, false, nil, pins, false, providers.ProviderAnthropic, model, nil)
+	require.NoError(t, svc.WithClassifierSessions(fixtureService.classifierSessions.config, store, fixtureService.classifierSessions.classifier))
+	escalationClasses := []string{string(escalation.Low), string(escalation.Medium), string(escalation.High), string(escalation.Maximum)}
+	roster := &rosterdata.Roster{SchemaVersion: rosterdata.SchemaVersionPolicyV1, SHA256: strings.Repeat("b", 64), ClassOrder: escalationClasses, Clusters: map[string]rosterdata.Cluster{}}
+	catalogModel, found := catalog.ByID(model)
+	require.True(t, found)
+	arm := armid.ForModel(catalogModel)
+	for _, class := range escalationClasses {
+		roster.Clusters[class] = rosterdata.Cluster{Arms: []string{arm}, ArmScores: map[string]float64{arm: 1}}
+	}
+	resolver := policy.NewResolver(map[string]struct{}{model: {}}, map[string]struct{}{providers.ProviderAnthropic: {}}, armid.ForModel, policy.ManagedProviderPolicy())
+	capabilities := policy.Capabilities{SchemaVersion: policy.SchemaVersionV4, AuthoritativePerTurnSelection: true}
+	routing := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyLLMClassifier, Unavailable: router.ErrClassifierUnavailable, ClassifierArtifactID: "llm-classifier-v1.0.0", ClassifierArtifactSHA256: strings.Repeat("a", 64), SelectionPolicyReleaseID: "llm-classifier-v1.0.0", SelectionPolicySHA256: roster.SHA256}, policy.AtomicClassifierFacts{Release: "llm-classifier-v1.0.0", ReleaseSHA256: strings.Repeat("a", 64)}, resolver).WithCapabilities(capabilities).WithArmSelector(selection.Selector(roster))
+	svc.WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyLLMClassifier, Router: routing, Capabilities: capabilities, Unavailable: router.ErrClassifierUnavailable})
+
+	send := func(body string) {
+		t.Helper()
+		upstream.body = nil
+		err := svc.ProxyMessages(classifierAdmit(t, svc, principal), []byte(body), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+		require.NoError(t, err)
+		require.NotEmpty(t, upstream.body, "selection must reach the dispatch boundary")
+	}
+	upsertCount := func() int {
+		pins.mu.Lock()
+		defer pins.mu.Unlock()
+		return len(pins.upserts)
+	}
+
+	send(`{"model":"claude-sonnet-4-6","max_tokens":1024,"messages":[{"role":"user","content":"The user stepped away and is coming back. Recap in under 40 words, 1-2 plain sentences, no markdown."}]}`)
+	require.Zero(t, upsertCount(), "a recap must not move the session pin")
+
+	send(`{"model":"claude-sonnet-4-6","max_tokens":1024,"messages":[{"role":"user","content":"first"}]}`)
+	require.Equal(t, 1, upsertCount(), "a real turn on the same path still anchors the pin")
+}
+
 func TestClassifierInputRejectsControlBypasses(t *testing.T) {
 	svc, ctx, _ := classifierSessionFixture(t, classifierMedium)
 	ctx = classifierAdmit(t, svc, ctx)
