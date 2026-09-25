@@ -18,6 +18,8 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
+
+	"golang.org/x/mod/semver"
 )
 
 // ErrContextWindowExceeded is returned when safe compaction cannot fit an
@@ -283,8 +285,15 @@ func clientWouldCompact(pol compactionPolicy, budget router.ClientBudget, maxWin
 		budget.DefaultCompactThreshold > 0 && budget.DefaultCompactThreshold <= maxWindow
 }
 
+// Overflow recovery is a client capability newer releases keep, so the gate is
+// a minimum version rather than the exact pin used for budget arithmetic.
 func clientRecoversFromOverflow(pol compactionPolicy, budget router.ClientBudget) bool {
-	return pol.DeferToClient && budget.Version == claudeCodeOverflowRecoveryVersion
+	return pol.DeferToClient && claudeCodeAtLeast(budget.Version, claudeCodeOverflowRecoveryVersion)
+}
+
+func claudeCodeAtLeast(version, minimum string) bool {
+	candidate := "v" + version
+	return semver.IsValid(candidate) && semver.Compare(candidate, "v"+minimum) >= 0
 }
 
 // maybeCompact runs the compaction cascade when needed ≥ compactionTriggerPct

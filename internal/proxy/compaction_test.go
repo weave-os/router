@@ -873,7 +873,20 @@ func TestMaybeCompact_ClaudeCodeVerifiedOverflowRecovery(t *testing.T) {
 		})
 	}
 
-	for _, version := range []string{"2.1.281", "2.1.283"} {
+	for _, version := range []string{"2.1.283", "2.1.290", "2.2.0"} {
+		env, err := translate.ParseAnthropic(body)
+		require.NoError(t, err)
+		before := env.ContextOverflowTokenEstimate()
+		res, err := s.maybeCompact(context.Background(), env, compactionInput{
+			TurnType: turntype.MainLoop, MaxWindow: before / 2,
+			ClientBudget: router.ClientBudget{Version: version}, ClientApp: ClientAppClaudeCode, Headers: http.Header{},
+		})
+		require.ErrorIs(t, err, ErrClientCompactionRequired, "newer version %s keeps overflow recovery", version)
+		assert.True(t, res.DeferredToClient)
+		assert.Equal(t, before, env.ContextOverflowTokenEstimate())
+	}
+
+	for _, version := range []string{"2.1.281", "2.1", "claude-cli", ""} {
 		env, err := translate.ParseAnthropic(body)
 		require.NoError(t, err)
 		unknown := router.ClientBudget{Version: version}
@@ -881,7 +894,7 @@ func TestMaybeCompact_ClaudeCodeVerifiedOverflowRecovery(t *testing.T) {
 			TurnType: turntype.MainLoop, MaxWindow: env.ContextOverflowTokenEstimate() / 2,
 			ClientBudget: unknown, ClientApp: ClientAppClaudeCode, Headers: http.Header{},
 		})
-		assert.False(t, res.DeferredToClient, "unknown version %s must use router compaction", version)
+		assert.False(t, res.DeferredToClient, "unverified version %q must use router compaction", version)
 		assert.Positive(t, res.ToolResultsCleared)
 	}
 }
