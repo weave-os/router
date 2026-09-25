@@ -1,0 +1,37 @@
+docs/CONFIGURATION.md
+  s_980914d43580db::t_122f259143f6af 420
+internal/proxy/AGENTS.md
+  s_980914d43580db::t_edbe76984aadec 42
+internal/proxy/CLAUDE.md
+  s_980914d43580db::t_0cf08220e0b778 42
+internal/proxy/compaction.go
+  s_980914d43580db::t_3dc5fbfc43c045 50-54,117,265-266,286,288,291,293,297-300
+internal/proxy/compaction_test.go
+  s_980914d43580db::t_75a0558eb4d0c3 314-315,322-324,327-332,339-350,594
+internal/proxy/dispatch_error.go
+  s_980914d43580db::t_8236909f202816 305
+internal/translate/crossformat_request_test.go
+  s_980914d43580db::t_e01ddc04126021 2048-2073
+internal/translate/envelope.go
+  s_980914d43580db::t_a8ccfaeb97cd28 486-489,880,883,889-897,903,910
+internal/translate/features.go
+  s_980914d43580db::t_fd3a31f1f5361b 5,35-46,78,92,103-105,109,111-119,130-161
+internal/translate/features_internal_test.go
+  s_980914d43580db::t_178f4fe84d4c48 8,110-161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c07b652cd0ad06efe0d2ce46befedf79d26ba2a9",
+  "prompts": {},
+  "sessions": {
+    "s_980914d43580db": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ae5ab8c5-50a9-4ae6-930a-ff22188bfb75",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
