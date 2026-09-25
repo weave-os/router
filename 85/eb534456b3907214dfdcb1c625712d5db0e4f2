@@ -1,0 +1,25 @@
+db/migrations/0113_blind-router-experiment-cohorts.up.sql
+  s_f230e6a16e6d98::t_10912e386cb28f 3-4,61-68
+internal/proxy/usage_bypass_internal_test.go
+  s_f230e6a16e6d98::t_3b64645fe8b377 16
+  s_f230e6a16e6d98::t_7944814f9d2d6d 693-697,725-727
+  s_f230e6a16e6d98::t_b684b28ea3ef20 17
+internal/proxy/usage_bypass.go
+  s_f230e6a16e6d98::t_10912e386cb28f 566
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "85eb534456b3907214dfdcb1c625712d5db0e4f2",
+  "prompts": {},
+  "sessions": {
+    "s_f230e6a16e6d98": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d6b8-0c05-73e1-b24d-f0c4e776802a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
