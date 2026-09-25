@@ -761,7 +761,7 @@ describe("weave served context window", () => {
       hooks["chat.params"]?.({ sessionID, agent, model } as never, { options: {} } as never)
     const respond = async (sessionID: string, served: string | undefined, agent = "build", status = 200) => {
       globalThis.fetch = (async () =>
-        new Response("{}", { status, headers: served ? { "x-router-context-window": served } : {} })) as typeof fetch
+        new Response("{}", { status, headers: served ? { "x-router-context-window": served } : {} })) as unknown as typeof fetch
       await (loaded.fetch as typeof fetch)("https://router.example.test/v1/responses", {
         method: "POST",
         headers: { "session-id": sessionID, "x-weave-opencode-agent": agent },
