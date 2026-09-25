@@ -18,6 +18,12 @@ import (
 	"github.com/google/uuid"
 )
 
+// SubscriptionErrorCode identifies a subscription admission refusal.
+type SubscriptionErrorCode string
+
+// SubscriptionPlanConflict means linked funding cannot satisfy the plan's model boundary.
+const SubscriptionPlanConflict SubscriptionErrorCode = "subscription_plan_conflict"
+
 // WithSubscriberAllowance gates inference on an individual Max/Boost
 // subscriber's included Router allowance. Attached after WithAuth so the
 // authenticated credential subject below is populated.
@@ -26,9 +32,9 @@ import (
 // organization billing, BYOK, and prepaid keys keep the gates they already had,
 // and this middleware is the only place the included allowance is enforced.
 //
-// Every caller prefers compatible linked-provider capacity, on either plan and
-// on API pricing: a turn the caller's own Claude/Codex plan covers serves at $0
-// there before any metered capacity is drawn. When linked and included capacity
+// Linked Claude/Codex subscriptions cannot satisfy Max's open-source boundary;
+// those requests are refused without switching to metered capacity. Other
+// callers prefer compatible linked-provider capacity. When linked and included capacity
 // are unavailable, requests continue through the existing organization balance
 // and spend-limit gates. Allowance read errors fail closed because treating an
 // unreadable meter as exhausted would incorrectly authorize organization
@@ -73,15 +79,19 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 			return
 		}
 
-		// Linked-provider-first funding, independent of the admission verdict: a
-		// request presenting a Claude/Codex credential covering this route serves
-		// at $0 on the caller's own plan, so capacity the subscriber (or their
-		// organization) pays for is spent only once that plan cannot take the
-		// turn. Marking the request subscription-only prevents a provider failure
-		// from silently changing the funding source to metered capacity.
-		// Settlement stays honest: it accounts only included_router capacity, and
-		// this request carries no coverage to settle against.
-		if serveOnCoveringSubscription(c) {
+		// A linked-funding conflict must not silently reserve included allowance
+		// or spend organization credits instead.
+		if proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath()) {
+			if admission.Plan == entitlement.PlanMax {
+				log.Warn("Linked subscription rejected by plan model boundary", "subscriber_id", subscriberID, "subscriber_plan", admission.Plan)
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
+					"error":   SubscriptionPlanConflict,
+					"message": "Your Weave Max plan only supports open-source models. Linked Claude and Codex subscriptions cannot serve this request. Disable linked-subscription routing or choose a compatible plan before retrying. No included allowance or prepaid credits were used.",
+				})
+				return
+			}
+			c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context(), billing.SubscriptionOnlyLinkedFirst))
+			c.Next()
 			return
 		}
 
@@ -223,19 +233,6 @@ func holdUsdMicros(usage entitlement.Usage) int64 {
 		}
 	}
 	return bound
-}
-
-// serveOnCoveringSubscription serves a turn the caller's own linked plan
-// covers, and reports whether it did. The turn is marked subscription-only so
-// an upstream failure cannot skip linked-first ordering and spend organization
-// credits instead.
-func serveOnCoveringSubscription(c *gin.Context) bool {
-	if !proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath()) {
-		return false
-	}
-	c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context(), billing.SubscriptionOnlyLinkedFirst))
-	c.Next()
-	return true
 }
 
 // subscriberAllowanceCovers reports whether subscriber-owned capacity pays for

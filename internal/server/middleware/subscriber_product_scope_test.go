@@ -36,11 +36,11 @@ func runProductScopeMiddleware(
 	engine.POST("/v1/messages", func(c *gin.Context) {
 		c.Set("router_api_key", subscriberAPIKey())
 		middleware.WithSubscriberAllowance(svc)(c)
+		observed = c.Request.Context()
 		if c.IsAborted() {
 			return
 		}
 		reached = true
-		observed = c.Request.Context()
 		c.Status(http.StatusOK)
 	})
 
@@ -76,9 +76,9 @@ func TestWithSubscriberAllowance_KeepsProductScopeWhenAllowanceIsSpent(t *testin
 	entitlements := &stubEntitlements{current: maxSubscriberEntitlement(), found: true}
 	spent := &stubAllowances{billingConsumed: monthlyAllowance}
 
-	reached, ctx := runProductScopeMiddleware(t, entitlements, spent, "Bearer sk-ant-oat01-covering-subscription")
+	reached, ctx := runProductScopeMiddleware(t, entitlements, spent, "")
 
-	require.True(t, reached, "a covering subscription still serves a spent allowance")
+	require.True(t, reached, "organization-funded fallback keeps the product boundary")
 	plan, scoped := entitlement.ProductScopeFromContext(ctx)
 	require.True(t, scoped)
 	assert.Equal(t, entitlement.PlanMax, plan)
@@ -98,18 +98,16 @@ func TestWithSubscriberAllowance_KeepsMaxScopeAfterEntitlementEnds(t *testing.T)
 	assert.False(t, entitlement.ModelBoundaryFromContext(ctx).PermitsSource(eligibility.SourceClosedSource))
 }
 
-// A caller billed at API pricing (here: an ended Max entitlement) funds a
-// covered turn from its own plan too — organization spend is what the linked
-// subscription is there to avoid.
-func TestWithSubscriberAllowance_EndedMaxServesCoveringSubscriptionFirst(t *testing.T) {
+func TestWithSubscriberAllowance_EndedMaxRejectsCoveringSubscription(t *testing.T) {
 	ended := maxSubscriberEntitlement()
 	ended.Status = entitlement.StatusEnded
 	entitlements := &stubEntitlements{current: ended, found: true}
 
 	reached, ctx := runProductScopeMiddleware(t, entitlements, &stubAllowances{}, "Bearer sk-ant-oat01-covering-subscription")
 
-	require.True(t, reached)
-	assert.True(t, billing.SubscriptionOnlyFromContext(ctx))
+	require.False(t, reached)
+	assert.False(t, billing.SubscriptionOnlyFromContext(ctx))
+	assert.False(t, entitlement.ModelBoundaryFromContext(ctx).PermitsSource(eligibility.SourceClosedSource))
 }
 
 // Without a credential covering the route there is nothing to hold the turn

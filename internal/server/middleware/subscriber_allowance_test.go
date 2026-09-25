@@ -471,26 +471,16 @@ func TestWithSubscriberAllowance_PassesThroughCoveringSubscription(t *testing.T)
 	assert.Empty(t, coverage.SubscriberID)
 }
 
-// Included allowance is metered capacity Weave pays for, so an unspent one is
-// drawn only after the caller's own plan cannot take the turn — on every plan,
-// not just the one whose funding order was written first.
-func TestWithSubscriberAllowance_UsesCoveringSubscriptionBeforeIncludedAllowance(t *testing.T) {
-	for name, current := range map[string]entitlement.Entitlement{
-		"boost": activeSubscriberEntitlement(),
-		"max":   maxSubscriberEntitlement(),
-	} {
-		t.Run(name, func(t *testing.T) {
-			entitlements := &stubEntitlements{current: current, found: true}
-			allowances := &stubAllowances{}
-			w, reached, coverage := runAllowanceMiddlewareWithAuth(
-				t, entitlements, allowances, subscriberAPIKey(), "Bearer sk-ant-oat-abc123")
+func TestWithSubscriberAllowance_BoostUsesCoveringSubscriptionBeforeIncludedAllowance(t *testing.T) {
+	entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
+	allowances := &stubAllowances{}
+	w, reached, coverage := runAllowanceMiddlewareWithAuth(
+		t, entitlements, allowances, subscriberAPIKey(), "Bearer sk-ant-oat-abc123")
 
-			assert.True(t, reached)
-			assert.Equal(t, http.StatusOK, w.Code)
-			assert.Empty(t, coverage.SubscriberID)
-			assert.Empty(t, allowances.held, "a turn the caller's own plan covers holds no included capacity")
-		})
-	}
+	assert.True(t, reached)
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Empty(t, coverage.SubscriberID)
+	assert.Empty(t, allowances.held, "a turn the caller's own plan covers holds no included capacity")
 }
 
 func TestWithSubscriberAllowance_HoldsUpperBoundBeforeDispatch(t *testing.T) {
