@@ -317,6 +317,9 @@ type RoutingMetadata struct {
 	Embedding       []float32
 	ClusterIDs      []int // Sorted ascending; [0] is NOT necessarily closest.
 	CandidateModels []string
+	// ScorerRescuePool contains the request-eligible bundle models before
+	// soft automatic exclusions, for bounded cooldown readmission.
+	ScorerRescuePool []string
 	// RescueModels orders the catalog models an in-turn rescue may fall back
 	// to when the served model's bindings all fail: the policy's ranked group
 	// fallback with per-key allowlists applied. RosterFailover restricts rescue

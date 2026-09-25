@@ -580,6 +580,7 @@ func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision
 		eligibleModels = filtered
 	}
 
+	preAutomaticModels := append([]string(nil), eligibleModels...)
 	// Deployment-wide automatic exclusions are soft: unlike ExcludedModels they
 	// must never fail a turn, because a user can still reach these models by
 	// pinning them explicitly. Emptying the pool means the operator disabled
@@ -941,6 +942,7 @@ func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision
 			Embedding:            embedCopy,
 			ClusterIDs:           clustersCopy,
 			CandidateModels:      candidatesCopy,
+			ScorerRescuePool:     preAutomaticModels,
 			ChosenScore:          chosenScore,
 			ClusterRouterVersion: s.version,
 			EffectiveKnobsHash:   effectiveKnobsHash,

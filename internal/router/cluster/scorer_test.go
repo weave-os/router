@@ -1017,6 +1017,7 @@ func TestScorer_ExcludedModelsRemovesFromArgmax(t *testing.T) {
 	// Without exclusion gpt-5 wins; excluding it forces argmax onto claude.
 	assert.Equal(t, "claude-opus-4-7", got.Model)
 	assert.Equal(t, "anthropic", got.Provider)
+	assert.NotContains(t, got.Metadata.ScorerRescuePool, "gpt-5")
 }
 
 func TestScorer_AutomaticExcludedModelsRemovesFromArgmax(t *testing.T) {
@@ -1030,6 +1031,8 @@ func TestScorer_AutomaticExcludedModelsRemovesFromArgmax(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "claude-opus-4-7", got.Model)
 	assert.Equal(t, "anthropic", got.Provider)
+	assert.NotContains(t, got.Metadata.CandidateModels, "gpt-5")
+	assert.Contains(t, got.Metadata.ScorerRescuePool, "gpt-5")
 }
 
 // The deployment-wide set is soft: unlike ExcludedModels it must never fail a

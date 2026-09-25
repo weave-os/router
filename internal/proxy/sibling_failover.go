@@ -119,7 +119,13 @@ func (s *Service) rescueWalkOrReadmitCooling(
 	pool = append(pool, candidates...)
 	for _, model := range cooldownsByExpiry(cooling) {
 		if failed.Metadata != nil && failed.Metadata.RosterFailover {
-			continue
+			md := failed.Metadata
+			if md.ClusterRouterVersion == "" ||
+				!slices.Contains(md.ScorerRescuePool, model) ||
+				catalog.TierFor(model) < catalog.TierFor(failed.Model) ||
+				catalog.TierFor(model) > catalog.TierHigh {
+				continue
+			}
 		}
 		if !slices.Contains(pool, model) {
 			pool = append(pool, model)
