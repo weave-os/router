@@ -342,6 +342,42 @@ func TestEmergencyWithdrawalRebindsNextAdmissionButDoesNotMutateInFlight(t *test
 	assert.Equal(t, rollback.State.CurrentActivationID, rollback.State.Activations[inFlight.ActivationID].ReplacementID)
 }
 
+func TestEmergencyWithdrawalPreservesSubscriberPlanAndProfile(t *testing.T) {
+	for _, plan := range []entitlement.Plan{entitlement.PlanMax, entitlement.PlanBoost} {
+		t.Run(string(plan), func(t *testing.T) {
+			profile, ok := entitlement.ServingProfileFor(plan)
+			require.True(t, ok)
+			previousSet, replacementSet := fixtureSet("old-worker"), fixtureSet("ready-worker")
+			profileRef := namespaceRef(policyregistry.ServingProfiles, "unchanged-profile")
+			previousSet.Profiles[profile.Key] = policyregistry.ServingSelection{Release: namespaceRef(policyregistry.ServingReleases, "old-profile-worker"), Binding: namespaceRef(policyregistry.ServingBindings, "old-profile-worker"), Profile: &profileRef}
+			replacementSet.Profiles[profile.Key] = policyregistry.ServingSelection{Release: namespaceRef(policyregistry.ServingReleases, "ready-profile-worker"), Binding: namespaceRef(policyregistry.ServingBindings, "ready-profile-worker"), Profile: &profileRef}
+			first, _ := activateFixture(t, policyregistry.ServingStateSnapshot{}, previousSet, servingEpoch)
+			sets := map[string]policyregistry.SelectionSetView{
+				servingRef(t, policyregistry.ServingSelectionSets, previousSet).SHA256:    previousSet.View(),
+				servingRef(t, policyregistry.ServingSelectionSets, replacementSet).SHA256: replacementSet.View(),
+			}
+			projection := policyregistry.AdmissionProjection{Target: policyregistry.TargetStable, ProfileKey: profile.Key, ProfileName: profile.Name, Plan: plan, EntitlementVersion: 3, EnrollmentGeneration: 2, AssignmentGeneration: 4}
+			inFlight, err := policyregistry.SelectSessionRelease(nil, projection, first, sets, testRegistryRoot, servingEpoch)
+			require.NoError(t, err)
+			replacement, _ := activateFixture(t, first, replacementSet, servingEpoch.Add(time.Minute), first.State.CurrentActivationID)
+			next, err := policyregistry.SelectSessionRelease(&inFlight, projection, replacement, sets, testRegistryRoot, servingEpoch.Add(2*time.Minute))
+			require.NoError(t, err)
+			assert.Equal(t, first.State.CurrentActivationID, inFlight.ActivationID)
+			assert.Equal(t, previousSet.Profiles[profile.Key], inFlight.Selection)
+			assert.Equal(t, replacement.State.CurrentActivationID, next.ActivationID)
+			assert.Equal(t, replacementSet.Profiles[profile.Key], next.Selection)
+			assert.Equal(t, profile.Key, next.ProfileKey)
+			assert.Equal(t, profile.Name, next.ProfileName)
+			assert.Equal(t, plan, next.Plan)
+			assert.Equal(t, int64(3), next.EntitlementVersion)
+			assert.Equal(t, int64(2), next.EnrollmentGeneration)
+			assert.Equal(t, int64(4), next.AssignmentGeneration)
+			assert.Equal(t, int64(2), next.BindingGeneration)
+			assert.Equal(t, servingEpoch, next.CreatedAt)
+		})
+	}
+}
+
 func TestProfileAssignmentsDoNotFallBackAndGenerationChangesRebind(t *testing.T) {
 	set := fixtureSet("one")
 	profile := namespaceRef(policyregistry.ServingProfiles, "profile")

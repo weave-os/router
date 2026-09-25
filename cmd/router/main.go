@@ -77,6 +77,18 @@ import (
 
 func main() {
 	logger := observability.Get()
+	egressProbe, err := newStartupEgressProbe(config.GetOr("ROUTER_STARTUP_EGRESS_ORIGINS", ""))
+	if err != nil {
+		logger.Error("Invalid startup egress configuration; refusing to boot", "err", err)
+		panic(err)
+	}
+	egressCtx, stopEgress := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	err = egressProbe.wait(egressCtx, logger)
+	stopEgress()
+	if err != nil {
+		logger.Error("Startup outbound connectivity failed; refusing to boot", "err", err)
+		panic(err)
+	}
 	// Initialize propagation and APM before constructing HTTP clients so their
 	// OpenTelemetry transports capture the configured providers and propagator.
 	apm.Init()
