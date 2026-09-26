@@ -77,6 +77,10 @@ Model-emitted tool_use arguments are validated against the inbound request's `to
 
 On the emit side the failure class is prevented at decode time where the upstream exposes a knob: OpenAI Responses tools go out with `strict:true` + a strictified schema ([`strictify_openai.go`](strictify_openai.go) — additionalProperties:false, all-required, optionals as null unions; non-strictifiable schemas fall back to non-strict). Gemini 3.x gets `functionCallingConfig.mode=VALIDATED` when the client didn't force a tool_choice. Proxy-side validation always checks against the ORIGINAL schema — the explicit nulls strict mode induces are dropped by toolcheck's normalize pass.
 
+## Claude Code Read line prefixes on non-Anthropic targets (load-bearing)
+
+Claude Code's Read tool prints every line as `N<TAB>content`. In tab-indented code the separator tab is indistinguishable from indentation, and models not trained on that format copy it into Edit's `old_string`, so the edit misses; in dogfood transcripts 43% of grok-4.6 and 18% of gpt-5.6-luna edits failed this way, versus 1.4% for Claude. [`read_prefix.go`](read_prefix.go) rewrites the separator to `→` in Read results (matched through their `tool_use`) and adjusts Edit's description, for the OpenAI chat, Responses, and Gemini emits of an Anthropic-format request only. Anthropic targets keep the exact format. The rewrite is deterministic so the prefix stays cache-stable across turns.
+
 ## Invariants
 
 - **No I/O.** No HTTP, no DB, no filesystem.
