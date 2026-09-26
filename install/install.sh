@@ -6170,7 +6170,12 @@ write_claude_settings() {
       | (if (.env | length) == 0 then del(.env) else . end)
       | del(.apiKeyHelper)
       | (if $b.statusLine then .statusLine = $b.statusLine else . end)
-      | (if $b.attribution then .attribution = $b.attribution else . end)
+      | (if (($a.attribution? | type) == "object"
+              and $a.attribution.commit == ""
+              and $a.attribution.pr == "")
+         then .
+         elif $b.attribution then .attribution = $b.attribution
+         else . end)
     ' "$settings_file" "$tmp_patch")"
     printf '%s\n' "$merged" >"$settings_file"
   else
