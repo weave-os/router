@@ -279,7 +279,7 @@ home="$work/pi"; mkdir -p "$home"
 run "$home" WEAVE_ROUTER_KEY=rk_pi_secret_12345 -- --pi --scope user --quiet --non-interactive --base-url https://router.workweave.ai
 models="$home/.pi/agent/models.json"
 [ -f "$models" ] || models="$(find "$home" -name models.json | head -n 1)"
-[ -n "$models" ] && [ -f "$models" ] || { echo "pi install did not write models.json" >&2; exit 1; }
+if [ -z "$models" ] || [ ! -f "$models" ]; then echo "pi install did not write models.json" >&2; exit 1; fi
 settle
 check "install itself reports nothing" "$(event_count)" "0"
 run_uninstall "$home" "$models" -- --pi --scope user; status=$?

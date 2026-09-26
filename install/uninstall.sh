@@ -339,7 +339,7 @@ report_claude_uninstall_event() {
   local parked candidate endpoint="" base_src="" key="" key_src="" found marked
   parked="$(dirname "$settings_file")/.weave-parked.json"
   for candidate in "$parked" "$settings_file" "$local_settings_file"; do
-    [ -n "$candidate" ] && [ -f "$candidate" ] && [ ! -L "$candidate" ] || continue
+    if [ -z "$candidate" ] || [ ! -f "$candidate" ] || [ -L "$candidate" ]; then continue; fi
     found="$(uninstall_json_get "$candidate" '.env.ANTHROPIC_BASE_URL')"
     case "$found" in ""|https://api.anthropic.com*|http://api.anthropic.com*) continue ;; esac
     endpoint="${found%/}"; base_src="$candidate"
@@ -347,7 +347,7 @@ report_claude_uninstall_event() {
   done
   [ -n "$endpoint" ] || return 0
   for candidate in "$local_settings_file" "$settings_file" "$parked"; do
-    [ -n "$candidate" ] && [ -f "$candidate" ] && [ ! -L "$candidate" ] || continue
+    if [ -z "$candidate" ] || [ ! -f "$candidate" ] || [ -L "$candidate" ]; then continue; fi
     key="$(uninstall_claude_key_from "$candidate")"
     [ -n "$key" ] && { key_src="$candidate"; break; }
   done
