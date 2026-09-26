@@ -21,7 +21,7 @@ import (
 // SubscriptionErrorCode identifies a subscription admission refusal.
 type SubscriptionErrorCode string
 
-// SubscriptionPlanConflict means linked funding cannot satisfy the plan's model boundary.
+// SubscriptionPlanConflict is retained for clients that classify legacy plan conflicts.
 const SubscriptionPlanConflict SubscriptionErrorCode = "subscription_plan_conflict"
 
 // WithSubscriberAllowance gates inference on an individual Max/Boost
@@ -32,16 +32,16 @@ const SubscriptionPlanConflict SubscriptionErrorCode = "subscription_plan_confli
 // organization billing, BYOK, and prepaid keys keep the gates they already had,
 // and this middleware is the only place the included allowance is enforced.
 //
-// Linked Claude/Codex subscriptions cannot satisfy Max's open-source boundary;
-// an active Max entitlement refuses those requests without switching to metered
-// capacity. A subject whose entitlement has ended is not subscribed: it keeps
-// Max's model boundary but otherwise passes through untouched, so its linked
-// subscription is neither refused nor preferred. Entitled callers prefer
-// compatible linked-provider capacity. When linked and included capacity are
-// unavailable, requests continue through the existing organization balance and
-// spend-limit gates. Allowance read errors fail closed because treating an
-// unreadable meter as exhausted would incorrectly authorize organization
-// spending.
+// Max never treats a consumer subscription as a funding source: covering
+// detection is suppressed after PlanMax is stamped, so included allowance
+// (then prepaid) pays. A subject whose entitlement has ended is not subscribed:
+// it keeps its plan's model boundary but otherwise passes through untouched, so
+// its linked subscription is neither refused nor preferred. Entitled Boost
+// callers prefer compatible linked-provider capacity. When linked and included
+// capacity are unavailable, requests continue through the existing organization
+// balance and spend-limit gates. Allowance read errors fail closed because
+// treating an unreadable meter as exhausted would incorrectly authorize
+// organization spending.
 func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
@@ -86,17 +86,10 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 			return
 		}
 
-		// A linked-funding conflict must not silently reserve included allowance
-		// or spend organization credits instead.
+		// Boost and unscoped callers serve covering subscriptions first. Max has
+		// already made covering detection return false, so this never skips the
+		// included-allowance hold for PlanMax.
 		if proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath()) {
-			if admission.Plan == entitlement.PlanMax {
-				log.Warn("Linked subscription rejected by plan model boundary", "subscriber_id", subscriberID, "subscriber_plan", admission.Plan)
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-					"error":   SubscriptionPlanConflict,
-					"message": "Your Weave Max plan only supports open-source models. Linked Claude and Codex subscriptions cannot serve this request. Disable linked-subscription routing or choose a compatible plan before retrying. No included allowance or prepaid credits were used.",
-				})
-				return
-			}
 			log.Info("Subscriber request restricted to linked subscription", "reason", billing.SubscriptionOnlyLinkedFirst, "subscriber_id", subscriberID, "admission_outcome", admission.Outcome)
 			c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context(), billing.SubscriptionOnlyLinkedFirst))
 			c.Next()

@@ -144,6 +144,37 @@ func newService(entitlements *fakeEntitlements, allowances *fakeAllowances) *ent
 	return entitlement.NewService(entitlements, allowances).WithClock(func() time.Time { return testNow })
 }
 
+func TestProductScopeReadsOnlyTheEntitlementProjection(t *testing.T) {
+	t.Parallel()
+
+	allowances := &fakeAllowances{usageErr: errors.New("allowance usage must not be read")}
+	plan, err := newService(&fakeEntitlements{current: activeEntitlement(), found: true}, allowances).
+		ProductScope(context.Background(), testSubscriber)
+
+	require.NoError(t, err)
+	assert.Equal(t, entitlement.PlanMax, plan)
+}
+
+func TestProductScopePassesThroughUnknownSubscribers(t *testing.T) {
+	t.Parallel()
+
+	plan, err := newService(&fakeEntitlements{}, &fakeAllowances{}).
+		ProductScope(context.Background(), testSubscriber)
+
+	require.NoError(t, err)
+	assert.Empty(t, plan)
+}
+
+func TestProductScopeSurfacesProjectionFailures(t *testing.T) {
+	t.Parallel()
+
+	readFailure := errors.New("database unreachable")
+	_, err := newService(&fakeEntitlements{err: readFailure}, &fakeAllowances{}).
+		ProductScope(context.Background(), testSubscriber)
+
+	require.ErrorIs(t, err, readFailure)
+}
+
 func TestAdmitPassesThroughUnsubscribedCallers(t *testing.T) {
 	t.Parallel()
 

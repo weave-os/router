@@ -95,6 +95,15 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 	return s
 }
 
+// ProductScope returns the plan boundary projected for a subscriber, if any.
+func (s *Service) ProductScope(ctx context.Context, subscriberID SubscriberID) (Plan, error) {
+	current, found, err := s.projectedEntitlement(ctx, subscriberID)
+	if err != nil || !found {
+		return "", err
+	}
+	return current.Plan, nil
+}
+
 // Admit reports whether the subscriber's included allowance can take a request.
 //
 // A caller with no projected entitlement, a non-active one, or one whose
@@ -116,15 +125,12 @@ func (s *Service) WithClock(now func() time.Time) *Service {
 // overshoot is bounded by the concurrent turns in flight and never compounds —
 // the same bound a prepaid balance has on debits in flight when it hits zero.
 func (s *Service) Admit(ctx context.Context, subscriberID SubscriberID) (Admission, error) {
-	if !subscriberID.Valid() {
-		return Admission{Outcome: AdmissionNotSubscribed}, nil
-	}
-	current, err := s.entitlements.Get(ctx, subscriberID)
-	if errors.Is(err, ErrEntitlementNotFound) {
-		return Admission{Outcome: AdmissionNotSubscribed}, nil
-	}
+	current, found, err := s.projectedEntitlement(ctx, subscriberID)
 	if err != nil {
-		return Admission{}, fmt.Errorf("read subscriber entitlement: %w", err)
+		return Admission{}, err
+	}
+	if !found {
+		return Admission{Outcome: AdmissionNotSubscribed}, nil
 	}
 	at := s.now().UTC()
 	if current.Status != StatusActive || !current.BillingPeriod.Covers(at) {
@@ -166,6 +172,20 @@ func (s *Service) Admit(ctx context.Context, subscriberID SubscriberID) (Admissi
 			SixHourUsedUsdMicros:  usage.SixHour.ConsumedUsdMicros(),
 		},
 	}, nil
+}
+
+func (s *Service) projectedEntitlement(ctx context.Context, subscriberID SubscriberID) (Entitlement, bool, error) {
+	if !subscriberID.Valid() {
+		return Entitlement{}, false, nil
+	}
+	current, err := s.entitlements.Get(ctx, subscriberID)
+	if errors.Is(err, ErrEntitlementNotFound) {
+		return Entitlement{}, false, nil
+	}
+	if err != nil {
+		return Entitlement{}, false, fmt.Errorf("read subscriber entitlement: %w", err)
+	}
+	return current, true, nil
 }
 
 // spentWindow reports the first exhausted enforcement window, longest first:

@@ -9,8 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/subscriptions/entitlement"
 )
 
 // The subsidy must recognize a subscription presented via the inbound
@@ -140,4 +142,18 @@ func TestSubsidyFactors_DisabledForInstallation(t *testing.T) {
 	ctx := context.WithValue(context.Background(), InstallationSubscriptionRoutingDisabledContextKey{}, true)
 	assert.Nil(t, s.subsidyFactors(ctx, h),
 		"subscription routing disabled → no subsidy bonus, route on merits")
+}
+
+func TestPresentSubscriptionTokens_MaxProductScopeReportsNone(t *testing.T) {
+	h := http.Header{}
+	h.Set("Authorization", "Bearer sk-ant-oat01-live-token")
+	ctx := entitlement.WithProductScope(context.Background(), entitlement.PlanMax)
+
+	codex, anthro := presentSubscriptionTokens(ctx, h)
+	assert.Empty(t, anthro)
+	assert.Empty(t, codex)
+	assert.False(t, RequestPresentsCoveringSubscription(ctx, h, routePathMessages))
+
+	enrolled := context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+	assert.False(t, RequestPresentsCoveringSubscription(enrolled, http.Header{}, routePathMessages))
 }

@@ -79,7 +79,7 @@ func (s *Service) WithUsageObserver(obs *usage.Observer) *Service {
 func presentSubscriptionTokens(ctx context.Context, headers http.Header) (codex, anthropic string) {
 	// Subscription routing disabled: treat as absent so subsidy, usage-bypass, and
 	// balance gate all agree the turn is prepaid.
-	if subscriptionRoutingDisabledForRequest(ctx) {
+	if subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) {
 		return "", ""
 	}
 	if codexSubscriptionFromContext(ctx) != nil {
@@ -141,6 +141,9 @@ func restrictToSubscriptionProviders(ctx context.Context, headers http.Header, e
 // bearer on /v1/messages — which can't serve that route — doesn't exempt a
 // turn that would debit the prepaid balance.
 func RequestPresentsCoveringSubscription(ctx context.Context, headers http.Header, routePath string) bool {
+	if subscriptionFundingOutOfPlayForRequest(ctx) {
+		return false
+	}
 	codex, anthropic := presentSubscriptionTokens(ctx, headers)
 	switch routePath {
 	case routePathMessages:
@@ -283,7 +286,7 @@ func (s *Service) subsidyFactors(ctx context.Context, headers http.Header) map[s
 	// to Claude on their own merits, so this removes only the routing bias, not
 	// the prepaid billing path. Keeping the usage observer installed (it is wired
 	// separately in withUsageObserver) preserves the usage-bypass gate.
-	if subscriptionRoutingDisabledForRequest(ctx) {
+	if subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) {
 		return nil
 	}
 	codexTok, anthroTok := presentSubscriptionTokens(ctx, headers)

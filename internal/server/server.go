@@ -146,8 +146,10 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	// Ahead of the org billing gates: included turns skip them, while exhausted
 	// turns continue into the same organization balance and spend-limit path.
 	var subscriberAllowanceMiddleware []gin.HandlerFunc
+	var subscriberProductScopeMiddleware []gin.HandlerFunc
 	if features.SubscriberAllowance != nil {
 		subscriberAllowanceMiddleware = []gin.HandlerFunc{middleware.WithSubscriberAllowance(features.SubscriberAllowance)}
+		subscriberProductScopeMiddleware = []gin.HandlerFunc{middleware.WithSubscriberProductScope(features.SubscriberAllowance)}
 	}
 	var servingAdmissionMiddleware []gin.HandlerFunc
 	if features.ServingAdmission != nil {
@@ -380,6 +382,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithAuth(authSvc, byokRequiresOptIn),
 	}
 	routeMiddleware = append(routeMiddleware, servingAdmissionMiddleware...)
+	routeMiddleware = append(routeMiddleware, subscriberProductScopeMiddleware...)
 	if billingSvc != nil {
 		routeMiddleware = append(routeMiddleware,
 			middleware.WithBillingSpan(),
@@ -409,6 +412,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithAuth(authSvc, byokRequiresOptIn),
 	}
 	previewMiddleware = append(previewMiddleware, servingAdmissionMiddleware...)
+	previewMiddleware = append(previewMiddleware, subscriberProductScopeMiddleware...)
 	previewMiddleware = append(previewMiddleware,
 		middleware.WithEmbedOnlyUserMessageOverride(),
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),

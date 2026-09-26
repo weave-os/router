@@ -225,7 +225,7 @@ func managedSubscriptionPlansAllExhausted(ctx context.Context) bool {
 }
 
 func subscriptionPlanAwareRoutingEnabled(ctx context.Context) bool {
-	return !subscriptionRoutingDisabledForRequest(ctx) && flags.BoolOr(ctx, flags.KeySubscriptionPlanAwareRouting, false)
+	return !subscriptionRoutingDisabledForRequest(ctx) && !subscriptionFundingOutOfPlayForRequest(ctx) && flags.BoolOr(ctx, flags.KeySubscriptionPlanAwareRouting, false)
 }
 
 func (s *Service) withPlanAwareSubscriptionModels(ctx context.Context, headers http.Header) context.Context {
