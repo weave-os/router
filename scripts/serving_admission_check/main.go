@@ -22,6 +22,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/postgres/serving"
@@ -137,6 +138,9 @@ func run() error {
 	if err := checkRetainedAdmissionClock(ctx, admissions, installation.ID, shared.ID); err != nil {
 		return err
 	}
+	if err := checkAdmissionTimingRecord(ctx, admissions, installation.ID, shared.ID, decide); err != nil {
+		return err
+	}
 	replacement, err := control.Rotate(ctx, externalID, personal.CredentialSubjectID, personal.ID, newKey(installation.ID))
 	if err != nil {
 		return err
@@ -240,6 +244,77 @@ func checkRetainedAdmissionClock(ctx context.Context, admissions *serving.Servin
 		previousBinding = &admitted
 	}
 	return nil
+}
+
+// admissionTimingAttributes are the fields the timing record must carry, and
+// forbiddenTimingAttributes the identity-bearing fields it must never carry.
+var (
+	admissionTimingAttributes = []string{"admission_total_ms", "admission_tx_ms", "admission_lock_wait_ms", "admission_gcs_state_read_ms", "admission_gcs_selection_set_read_ms", "admission_gcs_selection_set_reads", "admission_decide_ms", "admission_projection_queries_ms", "admission_persistent", "admission_outcome", "target", "activation_id"}
+	forbiddenTimingAttributes = []string{"installation_id", "api_key_id", "key_id", "credential_identity", "subject_id", "conversation_digest", "client_session_id", "session_id", "binding", "err"}
+)
+
+// checkAdmissionTimingRecord asserts that both an admitted and a denied admission emit exactly
+// one measurement record carrying durations and no caller identity.
+func checkAdmissionTimingRecord(ctx context.Context, admissions *serving.ServingAdmissionRepo, installationID, keyID string, decide policyregistry.AdmissionDecision) error {
+	var logs bytes.Buffer
+	observed := observability.WithLogger(ctx, slog.New(slog.NewJSONHandler(&logs, nil)))
+	if _, _, err := admissions.Admit(observed, installationID, keyID, "timing-record", decide); err != nil {
+		return err
+	}
+	admittedRecord, err := soleTimingRecord(&logs)
+	if err != nil {
+		return err
+	}
+	if admittedRecord["admission_outcome"] != "admitted" || admittedRecord["admission_persistent"] != true {
+		return fmt.Errorf("admitted timing record misreports its outcome: %v", admittedRecord)
+	}
+	if total, ok := admittedRecord["admission_total_ms"].(float64); !ok || total <= 0 {
+		return errors.New("admitted timing record has no total duration")
+	}
+	logs.Reset()
+	_, _, err = admissions.Admit(observed, installationID, uuid.NewString(), "timing-record", decide)
+	if !errors.Is(err, auth.ErrInvalidToken) {
+		return fmt.Errorf("unknown credential was not denied: %v", err)
+	}
+	deniedRecord, err := soleTimingRecord(&logs)
+	if err != nil {
+		return err
+	}
+	if deniedRecord["admission_outcome"] != "denied" {
+		return fmt.Errorf("denied admission was not measured as denied: %v", deniedRecord)
+	}
+	return nil
+}
+
+func soleTimingRecord(logs *bytes.Buffer) (map[string]any, error) {
+	var timing []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+		if line == "" {
+			continue
+		}
+		record := map[string]any{}
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			return nil, err
+		}
+		if record["msg"] == "Serving admission timing" {
+			timing = append(timing, record)
+		}
+	}
+	if len(timing) != 1 {
+		return nil, fmt.Errorf("admission emitted %d timing records", len(timing))
+	}
+	record := timing[0]
+	for _, attribute := range admissionTimingAttributes {
+		if _, ok := record[attribute]; !ok {
+			return nil, fmt.Errorf("timing record is missing %s", attribute)
+		}
+	}
+	for _, attribute := range forbiddenTimingAttributes {
+		if _, ok := record[attribute]; ok {
+			return nil, fmt.Errorf("timing record leaked %s", attribute)
+		}
+	}
+	return record, nil
 }
 
 func checkAttribution(ctx context.Context, pool *pgxpool.Pool, assertion policyregistry.ServingAssertion) error {

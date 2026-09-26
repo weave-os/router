@@ -42,8 +42,10 @@ func NewServingAdmissionRepo(pool *pgxpool.Pool, environment policyregistry.Envi
 
 // Admit fails the entire request if either persistence or the authoritative release read fails.
 func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKeyID, clientSessionID string, decide policyregistry.AdmissionDecision) (policyregistry.AdmissionScope, policyregistry.SessionReleaseBinding, error) {
+	timing := admissionTiming{started: time.Now(), outcome: admissionFailed}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
+	defer func() { timing.emit(ctx) }()
 	var scope policyregistry.AdmissionScope
 	var admitted policyregistry.SessionReleaseBinding
 	installationUUID, err := uuid.Parse(installationID)
@@ -57,7 +59,14 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 	if decide == nil {
 		return scope, admitted, errors.New("admission decision is required")
 	}
+	transactionStart := time.Now()
 	err = pgx.BeginTxFunc(ctx, r.pool, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
+		projectionStart := time.Now()
+		defer func() {
+			if timing.projection == 0 {
+				timing.projection = time.Since(projectionStart) - timing.lockWait
+			}
+		}()
 		queries := sqlc.New(tx)
 		_, err := queries.GetServingInstallationForAdmission(ctx, installationUUID)
 		if err != nil {
@@ -91,6 +100,7 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 		if r.environment == policyregistry.EnvironmentStaging {
 			projection.Target = policyregistry.TargetStaging
 		}
+		timing.target = projection.Target
 		var planProjected bool
 		if subject != nil {
 			projected, err := queries.GetActiveServingSubscriberPlan(ctx, uuid.MustParse(subject.ID))
@@ -122,10 +132,14 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 		}
 		digest, persistent := policyregistry.ServingConversationDigest(identity, clientSessionID)
 		scope = policyregistry.AdmissionScope{InstallationID: installationID, CredentialIdentity: identity, ConversationDigest: digest, Persistent: persistent}
+		timing.persistent = persistent
 		var previous *policyregistry.SessionReleaseBinding
 		if persistent {
 			lockKey := installationID + "/" + identity + "/" + hex.EncodeToString(digest[:])
-			if err := queries.GetServingConversationLock(ctx, lockKey); err != nil {
+			lockStart := time.Now()
+			err := queries.GetServingConversationLock(ctx, lockKey)
+			timing.lockWait += time.Since(lockStart)
+			if err != nil {
 				return err
 			}
 			encoded, err := queries.GetSessionReleaseBinding(ctx, sqlc.GetSessionReleaseBindingParams{InstallationID: installationUUID, CredentialScope: identity, ConversationDigest: digest[:]})
@@ -146,10 +160,14 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 			}
 			return stamp.Time, nil
 		}
-		admitted, err = decide(ctx, policyregistry.SerializedAdmission{Projection: projection, Previous: previous, Clock: clock})
+		timing.projection = time.Since(projectionStart) - timing.lockWait
+		decideStart := time.Now()
+		admitted, err = decide(ctx, policyregistry.SerializedAdmission{Projection: projection, Previous: previous, Clock: clock, Timings: &timing.registry})
+		timing.decide = time.Since(decideStart)
 		if err != nil {
 			return err
 		}
+		timing.activationID = admitted.ActivationID
 		if !persistent {
 			return nil
 		}
@@ -188,9 +206,11 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 		}
 		return nil
 	})
+	timing.transaction = time.Since(transactionStart)
 	if err != nil {
 		logger := observability.FromContext(ctx)
 		if errors.Is(err, auth.ErrPersonalCredentialRequired) || errors.Is(err, auth.ErrInvalidKeyScope) || errors.Is(err, sql.ErrNoRows) || errors.Is(err, policyregistry.ErrStaleServingGeneration) {
+			timing.outcome = admissionDenied
 			logger.Debug("Serving admission denied", "installation_id", installationID, "err", err)
 		} else {
 			logger.Error("Serving admission transaction failed", "installation_id", installationID, "err", err)
@@ -203,6 +223,7 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 		}
 		return policyregistry.AdmissionScope{}, policyregistry.SessionReleaseBinding{}, err
 	}
+	timing.outcome = admissionAdmitted
 	return scope, admitted, nil
 }
 

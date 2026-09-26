@@ -30,11 +30,36 @@ type AdmissionScope struct {
 	Persistent         bool                        `json:"persistent"`
 }
 
+// AdmissionTimings collects the authoritative-read durations of a single admission.
+// It is measurement output only: a nil pointer disables recording and no field is ever
+// read by a decision.
+type AdmissionTimings struct {
+	StateRead         time.Duration
+	SelectionSetRead  time.Duration
+	SelectionSetReads int
+}
+
+func (t *AdmissionTimings) recordStateRead(elapsed time.Duration) {
+	if t == nil {
+		return
+	}
+	t.StateRead += elapsed
+}
+
+func (t *AdmissionTimings) recordSelectionSetRead(elapsed time.Duration) {
+	if t == nil {
+		return
+	}
+	t.SelectionSetRead += elapsed
+	t.SelectionSetReads++
+}
+
 // SerializedAdmission is held under primary-database identity and conversation locks.
 type SerializedAdmission struct {
 	Projection AdmissionProjection
 	Previous   *SessionReleaseBinding
 	Clock      func(context.Context) (time.Time, error)
+	Timings    *AdmissionTimings
 }
 
 // AdmissionDecision performs the authoritative GCS read before the DB transaction commits.
@@ -61,7 +86,9 @@ func (a ServingAdmission) Decide(ctx context.Context, admission SerializedAdmiss
 	if a.Store == nil || admission.Clock == nil {
 		return SessionReleaseBinding{}, errors.New("serving admission registry and database clock are required")
 	}
+	stateStart := time.Now()
 	snapshot, err := a.Store.ReadServingState(ctx, admission.Projection.Target)
+	admission.Timings.recordStateRead(time.Since(stateStart))
 	if err != nil {
 		return SessionReleaseBinding{}, err
 	}
@@ -81,7 +108,9 @@ func (a ServingAdmission) Decide(ctx context.Context, admission SerializedAdmiss
 		if _, exists := sets[activation.SelectionSet.SHA256]; exists {
 			continue
 		}
+		setStart := time.Now()
 		set, err := readSelectionSetView(ctx, a.Store, activation.SelectionSet)
+		admission.Timings.recordSelectionSetRead(time.Since(setStart))
 		if err != nil {
 			return SessionReleaseBinding{}, err
 		}
