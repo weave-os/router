@@ -213,6 +213,7 @@ func TestActivationMemoizesDestinationAttestationsPerRevisionBinding(t *testing.
 	require.Equal(t, 3, endpoints.workerCalls, "worker attestations depend on the validation request, so each lane keeps its own")
 
 	entry := destinationValidationEntry(t, &audit)
+	require.Equal(t, "attested", entry["destination_validation_outcome"])
 	require.Equal(t, float64(3), entry["destination_validation_lanes"])
 	require.Equal(t, float64(4), entry["destination_validation_http_calls"])
 	require.Equal(t, float64(2), entry["destination_validation_cache_hits"])
@@ -256,6 +257,24 @@ func TestActivationMemoizesDestinationFailuresFailClosed(t *testing.T) {
 	require.ErrorContains(t, validator.ValidatePreparedSelection(context.Background(), lanes[0]), "full serving attestation")
 	require.Equal(t, 1, failing.calls, "a recorded attestation failure is replayed instead of retried")
 	require.Equal(t, policyregistry.ValidationStats{HTTPCalls: 1, CacheHits: 1}, validator.Stats())
+}
+
+func TestBlockedActivationLogsPartialDestinationValidation(t *testing.T) {
+	store, _, set := controllerFixture(t)
+	base := store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease)
+	set.Profiles[profileKeyOne] = registerProfileFixture(t, store, set.Default, profileKeyOne, base.Policy)
+	store.publish(t, policyregistry.ServingSelectionSets, set)
+	var audit bytes.Buffer
+	validator := policyregistry.DestinationValidator{Endpoints: &flakyDestinationEndpoints{}}
+	controller, err := policyregistry.NewServingController(store, validator, func() time.Time { return servingEpoch }, slog.New(slog.NewJSONHandler(&audit, nil)))
+	require.NoError(t, err)
+	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	_, err = controller.Prepare(context.Background(), store.publish(t, policyregistry.ServingProposals, proposal))
+	require.Error(t, err)
+
+	entry := destinationValidationEntry(t, &audit)
+	require.Equal(t, "blocked", entry["destination_validation_outcome"])
+	require.Equal(t, float64(1), entry["destination_validation_lanes"], "a blocked validation stops on the failing lane and reports partial counts")
 }
 
 // flakyDestinationEndpoints fails the first classifier attestation and would succeed afterwards.
