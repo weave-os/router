@@ -421,6 +421,14 @@ npx @weave-os/router disable-routing    # switch Codex back to its default provi
 npx @weave-os/router off --opencode --scope project   # project-scoped opencode
 ```
 
+A real `off`/`on` transition (and an uninstall) tells the install's router
+about it with one authenticated `POST /v1/client-events`, so the router can log
+and export a lifecycle span. It is fail-open on purpose: the local change has
+already been applied, the ping runs detached with a two-second timeout, and an
+unreachable router — often the reason for turning routing off — never changes
+the result. Nothing is sent for a no-op (`already off`, not installed) or for
+`status`, and the endpoint/key trust gate is the same one `models` uses.
+
 Inside Claude Code you can also run the slash commands `/router-off`,
 `/router-on`, `/router-status`, and `/router-session` (which prints the
 session id used for telemetry correlation and transcript lookup) — installed

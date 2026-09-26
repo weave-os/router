@@ -48,3 +48,21 @@ func (o *OnboardingObserver) SubscriptionConnected(event auth.SubscriptionConnec
 	buf.Record(Span{Name: "router.subscription_connected", Start: event.OccurredAt, End: event.OccurredAt, Attrs: attrs.Build()})
 	buf.Flush()
 }
+
+// HarnessLifecycle records a client-reported off/on/uninstall of a harness.
+func (o *OnboardingObserver) HarnessLifecycle(event auth.HarnessLifecycleEvent) {
+	buf := o.emitter.NewBuffer()
+	if buf == nil {
+		return
+	}
+	attrs := NewAttrBuilder(5).
+		String("external_id", event.InstallationExternalID).
+		String("router_api_key_id", event.APIKeyID).
+		String("harness", string(event.Harness)).
+		String("action", string(event.Action))
+	if event.CredentialSubjectID != "" {
+		attrs = attrs.String("credential_subject_id", event.CredentialSubjectID)
+	}
+	buf.Record(Span{Name: "router.harness_lifecycle", Start: event.OccurredAt, End: event.OccurredAt, Attrs: attrs.Build()})
+	buf.Flush()
+}

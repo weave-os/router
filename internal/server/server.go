@@ -230,10 +230,12 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	}
 
 	// /validate is a token-validity probe used by clients (not the dashboard), so it stays mounted in both modes.
+	// /v1/client-events is the harness CLI's off/on/uninstall report and rides the same key auth.
 	adminAuthed := engine.Group("", middleware.WithTimeout(validateTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn))
 	adminAuthed.POST("/v1/router/threads", classifierapi.StartThreadHandler(proxySvc))
 	adminAuthed.Use(servingAdmissionMiddleware...)
 	adminAuthed.GET("/validate", admin.ValidateHandler)
+	adminAuthed.POST("/v1/client-events", admin.ClientEventHandler(authSvc))
 	if authSvc.SubscriptionAccountsEnabled() {
 		subscriptionGroup := engine.Group("/v1", middleware.WithTimeout(adminTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn))
 		subscriptionGroup.Use(servingAdmissionMiddleware...)

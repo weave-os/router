@@ -265,6 +265,165 @@ if { [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi
   exit 1
 fi
 
+# ---------- lifecycle report ----------
+#
+# report_uninstall_event tells this install's router that the uninstall is
+# happening, so it can log and export a lifecycle event. It runs before the
+# key and config are removed (afterwards there is nothing left to
+# authenticate with) and is strictly best-effort: the POST is detached with a
+# short timeout, output discarded, and no failure changes the uninstall.
+# uninstall.sh is served standalone, so the config readers install.sh already
+# has are reduced here to the one field each: the endpoint and key of the
+# managed provider block. A file git tracks is a checkout's, not this user's
+# install, and never supplies a key; a checkout-supplied endpoint never
+# receives one (same gates as install.sh's key_source_is_own and
+# models_endpoint_is_trusted).
+HOSTED_BASE_URL="https://router.workweave.ai"
+ROUTER_KEY_HEADER="X-Weave-Router-Key"
+
+uninstall_json_get() {
+  [ -f "$1" ] || return 0
+  jq -r "${2} // empty" "$1" 2>/dev/null || true
+}
+
+# uninstall_file_is_own mirrors key_source_is_own: only a project-scoped file
+# is reachable by a repo, and one git tracks is not this user's install.
+uninstall_file_is_own() {
+  local f="$1"
+  [ -f "$f" ] || return 1
+  [ -L "$f" ] && return 1
+  [ "$scope" = "project" ] && [ -z "$install_dir" ] || return 0
+  command -v git >/dev/null 2>&1 || return 1
+  git -C "$(dirname "$f")" ls-files --error-unmatch -- "$f" >/dev/null 2>&1 && return 1
+  return 0
+}
+
+uninstall_file_is_tracked() {
+  command -v git >/dev/null 2>&1 || return 1
+  git -C "$(dirname "$1")" ls-files --error-unmatch -- "$1" >/dev/null 2>&1
+}
+
+# uninstall_claude_key_from FILE prints the router key header value out of a
+# Claude Code settings-shaped file ({"env":{"ANTHROPIC_CUSTOM_HEADERS":…}}).
+uninstall_claude_key_from() {
+  uninstall_json_get "$1" '.env.ANTHROPIC_CUSTOM_HEADERS' \
+    | sed -n "s/^[[:space:]]*${ROUTER_KEY_HEADER}:[[:space:]]*//p" | head -n 1 | tr -d '[:space:]'
+}
+
+# report_uninstall_event HARNESS ENDPOINT KEY — fire the detached POST.
+report_uninstall_event() {
+  local harness="$1" endpoint="${2%/}" key="$3" headers body
+  [ -n "$endpoint" ] && [ -n "$key" ] || return 0
+  command -v curl >/dev/null 2>&1 || return 0
+  headers="$(mktemp 2>/dev/null)" || return 0
+  chmod 600 "$headers"
+  printf '%s: %s\n' "$ROUTER_KEY_HEADER" "$key" >"$headers"
+  body="$(printf '{"action":"uninstall","harness":"%s"}' "$harness")"
+  (
+    curl -sS --max-time 2 -X POST -H 'Content-Type: application/json' \
+      --header "@$headers" --data-binary "$body" -o /dev/null \
+      "$endpoint/v1/client-events" || true
+    rm -f "$headers"
+  ) >/dev/null 2>&1 </dev/null &
+  return 0
+}
+
+# report_claude_uninstall_event reads the endpoint and key the way install.sh's
+# resolve_installed_endpoint / read_installed_key do for Claude Code: the
+# parked sidecar first (while toggled off it holds both), then the settings
+# files. Endpoint and key from the same file are self-consistent; otherwise the
+# endpoint must be the hosted default, vouched for by the private
+# WEAVE_ROUTER_BASE_URL marker beside the key, or live in a file git does not
+# track.
+report_claude_uninstall_event() {
+  local parked candidate endpoint="" base_src="" key="" key_src="" found marked
+  parked="$(dirname "$settings_file")/.weave-parked.json"
+  for candidate in "$parked" "$settings_file" "$local_settings_file"; do
+    [ -n "$candidate" ] && [ -f "$candidate" ] && [ ! -L "$candidate" ] || continue
+    found="$(uninstall_json_get "$candidate" '.env.ANTHROPIC_BASE_URL')"
+    case "$found" in ""|https://api.anthropic.com*|http://api.anthropic.com*) continue ;; esac
+    endpoint="${found%/}"; base_src="$candidate"
+    break
+  done
+  [ -n "$endpoint" ] || return 0
+  for candidate in "$local_settings_file" "$settings_file" "$parked"; do
+    [ -n "$candidate" ] && [ -f "$candidate" ] && [ ! -L "$candidate" ] || continue
+    key="$(uninstall_claude_key_from "$candidate")"
+    [ -n "$key" ] && { key_src="$candidate"; break; }
+  done
+  [ -n "$key" ] || return 0
+  local trusted="false"
+  if [ "$endpoint" = "${HOSTED_BASE_URL%/}" ] || [ "$base_src" = "$key_src" ]; then
+    trusted="true"
+  elif [ -n "$local_settings_file" ] && [ -f "$local_settings_file" ] && [ ! -L "$local_settings_file" ]; then
+    marked="$(uninstall_json_get "$local_settings_file" '.env.WEAVE_ROUTER_BASE_URL')"
+    if [ "${marked%/}" = "$endpoint" ]; then
+      uninstall_file_is_tracked "$local_settings_file" || trusted="true"
+    fi
+  fi
+  if [ "$trusted" != "true" ]; then
+    command -v git >/dev/null 2>&1 || return 0
+    uninstall_file_is_tracked "$base_src" && return 0
+  fi
+  report_uninstall_event claude_code "$endpoint" "$key"
+}
+
+# report_codex_uninstall_event reads base_url and the key header out of the
+# [model_providers.weave] table wherever it sits (Codex's serializer drops the
+# managed markers and may move the header into a subtable).
+report_codex_uninstall_event() {
+  local f="$1" endpoint key
+  uninstall_file_is_own "$f" || return 0
+  endpoint="$(awk '
+    /^[[:space:]]*\[/ {
+      in_provider = ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*\][[:space:]]*(#.*)?$/)
+      next
+    }
+    in_provider && match($0, /^[[:space:]]*base_url[[:space:]]*=[[:space:]]*"[^"]*"/) {
+      line = substr($0, RSTART, RLENGTH)
+      sub(/^.*=[[:space:]]*"/, "", line)
+      sub(/"$/, "", line)
+      print line
+      exit
+    }
+  ' "$f" 2>/dev/null || true)"
+  endpoint="${endpoint%/}"; endpoint="${endpoint%/v1}"
+  key="$(awk '
+    /^[[:space:]]*\[/ {
+      in_provider = ($0 ~ /^[[:space:]]*\[[[:space:]]*model_providers[[:space:]]*\.[[:space:]]*weave[[:space:]]*(\.[^]]*)?\][[:space:]]*(#.*)?$/)
+      next
+    }
+    in_provider && match($0, /"?X-Weave-Router-Key"?[[:space:]]*=[[:space:]]*"[^"]*"/) {
+      hdr = substr($0, RSTART, RLENGTH)
+      sub(/^.*=[[:space:]]*"/, "", hdr)
+      sub(/"$/, "", hdr)
+      print hdr
+      exit
+    }
+  ' "$f" 2>/dev/null || true)"
+  report_uninstall_event codex "$endpoint" "$key"
+}
+
+report_opencode_uninstall_event() {
+  local f="$1" endpoint key
+  uninstall_file_is_own "$f" || return 0
+  endpoint="$(uninstall_json_get "$f" '.provider.weave.options.baseURL')"
+  endpoint="${endpoint%/}"; endpoint="${endpoint%/v1}"
+  key="$(uninstall_json_get "$f" '.provider.weave.options.headers["X-Weave-Router-Key"]')"
+  report_uninstall_event opencode "$endpoint" "$key"
+}
+
+report_pi_uninstall_event() {
+  local models="$1" key_file="$2" endpoint key=""
+  uninstall_file_is_own "$models" || return 0
+  endpoint="$(uninstall_json_get "$models" '.providers.weave.baseUrl')"
+  if uninstall_file_is_own "$key_file"; then
+    key="$(tr -d '[:space:]' <"$key_file" 2>/dev/null || true)"
+  fi
+  [ -n "$key" ] || key="$(uninstall_json_get "$models" '.providers.weave.headers["X-Weave-Router-Key"]')"
+  report_uninstall_event pi "$endpoint" "$key"
+}
+
 # Markers must stay in sync with install.sh. Keep verbatim.
 WEAVE_CODEX_BEGIN_MARKER="# >>> weave-router managed (do not edit between markers) >>>"
 WEAVE_CODEX_END_MARKER="# <<< weave-router managed <<<"
@@ -507,6 +666,7 @@ if [ "$target" = "opencode" ]; then
     opencode_plugin="$opencode_dir/.weave/opencode-weave.ts"
   fi
 
+  report_opencode_uninstall_event "$opencode_config_file"
   if [ -f "$opencode_config_file" ]; then
     # Strip every managed provider (`weave`, `weave-claude`, and the legacy
     # `weave-codex` from pre-upgrade installs), remove the stale legacy plugin
@@ -662,6 +822,7 @@ if [ "$target" = "pi" ]; then
   refuse_if_symlink "$pi_settings_file"
   refuse_if_symlink "$pi_key_file"
 
+  report_pi_uninstall_event "$pi_models_file" "$pi_key_file"
   # models.json: drop provider.weave; remove the file if nothing else remains.
   # Other providers/models the user added are preserved.
   if [ -f "$pi_models_file" ]; then
@@ -778,6 +939,7 @@ if [ "$target" = "codex" ]; then
   # exits before strip_codex_block, so one symlinked helper left the config
   # wired to a router the uninstall had just been asked to remove.
 
+  report_codex_uninstall_event "$codex_config_file"
   if [ -f "$codex_config_file" ]; then
     strip_codex_block "$codex_config_file"
     # If the file now contains only whitespace/comments, leave it: the user
@@ -996,6 +1158,8 @@ if claude_statusline_router_owned \
   statusline_setting_owned="true"
   statusline_file_owned="true"
 fi
+
+report_claude_uninstall_event
 
 if [ -f "$settings_file" ]; then
   # Only remove keys we actually installed: scrub our env vars, and only
