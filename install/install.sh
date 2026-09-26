@@ -1805,7 +1805,8 @@ if [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" 
   require_cmd jq    "macOS: 'brew install jq' · Debian/Ubuntu: 'sudo apt install jq'"
 fi
 # curl is used by the install/update paths' health/validate probes and by every
-# `models` call; the on/off/status toggles never hit the network.
+# `models` call. The on/off toggles only ping the router best-effort after a
+# real state change (see report_client_event) and skip it when curl is absent.
 if [ "$mode" = "install" ] || [ "$mode" = "update" ] || [ "$mode" = "models" ]; then
   require_cmd curl  "macOS/Linux: usually preinstalled — check your package manager"
 fi
@@ -2507,6 +2508,60 @@ models_endpoint_is_trusted() {
   return 1
 }
 
+# report_client_event ACTION tells this install's router that a state-changing
+# off/on just succeeded, so the router can log and export a lifecycle event.
+# Strictly best-effort: the toggle has already been applied, users legitimately
+# turn routing off *because* the router is unreachable, and nothing here may
+# change the exit status. Everything -- resolution included -- runs in a
+# subshell with errexit off, so no failure escapes into the caller; the POST
+# itself is detached with a short timeout and its output discarded.
+#
+# Endpoint and key come from the installed config (never the hosted defaults),
+# via the same readers `models` uses, so a self-hosted install reports to its
+# own router. For Claude Code that means the parked sidecar while off, since
+# the live settings point at Anthropic then. An explicit --base-url wins over
+# the on-disk endpoint, as it does for `models`; otherwise the same trust gate
+# applies and a checkout-supplied endpoint never receives the key. The key
+# rides in a mode-600 header file, not argv.
+report_client_event() {
+  local action="$1"
+  (
+    set +e
+    endpoint="" key="" base_src="" key_src="" headers="" body="" harness=""
+    command -v curl >/dev/null 2>&1 || exit 0
+    if [ "$base_url_explicit" = "true" ]; then
+      endpoint="${base_url%/}"
+    else
+      endpoint="$(resolve_installed_endpoint)"
+    fi
+    [ -n "$endpoint" ] || exit 0
+    key="$(read_installed_key)"
+    [ -n "$key" ] || exit 0
+    if [ "$target" = "claude" ]; then
+      base_src="$(resolve_installed_base_source "$endpoint")"
+      key_src="$(resolve_installed_key_source)"
+    else
+      base_src="$(models_config_file_for_target)"
+      key_src="$base_src"
+    fi
+    models_endpoint_is_trusted "$endpoint" "$base_src" "$key_src" || exit 0
+    headers="$(mktemp)" || exit 0
+    chmod 600 "$headers" || { rm -f "$headers"; exit 0; }
+    printf '%s: %s\n' "$router_key_header" "$key" >"$headers" || { rm -f "$headers"; exit 0; }
+    # The router keys harnesses the way minted keys do: Claude Code is claude_code.
+    harness="$target"
+    [ "$target" = "claude" ] && harness="claude_code"
+    body="$(printf '{"action":"%s","harness":"%s"}' "$action" "$harness")"
+    (
+      trap 'rm -f "$headers"' EXIT
+      curl -sS --max-time 2 -X POST -H 'Content-Type: application/json' \
+        --header "@$headers" --data-binary "$body" -o /dev/null \
+        "$endpoint/v1/client-events"
+    ) >/dev/null 2>&1 </dev/null &
+  ) >/dev/null 2>&1 || true
+  return 0
+}
+
 # gitignore_add appends an entry to the repo .gitignore in project scope so a
 # parked sidecar (which may carry the router key header) never gets committed.
 # No-op for user scope and --dir, matching how install handles its own ignores.
@@ -2674,6 +2729,7 @@ toggle_claude() {
         printf '%s\n' "$merged" >"$settings_file"
       fi
       ok "Claude Code is ${C_BOLD}off${C_RESET} (direct to Anthropic). Restart Claude Code for it to take effect."
+      report_client_event off
       ;;
     on)
       if [ "$parked_present" != "true" ]; then
@@ -2698,6 +2754,7 @@ toggle_claude() {
               printf '%s\n' "$merged" >"$local_settings_file"
               chmod 600 "$local_settings_file"
               ok "Claude Code is ${C_BOLD}on${C_RESET} (routing through the Weave Router). Restart Claude Code for it to take effect."
+              report_client_event on
             else
               warn "Claude Code is off and the parked router key is missing (its sidecar was deleted). Re-run the installer to restore the router key — leaving the current direct-to-Anthropic setup in place so requests don't fail auth."
             fi
@@ -2738,6 +2795,7 @@ toggle_claude() {
       apply_claude_context_window on "$active"
       rm -f "$parked"
       ok "Claude Code is ${C_BOLD}on${C_RESET} (routing through the Weave Router). Restart Claude Code for it to take effect."
+      report_client_event on
       ;;
   esac
 }
@@ -2785,6 +2843,7 @@ toggle_codex() {
         "$codex_status_file" --off >/dev/null 2>&1 || true
       fi
       ok "Codex is ${C_BOLD}off${C_RESET} (default provider). Takes effect on your next 'codex' run."
+      report_client_event off
       ;;
     on)
       if [ "$state" = "absent" ]; then warn "No managed Weave block in $f. Run the installer to set up Codex."; return 0; fi
@@ -2829,6 +2888,7 @@ toggle_codex() {
         "$codex_status_file" --on >/dev/null 2>&1 || true
       fi
       ok "Codex is ${C_BOLD}on${C_RESET} (routing through the Weave Router). Takes effect on your next 'codex' run."
+      report_client_event on
       ;;
   esac
 }
@@ -2885,6 +2945,7 @@ toggle_opencode() {
       else
         ok "opencode is ${C_BOLD}off${C_RESET} — choose a direct model with /models. Takes effect on your next opencode run."
       fi
+      report_client_event off
       ;;
     on)
       if [ "$on" = "true" ]; then ok "opencode is already on — nothing to do."; return 0; fi
@@ -2910,6 +2971,7 @@ toggle_opencode() {
       chmod 600 "$parked"
       gitignore_add ".weave-parked.json"
       ok "opencode is ${C_BOLD}on${C_RESET} (default model $router_model via the Weave Router). Takes effect on your next opencode run."
+      report_client_event on
       ;;
   esac
 }

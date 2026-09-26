@@ -44,6 +44,7 @@ func TestRegister_DeploymentMode(t *testing.T) {
 		"GET /health",
 		"GET /readyz",
 		"GET /validate",
+		"POST /v1/client-events",
 		"GET /v1/router/models",
 		"POST /v1/messages",
 		"POST /v1/chat/completions",

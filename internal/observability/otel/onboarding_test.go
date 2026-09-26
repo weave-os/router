@@ -30,6 +30,10 @@ func TestOnboardingObserverExportsDomainEvents(t *testing.T) {
 				InstallationExternalID: "org-test", CredentialSubjectID: subject,
 				APIKeyID: "key", AccountID: "account", Provider: auth.SubscriptionProviderCodex, OccurredAt: now,
 			})
+			observer.HarnessLifecycle(auth.HarnessLifecycleEvent{
+				InstallationExternalID: "org-test", CredentialSubjectID: subject, APIKeyID: "key",
+				Harness: auth.LifecycleHarnessClaude, Action: auth.HarnessLifecycleActionUninstall, OccurredAt: now,
+			})
 			require.NoError(t, emitter.Shutdown(context.Background()))
 
 			var spans []*tracepb.Span
@@ -44,7 +48,7 @@ func TestOnboardingObserverExportsDomainEvents(t *testing.T) {
 					}
 				}
 			}
-			require.Len(t, spans, 2)
+			require.Len(t, spans, 3)
 			expected := map[string]map[string]string{
 				"router.harness_connected": {
 					"external_id": "org-test", "router_api_key_id": "key", "harness": "codex",
@@ -52,6 +56,10 @@ func TestOnboardingObserverExportsDomainEvents(t *testing.T) {
 				"router.subscription_connected": {
 					"external_id": "org-test", "router_api_key_id": "key", "subscription_account_id": "account",
 					"provider": string(auth.SubscriptionProviderCodex),
+				},
+				"router.harness_lifecycle": {
+					"external_id": "org-test", "router_api_key_id": "key",
+					"harness": string(auth.LifecycleHarnessClaude), "action": string(auth.HarnessLifecycleActionUninstall),
 				},
 			}
 			for _, span := range spans {
@@ -80,5 +88,6 @@ func TestOnboardingObserverWithDisabledEmitter(t *testing.T) {
 	require.NotPanics(t, func() {
 		observer.APIKeyFirstUsed(auth.APIKeyFirstUsedEvent{})
 		observer.SubscriptionConnected(auth.SubscriptionConnectedEvent{})
+		observer.HarnessLifecycle(auth.HarnessLifecycleEvent{})
 	})
 }
