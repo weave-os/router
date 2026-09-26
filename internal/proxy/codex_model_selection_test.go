@@ -16,6 +16,10 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+// codexModelSwitchInput is the retained developer fragment Codex records when
+// the user changes models with its native /model picker mid-session.
+const codexModelSwitchInput = `{"type":"message","role":"developer","content":[{"type":"input_text","text":"<model_switch>\nThe user was previously using a different model. Please continue the conversation according to the following instructions:\n\nYou are GPT-6.\n</model_switch>"}]}`
+
 func TestCodexNativeModelSelection_ForcesModelAndEffort(t *testing.T) {
 	provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
 		w.Header().Set("Content-Type", "application/json")
@@ -24,7 +28,7 @@ func TestCodexNativeModelSelection_ForcesModelAndEffort(t *testing.T) {
 	routerStub := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "fresh"}}
 	svc := proxy.NewService(routerStub, map[string]providers.Client{providers.ProviderOpenAI: provider}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
 	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
-	body := []byte(`{"model":"gpt-6-sol","input":"review this change","reasoning":{"effort":"max"}}`)
+	body := []byte(`{"model":"gpt-6-sol","input":[` + codexModelSwitchInput + `,{"type":"message","role":"user","content":"review this change"}],"reasoning":{"effort":"max"}}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 	req.Header.Set(proxy.CodexNativeModelPinHeader, "1")
 	req.Header.Set("Authorization", "Bearer subscription-token")
@@ -45,13 +49,17 @@ func TestCodexNativeModelSelection_ForcesModelAndEffort(t *testing.T) {
 
 func TestCodexNativeModelSelection_AutomaticAndLegacyStillScore(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		model string
-		optIn bool
-		want  string
+		name     string
+		model    string
+		optIn    bool
+		switched bool
+		want     string
 	}{
-		{name: "automatic choice", model: proxy.CodexAutomaticModel, optIn: true, want: proxy.CodexAutomaticModel},
-		{name: "older install", model: "gpt-6-sol", optIn: false, want: "gpt-6-sol"},
+		{name: "automatic choice", model: proxy.CodexAutomaticModel, optIn: true, switched: true, want: proxy.CodexAutomaticModel},
+		{name: "older install", model: "gpt-6-sol", optIn: false, switched: true, want: "gpt-6-sol"},
+		// A model the session launched with (config.toml or an SDK thread
+		// option) is a baseline, not a /model choice; only a switch pins.
+		{name: "launch model without switch", model: "gpt-6-sol", optIn: true, switched: false, want: "gpt-6-sol"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
@@ -61,7 +69,11 @@ func TestCodexNativeModelSelection_AutomaticAndLegacyStillScore(t *testing.T) {
 			routerStub := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "fresh"}}
 			svc := proxy.NewService(routerStub, map[string]providers.Client{providers.ProviderOpenAI: provider}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil)
 			ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
-			body := []byte(`{"model":"` + tc.model + `","input":"review this change","reasoning":{"effort":"max"}}`)
+			input := `[{"type":"message","role":"user","content":"review this change"}]`
+			if tc.switched {
+				input = `[` + codexModelSwitchInput + `,{"type":"message","role":"user","content":"review this change"}]`
+			}
+			body := []byte(`{"model":"` + tc.model + `","input":` + input + `,"reasoning":{"effort":"max"}}`)
 			req := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 			if tc.optIn {
 				req.Header.Set(proxy.CodexNativeModelPinHeader, "1")

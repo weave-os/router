@@ -8120,7 +8120,7 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		return fmt.Errorf("translate responses request: %w", err)
 	}
 	chatBody, model := conversion.Body, conversion.Model
-	if portableCodex && r.Header.Get(CodexNativeModelPinHeader) == "1" {
+	if portableCodex && r.Header.Get(CodexNativeModelPinHeader) == "1" && conversion.CodexModelSwitch {
 		ctx = withCodexSelectedModel(ctx, model, nativeBody)
 	}
 	if conversion.CodexFeedbackSkill {

@@ -32,9 +32,13 @@ type ResponsesConversion struct {
 	// CodexFeedbackSkill reports a user-invoked $rf/$router-feedback skill
 	// whose emitted directive arrived in a later tool-result item.
 	CodexFeedbackSkill bool
-	Requirements       router.TranslationRequirements
-	Report             []ResponseTransform
-	ToolMappings       map[string]ResponsesToolMapping
+	// CodexModelSwitch reports that the user switched models with Codex's
+	// native /model picker during this session, as opposed to launching with
+	// a configured model.
+	CodexModelSwitch bool
+	Requirements     router.TranslationRequirements
+	Report           []ResponseTransform
+	ToolMappings     map[string]ResponsesToolMapping
 	// TitleGeneration reports a native Codex title-generation request. It is
 	// consumed only when the proxy has independently identified the Codex client.
 	TitleGeneration bool
