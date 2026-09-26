@@ -60,6 +60,7 @@ case "$path" in
     state="absent"
     [ -n "${WATCH_FILE:-}" ] && [ -f "$WATCH_FILE" ] && state="present"
     [ -n "${EVENT_LOG:-}" ] && printf '%s %s %s %s\n' "$method" "$path" "$body" "$state" >>"$EVENT_LOG"
+    [ -n "${URL_LOG:-}" ] && printf '%s\n' "$url" >>"$URL_LOG"
     case "${CURL_MODE:-ok}" in
       hang) sleep 5; exit 28 ;;
       fail) exit 7 ;;
@@ -85,7 +86,8 @@ event_log="$work/events.log"
 argv_log="$work/argv.log"
 key_log="$work/keys.log"
 header_path_log="$work/header-paths.log"
-: >"$event_log"; : >"$argv_log"; : >"$key_log"; : >"$header_path_log"
+url_log="$work/urls.log"
+: >"$event_log"; : >"$argv_log"; : >"$key_log"; : >"$header_path_log"; : >"$url_log"
 
 # wait_for_events N waits (briefly) for the detached ping to land N lines.
 wait_for_events() {
@@ -107,7 +109,7 @@ run() { # run <home> <env...> -- <args>
   while [ "$1" != "--" ]; do env+=("$1"); shift; done
   shift
   env HOME="$home" XDG_CONFIG_HOME="$home/xdg" PATH="$test_path" NO_COLOR=1 \
-    EVENT_LOG="$event_log" ARGV_LOG="$argv_log" KEY_LOG="$key_log" HEADER_PATH_LOG="$header_path_log" \
+    EVENT_LOG="$event_log" ARGV_LOG="$argv_log" KEY_LOG="$key_log" HEADER_PATH_LOG="$header_path_log" URL_LOG="$url_log" \
     ${env[@]+"${env[@]}"} bash "$installer" "$@" </dev/null >/dev/null 2>&1
 }
 run_uninstall() { # run_uninstall <home> <watch-file> -- <args>
@@ -183,21 +185,30 @@ assert "on does not wait for a hung ping (${elapsed}s)" "<5s" "${elapsed}s" [ "$
 assert "on applied despite hung ping" "provider line" "$(cat "$config")" grep -qx 'model_provider = "weave"' "$config"
 wait_for_events 6
 
+# An explicit --base-url is the endpoint the user vouched for, so the ping goes
+# there rather than to the on-disk one the trust gate was skipped for.
+run "$home" -- off --codex --scope user --quiet --base-url http://127.0.0.1:9
+wait_for_events 7
+check "explicit --base-url is the endpoint pinged" "$(tail -n 1 "$url_log")" "http://127.0.0.1:9/v1/client-events"
+check "on-disk endpoint is pinged otherwise" "$(head -n 1 "$url_log")" "https://router.workweave.ai/v1/client-events"
+run "$home" -- on --codex --scope user --quiet
+wait_for_events 8
+
 # Uninstall reports once, while the config (and its key) still exists.
 run_uninstall "$home" "$config" -- --codex --scope user; status=$?
 check "uninstall exits 0" "$status" "0"
-wait_for_events 7
+wait_for_events 9
 check "uninstall reports one event before removing the config" "$(last_event)" 'POST /v1/client-events {"action":"uninstall","harness":"codex"} present'
 run_uninstall "$home" "$config" -- --codex --scope user
 settle
-check "uninstall of an absent install reports nothing" "$(event_count)" "7"
+check "uninstall of an absent install reports nothing" "$(event_count)" "9"
 
 # Absent install: nothing to report.
 empty="$work/empty"; mkdir -p "$empty"
 run "$empty" -- off --codex --scope user --quiet; status=$?
 check "off on an absent install exits 0" "$status" "0"
 settle
-check "off on an absent install reports nothing" "$(event_count)" "7"
+check "off on an absent install reports nothing" "$(event_count)" "9"
 
 # ---------- claude ----------
 printf 'claude\n'
@@ -220,17 +231,31 @@ run "$home" -- off --claude --scope user --quiet
 settle
 check "already-off reports nothing" "$(event_count)" "1"
 
-run "$home" -- on --claude --scope user --quiet
+# A failure while preparing the ping (here: mktemp) must not abort the toggle,
+# which runs under set -e and has already applied the change.
+broken_bin="$work/broken-bin"; mkdir -p "$broken_bin"
+printf '%s\n' '#!/usr/bin/env bash' 'exit 1' >"$broken_bin/mktemp"; chmod +x "$broken_bin/mktemp"
+test_path="$broken_bin:$test_path"
+run "$home" -- on --claude --scope user --quiet; status=$?
+test_path="${test_path#"$broken_bin:"}"
+check "on succeeds when the ping setup fails" "$status" "0"
+assert "on applied despite the failed ping setup" "no sidecar" "present" [ ! -f "$home/.claude/.weave-parked.json" ]
+settle
+check "failed ping setup sends nothing" "$(event_count)" "1"
+run "$home" -- off --claude --scope user --quiet
 wait_for_events 2
+
+run "$home" -- on --claude --scope user --quiet
+wait_for_events 3
 check "on reports one event" "$(last_event)" 'POST /v1/client-events {"action":"on","harness":"claude_code"} absent'
 
 run "$home" -- on --claude --scope user --quiet
 settle
-check "already-on reports nothing" "$(event_count)" "2"
+check "already-on reports nothing" "$(event_count)" "3"
 
 run_uninstall "$home" "$settings" -- --claude --scope user; status=$?
 check "uninstall exits 0" "$status" "0"
-wait_for_events 3
+wait_for_events 4
 check "uninstall reports before scrubbing settings" "$(last_event)" 'POST /v1/client-events {"action":"uninstall","harness":"claude_code"} present'
 if grep -q 'ANTHROPIC_CUSTOM_HEADERS' "$settings" 2>/dev/null; then
   no "uninstall scrubbed the key" "no header" "$(cat "$settings")"
@@ -242,9 +267,9 @@ fi
 # what the report must read before the uninstall deletes it.
 run "$home" WEAVE_ROUTER_KEY=rk_claude_secret_1234 -- --claude --scope user --quiet --non-interactive --base-url https://router.workweave.ai
 run "$home" -- off --claude --scope user --quiet
-wait_for_events 4
-run_uninstall "$home" "$home/.claude/.weave-parked.json" -- --claude --scope user
 wait_for_events 5
+run_uninstall "$home" "$home/.claude/.weave-parked.json" -- --claude --scope user
+wait_for_events 6
 check "uninstall while off reports from the sidecar" "$(last_event)" 'POST /v1/client-events {"action":"uninstall","harness":"claude_code"} present'
 assert "uninstall removed the sidecar" "gone" "present" [ ! -f "$home/.claude/.weave-parked.json" ]
 

@@ -2512,43 +2512,53 @@ models_endpoint_is_trusted() {
 # off/on just succeeded, so the router can log and export a lifecycle event.
 # Strictly best-effort: the toggle has already been applied, users legitimately
 # turn routing off *because* the router is unreachable, and nothing here may
-# change the exit status. The POST runs detached with a short timeout, all of
-# its output discarded, and every failure ignored.
+# change the exit status. Everything -- resolution included -- runs in a
+# subshell with errexit off, so no failure escapes into the caller; the POST
+# itself is detached with a short timeout and its output discarded.
 #
 # Endpoint and key come from the installed config (never the hosted defaults),
 # via the same readers `models` uses, so a self-hosted install reports to its
 # own router. For Claude Code that means the parked sidecar while off, since
-# the live settings point at Anthropic then. Same trust gate as `models`: a
-# checkout-supplied endpoint never receives the key. The key rides in a
-# mode-600 header file, not argv.
+# the live settings point at Anthropic then. An explicit --base-url wins over
+# the on-disk endpoint, as it does for `models`; otherwise the same trust gate
+# applies and a checkout-supplied endpoint never receives the key. The key
+# rides in a mode-600 header file, not argv.
 report_client_event() {
-  local action="$1" endpoint key base_src="" key_src="" headers body harness
-  command -v curl >/dev/null 2>&1 || return 0
-  endpoint="$(resolve_installed_endpoint 2>/dev/null || true)"
-  [ -n "$endpoint" ] || return 0
-  key="$(read_installed_key 2>/dev/null || true)"
-  [ -n "$key" ] || return 0
-  if [ "$target" = "claude" ]; then
-    base_src="$(resolve_installed_base_source "$endpoint" 2>/dev/null || true)"
-    key_src="$(resolve_installed_key_source 2>/dev/null || true)"
-  else
-    base_src="$(models_config_file_for_target)"
-    key_src="$base_src"
-  fi
-  models_endpoint_is_trusted "$endpoint" "$base_src" "$key_src" || return 0
-  headers="$(mktemp 2>/dev/null)" || return 0
-  chmod 600 "$headers"
-  printf '%s: %s\n' "$router_key_header" "$key" >"$headers"
-  # The router keys harnesses the way minted keys do: Claude Code is claude_code.
-  harness="$target"
-  [ "$target" = "claude" ] && harness="claude_code"
-  body="$(printf '{"action":"%s","harness":"%s"}' "$action" "$harness")"
+  local action="$1"
   (
-    curl -sS --max-time 2 -X POST -H 'Content-Type: application/json' \
-      --header "@$headers" --data-binary "$body" -o /dev/null \
-      "$endpoint/v1/client-events" || true
-    rm -f "$headers"
-  ) >/dev/null 2>&1 </dev/null &
+    set +e
+    endpoint="" key="" base_src="" key_src="" headers="" body="" harness=""
+    command -v curl >/dev/null 2>&1 || exit 0
+    if [ "$base_url_explicit" = "true" ]; then
+      endpoint="${base_url%/}"
+    else
+      endpoint="$(resolve_installed_endpoint)"
+    fi
+    [ -n "$endpoint" ] || exit 0
+    key="$(read_installed_key)"
+    [ -n "$key" ] || exit 0
+    if [ "$target" = "claude" ]; then
+      base_src="$(resolve_installed_base_source "$endpoint")"
+      key_src="$(resolve_installed_key_source)"
+    else
+      base_src="$(models_config_file_for_target)"
+      key_src="$base_src"
+    fi
+    models_endpoint_is_trusted "$endpoint" "$base_src" "$key_src" || exit 0
+    headers="$(mktemp)" || exit 0
+    chmod 600 "$headers" || { rm -f "$headers"; exit 0; }
+    printf '%s: %s\n' "$router_key_header" "$key" >"$headers" || { rm -f "$headers"; exit 0; }
+    # The router keys harnesses the way minted keys do: Claude Code is claude_code.
+    harness="$target"
+    [ "$target" = "claude" ] && harness="claude_code"
+    body="$(printf '{"action":"%s","harness":"%s"}' "$action" "$harness")"
+    (
+      curl -sS --max-time 2 -X POST -H 'Content-Type: application/json' \
+        --header "@$headers" --data-binary "$body" -o /dev/null \
+        "$endpoint/v1/client-events"
+      rm -f "$headers"
+    ) >/dev/null 2>&1 </dev/null &
+  ) >/dev/null 2>&1 || true
   return 0
 }
 

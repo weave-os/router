@@ -310,21 +310,27 @@ uninstall_claude_key_from() {
     | sed -n "s/^[[:space:]]*${ROUTER_KEY_HEADER}:[[:space:]]*//p" | head -n 1 | tr -d '[:space:]'
 }
 
-# report_uninstall_event HARNESS ENDPOINT KEY — fire the detached POST.
+# report_uninstall_event HARNESS ENDPOINT KEY — fire the detached POST. The
+# whole body runs in a subshell with errexit off so no setup failure can
+# escape into the uninstall that still has files to remove.
 report_uninstall_event() {
-  local harness="$1" endpoint="${2%/}" key="$3" headers body
-  [ -n "$endpoint" ] && [ -n "$key" ] || return 0
-  command -v curl >/dev/null 2>&1 || return 0
-  headers="$(mktemp 2>/dev/null)" || return 0
-  chmod 600 "$headers"
-  printf '%s: %s\n' "$ROUTER_KEY_HEADER" "$key" >"$headers"
-  body="$(printf '{"action":"uninstall","harness":"%s"}' "$harness")"
+  local harness="$1" endpoint="${2%/}" key="$3"
   (
-    curl -sS --max-time 2 -X POST -H 'Content-Type: application/json' \
-      --header "@$headers" --data-binary "$body" -o /dev/null \
-      "$endpoint/v1/client-events" || true
-    rm -f "$headers"
-  ) >/dev/null 2>&1 </dev/null &
+    set +e
+    headers="" body=""
+    [ -n "$endpoint" ] && [ -n "$key" ] || exit 0
+    command -v curl >/dev/null 2>&1 || exit 0
+    headers="$(mktemp)" || exit 0
+    chmod 600 "$headers" || { rm -f "$headers"; exit 0; }
+    printf '%s: %s\n' "$ROUTER_KEY_HEADER" "$key" >"$headers" || { rm -f "$headers"; exit 0; }
+    body="$(printf '{"action":"uninstall","harness":"%s"}' "$harness")"
+    (
+      curl -sS --max-time 2 -X POST -H 'Content-Type: application/json' \
+        --header "@$headers" --data-binary "$body" -o /dev/null \
+        "$endpoint/v1/client-events"
+      rm -f "$headers"
+    ) >/dev/null 2>&1 </dev/null &
+  ) >/dev/null 2>&1 || true
   return 0
 }
 
@@ -666,7 +672,7 @@ if [ "$target" = "opencode" ]; then
     opencode_plugin="$opencode_dir/.weave/opencode-weave.ts"
   fi
 
-  report_opencode_uninstall_event "$opencode_config_file"
+  report_opencode_uninstall_event "$opencode_config_file" || true
   if [ -f "$opencode_config_file" ]; then
     # Strip every managed provider (`weave`, `weave-claude`, and the legacy
     # `weave-codex` from pre-upgrade installs), remove the stale legacy plugin
@@ -822,7 +828,7 @@ if [ "$target" = "pi" ]; then
   refuse_if_symlink "$pi_settings_file"
   refuse_if_symlink "$pi_key_file"
 
-  report_pi_uninstall_event "$pi_models_file" "$pi_key_file"
+  report_pi_uninstall_event "$pi_models_file" "$pi_key_file" || true
   # models.json: drop provider.weave; remove the file if nothing else remains.
   # Other providers/models the user added are preserved.
   if [ -f "$pi_models_file" ]; then
@@ -939,7 +945,7 @@ if [ "$target" = "codex" ]; then
   # exits before strip_codex_block, so one symlinked helper left the config
   # wired to a router the uninstall had just been asked to remove.
 
-  report_codex_uninstall_event "$codex_config_file"
+  report_codex_uninstall_event "$codex_config_file" || true
   if [ -f "$codex_config_file" ]; then
     strip_codex_block "$codex_config_file"
     # If the file now contains only whitespace/comments, leave it: the user
@@ -1159,7 +1165,7 @@ if claude_statusline_router_owned \
   statusline_file_owned="true"
 fi
 
-report_claude_uninstall_event
+report_claude_uninstall_event || true
 
 if [ -f "$settings_file" ]; then
   # Only remove keys we actually installed: scrub our env vars, and only
