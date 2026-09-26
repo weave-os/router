@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"weave-os/router/internal/policyregistry"
 )
@@ -185,7 +186,7 @@ func decodeFilledManifest(kind policyregistry.ServingKind, payload []byte, root 
 // placeholderRef is the reference an object with these bytes will have, except for the generation
 // the registry assigns when it is created.
 func placeholderRef(root, digest string) policyregistry.ObjectRef {
-	return policyregistry.ObjectRef{URI: root + "/artifacts/" + digest + ".json", SHA256: digest, Generation: placeholderGeneration}
+	return policyregistry.ObjectRef{URI: strings.TrimRight(root, "/") + "/artifacts/" + digest + ".json", SHA256: digest, Generation: placeholderGeneration}
 }
 
 // fillLaneCandidates binds every lane that names the published candidate — by digest, or by
@@ -203,11 +204,11 @@ func fillLaneCandidates(document map[string]any, digest string, candidate policy
 	}
 	filled := false
 	for key, lane := range lanes {
-		stated, err := statedDigest(lane, "candidate")
+		stated, err := statedReference(lane, "candidate")
 		if err != nil {
 			return nil, fmt.Errorf("selection set lane %q: %w", key, err)
 		}
-		if stated != "" && stated != digest {
+		if stated.SHA256 != "" && stated.SHA256 != digest {
 			continue
 		}
 		lane["candidate"] = reference
@@ -223,12 +224,12 @@ func fillLaneCandidates(document map[string]any, digest string, candidate policy
 // names a different object is a proposal for a different release, not one to rewrite.
 func fillProposalSources(document map[string]any, selectionSet, candidate policyregistry.ObjectRef) ([]byte, error) {
 	for field, published := range map[string]policyregistry.ObjectRef{"selection_set": selectionSet, "source_candidate": candidate} {
-		stated, err := statedDigest(document, field)
+		stated, err := statedReference(document, field)
 		if err != nil {
 			return nil, fmt.Errorf("proposal: %w", err)
 		}
-		if stated != "" && stated != published.SHA256 {
-			return nil, fmt.Errorf("proposal names %s %s, but this release publishes %s", field, stated, published.SHA256)
+		if stated.SHA256 != "" && stated.SHA256 != published.SHA256 {
+			return nil, fmt.Errorf("proposal names %s %s, but this release publishes %s", field, stated.SHA256, published.SHA256)
 		}
 		reference, err := referenceDocument(published)
 		if err != nil {
@@ -266,26 +267,26 @@ func selectionSetLanes(document map[string]any) (map[string]map[string]any, erro
 	return lanes, nil
 }
 
-// statedDigest reads the digest the caller expects the field's object to have. An absent field or
-// an absent digest means the caller left the reference to this command.
-func statedDigest(document map[string]any, field string) (string, error) {
+// statedReference reads the reference the caller wrote for the field, as strictly as the decoder
+// of a complete manifest would: a misspelled or mistyped field is an error rather than something
+// the fill silently discards. An absent field, or one that names no digest, means the caller left
+// the reference to this command. The generation is not checked — the caller cannot know it.
+func statedReference(document map[string]any, field string) (policyregistry.ObjectRef, error) {
 	value, present := document[field]
 	if !present || value == nil {
-		return "", nil
+		return policyregistry.ObjectRef{}, nil
 	}
-	reference, ok := value.(map[string]any)
-	if !ok {
-		return "", fmt.Errorf("%s must be an object reference", field)
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return policyregistry.ObjectRef{}, err
 	}
-	digest, present := reference["sha256"]
-	if !present || digest == nil {
-		return "", nil
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.DisallowUnknownFields()
+	var reference policyregistry.ObjectRef
+	if err := decoder.Decode(&reference); err != nil {
+		return policyregistry.ObjectRef{}, fmt.Errorf("%s reference: %w", field, err)
 	}
-	typed, ok := digest.(string)
-	if !ok {
-		return "", fmt.Errorf("%s sha256 must be a string", field)
-	}
-	return typed, nil
+	return reference, nil
 }
 
 func referenceDocument(ref policyregistry.ObjectRef) (map[string]any, error) {

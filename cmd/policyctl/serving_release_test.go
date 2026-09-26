@@ -236,6 +236,52 @@ func TestServingCLIPublishReleaseDryRunValidatesWithoutOpeningTheRegistry(t *tes
 	require.Nil(t, output)
 }
 
+// A dry run previews the same release the publish path would accept, so a registry root written
+// with a trailing separator must not turn into an invalid placeholder URI.
+func TestServingCLIPublishReleaseDryRunAcceptsATrailingSlashRegistryRoot(t *testing.T) {
+	registry, _, v1 := cliServingFixture(t)
+	files := cliReleaseFixture(t, registry, v1)
+	var output any
+	dependencies := cliDependencies(registry, nil, &output, nil)
+	args := append(cliReleaseArgs(t, files), "--dry-run", "--registry", defaultRegistryURI+"/")
+
+	require.NoError(t, runServingWith(context.Background(), args, dependencies))
+	require.Equal(t, cliCandidateDigest(t, files), output.(servingReleaseDigests).Candidate.SHA256)
+}
+
+// A reference the caller wrote is validated as strictly as the decoder of a whole manifest would,
+// so a misspelled field is an error instead of something the fill-in quietly drops.
+func TestServingCLIPublishReleaseRejectsMalformedReferences(t *testing.T) {
+	for _, scenario := range []struct {
+		name   string
+		mutate func(cliReleaseFiles, string)
+	}{
+		{
+			name: "lane candidate",
+			mutate: func(files cliReleaseFiles, digest string) {
+				lane(files)["candidate"] = map[string]any{"sha256": digest, "generaton": 1}
+			},
+		},
+		{
+			name: "proposal selection set",
+			mutate: func(files cliReleaseFiles, _ string) {
+				files.proposal["selection_set"] = map[string]any{"uir": defaultRegistryURI}
+			},
+		},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			registry, _, v1 := cliServingFixture(t)
+			files := cliReleaseFixture(t, registry, v1)
+			scenario.mutate(files, cliCandidateDigest(t, files))
+			var output any
+			dependencies := cliDependencies(registry, nil, &output, nil)
+
+			require.ErrorContains(t, runServingWith(context.Background(), cliReleaseArgs(t, files), dependencies), "unknown field")
+			require.Nil(t, output)
+		})
+	}
+}
+
 func TestServingCLIPublishReleaseRequiresEveryManifestFlag(t *testing.T) {
 	registry, _, v1 := cliServingFixture(t)
 	args := cliReleaseArgs(t, cliReleaseFixture(t, registry, v1))
