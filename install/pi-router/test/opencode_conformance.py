@@ -74,8 +74,8 @@ class OpenCodeConformance(unittest.TestCase):
         # Keep installer output intact except explicit test isolation/observation.
         observer = cls.work / "lifecycle-plugin.ts"
         shutil.copyfile(INSTALL / "opencode-weave/test/fixtures/lifecycle-plugin.ts", observer)
-        cls.config["plugin"].append(str(observer))
-        cls.config.update({"enabled_providers": ["weave", "weave-claude"], "small_model": "weave/auto",
+        cls.config.setdefault("plugin", []).append(str(observer))
+        cls.config.update({"enabled_providers": ["weave"], "small_model": "weave/auto",
                            "permission": {"*": "deny", "bash": "allow", "task": "allow"}})
         cls.config_path.write_text(json.dumps(cls.config))
 
@@ -139,7 +139,7 @@ class OpenCodeConformance(unittest.TestCase):
         provider = self.config["provider"]["weave"]
         self.assertEqual(provider["npm"], "@ai-sdk/openai")
         self.assertEqual(provider["options"]["baseURL"], self.base_url + "/v1")
-        self.assertTrue((self.work / ".weave/opencode-weave.ts").is_file())
+        self.assertFalse((self.work / ".weave/opencode-weave.ts").exists())
 
     def test_main_title_and_session_continuity(self) -> None:
         events, requests = self.run_turn()
@@ -254,7 +254,7 @@ class OpenCodeConformance(unittest.TestCase):
         self.assertIn("MOCK_REJECTED", json.dumps(events))
         self.assertFalse([event for event in events if event["type"] == "text"])
 
-    def test_auth_hooks_loaded_by_real_cli(self) -> None:
+    def test_legacy_router_hook_loaded_by_real_cli(self) -> None:
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             port = listener.getsockname()[1]
@@ -275,10 +275,9 @@ class OpenCodeConformance(unittest.TestCase):
                         time.sleep(0.1)
                 else:
                     self.fail("OpenCode auth API never became ready")
-                self.assertEqual(len(methods["weave"]), 2)
-                self.assertEqual(len(methods["weave-claude"]), 1)
-                self.assertTrue(all(method["type"] == "oauth" for provider in ("weave", "weave-claude")
-                                    for method in methods[provider]))
+                self.assertIn("weave", methods)
+                self.assertEqual(methods["weave"], [])
+                self.assertNotIn("weave-claude", methods)
             finally:
                 stop_process_group(process)
 

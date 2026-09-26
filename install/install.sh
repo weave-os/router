@@ -131,8 +131,7 @@ router_key_header="X-Weave-Router-Key"
 # provider block into opencode.json. Each target carries its own
 # credential-passthrough story in the router: Claude Code's logged-in
 # Anthropic key flows through unchanged, Codex's ChatGPT credential flows
-# through its native provider, and opencode uses the Responses API plus
-# dedicated subscription headers. target_explicit tracks whether
+# through its native provider, and opencode uses the Responses API. target_explicit tracks whether
 # --claude / --codex / --opencode was passed so an interactive run can
 # prompt for the choice.
 target="claude"
@@ -999,26 +998,14 @@ EOF
   chmod 600 "$config_file"
 }
 
-# write_opencode_config merges the managed Weave provider(s) into opencode's
-# opencode.json plus the bundled subscription plugin:
+# write_opencode_config merges the managed Weave provider into opencode's
+# opencode.json. Subscription enrollment is handled by the router's login
+# command, so opencode only needs this provider and its router key:
 #   - provider.weave        : OpenAI/Responses-shaped (@ai-sdk/openai → /v1/responses).
 #                             The single request provider. The router routes every
-#                             turn across all models the caller's subscriptions +
-#                             Weave key can pay for, and bills the plan matching the
-#                             model it served. The default.
-#   - provider.weave-claude : login-only storage for a Claude (Pro/Max) subscription
-#                             (no models, never serves requests). Written only when
-#                             the bundled plugin is present, since the Claude login
-#                             method lives in the plugin. The `weave` loader reads
-#                             this slot and attaches the Claude sub.
-# The plugin (src bundled at $script_dir/opencode-weave/src/index.ts) is dropped
-# into $opencode_dir/.weave/ and registered via opencode.json's `plugin` array
-# by absolute path — scope-independent (no reliance on an auto-load dir). It owns
-# both the ChatGPT (on `weave`) and Claude (on `weave-claude`) logins and attaches
-# whichever subscriptions are connected to every request via the router's
-# dedicated X-Weave-*-Subscription headers. Re-running rewrites the blocks
-# in-place via jq (and strips the legacy `weave-codex` provider); uninstall
-# strips them.
+#                             turn across the models the router can serve. The default.
+# Re-running rewrites the block in-place via jq and strips the legacy
+# `weave-codex` provider.
 #
 # Usage: write_opencode_config <config_file_path> <base_url> <api_key> [user_email] [user_name]
 write_opencode_config() {
@@ -1029,10 +1016,8 @@ write_opencode_config() {
   local block_name="${5:-}"
 
   # Build the headers object piecewise so empty email/name vanish from the
-  # final JSON. opencode forwards the `headers` map verbatim to the upstream
-  # provider, so the router sees the same X-Weave-* triplet here that it
-  # would from Claude Code or Codex. The X-App tag lets router telemetry
-  # attribute traffic to opencode specifically.
+  # final JSON. The X-App tag lets router telemetry attribute traffic to
+  # opencode specifically.
   local headers_json
   headers_json="$(jq -n \
     --arg key   "$block_key" \
@@ -1056,9 +1041,7 @@ write_opencode_config() {
   # /v1/responses surface (the canonical inbound — the router translates to
   # Anthropic/OSS as it routes, and ships verbatim to the Codex backend for GPT
   # turns). apiKey is the router key as a parse-time placeholder; the router
-  # authenticates off X-Weave-Router-Key (planted in headers) and the plugin's
-  # loader attaches subscriptions via the dedicated X-Weave-*-Subscription
-  # headers, so the apiKey value is never used upstream.
+  # authenticates off X-Weave-Router-Key (planted in headers).
   local block
   block="$(jq -n \
     --arg url "$block_url/v1" \
@@ -1066,7 +1049,7 @@ write_opencode_config() {
     --argjson headers "$headers_json" '
     {
       npm: "@ai-sdk/openai",
-      name: "Weave Router — Codex plan",
+      name: "Weave Router",
       options: { apiKey: $key, baseURL: $url, headers: $headers },
       models: {
         auto: {
@@ -1079,55 +1062,6 @@ write_opencode_config() {
       }
     }
   ')"
-
-  # Login-only storage provider for a Claude (Pro/Max) subscription. It serves
-  # no requests (no models), so its npm/baseURL are inert — opencode just needs
-  # it registered so the plugin's Claude login method has a home and `opencode
-  # auth login` lists it. The `weave` loader reads this slot off disk and
-  # attaches the Claude sub. Reuses the same router key + identity headers.
-  local claude_block
-  claude_block="$(jq -n \
-    --arg url "$block_url/v1" \
-    --arg key "$block_key" \
-    --argjson headers "$headers_json" '
-    {
-      npm: "@ai-sdk/openai",
-      name: "Weave Router — Claude plan",
-      options: { apiKey: $key, baseURL: $url, headers: $headers },
-      models: {}
-    }
-  ')"
-
-  # Drop the Codex-subscription plugin next to the config and capture the
-  # absolute path we'll register in opencode.json's `plugin` array (so it loads
-  # regardless of scope). $config_file's dir is the already-created
-  # opencode_dir, so the `cd … && pwd` canonicalization is safe — uninstall.sh
-  # must canonicalize identically so the array entry matches on removal.
-  #
-  # Only register the path when the bundled source is actually present and
-  # copied: registering a path with no file on disk makes opencode fail to load
-  # a missing plugin. The plugin holds no secrets (router key lives in the
-  # config; ChatGPT tokens live in opencode's own auth store), so 644 is fine.
-  # Source is bundled alongside install.sh by the npm prepack
-  # (scripts/copy-installer.js), same as commands/ + pi-router/.
-  local plugin_dir plugin_spec plugin_src plugin_directives_src plugin_classifier_src plugin_arg=""
-  plugin_dir="$(cd "$(dirname "$config_file")" && pwd)/.weave"
-  plugin_spec="$plugin_dir/opencode-weave.ts"
-  plugin_src="$script_dir/opencode-weave/src/index.ts"
-  plugin_directives_src="$script_dir/opencode-weave/src/directives.ts"
-  plugin_classifier_src="$script_dir/opencode-weave/src/classifier-thread.ts"
-  if [ -f "$plugin_src" ] && [ -f "$plugin_directives_src" ] && [ -f "$plugin_classifier_src" ]; then
-    mkdir -p "$plugin_dir"
-    cp "$plugin_src" "$plugin_spec"
-    chmod 644 "$plugin_spec"
-    cp "$plugin_directives_src" "$plugin_dir/directives.ts"
-    chmod 644 "$plugin_dir/directives.ts"
-    cp "$plugin_classifier_src" "$plugin_dir/classifier-thread.ts"
-    chmod 644 "$plugin_dir/classifier-thread.ts"
-    plugin_arg="$plugin_spec"
-  else
-    warn "opencode subscription plugin source not found at $plugin_src — skipping the Claude login + subscription routing. (Use a packaged 'npx $npm_package_name' install.)"
-  fi
 
   # Installing must actually activate the router. Preserve a prior direct model
   # beside the config so off/uninstall can restore the user's exact choice.
@@ -1153,46 +1087,32 @@ write_opencode_config() {
   # file (other providers, mcp, agent settings) untouched. The managed model is
   # always weave/auto; a prior direct choice was parked above for exact restore.
   #
-  # The weave-claude login provider AND the plugin entry are written together
-  # only when the bundled plugin was present and copied ($plugin non-empty): the
-  # Claude login method lives in the plugin, so registering the provider without
-  # it (e.g. the `curl | sh` path, which carries no plugin source) would leave a
-  # non-working login — instead we omit it (and strip any stale one). The legacy
-  # `weave-codex` provider is always stripped: the single Responses `weave`
-  # provider supersedes it.
+  # Legacy subscription providers are always stripped: the single Responses
+  # `weave` provider supersedes them.
   local merged
   if [ -f "$config_file" ]; then
     merged="$(jq \
       --argjson block "$block" \
-      --argjson claude "$claude_block" \
-      --arg plugin "$plugin_arg" \
-      --arg pluginspec "$plugin_spec" '
+      '
       .provider = ((.provider // {}) | .weave = $block)
       | (.provider |= del(."weave-codex"))
-      | (if $plugin != "" then .provider["weave-claude"] = $claude else .provider |= del(."weave-claude") end)
-      # Register the managed plugin path when we installed it; otherwise strip a
-      # stale entry left by a prior install (the provider was just removed, so a
-      # lingering plugin reference would be dead weight).
-      | (if $plugin != ""
-           then .plugin = ((.plugin // []) | if index($plugin) then . else . + [$plugin] end)
-           else (if (.plugin | type) == "array"
-                   then (.plugin -= [$pluginspec]) | (if (.plugin | length) == 0 then del(.plugin) else . end)
-                   else . end)
-         end)
+      | (.provider |= del(."weave-claude"))
+      | (if (.plugin | type) == "array"
+           then .plugin |= map(select((tostring | endswith("/opencode-weave.ts")) | not))
+           else . end)
+      | (if (.plugin | type) == "array" and (.plugin | length) == 0 then del(.plugin) else . end)
       | .model = "weave/auto"
       | (.["$schema"] //= "https://opencode.ai/config.json")
     ' "$config_file")"
   else
     merged="$(jq -n \
       --argjson block "$block" \
-      --argjson claude "$claude_block" \
-      --arg plugin "$plugin_arg" '
+      '
       {
         "$schema": "https://opencode.ai/config.json",
         model: "weave/auto",
         provider: { weave: $block }
       }
-      | (if $plugin != "" then .provider["weave-claude"] = $claude | .plugin = [$plugin] else . end)
     ')"
   fi
   printf '%s\n' "$merged" >"$config_file"
@@ -5031,15 +4951,7 @@ if [ "$target" = "opencode" ]; then
   verify_install
 
   announce_done "opencode"
-  # Surface the optional subscription-routing path only when this run actually
-  # registered the weave-claude login provider (which is written together with
-  # the plugin). Gate on its presence in the written config (authoritative)
-  # rather than a plugin file on disk — a leftover plugin from a prior install
-  # can outlive a plugin-less re-install that stripped the provider, which would
-  # make these instructions misleading.
-  if jq -e '(.provider // {}) | has("weave-claude")' "$opencode_config_file" >/dev/null 2>&1; then
-    info "Optional: connect your AI plans so they pay for the matching turns. Run ${C_BOLD}opencode auth login${C_RESET} → ${C_BOLD}Weave Router — Codex plan${C_RESET} for ${C_BOLD}ChatGPT Pro/Plus${C_RESET} (GPT/Codex turns) and/or ${C_BOLD}Weave Router — Claude plan${C_RESET} for ${C_BOLD}Claude Pro/Max${C_RESET} (Claude turns). The router still routes every turn; your Weave key pays for the rest."
-  fi
+  info "To enroll managed subscriptions, run ${C_BOLD}npx $npm_package_name login claude${C_RESET} and/or ${C_BOLD}npx $npm_package_name login codex${C_RESET}."
   if [ -n "$install_dir" ]; then
     # --dir installs land outside opencode's discovery roots, so the caller
     # has to point opencode at the file explicitly.

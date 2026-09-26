@@ -1,57 +1,35 @@
-# opencode Weave subscription plugin
+# Legacy opencode Weave integration
 
-Lets a caller's own **AI subscriptions** pay for their **opencode** turns, routed
-through the Weave Router. A subscription is a **credential scoped to the model
-family it can pay for**, not a provider you pick: you connect your ChatGPT
-(Codex) and/or Claude (Pro/Max) plan once, the router routes every request to the
-best model, and bills the plan that matches the model it served — ChatGPT pays
-for GPT/Codex turns, Claude pays for Claude turns, your Weave key pays for
-everything else.
+This source is retained only for historical compatibility and is no longer
+bundled or installed. Subscription enrollment now happens in the router with
+`npx @weave-os/router login claude` or `npx @weave-os/router login codex`;
+requests must not carry subscription headers.
 
-Bundled into `@weave-os/router`; the installer (`--opencode`) drops
-`src/index.ts` into the user's opencode plugins dir and writes a single
-Responses-format `weave` provider (plus a login-only `weave-claude` provider)
-into `opencode.json`.
+The source is retained for lifecycle/directive compatibility tests only. It is
+not loaded by new installs.
 
-## Why a plugin (config alone can't do it)
+The installer writes only the Responses-format `weave` provider into
+`opencode.json`.
 
-opencode removed built-in subscription auth in 1.3.0 and binds OAuth to its own
-first-party providers, so a custom router provider can't reuse it. And
-subscription tokens expire hourly — a static `options.headers` string can't
-refresh them, nor carry two subscriptions whose tokens rotate independently.
+## Why this source remains
+
+Older manually-installed copies may still load this module for lifecycle and
+directive hooks. It intentionally contains no OAuth login, token refresh, or
+subscription-header transport; new installs use only the provider config.
 
 ## Wire shape it produces
 
-opencode talks to one Responses-format `weave` provider; the plugin's loader
-attaches whichever subscriptions are connected to **every** request via the
-router's dedicated headers:
+opencode talks to one Responses-format `weave` provider. Subscription enrollment
+is managed by the router (`npx @weave-os/router login claude`), not by request
+headers from this plugin:
 
 | | |
 |---|---|
 | `POST {router}/v1/responses` | Responses wire format (opencode's default for an `@ai-sdk/openai` provider) |
-| `X-Weave-OpenAI-Subscription: <ChatGPT JWT>` | pays GPT/Codex turns, refreshed on expiry |
-| `X-Weave-OpenAI-Account-ID: <id>` | paired account id (required by the Codex backend) |
-| `X-Weave-Anthropic-Subscription: <sk-ant-oat token>` | pays Claude turns, refreshed on expiry |
 | `X-Weave-Router-Key: rk_…` | from `opencode.json` `options.headers` — the router authenticates off this |
 
-The router routes each request across every model the caller's subs + key can pay
-for and resolves the subscription matching the chosen provider, so a sub is
-never billed for a request outside its family.
-
-## Two storage slots, one request provider
-
-opencode stores one credential per provider id and the loader's `getAuth()` is
-scoped to its own provider, so the two logins live in two slots:
-
-- **`weave`** — the request provider. Owns the **ChatGPT** login and the loader
-  that attaches both subscriptions. Connecting ChatGPT activates sub-routing.
-- **`weave-claude`** — login-only (no models, serves no requests). Owns the
-  **Claude** login. Its token is read from opencode's on-disk auth store by the
-  `weave` loader (the SDK exposes no get-by-id).
-
-With neither connected, `weave` is a plain router provider and the Weave key
-pays. Either login activates its matching subscription independently, so a
-Claude-only setup pays Claude turns from that plan without requiring ChatGPT.
+The router routes each request across the models available to the managed
+installation and its configured credentials.
 
 ## Router directives
 
@@ -62,17 +40,16 @@ rewrites `$rf` / `$router-feedback`, `$fm` / `$force-model`, `$ufm` /
 / `router-status` / `disable-routing`) stay CLI-only — this installer does not
 own a per-session config flip the way Claude Code and Codex do.
 
-## Login
+## Enrollment
 
-`opencode auth login` → **Weave Router — Codex plan** → *ChatGPT Pro/Plus*
-(browser or headless device code) and/or **Weave Router — Claude plan** →
-*Claude Pro/Max* (browser; paste the `code#state` shown after authorizing).
+Enroll subscriptions through the managed router rather than OpenCode:
 
-These logins populate OpenCode's provider-keyed `auth.json`, which is how this
-plugin reads and forwards the subscription credentials. The standalone
-`npx @weave-os/router login codex|claude` commands enroll server-side
-subscription accounts instead; they do not populate OpenCode's auth store and
-are not a replacement for these plugin logins.
+```sh
+npx @weave-os/router login claude  # or: npx @weave-os/router login codex
+```
+
+The router stores and refreshes the enrollment server-side; OpenCode does not
+need to carry subscription credentials in request headers.
 
 ## Env overrides (self-host + tests)
 
@@ -85,12 +62,6 @@ are not a replacement for these plugin logins.
   a new session instead. Requires a router deployment with the exact release
   and installation explicitly allowlisted. Deploy the router's non-retryable
   client-failure response before enabling this opt-in on developer machines.
-- `WEAVE_CODEX_OAUTH_ISSUER` — OpenAI auth issuer.
-- `WEAVE_ANTHROPIC_OAUTH_AUTHORIZE` / `WEAVE_ANTHROPIC_OAUTH_TOKEN` — Anthropic
-  OAuth authorize host / token endpoint.
-- `WEAVE_OPENCODE_AUTH_FILE` — path to opencode's `auth.json` (the `weave`
-  loader reads the `weave-claude` slot from here; defaults to
-  `$XDG_DATA_HOME/opencode/auth.json`).
 
 ## Verification
 
@@ -124,11 +95,11 @@ or real providers.
 
 | Layer | Contract |
 |---|---|
-| Bun plugin tests | All four subscription combinations; expiry, refresh failure isolation, late login; header/session continuity; no secrets logged |
+| Bun integration tests | Router/lifecycle header continuity, directive rewriting, and no subscription/account header injection |
 | Pinned Responses SDK fixtures | Streaming and non-streaming text/usage, two tool calls, upstream errors, malformed/unknown events, truncated streams, absent usage |
 | Installed real CLI | Exact `/v1/responses`, `auto`, `X-App`, router key, nonempty session IDs, parsed text, usage, completion, two executed tools and matching tool results |
 | Real lifecycle hooks | Main `build`, title `title`, task child `explore`, and automatic `compaction` followed by resumed `build`; parent/child session boundaries |
-| Real plugin loader | Both providers' OAuth methods visible through `opencode serve` → `/provider/auth`, even without an OAuth store |
+| Real plugin loader | Routing hooks remain loadable when explicitly installed as a legacy plugin |
 | Installer/package | Install/toggle/uninstall, packed npm `--opencode` entrypoint; existing Claude/Codex/Pi installer coverage |
 | Go proxy/translation | Native and translated Responses history hygiene, actionable tool-output commands, Codex feedback-skill preservation, wire lifecycle and usage |
 
@@ -149,11 +120,10 @@ unknown token counts. These are explicit compatibility observations, **not** cla
 of clean failure or successful completion. The normal CLI cases require both a
 successful terminal event and exact usage, so removing completion/usage fails them.
 
-The plugin intentionally uses the
-[legacy all-export loader](https://github.com/anomalyco/opencode/blob/v1.18.27/packages/opencode/src/plugin/index.ts):
-all exported values are plugin functions, `default === WeaveCodex` is deduplicated,
-and `WeaveClaude` registers separately. Converting the default to a V1 plugin
-object would bypass those named exports; the loader tests guard against that.
+The source intentionally keeps the
+[legacy all-export loader](https://github.com/anomalyco/opencode/blob/v1.18.27/packages/opencode/src/plugin/index.ts)
+shape for compatibility with older manually-installed copies. New installs do
+not load this source.
 See the current [CLI](https://opencode.ai/docs/cli/),
 [plugin](https://opencode.ai/docs/plugins/), and
 [server](https://opencode.ai/docs/server/) references when updating the pin.

@@ -480,15 +480,12 @@ func apiKeyIDFromContext(ctx context.Context) string {
 // ExternalIDContextKey is the request-context key for the installation's external_id.
 type ExternalIDContextKey struct{}
 
-// AnthropicSubscriptionContextKey is the request-context key for a caller's raw
-// Claude subscription OAuth token, stashed by the auth middleware from the
-// X-Weave-Anthropic-Subscription header on router-keyed requests.
+// AnthropicSubscriptionContextKey carries a caller's Claude subscription
+// credential when an internal caller has already authenticated it.
 type AnthropicSubscriptionContextKey struct{}
 
-// OpenAISubscriptionContextKey and OpenAIAccountIDContextKey are the
-// request-context keys for a caller's raw Codex (ChatGPT) subscription OAuth
-// JWT and paired ChatGPT-Account-ID, stashed from the
-// X-Weave-OpenAI-Subscription / X-Weave-OpenAI-Account-ID headers.
+// OpenAISubscriptionContextKey and OpenAIAccountIDContextKey carry a caller's
+// Codex subscription credential and its paired account id.
 type OpenAISubscriptionContextKey struct{}
 type OpenAIAccountIDContextKey struct{}
 
@@ -1477,8 +1474,6 @@ func (s *Service) restrictToTier(excluded map[string]struct{}, tier catalog.Tier
 	return out, true
 }
 
-// anthropicSubscriptionFromContext returns the raw Claude subscription token
-// stashed by the auth middleware (router-keyed path), or "" when none.
 func anthropicSubscriptionFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(AnthropicSubscriptionContextKey{}).(string)
 	return v
@@ -1566,9 +1561,6 @@ func byokServedForProvider(ctx context.Context, provider string) bool {
 	return false
 }
 
-// openaiSubscriptionFromContext / openaiAccountIDFromContext return the raw Codex
-// (ChatGPT) subscription JWT and paired account-id stashed by the auth middleware
-// (router-keyed path), or "" when none.
 func openaiSubscriptionFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(OpenAISubscriptionContextKey{}).(string)
 	return v
@@ -1579,21 +1571,16 @@ func openaiAccountIDFromContext(ctx context.Context) string {
 	return v
 }
 
-// codexSubscriptionFromContext resolves a Codex subscription credential from the
-// dedicated router-keyed headers (token + account-id), or nil when either is
-// absent or the pair isn't a usable Codex subscription.
 func codexSubscriptionFromContext(ctx context.Context) *Credentials {
 	return codexSubscriptionCreds(openaiSubscriptionFromContext(ctx), openaiAccountIDFromContext(ctx))
 }
 
 // codexResponsesRequest reports whether this /v1/responses request carries a
-// usable Codex (ChatGPT) subscription — the dedicated header pair, or an
-// inbound Authorization bearer + ChatGPT-Account-ID. When true,
-// ProxyOpenAIResponses routes to the Codex backend instead of the
-// chat-completions path. Mirrors resolveAndInjectCredentials's precedence so
-// detection and injection never disagree; the inbound-bearer shape is honored
-// even on router-keyed requests (Codex CLI keeps its auth in Authorization
-// while the router key rides in X-Weave-Router-Key).
+// usable Codex (ChatGPT) subscription as an inbound Authorization bearer +
+// ChatGPT-Account-ID. When true, ProxyOpenAIResponses routes to the Codex
+// backend instead of the chat-completions path. Honored even on router-keyed
+// requests (Codex CLI keeps its auth in Authorization while the router key
+// rides in X-Weave-Router-Key).
 func codexResponsesRequest(ctx context.Context, headers http.Header) bool {
 	// Subscription routing disabled: skip verbatim passthrough — route through
 	// normal chat->Responses translation and bill prepaid.
@@ -2998,9 +2985,6 @@ func (s *Service) anthropicCredentialReachable(ctx context.Context, headers http
 		if s.clients.Has(providers.ProviderAnthropic) {
 			return true
 		}
-	}
-	if anthropicSubscriptionFromContext(ctx) != "" {
-		return true
 	}
 	return ExtractClientCredentials(providers.ProviderAnthropic, headers) != nil
 }
@@ -5874,15 +5858,7 @@ func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvide
 		}
 		out[k.Provider] = struct{}{}
 	}
-	// A caller's Claude subscription enrolls Anthropic for routing eligibility
-	// (mirrors resolveAndInjectCredentials), honored even on router-keyed
-	// requests. Without this, a subscription-only request (no BYOK) leaves
-	// Anthropic out of the enabled set and the scorer fails with
-	// ErrNoEligibleProvider before any Claude turn runs.
-	if subscriptionCredsFromHeaderValue(anthropicSubscriptionFromContext(ctx)) != nil {
-		out[providers.ProviderAnthropic] = struct{}{}
-	}
-	// Likewise, a Claude subscription bearer (sk-ant-oat-) in the inbound
+	// A Claude subscription bearer (sk-ant-oat-) in the inbound
 	// Authorization enrolls Anthropic even on router-keyed requests — Claude
 	// Code keeps its OAuth token there while the router key rides in
 	// X-Weave-Router-Key. OAuth-subset only: a general API key still can't
@@ -5890,14 +5866,7 @@ func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvide
 	if c := ExtractClientCredentials(providers.ProviderAnthropic, headers); c != nil && c.OAuth {
 		out[providers.ProviderAnthropic] = struct{}{}
 	}
-	// A caller's Codex (ChatGPT) subscription enrolls OpenAI, mirroring the
-	// Anthropic block above. Requires BOTH token and account-id
-	// (codexSubscriptionFromContext returns nil without it) so the scorer
-	// can't pick OpenAI for a turn the Codex backend would 401 on.
-	if codexSubscriptionFromContext(ctx) != nil {
-		out[providers.ProviderOpenAI] = struct{}{}
-	}
-	// Mirroring the Anthropic inbound-bearer block, a Codex subscription bearer
+	// A Codex subscription bearer
 	// in Authorization (paired with ChatGPT-Account-ID) enrolls OpenAI even on
 	// router-keyed requests. OAuth-subset only: a plain API key still can't
 	// enroll OpenAI on the router-key path.
@@ -5919,6 +5888,12 @@ func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvide
 				out[surfaceProvider] = struct{}{}
 			}
 		}
+	}
+	if subscriptionCredsFromToken(anthropicSubscriptionFromContext(ctx)) != nil {
+		out[providers.ProviderAnthropic] = struct{}{}
+	}
+	if codexSubscriptionFromContext(ctx) != nil {
+		out[providers.ProviderOpenAI] = struct{}{}
 	}
 	// Client-supplied headers are only consulted when NOT authed via a
 	// router key. A router-key-authed request carrying an inbound bearer
@@ -6016,10 +5991,9 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 // selections fall through to BYOK, a client API key, or the deployment key.
 //
 // Subscription-first lets a caller's own Claude subscription pay for Claude
-// turns. It arrives via the dedicated X-Weave-Anthropic-Subscription header,
-// or (Claude Code routed through the Weave Router) as a sk-ant-oat- bearer
-// left in Authorization while the router key rides in X-Weave-Router-Key —
-// both honored even on router-keyed requests.
+// turns. Native harnesses leave a sk-ant-oat- bearer in Authorization (or
+// x-api-key) while the router key rides in X-Weave-Router-Key. Server-side
+// enrollment (`npx @weave-os/router login`) is a separate managed-account path.
 //
 // The inbound-bearer path is restricted to the OAuth subset: a general client
 // API key is NOT extracted on the router-key path, since that would forward
@@ -6034,12 +6008,7 @@ func resolveAndInjectCredentials(ctx context.Context, provider, model string, he
 	suppressClaudeSub := claudeSubscriptionSuppressed(ctx) || subDisabled || claudeModelSuppressed(ctx, model)
 	suppressCodexSub := codexSubscriptionSuppressed(ctx) || subDisabled || !codexSubscriptionCoversModel(model)
 	if provider == providers.ProviderAnthropic && !suppressClaudeSub {
-		// Subscription-first (subscription -> BYOK -> deployment), resolved here
-		// explicitly rather than relying on BYOK being absent off the router-key
-		// path — a future BYOK-loading path must not silently outrank it.
-		if sub := subscriptionCredsFromHeaderValue(anthropicSubscriptionFromContext(ctx)); sub != nil {
-			observability.FromContext(ctx).Info("Resolved Claude subscription credential",
-				"credential_source", sub.Source)
+		if sub := subscriptionCredsFromToken(anthropicSubscriptionFromContext(ctx)); sub != nil {
 			return context.WithValue(ctx, CredentialsContextKey{}, sub)
 		}
 		// A Claude subscription bearer (sk-ant-oat-) in the inbound Authorization
@@ -6054,9 +6023,7 @@ func resolveAndInjectCredentials(ctx context.Context, provider, model string, he
 		}
 	}
 	if provider == providers.ProviderOpenAI && !suppressCodexSub {
-		// Codex (ChatGPT) subscription-first, mirroring the Anthropic block above.
 		if sub := codexSubscriptionFromContext(ctx); sub != nil {
-			observability.FromContext(ctx).Debug("Resolved Codex subscription credential for OpenAI turn", "credential_source", sub.Source)
 			return context.WithValue(ctx, CredentialsContextKey{}, sub)
 		}
 		// A Codex subscription bearer (ChatGPT OAuth JWT + ChatGPT-Account-ID) in

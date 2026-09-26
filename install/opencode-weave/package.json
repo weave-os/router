@@ -2,7 +2,7 @@
   "name": "@weave-os/router-opencode-extension",
   "private": true,
   "type": "module",
-  "description": "The opencode subscription auth plugin bundled into @weave-os/router. NOT published separately: src/ is copied into the @weave-os/router package at prepack and dropped into the user's opencode plugin directory by install.sh --opencode. Lets a caller's own ChatGPT and Claude subscriptions pay for matching opencode turns routed through the Weave Router. This manifest marks the sources as ESM and declares the opencode peer dependency for local typecheck.",
+  "description": "Legacy OpenCode routing hooks retained for compatibility tests. Not bundled or installed by @weave-os/router; managed subscription enrollment belongs to the router.",
   "scripts": {
     "test": "bun test test/",
     "typecheck": "tsc --project tsconfig.json"

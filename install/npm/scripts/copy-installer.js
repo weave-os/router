@@ -112,19 +112,6 @@ for (const f of ["package.json", "README.md"]) {
 }
 console.log("Copied pi-router/ (extension + skills).");
 
-// Bundle the opencode Codex-subscription plugin the same way. install.sh
-// (--codex/--opencode) drops opencode-weave/src/index.ts into the user's
-// opencode plugins dir and registers it via opencode.json's "plugin" array.
-// Source of truth lives at install/opencode-weave/src.
-const ocSrc = path.join(installDir, "opencode-weave", "src");
-const ocDst = path.join(root, "opencode-weave", "src");
-mkdirSync(path.dirname(ocDst), { recursive: true });
-cpSync(ocSrc, ocDst, { recursive: true });
-for (const f of ["package.json", "README.md"]) {
-  copyFileSync(path.join(installDir, "opencode-weave", f), path.join(root, "opencode-weave", f));
-}
-console.log("Copied opencode-weave/ (plugin).");
-
 for (const f of ["LICENSE", "NOTICE"]) {
   copyFileSync(path.join(repoRoot, f), path.join(root, f));
   console.log(`Copied ${f}.`);
