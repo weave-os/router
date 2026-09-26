@@ -95,15 +95,30 @@ in-flight v1 proposals still apply.
 
 ### Fleet-rollout gate
 
-Every `ReadServingState` reader — the gateway, managed workers, and
-`scripts/serving_admission_check` — must run a binary that understands the
+Every `ReadServingState` reader — the gateway (`cmd/router-gateway`, on `/readyz`,
+`/startupz` and every admission) and `policyctl serving` itself (`status`, `apply`,
+`rollback`, and the controller behind them) — must run a binary that understands the
 `artifacts/` layout, the v2 kinds, and the `state/` path **before** the first v2 or
-new-path `apply` against a target. An old binary that keeps writing the legacy state
-path after a new-path object exists splits the control plane, and an old binary cannot
-decode a target whose current selection set is v2, so its admissions fail closed. Gate
-the first apply per target on image rollout, not on merge. After the first v2 apply on
-a target, reverting the binary is a one-way door for that target; the designed
-object-level rollback is a `scope: rollback` proposal, not a code revert.
+new-path `apply` against a target. Managed workers (`cmd/router`) never read target
+state: they resolve the immutable artifacts their boot refs and the gateway's
+assertion name, so they are in the same gate for the v2 kinds and the `artifacts/`
+layout, but not for the `state/` path. An old binary that keeps writing the legacy
+state path after a new-path object exists splits the control plane, and an old binary
+cannot decode a target whose current selection set is v2, so its admissions fail
+closed. Gate the first apply per target on image rollout, not on merge. After the
+first v2 apply on a target, reverting the binary is a one-way door for that target;
+the designed object-level rollback is a `scope: rollback` proposal, not a code revert.
+
+`scripts/serving_admission_check` is not part of this gate and not part of the fleet.
+It is a loopback-only integration harness: it requires a loopback host in
+`ROUTER_TEST_DATABASE_URL`. Use a disposable local Postgres fixture: the harness
+writes persistent records and does not verify that the database is ephemeral. It exercises
+`internal/postgres/serving.NewServingAdmissionRepo(...).Admit` — credential-subject
+enrollment and rotation fences, concurrent first-admission collapse onto one binding,
+profile assignment, and the database admission clock — against a fixture decision
+closure. It opens no registry, reads no serving state, and
+therefore proves nothing about registry layout, v2 decoding, or a deployed
+revision's readiness.
 
 ## Manifest kinds
 
