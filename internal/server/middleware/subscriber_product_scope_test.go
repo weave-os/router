@@ -106,7 +106,7 @@ func TestWithSubscriberAllowance_EndedMaxPassesThroughWithoutLinkedFirst(t *test
 	reached, ctx := runProductScopeMiddleware(t, entitlements, &stubAllowances{}, "Bearer sk-ant-oat01-covering-subscription")
 
 	require.True(t, reached)
-	assert.False(t, billing.SubscriptionOnlyFromContext(ctx))
+	assert.False(t, billing.SubscriptionOnlyFromContext(ctx), "ended Max must not become subscription-only")
 	assert.False(t, entitlement.ModelBoundaryFromContext(ctx).PermitsSource(eligibility.SourceClosedSource))
 }
 

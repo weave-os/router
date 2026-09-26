@@ -1038,6 +1038,14 @@ func subscriptionRoutingDisabledForRequest(ctx context.Context) bool {
 	return disabled
 }
 
+// subscriptionFundingOutOfPlayForRequest reports that Max product scope never
+// treats a consumer subscription as a funding source or routing mode. Distinct
+// from subscriptionRoutingDisabledForRequest, which is the installation toggle.
+func subscriptionFundingOutOfPlayForRequest(ctx context.Context) bool {
+	plan, ok := entitlement.ProductScopeFromContext(ctx)
+	return ok && plan == entitlement.PlanMax
+}
+
 // hideTerminalSurfacesForRequest reports whether terminal surfaces are hidden for this request.
 func hideTerminalSurfacesForRequest(ctx context.Context) bool {
 	hide, _ := ctx.Value(InstallationHideTerminalSurfacesContextKey{}).(bool)
@@ -1584,7 +1592,7 @@ func codexSubscriptionFromContext(ctx context.Context) *Credentials {
 func codexResponsesRequest(ctx context.Context, headers http.Header) bool {
 	// Subscription routing disabled: skip verbatim passthrough — route through
 	// normal chat->Responses translation and bill prepaid.
-	if subscriptionRoutingDisabledForRequest(ctx) {
+	if subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx) {
 		return false
 	}
 	if codexSubscriptionFromContext(ctx) != nil {
@@ -6004,7 +6012,7 @@ func resolveAndInjectCredentials(ctx context.Context, provider, model string, he
 	// Skip subscription OAuth (fall through to BYOK / deployment key):
 	// exhausted (Anthropic-only, avoid re-429), toggle off (provider-wide), or
 	// an OpenAI-provider model outside the native Codex OAuth family.
-	subDisabled := subscriptionRoutingDisabledForRequest(ctx)
+	subDisabled := subscriptionRoutingDisabledForRequest(ctx) || subscriptionFundingOutOfPlayForRequest(ctx)
 	suppressClaudeSub := claudeSubscriptionSuppressed(ctx) || subDisabled || claudeModelSuppressed(ctx, model)
 	suppressCodexSub := codexSubscriptionSuppressed(ctx) || subDisabled || !codexSubscriptionCoversModel(model)
 	if provider == providers.ProviderAnthropic && !suppressClaudeSub {

@@ -117,3 +117,21 @@ func TestWithSubscriberAllowance_CoveringSubscriptionIsLinkedFirstNotDepleted(t 
 	assert.Contains(t, logs.String(), "subscriber_id="+allowanceSubscriberID)
 	assert.Contains(t, logs.String(), "admission_outcome=covered")
 }
+
+func TestWithSubscriberAllowance_MaxCoveringSubscriptionIsNotSubscriptionOnly(t *testing.T) {
+	entitlements := &stubEntitlements{current: maxSubscriberEntitlement(), found: true}
+	allowances := &stubAllowances{}
+	var subscriptionOnly bool
+	engine := gateServing(t, entitlements, allowances, func(c *gin.Context) {
+		subscriptionOnly = billing.SubscriptionOnlyFromContext(c.Request.Context())
+	})
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req.Header.Set("Authorization", "Bearer sk-ant-oat-abc123")
+	engine.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	assert.False(t, subscriptionOnly)
+	require.Len(t, allowances.held, 1)
+}
