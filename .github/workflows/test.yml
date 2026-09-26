@@ -25,11 +25,13 @@ jobs:
       statusline: ${{ steps.filter.outputs.statusline }}
       installer: ${{ steps.filter.outputs.installer }}
       hmm: ${{ steps.filter.outputs.hmm }}
+      go: ${{ steps.go-relevance.outputs.go_changed }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # paths-filter needs the previous commit when this runs on main.
+          # paths-filter needs the previous commit when this runs on main, and
+          # the Go classifier needs both exact pull-request event SHAs.
           fetch-depth: 0
 
       - name: Detect component changes
@@ -55,6 +57,15 @@ jobs:
               - 'Makefile'
               - '.github/workflows/**'
 
+      # Push and workflow_dispatch runs have no base SHA, so the classifier
+      # gates the Go checks ON for them.
+      - name: Classify Go relevance
+        id: go-relevance
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: scripts/go_ci_relevance.sh changed "$BASE_SHA" "$HEAD_SHA" >>"$GITHUB_OUTPUT"
+
   inference-boundary:
     name: Inference boundary
     runs-on: ubuntu-latest
@@ -74,6 +85,8 @@ jobs:
 
   go-checks:
     name: Go checks
+    needs: changed-paths
+    if: ${{ needs.changed-paths.outputs.go == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -102,6 +115,19 @@ jobs:
         with:
           go-version: '1.25.9'
           cache-dependency-path: go.sum
+
+      - name: Test the Go CI relevance classifier
+        run: bash scripts/go_ci_relevance_test.sh
+
+      # The standalone gateway build only protects the gateway's own Go
+      # dependency closure. Computing that closure here keeps the classifier
+      # job toolchain-free; an uncomputable closure gates the build ON.
+      - name: Classify gateway closure relevance
+        id: gateway-closure
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: scripts/go_ci_relevance.sh gateway-closure "$BASE_SHA" "$HEAD_SHA" >>"$GITHUB_OUTPUT"
 
       - name: Install golang-migrate
         run: |
@@ -191,6 +217,7 @@ jobs:
         run: go test -count=1 ./scripts/subscription_enrollment_check
 
       - name: Build standalone gateway without worker native dependencies
+        if: ${{ steps.gateway-closure.outputs.gateway_closure_changed == 'true' }}
         run: CGO_ENABLED=0 go build -o "$RUNNER_TEMP/router-gateway" ./cmd/router-gateway
 
       - name: Check legacy worker startup with serving dependencies unavailable
@@ -389,6 +416,7 @@ jobs:
           STATUSLINE_NEEDED: ${{ needs.changed-paths.outputs.statusline }}
           INSTALLER_NEEDED: ${{ needs.changed-paths.outputs.installer }}
           HMM_SIDECAR_NEEDED: ${{ needs.changed-paths.outputs.hmm }}
+          GO_CHECKS_NEEDED: ${{ needs.changed-paths.outputs.go }}
         run: |
           printf '%s\n' \
             "Changed paths: $CHANGED_PATHS_RESULT" \
@@ -399,11 +427,21 @@ jobs:
             "HMM sidecar: $HMM_SIDECAR_RESULT" \
             "Statusline needed: $STATUSLINE_NEEDED" \
             "Installer needed: $INSTALLER_NEEDED" \
-            "HMM sidecar needed: $HMM_SIDECAR_NEEDED"
+            "HMM sidecar needed: $HMM_SIDECAR_NEEDED" \
+            "Go checks needed: $GO_CHECKS_NEEDED"
 
           if [ "$CHANGED_PATHS_RESULT" != success ] || \
-             [ "$INFERENCE_BOUNDARY_RESULT" != success ] || \
-             [ "$GO_CHECKS_RESULT" != success ]; then
+             [ "$INFERENCE_BOUNDARY_RESULT" != success ]; then
+            exit 1
+          fi
+
+          # A skipped Go job only counts as success when the classifier
+          # decided the diff cannot affect Go. Every other skip is a failure.
+          if [ "$GO_CHECKS_NEEDED" = false ]; then
+            if [ "$GO_CHECKS_RESULT" != skipped ]; then
+              exit 1
+            fi
+          elif [ "$GO_CHECKS_RESULT" != success ]; then
             exit 1
           fi
 

@@ -146,6 +146,32 @@ durations; CI writes them to the GitHub job summary. This makes a cache
 regression or service-startup stall visible without downloading the complete
 log.
 
+### 9. Path-gate the Go checks and the standalone gateway build (implemented)
+
+`Go checks` and its standalone gateway build previously ran on every pull
+request, including documentation-only ones. The classifier job now also emits a
+`go` output from [`scripts/go_ci_relevance.sh`](../scripts/go_ci_relevance.sh),
+and `Go checks` is skipped when the diff cannot reach Go compilation. The
+classifier needs no Go toolchain: it gates ON for `*.go`, `go.mod`, `go.sum`,
+`go.work*`, `db/**`, `scripts/**`, `Makefile`, `Dockerfile*`, sqlc and
+golangci config, `.github/workflows/test.yml`, and for any file inside a
+directory that contains Go sources, which covers `//go:embed` inputs such as
+[`internal/router/llmescalation/prompt.md`](../internal/router/llmescalation/prompt.md)
+and the embedded model artifacts. Anything it cannot classify runs the checks.
+
+Inside `Go checks`, the `Build standalone gateway without worker native
+dependencies` step now runs only when the diff intersects
+`go list -deps ./cmd/router-gateway` package directories, or when `go.mod` or
+`go.sum` changed, or when that closure cannot be computed. The closure is
+computed in the job that already has the toolchain, so the classifier job stays
+cheap.
+
+The aggregate `Test` job accepts `skipped` for `Go checks` only when the
+classifier reported `go=false`; a skip for any other reason, a cancellation or
+a failure still fails the required check, so the pin check in WorkWeave keeps
+the same contract. Push, merge and `workflow_dispatch` runs have no base SHA
+and therefore run everything.
+
 ## Measuring future changes
 
 Use successful pull-request runs with comparable changed paths. Report median,
