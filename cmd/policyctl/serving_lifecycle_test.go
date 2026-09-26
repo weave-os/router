@@ -25,6 +25,8 @@ type cliServingRegistry struct {
 	writes    int
 	casError  error
 	artifacts map[policyregistry.ObjectRef][]byte
+	candidate policyregistry.ObjectRef
+	selection policyregistry.ObjectRef
 }
 
 func (r *cliServingRegistry) VerifyServingArtifact(_ context.Context, ref policyregistry.ObjectRef) error {
@@ -148,6 +150,10 @@ func cliServingFixture(t *testing.T) (*cliServingRegistry, *cliDestinationEndpoi
 	binding := policyregistry.DeploymentBinding{SchemaVersion: policyregistry.ServingBindingV1, Target: policyregistry.TargetStable, Project: "test-project", Region: "test-region", Release: releaseRef, Router: policyregistry.RevisionBinding{Name: "worker-1", URL: "https://worker-1.example", Audience: "https://worker.example", ImageDigest: image, Configuration: artifact}, Classifier: policyregistry.RevisionBinding{Name: "classifier-1", URL: "https://classifier-1.example", Audience: "https://classifier.example", ImageDigest: image, Configuration: artifact}, ClassifierBundleSHA256: bundleRef.SHA256, Attestation: artifact}
 	bindingRef := cliPublish(t, registry, policyregistry.ServingBindings, binding)
 	setRef := cliPublish(t, registry, policyregistry.ServingSelectionSets, policyregistry.SelectionSet{SchemaVersion: policyregistry.ServingSelectionSetV1, Target: binding.Target, Default: policyregistry.ServingSelection{Release: releaseRef, Binding: bindingRef}, Profiles: map[string]policyregistry.ServingSelection{}})
+	candidate := policyregistry.CandidateV2{SchemaVersion: policyregistry.ServingCandidateV2, CandidateComposition: policyregistry.CandidateComposition{RouterImageDigest: release.RouterImageDigest, Policy: release.Policy, Classifier: policyregistry.ClassifierComponent{Identity: bundle.Identity, Package: bundle.Package, AuxiliaryModels: bundle.AuxiliaryModels, Configuration: bundle.Configuration}, Requirements: release.Requirements, Provenance: release.Provenance}}
+	registry.candidate = cliPublish(t, registry, policyregistry.ServingCandidate, candidate)
+	lane := policyregistry.ServingLane{Candidate: registry.candidate, LaneBinding: policyregistry.LaneBinding{Project: binding.Project, Region: binding.Region, Router: binding.Router, Classifier: binding.Classifier, Attestation: binding.Attestation}}
+	registry.selection = cliPublish(t, registry, policyregistry.ServingSelectionSet, policyregistry.SelectionSetV2{SchemaVersion: policyregistry.ServingSelectionSetV2, Target: binding.Target, Default: lane, Profiles: map[string]policyregistry.ServingLane{}})
 	proposal := policyregistry.DeploymentProposal{SchemaVersion: policyregistry.ServingProposalV1, Target: binding.Target, SelectionSet: setRef, SourceRelease: releaseRef, Scope: policyregistry.ChangeFull, Actor: "original-operator", Reason: "fixture activation", RequestID: "run-1:lane-0", CreatedAt: time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC), Evidence: []policyregistry.ObjectRef{artifact}, WithdrawActivations: []string{}}
 	return registry, &cliDestinationEndpoints{registry: registry, bundle: bundle}, proposal
 }
@@ -170,14 +176,15 @@ func cliDependencies(registry *cliServingRegistry, endpoints *cliDestinationEndp
 	}
 }
 
-// cliV2Proposal composes a v2 proposal over the fixture's v1 candidate and selection set.
-func cliV2Proposal(proposal policyregistry.DeploymentProposal, requestID string) policyregistry.DeploymentProposalV2 {
-	return policyregistry.DeploymentProposalV2{SchemaVersion: policyregistry.ServingProposalV2, Target: proposal.Target, SelectionSet: proposal.SelectionSet, SourceCandidate: proposal.SourceRelease, Scope: policyregistry.ChangeFull, Actor: "v2-operator", Reason: "v2 proposal", RequestID: requestID, CreatedAt: proposal.CreatedAt, Evidence: proposal.Evidence, WithdrawActivations: []string{}}
+// cliV2Proposal composes a v2 proposal over the fixture's folded artifacts/ candidate and
+// selection set, which the activation layout floor requires.
+func cliV2Proposal(registry *cliServingRegistry, proposal policyregistry.DeploymentProposal, requestID string) policyregistry.DeploymentProposalV2 {
+	return policyregistry.DeploymentProposalV2{SchemaVersion: policyregistry.ServingProposalV2, Target: proposal.Target, SelectionSet: registry.selection, SourceCandidate: registry.candidate, Scope: policyregistry.ChangeFull, Actor: "v2-operator", Reason: "v2 proposal", RequestID: requestID, CreatedAt: proposal.CreatedAt, Evidence: proposal.Evidence, WithdrawActivations: []string{}}
 }
 
 func TestServingCLIPublishDryRunReportsStoredDigestWithoutWriting(t *testing.T) {
 	registry, _, proposal := cliServingFixture(t)
-	canonical, err := policyregistry.CanonicalBytes(cliV2Proposal(proposal, "run-1:lane-0"))
+	canonical, err := policyregistry.CanonicalBytes(cliV2Proposal(registry, proposal, "run-1:lane-0"))
 	require.NoError(t, err)
 	var decoded map[string]any
 	require.NoError(t, json.Unmarshal(canonical, &decoded))
@@ -272,7 +279,7 @@ func TestWorkflowActorIgnoresCallerOverride(t *testing.T) {
 
 func TestServingCLIApplyResolvesDigestDryRunsActivatesAndReplays(t *testing.T) {
 	registry, endpoints, fixture := cliServingFixture(t)
-	proposal := cliV2Proposal(fixture, "run-1:lane-0")
+	proposal := cliV2Proposal(registry, fixture, "run-1:lane-0")
 	ref := cliPublish(t, registry, policyregistry.ServingProposal, proposal)
 	require.Contains(t, ref.URI, "/artifacts/")
 	path := cliProposalFile(t, ref)
@@ -317,7 +324,7 @@ func TestServingCLIApplyResolvesDigestDryRunsActivatesAndReplays(t *testing.T) {
 	require.NoError(t, runServingWith(ctx, []string{string(commandStatus), "--target", string(fixture.Target)}, dependencies))
 	require.Equal(t, first.Activation.ID, output.(policyregistry.ServingStateSnapshot).State.CurrentActivationID)
 
-	pending := cliProposalFile(t, cliPublish(t, registry, policyregistry.ServingProposal, cliV2Proposal(fixture, "run-2:lane-0")))
+	pending := cliProposalFile(t, cliPublish(t, registry, policyregistry.ServingProposal, cliV2Proposal(registry, fixture, "run-2:lane-0")))
 	require.NoError(t, runServingWith(ctx, []string{string(commandStatus), "--proposal", pending}, dependencies))
 	encoded, err := json.Marshal(output)
 	require.NoError(t, err)
@@ -328,72 +335,71 @@ func TestServingCLIApplyResolvesDigestDryRunsActivatesAndReplays(t *testing.T) {
 	require.Equal(t, 1, registry.writes)
 }
 
-func TestServingCLIRollbackRequiresRollbackScope(t *testing.T) {
+// apply, the only managed activation verb, now carries rollback-scoped proposals and runs the
+// rollback-source history check the retired rollback verb used to own.
+func TestServingCLIApplyValidatesAndCommitsRollbackScopedProposals(t *testing.T) {
 	registry, endpoints, fixture := cliServingFixture(t)
 	var output any
 	dependencies := cliDependencies(registry, endpoints, &output, map[string]string{"USER": "local-operator"})
 	ctx := context.Background()
-	require.NoError(t, runServingWith(ctx, []string{string(commandApply), "--proposal", cliProposalFile(t, cliPublish(t, registry, policyregistry.ServingProposal, cliV2Proposal(fixture, "run-1:lane-0")))}, dependencies))
+	require.NoError(t, runServingWith(ctx, []string{string(commandApply), "--proposal", cliProposalFile(t, cliPublish(t, registry, policyregistry.ServingProposal, cliV2Proposal(registry, fixture, "run-1:lane-0")))}, dependencies))
 	first := output.(policyregistry.ActivationResult)
 
-	forward := cliV2Proposal(fixture, "run-2:lane-0")
-	forward.PreviousSelectionSet = &fixture.SelectionSet
-	forward.WithdrawActivations = []string{first.Activation.ID}
-	forwardPath := cliProposalFile(t, cliPublish(t, registry, policyregistry.ServingProposal, forward))
-	err := runServingWith(ctx, []string{string(commandRollback), "--proposal", forwardPath}, dependencies)
-	require.ErrorContains(t, err, `requires a proposal with scope "rollback", got "full"`)
+	rollback := cliV2Proposal(registry, fixture, "run-2:lane-0")
+	rollback.PreviousSelectionSet = &registry.selection
+	rollback.WithdrawActivations = []string{first.Activation.ID}
+	rollback.Scope = policyregistry.ChangeRollback
+	unknownSource := rollback
+	unknownSource.SourceCandidate = policyregistry.ObjectRef{URI: defaultRegistryURI + "/artifacts/" + strings.Repeat("a", 64) + ".json", SHA256: strings.Repeat("a", 64), Generation: 1}
+	unknownPath := cliProposalFile(t, cliPublish(t, registry, policyregistry.ServingProposal, unknownSource))
+	require.ErrorContains(t, runServingWith(ctx, []string{string(commandApply), "--dry-run", "--proposal", unknownPath}, dependencies), "rollback requires a known-good source release")
+	require.ErrorContains(t, runServingWith(ctx, []string{string(commandApply), "--proposal", unknownPath}, dependencies), "rollback requires a known-good source release")
 	require.Equal(t, 1, registry.writes, "a rejected rollback never reaches the CAS write")
 	require.Equal(t, first.Activation.ID, registry.state.State.CurrentActivationID)
 
-	rollback := forward
-	rollback.Scope = policyregistry.ChangeRollback
 	rollback.RequestID = "run-3:lane-0"
-	rollbackRef := cliPublish(t, registry, policyregistry.ServingProposal, rollback)
-	rollbackPath := cliProposalFile(t, rollbackRef)
-	require.NoError(t, runServingWith(ctx, []string{string(commandRollback), "--proposal", rollbackPath}, dependencies))
+	rollbackPath := cliProposalFile(t, cliPublish(t, registry, policyregistry.ServingProposal, rollback))
+	require.NoError(t, runServingWith(ctx, []string{string(commandApply), "--proposal", rollbackPath}, dependencies))
 	rolled := output.(policyregistry.ActivationResult)
 	require.NotEqual(t, first.Activation.ID, rolled.Activation.ID)
 	require.Equal(t, "local-operator", rolled.Activation.WorkflowActor, "$USER is the fallback when no GitHub run is present")
 	require.Equal(t, rolled.Activation.ID, rolled.Snapshot.State.Activations[first.Activation.ID].ReplacementID)
+	require.Equal(t, registry.selection, rolled.Activation.SelectionSet)
 	require.EqualValues(t, 2, rolled.Snapshot.Generation)
 	require.Equal(t, 2, registry.writes)
 
-	require.NoError(t, runServingWith(ctx, []string{string(commandRollback), "--proposal", rollbackPath}, dependencies))
+	require.NoError(t, runServingWith(ctx, []string{string(commandApply), "--proposal", rollbackPath}, dependencies))
 	require.True(t, output.(policyregistry.ActivationResult).Replayed)
 	require.NoError(t, runServingWith(ctx, []string{string(commandStatus), "--proposal", rollbackPath}, dependencies))
 	require.Equal(t, rolled.Activation.ID, output.(policyregistry.ActivationResult).Activation.ID, "status reconciles by proposal ref, not request ID")
 	require.Equal(t, 2, registry.writes)
-
-	unknownSource := rollback
-	unknownSource.RequestID = "run-4:lane-0"
-	unknownSource.SourceCandidate = policyregistry.ObjectRef{URI: defaultRegistryURI + "/artifacts/" + strings.Repeat("a", 64) + ".json", SHA256: strings.Repeat("a", 64), Generation: 1}
-	require.ErrorContains(t, runServingWith(ctx, []string{string(commandRollback), "--proposal", cliProposalFile(t, cliPublish(t, registry, policyregistry.ServingProposal, unknownSource))}, dependencies), "rollback requires a known-good source release")
-	require.Equal(t, 2, registry.writes)
 }
 
-func TestServingCLIApplyAcceptsV1ProposalsAndFreezesStaleGenerations(t *testing.T) {
+// A v1 proposal still resolves and reads, but its v1 selection set can no longer be activated:
+// the layout floor rejects it before any CAS write, on both the dry run and the commit.
+func TestServingCLIApplyFloorsLegacySelectionSetsBeforeAnyWrite(t *testing.T) {
 	registry, endpoints, proposal := cliServingFixture(t)
 	var output any
 	dependencies := cliDependencies(registry, endpoints, &output, map[string]string{"GITHUB_ACTOR": "ci-bot", "GITHUB_RUN_ID": "4243"})
 	ctx := context.Background()
 	ref := cliPublish(t, registry, policyregistry.ServingProposals, proposal)
 	require.Contains(t, ref.URI, "/router_serving/v1/proposals/")
-	require.NoError(t, runServingWith(ctx, []string{string(commandApply), "--proposal-sha256", ref.SHA256}, dependencies))
-	activated := output.(policyregistry.ActivationResult)
-	require.Equal(t, ref, activated.Activation.Proposal, "legacy proposal digests resolve through the v1 namespace")
-	require.Equal(t, "original-operator", activated.Activation.Actor)
-	require.EqualValues(t, 1, activated.Snapshot.Generation)
+	require.Contains(t, proposal.SelectionSet.URI, "/router_serving/v1/selection_sets/")
+	require.ErrorIs(t, runServingWith(ctx, []string{string(commandApply), "--proposal-sha256", ref.SHA256}, dependencies), policyregistry.ErrSelectionSetLayoutFloor)
+	path := cliProposalFile(t, ref)
+	require.ErrorIs(t, runServingWith(ctx, []string{string(commandApply), "--dry-run", "--proposal", path}, dependencies), policyregistry.ErrSelectionSetLayoutFloor)
+	require.Nil(t, output)
+	require.Zero(t, registry.writes)
 
-	proposal.RequestID = "run-2:lane-0"
-	stale := cliProposalFile(t, cliPublish(t, registry, policyregistry.ServingProposals, proposal))
-	require.ErrorIs(t, runServingWith(ctx, []string{string(commandApply), "--dry-run", "--proposal", stale}, dependencies), policyregistry.ErrConflict, "v1 proposals still carry expected_generation and freeze against it")
-	require.ErrorIs(t, runServingWith(ctx, []string{string(commandApply), "--proposal", stale}, dependencies), policyregistry.ErrConflict)
+	// The same proposal contents over the folded artifacts/ selection set activate normally.
+	require.NoError(t, runServingWith(ctx, []string{string(commandApply), "--proposal", cliProposalFile(t, cliPublish(t, registry, policyregistry.ServingProposal, cliV2Proposal(registry, proposal, "run-2:lane-0")))}, dependencies))
+	require.EqualValues(t, 1, output.(policyregistry.ActivationResult).Snapshot.Generation)
 	require.Equal(t, 1, registry.writes)
 }
 
 func TestServingCLIApplyCommittedOutputFailureReconcilesThroughStatus(t *testing.T) {
 	registry, endpoints, fixture := cliServingFixture(t)
-	path := cliProposalFile(t, cliPublish(t, registry, policyregistry.ServingProposal, cliV2Proposal(fixture, "run-1:lane-0")))
+	path := cliProposalFile(t, cliPublish(t, registry, policyregistry.ServingProposal, cliV2Proposal(registry, fixture, "run-1:lane-0")))
 	failOutput := true
 	var output any
 	dependencies := cliDependencies(registry, endpoints, &output, nil)
@@ -419,10 +425,10 @@ func TestServingCLIApplyCommittedOutputFailureReconcilesThroughStatus(t *testing
 
 func TestServingCLIRejectsRetiredApprovalFlagsBeforeReadingTheProposal(t *testing.T) {
 	registry, endpoints, fixture := cliServingFixture(t)
-	path := cliProposalFile(t, cliPublish(t, registry, policyregistry.ServingProposal, cliV2Proposal(fixture, "run-1:lane-0")))
+	path := cliProposalFile(t, cliPublish(t, registry, policyregistry.ServingProposal, cliV2Proposal(registry, fixture, "run-1:lane-0")))
 	var output any
 	dependencies := cliDependencies(registry, endpoints, &output, map[string]string{"GITHUB_ACTOR": "ci-bot", "GITHUB_RUN_ID": "4242"})
-	for _, command := range []commandName{commandApply, commandRollback} {
+	for _, command := range []commandName{commandApply} {
 		for flagName, value := range map[string]string{"approved-proposal": strings.Repeat("f", 64), "workflow-actor": "workflow-service", "validation-origin": "https://ignored.example", "stored": ""} {
 			args := []string{string(command), "--proposal", path, "--" + flagName}
 			if value != "" {
@@ -441,12 +447,12 @@ func TestServingCLIRemovedVerbsPointToTheirReplacement(t *testing.T) {
 		opened++
 		return nil, errors.New("registry must not be opened for a removed verb")
 	}}
-	for verb, replacement := range map[string]string{"validate": "publish --dry-run", "resolve": "apply --proposal-sha256", "prepare": "apply --dry-run", "activate": "`policyctl serving apply`"} {
+	for verb, replacement := range map[string]string{"validate": "publish --dry-run", "resolve": "apply --proposal-sha256", "prepare": "apply --dry-run", "activate": "`policyctl serving apply`", "rollback": "apply --proposal <ref> (proposal scope must be rollback)"} {
 		err := runServingWith(context.Background(), []string{verb, "--proposal-sha256", strings.Repeat("a", 64)}, dependencies)
 		require.ErrorContains(t, err, "serving "+verb+" was removed", verb)
 		require.ErrorContains(t, err, replacement, verb)
 	}
 	require.Zero(t, opened)
 	require.ErrorContains(t, runServingWith(context.Background(), []string{"promote"}, dependencies), `unsupported serving command "promote"`)
-	require.ErrorContains(t, runServingWith(context.Background(), nil, dependencies), "usage: policyctl serving <publish|apply|status|rollback>")
+	require.ErrorContains(t, runServingWith(context.Background(), nil, dependencies), "usage: policyctl serving <publish|apply|status>")
 }

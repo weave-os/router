@@ -27,6 +27,7 @@ var removedServingVerbs = map[commandName]string{
 	"resolve":  "apply --proposal-sha256 <sha256>",
 	"prepare":  "apply --dry-run",
 	"activate": "apply",
+	"rollback": "apply --proposal <ref> (proposal scope must be rollback)",
 }
 
 type servingRegistry interface {
@@ -88,7 +89,7 @@ func workflowActorFor(getenv func(string) string, proposal policyregistry.Propos
 
 func runServingWith(ctx context.Context, args []string, dependencies servingDependencies) error {
 	if len(args) == 0 {
-		return errors.New("usage: policyctl serving <publish|apply|status|rollback> [flags]")
+		return errors.New("usage: policyctl serving <publish|apply|status> [flags]")
 	}
 	command := commandName(args[0])
 	if replacement, removed := removedServingVerbs[command]; removed {
@@ -107,8 +108,6 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 		proposalPath = flags.String("proposal", "", "JSON file containing the exact published proposal ObjectRef")
 		proposalDigest = flags.String("proposal-sha256", "", "resolve this immutable proposal digest instead of reading an ObjectRef file")
 		dryRun = flags.Bool("dry-run", false, "validate the proposal and its destinations without activating")
-	case commandRollback:
-		proposalPath = flags.String("proposal", "", "JSON file containing the exact published rollback proposal ObjectRef")
 	case commandStatus:
 		targetRaw = flags.String("target", "", "staging, prod/stable or prod/weave-internal")
 		proposalPath = flags.String("proposal", "", "JSON file containing the exact published proposal ObjectRef")
@@ -144,16 +143,11 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 		}
 		defer registry.Close()
 		return servingProposalStatus(ctx, registry, ref, dependencies.writeOutput)
-	case commandApply:
+	default:
 		if (*proposalPath == "") == (*proposalDigest == "") {
 			return errors.New("serving apply requires exactly one of --proposal with an exact immutable proposal reference or --proposal-sha256")
 		}
-		return servingApply(ctx, dependencies, *registryURI, *proposalPath, *proposalDigest, *dryRun, false)
-	default:
-		if *proposalPath == "" {
-			return errors.New("serving rollback requires --proposal with an exact immutable proposal reference")
-		}
-		return servingApply(ctx, dependencies, *registryURI, *proposalPath, "", false, true)
+		return servingApply(ctx, dependencies, *registryURI, *proposalPath, *proposalDigest, *dryRun)
 	}
 }
 
@@ -206,9 +200,8 @@ func servingTargetStatus(ctx context.Context, dependencies servingDependencies, 
 }
 
 // servingApply drives one proposal through the controller. A dry run stops after destination
-// validation; rollback additionally requires the proposal to declare the rollback scope so the
-// operator's stated intent and the proposal's transition cannot disagree.
-func servingApply(ctx context.Context, dependencies servingDependencies, root, proposalPath, proposalDigest string, dryRun, rollback bool) error {
+// validation; a rollback-scoped proposal additionally has its source validated by the controller.
+func servingApply(ctx context.Context, dependencies servingDependencies, root, proposalPath, proposalDigest string, dryRun bool) error {
 	var proposalRef policyregistry.ObjectRef
 	if proposalPath != "" {
 		if err := readServingReference(proposalPath, &proposalRef); err != nil {
@@ -252,18 +245,11 @@ func servingApply(ctx context.Context, dependencies servingDependencies, root, p
 		return errors.New("registry returned the wrong manifest kind for the proposal")
 	}
 	proposal := typed.View()
-	activate := controller.Activate
-	if rollback {
-		if proposal.Scope != policyregistry.ChangeRollback {
-			return fmt.Errorf("serving rollback requires a proposal with scope %q, got %q; use `policyctl serving apply` for forward changes", policyregistry.ChangeRollback, proposal.Scope)
-		}
-		activate = controller.Rollback
-	}
 	getenv := dependencies.getenv
 	if getenv == nil {
 		getenv = func(string) string { return "" }
 	}
-	activation, err := activate(ctx, proposalRef, workflowActorFor(getenv, proposal))
+	activation, err := controller.Activate(ctx, proposalRef, workflowActorFor(getenv, proposal))
 	if err != nil {
 		return err
 	}

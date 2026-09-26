@@ -18,8 +18,7 @@ import (
 func TestServingControllerLazilyBootstrapsStatePathFromLegacyState(t *testing.T) {
 	ctx := context.Background()
 	store, controller, initialSet := controllerFixture(t)
-	legacy, legacyProposal := activateFixture(t, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
-	store.publish(t, policyregistry.ServingProposals, legacyProposal)
+	legacy, _ := storedActivateFixture(t, store, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
 	legacy.Generation = 7
 	store.legacyStates[initialSet.Target] = legacy
 	legacyBefore, err := json.Marshal(legacy.State)
@@ -30,46 +29,35 @@ func TestServingControllerLazilyBootstrapsStatePathFromLegacyState(t *testing.T)
 	require.True(t, observed.LegacyPath)
 	require.EqualValues(t, 7, observed.Generation)
 
-	for _, shape := range proposalShapes {
-		t.Run(string(shape), func(t *testing.T) {
-			store.legacyStates[initialSet.Target] = legacy
-			delete(store.states, initialSet.Target)
-			store.casCalls = 0
+	firstProposal := storedProposal(t, store, observed, initialSet, servingEpoch)
+	firstRef := store.publishArtifact(t, policyregistry.ServingProposal, firstProposal)
+	first, err := controller.Activate(ctx, firstRef, "workflow")
+	require.NoError(t, err)
+	require.False(t, first.Snapshot.LegacyPath)
+	require.EqualValues(t, 1, first.Snapshot.Generation, "the new path is created with DoesNotExist, not CASed on the legacy generation")
+	require.Equal(t, first.Snapshot, store.states[initialSet.Target])
+	require.Equal(t, legacy, store.legacyStates[initialSet.Target])
 
-			firstProposal := fixtureProposal(t, observed, initialSet, servingEpoch)
-			require.EqualValues(t, 7, firstProposal.ExpectedGeneration, "v1 proposals still transcribe the legacy generation operators observed")
-			_, firstRef := publishShaped(t, store, shape, firstProposal)
-			first, err := controller.Activate(ctx, firstRef, "workflow")
-			require.NoError(t, err)
-			require.False(t, first.Snapshot.LegacyPath)
-			require.EqualValues(t, 1, first.Snapshot.Generation, "the new path is created with DoesNotExist, not CASed on the legacy generation")
-			require.Equal(t, first.Snapshot, store.states[initialSet.Target])
-			require.Equal(t, legacy, store.legacyStates[initialSet.Target])
+	// A second operator who also read the legacy object must not overwrite the migration.
+	_, err = store.CompareAndSwapServingState(ctx, legacy.State, observed.WriteGeneration())
+	require.ErrorIs(t, err, policyregistry.ErrConflict)
 
-			// A second operator who also read the legacy object must not overwrite the migration.
-			_, err = store.CompareAndSwapServingState(ctx, legacy.State, observed.WriteGeneration())
-			require.ErrorIs(t, err, policyregistry.ErrConflict)
+	current, err := store.ReadServingState(ctx, initialSet.Target)
+	require.NoError(t, err)
+	require.Equal(t, first.Snapshot, current)
+	secondProposal := storedProposal(t, store, current, variantSet(t, store, initialSet, "worker-0002"), servingEpoch)
+	second, err := controller.Activate(ctx, store.publishArtifact(t, policyregistry.ServingProposal, secondProposal), "workflow")
+	require.NoError(t, err)
+	require.EqualValues(t, 2, second.Snapshot.Generation)
+	require.Equal(t, first.Activation.ID, second.Snapshot.State.Activations[first.Activation.ID].ID)
 
-			current, err := store.ReadServingState(ctx, initialSet.Target)
-			require.NoError(t, err)
-			require.Equal(t, first.Snapshot, current)
-			secondProposal := fixtureProposal(t, current, initialSet, servingEpoch)
-			_, secondRef := publishShaped(t, store, shape, secondProposal)
-			second, err := controller.Activate(ctx, secondRef, "workflow")
-			require.NoError(t, err)
-			require.EqualValues(t, 2, second.Snapshot.Generation)
-			require.Equal(t, first.Activation.ID, second.Snapshot.State.Activations[first.Activation.ID].ID)
-
-			stale := fixtureProposal(t, observed, initialSet, servingEpoch)
-			_, staleRef := publishShaped(t, store, shape, stale)
-			_, err = controller.Activate(ctx, staleRef, "workflow")
-			require.ErrorIs(t, err, policyregistry.ErrConflict, "a proposal frozen against the legacy snapshot (v1: generation, v2: previous_selection_set) cannot apply to the migrated path")
-			require.Equal(t, legacy, store.legacyStates[initialSet.Target])
-			legacyAfter, err := json.Marshal(store.legacyStates[initialSet.Target].State)
-			require.NoError(t, err)
-			require.Equal(t, legacyBefore, legacyAfter)
-		})
-	}
+	stale := storedProposal(t, store, observed, initialSet, servingEpoch)
+	_, err = controller.Activate(ctx, store.publishArtifact(t, policyregistry.ServingProposal, stale), "workflow")
+	require.ErrorIs(t, err, policyregistry.ErrConflict, "a proposal frozen against the legacy snapshot cannot apply to the migrated path")
+	require.Equal(t, legacy, store.legacyStates[initialSet.Target])
+	legacyAfter, err := json.Marshal(store.legacyStates[initialSet.Target].State)
+	require.NoError(t, err)
+	require.Equal(t, legacyBefore, legacyAfter)
 }
 
 func TestGCSCompareAndSwapServingStateMigratesLegacyStateToNewPathOnce(t *testing.T) {

@@ -24,6 +24,11 @@ const (
 // MaxServingRequestIDLength bounds the workflow-minted audit key recorded on proposals and activations.
 const MaxServingRequestIDLength = 128
 
+// ErrSelectionSetLayoutFloor rejects an activation whose new selection set is not stored under
+// the artifacts/ layout. Historical v1 activations stay readable and withdrawable; only the set
+// a new activation would serve is floored, so a rollback to a v1 set fails closed.
+var ErrSelectionSetLayoutFloor = errors.New("new activations require an artifacts/ selection set")
+
 // ValidateServingRequestID accepts any non-empty bounded string; request IDs are audit metadata,
 // not identity. Replay is keyed on the proposal reference.
 func ValidateServingRequestID(id string) error {
@@ -147,6 +152,7 @@ func (s ServingControlState) Validate(root string, target ServingTarget) error {
 // replay and status are keyed on the recorded proposal ref, so the activated bytes must carry the
 // digest that ref records. Either proposal version is accepted; the incumbent is bound by
 // previous_selection_set content, and a v1 proposal additionally pins the generation it previewed.
+// The selection set a new activation would serve must be stored under the artifacts/ layout.
 func NextServingActivation(snapshot ServingStateSnapshot, proposalPayload []byte, proposalRef ObjectRef, root, workflowActor string, now time.Time) (ActivationResult, error) {
 	manifest, err := DecodeServingObject(proposalPayload, root, ServingProposal, proposalRef)
 	if err != nil {
@@ -181,6 +187,9 @@ func NextServingActivation(snapshot ServingStateSnapshot, proposalPayload []byte
 		return ActivationResult{}, errors.New("bootstrap requires an absent target state")
 	} else if proposal.PreviousSelectionSet != nil {
 		return ActivationResult{}, fmt.Errorf("proposal binds a previous selection set but the target has no activation: %w", ErrConflict)
+	}
+	if !isServingArtifactURI(proposal.SelectionSet.URI, root) {
+		return ActivationResult{}, fmt.Errorf("selection set %s is stored outside the artifacts/ layout: %w", proposal.SelectionSet.SHA256, ErrSelectionSetLayoutFloor)
 	}
 	if proposal.ExpectedGeneration != nil && snapshot.Generation != *proposal.ExpectedGeneration {
 		return ActivationResult{}, fmt.Errorf("target generation changed; create a new preview: %w", ErrConflict)
