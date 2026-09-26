@@ -50,6 +50,7 @@ import (
 	"weave-os/router/internal/websearch"
 
 	"github.com/google/uuid"
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
@@ -369,20 +370,12 @@ type Service struct {
 	// webSearch executes Anthropic's native web-search server tool for
 	// upstreams that reject it. nil leaves such turns on normal routing.
 	webSearch websearch.Executor
-	// compactionSummarizer produces the structured summary for the proactive
-	// context-window compaction cascade (maybeCompact). nil disables Tier-3
-	// summarization (the cascade still runs Tier-1 cleanup + trim rescue).
-	compactionSummarizer CompactionSummarizer
 	// compactionHandoverSummarizer serves runCompactionHandover under its own
 	// policy purpose; nil reuses summarizer.
 	compactionHandoverSummarizer handover.Summarizer
-	// compactionTriggerPct is the fraction of the largest eligible model's
-	// context window at which the compaction cascade engages. Zero disables
-	// compaction entirely.
-	compactionTriggerPct float64
-	// compactionModel is the Anthropic-family model the cascade summarizes
-	// with (and Claude Code's own compaction turn is pinned to) when the
-	// session has no warm Anthropic pin. Empty means policy.PrecompactionDefaultModel.
+	// compactionModel is the Anthropic-family model Claude Code's own
+	// compaction turn is pinned to when the session has no warm Anthropic
+	// pin. Empty means policy.PrecompactionDefaultModel.
 	compactionModel string
 	// compactionHardPinEnabled routes Claude Code's own compaction turn through
 	// compactionHardPin instead of the generic utility hard-pin. Off unless
@@ -1391,6 +1384,48 @@ func excludeContextOverflowModels(est, sigSavings, outputReserve int, enabledPro
 	return out, overflowed
 }
 
+// admitWidestOnTotalOverflow reports the largest-window overflowed models to
+// re-admit when the context pre-filter left no model in available routable.
+// The estimate overcounts (÷4 over JSON bytes), so it alone never rules out
+// every model: the upstream decides, and a real overflow reaches the client as
+// its native prompt-too-long error so the client compacts.
+func admitWidestOnTotalOverflow(ruledOut map[string]struct{}, overflowed []string, available, enabledProviders map[string]struct{}) []string {
+	if len(overflowed) == 0 {
+		return nil
+	}
+	for model := range available {
+		if _, out := ruledOut[model]; !out {
+			return nil
+		}
+	}
+	widest := 0
+	for _, model := range overflowed {
+		widest = max(widest, minContextWindowForModel(model, enabledProviders))
+	}
+	var admitted []string
+	for _, model := range overflowed {
+		if minContextWindowForModel(model, enabledProviders) == widest {
+			admitted = append(admitted, model)
+		}
+	}
+	return admitted
+}
+
+// withoutModels returns set minus models, copying only when it must change.
+func withoutModels(set map[string]struct{}, models []string) map[string]struct{} {
+	if len(set) == 0 || len(models) == 0 {
+		return set
+	}
+	out := make(map[string]struct{}, len(set))
+	for model := range set {
+		out[model] = struct{}{}
+	}
+	for _, model := range models {
+		delete(out, model)
+	}
+	return out
+}
+
 // gemini3xRequiresSignedHistory reports whether model is a Gemini 3.x model,
 // which 400s (INVALID_ARGUMENT) when the request history carries function-call
 // parts lacking the thoughtSignature Gemini issued. Scoped by family name; if
@@ -2143,21 +2178,6 @@ func (s *Service) WithCompactionHandoverSummarizer(sz handover.Summarizer) *Serv
 // those turns on normal routing.
 func (s *Service) WithWebSearchExecutor(ex websearch.Executor) *Service {
 	s.webSearch = ex
-	return s
-}
-
-// WithCompaction installs the summarizer and trigger threshold for the
-// proactive context-window compaction cascade (maybeCompact). pct == 0
-// disables compaction (operators set ROUTER_COMPACTION_PCT=0 to turn the
-// cascade off); an out-of-range pct (negative or > 1) falls back to
-// DefaultCompactionTriggerPct. A nil summarizer leaves Tier-3 summarization off
-// (Tier-1 cleanup + trim rescue still run).
-func (s *Service) WithCompaction(cs CompactionSummarizer, pct float64) *Service {
-	s.compactionSummarizer = cs
-	if pct < 0 || pct > 1 {
-		pct = DefaultCompactionTriggerPct
-	}
-	s.compactionTriggerPct = pct
 	return s
 }
 
@@ -3598,59 +3618,22 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// Snapshot inbound (client-sent) state BEFORE any env rewrite. The
 	// compaction tracker, spiral scan, and tool-output telemetry must compare
-	// what the client actually sent, not a router-shortened body — either the
-	// proactive compaction just below or runTurnLoop's switch-handover rewrite.
+	// what the client actually sent, not a router-shortened body from
+	// runTurnLoop's switch-handover rewrite.
 	inboundToolCallCount := len(env.AssistantToolCallSignatures())
 	inboundLastUser := env.LastUserMessage()
 
-	// Proactive context-window compaction: shrink an over-long conversation to
-	// fit the largest eligible model BEFORE routing, so a genuinely huge
-	// session is compacted (à la Claude Code) instead of dead-ending in the
-	// scorer with no eligible provider. Mutates env; feats is recomputed after.
-	maxEligibleWindow := s.maxEligibleContextWindow(baseExcluded, enabledProviders, env.SignatureTokenSavings())
-	var compRes compactionResult
-	if !agentShadowMode && !preparingHandoff(ctx) && handoffFromContext(ctx) == nil {
-		var compErr error
-		compRes, compErr = s.maybeCompact(ctx, env, compactionInput{
-			TurnType:      turntype.DetectFromEnvelope(env, feats, ""),
-			OutputReserve: outputReserve,
-			MaxWindow:     maxEligibleWindow,
-			ClientBudget:  requestcontext.ClientBudgetFrom(ctx),
-			ClientApp:     ClientIdentityFrom(ctx).ClientApp,
-			PreferredSummarizer: func() string {
-				if blindExperimentPassthroughActive(ctx) {
-					return ""
-				}
-				return s.compactionPreferredSummarizer(ctx, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-			},
-			Headers: r.Header,
-			Scope:   s.summarizerScope(ctx, enabledProviders, baseExcluded),
-		})
-		if compErr != nil {
-			log.Warn("Compaction could not fit request to any eligible model",
-				"err", compErr, "final_estimate", compRes.FinalEstimate, "max_window", maxEligibleWindow, "requested_model", feats.Model)
-			return compErr
-		}
-		if compRes.Applied {
-			feats = env.RoutingFeatures(embedFlag)
-			log.Info("Proactive compaction applied",
-				"tool_results_cleared", compRes.ToolResultsCleared,
-				"summarized", compRes.Summarized,
-				"summary_model", compRes.SummaryModel,
-				"trimmed_to_recent", compRes.TrimmedToRecent,
-				"final_estimate", compRes.FinalEstimate,
-			)
-		}
-	}
-
 	overflowEstimate := env.ContextOverflowTokenEstimate()
 	excluded, ctxOverflowed := excludeContextOverflowModels(overflowEstimate, env.SignatureTokenSavings(), outputReserve, enabledProviders, baseExcluded, s.availableModels)
+	overflowAdmitted := admitWidestOnTotalOverflow(excluded, ctxOverflowed, s.availableModels, enabledProviders)
+	excluded = withoutModels(excluded, overflowAdmitted)
 	if len(ctxOverflowed) > 0 {
 		log.Info("context window pre-filter: excluded over-capacity models",
 			"overflow_token_estimate", overflowEstimate,
 			"output_reserve", outputReserve,
-			"excluded_count", len(ctxOverflowed),
+			"excluded_count", len(ctxOverflowed)-len(overflowAdmitted),
 			"excluded_models", strings.Join(ctxOverflowed, ","),
+			"admitted_for_upstream", strings.Join(overflowAdmitted, ","),
 		)
 	}
 	excluded, geminiUnsigned := excludeGemini3xOnUnsignedHistory(env, excluded, s.availableModels)
@@ -3676,7 +3659,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		ConversationMessages:         conversationMessagesForRouting(env),
 		AvailableTools:               availableToolsForRouting(env),
 		Tools:                        toolsForRouting(env),
-		HistoryTruncated:             compRes.Applied,
 		OrganizationID:               externalID,
 		// Keep this tied to client-visible history so a later feedback command
 		// can correlate with the route even if local compaction rewrites env.
@@ -3688,7 +3670,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		GatewayProviders:                 s.gatewayProvidersForRequest(ctx),
 		ExcludedModels:                   excluded,
 		AllowedModels:                    allowedModelsForRequest(ctx),
-		SafetyExcludedModels:             s.safetyExcludedModels(env, outputReserve, enabledProviders),
+		SafetyExcludedModels:             withoutModels(s.safetyExcludedModels(env, outputReserve, enabledProviders), overflowAdmitted),
 		PreferredModels:                  s.preferredModelsForRequest(ctx),
 		SubscriptionStatePreferredModels: subscriptionStatePreferredModelsFromContext(ctx),
 		RoutingKnobs:                     routingKnobsForRequest(ctx),
@@ -3876,7 +3858,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// client-trim detector as a false positive), so a compaction handover here
 	// would be a redundant summarizer call that also discards the recent-turn
 	// tail maybeCompact deliberately kept.
-	if !agentShadowMode && !routeRes.AuthoritativePerTurn && decision.Provider != providers.ProviderAnthropic && !routeRes.HardPinned && !routeRes.Handover.Invoked && !compRes.Applied && routeRes.PrefixTrimmed {
+	if !agentShadowMode && !routeRes.AuthoritativePerTurn && decision.Provider != providers.ProviderAnthropic && !routeRes.HardPinned && !routeRes.Handover.Invoked && routeRes.PrefixTrimmed {
 		log.Info("Context trimming detected on non-Anthropic route; rewriting context with handover summary",
 			"message_count", feats.MessageCount,
 			"tool_call_count", inboundToolCallCount,
@@ -5108,9 +5090,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	var subscriberSettlement subscriberSettlementState
 	if proxyErr == nil && !agentShadowMode {
 		subscriberSettlement = s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
-		if compRes.Summarized {
-			s.billCompactionSummary(ctx, requestID, externalID, compRes.SummaryUsage)
-		}
 		if compactionHandoverOutcome.Invoked && !compactionHandoverOutcome.FallbackToFullHistory {
 			s.billAuxiliaryInference(ctx, requestID, auxSuffixCompactionHandoverSummry, externalID, compactionHandoverOutcome.SummaryUsage)
 		}
@@ -6600,59 +6579,21 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	baseExcludedOAI := s.excludeCodexOAuthOnlyModels(ctx, r.Header, enabledProviders, s.excludedModelsForRequest(ctx))
 	baseExcludedOAI = s.excludeUnavailableSubscriptionModels(ctx, r.Header, enabledProviders, baseExcludedOAI)
 
-	// Snapshot the inbound tool-output size before any env rewrite (proactive
-	// compaction below, or runTurnLoop's switch handover); see toolResultBytesPtr.
+	// Snapshot the inbound tool-output size before any env rewrite
+	// (runTurnLoop's switch handover); see toolResultBytesPtr.
 	inboundLastUser := env.LastUserMessage()
-
-	// Proactive context-window compaction, as in ProxyMessages. Skipped for
-	// Codex passthrough bodies, which are forwarded verbatim.
-	var compResOAI compactionResult
-	if !responsesPassthrough {
-		maxEligibleWindowOAI := s.maxEligibleContextWindow(baseExcludedOAI, enabledProviders, env.SignatureTokenSavings())
-		var compErrOAI error
-		compResOAI, compErrOAI = s.maybeCompact(ctx, env, compactionInput{
-			TurnType:      turntype.Detect(env, feats, subAgentHint, ClientIdentityFrom(ctx).OpenCodeAgent),
-			OutputReserve: outputReserveOAI,
-			MaxWindow:     maxEligibleWindowOAI,
-			ClientBudget:  requestcontext.ClientBudgetFrom(ctx),
-			ClientApp:     ClientIdentityFrom(ctx).ClientApp,
-			PreferredSummarizer: func() string {
-				if blindExperimentPassthroughActive(ctx) {
-					return ""
-				}
-				return s.compactionPreferredSummarizer(ctx, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-			},
-			Headers: r.Header,
-			Scope:   s.summarizerScope(ctx, enabledProviders, baseExcludedOAI),
-		})
-		if compErrOAI != nil {
-			log.Warn("Compaction could not fit request to any eligible model",
-				"err", compErrOAI, "final_estimate", compResOAI.FinalEstimate, "max_window", maxEligibleWindowOAI, "requested_model", feats.Model)
-			return compErrOAI
-		}
-		if compResOAI.Applied {
-			feats = env.RoutingFeatures(embedFlag)
-			if codexTitleGen {
-				feats.TitleGenHint = true
-			}
-			log.Info("Proactive compaction applied",
-				"tool_results_cleared", compResOAI.ToolResultsCleared,
-				"summarized", compResOAI.Summarized,
-				"summary_model", compResOAI.SummaryModel,
-				"trimmed_to_recent", compResOAI.TrimmedToRecent,
-				"final_estimate", compResOAI.FinalEstimate,
-			)
-		}
-	}
 
 	overflowEstimateOAI := env.ContextOverflowTokenEstimate()
 	excludedOAI, ctxOverflowedOAI := excludeContextOverflowModels(overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI, enabledProviders, baseExcludedOAI, s.availableModels)
+	overflowAdmittedOAI := admitWidestOnTotalOverflow(excludedOAI, ctxOverflowedOAI, s.availableModels, enabledProviders)
+	excludedOAI = withoutModels(excludedOAI, overflowAdmittedOAI)
 	if len(ctxOverflowedOAI) > 0 {
 		log.Info("context window pre-filter: excluded over-capacity models",
 			"overflow_token_estimate", overflowEstimateOAI,
 			"output_reserve", outputReserveOAI,
-			"excluded_count", len(ctxOverflowedOAI),
+			"excluded_count", len(ctxOverflowedOAI)-len(overflowAdmittedOAI),
 			"excluded_models", strings.Join(ctxOverflowedOAI, ","),
+			"admitted_for_upstream", strings.Join(overflowAdmittedOAI, ","),
 		)
 	}
 	excludedOAI, geminiUnsignedOAI := excludeGemini3xOnUnsignedHistory(env, excludedOAI, s.availableModels)
@@ -6676,7 +6617,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		ConversationMessages:         conversationMessagesForRouting(env),
 		AvailableTools:               availableToolsForRouting(env),
 		Tools:                        toolsForRouting(env),
-		HistoryTruncated:             compResOAI.Applied,
 		// Keep this tied to client-visible history so a later feedback command
 		// can correlate with the route even if local compaction rewrites env.
 		FeedbackKey:                      hex.EncodeToString(sessionKey[:]),
@@ -6687,7 +6627,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		GatewayProviders:                 s.gatewayProvidersForRequest(ctx),
 		ExcludedModels:                   excludedOAI,
 		AllowedModels:                    allowedModelsForRequest(ctx),
-		SafetyExcludedModels:             s.safetyExcludedModels(env, outputReserveOAI, enabledProviders),
+		SafetyExcludedModels:             withoutModels(s.safetyExcludedModels(env, outputReserveOAI, enabledProviders), overflowAdmittedOAI),
 		PreferredModels:                  s.preferredModelsForRequest(ctx),
 		SubscriptionStatePreferredModels: subscriptionStatePreferredModelsFromContext(ctx),
 		RoutingKnobs:                     routingKnobsForRequest(ctx),
@@ -6882,7 +6822,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// (stale bytes); pre-routing readers of responsesPassthrough already ran.
 	responsesEndpointKey := EffectiveBaseURL(ctx, decision.Provider)
 	promotedToResponses := false
-	if !responsesPassthrough && !compResOAI.Applied && !routeRes.Handover.Invoked &&
+	if !responsesPassthrough && !routeRes.Handover.Invoked &&
 		decision.Provider == providers.ProviderOpenAI &&
 		translate.UseOpenAIResponsesAPI(translate.ResponsesRoute{
 			Provider:       decision.Provider,
@@ -7893,9 +7833,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	var subscriberSettlement subscriberSettlementState
 	if proxyErr == nil {
 		subscriberSettlement = s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
-		if compResOAI.Summarized {
-			s.billCompactionSummary(ctx, requestID, externalID, compResOAI.SummaryUsage)
-		}
 	}
 
 	// See ProxyMessages for the two-strike eviction rationale.
@@ -8165,8 +8102,16 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		// envelope — terminate the SSE stream with response.failed so a terminal
 		// Responses client sees a clean failure instead of "stream closed before
 		// response.completed". A no-op before anything is streamed, so the
-		// handler still writes the JSON error envelope in that case.
-		if finErr := wrapper.FinalizeError(proxyErr); finErr != nil {
+		// handler still writes the JSON error envelope in that case. An overflow
+		// always takes the Responses-native failure: Codex compacts only on an
+		// in-stream response.failed carrying context_length_exceeded.
+		finalize := func() error { return wrapper.FinalizeError(proxyErr) }
+		if isContextOverflow(proxyErr) {
+			finalize = func() error {
+				return wrapper.FailContextOverflow(gjson.GetBytes(chatBody, "stream").Bool(), openAIContextOverflowCode, contextOverflowMessage)
+			}
+		}
+		if finErr := finalize(); finErr != nil {
 			observability.FromContext(ctx).Error("Failed to finalize Responses error stream", "err", finErr)
 		}
 		if deferredLog.escalation != nil {

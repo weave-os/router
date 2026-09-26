@@ -1,7 +1,6 @@
 package proxy_test
 
 import (
-	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -15,9 +14,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/cache"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/sessionpin"
-	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -180,57 +177,4 @@ func TestService_ProxyMessages_HandoverSwitchToOpenAIEmitsResponses(t *testing.T
 	assert.Contains(t, sent, "HANDOVER SUMMARY MARKER", "the rewritten envelope must reach the upstream")
 	assert.Equal(t, "cached answer", gjson.GetBytes(rec.Body.Bytes(), "content.0.text").String(),
 		"the client must still get an Anthropic message")
-}
-
-type fakeChatCompactionSummarizer struct {
-	summary string
-	calls   int
-}
-
-func (f *fakeChatCompactionSummarizer) SummarizeForCompaction(context.Context, *translate.RequestEnvelope, proxy.CompactionTarget, router.Request, int) (string, handover.Usage, error) {
-	f.calls++
-	return f.summary, handover.Usage{InputTokens: 10, OutputTokens: 4}, nil
-}
-
-func (f *fakeChatCompactionSummarizer) Provider() string { return providers.ProviderAnthropic }
-
-// Compaction rewrites the envelope before emit, so a compacted chat turn must
-// still be emitted as Responses and carry the summary — the rewritten history,
-// never the original messages.
-func TestService_ProxyOpenAIChatCompletion_CompactedTurnStillEmitsResponses(t *testing.T) {
-	summarizer := &fakeChatCompactionSummarizer{summary: "COMPACTED HISTORY SUMMARY"}
-	provider := &fakeProvider{proxyResponse: responsesTextUpstream}
-	svc := openAIChatService(provider, "gpt-5.6-luna").
-		// gpt-4o's 128K window is the largest eligible one here, so a history
-		// past it forces the cascade all the way to summarization.
-		WithAvailableModels(map[string]struct{}{"gpt-4o": {}}).
-		WithCompaction(summarizer, proxy.DefaultCompactionTriggerPct)
-
-	var sb strings.Builder
-	sb.WriteString(`{"model":"auto","stream":false,"max_tokens":256,"messages":[`)
-	for i := range 400 {
-		if i > 0 {
-			sb.WriteString(",")
-		}
-		role := "user"
-		if i%2 == 1 {
-			role = "assistant"
-		}
-		sb.WriteString(`{"role":"` + role + `","content":"` + strings.Repeat("history ", 200) + `"}`)
-	}
-	sb.WriteString(`],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object","properties":{"path":{"type":"string"}},"required":["path"]}}}],"reasoning_effort":"medium"}`)
-	body := sb.String()
-
-	rec := httptest.NewRecorder()
-	require.NoError(t, svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec,
-		httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))))
-
-	require.Positive(t, summarizer.calls, "the oversized turn must be compacted")
-	require.Len(t, provider.proxyBodies, 1)
-	assert.Equal(t, providers.EndpointResponses, provider.proxyEndpoints[0],
-		"a rewritten envelope must still be emitted onto Responses")
-	sent := provider.proxyBodies[0]
-	assert.False(t, gjson.GetBytes(sent, "messages").Exists())
-	assert.Contains(t, string(sent), "COMPACTED HISTORY SUMMARY")
-	assert.Equal(t, "chat.completion", gjson.GetBytes(rec.Body.Bytes(), "object").String())
 }

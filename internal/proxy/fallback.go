@@ -415,7 +415,9 @@ func prioritizeSelectedArmBinding(
 // write, breaking HTTP framing. net/http recomputes Content-Length itself.
 func flushBufferedIfPresent(w http.ResponseWriter, err error) {
 	var resp *providers.UpstreamErrorResponse
-	if !errors.As(err, &resp) {
+	// An overflow is left to the ingress handler, which answers in the
+	// client's native prompt-too-long shape.
+	if !errors.As(err, &resp) || isUpstreamContextOverflow(err) {
 		return
 	}
 	for k, vs := range resp.Headers {
@@ -444,6 +446,9 @@ func emitAnthropicSSEErrorEvent(sink http.ResponseWriter, err error) error {
 	status := http.StatusBadGateway
 	body := []byte(`{"type":"error","error":{"type":"api_error","message":"upstream stream failed"}}`)
 	switch cls, classified := ClassifyDispatchError(err); {
+	case classified && cls.Kind == DispatchErrorContextWindowExceeded:
+		status = cls.Status
+		body = anthropicErrorFrameBody(cls)
 	case errors.As(err, &resp):
 		status = resp.Status
 		body = translate.OpenAIToAnthropicError(resp.Body)
@@ -468,6 +473,9 @@ func emitOpenAISSEErrorEvent(sink http.ResponseWriter, err error) error {
 	status := http.StatusBadGateway
 	body := []byte(`{"error":{"message":"upstream stream failed","type":"server_error","code":"upstream_error"}}`)
 	switch cls, classified := ClassifyDispatchError(err); {
+	case classified && cls.Kind == DispatchErrorContextWindowExceeded:
+		status = cls.Status
+		body = openAIErrorFrameBody(cls)
 	case errors.As(err, &resp):
 		status = resp.Status
 		body = resp.Body
@@ -495,8 +503,12 @@ func anthropicErrorFrameBody(cls DispatchErrorClass) []byte {
 
 // openAIErrorFrameBody is anthropicErrorFrameBody's OpenAI-shape counterpart.
 func openAIErrorFrameBody(cls DispatchErrorClass) []byte {
-	return []byte(fmt.Sprintf(`{"error":{"message":%q,"type":%q,"code":"upstream_error"}}`,
-		cls.Message, errorFrameType(cls)))
+	code := OpenAIErrorCode(cls.Kind)
+	if code == "" {
+		code = "upstream_error"
+	}
+	return []byte(fmt.Sprintf(`{"error":{"message":%q,"type":%q,"code":%q}}`,
+		cls.Message, errorFrameType(cls), code))
 }
 
 func errorFrameType(cls DispatchErrorClass) string {
@@ -520,7 +532,7 @@ func emitGeminiSSEErrorEvent(sink http.ResponseWriter) {
 // err is not an *UpstreamErrorResponse.
 func flushUpstreamErrorAsAnthropic(w http.ResponseWriter, err error) {
 	var resp *providers.UpstreamErrorResponse
-	if !errors.As(err, &resp) {
+	if !errors.As(err, &resp) || isUpstreamContextOverflow(err) {
 		return
 	}
 	for k, vs := range resp.Headers {

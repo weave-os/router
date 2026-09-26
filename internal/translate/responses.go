@@ -648,6 +648,11 @@ type ResponsesWriter struct {
 	responseID string
 	createdAt  int64
 
+	// failureCode/failureMessage override the generic response.failed error;
+	// set by FailContextOverflow so clients see the native overflow code.
+	failureCode    string
+	failureMessage string
+
 	statusCode       int
 	streaming        bool
 	httpHeadersSent  bool
@@ -1891,10 +1896,7 @@ func (t *ResponsesWriter) FinalizeError(err error) error {
 		} else {
 			env["output"] = []any{}
 		}
-		env["error"] = map[string]any{
-			"code":    "upstream_error",
-			"message": "Upstream call failed.",
-		}
+		env["error"] = t.failureError()
 		sequence := int64(1) + t.nativeSequenceShift
 		if t.nativeLastSequenceSet {
 			sequence = t.nativeLastSequence + 1
@@ -1923,6 +1925,63 @@ func (t *ResponsesWriter) FinalizeError(err error) error {
 		return err
 	}
 	return closeErr
+}
+
+// failureError is the response.failed error object: the generic upstream
+// failure (no upstream internals leak) unless a native code was set.
+func (t *ResponsesWriter) failureError() map[string]any {
+	if t.failureCode != "" {
+		return map[string]any{"code": t.failureCode, "message": t.failureMessage}
+	}
+	return map[string]any{"code": "upstream_error", "message": "Upstream call failed."}
+}
+
+// FailContextOverflow ends the response with the Responses-native overflow
+// failure. Codex compacts only on an in-stream response.failed carrying this
+// code, so a streaming request whose stream has not started gets it opened
+// first; a non-streaming request gets the JSON error envelope.
+func (t *ResponsesWriter) FailContextOverflow(streaming bool, code, message string) error {
+	t.failureCode, t.failureMessage = code, message
+	if !streaming {
+		if t.httpHeadersSent {
+			return nil
+		}
+		body, err := json.Marshal(map[string]any{"error": map[string]any{
+			"message": message, "type": "invalid_request_error", "param": nil, "code": code,
+		}})
+		if err != nil {
+			return err
+		}
+		t.inner.Header().Set("Content-Type", "application/json")
+		t.inner.Header().Del("Content-Length")
+		t.inner.Header().Del("Content-Encoding")
+		t.inner.WriteHeader(http.StatusBadRequest)
+		t.httpHeadersSent = true
+		_, err = t.inner.Write(body)
+		return err
+	}
+	if t.passthrough {
+		if !t.nativeStreamStarted && !t.nativePreludeCreated {
+			t.inner.Header().Set("Content-Type", "text/event-stream")
+			t.inner.Header().Del("Content-Length")
+			t.inner.Header().Del("Content-Encoding")
+			t.streaming = true
+			t.statusCode = http.StatusOK
+			if !t.httpHeadersSent {
+				t.inner.WriteHeader(http.StatusOK)
+				t.httpHeadersSent = true
+			}
+			if err := t.writeNativeEvent("response.created", 0, map[string]any{"response": t.responseEnvelope("in_progress")}); err != nil {
+				return err
+			}
+			t.nativePreludeCreated = true
+		}
+	} else if !t.headersEmitted {
+		if err := t.Prelude(true); err != nil {
+			return err
+		}
+	}
+	return t.FinalizeError(nil)
 }
 
 // processSSEBuffer drains complete chat.completion.chunk events.
@@ -2518,10 +2577,7 @@ func (t *ResponsesWriter) emitCompleted() error {
 func (t *ResponsesWriter) emitFailed() error {
 	env := t.responseEnvelope("failed")
 	env["output"] = t.assembleOutput()
-	env["error"] = map[string]any{
-		"code":    "upstream_error",
-		"message": "Upstream call failed.",
-	}
+	env["error"] = t.failureError()
 	return t.writeEvent("response.failed", map[string]any{
 		"response": env,
 	})

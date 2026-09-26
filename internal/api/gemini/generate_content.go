@@ -128,7 +128,7 @@ func geminiErrorStatus(kind proxy.DispatchErrorKind) string {
 		return "UNIMPLEMENTED"
 	case proxy.DispatchErrorProviderNotConfigured:
 		return "FAILED_PRECONDITION"
-	case proxy.DispatchErrorRequestNotJSONObject:
+	case proxy.DispatchErrorRequestNotJSONObject, proxy.DispatchErrorContextWindowExceeded:
 		return "INVALID_ARGUMENT"
 	case proxy.DispatchErrorNoEligibleProvider:
 		return "FAILED_PRECONDITION"
