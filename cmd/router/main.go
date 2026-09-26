@@ -766,6 +766,11 @@ func main() {
 	// Session-level demotion of the primary arm after a sibling rescue. Off
 	// until baked off against the committed-stream demotion.
 	rescuedFailureArmDemotion := config.GetOr("ROUTER_RESCUED_FAILURE_ARM_DEMOTION", "false") == "true"
+	sessionArmPin, err := flags.ParseSessionArmPinMode(config.GetOr("ROUTER_SESSION_ARM_PIN", string(flags.SessionArmPinOff)))
+	if err != nil {
+		logger.Error("Invalid ROUTER_SESSION_ARM_PIN; refusing to boot", "err", err)
+		panic(err)
+	}
 	// Upstream 429s as transient throttling: cooldown demotion, fail-open
 	// rescue and Retry-After-aware same-binding retry. Off until baked off.
 	transientRateLimit := config.GetOr("ROUTER_TRANSIENT_RATE_LIMIT", "false") == "true"
@@ -1217,6 +1222,7 @@ func main() {
 		flags.KeyCCWorkspaceSystemAppend:              boolDefault(ccWorkspaceSystemAppend),
 		flags.KeyCommittedStreamArmDemotion:           boolDefault(committedStreamArmDemotion),
 		flags.KeyRescuedFailureArmDemotion:            boolDefault(rescuedFailureArmDemotion),
+		flags.KeySessionArmPin:                        string(sessionArmPin),
 		flags.KeyTransientRateLimit:                   boolDefault(transientRateLimit),
 		flags.KeyRateLimitCooldownSeconds:             strconv.Itoa(rateLimitCooldownSeconds),
 		flags.KeyNativeAnthropicResponseSignals:       boolDefault(nativeAnthropicResponseSignals),
@@ -1289,6 +1295,7 @@ func main() {
 		WithAllowedModelsHeader(allowedModelsHeader).
 		WithCommittedStreamArmDemotion(committedStreamArmDemotion).
 		WithRescuedFailureArmDemotion(rescuedFailureArmDemotion).
+		WithSessionArmPin(sessionArmPin).
 		WithTransientRateLimit(transientRateLimit, rateLimitCooldownSeconds).
 		WithNativeAnthropicResponseSignals(nativeAnthropicResponseSignals).
 		WithNativeOpenAIResponseSignals(nativeOpenAIResponseSignals).

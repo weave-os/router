@@ -64,6 +64,33 @@ func ParseAuthoritativeUpgradePolicy(raw string) (AuthoritativeUpgradePolicy, er
 	}
 }
 
+// SessionArmPinMode selects which threads of a client session keep the model
+// chosen on the session's first main-thread turn.
+type SessionArmPinMode string
+
+const (
+	// SessionArmPinOff leaves every turn on per-turn routing.
+	SessionArmPinOff SessionArmPinMode = "off"
+	// SessionArmPinMain anchors the main thread (main-loop and tool-result
+	// turns) to its first automatic decision.
+	SessionArmPinMain SessionArmPinMode = "main"
+	// SessionArmPinAll additionally lets sub-agent dispatch turns of the same
+	// client session inherit the main thread's arm.
+	SessionArmPinAll SessionArmPinMode = "all"
+)
+
+// ParseSessionArmPinMode validates the deployment/override value at the
+// configuration boundary.
+func ParseSessionArmPinMode(raw string) (SessionArmPinMode, error) {
+	mode := SessionArmPinMode(raw)
+	switch mode {
+	case SessionArmPinOff, SessionArmPinMain, SessionArmPinAll:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("session arm pin mode must be off, main, or all, got %q", raw)
+	}
+}
+
 // Registered flag keys. Each corresponds to exactly one entry in Registry.
 const (
 	KeyEscalationActiveClassifier           Key = "escalation_active_classifier"
@@ -110,6 +137,7 @@ const (
 	KeyRateLimitCooldownSeconds             Key = "rate_limit_cooldown_seconds"
 	KeyNativeAnthropicResponseSignals       Key = "native_anthropic_response_signals"
 	KeyNativeOpenAIResponseSignals          Key = "native_openai_response_signals"
+	KeySessionArmPin                        Key = "session_arm_pin"
 )
 
 // These keys were valid organization overrides before struggle escalation was
@@ -415,6 +443,13 @@ var Registry = []Definition{
 		Description:    "Honor the x-weave-allowed-models request header (per-request routing subset) for this organization even when the installation is not authorized for policy headers.",
 		OrgOverridable: true,
 	},
+	{
+		Key:            KeySessionArmPin,
+		EnvVar:         "ROUTER_SESSION_ARM_PIN",
+		Kind:           KindString,
+		Description:    "Keep the model chosen on a session's first main-thread turn for the rest of the session: off (default, per-turn routing), main (main-loop and tool-result turns), or all (sub-agent dispatch turns of the same client session inherit the arm). Explicit forces, request restrictions, automatic exclusions, context fit, and same-turn upstream rescue still override it.",
+		OrgOverridable: true,
+	},
 }
 
 // definitions indexes Registry by key for O(1) validation.
@@ -541,6 +576,11 @@ func ValidateOverrides(o Overrides) error {
 			case AuthoritativeUpgradePolicyScore, AuthoritativeUpgradePolicyEvidence, AuthoritativeUpgradePolicyOff:
 			default:
 				return fmt.Errorf("%w: %q must be score, evidence, or off, got %q", ErrInvalidValue, key, value)
+			}
+		}
+		if key == KeySessionArmPin {
+			if _, err := ParseSessionArmPinMode(value); err != nil {
+				return fmt.Errorf("%w: %q %v", ErrInvalidValue, key, err)
 			}
 		}
 	}
