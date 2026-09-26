@@ -54,27 +54,30 @@ func publishSelection(
 	return policyregistry.ServingSelection{Release: releaseRef, Binding: bindingRef, Profile: profile}
 }
 
-// proposalShape selects which contract version a matrix row publishes: v1 objects throughout, a v2
-// proposal whose previous_selection_set and rollback history are v1 (the layout transition), or a
-// v2 proposal on a v2 history.
+// proposalShape selects the history a matrix row activates onto: the v1 state a target recorded
+// before the layout floor (the layout transition), or a v2 history. Every new activation itself is
+// v2 — the floor leaves no v1 shape to activate.
 type proposalShape string
 
 const (
-	shapeV1      proposalShape = "v1"
 	shapeV2Mixed proposalShape = "v2_on_v1_history"
 	shapeV2      proposalShape = "v2"
 )
 
-var proposalShapes = []proposalShape{shapeV1, shapeV2Mixed, shapeV2}
+var proposalShapes = []proposalShape{shapeV2Mixed, shapeV2}
 
-// publishShaped publishes a fixture proposal in the row's shape; v2 shapes fold its selection set and
-// source into artifacts/ objects. The returned manifest is what ValidateProposal sees.
-func publishShaped(t *testing.T, store *servingMemoryStore, shape proposalShape, proposal policyregistry.DeploymentProposal) (policyregistry.ProposalManifest, policyregistry.ObjectRef) {
+// seedHistory gives the row an incumbent: a pre-floor v1 activation, or a v2 one the controller
+// commits itself.
+func seedHistory(t *testing.T, store *servingMemoryStore, controller *policyregistry.ServingController, shape proposalShape, set policyregistry.SelectionSet) policyregistry.ServingStateSnapshot {
 	t.Helper()
-	if shape == shapeV1 {
-		return proposal, store.publish(t, policyregistry.ServingProposals, proposal)
+	if shape == shapeV2Mixed {
+		snapshot, _ := legacyV1Snapshot(t, store, set)
+		return snapshot
 	}
-	return foldProposal(t, store, proposal)
+	proposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	activated, err := controller.Activate(context.Background(), store.publishArtifact(t, policyregistry.ServingProposal, proposal), "workflow")
+	require.NoError(t, err)
+	return activated.Snapshot
 }
 
 func TestServingProposalScopeMatrixPreservesCompleteProfileInventory(t *testing.T) {
@@ -104,13 +107,7 @@ func TestServingProposalScopeMatrixPreservesCompleteProfileInventory(t *testing.
 					slog.New(slog.NewTextHandler(io.Discard, nil)),
 				)
 				require.NoError(t, err)
-				initialShape := shape
-				if shape == shapeV2Mixed {
-					initialShape = shapeV1
-				}
-				_, initialRef := publishShaped(t, store, initialShape, fixtureProposal(t, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch))
-				initial, err := controller.Activate(context.Background(), initialRef, "workflow")
-				require.NoError(t, err)
+				incumbent := seedHistory(t, store, controller, shape, initialSet)
 
 				oldBinding := *store.object(t, policyregistry.ServingBindings, initialSet.Default.Binding).(*policyregistry.DeploymentBinding)
 				oldBundle := *store.object(t, policyregistry.ServingClassifiers, base.Classifier).(*policyregistry.ClassifierBundle)
@@ -182,15 +179,15 @@ func TestServingProposalScopeMatrixPreservesCompleteProfileInventory(t *testing.
 					}
 				}
 				store.publish(t, policyregistry.ServingSelectionSets, nextSet)
-				proposal := fixtureProposal(t, initial.Snapshot, nextSet, servingEpoch)
+				proposal := storedProposal(t, store, incumbent, nextSet, servingEpoch)
 				proposal.Scope = scope
-				proposal.SourceRelease = sourceRef
+				proposal.SourceCandidate = foldCandidate(t, store, sourceRef)
 				if scope == policyregistry.ChangeProfile {
 					proposal.ProfileKey = profileKeyOne
-					proposal.SourceRelease = nextSet.Profiles[profileKeyOne].Release
+					proposal.SourceCandidate = foldCandidate(t, store, nextSet.Profiles[profileKeyOne].Release)
 				}
-				shaped, shapedRef := publishShaped(t, store, shape, proposal)
-				require.NoError(t, controller.ValidateProposal(context.Background(), shaped))
+				shapedRef := store.publishArtifact(t, policyregistry.ServingProposal, proposal)
+				require.NoError(t, controller.ValidateProposal(context.Background(), proposal))
 				if scope == policyregistry.ChangeProfile {
 					require.NotEqual(t, initialSet.Profiles[profileKeyOne].Profile, nextSet.Profiles[profileKeyOne].Profile)
 				} else {
@@ -200,8 +197,8 @@ func TestServingProposalScopeMatrixPreservesCompleteProfileInventory(t *testing.
 				activated, err := controller.Activate(context.Background(), shapedRef, "workflow")
 				require.NoError(t, err)
 				require.Equal(t, shapedRef, activated.Activation.Proposal)
-				require.Equal(t, shaped.View().SelectionSet, activated.Activation.SelectionSet)
-				require.Equal(t, initial.Snapshot.Generation+1, activated.Snapshot.Generation)
+				require.Equal(t, proposal.View().SelectionSet, activated.Activation.SelectionSet)
+				require.Equal(t, incumbent.Generation+1, activated.Snapshot.Generation)
 
 				tampered := nextSet
 				tampered.Profiles = maps.Clone(nextSet.Profiles)
@@ -222,9 +219,10 @@ func TestServingProposalScopeMatrixPreservesCompleteProfileInventory(t *testing.
 				})
 				binding := *store.object(t, policyregistry.ServingBindings, selection.Binding).(*policyregistry.DeploymentBinding)
 				tampered.Profiles[tamperedKey] = publishSelection(t, store, selection, release, binding.Router, binding.Classifier, &profileRef)
-				proposal.SelectionSet = store.publish(t, policyregistry.ServingSelectionSets, tampered)
-				shaped, _ = publishShaped(t, store, shape, proposal)
-				require.ErrorContains(t, controller.ValidateProposal(context.Background(), shaped), expectedError)
+				store.publish(t, policyregistry.ServingSelectionSets, tampered)
+				_, tamperedRef := foldSelectionSet(t, store, tampered)
+				proposal.SelectionSet = tamperedRef
+				require.ErrorContains(t, controller.ValidateProposal(context.Background(), proposal), expectedError)
 			})
 		}
 	}
@@ -250,7 +248,7 @@ func TestServingProposalTargetMatrixRejectsCrossTargetBindings(t *testing.T) {
 				slog.New(slog.NewTextHandler(io.Discard, nil)),
 			)
 			require.NoError(t, err)
-			proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+			proposal := v1Proposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
 			require.NoError(t, controller.ValidateProposal(context.Background(), proposal))
 
 			wrongTarget := policyregistry.TargetStable
@@ -293,8 +291,8 @@ func heterogeneousLaneFixture(t *testing.T) (*servingMemoryStore, *policyregistr
 	initialSet.Profiles[profileKeyTwo] = registerProfileFixture(t, store, initialSet.Default, profileKeyTwo, publishChangedPolicy(t, store, basePolicy, 0.55))
 	store.publish(t, policyregistry.ServingSelectionSets, initialSet)
 	controller := permissiveController(t, store)
-	initialProposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
-	initial, err := controller.Activate(context.Background(), store.publish(t, policyregistry.ServingProposals, initialProposal), "workflow")
+	initialProposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
+	initial, err := controller.Activate(context.Background(), store.publishArtifact(t, policyregistry.ServingProposal, initialProposal), "workflow")
 	require.NoError(t, err)
 	return store, controller, initialSet, initial
 }
@@ -350,12 +348,12 @@ func routerOnlySet(t *testing.T, store *servingMemoryStore, initialSet policyreg
 	return nextSet
 }
 
-func routerOnlyProposal(t *testing.T, store *servingMemoryStore, snapshot policyregistry.ServingStateSnapshot, set policyregistry.SelectionSet, sourceRef policyregistry.ObjectRef) policyregistry.DeploymentProposal {
+func routerOnlyProposal(t *testing.T, store *servingMemoryStore, snapshot policyregistry.ServingStateSnapshot, set policyregistry.SelectionSet, sourceRef policyregistry.ObjectRef) policyregistry.DeploymentProposalV2 {
 	t.Helper()
 	store.publish(t, policyregistry.ServingSelectionSets, set)
-	proposal := fixtureProposal(t, snapshot, set, servingEpoch)
+	proposal := storedProposal(t, store, snapshot, set, servingEpoch)
 	proposal.Scope = policyregistry.ChangeRouter
-	proposal.SourceRelease = sourceRef
+	proposal.SourceCandidate = foldCandidate(t, store, sourceRef)
 	return proposal
 }
 
@@ -367,7 +365,7 @@ func TestServingProposalScopeMatrixRouterOnlyUpdatesEveryLaneAtomically(t *testi
 	nextSet := routerOnlySet(t, store, initialSet, source, nextRouter)
 	proposal := routerOnlyProposal(t, store, initial.Snapshot, nextSet, sourceRef)
 	require.NoError(t, controller.ValidateProposal(ctx, proposal))
-	forward, err := controller.Activate(ctx, store.publish(t, policyregistry.ServingProposals, proposal), "workflow")
+	forward, err := controller.Activate(ctx, store.publishArtifact(t, policyregistry.ServingProposal, proposal), "workflow")
 	require.NoError(t, err)
 	require.Equal(t, proposal.SelectionSet, forward.Activation.SelectionSet)
 
@@ -404,9 +402,9 @@ func TestServingProposalScopeMatrixRouterOnlyUpdatesEveryLaneAtomically(t *testi
 	require.NotEqual(t, source.Policy, defaultPolicy, "source policy must not leak into the default lane")
 
 	t.Run("exact same-target rollback restores heterogeneous lanes", func(t *testing.T) {
-		rollbackProposal := fixtureProposal(t, forward.Snapshot, initialSet, servingEpoch)
+		rollbackProposal := storedProposal(t, store, forward.Snapshot, initialSet, servingEpoch)
 		rollbackProposal.Scope = policyregistry.ChangeRollback
-		rollbackRef := store.publish(t, policyregistry.ServingProposals, rollbackProposal)
+		rollbackRef := store.publishArtifact(t, policyregistry.ServingProposal, rollbackProposal)
 		prepared, err := controller.Prepare(ctx, rollbackRef)
 		require.NoError(t, err)
 		require.True(t, prepared.Prepared)
@@ -415,7 +413,7 @@ func TestServingProposalScopeMatrixRouterOnlyUpdatesEveryLaneAtomically(t *testi
 		require.Equal(t, initial.Activation.SelectionSet, rollback.Activation.SelectionSet)
 		require.Greater(t, rollback.Snapshot.Generation, forward.Snapshot.Generation)
 
-		crossTarget := fixtureProposal(t, rollback.Snapshot, initialSet, servingEpoch)
+		crossTarget := storedProposal(t, store, rollback.Snapshot, initialSet, servingEpoch)
 		crossTarget.Scope = policyregistry.ChangeRollback
 		crossTarget.Target = policyregistry.TargetStaging
 		require.ErrorContains(t, controller.ValidateProposal(ctx, crossTarget), "targets differ")
@@ -564,9 +562,9 @@ func TestServingProposalScopeMatrixRouterOnlyRejectsHeterogeneousPredecessorConf
 	drifted.Binding = store.publish(t, policyregistry.ServingBindings, driftedBinding)
 	initialSet.Profiles[profileKeyOne] = drifted
 	store.publish(t, policyregistry.ServingSelectionSets, initialSet)
-	snapshot, _ := activateFixture(t, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
-	store.states[initialSet.Target] = snapshot
 	controller := permissiveController(t, store)
+	snapshot, _ := storedActivateFixture(t, store, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
+	store.states[initialSet.Target] = snapshot
 
 	source, sourceRef := routerOnlySource(t, store, initialSet, "5")
 	nextSet := routerOnlySet(t, store, initialSet, source, sharedRouterRevision(t, store, initialSet, source, "worker-0002"))

@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 	"maps"
-	"strings"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/policyregistry"
@@ -16,8 +16,8 @@ import (
 func TestExactRollbackRestoresProfileInventoryAndRetainsSessions(t *testing.T) {
 	ctx := context.Background()
 	store, controller, initialSet := controllerFixture(t)
-	initialProposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
-	initialRef := store.publish(t, policyregistry.ServingProposals, initialProposal)
+	initialProposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
+	initialRef := store.publishArtifact(t, policyregistry.ServingProposal, initialProposal)
 	initial, err := controller.Activate(ctx, initialRef, "workflow")
 	require.NoError(t, err)
 
@@ -25,36 +25,39 @@ func TestExactRollbackRestoresProfileInventoryAndRetainsSessions(t *testing.T) {
 	profileSet.Profiles = maps.Clone(initialSet.Profiles)
 	defaultRelease := store.object(t, policyregistry.ServingReleases, initialSet.Default.Release).(*policyregistry.ServingRelease)
 	profileSet.Profiles[profileKeyOne] = registerProfileFixture(t, store, initialSet.Default, profileKeyOne, defaultRelease.Policy)
-	profileSetRef := store.publish(t, policyregistry.ServingSelectionSets, profileSet)
-	profileProposal := fixtureProposal(t, initial.Snapshot, profileSet, servingEpoch)
+	store.publish(t, policyregistry.ServingSelectionSets, profileSet)
+	profileProposal := storedProposal(t, store, initial.Snapshot, profileSet, servingEpoch)
 	profileProposal.Scope = policyregistry.ChangeProfile
 	profileProposal.ProfileKey = profileKeyOne
-	profileProposal.SourceRelease = profileSet.Profiles[profileKeyOne].Release
-	profileRef := store.publish(t, policyregistry.ServingProposals, profileProposal)
+	profileProposal.SourceCandidate = foldCandidate(t, store, profileSet.Profiles[profileKeyOne].Release)
+	profileRef := store.publishArtifact(t, policyregistry.ServingProposal, profileProposal)
 	forward, err := controller.Activate(ctx, profileRef, "workflow")
 	require.NoError(t, err)
 
-	selectionSets := map[string]policyregistry.SelectionSetView{initialProposal.SelectionSet.SHA256: initialSet.View(), profileSetRef.SHA256: profileSet.View()}
+	selectionSets := storedViews(t, store, initialProposal.SelectionSet, profileProposal.SelectionSet)
 	projection := policyregistry.AdmissionProjection{Target: initialSet.Target, ProfileKey: profileKeyOne, AssignmentGeneration: 1}
 	session, err := policyregistry.SelectSessionRelease(nil, projection, forward.Snapshot, selectionSets, testRegistryRoot, servingEpoch)
 	require.NoError(t, err)
 
-	rollbackProposal := fixtureProposal(t, forward.Snapshot, initialSet, servingEpoch)
-	forwardRemovalRef := store.publish(t, policyregistry.ServingProposals, rollbackProposal)
+	rollbackProposal := storedProposal(t, store, forward.Snapshot, initialSet, servingEpoch)
+	forwardRemovalRef := store.publishArtifact(t, policyregistry.ServingProposal, rollbackProposal)
 	_, err = controller.Prepare(ctx, forwardRemovalRef)
 	require.ErrorContains(t, err, "registered profile keys cannot be removed")
 	_, err = controller.Activate(ctx, forwardRemovalRef, "workflow")
 	require.ErrorContains(t, err, "registered profile keys cannot be removed")
 
 	rollbackProposal.Scope = policyregistry.ChangeRollback
-	rollbackRef := store.publish(t, policyregistry.ServingProposals, rollbackProposal)
+	rollbackRef := store.publishArtifact(t, policyregistry.ServingProposal, rollbackProposal)
 	prepared, err := controller.Prepare(ctx, rollbackRef)
 	require.NoError(t, err)
 	require.True(t, prepared.Prepared)
 	require.Equal(t, forward.Snapshot, store.states[initialSet.Target])
+	// apply, not a rollback verb, commits the rollback-scoped proposal.
 	rollback, err := controller.Activate(ctx, rollbackRef, "workflow")
 	require.NoError(t, err)
 	require.Equal(t, initialProposal.SelectionSet, rollback.Activation.SelectionSet)
+	require.Equal(t, forward.Activation.SelectionSet, *rollbackProposal.PreviousSelectionSet)
+	require.NotNil(t, rollback.Snapshot.State.Activations[forward.Activation.ID].SupersededAt)
 	require.NotEqual(t, initial.Activation.ID, rollback.Activation.ID)
 	require.NotEqual(t, forward.Activation.ID, rollback.Activation.ID)
 	require.Greater(t, rollback.Snapshot.Generation, forward.Snapshot.Generation)
@@ -81,36 +84,34 @@ func TestExactRollbackRestoresProfileInventoryAndRetainsSessions(t *testing.T) {
 func TestExactRollbackRejectsUnservedSetEvenWithHistoricalSource(t *testing.T) {
 	ctx := context.Background()
 	store, controller, selectionSet := controllerFixture(t)
-	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, selectionSet, servingEpoch)
-	initial, err := controller.Activate(ctx, store.publish(t, policyregistry.ServingProposals, proposal), "workflow")
+	proposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, selectionSet, servingEpoch)
+	initial, err := controller.Activate(ctx, store.publishArtifact(t, policyregistry.ServingProposal, proposal), "workflow")
 	require.NoError(t, err)
 	defaultRelease := store.object(t, policyregistry.ServingReleases, selectionSet.Default.Release).(*policyregistry.ServingRelease)
 	selectionSet.Profiles[profileKeyOne] = registerProfileFixture(t, store, selectionSet.Default, profileKeyOne, defaultRelease.Policy)
 	store.publish(t, policyregistry.ServingSelectionSets, selectionSet)
-	proposal = fixtureProposal(t, initial.Snapshot, selectionSet, servingEpoch)
+	proposal = storedProposal(t, store, initial.Snapshot, selectionSet, servingEpoch)
 	proposal.Scope = policyregistry.ChangeRollback
-	ref := store.publish(t, policyregistry.ServingProposals, proposal)
+	ref := store.publishArtifact(t, policyregistry.ServingProposal, proposal)
 	_, err = controller.Prepare(ctx, ref)
 	require.ErrorContains(t, err, "selection set previously activated on the same target")
-	for _, rollbackOperation := range []func(context.Context, policyregistry.ObjectRef, string) (policyregistry.ActivationResult, error){controller.Activate, controller.Rollback} {
-		_, err = rollbackOperation(ctx, ref, "workflow")
-		require.ErrorContains(t, err, "selection set previously activated on the same target")
-	}
+	_, err = controller.Activate(ctx, ref, "workflow")
+	require.ErrorContains(t, err, "selection set previously activated on the same target")
 	require.Equal(t, initial.Snapshot, store.states[selectionSet.Target])
 }
 
 func TestExactRollbackCannotBootstrapAndPreservesValidationAndCAS(t *testing.T) {
 	ctx := context.Background()
 	store, controller, selectionSet := controllerFixture(t)
-	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, selectionSet, servingEpoch)
+	proposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, selectionSet, servingEpoch)
 	proposal.Scope = policyregistry.ChangeRollback
 	require.ErrorContains(t, proposal.Validate(testRegistryRoot), "existing target activation")
 	proposal.Scope = policyregistry.ChangeFull
-	initial, err := controller.Activate(ctx, store.publish(t, policyregistry.ServingProposals, proposal), "workflow")
+	initial, err := controller.Activate(ctx, store.publishArtifact(t, policyregistry.ServingProposal, proposal), "workflow")
 	require.NoError(t, err)
-	proposal = fixtureProposal(t, initial.Snapshot, selectionSet, servingEpoch)
+	proposal = storedProposal(t, store, initial.Snapshot, selectionSet, servingEpoch)
 	proposal.Scope = policyregistry.ChangeRollback
-	ref := store.publish(t, policyregistry.ServingProposals, proposal)
+	ref := store.publishArtifact(t, policyregistry.ServingProposal, proposal)
 	store.casErr = policyregistry.ErrConflict
 	_, err = controller.Activate(ctx, ref, "workflow")
 	require.ErrorIs(t, err, policyregistry.ErrConflict)
@@ -131,20 +132,21 @@ func TestExactRollbackBindsHistoricalGenerationAndSource(t *testing.T) {
 		t.Run(mismatch, func(t *testing.T) {
 			ctx := context.Background()
 			store, controller, selectionSet := controllerFixture(t)
-			initialProposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, selectionSet, servingEpoch)
-			initial, err := controller.Activate(ctx, store.publish(t, policyregistry.ServingProposals, initialProposal), "workflow")
+			initialProposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, selectionSet, servingEpoch)
+			initial, err := controller.Activate(ctx, store.publishArtifact(t, policyregistry.ServingProposal, initialProposal), "workflow")
 			require.NoError(t, err)
-			proposal := fixtureProposal(t, initial.Snapshot, selectionSet, servingEpoch)
+			proposal := storedProposal(t, store, initial.Snapshot, selectionSet, servingEpoch)
 			proposal.Scope = policyregistry.ChangeRollback
 			expectedError := "selection set previously activated on the same target"
 			switch mismatch {
 			case "generation":
+				folded, _ := foldSelectionSet(t, store, selectionSet)
 				proposal.SelectionSet.Generation++
-				store.putRaw(proposal.SelectionSet, servingPayload(t, &selectionSet))
+				store.putRaw(proposal.SelectionSet, servingPayload(t, folded))
 			case "source":
 				release := *store.object(t, policyregistry.ServingReleases, selectionSet.Default.Release).(*policyregistry.ServingRelease)
 				release.Provenance.RouterRevision = "4444444444444444444444444444444444444444"
-				proposal.SourceRelease = store.publish(t, policyregistry.ServingReleases, release)
+				proposal.SourceCandidate = foldCandidate(t, store, store.publish(t, policyregistry.ServingReleases, release))
 				expectedError = "exact selected source composition"
 			case "target":
 				proposal.Target = policyregistry.TargetStaging
@@ -156,82 +158,61 @@ func TestExactRollbackBindsHistoricalGenerationAndSource(t *testing.T) {
 	}
 }
 
-// A v2 proposal may roll a target back to the v1 selection set its history recorded: the incumbent
-// is the v2 set, the destination and rollback source are v1 objects, and both verbs accept the mix.
-func TestExactRollbackV2ProposalRestoresV1SelectionSet(t *testing.T) {
+// legacyV1Snapshot seeds the state a target activated before the layout floor: a v1 selection set
+// activated by a v1 proposal, which only history, admission and withdrawal may still read.
+func legacyV1Snapshot(t *testing.T, store *servingMemoryStore, set policyregistry.SelectionSet) (policyregistry.ServingStateSnapshot, policyregistry.ObjectRef) {
+	t.Helper()
+	setRef := store.publish(t, policyregistry.ServingSelectionSets, set)
+	proposal := policyregistry.DeploymentProposal{SchemaVersion: policyregistry.ServingProposalV1, Target: set.Target, SelectionSet: setRef, SourceRelease: set.Default.Release, Scope: policyregistry.ChangeFull, Actor: "legacy-operator", Reason: "activation predating the layout floor", RequestID: "legacy-run:lane-0", CreatedAt: servingEpoch, Evidence: []policyregistry.ObjectRef{artifactRef("evidence")}, WithdrawActivations: []string{}}
+	require.NoError(t, proposal.Validate(testRegistryRoot))
+	ref := store.publish(t, policyregistry.ServingProposals, proposal)
+	id := uuid.NewString()
+	state := policyregistry.ServingControlState{SchemaVersion: policyregistry.ServingControlStateV1, Target: set.Target, CurrentActivationID: id, Sequence: 1, Activations: map[string]policyregistry.Activation{id: {ID: id, Sequence: 1, SelectionSet: setRef, ActivatedAt: servingEpoch, Proposal: ref, RequestID: proposal.RequestID, Actor: proposal.Actor, WorkflowActor: "legacy-workflow"}}}
+	require.NoError(t, state.Validate(testRegistryRoot, set.Target))
+	snapshot := policyregistry.ServingStateSnapshot{State: state, Generation: 1}
+	store.states[set.Target] = snapshot
+	return snapshot, setRef
+}
+
+// A rollback to the v1 selection set a target really served fails closed on the layout floor,
+// while that activation stays readable for in-flight sessions and withdrawable.
+func TestLayoutFloorRefusesRollbackToAServedV1SelectionSet(t *testing.T) {
 	ctx := context.Background()
 	store, controller, initialSet := controllerFixture(t)
-	initialProposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
-	initial, err := controller.Activate(ctx, store.publish(t, policyregistry.ServingProposals, initialProposal), "workflow")
+	legacy, legacySetRef := legacyV1Snapshot(t, store, initialSet)
+	legacyID := legacy.State.CurrentActivationID
+	sets := map[string]policyregistry.SelectionSetView{legacySetRef.SHA256: initialSet.View()}
+	projection := policyregistry.AdmissionProjection{Target: initialSet.Target}
+	session, err := policyregistry.SelectSessionRelease(nil, projection, legacy, sets, testRegistryRoot, servingEpoch)
 	require.NoError(t, err)
+	require.Equal(t, legacyID, session.ActivationID)
 
-	profileSet := initialSet
-	profileSet.Profiles = maps.Clone(initialSet.Profiles)
-	defaultRelease := store.object(t, policyregistry.ServingReleases, initialSet.Default.Release).(*policyregistry.ServingRelease)
-	profileSet.Profiles[profileKeyOne] = registerProfileFixture(t, store, initialSet.Default, profileKeyOne, defaultRelease.Policy)
-	store.publish(t, policyregistry.ServingSelectionSets, profileSet)
-	profileProposal := fixtureProposal(t, initial.Snapshot, profileSet, servingEpoch)
-	profileProposal.Scope = policyregistry.ChangeProfile
-	profileProposal.ProfileKey = profileKeyOne
-	profileProposal.SourceRelease = profileSet.Profiles[profileKeyOne].Release
-	forwardV2, forwardRef := foldProposal(t, store, profileProposal)
-	require.True(t, strings.Contains(forwardRef.URI, "/artifacts/"))
-	require.True(t, strings.Contains(forwardV2.SelectionSet.URI, "/artifacts/"))
-	forward, err := controller.Activate(ctx, forwardRef, "workflow")
+	// Only the newly served set is floored: the incumbent binding still names the v1 set exactly.
+	forwardProposal := storedProposal(t, store, legacy, initialSet, servingEpoch)
+	require.Equal(t, legacySetRef, *forwardProposal.PreviousSelectionSet)
+	require.Contains(t, forwardProposal.SelectionSet.URI, "/artifacts/")
+	forward, err := controller.Activate(ctx, store.publishArtifact(t, policyregistry.ServingProposal, forwardProposal), "workflow")
 	require.NoError(t, err)
-	require.Equal(t, forwardV2.SelectionSet, forward.Activation.SelectionSet)
-	forwardSet := store.object(t, policyregistry.ServingSelectionSet, forwardV2.SelectionSet).(*policyregistry.SelectionSetV2)
+	require.NotNil(t, forward.Snapshot.State.Activations[legacyID].SupersededAt)
 
-	sets := map[string]policyregistry.SelectionSetView{initialProposal.SelectionSet.SHA256: initialSet.View(), forwardV2.SelectionSet.SHA256: forwardSet.View(forwardV2.SelectionSet)}
-	projection := policyregistry.AdmissionProjection{Target: initialSet.Target, ProfileKey: profileKeyOne, AssignmentGeneration: 1}
-	session, err := policyregistry.SelectSessionRelease(nil, projection, forward.Snapshot, sets, testRegistryRoot, servingEpoch)
-	require.NoError(t, err)
-	require.Equal(t, forwardV2.SelectionSet, session.Selection.Binding)
-
-	rollback := policyregistry.DeploymentProposalV2{
-		SchemaVersion:        policyregistry.ServingProposalV2,
-		Target:               initialSet.Target,
-		PreviousSelectionSet: &forwardV2.SelectionSet,
-		SelectionSet:         initialProposal.SelectionSet,
-		SourceCandidate:      initialSet.Default.Release,
-		Scope:                policyregistry.ChangeRollback,
-		Actor:                "test-operator",
-		Reason:               "roll back to the v1 inventory",
-		RequestID:            "rollback-1",
-		CreatedAt:            servingEpoch,
-		Evidence:             []policyregistry.ObjectRef{artifactRef("evidence")},
-		WithdrawActivations:  []string{},
-	}
-	unserved := rollback
-	unserved.SourceCandidate = forwardSet.Profiles[profileKeyOne].Candidate
-	_, err = controller.Rollback(ctx, store.publishArtifact(t, policyregistry.ServingProposal, unserved), "workflow")
-	require.ErrorContains(t, err, "exact selected source composition")
-	unservedRelease := *defaultRelease
-	unservedRelease.Provenance.RouterRevision = strings.Repeat("4", 40)
-	unserved.SourceCandidate = foldCandidate(t, store, store.publish(t, policyregistry.ServingReleases, unservedRelease))
-	_, err = controller.Rollback(ctx, store.publishArtifact(t, policyregistry.ServingProposal, unserved), "workflow")
-	require.ErrorContains(t, err, "known-good source release previously serving the same target")
+	rollback := storedProposal(t, store, forward.Snapshot, initialSet, servingEpoch)
+	rollback.Scope = policyregistry.ChangeRollback
+	rollback.SelectionSet = legacySetRef
+	_, err = controller.Activate(ctx, store.publishArtifact(t, policyregistry.ServingProposal, rollback), "workflow")
+	require.ErrorIs(t, err, policyregistry.ErrSelectionSetLayoutFloor)
+	require.ErrorContains(t, err, legacySetRef.SHA256)
 	require.Equal(t, forward.Snapshot, store.states[initialSet.Target])
 
-	rollbackRef := store.publishArtifact(t, policyregistry.ServingProposal, rollback)
-	prepared, err := controller.Prepare(ctx, rollbackRef)
+	maps.Copy(sets, storedViews(t, store, forwardProposal.SelectionSet))
+	retained, err := policyregistry.SelectSessionRelease(&session, projection, forward.Snapshot, sets, testRegistryRoot, servingEpoch.Add(time.Minute))
 	require.NoError(t, err)
-	require.True(t, prepared.Prepared)
-	restored, err := controller.Rollback(ctx, rollbackRef, "workflow")
-	require.NoError(t, err)
-	require.Equal(t, initialProposal.SelectionSet, restored.Activation.SelectionSet)
-	require.Equal(t, rollbackRef, restored.Activation.Proposal)
-	require.Greater(t, restored.Snapshot.Generation, forward.Snapshot.Generation)
-
-	retained, err := policyregistry.SelectSessionRelease(&session, projection, restored.Snapshot, sets, testRegistryRoot, servingEpoch.Add(time.Minute))
-	require.NoError(t, err)
+	require.Equal(t, legacyID, retained.ActivationID)
 	require.Equal(t, session.Selection, retained.Selection)
-	fresh, err := policyregistry.SelectSessionRelease(nil, policyregistry.AdmissionProjection{Target: initialSet.Target}, restored.Snapshot, sets, testRegistryRoot, servingEpoch.Add(time.Minute))
-	require.NoError(t, err)
-	require.Equal(t, initialSet.Default, fresh.Selection)
 
-	replay, err := controller.Activate(ctx, forwardRef, "workflow")
+	withdrawal := storedProposal(t, store, forward.Snapshot, initialSet, servingEpoch)
+	withdrawal.WithdrawActivations = []string{legacyID}
+	withdrawn, err := controller.Activate(ctx, store.publishArtifact(t, policyregistry.ServingProposal, withdrawal), "workflow")
 	require.NoError(t, err)
-	require.True(t, replay.Replayed)
-	require.Equal(t, policyregistry.ActivationSuperseded, replay.Outcome)
+	require.NotNil(t, withdrawn.Snapshot.State.Activations[legacyID].WithdrawnAt)
+	require.Equal(t, withdrawn.Activation.ID, withdrawn.Snapshot.State.Activations[legacyID].ReplacementID)
 }

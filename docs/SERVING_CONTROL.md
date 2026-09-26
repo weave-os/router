@@ -16,13 +16,12 @@ registry writer. The kept list is at the end of this document.
 
 ## Command surface
 
-`policyctl serving` exposes exactly four verbs. Every verb accepts
+`policyctl serving` exposes exactly three verbs. Every verb accepts
 `--registry gs://<bucket>/<prefix>` (default `gs://weave_ml/weave_registry`).
 
 ```bash
 policyctl serving publish  --kind candidate|selection_set|proposal --manifest <file> [--dry-run]
 policyctl serving apply    --proposal <ObjectRef.json> | --proposal-sha256 <sha256> [--dry-run]
-policyctl serving rollback --proposal <ObjectRef.json>
 policyctl serving status   --target staging|prod/stable|prod/weave-internal | --proposal <ObjectRef.json>
 ```
 
@@ -30,16 +29,16 @@ policyctl serving status   --target staging|prod/stable|prod/weave-internal | --
 | --- | --- | --- | --- |
 | `serving publish` | `--kind`, `--manifest` | Strict-decodes the file (`DisallowUnknownFields`, no trailing JSON), runs the kind's `Validate`, and publishes the bytes immutably at `artifacts/<sha256>.json` with a `DoesNotExist` precondition plus read-back verification. Never activates anything. | `ObjectRef` — `{"uri","sha256","generation"}` |
 | `serving publish --dry-run` | `--kind`, `--manifest` | Every pre-write check a publish performs (v2 kind, strict decode, `Validate`, v2 schema) and reports the digest the bytes would publish under. Opens no registry connection and writes nothing. Any JSON encoding of the manifest is accepted — there is no canonical-byte requirement; surrounding whitespace is trimmed before digesting, exactly as `publish` stores it. | `{"kind","sha256"}` |
-| `serving apply` | `--proposal <ObjectRef.json>` **or** `--proposal-sha256 <digest>` | Reads the proposal at its exact generation, checks `sha256(stored bytes) == ref.sha256`, computes the activation transition against the authoritative target state (replay detection first), validates the proposal (evidence, candidate attestation, every lane against its live worker and classifier revision, scope rules), then CASes the target's single state object, superseding the outgoing activation and applying explicit withdrawals in the same write. | `ActivationResult` — `{"snapshot":{"state","generation"},"activation","outcome":"activated"\|"superseded","replayed"}` |
+| `serving apply` | `--proposal <ObjectRef.json>` **or** `--proposal-sha256 <digest>` | Reads the proposal at its exact generation, checks `sha256(stored bytes) == ref.sha256`, computes the activation transition against the authoritative target state (replay detection first), validates the proposal (evidence, candidate attestation, every lane against its live worker and classifier revision, scope rules), then CASes the target's single state object, superseding the outgoing activation and applying explicit withdrawals in the same write. A proposal with `scope: rollback` — or any proposal listing `withdraw_activations` — additionally has its `source_candidate` checked against the target's retained activation history before the CAS, on the dry run as well as the commit. | `ActivationResult` — `{"snapshot":{"state","generation"},"activation","outcome":"activated"\|"superseded","replayed"}` |
 | `serving apply --dry-run` | Same | Everything above except the CAS: no registry write, no infrastructure change. A proposal that was already activated reconciles to its original outcome instead of re-validating destinations, so completed retries never require healthy old revisions. | `PreparationResult` — `{"proposal","prepared",` `"activation"?}`; `prepared:true` means ready to apply, `prepared:false` with `activation` means already applied |
-| `serving rollback` | `--proposal <ObjectRef.json>` | The `apply` path with rollback-source validation forced: the proposal `scope` must be `rollback`, `previous_selection_set` must name the incumbent, `selection_set` must be a set previously activated on the same target, and `source_candidate` must equal that set's default candidate. Normal rollback retains session pins; emergency withdrawals must be listed in the proposal's `withdraw_activations`. | `ActivationResult` |
 | `serving status --target` | `--target` | Authoritative target state read (`state/<env>/<target>.json`, falling back to the legacy path for targets that have not applied since the layout move). Never validates against reachable workers. | `ServingStateSnapshot` — `{"state","generation"}` |
 | `serving status --proposal` | `--proposal <ObjectRef.json>` | Outcome reconciliation for that exact proposal: scans the target's activations for `activation.proposal == ref`. | `ActivationResult` with `replayed:true` if activated; otherwise `{"proposal","activated":false,"generation"}` |
 
-Removed verbs `validate`, `resolve`, `prepare`, and `activate` exit non-zero with a
-message naming the replacement (`publish --dry-run`, `apply --proposal-sha256`,
-`apply --dry-run`, `apply`). Each verb defines only the flags listed above; any
-other flag — including the retired `--approved-proposal`, `--workflow-actor`,
+Removed verbs `validate`, `resolve`, `prepare`, `activate`, and `rollback` exit
+non-zero with a message naming the replacement (`publish --dry-run`,
+`apply --proposal-sha256`, `apply --dry-run`, `apply`, and
+`apply --proposal <ref>` with a proposal whose scope is `rollback`). Each verb
+defines only the flags listed above; any other flag — including the retired `--approved-proposal`, `--workflow-actor`,
 `--validation-origin`, and `--stored` — is a usage error before the registry is
 opened. Approval is the protected environment the command runs in, the execution
 identity recorded on the activation is derived from the environment
@@ -56,7 +55,7 @@ destination validation calls the HTTPS origins the selection set's lanes declare
 - A concurrent writer, a `previous_selection_set` that no longer matches the incumbent,
   or a moved target generation fail with an error wrapping `policyregistry.ErrConflict`
   (message contains `conflict`). Compose a fresh proposal against the current state.
-- `apply`/`rollback` may fail **after** the CAS committed if stdout delivery fails. The
+- `apply` may fail **after** the CAS committed if stdout delivery fails. The
   error then starts with `activated; output observation degraded`. Do not create a new
   proposal: run `status --proposal` (or re-run `apply` with the same proposal) to
   reconcile the outcome without creating another activation.
@@ -80,8 +79,14 @@ forever as v1 objects, because the activation history inside every state object
 references them and content-addressed objects can never be rewritten without orphaning
 those references. Each v2 kind is a read-side family that also admits the v1 object it
 folds (`candidate` ⊇ `releases`, `selection_set` ⊇ `selection_sets`, `proposal` ⊇
-`proposals`), so a v2 proposal may name a v1 `previous_selection_set` and
-`apply --proposal-sha256` resolves `artifacts/` first, then the legacy namespace. New writes go only
+`proposals`), so a v2 proposal may name a v1 `previous_selection_set` — the incumbent binding is
+exact whatever layout the incumbent was published under — and
+`apply --proposal-sha256` resolves `artifacts/` first, then the legacy namespace.
+The `selection_set` a new activation would serve is floored: a proposal naming a set
+outside `artifacts/` is rejected before the CAS with an error wrapping
+`policyregistry.ErrSelectionSetLayoutFloor`, on every activation path including
+rollback. Historical v1 activations stay readable, admissible and withdrawable; only
+the set a target would newly serve must be v2. New writes go only
 to `artifacts/`: a publish with a v1 kind (`releases`, `classifiers` → `candidate`;
 `bindings`, `profiles`, `selection_sets` → `selection_set`; `proposals` → `proposal`)
 is rejected before the registry opens, naming the kind it folded into.
@@ -90,8 +95,12 @@ Target state moves lazily: readers try `state/<env>/<target>.json` first and fal
 to the legacy `runtime_state/...` object. The first `apply` on a target under this
 layout reads whichever exists and CASes the new path with a `DoesNotExist`
 precondition; the incumbent binding comes from the proposal's `previous_selection_set`,
-so no generation is transcribed between paths. Nothing needs manual migration and
-in-flight v1 proposals still apply.
+so no generation is transcribed between paths. Nothing needs manual migration, and the
+state-path move is independent of the selection-set floor: a target still on the legacy
+state path bootstraps onto `state/<env>/<target>.json` on its next apply, but that apply
+must name an `artifacts/` selection set. In-flight proposals whose `selection_set` is
+v1 no longer apply — republish the set as a v2 `selection_set` and compose a new
+proposal over it.
 
 ### Fleet-rollout gate
 
@@ -142,8 +151,11 @@ incumbent's content, the CAS binds its generation.
 `current_activation_id`, `sequence`, `activations` keyed by activation UUID. Each
 activation records `selection_set`, `proposal`, `request_id`, `actor`,
 `workflow_actor`, `activated_at`, and optional `superseded_at`, `withdrawn_at`,
-`replacement_id`. A v2 proposal may reference a v1 selection set — rollback must name a
-previously activated set, and the history may be v1.
+`replacement_id`. `previous_selection_set` and the recorded history may reference v1
+selection sets; `selection_set` may not. An exact rollback must therefore name a
+previously activated set that is itself stored under `artifacts/`: rolling back to a
+set a target only ever served as a v1 object fails closed on the layout floor, and the
+recovery is to republish that composition as a v2 selection set.
 
 Evidence and attestation objects (`build_attestation`, lane `attestation`,
 `evidence[]`) are arbitrary `gs://` objects inside the registry, verified at apply
@@ -163,10 +175,21 @@ objects are published by the deployment control plane as before.
    protected environment. Retry `apply` with the same proposal if the outcome is
    ambiguous; it replays the original activation instead of creating a second one.
 4. `status --target` after activation, or `status --proposal` to reconcile one run.
+5. To roll back, publish a proposal naming the `artifacts/` selection set the target
+   previously served, its `source_candidate`, the current incumbent as
+   `previous_selection_set`, and `scope: rollback`; then apply it like any other
+   proposal:
+
+   ```bash
+   policyctl serving apply --dry-run --proposal rollback-proposal.json
+   policyctl serving apply --proposal rollback-proposal.json
+   ```
 
 Profile registration and version changes use a `profile`-scoped proposal. Forward
 scopes preserve registered profile keys and revisions. An exact whole-selection
-rollback uses `scope: rollback` through `serving rollback`; only that scope can restore
+rollback uses `scope: rollback` through `apply` — the verb no longer distinguishes
+rollbacks, the proposal's scope does, and `apply` runs rollback-source validation for
+it; only that scope can restore
 the historical profile inventory, including removing profiles introduced later or
 restoring older profile revisions. All lanes still require artifact and live readiness
 validation, and the same CAS applies. A fresh request for a profile absent from the
@@ -345,7 +368,8 @@ Tests include a real Cloud Storage client against an ephemeral local JSON API
 fixture, immutable publish collisions, generation-CAS conflicts, exact-generation
 reads, v1/v2 dual decode and the lazy state-path bootstrap, private TLS endpoint
 validation/redirect rejection, auxiliary/config mismatches, no-write dry-run publish
-and apply, emergency rollback, rollback-scope rejection, superseded idempotent
+and apply, emergency rollback, rollback through `apply`, selection-set layout-floor
+rejection, superseded idempotent
 retries, removed-verb rejection, and committed-output failure reconciliation. They
 do not establish live IAM, image attestation, infrastructure ownership, or
 environment-local latency; those remain authorized rollout checks.

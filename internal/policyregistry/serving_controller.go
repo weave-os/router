@@ -136,7 +136,7 @@ func (c *ServingController) Prepare(ctx context.Context, proposalRef ObjectRef) 
 		logger.Info("Serving preparation reconciled a previous activation", "activation_id", transition.Activation.ID, "outcome", transition.Outcome)
 		return PreparationResult{Proposal: proposalRef, Activation: &transition}, nil
 	}
-	if len(proposal.WithdrawActivations) > 0 {
+	if requiresRollbackSource(proposal) {
 		if err := c.validateRollbackSource(ctx, snapshot, proposal); err != nil {
 			logger.Warn("Serving preparation rollback source rejected", "source_candidate_sha256", proposal.SourceCandidate.SHA256, "err", err)
 			return PreparationResult{}, err
@@ -150,10 +150,11 @@ func (c *ServingController) Prepare(ctx context.Context, proposalRef ObjectRef) 
 	return PreparationResult{Proposal: proposalRef, Prepared: true}, nil
 }
 
-// Rollback uses the activation CAS path but only accepts a source previously serving this target.
-// Normal rollback retains pins; the proposal explicitly lists emergency withdrawals.
-func (c *ServingController) Rollback(ctx context.Context, proposalRef ObjectRef, workflowActor string) (ActivationResult, error) {
-	return c.activate(ctx, proposalRef, workflowActor, true)
+// requiresRollbackSource holds for every rollback-scoped proposal, whichever verb submitted it,
+// and for any proposal withdrawing activations. Normal rollback retains pins; the proposal
+// explicitly lists emergency withdrawals.
+func requiresRollbackSource(proposal ProposalView) bool {
+	return proposal.Scope == ChangeRollback || len(proposal.WithdrawActivations) > 0
 }
 
 // validateRollbackSource accepts a source candidate that some retained activation, of either
@@ -178,12 +179,13 @@ func (c *ServingController) validateRollbackSource(ctx context.Context, snapshot
 	return errors.New("rollback requires a known-good source release previously serving the same target and profile")
 }
 
-// Activate commits this exact proposal; retries never reactivate a superseded result.
+// Activate commits this exact proposal, forward or rollback-scoped; a rollback-scoped proposal
+// additionally validates its source. Retries never reactivate a superseded result.
 func (c *ServingController) Activate(ctx context.Context, proposalRef ObjectRef, workflowActor string) (ActivationResult, error) {
-	return c.activate(ctx, proposalRef, workflowActor, false)
+	return c.activate(ctx, proposalRef, workflowActor)
 }
 
-func (c *ServingController) activate(ctx context.Context, proposalRef ObjectRef, workflowActor string, rollback bool) (ActivationResult, error) {
+func (c *ServingController) activate(ctx context.Context, proposalRef ObjectRef, workflowActor string) (ActivationResult, error) {
 	logger := c.logger.With("proposal_sha256", proposalRef.SHA256, "workflow_actor", workflowActor)
 	proposal, proposalPayload, err := readProposal(ctx, c.store, proposalRef)
 	if err != nil {
@@ -208,7 +210,7 @@ func (c *ServingController) activate(ctx context.Context, proposalRef ObjectRef,
 		logger.Info("Serving activation reconciled a previous outcome", "activation_id", transition.Activation.ID, "outcome", transition.Outcome)
 		return transition, nil
 	}
-	if rollback || len(proposal.WithdrawActivations) > 0 {
+	if requiresRollbackSource(proposal) {
 		if err := c.validateRollbackSource(ctx, snapshot, proposal); err != nil {
 			logger.Warn("Serving rollback source validation rejected", "source_candidate_sha256", proposal.SourceCandidate.SHA256, "err", err)
 			return ActivationResult{}, err
