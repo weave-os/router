@@ -154,8 +154,14 @@ activation records `selection_set`, `proposal`, `request_id`, `actor`,
 `replacement_id`. `previous_selection_set` and the recorded history may reference v1
 selection sets; `selection_set` may not. An exact rollback must therefore name a
 previously activated set that is itself stored under `artifacts/`: rolling back to a
-set a target only ever served as a v1 object fails closed on the layout floor, and the
-recovery is to republish that composition as a v2 selection set.
+set a target only ever served as a v1 object fails closed on the layout floor.
+Republishing that composition under `artifacts/` does **not** make it rollbackable —
+the republished object is a new reference the target never activated, so exact
+rollback rejects it too. A target whose only good history is v1 recovers by rolling
+forward onto a v2 selection set carrying that composition, which restores routing but
+cannot remove profile keys registered since (forward scopes preserve the registered
+profile inventory). Every target gets one v2 activation and regains exact rollback
+from then on.
 
 Evidence and attestation objects (`build_attestation`, lane `attestation`,
 `evidence[]`) are arbitrary `gs://` objects inside the registry, verified at apply
