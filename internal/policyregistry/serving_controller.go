@@ -236,7 +236,7 @@ func (c *ServingController) ValidateProposal(ctx context.Context, proposal Propo
 	return c.validateProposal(ctx, proposal.View())
 }
 
-func (c *ServingController) validateProposal(ctx context.Context, proposal ProposalView) (err error) {
+func (c *ServingController) validateProposal(ctx context.Context, proposal ProposalView) error {
 	for _, evidence := range proposal.Evidence {
 		if err := c.store.VerifyServingArtifact(ctx, evidence); err != nil {
 			return fmt.Errorf("verify proposal evidence: %w", err)
@@ -251,8 +251,7 @@ func (c *ServingController) validateProposal(ctx context.Context, proposal Propo
 		return errors.New("proposal and selection set targets differ")
 	}
 	destinations := beginActivationValidation(c.validator)
-	validationLogger := c.logger.With("target", proposal.Target, "selection_set_sha256", proposal.SelectionSet.SHA256)
-	defer func() { destinations.log(validationLogger, err) }()
+	defer destinations.log(c.logger.With("target", proposal.Target, "selection_set_sha256", proposal.SelectionSet.SHA256))
 	prepared, err := c.validateSelection(ctx, destinations, proposal.Target, "", set.Default.Selection)
 	if err != nil {
 		return fmt.Errorf("default selection: %w", err)
@@ -590,6 +589,7 @@ type activationValidation struct {
 	validator ServingValidator
 	reporter  ActivationValidator
 	lanes     int
+	blocked   bool
 }
 
 func beginActivationValidation(validator ServingValidator) *activationValidation {
@@ -602,17 +602,19 @@ func beginActivationValidation(validator ServingValidator) *activationValidation
 
 func (a *activationValidation) validate(ctx context.Context, prepared PreparedSelection) error {
 	a.lanes++
-	return a.validator.ValidatePreparedSelection(ctx, prepared)
+	err := a.validator.ValidatePreparedSelection(ctx, prepared)
+	a.blocked = a.blocked || err != nil
+	return err
 }
 
 // log reports the destination attestations this validation issued. A blocked validation stops on
 // the failing lane, so its counts are partial and the outcome says so.
-func (a *activationValidation) log(logger *slog.Logger, err error) {
+func (a *activationValidation) log(logger *slog.Logger) {
 	if a.reporter == nil {
 		return
 	}
 	outcome := destinationValidationAttested
-	if err != nil {
+	if a.blocked {
 		outcome = destinationValidationBlocked
 	}
 	stats := a.reporter.Stats()

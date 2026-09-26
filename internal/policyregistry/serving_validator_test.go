@@ -277,6 +277,23 @@ func TestBlockedActivationLogsPartialDestinationValidation(t *testing.T) {
 	require.Equal(t, float64(1), entry["destination_validation_lanes"], "a blocked validation stops on the failing lane and reports partial counts")
 }
 
+func TestAttestedLanesStayAttestedWhenAProposalCheckRejects(t *testing.T) {
+	store, _, set := controllerFixture(t)
+	lanes := preparedLanes(t, store, set)
+	endpoints := &countingDestinationEndpoints{t: t, store: store, classifier: validatedEndpoints(lanes[0]).classifier}
+	var audit bytes.Buffer
+	controller, err := policyregistry.NewServingController(store, policyregistry.DestinationValidator{Endpoints: endpoints}, func() time.Time { return servingEpoch }, slog.New(slog.NewJSONHandler(&audit, nil)))
+	require.NoError(t, err)
+	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	proposal.Scope = policyregistry.ChangeRoster
+	_, err = controller.Prepare(context.Background(), store.publish(t, policyregistry.ServingProposals, proposal))
+	require.ErrorContains(t, err, "bootstrap requires a full release proposal")
+
+	entry := destinationValidationEntry(t, &audit)
+	require.Equal(t, "attested", entry["destination_validation_outcome"], "a rejection outside destination validation leaves every attested lane attested")
+	require.Equal(t, float64(1), entry["destination_validation_lanes"])
+}
+
 // flakyDestinationEndpoints fails the first classifier attestation and would succeed afterwards.
 type flakyDestinationEndpoints struct {
 	calls int

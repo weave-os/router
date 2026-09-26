@@ -253,8 +253,10 @@ destination keeps failing every lane. The memo holds raw attestation responses o
 every lane still runs the full comparison against its own candidate composition,
 profile policy, requirements, and policy arms. Each activation logs
 `destination_validation_outcome`, `destination_validation_lanes`,
-`destination_validation_http_calls`, and `destination_validation_cache_hits`; a
-`blocked` outcome stops on the failing lane, so its counts are partial.
+`destination_validation_http_calls`, and `destination_validation_cache_hits`. The
+outcome is `blocked` when a destination refused a lane — validation stops there,
+so those counts are partial — and `attested` when every lane the activation
+reached was attested, including when a later proposal check rejects the change.
 
 The legacy classifier `/readyz` response attests only the core identity and does
 not satisfy this contract. Environment integration must deploy the full
