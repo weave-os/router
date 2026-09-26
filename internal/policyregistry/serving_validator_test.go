@@ -1,7 +1,9 @@
 package policyregistry_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -138,4 +140,150 @@ func TestServingControllerVerifiesSourceBuildEvidenceForDerivedCompositions(t *t
 	_, err = controller.Activate(context.Background(), store.publish(t, policyregistry.ServingProposals, proposal), "workflow")
 	require.ErrorContains(t, err, "source build attestation")
 	require.Equal(t, initial.Snapshot.Generation, store.states[set.Target].Generation)
+}
+
+// countingDestinationEndpoints answers like the real destinations — the classifier attests its own
+// revision, the worker derives its attestation from the validation request — and records every call.
+type countingDestinationEndpoints struct {
+	t               *testing.T
+	store           policyregistry.ServingStore
+	classifier      policyregistry.ClassifierAttestation
+	classifierCalls int
+	workerCalls     int
+}
+
+func (e *countingDestinationEndpoints) AttestClassifier(_ context.Context, binding policyregistry.RevisionBinding) (policyregistry.ClassifierAttestation, error) {
+	e.classifierCalls++
+	attestation := e.classifier
+	attestation.Revision = binding.Name
+	return attestation, nil
+}
+
+func (e *countingDestinationEndpoints) ValidateWorker(ctx context.Context, _ policyregistry.RevisionBinding, request policyregistry.WorkerValidationRequest) (policyregistry.WorkerAttestation, error) {
+	e.workerCalls++
+	prepared, err := policyregistry.ReadPreparedSelection(ctx, e.store, request.Target, request.ProfileKey, request.Selection)
+	require.NoError(e.t, err)
+	return validatedEndpoints(prepared).worker, nil
+}
+
+func preparedLanes(t *testing.T, store policyregistry.ServingStore, set policyregistry.SelectionSet) []policyregistry.PreparedSelection {
+	t.Helper()
+	lanes := make([]policyregistry.PreparedSelection, 0, len(set.Profiles)+1)
+	prepared, err := policyregistry.ReadPreparedSelection(context.Background(), store, set.Target, "", set.Default)
+	require.NoError(t, err)
+	lanes = append(lanes, prepared)
+	for key, selection := range set.Profiles {
+		profile, err := policyregistry.ReadPreparedSelection(context.Background(), store, set.Target, key, selection)
+		require.NoError(t, err)
+		lanes = append(lanes, profile)
+	}
+	return lanes
+}
+
+func TestActivationMemoizesDestinationAttestationsPerRevisionBinding(t *testing.T) {
+	store, _, set := controllerFixture(t)
+	base := store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease)
+	set.Profiles[profileKeyOne] = registerProfileFixture(t, store, set.Default, profileKeyOne, base.Policy)
+	set.Profiles[profileKeyTwo] = registerProfileFixture(t, store, set.Default, profileKeyTwo, base.Policy)
+	store.publish(t, policyregistry.ServingSelectionSets, set)
+	lanes := preparedLanes(t, store, set)
+	require.Len(t, lanes, 3)
+	for _, lane := range lanes[1:] {
+		require.Equal(t, lanes[0].Binding.Classifier, lane.Binding.Classifier)
+		require.Equal(t, lanes[0].Binding.Router, lane.Binding.Router)
+	}
+	endpoints := &countingDestinationEndpoints{t: t, store: store, classifier: validatedEndpoints(lanes[0]).classifier}
+
+	unmemoized := policyregistry.DestinationValidator{Endpoints: endpoints}
+	for _, lane := range lanes {
+		require.NoError(t, unmemoized.ValidatePreparedSelection(context.Background(), lane))
+	}
+	require.Equal(t, 3, endpoints.classifierCalls, "without memoization every lane re-attests the shared classifier revision")
+	require.Equal(t, 3, endpoints.workerCalls)
+
+	endpoints.classifierCalls, endpoints.workerCalls = 0, 0
+	var audit bytes.Buffer
+	controller, err := policyregistry.NewServingController(store, unmemoized, func() time.Time { return servingEpoch }, slog.New(slog.NewJSONHandler(&audit, nil)))
+	require.NoError(t, err)
+	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	preparation, err := controller.Prepare(context.Background(), store.publish(t, policyregistry.ServingProposals, proposal))
+	require.NoError(t, err)
+	require.True(t, preparation.Prepared)
+	require.Equal(t, 1, endpoints.classifierCalls, "lanes sharing one classifier revision are attested once per activation")
+	require.Equal(t, 3, endpoints.workerCalls, "worker attestations depend on the validation request, so each lane keeps its own")
+
+	entry := destinationValidationEntry(t, &audit)
+	require.Equal(t, float64(3), entry["destination_validation_lanes"])
+	require.Equal(t, float64(4), entry["destination_validation_http_calls"])
+	require.Equal(t, float64(2), entry["destination_validation_cache_hits"])
+
+	// A second activation re-attests: the memo never outlives one validation.
+	endpoints.classifierCalls = 0
+	proposal.RequestID = uuid.NewString()
+	_, err = controller.Prepare(context.Background(), store.publish(t, policyregistry.ServingProposals, proposal))
+	require.NoError(t, err)
+	require.Equal(t, 1, endpoints.classifierCalls)
+}
+
+func TestActivationAttestsEveryDistinctRevisionBinding(t *testing.T) {
+	store, _, set := controllerFixture(t)
+	lanes := preparedLanes(t, store, set)
+	require.Len(t, lanes, 1)
+	binding := *store.object(t, policyregistry.ServingBindings, set.Default.Binding).(*policyregistry.DeploymentBinding)
+	binding.Router.Name = "worker-0002"
+	binding.Router.URL = "https://worker-0002.example"
+	binding.Classifier.Name = "classifier-0002"
+	binding.Classifier.URL = "https://classifier-0002.example"
+	other, err := policyregistry.ReadPreparedSelection(context.Background(), store, set.Target, "", policyregistry.ServingSelection{Release: set.Default.Release, Binding: store.publish(t, policyregistry.ServingBindings, binding)})
+	require.NoError(t, err)
+	require.NotEqual(t, lanes[0].Binding.Classifier, other.Binding.Classifier)
+
+	endpoints := &countingDestinationEndpoints{t: t, store: store, classifier: validatedEndpoints(lanes[0]).classifier}
+	validator := (policyregistry.DestinationValidator{Endpoints: endpoints}).BeginActivation()
+	require.NoError(t, validator.ValidatePreparedSelection(context.Background(), lanes[0]))
+	require.NoError(t, validator.ValidatePreparedSelection(context.Background(), other))
+	require.Equal(t, 2, endpoints.classifierCalls, "a different classifier revision must never reuse another revision's attestation")
+	require.Equal(t, 2, endpoints.workerCalls)
+	require.Equal(t, policyregistry.ValidationStats{HTTPCalls: 4}, validator.Stats())
+}
+
+func TestActivationMemoizesDestinationFailuresFailClosed(t *testing.T) {
+	store, _, set := controllerFixture(t)
+	lanes := preparedLanes(t, store, set)
+	failing := &flakyDestinationEndpoints{}
+	validator := (policyregistry.DestinationValidator{Endpoints: failing}).BeginActivation()
+	require.ErrorContains(t, validator.ValidatePreparedSelection(context.Background(), lanes[0]), "full serving attestation")
+	require.ErrorContains(t, validator.ValidatePreparedSelection(context.Background(), lanes[0]), "full serving attestation")
+	require.Equal(t, 1, failing.calls, "a recorded attestation failure is replayed instead of retried")
+	require.Equal(t, policyregistry.ValidationStats{HTTPCalls: 1, CacheHits: 1}, validator.Stats())
+}
+
+// flakyDestinationEndpoints fails the first classifier attestation and would succeed afterwards.
+type flakyDestinationEndpoints struct {
+	calls int
+}
+
+func (e *flakyDestinationEndpoints) AttestClassifier(context.Context, policyregistry.RevisionBinding) (policyregistry.ClassifierAttestation, error) {
+	e.calls++
+	if e.calls == 1 {
+		return policyregistry.ClassifierAttestation{}, errors.New("HTTP 503")
+	}
+	return policyregistry.ClassifierAttestation{Ready: true}, nil
+}
+
+func (e *flakyDestinationEndpoints) ValidateWorker(context.Context, policyregistry.RevisionBinding, policyregistry.WorkerValidationRequest) (policyregistry.WorkerAttestation, error) {
+	return policyregistry.WorkerAttestation{}, errors.New("unexpected worker validation")
+}
+
+// destinationValidationEntry returns the per-activation destination validation audit line.
+func destinationValidationEntry(t *testing.T, audit *bytes.Buffer) map[string]any {
+	t.Helper()
+	decoder := json.NewDecoder(audit)
+	for {
+		var entry map[string]any
+		require.NoError(t, decoder.Decode(&entry))
+		if _, exists := entry["destination_validation_lanes"]; exists {
+			return entry
+		}
+	}
 }

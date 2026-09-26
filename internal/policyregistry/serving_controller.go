@@ -250,13 +250,15 @@ func (c *ServingController) validateProposal(ctx context.Context, proposal Propo
 	if set.Target != proposal.Target {
 		return errors.New("proposal and selection set targets differ")
 	}
-	prepared, err := c.validateSelection(ctx, proposal.Target, "", set.Default.Selection)
+	destinations := beginActivationValidation(c.validator)
+	defer destinations.log(c.logger.With("target", proposal.Target, "selection_set_sha256", proposal.SelectionSet.SHA256))
+	prepared, err := c.validateSelection(ctx, destinations, proposal.Target, "", set.Default.Selection)
 	if err != nil {
 		return fmt.Errorf("default selection: %w", err)
 	}
 	base, baseBinding := prepared.Candidate, prepared.Binding
 	for key, lane := range set.Profiles {
-		profile, err := c.validateSelection(ctx, proposal.Target, key, lane.Selection)
+		profile, err := c.validateSelection(ctx, destinations, proposal.Target, key, lane.Selection)
 		if err != nil {
 			return fmt.Errorf("profile %q: %w", key, err)
 		}
@@ -576,7 +578,36 @@ func readSelectionSetView(ctx context.Context, store ServingStore, ref ObjectRef
 	}
 }
 
-func (c *ServingController) validateSelection(ctx context.Context, target ServingTarget, profileKey string, selection ServingSelection) (PreparedSelection, error) {
+// activationValidation scopes destination attestations to the lanes of one proposal validation
+// and counts the lanes those attestations served.
+type activationValidation struct {
+	validator ServingValidator
+	reporter  ActivationValidator
+	lanes     int
+}
+
+func beginActivationValidation(validator ServingValidator) *activationValidation {
+	if scoped, ok := validator.(ActivationScopedValidator); ok {
+		activation := scoped.BeginActivation()
+		return &activationValidation{validator: activation, reporter: activation}
+	}
+	return &activationValidation{validator: validator}
+}
+
+func (a *activationValidation) validate(ctx context.Context, prepared PreparedSelection) error {
+	a.lanes++
+	return a.validator.ValidatePreparedSelection(ctx, prepared)
+}
+
+func (a *activationValidation) log(logger *slog.Logger) {
+	if a.reporter == nil {
+		return
+	}
+	stats := a.reporter.Stats()
+	logger.Info("Destination validation attested the proposal lanes", "destination_validation_lanes", a.lanes, "destination_validation_http_calls", stats.HTTPCalls, "destination_validation_cache_hits", stats.CacheHits)
+}
+
+func (c *ServingController) validateSelection(ctx context.Context, destinations *activationValidation, target ServingTarget, profileKey string, selection ServingSelection) (PreparedSelection, error) {
 	prepared, err := ReadPreparedSelection(ctx, c.store, target, profileKey, selection)
 	if err != nil {
 		return PreparedSelection{}, err
@@ -587,7 +618,7 @@ func (c *ServingController) validateSelection(ctx context.Context, target Servin
 	if err := c.store.VerifyServingArtifact(ctx, prepared.Binding.Attestation); err != nil {
 		return PreparedSelection{}, fmt.Errorf("verify physical revision attestation: %w", err)
 	}
-	if err := c.validator.ValidatePreparedSelection(ctx, prepared); err != nil {
+	if err := destinations.validate(ctx, prepared); err != nil {
 		return PreparedSelection{}, err
 	}
 	return prepared, nil
