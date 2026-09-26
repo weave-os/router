@@ -3543,6 +3543,27 @@ if [ "$mode" = "models" ] || [ "$mode" = "accounts" ] || [ "$mode" = "login" ] |
   # Editing model selection needs the endpoint and key of one specific install,
   # never the hosted defaults: a self-hosted user pointing at their own router
   # would otherwise silently edit the hosted one's installation.
+  # Login enrollment is client-independent. When no Claude/Codex endpoint is
+  # configured, prefer the managed OpenCode config as the source for the
+  # router endpoint; the provider operand still selects the account to enroll.
+  if [ "$mode" = "login" ] && [ "$target" != "opencode" ] && [ "$base_url_explicit" != "true" ]; then
+    login_target="$target"
+    login_target_base="$(resolve_installed_endpoint)"
+    if [ -z "$login_target_base" ]; then
+      target="opencode"
+      if [ -n "$install_dir" ]; then
+        opencode_dir="$install_dir"
+      elif [ "$scope" = "project" ]; then
+        opencode_dir="$settings_base"
+      else
+        opencode_dir="${XDG_CONFIG_HOME:-$settings_base/.config}/opencode"
+      fi
+      opencode_config_file="$opencode_dir/opencode.json"
+      if [ -z "$(resolve_installed_endpoint)" ]; then
+        target="$login_target"
+      fi
+    fi
+  fi
   if [ "$base_url_explicit" != "true" ]; then
     models_base="$(resolve_installed_endpoint)"
     if [ -z "$models_base" ] && { [ "$mode" = "accounts" ] || [ "$mode" = "status" ]; } && [ "$target" = "claude" ]; then
@@ -3580,6 +3601,36 @@ if [ "$mode" = "models" ] || [ "$mode" = "accounts" ] || [ "$mode" = "login" ] |
       models_key_source="$(models_config_file_for_target)"
     fi
   fi
+  # Managed enrollment is client-independent. If an OpenCode-only install is
+  # the first router config on the machine, login claude|codex still needs to
+  # find its endpoint and key even though the provider operand initially makes
+  # the lookup target Claude or Codex. Reuse the OpenCode config in that case;
+  # an explicit --base-url remains authoritative for self-hosted installs.
+  if [ "$mode" = "login" ] && [ "$target" != "opencode" ] && [ -z "$api_key" ]; then
+    login_target="$target"
+    target="opencode"
+    if [ -n "$install_dir" ]; then
+      opencode_dir="$install_dir"
+    elif [ "$scope" = "project" ]; then
+      opencode_dir="$settings_base"
+    else
+      opencode_dir="${XDG_CONFIG_HOME:-$settings_base/.config}/opencode"
+    fi
+    opencode_config_file="$opencode_dir/opencode.json"
+    opencode_key="$(read_installed_key)"
+    opencode_base="$(resolve_installed_endpoint)"
+    if [ -n "$opencode_key" ] && { [ "$base_url_explicit" = "true" ] || [ -n "$opencode_base" ]; }; then
+      api_key="$opencode_key"
+      models_key_source="$opencode_config_file"
+      if [ "$base_url_explicit" != "true" ]; then
+        base_url="$opencode_base"
+        models_base_source="$opencode_config_file"
+      fi
+    else
+      target="$login_target"
+    fi
+  fi
+
   if [ -z "$api_key" ]; then
     err "No router key found for $target in this scope. Re-run 'npx $npm_package_name --$target', or export WEAVE_ROUTER_KEY."
     exit 1
@@ -4983,7 +5034,13 @@ if [ "$target" = "opencode" ]; then
   verify_install
 
   announce_done "opencode"
-  info "To enroll managed subscriptions, run ${C_BOLD}npx $npm_package_name login claude${C_RESET} and/or ${C_BOLD}npx $npm_package_name login codex${C_RESET}."
+  enrollment_args=""
+  if [ -n "$install_dir" ]; then
+    enrollment_args=" --dir $(printf '%q' "$install_dir")"
+  elif [ "$scope" = "project" ]; then
+    enrollment_args=" --scope project"
+  fi
+  info "To enroll managed subscriptions, run ${C_BOLD}npx $npm_package_name login claude${enrollment_args}${C_RESET} and/or ${C_BOLD}npx $npm_package_name login codex${enrollment_args}${C_RESET}."
   if [ -n "$install_dir" ]; then
     # --dir installs land outside opencode's discovery roots, so the caller
     # has to point opencode at the file explicitly.

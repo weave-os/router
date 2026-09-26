@@ -63,6 +63,12 @@ run_install
 install_output="$(run_install_output)"
 grep -Fq "npx @weave-os/router login claude" <<<"$install_output" || fail "install did not print the managed enrollment command"
 grep -Fq "npx @weave-os/router login codex" <<<"$install_output" || fail "install did not print the managed Codex enrollment command"
+login_output="$(HOME="$home" XDG_CONFIG_HOME="$home/xdg" PATH="$test_path" NO_COLOR=1 \
+  bash "$installer" login claude --dir "$install_dir" --non-interactive --quiet 2>&1 || true)"
+grep -Fq "Claude login requires an interactive terminal" <<<"$login_output" || fail "managed login did not reuse the OpenCode install"
+if grep -Fq "No Weave Router install found" <<<"$login_output"; then
+  fail "managed login ignored the OpenCode install endpoint"
+fi
 [ "$(jq -r '.model' "$config")" = "weave/auto" ] || fail "install did not activate weave/auto"
 [ "$(jq -r '.direct_model' "$parked")" = "anthropic/claude-sonnet-4-5" ] || fail "install did not park the previous model"
 [ "$(jq -r '.provider.weave.models.auto.limit.context' "$config")" = "128000" ] || fail "virtual model context limit is missing"
