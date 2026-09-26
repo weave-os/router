@@ -268,6 +268,33 @@ proposals, the `--approved-proposal`/`--workflow-actor` binding flags, the
 `--validation-origin` allowlist, and the per-component `releases`/`classifiers`/
 `bindings`/`profiles` publishes.
 
+## Admission timing measurement
+
+Every gateway admission emits exactly one `Serving admission timing` record at `Info`
+from `ServingAdmissionRepo.Admit`, including denied and failed attempts. Durations are
+monotonic (`time.Since`, never the database clock) and carry no request content — no
+installation, key, subject, conversation or session identifier, no binding JSON and no
+error text.
+
+| Attribute | Meaning |
+| --- | --- |
+| `admission_total_ms` | Whole `Admit` call |
+| `admission_tx_ms` | `BeginTxFunc` enter to return |
+| `admission_lock_wait_ms` | Time in `GetServingConversationLock`; `0` when not persistent |
+| `admission_gcs_state_read_ms` | Authoritative `ReadServingState` |
+| `admission_gcs_selection_set_read_ms` | Sum of the selection-set reads |
+| `admission_gcs_selection_set_reads` | Number of distinct selection sets read (2 when a previous binding names another activation) |
+| `admission_decide_ms` | `ServingAdmission.Decide` |
+| `admission_projection_queries_ms` | Identity, plan and assignment projection SQL, measured up to the conversation lock so neither the lock wait nor the session-binding read is attributed to it |
+| `admission_persistent` | Whether the request carried a conversation |
+| `admission_outcome` | `admitted`, `denied` or `error` |
+| `target`, `activation_id` | Serving target and admitted activation (empty when nothing was admitted) |
+
+The record is measurement only. It exists to size the deferred fail-closed target-state
+cache in gateway admission after seven days of production data; **no admission cache
+exists**, and every admission still performs the authoritative registry reads in the
+order `ReadServingState` → selection sets → release selection.
+
 ## Local verification
 
 ### Default-off and managed boot
