@@ -369,20 +369,12 @@ type Service struct {
 	// webSearch executes Anthropic's native web-search server tool for
 	// upstreams that reject it. nil leaves such turns on normal routing.
 	webSearch websearch.Executor
-	// compactionSummarizer produces the structured summary for the proactive
-	// context-window compaction cascade (maybeCompact). nil disables Tier-3
-	// summarization (the cascade still runs Tier-1 cleanup + trim rescue).
-	compactionSummarizer CompactionSummarizer
 	// compactionHandoverSummarizer serves runCompactionHandover under its own
 	// policy purpose; nil reuses summarizer.
 	compactionHandoverSummarizer handover.Summarizer
-	// compactionTriggerPct is the fraction of the largest eligible model's
-	// context window at which the compaction cascade engages. Zero disables
-	// compaction entirely.
-	compactionTriggerPct float64
-	// compactionModel is the Anthropic-family model the cascade summarizes
-	// with (and Claude Code's own compaction turn is pinned to) when the
-	// session has no warm Anthropic pin. Empty means policy.PrecompactionDefaultModel.
+	// compactionModel is the Anthropic-family model Claude Code's own
+	// compaction turn is pinned to when the session has no warm Anthropic
+	// pin. Empty means policy.PrecompactionDefaultModel.
 	compactionModel string
 	// compactionHardPinEnabled routes Claude Code's own compaction turn through
 	// compactionHardPin instead of the generic utility hard-pin. Off unless
@@ -2159,21 +2151,6 @@ func (s *Service) WithWebSearchExecutor(ex websearch.Executor) *Service {
 	return s
 }
 
-// WithCompaction installs the summarizer and trigger threshold for the
-// proactive context-window compaction cascade (maybeCompact). pct == 0
-// disables compaction (operators set ROUTER_COMPACTION_PCT=0 to turn the
-// cascade off); an out-of-range pct (negative or > 1) falls back to
-// DefaultCompactionTriggerPct. A nil summarizer leaves Tier-3 summarization off
-// (Tier-1 cleanup + trim rescue still run).
-func (s *Service) WithCompaction(cs CompactionSummarizer, pct float64) *Service {
-	s.compactionSummarizer = cs
-	if pct < 0 || pct > 1 {
-		pct = DefaultCompactionTriggerPct
-	}
-	s.compactionTriggerPct = pct
-	return s
-}
-
 // WithCompactionModel overrides the Sonnet-class default summarizer for the
 // compaction cascade and Claude Code's native compaction turn
 // (ROUTER_COMPACTION_MODEL). A model with no Anthropic binding is rejected
@@ -3614,50 +3591,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// Snapshot inbound (client-sent) state BEFORE any env rewrite. The
 	// compaction tracker, spiral scan, and tool-output telemetry must compare
-	// what the client actually sent, not a router-shortened body — either the
-	// proactive compaction just below or runTurnLoop's switch-handover rewrite.
+	// what the client actually sent, not a router-shortened body from
+	// runTurnLoop's switch-handover rewrite.
 	inboundToolCallCount := len(env.AssistantToolCallSignatures())
 	inboundLastUser := env.LastUserMessage()
-
-	// Proactive context-window compaction: shrink an over-long conversation to
-	// fit the largest eligible model BEFORE routing, so a genuinely huge
-	// session is compacted (à la Claude Code) instead of dead-ending in the
-	// scorer with no eligible provider. Mutates env; feats is recomputed after.
-	maxEligibleWindow := s.maxEligibleContextWindow(baseExcluded, enabledProviders, env.SignatureTokenSavings())
-	var compRes compactionResult
-	if !agentShadowMode && !preparingHandoff(ctx) && handoffFromContext(ctx) == nil {
-		var compErr error
-		compRes, compErr = s.maybeCompact(ctx, env, compactionInput{
-			TurnType:      turntype.DetectFromEnvelope(env, feats, ""),
-			OutputReserve: outputReserve,
-			MaxWindow:     maxEligibleWindow,
-			ClientBudget:  requestcontext.ClientBudgetFrom(ctx),
-			ClientApp:     ClientIdentityFrom(ctx).ClientApp,
-			PreferredSummarizer: func() string {
-				if blindExperimentPassthroughActive(ctx) {
-					return ""
-				}
-				return s.compactionPreferredSummarizer(ctx, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-			},
-			Headers: r.Header,
-			Scope:   s.summarizerScope(ctx, enabledProviders, baseExcluded),
-		})
-		if compErr != nil {
-			log.Warn("Compaction could not fit request to any eligible model",
-				"err", compErr, "final_estimate", compRes.FinalEstimate, "max_window", maxEligibleWindow, "requested_model", feats.Model)
-			return compErr
-		}
-		if compRes.Applied {
-			feats = env.RoutingFeatures(embedFlag)
-			log.Info("Proactive compaction applied",
-				"tool_results_cleared", compRes.ToolResultsCleared,
-				"summarized", compRes.Summarized,
-				"summary_model", compRes.SummaryModel,
-				"trimmed_to_recent", compRes.TrimmedToRecent,
-				"final_estimate", compRes.FinalEstimate,
-			)
-		}
-	}
 
 	overflowEstimate := env.ContextOverflowTokenEstimate()
 	excluded, ctxOverflowed := excludeContextOverflowModels(overflowEstimate, env.SignatureTokenSavings(), outputReserve, enabledProviders, baseExcluded, s.availableModels)
@@ -3692,7 +3629,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		ConversationMessages:         conversationMessagesForRouting(env),
 		AvailableTools:               availableToolsForRouting(env),
 		Tools:                        toolsForRouting(env),
-		HistoryTruncated:             compRes.Applied,
 		OrganizationID:               externalID,
 		// Keep this tied to client-visible history so a later feedback command
 		// can correlate with the route even if local compaction rewrites env.
@@ -3892,7 +3828,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// client-trim detector as a false positive), so a compaction handover here
 	// would be a redundant summarizer call that also discards the recent-turn
 	// tail maybeCompact deliberately kept.
-	if !agentShadowMode && !routeRes.AuthoritativePerTurn && decision.Provider != providers.ProviderAnthropic && !routeRes.HardPinned && !routeRes.Handover.Invoked && !compRes.Applied && routeRes.PrefixTrimmed {
+	if !agentShadowMode && !routeRes.AuthoritativePerTurn && decision.Provider != providers.ProviderAnthropic && !routeRes.HardPinned && !routeRes.Handover.Invoked && routeRes.PrefixTrimmed {
 		log.Info("Context trimming detected on non-Anthropic route; rewriting context with handover summary",
 			"message_count", feats.MessageCount,
 			"tool_call_count", inboundToolCallCount,
@@ -5124,9 +5060,6 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	var subscriberSettlement subscriberSettlementState
 	if proxyErr == nil && !agentShadowMode {
 		subscriberSettlement = s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
-		if compRes.Summarized {
-			s.billCompactionSummary(ctx, requestID, externalID, compRes.SummaryUsage)
-		}
 		if compactionHandoverOutcome.Invoked && !compactionHandoverOutcome.FallbackToFullHistory {
 			s.billAuxiliaryInference(ctx, requestID, auxSuffixCompactionHandoverSummry, externalID, compactionHandoverOutcome.SummaryUsage)
 		}
@@ -6633,50 +6566,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	baseExcludedOAI := s.excludeCodexOAuthOnlyModels(ctx, r.Header, enabledProviders, s.excludedModelsForRequest(ctx))
 	baseExcludedOAI = s.excludeUnavailableSubscriptionModels(ctx, r.Header, enabledProviders, baseExcludedOAI)
 
-	// Snapshot the inbound tool-output size before any env rewrite (proactive
-	// compaction below, or runTurnLoop's switch handover); see toolResultBytesPtr.
+	// Snapshot the inbound tool-output size before any env rewrite
+	// (runTurnLoop's switch handover); see toolResultBytesPtr.
 	inboundLastUser := env.LastUserMessage()
-
-	// Proactive context-window compaction, as in ProxyMessages. Skipped for
-	// Codex passthrough bodies, which are forwarded verbatim.
-	var compResOAI compactionResult
-	if !responsesPassthrough {
-		maxEligibleWindowOAI := s.maxEligibleContextWindow(baseExcludedOAI, enabledProviders, env.SignatureTokenSavings())
-		var compErrOAI error
-		compResOAI, compErrOAI = s.maybeCompact(ctx, env, compactionInput{
-			TurnType:      turntype.Detect(env, feats, subAgentHint, ClientIdentityFrom(ctx).OpenCodeAgent),
-			OutputReserve: outputReserveOAI,
-			MaxWindow:     maxEligibleWindowOAI,
-			ClientBudget:  requestcontext.ClientBudgetFrom(ctx),
-			ClientApp:     ClientIdentityFrom(ctx).ClientApp,
-			PreferredSummarizer: func() string {
-				if blindExperimentPassthroughActive(ctx) {
-					return ""
-				}
-				return s.compactionPreferredSummarizer(ctx, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-			},
-			Headers: r.Header,
-			Scope:   s.summarizerScope(ctx, enabledProviders, baseExcludedOAI),
-		})
-		if compErrOAI != nil {
-			log.Warn("Compaction could not fit request to any eligible model",
-				"err", compErrOAI, "final_estimate", compResOAI.FinalEstimate, "max_window", maxEligibleWindowOAI, "requested_model", feats.Model)
-			return compErrOAI
-		}
-		if compResOAI.Applied {
-			feats = env.RoutingFeatures(embedFlag)
-			if codexTitleGen {
-				feats.TitleGenHint = true
-			}
-			log.Info("Proactive compaction applied",
-				"tool_results_cleared", compResOAI.ToolResultsCleared,
-				"summarized", compResOAI.Summarized,
-				"summary_model", compResOAI.SummaryModel,
-				"trimmed_to_recent", compResOAI.TrimmedToRecent,
-				"final_estimate", compResOAI.FinalEstimate,
-			)
-		}
-	}
 
 	overflowEstimateOAI := env.ContextOverflowTokenEstimate()
 	excludedOAI, ctxOverflowedOAI := excludeContextOverflowModels(overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI, enabledProviders, baseExcludedOAI, s.availableModels)
@@ -6709,7 +6601,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		ConversationMessages:         conversationMessagesForRouting(env),
 		AvailableTools:               availableToolsForRouting(env),
 		Tools:                        toolsForRouting(env),
-		HistoryTruncated:             compResOAI.Applied,
 		// Keep this tied to client-visible history so a later feedback command
 		// can correlate with the route even if local compaction rewrites env.
 		FeedbackKey:                      hex.EncodeToString(sessionKey[:]),
@@ -6915,7 +6806,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// (stale bytes); pre-routing readers of responsesPassthrough already ran.
 	responsesEndpointKey := EffectiveBaseURL(ctx, decision.Provider)
 	promotedToResponses := false
-	if !responsesPassthrough && !compResOAI.Applied && !routeRes.Handover.Invoked &&
+	if !responsesPassthrough && !routeRes.Handover.Invoked &&
 		decision.Provider == providers.ProviderOpenAI &&
 		translate.UseOpenAIResponsesAPI(translate.ResponsesRoute{
 			Provider:       decision.Provider,
@@ -7926,9 +7817,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	var subscriberSettlement subscriberSettlementState
 	if proxyErr == nil {
 		subscriberSettlement = s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
-		if compResOAI.Summarized {
-			s.billCompactionSummary(ctx, requestID, externalID, compResOAI.SummaryUsage)
-		}
 	}
 
 	// See ProxyMessages for the two-strike eviction rationale.
