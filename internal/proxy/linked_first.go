@@ -17,6 +17,14 @@ func linkedFirst(ctx context.Context) bool {
 	return ok && reason == billing.SubscriptionOnlyLinkedFirst
 }
 
+// paidFallbackForbidden reports whether a live subscription failure may not be
+// rescued on metered capacity. Only a credits_depleted turn has nowhere to fall
+// through to; a linked-first turn's organization credits are intact, so its
+// plan throttling the turn rolls over the same way an observed-spent plan does.
+func paidFallbackForbidden(ctx context.Context) bool {
+	return billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx)
+}
+
 // releaseLinkedFirstWhenPlanSpent drops a linked-first mark before routing when
 // the caller's linked plan has bound its window and a Weave/BYOK key exists to
 // serve the turn instead. Runs ahead of routing so the whole turn — candidate
@@ -52,5 +60,17 @@ func releaseUnservableLinkedFirst(ctx context.Context, decision router.Decision)
 	}
 	observability.FromContext(ctx).Info("Linked subscription cannot serve the routed model; continuing on organization credits",
 		"decision_provider", decision.Provider, "decision_model", decision.Model)
+	return billing.ReleaseLinkedFirst(ctx), true
+}
+
+// releaseThrottledLinkedFirst drops a linked-first mark when the caller's plan
+// refused the turn live — a retryable 429 the observer had not yet recorded,
+// which is usually the first exhaustion signal — so the reroute that follows
+// runs on organization credits instead of being refused as if they were gone.
+func releaseThrottledLinkedFirst(ctx context.Context) (context.Context, bool) {
+	if !linkedFirst(ctx) {
+		return ctx, false
+	}
+	observability.FromContext(ctx).Info("Linked subscription throttled the turn; rerouting on organization credits")
 	return billing.ReleaseLinkedFirst(ctx), true
 }

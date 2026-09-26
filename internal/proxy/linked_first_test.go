@@ -130,3 +130,89 @@ func TestLinkedFirst_Anthropic_SpentClaudePlan_ContinuesOnWeaveKey(t *testing.T)
 	assert.NotContains(t, rec.Body.String(), "credits are depleted",
 		"a credit-funded turn must not claim the organization's credits are gone")
 }
+
+// TestLinkedFirst_Anthropic_BypassThrottled_ReroutesOnCredits: the bypass 429
+// is usually the first exhaustion signal — the observer still reads "slack" —
+// so it cannot be caught pre-routing. A linked-first turn whose bypass attempt
+// is throttled reroutes on organization credits instead of the 402 a depleted
+// turn gets (compare TestSubscriptionOnly_BypassRetryable_Refuses402).
+func TestLinkedFirst_Anthropic_BypassThrottled_ReroutesOnCredits(t *testing.T) {
+	// Headers go through Set so they canonicalize the way a real response's
+	// do; the reset must still be ahead, or the observer treats the window as
+	// refilled and the reroute would retry the plan instead of the fallback key.
+	throttled := http.Header{}
+	throttled.Set("anthropic-ratelimit-unified-weekly-limit", "100000")
+	throttled.Set("anthropic-ratelimit-unified-weekly-remaining", "0")
+	throttled.Set("anthropic-ratelimit-unified-weekly-reset", time.Now().Add(24*time.Hour).UTC().Format(time.RFC3339))
+	bypassResp := &providers.UpstreamErrorResponse{
+		Status:  http.StatusTooManyRequests,
+		Headers: throttled,
+		Body:    []byte(`{"type":"error","error":{"type":"rate_limit_error","message":"weekly limit exceeded"}}`),
+	}
+	p := &fakeProvider{proxyErr: bypassResp, proxyResponse: bypassStreamResponse}
+	wrappedP := &swapErrProvider{first: bypassResp, second: nil, inner: p}
+	// The real adapter reports the 429's headers before returning, which is
+	// what lets the reroute see the plan as spent and pick the fallback key.
+	observing := &headerObservingProvider{headers: bypassResp.Headers, inner: wrappedP}
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl, Reason: "cluster:v0.2"}}
+	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
+	// Under threshold so the bypass engages for the first attempt.
+	obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{
+		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
+	})
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: observing}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
+		WithSubscriptionAwareRouting(obs, 0.05, 2.0).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+
+	rec, req, body := bypassRequest(t)
+	ctx := billing.WithSubscriptionOnly(bypassCtx(0.80), billing.SubscriptionOnlyLinkedFirst)
+	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
+
+	assert.Equal(t, 1, fr.routeCalls, "the throttled bypass must reroute through the scorer")
+	require.Equal(t, 2, wrappedP.calls, "the bypass attempt, then one rerouted dispatch")
+	require.Len(t, p.proxyCreds, 2)
+	if p.proxyCreds[1] != nil {
+		assert.False(t, p.proxyCreds[1].OAuth, "the reroute must serve on the fallback key, not the plan that just 429'd")
+	}
+	assert.NotEqual(t, http.StatusTooManyRequests, rec.Code, "the plan's 429 must not reach the client")
+	assert.NotContains(t, rec.Body.String(), "credits are depleted")
+}
+
+// TestLinkedFirst_Anthropic_SpentClaudePlan_NoFallbackKey_Refuses402: with the
+// plan observed-exhausted and no Anthropic fallback key, nothing can serve the
+// turn — the spent credential is deliberately kept (claudeSubscriptionExhausted
+// won't strip it) rather than left empty, so releasing the mark would only
+// dispatch onto a plan already known to 429. The pre-dispatch refusal stays.
+func TestLinkedFirst_Anthropic_SpentClaudePlan_NoFallbackKey_Refuses402(t *testing.T) {
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl}}
+	p := &fakeProvider{proxyResponse: bypassStreamResponse}
+	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
+	obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{
+		Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080},
+	})
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
+		WithSubscriptionAwareRouting(obs, 0.05, 2.0)
+
+	rec, req, body := bypassRequest(t)
+	ctx := billing.WithSubscriptionOnly(bypassCtx(0.80), billing.SubscriptionOnlyLinkedFirst)
+	err := svc.ProxyMessages(ctx, body, rec, req)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, proxy.ErrCreditsExhaustedSubscriptionUnavailable))
+	assert.Empty(t, p.proxyBodies, "a plan already known to be spent must not be dispatched on when nothing else can serve")
+}
+
+// headerObservingProvider reports headers through the context observer on every
+// dispatch, as the real provider adapters do, then delegates.
+type headerObservingProvider struct {
+	headers http.Header
+	inner   providers.Client
+}
+
+func (h *headerObservingProvider) Proxy(ctx context.Context, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
+	providers.ObserveUpstreamHeaders(ctx, h.headers)
+	return h.inner.Proxy(ctx, decision, prep, w, r)
+}
+
+func (h *headerObservingProvider) Passthrough(ctx context.Context, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
+	return h.inner.Passthrough(ctx, prep, w, r)
+}
