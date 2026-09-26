@@ -16,11 +16,12 @@ registry writer. The kept list is at the end of this document.
 
 ## Command surface
 
-`policyctl serving` exposes exactly four verbs. Every verb accepts
+`policyctl serving` exposes exactly five verbs. Every verb accepts
 `--registry gs://<bucket>/<prefix>` (default `gs://weave_ml/weave_registry`).
 
 ```bash
 policyctl serving publish  --kind candidate|selection_set|proposal --manifest <file> [--dry-run]
+policyctl serving publish-release --candidate <file> --selection-set <file> --proposal <file> [--dry-run]
 policyctl serving apply    --proposal <ObjectRef.json> | --proposal-sha256 <sha256> [--dry-run]
 policyctl serving rollback --proposal <ObjectRef.json>
 policyctl serving status   --target staging|prod/stable|prod/weave-internal | --proposal <ObjectRef.json>
@@ -30,6 +31,8 @@ policyctl serving status   --target staging|prod/stable|prod/weave-internal | --
 | --- | --- | --- | --- |
 | `serving publish` | `--kind`, `--manifest` | Strict-decodes the file (`DisallowUnknownFields`, no trailing JSON), runs the kind's `Validate`, and publishes the bytes immutably at `artifacts/<sha256>.json` with a `DoesNotExist` precondition plus read-back verification. Never activates anything. | `ObjectRef` — `{"uri","sha256","generation"}` |
 | `serving publish --dry-run` | `--kind`, `--manifest` | Every pre-write check a publish performs (v2 kind, strict decode, `Validate`, v2 schema) and reports the digest the bytes would publish under. Opens no registry connection and writes nothing. Any JSON encoding of the manifest is accepted — there is no canonical-byte requirement; surrounding whitespace is trimmed before digesting, exactly as `publish` stores it. | `{"kind","sha256"}` |
+| `serving publish-release` | `--candidate`, `--selection-set`, `--proposal` | The three `serving publish` calls of one release in one invocation: decodes and validates all three files, then publishes candidate → selection set → proposal through the same create-only path. Each file states the references it expects, and they are verified against what was actually published before the next object is written. Never activates anything. | `{"candidate","selection_set","proposal"}`, each an `ObjectRef` |
+| `serving publish-release --dry-run` | Same | Every pre-write check, including the cross-references, and reports the three digests. Opens no registry connection and writes nothing. | `{"candidate","selection_set","proposal"}`, each `{"kind","sha256"}` |
 | `serving apply` | `--proposal <ObjectRef.json>` **or** `--proposal-sha256 <digest>` | Reads the proposal at its exact generation, checks `sha256(stored bytes) == ref.sha256`, computes the activation transition against the authoritative target state (replay detection first), validates the proposal (evidence, candidate attestation, every lane against its live worker and classifier revision, scope rules), then CASes the target's single state object, superseding the outgoing activation and applying explicit withdrawals in the same write. | `ActivationResult` — `{"snapshot":{"state","generation"},"activation","outcome":"activated"\|"superseded","replayed"}` |
 | `serving apply --dry-run` | Same | Everything above except the CAS: no registry write, no infrastructure change. A proposal that was already activated reconciles to its original outcome instead of re-validating destinations, so completed retries never require healthy old revisions. | `PreparationResult` — `{"proposal","prepared",` `"activation"?}`; `prepared:true` means ready to apply, `prepared:false` with `activation` means already applied |
 | `serving rollback` | `--proposal <ObjectRef.json>` | The `apply` path with rollback-source validation forced: the proposal `scope` must be `rollback`, `previous_selection_set` must name the incumbent, `selection_set` must be a set previously activated on the same target, and `source_candidate` must equal that set's default candidate. Normal rollback retains session pins; emergency withdrawals must be listed in the proposal's `withdraw_activations`. | `ActivationResult` |
@@ -159,6 +162,8 @@ objects are published by the deployment control plane as before.
    image is built. The `ObjectRef` output is the lane input for every target.
 2. Deploy the revisions, publish revision evidence, then
    `publish --kind selection_set` and `publish --kind proposal` for the target.
+   `publish-release --candidate <file> --selection-set <file> --proposal <file>` does
+   steps 1 and 2 in one invocation once all three manifests are composed.
 3. `apply --dry-run --proposal <ref>` for a no-write preview, then `apply` from the
    protected environment. Retry `apply` with the same proposal if the outcome is
    ambiguous; it replays the original activation instead of creating a second one.
@@ -179,6 +184,23 @@ second proposal that reuses a `request_id` is simply a second activation — the
 an audit field, reconciliation keys on the proposal ref. A new promotion of identical
 candidate bytes intentionally creates a new activation incarnation without resetting
 older supersession deadlines.
+
+### `publish-release`
+
+The three manifests are content-addressed, so the caller already knows every digest
+before publishing: the selection set's lanes name the candidate and the proposal names
+the selection set and the source candidate. `publish-release` therefore **verifies**
+those references instead of filling them in — files are published byte-for-byte as
+written. A reference that does not match the object actually published (including its
+generation) fails before the manifest that names it is written, so a rejected release
+never leaves a selection set pointing at the wrong candidate.
+
+Publication is the create-only path of `publish`, so re-running the same release is
+safe: an object that already exists with identical bytes is reported with its existing
+reference and no new write, whether it was published by an earlier full run or by a run
+that failed part-way through. `publish-release` never reads or writes target state and
+never applies, activates or withdraws anything; `apply` remains a separate, approved
+step.
 
 ## Non-circular configuration and evidence
 

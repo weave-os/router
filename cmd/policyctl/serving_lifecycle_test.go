@@ -25,6 +25,10 @@ type cliServingRegistry struct {
 	writes    int
 	casError  error
 	artifacts map[policyregistry.ObjectRef][]byte
+	// objectWrites counts create-only manifest writes; publishing bytes already stored is not one.
+	objectWrites int
+	// generations pins the generation an already-stored digest is published back at.
+	generations map[string]int64
 }
 
 func (r *cliServingRegistry) VerifyServingArtifact(_ context.Context, ref policyregistry.ObjectRef) error {
@@ -83,6 +87,13 @@ func (r *cliServingRegistry) PublishServingManifest(_ context.Context, kind poli
 	if policyregistry.ValidatePublishableServingKind(kind) == nil {
 		ref.URI = r.RootURI() + "/artifacts/" + digest + ".json"
 	}
+	if generation, pinned := r.generations[digest]; pinned {
+		ref.Generation = generation
+	}
+	if _, published := r.objects[ref]; published {
+		return ref, nil
+	}
+	r.objectWrites++
 	r.objects[ref] = payload
 	return ref, nil
 }
@@ -448,5 +459,5 @@ func TestServingCLIRemovedVerbsPointToTheirReplacement(t *testing.T) {
 	}
 	require.Zero(t, opened)
 	require.ErrorContains(t, runServingWith(context.Background(), []string{"promote"}, dependencies), `unsupported serving command "promote"`)
-	require.ErrorContains(t, runServingWith(context.Background(), nil, dependencies), "usage: policyctl serving <publish|apply|status|rollback>")
+	require.ErrorContains(t, runServingWith(context.Background(), nil, dependencies), "usage: policyctl serving <publish|publish-release|apply|status|rollback>")
 }
