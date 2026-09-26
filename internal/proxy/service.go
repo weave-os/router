@@ -3327,6 +3327,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		return err
 	}
 	ctx = s.withUsageObserver(ctx, r.Header, routePathMessages)
+	ctx = s.releaseLinkedFirstWhenPlanSpent(ctx, r.Header, routePathMessages)
 	ctx, rateLimit := s.withRateLimitTurn(ctx)
 	log := observability.FromContext(ctx)
 	requestStart := time.Now()
@@ -3756,11 +3757,17 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 		// Subscription-only mode: the subscription just failed (e.g. 429
 		// weekly-limit). Paid failover is disabled, so refuse rather than
-		// reroute onto a paid model against an already-negative balance.
+		// reroute onto a paid model against an already-negative balance. A
+		// linked-first turn's credits are intact: release the mark so the
+		// reroute below runs as an ordinary credit-funded turn.
 		if billing.SubscriptionOnlyFromContext(ctx) {
-			log.Info("Subscription-only bypass hit retryable error; refusing instead of paid reroute",
-				"request_id", requestID, "external_id", externalID)
-			return ErrCreditsExhaustedSubscriptionUnavailable
+			released, ok := releaseThrottledLinkedFirst(ctx)
+			if !ok {
+				log.Info("Subscription-only bypass hit retryable error; refusing instead of paid reroute",
+					"request_id", requestID, "external_id", externalID)
+				return ErrCreditsExhaustedSubscriptionUnavailable
+			}
+			ctx = released
 		}
 
 		// Bypass hit a pre-commit retryable error (e.g. Anthropic 429 weekly-limit
@@ -4032,16 +4039,31 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// bypass flag: refuse (402) only when the turn wouldn't run on the sub — it
 	// routed to a paid model, or the subscription is observed-exhausted (a
 	// doomed 429). Refusing beats billing a paid model against an already-
-	// negative balance. Served-on-sub turns pin to the single Anthropic binding
-	// (shouldFailover is already false with an OAuth credential in context; this
-	// is belt-and-suspenders) so failover can't reroute onto a paid provider.
+	// negative balance. A linked-first turn's credits are intact, so it continues
+	// paid instead of being refused — unless its spent plan kept the credential
+	// because no Anthropic fallback key exists (claudeSubscriptionExhausted
+	// didn't suppress it): nothing can serve that turn, so it's refused rather
+	// than dispatched on a plan already known to 429. Served-on-sub turns pin
+	// to the single Anthropic binding (shouldFailover is already false with an
+	// OAuth credential in context; this is belt-and-suspenders) so failover
+	// can't reroute onto a paid provider.
 	if billing.SubscriptionOnlyFromContext(ctx) && !routeRes.UsageBypass {
-		if (!servedOnSubscription(ctx) && !managedSubscriptionCanServe(ctx, decision.Provider, decision.Model)) || s.anthropicSubscriptionObservedExhausted(ctx, r.Header) {
+		switch {
+		case !servedOnSubscription(ctx) && !managedSubscriptionCanServe(ctx, decision.Provider, decision.Model):
+			released, ok := releaseUnservableLinkedFirst(ctx, decision)
+			if !ok {
+				log.Info("Subscription-only request cannot be served on the subscription; refusing",
+					"requested_model", feats.Model, "external_id", externalID, "decision_provider", decision.Provider)
+				return ErrCreditsExhaustedSubscriptionUnavailable
+			}
+			ctx = released
+		case s.anthropicSubscriptionObservedExhausted(ctx, r.Header):
 			log.Info("Subscription-only request cannot be served on the subscription; refusing",
 				"requested_model", feats.Model, "external_id", externalID, "decision_provider", decision.Provider)
 			return ErrCreditsExhaustedSubscriptionUnavailable
+		default:
+			bindings = []catalog.ProviderBinding{{Provider: decision.Provider}}
 		}
-		bindings = []catalog.ProviderBinding{{Provider: decision.Provider}}
 	}
 	// Append the one-click feedback thumbs as a trailing content block,
 	// wrapped below the capture layer so the footer never lands in
@@ -4463,17 +4485,18 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// the live error instead of a stale snapshot. Eligible only pre-commit, on
 	// a subscription-served Anthropic turn, with a fallback key available.
 	// Mutually exclusive with baselineEligible (non-Anthropic routed provider).
-	// Suppressed in subscription-only mode: this retry serves on the Weave/BYOK
-	// key at full cost, which is exactly the paid spend subscription-only mode
-	// forbids — a subscription throttle there surfaces raw instead.
+	// Suppressed when credits are depleted: this retry serves on the Weave/BYOK
+	// key at full cost, which is exactly the paid spend that mode forbids — a
+	// subscription throttle there surfaces raw instead. A linked-first turn's
+	// credits are intact, so its throttle rolls over like any other.
 	subscriptionRetryEligible := decision.Provider == providers.ProviderAnthropic &&
 		!agentShadowMode &&
 		servedOnSubscription(ctx) &&
-		!billing.SubscriptionOnlyFromContext(ctx) &&
+		!paidFallbackForbidden(ctx) &&
 		s.anthropicFallbackKeyAvailable(ctx)
 
 	// Same-cluster model failover: when the routed model's only binding is dark,
-	// degrade to a peer the policy already scored. Gated out for subscription-only
+	// degrade to a peer the policy already scored. Gated out for depleted-credit
 	// turns (a different model incurs the paid spend that mode forbids). BYOK
 	// normally disables failover, but a gateway-aliased sibling uses the same
 	// held credentials, so it stays eligible.
@@ -4484,7 +4507,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		!routeRes.BlindExperimentPassthrough &&
 		decision.Reason != translate.ReasonUserForceModel &&
 		(s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, siblingDecisions[0])) &&
-		!billing.SubscriptionOnlyFromContext(ctx)
+		!paidFallbackForbidden(ctx)
 
 	primaryProvider := decision.Provider
 	// Captured before rescue: failover replaces decision.Model, so afterwards
@@ -6359,6 +6382,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		return err
 	}
 	ctx = s.withUsageObserver(ctx, r.Header, routePathChatCompletions)
+	ctx = s.releaseLinkedFirstWhenPlanSpent(ctx, r.Header, routePathChatCompletions)
 	ctx, rateLimit := s.withRateLimitTurn(ctx)
 	log := observability.FromContext(ctx)
 	requestStart := time.Now()
@@ -6856,15 +6880,22 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Subscription-only mode: the turn must serve on the caller's own
 	// subscription (Codex/Claude OAuth). If routing didn't resolve to a
 	// subscription-served credential, refuse (402) rather than dispatch to a
-	// paid model against an already-negative balance. When it did, pin dispatch
-	// to that single binding so failover can't reroute onto a paid provider.
+	// paid model against an already-negative balance — unless the mark is
+	// linked-first, whose organization credits are intact, so the turn
+	// continues paid instead. When it did, pin dispatch to that single binding
+	// so failover can't reroute onto a paid provider.
 	if billing.SubscriptionOnlyFromContext(ctx) {
 		if !servedOnSubscription(ctx) && !managedSubscriptionCanServe(ctx, decision.Provider, decision.Model) {
-			log.Info("Subscription-only request cannot be served on the subscription; refusing",
-				"requested_model", feats.Model, "external_id", externalID, "decision_provider", decision.Provider)
-			return ErrCreditsExhaustedSubscriptionUnavailable
+			released, ok := releaseUnservableLinkedFirst(ctx, decision)
+			if !ok {
+				log.Info("Subscription-only request cannot be served on the subscription; refusing",
+					"requested_model", feats.Model, "external_id", externalID, "decision_provider", decision.Provider)
+				return ErrCreditsExhaustedSubscriptionUnavailable
+			}
+			ctx = released
+		} else {
+			bindings = []catalog.ProviderBinding{{Provider: decision.Provider}}
 		}
-		bindings = []catalog.ProviderBinding{{Provider: decision.Provider}}
 	}
 	// Append the one-click feedback thumbs as a trailing chunk (see
 	// ProxyMessages). Skipped on the Responses-API path (w is a
@@ -7419,19 +7450,20 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// pinned to that one credential, so a plan throttle (429 usage_limit_reached)
 	// or a rejected OAuth token has no binding to walk and reaches Codex raw.
 	// Retry the same model once on the Weave/BYOK OpenAI key so an exhausted plan
-	// rolls over to Weave credits. Suppressed in subscription-only mode, where
-	// paid spend is exactly what the caller forbade.
+	// rolls over to Weave credits. Suppressed when credits are depleted, where
+	// paid spend is exactly what the caller forbade; a linked-first turn's
+	// credits are intact, so its throttle rolls over like any other.
 	codexRetryViable := decision.Provider == providers.ProviderOpenAI &&
 		servedOnCodexSubscription(ctx) &&
 		!routeRes.BlindExperimentPassthrough &&
-		!billing.SubscriptionOnlyFromContext(ctx) &&
+		!paidFallbackForbidden(ctx) &&
 		s.openaiFallbackKeyAvailable(ctx)
 	// OpenAI-compatible callers can route to Anthropic too; give their Claude
 	// subscription model-access rejection the same paid recovery as /v1/messages.
 	claudeRetryViable := decision.Provider == providers.ProviderAnthropic &&
 		servedOnSubscription(ctx) &&
 		!routeRes.BlindExperimentPassthrough &&
-		!billing.SubscriptionOnlyFromContext(ctx) &&
+		!paidFallbackForbidden(ctx) &&
 		s.anthropicFallbackKeyAvailable(ctx)
 
 	siblingDecisions := s.siblingFailoverDecisions(ctx, decision, overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI)
@@ -7440,7 +7472,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		!routeRes.BlindExperimentPassthrough &&
 		!strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) &&
 		(s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, siblingDecisions[0])) &&
-		!billing.SubscriptionOnlyFromContext(ctx)
+		!paidFallbackForbidden(ctx)
 
 	primaryProvider := decision.Provider
 	primaryModel := decision.Model

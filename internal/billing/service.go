@@ -76,6 +76,19 @@ func WithSubscriptionOnly(ctx context.Context, reason SubscriptionOnlyReason) co
 	return context.WithValue(ctx, SubscriptionOnlyContextKey, reason)
 }
 
+// ReleaseLinkedFirst clears a linked-first mark so the turn continues on
+// metered capacity. A linked plan is the preferred funding source, not the
+// only one: once it cannot serve, the turn falls through to the organization
+// balance the gates already admitted it against. A credits_depleted mark is
+// kept — there is nothing to fall through to, and the caller still needs the
+// top-up CTA.
+func ReleaseLinkedFirst(ctx context.Context) context.Context {
+	if reason, ok := subscriptionOnlyReason(ctx); ok && reason == SubscriptionOnlyLinkedFirst {
+		return context.WithValue(ctx, SubscriptionOnlyContextKey, nil)
+	}
+	return ctx
+}
+
 // SubscriptionOnlyFromContext reports whether a gate flagged the current
 // request subscription-only, for any reason.
 func SubscriptionOnlyFromContext(ctx context.Context) bool {

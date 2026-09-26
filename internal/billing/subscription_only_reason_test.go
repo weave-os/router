@@ -63,3 +63,32 @@ func TestSubscriptionOnlyAbsentByDefault(t *testing.T) {
 	assert.Empty(t, reason)
 	assert.False(t, billing.SubscriptionOnlyFromContext(context.Background()))
 }
+
+func TestReleaseLinkedFirst(t *testing.T) {
+	// Releasing is what lets a spent linked plan fall through to organization
+	// credits; it must never retire a depleted mark, or the turn would dispatch
+	// paid against an unfunded balance.
+	for name, tc := range map[string]struct {
+		ctx      context.Context
+		wantOnly bool
+		want     billing.SubscriptionOnlyReason
+	}{
+		"unflagged stays unflagged": {context.Background(), false, ""},
+		"linked-first is released": {
+			billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlyLinkedFirst), false, "",
+		},
+		"depleted is kept": {
+			billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlyCreditsDepleted),
+			true, billing.SubscriptionOnlyCreditsDepleted,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx := billing.ReleaseLinkedFirst(tc.ctx)
+
+			reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx)
+			assert.Equal(t, tc.wantOnly, ok)
+			assert.Equal(t, tc.want, reason)
+			assert.Equal(t, tc.wantOnly, billing.SubscriptionOnlyFromContext(ctx))
+		})
+	}
+}

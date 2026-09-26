@@ -136,7 +136,10 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		return ctx, subscriptions.Lease{}, false, nil
 	}
 	if subscriptionPlanAwareRoutingEnabled(ctx) && managedSubscriptionPlansAllExhausted(ctx) {
-		if billing.SubscriptionOnlyFromContext(ctx) {
+		if paidFallbackForbidden(ctx) {
+			return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolExhausted
+		}
+		if linkedFirst(ctx) && !s.managedProviderFallbackAvailable(ctx, poolProvider) {
 			return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolExhausted
 		}
 		return ctx, subscriptions.Lease{}, false, nil
@@ -157,7 +160,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		lease, present, err = s.managedSubscriptions.Lease(ctx, owner, poolProvider, sessionID)
 		if err != nil {
 			if errors.Is(err, subscriptions.ErrNoAvailableAccount) {
-				if len(rejected) > 0 && !billing.SubscriptionOnlyFromContext(ctx) && s.managedProviderFallbackAvailable(ctx, poolProvider) {
+				if len(rejected) > 0 && !paidFallbackForbidden(ctx) && s.managedProviderFallbackAvailable(ctx, poolProvider) {
 					return ctx, subscriptions.Lease{}, false, nil
 				}
 				if len(rejected) > 0 {
@@ -167,7 +170,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			}
 			return ctx, subscriptions.Lease{}, present, errors.Join(ErrSubscriptionPoolUnavailable, err)
 		}
-		if !present && len(rejected) > 0 && !billing.SubscriptionOnlyFromContext(ctx) && s.managedProviderFallbackAvailable(ctx, poolProvider) {
+		if !present && len(rejected) > 0 && !paidFallbackForbidden(ctx) && s.managedProviderFallbackAvailable(ctx, poolProvider) {
 			return ctx, subscriptions.Lease{}, false, nil
 		}
 		if !present && len(rejected) > 0 {
@@ -200,7 +203,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		}
 		if _, duplicate := seen[lease.AccountID]; duplicate {
 			lease.Release()
-			if !billing.SubscriptionOnlyFromContext(ctx) && s.managedProviderFallbackAvailable(ctx, poolProvider) {
+			if !paidFallbackForbidden(ctx) && s.managedProviderFallbackAvailable(ctx, poolProvider) {
 				return ctx, subscriptions.Lease{}, false, nil
 			}
 			return ctx, subscriptions.Lease{}, true, anthropicSubscriptionModelUnavailable(model)
