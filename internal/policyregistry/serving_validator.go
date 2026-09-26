@@ -52,6 +52,107 @@ type DestinationValidator struct {
 	Endpoints DestinationEndpoints
 }
 
+// ValidationStats reports how many destination attestations one activation issued.
+type ValidationStats struct {
+	HTTPCalls int
+	CacheHits int
+}
+
+// ActivationValidator validates every lane of a single activation and reports its destination
+// attestation counts. Implementations may memoize attestations across the lanes of that one
+// activation; they must never outlive it.
+type ActivationValidator interface {
+	ServingValidator
+	Stats() ValidationStats
+}
+
+// ActivationScopedValidator builds a fresh ActivationValidator for one proposal validation.
+type ActivationScopedValidator interface {
+	BeginActivation() ActivationValidator
+}
+
+// BeginActivation returns a validator whose destination attestations are memoized for the lanes
+// of one activation only.
+func (v DestinationValidator) BeginActivation() ActivationValidator {
+	return &activationValidator{endpoints: v.Endpoints, classifiers: map[RevisionBinding]classifierAttestationResult{}, workers: map[workerAttestationKey]workerAttestationResult{}}
+}
+
+// workerAttestationKey identifies one worker attestation. ValidateWorkerSelection derives the
+// attested requirements, catalog arms and echoed snapshot from the request, so the key carries
+// the full request as well as the revision identity it was sent to. ServingSelection holds a
+// profile pointer, so the key stores that reference by value and presence.
+type workerAttestationKey struct {
+	Binding    RevisionBinding
+	Target     ServingTarget
+	ProfileKey string
+	Release    ObjectRef
+	Selection  ObjectRef
+	Profile    ObjectRef
+	HasProfile bool
+}
+
+func newWorkerAttestationKey(binding RevisionBinding, request WorkerValidationRequest) workerAttestationKey {
+	key := workerAttestationKey{Binding: binding, Target: request.Target, ProfileKey: request.ProfileKey, Release: request.Selection.Release, Selection: request.Selection.Binding}
+	if request.Selection.Profile != nil {
+		key.Profile, key.HasProfile = *request.Selection.Profile, true
+	}
+	return key
+}
+
+type classifierAttestationResult struct {
+	attestation ClassifierAttestation
+	err         error
+}
+
+type workerAttestationResult struct {
+	attestation WorkerAttestation
+	err         error
+}
+
+// activationValidator memoizes raw destination attestations, keyed by the complete revision
+// identity they were obtained from, for the lanes of one activation. Failures are memoized too:
+// an unreachable or rejecting destination already fails every lane today, so replaying the stored
+// failure keeps the activation closed instead of admitting a lane on an endpoint retry. Every
+// per-lane comparison still runs against each lane's own candidate composition.
+type activationValidator struct {
+	endpoints   DestinationEndpoints
+	classifiers map[RevisionBinding]classifierAttestationResult
+	workers     map[workerAttestationKey]workerAttestationResult
+	stats       ValidationStats
+}
+
+func (a *activationValidator) ValidatePreparedSelection(ctx context.Context, prepared PreparedSelection) error {
+	if a.endpoints == nil {
+		return errors.New("destination validator requires private revision endpoints")
+	}
+	return DestinationValidator{Endpoints: a}.ValidatePreparedSelection(ctx, prepared)
+}
+
+func (a *activationValidator) Stats() ValidationStats { return a.stats }
+
+func (a *activationValidator) AttestClassifier(ctx context.Context, binding RevisionBinding) (ClassifierAttestation, error) {
+	if memoized, exists := a.classifiers[binding]; exists {
+		a.stats.CacheHits++
+		return memoized.attestation, memoized.err
+	}
+	a.stats.HTTPCalls++
+	attestation, err := a.endpoints.AttestClassifier(ctx, binding)
+	a.classifiers[binding] = classifierAttestationResult{attestation: attestation, err: err}
+	return attestation, err
+}
+
+func (a *activationValidator) ValidateWorker(ctx context.Context, binding RevisionBinding, request WorkerValidationRequest) (WorkerAttestation, error) {
+	key := newWorkerAttestationKey(binding, request)
+	if memoized, exists := a.workers[key]; exists {
+		a.stats.CacheHits++
+		return memoized.attestation, memoized.err
+	}
+	a.stats.HTTPCalls++
+	attestation, err := a.endpoints.ValidateWorker(ctx, binding, request)
+	a.workers[key] = workerAttestationResult{attestation: attestation, err: err}
+	return attestation, err
+}
+
 // ValidatePreparedSelection requires complete classifier attestation and an exact worker snapshot smoke.
 // ServingController verifies immutable proposal evidence before invoking this destination-only validator.
 func (v DestinationValidator) ValidatePreparedSelection(ctx context.Context, prepared PreparedSelection) error {

@@ -240,6 +240,24 @@ and loaded behavior-affecting configuration reference. Identity must describe
 verified loaded content, not merely echo expected environment variables. All
 references must match the proposed candidate, including storage generations.
 
+Destination attestations are memoized for the duration of one activation and are
+keyed by the complete `RevisionBinding` they were obtained from (name, url,
+audience, image digest, configuration reference), so the lanes of one proposal that
+share a classifier revision attest it once instead of once per lane. Worker
+attestations additionally key on the full `WorkerValidationRequest` (target,
+profile key, exact selection), because `/internal/serving/validate` derives the
+attested requirements, catalog arms, and echoed snapshot from the request; lanes
+with distinct profiles therefore still issue their own worker validation.
+Attestation failures are memoized with the same keys, so a rejecting or unreachable
+destination keeps failing every lane. The memo holds raw attestation responses only:
+every lane still runs the full comparison against its own candidate composition,
+profile policy, requirements, and policy arms. Each activation logs
+`destination_validation_outcome`, `destination_validation_lanes`,
+`destination_validation_http_calls`, and `destination_validation_cache_hits`. The
+outcome is `blocked` when a destination refused a lane — validation stops there,
+so those counts are partial — and `attested` when every lane the activation
+reached was attested, including when a later proposal check rejects the change.
+
 The legacy classifier `/readyz` response attests only the core identity and does
 not satisfy this contract. Environment integration must deploy the full
 classifier attestation endpoint before managed apply can pass; the controller
