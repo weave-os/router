@@ -205,7 +205,7 @@ func TestMaybeCompact_ReusesOnlyMatchingSessionPrefixAndPolicy(t *testing.T) {
 	fake := &fakeCompactionSummarizer{summary: "Decisions from preceding turns"}
 	s := &Service{compactionTriggerPct: DefaultCompactionTriggerPct, compactionSummarizer: fake, compactionCheckpoints: store}
 	in := compactionInput{
-		TurnType: turntype.MainLoop, ClientApp: ClientAppClaudeCode,
+		TurnType: turntype.MainLoop, ClientApp: ClientAppCodex,
 		CredentialIdentity: "key-a", SessionKey: [16]byte{1},
 		Endpoint: string(router.EndpointAnthropicMessages), MaxWindow: window,
 		Headers: http.Header{},
@@ -434,7 +434,7 @@ func TestMaybeCompact_CheckpointFailuresDoNotLoseHistory(t *testing.T) {
 	fake := &fakeCompactionSummarizer{summary: "Remember the decisions"}
 	s := &Service{compactionTriggerPct: DefaultCompactionTriggerPct, compactionSummarizer: fake, compactionCheckpoints: store}
 	in := compactionInput{
-		TurnType: turntype.MainLoop, ClientApp: ClientAppClaudeCode,
+		TurnType: turntype.MainLoop, ClientApp: ClientAppCodex,
 		CredentialIdentity: "key-a", SessionKey: [16]byte{1},
 		Endpoint:  string(router.EndpointAnthropicMessages),
 		MaxWindow: source.ContextOverflowTokenEstimate() + source.ContextOverflowTokenEstimate()/10,
@@ -771,18 +771,6 @@ func TestCompactionSummaryHonorsAllowlistOutsideRoutingPool(t *testing.T) {
 	}
 }
 
-func TestClientWouldCompact(t *testing.T) {
-	cc := compactionPolicyFor(ClientAppClaudeCode)
-	// Pool serves the 200K window the client sizes against: the client's
-	// own auto-compact (at 167K) fires before the router needs to.
-	assert.True(t, clientWouldCompact(cc, smallClientBudget(), 200_000))
-	// Pool's largest window is below the client's compaction point: router
-	// must compact or the request dead-ends.
-	assert.False(t, clientWouldCompact(cc, smallClientBudget(), 128_000))
-	assert.False(t, clientWouldCompact(compactionPolicyFor(ClientAppCodex), smallClientBudget(), 1_000_000), "non-deferring harness never defers")
-	assert.False(t, clientWouldCompact(cc, router.ClientBudget{}, 200_000), "unknown requested model → no deferral")
-}
-
 func TestMaybeCompact_ClaudeCodeDefersWhenPoolServesClientWindow(t *testing.T) {
 	fake := &fakeCompactionSummarizer{summary: "x"}
 	// Tiny trigger so a small fixture is "over threshold" against a 200K pool
@@ -811,16 +799,44 @@ func TestMaybeCompact_ClaudeCodeDefersWhenPoolServesClientWindow(t *testing.T) {
 	assert.True(t, res.Applied, "Codex gets Tier-1 tool-result cleanup")
 	assert.Positive(t, res.ToolResultsCleared)
 
-	// Claude Code against a pool smaller than its believed window: the
-	// client's own compaction would fire too late, so the router compacts.
+	// A pool smaller than the client's believed window still leaves a fitting
+	// request to the client: rewriting it would hide the real usage.
 	env3, err := translate.ParseAnthropic(toolHeavyAnthropicBody(20, 300))
 	require.NoError(t, err)
 	res, err = s.maybeCompact(context.Background(), env3, compactionInput{
 		TurnType: turntype.MainLoop, MaxWindow: 128_000, ClientBudget: smallClientBudget(), ClientApp: ClientAppClaudeCode, Headers: http.Header{},
 	})
 	require.NoError(t, err)
+	assert.True(t, res.DeferredToClient)
+	assert.False(t, res.Applied)
+}
+
+func TestMaybeCompact_UnverifiedClaudeCodeOwnsFittingRequests(t *testing.T) {
+	fake := &fakeCompactionSummarizer{summary: "SUMMARY"}
+	s := &Service{compactionTriggerPct: 0.01, compactionSummarizer: fake}
+	body := toolHeavyAnthropicBody(20, 300)
+	budget := resolveClientBudget(ClientIdentity{ClientApp: ClientAppClaudeCode, UserAgent: "claude-cli/2.1.201 (external, cli)"}, nil, testOpus, false)
+	require.Equal(t, "2.1.201", budget.Version)
+
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	before := env.ContextOverflowTokenEstimate()
+	res, err := s.maybeCompact(context.Background(), env, compactionInput{
+		TurnType: turntype.MainLoop, MaxWindow: before + 1, ClientBudget: budget, ClientApp: ClientAppClaudeCode, Headers: http.Header{},
+	})
+	require.NoError(t, err)
+	assert.True(t, res.DeferredToClient, "a fitting request passes through on any Claude Code version")
+	assert.Equal(t, before, env.ContextOverflowTokenEstimate())
+	assert.Zero(t, fake.calls)
+
+	overflow, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	res, err = s.maybeCompact(context.Background(), overflow, compactionInput{
+		TurnType: turntype.MainLoop, MaxWindow: before / 2, ClientBudget: budget, ClientApp: ClientAppClaudeCode, Headers: http.Header{},
+	})
+	assert.NotErrorIs(t, err, ErrClientCompactionRequired, "unverified overflow recovery keeps the router cascade")
 	assert.False(t, res.DeferredToClient)
-	assert.True(t, res.Applied)
+	assert.Positive(t, res.ToolResultsCleared)
 }
 
 func TestMaybeCompact_BudgetOnlyVersionDoesNotDeferOnOverflow(t *testing.T) {

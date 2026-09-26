@@ -278,13 +278,6 @@ func (s *Service) compactionPreferredSummarizer(ctx context.Context, sessionKey 
 	return pin.Model
 }
 
-// clientWouldCompact defers only when the pool can serve the harness default.
-// A private lower override can compact sooner; unknown harnesses never borrow a provider window.
-func clientWouldCompact(pol compactionPolicy, budget router.ClientBudget, maxWindow int) bool {
-	return pol.DeferToClient && budget.Evidence == router.ClientBudgetHarnessDefault &&
-		budget.DefaultCompactThreshold > 0 && budget.DefaultCompactThreshold <= maxWindow
-}
-
 // Overflow recovery is a client capability newer releases keep, so the gate is
 // a minimum version rather than the exact pin used for budget arithmetic.
 func clientRecoversFromOverflow(pol compactionPolicy, budget router.ClientBudget) bool {
@@ -327,30 +320,30 @@ func (s *Service) maybeCompact(ctx context.Context, env *translate.RequestEnvelo
 		return res, nil
 	}
 	original := env.Clone()
-	if clientRecoversFromOverflow(pol, in.ClientBudget) {
+	// Any Claude Code version owns a request that fits: passing it through
+	// untouched keeps the reported usage real, so the client compacts on its
+	// own schedule. Only an overflow depends on verified recovery.
+	if pol.DeferToClient && fits() {
 		res.DeferredToClient = true
 		res.FinalEstimate = needed()
-		log.Info("Compaction deferred to verified client harness",
+		log.Info("Compaction deferred to client harness",
 			"client_app", in.ClientApp,
 			"client_version", in.ClientBudget.Version,
 			"needed", res.FinalEstimate,
 			"max_window", in.MaxWindow,
 		)
-		if fits() {
-			return res, nil
-		}
-		return res, fmt.Errorf("context estimate %d tokens exceeds largest window %d: %w", res.FinalEstimate, in.MaxWindow, ErrClientCompactionRequired)
-	}
-	if fits() && clientWouldCompact(pol, in.ClientBudget, in.MaxWindow) {
-		res.DeferredToClient = true
-		log.Info("Compaction deferred to client harness",
-			"client_app", in.ClientApp,
-			"needed", needed(),
-			"max_window", in.MaxWindow,
-			"client_default_window", in.ClientBudget.DefaultWindow,
-			"client_budget_evidence", in.ClientBudget.Evidence,
-		)
 		return res, nil
+	}
+	if clientRecoversFromOverflow(pol, in.ClientBudget) {
+		res.DeferredToClient = true
+		res.FinalEstimate = needed()
+		log.Info("Compaction overflow returned to verified client harness",
+			"client_app", in.ClientApp,
+			"client_version", in.ClientBudget.Version,
+			"needed", res.FinalEstimate,
+			"max_window", in.MaxWindow,
+		)
+		return res, fmt.Errorf("context estimate %d tokens exceeds largest window %d: %w", res.FinalEstimate, in.MaxWindow, ErrClientCompactionRequired)
 	}
 	log.Info("Compaction cascade engaged",
 		"client_app", in.ClientApp,
