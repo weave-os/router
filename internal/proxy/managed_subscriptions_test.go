@@ -285,6 +285,48 @@ func TestManagedSubscriptionAllPlansExhaustedRequiresOrgOptInForPaidFallback(t *
 	}
 }
 
+// TestLeaseManagedSubscription_LinkedFirstExhaustedPool_FallsThroughToCredits:
+// a linked-first turn whose covering managed pool is spent must not refuse as
+// if credits were gone — the balance gate already admitted it, so leasing
+// falls through to the Weave/BYOK key the same way an ordinary credit-funded
+// turn does once every plan is exhausted.
+func TestLeaseManagedSubscription_LinkedFirstExhaustedPool_FallsThroughToCredits(t *testing.T) {
+	leaser := &scriptedSubscriptionLeaser{}
+	svc := newServiceWithProviders(t, nil).
+		WithManagedSubscriptions(leaser).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+	ctx := flags.WithOverrides(
+		billing.WithSubscriptionOnly(managedSubscriptionTestContext(), billing.SubscriptionOnlyLinkedFirst),
+		flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: true}},
+	)
+	ctx = context.WithValue(ctx, ManagedSubscriptionPlanStatesContextKey{}, map[subscriptions.Provider]SubscriptionPlanState{
+		subscriptions.ProviderClaude: SubscriptionPlanStateExhausted,
+	})
+
+	_, _, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, "claude-opus-4-8")
+	require.NoError(t, err)
+	require.False(t, managed, "an exhausted covering pool with a fallback key must not lease; the turn continues on credits")
+	require.Empty(t, leaser.providers)
+}
+
+func TestLeaseManagedSubscription_CreditsDepletedExhaustedPool_StillRefuses(t *testing.T) {
+	leaser := &scriptedSubscriptionLeaser{}
+	svc := newServiceWithProviders(t, nil).
+		WithManagedSubscriptions(leaser).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+	ctx := flags.WithOverrides(
+		billing.WithSubscriptionOnly(managedSubscriptionTestContext(), billing.SubscriptionOnlyCreditsDepleted),
+		flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: true}},
+	)
+	ctx = context.WithValue(ctx, ManagedSubscriptionPlanStatesContextKey{}, map[subscriptions.Provider]SubscriptionPlanState{
+		subscriptions.ProviderClaude: SubscriptionPlanStateExhausted,
+	})
+
+	_, _, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, "claude-opus-4-8")
+	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+	require.True(t, managed)
+}
+
 func TestInferenceFailsClosedWhenSubscriptionEnrollmentIsUnknown(t *testing.T) {
 	svc := &Service{}
 	ctx := context.WithValue(context.Background(), ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)

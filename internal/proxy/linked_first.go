@@ -7,6 +7,7 @@ import (
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/subscriptions"
 )
 
 // linkedFirst reports whether the turn is subscription-only because the
@@ -38,9 +39,9 @@ func (s *Service) releaseLinkedFirstWhenPlanSpent(ctx context.Context, headers h
 	var spent bool
 	switch routePath {
 	case routePathMessages:
-		spent = s.claudeSubscriptionExhausted(ctx, headers)
+		spent = s.claudeSubscriptionExhausted(ctx, headers) || s.coveringManagedPoolSpent(ctx, subscriptions.ProviderClaude)
 	case routePathChatCompletions, routePathResponses:
-		spent = s.codexSubscriptionExhausted(ctx, headers)
+		spent = s.codexSubscriptionExhausted(ctx, headers) || s.coveringManagedPoolSpent(ctx, subscriptions.ProviderCodex)
 	}
 	if !spent {
 		return ctx
@@ -73,4 +74,21 @@ func releaseThrottledLinkedFirst(ctx context.Context) (context.Context, bool) {
 	}
 	observability.FromContext(ctx).Info("Linked subscription throttled the turn; rerouting on organization credits")
 	return billing.ReleaseLinkedFirst(ctx), true
+}
+
+// coveringManagedPoolSpent reports whether this request is enrolled in a
+// managed pool for provider whose every account is already exhausted, and a
+// Weave/BYOK key exists to serve instead. Personal-OAuth exhaustion is handled
+// by claudeSubscriptionExhausted / codexSubscriptionExhausted; this is the
+// pool analogue so a linked-first turn whose covering seats are spent is
+// released before routing rather than leased-and-refused.
+func (s *Service) coveringManagedPoolSpent(ctx context.Context, provider subscriptions.Provider) bool {
+	if !managedSubscriptionEnrolled(ctx, provider) {
+		return false
+	}
+	states := managedSubscriptionPlanStatesFromContext(ctx)
+	if states[provider] != SubscriptionPlanStateExhausted {
+		return false
+	}
+	return s.managedProviderFallbackAvailable(ctx, provider)
 }
