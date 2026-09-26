@@ -200,6 +200,11 @@ or a proposal that names a different `sha256`, belongs to another release and is
 rejected before the manifest that names it is written. The candidate file itself is
 published byte-for-byte as written.
 
+The generation is the only field filled in silently. A reference the caller did write
+is strict-decoded like any manifest field — a misspelled or mistyped field is an error,
+not something the fill discards — and a `uri` or `sha256` naming an object other than
+the one being published fails closed instead of being overwritten.
+
 Filling is deterministic — the filled manifest is re-encoded from the same document
 with the same references — so re-running a release derives the same bytes, and the
 create-only path of `publish` reports the objects that already exist with their

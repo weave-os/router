@@ -249,6 +249,53 @@ func TestServingCLIPublishReleaseDryRunAcceptsATrailingSlashRegistryRoot(t *test
 	require.Equal(t, cliCandidateDigest(t, files), output.(servingReleaseDigests).Candidate.SHA256)
 }
 
+// A caller may state the reference it expects; only the generation is left to this command, so a
+// reference that names another object's URI is rejected rather than overwritten.
+func TestServingCLIPublishReleaseRejectsReferencesNamingAnotherURI(t *testing.T) {
+	registry, _, v1 := cliServingFixture(t)
+	files := cliReleaseFixture(t, registry, v1)
+	digest := cliCandidateDigest(t, files)
+	published := defaultRegistryURI + "/artifacts/" + digest + ".json"
+	ctx := context.Background()
+
+	for _, scenario := range []struct {
+		name      string
+		reference map[string]any
+		contains  string
+	}{
+		{
+			name:      "another uri",
+			reference: map[string]any{"uri": defaultRegistryURI + "/artifacts/" + strings.Repeat("b", 64) + ".json", "sha256": digest},
+			contains:  "candidate reference names",
+		},
+		{
+			name:      "the published uri",
+			reference: map[string]any{"uri": published, "sha256": digest, "generation": 7},
+		},
+		{
+			name:      "no uri",
+			reference: map[string]any{"sha256": digest},
+		},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			registry, _, v1 := cliServingFixture(t)
+			files := cliReleaseFixture(t, registry, v1)
+			lane(files)["candidate"] = scenario.reference
+			var output any
+			dependencies := cliDependencies(registry, nil, &output, nil)
+
+			err := runServingWith(ctx, cliReleaseArgs(t, files), dependencies)
+			if scenario.contains != "" {
+				require.ErrorContains(t, err, scenario.contains)
+				require.Nil(t, output, "a rejected release prints nothing")
+				return
+			}
+			require.NoError(t, err, "a reference that names the object being published is accepted")
+			require.Equal(t, published, output.(servingReleaseRefs).Candidate.URI)
+		})
+	}
+}
+
 // A reference the caller wrote is validated as strictly as the decoder of a whole manifest would,
 // so a misspelled field is an error instead of something the fill-in quietly drops.
 func TestServingCLIPublishReleaseRejectsMalformedReferences(t *testing.T) {

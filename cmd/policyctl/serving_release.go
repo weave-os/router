@@ -211,6 +211,9 @@ func fillLaneCandidates(document map[string]any, digest string, candidate policy
 		if stated.SHA256 != "" && stated.SHA256 != digest {
 			continue
 		}
+		if err := matchesPublished(stated, candidate, "candidate"); err != nil {
+			return nil, fmt.Errorf("selection set lane %q: %w", key, err)
+		}
 		lane["candidate"] = reference
 		filled = true
 	}
@@ -230,6 +233,9 @@ func fillProposalSources(document map[string]any, selectionSet, candidate policy
 		}
 		if stated.SHA256 != "" && stated.SHA256 != published.SHA256 {
 			return nil, fmt.Errorf("proposal names %s %s, but this release publishes %s", field, stated.SHA256, published.SHA256)
+		}
+		if err := matchesPublished(stated, published, field); err != nil {
+			return nil, fmt.Errorf("proposal: %w", err)
 		}
 		reference, err := referenceDocument(published)
 		if err != nil {
@@ -265,6 +271,16 @@ func selectionSetLanes(document map[string]any) (map[string]map[string]any, erro
 		return nil, errors.New("selection set declares no lanes")
 	}
 	return lanes, nil
+}
+
+// matchesPublished rejects a reference the caller wrote for an object other than the one being
+// published here. Only the generation is filled in silently: it is the one field no caller can
+// know before the object exists.
+func matchesPublished(stated, published policyregistry.ObjectRef, field string) error {
+	if stated.URI != "" && stated.URI != published.URI {
+		return fmt.Errorf("%s reference names %s, but this release publishes %s", field, stated.URI, published.URI)
+	}
+	return nil
 }
 
 // statedReference reads the reference the caller wrote for the field, as strictly as the decoder
