@@ -285,7 +285,7 @@ error text.
 | `admission_gcs_selection_set_read_ms` | Sum of the selection-set reads |
 | `admission_gcs_selection_set_reads` | Number of distinct selection sets read (2 when a previous binding names another activation) |
 | `admission_decide_ms` | `ServingAdmission.Decide` |
-| `admission_projection_queries_ms` | Identity, plan and assignment projection SQL before the decision, excluding lock wait |
+| `admission_projection_queries_ms` | Identity, plan and assignment projection SQL, measured up to the conversation lock so neither the lock wait nor the session-binding read is attributed to it |
 | `admission_persistent` | Whether the request carried a conversation |
 | `admission_outcome` | `admitted`, `denied` or `error` |
 | `target`, `activation_id` | Serving target and admitted activation (empty when nothing was admitted) |

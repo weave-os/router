@@ -283,6 +283,25 @@ func checkAdmissionTimingRecord(ctx context.Context, admissions *serving.Serving
 	if deniedRecord["admission_outcome"] != "denied" {
 		return fmt.Errorf("denied admission was not measured as denied: %v", deniedRecord)
 	}
+	logs.Reset()
+	_, _, err = admissions.Admit(observed, installationID, keyID, "timing-record", func(_ context.Context, admission policyregistry.SerializedAdmission) (policyregistry.SessionReleaseBinding, error) {
+		if admission.Previous == nil {
+			return policyregistry.SessionReleaseBinding{}, errors.New("timing record check lost its previous binding")
+		}
+		stale := *admission.Previous
+		stale.BindingGeneration = 0
+		return stale, nil
+	})
+	if !errors.Is(err, policyregistry.ErrStaleServingGeneration) {
+		return fmt.Errorf("stale generation was admitted: %v", err)
+	}
+	staleRecord, err := soleTimingRecord(&logs)
+	if err != nil {
+		return err
+	}
+	if staleRecord["admission_outcome"] != "denied" || staleRecord["activation_id"] != "" {
+		return fmt.Errorf("unadmitted attempt reported an activation: %v", staleRecord)
+	}
 	return nil
 }
 

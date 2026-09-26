@@ -62,11 +62,14 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 	transactionStart := time.Now()
 	err = pgx.BeginTxFunc(ctx, r.pool, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
 		projectionStart := time.Now()
-		defer func() {
+		// The projection span ends before the conversation lock so a slow lock or session-binding
+		// read cannot be mistaken for projection SQL.
+		recordProjection := func() {
 			if timing.projection == 0 {
-				timing.projection = time.Since(projectionStart) - timing.lockWait
+				timing.projection = time.Since(projectionStart)
 			}
-		}()
+		}
+		defer recordProjection()
 		queries := sqlc.New(tx)
 		_, err := queries.GetServingInstallationForAdmission(ctx, installationUUID)
 		if err != nil {
@@ -133,6 +136,7 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 		digest, persistent := policyregistry.ServingConversationDigest(identity, clientSessionID)
 		scope = policyregistry.AdmissionScope{InstallationID: installationID, CredentialIdentity: identity, ConversationDigest: digest, Persistent: persistent}
 		timing.persistent = persistent
+		recordProjection()
 		var previous *policyregistry.SessionReleaseBinding
 		if persistent {
 			lockKey := installationID + "/" + identity + "/" + hex.EncodeToString(digest[:])
@@ -160,14 +164,12 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 			}
 			return stamp.Time, nil
 		}
-		timing.projection = time.Since(projectionStart) - timing.lockWait
 		decideStart := time.Now()
 		admitted, err = decide(ctx, policyregistry.SerializedAdmission{Projection: projection, Previous: previous, Clock: clock, Timings: &timing.registry})
 		timing.decide = time.Since(decideStart)
 		if err != nil {
 			return err
 		}
-		timing.activationID = admitted.ActivationID
 		if !persistent {
 			return nil
 		}
@@ -224,6 +226,7 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 		return policyregistry.AdmissionScope{}, policyregistry.SessionReleaseBinding{}, err
 	}
 	timing.outcome = admissionAdmitted
+	timing.activationID = admitted.ActivationID
 	return scope, admitted, nil
 }
 
