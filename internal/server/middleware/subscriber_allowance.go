@@ -33,12 +33,12 @@ const SubscriptionPlanConflict SubscriptionErrorCode = "subscription_plan_confli
 // and this middleware is the only place the included allowance is enforced.
 //
 // Linked Claude/Codex subscriptions cannot satisfy Max's open-source boundary;
-// those requests are refused without switching to metered capacity. Other
-// callers prefer compatible linked-provider capacity. When linked and included capacity
-// are unavailable, requests continue through the existing organization balance
-// and spend-limit gates. Allowance read errors fail closed because treating an
-// unreadable meter as exhausted would incorrectly authorize organization
-// spending.
+// those requests are refused without switching to metered capacity. Entitled
+// callers prefer compatible linked-provider capacity. When linked and included
+// capacity are unavailable, requests continue through the existing organization
+// balance and spend-limit gates. Allowance read errors fail closed because
+// treating an unreadable meter as exhausted would incorrectly authorize
+// organization spending.
 func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
@@ -70,6 +70,10 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 		if admission.Plan != "" {
 			c.Request = c.Request.WithContext(entitlement.WithProductScope(c.Request.Context(), admission.Plan))
 		}
+		if admission.Outcome == entitlement.AdmissionNotSubscribed {
+			c.Next()
+			return
+		}
 
 		// An agent-shadow evaluation draws no included allowance — it is Weave's
 		// own traffic, not the subscriber's turn — but it dispatches a forced
@@ -90,13 +94,13 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 				})
 				return
 			}
+			log.Info("Subscriber request restricted to linked subscription", "reason", billing.SubscriptionOnlyLinkedFirst, "subscriber_id", subscriberID, "admission_outcome", admission.Outcome)
 			c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context(), billing.SubscriptionOnlyLinkedFirst))
 			c.Next()
 			return
 		}
 
-		if admission.Outcome == entitlement.AdmissionNotSubscribed ||
-			(admission.Outcome == entitlement.AdmissionExhausted && !admission.HeldCapacityOnly()) {
+		if admission.Outcome == entitlement.AdmissionExhausted && !admission.HeldCapacityOnly() {
 			c.Next()
 			return
 		}

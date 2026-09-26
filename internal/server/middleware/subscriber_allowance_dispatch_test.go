@@ -1,13 +1,16 @@
 package middleware_test
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/server/middleware"
 	"weave-os/router/internal/subscriptions/entitlement"
 
@@ -101,10 +104,16 @@ func TestWithSubscriberAllowance_CoveringSubscriptionIsLinkedFirstNotDepleted(t 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 	req.Header.Set("Authorization", "Bearer sk-ant-oat-abc123")
+	var logs bytes.Buffer
+	req = req.WithContext(observability.WithLogger(req.Context(), slog.New(slog.NewTextHandler(&logs, nil))))
 	engine.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	require.True(t, flagged, "a covering subscription must still pin the turn to the caller's own plan")
 	assert.Equal(t, billing.SubscriptionOnlyLinkedFirst, reason)
 	assert.Empty(t, allowances.held, "linked-first funding must not draw the included allowance")
+	assert.Contains(t, logs.String(), "Subscriber request restricted to linked subscription")
+	assert.Contains(t, logs.String(), "reason=linked_first")
+	assert.Contains(t, logs.String(), "subscriber_id="+allowanceSubscriberID)
+	assert.Contains(t, logs.String(), "admission_outcome=covered")
 }

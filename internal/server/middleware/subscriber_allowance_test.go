@@ -215,9 +215,9 @@ func TestWithSubscriberAllowance_PassesThroughNonSubscribers(t *testing.T) {
 	}
 }
 
-// A caller with no entitlement at all is billed at API pricing, and its own
-// covering plan still funds the turn before the organization does.
-func TestWithSubscriberAllowance_ServesCoveringSubscriptionForApiPricing(t *testing.T) {
+// A credential subject without a Weave entitlement keeps the organization's
+// ordinary billing and routing path even when Claude Code presents OAuth.
+func TestWithSubscriberAllowance_ClaudeOAuthDoesNotRestrictNonSubscriber(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := entitlement.NewService(&stubEntitlements{}, &stubAllowances{}).WithClock(func() time.Time { return allowanceNow })
 
@@ -240,7 +240,7 @@ func TestWithSubscriberAllowance_ServesCoveringSubscriptionForApiPricing(t *test
 	engine.ServeHTTP(httptest.NewRecorder(), req)
 
 	require.True(t, reached)
-	assert.True(t, subscriptionOnly)
+	assert.False(t, subscriptionOnly)
 }
 
 // A credential that cannot serve the route leaves the turn on its ordinary
