@@ -139,6 +139,9 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		if paidFallbackForbidden(ctx) {
 			return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolExhausted
 		}
+		if linkedFirst(ctx) && !s.managedProviderFallbackAvailable(ctx, poolProvider) {
+			return ctx, subscriptions.Lease{}, true, ErrSubscriptionPoolExhausted
+		}
 		return ctx, subscriptions.Lease{}, false, nil
 	}
 	owner := subscriptionOwnerFromContext(ctx)

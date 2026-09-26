@@ -39,9 +39,9 @@ func (s *Service) releaseLinkedFirstWhenPlanSpent(ctx context.Context, headers h
 	var spent bool
 	switch routePath {
 	case routePathMessages:
-		spent = s.claudeSubscriptionExhausted(ctx, headers) || s.coveringManagedPoolSpent(ctx, subscriptions.ProviderClaude)
+		spent = s.claudeSubscriptionExhausted(ctx, headers) || s.coveringManagedPoolSpent(ctx, headers, subscriptions.ProviderClaude)
 	case routePathChatCompletions, routePathResponses:
-		spent = s.codexSubscriptionExhausted(ctx, headers) || s.coveringManagedPoolSpent(ctx, subscriptions.ProviderCodex)
+		spent = s.codexSubscriptionExhausted(ctx, headers) || s.coveringManagedPoolSpent(ctx, headers, subscriptions.ProviderCodex)
 	}
 	if !spent {
 		return ctx
@@ -81,10 +81,23 @@ func releaseThrottledLinkedFirst(ctx context.Context) (context.Context, bool) {
 // Weave/BYOK key exists to serve instead. Personal-OAuth exhaustion is handled
 // by claudeSubscriptionExhausted / codexSubscriptionExhausted; this is the
 // pool analogue so a linked-first turn whose covering seats are spent is
-// released before routing rather than leased-and-refused.
-func (s *Service) coveringManagedPoolSpent(ctx context.Context, provider subscriptions.Provider) bool {
+// released before routing rather than leased-and-refused. A live personal
+// OAuth token for the same family still covers the turn (lease prefers it
+// over the pool), so the pool being spent is not enough on its own.
+func (s *Service) coveringManagedPoolSpent(ctx context.Context, headers http.Header, provider subscriptions.Provider) bool {
 	if !managedSubscriptionEnrolled(ctx, provider) {
 		return false
+	}
+	codexTok, claudeTok := presentSubscriptionTokens(ctx, headers)
+	switch provider {
+	case subscriptions.ProviderClaude:
+		if claudeTok != "" {
+			return false
+		}
+	case subscriptions.ProviderCodex:
+		if codexTok != "" {
+			return false
+		}
 	}
 	states := managedSubscriptionPlanStatesFromContext(ctx)
 	if states[provider] != SubscriptionPlanStateExhausted {

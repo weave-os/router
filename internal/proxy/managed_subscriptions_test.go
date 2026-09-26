@@ -309,6 +309,22 @@ func TestLeaseManagedSubscription_LinkedFirstExhaustedPool_FallsThroughToCredits
 	require.Empty(t, leaser.providers)
 }
 
+func TestLeaseManagedSubscription_LinkedFirstExhaustedPool_NoFallbackKey_Refuses(t *testing.T) {
+	leaser := &scriptedSubscriptionLeaser{}
+	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
+	ctx := flags.WithOverrides(
+		billing.WithSubscriptionOnly(managedSubscriptionTestContext(), billing.SubscriptionOnlyLinkedFirst),
+		flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: true}},
+	)
+	ctx = context.WithValue(ctx, ManagedSubscriptionPlanStatesContextKey{}, map[subscriptions.Provider]SubscriptionPlanState{
+		subscriptions.ProviderClaude: SubscriptionPlanStateExhausted,
+	})
+
+	_, _, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, "claude-opus-4-8")
+	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+	require.True(t, managed)
+}
+
 func TestLeaseManagedSubscription_CreditsDepletedExhaustedPool_StillRefuses(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{}
 	svc := newServiceWithProviders(t, nil).
