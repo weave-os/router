@@ -3327,6 +3327,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		return err
 	}
 	ctx = s.withUsageObserver(ctx, r.Header, routePathMessages)
+	ctx = s.releaseLinkedFirstWhenPlanSpent(ctx, r.Header, routePathMessages)
 	ctx, rateLimit := s.withRateLimitTurn(ctx)
 	log := observability.FromContext(ctx)
 	requestStart := time.Now()
@@ -4032,16 +4033,23 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// bypass flag: refuse (402) only when the turn wouldn't run on the sub — it
 	// routed to a paid model, or the subscription is observed-exhausted (a
 	// doomed 429). Refusing beats billing a paid model against an already-
-	// negative balance. Served-on-sub turns pin to the single Anthropic binding
-	// (shouldFailover is already false with an OAuth credential in context; this
-	// is belt-and-suspenders) so failover can't reroute onto a paid provider.
+	// negative balance. A linked-first turn's credits are intact, so it continues
+	// paid instead of being refused. Served-on-sub turns pin to the single
+	// Anthropic binding (shouldFailover is already false with an OAuth credential
+	// in context; this is belt-and-suspenders) so failover can't reroute onto a
+	// paid provider.
 	if billing.SubscriptionOnlyFromContext(ctx) && !routeRes.UsageBypass {
 		if (!servedOnSubscription(ctx) && !managedSubscriptionCanServe(ctx, decision.Provider, decision.Model)) || s.anthropicSubscriptionObservedExhausted(ctx, r.Header) {
-			log.Info("Subscription-only request cannot be served on the subscription; refusing",
-				"requested_model", feats.Model, "external_id", externalID, "decision_provider", decision.Provider)
-			return ErrCreditsExhaustedSubscriptionUnavailable
+			released, ok := releaseUnservableLinkedFirst(ctx, decision)
+			if !ok {
+				log.Info("Subscription-only request cannot be served on the subscription; refusing",
+					"requested_model", feats.Model, "external_id", externalID, "decision_provider", decision.Provider)
+				return ErrCreditsExhaustedSubscriptionUnavailable
+			}
+			ctx = released
+		} else {
+			bindings = []catalog.ProviderBinding{{Provider: decision.Provider}}
 		}
-		bindings = []catalog.ProviderBinding{{Provider: decision.Provider}}
 	}
 	// Append the one-click feedback thumbs as a trailing content block,
 	// wrapped below the capture layer so the footer never lands in
@@ -6359,6 +6367,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		return err
 	}
 	ctx = s.withUsageObserver(ctx, r.Header, routePathChatCompletions)
+	ctx = s.releaseLinkedFirstWhenPlanSpent(ctx, r.Header, routePathChatCompletions)
 	ctx, rateLimit := s.withRateLimitTurn(ctx)
 	log := observability.FromContext(ctx)
 	requestStart := time.Now()
@@ -6856,15 +6865,22 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Subscription-only mode: the turn must serve on the caller's own
 	// subscription (Codex/Claude OAuth). If routing didn't resolve to a
 	// subscription-served credential, refuse (402) rather than dispatch to a
-	// paid model against an already-negative balance. When it did, pin dispatch
-	// to that single binding so failover can't reroute onto a paid provider.
+	// paid model against an already-negative balance — unless the mark is
+	// linked-first, whose organization credits are intact, so the turn
+	// continues paid instead. When it did, pin dispatch to that single binding
+	// so failover can't reroute onto a paid provider.
 	if billing.SubscriptionOnlyFromContext(ctx) {
 		if !servedOnSubscription(ctx) && !managedSubscriptionCanServe(ctx, decision.Provider, decision.Model) {
-			log.Info("Subscription-only request cannot be served on the subscription; refusing",
-				"requested_model", feats.Model, "external_id", externalID, "decision_provider", decision.Provider)
-			return ErrCreditsExhaustedSubscriptionUnavailable
+			released, ok := releaseUnservableLinkedFirst(ctx, decision)
+			if !ok {
+				log.Info("Subscription-only request cannot be served on the subscription; refusing",
+					"requested_model", feats.Model, "external_id", externalID, "decision_provider", decision.Provider)
+				return ErrCreditsExhaustedSubscriptionUnavailable
+			}
+			ctx = released
+		} else {
+			bindings = []catalog.ProviderBinding{{Provider: decision.Provider}}
 		}
-		bindings = []catalog.ProviderBinding{{Provider: decision.Provider}}
 	}
 	// Append the one-click feedback thumbs as a trailing chunk (see
 	// ProxyMessages). Skipped on the Responses-API path (w is a
