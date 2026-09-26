@@ -2,7 +2,7 @@
   "name": "@weave-os/router-opencode-extension",
   "private": true,
   "type": "module",
-  "description": "Legacy OpenCode routing hooks retained for compatibility tests. Not bundled or installed by @weave-os/router; managed subscription enrollment belongs to the router.",
+  "description": "OpenCode lifecycle, classifier, and directive hooks for @weave-os/router; managed subscription enrollment belongs to the router.",
   "scripts": {
     "test": "bun test test/",
     "typecheck": "tsc --project tsconfig.json"

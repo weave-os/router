@@ -999,13 +999,15 @@ EOF
 }
 
 # write_opencode_config merges the managed Weave provider into opencode's
-# opencode.json. Subscription enrollment is handled by the router's login
-# command, so opencode only needs this provider and its router key:
+# opencode.json and registers the bundled routing hooks. Subscription
+# enrollment is handled by the router's login command, so opencode only needs
+# this provider and its router key:
 #   - provider.weave        : OpenAI/Responses-shaped (@ai-sdk/openai → /v1/responses).
 #                             The single request provider. The router routes every
 #                             turn across the models the router can serve. The default.
 # Re-running rewrites the block in-place via jq and strips the legacy
-# `weave-codex` provider.
+# `weave-codex` provider. The plugin is retained for lifecycle/classifier and
+# directive hooks, but has no login or subscription-header transport.
 #
 # Usage: write_opencode_config <config_file_path> <base_url> <api_key> [user_email] [user_name]
 write_opencode_config() {
@@ -1063,6 +1065,29 @@ write_opencode_config() {
     }
   ')"
 
+  # Drop the routing plugin next to the config and register its absolute path
+  # so it loads regardless of OpenCode scope. It contains lifecycle,
+  # classifier, and directive hooks; managed subscription enrollment lives in
+  # the router's login command and is never transported in request headers.
+  local plugin_dir plugin_spec plugin_src plugin_directives_src plugin_classifier_src plugin_arg=""
+  plugin_dir="$(cd "$(dirname "$config_file")" && pwd)/.weave"
+  plugin_spec="$plugin_dir/opencode-weave.ts"
+  plugin_src="$script_dir/opencode-weave/src/index.ts"
+  plugin_directives_src="$script_dir/opencode-weave/src/directives.ts"
+  plugin_classifier_src="$script_dir/opencode-weave/src/classifier-thread.ts"
+  if [ -f "$plugin_src" ] && [ -f "$plugin_directives_src" ] && [ -f "$plugin_classifier_src" ]; then
+    mkdir -p "$plugin_dir"
+    cp "$plugin_src" "$plugin_spec"
+    chmod 644 "$plugin_spec"
+    cp "$plugin_directives_src" "$plugin_dir/directives.ts"
+    chmod 644 "$plugin_dir/directives.ts"
+    cp "$plugin_classifier_src" "$plugin_dir/classifier-thread.ts"
+    chmod 644 "$plugin_dir/classifier-thread.ts"
+    plugin_arg="$plugin_spec"
+  else
+    warn "opencode routing plugin source not found at $plugin_src — skipping lifecycle and classifier hooks. (Use a packaged 'npx $npm_package_name' install.)"
+  fi
+
   # Installing must actually activate the router. Preserve a prior direct model
   # beside the config so off/uninstall can restore the user's exact choice.
   local parked_file previous_model
@@ -1088,18 +1113,23 @@ write_opencode_config() {
   # always weave/auto; a prior direct choice was parked above for exact restore.
   #
   # Legacy subscription providers are always stripped: the single Responses
-  # `weave` provider supersedes them.
+  # `weave` provider supersedes them. Register the routing plugin when its
+  # bundled source is available, while removing stale duplicate registrations.
   local merged
   if [ -f "$config_file" ]; then
     merged="$(jq \
       --argjson block "$block" \
+      --arg plugin "$plugin_arg" \
       '
       .provider = ((.provider // {}) | .weave = $block)
       | (.provider |= del(."weave-codex"))
       | (.provider |= del(."weave-claude"))
-      | (if (.plugin | type) == "array"
-           then .plugin |= map(select((tostring | endswith("/opencode-weave.ts")) | not))
-           else . end)
+      | (if $plugin != ""
+           then .plugin = ((.plugin // []) | map(select((tostring | endswith("/opencode-weave.ts")) | not)) + [$plugin])
+           else (if (.plugin | type) == "array"
+                   then .plugin |= map(select((tostring | endswith("/opencode-weave.ts")) | not))
+                   else . end)
+         end)
       | (if (.plugin | type) == "array" and (.plugin | length) == 0 then del(.plugin) else . end)
       | .model = "weave/auto"
       | (.["$schema"] //= "https://opencode.ai/config.json")
@@ -1107,12 +1137,14 @@ write_opencode_config() {
   else
     merged="$(jq -n \
       --argjson block "$block" \
+      --arg plugin "$plugin_arg" \
       '
       {
         "$schema": "https://opencode.ai/config.json",
         model: "weave/auto",
         provider: { weave: $block }
       }
+      | (if $plugin != "" then .plugin = [$plugin] else . end)
     ')"
   fi
   printf '%s\n' "$merged" >"$config_file"

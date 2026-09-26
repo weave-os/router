@@ -1,21 +1,21 @@
 # Legacy opencode Weave integration
 
-This source is retained only for historical compatibility and is no longer
-bundled or installed. Subscription enrollment now happens in the router with
+This source is bundled and installed for OpenCode's lifecycle, classifier, and
+directive hooks. Subscription enrollment now happens in the router with
 `npx @weave-os/router login claude` or `npx @weave-os/router login codex`;
 requests must not carry subscription headers.
 
-The source is retained for lifecycle/directive compatibility tests only. It is
-not loaded by new installs.
+The plugin is loaded by new installs, but it does not own subscription
+enrollment or transport subscription credentials.
 
 The installer writes only the Responses-format `weave` provider into
 `opencode.json`.
 
 ## Why this source remains
 
-Older manually-installed copies may still load this module for lifecycle and
+Older manually-installed copies may also load this module for lifecycle and
 directive hooks. It intentionally contains no OAuth login, token refresh, or
-subscription-header transport; new installs use only the provider config.
+subscription-header transport.
 
 ## Wire shape it produces
 
@@ -122,8 +122,7 @@ successful terminal event and exact usage, so removing completion/usage fails th
 
 The source intentionally keeps the
 [legacy all-export loader](https://github.com/anomalyco/opencode/blob/v1.18.27/packages/opencode/src/plugin/index.ts)
-shape for compatibility with older manually-installed copies. New installs do
-not load this source.
+shape required by the pinned OpenCode version.
 See the current [CLI](https://opencode.ai/docs/cli/),
 [plugin](https://opencode.ai/docs/plugins/), and
 [server](https://opencode.ai/docs/server/) references when updating the pin.

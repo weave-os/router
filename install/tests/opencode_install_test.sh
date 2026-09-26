@@ -48,6 +48,7 @@ run_uninstall() {
 
 config="$install_dir/opencode.json"
 parked="$install_dir/.weave-parked.json"
+managed_plugin="$install_dir/.weave/opencode-weave.ts"
 cat >"$config" <<'JSON'
 {
   "$schema": "https://opencode.ai/config.json",
@@ -70,7 +71,10 @@ grep -Fq "npx @weave-os/router login codex" <<<"$install_output" || fail "instal
 [ "$(jq -r '.provider.weave.models.auto.attachment' "$config")" = "true" ] || fail "virtual model attachment capability is missing"
 [ "$(jq -r '.provider.other.name' "$config")" = "Other" ] || fail "install replaced an unrelated provider"
 [ "$(jq -r '.mcp.keep.type' "$config")" = "local" ] || fail "install replaced unrelated MCP config"
-[ ! -e "$install_dir/.weave/opencode-weave.ts" ] || fail "legacy subscription plugin was copied"
+[ -f "$managed_plugin" ] || fail "routing plugin was not copied"
+[ -f "$install_dir/.weave/directives.ts" ] || fail "directive rewrite module was not copied beside the plugin"
+[ -f "$install_dir/.weave/classifier-thread.ts" ] || fail "classifier session module was not copied beside the plugin"
+jq -e --arg plugin "$managed_plugin" '.plugin | index($plugin)' "$config" >/dev/null || fail "routing plugin was not registered"
 [ -f "$install_dir/.opencode/commands/fm.md" ] || fail "--dir commands were not installed beside the config"
 [ ! -e "$home/xdg/opencode/commands/fm.md" ] || fail "--dir install mutated global OpenCode commands"
 case "$(uname -s)" in
@@ -94,6 +98,9 @@ run_uninstall
 [ "$(jq -r '.model' "$config")" = "google/gemini-3.8-flash" ] || fail "uninstall did not restore the direct model"
 [ "$(jq -r '(.provider // {}) | has("weave")' "$config")" = "false" ] || fail "uninstall left the Weave provider"
 [ "$(jq -r '.plugin | index("user-plugin") != null' "$config")" = "true" ] || fail "uninstall removed a user plugin"
+[ ! -e "$managed_plugin" ] || fail "uninstall left the routing plugin"
+[ ! -e "$install_dir/.weave/directives.ts" ] || fail "uninstall left the directive rewrite module"
+[ ! -e "$install_dir/.weave/classifier-thread.ts" ] || fail "uninstall left the classifier session module"
 [ ! -e "$parked" ] || fail "uninstall left the parked model"
 [ ! -e "$install_dir/.opencode/commands/fm.md" ] || fail "uninstall left managed commands"
 

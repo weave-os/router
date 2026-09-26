@@ -112,6 +112,18 @@ for (const f of ["package.json", "README.md"]) {
 }
 console.log("Copied pi-router/ (extension + skills).");
 
+// Bundle the OpenCode routing hooks alongside the installer. The plugin no
+// longer owns subscription enrollment, but OpenCode still needs its lifecycle,
+// classifier, and directive hooks installed for routed sessions.
+const ocSrc = path.join(installDir, "opencode-weave", "src");
+const ocDst = path.join(root, "opencode-weave", "src");
+mkdirSync(path.dirname(ocDst), { recursive: true });
+cpSync(ocSrc, ocDst, { recursive: true });
+for (const f of ["package.json", "README.md"]) {
+  copyFileSync(path.join(installDir, "opencode-weave", f), path.join(root, "opencode-weave", f));
+}
+console.log("Copied opencode-weave/ (routing hooks).");
+
 for (const f of ["LICENSE", "NOTICE"]) {
   copyFileSync(path.join(repoRoot, f), path.join(root, f));
   console.log(`Copied ${f}.`);

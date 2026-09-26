@@ -139,7 +139,7 @@ class OpenCodeConformance(unittest.TestCase):
         provider = self.config["provider"]["weave"]
         self.assertEqual(provider["npm"], "@ai-sdk/openai")
         self.assertEqual(provider["options"]["baseURL"], self.base_url + "/v1")
-        self.assertFalse((self.work / ".weave/opencode-weave.ts").exists())
+        self.assertTrue((self.work / ".weave/opencode-weave.ts").is_file())
 
     def test_main_title_and_session_continuity(self) -> None:
         events, requests = self.run_turn()
