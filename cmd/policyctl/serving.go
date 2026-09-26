@@ -88,7 +88,7 @@ func workflowActorFor(getenv func(string) string, proposal policyregistry.Propos
 
 func runServingWith(ctx context.Context, args []string, dependencies servingDependencies) error {
 	if len(args) == 0 {
-		return errors.New("usage: policyctl serving <publish|apply|status|rollback> [flags]")
+		return errors.New("usage: policyctl serving <publish|publish-release|apply|status|rollback> [flags]")
 	}
 	command := commandName(args[0])
 	if replacement, removed := removedServingVerbs[command]; removed {
@@ -97,8 +97,14 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 	flags := flag.NewFlagSet("serving "+string(command), flag.ContinueOnError)
 	registryURI := flags.String("registry", defaultRegistryURI, "GCS registry root")
 	var kindRaw, manifestPath, targetRaw, proposalPath, proposalDigest *string
+	var candidatePath, selectionSetPath *string
 	var dryRun *bool
 	switch command {
+	case commandPublishRelease:
+		candidatePath = flags.String("candidate", "", "candidate manifest JSON file")
+		selectionSetPath = flags.String("selection-set", "", "selection-set manifest JSON file whose lane candidates this command binds to the published candidate")
+		proposalPath = flags.String("proposal", "", "proposal manifest JSON file whose selection set and source candidate this command binds to the published objects")
+		dryRun = flags.Bool("dry-run", false, "validate all three manifests and report the candidate digest without writing to the registry")
 	case commandPublish:
 		kindRaw = flags.String("kind", "", "candidate, selection_set or proposal")
 		manifestPath = flags.String("manifest", "", "immutable manifest JSON file")
@@ -122,6 +128,8 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 		return errors.New("unexpected positional serving arguments")
 	}
 	switch command {
+	case commandPublishRelease:
+		return servingPublishRelease(ctx, dependencies, *registryURI, *candidatePath, *selectionSetPath, *proposalPath, *dryRun)
 	case commandPublish:
 		return servingPublish(ctx, dependencies, *registryURI, policyregistry.ServingKind(*kindRaw), *manifestPath, *dryRun)
 	case commandStatus:

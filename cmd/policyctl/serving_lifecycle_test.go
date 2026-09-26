@@ -25,7 +25,16 @@ type cliServingRegistry struct {
 	writes    int
 	casError  error
 	artifacts map[policyregistry.ObjectRef][]byte
+	// objectWrites counts create-only manifest writes; publishing bytes already stored is not one.
+	objectWrites int
+	// published maps an object's digest to the reference it was created under, so a second
+	// publish of the same bytes reports the first write's generation.
+	published map[string]policyregistry.ObjectRef
 }
+
+// cliFirstGeneration is the scale of a real GCS generation: assigned at write time and far
+// outside anything a manifest author could have transcribed beforehand.
+const cliFirstGeneration int64 = 1_759_000_000_000_001
 
 func (r *cliServingRegistry) VerifyServingArtifact(_ context.Context, ref policyregistry.ObjectRef) error {
 	payload, exists := r.artifacts[ref]
@@ -83,6 +92,15 @@ func (r *cliServingRegistry) PublishServingManifest(_ context.Context, kind poli
 	if policyregistry.ValidatePublishableServingKind(kind) == nil {
 		ref.URI = r.RootURI() + "/artifacts/" + digest + ".json"
 	}
+	if r.published == nil {
+		r.published = map[string]policyregistry.ObjectRef{}
+	}
+	if existing, stored := r.published[digest]; stored {
+		return existing, nil
+	}
+	ref.Generation = cliFirstGeneration + int64(len(r.published))
+	r.published[digest] = ref
+	r.objectWrites++
 	r.objects[ref] = payload
 	return ref, nil
 }
@@ -448,5 +466,5 @@ func TestServingCLIRemovedVerbsPointToTheirReplacement(t *testing.T) {
 	}
 	require.Zero(t, opened)
 	require.ErrorContains(t, runServingWith(context.Background(), []string{"promote"}, dependencies), `unsupported serving command "promote"`)
-	require.ErrorContains(t, runServingWith(context.Background(), nil, dependencies), "usage: policyctl serving <publish|apply|status|rollback>")
+	require.ErrorContains(t, runServingWith(context.Background(), nil, dependencies), "usage: policyctl serving <publish|publish-release|apply|status|rollback>")
 }
