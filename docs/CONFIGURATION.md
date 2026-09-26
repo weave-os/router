@@ -438,13 +438,15 @@ The three `ROUTER_SERVING_CONFIGURATION_*` and three
 (`{uri, sha256, generation}`), so a partially stamped triple is rejected rather
 than resolved loosely.
 
-Boot is fail-closed throughout: a managed worker validates its attested identity
-(target, project, region, revision, image digest, configuration reference) before
-mounting inference endpoints, and a failure is logged as "Managed worker
-preparation failed; refusing to boot" and panics instead of degrading to an
-unattested path. The gateway validates its environment and signing key before it
-opens the registry, and `/readyz` stays fail-closed afterwards. Keep the signing
-key identical on gateway and workers of the same environment.
+With a nonempty `ROUTER_SERVING_ASSERTION_KEY`, managed worker boot is fail-closed:
+the worker validates its attested identity (target, project, region, revision,
+image digest, configuration reference) before mounting inference endpoints, and
+a failure stops boot rather than degrading to an unattested path. If the worker
+key is unset or whitespace-only, it skips managed-serving preparation and mounts
+inference endpoints without serving-admission checks, even when
+`ROUTER_DEPLOYMENT_MODE=managed`. The gateway validates its environment and signing
+key before it opens the registry, and `/readyz` stays fail-closed afterwards.
+Keep the signing key identical on gateway and workers of the same environment.
 
 ## Routing
 

@@ -110,8 +110,9 @@ first v2 apply on a target, reverting the binary is a one-way door for that targ
 the designed object-level rollback is a `scope: rollback` proposal, not a code revert.
 
 `scripts/serving_admission_check` is not part of this gate and not part of the fleet.
-It is a loopback-only integration harness: it refuses any `ROUTER_TEST_DATABASE_URL`
-that is not an ephemeral local Postgres fixture and exercises
+It is a loopback-only integration harness: it requires a loopback host in
+`ROUTER_TEST_DATABASE_URL`. Use a disposable local Postgres fixture: the harness
+writes persistent records and does not verify that the database is ephemeral. It exercises
 `internal/postgres/serving.NewServingAdmissionRepo(...).Admit` — credential-subject
 enrollment and rotation fences, concurrent first-admission collapse onto one binding,
 profile assignment, and the database admission clock — against a fixture decision
