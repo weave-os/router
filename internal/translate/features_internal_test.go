@@ -171,3 +171,10 @@ func TestSignatureTokenSavings_ExcludesRouterMintedSignatures(t *testing.T) {
 	assert.Equal(t, (len(body)-len(minted))/contentBytesPerToken, e.ContextOverflowTokenEstimate(), "router-minted signature is never dispatched as prompt")
 	assert.Equal(t, len(anthropicSig)/contentBytesPerToken, e.SignatureTokenSavings(), "only real Anthropic signatures remain to be saved")
 }
+
+func TestSignatureTokenSavings_NeverNegative(t *testing.T) {
+	minted := encodeOpenAIReasoningSignature("rs_1", strings.Repeat("E", 6000), "scope")
+	body := []byte(`{"messages": [{"role": "assistant", "content": [{"type": "thinking", "thinking": "", "signature": "` + minted + `"}]}]}`)
+	e := &RequestEnvelope{body: body, format: FormatAnthropic}
+	assert.Zero(t, e.SignatureTokenSavings(), "a spaced body the byte scan misses must not shrink the window")
+}

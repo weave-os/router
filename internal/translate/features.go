@@ -89,9 +89,11 @@ func (e *RequestEnvelope) SignatureTokenSavings() int {
 	if e.format != FormatAnthropic {
 		return 0
 	}
-	// Router-minted signatures are already excluded from the base estimate.
+	// Router-minted signatures are already excluded from the base estimate. The
+	// byte scan only matches compact JSON, so it can undercount what the block
+	// walk found; savings never go negative.
 	routerSignatureBytes, _ := e.routerReasoningTransportBytes()
-	return (base64SignatureBytes(e.body) - routerSignatureBytes) / contentBytesPerToken
+	return max(0, base64SignatureBytes(e.body)-routerSignatureBytes) / contentBytesPerToken
 }
 
 // routerReasoningTransportBytes sums the router-minted OpenAI reasoning an
