@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strings"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/flags"
@@ -24,20 +23,6 @@ const (
 
 // RouterKeyHeader carries the Weave Router key when clients need to preserve Authorization / x-api-key for the upstream provider.
 const RouterKeyHeader = auth.RouterKeyHeader
-
-// AnthropicSubscriptionHeader carries a caller's Claude subscription OAuth
-// token (sk-ant-oat-) alongside an rk_ router key, so the proxy can bill
-// Claude-model turns to the caller's subscription instead of the deployment key.
-const AnthropicSubscriptionHeader = "X-Weave-Anthropic-Subscription"
-
-// OpenAISubscriptionHeader/OpenAIAccountIDHeader carry a caller's Codex
-// (ChatGPT) OAuth JWT and its paired ChatGPT-Account-ID alongside an rk_
-// router key, so Codex turns bill to the caller's ChatGPT plan. Both are
-// required — the Codex backend 401/403s on a token without its account id.
-const (
-	OpenAISubscriptionHeader = "X-Weave-OpenAI-Subscription"
-	OpenAIAccountIDHeader    = "X-Weave-OpenAI-Account-ID"
-)
 
 // WithAuth validates the inbound request via a bearer rk_ token only. Used on data-plane routes (`/v1/*`). On failure, short-circuits 401.
 //
@@ -226,18 +211,6 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool) gin.HandlerFunc {
 		}
 		if installation != nil && installation.ID != "" {
 			ctx = context.WithValue(ctx, proxy.InstallationIDContextKey{}, installation.ID)
-		}
-		// Stash the dedicated subscription header (router-keyed path) raw; the
-		// proxy validates its shape and decides precedence. Never logged.
-		if sub := strings.TrimSpace(c.GetHeader(AnthropicSubscriptionHeader)); sub != "" {
-			ctx = context.WithValue(ctx, proxy.AnthropicSubscriptionContextKey{}, sub)
-		}
-		// Codex (ChatGPT) subscription: stash JWT + account ID raw for the proxy. Never logged.
-		if sub := strings.TrimSpace(c.GetHeader(OpenAISubscriptionHeader)); sub != "" {
-			ctx = context.WithValue(ctx, proxy.OpenAISubscriptionContextKey{}, sub)
-		}
-		if acct := strings.TrimSpace(c.GetHeader(OpenAIAccountIDHeader)); acct != "" {
-			ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, acct)
 		}
 		finishAuthSpan(authSpan, nil)
 		ctx = restoreRequestParent(ctx, parentCtx)

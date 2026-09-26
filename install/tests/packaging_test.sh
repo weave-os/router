@@ -131,7 +131,7 @@ check "the packed entrypoint installs every Codex skill" \
 
 HOME="$home" PATH="$home/bin:$PATH" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
   node "$root/bin.js" --opencode --dir "$work/packed-opencode" --quiet --base-url http://127.0.0.1:9 >/dev/null 2>&1 || true
-check "the packed entrypoint installs the OpenCode plugin" "yes" \
+check "the packed entrypoint installs the OpenCode routing plugin" "yes" \
   "$([ -f "$work/packed-opencode/.weave/opencode-weave.ts" ] && echo yes || echo no)"
 check "the packed entrypoint activates weave/auto" "weave/auto" \
   "$(jq -r '.model // empty' "$work/packed-opencode/opencode.json" 2>/dev/null || true)"

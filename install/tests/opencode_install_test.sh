@@ -61,12 +61,28 @@ JSON
 
 run_install
 install_output="$(run_install_output)"
-grep -Fq "opencode auth login" <<<"$install_output" || fail "install did not print the OpenCode auth login command"
-grep -Fq "Weave Router — Codex plan" <<<"$install_output" || fail "install did not print the Codex plan provider"
-grep -Fq "Weave Router — Claude plan" <<<"$install_output" || fail "install did not print the Claude plan provider"
-if grep -Fq "npx @weave-os/router login" <<<"$install_output"; then
-  fail "install advertised server-side enrollment as the OpenCode plugin login path"
+grep -Fq "npx @weave-os/router login claude" <<<"$install_output" || fail "install did not print the managed enrollment command"
+grep -Fq "npx @weave-os/router login codex" <<<"$install_output" || fail "install did not print the managed Codex enrollment command"
+login_output="$(HOME="$home" XDG_CONFIG_HOME="$home/xdg" PATH="$test_path" NO_COLOR=1 \
+  bash "$installer" login claude --dir "$install_dir" --non-interactive --quiet 2>&1 || true)"
+grep -Fq "Claude login requires an interactive terminal" <<<"$login_output" || fail "managed login did not reuse the OpenCode install"
+if grep -Fq "No Weave Router install found" <<<"$login_output"; then
+  fail "managed login ignored the OpenCode install endpoint"
 fi
+# A Claude install that already resolves an endpoint but carries no key must
+# keep that endpoint: the OpenCode key only fills in when it belongs to the
+# same router, never by swapping the endpoint underneath the caller.
+claude_settings_dir="$install_dir/.claude"
+mkdir -p "$claude_settings_dir"
+printf '%s\n' '{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:8"}}' >"$claude_settings_dir/settings.json"
+login_output="$(HOME="$home" XDG_CONFIG_HOME="$home/xdg" PATH="$test_path" NO_COLOR=1 \
+  bash "$installer" login claude --dir "$install_dir" --non-interactive --quiet 2>&1 || true)"
+grep -Fq "No router key found" <<<"$login_output" || fail "managed login sent the OpenCode key to a different Claude endpoint"
+printf '%s\n' '{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:9/"}}' >"$claude_settings_dir/settings.json"
+login_output="$(HOME="$home" XDG_CONFIG_HOME="$home/xdg" PATH="$test_path" NO_COLOR=1 \
+  bash "$installer" login claude --dir "$install_dir" --non-interactive --quiet 2>&1 || true)"
+grep -Fq "Claude login requires an interactive terminal" <<<"$login_output" || fail "managed login did not reuse the OpenCode key for the matching Claude endpoint"
+rm -rf "$claude_settings_dir"
 [ "$(jq -r '.model' "$config")" = "weave/auto" ] || fail "install did not activate weave/auto"
 [ "$(jq -r '.direct_model' "$parked")" = "anthropic/claude-sonnet-4-5" ] || fail "install did not park the previous model"
 [ "$(jq -r '.provider.weave.models.auto.limit.context' "$config")" = "128000" ] || fail "virtual model context limit is missing"
@@ -75,10 +91,10 @@ fi
 [ "$(jq -r '.provider.weave.models.auto.attachment' "$config")" = "true" ] || fail "virtual model attachment capability is missing"
 [ "$(jq -r '.provider.other.name' "$config")" = "Other" ] || fail "install replaced an unrelated provider"
 [ "$(jq -r '.mcp.keep.type' "$config")" = "local" ] || fail "install replaced unrelated MCP config"
-[ -f "$managed_plugin" ] || fail "subscription plugin was not copied"
+[ -f "$managed_plugin" ] || fail "routing plugin was not copied"
 [ -f "$install_dir/.weave/directives.ts" ] || fail "directive rewrite module was not copied beside the plugin"
 [ -f "$install_dir/.weave/classifier-thread.ts" ] || fail "classifier session module was not copied beside the plugin"
-jq -e --arg plugin "$managed_plugin" '.plugin | index($plugin)' "$config" >/dev/null || fail "subscription plugin was not registered"
+jq -e --arg plugin "$managed_plugin" '.plugin | index($plugin)' "$config" >/dev/null || fail "routing plugin was not registered"
 [ -f "$install_dir/.opencode/commands/fm.md" ] || fail "--dir commands were not installed beside the config"
 [ ! -e "$home/xdg/opencode/commands/fm.md" ] || fail "--dir install mutated global OpenCode commands"
 case "$(uname -s)" in
@@ -102,7 +118,7 @@ run_uninstall
 [ "$(jq -r '.model' "$config")" = "google/gemini-3.8-flash" ] || fail "uninstall did not restore the direct model"
 [ "$(jq -r '(.provider // {}) | has("weave")' "$config")" = "false" ] || fail "uninstall left the Weave provider"
 [ "$(jq -r '.plugin | index("user-plugin") != null' "$config")" = "true" ] || fail "uninstall removed a user plugin"
-[ ! -e "$managed_plugin" ] || fail "uninstall left the subscription plugin"
+[ ! -e "$managed_plugin" ] || fail "uninstall left the routing plugin"
 [ ! -e "$install_dir/.weave/directives.ts" ] || fail "uninstall left the directive rewrite module"
 [ ! -e "$install_dir/.weave/classifier-thread.ts" ] || fail "uninstall left the classifier session module"
 [ ! -e "$parked" ] || fail "uninstall left the parked model"

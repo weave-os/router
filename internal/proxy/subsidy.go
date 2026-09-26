@@ -68,13 +68,10 @@ func (s *Service) WithUsageObserver(obs *usage.Observer) *Service {
 }
 
 // presentSubscriptionTokens returns the caller's Codex and Claude subscription
-// tokens, "" when absent. It sources each from BOTH the dedicated
-// X-Weave-*-Subscription headers (the opencode dual-sub path) AND the inbound
-// Authorization bearer (Claude Code's sk-ant-oat… / Codex CLI's JWT+account-id
-// on their native harnesses) — mirroring resolveAndInjectCredentials so the
-// subsidy works for all three harnesses, not just opencode. The token doubles as
-// the usage-observer key, and equals the eventually-resolved credential, so
-// record and read agree regardless of source.
+// tokens, "" when absent. Native harnesses send a Claude Code sk-ant-oat…
+// bearer or Codex CLI JWT+account-id on Authorization / x-api-key. The token
+// doubles as the usage-observer key, and equals the eventually-resolved
+// credential, so record and read agree regardless of source.
 //
 // A free function (not a *Service method) because it reads only ctx + headers:
 // the prepaid balance gate (server/middleware) has no Service handle but must
@@ -90,11 +87,7 @@ func presentSubscriptionTokens(ctx context.Context, headers http.Header) (codex,
 	} else if c := ExtractClientCredentials(providers.ProviderOpenAI, headers); c != nil && c.OAuth {
 		codex = string(c.APIKey)
 	}
-	// Validate the dedicated Anthropic header via subscriptionCredsFromHeaderValue
-	// (requires sk-ant-oat), NOT a bare non-empty check: a junk header is never
-	// injected as a subscription, so treating it as present would let the balance
-	// gate exempt a turn that then routes to a paid model.
-	if creds := subscriptionCredsFromHeaderValue(anthropicSubscriptionFromContext(ctx)); creds != nil {
+	if creds := subscriptionCredsFromToken(anthropicSubscriptionFromContext(ctx)); creds != nil {
 		anthropic = string(creds.APIKey)
 	} else if c := ExtractClientCredentials(providers.ProviderAnthropic, headers); c != nil && c.OAuth {
 		anthropic = string(c.APIKey)
@@ -196,7 +189,7 @@ func (s *Service) withUsageObserver(ctx context.Context, headers http.Header, ro
 		// resolved credential also skips internal calls that don't use the sub,
 		// e.g. the handover summarizer's deployment-key Anthropic call after
 		// clearCredentials. The parser follows the matched token's family, so this
-		// works whether the sub arrived via a dedicated header or the inbound bearer.
+		// works whether the sub arrived through managed enrollment or the inbound bearer.
 		creds := CredentialsFromContext(callCtx)
 		if creds == nil || !creds.OAuth {
 			return

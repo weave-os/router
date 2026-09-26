@@ -100,7 +100,7 @@ func TestEnabledProvidersForRequest_ExcludedProvidersSubtracted(t *testing.T) {
 
 // TestEnabledProvidersForRequest_SubscriptionEnrollsAnthropic guards the
 // managed-mode path: a router-keyed byokOnly request carrying only the
-// subscription header must enroll Anthropic, or the scorer fails with
+// subscription credential must enroll Anthropic, or the scorer fails with
 // ErrNoEligibleProvider before any Claude turn runs.
 func TestEnabledProvidersForRequest_SubscriptionEnrollsAnthropic(t *testing.T) {
 	makeService := func() *Service {
@@ -118,7 +118,7 @@ func TestEnabledProvidersForRequest_SubscriptionEnrollsAnthropic(t *testing.T) {
 		return context.WithValue(context.Background(), InstallationIDContextKey{}, testInstallationID)
 	}
 
-	t.Run("subscription header enrolls anthropic on a router-keyed byok-only request", func(t *testing.T) {
+	t.Run("subscription credential enrolls anthropic on a router-keyed byok-only request", func(t *testing.T) {
 		ctx := context.WithValue(routerKeyed(), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-subscription-token")
 		got := makeService().enabledProvidersForRequest(ctx, providers.ProviderAnthropic, http.Header{})
 		assert.Contains(t, got, providers.ProviderAnthropic,
@@ -182,7 +182,7 @@ func TestEnabledProvidersForRequest_CodexSubscriptionEnrollsOpenAI(t *testing.T)
 		return context.WithValue(context.Background(), InstallationIDContextKey{}, testInstallationID)
 	}
 
-	t.Run("dedicated Codex headers enroll openai only", func(t *testing.T) {
+	t.Run("Codex subscription enrolls openai only", func(t *testing.T) {
 		ctx := context.WithValue(routerKeyed(), OpenAISubscriptionContextKey{}, codexJWT)
 		ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, "acct-123")
 		got := makeService().enabledProvidersForRequest(ctx, providers.ProviderOpenAI, http.Header{})

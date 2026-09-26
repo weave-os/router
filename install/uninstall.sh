@@ -499,18 +499,18 @@ if [ "$target" = "opencode" ]; then
     opencode_direct_model="$(jq -r '.direct_model // empty' "$opencode_parked" 2>/dev/null || true)"
   fi
 
-  # Canonicalize the plugin path exactly as install.sh did (`cd … && pwd`) so
-  # the `plugin` array entry matches on removal — a raw "$opencode_dir/…" string
-  # can differ (symlinks, trailing slash) and leave the entry behind.
+  # Remove the legacy plugin left by older installers. New installs no longer
+  # create it, but uninstall should clean it up when present.
   if [ -d "$opencode_dir" ]; then
     opencode_plugin="$(cd "$opencode_dir" && pwd)/.weave/opencode-weave.ts"
   else
     opencode_plugin="$opencode_dir/.weave/opencode-weave.ts"
   fi
+
   if [ -f "$opencode_config_file" ]; then
-    # Strip every managed provider (`weave`, the login-only `weave-claude`, and
-    # the legacy `weave-codex` from pre-upgrade installs), the managed plugin
-    # entry from the `plugin` array, and restore the direct model parked during
+    # Strip every managed provider (`weave`, `weave-claude`, and the legacy
+    # `weave-codex` from pre-upgrade installs), remove the stale legacy plugin
+    # entry, and restore the direct model parked during
     # install. Other providers, direct models selected while routing was off,
     # other plugins, and unrelated keys are preserved.
     cleaned="$(jq --arg plugin "$opencode_plugin" --arg direct_model "$opencode_direct_model" '
@@ -539,9 +539,6 @@ if [ "$target" = "opencode" ]; then
     info "No opencode config at $opencode_config_file (already uninstalled?)"
   fi
 
-  # Drop the bundled subscription plugin (no secrets; the config holds the key,
-  # opencode's own auth store holds the ChatGPT/Claude tokens). Remove the
-  # .weave/ dir only if it's left empty so we don't clobber an unrelated user dir.
   if [ -f "$opencode_plugin" ]; then
     refuse_if_symlink "$opencode_plugin"
     rm -f "$opencode_plugin"
@@ -556,7 +553,7 @@ if [ "$target" = "opencode" ]; then
       rm -f "$opencode_classifier"
     fi
     rmdir "$opencode_dir/.weave" 2>/dev/null || true
-    ok "Removed $opencode_plugin"
+    ok "Removed legacy opencode plugin"
   fi
 
   # Drop the toggle parked sidecar after its prior model has been restored.

@@ -32,10 +32,7 @@ func (s *Service) CodexModelCatalog(ctx context.Context, headers http.Header, cl
 	}
 	// Model-specific credential resolution deliberately rejects an empty model.
 	// Discovery instead uses only the caller's paired ChatGPT credential.
-	creds := codexSubscriptionFromContext(ctx)
-	if creds == nil {
-		creds = ExtractClientCredentials(providers.ProviderOpenAI, headers)
-	}
+	creds := ExtractClientCredentials(providers.ProviderOpenAI, headers)
 	ctx = requestcontext.WithCredentials(ctx, creds)
 	catalog, err := fetcher.FetchCodexModelCatalog(ctx, clientVersion)
 	if err != nil {
