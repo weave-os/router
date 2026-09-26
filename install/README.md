@@ -144,12 +144,14 @@ providers, and unrelated settings stay untouched.
 
 Run `npx @weave-os/router --codex` again to enable native `/model` selection on
 an existing install, then restart Codex. `/model` shows the models available to
-your active ChatGPT login plus **Weave Router (automatic)**. Selecting a named
-model forces that model for each request, and Codex's selected reasoning effort
-is sent with it. Selecting **Weave Router (automatic)** returns to Weave's
-per-request routing. An existing `$fm` session pin still takes precedence in
-automatic mode; clear it with `$ufm` to resume automatic routing. The native
-selection itself does not write a persistent `$fm` pin.
+your active ChatGPT login plus **Weave Router**. Switching to a named model with
+`/model` during a session forces that model for each request from then on, and
+Codex's selected reasoning effort is sent with it. The model a session launches
+with (from `config.toml` or an SDK thread option) is only a baseline and still
+routes automatically. Selecting **Weave Router** returns to Weave's per-request
+routing. An existing `$fm` session pin still takes precedence in automatic
+mode; clear it with `$ufm` to resume automatic routing. The native selection
+itself does not write a persistent `$fm` pin.
 
 `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, and `gpt-6-sol` can use the
 active ChatGPT OAuth plan. Other OpenAI, Anthropic, Gemini, and

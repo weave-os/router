@@ -104,9 +104,11 @@ Four install targets:
   block plus `model_provider = "weave"`. Fresh installs select `weave-auto`,
   while reinstalling preserves an existing model choice. The provider preserves
   the active ChatGPT OAuth login. No install pins `X-Weave-Router-Strategy`;
-  every endpoint keeps its router's configured default. Codex's native
-  `/model` picker can force a named model and its selected reasoning effort;
-  **Weave Router (automatic)** resumes per-request routing. An existing `$fm`
+  every endpoint keeps its router's configured default. Switching models with
+  Codex's native `/model` picker mid-session forces the named model and its
+  selected reasoning effort; the model a session launches with stays a
+  baseline that routes automatically, and selecting **Weave Router** resumes
+  per-request routing. An existing `$fm`
   session pin still applies in automatic mode until `$ufm` clears it. Re-run
   `npx @weave-os/router --codex` and restart Codex to enable this on an older
   install. `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, and `gpt-6-sol`
