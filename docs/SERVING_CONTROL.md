@@ -341,6 +341,25 @@ go test -race ./internal/policyregistry ./internal/servingvalidate ./cmd/policyc
 go vet ./internal/policyregistry ./internal/servingvalidate ./cmd/policyctl
 ```
 
+In CI these run inside the `Go checks` job, which is path-gated: the `Test`
+workflow classifies the pull request's base..head diff with
+[`scripts/go_ci_relevance.sh`](../scripts/go_ci_relevance.sh) and skips
+`Go checks` only when no changed file can reach Go compilation (no `*.go`,
+`go.mod`/`go.sum`, `db/**`, `scripts/**`, `Makefile`, `Dockerfile*`, sqlc or
+lint config, nothing inside a Go package directory, and not the workflow
+itself). Every serving-control change touches Go, so the commands above always
+run for them. `Inference boundary` and the aggregate `Test` check stay
+unconditional, and push, merge and `workflow_dispatch` runs gate everything ON.
+
+Within `Go checks`, the standalone gateway build
+(`CGO_ENABLED=0 go build ./cmd/router-gateway`, which guards the gateway
+against worker-only cgo dependencies) runs whenever the diff touches
+`go.mod`/`go.sum` or any package directory in
+`CGO_ENABLED=0 go list -deps ./cmd/router-gateway` — `internal/policyregistry`,
+`internal/postgres/serving` and `internal/gateway` among them — and whenever
+that closure cannot be computed. Only diffs provably outside the gateway's
+dependency closure skip it.
+
 Tests include a real Cloud Storage client against an ephemeral local JSON API
 fixture, immutable publish collisions, generation-CAS conflicts, exact-generation
 reads, v1/v2 dual decode and the lazy state-path bootstrap, private TLS endpoint
