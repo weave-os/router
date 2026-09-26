@@ -158,8 +158,8 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	}
 	var discoveryMiddleware []gin.HandlerFunc
 	if features.ServingAdmission != nil {
-		discoveryMiddleware = append(discoveryMiddleware, middleware.WithAuth(authSvc, byokRequiresOptIn))
-		discoveryMiddleware = append(discoveryMiddleware, servingAdmissionMiddleware...)
+		discoveryMiddleware = append(discoveryMiddleware, middleware.WithTimeout(catalogModelsTimeout))
+		discoveryMiddleware = append(discoveryMiddleware, middleware.WithAuth(authSvc, byokRequiresOptIn), middleware.WithServingAdmission(features.ServingAdmission))
 	}
 	discovery := engine.Group("", discoveryMiddleware...)
 
@@ -184,14 +184,14 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 
 	// /v1/router/models lets the Weave control plane validate per-org exclusion
 	// submissions against the live deployed-models universe instead of
-	// hand-copying it per gitlink bump. Unauthed: read-only, and the list is
-	// already public on the RouterArena leaderboard.
+	// hand-copying it per gitlink bump. Managed public discovery uses routing
+	// authentication; self-hosted discovery retains its existing public contract.
 	if deployedModels != nil {
 		discovery.GET("/v1/router/models", middleware.WithTimeout(catalogModelsTimeout), admin.CatalogModelsHandler(deployedModels, hmmModels))
 
 		// Projects the quality-vs-price dial's model mix across dial positions
-		// for the dashboard's distribution preview. Same unauthed rationale as
-		// /v1/router/models; the assertion skips sources that can't project one.
+		// for the dashboard's distribution preview. The assertion skips sources
+		// that cannot project one.
 		if dist, ok := deployedModels.(admin.RoutingDistributionSource); ok && features.ServingAdmission == nil {
 			discovery.GET("/v1/router/routing-distribution", middleware.WithTimeout(healthTimeout), admin.RoutingDistributionHandler(dist, hmmDistributionRosters...))
 		}
@@ -201,9 +201,23 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	}
 
 	// /v1/router/hmm-roster: frozen per-cluster arm roster mapped to catalog IDs.
-	// Unauthed — read-only and non-sensitive, same rationale as /v1/router/models.
+	// It follows the same discovery authentication as /v1/router/models.
 	if len(hmmRosterSources) > 0 {
 		discovery.GET("/v1/router/hmm-roster", middleware.WithTimeout(readinessTimeout), admin.HMMRosterHandler(hmmRosterSources))
+	}
+
+	// These exact routes run only on IAM-private managed workers. The gateway
+	// authenticates the service caller and supplies its immutable selection.
+	if features.ServingAdmission != nil {
+		privateDiscovery := engine.Group("/internal/v1/router", middleware.WithTimeout(catalogModelsTimeout), middleware.WithServingDiscovery(features.ServingAdmission))
+		privateDiscovery.GET("/policies", admin.PolicyCatalogHandler(proxySvc, defaultStrategy))
+		if deployedModels != nil {
+			privateDiscovery.GET("/models", admin.CatalogModelsHandler(deployedModels, hmmModels))
+		}
+		privateDiscovery.GET("/routing-distribution", admin.AdmittedRoutingDistributionHandler(policyregistry.AdmittedRosterSource{}))
+		if len(hmmRosterSources) > 0 {
+			privateDiscovery.GET("/hmm-roster", admin.HMMRosterHandler(hmmRosterSources))
+		}
 	}
 
 	// /internal/v1/*: control-plane-to-router calls, authed by a shared secret

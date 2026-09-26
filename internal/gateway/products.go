@@ -34,6 +34,7 @@ type ProductSurfaces struct {
 	Analytics   AnalyticsCredentialVerifier
 	Feedback    *feedback.Signer
 	Attribution FeedbackAdmissionLookup
+	Discovery   ServiceIdentityVerifier
 }
 
 func (p ProductSurfaces) validate() error {
@@ -157,7 +158,7 @@ func (h *Handler) serveFeedback(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, requestcontext.ConversationChat, err)
 		return
 	}
-	h.forward(w, r, requestcontext.ConversationChat, body, binding, "")
+	h.forward(w, r, requestcontext.ConversationChat, body, binding, "", "")
 }
 
 func (h *Handler) forwardDefault(w http.ResponseWriter, r *http.Request) {
@@ -171,7 +172,7 @@ func (h *Handler) forwardDefault(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, requestcontext.ConversationChat, err)
 		return
 	}
-	h.forward(w, r, requestcontext.ConversationChat, nil, binding, "")
+	h.forward(w, r, requestcontext.ConversationChat, nil, binding, "", "")
 }
 
 func (h *Handler) defaultTarget() policyregistry.ServingTarget {
@@ -182,13 +183,15 @@ func (h *Handler) defaultTarget() policyregistry.ServingTarget {
 }
 
 func (h *Handler) defaultBinding(ctx context.Context) (policyregistry.LaneBinding, error) {
-	target := h.defaultTarget()
-	// Read-only exports and public assets have no conversation, enrollment or
-	// customer policy. Choosing their worker never grants inference authority.
-	admissionDecider := policyregistry.ServingAdmission{Store: h.registry}
-	admission, err := admissionDecider.Decide(ctx, policyregistry.SerializedAdmission{Projection: policyregistry.AdmissionProjection{Target: target}, Clock: func(context.Context) (time.Time, error) { return time.Now(), nil }})
+	admission, err := h.defaultAdmission(ctx)
 	if err != nil {
 		return policyregistry.LaneBinding{}, err
 	}
 	return policyregistry.ResolveAdmissionBinding(ctx, h.registry, admission)
+}
+
+func (h *Handler) defaultAdmission(ctx context.Context) (policyregistry.SessionReleaseBinding, error) {
+	// Public metadata has no credential or conversation. Resolve without persisting an admission.
+	admissionDecider := policyregistry.ServingAdmission{Store: h.registry}
+	return admissionDecider.Decide(ctx, policyregistry.SerializedAdmission{Projection: policyregistry.AdmissionProjection{Target: h.defaultTarget()}, Clock: func(context.Context) (time.Time, error) { return time.Now(), nil }})
 }

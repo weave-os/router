@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -80,6 +81,16 @@ func run() error {
 	transport := newWorkerTransport()
 	defer transport.CloseIdleConnections()
 	products := gateway.ProductSurfaces{Environment: environment, Analytics: credentials, Feedback: feedback.NewSigner(config.GetOr("ROUTER_FEEDBACK_LINK_SECRET", ""), 0), Attribution: serving.FeedbackLookup{Queries: sqlc.New(pool)}}
+	audience := strings.TrimSpace(config.GetOr("ROUTER_DISCOVERY_AUDIENCE", ""))
+	subjects := strings.TrimSpace(config.GetOr("ROUTER_DISCOVERY_ALLOWED_SUBJECTS", ""))
+	if audience != "" && subjects != "" {
+		products.Discovery, err = iam.NewServiceIdentityVerifier(ctx, audience, strings.Split(subjects, ","))
+		if err != nil {
+			return fmt.Errorf("initialize private discovery service identity: %w", err)
+		}
+	} else {
+		observability.FromContext(ctx).Warn("Private discovery is disabled because service identity configuration is incomplete")
+	}
 	forwarder, err := gateway.NewHandler(credentials, admissions, registry, signer, iam.Authorizer{}, transport, products)
 	if err != nil {
 		return err

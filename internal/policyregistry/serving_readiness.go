@@ -45,11 +45,11 @@ func (c *ServingRuntimeCache) PrepareWorker(ctx context.Context, identity Worker
 	return baseline, nil
 }
 
-// AdmittedRosterSource exposes the requesting installation's exact roster only.
-// A request without admission cannot obtain a default or another customer's roster.
+// AdmittedRosterSource exposes only the validated request snapshot.
+// Discovery supplies the public default; authenticated admission supplies the customer's selection.
 type AdmittedRosterSource struct{}
 
-// DistributionRoster exposes the same immutable customer policy used by selection.
+// DistributionRoster exposes the immutable policy attached to this request.
 func (AdmittedRosterSource) DistributionRoster(ctx context.Context) (*rosterdata.Roster, error) {
 	snapshot := ServingSnapshotFromContext(ctx)
 	if snapshot == nil || snapshot.Policy == nil {
@@ -58,7 +58,7 @@ func (AdmittedRosterSource) DistributionRoster(ctx context.Context) (*rosterdata
 	return snapshot.Policy, nil
 }
 
-// ClusterRoster supplies the admitted policy to discovery and escalation.
+// ClusterRoster supplies the request's validated policy to discovery and escalation.
 func (AdmittedRosterSource) ClusterRoster(ctx context.Context) (policy.RosterSnapshot, error) {
 	snapshot := ServingSnapshotFromContext(ctx)
 	if snapshot == nil {

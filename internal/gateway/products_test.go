@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -19,6 +20,8 @@ import (
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/gateway"
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/translate"
 )
 
@@ -176,6 +179,99 @@ func TestPublicVersionAndFeedbackAssetsRemainKeyless(t *testing.T) {
 		w := httptest.NewRecorder()
 		forwarder.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
 		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	}
+}
+
+func TestCatalogDiscoveryUsesEnvironmentDefault(t *testing.T) {
+	for _, test := range []struct {
+		environment policyregistry.Environment
+		target      policyregistry.ServingTarget
+	}{
+		{policyregistry.EnvironmentProd, policyregistry.TargetStable},
+		{policyregistry.EnvironmentStaging, policyregistry.TargetStaging},
+	} {
+		t.Run(string(test.environment), func(t *testing.T) {
+			worker := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Empty(t, r.Header.Get(policyregistry.ServingAssertionHeader))
+				assert.Equal(t, "Bearer gateway-iam", r.Header.Get(policyregistry.ServerlessAuthorizationHeader))
+				selection, err := policyregistry.DecodeDiscoverySelection(r.Header.Get(policyregistry.DiscoverySelectionHeader))
+				if !assert.NoError(t, err) {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+				assert.Equal(t, test.target, selection.Target)
+				assert.Empty(t, selection.ProfileKey)
+				assert.Nil(t, selection.Selection.Profile)
+				w.Header().Set(policyregistry.DiscoverySelectionHeader, "private")
+				_, _ = io.WriteString(w, r.URL.RequestURI())
+			}))
+			t.Cleanup(worker.Close)
+			binding := gatewayBinding(worker.URL)
+			binding.Target = test.target
+			signer, err := policyregistry.NewAssertionSigner([]byte(strings.Repeat("s", 32)), time.Now)
+			require.NoError(t, err)
+			forwarder, err := gateway.NewHandler(credentialVerifier{failure: auth.ErrInvalidToken}, &admissionStore{failure: errors.New("must not admit catalog")}, bindingStore{binding: binding}, signer, revisionAuthorizer{}, worker.Client().Transport, gateway.ProductSurfaces{Environment: test.environment, Analytics: &analyticsVerifier{err: auth.ErrInvalidToken}, Discovery: discoveryServiceIdentity{}})
+			require.NoError(t, err)
+			for _, path := range []string{
+				"/internal/v1/router/models?scope=catalog",
+				"/internal/v1/router/policies",
+				"/internal/v1/router/hmm-roster?strategy=" + string(router.StrategyHMM),
+				"/internal/v1/router/routing-distribution?strategy=" + string(router.StrategyHMM) + "&grid=2&excluded_models=a%2Cb&excluded_providers=" + providers.ProviderGoogle,
+			} {
+				request := httptest.NewRequest(http.MethodGet, path, nil)
+				query := request.URL.Query()
+				query.Set("selection", "default")
+				request.URL.RawQuery = query.Encode()
+				request.Header.Set(gateway.DiscoveryServiceAuthorizationHeader, "Bearer backend-identity")
+				request.Header.Set(policyregistry.DiscoverySelectionHeader, "caller-controlled")
+				request.Header.Set(policyregistry.ServingAssertionHeader, "caller-controlled")
+				request.Header.Set(policyregistry.ServerlessAuthorizationHeader, "Bearer caller-iam")
+				// Hop-by-hop stripping must not remove the gateway's own selection metadata.
+				request.Header.Set("Connection", policyregistry.DiscoverySelectionHeader)
+				response := httptest.NewRecorder()
+				forwarder.ServeHTTP(response, request)
+				require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+				expected, parseErr := url.Parse(path)
+				require.NoError(t, parseErr)
+				expected.RawQuery = expected.Query().Encode()
+				assert.Equal(t, expected.String(), response.Body.String())
+				assert.Empty(t, response.Header().Get(policyregistry.DiscoverySelectionHeader))
+			}
+		})
+	}
+}
+
+func TestCatalogDiscoveryFailsWithoutSelectedReleaseOrIAM(t *testing.T) {
+	var calls atomic.Int32
+	worker := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(worker.Close)
+	signer, err := policyregistry.NewAssertionSigner([]byte(strings.Repeat("s", 32)), time.Now)
+	require.NoError(t, err)
+	for _, test := range []struct {
+		name          string
+		stateError    error
+		artifactError error
+		iamError      error
+	}{
+		{name: "missing activation", stateError: policyregistry.ErrNotFound},
+		{name: "registry outage", stateError: context.DeadlineExceeded},
+		{name: "missing selected artifact", artifactError: policyregistry.ErrNotFound},
+		{name: "IAM outage", iamError: context.DeadlineExceeded},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			store := readinessStore{bindingStore: bindingStore{binding: gatewayBinding(worker.URL)}, failure: test.stateError, artifactFailure: test.artifactError}
+			forwarder, err := gateway.NewHandler(credentialVerifier{failure: auth.ErrInvalidToken}, &admissionStore{failure: errors.New("must not admit catalog")}, store, signer, readinessAuthorizer{failure: test.iamError}, worker.Client().Transport, gateway.ProductSurfaces{Environment: policyregistry.EnvironmentProd, Analytics: &analyticsVerifier{}, Discovery: discoveryServiceIdentity{}})
+			require.NoError(t, err)
+			response := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodGet, "/internal/v1/router/models?scope=catalog&selection=default", nil)
+			request.Header.Set(gateway.DiscoveryServiceAuthorizationHeader, "Bearer backend-identity")
+			forwarder.ServeHTTP(response, request)
+			assert.Equal(t, http.StatusServiceUnavailable, response.Code)
+			assert.Zero(t, calls.Load(), "an unavailable selection must not reach another worker")
+		})
 	}
 }
 
