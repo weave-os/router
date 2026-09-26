@@ -1739,6 +1739,38 @@ func TestService_UserForcedPin_IneligibleProviderFallsThrough(t *testing.T) {
 	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel), "must dispatch to the eligible provider, not gpt-5/openai")
 }
 
+func TestService_ClaudeOAuthDoesNotRestrictForcedOpenAIPinWithoutSubscriptionOnly(t *testing.T) {
+	store := newFakePinStore()
+	store.hasPin = true
+	store.pin = sessionpin.Pin{
+		Provider:    providers.ProviderOpenAI,
+		Model:       "gpt-6-luna",
+		Reason:      translate.ReasonUserForceModel,
+		PinnedUntil: time.Now().Add(30 * time.Minute),
+	}
+	fr := &fakeRouter{err: errors.New("forced pin must bypass the scorer")}
+	openAI := ccTaskToolProvider()
+	svc := proxy.NewService(fr, map[string]providers.Client{
+		providers.ProviderAnthropic: &fakeProvider{},
+		providers.ProviderOpenAI:    openAI,
+	}, nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithDeploymentKeyedProviders(map[string]struct{}{
+			providers.ProviderAnthropic: {},
+			providers.ProviderOpenAI:    {},
+		})
+
+	ctx := authedCtx(uuid.New().String())
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req.Header.Set("Authorization", "Bearer sk-ant-oat-abc123")
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(ccTaskToolTurnBody), rec, req))
+
+	assert.Zero(t, fr.routeCalls, "Claude OAuth alone must not make an OpenAI force pin ineligible")
+	require.Len(t, openAI.proxyBodies, 1)
+	assert.Equal(t, "gpt-6-luna", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, providers.ProviderOpenAI, rec.Header().Get(proxy.HeaderRouterProvider))
+}
+
 // x-weave-force-model is the headless equivalent of /force-model: it must
 // write an immutable user_forced pin for the alias-resolved canonical model.
 func TestService_ForceModelHeader_WritesUserForcedPin(t *testing.T) {

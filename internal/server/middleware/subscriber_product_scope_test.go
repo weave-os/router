@@ -98,14 +98,14 @@ func TestWithSubscriberAllowance_KeepsMaxScopeAfterEntitlementEnds(t *testing.T)
 	assert.False(t, entitlement.ModelBoundaryFromContext(ctx).PermitsSource(eligibility.SourceClosedSource))
 }
 
-func TestWithSubscriberAllowance_EndedMaxRejectsCoveringSubscription(t *testing.T) {
+func TestWithSubscriberAllowance_EndedMaxPassesThroughWithoutLinkedFirst(t *testing.T) {
 	ended := maxSubscriberEntitlement()
 	ended.Status = entitlement.StatusEnded
 	entitlements := &stubEntitlements{current: ended, found: true}
 
 	reached, ctx := runProductScopeMiddleware(t, entitlements, &stubAllowances{}, "Bearer sk-ant-oat01-covering-subscription")
 
-	require.False(t, reached)
+	require.True(t, reached)
 	assert.False(t, billing.SubscriptionOnlyFromContext(ctx))
 	assert.False(t, entitlement.ModelBoundaryFromContext(ctx).PermitsSource(eligibility.SourceClosedSource))
 }
