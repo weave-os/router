@@ -69,6 +69,20 @@ grep -Fq "Claude login requires an interactive terminal" <<<"$login_output" || f
 if grep -Fq "No Weave Router install found" <<<"$login_output"; then
   fail "managed login ignored the OpenCode install endpoint"
 fi
+# A Claude install that already resolves an endpoint but carries no key must
+# keep that endpoint: the OpenCode key only fills in when it belongs to the
+# same router, never by swapping the endpoint underneath the caller.
+claude_settings_dir="$install_dir/.claude"
+mkdir -p "$claude_settings_dir"
+printf '%s\n' '{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:8"}}' >"$claude_settings_dir/settings.json"
+login_output="$(HOME="$home" XDG_CONFIG_HOME="$home/xdg" PATH="$test_path" NO_COLOR=1 \
+  bash "$installer" login claude --dir "$install_dir" --non-interactive --quiet 2>&1 || true)"
+grep -Fq "No router key found" <<<"$login_output" || fail "managed login sent the OpenCode key to a different Claude endpoint"
+printf '%s\n' '{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:9/"}}' >"$claude_settings_dir/settings.json"
+login_output="$(HOME="$home" XDG_CONFIG_HOME="$home/xdg" PATH="$test_path" NO_COLOR=1 \
+  bash "$installer" login claude --dir "$install_dir" --non-interactive --quiet 2>&1 || true)"
+grep -Fq "Claude login requires an interactive terminal" <<<"$login_output" || fail "managed login did not reuse the OpenCode key for the matching Claude endpoint"
+rm -rf "$claude_settings_dir"
 [ "$(jq -r '.model' "$config")" = "weave/auto" ] || fail "install did not activate weave/auto"
 [ "$(jq -r '.direct_model' "$parked")" = "anthropic/claude-sonnet-4-5" ] || fail "install did not park the previous model"
 [ "$(jq -r '.provider.weave.models.auto.limit.context' "$config")" = "128000" ] || fail "virtual model context limit is missing"

@@ -3604,8 +3604,10 @@ if [ "$mode" = "models" ] || [ "$mode" = "accounts" ] || [ "$mode" = "login" ] |
   # Managed enrollment is client-independent. If an OpenCode-only install is
   # the first router config on the machine, login claude|codex still needs to
   # find its endpoint and key even though the provider operand initially makes
-  # the lookup target Claude or Codex. Reuse the OpenCode config in that case;
-  # an explicit --base-url remains authoritative for self-hosted installs.
+  # the lookup target Claude or Codex. Reuse the OpenCode key in that case, but
+  # only when it pairs with the endpoint already resolved above: the endpoint
+  # is either an explicit --base-url or the selected client's own install, and
+  # a key from one router must never be sent to another.
   if [ "$mode" = "login" ] && [ "$target" != "opencode" ] && [ -z "$api_key" ]; then
     login_target="$target"
     target="opencode"
@@ -3619,16 +3621,11 @@ if [ "$mode" = "models" ] || [ "$mode" = "accounts" ] || [ "$mode" = "login" ] |
     opencode_config_file="$opencode_dir/opencode.json"
     opencode_key="$(read_installed_key)"
     opencode_base="$(resolve_installed_endpoint)"
-    if [ -n "$opencode_key" ] && { [ "$base_url_explicit" = "true" ] || [ -n "$opencode_base" ]; }; then
+    if [ -n "$opencode_key" ] && { [ "$base_url_explicit" = "true" ] || [ "$(strip_trailing_slashes "$opencode_base")" = "$(strip_trailing_slashes "$base_url")" ]; }; then
       api_key="$opencode_key"
       models_key_source="$opencode_config_file"
-      if [ "$base_url_explicit" != "true" ]; then
-        base_url="$opencode_base"
-        models_base_source="$opencode_config_file"
-      fi
-    else
-      target="$login_target"
     fi
+    target="$login_target"
   fi
 
   if [ -z "$api_key" ]; then
