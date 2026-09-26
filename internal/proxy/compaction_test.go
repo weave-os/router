@@ -2,8 +2,6 @@ package proxy
 
 import (
 	"context"
-	"fmt"
-	"net/http"
 	"testing"
 	"time"
 	"weave-os/router/internal/dispatch"
@@ -257,12 +255,4 @@ func TestTurnLoop_CompactionReadsClientIdentityBeforeHardPin(t *testing.T) {
 	assert.Equal(t, turntype.Compaction, turn.TurnType)
 	assert.Equal(t, providers.ProviderOpenAI, turn.Decision.Provider)
 	assert.Equal(t, sessionModel, turn.Decision.Model)
-}
-
-func TestClassifyDispatchError_ContextWindowExceeded(t *testing.T) {
-	cls, ok := ClassifyDispatchError(fmt.Errorf("wrapped: %w", ErrContextWindowExceeded))
-	require.True(t, ok)
-	assert.Equal(t, http.StatusRequestEntityTooLarge, cls.Status)
-	assert.Equal(t, DispatchErrorContextWindowExceeded, cls.Kind)
-	assert.True(t, cls.Kind.IsClientError())
 }

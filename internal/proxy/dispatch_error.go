@@ -177,6 +177,10 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Rejected request: forced cluster has no eligible model",
 		}, true
+	// Before the generic upstream cases: an overflow must reach every client in
+	// its native shape, not as an opaque upstream failure.
+	case isContextOverflow(err):
+		return contextWindowExceededClass, true
 	case errors.As(err, &statusErr):
 		return DispatchErrorClass{
 			Kind:    DispatchErrorUpstreamStatus,
@@ -297,14 +301,6 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			Message:    "Your Weave router credits are exhausted and your subscription can't serve this turn (rate-limited, or the requested model isn't subscription-covered). Add credits to re-enable paid routing: " + topUpURL,
 			LogLevel:   "warn",
 			LogMessage: "Subscription-only request refused: credits exhausted and subscription unavailable",
-		}, true
-	case errors.Is(err, ErrContextWindowExceeded):
-		return DispatchErrorClass{
-			Kind:       DispatchErrorContextWindowExceeded,
-			Status:     http.StatusRequestEntityTooLarge,
-			Message:    "Request context exceeds the largest available model's context window even after compaction. Reduce the conversation (e.g. /compact or start a new session).",
-			LogLevel:   "warn",
-			LogMessage: "Request context exceeds every eligible model's window after compaction",
 		}, true
 	case errors.Is(err, cluster.ErrInvalidRoutingKnobs):
 		return DispatchErrorClass{

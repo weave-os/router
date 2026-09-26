@@ -51,7 +51,7 @@ func ChatCompletionHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handle
 				if cls.RetryAfter {
 					c.Header("Retry-After", "1")
 				}
-				writeOpenAIError(c, cls.Status, openAIErrorType(cls.Kind), cls.Message)
+				writeOpenAIErrorWithCode(c, cls.Status, openAIErrorType(cls.Kind), cls.Message, proxy.OpenAIErrorCode(cls.Kind))
 				return
 			}
 			log.Error("Proxy failed", "err", err)
@@ -73,12 +73,22 @@ func openAIErrorType(kind proxy.DispatchErrorKind) string {
 }
 
 func writeOpenAIError(c *gin.Context, status int, errType, message string) {
+	writeOpenAIErrorWithCode(c, status, errType, message, "")
+}
+
+// writeOpenAIErrorWithCode sets the envelope's "code", which clients branch on
+// (context_length_exceeded is what makes Codex and opencode compact).
+func writeOpenAIErrorWithCode(c *gin.Context, status int, errType, message, code string) {
+	var codeValue any
+	if code != "" {
+		codeValue = code
+	}
 	c.AbortWithStatusJSON(status, gin.H{
 		"error": gin.H{
 			"message": message,
 			"type":    errType,
 			"param":   nil,
-			"code":    nil,
+			"code":    codeValue,
 		},
 	})
 }

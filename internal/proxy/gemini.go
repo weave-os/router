@@ -131,6 +131,8 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	if feats.MaxTokens > outputReserve {
 		outputReserve = feats.MaxTokens
 	}
+	ruledOut, ctxOverflowed := excludeContextOverflowModels(env.ContextOverflowTokenEstimate(), env.SignatureTokenSavings(), outputReserve, enabledProviders, excluded, s.availableModels)
+	overflowAdmitted := admitWidestOnTotalOverflow(ruledOut, ctxOverflowed, s.availableModels, enabledProviders)
 
 	routeRequest := router.Request{
 		RequestedModel:                   feats.Model,
@@ -151,7 +153,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		GatewayProviders:                 s.gatewayProvidersForRequest(ctx),
 		ExcludedModels:                   excluded,
 		AllowedModels:                    allowedModelsForRequest(ctx),
-		SafetyExcludedModels:             s.safetyExcludedModels(env, outputReserve, enabledProviders),
+		SafetyExcludedModels:             withoutModels(s.safetyExcludedModels(env, outputReserve, enabledProviders), overflowAdmitted),
 		PreferredModels:                  s.preferredModelsForRequest(ctx),
 		SubscriptionStatePreferredModels: subscriptionStatePreferredModelsFromContext(ctx),
 		RoutingKnobs:                     router.RoutingKnobsFromContext(ctx),
