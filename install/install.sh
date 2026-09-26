@@ -6141,7 +6141,7 @@ write_claude_settings() {
     jq -n --arg url "$base_url" --arg sl "$statusline_path_for_settings" --arg statusline_install "$statusline_install" '{
       env: { ANTHROPIC_BASE_URL: $url, ENABLE_TOOL_SEARCH: "true" },
       attribution: {
-        commit: "Co-Authored-By: Weave Router <router@workweave.ai>",
+        commit: "Co-Authored-By: Weave Router <router@weaveos.com>",
         pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
       }
     } + (if $statusline_install == "true" then {statusLine: { type: "command", command: $sl }} else {} end)' >"$tmp_patch"
@@ -6149,7 +6149,7 @@ write_claude_settings() {
     jq -n --arg url "$base_url" --arg header "$custom_headers" --arg sl "$statusline_path_for_settings" --arg statusline_install "$statusline_install" '{
       env: { ANTHROPIC_BASE_URL: $url, ANTHROPIC_CUSTOM_HEADERS: $header, ENABLE_TOOL_SEARCH: "true" },
       attribution: {
-        commit: "Co-Authored-By: Weave Router <router@workweave.ai>",
+        commit: "Co-Authored-By: Weave Router <router@weaveos.com>",
         pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
       }
     } + (if $statusline_install == "true" then {statusLine: { type: "command", command: $sl }} else {} end)' >"$tmp_patch"
