@@ -355,7 +355,7 @@ Within `Go checks`, the standalone gateway build
 (`CGO_ENABLED=0 go build ./cmd/router-gateway`, which guards the gateway
 against worker-only cgo dependencies) runs whenever the diff touches
 `go.mod`/`go.sum` or any package directory in
-`go list -deps ./cmd/router-gateway` — `internal/policyregistry`,
+`CGO_ENABLED=0 go list -deps ./cmd/router-gateway` — `internal/policyregistry`,
 `internal/postgres/serving` and `internal/gateway` among them — and whenever
 that closure cannot be computed. Only diffs provably outside the gateway's
 dependency closure skip it.

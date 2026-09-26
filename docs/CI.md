@@ -157,11 +157,19 @@ classifier needs no Go toolchain: it gates ON for `*.go`, `go.mod`, `go.sum`,
 golangci config, `.github/workflows/test.yml`, and for any file inside a
 directory that contains Go sources, which covers `//go:embed` inputs such as
 [`internal/router/llmescalation/prompt.md`](../internal/router/llmescalation/prompt.md)
-and the embedded model artifacts. Anything it cannot classify runs the checks.
+and the embedded model artifacts. It also gates ON for the checked-in
+artifacts [`cmd/genprices`](../cmd/genprices) writes (the installer price
+blocks, `install/pi-router/src/pricing.generated.ts`,
+`bench/weave_bench/prices.generated.json`), which live outside every Go
+package yet are asserted by Go tests. Package ownership is resolved against
+both the base and the head tree and the diff is taken with `--no-renames`, so
+moving a file out of a Go package still gates ON. Anything it cannot
+classify — including a failing `git` invocation — runs the checks.
 
 Inside `Go checks`, the `Build standalone gateway without worker native
 dependencies` step now runs only when the diff intersects
-`go list -deps ./cmd/router-gateway` package directories, or when `go.mod` or
+`CGO_ENABLED=0 go list -deps ./cmd/router-gateway` package directories (the
+same build setting as the step it gates), or when `go.mod` or
 `go.sum` changed, or when that closure cannot be computed. The closure is
 computed in the job that already has the toolchain, so the classifier job stays
 cheap.

@@ -23,7 +23,8 @@ mkdir -p \
 	"$repo/docs" \
 	"$repo/scripts" \
 	"$repo/sidecars/hmm" \
-	"$repo/install"
+	"$repo/install/pi-router/src" \
+	"$repo/bench/weave_bench"
 printf 'module example.test\n\ngo 1.25.0\n' >"$repo/go.mod"
 printf 'package main\n' >"$repo/cmd/router-gateway/main.go"
 printf 'package policyregistry\n' >"$repo/internal/policyregistry/registry.go"
@@ -41,6 +42,9 @@ printf 'test:\n\ttrue\n' >"$repo/Makefile"
 printf 'FROM scratch\n' >"$repo/Dockerfile"
 printf 'print("hmm")\n' >"$repo/sidecars/hmm/policy.py"
 printf '#!/usr/bin/env bash\nexit 0\n' >"$repo/install/install.sh"
+printf '# Installer\n' >"$repo/install/README.md"
+printf 'export const PRICING = {};\n' >"$repo/install/pi-router/src/pricing.generated.ts"
+printf '{}\n' >"$repo/bench/weave_bench/prices.generated.json"
 git -C "$repo" add .
 git -C "$repo" commit --quiet -m base
 base=$(git -C "$repo" rev-parse HEAD)
@@ -97,7 +101,15 @@ run_case embedded-markdown true false edit internal/router/llmescalation/prompt.
 run_case go-mod true true edit go.mod
 run_case generated-sqlc true false edit internal/sqlc/models.go
 run_case hmm-sidecar-only false false edit sidecars/hmm/policy.py
-run_case installer-only false false edit install/install.sh
+run_case installer-only false false edit install/README.md
+# Artifacts cmd/genprices regenerates from the Go catalog and its tests assert.
+run_case installer-price-block true false edit install/install.sh
+run_case pi-pricing-artifact true false edit install/pi-router/src/pricing.generated.ts
+run_case bench-pricing-artifact true false edit bench/weave_bench/prices.generated.json
+# A move reports both paths, so leaving a Go package still gates ON.
+run_case embed-moved-out-of-package true false bash -c "
+	git -C '$repo' mv internal/router/llmescalation/prompt.md docs/prompt.md
+"
 run_case migration true false edit db/migrations/0001_init.up.sql
 run_case makefile true false edit Makefile
 run_case dockerfile true false edit Dockerfile
@@ -113,10 +125,42 @@ head=$(git -C "$repo" rev-parse HEAD)
 [[ "$(cd "$repo" && GO_CI_GATEWAY_CLOSURE_DIRS_FILE="$work/missing" \
 	"$script" gateway-closure "$base" "$head" 2>/dev/null)" == "gateway_closure_changed=true" ]]
 
+# Git failures are unclassifiable, not a clean "nothing to do".
+mkdir -p "$work/bin"
+real_git=$(command -v git)
+{
+	echo '#!/usr/bin/env bash'
+	# shellcheck disable=SC2016 # the stub, not this script, expands these.
+	echo 'if [[ "$1" == "${FAIL_GIT_SUBCOMMAND:-}" ]]; then'
+	echo '	echo "simulated git failure" >&2'
+	echo '	exit 1'
+	echo 'fi'
+	echo "exec $real_git \"\$@\""
+} >"$work/bin/git"
+chmod +x "$work/bin/git"
+for subcommand in diff ls-tree; do
+	got=$(cd "$repo" && PATH="$work/bin:$PATH" FAIL_GIT_SUBCOMMAND="$subcommand" \
+		"$script" changed "$base" "$head" 2>/dev/null)
+	if [[ "$got" != "go_changed=true" ]]; then
+		echo "failing git $subcommand: expected go_changed=true, got $got" >&2
+		exit 1
+	fi
+done
+
+# The generated-artifact list must track cmd/genprices, which writes these
+# files and whose tests assert they match the Go price catalog.
+while IFS= read -r artifact; do
+	if ! grep -qE "^[[:space:]]*${artifact//\//\\/}\$" "$script"; then
+		echo "cmd/genprices writes $artifact but the classifier does not gate on it" >&2
+		exit 1
+	fi
+done < <(grep -oE '"(install|bench)/[^"]+"' "$repo_root/cmd/genprices/main.go" |
+	tr -d '"' | sort -u)
+
 # The fixture closure above mirrors the real one: assert the two packages the
 # cases rely on are classified the same way by `go list` in this repository.
 if command -v go >/dev/null; then
-	closure=$(cd "$repo_root" && go list -deps ./cmd/router-gateway)
+	closure=$(cd "$repo_root" && CGO_ENABLED=0 go list -deps ./cmd/router-gateway)
 	grep -qx 'weave-os/router/internal/policyregistry' <<<"$closure"
 	grep -qx 'weave-os/router/internal/router' <<<"$closure"
 	if grep -qx 'weave-os/router/internal/router/planner' <<<"$closure"; then

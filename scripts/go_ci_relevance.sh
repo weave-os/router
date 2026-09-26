@@ -41,10 +41,20 @@ fi
 git cat-file -e "${base}^{commit}" 2>/dev/null || gate_on
 git cat-file -e "${head}^{commit}" 2>/dev/null || gate_on
 
+# NUL-delimited git output cannot survive command substitution, so it goes
+# through a scratch file whose exit status is checked: a git failure is
+# unclassifiable, not a clean "nothing to do".
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"' EXIT
+
+# --no-renames keeps both sides of a move: a file leaving a Go package still
+# has to gate the checks ON.
+git diff --name-only -z --no-renames "${base}...${head}" -- >"$scratch/diff" || gate_on
+
 changed_files=()
 while IFS= read -r -d '' file; do
 	changed_files+=("$file")
-done < <(git diff --name-only -z "${base}...${head}" --)
+done <"$scratch/diff"
 
 if [[ ${#changed_files[@]} -eq 0 ]]; then
 	echo "$output_name=false"
@@ -60,16 +70,30 @@ is_module_file() {
 	return 1
 }
 
-# Directories holding at least one Go source file at head. A file's owning
-# package is its nearest such ancestor: embedded assets live next to or below
-# the package that embeds them, so this resolves //go:embed inputs without a
-# toolchain.
+# Checked-in artifacts generated from Go sources and asserted by Go tests
+# (cmd/genprices), yet living outside every Go package directory.
+go_generated_artifacts=(
+	install/cc-statusline.sh
+	install/install.sh
+	install/pi-router/src/pricing.generated.ts
+	bench/weave_bench/prices.generated.json
+)
+
+# Directories holding at least one Go source file in either tree. A file's
+# owning package is its nearest such ancestor: embedded assets live next to or
+# below the package that embeds them, so this resolves //go:embed inputs
+# without a toolchain. Both trees are read so that deleting the last Go source
+# of a package still classifies the rest of that directory.
 declare -A go_package_dirs=()
 load_go_package_dirs() {
-	while IFS= read -r -d '' file; do
-		[[ "$file" == *.go && "$file" == */* ]] || continue
-		go_package_dirs["${file%/*}"]=1
-	done < <(git ls-tree -r -z --name-only "$head")
+	local tree file
+	for tree in "$base" "$head"; do
+		git ls-tree -r -z --name-only "$tree" >"$scratch/tree" || gate_on
+		while IFS= read -r -d '' file; do
+			[[ "$file" == *.go && "$file" == */* ]] || continue
+			go_package_dirs["${file%/*}"]=1
+		done <"$scratch/tree"
+	done
 }
 
 # Prints the owning package directory of "$1", or nothing when the file sits
@@ -105,6 +129,9 @@ if [[ "$mode" == changed ]]; then
 		case "${file##*/}" in
 			Dockerfile*) gate_on ;;
 		esac
+		for artifact in "${go_generated_artifacts[@]}"; do
+			[[ "$file" != "$artifact" ]] || gate_on
+		done
 
 		# Anything inside a Go package directory (or below it) can be compiled
 		# in: source, embedded prompts, embedded model artifacts, testdata.
@@ -123,7 +150,9 @@ if [[ -n "${GO_CI_GATEWAY_CLOSURE_DIRS_FILE:-}" ]]; then
 	closure_listing=$(cat "$GO_CI_GATEWAY_CLOSURE_DIRS_FILE") || gate_on
 else
 	repo_root=$(git rev-parse --show-toplevel) || gate_on
-	closure_listing=$(go list -deps -f '{{.Dir}}' ./cmd/router-gateway 2>/dev/null) || gate_on
+	# CGO_ENABLED=0 mirrors the build this gate protects, so build-tagged
+	# files select the same packages the standalone build compiles.
+	closure_listing=$(CGO_ENABLED=0 go list -deps -f '{{.Dir}}' ./cmd/router-gateway 2>/dev/null) || gate_on
 	# Keep module-local packages only; stdlib and module-cache dependencies
 	# cannot be touched by a diff in this repository.
 	closure_listing=$(printf '%s\n' "$closure_listing" |
