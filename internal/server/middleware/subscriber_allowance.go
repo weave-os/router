@@ -33,12 +33,15 @@ const SubscriptionPlanConflict SubscriptionErrorCode = "subscription_plan_confli
 // and this middleware is the only place the included allowance is enforced.
 //
 // Linked Claude/Codex subscriptions cannot satisfy Max's open-source boundary;
-// those requests are refused without switching to metered capacity. Entitled
-// callers prefer compatible linked-provider capacity. When linked and included
-// capacity are unavailable, requests continue through the existing organization
-// balance and spend-limit gates. Allowance read errors fail closed because
-// treating an unreadable meter as exhausted would incorrectly authorize
-// organization spending.
+// an active Max entitlement refuses those requests without switching to metered
+// capacity. A subject whose entitlement has ended is not subscribed: it keeps
+// Max's model boundary but otherwise passes through untouched, so its linked
+// subscription is neither refused nor preferred. Entitled callers prefer
+// compatible linked-provider capacity. When linked and included capacity are
+// unavailable, requests continue through the existing organization balance and
+// spend-limit gates. Allowance read errors fail closed because treating an
+// unreadable meter as exhausted would incorrectly authorize organization
+// spending.
 func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
