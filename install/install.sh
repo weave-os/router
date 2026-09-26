@@ -2553,10 +2553,10 @@ report_client_event() {
     [ "$target" = "claude" ] && harness="claude_code"
     body="$(printf '{"action":"%s","harness":"%s"}' "$action" "$harness")"
     (
+      trap 'rm -f "$headers"' EXIT
       curl -sS --max-time 2 -X POST -H 'Content-Type: application/json' \
         --header "@$headers" --data-binary "$body" -o /dev/null \
         "$endpoint/v1/client-events"
-      rm -f "$headers"
     ) >/dev/null 2>&1 </dev/null &
   ) >/dev/null 2>&1 || true
   return 0

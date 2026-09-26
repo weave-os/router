@@ -252,3 +252,28 @@ func TestGatewayDoesNotFollowWorkerRedirects(t *testing.T) {
 	assert.Equal(t, http.StatusTemporaryRedirect, w.Code)
 	assert.Zero(t, redirected.Load())
 }
+
+func TestGatewayForwardsClientEvents(t *testing.T) {
+	const body = `{"action":"off","harness":"codex"}`
+	var calls atomic.Int32
+	observed := make(chan http.Header, 1)
+	worker := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		require.Equal(t, http.MethodPost, r.Method)
+		require.Equal(t, "/v1/client-events", r.URL.Path)
+		observed <- r.Header.Clone()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer worker.Close()
+	forwarder, _, signer := gatewayFixture(t, worker, nil, nil)
+	r := httptest.NewRequest(http.MethodPost, "http://gateway/v1/client-events", strings.NewReader(body))
+	r.Header.Set(auth.RouterKeyHeader, "rk_credential")
+	w := httptest.NewRecorder()
+	forwarder.ServeHTTP(w, r)
+	require.Equal(t, http.StatusNoContent, w.Code)
+	require.Equal(t, int32(1), calls.Load())
+	seen := <-observed
+	verified, err := signer.Verify(seen.Get(policyregistry.ServingAssertionHeader), r, []byte(body), "rk_credential")
+	require.NoError(t, err)
+	assert.Equal(t, policyregistry.TargetStable, verified.Admission.Target)
+}
