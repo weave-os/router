@@ -298,6 +298,14 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Subscription-only request refused: credits exhausted and subscription unavailable",
 		}, true
+	case errors.Is(err, ErrClientCompactionRequired):
+		return DispatchErrorClass{
+			Kind:       DispatchErrorContextWindowExceeded,
+			Status:     http.StatusRequestEntityTooLarge,
+			Message:    "prompt is too long: request context exceeds the largest available model's context window. Compact the conversation and retry.",
+			LogLevel:   "warn",
+			LogMessage: "Verified client must compact its own history",
+		}, true
 	case errors.Is(err, ErrContextWindowExceeded):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorContextWindowExceeded,

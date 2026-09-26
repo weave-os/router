@@ -136,11 +136,14 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 	maxEligibleWindow := s.maxEligibleContextWindow(excluded, enabledProviders, env.SignatureTokenSavings())
 	compRes, compErr := s.maybeCompact(ctx, env, compactionInput{
-		TurnType:      turntype.DetectFromEnvelope(env, feats, subAgentHint),
-		OutputReserve: outputReserve,
-		MaxWindow:     maxEligibleWindow,
-		ClientApp:     clientID.ClientApp,
-		Scope:         s.summarizerScope(ctx, enabledProviders, excluded),
+		TurnType:           turntype.DetectFromEnvelope(env, feats, subAgentHint),
+		CredentialIdentity: apiKeyID,
+		SessionKey:         sessionKey,
+		Endpoint:           string(router.EndpointGeminiGenerate),
+		OutputReserve:      outputReserve,
+		MaxWindow:          maxEligibleWindow,
+		ClientApp:          clientID.ClientApp,
+		Scope:              s.summarizerScope(ctx, enabledProviders, excluded),
 		PreferredSummarizer: func() string {
 			if blindExperimentPassthroughActive(ctx) {
 				return ""
@@ -149,6 +152,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		},
 		Headers: r.Header,
 	})
+	defer s.billCompactionSummaries(ctx, requestID, externalID, compRes.SummaryUsages)
 	if compErr != nil {
 		log.Warn("Compaction could not fit request to any eligible model",
 			"err", compErr, "final_estimate", compRes.FinalEstimate, "max_window", maxEligibleWindow, "requested_model", feats.Model)
@@ -490,9 +494,6 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	var subscriberSettlement subscriberSettlementState
 	if proxyErr == nil {
 		subscriberSettlement = s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
-		if compRes.Summarized {
-			s.billCompactionSummary(ctx, requestID, externalID, compRes.SummaryUsage)
-		}
 	}
 	if subscriberTelemetry != nil {
 		if proxyErr == nil {

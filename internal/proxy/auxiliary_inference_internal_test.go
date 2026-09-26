@@ -187,6 +187,24 @@ func auxTestContext(installationID uuid.UUID, sessionID string) context.Context 
 	})
 }
 
+func TestBillCompactionSummariesPricesEachModelSeparately(t *testing.T) {
+	s, billingRepo, telemetryRepo := auxTestService(t)
+	first := auxTestUsage()
+	second := auxTestUsage()
+	second.Model = "claude-opus-5-5"
+	s.billCompactionSummaries(auxTestContext(uuid.New(), auxTestSessionID), auxTestRequestID, auxTestOrgID, []handover.Usage{first, second})
+
+	debits := billingRepo.snapshot()
+	require.Len(t, debits, 2)
+	assert.Equal(t, first.Model, debits[0].RouterModel)
+	assert.Equal(t, second.Model, debits[1].RouterModel)
+	assert.Equal(t, auxTestRequestID+auxSuffixPrecompactionSummary, debits[0].RouterRequestID)
+	assert.Equal(t, auxTestRequestID+auxSuffixPrecompactionSummary+"_2", debits[1].RouterRequestID)
+	rows := telemetryRepo.waitForRows(2)
+	require.Len(t, rows, 2)
+	assert.NotEqual(t, rows[0].RequestID, rows[1].RequestID)
+}
+
 // TestBillAuxiliaryInferenceTagsSessionAndCost is the contract the public
 // session-cost endpoint depends on: a billed summarizer call produces a
 // telemetry row carrying the SAME client session id as the turn that

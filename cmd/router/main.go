@@ -184,6 +184,13 @@ func main() {
 	}
 
 	repo := postgres.NewRepository(pool, encryptor)
+	var checkpointRepo *postgres.CompactionCheckpointRepo
+	if keysetJSON != "" {
+		checkpointRepo = postgres.NewCompactionCheckpointRepo(pool, encryptor)
+		safeGo(logger, "compaction-checkpoint-sweep", func() {
+			runCompactionCheckpointSweep(context.Background(), checkpointRepo)
+		})
+	}
 	discoveryHTTPClient, err := providerHTTP.NewModelDiscoveryClient(config.GetOr("ROUTER_MODEL_DISCOVERY_PRIVATE_ORIGINS", ""))
 	if err != nil {
 		logger.Error("Invalid model discovery private-origin configuration", "err", err)
@@ -1334,6 +1341,9 @@ func main() {
 		WithAvailableModels(servedModels).
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc)
+	if checkpointRepo != nil {
+		proxySvc.WithCompactionCheckpoints(checkpointRepo)
+	}
 	inferenceDeployment.RoutableModels = servedModels
 	if err := configureAtomicClassifier(proxySvc, pool, availableProviders); err != nil {
 		logger.Error("Failed to configure atomic classifier", "err", err)
@@ -2080,6 +2090,23 @@ func runSessionPinSweep(ctx context.Context, store sessionpin.Store) {
 			sweepCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			if err := store.SweepExpired(sweepCtx); err != nil {
 				logger.Error("Session pin sweep failed", "err", err)
+			}
+			cancel()
+		}
+	}
+}
+
+func runCompactionCheckpointSweep(ctx context.Context, store *postgres.CompactionCheckpointRepo) {
+	ticker := time.NewTicker(time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			sweepCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			if err := store.SweepExpired(sweepCtx); err != nil {
+				observability.FromContext(ctx).Error("Compaction checkpoint sweep failed", "err", err)
 			}
 			cancel()
 		}

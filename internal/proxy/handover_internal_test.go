@@ -186,6 +186,40 @@ func TestProviderSummarizer_EmptyContentReturnsErrEmptySummary(t *testing.T) {
 	assert.Empty(t, got)
 }
 
+func TestProviderSummarizer_RejectsInvalidOrRefusedSummary(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		body string
+		want error
+	}{
+		{"malformed JSON", `not json`, ErrInvalidSummary},
+		{"missing content", `{"id":"msg_test","usage":{"input_tokens":10}}`, ErrInvalidSummary},
+		{"refusal block", `{"content":[{"type":"refusal","refusal":"Cannot summarize"},{"type":"text","text":"Partial summary"}],"usage":{"input_tokens":10,"output_tokens":2}}`, ErrSummaryRefusal},
+		{"refusal stop reason", `{"stop_reason":"refusal","content":[{"type":"text","text":"Partial summary"}]}`, ErrSummaryRefusal},
+		{"whitespace only", `{"content":[{"type":"text","text":"  \n  "}]}`, ErrEmptySummary},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env, err := translate.ParseAnthropic([]byte(sampleConversation))
+			require.NoError(t, err)
+			fake := &fakeHandoverProvider{respBody: tc.body, respStatus: http.StatusOK}
+			summarizer := newTestSummarizer(t, fake, policy.PrecompactionDefaultModel, 200*time.Millisecond)
+
+			summary, usage, err := summarizer.SummarizeForCompaction(
+				context.Background(), env, CompactionTarget{CatalogID: policy.PrecompactionDefaultModel},
+				router.Request{}, DefaultCompactionMaxTokens,
+			)
+			assert.ErrorIs(t, err, tc.want)
+			assert.Empty(t, summary)
+			if tc.name == "refusal block" {
+				assert.Equal(t, 10, usage.InputTokens)
+				assert.Equal(t, 2, usage.OutputTokens)
+			}
+		})
+	}
+}
+
 func TestProviderSummarizer_NilEnvelopeReturnsError(t *testing.T) {
 	t.Parallel()
 

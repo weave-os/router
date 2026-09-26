@@ -31,6 +31,7 @@ import (
 	"weave-os/router/internal/router/bandswap"
 	"weave-os/router/internal/router/cache"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/compactioncheckpoint"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/escalationdashboard"
 	"weave-os/router/internal/router/handover"
@@ -371,8 +372,9 @@ type Service struct {
 	webSearch websearch.Executor
 	// compactionSummarizer produces the structured summary for the proactive
 	// context-window compaction cascade (maybeCompact). nil disables Tier-3
-	// summarization (the cascade still runs Tier-1 cleanup + trim rescue).
-	compactionSummarizer CompactionSummarizer
+	// summarization; the cascade still clears stale tool results.
+	compactionSummarizer  CompactionSummarizer
+	compactionCheckpoints compactioncheckpoint.Store
 	// compactionHandoverSummarizer serves runCompactionHandover under its own
 	// policy purpose; nil reuses summarizer.
 	compactionHandoverSummarizer handover.Summarizer
@@ -2161,6 +2163,11 @@ func (s *Service) WithCompaction(cs CompactionSummarizer, pct float64) *Service 
 	return s
 }
 
+func (s *Service) WithCompactionCheckpoints(store compactioncheckpoint.Store) *Service {
+	s.compactionCheckpoints = store
+	return s
+}
+
 // WithCompactionModel overrides the Sonnet-class default summarizer for the
 // compaction cascade and Claude Code's native compaction turn
 // (ROUTER_COMPACTION_MODEL). A model with no Anthropic binding is rejected
@@ -3612,11 +3619,14 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if !agentShadowMode && !preparingHandoff(ctx) && handoffFromContext(ctx) == nil {
 		var compErr error
 		compRes, compErr = s.maybeCompact(ctx, env, compactionInput{
-			TurnType:      turntype.DetectFromEnvelope(env, feats, ""),
-			OutputReserve: outputReserve,
-			MaxWindow:     maxEligibleWindow,
-			ClientBudget:  requestcontext.ClientBudgetFrom(ctx),
-			ClientApp:     ClientIdentityFrom(ctx).ClientApp,
+			TurnType:           turntype.DetectFromEnvelope(env, feats, ""),
+			CredentialIdentity: apiKeyID,
+			SessionKey:         sessionKey,
+			Endpoint:           string(router.EndpointAnthropicMessages),
+			OutputReserve:      outputReserve,
+			MaxWindow:          maxEligibleWindow,
+			ClientBudget:       requestcontext.ClientBudgetFrom(ctx),
+			ClientApp:          ClientIdentityFrom(ctx).ClientApp,
 			PreferredSummarizer: func() string {
 				if blindExperimentPassthroughActive(ctx) {
 					return ""
@@ -3627,6 +3637,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			Scope:   s.summarizerScope(ctx, enabledProviders, baseExcluded),
 		})
 		if compErr != nil {
+			s.billCompactionSummaries(ctx, requestID, externalID, compRes.SummaryUsages)
 			log.Warn("Compaction could not fit request to any eligible model",
 				"err", compErr, "final_estimate", compRes.FinalEstimate, "max_window", maxEligibleWindow, "requested_model", feats.Model)
 			return compErr
@@ -5108,12 +5119,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	var subscriberSettlement subscriberSettlementState
 	if proxyErr == nil && !agentShadowMode {
 		subscriberSettlement = s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
-		if compRes.Summarized {
-			s.billCompactionSummary(ctx, requestID, externalID, compRes.SummaryUsage)
-		}
+		s.billCompactionSummaries(ctx, requestID, externalID, compRes.SummaryUsages)
 		if compactionHandoverOutcome.Invoked && !compactionHandoverOutcome.FallbackToFullHistory {
 			s.billAuxiliaryInference(ctx, requestID, auxSuffixCompactionHandoverSummry, externalID, compactionHandoverOutcome.SummaryUsage)
 		}
+	}
+	if proxyErr != nil {
+		s.billCompactionSummaries(ctx, requestID, externalID, compRes.SummaryUsages)
 	}
 	if subscriberTelemetry != nil {
 		if proxyErr == nil {
@@ -6611,11 +6623,14 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		maxEligibleWindowOAI := s.maxEligibleContextWindow(baseExcludedOAI, enabledProviders, env.SignatureTokenSavings())
 		var compErrOAI error
 		compResOAI, compErrOAI = s.maybeCompact(ctx, env, compactionInput{
-			TurnType:      turntype.Detect(env, feats, subAgentHint, ClientIdentityFrom(ctx).OpenCodeAgent),
-			OutputReserve: outputReserveOAI,
-			MaxWindow:     maxEligibleWindowOAI,
-			ClientBudget:  requestcontext.ClientBudgetFrom(ctx),
-			ClientApp:     ClientIdentityFrom(ctx).ClientApp,
+			TurnType:           turntype.Detect(env, feats, subAgentHint, ClientIdentityFrom(ctx).OpenCodeAgent),
+			CredentialIdentity: apiKeyID,
+			SessionKey:         sessionKey,
+			Endpoint:           string(router.EndpointOpenAIChat),
+			OutputReserve:      outputReserveOAI,
+			MaxWindow:          maxEligibleWindowOAI,
+			ClientBudget:       requestcontext.ClientBudgetFrom(ctx),
+			ClientApp:          ClientIdentityFrom(ctx).ClientApp,
 			PreferredSummarizer: func() string {
 				if blindExperimentPassthroughActive(ctx) {
 					return ""
@@ -6626,6 +6641,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			Scope:   s.summarizerScope(ctx, enabledProviders, baseExcludedOAI),
 		})
 		if compErrOAI != nil {
+			s.billCompactionSummaries(ctx, requestID, externalID, compResOAI.SummaryUsages)
 			log.Warn("Compaction could not fit request to any eligible model",
 				"err", compErrOAI, "final_estimate", compResOAI.FinalEstimate, "max_window", maxEligibleWindowOAI, "requested_model", feats.Model)
 			return compErrOAI
@@ -7893,9 +7909,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	var subscriberSettlement subscriberSettlementState
 	if proxyErr == nil {
 		subscriberSettlement = s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
-		if compResOAI.Summarized {
-			s.billCompactionSummary(ctx, requestID, externalID, compResOAI.SummaryUsage)
-		}
+		s.billCompactionSummaries(ctx, requestID, externalID, compResOAI.SummaryUsages)
+	}
+	if proxyErr != nil {
+		s.billCompactionSummaries(ctx, requestID, externalID, compResOAI.SummaryUsages)
 	}
 
 	// See ProxyMessages for the two-strike eviction rationale.

@@ -187,9 +187,9 @@ type fakeChatCompactionSummarizer struct {
 	calls   int
 }
 
-func (f *fakeChatCompactionSummarizer) SummarizeForCompaction(context.Context, *translate.RequestEnvelope, proxy.CompactionTarget, router.Request, int) (string, handover.Usage, error) {
+func (f *fakeChatCompactionSummarizer) SummarizeForCompaction(_ context.Context, _ *translate.RequestEnvelope, target proxy.CompactionTarget, _ router.Request, _ int) (string, handover.Usage, error) {
 	f.calls++
-	return f.summary, handover.Usage{InputTokens: 10, OutputTokens: 4}, nil
+	return f.summary, handover.Usage{InputTokens: 10, OutputTokens: 4, Model: target.CatalogID, Provider: providers.ProviderAnthropic}, nil
 }
 
 func (f *fakeChatCompactionSummarizer) Provider() string { return providers.ProviderAnthropic }
@@ -200,7 +200,11 @@ func (f *fakeChatCompactionSummarizer) Provider() string { return providers.Prov
 func TestService_ProxyOpenAIChatCompletion_CompactedTurnStillEmitsResponses(t *testing.T) {
 	summarizer := &fakeChatCompactionSummarizer{summary: "COMPACTED HISTORY SUMMARY"}
 	provider := &fakeProvider{proxyResponse: responsesTextUpstream}
-	svc := openAIChatService(provider, "gpt-5.6-luna").
+	svc := proxy.NewService(
+		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-luna", Reason: "test"}},
+		map[string]providers.Client{providers.ProviderOpenAI: provider, providers.ProviderAnthropic: &fakeProvider{}},
+		nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil,
+	).
 		// gpt-4o's 128K window is the largest eligible one here, so a history
 		// past it forces the cascade all the way to summarization.
 		WithAvailableModels(map[string]struct{}{"gpt-4o": {}}).
@@ -222,7 +226,8 @@ func TestService_ProxyOpenAIChatCompletion_CompactedTurnStillEmitsResponses(t *t
 	body := sb.String()
 
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.ProxyOpenAIChatCompletion(context.Background(), []byte(body), rec,
+	ctx := context.WithValue(context.Background(), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppOpencode})
+	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec,
 		httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))))
 
 	require.Positive(t, summarizer.calls, "the oversized turn must be compacted")

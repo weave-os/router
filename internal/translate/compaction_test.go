@@ -70,6 +70,187 @@ func TestClearOldToolResults_OpenAI(t *testing.T) {
 	assert.Contains(t, got, ClearedToolResultPlaceholder)
 }
 
+func TestGeminiCompactionSummaryBody_PreservesVisibleHistory(t *testing.T) {
+	env, err := ParseGemini([]byte(`{"systemInstruction":{"parts":[{"text":"follow project policy"}]},"contents":[{"role":"user","parts":[{"text":"inspect this image"},{"inlineData":{"mimeType":"image/png","data":"aGVsbG8="}}]},{"role":"model","parts":[{"functionCall":{"name":"read","args":{"path":"main.go"}},"thoughtSignature":"opaque-signature"}]},{"role":"user","parts":[{"functionResponse":{"name":"read","response":{"result":"source code"}}}]}]}`))
+	require.NoError(t, err)
+	projected, err := env.GeminiCompactionSummaryBody()
+	require.NoError(t, err)
+	assert.Equal(t, "follow project policy\n", gjson.GetBytes(projected, "system").String())
+	assert.Equal(t, "image/png", gjson.GetBytes(projected, "messages.0.content.1.source.media_type").String())
+	assert.Equal(t, "aGVsbG8=", gjson.GetBytes(projected, "messages.0.content.1.source.data").String())
+	assert.Equal(t, "Function call read: {\"path\":\"main.go\"}", gjson.GetBytes(projected, "messages.1.content.0.text").String())
+	assert.Equal(t, "Function response read: {\"result\":\"source code\"}", gjson.GetBytes(projected, "messages.2.content.0.text").String())
+	assert.NotContains(t, string(projected), "opaque-signature")
+	assert.Contains(t, string(env.body), "opaque-signature", "summary projection must not mutate the client transcript")
+}
+
+func TestGeminiCompactionSummaryBody_RejectsUnsupportedMedia(t *testing.T) {
+	for _, part := range []string{
+		`{"fileData":{"mimeType":"image/png","fileUri":"gs://image"}}`,
+		`{"inlineData":{"mimeType":"application/pdf","data":"cGRm"}}`,
+		`{"text":"hello","functionCall":{"name":"read","args":{}}}`,
+	} {
+		env, err := ParseGemini([]byte(`{"contents":[{"role":"user","parts":[` + part + `]}]}`))
+		require.NoError(t, err)
+		_, err = env.GeminiCompactionSummaryBody()
+		require.Error(t, err)
+	}
+}
+
+func TestCompactionChunk_PreservesToolPairsAndSignatures(t *testing.T) {
+	tests := []struct {
+		name, body string
+		parse      func([]byte) (*RequestEnvelope, error)
+		field      string
+		signature  string
+	}{
+		{
+			name: "anthropic", parse: ParseAnthropic, field: "messages", signature: "signed-thinking",
+			body: `{"messages":[{"role":"user","content":"start"},{"role":"assistant","content":[{"type":"thinking","thinking":"plan","signature":"signed-thinking"},{"type":"tool_use","id":"t1","name":"read","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"result"}]},{"role":"assistant","content":"next"},{"role":"user","content":"continue"}]}`,
+		},
+		{
+			name: "openai", parse: ParseOpenAI, field: "messages", signature: "c1",
+			body: `{"messages":[{"role":"user","content":"start"},{"role":"assistant","tool_calls":[{"id":"c1","type":"function","function":{"name":"read","arguments":"{}"}}]},{"role":"tool","tool_call_id":"c1","content":"result"},{"role":"assistant","content":"next"},{"role":"user","content":"continue"}]}`,
+		},
+		{
+			name: "gemini", parse: ParseGemini, field: "contents", signature: "signed-thought",
+			body: `{"contents":[{"role":"user","parts":[{"text":"start"}]},{"role":"model","parts":[{"functionCall":{"name":"read","args":{}},"thoughtSignature":"signed-thought"}]},{"role":"user","parts":[{"functionResponse":{"name":"read","response":{"result":"result"}}}]},{"role":"model","parts":[{"text":"next"}]},{"role":"user","parts":[{"text":"continue"}]}]}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env, err := tt.parse([]byte(tt.body))
+			require.NoError(t, err)
+			assert.Equal(t, []int{0, 3, 4, 5}, env.CompactionBoundaries())
+			first, err := env.CompactionChunk(0, 3, "")
+			require.NoError(t, err)
+			firstMessages := gjson.GetBytes(first.body, tt.field).Array()
+			assert.Len(t, firstMessages, 3)
+			assert.Contains(t, string(first.body), tt.signature)
+			second, err := env.CompactionChunk(3, 5, "remember result")
+			require.NoError(t, err)
+			assert.Contains(t, string(second.body), "remember result")
+			assert.NotContains(t, string(second.body), tt.signature)
+			assert.NotContains(t, string(second.body), "functionResponse")
+			assert.NotContains(t, string(second.body), "tool_result")
+			assert.NotContains(t, string(second.body), `"role":"tool"`)
+			_, err = env.CompactionChunk(1, 3, "")
+			require.ErrorIs(t, err, ErrUnsafeCompactionBoundary)
+		})
+	}
+}
+
+func TestCompactionChunk_RejectsMidConversationInstructions(t *testing.T) {
+	body := []byte(`{"messages":[{"role":"system","content":"initial"},{"role":"user","content":"first"},{"role":"assistant","content":"answer"},{"role":"developer","content":"new constraint"},{"role":"user","content":"second"}]}`)
+	env, err := ParseOpenAI(body)
+	require.NoError(t, err)
+	assert.False(t, env.SupportsHistoryCompaction())
+	_, err = env.CompactionChunk(3, 5, "previous answer")
+	require.ErrorIs(t, err, ErrUnsafeCompactionBoundary)
+}
+
+func TestCompactionSummaryChunk_StartsWithUserAndKeepsDispatchChunkUnchanged(t *testing.T) {
+	for _, tt := range []struct {
+		name, body, field string
+		parse             func([]byte) (*RequestEnvelope, error)
+	}{
+		{"anthropic", `{"messages":[{"role":"user","content":"first"},{"role":"assistant","content":"answer"},{"role":"user","content":"next"},{"role":"assistant","content":"reply"}]}`, "messages", ParseAnthropic},
+		{"openai", `{"messages":[{"role":"system","content":"rules"},{"role":"user","content":"first"},{"role":"assistant","content":"answer"},{"role":"user","content":"next"},{"role":"assistant","content":"reply"}]}`, "messages", ParseOpenAI},
+		{"gemini", `{"contents":[{"role":"user","parts":[{"text":"first"}]},{"role":"model","parts":[{"text":"answer"}]},{"role":"user","parts":[{"text":"next"}]},{"role":"model","parts":[{"text":"reply"}]}]}`, "contents", ParseGemini},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			env, err := tt.parse([]byte(tt.body))
+			require.NoError(t, err)
+			start := env.CompactionBoundaries()[1]
+			end := env.CompactionBoundaries()[len(env.CompactionBoundaries())-1]
+			chunk, err := env.CompactionSummaryChunk(start, end, "prior decisions")
+			require.NoError(t, err)
+			messages := gjson.GetBytes(chunk.body, tt.field).Array()
+			if tt.name == "openai" {
+				assert.Equal(t, "system", messages[0].Get("role").String())
+				messages = messages[1:]
+			}
+			assert.Equal(t, "user", messages[0].Get("role").String())
+			assert.Contains(t, messages[0].Raw, "prior decisions")
+			if tt.name == "anthropic" {
+				prepared, err := chunk.PrepareAnthropic(nil, EmitOptions{TargetModel: "claude-sonnet-5"})
+				require.NoError(t, err)
+				assert.Equal(t, "user", gjson.GetBytes(prepared.Body, "messages.0.role").String())
+			}
+			dispatch, err := env.CompactionChunk(start, end, "prior decisions")
+			require.NoError(t, err)
+			assert.NotEqual(t, "user", gjson.GetBytes(dispatch.body, tt.field).Array()[len(gjson.GetBytes(dispatch.body, tt.field).Array())-3].Get("role").String())
+		})
+	}
+}
+
+func TestCompactionPrefixDigest_ChangesWithGeminiSystemInstruction(t *testing.T) {
+	body := `{"systemInstruction":{"parts":[{"text":"first policy"}]},"contents":[{"role":"user","parts":[{"text":"old request"}]},{"role":"model","parts":[{"text":"old answer"}]},{"role":"user","parts":[{"text":"new request"}]}]}`
+	env, err := ParseGemini([]byte(body))
+	require.NoError(t, err)
+	before, err := env.CompactionPrefixDigest(2)
+	require.NoError(t, err)
+	changed, err := ParseGemini([]byte(strings.Replace(body, "first policy", "second policy", 1)))
+	require.NoError(t, err)
+	after, err := changed.CompactionPrefixDigest(2)
+	require.NoError(t, err)
+	assert.NotEqual(t, before, after)
+}
+
+func TestCompactionTailBoundary_ReconstructsRewrittenHistory(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		parse      func([]byte) (*RequestEnvelope, error)
+	}{
+		{"anthropic", `{"messages":[{"role":"user","content":"old"},{"role":"assistant","content":"answer"},{"role":"user","content":"continue"},{"role":"assistant","content":"more"},{"role":"user","content":"last"}]}`, ParseAnthropic},
+		{"openai", `{"messages":[{"role":"system","content":"rules"},{"role":"user","content":"old"},{"role":"assistant","content":"answer"},{"role":"user","content":"continue"},{"role":"assistant","content":"more"},{"role":"user","content":"last"}]}`, ParseOpenAI},
+		{"openai developer", `{"messages":[{"role":"system","content":"rules"},{"role":"developer","content":"required instruction"},{"role":"user","content":"old"},{"role":"assistant","content":"answer"},{"role":"user","content":"continue"},{"role":"assistant","content":"more"},{"role":"user","content":"last"}]}`, ParseOpenAI},
+		{"gemini", `{"contents":[{"role":"user","parts":[{"text":"old"}]},{"role":"model","parts":[{"text":"answer"}]},{"role":"user","parts":[{"text":"continue"}]},{"role":"model","parts":[{"text":"more"}]},{"role":"user","parts":[{"text":"last"}]}]}`, ParseGemini},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env, err := tc.parse([]byte(tc.body))
+			require.NoError(t, err)
+			boundary := env.CompactionTailBoundary(2)
+			require.Positive(t, boundary)
+			boundaries := env.CompactionBoundaries()
+			chunk, err := env.CompactionChunk(boundary, boundaries[len(boundaries)-1], "remember old state")
+			require.NoError(t, err)
+			rewritten := env.Clone()
+			rewritten.RewriteForCompaction("remember old state", 2)
+			assert.JSONEq(t, string(rewritten.body), string(chunk.body))
+		})
+	}
+}
+
+func TestCompactionTailBoundary_MixedToolResultReconstructsRewrittenTail(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, field, marker string
+		parse                     func([]byte) (*RequestEnvelope, error)
+	}{
+		{"anthropic", `{"messages":[{"role":"user","content":"initial"},{"role":"assistant","content":"answer"},{"role":"user","content":"previous"},{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"read","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"output"},{"type":"text","text":"new constraint"}]},{"role":"assistant","content":"next"},{"role":"user","content":"latest"}]}`, "messages", "new constraint", ParseAnthropic},
+		{"gemini", `{"contents":[{"role":"user","parts":[{"text":"initial"}]},{"role":"model","parts":[{"text":"answer"}]},{"role":"user","parts":[{"text":"previous"}]},{"role":"model","parts":[{"functionCall":{"name":"read","args":{}}}]},{"role":"user","parts":[{"functionResponse":{"name":"read","response":{"result":"output"}}},{"text":"new constraint"}]},{"role":"model","parts":[{"text":"next"}]},{"role":"user","parts":[{"text":"latest"}]}]}`, "contents", "new constraint", ParseGemini},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			env, err := tc.parse([]byte(tc.body))
+			require.NoError(t, err)
+			boundary := env.CompactionTailBoundary(3)
+			require.Equal(t, 4, boundary)
+			bounds := env.CompactionBoundaries()
+			assert.NotContains(t, bounds, boundary)
+			_, err = env.CompactionPrefixDigest(boundary)
+			require.NoError(t, err)
+			chunk, err := env.CompactionChunk(boundary, bounds[len(bounds)-1], "prior context")
+			require.NoError(t, err)
+			rewritten := env.Clone()
+			require.Positive(t, rewritten.RewriteForCompaction("prior context", 3))
+			assert.JSONEq(t, string(chunk.body), string(rewritten.body))
+			assert.Contains(t, string(chunk.body), tc.marker)
+			assert.Len(t, gjson.GetBytes(chunk.body, tc.field).Array(), 4)
+			assert.NotContains(t, string(chunk.body), "output")
+		})
+	}
+}
+
 func TestRewriteForCompaction_Anthropic_KeepsSummaryAndRecent(t *testing.T) {
 	// 8 alternating messages; keep recent 3 turns.
 	var b strings.Builder

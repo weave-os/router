@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"time"
 
 	"github.com/tidwall/gjson"
@@ -145,6 +146,11 @@ func (s *ProviderSummarizer) Provider() string {
 // assistant text was extractable.
 var ErrEmptySummary = errors.New("handover: upstream returned no summary text")
 
+var (
+	ErrInvalidSummary = errors.New("handover: upstream returned an invalid summary response")
+	ErrSummaryRefusal = errors.New("handover: upstream refused to summarize")
+)
+
 // Summarize implements handover.Summarizer: resolves the handover-summary
 // plan within the request's scope and runs the Anthropic Messages call
 // through the executor under the plan's budget, returning summary text plus
@@ -207,7 +213,12 @@ func (s *ProviderSummarizer) SummarizeForCompaction(ctx context.Context, env *tr
 	if maxTokens <= 0 {
 		maxTokens = DefaultCompactionMaxTokens
 	}
+	projection, err := compactionSummaryEstimate(env, target.CatalogID)
+	if err != nil {
+		return "", handover.Usage{}, err
+	}
 	routerRequest := summarizerRequest(scope, env)
+	routerRequest.EstimatedInputTokens = projection
 	routerRequest.AllowedModels = map[string]struct{}{target.CatalogID: {}}
 	request := policy.ResolutionRequest{
 		Purpose:       policy.PurposePrecompactionSummary,
@@ -221,6 +232,18 @@ func (s *ProviderSummarizer) SummarizeForCompaction(ctx context.Context, env *tr
 		return "", handover.Usage{}, err
 	}
 	return s.run(ctx, env, plan, compactionInstruction, maxTokens, s.compactionTimeout)
+}
+
+func compactionSummaryEstimate(env *translate.RequestEnvelope, model string) (int, error) {
+	body, err := buildSummaryRequestBody(env, model, compactionInstruction, DefaultCompactionMaxTokens)
+	if err != nil {
+		return 0, err
+	}
+	projected, err := translate.ParseAnthropic(body)
+	if err != nil {
+		return 0, err
+	}
+	return projected.ContextOverflowTokenEstimate(), nil
 }
 
 // summarizerRequest is the candidate-resolution input for a summary call:
@@ -254,7 +277,7 @@ func (s *ProviderSummarizer) resolve(ctx context.Context, request policy.Resolut
 
 // run executes one buffered Anthropic Messages summary through the executor.
 // The policy budget tightens (never loosens) the configured timeout and
-// output cap. On any failure returns ("", zero, err) so callers fall back.
+// output cap. On failure callers must keep the original history.
 func (s *ProviderSummarizer) run(ctx context.Context, env *translate.RequestEnvelope, plan policy.ResolvedPlan, instruction string, maxTokens int, timeout time.Duration) (string, handover.Usage, error) {
 	log := observability.FromContext(ctx)
 	if env == nil {
@@ -286,7 +309,7 @@ func (s *ProviderSummarizer) run(ctx context.Context, env *translate.RequestEnve
 	result, err := s.executor.Run(callCtx, inference.InvocationRequest{Purpose: plan.Purpose(), RequestID: observability.RequestIDFromContext(ctx)}, plan, transport)
 	if err != nil {
 		log.Warn("Summarizer upstream call failed", "purpose", string(plan.Purpose()), "err", err, "model", plan.SelectedTarget().CatalogID, "provider", plan.SelectedTarget().Provider, "fallback_reason", result.Summary.FallbackReason)
-		return "", handover.Usage{}, err
+		return "", usage, err
 	}
 	return text, usage, nil
 }
@@ -317,13 +340,24 @@ func summaryFromResponse(resp *http.Response, target inference.Target) (string, 
 	if err != nil {
 		return "", handover.Usage{}, fmt.Errorf("read summary response: %w", err)
 	}
-	text := extractAnthropicAssistantText(respBody)
-	if text == "" {
-		return "", handover.Usage{}, ErrEmptySummary
+	if !gjson.ValidBytes(respBody) || !gjson.GetBytes(respBody, "content").IsArray() {
+		return "", handover.Usage{}, ErrInvalidSummary
 	}
 	usage := extractAnthropicUsage(respBody)
 	usage.Model = target.CatalogID
 	usage.Provider = target.Provider
+	if gjson.GetBytes(respBody, "stop_reason").String() == "refusal" {
+		return "", usage, ErrSummaryRefusal
+	}
+	for _, block := range gjson.GetBytes(respBody, "content").Array() {
+		if block.Get("type").String() == "refusal" {
+			return "", usage, ErrSummaryRefusal
+		}
+	}
+	text := extractAnthropicAssistantText(respBody)
+	if strings.TrimSpace(text) == "" {
+		return "", usage, ErrEmptySummary
+	}
 	return text, usage, nil
 }
 
@@ -349,12 +383,21 @@ func extractAnthropicUsage(body []byte) handover.Usage {
 // from the envelope's prior conversation, injecting the given summary
 // instruction and overriding model/max_tokens/stream.
 func buildSummaryRequestBody(env *translate.RequestEnvelope, model, instruction string, maxTokens int) ([]byte, error) {
-	prep, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: model})
-	if err != nil {
-		return nil, fmt.Errorf("prepare anthropic body: %w", err)
+	var body []byte
+	if env.SourceFormat() == translate.FormatGemini {
+		var err error
+		body, err = env.GeminiCompactionSummaryBody()
+		if err != nil {
+			return nil, fmt.Errorf("prepare Gemini summary body: %w", err)
+		}
+	} else {
+		prep, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: model})
+		if err != nil {
+			return nil, fmt.Errorf("prepare anthropic body: %w", err)
+		}
+		body = prep.Body
 	}
-	body := prep.Body
-
+	var err error
 	body, err = sjson.SetBytes(body, "model", model)
 	if err != nil {
 		return nil, fmt.Errorf("set model: %w", err)
