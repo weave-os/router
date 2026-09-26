@@ -87,6 +87,10 @@ func (e *RequestEnvelope) PrepareOpenAI(in http.Header, opts EmitOptions) (provi
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}
+	e, err = e.withUnambiguousReadPrefixes()
+	if err != nil {
+		return providers.PreparedRequest{}, err
+	}
 	var body []byte
 	var stats providers.RequestMutationStats
 	switch e.format {
