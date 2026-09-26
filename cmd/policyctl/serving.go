@@ -102,9 +102,9 @@ func runServingWith(ctx context.Context, args []string, dependencies servingDepe
 	switch command {
 	case commandPublishRelease:
 		candidatePath = flags.String("candidate", "", "candidate manifest JSON file")
-		selectionSetPath = flags.String("selection-set", "", "selection-set manifest JSON file naming the published candidate")
-		proposalPath = flags.String("proposal", "", "proposal manifest JSON file naming the published selection set and candidate")
-		dryRun = flags.Bool("dry-run", false, "decode, validate and report the three digests without writing to the registry")
+		selectionSetPath = flags.String("selection-set", "", "selection-set manifest JSON file whose lane candidates this command binds to the published candidate")
+		proposalPath = flags.String("proposal", "", "proposal manifest JSON file whose selection set and source candidate this command binds to the published objects")
+		dryRun = flags.Bool("dry-run", false, "validate all three manifests and report the candidate digest without writing to the registry")
 	case commandPublish:
 		kindRaw = flags.String("kind", "", "candidate, selection_set or proposal")
 		manifestPath = flags.String("manifest", "", "immutable manifest JSON file")
