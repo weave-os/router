@@ -2,6 +2,7 @@ package middleware_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -56,6 +57,52 @@ func maxSubscriberEntitlement() entitlement.Entitlement {
 	current := activeSubscriberEntitlement()
 	current.Plan = entitlement.PlanMax
 	return current
+}
+
+func TestWithSubscriberProductScope_StampsDryRunsWithoutAllowanceAccounting(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, path := range []string{"/v1/route", "/v1/route/preview"} {
+		t.Run(path, func(t *testing.T) {
+			entitlements := &stubEntitlements{current: maxSubscriberEntitlement(), found: true}
+			allowances := &stubAllowances{usageErr: errors.New("allowance usage must not be read")}
+			svc := entitlement.NewService(entitlements, allowances).WithClock(func() time.Time { return allowanceNow })
+
+			var observed context.Context
+			engine := gin.New()
+			engine.Use(func(c *gin.Context) { c.Set("router_api_key", subscriberAPIKey()) })
+			engine.Use(middleware.WithSubscriberProductScope(svc))
+			engine.POST(path, func(c *gin.Context) {
+				observed = c.Request.Context()
+				c.Status(http.StatusOK)
+			})
+
+			response := httptest.NewRecorder()
+			engine.ServeHTTP(response, httptest.NewRequest(http.MethodPost, path, nil))
+
+			require.Equal(t, http.StatusOK, response.Code)
+			plan, scoped := entitlement.ProductScopeFromContext(observed)
+			require.True(t, scoped)
+			assert.Equal(t, entitlement.PlanMax, plan)
+			assert.Zero(t, allowances.usageReads)
+			assert.Empty(t, allowances.held)
+		})
+	}
+}
+
+func TestWithSubscriberProductScope_RejectsUnreadableProjection(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	svc := entitlement.NewService(&stubEntitlements{err: errors.New("database unavailable")}, &stubAllowances{})
+	engine := gin.New()
+	engine.Use(func(c *gin.Context) { c.Set("router_api_key", subscriberAPIKey()) })
+	engine.Use(middleware.WithSubscriberProductScope(svc))
+	engine.POST("/v1/route", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/route", nil))
+
+	assert.Equal(t, http.StatusServiceUnavailable, response.Code)
 }
 
 func TestWithSubscriberAllowance_StampsMaxProductScope(t *testing.T) {
