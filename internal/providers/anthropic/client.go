@@ -22,6 +22,19 @@ import (
 
 const DefaultBaseURL = "https://api.anthropic.com"
 
+// largePromptBodyBytes is the request-body size past which a turn rides
+// largePromptHTTP. Anthropic withholds response headers until prefill
+// completes even when streaming, and cache-miss prefill near the 1M window
+// has a tail past the default 30s guard. 1 MiB sits well below the prompt
+// sizes where that tail appears (~250K-500K tokens depending on density).
+const largePromptBodyBytes = 1 << 20
+
+// largePromptResponseHeaderTimeout is the time-to-first-byte guard for turns
+// over largePromptBodyBytes. Dead connections are still caught by the h2
+// keepalive PING, and streaming inactivity by StreamBody's watchdog. Tunable
+// via ROUTER_ANTHROPIC_LARGE_PROMPT_HEADER_TIMEOUT_SECONDS.
+var largePromptResponseHeaderTimeout = httputil.TimeoutFromEnv("ROUTER_ANTHROPIC_LARGE_PROMPT_HEADER_TIMEOUT_SECONDS", 120*time.Second)
+
 // WaferMessagesBaseURL is Wafer Serverless' Anthropic-compatible Messages
 // endpoint; pair with WithAuthScheme(AuthBearer) and a Wafer-ZDR default header.
 const WaferMessagesBaseURL = "https://pass.wafer.ai"
@@ -101,6 +114,9 @@ type Client struct {
 	baseURL   string
 	http      *http.Client
 	modelHTTP *http.Client
+	// largePromptHTTP carries the wider time-to-first-byte guard for bodies
+	// over largePromptBodyBytes; see largePromptResponseHeaderTimeout.
+	largePromptHTTP *http.Client
 	// authScheme is the credential header this upstream expects; zero value
 	// (AuthAPIKeyHeader) preserves Anthropic's own behavior.
 	authScheme AuthScheme
@@ -131,10 +147,11 @@ type Client struct {
 
 func NewClient(apiKey, baseURL string, opts ...Option) *Client {
 	c := &Client{
-		apiKey:    apiKey,
-		baseURL:   baseURL,
-		http:      httputil.NewClient(httputil.NewTransport(10*time.Second, 10*time.Second)),
-		modelHTTP: httputil.NewDefaultModelDiscoveryClient(),
+		apiKey:          apiKey,
+		baseURL:         baseURL,
+		http:            httputil.NewClient(httputil.NewTransport(10*time.Second, 10*time.Second)),
+		largePromptHTTP: httputil.NewClient(httputil.NewTransportWithResponseHeaderTimeout(10*time.Second, 10*time.Second, largePromptResponseHeaderTimeout)),
+		modelHTTP:       httputil.NewDefaultModelDiscoveryClient(),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -145,6 +162,24 @@ func NewClient(apiKey, baseURL string, opts ...Option) *Client {
 		c.baseURL = DefaultBaseURL
 	}
 	return c
+}
+
+// NewClientWithHeaderTimeouts is NewClient with injected header-timeout
+// values so tests can exercise transport selection without real-latency waits.
+func NewClientWithHeaderTimeouts(apiKey, baseURL string, defaultTimeout, largePromptTimeout time.Duration) *Client {
+	c := NewClient(apiKey, baseURL)
+	c.http = httputil.NewClient(httputil.NewTransportWithResponseHeaderTimeout(10*time.Second, 10*time.Second, defaultTimeout))
+	c.largePromptHTTP = httputil.NewClient(httputil.NewTransportWithResponseHeaderTimeout(10*time.Second, 10*time.Second, largePromptTimeout))
+	return c
+}
+
+// httpFor picks the HTTP client for an upstream body: large prompts get the
+// wider time-to-first-byte guard, everything else the default transport.
+func (c *Client) httpFor(body []byte) *http.Client {
+	if len(body) >= largePromptBodyBytes && c.largePromptHTTP != nil {
+		return c.largePromptHTTP
+	}
+	return c.http
 }
 
 // NewClientWithStallTimeouts is NewClient with watchdog budgets injected for testing.
@@ -352,7 +387,7 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 
 	t := timing.TimingFrom(ctx)
 	t.StampUpstreamRequest()
-	resp, err := c.http.Do(upstream)
+	resp, err := c.httpFor(body).Do(upstream)
 	if err != nil {
 		return fmt.Errorf("upstream call: %w", err)
 	}
@@ -461,7 +496,7 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 		upstream.Header.Set("accept", v)
 	}
 
-	resp, err := c.http.Do(upstream)
+	resp, err := c.httpFor(prep.Body).Do(upstream)
 	if err != nil {
 		return fmt.Errorf("upstream passthrough call: %w", err)
 	}

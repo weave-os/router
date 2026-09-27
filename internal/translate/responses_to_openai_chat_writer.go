@@ -327,7 +327,7 @@ func (t *ResponsesToOpenAIChatWriter) translateEvent(raw []byte) error {
 		}
 		return t.handleOutputItemDone(data)
 	case "error":
-		return t.emitStreamError(gjson.GetBytes(data, "code").String(), gjson.GetBytes(data, "message").String())
+		return t.emitStreamError(responsesErrorEventFailure(data))
 	case "response.failed":
 		errType, msg := responsesFailureFromResponse(gjson.GetBytes(data, "response"))
 		return t.emitStreamError(errType, msg)
@@ -616,6 +616,9 @@ func (t *ResponsesToOpenAIChatWriter) finalizeBuffered() error {
 // finalizeError renders a one-shot OpenAI error body. Streaming errors are
 // rendered as an in-stream frame by emitStreamError instead.
 func (t *ResponsesToOpenAIChatWriter) finalizeError() error {
+	if err := bufferedContextOverflow(t.buf.Bytes(), openAIErrorBody); err != nil {
+		return err
+	}
 	errType, msg := t.errorFromBuffer()
 	if !t.headersEmitted {
 		t.inner.Header().Set("Content-Type", "application/json")
@@ -643,28 +646,8 @@ func (t *ResponsesToOpenAIChatWriter) errorFromBuffer() (errType, msg string) {
 		errType = gjson.GetBytes(b, "error.type").String()
 		return errType, gjson.GetBytes(b, "error.message").String()
 	}
-	rest := b
-	for {
-		event, n := sse.SplitNext(rest)
-		if n == 0 {
-			break
-		}
-		rest = rest[n:]
-		_, data := sse.ParseEvent(event)
-		if len(data) == 0 {
-			continue
-		}
-		switch gjson.GetBytes(data, "type").String() {
-		case "error":
-			return gjson.GetBytes(data, "code").String(), gjson.GetBytes(data, "message").String()
-		case "response.failed":
-			return responsesFailureFromResponse(gjson.GetBytes(data, "response"))
-		case "response.incomplete":
-			resp := gjson.GetBytes(data, "response")
-			if responsesTerminalIsFailure(resp) {
-				return responsesFailureFromResponse(resp)
-			}
-		}
+	if errType, msg, found := responsesSSEFailure(b); found {
+		return errType, msg
 	}
 	return "api_error", "upstream Responses stream ended without a terminal response event"
 }
@@ -816,7 +799,7 @@ func (t *ResponsesToOpenAIChatWriter) emitStreamError(errType, msg string) error
 	if !t.lifecycle.OutputStarted() {
 		t.closed = true
 		return &providers.UpstreamErrorResponse{
-			Status: http.StatusBadGateway,
+			Status: responsesFailureStatus(errType),
 			Body:   openAIErrorBody(errType, msg),
 		}
 	}

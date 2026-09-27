@@ -251,6 +251,7 @@ func TestResolveUserFromContext_BothMissingIsNoOp(t *testing.T) {
 func TestClientIdentityFromHeaders_SessionIDSources(t *testing.T) {
 	claude := "4dbee464-ebf7-437f-9f20-db5a6f7fe3b4"
 	codex := "01a03b54-9459-7373-a349-88a59b825211"
+	opencode := "ses_f1fb9de93ffeDvaA1651V3ntUj"
 
 	t.Run("claude code header", func(t *testing.T) {
 		h := http.Header{}
@@ -270,6 +271,33 @@ func TestClientIdentityFromHeaders_SessionIDSources(t *testing.T) {
 		h := http.Header{}
 		h.Set("Thread-Id", codex)
 		assert.Equal(t, codex, proxy.ClientIdentityFromHeaders(h).SessionID)
+	})
+	t.Run("opencode X-OpenCode-Session", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("X-OpenCode-Session", opencode)
+		h.Set("X-App", "opencode")
+		got := proxy.ClientIdentityFromHeaders(h)
+		assert.Equal(t, opencode, got.SessionID)
+		assert.Equal(t, proxy.ClientAppOpencode, got.ClientApp)
+	})
+	t.Run("opencode subagent reports parent session", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("X-OpenCode-Session", "ses_child")
+		h.Set("X-Parent-Session-Id", opencode)
+		h.Set("X-App", "opencode")
+		assert.Equal(t, opencode, proxy.ClientIdentityFromHeaders(h).SessionID)
+	})
+	t.Run("opencode detected from User-Agent", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("X-OpenCode-Session", opencode)
+		h.Set("User-Agent", "opencode/latest/2.0.18/cli")
+		assert.Equal(t, opencode, proxy.ClientIdentityFromHeaders(h).SessionID)
+	})
+	t.Run("X-OpenCode-Session ignored for other clients", func(t *testing.T) {
+		h := http.Header{}
+		h.Set("X-OpenCode-Session", opencode)
+		h.Set("X-App", "codex")
+		assert.Equal(t, "", proxy.ClientIdentityFromHeaders(h).SessionID)
 	})
 	t.Run("claude header wins over Session-Id", func(t *testing.T) {
 		h := http.Header{}

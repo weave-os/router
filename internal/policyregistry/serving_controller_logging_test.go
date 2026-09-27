@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,20 +20,32 @@ func TestServingControllerFailureAuditIncludesProposalAndKnownTarget(t *testing.
 		name            string
 		message         string
 		prepare         bool
-		rollback        bool
+		rollbackScope   bool
 		missingProposal bool
 		mutate          func(*servingMemoryStore)
 	}{
 		{name: "proposal read", prepare: true, missingProposal: true, message: "Failed to read immutable proposal for serving preparation"},
 		{name: "target read", prepare: true, message: "Failed to read authoritative target for serving preparation", mutate: func(store *servingMemoryStore) { store.readErr = errors.New("storage unavailable") }},
 		{name: "evidence validation", prepare: true, message: "Serving destination validation blocked preparation", mutate: func(store *servingMemoryStore) { delete(store.artifacts, artifactRef("evidence")) }},
-		{name: "rollback source", rollback: true, message: "Serving rollback source validation rejected"},
+		{name: "rollback source", rollbackScope: true, message: "Serving rollback source validation rejected"},
 		{name: "state write", message: "Serving activation CAS failed; keep the proposal for outcome reconciliation", mutate: func(store *servingMemoryStore) { store.casErr = errors.New("storage unavailable") }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store, _, set := controllerFixture(t)
-			proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
-			ref := store.publish(t, policyregistry.ServingProposals, proposal)
+			snapshot := policyregistry.ServingStateSnapshot{}
+			if test.rollbackScope {
+				snapshot, _ = storedActivateFixture(t, store, snapshot, set, servingEpoch)
+				snapshot, _ = storedActivateFixture(t, store, snapshot, variantSet(t, store, set, "worker-0002"), servingEpoch)
+				store.states[set.Target] = snapshot
+			}
+			proposal := storedProposal(t, store, snapshot, set, servingEpoch)
+			if test.rollbackScope {
+				proposal.Scope = policyregistry.ChangeRollback
+				release := *store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease)
+				release.RouterImageDigest = "sha256:" + strings.Repeat("9", 64)
+				proposal.SourceCandidate = foldCandidate(t, store, store.publish(t, policyregistry.ServingReleases, release))
+			}
+			ref := store.publishArtifact(t, policyregistry.ServingProposal, proposal)
 			if test.missingProposal {
 				delete(store.objects, ref)
 			}
@@ -46,8 +59,6 @@ func TestServingControllerFailureAuditIncludesProposalAndKnownTarget(t *testing.
 			require.NoError(t, err)
 			if test.prepare {
 				_, err = controller.Prepare(context.Background(), ref)
-			} else if test.rollback {
-				_, err = controller.Rollback(context.Background(), ref, "workflow")
 			} else {
 				_, err = controller.Activate(context.Background(), ref, "workflow")
 			}
@@ -63,7 +74,7 @@ func TestServingControllerFailureAuditIncludesProposalAndKnownTarget(t *testing.
 			if !test.prepare {
 				require.Equal(t, "workflow", entry["workflow_actor"])
 			}
-			require.Empty(t, store.states)
+			require.Equal(t, snapshot.Generation, store.states[set.Target].Generation)
 		})
 	}
 }
