@@ -84,7 +84,68 @@ func fixtureSetV2(label string) policyregistry.SelectionSetV2 {
 	return policyregistry.SelectionSetV2{SchemaVersion: policyregistry.ServingSelectionSetV2, Target: policyregistry.TargetStable, Default: policyregistry.ServingLane{Candidate: artifactStoredRef([]byte(label)), LaneBinding: binding}, Profiles: map[string]policyregistry.ServingLane{}}
 }
 
-func fixtureProposal(t *testing.T, snapshot policyregistry.ServingStateSnapshot, set policyregistry.SelectionSet, now time.Time) policyregistry.DeploymentProposal {
+// fixtureProposal proposes the fixture set as a new activation must: the activated selection set
+// is addressed in the artifacts/ layout the floor requires, while the bound incumbent keeps
+// whatever layout the recorded history used. The proposed set is not stored; transition tests
+// never read it.
+func fixtureProposal(t *testing.T, snapshot policyregistry.ServingStateSnapshot, set policyregistry.SelectionSet, now time.Time) policyregistry.DeploymentProposalV2 {
+	t.Helper()
+	proposal := policyregistry.DeploymentProposalV2{SchemaVersion: policyregistry.ServingProposalV2, Target: set.Target, SelectionSet: artifactStoredRef(servingPayload(t, set)), SourceCandidate: set.Default.Release, Scope: policyregistry.ChangeFull, Actor: "test-operator", Reason: "release validation", RequestID: uuid.NewString(), CreatedAt: now, Evidence: []policyregistry.ObjectRef{artifactRef("evidence")}, WithdrawActivations: []string{}}
+	if snapshot.Generation > 0 {
+		previous := snapshot.State.Activations[snapshot.State.CurrentActivationID].SelectionSet
+		proposal.PreviousSelectionSet = &previous
+	}
+	return proposal
+}
+
+// proposalRef addresses a proposal where every new one is published.
+func proposalRef(t *testing.T, proposal policyregistry.DeploymentProposalV2) policyregistry.ObjectRef {
+	t.Helper()
+	return artifactStoredRef(servingPayload(t, proposal))
+}
+
+func activateFixture(t *testing.T, snapshot policyregistry.ServingStateSnapshot, set policyregistry.SelectionSet, now time.Time, withdraw ...string) (policyregistry.ServingStateSnapshot, policyregistry.DeploymentProposalV2) {
+	t.Helper()
+	proposal := fixtureProposal(t, snapshot, set, now)
+	proposal.WithdrawActivations = withdraw
+	activated, err := policyregistry.NextServingActivation(snapshot, servingPayload(t, proposal), proposalRef(t, proposal), testRegistryRoot, "test-workflow", now)
+	require.NoError(t, err)
+	activated.Snapshot.Generation++
+	return activated.Snapshot, proposal
+}
+
+// storedProposal folds the fixture set into the artifacts/ layout, publishes the v2 objects a new
+// activation must name, and proposes them for the given incumbent snapshot.
+func storedProposal(t *testing.T, store *servingMemoryStore, snapshot policyregistry.ServingStateSnapshot, set policyregistry.SelectionSet, now time.Time) policyregistry.DeploymentProposalV2 {
+	t.Helper()
+	proposal := fixtureProposal(t, snapshot, set, now)
+	_, setRef := foldSelectionSet(t, store, set)
+	proposal.SelectionSet = setRef
+	proposal.SourceCandidate = foldCandidate(t, store, set.Default.Release)
+	return proposal
+}
+
+// variantSet publishes a successor set that differs from its predecessor only in the shared Router
+// revision, so consecutive activations bind distinct selection sets.
+func variantSet(t *testing.T, store *servingMemoryStore, set policyregistry.SelectionSet, name string) policyregistry.SelectionSet {
+	t.Helper()
+	binding := *store.object(t, policyregistry.ServingBindings, set.Default.Binding).(*policyregistry.DeploymentBinding)
+	router := binding.Router
+	router.Name = name
+	router.URL = "https://" + name + ".example"
+	next := set
+	next.Profiles = make(map[string]policyregistry.ServingSelection, len(set.Profiles))
+	next.Default = publishSelection(t, store, set.Default, *store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease), router, binding.Classifier, set.Default.Profile)
+	for key, lane := range set.Profiles {
+		laneBinding := *store.object(t, policyregistry.ServingBindings, lane.Binding).(*policyregistry.DeploymentBinding)
+		next.Profiles[key] = publishSelection(t, store, lane, *store.object(t, policyregistry.ServingReleases, lane.Release).(*policyregistry.ServingRelease), router, laneBinding.Classifier, lane.Profile)
+	}
+	return next
+}
+
+// v1Proposal builds the historical v1 proposal shape, which validation still accepts for
+// pre-floor history even though new activations must name an artifacts/ selection set.
+func v1Proposal(t *testing.T, snapshot policyregistry.ServingStateSnapshot, set policyregistry.SelectionSet, now time.Time) policyregistry.DeploymentProposal {
 	t.Helper()
 	proposal := policyregistry.DeploymentProposal{SchemaVersion: policyregistry.ServingProposalV1, Target: set.Target, ExpectedGeneration: snapshot.Generation, SelectionSet: servingRef(t, policyregistry.ServingSelectionSets, set), SourceRelease: set.Default.Release, Scope: policyregistry.ChangeFull, Actor: "test-operator", Reason: "release validation", RequestID: uuid.NewString(), CreatedAt: now, Evidence: []policyregistry.ObjectRef{artifactRef("evidence")}, WithdrawActivations: []string{}}
 	if snapshot.Generation > 0 {
@@ -94,14 +155,26 @@ func fixtureProposal(t *testing.T, snapshot policyregistry.ServingStateSnapshot,
 	return proposal
 }
 
-func activateFixture(t *testing.T, snapshot policyregistry.ServingStateSnapshot, set policyregistry.SelectionSet, now time.Time, withdraw ...string) (policyregistry.ServingStateSnapshot, policyregistry.DeploymentProposal) {
+// storedActivateFixture records an activation whose objects the controller can read back, which
+// history validation and admission both need.
+func storedActivateFixture(t *testing.T, store *servingMemoryStore, snapshot policyregistry.ServingStateSnapshot, set policyregistry.SelectionSet, now time.Time) (policyregistry.ServingStateSnapshot, policyregistry.DeploymentProposalV2) {
 	t.Helper()
-	proposal := fixtureProposal(t, snapshot, set, now)
-	proposal.WithdrawActivations = withdraw
-	activated, err := policyregistry.NextServingActivation(snapshot, servingPayload(t, proposal), servingRef(t, policyregistry.ServingProposals, proposal), testRegistryRoot, "test-workflow", now)
+	proposal := storedProposal(t, store, snapshot, set, now)
+	activated, err := policyregistry.NextServingActivation(snapshot, servingPayload(t, proposal), store.publishArtifact(t, policyregistry.ServingProposal, proposal), testRegistryRoot, "test-workflow", now)
 	require.NoError(t, err)
 	activated.Snapshot.Generation++
 	return activated.Snapshot, proposal
+}
+
+// storedViews projects stored v2 selection sets for admission, keyed as activations declare them.
+func storedViews(t *testing.T, store *servingMemoryStore, refs ...policyregistry.ObjectRef) map[string]policyregistry.SelectionSetView {
+	t.Helper()
+	views := make(map[string]policyregistry.SelectionSetView, len(refs))
+	for _, ref := range refs {
+		set := store.object(t, policyregistry.ServingSelectionSet, ref).(*policyregistry.SelectionSetV2)
+		views[ref.SHA256] = set.View(ref)
+	}
+	return views
 }
 
 func TestServingContractsRejectMutableTargetsAndReferences(t *testing.T) {
@@ -158,32 +231,49 @@ func TestActivationBindsStoredProposalPayloadDigest(t *testing.T) {
 	set := fixtureSet("one")
 	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
 	drifted := driftedPayload(t, servingPayload(t, proposal))
-	ref := servingStoredRef(t, policyregistry.ServingProposals, drifted)
+	ref := artifactStoredRef(drifted)
 	transition, err := policyregistry.NextServingActivation(policyregistry.ServingStateSnapshot{}, drifted, ref, testRegistryRoot, "workflow", servingEpoch)
 	require.NoError(t, err)
 	require.Equal(t, proposal.RequestID, transition.Activation.RequestID)
 	require.Equal(t, ref, transition.Activation.Proposal)
 
-	mismatched := servingStoredRef(t, policyregistry.ServingProposals, servingPayload(t, proposal))
+	mismatched := artifactStoredRef(servingPayload(t, proposal))
 	_, err = policyregistry.NextServingActivation(policyregistry.ServingStateSnapshot{}, drifted, mismatched, testRegistryRoot, "workflow", servingEpoch)
 	require.ErrorContains(t, err, "digest", "replay is keyed on the recorded proposal ref, so its digest must match the activated bytes")
+}
+
+// The layout floor is decided by the proposed selection set's layout alone: identical proposals
+// differing only in where the set is stored are rejected and accepted respectively.
+func TestNextServingActivationFloorsSelectionSetsOutsideTheArtifactsLayout(t *testing.T) {
+	set := fixtureSet("one")
+	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	proposal.SelectionSet = servingStoredRef(t, policyregistry.ServingSelectionSets, servingPayload(t, set))
+	_, err := policyregistry.NextServingActivation(policyregistry.ServingStateSnapshot{}, servingPayload(t, proposal), proposalRef(t, proposal), testRegistryRoot, "workflow", servingEpoch)
+	require.ErrorIs(t, err, policyregistry.ErrSelectionSetLayoutFloor)
+	require.ErrorContains(t, err, proposal.SelectionSet.SHA256)
+
+	proposal.SelectionSet = artifactStoredRef(servingPayload(t, set))
+	transition, err := policyregistry.NextServingActivation(policyregistry.ServingStateSnapshot{}, servingPayload(t, proposal), proposalRef(t, proposal), testRegistryRoot, "workflow", servingEpoch)
+	require.NoError(t, err)
+	require.Equal(t, proposal.SelectionSet, transition.Activation.SelectionSet)
 }
 
 func TestServingStoreReadsDriftedObjectsThroughControllerPaths(t *testing.T) {
 	ctx := context.Background()
 	store, _, initialSet := controllerFixture(t)
-	driftedSet := driftedPayload(t, servingPayload(t, initialSet))
-	setRef := servingStoredRef(t, policyregistry.ServingSelectionSets, driftedSet)
+	foldedSet, _ := foldSelectionSet(t, store, initialSet)
+	driftedSet := driftedPayload(t, servingPayload(t, foldedSet))
+	setRef := artifactStoredRef(driftedSet)
 	store.putRaw(setRef, driftedSet)
 
-	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
+	proposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
 	proposal.SelectionSet = setRef
 	driftedProposal := driftedPayload(t, servingPayload(t, proposal))
-	proposalRef := servingStoredRef(t, policyregistry.ServingProposals, driftedProposal)
-	store.putRaw(proposalRef, driftedProposal)
+	driftedRef := artifactStoredRef(driftedProposal)
+	store.putRaw(driftedRef, driftedProposal)
 
 	controller := permissiveController(t, store)
-	preparation, err := controller.Prepare(ctx, proposalRef)
+	preparation, err := controller.Prepare(ctx, driftedRef)
 	require.NoError(t, err)
 	require.True(t, preparation.Prepared)
 }
@@ -193,9 +283,9 @@ func TestControllerVerifiesOnlyTheProposalDigestOnRead(t *testing.T) {
 	store, _, set := controllerFixture(t)
 	controller := permissiveController(t, store)
 
-	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	proposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
 	payload := servingPayload(t, proposal)
-	mislabeled := servingStoredRef(t, policyregistry.ServingProposals, append(append([]byte(nil), payload...), '\n'))
+	mislabeled := artifactStoredRef(append(append([]byte(nil), payload...), '\n'))
 	store.putRaw(mislabeled, payload)
 	_, err := controller.Prepare(ctx, mislabeled)
 	require.ErrorContains(t, err, "digest")
@@ -203,10 +293,11 @@ func TestControllerVerifiesOnlyTheProposalDigestOnRead(t *testing.T) {
 	require.ErrorContains(t, err, "digest")
 	require.Empty(t, store.states)
 
-	relabeledSet := servingStoredRef(t, policyregistry.ServingSelectionSets, []byte("relabeled"))
-	store.putRaw(relabeledSet, servingPayload(t, set))
+	foldedSet, _ := foldSelectionSet(t, store, set)
+	relabeledSet := artifactStoredRef([]byte("relabeled"))
+	store.putRaw(relabeledSet, servingPayload(t, foldedSet))
 	proposal.SelectionSet = relabeledSet
-	ref := store.publish(t, policyregistry.ServingProposals, proposal)
+	ref := store.publishArtifact(t, policyregistry.ServingProposal, proposal)
 	preparation, err := controller.Prepare(ctx, ref)
 	require.NoError(t, err, "traversal reads trust the generation-pinned reference")
 	require.True(t, preparation.Prepared)
@@ -223,7 +314,7 @@ func TestActivationIncarnationsNeverResetEarlierRetirement(t *testing.T) {
 	assert.Equal(t, servingEpoch.Add(time.Hour), *third.State.Activations[firstID].SupersededAt)
 	assert.Nil(t, first.State.Activations[firstID].SupersededAt, "pure transition must not mutate the input snapshot")
 	assert.Equal(t, int64(3), third.State.Sequence)
-	retry, err := policyregistry.NextServingActivation(third, servingPayload(t, firstProposal), servingRef(t, policyregistry.ServingProposals, firstProposal), testRegistryRoot, "retry-workflow", servingEpoch.Add(3*time.Hour))
+	retry, err := policyregistry.NextServingActivation(third, servingPayload(t, firstProposal), proposalRef(t, firstProposal), testRegistryRoot, "retry-workflow", servingEpoch.Add(3*time.Hour))
 	require.NoError(t, err)
 	assert.True(t, retry.Replayed)
 	assert.Equal(t, policyregistry.ActivationSuperseded, retry.Outcome)
@@ -235,7 +326,7 @@ func TestActivationRejectsStalePreview(t *testing.T) {
 	set := fixtureSet("one")
 	first, _ := activateFixture(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
 	stale := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
-	_, err := policyregistry.NextServingActivation(first, servingPayload(t, stale), servingRef(t, policyregistry.ServingProposals, stale), testRegistryRoot, "workflow", servingEpoch)
+	_, err := policyregistry.NextServingActivation(first, servingPayload(t, stale), proposalRef(t, stale), testRegistryRoot, "workflow", servingEpoch)
 	require.ErrorIs(t, err, policyregistry.ErrConflict)
 }
 
@@ -246,7 +337,7 @@ func TestActivationReplayIsKeyedOnProposalRefNotRequestID(t *testing.T) {
 
 	secondProposal := fixtureProposal(t, first, fixtureSet("two"), servingEpoch.Add(time.Hour))
 	secondProposal.RequestID = firstProposal.RequestID
-	secondRef := servingRef(t, policyregistry.ServingProposals, secondProposal)
+	secondRef := proposalRef(t, secondProposal)
 	second, err := policyregistry.NextServingActivation(first, servingPayload(t, secondProposal), secondRef, testRegistryRoot, "workflow", servingEpoch.Add(time.Hour))
 	require.NoError(t, err, "a different proposal sharing a request ID is a second activation, not a conflict")
 	require.False(t, second.Replayed)
@@ -271,7 +362,7 @@ func TestServingRequestIDIsAnyNonEmptyBoundedString(t *testing.T) {
 		proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
 		proposal.RequestID = requestID
 		require.NoError(t, proposal.Validate(testRegistryRoot))
-		activated, err := policyregistry.NextServingActivation(policyregistry.ServingStateSnapshot{}, servingPayload(t, proposal), servingRef(t, policyregistry.ServingProposals, proposal), testRegistryRoot, "workflow", servingEpoch)
+		activated, err := policyregistry.NextServingActivation(policyregistry.ServingStateSnapshot{}, servingPayload(t, proposal), proposalRef(t, proposal), testRegistryRoot, "workflow", servingEpoch)
 		require.NoError(t, err)
 		require.Equal(t, requestID, activated.Activation.RequestID)
 		require.NoError(t, activated.Snapshot.State.Validate(testRegistryRoot, set.Target))
@@ -577,8 +668,8 @@ func controllerFixture(t *testing.T) (*servingMemoryStore, *policyregistry.Servi
 
 func TestServingControllerCASAndIdempotency(t *testing.T) {
 	store, controller, set := controllerFixture(t)
-	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
-	ref := store.publish(t, policyregistry.ServingProposals, proposal)
+	proposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	ref := store.publishArtifact(t, policyregistry.ServingProposal, proposal)
 	activated, err := controller.Activate(context.Background(), ref, "workflow")
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), activated.Snapshot.Generation)
@@ -589,7 +680,7 @@ func TestServingControllerCASAndIdempotency(t *testing.T) {
 	assert.Equal(t, "test-operator", retry.Activation.Actor)
 	assert.Equal(t, "workflow", retry.Activation.WorkflowActor)
 	proposal.RequestID = uuid.NewString()
-	staleRef := store.publish(t, policyregistry.ServingProposals, proposal)
+	staleRef := store.publishArtifact(t, policyregistry.ServingProposal, proposal)
 	_, err = controller.Activate(context.Background(), staleRef, "workflow")
 	require.ErrorIs(t, err, policyregistry.ErrConflict)
 }
@@ -612,8 +703,8 @@ func TestServingControllerCommitsTheSingleTransitionBuiltBeforeValidation(t *tes
 	})
 	controller, err := policyregistry.NewServingController(store, validator, clock, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	require.NoError(t, err)
-	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
-	ref := store.publish(t, policyregistry.ServingProposals, proposal)
+	proposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	ref := store.publishArtifact(t, policyregistry.ServingProposal, proposal)
 
 	activated, err := controller.Activate(context.Background(), ref, "workflow")
 	require.NoError(t, err)
@@ -631,8 +722,8 @@ func TestServingControllerCommitsTheSingleTransitionBuiltBeforeValidation(t *tes
 		moved.Generation++
 		store.states[set.Target] = moved
 	}
-	next := fixtureProposal(t, activated.Snapshot, set, servingEpoch)
-	nextRef := store.publish(t, policyregistry.ServingProposals, next)
+	next := storedProposal(t, store, activated.Snapshot, set, servingEpoch)
+	nextRef := store.publishArtifact(t, policyregistry.ServingProposal, next)
 	_, err = controller.Activate(context.Background(), nextRef, "workflow")
 	require.ErrorIs(t, err, policyregistry.ErrConflict)
 	require.Equal(t, 2, clockCalls)
@@ -643,8 +734,8 @@ func TestServingControllerCommitsTheSingleTransitionBuiltBeforeValidation(t *tes
 func TestServingControllerFailsClosedOnRegistryAndCASFailure(t *testing.T) {
 	for _, failRead := range []bool{true, false} {
 		store, controller, set := controllerFixture(t)
-		proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
-		ref := store.publish(t, policyregistry.ServingProposals, proposal)
+		proposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+		ref := store.publishArtifact(t, policyregistry.ServingProposal, proposal)
 		failure := errors.New("storage unavailable")
 		if failRead {
 			store.readErr = failure
@@ -667,8 +758,8 @@ func TestServingControllerRejectsUnverifiedProposalEvidence(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			store, controller, set := controllerFixture(t)
-			proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
-			ref := store.publish(t, policyregistry.ServingProposals, proposal)
+			proposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+			ref := store.publishArtifact(t, policyregistry.ServingProposal, proposal)
 			delete(store.artifacts, proposal.Evidence[0])
 			if test.payload != nil {
 				store.artifacts[proposal.Evidence[0]] = test.payload
@@ -688,8 +779,8 @@ func TestServingControllerRejectsAttestedCodeMismatch(t *testing.T) {
 	release.RouterImageDigest = "sha256:" + strings.Repeat("9", 64)
 	set.Default.Release = store.publish(t, policyregistry.ServingReleases, release)
 	store.publish(t, policyregistry.ServingSelectionSets, set)
-	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
-	ref := store.publish(t, policyregistry.ServingProposals, proposal)
+	proposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	ref := store.publishArtifact(t, policyregistry.ServingProposal, proposal)
 	_, err := controller.Activate(context.Background(), ref, "workflow")
 	require.ErrorContains(t, err, "binding differs")
 	assert.Empty(t, store.states)
@@ -724,9 +815,9 @@ func TestProfileVersionAdvancePreservesOtherCustomerAndDefault(t *testing.T) {
 	base := *store.object(t, policyregistry.ServingReleases, initialSet.Default.Release).(*policyregistry.ServingRelease)
 	initialSet.Profiles[profileKeyOne] = registerProfileFixture(t, store, initialSet.Default, profileKeyOne, base.Policy)
 	initialSet.Profiles[profileKeyTwo] = registerProfileFixture(t, store, initialSet.Default, profileKeyTwo, base.Policy)
-	initialSetRef := store.publish(t, policyregistry.ServingSelectionSets, initialSet)
-	initialProposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
-	initial, err := controller.Activate(context.Background(), store.publish(t, policyregistry.ServingProposals, initialProposal), "workflow")
+	store.publish(t, policyregistry.ServingSelectionSets, initialSet)
+	initialProposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, initialSet, servingEpoch)
+	initial, err := controller.Activate(context.Background(), store.publishArtifact(t, policyregistry.ServingProposal, initialProposal), "workflow")
 	require.NoError(t, err)
 	policyRef := policyregistry.ObjectRef{URI: base.Policy.URI, SHA256: base.Policy.SHA256, Generation: base.Policy.Generation}
 	policyBytes, err := rosterdata.CanonicalBytes(store.policies[policyRef])
@@ -743,38 +834,39 @@ func TestProfileVersionAdvancePreservesOtherCustomerAndDefault(t *testing.T) {
 	updatedSet := initialSet
 	updatedSet.Profiles = maps.Clone(initialSet.Profiles)
 	updatedSet.Profiles[profileKeyOne] = registerProfileFixture(t, store, initialSet.Default, profileKeyOne, changedPolicyObject)
-	updatedSetRef := store.publish(t, policyregistry.ServingSelectionSets, updatedSet)
-	proposal := fixtureProposal(t, initial.Snapshot, updatedSet, servingEpoch)
+	store.publish(t, policyregistry.ServingSelectionSets, updatedSet)
+	proposal := storedProposal(t, store, initial.Snapshot, updatedSet, servingEpoch)
 	proposal.Scope = policyregistry.ChangeProfile
 	proposal.ProfileKey = profileKeyOne
-	proposal.SourceRelease = updatedSet.Profiles[profileKeyOne].Release
-	updated, err := controller.Activate(context.Background(), store.publish(t, policyregistry.ServingProposals, proposal), "workflow")
+	proposal.SourceCandidate = foldCandidate(t, store, updatedSet.Profiles[profileKeyOne].Release)
+	updated, err := controller.Activate(context.Background(), store.publishArtifact(t, policyregistry.ServingProposal, proposal), "workflow")
 	require.NoError(t, err)
 	assert.Equal(t, initialSet.Default, updatedSet.Default)
 	assert.Equal(t, initialSet.Profiles[profileKeyTwo], updatedSet.Profiles[profileKeyTwo])
 	assert.NotEqual(t, initialSet.Profiles[profileKeyOne].Release, updatedSet.Profiles[profileKeyOne].Release)
-	sets := map[string]policyregistry.SelectionSetView{initialSetRef.SHA256: initialSet.View(), updatedSetRef.SHA256: updatedSet.View()}
+	sets := storedViews(t, store, initial.Activation.SelectionSet, updated.Activation.SelectionSet)
+	initialView, updatedView := sets[initial.Activation.SelectionSet.SHA256], sets[updated.Activation.SelectionSet.SHA256]
 	projection := policyregistry.AdmissionProjection{Target: policyregistry.TargetStable, ProfileKey: profileKeyOne, AssignmentGeneration: 1}
 	previous, err := policyregistry.SelectSessionRelease(nil, projection, initial.Snapshot, sets, testRegistryRoot, servingEpoch)
 	require.NoError(t, err)
 	retained, err := policyregistry.SelectSessionRelease(&previous, projection, updated.Snapshot, sets, testRegistryRoot, servingEpoch.Add(time.Hour))
 	require.NoError(t, err)
-	assert.Equal(t, initialSet.Profiles[profileKeyOne], retained.Selection)
+	assert.Equal(t, initialView.Profiles[profileKeyOne], retained.Selection)
 	newConversation, err := policyregistry.SelectSessionRelease(nil, projection, updated.Snapshot, sets, testRegistryRoot, servingEpoch.Add(time.Hour))
 	require.NoError(t, err)
-	assert.Equal(t, updatedSet.Profiles[profileKeyOne], newConversation.Selection)
+	assert.Equal(t, updatedView.Profiles[profileKeyOne], newConversation.Selection)
 	delete(updatedSet.Profiles, profileKeyTwo)
 	store.publish(t, policyregistry.ServingSelectionSets, updatedSet)
-	invalid := fixtureProposal(t, updated.Snapshot, updatedSet, servingEpoch)
-	invalid.Scope, invalid.ProfileKey, invalid.SourceRelease = policyregistry.ChangeProfile, profileKeyOne, proposal.SourceRelease
+	invalid := storedProposal(t, store, updated.Snapshot, updatedSet, servingEpoch)
+	invalid.Scope, invalid.ProfileKey, invalid.SourceCandidate = policyregistry.ChangeProfile, profileKeyOne, proposal.SourceCandidate
 	require.ErrorContains(t, controller.ValidateProposal(context.Background(), invalid), "cannot be removed")
 }
 
 func TestConcurrentServingActivationsHaveOneCASWinner(t *testing.T) {
 	store, _, set := controllerFixture(t)
-	first := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
-	second := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
-	refs := []policyregistry.ObjectRef{store.publish(t, policyregistry.ServingProposals, first), store.publish(t, policyregistry.ServingProposals, second)}
+	first := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	second := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	refs := []policyregistry.ObjectRef{store.publishArtifact(t, policyregistry.ServingProposal, first), store.publishArtifact(t, policyregistry.ServingProposal, second)}
 	ready := make(chan struct{}, 2)
 	releaseValidation := make(chan struct{})
 	validator := preparedValidator(func(ctx context.Context, _ policyregistry.PreparedSelection) error {
