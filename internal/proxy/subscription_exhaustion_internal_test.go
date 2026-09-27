@@ -51,7 +51,7 @@ func TestResolveAndInjectCredentials_SuppressedSubscriptionFallsThroughToBYOK(t 
 }
 
 func TestResolveAndInjectCredentials_SuppressedSubscriptionFallsThroughToDeployment(t *testing.T) {
-	// No BYOK, dedicated subscription header present, subscription suppressed:
+	// No BYOK, subscription credential present, subscription suppressed:
 	// resolution resolves to NO credential, so the Anthropic provider client uses
 	// its own deployment key (the Weave key).
 	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, exhaustedSubToken)

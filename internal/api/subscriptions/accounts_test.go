@@ -47,7 +47,8 @@ type recorder struct {
 	events []auth.SubscriptionConnectedEvent
 }
 
-func (*recorder) APIKeyFirstUsed(auth.APIKeyFirstUsedEvent) {}
+func (*recorder) APIKeyFirstUsed(auth.APIKeyFirstUsedEvent)   {}
+func (*recorder) HarnessLifecycle(auth.HarnessLifecycleEvent) {}
 func (r *recorder) SubscriptionConnected(event auth.SubscriptionConnectedEvent) {
 	r.events = append(r.events, event)
 }

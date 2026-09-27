@@ -146,8 +146,10 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	// Ahead of the org billing gates: included turns skip them, while exhausted
 	// turns continue into the same organization balance and spend-limit path.
 	var subscriberAllowanceMiddleware []gin.HandlerFunc
+	var subscriberProductScopeMiddleware []gin.HandlerFunc
 	if features.SubscriberAllowance != nil {
 		subscriberAllowanceMiddleware = []gin.HandlerFunc{middleware.WithSubscriberAllowance(features.SubscriberAllowance)}
+		subscriberProductScopeMiddleware = []gin.HandlerFunc{middleware.WithSubscriberProductScope(features.SubscriberAllowance)}
 	}
 	var servingAdmissionMiddleware []gin.HandlerFunc
 	if features.ServingAdmission != nil {
@@ -230,10 +232,12 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	}
 
 	// /validate is a token-validity probe used by clients (not the dashboard), so it stays mounted in both modes.
+	// /v1/client-events is the harness CLI's off/on/uninstall report and rides the same key auth.
 	adminAuthed := engine.Group("", middleware.WithTimeout(validateTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn))
 	adminAuthed.POST("/v1/router/threads", classifierapi.StartThreadHandler(proxySvc))
 	adminAuthed.Use(servingAdmissionMiddleware...)
 	adminAuthed.GET("/validate", admin.ValidateHandler)
+	adminAuthed.POST("/v1/client-events", admin.ClientEventHandler(authSvc))
 	if authSvc.SubscriptionAccountsEnabled() {
 		subscriptionGroup := engine.Group("/v1", middleware.WithTimeout(adminTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn))
 		subscriptionGroup.Use(servingAdmissionMiddleware...)
@@ -380,6 +384,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithAuth(authSvc, byokRequiresOptIn),
 	}
 	routeMiddleware = append(routeMiddleware, servingAdmissionMiddleware...)
+	routeMiddleware = append(routeMiddleware, subscriberProductScopeMiddleware...)
 	if billingSvc != nil {
 		routeMiddleware = append(routeMiddleware,
 			middleware.WithBillingSpan(),
@@ -409,6 +414,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithAuth(authSvc, byokRequiresOptIn),
 	}
 	previewMiddleware = append(previewMiddleware, servingAdmissionMiddleware...)
+	previewMiddleware = append(previewMiddleware, subscriberProductScopeMiddleware...)
 	previewMiddleware = append(previewMiddleware,
 		middleware.WithEmbedOnlyUserMessageOverride(),
 		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),

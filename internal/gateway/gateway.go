@@ -190,6 +190,8 @@ func inferenceSurface(r *http.Request) (requestcontext.ConversationSurface, bool
 		return "", false
 	}
 	switch r.URL.Path {
+	case "/v1/client-events":
+		return requestcontext.ConversationChat, true
 	case "/v1/messages", "/v1/messages/count_tokens", "/v1/route", "/v1/route/preview":
 		return requestcontext.ConversationAnthropic, true
 	case "/v1/chat/completions":

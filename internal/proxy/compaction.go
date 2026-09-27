@@ -3,156 +3,23 @@ package proxy
 import (
 	"context"
 	"errors"
-	"fmt"
-	"net/http"
 	"slices"
 
-	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
-	"weave-os/router/internal/router/turntype"
-	"weave-os/router/internal/translate"
 )
 
-// ErrContextWindowExceeded is returned after the full compaction cascade
-// (tool-result cleanup, summarization, trim) still can't fit any eligible
-// model's window. Maps to HTTP 413, distinct from ErrNoEligibleProvider.
+// ErrContextWindowExceeded is returned when a request cannot fit any eligible
+// model's window. The router never rewrites client history to make it fit:
+// the client receives its native prompt-too-long error and compacts itself.
 var ErrContextWindowExceeded = errors.New("proxy: request context exceeds every eligible model's window")
 
-const (
-	// DefaultCompactionTriggerPct is the fraction of the largest eligible
-	// model's window at which the cascade engages. Compacting below the window
-	// (not at overflow) keeps the pre-summary history small enough for a
-	// summarizer to ingest.
-	DefaultCompactionTriggerPct = 0.85
-	// compactionSummaryOutputReserve is headroom (summary output + margin) the
-	// selected summarizer model needs above the history it must ingest.
-	compactionSummaryOutputReserve = DefaultCompactionMaxTokens + 8_000
-)
-
-// compactionPolicy is the per-harness shape of the compaction cascade. Each
-// coding harness trims history differently (Claude Code auto-compacts against
-// the requested model's window; Codex and Gemini CLI send their transcripts
-// verbatim), so the router's proactive cascade is tuned per client rather
-// than one-size-fits-all.
-type compactionPolicy struct {
-	// RecentTurns is how many trailing non-system messages survive a
-	// summarization rewrite, so the model keeps immediate working context.
-	RecentTurns int
-	// ToolResultKeep is how many trailing tool results Tier-1 cleanup leaves
-	// intact; older ones are replaced with a placeholder.
-	ToolResultKeep int
-	// DeferToClient permits deferral when a supported client budget is known
-	// and the eligible pool can serve it; it never substitutes provider capacity.
-	DeferToClient bool
-}
-
-var (
-	defaultCompactionPolicy = compactionPolicy{RecentTurns: 12, ToolResultKeep: 5}
-
-	compactionPolicies = map[string]compactionPolicy{
-		ClientAppClaudeCode: {RecentTurns: 12, ToolResultKeep: 5, DeferToClient: true},
-		ClientAppCodex:      {RecentTurns: 12, ToolResultKeep: 5},
-		ClientAppGeminiCLI:  {RecentTurns: 12, ToolResultKeep: 5},
-	}
-)
-
-// compactionPolicyFor returns the harness policy for a canonical client_app
-// (ClientIdentity.ClientApp), or the default for unknown/absent clients.
-func compactionPolicyFor(clientApp string) compactionPolicy {
-	if p, ok := compactionPolicies[clientApp]; ok {
-		return p
-	}
-	return defaultCompactionPolicy
-}
-
-// CompactionSummarizer summarizes prior conversation with the structured
-// compaction prompt against an explicit model. Implemented by
-// *ProviderSummarizer; declared here so the Service depends on the behavior,
-// not the concrete type.
-type CompactionSummarizer interface {
-	SummarizeForCompaction(ctx context.Context, env *translate.RequestEnvelope, target CompactionTarget, scope router.Request, maxTokens int) (string, handover.Usage, error)
-	Provider() string
-}
-
-// compactionInput is the per-request context the cascade decides against.
-type compactionInput struct {
-	TurnType      turntype.TurnType
-	OutputReserve int
-	// MaxWindow is the largest effective context window among eligible
-	// routing models (maxEligibleContextWindow). Zero disables the cascade.
-	MaxWindow    int
-	ClientBudget router.ClientBudget
-	// ClientApp selects the harness policy (ClientIdentity.ClientApp).
-	ClientApp string
-	// PreferredSummarizer resolves the session's pinned Anthropic model when
-	// there is one worth reusing (compactionPreferredSummarizer). Invoked
-	// only once the cascade actually needs a summarizer, so the common
-	// below-threshold turn costs no extra pin-store read. Nil means none.
-	PreferredSummarizer func() string
-	Headers             http.Header
-	// Scope is the request's eligibility the summarizer plan must honor
-	// (enabled providers, excluded models, gateways, custom bindings).
-	Scope router.Request
-}
-
-// compactionResult records what the cascade did, for logging and billing.
-type compactionResult struct {
-	Applied            bool
-	ToolResultsCleared int
-	Summarized         bool
-	SummaryModel       string
-	SummaryUsage       handover.Usage
-	TrimmedToRecent    int
-	FinalEstimate      int
-	// DeferredToClient is true when the harness policy left compaction to the
-	// client because the routable pool can serve the window it believes in.
-	DeferredToClient bool
-}
-
-// maxEligibleContextWindow returns the largest effective context window among
-// available routing models that are not policy-excluded. It uses the smallest
-// enabled binding window for each model, matching the overflow pre-filter's
-// conservative dispatch check: compaction must not stop because a fallback
-// binding has more capacity than the binding that can actually serve first.
-// A signature-stripping (non-Anthropic) target gets sigSavings added to its
-// window, mirroring excludeContextOverflowModels. Zero when none are known
-// (availableModels unset), which disables compaction.
-func (s *Service) maxEligibleContextWindow(policyExcluded, enabledProviders map[string]struct{}, sigSavings int) int {
-	maxWindow := 0
-	for model := range s.availableModels {
-		if _, excluded := policyExcluded[model]; excluded {
-			continue
-		}
-		w := minContextWindowForModel(model, enabledProviders)
-		if sigSavings > 0 && modelStripsAnthropicSignatures(model) {
-			w += sigSavings
-		}
-		if w > maxWindow {
-			maxWindow = w
-		}
-	}
-	return maxWindow
-}
-
-// summarizerScope is the eligibility a router-initiated summary call inherits
-// from the request it serves: the same provider, model, gateway, and custom
-// binding limits the request's own routing candidates were filtered by.
-func (s *Service) summarizerScope(ctx context.Context, enabledProviders, excludedModels map[string]struct{}) router.Request {
-	return router.Request{
-		EnabledProviders: enabledProviders,
-		ExcludedModels:   excludedModels,
-		CustomBindings:   s.customBindingsForRequest(ctx),
-		GatewayProviders: s.gatewayProvidersForRequest(ctx),
-	}
-}
-
-// compactionModelOrDefault returns the configured Sonnet-class summarizer.
+// compactionModelOrDefault returns the configured Sonnet-class model for
+// Claude Code's own compaction turn.
 func (s *Service) compactionModelOrDefault() string {
 	if s.compactionModel != "" {
 		return s.compactionModel
@@ -162,7 +29,7 @@ func (s *Service) compactionModelOrDefault() string {
 
 // anthropicSummarizerEligible reports whether model is a reviewed member of
 // the precompaction-summary policy: an Anthropic-served, non-low-tier catalog
-// model the cascade may reuse as a warm-pin summarizer.
+// model Claude Code's own compaction turn may be pinned to.
 func anthropicSummarizerEligible(model string) bool {
 	spec, ok := policy.DefaultRegistry().Spec(policy.PurposePrecompactionSummary)
 	if !ok || !slices.Contains(spec.FixedCatalogModels, model) {
@@ -180,61 +47,6 @@ func anthropicSummarizerEligible(model string) bool {
 	return false
 }
 
-// compactionTargetFor types the cascade's chosen summarizer model by where the
-// choice came from, so the policy resolver can validate it as a session or
-// deployment override rather than an untyped string.
-func (s *Service) compactionTargetFor(model, preferred string) CompactionTarget {
-	selected := func(candidate string) bool { return candidate == model }
-	switch {
-	case model != "" && catalog.LatestInFamily(preferred, selected) == model:
-		return CompactionTarget{CatalogID: model, Source: policy.OverrideSourceSession}
-	case model != "" && catalog.LatestInFamily(s.compactionModelOrDefault(), selected) == model:
-		return CompactionTarget{CatalogID: model, Source: policy.OverrideSourceDeployment}
-	default:
-		return CompactionTarget{CatalogID: model}
-	}
-}
-
-// compactionSummarizerCandidates prefers the session's Anthropic family,
-// followed by the configured default and large-window family.
-func (s *Service) compactionSummarizerCandidates(preferred string) []string {
-	out := make([]string, 0, 3)
-	seen := map[string]struct{}{}
-	add := func(m string) {
-		if m == "" {
-			return
-		}
-		if _, dup := seen[m]; dup {
-			return
-		}
-		seen[m] = struct{}{}
-		out = append(out, m)
-	}
-	add(preferred)
-	add(s.compactionModelOrDefault())
-	add(policy.PrecompactionLargeWindowModel)
-	return out
-}
-
-// selectCompactionSummarizer returns the first candidate summarizer model
-// whose context window can ingest historyTokens plus summary headroom, or ""
-// when none can (caller falls back to trimming).
-func (s *Service) selectCompactionSummarizer(historyTokens int, preferred string, excluded map[string]struct{}) string {
-	need := historyTokens + compactionSummaryOutputReserve
-	eligible := func(model string) bool {
-		if _, blocked := excluded[model]; blocked {
-			return false
-		}
-		return anthropicSummarizerEligible(model) && catalog.ContextWindowFor(model) >= need
-	}
-	for _, m := range s.compactionSummarizerCandidates(preferred) {
-		if latest := catalog.LatestInFamily(m, eligible); latest != "" {
-			return latest
-		}
-	}
-	return ""
-}
-
 // compactionPreferredSummarizer returns the session's active pinned model
 // when it is served by Anthropic directly — the same model that has been
 // running the conversation, so its prompt cache is warm for the summary call.
@@ -248,182 +60,6 @@ func (s *Service) compactionPreferredSummarizer(ctx context.Context, sessionKey 
 		return ""
 	}
 	return pin.Model
-}
-
-// clientWouldCompact defers only when the pool can serve the harness default.
-// A private lower override can compact sooner; unknown harnesses never borrow a provider window.
-func clientWouldCompact(pol compactionPolicy, budget router.ClientBudget, maxWindow int) bool {
-	return pol.DeferToClient && budget.Evidence == router.ClientBudgetHarnessDefault &&
-		budget.DefaultCompactThreshold > 0 && budget.DefaultCompactThreshold <= maxWindow
-}
-
-// maybeCompact runs the compaction cascade when needed ≥ compactionTriggerPct
-// of in.MaxWindow: (1) clear old tool results, (2) summarize with a
-// window-aware model, (3) progressive trim. Mutates env in place — caller MUST
-// recompute estimates when res.Applied is true. Returns
-// ErrContextWindowExceeded if the history overflows even after all tiers;
-// no-ops when pct is zero/unset, below threshold, the turn is hard-pinned
-// (Claude Code's own compaction turn must not be rewritten, and
-// probe/title-gen turns bypass the scorer), the turn is a classifier grading
-// a transcript it carries as payload, or the harness policy defers to the
-// client's own compaction.
-func (s *Service) maybeCompact(ctx context.Context, env *translate.RequestEnvelope, in compactionInput) (compactionResult, error) {
-	// The classifier requires the exact causal prefix. Compaction must never
-	// silently replace the context from which its counters and digests derive.
-	if router.StrategyFromContext(ctx) == router.StrategyLLMClassifier {
-		return compactionResult{}, nil
-	}
-	log := observability.FromContext(ctx)
-	var res compactionResult
-	if s.compactionTriggerPct <= 0 || in.MaxWindow <= 0 || env == nil || s.isHardPinnedTurn(ctx, in.TurnType) || isUnpinnedScoredTurn(in.TurnType) {
-		return res, nil
-	}
-	pol := compactionPolicyFor(in.ClientApp)
-
-	needed := func() int { return env.ContextOverflowTokenEstimate() + in.OutputReserve }
-	fits := func() bool { return needed() <= in.MaxWindow }
-	trigger := int(float64(in.MaxWindow) * s.compactionTriggerPct)
-	if needed() < trigger {
-		return res, nil
-	}
-	if fits() && clientWouldCompact(pol, in.ClientBudget, in.MaxWindow) {
-		res.DeferredToClient = true
-		log.Info("Compaction deferred to client harness",
-			"client_app", in.ClientApp,
-			"needed", needed(),
-			"max_window", in.MaxWindow,
-			"client_default_window", in.ClientBudget.DefaultWindow,
-			"client_budget_evidence", in.ClientBudget.Evidence,
-		)
-		return res, nil
-	}
-	log.Info("Compaction cascade engaged",
-		"client_app", in.ClientApp,
-		"needed", needed(),
-		"trigger", trigger,
-		"max_window", in.MaxWindow,
-	)
-
-	// Tier 1: clear stale tool results (cheap, local, no model call).
-	if n := env.ClearOldToolResults(pol.ToolResultKeep); n > 0 {
-		res.Applied = true
-		res.ToolResultsCleared = n
-		log.Info("Compaction Tier-1: cleared old tool results", "cleared", n, "needed_after", needed())
-	}
-	// Tier-1 alone is enough only if it brought the request back under the
-	// trigger; merely fitting the window is not — the point of triggering
-	// below the window is to summarize while a summarizer can still ingest
-	// the history.
-	if needed() < trigger {
-		res.FinalEstimate = needed()
-		return res, nil
-	}
-
-	// Tier 3: structured summarization with a window-aware model.
-	// Authoritative-policy turns skip LLM summarization; deterministic cleanup and rescue trimming still run.
-	if s.compactionSummarizer != nil && !s.authoritativePerTurnSelection(ctx) {
-		preferred := ""
-		if in.PreferredSummarizer != nil {
-			preferred = in.PreferredSummarizer()
-		}
-		if summary, usage, model, ok := s.runCompactionSummary(ctx, env, preferred, in.Scope, in.Headers); ok {
-			// The summary is billed regardless; a rewrite that leaves a
-			// fitting request no longer fitting is discarded rather than
-			// letting rescue trimming drop context that was already servable.
-			fitBefore, before := fits(), env.Clone()
-			env.RewriteForCompaction(summary, pol.RecentTurns)
-			res.Applied = true
-			res.SummaryModel = model
-			res.SummaryUsage = usage
-			if fitBefore && !fits() {
-				*env = *before
-				log.Warn("Compaction Tier-3: summary rewrite would overflow; reverted", "summary_model", model, "needed_after", needed())
-			} else {
-				res.Summarized = true
-				log.Info("Compaction Tier-3: history summarized", "summary_model", model, "needed_after", needed())
-			}
-		}
-	}
-	if fits() {
-		res.FinalEstimate = needed()
-		return res, nil
-	}
-
-	// Rescue: trim recent turns progressively until the request fits.
-	for _, n := range []int{pol.RecentTurns, 6, 3, 1} {
-		if env.TrimLastNMessages(n) > 0 {
-			res.Applied = true
-			res.TrimmedToRecent = n
-		}
-		if fits() {
-			res.FinalEstimate = needed()
-			log.Info("Compaction rescue: trimmed to recent turns", "kept_recent", n, "needed_after", needed())
-			return res, nil
-		}
-	}
-
-	// Floor: even the last user turn overflows the largest window.
-	res.FinalEstimate = needed()
-	return res, fmt.Errorf("context ~%d tokens over largest window %d: %w", res.FinalEstimate, in.MaxWindow, ErrContextWindowExceeded)
-}
-
-// billCompactionSummary debits the compaction summary call as its own ledger
-// row and records its session-tagged telemetry row (mirrors the
-// switch-handover summary billing). No-ops when billing is unwired or the
-// usage carries no tokens.
-func (s *Service) billCompactionSummary(ctx context.Context, requestID, externalID string, usage handover.Usage) {
-	s.billAuxiliaryInference(ctx, requestID, auxSuffixPrecompactionSummary, externalID, usage)
-}
-
-// runCompactionSummary picks a window-aware summarizer model and dispatches the
-// structured summary call, honoring the tenant-boundary credential rules used
-// by the switch-handover path. Returns ok=false (and logs) when no summarizer
-// fits the history, the tenant boundary forbids the call, or the call fails —
-// in every such case the caller falls through to trimming.
-func (s *Service) runCompactionSummary(ctx context.Context, env *translate.RequestEnvelope, preferred string, scope router.Request, reqHeaders http.Header) (string, handover.Usage, string, bool) {
-	log := observability.FromContext(ctx)
-
-	excluded := mergeExcludedModels(s.excludedModelsForRequest(ctx), s.globalAutomaticExcludedModels(ctx))
-	// Auxiliary models need not belong to the routing pool whose allowlist was desugared.
-	if allowed := allowedModelsForRequest(ctx); allowed != nil && s.excludedModelsOverride == nil {
-		if excluded == nil {
-			excluded = make(map[string]struct{})
-		}
-		for _, candidate := range catalog.Models {
-			if _, permitted := allowed[candidate.ID]; !permitted {
-				excluded[candidate.ID] = struct{}{}
-			}
-		}
-	}
-	model := s.selectCompactionSummarizer(env.ContextOverflowTokenEstimate(), preferred, excluded)
-	if model == "" {
-		log.Info("Compaction Tier-3 skipped: no eligible summarizer fits history", "history", env.ContextOverflowTokenEstimate())
-		return "", handover.Usage{}, "", false
-	}
-
-	sumProvider := s.compactionSummarizer.Provider()
-	sumCreds := resolveSummarizerCreds(ctx, sumProvider, reqHeaders)
-	if sumCreds == nil && s.requestUsesNonDeploymentCreds(ctx, reqHeaders) {
-		log.Info("Compaction Tier-3 skipped: would cross tenant boundary", "sum_provider", sumProvider)
-		return "", handover.Usage{}, "", false
-	}
-	summCtx := ctx
-	if sumCreds != nil {
-		summCtx = context.WithValue(ctx, CredentialsContextKey{}, sumCreds)
-	} else {
-		summCtx = clearCredentials(ctx)
-	}
-
-	summary, usage, err := s.compactionSummarizer.SummarizeForCompaction(summCtx, env, s.compactionTargetFor(model, preferred), scope, DefaultCompactionMaxTokens)
-	if err != nil {
-		log.Warn("Compaction summarizer failed; falling back to trim", "err", err, "model", model)
-		return "", handover.Usage{}, "", false
-	}
-	if summary == "" {
-		log.Warn("Compaction summarizer returned empty; falling back to trim", "model", model)
-		return "", handover.Usage{}, "", false
-	}
-	return summary, usage, model, true
 }
 
 // compactionHardPin picks the model for a harness's own compaction turn: the

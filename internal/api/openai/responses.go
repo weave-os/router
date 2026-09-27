@@ -55,7 +55,7 @@ func ResponsesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc
 				if cls.RetryAfter {
 					c.Header("Retry-After", "1")
 				}
-				writeOpenAIError(c, cls.Status, openAIErrorType(cls.Kind), cls.Message)
+				writeOpenAIErrorWithCode(c, cls.Status, openAIErrorType(cls.Kind), cls.Message, proxy.OpenAIErrorCode(cls.Kind))
 				return
 			}
 			log.Error("Proxy failed", "err", err)

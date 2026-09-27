@@ -92,14 +92,39 @@ func codexFeedbackToolOutput(output gjson.Result) bool {
 }
 
 func codexFeedbackSkillInstructions(content gjson.Result) bool {
+	return codexDeveloperMarkerContent(content, "<skill>", "</skill>")
+}
+
+// Codex records a /model switch as a retained developer message wrapped in
+// <model_switch> markers; the model it launched with leaves no such trace.
+func codexModelSwitchPresent(input gjson.Result) bool {
+	if !input.IsArray() {
+		return false
+	}
+	for _, item := range input.Array() {
+		itemType := item.Get("type").Str
+		if itemType != "message" && itemType != "" {
+			continue
+		}
+		if item.Get("role").Str != "developer" {
+			continue
+		}
+		if codexDeveloperMarkerContent(item.Get("content"), "<model_switch>", "</model_switch>") {
+			return true
+		}
+	}
+	return false
+}
+
+func codexDeveloperMarkerContent(content gjson.Result, open, close string) bool {
 	if content.Type == gjson.String {
-		return strings.Contains(content.Str, "<skill>") && strings.Contains(content.Str, "</skill>")
+		return strings.Contains(content.Str, open) && strings.Contains(content.Str, close)
 	}
 	if !content.IsArray() {
 		return false
 	}
 	for _, part := range content.Array() {
-		if part.Get("type").Str == "input_text" && codexFeedbackSkillInstructions(part.Get("text")) {
+		if part.Get("type").Str == "input_text" && codexDeveloperMarkerContent(part.Get("text"), open, close) {
 			return true
 		}
 	}
@@ -173,6 +198,7 @@ func convertPortableCodexResponses(body []byte) (ResponsesConversion, error) {
 
 	converter.collectDeclaredTools(root)
 	converter.result.CodexFeedbackSkill = codexFeedbackSkillInvocation(root.Get("input"))
+	converter.result.CodexModelSwitch = codexModelSwitchPresent(root.Get("input"))
 	messages := converter.convertInput(root.Get("input"))
 	var systemMessages []map[string]any
 	if instructions := root.Get("instructions").Str; instructions != "" {

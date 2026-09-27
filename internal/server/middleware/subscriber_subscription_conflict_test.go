@@ -2,7 +2,6 @@ package middleware_test
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -20,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestWithSubscriberAllowance_MaxRejectsLinkedSubscriptionWithoutSpending(t *testing.T) {
+func TestWithSubscriberAllowance_MaxIgnoresLinkedSubscriptionAndHoldsAllowance(t *testing.T) {
 	for _, route := range []struct {
 		path     string
 		provider auth.SubscriptionProvider
@@ -31,59 +30,46 @@ func TestWithSubscriberAllowance_MaxRejectsLinkedSubscriptionWithoutSpending(t *
 		{"/v1/responses", auth.SubscriptionProviderCodex, "eyJhbGciOi.test.signature"},
 	} {
 		for _, enrolled := range []bool{false, true} {
-			for _, exhausted := range []bool{false, true} {
-				t.Run(fmt.Sprintf("%s/enrolled=%t/exhausted=%t", route.path, enrolled, exhausted), func(t *testing.T) {
-					gin.SetMode(gin.TestMode)
-					allowances := &stubAllowances{}
-					if exhausted {
-						allowances.billingConsumed = monthlyAllowance
-					}
-					allowanceSvc := entitlement.NewService(
-						&stubEntitlements{current: maxSubscriberEntitlement(), found: true}, allowances,
-					).WithClock(func() time.Time { return allowanceNow })
-					organizationBilling := &stubBillingRepo{balance: 5_000_000}
-					dispatched := false
-					engine := gin.New()
-					engine.Use(func(c *gin.Context) {
-						c.Set("router_api_key", subscriberAPIKey())
-						withInstallation(c, "org_subscription_conflict")
-					})
-					engine.Use(middleware.WithSubscriberAllowance(allowanceSvc))
-					engine.Use(middleware.WithBalanceCheck(billing.NewService(organizationBilling), billing.MinBalanceMicros))
-					engine.POST(route.path, func(c *gin.Context) {
-						dispatched = true
-						c.Status(http.StatusOK)
-					})
-
-					request := httptest.NewRequest(http.MethodPost, route.path, nil)
-					if enrolled {
-						request = request.WithContext(context.WithValue(request.Context(), proxy.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{route.provider: {}}))
-					} else {
-						request.Header.Set("Authorization", "Bearer "+route.bearer)
-						if route.provider == auth.SubscriptionProviderCodex {
-							request.Header.Set("ChatGPT-Account-ID", "test-account")
-						}
-					}
-					response := httptest.NewRecorder()
-					engine.ServeHTTP(response, request)
-
-					require.Equal(t, http.StatusForbidden, response.Code)
-					var conflictResponse struct {
-						Error   middleware.SubscriptionErrorCode `json:"error"`
-						Message string                           `json:"message"`
-					}
-					require.NoError(t, json.Unmarshal(response.Body.Bytes(), &conflictResponse))
-					assert.Equal(t, middleware.SubscriptionPlanConflict, conflictResponse.Error)
-					assert.Contains(t, conflictResponse.Message, "Max plan only supports open-source models")
-					assert.Contains(t, conflictResponse.Message, "Disable linked-subscription routing")
-					assert.Contains(t, conflictResponse.Message, "No included allowance or prepaid credits were used")
-					assert.Empty(t, response.Header().Get("Retry-After"))
-					assert.False(t, dispatched)
-					assert.Empty(t, allowances.held)
-					assert.Empty(t, allowances.released)
-					assert.Empty(t, organizationBilling.balanceOrgIDs)
+			t.Run(fmt.Sprintf("%s/enrolled=%t", route.path, enrolled), func(t *testing.T) {
+				gin.SetMode(gin.TestMode)
+				allowances := &stubAllowances{}
+				allowanceSvc := entitlement.NewService(
+					&stubEntitlements{current: maxSubscriberEntitlement(), found: true}, allowances,
+				).WithClock(func() time.Time { return allowanceNow })
+				organizationBilling := &stubBillingRepo{balance: 5_000_000}
+				var subscriptionOnly bool
+				dispatched := false
+				engine := gin.New()
+				engine.Use(func(c *gin.Context) {
+					c.Set("router_api_key", subscriberAPIKey())
+					withInstallation(c, "org_subscription_conflict")
 				})
-			}
+				engine.Use(middleware.WithSubscriberAllowance(allowanceSvc))
+				engine.Use(middleware.WithBalanceCheck(billing.NewService(organizationBilling), billing.MinBalanceMicros))
+				engine.POST(route.path, func(c *gin.Context) {
+					dispatched = true
+					subscriptionOnly = billing.SubscriptionOnlyFromContext(c.Request.Context())
+					c.Status(http.StatusOK)
+				})
+
+				request := httptest.NewRequest(http.MethodPost, route.path, nil)
+				if enrolled {
+					request = request.WithContext(context.WithValue(request.Context(), proxy.ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{route.provider: {}}))
+				} else {
+					request.Header.Set("Authorization", "Bearer "+route.bearer)
+					if route.provider == auth.SubscriptionProviderCodex {
+						request.Header.Set("ChatGPT-Account-ID", "test-account")
+					}
+				}
+				response := httptest.NewRecorder()
+				engine.ServeHTTP(response, request)
+
+				assert.Equal(t, http.StatusOK, response.Code)
+				assert.True(t, dispatched)
+				assert.False(t, subscriptionOnly)
+				require.Len(t, allowances.held, 1)
+				assert.Equal(t, []string{allowances.held[0].ActionID}, allowances.released)
+			})
 		}
 	}
 }

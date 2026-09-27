@@ -17,7 +17,7 @@ Router PRs [#884](https://github.com/weave-os/router/pull/884) and [#792](https:
 | OpenAI Responses | `openai_responses` | main inference | OpenAI conversion and dispatch branches in `proxy.Service` | Phase 8 |
 | Gemini Generate Content | `gemini_generate_content` | main inference | `proxy.Service.ProxyGeminiGenerateContent` | Phase 8 |
 | Switch handover summary | `handover_summary` | auxiliary inference | `proxy.ProviderSummarizer` | Phase 6 |
-| Proactive compaction summary | `precompaction_summary` | auxiliary inference | compaction cascade plus `proxy.ProviderSummarizer` | Phase 7 |
+| Proactive compaction summary | `precompaction_summary` | auxiliary inference | not invoked (router compaction removed); its reviewed catalog set gates the Claude Code compaction-turn pin | Phase 7 |
 | Post-trim compaction handover | `compaction_handover_summary` | auxiliary inference | `proxy.Service.runCompactionHandover` | Phase 7 |
 | Title generation | `title_generation` | auxiliary inference | turn-type hard pin | Phase 7 |
 | Classifier turn | `classifier` | main inference (scored, no session pin) | ingress surface purpose; `aux-classifier` policy retained but no longer dispatched | Phase 7 |
