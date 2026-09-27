@@ -3,10 +3,12 @@ package gateway_test
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -19,6 +21,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/gateway"
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/translate"
 )
 
@@ -209,6 +212,42 @@ func TestGatewayDoesNotDispatchOnAdmissionFailure(t *testing.T) {
 			assert.Equal(t, test.status, w.Code)
 		})
 	}
+	assert.Zero(t, calls.Load())
+}
+
+func TestGatewayServesCompiledCatalogWithoutCredential(t *testing.T) {
+	var calls atomic.Int32
+	worker := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls.Add(1) }))
+	defer worker.Close()
+	forwarder, _, _ := gatewayFixture(t, worker, auth.ErrInvalidToken, errors.New("admission must not run for the compiled catalog"))
+	for _, scope := range []string{"catalog", " Catalog "} {
+		w := httptest.NewRecorder()
+		forwarder.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/router/models?scope="+url.QueryEscape(scope), nil))
+		require.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "application/json", w.Header().Get("Content-Type"))
+		var response catalog.ModelListingResponse
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
+		assert.Equal(t, catalog.Listing(), response.Models)
+		assert.NotEmpty(t, response.Models)
+	}
+	assert.Zero(t, calls.Load())
+}
+
+func TestGatewayKeepsLaneScopedDiscoveryBehindAdmission(t *testing.T) {
+	var calls atomic.Int32
+	worker := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls.Add(1) }))
+	defer worker.Close()
+	forwarder, _, _ := gatewayFixture(t, worker, auth.ErrInvalidToken, nil)
+	for _, path := range []string{"/v1/router/models", "/v1/router/models?strategy=hmm", "/v1/router/models?scope=deployed", "/v1/router/policies", "/v1/router/hmm-roster", "/v1/router/routing-distribution"} {
+		t.Run(path, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			forwarder.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path, nil))
+			assert.Equal(t, http.StatusUnauthorized, w.Code)
+		})
+	}
+	w := httptest.NewRecorder()
+	forwarder.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/v1/router/models?scope=catalog", strings.NewReader(`{}`)))
+	assert.Equal(t, http.StatusNotFound, w.Code)
 	assert.Zero(t, calls.Load())
 }
 

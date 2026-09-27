@@ -20,6 +20,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/translate"
 )
 
@@ -66,6 +67,10 @@ func NewHandler(credentials CredentialVerifier, admissions policyregistry.Servin
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	policyregistry.StripServingHeaders(r.Header)
 	if h.serveProductSurface(w, r) {
+		return
+	}
+	if catalogListingRequest(r) {
+		writeCatalogListing(w)
 		return
 	}
 	surface, ok := inferenceSurface(r)
@@ -171,6 +176,22 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, surface reques
 		},
 	}
 	proxy.ServeHTTP(w, r)
+}
+
+// catalogListingRequest matches GET /v1/router/models?scope=catalog: the one
+// discovery read that is compile-time data rather than a projection of the
+// admitted lane, so it needs neither a routing credential nor a worker. Every
+// other /v1/router/* read stays behind admission because its answer depends
+// on which lane the caller would be routed to.
+func catalogListingRequest(r *http.Request) bool {
+	return r.Method == http.MethodGet && r.URL.Path == "/v1/router/models" && strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("scope")), catalog.ScopeCatalog)
+}
+
+func writeCatalogListing(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	// The listing is fixed primitives; a write failure means the client disconnected.
+	_ = json.NewEncoder(w).Encode(catalog.ModelListingResponse{Models: catalog.Listing()})
 }
 
 func inferenceSurface(r *http.Request) (requestcontext.ConversationSurface, bool) {

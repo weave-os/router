@@ -27,13 +27,7 @@ type ExclusionOverrideSource interface {
 	ExcludedModelsOverride() []string
 }
 
-type deployedModelDTO struct {
-	Model    string `json:"model"`
-	Provider string `json:"provider"`
-	// FastMode is true when the catalog has a fast tier for the model, so the
-	// dashboard only offers the fast-mode toggle where it can take effect.
-	FastMode bool `json:"fast_mode"`
-}
+type deployedModelDTO = catalog.ModelListing
 
 type excludedModelsResponse struct {
 	Available         []deployedModelDTO `json:"available"`
@@ -58,12 +52,7 @@ func entriesToDTO(entries []cluster.DeployedEntry) []deployedModelDTO {
 	for _, e := range entries {
 		out = append(out, deployedModelDTO{Model: e.Model, Provider: e.Provider, FastMode: catalog.SupportsFastMode(e.Model)})
 	}
-	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Provider != out[j].Provider {
-			return out[i].Provider < out[j].Provider
-		}
-		return out[i].Model < out[j].Model
-	})
+	catalog.SortListing(out)
 	return out
 }
 
