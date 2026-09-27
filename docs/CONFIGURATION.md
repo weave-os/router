@@ -12,6 +12,7 @@ This page is the exhaustive reference; the [README](../README.md) has the
   - [Workload identity federation](#workload-identity-federation)
 - [Postgres](#postgres)
 - [Server](#server)
+- [Managed serving (`ROUTER_SERVING_*`)](#managed-serving-router_serving_)
 - [Routing](#routing)
 - [Plan-aware subscription routing](#plan-aware-subscription-routing)
 - [Provider and model exclusions](#provider-and-model-exclusions)
@@ -398,6 +399,54 @@ Set `DATABASE_URL` directly, or compose it from the individual vars:
 | `ROUTER_ADMIN_PASSWORD`  | *(none)*     | Dashboard password. When unset, inference stays available but dashboard login and management endpoints return `admin_login_disabled`. |
 | `ROUTER_RESTRICT_UPSTREAM_EGRESS` | follows `ROUTER_DEPLOYMENT_MODE` | When true, provider adapters refuse to dial an upstream that resolves outside the public internet (loopback, private, link-local, CGNAT). Defaults to true in `managed` mode and false in `selfhosted`, where pointing a provider at an in-cluster or loopback gateway is normal. While on, provider adapters also ignore `HTTP_PROXY`/`HTTPS_PROXY`, since a proxied connection makes the destination unverifiable. |
 | `ROUTER_MODEL_DISCOVERY_PRIVATE_ORIGINS` | *(none)* | Comma-separated exact origins allowed to use private addresses for model discovery (for example, `https://gateway.internal:8443`). Discovery always blocks non-public destinations otherwise and always ignores ambient proxies, regardless of `ROUTER_RESTRICT_UPSTREAM_EGRESS`. Entries may contain only scheme, host, and port; paths, wildcards, and CIDRs are rejected at startup. |
+
+## Managed serving (`ROUTER_SERVING_*`)
+
+These variables apply only to Weave's managed deployment, where a `router-gateway`
+process admits a session and forwards it to a managed `router` worker revision that
+is pinned to immutable registry artifacts. Self-hosted deployments leave them unset.
+The control-plane semantics — candidates, selection sets, proposals, target state
+and the activation flow — are documented in
+[`SERVING_CONTROL.md`](SERVING_CONTROL.md); this table only records which binary
+reads each variable, where its value comes from, and what happens when it is absent.
+
+"Deploy script" means the WorkWeave release step
+(`.github/scripts/router-prepare-revisions.sh`) that stamps a new worker revision
+with the artifact references it must serve; "Terraform" means the service-level
+environment in `terraform/modules/environment/router_managed_serving.tf`, which is
+kept out of revision-specific stamping.
+
+| Variable | Read by | Source | Absent or invalid |
+| --- | --- | --- | --- |
+| `ROUTER_SERVING_ASSERTION_KEY` | Gateway and worker | Terraform (Secret Manager reference) | Gateway: boot fails. Worker: unset or whitespace-only keeps the worker on its existing managed/self-hosted path; a key shorter than 32 bytes fails boot rather than serving unsigned traffic. |
+| `ROUTER_SERVING_ENVIRONMENT` | Gateway | Terraform | Boot fails. Must be `prod` or `staging`. |
+| `ROUTER_SERVING_REGISTRY_URI` | Gateway and worker | Terraform (both services) and deploy script (worker) | Gateway: boot fails. Worker: falls back to `WEAVE_REGISTRY_URI`, then `gs://weave_ml/weave_registry`; set it explicitly. |
+| `ROUTER_SERVING_TARGET` | Worker | Deploy script and Terraform | Boot fails. Must name a known target (`staging`, `prod/stable`, `prod/weave-internal`). |
+| `ROUTER_SERVING_PROJECT` | Worker | Deploy script and Terraform | Boot fails. |
+| `ROUTER_SERVING_REGION` | Worker | Deploy script and Terraform | Boot fails. |
+| `ROUTER_SERVING_IMAGE_DIGEST` | Worker | Deploy script | Boot fails. Must be an exact image digest. |
+| `ROUTER_SERVING_REVISION` | Worker | Deploy script | Falls back to Cloud Run's `K_REVISION`; boot fails when both are empty. |
+| `ROUTER_SERVING_CONFIGURATION_URI` | Worker | Deploy script | Boot fails. Must be a credential-free `gs://` object inside the registry root. |
+| `ROUTER_SERVING_CONFIGURATION_SHA256` | Worker | Deploy script | Boot fails. |
+| `ROUTER_SERVING_CONFIGURATION_GENERATION` | Worker | Deploy script | Missing or non-numeric reads as `0`, which fails the positive-generation check at boot. |
+| `ROUTER_SERVING_SELECTION_SET_URI` | Worker | Deploy script | Boot fails. |
+| `ROUTER_SERVING_SELECTION_SET_SHA256` | Worker | Deploy script | Boot fails. |
+| `ROUTER_SERVING_SELECTION_SET_GENERATION` | Worker | Deploy script | Same as the configuration generation. |
+
+The three `ROUTER_SERVING_CONFIGURATION_*` and three
+`ROUTER_SERVING_SELECTION_SET_*` variables are each read as one `ObjectRef`
+(`{uri, sha256, generation}`), so a partially stamped triple is rejected rather
+than resolved loosely.
+
+With a nonempty `ROUTER_SERVING_ASSERTION_KEY`, managed worker boot is fail-closed:
+the worker validates its attested identity (target, project, region, revision,
+image digest, configuration reference) before mounting inference endpoints, and
+a failure stops boot rather than degrading to an unattested path. If the worker
+key is unset or whitespace-only, it skips managed-serving preparation and mounts
+inference endpoints without serving-admission checks, even when
+`ROUTER_DEPLOYMENT_MODE=managed`. The gateway validates its environment and signing
+key before it opens the registry, and `/readyz` stays fail-closed afterwards.
+Keep the signing key identical on gateway and workers of the same environment.
 
 ## Routing
 

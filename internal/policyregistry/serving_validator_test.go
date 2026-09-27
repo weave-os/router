@@ -74,12 +74,13 @@ func TestDestinationValidatorRequiresActualCompleteDestinationIdentity(t *testin
 
 func TestServingPreparationNeverActivatesAndRetryDoesNotRequireHealthyDestination(t *testing.T) {
 	store, _, set := controllerFixture(t)
-	prepared, err := policyregistry.ReadPreparedSelection(context.Background(), store, policyregistry.TargetStable, "", set.Default)
+	foldedSet, foldedRef := foldSelectionSet(t, store, set)
+	prepared, err := policyregistry.ReadPreparedSelection(context.Background(), store, policyregistry.TargetStable, "", foldedSet.View(foldedRef).Default)
 	require.NoError(t, err)
 	controller, err := policyregistry.NewServingController(store, policyregistry.DestinationValidator{Endpoints: validatedEndpoints(prepared)}, func() time.Time { return servingEpoch }, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	require.NoError(t, err)
-	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
-	ref := store.publish(t, policyregistry.ServingProposals, proposal)
+	proposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	ref := store.publishArtifact(t, policyregistry.ServingProposal, proposal)
 	preparation, err := controller.Prepare(context.Background(), ref)
 	require.NoError(t, err)
 	require.True(t, preparation.Prepared)
@@ -88,7 +89,7 @@ func TestServingPreparationNeverActivatesAndRetryDoesNotRequireHealthyDestinatio
 	activation, err := controller.Activate(context.Background(), ref, "workflow")
 	require.NoError(t, err)
 	proposal.RequestID = uuid.NewString()
-	stale := store.publish(t, policyregistry.ServingProposals, proposal)
+	stale := store.publishArtifact(t, policyregistry.ServingProposal, proposal)
 	_, err = controller.Prepare(context.Background(), stale)
 	require.ErrorIs(t, err, policyregistry.ErrConflict)
 	unavailable, err := policyregistry.NewServingController(store, policyregistry.DestinationValidator{Endpoints: staticDestinationEndpoints{err: errors.New("offline")}}, func() time.Time { return servingEpoch }, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -108,8 +109,8 @@ func TestServingControllerRejectsMissingOrTamperedAuditArtifactsBeforeActivation
 		for _, tamper := range []bool{false, true} {
 			t.Run(label+map[bool]string{false: "/missing", true: "/tampered"}[tamper], func(t *testing.T) {
 				store, controller, set := controllerFixture(t)
-				proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
-				ref := store.publish(t, policyregistry.ServingProposals, proposal)
+				proposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+				ref := store.publishArtifact(t, policyregistry.ServingProposal, proposal)
 				if tamper {
 					store.artifacts[artifactRef(label)] = []byte("tampered")
 				} else {
@@ -127,15 +128,15 @@ func TestServingControllerRejectsMissingOrTamperedAuditArtifactsBeforeActivation
 
 func TestServingControllerVerifiesSourceBuildEvidenceForDerivedCompositions(t *testing.T) {
 	store, controller, set := controllerFixture(t)
-	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
-	initial, err := controller.Activate(context.Background(), store.publish(t, policyregistry.ServingProposals, proposal), "workflow")
+	proposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	initial, err := controller.Activate(context.Background(), store.publishArtifact(t, policyregistry.ServingProposal, proposal), "workflow")
 	require.NoError(t, err)
 	source := *store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease)
 	source.Provenance.BuildAttestation = artifactRef("unpublished-source-attestation")
-	proposal = fixtureProposal(t, initial.Snapshot, set, servingEpoch)
+	proposal = storedProposal(t, store, initial.Snapshot, set, servingEpoch)
 	proposal.Scope = policyregistry.ChangeRouter
-	proposal.SourceRelease = store.publish(t, policyregistry.ServingReleases, source)
-	_, err = controller.Activate(context.Background(), store.publish(t, policyregistry.ServingProposals, proposal), "workflow")
+	proposal.SourceCandidate = foldCandidate(t, store, store.publish(t, policyregistry.ServingReleases, source))
+	_, err = controller.Activate(context.Background(), store.publishArtifact(t, policyregistry.ServingProposal, proposal), "workflow")
 	require.ErrorContains(t, err, "source build attestation")
 	require.Equal(t, initial.Snapshot.Generation, store.states[set.Target].Generation)
 }

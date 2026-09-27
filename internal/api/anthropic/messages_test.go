@@ -80,10 +80,12 @@ func (f *fakeRouter) Route(_ context.Context, req router.Request) (router.Decisi
 // fakeProviderClient is a minimal providers.Client double: Proxy/Passthrough
 // return whatever the test wants, optionally writing a response first.
 type fakeProviderClient struct {
-	proxyErr       error
-	proxyStatus    int
-	proxyBody      string
-	passthroughErr error
+	proxyErr               error
+	proxyStatus            int
+	proxyBody              string
+	flushProxyBody         bool
+	propagateProxyWriteErr bool
+	passthroughErr         error
 }
 
 func (f *fakeProviderClient) Proxy(_ context.Context, _ router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
@@ -95,7 +97,15 @@ func (f *fakeProviderClient) Proxy(_ context.Context, _ router.Decision, _ provi
 		status = http.StatusOK
 	}
 	w.WriteHeader(status)
-	_, _ = w.Write([]byte(f.proxyBody))
+	_, writeErr := w.Write([]byte(f.proxyBody))
+	if f.flushProxyBody {
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+	}
+	if f.propagateProxyWriteErr {
+		return writeErr
+	}
 	return nil
 }
 
@@ -285,6 +295,37 @@ func TestMessagesHandler_UpstreamStatusErrorPassesThroughStatus(t *testing.T) {
 	require.Equal(t, http.StatusTooManyRequests, rec.Code)
 	errObj := errorEnvelope(t, rec.Body.Bytes())
 	assert.Equal(t, "api_error", errObj["type"])
+}
+
+func TestMessagesHandler_CrossFormatOverflowReturnsNativeError(t *testing.T) {
+	const responsesOverflow = `event: response.created
+data: {"type":"response.created","response":{"id":"resp_1","status":"in_progress","output":[]}}
+
+event: error
+data: {"type":"error","error":{"type":"invalid_request_error","code":"context_length_exceeded","message":"Your input exceeds the context window of this model."}}
+
+event: response.failed
+data: {"type":"response.failed","response":{"id":"resp_1","status":"failed","error":{"code":"context_length_exceeded","message":"Your input exceeds the context window of this model."},"output":[]}}
+
+`
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%t", stream), func(t *testing.T) {
+			client := &fakeProviderClient{proxyStatus: http.StatusOK, proxyBody: responsesOverflow, flushProxyBody: true, propagateProxyWriteErr: true}
+			svc := proxy.NewService(
+				&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5-mini", Reason: "test"}},
+				map[string]providers.Client{providers.ProviderOpenAI: client},
+				nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5-mini", nil,
+			)
+			reqBody := fmt.Sprintf(`{"model":"gpt-5-mini","max_tokens":1024,"stream":%t,"messages":[{"role":"user","content":"hi"}]}`, stream)
+			rec := postMessages(messagesEngine(svc), []byte(reqBody))
+
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+			errObj := errorEnvelope(t, rec.Body.Bytes())
+			assert.Equal(t, "invalid_request_error", errObj["type"])
+			assert.Contains(t, errObj["message"], "prompt is too long")
+			assert.NotContains(t, rec.Body.String(), "upstream Responses request failed")
+		})
+	}
 }
 
 func TestMessagesHandler_UnknownErrorReturns502(t *testing.T) {
