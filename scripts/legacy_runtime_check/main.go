@@ -111,11 +111,16 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 		"OPENAI_BASE_URL=http://127.0.0.1:1",
 		"ROUTER_SEMANTIC_CACHE_ENABLED=false",
 		"GIN_MODE=release",
-		// These must stay unread while the assertion-key opt-in is absent.
-		"ROUTER_SERVING_REGISTRY_URI=invalid-disabled-registry",
-		"ROUTER_SERVING_CONFIGURATION_URI=invalid-disabled-configuration",
-		"ROUTER_SERVING_CONFIGURATION_GENERATION=invalid-disabled-generation",
-		"ROUTER_SERVING_TARGET=invalid-disabled-target",
+	}
+	if mode == server.DeploymentModeSelfHosted {
+		// These must stay unread while the assertion-key opt-in is absent. In
+		// managed mode they now require the key (cmd/router/serving_runtime.go).
+		command.Env = append(command.Env,
+			"ROUTER_SERVING_REGISTRY_URI=invalid-disabled-registry",
+			"ROUTER_SERVING_CONFIGURATION_URI=invalid-disabled-configuration",
+			"ROUTER_SERVING_CONFIGURATION_GENERATION=invalid-disabled-generation",
+			"ROUTER_SERVING_TARGET=invalid-disabled-target",
+		)
 	}
 	command.Stdout = logFile
 	command.Stderr = logFile

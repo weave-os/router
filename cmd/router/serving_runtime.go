@@ -15,10 +15,7 @@ import (
 	"weave-os/router/internal/server/middleware"
 )
 
-const (
-	envServingAssertionKey = "ROUTER_SERVING_ASSERTION_KEY"
-	envPolicyEnvironment   = "ROUTER_POLICY_ENVIRONMENT"
-)
+const envServingAssertionKey = "ROUTER_SERVING_ASSERTION_KEY"
 
 // managedServingEnvVars enumerates every ROUTER_SERVING_* variable the worker
 // reads besides the assertion key. Presence of any of them means the revision
@@ -42,10 +39,10 @@ func managedServingEnabled() bool {
 	return strings.TrimSpace(config.GetOr(envServingAssertionKey, "")) != ""
 }
 
-// validateManagedServingBoot rejects managed deployments that would mount
-// inference routes without an admitted policy source: a serving-stamped worker
-// whose assertion key is missing, or a managed worker with no policy source at
-// all. Self-hosted deployments never use managed serving and are unaffected.
+// validateManagedServingBoot rejects a managed revision stamped as a serving
+// worker whose assertion key is missing: without it the worker would mount
+// inference routes with no admission. Managed workers with no ROUTER_SERVING_*
+// stamping (legacy) and self-hosted deployments are unaffected.
 func validateManagedServingBoot(mode server.DeploymentMode, lookup func(string) string) error {
 	if mode != server.DeploymentModeManaged {
 		return nil
@@ -64,9 +61,6 @@ func validateManagedServingBoot(mode server.DeploymentMode, lookup func(string) 
 			"%s is empty while managed serving configuration is present (%s)",
 			envServingAssertionKey, strings.Join(stamped, ", "),
 		)
-	}
-	if strings.TrimSpace(lookup(envPolicyEnvironment)) == "" {
-		return fmt.Errorf("managed mode requires %s or %s; neither is set", envServingAssertionKey, envPolicyEnvironment)
 	}
 	return nil
 }

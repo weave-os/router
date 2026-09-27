@@ -61,12 +61,11 @@ func TestValidateManagedServingBoot(t *testing.T) {
 		},
 		{
 			name: "legacy managed worker with policy environment only", mode: server.DeploymentModeManaged,
-			env: map[string]string{envPolicyEnvironment: "prod"},
+			env: map[string]string{"ROUTER_POLICY_ENVIRONMENT": "prod"},
 		},
-		{
-			name: "managed worker with no policy source", mode: server.DeploymentModeManaged, env: nil,
-			wantContains: []string{envServingAssertionKey, envPolicyEnvironment},
-		},
+		// scripts/legacy_runtime_check boots this shape: an HMM-less managed
+		// worker where billing gates inference.
+		{name: "managed worker with no serving stamping", mode: server.DeploymentModeManaged, env: nil},
 		{name: "self-hosted with nothing set", mode: server.DeploymentModeSelfHosted, env: nil},
 		// Self-hosted never wires managed serving: main.go only builds the
 		// serving runtime when the assertion key is set, independent of mode.
