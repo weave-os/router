@@ -19,8 +19,11 @@ the OS temporary directory. It never prints the raw fixture routing key.
 
 The checks require readiness, successful shared-key authentication, the Codex
 model-list response, a successful self-hosted route decision, and the managed
-prepaid-credit gate. Invalid managed-serving configuration is deliberately
-present while the assertion key is absent, proving the feature stays dormant.
+prepaid-credit gate. The self-hosted leg deliberately carries invalid
+managed-serving configuration while the assertion key is absent, proving the
+feature stays dormant. The managed leg is an unstamped legacy worker and sets
+no `ROUTER_SERVING_*` variable at all, because in `managed` mode any such
+variable being set without `ROUTER_SERVING_ASSERTION_KEY` refuses to boot.
 
 `.github/workflows/test.yml` prepares native assets pinned by `Dockerfile`,
 denies the fixture database role access to all new managed-serving tables,
