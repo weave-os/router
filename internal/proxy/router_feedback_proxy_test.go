@@ -517,8 +517,7 @@ func TestService_RouterFeedbackCommand_CorrelatesCompactedHMMEmbeddingRoute(t *t
 			Router:      policyFeedback,
 			Unavailable: router.ErrStrategyUnavailable,
 		}).
-		WithAvailableModels(map[string]struct{}{"claude-haiku-4-5": {}}).
-		WithCompaction(nil, proxy.DefaultCompactionTriggerPct)
+		WithAvailableModels(map[string]struct{}{"claude-haiku-4-5": {}})
 	installationID := uuid.NewString()
 	ctx := router.WithStrategy(authedCtx(installationID), router.StrategyHMMEmbedding)
 	ctx = context.WithValue(ctx, proxy.ExternalIDContextKey{}, "org-test")
@@ -991,8 +990,7 @@ func TestService_RouterFeedbackCommand_SequenceRejectsHMMDeltaWithResolvedStrate
 			Router:      hmmReporter,
 			Unavailable: router.ErrStrategyUnavailable,
 		}).
-		WithAvailableModels(map[string]struct{}{"claude-opus-4-7": {}}).
-		WithCompaction(nil, proxy.DefaultCompactionTriggerPct)
+		WithAvailableModels(map[string]struct{}{"claude-opus-4-7": {}})
 	ctx = context.WithValue(ctx, proxy.PolicyTrainingAllowedContextKey{}, true)
 	require.NoError(t, svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
 
@@ -1028,8 +1026,7 @@ func TestService_RouterFeedbackCommand_NegativeOnePreservesTrainingDelta(t *test
 			Router:      hmmReporter,
 			Unavailable: router.ErrStrategyUnavailable,
 		}).
-		WithAvailableModels(map[string]struct{}{"claude-haiku-4-5": {}}).
-		WithCompaction(nil, proxy.DefaultCompactionTriggerPct)
+		WithAvailableModels(map[string]struct{}{"claude-haiku-4-5": {}})
 	ctx := router.WithStrategy(authedCtx(uuid.NewString()), router.StrategyHMMEmbedding)
 	ctx = context.WithValue(ctx, proxy.PolicyTrainingAllowedContextKey{}, true)
 	require.NoError(t, svc.ProxyMessages(ctx, body, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))

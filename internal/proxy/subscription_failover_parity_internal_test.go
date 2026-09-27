@@ -684,6 +684,20 @@ func TestSubscriptionFailoverParity_RescueDispatch(t *testing.T) {
 			assert.Zero(t, upstream.paidDispatches,
 				"subscription-only mode exists to forbid exactly this paid spend")
 		})
+
+		t.Run(in.name+"/linked-first plan failure rescues on credits", func(t *testing.T) {
+			upstream := &parityUpstream{
+				subErr: upstreamErr(http.StatusTooManyRequests, `{"error":{"type":"rate_limit_error"}}`),
+				okBody: in.upstreamOK(false),
+			}
+			svc := in.parityService(upstream)
+			rec, req, body := in.request(t, false)
+
+			require.NoError(t, in.call(svc, billing.WithSubscriptionOnly(in.subCtx(), billing.SubscriptionOnlyLinkedFirst), body, rec, req))
+			assert.Positive(t, upstream.subDispatches, "the linked plan is still tried first")
+			assert.Equal(t, 1, upstream.paidDispatches,
+				"a linked-first turn has organization credits behind it; the first binding 429 must roll over, not surface raw")
+		})
 	}
 }
 

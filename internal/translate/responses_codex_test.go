@@ -413,3 +413,70 @@ func assertReportCode(t *testing.T, reports []translate.ResponseTransform, code 
 	}
 	assert.Fail(t, "missing response transform report", "code %q in %#v", code, reports)
 }
+
+const codexModelSwitchText = "<model_switch>\nThe user was previously using a different model. Please continue the conversation according to the following instructions:\n\nYou are GPT-6.\n</model_switch>"
+
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexModelSwitch(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		input []any
+		want  bool
+	}{
+		{
+			name: "developer model switch fragment",
+			input: []any{
+				map[string]any{"type": "message", "role": "user", "content": []any{map[string]any{"type": "input_text", "text": "start"}}},
+				map[string]any{"type": "message", "role": "developer", "content": []any{map[string]any{"type": "input_text", "text": codexModelSwitchText}}},
+				map[string]any{"type": "message", "role": "user", "content": "continue"},
+			},
+			want: true,
+		},
+		{
+			name: "string content developer fragment",
+			input: []any{
+				map[string]any{"role": "developer", "content": codexModelSwitchText},
+			},
+			want: true,
+		},
+		{
+			name: "launch model leaves no trace",
+			input: []any{
+				map[string]any{"type": "message", "role": "developer", "content": "You are a coding agent."},
+				map[string]any{"type": "message", "role": "user", "content": "review this change"},
+			},
+			want: false,
+		},
+		{
+			name: "user quoting the marker is not a switch",
+			input: []any{
+				map[string]any{"type": "message", "role": "user", "content": codexModelSwitchText},
+			},
+			want: false,
+		},
+		{
+			name: "unclosed marker is not a switch",
+			input: []any{
+				map[string]any{"type": "message", "role": "developer", "content": "<model_switch> is how Codex marks a switch"},
+			},
+			want: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body, err := json.Marshal(map[string]any{"model": "gpt-6-sol", "input": tc.input})
+			require.NoError(t, err)
+			converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, converted.CodexModelSwitch)
+		})
+	}
+}
+
+func TestConvertResponsesToChatCompletions_LegacyIgnoresCodexModelSwitch(t *testing.T) {
+	body, err := json.Marshal(map[string]any{"model": "gpt-6-sol", "input": []any{
+		map[string]any{"type": "message", "role": "developer", "content": codexModelSwitchText},
+	}})
+	require.NoError(t, err)
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{})
+	require.NoError(t, err)
+	assert.False(t, converted.CodexModelSwitch)
+}

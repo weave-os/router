@@ -319,8 +319,7 @@ func runMiddlewarePrep(t *testing.T, repo billing.Repo, threshold int64, routePa
 	return w, reached, hasOverride
 }
 
-// stashAnthropicSub plants a dedicated X-Weave-Anthropic-Subscription value on
-// the request context the way WithAuth does (raw, unvalidated).
+// stashAnthropicSub plants a Claude OAuth value on the request context.
 func stashAnthropicSub(c *gin.Context, value string) {
 	ctx := context.WithValue(c.Request.Context(), proxy.AnthropicSubscriptionContextKey{}, value)
 	c.Request = c.Request.WithContext(ctx)
@@ -334,31 +333,31 @@ func stashCodexSub(c *gin.Context, token, accountID string) {
 	c.Request = c.Request.WithContext(ctx)
 }
 
-func TestWithBalanceCheck_402sJunkDedicatedAnthropicSubHeader(t *testing.T) {
-	// A junk X-Weave-Anthropic-Subscription value is never injected as a
+func TestWithBalanceCheck_402sJunkAnthropicOAuth(t *testing.T) {
+	// A junk OAuth value is never injected as a
 	// subscription (injection requires sk-ant-oat), so the gate must NOT treat
 	// it as one — otherwise a bypass org routes paid turns on deployment keys at
-	// $0. Detection validates the dedicated header, not a bare presence check.
+	// $0. Detection validates the credential, not a bare presence check.
 	repo := &stubBillingRepo{balance: 0}
 	prep := func(c *gin.Context) {
 		withUsageBypassInstallation(c, "org_sub")
 		stashAnthropicSub(c, "not-a-real-token")
 	}
 	w, reached, _ := runMiddlewarePrep(t, repo, 0, "/v1/messages", prep)
-	assert.False(t, reached, "junk subscription header must not exempt the gate")
+	assert.False(t, reached, "junk OAuth value must not exempt the gate")
 	assert.Equal(t, http.StatusPaymentRequired, w.Code)
 }
 
-func TestWithBalanceCheck_ExemptsValidDedicatedAnthropicSubHeader(t *testing.T) {
-	// A valid sk-ant-oat token in the dedicated header (opencode / router-keyed
-	// path) must exempt, mirroring credential injection's acceptance.
+func TestWithBalanceCheck_ExemptsValidAnthropicOAuth(t *testing.T) {
+	// A valid sk-ant-oat token on the authenticated request must exempt,
+	// mirroring credential injection's acceptance.
 	repo := &stubBillingRepo{balance: 0}
 	prep := func(c *gin.Context) {
 		withUsageBypassInstallation(c, "org_sub")
 		stashAnthropicSub(c, "sk-ant-oat01-valid-token")
 	}
 	w, reached, _ := runMiddlewarePrep(t, repo, 0, "/v1/messages", prep)
-	assert.True(t, reached, "a valid dedicated-header subscription must exempt the gate")
+	assert.True(t, reached, "a valid subscription must exempt the gate")
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 

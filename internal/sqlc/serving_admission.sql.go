@@ -118,6 +118,29 @@ func (q *Queries) GetServingInstallationForAdmission(ctx context.Context, instal
 	return id, err
 }
 
+const getServingInstallationLaneEnrollment = `-- name: GetServingInstallationLaneEnrollment :one
+SELECT internal_enrolled, enrollment_generation
+FROM router.installation_lane_enrollments
+WHERE installation_id = $1::uuid
+`
+
+type GetServingInstallationLaneEnrollmentRow struct {
+	InternalEnrolled     bool
+	EnrollmentGeneration int64
+}
+
+// A missing row means the installation follows subject enrollment; the installation lock protects absence too.
+//
+//	SELECT internal_enrolled, enrollment_generation
+//	FROM router.installation_lane_enrollments
+//	WHERE installation_id = $1::uuid
+func (q *Queries) GetServingInstallationLaneEnrollment(ctx context.Context, installationID uuid.UUID) (GetServingInstallationLaneEnrollmentRow, error) {
+	row := q.db.QueryRow(ctx, getServingInstallationLaneEnrollment, installationID)
+	var i GetServingInstallationLaneEnrollmentRow
+	err := row.Scan(&i.InternalEnrolled, &i.EnrollmentGeneration)
+	return i, err
+}
+
 const getServingProfileAssignment = `-- name: GetServingProfileAssignment :one
 SELECT profile_key, assignment_generation
 FROM router.installation_profile_assignments

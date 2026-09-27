@@ -187,3 +187,11 @@ func TestCheckUserMonthlySpendLimit_AppliesToSubscriberPaidFallback(t *testing.T
 	require.Error(t, err)
 	assert.ErrorIs(t, err, billing.ErrUserMonthlySpendLimitReached)
 }
+
+func TestCheckUserMonthlySpendLimit_MaxCoveringSubscriptionDoesNotExempt(t *testing.T) {
+	s := &Service{billing: billing.NewService(&spendLimitRepo{spent: 1_000_000, limit: micros(1_000_000)})}
+	ctx := entitlement.WithProductScope(withUsageBypassSubscription(spendLimitCtx("u1", "org-1"), "sk-ant-oat01-valid-token"), entitlement.PlanMax)
+	_, err := s.checkUserMonthlySpendLimit(ctx, http.Header{}, routePathMessages)
+	require.Error(t, err)
+	assert.ErrorIs(t, err, billing.ErrUserMonthlySpendLimitReached)
+}

@@ -32,10 +32,7 @@ func (s *Service) CodexModelCatalog(ctx context.Context, headers http.Header, cl
 	}
 	// Model-specific credential resolution deliberately rejects an empty model.
 	// Discovery instead uses only the caller's paired ChatGPT credential.
-	creds := codexSubscriptionFromContext(ctx)
-	if creds == nil {
-		creds = ExtractClientCredentials(providers.ProviderOpenAI, headers)
-	}
+	creds := ExtractClientCredentials(providers.ProviderOpenAI, headers)
 	ctx = requestcontext.WithCredentials(ctx, creds)
 	catalog, err := fetcher.FetchCodexModelCatalog(ctx, clientVersion)
 	if err != nil {
@@ -71,8 +68,8 @@ func addCodexAutomaticModel(catalog []byte) ([]byte, error) {
 	automatic := []byte(template.Raw)
 	for path, value := range map[string]any{
 		"slug":         CodexAutomaticModel,
-		"display_name": "Weave Router (automatic)",
-		"description":  "Automatically choose the model through Weave Router",
+		"display_name": "Weave Router",
+		"description":  "Automatically chooses the best model",
 		"visibility":   "list",
 		"priority":     0,
 	} {

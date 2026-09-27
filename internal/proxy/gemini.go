@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"weave-os/router/internal/auth"
@@ -17,7 +18,6 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
-	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
 
@@ -128,40 +128,27 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 
 	enabledProviders := s.enabledProvidersForRequest(ctx, providers.ProviderGoogle, r.Header)
 	excluded := s.excludedModelsForRequest(ctx)
-
-	// Proactive context-window compaction, as in ProxyMessages.
 	outputReserve := contextWindowOutputReserve
 	if feats.MaxTokens > outputReserve {
 		outputReserve = feats.MaxTokens
 	}
-	maxEligibleWindow := s.maxEligibleContextWindow(excluded, enabledProviders, env.SignatureTokenSavings())
-	compRes, compErr := s.maybeCompact(ctx, env, compactionInput{
-		TurnType:      turntype.DetectFromEnvelope(env, feats, subAgentHint),
-		OutputReserve: outputReserve,
-		MaxWindow:     maxEligibleWindow,
-		ClientApp:     clientID.ClientApp,
-		Scope:         s.summarizerScope(ctx, enabledProviders, excluded),
-		PreferredSummarizer: func() string {
-			if blindExperimentPassthroughActive(ctx) {
-				return ""
-			}
-			return s.compactionPreferredSummarizer(ctx, sessionKey, roleForTier(catalog.TierFor(feats.Model)))
-		},
-		Headers: r.Header,
-	})
-	if compErr != nil {
-		log.Warn("Compaction could not fit request to any eligible model",
-			"err", compErr, "final_estimate", compRes.FinalEstimate, "max_window", maxEligibleWindow, "requested_model", feats.Model)
-		return compErr
+	overflowEstimate := env.ContextOverflowTokenEstimate()
+	excluded, ctxOverflowed := excludeContextOverflowModels(overflowEstimate, env.SignatureTokenSavings(), outputReserve, enabledProviders, excluded, s.availableModels)
+	overflowAdmitted := admitWidestOnTotalOverflow(excluded, ctxOverflowed, s.availableModels, enabledProviders)
+	excluded = withoutModels(excluded, overflowAdmitted)
+	if len(ctxOverflowed) > 0 {
+		log.Info("context window pre-filter: excluded over-capacity models",
+			"overflow_token_estimate", overflowEstimate,
+			"output_reserve", outputReserve,
+			"excluded_count", len(ctxOverflowed)-len(overflowAdmitted),
+			"excluded_models", strings.Join(ctxOverflowed, ","),
+			"admitted_for_upstream", strings.Join(overflowAdmitted, ","),
+		)
 	}
-	if compRes.Applied {
-		feats = env.RoutingFeatures(embedFlag)
-		log.Info("Proactive compaction applied",
-			"tool_results_cleared", compRes.ToolResultsCleared,
-			"summarized", compRes.Summarized,
-			"summary_model", compRes.SummaryModel,
-			"trimmed_to_recent", compRes.TrimmedToRecent,
-			"final_estimate", compRes.FinalEstimate,
+	excluded, geminiUnsigned := excludeGemini3xOnUnsignedHistory(env, excluded, s.availableModels)
+	if len(geminiUnsigned) > 0 {
+		log.Info("gemini pre-filter: excluded gemini-3.x for unsigned tool-call history",
+			"excluded_models", strings.Join(geminiUnsigned, ","),
 		)
 	}
 
@@ -178,14 +165,14 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		ConversationMessages:             conversationMessagesForRouting(env),
 		AvailableTools:                   availableToolsForRouting(env),
 		Tools:                            toolsForRouting(env),
-		HistoryTruncated:                 compRes.Applied,
 		ClientSessionID:                  clientSessionIDForRequest(ctx, env),
 		EnabledProviders:                 enabledProviders,
 		CustomBindings:                   s.customBindingsForRequest(ctx),
 		GatewayProviders:                 s.gatewayProvidersForRequest(ctx),
 		ExcludedModels:                   excluded,
 		AllowedModels:                    allowedModelsForRequest(ctx),
-		SafetyExcludedModels:             s.safetyExcludedModels(env, outputReserve, enabledProviders),
+		SafetyExcludedModels:             withoutModelsKeep(s.safetyExcludedModels(env, outputReserve, enabledProviders), overflowAdmitted, geminiUnsigned),
+		ContextWindowExcludedModels:      contextWindowOnlyExclusions(ctxOverflowed, overflowAdmitted, geminiUnsigned),
 		PreferredModels:                  s.preferredModelsForRequest(ctx),
 		SubscriptionStatePreferredModels: subscriptionStatePreferredModelsFromContext(ctx),
 		RoutingKnobs:                     router.RoutingKnobsFromContext(ctx),
@@ -490,9 +477,6 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	var subscriberSettlement subscriberSettlementState
 	if proxyErr == nil {
 		subscriberSettlement = s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
-		if compRes.Summarized {
-			s.billCompactionSummary(ctx, requestID, externalID, compRes.SummaryUsage)
-		}
 	}
 	if subscriberTelemetry != nil {
 		if proxyErr == nil {
