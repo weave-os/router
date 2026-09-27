@@ -285,10 +285,19 @@ error text.
 | `admission_gcs_selection_set_read_ms` | Sum of the selection-set reads |
 | `admission_gcs_selection_set_reads` | Number of distinct selection sets read (2 when a previous binding names another activation) |
 | `admission_decide_ms` | `ServingAdmission.Decide` |
-| `admission_projection_queries_ms` | Identity, plan and assignment projection SQL, measured up to the conversation lock so neither the lock wait nor the session-binding read is attributed to it |
+| `admission_projection_queries_ms` | Identity, lane-enrollment, plan and assignment projection SQL, measured up to the conversation lock so neither the lock wait nor the session-binding read is attributed to it |
 | `admission_persistent` | Whether the request carried a conversation |
 | `admission_outcome` | `admitted`, `denied` or `error` |
 | `target`, `activation_id` | Serving target and admitted activation (empty when nothing was admitted) |
+
+The span rule is positional: every projection query the transaction runs before the
+conversation lock — including the installation lane-enrollment lookup that selects
+`prod/weave-internal` — counts in `admission_projection_queries_ms`; the lock and the
+session-binding read that follows it belong to `admission_lock_wait_ms` and the
+remainder of `admission_tx_ms`. The lane lookup's inputs and result are not logged:
+only the resulting `target` appears, never the installation id or the enrollment flag
+and generation. `activation_id` is stamped only after the transaction commits, so a
+stale-generation denial reports no activation.
 
 The record is measurement only. It exists to size the deferred fail-closed target-state
 cache in gateway admission after seven days of production data; **no admission cache

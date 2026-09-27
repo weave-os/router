@@ -18,7 +18,7 @@ import (
 
 // forbiddenAdmissionAttributes are the identity-bearing fields the timing record must
 // never carry; the measurement exists to size a cache, not to profile a caller.
-var forbiddenAdmissionAttributes = []string{"installation_id", "api_key_id", "key_id", "credential_identity", "subject_id", "conversation_digest", "client_session_id", "session_id", "binding", "err"}
+var forbiddenAdmissionAttributes = []string{"installation_id", "api_key_id", "key_id", "credential_identity", "subject_id", "conversation_digest", "client_session_id", "session_id", "binding", "err", "internal_enrolled", "enrollment_generation", "lane"}
 
 func decodeRecords(t *testing.T, raw *bytes.Buffer) []map[string]any {
 	t.Helper()
@@ -73,6 +73,30 @@ func TestAdmissionTimingRecordCarriesDurationsWithoutIdentity(t *testing.T) {
 	total, ok := record[attrAdmissionTotal].(float64)
 	require.True(t, ok)
 	assert.GreaterOrEqual(t, total, 25.0)
+	for _, attribute := range forbiddenAdmissionAttributes {
+		assert.NotContains(t, record, attribute)
+	}
+}
+
+func TestAdmissionTimingRecordReportsInternalLaneWithoutEnrollmentIdentity(t *testing.T) {
+	t.Parallel()
+
+	var logs bytes.Buffer
+	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&logs, nil)))
+	timing := admissionTiming{
+		started:    time.Now(),
+		projection: 6 * time.Millisecond,
+		outcome:    admissionAdmitted,
+		target:     policyregistry.TargetInternal,
+	}
+
+	timing.emit(ctx)
+
+	records := decodeRecords(t, &logs)
+	require.Len(t, records, 1)
+	record := records[0]
+	assert.Equal(t, string(policyregistry.TargetInternal), record[attrAdmissionTarget])
+	assert.Equal(t, 6.0, record[attrAdmissionProjection])
 	for _, attribute := range forbiddenAdmissionAttributes {
 		assert.NotContains(t, record, attribute)
 	}
