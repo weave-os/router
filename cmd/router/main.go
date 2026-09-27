@@ -160,6 +160,11 @@ func main() {
 	}
 	logger.Info("Router deployment mode", "mode", deploymentMode)
 
+	if err := validateManagedServingBoot(deploymentMode, osEnvLookup); err != nil {
+		logger.Error("Managed serving configuration is incomplete; refusing to boot", "mode", deploymentMode, "err", err)
+		panic(err)
+	}
+
 	translationCompatibilityMode, err := config.TranslationCompatibilityMode()
 	if err != nil {
 		logger.Error("Invalid translation compatibility mode", "err", err)
