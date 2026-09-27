@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router/turntype"
 )
 
 // ClientIdentity holds per-request user identification signals; defined in
@@ -40,8 +41,15 @@ func ClientIdentityFromHeaders(h http.Header) ClientIdentity {
 	}
 	if id.ClientApp == ClientAppOpencode {
 		id.OpenCodeAgent = requestcontext.ParseOpenCodeAgent(h.Get(requestcontext.OpenCodeAgentHeader))
+		if id.SessionID == "" {
+			id.SessionID = requestcontext.OpenCodeSessionIDFromHeaders(h)
+		}
 	}
 	return id
+}
+
+func openCodeCaller(id ClientIdentity) turntype.OpenCodeCaller {
+	return turntype.OpenCodeCaller{IsClient: id.ClientApp == ClientAppOpencode, Agent: id.OpenCodeAgent}
 }
 
 // EvalClientAppPrefix is re-exported for callers building identities by hand.

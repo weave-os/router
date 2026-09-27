@@ -42,6 +42,24 @@ func SessionIDFromHeaders(headers http.Header) string {
 	return ""
 }
 
+// OpenCodeSessionIDFromHeaders reads OpenCode's native session headers. The
+// worker consults it only once the client is known to be OpenCode; the gateway
+// has no client detection and relies on the header name alone. A subagent resolves
+// to its parent session, as Claude Code and Codex subagents share their
+// parent's session id; the first user message still separates the subagent's
+// pin. OpenCode names only the immediate parent, so a nested subagent resolves
+// to its spawning subagent.
+func OpenCodeSessionIDFromHeaders(headers http.Header) string {
+	session := NormalizeClientIdentifier(headers.Get(OpenCodeSessionHeader))
+	if session == "" {
+		return ""
+	}
+	if parent := NormalizeClientIdentifier(headers.Get(OpenCodeParentSessionHeader)); parent != "" {
+		return parent
+	}
+	return session
+}
+
 // ClaudeCodeMetadata is caller-asserted attribution, never authenticated account ownership.
 type ClaudeCodeMetadata struct {
 	DeviceID  string `json:"device_id"`
@@ -108,7 +126,8 @@ func BodySessionID(body []byte, surface ConversationSurface) string {
 }
 
 // CanonicalConversationID applies header precedence and the Anthropic body overlay,
-// then falls back to envelope metadata without using mutable message content.
+// then OpenCode's native session headers, then envelope metadata without using
+// mutable message content.
 // Callers validate/bound the body before calling; ordinary dispatch retains its original bytes.
 func CanonicalConversationID(headers http.Header, body []byte, surface ConversationSurface) string {
 	id := SessionIDFromHeaders(headers)
@@ -116,6 +135,9 @@ func CanonicalConversationID(headers http.Header, body []byte, surface Conversat
 		id = AnthropicHeaderSessionID(headers, ParseClaudeCodeMetadata(gjson.GetBytes(body, "metadata.user_id").String()))
 	}
 	if id != "" {
+		return id
+	}
+	if id := OpenCodeSessionIDFromHeaders(headers); id != "" {
 		return id
 	}
 	return BodySessionID(body, surface)

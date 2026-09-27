@@ -43,7 +43,8 @@ func cliDocument(t *testing.T, value any) map[string]any {
 
 // cliReleaseFixture rebuilds the fixture's v1 composition as a v2 release whose selection set and
 // proposal carry no usable generations, which is the only shape a caller can write before the
-// candidate exists.
+// candidate exists. Its provenance differs from the fixture's already-published v2 candidate so
+// the release is genuinely unpublished.
 func cliReleaseFixture(t *testing.T, registry *cliServingRegistry, v1 policyregistry.DeploymentProposal) cliReleaseFiles {
 	t.Helper()
 	release := cliObject[*policyregistry.ServingRelease](t, registry, policyregistry.ServingReleases, v1.SourceRelease)
@@ -57,6 +58,7 @@ func cliReleaseFixture(t *testing.T, registry *cliServingRegistry, v1 policyregi
 		Requirements:      release.Requirements,
 		Provenance:        release.Provenance,
 	}}
+	candidate.Provenance.RouterRevision = strings.Repeat("f", 40)
 	lane := policyregistry.ServingLane{LaneBinding: policyregistry.LaneBinding{Project: binding.Project, Region: binding.Region, Router: binding.Router, Classifier: binding.Classifier, Attestation: binding.Attestation}}
 	selectionSet := cliDocument(t, policyregistry.SelectionSetV2{SchemaVersion: policyregistry.ServingSelectionSetV2, Target: set.Target, Default: lane, Profiles: map[string]policyregistry.ServingLane{}})
 	proposal := cliDocument(t, policyregistry.DeploymentProposalV2{
