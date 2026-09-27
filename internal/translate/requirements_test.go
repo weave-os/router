@@ -30,6 +30,9 @@ func TestTranslationRequirements_DetectsAnthropicPreservationSemantics(t *testin
 	assert.True(t, req.Audio)
 	assert.True(t, req.Files)
 	assert.True(t, req.CitationsOrSearch)
+	upload, err := ParseAnthropic([]byte(`{"messages":[{"role":"user","content":[{"type":"container_upload","file_id":"file_123"}]}]}`))
+	require.NoError(t, err)
+	assert.True(t, upload.TranslationRequirements(router.EndpointAnthropicMessages).Files)
 }
 
 func TestTranslationRequirements_NativeServerToolsAreStructural(t *testing.T) {

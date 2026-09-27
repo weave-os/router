@@ -70,7 +70,7 @@ func anthropicMediaRequirements(body []byte) (audio, files bool) {
 			switch block.Get("type").String() {
 			case "audio", "input_audio":
 				audio = true
-			case "document", "file", "input_file":
+			case "document", "file", "input_file", "container_upload":
 				files = true
 			}
 			return !audio || !files
