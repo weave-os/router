@@ -113,8 +113,11 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 		"GIN_MODE=release",
 	}
 	if mode == server.DeploymentModeSelfHosted {
-		// These must stay unread while the assertion-key opt-in is absent. In
-		// managed mode they now require the key (cmd/router/serving_runtime.go).
+		// Self-hosted only: these prove the worker leaves ROUTER_SERVING_*
+		// unread while the assertion-key opt-in is absent. The managed leg is
+		// an unstamped legacy worker and must set none of them, because any
+		// ROUTER_SERVING_* variable set in managed mode without the assertion
+		// key refuses to boot (cmd/router/serving_runtime.go).
 		command.Env = append(command.Env,
 			"ROUTER_SERVING_REGISTRY_URI=invalid-disabled-registry",
 			"ROUTER_SERVING_CONFIGURATION_URI=invalid-disabled-configuration",

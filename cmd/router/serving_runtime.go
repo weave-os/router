@@ -18,8 +18,8 @@ import (
 const envServingAssertionKey = "ROUTER_SERVING_ASSERTION_KEY"
 
 // managedServingEnvVars enumerates every ROUTER_SERVING_* variable the worker
-// reads besides the assertion key. Presence of any of them means the revision
-// was stamped as a managed serving worker.
+// reads besides the assertion key. A set variable means the revision was
+// stamped as a managed serving worker, even when its value is empty.
 var managedServingEnvVars = []string{
 	"ROUTER_SERVING_TARGET",
 	"ROUTER_SERVING_PROJECT",
@@ -41,18 +41,20 @@ func managedServingEnabled() bool {
 
 // validateManagedServingBoot rejects a managed revision stamped as a serving
 // worker whose assertion key is missing: without it the worker would mount
-// inference routes with no admission. Managed workers with no ROUTER_SERVING_*
-// stamping (legacy) and self-hosted deployments are unaffected.
-func validateManagedServingBoot(mode server.DeploymentMode, lookup func(string) string) error {
+// inference routes with no admission. Stamping is presence-based, so a variable
+// set to an empty or whitespace value still demands the key. Managed workers
+// with no ROUTER_SERVING_* variable set (legacy) and self-hosted deployments are
+// unaffected.
+func validateManagedServingBoot(mode server.DeploymentMode, lookup func(string) (string, bool)) error {
 	if mode != server.DeploymentModeManaged {
 		return nil
 	}
-	if strings.TrimSpace(lookup(envServingAssertionKey)) != "" {
+	if key, _ := lookup(envServingAssertionKey); strings.TrimSpace(key) != "" {
 		return nil
 	}
 	var stamped []string
 	for _, name := range managedServingEnvVars {
-		if strings.TrimSpace(lookup(name)) != "" {
+		if _, ok := lookup(name); ok {
 			stamped = append(stamped, name)
 		}
 	}
@@ -65,7 +67,7 @@ func validateManagedServingBoot(mode server.DeploymentMode, lookup func(string) 
 	return nil
 }
 
-func osEnvLookup(key string) string { return os.Getenv(key) }
+func osEnvLookup(key string) (string, bool) { return os.LookupEnv(key) }
 
 func buildManagedServingRuntime(ctx context.Context, availableProviders map[string]struct{}) (*middleware.ServingAdmissionConfig, *policyregistry.Snapshot, func(), error) {
 	signer, err := policyregistry.NewAssertionSigner([]byte(strings.TrimSpace(config.GetOr("ROUTER_SERVING_ASSERTION_KEY", ""))), time.Now)

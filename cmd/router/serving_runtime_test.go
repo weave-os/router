@@ -59,6 +59,13 @@ func TestValidateManagedServingBoot(t *testing.T) {
 			env:          map[string]string{envServingAssertionKey: " \t\n", "ROUTER_SERVING_TARGET": "prod-weave-internal"},
 			wantContains: []string{envServingAssertionKey, "ROUTER_SERVING_TARGET"},
 		},
+		// A stamp injected as an empty value is still a stamped revision:
+		// presence, not value, decides whether the key is required.
+		{
+			name: "managed serving worker with empty stamp value", mode: server.DeploymentModeManaged,
+			env:          map[string]string{"ROUTER_SERVING_TARGET": "", "ROUTER_SERVING_IMAGE_DIGEST": " "},
+			wantContains: []string{envServingAssertionKey, "ROUTER_SERVING_TARGET", "ROUTER_SERVING_IMAGE_DIGEST"},
+		},
 		{
 			name: "legacy managed worker with policy environment only", mode: server.DeploymentModeManaged,
 			env: map[string]string{"ROUTER_POLICY_ENVIRONMENT": "prod"},
@@ -74,7 +81,10 @@ func TestValidateManagedServingBoot(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := validateManagedServingBoot(tc.mode, func(key string) string { return tc.env[key] })
+			err := validateManagedServingBoot(tc.mode, func(key string) (string, bool) {
+				value, ok := tc.env[key]
+				return value, ok
+			})
 			if len(tc.wantContains) == 0 {
 				require.NoError(t, err)
 				return
@@ -83,6 +93,21 @@ func TestValidateManagedServingBoot(t *testing.T) {
 			for _, want := range tc.wantContains {
 				assert.Contains(t, err.Error(), want)
 			}
+		})
+	}
+}
+
+func TestValidateManagedServingBootRejectsEveryStampAlone(t *testing.T) {
+	for _, name := range managedServingEnvVars {
+		t.Run(name, func(t *testing.T) {
+			err := validateManagedServingBoot(server.DeploymentModeManaged, func(key string) (string, bool) {
+				if key != name {
+					return "", false
+				}
+				return "stamped", true
+			})
+			require.ErrorContains(t, err, envServingAssertionKey)
+			assert.ErrorContains(t, err, name)
 		})
 	}
 }
