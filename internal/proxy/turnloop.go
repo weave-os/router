@@ -1222,15 +1222,28 @@ func (s *Service) runTurnLoop(
 	// through rather than guaranteeing an upstream 400 on a screenshot turn.
 	//
 	// forcedTierFloor preserves the user's tier intent when the forced pin gets
-	// dropped below (usually the session outgrew the model's context window):
-	// the scorer call further down constrains the fresh decision to this tier
-	// instead of collapsing to the cheap tier-default. TierUnknown = no constraint.
+	// dropped below: the scorer call further down constrains the fresh decision
+	// to this tier instead of collapsing to the cheap tier-default.
+	// TierUnknown = no constraint.
 	forcedTierFloor := catalog.TierUnknown
 	if forceModelFound {
 		_, excluded := req.ExcludedModels[forceModelPin.Model]
 		_, providerEnabled := req.EnabledProviders[forceModelPin.Provider]
 		providerEligible := req.EnabledProviders == nil || providerEnabled
 		imageCapable := pinServesImages(forceModelPin, req)
+		// The pre-filter's ÷4 byte estimate is not a token count, so it alone
+		// never overrides the user's pick. A real overflow comes back from the
+		// provider as the client's native prompt-too-long error, which makes
+		// the client compact; rerouting instead would leave a client that
+		// believes it has room never compacting.
+		if _, estimateOnly := req.ContextWindowExcludedModels[forceModelPin.Model]; excluded && estimateOnly {
+			log.Info("Forced session pin dispatched past the context-window estimate; the provider decides",
+				"pin_model", forceModelPin.Model,
+				"pin_provider", forceModelPin.Provider,
+				"role", res.PinRole,
+			)
+			excluded = false
+		}
 		if !excluded && providerEligible && imageCapable {
 			res.PinModel = forceModelPin.Model
 			res.PinAgeSec = pinAge(forceModelPin)

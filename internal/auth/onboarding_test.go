@@ -16,6 +16,7 @@ type onboardingRecorder struct {
 	mu            sync.Mutex
 	harnesses     []auth.APIKeyFirstUsedEvent
 	subscriptions []auth.SubscriptionConnectedEvent
+	lifecycles    []auth.HarnessLifecycleEvent
 }
 
 func (r *onboardingRecorder) APIKeyFirstUsed(event auth.APIKeyFirstUsedEvent) {
@@ -28,6 +29,12 @@ func (r *onboardingRecorder) SubscriptionConnected(event auth.SubscriptionConnec
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.subscriptions = append(r.subscriptions, event)
+}
+
+func (r *onboardingRecorder) HarnessLifecycle(event auth.HarnessLifecycleEvent) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lifecycles = append(r.lifecycles, event)
 }
 
 func (r *onboardingRecorder) harnessEvents() []auth.APIKeyFirstUsedEvent {
@@ -175,4 +182,35 @@ func TestOnboardingObserverIsOptional(t *testing.T) {
 		ExternalAccountID: "external-account", RefreshToken: []byte("refresh"),
 	})
 	require.NoError(t, err)
+}
+
+func TestReportHarnessLifecycleForwardsAuthenticatedIdentity(t *testing.T) {
+	installation := &auth.Installation{ID: "installation", ExternalID: "org-test"}
+	key := &auth.APIKey{ID: "key", InstallationID: installation.ID, CredentialSubjectID: "subject", Harness: "codex"}
+	recorder := &onboardingRecorder{}
+	svc := auth.NewService(&fakeInstallationRepository{}, &fakeAPIKeyRepository{}, nil, nil, nil, nil, frozenClock()).
+		WithOnboardingObserver(recorder)
+
+	svc.ReportHarnessLifecycle(installation, key, auth.LifecycleHarnessCodex, auth.HarnessLifecycleActionOff)
+
+	require.Equal(t, []auth.HarnessLifecycleEvent{{
+		InstallationExternalID: "org-test", CredentialSubjectID: "subject", APIKeyID: "key",
+		Harness: auth.LifecycleHarnessCodex, Action: auth.HarnessLifecycleActionOff, OccurredAt: frozenClock()(),
+	}}, recorder.lifecycles)
+}
+
+func TestReportHarnessLifecycleSkipsWithoutObserverOrIdentity(t *testing.T) {
+	installation := &auth.Installation{ID: "installation", ExternalID: "org-test"}
+	key := &auth.APIKey{ID: "key"}
+	recorder := &onboardingRecorder{}
+	unobserved := auth.NewService(&fakeInstallationRepository{}, &fakeAPIKeyRepository{}, nil, nil, nil, nil, frozenClock())
+	require.NotPanics(t, func() {
+		unobserved.ReportHarnessLifecycle(installation, key, auth.LifecycleHarnessClaude, auth.HarnessLifecycleActionOn)
+	})
+
+	observed := auth.NewService(&fakeInstallationRepository{}, &fakeAPIKeyRepository{}, nil, nil, nil, nil, frozenClock()).
+		WithOnboardingObserver(recorder)
+	observed.ReportHarnessLifecycle(nil, key, auth.LifecycleHarnessClaude, auth.HarnessLifecycleActionOn)
+	observed.ReportHarnessLifecycle(installation, nil, auth.LifecycleHarnessClaude, auth.HarnessLifecycleActionOn)
+	require.Empty(t, recorder.lifecycles)
 }

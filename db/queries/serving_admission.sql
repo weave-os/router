@@ -19,6 +19,12 @@ JOIN router.credential_subject_installations access ON access.subject_id = subje
 WHERE subject.id = @subject_id::uuid AND access.installation_id = @installation_id::uuid
 FOR SHARE OF subject, access;
 
+-- A missing row means the installation follows subject enrollment; the installation lock protects absence too.
+-- name: GetServingInstallationLaneEnrollment :one
+SELECT internal_enrolled, enrollment_generation
+FROM router.installation_lane_enrollments
+WHERE installation_id = @installation_id::uuid;
+
 -- A missing assignment means follow the lane default; the installation lock protects absence too.
 -- name: GetServingProfileAssignment :one
 SELECT profile_key, assignment_generation

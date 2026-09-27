@@ -220,6 +220,13 @@ type RouterGlobalAutomaticRoutingExclusion struct {
 	CreatedBy *string
 }
 
+type RouterInstallationLaneEnrollment struct {
+	InstallationID       uuid.UUID
+	InternalEnrolled     bool
+	EnrollmentGeneration int64
+	UpdatedAt            pgtype.Timestamptz
+}
+
 // Assignment keys only; exact active revisions are owned by GCS selection sets
 type RouterInstallationProfileAssignment struct {
 	InstallationID       uuid.UUID

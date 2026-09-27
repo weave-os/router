@@ -11,8 +11,9 @@ import (
 
 type codexSelectedModelContextKey struct{}
 
-// CodexNativeModelPinHeader opts installed Codex clients into interpreting
-// their native model selection as an explicit force rather than a baseline.
+// CodexNativeModelPinHeader opts installed Codex clients into interpreting a
+// /model switch made during the session as an explicit force. The model a
+// session launches with (config.toml, SDK thread options) stays a baseline.
 const CodexNativeModelPinHeader = "X-Weave-Codex-Native-Model-Pin"
 
 // The client repeats its selected model on every request, so a request-scoped

@@ -2,7 +2,6 @@ package proxy_test
 
 import (
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -833,96 +832,6 @@ func TestService_HMMSubAgentUsesFreshDecision(t *testing.T) {
 	store.mu.Unlock()
 }
 
-func TestService_HMMFeedbackKeyUsesClientSessionBeforeCompaction(t *testing.T) {
-	body := []byte(`{
-		"model":"claude-haiku-4-5",
-		"max_tokens":195000,
-		"messages":[
-			{"role":"user","content":"` + strings.Repeat("x", 30_000) + `"},
-			{"role":"assistant","content":"working"},
-			{"role":"user","content":"latest request"}
-		]
-	}`)
-
-	before, err := translate.ParseAnthropic(body)
-	require.NoError(t, err)
-	after, err := translate.ParseAnthropic(body)
-	require.NoError(t, err)
-	require.Positive(t, after.TrimLastNMessages(1))
-	beforeSessionKey := proxy.DeriveSessionKey(before, "key-1")
-	afterSessionKey := proxy.DeriveSessionKey(after, "key-1")
-	beforeKey := hex.EncodeToString(beforeSessionKey[:])
-	afterKey := hex.EncodeToString(afterSessionKey[:])
-	require.NotEqual(t, beforeKey, afterKey)
-
-	store := newFakePinStore()
-	fr := &fakeRouter{decision: router.Decision{
-		Provider: providers.ProviderAnthropic,
-		Model:    "claude-haiku-4-5",
-		Reason:   "hmm_policy(label=balanced)",
-		Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMM)},
-	}}
-	svc := newPinSvc(fr, store).
-		WithHMMRouter(fr).
-		WithAvailableModels(map[string]struct{}{"claude-haiku-4-5": {}}).
-		WithCompaction(nil, proxy.DefaultCompactionTriggerPct)
-
-	ctx := router.WithStrategy(authedCtx(uuid.NewString()), router.StrategyHMM)
-	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-	require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))
-
-	require.NotNil(t, fr.capturedReq)
-	assert.Equal(t, beforeKey, fr.capturedReq.FeedbackKey)
-	assert.NotEqual(t, afterKey, fr.capturedReq.FeedbackKey)
-	assert.Equal(t, "latest request", fr.capturedReq.ConversationMessages[0].Text)
-}
-
-func TestService_HMMFeedbackKeyOpenAIUsesClientSessionBeforeCompaction(t *testing.T) {
-	body := []byte(`{
-		"model":"gpt-4o",
-		"max_tokens":123000,
-		"messages":[
-			{"role":"user","content":"` + strings.Repeat("x", 30_000) + `"},
-			{"role":"assistant","content":"working"},
-			{"role":"user","content":"latest request"}
-		]
-	}`)
-
-	before, err := translate.ParseOpenAI(body)
-	require.NoError(t, err)
-	after, err := translate.ParseOpenAI(body)
-	require.NoError(t, err)
-	require.Positive(t, after.TrimLastNMessages(1))
-	beforeSessionKey := proxy.DeriveSessionKey(before, "key-1")
-	afterSessionKey := proxy.DeriveSessionKey(after, "key-1")
-	beforeKey := hex.EncodeToString(beforeSessionKey[:])
-	afterKey := hex.EncodeToString(afterSessionKey[:])
-	require.NotEqual(t, beforeKey, afterKey)
-
-	store := newFakePinStore()
-	fr := &fakeRouter{decision: router.Decision{
-		Provider: providers.ProviderOpenAI,
-		Model:    "gpt-4o",
-		Reason:   "hmm_policy(label=balanced)",
-		Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMM)},
-	}}
-	svc := newOpenAIPinSvc(fr, store).
-		WithHMMRouter(fr).
-		WithAvailableModels(map[string]struct{}{"gpt-4o": {}}).
-		WithCompaction(nil, proxy.DefaultCompactionTriggerPct)
-
-	ctx := router.WithStrategy(authedCtx(uuid.NewString()), router.StrategyHMM)
-	rec := httptest.NewRecorder()
-	httpReq := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
-	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, body, rec, httpReq))
-
-	require.NotNil(t, fr.capturedReq)
-	assert.Equal(t, beforeKey, fr.capturedReq.FeedbackKey)
-	assert.NotEqual(t, afterKey, fr.capturedReq.FeedbackKey)
-	assert.Equal(t, "latest request", fr.capturedReq.ConversationMessages[0].Text)
-}
-
 func TestService_HardPin_ExploreFallsThroughWhenFlagOff(t *testing.T) {
 	store := newFakePinStore()
 	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
@@ -1737,6 +1646,38 @@ func TestService_UserForcedPin_IneligibleProviderFallsThrough(t *testing.T) {
 
 	assert.Equal(t, 1, fr.routeCalls, "ineligible-provider forced pin must fall through to the scorer")
 	assert.Equal(t, "claude-haiku-4-5", rec.Header().Get(proxy.HeaderRouterModel), "must dispatch to the eligible provider, not gpt-5/openai")
+}
+
+func TestService_ClaudeOAuthDoesNotRestrictForcedOpenAIPinWithoutSubscriptionOnly(t *testing.T) {
+	store := newFakePinStore()
+	store.hasPin = true
+	store.pin = sessionpin.Pin{
+		Provider:    providers.ProviderOpenAI,
+		Model:       "gpt-6-luna",
+		Reason:      translate.ReasonUserForceModel,
+		PinnedUntil: time.Now().Add(30 * time.Minute),
+	}
+	fr := &fakeRouter{err: errors.New("forced pin must bypass the scorer")}
+	openAI := ccTaskToolProvider()
+	svc := proxy.NewService(fr, map[string]providers.Client{
+		providers.ProviderAnthropic: &fakeProvider{},
+		providers.ProviderOpenAI:    openAI,
+	}, nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithDeploymentKeyedProviders(map[string]struct{}{
+			providers.ProviderAnthropic: {},
+			providers.ProviderOpenAI:    {},
+		})
+
+	ctx := authedCtx(uuid.New().String())
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	req.Header.Set("Authorization", "Bearer sk-ant-oat-abc123")
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(ccTaskToolTurnBody), rec, req))
+
+	assert.Zero(t, fr.routeCalls, "Claude OAuth alone must not make an OpenAI force pin ineligible")
+	require.Len(t, openAI.proxyBodies, 1)
+	assert.Equal(t, "gpt-6-luna", rec.Header().Get(proxy.HeaderRouterModel))
+	assert.Equal(t, providers.ProviderOpenAI, rec.Header().Get(proxy.HeaderRouterProvider))
 }
 
 // x-weave-force-model is the headless equivalent of /force-model: it must

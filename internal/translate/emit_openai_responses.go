@@ -28,6 +28,10 @@ func (e *RequestEnvelope) PrepareOpenAIResponses(in http.Header, opts EmitOption
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}
+	e, err = e.withUnambiguousReadPrefixes()
+	if err != nil {
+		return providers.PreparedRequest{}, err
+	}
 	var body []byte
 	var stats providers.RequestMutationStats
 	switch e.format {
