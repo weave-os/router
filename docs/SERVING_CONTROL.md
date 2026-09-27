@@ -104,6 +104,11 @@ decode a target whose current selection set is v2, so its admissions fail closed
 the first apply per target on image rollout, not on merge. After the first v2 apply on
 a target, reverting the binary is a one-way door for that target; the designed
 object-level rollback is a `scope: rollback` proposal, not a code revert.
+`scripts/serving_admission_check` requires a loopback `ROUTER_TEST_DATABASE_URL` and
+leaves no residue: it deletes the installation it created (whose cascades carry the
+keys, subject access, profile assignment, session bindings and request attribution)
+plus the credential subject those cascades leave behind, then re-counts those tables
+and fails if any fixture row survived.
 
 ## Manifest kinds
 

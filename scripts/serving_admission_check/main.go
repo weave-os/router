@@ -1,5 +1,9 @@
-// Command serving_admission_check exercises primary-database admission against an ephemeral fixture.
-// It refuses non-loopback databases and never logs routing credentials.
+// Command serving_admission_check exercises primary-database admission against a loopback fixture.
+// It refuses non-loopback databases, never logs routing credentials, and removes every fixture row
+// it wrote before returning, failing if any of them survives.
+//
+//	ROUTER_TEST_DATABASE_URL="postgres://router:router@127.0.0.1:5432/router?sslmode=disable&search_path=router" \
+//	  go run ./scripts/serving_admission_check
 package main
 
 import (
@@ -28,6 +32,31 @@ import (
 	"weave-os/router/internal/sqlc"
 )
 
+// databaseURLEnv gates the harness; it must name a loopback Postgres fixture.
+const databaseURLEnv = "ROUTER_TEST_DATABASE_URL"
+
+// fixture records every row the checks create so the run can remove them again.
+// The installation carries the cascades; a credential subject outlives them.
+type fixture struct {
+	installationID string
+	subjectIDs     []string
+}
+
+// fixtureTables enumerates the tables admission writes and how a row is scoped to this
+// run: $1 is the fixture installation, or the fixture subjects when subjectScoped.
+var fixtureTables = []struct {
+	table, scope  string
+	subjectScoped bool
+}{
+	{table: "router.model_router_installations", scope: "id = $1"},
+	{table: "router.model_router_api_keys", scope: "installation_id = $1"},
+	{table: "router.credential_subject_installations", scope: "installation_id = $1"},
+	{table: "router.installation_profile_assignments", scope: "installation_id = $1"},
+	{table: "router.session_release_bindings", scope: "installation_id = $1"},
+	{table: "router.serving_request_attribution", scope: "installation_id = $1"},
+	{table: "router.credential_subjects", scope: "id = ANY($1::uuid[])", subjectScoped: true},
+}
+
 func main() {
 	if err := run(); err != nil {
 		slog.Error("Serving admission integration failed", "err", err)
@@ -36,11 +65,19 @@ func main() {
 	slog.Info("Serving admission integration passed")
 }
 
-func run() error {
-	dsn := os.Getenv("ROUTER_TEST_DATABASE_URL")
+// fixtureDSN accepts only a loopback DSN; the harness holds no production credentials.
+func fixtureDSN(dsn string) (string, error) {
 	parsed, err := url.Parse(dsn)
 	if err != nil || dsn == "" || (parsed.Hostname() != "127.0.0.1" && parsed.Hostname() != "localhost" && parsed.Hostname() != "::1") {
-		return errors.New("ROUTER_TEST_DATABASE_URL must name an ephemeral loopback Postgres fixture")
+		return "", fmt.Errorf("%s must name a loopback Postgres fixture", databaseURLEnv)
+	}
+	return dsn, nil
+}
+
+func run() (runErr error) {
+	dsn, err := fixtureDSN(os.Getenv(databaseURLEnv))
+	if err != nil {
+		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
@@ -49,17 +86,27 @@ func run() error {
 		return err
 	}
 	defer pool.Close()
+	created := &fixture{}
+	// Removal runs on success and failure alike, on its own deadline so an
+	// exhausted check context cannot leave the rows behind.
+	defer func() { runErr = errors.Join(runErr, removeFixture(pool, created)) }()
+	return checkAdmission(ctx, pool, created)
+}
+
+func checkAdmission(ctx context.Context, pool *pgxpool.Pool, created *fixture) error {
 	repositories := postgres.NewRepository(pool, auth.NoOpEncryptor{})
 	externalID := "fixture_" + uuid.NewString()[:16]
 	installation, err := repositories.Installations.Create(ctx, auth.CreateInstallationParams{ExternalID: externalID, Name: "Serving admission fixture"})
 	if err != nil {
 		return err
 	}
+	created.installationID = installation.ID
 	control := postgres.NewCredentialSubjectRepo(pool)
 	personal, err := control.CreatePending(ctx, externalID, newKey(installation.ID))
 	if err != nil {
 		return err
 	}
+	created.subjectIDs = append(created.subjectIDs, personal.CredentialSubjectID)
 	shared, err := repositories.APIKeys.Create(ctx, newKey(installation.ID))
 	if err != nil {
 		return err
@@ -211,6 +258,57 @@ func run() error {
 	_, _, err = admissions.Admit(ctx, installation.ID, shared.ID, "conversation", decide)
 	if err != nil {
 		return fmt.Errorf("subject revocation affected shared credential: %w", err)
+	}
+	return nil
+}
+
+// removeFixture deletes the fixture installation (whose cascades carry keys, access,
+// profile assignment, bindings and attribution), then the subjects the cascades leave
+// behind, and fails if any scoped row survives.
+func removeFixture(pool *pgxpool.Pool, created *fixture) error {
+	if created.installationID == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	installationID, err := uuid.Parse(created.installationID)
+	if err != nil {
+		return err
+	}
+	subjectIDs := make([]uuid.UUID, 0, len(created.subjectIDs))
+	for _, id := range created.subjectIDs {
+		parsed, err := uuid.Parse(id)
+		if err != nil {
+			return err
+		}
+		subjectIDs = append(subjectIDs, parsed)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM router.model_router_installations WHERE id = $1`, installationID); err != nil {
+		return fmt.Errorf("remove fixture installation: %w", err)
+	}
+	if _, err := pool.Exec(ctx, `DELETE FROM router.credential_subjects WHERE id = ANY($1::uuid[])`, subjectIDs); err != nil {
+		return fmt.Errorf("remove fixture credential subjects: %w", err)
+	}
+	return checkNoFixtureResidue(ctx, pool, installationID, subjectIDs)
+}
+
+func checkNoFixtureResidue(ctx context.Context, pool *pgxpool.Pool, installationID uuid.UUID, subjectIDs []uuid.UUID) error {
+	residue := make([]string, 0, len(fixtureTables))
+	for _, probe := range fixtureTables {
+		var scope any = installationID
+		if probe.subjectScoped {
+			scope = subjectIDs
+		}
+		var remaining int64
+		if err := pool.QueryRow(ctx, "SELECT count(*) FROM "+probe.table+" WHERE "+probe.scope, scope).Scan(&remaining); err != nil {
+			return fmt.Errorf("count fixture residue in %s: %w", probe.table, err)
+		}
+		if remaining > 0 {
+			residue = append(residue, fmt.Sprintf("%s=%d", probe.table, remaining))
+		}
+	}
+	if len(residue) > 0 {
+		return fmt.Errorf("fixture rows survived cleanup: %s", strings.Join(residue, " "))
 	}
 	return nil
 }
