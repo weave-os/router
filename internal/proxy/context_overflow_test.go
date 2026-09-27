@@ -1,6 +1,9 @@
 package proxy_test
 
 import (
+	"context"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -108,4 +111,79 @@ func TestProxyOpenAIResponses_NonStreamingOverflowIsNativeError(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Equal(t, "context_length_exceeded", gjson.GetBytes(rec.Body.Bytes(), "error.code").String())
 	assert.Equal(t, "invalid_request_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+}
+
+// responsesOverflowClient answers the way OpenAI's Responses API does for an
+// over-window prompt: HTTP 200, then an in-stream error and response.failed.
+type responsesOverflowClient struct {
+	endpoints []providers.Endpoint
+}
+
+func (c *responsesOverflowClient) Proxy(_ context.Context, _ router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
+	c.endpoints = append(c.endpoints, prep.Endpoint)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	for _, payload := range []string{
+		`{"type":"response.created","response":{"id":"resp_1","status":"in_progress","output":[]},"sequence_number":0}`,
+		`{"type":"error","error":{"type":"invalid_request_error","code":"context_length_exceeded","message":"Your input exceeds the context window of this model. Please adjust your input and try again.","param":"input"},"sequence_number":1}`,
+		`{"type":"response.failed","response":{"id":"resp_1","status":"failed","error":{"code":"context_length_exceeded","message":"Your input exceeds the context window of this model. Please adjust your input and try again."},"output":[]},"sequence_number":2}`,
+	} {
+		if _, err := io.WriteString(w, "data: "+payload+"\n\n"); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *responsesOverflowClient) Passthrough(context.Context, providers.PreparedRequest, http.ResponseWriter, *http.Request) error {
+	return providers.ErrNotImplemented
+}
+
+// A GPT model reports an overflow inside a 200 stream. Translated for an
+// Anthropic or chat client it must still classify as a context overflow, so
+// the handler renders the native prompt-too-long rather than a generic 502.
+func TestCrossFormatResponsesOverflowClassifiesAsContextWindowExceeded(t *testing.T) {
+	ingresses := map[string]struct {
+		path  string
+		body  string
+		proxy func(*proxy.Service) func(context.Context, []byte, http.ResponseWriter, *http.Request) error
+	}{
+		"messages": {
+			path: "/v1/messages",
+			body: `{"model":"gpt-5-mini","max_tokens":1024,"stream":%t,"messages":[{"role":"user","content":"hi"}]}`,
+			proxy: func(s *proxy.Service) func(context.Context, []byte, http.ResponseWriter, *http.Request) error {
+				return s.ProxyMessages
+			},
+		},
+		"chat_completions": {
+			path: "/v1/chat/completions",
+			body: `{"model":"gpt-5-mini","max_tokens":1024,"stream":%t,"messages":[{"role":"user","content":"hi"}]}`,
+			proxy: func(s *proxy.Service) func(context.Context, []byte, http.ResponseWriter, *http.Request) error {
+				return s.ProxyOpenAIChatCompletion
+			},
+		},
+	}
+	for name, ingress := range ingresses {
+		for _, stream := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/stream=%t", name, stream), func(t *testing.T) {
+				upstream := &responsesOverflowClient{}
+				svc := proxy.NewService(
+					&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5-mini", Reason: "cluster"}},
+					map[string]providers.Client{providers.ProviderOpenAI: upstream},
+					nil, false, nil, newFakePinStore(), false, providers.ProviderOpenAI, "gpt-5-mini", nil,
+				)
+				rec := httptest.NewRecorder()
+				body := []byte(fmt.Sprintf(ingress.body, stream))
+				err := ingress.proxy(svc)(authedCtx(overflowInstallationID), body, rec, httptest.NewRequest(http.MethodPost, ingress.path, nil))
+
+				require.Error(t, err)
+				cls, ok := proxy.ClassifyDispatchError(err)
+				require.True(t, ok)
+				assert.Equal(t, proxy.DispatchErrorContextWindowExceeded, cls.Kind)
+				require.Equal(t, []providers.Endpoint{providers.EndpointResponses}, upstream.endpoints,
+					"served on the Responses API, and an overflow is not retried against the same window")
+				assert.NotContains(t, rec.Body.String(), "upstream Responses request failed")
+			})
+		}
+	}
 }

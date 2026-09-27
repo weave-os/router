@@ -48,6 +48,14 @@ const (
 // OpenCodeAgentHeader is the production OpenCode lifecycle header.
 const OpenCodeAgentHeader = "X-Weave-OpenCode-Agent"
 
+// OpenCodeSessionHeader carries OpenCode's own session id (ses_...), which
+// OpenCode core sends on every provider request without a Weave plugin.
+const OpenCodeSessionHeader = "X-OpenCode-Session"
+
+// OpenCodeParentSessionHeader names the parent session on OpenCode subagent
+// requests; a subagent runs in a child session with its own id.
+const OpenCodeParentSessionHeader = "X-Parent-Session-Id"
+
 // ParseOpenCodeAgent accepts only the known OpenCode agent values.
 func ParseOpenCodeAgent(raw string) OpenCodeAgent {
 	agent := OpenCodeAgent(strings.TrimSpace(raw))

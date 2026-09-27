@@ -50,7 +50,7 @@ Catalog prices are selected using `EstimatedInputTokens` before evaluating
 either model, so long-context input, output, read, and write rates stay aligned
 with billing.
 
-Evidence: `router-internal/eval/cache_eviction/` in the WorkWeave repo (E0-E6);
+Evidence: `router-internal/eval/cache_eviction/` in the Weave repo (E0-E6);
 `corrected_test.go` cross-validates the Go implementation against that harness's
 Python reference to 1e-9.
 

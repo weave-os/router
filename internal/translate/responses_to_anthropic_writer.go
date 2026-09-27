@@ -378,7 +378,7 @@ func (t *ResponsesToAnthropicWriter) translateResponsesEvent(raw []byte) error {
 	case "error":
 		// Stream-level failure over HTTP 200 — surface it as an Anthropic error
 		// event instead of closing the turn as if it succeeded.
-		return t.emitStreamErrorEvent(gjson.GetBytes(data, "code").String(), gjson.GetBytes(data, "message").String())
+		return t.emitStreamErrorEvent(responsesErrorEventFailure(data))
 	case "response.failed":
 		// Always an upstream failure; responsesError fills a generic message if
 		// no error object rode along, matching the buffered path's rejection.
@@ -805,6 +805,9 @@ func (t *ResponsesToAnthropicWriter) recordOpenAIUsage(usage gjson.Result) {
 // finalizeError renders a one-shot Anthropic error body. Streaming errors are
 // instead rendered by the dispatch's emitAnthropicSSEErrorEvent before Finalize.
 func (t *ResponsesToAnthropicWriter) finalizeError() error {
+	if err := bufferedContextOverflow(t.buf.Bytes(), responsesErrorBody); err != nil {
+		return err
+	}
 	errBody := t.anthropicErrorFromBuffer()
 	if !t.headersEmitted {
 		t.inner.Header().Set("Content-Type", "application/json")
@@ -832,31 +835,8 @@ func (t *ResponsesToAnthropicWriter) anthropicErrorFromBuffer() []byte {
 	if gjson.ValidBytes(b) && gjson.GetBytes(b, "error").Exists() {
 		return ResponsesToAnthropicError(b)
 	}
-	rest := b
-	for {
-		event, n := sse.SplitNext(rest)
-		if n == 0 {
-			break
-		}
-		rest = rest[n:]
-		_, data := sse.ParseEvent(event)
-		if len(data) == 0 {
-			continue
-		}
-		switch gjson.GetBytes(data, "type").String() {
-		case "error":
-			return responsesError(gjson.GetBytes(data, "code").String(), gjson.GetBytes(data, "message").String())
-		case "response.failed":
-			resp := gjson.GetBytes(data, "response")
-			errType, msg := responsesFailureFromResponse(resp)
-			return responsesError(errType, msg)
-		case "response.incomplete":
-			resp := gjson.GetBytes(data, "response")
-			if responsesTerminalIsFailure(resp) {
-				errType, msg := responsesFailureFromResponse(resp)
-				return responsesError(errType, msg)
-			}
-		}
+	if errType, msg, found := responsesSSEFailure(b); found {
+		return responsesError(errType, msg)
 	}
 	return responsesError("api_error", "upstream Responses stream ended without a terminal response event")
 }
@@ -944,13 +924,13 @@ func extractFinalResponseObject(sseBytes []byte) []byte {
 	var out []byte
 	rest := sseBytes
 	for {
-		event, n := sse.SplitNext(rest)
+		event, n := splitBufferedResponsesEvent(rest)
 		if n == 0 {
 			break
 		}
 		rest = rest[n:]
 		_, data := sse.ParseEvent(event)
-		if len(data) == 0 {
+		if len(data) == 0 || !gjson.ValidBytes(data) {
 			continue
 		}
 		switch gjson.GetBytes(data, "type").String() {
@@ -1159,7 +1139,7 @@ func (t *ResponsesToAnthropicWriter) emitStreamErrorEvent(errType, msg string) e
 	if !t.lifecycle.OutputStarted() {
 		t.closed = true
 		return &providers.UpstreamErrorResponse{
-			Status: http.StatusBadGateway,
+			Status: responsesFailureStatus(errType),
 			Body:   responsesErrorBody(errType, msg),
 		}
 	}

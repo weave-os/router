@@ -157,6 +157,23 @@ func TestGatewayPreservesBytesCredentialsAndStripsSpoofedAssertions(t *testing.T
 	assert.Equal(t, policyregistry.TargetStable, verified.Admission.Target)
 }
 
+func TestGatewayAdmitsOpenCodeNativeSessionAsParentConversation(t *testing.T) {
+	worker := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer worker.Close()
+	forwarder, admissions, _ := gatewayFixture(t, worker, nil, nil)
+	r := httptest.NewRequest(http.MethodPost, "http://gateway/v1/responses", strings.NewReader(`{"input":"hello"}`))
+	r.Header.Set(auth.RouterKeyHeader, "rk_credential")
+	r.Header.Set("X-App", "opencode")
+	r.Header.Set("X-OpenCode-Session", "ses_child")
+	r.Header.Set("X-Parent-Session-Id", "ses_parent")
+	w := httptest.NewRecorder()
+	forwarder.ServeHTTP(w, r)
+	require.Equal(t, http.StatusOK, w.Code)
+	assert.Equal(t, "ses_parent", admissions.seenConversation)
+}
+
 func TestGatewayStreamsBeforeCompletionAndPropagatesCancellation(t *testing.T) {
 	cancelled := make(chan struct{})
 	worker := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

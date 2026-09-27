@@ -141,8 +141,9 @@ func idleTimeoutFromEnv(envVar string, fallback time.Duration) time.Duration {
 }
 
 // DefaultResponseHeaderTimeout is the time-to-first-byte guard applied by
-// NewTransport. Streaming upstreams return headers immediately, so 30s is ample
-// for them; it only bites a non-streaming upstream that buffers a slow response.
+// NewTransport. Streaming does not imply early headers: some upstreams (e.g.
+// Anthropic) withhold them until prefill completes, so an adapter that can
+// carry very large prompts needs a wider guard for them.
 const DefaultResponseHeaderTimeout = 30 * time.Second
 
 // DefaultH2ReadIdleTimeout is how long a pooled HTTP/2 connection may sit

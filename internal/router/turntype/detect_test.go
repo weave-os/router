@@ -1,6 +1,7 @@
 package turntype_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -581,8 +582,9 @@ func TestDetectFromEnvelope_CodexTitleHintOverridesToolRegistry(t *testing.T) {
 		"the trusted native Codex shape must hard-pin even when the converted body carries tools")
 }
 
-// OpenCode's Responses turns carry no body fingerprint for title, sub-agent, or
-// compaction work; the plugin's typed lifecycle header is the only signal.
+// OpenCode's sub-agent and compaction turns carry no body fingerprint; the
+// plugin's typed lifecycle header is the only signal. The header also wins for
+// title turns whose body carries the tool registry.
 func TestDetect_OpenCodeAgent(t *testing.T) {
 	// Responses ingress converts to chat completions before classification.
 	const mainLoopBody = `{"model":"auto","stream":true,
@@ -617,7 +619,7 @@ func TestDetect_OpenCodeAgent(t *testing.T) {
 			env, err := translate.ParseOpenAI([]byte(tc.body))
 			require.NoError(t, err)
 			feats := env.RoutingFeatures(false)
-			assert.Equal(t, tc.want, turntype.Detect(env, feats, "", tc.agent))
+			assert.Equal(t, tc.want, turntype.Detect(env, feats, "", turntype.OpenCodeCaller{IsClient: true, Agent: tc.agent}))
 			if tc.agent == "" {
 				assert.Equal(t, tc.want, turntype.DetectFromEnvelope(env, feats, ""))
 			}
@@ -629,5 +631,115 @@ func TestDetect_OpenCodeAgentDoesNotOverrideProbe(t *testing.T) {
 	env, err := translate.ParseOpenAI([]byte(`{"model":"auto","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`))
 	require.NoError(t, err)
 	feats := env.RoutingFeatures(false)
-	assert.Equal(t, turntype.Probe, turntype.Detect(env, feats, "", requestcontext.OpenCodeAgentTitle))
+	assert.Equal(t, turntype.Probe, turntype.Detect(env, feats, "", turntype.OpenCodeCaller{IsClient: true, Agent: requestcontext.OpenCodeAgentTitle}))
+}
+
+// OpenCode 2.x does not load the lifecycle plugin, so its title call arrives
+// with no X-Weave-OpenCode-Agent header and must be recognized from the body.
+func TestDetect_OpenCodeTitlePromptWithoutHeader(t *testing.T) {
+	const titlePrompt = "You are a title generator. You output ONLY a thread title. Nothing else.\n\n<task>\nGenerate a brief title that would help the user find this conversation later."
+	prompt, err := json.Marshal(titlePrompt)
+	require.NoError(t, err)
+	p := string(prompt)
+	const tools = `"tools":[{"type":"function","name":"bash","parameters":{"type":"object"}}],`
+	openCode := turntype.OpenCodeCaller{IsClient: true}
+	tests := []struct {
+		name string
+		body string
+		want turntype.TurnType
+	}{
+		{
+			name: "2.x shape: system prompt and the first user prompt",
+			body: `{"model":"auto","stream":true,"input":[
+				{"role":"system","content":` + p + `},
+				{"role":"user","content":[{"type":"input_text","text":"who are you?"}]}]}`,
+			want: turntype.TitleGen,
+		},
+		{
+			name: "1.x shape: a generate-title user turn before the first prompt",
+			body: `{"model":"auto","stream":true,"input":[
+				{"role":"system","content":` + p + `},
+				{"role":"user","content":"Generate a title for this conversation: "},
+				{"role":"user","content":"fix the flaky auth test"}]}`,
+			want: turntype.TitleGen,
+		},
+		{
+			name: "2.x retitle of a session that already has content",
+			body: `{"model":"auto","stream":true,"input":[
+				{"role":"system","content":` + p + `},
+				{"role":"user","content":"Original request:\nfix the flaky auth test\nRecent conversation:\nuser: it still fails"}]}`,
+			want: turntype.TitleGen,
+		},
+		{
+			name: "prompt delivered as instructions",
+			body: `{"model":"auto","stream":true,"instructions":` + p + `,"input":"who are you?"}`,
+			want: turntype.TitleGen,
+		},
+		{
+			name: "prompt delivered as a developer message",
+			body: `{"model":"auto","stream":true,"input":[
+				{"role":"developer","content":` + p + `},
+				{"role":"user","content":"who are you?"}]}`,
+			want: turntype.TitleGen,
+		},
+		{
+			name: "same prompt with a tool registry stays main_loop",
+			body: `{"model":"auto","stream":true,` + tools + `"input":[
+				{"role":"system","content":` + p + `},
+				{"role":"user","content":"who are you?"}]}`,
+			want: turntype.MainLoop,
+		},
+		{
+			name: "user pasting the title prompt under a normal system prompt stays main_loop",
+			body: `{"model":"auto","stream":true,"input":[
+				{"role":"system","content":"You are an AI agent running in OpenCode."},
+				{"role":"user","content":` + p + `}]}`,
+			want: turntype.MainLoop,
+		},
+		{
+			name: "title prompt with an assistant turn in the window stays main_loop",
+			body: `{"model":"auto","stream":true,"input":[
+				{"role":"system","content":` + p + `},
+				{"role":"user","content":"who are you?"},
+				{"role":"assistant","content":"Identity question"}]}`,
+			want: turntype.MainLoop,
+		},
+		{
+			name: "title prompt heading a longer conversation stays main_loop",
+			body: `{"model":"auto","stream":true,"input":[
+				{"role":"system","content":` + p + `},
+				{"role":"user","content":"one"},
+				{"role":"user","content":"two"},
+				{"role":"user","content":"three"}]}`,
+			want: turntype.MainLoop,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			chat, _, _, err := translate.ResponsesToChatCompletions([]byte(tc.body))
+			require.NoError(t, err)
+			env, err := translate.ParseOpenAI(chat)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, turntype.Detect(env, env.RoutingFeatures(false), "", openCode))
+		})
+	}
+
+	t.Run("anthropic system prompt is title_gen", func(t *testing.T) {
+		env, err := translate.ParseAnthropic([]byte(`{"model":"auto","max_tokens":32000,"system":` + p + `,
+			"messages":[{"role":"user","content":"who are you?"}]}`))
+		require.NoError(t, err)
+		assert.Equal(t, turntype.TitleGen, turntype.Detect(env, env.RoutingFeatures(false), "", openCode))
+	})
+
+	t.Run("the same body from another client stays main_loop", func(t *testing.T) {
+		chat, _, _, err := translate.ResponsesToChatCompletions([]byte(`{"model":"auto","stream":true,"input":[
+			{"role":"system","content":` + p + `},
+			{"role":"user","content":"who are you?"}]}`))
+		require.NoError(t, err)
+		env, err := translate.ParseOpenAI(chat)
+		require.NoError(t, err)
+		feats := env.RoutingFeatures(false)
+		assert.Equal(t, turntype.MainLoop, turntype.Detect(env, feats, "", turntype.OpenCodeCaller{}))
+		assert.Equal(t, turntype.MainLoop, turntype.DetectFromEnvelope(env, feats, ""))
+	})
 }
