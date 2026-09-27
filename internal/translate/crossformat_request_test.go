@@ -2306,8 +2306,7 @@ func TestCrossFormat_OpenAIToAnthropic_ToolChoiceVariants(t *testing.T) {
 }
 
 // TestCrossFormat_AnthropicToOpenAI_ToolChoiceVariants covers the Anthropic ->
-// OpenAI chat-completions tool_choice mapping. Anthropic's "none" has no
-// direct chat-completions equivalent and is intentionally left unmapped.
+// OpenAI chat-completions tool_choice mapping, including "none".
 func TestCrossFormat_AnthropicToOpenAI_ToolChoiceVariants(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -2316,6 +2315,7 @@ func TestCrossFormat_AnthropicToOpenAI_ToolChoiceVariants(t *testing.T) {
 	}{
 		{"auto", `{"type":"auto"}`, "auto"},
 		{"any", `{"type":"any"}`, "required"},
+		{"none", `{"type":"none"}`, "none"},
 		{"tool", `{"type":"tool","name":"Bash"}`, map[string]any{"type": "function", "function": map[string]any{"name": "Bash"}}},
 	}
 	for _, tc := range cases {

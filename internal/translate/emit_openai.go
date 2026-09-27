@@ -865,6 +865,9 @@ func writeOpenAIToolChoiceFromAnthropic(jw *jsonWriter, body []byte) {
 	case toolChoiceRequired:
 		jw.Key("tool_choice")
 		jw.Str("required")
+	case toolChoiceNone:
+		jw.Key("tool_choice")
+		jw.Str("none")
 	case toolChoiceNamed:
 		inner := newJSONWriter()
 		inner.Obj()
