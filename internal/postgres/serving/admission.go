@@ -79,14 +79,14 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 		if err := auth.ValidateCredentialSubject(key, subject); err != nil {
 			return err
 		}
-		projection := policyregistry.AdmissionProjection{Target: policyregistry.TargetStable}
+		lane, err := queries.GetServingInstallationLaneEnrollment(ctx, installationUUID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		projection := enrollmentProjection(lane, subject)
 		identity := apiKeyID
 		if subject != nil {
 			identity = subject.ID
-			projection.EnrollmentGeneration = subject.EnrollmentGeneration
-			if subject.InternalEnrolled {
-				projection.Target = policyregistry.TargetInternal
-			}
 		}
 		if r.environment == policyregistry.EnvironmentStaging {
 			projection.Target = policyregistry.TargetStaging
@@ -221,4 +221,20 @@ func subscriberPlanProjection(planValue string, version int64) (policyregistry.A
 		EntitlementVersion:   version,
 		AssignmentGeneration: version,
 	}, nil
+}
+
+// enrollmentProjection routes to the internal lane when either the installation or the subject is enrolled.
+// Both generations only ever increase, so their sum changes whenever either enrollment flips.
+func enrollmentProjection(lane sqlc.GetServingInstallationLaneEnrollmentRow, subject *auth.CredentialSubject) policyregistry.AdmissionProjection {
+	projection := policyregistry.AdmissionProjection{Target: policyregistry.TargetStable, EnrollmentGeneration: lane.EnrollmentGeneration}
+	if lane.InternalEnrolled {
+		projection.Target = policyregistry.TargetInternal
+	}
+	if subject != nil {
+		projection.EnrollmentGeneration += subject.EnrollmentGeneration
+		if subject.InternalEnrolled {
+			projection.Target = policyregistry.TargetInternal
+		}
+	}
+	return projection
 }

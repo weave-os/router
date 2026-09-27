@@ -41,6 +41,10 @@ func (e *RequestEnvelope) PrepareGemini(_ http.Header, opts EmitOptions) (provid
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}
+	e, err = e.withUnambiguousReadPrefixes()
+	if err != nil {
+		return providers.PreparedRequest{}, err
+	}
 	// Strip synthetic top-level "model" and "stream" — belonging to routing, not Gemini.
 	if e.format == FormatGemini {
 		body := e.body

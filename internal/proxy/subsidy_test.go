@@ -9,13 +9,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/subscriptions/entitlement"
 )
 
 // The subsidy must recognize a subscription presented via the inbound
 // Authorization bearer (Claude Code's sk-ant-oat…, Codex CLI's JWT+account-id on
-// their native harnesses), not only via the dedicated X-Weave-*-Subscription
+// their native harnesses), not only via a router-keyed context
 // headers (opencode). Otherwise the discount would be opencode-only.
 func TestPresentSubscriptionTokens_InboundBearerHarnesses(t *testing.T) {
 	t.Run("claude code: sk-ant-oat in Authorization", func(t *testing.T) {
@@ -42,7 +44,7 @@ func TestPresentSubscriptionTokens_InboundBearerHarnesses(t *testing.T) {
 		assert.Empty(t, codex, "the Codex backend needs the account-id; no pairing = no sub")
 	})
 
-	t.Run("no subscription headers: both empty", func(t *testing.T) {
+	t.Run("no subscription credentials: both empty", func(t *testing.T) {
 		codex, anthro := presentSubscriptionTokens(context.Background(), http.Header{})
 		assert.Empty(t, codex)
 		assert.Empty(t, anthro)
@@ -140,4 +142,18 @@ func TestSubsidyFactors_DisabledForInstallation(t *testing.T) {
 	ctx := context.WithValue(context.Background(), InstallationSubscriptionRoutingDisabledContextKey{}, true)
 	assert.Nil(t, s.subsidyFactors(ctx, h),
 		"subscription routing disabled → no subsidy bonus, route on merits")
+}
+
+func TestPresentSubscriptionTokens_MaxProductScopeReportsNone(t *testing.T) {
+	h := http.Header{}
+	h.Set("Authorization", "Bearer sk-ant-oat01-live-token")
+	ctx := entitlement.WithProductScope(context.Background(), entitlement.PlanMax)
+
+	codex, anthro := presentSubscriptionTokens(ctx, h)
+	assert.Empty(t, anthro)
+	assert.Empty(t, codex)
+	assert.False(t, RequestPresentsCoveringSubscription(ctx, h, routePathMessages))
+
+	enrolled := context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+	assert.False(t, RequestPresentsCoveringSubscription(enrolled, http.Header{}, routePathMessages))
 }

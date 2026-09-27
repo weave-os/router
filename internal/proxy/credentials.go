@@ -105,21 +105,11 @@ func ExtractClientCredentials(provider string, headers http.Header) *Credentials
 }
 
 func subscriptionCredsFromToken(token string) *Credentials {
-	return requestcontext.SubscriptionCredsFromToken(token)
+	return requestcontext.SubscriptionCredsFromToken(strings.TrimSpace(token))
 }
 
 func codexSubscriptionCreds(token, accountID string) *Credentials {
 	return requestcontext.CodexSubscriptionCreds(token, accountID)
-}
-
-// subscriptionCredsFromHeaderValue resolves the X-Weave-Anthropic-Subscription
-// header into subscription credentials, or nil if empty/router-keyed/invalid.
-func subscriptionCredsFromHeaderValue(sub string) *Credentials {
-	sub = strings.TrimSpace(sub)
-	if sub == "" || auth.HasAPIKeyPrefix(sub) {
-		return nil
-	}
-	return subscriptionCredsFromToken(sub)
 }
 
 // clearCredentials sets an explicit nil so CredentialsFromContext reports

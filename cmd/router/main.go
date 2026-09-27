@@ -865,7 +865,6 @@ func main() {
 	handoverModel := config.GetOr("ROUTER_HANDOVER_MODEL", policy.HandoverSummaryDefaultModel)
 	handoverTimeout := parseEnvDurationMs("ROUTER_HANDOVER_TIMEOUT_MS", proxy.DefaultHandoverTimeout)
 	compactionTimeout := parseEnvDurationMs("ROUTER_COMPACTION_TIMEOUT_MS", proxy.DefaultCompactionTimeout)
-	compactionPct := parseEnvFloat("ROUTER_COMPACTION_PCT", proxy.DefaultCompactionTriggerPct)
 	compactionModel, err := resolveCompactionModel(handoverProviderName)
 	if err != nil {
 		logger.Error("Invalid compaction model configuration; refusing to boot", "err", err)
@@ -945,10 +944,6 @@ func main() {
 	// Kept as the interface type: a typed-nil *ProviderSummarizer would defeat
 	// the orchestrator's `!= nil` check.
 	var summarizer handover.Summarizer
-	// compactionSz stays a true-nil interface unless the summarizer provider is
-	// registered, so the Service's nil-check disables Tier-3 correctly (a
-	// typed-nil concrete pointer would defeat it).
-	var compactionSz proxy.CompactionSummarizer
 	var compactionHandoverSz handover.Summarizer
 	if _, ok := providerMap[handoverProviderName]; ok {
 		ps := proxy.NewProviderSummarizer(inferencePlans, inferenceExecutor, handoverProviderName, handoverModel, handoverTimeout).
@@ -956,7 +951,6 @@ func main() {
 			WithCompactionTimeout(compactionTimeout)
 		summarizer = ps
 		compactionHandoverSz = ps.CompactionHandover()
-		compactionSz = ps
 		logger.Info("Handover summarizer wired", "provider", handoverProviderName, "model", handoverModel, "timeout_ms", handoverTimeout.Milliseconds(), "compaction_timeout_ms", compactionTimeout.Milliseconds())
 	} else {
 		logger.Info("Handover summarizer disabled (provider not registered); switch turns will preserve full history instead", "requested_provider", handoverProviderName)
@@ -1328,7 +1322,6 @@ func main() {
 		WithSummarizer(summarizer).
 		WithCompactionHandoverSummarizer(compactionHandoverSz).
 		WithWebSearchExecutor(cortexWebSearch(logger)).
-		WithCompaction(compactionSz, compactionPct).
 		WithCompactionModel(compactionModel).
 		WithCompactionHardPin(compactionHardPin).
 		WithAvailableModels(servedModels).

@@ -15,6 +15,8 @@ func TestAddCodexAutomaticModel_PreservesNativeCatalog(t *testing.T) {
 	assert.Equal(t, "catalog-v2", gjson.GetBytes(merged, "etag").String())
 	assert.Equal(t, "gpt-6-astra", gjson.GetBytes(merged, "models.1.slug").String())
 	assert.Equal(t, CodexAutomaticModel, gjson.GetBytes(merged, "models.2.slug").String())
+	assert.Equal(t, "Weave Router", gjson.GetBytes(merged, "models.2.display_name").String())
+	assert.Equal(t, "Automatically chooses the best model", gjson.GetBytes(merged, "models.2.description").String())
 	assert.Equal(t, "list", gjson.GetBytes(merged, "models.2.visibility").String())
 	assert.Equal(t, "max", gjson.GetBytes(merged, "models.2.supported_reasoning_levels.0.effort").String())
 	assert.Equal(t, int64(272000), gjson.GetBytes(merged, "models.2.context_window").Int())

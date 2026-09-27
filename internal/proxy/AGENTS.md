@@ -37,13 +37,11 @@ The per-action flow is more than "scorer → dispatch". Pinned session, planner 
 
 The provider-backed `Summarizer` implementation for handover lives in [`handover.go`](handover.go); the inner-ring `handover` package only defines the contract. On summarizer timeout or error, proxy keeps the full prior history unchanged (it does **not** trim) — a pricier switch action beats silently dropping the conversation the switched-to model needs.
 
-## Proactive context-window compaction
+## Context-window overflow
 
-`ProxyMessages` / `ProxyOpenAIChatCompletion` / `ProxyGeminiGenerateContent` call [`maybeCompact`](compaction.go) before routing. At `ROUTER_COMPACTION_PCT` (default 0.85) of the largest eligible context window, the cascade clears old tool results, attempts a structured Anthropic summary, then progressively trims. It returns `ErrContextWindowExceeded` (HTTP 413) if the trimmed history still cannot fit. Summary inference is billed separately as `_precompaction_summary`.
+The router never rewrites client history to make it fit. Every supported harness compacts itself, and it can only do so when the router forwards history untouched and reports the served request's real usage. The context pre-filter (`excludeContextOverflowModels`) drops models whose window the estimate exceeds, but when that would leave nothing routable, `admitWidestOnTotalOverflow` keeps the largest-window models so the upstream decides (the ÷4 estimate overcounts). A genuine overflow, router-declared (`ErrContextWindowExceeded`) or an upstream rejection (`isUpstreamContextOverflow`, any provider's shape), classifies as `DispatchErrorContextWindowExceeded` and reaches each client in its native shape: Anthropic 400 `invalid_request_error` with `prompt is too long…`; OpenAI 400 with `code: context_length_exceeded`; Responses streaming as an in-stream `response.failed` with that code (the only shape Codex compacts on), non-streaming as the 400; Gemini 400 `INVALID_ARGUMENT`. Flush helpers leave overflows to the ingress handler, and in-stream error frames carry the same class once a prelude is committed.
 
-Summary selection tries the active Anthropic session family, `ROUTER_COMPACTION_MODEL` (default `claude-sonnet-5`), then the large-window `claude-opus-5` family. Each resolves to its newest eligible catalog version using numeric family/version comparison; model variants stay separate. Selection honors context fit and model exclusions. Auxiliary summaries use their dedicated Anthropic client independently of the ordinary routing pool. Claude Code defers to its own compaction when a supported per-request harness default is known and the pool can serve it; other harnesses use the router cascade. Native Responses bytes are not rewritten.
-
-Harness-issued Claude Code/Codex compaction turns are never proactively rewritten. Claude Code currently selects a direct-Anthropic session/default family; Codex may select its last served non-Anthropic family from the active pin or HMM history. These choices also upgrade within the family and honor deployment availability, provider availability, and request exclusions. Client identity must be populated before this branch. An explicit `ROUTER_HARD_PIN_MODEL` retains the generic exact override. Reusing a family or upgrading its version does not guarantee a warm prompt cache.
+Harness-issued Claude Code/Codex compaction turns are pinned to a model that can read the whole history. Claude Code currently selects a direct-Anthropic session/default family; Codex may select its last served non-Anthropic family from the active pin or HMM history. These choices also upgrade within the family and honor deployment availability, provider availability, and request exclusions. Client identity must be populated before this branch. An explicit `ROUTER_HARD_PIN_MODEL` retains the generic exact override. Reusing a family or upgrading its version does not guarantee a warm prompt cache.
 
 Client budget evidence and the initial resumed-turn recovery policy live in [`client_budget.go`](client_budget.go) / [`client_compaction.go`](client_compaction.go). Inbound 1M beta alone is ambiguous; private client thresholds are not observable.
 
@@ -192,7 +190,7 @@ payload, `max_tokens=64`, `thinking: disabled`), so `isUnpinnedScoredTurn`
 sends it through `routeWithoutPin`: the scorer picks for its shape, `/force-model`
 still wins, and no session pin is read or written — an anchored pin here would
 leak into the conversation that follows, and the conversation's pin was not
-scored for this prompt. Proactive compaction and routing markers skip it too:
+scored for this prompt. Routing markers skip it too:
 the transcript is the thing being graded, and the verdict is machine-parsed.
 Hard-pinning it to a Gemini 3.x model truncated 99.5% of verdicts on
 `maxOutputTokens=64` (always-on thinking eats the budget; the emitters now floor

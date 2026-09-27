@@ -452,7 +452,7 @@ func TestBypass_LocalPrepError_PropagatesToClient(t *testing.T) {
 }
 
 // subscriptionCtx returns a ctx carrying a Claude subscription token (as the
-// auth middleware would stash it from X-Weave-Anthropic-Subscription) plus a
+// auth middleware would stash it) plus a
 // non-empty installation id so resolveAndInjectCredentials takes the
 // router-keyed subscription-first branch.
 func subscriptionCtx() context.Context {
