@@ -1,0 +1,21 @@
+install/pi-router/test/responses_fixture.py
+  s_980914d43580db::t_9568b20e055737 77
+install/tests/opencode_install_test.sh
+  s_980914d43580db::t_5be32c12f386e2 63-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ac335e51ea57aa9188f5575df989b554d1d61d73",
+  "prompts": {},
+  "sessions": {
+    "s_980914d43580db": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ae5ab8c5-50a9-4ae6-930a-ff22188bfb75",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
