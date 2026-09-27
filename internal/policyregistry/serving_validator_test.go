@@ -186,7 +186,6 @@ func TestActivationMemoizesDestinationAttestationsPerRevisionBinding(t *testing.
 	base := store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease)
 	set.Profiles[profileKeyOne] = registerProfileFixture(t, store, set.Default, profileKeyOne, base.Policy)
 	set.Profiles[profileKeyTwo] = registerProfileFixture(t, store, set.Default, profileKeyTwo, base.Policy)
-	store.publish(t, policyregistry.ServingSelectionSets, set)
 	lanes := preparedLanes(t, store, set)
 	require.Len(t, lanes, 3)
 	for _, lane := range lanes[1:] {
@@ -206,8 +205,8 @@ func TestActivationMemoizesDestinationAttestationsPerRevisionBinding(t *testing.
 	var audit bytes.Buffer
 	controller, err := policyregistry.NewServingController(store, unmemoized, func() time.Time { return servingEpoch }, slog.New(slog.NewJSONHandler(&audit, nil)))
 	require.NoError(t, err)
-	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
-	preparation, err := controller.Prepare(context.Background(), store.publish(t, policyregistry.ServingProposals, proposal))
+	proposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	preparation, err := controller.Prepare(context.Background(), store.publishArtifact(t, policyregistry.ServingProposal, proposal))
 	require.NoError(t, err)
 	require.True(t, preparation.Prepared)
 	require.Equal(t, 1, endpoints.classifierCalls, "lanes sharing one classifier revision are attested once per activation")
@@ -222,7 +221,7 @@ func TestActivationMemoizesDestinationAttestationsPerRevisionBinding(t *testing.
 	// A second activation re-attests: the memo never outlives one validation.
 	endpoints.classifierCalls = 0
 	proposal.RequestID = uuid.NewString()
-	_, err = controller.Prepare(context.Background(), store.publish(t, policyregistry.ServingProposals, proposal))
+	_, err = controller.Prepare(context.Background(), store.publishArtifact(t, policyregistry.ServingProposal, proposal))
 	require.NoError(t, err)
 	require.Equal(t, 1, endpoints.classifierCalls)
 }
@@ -264,13 +263,12 @@ func TestBlockedActivationLogsPartialDestinationValidation(t *testing.T) {
 	store, _, set := controllerFixture(t)
 	base := store.object(t, policyregistry.ServingReleases, set.Default.Release).(*policyregistry.ServingRelease)
 	set.Profiles[profileKeyOne] = registerProfileFixture(t, store, set.Default, profileKeyOne, base.Policy)
-	store.publish(t, policyregistry.ServingSelectionSets, set)
 	var audit bytes.Buffer
 	validator := policyregistry.DestinationValidator{Endpoints: &flakyDestinationEndpoints{}}
 	controller, err := policyregistry.NewServingController(store, validator, func() time.Time { return servingEpoch }, slog.New(slog.NewJSONHandler(&audit, nil)))
 	require.NoError(t, err)
-	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
-	_, err = controller.Prepare(context.Background(), store.publish(t, policyregistry.ServingProposals, proposal))
+	proposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	_, err = controller.Prepare(context.Background(), store.publishArtifact(t, policyregistry.ServingProposal, proposal))
 	require.Error(t, err)
 
 	entry := destinationValidationEntry(t, &audit)
@@ -285,9 +283,9 @@ func TestAttestedLanesStayAttestedWhenAProposalCheckRejects(t *testing.T) {
 	var audit bytes.Buffer
 	controller, err := policyregistry.NewServingController(store, policyregistry.DestinationValidator{Endpoints: endpoints}, func() time.Time { return servingEpoch }, slog.New(slog.NewJSONHandler(&audit, nil)))
 	require.NoError(t, err)
-	proposal := fixtureProposal(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	proposal := storedProposal(t, store, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
 	proposal.Scope = policyregistry.ChangeRoster
-	_, err = controller.Prepare(context.Background(), store.publish(t, policyregistry.ServingProposals, proposal))
+	_, err = controller.Prepare(context.Background(), store.publishArtifact(t, policyregistry.ServingProposal, proposal))
 	require.ErrorContains(t, err, "bootstrap requires a full release proposal")
 
 	entry := destinationValidationEntry(t, &audit)
