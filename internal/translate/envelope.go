@@ -1498,3 +1498,15 @@ func defaultAnthropicOutputTokens(model string, capabilities router.ModelSpec) i
 	}
 	return floored
 }
+
+// setMessages writes rebuilt back to the "messages" array and returns ret on
+// success, 0 on marshal failure. Shared by the Anthropic/OpenAI message-array
+// rewriters.
+func (e *RequestEnvelope) setMessages(rebuilt []string, ret int) int {
+	out, err := sjson.SetRawBytes(e.body, "messages", []byte("["+strings.Join(rebuilt, ",")+"]"))
+	if err != nil {
+		return 0
+	}
+	e.body = out
+	return ret
+}

@@ -105,12 +105,3 @@ func TestClientBudgetRecomputedAcrossSameSessionAndAgents(t *testing.T) {
 	assert.Zero(t, requestcontext.ClientBudgetFrom(child).DefaultWindow)
 	assert.Equal(t, 200_000, requestcontext.ClientBudgetFrom(parent).DefaultWindow)
 }
-
-func TestClientWouldCompactUsesClientRatherThanProviderWindow(t *testing.T) {
-	cc := compactionPolicyFor(ClientAppClaudeCode)
-	assert.True(t, clientWouldCompact(cc, smallClientBudget(), 200_000), "Fable provider capacity must not turn this into a 1M client")
-	largeWindowBudget := resolveClientBudget(ClientIdentity{ClientApp: ClientAppClaudeCode, UserAgent: budgetTestUserAgent}, nil, budgetTestFable, true)
-	assert.False(t, clientWouldCompact(cc, largeWindowBudget, 200_000))
-	assert.True(t, clientWouldCompact(cc, largeWindowBudget, 1_000_000))
-	assert.False(t, clientWouldCompact(cc, router.ClientBudget{}, 1_000_000))
-}

@@ -144,12 +144,14 @@ providers, and unrelated settings stay untouched.
 
 Run `npx @weave-os/router --codex` again to enable native `/model` selection on
 an existing install, then restart Codex. `/model` shows the models available to
-your active ChatGPT login plus **Weave Router (automatic)**. Selecting a named
-model forces that model for each request, and Codex's selected reasoning effort
-is sent with it. Selecting **Weave Router (automatic)** returns to Weave's
-per-request routing. An existing `$fm` session pin still takes precedence in
-automatic mode; clear it with `$ufm` to resume automatic routing. The native
-selection itself does not write a persistent `$fm` pin.
+your active ChatGPT login plus **Weave Router**. Switching to a named model with
+`/model` during a session forces that model for each request from then on, and
+Codex's selected reasoning effort is sent with it. The model a session launches
+with (from `config.toml` or an SDK thread option) is only a baseline and still
+routes automatically. Selecting **Weave Router** returns to Weave's per-request
+routing. An existing `$fm` session pin still takes precedence in automatic
+mode; clear it with `$ufm` to resume automatic routing. The native selection
+itself does not write a persistent `$fm` pin.
 
 `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, and `gpt-6-sol` can use the
 active ChatGPT OAuth plan. Other OpenAI, Anthropic, Gemini, and
@@ -420,6 +422,14 @@ npx @weave-os/router status --codex     # report whether Codex is on the router 
 npx @weave-os/router disable-routing    # switch Codex back to its default provider
 npx @weave-os/router off --opencode --scope project   # project-scoped opencode
 ```
+
+A real `off`/`on` transition (and an uninstall) tells the install's router
+about it with one authenticated `POST /v1/client-events`, so the router can log
+and export a lifecycle span. It is fail-open on purpose: the local change has
+already been applied, the ping runs detached with a two-second timeout, and an
+unreachable router — often the reason for turning routing off — never changes
+the result. Nothing is sent for a no-op (`already off`, not installed) or for
+`status`, and the endpoint/key trust gate is the same one `models` uses.
 
 Inside Claude Code you can also run the slash commands `/router-off`,
 `/router-on`, `/router-status`, and `/router-session` (which prints the

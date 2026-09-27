@@ -180,6 +180,12 @@ type Request struct {
 	// consults this so policy exclusions don't block pass-through, but physical
 	// constraints still do.
 	SafetyExcludedModels map[string]struct{}
+	// ContextWindowExcludedModels is the subset of ExcludedModels that only the
+	// context-window pre-filter's byte-based estimate ruled out: never
+	// policy-excluded, admitted-on-total-overflow, or gemini-unsigned models.
+	// A /force-model pin on one of these is still dispatched, so the provider's
+	// exact token count decides instead of the estimate.
+	ContextWindowExcludedModels map[string]struct{}
 	// AutomaticExcludedModels is the deployment-wide set Weave has withdrawn
 	// from AUTOMATIC selection. Deliberately not folded into ExcludedModels:
 	// that set is hard (it also rejects an explicit /force-model pin), whereas

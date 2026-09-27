@@ -175,8 +175,7 @@ func TestService_AgentShadowEvaluationForcesEphemerallyWithoutServingRouter(t *t
 		providers.ProviderAnthropic: provider,
 	}, nil, false, nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
-		WithAvailableModels(map[string]struct{}{"claude-opus-4-8": {}}).
-		WithCompaction(nil, 0.0001)
+		WithAvailableModels(map[string]struct{}{"claude-opus-4-8": {}})
 
 	ctx := context.WithValue(context.Background(), proxy.AgentShadowEvalContextKey{}, proxy.AgentShadowEvaluation{
 		Model: "CLAUDE-OPUS-4-8", RolloutID: "pilot-1", StateID: "state-1",
@@ -1476,8 +1475,8 @@ func TestService_CodexPassthrough_RoutesFreelyWithBothSubs(t *testing.T) {
 	svc := proxy.NewService(fr, providerMap, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-sonnet-4-6", nil).
 		WithByokOnly(true)
 
-	// Both subscriptions presented via the dedicated headers (stashed on ctx by
-	// the auth middleware): a Codex sub (token + account-id) and a Claude sub.
+	// Both subscriptions presented on the authenticated request: a Codex sub
+	// (token + account-id) and a Claude sub.
 	ctx := context.WithValue(context.Background(), proxy.OpenAISubscriptionContextKey{}, "eyJhbGciOiJSUzI1NiJ9.codex.sig")
 	ctx = context.WithValue(ctx, proxy.OpenAIAccountIDContextKey{}, "acct-123")
 	ctx = context.WithValue(ctx, proxy.AnthropicSubscriptionContextKey{}, "sk-ant-oat01-subscription-token")

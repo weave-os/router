@@ -104,9 +104,11 @@ Four install targets:
   block plus `model_provider = "weave"`. Fresh installs select `weave-auto`,
   while reinstalling preserves an existing model choice. The provider preserves
   the active ChatGPT OAuth login. No install pins `X-Weave-Router-Strategy`;
-  every endpoint keeps its router's configured default. Codex's native
-  `/model` picker can force a named model and its selected reasoning effort;
-  **Weave Router (automatic)** resumes per-request routing. An existing `$fm`
+  every endpoint keeps its router's configured default. Switching models with
+  Codex's native `/model` picker mid-session forces the named model and its
+  selected reasoning effort; the model a session launches with stays a
+  baseline that routes automatically, and selecting **Weave Router** resumes
+  per-request routing. An existing `$fm`
   session pin still applies in automatic mode until `$ufm` clears it. Re-run
   `npx @weave-os/router --codex` and restart Codex to enable this on an older
   install. `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, and `gpt-6-sol`
@@ -129,9 +131,11 @@ Four install targets:
   `~/.config/opencode/opencode.json` (or `<repo>/opencode.json` with
   `--scope project`). Installation activates `weave/auto` and parks any prior
   default model so `off` and uninstall can restore it exactly. The bundled
-  plugin can attach ChatGPT and Claude plan credentials to the matching routed
-  turns. Re-install rewrites only the managed provider; unrelated providers,
-  MCP servers, agents, and plugins stay untouched.
+  plugin supplies OpenCode lifecycle, classifier, and directive hooks; managed
+  subscription enrollment is handled by `npx @weave-os/router login claude`
+  or `login codex`, not request headers. Re-install rewrites only the managed
+  provider and plugin entry; unrelated providers, MCP servers, agents, and
+  plugins stay untouched.
 - **pi** (`--pi`) — registers the `weave` provider and installs this package as
   a pi extension. Stock pi then gets the Loom startup header, Wooly's animated
   mascot, the persistent actual-route display, cumulative session savings,

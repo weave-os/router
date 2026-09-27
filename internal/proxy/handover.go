@@ -48,25 +48,6 @@ const DefaultCompactionMaxTokens = 4000
 // the client is blocked on the compaction either way.
 const DefaultCompactionTimeout = 90 * time.Second
 
-// compactionInstruction elicits Claude Code's 9-section structured summary used
-// when a long session is compacted to fit a context window. Unlike the terse
-// switch-handover instruction, this preserves enough task state (pending work,
-// current file, next step) that the model can continue seamlessly, and quotes
-// user-stated constraints verbatim so they keep applying after the elision.
-const compactionInstruction = "The conversation is being compacted to fit the model's context window. " +
-	"Produce a detailed structured summary of everything above under these numbered sections, " +
-	"prioritizing technical accuracy and completeness:\n" +
-	"1. Primary Request and Intent — every explicit user request, in detail.\n" +
-	"2. Key Technical Concepts — technologies, frameworks, and patterns in play.\n" +
-	"3. Files and Code Sections — files examined/modified, with key snippets and why they matter.\n" +
-	"4. Errors and Fixes — problems hit, fixes applied, and user feedback received.\n" +
-	"5. Problem Solving — approaches tried and why each was chosen, not just outcomes.\n" +
-	"6. All User Messages (verbatim) — quote every non-tool user message exactly, especially any stated constraints or policies; do not paraphrase.\n" +
-	"7. Pending Tasks — requested work not yet completed.\n" +
-	"8. Current Work — precisely what was being done just before this summary, with filenames and state.\n" +
-	"9. Next Step — the immediate next action, aligned to the user's most recent request.\n" +
-	"Output only the summary text — no preamble, no closing remark."
-
 // ProviderSummarizer implements handover.Summarizer by resolving a reviewed
 // policy plan for the summary purpose and running the Anthropic Messages
 // request through the dispatch executor. Only the executor touches the
@@ -187,46 +168,9 @@ func (c compactionHandoverSummarizer) Summarize(ctx context.Context, env *transl
 	return c.run(ctx, env, plan, handoverInstruction, c.maxTokens, c.compactionTimeout)
 }
 
-// CompactionTarget names the window-aware summarizer model the compaction
-// cascade chose and where the choice came from: the session's warm pin, the
-// deployment's configured model, or (empty Source) the policy's own default.
-type CompactionTarget struct {
-	CatalogID string
-	Source    policy.OverrideSource
-}
-
-// SummarizeForCompaction summarizes env with the structured 9-section
-// compaction prompt against target (the window-aware selection happens in the
-// caller) and a larger output cap. The target must be a reviewed member of
-// the precompaction policy and eligible within scope; otherwise resolution
-// fails before any upstream I/O. Same failure contract as Summarize.
-func (s *ProviderSummarizer) SummarizeForCompaction(ctx context.Context, env *translate.RequestEnvelope, target CompactionTarget, scope router.Request, maxTokens int) (string, handover.Usage, error) {
-	if target.CatalogID == "" {
-		target.CatalogID = s.model
-	}
-	if maxTokens <= 0 {
-		maxTokens = DefaultCompactionMaxTokens
-	}
-	routerRequest := summarizerRequest(scope, env)
-	routerRequest.AllowedModels = map[string]struct{}{target.CatalogID: {}}
-	request := policy.ResolutionRequest{
-		Purpose:       policy.PurposePrecompactionSummary,
-		RouterRequest: routerRequest,
-	}
-	if target.Source != "" {
-		request.Overrides = []policy.TargetOverride{{Source: target.Source, CatalogID: target.CatalogID, Provider: s.provider}}
-	}
-	plan, err := s.resolve(ctx, request)
-	if err != nil {
-		return "", handover.Usage{}, err
-	}
-	return s.run(ctx, env, plan, compactionInstruction, maxTokens, s.compactionTimeout)
-}
-
 // summarizerRequest is the candidate-resolution input for a summary call:
 // the tenant's eligibility from scope plus the size of the history the
-// summarizer must ingest, measured on env at call time because the compaction
-// cascade shrinks env between tiers.
+// summarizer must ingest, measured on env at call time.
 func summarizerRequest(scope router.Request, env *translate.RequestEnvelope) router.Request {
 	request := router.Request{
 		EnabledProviders: scope.EnabledProviders,

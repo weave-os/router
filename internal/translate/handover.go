@@ -719,3 +719,43 @@ func (e *RequestEnvelope) sanitizeOrphanedAnthropicToolCalls() int {
 	e.body = out
 	return totalStripped
 }
+
+// stripLeadingGeminiOrphanFunctionResponses drops functionResponse parts from
+// the first kept content: Gemini requires a function response turn to
+// immediately follow the model's functionCall turn, and the head of a kept
+// tail has had that turn elided. Only the head can be orphaned — every later
+// functionResponse still has its functionCall in the window. A head left
+// with no parts is dropped.
+func stripLeadingGeminiOrphanFunctionResponses(kept []gjson.Result) []string {
+	out := make([]string, 0, len(kept))
+	for i, c := range kept {
+		parts := c.Get("parts")
+		if i > 0 || !parts.IsArray() {
+			out = append(out, c.Raw)
+			continue
+		}
+		keptParts := make([]string, 0, len(parts.Array()))
+		dropped := false
+		parts.ForEach(func(_, p gjson.Result) bool {
+			if p.Get("functionResponse").Exists() {
+				dropped = true
+				return true
+			}
+			keptParts = append(keptParts, p.Raw)
+			return true
+		})
+		switch {
+		case !dropped:
+			out = append(out, c.Raw)
+		case len(keptParts) == 0:
+		default:
+			nc, err := sjson.SetRawBytes([]byte(c.Raw), "parts", []byte("["+strings.Join(keptParts, ",")+"]"))
+			if err != nil {
+				out = append(out, c.Raw)
+				continue
+			}
+			out = append(out, string(nc))
+		}
+	}
+	return out
+}

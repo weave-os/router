@@ -417,11 +417,10 @@ Set `DATABASE_URL` directly, or compose it from the individual vars:
 | `ROUTER_TRANSLATION_COMPATIBILITY_MODE` | `shadow` | Translation representability rollout: `off` disables broad filtering, `shadow` records candidate exclusions without changing routes, and `enforce` makes declared semantic requirements hard routing constraints. Native search remains enforced in every mode because another provider family cannot preserve its tool/result blocks; advertised-only search tools are scoped out separately. Other native-only safety paths (such as unsupported Responses tool unions and native Gemini ingress) remain protected unless mode is `off`. |
 | `ROUTER_SCOPED_SEARCH_REQUIREMENT` | `true` | Scopes the citations/search native-capability requirement to sessions that actually used a web-search tool this turn or recently, instead of every turn that merely advertises one. Advertised-only turns return to normal policy routing. |
 | `ROUTER_SEARCH_REQUIREMENT_DECAY_TURNS` | `3` | With `ROUTER_SCOPED_SEARCH_REQUIREMENT`, how many routed turns after the last actual search-tool use keep the requirement before it decays. |
-| `ROUTER_COMPACTION_PCT`           | `0.85`                       | Fraction of the largest eligible model's context window at which the proactive compaction cascade engages (clear old tool results → structured summary → trim). Range `(0,1]`; `0` disables compaction (over-window requests then 413). Mirrors Claude Code's ~0.85 auto-compact trigger. |
 | `ROUTER_HANDOVER_PROVIDER`        | `anthropic`                  | Provider whose registered client runs handover and compaction summaries. Must have a catalog binding for `ROUTER_HANDOVER_MODEL` and `ROUTER_COMPACTION_MODEL`; otherwise boot fails. |
 | `ROUTER_HANDOVER_MODEL`           | `claude-haiku-4-5`           | Model for switch-turn handover summaries. Must be one of the `handover_summary` policy's fixed catalog models in [`POLICY_INFERENCE.md`](POLICY_INFERENCE.md); any other value fails boot rather than substituting a default. |
-| `ROUTER_COMPACTION_MODEL`         | `claude-sonnet-5`            | Fallback Anthropic family for compaction when no eligible session model is available. Selection upgrades to the newest eligible catalog version in that family, including session-derived choices. The configured model must bind on `ROUTER_HANDOVER_PROVIDER` and belong to the compaction policies' reviewed catalog set in [`POLICY_INFERENCE.md`](POLICY_INFERENCE.md); otherwise boot fails. Proactive summaries and Claude Code's client-side compaction still require direct Anthropic; Codex checkpoint compaction can reuse other providers. `claude-opus-5` handles proactive histories exceeding the default's window. Explicit `ROUTER_HARD_PIN_MODEL` overrides remain exact. |
-| `ROUTER_COMPACTION_TIMEOUT_MS`    | `90000`                      | Hard timeout for one compaction summary call (separate from `ROUTER_HANDOVER_TIMEOUT_MS`; a Sonnet-class summary of a near-full window is slow). On timeout the cascade falls back to trimming. |
+| `ROUTER_COMPACTION_MODEL`         | `claude-sonnet-5`            | Fallback Anthropic family for compaction when no eligible session model is available. Selection upgrades to the newest eligible catalog version in that family, including session-derived choices. The configured model must bind on `ROUTER_HANDOVER_PROVIDER` and belong to the compaction policies' reviewed catalog set in [`POLICY_INFERENCE.md`](POLICY_INFERENCE.md); otherwise boot fails. Claude Code's client-side compaction still requires direct Anthropic; Codex checkpoint compaction can reuse other providers. Explicit `ROUTER_HARD_PIN_MODEL` overrides remain exact. |
+| `ROUTER_COMPACTION_TIMEOUT_MS`    | `90000`                      | Hard timeout for one compaction-handover summary call (separate from `ROUTER_HANDOVER_TIMEOUT_MS`; a Sonnet-class summary of a near-full window is slow). On timeout the full history is kept. |
 | `ROUTER_ESCALATION_JUDGE_ENABLED` | `false` | Enables the optional Weave-funded Switchyard LLM judge and requires `FIREWORKS_API_KEY`. The judge uses only the Fireworks binding for `z-ai/glm-5.3-flash`. |
 | `ROUTER_ESCALATION_JUDGE_ACTIVE_ENABLED` | `false` | Allows `switchyard_llm_v1` to be selected as the active classifier. Keep false during shadow evaluation; requires `ROUTER_ESCALATION_JUDGE_ENABLED=true`. |
 | `ROUTER_ONNX_ASSETS_DIR`          | `/opt/router/assets`         | Directory containing `model.onnx` + `tokenizer.json`. |
@@ -518,8 +517,12 @@ with nowhere to go (HTTP 503 from the scorer), so exclude deliberately.
 pin applies to parent and child agent threads that share the same client-session
 identity, regardless of their first prompt or active routing strategy. Clients
 that send no session identity can only be pinned at the current thread scope.
-Codex handles its own `/model` locally and never sends it, so in Codex the
-installed `$force-model` / `$fm` skill remains the way to reach the router.
+Codex handles its own `/model` locally and never sends the command itself; on
+an opted-in install (`X-Weave-Codex-Native-Model-Pin: 1`) the router instead
+keys off the `<model_switch>` developer fragment Codex records when the user
+switches models mid-session, and pins the request's model from then on. The
+model a session launched with is a baseline and routes automatically. The
+installed `$force-model` / `$fm` skill remains the persistent-pin path.
 The name is matched **exactly** — it must be a canonical catalog ID
 (`qwen/qwen3.8-max`), that model's bare name without the vendor prefix
 (`qwen3.8-max`), or an alias (`opus`, `qwen-max`), optionally with a `:level`
