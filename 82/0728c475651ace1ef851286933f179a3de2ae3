@@ -1,0 +1,94 @@
+internal/proxy/classifier_turn.go
+  s_1dc0cf4eba8335::t_8a64e2410289bf 9
+  s_1dc0cf4eba8335::t_ad9d3d6ea78656 22-24
+internal/auth/service.go
+  s_1dc0cf4eba8335::t_9734371c32daca 78-79,155,212-274,306,917-919
+db/migrations/0115_installation-routing-policy.down.sql
+  s_1dc0cf4eba8335::t_0d0905070d283d 1-6
+internal/auth/routing_policy_test.go
+  s_1dc0cf4eba8335::t_cbeb6696bd65b6 22,29-31,38-40,42-66
+  s_1dc0cf4eba8335::t_0ea4ad3acfec82 28,32,37,41
+  s_1dc0cf4eba8335::t_dfb1a9e17e13d0 1-15,24-27,33-36,67-70,75-100,102-128
+  s_1dc0cf4eba8335::t_7118a95ac4a4d2 71-74,101
+  s_335bed3b88681c::t_ff9270fb9ceeec 16-21,23
+internal/postgres/repository.go
+  s_335bed3b88681c::t_71bb750a8c3c85 28
+  s_1dc0cf4eba8335::t_fb63bfc64df1ce 53
+internal/sqlc/installation_routing_policy.sql.go
+  s_1dc0cf4eba8335::t_b20d8695a7c3e1 1-71
+internal/proxy/client_identity.go
+  s_1dc0cf4eba8335::t_4cc391da998a3c 102-115
+internal/api/openai/responses.go
+  s_1dc0cf4eba8335::t_227ff328113cd2 38-44
+internal/proxy/telemetry.go
+  s_335bed3b88681c::t_4125ed874e2531 367
+internal/server/middleware/auth.go
+  s_1dc0cf4eba8335::t_4cc391da998a3c 89-95
+internal/proxy/routing_policy_internal_test.go
+  s_1dc0cf4eba8335::t_254293eb7ac19d 1-65
+internal/auth/routing_policy.go
+  s_1dc0cf4eba8335::t_5641ce7d2a4788 1-8,11-74,77-83,86-98,100-108,110-119,121-129,131-138,140
+  s_1dc0cf4eba8335::t_8874a72ced6bca 84
+  s_1dc0cf4eba8335::t_c6b247d28e6532 9-10,75-76,85,99,109,120,130,139
+internal/proxy/gemini.go
+  s_335bed3b88681c::t_4125ed874e2531 495
+internal/proxy/turnloop_internal_test.go
+  s_335bed3b88681c::t_4125ed874e2531 252
+internal/api/openai/completions.go
+  s_1dc0cf4eba8335::t_227ff328113cd2 34-40
+internal/architecture/inference_boundary_baseline.json
+  s_1dc0cf4eba8335::t_4d968288a91414 18,21-22,25,30,33-34,37,42,45-46,49
+internal/postgres/routing_policy_repo.go
+  s_1dc0cf4eba8335::t_fb63bfc64df1ce 1-41
+internal/proxy/turnloop.go
+  s_335bed3b88681c::t_4125ed874e2531 219,221,1013
+  s_1dc0cf4eba8335::t_b8d835716b4190 12
+  s_1dc0cf4eba8335::t_ad9d3d6ea78656 769-777
+  s_335bed3b88681c::t_71bb750a8c3c85 222-223
+internal/proxy/subscription_failover_parity_internal_test.go
+  s_335bed3b88681c::t_4125ed874e2531 704,708
+internal/proxy/blind_experiment_internal_test.go
+  s_335bed3b88681c::t_4125ed874e2531 41,67,80,102,111,140,192,222
+internal/proxy/blind_experiment.go
+  s_1dc0cf4eba8335::t_ad9d3d6ea78656 21-24,29,38-42,44,47,50,53,58,64,74,80,85,91
+internal/proxy/service.go
+  s_1dc0cf4eba8335::t_76236e246cb259 3591,3874,6580
+  s_1dc0cf4eba8335::t_ad9d3d6ea78656 2878-2880
+  s_335bed3b88681c::t_4125ed874e2531 3823,3833,4464,4509,5163,5406,6724,7396,7421,7428,7435,7905,8023
+internal/sqlc/models.go
+  s_1dc0cf4eba8335::t_b20d8695a7c3e1 238-250
+internal/api/anthropic/messages.go
+  s_1dc0cf4eba8335::t_227ff328113cd2 60-66
+cmd/router/main.go
+  s_1dc0cf4eba8335::t_8536c95a4c99e1 529,574,616
+db/queries/installation_routing_policy.sql
+  s_1dc0cf4eba8335::t_0d0905070d283d 1-17
+db/migrations/0115_installation-routing-policy.up.sql
+  s_1dc0cf4eba8335::t_0d0905070d283d 1-19
+internal/api/gemini/generate_content.go
+  s_1dc0cf4eba8335::t_227ff328113cd2 60-66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "820728c475651ace1ef851286933f179a3de2ae3",
+  "prompts": {},
+  "sessions": {
+    "s_1dc0cf4eba8335": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e407-4296-7123-8715-f61d2e240e62",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_335bed3b88681c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0e407-4296-7123-8715-f61d2e240e62",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
