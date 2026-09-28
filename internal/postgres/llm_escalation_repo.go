@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/llmescalation"
@@ -39,8 +40,8 @@ func (r *LLMEscalationRepo) Start(ctx context.Context, request llmescalation.Sta
 		return llmescalation.Session{}, errors.New("escalation cadence must be 3, 4, or 5")
 	}
 	session := llmescalation.Session{Scope: request.Scope, Lifetime: uuid.NewString(), InstallationID: request.InstallationID, Config: request.Config, InstructionFingerprint: request.InstructionFingerprint, Generation: 1}
-	err = pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
-		queries := sqlc.New(tx)
+	err = pgx.BeginFunc(ctx, dbbudget.NewDBTX(r.pool), func(tx pgx.Tx) error {
+		queries := dbbudget.Queries(tx)
 		if err := queries.DeleteExpiredLLMEscalationScope(ctx, request.Scope[:]); err != nil {
 			return err
 		}
@@ -80,8 +81,8 @@ func (r *LLMEscalationRepo) Start(ctx context.Context, request llmescalation.Sta
 // Complete deduplicates a successful response and atomically claims each cadence boundary.
 func (r *LLMEscalationRepo) Complete(ctx context.Context, request llmescalation.CompleteRequest) (llmescalation.Completion, error) {
 	completion := llmescalation.Completion{}
-	err := pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
-		queries := sqlc.New(tx)
+	err := pgx.BeginFunc(ctx, dbbudget.NewDBTX(r.pool), func(tx pgx.Tx) error {
+		queries := dbbudget.Queries(tx)
 		session, err := lockedLLMSession(ctx, queries, request.Session.Scope)
 		if err != nil {
 			return err
@@ -167,8 +168,8 @@ func (r *LLMEscalationRepo) FinishJob(ctx context.Context, job llmescalation.Job
 	if failure != llmescalation.FailureNone {
 		job.Status = llmescalation.JobFailed
 	}
-	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
-		queries := sqlc.New(tx)
+	return pgx.BeginFunc(ctx, dbbudget.NewDBTX(r.pool), func(tx pgx.Tx) error {
+		queries := dbbudget.Queries(tx)
 		_, err := lockedLLMSession(ctx, queries, job.Scope)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
@@ -203,8 +204,8 @@ func (r *LLMEscalationRepo) Apply(ctx context.Context, request llmescalation.App
 	if escalation.Rank(request.Floor) < 0 {
 		return false, errors.New("invalid escalation floor")
 	}
-	err := pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
-		queries := sqlc.New(tx)
+	err := pgx.BeginFunc(ctx, dbbudget.NewDBTX(r.pool), func(tx pgx.Tx) error {
+		queries := dbbudget.Queries(tx)
 		session, err := lockedLLMSession(ctx, queries, request.Session.Scope)
 		if err != nil {
 			return err
@@ -250,8 +251,8 @@ func (r *LLMEscalationRepo) Apply(ctx context.Context, request llmescalation.App
 // RecordNoTarget annotates a fresh positive verdict while leaving it available
 // for another eligible request until normal checkpoint or instruction expiry.
 func (r *LLMEscalationRepo) RecordNoTarget(ctx context.Context, request llmescalation.ApplyRequest) error {
-	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
-		queries := sqlc.New(tx)
+	return pgx.BeginFunc(ctx, dbbudget.NewDBTX(r.pool), func(tx pgx.Tx) error {
+		queries := dbbudget.Queries(tx)
 		session, err := lockedLLMSession(ctx, queries, request.Session.Scope)
 		if err != nil {
 			return err
@@ -335,13 +336,13 @@ func (r *LLMEscalationRepo) SaveContinuation(ctx context.Context, request llmesc
 		return err
 	}
 	digest := sha256.Sum256([]byte(request.ResponseID))
-	return sqlc.New(r.pool).InsertLLMEscalationContinuation(ctx, sqlc.InsertLLMEscalationContinuationParams{Activation: request.Activation[:], ResponseDigest: digest[:], Lifetime: lifetime, History: request.History})
+	return dbbudget.Queries(r.pool).InsertLLMEscalationContinuation(ctx, sqlc.InsertLLMEscalationContinuationParams{Activation: request.Activation[:], ResponseDigest: digest[:], Lifetime: lifetime, History: request.History})
 }
 
 // Continuation resolves history within the activation's installation/key boundary.
 func (r *LLMEscalationRepo) Continuation(ctx context.Context, activation [32]byte, responseID string) (llmescalation.Continuation, bool, error) {
 	digest := sha256.Sum256([]byte(responseID))
-	row, err := sqlc.New(r.pool).GetLLMEscalationContinuation(ctx, sqlc.GetLLMEscalationContinuationParams{Activation: activation[:], ResponseDigest: digest[:]})
+	row, err := dbbudget.Queries(r.pool).GetLLMEscalationContinuation(ctx, sqlc.GetLLMEscalationContinuationParams{Activation: activation[:], ResponseDigest: digest[:]})
 	if errors.Is(err, sql.ErrNoRows) {
 		return llmescalation.Continuation{}, false, nil
 	}
@@ -359,7 +360,7 @@ func (r *LLMEscalationRepo) ListJobs(ctx context.Context, installation string, l
 	if err != nil {
 		return nil, err
 	}
-	rows, err := sqlc.New(r.pool).GetLLMEscalationJobs(ctx, sqlc.GetLLMEscalationJobsParams{InstallationID: id, PageLimit: int32(min(max(limit, 1), 500))})
+	rows, err := dbbudget.Queries(r.pool).GetLLMEscalationJobs(ctx, sqlc.GetLLMEscalationJobsParams{InstallationID: id, PageLimit: int32(min(max(limit, 1), 500))})
 	if err != nil {
 		return nil, err
 	}
@@ -376,7 +377,7 @@ func (r *LLMEscalationRepo) GetJob(ctx context.Context, installation, jobID stri
 	if err != nil {
 		return llmescalation.Job{}, false, err
 	}
-	encoded, err := sqlc.New(r.pool).GetLLMEscalationJob(ctx, sqlc.GetLLMEscalationJobParams{InstallationID: id, ID: checkpointID})
+	encoded, err := dbbudget.Queries(r.pool).GetLLMEscalationJob(ctx, sqlc.GetLLMEscalationJobParams{InstallationID: id, ID: checkpointID})
 	if errors.Is(err, sql.ErrNoRows) {
 		return llmescalation.Job{}, false, nil
 	}
@@ -409,7 +410,7 @@ func (r *LLMEscalationRepo) ListSessions(ctx context.Context, installation strin
 	if pageLimit > 201 {
 		pageLimit = 201
 	}
-	rows, err := sqlc.New(r.pool).GetLLMEscalationSessions(ctx, sqlc.GetLLMEscalationSessionsParams{AllInstallations: installation == "", InstallationID: id, PageLimit: pageLimit, PageOffset: pageOffset})
+	rows, err := dbbudget.Queries(r.pool).GetLLMEscalationSessions(ctx, sqlc.GetLLMEscalationSessionsParams{AllInstallations: installation == "", InstallationID: id, PageLimit: pageLimit, PageOffset: pageOffset})
 	if err != nil {
 		return nil, err
 	}
@@ -434,7 +435,7 @@ func (r *LLMEscalationRepo) Summary(ctx context.Context, installation string) (l
 			return llmescalation.Summary{}, err
 		}
 	}
-	row, err := sqlc.New(r.pool).GetLLMEscalationSummary(ctx, sqlc.GetLLMEscalationSummaryParams{AllInstallations: installation == "", InstallationID: id})
+	row, err := dbbudget.Queries(r.pool).GetLLMEscalationSummary(ctx, sqlc.GetLLMEscalationSummaryParams{AllInstallations: installation == "", InstallationID: id})
 	if err != nil {
 		return llmescalation.Summary{}, err
 	}
@@ -452,7 +453,7 @@ func (r *LLMEscalationRepo) GetSession(ctx context.Context, installation string,
 	if err != nil {
 		return llmescalation.Session{}, nil, false, err
 	}
-	encoded, err := sqlc.New(r.pool).GetLLMEscalationSessionDetail(ctx, sqlc.GetLLMEscalationSessionDetailParams{InstallationID: id, Scope: scope[:]})
+	encoded, err := dbbudget.Queries(r.pool).GetLLMEscalationSessionDetail(ctx, sqlc.GetLLMEscalationSessionDetailParams{InstallationID: id, Scope: scope[:]})
 	if errors.Is(err, sql.ErrNoRows) {
 		return llmescalation.Session{}, nil, false, nil
 	}
@@ -467,7 +468,7 @@ func (r *LLMEscalationRepo) GetSession(ctx context.Context, installation string,
 	if err != nil {
 		return session, nil, false, err
 	}
-	rows, err := sqlc.New(r.pool).GetLLMEscalationSessionJobs(ctx, lifetime)
+	rows, err := dbbudget.Queries(r.pool).GetLLMEscalationSessionJobs(ctx, lifetime)
 	if err != nil {
 		return session, nil, false, err
 	}
@@ -488,7 +489,7 @@ func decodeLLMJobs(rows [][]byte) ([]llmescalation.Job, error) {
 
 // SweepExpired deletes operational state and all attached histories together.
 func (r *LLMEscalationRepo) SweepExpired(ctx context.Context) error {
-	queries := sqlc.New(r.pool)
+	queries := dbbudget.Queries(r.pool)
 	if err := queries.ExpireLLMEscalationJobLeases(ctx); err != nil {
 		return err
 	}

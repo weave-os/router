@@ -34,6 +34,7 @@ import (
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/postgres/pgtls"
+	"weave-os/router/internal/postgres/poolconfig"
 	servingpostgres "weave-os/router/internal/postgres/serving"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
@@ -102,6 +103,7 @@ func main() {
 		logger.Error("Failed to parse postgres DSN", "err", err)
 		panic(err)
 	}
+	poolconfig.ConfigureTimeouts(cfg)
 	clientTLS, err := pgtls.Configure(cfg)
 	if err != nil {
 		logger.Error("Failed to configure postgres client TLS", "err", err)

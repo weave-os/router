@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/sqlc"
 )
 
@@ -15,7 +16,7 @@ type RequestAttributionRepo struct{ queries *sqlc.Queries }
 
 // NewRequestAttributionRepo is wired only in managed-serving mode.
 func NewRequestAttributionRepo(pool *pgxpool.Pool) *RequestAttributionRepo {
-	return &RequestAttributionRepo{queries: sqlc.New(pool)}
+	return &RequestAttributionRepo{queries: dbbudget.Queries(pool)}
 }
 
 // RecordServingRequest never overwrites an earlier request's attribution.

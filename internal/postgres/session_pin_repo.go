@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/sqlc"
@@ -28,7 +29,7 @@ var _ sessionpin.Store = (*SessionPinRepo)(nil)
 var _ sessionpin.CooldownStore = (*SessionPinRepo)(nil)
 
 func (r *SessionPinRepo) Get(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.GetSessionPin(ctx, sqlc.GetSessionPinParams{
 		SessionKey: sessionKey[:],
 		Role:       role,
@@ -44,7 +45,7 @@ func (r *SessionPinRepo) Get(ctx context.Context, sessionKey [sessionpin.Session
 
 // Consume atomically removes and returns an unexpired one-shot pin.
 func (r *SessionPinRepo) Consume(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy) (sessionpin.Pin, bool, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.DeleteSessionPin(ctx, sqlc.DeleteSessionPinParams{
 		SessionKey:              sessionKey[:],
 		Role:                    role,
@@ -60,7 +61,7 @@ func (r *SessionPinRepo) Consume(ctx context.Context, sessionKey [sessionpin.Ses
 }
 
 func (r *SessionPinRepo) Upsert(ctx context.Context, p sessionpin.Pin) error {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.UpsertSessionPin(ctx, sqlc.UpsertSessionPinParams{
 		SessionKey:                p.SessionKey[:],
 		Role:                      p.Role,
@@ -89,7 +90,7 @@ func (r *SessionPinRepo) UpdateUsage(ctx context.Context, sessionKey [sessionpin
 	if endedAt.IsZero() {
 		endedAt = time.Now()
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.UpdateSessionPinUsage(ctx, sqlc.UpdateSessionPinUsageParams{
 		SessionKey:              sessionKey[:],
 		Role:                    role,
@@ -111,7 +112,7 @@ func (r *SessionPinRepo) UpdateUsage(ctx context.Context, sessionKey [sessionpin
 // A missing pin (already evicted or never created) returns (0, nil): the
 // two-strike check treats it as a no-op since there's no row left to evict.
 func (r *SessionPinRepo) IncrementUpstreamErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy) (int, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	count, err := q.IncrementSessionPinUpstreamErrors(ctx, sqlc.IncrementSessionPinUpstreamErrorsParams{
 		SessionKey:              sessionKey[:],
 		Role:                    role,
@@ -129,7 +130,7 @@ func (r *SessionPinRepo) IncrementUpstreamErrors(ctx context.Context, sessionKey
 // ResetUpstreamErrors clears the consecutive-error counter after a
 // successful turn. Missing pin is a no-op, same as UpdateUsage.
 func (r *SessionPinRepo) ResetUpstreamErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy) error {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.ResetSessionPinUpstreamErrors(ctx, sqlc.ResetSessionPinUpstreamErrorsParams{
 		SessionKey:              sessionKey[:],
 		Role:                    role,
@@ -140,7 +141,7 @@ func (r *SessionPinRepo) ResetUpstreamErrors(ctx context.Context, sessionKey [se
 // IncrementOverloadErrors atomically bumps the consecutive-529-exhaustion
 // counter. A missing pin returns (0, nil), mirroring IncrementUpstreamErrors.
 func (r *SessionPinRepo) IncrementOverloadErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy) (int, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	count, err := q.IncrementSessionPinOverloadErrors(ctx, sqlc.IncrementSessionPinOverloadErrorsParams{
 		SessionKey:              sessionKey[:],
 		Role:                    role,
@@ -158,7 +159,7 @@ func (r *SessionPinRepo) IncrementOverloadErrors(ctx context.Context, sessionKey
 // ResetOverloadErrors clears the consecutive-529-exhaustion counter after a
 // successful turn. Missing pin is a no-op, same as ResetUpstreamErrors.
 func (r *SessionPinRepo) ResetOverloadErrors(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy) error {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.ResetSessionPinOverloadErrors(ctx, sqlc.ResetSessionPinOverloadErrorsParams{
 		SessionKey:              sessionKey[:],
 		Role:                    role,
@@ -170,7 +171,7 @@ func (r *SessionPinRepo) ResetOverloadErrors(ctx context.Context, sessionKey [se
 // resets the overload strike counter in the same write. Missing pin is a
 // no-op: the eviction that accompanies this call has nothing left to guard.
 func (r *SessionPinRepo) DisableProvider(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role, provider string, expectedStrategy router.Strategy) error {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.DisableSessionPinProvider(ctx, sqlc.DisableSessionPinProviderParams{
 		SessionKey:              sessionKey[:],
 		Role:                    role,
@@ -183,7 +184,7 @@ func (r *SessionPinRepo) DisableProvider(ctx context.Context, sessionKey [sessio
 // appends model to demoted_models in one statement. The ON CONFLICT update is
 // guarded by expired.Strategy, so a row another strategy owns is not touched.
 func (r *SessionPinRepo) ExpireAndDemoteModel(ctx context.Context, expired sessionpin.Pin, model string, _ sessionpin.DemotionReason) error {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.ExpireAndDemoteSessionPinModel(ctx, sqlc.ExpireAndDemoteSessionPinModelParams{
 		SessionKey:              expired.SessionKey[:],
 		Role:                    expired.Role,
@@ -196,7 +197,7 @@ func (r *SessionPinRepo) ExpireAndDemoteModel(ctx context.Context, expired sessi
 }
 
 func (r *SessionPinRepo) ExpireAndCoolDownModel(ctx context.Context, expired sessionpin.Pin, model string, until time.Time, _ sessionpin.DemotionReason) error {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.ExpireAndCoolDownSessionPinModel(ctx, sqlc.ExpireAndCoolDownSessionPinModelParams{
 		SessionKey:              expired.SessionKey[:],
 		Role:                    expired.Role,
@@ -210,7 +211,7 @@ func (r *SessionPinRepo) ExpireAndCoolDownModel(ctx context.Context, expired ses
 }
 
 func (r *SessionPinRepo) SweepExpired(ctx context.Context) error {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.SweepExpiredSessionPins(ctx)
 }
 

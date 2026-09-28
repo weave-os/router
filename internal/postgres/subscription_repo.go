@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
@@ -44,7 +45,7 @@ func (r *subscriptionAccountRepo) UpsertSubscriptionAccount(ctx context.Context,
 		return nil, auth.SubscriptionUpsertUpdated, err
 	}
 	if params.Owner.SubscriberID == "" {
-		row, legacyErr := sqlc.New(r.tx).UpsertModelRouterSubscriptionAccount(ctx, sqlc.UpsertModelRouterSubscriptionAccountParams{
+		row, legacyErr := dbbudget.Queries(r.tx).UpsertModelRouterSubscriptionAccount(ctx, sqlc.UpsertModelRouterSubscriptionAccountParams{
 			APIKeyID: apiKeyID, Provider: string(params.Provider), ExternalAccountID: params.ExternalAccountID,
 			DisplayName: optionalSubscriptionAccountDisplayName(params.DisplayName), RefreshTokenCiphertext: params.RefreshToken,
 		})
@@ -62,7 +63,7 @@ func (r *subscriptionAccountRepo) UpsertSubscriptionAccount(ctx context.Context,
 	// same account, so the loser hits the subscriber-owned unique index. A retry
 	// reads the winning row and adopts that one instead of a second duplicate.
 	for attempt := 0; ; attempt++ {
-		row, err := sqlc.New(r.tx).UpsertModelRouterSubscriptionAccountForSubscriber(ctx, sqlc.UpsertModelRouterSubscriptionAccountForSubscriberParams{
+		row, err := dbbudget.Queries(r.tx).UpsertModelRouterSubscriptionAccountForSubscriber(ctx, sqlc.UpsertModelRouterSubscriptionAccountForSubscriberParams{
 			SubscriberID: subscriberID, APIKeyID: apiKeyID, Provider: string(params.Provider),
 			ExternalAccountID: params.ExternalAccountID, DisplayName: optionalSubscriptionAccountDisplayName(params.DisplayName), RefreshTokenCiphertext: params.RefreshToken,
 		})
@@ -92,7 +93,7 @@ func (r *subscriptionAccountRepo) UpdateSubscriptionAccountCooldown(ctx context.
 	if err != nil {
 		return err
 	}
-	rows, err := sqlc.New(r.tx).UpdateModelRouterSubscriptionAccountCooldown(ctx, sqlc.UpdateModelRouterSubscriptionAccountCooldownParams{
+	rows, err := dbbudget.Queries(r.tx).UpdateModelRouterSubscriptionAccountCooldown(ctx, sqlc.UpdateModelRouterSubscriptionAccountCooldownParams{
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID,
 		CooldownUntil: pgtype.Timestamp{Time: cooldownUntil, Valid: true},
 	})
@@ -110,7 +111,7 @@ func (r *subscriptionAccountRepo) ListSubscriptionAccounts(ctx context.Context, 
 	if err != nil {
 		return nil, err
 	}
-	rows, err := sqlc.New(r.tx).ListModelRouterSubscriptionAccounts(ctx, sqlc.ListModelRouterSubscriptionAccountsParams{
+	rows, err := dbbudget.Queries(r.tx).ListModelRouterSubscriptionAccounts(ctx, sqlc.ListModelRouterSubscriptionAccountsParams{
 		SubscriberID: subscriberID, APIKeyID: keyID,
 	})
 	if err != nil {
@@ -136,7 +137,7 @@ func (r *subscriptionAccountRepo) UpdateSubscriptionAccountState(ctx context.Con
 	if cooldownUntil != nil {
 		cooldown = pgtype.Timestamp{Time: *cooldownUntil, Valid: true}
 	}
-	rows, err := sqlc.New(r.tx).UpdateModelRouterSubscriptionAccountState(ctx, sqlc.UpdateModelRouterSubscriptionAccountStateParams{
+	rows, err := dbbudget.Queries(r.tx).UpdateModelRouterSubscriptionAccountState(ctx, sqlc.UpdateModelRouterSubscriptionAccountStateParams{
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, Enabled: enabled, CooldownUntil: cooldown,
 	})
 	if err != nil {
@@ -161,7 +162,7 @@ func (r *subscriptionAccountRepo) UpdateSubscriptionAccountHealth(ctx context.Co
 	if cooldownUntil != nil {
 		cooldown = pgtype.Timestamp{Time: *cooldownUntil, Valid: true}
 	}
-	rows, err := sqlc.New(r.tx).UpdateModelRouterSubscriptionAccountHealth(ctx, sqlc.UpdateModelRouterSubscriptionAccountHealthParams{
+	rows, err := dbbudget.Queries(r.tx).UpdateModelRouterSubscriptionAccountHealth(ctx, sqlc.UpdateModelRouterSubscriptionAccountHealthParams{
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID,
 		HealthState: string(state), Enabled: enabled, CooldownUntil: cooldown,
 	})
@@ -183,7 +184,7 @@ func (r *subscriptionAccountRepo) UpdateSubscriptionRefreshToken(ctx context.Con
 	if err != nil {
 		return err
 	}
-	rows, err := sqlc.New(r.tx).UpdateModelRouterSubscriptionRefreshToken(ctx, sqlc.UpdateModelRouterSubscriptionRefreshTokenParams{
+	rows, err := dbbudget.Queries(r.tx).UpdateModelRouterSubscriptionRefreshToken(ctx, sqlc.UpdateModelRouterSubscriptionRefreshTokenParams{
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, RefreshTokenCiphertext: ciphertext,
 	})
 	if err != nil {
@@ -204,7 +205,7 @@ func (r *subscriptionAccountRepo) DeleteSubscriptionAccount(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	rows, err := sqlc.New(r.tx).DeleteModelRouterSubscriptionAccount(ctx, sqlc.DeleteModelRouterSubscriptionAccountParams{
+	rows, err := dbbudget.Queries(r.tx).DeleteModelRouterSubscriptionAccount(ctx, sqlc.DeleteModelRouterSubscriptionAccountParams{
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID,
 	})
 	if err != nil {
@@ -229,7 +230,7 @@ func (r *subscriptionAccountRepo) TryAcquireSubscriptionRefreshLease(ctx context
 	if err != nil {
 		return auth.RefreshLeaseAcquisition{}, err
 	}
-	tookOver, err := sqlc.New(r.tx).TryAcquireModelRouterSubscriptionRefreshLease(ctx, sqlc.TryAcquireModelRouterSubscriptionRefreshLeaseParams{
+	tookOver, err := dbbudget.Queries(r.tx).TryAcquireModelRouterSubscriptionRefreshLease(ctx, sqlc.TryAcquireModelRouterSubscriptionRefreshLeaseParams{
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, LeaseID: leaseUUID,
 		LeaseSeconds: int64(leaseTTL / time.Second),
 	})
@@ -255,7 +256,7 @@ func (r *subscriptionAccountRepo) ExtendSubscriptionRefreshLease(ctx context.Con
 	if err != nil {
 		return 0, err
 	}
-	return sqlc.New(r.tx).ExtendModelRouterSubscriptionRefreshLease(ctx, sqlc.ExtendModelRouterSubscriptionRefreshLeaseParams{
+	return dbbudget.Queries(r.tx).ExtendModelRouterSubscriptionRefreshLease(ctx, sqlc.ExtendModelRouterSubscriptionRefreshLeaseParams{
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, LeaseID: leaseUUID,
 		LeaseSeconds: int64(leaseTTL / time.Second),
 	})
@@ -274,7 +275,7 @@ func (r *subscriptionAccountRepo) ReleaseSubscriptionRefreshLease(ctx context.Co
 	if err != nil {
 		return err
 	}
-	_, err = sqlc.New(r.tx).ReleaseModelRouterSubscriptionRefreshLease(ctx, sqlc.ReleaseModelRouterSubscriptionRefreshLeaseParams{
+	_, err = dbbudget.Queries(r.tx).ReleaseModelRouterSubscriptionRefreshLease(ctx, sqlc.ReleaseModelRouterSubscriptionRefreshLeaseParams{
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, LeaseID: leaseUUID,
 	})
 	return err
@@ -289,7 +290,7 @@ func (r *subscriptionAccountRepo) GetSubscriptionCredentialRecord(ctx context.Co
 	if err != nil {
 		return nil, err
 	}
-	row, err := sqlc.New(r.tx).GetModelRouterSubscriptionCredentialRecord(ctx, sqlc.GetModelRouterSubscriptionCredentialRecordParams{
+	row, err := dbbudget.Queries(r.tx).GetModelRouterSubscriptionCredentialRecord(ctx, sqlc.GetModelRouterSubscriptionCredentialRecordParams{
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID,
 	})
 	if err != nil {
@@ -329,7 +330,7 @@ func (r *subscriptionAccountRepo) PersistSubscriptionTokens(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	rows, err := sqlc.New(r.tx).PersistModelRouterSubscriptionTokens(ctx, sqlc.PersistModelRouterSubscriptionTokensParams{
+	rows, err := dbbudget.Queries(r.tx).PersistModelRouterSubscriptionTokens(ctx, sqlc.PersistModelRouterSubscriptionTokensParams{
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, LeaseID: leaseUUID, ExpectedVersion: expectedVersion,
 		RefreshTokenCiphertext: refreshCiphertext, AccessTokenCiphertext: accessCiphertext,
 		AccessTokenExpiresAt: pgtype.Timestamp{Time: accessExpiresAt, Valid: true},
@@ -385,7 +386,7 @@ func (r *subscriptionAccountRepo) DisableSubscriptionAccountIfRefreshHolder(ctx 
 	if err != nil {
 		return err
 	}
-	rows, err := sqlc.New(r.tx).DisableModelRouterSubscriptionAccountIfRefreshHolder(ctx, sqlc.DisableModelRouterSubscriptionAccountIfRefreshHolderParams{
+	rows, err := dbbudget.Queries(r.tx).DisableModelRouterSubscriptionAccountIfRefreshHolder(ctx, sqlc.DisableModelRouterSubscriptionAccountIfRefreshHolderParams{
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, LeaseID: leaseUUID, ExpectedVersion: expectedVersion,
 	})
 	if err != nil {
@@ -410,7 +411,7 @@ func (r *subscriptionAccountRepo) CooldownSubscriptionAccountIfRefreshHolder(ctx
 	if err != nil {
 		return err
 	}
-	rows, err := sqlc.New(r.tx).CooldownModelRouterSubscriptionAccountIfRefreshHolder(ctx, sqlc.CooldownModelRouterSubscriptionAccountIfRefreshHolderParams{
+	rows, err := dbbudget.Queries(r.tx).CooldownModelRouterSubscriptionAccountIfRefreshHolder(ctx, sqlc.CooldownModelRouterSubscriptionAccountIfRefreshHolderParams{
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, LeaseID: leaseUUID, ExpectedVersion: expectedVersion,
 		CooldownUntil: pgtype.Timestamp{Time: cooldownUntil, Valid: true},
 	})

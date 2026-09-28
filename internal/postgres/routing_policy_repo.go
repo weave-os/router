@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/sqlc"
 )
 
@@ -19,7 +20,7 @@ func (repo *routingPolicyRepo) GetPolicy(ctx context.Context, installationID str
 	if err != nil {
 		return auth.RoutingPolicy{}, err
 	}
-	row, err := sqlc.New(repo.tx).GetInstallationRoutingPolicy(ctx, parsedInstallationID)
+	row, err := dbbudget.Queries(repo.tx).GetInstallationRoutingPolicy(ctx, parsedInstallationID)
 	if err != nil {
 		return auth.RoutingPolicy{}, err
 	}
@@ -35,7 +36,7 @@ func (repo *routingPolicyRepo) HasAssignment(ctx context.Context, installationID
 	if err != nil {
 		return false, err
 	}
-	return sqlc.New(repo.tx).HasInstallationRoutingAssignment(ctx, sqlc.HasInstallationRoutingAssignmentParams{
+	return dbbudget.Queries(repo.tx).HasInstallationRoutingAssignment(ctx, sqlc.HasInstallationRoutingAssignmentParams{
 		InstallationID: parsedInstallationID, RouterUserID: parsedUserID, Revision: revision,
 	})
 }

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/sqlc"
 
@@ -37,8 +38,8 @@ func (r *EscalationRepo) Claim(ctx context.Context, scope [32]byte, installation
 	}
 	var session escalation.Session
 	acquired := false
-	err = pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
-		queries := sqlc.New(tx)
+	err = pgx.BeginFunc(ctx, dbbudget.NewDBTX(r.pool), func(tx pgx.Tx) error {
+		queries := dbbudget.Queries(tx)
 		// A lifetime can expire between deletion and claiming. One immediate
 		// retry removes that lifetime instead of resurrecting its checkpoints.
 		encodedSessionState, claimErr := backoff.Retry(ctx, func() ([]byte, error) {
@@ -81,7 +82,7 @@ func (r *EscalationRepo) Claim(ctx context.Context, scope [32]byte, installation
 
 // Checkpoint reads only boundaries belonging to the current session lifetime.
 func (r *EscalationRepo) Checkpoint(ctx context.Context, scope, boundary [32]byte) (escalation.Checkpoint, bool, error) {
-	encodedCheckpoint, err := sqlc.New(r.pool).GetEscalationCheckpoint(ctx, sqlc.GetEscalationCheckpointParams{Scope: scope[:], Boundary: boundary[:]})
+	encodedCheckpoint, err := dbbudget.Queries(r.pool).GetEscalationCheckpoint(ctx, sqlc.GetEscalationCheckpointParams{Scope: scope[:], Boundary: boundary[:]})
 	if errors.Is(err, sql.ErrNoRows) {
 		return escalation.Checkpoint{}, false, nil
 	}
@@ -113,8 +114,8 @@ func (r *EscalationRepo) Commit(ctx context.Context, scope, boundary [32]byte, t
 	if err != nil {
 		return fmt.Errorf("encode escalation checkpoint: %w", err)
 	}
-	err = pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
-		queries := sqlc.New(tx)
+	err = pgx.BeginFunc(ctx, dbbudget.NewDBTX(r.pool), func(tx pgx.Tx) error {
+		queries := dbbudget.Queries(tx)
 		updated, updateErr := queries.UpdateEscalationSessionCommit(ctx, sqlc.UpdateEscalationSessionCommitParams{Scope: scope[:], LeaseToken: leaseUUID, Ordinal: session.Ordinal, SessionState: encodedSession})
 		if updateErr != nil {
 			return updateErr
@@ -136,7 +137,7 @@ func (r *EscalationRepo) Release(ctx context.Context, scope [32]byte, token stri
 	if err != nil {
 		return fmt.Errorf("parse escalation lease token: %w", err)
 	}
-	err = sqlc.New(r.pool).UpdateEscalationSessionRelease(ctx, sqlc.UpdateEscalationSessionReleaseParams{Scope: scope[:], LeaseToken: leaseUUID})
+	err = dbbudget.Queries(r.pool).UpdateEscalationSessionRelease(ctx, sqlc.UpdateEscalationSessionReleaseParams{Scope: scope[:], LeaseToken: leaseUUID})
 	if err != nil {
 		return fmt.Errorf("release escalation session: %w", err)
 	}
@@ -154,8 +155,8 @@ func (r *EscalationRepo) Invalidate(ctx context.Context, scope, boundary [32]byt
 			return fmt.Errorf("parse failed escalation lease token: %w", err)
 		}
 	}
-	err := pgx.BeginTxFunc(ctx, r.pool, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
-		queries := sqlc.New(tx)
+	err := pgx.BeginTxFunc(ctx, dbbudget.NewDBTX(r.pool), pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
+		queries := dbbudget.Queries(tx)
 		_, lockErr := queries.GetEscalationSessionForInvalidation(ctx, scope[:])
 		if errors.Is(lockErr, sql.ErrNoRows) {
 			return nil
@@ -179,7 +180,7 @@ func (r *EscalationRepo) SaveOutcome(ctx context.Context, scope [32]byte, ordina
 	if err != nil {
 		return fmt.Errorf("encode escalation outcome: %w", err)
 	}
-	err = sqlc.New(r.pool).UpdateEscalationSessionOutcome(ctx, sqlc.UpdateEscalationSessionOutcomeParams{Scope: scope[:], Ordinal: ordinal, PreviousOutcome: encodedOutcome})
+	err = dbbudget.Queries(r.pool).UpdateEscalationSessionOutcome(ctx, sqlc.UpdateEscalationSessionOutcomeParams{Scope: scope[:], Ordinal: ordinal, PreviousOutcome: encodedOutcome})
 	if err != nil {
 		return fmt.Errorf("save escalation outcome: %w", err)
 	}
@@ -193,7 +194,7 @@ func (r *EscalationRepo) SaveContinuation(ctx context.Context, activation [32]by
 		return errors.New("escalation continuation has no response id")
 	}
 	responseDigest := sha256.Sum256([]byte(responseID))
-	err := sqlc.New(r.pool).InsertEscalationContinuation(ctx, sqlc.InsertEscalationContinuationParams{
+	err := dbbudget.Queries(r.pool).InsertEscalationContinuation(ctx, sqlc.InsertEscalationContinuationParams{
 		Scope: scope[:], Ordinal: ordinal, Activation: activation[:], ResponseDigest: responseDigest[:], History: history,
 	})
 	if err != nil {
@@ -208,7 +209,7 @@ func (r *EscalationRepo) Continuation(ctx context.Context, activation [32]byte, 
 		return [32]byte{}, nil, false, nil
 	}
 	responseDigest := sha256.Sum256([]byte(responseID))
-	continuation, err := sqlc.New(r.pool).GetEscalationContinuation(ctx, sqlc.GetEscalationContinuationParams{
+	continuation, err := dbbudget.Queries(r.pool).GetEscalationContinuation(ctx, sqlc.GetEscalationContinuationParams{
 		Activation: activation[:], ResponseDigest: responseDigest[:],
 	})
 	if errors.Is(err, sql.ErrNoRows) {
@@ -224,7 +225,7 @@ func (r *EscalationRepo) Continuation(ctx context.Context, activation [32]byte, 
 
 // SweepExpired removes feature state and its checkpoint identities together.
 func (r *EscalationRepo) SweepExpired(ctx context.Context) error {
-	err := sqlc.New(r.pool).DeleteExpiredEscalationSessions(ctx)
+	err := dbbudget.Queries(r.pool).DeleteExpiredEscalationSessions(ctx)
 	if err != nil {
 		return fmt.Errorf("sweep escalation sessions: %w", err)
 	}

@@ -19,9 +19,10 @@ import (
 	"weave-os/router/internal/gateway/iam"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/postgres/pgtls"
+	"weave-os/router/internal/postgres/poolconfig"
 	"weave-os/router/internal/postgres/serving"
-	"weave-os/router/internal/sqlc"
 )
 
 func main() {
@@ -46,6 +47,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	poolconfig.ConfigureTimeouts(poolConfig)
 	clientTLS, err := pgtls.Configure(poolConfig)
 	if err != nil {
 		return err
@@ -72,14 +74,14 @@ func run() error {
 		return err
 	}
 	defer registry.Close()
-	credentials := auth.RoutingCredentialVerifier{Keys: serving.CredentialLookup{Queries: sqlc.New(pool)}}
+	credentials := auth.RoutingCredentialVerifier{Keys: serving.CredentialLookup{Queries: dbbudget.Queries(pool)}}
 	admissions, err := serving.NewServingAdmissionRepo(pool, environment)
 	if err != nil {
 		return err
 	}
 	transport := newWorkerTransport()
 	defer transport.CloseIdleConnections()
-	products := gateway.ProductSurfaces{Environment: environment, Analytics: credentials, Feedback: feedback.NewSigner(config.GetOr("ROUTER_FEEDBACK_LINK_SECRET", ""), 0), Attribution: serving.FeedbackLookup{Queries: sqlc.New(pool)}}
+	products := gateway.ProductSurfaces{Environment: environment, Analytics: credentials, Feedback: feedback.NewSigner(config.GetOr("ROUTER_FEEDBACK_LINK_SECRET", ""), 0), Attribution: serving.FeedbackLookup{Queries: dbbudget.Queries(pool)}}
 	forwarder, err := gateway.NewHandler(credentials, admissions, registry, signer, iam.Authorizer{}, transport, products)
 	if err != nil {
 		return err

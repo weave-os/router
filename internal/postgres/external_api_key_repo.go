@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
@@ -35,7 +36,7 @@ func (r *ExternalAPIKeyRepo) Create(ctx context.Context, params auth.CreateExter
 		return nil, err
 	}
 
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.CreateExternalAPIKey(ctx, sqlc.CreateExternalAPIKeyParams{
 		InstallationID: installationUUID,
 		ExternalID:     params.ExternalID,
@@ -71,7 +72,7 @@ func (r *ExternalAPIKeyRepo) GetForInstallation(ctx context.Context, installatio
 		return nil, err
 	}
 
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	rows, err := q.GetActiveExternalAPIKeysForInstallation(ctx, installationUUID)
 	if err != nil {
 		return nil, err
@@ -102,7 +103,7 @@ func (r *ExternalAPIKeyRepo) SoftDeleteByProvider(ctx context.Context, installat
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.SoftDeleteExternalAPIKeyByProvider(ctx, sqlc.SoftDeleteExternalAPIKeyByProviderParams{
 		InstallationID: installationUUID,
 		Provider:       provider,
@@ -122,7 +123,7 @@ func (r *ExternalAPIKeyRepo) UpdateModelAliases(ctx context.Context, installatio
 	if err != nil {
 		return nil, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.UpdateExternalAPIKeyModelAliases(ctx, sqlc.UpdateExternalAPIKeyModelAliasesParams{
 		ID:             keyUUID,
 		InstallationID: installationUUID,
@@ -146,7 +147,7 @@ func (r *ExternalAPIKeyRepo) SoftDelete(ctx context.Context, installationID, id 
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.SoftDeleteExternalAPIKey(ctx, sqlc.SoftDeleteExternalAPIKeyParams{
 		ID:             keyUUID,
 		InstallationID: installationUUID,
@@ -158,7 +159,7 @@ func (r *ExternalAPIKeyRepo) MarkUsed(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.MarkExternalAPIKeyUsed(ctx, keyUUID)
 }
 

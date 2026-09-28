@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/flags"
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
@@ -66,7 +67,7 @@ type installationRepo struct {
 }
 
 func (r *installationRepo) Create(ctx context.Context, params auth.CreateInstallationParams) (*auth.Installation, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.CreateModelRouterInstallation(ctx, sqlc.CreateModelRouterInstallationParams{
 		ExternalID: params.ExternalID,
 		Name:       params.Name,
@@ -83,7 +84,7 @@ func (r *installationRepo) Get(ctx context.Context, externalID, id string) (*aut
 	if err != nil {
 		return nil, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.GetModelRouterInstallation(ctx, sqlc.GetModelRouterInstallationParams{
 		ID:         parsed,
 		ExternalID: externalID,
@@ -95,7 +96,7 @@ func (r *installationRepo) Get(ctx context.Context, externalID, id string) (*aut
 }
 
 func (r *installationRepo) ListForExternalID(ctx context.Context, externalID string) ([]*auth.Installation, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	rows, err := q.ListModelRouterInstallationsForExternalID(ctx, externalID)
 	if err != nil {
 		return nil, err
@@ -112,7 +113,7 @@ func (r *installationRepo) SoftDelete(ctx context.Context, externalID, id string
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.SoftDeleteModelRouterInstallation(ctx, sqlc.SoftDeleteModelRouterInstallationParams{
 		ID:         parsed,
 		ExternalID: externalID,
@@ -124,7 +125,7 @@ func (r *installationRepo) MarkFirstRequestServed(ctx context.Context, id string
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.MarkModelRouterInstallationFirstRequestServed(ctx, parsed)
 }
 
@@ -136,7 +137,7 @@ func (r *installationRepo) UpdateFastModeModels(ctx context.Context, externalID,
 	if models == nil {
 		models = []string{}
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	rows, err := q.UpdateModelRouterInstallationFastModeModels(ctx, sqlc.UpdateModelRouterInstallationFastModeModelsParams{
 		ID:             parsed,
 		ExternalID:     externalID,
@@ -159,7 +160,7 @@ func (r *installationRepo) UpdateExcludedModels(ctx context.Context, externalID,
 	if models == nil {
 		models = []string{}
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	rows, err := q.UpdateModelRouterInstallationExcludedModels(ctx, sqlc.UpdateModelRouterInstallationExcludedModelsParams{
 		ID:             parsed,
 		ExternalID:     externalID,
@@ -182,7 +183,7 @@ func (r *installationRepo) UpdateAllowedModels(ctx context.Context, externalID, 
 	if models == nil {
 		models = []string{}
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	rows, err := q.UpdateModelRouterInstallationAllowedModels(ctx, sqlc.UpdateModelRouterInstallationAllowedModelsParams{
 		ID:            parsed,
 		ExternalID:    externalID,
@@ -205,7 +206,7 @@ func (r *installationRepo) UpdateExcludedProviders(ctx context.Context, external
 	if providerNames == nil {
 		providerNames = []string{}
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	rows, err := q.UpdateModelRouterInstallationExcludedProviders(ctx, sqlc.UpdateModelRouterInstallationExcludedProvidersParams{
 		ID:                parsed,
 		ExternalID:        externalID,
@@ -225,7 +226,7 @@ func (r *installationRepo) UpdateRoutingPreference(ctx context.Context, external
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	rows, err := q.UpdateModelRouterInstallationRoutingPreference(ctx, sqlc.UpdateModelRouterInstallationRoutingPreferenceParams{
 		ID:                   parsed,
 		ExternalID:           externalID,
@@ -245,7 +246,7 @@ func (r *installationRepo) UpdateUsageBypass(ctx context.Context, externalID, id
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	rows, err := q.UpdateModelRouterInstallationUsageBypass(ctx, sqlc.UpdateModelRouterInstallationUsageBypassParams{
 		ID:                   parsed,
 		ExternalID:           externalID,
@@ -266,7 +267,7 @@ func (r *installationRepo) UpdateSubscriptionRoutingDisabled(ctx context.Context
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	rows, err := q.UpdateModelRouterInstallationSubscriptionRoutingDisabled(ctx, sqlc.UpdateModelRouterInstallationSubscriptionRoutingDisabledParams{
 		ID:                          parsed,
 		ExternalID:                  externalID,
@@ -286,7 +287,7 @@ func (r *installationRepo) UpdateContentCaptureMode(ctx context.Context, externa
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	rows, err := q.UpdateModelRouterInstallationContentCaptureMode(ctx, sqlc.UpdateModelRouterInstallationContentCaptureModeParams{
 		ID:                 parsed,
 		ExternalID:         externalID,
@@ -306,7 +307,7 @@ func (r *installationRepo) UpdateHideTerminalSurfaces(ctx context.Context, exter
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	rows, err := q.UpdateModelRouterInstallationHideTerminalSurfaces(ctx, sqlc.UpdateModelRouterInstallationHideTerminalSurfacesParams{
 		ID:                   parsed,
 		ExternalID:           externalID,
@@ -326,7 +327,7 @@ func (r *installationRepo) UpdateShowModelSelectionReasoning(ctx context.Context
 	if err != nil {
 		return err
 	}
-	rows, err := sqlc.New(r.tx).UpdateModelRouterInstallationShowModelSelectionReasoning(ctx, sqlc.UpdateModelRouterInstallationShowModelSelectionReasoningParams{
+	rows, err := dbbudget.Queries(r.tx).UpdateModelRouterInstallationShowModelSelectionReasoning(ctx, sqlc.UpdateModelRouterInstallationShowModelSelectionReasoningParams{
 		ID: parsed, ExternalID: externalID, ShowModelSelectionReasoning: show,
 	})
 	if err != nil {
@@ -350,7 +351,7 @@ func (r *installationRepo) UpdateFlagOverrides(ctx context.Context, externalID, 
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	rows, err := q.UpdateModelRouterInstallationFlagOverrides(ctx, sqlc.UpdateModelRouterInstallationFlagOverridesParams{
 		ID:            parsed,
 		ExternalID:    externalID,
@@ -374,7 +375,7 @@ func (r *apiKeyRepo) Create(ctx context.Context, params auth.CreateAPIKeyParams)
 	if err != nil {
 		return nil, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.CreateModelRouterAPIKey(ctx, sqlc.CreateModelRouterAPIKeyParams{
 		InstallationID: installationID,
 		ExternalID:     params.ExternalID,
@@ -392,7 +393,7 @@ func (r *apiKeyRepo) Create(ctx context.Context, params auth.CreateAPIKeyParams)
 }
 
 func (r *apiKeyRepo) GetActiveByHashWithInstallation(ctx context.Context, keyHash string) (*auth.APIKey, *auth.Installation, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.GetActiveModelRouterAPIKeyWithInstallationByHash(ctx, keyHash)
 	if err != nil {
 		return nil, nil, err
@@ -405,7 +406,7 @@ func (r *apiKeyRepo) ListForInstallation(ctx context.Context, installationID str
 	if err != nil {
 		return nil, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	rows, err := q.ListModelRouterAPIKeysForInstallation(ctx, parsed)
 	if err != nil {
 		return nil, err
@@ -422,7 +423,7 @@ func (r *apiKeyRepo) MarkUsed(ctx context.Context, id string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	firstUse, err := sqlc.New(r.tx).MarkModelRouterAPIKeyUsed(ctx, parsed)
+	firstUse, err := dbbudget.Queries(r.tx).MarkModelRouterAPIKeyUsed(ctx, parsed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -438,7 +439,7 @@ func (r *apiKeyRepo) SoftDelete(ctx context.Context, installationID, id string) 
 	if err != nil {
 		return 0, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.SoftDeleteModelRouterAPIKey(ctx, sqlc.SoftDeleteModelRouterAPIKeyParams{
 		ID:             parsed,
 		InstallationID: installationUUID,

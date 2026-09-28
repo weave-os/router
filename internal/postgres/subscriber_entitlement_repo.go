@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/sqlc"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
@@ -21,7 +22,7 @@ type SubscriberEntitlementRepo struct {
 
 // NewSubscriberEntitlementRepo binds entitlement projections to a SQLC database handle.
 func NewSubscriberEntitlementRepo(db sqlc.DBTX) *SubscriberEntitlementRepo {
-	return &SubscriberEntitlementRepo{queries: sqlc.New(db)}
+	return &SubscriberEntitlementRepo{queries: dbbudget.Queries(db)}
 }
 
 // Project inserts a projection, advances its version, or accepts an identical retry.

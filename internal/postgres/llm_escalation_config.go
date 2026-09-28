@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"weave-os/router/internal/flags"
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/sqlc"
 )
@@ -22,7 +23,7 @@ func (r *LLMEscalationRepo) GetSelection(ctx context.Context, installation strin
 	if err != nil {
 		return llmescalation.Selection{}, fmt.Errorf("parse escalation installation: %w", err)
 	}
-	encoded, err := sqlc.New(r.pool).GetEscalationSelection(ctx, id)
+	encoded, err := dbbudget.Queries(r.pool).GetEscalationSelection(ctx, id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return llmescalation.Selection{}, llmescalation.ErrInstallationNotFound
 	}
@@ -64,7 +65,7 @@ func (r *LLMEscalationRepo) SetSelection(ctx context.Context, installation strin
 	if err != nil {
 		return llmescalation.Selection{}, err
 	}
-	updated, err := sqlc.New(r.pool).UpdateEscalationSelection(ctx, sqlc.UpdateEscalationSelectionParams{InstallationID: id, SelectionPatch: encoded, ExpectedEpoch: int32(update.Epoch)})
+	updated, err := dbbudget.Queries(r.pool).UpdateEscalationSelection(ctx, sqlc.UpdateEscalationSelectionParams{InstallationID: id, SelectionPatch: encoded, ExpectedEpoch: int32(update.Epoch)})
 	if errors.Is(err, sql.ErrNoRows) {
 		_, lookupErr := r.GetSelection(ctx, installation)
 		if lookupErr != nil {

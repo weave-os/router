@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/sqlc"
 )
 
@@ -27,7 +28,7 @@ func (repo *blindExperimentRepo) GetForUser(ctx context.Context, installationID,
 	if err != nil {
 		return auth.BlindExperimentRecord{}, err
 	}
-	row, err := sqlc.New(repo.tx).GetBlindRouterExperimentForUser(ctx, sqlc.GetBlindRouterExperimentForUserParams{
+	row, err := dbbudget.Queries(repo.tx).GetBlindRouterExperimentForUser(ctx, sqlc.GetBlindRouterExperimentForUserParams{
 		RouterUserID:   parsedRouterUserID,
 		InstallationID: parsedInstallationID,
 	})

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/sqlc"
 )
 
@@ -32,8 +33,8 @@ func (r *CredentialSubjectRepo) CreatePending(ctx context.Context, externalID st
 		return nil, auth.ErrInvalidKeyScope
 	}
 	var created *auth.APIKey
-	err = pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
-		queries := sqlc.New(tx)
+	err = pgx.BeginFunc(ctx, dbbudget.NewDBTX(r.pool), func(tx pgx.Tx) error {
+		queries := dbbudget.Queries(tx)
 		installations, err := queries.GetServingInstallationsForProjection(ctx, sqlc.GetServingInstallationsForProjectionParams{InstallationIds: []uuid.UUID{installationID}, ExternalID: externalID})
 		if err != nil {
 			return err
@@ -79,8 +80,8 @@ func (r *CredentialSubjectRepo) Rotate(ctx context.Context, externalID, subjectI
 		return nil, auth.ErrInvalidKeyScope
 	}
 	var created *auth.APIKey
-	err = pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
-		queries := sqlc.New(tx)
+	err = pgx.BeginFunc(ctx, dbbudget.NewDBTX(r.pool), func(tx pgx.Tx) error {
+		queries := dbbudget.Queries(tx)
 		installations, err := queries.GetServingInstallationsForProjection(ctx, sqlc.GetServingInstallationsForProjectionParams{InstallationIds: []uuid.UUID{installationID}, ExternalID: externalID})
 		if err != nil {
 			return err
@@ -149,8 +150,8 @@ func (r *CredentialSubjectRepo) ProjectProfile(ctx context.Context, externalID s
 		}
 		profile = uuidOrNil(parsed.String())
 	}
-	err := pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
-		queries := sqlc.New(tx)
+	err := pgx.BeginFunc(ctx, dbbudget.NewDBTX(r.pool), func(tx pgx.Tx) error {
+		queries := dbbudget.Queries(tx)
 		locked, err := queries.GetServingInstallationsForProjection(ctx, sqlc.GetServingInstallationsForProjectionParams{InstallationIds: parsedIDs, ExternalID: externalID})
 		if err != nil {
 			return err

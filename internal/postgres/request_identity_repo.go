@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
@@ -23,7 +24,7 @@ func (r *requestIdentityRepo) GetSubscriberForEmail(ctx context.Context, install
 	if err != nil {
 		return "", err
 	}
-	subjectID, err := sqlc.New(r.tx).GetCredentialSubjectForRequestEmail(ctx, sqlc.GetCredentialSubjectForRequestEmailParams{
+	subjectID, err := dbbudget.Queries(r.tx).GetCredentialSubjectForRequestEmail(ctx, sqlc.GetCredentialSubjectForRequestEmailParams{
 		InstallationID: installationUUID, Email: email,
 	})
 	if err != nil {

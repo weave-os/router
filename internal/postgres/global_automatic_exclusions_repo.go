@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/sqlc"
 )
@@ -23,7 +24,7 @@ var _ proxy.GlobalAutomaticExclusionStore = (*GlobalAutomaticExclusionRepo)(nil)
 // ListGlobalAutomaticRoutingExclusions returns each disabled model mapped to
 // the operator's reason, which is empty when none was recorded.
 func (r *GlobalAutomaticExclusionRepo) ListGlobalAutomaticRoutingExclusions(ctx context.Context) (map[string]string, error) {
-	rows, err := sqlc.New(r.tx).ListGlobalAutomaticRoutingExclusions(ctx)
+	rows, err := dbbudget.Queries(r.tx).ListGlobalAutomaticRoutingExclusions(ctx)
 	if err != nil {
 		return nil, err
 	}

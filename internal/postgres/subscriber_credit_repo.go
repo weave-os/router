@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/sqlc"
 	"weave-os/router/internal/subscriptions/entitlement"
 
@@ -28,7 +29,8 @@ type SubscriberCreditRepo struct {
 
 // NewSubscriberCreditRepo binds subscriber prepaid funds to a SQLC handle.
 func NewSubscriberCreditRepo(db subscriberCreditDB) *SubscriberCreditRepo {
-	return &SubscriberCreditRepo{db: db, queries: sqlc.New(db)}
+	boundedDB := dbbudget.NewDBTX(db)
+	return &SubscriberCreditRepo{db: boundedDB, queries: dbbudget.Queries(boundedDB)}
 }
 
 var _ billing.PrepaidBook = (*SubscriberCreditRepo)(nil)
@@ -96,7 +98,7 @@ func (r *SubscriberCreditRepo) Authorize(ctx context.Context, request billing.Pr
 		return billing.PrepaidAuthorization{}, fmt.Errorf("begin subscriber credit authorization: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	queries := sqlc.New(tx)
+	queries := dbbudget.Queries(tx)
 
 	balance, err := queries.GetSubscriberCreditBalanceForUpdate(ctx, subscriberID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -165,7 +167,7 @@ func (r *SubscriberCreditRepo) Settle(ctx context.Context, settlement billing.Pr
 		return 0, fmt.Errorf("begin subscriber credit settlement: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	queries := sqlc.New(tx)
+	queries := dbbudget.Queries(tx)
 
 	reservation, err := queries.GetSubscriberCreditReservationForUpdate(ctx, settlement.AuthorizationActionID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -244,7 +246,7 @@ func (r *SubscriberCreditRepo) Finalize(ctx context.Context, actionID string) (i
 		return 0, fmt.Errorf("begin subscriber credit finalization: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	queries := sqlc.New(tx)
+	queries := dbbudget.Queries(tx)
 
 	reservation, err := queries.GetSubscriberCreditReservationForUpdate(ctx, actionID)
 	if errors.Is(err, pgx.ErrNoRows) {

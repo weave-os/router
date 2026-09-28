@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/sqlc"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
@@ -70,7 +71,7 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 			}
 		}
 		defer recordProjection()
-		queries := sqlc.New(tx)
+		queries := dbbudget.Queries(tx)
 		_, err := queries.GetServingInstallationForAdmission(ctx, installationUUID)
 		if err != nil {
 			return err

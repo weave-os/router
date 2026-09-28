@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"weave-os/router/internal/billing"
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
@@ -28,7 +29,7 @@ var _ billing.Repo = (*BillingRepo)(nil)
 // Maps pgx.ErrNoRows to billing.ErrBalanceRowMissing so middleware can
 // distinguish "row missing" from "balance == 0".
 func (r *BillingRepo) GetBalance(ctx context.Context, orgID string) (int64, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	balance, err := q.GetOrgCreditBalance(ctx, orgID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -42,7 +43,7 @@ func (r *BillingRepo) GetBalance(ctx context.Context, orgID string) (int64, erro
 // HasActiveOverride reports whether the org has an unexpired billing
 // override row. EXISTS-based query — true means the org bypasses billing.
 func (r *BillingRepo) HasActiveOverride(ctx context.Context, orgID string) (bool, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	override, err := q.GetActiveBillingOverride(ctx, orgID)
 	if err != nil {
 		return false, err
@@ -54,7 +55,7 @@ func (r *BillingRepo) HasActiveOverride(ctx context.Context, orgID string) (bool
 // post-debit balance, or billing.ErrBalanceRowMissing if no balance row
 // existed (the CTE returns zero rows in that case).
 func (r *BillingRepo) DebitInference(ctx context.Context, p billing.DebitParams) (int64, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	feeEntryType := p.FeeEntryType
 	if p.FeeUsdMicros == 0 {
 		// The fee CTE no-ops on a zero fee, but entry_type is NOT NULL and
@@ -94,7 +95,7 @@ func (r *BillingRepo) GetAPIKeySpend(ctx context.Context, apiKeyID string) (int6
 		// rather than failing the request closed on a client-shaped value.
 		return 0, nil, false, nil
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.GetModelRouterAPIKeySpend(ctx, parsed)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -114,7 +115,7 @@ func (r *BillingRepo) GetUserMonthlySpendAndLimit(ctx context.Context, organizat
 		// rather than failing the request closed on a client-shaped value.
 		return 0, nil, nil
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.GetUserMonthlySpendAndLimit(ctx, sqlc.GetUserMonthlySpendAndLimitParams{
 		RouterUserID:   parsed,
 		OrganizationID: organizationID,
@@ -132,7 +133,7 @@ func (r *BillingRepo) GetUserMonthlySpendAndLimit(ctx context.Context, organizat
 // GetOrgMonthlySpendAndLimit reads the org's current UTC-month spend and cap.
 // Scalar subqueries guarantee a row; missing config/spend -> nil limit / zero spend, not an error.
 func (r *BillingRepo) GetOrgMonthlySpendAndLimit(ctx context.Context, organizationID string) (int64, *int64, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.GetOrgMonthlySpendAndLimit(ctx, organizationID)
 	if err != nil {
 		return 0, nil, err
@@ -148,7 +149,7 @@ func (r *BillingRepo) GetAutopayConfig(ctx context.Context, owner billing.Owner)
 	if err := owner.Validate(); err != nil {
 		return false, 0, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	var enabled bool
 	var threshold int64
 	var err error
@@ -178,6 +179,6 @@ func (r *BillingRepo) GetAutopayConfig(ctx context.Context, owner billing.Owner)
 // BillingTablesExist runs the boot-time health check. Returns true when
 // every table the billing debit path touches exists in the router schema.
 func (r *BillingRepo) BillingTablesExist(ctx context.Context) (bool, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.CheckBillingTablesExist(ctx)
 }

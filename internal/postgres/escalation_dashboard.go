@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/router/escalationdashboard"
 	"weave-os/router/internal/sqlc"
 )
@@ -26,7 +27,7 @@ var _ escalationdashboard.Store = (*EscalationDashboardRepo)(nil)
 
 // CreateSnapshot freezes aggregates and newest-first sessions for stable paging.
 func (r *EscalationDashboardRepo) CreateSnapshot(ctx context.Context, filter escalationdashboard.Filter) (escalationdashboard.StoredSnapshot, error) {
-	queries := sqlc.New(r.pool)
+	queries := dbbudget.Queries(r.pool)
 	if err := queries.DeleteExpiredEscalationDashboardSnapshots(ctx, pgtype.Timestamptz{Time: filter.CapturedAt, Valid: true}); err != nil {
 		return escalationdashboard.StoredSnapshot{}, fmt.Errorf("delete expired escalation dashboard snapshots: %w", err)
 	}
@@ -52,7 +53,7 @@ func (r *EscalationDashboardRepo) SnapshotPage(ctx context.Context, snapshotID s
 	if err != nil {
 		return escalationdashboard.StoredSnapshot{}, escalationdashboard.ErrInvalidCursor
 	}
-	encoded, err := sqlc.New(r.pool).GetEscalationDashboardSnapshotPage(ctx, sqlc.GetEscalationDashboardSnapshotPageParams{
+	encoded, err := dbbudget.Queries(r.pool).GetEscalationDashboardSnapshotPage(ctx, sqlc.GetEscalationDashboardSnapshotPageParams{
 		PageStart:  pageStart,
 		PageLimit:  pageLimit,
 		SnapshotID: parsedSnapshotID,

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/sqlc"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
@@ -30,7 +31,8 @@ type SubscriberAllowanceRepo struct {
 
 // NewSubscriberAllowanceRepo binds allowance accounting to a SQLC database handle.
 func NewSubscriberAllowanceRepo(db AllowanceDB) *SubscriberAllowanceRepo {
-	return &SubscriberAllowanceRepo{db: db, queries: sqlc.New(db)}
+	boundedDB := dbbudget.NewDBTX(db)
+	return &SubscriberAllowanceRepo{db: boundedDB, queries: dbbudget.Queries(boundedDB)}
 }
 
 // Reserve holds an upper-bound retail cost against every enforcement window.
@@ -102,7 +104,7 @@ func (r *SubscriberAllowanceRepo) ReserveWithinLimits(ctx context.Context, reser
 	}
 	var held entitlement.Action
 	err = pgx.BeginTxFunc(ctx, r.db, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
-		queries := sqlc.New(tx)
+		queries := dbbudget.Queries(tx)
 		row, insertErr := queries.InsertSubscriberAllowanceAction(ctx, sqlc.InsertSubscriberAllowanceActionParams{
 			ActionID:           reservation.ActionID,
 			RouterRequestID:    reservation.RouterRequestID,

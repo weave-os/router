@@ -208,6 +208,11 @@ jobs:
           ROUTER_TEST_DATABASE_URL: postgres://router:router@localhost:5432/router?sslmode=disable&search_path=router
         run: go run ./scripts/classifier_session_check
 
+      - name: Check bounded database waits on ephemeral Postgres
+        env:
+          ROUTER_TEST_DATABASE_URL: postgres://router:router@localhost:5432/router?sslmode=disable&search_path=router
+        run: go run ./scripts/database_budget_check
+
       - name: Check subscriber entitlement projection on ephemeral Postgres
         env:
           ROUTER_TEST_DATABASE_URL: postgres://router:router@localhost:5432/router?sslmode=disable&search_path=router

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
@@ -24,7 +25,7 @@ func (r *userRepo) UpsertByEmail(ctx context.Context, params auth.UpsertUserPara
 	if err != nil {
 		return nil, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.UpsertModelRouterUserByEmail(ctx, sqlc.UpsertModelRouterUserByEmailParams{
 		InstallationID:    installationID,
 		Email:             params.Email,
@@ -57,7 +58,7 @@ func (r *userRepo) UpsertByAccountUUID(ctx context.Context, params auth.UpsertUs
 	if err != nil {
 		return nil, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.UpsertModelRouterUserByAccountUUID(ctx, sqlc.UpsertModelRouterUserByAccountUUIDParams{
 		InstallationID:    installationID,
 		ClaudeAccountUUID: accountUUID,
@@ -74,7 +75,7 @@ func (r *userRepo) Get(ctx context.Context, id string) (*auth.User, error) {
 	if err != nil {
 		return nil, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.GetModelRouterUser(ctx, parsed)
 	if err != nil {
 		return nil, err
@@ -87,7 +88,7 @@ func (r *userRepo) ListForInstallation(ctx context.Context, installationID strin
 	if err != nil {
 		return nil, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	rows, err := q.ListModelRouterUsersForInstallation(ctx, parsed)
 	if err != nil {
 		return nil, err

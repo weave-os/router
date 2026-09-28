@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
@@ -24,7 +25,7 @@ type EscalationCheckFixture struct {
 
 // NewEscalationCheckFixture binds destructive fixture operations to one installation.
 func NewEscalationCheckFixture(pool *pgxpool.Pool, installation auth.Installation, scope [32]byte) *EscalationCheckFixture {
-	return &EscalationCheckFixture{queries: sqlc.New(pool), installationID: uuid.MustParse(installation.ID), externalID: installation.ExternalID, scope: scope}
+	return &EscalationCheckFixture{queries: dbbudget.Queries(pool), installationID: uuid.MustParse(installation.ID), externalID: installation.ExternalID, scope: scope}
 }
 
 // Cleanup deletes the fixture and verifies its session children were cascaded.

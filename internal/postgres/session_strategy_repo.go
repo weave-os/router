@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionstrategy"
 	"weave-os/router/internal/sqlc"
@@ -26,7 +27,7 @@ var _ sessionstrategy.Store = (*SessionStrategyRepo)(nil)
 
 // Get reads the explicit beta preference. A missing row means stable routing.
 func (r *SessionStrategyRepo) Get(ctx context.Context, installationID uuid.UUID, sessionKey [sessionstrategy.SessionKeyLen]byte) (sessionstrategy.Preference, bool, error) {
-	strategy, err := sqlc.New(r.tx).GetSessionStrategyPreference(ctx, sqlc.GetSessionStrategyPreferenceParams{
+	strategy, err := dbbudget.Queries(r.tx).GetSessionStrategyPreference(ctx, sqlc.GetSessionStrategyPreferenceParams{
 		InstallationID: installationID,
 		SessionKey:     sessionKey[:],
 	})
@@ -49,7 +50,7 @@ func (r *SessionStrategyRepo) Toggle(ctx context.Context, preference sessionstra
 	if err := preference.Validate(); err != nil {
 		return false, err
 	}
-	return sqlc.New(r.tx).UpsertToggledSessionStrategyPreference(ctx, sqlc.UpsertToggledSessionStrategyPreferenceParams{
+	return dbbudget.Queries(r.tx).UpsertToggledSessionStrategyPreference(ctx, sqlc.UpsertToggledSessionStrategyPreferenceParams{
 		InstallationID: preference.InstallationID,
 		SessionKey:     preference.SessionKey[:],
 		Strategy:       string(preference.Strategy),
@@ -59,7 +60,7 @@ func (r *SessionStrategyRepo) Toggle(ctx context.Context, preference sessionstra
 // Disable turns the explicit beta preference off in one statement and reports
 // whether it had been enabled.
 func (r *SessionStrategyRepo) Disable(ctx context.Context, installationID uuid.UUID, sessionKey [sessionstrategy.SessionKeyLen]byte) (bool, error) {
-	disabled, err := sqlc.New(r.tx).UpdateSessionStrategyPreferenceDisabled(ctx, sqlc.UpdateSessionStrategyPreferenceDisabledParams{
+	disabled, err := dbbudget.Queries(r.tx).UpdateSessionStrategyPreferenceDisabled(ctx, sqlc.UpdateSessionStrategyPreferenceDisabledParams{
 		InstallationID: installationID,
 		SessionKey:     sessionKey[:],
 	})

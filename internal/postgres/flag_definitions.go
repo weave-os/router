@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"weave-os/router/internal/flags"
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/sqlc"
 )
 
@@ -29,7 +30,7 @@ func NewFlagDefinitionRepo(tx sqlc.DBTX) *FlagDefinitionRepo {
 // the prune safe during rolling deploys: an older revision cannot delete a row
 // written by a newer revision.
 func (r *FlagDefinitionRepo) Publish(ctx context.Context, defs []flags.PublishedDefinition) error {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	keys := make([]string, 0, len(defs))
 	for _, def := range defs {
 		defaultValue := def.DeploymentDefault

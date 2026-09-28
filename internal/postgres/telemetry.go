@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/sqlc"
@@ -55,7 +56,7 @@ func (r *TelemetryRepo) InsertPolicyShadowDecision(ctx context.Context, p proxy.
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.InsertPolicyShadowDecision(ctx, sqlc.InsertPolicyShadowDecisionParams{
 		InstallationID:              id,
 		OrganizationID:              stringPtrOrNil(p.OrganizationID),
@@ -87,7 +88,7 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.Inse
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.InsertRequestTelemetry(ctx, sqlc.InsertRequestTelemetryParams{
 		InstallationID:                           id,
 		APIKeyID:                                 uuidOrNil(p.APIKeyID),
@@ -274,7 +275,7 @@ func (r *TelemetryRepo) InsertInferenceAttempt(ctx context.Context, p proxy.Inse
 	if err != nil {
 		return err
 	}
-	return sqlc.New(r.tx).InsertInferenceAttempt(ctx, inferenceAttemptParams(id, p.Event))
+	return dbbudget.Queries(r.tx).InsertInferenceAttempt(ctx, inferenceAttemptParams(id, p.Event))
 }
 
 func inferenceAttemptParams(installationID uuid.UUID, event inference.AttemptEvent) sqlc.InsertInferenceAttemptParams {
@@ -322,7 +323,7 @@ func (r *TelemetryRepo) InsertLoopEscalationEvent(ctx context.Context, p proxy.L
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.InsertLoopEscalationEvent(ctx, sqlc.InsertLoopEscalationEventParams{
 		InstallationID:   id,
 		SessionKey:       p.SessionKey,
@@ -339,7 +340,7 @@ func (r *TelemetryRepo) InsertLoopEscalationEvent(ctx context.Context, p proxy.L
 }
 
 func (r *TelemetryRepo) CountLoopEscalationEvents(ctx context.Context, sessionKey []byte, role string) (count int64, err error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.CountLoopEscalationEvents(ctx, sqlc.CountLoopEscalationEventsParams{
 		SessionKey: sessionKey,
 		Role:       role,
@@ -353,7 +354,7 @@ func (r *TelemetryRepo) InsertRouterFeedback(ctx context.Context, p proxy.Router
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.InsertRouterFeedback(ctx, sqlc.InsertRouterFeedbackParams{
 		InstallationID: id,
 		SessionKey:     p.SessionKey,
@@ -379,7 +380,7 @@ func (r *TelemetryRepo) InsertSpiralShadowEvent(ctx context.Context, p proxy.Spi
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.InsertSpiralShadowEvent(ctx, sqlc.InsertSpiralShadowEventParams{
 		InstallationID:     id,
 		SessionKey:         p.SessionKey,
@@ -402,7 +403,7 @@ func (r *TelemetryRepo) InsertSpiralShadowEvent(ctx context.Context, p proxy.Spi
 }
 
 func (r *TelemetryRepo) CountSpiralShadowEvents(ctx context.Context, sessionKey []byte, role, reason string) (count int64, err error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.CountSpiralShadowEvents(ctx, sqlc.CountSpiralShadowEventsParams{
 		SessionKey: sessionKey,
 		Role:       role,
@@ -417,7 +418,7 @@ func (r *TelemetryRepo) InsertStruggleShadowEvent(ctx context.Context, p proxy.S
 	if err != nil {
 		return err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.InsertStruggleShadowEvent(ctx, sqlc.InsertStruggleShadowEventParams{
 		InstallationID:      id,
 		SessionKey:          p.SessionKey,
@@ -433,7 +434,7 @@ func (r *TelemetryRepo) InsertStruggleShadowEvent(ctx context.Context, p proxy.S
 }
 
 func (r *TelemetryRepo) CountStruggleShadowEvents(ctx context.Context, sessionKey []byte, role, reason string) (count int64, err error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.CountStruggleShadowEvents(ctx, sqlc.CountStruggleShadowEventsParams{
 		SessionKey: sessionKey,
 		Role:       role,
@@ -446,7 +447,7 @@ func (r *TelemetryRepo) GetTelemetrySummary(ctx context.Context, installationID 
 	if err != nil {
 		return proxy.TelemetrySummary{}, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.GetTelemetrySummary(ctx, sqlc.GetTelemetrySummaryParams{
 		InstallationID: id,
 		FromTime:       pgtype.Timestamptz{Time: from, Valid: true},
@@ -469,7 +470,7 @@ func (r *TelemetryRepo) GetTelemetryTimeseries(ctx context.Context, installation
 	if err != nil {
 		return nil, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	fromTs := pgtype.Timestamptz{Time: from, Valid: true}
 	toTs := pgtype.Timestamptz{Time: to, Valid: true}
 
@@ -512,7 +513,7 @@ func (r *TelemetryRepo) GetTelemetryTimeseries(ctx context.Context, installation
 
 // GetTelemetrySummaryAll aggregates across every installation for the admin dashboard.
 func (r *TelemetryRepo) GetTelemetrySummaryAll(ctx context.Context, from, to time.Time) (proxy.TelemetrySummary, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.GetTelemetrySummaryAll(ctx, sqlc.GetTelemetrySummaryAllParams{
 		FromTime: pgtype.Timestamptz{Time: from, Valid: true},
 		ToTime:   pgtype.Timestamptz{Time: to, Valid: true},
@@ -531,7 +532,7 @@ func (r *TelemetryRepo) GetTelemetrySummaryAll(ctx context.Context, from, to tim
 
 // GetTelemetryTimeseriesAll is the admin-only counterpart to GetTelemetryTimeseries.
 func (r *TelemetryRepo) GetTelemetryTimeseriesAll(ctx context.Context, from, to time.Time, granularity string) ([]proxy.TelemetryBucket, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	fromTs := pgtype.Timestamptz{Time: from, Valid: true}
 	toTs := pgtype.Timestamptz{Time: to, Valid: true}
 
@@ -576,7 +577,7 @@ func (r *TelemetryRepo) GetTelemetryModelBreakdown(ctx context.Context, installa
 	if err != nil {
 		return nil, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	fromTs := pgtype.Timestamptz{Time: from, Valid: true}
 	toTs := pgtype.Timestamptz{Time: to, Valid: true}
 
@@ -620,7 +621,7 @@ func (r *TelemetryRepo) GetTelemetryModelBreakdown(ctx context.Context, installa
 // GetTelemetryModelBreakdownAll is the admin-only counterpart to
 // GetTelemetryModelBreakdown, spanning every installation.
 func (r *TelemetryRepo) GetTelemetryModelBreakdownAll(ctx context.Context, from, to time.Time, granularity string) ([]proxy.TelemetryModelBucket, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	fromTs := pgtype.Timestamptz{Time: from, Valid: true}
 	toTs := pgtype.Timestamptz{Time: to, Valid: true}
 
@@ -755,7 +756,7 @@ func (r *TelemetryRepo) GetTelemetryRows(ctx context.Context, installationID str
 	if err != nil {
 		return nil, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	rows, err := q.GetTelemetryRows(ctx, sqlc.GetTelemetryRowsParams{
 		InstallationID: id,
 		FromTime:       pgtype.Timestamptz{Time: from, Valid: true},
@@ -771,7 +772,7 @@ func (r *TelemetryRepo) GetTelemetryRows(ctx context.Context, installationID str
 
 // GetTelemetryRowsAll is the admin-only counterpart to GetTelemetryRows.
 func (r *TelemetryRepo) GetTelemetryRowsAll(ctx context.Context, from, to time.Time, limit int32) ([]proxy.TelemetryRow, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	rows, err := q.GetTelemetryRowsAll(ctx, sqlc.GetTelemetryRowsAllParams{
 		FromTime: pgtype.Timestamptz{Time: from, Valid: true},
 		ToTime:   pgtype.Timestamptz{Time: to, Valid: true},
@@ -791,7 +792,7 @@ func (r *TelemetryRepo) GetSessionCost(ctx context.Context, installationID, sess
 	if err != nil {
 		return proxy.SessionCost{}, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	row, err := q.GetSessionCost(ctx, sqlc.GetSessionCostParams{
 		InstallationID: id,
 		SessionID:      sessionID,
@@ -996,7 +997,7 @@ func modelBucketFromHourlyAllRow(row sqlc.GetTelemetryModelBreakdownHourlyAllRow
 // (installationID, sessionKey, role): seq > 0 = ASC 1-based, seq < 0 = DESC 1-based.
 // Returns pgx.ErrNoRows when fewer than |seq| rows exist.
 func (r *TelemetryRepo) GetTelemetryBySessionSequence(ctx context.Context, installationID uuid.UUID, sessionKey []byte, role string, seq int) (proxy.TelemetryTurnResult, error) {
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	if seq > 0 {
 		row, err := q.GetTelemetryBySessionAsc(ctx, sqlc.GetTelemetryBySessionAscParams{
 			InstallationID: installationID,

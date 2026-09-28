@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/sqlc"
 
@@ -35,7 +36,7 @@ func (r *FeedbackRepo) Upsert(ctx context.Context, p proxy.UpsertFeedbackParams)
 	if source == "" {
 		source = "link"
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 	return q.UpsertRequestFeedback(ctx, sqlc.UpsertRequestFeedbackParams{
 		InstallationID: installationID,
 		ExternalID:     p.ExternalID,
@@ -57,7 +58,7 @@ func (r *FeedbackRepo) GetContext(ctx context.Context, installationID, requestID
 	if err != nil {
 		return proxy.FeedbackContext{}, err
 	}
-	q := sqlc.New(r.tx)
+	q := dbbudget.Queries(r.tx)
 
 	out := proxy.FeedbackContext{RequestID: requestID}
 

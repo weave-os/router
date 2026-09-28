@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/sqlc"
 )
 
@@ -19,7 +20,7 @@ func NewLLMEscalationCheckFixture(pool *pgxpool.Pool, installationID string) (*L
 	if err != nil {
 		return nil, err
 	}
-	return &LLMEscalationCheckFixture{queries: sqlc.New(pool), installationID: id}, nil
+	return &LLMEscalationCheckFixture{queries: dbbudget.Queries(pool), installationID: id}, nil
 }
 
 // ExpireJob makes a single job's lease stale without waiting for wall-clock expiry.

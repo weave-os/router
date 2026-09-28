@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/semaphore"
 
+	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/sqlc"
 )
@@ -32,7 +33,7 @@ func NewClassifierSessionRepo(pool *pgxpool.Pool) *ClassifierSessionRepo {
 
 // Create returns the original binding on an idempotent handshake retry.
 func (r *ClassifierSessionRepo) Create(ctx context.Context, thread router.ClassifierThread) (router.ClassifierThread, error) {
-	stored, err := sqlc.New(r.pool).InsertClassifierThread(ctx, sqlc.InsertClassifierThreadParams{
+	stored, err := dbbudget.Queries(r.pool).InsertClassifierThread(ctx, sqlc.InsertClassifierThreadParams{
 		ThreadID: thread.ThreadID, InstallationID: thread.InstallationID,
 		CredentialSha256: thread.CredentialSHA256[:], RequestID: thread.RequestID,
 		Release: thread.Release, ReleaseSha256: thread.ReleaseSHA256,
@@ -55,8 +56,8 @@ func (r *ClassifierSessionRepo) WithThread(ctx context.Context, thread router.Cl
 		return fmt.Errorf("classifier transaction capacity reached: %w", router.ErrClassifierUnavailable)
 	}
 	defer r.transactions.Release(1)
-	return pgx.BeginTxFunc(ctx, r.pool, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
-		queries := sqlc.New(tx)
+	return pgx.BeginTxFunc(ctx, dbbudget.NewDBTX(r.pool), pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
+		queries := dbbudget.Queries(tx)
 		storedThread, err := queries.GetClassifierThreadForUpdate(ctx, sqlc.GetClassifierThreadForUpdateParams{
 			ThreadID: thread.ThreadID, InstallationID: thread.InstallationID,
 			CredentialSha256: thread.CredentialSHA256[:], Release: thread.Release, ReleaseSha256: thread.ReleaseSHA256,
