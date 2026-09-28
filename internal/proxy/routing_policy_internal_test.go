@@ -57,6 +57,7 @@ func TestExplicitRoutingPolicyPrecedesClassifierAndPins(t *testing.T) {
 			require.NoError(t, err)
 			assert.True(t, turn.CallerModelPassthrough)
 			assert.Equal(t, catalog.ModelIDClaudeSonnet46.String(), turn.Decision.Model)
+			assert.Empty(t, routingMarkerFor(turn))
 			assert.Equal(t, 0, routerSpy.routeCalls)
 			assert.False(t, turn.UsageBypass)
 			pins.mu.Lock()

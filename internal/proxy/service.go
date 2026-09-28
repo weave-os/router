@@ -686,7 +686,7 @@ func routingMarkerFor(res turnLoopResult) string {
 	if decision.Model == "" {
 		return ""
 	}
-	if res.SuggestionMode {
+	if res.SuggestionMode || res.CallerModelPassthrough {
 		return ""
 	}
 	// A dropped force-model pin contradicts an ack the user already saw, so it

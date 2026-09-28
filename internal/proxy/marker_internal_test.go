@@ -340,6 +340,14 @@ func TestRoutingMarkerFor_SuggestionModeSuppressed(t *testing.T) {
 	assert.Empty(t, got, "suggestion-mode responses must not emit the routing badge")
 }
 
+func TestRoutingMarkerFor_CallerModelPassthroughSuppressed(t *testing.T) {
+	res := turnLoopResult{
+		Decision:               router.Decision{Model: "claude-sonnet-4-6", Provider: "anthropic"},
+		CallerModelPassthrough: true,
+	}
+	assert.Empty(t, routingMarkerFor(res), "caller-model passthrough must preserve the stock client experience")
+}
+
 func TestRoutingMarkerFor_RecapSuppressed(t *testing.T) {
 	res := turnLoopResult{
 		Decision: router.Decision{Model: "gpt-5.6-luna", Provider: "openai"},
