@@ -1,0 +1,19 @@
+internal/auth/blind_experiment_cache.go
+  s_28c8815db4c15b::t_0940efd212e374 29-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "5166d70b7addcef40d6131461585ad876567b856",
+  "prompts": {},
+  "sessions": {
+    "s_28c8815db4c15b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0832c-78ed-7dc3-829b-0f975789e8e8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
