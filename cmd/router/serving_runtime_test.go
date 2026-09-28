@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/server"
 )
 
@@ -38,9 +39,23 @@ func TestValidateManagedServingBoot(t *testing.T) {
 		"ROUTER_SERVING_SELECTION_SET_SHA256":     strings.Repeat("c", 64),
 		"ROUTER_SERVING_SELECTION_SET_GENERATION": "23",
 	}
-	servingEnvWithKey := map[string]string{envServingAssertionKey: strings.Repeat("k", 32)}
+	servingEnvWithKey := map[string]string{envServingAssertionKey: strings.Repeat("k", 32), envDefaultStrategy: "hmm_embedding"}
 	for name, value := range fullServingEnv {
 		servingEnvWithKey[name] = value
+	}
+	withDefaultStrategy := func(value string) map[string]string {
+		env := map[string]string{}
+		for name, v := range servingEnvWithKey {
+			env[name] = v
+		}
+		env[envDefaultStrategy] = value
+		return env
+	}
+	withoutDefaultStrategy := map[string]string{}
+	for name, value := range servingEnvWithKey {
+		if name != envDefaultStrategy {
+			withoutDefaultStrategy[name] = value
+		}
 	}
 
 	tests := []struct {
@@ -50,6 +65,40 @@ func TestValidateManagedServingBoot(t *testing.T) {
 		wantContains []string
 	}{
 		{name: "managed serving worker with key", mode: server.DeploymentModeManaged, env: servingEnvWithKey},
+		{name: "managed serving worker with hmm default", mode: server.DeploymentModeManaged, env: withDefaultStrategy("hmm")},
+		{name: "managed serving worker with unnormalized default", mode: server.DeploymentModeManaged, env: withDefaultStrategy(" HMM_Embedding\n")},
+		// A revision minted without ROUTER_DEFAULT_STRATEGY would score every
+		// hmm_beta/NULL installation on the legacy cluster embedder.
+		{
+			name: "managed serving worker without default strategy", mode: server.DeploymentModeManaged, env: withoutDefaultStrategy,
+			wantContains: []string{envDefaultStrategy, "hmm, hmm_embedding"},
+		},
+		{
+			name: "managed serving worker with blank default strategy", mode: server.DeploymentModeManaged, env: withDefaultStrategy(" \t"),
+			wantContains: []string{envDefaultStrategy, "hmm, hmm_embedding"},
+		},
+		{
+			name: "managed serving worker with cluster default", mode: server.DeploymentModeManaged, env: withDefaultStrategy("cluster"),
+			wantContains: []string{envDefaultStrategy, `"cluster"`, "hmm, hmm_embedding"},
+		},
+		{
+			name: "managed serving worker with retired beta default", mode: server.DeploymentModeManaged, env: withDefaultStrategy("hmm_beta"),
+			wantContains: []string{envDefaultStrategy, `"hmm_beta"`},
+		},
+		{
+			name: "managed serving worker with unregistered default", mode: server.DeploymentModeManaged, env: withDefaultStrategy("rl"),
+			wantContains: []string{envDefaultStrategy, `"rl"`},
+		},
+		// Only a serving worker (assertion key set) registers the managed
+		// policy strategies; legacy managed workers keep the cluster default.
+		{
+			name: "legacy managed worker with cluster default", mode: server.DeploymentModeManaged,
+			env: map[string]string{"ROUTER_POLICY_ENVIRONMENT": "prod", envDefaultStrategy: "cluster"},
+		},
+		{
+			name: "self-hosted serving env without default strategy", mode: server.DeploymentModeSelfHosted,
+			env: withoutDefaultStrategy,
+		},
 		{
 			name: "managed serving worker without key", mode: server.DeploymentModeManaged, env: fullServingEnv,
 			wantContains: []string{envServingAssertionKey, "ROUTER_SERVING_TARGET", "ROUTER_SERVING_SELECTION_SET_URI"},
@@ -122,4 +171,12 @@ func TestManagedServingWeakOptInFailsBeforeDependencies(t *testing.T) {
 	assert.Nil(t, admission)
 	assert.Nil(t, snapshot)
 	assert.Nil(t, closeRegistry)
+}
+
+func TestManagedServingStrategiesMatchRuntimeRegistration(t *testing.T) {
+	for _, strategy := range managedServingStrategies {
+		assert.True(t, router.IsHMMStrategy(strategy), "boot gate must only admit sidecar-backed policy strategies: %q", strategy)
+	}
+	assert.NotContains(t, managedServingStrategies, router.StrategyCluster)
+	assert.NotContains(t, managedServingStrategies, router.StrategyHMMBeta)
 }

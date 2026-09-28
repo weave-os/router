@@ -47,6 +47,9 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 	for _, strategy := range available {
 		allowed[strategy] = struct{}{}
 	}
+	// Managed workers keep the configured default unclamped: an unregistered
+	// default must fail closed below rather than score traffic on cluster.
+	managedDefaultStrategy := defaultStrategy
 	defaultStrategy = NormalizeRouterStrategyDefault(defaultStrategy, available...)
 	selectable := func(strategy router.Strategy) bool {
 		if strategy == router.StrategyLLMClassifier {
@@ -77,13 +80,23 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 			c.Next()
 			return
 		}
-		if managedServing && strategy == router.StrategyHMMBeta {
-			strategy = defaultStrategy
-		}
-		if strategy == "" {
+		switch {
+		case managedServing && (strategy == router.StrategyHMMBeta || strategy == ""):
+			strategy = managedDefaultStrategy
+		case strategy == "":
 			strategy = defaultStrategy
 		}
 		if !selectable(strategy) {
+			if managedServing {
+				observability.FromGin(c).Error(
+					"Persisted router strategy is not registered or unavailable on this managed worker",
+					"installation_id", installation.ID,
+					"persisted_strategy", installation.RoutingStrategy,
+					"effective_strategy", strategy,
+				)
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "routing_strategy_unavailable"})
+				return
+			}
 			observability.FromGin(c).Warn(
 				"Persisted router strategy is not registered or unavailable; using cluster",
 				"installation_id", installation.ID,

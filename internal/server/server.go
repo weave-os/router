@@ -95,7 +95,13 @@ func Register(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service
 // DefaultStrategyFromEnv is the deployment-level strategy for installations
 // with no persisted override (ROUTER_DEFAULT_STRATEGY, cluster when unset).
 func DefaultStrategyFromEnv() router.Strategy {
-	strategy := router.Strategy(strings.ToLower(strings.TrimSpace(os.Getenv("ROUTER_DEFAULT_STRATEGY"))))
+	return ParseDefaultStrategy(os.Getenv("ROUTER_DEFAULT_STRATEGY"))
+}
+
+// ParseDefaultStrategy normalizes a raw ROUTER_DEFAULT_STRATEGY value; empty
+// means the legacy cluster default.
+func ParseDefaultStrategy(raw string) router.Strategy {
+	strategy := router.Strategy(strings.ToLower(strings.TrimSpace(raw)))
 	if strategy == "" {
 		return router.StrategyCluster
 	}

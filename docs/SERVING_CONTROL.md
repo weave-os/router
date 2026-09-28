@@ -419,7 +419,14 @@ inference routes without admission. An unset or whitespace-only
 `ROUTER_SERVING_ASSERTION_KEY` on a revision with no serving stamping keeps the
 worker on its existing managed/self-hosted path. It does not read serving control heads, subject
 projections, session bindings or request-attribution tables. A nonempty weak key
-fails boot; it does not silently fall back. Apply additive router migrations
+fails boot; it does not silently fall back. A serving worker also refuses to
+boot unless `ROUTER_DEFAULT_STRATEGY` is one of the policy strategies it
+registers (`hmm`, `hmm_embedding`): an unset or `cluster` default would score
+every installation without a persisted strategy, and every retired `hmm_beta`
+installation, on the legacy cluster embedder. On the request path a managed
+worker answers 503 `routing_strategy_unavailable` when the persisted or remapped
+strategy is not selectable instead of rerouting to `cluster`; only the legacy
+(non-managed) path keeps the cluster fallback. Apply additive router migrations
 `0095` through the coordinated migration path before enabling a gateway.
 
 The gateway exposes `/health` for process liveness, `/startupz` for boot

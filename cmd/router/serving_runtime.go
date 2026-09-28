@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,7 +16,16 @@ import (
 	"weave-os/router/internal/server/middleware"
 )
 
-const envServingAssertionKey = "ROUTER_SERVING_ASSERTION_KEY"
+const (
+	envServingAssertionKey = "ROUTER_SERVING_ASSERTION_KEY"
+	envDefaultStrategy     = "ROUTER_DEFAULT_STRATEGY"
+)
+
+// managedServingStrategies are the policy strategies a managed serving worker
+// registers from its admitted selection set. The deployment default must be
+// one of them: anything else silently scores managed traffic on the legacy
+// cluster embedder.
+var managedServingStrategies = []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding}
 
 // managedServingEnvVars enumerates every ROUTER_SERVING_* variable the worker
 // reads besides the assertion key. A set variable means the revision was
@@ -50,7 +60,7 @@ func validateManagedServingBoot(mode server.DeploymentMode, lookup func(string) 
 		return nil
 	}
 	if key, _ := lookup(envServingAssertionKey); strings.TrimSpace(key) != "" {
-		return nil
+		return validateManagedServingDefaultStrategy(lookup)
 	}
 	var stamped []string
 	for _, name := range managedServingEnvVars {
@@ -65,6 +75,32 @@ func validateManagedServingBoot(mode server.DeploymentMode, lookup func(string) 
 		)
 	}
 	return nil
+}
+
+func validateManagedServingDefaultStrategy(lookup func(string) (string, bool)) error {
+	raw, _ := lookup(envDefaultStrategy)
+	if strings.TrimSpace(raw) == "" {
+		return fmt.Errorf(
+			"%s is empty while managed serving is enabled; set one of %s",
+			envDefaultStrategy, strategyList(managedServingStrategies),
+		)
+	}
+	strategy := server.ParseDefaultStrategy(raw)
+	if !slices.Contains(managedServingStrategies, strategy) {
+		return fmt.Errorf(
+			"%s=%q is not a managed serving strategy; set one of %s",
+			envDefaultStrategy, strategy, strategyList(managedServingStrategies),
+		)
+	}
+	return nil
+}
+
+func strategyList(strategies []router.Strategy) string {
+	names := make([]string, 0, len(strategies))
+	for _, strategy := range strategies {
+		names = append(names, string(strategy))
+	}
+	return strings.Join(names, ", ")
 }
 
 func osEnvLookup(key string) (string, bool) { return os.LookupEnv(key) }
@@ -93,7 +129,7 @@ func buildManagedServingRuntime(ctx context.Context, availableProviders map[stri
 	timeout := parseEnvDurationMs("ROUTER_HMM_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout)
 	attemptTimeout := parseEnvAttemptTimeoutMs("ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS", policyclient.DeriveAttemptTimeout(timeout))
 	cache, err := policyregistry.NewServingRuntimeCache(registry, hmmPolicySnapshotBuilder(
-		availableProviders, []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding},
+		availableProviders, managedServingStrategies,
 		config.GetOr("ROUTER_HMM_SIDECAR_AUTH", policySidecarAuthGoogleIDToken), timeout, attemptTimeout,
 	))
 	if err != nil {
