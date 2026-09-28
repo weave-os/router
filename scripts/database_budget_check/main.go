@@ -46,7 +46,7 @@ func check(dsn string) (checkErr error) {
 		return fmt.Errorf("parse test database URL: %w", err)
 	}
 	host := strings.ToLower(parsedDSN.Hostname())
-	if host != "localhost" && host != "127.0.0.1" && host != "::1" && host != "postgres" {
+	if !loopbackDatabaseHost(host) {
 		return fmt.Errorf("refuse non-local test database host %q", host)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -69,8 +69,8 @@ func check(dsn string) (checkErr error) {
 	if err := pool.QueryRow(ctx, "SHOW statement_timeout").Scan(&configuredStatementTimeout); err != nil {
 		return fmt.Errorf("read configured statement timeout: %w", err)
 	}
-	if configuredLockTimeout != "250ms" || configuredStatementTimeout != "5s" {
-		return fmt.Errorf("database timeouts = lock %q, statement %q; want 250ms and 5s", configuredLockTimeout, configuredStatementTimeout)
+	if configuredLockTimeout != "1s" || configuredStatementTimeout != "10s" {
+		return fmt.Errorf("database timeouts = lock %q, statement %q; want 1s and 10s", configuredLockTimeout, configuredStatementTimeout)
 	}
 	repository := postgres.NewRepository(pool, auth.NoOpEncryptor{})
 	installation, err := repository.Installations.Create(ctx, auth.CreateInstallationParams{ExternalID: uuid.NewString(), Name: "Database budget check"})
@@ -110,13 +110,49 @@ func check(dsn string) (checkErr error) {
 		Model:          string(catalog.ModelIDClaudeSonnet46),
 		PinnedUntil:    time.Now().Add(time.Hour),
 	}
+	type pinWriteResult struct {
+		elapsed time.Duration
+		err     error
+	}
+	waitStarted := make(chan struct{})
+	waitResult := make(chan pinWriteResult, 1)
+	go func() {
+		close(waitStarted)
+		writeStarted := time.Now()
+		writeErr := pinStore.Upsert(context.Background(), pin)
+		waitResult <- pinWriteResult{elapsed: time.Since(writeStarted), err: writeErr}
+	}()
+	<-waitStarted
+	time.Sleep(650 * time.Millisecond)
+	if _, err := lockConnection.Exec(ctx, "ROLLBACK"); err != nil {
+		return fmt.Errorf("release installation lock after serialization wait: %w", err)
+	}
+	select {
+	case result := <-waitResult:
+		if result.err != nil {
+			return fmt.Errorf("650ms locked pin insert error = %w, want success", result.err)
+		}
+		if err := verifyBoundedWait("650ms locked pin insert", result.elapsed, 500*time.Millisecond); err != nil {
+			return err
+		}
+	case <-time.After(maximumObservedWait):
+		return fmt.Errorf("650ms locked pin insert did not finish within %s", maximumObservedWait)
+	}
+	if _, err := lockConnection.Exec(ctx, "BEGIN"); err != nil {
+		return fmt.Errorf("begin bounded lock transaction: %w", err)
+	}
+	if _, err := lockConnection.Exec(ctx, "SELECT id FROM router.model_router_installations WHERE id = $1 FOR UPDATE", installation.ID); err != nil {
+		return fmt.Errorf("relock installation fixture: %w", err)
+	}
+	lockedPin := pin
+	lockedPin.SessionKey = sessionKey()
 	started := time.Now()
-	err = pinStore.Upsert(context.Background(), pin)
+	err = pinStore.Upsert(context.Background(), lockedPin)
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) || pgErr.Code != "55P03" {
 		return fmt.Errorf("locked pin insert error = %v, want PostgreSQL lock timeout (55P03)", err)
 	}
-	if err := verifyBoundedWait("locked pin insert", time.Since(started), 100*time.Millisecond); err != nil {
+	if err := verifyBoundedWait("locked pin insert", time.Since(started), 500*time.Millisecond); err != nil {
 		return err
 	}
 	if _, err := pool.Exec(ctx, "SELECT 1"); err != nil {
@@ -133,6 +169,14 @@ func check(dsn string) (checkErr error) {
 	}
 	if _, err := pool.Exec(ctx, "SELECT 1"); err != nil {
 		return fmt.Errorf("pool connection was not recovered after statement deadline: %w", err)
+	}
+
+	started = time.Now()
+	if _, err := dbbudget.NewDBTXWithTimeout(pool, 8*time.Second).Exec(ctx, "SELECT pg_sleep(2)"); err != nil {
+		return fmt.Errorf("8s database operation budget canceled a 2s statement: %w", err)
+	}
+	if err := verifyBoundedWait("8s database operation", time.Since(started), 1500*time.Millisecond); err != nil {
+		return err
 	}
 
 	occupiedConnection, err := pool.Acquire(ctx)
@@ -157,10 +201,10 @@ func check(dsn string) (checkErr error) {
 	}
 	lockConnection.Release()
 	lockConnection = nil
-	if err := pinStore.Upsert(ctx, pin); err != nil {
+	if err := pinStore.Upsert(ctx, lockedPin); err != nil {
 		return fmt.Errorf("pin write did not recover after releasing lock: %w", err)
 	}
-	_, found, err := pinStore.Get(ctx, pin.SessionKey, pin.Role)
+	_, found, err := pinStore.Get(ctx, lockedPin.SessionKey, lockedPin.Role)
 	if err != nil {
 		return fmt.Errorf("read pin after recovery: %w", err)
 	}
@@ -168,6 +212,10 @@ func check(dsn string) (checkErr error) {
 		return errors.New("pin write was not readable after recovery")
 	}
 	return nil
+}
+
+func loopbackDatabaseHost(host string) bool {
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 func verifyBoundedWait(operation string, elapsed, minimum time.Duration) error {

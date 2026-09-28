@@ -25,13 +25,17 @@ func NewEscalationDashboardRepo(pool *pgxpool.Pool) *EscalationDashboardRepo {
 
 var _ escalationdashboard.Store = (*EscalationDashboardRepo)(nil)
 
+const escalationDashboardSnapshotTimeout = 8 * time.Second
+
 // CreateSnapshot freezes aggregates and newest-first sessions for stable paging.
 func (r *EscalationDashboardRepo) CreateSnapshot(ctx context.Context, filter escalationdashboard.Filter) (escalationdashboard.StoredSnapshot, error) {
-	queries := dbbudget.Queries(r.pool)
-	if err := queries.DeleteExpiredEscalationDashboardSnapshots(ctx, pgtype.Timestamptz{Time: filter.CapturedAt, Valid: true}); err != nil {
+	snapshotCtx, cancel := context.WithTimeout(ctx, escalationDashboardSnapshotTimeout)
+	defer cancel()
+	queries := dbbudget.QueriesWithTimeout(r.pool, escalationDashboardSnapshotTimeout)
+	if err := queries.DeleteExpiredEscalationDashboardSnapshots(snapshotCtx, pgtype.Timestamptz{Time: filter.CapturedAt, Valid: true}); err != nil {
 		return escalationdashboard.StoredSnapshot{}, fmt.Errorf("delete expired escalation dashboard snapshots: %w", err)
 	}
-	encoded, err := queries.CreateEscalationDashboardSnapshot(ctx, sqlc.CreateEscalationDashboardSnapshotParams{
+	encoded, err := queries.CreateEscalationDashboardSnapshot(snapshotCtx, sqlc.CreateEscalationDashboardSnapshotParams{
 		CapturedAt:        pgtype.Timestamptz{Time: filter.CapturedAt, Valid: true},
 		Service:           string(filter.Service),
 		Mode:              string(filter.Mode),

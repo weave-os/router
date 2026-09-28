@@ -3,8 +3,8 @@ package poolconfig
 import "github.com/jackc/pgx/v5/pgxpool"
 
 const (
-	lockTimeout      = "250ms"
-	statementTimeout = "5s"
+	lockTimeout      = "1s"
+	statementTimeout = "10s"
 )
 
 // ConfigureTimeouts bounds lock waits and active statements on every pool connection.

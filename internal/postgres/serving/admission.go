@@ -61,7 +61,7 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 		return scope, admitted, errors.New("admission decision is required")
 	}
 	transactionStart := time.Now()
-	err = pgx.BeginTxFunc(ctx, r.pool, pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
+	err = pgx.BeginTxFunc(ctx, dbbudget.NewDBTX(r.pool), pgx.TxOptions{IsoLevel: pgx.ReadCommitted}, func(tx pgx.Tx) error {
 		projectionStart := time.Now()
 		// The projection span ends before the conversation lock so a slow lock or session-binding
 		// read cannot be mistaken for projection SQL.

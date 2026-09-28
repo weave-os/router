@@ -6,11 +6,15 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/postgres/serving"
 )
 
 func TestFixtureDSNRequiresLoopback(t *testing.T) {
@@ -32,6 +36,50 @@ func TestFixtureDSNRequiresLoopback(t *testing.T) {
 		if _, err := fixtureDSN(dsn); err == nil {
 			t.Fatalf("DSN %q accepted", dsn)
 		}
+	}
+}
+
+func TestAdmissionPoolAcquisitionHasDatabaseDeadline(t *testing.T) {
+	dsn, err := fixtureDSN(os.Getenv(databaseURLEnv))
+	if err != nil {
+		t.Skipf("%s not set to a loopback fixture: %v", databaseURLEnv, err)
+	}
+	config, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatalf("parse fixture DSN: %v", err)
+	}
+	config.MaxConns = 1
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatalf("connect fixture database: %v", err)
+	}
+	defer pool.Close()
+	occupied, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatalf("occupy sole pool connection: %v", err)
+	}
+	defer occupied.Release()
+
+	admissions, err := serving.NewServingAdmissionRepo(pool, policyregistry.EnvironmentProd)
+	if err != nil {
+		t.Fatalf("create serving admission repo: %v", err)
+	}
+	decisionCalled := false
+	started := time.Now()
+	_, _, err = admissions.Admit(ctx, uuid.NewString(), uuid.NewString(), "conversation", func(context.Context, policyregistry.SerializedAdmission) (policyregistry.SessionReleaseBinding, error) {
+		decisionCalled = true
+		return policyregistry.SessionReleaseBinding{}, nil
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("admission under pool exhaustion error = %v, want deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed < time.Second || elapsed > 3*time.Second {
+		t.Fatalf("admission under pool exhaustion took %s, want between 1s and 3s", elapsed)
+	}
+	if decisionCalled {
+		t.Fatal("admission decision ran without acquiring a database connection")
 	}
 }
 
