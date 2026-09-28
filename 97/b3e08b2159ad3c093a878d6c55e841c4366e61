@@ -1,0 +1,52 @@
+internal/translate/session_affinity_coverage_test.go
+  s_8af08de71da1fb::t_4e0b953f65c2f5 50
+internal/providers/provider.go
+  s_8af08de71da1fb::t_c4c480068521b0 95-96
+  s_8af08de71da1fb::t_10e194e81dba20 57,110,192,239
+internal/providers/openaicompat/client.go
+  s_8af08de71da1fb::t_10e194e81dba20 27-28
+internal/providers/families_test.go
+  s_8af08de71da1fb::t_10e194e81dba20 52
+internal/providers/CLAUDE.md
+  s_8af08de71da1fb::t_d827d9885d4ddc 36
+  s_8af08de71da1fb::t_cf1c10575a7e01 23,31
+install/install.sh
+  s_8af08de71da1fb::t_080185aea30449 5578,5597-5598,5667,5686-5687,5756,5775-5776
+cmd/router/main.go
+  s_8af08de71da1fb::t_10e194e81dba20 318-328
+  s_8af08de71da1fb::t_5a90df5b04c5ca 317
+internal/router/catalog/catalog_test.go
+  s_8af08de71da1fb::t_0fa973753ed4ac 437
+  s_8af08de71da1fb::t_667b433dcaad28 430-436,519,530-546
+  s_8af08de71da1fb::t_10e194e81dba20 34
+  s_8af08de71da1fb::t_c8cbd418e84d67 547-548
+internal/router/catalog/catalog.go
+  s_8af08de71da1fb::t_6a1bb9e4ea8f24 603-625,771-772
+install/cc-statusline.sh
+  s_8af08de71da1fb::t_080185aea30449 530,549-550,619,638-639,708,727-728
+internal/router/rl/mapping_internal_test.go
+  s_8af08de71da1fb::t_4e0b953f65c2f5 36
+internal/providers/AGENTS.md
+  s_8af08de71da1fb::t_2bb90a8fcc6d5f 36
+  s_8af08de71da1fb::t_66241d2807e035 23,31
+bench/weave_bench/prices.generated.json
+  s_8af08de71da1fb::t_d64424d39f6ae7 2,370-375,484-495
+install/pi-router/src/pricing.generated.ts
+  s_8af08de71da1fb::t_af798d92d1db05 10,74,93-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "97b3e08b2159ad3c093a878d6c55e841c4366e61",
+  "prompts": {},
+  "sessions": {
+    "s_8af08de71da1fb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ccec-5a4a-7c40-9697-35c6737201f9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

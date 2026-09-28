@@ -1,0 +1,34 @@
+internal/auth/service.go
+  s_f9ea2f7c1258a0::t_b9ca1e80ae8ec3 166-167
+  s_f9ea2f7c1258a0::t_c3256a7e31ca70 551-553
+  s_f9ea2f7c1258a0::t_95eb1758d47c05 561-563
+internal/auth/installation.go
+  s_f9ea2f7c1258a0::t_41f168c30df79a 91-93
+internal/flags/flags_test.go
+  s_f9ea2f7c1258a0::t_8d06700143de0e 82-115
+cmd/router/main.go
+  s_f9ea2f7c1258a0::t_8c52ec0ae41ad8 1409-1411
+internal/flags/flags.go
+  s_f9ea2f7c1258a0::t_8cdf04a23bf4de 366-368
+  s_f9ea2f7c1258a0::t_0d82efce80c111 247
+  s_f9ea2f7c1258a0::t_4ba0fb75b04cba 242-246,248-255
+  s_f9ea2f7c1258a0::t_0d053fe5f48ccd 261-314
+  s_f9ea2f7c1258a0::t_6c78ddf44e3aec 26
+  s_f9ea2f7c1258a0::t_b43ca2020e2b38 315
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "e449230bc342448aba11d9bd35ccaf04f950c744",
+  "prompts": {},
+  "sessions": {
+    "s_f9ea2f7c1258a0": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "53883ebc-922a-43aa-8cbe-012381ecc189",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
