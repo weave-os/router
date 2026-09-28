@@ -1,0 +1,20 @@
+install/tests/opencode_install_test.sh
+  s_7a6983f650cc20::t_a2d9e81999a19c 63-64
+  s_7a6983f650cc20::t_9f89dd32b097fa 32-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cdd3160a8395fc2c8fe99595e16868eae62b6021",
+  "prompts": {},
+  "sessions": {
+    "s_7a6983f650cc20": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8d33a3a8-6f68-469d-94ea-381659064f80",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
