@@ -1,0 +1,57 @@
+internal/proxy/escalation_dashboard_internal_test.go
+  s_84d4be4e6bc25a::t_331c2d90a57ce3 14-20,23,28-35,37-44,50,58-97
+internal/router/escalationdashboard/contracts_test.go
+  s_84d4be4e6bc25a::t_e5c3ef49b26ab7 1-28
+scripts/escalation_state_check/main.go
+  s_84d4be4e6bc25a::t_b27623d1bb4506 216-217,220-221,226
+internal/postgres/escalation_dashboard.go
+  s_84d4be4e6bc25a::t_cdf2a002d483aa 5,7,9,27-33,40,44-53,55-71,73
+  s_84d4be4e6bc25a::t_8f0009874605ff 34-39,41
+internal/sqlc/escalation_dashboard.sql.go
+  s_af6bff81d5194a::t_a1aa8e3bcb265e 11,15,29,54,68,93,101-104,115-124,142,149,154,157,169-196,199-214,216,219-227,230,245,270,284,309,317-320,331-340,358,365,370,373,385-412,415-430,432-435,442-527,529-530
+scripts/llm_escalation_state_check/main.go
+  s_84d4be4e6bc25a::t_b27623d1bb4506 206-207,211-212,217
+db/migrations/20260917194725_escalation-dashboard-snapshots.up.sql
+  s_84d4be4e6bc25a::t_cd0b26974488da 1-26
+internal/router/escalationdashboard/contracts.go
+  s_84d4be4e6bc25a::t_3072ce2ddd23bb 6-9,12,16-25,61,63,162-200,205-206
+db/queries/escalation_dashboard.sql
+  s_84d4be4e6bc25a::t_44f9d89a780cd8 1-7,112-116,134,141,146,149,161-188,191-236
+internal/proxy/llm_escalation_admin.go
+  s_84d4be4e6bc25a::t_77ac29e595cc3a 19-20,32,35-75
+internal/sqlc/models.go
+  s_af6bff81d5194a::t_a1aa8e3bcb265e 65-83
+internal/api/admin/llm_escalation.go
+  s_84d4be4e6bc25a::t_3c13a66078b009 36,56,177-180
+internal/api/admin/escalation_dashboard_test.go
+  s_84d4be4e6bc25a::t_34ba3e5ce6694a 9,21,24,26-30,41,67-68,79-93
+  s_84d4be4e6bc25a::t_fb445c9804df16 94
+db/migrations/20260917194725_escalation-dashboard-snapshots.down.sql
+  s_84d4be4e6bc25a::t_cd0b26974488da 1-6
+internal/postgres/escalation_dashboard_test.go
+  s_84d4be4e6bc25a::t_e73ae1d53b3476 1-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ebc7dd107a7d1627c4a6dd2ad78abf0af2ed2ef9",
+  "prompts": {},
+  "sessions": {
+    "s_84d4be4e6bc25a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b06a-e4ca-7013-8316-0a07835294a3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_af6bff81d5194a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0b06a-e4ca-7013-8316-0a07835294a3",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

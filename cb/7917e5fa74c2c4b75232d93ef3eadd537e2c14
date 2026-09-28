@@ -1,0 +1,31 @@
+internal/router/policy/contract.go
+  s_3211b1482b7151::t_95dfd2c33a54e5 120-123
+internal/router/policy/resolver.go
+  s_3211b1482b7151::t_bddf5ce127aba9 434-436
+  s_3211b1482b7151::t_95dfd2c33a54e5 115-117,412-414,417-422,425-429,433,437-439
+  s_3211b1482b7151::t_ca7454fdf3d5f7 440-441
+internal/router/hmm/mapping.go
+  s_3211b1482b7151::t_9b208c03d090b8 8,44-67,72,74
+internal/router/policy/sidecar_router.go
+  s_3211b1482b7151::t_d1af3988752f22 415
+internal/router/hmm/roster.go
+  s_3211b1482b7151::t_910fa2f22a3f24 10-11,27-28
+internal/policyclient/client.go
+  s_3211b1482b7151::t_95dfd2c33a54e5 386,529
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "cb7917e5fa74c2c4b75232d93ef3eadd537e2c14",
+  "prompts": {},
+  "sessions": {
+    "s_3211b1482b7151": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bca6d564-81fe-4094-bb2d-0b0bae4bb3c4",
+        "model": "deepseek/deepseek-v4-pro-0813"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
