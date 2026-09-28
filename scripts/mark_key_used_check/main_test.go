@@ -18,7 +18,7 @@ import (
 	"weave-os/router/internal/postgres"
 )
 
-func TestMarkUsedSerializesFirstUseAndKeepsUpdatingLastUse(t *testing.T) {
+func TestMarkUsedSerializesFirstUseAndCoalescesLastUse(t *testing.T) {
 	dsn := os.Getenv("ROUTER_TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("ROUTER_TEST_DATABASE_URL not set")
@@ -29,6 +29,7 @@ func TestMarkUsedSerializesFirstUseAndKeepsUpdatingLastUse(t *testing.T) {
 	const callers = 16
 	repos := make([]auth.APIKeyRepository, callers)
 	var root *postgres.Repository
+	var rootConn *pgx.Conn
 	for i := range repos {
 		conn, err := pgx.Connect(ctx, dsn)
 		require.NoError(t, err)
@@ -37,6 +38,7 @@ func TestMarkUsedSerializesFirstUseAndKeepsUpdatingLastUse(t *testing.T) {
 		repos[i] = repo.APIKeys
 		if i == 0 {
 			root = repo
+			rootConn = conn
 		}
 	}
 	installation, err := root.Installations.Create(ctx, auth.CreateInstallationParams{
@@ -89,7 +91,19 @@ func TestMarkUsedSerializesFirstUseAndKeepsUpdatingLastUse(t *testing.T) {
 		require.False(t, firstUse)
 		after, _, err := root.APIKeys.GetActiveByHashWithInstallation(ctx, keyHash)
 		require.NoError(t, err)
-		require.True(t, after.LastUsedAt.After(*before.LastUsedAt), "repeat use must advance last_used_at")
+		require.Equal(t, *before.LastUsedAt, *after.LastUsedAt, "repeat use inside the coalescing interval must keep the stored timestamp")
+
+		_, err = rootConn.Exec(ctx,
+			`UPDATE router.model_router_api_keys SET last_used_at = NOW() - INTERVAL '2 minutes' WHERE id = $1`, uuid.MustParse(key.ID))
+		require.NoError(t, err)
+		beforeRefresh, _, err := root.APIKeys.GetActiveByHashWithInstallation(ctx, keyHash)
+		require.NoError(t, err)
+		firstUse, err = root.APIKeys.MarkUsed(ctx, key.ID)
+		require.NoError(t, err)
+		require.False(t, firstUse)
+		afterRefresh, _, err := root.APIKeys.GetActiveByHashWithInstallation(ctx, keyHash)
+		require.NoError(t, err)
+		require.True(t, afterRefresh.LastUsedAt.After(*beforeRefresh.LastUsedAt), "repeat use after the coalescing interval must advance last_used_at")
 
 		_, err = root.APIKeys.SoftDelete(ctx, installation.ID, key.ID)
 		require.NoError(t, err)

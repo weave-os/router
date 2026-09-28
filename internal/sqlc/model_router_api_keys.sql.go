@@ -275,41 +275,47 @@ func (q *Queries) ListModelRouterAPIKeysForInstallation(ctx context.Context, ins
 	return items, nil
 }
 
-const markModelRouterAPIKeyUsed = `-- name: MarkModelRouterAPIKeyUsed :one
-WITH previous AS (
-  SELECT id, last_used_at
-  FROM router.model_router_api_keys
-  WHERE id = $1::uuid
-    AND deleted_at IS NULL
-  FOR UPDATE
-)
-UPDATE router.model_router_api_keys k
+const markModelRouterAPIKeyFirstUsed = `-- name: MarkModelRouterAPIKeyFirstUsed :execrows
+UPDATE router.model_router_api_keys
 SET last_used_at = NOW()
-FROM previous
-WHERE k.id = previous.id
-RETURNING (previous.last_used_at IS NULL)::boolean AS first_use
+WHERE id = $1::uuid
+  AND deleted_at IS NULL
+  AND last_used_at IS NULL
 `
 
-// Updates last use and reports the first use of this key. Lock before reading
-// the old timestamp so concurrent callers cannot both observe a NULL value.
+// Only one concurrent caller can make the first-use transition.
 //
-//	WITH previous AS (
-//	  SELECT id, last_used_at
-//	  FROM router.model_router_api_keys
-//	  WHERE id = $1::uuid
-//	    AND deleted_at IS NULL
-//	  FOR UPDATE
-//	)
-//	UPDATE router.model_router_api_keys k
+//	UPDATE router.model_router_api_keys
 //	SET last_used_at = NOW()
-//	FROM previous
-//	WHERE k.id = previous.id
-//	RETURNING (previous.last_used_at IS NULL)::boolean AS first_use
-func (q *Queries) MarkModelRouterAPIKeyUsed(ctx context.Context, id uuid.UUID) (bool, error) {
-	row := q.db.QueryRow(ctx, markModelRouterAPIKeyUsed, id)
-	var first_use bool
-	err := row.Scan(&first_use)
-	return first_use, err
+//	WHERE id = $1::uuid
+//	  AND deleted_at IS NULL
+//	  AND last_used_at IS NULL
+func (q *Queries) MarkModelRouterAPIKeyFirstUsed(ctx context.Context, id uuid.UUID) (int64, error) {
+	result, err := q.db.Exec(ctx, markModelRouterAPIKeyFirstUsed, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const refreshModelRouterAPIKeyLastUsed = `-- name: RefreshModelRouterAPIKeyLastUsed :exec
+UPDATE router.model_router_api_keys
+SET last_used_at = NOW()
+WHERE id = $1::uuid
+  AND deleted_at IS NULL
+  AND last_used_at < NOW() - INTERVAL '1 minute'
+`
+
+// Coalesce subsequent usage writes to at most one per minute per key.
+//
+//	UPDATE router.model_router_api_keys
+//	SET last_used_at = NOW()
+//	WHERE id = $1::uuid
+//	  AND deleted_at IS NULL
+//	  AND last_used_at < NOW() - INTERVAL '1 minute'
+func (q *Queries) RefreshModelRouterAPIKeyLastUsed(ctx context.Context, id uuid.UUID) error {
+	_, err := q.db.Exec(ctx, refreshModelRouterAPIKeyLastUsed, id)
+	return err
 }
 
 const softDeleteModelRouterAPIKey = `-- name: SoftDeleteModelRouterAPIKey :execrows

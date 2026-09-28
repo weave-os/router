@@ -145,28 +145,23 @@ func (q *Queries) DebitSubscriberCredits(ctx context.Context, arg DebitSubscribe
 
 const finalizeSubscriberCreditReservation = `-- name: FinalizeSubscriberCreditReservation :one
 UPDATE router.subscriber_credit_reservations
-SET state = $1::varchar,
+SET state = CASE WHEN settled_usd_micros > 0 THEN 'settled' ELSE 'released' END,
     updated_at = NOW()
-WHERE action_id = $2::varchar
+WHERE action_id = $1::varchar
   AND state = 'reserved'
 RETURNING action_id, subscriber_id, router_request_id, api_key_id, requested_model, reserved_usd_micros, settled_usd_micros, state, capacity_source, created_at, updated_at
 `
 
-type FinalizeSubscriberCreditReservationParams struct {
-	State    string
-	ActionID string
-}
-
-// Closes an authorization after returning any unused hold to its owner.
+// Claims an open authorization for finalization before returning unused funds.
 //
 //	UPDATE router.subscriber_credit_reservations
-//	SET state = $1::varchar,
+//	SET state = CASE WHEN settled_usd_micros > 0 THEN 'settled' ELSE 'released' END,
 //	    updated_at = NOW()
-//	WHERE action_id = $2::varchar
+//	WHERE action_id = $1::varchar
 //	  AND state = 'reserved'
 //	RETURNING action_id, subscriber_id, router_request_id, api_key_id, requested_model, reserved_usd_micros, settled_usd_micros, state, capacity_source, created_at, updated_at
-func (q *Queries) FinalizeSubscriberCreditReservation(ctx context.Context, arg FinalizeSubscriberCreditReservationParams) (RouterSubscriberCreditReservation, error) {
-	row := q.db.QueryRow(ctx, finalizeSubscriberCreditReservation, arg.State, arg.ActionID)
+func (q *Queries) FinalizeSubscriberCreditReservation(ctx context.Context, actionID string) (RouterSubscriberCreditReservation, error) {
+	row := q.db.QueryRow(ctx, finalizeSubscriberCreditReservation, actionID)
 	var i RouterSubscriberCreditReservation
 	err := row.Scan(
 		&i.ActionID,
@@ -206,27 +201,6 @@ func (q *Queries) GetSubscriberCreditBalance(ctx context.Context, subscriberID u
 	return balance_usd_micros, err
 }
 
-const getSubscriberCreditBalanceForUpdate = `-- name: GetSubscriberCreditBalanceForUpdate :one
-SELECT balance_usd_micros
-FROM router.subscriber_credit_balance
-WHERE subscriber_id = $1::uuid
-FOR UPDATE
-`
-
-// Locks one subscriber's prepaid balance while an authorization is created or
-// finalized, serializing concurrent reservations for that owner.
-//
-//	SELECT balance_usd_micros
-//	FROM router.subscriber_credit_balance
-//	WHERE subscriber_id = $1::uuid
-//	FOR UPDATE
-func (q *Queries) GetSubscriberCreditBalanceForUpdate(ctx context.Context, subscriberID uuid.UUID) (int64, error) {
-	row := q.db.QueryRow(ctx, getSubscriberCreditBalanceForUpdate, subscriberID)
-	var balance_usd_micros int64
-	err := row.Scan(&balance_usd_micros)
-	return balance_usd_micros, err
-}
-
 const getSubscriberCreditReservation = `-- name: GetSubscriberCreditReservation :one
 SELECT action_id, subscriber_id, router_request_id, api_key_id, requested_model, reserved_usd_micros, settled_usd_micros, state, capacity_source, created_at, updated_at
 FROM router.subscriber_credit_reservations
@@ -240,38 +214,6 @@ WHERE action_id = $1::varchar
 //	WHERE action_id = $1::varchar
 func (q *Queries) GetSubscriberCreditReservation(ctx context.Context, actionID string) (RouterSubscriberCreditReservation, error) {
 	row := q.db.QueryRow(ctx, getSubscriberCreditReservation, actionID)
-	var i RouterSubscriberCreditReservation
-	err := row.Scan(
-		&i.ActionID,
-		&i.SubscriberID,
-		&i.RouterRequestID,
-		&i.APIKeyID,
-		&i.RequestedModel,
-		&i.ReservedUsdMicros,
-		&i.SettledUsdMicros,
-		&i.State,
-		&i.CapacitySource,
-		&i.CreatedAt,
-		&i.UpdatedAt,
-	)
-	return i, err
-}
-
-const getSubscriberCreditReservationForUpdate = `-- name: GetSubscriberCreditReservationForUpdate :one
-SELECT action_id, subscriber_id, router_request_id, api_key_id, requested_model, reserved_usd_micros, settled_usd_micros, state, capacity_source, created_at, updated_at
-FROM router.subscriber_credit_reservations
-WHERE action_id = $1::varchar
-FOR UPDATE
-`
-
-// Locks a durable subscriber prepaid authorization for settlement/finalization.
-//
-//	SELECT action_id, subscriber_id, router_request_id, api_key_id, requested_model, reserved_usd_micros, settled_usd_micros, state, capacity_source, created_at, updated_at
-//	FROM router.subscriber_credit_reservations
-//	WHERE action_id = $1::varchar
-//	FOR UPDATE
-func (q *Queries) GetSubscriberCreditReservationForUpdate(ctx context.Context, actionID string) (RouterSubscriberCreditReservation, error) {
-	row := q.db.QueryRow(ctx, getSubscriberCreditReservationForUpdate, actionID)
 	var i RouterSubscriberCreditReservation
 	err := row.Scan(
 		&i.ActionID,
@@ -341,6 +283,7 @@ VALUES (
     $6::bigint,
     $7::varchar
 )
+ON CONFLICT (action_id) DO NOTHING
 RETURNING action_id, subscriber_id, router_request_id, api_key_id, requested_model, reserved_usd_micros, settled_usd_micros, state, capacity_source, created_at, updated_at
 `
 
@@ -374,6 +317,7 @@ type InsertSubscriberCreditReservationParams struct {
 //	    $6::bigint,
 //	    $7::varchar
 //	)
+//	ON CONFLICT (action_id) DO NOTHING
 //	RETURNING action_id, subscriber_id, router_request_id, api_key_id, requested_model, reserved_usd_micros, settled_usd_micros, state, capacity_source, created_at, updated_at
 func (q *Queries) InsertSubscriberCreditReservation(ctx context.Context, arg InsertSubscriberCreditReservationParams) (RouterSubscriberCreditReservation, error) {
 	row := q.db.QueryRow(ctx, insertSubscriberCreditReservation,
@@ -427,6 +371,7 @@ VALUES (
     $8::varchar,
     $9::varchar
 )
+ON CONFLICT (action_id) WHERE action_id IS NOT NULL DO NOTHING
 RETURNING balance_after_micros
 `
 
@@ -469,6 +414,7 @@ type InsertSubscriberCreditSettlementParams struct {
 //	    $8::varchar,
 //	    $9::varchar
 //	)
+//	ON CONFLICT (action_id) WHERE action_id IS NOT NULL DO NOTHING
 //	RETURNING balance_after_micros
 func (q *Queries) InsertSubscriberCreditSettlement(ctx context.Context, arg InsertSubscriberCreditSettlementParams) (int64, error) {
 	row := q.db.QueryRow(ctx, insertSubscriberCreditSettlement,
@@ -487,6 +433,36 @@ func (q *Queries) InsertSubscriberCreditSettlement(ctx context.Context, arg Inse
 	return balance_after_micros, err
 }
 
+const reserveSubscriberCredits = `-- name: ReserveSubscriberCredits :one
+UPDATE router.subscriber_credit_balance
+SET balance_usd_micros = balance_usd_micros - $1::bigint,
+    updated_at = NOW()
+WHERE subscriber_id = $2::uuid
+  AND balance_usd_micros >= $1::bigint
+RETURNING balance_usd_micros
+`
+
+type ReserveSubscriberCreditsParams struct {
+	ReservedUsdMicros int64
+	SubscriberID      uuid.UUID
+}
+
+// Conditionally reserves a previously observed amount. A concurrent balance
+// change makes the caller reread and retry rather than overspend stale funds.
+//
+//	UPDATE router.subscriber_credit_balance
+//	SET balance_usd_micros = balance_usd_micros - $1::bigint,
+//	    updated_at = NOW()
+//	WHERE subscriber_id = $2::uuid
+//	  AND balance_usd_micros >= $1::bigint
+//	RETURNING balance_usd_micros
+func (q *Queries) ReserveSubscriberCredits(ctx context.Context, arg ReserveSubscriberCreditsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, reserveSubscriberCredits, arg.ReservedUsdMicros, arg.SubscriberID)
+	var balance_usd_micros int64
+	err := row.Scan(&balance_usd_micros)
+	return balance_usd_micros, err
+}
+
 const updateSubscriberCreditBalance = `-- name: UpdateSubscriberCreditBalance :one
 UPDATE router.subscriber_credit_balance
 SET balance_usd_micros = balance_usd_micros + $1::bigint,
@@ -500,8 +476,8 @@ type UpdateSubscriberCreditBalanceParams struct {
 	SubscriberID   uuid.UUID
 }
 
-// Applies a signed balance adjustment while the caller holds the subscriber
-// balance lock.
+// Applies a signed balance adjustment and returns the serialized balance.
+// Zero still serializes with other balance changes for an exact ledger snapshot.
 //
 //	UPDATE router.subscriber_credit_balance
 //	SET balance_usd_micros = balance_usd_micros + $1::bigint,

@@ -3,9 +3,7 @@ package postgres
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"errors"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/flags"
@@ -423,11 +421,12 @@ func (r *apiKeyRepo) MarkUsed(ctx context.Context, id string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	firstUse, err := dbbudget.Queries(r.tx).MarkModelRouterAPIKeyUsed(ctx, parsed)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
+	queries := dbbudget.Queries(r.tx)
+	updatedRows, err := queries.MarkModelRouterAPIKeyFirstUsed(ctx, parsed)
+	if err != nil || updatedRows > 0 {
+		return updatedRows > 0, err
 	}
-	return firstUse, err
+	return false, queries.RefreshModelRouterAPIKeyLastUsed(ctx, parsed)
 }
 
 func (r *apiKeyRepo) SoftDelete(ctx context.Context, installationID, id string) (int64, error) {

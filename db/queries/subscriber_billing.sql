@@ -8,16 +8,18 @@ SELECT balance_usd_micros
 FROM router.subscriber_credit_balance
 WHERE subscriber_id = @subscriber_id::uuid;
 
--- Locks one subscriber's prepaid balance while an authorization is created or
--- finalized, serializing concurrent reservations for that owner.
--- name: GetSubscriberCreditBalanceForUpdate :one
-SELECT balance_usd_micros
-FROM router.subscriber_credit_balance
+-- Conditionally reserves a previously observed amount. A concurrent balance
+-- change makes the caller reread and retry rather than overspend stale funds.
+-- name: ReserveSubscriberCredits :one
+UPDATE router.subscriber_credit_balance
+SET balance_usd_micros = balance_usd_micros - @reserved_usd_micros::bigint,
+    updated_at = NOW()
 WHERE subscriber_id = @subscriber_id::uuid
-FOR UPDATE;
+  AND balance_usd_micros >= @reserved_usd_micros::bigint
+RETURNING balance_usd_micros;
 
--- Applies a signed balance adjustment while the caller holds the subscriber
--- balance lock.
+-- Applies a signed balance adjustment and returns the serialized balance.
+-- Zero still serializes with other balance changes for an exact ledger snapshot.
 -- name: UpdateSubscriberCreditBalance :one
 UPDATE router.subscriber_credit_balance
 SET balance_usd_micros = balance_usd_micros + @delta_usd_micros::bigint,
@@ -30,13 +32,6 @@ RETURNING balance_usd_micros;
 SELECT *
 FROM router.subscriber_credit_reservations
 WHERE action_id = @action_id::varchar;
-
--- Locks a durable subscriber prepaid authorization for settlement/finalization.
--- name: GetSubscriberCreditReservationForUpdate :one
-SELECT *
-FROM router.subscriber_credit_reservations
-WHERE action_id = @action_id::varchar
-FOR UPDATE;
 
 -- Inserts the hold that authorizes one request to dispatch against subscriber funds.
 -- name: InsertSubscriberCreditReservation :one
@@ -58,6 +53,7 @@ VALUES (
     @reserved_usd_micros::bigint,
     @capacity_source::varchar
 )
+ON CONFLICT (action_id) DO NOTHING
 RETURNING *;
 
 -- Adds one exact served action to a still-open prepaid authorization.
@@ -69,10 +65,10 @@ WHERE action_id = @action_id::varchar
   AND state = 'reserved'
 RETURNING *;
 
--- Closes an authorization after returning any unused hold to its owner.
+-- Claims an open authorization for finalization before returning unused funds.
 -- name: FinalizeSubscriberCreditReservation :one
 UPDATE router.subscriber_credit_reservations
-SET state = @state::varchar,
+SET state = CASE WHEN settled_usd_micros > 0 THEN 'settled' ELSE 'released' END,
     updated_at = NOW()
 WHERE action_id = @action_id::varchar
   AND state = 'reserved'
@@ -111,6 +107,7 @@ VALUES (
     @action_id::varchar,
     @capacity_source::varchar
 )
+ON CONFLICT (action_id) WHERE action_id IS NOT NULL DO NOTHING
 RETURNING balance_after_micros;
 
 -- Atomic debit against one subscriber's prepaid book: move the balance and

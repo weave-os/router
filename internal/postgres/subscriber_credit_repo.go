@@ -100,43 +100,59 @@ func (r *SubscriberCreditRepo) Authorize(ctx context.Context, request billing.Pr
 	defer func() { _ = tx.Rollback(ctx) }()
 	queries := dbbudget.Queries(tx)
 
-	balance, err := queries.GetSubscriberCreditBalanceForUpdate(ctx, subscriberID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return billing.PrepaidAuthorization{}, billing.ErrBalanceRowMissing
-	}
-	if err != nil {
-		return billing.PrepaidAuthorization{}, fmt.Errorf("lock subscriber credit balance: %w", err)
-	}
-
-	stored, err := queries.GetSubscriberCreditReservation(ctx, request.ActionID)
-	if err == nil {
-		authorization, decodeErr := decodeSubscriberCreditReservation(stored)
-		if decodeErr != nil {
-			return billing.PrepaidAuthorization{}, decodeErr
+	var reserved int64
+	for {
+		stored, readErr := queries.GetSubscriberCreditReservation(ctx, request.ActionID)
+		if readErr == nil {
+			authorization, decodeErr := decodeSubscriberCreditReservation(stored)
+			if decodeErr != nil {
+				return billing.PrepaidAuthorization{}, decodeErr
+			}
+			if !sameSubscriberAuthorization(authorization, request) {
+				return billing.PrepaidAuthorization{}, billing.ErrPrepaidAuthorizationConflict
+			}
+			return authorization, nil
 		}
-		if !sameSubscriberAuthorization(authorization, request) {
-			return billing.PrepaidAuthorization{}, billing.ErrPrepaidAuthorizationConflict
+		if !errors.Is(readErr, pgx.ErrNoRows) {
+			return billing.PrepaidAuthorization{}, fmt.Errorf("read subscriber credit authorization: %w", readErr)
 		}
-		if err := tx.Commit(ctx); err != nil {
-			return billing.PrepaidAuthorization{}, fmt.Errorf("commit subscriber credit authorization replay: %w", err)
+		balance, balanceErr := queries.GetSubscriberCreditBalance(ctx, subscriberID)
+		if errors.Is(balanceErr, pgx.ErrNoRows) {
+			return billing.PrepaidAuthorization{}, billing.ErrBalanceRowMissing
 		}
-		return authorization, nil
+		if balanceErr != nil {
+			return billing.PrepaidAuthorization{}, fmt.Errorf("read subscriber credit balance: %w", balanceErr)
+		}
+		if balance <= 0 {
+			stored, readErr := queries.GetSubscriberCreditReservation(ctx, request.ActionID)
+			if readErr == nil {
+				authorization, decodeErr := decodeSubscriberCreditReservation(stored)
+				if decodeErr != nil {
+					return billing.PrepaidAuthorization{}, decodeErr
+				}
+				if !sameSubscriberAuthorization(authorization, request) {
+					return billing.PrepaidAuthorization{}, billing.ErrPrepaidAuthorizationConflict
+				}
+				return authorization, nil
+			}
+			if !errors.Is(readErr, pgx.ErrNoRows) {
+				return billing.PrepaidAuthorization{}, fmt.Errorf("read subscriber credit authorization replay: %w", readErr)
+			}
+			return billing.PrepaidAuthorization{}, billing.ErrInsufficientCredits
+		}
+		reserved = min(request.UpperBoundUsdMicros, balance)
+		_, reserveErr := queries.ReserveSubscriberCredits(ctx, sqlc.ReserveSubscriberCreditsParams{
+			ReservedUsdMicros: reserved,
+			SubscriberID:      subscriberID,
+		})
+		if reserveErr == nil {
+			break
+		}
+		if !errors.Is(reserveErr, pgx.ErrNoRows) {
+			return billing.PrepaidAuthorization{}, fmt.Errorf("reserve subscriber credits: %w", reserveErr)
+		}
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return billing.PrepaidAuthorization{}, fmt.Errorf("read subscriber credit authorization: %w", err)
-	}
-	if balance <= 0 {
-		return billing.PrepaidAuthorization{}, billing.ErrInsufficientCredits
-	}
-
-	reserved := min(request.UpperBoundUsdMicros, balance)
-	if _, err := queries.UpdateSubscriberCreditBalance(ctx, sqlc.UpdateSubscriberCreditBalanceParams{
-		DeltaUsdMicros: -reserved,
-		SubscriberID:   subscriberID,
-	}); err != nil {
-		return billing.PrepaidAuthorization{}, fmt.Errorf("reserve subscriber credits: %w", err)
-	}
-	stored, err = queries.InsertSubscriberCreditReservation(ctx, sqlc.InsertSubscriberCreditReservationParams{
+	stored, err := queries.InsertSubscriberCreditReservation(ctx, sqlc.InsertSubscriberCreditReservationParams{
 		ActionID:          request.ActionID,
 		SubscriberID:      subscriberID,
 		RouterRequestID:   request.RouterRequestID,
@@ -146,6 +162,21 @@ func (r *SubscriberCreditRepo) Authorize(ctx context.Context, request billing.Pr
 		CapacitySource:    string(entitlement.CapacitySourcePrepaid),
 	})
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			_ = tx.Rollback(ctx)
+			existing, readErr := r.queries.GetSubscriberCreditReservation(ctx, request.ActionID)
+			if readErr != nil {
+				return billing.PrepaidAuthorization{}, fmt.Errorf("read subscriber credit authorization replay: %w", readErr)
+			}
+			authorization, decodeErr := decodeSubscriberCreditReservation(existing)
+			if decodeErr != nil {
+				return billing.PrepaidAuthorization{}, decodeErr
+			}
+			if !sameSubscriberAuthorization(authorization, request) {
+				return billing.PrepaidAuthorization{}, billing.ErrPrepaidAuthorizationConflict
+			}
+			return authorization, nil
+		}
 		return billing.PrepaidAuthorization{}, fmt.Errorf("insert subscriber credit authorization: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -169,12 +200,12 @@ func (r *SubscriberCreditRepo) Settle(ctx context.Context, settlement billing.Pr
 	defer func() { _ = tx.Rollback(ctx) }()
 	queries := dbbudget.Queries(tx)
 
-	reservation, err := queries.GetSubscriberCreditReservationForUpdate(ctx, settlement.AuthorizationActionID)
+	reservation, err := queries.GetSubscriberCreditReservation(ctx, settlement.AuthorizationActionID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, billing.ErrPrepaidAuthorizationNotFound
 	}
 	if err != nil {
-		return 0, fmt.Errorf("lock subscriber credit authorization: %w", err)
+		return 0, fmt.Errorf("read subscriber credit authorization: %w", err)
 	}
 
 	storedSettlement, err := queries.GetSubscriberCreditSettlement(ctx, settlement.ActionID)
@@ -190,27 +221,36 @@ func (r *SubscriberCreditRepo) Settle(ctx context.Context, settlement billing.Pr
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return 0, fmt.Errorf("read subscriber credit settlement: %w", err)
 	}
-	if billing.PrepaidAuthorizationState(reservation.State) != billing.PrepaidAuthorizationReserved {
+	reservation, err = queries.AddSubscriberCreditReservationSettlement(ctx, sqlc.AddSubscriberCreditReservationSettlementParams{
+		RetailUsdMicros: settlement.RetailUsdMicros,
+		ActionID:        settlement.AuthorizationActionID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		existing, readErr := queries.GetSubscriberCreditSettlement(ctx, settlement.ActionID)
+		if readErr == nil {
+			if !sameSubscriberSettlement(existing, reservation, settlement) {
+				return 0, billing.ErrPrepaidAuthorizationConflict
+			}
+			return existing.BalanceAfterMicros, nil
+		}
+		if !errors.Is(readErr, pgx.ErrNoRows) {
+			return 0, fmt.Errorf("read subscriber credit settlement replay: %w", readErr)
+		}
 		return 0, billing.ErrPrepaidAuthorizationConflict
 	}
-
-	balance, err := queries.GetSubscriberCreditBalanceForUpdate(ctx, reservation.SubscriberID)
 	if err != nil {
-		return 0, fmt.Errorf("lock subscriber credit balance for settlement: %w", err)
+		return 0, fmt.Errorf("advance subscriber credit authorization: %w", err)
 	}
-	remainingHold := max(reservation.ReservedUsdMicros-reservation.SettledUsdMicros, 0)
+	remainingHold := max(reservation.ReservedUsdMicros-(reservation.SettledUsdMicros-settlement.RetailUsdMicros), 0)
 	overage := max(settlement.RetailUsdMicros-remainingHold, 0)
-	if overage > 0 {
-		balance, err = queries.UpdateSubscriberCreditBalance(ctx, sqlc.UpdateSubscriberCreditBalanceParams{
-			DeltaUsdMicros: -overage,
-			SubscriberID:   reservation.SubscriberID,
-		})
-		if err != nil {
-			return 0, fmt.Errorf("debit subscriber credit settlement overage: %w", err)
-		}
+	balance, err := queries.UpdateSubscriberCreditBalance(ctx, sqlc.UpdateSubscriberCreditBalanceParams{
+		DeltaUsdMicros: -overage,
+		SubscriberID:   reservation.SubscriberID,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("debit subscriber credit settlement overage: %w", err)
 	}
-	settledTotal := reservation.SettledUsdMicros + settlement.RetailUsdMicros
-	balanceAfter := balance + max(reservation.ReservedUsdMicros-settledTotal, 0)
+	balanceAfter := balance + max(reservation.ReservedUsdMicros-reservation.SettledUsdMicros, 0)
 	if _, err := queries.InsertSubscriberCreditSettlement(ctx, sqlc.InsertSubscriberCreditSettlementParams{
 		SubscriberID:          reservation.SubscriberID,
 		DebitUsdMicros:        -settlement.RetailUsdMicros,
@@ -222,13 +262,18 @@ func (r *SubscriberCreditRepo) Settle(ctx context.Context, settlement billing.Pr
 		ActionID:              settlement.ActionID,
 		CapacitySource:        string(settlement.CapacitySource),
 	}); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			_ = tx.Rollback(ctx)
+			existing, readErr := r.queries.GetSubscriberCreditSettlement(ctx, settlement.ActionID)
+			if readErr != nil {
+				return 0, fmt.Errorf("read subscriber credit settlement replay: %w", readErr)
+			}
+			if !sameSubscriberSettlement(existing, reservation, settlement) {
+				return 0, billing.ErrPrepaidAuthorizationConflict
+			}
+			return existing.BalanceAfterMicros, nil
+		}
 		return 0, fmt.Errorf("insert subscriber credit settlement: %w", err)
-	}
-	if _, err := queries.AddSubscriberCreditReservationSettlement(ctx, sqlc.AddSubscriberCreditReservationSettlementParams{
-		RetailUsdMicros: settlement.RetailUsdMicros,
-		ActionID:        settlement.AuthorizationActionID,
-	}); err != nil {
-		return 0, fmt.Errorf("advance subscriber credit authorization: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("commit subscriber credit settlement: %w", err)
@@ -248,43 +293,32 @@ func (r *SubscriberCreditRepo) Finalize(ctx context.Context, actionID string) (i
 	defer func() { _ = tx.Rollback(ctx) }()
 	queries := dbbudget.Queries(tx)
 
-	reservation, err := queries.GetSubscriberCreditReservationForUpdate(ctx, actionID)
+	reservation, err := queries.FinalizeSubscriberCreditReservation(ctx, actionID)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, billing.ErrPrepaidAuthorizationNotFound
-	}
-	if err != nil {
-		return 0, fmt.Errorf("lock subscriber credit authorization for finalization: %w", err)
-	}
-	balance, err := queries.GetSubscriberCreditBalanceForUpdate(ctx, reservation.SubscriberID)
-	if err != nil {
-		return 0, fmt.Errorf("lock subscriber credit balance for finalization: %w", err)
-	}
-	if billing.PrepaidAuthorizationState(reservation.State) != billing.PrepaidAuthorizationReserved {
-		if err := tx.Commit(ctx); err != nil {
-			return 0, fmt.Errorf("commit subscriber credit finalization replay: %w", err)
+		reservation, readErr := queries.GetSubscriberCreditReservation(ctx, actionID)
+		if errors.Is(readErr, pgx.ErrNoRows) {
+			return 0, billing.ErrPrepaidAuthorizationNotFound
+		}
+		if readErr != nil {
+			return 0, fmt.Errorf("read subscriber credit finalization replay: %w", readErr)
+		}
+		balance, balanceErr := queries.GetSubscriberCreditBalance(ctx, reservation.SubscriberID)
+		if balanceErr != nil {
+			return 0, fmt.Errorf("read subscriber credit balance for finalization replay: %w", balanceErr)
 		}
 		return balance, nil
 	}
+	if err != nil {
+		return 0, fmt.Errorf("finalize subscriber credit authorization: %w", err)
+	}
 
 	unused := max(reservation.ReservedUsdMicros-reservation.SettledUsdMicros, 0)
-	if unused > 0 {
-		balance, err = queries.UpdateSubscriberCreditBalance(ctx, sqlc.UpdateSubscriberCreditBalanceParams{
-			DeltaUsdMicros: unused,
-			SubscriberID:   reservation.SubscriberID,
-		})
-		if err != nil {
-			return 0, fmt.Errorf("return unused subscriber credit hold: %w", err)
-		}
-	}
-	state := billing.PrepaidAuthorizationReleased
-	if reservation.SettledUsdMicros > 0 {
-		state = billing.PrepaidAuthorizationSettled
-	}
-	if _, err := queries.FinalizeSubscriberCreditReservation(ctx, sqlc.FinalizeSubscriberCreditReservationParams{
-		State:    string(state),
-		ActionID: actionID,
-	}); err != nil {
-		return 0, fmt.Errorf("finalize subscriber credit authorization: %w", err)
+	balance, err := queries.UpdateSubscriberCreditBalance(ctx, sqlc.UpdateSubscriberCreditBalanceParams{
+		DeltaUsdMicros: unused,
+		SubscriberID:   reservation.SubscriberID,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("return unused subscriber credit hold: %w", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return 0, fmt.Errorf("commit subscriber credit finalization: %w", err)

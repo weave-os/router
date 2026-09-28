@@ -75,7 +75,7 @@ type APIKeyRepository interface {
 	Create(ctx context.Context, params CreateAPIKeyParams) (*APIKey, error)
 	GetActiveByHashWithInstallation(ctx context.Context, keyHash string) (*APIKey, *Installation, error)
 	ListForInstallation(ctx context.Context, installationID string) ([]*APIKey, error)
-	// MarkUsed stamps last_used_at and reports whether this call made the first-use transition.
+	// MarkUsed stamps first use, coalesces later usage timestamps, and reports the first-use transition.
 	MarkUsed(ctx context.Context, id string) (firstUse bool, err error)
 	// SoftDelete soft-deletes the key and returns the rows-affected count; 0 means the key was already gone.
 	SoftDelete(ctx context.Context, installationID, id string) (int64, error)

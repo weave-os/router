@@ -230,6 +230,163 @@ func TestSubscriberCreditAuthorizationIsIdempotent(t *testing.T) {
 	assert.Equal(t, int64(8_500_000), finalBalance)
 }
 
+func TestSubscriberCreditConcurrentAuthorizationsReserveOnlyAvailableFunds(t *testing.T) {
+	pool := testPool(t)
+	installationID, _ := seedInstallation(t, pool)
+	subscriberID := seedFundedSubscriber(t, pool, installationID, 5_000_000)
+	repo := postgres.NewSubscriberCreditRepo(pool)
+	owner := billing.SubscriberOwner(subscriberID.String())
+
+	type authorizationResult struct {
+		authorization billing.PrepaidAuthorization
+		err           error
+	}
+	start := make(chan struct{})
+	outcomes := make(chan authorizationResult, 2)
+	for _, actionID := range []string{"req_concurrent_a:prepaid-hold", "req_concurrent_b:prepaid-hold"} {
+		go func() {
+			<-start
+			authorization, err := repo.Authorize(context.Background(), billing.PrepaidAuthorizationRequest{
+				Owner:               owner,
+				ActionID:            actionID,
+				RouterRequestID:     actionID[:16],
+				RequestedModel:      entitlement.ModelUnresolved,
+				UpperBoundUsdMicros: 4_000_000,
+			})
+			outcomes <- authorizationResult{authorization: authorization, err: err}
+		}()
+	}
+	close(start)
+	first := <-outcomes
+	second := <-outcomes
+	require.NoError(t, first.err)
+	require.NoError(t, second.err)
+	assert.Equal(t, int64(5_000_000), first.authorization.ReservedUsdMicros+second.authorization.ReservedUsdMicros)
+	balance, err := repo.Balance(context.Background(), owner)
+	require.NoError(t, err)
+	assert.Zero(t, balance)
+}
+
+func TestSubscriberCreditConcurrentAuthorizationReplayReservesOnce(t *testing.T) {
+	pool := testPool(t)
+	installationID, _ := seedInstallation(t, pool)
+	subscriberID := seedFundedSubscriber(t, pool, installationID, 4_000_000)
+	repo := postgres.NewSubscriberCreditRepo(pool)
+	owner := billing.SubscriberOwner(subscriberID.String())
+	request := billing.PrepaidAuthorizationRequest{
+		Owner:               owner,
+		ActionID:            "req_concurrent_replay:prepaid-hold",
+		RouterRequestID:     "req_concurrent_replay",
+		RequestedModel:      entitlement.ModelUnresolved,
+		UpperBoundUsdMicros: 4_000_000,
+	}
+	type authorizationResult struct {
+		authorization billing.PrepaidAuthorization
+		err           error
+	}
+	start := make(chan struct{})
+	outcomes := make(chan authorizationResult, 2)
+	for range 2 {
+		go func() {
+			<-start
+			authorization, err := repo.Authorize(context.Background(), request)
+			outcomes <- authorizationResult{authorization: authorization, err: err}
+		}()
+	}
+	close(start)
+	first := <-outcomes
+	second := <-outcomes
+	require.NoError(t, first.err)
+	require.NoError(t, second.err)
+	assert.Equal(t, first.authorization, second.authorization)
+	balance, err := repo.Balance(context.Background(), owner)
+	require.NoError(t, err)
+	assert.Zero(t, balance)
+}
+
+func TestSubscriberCreditConcurrentAuthorizationReplayWithRemainingBalance(t *testing.T) {
+	pool := testPool(t)
+	installationID, _ := seedInstallation(t, pool)
+	subscriberID := seedFundedSubscriber(t, pool, installationID, 10_000_000)
+	repo := postgres.NewSubscriberCreditRepo(pool)
+	owner := billing.SubscriberOwner(subscriberID.String())
+	request := billing.PrepaidAuthorizationRequest{
+		Owner:               owner,
+		ActionID:            "req_concurrent_funded_replay:prepaid-hold",
+		RouterRequestID:     "req_concurrent_funded_replay",
+		RequestedModel:      entitlement.ModelUnresolved,
+		UpperBoundUsdMicros: 4_000_000,
+	}
+	type authorizationResult struct {
+		authorization billing.PrepaidAuthorization
+		err           error
+	}
+	start := make(chan struct{})
+	outcomes := make(chan authorizationResult, 2)
+	for range 2 {
+		go func() {
+			<-start
+			authorization, err := repo.Authorize(context.Background(), request)
+			outcomes <- authorizationResult{authorization: authorization, err: err}
+		}()
+	}
+	close(start)
+	first := <-outcomes
+	second := <-outcomes
+	require.NoError(t, first.err)
+	require.NoError(t, second.err)
+	assert.Equal(t, first.authorization, second.authorization)
+	balance, err := repo.Balance(context.Background(), owner)
+	require.NoError(t, err)
+	assert.Equal(t, int64(6_000_000), balance)
+}
+
+func TestSubscriberCreditConcurrentSettlementReplayDebitsOnce(t *testing.T) {
+	pool := testPool(t)
+	installationID, _ := seedInstallation(t, pool)
+	subscriberID := seedFundedSubscriber(t, pool, installationID, 10_000_000)
+	repo := postgres.NewSubscriberCreditRepo(pool)
+	authorization, err := repo.Authorize(context.Background(), billing.PrepaidAuthorizationRequest{
+		Owner:               billing.SubscriberOwner(subscriberID.String()),
+		ActionID:            "req_concurrent_settle:prepaid-hold",
+		RouterRequestID:     "req_concurrent_settle",
+		RequestedModel:      entitlement.ModelUnresolved,
+		UpperBoundUsdMicros: 4_000_000,
+	})
+	require.NoError(t, err)
+	settlement := billing.PrepaidSettlement{
+		AuthorizationActionID: authorization.ActionID,
+		ActionID:              "req_concurrent_settle:1",
+		RouterRequestID:       "req_concurrent_settle",
+		ServedModel:           "deepseek-v3.2",
+		RetailUsdMicros:       1_500_000,
+		CapacitySource:        entitlement.CapacitySourcePrepaid,
+	}
+	type settlementResult struct {
+		balance int64
+		err     error
+	}
+	start := make(chan struct{})
+	outcomes := make(chan settlementResult, 2)
+	for range 2 {
+		go func() {
+			<-start
+			balance, err := repo.Settle(context.Background(), settlement)
+			outcomes <- settlementResult{balance: balance, err: err}
+		}()
+	}
+	close(start)
+	for range 2 {
+		outcome := <-outcomes
+		require.NoError(t, outcome.err)
+		assert.Equal(t, int64(8_500_000), outcome.balance)
+	}
+	assert.Equal(t, 1, subscriberLedgerCount(t, pool, subscriberID))
+	finalBalance, err := repo.Finalize(context.Background(), authorization.ActionID)
+	require.NoError(t, err)
+	assert.Equal(t, int64(8_500_000), finalBalance)
+}
+
 func TestSubscriberCreditAuthorizationRejectsEmptyBalance(t *testing.T) {
 	pool := testPool(t)
 	ctx := context.Background()
