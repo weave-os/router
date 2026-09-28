@@ -1,0 +1,23 @@
+internal/proxy/service.go
+  s_452f9a4a05dc44::t_7c1378cb135dad 6733-6735,6870-6871
+internal/proxy/openai_responses_retry_internal_test.go
+  s_452f9a4a05dc44::t_56333e7aab501f 215-252
+internal/translate/responses.go
+  s_452f9a4a05dc44::t_5024d37674555a 865-868
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2592a67da345c253f959afb5ba9f1d5d167339a9",
+  "prompts": {},
+  "sessions": {
+    "s_452f9a4a05dc44": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b219-bcab-7241-a291-4a403db7149a",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
