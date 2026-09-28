@@ -221,7 +221,7 @@ func (r *SubscriberCreditRepo) Settle(ctx context.Context, settlement billing.Pr
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return 0, fmt.Errorf("read subscriber credit settlement: %w", err)
 	}
-	reservation, err = queries.AddSubscriberCreditReservationSettlement(ctx, sqlc.AddSubscriberCreditReservationSettlementParams{
+	updatedReservation, err := queries.AddSubscriberCreditReservationSettlement(ctx, sqlc.AddSubscriberCreditReservationSettlementParams{
 		RetailUsdMicros: settlement.RetailUsdMicros,
 		ActionID:        settlement.AuthorizationActionID,
 	})
@@ -241,6 +241,7 @@ func (r *SubscriberCreditRepo) Settle(ctx context.Context, settlement billing.Pr
 	if err != nil {
 		return 0, fmt.Errorf("advance subscriber credit authorization: %w", err)
 	}
+	reservation = updatedReservation
 	remainingHold := max(reservation.ReservedUsdMicros-(reservation.SettledUsdMicros-settlement.RetailUsdMicros), 0)
 	overage := max(settlement.RetailUsdMicros-remainingHold, 0)
 	balance, err := queries.UpdateSubscriberCreditBalance(ctx, sqlc.UpdateSubscriberCreditBalanceParams{
