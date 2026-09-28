@@ -4,14 +4,24 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"weave-os/router/internal/auth"
 )
 
-// baggageOnBehalfOf is the key the router adds to the vendor's baggage header.
 // Wire shape agreed with Snowflake Cortex: raw JSON, no percent-encoding.
-const baggageOnBehalfOf = "on-behalf-of"
+const (
+	baggageOnBehalfOf  = "on-behalf-of"
+	baggagePassthrough = "passthrough"
+)
+
+type callerModelPassthroughContextKey struct{}
+
+// WithCallerModelPassthrough records whether this request kept the caller's model without routing.
+func WithCallerModelPassthrough(ctx context.Context, enabled bool) context.Context {
+	return context.WithValue(ctx, callerModelPassthroughContextKey{}, enabled)
+}
 
 // ClaudeCodeSessionHeader carries Claude Code's session id. Older CLI builds
 // omit it and embed the id in metadata.user_id; ClientIdentity resolves both.
@@ -65,7 +75,7 @@ func ForwardedHeaderSnapshotFrom(ctx context.Context) http.Header {
 }
 
 // ApplyForwardedClientHeaders copies configured inbound headers and re-emits the baggage header
-// with the resolved email. Must be called after prep.Headers are set and protected headers reapplied.
+// with router-owned request metadata. Must run after protected headers are reapplied.
 func ApplyForwardedClientHeaders(ctx context.Context, upstream *http.Request, inbound http.Header) {
 	creds := CredentialsFromContext(ctx)
 	if creds == nil {
@@ -83,9 +93,14 @@ func ApplyForwardedClientHeaders(ctx context.Context, upstream *http.Request, in
 		return
 	}
 	baggage := forwardedValue(ctx, inbound, creds.BaggageHeader)
-	if merged := MergeBaggageEmail(baggage, ClientIdentityFrom(ctx).Email); merged != "" {
+	if merged := mergeBaggage(baggage, ClientIdentityFrom(ctx).Email, callerModelPassthroughFrom(ctx)); merged != "" {
 		upstream.Header.Set(creds.BaggageHeader, merged)
 	}
+}
+
+func callerModelPassthroughFrom(ctx context.Context) bool {
+	enabled, _ := ctx.Value(callerModelPassthroughContextKey{}).(bool)
+	return enabled
 }
 
 // forwardedValue returns the first non-empty value from: inbound header,
@@ -146,12 +161,9 @@ func headerFieldExists(headers http.Header, name string) bool {
 	return false
 }
 
-// MergeBaggageEmail injects the router-resolved email as on-behalf-of, overwriting any
-// client-supplied value (forged attribution must not survive). Non-JSON bags pass through.
-func MergeBaggageEmail(baggage, email string) string {
-	if email == "" {
-		return baggage
-	}
+// mergeBaggage injects router-owned request metadata, overwriting client-supplied
+// values so forged attribution and routing state cannot survive. Non-JSON bags pass through.
+func mergeBaggage(baggage, email string, passthrough bool) string {
 	bag := map[string]json.RawMessage{}
 	if baggage != "" {
 		if err := json.Unmarshal([]byte(baggage), &bag); err != nil {
@@ -162,11 +174,14 @@ func MergeBaggageEmail(baggage, email string) string {
 			return baggage
 		}
 	}
-	encodedEmail, err := json.Marshal(email)
-	if err != nil {
-		return baggage
+	if email != "" {
+		encodedEmail, err := json.Marshal(email)
+		if err != nil {
+			return baggage
+		}
+		bag[baggageOnBehalfOf] = encodedEmail
 	}
-	bag[baggageOnBehalfOf] = encodedEmail
+	bag[baggagePassthrough] = json.RawMessage(strconv.FormatBool(passthrough))
 	merged, err := json.Marshal(bag)
 	if err != nil {
 		return baggage

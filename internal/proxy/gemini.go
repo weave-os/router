@@ -195,6 +195,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		s.recordPolicyPinRouteFailure(ctx, requestID, requestStart, feats.Model, routeRes.TurnType, err)
 		return err
 	}
+	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
 	if len(routeRes.SessionDisabledProviders) > 0 {
 		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
 	}

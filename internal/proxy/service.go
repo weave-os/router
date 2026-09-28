@@ -3731,6 +3731,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		s.recordPolicyPinRouteFailure(ctx, requestID, requestStart, feats.Model, routeRes.TurnType, routeErr)
 		return routeErr
 	}
+	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
 	if preparingHandoff(ctx) {
 		return s.finishHandoffPreparation(ctx, w, env, req, routeRes)
 	}
@@ -6703,6 +6704,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		s.recordPolicyPinRouteFailure(ctx, requestID, requestStart, feats.Model, routeRes.TurnType, err)
 		return err
 	}
+	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
 	if len(routeRes.SessionDisabledProviders) > 0 {
 		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
 	}

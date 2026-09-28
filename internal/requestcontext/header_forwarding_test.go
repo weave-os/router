@@ -64,11 +64,12 @@ func TestApplyForwardedClientHeaders(t *testing.T) {
 		raw := upstream.Header.Get("X-SNOWFLAKE-BAGGAGE")
 		assert.NotContains(t, raw, "%22",
 			"Cortex reads this bag as raw JSON; percent-encoding it would land as a literal string")
-		var bag map[string]string
+		var bag map[string]any
 		require.NoError(t, json.Unmarshal([]byte(raw), &bag))
-		assert.Equal(t, map[string]string{
+		assert.Equal(t, map[string]any{
 			"existing-key": "existing-value",
 			"on-behalf-of": "engineer@example.com",
+			"passthrough":  false,
 		}, bag)
 	})
 
@@ -76,16 +77,23 @@ func TestApplyForwardedClientHeaders(t *testing.T) {
 		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 		ctx := identityCtx(snowflakeCreds, identity)
 		requestcontext.ApplyForwardedClientHeaders(ctx, upstream, http.Header{})
-		assert.JSONEq(t, `{"on-behalf-of":"engineer@example.com"}`, upstream.Header.Get("X-SNOWFLAKE-BAGGAGE"))
+		assert.JSONEq(t, `{"on-behalf-of":"engineer@example.com","passthrough":false}`, upstream.Header.Get("X-SNOWFLAKE-BAGGAGE"))
+	})
+
+	t.Run("marks a pass-through request", func(t *testing.T) {
+		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+		ctx := requestcontext.WithCallerModelPassthrough(identityCtx(snowflakeCreds, identity), true)
+		requestcontext.ApplyForwardedClientHeaders(ctx, upstream, http.Header{})
+		assert.JSONEq(t, `{"on-behalf-of":"engineer@example.com","passthrough":true}`, upstream.Header.Get("X-SNOWFLAKE-BAGGAGE"))
 	})
 
 	t.Run("replaces a client-supplied on-behalf-of", func(t *testing.T) {
 		upstream := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 		ctx := identityCtx(snowflakeCreds, identity)
 		requestcontext.ApplyForwardedClientHeaders(ctx, upstream, inbound(map[string]string{
-			"X-SNOWFLAKE-BAGGAGE": `{"on-behalf-of":"ceo@example.com","deployment":"prod"}`,
+			"X-SNOWFLAKE-BAGGAGE": `{"on-behalf-of":"ceo@example.com","deployment":"prod","passthrough":true}`,
 		}))
-		assert.JSONEq(t, `{"deployment":"prod","on-behalf-of":"engineer@example.com"}`,
+		assert.JSONEq(t, `{"deployment":"prod","on-behalf-of":"engineer@example.com","passthrough":false}`,
 			upstream.Header.Get("X-SNOWFLAKE-BAGGAGE"),
 			"the endpoint attributes spend off this bag, so a forged member must not survive")
 	})
@@ -96,7 +104,7 @@ func TestApplyForwardedClientHeaders(t *testing.T) {
 		requestcontext.ApplyForwardedClientHeaders(ctx, upstream, inbound(map[string]string{
 			"X-SNOWFLAKE-BAGGAGE": `{"deployment":"prod"}`,
 		}))
-		assert.JSONEq(t, `{"deployment":"prod"}`, upstream.Header.Get("X-SNOWFLAKE-BAGGAGE"))
+		assert.JSONEq(t, `{"deployment":"prod","passthrough":false}`, upstream.Header.Get("X-SNOWFLAKE-BAGGAGE"))
 	})
 
 	t.Run("forwards a non-JSON bag unchanged", func(t *testing.T) {
@@ -138,7 +146,7 @@ func TestApplyForwardedClientHeaders(t *testing.T) {
 		// own request, so nothing but the snapshot carries the caller's ids.
 		requestcontext.ApplyForwardedClientHeaders(ctx, upstream, nil)
 		assert.Equal(t, "cortex-cli/1.2.3", upstream.Header.Get("X-SNOWFLAKE-APPLICATION"))
-		assert.JSONEq(t, `{"deployment":"prod","on-behalf-of":"engineer@example.com"}`,
+		assert.JSONEq(t, `{"deployment":"prod","on-behalf-of":"engineer@example.com","passthrough":false}`,
 			upstream.Header.Get("X-SNOWFLAKE-BAGGAGE"))
 		assert.Empty(t, upstream.Header.Get("X-Unrelated"),
 			"the snapshot must only capture headers a key actually forwards")

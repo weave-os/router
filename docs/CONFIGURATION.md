@@ -303,10 +303,11 @@ curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
 
 `forwarded_client_headers` are copied verbatim from the inbound request (up to
 16, blanks and duplicates dropped). `baggage_header` is read as a raw JSON
-object and re-sent with `"on-behalf-of": "<X-Weave-User-Email>"` added — other
-keys are preserved, and a client-supplied `on-behalf-of` is replaced so
-attribution stays the router's. A request with no resolved email forwards the
-caller's bag unchanged; a bag that isn't a JSON object travels unchanged. Both
+object and re-sent with `"on-behalf-of": "<X-Weave-User-Email>"` and a boolean
+`"passthrough"` field added — other keys are preserved, and client-supplied
+values for those fields are replaced so attribution and routing state stay the
+router's. When no email resolves, any existing `on-behalf-of` value is
+preserved; a bag that isn't a JSON object travels unchanged. Both
 fields reject the same request-critical header names as `identity_header`, and
 both are applied after the client's headers so nothing upstream-critical can be
 overwritten. Omit both to forward nothing.

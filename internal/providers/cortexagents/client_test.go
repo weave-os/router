@@ -286,7 +286,7 @@ func TestSearchForwardsClientCorrelationHeaders(t *testing.T) {
 	if gotApp != "cortex-cli/1.2.3" {
 		t.Fatalf("agent:run runs on the tenant's endpoint and must carry the caller's application: %q", gotApp)
 	}
-	if gotBaggage != `{"on-behalf-of":"engineer@example.com"}` {
+	if gotBaggage != `{"on-behalf-of":"engineer@example.com","passthrough":false}` {
 		t.Fatalf("unexpected baggage: %q", gotBaggage)
 	}
 }
