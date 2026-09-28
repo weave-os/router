@@ -1,0 +1,21 @@
+internal/providers/httputil/httputil.go
+  s_be83665a9c67ee::t_d7085e7cb8e3ff 240-242,246-247
+internal/providers/httputil/client_test.go
+  s_be83665a9c67ee::t_d7085e7cb8e3ff 38-39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "dbf41b03ef003cf3e0e64841eb383bd6a3d7860e",
+  "prompts": {},
+  "sessions": {
+    "s_be83665a9c67ee": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a54788da-e07e-4620-9dae-099cf1589dcc",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

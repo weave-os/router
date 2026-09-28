@@ -1,0 +1,23 @@
+internal/proxy/decision_span_embed_test.go
+  s_6f4a846a4668de::t_b4a572bdfaae71 122-123
+  s_6f4a846a4668de::t_35ee39854463da 159-161
+  s_6f4a846a4668de::t_41ce2ebf99e53c 64-65
+internal/proxy/service.go
+  s_6f4a846a4668de::t_5c3fd5980afd1c 3400-3402
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "6899a60591365905a5847e567a73a5870c11eb5a",
+  "prompts": {},
+  "sessions": {
+    "s_6f4a846a4668de": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e6c92e57-fb01-4ba2-a97a-d59cab7d572e",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
