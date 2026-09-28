@@ -1,0 +1,85 @@
+internal/proxy/bookkeeping.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 1-9,13,19
+  s_7cb53e052d677f::t_23e704076b34e5 10-12,14-18
+internal/proxy/provider_overload.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 54-56,66-68,83-85
+internal/proxy/gemini.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 344,388
+  s_7cb53e052d677f::t_f868e1db653470 342-343
+internal/proxy/usage_bypass.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 367-371
+internal/observability/global_logger_budget_test.go
+  s_7cb53e052d677f::t_23e704076b34e5 42
+internal/proxy/spiral_detection.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 353-356
+internal/proxy/loop_detection.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 271-274,295-297
+internal/proxy/pin_eviction.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 68-70,192-194,210-212
+internal/proxy/router_feedback.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 171-174,191-193
+internal/proxy/struggle_escalation.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 191-193,245-247
+internal/proxy/attempt_sink.go
+  s_7cb53e052d677f::t_a65d880b2d8da0 102,118-135
+  s_7cb53e052d677f::t_1f444d5c3db415 1-101,103-117,136-148
+internal/proxy/force_model.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 307-309,344-346,465-467
+internal/proxy/CLAUDE.md
+  s_7cb53e052d677f::t_a65d880b2d8da0 249-262
+internal/proxy/bookkeeping_internal_test.go
+  s_7cb53e052d677f::t_23e704076b34e5 89-102
+  s_7cb53e052d677f::t_8ec9b076230be2 1-88
+internal/proxy/beta.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 88-89,92,102,152-153,165
+internal/proxy/command_continuation.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 93-95
+internal/proxy/openai_cyber_refusal.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 213-214,224-226
+internal/proxy/turn_logs.go
+  s_7cb53e052d677f::t_a65d880b2d8da0 134-136,138
+internal/proxy/bookkeeping_completion_test.go
+  s_7cb53e052d677f::t_44dce0a33c98a6 1-71,73-103
+  s_d83a5c0ff34f9d::t_b84d3ac36a048f 72
+internal/proxy/service.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 2999-3002,4505,4943,4972-4975,4983,4992-4993,5021,5033,7170-7174
+  s_7cb53e052d677f::t_a65d880b2d8da0 7175-7181,7244-7245,7448,7450-7457,7463,7465-7473,7497
+  s_7cb53e052d677f::t_4225a0a116bcc5 4503-4504
+  s_7cb53e052d677f::t_fe649beeafc2d7 7449
+internal/proxy/turnloop.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 2393,2399-2401
+internal/proxy/fire_telemetry_panic_internal_test.go
+  s_7cb53e052d677f::t_23e704076b34e5 8,16,19-35,91,98-101
+cmd/router/main.go
+  s_7cb53e052d677f::t_b1dc1a2737993e 450-457,459,1443,1446
+internal/proxy/attempt_sink_test.go
+  s_7cb53e052d677f::t_ca4134971b1199 1-209
+internal/proxy/cost_response.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 57
+internal/proxy/struggle_detection.go
+  s_7cb53e052d677f::t_8c441d1d60d4e5 155-158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8ebb174f6180fee4b2bc9c293e59258e62d5dab1",
+  "prompts": {},
+  "sessions": {
+    "s_7cb53e052d677f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f3d82f0-6aca-40b2-aca0-2547069ec7de",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
+    "s_d83a5c0ff34f9d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08d50-715f-7461-81c6-3225bf5909e7",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

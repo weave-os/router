@@ -1,0 +1,21 @@
+AGENTS.md
+  s_69cd46bfa4ee2a::t_d012f6788b216f 260
+CLAUDE.md
+  s_69cd46bfa4ee2a::t_1a8c9c59ee964a 260
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7d12a51e57671d641693cc009a4701f26af142b3",
+  "prompts": {},
+  "sessions": {
+    "s_69cd46bfa4ee2a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a087c3-7213-71e0-8b05-3ddedb15d03b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
