@@ -1,0 +1,19 @@
+install/tests/registry_test.sh
+  s_e5bc34fea03f3c::t_b7d8be4b910c4e 136-138,141-142,147-149,168-169,171-173,176,182,252-253,255,276,278
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "f880b9d6c936b35668b36da811b98bd7dfe4afa3",
+  "prompts": {},
+  "sessions": {
+    "s_e5bc34fea03f3c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "47e26dac-14b4-4c5f-8b96-28687d110163",
+        "model": "unknown"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

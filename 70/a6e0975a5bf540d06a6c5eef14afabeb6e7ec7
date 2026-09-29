@@ -1,0 +1,22 @@
+install/cc-statusline.sh
+  h_16c9377d4ebc00 162-170
+install/install.sh
+  h_16c9377d4ebc00 2639-2652,3190-3198
+install/scripts/embed-registry.sh
+  h_16c9377d4ebc00 15,19,30-65
+install/tests/registry_test.sh
+  h_16c9377d4ebc00 132-149,270-290
+install/uninstall.sh
+  h_16c9377d4ebc00 31-119
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "70a6e0975a5bf540d06a6c5eef14afabeb6e7ec7",
+  "prompts": {},
+  "humans": {
+    "h_16c9377d4ebc00": {
+      "author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
