@@ -34,7 +34,7 @@ func (rt *bodyCapturingHostRewriter) RoundTrip(r *http.Request) (*http.Response,
 	return http.DefaultTransport.RoundTrip(out)
 }
 
-func TestProxy_SnowflakeCortexGrokResponsesOmitsReasoningSummary(t *testing.T) {
+func TestProxy_SnowflakeCortexResponsesOmitsReasoningSummary(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"id":"resp_1"}`))
@@ -61,9 +61,29 @@ func TestProxy_SnowflakeCortexGrokResponsesOmitsReasoningSummary(t *testing.T) {
 			wantSummary: true,
 		},
 		{
-			name:        "snowflake non-grok",
-			baseURL:     "https://acme.snowflakecomputing.com/api/v2/cortex",
-			model:       "gpt-5.6-luna",
+			name:    "snowflake gpt-6 luna",
+			baseURL: "https://acme.snowflakecomputing.com/api/v2/cortex",
+			model:   "gpt-6-luna",
+		},
+		{
+			name:    "snowflake gpt-6 astra",
+			baseURL: "https://acme.snowflakecomputing.com/api/v2/cortex",
+			model:   "gpt-6-astra",
+		},
+		{
+			name:    "snowflake gpt-6 sol",
+			baseURL: "https://acme.snowflakecomputing.com/api/v2/cortex",
+			model:   "gpt-6-sol",
+		},
+		{
+			name:    "snowflake gpt-5.6 luna",
+			baseURL: "https://acme.snowflakecomputing.com/api/v2/cortex",
+			model:   "gpt-5.6-luna",
+		},
+		{
+			name:        "other gateway gpt-6 luna",
+			baseURL:     "https://gateway.example.com/v1",
+			model:       "gpt-6-luna",
 			wantSummary: true,
 		},
 	}
