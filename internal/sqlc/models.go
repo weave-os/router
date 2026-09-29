@@ -655,6 +655,7 @@ type RouterModelRouterRequestTelemetry struct {
 	UserPromptGapPriorModel *string
 	ErrorClass              *string
 	LatestToolCallCounts    []byte
+	ServingTarget           *string
 }
 
 type RouterModelRouterSubscriptionAccount struct {

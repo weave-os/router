@@ -11,7 +11,21 @@ import (
 
 const boostSourceOptimizerVersion = "boost-v1"
 
+// applyServingTelemetry stamps the managed serving identity on every admitted turn.
+func applyServingTelemetry(ctx context.Context, telemetry *InsertTelemetryParams) {
+	identity, ok := requestcontext.ServingIdentityFromContext(ctx)
+	if !ok {
+		return
+	}
+	telemetry.ServingTarget = identity.Target
+	telemetry.ServingProfileID = identity.ProfileKey
+	telemetry.ServingProfileVersion = identity.ProfileRevision
+	telemetry.ServingReleaseID = identity.ReleaseID
+	telemetry.ServingBindingID = identity.BindingID
+}
+
 func applySubscriberTelemetry(ctx context.Context, telemetry *InsertTelemetryParams) {
+	applyServingTelemetry(ctx, telemetry)
 	plan, hasPlan := entitlement.ProductScopeFromContext(ctx)
 	coverage, hasCoverage := entitlement.CoverageFromContext(ctx)
 	_, hasPrepaidAuthorization := billing.PrepaidAuthorizationFromContext(ctx)
@@ -27,12 +41,6 @@ func applySubscriberTelemetry(ctx context.Context, telemetry *InsertTelemetryPar
 		}
 		version := coverage.EntitlementVersion
 		telemetry.EntitlementVersion = &version
-	}
-	if identity, ok := requestcontext.ServingIdentityFromContext(ctx); ok {
-		telemetry.ServingProfileID = identity.ProfileKey
-		telemetry.ServingProfileVersion = identity.ProfileRevision
-		telemetry.ServingReleaseID = identity.ReleaseID
-		telemetry.ServingBindingID = identity.BindingID
 	}
 	source := telemetryCapacitySource(ctx, telemetry.CredentialSource)
 	if source == "" || !subscriberUsageObserved(telemetry) {

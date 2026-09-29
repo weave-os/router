@@ -96,6 +96,7 @@ type Decision struct {
 	ServingProfileVersion    *string `json:"serving_profile_version"`
 	ServingReleaseID         *string `json:"serving_release_id"`
 	ServingBindingID         *string `json:"serving_binding_id"`
+	ServingTarget            *string `json:"serving_target"`
 	BoostOptimizerVersion    *string `json:"boost_optimizer_version"`
 	PolicyArtifactID         *string `json:"policy_artifact_id"`
 	PolicyArtifactSHA256     *string `json:"policy_artifact_sha256"`

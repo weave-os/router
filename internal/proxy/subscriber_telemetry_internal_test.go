@@ -192,3 +192,21 @@ func TestApplySubscriberTelemetryLeavesUsageEmptyWithoutCapacitySource(t *testin
 	assert.Nil(t, telemetry.LinkedUsageMicros)
 	assert.Nil(t, telemetry.PrepaidUsageMicros)
 }
+
+func TestApplySubscriberTelemetryStampsServingIdentityWithoutSubscription(t *testing.T) {
+	ctx := requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{
+		Target:    "prod/weave-internal",
+		ReleaseID: "release-id",
+		BindingID: "binding-id",
+	})
+	var telemetry InsertTelemetryParams
+
+	applySubscriberTelemetry(ctx, &telemetry)
+
+	assert.Equal(t, "prod/weave-internal", telemetry.ServingTarget)
+	assert.Equal(t, "release-id", telemetry.ServingReleaseID)
+	assert.Equal(t, "binding-id", telemetry.ServingBindingID)
+	assert.Empty(t, telemetry.SubscriberPlan)
+	assert.Empty(t, telemetry.CapacitySource)
+	assert.Nil(t, telemetry.RetailUsageMicros)
+}

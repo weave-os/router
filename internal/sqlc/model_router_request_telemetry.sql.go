@@ -145,6 +145,7 @@ SELECT
     t.serving_profile_version,
     t.serving_release_id,
     t.serving_binding_id,
+    t.serving_target,
     t.boost_optimizer_version,
     t.policy_artifact_id,
     t.policy_artifact_sha256,
@@ -247,6 +248,7 @@ type GetRoutingDecisionsForExportRow struct {
 	ServingProfileVersion           *string
 	ServingReleaseID                *string
 	ServingBindingID                *string
+	ServingTarget                   *string
 	BoostOptimizerVersion           *string
 	PolicyArtifactID                *string
 	PolicyArtifactSha256            *string
@@ -341,6 +343,7 @@ type GetRoutingDecisionsForExportRow struct {
 //	    t.serving_profile_version,
 //	    t.serving_release_id,
 //	    t.serving_binding_id,
+//	    t.serving_target,
 //	    t.boost_optimizer_version,
 //	    t.policy_artifact_id,
 //	    t.policy_artifact_sha256,
@@ -448,6 +451,7 @@ func (q *Queries) GetRoutingDecisionsForExport(ctx context.Context, arg GetRouti
 			&i.ServingProfileVersion,
 			&i.ServingReleaseID,
 			&i.ServingBindingID,
+			&i.ServingTarget,
 			&i.BoostOptimizerVersion,
 			&i.PolicyArtifactID,
 			&i.PolicyArtifactSha256,
@@ -2013,6 +2017,7 @@ INSERT INTO router.model_router_request_telemetry (
     serving_profile_version,
     serving_release_id,
     serving_binding_id,
+    serving_target,
     boost_optimizer_version,
     user_prompt,
     user_prompt_gap_ms,
@@ -2177,11 +2182,12 @@ INSERT INTO router.model_router_request_telemetry (
     $155::varchar,
     $156::varchar,
     $157::varchar,
-    $158::boolean,
-    $159::bigint,
-    $160::varchar,
+    $158::varchar,
+    $159::boolean,
+    $160::bigint,
     $161::varchar,
-    $162::jsonb
+    $162::varchar,
+    $163::jsonb
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 `
@@ -2343,6 +2349,7 @@ type InsertRequestTelemetryParams struct {
 	ServingProfileVersion                    *string
 	ServingReleaseID                         *string
 	ServingBindingID                         *string
+	ServingTarget                            *string
 	BoostOptimizerVersion                    *string
 	UserPrompt                               *bool
 	UserPromptGapMs                          *int64
@@ -2564,6 +2571,7 @@ type InsertRequestTelemetryParams struct {
 //	    serving_profile_version,
 //	    serving_release_id,
 //	    serving_binding_id,
+//	    serving_target,
 //	    boost_optimizer_version,
 //	    user_prompt,
 //	    user_prompt_gap_ms,
@@ -2728,11 +2736,12 @@ type InsertRequestTelemetryParams struct {
 //	    $155::varchar,
 //	    $156::varchar,
 //	    $157::varchar,
-//	    $158::boolean,
-//	    $159::bigint,
-//	    $160::varchar,
+//	    $158::varchar,
+//	    $159::boolean,
+//	    $160::bigint,
 //	    $161::varchar,
-//	    $162::jsonb
+//	    $162::varchar,
+//	    $163::jsonb
 //	)
 //	ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestTelemetryParams) error {
@@ -2893,6 +2902,7 @@ func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestT
 		arg.ServingProfileVersion,
 		arg.ServingReleaseID,
 		arg.ServingBindingID,
+		arg.ServingTarget,
 		arg.BoostOptimizerVersion,
 		arg.UserPrompt,
 		arg.UserPromptGapMs,

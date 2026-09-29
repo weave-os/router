@@ -156,6 +156,7 @@ type InsertTelemetryParams struct {
 	ServingProfileVersion string
 	ServingReleaseID      string
 	ServingBindingID      string
+	ServingTarget         string
 	BoostOptimizerVersion string
 	// RolloutID joins eval/training-harness rollout rewards onto decisions
 	// (x-weave-rollout-id header). Empty for normal traffic → NULL column.

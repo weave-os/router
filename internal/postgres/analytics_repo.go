@@ -121,6 +121,7 @@ func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.D
 		ServingProfileVersion:    row.ServingProfileVersion,
 		ServingReleaseID:         row.ServingReleaseID,
 		ServingBindingID:         row.ServingBindingID,
+		ServingTarget:            row.ServingTarget,
 		BoostOptimizerVersion:    row.BoostOptimizerVersion,
 		PolicyArtifactID:         row.PolicyArtifactID,
 		PolicyArtifactSHA256:     row.PolicyArtifactSha256,
