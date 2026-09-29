@@ -1,0 +1,22 @@
+internal/providers/openaicompat/cortex_internal_test.go
+  s_47b60c290e2198::t_1276610216299c 37,64-73,79-86
+  s_47b60c290e2198::t_d6574ac9d42318 74-78
+internal/providers/openaicompat/client.go
+  s_47b60c290e2198::t_712521b6576559 291-292,329
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2e13f3f7dce2c5e86909fc2433dbcbccf686b0cc",
+  "prompts": {},
+  "sessions": {
+    "s_47b60c290e2198": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ed4b-03fc-77d3-9976-9ca26fb4104c",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,61 @@
+install/codex-skills/force-model/scripts/emit.sh
+  s_f234886be83e15::t_a057b52d8d01c2 1-9
+install/codex-skills/ufm/scripts/emit.sh
+  s_f234886be83e15::t_ef3bee6b48aae7 1-3
+install/codex-skills/unforce-model/scripts/emit.sh
+  s_f234886be83e15::t_63fe209c28eb73 1-4
+install/codex-skills/fm/SKILL.md
+  s_f234886be83e15::t_bdf7260ff7bdb5 8-12
+internal/translate/force_model.go
+  s_f234886be83e15::t_0b93c7ef60fc38 284-286
+install/codex-skills/rf/scripts/emit.sh
+  s_f234886be83e15::t_c5a99b0358d116 1-7
+install/codex-skills/ufm/SKILL.md
+  s_f234886be83e15::t_38d3243313fe08 8-12
+install/npm/README.md
+  s_f234886be83e15::t_ade8483749c4c3 107-110
+install/codex-skills/unforce-model/SKILL.md
+  s_f234886be83e15::t_d4ef041f56050a 8-12
+install/codex-skills/router-feedback/scripts/emit.sh
+  s_f234886be83e15::t_228cfbffe74834 1-9
+install/uninstall.sh
+  s_f234886be83e15::t_bb3129c0345266 585-591
+install/codex-skills/router-feedback/SKILL.md
+  s_f234886be83e15::t_763f32311f03ef 8-13
+install/npm/scripts/copy-installer.js
+  s_f234886be83e15::t_1a3c7058945c66 85-98
+internal/translate/router_feedback.go
+  s_f234886be83e15::t_bc33a8052bdeba 129-130
+install/tests/registry_test.sh
+  s_f234886be83e15::t_fa4e10fb70e915 213-214,217,221-224,226
+install/codex-skills/rf/SKILL.md
+  s_f234886be83e15::t_e578d61b0a9caa 8-13
+install/codex-skills/force-model/SKILL.md
+  s_f234886be83e15::t_7d204a6e3c5a0f 8-12
+install/codex-skills/fm/scripts/emit.sh
+  s_f234886be83e15::t_5946ae31d83fda 1-8
+README.md
+  s_f234886be83e15::t_b680700c0ae57c 183-186
+install/install.sh
+  s_f234886be83e15::t_b4be7f41a4acce 2799-2802,2804,2830-2843
+install/tests/codex_install_test.sh
+  s_f234886be83e15::t_7e55e9f8aa2c01 115-118,138-141
+internal/translate/responses.go
+  s_f234886be83e15::t_629080d9e8e3c3 435-436
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "a8113add2fa26542bd1b257aae24f06b8a35a389",
+  "prompts": {},
+  "sessions": {
+    "s_f234886be83e15": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fecd80f1-1961-41db-9f82-dc35c7bb06da",
+        "model": "claude-opus-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

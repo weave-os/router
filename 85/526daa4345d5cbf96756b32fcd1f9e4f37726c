@@ -1,0 +1,33 @@
+internal/auth/blind_experiment_test.go
+  s_28c8815db4c15b::t_6071da7edae148 122,130-133
+internal/proxy/service.go
+  s_28c8815db4c15b::t_6071da7edae148 4781
+internal/auth/blind_experiment.go
+  s_28c8815db4c15b::t_6071da7edae148 7,45-48
+internal/auth/blind_experiment_cache.go
+  s_28c8815db4c15b::t_cd853fab2673fe 25
+  s_28c8815db4c15b::t_6071da7edae148 14,33,45-48,52,59-69,106-113
+  s_28c8815db4c15b::t_6274574bfde9b5 114-115
+internal/auth/service.go
+  s_28c8815db4c15b::t_0b09d35d88d022 856-858
+  s_28c8815db4c15b::t_6071da7edae148 859
+internal/proxy/turnloop_internal_test.go
+  s_28c8815db4c15b::t_6071da7edae148 222-238,242-250
+  s_28c8815db4c15b::t_cd853fab2673fe 239-241
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "85526daa4345d5cbf96756b32fcd1f9e4f37726c",
+  "prompts": {},
+  "sessions": {
+    "s_28c8815db4c15b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0832c-78ed-7dc3-829b-0f975789e8e8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

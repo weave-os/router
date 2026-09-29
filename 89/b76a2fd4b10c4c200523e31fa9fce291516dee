@@ -1,0 +1,23 @@
+install/tests/codex_install_test.sh
+  s_049874a7166f8d::t_5be14071a6b7d5 468-496
+install/install.sh
+  s_049874a7166f8d::t_71ae53bc2c13f4 498-511,520,557,560-563
+install/uninstall.sh
+  s_049874a7166f8d::t_71ae53bc2c13f4 224-237,246,283,286-289
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "89b76a2fd4b10c4c200523e31fa9fce291516dee",
+  "prompts": {},
+  "sessions": {
+    "s_049874a7166f8d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7b6a9f0a-cd46-4fd9-942c-7daea97cec2a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
