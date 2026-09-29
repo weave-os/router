@@ -29,9 +29,53 @@ class and shrinks the sidecar's authority to what only it can do: ML inference.
 | Complexity classification (ML) | Private Python sidecar (`policy_router_v4` contract) |
 | Ranked cluster fallback (per-group probability, roster arms, eligible arms) | Go selector, using classifier probabilities and the admitted roster |
 
+## Local draft preview and policy tooling
+
+`policyctl preview` reads a local draft roster and invokes the same Go selector
+used by serving. It requires no registry, deployed artifact, sidecar, or model
+call. Its JSON output preserves the existing draft-preview fields (source,
+environment label, roster schema, harness, quality bias, per-cluster order and
+scores, WII/WPI, pins, vendor flags, and optional quality-grid winners) and
+declares `preview_schema_version: hmm_draft_roster_preview_v1`. Scores come from
+the selector's float32 serving score map, rounded to six decimals.
+Use `--class-order class-a,class-b` when a nonstandard taxonomy omits
+`class_order` from its draft roster.
+
+```bash
+go run ./cmd/policyctl preview --roster-file /path/to/draft.json --harness codex
+go run ./cmd/policyctl preview --roster-file /path/to/draft.json --quality-bias 0.4 --grid 21
+go run ./cmd/policyctl preview --roster-file /path/to/draft.json --alpha low=0.5
+```
+
+With no quality bias, preview preserves the roster's fixed order and scores.
+An explicit non-neutral bias uses calibrated WII/WPI ranking; `--alpha` tests
+an exact per-cluster alpha through a local ranking copy passed to the selector.
+`--alpha` and `--grid` cannot be combined; the sweep accepts 2–101 points.
+The input must pass the Go roster and catalog validators, so an unknown model
+or malformed indices fail before any projection is printed. `--environment`
+only echoes the caller's label; it does not resolve a deployment target.
+
+`policyctl compile --source <reviewed-roster> --output <policy>` compiles a
+reviewed v7/v7.5c source into canonical `hmm_go_selection_policy_v1` bytes.
+`policyctl validate --policy <policy>` checks the resulting schema and catalog
+bindings. `policyctl publish` owns immutable legacy policy publication with
+an exact classifier identity. Managed generic publication and target activation
+use [the serving controller](SERVING_CONTROL.md): `serving publish --dry-run`
+validates locally, while `serving apply` activates a target and is outside
+draft preview. None of these commands build or publish classifier artifacts;
+private rosters, target assignments, ML code/data, and credentials remain
+outside this repository.
+
+Forward policy publication starts from reviewed roster JSON and runs through
+Go compilation and validation. WorkWeave's historical `build_aa_roster.py`
+recreates roster sources from private AA score snapshots and WII/WPI
+normalization assets for evaluation reproducibility; it does not publish a
+serving policy. Keeping that analysis with its private inputs does not create
+a second supported publication path.
+
 ## Configuration
 
-`ROUTER_HMM_ROSTER_PATH` is the only lever, and it is **required** whenever
+On the self-hosted/local roster path, `ROUTER_HMM_ROSTER_PATH` is required whenever
 `ROUTER_HMM_SIDECAR_URL` is set: the roster is loaded and validated against the
 model catalog at boot (any invalid arm fails boot) and then serves every HMM /
 `hmm_embedding` decision. Booting an HMM sidecar without a roster is a
@@ -75,8 +119,8 @@ Managed rollback pins the router image, classifier image, and policy selection
 set together through the serving registry. A v4 worker must use a compatible
 classifier package and admitted policy; replacing just one image is unsafe.
 
-Roster content is still rolled back on its own: republish the previous roster
-artifact and redeploy — an invalid roster fails boot rather than serving.
+On the self-hosted path, roster content can be rolled back by restoring the
+previous roster artifact and redeploying; an invalid roster fails boot.
 
 ## Still to remove
 

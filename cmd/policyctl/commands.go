@@ -22,6 +22,7 @@ type commandName string
 
 const (
 	commandCompile      commandName = "compile"
+	commandPreview      commandName = "preview"
 	commandCheckRosters commandName = "check-rosters"
 	commandValidate     commandName = "validate"
 	commandPublish      commandName = "publish"
@@ -52,13 +53,15 @@ type classifierRevisionIdentity struct {
 
 func run(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: policyctl <compile|check-rosters|validate|publish|promote|rollback|status> [flags]")
+		return errors.New("usage: policyctl <compile|preview|check-rosters|validate|publish|promote|rollback|status> [flags]")
 	}
 	switch commandName(args[0]) {
 	case commandServing:
 		return runServing(ctx, args[1:])
 	case commandCompile:
 		return runCompile(args[1:])
+	case commandPreview:
+		return runPreview(args[1:])
 	case commandCheckRosters:
 		return runCheckRosters(args[1:])
 	case commandValidate:
