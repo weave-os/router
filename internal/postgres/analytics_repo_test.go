@@ -1,17 +1,68 @@
 package postgres
 
 import (
+	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/sqlc"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type telemetryInsertCapture struct {
+	query string
+	args  []interface{}
+}
+
+func (c *telemetryInsertCapture) Exec(_ context.Context, query string, args ...interface{}) (pgconn.CommandTag, error) {
+	c.query = query
+	c.args = args
+	return pgconn.CommandTag{}, nil
+}
+
+func (*telemetryInsertCapture) Query(context.Context, string, ...interface{}) (pgx.Rows, error) {
+	panic("unexpected Query")
+}
+
+func (*telemetryInsertCapture) QueryRow(context.Context, string, ...interface{}) pgx.Row {
+	panic("unexpected QueryRow")
+}
+
+func TestServingTargetReachesTelemetryInsertAndAnalyticsExport(t *testing.T) {
+	target := string(policyregistry.TargetInternal)
+	capture := &telemetryInsertCapture{}
+	err := NewTelemetryRepo(capture).InsertRequestTelemetry(context.Background(), proxy.InsertTelemetryParams{
+		InstallationID: uuid.NewString(),
+		ServingTarget:  target,
+	})
+	require.NoError(t, err)
+	assert.Contains(t, strings.ToLower(capture.query), "serving_target")
+	foundTargetArgument := false
+	for _, argument := range capture.args {
+		if value, ok := argument.(*string); ok && value != nil && *value == target {
+			foundTargetArgument = true
+		}
+	}
+	assert.True(t, foundTargetArgument, "serving target must reach the SQLC insert arguments")
+
+	decision := decisionFromExportRow(sqlc.GetRoutingDecisionsForExportRow{ServingTarget: &target})
+	payload, err := json.Marshal(decision)
+	require.NoError(t, err)
+	var exported map[string]any
+	require.NoError(t, json.Unmarshal(payload, &exported))
+	assert.Equal(t, target, exported["serving_target"])
+}
 
 func TestDecisionFromExportRowMapsServedCosts(t *testing.T) {
 	actualIn := int64(1_000_000)

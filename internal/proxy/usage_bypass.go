@@ -570,6 +570,7 @@ func (s *Service) bypassToAnthropic(
 		}
 		applyBlindExperimentTelemetry(ctx, &telemetryParams, &turnLoopResult{Decision: decision, UsageBypass: true})
 		applyPolicyPinTelemetry(ctx, &telemetryParams, nil)
+		applySubscriberTelemetry(ctx, &telemetryParams)
 		s.fireTelemetry(telemetryParams)
 	}
 

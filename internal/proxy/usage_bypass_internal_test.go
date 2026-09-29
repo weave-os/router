@@ -16,8 +16,10 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
@@ -690,6 +692,9 @@ func TestBypass_PersistsTelemetryRowWithUnifiedHeaders(t *testing.T) {
 
 	installationID := uuid.New()
 	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, installationID.String())
+	ctx = requestcontext.WithServingIdentity(ctx, requestcontext.ServingIdentity{
+		Target: string(policyregistry.TargetInternal), ReleaseID: "managed-release", BindingID: "managed-binding",
+	})
 	ctx = context.WithValue(ctx, auth.BlindExperimentContextKey{}, auth.BlindExperimentState{
 		Active: true, Enabled: true, Arm: auth.BlindExperimentArmRouterOn,
 		ScheduledArm: auth.BlindExperimentArmRouterOn, CohortExperimentID: uuid.NewString(),
@@ -722,6 +727,9 @@ func TestBypass_PersistsTelemetryRowWithUnifiedHeaders(t *testing.T) {
 	assert.Equal(t, installationID.String(), row.InstallationID)
 	assert.Equal(t, "router.upstream", row.SpanType, "bypass rows must land in the same span the dashboard queries filter on")
 	assert.Equal(t, "usage_bypass", row.DecisionReason)
+	assert.Equal(t, string(policyregistry.TargetInternal), row.ServingTarget)
+	assert.Equal(t, "managed-release", row.ServingReleaseID)
+	assert.Equal(t, "managed-binding", row.ServingBindingID)
 	assert.Equal(t, auth.CohortBypassUsageBypass, row.CohortBypassReason)
 	require.NotNil(t, row.CohortTreatmentApplied)
 	assert.False(t, *row.CohortTreatmentApplied)
