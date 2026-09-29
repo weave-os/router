@@ -386,8 +386,11 @@ func TestModel_ImageInputDefaultsToUnknown(t *testing.T) {
 }
 
 func TestContextWindowFor_KnownModels(t *testing.T) {
-	// Anthropic models report 200K in the catalog; they support 1M via context-1m-2025-08-07
+	// Anthropic 4.x models report 200K in the catalog; they support 1M via context-1m-2025-08-07
 	// beta when explicitly requested by the client (see contextWindowForRequest in proxy/service.go).
+	// Sonnet 5 and 5.5 report their full 1M context window directly.
+	assert.Equal(t, 1_000_000, ContextWindowFor("claude-sonnet-5"))
+	assert.Equal(t, 1_000_000, ContextWindowFor("claude-sonnet-5-5"))
 	assert.Equal(t, 200_000, ContextWindowFor("claude-opus-4-8"))
 	assert.Equal(t, 200_000, ContextWindowFor("claude-sonnet-4-6"))
 	assert.Equal(t, 200_000, ContextWindowFor("claude-haiku-4-5"))
