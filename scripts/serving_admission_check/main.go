@@ -87,11 +87,51 @@ func run() (runErr error) {
 		return err
 	}
 	defer pool.Close()
+	if err := checkStartupDatabase(ctx, dsn); err != nil {
+		return err
+	}
 	created := &fixture{}
 	// Removal runs on success and failure alike, on its own deadline so an
 	// exhausted check context cannot leave the rows behind.
 	defer func() { runErr = errors.Join(runErr, removeFixture(pool, created)) }()
 	return checkAdmission(ctx, pool, created)
+}
+
+// Read-only transactions make an accidental write in warmup fail at the real
+// database boundary, before the admission harness creates any fixture rows.
+func checkStartupDatabase(ctx context.Context, dsn string) error {
+	config, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return err
+	}
+	config.MaxConns = 1
+	config.ConnConfig.RuntimeParams["default_transaction_read_only"] = "on"
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	if err := serving.WarmDatabase(ctx, pool); err != nil {
+		return fmt.Errorf("read-only startup schema exercise: %w", err)
+	}
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	warmedPID := conn.Conn().PgConn().PID()
+	conn.Release()
+	if err := serving.WarmDatabase(ctx, pool); err != nil {
+		return fmt.Errorf("repeated startup schema exercise: %w", err)
+	}
+	conn, err = pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+	if conn.Conn().PgConn().PID() != warmedPID {
+		return errors.New("startup database exercise discarded its serving connection")
+	}
+	return nil
 }
 
 func checkAdmission(ctx context.Context, pool *pgxpool.Pool, created *fixture) error {
