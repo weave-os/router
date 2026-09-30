@@ -1,6 +1,8 @@
 package health
 
 import (
+	"math"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -31,6 +33,27 @@ func TestInvalidCapacitySettingsFailStartup(t *testing.T) {
 				return raw, name == "ROUTER_CAPACITY_MAX_BUFFERED_BYTES"
 			}, 250, 0)
 			require.ErrorContains(t, err, "ROUTER_CAPACITY_MAX_BUFFERED_BYTES")
+		})
+	}
+}
+
+func TestCapacityRequestIntegerRange(t *testing.T) {
+	settings := map[string]string{
+		"ROUTER_CAPACITY_MAX_REQUESTS":    strconv.Itoa(math.MaxInt),
+		"ROUTER_CAPACITY_RESUME_REQUESTS": strconv.Itoa(math.MaxInt - 1),
+	}
+	lookup := func(name string) (string, bool) { value, ok := settings[name]; return value, ok }
+	limits, err := limitsFromEnv(lookup, 250, 0)
+	require.NoError(t, err)
+	assert.Equal(t, math.MaxInt, limits.MaxRequests)
+	assert.Equal(t, math.MaxInt-1, limits.ResumeRequests)
+	for _, name := range []string{"ROUTER_CAPACITY_MAX_REQUESTS", "ROUTER_CAPACITY_RESUME_REQUESTS"} {
+		t.Run(name, func(t *testing.T) {
+			original := settings[name]
+			settings[name] = strconv.FormatUint(uint64(math.MaxInt)+1, 10)
+			_, err := limitsFromEnv(lookup, 250, 0)
+			require.Error(t, err)
+			settings[name] = original
 		})
 	}
 }

@@ -2,6 +2,7 @@ package health
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -62,10 +63,10 @@ func limitsFromEnv(lookup func(string) (string, bool), defaultMaxRequests int, d
 	if err != nil {
 		return Limits{}, err
 	}
-	limits := Limits{MaxRequests: int(maxRequests), ResumeRequests: int(resumeRequests), MaxBufferedBytes: maxBytes, ResumeBufferedBytes: resumeBytes, MemoryHighBytes: uint64(memoryHigh), MemoryLowBytes: uint64(memoryLow)}
-	if int64(limits.MaxRequests) != maxRequests || int64(limits.ResumeRequests) != resumeRequests {
+	if maxRequests > math.MaxInt || resumeRequests > math.MaxInt {
 		return Limits{}, fmt.Errorf("request capacity exceeds this platform's integer range")
 	}
+	limits := Limits{MaxRequests: int(maxRequests), ResumeRequests: int(resumeRequests), MaxBufferedBytes: maxBytes, ResumeBufferedBytes: resumeBytes, MemoryHighBytes: uint64(memoryHigh), MemoryLowBytes: uint64(memoryLow)}
 	if _, err := NewCapacity(limits); err != nil {
 		return Limits{}, err
 	}

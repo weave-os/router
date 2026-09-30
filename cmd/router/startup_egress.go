@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/cenkalti/backoff/v5"
 	"golang.org/x/sync/errgroup"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/providers/httputil"
 )
 
 const startupEgressTimeout = 120 * time.Second
@@ -19,7 +21,10 @@ type startupTransportWarmer interface {
 	WarmTransport(context.Context, string) (bool, error)
 }
 
-type startupEgressProbe struct{ origins []string }
+type startupEgressProbe struct {
+	origins []string
+	client  *http.Client
+}
 
 func newStartupEgressProbe(rawOrigins string) (*startupEgressProbe, error) {
 	probe := &startupEgressProbe{}
@@ -33,21 +38,28 @@ func newStartupEgressProbe(rawOrigins string) (*startupEgressProbe, error) {
 		}
 		probe.origins = append(probe.origins, parsed.Scheme+"://"+parsed.Host)
 	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil
+	transport.DisableKeepAlives = true
+	probe.client = &http.Client{Transport: transport, Timeout: 5 * time.Second}
 	return probe, nil
 }
 
 func (p *startupEgressProbe) wait(ctx context.Context, log *slog.Logger, clients map[string]providers.Client, enabled map[string]struct{}, initializedOrigins map[string]struct{}) error {
 	ctx, cancel := context.WithTimeout(ctx, startupEgressTimeout)
 	defer cancel()
+	if p.client != nil {
+		defer p.client.CloseIdleConnections()
+	}
 	workers, ctx := errgroup.WithContext(ctx)
 	workers.SetLimit(4)
-	for name := range enabled {
-		warmer, ok := clients[name].(startupTransportWarmer)
+	for provider := range enabled {
+		warmer, ok := clients[provider].(startupTransportWarmer)
 		if !ok {
-			return fmt.Errorf("provider %s has no startup transport initializer", name)
+			return fmt.Errorf("provider %s has no startup transport initializer", provider)
 		}
 		workers.Go(func() error {
-			return retryStartupTransport(ctx, log, name, func(ctx context.Context) error { _, err := warmer.WarmTransport(ctx, ""); return err })
+			return retryStartupTransport(ctx, log, provider, func(ctx context.Context) error { _, err := warmer.WarmTransport(ctx, ""); return err })
 		})
 	}
 	for _, origin := range p.origins {
@@ -56,7 +68,7 @@ func (p *startupEgressProbe) wait(ctx context.Context, log *slog.Logger, clients
 		}
 		workers.Go(func() error {
 			return retryStartupTransport(ctx, log, origin, func(ctx context.Context) error {
-				matched := false
+				matchedOrigin := false
 				for _, client := range clients {
 					warmer, ok := client.(startupTransportWarmer)
 					if !ok {
@@ -66,10 +78,12 @@ func (p *startupEgressProbe) wait(ctx context.Context, log *slog.Logger, clients
 					if err != nil {
 						return err
 					}
-					matched = matched || warmed
+					matchedOrigin = matchedOrigin || warmed
 				}
-				if !matched {
-					return backoff.Permanent(fmt.Errorf("startup origin %s has no retained serving client", origin))
+				if !matchedOrigin {
+					// Additional configured origins preserve their credential-free connectivity check.
+					_, err := httputil.WarmTransport(ctx, origin, origin, p.client)
+					return err
 				}
 				return nil
 			})
@@ -78,7 +92,7 @@ func (p *startupEgressProbe) wait(ctx context.Context, log *slog.Logger, clients
 	return workers.Wait()
 }
 
-func retryStartupTransport(ctx context.Context, log *slog.Logger, name string, warm func(context.Context) error) error {
+func retryStartupTransport(ctx context.Context, log *slog.Logger, dependency string, warm func(context.Context) error) error {
 	started := time.Now()
 	retry := backoff.NewExponentialBackOff()
 	retry.MaxInterval = 5 * time.Second
@@ -87,11 +101,11 @@ func retryStartupTransport(ctx context.Context, log *slog.Logger, name string, w
 		defer cancel()
 		return struct{}{}, warm(attemptCtx)
 	}, backoff.WithBackOff(retry), backoff.WithMaxElapsedTime(0), backoff.WithNotify(func(err error, delay time.Duration) {
-		log.Warn("Startup transport is not ready; retrying", "dependency", name, "retry_after", delay, "err", err)
+		log.Warn("Startup transport is not ready; retrying", "dependency", dependency, "retry_after", delay, "err", err)
 	}))
 	if err != nil {
-		return fmt.Errorf("initialize startup transport %s: %w", name, err)
+		return fmt.Errorf("initialize startup transport %s: %w", dependency, err)
 	}
-	log.Info("Startup transport initialized", "dependency", name, "elapsed", time.Since(started))
+	log.Info("Startup transport initialized", "dependency", dependency, "elapsed", time.Since(started))
 	return nil
 }

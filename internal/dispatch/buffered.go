@@ -28,10 +28,14 @@ type Buffered struct {
 var ErrBufferedResponseTooLarge = errors.New("buffered inference response exceeded its byte budget")
 
 type boundedResponseWriter struct {
-	http.ResponseWriter
+	recorder  *httptest.ResponseRecorder
 	remaining int
 	overflow  bool
 }
+
+func (w *boundedResponseWriter) Header() http.Header { return w.recorder.Header() }
+
+func (w *boundedResponseWriter) WriteHeader(status int) { w.recorder.WriteHeader(status) }
 
 func (w *boundedResponseWriter) Write(payload []byte) (int, error) {
 	if len(payload) > w.remaining {
@@ -39,7 +43,7 @@ func (w *boundedResponseWriter) Write(payload []byte) (int, error) {
 		return 0, ErrBufferedResponseTooLarge
 	}
 	w.remaining -= len(payload)
-	return w.ResponseWriter.Write(payload)
+	return w.recorder.Write(payload)
 }
 
 // Transport adapts b into an executor Transport. The prepared wire model must
@@ -58,7 +62,7 @@ func (b Buffered) Transport() Transport {
 		var writer http.ResponseWriter = rec
 		var bounded *boundedResponseWriter
 		if b.MaxResponseBytes > 0 {
-			bounded = &boundedResponseWriter{ResponseWriter: rec, remaining: b.MaxResponseBytes}
+			bounded = &boundedResponseWriter{recorder: rec, remaining: b.MaxResponseBytes}
 			writer = bounded
 		}
 		decision := router.Decision{

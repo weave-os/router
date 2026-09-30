@@ -30,7 +30,7 @@ func startupFixture(host string, req *http.Request, body []byte) *cassette {
 			"type": "text", "text": "Reply with OK.", "cache_control": map[string]any{"type": "ephemeral"},
 		}}}}
 		expected["max_tokens"] = request["max_tokens"]
-		if !startupTokenBudget(request["max_tokens"]) {
+		if tokens, ok := request["max_tokens"].(float64); !ok || (tokens != 32 && tokens != 1024) {
 			return nil
 		}
 		if request["max_tokens"] == float64(1024) {
@@ -75,9 +75,4 @@ func startupFixture(host string, req *http.Request, body []byte) *cassette {
 		Method: req.Method, Path: req.URL.Path, StatusCode: http.StatusOK,
 		Headers: map[string]string{"Content-Type": "application/json", "X-Smoke-Fixture": "router-startup"}, Body: encoded,
 	}
-}
-
-func startupTokenBudget(value any) bool {
-	tokens, ok := value.(float64)
-	return ok && (tokens == 32 || tokens == 1024)
 }

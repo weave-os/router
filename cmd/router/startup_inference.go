@@ -168,11 +168,11 @@ func warmStartupModels(ctx context.Context, log *slog.Logger, clients *dispatch.
 					return validateStartupGeneration(response, attempt.Target)
 				},
 			}.Transport()
-			result, err := executor.Run(callCtx, inference.InvocationRequest{Purpose: policy.PurposeStartupWarmup}, plan, transport)
+			generationResult, err := executor.Run(callCtx, inference.InvocationRequest{Purpose: policy.PurposeStartupWarmup}, plan, transport)
 			if err != nil {
 				return fmt.Errorf("generate startup model %s/%s: %w", target.Provider, target.CatalogID, err)
 			}
-			if result.Outcome.FallbackUsed || result.Outcome.AttemptCount != 1 || result.Outcome.ServedTarget.CatalogID != target.CatalogID || result.Outcome.ServedTarget.Provider != target.Provider {
+			if generationResult.Outcome.FallbackUsed || generationResult.Outcome.AttemptCount != 1 || generationResult.Outcome.ServedTarget.CatalogID != target.CatalogID || generationResult.Outcome.ServedTarget.Provider != target.Provider {
 				return fmt.Errorf("startup model %s did not execute its exact target once", target.CatalogID)
 			}
 			log.Info("Startup model generation completed", "provider", target.Provider, "model", target.CatalogID, "elapsed", time.Since(started))

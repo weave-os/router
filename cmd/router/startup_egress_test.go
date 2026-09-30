@@ -6,6 +6,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -61,11 +64,27 @@ func TestStartupEgressHonorsCancellation(t *testing.T) {
 	})
 }
 
-func TestStartupEgressRequiresRetainedClientOrInitializedDependency(t *testing.T) {
+func TestStartupEgressSkipsInitializedDependency(t *testing.T) {
 	probe, err := newStartupEgressProbe("https://pubsub.googleapis.com")
 	require.NoError(t, err)
-	require.ErrorContains(t, probe.wait(context.Background(), slog.Default(), nil, nil, nil), "no retained serving client")
 	require.NoError(t, probe.wait(context.Background(), slog.Default(), nil, nil, map[string]struct{}{"https://pubsub.googleapis.com": {}}))
+}
+
+func TestStartupEgressPreservesAdditionalOriginConnectivity(t *testing.T) {
+	var requests atomic.Int32
+	origin := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		require.Equal(t, http.MethodHead, r.Method)
+		require.Empty(t, r.Header.Get("Authorization"))
+		require.Empty(t, r.Header.Get("X-Api-Key"))
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer origin.Close()
+	probe, err := newStartupEgressProbe(origin.URL)
+	require.NoError(t, err)
+	probe.client = origin.Client()
+	require.NoError(t, probe.wait(t.Context(), slog.Default(), nil, nil, nil))
+	require.Equal(t, int32(1), requests.Load())
 }
 
 func TestStartupEgressDoesNotInitializeUnknownTenantProviders(t *testing.T) {
