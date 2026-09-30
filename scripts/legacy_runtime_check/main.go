@@ -123,7 +123,7 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, providerURL, t
 		"PUBSUB_TOPIC_ROUTER_INVALIDATION=legacy-invalidation",
 		"PUBSUB_SUBSCRIPTION_ROUTER_INVALIDATION=legacy-invalidation",
 		"OPENAI_API_KEY=fixture-never-sent-to-provider",
-		"OPENAI_BASE_URL=" + providerURL + "/v1",
+		"OPENAI_BASE_URL=" + providerURL,
 		"ROUTER_RESTRICT_UPSTREAM_EGRESS=false",
 		"ROUTER_SEMANTIC_CACHE_ENABLED=false",
 		"GIN_MODE=release",
