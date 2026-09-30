@@ -1,0 +1,21 @@
+internal/proxy/tool_schema_rescue_integration_test.go
+  s_c5edd0ad29d1e4::t_eca5403ec2543f 26-30,33,120
+internal/proxy/dispatch_error_test.go
+  s_c5edd0ad29d1e4::t_eca5403ec2543f 55,57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "4f9f8bec750da3ef906de7d0ee398a537784a77d",
+  "prompts": {},
+  "sessions": {
+    "s_c5edd0ad29d1e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b54a388a-4ca8-4006-b9b3-cb77b570f4b1",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
