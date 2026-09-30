@@ -20,8 +20,8 @@ import (
 type ContentCaptureMode int
 
 const (
-	// CaptureOff emits no `router.call` log records. Spans and the existing
-	// telemetry row are unaffected. Default for self-hosted / OSS.
+	// CaptureOff emits no `router.call` log records. Permanent upstream 4xx
+	// failures emit a separate status-only alert event. Default for self-hosted / OSS.
 	CaptureOff ContentCaptureMode = iota
 	// CaptureHashed emits log records with metadata + SHA-256 content hashes
 	// but no raw text — dedup/cache analysis without exposing prompts.
@@ -187,11 +187,13 @@ func sha256Hex(b []byte) string {
 
 // recordCallLog emits a high-fidelity `router.call` OTLP log record for one
 // upstream call, reusing the upstream span's attributes as the metadata base
-// and appending content attributes per capture mode. No-op when capture is
-// off. base is cloned before appending so the span's attributes aren't mutated.
+// and appending content attributes per capture mode. Under CaptureOff, only
+// permanent upstream 4xx failures emit a minimal alert event. base is cloned
+// before appending so the span's attributes aren't mutated.
 func (s *Service) recordCallLog(ctx context.Context, base []*commonv1.KeyValue, routeMs int64, isErr bool, reqBody, respBody []byte, respTruncated bool) {
 	mode := s.effectiveCaptureMode(ctx)
 	if mode == CaptureOff {
+		s.recordPermanentError(ctx, base, isErr)
 		return
 	}
 
@@ -220,5 +222,37 @@ func (s *Service) recordCallLog(ctx context.Context, base []*commonv1.KeyValue, 
 		Time:     time.Now(),
 		Severity: sev,
 		Attrs:    attrs,
+	})
+}
+
+const permanentErrorEventName = "router.permanent_error"
+
+// recordPermanentError uses an explicit allowlist: upstream span attributes
+// may include content or derived signals that must not enter a ZDR log event.
+func (s *Service) recordPermanentError(ctx context.Context, base []*commonv1.KeyValue, isErr bool) {
+	if !isErr {
+		return
+	}
+	var status int64
+	for _, attr := range base {
+		if attr.Key == "upstream.status_code" {
+			status = attr.Value.GetIntValue()
+			break
+		}
+	}
+	if status < 400 || status >= 500 || status == http.StatusRequestTimeout || status == http.StatusTooManyRequests {
+		return
+	}
+
+	attrs := make([]*commonv1.KeyValue, 0, 7)
+	for _, attr := range base {
+		switch attr.Key {
+		case "request_id", "external_id", "client.session_id", "router_user_id", "decision.model", "decision.provider", "upstream.status_code":
+			attrs = append(attrs, attr)
+		}
+	}
+	otel.RecordLog(ctx, otel.LogRecord{
+		Name: permanentErrorEventName, Time: time.Now(),
+		Severity: otel.SeverityError, Attrs: attrs,
 	})
 }

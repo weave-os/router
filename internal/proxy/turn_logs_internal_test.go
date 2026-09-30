@@ -233,6 +233,58 @@ func TestRecordCallLog_OffEmitsNothing(t *testing.T) {
 	assert.Equal(t, 0, coll.count(t))
 }
 
+func TestRecordCallLog_InstallationOffEmitsContentFreePermanentError(t *testing.T) {
+	coll := newLogCollector(t)
+	s, em := newServiceWithEmitter(t, CaptureFull, nil, coll.server.URL)
+	buf := otel.NewBuffer(em)
+	ctx := context.WithValue(buf.WithContext(context.Background()), InstallationCaptureModeContextKey{}, CaptureOff)
+	base := otel.NewAttrBuilder(9).
+		String("request_id", "req-1").
+		String("external_id", "org-1").
+		String("client.session_id", "sess-1").
+		String("router_user_id", "11111111-1111-1111-1111-111111111111").
+		String("decision.model", "claude-opus-5-5").
+		String("decision.provider", "snowflake").
+		Int64("upstream.status_code", 400).
+		String("routing.candidate_scores", "sensitive-score").
+		String("io.request_body", "secret-prompt").Build()
+	s.recordCallLog(ctx, base, 42, true, []byte("secret-request"), []byte("secret-response"), false)
+	otel.Flush(ctx)
+	require.NoError(t, em.Shutdown(context.Background()))
+
+	require.Equal(t, 1, coll.count(t))
+	coll.mu.Lock()
+	defer coll.mu.Unlock()
+	var export collogspb.ExportLogsServiceRequest
+	require.NoError(t, proto.Unmarshal(coll.bodies[0], &export))
+	record := export.ResourceLogs[0].ScopeLogs[0].LogRecords[0]
+	assert.Equal(t, "router.permanent_error", record.GetBody().GetStringValue())
+	assert.Equal(t, "ERROR", record.SeverityText)
+	assert.Equal(t, map[string]*commonv1.AnyValue{
+		"request_id":           {Value: &commonv1.AnyValue_StringValue{StringValue: "req-1"}},
+		"external_id":          {Value: &commonv1.AnyValue_StringValue{StringValue: "org-1"}},
+		"client.session_id":    {Value: &commonv1.AnyValue_StringValue{StringValue: "sess-1"}},
+		"router_user_id":       {Value: &commonv1.AnyValue_StringValue{StringValue: "11111111-1111-1111-1111-111111111111"}},
+		"decision.model":       {Value: &commonv1.AnyValue_StringValue{StringValue: "claude-opus-5-5"}},
+		"decision.provider":    {Value: &commonv1.AnyValue_StringValue{StringValue: "snowflake"}},
+		"upstream.status_code": {Value: &commonv1.AnyValue_IntValue{IntValue: 400}},
+	}, attrsByKey(record.Attributes))
+}
+
+func TestRecordCallLog_OffDoesNotAlertRetryableFailures(t *testing.T) {
+	coll := newLogCollector(t)
+	s, em := newServiceWithEmitter(t, CaptureOff, nil, coll.server.URL)
+	buf := otel.NewBuffer(em)
+	ctx := buf.WithContext(context.Background())
+	for _, status := range []int64{408, 429, 503} {
+		base := otel.NewAttrBuilder(1).Int64("upstream.status_code", status).Build()
+		s.recordCallLog(ctx, base, 42, true, []byte("secret-request"), []byte("secret-response"), false)
+	}
+	otel.Flush(ctx)
+	require.NoError(t, em.Shutdown(context.Background()))
+	assert.Zero(t, coll.count(t))
+}
+
 func TestRecordCallLog_FullCapturesBodies(t *testing.T) {
 	coll := newLogCollector(t)
 	s, em := newServiceWithEmitter(t, CaptureFull, nil, coll.server.URL)
