@@ -1,0 +1,27 @@
+internal/proxy/blind_experiment_internal_test.go
+  s_dda9326dc8b08d::t_3e906ccdbf6e9c 155
+internal/proxy/routing_policy_internal_test.go
+  s_dda9326dc8b08d::t_492326bb3a28b1 131-146
+internal/proxy/dispatch_error.go
+  s_dda9326dc8b08d::t_3e906ccdbf6e9c 167-170,174
+internal/proxy/blind_experiment.go
+  s_dda9326dc8b08d::t_3e906ccdbf6e9c 23-25,27-28,92-95
+internal/proxy/dispatch_error_test.go
+  s_dda9326dc8b08d::t_3e906ccdbf6e9c 280-288
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9f4fbb5ccdfd2fe1826280ad35a5a43a1aa545ba",
+  "prompts": {},
+  "sessions": {
+    "s_dda9326dc8b08d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c1703ab4-5b15-4f84-95d4-87ed57f02248",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
