@@ -1,0 +1,30 @@
+internal/proxy/compaction_test.go
+  s_0d1b224d7f2f14::t_70175c8057d252 477-496
+  s_8c3b4aea8f2cfd::t_e137ef128d1e20 497-498
+internal/proxy/compaction.go
+  s_0d1b224d7f2f14::t_be2de9ed90fb56 15,495
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "84890639b872e962adcd5e0f20d844543d152551",
+  "prompts": {},
+  "sessions": {
+    "s_0d1b224d7f2f14": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0cbbb-f1b0-76c0-a983-230df0deb67a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_8c3b4aea8f2cfd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0cbb2-a12c-71c3-bee0-b72328ec05df",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

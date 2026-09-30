@@ -1,0 +1,53 @@
+internal/proxy/CLAUDE.md
+  s_d5165fb8d3c8eb::t_217697ce97217f 303,305,307
+internal/observability/workers.go
+  s_d5165fb8d3c8eb::t_6c676696d90217 19-25
+  s_d5165fb8d3c8eb::t_243aa26ec70a29 96-100,106,122
+internal/dispatch/attempt_sink_test.go
+  s_d5165fb8d3c8eb::t_a4b8ea3544a46b 85,96-108
+  s_d5165fb8d3c8eb::t_f8ebb7284f247c 109
+internal/proxy/observation_workers_internal_test.go
+  s_d5165fb8d3c8eb::t_a4b8ea3544a46b 9,11,14-15
+  s_d5165fb8d3c8eb::t_62c07d6e760445 102,112-126
+internal/proxy/router_feedback_proxy_test.go
+  s_d5165fb8d3c8eb::t_a7ba7ad4028702 577-578,584
+  s_d5165fb8d3c8eb::t_55a9f23c10f701 954-955
+  s_d5165fb8d3c8eb::t_25ad12c455bd60 962
+AGENTS.md
+  s_d5165fb8d3c8eb::t_217697ce97217f 198
+internal/proxy/service.go
+  s_d5165fb8d3c8eb::t_243aa26ec70a29 5171,5753
+internal/proxy/AGENTS.md
+  s_d5165fb8d3c8eb::t_217697ce97217f 303,305,307
+internal/proxy/observation_work.go
+  s_d5165fb8d3c8eb::t_243aa26ec70a29 20-24
+internal/proxy/telemetry.go
+  s_d5165fb8d3c8eb::t_243aa26ec70a29 477
+internal/proxy/observation_workers_test.go
+  s_d5165fb8d3c8eb::t_a7ba7ad4028702 9-10,23-30
+  s_d5165fb8d3c8eb::t_b2897ee73a9ae0 31
+internal/proxy/router_feedback.go
+  s_d5165fb8d3c8eb::t_243aa26ec70a29 314
+CLAUDE.md
+  s_d5165fb8d3c8eb::t_217697ce97217f 198
+internal/observability/workers_test.go
+  s_d5165fb8d3c8eb::t_62c07d6e760445 107-109,143-193
+install/tests/cc-statusline_test.sh
+  s_d5165fb8d3c8eb::t_a4b8ea3544a46b 363-365
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "88c49307debf4b7b300aaf80eacb1ba0ed750789",
+  "prompts": {},
+  "sessions": {
+    "s_d5165fb8d3c8eb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "811cfb39-b733-4ed9-a66b-3d449d1adc24",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
