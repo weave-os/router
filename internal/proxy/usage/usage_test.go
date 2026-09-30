@@ -97,6 +97,19 @@ func TestParseAnthropicUnified_OverageUtilizationClamped(t *testing.T) {
 	assert.True(t, snap.Exhausted())
 }
 
+func TestParseAnthropicUnified_OverageWithoutQuotaWindows(t *testing.T) {
+	h := http.Header{}
+	h.Set("anthropic-ratelimit-unified-overage-in-use", "true")
+	h.Set("anthropic-ratelimit-unified-reset", "1790812800")
+	snap, ok := usage.ParseAnthropicUnifiedHeaders(h)
+	require.True(t, ok)
+	assert.True(t, snap.OverageInUse)
+	assert.Equal(t, int64(1790812800), snap.UnifiedResetAt.Unix())
+	assert.True(t, snap.BillableOrExhausted())
+	assert.False(t, snap.Exhausted(), "overage is billable, but the token can still serve")
+	assert.Equal(t, 1.0, snap.CostFactor(0.05, 2.0))
+}
+
 // Prod traffic spells the long window "7d" (53k-row Phase 0 capture: zero
 // "weekly" keys); "weekly" is kept as a legacy fallback only.
 func TestParseAnthropicUnified_WeeklySpellingFallback(t *testing.T) {
@@ -265,6 +278,61 @@ func TestObserver_RecordMergesWindows(t *testing.T) {
 	assert.InDelta(t, 0.20, got.Primary.UsedPercent, 1e-9, "primary updates")
 	assert.InDelta(t, 0.95, got.Secondary.UsedPercent, 1e-9,
 		"omitted secondary window must NOT be erased to slack")
+}
+
+func TestObserver_OverageRemainsUntilResetOrInPlanResponse(t *testing.T) {
+	base := time.Unix(1_790_000_000, 0).UTC()
+	clock := base
+	observer := usage.NewObserver([]byte("salt"), 10*time.Minute, func() time.Time { return clock })
+	key := observer.Key([]byte("sk-ant-oat01-overage"))
+	observer.Record(key, usage.Snapshot{OverageInUse: true, UnifiedResetAt: base.Add(2 * time.Hour)})
+
+	clock = base.Add(time.Hour)
+	snap, ok := observer.Snapshot(key)
+	require.True(t, ok)
+	assert.True(t, snap.BillableOrExhausted())
+
+	observer.Record(key, usage.Snapshot{Primary: usage.Window{UsedPercent: 0.10, WindowMinutes: 300}})
+	snap, ok = observer.Snapshot(key)
+	require.True(t, ok)
+	assert.False(t, snap.BillableOrExhausted(), "a later in-plan observation clears overage")
+	assert.Less(t, snap.CostFactor(0.05, 2.0), 1.0)
+
+	observer.Record(key, usage.Snapshot{OverageInUse: true, UnifiedResetAt: base.Add(2 * time.Hour)})
+	clock = base.Add(3 * time.Hour)
+	_, ok = observer.Snapshot(key)
+	assert.False(t, ok, "the overage observation expires after the reported reset")
+}
+
+func TestObserver_OverageClearsAtResetWhileWeeklyWindowRemains(t *testing.T) {
+	base := time.Unix(1_790_000_000, 0).UTC()
+	clock := base
+	observer := usage.NewObserver([]byte("salt"), 10*time.Minute, func() time.Time { return clock })
+	key := observer.Key([]byte("sk-ant-oat01-overage"))
+	observer.Record(key, usage.Snapshot{
+		Secondary:      usage.Window{UsedPercent: 0.6, WindowMinutes: 7 * 24 * 60},
+		OverageInUse:   true,
+		UnifiedResetAt: base.Add(2 * time.Hour),
+	})
+	clock = base.Add(3 * time.Hour)
+	snapshot, observed := observer.Snapshot(key)
+	require.True(t, observed, "the weekly window remains authoritative")
+	assert.False(t, snapshot.OverageInUse, "a prior overage response cannot persist beyond plan reset")
+}
+
+func TestObserver_OverageOnlyWithoutResetRetainsOnePlanWindow(t *testing.T) {
+	base := time.Unix(1_790_000_000, 0).UTC()
+	clock := base
+	observer := usage.NewObserver([]byte("salt"), 10*time.Minute, func() time.Time { return clock })
+	key := observer.Key([]byte("sk-ant-oat01-overage"))
+	observer.Record(key, usage.Snapshot{OverageInUse: true})
+	clock = base.Add(2 * time.Hour)
+	snapshot, observed := observer.Snapshot(key)
+	require.True(t, observed)
+	assert.True(t, snapshot.OverageInUse)
+	clock = base.Add(6 * time.Hour)
+	_, observed = observer.Snapshot(key)
+	assert.False(t, observed)
 }
 
 func TestObserver_DistinctTokensDistinctKeys(t *testing.T) {

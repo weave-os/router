@@ -125,7 +125,7 @@ func subscriptionPlanStatesForRequest(s *Service, ctx context.Context, headers h
 		state := SubscriptionPlanStateActive
 		if s.usageObserver != nil {
 			snapshot, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(token)))
-			if observed && snapshot.Exhausted() {
+			if observed && snapshot.BillableOrExhausted() {
 				state = SubscriptionPlanStateExhausted
 			}
 		}

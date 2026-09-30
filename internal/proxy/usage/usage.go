@@ -66,12 +66,20 @@ func (w Window) present() bool { return w.WindowMinutes > 0 || w.UsedPercent > 0
 // window (primary, ~5h) and a long window (secondary, weekly). Either may be
 // zero if the upstream didn't report it.
 type Snapshot struct {
-	Primary    Window
-	Secondary  Window
-	ObservedAt time.Time
+	Primary        Window
+	Secondary      Window
+	OverageInUse   bool
+	UnifiedResetAt time.Time
+	ObservedAt     time.Time
 }
 
-func (s Snapshot) hasData() bool { return s.Primary.present() || s.Secondary.present() }
+func (s Snapshot) hasData() bool {
+	return s.OverageInUse || s.Primary.present() || s.Secondary.present()
+}
+
+// BillableOrExhausted reports when a Claude subscription should not be treated
+// as free capacity. Overage still serves requests, but draws paid credits.
+func (s Snapshot) BillableOrExhausted() bool { return s.OverageInUse || s.Exhausted() }
 
 // exhaustedFraction is the per-window utilization at/above which a subscription
 // window is spent: the upstream 429s any further turn until the window resets.
@@ -123,7 +131,7 @@ func windowExhausted(window Window, now time.Time) bool {
 // strictly free (which would dominate every quality tie). A snapshot with no
 // usable data returns 1.0 — no subsidy until we've actually observed headroom.
 func (s Snapshot) CostFactor(epsilon, gamma float64) float64 {
-	if !s.hasData() {
+	if s.OverageInUse || !s.hasData() {
 		return 1.0
 	}
 	u := math.Max(s.Primary.UsedPercent, s.Secondary.UsedPercent)
@@ -181,6 +189,21 @@ const windowConstrainedFraction = 0.5
 // reads as never-observed again — correct, its quota has by then reset.
 func (o *Observer) freshFor(s Snapshot) time.Duration {
 	horizon := o.ttl
+	if s.OverageInUse {
+		// Overage-only responses omit the plan windows. Keep the paid-lane
+		// observation through the unified reset, or for one 5h plan window
+		// when no reset is reported. The overage credit-window reset does not
+		// refill plan quota.
+		untilReset := 5 * time.Hour
+		if !s.UnifiedResetAt.IsZero() {
+			if reported := s.UnifiedResetAt.Sub(s.ObservedAt); reported > 0 {
+				untilReset = min(reported, 7*24*time.Hour)
+			}
+		}
+		if untilReset > horizon {
+			horizon = untilReset
+		}
+	}
 	for _, w := range [...]Window{s.Primary, s.Secondary} {
 		if w.UsedPercent < windowConstrainedFraction {
 			continue
@@ -243,13 +266,19 @@ func (o *Observer) Snapshot(key CredentialKey) (Snapshot, bool) {
 	if !ok {
 		return Snapshot{}, false
 	}
-	if o.now().Sub(snap.ObservedAt) > o.freshFor(snap) {
+	now := o.now()
+	if now.Sub(snap.ObservedAt) > o.freshFor(snap) {
 		o.mu.Lock()
 		if cur, still := o.data[key]; still && o.now().Sub(cur.ObservedAt) > o.freshFor(cur) {
 			delete(o.data, key)
 		}
 		o.mu.Unlock()
 		return Snapshot{}, false
+	}
+	// A longer-lived weekly window may keep the snapshot cached after the
+	// reported plan reset. Stop treating its earlier overage flag as current.
+	if snap.OverageInUse && snap.UnifiedResetAt.After(snap.ObservedAt) && !snap.UnifiedResetAt.After(now) {
+		snap.OverageInUse = false
 	}
 	return snap, true
 }
@@ -307,17 +336,21 @@ func parseCodexWindow(h http.Header, which string, defaultWindowMinutes int) (Wi
 // accepted as a legacy fallback — prod traffic emits "7d", per the Phase 0
 // unified_limit_headers capture). Prefers an explicit *-utilization header
 // (a 0-1 fraction on the wire; can exceed 1.0 mid-overage, clamped); else
-// derives used = 1 - remaining/limit. Reports false if neither window is present.
+// derives used = 1 - remaining/limit. An overage-only response is also usable:
+// it proves the subscription request drew paid credits even without quota data.
+// Reports false when neither window nor the paid-lane signal is present.
 func ParseAnthropicUnifiedHeaders(h http.Header) (Snapshot, bool) {
 	primary, pOK := parseAnthropicWindow(h, "5h", 5*60)
 	secondary, sOK := parseAnthropicWindow(h, "7d", 7*24*60)
 	if !sOK {
 		secondary, sOK = parseAnthropicWindow(h, "weekly", 7*24*60)
 	}
-	if !pOK && !sOK {
+	overage := h.Get("anthropic-ratelimit-unified-overage-in-use") == "true"
+	if !pOK && !sOK && !overage {
 		return Snapshot{}, false
 	}
-	return Snapshot{Primary: primary, Secondary: secondary}, true
+	resetAt, _ := parseResetTime(h.Get("anthropic-ratelimit-unified-reset"))
+	return Snapshot{Primary: primary, Secondary: secondary, OverageInUse: overage, UnifiedResetAt: resetAt}, true
 }
 
 func parseAnthropicWindow(h http.Header, which string, windowMinutes int) (Window, bool) {

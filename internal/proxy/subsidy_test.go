@@ -105,20 +105,60 @@ func TestSubsidy_RecordReadKeyAgreement(t *testing.T) {
 		"infrastructure OpenAI models must not receive the caller-subscription discount")
 }
 
-// Bootstrap: a present subscription with NO observed headroom yet must still
-// produce the optimistic (epsilon) discount, so the covered model can win the
-// first turn and thereby get a chance to serve and record real headroom.
-// Without this the feature never engages (the sub never serves → never observed).
-func TestSubsidyFactors_OptimisticColdStart(t *testing.T) {
+func TestClaudeOverageStopsSubscriptionRouting(t *testing.T) {
+	observer := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
+	service := (&Service{deploymentKeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}).
+		WithSubscriptionAwareRouting(observer, 0.05, 2.0)
+	const token = "sk-ant-oat01-overage"
+	headers := http.Header{"Authorization": []string{"Bearer " + token}}
+
+	assert.Nil(t, service.subsidyFactors(context.Background(), headers),
+		"an unobserved Claude subscription must not be assumed free")
+
+	callCtx := service.withUsageObserver(context.Background(), headers)
+	callCtx = context.WithValue(callCtx, CredentialsContextKey{}, &Credentials{
+		APIKey: []byte(token), Source: credSourceSubscription, OAuth: true,
+	})
+	responseHeaders := http.Header{}
+	responseHeaders.Set("anthropic-ratelimit-unified-overage-in-use", "true")
+	responseHeaders.Set("anthropic-ratelimit-unified-overage-reset", "2026-10-01T00:00:00Z")
+	providers.ObserveUpstreamHeaders(callCtx, responseHeaders)
+
+	assert.Nil(t, service.subsidyFactors(context.Background(), headers),
+		"billable overage must not discount Claude models")
+	assert.True(t, service.claudeSubscriptionExhausted(context.Background(), headers),
+		"billable overage must fall through to the deployment key")
+}
+
+func TestClaudeOverageDispatchesOnDeploymentKey(t *testing.T) {
+	ingress := parityAnthropicIngress()
+	upstream := &parityUpstream{okBody: ingress.upstreamOK(false)}
+	service := ingress.parityService(upstream)
+	observer := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
+	service.WithSubscriptionAwareRouting(observer, 0.05, 2.0)
+	observer.Record(observer.Key([]byte(ingress.token)), usage.Snapshot{OverageInUse: true})
+
+	recorder, request, body := ingress.request(t, false)
+	require.NoError(t, ingress.call(service, ingress.subCtx(), body, recorder, request))
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.Zero(t, upstream.subDispatches, "billable Claude OAuth must be suppressed before dispatch")
+	assert.Equal(t, 1, upstream.paidDispatches, "the turn must use the Weave deployment key")
+}
+
+func TestSubsidyFactors_ClaudeColdStartIsNeutral(t *testing.T) {
 	s := (&Service{}).WithSubscriptionAwareRouting(
 		usage.NewObserver([]byte("salt"), time.Minute, time.Now), 0.05, 2.0)
 
-	// Claude Code sub in the inbound Authorization; observer is empty (cold).
 	h := http.Header{}
 	h.Set("Authorization", "Bearer sk-ant-oat01-cold")
+	assert.Nil(t, s.subsidyFactors(context.Background(), h),
+		"unknown Claude billing state must not bias routing toward Anthropic")
+
+	h.Set("Authorization", "Bearer eyJhbGciOi.codex.jwt")
+	h.Set("ChatGPT-Account-ID", "acct-1")
 	factors := s.subsidyFactors(context.Background(), h)
-	require.NotNil(t, factors, "a present sub must produce factors even with no observed headroom")
-	assert.InDelta(t, 0.05, factors["claude-opus-4-8"], 1e-9, "cold start = optimistic epsilon (max bias)")
+	require.NotNil(t, factors, "Codex retains its observed-account bootstrap")
+	assert.InDelta(t, 0.05, factors["gpt-5.6-sol"], 1e-9)
 }
 
 // Per-installation opt-out: when the org has disabled subscription-aware
@@ -128,11 +168,14 @@ func TestSubsidyFactors_OptimisticColdStart(t *testing.T) {
 // middleware — the discount is otherwise non-nil there, so this asserts the
 // flag is what suppresses it.
 func TestSubsidyFactors_DisabledForInstallation(t *testing.T) {
-	s := (&Service{}).WithSubscriptionAwareRouting(
-		usage.NewObserver([]byte("salt"), time.Minute, time.Now), 0.05, 2.0)
+	observer := usage.NewObserver([]byte("salt"), time.Minute, time.Now)
+	s := (&Service{}).WithSubscriptionAwareRouting(observer, 0.05, 2.0)
 
 	h := http.Header{}
 	h.Set("Authorization", "Bearer sk-ant-oat01-cold")
+	observer.Record(observer.Key([]byte("sk-ant-oat01-cold")), usage.Snapshot{
+		Primary: usage.Window{UsedPercent: 0.10, WindowMinutes: 300},
+	})
 
 	// Sanity: without the flag the same request DOES subsidize (guards against a
 	// vacuous pass if the sub stopped being detected).

@@ -4030,11 +4030,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	effortServed := s.resolveEffort(ctx, decision, opts.Capabilities, routeRes.EscalateEffort)
 	effortServed.apply(&opts)
 
-	// A caller whose Claude subscription has bound its plan window can't serve
-	// another turn on it (429 until reset). Suppress the spent token so
-	// resolution falls through to the deployment/BYOK key — the turn serves on
-	// the Weave key (full cost) instead of hard-failing. Only fires once the
-	// observer has recorded exhaustion and a fallback key exists.
+	// A caller's Claude subscription can be exhausted (429) or actively drawing
+	// customer-paid overage. Suppress either observed state so credential
+	// resolution falls through to the deployment/BYOK key at full cost.
 	if s.claudeSubscriptionExhausted(ctx, r.Header) {
 		ctx = withSuppressedClaudeSubscription(ctx)
 	}
@@ -4055,8 +4053,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// caller's own Claude OAuth credential. Gate on whether the resolved
 	// credential is that subscription (like the OpenAI path) rather than on the
 	// bypass flag: refuse (402) only when the turn wouldn't run on the sub — it
-	// routed to a paid model, or the subscription is observed-exhausted (a
-	// doomed 429). Refusing beats billing a paid model against an already-
+	// routed to a paid model, or the subscription is exhausted/billable.
+	// Refusing beats billing a paid model against an already-
 	// negative balance. A linked-first turn's credits are intact, so it continues
 	// paid instead of being refused — unless its spent plan kept the credential
 	// because no Anthropic fallback key exists (claudeSubscriptionExhausted

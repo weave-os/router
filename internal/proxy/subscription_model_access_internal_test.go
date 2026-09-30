@@ -134,6 +134,7 @@ func TestSubscriptionModelAccessOnlyLearnsModelRejection(t *testing.T) {
 func TestSubscriptionModelAccessRemovesDiscountAndBypass(t *testing.T) {
 	in := parityAnthropicIngress()
 	svc := in.deploymentKeyedService().WithSubscriptionAwareRouting(usage.NewObserver([]byte("salt"), time.Hour, time.Now), 0.01, 1)
+	svc.usageObserver.Record(svc.usageObserver.Key([]byte(parityAnthropicToken)), usage.Snapshot{Primary: usage.Window{WindowMinutes: 300}})
 	svc.recordSubscriptionModelRejection(in.resolved(in.subCtx()), in.provider, in.model, modelAccessError())
 	factors := svc.subsidyFactors(in.subCtx(), nil)
 	assert.NotContains(t, factors, in.model)

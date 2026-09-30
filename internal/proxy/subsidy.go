@@ -252,7 +252,7 @@ func (s *Service) withSubscriptionStatePreferences(ctx context.Context, headers 
 			continue
 		}
 		observed = true
-		if !snapshot.Exhausted() {
+		if !snapshot.BillableOrExhausted() {
 			active = true
 		}
 	}
@@ -263,18 +263,11 @@ func (s *Service) withSubscriptionStatePreferences(ctx context.Context, headers 
 }
 
 // subsidyFactors computes the per-covered-model cost multiplier for this
-// request from the present subscription(s). When headroom has been observed it
-// uses the real factor; when a subscription is present but NO headroom has been
-// observed yet, it OPTIMISTICALLY assumes slack (the epsilon floor) so the
-// covered models are favored from the very first turn. This bootstraps the
-// feature: otherwise the subscription would never serve a turn, so its headroom
-// would never be observed, so the discount would never engage — a chicken-and-
-// egg that pins routing to whatever wins at full price. The optimistic factor
-// self-corrects to the real headroom once the first subscription-served response
-// records it (including a 429's near-cap reading). Returns nil when the feature
-// is off, no subscription is present, or the installation has disabled
-// subscription-aware routing. Keyed identically to withUsageObserver so record
-// and read agree across all three harnesses.
+// request from the present subscription(s). Codex retains its optimistic
+// cold-start factor. Claude requires observed in-plan headroom: Anthropic can
+// report billable overage without reporting any quota-window utilization, so
+// assuming slack for an unobserved Claude token can keep routing into paid
+// overage indefinitely. Returns nil when no discount is justified.
 func (s *Service) subsidyFactors(ctx context.Context, headers http.Header) map[string]float64 {
 	if s.usageObserver == nil || !s.subsidyEnabled {
 		return nil
@@ -298,12 +291,15 @@ func (s *Service) subsidyFactors(ctx context.Context, headers http.Header) map[s
 		}
 	}
 	if anthroTok != "" {
-		f := s.observedOrOptimisticFactor(anthroTok)
-		for _, m := range claudeCoveredModels() {
-			if s.subscriptionModels.denied([]byte(anthroTok), m, s.clockNow()) {
-				continue
+		if snap, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(anthroTok))); observed && !snap.BillableOrExhausted() {
+			if f := snap.CostFactor(s.subsidyEpsilon, s.subsidyGamma); f < 1 {
+				for _, m := range claudeCoveredModels() {
+					if s.subscriptionModels.denied([]byte(anthroTok), m, s.clockNow()) {
+						continue
+					}
+					factors[m] = f
+				}
 			}
-			factors[m] = f
 		}
 	}
 	if len(factors) == 0 {

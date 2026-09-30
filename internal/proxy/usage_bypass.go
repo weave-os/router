@@ -88,10 +88,10 @@ func (s *Service) subscriptionPassthroughEngaged(ctx context.Context, headers ht
 // router adds. Engages when the turn is a Classifier, the requested model is
 // Anthropic-served and admissible for this request (subscriptionCoveredTarget),
 // the request presents a Claude subscription credential, and that credential
-// is not observed-exhausted. Unlike usageBypassEngaged it needs neither the
+// is not observed as exhausted or billable overage. Unlike usageBypassEngaged it needs neither the
 // installation opt-in nor a utilization threshold: the classifier is a
 // by-product of the conversation's own turns, so conserving quota by
-// re-routing it buys nothing. An exhausted subscription falls through to the
+// re-routing it buys nothing. A spent or billable subscription falls through to the
 // scorer, which already handles the paid-key fallback and subscription-only
 // refusal for that state.
 func (s *Service) classifierPassthroughEngaged(ctx context.Context, headers http.Header, req router.Request, turnType turntype.TurnType) (string, bool) {
@@ -106,7 +106,7 @@ func (s *Service) classifierPassthroughEngaged(ctx context.Context, headers http
 		return provider, true
 	}
 	snap, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(token)))
-	if observed && snap.Exhausted() {
+	if observed && snap.BillableOrExhausted() {
 		return "", false
 	}
 	return provider, true
@@ -151,9 +151,9 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 	if !observed {
 		return provider, true
 	}
-	// Never bypass a spent subscription: the upstream will reject the token
-	// even if the configured threshold sits above exhaustedFraction.
-	if snap.Exhausted() {
+	// Never bypass a spent or billable subscription: an exhausted plan will
+	// reject the token, while overage serves it using customer-paid credits.
+	if snap.BillableOrExhausted() {
 		return "", false
 	}
 	// Subscription-only mode: paid failover is disabled, so the threshold's
@@ -219,26 +219,24 @@ func subscriptionCoveredTarget(ctx context.Context, headers http.Header, req rou
 	return provider, token, true
 }
 
-// claudeSubscriptionExhausted reports whether the caller's present Claude
-// subscription has bound its plan window — the upstream will 429 any further
-// turn until it resets. True only when: the usage observer is wired, a Claude
-// subscription token is present on this request, its most-recent observed
-// snapshot is exhausted, AND a non-subscription Anthropic key exists to serve the
-// turn instead. The token key is derived identically to withUsageObserver /
+// claudeSubscriptionExhausted reports whether the caller's Claude subscription
+// is exhausted or actively drawing billable overage. True only when a Claude
+// token has an observed spent/billable snapshot and a paid fallback key exists.
+// The token key is derived identically to withUsageObserver /
 // usageBypassEngaged so this read agrees with what the observer recorded. When
 // true the caller suppresses the subscription credential (withSuppressedSubscription)
-// so the turn serves on the Weave / BYOK key rather than the spent subscription.
+// so the turn serves on the Weave / BYOK key rather than the customer's credits.
 func (s *Service) claudeSubscriptionExhausted(ctx context.Context, headers http.Header) bool {
 	return s.anthropicFallbackKeyAvailable(ctx) && s.anthropicSubscriptionObservedExhausted(ctx, headers)
 }
 
 // anthropicSubscriptionObservedExhausted reports whether the caller's present
-// Claude subscription has bound its plan window per the usage observer,
+// Claude subscription is exhausted or using paid overage per the observer,
 // independent of whether a fallback key exists. claudeSubscriptionExhausted
 // layers the fallback-key requirement on top for its suppress-and-serve-on-Weave
 // -key path; subscription-only refusal uses this bare signal because paid
-// fallback is disabled there — an exhausted sub can only 429, so the turn is
-// refused with the controlled 402 rather than sent on a doomed round-trip.
+// fallback is disabled there — an exhausted sub can only 429, while using
+// overage would charge the customer. The turn is refused with a controlled 402.
 func (s *Service) anthropicSubscriptionObservedExhausted(ctx context.Context, headers http.Header) bool {
 	if s.usageObserver == nil {
 		return false
@@ -248,7 +246,7 @@ func (s *Service) anthropicSubscriptionObservedExhausted(ctx context.Context, he
 		return false
 	}
 	snap, ok := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(anthroTok)))
-	return ok && snap.Exhausted()
+	return ok && snap.BillableOrExhausted()
 }
 
 // anthropicFallbackKeyAvailable reports whether a non-subscription Anthropic
