@@ -94,11 +94,34 @@ func TestSubscriptionOverageHeaderMarksCostEvenWithoutObserver(t *testing.T) {
 	s := &Service{}
 	ctx := withUnifiedLimitCapture(ctxWithCreds(&Credentials{APIKey: []byte("overage-token"), Source: credSourceSubscription, OAuth: true}))
 	headers := http.Header{}
+	headers.Set("anthropic-ratelimit-unified-representative-claim", "overage")
 	headers.Set("anthropic-ratelimit-unified-overage-in-use", "true")
 	captureUnifiedLimitHeaders(ctx, headers)
 	assert.False(t, s.costNeutralSubscriptionServed(ctx))
 	_, _, source := s.credentialKeyParts(ctx)
 	assert.Equal(t, credSourceSubscriptionOverage, source)
+
+	headers.Set("anthropic-ratelimit-unified-representative-claim", "seven_day_overage_included")
+	captureUnifiedLimitHeaders(ctx, headers)
+	assert.True(t, s.costNeutralSubscriptionServed(ctx))
+	_, _, source = s.credentialKeyParts(ctx)
+	assert.Equal(t, credSourceSubscription, source)
+}
+
+func TestIncludedClaimOverridesPriorPaidObservation(t *testing.T) {
+	observer := observerWithSnapshot("overage-token", usage.Snapshot{OverageInUse: true})
+	s := (&Service{}).WithUsageObserver(observer)
+	ctx := withUnifiedLimitCapture(ctxWithCreds(&Credentials{
+		APIKey: []byte("overage-token"), Source: credSourceSubscription, OAuth: true,
+	}))
+	headers := http.Header{}
+	headers.Set("anthropic-ratelimit-unified-representative-claim", "seven_day_overage_included")
+	headers.Set("anthropic-ratelimit-unified-overage-in-use", "true")
+	captureUnifiedLimitHeaders(ctx, headers)
+
+	assert.True(t, s.costNeutralSubscriptionServed(ctx))
+	_, _, source := s.credentialKeyParts(ctx)
+	assert.Equal(t, credSourceSubscription, source)
 }
 
 // These string values are a wire contract with the SQL export query; changing them breaks subscription_served.

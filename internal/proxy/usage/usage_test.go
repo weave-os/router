@@ -99,6 +99,7 @@ func TestParseAnthropicUnified_OverageUtilizationClamped(t *testing.T) {
 
 func TestParseAnthropicUnified_OverageWithoutQuotaWindows(t *testing.T) {
 	h := http.Header{}
+	h.Set("anthropic-ratelimit-unified-representative-claim", "overage")
 	h.Set("anthropic-ratelimit-unified-overage-in-use", "true")
 	h.Set("anthropic-ratelimit-unified-reset", "1790812800")
 	snap, ok := usage.ParseAnthropicUnifiedHeaders(h)
@@ -108,6 +109,26 @@ func TestParseAnthropicUnified_OverageWithoutQuotaWindows(t *testing.T) {
 	assert.True(t, snap.BillableOrExhausted())
 	assert.False(t, snap.Exhausted(), "overage is billable, but the token can still serve")
 	assert.Equal(t, 1.0, snap.CostFactor(0.05, 2.0))
+}
+
+func TestParseAnthropicUnified_OverageIncludedIsNotPaid(t *testing.T) {
+	h := http.Header{}
+	h.Set("anthropic-ratelimit-unified-representative-claim", "seven_day_overage_included")
+	h.Set("anthropic-ratelimit-unified-overage-in-use", "true")
+	h.Set("anthropic-ratelimit-unified-7d_oi-utilization", "1.03")
+	snapshot, ok := usage.ParseAnthropicUnifiedHeaders(h)
+	require.True(t, ok)
+	assert.False(t, snapshot.OverageInUse, "the special included claim has no verified paid-usage semantics")
+	assert.Equal(t, 1.0, snapshot.CostFactor(0.05, 2.0), "an unvalidated claim without quota data cannot earn a subsidy")
+
+	now := time.Unix(1790000000, 0)
+	observer := usage.NewObserver([]byte("salt"), 10*time.Minute, func() time.Time { return now })
+	key := observer.Key([]byte("sk-ant-oat01-token"))
+	observer.Record(key, usage.Snapshot{Claim: usage.AnthropicClaimOverage, OverageInUse: true})
+	observer.Record(key, snapshot)
+	latest, observed := observer.Snapshot(key)
+	require.True(t, observed)
+	assert.False(t, latest.OverageInUse, "a later included claim must clear the paid-lane observation")
 }
 
 // Prod traffic spells the long window "7d" (53k-row Phase 0 capture: zero

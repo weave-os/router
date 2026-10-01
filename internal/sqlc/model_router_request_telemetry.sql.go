@@ -116,14 +116,17 @@ SELECT
     t.output_tokens,
     t.cache_creation_tokens,
     t.cache_read_tokens,
-    -- A Claude overage response used paid credits, even though the caller's
+    -- A Claude response with the plain overage claim used paid credits, even though the caller's
     -- OAuth credential served it. Historical rows retain that evidence in
     -- unified_limit_headers; newer rows also use subscription_overage source.
     -- COALESCE because credential_source is NULL on deployment-key turns, and
     -- NULL IN (...) is NULL, which cannot scan into the generated bool.
     COALESCE(
         t.credential_source IN ('subscription', 'codex_subscription')
-        AND t.unified_limit_headers->>'anthropic-ratelimit-unified-overage-in-use' IS DISTINCT FROM 'true',
+        AND (
+            t.unified_limit_headers->>'anthropic-ratelimit-unified-representative-claim' = 'overage'
+            AND t.unified_limit_headers->>'anthropic-ratelimit-unified-overage-in-use' = 'true'
+        ) IS DISTINCT FROM true,
         false
     )::boolean AS subscription_served,
     t.actual_input_cost_usd,
@@ -318,14 +321,17 @@ type GetRoutingDecisionsForExportRow struct {
 //	    t.output_tokens,
 //	    t.cache_creation_tokens,
 //	    t.cache_read_tokens,
-//	    -- A Claude overage response used paid credits, even though the caller's
+//	    -- A Claude response with the plain overage claim used paid credits, even though the caller's
 //	    -- OAuth credential served it. Historical rows retain that evidence in
 //	    -- unified_limit_headers; newer rows also use subscription_overage source.
 //	    -- COALESCE because credential_source is NULL on deployment-key turns, and
 //	    -- NULL IN (...) is NULL, which cannot scan into the generated bool.
 //	    COALESCE(
 //	        t.credential_source IN ('subscription', 'codex_subscription')
-//	        AND t.unified_limit_headers->>'anthropic-ratelimit-unified-overage-in-use' IS DISTINCT FROM 'true',
+//	        AND (
+//	            t.unified_limit_headers->>'anthropic-ratelimit-unified-representative-claim' = 'overage'
+//	            AND t.unified_limit_headers->>'anthropic-ratelimit-unified-overage-in-use' = 'true'
+//	        ) IS DISTINCT FROM true,
 //	        false
 //	    )::boolean AS subscription_served,
 //	    t.actual_input_cost_usd,

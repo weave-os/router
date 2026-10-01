@@ -120,6 +120,7 @@ func TestClaudeOverageStopsSubscriptionRouting(t *testing.T) {
 		APIKey: []byte(token), Source: credSourceSubscription, OAuth: true,
 	})
 	responseHeaders := http.Header{}
+	responseHeaders.Set("anthropic-ratelimit-unified-representative-claim", "overage")
 	responseHeaders.Set("anthropic-ratelimit-unified-overage-in-use", "true")
 	responseHeaders.Set("anthropic-ratelimit-unified-overage-reset", "2026-10-01T00:00:00Z")
 	providers.ObserveUpstreamHeaders(callCtx, responseHeaders)

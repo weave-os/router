@@ -232,11 +232,14 @@ above, if you want the priced subset.
 
 ### Subscription-served turns cost $0
 
-When a turn is dispatched on the caller's own Claude or Codex subscription, that
-subscription's quota pays for it and no API-priced spend is incurred.
+When a turn is dispatched on the caller's own Claude or Codex subscription and
+included quota serves it, no API-priced spend is incurred.
 `subscription_served` is `true` on those rows, their token counts are the real
 upstream numbers, and `actual_input_cost_usd` / `actual_output_cost_usd` are
-`0` — pricing them at catalog rates would overcount spend. A turn that starts on
+`0` — pricing them at catalog rates would overcount spend. An Anthropic OAuth
+response with both the plain `overage` claim and `overage-in-use: true` is
+priced normally; the `seven_day_overage_included` claim is kept separate until
+its billing semantics are validated. A turn that starts on
 a spent subscription and fails over to a Weave or BYOK key is priced normally:
 the flag follows the credential that actually served the turn, not the one the
 client presented.

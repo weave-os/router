@@ -133,8 +133,16 @@ func (s *Service) subscriptionOverageInUse(ctx context.Context) bool {
 	if !servedOnSubscription(ctx) {
 		return false
 	}
-	if UnifiedLimitHeadersFrom(ctx)["anthropic-ratelimit-unified-overage-in-use"] == "true" {
-		return true
+	if creds := CredentialsFromContext(ctx); creds != nil && creds.Source == credSourceCodexSubscription {
+		return false
+	}
+	if managedSubscriptionCredentialSource(ctx) == credSourceCodexSubscription {
+		return false
+	}
+	headers := UnifiedLimitHeadersFrom(ctx)
+	if claim, present := headers["anthropic-ratelimit-unified-representative-claim"]; present {
+		return usage.PaidAnthropicOverage(
+			usage.AnthropicClaim(claim), headers["anthropic-ratelimit-unified-overage-in-use"])
 	}
 	if managedUsage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); managedUsage != nil && managedUsage.Served {
 		return managedUsage.OverageInUse

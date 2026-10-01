@@ -68,13 +68,27 @@ func (w Window) present() bool { return w.WindowMinutes > 0 || w.UsedPercent > 0
 type Snapshot struct {
 	Primary        Window
 	Secondary      Window
+	Claim          AnthropicClaim
 	OverageInUse   bool
 	UnifiedResetAt time.Time
 	ObservedAt     time.Time
 }
 
 func (s Snapshot) hasData() bool {
-	return s.OverageInUse || s.Primary.present() || s.Secondary.present()
+	return s.OverageInUse || s.Claim != "" || s.Primary.present() || s.Secondary.present()
+}
+
+type AnthropicClaim string
+
+const (
+	AnthropicClaimFiveHour                AnthropicClaim = "five_hour"
+	AnthropicClaimSevenDay                AnthropicClaim = "seven_day"
+	AnthropicClaimOverage                 AnthropicClaim = "overage"
+	AnthropicClaimSevenDayOverageIncluded AnthropicClaim = "seven_day_overage_included"
+)
+
+func PaidAnthropicOverage(claim AnthropicClaim, overageInUse string) bool {
+	return claim == AnthropicClaimOverage && overageInUse == "true"
 }
 
 // BillableOrExhausted reports when a Claude subscription should not be treated
@@ -131,7 +145,7 @@ func windowExhausted(window Window, now time.Time) bool {
 // strictly free (which would dominate every quality tie). A snapshot with no
 // usable data returns 1.0 — no subsidy until we've actually observed headroom.
 func (s Snapshot) CostFactor(epsilon, gamma float64) float64 {
-	if s.OverageInUse || !s.hasData() {
+	if s.OverageInUse || (!s.Primary.present() && !s.Secondary.present()) {
 		return 1.0
 	}
 	u := math.Max(s.Primary.UsedPercent, s.Secondary.UsedPercent)
@@ -343,12 +357,21 @@ func ParseAnthropicUnifiedHeaders(h http.Header) (Snapshot, bool) {
 	if !sOK {
 		secondary, sOK = parseAnthropicWindow(h, "weekly", 7*24*60)
 	}
-	overage := h.Get("anthropic-ratelimit-unified-overage-in-use") == "true"
-	if !pOK && !sOK && !overage {
+	claim := AnthropicClaim(h.Get("anthropic-ratelimit-unified-representative-claim"))
+	switch claim {
+	case AnthropicClaimFiveHour, AnthropicClaimSevenDay, AnthropicClaimOverage, AnthropicClaimSevenDayOverageIncluded:
+	default:
+		claim = ""
+	}
+	if !pOK && !sOK && claim == "" {
 		return Snapshot{}, false
 	}
 	resetAt, _ := parseResetTime(h.Get("anthropic-ratelimit-unified-reset"))
-	return Snapshot{Primary: primary, Secondary: secondary, OverageInUse: overage, UnifiedResetAt: resetAt}, true
+	return Snapshot{
+		Primary: primary, Secondary: secondary, Claim: claim,
+		OverageInUse:   PaidAnthropicOverage(claim, h.Get("anthropic-ratelimit-unified-overage-in-use")),
+		UnifiedResetAt: resetAt,
+	}, true
 }
 
 func parseAnthropicWindow(h http.Header, which string, windowMinutes int) (Window, bool) {
