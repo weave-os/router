@@ -66,16 +66,16 @@ func (w Window) present() bool { return w.WindowMinutes > 0 || w.UsedPercent > 0
 // window (primary, ~5h) and a long window (secondary, weekly). Either may be
 // zero if the upstream didn't report it.
 type Snapshot struct {
-	Primary        Window
-	Secondary      Window
-	Claim          AnthropicClaim
-	OverageInUse   bool
-	UnifiedResetAt time.Time
-	ObservedAt     time.Time
+	Primary             Window
+	Secondary           Window
+	RepresentativeClaim AnthropicClaim
+	OverageInUse        bool
+	UnifiedResetAt      time.Time
+	ObservedAt          time.Time
 }
 
 func (s Snapshot) hasData() bool {
-	return s.OverageInUse || s.Claim != "" || s.Primary.present() || s.Secondary.present()
+	return s.OverageInUse || s.RepresentativeClaim != "" || s.Primary.present() || s.Secondary.present()
 }
 
 type AnthropicClaim string
@@ -368,7 +368,7 @@ func ParseAnthropicUnifiedHeaders(h http.Header) (Snapshot, bool) {
 	}
 	resetAt, _ := parseResetTime(h.Get("anthropic-ratelimit-unified-reset"))
 	return Snapshot{
-		Primary: primary, Secondary: secondary, Claim: claim,
+		Primary: primary, Secondary: secondary, RepresentativeClaim: claim,
 		OverageInUse:   PaidAnthropicOverage(claim, h.Get("anthropic-ratelimit-unified-overage-in-use")),
 		UnifiedResetAt: resetAt,
 	}, true

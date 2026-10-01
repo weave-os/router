@@ -124,7 +124,7 @@ func TestParseAnthropicUnified_OverageIncludedIsNotPaid(t *testing.T) {
 	now := time.Unix(1790000000, 0)
 	observer := usage.NewObserver([]byte("salt"), 10*time.Minute, func() time.Time { return now })
 	key := observer.Key([]byte("sk-ant-oat01-token"))
-	observer.Record(key, usage.Snapshot{Claim: usage.AnthropicClaimOverage, OverageInUse: true})
+	observer.Record(key, usage.Snapshot{RepresentativeClaim: usage.AnthropicClaimOverage, OverageInUse: true})
 	observer.Record(key, snapshot)
 	latest, observed := observer.Snapshot(key)
 	require.True(t, observed)
