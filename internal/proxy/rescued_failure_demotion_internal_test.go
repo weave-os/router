@@ -101,7 +101,7 @@ func rescuedFailureCtx() context.Context {
 
 // assertRescuedFailureStrikes checks that exactly the primary was struck, on
 // the turn's pin role and its HMM history row, and never the rescuer.
-func assertRescuedFailureStrikes(t *testing.T, demotions []demotionCall, wantDemoted bool) {
+func assertRescuedFailureStrikes(t *testing.T, demotions []demotionCall, wantDemoted bool, wantReason sessionpin.DemotionReason) {
 	t.Helper()
 	if !wantDemoted {
 		assert.Empty(t, demotions, "the primary must stay eligible")
@@ -109,9 +109,12 @@ func assertRescuedFailureStrikes(t *testing.T, demotions []demotionCall, wantDem
 	}
 	require.Len(t, demotions, 2, "the strike must land on the pin row and its HMM history row")
 	assert.Equal(t, hmmHistoryRole(demotions[0].role), demotions[1].role)
+	if wantReason == "" {
+		wantReason = sessionpin.DemotionReasonRescuedFailure
+	}
 	for _, d := range demotions {
 		assert.Equal(t, rescuedPrimaryModel, d.model, "only the primary is struck, never the rescuer")
-		assert.Equal(t, sessionpin.DemotionReasonRescuedFailure, d.reason)
+		assert.Equal(t, wantReason, d.reason)
 	}
 }
 
@@ -124,18 +127,22 @@ type rescuedFailureTurnCase struct {
 	reason      string
 	wantTurnErr bool
 	wantDemoted bool
+	wantReason  sessionpin.DemotionReason
 }
 
-func rescuedFailureTurnCases() []rescuedFailureTurnCase {
+func rescuedFailureTurnCases(t *testing.T) []rescuedFailureTurnCase {
+	t.Helper()
 	upstream502 := &providers.UpstreamErrorResponse{Status: http.StatusBadGateway, Body: []byte(`{"error":{"type":"api_error","message":"bad gateway"}}`)}
 	overloaded := &providers.UpstreamErrorResponse{Status: providerOverloadedStatus, Body: []byte(`{"error":{"type":"overloaded_error","message":"Overloaded"}}`)}
 	notFound := &providers.UpstreamErrorResponse{Status: http.StatusNotFound, Body: []byte(`{"error":{"type":"not_found_error","message":"model: claude-opus-5"}}`)}
+	headerTimeout := responseHeaderTimeoutErr(t)
 	authoritative := "hmm:authoritative model=" + rescuedPrimaryModel
 	return []rescuedFailureTurnCase{
 		{name: "sibling serves after primary 502", flagOn: true, withSibling: true, primaryErr: upstream502, reason: authoritative, wantDemoted: true},
 		{name: "sibling also fails after primary 502", flagOn: true, withSibling: true, primaryErr: upstream502, siblingErr: upstream502, reason: authoritative, wantTurnErr: true, wantDemoted: true},
 		{name: "flag off", flagOn: false, withSibling: true, primaryErr: upstream502, reason: authoritative},
 		{name: "no sibling to rescue with", flagOn: true, withSibling: false, primaryErr: upstream502, reason: authoritative, wantTurnErr: true},
+		{name: "unrescued response header timeout", flagOn: true, withSibling: false, primaryErr: headerTimeout, reason: authoritative, wantTurnErr: true, wantDemoted: true, wantReason: sessionpin.DemotionReasonResponseHeaderTimeout},
 		{name: "primary overloaded 529", flagOn: true, withSibling: true, primaryErr: overloaded, reason: authoritative},
 		{name: "gateway lacks primary", flagOn: true, withSibling: true, primaryErr: notFound, reason: authoritative},
 		{name: "user forced primary", flagOn: true, withSibling: true, primaryErr: upstream502, reason: translate.ReasonUserForceModel, wantTurnErr: true},
@@ -147,7 +154,7 @@ func rescuedFailureTurnCases() []rescuedFailureTurnCase {
 // (or also failed) never is. Overload, gateway absence, a missing sibling and
 // an explicit /force-model leave the primary eligible.
 func TestProxyMessages_RescuedPrimaryDemotion(t *testing.T) {
-	for _, tc := range rescuedFailureTurnCases() {
+	for _, tc := range rescuedFailureTurnCases(t) {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &demotionStubPinStore{}
 			primary := &failingClient{err: tc.primaryErr}
@@ -165,14 +172,14 @@ func TestProxyMessages_RescuedPrimaryDemotion(t *testing.T) {
 				assert.Contains(t, rec.Body.String(), "served by sibling")
 			}
 			assert.Positive(t, primary.calls, "the primary must have been dispatched")
-			assertRescuedFailureStrikes(t, store.demotions, tc.wantDemoted)
+			assertRescuedFailureStrikes(t, store.demotions, tc.wantDemoted, tc.wantReason)
 		})
 	}
 }
 
 // Same contract on the OpenAI chat/completions surface.
 func TestProxyOpenAIChatCompletion_RescuedPrimaryDemotion(t *testing.T) {
-	for _, tc := range rescuedFailureTurnCases() {
+	for _, tc := range rescuedFailureTurnCases(t) {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &demotionStubPinStore{}
 			primary := &failingClient{err: tc.primaryErr}
@@ -190,7 +197,7 @@ func TestProxyOpenAIChatCompletion_RescuedPrimaryDemotion(t *testing.T) {
 				assert.Contains(t, rec.Body.String(), "served by sibling")
 			}
 			assert.Positive(t, primary.calls, "the primary must have been dispatched")
-			assertRescuedFailureStrikes(t, store.demotions, tc.wantDemoted)
+			assertRescuedFailureStrikes(t, store.demotions, tc.wantDemoted, tc.wantReason)
 		})
 	}
 }

@@ -52,6 +52,7 @@ func TestIsRetryable_ResponseHeaderTimeout(t *testing.T) {
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.Contains(t, err.Error(), "timeout awaiting response headers")
 	assert.True(t, providers.IsRetryable(err))
+	assert.True(t, providers.IsResponseHeaderTimeout(err))
 }
 
 func TestIsRetryable_RequestDeadlineExceeded(t *testing.T) {
@@ -74,6 +75,7 @@ func TestIsRetryable_RequestDeadlineExceeded(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	assert.False(t, providers.IsRetryable(err))
+	assert.False(t, providers.IsResponseHeaderTimeout(err))
 }
 
 // TestIsUpstreamCapabilityRejection checks phrase matching and asserts that

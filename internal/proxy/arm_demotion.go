@@ -122,11 +122,14 @@ func (s *Service) maybeStrikeArmAfterRescuedFailure(
 	if strings.HasPrefix(primary.Reason, translate.ReasonUserForceModel) {
 		return "", ""
 	}
-	if !rescueRan || !isRescuedPrimaryFailure(primaryErr) {
+	headerTimeout := providers.IsResponseHeaderTimeout(primaryErr)
+	if (!rescueRan && !headerTimeout) || (rescueRan && !isRescuedPrimaryFailure(primaryErr)) {
 		return "", ""
 	}
 	reason, cooldownUntil := sessionpin.DemotionReasonRescuedFailure, time.Time{}
-	if s.ResolveTransientRateLimit(ctx) && isRateLimitedPrimaryFailure(primaryErr) {
+	if headerTimeout {
+		reason = sessionpin.DemotionReasonResponseHeaderTimeout
+	} else if s.ResolveTransientRateLimit(ctx) && isRateLimitedPrimaryFailure(primaryErr) {
 		cooldown := s.ResolveRateLimitCooldown(ctx)
 		reason, cooldownUntil = sessionpin.DemotionReasonRateLimited, s.clockNow().Add(cooldown)
 		rateLimitTurnFromContext(ctx).recordCooldown(cooldownUntil, cooldown)
@@ -311,6 +314,9 @@ func armStrikeLogFields(committedDemoted, rescuedDemoted string, rescuedReason s
 func isRescuedPrimaryFailure(err error) bool {
 	if err == nil {
 		return false
+	}
+	if providers.IsResponseHeaderTimeout(err) {
+		return true
 	}
 	if errors.Is(err, providers.ErrUpstreamIdleTimeout) ||
 		errors.Is(err, providers.ErrUpstreamOutputStall) ||

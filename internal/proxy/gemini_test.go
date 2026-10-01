@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -13,6 +14,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/stretchr/testify/assert"
@@ -162,6 +164,31 @@ func TestProxyGeminiGenerateContent_RetriesBuffered429WithoutMarkerLeak(t *testi
 	assert.Len(t, googleProv.proxyBodies, 3, "single-provider 429 retries are bounded")
 	assert.NotContains(t, rec.Body.String(), "Weave Router", "a retryable upstream failure must not commit the marker")
 	assert.Contains(t, rec.Body.String(), "retry later")
+}
+
+func TestProxyGeminiGenerateContent_DemotesUnrescuedResponseHeaderTimeout(t *testing.T) {
+	store := newFakePinStore()
+	googleProvider := &fakeProvider{proxyErr: &url.Error{
+		Op:  "Post",
+		URL: "https://upstream.example/v1beta/models/gemini-1.5-pro:generateContent",
+		Err: errors.Join(errors.New("net/http: timeout awaiting response headers"), context.DeadlineExceeded),
+	}}
+	svc := proxy.NewService(
+		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-1.5-pro", Reason: "cluster"}},
+		map[string]providers.Client{providers.ProviderGoogle: googleProvider},
+		nil, false, nil, store, false, providers.ProviderGoogle, "gemini-2.5-flash", nil,
+	).WithRetrySleep(noRetrySleep).WithRescuedFailureArmDemotion(true)
+	recorder := httptest.NewRecorder()
+	body := strings.Replace(geminiInjectedBody, `"stream":false`, `"stream":true`, 1)
+	err := svc.ProxyGeminiGenerateContent(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(body), recorder,
+		httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:streamGenerateContent", nil))
+
+	require.Error(t, err)
+	require.Len(t, store.demotions, 2)
+	for _, demotion := range store.demotions {
+		assert.Equal(t, "gemini-1.5-pro", demotion.Model)
+		assert.Equal(t, sessionpin.DemotionReasonResponseHeaderTimeout, demotion.Reason)
+	}
 }
 
 // Under transient_rate_limit the Gemini path paces same-binding retries like

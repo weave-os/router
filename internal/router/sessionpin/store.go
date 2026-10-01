@@ -124,6 +124,10 @@ const DemotionReasonCommittedStreamFailure DemotionReason = "committed_stream_fa
 // failed pre-commit and was handed to a same-cluster sibling.
 const DemotionReasonRescuedFailure DemotionReason = "rescued_failure"
 
+// DemotionReasonResponseHeaderTimeout marks a primary model whose upstream
+// timed out before sending response headers.
+const DemotionReasonResponseHeaderTimeout DemotionReason = "response_header_timeout"
+
 // DemotionReasonRateLimited marks the primary arm of a turn whose attempt was
 // rate-limited upstream (429) pre-commit and handed to a same-cluster sibling.
 // Unlike the other reasons the withdrawal is time-limited.

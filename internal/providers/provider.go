@@ -424,7 +424,7 @@ func IsRetryable(err error) bool {
 	if err == nil {
 		return false
 	}
-	if isResponseHeaderTimeout(err) {
+	if IsResponseHeaderTimeout(err) {
 		return true
 	}
 	// All three stall sentinels are upstream-owned even though the watchdog
@@ -452,7 +452,9 @@ func IsRetryable(err error) bool {
 	return true
 }
 
-func isResponseHeaderTimeout(err error) bool {
+// IsResponseHeaderTimeout reports whether err is the upstream transport's
+// response-header timeout rather than a caller request deadline.
+func IsResponseHeaderTimeout(err error) bool {
 	var urlErr *url.Error
 	if !errors.As(err, &urlErr) || urlErr.Err == nil {
 		return false
