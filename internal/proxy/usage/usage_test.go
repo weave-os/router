@@ -124,11 +124,20 @@ func TestParseAnthropicUnified_OverageIncludedIsNotPaid(t *testing.T) {
 	now := time.Unix(1790000000, 0)
 	observer := usage.NewObserver([]byte("salt"), 10*time.Minute, func() time.Time { return now })
 	key := observer.Key([]byte("sk-ant-oat01-token"))
-	observer.Record(key, usage.Snapshot{RepresentativeClaim: usage.AnthropicClaimOverage, OverageInUse: true})
+	previouslyExhaustedPrimary := usage.Window{
+		UsedPercent:   1.0,
+		WindowMinutes: 5 * 60,
+		ResetAt:       now.Add(time.Hour),
+	}
+	observer.Record(key, usage.Snapshot{
+		Primary: previouslyExhaustedPrimary, RepresentativeClaim: usage.AnthropicClaimOverage, OverageInUse: true,
+	})
 	observer.Record(key, snapshot)
 	latest, observed := observer.Snapshot(key)
 	require.True(t, observed)
 	assert.False(t, latest.OverageInUse, "a later included claim must clear the paid-lane observation")
+	assert.Equal(t, previouslyExhaustedPrimary, latest.Primary, "an omitted 5h window must retain its last observation")
+	assert.True(t, latest.ExhaustedAsOf(now), "the subscription remains exhausted until that 5h window is refreshed or resets")
 }
 
 // Prod traffic spells the long window "7d" (53k-row Phase 0 capture: zero
