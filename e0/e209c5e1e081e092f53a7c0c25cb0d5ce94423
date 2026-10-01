@@ -1,0 +1,32 @@
+internal/router/policy/resolver.go
+  s_3211b1482b7151::t_4227ffdba8a4c4 413
+  s_3211b1482b7151::t_e0c0ce1c2eb25f 430
+internal/router/policy/resolver_test.go
+  s_3211b1482b7151::t_b9aa70ed85d3b5 357-361,363-365,367,371-372
+  s_3211b1482b7151::t_0ccf485538df3b 323
+internal/router/policy/sidecar_router.go
+  s_3211b1482b7151::t_62b0a460885545 442
+internal/proxy/turnloop.go
+  s_3211b1482b7151::t_5c5f0557432a67 1082-1089
+  s_3211b1482b7151::t_b5cc43704baa15 1081
+internal/proxy/hysteresis.go
+  s_3211b1482b7151::t_a668a3c697d425 1-53
+internal/router/router.go
+  s_3211b1482b7151::t_e24a0069f27b7c 332-334
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "e0e209c5e1e081e092f53a7c0c25cb0d5ce94423",
+  "prompts": {},
+  "sessions": {
+    "s_3211b1482b7151": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bca6d564-81fe-4094-bb2d-0b0bae4bb3c4",
+        "model": "deepseek/deepseek-v4-pro-0813"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
