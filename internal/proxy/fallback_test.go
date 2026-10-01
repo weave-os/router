@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -1156,6 +1157,54 @@ func TestEmitAnthropicSSEErrorEvent_GenericFailureTerminatesStream(t *testing.T)
 	assert.Contains(t, rec.Body.String(), "event: error")
 	assert.Contains(t, rec.Body.String(), `"type":"api_error"`)
 	assert.NotContains(t, rec.Body.String(), "connection reset")
+}
+
+func TestEmitAnthropicSSEErrorEvent_RetryableTransportFailure(t *testing.T) {
+	for _, upstreamErr := range []error{
+		providers.ErrUpstreamIdleTimeout,
+		providers.ErrUpstreamOutputStall,
+		providers.ErrUpstreamSlowThroughput,
+		fmt.Errorf("%w: %w", providers.ErrUpstreamIdleTimeout, context.Canceled),
+		io.ErrUnexpectedEOF,
+		errors.New("connection reset with private transport details"),
+	} {
+		t.Run(upstreamErr.Error(), func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			err := emitAnthropicSSEErrorEvent(rec, upstreamErr)
+
+			var statusErr *providers.UpstreamStatusError
+			require.ErrorAs(t, err, &statusErr)
+			assert.Equal(t, http.StatusBadGateway, statusErr.Status)
+			assert.ErrorIs(t, err, upstreamErr)
+			assert.Equal(t, "event: error\ndata: "+`{"type":"error","error":{"type":"api_error","message":"upstream stream failed (502); please retry your request"}}`+"\n\n", rec.Body.String())
+			assert.True(t, rec.Flushed)
+		})
+	}
+}
+
+func TestEmitAnthropicSSEErrorEvent_DoesNotAddRetryHintToPermanentFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		err    error
+		status int
+	}{
+		{"client canceled", context.Canceled, http.StatusBadGateway},
+		{"client deadline", context.DeadlineExceeded, http.StatusBadGateway},
+		{"invalid request", ErrRequestNotJSONObject, http.StatusBadRequest},
+		{"provider configuration", ErrProviderNotConfigured, http.StatusBadGateway},
+		{"authentication", &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized, Body: []byte(`{"error":{"type":"authentication_error","message":"Invalid API key"}}`)}, http.StatusUnauthorized},
+		{"quota", &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"insufficient_quota","message":"Quota exceeded"}}`)}, http.StatusTooManyRequests},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			err := emitAnthropicSSEErrorEvent(rec, tc.err)
+
+			var statusErr *providers.UpstreamStatusError
+			require.ErrorAs(t, err, &statusErr)
+			assert.Equal(t, tc.status, statusErr.Status)
+			assert.NotContains(t, rec.Body.String(), "please retry your request")
+		})
+	}
 }
 
 func TestEmitOpenAISSEErrorEvent_GenericFailureTerminatesStream(t *testing.T) {
