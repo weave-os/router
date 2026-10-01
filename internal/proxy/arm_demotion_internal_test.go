@@ -531,15 +531,19 @@ func TestUnrescuedResponseHeaderTimeoutExcludesPrimaryOnNextTurn(t *testing.T) {
 	svc := newRescuedDemotionTestService(store, true)
 	installationID := uuid.New()
 	primary := router.Decision{Provider: providers.ProviderAnthropic, Model: demotedPinModel, Reason: "hmm:authoritative model=" + demotedPinModel}
+	strategy := router.Strategy("response-header-timeout-next-turn")
+	turnContext := router.WithStrategy(context.Background(), strategy)
+	env, _ := demotionTurnLoopEnv(t)
+	sessionKey := deriveSessionKeyForRequest(turnContext, env, "api-key")
 
 	demoted, demotionReason := svc.maybeStrikeArmAfterRescuedFailure(
-		context.Background(),
+		turnContext,
 		false,
 		false,
 		responseHeaderTimeoutErr(t),
 		primary,
 		installationID,
-		nonZeroSessionKey(),
+		sessionKey,
 		sessionpin.DefaultRole,
 		sessionpin.DefaultRole,
 	)
@@ -549,7 +553,6 @@ func TestUnrescuedResponseHeaderTimeoutExcludesPrimaryOnNextTurn(t *testing.T) {
 	require.Contains(t, store.rows[sessionpin.DefaultRole].DemotedModels, demotedPinModel)
 	require.Contains(t, store.rows[hmmHistoryRole(sessionpin.DefaultRole)].DemotedModels, demotedPinModel)
 
-	strategy := router.Strategy("response-header-timeout-next-turn")
 	scorer := &authoritativeTestRouter{decision: router.Decision{
 		Provider: providers.ProviderAnthropic,
 		Model:    freshTurnModel,
@@ -566,7 +569,7 @@ func TestUnrescuedResponseHeaderTimeoutExcludesPrimaryOnNextTurn(t *testing.T) {
 			},
 		})
 
-	turnResult := runDemotionTurnLoop(t, nextTurnService, router.WithStrategy(context.Background(), strategy))
+	turnResult := runDemotionTurnLoop(t, nextTurnService, turnContext)
 	assert.Equal(t, freshTurnModel, turnResult.Decision.Model)
 	require.Len(t, scorer.requests, 1)
 	assert.Contains(t, scorer.requests[0].AutomaticExcludedModels, demotedPinModel)
