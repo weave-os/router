@@ -1,0 +1,48 @@
+internal/proxy/force_model_internal_test.go
+  s_328ab02acee205::t_68b0e3ffad138d 56,67-80
+install/install.sh
+  s_328ab02acee205::t_68b0e3ffad138d 1238
+  s_328ab02acee205::t_2786bf1dc8819a 5712,5803,5894
+internal/router/model.go
+  s_328ab02acee205::t_68b0e3ffad138d 146,193
+  s_328ab02acee205::t_2786bf1dc8819a 145
+internal/proxy/compaction_test.go
+  s_328ab02acee205::t_ba97b41973b5fa 95,114,133,257
+internal/router/catalog/catalog_test.go
+  s_328ab02acee205::t_5ab22ad0b287be 407,431-439
+  s_328ab02acee205::t_28ce8d72802fd6 440
+  s_328ab02acee205::t_99aaf86515c5f3 441-442
+internal/router/catalog/catalog.go
+  s_328ab02acee205::t_68b0e3ffad138d 476-484
+internal/router/hmm/armid/mapping_test.go
+  s_328ab02acee205::t_fd5f6498343497 1-18
+install/cc-statusline.sh
+  s_328ab02acee205::t_2786bf1dc8819a 528,619,710
+internal/router/model_test.go
+  s_328ab02acee205::t_fd5f6498343497 55-61
+internal/proxy/force_model.go
+  s_328ab02acee205::t_2786bf1dc8819a 108,110-114
+  s_328ab02acee205::t_68b0e3ffad138d 101-102,109
+internal/observability/otel/pricing_test.go
+  s_328ab02acee205::t_68b0e3ffad138d 34
+bench/weave_bench/prices.generated.json
+  s_328ab02acee205::t_d69e11271747ba 2,358-363
+install/pi-router/src/pricing.generated.ts
+  s_328ab02acee205::t_88d617eedbb225 10,72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ee705d2d471d128e2973568139e097bfb6ec8ed3",
+  "prompts": {},
+  "sessions": {
+    "s_328ab02acee205": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ee5b-e392-7830-9600-1e7eec135801",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
