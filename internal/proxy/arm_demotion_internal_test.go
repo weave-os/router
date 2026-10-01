@@ -113,7 +113,6 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_Classification(t *testing.T) 
 		flagOn    bool
 		err       error
 		want      bool
-		reason    sessionpin.DemotionReason
 	}{
 		{name: "committed 502 stream failure", committed: true, flagOn: true, err: &providers.UpstreamStatusError{Status: http.StatusBadGateway}, want: true},
 		{name: "committed buffered 500", committed: true, flagOn: true, err: &providers.UpstreamErrorResponse{Status: http.StatusInternalServerError}, want: true},
@@ -460,12 +459,12 @@ func rescuedPrimaryDecision(reason string) router.Decision {
 func TestMaybeDemoteArmAfterRescuedFailure_Classification(t *testing.T) {
 	headerTimeoutErr := responseHeaderTimeoutErr(t)
 	cases := []struct {
-		name      string
-		rescueRan bool
-		flagOn    bool
-		err       error
-		want      bool
-		reason    sessionpin.DemotionReason
+		name           string
+		rescueRan      bool
+		flagOn         bool
+		err            error
+		want           bool
+		demotionReason sessionpin.DemotionReason
 	}{
 		{name: "rescued buffered 502", rescueRan: true, flagOn: true, err: &providers.UpstreamErrorResponse{Status: http.StatusBadGateway}, want: true},
 		{name: "rescued buffered 500", rescueRan: true, flagOn: true, err: &providers.UpstreamErrorResponse{Status: http.StatusInternalServerError}, want: true},
@@ -474,8 +473,8 @@ func TestMaybeDemoteArmAfterRescuedFailure_Classification(t *testing.T) {
 		{name: "rescued idle watchdog", rescueRan: true, flagOn: true, err: fmt.Errorf("stream: %w", providers.ErrUpstreamIdleTimeout), want: true},
 		{name: "rescued output stall chained with cancellation", rescueRan: true, flagOn: true, err: fmt.Errorf("%w: %w", providers.ErrUpstreamOutputStall, context.Canceled), want: true},
 		{name: "rescued billing block", rescueRan: true, flagOn: true, err: &providers.UpstreamErrorResponse{Status: http.StatusPaymentRequired}, want: true},
-		{name: "rescued response header timeout", rescueRan: true, flagOn: true, err: headerTimeoutErr, want: true, reason: sessionpin.DemotionReasonResponseHeaderTimeout},
-		{name: "unrescued response header timeout", rescueRan: false, flagOn: true, err: headerTimeoutErr, want: true, reason: sessionpin.DemotionReasonResponseHeaderTimeout},
+		{name: "rescued response header timeout", rescueRan: true, flagOn: true, err: headerTimeoutErr, want: true, demotionReason: sessionpin.DemotionReasonResponseHeaderTimeout},
+		{name: "unrescued response header timeout", rescueRan: false, flagOn: true, err: headerTimeoutErr, want: true, demotionReason: sessionpin.DemotionReasonResponseHeaderTimeout},
 		{name: "no rescue ran", rescueRan: false, flagOn: true, err: &providers.UpstreamErrorResponse{Status: http.StatusBadGateway}, want: false},
 		{name: "no primary error", rescueRan: true, flagOn: true, err: nil, want: false},
 		{name: "provider overloaded 529", rescueRan: true, flagOn: true, err: &providers.UpstreamErrorResponse{Status: providerOverloadedStatus}, want: false},
@@ -511,18 +510,18 @@ func TestMaybeDemoteArmAfterRescuedFailure_Classification(t *testing.T) {
 			}
 
 			assert.Equal(t, demotedArm, demoted)
-			wantReason := tc.reason
-			if wantReason == "" {
-				wantReason = sessionpin.DemotionReasonRescuedFailure
+			wantDemotionReason := tc.demotionReason
+			if wantDemotionReason == "" {
+				wantDemotionReason = sessionpin.DemotionReasonRescuedFailure
 			}
 			assert.Equal(t, []demotionCall{
-				{role: sessionpin.DefaultRole, model: demotedArm, reason: wantReason},
-				{role: hmmHistoryRole(sessionpin.DefaultRole), model: demotedArm, reason: wantReason},
+				{role: sessionpin.DefaultRole, model: demotedArm, reason: wantDemotionReason},
+				{role: hmmHistoryRole(sessionpin.DefaultRole), model: demotedArm, reason: wantDemotionReason},
 			}, store.demotions, "the strike must land on both rows the next turn merges")
 			assert.Empty(t, store.upserts, "expiry must ride the guarded demotion write, not a plain upsert")
 			require.Len(t, store.expired, 2, "demotion must expire the pin and its HMM history row")
 			assert.Equal(t, installationID, store.expired[0].InstallationID)
-			assert.Equal(t, string(wantReason), store.expired[0].Reason)
+			assert.Equal(t, string(wantDemotionReason), store.expired[0].Reason)
 		})
 	}
 }
@@ -533,7 +532,7 @@ func TestUnrescuedResponseHeaderTimeoutExcludesPrimaryOnNextTurn(t *testing.T) {
 	installationID := uuid.New()
 	primary := router.Decision{Provider: providers.ProviderAnthropic, Model: demotedPinModel, Reason: "hmm:authoritative model=" + demotedPinModel}
 
-	demoted, reason := svc.maybeStrikeArmAfterRescuedFailure(
+	demoted, demotionReason := svc.maybeStrikeArmAfterRescuedFailure(
 		context.Background(),
 		false,
 		false,
@@ -546,7 +545,7 @@ func TestUnrescuedResponseHeaderTimeoutExcludesPrimaryOnNextTurn(t *testing.T) {
 	)
 
 	assert.Equal(t, demotedPinModel, demoted)
-	assert.Equal(t, sessionpin.DemotionReasonResponseHeaderTimeout, reason)
+	assert.Equal(t, sessionpin.DemotionReasonResponseHeaderTimeout, demotionReason)
 	require.Contains(t, store.rows[sessionpin.DefaultRole].DemotedModels, demotedPinModel)
 	require.Contains(t, store.rows[hmmHistoryRole(sessionpin.DefaultRole)].DemotedModels, demotedPinModel)
 
@@ -567,8 +566,8 @@ func TestUnrescuedResponseHeaderTimeoutExcludesPrimaryOnNextTurn(t *testing.T) {
 			},
 		})
 
-	result := runDemotionTurnLoop(t, nextTurnService, router.WithStrategy(context.Background(), strategy))
-	assert.Equal(t, freshTurnModel, result.Decision.Model)
+	turnResult := runDemotionTurnLoop(t, nextTurnService, router.WithStrategy(context.Background(), strategy))
+	assert.Equal(t, freshTurnModel, turnResult.Decision.Model)
 	require.Len(t, scorer.requests, 1)
 	assert.Contains(t, scorer.requests[0].AutomaticExcludedModels, demotedPinModel)
 }

@@ -101,7 +101,7 @@ func rescuedFailureCtx() context.Context {
 
 // assertRescuedFailureStrikes checks that exactly the primary was struck, on
 // the turn's pin role and its HMM history row, and never the rescuer.
-func assertRescuedFailureStrikes(t *testing.T, demotions []demotionCall, wantDemoted bool, wantReason sessionpin.DemotionReason) {
+func assertRescuedFailureStrikes(t *testing.T, demotions []demotionCall, wantDemoted bool, wantDemotionReason sessionpin.DemotionReason) {
 	t.Helper()
 	if !wantDemoted {
 		assert.Empty(t, demotions, "the primary must stay eligible")
@@ -109,25 +109,25 @@ func assertRescuedFailureStrikes(t *testing.T, demotions []demotionCall, wantDem
 	}
 	require.Len(t, demotions, 2, "the strike must land on the pin row and its HMM history row")
 	assert.Equal(t, hmmHistoryRole(demotions[0].role), demotions[1].role)
-	if wantReason == "" {
-		wantReason = sessionpin.DemotionReasonRescuedFailure
+	if wantDemotionReason == "" {
+		wantDemotionReason = sessionpin.DemotionReasonRescuedFailure
 	}
 	for _, d := range demotions {
 		assert.Equal(t, rescuedPrimaryModel, d.model, "only the primary is struck, never the rescuer")
-		assert.Equal(t, wantReason, d.reason)
+		assert.Equal(t, wantDemotionReason, d.reason)
 	}
 }
 
 type rescuedFailureTurnCase struct {
-	name        string
-	flagOn      bool
-	withSibling bool
-	primaryErr  error
-	siblingErr  error
-	reason      string
-	wantTurnErr bool
-	wantDemoted bool
-	wantReason  sessionpin.DemotionReason
+	name               string
+	flagOn             bool
+	withSibling        bool
+	primaryErr         error
+	siblingErr         error
+	reason             string
+	wantTurnErr        bool
+	wantDemoted        bool
+	wantDemotionReason sessionpin.DemotionReason
 }
 
 func rescuedFailureTurnCases(t *testing.T) []rescuedFailureTurnCase {
@@ -142,7 +142,7 @@ func rescuedFailureTurnCases(t *testing.T) []rescuedFailureTurnCase {
 		{name: "sibling also fails after primary 502", flagOn: true, withSibling: true, primaryErr: upstream502, siblingErr: upstream502, reason: authoritative, wantTurnErr: true, wantDemoted: true},
 		{name: "flag off", flagOn: false, withSibling: true, primaryErr: upstream502, reason: authoritative},
 		{name: "no sibling to rescue with", flagOn: true, withSibling: false, primaryErr: upstream502, reason: authoritative, wantTurnErr: true},
-		{name: "unrescued response header timeout", flagOn: true, withSibling: false, primaryErr: headerTimeout, reason: authoritative, wantTurnErr: true, wantDemoted: true, wantReason: sessionpin.DemotionReasonResponseHeaderTimeout},
+		{name: "unrescued response header timeout", flagOn: true, withSibling: false, primaryErr: headerTimeout, reason: authoritative, wantTurnErr: true, wantDemoted: true, wantDemotionReason: sessionpin.DemotionReasonResponseHeaderTimeout},
 		{name: "primary overloaded 529", flagOn: true, withSibling: true, primaryErr: overloaded, reason: authoritative},
 		{name: "gateway lacks primary", flagOn: true, withSibling: true, primaryErr: notFound, reason: authoritative},
 		{name: "user forced primary", flagOn: true, withSibling: true, primaryErr: upstream502, reason: translate.ReasonUserForceModel, wantTurnErr: true},
@@ -172,7 +172,7 @@ func TestProxyMessages_RescuedPrimaryDemotion(t *testing.T) {
 				assert.Contains(t, rec.Body.String(), "served by sibling")
 			}
 			assert.Positive(t, primary.calls, "the primary must have been dispatched")
-			assertRescuedFailureStrikes(t, store.demotions, tc.wantDemoted, tc.wantReason)
+			assertRescuedFailureStrikes(t, store.demotions, tc.wantDemoted, tc.wantDemotionReason)
 		})
 	}
 }
@@ -197,7 +197,7 @@ func TestProxyOpenAIChatCompletion_RescuedPrimaryDemotion(t *testing.T) {
 				assert.Contains(t, rec.Body.String(), "served by sibling")
 			}
 			assert.Positive(t, primary.calls, "the primary must have been dispatched")
-			assertRescuedFailureStrikes(t, store.demotions, tc.wantDemoted, tc.wantReason)
+			assertRescuedFailureStrikes(t, store.demotions, tc.wantDemoted, tc.wantDemotionReason)
 		})
 	}
 }
