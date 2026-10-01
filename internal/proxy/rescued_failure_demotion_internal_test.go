@@ -140,6 +140,8 @@ func rescuedFailureTurnCases(t *testing.T) []rescuedFailureTurnCase {
 	return []rescuedFailureTurnCase{
 		{name: "sibling serves after primary 502", flagOn: true, withSibling: true, primaryErr: upstream502, reason: authoritative, wantDemoted: true},
 		{name: "sibling also fails after primary 502", flagOn: true, withSibling: true, primaryErr: upstream502, siblingErr: upstream502, reason: authoritative, wantTurnErr: true, wantDemoted: true},
+		{name: "sibling serves after primary response header timeout", flagOn: true, withSibling: true, primaryErr: headerTimeout, reason: authoritative, wantDemoted: true, wantDemotionReason: sessionpin.DemotionReasonResponseHeaderTimeout},
+		{name: "sibling also fails after primary response header timeout", flagOn: true, withSibling: true, primaryErr: headerTimeout, siblingErr: upstream502, reason: authoritative, wantTurnErr: true, wantDemoted: true, wantDemotionReason: sessionpin.DemotionReasonResponseHeaderTimeout},
 		{name: "flag off", flagOn: false, withSibling: true, primaryErr: upstream502, reason: authoritative},
 		{name: "no sibling to rescue with", flagOn: true, withSibling: false, primaryErr: upstream502, reason: authoritative, wantTurnErr: true},
 		{name: "unrescued response header timeout", flagOn: true, withSibling: false, primaryErr: headerTimeout, reason: authoritative, wantTurnErr: true, wantDemoted: true, wantDemotionReason: sessionpin.DemotionReasonResponseHeaderTimeout},
