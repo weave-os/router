@@ -12,10 +12,11 @@ import (
 // Credential sources, for logging and precedence reasoning. Never log the key
 // itself — only the source.
 const (
-	credSourceBYOK              = requestcontext.SourceBYOK
-	credSourceClient            = requestcontext.SourceClient
-	credSourceSubscription      = requestcontext.SourceSubscription
-	credSourceCodexSubscription = requestcontext.SourceCodexSubscription
+	credSourceBYOK                = requestcontext.SourceBYOK
+	credSourceClient              = requestcontext.SourceClient
+	credSourceSubscription        = requestcontext.SourceSubscription
+	credSourceSubscriptionOverage = requestcontext.SourceSubscriptionOverage
+	credSourceCodexSubscription   = requestcontext.SourceCodexSubscription
 )
 
 // Credentials is the request-scoped upstream credential; defined in

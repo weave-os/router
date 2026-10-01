@@ -508,7 +508,7 @@ func (s *Service) bypassToAnthropic(
 			String("decision.model", decision.Model).
 			String("decision.provider", decision.Provider).
 			String("decision.reason", decision.Reason).
-			Bool("cost.subscription_served", servedOnSubscription(ctx)).
+			Bool("cost.subscription_served", s.costNeutralSubscriptionServed(ctx)).
 			Int64("usage.input_tokens", int64(in)).
 			Int64("usage.output_tokens", int64(out)).
 			Int64("usage.cache_creation_input_tokens", int64(cacheCreation)).

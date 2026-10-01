@@ -43,9 +43,6 @@ func captureUnifiedLimitHeaders(ctx context.Context, h http.Header) {
 		return
 	}
 	raw := usage.RawAnthropicUnifiedHeaders(h)
-	if raw == nil {
-		return
-	}
 	c.raw = raw
 }
 

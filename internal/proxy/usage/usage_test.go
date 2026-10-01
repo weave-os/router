@@ -320,7 +320,7 @@ func TestObserver_OverageClearsAtResetWhileWeeklyWindowRemains(t *testing.T) {
 	assert.False(t, snapshot.OverageInUse, "a prior overage response cannot persist beyond plan reset")
 }
 
-func TestObserver_OverageOnlyWithoutResetRetainsOnePlanWindow(t *testing.T) {
+func TestObserver_OverageOnlyWithoutResetRequiresFreshHeadroom(t *testing.T) {
 	base := time.Unix(1_790_000_000, 0).UTC()
 	clock := base
 	observer := usage.NewObserver([]byte("salt"), 10*time.Minute, func() time.Time { return clock })
@@ -331,8 +331,15 @@ func TestObserver_OverageOnlyWithoutResetRetainsOnePlanWindow(t *testing.T) {
 	require.True(t, observed)
 	assert.True(t, snapshot.OverageInUse)
 	clock = base.Add(6 * time.Hour)
-	_, observed = observer.Snapshot(key)
-	assert.False(t, observed)
+	observer.Sweep()
+	snapshot, observed = observer.Snapshot(key)
+	require.True(t, observed)
+	assert.True(t, snapshot.OverageInUse)
+	clock = base.Add(8 * 24 * time.Hour)
+	observer.Record(key, usage.Snapshot{Primary: usage.Window{UsedPercent: 0.2, WindowMinutes: 300}})
+	snapshot, observed = observer.Snapshot(key)
+	require.True(t, observed)
+	assert.False(t, snapshot.OverageInUse)
 }
 
 func TestObserver_DistinctTokensDistinctKeys(t *testing.T) {

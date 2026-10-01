@@ -190,14 +190,12 @@ const windowConstrainedFraction = 0.5
 func (o *Observer) freshFor(s Snapshot) time.Duration {
 	horizon := o.ttl
 	if s.OverageInUse {
-		// Overage-only responses omit the plan windows. Keep the paid-lane
-		// observation through the unified reset, or for one 5h plan window
-		// when no reset is reported. The overage credit-window reset does not
-		// refill plan quota.
-		untilReset := 5 * time.Hour
+		// Without a reported plan reset, a timed eviction would route back
+		// onto the paid lane without any evidence that headroom returned.
+		untilReset := time.Duration(1<<63 - 1)
 		if !s.UnifiedResetAt.IsZero() {
-			if reported := s.UnifiedResetAt.Sub(s.ObservedAt); reported > 0 {
-				untilReset = min(reported, 7*24*time.Hour)
+			if reportedResetDelay := s.UnifiedResetAt.Sub(s.ObservedAt); reportedResetDelay > 0 {
+				untilReset = min(reportedResetDelay, 7*24*time.Hour)
 			}
 		}
 		if untilReset > horizon {

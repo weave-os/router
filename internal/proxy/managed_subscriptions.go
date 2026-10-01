@@ -53,6 +53,7 @@ func subscriptionOwnerFromContext(ctx context.Context) auth.SubscriptionOwner {
 type ManagedSubscriptionUsage struct {
 	Served           bool
 	CredentialSource string
+	OverageInUse     bool
 }
 
 var (
@@ -100,12 +101,17 @@ func managedSubscriptionEnrollmentUnavailable(ctx context.Context) bool {
 	return unavailable
 }
 
-func markManagedSubscriptionServed(ctx context.Context, credentialCtx context.Context) {
+func (s *Service) markManagedSubscriptionServed(ctx context.Context, credentialCtx context.Context) {
 	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	if usage != nil {
 		usage.Served = true
 		if creds := CredentialsFromContext(credentialCtx); creds != nil {
 			usage.CredentialSource = creds.Source
+			if s.usageObserver != nil && creds.Source == credSourceSubscription {
+				if snapshot, observed := s.usageObserver.Snapshot(s.usageObserver.Key(creds.APIKey)); observed {
+					usage.OverageInUse = snapshot.OverageInUse
+				}
+			}
 		}
 	}
 }
@@ -121,6 +127,28 @@ func managedSubscriptionCredentialSource(ctx context.Context) string {
 func managedSubscriptionServed(ctx context.Context) bool {
 	usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	return usage != nil && usage.Served
+}
+
+func (s *Service) subscriptionOverageInUse(ctx context.Context) bool {
+	if !servedOnSubscription(ctx) {
+		return false
+	}
+	if UnifiedLimitHeadersFrom(ctx)["anthropic-ratelimit-unified-overage-in-use"] == "true" {
+		return true
+	}
+	if managedUsage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); managedUsage != nil && managedUsage.Served {
+		return managedUsage.OverageInUse
+	}
+	creds := CredentialsFromContext(ctx)
+	if creds == nil || creds.Source != credSourceSubscription || s.usageObserver == nil {
+		return false
+	}
+	snapshot, observed := s.usageObserver.Snapshot(s.usageObserver.Key(creds.APIKey))
+	return observed && snapshot.OverageInUse
+}
+
+func (s *Service) costNeutralSubscriptionServed(ctx context.Context) bool {
+	return servedOnSubscription(ctx) && !s.subscriptionOverageInUse(ctx)
 }
 
 func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model string) (context.Context, subscriptions.Lease, bool, error) {
@@ -147,14 +175,20 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 	owner := subscriptionOwnerFromContext(ctx)
 	sessionID := ClientIdentityFrom(ctx).SessionID
 	rejected := make([]subscriptions.Lease, 0, 1)
+	var lease subscriptions.Lease
+	lastResortOverageIndex := -1
+	useLastResortOverage := func() {
+		lease = rejected[lastResortOverageIndex]
+		rejected = append(rejected[:lastResortOverageIndex], rejected[lastResortOverageIndex+1:]...)
+	}
 	defer func() {
 		for _, skipped := range rejected {
 			skipped.Release()
 		}
 	}()
 	seen := make(map[string]struct{})
-	var lease subscriptions.Lease
 	for {
+		currentLeaseOverage := false
 		var present bool
 		var err error
 		lease, present, err = s.managedSubscriptions.Lease(ctx, owner, poolProvider, sessionID)
@@ -162,6 +196,10 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			if errors.Is(err, subscriptions.ErrNoAvailableAccount) {
 				if len(rejected) > 0 && !paidFallbackForbidden(ctx) && s.managedProviderFallbackAvailable(ctx, poolProvider) {
 					return ctx, subscriptions.Lease{}, false, nil
+				}
+				if lastResortOverageIndex >= 0 {
+					useLastResortOverage()
+					break
 				}
 				if len(rejected) > 0 {
 					return ctx, subscriptions.Lease{}, true, anthropicSubscriptionModelUnavailable(model)
@@ -172,6 +210,10 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		}
 		if !present && len(rejected) > 0 && !paidFallbackForbidden(ctx) && s.managedProviderFallbackAvailable(ctx, poolProvider) {
 			return ctx, subscriptions.Lease{}, false, nil
+		}
+		if !present && lastResortOverageIndex >= 0 {
+			useLastResortOverage()
+			break
 		}
 		if !present && len(rejected) > 0 {
 			return ctx, subscriptions.Lease{}, true, anthropicSubscriptionModelUnavailable(model)
@@ -185,6 +227,7 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 				// This account can still answer, but Anthropic is charging extra
 				// usage. Try another seat or the funded provider key without
 				// persisting a quota exhaustion for the managed account.
+				currentLeaseOverage = true
 			} else if observed && snapshot.ExhaustedAsOf(s.clockNow()) {
 				resetAt := linkedSubscriptionResetAt(snapshot, s.clockNow())
 				if err := exhaustManagedSubscription(ctx, s.managedSubscriptions, owner, poolProvider, lease.AccountID, resetAt); err != nil {
@@ -210,10 +253,17 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 			if !paidFallbackForbidden(ctx) && s.managedProviderFallbackAvailable(ctx, poolProvider) {
 				return ctx, subscriptions.Lease{}, false, nil
 			}
+			if lastResortOverageIndex >= 0 {
+				useLastResortOverage()
+				break
+			}
 			return ctx, subscriptions.Lease{}, true, anthropicSubscriptionModelUnavailable(model)
 		}
 		seen[lease.AccountID] = struct{}{}
 		rejected = append(rejected, lease)
+		if currentLeaseOverage && lastResortOverageIndex < 0 {
+			lastResortOverageIndex = len(rejected) - 1
+		}
 		sessionID = ""
 	}
 	// A leased access token is refreshed mid-session; the account it

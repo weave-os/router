@@ -101,7 +101,7 @@ func telemetryCapacitySource(ctx context.Context, credentialSource string) entit
 		return entitlement.CapacitySourceBillingOverride
 	}
 	switch credentialSource {
-	case credSourceSubscription:
+	case credSourceSubscription, credSourceSubscriptionOverage:
 		return entitlement.CapacitySourceLinkedClaude
 	case credSourceCodexSubscription:
 		return entitlement.CapacitySourceLinkedCodex

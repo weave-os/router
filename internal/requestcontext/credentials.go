@@ -30,10 +30,11 @@ const ChatGPTAccountIDHeader = "ChatGPT-Account-ID"
 // Credential sources, for logging and precedence reasoning. Never log the key
 // itself — only the source.
 const (
-	SourceBYOK              = "byok"
-	SourceClient            = "client"
-	SourceSubscription      = "subscription"
-	SourceCodexSubscription = "codex_subscription"
+	SourceBYOK                = "byok"
+	SourceClient              = "client"
+	SourceSubscription        = "subscription"
+	SourceSubscriptionOverage = "subscription_overage"
+	SourceCodexSubscription   = "codex_subscription"
 )
 
 // Credentials holds the API key to use for an upstream request.

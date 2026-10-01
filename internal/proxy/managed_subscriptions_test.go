@@ -149,6 +149,27 @@ func TestLeaseManagedSubscriptionSkipsBillableOverageAccount(t *testing.T) {
 	lease.Release()
 }
 
+func TestLeaseManagedSubscriptionUsesOverageOnlyWhenNoFallbackRemains(t *testing.T) {
+	leaser := &healthSubscriptionLeaser{scriptedSubscriptionLeaser: &scriptedSubscriptionLeaser{
+		leases: []subscriptions.Lease{
+			{AccountID: "opaque-a", AccessToken: "overage-token"},
+			{AccountID: "opaque-b", AccessToken: "other-overage-token"},
+		},
+	}}
+	observer := observerWithSnapshot("overage-token", usage.Snapshot{OverageInUse: true})
+	observer.Record(observer.Key([]byte("other-overage-token")), usage.Snapshot{OverageInUse: true})
+	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser).WithUsageObserver(observer)
+
+	_, lease, managed, err := svc.leaseManagedSubscription(managedSubscriptionTestContext(), providers.ProviderAnthropic, "claude-opus-4-8")
+
+	require.NoError(t, err)
+	require.True(t, managed)
+	assert.Equal(t, "opaque-a", lease.AccountID)
+	assert.Equal(t, 2, leaser.next)
+	assert.Empty(t, leaser.exhaustedIDs)
+	lease.Release()
+}
+
 func TestLeaseManagedSubscriptionHonorsResetQuotaWindows(t *testing.T) {
 	now := time.Now()
 	leaser := &healthSubscriptionLeaser{scriptedSubscriptionLeaser: &scriptedSubscriptionLeaser{

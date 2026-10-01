@@ -163,7 +163,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			lease.Release()
 			if attemptErr == nil {
 				if managedAttempt {
-					markManagedSubscriptionServed(ctx, credentialCtx)
+					s.markManagedSubscriptionServed(ctx, credentialCtx)
 					s.recordManagedSubscriptionSuccess(credentialCtx, decision.Provider, decision.Model, lease)
 				}
 				if attempt.Index > 0 {

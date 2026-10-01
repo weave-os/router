@@ -2,10 +2,12 @@ package proxy
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"weave-os/router/internal/proxy/usage"
 )
 
 func ctxWithCreds(creds *Credentials) context.Context {
@@ -62,12 +64,41 @@ func TestCredentialKeyParts_ManagedSubscriptionSourceOutranksOuterCredential(t *
 	managedCtx := context.WithValue(ctx, CredentialsContextKey{}, &Credentials{
 		APIKey: []byte("managed-token"), Source: credSourceSubscription, OAuth: true,
 	})
-	markManagedSubscriptionServed(ctx, managedCtx)
+	s.markManagedSubscriptionServed(ctx, managedCtx)
 
 	prefix, suffix, source := s.credentialKeyParts(ctx)
 	assert.Empty(t, prefix, "managed access tokens must not be copied to outer telemetry")
 	assert.Empty(t, suffix, "managed access tokens must not be copied to outer telemetry")
 	assert.Equal(t, credSourceSubscription, source)
+}
+
+func TestSubscriptionOverageIsBillableWithoutLosingSubscriptionBillingAttribution(t *testing.T) {
+	observer := observerWithSnapshot("overage-token", usage.Snapshot{OverageInUse: true})
+	s := (&Service{}).WithUsageObserver(observer)
+	ctx := ctxWithCreds(&Credentials{APIKey: []byte("overage-token"), Source: credSourceSubscription, OAuth: true})
+
+	assert.True(t, servedOnSubscription(ctx))
+	assert.False(t, s.costNeutralSubscriptionServed(ctx))
+	_, _, source := s.credentialKeyParts(ctx)
+	assert.Equal(t, credSourceSubscriptionOverage, source)
+
+	managedCtx := WithManagedSubscriptionUsage(context.Background())
+	s.markManagedSubscriptionServed(managedCtx, ctx)
+	assert.True(t, servedOnSubscription(managedCtx))
+	assert.False(t, s.costNeutralSubscriptionServed(managedCtx))
+	_, _, managedSource := s.credentialKeyParts(managedCtx)
+	assert.Equal(t, credSourceSubscriptionOverage, managedSource)
+}
+
+func TestSubscriptionOverageHeaderMarksCostEvenWithoutObserver(t *testing.T) {
+	s := &Service{}
+	ctx := withUnifiedLimitCapture(ctxWithCreds(&Credentials{APIKey: []byte("overage-token"), Source: credSourceSubscription, OAuth: true}))
+	headers := http.Header{}
+	headers.Set("anthropic-ratelimit-unified-overage-in-use", "true")
+	captureUnifiedLimitHeaders(ctx, headers)
+	assert.False(t, s.costNeutralSubscriptionServed(ctx))
+	_, _, source := s.credentialKeyParts(ctx)
+	assert.Equal(t, credSourceSubscriptionOverage, source)
 }
 
 // These string values are a wire contract with the SQL export query; changing them breaks subscription_served.

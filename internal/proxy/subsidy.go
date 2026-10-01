@@ -267,7 +267,7 @@ func (s *Service) withSubscriptionStatePreferences(ctx context.Context, headers 
 // cold-start factor. Claude requires observed in-plan headroom: Anthropic can
 // report billable overage without reporting any quota-window utilization, so
 // assuming slack for an unobserved Claude token can keep routing into paid
-// overage indefinitely. Returns nil when no discount is justified.
+// overage indefinitely.
 func (s *Service) subsidyFactors(ctx context.Context, headers http.Header) map[string]float64 {
 	if s.usageObserver == nil || !s.subsidyEnabled {
 		return nil
