@@ -1,0 +1,65 @@
+internal/proxy/usage/CLAUDE.md
+  s_7a9bc08264430f::t_c9bc4bd73aa5df 20
+  s_7a9bc08264430f::t_987f2e607bb695 32
+db/queries/model_router_request_telemetry.sql
+  s_7a9bc08264430f::t_330f68ffaf5c7b 787-789,792-796
+internal/proxy/managed_subscriptions_test.go
+  s_7a9bc08264430f::t_c50fe4c9d7bc44 152-172
+internal/proxy/subsidy.go
+  s_7a9bc08264430f::t_987f2e607bb695 270
+internal/proxy/subscriber_telemetry.go
+  s_7a9bc08264430f::t_3b13a0364745d5 104
+internal/analytics/schema.go
+  s_7a9bc08264430f::t_c9bc4bd73aa5df 65
+internal/proxy/service.go
+  s_7a9bc08264430f::t_330f68ffaf5c7b 4970,7899
+internal/proxy/managed_subscriptions.go
+  s_7a9bc08264430f::t_4a8c2518ab8917 132-153
+  s_7a9bc08264430f::t_50caf1731fea7a 178,191,200-203,214-217,230,256-259,264-266
+  s_7a9bc08264430f::t_921172c3bd7925 179-183
+  s_7a9bc08264430f::t_6ba8096c7a3116 56,104,110-114
+internal/proxy/usage/usage.go
+  s_7a9bc08264430f::t_9a8b18b1841c14 195
+  s_7a9bc08264430f::t_987f2e607bb695 193-194,197-198
+internal/proxy/credential_key_parts_internal_test.go
+  s_7a9bc08264430f::t_3e207559ac3662 75-90,102-103
+  s_7a9bc08264430f::t_8b3d68303ed448 10
+  s_7a9bc08264430f::t_6ba8096c7a3116 67
+  s_7a9bc08264430f::t_94680ed873755c 5,91-101
+internal/proxy/credential_key_parts.go
+  s_7a9bc08264430f::t_3b13a0364745d5 14-16,25,27-34
+internal/proxy/usage_bypass.go
+  s_7a9bc08264430f::t_330f68ffaf5c7b 511
+internal/proxy/gemini.go
+  s_7a9bc08264430f::t_330f68ffaf5c7b 380
+internal/proxy/dispatch_plan.go
+  s_7a9bc08264430f::t_6ba8096c7a3116 166
+internal/proxy/usage/AGENTS.md
+  s_7a9bc08264430f::t_c584c0c88b5f28 20,32
+internal/proxy/credentials.go
+  s_7a9bc08264430f::t_6ba8096c7a3116 18
+  s_7a9bc08264430f::t_a5277f4e21180a 15-17,19
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_7a9bc08264430f::t_101a211ef685d8 119-121,124-128,321-323,326-330
+internal/proxy/usage/usage_test.go
+  s_7a9bc08264430f::t_c50fe4c9d7bc44 323,334-342
+internal/requestcontext/credentials.go
+  s_7a9bc08264430f::t_a5277f4e21180a 33-35,37
+  s_7a9bc08264430f::t_8041517a6aa712 36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "be6fc8c37eac2c6632f00d65a047633870e619f4",
+  "prompts": {},
+  "sessions": {
+    "s_7a9bc08264430f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f4d0-2dae-7170-a0e8-54986e4762c8",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
