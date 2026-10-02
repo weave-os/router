@@ -127,6 +127,15 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 	}
 }
 
+// WithLocalPinnedRouterStrategy forces inference through the local startup-pinned policy.
+func WithLocalPinnedRouterStrategy(strategy router.Strategy) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx := router.WithStrategy(c.Request.Context(), strategy)
+		c.Request = c.Request.WithContext(ctx)
+		c.Next()
+	}
+}
+
 // NormalizeRouterStrategyDefault clamps an unregistered deployment default to
 // cluster. hmm_beta is never a valid default: it is an opt-in lane pinned per
 // installation or per session, not a fleet-wide policy.

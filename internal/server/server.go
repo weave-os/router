@@ -115,6 +115,8 @@ func ParseDefaultStrategy(raw string) router.Strategy {
 type Features struct {
 	// TrafficCapture records local conversation HTTP exchanges when explicitly configured.
 	TrafficCapture trafficcapture.Recorder
+	// LocalPinnedStrategy forces inference through the startup-pinned local policy when non-empty.
+	LocalPinnedStrategy router.Strategy
 	// PolicyPinEnabled registers the x-weave-policy-pin middleware. Off means
 	// the header is never read.
 	PolicyPinEnabled bool
@@ -191,6 +193,10 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		strategyAvailability = proxySvc.PolicyStrategyAvailable
 	}
 	defaultStrategy := middleware.NormalizeRouterStrategyDefault(DefaultStrategyFromEnv(), registeredStrategies...)
+	routerStrategyMiddleware := middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...)
+	if features.LocalPinnedStrategy != "" {
+		routerStrategyMiddleware = middleware.WithLocalPinnedRouterStrategy(features.LocalPinnedStrategy)
+	}
 	discovery.GET(
 		"/v1/router/policies",
 		middleware.WithTimeout(healthTimeout),
@@ -329,7 +335,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	messagesMiddleware = append(messagesMiddleware,
 		middleware.WithEmbedOnlyUserMessageOverride(),
 		middleware.WithClusterVersionOverride(),
-		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
+		routerStrategyMiddleware,
 		middleware.WithPolicyDebugOverride(),
 		middleware.WithAllowedModelsOverride(proxySvc),
 		middleware.WithRoutingKnobsOverride(),
@@ -360,7 +366,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	chatCompletionMiddleware = append(chatCompletionMiddleware,
 		middleware.WithEmbedOnlyUserMessageOverride(),
 		middleware.WithClusterVersionOverride(),
-		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
+		routerStrategyMiddleware,
 		middleware.WithPolicyDebugOverride(),
 		middleware.WithAllowedModelsOverride(proxySvc),
 		middleware.WithRoutingKnobsOverride(),
@@ -420,7 +426,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	routeMiddleware = append(routeMiddleware,
 		middleware.WithEmbedOnlyUserMessageOverride(),
 		middleware.WithClusterVersionOverride(),
-		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
+		routerStrategyMiddleware,
 		middleware.WithPolicyDebugOverride(),
 		middleware.WithAllowedModelsOverride(proxySvc),
 		middleware.WithRoutingKnobsOverride(),
@@ -440,7 +446,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	previewMiddleware = append(previewMiddleware, subscriberProductScopeMiddleware...)
 	previewMiddleware = append(previewMiddleware,
 		middleware.WithEmbedOnlyUserMessageOverride(),
-		middleware.WithRouterStrategyDefault(defaultStrategy, strategyAvailability, registeredStrategies...),
+		routerStrategyMiddleware,
 		middleware.WithPolicyDebugOverride(),
 		middleware.WithAllowedModelsOverride(proxySvc),
 		middleware.WithRoutingKnobsOverride(),

@@ -57,6 +57,7 @@ import (
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/llmescalation"
 	"weave-os/router/internal/router/planner"
 	"weave-os/router/internal/router/policy"
@@ -163,6 +164,24 @@ func main() {
 		panic(err)
 	}
 	logger.Info("Router deployment mode", "mode", deploymentMode)
+	localPolicyTarget := strings.TrimSpace(config.GetOr("ROUTER_LOCAL_POLICY_TARGET", ""))
+	if certificateFile := config.GetOr("ROUTER_LOCAL_INSPECTION_CA_FILE", ""); certificateFile != "" {
+		if err := configureLocalInspection(deploymentMode, localPolicyTarget, certificateFile); err != nil {
+			logger.Error("Local HTTP inspection CA setup failed; refusing to boot", "err", err)
+			panic(err)
+		}
+	}
+	if localPolicyTarget != "" {
+		if _, err := localServingIdentityFromEnv(deploymentMode); err != nil {
+			logger.Error("Local serving policy identity is invalid; refusing to boot", "err", err)
+			panic(err)
+		}
+		if managedServingEnabled() || strings.TrimSpace(config.GetOr("ROUTER_POLICY_ENVIRONMENT", "")) != "" || server.DefaultStrategyFromEnv() != router.StrategyHMMEmbedding {
+			err := errors.New("local pinned serving requires only a selfhosted HMM embedding default, without managed or legacy policy activation")
+			logger.Error("Local serving policy conflicts with other routing configuration", "err", err)
+			panic(err)
+		}
+	}
 
 	if err := validateManagedServingBoot(deploymentMode, osEnvLookup); err != nil {
 		logger.Error("Managed serving configuration is incomplete; refusing to boot", "mode", deploymentMode, "err", err)
@@ -1028,6 +1047,7 @@ func main() {
 	var hmmReadinessChecker admin.HealthChecker
 	var hmmRosterSources map[router.Strategy]policy.RosterSource
 	var hmmRosterModels admin.HMMRosterSource
+	var hmmDistributionRosters []*rosterdata.Roster
 	var hmmBetaCapabilities policy.Capabilities
 	var servingAdmission *middleware.ServingAdmissionConfig
 	policyEnvironmentRaw := strings.TrimSpace(config.GetOr("ROUTER_POLICY_ENVIRONMENT", ""))
@@ -1053,6 +1073,34 @@ func main() {
 		}
 		hmmRosterModels = admittedHMMRosterSource{}
 		logger.Info("Managed serving admission enabled", "target", admission.Identity.Target, "revision", admission.Identity.Revision)
+	} else if localPolicyTarget != "" {
+		prepareCtx, cancelPrepare := context.WithTimeout(context.Background(), localServingStartupTimeout)
+		pinned, closeRegistry, localErr := buildLocalServingRuntime(prepareCtx, availableProviders)
+		cancelPrepare()
+		if localErr != nil {
+			logger.Error("Pinned local HMM policy failed to load; refusing to boot", "target", localPolicyTarget, "err", localErr)
+			panic(localErr)
+		}
+		defer closeRegistry()
+		hmmRouter = policyregistry.NewLocalPinnedRouter(router.StrategyHMM, pinned)
+		hmmEmbeddingRouter = policyregistry.NewLocalPinnedRouter(router.StrategyHMMEmbedding, pinned)
+		warmupCtx, cancelWarmup := context.WithTimeout(context.Background(), localServingRouteWarmupTimeout)
+		warmupErr := warmLocalHMMRoute(warmupCtx, hmmEmbeddingRouter)
+		cancelWarmup()
+		if warmupErr != nil {
+			logger.Error("Local HMM router warm-up failed; refusing to become ready", "target", localPolicyTarget, "err", warmupErr)
+			panic(warmupErr)
+		}
+		logger.Info("Local HMM router warm-up complete", "target", localPolicyTarget)
+		hmmCapabilities = hmmRouter.(policy.CapabilitySource).CurrentCapabilities()
+		pinnedRoster := policyregistry.LocalPinnedRosterSource{Snapshot: pinned}
+		hmmDistributionRosters = []*rosterdata.Roster{pinned.Policy}
+		hmmRosterSources = map[router.Strategy]policy.RosterSource{
+			router.StrategyHMM: pinnedRoster, router.StrategyHMMEmbedding: pinnedRoster,
+		}
+		hmmRosterModels = newHMMRosterSource(pinnedRoster, policyclient.DefaultTimeout)
+		escalationObserver = hmmRouter.(escalation.Observer)
+		logger.Info("Local HMM policy pinned", "target", localPolicyTarget, "release_sha256", pinned.HeadSnapshot.Head.ReleaseSHA256, "policy_sha256", pinned.Release.Policy.SHA256, "classifier_sha256", pinned.Release.Classifier.PackageSHA256)
 	} else if policyEnvironmentRaw != "" {
 		registryURI := strings.TrimSpace(config.GetOr("WEAVE_REGISTRY_URI", "gs://weave_ml/weave_registry"))
 		policyRegistry, registryErr := policyregistry.NewGCSRegistry(context.Background(), registryURI)
@@ -1516,16 +1564,22 @@ func main() {
 		ServingAdmission:    servingAdmission,
 		SubscriberAllowance: subscriberAllowanceSvc,
 	}
+	if localPolicyTarget != "" {
+		serverFeatures.LocalPinnedStrategy = router.StrategyHMMEmbedding
+	}
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
 	}
-	server.RegisterWithFeatures(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, serverFeatures)
+	server.RegisterWithFeatures(engine, authSvc, proxySvc, deployedModels, hmmRosterModels, deploymentMode, billingSvc, readinessChecker, hmmRosterSources, analyticsSvc, serverFeatures, hmmDistributionRosters...)
 
 	port := config.GetOr("PORT", "8080")
 	address := ":" + port
 	if trafficCapture != nil {
 		captureListenHost := config.GetOr("ROUTER_HTTP_CAPTURE_LISTEN_HOST", "127.0.0.1")
 		address = net.JoinHostPort(captureListenHost, port)
+	}
+	if localPolicyTarget != "" {
+		address = net.JoinHostPort("127.0.0.1", port)
 	}
 	srv := &http.Server{
 		Addr:    address,

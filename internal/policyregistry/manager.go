@@ -267,15 +267,23 @@ func (m *Manager) Roster(context.Context) ([]string, error) { return m.AllRoster
 
 // DynamicRouter loads one snapshot once per operation and delegates to its bound router.
 type DynamicRouter struct {
-	manager  *Manager
-	strategy router.Strategy
-	prepared *Snapshot
+	manager     *Manager
+	strategy    router.Strategy
+	prepared    *Snapshot
+	localPinned bool
 }
 
 // NewAdmittedRouter requires a request-bound runtime for dispatch. The bootstrap
 // closure proves local readiness only; it never becomes a request fallback.
 func NewAdmittedRouter(strategy router.Strategy, prepared *Snapshot) *DynamicRouter {
 	return &DynamicRouter{strategy: strategy, prepared: prepared}
+}
+
+// NewLocalPinnedRouter serves one validated snapshot without managed admission.
+// Only the self-hosted local launcher uses this; admitted workers must continue
+// requiring a request-bound snapshot.
+func NewLocalPinnedRouter(strategy router.Strategy, snapshot *Snapshot) *DynamicRouter {
+	return &DynamicRouter{strategy: strategy, prepared: snapshot, localPinned: true}
 }
 
 // NewDynamicRouter binds one strategy to a hot-swappable policy manager.
@@ -377,6 +385,9 @@ func (r *DynamicRouter) activeRouter(ctx context.Context) (router.Router, error)
 	snapshot := ServingSnapshotFromContext(ctx)
 	if snapshot == nil && r.manager != nil {
 		snapshot = r.manager.Active()
+	}
+	if snapshot == nil && r.localPinned {
+		snapshot = r.prepared
 	}
 	if snapshot == nil {
 		return nil, fmt.Errorf("%w: %w", router.ErrStrategyUnavailable, ErrNoActivePolicy)
