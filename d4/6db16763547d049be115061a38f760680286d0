@@ -1,0 +1,25 @@
+internal/server/middleware/fail_open_test.go
+  s_7cb53e052d677f::t_751a02981f731c 1-136,138-231
+  s_7cb53e052d677f::t_49c750c04376fe 137
+internal/server/middleware/billing_fail_open_cache.go
+  s_7cb53e052d677f::t_6be17c3a999df5 31
+  s_7cb53e052d677f::t_7dce799a5f0062 23
+  s_7cb53e052d677f::t_da115ec290629f 69,71,75,81
+  s_7cb53e052d677f::t_b2c20ca95822a3 1-22,24-30,32-68,70,72-74,76-80,82-84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d46db16763547d049be115061a38f760680286d0",
+  "prompts": {},
+  "sessions": {
+    "s_7cb53e052d677f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f3d82f0-6aca-40b2-aca0-2547069ec7de",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

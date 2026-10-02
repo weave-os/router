@@ -1,0 +1,19 @@
+internal/server/middleware/traffic_capture.go
+  s_5a695ca299c909::t_a4c84b27218fd9 180-181
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6b2db74173b756def5d8e759d02361e8c961b20b",
+  "prompts": {},
+  "sessions": {
+    "s_5a695ca299c909": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ea0e-250d-74d3-9341-d6de94d9cd65",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

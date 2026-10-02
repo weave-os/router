@@ -1,0 +1,87 @@
+docs/CONFIGURATION.md
+  s_c8f9e144f4d0b1::t_b59053ca1c4f33 249-300
+internal/entra/client_credentials_test.go
+  s_c8f9e144f4d0b1::t_da42fd488ff5ad 1-111,113-122,125-134
+  s_c8f9e144f4d0b1::t_0a7b6509de5b1d 112
+  s_c8f9e144f4d0b1::t_0729adbbaa0a6d 123-124
+internal/auth/entra_test.go
+  s_c8f9e144f4d0b1::t_45db0751a2d63b 1-44
+internal/entra/client_credentials.go
+  s_c8f9e144f4d0b1::t_38abf510511f49 69,72
+  s_c8f9e144f4d0b1::t_8b862ea10e1331 17
+  s_c8f9e144f4d0b1::t_72cce5fa7bb020 1-16,18-68,70-71,73-114,117-165
+  s_c8f9e144f4d0b1::t_97d6d0fc074519 115-116
+internal/auth/upstream_secrets.go
+  s_c8f9e144f4d0b1::t_2326d252216941 59-60,65-71
+  s_c8f9e144f4d0b1::t_97452251eabdc5 17
+  s_c8f9e144f4d0b1::t_0a0ba8bce7c687 78
+cmd/router/main.go
+  s_c8f9e144f4d0b1::t_4d70d9443587dd 26
+  s_c8f9e144f4d0b1::t_e518d2ceef587f 427
+  s_c8f9e144f4d0b1::t_53458104811bfc 1282-1285,1287-1289
+  s_c8f9e144f4d0b1::t_81e78d2744d737 1286
+db/migrations/0064_external-key-azure-entra-auth.up.sql
+  s_c8f9e144f4d0b1::t_ba2151a8259841 1-14
+internal/auth/entra_verify_test.go
+  s_c8f9e144f4d0b1::t_ce6788bf32dbae 1-90
+db/migrations/0064_external-key-azure-entra-auth.down.sql
+  s_c8f9e144f4d0b1::t_8d27151a8c130b 1-16
+frontend/src/components/settings/ProviderKeysPanel.tsx
+  s_c8f9e144f4d0b1::t_d287091e9a9ddf 305
+  s_c8f9e144f4d0b1::t_763d8769cf33f3 310,312,315
+  s_c8f9e144f4d0b1::t_98a1159651f6be 402
+  s_c8f9e144f4d0b1::t_0ae50b9e31da0b 517
+  s_c8f9e144f4d0b1::t_a1c6f87613315b 485,492
+  s_c8f9e144f4d0b1::t_b794154740a211 527,530,533,539,542
+  s_c8f9e144f4d0b1::t_9d98e0cc416a59 549-554
+internal/api/admin/keys.go
+  s_c8f9e144f4d0b1::t_bb5d716950a872 294-295
+internal/auth/service.go
+  s_c8f9e144f4d0b1::t_c38683f9573b9e 41-44
+  s_c8f9e144f4d0b1::t_0edbf3ea08fecd 339-346
+  s_c8f9e144f4d0b1::t_1cc201c549c5a1 303
+  s_c8f9e144f4d0b1::t_788b046c026e90 135-140
+  s_c8f9e144f4d0b1::t_8f82fa3cee3598 78-81
+internal/auth/external_api_key.go
+  s_c8f9e144f4d0b1::t_3785849514e7ae 70-73
+  s_c8f9e144f4d0b1::t_6d552901a65a55 56-58
+  s_c8f9e144f4d0b1::t_8ac0d879f6dfa7 199-200
+  s_c8f9e144f4d0b1::t_06b6b7d667691e 31-32
+  s_c8f9e144f4d0b1::t_48016966176942 210-220
+  s_c8f9e144f4d0b1::t_144ef24cc8956c 65-66
+internal/proxy/wif_forwarding_test.go
+  s_c8f9e144f4d0b1::t_7acc08f0ca7710 44
+internal/auth/entra.go
+  s_c8f9e144f4d0b1::t_a15044b9bd85e5 5
+  s_c8f9e144f4d0b1::t_fbc76959a05136 1-4,6-18
+frontend/src/lib/api.ts
+  s_c8f9e144f4d0b1::t_f23898d4d8c080 115
+  s_c8f9e144f4d0b1::t_22644bad4715cc 114
+  s_c8f9e144f4d0b1::t_6eec00ac05cf11 129-132,134-135
+internal/sqlc/models.go
+  s_97228c93061278::t_38baa417b143b6 103,105,107
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "6a337ae256b3cf10ba94db3e7048fc482dbab282",
+  "prompts": {},
+  "sessions": {
+    "s_97228c93061278": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6d608ddb-2ee6-418b-8ffd-cb9c44df2786",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_c8f9e144f4d0b1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "132ae936-06e8-4c59-a889-c8bb7213df12",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
