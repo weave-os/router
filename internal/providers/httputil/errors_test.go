@@ -104,23 +104,24 @@ func TestLogUpstreamStatus_KeepsBodyPreviewWhenContentLoggingAllowed(t *testing.
 	assert.Contains(t, buf.String(), "err-echo")
 }
 
-func TestLogUpstreamStatus_KeepsStructuredProviderErrorWhenContentLoggingDisallowed(t *testing.T) {
+func TestLogUpstreamStatus_KeepsOnlyErrorTypeWhenContentLoggingDisallowed(t *testing.T) {
 	cases := []struct {
-		name        string
-		body        string
-		wantType    string
-		wantMessage string
+		name     string
+		body     string
+		wantType string
 	}{
 		{
-			name:        "anthropic nested envelope",
-			body:        `{"type":"error","error":{"type":"invalid_request_error","message":"max_tokens: 128000 > 64000"}}`,
-			wantType:    "invalid_request_error",
-			wantMessage: "max_tokens: 128000 > 64000",
+			name:     "anthropic nested envelope",
+			body:     `{"type":"error","error":{"type":"invalid_request_error","message":"echoed secret-fragment"}}`,
+			wantType: "invalid_request_error",
 		},
 		{
-			name:        "top-level message",
-			body:        `{"message":"Cortex rejected the request","request_id":"x"}`,
-			wantMessage: "Cortex rejected the request",
+			name: "top-level message only",
+			body: `{"message":"echoed secret-fragment","request_id":"x"}`,
+		},
+		{
+			name: "non-json body",
+			body: `echoed secret-fragment`,
 		},
 	}
 	for _, tc := range cases {
@@ -136,8 +137,8 @@ func TestLogUpstreamStatus_KeepsStructuredProviderErrorWhenContentLoggingDisallo
 
 			var entry map[string]any
 			require.NoError(t, json.Unmarshal([]byte(buf.String()), &entry))
+			assert.NotContains(t, buf.String(), "secret-fragment")
 			assert.NotContains(t, entry, "body_preview")
-			assert.Equal(t, tc.wantMessage, entry["upstream_error_message"])
 			if tc.wantType == "" {
 				assert.NotContains(t, entry, "upstream_error_type")
 			} else {
