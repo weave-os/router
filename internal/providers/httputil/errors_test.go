@@ -2,6 +2,7 @@ package httputil
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -101,4 +102,47 @@ func TestLogUpstreamStatus_KeepsBodyPreviewWhenContentLoggingAllowed(t *testing.
 	LogUpstreamStatus(ctx, "upstream failed", http.StatusBadRequest, "body_preview", "err-echo")
 
 	assert.Contains(t, buf.String(), "err-echo")
+}
+
+func TestLogUpstreamStatus_KeepsStructuredProviderErrorWhenContentLoggingDisallowed(t *testing.T) {
+	cases := []struct {
+		name        string
+		body        string
+		wantType    string
+		wantMessage string
+	}{
+		{
+			name:        "anthropic nested envelope",
+			body:        `{"type":"error","error":{"type":"invalid_request_error","message":"max_tokens: 128000 > 64000"}}`,
+			wantType:    "invalid_request_error",
+			wantMessage: "max_tokens: 128000 > 64000",
+		},
+		{
+			name:        "top-level message",
+			body:        `{"message":"Cortex rejected the request","request_id":"x"}`,
+			wantMessage: "Cortex rejected the request",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf strings.Builder
+			log := slog.New(slog.NewJSONHandler(&buf, nil))
+			ctx := observability.WithLogger(
+				requestcontext.WithContentLogging(context.Background(), false),
+				log,
+			)
+
+			LogUpstreamStatus(ctx, "upstream failed", http.StatusBadRequest, "body_preview", tc.body)
+
+			var entry map[string]any
+			require.NoError(t, json.Unmarshal([]byte(buf.String()), &entry))
+			assert.NotContains(t, entry, "body_preview")
+			assert.Equal(t, tc.wantMessage, entry["upstream_error_message"])
+			if tc.wantType == "" {
+				assert.NotContains(t, entry, "upstream_error_type")
+			} else {
+				assert.Equal(t, tc.wantType, entry["upstream_error_type"])
+			}
+		})
+	}
 }

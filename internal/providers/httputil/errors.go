@@ -8,6 +8,8 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
+
+	"github.com/tidwall/gjson"
 )
 
 // ReadCapped buffers up to limit bytes from r, then drains (without retaining)
@@ -52,14 +54,20 @@ func (c HeaderCapture) WriteHeader(int) {}
 // ERROR except 429 (routine rate-limit signal handled via failover), which
 // logs at WARN.
 //
+// When content logging is disallowed the raw body_preview is dropped, but the
+// provider's structured error type and message are kept as
+// upstream_error_type / upstream_error_message.
+//
 // ctx is load-bearing: on the global logger the body was written but not
 // joinable to the request, so filtering by session never surfaced it.
 func LogUpstreamStatus(ctx context.Context, msg string, status int, attrs ...any) {
 	log := observability.FromContext(ctx)
 	if !requestcontext.ContentLoggingAllowed(ctx) {
-		filtered := make([]any, 0, len(attrs))
+		filtered := make([]any, 0, len(attrs)+4)
 		for i := 0; i+1 < len(attrs); i += 2 {
 			if key, _ := attrs[i].(string); key == "body_preview" {
+				preview, _ := attrs[i+1].(string)
+				filtered = append(filtered, structuredErrorAttrs(preview)...)
 				continue
 			}
 			filtered = append(filtered, attrs[i], attrs[i+1])
@@ -72,6 +80,30 @@ func LogUpstreamStatus(ctx context.Context, msg string, status int, attrs ...any
 		return
 	}
 	log.Warn(msg, merged...)
+}
+
+// structuredErrorAttrs extracts error type and message from a JSON provider
+// error envelope ({"error":{"type","message"}} or top-level "type"/"message").
+// Non-JSON bodies yield nothing, so free-form text never bypasses the
+// content-logging gate.
+func structuredErrorAttrs(body string) []any {
+	if !gjson.Valid(body) {
+		return nil
+	}
+	var attrs []any
+	for _, path := range []string{"error.type", "type"} {
+		if r := gjson.Get(body, path); r.Type == gjson.String && r.Str != "error" {
+			attrs = append(attrs, "upstream_error_type", r.Str)
+			break
+		}
+	}
+	for _, path := range []string{"error.message", "message"} {
+		if r := gjson.Get(body, path); r.Type == gjson.String {
+			attrs = append(attrs, "upstream_error_message", r.Str)
+			break
+		}
+	}
+	return attrs
 }
 
 // WritePassthroughError streams up to 1KB of resp.Body to w, logs via
