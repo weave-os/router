@@ -7,7 +7,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
@@ -78,7 +77,7 @@ func (s *Service) anthropicRoutingRequest(
 	}
 
 	enabledProviders := s.enabledProvidersForRequest(ctx, providers.ProviderAnthropic, headers)
-	if billing.SubscriptionOnlyFromContext(ctx) {
+	if paidFallbackForbidden(ctx) {
 		enabledProviders = restrictToSubscriptionProviders(ctx, headers, enabledProviders)
 	}
 	outputReserve := contextWindowOutputReserve

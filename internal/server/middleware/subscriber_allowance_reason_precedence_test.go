@@ -23,13 +23,14 @@ import (
 func billingGatedAllowanceChain(
 	t *testing.T,
 	repo *stubBillingRepo,
+	allowances *stubAllowances,
 	serve gin.HandlerFunc,
 ) *gin.Engine {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	allowanceSvc := entitlement.NewService(
 		&stubEntitlements{current: activeSubscriberEntitlement(), found: true},
-		&stubAllowances{},
+		allowances,
 	).WithClock(func() time.Time { return allowanceNow })
 
 	engine := gin.New()
@@ -49,17 +50,20 @@ func TestSubscriptionOnlyReasonPrecedenceAcrossGates(t *testing.T) {
 	// the balance gate. The depleted reason has to be the one that survives, or
 	// the turn loses the top-up CTA that says paid fallback is off.
 	for name, tc := range map[string]struct {
-		balance int64
-		want    billing.SubscriptionOnlyReason
+		balance      int64
+		includedUsed int64
+		want         billing.SubscriptionOnlyReason
 	}{
-		"funded organization stays linked-first":  {balance: 5_000_000, want: billing.SubscriptionOnlyLinkedFirst},
-		"depleted organization reports depletion": {balance: 0, want: billing.SubscriptionOnlyCreditsDepleted},
-		"negative balance reports depletion":      {balance: -1_000_000, want: billing.SubscriptionOnlyCreditsDepleted},
+		"included allowance with depleted organization": {balance: 0, want: billing.SubscriptionOnlyLinkedFirst},
+		"included allowance with negative balance":      {balance: -1_000_000, want: billing.SubscriptionOnlyLinkedFirst},
+		"funded organization stays linked-first":        {balance: 5_000_000, includedUsed: monthlyAllowance, want: billing.SubscriptionOnlyLinkedFirst},
+		"depleted organization reports depletion":       {balance: 0, includedUsed: monthlyAllowance, want: billing.SubscriptionOnlyCreditsDepleted},
+		"negative balance reports depletion":            {balance: -1_000_000, includedUsed: monthlyAllowance, want: billing.SubscriptionOnlyCreditsDepleted},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var reason billing.SubscriptionOnlyReason
 			var flagged bool
-			engine := billingGatedAllowanceChain(t, &stubBillingRepo{balance: tc.balance}, func(c *gin.Context) {
+			engine := billingGatedAllowanceChain(t, &stubBillingRepo{balance: tc.balance}, &stubAllowances{billingConsumed: tc.includedUsed}, func(c *gin.Context) {
 				reason, flagged = billing.SubscriptionOnlyReasonFromContext(c.Request.Context())
 			})
 

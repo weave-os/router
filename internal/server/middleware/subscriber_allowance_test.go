@@ -449,7 +449,9 @@ func TestWithSubscriberAllowance_BoostUsesCoveringSubscriptionBeforeIncludedAllo
 
 	assert.True(t, reached)
 	assert.Equal(t, http.StatusOK, w.Code)
-	assert.Empty(t, coverage.SubscriberID, "a turn the caller's own plan covers draws no included capacity")
+	assert.Equal(t, entitlement.SubscriberID(allowanceSubscriberID), coverage.SubscriberID,
+		"included capacity must remain available if the linked subscription cannot serve the selected model")
+	assert.Zero(t, allowances.writes, "admission must not charge the included allowance")
 }
 
 func TestWithSubscriberAllowance_CoversTurnWithoutReservingBeforeDispatch(t *testing.T) {

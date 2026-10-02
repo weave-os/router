@@ -3642,11 +3642,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// x-weave-subagent-type header is for non-Anthropic ingress only.
 	enabledProviders := s.enabledProvidersForRequest(ctx, providers.ProviderAnthropic, r.Header)
 
-	// Subscription-only mode: restrict
-	// routing to the providers the caller's own subscription can serve, so the
-	// scorer can't pick a paid model. The post-routing guard below refuses if a
-	// turn (e.g. a hard-pin or force-model) still didn't resolve onto the sub.
-	if billing.SubscriptionOnlyFromContext(ctx) {
+	// Linked-first is a funding preference; only depleted capacity restricts
+	// selection to providers the caller's subscription can serve.
+	if paidFallbackForbidden(ctx) {
 		enabledProviders = restrictToSubscriptionProviders(ctx, r.Header, enabledProviders)
 	}
 
@@ -6057,7 +6055,7 @@ func (s *Service) hasOpenAIInfrastructureCredential(ctx context.Context, headers
 
 // excludeCodexOAuthOnlyModels keeps model eligibility aligned with credential
 // resolution. When ChatGPT OAuth is the only way OpenAI became eligible (or
-// billing has restricted the turn to subscriptions), only the exact native
+// billing forbids paid fallback), only the exact native
 // Codex family may select the OpenAI binding. Infrastructure-backed requests
 // retain the full catalog and route other OpenAI models normally.
 func (s *Service) excludeCodexOAuthOnlyModels(
@@ -6067,7 +6065,7 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 	excluded map[string]struct{},
 ) map[string]struct{} {
 	codex, _ := presentSubscriptionTokens(ctx, headers)
-	if codex == "" || (!billing.SubscriptionOnlyFromContext(ctx) && s.hasOpenAIInfrastructureCredential(ctx, headers)) {
+	if codex == "" || (!paidFallbackForbidden(ctx) && s.hasOpenAIInfrastructureCredential(ctx, headers)) {
 		return excluded
 	}
 	for _, model := range catalog.Models {
@@ -6675,12 +6673,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	enabledProviders := s.enabledProvidersForRequest(ctx, providers.ProviderOpenAI, r.Header)
 
-	// Subscription-only mode: restrict
-	// routing to the providers the caller's own subscription can serve, so the
-	// scorer can't pick a paid model. Mirrors the Anthropic path's forced
-	// usage-bypass; the post-routing guard below refuses if it still can't serve
-	// on the subscription.
-	if billing.SubscriptionOnlyFromContext(ctx) {
+	// Linked-first is a funding preference; only depleted capacity restricts
+	// selection to providers the caller's subscription can serve.
+	if paidFallbackForbidden(ctx) {
 		enabledProviders = restrictToSubscriptionProviders(ctx, r.Header, enabledProviders)
 	}
 

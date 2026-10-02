@@ -82,9 +82,9 @@ func TestWithSubscriberAllowance_CoveringSubscriptionIsLinkedFirstNotDepleted(t 
 	engine.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusOK, w.Code)
-	require.True(t, flagged, "a covering subscription must still pin the turn to the caller's own plan")
+	require.True(t, flagged, "a covering subscription must remain the preferred funding source")
 	assert.Equal(t, billing.SubscriptionOnlyLinkedFirst, reason)
-	assert.Contains(t, logs.String(), "Subscriber request restricted to linked subscription")
+	assert.Contains(t, logs.String(), "Subscriber request prefers linked subscription funding")
 	assert.Contains(t, logs.String(), "reason=linked_first")
 	assert.Contains(t, logs.String(), "subscriber_id="+allowanceSubscriberID)
 	assert.Contains(t, logs.String(), "admission_outcome=covered")

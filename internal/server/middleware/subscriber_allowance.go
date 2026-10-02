@@ -84,21 +84,21 @@ func WithSubscriberAllowance(svc *entitlement.Service) gin.HandlerFunc {
 			return
 		}
 
-		// Boost and unscoped callers serve covering subscriptions first. Max has
-		// already made covering detection return false, so this never skips the
-		// included allowance for PlanMax.
+		// Retain included capacity for models the linked subscription cannot serve.
+		// Settlement skips this allowance when the linked subscription pays.
+		if admission.Outcome == entitlement.AdmissionCovered {
+			c.Request = c.Request.WithContext(entitlement.WithCoverage(c.Request.Context(), admission.Coverage))
+		}
+
+		// Max suppresses linked-subscription funding; Boost prefers it while
+		// retaining included capacity for any model it cannot cover.
 		if proxy.RequestPresentsCoveringSubscription(c.Request.Context(), c.Request.Header, c.FullPath()) {
-			log.Info("Subscriber request restricted to linked subscription", "reason", billing.SubscriptionOnlyLinkedFirst, "subscriber_id", subscriberID, "admission_outcome", admission.Outcome)
+			log.Info("Subscriber request prefers linked subscription funding", "reason", billing.SubscriptionOnlyLinkedFirst, "subscriber_id", subscriberID, "admission_outcome", admission.Outcome)
 			c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context(), billing.SubscriptionOnlyLinkedFirst))
 			c.Next()
 			return
 		}
 
-		if admission.Outcome == entitlement.AdmissionExhausted {
-			c.Next()
-			return
-		}
-		c.Request = c.Request.WithContext(entitlement.WithCoverage(c.Request.Context(), admission.Coverage))
 		c.Next()
 	}
 }

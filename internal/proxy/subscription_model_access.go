@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -106,7 +105,7 @@ func (s *Service) resolveCredentials(ctx context.Context, provider, model string
 	resolved := resolveAndInjectCredentials(ctx, provider, model, headers)
 	creds := CredentialsFromContext(resolved)
 	if provider != providers.ProviderAnthropic || creds == nil || !creds.OAuth ||
-		billing.SubscriptionOnlyFromContext(ctx) || !s.anthropicFallbackKeyAvailable(ctx) ||
+		paidFallbackForbidden(ctx) || !s.anthropicFallbackKeyAvailable(ctx) ||
 		!s.subscriptionModels.denied(creds.APIKey, model, s.clockNow()) {
 		return resolved
 	}
@@ -121,7 +120,7 @@ func (s *Service) resolveCredentials(ctx context.Context, provider, model string
 
 func (s *Service) excludeUnavailableSubscriptionModels(ctx context.Context, headers http.Header, enabled, excluded map[string]struct{}) map[string]struct{} {
 	_, token := presentSubscriptionTokens(ctx, headers)
-	if token == "" || (!billing.SubscriptionOnlyFromContext(ctx) && s.anthropicFallbackKeyAvailable(ctx)) {
+	if token == "" || (!paidFallbackForbidden(ctx) && s.anthropicFallbackKeyAvailable(ctx)) {
 		return excluded
 	}
 	for _, model := range catalog.Models {

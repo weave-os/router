@@ -109,6 +109,9 @@ func TestSubscriptionModelAccessScopeAndExpiry(t *testing.T) {
 	assert.True(t, servedOnSubscription(svc.resolveCredentials(context.WithValue(in.subCtx(), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-other"), in.provider, in.model, nil)))
 	assert.True(t, servedOnSubscription(svc.resolveCredentials(billing.WithSubscriptionOnly(in.subCtx(), billing.SubscriptionOnlyCreditsDepleted), in.provider, in.model, nil)))
 	assert.Nil(t, svc.excludeUnavailableSubscriptionModels(in.subCtx(), nil, nil, nil), "paid-backed model remains routable")
+	linkedFirstContext := billing.WithSubscriptionOnly(in.subCtx(), billing.SubscriptionOnlyLinkedFirst)
+	assert.False(t, servedOnSubscription(svc.resolveCredentials(linkedFirstContext, in.provider, in.model, nil)), "a denied linked subscription must use the available infrastructure credential")
+	assert.Nil(t, svc.excludeUnavailableSubscriptionModels(linkedFirstContext, nil, nil, nil), "linked funding preference must not exclude a paid-backed model")
 	now = now.Add(16 * time.Minute)
 	assert.True(t, servedOnSubscription(svc.resolveCredentials(in.subCtx(), in.provider, in.model, nil)), "access changes are rechecked after expiry")
 }
