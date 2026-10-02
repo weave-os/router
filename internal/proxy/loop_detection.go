@@ -173,11 +173,10 @@ func (s *Service) handleLoopEscalation(
 			}
 			// A user's explicit /force-model choice outranks auto-escalation —
 			// record the loop for telemetry but leave the forced pin in place.
-			ignoredPlanForce := existing.Reason == translate.ReasonUserForceModel && planOwnedServingRequest(ctx)
-			if existing.Reason == translate.ReasonUserForceModel && !ignoredPlanForce {
+			if existing.Reason == translate.ReasonUserForceModel {
 				userForced = true
 			}
-			if existing.Model != "" && !ignoredPlanForce {
+			if existing.Model != "" {
 				loopingModel = existing.Model
 			}
 		}
