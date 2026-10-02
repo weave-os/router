@@ -17,6 +17,7 @@ internal/proxy/rescued_failure_demotion_internal_test.go
   s_8c07cbaac32551::t_94cb792331e74c 182,204
   s_8c07cbaac32551::t_499e318bfd70ca 183-203,205-212
   s_8c07cbaac32551::t_2071377924a69c 179-181
+  s_8c07cbaac32551::t_50a9d65c7ec44e 213-215
 internal/providers/httputil/httputil.go
   s_8c07cbaac32551::t_1e339b4cc9fe86 296-298,301-302,309-317,319,322-323,327
   s_8c07cbaac32551::t_1da564b89a1595 328-338
