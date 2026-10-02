@@ -1,0 +1,19 @@
+scripts/llm_escalation_state_check/main.go
+  s_f62f0d4ecb8535::t_388cbd996d73f9 38,78,94-95,97-98,100,104-105,141-142,189,203,263-264
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5fc3d96e0188dad17f3e3c5609d4570e2edfb82f",
+  "prompts": {},
+  "sessions": {
+    "s_f62f0d4ecb8535": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0cb26-99c1-7af0-9929-8a6e1e5828cd",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
