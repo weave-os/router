@@ -1,0 +1,28 @@
+scripts/escalation_state_check/main.go
+  s_2cdf095f803427::t_fbb26cc232a7e8 41,524-543,545-546,548,554-567
+  s_2cdf095f803427::t_a0b2509a329c16 149,475,512-523,544,547
+  s_2cdf095f803427::t_e9b352dd2d54e5 21,150-152,164-175,474,476-511,549-553,568-569
+  s_2cdf095f803427::t_261b1eed4337de 570
+.github/workflows/test.yml
+  s_2cdf095f803427::t_e9b352dd2d54e5 211-215
+db/queries/escalation_sessions.sql
+  s_2cdf095f803427::t_e9b352dd2d54e5 105,110
+internal/sqlc/escalation_sessions.sql.go
+  s_2cdf095f803427::t_6cc2df7e5e289e 153,169,175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b5ad224ee23d4ca2e32a43acc1908fb54c870bb9",
+  "prompts": {},
+  "sessions": {
+    "s_2cdf095f803427": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ea16-2bea-7652-8478-21c9418c36ac",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
