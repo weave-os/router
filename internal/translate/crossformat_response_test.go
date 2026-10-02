@@ -703,6 +703,82 @@ func TestOpenAIToAnthropicError_PassthroughOnEmptyFields(t *testing.T) {
 	assert.Equal(t, body, out, "empty type and message must pass through unchanged")
 }
 
+func TestOpenAIToAnthropicError_GeminiStatusMapping(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		wantType string
+		wantMsg  string
+	}{
+		{
+			name:     "resource exhausted maps to rate_limit_error",
+			input:    `{"error":{"code":429,"message":"Quota exceeded","status":"RESOURCE_EXHAUSTED"}}`,
+			wantType: "rate_limit_error",
+			wantMsg:  "Quota exceeded",
+		},
+		{
+			name:     "unavailable maps to overloaded_error",
+			input:    `{"error":{"code":503,"message":"Model is overloaded","status":"UNAVAILABLE"}}`,
+			wantType: "overloaded_error",
+			wantMsg:  "Model is overloaded",
+		},
+		{
+			name:     "invalid argument maps to invalid_request_error",
+			input:    `{"error":{"code":400,"message":"Bad request","status":"INVALID_ARGUMENT"}}`,
+			wantType: "invalid_request_error",
+			wantMsg:  "Bad request",
+		},
+		{
+			name:     "permission denied maps to permission_error",
+			input:    `{"error":{"code":403,"message":"Permission denied","status":"PERMISSION_DENIED"}}`,
+			wantType: "permission_error",
+			wantMsg:  "Permission denied",
+		},
+		{
+			name:     "unauthenticated maps to authentication_error",
+			input:    `{"error":{"code":401,"message":"Unauthenticated","status":"UNAUTHENTICATED"}}`,
+			wantType: "authentication_error",
+			wantMsg:  "Unauthenticated",
+		},
+		{
+			name:     "not found maps to not_found_error",
+			input:    `{"error":{"code":404,"message":"Model not found","status":"NOT_FOUND"}}`,
+			wantType: "not_found_error",
+			wantMsg:  "Model not found",
+		},
+		{
+			name:     "lowercased type from GeminiToOpenAIError maps to Anthropic type",
+			input:    `{"error":{"code":429,"message":"Rate exceeded","type":"resource_exhausted"}}`,
+			wantType: "rate_limit_error",
+			wantMsg:  "Rate exceeded",
+		},
+		{
+			name:     "empty type with message defaults to api_error",
+			input:    `{"error":{"type":"","message":"Something broke"}}`,
+			wantType: "api_error",
+			wantMsg:  "Something broke",
+		},
+		{
+			name:     "status without message uses status as message",
+			input:    `{"error":{"status":"INTERNAL"}}`,
+			wantType: "api_error",
+			wantMsg:  "INTERNAL",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := translate.OpenAIToAnthropicError([]byte(tt.input))
+			doc := unmarshal(t, out)
+			assert.Equal(t, "error", doc["type"])
+			errObj, _ := doc["error"].(map[string]any)
+			require.NotNil(t, errObj)
+			assert.Equal(t, tt.wantType, errObj["type"])
+			assert.Equal(t, tt.wantMsg, errObj["message"])
+		})
+	}
+}
+
 func TestGeminiToOpenAIError_WrapsError(t *testing.T) {
 	body := []byte(`{"error":{"code":429,"message":"Resource has been exhausted","status":"RESOURCE_EXHAUSTED"}}`)
 	out := translate.GeminiToOpenAIError(body)
