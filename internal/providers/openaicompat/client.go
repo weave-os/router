@@ -342,11 +342,11 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	// second 404 falls back to the probe so a genuine model-not-found is preserved.
 	urls := c.versionMemo.URLs(baseURL, suffix)
 	firstErr := c.proxyTo(ctx, cancel, urls[0], baseURL, body, decision, prep, w, r)
-	if len(urls) == 1 || !providers.IsUpstreamModelNotFound(firstErr) {
+	if len(urls) == 1 || !providers.IsUpstreamNotFoundStatus(firstErr) {
 		return firstErr
 	}
 	err := c.proxyTo(ctx, cancel, urls[1], baseURL, body, decision, prep, w, r)
-	if err == nil || !providers.IsUpstreamModelNotFound(err) {
+	if err == nil || !providers.IsUpstreamNotFoundStatus(err) {
 		c.versionMemo.Learn(baseURL)
 		return err
 	}

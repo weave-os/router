@@ -495,3 +495,31 @@ func TestIsUpstreamResponsesUnsupported(t *testing.T) {
 	assert.False(t, providers.IsUpstreamResponsesUnsupported(nil))
 	assert.False(t, providers.IsUpstreamResponsesUnsupported(fmt.Errorf("transport blew up")))
 }
+
+// Snowflake Cortex refuses a model a surface doesn't serve with a 400, not a
+// 404; it must still gate cross-binding failover and the gateway memo.
+func TestIsUpstreamModelNotFound_UnknownModel400(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		want   bool
+	}{
+		{name: "404", status: http.StatusNotFound, body: `{"message":"not found"}`, want: true},
+		{name: "cortex unknown model 400", status: http.StatusBadRequest, body: `{"message":"unknown model \"openai-gpt-6-luna\"","request_id":"b7115f6a"}`, want: true},
+		{name: "ordinary validation 400", status: http.StatusBadRequest, body: `{"error":{"message":"messages: at least one message is required"}}`, want: false},
+		{name: "unknown model on a 500 is an outage", status: http.StatusInternalServerError, body: `{"message":"unknown model \"x\""}`, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := &providers.UpstreamErrorResponse{Status: tc.status, Body: []byte(tc.body)}
+			assert.Equal(t, tc.want, providers.IsUpstreamModelNotFound(err))
+			assert.Equal(t, tc.status == http.StatusNotFound, providers.IsUpstreamNotFoundStatus(err))
+			if tc.want {
+				assert.False(t, providers.IsRetryable(err), "retrying the same binding is futile")
+			}
+		})
+	}
+	assert.False(t, providers.IsUpstreamModelNotFound(nil))
+	assert.False(t, providers.IsUpstreamNotFoundStatus(fmt.Errorf("transport blew up")))
+}
