@@ -1515,6 +1515,7 @@ func main() {
 		PolicyPinEnabled:    policyPinEnabled,
 		ServingAdmission:    servingAdmission,
 		SubscriberAllowance: subscriberAllowanceSvc,
+		AvailableProviders:  availableProviders,
 	}
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture

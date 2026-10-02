@@ -8,6 +8,7 @@ import (
 	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/policy"
 )
 
 const defaultDistributionGrid = 21
@@ -15,7 +16,7 @@ const defaultDistributionGrid = 21
 // RoutingDistribution projects the HMM roster's within-band model mix across
 // the quality/price dial. Each classifier band contributes equal weight; live
 // traffic weights remain request-dependent and are intentionally not guessed.
-func RoutingDistribution(roster *rosterdata.Roster, gridN int, excludedModels, excludedProviders map[string]struct{}) ([]cluster.DistributionPoint, error) {
+func RoutingDistribution(roster *rosterdata.Roster, gridN int, availableProviders, excludedModels, excludedProviders map[string]struct{}) ([]cluster.DistributionPoint, error) {
 	if roster == nil || !isDynamicRoster(roster) {
 		return nil, fmt.Errorf("HMM routing distribution requires a dynamic roster or compiled serving policy")
 	}
@@ -27,6 +28,7 @@ func RoutingDistribution(roster *rosterdata.Roster, gridN int, excludedModels, e
 		labels = append(labels, label)
 	}
 	sort.Strings(labels)
+	routingTargets := catalog.HMMRoutingTargetSet(availableProviders)
 	points := make([]cluster.DistributionPoint, 0, gridN)
 	for gridIndex := 0; gridIndex < gridN; gridIndex++ {
 		qualityBias := float64(gridIndex) / float64(gridN-1)
@@ -39,21 +41,12 @@ func RoutingDistribution(roster *rosterdata.Roster, gridN int, excludedModels, e
 			for _, arm := range clusterRoster.Arms {
 				baseRosterID, _ := hmm.SplitEffort(arm)
 				catalogID := hmm.CatalogIDForRoster(baseRosterID)
-				model, ok := catalog.ByID(catalogID)
+				binding, ok := eligibleBinding(catalogID, routingTargets, availableProviders, excludedModels, excludedProviders)
 				if !ok {
 					continue
 				}
-				provider := model.PrimaryProvider()
-				if _, excluded := excludedModels[catalogID]; excluded {
-					continue
-				}
-				if _, excluded := excludedProviders[provider]; excluded {
-					continue
-				}
 				candidates[baseRosterID] = struct{}{}
-				if len(model.Providers) > 0 {
-					prices[catalogID] = model.Providers[0].Price.InputUSDPer1M / 1000
-				}
+				prices[catalogID] = binding.Price.InputUSDPer1M / 1000
 			}
 			pick, _, ok := SelectGroupsWithPreference(
 				roster,
@@ -91,4 +84,27 @@ func RoutingDistribution(roster *rosterdata.Roster, gridN int, excludedModels, e
 		})
 	}
 	return points, nil
+}
+
+// EligibleBinding returns the first policy-allowed catalog binding that survives
+// the same model and provider exclusions used by managed request selection.
+func EligibleBinding(catalogID string, availableProviders, excludedModels, excludedProviders map[string]struct{}) (catalog.ProviderBinding, bool) {
+	return eligibleBinding(catalogID, catalog.HMMRoutingTargetSet(availableProviders), availableProviders, excludedModels, excludedProviders)
+}
+
+func eligibleBinding(catalogID string, routingTargets, availableProviders, excludedModels, excludedProviders map[string]struct{}) (catalog.ProviderBinding, bool) {
+	if _, excluded := excludedModels[catalogID]; excluded {
+		return catalog.ProviderBinding{}, false
+	}
+	_, ok := routingTargets[catalogID]
+	if !ok {
+		return catalog.ProviderBinding{}, false
+	}
+	providerPolicy := policy.ManagedProviderPolicy()
+	for _, binding := range catalog.EnumerateBindings(catalogID, availableProviders) {
+		if _, excluded := excludedProviders[binding.Provider]; !excluded && providerPolicy.Allows(binding.Provider) {
+			return binding.ProviderBinding, true
+		}
+	}
+	return catalog.ProviderBinding{}, false
 }

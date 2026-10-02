@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/api/admin"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/hmm/rosterdata"
 
@@ -34,7 +35,7 @@ func (f *fakeDistributionSource) DefaultRoutingDistribution(gridN int, excludedM
 func newDistributionEngine(src admin.RoutingDistributionSource) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.GET("/v1/router/routing-distribution", admin.RoutingDistributionHandler(src))
+	engine.GET("/v1/router/routing-distribution", admin.RoutingDistributionHandler(src, nil))
 	return engine
 }
 
@@ -147,7 +148,7 @@ func TestRoutingDistributionHandler_UsesHMMRosterForHMMStrategy(t *testing.T) {
 	}
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.GET("/v1/router/routing-distribution", admin.RoutingDistributionHandler(src, roster))
+	engine.GET("/v1/router/routing-distribution", admin.RoutingDistributionHandler(src, map[string]struct{}{providers.ProviderOpenAI: {}}, roster))
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/router/routing-distribution?strategy=hmm_embedding&grid=2", nil)
 	rec := httptest.NewRecorder()

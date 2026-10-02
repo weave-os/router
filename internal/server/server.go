@@ -113,6 +113,8 @@ func ParseDefaultStrategy(raw string) router.Strategy {
 
 // Features toggles optional request surfaces that are off by default.
 type Features struct {
+	// AvailableProviders identifies dispatch providers wired in this worker.
+	AvailableProviders map[string]struct{}
 	// TrafficCapture records local conversation HTTP exchanges when explicitly configured.
 	TrafficCapture trafficcapture.Recorder
 	// PolicyPinEnabled registers the x-weave-policy-pin middleware. Off means
@@ -208,11 +210,11 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		// for the dashboard's distribution preview. Same unauthed rationale as
 		// /v1/router/models; the assertion skips sources that can't project one.
 		if dist, ok := deployedModels.(admin.RoutingDistributionSource); ok && features.ServingAdmission == nil {
-			discovery.GET("/v1/router/routing-distribution", middleware.WithTimeout(healthTimeout), admin.RoutingDistributionHandler(dist, hmmDistributionRosters...))
+			discovery.GET("/v1/router/routing-distribution", middleware.WithTimeout(healthTimeout), admin.RoutingDistributionHandler(dist, features.AvailableProviders, hmmDistributionRosters...))
 		}
 	}
 	if features.ServingAdmission != nil {
-		discovery.GET("/v1/router/routing-distribution", middleware.WithTimeout(healthTimeout), admin.AdmittedRoutingDistributionHandler(policyregistry.AdmittedRosterSource{}))
+		discovery.GET("/v1/router/routing-distribution", middleware.WithTimeout(healthTimeout), admin.AdmittedRoutingDistributionHandler(policyregistry.AdmittedRosterSource{}, features.AvailableProviders))
 	}
 
 	// /v1/router/hmm-roster: frozen per-cluster arm roster mapped to catalog IDs.

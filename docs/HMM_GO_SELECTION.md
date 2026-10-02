@@ -5,9 +5,9 @@ within-cluster arm selection — which lives in the Go router. The sidecar keeps
 ML inference (complexity classification) only.
 
 The staged rollout (`ROUTER_HMM_SELECTION_SHADOW` → `ROUTER_HMM_GO_SELECTION`)
-is complete and both flags are gone: Go selection is the only path. The sidecar
-contract followed: `policy_router_v3` carries a classification and no selected
-arm at all.
+is complete and both flags are gone: Go selection is the only path. Managed
+serving uses `policy_router_v4`: the sidecar returns classifier facts without a
+selected arm, and Go selects from the admitted policy.
 
 ## Why
 
@@ -26,8 +26,8 @@ class and shrinks the sidecar's authority to what only it can do: ML inference.
 | Roster contents (`hmm_router_cluster_roster_v7` JSON) | Declarative data, loaded and fail-loud validated by Go at boot (`internal/router/hmm/rosterdata`) |
 | Roster↔catalog validation | Go: `hmm.ValidateRosterIDs` (`internal/router/hmm/validate.go`) plus the `validate-roster` CLI for CI |
 | Within-cluster deterministic arm selection (harness policy, preference-adjusted WII/WPI ranking, ranked cluster-fallback walk) | Go: `internal/router/hmm/selection` |
-| Complexity classification (ML) | Python sidecar (`policy_router_v3` contract) |
-| Ranked cluster fallback (per-group probability, roster arms, eligible arms) | Python sidecar — the only selection input the router accepts |
+| Complexity classification (ML) | Private Python sidecar (`policy_router_v4` contract) |
+| Ranked cluster fallback (per-group probability, roster arms, eligible arms) | Go selector, using classifier probabilities and the admitted roster |
 
 ## Configuration
 
@@ -63,23 +63,27 @@ and score map byte-for-byte. Manual pins and harness vendor priority remain
 stronger tiers than the dynamic score, and original roster position breaks ties.
 
 The same Go scorer produces `/v1/router/routing-distribution` and the per-arm
-scores used by effort hysteresis. WPI is a normalized evaluation-workload axis,
-not a billing rate; preview dollars always come from catalog serving prices.
+scores used by effort hysteresis. Distribution applies model exclusions and
+retains a model when any policy-allowed provider binding remains; its cost uses
+the first surviving binding. WPI is a normalized evaluation-workload axis,
+not a billing rate; preview dollars come from catalog serving prices.
 
-Selection is **fail-closed**. A `/route` response with no ranked fallback, a
-ranked fallback holding no eligible arm, or a `policy_router_v1`/`v2` schema is
-rejected as a sidecar outage and the turn returns HTTP 503. There is no
-sidecar-picked arm to fall back to: `selected_roster_id`, `selected_provider`
-and `model` are null on the wire.
+`mode_policies` and `membership_by_harness` in older roster files are historical
+metadata. Current v4 requests have no router-mode input, and Go selection does
+not use per-harness membership. New policy authors should omit both fields;
+`arms_by_harness` remains the serving order override.
+
+Selection is **fail-closed**. A v4 classifier response with an incomplete class
+contract or no eligible arm returns an error; Go does not accept a sidecar-picked
+model or provider as a fallback.
 
 See [CONFIGURATION.md](CONFIGURATION.md) for the full variable reference.
 
 ## Deployment and rollback
 
-`policy_router_v3` is a hard break with no compatibility window: a v3 router
-rejects a v1/v2 sidecar and a v3 sidecar names no arm for a v1/v2 router. Router
-and sidecar deploy together, and roll back together — revert both image pins.
-There is no runtime flag to flip.
+Managed rollback pins the router image, classifier image, and policy selection
+set together through the serving registry. A v4 worker must use a compatible
+classifier package and admitted policy; replacing just one image is unsafe.
 
 For legacy/self-hosted configuration, roll back roster content by republishing the
 previous roster artifact and redeploying; an invalid roster fails boot. Managed
