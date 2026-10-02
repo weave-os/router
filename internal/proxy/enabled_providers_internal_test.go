@@ -279,6 +279,21 @@ func TestExcludeCodexOAuthOnlyModels(t *testing.T) {
 		assert.Contains(t, got, "gpt-5.4-nano")
 		assert.NotContains(t, got, "gpt-5.6-sol")
 	})
+
+	t.Run("managed subscription excludes unsupported OpenAI models", func(t *testing.T) {
+		s := &Service{
+			clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: nil}),
+			deploymentKeyedProviders: map[string]struct{}{
+				providers.ProviderOpenAI: {},
+			},
+			passthroughEligibleProviders: map[string]struct{}{},
+		}
+		managed := managedSubscriptionContext(auth.SubscriptionProviderCodex)
+		managed = billing.WithSubscriptionOnly(managed, billing.SubscriptionOnlyCreditsDepleted)
+		got := s.excludeCodexOAuthOnlyModels(managed, http.Header{}, enabled, nil)
+		assert.Contains(t, got, "gpt-5.4-nano")
+		assert.NotContains(t, got, "gpt-5.6-sol")
+	})
 }
 
 // TestEnabledProvidersForRequest_DeploymentKeyedStillCrossSurface confirms

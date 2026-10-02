@@ -51,6 +51,17 @@ func TestCatalog_BindingsReferenceCanonicalProviders(t *testing.T) {
 	}
 }
 
+func TestCatalog_CodexSubscriptionModelsUseOpenAI(t *testing.T) {
+	for _, model := range Models {
+		if !model.CodexSubscription {
+			continue
+		}
+		require.NotEmpty(t, model.Providers, "Codex subscription model %q has no provider", model.ID)
+		assert.Equal(t, providers.ProviderOpenAI, model.Providers[0].Provider,
+			"Codex subscription model %q must resolve through native OpenAI", model.ID)
+	}
+}
+
 func TestCatalog_BindingsHavePositivePrice(t *testing.T) {
 	for _, m := range Models {
 		for i, b := range m.Providers {
@@ -88,6 +99,21 @@ func TestByID_OpenAIDashedDateStrippedFallback(t *testing.T) {
 func TestByID_UnknownReturnsFalse(t *testing.T) {
 	_, ok := ByID("definitely-not-a-model")
 	assert.False(t, ok)
+}
+
+func TestCodexSubscriptionCoverageComesFromCatalog(t *testing.T) {
+	assert.ElementsMatch(t, []string{
+		"gpt-5.6-luna",
+		"gpt-5.6-sol",
+		"gpt-5.6-terra",
+		"gpt-6-luna",
+		"gpt-6-sol",
+		"gpt-6.1-sol",
+	}, CodexSubscriptionModels())
+	assert.True(t, CodexSubscriptionCoversModel("gpt-6-luna"))
+	assert.False(t, CodexSubscriptionCoversModel("gpt-5.4-nano"))
+	assert.False(t, CodexSubscriptionCoversModel("gpt-5.6-luna-pro"))
+	assert.False(t, CodexSubscriptionCoversModel("gpt-6-luna-2026-10-01"))
 }
 
 func TestPriceFor_UnknownProviderForKnownModel(t *testing.T) {

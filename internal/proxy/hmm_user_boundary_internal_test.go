@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/escalation"
@@ -72,6 +73,38 @@ func TestHMMCommandOnlyTurnUsesEligibleRosterFallback(t *testing.T) {
 	userRequest := router.Request{RequestedModel: features.Model, ConversationMessages: []router.ConversationMessage{{Role: "user", Text: "Please investigate"}}}
 	_, err = svc.routeWithStrategy(ctx, router.StrategyHMMEmbedding, userRequest)
 	require.ErrorIs(t, err, sidecarFailure)
+}
+
+func TestHMMCommandOnlyTurnUsesAdmittedRuntimeFallback(t *testing.T) {
+	const requestBody = `{"model":"claude-opus-4-8","messages":[{"role":"user","content":[{"type":"text","text":"<command-name>local command</command-name>"}]}]}`
+	env, err := translate.ParseAnthropic([]byte(requestBody))
+	require.NoError(t, err)
+	features := env.RoutingFeatures(false)
+	require.False(t, hasTextUserBoundary(conversationMessagesForRouting(env)))
+
+	innerService := unscorableHMMService(nil, errors.New("policy sidecar must not receive a command-only request"))
+	innerRouter := innerService.strategies[router.StrategyHMMEmbedding].router
+	snapshot := &policyregistry.Snapshot{Routers: map[router.Strategy]router.Router{
+		router.StrategyHMMEmbedding: innerRouter,
+	}}
+	admittedRouter := policyregistry.NewAdmittedRouter(router.StrategyHMMEmbedding, snapshot)
+	service := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, false, nil,
+		nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: admittedRouter})
+	ctx := policyregistry.WithServingSnapshot(
+		router.WithStrategy(context.Background(), router.StrategyHMMEmbedding),
+		snapshot,
+	)
+	requestForRouting := router.Request{
+		RequestedModel:       features.Model,
+		EstimatedInputTokens: features.Tokens,
+		ConversationMessages: conversationMessagesForRouting(env),
+	}
+
+	decision, err := service.routeWithStrategy(ctx, router.StrategyHMMEmbedding, requestForRouting)
+	require.NoError(t, err)
+	assert.Equal(t, "claude-haiku-4-5", decision.Model)
+	assert.Equal(t, policy.UnscorableHMMDecisionReason, decision.Reason)
 }
 
 func TestHMMCommandOnlyTurnHonorsEligibilityAndPolicyPin(t *testing.T) {

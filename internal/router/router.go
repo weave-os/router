@@ -136,6 +136,10 @@ type Request struct {
 	// ConversationMessages is provider-neutral visible history for sidecar
 	// routers that need multi-turn context.
 	ConversationMessages []ConversationMessage
+	// Unscorable marks a continuation with no user-authored text boundary.
+	// Policy routers must select from the eligible roster without classifying
+	// client-injected command wrappers as user input.
+	Unscorable bool
 	// AvailableTools is a bounded list of tool names declared on this request.
 	// Deprecated: use Tools for structural capability decisions.
 	AvailableTools []string

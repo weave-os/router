@@ -32,6 +32,25 @@ func ByID(id string) (Model, bool) {
 	return Model{}, false
 }
 
+// CodexSubscriptionModels returns the canonical models served by native
+// ChatGPT/Codex OAuth rather than OpenAI API credentials.
+func CodexSubscriptionModels() []string {
+	models := make([]string, 0, 8)
+	for _, model := range Models {
+		if model.CodexSubscription {
+			models = append(models, model.ID)
+		}
+	}
+	return models
+}
+
+// CodexSubscriptionCoversModel reports whether the catalog marks model for
+// native ChatGPT/Codex OAuth. Unknown models fail closed.
+func CodexSubscriptionCoversModel(id string) bool {
+	model, ok := byID[id]
+	return ok && model.CodexSubscription
+}
+
 // ResolveBinding returns the first ProviderBinding whose Provider is in
 // `available`. Used at boot to pick each routable model's upstream.
 func ResolveBinding(id string, available map[string]struct{}) (ProviderBinding, bool) {

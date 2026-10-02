@@ -2,11 +2,11 @@
 
 > **Mirror notice.** Source for generated [AGENTS.md](AGENTS.md). Edit this file, then run `make generate-agent-guides`; CI rejects drift.
 
-Single source of truth for per-model data: capability tier, ordered list of provider bindings, per-binding pricing + upstream model ID. Read [root CLAUDE.md](../../../CLAUDE.md) first.
+Single source of truth for per-model data: capability tier, subscription coverage, ordered list of provider bindings, per-binding pricing + upstream model ID. Read [root CLAUDE.md](../../../CLAUDE.md) first.
 
 ## What's here
 
-- `Model` — one struct per logical model. Fields: `ID`, `Tier`, `ContextWindow`, `Providers []ProviderBinding`.
+- `Model` — one struct per logical model. Fields include `ID`, `Tier`, `ContextWindow`, `CodexSubscription`, and `Providers []ProviderBinding`.
 - `ProviderBinding` — one `(Provider, UpstreamID, Price, FastPrice)` tuple. `FastPrice` is the provider's paid fast tier (OpenAI priority / Anthropic fast) and is zero on bindings without one; `FastPricing()` / `FastPriceFor` / `SupportsFastMode` read it. Routing scores on `Price` only — `FastPrice` is a post-dispatch billing rate. A model's bindings are ordered: the first whose `Provider` name is in the deploy's available set wins.
 - `Pricing` — per-binding input / output / cache pricing, with an optional prompt-size tier.
 - `Tier` — Low / Mid / High.
@@ -17,7 +17,7 @@ Single source of truth for per-model data: capability tier, ordered list of prov
 
 ## Adding a model
 
-1. Append one `Model{}` struct literal to `Models` in `catalog.go`.
+1. Append one `Model{}` struct literal to `Models` in `catalog.go`. Mark `CodexSubscription` there when native ChatGPT/Codex OAuth serves the model; credential routing reads that catalog field directly.
 2. If the model is a routing target, list it in the cluster bundle's `model_registry.json` (this catalog says how to price/dispatch a model; the registry says which version routes to it).
 3. Run `go run ./cmd/genprices` to regenerate `install/install.sh` + `install/cc-statusline.sh`.
 

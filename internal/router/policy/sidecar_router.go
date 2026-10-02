@@ -350,6 +350,9 @@ func validatePreviewResult(result PreviewResult, expectedSchemaVersion string) e
 }
 
 func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.Decision, error) {
+	if req.Unscorable {
+		return r.RouteWithoutUserText(ctx, req)
+	}
 	strategy := r.config.Strategy
 	r.capabilitiesMu.RLock()
 	capabilities := r.capabilities

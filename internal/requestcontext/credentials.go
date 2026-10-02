@@ -246,28 +246,16 @@ func CodexSubscriptionCreds(token, accountID string) *Credentials {
 	}
 }
 
-// codexCoveredModels is the fail-closed set of models the Codex CLI may serve
-// through the caller's ChatGPT OAuth credential. Deliberately a curated
-// allowlist, not "every OpenAI model": infrastructure-served OpenAI models
-// share ProviderOpenAI with the native Codex family, but must use BYOK or the
-// router deployment credential instead of chatgpt.com/backend-api/codex.
-var codexCoveredModels = []string{"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-sol", "gpt-6.1-sol", catalog.ModelGPT6Luna}
-
 // CodexCoveredModels returns a copy of the models a Codex subscription may serve.
 func CodexCoveredModels() []string {
-	return append([]string(nil), codexCoveredModels...)
+	return catalog.CodexSubscriptionModels()
 }
 
 // CodexSubscriptionCoversModel reports whether model may receive the caller's
 // ChatGPT OAuth credential. Exact canonical IDs only; aliases are resolved
 // before routing, and unknown/future models fail closed.
 func CodexSubscriptionCoversModel(model string) bool {
-	for _, covered := range codexCoveredModels {
-		if model == covered {
-			return true
-		}
-	}
-	return false
+	return catalog.CodexSubscriptionCoversModel(model)
 }
 
 // ApplyWIFTokenType marks the bearer as a workload attestation, not an upstream-issued token.

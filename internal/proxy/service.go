@@ -2927,13 +2927,7 @@ func (s *Service) routeWithStrategyUnchecked(ctx context.Context, strategy route
 		return router.Decision{}, fmt.Errorf("strategy %q requested but no router configured: %w", strategy, unavailable)
 	}
 	if router.IsHMMStrategy(strategy) && req.ConversationMessages != nil && !hasTextUserBoundary(req.ConversationMessages) {
-		unscorable, supported := registered.router.(interface {
-			RouteWithoutUserText(context.Context, router.Request) (router.Decision, error)
-		})
-		if !supported {
-			return router.Decision{}, fmt.Errorf("strategy %q has no unscorable-turn policy: %w", strategy, router.ErrStrategyUnavailable)
-		}
-		return unscorable.RouteWithoutUserText(ctx, req)
+		req.Unscorable = true
 	}
 	return registered.router.Route(ctx, req)
 }
@@ -6064,8 +6058,8 @@ func (s *Service) excludeCodexOAuthOnlyModels(
 	enabledProviders map[string]struct{},
 	excluded map[string]struct{},
 ) map[string]struct{} {
-	codex, _ := presentSubscriptionTokens(ctx, headers)
-	if codex == "" || (!paidFallbackForbidden(ctx) && s.hasOpenAIInfrastructureCredential(ctx, headers)) {
+	_, codexAvailable := subscriptionServableProviders(ctx, headers)[providers.ProviderOpenAI]
+	if !codexAvailable || (!paidFallbackForbidden(ctx) && s.hasOpenAIInfrastructureCredential(ctx, headers)) {
 		return excluded
 	}
 	for _, model := range catalog.Models {
