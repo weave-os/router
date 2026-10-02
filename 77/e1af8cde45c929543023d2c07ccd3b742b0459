@@ -1,0 +1,19 @@
+internal/proxy/sibling_failover_internal_test.go
+  s_8c07cbaac32551::t_bf15b89d67d90a 65-66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "77e1af8cde45c929543023d2c07ccd3b742b0459",
+  "prompts": {},
+  "sessions": {
+    "s_8c07cbaac32551": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f88e-2dbc-7912-b3cf-34aa1988b388",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
