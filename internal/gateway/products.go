@@ -36,11 +36,12 @@ type ReadCredentialVerifier interface {
 // ProductSurfaces supplies the independent credentials for existing non-inference endpoints.
 // A nil feedback signer retains the worker's feature-disabled behavior.
 type ProductSurfaces struct {
-	Environment policyregistry.Environment
-	Analytics   AnalyticsCredentialVerifier
-	Reads       ReadCredentialVerifier
-	Feedback    *feedback.Signer
-	Attribution FeedbackAdmissionLookup
+	Environment   policyregistry.Environment
+	InternalToken string
+	Analytics     AnalyticsCredentialVerifier
+	Reads         ReadCredentialVerifier
+	Feedback      *feedback.Signer
+	Attribution   FeedbackAdmissionLookup
 }
 
 func (p ProductSurfaces) validate() error {

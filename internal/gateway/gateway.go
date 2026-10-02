@@ -65,6 +65,10 @@ func NewHandler(credentials CredentialVerifier, admissions policyregistry.Servin
 
 // ServeHTTP preserves original ordinary-request bytes and streams without replay or response buffering.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost && r.URL.Path == "/internal/v1/routing-discovery" {
+		h.serveRoutingDiscovery(w, r)
+		return
+	}
 	policyregistry.StripServingHeaders(r.Header)
 	if h.serveProductSurface(w, r) {
 		return

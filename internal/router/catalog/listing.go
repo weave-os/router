@@ -37,6 +37,24 @@ func Listing() []ModelListing {
 	return rows
 }
 
+// BindingListing reports every provider binding for internal control-plane
+// eligibility checks. Public model lists retain their primary-provider shape.
+func BindingListing() []ModelListing {
+	rows := make([]ModelListing, 0, len(Models))
+	for _, model := range Models {
+		if model.ID == "" {
+			continue
+		}
+		for _, binding := range model.Providers {
+			rows = append(rows, ModelListing{
+				Model: model.ID, Provider: binding.Provider, FastMode: SupportsFastMode(model.ID),
+			})
+		}
+	}
+	SortListing(rows)
+	return rows
+}
+
 // SortListing orders rows by provider then model, the order every models
 // response uses so grouping in the settings UI stays consistent.
 func SortListing(rows []ModelListing) {

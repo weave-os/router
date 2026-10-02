@@ -123,6 +123,8 @@ type Features struct {
 	// ServingAdmission verifies gateway assertions and pins request snapshots.
 	// Nil keeps legacy/self-hosted workers on their existing admission path.
 	ServingAdmission *middleware.ServingAdmissionConfig
+	// ManagedDiscoveryStore reads current target activations for the internal control-plane API.
+	ManagedDiscoveryStore policyregistry.ServingStore
 	// SubscriberAllowance gates inference on an individual Max/Boost
 	// subscriber's included Router allowance. Nil leaves every request on the
 	// org/prepaid billing gates alone.
@@ -229,6 +231,13 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	// are minted or encrypted here.
 	if internalToken := strings.TrimSpace(os.Getenv("ROUTER_INTERNAL_SERVICE_TOKEN")); internalToken != "" {
 		internalGroup := engine.Group("/internal/v1", middleware.WithTimeout(adminTimeout), middleware.WithInternalServiceAuth(internalToken))
+		if mode == DeploymentModeManaged {
+			var workerIdentity *policyregistry.WorkerIdentity
+			if features.ServingAdmission != nil {
+				workerIdentity = &features.ServingAdmission.Identity
+			}
+			internalGroup.POST("/routing-discovery", admin.InternalRoutingDiscoveryHandler(policyregistry.CurrentPolicySource{Store: features.ManagedDiscoveryStore}, features.AvailableProviders, workerIdentity))
+		}
 		internalGroup.POST("/provider-keys/models", admin.InternalListUpstreamModelsHandler(authSvc, proxySvc))
 		if authSvc.SubscriptionAccountsEnabled() {
 			internalGroup.GET("/subscription-accounts/:subscriberID", admin.InternalListSubscriptionAccountsHandler(authSvc))

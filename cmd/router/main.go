@@ -1517,6 +1517,18 @@ func main() {
 		SubscriberAllowance: subscriberAllowanceSvc,
 		AvailableProviders:  availableProviders,
 	}
+	if servingAdmission != nil {
+		serverFeatures.ManagedDiscoveryStore = servingAdmission.Store
+	} else if deploymentMode == server.DeploymentModeManaged && strings.TrimSpace(os.Getenv("ROUTER_INTERNAL_SERVICE_TOKEN")) != "" {
+		registryURI := strings.TrimSpace(config.GetOr("WEAVE_REGISTRY_URI", "gs://weave_ml/weave_registry"))
+		registry, registryErr := policyregistry.NewGCSRegistry(context.Background(), registryURI)
+		if registryErr != nil {
+			logger.Error("Managed routing discovery registry unavailable", "registry_uri", registryURI, "err", registryErr)
+		} else {
+			defer registry.Close()
+			serverFeatures.ManagedDiscoveryStore = registry
+		}
+	}
 	if trafficCapture != nil {
 		serverFeatures.TrafficCapture = trafficCapture
 	}

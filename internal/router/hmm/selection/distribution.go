@@ -12,6 +12,7 @@ import (
 )
 
 const defaultDistributionGrid = 21
+const maxDistributionGrid = 101
 
 // RoutingDistribution projects the HMM roster's within-band model mix across
 // the quality/price dial. Each classifier band contributes equal weight; live
@@ -22,6 +23,9 @@ func RoutingDistribution(roster *rosterdata.Roster, gridN int, availableProvider
 	}
 	if gridN < 2 {
 		gridN = defaultDistributionGrid
+	}
+	if gridN > maxDistributionGrid {
+		return nil, fmt.Errorf("HMM routing distribution grid exceeds %d points", maxDistributionGrid)
 	}
 	labels := make([]string, 0, len(roster.Clusters))
 	for label := range roster.Clusters {

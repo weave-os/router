@@ -16,6 +16,27 @@ registry writer. The kept list is at the end of this document.
 
 ## Command surface
 
+### Internal routing discovery
+
+The managed gateway accepts `POST /internal/v1/routing-discovery` from the
+Weave control plane when `ROUTER_INTERNAL_SERVICE_TOKEN` is configured. It
+authenticates the token, resolves the current target/profile binding, and
+forwards to that binding's worker, which verifies its attested target and image
+before projecting the policy. Calls
+must supply `X-Weave-Internal-Token`. The JSON body contains `target` (`staging`,
+`prod/stable`, or `prod/weave-internal`), optional opaque `profile_key`, optional
+`grid` in `[2, 101]`, and optional `excluded_models` and `excluded_providers`
+arrays (at most 128 entries each). The control plane resolves the target and
+profile from organization enrollment; browser clients do not call this API.
+
+Each request reads the target's authoritative current activation and its exact
+selection set. The response includes the activation, selection-set, candidate,
+and policy digests; ordered clusters and catalog IDs; the policy's model list;
+the full catalog listing; and quality/price distribution points. Responses set
+`Cache-Control: no-store`. Invalid input or an empty eligible pool returns 400;
+an unavailable active policy or registry returns 503. Discovery neither pins a
+session to a retained activation nor changes target state.
+
 `policyctl serving` exposes exactly four verbs. Every verb accepts
 `--registry gs://<bucket>/<prefix>` (default `gs://weave_ml/weave_registry`).
 

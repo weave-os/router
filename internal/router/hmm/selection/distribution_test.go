@@ -182,3 +182,8 @@ func TestRoutingDistributionHonorsExclusions(t *testing.T) {
 		assert.NotEqual(t, "gpt-5.6-luna", point.Models[0].Model)
 	}
 }
+
+func TestRoutingDistributionBoundsGridBeforeAllocation(t *testing.T) {
+	_, err := selection.RoutingDistribution(dynamicRoster(), 1_000_000_000, nil, nil, nil)
+	require.ErrorContains(t, err, "grid exceeds 101 points")
+}

@@ -83,7 +83,7 @@ func run() error {
 	}
 	transport := newWorkerTransport()
 	defer transport.CloseIdleConnections()
-	products := gateway.ProductSurfaces{Environment: environment, Analytics: credentials, Reads: credentials, Feedback: feedback.NewSigner(config.GetOr("ROUTER_FEEDBACK_LINK_SECRET", ""), 0), Attribution: serving.FeedbackLookup{Queries: dbbudget.Queries(pool)}}
+	products := gateway.ProductSurfaces{Environment: environment, InternalToken: strings.TrimSpace(config.GetOr("ROUTER_INTERNAL_SERVICE_TOKEN", "")), Analytics: credentials, Reads: credentials, Feedback: feedback.NewSigner(config.GetOr("ROUTER_FEEDBACK_LINK_SECRET", ""), 0), Attribution: serving.FeedbackLookup{Queries: dbbudget.Queries(pool)}}
 	forwarder, err := gateway.NewHandler(credentials, admissions, registry, signer, iam.Authorizer{}, transport, products)
 	if err != nil {
 		return err

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"weave-os/router/internal/analytics"
@@ -115,6 +116,28 @@ func TestRegister_DeploymentMode(t *testing.T) {
 		got := routeSet(engine)
 		assert.NotContains(t, got, "GET /v1/router/models", "catalog endpoint must not mount without a deployed-models source")
 	})
+}
+
+func TestManagedRoutingDiscoveryIsInternalOnly(t *testing.T) {
+	t.Setenv("ROUTER_INTERNAL_SERVICE_TOKEN", "test-token")
+	for _, mode := range []server.DeploymentMode{server.DeploymentModeManaged, server.DeploymentModeSelfHosted} {
+		engine := gin.New()
+		server.RegisterWithFeatures(engine, nil, nil, fakeDeployedModelsSource{}, nil, mode, nil, nil, nil, nil, server.Features{})
+		_, mounted := routeSet(engine)["POST /internal/v1/routing-discovery"]
+		assert.Equal(t, mode == server.DeploymentModeManaged, mounted)
+		if mode != server.DeploymentModeManaged {
+			continue
+		}
+		request := httptest.NewRequest(http.MethodPost, "/internal/v1/routing-discovery", strings.NewReader(`{"target":"prod/stable"}`))
+		recorder := httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		assert.Equal(t, http.StatusUnauthorized, recorder.Code)
+		request = httptest.NewRequest(http.MethodPost, "/internal/v1/routing-discovery", strings.NewReader(`{"target":"prod/stable"}`))
+		request.Header.Set("X-Weave-Internal-Token", "test-token")
+		recorder = httptest.NewRecorder()
+		engine.ServeHTTP(recorder, request)
+		assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	}
 }
 
 // The export is a product surface, so it must reach managed installations too
