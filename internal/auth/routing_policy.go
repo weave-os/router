@@ -24,9 +24,10 @@ var ErrRoutingPolicyUnavailable = errors.New("routing policy unavailable")
 
 // RoutingPolicy is an immutable, revisioned snapshot for one installation.
 type RoutingPolicy struct {
-	ReportingExperimentID string
-	Mode                  RoutingPolicyMode
-	Revision              int64
+	ExperimentSnapshotID    int64
+	ExperimentRouterUserIDs map[string]struct{}
+	Mode                    RoutingPolicyMode
+	Revision                int64
 }
 
 // RoutingPolicyRepository reads generic assignments without knowing their control-plane origin.

@@ -196,6 +196,11 @@ jobs:
       - name: Run tests with vetting
         run: go test -vet=all -count=1 ./...
 
+      - name: Check experiment snapshot compatibility on ephemeral Postgres
+        env:
+          ROUTER_TEST_DATABASE_URL: postgres://router:router@localhost:5432/router?sslmode=disable&search_path=router
+        run: go run ./scripts/reporting_provenance_check
+
       - name: Check managed serving admission on ephemeral Postgres
         env:
           ROUTER_TEST_DATABASE_URL: postgres://router:router@localhost:5432/router?sslmode=disable&search_path=router

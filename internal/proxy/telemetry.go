@@ -64,15 +64,8 @@ type SessionCost struct {
 
 // InsertTelemetryParams mirrors one router.upstream span row.
 type InsertTelemetryParams struct {
-	ReportingSchemaVersion    *int16
-	ReportingMode             auth.ReportingMode
-	ReportingExperimentID     string
-	ReportingRevision         *int64
-	ReportingAssignedArm      auth.BlindExperimentArm
-	ReportingTreatmentApplied *bool
-	ReportingBypassReason     auth.CohortBypassReason
-	ReportingSubjectKey       string
-	InstallationID            string
+	ExperimentSnapshotID *int64
+	InstallationID       string
 	// APIKeyID attributes the row to the authenticating api key (per-key spend
 	// audit). Empty leaves the column NULL.
 	APIKeyID                        string

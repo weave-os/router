@@ -44,6 +44,7 @@ func run() error {
 	}
 	defer tx.Rollback(ctx)
 	installation, user, experiment := uuid.New(), uuid.New(), uuid.New()
+	snapshotExperimentID := uuid.New()
 	if _, err = tx.Exec(ctx, `INSERT INTO router.model_router_installations(id,external_id,name) VALUES($1,'synthetic-reporting','synthetic-reporting')`, installation); err != nil {
 		return err
 	}
@@ -58,7 +59,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if !unmarked.Enabled || unmarked.ReportingExperimentID != "" || unmarked.ReportingRevision != 0 {
+	if !unmarked.Enabled || unmarked.ExperimentSnapshotID != 0 {
 		return errors.New("old configuration must remain enabled without reporting metadata")
 	}
 	if _, err = tx.Exec(ctx, `UPDATE router.blind_router_experiment_configurations SET reporting_experiment_id=$2,reporting_revision=3 WHERE installation_id=$1`, installation, experiment); err != nil {
@@ -68,28 +69,58 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if incomplete.ReportingExperimentID != "" || incomplete.ReportingRevision != 0 {
+	if incomplete.ExperimentSnapshotID != 0 {
 		return errors.New("missing watermark exposed an incomplete reporting marker")
 	}
-	if _, err = tx.Exec(ctx, `UPDATE router.blind_router_experiment_configurations SET reporting_experiment_id=$2,reporting_revision=3,reporting_updated_at=updated_at WHERE installation_id=$1`, installation, experiment); err != nil {
+	var percentageSnapshot int64
+	if err = tx.QueryRow(ctx, `INSERT INTO router.experiment_settings_snapshots(installation_id,experiment_id,revision,mode,settings)
+      SELECT installation_id,$3,1,'percentage',jsonb_build_object('source_experiment_id',$2::text,'algorithm_version',1,'seed',seed::text,'router_on_percentage',router_on_percentage)
+      FROM router.blind_router_experiment_configurations WHERE installation_id=$1 RETURNING id`, installation, experiment, snapshotExperimentID).Scan(&percentageSnapshot); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE router.blind_router_experiment_configurations SET reporting_experiment_id=$2,reporting_revision=3,reporting_updated_at=updated_at,experiment_snapshot_id=$3 WHERE installation_id=$1`, installation, experiment, percentageSnapshot); err != nil {
 		return err
 	}
 	marked, err := repo.GetForUser(ctx, installation.String(), user.String())
 	if err != nil {
 		return err
 	}
-	if marked.ReportingExperimentID != experiment.String() || marked.ReportingRevision != 3 || marked.CohortExperimentID != "" || marked.RouterOnPercentage != unmarked.RouterOnPercentage || marked.Seed != unmarked.Seed {
+	if marked.ExperimentSnapshotID != percentageSnapshot || marked.CohortExperimentID != "" || marked.RouterOnPercentage != unmarked.RouterOnPercentage || marked.Seed != unmarked.Seed {
 		return errors.New("marked configuration changed serving snapshot or lost reporting revision")
 	}
-	if _, err = tx.Exec(ctx, `INSERT INTO router.installation_routing_policies(installation_id,mode,revision,reporting_experiment_id,reporting_updated_at) VALUES($1,'assigned',7,$2,now())`, installation, experiment); err != nil {
+	var teamSnapshot int64
+	if err = tx.QueryRow(ctx, `INSERT INTO router.experiment_settings_snapshots(installation_id,experiment_id,revision,mode,settings)
+      VALUES($1,$4,2,'teams',jsonb_build_object('source_experiment_id',$2::text,'algorithm_version',1,'router_user_ids',jsonb_build_array($3::text))) RETURNING id`, installation, experiment, user.String(), snapshotExperimentID).Scan(&teamSnapshot); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO router.installation_routing_policies(installation_id,mode,revision,reporting_experiment_id,reporting_updated_at,experiment_snapshot_id) VALUES($1,'assigned',7,$2,now(),$3)`, installation, experiment, teamSnapshot); err != nil {
 		return err
 	}
 	policy, err := postgres.NewRoutingPolicyRepo(tx).GetPolicy(ctx, installation.String())
 	if err != nil {
 		return err
 	}
-	if policy.Mode != auth.RoutingPolicyAssigned || policy.Revision != 7 || policy.ReportingExperimentID != experiment.String() {
+	if policy.Mode != auth.RoutingPolicyAssigned || policy.Revision != 7 || policy.ExperimentSnapshotID != teamSnapshot {
 		return errors.New("team policy marker and serving revision did not roundtrip together")
+	}
+	// Reporting metadata failure must never alter the serving policy.
+	var malformedSnapshot int64
+	if err = tx.QueryRow(ctx, `INSERT INTO router.experiment_settings_snapshots(installation_id,experiment_id,revision,mode,settings)
+      VALUES($1,$2,3,'teams',jsonb_build_object('source_experiment_id',$3::text,'algorithm_version',1,'router_user_ids',jsonb_build_array(42))) RETURNING id`, installation, snapshotExperimentID, experiment).Scan(&malformedSnapshot); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE router.installation_routing_policies SET experiment_snapshot_id=$2 WHERE installation_id=$1`, installation, malformedSnapshot); err != nil {
+		return err
+	}
+	malformedPolicy, err := postgres.NewRoutingPolicyRepo(tx).GetPolicy(ctx, installation.String())
+	if err != nil {
+		return err
+	}
+	if malformedPolicy.Mode != policy.Mode || malformedPolicy.Revision != policy.Revision || malformedPolicy.ExperimentSnapshotID != 0 {
+		return errors.New("malformed reporting membership changed routing or remained eligible")
+	}
+	if _, err = tx.Exec(ctx, `UPDATE router.installation_routing_policies SET experiment_snapshot_id=$2 WHERE installation_id=$1`, installation, teamSnapshot); err != nil {
+		return err
 	}
 	// A legacy control plane advances updated_at without refreshing reporting metadata.
 	if _, err = tx.Exec(ctx, `UPDATE router.blind_router_experiment_configurations SET router_on_percentage=75,updated_at=updated_at+interval '1 second' WHERE installation_id=$1`, installation); err != nil {
@@ -99,7 +130,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if stale.ReportingExperimentID != "" || stale.ReportingRevision != 0 || stale.RouterOnPercentage != 75 {
+	if stale.ExperimentSnapshotID != 0 || stale.RouterOnPercentage != 75 {
 		return errors.New("legacy percentage writer left stale reporting attribution or changed serving behavior")
 	}
 	if _, err = tx.Exec(ctx, `UPDATE router.installation_routing_policies SET revision=8,updated_at=updated_at+interval '1 second' WHERE installation_id=$1`, installation); err != nil {
@@ -109,7 +140,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	if stalePolicy.ReportingExperimentID != "" || stalePolicy.Mode != auth.RoutingPolicyAssigned || stalePolicy.Revision != 8 {
+	if stalePolicy.ExperimentSnapshotID != 0 || stalePolicy.Mode != auth.RoutingPolicyAssigned || stalePolicy.Revision != 8 {
 		return errors.New("legacy team writer left stale reporting attribution or changed serving behavior")
 	}
 	// A pre-migration writer omits every reporting column.
@@ -117,26 +148,22 @@ func run() error {
 		return err
 	}
 	var missing bool
-	if err = tx.QueryRow(ctx, `SELECT reporting_schema_version IS NULL AND reporting_mode IS NULL AND reporting_experiment_id IS NULL AND reporting_revision IS NULL AND reporting_assigned_arm IS NULL AND reporting_treatment_applied IS NULL AND reporting_bypass_reason IS NULL AND reporting_subject_key IS NULL FROM router.model_router_request_telemetry WHERE installation_id=$1 AND request_id='old-writer'`, installation).Scan(&missing); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT experiment_snapshot_id IS NULL AND reporting_schema_version IS NULL AND reporting_mode IS NULL AND reporting_experiment_id IS NULL AND reporting_revision IS NULL AND reporting_assigned_arm IS NULL AND reporting_treatment_applied IS NULL AND reporting_bypass_reason IS NULL AND reporting_subject_key IS NULL FROM router.model_router_request_telemetry WHERE installation_id=$1 AND request_id='old-writer'`, installation).Scan(&missing); err != nil {
 		return err
 	}
 	if !missing {
 		return errors.New("old writer fabricated reporting provenance")
 	}
-	version, revision, applied := proxy.ReportingProvenanceSchemaVersion, int64(7), true
-	if err = postgres.NewTelemetryRepo(tx).InsertRequestTelemetry(ctx, proxy.InsertTelemetryParams{InstallationID: installation.String(), RequestID: "marked-writer", SpanType: "router.upstream", TraceID: "marked-trace", Timestamp: time.Now(), ReportingSchemaVersion: &version, ReportingMode: auth.ReportingModeTeams, ReportingExperimentID: experiment.String(), ReportingRevision: &revision, ReportingAssignedArm: auth.BlindExperimentArmRouterOn, ReportingTreatmentApplied: &applied, ReportingSubjectKey: user.String()}); err != nil {
+	if err = postgres.NewTelemetryRepo(tx).InsertRequestTelemetry(ctx, proxy.InsertTelemetryParams{InstallationID: installation.String(), RequestID: "marked-writer", SpanType: "router.upstream", TraceID: "marked-trace", Timestamp: time.Now(), ExperimentSnapshotID: &teamSnapshot}); err != nil {
 		return err
 	}
-	var gotVersion int16
-	var gotRevision int64
-	var gotApplied bool
-	var mode, id, arm, subject string
-	var bypass *string
-	if err = tx.QueryRow(ctx, `SELECT reporting_schema_version,reporting_mode,reporting_experiment_id::text,reporting_revision,reporting_assigned_arm,reporting_treatment_applied,reporting_bypass_reason,reporting_subject_key FROM router.model_router_request_telemetry WHERE installation_id=$1 AND request_id='marked-writer'`, installation).Scan(&gotVersion, &mode, &id, &gotRevision, &arm, &gotApplied, &bypass, &subject); err != nil {
+	var persistedSnapshot int64
+	var oldFieldsEmpty bool
+	if err = tx.QueryRow(ctx, `SELECT experiment_snapshot_id,reporting_schema_version IS NULL AND reporting_mode IS NULL AND reporting_experiment_id IS NULL AND reporting_revision IS NULL AND reporting_assigned_arm IS NULL AND reporting_treatment_applied IS NULL AND reporting_bypass_reason IS NULL AND reporting_subject_key IS NULL FROM router.model_router_request_telemetry WHERE installation_id=$1 AND request_id='marked-writer'`, installation).Scan(&persistedSnapshot, &oldFieldsEmpty); err != nil {
 		return err
 	}
-	if gotVersion != version || mode != "teams" || id != experiment.String() || gotRevision != revision || arm != "router_on" || !gotApplied || bypass != nil || subject != user.String() {
-		return errors.New("persisted reporting provenance differs from request snapshot")
+	if persistedSnapshot != teamSnapshot || !oldFieldsEmpty {
+		return errors.New("new writer must store only its snapshot reference")
 	}
 	return tx.Rollback(ctx)
 }

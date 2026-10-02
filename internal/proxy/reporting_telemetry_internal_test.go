@@ -17,19 +17,18 @@ func TestReportingTreatmentObservesOutcomeWithoutChangingDecision(t *testing.T) 
 		arm     auth.BlindExperimentArm
 		routed  *turnLoopResult
 		applied bool
-		bypass  auth.CohortBypassReason
 	}{
 		{name: "router", arm: auth.BlindExperimentArmRouterOn, routed: &turnLoopResult{Decision: router.Decision{Model: "model"}}, applied: true},
 		{name: "control", arm: auth.BlindExperimentArmPassthrough, routed: &turnLoopResult{Decision: router.Decision{Model: "model"}, CallerModelPassthrough: true}, applied: true},
-		{name: "force", arm: auth.BlindExperimentArmRouterOn, routed: &turnLoopResult{Decision: router.Decision{Model: "model", Reason: translate.ReasonUserForceModel}}, bypass: auth.CohortBypassForceModel},
-		{name: "pin", arm: auth.BlindExperimentArmRouterOn, routed: &turnLoopResult{Decision: router.Decision{Model: "model"}, HardPinned: true}, bypass: auth.CohortBypassHardPin},
-		{name: "usage", arm: auth.BlindExperimentArmRouterOn, routed: &turnLoopResult{Decision: router.Decision{Model: "model"}, UsageBypass: true}, bypass: auth.CohortBypassUsageBypass},
-		{name: "not dispatched", arm: auth.BlindExperimentArmRouterOn, bypass: auth.CohortBypassNotDispatched},
-		{name: "router bypass", arm: auth.BlindExperimentArmRouterOn, routed: &turnLoopResult{Decision: router.Decision{Model: "model"}, CallerModelPassthrough: true}, bypass: auth.CohortBypassNotDispatched},
-		{name: "control mismatch", arm: auth.BlindExperimentArmPassthrough, routed: &turnLoopResult{Decision: router.Decision{Model: "model"}}, bypass: auth.CohortBypassNotDispatched},
+		{name: "force", arm: auth.BlindExperimentArmRouterOn, routed: &turnLoopResult{Decision: router.Decision{Model: "model", Reason: translate.ReasonUserForceModel}}},
+		{name: "pin", arm: auth.BlindExperimentArmRouterOn, routed: &turnLoopResult{Decision: router.Decision{Model: "model"}, HardPinned: true}},
+		{name: "usage", arm: auth.BlindExperimentArmRouterOn, routed: &turnLoopResult{Decision: router.Decision{Model: "model"}, UsageBypass: true}},
+		{name: "not dispatched", arm: auth.BlindExperimentArmRouterOn},
+		{name: "router bypass", arm: auth.BlindExperimentArmRouterOn, routed: &turnLoopResult{Decision: router.Decision{Model: "model"}, CallerModelPassthrough: true}},
+		{name: "control mismatch", arm: auth.BlindExperimentArmPassthrough, routed: &turnLoopResult{Decision: router.Decision{Model: "model"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			state := auth.BlindExperimentState{Active: true, Arm: tc.arm, CanonicalSubjectKey: "subject", ReportingExperimentID: "experiment", ReportingRevision: 3}
+			state := auth.BlindExperimentState{Active: true, Arm: tc.arm, CanonicalSubjectKey: "subject", ExperimentSnapshotID: 3, AssignmentSource: auth.BlindExperimentAssignmentAutomatic}
 			ctx := context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, state)
 			var before turnLoopResult
 			if tc.routed != nil {
@@ -37,12 +36,12 @@ func TestReportingTreatmentObservesOutcomeWithoutChangingDecision(t *testing.T) 
 			}
 			params := InsertTelemetryParams{TrainingAllowed: true}
 			applyReportingTelemetry(ctx, &params, tc.routed)
-			require.NotNil(t, params.ReportingSchemaVersion)
-			assert.Equal(t, int16(1), *params.ReportingSchemaVersion)
-			require.NotNil(t, params.ReportingTreatmentApplied)
-			assert.Equal(t, tc.applied, *params.ReportingTreatmentApplied)
-			assert.Equal(t, tc.bypass, params.ReportingBypassReason)
-			assert.Equal(t, tc.arm, params.ReportingAssignedArm)
+			if tc.applied {
+				require.NotNil(t, params.ExperimentSnapshotID)
+				assert.Equal(t, int64(3), *params.ExperimentSnapshotID)
+			} else {
+				assert.Nil(t, params.ExperimentSnapshotID)
+			}
 			assert.Empty(t, params.CohortExperimentID)
 			assert.True(t, params.TrainingAllowed)
 			if tc.routed != nil {
@@ -56,9 +55,7 @@ func TestUnmarkedReportingKeepsExistingTelemetry(t *testing.T) {
 	params := InsertTelemetryParams{TrainingAllowed: true}
 	ctx := blindExperimentContext(auth.BlindExperimentArmPassthrough)
 	applyBlindExperimentTelemetry(ctx, &params, &turnLoopResult{Decision: router.Decision{Model: "model"}, CallerModelPassthrough: true})
-	assert.Nil(t, params.ReportingSchemaVersion)
-	assert.Nil(t, params.ReportingTreatmentApplied)
-	assert.Empty(t, params.ReportingExperimentID)
+	assert.Nil(t, params.ExperimentSnapshotID)
 	assert.Equal(t, auth.BlindExperimentArmPassthrough, params.BlindExperimentArm)
 	assert.False(t, params.TrainingAllowed)
 }

@@ -90,6 +90,7 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.Inse
 	}
 	q := dbbudget.Queries(r.tx)
 	return q.InsertRequestTelemetry(ctx, sqlc.InsertRequestTelemetryParams{
+		ExperimentSnapshotID:                     p.ExperimentSnapshotID,
 		InstallationID:                           id,
 		APIKeyID:                                 uuidOrNil(p.APIKeyID),
 		RequestID:                                p.RequestID,
@@ -104,14 +105,6 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.Inse
 		BlindExperimentAssignmentSource:          stringPtrOrNil(string(p.BlindExperimentAssignmentSource)),
 		BlindExperimentSubjectKey:                stringPtrOrNil(p.BlindExperimentSubjectKey),
 		CohortExperimentID:                       uuidOrNil(p.CohortExperimentID),
-		ReportingSchemaVersion:                   p.ReportingSchemaVersion,
-		ReportingMode:                            stringPtrOrNil(string(p.ReportingMode)),
-		ReportingExperimentID:                    uuidOrNil(p.ReportingExperimentID),
-		ReportingRevision:                        p.ReportingRevision,
-		ReportingAssignedArm:                     stringPtrOrNil(string(p.ReportingAssignedArm)),
-		ReportingTreatmentApplied:                p.ReportingTreatmentApplied,
-		ReportingBypassReason:                    stringPtrOrNil(string(p.ReportingBypassReason)),
-		ReportingSubjectKey:                      stringPtrOrNil(p.ReportingSubjectKey),
 		CohortGroupID:                            p.CohortGroupID,
 		CohortPhaseIndex:                         p.CohortPhaseIndex,
 		CohortRevision:                           p.CohortRevision,

@@ -36,6 +36,7 @@ type RouterBlindRouterExperimentConfiguration struct {
 	ReportingExperimentID pgtype.UUID
 	ReportingRevision     *int64
 	ReportingUpdatedAt    pgtype.Timestamptz
+	ExperimentSnapshotID  *int64
 }
 
 type RouterBlindRouterExperimentEmergencyOverride struct {
@@ -196,6 +197,16 @@ type RouterEscalationSession struct {
 	ExpiresAt        pgtype.Timestamptz
 }
 
+type RouterExperimentSettingsSnapshot struct {
+	ID             int64
+	InstallationID uuid.UUID
+	ExperimentID   uuid.UUID
+	Revision       int64
+	Mode           string
+	Settings       []byte
+	CreatedAt      pgtype.Timestamptz
+}
+
 // Published mirror of internal/flags.Registry, upserted by the router at boot. Read by the Weave control plane to render the per-org flag override admin UI. Never read on the request path.
 type RouterFlagDefinition struct {
 	Key string
@@ -251,6 +262,7 @@ type RouterInstallationRoutingPolicy struct {
 	UpdatedAt             pgtype.Timestamptz
 	ReportingExperimentID pgtype.UUID
 	ReportingUpdatedAt    pgtype.Timestamptz
+	ExperimentSnapshotID  *int64
 }
 
 type RouterLlmEscalationCompletion struct {
@@ -669,6 +681,7 @@ type RouterModelRouterRequestTelemetry struct {
 	ReportingTreatmentApplied *bool
 	ReportingBypassReason     *string
 	ReportingSubjectKey       *string
+	ExperimentSnapshotID      *int64
 }
 
 type RouterModelRouterSubscriptionAccount struct {

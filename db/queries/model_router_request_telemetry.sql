@@ -55,6 +55,7 @@
 -- which re-counts the whole history on every turn.
 -- name: InsertRequestTelemetry :exec
 INSERT INTO router.model_router_request_telemetry (
+    experiment_snapshot_id,
     installation_id,
     api_key_id,
     request_id,
@@ -123,14 +124,6 @@ INSERT INTO router.model_router_request_telemetry (
     cohort_scheduled_arm,
     cohort_treatment_applied,
     cohort_bypass_reason,
-    reporting_schema_version,
-    reporting_mode,
-    reporting_experiment_id,
-    reporting_revision,
-    reporting_assigned_arm,
-    reporting_treatment_applied,
-    reporting_bypass_reason,
-    reporting_subject_key,
     turn_type,
     rollout_id,
     upstream_finish_reason,
@@ -227,6 +220,7 @@ INSERT INTO router.model_router_request_telemetry (
     error_class,
     latest_tool_call_counts
 ) VALUES (
+    sqlc.narg('experiment_snapshot_id')::bigint,
     @installation_id::uuid,
     sqlc.narg('api_key_id')::uuid,
     @request_id::varchar,
@@ -295,14 +289,6 @@ INSERT INTO router.model_router_request_telemetry (
     sqlc.narg('cohort_scheduled_arm')::varchar,
     sqlc.narg('cohort_treatment_applied')::boolean,
     sqlc.narg('cohort_bypass_reason')::varchar,
-    sqlc.narg('reporting_schema_version')::smallint,
-    sqlc.narg('reporting_mode')::text,
-    sqlc.narg('reporting_experiment_id')::uuid,
-    sqlc.narg('reporting_revision')::bigint,
-    sqlc.narg('reporting_assigned_arm')::text,
-    sqlc.narg('reporting_treatment_applied')::boolean,
-    sqlc.narg('reporting_bypass_reason')::text,
-    sqlc.narg('reporting_subject_key')::text,
     @turn_type::varchar,
     sqlc.narg('rollout_id')::varchar,
     sqlc.narg('upstream_finish_reason')::text,

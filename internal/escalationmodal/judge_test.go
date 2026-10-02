@@ -14,7 +14,7 @@ import (
 
 func TestJudgeAcceptsOnlyPinnedDigitVerdict(t *testing.T) {
 	apiKey := "a-dedicated-classifier-key-with-enough-entropy"
-	modelHash := llmescalation.QwenModelSHA256
+	modelHash := "620f908e24268bf9f116d533cc1d42f825f2a38599374c3db63c5db210b783d6"
 	server := httptest.NewTLSServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		require.Equal(t, "/classify", request.URL.Path)
 		require.Equal(t, "Bearer "+apiKey, request.Header.Get("Authorization"))
@@ -24,7 +24,7 @@ func TestJudgeAcceptsOnlyPinnedDigitVerdict(t *testing.T) {
 		require.NoError(t, json.NewDecoder(request.Body).Decode(&input))
 		require.Equal(t, "five completed turns", input.User)
 		require.NoError(t, json.NewEncoder(writer).Encode(map[string]any{
-			"release_name":  llmescalation.QwenReleaseName,
+			"release_name":  "qwen-finetuned-escalation-classifier",
 			"model_sha256":  modelHash,
 			"prediction":    1,
 			"raw_is_digit":  true,

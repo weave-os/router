@@ -50,23 +50,22 @@ const (
 // BlindExperimentState is the active request-scoped experiment decision.
 // Inactive states are cached but never stashed on a request context.
 type BlindExperimentState struct {
-	ReportingExperimentID string
-	ReportingRevision     int64
-	Active                bool
-	Enabled               bool
-	Arm                   BlindExperimentArm
-	AssignmentSource      BlindExperimentAssignmentSource
-	CanonicalSubjectKey   string
-	CohortExperimentID    string
-	CohortGroupID         int
-	CohortRevision        int
-	CohortPhaseIndex      int
-	ScheduledArm          BlindExperimentArm
-	CohortStartsAt        time.Time
-	CohortEndsAt          time.Time
-	CohortSchedule        []BlindExperimentPhase
-	CohortOverrides       []BlindExperimentEmergencyOverride
-	ManualOverride        BlindExperimentArm
+	ExperimentSnapshotID int64
+	Active               bool
+	Enabled              bool
+	Arm                  BlindExperimentArm
+	AssignmentSource     BlindExperimentAssignmentSource
+	CanonicalSubjectKey  string
+	CohortExperimentID   string
+	CohortGroupID        int
+	CohortRevision       int
+	CohortPhaseIndex     int
+	ScheduledArm         BlindExperimentArm
+	CohortStartsAt       time.Time
+	CohortEndsAt         time.Time
+	CohortSchedule       []BlindExperimentPhase
+	CohortOverrides      []BlindExperimentEmergencyOverride
+	ManualOverride       BlindExperimentArm
 }
 
 // BlindExperimentEmergencyOverride temporarily replaces the scheduled arm.
@@ -87,22 +86,21 @@ type BlindExperimentPhase struct {
 
 // BlindExperimentRecord is the repository projection needed to resolve one user.
 type BlindExperimentRecord struct {
-	ReportingExperimentID string
-	ReportingRevision     int64
-	Configured            bool
-	Enabled               bool
-	RouterOnPercentage    int
-	Seed                  string
-	CanonicalSubjectKey   string
-	AutomaticArm          BlindExperimentArm
-	ManualOverride        BlindExperimentArm
-	CohortExperimentID    string
-	CohortStartsAt        time.Time
-	CohortEndsAt          time.Time
-	CohortRevision        int
-	CohortGroupID         int
-	CohortSchedule        []BlindExperimentPhase
-	CohortOverrides       []BlindExperimentEmergencyOverride
+	ExperimentSnapshotID int64
+	Configured           bool
+	Enabled              bool
+	RouterOnPercentage   int
+	Seed                 string
+	CanonicalSubjectKey  string
+	AutomaticArm         BlindExperimentArm
+	ManualOverride       BlindExperimentArm
+	CohortExperimentID   string
+	CohortStartsAt       time.Time
+	CohortEndsAt         time.Time
+	CohortRevision       int
+	CohortGroupID        int
+	CohortSchedule       []BlindExperimentPhase
+	CohortOverrides      []BlindExperimentEmergencyOverride
 }
 
 // BlindExperimentRepository reads experiment state owned by the control plane.
@@ -146,9 +144,10 @@ func AssignBlindExperimentArm(seed, canonicalSubjectKey string, routerOnPercenta
 func resolveBlindExperiment(record BlindExperimentRecord, routerUserID string) BlindExperimentState {
 	state := resolveBlindExperimentAssignment(record, routerUserID)
 	// Reporting identity must never select the scheduled-cohort routing path.
-	if state.Active && state.CohortExperimentID == "" {
-		state.ReportingExperimentID = record.ReportingExperimentID
-		state.ReportingRevision = record.ReportingRevision
+	if state.Active && state.CohortExperimentID == "" &&
+		state.AssignmentSource == BlindExperimentAssignmentAutomatic &&
+		state.Arm == AssignBlindExperimentArm(record.Seed, state.CanonicalSubjectKey, record.RouterOnPercentage) {
+		state.ExperimentSnapshotID = record.ExperimentSnapshotID
 	}
 	return state
 }
