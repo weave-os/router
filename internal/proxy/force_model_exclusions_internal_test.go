@@ -190,10 +190,9 @@ func TestForceModelHeader_UnfencedInstallationUnaffected(t *testing.T) {
 	require.Len(t, store.upserts, 1)
 }
 
-// The `:level` suffix must reach the caller's context, not only *r: the
-// dispatch path reads routingKnobsForRequest(ctx) from the context it was
-// already carrying, so a knob written only onto r.Context() never made it
-// into the upstream body.
+// The `:level` suffix must reach the caller's context and returned model spec:
+// plan-owned dispatch omits routing knobs, so the returned spec carries the
+// effort into req.ForceModel for the same turn.
 func TestForceModelHeader_EffortSuffixLandsOnReturnedContext(t *testing.T) {
 	store := &recordingPinStore{}
 	svc := NewService(nil, nil, nil, false, nil, store, false,
@@ -208,7 +207,7 @@ func TestForceModelHeader_EffortSuffixLandsOnReturnedContext(t *testing.T) {
 		context.Background(), req, uuid.New(), DeriveSessionKey(env, "key-1"))
 
 	require.NoError(t, forceErr)
-	assert.Equal(t, "claude-opus-5-5", model)
+	assert.Equal(t, "claude-opus-5-5:xhigh", model)
 	knobs := routingKnobsForRequest(ctx)
 	require.NotNil(t, knobs)
 	assert.Equal(t, "xhigh", knobs.ForceEffort)

@@ -491,9 +491,10 @@ func (s *Service) clearForceModelSessionPin(
 // silently routing elsewhere would serve a model the caller never asked for.
 //
 // A `:level` suffix is stashed on the returned context (and on *r) as
-// router.Overrides.ForceEffort so pin + effort land in one header; callers
-// must continue with the returned context for routingKnobsForRequest to
-// see it.
+// router.Overrides.ForceEffort. The returned model spec also keeps the suffix
+// so plan-owned callers that omit routing knobs carry effort into same-turn
+// req.ForceModel; callers must continue with the returned context for
+// routingKnobsForRequest to see it.
 func (s *Service) applyForceModelHeader(
 	ctx context.Context,
 	r *http.Request,
@@ -538,9 +539,16 @@ func (s *Service) applyForceModelHeader(
 		return ctx, "", &ForcedModelExcludedError{Model: canonicalModel, Reason: reason}
 	}
 	provider = binding
+	forcedModel := canonicalModel
+	if effortLevel != "" {
+		// The caller feeds this value into req.ForceModel for the same turn.
+		// Keep the effort suffix there because plan-owned routing deliberately
+		// omits routing knobs from the request passed to the scorer.
+		forcedModel += ":" + effortLevel
+	}
 	if err := s.setForceModelSessionPin(ctx, forceModelSessionKey, installationID, canonicalModel, provider, effortLevel); err != nil {
 		log.Error("x-weave-force-model: session pin upsert failed", "err", err)
-		return ctx, canonicalModel, nil
+		return ctx, forcedModel, nil
 	}
 	log.Info("x-weave-force-model applied",
 		"input_model", raw,
@@ -550,7 +558,7 @@ func (s *Service) applyForceModelHeader(
 		"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
 		"role", forceModelSessionRole,
 	)
-	return ctx, canonicalModel, nil
+	return ctx, forcedModel, nil
 }
 
 // handleForceModelCommand processes a user-issued directive and writes a

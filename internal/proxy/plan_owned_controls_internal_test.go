@@ -67,6 +67,29 @@ func TestBoostServingAllowsForceModelHeader(t *testing.T) {
 	assert.True(t, planOwnedServingRequest(ctx))
 }
 
+func TestBoostServingHeaderForceModelCarriesEffortSameTurn(t *testing.T) {
+	t.Parallel()
+
+	request, err := http.NewRequestWithContext(boostPlanOwnedContext(), http.MethodPost, "http://router.test/v1/messages", nil)
+	require.NoError(t, err)
+	request.Header.Set(ForceModelHeader, "sol:medium")
+
+	svc := &Service{}
+	ctx, forced, err := svc.applyForceModelHeader(request.Context(), request, uuid.Nil, [sessionpin.SessionKeyLen]byte{})
+	require.NoError(t, err)
+	assert.Equal(t, "gpt-6.1-sol:medium", forced)
+
+	env := forceCommandEnv(t)
+	features := env.RoutingFeatures(false)
+	result, err := svc.runTurnLoop(
+		ctx, env, features, "api-key", uuid.New(), "", request.Header,
+		router.Request{RequestedModel: features.Model, ForceModel: forced},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "gpt-6.1-sol", result.Decision.Model)
+	assert.Equal(t, "medium", result.Decision.Effort)
+}
+
 func TestBoostServingKeepsLegacyForceModelPinActive(t *testing.T) {
 	t.Parallel()
 
