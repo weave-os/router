@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/gateway"
 	"weave-os/router/internal/gateway/iam"
+	"weave-os/router/internal/health"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/postgres/dbbudget"
@@ -36,6 +38,9 @@ func main() {
 func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	startupCtx, cancelStartup := context.WithTimeout(ctx, 170*time.Second)
+	defer cancelStartup()
+	var startupReady atomic.Bool
 	environment := policyregistry.Environment(config.MustGet("ROUTER_SERVING_ENVIRONMENT"))
 	if err := policyregistry.ValidateEnvironment(environment); err != nil {
 		return err
@@ -60,15 +65,15 @@ func run() error {
 	poolConfig.MaxConns = 6
 	poolConfig.MaxConnLifetime = 30 * time.Minute
 	poolConfig.MaxConnIdleTime = 10 * time.Minute
-	pool, err := pgxpool.NewWithConfig(ctx, poolConfig)
+	pool, err := pgxpool.NewWithConfig(startupCtx, poolConfig)
 	if err != nil {
 		return err
 	}
 	defer pool.Close()
-	if err := waitForStartupPostgres(ctx, observability.FromContext(ctx), pool.Ping); err != nil {
+	if err := waitForStartupPostgres(startupCtx, observability.FromContext(ctx), func(ctx context.Context) error { return serving.WarmDatabase(ctx, pool) }); err != nil {
 		return err
 	}
-	registryCtx, registryCancel := context.WithTimeout(ctx, 10*time.Second)
+	registryCtx, registryCancel := context.WithTimeout(startupCtx, 10*time.Second)
 	defer registryCancel()
 	registry, err := policyregistry.NewGCSRegistry(registryCtx, config.MustGet("ROUTER_SERVING_REGISTRY_URI"))
 	if err != nil {
@@ -84,11 +89,36 @@ func run() error {
 	transport := newWorkerTransport()
 	defer transport.CloseIdleConnections()
 	products := gateway.ProductSurfaces{Environment: environment, Analytics: credentials, Reads: credentials, Feedback: feedback.NewSigner(config.GetOr("ROUTER_FEEDBACK_LINK_SECRET", ""), 0), Attribution: serving.FeedbackLookup{Queries: dbbudget.Queries(pool)}}
-	forwarder, err := gateway.NewHandler(credentials, admissions, registry, signer, iam.Authorizer{}, transport, products)
+	forwarder, err := gateway.NewHandler(credentials, admissions, registry, signer, iam.NewAuthorizer(ctx), transport, products)
 	if err != nil {
 		return err
 	}
-	handler := gatewayHTTPHandler(forwarder, forwarder.ReadinessHandler(pool.Ping), forwarder.StartupHandler(pool.Ping))
+	if err := waitForStartupWorker(startupCtx, observability.FromContext(ctx), func(ctx context.Context) error {
+		return forwarder.Warmup(ctx, func(ctx context.Context) error { return serving.WarmDatabase(ctx, pool) })
+	}); err != nil {
+		return err
+	}
+	limits, err := health.LimitsFromEnv(500, 128<<20)
+	if err != nil {
+		return err
+	}
+	capacity, err := health.NewCapacity(limits)
+	if err != nil {
+		return err
+	}
+	capacity.SampleResources()
+	if !capacity.Snapshot().Ready {
+		return fmt.Errorf("gateway has no capacity after initialization")
+	}
+	go capacity.RunResourceSampler(ctx)
+	forwarder.SetCapacity(capacity)
+	if err := startupCtx.Err(); err != nil {
+		return err
+	}
+	startupReady.Store(true)
+	cancelStartup()
+	observability.FromContext(ctx).Info("Gateway startup initialization complete")
+	handler := gatewayHTTPHandler(forwarder, forwarder.ReadinessHandler(pool.Ping), startupHandler(startupReady.Load), capacity.Handler())
 	server := &http.Server{Addr: ":" + config.GetOr("PORT", "8080"), Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 620 * time.Second, IdleTimeout: 90 * time.Second}
 	stopped := make(chan error, 1)
 	go func() { stopped <- server.ListenAndServe() }()
@@ -99,6 +129,7 @@ func run() error {
 		}
 		return err
 	case <-ctx.Done():
+		capacity.Shutdown()
 		drainCtx, drainCancel := context.WithTimeout(context.Background(), 615*time.Second)
 		defer drainCancel()
 		return server.Shutdown(drainCtx)

@@ -526,6 +526,21 @@ func defaultPolicySpecs() []PolicySpec {
 
 	return []PolicySpec{
 		{
+			Purpose:            PurposeStartupWarmup,
+			DispatchClass:      DispatchClassAuxiliaryInference,
+			PolicyID:           "startup-model-warmup",
+			PolicyRevision:     "1",
+			Owner:              inferencePolicyOwner,
+			Rationale:          "Initialize each startup-known routable deployment model with one synthetic generation before admitting traffic; no customer billing, session state, or fallback.",
+			SelectionStrategy:  SelectionStrategyClientAuthoritative,
+			CandidateSource:    CandidateSourceRequest,
+			HardConstraints:    append([]Constraint(nil), fixedConstraints...),
+			OverridePrecedence: []OverrideSource{OverrideSourceRequest},
+			Budget:             BudgetSpec{Source: BudgetSourcePolicy, MaxAttempts: 1, TimeoutMillis: 30_000, MaxOutputTokens: 1024},
+			Fallback:           FallbackSpec{Kind: FallbackKindNone},
+			MigrationStatus:    MigrationStatusExecutor,
+		},
+		{
 			Purpose:            PurposeEscalationJudge,
 			Optional:           true,
 			FixedProvider:      providers.ProviderFireworks,

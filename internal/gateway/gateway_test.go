@@ -97,7 +97,7 @@ func gatewayBinding(workerURL string) policyregistry.DeploymentBinding {
 	return policyregistry.DeploymentBinding{SchemaVersion: policyregistry.ServingBindingV1, Target: policyregistry.TargetStable, Project: "project", Region: "region", Release: release, Router: revision, Classifier: revision, ClassifierBundleSHA256: strings.Repeat("b", 64), Attestation: artifact("attestation")}
 }
 
-func gatewayFixture(t *testing.T, worker *httptest.Server, authFailure, admissionFailure error, products ...gateway.ProductSurfaces) (*gateway.Handler, *admissionStore, *policyregistry.AssertionSigner) {
+func gatewayFixture(t testing.TB, worker *httptest.Server, authFailure, admissionFailure error, products ...gateway.ProductSurfaces) (*gateway.Handler, *admissionStore, *policyregistry.AssertionSigner) {
 	t.Helper()
 	binding := gatewayBinding(worker.URL)
 	payload, err := policyregistry.CanonicalBytes(binding)

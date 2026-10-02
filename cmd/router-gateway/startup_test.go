@@ -5,6 +5,9 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -72,5 +75,28 @@ func TestStartupPostgresReadyImmediately(t *testing.T) {
 		err := waitForStartupPostgres(context.Background(), slog.New(slog.NewTextHandler(io.Discard, nil)), func(context.Context) error { return nil })
 		require.NoError(t, err)
 		require.Equal(t, time.Duration(0), time.Since(started))
+	})
+}
+
+func TestGatewayStartupProbeIsLatchedAndDoesNotRepeatInitialization(t *testing.T) {
+	var ready atomic.Bool
+	probe := startupHandler(ready.Load)
+	response := httptest.NewRecorder()
+	probe.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/startupz", nil))
+	require.Equal(t, http.StatusServiceUnavailable, response.Code)
+	ready.Store(true)
+	for range 3 {
+		response = httptest.NewRecorder()
+		probe.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/startupz", nil))
+		require.Equal(t, http.StatusOK, response.Code)
+	}
+}
+
+func TestGatewayStartupWaitsForActivationAndHonorsBudget(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		err := waitForStartupWorker(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)), func(context.Context) error { return errors.New("activation not present") })
+		require.ErrorIs(t, err, context.DeadlineExceeded)
 	})
 }

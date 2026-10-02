@@ -34,7 +34,7 @@ COMMAND_TIMEOUT_SECONDS = 120
 BUILD_TIMEOUT_SECONDS = 1200
 BOOT_TIMEOUT_SECONDS = 180
 TEST_TIMEOUT_SECONDS = 600
-HEALTH_TIMEOUT_SECONDS = 120
+HEALTH_TIMEOUT_SECONDS = 180
 HEALTH_POLL_SECONDS = 2
 ROUTER_PORT = 8080
 MINIMUM_COMPOSE_VERSION = (2, 24, 4)
@@ -73,6 +73,12 @@ class SmokePhase(StrEnum):
     BOOT = "Boot + health"
     SEED = "Seed"
     ASSERTIONS = "Assertions"
+
+
+class ProbePath(StrEnum):
+    STARTUP = "/startupz"
+    LIVENESS = "/health"
+    CAPACITY = "/capacityz"
 
 
 def log(message: str) -> None:
@@ -354,7 +360,7 @@ class SmokeRun:
                 "Compose did not publish exactly one localhost router port"
             )
         base_url = f"http://{binding}"
-        log(f"waiting for {base_url}/health")
+        log(f"waiting for {base_url}{ProbePath.STARTUP}")
         deadline = time.monotonic() + HEALTH_TIMEOUT_SECONDS
         while self.command(
             "curl",
@@ -363,15 +369,22 @@ class SmokeRun:
             "--max-time",
             str(HEALTH_POLL_SECONDS),
             "-sf",
-            f"{base_url}/health",
+            f"{base_url}{ProbePath.STARTUP}",
             capture=True,
             check=False,
         ).returncode:
             if time.monotonic() >= deadline:
                 raise RuntimeError(
-                    f"router did not become healthy within {HEALTH_TIMEOUT_SECONDS}s"
+                    f"router did not finish startup within {HEALTH_TIMEOUT_SECONDS}s"
                 )
             time.sleep(HEALTH_POLL_SECONDS)
+        for probe in (ProbePath.LIVENESS, ProbePath.CAPACITY):
+            if self.command(
+                "curl", "--noproxy", "*", "--max-time",
+                str(HEALTH_POLL_SECONDS), "-sf", f"{base_url}{probe}",
+                capture=True, check=False,
+            ).returncode:
+                raise RuntimeError(f"router probe {probe} failed after startup")
         self.phase_seconds[SmokePhase.BOOT] = f"{time.monotonic() - started:.1f}"
         started = time.monotonic()
         seed_output = self.command(

@@ -107,8 +107,8 @@ proposal over it.
 
 ### Fleet-rollout gate
 
-Every `ReadServingState` reader — the gateway (`cmd/router-gateway`, on `/readyz`,
-`/startupz` and every admission) and `policyctl serving` itself (`status`, `apply`,
+Every `ReadServingState` reader — the gateway (`cmd/router-gateway`, during initialization, on `/readyz`
+and every admission) and `policyctl serving` itself (`status`, `apply`,
 `rollback`, and the controller behind them) — must run a binary that understands the
 `artifacts/` layout, the v2 kinds, and the `state/` path **before** the first v2 or
 new-path `apply` against a target. Managed workers (`cmd/router`) never read target
@@ -429,21 +429,73 @@ strategy is not selectable instead of rerouting to `cluster`; only the legacy
 (non-managed) path keeps the cluster fallback. Apply additive router migrations
 `0095` through the coordinated migration path before enabling a gateway.
 
-The gateway exposes `/health` for process liveness, `/startupz` for boot
-readiness and `/readyz` for admission readiness. Readiness has a five-second
-total budget to ping PostgreSQL, resolve the environment's active default
-binding from the registry, and acquire a worker IAM token. Missing activation or
-unavailable dependencies return 503; no session is admitted and no inference is
-dispatched. Deployment configuration must use `/readyz` for traffic-admission
-checks, not `/health`. Token acquisition does not prove the destination's
-`run.invoker` grant; private deployment smoke still must.
+Gateway and worker health endpoints have distinct contracts:
 
-`/startupz` runs the same checks except that a target with no activation yet is
-boot-ready, because a container gated on an activation can never be the one that
-deploys the first activation. Deployment configuration must use `/startupz` for
-the container startup probe and `/readyz` after activation. Requests remain
-fail-closed on an unactivated target: forwarding resolves the binding per
-request and has nothing to resolve.
+| Endpoint | Purpose | Failure action |
+| --- | --- | --- |
+| `/startupz` | Local completion latch for required startup initialization | Keep new instance out of traffic |
+| `/health` | Responsive serving process, with essential local task supervision | Restart a broken instance |
+| `/capacityz` | Local request, buffer and configured memory budgets | Withdraw new traffic; preserve accepted streams |
+| `/readyz` | Existing dependency and serving-identity diagnostics | Report dependency failure to release checks/operators |
+
+Startup performs real read-only SQLC credential/schema and clock queries on one
+retained pool connection; it does not enumerate tenants or write billing/admission
+rows. A gateway must resolve an activated default binding, obtain a retained
+audience-specific IAM token source, and complete an authenticated worker `/readyz`
+request using its forwarding transport. The listener opens only after these checks
+complete. Probe calls only read the startup latch. First activation must therefore
+validate workers/classifiers and commit the activation before deploying the real
+gateway binary. A target without an activation is not startup healthy.
+
+Worker initialization exercises every loaded local cluster scorer after ONNX
+warmup. Legacy stable HMM and embedding strategies run synthetic nonlearning
+preview classification and validate finite probabilities; managed worker bootstrap
+still avoids its original classifier, as described below. Configured deployment
+provider transports receive credential-free HEAD requests through the actual
+serving clients. This proves DNS/TCP/TLS connectivity and retains reusable
+connections; HTTP errors do not prove provider credentials or model availability.
+Additional configured startup egress origins retain credential-free connectivity
+checks; these do not replace initialization of the actual serving clients.
+Each startup-known routable deployment model also executes one synthetic generation
+through the normal policy resolver and inference executor, with the same serving
+adapters and deployment credentials. The model set includes routable catalog
+models backed by deployment keys, boot-known policy roster models, and configured
+auxiliary targets. Required auxiliary provider bindings are warmed as configured;
+the escalation judge also exercises its separate platform credentials.
+Alternate effort variants share one canonical model warmup;
+future tenant/BYOK models are excluded. The `startup_warmup` policy permits one
+attempt, no fallback, at most four concurrent calls, and 30 seconds per model
+inside the 170-second total boot deadline. Output limits are 32 tokens without
+reasoning (including legacy Anthropic with thinking omitted) and 1,024 tokens at
+the lowest declared reasoning effort otherwise. Startup reapplies these caps after
+serving translation's larger reasoning floor. A valid response must contain text
+or measured reasoning; empty/malformed success responses fail boot. These calls
+incur provider charges, but create no customer billing, admission, learning events
+or normal request-attempt telemetry. Limits bound tokens and time, not a fixed USD
+amount. `ROUTER_STARTUP_EGRESS_ORIGINS` must match these
+serving clients or a dependency already initialized by its actual client (Pub/Sub).
+Idle connections can expire; the contract is completed initialization, not permanent
+remote connection or third-party model warmth.
+
+`/readyz` retains its five-second database/default-binding/IAM diagnostics.
+Cloud Run uses `/capacityz` for ongoing readiness. Capacity admission operates
+before protected work and keeps permits until forwarding completes or cancels.
+Gateway defaults are 500 requests and 128 MiB of buffered allocations, with
+recovery at 400 requests and 96 MiB; worker default is 250 requests, recovering
+at 200. Configure these through `ROUTER_CAPACITY_MAX_REQUESTS`,
+`ROUTER_CAPACITY_RESUME_REQUESTS`, `ROUTER_CAPACITY_MAX_BUFFERED_BYTES` and
+`ROUTER_CAPACITY_RESUME_BUFFERED_BYTES`. Linux cgroup CPU and memory samples
+are diagnostics; missing accounting is reported as unavailable. Memory withdrawal
+is enabled only by calibrated `ROUTER_CAPACITY_MEMORY_HIGH_BYTES` and
+`ROUTER_CAPACITY_MEMORY_LOW_BYTES` (defaults disabled). CPU is not a withdrawal
+threshold. Validate resource settings and probe tolerance under representative
+load before production rollout.
+
+Remote database, registry or provider failures never directly fail liveness or
+capacity readiness. A terminated essential stable-policy manager ends the worker
+so it can restart; ordinary refresh errors retain the last good snapshot. Optional
+beta, invalidation, telemetry and cleanup tasks do not cause restarts. Shutdown
+stops new capacity admission and drains accepted work within the platform window.
 
 Managed workers require `ROUTER_SERVING_TARGET`, `ROUTER_SERVING_PROJECT`,
 `ROUTER_SERVING_REGION`, `ROUTER_SERVING_IMAGE_DIGEST`, and
@@ -466,6 +518,10 @@ tuple load exercise the actual classifier/runtime. Thus classifier-only releases
 can reuse a worker and cold-start it after its original classifier retires.
 `/readyz` tests local bootstrap/database/strategy readiness; it does not replace
 the exact-tuple private validation required before activation.
+Startup warmth covers resources known at boot. New policy versions, exact-tuple
+runtime cache misses/eviction and newly encountered tenant credentials preserve
+their existing lazy initialization and isolation; startup does not pin the cache
+or redesign policy activation.
 
 ### Product compatibility and retention
 

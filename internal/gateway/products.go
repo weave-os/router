@@ -124,16 +124,20 @@ func (h *Handler) serveFeedback(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	r = r.Clone(ctx)
-	const maxFeedbackBodyBytes = 64 * 1024
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxFeedbackBodyBytes+1))
-	if err != nil {
-		observability.FromContext(ctx).Debug("Feedback request body read failed", "method", r.Method, "err", err)
-		writeError(w, requestcontext.ConversationChat, http.StatusBadRequest, "Invalid feedback body.")
-		return
-	}
-	if len(body) > maxFeedbackBodyBytes {
-		writeError(w, requestcontext.ConversationChat, http.StatusBadRequest, "Invalid feedback body.")
-		return
+	var body []byte
+	if r.Body != http.NoBody {
+		const maxFeedbackBodyBytes = 64 * 1024
+		var err error
+		body, err = io.ReadAll(io.LimitReader(r.Body, maxFeedbackBodyBytes+1))
+		if err != nil {
+			observability.FromContext(ctx).Debug("Feedback request body read failed", "method", r.Method, "err", err)
+			writeError(w, requestcontext.ConversationChat, http.StatusBadRequest, "Invalid feedback body.")
+			return
+		}
+		if len(body) > maxFeedbackBodyBytes {
+			writeError(w, requestcontext.ConversationChat, http.StatusBadRequest, "Invalid feedback body.")
+			return
+		}
 	}
 	token := strings.TrimPrefix(r.URL.Path, "/v1/feedback/link/")
 	if r.URL.Path == "/v1/feedback/rate" {

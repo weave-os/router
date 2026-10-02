@@ -3,9 +3,11 @@ package gateway_test
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -89,7 +91,7 @@ func TestGatewayReadinessChecksAdmissionDependencies(t *testing.T) {
 	}
 }
 
-func TestGatewayStartupToleratesMissingActivation(t *testing.T) {
+func TestGatewayStartupRequiresActivatedBinding(t *testing.T) {
 	for _, test := range []struct {
 		name           string
 		databaseError  error
@@ -97,17 +99,15 @@ func TestGatewayStartupToleratesMissingActivation(t *testing.T) {
 		artifactError  error
 		expectedStatus int
 	}{
-		{name: "activation missing", registryError: policyregistry.ErrNotFound, expectedStatus: http.StatusOK},
+		{name: "activation missing", registryError: policyregistry.ErrNotFound, expectedStatus: http.StatusServiceUnavailable},
 		{name: "activated artifacts missing", artifactError: policyregistry.ErrNotFound, expectedStatus: http.StatusServiceUnavailable},
 		{name: "registry unavailable", registryError: errors.New("private dependency diagnostic"), expectedStatus: http.StatusServiceUnavailable},
 		{name: "database unavailable", databaseError: errors.New("private dependency diagnostic"), expectedStatus: http.StatusServiceUnavailable},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			forwarder := readinessFixtureWithArtifacts(t, policyregistry.EnvironmentStaging, test.registryError, test.artifactError, nil)
-			probe := forwarder.StartupHandler(func(context.Context) error { return test.databaseError })
-			response := httptest.NewRecorder()
-			probe.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/startupz", nil))
-			require.Equal(t, test.expectedStatus, response.Code)
+			err := forwarder.Warmup(context.Background(), func(context.Context) error { return test.databaseError })
+			require.Error(t, err)
 		})
 	}
 }
@@ -125,4 +125,48 @@ func TestGatewayReadinessDeadline(t *testing.T) {
 		require.Equal(t, http.StatusServiceUnavailable, response.Code)
 		require.Equal(t, 5*time.Second, time.Since(started))
 	})
+}
+
+func TestGatewayWarmupUsesRetainedForwardingTransportWithoutAdmission(t *testing.T) {
+	var calls atomic.Int32
+	var firstConnection string
+	worker := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		if r.URL.Path == "/readyz" {
+			firstConnection = r.RemoteAddr
+			require.Equal(t, "Bearer gateway-iam", r.Header.Get(policyregistry.ServerlessAuthorizationHeader))
+			require.Empty(t, r.Header.Get(policyregistry.ServingAssertionHeader))
+			_, _ = io.WriteString(w, "ready")
+			return
+		}
+		require.Equal(t, firstConnection, r.RemoteAddr)
+		_, _ = io.WriteString(w, "served")
+	}))
+	defer worker.Close()
+	forwarder, admissions, _ := gatewayFixture(t, worker, nil, nil, gateway.ProductSurfaces{Environment: policyregistry.EnvironmentProd, Analytics: &analyticsVerifier{}, Reads: &readVerifier{}})
+	require.NoError(t, forwarder.Warmup(context.Background(), func(context.Context) error { return nil }))
+	require.Equal(t, int32(1), calls.Load())
+	require.Empty(t, admissions.seenConversation)
+	// The same transport is used by the next real forwarding request.
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"input":"synthetic startup test"}`))
+	request.Header.Set("x-weave-api-key", "rk_credential")
+	forwarder.ServeHTTP(response, request)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Equal(t, "served", response.Body.String())
+	require.Equal(t, int32(2), calls.Load())
+}
+
+func TestGatewayWarmupRejectsWorkerErrorsAndRedirects(t *testing.T) {
+	for _, status := range []int{http.StatusUnauthorized, http.StatusServiceUnavailable, http.StatusFound} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			worker := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(status) }))
+			defer worker.Close()
+			signer, err := policyregistry.NewAssertionSigner([]byte(strings.Repeat("s", 32)), time.Now)
+			require.NoError(t, err)
+			forwarder, err := gateway.NewHandler(credentialVerifier{}, &admissionStore{}, bindingStore{binding: gatewayBinding(worker.URL)}, signer, readinessAuthorizer{}, worker.Client().Transport, gateway.ProductSurfaces{Environment: policyregistry.EnvironmentProd, Analytics: &analyticsVerifier{}, Reads: &readVerifier{}})
+			require.NoError(t, err)
+			require.ErrorContains(t, forwarder.Warmup(context.Background(), func(context.Context) error { return nil }), "worker startup returned status")
+		})
+	}
 }

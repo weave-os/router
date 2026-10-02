@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"weave-os/router/internal/api/admin"
@@ -17,6 +18,22 @@ type healthCheckerFunc func(context.Context) error
 
 func (f healthCheckerFunc) CheckHealth(ctx context.Context) error {
 	return f(ctx)
+}
+
+func TestStartupProbeObservesCompletionWithoutDependencyChecks(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	var started atomic.Bool
+	engine := gin.New()
+	engine.GET("/startupz", admin.StartupHandler(started.Load))
+	probe := func() int {
+		response := httptest.NewRecorder()
+		engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/startupz", nil))
+		return response.Code
+	}
+	assert.Equal(t, http.StatusServiceUnavailable, probe())
+	started.Store(true)
+	assert.Equal(t, http.StatusOK, probe())
+	assert.Equal(t, http.StatusOK, probe())
 }
 
 func TestHealthHandlerReportsLiveness(t *testing.T) {

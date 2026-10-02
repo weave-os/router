@@ -104,6 +104,9 @@ func (p *proxy) serveOne(conn net.Conn, host string) error {
 func (p *proxy) resolve(host string, req *http.Request, body []byte, key string) (*cassette, error) {
 	switch p.cfg.mode {
 	case modeReplayOnly:
+		if c := startupFixture(host, req, body); c != nil {
+			return c, nil
+		}
 		c, ok := p.store.load(key)
 		if !ok {
 			return nil, fmt.Errorf("%w: %s %s (key=%s) — record a cassette first (SMOKE_PROXY_MODE=record or replay-or-record)",

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"time"
 
 	"github.com/cenkalti/backoff/v5"
@@ -34,4 +35,28 @@ func waitForStartupPostgres(ctx context.Context, log *slog.Logger, ping func(con
 		return fmt.Errorf("wait for gateway Postgres startup: %w", err)
 	}
 	return nil
+}
+
+func waitForStartupWorker(ctx context.Context, log *slog.Logger, warm func(context.Context) error) error {
+	_, err := backoff.Retry(ctx, func() (struct{}, error) {
+		attemptCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		return struct{}{}, warm(attemptCtx)
+	}, backoff.WithBackOff(backoff.NewConstantBackOff(startupRetryInterval)), backoff.WithMaxElapsedTime(0), backoff.WithNotify(func(err error, delay time.Duration) {
+		log.Warn("Gateway serving binding is not initialized; retrying startup", "retry_after", delay, "err", err)
+	}))
+	if err != nil {
+		return fmt.Errorf("initialize gateway serving binding: %w", err)
+	}
+	return nil
+}
+
+func startupHandler(ready func() bool) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !ready() {
+			http.Error(w, "Gateway initialization is incomplete.", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
 }

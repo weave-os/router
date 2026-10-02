@@ -16,6 +16,7 @@ const (
 	PurposeTitleGeneration           = inference.PurposeTitleGeneration
 	PurposeClassifier                = inference.PurposeClassifier
 	PurposeProbe                     = inference.PurposeProbe
+	PurposeStartupWarmup             = inference.PurposeStartupWarmup
 	PurposeSubAgentDispatch          = inference.PurposeSubAgentDispatch
 	PurposeClientCompaction          = inference.PurposeClientCompaction
 	PurposeAgentShadowEvaluation     = inference.PurposeAgentShadowEvaluation
@@ -42,6 +43,7 @@ var knownPurposes = []Purpose{
 	PurposeTitleGeneration,
 	PurposeClassifier,
 	PurposeProbe,
+	PurposeStartupWarmup,
 	PurposeSubAgentDispatch,
 	PurposeClientCompaction,
 	PurposeAgentShadowEvaluation,

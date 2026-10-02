@@ -34,6 +34,9 @@ class FakeFailure(StrEnum):
     DOWN = "down"
     BUILD = "build"
     CANCEL_CLEANUP = "cancel-cleanup"
+    STARTUP = "startup"
+    LIVENESS = "liveness"
+    CAPACITY = "capacity"
 
 
 FAKE_TOOL = r"""#!/usr/bin/env python3
@@ -79,6 +82,13 @@ if tool == "go":
         time.sleep(10)
     sys.exit(4 if failure == FakeFailure.GO else 0)
 if tool == "curl":
+    failed_probe = {
+        FakeFailure.STARTUP: "/startupz",
+        FakeFailure.LIVENESS: "/health",
+        FakeFailure.CAPACITY: "/capacityz",
+    }.get(failure)
+    if failed_probe and args[-1].endswith(failed_probe):
+        sys.exit(22)
     sys.exit(0)
 if args[:3] == ["compose", "version", "--short"]:
     print(os.environ.get("FAKE_COMPOSE_VERSION", "2.35.1"))
@@ -212,6 +222,14 @@ class SmokeRunnerTest(unittest.TestCase):
         go_call = next(call for call in calls if call["tool"] == "go")
         self.assertEqual(go_call["test_url"], "http://127.0.0.1:49170")
         self.assertEqual(go_call["openai_enabled"], "1")
+        self.assertEqual(
+            [call["args"][-1] for call in calls if call["tool"] == "curl"],
+            [
+                "http://127.0.0.1:49170/startupz",
+                "http://127.0.0.1:49170/health",
+                "http://127.0.0.1:49170/capacityz",
+            ],
+        )
         self.assertFalse(Path(compose_calls[0]["override_path"]).parent.exists())
         self.assertEqual(
             (self.state / "developer-stack").read_text(),
@@ -320,6 +338,36 @@ class SmokeRunnerTest(unittest.TestCase):
                 self.assertTrue(
                     any("down" in call["args"] for call in self.calls()[before:])
                 )
+
+    def test_healthy_liveness_does_not_skip_incomplete_startup(self) -> None:
+        entrypoint: Path = self.repo / "scripts/smoke/runner.py"
+        program: str = (
+            "import runpy; "
+            f"scope = runpy.run_path({str(entrypoint)!r}); "
+            "scope['main'].__globals__['HEALTH_TIMEOUT_SECONDS'] = 0; "
+            "raise SystemExit(scope['main']())"
+        )
+        completed: subprocess.CompletedProcess = subprocess.run(
+            [sys.executable, "-c", program], cwd=self.repo,
+            env=self.environment | {"FAKE_FAIL": FakeFailure.STARTUP.value},
+            text=True, capture_output=True, timeout=20,
+        )
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("did not finish startup", completed.stdout)
+        calls: list[dict] = self.calls()
+        self.assertFalse(any(call["tool"] == "go" or "run" in call["args"] for call in calls))
+        self.assertTrue(any("down" in call["args"] for call in calls))
+
+    def test_failed_capacity_or_liveness_stops_before_customer_seed(self) -> None:
+        for failure in (FakeFailure.LIVENESS, FakeFailure.CAPACITY):
+            with self.subTest(failure=failure):
+                before: int = len(self.calls())
+                completed: subprocess.CompletedProcess = self.run_smoke(FAKE_FAIL=failure.value)
+                self.assertNotEqual(completed.returncode, 0)
+                self.assertIn("failed after startup", completed.stdout)
+                calls: list[dict] = self.calls()[before:]
+                self.assertFalse(any(call["tool"] == "go" or "run" in call["args"] for call in calls))
+                self.assertTrue(any("down" in call["args"] for call in calls))
 
     def test_prebuilt_images_are_reused_without_overwriting_build_tags(self) -> None:
         completed = self.run_smoke(SMOKE_PREBUILT="1")

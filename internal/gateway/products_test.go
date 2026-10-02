@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/gateway"
+	"weave-os/router/internal/health"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/translate"
 )
@@ -27,6 +28,39 @@ type feedbackLookup struct {
 	installation, request string
 	err                   error
 	calls                 int
+}
+
+func TestFeedbackCapacityOnlyReservesForRequestBodies(t *testing.T) {
+	worker := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Error("invalid feedback token reached worker")
+	}))
+	defer worker.Close()
+	products := gateway.ProductSurfaces{Environment: policyregistry.EnvironmentProd, Analytics: &analyticsVerifier{}, Reads: &readVerifier{}, Feedback: feedback.NewSigner("feedback-secret", time.Hour), Attribution: &feedbackLookup{}}
+	forwarder, _, _ := gatewayFixture(t, worker, nil, nil, products)
+	capacity, err := health.NewCapacity(health.Limits{MaxRequests: 2, ResumeRequests: 1, MaxBufferedBytes: 1024})
+	require.NoError(t, err)
+	forwarder.SetCapacity(capacity)
+	for _, test := range []struct {
+		method, path, body string
+		status             int
+	}{
+		{http.MethodGet, "/v1/feedback/link/bad.token", "", http.StatusNotFound},
+		{http.MethodGet, "/v1/feedback/rate?t=bad.token", "", http.StatusNotFound},
+		{http.MethodPost, "/v1/feedback/link", `{"token":"bad.token"}`, http.StatusServiceUnavailable},
+		{http.MethodGet, "/v1/feedback/link/bad.token", "body", http.StatusServiceUnavailable},
+	} {
+		t.Run(test.method+test.path+test.body, func(t *testing.T) {
+			var body io.Reader
+			if test.body != "" {
+				body = strings.NewReader(test.body)
+			}
+			response := httptest.NewRecorder()
+			forwarder.ServeHTTP(response, httptest.NewRequest(test.method, test.path, body))
+			assert.Equal(t, test.status, response.Code)
+			assert.Zero(t, capacity.Snapshot().ActiveRequests)
+			assert.Zero(t, capacity.Snapshot().BufferedBytes)
+		})
+	}
 }
 
 func (f *feedbackLookup) GetFeedbackAdmission(_ context.Context, installation, request string) (policyregistry.SessionReleaseBinding, error) {
