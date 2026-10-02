@@ -1,0 +1,48 @@
+cmd/router/readiness_test.go
+  s_7cb53e052d677f::t_9c452a4d45a827 33
+  s_7cb53e052d677f::t_3b05a287cdb8f9 50
+  s_7cb53e052d677f::t_b474a9eb128c58 66-73
+  s_7cb53e052d677f::t_a02b75a2c887f3 61
+  s_ace2df55a46234::t_5fbcced50a99dc 62-65
+cmd/router/main.go
+  s_7cb53e052d677f::t_0aee1d061097fd 522
+  s_7cb53e052d677f::t_61b0acb2828d59 78-82,512,608
+  s_7cb53e052d677f::t_f30aaaafe37a4a 483-492
+  s_7cb53e052d677f::t_4ee928da4fd99d 1440
+  s_7cb53e052d677f::t_06af50f45a8fd0 509-511
+  s_7cb53e052d677f::t_b6dbc97399208e 513-515,519-521
+  s_7cb53e052d677f::t_77b0eb2defbd91 523-525
+  s_7cb53e052d677f::t_cf00d6493b941f 605-607
+  s_7cb53e052d677f::t_f57aa8833e5318 609-611
+  s_7cb53e052d677f::t_8396d286739946 501-508,516-518,526-528,534,598-604,612-621
+docs/CONFIGURATION.md
+  s_7cb53e052d677f::t_4c8921707a6d39 405
+internal/proxy/CLAUDE.md
+  s_7cb53e052d677f::t_667fc014f31a55 288-290
+cmd/router/readiness.go
+  s_7cb53e052d677f::t_48507c6c7815cf 17,20-21,25-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "90f1724db64c4306e89daec2fc7e2c098a05cd2b",
+  "prompts": {},
+  "sessions": {
+    "s_7cb53e052d677f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f3d82f0-6aca-40b2-aca0-2547069ec7de",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
+    "s_ace2df55a46234": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09172-428d-71a3-8281-2796cfb523fb",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
