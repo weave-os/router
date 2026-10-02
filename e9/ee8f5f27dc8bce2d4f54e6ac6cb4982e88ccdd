@@ -1,0 +1,34 @@
+install/tests/models_test.sh
+  s_daa8141ff6c438::t_988a1b73b0cfe3 484,493
+  s_daa8141ff6c438::t_b4e35469ac67f7 378,384-394,459-483,485-492,494-495
+  s_daa8141ff6c438::t_cee12834e68192 424-431
+  s_daa8141ff6c438::t_034ccf26d7dad7 496
+specs/plan/installer-endpoint-trust/OVERVIEW.md
+  s_daa8141ff6c438::t_588d0491221e83 1-30,33-51
+  s_daa8141ff6c438::t_bd59b97787b08c 31-32
+install/install.sh
+  s_daa8141ff6c438::t_a6fed28e8b5392 1958-1990,2060-2063,2065,2068
+  s_daa8141ff6c438::t_b389945c451f69 3026-3027,3032-3034,3104-3109,3118-3119,3121-3126
+  s_daa8141ff6c438::t_45bb6a500dd38f 2949-2953,2955,2970,2982-2984
+  s_daa8141ff6c438::t_83a3ba2e665f6f 3110,3117,3120,3127
+  s_daa8141ff6c438::t_a4d7f119b7e7a0 3111-3116
+  s_daa8141ff6c438::t_986cc2fb491b21 3128
+install/README.md
+  s_daa8141ff6c438::t_444fddeac7fc68 264-268
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "e9ee8f5f27dc8bce2d4f54e6ac6cb4982e88ccdd",
+  "prompts": {},
+  "sessions": {
+    "s_daa8141ff6c438": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07a8b-b7b5-72e1-bf01-4c4b38617888",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
