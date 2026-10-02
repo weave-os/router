@@ -285,6 +285,11 @@ type strategyProbe struct {
 
 func probeStrategyOverride(t *testing.T, installation *auth.Installation, managedServing bool, defaultStrategy router.Strategy, available ...router.Strategy) strategyProbe {
 	t.Helper()
+	return probeStrategyOverrideWithHeader(t, installation, managedServing, "", defaultStrategy, available...)
+}
+
+func probeStrategyOverrideWithHeader(t *testing.T, installation *auth.Installation, managedServing bool, header string, defaultStrategy router.Strategy, available ...router.Strategy) strategyProbe {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	engine.Use(func(c *gin.Context) {
@@ -303,8 +308,12 @@ func probeStrategyOverride(t *testing.T, installation *auth.Installation, manage
 		c.Status(http.StatusOK)
 	})
 
+	request := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	if header != "" {
+		request.Header.Set(middleware.RouterStrategyOverrideHeader, header)
+	}
 	response := httptest.NewRecorder()
-	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/probe", nil))
+	engine.ServeHTTP(response, request)
 	probe.status = response.Code
 	probe.body = response.Body.String()
 	return probe
@@ -347,4 +356,43 @@ func TestRouterStrategyOverride_LegacyUnavailablePersistedStrategyFallsBackToClu
 
 	assert.Equal(t, http.StatusOK, probe.status)
 	assert.Equal(t, router.StrategyCluster, probe.observed)
+}
+
+func TestRouterStrategyOverride_ManagedServingAuthorizedOverrideRescuesUnavailablePersistedStrategy(t *testing.T) {
+	installation := &auth.Installation{ID: "inst-managed", RoutingStrategy: router.StrategyRL, PolicyHeaderOverridesEnabled: true}
+	probe := probeStrategyOverrideWithHeader(t, installation, true, string(router.StrategyHMM), router.StrategyHMMEmbedding, router.StrategyHMM, router.StrategyHMMEmbedding)
+
+	assert.Equal(t, http.StatusOK, probe.status)
+	assert.True(t, probe.reached)
+	assert.Equal(t, router.StrategyHMM, probe.observed)
+}
+
+func TestRouterStrategyOverride_ManagedServingUnusableOverrideStillFailsClosed(t *testing.T) {
+	cases := []struct {
+		name       string
+		authorized bool
+		header     string
+	}{
+		{name: "unauthorized", authorized: false, header: string(router.StrategyHMM)},
+		{name: "unselectable", authorized: true, header: string(router.StrategyBandit)},
+		{name: "retired_beta", authorized: true, header: string(router.StrategyHMMBeta)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			installation := &auth.Installation{ID: "inst-managed", RoutingStrategy: router.StrategyRL, PolicyHeaderOverridesEnabled: tc.authorized}
+			probe := probeStrategyOverrideWithHeader(t, installation, true, tc.header, router.StrategyHMMEmbedding, router.StrategyHMM, router.StrategyHMMEmbedding, router.StrategyHMMBeta)
+
+			assert.Equal(t, http.StatusServiceUnavailable, probe.status)
+			assert.JSONEq(t, `{"error":"routing_strategy_unavailable"}`, probe.body)
+			assert.False(t, probe.reached)
+		})
+	}
+}
+
+func TestRouterStrategyOverride_LegacyAuthorizedOverrideAppliesAfterClusterFallback(t *testing.T) {
+	installation := &auth.Installation{ID: "inst-legacy", RoutingStrategy: router.StrategyRL, PolicyHeaderOverridesEnabled: true}
+	probe := probeStrategyOverrideWithHeader(t, installation, false, string(router.StrategyHMM), router.StrategyHMMEmbedding, router.StrategyHMM, router.StrategyHMMEmbedding)
+
+	assert.Equal(t, http.StatusOK, probe.status)
+	assert.Equal(t, router.StrategyHMM, probe.observed)
 }

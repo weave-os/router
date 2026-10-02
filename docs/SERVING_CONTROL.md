@@ -425,8 +425,10 @@ boot unless `ROUTER_DEFAULT_STRATEGY` is one of the policy strategies it
 registers (`hmm`, `hmm_embedding`): an unset or `cluster` default would score
 every installation without a persisted strategy, and every retired `hmm_beta`
 installation, on the legacy cluster embedder. On the request path a managed
-worker answers 503 `routing_strategy_unavailable` when the persisted or remapped
-strategy is not selectable instead of rerouting to `cluster`; only the legacy
+worker answers 503 `routing_strategy_unavailable` when no persisted, remapped,
+or authorized override strategy is available instead of rerouting to `cluster`;
+an authorized `x-weave-router-strategy` naming a selectable strategy (never the
+retired `hmm_beta`) is honoured even when the persisted strategy is not. Only the legacy
 (non-managed) path keeps the cluster fallback. Apply additive router migrations
 `0095` through the coordinated migration path before enabling a gateway.
 
