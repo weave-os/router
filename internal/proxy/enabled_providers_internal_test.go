@@ -362,3 +362,47 @@ func TestEnabledProvidersForRequest_VendorByokKeyDoesNotDisplaceVendors(t *testi
 	assert.Contains(t, got, providers.ProviderOpenAI,
 		"a vendor BYOK key is not a gateway and must not narrow the eligible set")
 }
+
+// TestEnabledProvidersForRequest_ManagedPoolEnrollsItsProvider covers a
+// selfhosted deployment with no provider env keys whose only credentials are
+// server-side subscription pools: a router-keyed request must be able to
+// route to the provider its enrolled pool serves.
+func TestEnabledProvidersForRequest_ManagedPoolEnrollsItsProvider(t *testing.T) {
+	s := &Service{
+		clients: dispatch.NewClients(map[string]providers.Client{
+			providers.ProviderAnthropic: nil,
+			providers.ProviderOpenAI:    nil,
+		}),
+		deploymentKeyedProviders: map[string]struct{}{},
+		passthroughEligibleProviders: map[string]struct{}{
+			providers.ProviderAnthropic: {},
+			providers.ProviderOpenAI:    {},
+		},
+	}
+	routerKeyed := context.WithValue(context.Background(), InstallationIDContextKey{}, testInstallationID)
+	withPools := func(pools ...auth.SubscriptionProvider) context.Context {
+		enrolled := map[auth.SubscriptionProvider]struct{}{}
+		for _, p := range pools {
+			enrolled[p] = struct{}{}
+		}
+		return context.WithValue(routerKeyed, ManagedSubscriptionProvidersContextKey{}, enrolled)
+	}
+
+	t.Run("no pool enrolls nothing", func(t *testing.T) {
+		assert.Empty(t, s.enabledProvidersForRequest(routerKeyed, providers.ProviderAnthropic, http.Header{}))
+	})
+	t.Run("claude pool enrolls anthropic only", func(t *testing.T) {
+		got := s.enabledProvidersForRequest(withPools(auth.SubscriptionProviderClaude), providers.ProviderAnthropic, http.Header{})
+		assert.Contains(t, got, providers.ProviderAnthropic)
+		assert.NotContains(t, got, providers.ProviderOpenAI)
+	})
+	t.Run("codex pool enrolls openai only", func(t *testing.T) {
+		got := s.enabledProvidersForRequest(withPools(auth.SubscriptionProviderCodex), providers.ProviderOpenAI, http.Header{})
+		assert.Contains(t, got, providers.ProviderOpenAI)
+		assert.NotContains(t, got, providers.ProviderAnthropic)
+	})
+	t.Run("an exclusion still wins", func(t *testing.T) {
+		ctx := context.WithValue(withPools(auth.SubscriptionProviderClaude), InstallationExcludedProvidersContextKey{}, []string{providers.ProviderAnthropic})
+		assert.NotContains(t, s.enabledProvidersForRequest(ctx, providers.ProviderAnthropic, http.Header{}), providers.ProviderAnthropic)
+	})
+}
