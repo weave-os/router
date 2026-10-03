@@ -1,0 +1,22 @@
+internal/proxy/router_models.go
+  s_049874a7166f8d::t_40485bc7314578 33-37,42,45,57-64,91,98-99,101-104,117-121,128-132
+  s_049874a7166f8d::t_93b5140f239d1f 133
+internal/proxy/router_models_internal_test.go
+  s_049874a7166f8d::t_7b4e6e8aa0ac4e 26,35,39,46,57,59,62-87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2e8751f2c0ae2f644c82f5ece0604e62bd16cb1c",
+  "prompts": {},
+  "sessions": {
+    "s_049874a7166f8d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7b6a9f0a-cd46-4fd9-942c-7daea97cec2a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
