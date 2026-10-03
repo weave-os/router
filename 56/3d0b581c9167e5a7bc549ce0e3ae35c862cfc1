@@ -1,0 +1,25 @@
+internal/proxy/openai_cyber_refusal_integration_test.go
+  s_1e9d601d5f0f63::t_cb5db3da0508e5 259
+internal/proxy/service_test.go
+  s_1e9d601d5f0f63::t_cb5db3da0508e5 297,319,709,747
+internal/proxy/surface_purpose_test.go
+  s_1e9d601d5f0f63::t_cb5db3da0508e5 69
+internal/proxy/codex_title_gen_internal_test.go
+  s_1e9d601d5f0f63::t_cb5db3da0508e5 32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "563d0b581c9167e5a7bc549ce0e3ae35c862cfc1",
+  "prompts": {},
+  "sessions": {
+    "s_1e9d601d5f0f63": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b0e2-7306-73b3-b54c-814d408fce77",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
