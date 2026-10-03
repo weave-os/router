@@ -802,6 +802,16 @@ func (s *Service) SetInstallationFlagOverrides(ctx context.Context, externalID, 
 // ClusterModelList slice carries the key's per-cluster ordered allowlists, or
 // nil when none are configured.
 func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installation, *APIKey, []*ExternalAPIKey, []ClusterModelList, error) {
+	return s.verifyAPIKey(ctx, rawToken, true)
+}
+
+// VerifyPlatformAPIKey preserves key restrictions without reading or decrypting provider credentials.
+func (s *Service) VerifyPlatformAPIKey(ctx context.Context, rawToken string) (*Installation, *APIKey, []ClusterModelList, error) {
+	installation, key, _, lists, err := s.verifyAPIKey(ctx, rawToken, false)
+	return installation, key, lists, err
+}
+
+func (s *Service) verifyAPIKey(ctx context.Context, rawToken string, includeUpstreamKeys bool) (*Installation, *APIKey, []*ExternalAPIKey, []ClusterModelList, error) {
 	if !HasAPIKeyPrefix(rawToken) {
 		return nil, nil, nil, nil, ErrInvalidPrefix
 	}
@@ -818,6 +828,9 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 			}
 			s.fireMarkUsed(cached.APIKey, cached.Installation)
 			s.fireMarkFirstRequestServed(cached.APIKey.InstallationID)
+			if !includeUpstreamKeys {
+				return cached.Installation, cached.APIKey, nil, cached.ClusterModelLists, nil
+			}
 			return cached.Installation, cached.APIKey, s.resolveUpstreamSecrets(ctx, cached.ExternalKeys), cached.ClusterModelLists, nil
 		}
 		// Malformed positive entry (nil APIKey): fall through to DB lookup.
@@ -839,7 +852,7 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 	}
 
 	var externalKeys []*ExternalAPIKey
-	if s.externalKeys != nil {
+	if includeUpstreamKeys && s.externalKeys != nil {
 		externalKeys, err = s.externalKeys.GetForInstallation(ctx, apiKey.InstallationID)
 		if err != nil {
 			// Non-fatal: proceed without external keys.
@@ -861,7 +874,7 @@ func (s *Service) VerifyAPIKey(ctx context.Context, rawToken string) (*Installat
 		}
 	}
 
-	if clusterModelListsFetchOK {
+	if clusterModelListsFetchOK && includeUpstreamKeys {
 		s.cache.Set(keyHash, CachedKey{APIKey: apiKey, Installation: installation, ExternalKeys: externalKeys, ClusterModelLists: clusterModelLists})
 	}
 	s.fireMarkUsed(apiKey, installation)

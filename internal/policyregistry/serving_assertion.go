@@ -19,12 +19,16 @@ const ServerlessAuthorizationHeader = "X-Serverless-Authorization"
 // ServingAssertionV1 binds one admission to the exact original request and credential.
 const ServingAssertionV1 ServingSchema = "router_serving_assertion_v1"
 
+// ServingAssertionV2 adds isolated test scope and requires compatible readers.
+const ServingAssertionV2 ServingSchema = "router_serving_assertion_v2"
+
 const assertionLifetime = 2 * time.Minute
 const maxAssertionBytes = 16 * 1024
 
 // ServingAssertion is request-scoped authority; it is never accepted directly from a client.
 // The signature complements private IAM ingress and limits validation identities to their own endpoints.
 type ServingAssertion struct {
+	TestPlan         *TestPlanScope        `json:"test_plan,omitempty"`
 	SchemaVersion    ServingSchema         `json:"schema_version"`
 	APIKeyID         string                `json:"api_key_id"`
 	Scope            AdmissionScope        `json:"scope"`
@@ -55,6 +59,9 @@ func NewAssertionSigner(key []byte, clock func() time.Time) (*AssertionSigner, e
 // Sign binds the admitted selection to request bytes, not mutable client release headers.
 func (s *AssertionSigner) Sign(assertion ServingAssertion, request *http.Request, body []byte, credential string) (string, error) {
 	assertion.SchemaVersion = ServingAssertionV1
+	if assertion.TestPlan != nil {
+		assertion.SchemaVersion = ServingAssertionV2
+	}
 	assertion.Method = request.Method
 	assertion.RequestURI = request.URL.RequestURI()
 	assertion.BodySHA256 = Digest(body)
@@ -110,6 +117,9 @@ func (s *AssertionSigner) Verify(encoded string, request *http.Request, body []b
 	if now.Before(assertion.IssuedAt) || !now.Before(assertion.ExpiresAt) || assertion.ExpiresAt.Sub(assertion.IssuedAt) != assertionLifetime {
 		return ServingAssertion{}, errors.New("serving assertion is outside its admission window")
 	}
+	if assertion.TestPlan != nil && !now.Before(assertion.TestPlan.ExpiresAt) {
+		return ServingAssertion{}, errors.New("test launch is expired")
+	}
 	if assertion.Method != request.Method || assertion.RequestURI != request.URL.RequestURI() || assertion.BodySHA256 != Digest(body) || assertion.CredentialSHA256 != Digest([]byte(credential)) {
 		return ServingAssertion{}, errors.New("serving assertion does not match this request")
 	}
@@ -117,7 +127,7 @@ func (s *AssertionSigner) Verify(encoded string, request *http.Request, body []b
 }
 
 func (a ServingAssertion) validate() error {
-	if a.SchemaVersion != ServingAssertionV1 || a.APIKeyID == "" || a.Scope.InstallationID == "" || a.Scope.CredentialIdentity == "" || a.Admission.BindingGeneration <= 0 || a.Admission.ActivationID == "" || a.Method == "" || a.RequestURI == "" || a.IssuedAt.IsZero() || a.ExpiresAt.IsZero() {
+	if (a.SchemaVersion != ServingAssertionV1 && a.SchemaVersion != ServingAssertionV2) || a.APIKeyID == "" || a.Scope.InstallationID == "" || a.Scope.CredentialIdentity == "" || a.Admission.BindingGeneration <= 0 || a.Admission.ActivationID == "" || a.Method == "" || a.RequestURI == "" || a.IssuedAt.IsZero() || a.ExpiresAt.IsZero() {
 		return errors.New("incomplete serving assertion")
 	}
 	if _, err := a.Admission.Target.Environment(); err != nil {
@@ -128,6 +138,21 @@ func (a ServingAssertion) validate() error {
 	}
 	if a.Scope.Persistent == (a.Scope.ConversationDigest == [ConversationDigestLen]byte{}) {
 		return errors.New("invalid persistent conversation scope")
+	}
+	if (a.SchemaVersion == ServingAssertionV2) != (a.TestPlan != nil) {
+		return errors.New("assertion version does not match test scope")
+	}
+	if a.TestPlan != nil {
+		test := a.TestPlan
+		profile, err := test.Plan.Profile()
+		if err != nil || a.Admission.Target != TargetStable || a.Admission.ProfileKey != profile.Key || a.Admission.Plan != "" || a.Admission.EntitlementVersion != 0 ||
+			test.SubjectID != a.Scope.CredentialIdentity || !a.Scope.Persistent || test.LaunchID == "" || test.SessionID == "" || !validDigest(test.PolicyRevision) || !a.IssuedAt.Before(test.ExpiresAt) {
+			return errors.New("invalid signed internal test scope")
+		}
+		digest, _ := ServingConversationDigest(test.SubjectID, test.LaunchID+"/"+test.SessionID)
+		if digest != a.Scope.ConversationDigest {
+			return errors.New("test conversation differs from signed launch")
+		}
 	}
 	return nil
 }

@@ -11,11 +11,22 @@ import (
 )
 
 type servingSnapshotContextKey struct{}
+type servingAssertionContextKey struct{}
+
+// ServingAssertionFromContext returns the verified test admission for cost-free preflight.
+func ServingAssertionFromContext(ctx context.Context) *ServingAssertion {
+	assertion, _ := ctx.Value(servingAssertionContextKey{}).(*ServingAssertion)
+	return assertion
+}
 
 const servingRuntimeCacheSize = 128
 
 // WithServingAssertion derives attribution and isolated state keys from verified admission.
 func WithServingAssertion(ctx context.Context, assertion ServingAssertion) context.Context {
+	if assertion.TestPlan != nil {
+		ctx = context.WithValue(ctx, servingAssertionContextKey{}, &assertion)
+		ctx = requestcontext.WithInternalTestIdentity(ctx, requestcontext.InternalTestIdentity{SubjectID: assertion.TestPlan.SubjectID, SessionID: assertion.TestPlan.SessionID})
+	}
 	admission := assertion.Admission
 	namespace, _ := CanonicalBytes(struct {
 		Scope      AdmissionScope

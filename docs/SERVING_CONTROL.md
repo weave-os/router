@@ -640,3 +640,44 @@ V3 removes per-profile candidate/binding duplication from new configuration; it
 retains legacy readers and historical profile bindings for sessions and rollback.
 No app deployment-time prerequisite gate or routine production live-request test
 is introduced. Implementation tests are separate from live rollout acceptance.
+## Internal production plan tests
+
+`ROUTER_TEST_PLANS_ENABLED` defaults to false. It enables internal launch
+preparation on managed workers with billing and test-grant admission on production
+gateways. Roll out assertion v2 readers to all retained stable workers before
+enabling either writer. Ordinary admissions continue using v1 with no test scope;
+old strict readers reject v2. Enabling this setting is an operational action,
+separate from implementing or validating the feature.
+
+Internal tools require the existing `/internal/v1` shared-token authentication.
+They list eligible personal subjects, preview an exact selection, prepare a
+confirmed one-hour grant, and revoke a grant. Eligibility requires a complete,
+active, internally enrolled credential subject, installation access, an existing
+personal routing key, and an enabled positive isolated test budget. Budget
+provisioning/funding is an explicitly authorized administrative action; preparation
+creates only the short-lived grant and never changes entitlements or issues keys.
+
+Stable, Max and Boost are typed test selectors, separate from subscription plans.
+Every test targets `prod/stable`; enrollment authorizes access without projecting
+the ordinary internal lane. Max/Boost reuse their server-owned profile keys.
+Preparation re-resolves the preview, and each admission checks the grant digest,
+current eligibility, single bound session, expiry/revocation and exact retained
+activation/profile/policy. There is no fallback to a current head.
+
+`X-Weave-Test-Grant` and `X-Weave-Test-Session` are consumed at the gateway and
+removed from the worker hop. The gateway also removes provider credentials and
+client email attribution; only the signed v2 test scope selects identity, plan,
+session and billing subject. Workers verify it before email/subscriber resolution
+and authenticate without provider-secret lookup. `/v1/test-plan/validate` loads the
+exact worker snapshot without inference and returns the admitted scope and tuple.
+
+Test inference is prepaid-only, uses `internal_test_budgets` and
+`internal_test_credit_ledger`, and meters the authenticating key's spend atomically.
+Missing or disabled test funding fails closed. Customer balances, allowance,
+linked subscriptions, BYOK, overrides and autopay cannot fund tests. Settlement
+of already admitted work remains possible after disabling the budget. This path
+tests routing and model eligibility; subscriber included-allowance enforcement
+remains owned by the ordinary subscriber tests.
+
+The synthetic database check lives in `scripts/internal_test_plan_check` and
+requires `ROUTER_TEST_DATABASE_URL` naming a disposable loopback database.

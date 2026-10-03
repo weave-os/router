@@ -15,16 +15,15 @@ type OwnerKind string
 const (
 	OwnerKindOrganization OwnerKind = "organization"
 	OwnerKindSubscriber   OwnerKind = "subscriber"
+	OwnerKindInternalTest OwnerKind = "internal_test"
 )
 
-// Owner identifies whose prepaid money a read or debit touches. The two id
-// fields are deliberately separate: a subscriber id must never travel as an
-// organization id, since that would spend organization funds on an individual
-// plan (and vice versa).
+// Owner keeps organization, subscriber and internal test funding identifiers separate.
 type Owner struct {
 	Kind           OwnerKind
 	OrganizationID string
 	SubscriberID   string
+	TestSubjectID  string
 }
 
 // OrganizationOwner addresses an organization's prepaid balance.
@@ -43,13 +42,18 @@ func SubscriberOwner(subscriberID string) Owner {
 // field it does carry.
 func (o Owner) Validate() error {
 	switch o.Kind {
+	case OwnerKindInternalTest:
+		if o.TestSubjectID == "" || o.SubscriberID != "" || o.OrganizationID != "" {
+			return fmt.Errorf("%w: internal test owner needs only a test subject", ErrInvalidOwner)
+		}
+		return nil
 	case OwnerKindOrganization:
-		if o.OrganizationID == "" || o.SubscriberID != "" {
+		if o.OrganizationID == "" || o.SubscriberID != "" || o.TestSubjectID != "" {
 			return fmt.Errorf("%w: organization owner needs only an organization id", ErrInvalidOwner)
 		}
 		return nil
 	case OwnerKindSubscriber:
-		if o.SubscriberID == "" || o.OrganizationID != "" {
+		if o.SubscriberID == "" || o.OrganizationID != "" || o.TestSubjectID != "" {
 			return fmt.Errorf("%w: subscriber owner needs only a subscriber id", ErrInvalidOwner)
 		}
 		return nil

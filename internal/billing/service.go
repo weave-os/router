@@ -367,6 +367,9 @@ func (p DebitInferenceParams) requestedModel() string {
 func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams) (int64, error) {
 	warnOnUnknownPricing(p)
 	notional := computeNotionalMicros(p)
+	if owner, ok := InternalTestOwnerFrom(ctx); ok {
+		return s.debitInternalTest(ctx, p, owner.TestSubjectID, notional)
+	}
 	coverage, hasCoverage := entitlement.CoverageFromContext(ctx)
 	subscriberCovered := hasCoverage && s.allowances != nil && !p.HasOverride && !p.SubscriptionServed && !p.ByokServed
 	prepaidAuthorization, hasPrepaidAuthorization := PrepaidAuthorizationFromContext(ctx)

@@ -88,6 +88,12 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if strings.EqualFold(config.GetOr("ROUTER_TEST_PLANS_ENABLED", "false"), "true") {
+		if environment != policyregistry.EnvironmentProd {
+			return errors.New("internal test plans require production serving state")
+		}
+		forwarder.WithTestPlans(&policyregistry.TestPlanTools{Repository: serving.NewTestPlanRepo(pool), Store: registry, Clock: time.Now})
+	}
 	handler := gatewayHTTPHandler(forwarder, forwarder.ReadinessHandler(pool.Ping), forwarder.StartupHandler(pool.Ping))
 	server := &http.Server{Addr: ":" + config.GetOr("PORT", "8080"), Handler: handler, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 620 * time.Second, IdleTimeout: 90 * time.Second}
 	stopped := make(chan error, 1)

@@ -121,6 +121,7 @@ type Features struct {
 	// ServingAdmission verifies gateway assertions and pins request snapshots.
 	// Nil keeps legacy/self-hosted workers on their existing admission path.
 	ServingAdmission *middleware.ServingAdmissionConfig
+	TestPlans        *policyregistry.TestPlanTools
 	// SubscriberAllowance gates inference on an individual Max/Boost
 	// subscriber's included Router allowance. Nil leaves every request on the
 	// org/prepaid billing gates alone.
@@ -173,10 +174,13 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	}
 	var discoveryMiddleware []gin.HandlerFunc
 	if features.ServingAdmission != nil {
-		discoveryMiddleware = append(discoveryMiddleware, middleware.WithAuth(authSvc, byokRequiresOptIn))
+		discoveryMiddleware = append(discoveryMiddleware, middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission))
 		discoveryMiddleware = append(discoveryMiddleware, servingAdmissionMiddleware...)
 	}
 	discovery := engine.Group("", discoveryMiddleware...)
+	if features.ServingAdmission != nil {
+		discovery.GET("/v1/test-plan/validate", middleware.WithTimeout(catalogModelsTimeout), admin.TestPlanValidationHandler)
+	}
 
 	engine.GET("/health", middleware.WithTimeout(healthTimeout), admin.HealthHandler)
 	engine.GET("/readyz", middleware.WithTimeout(readinessTimeout), admin.ReadinessHandler(readinessChecker))
@@ -227,6 +231,12 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	// are minted or encrypted here.
 	if internalToken := strings.TrimSpace(os.Getenv("ROUTER_INTERNAL_SERVICE_TOKEN")); internalToken != "" {
 		internalGroup := engine.Group("/internal/v1", middleware.WithTimeout(adminTimeout), middleware.WithInternalServiceAuth(internalToken))
+		if features.TestPlans != nil {
+			internalGroup.GET("/test-plans/identities", admin.InternalTestPlanIdentitiesHandler(features.TestPlans))
+			internalGroup.POST("/test-plans/preview", admin.InternalTestPlanPreviewHandler(features.TestPlans))
+			internalGroup.POST("/test-plans/prepare", admin.InternalTestPlanPrepareHandler(features.TestPlans))
+			internalGroup.DELETE("/test-plans/launches/:id", admin.InternalTestPlanRevokeHandler(features.TestPlans))
+		}
 		internalGroup.POST("/provider-keys/models", admin.InternalListUpstreamModelsHandler(authSvc, proxySvc))
 		if authSvc.SubscriptionAccountsEnabled() {
 			internalGroup.GET("/subscription-accounts/:subscriberID", admin.InternalListSubscriptionAccountsHandler(authSvc))
@@ -248,13 +258,13 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 
 	// /validate is a token-validity probe used by clients (not the dashboard), so it stays mounted in both modes.
 	// /v1/client-events is the harness CLI's off/on/uninstall report and rides the same key auth.
-	adminAuthed := engine.Group("", middleware.WithTimeout(validateTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn))
-	adminAuthed.POST("/v1/router/threads", classifierapi.StartThreadHandler(proxySvc))
+	adminAuthed := engine.Group("", middleware.WithTimeout(validateTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission))
+	engine.POST("/v1/router/threads", middleware.WithTimeout(validateTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn), classifierapi.StartThreadHandler(proxySvc))
 	adminAuthed.Use(servingAdmissionMiddleware...)
 	adminAuthed.GET("/validate", admin.ValidateHandler)
 	adminAuthed.POST("/v1/client-events", admin.ClientEventHandler(authSvc))
 	if authSvc.SubscriptionAccountsEnabled() {
-		subscriptionGroup := engine.Group("/v1", middleware.WithTimeout(adminTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn))
+		subscriptionGroup := engine.Group("/v1", middleware.WithTimeout(adminTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission))
 		subscriptionGroup.Use(servingAdmissionMiddleware...)
 		subscriptionsapi.Register(subscriptionGroup, authSvc)
 	}
@@ -312,7 +322,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	messagesMiddleware := []gin.HandlerFunc{
 		middleware.WithTimingEntry(),
 		middleware.WithTimeout(messagesTimeout),
-		middleware.WithAuth(authSvc, byokRequiresOptIn),
+		middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission),
 	}
 	messagesMiddleware = append(messagesMiddleware, servingAdmissionMiddleware...)
 	messagesMiddleware = append(messagesMiddleware, middleware.WithAgentShadowEvaluation())
@@ -344,7 +354,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	chatCompletionMiddleware := []gin.HandlerFunc{
 		middleware.WithTimingEntry(),
 		middleware.WithTimeout(chatCompletionTimeout),
-		middleware.WithAuth(authSvc, byokRequiresOptIn),
+		middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission),
 	}
 	chatCompletionMiddleware = append(chatCompletionMiddleware, servingAdmissionMiddleware...)
 	chatCompletionMiddleware = append(chatCompletionMiddleware, subscriberAllowanceMiddleware...)
@@ -383,7 +393,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	// /v1/messages, and gating it would break client negotiation.
 	passthroughGroup := engine.Group("",
 		middleware.WithTimeout(passthroughTimeout),
-		middleware.WithAuth(authSvc, byokRequiresOptIn),
+		middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission),
 	)
 	passthroughGroup.Use(servingAdmissionMiddleware...)
 	passthroughGroup.POST("/v1/messages/count_tokens", anthropicapi.PassthroughHandler(proxySvc))
@@ -404,7 +414,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 
 	routeMiddleware := []gin.HandlerFunc{
 		middleware.WithTimeout(routeTimeout),
-		middleware.WithAuth(authSvc, byokRequiresOptIn),
+		middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission),
 	}
 	routeMiddleware = append(routeMiddleware, servingAdmissionMiddleware...)
 	routeMiddleware = append(routeMiddleware, subscriberProductScopeMiddleware...)
@@ -434,7 +444,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	previewMiddleware := []gin.HandlerFunc{
 		middleware.WithTimingEntry(),
 		middleware.WithTimeout(routeTimeout),
-		middleware.WithAuth(authSvc, byokRequiresOptIn),
+		middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission),
 	}
 	previewMiddleware = append(previewMiddleware, servingAdmissionMiddleware...)
 	previewMiddleware = append(previewMiddleware, subscriberProductScopeMiddleware...)

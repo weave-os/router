@@ -43,6 +43,7 @@ type Handler struct {
 	authorizer  RevisionAuthorizer
 	transport   http.RoundTripper
 	products    *ProductSurfaces
+	testPlans   *policyregistry.TestPlanTools
 }
 
 // NewHandler requires authoritative storage and signed, IAM-authenticated forwarding.
@@ -63,9 +64,22 @@ func NewHandler(credentials CredentialVerifier, admissions policyregistry.Servin
 	return h, nil
 }
 
+// WithTestPlans enables grant admission only when explicitly wired by the gateway.
+func (h *Handler) WithTestPlans(tools *policyregistry.TestPlanTools) *Handler {
+	h.testPlans = tools
+	return h
+}
+
 // ServeHTTP preserves original ordinary-request bytes and streams without replay or response buffering.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	grant, session := r.Header.Get(policyregistry.TestPlanGrantHeader), r.Header.Get(policyregistry.TestPlanSessionHeader)
+	r.Header.Del(policyregistry.TestPlanGrantHeader)
+	r.Header.Del(policyregistry.TestPlanSessionHeader)
 	policyregistry.StripServingHeaders(r.Header)
+	if grant != "" && (h.testPlans == nil || !testPlanSurface(r)) {
+		writeError(w, requestcontext.ConversationChat, http.StatusForbidden, "Internal test launch is unavailable on this endpoint.")
+		return
+	}
 	if h.serveProductSurface(w, r) {
 		return
 	}
@@ -120,7 +134,22 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	conversationID := requestcontext.CanonicalConversationID(r.Header, body, surface)
 	admissionDecider := policyregistry.ServingAdmission{Store: h.registry}
-	scope, admission, err := h.admissions.Admit(ctx, installation.ID, key.ID, conversationID, admissionDecider.Decide)
+	var signed policyregistry.ServingAssertion
+	if grant != "" {
+		signed, err = h.testPlans.Admit(ctx, grant, installation.ID, key.ID, session)
+		// Paid-only tests cannot use a caller's provider or linked subscription credentials.
+		r.Header.Del("Authorization")
+		r.Header.Del("x-api-key")
+		r.Header.Del("X-Weave-User-Email")
+		r.Header.Del("X-Weave-User-Name")
+		r.Header.Set(auth.RouterKeyHeader, credential)
+	} else {
+		var scope policyregistry.AdmissionScope
+		var admission policyregistry.SessionReleaseBinding
+		scope, admission, err = h.admissions.Admit(ctx, installation.ID, key.ID, conversationID, admissionDecider.Decide)
+		signed = policyregistry.ServingAssertion{APIKeyID: key.ID, Scope: scope, Admission: admission}
+	}
+	admission := signed.Admission
 	if err != nil {
 		h.fail(w, r, surface, err)
 		return
@@ -132,7 +161,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, surface, err)
 		return
 	}
-	assertion, err := h.signer.Sign(policyregistry.ServingAssertion{APIKeyID: key.ID, Scope: scope, Admission: admission}, r, body, credential)
+	assertion, err := h.signer.Sign(signed, r, body, credential)
 	if err != nil {
 		h.fail(w, r, surface, err)
 		return
@@ -200,7 +229,7 @@ func inferenceSurface(r *http.Request) (requestcontext.ConversationSurface, bool
 	}
 	if r.Method == http.MethodGet {
 		switch r.URL.Path {
-		case "/validate", "/v1/models", "/v1/display-settings", "/v1/router/models", "/v1/router/policies", "/v1/router/hmm-roster", "/v1/router/routing-distribution":
+		case "/v1/test-plan/validate", "/validate", "/v1/models", "/v1/display-settings", "/v1/router/models", "/v1/router/policies", "/v1/router/hmm-roster", "/v1/router/routing-distribution":
 			return requestcontext.ConversationChat, true
 		}
 		if singlePathParameter(r.URL.Path, "/v1/models/", "") {

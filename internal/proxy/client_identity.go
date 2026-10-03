@@ -72,6 +72,9 @@ func splitEvalClientApp(xApp string) (string, bool) {
 // and account_uuid are empty — Claude CLI v2.1.x sends account_uuid only, so
 // gating on email alone would break that path.
 func ResolveUserFromContext(ctx context.Context, authSvc *auth.Service, installation *auth.Installation) context.Context {
+	if _, ok := requestcontext.InternalTestIdentityFrom(ctx); ok {
+		return ctx
+	}
 	log := observability.FromContext(ctx)
 	if authSvc == nil || installation == nil {
 		log.Info("ResolveUserFromContext bailout",

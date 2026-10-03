@@ -248,6 +248,37 @@ type RouterInstallationRoutingPolicy struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
+type RouterInternalTestBudget struct {
+	SubjectID        uuid.UUID
+	InstallationID   uuid.UUID
+	Label            string
+	BalanceUsdMicros int64
+	Enabled          bool
+	CreatedAt        pgtype.Timestamptz
+}
+
+type RouterInternalTestCreditLedger struct {
+	ID              uuid.UUID
+	SubjectID       uuid.UUID
+	DeltaUsdMicros  int64
+	RouterRequestID string
+	RouterModel     string
+	APIKeyID        uuid.UUID
+	CreatedAt       pgtype.Timestamptz
+}
+
+type RouterInternalTestPlanLaunch struct {
+	ID             uuid.UUID
+	TokenSha256    string
+	SubjectID      uuid.UUID
+	InstallationID uuid.UUID
+	Launch         []byte
+	SessionID      pgtype.UUID
+	CreatedAt      pgtype.Timestamptz
+	ExpiresAt      pgtype.Timestamptz
+	RevokedAt      pgtype.Timestamptz
+}
+
 type RouterLlmEscalationCompletion struct {
 	Lifetime uuid.UUID
 	Boundary []byte

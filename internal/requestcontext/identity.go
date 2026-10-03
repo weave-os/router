@@ -67,6 +67,15 @@ func ClientIdentityFrom(ctx context.Context) ClientIdentity {
 
 // WithClientIdentity stashes id on ctx.
 func WithClientIdentity(ctx context.Context, id ClientIdentity) context.Context {
+	if test, ok := InternalTestIdentityFrom(ctx); ok {
+		id.Email = ""
+		id.AccountID = test.SubjectID
+		id.DeviceID = ""
+		id.DisplayName = ""
+		id.SessionID = test.SessionID
+		id.Eval = false
+		id.RolloutID = ""
+	}
 	return context.WithValue(ctx, ClientIdentityContextKey{}, id)
 }
 

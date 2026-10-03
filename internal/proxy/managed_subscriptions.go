@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
@@ -43,6 +44,9 @@ func WithSubscriptionOwner(ctx context.Context, owner auth.SubscriptionOwner) co
 // falls back to the authenticated key so a request authenticated before the
 // owner was resolved still reaches its legacy accounts and nothing else.
 func subscriptionOwnerFromContext(ctx context.Context) auth.SubscriptionOwner {
+	if _, ok := requestcontext.InternalTestIdentityFrom(ctx); ok {
+		return auth.SubscriptionOwner{}
+	}
 	if owner, ok := ctx.Value(SubscriptionOwnerContextKey{}).(auth.SubscriptionOwner); ok && owner.Valid() {
 		return owner
 	}

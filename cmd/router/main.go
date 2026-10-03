@@ -236,6 +236,9 @@ func main() {
 	// Managed without billing stays BYOK-only (avoids spending platform-key
 	// budget if billing fails to wire); managed with billing flips to
 	// platform-key mode gated by balance checks. Self-hosted is never BYOK-only.
+	if billingSvc != nil {
+		billingSvc.WithInternalTestPrepaid(servingpostgres.NewInternalTestBook(pool))
+	}
 	byokOnly := deploymentMode == server.DeploymentModeManaged && billingSvc == nil
 
 	// Always registered. With ANTHROPIC_API_KEY (selfhosted only) the router
@@ -1041,6 +1044,7 @@ func main() {
 		}
 		defer closeRegistry()
 		servingAdmission = admission
+		servingAdmission.TestBudgetEnabled = billingSvc != nil
 		servingAdmission.Attribution = servingpostgres.NewRequestAttributionRepo(pool)
 		admittedRouter := policyregistry.NewAdmittedRouter(router.StrategyHMM, baseline)
 		hmmRouter = admittedRouter
@@ -1511,7 +1515,15 @@ func main() {
 			WithSubscriberAllowance(subscriberAllowanceSvc)
 		logger.Info("Individual subscriber allowance enforcement enabled")
 	}
+	var testPlans *policyregistry.TestPlanTools
+	if strings.EqualFold(config.GetOr("ROUTER_TEST_PLANS_ENABLED", "false"), "true") {
+		if servingAdmission == nil || billingSvc == nil {
+			panic("internal test plan preparation requires managed serving and isolated prepaid billing")
+		}
+		testPlans = &policyregistry.TestPlanTools{Repository: servingpostgres.NewTestPlanRepo(pool), Store: servingAdmission.Store, Clock: time.Now}
+	}
 	serverFeatures := server.Features{
+		TestPlans:           testPlans,
 		PolicyPinEnabled:    policyPinEnabled,
 		ServingAdmission:    servingAdmission,
 		SubscriberAllowance: subscriberAllowanceSvc,

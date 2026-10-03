@@ -15,6 +15,10 @@ import (
 func WithOrgMonthlySpendCap(svc *billing.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
+		if _, ok := billing.InternalTestOwnerFrom(c.Request.Context()); ok {
+			c.Next()
+			return
+		}
 		if _, ok := proxy.AgentShadowEvalFromContext(c.Request.Context()); ok {
 			c.Next()
 			return

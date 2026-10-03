@@ -12,15 +12,17 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/subscriptions/entitlement"
 )
 
 // ServingAdmissionConfig is assembled only when the worker is running behind the managed gateway.
 type ServingAdmissionConfig struct {
-	Signer      *policyregistry.AssertionSigner
-	Store       policyregistry.ServingStore
-	Identity    policyregistry.WorkerIdentity
-	Cache       *policyregistry.ServingRuntimeCache
-	Attribution policyregistry.RequestAttributionStore
+	Signer            *policyregistry.AssertionSigner
+	TestBudgetEnabled bool
+	Store             policyregistry.ServingStore
+	Identity          policyregistry.WorkerIdentity
+	Cache             *policyregistry.ServingRuntimeCache
+	Attribution       policyregistry.RequestAttributionStore
 }
 
 // WithServingAdmission verifies the gateway assertion and loads the admitted snapshot.
@@ -67,8 +69,16 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "serving_snapshot_unavailable"})
 			return
 		}
+		if assertion.TestPlan != nil && (!cfg.TestBudgetEnabled || assertion.TestPlan.PolicyRevision != snapshot.Release.Policy.SHA256) {
+			observability.FromGin(c).Warn("Internal test snapshot or billing scope rejected", "activation_id", assertion.Admission.ActivationID)
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "test_scope_rejected"})
+			return
+		}
 		ctx := policyregistry.WithServingAssertion(c.Request.Context(), assertion)
 		ctx = policyregistry.WithServingSnapshot(ctx, snapshot)
+		if assertion.TestPlan != nil && assertion.TestPlan.Plan != policyregistry.TestPlanStable {
+			ctx = entitlement.WithProductScope(ctx, entitlement.Plan(assertion.TestPlan.Plan))
+		}
 		identity, _ := requestcontext.ServingIdentityFromContext(ctx)
 		log := observability.FromContext(ctx).With("serving_target", identity.Target, "serving_activation_id", identity.ActivationID, "serving_release_id", identity.ReleaseID, "serving_binding_id", identity.BindingID, "serving_profile_key", identity.ProfileKey, "serving_profile_revision", identity.ProfileRevision, "serving_binding_generation", identity.BindingGeneration)
 		ctx = observability.PromoteRequestLogger(ctx, log)

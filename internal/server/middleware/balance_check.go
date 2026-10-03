@@ -40,6 +40,20 @@ const TopUpURL = "https://app.workweave.ai/organization/settings/weave-router"
 func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		log := observability.FromGin(c)
+		if owner, ok := billing.InternalTestOwnerFrom(c.Request.Context()); ok {
+			balance, err := svc.PrepaidBalance(c.Request.Context(), owner)
+			if err != nil {
+				log.Error("Internal test budget unavailable", "subject_id", owner.TestSubjectID, "err", err)
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "test_budget_unavailable"})
+				return
+			}
+			if balance <= minBalanceMicros {
+				c.AbortWithStatusJSON(http.StatusPaymentRequired, gin.H{"error": "test_budget_depleted"})
+				return
+			}
+			c.Next()
+			return
+		}
 		if _, ok := proxy.AgentShadowEvalFromContext(c.Request.Context()); ok {
 			c.Next()
 			return

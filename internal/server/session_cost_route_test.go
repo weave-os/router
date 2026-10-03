@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,6 +26,21 @@ type readKeyRepo struct {
 	installation *auth.Installation
 	scopes       map[string]auth.APIKeyScope
 	subjectIDs   map[string]string
+}
+
+func TestThreadHandshakeKeepsCredentialOnlyAuthWithManagedServing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	installation := &auth.Installation{ID: uuid.NewString()}
+	repo := readKeyRepo{installation: installation, scopes: map[string]auth.APIKeyScope{"rk_thread": auth.ScopeRouting}}
+	authSvc := auth.NewService(nil, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, time.Now)
+	engine := gin.New()
+	server.RegisterWithFeatures(engine, authSvc, nil, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{ServingAdmission: &middleware.ServingAdmissionConfig{}})
+	request := httptest.NewRequest(http.MethodPost, "/v1/router/threads", strings.NewReader(`{}`))
+	request.Header.Set(auth.RouterKeyHeader, "rk_thread")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+	require.Equal(t, http.StatusBadRequest, response.Code)
+	require.Contains(t, response.Body.String(), "invalid_new_chat_id", "handshake must reach its own validator without a serving assertion")
 }
 
 func (r readKeyRepo) GetActiveByHashWithInstallation(_ context.Context, hash string) (*auth.APIKey, *auth.Installation, error) {

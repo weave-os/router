@@ -122,7 +122,7 @@ func stashClientIdentity(ctx context.Context, h http.Header, body []byte) contex
 		"header_email_present", h.Get("X-Weave-User-Email") != "",
 		"header_name_present", h.Get("X-Weave-User-Name") != "",
 	)
-	return context.WithValue(ctx, proxy.ClientIdentityContextKey{}, id)
+	return requestcontext.WithClientIdentity(ctx, id)
 }
 
 // anthropicErrorType maps a classified dispatch error to the Anthropic
