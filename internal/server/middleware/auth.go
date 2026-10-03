@@ -78,7 +78,7 @@ func WithAdminOnly(svc *auth.Service) gin.HandlerFunc {
 func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAdmissionConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		parentCtx := c.Request.Context()
-		var test *policyregistry.TestPlanScope
+		var testPlan *policyregistry.TestPlanScope
 		if len(serving) > 0 && serving[0] != nil {
 			body, err := io.ReadAll(io.LimitReader(c.Request.Body, requestcontext.MaxRequestBodyBytes+1))
 			if err != nil || len(body) > requestcontext.MaxRequestBodyBytes {
@@ -92,19 +92,19 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "serving_assertion_required"})
 				return
 			}
-			test = assertion.TestPlan
-			if test != nil && !serving[0].TestBudgetEnabled {
+			testPlan = assertion.TestPlan
+			if testPlan != nil && !serving[0].TestBudgetEnabled {
 				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "test_budget_unavailable"})
 				return
 			}
-			if test != nil {
+			if testPlan != nil {
 				parentCtx = policyregistry.WithServingAssertion(parentCtx, assertion)
 				c.Request = c.Request.WithContext(parentCtx)
 			}
 		}
 		clientSessionID := proxy.ClientIdentityFromHeaders(c.Request.Header).SessionID
-		if test != nil {
-			clientSessionID = test.SessionID
+		if testPlan != nil {
+			clientSessionID = testPlan.SessionID
 		}
 		authCtx, authSpan := startAuthSpan(parentCtx, clientSessionID)
 		token := extractToken(c)
@@ -113,7 +113,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 		var externalKeys []*auth.ExternalAPIKey
 		var clusterModelLists []auth.ClusterModelList
 		var err error
-		if test != nil {
+		if testPlan != nil {
 			installation, apiKey, clusterModelLists, err = svc.VerifyPlatformAPIKey(authCtx, token)
 		} else {
 			installation, apiKey, externalKeys, clusterModelLists, err = svc.VerifyAPIKey(authCtx, token)
@@ -123,20 +123,22 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 			handleAuthError(c, err)
 			return
 		}
-		if test != nil && (apiKey.CredentialSubjectID != test.SubjectID || apiKey.InstallationID != installation.ID) {
+		if testPlan != nil && (apiKey.CredentialSubjectID != testPlan.SubjectID || apiKey.InstallationID != installation.ID) {
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "test_identity_mismatch"})
 			return
 		}
 		c.Set(ctxKeyInstallation, installation)
 		c.Set(ctxKeyAPIKey, apiKey)
 		ctx := authCtx
-		ctx, err = svc.WithRoutingPolicy(ctx, installation.ID)
-		if err != nil {
-			observability.FromContext(ctx).Error("Failed to load installation routing policy", "installation_id", installation.ID, "err", err)
-			finishAuthSpan(authSpan, err)
-			c.Header("Retry-After", "1")
-			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "routing_policy_unavailable"})
-			return
+		if testPlan == nil {
+			ctx, err = svc.WithRoutingPolicy(ctx, installation.ID)
+			if err != nil {
+				observability.FromContext(ctx).Error("Failed to load installation routing policy", "installation_id", installation.ID, "err", err)
+				finishAuthSpan(authSpan, err)
+				c.Header("Retry-After", "1")
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "routing_policy_unavailable"})
+				return
+			}
 		}
 		if apiKey != nil {
 			ctx = context.WithValue(ctx, proxy.APIKeyIDContextKey{}, apiKey.ID)
@@ -144,7 +146,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 			owner := subscriptionOwnerForRequest(c, svc, apiKey)
 			c.Set(ctxKeySubscriptionOwner, owner)
 			ctx = proxy.WithSubscriptionOwner(ctx, owner)
-			if test == nil && svc.SubscriptionAccountsEnabled() {
+			if testPlan == nil && svc.SubscriptionAccountsEnabled() {
 				accounts, listErr := svc.ListSubscriptionAccounts(ctx, owner)
 				if listErr != nil {
 					observability.FromContext(ctx).Error("Failed to load subscription account enrollment", "err", listErr)
@@ -244,7 +246,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 				ctx = flags.WithOverrides(ctx, installation.FlagOverrides)
 			}
 		}
-		byokAllowed := test == nil && (!byokRequiresOptIn || (installation != nil && installation.ByokEnabled))
+		byokAllowed := testPlan == nil && (!byokRequiresOptIn || (installation != nil && installation.ByokEnabled))
 		if externalKeys != nil && byokAllowed {
 			ctx = context.WithValue(ctx, proxy.ExternalAPIKeysContextKey{}, externalKeys)
 			ctx = proxy.WithForwardedHeaderSnapshot(ctx, externalKeys, c.Request.Header)

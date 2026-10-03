@@ -43,8 +43,8 @@ RETURNING l.launch;
 
 -- Revocation changes only ephemeral internal grant state.
 -- name: UpdateInternalTestLaunchRevoked :execrows
-UPDATE router.internal_test_plan_launches SET revoked_at = clock_timestamp()
-WHERE id = @id::uuid AND revoked_at IS NULL;
+UPDATE router.internal_test_plan_launches SET revoked_at = COALESCE(revoked_at, clock_timestamp())
+WHERE id = @id::uuid;
 
 -- Read only the isolated book; no customer balance or override lookup.
 -- name: GetInternalTestBalance :one
@@ -56,6 +56,7 @@ WHERE subject_id = @subject_id::uuid AND enabled;
 WITH charged AS (
  UPDATE router.internal_test_budgets SET balance_usd_micros = balance_usd_micros + @delta_usd_micros::bigint
  WHERE subject_id = @subject_id::uuid AND @delta_usd_micros::bigint <= 0
+   AND balance_usd_micros + @delta_usd_micros::bigint >= 0
    AND EXISTS (SELECT 1 FROM router.model_router_api_keys k WHERE k.id = @api_key_id::uuid
        AND k.credential_subject_id = router.internal_test_budgets.subject_id
        AND k.installation_id = router.internal_test_budgets.installation_id)

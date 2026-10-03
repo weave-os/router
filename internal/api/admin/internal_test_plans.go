@@ -1,8 +1,11 @@
 package admin
 
 import (
-	"github.com/gin-gonic/gin"
+	"errors"
 	"net/http"
+
+	"github.com/gin-gonic/gin"
+
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 )
@@ -72,6 +75,10 @@ func InternalTestPlanRevokeHandler(tools *policyregistry.TestPlanTools) gin.Hand
 	return func(c *gin.Context) {
 		err := tools.Repository.RevokeTestLaunch(c.Request.Context(), c.Param("id"))
 		if err != nil {
+			if errors.Is(err, policyregistry.ErrTestLaunchNotFound) {
+				c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "test_launch_not_found"})
+				return
+			}
 			testPlanFailure(c, err)
 			return
 		}

@@ -72,6 +72,8 @@ func TestInternalTestBookAndGrantIsolation(t *testing.T) {
 	_, err = repo.AuthorizeTestLaunch(ctx, hash, installation.String(), key.String(), uuid.NewString())
 	require.Error(t, err)
 	require.NoError(t, repo.RevokeTestLaunch(ctx, launch.ID))
+	require.NoError(t, repo.RevokeTestLaunch(ctx, launch.ID), "revoke remains idempotent for an existing launch")
+	require.ErrorIs(t, repo.RevokeTestLaunch(ctx, uuid.NewString()), policyregistry.ErrTestLaunchNotFound)
 	_, err = repo.AuthorizeTestLaunch(ctx, hash, installation.String(), key.String(), session)
 	require.Error(t, err)
 	launch.ID = uuid.NewString()
@@ -87,6 +89,13 @@ func TestInternalTestBookAndGrantIsolation(t *testing.T) {
 	balance, err := book.Debit(ctx, debit)
 	require.NoError(t, err)
 	require.Equal(t, int64(750000), balance)
+	debit.DeltaUsdMicros = -800000
+	_, err = book.Debit(ctx, debit)
+	require.Error(t, err, "an inference charge larger than the remaining budget must not overdraw it")
+	balance, err = book.Balance(ctx, billing.InternalTestOwner(subject.String()))
+	require.NoError(t, err)
+	require.Equal(t, int64(750000), balance)
+	debit.DeltaUsdMicros = -250000
 	var spent, ledgerCount int64
 	err = pool.QueryRow(ctx, `SELECT spent_usd_micros FROM router.model_router_api_keys WHERE id=$1`, key).Scan(&spent)
 	require.NoError(t, err)

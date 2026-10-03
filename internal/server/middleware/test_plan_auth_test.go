@@ -38,6 +38,18 @@ func (forbiddenTestSubscriptions) ListSubscriptionAccounts(context.Context, auth
 	panic("test admission read subscription accounts")
 }
 
+type assignedTestRoutingPolicyRepo struct{ policyReads, assignmentReads int }
+
+func (r *assignedTestRoutingPolicyRepo) GetPolicy(context.Context, string) (auth.RoutingPolicy, error) {
+	r.policyReads++
+	return auth.RoutingPolicy{Mode: auth.RoutingPolicyAssigned, Revision: 1}, nil
+}
+
+func (r *assignedTestRoutingPolicyRepo) HasAssignment(context.Context, string, string, int64) (bool, error) {
+	r.assignmentReads++
+	return true, nil
+}
+
 func TestSignedTestAuthSkipsEmailSubscriptionsAndProviderSecrets(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	const credential = "rk_synthetic_test"
@@ -45,8 +57,10 @@ func TestSignedTestAuthSkipsEmailSubscriptionsAndProviderSecrets(t *testing.T) {
 	key := &auth.APIKey{ID: "test-key", InstallationID: "test-installation", CredentialSubjectID: subject}
 	installation := &auth.Installation{ID: key.InstallationID, ByokEnabled: true}
 	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{auth.HashAPIKeySHA256(credential): {apiKey: key, installation: installation}}}
+	routingPolicies := &assignedTestRoutingPolicyRepo{}
 	service := auth.NewService(fakeInstallationRepository{}, repo, &forbiddenTestSecrets{}, nil, auth.NoOpAPIKeyCache{}, nil, time.Now).
-		WithRequestIdentities(forbiddenTestIdentity{}).WithSubscriptionAccounts(forbiddenTestSubscriptions{})
+		WithRequestIdentities(forbiddenTestIdentity{}).WithSubscriptionAccounts(forbiddenTestSubscriptions{}).
+		WithRoutingPolicies(routingPolicies, nil)
 	signer, err := policyregistry.NewAssertionSigner([]byte(strings.Repeat("s", 32)), time.Now)
 	require.NoError(t, err)
 	digest, persistent := policyregistry.ServingConversationDigest(subject, launch+"/"+session)
@@ -73,6 +87,7 @@ func TestSignedTestAuthSkipsEmailSubscriptionsAndProviderSecrets(t *testing.T) {
 			engine := gin.New()
 			engine.POST("/probe", middleware.WithAuth(service, true, &middleware.ServingAdmissionConfig{Signer: signer, TestBudgetEnabled: scenario != "disabled budget"}), func(c *gin.Context) {
 				require.Empty(t, middleware.SubscriptionOwnerFrom(c).SubscriberID)
+				require.False(t, auth.RoutingPassthroughFrom(c.Request.Context()), "signed test launches force Router plan routing")
 				require.Nil(t, c.Request.Context().Value(proxy.ExternalAPIKeysContextKey{}))
 				identity := requestcontext.ClientIdentity{Email: "customer@example.com", AccountID: "spoofed", SessionID: "old-session"}
 				ctx := requestcontext.WithClientIdentity(c.Request.Context(), identity)
@@ -83,6 +98,8 @@ func TestSignedTestAuthSkipsEmailSubscriptionsAndProviderSecrets(t *testing.T) {
 			})
 			response := httptest.NewRecorder()
 			engine.ServeHTTP(response, request)
+			require.Zero(t, routingPolicies.policyReads)
+			require.Zero(t, routingPolicies.assignmentReads)
 			expected := map[string]int{"valid": http.StatusNoContent, "spoofed assertion": http.StatusUnauthorized, "disabled budget": http.StatusServiceUnavailable, "wrong credential subject": http.StatusForbidden}
 			require.Equal(t, expected[scenario], response.Code)
 		})

@@ -85,6 +85,12 @@ func (r *TestPlanRepo) RevokeTestLaunch(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	_, err = r.queries.UpdateInternalTestLaunchRevoked(ctx, launchID)
-	return err
+	updated, err := r.queries.UpdateInternalTestLaunchRevoked(ctx, launchID)
+	if err != nil {
+		return err
+	}
+	if updated == 0 {
+		return policyregistry.ErrTestLaunchNotFound
+	}
+	return nil
 }

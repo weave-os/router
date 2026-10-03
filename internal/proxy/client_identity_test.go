@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,6 +20,17 @@ import (
 type captureUserRepo struct {
 	emailUpserts   []auth.UpsertUserParams
 	accountUpserts []auth.UpsertUserByAccountUUIDParams
+}
+
+type assignedRoutingPolicyRepo struct{ assignmentReads int }
+
+func (*assignedRoutingPolicyRepo) GetPolicy(context.Context, string) (auth.RoutingPolicy, error) {
+	return auth.RoutingPolicy{Mode: auth.RoutingPolicyAssigned, Revision: 1}, nil
+}
+
+func (r *assignedRoutingPolicyRepo) HasAssignment(context.Context, string, string, int64) (bool, error) {
+	r.assignmentReads++
+	return true, nil
 }
 
 func (r *captureUserRepo) UpsertByEmail(ctx context.Context, p auth.UpsertUserParams) (*auth.User, error) {
@@ -65,6 +77,18 @@ func TestNormalizeEmail_Valid(t *testing.T) {
 func TestNormalizeEmail_RejectsEmptyAndWhitespace(t *testing.T) {
 	assert.Equal(t, "", proxy.NormalizeEmail("   "))
 	assert.Equal(t, "", proxy.NormalizeEmail(""))
+}
+
+func TestInternalTestIdentitySkipsAssignedUserRouting(t *testing.T) {
+	ctx := requestcontext.WithInternalTestIdentity(context.Background(), requestcontext.InternalTestIdentity{SubjectID: "internal-subject", SessionID: "fresh-session"})
+	routingPolicies := &assignedRoutingPolicyRepo{}
+	authService := auth.NewService(nil, nil, nil, nil, nil, nil, nil).WithRoutingPolicies(routingPolicies, nil)
+	assignedContext, err := authService.WithRoutingPolicy(ctx, "installation")
+	require.NoError(t, err)
+	resolvedContext, err := proxy.ResolveRoutingAssignment(assignedContext, authService, &auth.Installation{ID: "installation"})
+	require.NoError(t, err)
+	require.Same(t, assignedContext, resolvedContext)
+	require.Zero(t, routingPolicies.assignmentReads)
 }
 
 func TestNormalizeEmail_RejectsBadShape(t *testing.T) {

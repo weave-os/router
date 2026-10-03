@@ -1,6 +1,9 @@
 package gateway
 
-import "net/http"
+import (
+	"net/http"
+	"strings"
+)
 
 func testPlanSurface(r *http.Request) bool {
 	if r.Method == http.MethodGet {
@@ -12,7 +15,7 @@ func testPlanSurface(r *http.Request) bool {
 	switch r.URL.Path {
 	case "/v1/messages", "/v1/messages/count_tokens", "/v1/route", "/v1/route/preview", "/v1/chat/completions", "/v1/responses":
 		return true
-	default:
-		return false
 	}
+	return strings.HasPrefix(r.URL.Path, "/v1beta/models/") &&
+		(strings.HasSuffix(r.URL.Path, ":generateContent") || strings.HasSuffix(r.URL.Path, ":streamGenerateContent"))
 }

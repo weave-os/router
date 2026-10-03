@@ -137,6 +137,7 @@ const insertInternalTestInferenceDebit = `-- name: InsertInternalTestInferenceDe
 WITH charged AS (
  UPDATE router.internal_test_budgets SET balance_usd_micros = balance_usd_micros + $1::bigint
  WHERE subject_id = $2::uuid AND $1::bigint <= 0
+   AND balance_usd_micros + $1::bigint >= 0
    AND EXISTS (SELECT 1 FROM router.model_router_api_keys k WHERE k.id = $3::uuid
        AND k.credential_subject_id = router.internal_test_budgets.subject_id
        AND k.installation_id = router.internal_test_budgets.installation_id)
@@ -165,6 +166,7 @@ type InsertInternalTestInferenceDebitParams struct {
 //	WITH charged AS (
 //	 UPDATE router.internal_test_budgets SET balance_usd_micros = balance_usd_micros + $1::bigint
 //	 WHERE subject_id = $2::uuid AND $1::bigint <= 0
+//	   AND balance_usd_micros + $1::bigint >= 0
 //	   AND EXISTS (SELECT 1 FROM router.model_router_api_keys k WHERE k.id = $3::uuid
 //	       AND k.credential_subject_id = router.internal_test_budgets.subject_id
 //	       AND k.installation_id = router.internal_test_budgets.installation_id)
@@ -224,14 +226,14 @@ func (q *Queries) InsertInternalTestLaunch(ctx context.Context, arg InsertIntern
 }
 
 const updateInternalTestLaunchRevoked = `-- name: UpdateInternalTestLaunchRevoked :execrows
-UPDATE router.internal_test_plan_launches SET revoked_at = clock_timestamp()
-WHERE id = $1::uuid AND revoked_at IS NULL
+UPDATE router.internal_test_plan_launches SET revoked_at = COALESCE(revoked_at, clock_timestamp())
+WHERE id = $1::uuid
 `
 
 // Revocation changes only ephemeral internal grant state.
 //
-//	UPDATE router.internal_test_plan_launches SET revoked_at = clock_timestamp()
-//	WHERE id = $1::uuid AND revoked_at IS NULL
+//	UPDATE router.internal_test_plan_launches SET revoked_at = COALESCE(revoked_at, clock_timestamp())
+//	WHERE id = $1::uuid
 func (q *Queries) UpdateInternalTestLaunchRevoked(ctx context.Context, id uuid.UUID) (int64, error) {
 	result, err := q.db.Exec(ctx, updateInternalTestLaunchRevoked, id)
 	if err != nil {

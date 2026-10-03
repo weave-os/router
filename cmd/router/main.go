@@ -1033,6 +1033,7 @@ func main() {
 	var hmmRosterModels admin.HMMRosterSource
 	var hmmBetaCapabilities policy.Capabilities
 	var servingAdmission *middleware.ServingAdmissionConfig
+	testPlansEnabled := strings.EqualFold(config.GetOr("ROUTER_TEST_PLANS_ENABLED", "false"), "true")
 	policyEnvironmentRaw := strings.TrimSpace(config.GetOr("ROUTER_POLICY_ENVIRONMENT", ""))
 	if managedServingEnabled() {
 		prepareCtx, cancelPrepare := context.WithTimeout(context.Background(), 60*time.Second)
@@ -1044,7 +1045,7 @@ func main() {
 		}
 		defer closeRegistry()
 		servingAdmission = admission
-		servingAdmission.TestBudgetEnabled = billingSvc != nil
+		servingAdmission.TestBudgetEnabled = testPlansEnabled && billingSvc != nil
 		servingAdmission.Attribution = servingpostgres.NewRequestAttributionRepo(pool)
 		admittedRouter := policyregistry.NewAdmittedRouter(router.StrategyHMM, baseline)
 		hmmRouter = admittedRouter
@@ -1516,7 +1517,7 @@ func main() {
 		logger.Info("Individual subscriber allowance enforcement enabled")
 	}
 	var testPlans *policyregistry.TestPlanTools
-	if strings.EqualFold(config.GetOr("ROUTER_TEST_PLANS_ENABLED", "false"), "true") {
+	if testPlansEnabled {
 		if servingAdmission == nil || billingSvc == nil {
 			panic("internal test plan preparation requires managed serving and isolated prepaid billing")
 		}

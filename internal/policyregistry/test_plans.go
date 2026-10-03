@@ -23,6 +23,9 @@ const (
 	TestPlanLaunchLifetime          = time.Hour
 )
 
+// ErrTestLaunchNotFound indicates a revoke request named no launch.
+var ErrTestLaunchNotFound = errors.New("internal test launch not found")
+
 // Profile resolves the server-owned serving profile for a test selector.
 func (p TestPlan) Profile() (entitlement.ServingProfile, error) {
 	switch p {
@@ -145,11 +148,11 @@ func (s *TestPlanTools) Prepare(ctx context.Context, expected TestPlanPreview, c
 	return TestPlanConfiguration{Launch: launch, Grant: grant}, nil
 }
 
-func sameTestSelection(a, b TestPlanPreview) bool {
-	return a.Identity.SubjectID == b.Identity.SubjectID && a.Identity.InstallationID == b.Identity.InstallationID &&
-		a.Identity.EnrollmentGeneration == b.Identity.EnrollmentGeneration && a.Plan == b.Plan &&
-		a.Admission.Target == b.Admission.Target && a.Admission.ActivationID == b.Admission.ActivationID &&
-		a.Admission.ProfileKey == b.Admission.ProfileKey && sameSelection(a.Admission.Selection, b.Admission.Selection) && a.PolicyRevision == b.PolicyRevision
+func sameTestSelection(expected, actual TestPlanPreview) bool {
+	return expected.Identity.SubjectID == actual.Identity.SubjectID && expected.Identity.InstallationID == actual.Identity.InstallationID &&
+		expected.Identity.EnrollmentGeneration == actual.Identity.EnrollmentGeneration && expected.Plan == actual.Plan &&
+		expected.Admission.Target == actual.Admission.Target && expected.Admission.ActivationID == actual.Admission.ActivationID &&
+		expected.Admission.ProfileKey == actual.Admission.ProfileKey && sameSelection(expected.Admission.Selection, actual.Admission.Selection) && expected.PolicyRevision == actual.PolicyRevision
 }
 
 // Admit verifies the grant and exact retained selection for every request.
@@ -207,11 +210,11 @@ func (s *TestPlanTools) retainedSelection(ctx context.Context, launch TestPlanLa
 		!now.Before(admission.LastAdmittedAt.Add(ServingIdleLifetime)) {
 		return SessionReleaseBinding{}, errors.New("pinned test activation is no longer eligible; prepare a new launch")
 	}
-	set, err := readSelectionSetView(ctx, s.Store, activation.SelectionSet)
+	selectionSet, err := readSelectionSetView(ctx, s.Store, activation.SelectionSet)
 	if err != nil {
 		return SessionReleaseBinding{}, err
 	}
-	selection, err := selectionForActivation(activation, admission.ProfileKey, map[string]SelectionSetView{activation.SelectionSet.SHA256: set}, s.Store.RootURI(), TargetStable)
+	selection, err := selectionForActivation(activation, admission.ProfileKey, map[string]SelectionSetView{activation.SelectionSet.SHA256: selectionSet}, s.Store.RootURI(), TargetStable)
 	if err != nil {
 		return SessionReleaseBinding{}, err
 	}

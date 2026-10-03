@@ -105,6 +105,9 @@ func ResolveUserFromContext(ctx context.Context, authSvc *auth.Service, installa
 // ResolveRoutingAssignment applies generic per-user policy after the identity has been resolved.
 // A request carrying an identity that could not be resolved must not silently inherit routing.
 func ResolveRoutingAssignment(ctx context.Context, authSvc *auth.Service, installation *auth.Installation) (context.Context, error) {
+	if _, ok := requestcontext.InternalTestIdentityFrom(ctx); ok {
+		return ctx, nil
+	}
 	if authSvc == nil || installation == nil || auth.RoutingPolicyFrom(ctx).Mode != auth.RoutingPolicyAssigned {
 		return ctx, nil
 	}
