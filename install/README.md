@@ -98,7 +98,7 @@ explicitly to its managed Codex config.
 | Path                                  | Purpose                                                       |
 | ------------------------------------- | ------------------------------------------------------------- |
 | `~/.claude/settings.json`             | Sets `env.ANTHROPIC_BASE_URL`, `env.ANTHROPIC_CUSTOM_HEADERS` with `X-Weave-Router-Key`, `env.ENABLE_TOOL_SEARCH=true` (a custom base URL otherwise inlines tool schemas into every request), `statusLine`, and Claude Code `attribution` so commits/PRs credit Weave Router. Other keys preserved. |
-| `~/.weave/cc-statusline.sh`           | Shows transcript model/token information and an estimated cost comparison. Explicitly labels routing as unverified; it is not a routing health check. |
+| `~/.weave/cc-statusline.sh`           | Shows the response model and an estimated cost comparison, without token counts. It is not a routing health check. |
 
 **Project scope (`--scope project`):**
 
@@ -554,8 +554,8 @@ env var to make the setting editable.
 1. Run `npx @weave-os/router status --claude` to inspect the saved settings
    in the selected scope. Connectivity verifies the key, not inference.
 2. Run `claude` and send a prompt. The terminal shows
-   `WEAVE ROUTER · transcript model: <model>`.
-   Model names, token totals and pin acknowledgements come from the local
+   `WEAVE ROUTER · response model: <model>`.
+   Model names and pin acknowledgements come from the local
    transcript, which can also contain direct-provider responses or old sessions.
 3. Confirm a matching new inference request in the router's server-side
    telemetry. A saved endpoint, a successful key check, and commit/PR attribution

@@ -163,13 +163,16 @@ echo "cc-statusline.sh"
 c="$work/routing-evidence"; mkdir -p "$c/cache"; make_installed "$c/cc.sh"
 printf '{"hide_terminal_surfaces": false}' > "$c/display-settings.json"
 for response_model in claude-sonnet-4-5 deepseek/deepseek-v4-pro; do
-  jq -cn --arg model "$response_model" '{type:"assistant",message:{id:"msg_local",model:$model,usage:{input_tokens:1000,output_tokens:200,cache_read_input_tokens:3000}}}' > "$c/transcript.jsonl"
+  jq -cn --arg model "$response_model" '{type:"assistant",message:{id:"msg_local",model:$model,usage:{input_tokens:1000,output_tokens:200,cache_read_input_tokens:3000,cache_creation_input_tokens:500}}}' > "$c/transcript.jsonl"
   out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
     WEAVE_ROUTER_BASE_URL="file://$c/display-settings.json" \
     render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/transcript.jsonl")"
   check_not_contains "$response_model does not show a routing warning" "$out" "routing unverified"
-  check_contains "$response_model is labeled as transcript information" "$out" "transcript model: $response_model"
-  check_contains "$response_model preserves transcript token totals" "$out" "1.0k in / 200 out / 3.0k cache read"
+  check_contains "$response_model has a clear response label" "$out" "response model: $response_model"
+  check_not_contains "$response_model does not use transcript jargon" "$out" "transcript model:"
+  check_not_contains "$response_model omits input/output token totals" "$out" " in / "
+  check_not_contains "$response_model omits cache read totals" "$out" "cache read"
+  check_not_contains "$response_model omits cache write totals" "$out" "cache write"
   check_not_contains "$response_model does not claim realized savings" "$out" "saved "
   check_not_contains "$response_model does not imply a verified model swap" "$out" "←"
 done
@@ -183,7 +186,7 @@ out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
   render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/pin.jsonl")"
 check_not_contains "historical pin does not show a routing warning" "$out" "routing unverified"
 check_contains "historical pin is labeled as historical" "$out" "last pin: claude-opus-4-7"
-check_contains "historical pin does not replace the latest transcript model" "$out" "transcript model: claude-sonnet-4-5"
+check_contains "historical pin does not replace the latest response model" "$out" "response model: claude-sonnet-4-5"
 check_not_contains "historical pin does not claim an active force" "$out" "[forced]"
 
 printf '{"type":"assistant","message":{"model":"<synthetic>"}}\n' >> "$c/pin.jsonl"
@@ -198,7 +201,7 @@ out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
   render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/missing.jsonl")"
 check_not_contains "missing transcript does not show a routing warning" "$out" "routing unverified"
 check_contains "missing transcript labels the selected model" "$out" "selected: claude-sonnet-4-5"
-check_not_contains "missing transcript does not invent a response model" "$out" "transcript model:"
+check_not_contains "missing transcript does not invent a response model" "$out" "response model:"
 
 for transcript_state in empty malformed; do
   : > "$c/$transcript_state.jsonl"
@@ -208,7 +211,7 @@ for transcript_state in empty malformed; do
     render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/$transcript_state.jsonl")"
   check_not_contains "$transcript_state transcript does not show a routing warning" "$out" "routing unverified"
   check_not_contains "$transcript_state transcript does not invent a price comparison" "$out" "est. cost difference"
-  check_not_contains "$transcript_state transcript does not invent a response model" "$out" "transcript model:"
+  check_not_contains "$transcript_state transcript does not invent a response model" "$out" "response model:"
 done
 
 head -n 1 "$c/pin.jsonl" > "$c/ack.jsonl"
@@ -227,7 +230,7 @@ out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
   WEAVE_ROUTER_BASE_URL="file://$c/display-settings.json" \
   render "$c/cc.sh" "$c/cache" "file://$upstream" deepseek/deepseek-v4-pro "$c/duplicate.jsonl")"
 check_contains "more expensive transcript preserves a signed comparison" "$out" "est. cost difference -\$0.08"
-check_contains "content-block copies do not inflate transcript tokens" "$out" "10.0k in / 2.0k out"
+check_not_contains "content-block copies do not display token totals" "$out" " in / "
 
 jq -c '.message.usage = {input_tokens:100,output_tokens:20}' "$c/duplicate.jsonl" > "$c/tiny-difference.jsonl"
 out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
@@ -247,7 +250,7 @@ for sentinel_model in '<synthetic>' weave-router; do
   cat "$transcript" >> "$c/sentinel.jsonl"
   out="$(WEAVE_STATUSLINE_UPDATE=0 render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL" "$c/sentinel.jsonl")"
   check_contains "$sentinel_model does not poison later inference estimates" "$out" "est. cost difference \$0.08"
-  check_contains "$sentinel_model does not inflate inference token totals" "$out" "10.0k in / 2.0k out"
+  check_not_contains "$sentinel_model followed by inference does not display token totals" "$out" " in / "
   check_not_contains "$sentinel_model followed by inference does not show a routing warning" "$out" "routing unverified"
 
   head -n 1 "$c/sentinel.jsonl" > "$c/sentinel-only.jsonl"
@@ -259,7 +262,8 @@ done
 jq -c 'select(.type == "assistant") | .message.model = "model-nobody-prices"' "$transcript" > "$c/unpriced.jsonl"
 out="$(WEAVE_STATUSLINE_UPDATE=0 render "$c/cc.sh" "$c/cache" "file://$upstream" model-nobody-prices "$c/unpriced.jsonl")"
 check_not_contains "same unpriced model does not invent a zero comparison" "$out" "est. cost difference"
-check_contains "same unpriced model preserves inference token totals" "$out" "10.0k in / 2.0k out"
+check_contains "same unpriced model still names the response model" "$out" "response model: model-nobody-prices"
+check_not_contains "same unpriced model does not display token totals" "$out" " in / "
 
 cat "$transcript" >> "$c/unpriced.jsonl"
 out="$(WEAVE_STATUSLINE_UPDATE=0 render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL" "$c/unpriced.jsonl")"
