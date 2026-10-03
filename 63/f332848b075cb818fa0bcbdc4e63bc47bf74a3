@@ -1,0 +1,35 @@
+internal/api/admin/routing_distribution.go
+  s_eef74eff975806::t_5af1cd397cf15b 54-55,59-60,63,90,96
+internal/router/hmm/selection/distribution_test.go
+  s_eef74eff975806::t_5781bc9121825a 10
+  s_eef74eff975806::t_12fb259999b710 15-21,46,55,73,79,85-108,124
+internal/api/admin/routing_distribution_test.go
+  s_eef74eff975806::t_12fb259999b710 11,38,151
+internal/server/server.go
+  s_eef74eff975806::t_5af1cd397cf15b 116-117,213,217
+internal/server/serving_distribution_test.go
+  s_eef74eff975806::t_12fb259999b710 18
+cmd/router/main.go
+  s_eef74eff975806::t_5af1cd397cf15b 1505
+internal/api/admin/admitted_distribution_test.go
+  s_eef74eff975806::t_12fb259999b710 15,21-24,38,66,78
+internal/router/hmm/selection/distribution.go
+  s_eef74eff975806::t_5af1cd397cf15b 19,43,90
+  s_eef74eff975806::t_a3b123ae528c1f 100-102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "63f332848b075cb818fa0bcbdc4e63bc47bf74a3",
+  "prompts": {},
+  "sessions": {
+    "s_eef74eff975806": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0eea5-47b7-7733-b668-22e3b98f688b",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

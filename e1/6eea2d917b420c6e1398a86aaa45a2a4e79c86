@@ -1,0 +1,38 @@
+.github/workflows/test.yml
+  s_84ceb7c3bf245f::t_c91feae0032e49 31-34
+  s_84ceb7c3bf245f::t_2a8594960943f1 223
+  s_84ceb7c3bf245f::t_c42967fc4cfbdc 52-55,183-192
+  s_84ceb7c3bf245f::t_c37119a823957f 193
+internal/policyclient/boundary_test.go
+  s_84ceb7c3bf245f::t_a99284d5825f56 1-81
+internal/policyclient/client.go
+  s_84ceb7c3bf245f::t_5e4b0c303c221f 1053,1156-1157
+  s_84ceb7c3bf245f::t_c42967fc4cfbdc 1054,1056-1057,1070
+  s_c5c07cefb50829::t_6ddf2e534f5f71 1158
+internal/policyclient/python_contract_test.go
+  s_84ceb7c3bf245f::t_c91feae0032e49 1-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "e16eea2d917b420c6e1398a86aaa45a2a4e79c86",
+  "prompts": {},
+  "sessions": {
+    "s_84ceb7c3bf245f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0877c-d3fc-7571-8473-60cf94cda404",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
+    "s_c5c07cefb50829": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9fd80f23-12b3-4dac-b4f3-76527fda454d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

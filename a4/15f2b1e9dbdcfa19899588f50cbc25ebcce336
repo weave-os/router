@@ -1,0 +1,48 @@
+db/migrations/0050_session-pin-policy-group.up.sql
+  s_1184d1f1518d65::t_c0bc6f585090bc 1-17
+internal/router/policy/sidecar_router.go
+  s_1184d1f1518d65::t_3e8037786bcfaa 393
+internal/proxy/turnloop.go
+  s_1184d1f1518d65::t_e36c7eec12220d 190-198,204-205,216-219,221
+  s_1184d1f1518d65::t_2658ab7d5c055b 1391-1393
+  s_1184d1f1518d65::t_0db091f99cac7c 1435
+  s_1184d1f1518d65::t_4308a161eb106c 1394-1396
+  s_1184d1f1518d65::t_a09c92c89b8f2e 220
+db/queries/session_pins.sql
+  s_1184d1f1518d65::t_e671b1590fd655 39-44,49,54-55
+  s_1184d1f1518d65::t_3f0c003b4712a2 86-92
+internal/sqlc/session_pins.sql.go
+  s_1184d1f1518d65::t_2fdff0fdb419e2 53,71,101,327,332-333,364-370,397,429-434,438,443-444,475-481,507
+db/migrations/0050_session-pin-policy-group.down.sql
+  s_1184d1f1518d65::t_fc21c6e3763cea 1-6
+internal/proxy/hmm_pin_sticky_internal_test.go
+  s_1184d1f1518d65::t_00910ac9d5b233 170-173,178-179,184,190,192,197-204,208,223,232
+  s_1184d1f1518d65::t_eb53ae67e8bb88 28-29,33-35,38-51,63-64,70-71,76-100,103,110,117-118,124,126-129,136,143
+  s_1184d1f1518d65::t_f47261de085d1f 282-294
+internal/postgres/session_pin_repo.go
+  s_1184d1f1518d65::t_1bf5958d413f1d 53
+  s_1184d1f1518d65::t_935fad29b07999 164
+internal/sqlc/models.go
+  s_1184d1f1518d65::t_2fdff0fdb419e2 448
+internal/router/sessionpin/store.go
+  s_1184d1f1518d65::t_2658ab7d5c055b 43-45
+  s_1184d1f1518d65::t_8013724baa5882 46-50
+internal/router/router.go
+  s_1184d1f1518d65::t_2037ce57366e2a 244-247
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "a415f2b1e9dbdcfa19899588f50cbc25ebcce336",
+  "prompts": {},
+  "sessions": {
+    "s_1184d1f1518d65": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a650f0bb-cd2f-48b3-8efa-5a236c4ae15a",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
