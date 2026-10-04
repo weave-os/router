@@ -54,6 +54,14 @@ Claude Code keep using the user's logged-in plan.
 | `WAFER_API_KEY`   | *(none)*                                                  | Enables Wafer Serverless (both its OpenAI-compatible `wafer` and Anthropic-compatible `wafer_anthropic` surfaces; one key covers both). |
 | `WAFER_BASE_URL`  | `https://pass.wafer.ai/v1`                                | Override for the Wafer OpenAI-compatible endpoint (`wafer_anthropic` uses the fixed `/v1/messages` endpoint). |
 
+> [!TIP]
+> **Verifying provider keys in Docker Compose:** The router container runs on distroless Debian and does not include a shell or `printenv`. Running `docker compose exec server printenv` fails because `printenv` is not present in the image. To verify loaded variables or check enabled providers:
+> - Inspect container configuration safely without leaking secret values:
+>   `docker inspect $(docker compose ps -q server) --format '{{range .Config.Env}}{{slice (split . "=") 0 1}}{{"\n"}}{{end}}'`
+> - Check startup logs: `docker compose logs server | grep "provider enabled"`
+> - Query the admin config API using the admin session cookie:
+>   `curl -sS -b jar http://localhost:8080/admin/v1/config` (inspect the `env_provider_keys` list).
+
 **Anthropic-compatible gateway.** Some enterprises front Claude with their own
 gateway that speaks the Anthropic Messages spec but authenticates with a bearer
 token instead of `x-api-key`. The router serves the Claude family through it on
@@ -140,7 +148,8 @@ curl -sS -c jar -X POST https://<router>/admin/v1/auth/login \
 
 curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
   -H 'content-type: application/json' \
-  -d '{"provider":"anthropic_gateway","key":"<token>","base_url":"https://gateway.example.com/api"}'
+  -d '{"provider":"anthropic_gateway","key":"<token>","base_url":"https://gateway.example.com/api",
+       "model_aliases":{"claude-fable-5":"internal.claude-fable-5"}}'
 ```
 
 The value must be an absolute `http(s)` URL; anything else is rejected with
@@ -150,20 +159,11 @@ one), so give the base only. Omit the field to keep the deployment endpoint —
 except for `anthropic_gateway` and `openai_gateway`, which have no default to
 fall back to and reject a key without one.
 
-A key may also carry a model alias map for endpoints that publish the catalog's
-models under their own names:
-
-```bash
-curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
-  -H 'content-type: application/json' \
-  -d '{"provider":"anthropic_gateway","key":"<token>","base_url":"https://gateway.example.com/api",
-       "model_aliases":{"claude-fable-5":"internal.claude-fable-5"}}'
-```
-
 Keys are catalog model IDs (an ID outside the deployed catalog is rejected with
-`400`) and values are what goes on the wire to that endpoint. Only the outbound
-model name changes: routing, pricing, and analytics stay keyed on the catalog
-ID. Omit the field to send catalog IDs unchanged.
+`400`) and values are what goes on the wire to that endpoint. For direct providers,
+omitting `model_aliases` sends catalog IDs unchanged. For gateway keys (`anthropic_gateway`
+or `openai_gateway`), the gateway operates in gateway-exclusive mode where only aliased models
+are routable.
 
 The map is editable in **Settings → Provider API keys → Edit aliases**, or on
 its own endpoint, which replaces the whole map and leaves the stored secret
@@ -174,6 +174,11 @@ curl -sS -b jar -X PUT https://<router>/admin/v1/provider-keys/<key id>/model-al
   -H 'content-type: application/json' \
   -d '{"model_aliases":{"claude-fable-5":"internal.claude-fable-5"}}'
 ```
+
+> [!IMPORTANT]
+> **Gateway-exclusive routing mode:** Registering a key for `anthropic_gateway` or `openai_gateway` puts the router in gateway-exclusive routing mode for that provider. Under this mode, the router only routes models that are explicitly configured in that gateway key's `model_aliases`. If a gateway key is saved with an empty `model_aliases` map, no models will be eligible for routing and requests will fail with:
+> `"No model can be routed through your gateway: your gateway keys don't alias any available model. Add model aliases on the key mapping each model you want routed to the name your gateway serves it under."`
+
 
 ### Key-pair auth
 
