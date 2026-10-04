@@ -33,8 +33,10 @@ func linkedSubscriptionResetAt(snapshot usage.Snapshot, now time.Time) time.Time
 			continue
 		}
 		candidate := window.ResetAt
-		if candidate.IsZero() && window.WindowMinutes > 0 {
-			candidate = snapshot.ObservedAt.Add(time.Duration(window.WindowMinutes) * time.Minute)
+		if candidate.IsZero() {
+			// No stated reset: the window length is a ceiling, not a reset,
+			// so probe soon instead of sitting out a whole week.
+			candidate = now.Add(subscriptionProbeInterval)
 		}
 		if candidate.After(resetAt) {
 			resetAt = candidate

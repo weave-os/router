@@ -182,6 +182,11 @@ func (s *runtimeStore) UpdateSubscriptionAccountHealth(_ context.Context, _ auth
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.healthStates[accountID] = state
+	for _, account := range s.accounts {
+		if account.ID == accountID {
+			account.State, account.Enabled, account.CooldownUntil = state, enabled && account.Enabled, cooldownUntil
+		}
+	}
 	s.enabledUpdates[accountID] = enabled
 	if cooldownUntil != nil {
 		s.cooldowns[accountID] = *cooldownUntil

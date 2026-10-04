@@ -418,18 +418,55 @@ func reconnectManagedSubscription(ctx context.Context, leaser subscriptions.Leas
 	return leaser.Disable(ctx, owner, provider, accountID)
 }
 
+// subscriptionProbeInterval is how long an account sits out when its 429
+// states no reset. The account then takes one request to test whether it
+// recovered (half-open), instead of waiting out a window length the upstream
+// never reported.
+const subscriptionProbeInterval = time.Minute
+
+// managedSubscriptionResetAt derives when a rate-limited account may be tried
+// again from what the upstream states, in order:
+//
+//  1. The reset of each window an Anthropic subscription 429 marks rejected,
+//     the latest of them. A window that did not refuse the request is ignored,
+//     so a five-hour refusal is not stretched to the weekly reset.
+//  2. The reset of each empty anthropic-ratelimit-* bucket (API-key 429s).
+//  3. Retry-After, unless the unified headers are present and name no rejected
+//     window; then it is contradicted and capped at the probe interval.
+//  4. The probe interval.
 func managedSubscriptionResetAt(err error, now time.Time) time.Time {
+	probe := now.Add(subscriptionProbeInterval)
 	var upstream *providers.UpstreamErrorResponse
 	if !errors.As(err, &upstream) {
-		return now.Add(time.Minute)
+		return probe
 	}
-	if retryAfter := upstream.Headers.Get("Retry-After"); retryAfter != "" {
-		if seconds, parseErr := strconv.Atoi(retryAfter); parseErr == nil && seconds > 0 {
-			return now.Add(time.Duration(seconds) * time.Second)
-		}
-		if resetAt, parseErr := http.ParseTime(retryAfter); parseErr == nil && resetAt.After(now) {
-			return resetAt
-		}
+	unified := usage.ParseUnifiedRejection(upstream.Headers, now)
+	if !unified.ResetAt.IsZero() {
+		return unified.ResetAt
 	}
-	return now.Add(time.Minute)
+	if resetAt := usage.ParseStandardRateLimitReset(upstream.Headers, now); !resetAt.IsZero() {
+		return resetAt
+	}
+	retryAt, hasRetryAfter := retryAfterAt(upstream.Headers, now)
+	if !hasRetryAfter {
+		return probe
+	}
+	if unified.Present && retryAt.After(probe) {
+		return probe
+	}
+	return retryAt
+}
+
+func retryAfterAt(h http.Header, now time.Time) (time.Time, bool) {
+	retryAfter := h.Get("Retry-After")
+	if retryAfter == "" {
+		return time.Time{}, false
+	}
+	if seconds, err := strconv.Atoi(retryAfter); err == nil && seconds > 0 {
+		return now.Add(time.Duration(seconds) * time.Second), true
+	}
+	if resetAt, err := http.ParseTime(retryAfter); err == nil && resetAt.After(now) {
+		return resetAt, true
+	}
+	return time.Time{}, false
 }
