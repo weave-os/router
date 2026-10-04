@@ -21,18 +21,21 @@ type RouterBlindRouterExperimentAssignment struct {
 }
 
 type RouterBlindRouterExperimentConfiguration struct {
-	InstallationID     uuid.UUID
-	OrganizationID     string
-	Enabled            bool
-	RouterOnPercentage int16
-	Seed               uuid.UUID
-	CreatedAt          pgtype.Timestamptz
-	UpdatedAt          pgtype.Timestamptz
-	CohortExperimentID pgtype.UUID
-	CohortStartsAt     pgtype.Timestamptz
-	CohortEndsAt       pgtype.Timestamptz
-	CohortTimezone     *string
-	CohortRevision     *int32
+	InstallationID        uuid.UUID
+	OrganizationID        string
+	Enabled               bool
+	RouterOnPercentage    int16
+	Seed                  uuid.UUID
+	CreatedAt             pgtype.Timestamptz
+	UpdatedAt             pgtype.Timestamptz
+	CohortExperimentID    pgtype.UUID
+	CohortStartsAt        pgtype.Timestamptz
+	CohortEndsAt          pgtype.Timestamptz
+	CohortTimezone        *string
+	CohortRevision        *int32
+	ReportingExperimentID pgtype.UUID
+	ReportingRevision     *int64
+	ReportingUpdatedAt    pgtype.Timestamptz
 }
 
 type RouterBlindRouterExperimentEmergencyOverride struct {
@@ -242,10 +245,12 @@ type RouterInstallationRoutingAssignment struct {
 }
 
 type RouterInstallationRoutingPolicy struct {
-	InstallationID uuid.UUID
-	Mode           string
-	Revision       int64
-	UpdatedAt      pgtype.Timestamptz
+	InstallationID        uuid.UUID
+	Mode                  string
+	Revision              int64
+	UpdatedAt             pgtype.Timestamptz
+	ReportingExperimentID pgtype.UUID
+	ReportingUpdatedAt    pgtype.Timestamptz
 }
 
 type RouterInternalTestBudget struct {
@@ -660,33 +665,41 @@ type RouterModelRouterRequestTelemetry struct {
 	// Effort level written on the wire after the target menu clamp (xhigh -> max -> high). NULL when nothing was sent.
 	EffortSent *string
 	// Precedence branch that produced the level: user, escalation, arm, model_policy. NULL when no effort resolved.
-	EffortSource            *string
-	SubscriberPlan          *string
-	EntitlementVersion      *int64
-	CapacitySource          *string
-	RetailUsageUsdMicros    *int64
-	IncludedUsageUsdMicros  *int64
-	LinkedUsageUsdMicros    *int64
-	PrepaidUsageUsdMicros   *int64
-	SettlementFailed        *bool
-	ServingProfileID        *string
-	ServingProfileVersion   *string
-	ServingReleaseID        *string
-	ServingBindingID        *string
-	BoostOptimizerVersion   *string
-	CohortExperimentID      pgtype.UUID
-	CohortGroupID           *int16
-	CohortPhaseIndex        *int16
-	CohortRevision          *int32
-	CohortScheduledArm      *string
-	CohortTreatmentApplied  *bool
-	CohortBypassReason      *string
-	UserPrompt              *bool
-	UserPromptGapMs         *int64
-	UserPromptGapPriorModel *string
-	ErrorClass              *string
-	LatestToolCallCounts    []byte
-	ServingTarget           *string
+	EffortSource              *string
+	SubscriberPlan            *string
+	EntitlementVersion        *int64
+	CapacitySource            *string
+	RetailUsageUsdMicros      *int64
+	IncludedUsageUsdMicros    *int64
+	LinkedUsageUsdMicros      *int64
+	PrepaidUsageUsdMicros     *int64
+	SettlementFailed          *bool
+	ServingProfileID          *string
+	ServingProfileVersion     *string
+	ServingReleaseID          *string
+	ServingBindingID          *string
+	BoostOptimizerVersion     *string
+	CohortExperimentID        pgtype.UUID
+	CohortGroupID             *int16
+	CohortPhaseIndex          *int16
+	CohortRevision            *int32
+	CohortScheduledArm        *string
+	CohortTreatmentApplied    *bool
+	CohortBypassReason        *string
+	UserPrompt                *bool
+	UserPromptGapMs           *int64
+	UserPromptGapPriorModel   *string
+	ErrorClass                *string
+	LatestToolCallCounts      []byte
+	ServingTarget             *string
+	ReportingSchemaVersion    *int16
+	ReportingMode             *string
+	ReportingExperimentID     pgtype.UUID
+	ReportingRevision         *int64
+	ReportingAssignedArm      *string
+	ReportingTreatmentApplied *bool
+	ReportingBypassReason     *string
+	ReportingSubjectKey       *string
 }
 
 type RouterModelRouterSubscriptionAccount struct {
