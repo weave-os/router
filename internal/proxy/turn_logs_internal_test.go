@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -281,7 +283,6 @@ func TestRecordCallLog_InstallationOffEmitsPermanentErrorResponse(t *testing.T) 
 		"external_id":                       {Value: &commonv1.AnyValue_StringValue{StringValue: "org-1"}},
 		"client.session_id":                 {Value: &commonv1.AnyValue_StringValue{StringValue: "sess-1"}},
 		"router_user_id":                    {Value: &commonv1.AnyValue_StringValue{StringValue: "11111111-1111-1111-1111-111111111111"}},
-		"requested.model":                   {Value: &commonv1.AnyValue_StringValue{StringValue: "claude-opus-5"}},
 		"decision.model":                    {Value: &commonv1.AnyValue_StringValue{StringValue: "claude-opus-5-5"}},
 		"decision.provider":                 {Value: &commonv1.AnyValue_StringValue{StringValue: "snowflake"}},
 		"dispatch.primary_model":            {Value: &commonv1.AnyValue_StringValue{StringValue: "claude-opus-5-5"}},
@@ -302,8 +303,11 @@ func TestRecordCallLog_InstallationOffEmitsPermanentErrorResponse(t *testing.T) 
 		"request.size_bucket":               {Value: &commonv1.AnyValue_StringValue{StringValue: string(requestSizeBucketUnder16KiB)}},
 	}, attrsByKey(record.Attributes))
 	assert.NotContains(t, attrsByKey(record.Attributes), "upstream.error_message")
-	assert.NotContains(t, string(record.GetBody().GetStringValue()), "secret-request")
-	assert.NotContains(t, string(record.GetBody().GetStringValue()), "secret-response")
+	actualAttrs := attrsByKey(record.Attributes)
+	assert.NotContains(t, actualAttrs, "io.request_body")
+	assert.NotContains(t, actualAttrs, "io.response_body")
+	assert.NotContains(t, actualAttrs, "requested.model")
+	assert.Contains(t, actualAttrs["upstream.error_response"].GetStringValue(), "private-content-echo")
 }
 
 func TestRecordCallLog_OffDoesNotAlertRetryableFailures(t *testing.T) {
@@ -342,7 +346,9 @@ func TestPermanentErrorDiagnostics_LogsResponseWithoutTrustingUnknownProviderTyp
 func TestPermanentErrorDiagnostics_BoundsAndRedactsErrorResponse(t *testing.T) {
 	responseBody := []byte(strings.Repeat("x", maxLoggedErrorResponseBytes+10))
 	proxyErr := &providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Body: responseBody}
-	redact := func(string, ContentKind) string {
+	redact := func(content string, kind ContentKind) string {
+		assert.Equal(t, string(responseBody), content)
+		assert.Equal(t, ContentKindResponse, kind)
 		return strings.Repeat("r", maxLoggedErrorResponseBytes+10)
 	}
 
@@ -350,6 +356,39 @@ func TestPermanentErrorDiagnostics_BoundsAndRedactsErrorResponse(t *testing.T) {
 
 	assert.Equal(t, strings.Repeat("r", maxLoggedErrorResponseBytes), attrs["upstream.error_response"].GetStringValue())
 	assert.Equal(t, true, attrs["upstream.error_response_truncated"].GetBoolValue())
+}
+
+func TestPermanentErrorDiagnostics_TruncatesOnUTF8Boundary(t *testing.T) {
+	proxyErr := &providers.UpstreamErrorResponse{
+		Status: http.StatusBadRequest,
+		Body:   []byte(strings.Repeat("é", maxLoggedErrorResponseBytes)),
+	}
+	attrs := attrsByKey(permanentErrorDiagnosticAttrs(proxyErr, 1, nil))
+	response := attrs["upstream.error_response"].GetStringValue()
+	assert.LessOrEqual(t, len(response), maxLoggedErrorResponseBytes)
+	assert.True(t, utf8.ValidString(response))
+	assert.True(t, attrs["upstream.error_response_truncated"].GetBoolValue())
+}
+
+func TestPermanentErrorDiagnostics_ClassifiesCappedJSONAndGeminiStatus(t *testing.T) {
+	cappedJSON := append([]byte(`{"error":{"type":"invalid_request_error","message":"`), bytes.Repeat([]byte("x"), providers.MaxBufferedErrorBytes)...)
+	attrs := attrsByKey(permanentErrorDiagnosticAttrs(&providers.UpstreamErrorResponse{
+		Status: http.StatusBadRequest, Body: cappedJSON, BodyBytes: int64(len(cappedJSON)), BodyCapped: true,
+	}, 1, nil))
+	assert.Equal(t, string(permanentErrorClassInvalidRequest), attrs["upstream.error_class"].GetStringValue())
+	assert.Equal(t, string(errorBodyFormatJSON), attrs["upstream.error_body_format"].GetStringValue())
+	assert.True(t, attrs["upstream.error_body_capped"].GetBoolValue())
+
+	geminiAttrs := attrsByKey(permanentErrorDiagnosticAttrs(&providers.UpstreamErrorResponse{
+		Status: http.StatusBadRequest, Body: []byte(`{"error":{"status":"INVALID_ARGUMENT"}}`),
+	}, 1, nil))
+	assert.Equal(t, string(permanentErrorClassInvalidRequest), geminiAttrs["upstream.error_class"].GetStringValue())
+}
+
+func TestClassifyPermanentError_ResponsesUnsupportedRequiresResponsesSurface(t *testing.T) {
+	proxyErr := &providers.UpstreamErrorResponse{Status: http.StatusNotFound}
+	assert.Equal(t, permanentErrorClassNotFound, classifyPermanentError(proxyErr, false))
+	assert.Equal(t, permanentErrorClassResponsesUnsupported, classifyPermanentError(proxyErr, true))
 }
 
 func TestRequestSizeBucketFor(t *testing.T) {

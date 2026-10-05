@@ -12,18 +12,6 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-type providerErrorType string
-
-const (
-	providerErrorTypeInvalidRequest providerErrorType = "invalid_request_error"
-	providerErrorTypeAuthentication providerErrorType = "authentication_error"
-	providerErrorTypePermission     providerErrorType = "permission_error"
-	providerErrorTypeNotFound       providerErrorType = "not_found_error"
-	providerErrorTypeRateLimit      providerErrorType = "rate_limit_error"
-	providerErrorTypeAPI            providerErrorType = "api_error"
-	providerErrorTypeOverloaded     providerErrorType = "overloaded_error"
-)
-
 // ReadCapped buffers up to limit bytes from r, then drains (without retaining)
 // up to maxDrain more to bound failover latency on a large error body. Returns
 // the buffered prefix, total bytes read, and any read error (io.EOF -> nil).
@@ -102,15 +90,8 @@ func upstreamErrorTypeAttrs(body string) []any {
 	}
 	for _, path := range []string{"error.type", "type"} {
 		if r := gjson.Get(body, path); r.Type == gjson.String {
-			switch providerErrorType(r.Str) {
-			case providerErrorTypeInvalidRequest,
-				providerErrorTypeAuthentication,
-				providerErrorTypePermission,
-				providerErrorTypeNotFound,
-				providerErrorTypeRateLimit,
-				providerErrorTypeAPI,
-				providerErrorTypeOverloaded:
-				return []any{"upstream_error_type", r.Str}
+			if knownType, ok := providers.KnownProviderErrorType(r.Str); ok {
+				return []any{"upstream_error_type", string(knownType)}
 			}
 		}
 	}
@@ -140,5 +121,10 @@ func WritePassthroughError(ctx context.Context, w http.ResponseWriter, resp *htt
 	if copyErr != nil {
 		return copyErr
 	}
-	return &providers.UpstreamStatusError{Status: resp.StatusCode}
+	return &providers.UpstreamStatusError{
+		Status:    resp.StatusCode,
+		Headers:   resp.Header.Clone(),
+		Body:      append([]byte(nil), snip[:n]...),
+		BodyBytes: int64(n) + rest,
+	}
 }

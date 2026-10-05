@@ -150,7 +150,8 @@ type Service struct {
 	turnClock SessionTurnClock
 	// captureMode controls whether high-fidelity `router.call` OTLP log
 	// records carry full request/response bodies, content hashes, or are
-	// suppressed entirely. Default CaptureOff (no log records emitted).
+	// suppressed entirely. Permanent 4xx diagnostics still include a bounded
+	// upstream error body when CaptureOff is active.
 	captureMode ContentCaptureMode
 	// captureMaxBytes caps the buffered response body when capture is on;
 	// larger bodies are dropped and flagged io.truncated.
@@ -7989,6 +7990,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		Bool("dispatch.subscription_failover", codexFailoverUsed || claudeFailoverUsed).
 		Bool("dispatch.cyber_refusal_retry", cyberRetryRan).
 		Bool("dispatch.sibling_failover", siblingFailoverUsed)
+	if isResponsesSurface(ctx) {
+		openaiUpstreamBuilder.String("request.api_surface", string(requestAPISurfaceResponses))
+	}
 	if s.effectiveCaptureMode(ctx) == CaptureOff {
 		openaiUpstreamBuilder.Int64("request.message_count", int64(feats.MessageCount)).
 			Bool("request.has_tools", feats.HasTools)
@@ -8233,6 +8237,7 @@ func stripResponsesTerminalArtifacts(body []byte) ([]byte, error) {
 // re-emitted as Responses-shaped SSE / JSON. This keeps the turn loop, cache,
 // pricing, and translation matrix unchanged.
 func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
+	ctx = withResponsesSurface(ctx)
 	ctx, inputErr := s.withClassifierInput(ctx, body, router.EndpointOpenAIResponses)
 	if inputErr != nil {
 		return inputErr

@@ -49,6 +49,7 @@ func TestWritePassthroughError_WritesBodyLogsAndReturnsStatusError(t *testing.T)
 	upstreamBody := "upstream failure detail"
 	resp := &http.Response{
 		StatusCode: http.StatusBadGateway,
+		Header:     http.Header{"X-Request-Id": {"upstream-req-1"}},
 		Body:       http.NoBody,
 	}
 	resp.Body = io.NopCloser(strings.NewReader(upstreamBody))
@@ -60,6 +61,9 @@ func TestWritePassthroughError_WritesBodyLogsAndReturnsStatusError(t *testing.T)
 	var statusErr *providers.UpstreamStatusError
 	require.ErrorAs(t, err, &statusErr)
 	assert.Equal(t, http.StatusBadGateway, statusErr.Status)
+	assert.Equal(t, upstreamBody, string(statusErr.Body))
+	assert.Equal(t, int64(len(upstreamBody)), statusErr.BodyBytes)
+	assert.Equal(t, "upstream-req-1", statusErr.Headers.Get("X-Request-Id"))
 	assert.Equal(t, upstreamBody, rec.Body.String())
 	assert.Equal(t, 1, firstByteCalls)
 	assert.Equal(t, 1, eofCalls)
@@ -114,6 +118,11 @@ func TestLogUpstreamStatus_KeepsOnlyAllowlistedErrorTypeWhenContentLoggingDisall
 			name:     "anthropic nested envelope",
 			body:     `{"type":"error","error":{"type":"invalid_request_error","message":"echoed secret-fragment"}}`,
 			wantType: "invalid_request_error",
+		},
+		{
+			name:     "openai compatible service unavailable",
+			body:     `{"error":{"type":"service_unavailable","message":"echoed secret-fragment"}}`,
+			wantType: "service_unavailable",
 		},
 		{
 			name: "top-level message only",

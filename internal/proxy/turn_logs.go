@@ -26,7 +26,7 @@ type ContentCaptureMode int
 
 const (
 	// CaptureOff emits no `router.call` log records. Permanent upstream 4xx
-	// failures emit a separate diagnostic event with a bounded upstream error response.
+	// failures emit a separate diagnostic event with the bounded upstream error body.
 	// Default for self-hosted / OSS.
 	CaptureOff ContentCaptureMode = iota
 	// CaptureHashed emits log records with metadata + SHA-256 content hashes
@@ -255,17 +255,20 @@ const (
 	permanentErrorClassResponsesUnsupported permanentErrorClass = "responses_unsupported"
 )
 
-type providerErrorType string
+type requestAPISurface string
 
-const (
-	providerErrorTypeInvalidRequest providerErrorType = "invalid_request_error"
-	providerErrorTypeAuthentication providerErrorType = "authentication_error"
-	providerErrorTypePermission     providerErrorType = "permission_error"
-	providerErrorTypeNotFound       providerErrorType = "not_found_error"
-	providerErrorTypeRateLimit      providerErrorType = "rate_limit_error"
-	providerErrorTypeAPI            providerErrorType = "api_error"
-	providerErrorTypeOverloaded     providerErrorType = "overloaded_error"
-)
+const requestAPISurfaceResponses requestAPISurface = "openai_responses"
+
+type responsesSurfaceContextKey struct{}
+
+func withResponsesSurface(ctx context.Context) context.Context {
+	return context.WithValue(ctx, responsesSurfaceContextKey{}, true)
+}
+
+func isResponsesSurface(ctx context.Context) bool {
+	isResponses, _ := ctx.Value(responsesSurfaceContextKey{}).(bool)
+	return isResponses
+}
 
 type errorBodyFormat string
 
@@ -312,38 +315,43 @@ func (s *Service) recordPermanentError(ctx context.Context, base []*commonv1.Key
 	}
 
 	attrs := make([]*commonv1.KeyValue, 0, 20)
+	responsesSurface := false
 	for _, attr := range base {
 		switch attr.Key {
-		case "request_id", "external_id", "client.session_id", "router_user_id", "requested.model", "decision.model", "decision.provider", "dispatch.primary_model", "dispatch.primary_provider", "dispatch.final_provider", "request.message_count", "request.has_tools", "routing.cross_format", "routing.turn_type", "upstream.status_code":
+		case "request_id", "external_id", "client.session_id", "router_user_id", "decision.model", "decision.provider", "dispatch.primary_model", "dispatch.primary_provider", "dispatch.final_provider", "request.message_count", "request.has_tools", "request.api_surface", "routing.cross_format", "routing.turn_type", "upstream.status_code":
 			attrs = append(attrs, attr)
+			if attr.Key == "request.api_surface" && attr.Value.GetStringValue() == string(requestAPISurfaceResponses) {
+				responsesSurface = true
+			}
 		}
 	}
-	attrs = append(attrs, permanentErrorDiagnosticAttrs(proxyErr, requestBytes, s.redactor)...)
+	attrs = append(attrs, permanentErrorDiagnosticAttrs(proxyErr, requestBytes, s.redactor, responsesSurface)...)
 	otel.RecordLog(ctx, otel.LogRecord{
 		Name: permanentErrorEventName, Time: time.Now(),
 		Severity: otel.SeverityError, Attrs: attrs,
 	})
 }
 
-func permanentErrorDiagnosticAttrs(proxyErr error, requestBytes int, redact Redactor) []*commonv1.KeyValue {
+func permanentErrorDiagnosticAttrs(proxyErr error, requestBytes int, redact Redactor, responsesSurface ...bool) []*commonv1.KeyValue {
+	isResponsesSurface := len(responsesSurface) > 0 && responsesSurface[0]
 	attrs := otel.NewAttrBuilder(8).
-		String("upstream.error_class", string(classifyPermanentError(proxyErr))).
+		String("upstream.error_class", string(classifyPermanentError(proxyErr, isResponsesSurface))).
 		String("request.size_bucket", string(requestSizeBucketFor(requestBytes)))
 
-	var bufferedErr *providers.UpstreamErrorResponse
-	if !errors.As(proxyErr, &bufferedErr) {
+	bufferedErr := errorResponseFor(proxyErr)
+	if bufferedErr == nil {
 		return attrs.String("upstream.error_body_format", string(errorBodyFormatEmpty)).Build()
 	}
 
 	bodyFormat := errorBodyFormatNonJSON
 	if len(bufferedErr.Body) == 0 {
 		bodyFormat = errorBodyFormatEmpty
-	} else if json.Valid(bufferedErr.Body) {
+	} else if json.Valid(bufferedErr.Body) || looksLikeJSON(bufferedErr.Body) {
 		bodyFormat = errorBodyFormatJSON
 	}
 	attrs.String("upstream.error_body_format", string(bodyFormat)).
-		Int64("upstream.error_body_bytes", int64(len(bufferedErr.Body))).
-		Bool("upstream.error_body_capped", len(bufferedErr.Body) >= providers.MaxBufferedErrorBytes)
+		Int64("upstream.error_body_bytes", bufferedErr.BodyBytes).
+		Bool("upstream.error_body_capped", bufferedErr.Capped)
 	errorResponse, errorResponseTruncated := boundedErrorResponse(bufferedErr.Body, redact)
 	attrs.String("upstream.error_response", errorResponse).
 		Bool("upstream.error_response_truncated", errorResponseTruncated)
@@ -351,6 +359,11 @@ func permanentErrorDiagnosticAttrs(proxyErr error, requestBytes int, redact Reda
 		attrs.String("upstream.request_id", upstreamRequestID)
 	}
 	return attrs.Build()
+}
+
+func looksLikeJSON(body []byte) bool {
+	trimmed := strings.TrimSpace(string(body))
+	return strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")
 }
 
 func boundedErrorResponse(body []byte, redact Redactor) (string, bool) {
@@ -367,6 +380,35 @@ func boundedErrorResponse(body []byte, redact Redactor) (string, bool) {
 		truncatedAt--
 	}
 	return errorResponse[:truncatedAt], true
+}
+
+type permanentErrorBody struct {
+	Headers   http.Header
+	Body      []byte
+	BodyBytes int64
+	Capped    bool
+}
+
+func errorResponseFor(proxyErr error) *permanentErrorBody {
+	var buffered *providers.UpstreamErrorResponse
+	if errors.As(proxyErr, &buffered) {
+		bodyBytes := buffered.BodyBytes
+		if bodyBytes == 0 {
+			bodyBytes = int64(len(buffered.Body))
+		}
+		return &permanentErrorBody{
+			Headers: buffered.Headers, Body: buffered.Body,
+			BodyBytes: bodyBytes, Capped: buffered.BodyCapped,
+		}
+	}
+	var passthrough *providers.UpstreamStatusError
+	if errors.As(proxyErr, &passthrough) {
+		return &permanentErrorBody{
+			Headers: passthrough.Headers, Body: passthrough.Body,
+			BodyBytes: passthrough.BodyBytes, Capped: passthrough.BodyBytes > int64(len(passthrough.Body)),
+		}
+	}
+	return nil
 }
 
 func requestSizeBucketFor(requestBytes int) requestSizeBucket {
@@ -386,7 +428,7 @@ func requestSizeBucketFor(requestBytes int) requestSizeBucket {
 	}
 }
 
-func classifyPermanentError(proxyErr error) permanentErrorClass {
+func classifyPermanentError(proxyErr error, responsesSurface bool) permanentErrorClass {
 	switch {
 	case providers.IsUpstreamOutputConfigFormatRejection(proxyErr):
 		return permanentErrorClassOutputConfigFormat
@@ -398,38 +440,42 @@ func classifyPermanentError(proxyErr error) permanentErrorClass {
 		return permanentErrorClassCapabilityRejection
 	case providers.IsUpstreamPromptCacheKeyRejection(proxyErr):
 		return permanentErrorClassPromptCacheKey
+	case responsesSurface && providers.IsUpstreamResponsesUnsupported(proxyErr):
+		return permanentErrorClassResponsesUnsupported
 	case providers.IsUpstreamModelNotFound(proxyErr):
 		return permanentErrorClassNotFound
 	case providers.IsUpstreamProviderBillingBlocked(proxyErr):
 		return permanentErrorClassProviderBilling
 	case providers.IsUpstreamRateLimited(proxyErr):
 		return permanentErrorClassRateLimit
-	case providers.IsUpstreamResponsesUnsupported(proxyErr):
-		return permanentErrorClassResponsesUnsupported
 	}
 
-	var bufferedErr *providers.UpstreamErrorResponse
-	if !errors.As(proxyErr, &bufferedErr) || !json.Valid(bufferedErr.Body) {
+	bufferedErr := errorResponseFor(proxyErr)
+	if bufferedErr == nil {
 		return permanentErrorClassUnclassified
 	}
 	for _, path := range []string{"error.type", "type"} {
-		errorType := providerErrorType(gjson.GetBytes(bufferedErr.Body, path).String())
-		switch errorType {
-		case providerErrorTypeInvalidRequest:
+		switch errorType, ok := providers.KnownProviderErrorType(gjson.GetBytes(bufferedErr.Body, path).String()); {
+		case !ok:
+			continue
+		case errorType == providers.ProviderErrorTypeInvalidRequest:
 			return permanentErrorClassInvalidRequest
-		case providerErrorTypeAuthentication:
+		case errorType == providers.ProviderErrorTypeAuthentication:
 			return permanentErrorClassAuthentication
-		case providerErrorTypePermission:
+		case errorType == providers.ProviderErrorTypePermission:
 			return permanentErrorClassPermission
-		case providerErrorTypeNotFound:
+		case errorType == providers.ProviderErrorTypeNotFound:
 			return permanentErrorClassNotFound
-		case providerErrorTypeRateLimit:
+		case errorType == providers.ProviderErrorTypeRateLimit:
 			return permanentErrorClassRateLimit
-		case providerErrorTypeAPI:
+		case errorType == providers.ProviderErrorTypeAPI:
 			return permanentErrorClassProviderError
-		case providerErrorTypeOverloaded:
+		case errorType == providers.ProviderErrorTypeOverloaded, errorType == providers.ProviderErrorTypeServiceUnavailable:
 			return permanentErrorClassProviderOverloaded
 		}
+	}
+	if gjson.GetBytes(bufferedErr.Body, "error.status").String() == "INVALID_ARGUMENT" {
+		return permanentErrorClassInvalidRequest
 	}
 	return permanentErrorClassUnclassified
 }

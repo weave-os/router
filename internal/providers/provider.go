@@ -305,7 +305,10 @@ var ErrNotImplemented = errors.New("provider: not implemented")
 // been written to the client. Handlers seeing c.Writer.Written() must NOT
 // write their own JSON envelope.
 type UpstreamStatusError struct {
-	Status int
+	Status    int
+	Headers   http.Header
+	Body      []byte
+	BodyBytes int64
 	// Cause is the dispatch error an in-stream error frame stands in for;
 	// nil when Status was read off a real upstream response.
 	Cause error
@@ -321,12 +324,44 @@ func (e *UpstreamStatusError) Unwrap() error { return e.Cause }
 // response instead of streaming it, so the proxy can retry on a different
 // provider or flush it to the client. Body capped at MaxBufferedErrorBytes.
 type UpstreamErrorResponse struct {
-	Status  int
-	Headers http.Header
-	Body    []byte
+	Status     int
+	Headers    http.Header
+	Body       []byte
+	BodyBytes  int64
+	BodyCapped bool
 	// Cause carries a classified upstream failure that is not represented by
 	// the HTTP status alone, such as a successful HTTP response with no answer.
 	Cause error
+}
+
+type ProviderErrorType string
+
+const (
+	ProviderErrorTypeInvalidRequest     ProviderErrorType = "invalid_request_error"
+	ProviderErrorTypeAuthentication     ProviderErrorType = "authentication_error"
+	ProviderErrorTypePermission         ProviderErrorType = "permission_error"
+	ProviderErrorTypeNotFound           ProviderErrorType = "not_found_error"
+	ProviderErrorTypeRateLimit          ProviderErrorType = "rate_limit_error"
+	ProviderErrorTypeAPI                ProviderErrorType = "api_error"
+	ProviderErrorTypeOverloaded         ProviderErrorType = "overloaded_error"
+	ProviderErrorTypeServiceUnavailable ProviderErrorType = "service_unavailable"
+)
+
+func KnownProviderErrorType(value string) (ProviderErrorType, bool) {
+	typedValue := ProviderErrorType(value)
+	switch typedValue {
+	case ProviderErrorTypeInvalidRequest,
+		ProviderErrorTypeAuthentication,
+		ProviderErrorTypePermission,
+		ProviderErrorTypeNotFound,
+		ProviderErrorTypeRateLimit,
+		ProviderErrorTypeAPI,
+		ProviderErrorTypeOverloaded,
+		ProviderErrorTypeServiceUnavailable:
+		return typedValue, true
+	default:
+		return "", false
+	}
 }
 
 func (e *UpstreamErrorResponse) Error() string {

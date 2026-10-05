@@ -121,7 +121,7 @@ func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep
 
 	if resp.StatusCode >= 400 {
 		// Caller decides retry vs render; do not commit the downstream writer.
-		body, _, readErr := httputil.ReadCapped(resp.Body, providers.MaxBufferedErrorBytes)
+		body, totalRead, readErr := httputil.ReadCapped(resp.Body, providers.MaxBufferedErrorBytes)
 		if len(body) > 0 {
 			t.StampUpstreamFirstByte()
 		}
@@ -131,9 +131,11 @@ func (c *NativeClient) Proxy(ctx context.Context, decision router.Decision, prep
 		headers := http.Header{}
 		providers.CopyUpstreamHeaders(httputil.HeaderCapture{H: headers}, resp)
 		return &providers.UpstreamErrorResponse{
-			Status:  resp.StatusCode,
-			Headers: headers,
-			Body:    body,
+			Status:     resp.StatusCode,
+			Headers:    headers,
+			Body:       body,
+			BodyBytes:  totalRead,
+			BodyCapped: totalRead > int64(len(body)),
 		}
 	}
 

@@ -376,9 +376,11 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		errHeaders := http.Header{}
 		providers.CopyUpstreamHeaders(httputil.HeaderCapture{H: errHeaders}, resp)
 		return &providers.UpstreamErrorResponse{
-			Status:  resp.StatusCode,
-			Headers: errHeaders,
-			Body:    bufBody,
+			Status:     resp.StatusCode,
+			Headers:    errHeaders,
+			Body:       bufBody,
+			BodyBytes:  totalRead,
+			BodyCapped: totalRead > int64(len(bufBody)),
 		}
 	}
 
