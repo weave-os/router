@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -75,14 +76,17 @@ func run() error {
 	pubsubpb.RegisterSubscriberServer(pubsub, pubsubFixture{})
 	defer pubsub.Stop()
 	go func() { _ = pubsub.Serve(listener) }()
+	var startupGenerations atomic.Int64
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodHead && r.URL.Path == "/":
 			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodPost && r.Header.Get("Authorization") == "Bearer fixture-never-sent-to-provider" && r.URL.Path == "/v1/chat/completions":
+			startupGenerations.Add(1)
 			_, _ = io.WriteString(w, `{"id":"chatcmpl_fixture","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
 		case r.Method == http.MethodPost && r.Header.Get("Authorization") == "Bearer fixture-never-sent-to-provider" && r.URL.Path == "/v1/responses":
+			startupGenerations.Add(1)
 			_, _ = io.WriteString(w, `{"id":"resp_fixture","object":"response","status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"OK","annotations":[]}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`)
 		default:
 			http.NotFound(w, r)
@@ -90,8 +94,12 @@ func run() error {
 	}))
 	defer provider.Close()
 	for _, mode := range []server.DeploymentMode{server.DeploymentModeSelfHosted, server.DeploymentModeManaged} {
+		generationsBefore := startupGenerations.Load()
 		if err := checkWorker(ctx, binary, dsn, listener.Addr().String(), provider.URL, token, mode); err != nil {
 			return fmt.Errorf("%s worker: %w", mode, err)
+		}
+		if startupGenerations.Load() == generationsBefore {
+			return fmt.Errorf("%s worker became ready without a startup model generation", mode)
 		}
 	}
 	return nil

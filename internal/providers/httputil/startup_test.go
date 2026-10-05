@@ -63,10 +63,14 @@ func TestWarmTransportPreservesTLSAndOriginIsolation(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls.Add(1) }))
 	defer server.Close()
-	warmed, err := httputil.WarmTransport(context.Background(), server.URL, "https://another.example", server.Client())
+	warmed, err := httputil.WarmTransport(context.Background(), server.URL, server.URL, server.Client())
+	require.NoError(t, err)
+	require.True(t, warmed)
+	require.EqualValues(t, 1, calls.Load())
+	warmed, err = httputil.WarmTransport(context.Background(), server.URL, "https://another.example", server.Client())
 	require.NoError(t, err)
 	require.False(t, warmed)
 	_, err = httputil.WarmTransport(context.Background(), server.URL, "", http.DefaultClient)
 	require.Error(t, err)
-	require.Zero(t, calls.Load())
+	require.EqualValues(t, 1, calls.Load())
 }

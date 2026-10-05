@@ -10,7 +10,7 @@ import (
 )
 
 // WithCapacity keeps accepted work accounted until the handler and any stream
-// finish. Probes and CORS preflights never contend for a serving permit.
+// finish. Probes and CORS preflights bypass capacity accounting so they cannot consume permits needed by application requests.
 func WithCapacity(capacity *health.Capacity) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if c.Request.Method == http.MethodOptions {

@@ -137,7 +137,7 @@ func main() {
 	cfg.MaxConnIdleTime = 10 * time.Minute
 	cfg.HealthCheckPeriod = 1 * time.Minute
 
-	pool, err := pgxpool.NewWithConfig(startupCtx, cfg)
+	pool, err := pgxpool.NewWithConfig(context.Background(), cfg)
 	if err != nil {
 		logger.Error("Failed to construct postgres pool", "err", err)
 		panic(err)
@@ -555,7 +555,7 @@ func main() {
 	// "<prefix>-<uuid>" so every replica receives every invalidation. A shared
 	// subscription would load-balance, defeating cross-fleet cache broadcast.
 	pubsubSubscriptionPrefix := config.MustGet("PUBSUB_SUBSCRIPTION_ROUTER_INVALIDATION")
-	pubsubClient, err := gcppubsub.NewClient(startupCtx, pubsubProjectID)
+	pubsubClient, err := gcppubsub.NewClient(context.Background(), pubsubProjectID)
 	if err != nil {
 		logger.Error("Failed to create Pub/Sub client", "err", err)
 		panic(err)
@@ -1153,11 +1153,11 @@ if managedServingEnabled(deploymentMode) {
 		}
 		managerCtx, cancelManagers := context.WithCancel(processCtx)
 		defer cancelManagers()
-		go func() {
+		safeGo(logger, "stable-policy-manager", func() {
 			if err := runEssentialTask(managerCtx, func() { stableManager.Run(managerCtx) }); err != nil {
 				essentialTaskErrors <- fmt.Errorf("stable policy manager: %w", err)
 			}
-		}()
+		})
 
 		stableDynamicRouter := policyregistry.NewDynamicRouter(stableManager, router.StrategyHMM)
 		hmmRouter = stableDynamicRouter

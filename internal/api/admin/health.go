@@ -35,6 +35,7 @@ func StartupHandler(started func() bool) gin.HandlerFunc {
 func CapacityHandler(capacity *health.Capacity) gin.HandlerFunc {
 	if capacity == nil {
 		return func(c *gin.Context) {
+			c.Header("Cache-Control", "no-store")
 			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "capacity_not_configured"})
 		}
 	}

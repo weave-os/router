@@ -17,7 +17,8 @@ credential, the exact single `Reply with OK.` prompt, a nonstreaming request,
 the startup output budget, and the translated Anthropic/OpenAI request shape.
 This exercises the real initialization and provider adapters without paid calls
 or adding a production warmup bypass. Other unmatched requests still fail with
-a cassette miss. Record modes continue to call the real upstream.
+a cassette miss. `record` mode always calls the real upstream;
+`replay-or-record` serves matching cassettes and calls upstream only on a miss.
 
 ## Refreshing
 
