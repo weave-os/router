@@ -261,15 +261,6 @@ const requestAPISurfaceResponses requestAPISurface = "openai_responses"
 
 type responsesSurfaceContextKey struct{}
 
-func withResponsesSurface(ctx context.Context) context.Context {
-	return context.WithValue(ctx, responsesSurfaceContextKey{}, true)
-}
-
-func isResponsesSurface(ctx context.Context) bool {
-	isResponses, _ := ctx.Value(responsesSurfaceContextKey{}).(bool)
-	return isResponses
-}
-
 type errorBodyFormat string
 
 const (
@@ -346,7 +337,7 @@ func permanentErrorDiagnosticAttrs(proxyErr error, requestBytes int, redact Reda
 	bodyFormat := errorBodyFormatNonJSON
 	if len(bufferedErr.Body) == 0 {
 		bodyFormat = errorBodyFormatEmpty
-	} else if json.Valid(bufferedErr.Body) || looksLikeJSON(bufferedErr.Body) {
+	} else if trimmed := strings.TrimSpace(string(bufferedErr.Body)); json.Valid(bufferedErr.Body) || strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
 		bodyFormat = errorBodyFormatJSON
 	}
 	attrs.String("upstream.error_body_format", string(bodyFormat)).
@@ -359,11 +350,6 @@ func permanentErrorDiagnosticAttrs(proxyErr error, requestBytes int, redact Reda
 		attrs.String("upstream.request_id", upstreamRequestID)
 	}
 	return attrs.Build()
-}
-
-func looksLikeJSON(body []byte) bool {
-	trimmed := strings.TrimSpace(string(body))
-	return strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")
 }
 
 func boundedErrorResponse(body []byte, redact Redactor) (string, bool) {

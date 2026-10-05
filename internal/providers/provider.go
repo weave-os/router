@@ -348,8 +348,8 @@ const (
 )
 
 func KnownProviderErrorType(value string) (ProviderErrorType, bool) {
-	typedValue := ProviderErrorType(value)
-	switch typedValue {
+	errorType := ProviderErrorType(value)
+	switch errorType {
 	case ProviderErrorTypeInvalidRequest,
 		ProviderErrorTypeAuthentication,
 		ProviderErrorTypePermission,
@@ -358,7 +358,7 @@ func KnownProviderErrorType(value string) (ProviderErrorType, bool) {
 		ProviderErrorTypeAPI,
 		ProviderErrorTypeOverloaded,
 		ProviderErrorTypeServiceUnavailable:
-		return typedValue, true
+		return errorType, true
 	default:
 		return "", false
 	}
