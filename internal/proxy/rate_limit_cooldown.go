@@ -194,7 +194,7 @@ func imageSafeModels(models []string, hasImages bool) []string {
 // turn (ToolUseLow, AgenticLow), so a last-resort rescue never hands the
 // harness loop to a model this turn deliberately scored out.
 func harnessSafeModels(models []string, hasTools bool) []string {
-	if !hasTools {
+	if !hasTools || len(models) == 0 {
 		return models
 	}
 	toolUseLow, agenticLow := catalog.ToolUseLowSet(), catalog.AgenticLowSet()
