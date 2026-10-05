@@ -52,6 +52,8 @@ func run() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
+	// The retained base runtime predates startup generation; only the candidate binary must perform it.
+	requireStartupGeneration := os.Getenv("ROUTER_TEST_REQUIRE_STARTUP_GENERATION") == "true"
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		return err
@@ -98,7 +100,7 @@ func run() error {
 		if err := checkWorker(ctx, binary, dsn, listener.Addr().String(), provider.URL, token, mode); err != nil {
 			return fmt.Errorf("%s worker: %w", mode, err)
 		}
-		if startupGenerations.Load() == generationsBefore {
+		if requireStartupGeneration && startupGenerations.Load() == generationsBefore {
 			return fmt.Errorf("%s worker became ready without a startup model generation", mode)
 		}
 	}

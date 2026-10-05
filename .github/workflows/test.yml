@@ -266,6 +266,7 @@ jobs:
           CGO_LDFLAGS="-L$native_fixture/native/lib" go build -tags ORT -o "$native_fixture/router" ./cmd/router
           ROUTER_TEST_DATABASE_URL='postgres://legacy_runtime_fixture:fixture-only@localhost:5432/router?sslmode=disable&search_path=router' \
             ROUTER_TEST_WORKER_BINARY="$native_fixture/router" \
+            ROUTER_TEST_REQUIRE_STARTUP_GENERATION=true \
             ROUTER_ONNX_ASSETS_DIR="$native_fixture/assets" \
             ROUTER_ONNX_LIBRARY_DIR="$native_fixture/native/lib" \
             go run ./scripts/legacy_runtime_check
