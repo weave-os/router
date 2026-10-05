@@ -304,9 +304,10 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexToolOutputIma
 	assert.Equal(t, "Script completed\nexit 0", messages[1].Get("content").Str)
 	assert.Equal(t, "call_2", messages[2].Get("tool_call_id").Str)
 	assert.Equal(t, "user", messages[3].Get("role").Str, "images follow the whole tool-output run so every result stays adjacent to its call")
-	assert.Equal(t, "image_url", messages[3].Get("content.0.type").Str)
-	assert.Equal(t, "data:image/png;base64,iVBORw0KGgo=", messages[3].Get("content.0.image_url.url").Str)
-	assert.Equal(t, "high", messages[3].Get("content.0.image_url.detail").Str)
+	assert.Equal(t, "Images returned by tool call call_1:", messages[3].Get("content.0.text").Str)
+	assert.Equal(t, "image_url", messages[3].Get("content.1.type").Str)
+	assert.Equal(t, "data:image/png;base64,iVBORw0KGgo=", messages[3].Get("content.1.image_url.url").Str)
+	assert.Equal(t, "high", messages[3].Get("content.1.image_url.detail").Str)
 	assert.Equal(t, "next", messages[4].Get("content.0.text").Str)
 	assertReportCode(t, converted.Report, "responses_tool_output_image_hoisted")
 }

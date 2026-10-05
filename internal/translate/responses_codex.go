@@ -371,6 +371,8 @@ func (c *portableCodexResponsesConverter) convertInput(input gjson.Result) []map
 	// Chat role:tool content is text-only on most targets, so tool-output
 	// images ride in a user message after the whole run of tool results;
 	// emitting it mid-run would separate later results from their calls.
+	// Each call's images are labelled with its call ID so they stay
+	// distinguishable from user-authored content.
 	var toolImages []map[string]any
 	flushToolImages := func() {
 		if len(toolImages) > 0 {
@@ -409,7 +411,10 @@ func (c *portableCodexResponsesConverter) convertInput(input gjson.Result) []map
 		case "function_call_output", "custom_tool_call_output":
 			if message, images, ok := c.convertToolOutput(item, path); ok {
 				messages = append(messages, message)
-				toolImages = append(toolImages, images...)
+				if len(images) > 0 {
+					toolImages = append(toolImages, map[string]any{"type": "text", "text": "Images returned by tool call " + item.Get("call_id").Str + ":"})
+					toolImages = append(toolImages, images...)
+				}
 			}
 		default:
 			c.markNativeOnly("responses_unknown_input_native_only", path)
