@@ -368,11 +368,26 @@ func (c *portableCodexResponsesConverter) convertInput(input gjson.Result) []map
 		return messages
 	}
 
+	// Chat role:tool content is text-only on most targets, so tool-output
+	// images ride in a user message after the whole run of tool results;
+	// emitting it mid-run would separate later results from their calls.
+	var toolImages []map[string]any
+	flushToolImages := func() {
+		if len(toolImages) > 0 {
+			messages = append(messages, map[string]any{"role": "user", "content": toolImages})
+			toolImages = nil
+		}
+	}
 	for index, item := range input.Array() {
 		path := "input." + strconv.Itoa(index)
 		itemType := item.Get("type").Str
 		if itemType == "" && item.Get("role").Str != "" {
 			itemType = "message"
+		}
+		switch itemType {
+		case "additional_tools", "reasoning", "function_call_output", "custom_tool_call_output":
+		default:
+			flushToolImages()
 		}
 		switch itemType {
 		case "additional_tools":
@@ -392,23 +407,28 @@ func (c *portableCodexResponsesConverter) convertInput(input gjson.Result) []map
 		case "custom_tool_call":
 			c.appendToolCall(&messages, item, path, true)
 		case "function_call_output", "custom_tool_call_output":
-			if message, ok := c.convertToolOutput(item, path); ok {
+			if message, images, ok := c.convertToolOutput(item, path); ok {
 				messages = append(messages, message)
+				toolImages = append(toolImages, images...)
 			}
 		default:
 			c.markNativeOnly("responses_unknown_input_native_only", path)
 		}
 	}
+	flushToolImages()
 	return messages
 }
 
 func (c *portableCodexResponsesConverter) convertReasoning(item gjson.Result, path string) {
 	summary := item.Get("summary")
-	if summary.Exists() && (!summary.IsArray() || len(summary.Array()) > 0) {
+	if summary.Exists() && !summary.IsArray() {
 		c.result.Requirements.ReasoningReplay = true
 		c.markNativeOnly("responses_reasoning_summary_native_only", path+".summary")
 		return
 	}
+	// A summary is a display digest of the encrypted reasoning beside it, so
+	// it is dropped with that reasoning rather than pinning the session to
+	// OpenAI. Native OpenAI dispatch still forwards the original body.
 	content := item.Get("content")
 	if content.Exists() && (!content.IsArray() || len(content.Array()) > 0) {
 		c.result.Requirements.ReasoningReplay = true
@@ -600,39 +620,65 @@ func (c *portableCodexResponsesConverter) appendToolCall(messages *[]map[string]
 	})
 }
 
-func (c *portableCodexResponsesConverter) convertToolOutput(item gjson.Result, path string) (map[string]any, bool) {
+func (c *portableCodexResponsesConverter) convertToolOutput(item gjson.Result, path string) (map[string]any, []map[string]any, bool) {
 	callID := item.Get("call_id").Str
 	if callID == "" {
 		c.markNativeOnly("responses_tool_output_native_only", path)
-		return nil, false
+		return nil, nil, false
 	}
-	content, structured, ok := c.convertToolOutputContent(item.Get("output"), path+".output")
+	content, images, structured, ok := c.convertToolOutputContent(item.Get("output"), path+".output")
 	if !ok {
-		return nil, false
+		return nil, nil, false
 	}
 	if structured {
 		c.report("responses_structured_tool_output_projected", "projected", path+".output")
 	}
-	return map[string]any{"role": "tool", "tool_call_id": callID, "content": content}, true
+	return map[string]any{"role": "tool", "tool_call_id": callID, "content": content}, images, true
 }
 
-func (c *portableCodexResponsesConverter) convertToolOutputContent(output gjson.Result, path string) (any, bool, bool) {
+func (c *portableCodexResponsesConverter) convertToolOutputContent(output gjson.Result, path string) (string, []map[string]any, bool, bool) {
 	if output.Type == gjson.String {
-		return output.Str, false, true
+		return output.Str, nil, false, true
 	}
 	if !output.IsArray() {
 		c.markNativeOnly("responses_tool_output_native_only", path)
-		return nil, false, false
+		return "", nil, false, false
 	}
 	parts := make([]string, 0, len(output.Array()))
+	var images []map[string]any
 	for index, part := range output.Array() {
-		if part.Get("type").Str != "input_text" {
-			c.markNativeOnly("responses_tool_output_native_only", path+"."+strconv.Itoa(index))
-			return nil, true, false
+		partPath := path + "." + strconv.Itoa(index)
+		switch part.Get("type").Str {
+		case "input_text":
+			parts = append(parts, part.Get("text").Str)
+		case "input_image":
+			image, ok := chatImagePart(part)
+			if !ok {
+				c.markNativeOnly("responses_tool_output_native_only", partPath)
+				return "", nil, true, false
+			}
+			images = append(images, image)
+			c.report("responses_tool_output_image_hoisted", "projected", partPath)
+		default:
+			c.markNativeOnly("responses_tool_output_native_only", partPath)
+			return "", nil, true, false
 		}
-		parts = append(parts, part.Get("text").Str)
 	}
-	return strings.Join(parts, "\n"), true, true
+	return strings.Join(parts, "\n"), images, true, true
+}
+
+// chatImagePart projects a Responses input_image onto a Chat image_url part.
+// A file_id reference has no Chat equivalent, so only inline URLs project.
+func chatImagePart(part gjson.Result) (map[string]any, bool) {
+	url := part.Get("image_url")
+	if url.Type != gjson.String || url.Str == "" {
+		return nil, false
+	}
+	image := map[string]any{"url": url.Str}
+	if detail := part.Get("detail").Str; detail != "" {
+		image["detail"] = detail
+	}
+	return map[string]any{"type": "image_url", "image_url": image}, true
 }
 
 func (c *portableCodexResponsesConverter) copyRequestControls(root gjson.Result, out map[string]any) {
