@@ -89,7 +89,7 @@ func warmStartupModels(ctx context.Context, log *slog.Logger, clients *dispatch.
 		if target.Credentials != nil && len(target.Credentials.APIKey) == 0 {
 			return fmt.Errorf("required startup provider %s has an empty explicit credential", target.Provider)
 		}
-		if _, configured := enabledProviders[target.Provider]; !configured && (target.Credentials == nil || len(target.Credentials.APIKey) == 0) {
+		if _, configured := enabledProviders[target.Provider]; !configured && target.Credentials == nil {
 			return fmt.Errorf("required startup provider %s has no deployment credentials", target.Provider)
 		}
 		resolvableModels[target.CatalogID] = struct{}{}
