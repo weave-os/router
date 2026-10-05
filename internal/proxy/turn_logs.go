@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
@@ -25,7 +26,8 @@ type ContentCaptureMode int
 
 const (
 	// CaptureOff emits no `router.call` log records. Permanent upstream 4xx
-	// failures emit a separate metadata-only alert event. Default for self-hosted / OSS.
+	// failures emit a separate diagnostic event with a bounded upstream error response.
+	// Default for self-hosted / OSS.
 	CaptureOff ContentCaptureMode = iota
 	// CaptureHashed emits log records with metadata + SHA-256 content hashes
 	// but no raw text — dedup/cache analysis without exposing prompts.
@@ -231,6 +233,8 @@ func (s *Service) recordCallLog(ctx context.Context, base []*commonv1.KeyValue, 
 
 const permanentErrorEventName = "router.permanent_error"
 
+const maxLoggedErrorResponseBytes = 4 << 10
+
 type permanentErrorClass string
 
 const (
@@ -291,8 +295,7 @@ const (
 	upstreamCorrelationHeaderRequest            upstreamCorrelationHeader = "Request-Id"
 )
 
-// recordPermanentError keeps content out of ZDR events, adding only normalized
-// error classes, byte counts, and bounded upstream request IDs.
+// recordPermanentError includes a bounded provider error response for diagnosis.
 func (s *Service) recordPermanentError(ctx context.Context, base []*commonv1.KeyValue, proxyErr error, requestBytes int) {
 	if proxyErr == nil {
 		return
@@ -315,15 +318,15 @@ func (s *Service) recordPermanentError(ctx context.Context, base []*commonv1.Key
 			attrs = append(attrs, attr)
 		}
 	}
-	attrs = append(attrs, permanentErrorDiagnosticAttrs(proxyErr, requestBytes)...)
+	attrs = append(attrs, permanentErrorDiagnosticAttrs(proxyErr, requestBytes, s.redactor)...)
 	otel.RecordLog(ctx, otel.LogRecord{
 		Name: permanentErrorEventName, Time: time.Now(),
 		Severity: otel.SeverityError, Attrs: attrs,
 	})
 }
 
-func permanentErrorDiagnosticAttrs(proxyErr error, requestBytes int) []*commonv1.KeyValue {
-	attrs := otel.NewAttrBuilder(6).
+func permanentErrorDiagnosticAttrs(proxyErr error, requestBytes int, redact Redactor) []*commonv1.KeyValue {
+	attrs := otel.NewAttrBuilder(8).
 		String("upstream.error_class", string(classifyPermanentError(proxyErr))).
 		String("request.size_bucket", string(requestSizeBucketFor(requestBytes)))
 
@@ -341,10 +344,29 @@ func permanentErrorDiagnosticAttrs(proxyErr error, requestBytes int) []*commonv1
 	attrs.String("upstream.error_body_format", string(bodyFormat)).
 		Int64("upstream.error_body_bytes", int64(len(bufferedErr.Body))).
 		Bool("upstream.error_body_capped", len(bufferedErr.Body) >= providers.MaxBufferedErrorBytes)
+	errorResponse, errorResponseTruncated := boundedErrorResponse(bufferedErr.Body, redact)
+	attrs.String("upstream.error_response", errorResponse).
+		Bool("upstream.error_response_truncated", errorResponseTruncated)
 	if upstreamRequestID := safeUpstreamRequestID(bufferedErr.Headers); upstreamRequestID != "" {
 		attrs.String("upstream.request_id", upstreamRequestID)
 	}
 	return attrs.Build()
+}
+
+func boundedErrorResponse(body []byte, redact Redactor) (string, bool) {
+	errorResponse := string(body)
+	if redact != nil {
+		errorResponse = redact(errorResponse, ContentKindResponse)
+	}
+	errorResponse = strings.ToValidUTF8(errorResponse, "�")
+	if len(errorResponse) <= maxLoggedErrorResponseBytes {
+		return errorResponse, false
+	}
+	truncatedAt := maxLoggedErrorResponseBytes
+	for !utf8.ValidString(errorResponse[:truncatedAt]) {
+		truncatedAt--
+	}
+	return errorResponse[:truncatedAt], true
 }
 
 func requestSizeBucketFor(requestBytes int) requestSizeBucket {

@@ -233,7 +233,7 @@ func TestRecordCallLog_OffEmitsNothing(t *testing.T) {
 	assert.Equal(t, 0, coll.count(t))
 }
 
-func TestRecordCallLog_InstallationOffEmitsContentFreePermanentError(t *testing.T) {
+func TestRecordCallLog_InstallationOffEmitsPermanentErrorResponse(t *testing.T) {
 	coll := newLogCollector(t)
 	s, em := newServiceWithEmitter(t, CaptureFull, nil, coll.server.URL)
 	buf := otel.NewBuffer(em)
@@ -277,30 +277,33 @@ func TestRecordCallLog_InstallationOffEmitsContentFreePermanentError(t *testing.
 	assert.Equal(t, "router.permanent_error", record.GetBody().GetStringValue())
 	assert.Equal(t, "ERROR", record.SeverityText)
 	assert.Equal(t, map[string]*commonv1.AnyValue{
-		"request_id":                 {Value: &commonv1.AnyValue_StringValue{StringValue: "req-1"}},
-		"external_id":                {Value: &commonv1.AnyValue_StringValue{StringValue: "org-1"}},
-		"client.session_id":          {Value: &commonv1.AnyValue_StringValue{StringValue: "sess-1"}},
-		"router_user_id":             {Value: &commonv1.AnyValue_StringValue{StringValue: "11111111-1111-1111-1111-111111111111"}},
-		"requested.model":            {Value: &commonv1.AnyValue_StringValue{StringValue: "claude-opus-5"}},
-		"decision.model":             {Value: &commonv1.AnyValue_StringValue{StringValue: "claude-opus-5-5"}},
-		"decision.provider":          {Value: &commonv1.AnyValue_StringValue{StringValue: "snowflake"}},
-		"dispatch.primary_model":     {Value: &commonv1.AnyValue_StringValue{StringValue: "claude-opus-5-5"}},
-		"dispatch.primary_provider":  {Value: &commonv1.AnyValue_StringValue{StringValue: "anthropic_gateway"}},
-		"dispatch.final_provider":    {Value: &commonv1.AnyValue_StringValue{StringValue: "anthropic_gateway"}},
-		"request.message_count":      {Value: &commonv1.AnyValue_IntValue{IntValue: 37}},
-		"request.has_tools":          {Value: &commonv1.AnyValue_BoolValue{BoolValue: true}},
-		"routing.cross_format":       {Value: &commonv1.AnyValue_BoolValue{BoolValue: false}},
-		"routing.turn_type":          {Value: &commonv1.AnyValue_StringValue{StringValue: "tool"}},
-		"upstream.status_code":       {Value: &commonv1.AnyValue_IntValue{IntValue: 400}},
-		"upstream.error_class":       {Value: &commonv1.AnyValue_StringValue{StringValue: string(permanentErrorClassInvalidRequest)}},
-		"upstream.error_body_format": {Value: &commonv1.AnyValue_StringValue{StringValue: string(errorBodyFormatJSON)}},
-		"upstream.error_body_bytes":  {Value: &commonv1.AnyValue_IntValue{IntValue: int64(len(upstreamErrorBody))}},
-		"upstream.error_body_capped": {Value: &commonv1.AnyValue_BoolValue{BoolValue: false}},
-		"upstream.request_id":        {Value: &commonv1.AnyValue_StringValue{StringValue: "query-123"}},
-		"request.size_bucket":        {Value: &commonv1.AnyValue_StringValue{StringValue: string(requestSizeBucketUnder16KiB)}},
+		"request_id":                        {Value: &commonv1.AnyValue_StringValue{StringValue: "req-1"}},
+		"external_id":                       {Value: &commonv1.AnyValue_StringValue{StringValue: "org-1"}},
+		"client.session_id":                 {Value: &commonv1.AnyValue_StringValue{StringValue: "sess-1"}},
+		"router_user_id":                    {Value: &commonv1.AnyValue_StringValue{StringValue: "11111111-1111-1111-1111-111111111111"}},
+		"requested.model":                   {Value: &commonv1.AnyValue_StringValue{StringValue: "claude-opus-5"}},
+		"decision.model":                    {Value: &commonv1.AnyValue_StringValue{StringValue: "claude-opus-5-5"}},
+		"decision.provider":                 {Value: &commonv1.AnyValue_StringValue{StringValue: "snowflake"}},
+		"dispatch.primary_model":            {Value: &commonv1.AnyValue_StringValue{StringValue: "claude-opus-5-5"}},
+		"dispatch.primary_provider":         {Value: &commonv1.AnyValue_StringValue{StringValue: "anthropic_gateway"}},
+		"dispatch.final_provider":           {Value: &commonv1.AnyValue_StringValue{StringValue: "anthropic_gateway"}},
+		"request.message_count":             {Value: &commonv1.AnyValue_IntValue{IntValue: 37}},
+		"request.has_tools":                 {Value: &commonv1.AnyValue_BoolValue{BoolValue: true}},
+		"routing.cross_format":              {Value: &commonv1.AnyValue_BoolValue{BoolValue: false}},
+		"routing.turn_type":                 {Value: &commonv1.AnyValue_StringValue{StringValue: "tool"}},
+		"upstream.status_code":              {Value: &commonv1.AnyValue_IntValue{IntValue: 400}},
+		"upstream.error_class":              {Value: &commonv1.AnyValue_StringValue{StringValue: string(permanentErrorClassInvalidRequest)}},
+		"upstream.error_body_format":        {Value: &commonv1.AnyValue_StringValue{StringValue: string(errorBodyFormatJSON)}},
+		"upstream.error_body_bytes":         {Value: &commonv1.AnyValue_IntValue{IntValue: int64(len(upstreamErrorBody))}},
+		"upstream.error_body_capped":        {Value: &commonv1.AnyValue_BoolValue{BoolValue: false}},
+		"upstream.error_response":           {Value: &commonv1.AnyValue_StringValue{StringValue: string(upstreamErrorBody)}},
+		"upstream.error_response_truncated": {Value: &commonv1.AnyValue_BoolValue{BoolValue: false}},
+		"upstream.request_id":               {Value: &commonv1.AnyValue_StringValue{StringValue: "query-123"}},
+		"request.size_bucket":               {Value: &commonv1.AnyValue_StringValue{StringValue: string(requestSizeBucketUnder16KiB)}},
 	}, attrsByKey(record.Attributes))
 	assert.NotContains(t, attrsByKey(record.Attributes), "upstream.error_message")
-	assert.NotContains(t, string(record.GetBody().GetStringValue()), "private-content-echo")
+	assert.NotContains(t, string(record.GetBody().GetStringValue()), "secret-request")
+	assert.NotContains(t, string(record.GetBody().GetStringValue()), "secret-response")
 }
 
 func TestRecordCallLog_OffDoesNotAlertRetryableFailures(t *testing.T) {
@@ -317,7 +320,7 @@ func TestRecordCallLog_OffDoesNotAlertRetryableFailures(t *testing.T) {
 	assert.Zero(t, coll.count(t))
 }
 
-func TestPermanentErrorDiagnostics_UnknownProviderTextStaysPrivate(t *testing.T) {
+func TestPermanentErrorDiagnostics_LogsResponseWithoutTrustingUnknownProviderType(t *testing.T) {
 	proxyErr := &providers.UpstreamErrorResponse{
 		Status: http.StatusBadRequest,
 		Headers: http.Header{
@@ -326,16 +329,27 @@ func TestPermanentErrorDiagnostics_UnknownProviderTextStaysPrivate(t *testing.T)
 		},
 		Body: []byte(`{"error":{"type":"private-type-value","message":"private-message-value"}}`),
 	}
-	attrs := attrsByKey(permanentErrorDiagnosticAttrs(proxyErr, 23))
+	attrs := attrsByKey(permanentErrorDiagnosticAttrs(proxyErr, 23, nil))
 
 	assert.Equal(t, string(permanentErrorClassUnclassified), attrs["upstream.error_class"].GetStringValue())
 	assert.Equal(t, string(errorBodyFormatJSON), attrs["upstream.error_body_format"].GetStringValue())
+	assert.Equal(t, string(proxyErr.Body), attrs["upstream.error_response"].GetStringValue())
 	assert.Equal(t, "request-123", attrs["upstream.request_id"].GetStringValue())
-	for _, attr := range attrs {
-		assert.NotContains(t, attr.GetStringValue(), "private-type-value")
-		assert.NotContains(t, attr.GetStringValue(), "private-message-value")
-		assert.NotContains(t, attr.GetStringValue(), "invalid query id")
+	assert.NotContains(t, attrs, "upstream.error_type")
+	assert.NotContains(t, attrs["upstream.request_id"].GetStringValue(), "invalid query id")
+}
+
+func TestPermanentErrorDiagnostics_BoundsAndRedactsErrorResponse(t *testing.T) {
+	responseBody := []byte(strings.Repeat("x", maxLoggedErrorResponseBytes+10))
+	proxyErr := &providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Body: responseBody}
+	redact := func(string, ContentKind) string {
+		return strings.Repeat("r", maxLoggedErrorResponseBytes+10)
 	}
+
+	attrs := attrsByKey(permanentErrorDiagnosticAttrs(proxyErr, 1, redact))
+
+	assert.Equal(t, strings.Repeat("r", maxLoggedErrorResponseBytes), attrs["upstream.error_response"].GetStringValue())
+	assert.Equal(t, true, attrs["upstream.error_response_truncated"].GetBoolValue())
 }
 
 func TestRequestSizeBucketFor(t *testing.T) {
