@@ -518,7 +518,7 @@ func main() {
 		panic(err)
 	}
 
-	rtr, defaultEmbedderID, err := buildClusterScorer(availableProviders)
+	rtr, defaultEmbedderID, err := buildClusterScorer(startupCtx, availableProviders)
 	if err != nil {
 		// Ops alerts on Cloud Run boot failures; silent degradation would mask quality regressions.
 		logger.Error("Cluster scorer failed to build; refusing to boot", "err", err)
@@ -1756,7 +1756,7 @@ func parseOtelHeaders(raw string) map[string]string {
 // than silently degrade to a default model. Also returns the default
 // version's embedder ID so the caller can log the resolved value rather than
 // a hardcoded literal.
-func buildClusterScorer(availableProviders map[string]struct{}) (router.Router, string, error) {
+func buildClusterScorer(ctx context.Context, availableProviders map[string]struct{}) (router.Router, string, error) {
 	logger := observability.Get()
 
 	requestedVersion := config.GetOr("ROUTER_CLUSTER_VERSION", cluster.LatestVersion)
@@ -1903,7 +1903,7 @@ func buildClusterScorer(availableProviders map[string]struct{}) (router.Router, 
 	}
 
 	for version, scorer := range scorers {
-		warmCtx, cancelWarm := context.WithTimeout(context.Background(), 15*time.Second)
+		warmCtx, cancelWarm := context.WithTimeout(ctx, 15*time.Second)
 		err := warmLocalRouter(warmCtx, scorer)
 		cancelWarm()
 		if err != nil {

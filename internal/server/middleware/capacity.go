@@ -10,9 +10,13 @@ import (
 )
 
 // WithCapacity keeps accepted work accounted until the handler and any stream
-// finish. Probes never contend for a serving permit.
+// finish. Probes and CORS preflights never contend for a serving permit.
 func WithCapacity(capacity *health.Capacity) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if c.Request.Method == http.MethodOptions {
+			c.Next()
+			return
+		}
 		if c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead {
 			switch c.Request.URL.Path {
 			case "/health", "/startupz", "/capacityz", "/readyz":
