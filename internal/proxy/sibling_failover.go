@@ -128,10 +128,11 @@ func (s *Service) rescueDecisions(ctx context.Context, failed router.Decision, c
 // walk never returns failed.Model, so the exhausted case prefers a cooled arm
 // to the arm that just failed.
 //
-// Only when neither walk finds anything does it readmit session-lifetime
-// demotions: a session whose every arm has been struck out still gets one
-// rescue attempt on an arm that failed on an earlier turn instead of
-// surfacing this turn's failure.
+// Only when neither walk finds anything does a sibling failover readmit
+// session-lifetime demotions: a session whose every arm has been struck out
+// still gets one rescue attempt on an arm that failed on an earlier turn
+// instead of surfacing this turn's failure. Other rescues (the cyber-refusal
+// retry) walk their own ordered fallbacks and never readmit a strike.
 func (s *Service) rescueWalkOrReadmitCooling(
 	ctx context.Context,
 	failed router.Decision,
@@ -143,10 +144,11 @@ func (s *Service) rescueWalkOrReadmitCooling(
 ) []router.Decision {
 	decisions := walkRescueCandidates(failed, candidates, reason, excludedModels, automaticExcluded, est, sigSavings, outputReserve, providerFor)
 	decisions = append(decisions, s.readmitCoolingRescueCandidates(ctx, failed, candidates, reason, excludedModels, est, sigSavings, outputReserve, providerFor)...)
-	if len(decisions) > 0 {
+	struck := sessionStrikeReadmitModelsFromContext(ctx)
+	if len(decisions) > 0 || len(struck) == 0 || reason != ReasonSiblingFailover {
 		return decisions
 	}
-	return s.readmitStruckOutRescueCandidates(ctx, failed, candidates, reason, excludedModels, est, sigSavings, outputReserve, providerFor)
+	return s.readmissionWalk(ctx, failed, candidates, struck, reason, excludedModels, est, sigSavings, outputReserve, providerFor)
 }
 
 func (s *Service) readmitCoolingRescueCandidates(
@@ -167,22 +169,6 @@ func (s *Service) readmitCoolingRescueCandidates(
 		return cooling[readmitted[i].Model].Before(cooling[readmitted[j].Model])
 	})
 	return readmitted
-}
-
-func (s *Service) readmitStruckOutRescueCandidates(
-	ctx context.Context,
-	failed router.Decision,
-	candidates []string,
-	reason string,
-	excludedModels map[string]struct{},
-	est, sigSavings, outputReserve int,
-	providerFor func(id string) (string, bool),
-) []router.Decision {
-	struck := sessionStrikeReadmitModelsFromContext(ctx)
-	if len(struck) == 0 {
-		return nil
-	}
-	return s.readmissionWalk(ctx, failed, candidates, struck, reason, excludedModels, est, sigSavings, outputReserve, providerFor)
 }
 
 // readmissionWalk walks candidates plus the readmitted models, lifting only

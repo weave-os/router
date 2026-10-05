@@ -1187,8 +1187,6 @@ func sessionDemotedModelsFromContext(ctx context.Context) []string {
 	return out
 }
 
-// sessionStrikeReadmitModelsFromContext extracts the
-// SessionStrikeReadmitModelsContextKey list, or nil when absent.
 func sessionStrikeReadmitModelsFromContext(ctx context.Context) []string {
 	out, _ := ctx.Value(SessionStrikeReadmitModelsContextKey{}).([]string)
 	return out

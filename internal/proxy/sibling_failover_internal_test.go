@@ -510,3 +510,19 @@ func TestImageSafeModels_DropsTextOnlyArmsOnImageTurns(t *testing.T) {
 	assert.Equal(t, models, imageSafeModels(models, false))
 	assert.Equal(t, []string{"claude-opus-5"}, imageSafeModels(models, true))
 }
+
+// Strike readmission belongs to sibling failover only: the cyber-refusal
+// retry walks its own runner-up then configured fallback, and a struck arm
+// must not jump ahead of that fallback.
+func TestRescueDecision_CyberRefusalRetryNeverReadmitsStruckArm(t *testing.T) {
+	s := siblingService(providers.ProviderAnthropic)
+	failed := overloadedDecision(&router.RoutingMetadata{})
+	ctx := context.WithValue(context.Background(), SessionDemotedModelsContextKey{}, []string{"claude-sonnet-5"})
+	ctx = context.WithValue(ctx, SessionStrikeReadmitModelsContextKey{}, []string{"claude-sonnet-5"})
+
+	_, found := s.rescueDecision(ctx, failed, []string{"claude-sonnet-5"}, ReasonCyberRefusalRetry, 1_000, 0, 0)
+	assert.False(t, found)
+
+	got := s.rescueDecisions(ctx, failed, []string{"claude-sonnet-5"}, ReasonSiblingFailover, 1_000, 0, 0)
+	assert.Equal(t, []string{"claude-sonnet-5"}, siblingModels(got))
+}
