@@ -144,7 +144,7 @@ func (s *Service) rescueWalkOrReadmitCooling(
 ) []router.Decision {
 	decisions := walkRescueCandidates(failed, candidates, reason, excludedModels, automaticExcluded, est, sigSavings, outputReserve, providerFor)
 	decisions = append(decisions, s.readmitCoolingRescueCandidates(ctx, failed, candidates, reason, excludedModels, est, sigSavings, outputReserve, providerFor)...)
-	struck := sessionStrikeReadmitModelsFromContext(ctx)
+	struck := strikesInRescuePool(failed, candidates, sessionStrikeReadmitModelsFromContext(ctx))
 	if len(decisions) > 0 || len(struck) == 0 || reason != ReasonSiblingFailover {
 		return decisions
 	}
@@ -213,6 +213,23 @@ func rosterRescueAdmits(failed router.Decision, model string) bool {
 			catalog.TierFor(model) <= catalog.TierHigh
 	}
 	return slices.Contains(md.RescueModels, model) || slices.Contains(md.SidecarRescuePool, model)
+}
+
+// strikesInRescuePool keeps the struck models this turn could have rescued
+// onto before soft exclusions, so a last-resort readmission never leaves the
+// turn's scored pool. Roster failover is bounded later by rosterRescueAdmits.
+func strikesInRescuePool(failed router.Decision, candidates, struck []string) []string {
+	md := failed.Metadata
+	if md == nil || md.RosterFailover {
+		return struck
+	}
+	var out []string
+	for _, model := range struck {
+		if slices.Contains(candidates, model) || slices.Contains(md.ScorerRescuePool, model) || slices.Contains(md.SidecarRescuePool, model) {
+			out = append(out, model)
+		}
+	}
+	return out
 }
 
 // noteRescueReadmission records, as the rescue loop dispatches a candidate,

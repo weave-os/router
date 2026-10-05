@@ -526,3 +526,21 @@ func TestRescueDecision_CyberRefusalRetryNeverReadmitsStruckArm(t *testing.T) {
 	got := s.rescueDecisions(ctx, failed, []string{"claude-sonnet-5"}, ReasonSiblingFailover, 1_000, 0, 0)
 	assert.Equal(t, []string{"claude-sonnet-5"}, siblingModels(got))
 }
+
+// A struck model outside this turn's scored pool is never readmitted: the last
+// resort stays within the quality band the turn was scored for.
+func TestRescueDecisions_StruckOutReadmissionStaysInScoredPool(t *testing.T) {
+	s := siblingService(providers.ProviderAnthropic)
+	md := &router.RoutingMetadata{
+		CandidateModels:    []string{"claude-opus-5"},
+		CandidateProviders: map[string]string{"claude-haiku-4-5": providers.ProviderAnthropic},
+	}
+	struck := []string{"claude-haiku-4-5"}
+	ctx := context.WithValue(context.Background(), SessionDemotedModelsContextKey{}, struck)
+	ctx = context.WithValue(ctx, SessionStrikeReadmitModelsContextKey{}, struck)
+
+	assert.Empty(t, s.siblingFailoverDecisions(ctx, overloadedDecision(md), 1_000, 0, 0))
+
+	md.ScorerRescuePool = struck
+	assert.Equal(t, struck, siblingModels(s.siblingFailoverDecisions(ctx, overloadedDecision(md), 1_000, 0, 0)))
+}

@@ -116,8 +116,10 @@ header-timeout 502s with the other arm never tried). `runTurnLoop` now carries
 the strikes as `SessionStrikeReadmitModels` (image-unsafe arms dropped), and
 `rescueWalkOrReadmitCooling` readmits them on sibling failover only (never the
 cyber-refusal retry) and only when neither the eligible walk nor cooldown
-readmission yields a candidate. Hard and deployment-wide
-exclusions still hold, and the arm that just failed is never re-served.
+readmission yields a candidate. `strikesInRescuePool` keeps only strikes inside
+the turn's scored pool, so readmission never leaves the quality band. Hard and
+deployment-wide exclusions still hold, and the arm that just failed is never
+re-served.
 
 **A wholly non-routable allowlist is rejected at the admin API.** Membership
 validation for `PUT /admin/v1/allowed-models` is catalog-wide on purpose —
