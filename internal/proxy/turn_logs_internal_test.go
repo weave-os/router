@@ -359,14 +359,16 @@ func TestPermanentErrorDiagnostics_BoundsAndRedactsErrorResponse(t *testing.T) {
 }
 
 func TestPermanentErrorDiagnostics_TruncatesOnUTF8Boundary(t *testing.T) {
+	responseBody := append([]byte(strings.Repeat("a", maxLoggedErrorResponseBytes-1)), []byte("é")...)
 	proxyErr := &providers.UpstreamErrorResponse{
 		Status: http.StatusBadRequest,
-		Body:   []byte(strings.Repeat("é", maxLoggedErrorResponseBytes)),
+		Body:   responseBody,
 	}
 	attrs := attrsByKey(permanentErrorDiagnosticAttrs(proxyErr, 1, nil))
 	response := attrs["upstream.error_response"].GetStringValue()
 	assert.LessOrEqual(t, len(response), maxLoggedErrorResponseBytes)
 	assert.True(t, utf8.ValidString(response))
+	assert.Equal(t, strings.Repeat("a", maxLoggedErrorResponseBytes-1), response)
 	assert.True(t, attrs["upstream.error_response_truncated"].GetBoolValue())
 }
 
