@@ -34,6 +34,8 @@ type fakeOutcome struct {
 	err        error  // nil = success
 }
 
+func (f *fakeClient) IncludedOnlySubscriptions() bool { return true }
+
 func (f *fakeClient) Proxy(ctx context.Context, _ router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
 	idx := f.calls
 	f.calls++
@@ -57,6 +59,9 @@ func (f *fakeClient) Passthrough(context.Context, providers.PreparedRequest, htt
 // doesn't touch the other fields.
 func newServiceWithProviders(t *testing.T, providerMap map[string]providers.Client) *Service {
 	t.Helper()
+	if providerMap == nil {
+		providerMap = map[string]providers.Client{providers.ProviderOpenAI: &fakeClient{}, providers.ProviderAnthropic: &fakeClient{}}
+	}
 	s := &Service{clients: dispatch.NewClients(providerMap)}
 	return s
 }

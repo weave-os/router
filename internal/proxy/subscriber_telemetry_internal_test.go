@@ -46,7 +46,7 @@ func TestApplySubscriberTelemetryIncludedUsage(t *testing.T) {
 	assert.Equal(t, "profile-sha", telemetry.ServingProfileVersion)
 	assert.Equal(t, "release-id", telemetry.ServingReleaseID)
 	assert.Equal(t, "binding-id", telemetry.ServingBindingID)
-	assert.Equal(t, boostSourceOptimizerVersion, telemetry.BoostOptimizerVersion)
+	assert.Empty(t, telemetry.BoostOptimizerVersion, "Boost uses the stable subscription selector")
 }
 
 func TestApplySubscriberTelemetryCapacitySources(t *testing.T) {

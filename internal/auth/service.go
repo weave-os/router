@@ -84,8 +84,6 @@ type Service struct {
 	blindExperimentCache   BlindExperimentCache
 	blindExperimentFetches singleflight.Group
 	subscriptionAccounts   SubscriptionAccountRepository
-	requestIdentities      RequestIdentityRepository
-	requestIdentityCache   *expirable.LRU[string, string]
 	notifier               InstallationChangeNotifier
 	now                    Clock
 	encryptor              Encryptor

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
@@ -54,6 +55,7 @@ func TestProxyOpenAIChatCompletion_ManagedPoolFailureIsRenderedOnce(t *testing.T
 
 	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex),
 		InstallationIDContextKey{}, "33333333-3333-3333-3333-333333333333")
+	ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(""))
 	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"messages":[{"role":"user","content":"hi"}]}`)

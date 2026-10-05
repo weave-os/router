@@ -67,7 +67,7 @@ func TestSparseDomainScoresPreserveBaselineForAllMasks(t *testing.T) {
 		for bit, domain := range []selection.Domain{selection.DomainUI, selection.DomainLogic, selection.DomainData, selection.DomainInfra, selection.DomainDocs} {
 			profile[domain] = mask&(1<<bit) != 0
 		}
-		pick, scores, _, order, ok := selection.SelectGroupsWithDomainPreferences(roster, groups, "", candidates, nil, nil, nil, nil, evidence, profile)
+		pick, scores, _, order, ok := selection.SelectGroupsWithDomainPreferences(roster, groups, "", candidates, nil, nil, evidence, profile)
 		require.True(t, ok)
 		assert.ElementsMatch(t, roster.Clusters["low"].Arms, order["low"])
 		beta := (0.15*boolFloat(profile[selection.DomainLogic]) + 0.25*boolFloat(profile[selection.DomainInfra])) / math.Max(1, float64(popcount(mask)))
@@ -93,11 +93,11 @@ func TestSparseDomainWithoutEvidencePreservesExistingSelection(t *testing.T) {
 	candidates := candidateSet("vendor-a/quality", "vendor-b/cheap")
 	qualityBias := 0.8
 	baselinePick, baselineScores, baselineComponents, baselineOrder, baselineOK := selection.SelectGroupsWithPreferences(
-		roster, groups, "", candidates, &qualityBias, []string{"vendor-b/cheap"}, nil, nil,
+		roster, groups, "", candidates, &qualityBias, []string{"vendor-b/cheap"},
 	)
 	for _, profile := range []selection.DomainProfile{nil, fullProfile(selection.DomainInfra)} {
 		pick, scores, components, order, ok := selection.SelectGroupsWithDomainPreferences(
-			roster, groups, "", candidates, &qualityBias, []string{"vendor-b/cheap"}, nil, nil, nil, profile,
+			roster, groups, "", candidates, &qualityBias, []string{"vendor-b/cheap"}, nil, profile,
 		)
 		assert.Equal(t, baselineOK, ok)
 		assert.Equal(t, baselinePick, pick)
@@ -117,13 +117,13 @@ func TestSparseDomainRetainsPinVendorAndEligibility(t *testing.T) {
 	profile := fullProfile(selection.DomainInfra)
 	groups := []selection.Group{{Label: "low"}}
 	candidates := candidateSet("vendor-a/quality", "vendor-b/cheap")
-	pick, _, _, _, ok := selection.SelectGroupsWithDomainPreferences(roster, groups, "pi", candidates, nil, nil, nil, nil, evidence, profile)
+	pick, _, _, _, ok := selection.SelectGroupsWithDomainPreferences(roster, groups, "pi", candidates, nil, nil, evidence, profile)
 	require.True(t, ok)
 	assert.Equal(t, "vendor-a/quality", pick.Arm)
-	pick, _, _, _, ok = selection.SelectGroupsWithDomainPreferences(roster, groups, "codex", candidates, nil, nil, nil, nil, evidence, profile)
+	pick, _, _, _, ok = selection.SelectGroupsWithDomainPreferences(roster, groups, "codex", candidates, nil, nil, evidence, profile)
 	require.True(t, ok)
 	assert.Equal(t, "vendor-a/quality", pick.Arm)
-	pick, _, _, _, ok = selection.SelectGroupsWithDomainPreferences(roster, groups, "", candidateSet("vendor-b/cheap"), nil, nil, nil, nil, evidence, profile)
+	pick, _, _, _, ok = selection.SelectGroupsWithDomainPreferences(roster, groups, "", candidateSet("vendor-b/cheap"), nil, nil, evidence, profile)
 	require.True(t, ok)
 	assert.Equal(t, "vendor-b/cheap", pick.Arm)
 }
@@ -141,7 +141,7 @@ func TestSparseDomainZeroCorrectionKeepsNeutralOrder(t *testing.T) {
 	}
 	pick, scores, _, orders, ok := selection.SelectGroupsWithDomainPreferences(
 		roster, []selection.Group{{Label: "low"}}, "pi", candidateSet("vendor-a/quality", "vendor-b/cheap"),
-		nil, nil, nil, nil, evidence, fullProfile(selection.DomainInfra),
+		nil, nil, evidence, fullProfile(selection.DomainInfra),
 	)
 	require.True(t, ok)
 	assert.Equal(t, "vendor-a/quality", pick.Arm)
@@ -157,7 +157,7 @@ func TestSparseDomainKeepsUserQualityPreference(t *testing.T) {
 	priceHeavy := 0.0
 	_, scores, _, _, ok := selection.SelectGroupsWithDomainPreferences(
 		roster, groups, "", candidateSet("vendor-a/quality", "vendor-b/cheap"),
-		&priceHeavy, nil, nil, nil, evidence, profile,
+		&priceHeavy, nil, evidence, profile,
 	)
 	require.True(t, ok)
 	alpha := roster.Ranking.AlphaMin["low"]
@@ -221,7 +221,7 @@ func TestSparseDomainInvalidEvidencePreservesBaseline(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			evidence := domainEvidenceForTest(t, roster)
 			test.mutate(evidence)
-			pick, scores, _, order, ok := selection.SelectGroupsWithDomainPreferences(roster, groups, "", candidates, nil, nil, nil, nil, evidence, profile)
+			pick, scores, _, order, ok := selection.SelectGroupsWithDomainPreferences(roster, groups, "", candidates, nil, nil, evidence, profile)
 			require.True(t, ok)
 			assert.Equal(t, "vendor-a/quality", pick.Arm)
 			assert.Equal(t, float32(30), scores["low"]["vendor-a/quality"])
@@ -250,7 +250,7 @@ func TestSparseDomainUnlistedScoredArmPreservesBaseline(t *testing.T) {
 			roster.Clusters["low"] = cluster
 			pick, scores, _, _, ok := selection.SelectGroupsWithDomainPreferences(
 				roster, []selection.Group{{Label: "low"}}, "", candidateSet("vendor-a/quality", "vendor-b/cheap"),
-				test.bias, nil, nil, nil, evidence, fullProfile(selection.DomainInfra),
+				test.bias, nil, evidence, fullProfile(selection.DomainInfra),
 			)
 			require.True(t, ok)
 			assert.Equal(t, "vendor-a/quality", pick.Arm)

@@ -40,8 +40,9 @@ const (
 
 // Credentials holds the API key to use for an upstream request.
 type Credentials struct {
-	APIKey []byte // never logged
-	Source string // SourceBYOK | SourceClient | SourceSubscription | SourceCodexSubscription
+	SubscriptionAccountID string
+	APIKey                []byte // never logged
+	Source                string // SourceBYOK | SourceClient | SourceSubscription | SourceCodexSubscription
 	// OAuth marks a subscription bearer (Claude sk-ant-oat- token, Anthropic
 	// only; or Codex ChatGPT JWT, OpenAI only). Authenticates via
 	// Authorization: Bearer, never x-api-key.

@@ -297,18 +297,15 @@ func TestResolverIncludesLiveCandidateEconomics(t *testing.T) {
 	resolved := resolver.Resolve(router.Request{
 		EstimatedInputTokens: 1_000,
 		RoutingKnobs:         &router.Overrides{ExpectedOutputTokens: &expectedOutputTokens},
-		SubsidizedModelCostFactor: map[string]float64{
-			"claude-opus-4-8": 0.25,
-		},
 	})
 
 	require.Len(t, resolved.Candidates, 1)
 	candidate := resolved.Candidates[0]
 	assert.Equal(t, 0.1, candidate.CacheReadMultiplier)
-	assert.Equal(t, 0.25, candidate.MarginalCostFactor)
-	assert.Equal(t, 1.25, candidate.EffectiveInputUSDPer1M)
-	assert.Equal(t, 6.25, candidate.EffectiveOutputUSDPer1M)
-	assert.InDelta(t, candidate.EstimatedCostUSD*0.25, candidate.EffectiveEstimatedCostUSD, 1e-12)
+	assert.Equal(t, 1.0, candidate.MarginalCostFactor)
+	assert.Equal(t, 5.0, candidate.EffectiveInputUSDPer1M)
+	assert.Equal(t, 25.0, candidate.EffectiveOutputUSDPer1M)
+	assert.InDelta(t, candidate.EstimatedCostUSD, candidate.EffectiveEstimatedCostUSD, 1e-12)
 }
 
 func TestResolverUsesLongContextPricing(t *testing.T) {

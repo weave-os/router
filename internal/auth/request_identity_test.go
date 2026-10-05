@@ -57,7 +57,7 @@ func teamProjection() *fakeRequestIdentities {
 	}}
 }
 
-func TestSubscriptionOwnerForRequestSeparatesCallersSharingAKey(t *testing.T) {
+func TestSubscriptionOwnerForRequestKeepsVerifiedKeyOwnership(t *testing.T) {
 	svc := requestIdentityService(teamProjection())
 	key := sharedKey()
 
@@ -66,9 +66,9 @@ func TestSubscriptionOwnerForRequestSeparatesCallersSharingAKey(t *testing.T) {
 	sam, err := svc.SubscriptionOwnerForRequest(context.Background(), key, "sam@weave.test")
 	require.NoError(t, err)
 
-	require.Equal(t, aliSubject, ali.SubscriberID)
-	require.Equal(t, samSubject, sam.SubscriberID)
-	require.NotEqual(t, ali.PoolKey(), sam.PoolKey())
+	require.Equal(t, keyOwnerSubject, ali.SubscriberID)
+	require.Equal(t, keyOwnerSubject, sam.SubscriberID)
+	require.Equal(t, ali.SubscriberID, sam.SubscriberID)
 	// Attribution of the row still needs the key that enrolled it.
 	require.Equal(t, sharedKeyID, ali.APIKeyID)
 	// The cached key object is shared by every concurrent caller, so resolving
@@ -83,19 +83,19 @@ func TestSubscriptionOwnerForRequestUncachedSeesAWithdrawnProjection(t *testing.
 
 	owner, err := svc.SubscriptionOwnerForRequest(context.Background(), key, "ali@weave.test")
 	require.NoError(t, err)
-	require.Equal(t, aliSubject, owner.SubscriberID)
+	require.Equal(t, keyOwnerSubject, owner.SubscriberID)
 
 	delete(repo.projected[installationOne], "ali@weave.test")
 
 	cached, err := svc.SubscriptionOwnerForRequest(context.Background(), key, "ali@weave.test")
 	require.NoError(t, err)
-	require.Equal(t, aliSubject, cached.SubscriberID)
+	require.Equal(t, keyOwnerSubject, cached.SubscriberID)
 
 	// Managing a linked account reads the projection as it stands, so the
 	// withdrawn address stops naming Ali's pool straight away.
 	live, err := svc.SubscriptionOwnerForRequestUncached(context.Background(), key, "ali@weave.test")
-	require.NoError(t, err)
-	require.Equal(t, keyOwnerSubject, live.SubscriberID)
+	require.ErrorIs(t, err, auth.ErrPersonalCredentialRequired)
+	require.Empty(t, live.SubscriberID)
 }
 
 func TestSubscriptionOwnerForRequestFallsBackToTheKeysOwner(t *testing.T) {
@@ -123,7 +123,7 @@ func TestSubscriptionOwnerForRequestReportsLookupFailureWithoutLosingTheKeysOwne
 	svc := requestIdentityService(&fakeRequestIdentities{err: sql.ErrConnDone})
 
 	owner, err := svc.SubscriptionOwnerForRequest(context.Background(), sharedKey(), "ali@weave.test")
-	require.ErrorIs(t, err, sql.ErrConnDone)
+	require.NoError(t, err)
 	require.Equal(t, keyOwnerSubject, owner.SubscriberID)
 }
 
@@ -157,14 +157,22 @@ func TestSubscriptionOwnerForRequestResolvesConcurrentCallersIndependently(t *te
 	}
 	callers.Wait()
 
-	for i, subscriberID := range resolved {
-		expected := aliSubject
-		if i%2 == 1 {
-			expected = samSubject
-		}
-		require.Equal(t, expected, subscriberID)
+	for _, subscriberID := range resolved {
+		require.Equal(t, keyOwnerSubject, subscriberID)
 	}
+
 	// The per-turn lookup is cached, so a shared key's traffic doesn't put the
 	// projection table on the hot path.
 	require.Less(t, repo.lookups.Load(), int64(len(resolved)))
+}
+
+func TestSubscriptionOwnerUnsignedEmailCannotClaimPersonalCapacity(t *testing.T) {
+	svc := requestIdentityService(teamProjection())
+	legacy := &auth.APIKey{ID: sharedKeyID, InstallationID: installationOne}
+	owner, err := svc.SubscriptionOwnerForRequest(context.Background(), legacy, "ali@weave.test")
+	require.NoError(t, err)
+	require.Empty(t, owner.SubscriberID, "unsigned email must not turn org sharing into personal access")
+	personal, err := svc.SubscriptionOwnerForRequest(context.Background(), sharedKey(), "ali@weave.test")
+	require.NoError(t, err)
+	require.Equal(t, keyOwnerSubject, personal.SubscriberID, "unsigned email cannot transfer verified key ownership")
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"weave-os/router/internal/inference"
@@ -34,7 +35,9 @@ type preludeBuffer struct {
 	bufBody        bytes.Buffer
 	sealed         bool
 	preludeSent    bool
-	committed      bool
+	// committed is atomic because a rotation-budget timer reads it while the
+	// provider stream writes.
+	committed atomic.Bool
 }
 
 func newPreludeBuffer(w http.ResponseWriter) *preludeBuffer {
@@ -52,7 +55,7 @@ func newPreludeBuffer(w http.ResponseWriter) *preludeBuffer {
 func (b *preludeBuffer) Header() http.Header { return b.inner.Header() }
 
 func (b *preludeBuffer) Write(p []byte) (int, error) {
-	if b.committed {
+	if b.committed.Load() {
 		return b.inner.Write(p)
 	}
 	if b.sealed {
@@ -67,7 +70,7 @@ func (b *preludeBuffer) Write(p []byte) (int, error) {
 }
 
 func (b *preludeBuffer) WriteHeader(status int) {
-	if b.committed {
+	if b.committed.Load() {
 		b.inner.WriteHeader(status)
 		return
 	}
@@ -81,7 +84,7 @@ func (b *preludeBuffer) WriteHeader(status int) {
 }
 
 func (b *preludeBuffer) Flush() {
-	if !b.preludeSent && !b.committed {
+	if !b.preludeSent && !b.committed.Load() {
 		// Pre-commit Flush is a no-op — we don't want partial Prelude bytes
 		// reaching the client before commit decides.
 		return
@@ -119,13 +122,13 @@ func (b *preludeBuffer) CommitPrelude() error {
 }
 
 // Committed reports whether provider output has reached the inner writer.
-func (b *preludeBuffer) Committed() bool { return b.committed }
+func (b *preludeBuffer) Committed() bool { return b.committed.Load() }
 
 // Discard resets buffered Prelude bytes and headers to the construction-time
 // snapshot. No-op once committed. Called between failed attempts and before
 // the exhaustion error renderer writes via the unwrapped inner writer.
 func (b *preludeBuffer) Discard() {
-	if b.committed {
+	if b.committed.Load() {
 		return
 	}
 	b.bufStatus = 0
@@ -146,10 +149,10 @@ func (b *preludeBuffer) Discard() {
 }
 
 func (b *preludeBuffer) commit() error {
-	if b.committed {
+	if b.committed.Load() {
 		return nil
 	}
-	b.committed = true
+	b.committed.Store(true)
 	if !b.preludeSent {
 		if b.bufStatus != 0 {
 			b.inner.WriteHeader(b.bufStatus)
@@ -202,8 +205,11 @@ type failoverInputs struct {
 	deferFlushOnExhaustion bool
 	// purpose names the registered operation the walk is authorized under;
 	// origin names the override source that fixed the decision's model.
-	purpose inference.Purpose
-	origin  policy.OverrideSource
+	purpose          inference.Purpose
+	origin           policy.OverrideSource
+	alternatives     []router.Decision
+	buildAlternative func(router.Decision) (dispatchAttempt, error)
+	onAlternative    func(router.Decision)
 }
 
 // errDispatchWithoutPurpose rejects a walk no registered purpose authorizes:
@@ -217,6 +223,9 @@ var errDispatchWithoutPurpose = errors.New("dispatchWithFallback: no inference p
 // error. On final-attempt error it flushes the upstream's own envelope to w
 // instead of a generic 502.
 func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (winnerIdx int, err error) {
+	if len(in.alternatives) > 0 && in.buildAlternative != nil {
+		return s.dispatchSubscriptionAlternatives(ctx, in)
+	}
 	if len(in.purpose) == 0 {
 		return -1, errDispatchWithoutPurpose
 	}
@@ -556,4 +565,67 @@ func flushUpstreamErrorAsAnthropic(w http.ResponseWriter, err error) {
 // Caller gates on i > 0.
 func attemptIdxLabel(i int) string {
 	return strconv.Itoa(i)
+}
+
+type subscriptionOnlyAttemptKey struct{}
+type subscriptionAPIOnlyKey struct{}
+type subscriptionRotationBudgetKey struct{}
+
+func subscriptionAttemptOnly(ctx context.Context) bool {
+	value, _ := ctx.Value(subscriptionOnlyAttemptKey{}).(bool)
+	return value
+}
+func subscriptionAPIOnly(ctx context.Context) bool {
+	value, _ := ctx.Value(subscriptionAPIOnlyKey{}).(bool)
+	return value
+}
+func (s *Service) dispatchSubscriptionAlternatives(ctx context.Context, in failoverInputs) (int, error) {
+	budget, cancel := context.WithTimeout(ctx, sameBindingRetryBudget)
+	defer cancel()
+	ctx = context.WithValue(ctx, subscriptionRotationBudgetKey{}, budget)
+	selected := in.initialDecision
+	if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil {
+		usage.IntendedModel = selected.Model
+	}
+	targets := append([]router.Decision{selected}, in.alternatives...)
+	for index, target := range targets {
+		if ctx.Err() != nil || budget.Err() != nil {
+			break
+		}
+		attemptIn := in
+		attemptIn.alternatives = nil
+		attemptIn.deferFlushOnExhaustion = true
+		if index > 0 {
+			attempt, buildErr := in.buildAlternative(target)
+			if buildErr != nil {
+				continue
+			}
+			attemptIn.initialDecision = target
+			attemptIn.attempt = attempt
+			attemptIn.bindings = s.resolveBindingsForDispatch(ctx, target)
+		}
+		if in.buf != nil {
+			in.buf.Discard()
+		}
+		attemptCtx := s.resolveCredentials(context.WithValue(ctx, subscriptionOnlyAttemptKey{}, true), target.Provider, target.Model, http.Header{})
+		winner, attemptErr := s.dispatchWithFallback(attemptCtx, attemptIn)
+		if attemptErr == nil {
+			if index > 0 && in.onAlternative != nil {
+				in.onAlternative(target)
+			}
+			return winner, nil
+		}
+		if committed(in.buf) || ctx.Err() != nil {
+			return winner, attemptErr
+		}
+	}
+	if paidFallbackForbidden(ctx) {
+		return 0, ErrSubscriptionPoolExhausted
+	}
+	if in.buf != nil {
+		in.buf.Discard()
+	}
+	in.alternatives = nil
+	apiCtx := s.resolveCredentials(withSuppressedClaudeSubscription(withSuppressedCodexSubscription(context.WithValue(ctx, subscriptionAPIOnlyKey{}, true))), selected.Provider, selected.Model, http.Header{})
+	return s.dispatchWithFallback(apiCtx, in)
 }

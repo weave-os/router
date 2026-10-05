@@ -34,6 +34,17 @@ type runtimeStore struct {
 	extendCount          atomic.Int32
 }
 
+func (s *runtimeStore) ListSubscriptionCandidates(ctx context.Context, owner auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error) {
+	accounts, err := s.ListSubscriptionAccounts(ctx, owner)
+	admitted := accounts[:0]
+	for _, account := range accounts {
+		if account.SubscriberID != "" {
+			admitted = append(admitted, account)
+		}
+	}
+	return admitted, err
+}
+
 // ListSubscriptionAccounts mirrors the storage ownership predicate: a
 // subscriber-owned row answers to its subscriber, a legacy row only to the key
 // that enrolled it.
@@ -182,6 +193,13 @@ func (s *runtimeStore) UpdateSubscriptionAccountHealth(_ context.Context, _ auth
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.healthStates[accountID] = state
+	for _, account := range s.accounts {
+		if account.ID == accountID {
+			account.State = state
+			account.Enabled = account.Enabled && enabled
+			account.CooldownUntil = cooldownUntil
+		}
+	}
 	s.enabledUpdates[accountID] = enabled
 	if cooldownUntil != nil {
 		s.cooldowns[accountID] = *cooldownUntil
@@ -920,13 +938,12 @@ func TestRuntimeKeepsLegacyAccountsOutOfSubscriberPool(t *testing.T) {
 		return subscriptions.RefreshedToken{AccessToken: "access", RefreshToken: "refresh-secret", ExpiresAt: time.Now().Add(time.Hour)}, nil
 	}), nil)
 
-	// The enrolling key still serves its unmigrated row through the subscriber.
-	enrolling := auth.SubscriptionOwner{SubscriberID: "subscriber-1", APIKeyID: "key-1"}
+	// Unassigned legacy capacity is quarantined until an administrator assigns it.
+	enrolling := auth.SubscriptionOwner{APIKeyID: "key-1"}
 	lease, present, err := runtime.Lease(context.Background(), enrolling, subscriptions.ProviderClaude, "")
 	require.NoError(t, err)
-	require.True(t, present)
-	require.Equal(t, "legacy-account", lease.AccountID)
-	lease.Release()
+	require.False(t, present)
+	require.Empty(t, lease.AccountID)
 
 	// A second key of that subscriber must not reach it through the shared pool.
 	sibling := auth.SubscriptionOwner{SubscriberID: "subscriber-1", APIKeyID: "key-2"}

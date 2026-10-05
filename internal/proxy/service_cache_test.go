@@ -10,12 +10,10 @@ import (
 	"time"
 
 	"weave-os/router/internal/feedback"
-	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/cache"
-	"weave-os/router/internal/subscriptions"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -110,57 +108,7 @@ func TestService_Cache_HitShortCircuitsProvider(t *testing.T) {
 	assert.Equal(t, proxy.RouterCacheHit, rec2.Header().Get(proxy.HeaderRouterCache))
 }
 
-func TestService_Cache_SubscriptionStatePreferencesBypass(t *testing.T) {
-	emb := embeddingFixture(11)
-	provider := &fakeProvider{
-		proxyResponse: func(w http.ResponseWriter) {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"conditional"}`))
-		},
-	}
-	fr := &fakeRouter{decision: decisionWithEmbedding(emb, []int{0, 1})}
-	c := cache.New(cache.DefaultConfig())
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, c, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
-
-	ctx := proxyContextWithExternalID(t, "tenant-conditional")
-	ctx = context.WithValue(ctx, proxy.SubscriptionStatePreferredModelsContextKey{}, []string{"claude-haiku-4-5"})
-	body := anthropicBody("conditional cache", false)
-
-	rec1 := httptest.NewRecorder()
-	require.NoError(t, svc.ProxyMessages(ctx, body, rec1, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
-	rec2 := httptest.NewRecorder()
-	require.NoError(t, svc.ProxyMessages(ctx, body, rec2, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
-
-	assert.Len(t, provider.proxyBodies, 2, "subscription-state preferences must not replay a cached response")
-	assert.Empty(t, rec2.Header().Get(proxy.HeaderRouterCache))
-}
-
-func TestService_Cache_EmptySubscriptionStatePreferencesAllowCache(t *testing.T) {
-	emb := embeddingFixture(12)
-	provider := &fakeProvider{
-		proxyResponse: func(w http.ResponseWriter) {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"id":"conditional-empty"}`))
-		},
-	}
-	fr := &fakeRouter{decision: decisionWithEmbedding(emb, []int{0, 1})}
-	c := cache.New(cache.DefaultConfig())
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, c, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
-
-	ctx := proxyContextWithExternalID(t, "tenant-conditional-empty")
-	ctx = context.WithValue(ctx, proxy.SubscriptionStatePreferredModelsContextKey{}, []string{})
-	body := anthropicBody("conditional empty cache", false)
-
-	rec1 := httptest.NewRecorder()
-	require.NoError(t, svc.ProxyMessages(ctx, body, rec1, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
-	rec2 := httptest.NewRecorder()
-	require.NoError(t, svc.ProxyMessages(ctx, body, rec2, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
-
-	assert.Len(t, provider.proxyBodies, 1, "an empty preference list does not alter routing and can reuse the cache")
-	assert.Equal(t, proxy.RouterCacheHit, rec2.Header().Get(proxy.HeaderRouterCache))
-}
-
-func TestService_Cache_PlanAwareRoutingBypasses(t *testing.T) {
+func TestService_Cache_QuotaStateDoesNotAlterModelEligibility(t *testing.T) {
 	emb := embeddingFixture(13)
 	provider := &fakeProvider{
 		proxyResponse: func(w http.ResponseWriter) {
@@ -173,11 +121,6 @@ func TestService_Cache_PlanAwareRoutingBypasses(t *testing.T) {
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, c, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	ctx := proxyContextWithExternalID(t, "tenant-plan-aware")
-	ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: true}})
-	ctx = context.WithValue(ctx, proxy.ManagedSubscriptionPlanStatesContextKey{}, map[subscriptions.Provider]proxy.SubscriptionPlanState{
-		subscriptions.ProviderClaude: proxy.SubscriptionPlanStateExhausted,
-		subscriptions.ProviderCodex:  proxy.SubscriptionPlanStateActive,
-	})
 	body := anthropicBody("plan-aware cache", false)
 
 	rec1 := httptest.NewRecorder()
@@ -185,8 +128,8 @@ func TestService_Cache_PlanAwareRoutingBypasses(t *testing.T) {
 	rec2 := httptest.NewRecorder()
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec2, httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
 
-	assert.Len(t, provider.proxyBodies, 2, "plan-aware eligibility must not replay a response cached under another plan state")
-	assert.Empty(t, rec2.Header().Get(proxy.HeaderRouterCache))
+	assert.Len(t, provider.proxyBodies, 1, "source availability does not change compatible cached content")
+	assert.Equal(t, proxy.RouterCacheHit, rec2.Header().Get(proxy.HeaderRouterCache))
 }
 
 func TestService_Cache_StreamingBypasses(t *testing.T) {

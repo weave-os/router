@@ -264,6 +264,9 @@ const (
 	leakHeader = "X-Weave-Test-Upstream-Envelope"
 )
 
+// Synthetic provider never bills subscription extra usage.
+func (*codexQuotaClient) IncludedOnlySubscriptions() bool { return true }
+
 func (c *codexQuotaClient) Proxy(ctx context.Context, _ router.Decision, _ providers.PreparedRequest, _ http.ResponseWriter, _ *http.Request) error {
 	creds := CredentialsFromContext(ctx)
 	c.oauthPerCall = append(c.oauthPerCall, creds != nil && creds.OAuth)
@@ -362,6 +365,6 @@ func TestCodexSubscriptionExhausted_NoFallbackKey(t *testing.T) {
 		Body:   []byte(`{"error":{"type":"usage_limit_reached","resets_at":` + strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10) + `}}`),
 	})
 
-	assert.False(t, svc.codexSubscriptionExhausted(ctx, http.Header{}),
-		"with no Weave/BYOK OpenAI key there is nothing to suppress the subscription in favor of")
+	assert.True(t, svc.codexSubscriptionExhausted(ctx, http.Header{}),
+		"known exhaustion suppresses direct OAuth regardless of API availability")
 }

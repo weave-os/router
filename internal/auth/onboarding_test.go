@@ -178,7 +178,7 @@ func TestOnboardingObserverIsOptional(t *testing.T) {
 	svc := auth.NewService(nil, nil, nil, nil, auth.NoOpAPIKeyCache{}, nil, frozenClock()).
 		WithSubscriptionAccounts(&onboardingSubscriptionRepo{})
 	_, err := svc.AddSubscriptionAccount(context.Background(), auth.CreateSubscriptionAccountParams{
-		Owner: auth.SubscriptionOwner{APIKeyID: "key"}, Provider: auth.SubscriptionProviderCodex,
+		Owner: auth.SubscriptionOwner{SubscriberID: "subscriber", APIKeyID: "key"}, Provider: auth.SubscriptionProviderCodex,
 		ExternalAccountID: "external-account", RefreshToken: []byte("refresh"),
 	})
 	require.NoError(t, err)

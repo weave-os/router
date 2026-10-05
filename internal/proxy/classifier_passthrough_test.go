@@ -43,7 +43,7 @@ func classifierPassthroughFixture(t *testing.T, obs *usage.Observer) (*proxy.Ser
 	store := newFakePinStore()
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, store, false, providers.ProviderAnthropic, classifierRequestedMdl, nil)
 	if obs != nil {
-		svc = svc.WithSubscriptionAwareRouting(obs, 0.05, 2.0)
+		svc = svc.WithUsageObserver(obs)
 	}
 	return svc, fr, p, store
 }
@@ -161,20 +161,15 @@ func TestClassifier_ExhaustedSubscription_ServesOnDeploymentKey(t *testing.T) {
 
 // With no deployment / BYOK key to fall through to, dropping the subscription
 // would leave the turn with no credential; the scored turn keeps it.
-func TestClassifier_ExhaustedSubscription_NoFallbackKeepsSubscription(t *testing.T) {
+func TestClassifier_ExhaustedSubscription_NoFallbackRefusesBeforeDispatch(t *testing.T) {
 	svc, fr, p, _ := classifierPassthroughFixture(t, exhaustedObserver())
 	rec, req := classifierRequest()
 
-	require.NoError(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(classifierBody), rec, req))
-
+	require.ErrorIs(t, svc.ProxyMessages(classifierSubscriptionCtx(), []byte(classifierBody), rec, req), proxy.ErrSubscriptionPoolExhausted)
 	assert.Equal(t, 1, fr.routeCalls)
-	require.Len(t, p.proxyCreds, 1)
-	require.NotNil(t, p.proxyCreds[0])
-	assert.True(t, p.proxyCreds[0].OAuth)
+	assert.Empty(t, p.proxyCreds, "known spent credential cannot be dispatched")
 }
 
-// Subscription-only mode with an exhausted subscription: the passthrough
-// disengages and the scored turn is refused rather than billed.
 func TestClassifier_SubscriptionOnly_Exhausted_Refuses402(t *testing.T) {
 	svc, _, p, _ := classifierPassthroughFixture(t, exhaustedObserver())
 	rec, req := classifierRequest()

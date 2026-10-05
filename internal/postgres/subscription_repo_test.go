@@ -69,10 +69,10 @@ func newSubscriptionFixture(t *testing.T) subscriptionFixture {
 	})
 
 	for _, subjectID := range []uuid.UUID{fixture.subscriberA, fixture.subscriberB} {
-		_, err = pool.Exec(ctx, "INSERT INTO router.credential_subjects (id) VALUES ($1)", subjectID)
+		_, err = pool.Exec(ctx, "INSERT INTO router.credential_subjects (id, projection_complete) VALUES ($1, TRUE)", subjectID)
 		require.NoError(t, err)
 		_, err = pool.Exec(ctx,
-			"INSERT INTO router.credential_subject_installations (subject_id, installation_id) VALUES ($1, $2)",
+			"INSERT INTO router.credential_subject_installations (subject_id, installation_id, access_enabled) VALUES ($1, $2, TRUE)",
 			subjectID, fixture.installationID)
 		require.NoError(t, err)
 	}
@@ -110,7 +110,7 @@ func TestSubscriptionAccountsFollowSubscriberAcrossKeys(t *testing.T) {
 	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
 	ctx := context.Background()
 
-	enrollingOwner := auth.SubscriptionOwner{SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	enrollingOwner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
 	for _, enrollment := range []struct {
 		provider          auth.SubscriptionProvider
 		externalAccountID string
@@ -130,7 +130,7 @@ func TestSubscriptionAccountsFollowSubscriberAcrossKeys(t *testing.T) {
 	}
 
 	// A rotated or second harness key of the same subscriber serves the same pool.
-	rotatedOwner := auth.SubscriptionOwner{SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA2.String()}
+	rotatedOwner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA2.String()}
 	accounts, err := repo.ListSubscriptionAccounts(ctx, rotatedOwner)
 	require.NoError(t, err)
 	require.Len(t, accounts, 3)
@@ -141,12 +141,13 @@ func TestSubscriptionAccountsFollowSubscriberAcrossKeys(t *testing.T) {
 	assert.ElementsMatch(t, []string{"claude-one", "claude-two"}, byProvider[auth.SubscriptionProviderClaude])
 	assert.Equal(t, []string{"codex-one"}, byProvider[auth.SubscriptionProviderCodex])
 
-	// The same external account linked by another subscriber of the same
-	// installation is a separate row that neither subscriber can reach.
-	otherOwner := auth.SubscriptionOwner{SubscriberID: fixture.subscriberB.String(), APIKeyID: fixture.keyB1.String()}
+	// A physical account cannot be claimed by another subscriber.
+	otherOwner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberB.String(), APIKeyID: fixture.keyB1.String()}
+	_, _, err = repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{Owner: otherOwner, Provider: auth.SubscriptionProviderClaude, ExternalAccountID: "claude-one", RefreshToken: []byte("forbidden")})
+	require.Error(t, err)
 	otherAccount, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
 		Owner: otherOwner, Provider: auth.SubscriptionProviderClaude,
-		ExternalAccountID: "claude-one", RefreshToken: []byte("other-ciphertext"),
+		ExternalAccountID: "claude-other", RefreshToken: []byte("other-ciphertext"),
 	})
 	require.NoError(t, err)
 	otherAccounts, err := repo.ListSubscriptionAccounts(ctx, otherOwner)
@@ -176,7 +177,7 @@ func TestSubscriptionAccountHealthIsOwnerScoped(t *testing.T) {
 		UpdateSubscriptionAccountHealth(context.Context, string, auth.SubscriptionOwner, auth.SubscriptionAccountState, bool, *time.Time) error
 	})
 	ctx := context.Background()
-	owner := auth.SubscriptionOwner{SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	owner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
 	account, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
 		Owner: owner, Provider: auth.SubscriptionProviderClaude,
 		ExternalAccountID: "claude-health", RefreshToken: []byte("ciphertext"),
@@ -205,7 +206,7 @@ func TestSubscriptionAccountHealthIsOwnerScoped(t *testing.T) {
 	require.NotNil(t, accounts[0].CooldownUntil)
 	assert.WithinDuration(t, resetAt, *accounts[0].CooldownUntil, time.Microsecond)
 
-	otherOwner := auth.SubscriptionOwner{SubscriberID: fixture.subscriberB.String(), APIKeyID: fixture.keyB1.String()}
+	otherOwner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberB.String(), APIKeyID: fixture.keyB1.String()}
 	assert.ErrorIs(t, healthRepo.UpdateSubscriptionAccountHealth(
 		ctx, account.ID, otherOwner, auth.SubscriptionAccountStateDisabled, false, nil,
 	), auth.ErrSubscriptionAccountNotFound)
@@ -235,7 +236,7 @@ func TestSubscriptionAccountsKeepLegacyAPIKeyOwnership(t *testing.T) {
 	assert.Empty(t, accounts[0].SubscriberID)
 
 	// A subscriber cannot reach another key's unattributed row.
-	subscriberOwner := auth.SubscriptionOwner{SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	subscriberOwner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
 	subscriberAccounts, err := repo.ListSubscriptionAccounts(ctx, subscriberOwner)
 	require.NoError(t, err)
 	assert.Empty(t, subscriberAccounts)
@@ -250,7 +251,7 @@ func TestSubscriptionAccountsKeepLegacyAPIKeyOwnership(t *testing.T) {
 	assert.False(t, accounts[0].Enabled)
 }
 
-func TestSubscriptionAccountReconnectAdoptsLegacyRow(t *testing.T) {
+func TestSubscriptionAccountReconnectCannotAdoptLegacyRow(t *testing.T) {
 	fixture := newSubscriptionFixture(t)
 	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
 	ctx := context.Background()
@@ -258,23 +259,20 @@ func TestSubscriptionAccountReconnectAdoptsLegacyRow(t *testing.T) {
 	// A row the migration could not attribute, enrolled by a key that has since
 	// gained a credential subject.
 	legacyID := fixture.legacyRow(t, fixture.keyA1, "codex", "codex-legacy")
-	owner := auth.SubscriptionOwner{SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	owner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
 
 	adopted, kind, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
 		Owner: owner, Provider: auth.SubscriptionProviderCodex,
 		ExternalAccountID: "codex-legacy", RefreshToken: []byte("reconnected-ciphertext"),
 	})
-	require.NoError(t, err)
-	assert.Equal(t, auth.SubscriptionUpsertAdopted, kind, "legacy-row adoption counts as a first registration")
-	assert.Equal(t, legacyID.String(), adopted.ID, "reconnect adopts the legacy row instead of duplicating it")
-	assert.Equal(t, fixture.subscriberA.String(), adopted.SubscriberID)
-
-	// Adoption is visible through the subscriber's other key.
-	accounts, err := repo.ListSubscriptionAccounts(ctx,
-		auth.SubscriptionOwner{SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA2.String()})
-	require.NoError(t, err)
-	require.Len(t, accounts, 1)
-	assert.Equal(t, legacyID.String(), accounts[0].ID)
+	require.Error(t, err, "reconnect must not silently claim an unassigned account")
+	assert.Nil(t, adopted)
+	assert.Equal(t, auth.SubscriptionUpsertUpdated, kind)
+	var persistedOwner *uuid.UUID
+	var persistedToken []byte
+	require.NoError(t, fixture.pool.QueryRow(ctx, "SELECT subscriber_id, refresh_token_ciphertext FROM router.model_router_subscription_accounts WHERE id = $1", legacyID).Scan(&persistedOwner, &persistedToken))
+	assert.Nil(t, persistedOwner)
+	assert.Equal(t, []byte("legacy-ciphertext"), persistedToken)
 }
 
 func TestSubscriptionAccountConcurrentFirstEnrollmentConverges(t *testing.T) {
@@ -292,32 +290,17 @@ func TestSubscriptionAccountConcurrentFirstEnrollmentConverges(t *testing.T) {
 	assert.Len(t, accounts, 1)
 }
 
-func TestSubscriptionAccountConcurrentLegacyAdoptionConverges(t *testing.T) {
+func TestSubscriptionAccountDuplicatePhysicalEnrollmentRejected(t *testing.T) {
 	fixture := newSubscriptionFixture(t)
-	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
-
-	// The migration leaves duplicates of one provider account api-key-owned, so
-	// two keys of one subscriber reconnecting at once adopt different rows.
 	fixture.legacyRow(t, fixture.keyA1, "claude", "claude-duplicated")
-	fixture.legacyRow(t, fixture.keyA2, "claude", "claude-duplicated")
-
-	owners := fixture.subscriberAKeys()
-	adopted := concurrentEnrollments(t, repo, "claude-duplicated", owners)
-	assert.Equal(t, adopted[0].ID, adopted[1].ID, "concurrent adoption converges on one account")
-
-	var owned, unmerged int
-	require.NoError(t, fixture.pool.QueryRow(context.Background(), `
-		SELECT count(*) FILTER (WHERE subscriber_id IS NOT NULL), count(*) FILTER (WHERE subscriber_id IS NULL)
-		FROM router.model_router_subscription_accounts
-		WHERE external_account_id = 'claude-duplicated'`).Scan(&owned, &unmerged))
-	assert.Equal(t, 1, owned, "only one duplicate becomes subscriber-owned")
-	assert.Equal(t, 1, unmerged, "the losing duplicate stays api-key-owned rather than merged")
+	_, err := fixture.pool.Exec(context.Background(), `INSERT INTO router.model_router_subscription_accounts (api_key_id, provider, external_account_id, refresh_token_ciphertext) VALUES ($1, 'claude', 'claude-duplicated', $2)`, fixture.keyA2, []byte("duplicate"))
+	require.Error(t, err, "one physical account cannot have two active identities")
 }
 
 func (f subscriptionFixture) subscriberAKeys() []auth.SubscriptionOwner {
 	return []auth.SubscriptionOwner{
-		{SubscriberID: f.subscriberA.String(), APIKeyID: f.keyA1.String()},
-		{SubscriberID: f.subscriberA.String(), APIKeyID: f.keyA2.String()},
+		{InstallationID: f.installationID.String(), SubscriberID: f.subscriberA.String(), APIKeyID: f.keyA1.String()},
+		{InstallationID: f.installationID.String(), SubscriberID: f.subscriberA.String(), APIKeyID: f.keyA2.String()},
 	}
 }
 
@@ -358,14 +341,14 @@ func TestSubscriptionRefreshLeaseSurvivesKeyRotation(t *testing.T) {
 	repo := postgres.NewSubscriptionAccountRepo(fixture.pool)
 	ctx := context.Background()
 
-	enrollingOwner := auth.SubscriptionOwner{SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
+	enrollingOwner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA1.String()}
 	account, _, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
 		Owner: enrollingOwner, Provider: auth.SubscriptionProviderClaude,
 		ExternalAccountID: "claude-lease", RefreshToken: []byte("ciphertext"),
 	})
 	require.NoError(t, err)
 
-	rotatedOwner := auth.SubscriptionOwner{SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA2.String()}
+	rotatedOwner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberA.String(), APIKeyID: fixture.keyA2.String()}
 	leaseID := uuid.NewString()
 	acquisition, err := repo.TryAcquireSubscriptionRefreshLease(ctx, account.ID, rotatedOwner, leaseID, time.Minute)
 	require.NoError(t, err)
@@ -373,7 +356,7 @@ func TestSubscriptionRefreshLeaseSurvivesKeyRotation(t *testing.T) {
 	assert.False(t, acquisition.TookOver)
 
 	// Another subscriber's key cannot lease or read the account.
-	foreignOwner := auth.SubscriptionOwner{SubscriberID: fixture.subscriberB.String(), APIKeyID: fixture.keyB1.String()}
+	foreignOwner := auth.SubscriptionOwner{InstallationID: fixture.installationID.String(), SubscriberID: fixture.subscriberB.String(), APIKeyID: fixture.keyB1.String()}
 	foreign, err := repo.TryAcquireSubscriptionRefreshLease(ctx, account.ID, foreignOwner, uuid.NewString(), time.Minute)
 	require.NoError(t, err)
 	assert.False(t, foreign.Acquired)

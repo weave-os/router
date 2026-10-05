@@ -96,9 +96,15 @@ func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.D
 		CacheCreationTokens:  int32PtrToInt64(row.CacheCreationTokens),
 		CacheReadTokens:      int32PtrToInt64(row.CacheReadTokens),
 
-		SubscriptionServed:  row.SubscriptionServed,
-		ActualInputCostUSD:  servedCostUSD(row.ActualInputCostUsd, row.SubscriptionServed),
-		ActualOutputCostUSD: servedCostUSD(row.ActualOutputCostUsd, row.SubscriptionServed),
+		SubscriptionServed:    row.SubscriptionServed,
+		CredentialSource:      row.CredentialSource,
+		SubscriptionAccountID: uuidStringPtr(row.SubscriptionAccountID),
+		SubscriptionOwnerID:   uuidStringPtr(row.SubscriptionOwnerID),
+		SubscriptionTier:      subscriptionTierPtr(row.SubscriptionTier),
+		IntendedModelFamily:   row.IntendedModelFamily,
+		FinalModelFamily:      row.FinalModelFamily,
+		ActualInputCostUSD:    servedCostUSD(row.ActualInputCostUsd, row.SubscriptionServed),
+		ActualOutputCostUSD:   servedCostUSD(row.ActualOutputCostUsd, row.SubscriptionServed),
 
 		RouteLatencyMs:           row.RouteLatencyMs,
 		UpstreamLatencyMs:        row.UpstreamLatencyMs,
@@ -203,4 +209,12 @@ func uuidStringPtr(u pgtype.UUID) *string {
 	}
 	s := uuid.UUID(u.Bytes).String()
 	return &s
+}
+
+func subscriptionTierPtr(value *string) *auth.SubscriptionTier {
+	if value == nil {
+		return nil
+	}
+	tier := auth.SubscriptionTier(*value)
+	return &tier
 }

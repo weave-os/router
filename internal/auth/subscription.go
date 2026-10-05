@@ -36,50 +36,27 @@ func (s SubscriptionAccountState) Routable() bool {
 	return s == SubscriptionAccountStateActive || s == SubscriptionAccountStateUnknown
 }
 
-// SubscriptionOwner addresses the linked accounts one authenticated caller may
-// serve and manage. SubscriberID is the Router credential subject and survives
-// API-key rotation, so it is the runtime pool identity. APIKeyID is enrollment
-// attribution, and the only ownership legacy rows have until they are migrated
-// or reconnected — a subscriber therefore still reaches the unattributed rows
-// of whichever key it is presenting.
+// SubscriptionOwner identifies a verified requester and installation for live
+// serving admission. SubscriberID is the stable user owner; APIKeyID records
+// enrollment attribution and never partitions serving capacity. Unassigned
+// historical accounts require administrator ownership assignment before serving.
 type SubscriptionOwner struct {
-	SubscriberID string
-	APIKeyID     string
+	SubscriberID       string
+	APIKeyID           string
+	ExcludedAccountIDs []string
+	InstallationID     string
 }
+
+type SubscriptionTier string
+
+const (
+	SubscriptionTierPersonal SubscriptionTier = "personal"
+	SubscriptionTierShared   SubscriptionTier = "shared"
+)
 
 // Valid reports whether this owner can address any account.
 func (o SubscriptionOwner) Valid() bool {
-	return o.SubscriberID != "" || o.APIKeyID != ""
-}
-
-// PoolKey is the runtime pool identity. Two keys of one subscriber share a
-// pool; a key with no subscriber keeps its own legacy pool.
-func (o SubscriptionOwner) PoolKey() string {
-	switch {
-	case o.SubscriberID != "":
-		return "subscriber:" + o.SubscriberID
-	case o.APIKeyID != "":
-		return "api_key:" + o.APIKeyID
-	default:
-		return ""
-	}
-}
-
-// LegacyPoolKey is the pool identity of the rows this owner reaches only
-// through its api key. It stays separate from PoolKey so a second key of one
-// subscriber never serves another key's unattributed accounts, whose
-// subscriber is by definition unknown.
-func (o SubscriptionOwner) LegacyPoolKey() string {
-	if o.APIKeyID == "" {
-		return ""
-	}
-	return "api_key:" + o.APIKeyID
-}
-
-// SyncKey identifies the full set of pools this owner reaches, for callers
-// caching a pool refresh.
-func (o SubscriptionOwner) SyncKey() string {
-	return o.PoolKey() + "|" + o.LegacyPoolKey()
+	return o.SubscriberID != "" || o.APIKeyID != "" || o.InstallationID != ""
 }
 
 // LogKey identifies the pool in logs without emitting the api key id: legacy
@@ -102,13 +79,14 @@ func SubscriptionOwnerForKey(key *APIKey) SubscriptionOwner {
 	if key == nil {
 		return SubscriptionOwner{}
 	}
-	return SubscriptionOwner{SubscriberID: key.CredentialSubjectID, APIKeyID: key.ID}
+	return SubscriptionOwner{SubscriberID: key.CredentialSubjectID, APIKeyID: key.ID, InstallationID: key.InstallationID}
 }
 
 // SubscriptionAccount is the server-side representation of an enrolled
 // account. RefreshTokenCiphertext is encrypted storage and must not cross the
 // auth/service boundary into an API response.
 type SubscriptionAccount struct {
+	Tier               SubscriptionTier
 	ID                 string
 	SubscriberID       string
 	EnrolledByAPIKeyID string
@@ -233,7 +211,7 @@ func (s *Service) AddSubscriptionAccount(ctx context.Context, params CreateSubsc
 	if s.subscriptionAccounts == nil {
 		return nil, errors.New("subscription accounts are not configured")
 	}
-	if !params.Owner.Valid() || params.ExternalAccountID == "" || len(params.RefreshToken) == 0 {
+	if params.Owner.SubscriberID == "" || params.ExternalAccountID == "" || len(params.RefreshToken) == 0 {
 		return nil, errors.New("subscription account owner, identity, and refresh token are required")
 	}
 	if params.Provider != SubscriptionProviderClaude && params.Provider != SubscriptionProviderCodex {
@@ -297,6 +275,17 @@ func (s *Service) ListSubscriptionAccounts(ctx context.Context, owner Subscripti
 		return nil, nil
 	}
 	return s.subscriptionAccounts.ListSubscriptionAccounts(ctx, owner)
+}
+
+// ListSubscriptionCandidates performs serving admission independently of account management.
+func (s *Service) ListSubscriptionCandidates(ctx context.Context, owner SubscriptionOwner) ([]*SubscriptionAccount, error) {
+	repo, ok := s.subscriptionAccounts.(interface {
+		ListSubscriptionCandidates(context.Context, SubscriptionOwner) ([]*SubscriptionAccount, error)
+	})
+	if !ok {
+		return nil, nil
+	}
+	return repo.ListSubscriptionCandidates(ctx, owner)
 }
 
 // SubscriptionRefreshToken decrypts an owner's refresh token for the refresh

@@ -265,7 +265,7 @@ func (s *Scorer) computeDialCalibration() []float64 {
 		}
 		counts := make(map[string]int, len(s.models))
 		for c := 0; c < k; c++ {
-			scores := s.blendScoresV2(centroidTopClusters[c], knobs, s.models, nil, nil)
+			scores := s.blendScoresV2(centroidTopClusters[c], knobs, s.models, nil)
 			winner, _ := argmax(scores, s.models)
 			// Skip empty winners (matches RoutingDistribution) so a cluster
 			// flipping between "" and a real model can't fake a breakpoint.
@@ -856,11 +856,9 @@ func (s *Scorer) Route(ctx context.Context, req router.Request) (router.Decision
 			activeKnobs.PerModelVerbosity,
 		)
 
-		scores = s.blendScoresV2(topClusters, activeKnobs, eligibleModels, req.SubsidizedModelCostFactor, priorityBonus)
+		scores = s.blendScoresV2(topClusters, activeKnobs, eligibleModels, priorityBonus)
 	} else {
-		// Legacy v1: static cluster rankings, no cost axis, so
-		// SubsidizedModelCostFactor doesn't apply. All deployed bundles run V2;
-		// this is a fallback.
+		// Legacy v1 uses static cluster rankings without a cost axis.
 		scores = make(map[string]float32, len(eligibleModels))
 		for _, k := range topClusters {
 			row := s.rankings[k]
@@ -1104,18 +1102,10 @@ func clusterIDsString(ks []int) string {
 
 var _ router.Router = (*Scorer)(nil)
 
-// subsidyMaxBonus is the max per-cluster score lift for a subscription-covered
-// model, scaling by (1−f) where f is plan-window headroom (≈epsilon when
-// slack, →1 as it binds) so cash/OSS re-enter on merit as the plan saturates.
-// Set to the blend ceiling (1.0): prefer a fully-slack plan over cash unless
-// the covered model is near-worst for the task. Additive, so it never
-// disturbs the quality/cost/speed blend weights.
-const subsidyMaxBonus float32 = 1.0
-
 // preferredBonusBase is the rank-1 score bonus (≈[0,1] blend units) a
 // per-installation preferred model gets — a soft finger on the scale that
 // tilts close argmax calls without overriding a clearly-better model.
-// Additive, like the subsidy bonus above.
+// Added after the quality/cost/speed blend.
 const preferredBonusBase float32 = 0.15
 
 // preferredBonusDecay shrinks the bonus by rank so lower preferences press the
@@ -1137,13 +1127,9 @@ func priorityBonusFor(rank int) float32 {
 // under the effective knobs. Extracted from Route so the distribution preview
 // scores identically to live routing — single source of truth for the
 // cost/quality/speed blend. Caller owns knob validation and QualityBias->Alpha.
-func (s *Scorer) blendScoresV2(topClusters []int, activeKnobs DefaultRoutingKnobs, eligibleModels []string, subsidyFactors map[string]float64, priorityBonus map[string]float32) map[string]float32 {
-	// 2. Effective per-model cost. Kept at FULL catalog scale even for
-	// subscription-covered models: the catalog ratio tracks plan-quota burn
-	// (Anthropic's unified rate limit weights Opus far above Haiku), which is
-	// the intra-family signal the blend needs — compressing it would wash
-	// Haiku and Opus together. The subscription PREFERENCE (use the prepaid
-	// plan over cash) is a separate uniform per-family bonus below.
+func (s *Scorer) blendScoresV2(topClusters []int, activeKnobs DefaultRoutingKnobs, eligibleModels []string, priorityBonus map[string]float32) map[string]float32 {
+	// Catalog costs preserve the normal quality/cost blend. Subscription
+	// availability is resolved after model selection and does not alter scores.
 	costs := make(map[string]float64, len(s.models))
 	for _, m := range s.models {
 		axis := s.modelAxes[m]
@@ -1293,14 +1279,6 @@ func (s *Scorer) blendScoresV2(topClusters []int, activeKnobs DefaultRoutingKnob
 				} else {
 					scores[m] += qNorm
 				}
-			}
-
-			// Subscription preference: lift a covered model by
-			// subsidyMaxBonus·(1−f), f = per-credential headroom (≈epsilon
-			// slack, →1 as it binds). Uniform across the covered family, so it
-			// only decides plan-vs-cash and never reorders within the family.
-			if f, ok := subsidyFactors[m]; ok {
-				scores[m] += subsidyMaxBonus * float32(1.0-f)
 			}
 
 			// Per-installation preference: lift by its rank-decaying bonus.

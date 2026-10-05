@@ -534,9 +534,6 @@ func (r *Resolver) appendCandidates(base []eligibleCandidate, ctx candidateConte
 			})
 		}
 		marginalCostFactor := 1.0
-		if factor, found := ctx.req.SubsidizedModelCostFactor[ctx.catalogID]; found && factor > 0 {
-			marginalCostFactor = factor
-		}
 		pricing := binding.Price.ForInputTokens(ctx.req.EstimatedInputTokens)
 		expanded = append(expanded, Candidate{
 			ArmID:                        armID,

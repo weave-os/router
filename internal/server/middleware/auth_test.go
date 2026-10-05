@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/api/subscriptions"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/proxy"
@@ -95,8 +96,17 @@ type fakeInstallationRepository struct{}
 
 type failingSubscriptionAccountRepository struct{ err error }
 
+type failingCredentialSubjectLookup struct{ err error }
+
+func (r failingCredentialSubjectLookup) GetCredentialSubject(context.Context, string, string) (*auth.CredentialSubject, error) {
+	return nil, r.err
+}
+
 func (r failingSubscriptionAccountRepository) UpsertSubscriptionAccount(context.Context, auth.CreateSubscriptionAccountParams) (*auth.SubscriptionAccount, auth.SubscriptionUpsertKind, error) {
 	return nil, auth.SubscriptionUpsertUpdated, r.err
+}
+func (r failingSubscriptionAccountRepository) ListSubscriptionCandidates(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error) {
+	return nil, r.err
 }
 func (r failingSubscriptionAccountRepository) ListSubscriptionAccounts(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error) {
 	return nil, r.err
@@ -547,4 +557,38 @@ func (r failingSubscriptionAccountRepository) DisableSubscriptionAccountIfRefres
 }
 func (r failingSubscriptionAccountRepository) CooldownSubscriptionAccountIfRefreshHolder(context.Context, string, auth.SubscriptionOwner, string, int64, time.Time) error {
 	return r.err
+}
+
+func TestSubscriptionManagementReturnsUnavailableOnLiveIdentityLookupFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const routerToken = "rk_subscription_owner_test"
+	hash, prefix, suffix := auth.APITokenFingerprint(routerToken)
+	apiKey := &auth.APIKey{
+		ID:                  "subscription-key",
+		InstallationID:      "subscription-installation",
+		CredentialSubjectID: "subscription-subject",
+		KeyHash:             hash,
+		KeyPrefix:           prefix,
+		KeySuffix:           suffix,
+	}
+	installation := &auth.Installation{ID: apiKey.InstallationID, ExternalID: "subscription-org"}
+	apiKeys := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{
+		hash: {apiKey: apiKey, installation: installation},
+	}}
+	svc := auth.NewService(fakeInstallationRepository{}, apiKeys, nil, nil, auth.NoOpAPIKeyCache{}, nil, time.Now).
+		WithCredentialSubjectLookup(failingCredentialSubjectLookup{err: errors.New("identity database unavailable")}).
+		WithSubscriptionAccounts(failingSubscriptionAccountRepository{err: errors.New("subscription database unavailable")})
+
+	engine := gin.New()
+	group := engine.Group("/v1")
+	group.Use(middleware.WithAuth(svc, false))
+	subscriptions.Register(group, svc)
+	request := httptest.NewRequest(http.MethodGet, "/v1/subscriptions/accounts", nil)
+	request.Header.Set(middleware.RouterKeyHeader, routerToken)
+	response := httptest.NewRecorder()
+
+	engine.ServeHTTP(response, request)
+
+	require.Equal(t, http.StatusServiceUnavailable, response.Code)
+	assert.Contains(t, response.Body.String(), "subscription_owner_unavailable")
 }

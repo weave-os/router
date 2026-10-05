@@ -106,13 +106,6 @@ type Inputs struct {
 	// "assume warm", preserving the original cache-discounted behavior for any
 	// caller that does not supply warmth information.
 	PinCacheCold bool
-	// SubsidizedCostFactor scales a model's effective price in the EV math, in
-	// [epsilon, 1], for models a caller's subscription covers (see
-	// internal/proxy/usage). Without it, the planner prices the fresh
-	// (switch-to) model at full catalog rate, so a session pinned to a cheap
-	// model would never switch to a now-near-free subscription model and the
-	// discount would never take effect on sticky sessions. nil = no subsidy.
-	SubsidizedCostFactor map[string]float64
 }
 
 const (
@@ -165,15 +158,6 @@ func Decide(in Inputs, cfg EVConfig) Decision {
 	}
 	pinPrice = pinPrice.ForInputTokens(in.EstimatedInputTokens)
 	freshPrice = freshPrice.ForInputTokens(in.EstimatedInputTokens)
-	// Subscription discount: price a covered model at its subsidized marginal
-	// cost in the EV math too, so a pin on a cheap model correctly switches to a
-	// now-near-free subscription model (and a covered pin is priced cheap to
-	// stay). Scale Input/Output uniformly; CacheReadMultiplier is a ratio and
-	// stays correct. Keyed on map MEMBERSHIP (not factor sign) to mirror the
-	// scorer exactly — so a legitimate 0.0 factor (epsilon=0) discounts here too,
-	// rather than being mistaken for an absent/uncovered model.
-	pinPrice = applySubsidy(pinPrice, in.SubsidizedCostFactor, in.Pin.Model)
-	freshPrice = applySubsidy(freshPrice, in.SubsidizedCostFactor, in.Fresh.Model)
 
 	tokens := float64(in.EstimatedInputTokens)
 	var expectedSavings, evictionCost float64
@@ -303,20 +287,6 @@ func priceForDecision(provider, model string) (catalog.Pricing, bool, bool) {
 	}
 	price, ok := catalog.PrimaryPriceFor(model)
 	return price, true, ok
-}
-
-// applySubsidy scales a model's price by its subscription cost factor when the
-// model is present in factors (the covered set), leaving it unchanged otherwise.
-// Keyed on membership rather than the factor's sign so a legitimate 0.0 factor
-// (epsilon=0) still discounts — matching the scorer, which also keys on the map.
-func applySubsidy(p catalog.Pricing, factors map[string]float64, model string) catalog.Pricing {
-	f, ok := factors[model]
-	if !ok {
-		return p
-	}
-	p.InputUSDPer1M *= f
-	p.OutputUSDPer1M *= f
-	return p
 }
 
 // tierUpgrade reports whether fresh is strictly higher tier than pin.

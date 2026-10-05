@@ -110,6 +110,9 @@ func (p *Pool) Upsert(account Account) error {
 			account.AccessToken = existing.account.AccessToken
 			account.AccessTokenExpiresAt = existing.account.AccessTokenExpiresAt
 		}
+		if existing.account.State == auth.SubscriptionAccountStateActive && account.State == auth.SubscriptionAccountStateUnknown {
+			account.State = existing.account.State
+		}
 		existing.account = account
 		return nil
 	}
@@ -249,6 +252,10 @@ func (p *Pool) Lease(ctx context.Context, provider Provider, sessionID string, r
 		}
 		refreshed, err := p.refreshAccount(ctx, account, refresh)
 		if err == nil {
+			if ctx.Err() != nil {
+				release()
+				return Account{}, nil, ctx.Err()
+			}
 			return refreshed, release, nil
 		}
 		release()
@@ -344,6 +351,13 @@ func (p *Pool) release(accountID string) {
 
 func (p *Pool) refreshAccount(ctx context.Context, account Account, refresh Refresher) (Account, error) {
 	p.mu.Lock()
+	if state, ok := p.accounts[account.ID]; ok {
+		current := state.account
+		if current.AccessToken != "" && (current.AccessTokenExpiresAt.IsZero() || current.AccessTokenExpiresAt.After(p.clock().Add(time.Minute))) {
+			p.mu.Unlock()
+			return current, nil
+		}
+	}
 	if call, ok := p.refresh[account.ID]; ok {
 		p.mu.Unlock()
 		select {
@@ -357,7 +371,9 @@ func (p *Pool) refreshAccount(ctx context.Context, account Account, refresh Refr
 	p.refresh[account.ID] = call
 	p.mu.Unlock()
 
-	refreshed, err := refresh(ctx, account)
+	refreshCtx, cancelRefresh := context.WithTimeout(context.WithoutCancel(ctx), refreshLeaseTTL)
+	defer cancelRefresh()
+	refreshed, err := refresh(refreshCtx, account)
 	p.mu.Lock()
 	call.acct, call.err = refreshed, err
 	delete(p.refresh, account.ID)

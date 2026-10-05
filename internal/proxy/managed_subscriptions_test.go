@@ -155,7 +155,7 @@ func TestLeaseManagedSubscriptionSkipsBillableOverageAccount(t *testing.T) {
 	lease.Release()
 }
 
-func TestLeaseManagedSubscriptionUsesOverageOnlyWhenNoFallbackRemains(t *testing.T) {
+func TestLeaseManagedSubscriptionNeverUsesOverageAsLastResort(t *testing.T) {
 	leaser := &healthSubscriptionLeaser{scriptedSubscriptionLeaser: &scriptedSubscriptionLeaser{
 		leases: []subscriptions.Lease{
 			{AccountID: "opaque-a", AccessToken: "overage-token"},
@@ -168,12 +168,11 @@ func TestLeaseManagedSubscriptionUsesOverageOnlyWhenNoFallbackRemains(t *testing
 
 	_, lease, managed, err := svc.leaseManagedSubscription(managedSubscriptionTestContext(), providers.ProviderAnthropic, "claude-opus-4-8")
 
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
 	require.True(t, managed)
-	assert.Equal(t, "opaque-a", lease.AccountID)
+	require.Empty(t, lease.AccountID)
 	assert.Equal(t, 2, leaser.next)
 	assert.Empty(t, leaser.exhaustedIDs)
-	lease.Release()
 }
 
 func TestLeaseManagedSubscriptionHonorsResetQuotaWindows(t *testing.T) {
@@ -218,78 +217,6 @@ func TestDispatchWithFallbackDoesNotCrossManagedProviderFamilies(t *testing.T) {
 	require.Empty(t, leaser.providers)
 }
 
-// A linked-first Codex turn whose managed plan is spent must move to the Weave
-// key for the whole turn. Releasing only the billing mark let dispatch lease the
-// same ChatGPT seat again, which then drew the owner's purchased credits.
-func TestLinkedFirstSpentManagedCodexPlanNeverLeasesSeat(t *testing.T) {
-	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{
-		{AccountID: "opaque-codex", AccessToken: "token-codex"},
-	}}
-	svc := newServiceWithProviders(t, nil).
-		WithManagedSubscriptions(leaser).
-		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
-	ctx := billing.WithSubscriptionOnly(
-		managedSubscriptionContext(auth.SubscriptionProviderCodex), billing.SubscriptionOnlyLinkedFirst,
-	)
-	ctx = context.WithValue(ctx, ManagedSubscriptionPlanStatesContextKey{}, map[subscriptions.Provider]SubscriptionPlanState{
-		subscriptions.ProviderClaude: SubscriptionPlanStateActive,
-		subscriptions.ProviderCodex:  SubscriptionPlanStateExhausted,
-	})
-
-	ctx = svc.releaseLinkedFirstWhenPlanSpent(ctx, http.Header{}, routePathResponses)
-	require.False(t, linkedFirst(ctx), "the spent plan must release linked-first funding")
-
-	out, lease, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderOpenAI, "gpt-5.6-sol")
-
-	require.NoError(t, err)
-	require.False(t, managed, "the turn must serve on the Weave key")
-	require.Empty(t, lease.AccountID)
-	require.Empty(t, leaser.providers, "no ChatGPT seat may be leased for a spent plan")
-	require.Nil(t, CredentialsFromContext(out))
-}
-
-// The Claude counterpart: a spent managed Claude plan must not be leased by any
-// later attempt on the turn, such as the baseline failover onto Anthropic.
-func TestLinkedFirstSpentManagedClaudePlanNeverLeasesSeat(t *testing.T) {
-	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{
-		{AccountID: "opaque-claude", AccessToken: "token-claude"},
-	}}
-	svc := newServiceWithProviders(t, nil).
-		WithManagedSubscriptions(leaser).
-		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
-	ctx := billing.WithSubscriptionOnly(managedSubscriptionTestContext(), billing.SubscriptionOnlyLinkedFirst)
-	ctx = context.WithValue(ctx, ManagedSubscriptionPlanStatesContextKey{}, map[subscriptions.Provider]SubscriptionPlanState{
-		subscriptions.ProviderClaude: SubscriptionPlanStateExhausted,
-		subscriptions.ProviderCodex:  SubscriptionPlanStateActive,
-	})
-
-	ctx = svc.releaseLinkedFirstWhenPlanSpent(ctx, http.Header{}, routePathMessages)
-	require.False(t, linkedFirst(ctx), "the spent plan must release linked-first funding")
-
-	out, lease, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, "claude-opus-4-8")
-
-	require.NoError(t, err)
-	require.False(t, managed, "the turn must serve on the Weave key")
-	require.Empty(t, lease.AccountID)
-	require.Empty(t, leaser.providers, "no Claude seat may be leased for a spent plan")
-	require.Nil(t, CredentialsFromContext(out))
-	require.False(t, servedOnSubscription(out))
-}
-
-func TestLeaseManagedCodexSkipsSuppressedSubscription(t *testing.T) {
-	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{
-		{AccountID: "opaque-codex", AccessToken: "token-codex"},
-	}}
-	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
-	ctx := withSuppressedCodexSubscription(managedSubscriptionContext(auth.SubscriptionProviderCodex))
-
-	_, _, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderOpenAI, "gpt-5.6-sol")
-
-	require.NoError(t, err)
-	require.False(t, managed)
-	require.Empty(t, leaser.providers)
-}
-
 func TestLeaseManagedCodexFallsBackAfterAllLinkedAccountsAreRejected(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{
 		{AccountID: "opaque-codex", AccessToken: "token-codex"},
@@ -297,9 +224,8 @@ func TestLeaseManagedCodexFallsBackAfterAllLinkedAccountsAreRejected(t *testing.
 	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
 	svc.deploymentKeyedProviders = map[string]struct{}{providers.ProviderOpenAI: {}}
 	ctx := managedSubscriptionContext(auth.SubscriptionProviderCodex)
-	owner := subscriptionOwnerFromContext(ctx)
 	svc.subscriptionModels.denyManaged(
-		owner.PoolKey(), "opaque-codex", providers.ProviderOpenAI, "gpt-5.6-sol", time.Now().Add(time.Minute),
+		"account:opaque-codex", "opaque-codex", providers.ProviderOpenAI, "gpt-5.6-sol", time.Now().Add(time.Minute),
 	)
 
 	_, lease, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderOpenAI, "gpt-5.6-sol")
@@ -330,36 +256,63 @@ func TestManagedSubscriptionOverridesBYOKButNotInboundOAuth(t *testing.T) {
 	require.Same(t, oauth, CredentialsFromContext(unchangedCtx))
 }
 
-func TestManagedSubscriptionEnrollmentFailureFailsClosedAtLease(t *testing.T) {
-	leaser := &scriptedSubscriptionLeaser{}
-	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
-	ctx := context.WithValue(context.Background(), ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+func TestManagedSubscriptionEnrollmentFailureDoesNotClaimCapacity(t *testing.T) {
+	for _, test := range []struct {
+		provider string
+		model    string
+	}{
+		{provider: providers.ProviderAnthropic, model: "claude-opus-4-8"},
+		{provider: providers.ProviderOpenAI, model: "gpt-5.6-sol"},
+	} {
+		t.Run(test.provider, func(t *testing.T) {
+			leaser := &scriptedSubscriptionLeaser{}
+			svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
+			ctx := context.WithValue(context.Background(), ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 
-	_, _, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, "claude-opus-4-8")
-	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
-	require.True(t, managed)
-	require.Empty(t, leaser.providers)
+			_, _, managed, err := svc.leaseManagedSubscription(ctx, test.provider, test.model)
+
+			require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
+			require.True(t, managed)
+			require.Empty(t, leaser.providers)
+		})
+	}
 }
 
-func TestManagedSubscriptionAllPlansExhaustedFallsThroughToNormalRouting(t *testing.T) {
+func TestManagedSubscriptionEnrollmentFailureDoesNotBlockUnrelatedProvider(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{}
-	svc := newServiceWithProviders(t, nil).
-		WithManagedSubscriptions(leaser)
-	ctx := managedSubscriptionTestContext()
-	ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: true}})
-	ctx = context.WithValue(ctx, ManagedSubscriptionPlanStatesContextKey{}, map[subscriptions.Provider]SubscriptionPlanState{
-		subscriptions.ProviderClaude: SubscriptionPlanStateExhausted,
-	})
+	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
+	ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+	credentials := &Credentials{APIKey: []byte("google-api-key"), Source: credSourceBYOK}
+	ctx = context.WithValue(ctx, CredentialsContextKey{}, credentials)
 
-	out, _, managed, err := svc.leaseManagedSubscription(
-		ctx,
-		providers.ProviderAnthropic,
-		"claude-opus-4-8",
-	)
+	out, lease, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderGoogle, "gemini-2.5-pro")
 
 	require.NoError(t, err)
 	require.False(t, managed)
-	require.Same(t, ctx, out)
+	require.Empty(t, lease.AccountID)
+	require.Same(t, credentials, CredentialsFromContext(out))
+	require.Empty(t, leaser.providers)
+}
+
+// meteredOnlyClient hides the fake's included-only capability, matching real
+// provider adapters that cannot guarantee a subscription draws no paid usage.
+type meteredOnlyClient struct{ providers.Client }
+
+func TestManagedSubscriptionEnrollmentFailureSuppressesInboundOAuthForAPIFallback(t *testing.T) {
+	leaser := &scriptedSubscriptionLeaser{}
+	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: meteredOnlyClient{&fakeClient{}}}).
+		WithManagedSubscriptions(leaser).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
+	ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
+	ctx = context.WithValue(ctx, CredentialsContextKey{}, &Credentials{APIKey: []byte("inbound-oauth"), OAuth: true, Source: credSourceSubscription})
+
+	out, lease, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, "claude-opus-4-8")
+
+	require.NoError(t, err)
+	require.False(t, managed)
+	require.Empty(t, lease.AccountID)
+	require.True(t, claudeSubscriptionSuppressed(out))
+	require.Nil(t, CredentialsFromContext(out))
 	require.Empty(t, leaser.providers)
 }
 
@@ -369,9 +322,6 @@ func TestManagedSubscriptionAllPlansExhaustedPreservesSubscriptionOnly(t *testin
 		WithManagedSubscriptions(leaser)
 	ctx := billing.WithSubscriptionOnly(managedSubscriptionTestContext(), billing.SubscriptionOnlyCreditsDepleted)
 	ctx = flags.WithOverrides(ctx, flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: true}})
-	ctx = context.WithValue(ctx, ManagedSubscriptionPlanStatesContextKey{}, map[subscriptions.Provider]SubscriptionPlanState{
-		subscriptions.ProviderClaude: SubscriptionPlanStateExhausted,
-	})
 
 	out, _, managed, err := svc.leaseManagedSubscription(
 		ctx,
@@ -382,35 +332,9 @@ func TestManagedSubscriptionAllPlansExhaustedPreservesSubscriptionOnly(t *testin
 	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
 	require.True(t, managed)
 	require.Same(t, ctx, out)
-	require.Empty(t, leaser.providers)
+	require.Equal(t, []subscriptions.Provider{subscriptions.ProviderClaude}, leaser.providers)
 }
 
-func TestManagedSubscriptionAllPlansExhaustedRequiresOrgOptInForPaidFallback(t *testing.T) {
-	for _, enabled := range []bool{false, true} {
-		leaser := &scriptedSubscriptionLeaser{}
-		svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
-		ctx := flags.WithOverrides(managedSubscriptionTestContext(), flags.Overrides{
-			Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: enabled},
-		})
-		ctx = context.WithValue(ctx, ManagedSubscriptionPlanStatesContextKey{}, map[subscriptions.Provider]SubscriptionPlanState{
-			subscriptions.ProviderClaude: SubscriptionPlanStateExhausted,
-		})
-		_, _, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, "claude-opus-4-8")
-		if enabled {
-			require.NoError(t, err)
-			require.False(t, managed)
-		} else {
-			require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
-			require.True(t, managed)
-		}
-	}
-}
-
-// TestLeaseManagedSubscription_LinkedFirstExhaustedPool_FallsThroughToCredits:
-// a linked-first turn whose covering managed pool is spent must not refuse as
-// if credits were gone — the balance gate already admitted it, so leasing
-// falls through to the Weave/BYOK key the same way an ordinary credit-funded
-// turn does once every plan is exhausted.
 func TestLeaseManagedSubscription_LinkedFirstExhaustedPool_FallsThroughToCredits(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{}
 	svc := newServiceWithProviders(t, nil).
@@ -420,14 +344,11 @@ func TestLeaseManagedSubscription_LinkedFirstExhaustedPool_FallsThroughToCredits
 		billing.WithSubscriptionOnly(managedSubscriptionTestContext(), billing.SubscriptionOnlyLinkedFirst),
 		flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: true}},
 	)
-	ctx = context.WithValue(ctx, ManagedSubscriptionPlanStatesContextKey{}, map[subscriptions.Provider]SubscriptionPlanState{
-		subscriptions.ProviderClaude: SubscriptionPlanStateExhausted,
-	})
 
 	_, _, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, "claude-opus-4-8")
 	require.NoError(t, err)
 	require.False(t, managed, "an exhausted covering pool with a fallback key must not lease; the turn continues on credits")
-	require.Empty(t, leaser.providers)
+	require.Equal(t, []subscriptions.Provider{subscriptions.ProviderClaude}, leaser.providers)
 }
 
 func TestLeaseManagedSubscription_LinkedFirstExhaustedPool_NoFallbackKey_Refuses(t *testing.T) {
@@ -437,9 +358,6 @@ func TestLeaseManagedSubscription_LinkedFirstExhaustedPool_NoFallbackKey_Refuses
 		billing.WithSubscriptionOnly(managedSubscriptionTestContext(), billing.SubscriptionOnlyLinkedFirst),
 		flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: true}},
 	)
-	ctx = context.WithValue(ctx, ManagedSubscriptionPlanStatesContextKey{}, map[subscriptions.Provider]SubscriptionPlanState{
-		subscriptions.ProviderClaude: SubscriptionPlanStateExhausted,
-	})
 
 	_, _, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, "claude-opus-4-8")
 	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
@@ -455,23 +373,10 @@ func TestLeaseManagedSubscription_CreditsDepletedExhaustedPool_StillRefuses(t *t
 		billing.WithSubscriptionOnly(managedSubscriptionTestContext(), billing.SubscriptionOnlyCreditsDepleted),
 		flags.Overrides{Bools: map[flags.Key]bool{flags.KeySubscriptionPlanAwareRouting: true}},
 	)
-	ctx = context.WithValue(ctx, ManagedSubscriptionPlanStatesContextKey{}, map[subscriptions.Provider]SubscriptionPlanState{
-		subscriptions.ProviderClaude: SubscriptionPlanStateExhausted,
-	})
 
 	_, _, managed, err := svc.leaseManagedSubscription(ctx, providers.ProviderAnthropic, "claude-opus-4-8")
 	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
 	require.True(t, managed)
-}
-
-func TestInferenceFailsClosedWhenSubscriptionEnrollmentIsUnknown(t *testing.T) {
-	svc := &Service{}
-	ctx := context.WithValue(context.Background(), ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
-	body := []byte(`{"model":"claude-opus-4-8","messages":[]}`)
-
-	require.ErrorIs(t, svc.ProxyMessages(ctx, body, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil)), ErrSubscriptionPoolUnavailable)
-	require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(ctx, body, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)), ErrSubscriptionPoolUnavailable)
-	require.ErrorIs(t, svc.ProxyGeminiGenerateContent(ctx, body, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1beta/models/test:generateContent", nil)), ErrSubscriptionPoolUnavailable)
 }
 
 func TestDispatchWithFallbackRotatesManagedAccountBeforeCommit(t *testing.T) {
@@ -617,13 +522,10 @@ func TestDispatchWithFallbackKeepsManagedModelDenialModelSpecific(t *testing.T) 
 		},
 	})
 
-	require.Error(t, err)
 	var upstreamErr *providers.UpstreamErrorResponse
 	require.ErrorAs(t, err, &upstreamErr)
 	assert.Equal(t, http.StatusNotFound, upstreamErr.Status)
-	assert.True(t, anthropicSubscriptionModelRejected(err))
-	assert.False(t, isSubscriptionPoolError(err))
-	assert.Equal(t, 1, client.calls)
+	assert.Equal(t, 1, client.calls, "denied account/model is dispatched once")
 }
 
 func TestDispatchWithFallbackBoundsManagedAccountRotationByTime(t *testing.T) {

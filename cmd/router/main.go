@@ -1457,24 +1457,8 @@ func main() {
 	}()
 	proxySvc = proxySvc.WithUsageObserver(usageObserver)
 
-	// Discounts a covered model's cost term by the caller's observed
-	// subscription rate-limit headroom (~epsilon with slack, →1 as it binds).
-	// Defaults ON; only affects turns with an observed subscription, so
-	// blast radius is narrow. Disabling here leaves the observer/bypass gate wired.
-	if config.GetOr("ROUTER_SUBSCRIPTION_AWARE_ROUTING", "true") == "true" {
-		epsilon := 0.05
-		if v, err := strconv.ParseFloat(config.GetOr("ROUTER_SUBSCRIPTION_COST_EPSILON", "0.05"), 64); err == nil {
-			epsilon = v
-		}
-		gamma := 2.0
-		if v, err := strconv.ParseFloat(config.GetOr("ROUTER_SUBSCRIPTION_COST_GAMMA", "2"), 64); err == nil {
-			gamma = v
-		}
-		proxySvc = proxySvc.WithSubscriptionAwareRouting(usageObserver, epsilon, gamma)
-		logger.Info("Subscription-aware routing configured", "epsilon", epsilon, "gamma", gamma, "observation_ttl", subscriptionTTL)
-	} else {
-		logger.Info("Usage observer wired; subscription-aware cost discount disabled", "observation_ttl", subscriptionTTL)
-	}
+	logger.Info("Subscription quota observer configured", "observation_ttl", subscriptionTTL)
+
 	trafficCapture, err := newTrafficCaptureFromEnvironment()
 	if err != nil {
 		logger.Error("Unable to initialize local HTTP traffic capture", "err", err)

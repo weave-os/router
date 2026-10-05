@@ -514,7 +514,7 @@ func streamFamilies() []streamFamily {
 				},
 				{
 					name: "truncated before response.completed", body: responsesStreamPrefix(), streaming: true,
-					mustContain: []string{`"type":"api_error"`, "data: [DONE]"}, wantFinalizeErr: translate.ErrStreamIncomplete, wantProgress: true,
+					mustContain: []string{`"type":"api_error"`}, mustNotContain: []string{"data: [DONE]"}, wantFinalizeErr: translate.ErrStreamIncomplete, wantProgress: true,
 				},
 				{
 					name: "non-streaming client renders one body", body: responsesStreamFixture,

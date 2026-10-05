@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
@@ -40,6 +41,7 @@ func TestProxyMessages_ManagedPoolStreamingFailureLeavesRenderingToHandler(t *te
 
 	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderClaude),
 		InstallationIDContextKey{}, "44444444-4444-4444-4444-444444444444")
+	ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
@@ -76,6 +78,7 @@ func TestProxyMessages_ManagedPoolFailureBeforeAnyBytesLeavesRenderingToHandler(
 
 	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderClaude),
 		InstallationIDContextKey{}, "66666666-6666-6666-6666-666666666666")
+	ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-8","messages":[{"role":"user","content":"hi"}]}`)

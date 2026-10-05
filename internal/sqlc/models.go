@@ -466,6 +466,7 @@ type RouterModelRouterInstallation struct {
 	TrialShadowSampleRate            pgtype.Numeric
 	TrialShadowDailyCeilingUsdMicros *int64
 	ShowModelSelectionReasoning      bool
+	SubscriptionSharingEnabled       bool
 }
 
 type RouterModelRouterRequestTelemetry struct {
@@ -688,6 +689,11 @@ type RouterModelRouterRequestTelemetry struct {
 	LatestToolCallCounts    []byte
 	ServingTarget           *string
 	ReasoningTokens         *int32
+	SubscriptionAccountID   pgtype.UUID
+	SubscriptionOwnerID     pgtype.UUID
+	SubscriptionTier        *string
+	IntendedModelFamily     *string
+	FinalModelFamily        *string
 }
 
 type RouterModelRouterSubscriptionAccount struct {
@@ -709,6 +715,12 @@ type RouterModelRouterSubscriptionAccount struct {
 	HealthState            string
 	// Provider-supplied human-readable account label; never used for identity or deduplication.
 	DisplayName *string
+}
+
+type RouterModelRouterSubscriptionAccountInstallation struct {
+	InstallationID        uuid.UUID
+	SubscriptionAccountID uuid.UUID
+	CreatedAt             pgtype.Timestamptz
 }
 
 // End-user identities seen on inbound requests, scoped to an installation. Replaces the per-user API key pattern.

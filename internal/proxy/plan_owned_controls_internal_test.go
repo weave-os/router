@@ -34,7 +34,6 @@ func planOwnedContextFor(plan entitlement.Plan) context.Context {
 	ctx = context.WithValue(ctx, InstallationExcludedProvidersContextKey{}, []string{"customer-provider"})
 	ctx = context.WithValue(ctx, InstallationPreferredModelsContextKey{}, []string{"customer-preferred"})
 	ctx = context.WithValue(ctx, InstallationFastModeModelsContextKey{}, []string{"customer-fast"})
-	ctx = context.WithValue(ctx, SubscriptionStatePreferredModelsContextKey{}, []string{"customer-subscription-preferred"})
 	ctx = context.WithValue(ctx, ClusterModelListsContextKey{}, map[string][]string{"cluster": {"customer-arm"}})
 	return router.WithRoutingKnobs(ctx, &router.Overrides{Alpha: &alpha})
 }
@@ -49,7 +48,6 @@ func TestPlanOwnedServingIgnoresCustomerRoutingControls(t *testing.T) {
 	assert.Nil(t, installationFastModeModelsFromContext(ctx))
 	assert.Nil(t, routingKnobsForRequest(ctx))
 	assert.Nil(t, (&Service{}).preferredModelsForRequest(ctx))
-	assert.Nil(t, subscriptionStatePreferredModelsFromContext(ctx))
 	assert.Nil(t, clusterArmOverridesForRequest(ctx))
 	assert.NotContains(t, (&Service{}).excludedModelsForRequest(ctx), "customer-excluded")
 }

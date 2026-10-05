@@ -51,6 +51,9 @@ type bypassFakeProvider struct {
 	capturedDec  router.Decision
 }
 
+// Synthetic provider never bills subscription extra usage.
+func (*bypassFakeProvider) IncludedOnlySubscriptions() bool { return true }
+
 func (f *bypassFakeProvider) Proxy(ctx context.Context, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
 	f.dispatches++
 	f.capturedCtx = ctx
@@ -91,7 +94,7 @@ func TestUsageBypassDecision_CodexSubscriptionPreservesRequestedModel(t *testing
 	obs.Record(obs.Key([]byte(codexToken)), usage.Snapshot{
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
-	svc := &Service{usageObserver: obs}
+	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: obs}
 	ctx := context.WithValue(context.Background(), OpenAISubscriptionContextKey{}, codexToken)
 	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, "account-1")
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
@@ -128,7 +131,7 @@ func TestUsageBypassDecision_SessionDemotionBlocks_GlobalAutomaticExclusionDoesN
 	obs.Record(obs.Key([]byte(token)), usage.Snapshot{
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
-	svc := &Service{usageObserver: obs}
+	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: obs}
 	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
 		Enabled:   true,
@@ -189,7 +192,7 @@ func TestUsageBypassEngaged_SafetyExclusionBlocks_PolicyExclusionDoesNot(t *test
 	enabled := map[string]struct{}{providers.ProviderAnthropic: {}}
 
 	t.Run("installation excluded_models does not block bypass", func(t *testing.T) {
-		svc := &Service{usageObserver: newObs()}
+		svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: newObs()}
 		provider, ok := svc.usageBypassEngaged(baseCtx(), http.Header{}, router.Request{
 			RequestedModel:   model,
 			EnabledProviders: enabled,
@@ -200,7 +203,7 @@ func TestUsageBypassEngaged_SafetyExclusionBlocks_PolicyExclusionDoesNot(t *test
 	})
 
 	t.Run("safety exclusion blocks bypass", func(t *testing.T) {
-		svc := &Service{usageObserver: newObs()}
+		svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: newObs()}
 		_, ok := svc.usageBypassEngaged(baseCtx(), http.Header{}, router.Request{
 			RequestedModel:       model,
 			EnabledProviders:     enabled,
@@ -210,7 +213,7 @@ func TestUsageBypassEngaged_SafetyExclusionBlocks_PolicyExclusionDoesNot(t *test
 	})
 
 	t.Run("both excluded: safety exclusion still blocks", func(t *testing.T) {
-		svc := &Service{usageObserver: newObs()}
+		svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: newObs()}
 		_, ok := svc.usageBypassEngaged(baseCtx(), http.Header{}, router.Request{
 			RequestedModel:       model,
 			EnabledProviders:     enabled,
@@ -234,7 +237,7 @@ func TestUsageBypass_PreservesSwitchHistory(t *testing.T) {
 		LastServedModel: "claude-haiku-4-5",
 		HasEverSwitched: true,
 	}
-	svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithUsageObserver(obs)
 	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
@@ -278,7 +281,7 @@ func TestUsageBypass_EngagesUnderAuthoritativePolicy(t *testing.T) {
 		Model:    "gpt-5.6-luna",
 		Reason:   "authoritative-bypass-test_policy",
 	}}
-	svc := NewService(nil, nil, nil, false, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, false, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithUsageObserver(obs).
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: strategy,

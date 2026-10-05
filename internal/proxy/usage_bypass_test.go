@@ -47,7 +47,7 @@ func bypassFixture(t *testing.T, seedUtil float64) (*proxy.Service, *fakeRouter,
 		})
 	}
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
-		WithSubscriptionAwareRouting(obs, 0.05, 2.0)
+		WithUsageObserver(obs)
 	return svc, fr, p
 }
 
@@ -252,7 +252,7 @@ func TestUsageBypass_MaxedOutModel_EngagesRouting(t *testing.T) {
 	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 	obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300}})
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}, nil, false, nil, store, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
-		WithSubscriptionAwareRouting(obs, 0.05, 2.0)
+		WithUsageObserver(obs)
 
 	ctx := context.WithValue(authedCtx(uuid.New().String()), proxy.AnthropicSubscriptionContextKey{}, bypassSubToken)
 	threshold := 0.80
@@ -287,7 +287,7 @@ func TestUsageBypass_ToolResult_BeatsStalePin(t *testing.T) {
 	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 	obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300}})
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}, nil, false, nil, store, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
-		WithSubscriptionAwareRouting(obs, 0.05, 2.0)
+		WithUsageObserver(obs)
 
 	ctx := context.WithValue(authedCtx(uuid.New().String()), proxy.AnthropicSubscriptionContextKey{}, bypassSubToken)
 	threshold := 0.80
@@ -329,7 +329,7 @@ func TestUsageBypass_SessionDemotedModel_EngagesRouting(t *testing.T) {
 	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 	obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300}})
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}, nil, false, nil, store, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
-		WithSubscriptionAwareRouting(obs, 0.05, 2.0)
+		WithUsageObserver(obs)
 
 	ctx := context.WithValue(authedCtx(uuid.New().String()), proxy.AnthropicSubscriptionContextKey{}, bypassSubToken)
 	threshold := 0.80
@@ -398,7 +398,7 @@ func TestSubscriptionExhausted_ServesOnDeploymentKey(t *testing.T) {
 		Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080},
 	})
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
-		WithSubscriptionAwareRouting(obs, 0.05, 2.0).
+		WithUsageObserver(obs).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 
 	rec, req, body := bypassRequest(t)
@@ -418,7 +418,7 @@ func TestSubscriptionExhausted_ServesOnDeploymentKey(t *testing.T) {
 // safety rail: with no deployment / BYOK Anthropic key to fall through to,
 // dropping the subscription would leave the turn with no credential (a 400,
 // worse than the 429). So the subscription is kept even when exhausted.
-func TestSubscriptionExhausted_NoDeploymentKey_KeepsSubscription(t *testing.T) {
+func TestSubscriptionExhausted_NoDeploymentKey_RefusesBeforeDispatch(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl}}
 	p := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
 		w.Header().Set("Content-Type", "application/json")
@@ -431,27 +431,18 @@ func TestSubscriptionExhausted_NoDeploymentKey_KeepsSubscription(t *testing.T) {
 	})
 	// No WithDeploymentKeyedProviders — passthrough-only Anthropic.
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
-		WithSubscriptionAwareRouting(obs, 0.05, 2.0)
+		WithUsageObserver(obs)
 
 	rec, req, body := bypassRequest(t)
-	require.NoError(t, svc.ProxyMessages(bypassCtx(0.80), body, rec, req))
-
-	require.Len(t, p.proxyCreds, 1)
-	creds := p.proxyCreds[0]
-	require.NotNil(t, creds, "with no fallback key the subscription must still be used")
-	assert.True(t, creds.OAuth,
-		"no deployment/BYOK key to fall through to — keep the subscription rather than 400")
+	require.ErrorIs(t, svc.ProxyMessages(bypassCtx(0.80), body, rec, req), proxy.ErrSubscriptionPoolExhausted)
+	assert.Empty(t, p.proxyCreds, "known spent direct credential must never dispatch")
 }
 
-// TestUsageBypass_ExhaustedDisengages_EvenAboveThreshold guards the failover
-// hand-off: if an installation sets its threshold above exhaustedFraction, the
-// gate must still disengage once the subscription is spent so the turn takes the
-// routed path (where the exhaustion failover serves it on the Weave key) rather
-// than bypassing onto a token that will 429.
 func TestUsageBypass_ExhaustedDisengages_EvenAboveThreshold(t *testing.T) {
 	// util 0.999 (exhausted) but BELOW a 1.0 threshold: the old `util < threshold`
 	// check alone would keep the gate engaged and bypass onto the spent token.
 	svc, fr, _ := bypassFixture(t, 0.999)
+	svc = svc.WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 	rec, req, body := bypassRequest(t)
 
 	require.NoError(t, svc.ProxyMessages(bypassCtx(1.0), body, rec, req))
@@ -499,7 +490,7 @@ func TestProxyMessages_BypassWeeklyLimit_FallsBackToRoutedDispatch(t *testing.T)
 		providers.ProviderAnthropic:  wrappedP,
 		providers.ProviderOpenRouter: &fakeProvider{},
 	}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
-		WithSubscriptionAwareRouting(obs, 0.05, 2.0).
+		WithUsageObserver(obs).
 		WithTranslationCompatibilityMode(proxy.TranslationCompatibilityEnforce)
 
 	rec, req, body := bypassRequest(t)
@@ -556,7 +547,7 @@ func TestSubscriptionOnly_ServesOnSubscription_EvenAboveThreshold(t *testing.T) 
 		Primary: usage.Window{UsedPercent: 0.90, WindowMinutes: 300},
 	})
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
-		WithSubscriptionAwareRouting(obs, 0.05, 2.0)
+		WithUsageObserver(obs)
 
 	rec, req, body := bypassRequest(t)
 	ctx := billing.WithSubscriptionOnly(bypassCtx(0.80), billing.SubscriptionOnlyCreditsDepleted)
@@ -595,7 +586,7 @@ func TestSubscriptionOnly_ExhaustedSubscription_Refuses402(t *testing.T) {
 		Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080},
 	})
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
-		WithSubscriptionAwareRouting(obs, 0.05, 2.0)
+		WithUsageObserver(obs)
 
 	rec, req, body := bypassRequest(t)
 	ctx := billing.WithSubscriptionOnly(bypassCtx(0.80), billing.SubscriptionOnlyCreditsDepleted)
@@ -685,7 +676,7 @@ func TestSubscriptionOnly_BypassRetryable_Refuses402(t *testing.T) {
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: wrappedP}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
-		WithSubscriptionAwareRouting(obs, 0.05, 2.0)
+		WithUsageObserver(obs)
 
 	rec, req, body := bypassRequest(t)
 	ctx := billing.WithSubscriptionOnly(bypassCtx(0.80), billing.SubscriptionOnlyCreditsDepleted)
@@ -705,6 +696,8 @@ type swapErrProvider struct {
 	inner         *fakeProvider
 	calls         int
 }
+
+func (*swapErrProvider) IncludedOnlySubscriptions() bool { return true }
 
 func (s *swapErrProvider) Proxy(ctx context.Context, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
 	s.calls++
@@ -733,7 +726,7 @@ func TestUsageBypass_HealthyHighOutputKeepsBypassEligible(t *testing.T) {
 	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 	obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300}})
 	svc := proxy.NewService(routes, map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}}, nil, false, nil, store, false,
-		providers.ProviderAnthropic, bypassScorerPickMdl, nil).WithSubscriptionAwareRouting(obs, 0.05, 2.0)
+		providers.ProviderAnthropic, bypassScorerPickMdl, nil).WithUsageObserver(obs)
 	ctx := context.WithValue(authedCtx(uuid.NewString()), proxy.AnthropicSubscriptionContextKey{}, bypassSubToken)
 	threshold := 0.80
 	ctx = context.WithValue(ctx, proxy.InstallationUsageBypassContextKey{}, proxy.UsageBypassConfig{Enabled: true, Threshold: &threshold})

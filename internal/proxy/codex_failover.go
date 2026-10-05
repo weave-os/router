@@ -71,11 +71,11 @@ func (s *Service) codexSubscriptionExhausted(ctx context.Context, headers http.H
 		return false
 	}
 	codexTok, _ := presentSubscriptionTokens(ctx, headers)
-	if codexTok == "" || !s.openaiFallbackKeyAvailable(ctx) {
+	if codexTok == "" {
 		return false
 	}
 	snap, ok := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(codexTok)))
-	return ok && snap.Exhausted()
+	return ok && snap.BillableOrExhausted()
 }
 
 // codexSubscriptionModelRejected reports an explicit model-availability

@@ -852,10 +852,6 @@ func (s *Service) runTurnLoop(
 	// Force state is session-scoped so sub-agents inherit the parent choice.
 	sessionForceControlFound := forceModelFound
 
-	// Discounts covered models' cost term by the caller's observed subscription
-	// headroom. nil (feature off / no headroom yet) leaves scoring unchanged.
-	req.SubsidizedModelCostFactor = s.subsidyFactors(ctx, reqHeaders)
-
 	// Explicit user force outranks every automatic fast path, including hard
 	// pins. Legacy thread-scoped forces keep their original thread boundary.
 	hardPinnedTurn := s.isHardPinnedTurn(ctx, res.TurnType)
@@ -1843,7 +1839,7 @@ func (s *Service) runTurnLoop(
 			evidenceServedFresh := s.evidenceUpgradeApplies(ctx, res.SessionKey) && res.UpgradeShadow != nil && res.UpgradeShadow.Verdict.Outcome == upgradeAllow
 			upgradeGateActive := s.ResolveAuthoritativeUpgradeGate(ctx) && s.resolveUpgradePolicyMode(ctx) != flags.AuthoritativeUpgradePolicyOff && !evidenceServedFresh
 			if upgradeGateActive && pinFound && pin.Model != "" && pin.Model != fresh.Model &&
-				hmmFreshIsMoreExpensive(pin.Model, fresh.Model, plannerTokens, req.SubsidizedModelCostFactor) {
+				hmmFreshIsMoreExpensive(pin.Model, fresh.Model, plannerTokens) {
 				if confidence, ok := hmmDecisionConfidence(fresh); ok && confidence < s.hmmUpgradeConfidenceThreshold {
 					decision := pinDecision(pin)
 					res.Decision = decision
@@ -1865,7 +1861,7 @@ func (s *Service) runTurnLoop(
 			// default. Order matters -- an unconfident cheaper vote is discarded
 			// before hysteresis sees it, so noise cannot accumulate into a switch.
 			if pinFound && pin.Model != "" && pin.Model != fresh.Model &&
-				!hmmFreshIsMoreExpensive(pin.Model, fresh.Model, plannerTokens, req.SubsidizedModelCostFactor) {
+				!hmmFreshIsMoreExpensive(pin.Model, fresh.Model, plannerTokens) {
 				hysteresisTurns := s.ResolveHMMDowngradeHysteresisTurns(ctx)
 				confidence, scored := hmmDecisionConfidence(fresh)
 				if s.ResolveAuthoritativeDowngradeGate(ctx) && scored && confidence < s.hmmUpgradeConfidenceThreshold {
@@ -2050,9 +2046,6 @@ func (s *Service) runTurnLoop(
 			AvailableModels:       s.availableModels,
 			// A trimmed prefix kills the cache even inside the provider TTL.
 			PinCacheCold: pinFound && pinCacheCold(pin, prefixBroken),
-			// Applies the subsidy discount to pinned sessions too, not just fresh
-			// decisions. nil when subscription-aware routing is off.
-			SubsidizedCostFactor: req.SubsidizedModelCostFactor,
 		}
 		if !pinFound {
 			plannerIn.Pin = sessionpin.Pin{}
@@ -2201,10 +2194,9 @@ func (s *Service) hmmCostGatedDecision(
 		PriorOutputTokens:     stayPin.LastOutputTokens,
 		AvailableModels:       s.availableModels,
 		PinCacheCold:          pinCacheCold(stayPin, prefixBroken),
-		SubsidizedCostFactor:  req.SubsidizedModelCostFactor,
 	}, cfg)
 
-	if hmmFreshIsMoreExpensive(stayPin.Model, fresh.Model, estimatedInputTokens, req.SubsidizedModelCostFactor) {
+	if hmmFreshIsMoreExpensive(stayPin.Model, fresh.Model, estimatedInputTokens) {
 		confidence, ok := hmmDecisionConfidence(fresh)
 		if ok && confidence >= s.hmmUpgradeConfidenceThreshold {
 			base.Outcome = planner.OutcomeSwitch
@@ -2494,22 +2486,19 @@ func hmmDecisionConfidence(dec router.Decision) (float64, bool) {
 	return confidence, true
 }
 
-func hmmFreshIsMoreExpensive(stayModel, freshModel string, inputTokens int, factors map[string]float64) bool {
-	stay, okStay := hmmEffectiveInputUSDPer1M(stayModel, inputTokens, factors)
-	fresh, okFresh := hmmEffectiveInputUSDPer1M(freshModel, inputTokens, factors)
+func hmmFreshIsMoreExpensive(stayModel, freshModel string, inputTokens int) bool {
+	stay, okStay := hmmEffectiveInputUSDPer1M(stayModel, inputTokens)
+	fresh, okFresh := hmmEffectiveInputUSDPer1M(freshModel, inputTokens)
 	return okStay && okFresh && fresh > stay
 }
 
-func hmmEffectiveInputUSDPer1M(model string, inputTokens int, factors map[string]float64) (float64, bool) {
+func hmmEffectiveInputUSDPer1M(model string, inputTokens int) (float64, bool) {
 	price, ok := catalog.PrimaryPriceFor(model)
 	if !ok {
 		return 0, false
 	}
 	price = price.ForInputTokens(inputTokens)
 	value := price.InputUSDPer1M
-	if factor, covered := factors[model]; covered {
-		value *= factor
-	}
 	return value, true
 }
 

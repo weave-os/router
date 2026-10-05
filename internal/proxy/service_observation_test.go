@@ -238,7 +238,7 @@ func TestPolicyShadowComparisonCollectsUsageBypassRoute(t *testing.T) {
 		map[string]providers.Client{providers.ProviderAnthropic: &fakeProvider{}},
 		nil, false, nil, nil, false,
 		providers.ProviderAnthropic, bypassScorerPickMdl, telem,
-	).WithSubscriptionAwareRouting(observer, 0.05, 2.0).
+	).WithUsageObserver(observer).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: shadowStrategy, Router: shadowRouter})
 
 	ctx := bypassCtx(0.80)

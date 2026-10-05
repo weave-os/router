@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
@@ -43,34 +44,34 @@ func TestClassifierPassthroughEngaged(t *testing.T) {
 	}{
 		{
 			name: "classifier with subscription, no observer wired",
-			svc:  &Service{}, ctx: subCtx, headers: http.Header{},
+			svc:  &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}})}, ctx: subCtx, headers: http.Header{},
 			req: router.Request{RequestedModel: claude}, turnType: turntype.Classifier, want: true,
 		},
 		{
 			name: "classifier with subscription bearer in Authorization",
-			svc:  &Service{}, ctx: context.Background(),
+			svc:  &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}})}, ctx: context.Background(),
 			headers: http.Header{"Authorization": {"Bearer " + classifierTestSubToken}},
 			req:     router.Request{RequestedModel: claude}, turnType: turntype.Classifier, want: true,
 		},
 		{
 			name: "main-loop turn never engages without the opt-in",
-			svc:  &Service{}, ctx: subCtx, headers: http.Header{},
+			svc:  &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}})}, ctx: subCtx, headers: http.Header{},
 			req: router.Request{RequestedModel: claude}, turnType: turntype.MainLoop, want: false,
 		},
 		{
 			name: "classifier without any subscription",
-			svc:  &Service{}, ctx: context.Background(), headers: http.Header{},
+			svc:  &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}})}, ctx: context.Background(), headers: http.Header{},
 			req: router.Request{RequestedModel: claude}, turnType: turntype.Classifier, want: false,
 		},
 		{
 			name: "general API key in Authorization is not a subscription",
-			svc:  &Service{}, ctx: context.Background(),
+			svc:  &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}})}, ctx: context.Background(),
 			headers: http.Header{"Authorization": {"Bearer sk-ant-api03-general-key"}},
 			req:     router.Request{RequestedModel: claude}, turnType: turntype.Classifier, want: false,
 		},
 		{
 			name: "classifier requesting a Codex model stays scored",
-			svc:  &Service{},
+			svc:  &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}})},
 			ctx: context.WithValue(context.WithValue(context.Background(),
 				OpenAISubscriptionContextKey{}, "eyJhbGciOiJub25lIn0.eyJzdWIiOiJ0ZXN0In0.signature"),
 				OpenAIAccountIDContextKey{}, "account-1"),
@@ -79,31 +80,31 @@ func TestClassifierPassthroughEngaged(t *testing.T) {
 		},
 		{
 			name: "anthropic disabled for this request",
-			svc:  &Service{}, ctx: subCtx, headers: http.Header{},
+			svc:  &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}})}, ctx: subCtx, headers: http.Header{},
 			req:      router.Request{RequestedModel: claude, EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}}},
 			turnType: turntype.Classifier, want: false,
 		},
 		{
 			name: "safety-excluded requested model",
-			svc:  &Service{}, ctx: subCtx, headers: http.Header{},
+			svc:  &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}})}, ctx: subCtx, headers: http.Header{},
 			req:      router.Request{RequestedModel: claude, EnabledProviders: anthropicOnly, SafetyExcludedModels: map[string]struct{}{claude: {}}},
 			turnType: turntype.Classifier, want: false,
 		},
 		{
 			name: "cold observer is slack, not exhaustion",
-			svc:  &Service{usageObserver: usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)},
+			svc:  &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}), usageObserver: usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)},
 			ctx:  subCtx, headers: http.Header{},
 			req: router.Request{RequestedModel: claude}, turnType: turntype.Classifier, want: true,
 		},
 		{
 			name: "high utilization is fine: no threshold on the classifier lane",
-			svc:  &Service{usageObserver: observerAt(usage.Snapshot{Primary: usage.Window{UsedPercent: 0.95, WindowMinutes: 300}})},
+			svc:  &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}), usageObserver: observerAt(usage.Snapshot{Primary: usage.Window{UsedPercent: 0.95, WindowMinutes: 300}})},
 			ctx:  subCtx, headers: http.Header{},
 			req: router.Request{RequestedModel: claude}, turnType: turntype.Classifier, want: true,
 		},
 		{
 			name: "observed-exhausted subscription disengages",
-			svc:  &Service{usageObserver: observerAt(usage.Snapshot{Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080}})},
+			svc:  &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}), usageObserver: observerAt(usage.Snapshot{Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080}})},
 			ctx:  subCtx, headers: http.Header{},
 			req: router.Request{RequestedModel: claude}, turnType: turntype.Classifier, want: false,
 		},
@@ -129,7 +130,7 @@ func TestUsageBypassDecision_ClassifierLaneOutranksUsageBypass(t *testing.T) {
 	obs.Record(obs.Key([]byte(classifierTestSubToken)), usage.Snapshot{
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
-	svc := &Service{usageObserver: obs}
+	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}), usageObserver: obs}
 	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, classifierTestSubToken)
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true, Threshold: &threshold})
 	req := router.Request{RequestedModel: model}
@@ -153,7 +154,7 @@ func TestRunTurnLoop_ClassifierPassthrough_NoSessionState(t *testing.T) {
 	store := newStubPinStore()
 	store.getFound = true
 	store.getPin = sessionpin.Pin{Provider: providers.ProviderOpenAI, Model: "gpt-5.5", Reason: "cluster", PinnedUntil: time.Now().Add(time.Hour)}
-	svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, classifierTestSubToken)
 	var zeroKey [sessionpin.SessionKeyLen]byte
 
@@ -172,7 +173,7 @@ func TestRunTurnLoop_ClassifierForceModel_OutranksPassthrough(t *testing.T) {
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-haiku-4-5","max_tokens":5,"messages":[{"role":"user","content":"hello"}]}`))
 	require.NoError(t, err)
 	feats := env.RoutingFeatures(false)
-	svc := NewService(nil, nil, nil, false, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, false, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, classifierTestSubToken)
 
 	res, err := svc.runTurnLoop(ctx, env, feats, "api-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: feats.Model, ForceModel: "claude-sonnet-5"})

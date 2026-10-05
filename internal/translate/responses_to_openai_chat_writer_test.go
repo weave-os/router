@@ -22,6 +22,7 @@ func chatChunks(t *testing.T, body string) []gjson.Result {
 	t.Helper()
 	var out []gjson.Result
 	sawDone := false
+	sawError := false
 	for _, line := range strings.Split(body, "\n") {
 		data, ok := strings.CutPrefix(line, "data: ")
 		if !ok {
@@ -35,6 +36,7 @@ func chatChunks(t *testing.T, body string) []gjson.Result {
 		require.True(t, gjson.Valid(data), "every frame must be valid JSON: %s", data)
 		parsed := gjson.Parse(data)
 		if parsed.Get("error").Exists() {
+			sawError = true
 			out = append(out, parsed)
 			continue
 		}
@@ -42,7 +44,11 @@ func chatChunks(t *testing.T, body string) []gjson.Result {
 		assert.NotEmpty(t, parsed.Get("id").String())
 		out = append(out, parsed)
 	}
-	assert.True(t, sawDone, "a chat client waits for data: [DONE]")
+	if sawError {
+		assert.False(t, sawDone, "failure cannot carry success terminator")
+	} else {
+		assert.True(t, sawDone, "successful stream ends with data: [DONE]")
+	}
 	return out
 }
 
@@ -312,7 +318,7 @@ func TestResponsesToOpenAIChatWriter_TruncatedStream(t *testing.T) {
 `))
 	require.NoError(t, err)
 	require.Error(t, w.Finalize(), "an unterminated stream is an error, not a clean stop")
-	assert.Contains(t, rec.Body.String(), "data: [DONE]")
+	assert.NotContains(t, rec.Body.String(), "data: [DONE]")
 	assert.Contains(t, rec.Body.String(), "before a terminal event")
 }
 
@@ -354,7 +360,7 @@ data: {"type":"response.completed","response":{"id":"resp_1","status":"completed
 		assert.NotEqual(t, "stop", c.Get("choices.0.finish_reason").String(),
 			"a turn that lost a frame must not report a clean stop")
 	}
-	assert.Contains(t, rec.Body.String(), "data: [DONE]")
+	assert.NotContains(t, rec.Body.String(), "data: [DONE]")
 }
 
 // A `[DONE]` sentinel is not JSON but is emitted by some gateways, so it must

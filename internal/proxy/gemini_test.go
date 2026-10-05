@@ -57,7 +57,7 @@ func TestProxyGeminiGenerateContent_RoutesToGoogleProvider(t *testing.T) {
 		nil,
 	)
 
-	ctx := authedCtx("00000000-0000-0000-0000-000000000001")
+	ctx := context.WithValue(authedCtx("00000000-0000-0000-0000-000000000001"), proxy.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", strings.NewReader(""))
 	require.NoError(t, svc.ProxyGeminiGenerateContent(ctx, []byte(geminiInjectedBody), rec, httpReq))
@@ -271,7 +271,7 @@ func TestProxyGeminiGenerateContent_PersistsPassthroughExperimentTelemetry(t *te
 	assert.Equal(t, int32(4), row.OutputTokens)
 	require.NotNil(t, row.CacheReadTokens)
 	assert.Equal(t, int32(1024), *row.CacheReadTokens)
-	assert.Zero(t, row.UpstreamStatusCode, "successful rows follow the existing telemetry convention of zero status")
+	assert.Equal(t, int32(http.StatusOK), row.UpstreamStatusCode, "successful rows carry actual successful HTTP status")
 	assert.Positive(t, row.ActualInputCostUSD)
 	assert.Positive(t, row.ActualOutputCostUSD)
 }

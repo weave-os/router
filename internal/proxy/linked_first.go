@@ -2,12 +2,10 @@ package proxy
 
 import (
 	"context"
-	"net/http"
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/subscriptions"
 )
 
 // linkedFirst reports whether the turn is subscription-only because the
@@ -24,40 +22,6 @@ func linkedFirst(ctx context.Context) bool {
 // plan throttling the turn rolls over the same way an observed-spent plan does.
 func paidFallbackForbidden(ctx context.Context) bool {
 	return billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx)
-}
-
-// releaseLinkedFirstWhenPlanSpent drops a linked-first mark before routing when
-// the caller's linked plan has bound its window and a Weave/BYOK key exists to
-// serve the turn instead. Runs ahead of routing so the whole turn — candidate
-// providers, failover, credentials — behaves as an ordinary credit-funded
-// turn rather than being restricted to a lane that can't serve it and then
-// refused as if credits were gone.
-func (s *Service) releaseLinkedFirstWhenPlanSpent(ctx context.Context, headers http.Header, routePath string) context.Context {
-	if !linkedFirst(ctx) {
-		return ctx
-	}
-	var spent bool
-	switch routePath {
-	case routePathMessages:
-		spent = s.claudeSubscriptionExhausted(ctx, headers) || s.coveringManagedPoolSpent(ctx, headers, subscriptions.ProviderClaude)
-	case routePathChatCompletions, routePathResponses:
-		spent = s.codexSubscriptionExhausted(ctx, headers) || s.coveringManagedPoolSpent(ctx, headers, subscriptions.ProviderCodex)
-	}
-	if !spent {
-		return ctx
-	}
-	observability.FromContext(ctx).Info("Linked subscription plan window is spent; continuing on organization credits", "route_path", routePath)
-	ctx = billing.ReleaseLinkedFirst(ctx)
-	// A spent plan can still answer by drawing the owner's purchased credits or
-	// overage, so neither the inbound token nor a managed seat for the covering
-	// family may serve this turn, including on a later failover attempt.
-	switch routePath {
-	case routePathMessages:
-		return withSuppressedClaudeSubscription(ctx)
-	case routePathChatCompletions, routePathResponses:
-		return withSuppressedCodexSubscription(ctx)
-	}
-	return ctx
 }
 
 // releaseUnservableLinkedFirst drops a linked-first mark after routing when the
@@ -84,34 +48,4 @@ func releaseThrottledLinkedFirst(ctx context.Context) (context.Context, bool) {
 	}
 	observability.FromContext(ctx).Info("Linked subscription throttled the turn; rerouting on organization credits")
 	return billing.ReleaseLinkedFirst(ctx), true
-}
-
-// coveringManagedPoolSpent reports whether this request is enrolled in a
-// managed pool for provider whose every account is already exhausted, and a
-// Weave/BYOK key exists to serve instead. Personal-OAuth exhaustion is handled
-// by claudeSubscriptionExhausted / codexSubscriptionExhausted; this is the
-// pool analogue so a linked-first turn whose covering seats are spent is
-// released before routing rather than leased-and-refused. A live personal
-// OAuth token for the same family still covers the turn (lease prefers it
-// over the pool), so the pool being spent is not enough on its own.
-func (s *Service) coveringManagedPoolSpent(ctx context.Context, headers http.Header, provider subscriptions.Provider) bool {
-	if !managedSubscriptionEnrolled(ctx, provider) {
-		return false
-	}
-	codexTok, claudeTok := presentSubscriptionTokens(ctx, headers)
-	switch provider {
-	case subscriptions.ProviderClaude:
-		if claudeTok != "" {
-			return false
-		}
-	case subscriptions.ProviderCodex:
-		if codexTok != "" {
-			return false
-		}
-	}
-	states := managedSubscriptionPlanStatesFromContext(ctx)
-	if states[provider] != SubscriptionPlanStateExhausted {
-		return false
-	}
-	return s.managedProviderFallbackAvailable(ctx, provider)
 }

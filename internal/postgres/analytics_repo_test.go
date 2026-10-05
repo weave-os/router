@@ -64,6 +64,58 @@ func TestServingTargetReachesTelemetryInsertAndAnalyticsExport(t *testing.T) {
 	assert.Equal(t, target, exported["serving_target"])
 }
 
+func TestSubscriptionWinnerAttributionSurvivesInsertAndExport(t *testing.T) {
+	accountID := uuid.MustParse("00000000-0000-0000-0000-000000000101")
+	ownerID := uuid.MustParse("00000000-0000-0000-0000-000000000102")
+	tier := string(auth.SubscriptionTierShared)
+	intendedFamily, finalFamily := "claude-sonnet", "gpt"
+	credentialSource := "codex_subscription"
+	capture := &telemetryInsertCapture{}
+	err := NewTelemetryRepo(capture).InsertRequestTelemetry(context.Background(), proxy.InsertTelemetryParams{
+		InstallationID:        uuid.NewString(),
+		SubscriptionAccountID: accountID.String(),
+		SubscriptionOwnerID:   ownerID.String(),
+		SubscriptionTier:      auth.SubscriptionTierShared,
+		IntendedModelFamily:   intendedFamily,
+		FinalModelFamily:      finalFamily,
+	})
+	require.NoError(t, err)
+	columns := strings.Split(strings.Split(strings.Split(capture.query, "(")[1], ")")[0], ",")
+	arguments := make(map[string]any, len(columns))
+	for index, column := range columns {
+		arguments[strings.TrimSpace(column)] = capture.args[index]
+	}
+	assert.Equal(t, pgtype.UUID{Bytes: accountID, Valid: true}, arguments["subscription_account_id"])
+	assert.Equal(t, pgtype.UUID{Bytes: ownerID, Valid: true}, arguments["subscription_owner_id"])
+	assert.Equal(t, &tier, arguments["subscription_tier"])
+	assert.Equal(t, &intendedFamily, arguments["intended_model_family"])
+	assert.Equal(t, &finalFamily, arguments["final_model_family"])
+
+	decision := decisionFromExportRow(sqlc.GetRoutingDecisionsForExportRow{
+		SubscriptionAccountID: pgtype.UUID{Bytes: accountID, Valid: true},
+		SubscriptionOwnerID:   pgtype.UUID{Bytes: ownerID, Valid: true},
+		SubscriptionTier:      &tier,
+		IntendedModelFamily:   &intendedFamily,
+		FinalModelFamily:      &finalFamily,
+		CredentialSource:      &credentialSource,
+	})
+	payload, err := json.Marshal(decision)
+	require.NoError(t, err)
+	var exported map[string]any
+	require.NoError(t, json.Unmarshal(payload, &exported))
+	assert.Equal(t, accountID.String(), exported["subscription_account_id"])
+	assert.Equal(t, ownerID.String(), exported["subscription_owner_id"])
+	assert.Equal(t, "shared", exported["subscription_tier"])
+	assert.Equal(t, "claude-sonnet", exported["intended_model_family"])
+	assert.Equal(t, "gpt", exported["final_model_family"])
+	assert.Equal(t, "codex_subscription", exported["credential_source"])
+
+	unattributed := decisionFromExportRow(sqlc.GetRoutingDecisionsForExportRow{})
+	assert.Nil(t, unattributed.SubscriptionAccountID)
+	assert.Nil(t, unattributed.SubscriptionOwnerID)
+	assert.Nil(t, unattributed.SubscriptionTier)
+}
+
 func TestDecisionFromExportRowMapsServedCosts(t *testing.T) {
 	actualIn := int64(1_000_000)
 	actualOut := int64(250_000)

@@ -88,12 +88,11 @@ func TestSelectorRejectsMismatchedClassOrder(t *testing.T) {
 	assert.Equal(t, "low", pick.Group)
 }
 
-func TestSelectorKeepsCrossProviderCandidatesAndAppliesBoundedSubscriptionPreferences(t *testing.T) {
+func TestSelectorKeepsCrossProviderCandidatesAndAppliesBoundedPreferences(t *testing.T) {
 	roster := &rosterdata.Roster{
 		SchemaVersion: rosterdata.SchemaVersionPolicyV1,
 		Preferences: rosterdata.PreferencePolicy{
 			PreferredModelBonus: 0.5,
-			SubscriptionBonus:   0.35,
 		},
 		Clusters: map[string]rosterdata.Cluster{
 			"high": {
@@ -119,27 +118,20 @@ func TestSelectorKeepsCrossProviderCandidatesAndAppliesBoundedSubscriptionPrefer
 			"x-ai/grok-4.6",
 			"anthropic/claude-fable-5.1",
 		},
-		SubscriptionStatePreferredModels: []string{"grok-4.6"},
+		PreferredModels: []string{"grok-4.6"},
 	}
 
 	pick, err := selector(context.Background(), input)
 	require.NoError(t, err)
 	assert.Equal(t, "x-ai/grok-4.6", pick.Arm)
 	assert.Equal(t, input.CandidateRosterIDs, pick.Trace.CandidateRosterIDs)
-	assert.Equal(t, []string{"grok-4.6"}, pick.Trace.SubscriptionStatePreferredModels)
-	assert.InDelta(t, 0.35, pick.Trace.ScoreComponentsByGroup["high"]["x-ai/grok-4.6"].SubscriptionStateBonus, 1e-6)
-
-	input.SubscriptionStatePreferredModels = nil
-	input.SubsidizedModelCostFactor = map[string]float64{"grok-4.6": 0.1}
-	pick, err = selector(context.Background(), input)
-	require.NoError(t, err)
-	assert.Equal(t, "x-ai/grok-4.6", pick.Arm)
-	assert.InDelta(t, 0.315, pick.Trace.ScoreComponentsByGroup["high"]["x-ai/grok-4.6"].SubscriptionCostBonus, 1e-6)
+	assert.Equal(t, []string{"grok-4.6"}, pick.Trace.PreferredModels)
+	assert.InDelta(t, 0.5, pick.Trace.ScoreComponentsByGroup["high"]["x-ai/grok-4.6"].PreferredModelBonus, 1e-6)
 
 	cluster := roster.Clusters["high"]
 	cluster.ArmScores["openai/gpt-5.6-sol"] = 31
 	roster.Clusters["high"] = cluster
 	pick, err = selector(context.Background(), input)
 	require.NoError(t, err)
-	assert.Equal(t, "openai/gpt-5.6-sol", pick.Arm, "bounded subscription preference must not erase a clear score gap")
+	assert.Equal(t, "openai/gpt-5.6-sol", pick.Arm, "bounded model preference must not erase a clear score gap")
 }

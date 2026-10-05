@@ -95,6 +95,9 @@ func (s *Service) subscriptionPassthroughEngaged(ctx context.Context, headers ht
 // scorer, which already handles the paid-key fallback and subscription-only
 // refusal for that state.
 func (s *Service) classifierPassthroughEngaged(ctx context.Context, headers http.Header, req router.Request, turnType turntype.TurnType) (string, bool) {
+	if !s.includedOnlySubscriptionTransport(providers.ProviderAnthropic) {
+		return "", false
+	}
 	if turnType != turntype.Classifier {
 		return "", false
 	}
@@ -126,18 +129,21 @@ func (s *Service) classifierPassthroughEngaged(ctx context.Context, headers http
 //     us to bill), and
 //   - observed utilization is still below the threshold, OR nothing has been
 //     observed yet (cold start: serve the first turn on the subscription so its
-//     response primes the observer, mirroring the subsidy bootstrap).
+//     response primes the observer, making quota observations available).
 //
 // Once observed utilization crosses the threshold the gate disengages and the
-// normal routing path (scorer + subscription-aware cost discounting) takes over,
+// normal routing path (routing and subscription account selection) takes over,
 // so the caller starts conserving their remaining quota.
 func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, req router.Request) (string, bool) {
+	if !s.includedOnlySubscriptionTransport(providers.ProviderAnthropic) && !s.includedOnlySubscriptionTransport(providers.ProviderOpenAI) {
+		return "", false
+	}
 	cfg, ok := usageBypassFromContext(ctx)
 	if !ok || s.usageObserver == nil {
 		return "", false
 	}
 	provider, token, covered := subscriptionCoveredTarget(ctx, headers, req)
-	if !covered {
+	if !covered || !s.includedOnlySubscriptionTransport(provider) {
 		return "", false
 	}
 	if provider == providers.ProviderAnthropic && s.subscriptionModels.denied([]byte(token), req.RequestedModel, s.clockNow()) {
@@ -227,7 +233,7 @@ func subscriptionCoveredTarget(ctx context.Context, headers http.Header, req rou
 // true the caller suppresses the subscription credential (withSuppressedSubscription)
 // so the turn serves on the Weave / BYOK key rather than the customer's credits.
 func (s *Service) claudeSubscriptionExhausted(ctx context.Context, headers http.Header) bool {
-	return s.anthropicFallbackKeyAvailable(ctx) && s.anthropicSubscriptionObservedExhausted(ctx, headers)
+	return s.anthropicSubscriptionObservedExhausted(ctx, headers)
 }
 
 // anthropicSubscriptionObservedExhausted reports whether the caller's present
@@ -493,31 +499,36 @@ func (s *Service) bypassToAnthropic(
 
 	// Same identity block as the routed upstream span so Weave groups bypass turns by user/session.
 	clientID := ClientIdentityFrom(ctx)
+	outcomeErr := proxyErr
+	if upstreamErr != nil {
+		outcomeErr = upstreamErr
+	}
+	bypassBuilder := otel.NewAttrBuilder(18).
+		String("request_id", requestID).
+		String("external_id", externalID).
+		String("router_user_id", auth.UserIDFrom(ctx)).
+		String("client.app", clientID.TelemetryClientApp()).
+		String("client.session_id", clientID.SessionID).
+		// Bypass never substitutes, so requested model IS the served model.
+		String("requested.model", decision.Model).
+		String("decision.model", decision.Model).
+		String("decision.provider", decision.Provider).
+		String("decision.reason", decision.Reason).
+		Bool("cost.subscription_served", proxyErr == nil && upstreamErr == nil && s.costNeutralSubscriptionServed(ctx)).
+		Int64("usage.input_tokens", int64(in)).
+		Int64("usage.output_tokens", int64(out)).
+		Int64("usage.cache_creation_input_tokens", int64(cacheCreation)).
+		Int64("usage.cache_read_input_tokens", int64(cacheRead)).
+		Float64("cost.requested_input_usd", inputCost).
+		Float64("cost.requested_output_usd", outputCost).
+		Float64("cost.actual_input_usd", inputCost).
+		Float64("cost.actual_output_usd", outputCost).Int64("upstream.status_code", int64(upstreamStatus(outcomeErr)))
+	s.applySubscriptionSpanTelemetry(ctx, bypassBuilder, decision.Model)
 	otel.Record(ctx, otel.Span{
 		Name:  "router.usage_bypass",
 		Start: requestStart,
 		End:   time.Now(),
-		Attrs: otel.NewAttrBuilder(18).
-			String("request_id", requestID).
-			String("external_id", externalID).
-			String("router_user_id", auth.UserIDFrom(ctx)).
-			String("client.app", clientID.TelemetryClientApp()).
-			String("client.session_id", clientID.SessionID).
-			// Bypass never substitutes, so requested model IS the served model.
-			String("requested.model", decision.Model).
-			String("decision.model", decision.Model).
-			String("decision.provider", decision.Provider).
-			String("decision.reason", decision.Reason).
-			Bool("cost.subscription_served", s.costNeutralSubscriptionServed(ctx)).
-			Int64("usage.input_tokens", int64(in)).
-			Int64("usage.output_tokens", int64(out)).
-			Int64("usage.cache_creation_input_tokens", int64(cacheCreation)).
-			Int64("usage.cache_read_input_tokens", int64(cacheRead)).
-			Float64("cost.requested_input_usd", inputCost).
-			Float64("cost.requested_output_usd", outputCost).
-			Float64("cost.actual_input_usd", inputCost).
-			Float64("cost.actual_output_usd", outputCost).
-			Build(),
+		Attrs: bypassBuilder.Build(),
 	})
 	otel.Flush(ctx)
 

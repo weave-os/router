@@ -6,14 +6,17 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
 )
 
@@ -108,6 +111,13 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 
 	lastIdx := 0
 	managedBinding := false
+	rotationStart := s.clockNow()
+	rotationCtx, cancelRotation := context.WithTimeout(ctx, sameBindingRetryBudget)
+	defer cancelRotation()
+	if existing, _ := ctx.Value(subscriptionRotationBudgetKey{}).(context.Context); existing != nil {
+		cancelRotation()
+		rotationCtx = existing
+	}
 	transport := dispatch.Transport{
 		OperationID: string(in.purpose),
 		Committed:   func() bool { return committed(in.buf) },
@@ -140,7 +150,10 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		decision := in.initialDecision
 		decision.Provider = attempt.Target.Provider
 		guarded := dispatch.GuardTarget(client, attempt.Target)
-		retryStart := s.clockNow()
+		retryStart := rotationStart
+		if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.IntendedModel == "" {
+			usage.IntendedModel = decision.Model
+		}
 		for account := 0; ; account++ {
 			if !committed(in.buf) {
 				in.w.Header().Set(HeaderRouterProvider, decision.Provider)
@@ -151,19 +164,54 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 					in.w.Header().Set(HeaderRouterFallbackAttempt, attemptIdxLabel(attempt.Index))
 				}
 			}
-			credentialCtx, lease, managedAttempt, leaseErr := s.leaseManagedSubscription(attemptCtx, decision.Provider, decision.Model)
+			if current := CredentialsFromContext(attemptCtx); current != nil && current.OAuth && !s.includedOnlySubscriptionTransport(decision.Provider) {
+				if subscriptionAttemptOnly(ctx) || paidFallbackForbidden(ctx) || !s.managedProviderFallbackAvailable(ctx, subscriptions.ProviderCodex) && decision.Provider == providers.ProviderOpenAI || !s.managedProviderFallbackAvailable(ctx, subscriptions.ProviderClaude) && decision.Provider == providers.ProviderAnthropic {
+					return dispatchAbort{err: ErrSubscriptionPoolUnavailable}
+				}
+				attemptCtx = resolveAndInjectCredentials(withSuppressedClaudeSubscription(withSuppressedCodexSubscription(attemptCtx)), decision.Provider, decision.Model, http.Header{})
+			}
+			credentialCtx, lease, managedAttempt, leaseErr := s.leaseManagedSubscription(withSubscriptionRotationDeadline(attemptCtx, rotationCtx), decision.Provider, decision.Model)
 			if leaseErr != nil {
 				return dispatchAbort{err: leaseErr}
 			}
+			if !managedAttempt {
+				credentialCtx = attemptCtx
+			} else {
+				// The lease ran under the rotation deadline; dispatch must not inherit it.
+				credentialCtx = context.WithValue(attemptCtx, CredentialsContextKey{}, requestcontext.CredentialsFromContext(credentialCtx))
+			}
 			managedBinding = managedBinding || managedAttempt
+			if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && managedAttempt {
+				if usage.AttemptedAccounts == nil {
+					usage.AttemptedAccounts = make(map[string]struct{})
+				}
+				usage.AttemptedAccounts[lease.AccountID+"\x00"+decision.Model] = struct{}{}
+			}
+			stopRotationDeadline := func() {}
+			if creds := CredentialsFromContext(credentialCtx); creds != nil && creds.OAuth {
+				credentialCtx, stopRotationDeadline = withUncommittedRotationDeadline(credentialCtx, rotationCtx, in.buf)
+			}
+			if creds := CredentialsFromContext(credentialCtx); paidFallbackForbidden(ctx) && (creds == nil || !creds.OAuth) {
+				return dispatchAbort{err: ErrCreditsExhaustedSubscriptionUnavailable}
+			}
+			if creds := CredentialsFromContext(credentialCtx); creds != nil && creds.OAuth {
+				if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {
+					state.SubscriptionAttempted = true
+				}
+			}
 			attemptErr := in.attempt(credentialCtx, decision, guarded)
+			stopRotationDeadline()
 			if !committed(in.buf) {
 				s.recordSubscriptionModelRejection(credentialCtx, decision.Provider, decision.Model, attemptErr)
 			}
 			lease.Release()
 			if attemptErr == nil {
+				if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil {
+					usage.WinningCredentials = requestcontext.CredentialsFromContext(credentialCtx)
+					usage.Finished = true
+				}
 				if managedAttempt {
-					s.markManagedSubscriptionServed(ctx, credentialCtx)
+					s.markManagedSubscriptionServed(ctx, credentialCtx, lease)
 					s.recordManagedSubscriptionSuccess(credentialCtx, decision.Provider, decision.Model, lease)
 				}
 				if attempt.Index > 0 {
@@ -175,14 +223,22 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				}
 				return nil
 			}
-			rotate := managedAttempt && s.recordManagedSubscriptionFailure(credentialCtx, decision.Provider, decision.Model, lease, attemptErr)
+			rotate := managedAttempt && (s.recordManagedSubscriptionFailure(credentialCtx, decision.Provider, decision.Model, lease, attemptErr) || providers.IsRetryable(attemptErr) || rotationCtx.Err() != nil)
+			if !managedAttempt && servedOnCodexSubscription(credentialCtx) && !committed(in.buf) {
+				_, quotaSpent := codexQuotaExhaustion(attemptErr)
+				if quotaSpent || codexOAuthCredentialRejected(attemptErr) || codexSubscriptionModelRejected(attemptErr) || providers.IsRetryable(attemptErr) {
+					s.recordCodexQuotaExhaustion(credentialCtx, http.Header{}, attemptErr)
+					attemptCtx = resolveAndInjectCredentials(withSuppressedCodexSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{})
+					rotate = true
+				}
+			}
 			if committed(in.buf) || !rotate {
 				if providers.IsUpstreamModelNotFound(attemptErr) {
 					s.rememberGatewayLacksModel(attemptCtx, decision.Provider, decision.Model)
 				}
 				return attemptErr
 			}
-			if spent := s.clockNow().Sub(retryStart); spent >= sameBindingRetryBudget {
+			if spent := s.clockNow().Sub(retryStart); spent >= sameBindingRetryBudget || rotationCtx.Err() != nil {
 				log.Warn("dispatchWithFallback: subscription account rotation budget spent, not retrying",
 					"model", decision.Model,
 					"provider", decision.Provider,
@@ -190,6 +246,15 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 					"budget_ms", sameBindingRetryBudget.Milliseconds(),
 					"subscription_account_attempt", account+1,
 					"err", attemptErr)
+				poolProvider, subscriptionProvider := managedSubscriptionProviderFromUpstream(decision.Provider, decision.Model)
+				if subscriptionProvider && !subscriptionAttemptOnly(ctx) && !paidFallbackForbidden(ctx) && s.managedProviderFallbackAvailable(ctx, poolProvider) {
+					if in.buf != nil {
+						in.buf.Discard()
+					}
+					apiCtx := resolveAndInjectCredentials(withSuppressedClaudeSubscription(withSuppressedCodexSubscription(ctx)), decision.Provider, decision.Model, http.Header{})
+					recordWinningCredentials(ctx, apiCtx)
+					return in.attempt(apiCtx, decision, guarded)
+				}
 				return attemptErr
 			}
 			if in.buf != nil {
@@ -254,4 +319,39 @@ func (s *Service) InspectInferencePlan(request policy.InspectionRequest) (policy
 		return policy.ResolvedPlan{}, err
 	}
 	return plans.Inspect(request, s.inferenceDeployment)
+}
+
+type subscriptionDeadlineContext struct {
+	context.Context
+	budget context.Context
+}
+
+func (c subscriptionDeadlineContext) Deadline() (time.Time, bool) { return c.budget.Deadline() }
+func (c subscriptionDeadlineContext) Done() <-chan struct{}       { return c.budget.Done() }
+func (c subscriptionDeadlineContext) Err() error                  { return c.budget.Err() }
+func withSubscriptionRotationDeadline(ctx, budget context.Context) context.Context {
+	return subscriptionDeadlineContext{Context: ctx, budget: budget}
+}
+
+// withUncommittedRotationDeadline cancels a subscription attempt when the
+// rotation budget expires before provider output commits. The budget bounds
+// rotation, not the length of a committed stream.
+func withUncommittedRotationDeadline(ctx, budget context.Context, buf *preludeBuffer) (context.Context, func()) {
+	attemptCtx, cancel := context.WithCancelCause(ctx)
+	stop := context.AfterFunc(budget, func() {
+		if !committed(buf) {
+			cancel(budget.Err())
+		}
+	})
+	return attemptCtx, func() {
+		stop()
+		cancel(nil)
+	}
+}
+
+func recordWinningCredentials(ctx, credentialCtx context.Context) {
+	if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil {
+		usage.WinningCredentials = requestcontext.CredentialsFromContext(credentialCtx)
+		usage.Finished = true
+	}
 }

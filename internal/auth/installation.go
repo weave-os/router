@@ -70,6 +70,7 @@ type Installation struct {
 	// subscription token exactly as before, so the prepaid billing path is
 	// unchanged. Defaults false -- preserves today's behavior.
 	SubscriptionRoutingDisabled bool
+	SubscriptionSharingEnabled  bool
 	// RoutingStrategy is the canonical strategy selected for this installation.
 	// Existing installations default to the cluster scorer until allowlisted.
 	RoutingStrategy router.Strategy

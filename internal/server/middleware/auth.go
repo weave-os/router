@@ -147,7 +147,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 			c.Set(ctxKeySubscriptionOwner, owner)
 			ctx = proxy.WithSubscriptionOwner(ctx, owner)
 			if testPlan == nil && svc.SubscriptionAccountsEnabled() {
-				accounts, listErr := svc.ListSubscriptionAccounts(ctx, owner)
+				accounts, listErr := svc.ListSubscriptionCandidates(ctx, owner)
 				if listErr != nil {
 					observability.FromContext(ctx).Error("Failed to load subscription account enrollment", "err", listErr)
 					ctx = context.WithValue(ctx, proxy.ManagedSubscriptionEnrollmentUnavailableContextKey{}, true)
@@ -159,10 +159,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 					if len(enrolled) > 0 {
 						ctx = context.WithValue(ctx, proxy.ManagedSubscriptionProvidersContextKey{}, enrolled)
 					}
-					planStates := proxy.ManagedSubscriptionPlanStates(accounts, svc.CurrentTime())
-					if len(planStates) > 0 {
-						ctx = context.WithValue(ctx, proxy.ManagedSubscriptionPlanStatesContextKey{}, planStates)
-					}
+
 				}
 			}
 		}
@@ -360,18 +357,17 @@ func SubscriptionOwnerFrom(c *gin.Context) auth.SubscriptionOwner {
 // for the subscription-management endpoints: their owner decides whose linked
 // account is listed, disabled or deleted, so they must not act on an identity
 // the cache still remembers after Weave withdrew it.
-func SubscriptionOwnerLive(c *gin.Context, svc *auth.Service) auth.SubscriptionOwner {
+func SubscriptionOwnerLive(c *gin.Context, svc *auth.Service) (auth.SubscriptionOwner, error) {
 	apiKey := APIKeyFrom(c)
 	if apiKey == nil || svc == nil {
-		return SubscriptionOwnerFrom(c)
+		return auth.SubscriptionOwner{}, nil
 	}
-	email := proxy.ClientIdentityFromHeaders(c.Request.Header).Email
-	owner, err := svc.SubscriptionOwnerForRequestUncached(c.Request.Context(), apiKey, email)
+	owner, err := svc.SubscriptionOwnerForRequestUncached(c.Request.Context(), apiKey, "")
 	if err != nil {
 		observability.FromGin(c).Error("Failed to resolve request identity for subscription management", "err", err)
-		return SubscriptionOwnerFrom(c)
+		return auth.SubscriptionOwner{}, err
 	}
-	return owner
+	return owner, nil
 }
 
 // subscriptionOwnerForRequest resolves the caller behind the request email.

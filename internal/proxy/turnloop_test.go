@@ -51,6 +51,9 @@ type usageProvider struct {
 	cacheOut int
 }
 
+// Synthetic provider never bills subscription extra usage.
+func (*usageProvider) IncludedOnlySubscriptions() bool { return true }
+
 func (p *usageProvider) Proxy(ctx context.Context, _ router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
 	body := `{"id":"m","content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":` +
 		itoa(p.in) + `,"output_tokens":` + itoa(p.out) +

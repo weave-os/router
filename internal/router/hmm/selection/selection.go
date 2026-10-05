@@ -66,7 +66,7 @@ func SelectGroups(roster *rosterdata.Roster, groups []Group, harness string, can
 // order is never changed. Returned score maps are grouped because a later
 // force-cluster or key override may change the final group.
 func SelectGroupsWithPreference(roster *rosterdata.Roster, groups []Group, harness string, candidates map[string]struct{}, qualityBias *float64) (Pick, map[string]map[string]float32, bool) {
-	pick, scoresByGroup, _, _, ok := SelectGroupsWithPreferences(roster, groups, harness, candidates, qualityBias, nil, nil, nil)
+	pick, scoresByGroup, _, _, ok := SelectGroupsWithPreferences(roster, groups, harness, candidates, qualityBias, nil)
 	return pick, scoresByGroup, ok
 }
 
@@ -79,10 +79,8 @@ func SelectGroupsWithPreferences(
 	candidates map[string]struct{},
 	qualityBias *float64,
 	preferredModels []string,
-	subscriptionStatePreferredModels []string,
-	subsidizedModelCostFactor map[string]float64,
 ) (Pick, map[string]map[string]float32, map[string]map[string]router.SelectionScoreComponents, map[string][]string, bool) {
-	return SelectGroupsWithDomainPreferences(roster, groups, harness, candidates, qualityBias, preferredModels, subscriptionStatePreferredModels, subsidizedModelCostFactor, nil, nil)
+	return SelectGroupsWithDomainPreferences(roster, groups, harness, candidates, qualityBias, preferredModels, nil, nil)
 }
 
 // SelectGroupsWithDomainPreferences applies the pinned task correction only
@@ -94,8 +92,6 @@ func SelectGroupsWithDomainPreferences(
 	candidates map[string]struct{},
 	qualityBias *float64,
 	preferredModels []string,
-	subscriptionStatePreferredModels []string,
-	subsidizedModelCostFactor map[string]float64,
 	evidence *DomainEvidence,
 	profile DomainProfile,
 ) (Pick, map[string]map[string]float32, map[string]map[string]router.SelectionScoreComponents, map[string][]string, bool) {
@@ -106,10 +102,10 @@ func SelectGroupsWithDomainPreferences(
 	scoresByGroup := make(map[string]map[string]float32, len(groups))
 	componentsByGroup := make(map[string]map[string]router.SelectionScoreComponents, len(groups))
 	ordersByGroup := make(map[string][]string, len(groups))
-	hasPreferenceInputs := len(preferredModels) > 0 || len(subscriptionStatePreferredModels) > 0 || len(subsidizedModelCostFactor) > 0
+	hasPreferenceInputs := len(preferredModels) > 0
 	for _, group := range groups {
 		if cluster, ok := roster.Clusters[group.Label]; ok {
-			scores, components, domainActive := scoresWithDomainPreferences(roster, group.Label, cluster, qualityBias, preferredModels, subscriptionStatePreferredModels, subsidizedModelCostFactor, evidence, profile)
+			scores, components, domainActive := scoresWithDomainPreferences(roster, group.Label, cluster, qualityBias, preferredModels, evidence, profile)
 			scoresByGroup[group.Label] = scores
 			componentsByGroup[group.Label] = components
 			order, _ := ArmOrder(cluster, harness)
@@ -222,8 +218,6 @@ func scoresWithDomainPreferences(
 	cluster rosterdata.Cluster,
 	qualityBias *float64,
 	preferredModels []string,
-	subscriptionStatePreferredModels []string,
-	subsidizedModelCostFactor map[string]float64,
 	evidence *DomainEvidence,
 	profile DomainProfile,
 ) (map[string]float32, map[string]router.SelectionScoreComponents, bool) {
@@ -247,12 +241,7 @@ func scoresWithDomainPreferences(
 	if preferredModelBonus == 0 {
 		preferredModelBonus = 0.5
 	}
-	subscriptionBonus := roster.Preferences.SubscriptionBonus
-	if subscriptionBonus == 0 {
-		subscriptionBonus = 0.35
-	}
 	preferredRanks := preferenceRanks(preferredModels)
-	subscriptionStateRanks := preferenceRanks(subscriptionStatePreferredModels)
 	componentsByArm := make(map[string]router.SelectionScoreComponents, len(scores))
 	for arm, score := range scores {
 		baseID, _ := hmm.SplitEffort(arm)
@@ -261,14 +250,7 @@ func scoresWithDomainPreferences(
 		if rank, preferred := preferredRanks[catalogID]; preferred {
 			components.PreferredModelBonus = float32(preferredModelBonus / float64(rank+1))
 		}
-		if rank, preferred := subscriptionStateRanks[catalogID]; preferred {
-			components.SubscriptionStateBonus = float32(subscriptionBonus / float64(rank+1))
-		}
-		if factor, subsidized := subsidizedModelCostFactor[catalogID]; subsidized && factor > 0 {
-			boundedFactor := math.Min(factor, 1)
-			components.SubscriptionCostBonus = float32(subscriptionBonus * (1 - boundedFactor))
-		}
-		components.TotalScore = score + components.PreferredModelBonus + components.SubscriptionStateBonus + components.SubscriptionCostBonus
+		components.TotalScore = score + components.PreferredModelBonus
 		scores[arm] = components.TotalScore
 		componentsByArm[arm] = components
 	}

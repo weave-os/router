@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	"weave-os/router/internal/observability"
@@ -24,6 +25,8 @@ import (
 )
 
 const DefaultBaseURL = "https://api.openai.com"
+
+const responsesContextOverflowCode = "context_length_exceeded"
 
 // Codex (ChatGPT) subscription backend. A ChatGPT plan authenticates only
 // against this base URL over the Responses API — never api.openai.com — and
@@ -411,7 +414,43 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	body := &progressReader{r: resp.Body}
 	debug := log.Enabled(ctx, slog.LevelDebug)
 	var opts []httputil.StreamOption
-	if debug {
+	var responseFrames []byte
+	var terminalResponseError error
+	if prep.Endpoint == providers.EndpointResponses {
+		opts = append(opts, httputil.WithOnChunk(func(chunk []byte, first bool) {
+			if debug && first {
+				log.Debug("OpenAI upstream first chunk", "bytes", len(chunk))
+			}
+			responseFrames = append(responseFrames, chunk...)
+			for {
+				end := bytes.Index(responseFrames, []byte("\n\n"))
+				separatorLen := 2
+				if crlf := bytes.Index(responseFrames, []byte("\r\n\r\n")); crlf >= 0 && (end < 0 || crlf < end) {
+					end = crlf
+					separatorLen = 4
+				}
+				if end < 0 {
+					break
+				}
+				frame := string(responseFrames[:end])
+				responseFrames = responseFrames[end+separatorLen:]
+				for _, line := range strings.Split(frame, "\n") {
+					if !strings.HasPrefix(line, "data:") {
+						continue
+					}
+					payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+					if gjson.Get(payload, "type").String() == "response.failed" || gjson.Get(payload, "type").String() == "error" {
+						terminalResponseError = &providers.UpstreamErrorResponse{Status: http.StatusBadGateway, Body: []byte(payload)}
+					}
+				}
+			}
+			if len(responseFrames) > 1024*1024 {
+				responseFrames = nil
+			}
+		}))
+	}
+
+	if debug && prep.Endpoint != providers.EndpointResponses {
 		opts = append(opts, httputil.WithOnChunk(func(chunk []byte, first bool) {
 			if first {
 				log.Debug("OpenAI upstream first chunk",
@@ -421,6 +460,19 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		}))
 	}
 	streamErr := httputil.StreamBody(ctx, cancel, idleTimeout, body, status, w, t, opts...)
+	// A non-streaming Responses body has no SSE frame separators, so a
+	// terminal failure arrives as one JSON object with status "failed".
+	if trailing := bytes.TrimSpace(responseFrames); terminalResponseError == nil && len(trailing) > 0 && trailing[0] == '{' &&
+		gjson.GetBytes(trailing, "status").String() == "failed" {
+		status := http.StatusBadGateway
+		if gjson.GetBytes(trailing, "error.code").String() == responsesContextOverflowCode {
+			status = http.StatusBadRequest
+		}
+		terminalResponseError = &providers.UpstreamErrorResponse{Status: status, Body: append([]byte(nil), trailing...)}
+	}
+	if streamErr == nil && terminalResponseError != nil {
+		streamErr = terminalResponseError
+	}
 	switch {
 	case errors.Is(streamErr, httputil.ErrUpstreamIdleTimeout), errors.Is(streamErr, httputil.ErrUpstreamOutputStall):
 		logStreamStall(ctx, decision.Model, path, c.stallBudgetFor(prep.Endpoint, streamErr), body.n, streamErr)

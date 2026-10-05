@@ -17,6 +17,13 @@ import (
 	"weave-os/router/internal/router"
 )
 
+// IncludedOnlySubscriptionTransport is implemented only by adapters that enforce
+// rejection before consuming paid subscription extra usage. Quota observations
+// or a dedicated OAuth endpoint do not establish this guarantee.
+type IncludedOnlySubscriptionTransport interface {
+	IncludedOnlySubscriptions() bool
+}
+
 // UpstreamHeaderObserver records subscription rate-limit headroom (see
 // internal/proxy/usage) without coupling adapters to the observer. Ctx lets it
 // check the resolved credential so only responses on the caller's own

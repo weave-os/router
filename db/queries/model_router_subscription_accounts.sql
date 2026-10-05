@@ -1,18 +1,20 @@
--- Enroll an account for a subscriber. The stable owner is the credential
--- subject, so a rotated or second harness key reaches the same row; api_key_id
--- records which key enrolled it. A legacy row still owned by the enrolling key
--- is adopted rather than duplicated, and the oldest one wins so concurrent
--- legacy duplicates from other keys are left untouched instead of merged. The
--- id tiebreak keeps that choice deterministic, so two keys adopting at once
--- converge on one row instead of racing for the subscriber-owned unique index.
+-- Enrollment updates only the same verified owner. Historical unassigned or
+-- conflicting physical identities require administrator resolution first.
 -- name: UpsertModelRouterSubscriptionAccountForSubscriber :one
 WITH owned AS (
   SELECT id, subscriber_id
   FROM router.model_router_subscription_accounts
   WHERE provider = @provider::varchar
     AND external_account_id = @external_account_id::varchar
-    AND (subscriber_id = @subscriber_id::uuid
-         OR (subscriber_id IS NULL AND api_key_id = @api_key_id::uuid))
+    AND EXISTS (SELECT 1 FROM router.credential_subjects AS subject
+                JOIN router.credential_subject_installations AS access ON access.subject_id = subject.id
+                JOIN router.model_router_installations AS installation ON installation.id = access.installation_id
+                WHERE subject.id = @subscriber_id::uuid AND subject.projection_complete AND subject.revoked_at IS NULL
+                  AND access.installation_id = @installation_id::uuid AND access.access_enabled AND installation.deleted_at IS NULL)
+    AND subscriber_id = @subscriber_id::uuid
+    AND NOT EXISTS (SELECT 1 FROM router.model_router_subscription_accounts AS other
+                    WHERE other.provider = @provider::varchar AND other.external_account_id = @external_account_id::varchar
+                      AND other.id <> model_router_subscription_accounts.id)
   ORDER BY (subscriber_id IS NULL), created_at, id
   LIMIT 1
   FOR UPDATE
@@ -43,6 +45,13 @@ inserted AS (
          @external_account_id::varchar, @refresh_token_ciphertext::bytea,
          sqlc.narg('display_name')::text
   WHERE NOT EXISTS (SELECT 1 FROM owned)
+    AND NOT EXISTS (SELECT 1 FROM router.model_router_subscription_accounts AS physical
+                    WHERE physical.provider = @provider::varchar AND physical.external_account_id = @external_account_id::varchar)
+    AND EXISTS (SELECT 1 FROM router.credential_subjects AS subject
+                JOIN router.credential_subject_installations AS access ON access.subject_id = subject.id
+                JOIN router.model_router_installations AS installation ON installation.id = access.installation_id
+                WHERE subject.id = @subscriber_id::uuid AND subject.projection_complete AND subject.revoked_at IS NULL
+                  AND access.installation_id = @installation_id::uuid AND access.access_enabled AND installation.deleted_at IS NULL)
   ON CONFLICT (subscriber_id, provider, external_account_id) WHERE subscriber_id IS NOT NULL
   DO UPDATE SET
     refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
@@ -59,6 +68,12 @@ inserted AS (
   RETURNING id, subscriber_id, api_key_id, provider, external_account_id, display_name,
             refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
             (xmax = 0)::boolean AS inserted
+),
+registered AS (
+  INSERT INTO router.model_router_subscription_account_installations (installation_id, subscription_account_id)
+  SELECT @installation_id::uuid, id FROM adopted
+  UNION ALL SELECT @installation_id::uuid, id FROM inserted
+  ON CONFLICT DO NOTHING
 )
 SELECT id, subscriber_id, api_key_id, provider, external_account_id, display_name,
        refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
@@ -71,31 +86,6 @@ SELECT id, subscriber_id, api_key_id, provider, external_account_id, display_nam
        inserted::boolean,
        FALSE::boolean AS adopted
 FROM inserted;
-
--- Enroll an account for a key that has no credential subject. Such a row keeps
--- legacy api-key ownership until the subscriber reconnects it.
--- name: UpsertModelRouterSubscriptionAccount :one
-INSERT INTO router.model_router_subscription_accounts (
-  api_key_id, provider, external_account_id, refresh_token_ciphertext, display_name
-)
-VALUES (@api_key_id::uuid, @provider::varchar, @external_account_id::varchar, @refresh_token_ciphertext::bytea,
-        sqlc.narg('display_name')::text)
-ON CONFLICT (api_key_id, provider, external_account_id)
-DO UPDATE SET
-  refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
-  display_name = COALESCE(EXCLUDED.display_name, router.model_router_subscription_accounts.display_name),
-  enabled = TRUE,
-  health_state = 'unknown',
-  cooldown_until = NULL,
-  access_token_ciphertext = NULL,
-  access_token_expires_at = NULL,
-  token_refresh_lease_until = NULL,
-  token_refresh_lease_id = NULL,
-  token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
-  updated_at = CURRENT_TIMESTAMP
-RETURNING id, subscriber_id, api_key_id, provider, external_account_id, display_name,
-          refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
-          (xmax = 0)::boolean AS inserted, FALSE::boolean AS adopted;
 
 -- Account state is scoped by owner so a router key can never manage another
 -- subscriber's account: subscriber-owned rows answer to the credential subject,
@@ -119,15 +109,26 @@ WHERE subscriber_id = sqlc.narg(subscriber_id)::uuid
    OR (subscriber_id IS NULL AND api_key_id = sqlc.narg(api_key_id)::uuid)
 ORDER BY provider, created_at;
 
+-- A duplicate physical identity stays quarantined until the conflicting rows are reconciled.
 -- name: UpdateModelRouterSubscriptionAccountState :execrows
-UPDATE router.model_router_subscription_accounts
+UPDATE router.model_router_subscription_accounts AS account
 SET enabled = @enabled::boolean,
     health_state = CASE WHEN @enabled::boolean THEN 'unknown' ELSE 'disabled' END,
     cooldown_until = @cooldown_until::timestamp,
     updated_at = CURRENT_TIMESTAMP
-WHERE id = @id::uuid
-  AND (subscriber_id = sqlc.narg(subscriber_id)::uuid
-       OR (subscriber_id IS NULL AND api_key_id = sqlc.narg(api_key_id)::uuid));
+WHERE account.id = @id::uuid
+  AND (account.subscriber_id = sqlc.narg(subscriber_id)::uuid
+       OR (account.subscriber_id IS NULL AND account.api_key_id = sqlc.narg(api_key_id)::uuid))
+  AND (
+      NOT @enabled::boolean
+      OR NOT EXISTS (
+          SELECT 1
+          FROM router.model_router_subscription_accounts AS conflicting
+          WHERE conflicting.provider = account.provider
+            AND conflicting.external_account_id = account.external_account_id
+            AND conflicting.id <> account.id
+      )
+  );
 
 -- A stale replica must not turn an operator-disabled account back on while
 -- persisting a quota cooldown.
@@ -311,3 +312,33 @@ WHERE id = @id::uuid
   AND enabled = TRUE
   AND token_refresh_lease_id = @lease_id::uuid
   AND token_refresh_version = @expected_version::bigint;
+
+-- Admits candidates on the primary, ordered personal then registered member capacity.
+-- Locks are held only for this statement and serialize with settings/access writes.
+-- name: ListModelRouterSubscriptionCandidates :many
+WITH installation AS MATERIALIZED (
+  SELECT id, subscription_sharing_enabled
+  FROM router.model_router_installations
+  WHERE id = @installation_id::uuid AND deleted_at IS NULL AND NOT subscription_routing_disabled
+  FOR SHARE
+), members AS MATERIALIZED (
+  SELECT access.subject_id
+  FROM router.credential_subject_installations AS access
+  JOIN router.credential_subjects AS subject ON subject.id = access.subject_id
+  JOIN installation ON installation.id = access.installation_id
+  WHERE access.access_enabled AND subject.projection_complete AND subject.revoked_at IS NULL
+  FOR SHARE OF access, subject
+)
+SELECT account.id, account.subscriber_id, account.api_key_id, account.provider,
+       account.external_account_id, account.display_name, account.refresh_token_ciphertext,
+       account.enabled, account.health_state, account.cooldown_until, account.created_at,
+       CASE WHEN account.subscriber_id = sqlc.narg(subscriber_id)::uuid THEN 'personal' ELSE 'shared' END AS tier
+FROM router.model_router_subscription_accounts AS account
+JOIN members ON members.subject_id = account.subscriber_id
+JOIN installation ON TRUE
+WHERE (account.subscriber_id = sqlc.narg(subscriber_id)::uuid
+   OR (installation.subscription_sharing_enabled AND EXISTS (
+        SELECT 1 FROM router.model_router_subscription_account_installations AS registration
+        WHERE registration.installation_id = installation.id AND registration.subscription_account_id = account.id)))
+ORDER BY (account.subscriber_id = sqlc.narg(subscriber_id)::uuid) DESC NULLS LAST, account.created_at, account.id
+FOR SHARE OF account;

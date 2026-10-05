@@ -9,9 +9,6 @@ import (
 	"time"
 
 	"weave-os/router/internal/billing"
-	"weave-os/router/internal/proxy/usage"
-	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/turntype"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -89,9 +86,6 @@ func TestSubscriptionModelAccessDoesNotSpendWithoutPermission(t *testing.T) {
 			require.Error(t, in.call(svc, ctx, body, rec, req))
 			assert.Equal(t, http.StatusNotFound, rec.Code)
 			assert.Zero(t, upstream.paidDispatches)
-			excluded := svc.excludeUnavailableSubscriptionModels(ctx, nil, map[string]struct{}{in.provider: {}}, nil)
-			assert.Contains(t, excluded, in.model)
-			assert.NotContains(t, excluded, accessOtherModel)
 		})
 	}
 }
@@ -107,11 +101,9 @@ func TestSubscriptionModelAccessScopeAndExpiry(t *testing.T) {
 	assert.Nil(t, CredentialsFromContext(resolveAndInjectCredentials(resolved, in.provider, in.model, nil)))
 	assert.True(t, servedOnSubscription(svc.resolveCredentials(resolved, in.provider, accessOtherModel, nil)))
 	assert.True(t, servedOnSubscription(svc.resolveCredentials(context.WithValue(in.subCtx(), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-other"), in.provider, in.model, nil)))
-	assert.True(t, servedOnSubscription(svc.resolveCredentials(billing.WithSubscriptionOnly(in.subCtx(), billing.SubscriptionOnlyCreditsDepleted), in.provider, in.model, nil)))
-	assert.Nil(t, svc.excludeUnavailableSubscriptionModels(in.subCtx(), nil, nil, nil), "paid-backed model remains routable")
+	assert.False(t, servedOnSubscription(svc.resolveCredentials(billing.WithSubscriptionOnly(in.subCtx(), billing.SubscriptionOnlyCreditsDepleted), in.provider, in.model, nil)), "known denied OAuth must never be replayed")
 	linkedFirstContext := billing.WithSubscriptionOnly(in.subCtx(), billing.SubscriptionOnlyLinkedFirst)
 	assert.False(t, servedOnSubscription(svc.resolveCredentials(linkedFirstContext, in.provider, in.model, nil)), "a denied linked subscription must use the available infrastructure credential")
-	assert.Nil(t, svc.excludeUnavailableSubscriptionModels(linkedFirstContext, nil, nil, nil), "linked funding preference must not exclude a paid-backed model")
 	now = now.Add(16 * time.Minute)
 	assert.True(t, servedOnSubscription(svc.resolveCredentials(in.subCtx(), in.provider, in.model, nil)), "access changes are rechecked after expiry")
 }
@@ -132,16 +124,4 @@ func TestSubscriptionModelAccessOnlyLearnsModelRejection(t *testing.T) {
 	svc := in.deploymentKeyedService()
 	svc.recordSubscriptionModelRejection(in.resolved(in.byokCtx(context.Background())), in.provider, in.model, modelAccessError())
 	assert.True(t, servedOnSubscription(svc.resolveCredentials(in.subCtx(), in.provider, in.model, nil)))
-}
-
-func TestSubscriptionModelAccessRemovesDiscountAndBypass(t *testing.T) {
-	in := parityAnthropicIngress()
-	svc := in.deploymentKeyedService().WithSubscriptionAwareRouting(usage.NewObserver([]byte("salt"), time.Hour, time.Now), 0.01, 1)
-	svc.usageObserver.Record(svc.usageObserver.Key([]byte(parityAnthropicToken)), usage.Snapshot{Primary: usage.Window{WindowMinutes: 300}})
-	svc.recordSubscriptionModelRejection(in.resolved(in.subCtx()), in.provider, in.model, modelAccessError())
-	factors := svc.subsidyFactors(in.subCtx(), nil)
-	assert.NotContains(t, factors, in.model)
-	assert.Equal(t, 0.01, factors[accessOtherModel])
-	_, ok := svc.classifierPassthroughEngaged(in.subCtx(), nil, router.Request{RequestedModel: in.model}, turntype.Classifier)
-	assert.False(t, ok)
 }

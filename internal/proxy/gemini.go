@@ -41,15 +41,12 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	if returnErr != nil {
 		return returnErr
 	}
-	if managedSubscriptionEnrollmentUnavailable(ctx) {
-		return ErrSubscriptionPoolUnavailable
-	}
 	ctx = requestcontext.WithContentLogging(ctx, s.effectiveCaptureMode(ctx) != CaptureOff)
 	ctx, err := s.checkUserMonthlySpendLimit(ctx, r.Header, r.URL.Path)
 	if err != nil {
 		return err
 	}
-	ctx = s.withPlanAwareSubscriptionModels(ctx, r.Header)
+
 	ctx, rateLimit := s.withRateLimitTurn(ctx)
 	log := observability.FromContext(ctx)
 	requestStart := time.Now()
@@ -154,33 +151,32 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 
 	routeRequest := router.Request{
-		RequestedModel:                   feats.Model,
-		ForceCluster:                     forceCluster,
-		EstimatedInputTokens:             feats.Tokens,
-		HasTools:                         feats.HasTools,
-		HasImages:                        feats.HasImages,
-		TranslationRequirements:          env.TranslationRequirements(router.EndpointGeminiGenerate),
-		ReasoningConfigurationSHA256:     env.ReasoningConfigurationSHA256(),
-		ToolConfigurationSHA256:          env.ToolConfigurationSHA256(),
-		PromptText:                       promptText,
-		ConversationMessages:             conversationMessagesForRouting(env),
-		AvailableTools:                   availableToolsForRouting(env),
-		Tools:                            toolsForRouting(env),
-		ClientSessionID:                  clientSessionIDForRequest(ctx, env),
-		EnabledProviders:                 enabledProviders,
-		CustomBindings:                   s.customBindingsForRequest(ctx),
-		GatewayProviders:                 s.gatewayProvidersForRequest(ctx),
-		ExcludedModels:                   excluded,
-		AllowedModels:                    allowedModelsForRequest(ctx),
-		SafetyExcludedModels:             withoutModelsKeep(s.safetyExcludedModels(env, outputReserve, enabledProviders), overflowAdmitted, geminiUnsigned),
-		ContextWindowExcludedModels:      contextWindowOnlyExclusions(ctxOverflowed, overflowAdmitted, geminiUnsigned),
-		UnsignedHistoryExcludedModels:    modelSet(geminiUnsigned),
-		OverflowAdmittedModels:           modelSet(overflowAdmitted),
-		PreferredModels:                  s.preferredModelsForRequest(ctx),
-		SubscriptionStatePreferredModels: subscriptionStatePreferredModelsFromContext(ctx),
-		RoutingKnobs:                     router.RoutingKnobsFromContext(ctx),
-		ClusterArmOverrides:              clusterArmOverridesForRequest(ctx),
-		ProductEligibility:               entitlement.ModelBoundaryFromContext(ctx),
+		RequestedModel:                feats.Model,
+		ForceCluster:                  forceCluster,
+		EstimatedInputTokens:          feats.Tokens,
+		HasTools:                      feats.HasTools,
+		HasImages:                     feats.HasImages,
+		TranslationRequirements:       env.TranslationRequirements(router.EndpointGeminiGenerate),
+		ReasoningConfigurationSHA256:  env.ReasoningConfigurationSHA256(),
+		ToolConfigurationSHA256:       env.ToolConfigurationSHA256(),
+		PromptText:                    promptText,
+		ConversationMessages:          conversationMessagesForRouting(env),
+		AvailableTools:                availableToolsForRouting(env),
+		Tools:                         toolsForRouting(env),
+		ClientSessionID:               clientSessionIDForRequest(ctx, env),
+		EnabledProviders:              enabledProviders,
+		CustomBindings:                s.customBindingsForRequest(ctx),
+		GatewayProviders:              s.gatewayProvidersForRequest(ctx),
+		ExcludedModels:                excluded,
+		AllowedModels:                 allowedModelsForRequest(ctx),
+		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserve, enabledProviders), overflowAdmitted, geminiUnsigned),
+		ContextWindowExcludedModels:   contextWindowOnlyExclusions(ctxOverflowed, overflowAdmitted, geminiUnsigned),
+		UnsignedHistoryExcludedModels: modelSet(geminiUnsigned),
+		OverflowAdmittedModels:        modelSet(overflowAdmitted),
+		PreferredModels:               s.preferredModelsForRequest(ctx),
+		RoutingKnobs:                  router.RoutingKnobsFromContext(ctx),
+		ClusterArmOverrides:           clusterArmOverridesForRequest(ctx),
+		ProductEligibility:            entitlement.ModelBoundaryFromContext(ctx),
 	}
 	routeStart := time.Now()
 	routeCtx, routeSpan := startRoutingSpan(ctx, routeRequest)
@@ -395,6 +391,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	applyPlannerAttrs(geminiUpstreamBuilder, routeRes)
 	applyRoutingStateAttrs(geminiUpstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyEffortAttrs(geminiUpstreamBuilder, effortServed)
+	s.applySubscriptionSpanTelemetry(ctx, geminiUpstreamBuilder, decision.Model)
 	addTimingAttrs(ctx, geminiUpstreamBuilder)
 	geminiObs := buildObservationContext(ctx, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
 	geminiObs.applySpanAttrs(geminiUpstreamBuilder)

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -12,10 +13,10 @@ import (
 	"weave-os/router/internal/observability"
 
 	"github.com/google/uuid"
+	"github.com/hashicorp/golang-lru/v2/expirable"
 )
 
 const (
-	defaultAccountSyncTTL = 15 * time.Second
 	// refreshLeaseTTL bounds how long a crashed holder blocks other replicas.
 	// A live holder extends the lease every refreshLeaseHeartbeat while its
 	// provider call runs, so a healthy refresh never loses the lease before
@@ -53,6 +54,8 @@ type AccountStore interface {
 // Lease is a short-lived provider credential. Release must be called exactly once.
 type Lease struct {
 	AccountID       string
+	OwnerID         string
+	Tier            auth.SubscriptionTier
 	AccessToken     string
 	ProviderAccount string
 	State           auth.SubscriptionAccountState
@@ -73,26 +76,19 @@ type Leaser interface {
 	Disable(context.Context, auth.SubscriptionOwner, Provider, string) error
 }
 
-// Runtime synchronizes encrypted accounts, refreshes tokens, and leases them
-// from independent owner/provider pools.
+// Runtime admits primary candidates, refreshes physical accounts, and retains
+// session affinity only within the winning ownership tier.
 type Runtime struct {
+	affinity  *expirable.LRU[string, string]
 	store     AccountStore
 	refresher TokenRefresher
 	manager   *Manager
 	clock     func() time.Time
-	syncTTL   time.Duration
 	leaseTTL  time.Duration
 	heartbeat time.Duration
 
-	mu       sync.Mutex
-	syncedAt map[string]time.Time
-	syncing  map[string]*runtimeSyncCall
-}
-
-type runtimeSyncCall struct {
-	done    chan struct{}
-	present bool
-	err     error
+	mu     sync.Mutex
+	owners map[string]auth.SubscriptionOwner
 }
 
 // NewRuntime constructs the server-side subscription credential runtime.
@@ -100,10 +96,9 @@ func NewRuntime(store AccountStore, refresher TokenRefresher, clock func() time.
 	if clock == nil {
 		clock = time.Now
 	}
-	return &Runtime{
+	return &Runtime{affinity: expirable.NewLRU[string, string](4096, nil, 30*time.Minute),
 		store: store, refresher: refresher, manager: NewManager(clock), clock: clock,
-		syncTTL: defaultAccountSyncTTL, syncedAt: make(map[string]time.Time), syncing: make(map[string]*runtimeSyncCall),
-		leaseTTL: refreshLeaseTTL, heartbeat: refreshLeaseHeartbeat,
+		leaseTTL: refreshLeaseTTL, heartbeat: refreshLeaseHeartbeat, owners: make(map[string]auth.SubscriptionOwner),
 	}
 }
 
@@ -113,82 +108,140 @@ type refreshHolder struct {
 	tookOver bool
 }
 
-func (r *Runtime) Lease(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, sessionID string) (Lease, bool, error) {
-	if !owner.Valid() || (provider != ProviderClaude && provider != ProviderCodex) {
+func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, provider Provider, sessionID string) (Lease, bool, error) {
+	if !requester.Valid() || (provider != ProviderClaude && provider != ProviderCodex) {
 		return Lease{}, false, nil
 	}
-	present, err := r.syncAccounts(ctx, owner, provider)
-	if err != nil || !present {
-		return Lease{}, present, err
+	var accounts []*auth.SubscriptionAccount
+	var err error
+	if store, ok := r.store.(interface {
+		ListSubscriptionCandidates(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error)
+	}); ok {
+		accounts, err = store.ListSubscriptionCandidates(ctx, requester)
+	} else {
+		return Lease{}, false, nil
 	}
-	account, release, err := r.leaseFromPools(ctx, owner, provider, sessionID)
 	if err != nil {
-		return Lease{}, true, err
+		return Lease{}, false, err
 	}
-	return Lease{
-		AccountID: account.ID, AccessToken: account.AccessToken,
-		ProviderAccount: account.AccountID, State: account.State, release: release,
-	}, true, nil
+	affinityKey := requester.InstallationID + "|" + requester.SubscriberID + "|" + string(provider) + "|" + sessionID
+	if sessionID != "" {
+		if preferred, ok := r.affinity.Get(affinityKey); ok {
+			// Preserve personal-before-shared ordering; affinity only reorders a tier.
+			slices.SortStableFunc(accounts, func(left, right *auth.SubscriptionAccount) int {
+				if left.ID == right.ID {
+					return 0
+				}
+				leftPersonal := left.SubscriberID == requester.SubscriberID && requester.SubscriberID != ""
+				rightPersonal := right.SubscriberID == requester.SubscriberID && requester.SubscriberID != ""
+				if leftPersonal != rightPersonal {
+					if leftPersonal {
+						return -1
+					}
+					return 1
+				}
+				if left.ID == preferred {
+					return -1
+				}
+				if right.ID == preferred {
+					return 1
+				}
+				return 0
+			})
+		}
+	}
+	present := false
+	for _, candidate := range accounts {
+		if candidate.SubscriberID == "" || Provider(candidate.Provider) != provider || slices.Contains(requester.ExcludedAccountIDs, candidate.ID) {
+			continue
+		}
+		present = true
+		owner := auth.SubscriptionOwner{SubscriberID: candidate.SubscriberID, APIKeyID: candidate.EnrolledByAPIKeyID, InstallationID: requester.InstallationID}
+		poolID := "account:" + candidate.ID
+		account := Account{ID: candidate.ID, OwnerID: poolID, Provider: provider, Enabled: candidate.Enabled, State: candidate.State}
+		if provider == ProviderCodex {
+			account.AccountID = candidate.ExternalAccountID
+		}
+		if candidate.CooldownUntil != nil {
+			account.CooldownTil = *candidate.CooldownUntil
+		}
+		if !candidate.Enabled || !subscriptionAccountStateRoutable(candidate.State, account.CooldownTil, r.clock()) {
+			continue
+		}
+		if err := r.manager.Upsert(account); err != nil {
+			return Lease{}, present, err
+		}
+		r.mu.Lock()
+		r.owners[candidate.ID] = owner
+
+		r.mu.Unlock()
+		leased, release, leaseErr := r.manager.Lease(ctx, poolID, provider, sessionID, r.refresh(owner))
+		if errors.Is(leaseErr, ErrNoAvailableAccount) {
+			continue
+		}
+		if leaseErr != nil {
+			return Lease{}, present, leaseErr
+		}
+		tier := candidate.Tier
+		if tier == "" {
+			tier = auth.SubscriptionTierPersonal
+		}
+		if sessionID != "" {
+			r.affinity.Add(affinityKey, leased.ID)
+		}
+		return Lease{AccountID: leased.ID, OwnerID: candidate.SubscriberID, Tier: tier, AccessToken: leased.AccessToken,
+			ProviderAccount: leased.AccountID, State: leased.State, release: release}, true, nil
+	}
+	if present {
+		return Lease{}, true, ErrNoAvailableAccount
+	}
+	return Lease{}, false, nil
+}
+
+func (r *Runtime) physicalOwner(accountID string, fallback auth.SubscriptionOwner) auth.SubscriptionOwner {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if owner, ok := r.owners[accountID]; ok {
+		return owner
+	}
+	return fallback
 }
 
 func (r *Runtime) Cooldown(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string, resetAt time.Time) error {
-	cooled := false
-	for _, poolID := range ownerPools(owner) {
-		cooled = r.manager.Cooldown(poolID, provider, accountID, resetAt) || cooled
-	}
-	if !cooled {
+	if !r.admitted(ctx, accountID, owner) {
 		return ErrNoAvailableAccount
 	}
-	return r.store.UpdateSubscriptionAccountCooldown(ctx, owner, accountID, resetAt)
+	r.manager.Cooldown("account:"+accountID, provider, accountID, resetAt)
+	return r.store.UpdateSubscriptionAccountCooldown(ctx, r.physicalOwner(accountID, owner), accountID, resetAt)
 }
-
-// Exhaust marks provider-reported capacity unavailable until its reset.
 func (r *Runtime) Exhaust(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string, resetAt time.Time) error {
-	exhausted := false
-	for _, poolID := range ownerPools(owner) {
-		exhausted = r.manager.Exhaust(poolID, provider, accountID, resetAt) || exhausted
-	}
-	if !exhausted {
+	if !r.admitted(ctx, accountID, owner) {
 		return ErrNoAvailableAccount
 	}
-	return r.updateAccountHealth(ctx, owner, accountID, auth.SubscriptionAccountStateExhausted, true, &resetAt)
+	r.manager.Exhaust("account:"+accountID, provider, accountID, resetAt)
+	return r.updateAccountHealth(ctx, r.physicalOwner(accountID, owner), accountID, auth.SubscriptionAccountStateExhausted, true, &resetAt)
 }
-
-// ReconnectRequired removes rejected credentials while preserving their identity.
 func (r *Runtime) ReconnectRequired(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string) error {
-	reconnectRequired := false
-	for _, poolID := range ownerPools(owner) {
-		reconnectRequired = r.manager.ReconnectRequired(poolID, provider, accountID) || reconnectRequired
-	}
-	if !reconnectRequired {
+	if !r.admitted(ctx, accountID, owner) {
 		return ErrNoAvailableAccount
 	}
-	return r.updateAccountHealth(ctx, owner, accountID, auth.SubscriptionAccountStateReconnectRequired, false, nil)
+	r.manager.ReconnectRequired("account:"+accountID, provider, accountID)
+	return r.updateAccountHealth(ctx, r.physicalOwner(accountID, owner), accountID, auth.SubscriptionAccountStateReconnectRequired, false, nil)
 }
-
-// Activate records a successful provider response for a linked account.
 func (r *Runtime) Activate(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string) error {
-	activated := false
-	for _, poolID := range ownerPools(owner) {
-		activated = r.manager.Activate(poolID, provider, accountID) || activated
-	}
-	if !activated {
+	if !r.admitted(ctx, accountID, owner) {
 		return ErrNoAvailableAccount
 	}
-	return r.updateAccountHealth(ctx, owner, accountID, auth.SubscriptionAccountStateActive, true, nil)
+	r.manager.Activate("account:"+accountID, provider, accountID)
+	return r.updateAccountHealth(ctx, r.physicalOwner(accountID, owner), accountID, auth.SubscriptionAccountStateActive, true, nil)
 }
-
 func (r *Runtime) Disable(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string) error {
-	disabled := false
-	for _, poolID := range ownerPools(owner) {
-		disabled = r.manager.Disable(poolID, provider, accountID) || disabled
-	}
-	if !disabled {
+	if !r.admitted(ctx, accountID, owner) {
 		return ErrNoAvailableAccount
 	}
-	return r.store.UpdateSubscriptionAccountState(ctx, owner, accountID, false, nil)
+	r.manager.Disable("account:"+accountID, provider, accountID)
+	return r.store.UpdateSubscriptionAccountState(ctx, r.physicalOwner(accountID, owner), accountID, false, nil)
 }
-
 func (r *Runtime) updateAccountHealth(ctx context.Context, owner auth.SubscriptionOwner, accountID string, state auth.SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) error {
 	if store, ok := r.store.(interface {
 		UpdateSubscriptionAccountHealth(context.Context, auth.SubscriptionOwner, string, auth.SubscriptionAccountState, bool, *time.Time) error
@@ -196,110 +249,6 @@ func (r *Runtime) updateAccountHealth(ctx context.Context, owner auth.Subscripti
 		return store.UpdateSubscriptionAccountHealth(ctx, owner, accountID, state, enabled, cooldownUntil)
 	}
 	return r.store.UpdateSubscriptionAccountState(ctx, owner, accountID, enabled, cooldownUntil)
-}
-
-// ownerPools lists the pools an owner serves, stable capacity first. A
-// subscriber with unmigrated rows has both; every other owner has one.
-func ownerPools(owner auth.SubscriptionOwner) []string {
-	pools := []string{owner.PoolKey()}
-	if legacy := owner.LegacyPoolKey(); legacy != "" && legacy != pools[0] {
-		pools = append(pools, legacy)
-	}
-	return pools
-}
-
-// leaseFromPools exhausts stable subscriber capacity before falling back to
-// the rows this key alone still owns.
-func (r *Runtime) leaseFromPools(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, sessionID string) (Account, func(), error) {
-	pools := ownerPools(owner)
-	for index, poolID := range pools {
-		account, release, err := r.manager.Lease(ctx, poolID, provider, sessionID, r.refresh(owner))
-		if errors.Is(err, ErrNoAvailableAccount) && index < len(pools)-1 {
-			continue
-		}
-		return account, release, err
-	}
-	return Account{}, nil, ErrNoAvailableAccount
-}
-
-func (r *Runtime) syncAccounts(ctx context.Context, owner auth.SubscriptionOwner, provider Provider) (bool, error) {
-	pools := ownerPools(owner)
-	key := poolKey(owner.SyncKey(), provider)
-	r.mu.Lock()
-	if syncedAt := r.syncedAt[key]; !syncedAt.IsZero() && r.clock().Sub(syncedAt) < r.syncTTL {
-		r.mu.Unlock()
-		for _, poolID := range pools {
-			if r.providerAccountCount(poolID, provider) > 0 {
-				return true, nil
-			}
-		}
-		return false, nil
-	}
-	if call, ok := r.syncing[key]; ok {
-		r.mu.Unlock()
-		select {
-		case <-ctx.Done():
-			return false, ctx.Err()
-		case <-call.done:
-			return call.present, call.err
-		}
-	}
-	call := &runtimeSyncCall{done: make(chan struct{})}
-	r.syncing[key] = call
-	r.mu.Unlock()
-
-	accounts, err := r.store.ListSubscriptionAccounts(ctx, owner)
-	pooled := make(map[string][]Account, len(pools))
-	total := 0
-	if err == nil {
-		for _, poolID := range pools {
-			pooled[poolID] = []Account{}
-		}
-		for _, account := range accounts {
-			if Provider(account.Provider) != provider {
-				continue
-			}
-			poolID := owner.PoolKey()
-			if account.SubscriberID == "" {
-				poolID = owner.LegacyPoolKey()
-			}
-			if _, ok := pooled[poolID]; !ok {
-				continue
-			}
-			providerAccountID := ""
-			if provider == ProviderCodex {
-				providerAccountID = account.ExternalAccountID
-			}
-			var cooldown time.Time
-			if account.CooldownUntil != nil {
-				cooldown = *account.CooldownUntil
-			}
-			pooled[poolID] = append(pooled[poolID], Account{
-				ID: account.ID, OwnerID: poolID, Provider: provider, AccountID: providerAccountID,
-				Enabled: account.Enabled, State: account.State, CooldownTil: cooldown,
-			})
-			total++
-		}
-		for _, poolID := range pools {
-			if err = r.manager.Sync(poolID, provider, pooled[poolID]); err != nil {
-				break
-			}
-		}
-	}
-
-	r.mu.Lock()
-	if err == nil {
-		r.syncedAt[key] = r.clock()
-	}
-	call.present, call.err = total > 0, err
-	delete(r.syncing, key)
-	close(call.done)
-	r.mu.Unlock()
-	return call.present, call.err
-}
-
-func (r *Runtime) providerAccountCount(poolID string, provider Provider) int {
-	return r.manager.pool(poolID, provider).accountCount(provider)
 }
 
 func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
@@ -565,3 +514,22 @@ func (*providerAccountMismatchError) Error() string {
 	return "refreshed subscription account identity changed"
 }
 func (*providerAccountMismatchError) Terminal() bool { return true }
+
+func (r *Runtime) admitted(ctx context.Context, accountID string, owner auth.SubscriptionOwner) bool {
+	store, ok := r.store.(interface {
+		ListSubscriptionCandidates(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error)
+	})
+	if !ok {
+		return false
+	}
+	accounts, err := store.ListSubscriptionCandidates(ctx, owner)
+	if err != nil {
+		return false
+	}
+	for _, account := range accounts {
+		if account.ID == accountID && account.SubscriberID != "" {
+			return true
+		}
+	}
+	return false
+}

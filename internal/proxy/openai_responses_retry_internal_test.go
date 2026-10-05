@@ -29,6 +29,9 @@ type responsesRetryClient struct {
 	endpoints []providers.Endpoint
 }
 
+// Synthetic provider never bills subscription extra usage.
+func (*responsesRetryClient) IncludedOnlySubscriptions() bool { return true }
+
 func (c *responsesRetryClient) Proxy(_ context.Context, _ router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
 	c.endpoints = append(c.endpoints, prep.Endpoint)
 	if len(c.endpoints) == 1 {

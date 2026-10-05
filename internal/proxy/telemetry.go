@@ -211,9 +211,14 @@ type InsertTelemetryParams struct {
 	// client). Empty on deployment-key turns, leaving the columns NULL. Equal
 	// prefix/suffix values across distinct RouterUserIDs reveal one subscription
 	// paying for many seats.
-	CredentialKeyPrefix string
-	CredentialKeySuffix string
-	CredentialSource    string
+	CredentialKeyPrefix   string
+	CredentialKeySuffix   string
+	CredentialSource      string
+	SubscriptionAccountID string
+	SubscriptionOwnerID   string
+	SubscriptionTier      auth.SubscriptionTier
+	IntendedModelFamily   string
+	FinalModelFamily      string
 
 	// UnifiedLimitHeaders is the verbatim anthropic-ratelimit-unified-* header
 	// set, pre-marshaled JSON. Phase 0 instrumentation — nil on non-subscription

@@ -29,6 +29,9 @@ type CredentialsContextKey = requestcontext.CredentialsContextKey
 
 // CredentialsFromContext returns the resolved credentials stashed on ctx.
 func CredentialsFromContext(ctx context.Context) *Credentials {
+	if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.Finished {
+		return usage.WinningCredentials
+	}
 	return requestcontext.CredentialsFromContext(ctx)
 }
 

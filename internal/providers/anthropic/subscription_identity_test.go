@@ -104,9 +104,7 @@ func TestAPIKeyRequestKeepsCallerSystemPromptUntouched(t *testing.T) {
 	assert.Equal(t, "You are a haiku bot.", gjson.GetBytes(body, "system").String(), "paid API-key traffic carries no Claude Code identity")
 }
 
-func TestInboundSubscriptionBearerPassthroughGetsClaudeCodeIdentity(t *testing.T) {
-	// Pure passthrough: no resolved credential and no deployment key, so the
-	// caller's own sk-ant-oat bearer authenticates the turn upstream.
+func TestInboundSubscriptionBearerPassthroughIsRefused(t *testing.T) {
 	var upstreamBody []byte
 	srv := upstreamBodyServer(t, &upstreamBody)
 	c := anthropic.NewClient("", srv.URL)
@@ -117,9 +115,8 @@ func TestInboundSubscriptionBearerPassthroughGetsClaudeCodeIdentity(t *testing.T
 	inbound := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	inbound.Header.Set("Authorization", "Bearer sk-ant-oat01-caller-token")
 
-	require.NoError(t, c.Proxy(context.Background(), router.Decision{Model: "claude-opus-5"}, prep, httptest.NewRecorder(), inbound))
-
-	assert.Equal(t, claudeCodeIdentity, gjson.GetBytes(upstreamBody, "system").Array()[0].Get("text").String())
+	require.Error(t, c.Proxy(context.Background(), router.Decision{Model: "claude-opus-5"}, prep, httptest.NewRecorder(), inbound))
+	assert.Nil(t, upstreamBody, "an unresolved inbound subscription bearer must never reach the upstream")
 }
 
 func TestBearerGatewayRequestKeepsCallerSystemPromptUntouched(t *testing.T) {

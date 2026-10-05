@@ -146,6 +146,11 @@ INSERT INTO router.model_router_request_telemetry (
     credential_key_prefix,
     credential_key_suffix,
     credential_source,
+    subscription_account_id,
+    subscription_owner_id,
+    subscription_tier,
+    intended_model_family,
+    final_model_family,
     unified_limit_headers,
     policy_pin_requested,
     policy_pin_honoured,
@@ -311,6 +316,11 @@ INSERT INTO router.model_router_request_telemetry (
     sqlc.narg('credential_key_prefix')::varchar,
     sqlc.narg('credential_key_suffix')::varchar,
     sqlc.narg('credential_source')::varchar,
+    sqlc.narg('subscription_account_id')::uuid,
+    sqlc.narg('subscription_owner_id')::uuid,
+    sqlc.narg('subscription_tier')::varchar,
+    sqlc.narg('intended_model_family')::varchar,
+    sqlc.narg('final_model_family')::varchar,
     sqlc.narg('unified_limit_headers')::jsonb,
     sqlc.narg('policy_pin_requested')::boolean,
     sqlc.narg('policy_pin_honoured')::boolean,
@@ -793,12 +803,19 @@ SELECT
     -- NULL IN (...) is NULL, which cannot scan into the generated bool.
     COALESCE(
         t.credential_source IN ('subscription', 'codex_subscription')
+        AND t.upstream_status_code >= 200 AND t.upstream_status_code < 300
         AND (
             t.unified_limit_headers->>'anthropic-ratelimit-unified-representative-claim' = 'overage'
             AND t.unified_limit_headers->>'anthropic-ratelimit-unified-overage-in-use' = 'true'
         ) IS DISTINCT FROM true,
         false
     )::boolean AS subscription_served,
+    t.credential_source,
+    t.subscription_account_id,
+    t.subscription_owner_id,
+    t.subscription_tier,
+    t.intended_model_family,
+    t.final_model_family,
     t.actual_input_cost_usd,
     t.actual_output_cost_usd,
     t.route_latency_ms,

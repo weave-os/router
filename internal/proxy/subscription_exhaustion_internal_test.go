@@ -133,14 +133,14 @@ func TestClaudeSubscriptionExhausted(t *testing.T) {
 		assert.True(t, s.claudeSubscriptionExhausted(context.Background(), headers()))
 	})
 
-	t.Run("exhausted but no fallback key — keep using the subscription", func(t *testing.T) {
+	t.Run("exhausted without fallback key is unavailable", func(t *testing.T) {
 		// Without a deployment / BYOK Anthropic key there is nothing to fall
 		// through to; dropping the token would 400 instead of 429, which is worse.
 		s := &Service{
 			usageObserver:            observerWithSnapshot(exhaustedSubToken, exhaustedSnapshot()),
 			deploymentKeyedProviders: map[string]struct{}{},
 		}
-		assert.False(t, s.claudeSubscriptionExhausted(context.Background(), headers()))
+		assert.True(t, s.claudeSubscriptionExhausted(context.Background(), headers()))
 	})
 
 	t.Run("subscription has headroom", func(t *testing.T) {

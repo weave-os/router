@@ -170,18 +170,12 @@ func (*subscriptionAccountRepoStub) CooldownSubscriptionAccountIfRefreshHolder(c
 func TestSubscriptionOwnerForKeyPrefersCredentialSubject(t *testing.T) {
 	subscriberOwner := SubscriptionOwnerForKey(&APIKey{ID: "key-1", CredentialSubjectID: "subscriber-1"})
 	require.Equal(t, SubscriptionOwner{SubscriberID: "subscriber-1", APIKeyID: "key-1"}, subscriberOwner)
-	require.Equal(t, "subscriber:subscriber-1", subscriberOwner.PoolKey())
 
-	// A second harness key of the same subscriber draws from the same pool.
-	require.Equal(t, subscriberOwner.PoolKey(),
-		SubscriptionOwnerForKey(&APIKey{ID: "key-2", CredentialSubjectID: "subscriber-1"}).PoolKey())
-
-	// A key with no credential subject keeps its own legacy pool.
+	sibling := SubscriptionOwnerForKey(&APIKey{ID: "key-2", CredentialSubjectID: "subscriber-1"})
+	require.Equal(t, subscriberOwner.SubscriberID, sibling.SubscriberID)
 	legacyOwner := SubscriptionOwnerForKey(&APIKey{ID: "key-3"})
-	require.Equal(t, "api_key:key-3", legacyOwner.PoolKey())
-	require.True(t, legacyOwner.Valid())
+	require.Empty(t, legacyOwner.SubscriberID)
 	require.False(t, SubscriptionOwnerForKey(nil).Valid())
-	require.Empty(t, SubscriptionOwner{}.PoolKey())
 
 	require.Equal(t, "subscriber:subscriber-1", subscriberOwner.LogKey())
 	require.NotContains(t, legacyOwner.LogKey(), "key-3")

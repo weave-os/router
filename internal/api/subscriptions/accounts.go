@@ -50,7 +50,12 @@ func listAccountsHandler(authSvc *auth.Service) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "router_key_required"})
 			return
 		}
-		accounts, err := authSvc.ListSubscriptionAccounts(c.Request.Context(), middleware.SubscriptionOwnerLive(c, authSvc))
+		owner, err := middleware.SubscriptionOwnerLive(c, authSvc)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "subscription_owner_unavailable"})
+			return
+		}
+		accounts, err := authSvc.ListSubscriptionAccounts(c.Request.Context(), owner)
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "subscription_accounts_unavailable"})
 			return
@@ -76,7 +81,12 @@ func createAccountHandler(authSvc *auth.Service) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_subscription_account"})
 			return
 		}
-		account, err := authSvc.AddSubscriptionAccount(c.Request.Context(), auth.CreateSubscriptionAccountParams{Owner: middleware.SubscriptionOwnerLive(c, authSvc), Provider: request.Provider, ExternalAccountID: request.ExternalAccountID, DisplayName: request.DisplayName, RefreshToken: []byte(request.RefreshToken), InstallationExternalID: installation.ExternalID})
+		owner, err := middleware.SubscriptionOwnerLive(c, authSvc)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "subscription_owner_unavailable"})
+			return
+		}
+		account, err := authSvc.AddSubscriptionAccount(c.Request.Context(), auth.CreateSubscriptionAccountParams{Owner: owner, Provider: request.Provider, ExternalAccountID: request.ExternalAccountID, DisplayName: request.DisplayName, RefreshToken: []byte(request.RefreshToken), InstallationExternalID: installation.ExternalID})
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "subscription_account_rejected"})
 			return
@@ -97,7 +107,12 @@ func updateAccountHandler(authSvc *auth.Service) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "enabled_is_required"})
 			return
 		}
-		if err := authSvc.UpdateSubscriptionAccountState(c.Request.Context(), middleware.SubscriptionOwnerLive(c, authSvc), c.Param("id"), *request.Enabled, request.CooldownUntil); err != nil {
+		owner, err := middleware.SubscriptionOwnerLive(c, authSvc)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "subscription_owner_unavailable"})
+			return
+		}
+		if err := authSvc.UpdateSubscriptionAccountState(c.Request.Context(), owner, c.Param("id"), *request.Enabled, request.CooldownUntil); err != nil {
 			if errors.Is(err, auth.ErrSubscriptionAccountNotFound) {
 				c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "subscription_account_not_found"})
 				return
@@ -116,7 +131,12 @@ func deleteAccountHandler(authSvc *auth.Service) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "router_key_required"})
 			return
 		}
-		if err := authSvc.DeleteSubscriptionAccount(c.Request.Context(), middleware.SubscriptionOwnerLive(c, authSvc), c.Param("id")); err != nil {
+		owner, err := middleware.SubscriptionOwnerLive(c, authSvc)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "subscription_owner_unavailable"})
+			return
+		}
+		if err := authSvc.DeleteSubscriptionAccount(c.Request.Context(), owner, c.Param("id")); err != nil {
 			if errors.Is(err, auth.ErrSubscriptionAccountNotFound) {
 				c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "subscription_account_not_found"})
 				return

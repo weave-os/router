@@ -313,8 +313,8 @@ func TestSubscriptionFailoverParity_PreDispatchSuppression(t *testing.T) {
 			})
 
 			t.Run("no fallback key: never suppress", func(t *testing.T) {
-				assert.False(t, in.exhausted(withObserver(&Service{}), in.subCtx(), http.Header{}),
-					"suppressing with no paid key would leave the turn with no credential at all")
+				assert.True(t, in.exhausted(withObserver(&Service{}), in.subCtx(), http.Header{}),
+					"known spent capacity is unavailable even without API credentials")
 			})
 
 			t.Run("token absent from the request: never suppress", func(t *testing.T) {
@@ -572,6 +572,8 @@ type parityUpstream struct {
 	servedModels   []string
 }
 
+func (*parityUpstream) IncludedOnlySubscriptions() bool { return true }
+
 func (p *parityUpstream) Proxy(ctx context.Context, decision router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
 	p.servedModels = append(p.servedModels, decision.Model)
 	// No credential in context means the provider adapter falls back to the
@@ -708,7 +710,7 @@ func TestSubscriptionFailoverParity_RescueDispatch(t *testing.T) {
 // is not. A rescue changes the credential, not the model, so the two ingresses
 // disagree about whether that invalidates an experiment arm.
 func TestSubscriptionFailoverParity_CallerModelPassthrough(t *testing.T) {
-	wantPaid := map[string]int{"anthropic": 1, "codex": 0}
+	wantPaid := map[string]int{"anthropic": 1, "codex": 1}
 	for _, in := range parityIngresses() {
 		t.Run(in.name, func(t *testing.T) {
 			upstream := &parityUpstream{
@@ -726,7 +728,7 @@ func TestSubscriptionFailoverParity_CallerModelPassthrough(t *testing.T) {
 
 			_ = in.call(svc, ctx, body, rec, req)
 			assert.Equal(t, wantPaid[in.name], upstream.paidDispatches,
-				"blind-experiment passthrough gates the Codex rescue and not the Anthropic one (D9)")
+				"caller model remains fixed while authorized funding falls back for either provider")
 		})
 	}
 }

@@ -15,20 +15,18 @@ var ErrNoEligibleArm = errors.New("no eligible arm in any ranked group")
 
 // SelectionInput is the content-free classification the router selects an arm from.
 type SelectionInput struct {
-	TaskDomain                       *taskdomain.Outcome
-	Strategy                         router.Strategy
-	ExecutionMode                    string
-	RouteID                          string
-	Harness                          string
-	PredictedLabel                   string
-	ClassOrder                       []string
-	ClassProbabilities               map[string]float64
-	ForcedGroup                      string
-	CandidateRosterIDs               []string
-	QualityBias                      *float64
-	PreferredModels                  []string
-	SubscriptionStatePreferredModels []string
-	SubsidizedModelCostFactor        map[string]float64
+	TaskDomain         *taskdomain.Outcome
+	Strategy           router.Strategy
+	ExecutionMode      string
+	RouteID            string
+	Harness            string
+	PredictedLabel     string
+	ClassOrder         []string
+	ClassProbabilities map[string]float64
+	ForcedGroup        string
+	CandidateRosterIDs []string
+	QualityBias        *float64
+	PreferredModels    []string
 	// RosterSHA256 pins selection to one boot-loaded roster; empty uses the
 	// default. Unknown digests fail with router.ErrPolicyPinUnavailable.
 	RosterSHA256 string
@@ -65,18 +63,16 @@ func selectionInputFor(strategy router.Strategy, executionMode string, req route
 		candidateRosterIDs = append(candidateRosterIDs, candidate.RosterID)
 	}
 	input := SelectionInput{
-		TaskDomain:                       res.TaskDomain,
-		Strategy:                         strategy,
-		ExecutionMode:                    executionMode,
-		RouteID:                          res.RouteID,
-		Harness:                          SelectionHarnessForClientApp(req.ClientApp),
-		PredictedLabel:                   res.PredictedLabel,
-		ClassOrder:                       append([]string(nil), res.ClassOrder...),
-		ClassProbabilities:               cloneProbabilities(res.ClassProbabilities),
-		CandidateRosterIDs:               candidateRosterIDs,
-		PreferredModels:                  append([]string(nil), req.PreferredModels...),
-		SubscriptionStatePreferredModels: append([]string(nil), req.SubscriptionStatePreferredModels...),
-		SubsidizedModelCostFactor:        cloneModelFactors(req.SubsidizedModelCostFactor),
+		TaskDomain:         res.TaskDomain,
+		Strategy:           strategy,
+		ExecutionMode:      executionMode,
+		RouteID:            res.RouteID,
+		Harness:            SelectionHarnessForClientApp(req.ClientApp),
+		PredictedLabel:     res.PredictedLabel,
+		ClassOrder:         append([]string(nil), res.ClassOrder...),
+		ClassProbabilities: cloneProbabilities(res.ClassProbabilities),
+		CandidateRosterIDs: candidateRosterIDs,
+		PreferredModels:    append([]string(nil), req.PreferredModels...),
 	}
 	if req.RoutingKnobs != nil && req.RoutingKnobs.QualityBias != nil {
 		qualityBias := *req.RoutingKnobs.QualityBias
@@ -88,17 +84,6 @@ func selectionInputFor(strategy router.Strategy, executionMode string, req route
 		}
 	}
 	return input
-}
-
-func cloneModelFactors(factors map[string]float64) map[string]float64 {
-	if len(factors) == 0 {
-		return nil
-	}
-	cloned := make(map[string]float64, len(factors))
-	for model, factor := range factors {
-		cloned[model] = factor
-	}
-	return cloned
 }
 
 func cloneProbabilities(probabilities map[string]float64) map[string]float64 {

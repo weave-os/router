@@ -248,22 +248,18 @@ func TestProxy_NonOAuthCredentialUsesAPIKey(t *testing.T) {
 	assert.NotContains(t, gotBeta, "oauth-2025-04-20", "the oauth beta flag must only be added for subscription tokens")
 }
 
-func TestProxy_PassesThroughInboundSubscriptionWithBetaHeader(t *testing.T) {
-	var (
-		gotAuth string
-		gotBeta string
-	)
+func TestProxy_RefusesUnresolvedInboundSubscriptionBearer(t *testing.T) {
+	upstreamCalls := 0
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotAuth = r.Header.Get("Authorization")
-		gotBeta = r.Header.Get("anthropic-beta")
+		upstreamCalls++
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"id":"msg_1"}`))
 	}))
 	defer upstream.Close()
 
-	// Self-hosted pure passthrough: no deployment key, no resolved credential —
-	// the caller's own subscription bearer rides the inbound Authorization and
-	// must still get the oauth beta flag.
+	// No deployment key and no resolved credential: relaying the caller's
+	// subscription bearer would dispatch OAuth inference without included-only
+	// enforcement, so the adapter refuses before any upstream I/O.
 	c := anthropic.NewClient("", upstream.URL)
 	rec := httptest.NewRecorder()
 	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -271,10 +267,8 @@ func TestProxy_PassesThroughInboundSubscriptionWithBetaHeader(t *testing.T) {
 	prep := providers.PreparedRequest{Body: []byte(`{"model":"x"}`), Headers: make(http.Header)}
 
 	err := c.Proxy(context.Background(), router.Decision{Model: "claude-opus-4-8"}, prep, rec, clientReq)
-	require.NoError(t, err)
-
-	assert.Equal(t, "Bearer sk-ant-oat01-subscription-token", gotAuth, "inbound subscription bearer must pass through verbatim")
-	assert.Contains(t, gotBeta, "oauth-2025-04-20", "a passed-through subscription bearer must still get the oauth beta flag")
+	require.Error(t, err)
+	assert.Zero(t, upstreamCalls, "an unresolved inbound subscription bearer must never reach the upstream")
 }
 
 func TestProxy_DeploymentKeyOutranksInboundSubscriptionBearerAndDropsBeta(t *testing.T) {

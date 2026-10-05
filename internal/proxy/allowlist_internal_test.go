@@ -37,20 +37,17 @@ func TestAllowedModelsForRequest_BuildsSet(t *testing.T) {
 
 func TestAllowedModelsForRequest_IgnoresSubscriptionStatePreferences(t *testing.T) {
 	ctx := ctxWithAllowedModels("a", "b")
-	ctx = context.WithValue(ctx, SubscriptionStatePreferredModelsContextKey{}, []string{"b", "c"})
 
 	assert.Equal(t, map[string]struct{}{"a": {}, "b": {}}, allowedModelsForRequest(ctx))
 }
 
 func TestAllowedModelsForRequest_SubscriptionPreferenceWithoutAllowlistIsUnrestricted(t *testing.T) {
-	ctx := context.WithValue(context.Background(), SubscriptionStatePreferredModelsContextKey{}, []string{"a"})
 
-	assert.Nil(t, allowedModelsForRequest(ctx))
+	assert.Nil(t, allowedModelsForRequest(context.Background()))
 }
 
 func TestAllowedModelsForRequest_ActiveCodexPreferenceKeepsCrossProviderModels(t *testing.T) {
 	ctx := ctxWithAllowedModels("gpt-5.6-sol", "grok-4.6", "claude-fable-5-1")
-	ctx = context.WithValue(ctx, SubscriptionStatePreferredModelsContextKey{}, []string{"gpt-5.6-sol"})
 
 	assert.Equal(t, map[string]struct{}{
 		"gpt-5.6-sol":      {},

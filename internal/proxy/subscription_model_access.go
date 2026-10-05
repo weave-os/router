@@ -12,7 +12,6 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
-	"weave-os/router/internal/router/catalog"
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/tidwall/gjson"
@@ -123,12 +122,11 @@ func (s *Service) resolveCredentials(ctx context.Context, provider, model string
 	resolved := resolveAndInjectCredentials(ctx, provider, model, headers)
 	creds := CredentialsFromContext(resolved)
 	if provider == providers.ProviderOpenAI && creds != nil && creds.OAuth && len(creds.AccountID) > 0 &&
-		!paidFallbackForbidden(ctx) && s.openaiFallbackKeyAvailable(ctx) &&
+
 		s.subscriptionModels.deniedForProvider(creds.APIKey, provider, model, s.clockNow()) {
 		return resolveAndInjectCredentials(withSuppressedCodexModel(resolved, model), provider, model, headers)
 	}
 	if provider != providers.ProviderAnthropic || creds == nil || !creds.OAuth ||
-		paidFallbackForbidden(ctx) || !s.anthropicFallbackKeyAvailable(ctx) ||
 		!s.subscriptionModels.denied(creds.APIKey, model, s.clockNow()) {
 		return resolved
 	}
@@ -139,28 +137,4 @@ func (s *Service) resolveCredentials(ctx context.Context, provider, model string
 	}
 	models[router.StripDateSuffix(model)] = struct{}{}
 	return resolveAndInjectCredentials(context.WithValue(ctx, suppressClaudeModelContextKey{}, models), provider, model, headers)
-}
-
-func (s *Service) excludeUnavailableSubscriptionModels(ctx context.Context, headers http.Header, enabled, excluded map[string]struct{}) map[string]struct{} {
-	_, token := presentSubscriptionTokens(ctx, headers)
-	if token == "" || (!paidFallbackForbidden(ctx) && s.anthropicFallbackKeyAvailable(ctx)) {
-		return excluded
-	}
-	for _, model := range catalog.Models {
-		if !s.subscriptionModels.denied([]byte(token), model.ID, s.clockNow()) {
-			continue
-		}
-		for _, binding := range model.Providers {
-			if enabled != nil {
-				if _, ok := enabled[binding.Provider]; !ok {
-					continue
-				}
-			}
-			if binding.Provider == providers.ProviderAnthropic {
-				excluded = excludingModel(excluded, model.ID)
-			}
-			break
-		}
-	}
-	return excluded
 }

@@ -672,6 +672,9 @@ type sequencedClient struct {
 	responses []func(w http.ResponseWriter) error
 }
 
+// Synthetic provider never bills subscription extra usage.
+func (*sequencedClient) IncludedOnlySubscriptions() bool { return true }
+
 func (c *sequencedClient) Proxy(_ context.Context, _ router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
 	c.mu.Lock()
 	i := len(c.bodies)

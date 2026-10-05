@@ -74,8 +74,6 @@ func SelectorWithDomainEvidence(roster *rosterdata.Roster, evidence *DomainEvide
 			candidates,
 			input.QualityBias,
 			input.PreferredModels,
-			input.SubscriptionStatePreferredModels,
-			input.SubsidizedModelCostFactor,
 			evidence, profile,
 		)
 		if !ok {
@@ -112,21 +110,19 @@ func SelectorWithDomainEvidence(roster *rosterdata.Roster, evidence *DomainEvide
 		return policy.SelectionPick{
 			Group: pick.Group, Arm: pick.Arm, ArmScoresByGroup: scoresByGroup, RankedFallback: fallback, RosterSHA256: roster.SHA256,
 			Trace: policy.SelectionTrace{
-				TaskDomain:                       input.TaskDomain,
-				ClassifierRanking:                append([]string(nil), rankedGroups...),
-				Harness:                          input.Harness,
-				ForcedGroup:                      input.ForcedGroup,
-				CandidateRosterIDs:               append([]string(nil), input.CandidateRosterIDs...),
-				QualityBias:                      input.QualityBias,
-				PreferredModels:                  append([]string(nil), input.PreferredModels...),
-				SubscriptionStatePreferredModels: append([]string(nil), input.SubscriptionStatePreferredModels...),
-				SubsidizedModelCostFactor:        cloneModelFactors(input.SubsidizedModelCostFactor),
-				EffectiveOrders:                  ordersByGroup,
-				ScoresByGroup:                    scoresByGroup,
-				ScoreComponentsByGroup:           scoreComponentsByGroup,
-				SelectedGroup:                    pick.Group,
-				SelectedArm:                      pick.Arm,
-				FallbackDepth:                    pick.FallbackDepth,
+				TaskDomain:             input.TaskDomain,
+				ClassifierRanking:      append([]string(nil), rankedGroups...),
+				Harness:                input.Harness,
+				ForcedGroup:            input.ForcedGroup,
+				CandidateRosterIDs:     append([]string(nil), input.CandidateRosterIDs...),
+				QualityBias:            input.QualityBias,
+				PreferredModels:        append([]string(nil), input.PreferredModels...),
+				EffectiveOrders:        ordersByGroup,
+				ScoresByGroup:          scoresByGroup,
+				ScoreComponentsByGroup: scoreComponentsByGroup,
+				SelectedGroup:          pick.Group,
+				SelectedArm:            pick.Arm,
+				FallbackDepth:          pick.FallbackDepth,
 			},
 		}, nil
 	}
@@ -166,17 +162,6 @@ func unscorableGroups(roster *rosterdata.Roster, input policy.SelectionInput) ([
 		}
 	}
 	return eligible, nil
-}
-
-func cloneModelFactors(factors map[string]float64) map[string]float64 {
-	if len(factors) == 0 {
-		return nil
-	}
-	cloned := make(map[string]float64, len(factors))
-	for model, factor := range factors {
-		cloned[model] = factor
-	}
-	return cloned
 }
 
 func classifierGroups(input policy.SelectionInput) ([]string, error) {

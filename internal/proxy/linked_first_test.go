@@ -37,7 +37,7 @@ func spentCodexService(p *fakeProvider) *proxy.Service {
 		Primary: usage.Window{UsedPercent: 1.0, WindowMinutes: 300},
 	})
 	return proxy.NewService(fr, map[string]providers.Client{providers.ProviderOpenAI: p}, nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil).
-		WithSubscriptionAwareRouting(obs, 0.05, 2.0).
+		WithUsageObserver(obs).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 }
 
@@ -116,7 +116,7 @@ func TestLinkedFirst_Anthropic_SpentClaudePlan_ContinuesOnWeaveKey(t *testing.T)
 		Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080},
 	})
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
-		WithSubscriptionAwareRouting(obs, 0.05, 2.0).
+		WithUsageObserver(obs).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 
 	rec, req, body := bypassRequest(t)
@@ -161,7 +161,7 @@ func TestLinkedFirst_Anthropic_BypassThrottled_ReroutesOnCredits(t *testing.T) {
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: observing}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
-		WithSubscriptionAwareRouting(obs, 0.05, 2.0).
+		WithUsageObserver(obs).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 
 	rec, req, body := bypassRequest(t)
@@ -191,13 +191,13 @@ func TestLinkedFirst_Anthropic_SpentClaudePlan_NoFallbackKey_Refuses402(t *testi
 		Secondary: usage.Window{UsedPercent: 1.0, WindowMinutes: 10080},
 	})
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
-		WithSubscriptionAwareRouting(obs, 0.05, 2.0)
+		WithUsageObserver(obs)
 
 	rec, req, body := bypassRequest(t)
 	ctx := billing.WithSubscriptionOnly(bypassCtx(0.80), billing.SubscriptionOnlyLinkedFirst)
 	err := svc.ProxyMessages(ctx, body, rec, req)
 	require.Error(t, err)
-	assert.True(t, errors.Is(err, proxy.ErrCreditsExhaustedSubscriptionUnavailable))
+	assert.True(t, errors.Is(err, proxy.ErrSubscriptionPoolExhausted) || errors.Is(err, proxy.ErrCreditsExhaustedSubscriptionUnavailable))
 	assert.Empty(t, p.proxyBodies, "a plan already known to be spent must not be dispatched on when nothing else can serve")
 }
 
@@ -207,6 +207,9 @@ type headerObservingProvider struct {
 	headers http.Header
 	inner   providers.Client
 }
+
+// Synthetic provider never bills subscription extra usage.
+func (*headerObservingProvider) IncludedOnlySubscriptions() bool { return true }
 
 func (h *headerObservingProvider) Proxy(ctx context.Context, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
 	providers.ObserveUpstreamHeaders(ctx, h.headers)

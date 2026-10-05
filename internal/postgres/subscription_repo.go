@@ -45,26 +45,22 @@ func (r *subscriptionAccountRepo) UpsertSubscriptionAccount(ctx context.Context,
 		return nil, auth.SubscriptionUpsertUpdated, err
 	}
 	if params.Owner.SubscriberID == "" {
-		row, legacyErr := dbbudget.Queries(r.tx).UpsertModelRouterSubscriptionAccount(ctx, sqlc.UpsertModelRouterSubscriptionAccountParams{
-			APIKeyID: apiKeyID, Provider: string(params.Provider), ExternalAccountID: params.ExternalAccountID,
-			DisplayName: optionalSubscriptionAccountDisplayName(params.DisplayName), RefreshTokenCiphertext: params.RefreshToken,
-		})
-		if legacyErr != nil {
-			return nil, auth.SubscriptionUpsertUpdated, legacyErr
-		}
-		return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID,
-			row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt), subscriptionUpsertKind(row.Inserted, row.Adopted), nil
+		return nil, auth.SubscriptionUpsertUpdated, auth.ErrSubscriptionAccountNotFound
 	}
+	installationID, err := uuid.Parse(params.Owner.InstallationID)
+	if err != nil {
+		return nil, auth.SubscriptionUpsertUpdated, err
+	}
+
 	subscriberID, err := uuid.Parse(params.Owner.SubscriberID)
 	if err != nil {
 		return nil, auth.SubscriptionUpsertUpdated, err
 	}
-	// Concurrent enrollments can each adopt a different legacy duplicate of the
-	// same account, so the loser hits the subscriber-owned unique index. A retry
-	// reads the winning row and adopts that one instead of a second duplicate.
+	// Concurrent enrollments of one physical account retry against the winning
+	// owner row; legacy identities always require explicit administrator resolution.
 	for attempt := 0; ; attempt++ {
 		row, err := dbbudget.Queries(r.tx).UpsertModelRouterSubscriptionAccountForSubscriber(ctx, sqlc.UpsertModelRouterSubscriptionAccountForSubscriberParams{
-			SubscriberID: subscriberID, APIKeyID: apiKeyID, Provider: string(params.Provider),
+			InstallationID: installationID, SubscriberID: subscriberID, APIKeyID: apiKeyID, Provider: string(params.Provider),
 			ExternalAccountID: params.ExternalAccountID, DisplayName: optionalSubscriptionAccountDisplayName(params.DisplayName), RefreshTokenCiphertext: params.RefreshToken,
 		})
 		if err == nil {
@@ -81,7 +77,7 @@ func isSubscriberAccountConflict(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) &&
 		pgErr.Code == uniqueViolationCode &&
-		pgErr.ConstraintName == subscriberAccountUniqueIndex
+		(pgErr.ConstraintName == subscriberAccountUniqueIndex || pgErr.ConstraintName == "model_router_subscription_accounts_active_physical_identity_idx")
 }
 
 func (r *subscriptionAccountRepo) UpdateSubscriptionAccountCooldown(ctx context.Context, accountID string, owner auth.SubscriptionOwner, cooldownUntil time.Time) error {
@@ -95,7 +91,7 @@ func (r *subscriptionAccountRepo) UpdateSubscriptionAccountCooldown(ctx context.
 	}
 	rows, err := dbbudget.Queries(r.tx).UpdateModelRouterSubscriptionAccountCooldown(ctx, sqlc.UpdateModelRouterSubscriptionAccountCooldownParams{
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID,
-		CooldownUntil: pgtype.Timestamp{Time: cooldownUntil, Valid: true},
+		CooldownUntil: pgtype.Timestamp{Time: cooldownUntil.UTC(), Valid: true},
 	})
 	if err != nil {
 		return err
@@ -135,7 +131,7 @@ func (r *subscriptionAccountRepo) UpdateSubscriptionAccountState(ctx context.Con
 	}
 	var cooldown pgtype.Timestamp
 	if cooldownUntil != nil {
-		cooldown = pgtype.Timestamp{Time: *cooldownUntil, Valid: true}
+		cooldown = pgtype.Timestamp{Time: cooldownUntil.UTC(), Valid: true}
 	}
 	rows, err := dbbudget.Queries(r.tx).UpdateModelRouterSubscriptionAccountState(ctx, sqlc.UpdateModelRouterSubscriptionAccountStateParams{
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, Enabled: enabled, CooldownUntil: cooldown,
@@ -160,7 +156,7 @@ func (r *subscriptionAccountRepo) UpdateSubscriptionAccountHealth(ctx context.Co
 	}
 	var cooldown pgtype.Timestamp
 	if cooldownUntil != nil {
-		cooldown = pgtype.Timestamp{Time: *cooldownUntil, Valid: true}
+		cooldown = pgtype.Timestamp{Time: cooldownUntil.UTC(), Valid: true}
 	}
 	rows, err := dbbudget.Queries(r.tx).UpdateModelRouterSubscriptionAccountHealth(ctx, sqlc.UpdateModelRouterSubscriptionAccountHealthParams{
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID,
@@ -333,7 +329,7 @@ func (r *subscriptionAccountRepo) PersistSubscriptionTokens(ctx context.Context,
 	rows, err := dbbudget.Queries(r.tx).PersistModelRouterSubscriptionTokens(ctx, sqlc.PersistModelRouterSubscriptionTokensParams{
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, LeaseID: leaseUUID, ExpectedVersion: expectedVersion,
 		RefreshTokenCiphertext: refreshCiphertext, AccessTokenCiphertext: accessCiphertext,
-		AccessTokenExpiresAt: pgtype.Timestamp{Time: accessExpiresAt, Valid: true},
+		AccessTokenExpiresAt: pgtype.Timestamp{Time: accessExpiresAt.UTC(), Valid: true},
 	})
 	if err != nil {
 		return err
@@ -413,7 +409,7 @@ func (r *subscriptionAccountRepo) CooldownSubscriptionAccountIfRefreshHolder(ctx
 	}
 	rows, err := dbbudget.Queries(r.tx).CooldownModelRouterSubscriptionAccountIfRefreshHolder(ctx, sqlc.CooldownModelRouterSubscriptionAccountIfRefreshHolderParams{
 		ID: accountUUID, SubscriberID: subscriberID, APIKeyID: keyID, LeaseID: leaseUUID, ExpectedVersion: expectedVersion,
-		CooldownUntil: pgtype.Timestamp{Time: cooldownUntil, Valid: true},
+		CooldownUntil: pgtype.Timestamp{Time: cooldownUntil.UTC(), Valid: true},
 	})
 	if err != nil {
 		return err
@@ -433,4 +429,25 @@ func subscriptionUpsertKind(inserted, adopted bool) auth.SubscriptionUpsertKind 
 	default:
 		return auth.SubscriptionUpsertUpdated
 	}
+}
+
+func (r *subscriptionAccountRepo) ListSubscriptionCandidates(ctx context.Context, owner auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error) {
+	installationID, err := uuid.Parse(owner.InstallationID)
+	if err != nil {
+		return nil, auth.ErrSubscriptionAccountNotFound
+	}
+	rows, err := dbbudget.Queries(r.tx).ListModelRouterSubscriptionCandidates(ctx, sqlc.ListModelRouterSubscriptionCandidatesParams{
+		InstallationID: installationID, SubscriberID: uuidOrNil(owner.SubscriberID),
+	})
+	if err != nil {
+		return nil, err
+	}
+	accounts := make([]*auth.SubscriptionAccount, 0, len(rows))
+	for _, row := range rows {
+		account := toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID,
+			row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
+		account.Tier = auth.SubscriptionTier(row.Tier)
+		accounts = append(accounts, account)
+	}
+	return accounts, nil
 }

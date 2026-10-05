@@ -265,6 +265,18 @@
       "rationale": "Existing subscription bypass dispatch remains direct until the public Messages surface migrates through the executor.",
       "operation_class": "main_inference",
       "removal_phase": "8"
+    },
+    {
+      "id": "target_construction|internal/proxy/managed_subscriptions.go|Service.subscriptionAlternativeDecisions|router.Decision|1",
+      "kind": "target_construction",
+      "file": "internal/proxy/managed_subscriptions.go",
+      "line": 490,
+      "symbol": "Service.subscriptionAlternativeDecisions",
+      "detail": "provider=<dynamic> model=<dynamic>",
+      "owner": "@steventohme",
+      "rationale": "Approved subscription-sharing plan permits automatic included-capacity alternatives only from the existing request-eligible policy ordering, with quality/tool/context constraints and explicit targets preserved. Every alternative is prepared and dispatched through the existing inference resolver and executor; this creates no provider call bypass.",
+      "operation_class": "main_inference",
+      "removal_phase": "8"
     }
   ]
 }

@@ -282,7 +282,7 @@ func TestService_ProxyOpenAIChatCompletion_MalformedUpstreamFrameReported(t *tes
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(chatToolTurnBody))
-	require.NoError(t, svc.ProxyOpenAIChatCompletion(context.Background(), []byte(chatToolTurnBody), rec, req))
+	require.Error(t, svc.ProxyOpenAIChatCompletion(context.Background(), []byte(chatToolTurnBody), rec, req))
 
 	body := rec.Body.String()
 	assert.Contains(t, body, `"content":"half"`)
