@@ -1,0 +1,43 @@
+sidecars/hmm/tests/test_policy.py
+  s_826b864aa61508::t_1d0cb8936a9b9f 142-195,203-266,270-290
+  s_826b864aa61508::t_25f028fa52b1d9 196-202,267-269
+sidecars/hmm/tests/test_api.py
+  s_826b864aa61508::t_c5fb6228c38bc1 230-232
+  s_826b864aa61508::t_4caa9dc9f51ae3 7
+  s_826b864aa61508::t_3e4dd40fa4d012 13
+  s_826b864aa61508::t_4ba089f911138a 187-193,197
+  s_826b864aa61508::t_ef08b02814b7c9 290-326
+  s_826b864aa61508::t_737b8484428674 3-4,8-9,168-186,194-196,198-229,233-289
+sidecars/hmm/hmm_sidecar/api.py
+  s_826b864aa61508::t_aa2c2958bff745 5
+  s_826b864aa61508::t_16070d8d9bd8c9 23-45,50
+  s_826b864aa61508::t_126b6681dd0cb6 167,176-180
+sidecars/hmm/hmm_sidecar/embeddings.py
+  s_826b864aa61508::t_451950fe0609d0 174-191,200-211,233-239
+  s_826b864aa61508::t_4cd7fd4cf4c648 7
+sidecars/hmm/tests/test_embedding_contract.py
+  s_826b864aa61508::t_b58a10275bfedf 138-196
+sidecars/hmm/hmm_sidecar/policy.py
+  s_826b864aa61508::t_33024c2cebecf2 260-272
+  s_826b864aa61508::t_536b19c4a798b5 312
+  s_826b864aa61508::t_63f2a21c099a62 339
+  s_826b864aa61508::t_4cdf32cb9d5659 5-6,14,25-86
+  s_826b864aa61508::t_4c8c61e912900c 185-186,195-196,198-206,208-210,221-232,235
+  s_826b864aa61508::t_6adbf494aa2327 87-88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "3a83562b982e42fe6a2432a7e4173671c63c0a0b",
+  "prompts": {},
+  "sessions": {
+    "s_826b864aa61508": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "102a46f8-aa90-4b98-98db-0767749f5398",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
