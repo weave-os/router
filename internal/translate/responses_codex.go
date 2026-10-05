@@ -371,14 +371,23 @@ func (c *portableCodexResponsesConverter) convertInput(input gjson.Result) []map
 	// Chat role:tool content is text-only on most targets, so tool-output
 	// images ride in a user message after the whole run of tool results;
 	// emitting it mid-run would separate later results from their calls.
-	// Each call's images are labelled with its call ID so they stay
-	// distinguishable from user-authored content.
-	var toolImages []map[string]any
+	// Images are grouped and labelled per call ID so they stay
+	// distinguishable from user-authored content; code-mode notify() repeats
+	// a call ID across outputs, which must share one label.
+	var toolImageCalls []string
+	toolImages := map[string][]map[string]any{}
 	flushToolImages := func() {
-		if len(toolImages) > 0 {
-			messages = append(messages, map[string]any{"role": "user", "content": toolImages})
-			toolImages = nil
+		if len(toolImageCalls) == 0 {
+			return
 		}
+		var content []map[string]any
+		for _, callID := range toolImageCalls {
+			content = append(content, map[string]any{"type": "text", "text": "Images returned by tool call " + callID + ":"})
+			content = append(content, toolImages[callID]...)
+		}
+		messages = append(messages, map[string]any{"role": "user", "content": content})
+		toolImageCalls = nil
+		clear(toolImages)
 	}
 	for index, item := range input.Array() {
 		path := "input." + strconv.Itoa(index)
@@ -412,8 +421,11 @@ func (c *portableCodexResponsesConverter) convertInput(input gjson.Result) []map
 			if message, images, ok := c.convertToolOutput(item, path); ok {
 				messages = append(messages, message)
 				if len(images) > 0 {
-					toolImages = append(toolImages, map[string]any{"type": "text", "text": "Images returned by tool call " + item.Get("call_id").Str + ":"})
-					toolImages = append(toolImages, images...)
+					callID := item.Get("call_id").Str
+					if _, seen := toolImages[callID]; !seen {
+						toolImageCalls = append(toolImageCalls, callID)
+					}
+					toolImages[callID] = append(toolImages[callID], images...)
 				}
 			}
 		default:

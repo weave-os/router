@@ -312,6 +312,29 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexToolOutputIma
 	assertReportCode(t, converted.Report, "responses_tool_output_image_hoisted")
 }
 
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexRepeatedCallImagesShareLabel(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-6.1-sol",
+		"input":[
+			{"type":"custom_tool_call","call_id":"call_1","name":"exec","input":"notify(a); notify(b);"},
+			{"type":"custom_tool_call_output","call_id":"call_1","output":[{"type":"input_image","image_url":"data:image/png;base64,QQ=="}]},
+			{"type":"custom_tool_call_output","call_id":"call_1","output":[{"type":"input_image","image_url":"data:image/png;base64,Qg=="}]}
+		]
+	}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	assert.False(t, converted.Requirements.NativeOnly)
+
+	messages := gjson.GetBytes(converted.Body, "messages").Array()
+	require.Len(t, messages, 4)
+	content := messages[3].Get("content").Array()
+	require.Len(t, content, 3)
+	assert.Equal(t, "Images returned by tool call call_1:", content[0].Get("text").Str)
+	assert.Equal(t, "data:image/png;base64,QQ==", content[1].Get("image_url.url").Str)
+	assert.Equal(t, "data:image/png;base64,Qg==", content[2].Get("image_url.url").Str)
+}
+
 func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexToolOutputFileFailsClosed(t *testing.T) {
 	body := []byte(`{
 		"model":"gpt-6.1-sol",
