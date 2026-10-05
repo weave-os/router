@@ -1,0 +1,45 @@
+scripts/test_agent_checks.py
+  s_e23e2ec615f7c5::t_89de26ca28a1d4 48-51,58-60,64-66,71-74
+  s_2a05efb374be75::t_f202d65c497bd2 45-47,52-57,61-63,67-70,75,228-229
+scripts/smoke/test_runner.py
+  s_e23e2ec615f7c5::t_89de26ca28a1d4 25,310-312,317-319,324-331,339-341,492-494,508-511,513-515,518-526,530-534,539-548,558-565,568-570,574-576,579-591
+  s_2a05efb374be75::t_eb88a4369d6b7d 13,36,89-92,95-99,204,320-323,332-338,342,487-491,495-497,512,516-517,527-529,535-538,549-557,566-567,571-573,577-578,592-593
+  s_2a05efb374be75::t_61d5ba23dbb9a1 24,26
+  s_2a05efb374be75::t_a39b5b9f86d4cc 594
+docs/SMOKE.md
+  s_2a05efb374be75::t_bd4d76ff18e82e 152-158
+  s_2a05efb374be75::t_eb88a4369d6b7d 99-102,115-116,118
+scripts/agent_checks.py
+  s_2a05efb374be75::t_f202d65c497bd2 24,82,153,169-176,207,337
+scripts/smoke/runner.py
+  s_e23e2ec615f7c5::t_89de26ca28a1d4 286-287,298-301,483-489,494-500
+  s_2a05efb374be75::t_eb88a4369d6b7d 340
+  s_2a05efb374be75::t_f202d65c497bd2 54-57,291,302-313,366,370,479-482,490-493,501-504
+  s_e23e2ec615f7c5::t_d4ca28773a100a 290,341
+.github/workflows/smoke.yml
+  s_2a05efb374be75::t_bd4d76ff18e82e 90-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8ae95a96cac19e030f45b53d005115792cef545e",
+  "prompts": {},
+  "sessions": {
+    "s_2a05efb374be75": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e9e5-5891-7b40-8cb6-3fc254b09418",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_e23e2ec615f7c5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0e9e5-5891-7b40-8cb6-3fc254b09418",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
