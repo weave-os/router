@@ -7,6 +7,7 @@ internal/postgres/serving/startup_test.go
 docs/POLICY_INFERENCE.json
   s_995f50c8cb9d9c::t_c61cb7030cfdde 602-629
   s_995f50c8cb9d9c::t_ea7e6cf9c257f4 630
+  s_995f50c8cb9d9c::t_9b3f314d40c3d8 3
 smoke/mitmproxy/startup.go
   s_995f50c8cb9d9c::t_8c42f21cec89d1 39
   s_995f50c8cb9d9c::t_7da8b5942af57c 1-35,40-47,49-56,59-83
@@ -20,6 +21,7 @@ smoke/mitmproxy/proxy.go
   s_995f50c8cb9d9c::t_7da8b5942af57c 107-109
 docs/POLICY_INFERENCE.md
   s_995f50c8cb9d9c::t_c61cb7030cfdde 32
+  s_995f50c8cb9d9c::t_9b3f314d40c3d8 6
 internal/health/config.go
   s_995f50c8cb9d9c::t_7ca686b6f60ab4 1-7,9-11,27-52,54-73
   s_995f50c8cb9d9c::t_3f42790637057a 8,12-26
