@@ -12,6 +12,18 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+type providerErrorType string
+
+const (
+	providerErrorTypeInvalidRequest providerErrorType = "invalid_request_error"
+	providerErrorTypeAuthentication providerErrorType = "authentication_error"
+	providerErrorTypePermission     providerErrorType = "permission_error"
+	providerErrorTypeNotFound       providerErrorType = "not_found_error"
+	providerErrorTypeRateLimit      providerErrorType = "rate_limit_error"
+	providerErrorTypeAPI            providerErrorType = "api_error"
+	providerErrorTypeOverloaded     providerErrorType = "overloaded_error"
+)
+
 // ReadCapped buffers up to limit bytes from r, then drains (without retaining)
 // up to maxDrain more to bound failover latency on a large error body. Returns
 // the buffered prefix, total bytes read, and any read error (io.EOF -> nil).
@@ -54,9 +66,9 @@ func (c HeaderCapture) WriteHeader(int) {}
 // ERROR except 429 (routine rate-limit signal handled via failover), which
 // logs at WARN.
 //
-// When content logging is disallowed the raw body_preview is dropped, but the
-// provider's structured error type is kept as upstream_error_type. The error
-// message is not kept because providers can echo request content into it.
+// When content logging is disallowed the raw body_preview is dropped, while a
+// known provider error type may be kept as upstream_error_type. Error messages
+// and unknown type values are omitted because providers can echo request content.
 //
 // ctx is load-bearing: on the global logger the body was written but not
 // joinable to the request, so filtering by session never surfaced it.
@@ -89,8 +101,17 @@ func upstreamErrorTypeAttrs(body string) []any {
 		return nil
 	}
 	for _, path := range []string{"error.type", "type"} {
-		if r := gjson.Get(body, path); r.Type == gjson.String && r.Str != "error" {
-			return []any{"upstream_error_type", r.Str}
+		if r := gjson.Get(body, path); r.Type == gjson.String {
+			switch providerErrorType(r.Str) {
+			case providerErrorTypeInvalidRequest,
+				providerErrorTypeAuthentication,
+				providerErrorTypePermission,
+				providerErrorTypeNotFound,
+				providerErrorTypeRateLimit,
+				providerErrorTypeAPI,
+				providerErrorTypeOverloaded:
+				return []any{"upstream_error_type", r.Str}
+			}
 		}
 	}
 	return nil

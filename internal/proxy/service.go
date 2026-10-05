@@ -5032,6 +5032,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		Bool("dispatch.baseline_failover", baselineFailoverUsed).
 		Bool("dispatch.subscription_failover", subscriptionFailoverUsed).
 		Bool("dispatch.sibling_failover", siblingFailoverUsed)
+	if s.effectiveCaptureMode(ctx) == CaptureOff {
+		upstreamBuilder.Int64("request.message_count", int64(feats.MessageCount)).
+			Bool("request.has_tools", feats.HasTools)
+	}
 	applyPlannerAttrs(upstreamBuilder, routeRes)
 	applyRoutingStateAttrs(upstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyEffortAttrs(upstreamBuilder, effortServed)
@@ -5049,7 +5053,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	respBody, respTrunc := capturedResponse(contentCap)
 	// Eval bodies are captured offline; exclude them from call-log so they are not mistaken for serving traffic.
 	if !agentShadowMode {
-		s.recordCallLog(ctx, upstreamBuilder.Build(), routeMs, proxyErr != nil, body, respBody, respTrunc)
+		s.recordCallLog(ctx, upstreamBuilder.Build(), routeMs, proxyErr, body, respBody, respTrunc)
 	}
 	otel.Flush(ctx)
 
@@ -7985,6 +7989,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		Bool("dispatch.subscription_failover", codexFailoverUsed || claudeFailoverUsed).
 		Bool("dispatch.cyber_refusal_retry", cyberRetryRan).
 		Bool("dispatch.sibling_failover", siblingFailoverUsed)
+	if s.effectiveCaptureMode(ctx) == CaptureOff {
+		openaiUpstreamBuilder.Int64("request.message_count", int64(feats.MessageCount)).
+			Bool("request.has_tools", feats.HasTools)
+	}
 	applyPlannerAttrs(openaiUpstreamBuilder, routeRes)
 	applyRoutingStateAttrs(openaiUpstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyEffortAttrs(openaiUpstreamBuilder, effortServed)
@@ -8006,7 +8014,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			reqBody = h.requestBody
 		}
 		respBody, respTrunc := capturedResponse(contentCap)
-		s.recordCallLog(ctx, callLogBase, routeMs, proxyErr != nil, reqBody, respBody, respTrunc)
+		s.recordCallLog(ctx, callLogBase, routeMs, proxyErr, reqBody, respBody, respTrunc)
 		otel.Flush(ctx)
 	}
 	// The /v1/responses surface (ProxyOpenAIResponses) finalizes its

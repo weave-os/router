@@ -104,7 +104,7 @@ func TestLogUpstreamStatus_KeepsBodyPreviewWhenContentLoggingAllowed(t *testing.
 	assert.Contains(t, buf.String(), "err-echo")
 }
 
-func TestLogUpstreamStatus_KeepsOnlyErrorTypeWhenContentLoggingDisallowed(t *testing.T) {
+func TestLogUpstreamStatus_KeepsOnlyAllowlistedErrorTypeWhenContentLoggingDisallowed(t *testing.T) {
 	cases := []struct {
 		name     string
 		body     string
@@ -118,6 +118,10 @@ func TestLogUpstreamStatus_KeepsOnlyErrorTypeWhenContentLoggingDisallowed(t *tes
 		{
 			name: "top-level message only",
 			body: `{"message":"echoed secret-fragment","request_id":"x"}`,
+		},
+		{
+			name: "unknown error type",
+			body: `{"error":{"type":"secret-fragment","message":"echoed secret-fragment"}}`,
 		},
 		{
 			name: "non-json body",

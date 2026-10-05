@@ -4,14 +4,18 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
 
 	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/translate"
 
+	"github.com/tidwall/gjson"
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 )
 
@@ -21,7 +25,7 @@ type ContentCaptureMode int
 
 const (
 	// CaptureOff emits no `router.call` log records. Permanent upstream 4xx
-	// failures emit a separate status-only alert event. Default for self-hosted / OSS.
+	// failures emit a separate metadata-only alert event. Default for self-hosted / OSS.
 	CaptureOff ContentCaptureMode = iota
 	// CaptureHashed emits log records with metadata + SHA-256 content hashes
 	// but no raw text — dedup/cache analysis without exposing prompts.
@@ -188,12 +192,12 @@ func sha256Hex(b []byte) string {
 // recordCallLog emits a high-fidelity `router.call` OTLP log record for one
 // upstream call, reusing the upstream span's attributes as the metadata base
 // and appending content attributes per capture mode. Under CaptureOff, only
-// permanent upstream 4xx failures emit a minimal alert event. base is cloned
+// permanent upstream 4xx failures emit a metadata-only alert event. base is cloned
 // before appending so the span's attributes aren't mutated.
-func (s *Service) recordCallLog(ctx context.Context, base []*commonv1.KeyValue, routeMs int64, isErr bool, reqBody, respBody []byte, respTruncated bool) {
+func (s *Service) recordCallLog(ctx context.Context, base []*commonv1.KeyValue, routeMs int64, proxyErr error, reqBody, respBody []byte, respTruncated bool) {
 	mode := s.effectiveCaptureMode(ctx)
 	if mode == CaptureOff {
-		s.recordPermanentError(ctx, base, isErr)
+		s.recordPermanentError(ctx, base, proxyErr, len(reqBody))
 		return
 	}
 
@@ -214,7 +218,7 @@ func (s *Service) recordCallLog(ctx context.Context, base []*commonv1.KeyValue, 
 
 	attrs := append(slices.Clone(base), content.Build()...)
 	sev := otel.SeverityInfo
-	if isErr {
+	if proxyErr != nil {
 		sev = otel.SeverityError
 	}
 	otel.RecordLog(ctx, otel.LogRecord{
@@ -227,10 +231,70 @@ func (s *Service) recordCallLog(ctx context.Context, base []*commonv1.KeyValue, 
 
 const permanentErrorEventName = "router.permanent_error"
 
-// recordPermanentError uses an explicit allowlist: upstream span attributes
-// may include content or derived signals that must not enter a ZDR log event.
-func (s *Service) recordPermanentError(ctx context.Context, base []*commonv1.KeyValue, isErr bool) {
-	if !isErr {
+type permanentErrorClass string
+
+const (
+	permanentErrorClassUnclassified         permanentErrorClass = "unclassified"
+	permanentErrorClassInvalidRequest       permanentErrorClass = "invalid_request"
+	permanentErrorClassAuthentication       permanentErrorClass = "authentication"
+	permanentErrorClassPermission           permanentErrorClass = "permission"
+	permanentErrorClassNotFound             permanentErrorClass = "not_found"
+	permanentErrorClassRateLimit            permanentErrorClass = "rate_limit"
+	permanentErrorClassProviderError        permanentErrorClass = "provider_error"
+	permanentErrorClassProviderOverloaded   permanentErrorClass = "provider_overloaded"
+	permanentErrorClassProviderBilling      permanentErrorClass = "provider_billing_blocked"
+	permanentErrorClassCapabilityRejection  permanentErrorClass = "capability_rejection"
+	permanentErrorClassSchemaRejection      permanentErrorClass = "schema_rejection"
+	permanentErrorClassThoughtSignature     permanentErrorClass = "thought_signature_rejection"
+	permanentErrorClassOutputConfigFormat   permanentErrorClass = "output_config_format_rejection"
+	permanentErrorClassPromptCacheKey       permanentErrorClass = "prompt_cache_key_rejection"
+	permanentErrorClassResponsesUnsupported permanentErrorClass = "responses_unsupported"
+)
+
+type providerErrorType string
+
+const (
+	providerErrorTypeInvalidRequest providerErrorType = "invalid_request_error"
+	providerErrorTypeAuthentication providerErrorType = "authentication_error"
+	providerErrorTypePermission     providerErrorType = "permission_error"
+	providerErrorTypeNotFound       providerErrorType = "not_found_error"
+	providerErrorTypeRateLimit      providerErrorType = "rate_limit_error"
+	providerErrorTypeAPI            providerErrorType = "api_error"
+	providerErrorTypeOverloaded     providerErrorType = "overloaded_error"
+)
+
+type errorBodyFormat string
+
+const (
+	errorBodyFormatEmpty   errorBodyFormat = "empty"
+	errorBodyFormatJSON    errorBodyFormat = "json"
+	errorBodyFormatNonJSON errorBodyFormat = "non_json"
+)
+
+type requestSizeBucket string
+
+const (
+	requestSizeBucketEmpty        requestSizeBucket = "empty"
+	requestSizeBucketUnder16KiB   requestSizeBucket = "under_16_kib"
+	requestSizeBucket16To64KiB    requestSizeBucket = "16_to_64_kib"
+	requestSizeBucket64To256KiB   requestSizeBucket = "64_to_256_kib"
+	requestSizeBucket256KiBTo1MiB requestSizeBucket = "256_kib_to_1_mib"
+	requestSizeBucketAtLeast1MiB  requestSizeBucket = "at_least_1_mib"
+)
+
+type upstreamCorrelationHeader string
+
+const (
+	upstreamCorrelationHeaderSnowflakeQueryID   upstreamCorrelationHeader = "X-Snowflake-Query-Id"
+	upstreamCorrelationHeaderSnowflakeRequestID upstreamCorrelationHeader = "X-Snowflake-Request-Id"
+	upstreamCorrelationHeaderRequestID          upstreamCorrelationHeader = "X-Request-Id"
+	upstreamCorrelationHeaderRequest            upstreamCorrelationHeader = "Request-Id"
+)
+
+// recordPermanentError keeps content out of ZDR events, adding only normalized
+// error classes, byte counts, and bounded upstream request IDs.
+func (s *Service) recordPermanentError(ctx context.Context, base []*commonv1.KeyValue, proxyErr error, requestBytes int) {
+	if proxyErr == nil {
 		return
 	}
 	var status int64
@@ -244,15 +308,130 @@ func (s *Service) recordPermanentError(ctx context.Context, base []*commonv1.Key
 		return
 	}
 
-	attrs := make([]*commonv1.KeyValue, 0, 7)
+	attrs := make([]*commonv1.KeyValue, 0, 20)
 	for _, attr := range base {
 		switch attr.Key {
-		case "request_id", "external_id", "client.session_id", "router_user_id", "decision.model", "decision.provider", "upstream.status_code":
+		case "request_id", "external_id", "client.session_id", "router_user_id", "requested.model", "decision.model", "decision.provider", "dispatch.primary_model", "dispatch.primary_provider", "dispatch.final_provider", "request.message_count", "request.has_tools", "routing.cross_format", "routing.turn_type", "upstream.status_code":
 			attrs = append(attrs, attr)
 		}
 	}
+	attrs = append(attrs, permanentErrorDiagnosticAttrs(proxyErr, requestBytes)...)
 	otel.RecordLog(ctx, otel.LogRecord{
 		Name: permanentErrorEventName, Time: time.Now(),
 		Severity: otel.SeverityError, Attrs: attrs,
 	})
+}
+
+func permanentErrorDiagnosticAttrs(proxyErr error, requestBytes int) []*commonv1.KeyValue {
+	attrs := otel.NewAttrBuilder(6).
+		String("upstream.error_class", string(classifyPermanentError(proxyErr))).
+		String("request.size_bucket", string(requestSizeBucketFor(requestBytes)))
+
+	var bufferedErr *providers.UpstreamErrorResponse
+	if !errors.As(proxyErr, &bufferedErr) {
+		return attrs.String("upstream.error_body_format", string(errorBodyFormatEmpty)).Build()
+	}
+
+	bodyFormat := errorBodyFormatNonJSON
+	if len(bufferedErr.Body) == 0 {
+		bodyFormat = errorBodyFormatEmpty
+	} else if json.Valid(bufferedErr.Body) {
+		bodyFormat = errorBodyFormatJSON
+	}
+	attrs.String("upstream.error_body_format", string(bodyFormat)).
+		Int64("upstream.error_body_bytes", int64(len(bufferedErr.Body))).
+		Bool("upstream.error_body_capped", len(bufferedErr.Body) >= providers.MaxBufferedErrorBytes)
+	if upstreamRequestID := safeUpstreamRequestID(bufferedErr.Headers); upstreamRequestID != "" {
+		attrs.String("upstream.request_id", upstreamRequestID)
+	}
+	return attrs.Build()
+}
+
+func requestSizeBucketFor(requestBytes int) requestSizeBucket {
+	switch {
+	case requestBytes == 0:
+		return requestSizeBucketEmpty
+	case requestBytes < 16<<10:
+		return requestSizeBucketUnder16KiB
+	case requestBytes < 64<<10:
+		return requestSizeBucket16To64KiB
+	case requestBytes < 256<<10:
+		return requestSizeBucket64To256KiB
+	case requestBytes < 1<<20:
+		return requestSizeBucket256KiBTo1MiB
+	default:
+		return requestSizeBucketAtLeast1MiB
+	}
+}
+
+func classifyPermanentError(proxyErr error) permanentErrorClass {
+	switch {
+	case providers.IsUpstreamOutputConfigFormatRejection(proxyErr):
+		return permanentErrorClassOutputConfigFormat
+	case providers.IsUpstreamThoughtSignatureRejection(proxyErr):
+		return permanentErrorClassThoughtSignature
+	case providers.IsUpstreamSchemaRejection(proxyErr):
+		return permanentErrorClassSchemaRejection
+	case providers.IsUpstreamCapabilityRejection(proxyErr):
+		return permanentErrorClassCapabilityRejection
+	case providers.IsUpstreamPromptCacheKeyRejection(proxyErr):
+		return permanentErrorClassPromptCacheKey
+	case providers.IsUpstreamModelNotFound(proxyErr):
+		return permanentErrorClassNotFound
+	case providers.IsUpstreamProviderBillingBlocked(proxyErr):
+		return permanentErrorClassProviderBilling
+	case providers.IsUpstreamRateLimited(proxyErr):
+		return permanentErrorClassRateLimit
+	case providers.IsUpstreamResponsesUnsupported(proxyErr):
+		return permanentErrorClassResponsesUnsupported
+	}
+
+	var bufferedErr *providers.UpstreamErrorResponse
+	if !errors.As(proxyErr, &bufferedErr) || !json.Valid(bufferedErr.Body) {
+		return permanentErrorClassUnclassified
+	}
+	for _, path := range []string{"error.type", "type"} {
+		errorType := providerErrorType(gjson.GetBytes(bufferedErr.Body, path).String())
+		switch errorType {
+		case providerErrorTypeInvalidRequest:
+			return permanentErrorClassInvalidRequest
+		case providerErrorTypeAuthentication:
+			return permanentErrorClassAuthentication
+		case providerErrorTypePermission:
+			return permanentErrorClassPermission
+		case providerErrorTypeNotFound:
+			return permanentErrorClassNotFound
+		case providerErrorTypeRateLimit:
+			return permanentErrorClassRateLimit
+		case providerErrorTypeAPI:
+			return permanentErrorClassProviderError
+		case providerErrorTypeOverloaded:
+			return permanentErrorClassProviderOverloaded
+		}
+	}
+	return permanentErrorClassUnclassified
+}
+
+func safeUpstreamRequestID(headers http.Header) string {
+	for _, headerName := range []upstreamCorrelationHeader{
+		upstreamCorrelationHeaderSnowflakeQueryID,
+		upstreamCorrelationHeaderSnowflakeRequestID,
+		upstreamCorrelationHeaderRequestID,
+		upstreamCorrelationHeaderRequest,
+	} {
+		requestID := strings.TrimSpace(headers.Get(string(headerName)))
+		if requestID == "" || len(requestID) > 128 {
+			continue
+		}
+		for _, char := range requestID {
+			if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || strings.ContainsRune("-_.:/", char)) {
+				requestID = ""
+				break
+			}
+		}
+		if requestID != "" {
+			return requestID
+		}
+	}
+	return ""
 }
