@@ -190,6 +190,25 @@ func imageSafeModels(models []string, hasImages bool) []string {
 	return out
 }
 
+// harnessSafeModels drops the models the scorer filters off a tool-bearing
+// turn (ToolUseLow, AgenticLow), so a last-resort rescue never hands the
+// harness loop to a model this turn deliberately scored out.
+func harnessSafeModels(models []string, hasTools bool) []string {
+	if !hasTools {
+		return models
+	}
+	toolUseLow, agenticLow := catalog.ToolUseLowSet(), catalog.AgenticLowSet()
+	var out []string
+	for _, model := range models {
+		_, weakTools := toolUseLow[model]
+		_, weakAgentic := agenticLow[model]
+		if !weakTools && !weakAgentic {
+			out = append(out, model)
+		}
+	}
+	return out
+}
+
 // cooldownsByExpiry lists the models in cooldowns soonest-to-recover first,
 // ties broken by name, so an exhausted rescue readmits the arm that has
 // cooled the longest before one that was throttled a moment ago.

@@ -1192,7 +1192,7 @@ func (s *Service) runTurnLoop(
 	// failover and every automatic pin reuse at once, and is the only one an
 	// explicit /force-model of the same model still routes through.
 	demoted := mergeSessionStrikes(pin.DemotedModels, hmmHistory.DemotedModels)
-	res.SessionStrikeReadmitModels = imageSafeModels(demoted, req.HasImages)
+	res.SessionStrikeReadmitModels = harnessSafeModels(imageSafeModels(demoted, req.HasImages), req.HasTools)
 	if s.ResolveTransientRateLimit(ctx) {
 		// A rate-limit strike expires: the arm is only out while its
 		// cooldown is in force.

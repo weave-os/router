@@ -544,3 +544,9 @@ func TestRescueDecisions_StruckOutReadmissionStaysInScoredPool(t *testing.T) {
 	md.ScorerRescuePool = struck
 	assert.Equal(t, struck, siblingModels(s.siblingFailoverDecisions(ctx, overloadedDecision(md), 1_000, 0, 0)))
 }
+
+func TestHarnessSafeModels_DropsWeakAgenticArmsOnToolTurns(t *testing.T) {
+	models := []string{"claude-opus-5", "gemini-3.5-flash-lite"}
+	assert.Equal(t, models, harnessSafeModels(models, false))
+	assert.Equal(t, []string{"claude-opus-5"}, harnessSafeModels(models, true))
+}

@@ -113,13 +113,14 @@ being served on one. The rescue walk used to treat the same strikes as hard,
 so once both arms of a two-model roster were demoted every pre-commit failure
 reached the client unrescued (Snowflake Cortex, prod 2026-10: hundreds of
 header-timeout 502s with the other arm never tried). `runTurnLoop` now carries
-the strikes as `SessionStrikeReadmitModels` (image-unsafe arms dropped), and
+the strikes as `SessionStrikeReadmitModels` (image-unsafe arms, and
+ToolUseLow/AgenticLow arms on tool turns, dropped), and
 `rescueWalkOrReadmitCooling` readmits them on sibling failover only (never the
 cyber-refusal retry) and only when neither the eligible walk nor cooldown
-readmission yields a candidate. `strikesInRescuePool` keeps only strikes inside
-the turn's scored pool, so readmission never leaves the quality band. Hard and
-deployment-wide exclusions still hold, and the arm that just failed is never
-re-served.
+readmission yields a candidate. `strikesInRescuePool` filters non-roster
+strikes to the turn's scored pool; roster readmissions are separately bounded
+by `rosterRescueAdmits`. Hard and deployment-wide exclusions still hold, and
+the arm that just failed is never re-served.
 
 **A wholly non-routable allowlist is rejected at the admin API.** Membership
 validation for `PUT /admin/v1/allowed-models` is catalog-wide on purpose —
