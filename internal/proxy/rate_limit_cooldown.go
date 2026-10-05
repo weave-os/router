@@ -175,6 +175,21 @@ func readmittableCooldowns(cooling map[string]time.Time, permanent []string, has
 	return out
 }
 
+// imageSafeModels drops the text-only models an image-bearing turn cannot
+// be rescued onto.
+func imageSafeModels(models []string, hasImages bool) []string {
+	if !hasImages {
+		return models
+	}
+	var out []string
+	for _, model := range models {
+		if catalog.AcceptsImages(model) {
+			out = append(out, model)
+		}
+	}
+	return out
+}
+
 // cooldownsByExpiry lists the models in cooldowns soonest-to-recover first,
 // ties broken by name, so an exhausted rescue readmits the arm that has
 // cooled the longest before one that was throttled a moment ago.

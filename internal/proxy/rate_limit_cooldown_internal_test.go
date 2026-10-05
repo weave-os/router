@@ -513,7 +513,8 @@ func TestTurnLoopHonoursCooldownRecordedOnHMMHistory(t *testing.T) {
 }
 
 // A model struck for the session and still carrying a stale cooldown entry
-// stays out: the turn loop excludes it and offers nothing for readmission.
+// stays out: the turn loop excludes it and offers it for readmission only as
+// a struck-out arm, never as a cooling one.
 func TestTurnLoopPermanentStrikeOutranksLeftoverCooldown(t *testing.T) {
 	until := rateLimitTestNow.Add(30 * time.Second)
 	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
@@ -527,7 +528,8 @@ func TestTurnLoopPermanentStrikeOutranksLeftoverCooldown(t *testing.T) {
 	require.Len(t, scorer.requests, 1)
 	assert.Contains(t, scorer.requests[0].AutomaticExcludedModels, demotedPinModel)
 	assert.Equal(t, []string{demotedPinModel}, res.SessionDemotedModels)
-	assert.Nil(t, res.SessionCooldownModels, "a lifetime strike is never readmitted")
+	assert.Nil(t, res.SessionCooldownModels, "a lifetime strike is never readmitted as a cooldown")
+	assert.Equal(t, []string{demotedPinModel}, res.SessionStrikeReadmitModels, "only as the struck-out last resort")
 }
 
 // Flag off, a stored cooldown is ignored entirely: the turn loop reads only

@@ -106,6 +106,18 @@ same flag makes the same-binding retry Retry-After-aware
 died at 11 consecutive client-visible 429s because a burst-time rescue had
 permanently demoted the arm that recovered minutes later.
 
+**A session-lifetime strike is soft for rescue too, as the very last resort.**
+Primary selection already treats a demotion as soft (an emptied pool reroutes
+onto the excluded model), so a session that has struck out every arm keeps
+being served on one. The rescue walk used to treat the same strikes as hard,
+so once both arms of a two-model roster were demoted every pre-commit failure
+reached the client unrescued (Snowflake Cortex, prod 2026-10: hundreds of
+header-timeout 502s with the other arm never tried). `runTurnLoop` now carries
+the strikes as `SessionStrikeReadmitModels` (image-unsafe arms dropped), and
+`rescueWalkOrReadmitCooling` readmits them only when neither the eligible walk
+nor cooldown readmission yields a candidate. Hard and deployment-wide
+exclusions still hold, and the arm that just failed is never re-served.
+
 **A wholly non-routable allowlist is rejected at the admin API.** Membership
 validation for `PUT /admin/v1/allowed-models` is catalog-wide on purpose —
 force-model and hard-pin reach rows the router never scores — but the

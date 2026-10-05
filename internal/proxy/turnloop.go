@@ -303,6 +303,11 @@ type turnLoopResult struct {
 	// the in-turn rescue can readmit them when honouring them would leave no
 	// candidate. Empty unless transient_rate_limit is on.
 	SessionCooldownModels map[string]time.Time
+	// SessionStrikeReadmitModels are the session-lifetime demotions the
+	// in-turn rescue may readmit as a last resort when no other candidate is
+	// left: a session that has struck out every arm must not 502 a turn that
+	// a previously failed arm could still serve.
+	SessionStrikeReadmitModels []string
 	// AuthorityShadow is the counterfactual HMM cache-gate verdict on an
 	// authoritative-per-turn turn. Observation only: it never touches Decision.
 	AuthorityShadow authorityCacheShadow
@@ -1187,6 +1192,7 @@ func (s *Service) runTurnLoop(
 	// failover and every automatic pin reuse at once, and is the only one an
 	// explicit /force-model of the same model still routes through.
 	demoted := mergeSessionStrikes(pin.DemotedModels, hmmHistory.DemotedModels)
+	res.SessionStrikeReadmitModels = imageSafeModels(demoted, req.HasImages)
 	if s.ResolveTransientRateLimit(ctx) {
 		// A rate-limit strike expires: the arm is only out while its
 		// cooldown is in force.
