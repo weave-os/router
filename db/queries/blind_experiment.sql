@@ -7,6 +7,10 @@ SELECT
     COALESCE(configuration.enabled, FALSE)::boolean AS enabled,
     COALESCE(configuration.router_on_percentage, 100)::smallint AS router_on_percentage,
     COALESCE(configuration.seed::text, '')::text AS seed,
+    COALESCE(CASE WHEN configuration.reporting_updated_at = configuration.updated_at
+        THEN configuration.reporting_experiment_id::text END, '')::text AS reporting_experiment_id,
+    COALESCE(CASE WHEN configuration.reporting_updated_at = configuration.updated_at
+        THEN configuration.reporting_revision END, 0)::bigint AS reporting_revision,
     assignment.canonical_subject_key,
     assignment.automatic_arm,
     assignment.manual_override,

@@ -64,7 +64,15 @@ type SessionCost struct {
 
 // InsertTelemetryParams mirrors one router.upstream span row.
 type InsertTelemetryParams struct {
-	InstallationID string
+	ReportingSchemaVersion    *int16
+	ReportingMode             auth.ReportingMode
+	ReportingExperimentID     string
+	ReportingRevision         *int64
+	ReportingAssignedArm      auth.BlindExperimentArm
+	ReportingTreatmentApplied *bool
+	ReportingBypassReason     auth.CohortBypassReason
+	ReportingSubjectKey       string
+	InstallationID            string
 	// APIKeyID attributes the row to the authenticating api key (per-key spend
 	// audit). Empty leaves the column NULL.
 	APIKeyID                        string
@@ -338,6 +346,7 @@ func applyPolicyPinTelemetry(ctx context.Context, params *InsertTelemetryParams,
 }
 
 func applyBlindExperimentTelemetry(ctx context.Context, params *InsertTelemetryParams, routed *turnLoopResult) {
+	applyReportingTelemetry(ctx, params, routed)
 	state, present := auth.BlindExperimentStatusFrom(ctx)
 	if params == nil || !present {
 		return

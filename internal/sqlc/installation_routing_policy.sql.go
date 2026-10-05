@@ -14,27 +14,32 @@ import (
 const getInstallationRoutingPolicy = `-- name: GetInstallationRoutingPolicy :one
 SELECT
     COALESCE(policy.mode, 'inherit')::text AS mode,
-    COALESCE(policy.revision, 0)::bigint AS revision
+    COALESCE(policy.revision, 0)::bigint AS revision,
+    COALESCE(CASE WHEN policy.reporting_updated_at = policy.updated_at
+        THEN policy.reporting_experiment_id::text END, '')::text AS reporting_experiment_id
 FROM (SELECT $1::uuid AS installation_id) installation
 LEFT JOIN router.installation_routing_policies policy USING (installation_id)
 `
 
 type GetInstallationRoutingPolicyRow struct {
-	Mode     string
-	Revision int64
+	Mode                  string
+	Revision              int64
+	ReportingExperimentID string
 }
 
 // Absent configuration inherits the installation's existing behavior.
 //
 //	SELECT
 //	    COALESCE(policy.mode, 'inherit')::text AS mode,
-//	    COALESCE(policy.revision, 0)::bigint AS revision
+//	    COALESCE(policy.revision, 0)::bigint AS revision,
+//	    COALESCE(CASE WHEN policy.reporting_updated_at = policy.updated_at
+//	        THEN policy.reporting_experiment_id::text END, '')::text AS reporting_experiment_id
 //	FROM (SELECT $1::uuid AS installation_id) installation
 //	LEFT JOIN router.installation_routing_policies policy USING (installation_id)
 func (q *Queries) GetInstallationRoutingPolicy(ctx context.Context, installationID uuid.UUID) (GetInstallationRoutingPolicyRow, error) {
 	row := q.db.QueryRow(ctx, getInstallationRoutingPolicy, installationID)
 	var i GetInstallationRoutingPolicyRow
-	err := row.Scan(&i.Mode, &i.Revision)
+	err := row.Scan(&i.Mode, &i.Revision, &i.ReportingExperimentID)
 	return i, err
 }
 

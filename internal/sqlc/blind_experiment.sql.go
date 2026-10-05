@@ -18,6 +18,10 @@ SELECT
     COALESCE(configuration.enabled, FALSE)::boolean AS enabled,
     COALESCE(configuration.router_on_percentage, 100)::smallint AS router_on_percentage,
     COALESCE(configuration.seed::text, '')::text AS seed,
+    COALESCE(CASE WHEN configuration.reporting_updated_at = configuration.updated_at
+        THEN configuration.reporting_experiment_id::text END, '')::text AS reporting_experiment_id,
+    COALESCE(CASE WHEN configuration.reporting_updated_at = configuration.updated_at
+        THEN configuration.reporting_revision END, 0)::bigint AS reporting_revision,
     assignment.canonical_subject_key,
     assignment.automatic_arm,
     assignment.manual_override,
@@ -71,20 +75,22 @@ type GetBlindRouterExperimentForUserParams struct {
 }
 
 type GetBlindRouterExperimentForUserRow struct {
-	Configured          bool
-	Enabled             bool
-	RouterOnPercentage  int16
-	Seed                string
-	CanonicalSubjectKey *string
-	AutomaticArm        *string
-	ManualOverride      *string
-	CohortExperimentID  string
-	CohortStartsAt      pgtype.Timestamptz
-	CohortEndsAt        pgtype.Timestamptz
-	CohortRevision      int32
-	CohortGroupID       int16
-	CohortSchedule      string
-	CohortOverrides     string
+	Configured            bool
+	Enabled               bool
+	RouterOnPercentage    int16
+	Seed                  string
+	ReportingExperimentID string
+	ReportingRevision     int64
+	CanonicalSubjectKey   *string
+	AutomaticArm          *string
+	ManualOverride        *string
+	CohortExperimentID    string
+	CohortStartsAt        pgtype.Timestamptz
+	CohortEndsAt          pgtype.Timestamptz
+	CohortRevision        int32
+	CohortGroupID         int16
+	CohortSchedule        string
+	CohortOverrides       string
 }
 
 // Loads the installation experiment and the materialized assignment for one
@@ -96,6 +102,10 @@ type GetBlindRouterExperimentForUserRow struct {
 //	    COALESCE(configuration.enabled, FALSE)::boolean AS enabled,
 //	    COALESCE(configuration.router_on_percentage, 100)::smallint AS router_on_percentage,
 //	    COALESCE(configuration.seed::text, '')::text AS seed,
+//	    COALESCE(CASE WHEN configuration.reporting_updated_at = configuration.updated_at
+//	        THEN configuration.reporting_experiment_id::text END, '')::text AS reporting_experiment_id,
+//	    COALESCE(CASE WHEN configuration.reporting_updated_at = configuration.updated_at
+//	        THEN configuration.reporting_revision END, 0)::bigint AS reporting_revision,
 //	    assignment.canonical_subject_key,
 //	    assignment.automatic_arm,
 //	    assignment.manual_override,
@@ -149,6 +159,8 @@ func (q *Queries) GetBlindRouterExperimentForUser(ctx context.Context, arg GetBl
 		&i.Enabled,
 		&i.RouterOnPercentage,
 		&i.Seed,
+		&i.ReportingExperimentID,
+		&i.ReportingRevision,
 		&i.CanonicalSubjectKey,
 		&i.AutomaticArm,
 		&i.ManualOverride,

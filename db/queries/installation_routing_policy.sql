@@ -2,7 +2,9 @@
 -- name: GetInstallationRoutingPolicy :one
 SELECT
     COALESCE(policy.mode, 'inherit')::text AS mode,
-    COALESCE(policy.revision, 0)::bigint AS revision
+    COALESCE(policy.revision, 0)::bigint AS revision,
+    COALESCE(CASE WHEN policy.reporting_updated_at = policy.updated_at
+        THEN policy.reporting_experiment_id::text END, '')::text AS reporting_experiment_id
 FROM (SELECT @installation_id::uuid AS installation_id) installation
 LEFT JOIN router.installation_routing_policies policy USING (installation_id);
 

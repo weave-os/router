@@ -24,7 +24,7 @@ func (repo *routingPolicyRepo) GetPolicy(ctx context.Context, installationID str
 	if err != nil {
 		return auth.RoutingPolicy{}, err
 	}
-	return auth.RoutingPolicy{Mode: auth.RoutingPolicyMode(row.Mode), Revision: row.Revision}, nil
+	return auth.RoutingPolicy{Mode: auth.RoutingPolicyMode(row.Mode), Revision: row.Revision, ReportingExperimentID: row.ReportingExperimentID}, nil
 }
 
 func (repo *routingPolicyRepo) HasAssignment(ctx context.Context, installationID, routerUserID string, revision int64) (bool, error) {
