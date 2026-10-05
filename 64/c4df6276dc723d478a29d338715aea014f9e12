@@ -1,0 +1,23 @@
+install/install.sh
+  s_da7d5477410c88::t_4aa8a3dd159428 3077-3084,3097,3102,3106-3111,3114-3123,3125-3161
+install/cc-statusline.sh
+  s_da7d5477410c88::t_e1ff36257d5dee 284-291,304,309,313-318,321-330,332-368
+install/tests/cc-statusline_test.sh
+  s_da7d5477410c88::t_aa608ccd9db30a 409-415,442-449,453-459,467-468,474-481,486,488,492-498,505-547
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "64c4df6276dc723d478a29d338715aea014f9e12",
+  "prompts": {},
+  "sessions": {
+    "s_da7d5477410c88": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "208ec8d6-eaaf-44cf-9a33-410df42cc1fc",
+        "model": "qwen/qwen3.8-max"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
