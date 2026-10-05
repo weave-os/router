@@ -80,6 +80,23 @@ func TestWritePassthroughError_NilHooksAreSafe(t *testing.T) {
 	assert.Equal(t, "boom", rec.Body.String())
 }
 
+func TestWritePassthroughError_BoundsCapturedBodyAndCountsFullBody(t *testing.T) {
+	const bodyLength = 2048
+	upstreamBody := strings.Repeat("x", bodyLength)
+	resp := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}
+	rec := httptest.NewRecorder()
+	err := WritePassthroughError(context.Background(), rec, resp, nil, nil, "upstream failed")
+
+	var statusErr *providers.UpstreamStatusError
+	require.ErrorAs(t, err, &statusErr)
+	assert.Len(t, statusErr.Body, 1024)
+	assert.Equal(t, int64(bodyLength), statusErr.BodyBytes)
+	assert.Equal(t, upstreamBody, rec.Body.String())
+}
+
 func TestLogUpstreamStatus_DropsBodyPreviewWhenContentLoggingDisallowed(t *testing.T) {
 	var buf strings.Builder
 	log := slog.New(slog.NewTextHandler(&buf, nil))
