@@ -145,22 +145,23 @@ var forceModelAliases = map[string]string{
 	"gpt-5-4-pro":           "gpt-5.4-pro",
 	"gpt-5-4-mini":          "gpt-5.4-mini",
 	"gpt-5-4-nano":          "gpt-5.4-nano",
-	"google":                "gemini-3-pro-preview",
-	"gemini":                "gemini-3-pro-preview",
-	"gemini-pro":            "gemini-3-pro-preview",
-	"gemini-flash":          "gemini-3-flash-preview",
+	"google":                "gemini-3.1-pro-preview",
+	"gemini":                "gemini-3.1-pro-preview",
+	"gemini-pro":            "gemini-3.1-pro-preview",
+	"gemini-flash":          "gemini-3.8-flash",
 	"gemini-3-6-flash":      "gemini-3.6-flash",
 	"gemini-3-5-flash-lite": "gemini-3.5-flash-lite",
 	"gemini-3-7-flash":      "gemini-3.7-flash",
 	"gemini-3-8-flash":      "gemini-3.8-flash",
 	// V4 Flash is retired on Makora. Explicit version pins stay versioned.
 	"deepseek":            "deepseek/deepseek-v4.1-flash",
-	"deepseek-pro":        "deepseek/deepseek-v4-pro",
+	"deepseek-pro":        "deepseek/deepseek-v4-pro-0813",
 	"deepseek-flash":      "deepseek/deepseek-v4.1-flash",
 	"deepseek-v4-1-flash": "deepseek/deepseek-v4.1-flash",
 	"deepseek-v4p1-flash": "deepseek/deepseek-v4.1-flash",
-	"qwen":                "qwen/qwen3-coder",
-	"qwen-coder":          "qwen/qwen3-coder",
+	// Generic Qwen follows the current flagship; coder remains a specialized alias.
+	"qwen":       "qwen/qwen3.8-max",
+	"qwen-coder": "qwen/qwen3-coder",
 	// qwen3.7-plus is retired from routing but still servable as passthrough;
 	// keep its own-name alias so direct pins resolve.
 	"qwen3.7-plus": "qwen/qwen3.7-plus",
@@ -171,17 +172,15 @@ var forceModelAliases = map[string]string{
 	"qwen/qwen-3.8-max": "qwen/qwen3.8-max",
 	"qwen-3.8-max":      "qwen/qwen3.8-max",
 	"qwen-3.8":          "qwen/qwen3.8-max",
-	// Generic kimi alias stays on 2.7; k3 is ~3x the price, so it needs an
-	// explicit pin rather than silently repricing everyone on the family alias.
-	"kimi":      "moonshotai/kimi-k2.7",
+	// Generic Kimi aliases follow K3; version-specific K2 pins stay exact.
+	"kimi":      "moonshotai/kimi-k3",
 	"kimi-k3":   "moonshotai/kimi-k3",
 	"kimi-k2.7": "moonshotai/kimi-k2.7",
 	"kimi-k2.6": "moonshotai/kimi-k2.6",
-	// Generic glm/zai aliases stay on 5.1 (Together/Fireworks/OpenRouter);
-	// 5.2 is Fireworks-only day-0, so it requires an explicit pin.
-	"glm":           "z-ai/glm-5.1",
-	"zai":           "z-ai/glm-5.1",
-	"z-ai":          "z-ai/glm-5.1",
+	// Generic GLM aliases follow 5.3; version-specific pins stay exact.
+	"glm":           "z-ai/glm-5.3",
+	"zai":           "z-ai/glm-5.3",
+	"z-ai":          "z-ai/glm-5.3",
 	"glm-5.3-flash": "z-ai/glm-5.3-flash",
 	"glm-5.3":       "z-ai/glm-5.3",
 	"glm-5.2":       "z-ai/glm-5.2",

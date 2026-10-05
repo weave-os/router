@@ -130,13 +130,41 @@ func TestResolveForceModel(t *testing.T) {
 		{
 			name:         "alias mixed case and whitespace",
 			input:        "  Gemini  ",
-			wantID:       "gemini-3-pro-preview",
+			wantID:       "gemini-3.1-pro-preview",
+			wantProvider: providers.ProviderGoogle,
+			wantKnown:    true,
+		},
+		{
+			name:         "alias google",
+			input:        "google",
+			wantID:       "gemini-3.1-pro-preview",
+			wantProvider: providers.ProviderGoogle,
+			wantKnown:    true,
+		},
+		{
+			name:         "alias gemini pro",
+			input:        "gemini-pro",
+			wantID:       "gemini-3.1-pro-preview",
+			wantProvider: providers.ProviderGoogle,
+			wantKnown:    true,
+		},
+		{
+			name:         "alias gemini flash",
+			input:        "gemini-flash",
+			wantID:       "gemini-3.8-flash",
 			wantProvider: providers.ProviderGoogle,
 			wantKnown:    true,
 		},
 		{
 			name:         "alias qwen",
 			input:        "qwen",
+			wantID:       "qwen/qwen3.8-max",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "alias qwen coder",
+			input:        "qwen-coder",
 			wantID:       "qwen/qwen3-coder",
 			wantProvider: providers.ProviderFireworks,
 			wantKnown:    true,
@@ -166,6 +194,55 @@ func TestResolveForceModel(t *testing.T) {
 			name:         "dash spelling qwen-3.8",
 			input:        "qwen-3.8",
 			wantID:       "qwen/qwen3.8-max",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "alias deepseek pro current release",
+			input:        "deepseek-pro",
+			wantID:       "deepseek/deepseek-v4-pro-0813",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "alias kimi current release",
+			input:        "kimi",
+			wantID:       "moonshotai/kimi-k3",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "explicit kimi 2.7 pin remains exact",
+			input:        "kimi-k2.7",
+			wantID:       "moonshotai/kimi-k2.7",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "alias glm current release",
+			input:        "glm",
+			wantID:       "z-ai/glm-5.3",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "alias zai current release",
+			input:        "zai",
+			wantID:       "z-ai/glm-5.3",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "alias z-ai current release",
+			input:        "z-ai",
+			wantID:       "z-ai/glm-5.3",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "explicit glm 5.1 pin remains exact",
+			input:        "glm-5.1",
+			wantID:       "z-ai/glm-5.1",
 			wantProvider: providers.ProviderFireworks,
 			wantKnown:    true,
 		},
@@ -217,8 +294,7 @@ func TestResolveForceModel(t *testing.T) {
 			wantKnown:    false,
 		},
 		// Matching is exact: a name that merely contains, or is contained by, a
-		// real one is unknown. "qwen 3.8" is the reported bug — it used to
-		// resolve through the bare "qwen" alias and silently serve qwen3-coder.
+		// real one is unknown. Do not infer a version from a generic alias.
 		{
 			name:         "spaced model name is not known",
 			input:        "qwen 3.8",
