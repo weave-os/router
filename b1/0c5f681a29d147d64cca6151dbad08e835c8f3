@@ -1,0 +1,35 @@
+docs/CONFIGURATION.md
+  s_8a249b717ff060::t_9ca7d20ac0b554 306-308
+  s_8a249b717ff060::t_32c31b92cfe672 309-310
+internal/proxy/gemini.go
+  s_8a249b717ff060::t_0dc292b7d0e830 198
+internal/requestcontext/forwarding.go
+  s_8a249b717ff060::t_9ca7d20ac0b554 7,14,16-18,20,24,103-105,164-166,177-182,184
+  s_8a249b717ff060::t_0dc292b7d0e830 19,21-23,96,101-102
+  s_8a249b717ff060::t_32c31b92cfe672 78
+  s_8a249b717ff060::t_a4d1cbe5c5f82a 15
+internal/proxy/service.go
+  s_8a249b717ff060::t_0dc292b7d0e830 3734,6707
+internal/requestcontext/header_forwarding_test.go
+  s_8a249b717ff060::t_053d6ffced26d0 94
+  s_8a249b717ff060::t_0dc292b7d0e830 85
+  s_8a249b717ff060::t_62176935eb9ae4 67,69,72,80-84,86-87,96,107,149
+internal/providers/cortexagents/client_test.go
+  s_8a249b717ff060::t_62176935eb9ae4 289
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b10c5f681a29d147d64cca6151dbad08e835c8f3",
+  "prompts": {},
+  "sessions": {
+    "s_8a249b717ff060": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e8be-758e-7fe0-bc78-cf729b5c124d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

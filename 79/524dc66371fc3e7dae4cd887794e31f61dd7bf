@@ -1,0 +1,19 @@
+internal/postgres/llm_escalation_repo.go
+  s_dcf6051f82ab96::t_3cdd112f1f460d 405-412
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "79524dc66371fc3e7dae4cd887794e31f61dd7bf",
+  "prompts": {},
+  "sessions": {
+    "s_dcf6051f82ab96": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a6a0-9527-7431-a65c-dbf5b2eaadc9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
