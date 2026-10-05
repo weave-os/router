@@ -15,7 +15,6 @@ import (
 )
 
 const (
-	defaultAccountSyncTTL = 15 * time.Second
 	// refreshLeaseTTL bounds how long a crashed holder blocks other replicas.
 	// A live holder extends the lease every refreshLeaseHeartbeat while its
 	// provider call runs, so a healthy refresh never loses the lease before
@@ -80,13 +79,11 @@ type Runtime struct {
 	refresher TokenRefresher
 	manager   *Manager
 	clock     func() time.Time
-	syncTTL   time.Duration
 	leaseTTL  time.Duration
 	heartbeat time.Duration
 
-	mu       sync.Mutex
-	syncedAt map[string]time.Time
-	syncing  map[string]*runtimeSyncCall
+	mu      sync.Mutex
+	syncing map[string]*runtimeSyncCall
 }
 
 type runtimeSyncCall struct {
@@ -102,7 +99,7 @@ func NewRuntime(store AccountStore, refresher TokenRefresher, clock func() time.
 	}
 	return &Runtime{
 		store: store, refresher: refresher, manager: NewManager(clock), clock: clock,
-		syncTTL: defaultAccountSyncTTL, syncedAt: make(map[string]time.Time), syncing: make(map[string]*runtimeSyncCall),
+		syncing:  make(map[string]*runtimeSyncCall),
 		leaseTTL: refreshLeaseTTL, heartbeat: refreshLeaseHeartbeat,
 	}
 }
@@ -222,19 +219,14 @@ func (r *Runtime) leaseFromPools(ctx context.Context, owner auth.SubscriptionOwn
 	return Account{}, nil, ErrNoAvailableAccount
 }
 
+// syncAccounts reloads the owner's accounts from the store on every lease, so
+// the table is the only record of availability: a cooldown written by another
+// replica, or cleared by an operator, applies to the next request. Concurrent
+// leases for one owner share a single in-flight read.
 func (r *Runtime) syncAccounts(ctx context.Context, owner auth.SubscriptionOwner, provider Provider) (bool, error) {
 	pools := ownerPools(owner)
 	key := poolKey(owner.SyncKey(), provider)
 	r.mu.Lock()
-	if syncedAt := r.syncedAt[key]; !syncedAt.IsZero() && r.clock().Sub(syncedAt) < r.syncTTL {
-		r.mu.Unlock()
-		for _, poolID := range pools {
-			if r.providerAccountCount(poolID, provider) > 0 {
-				return true, nil
-			}
-		}
-		return false, nil
-	}
 	if call, ok := r.syncing[key]; ok {
 		r.mu.Unlock()
 		select {
@@ -288,18 +280,11 @@ func (r *Runtime) syncAccounts(ctx context.Context, owner auth.SubscriptionOwner
 	}
 
 	r.mu.Lock()
-	if err == nil {
-		r.syncedAt[key] = r.clock()
-	}
 	call.present, call.err = total > 0, err
 	delete(r.syncing, key)
 	close(call.done)
 	r.mu.Unlock()
 	return call.present, call.err
-}
-
-func (r *Runtime) providerAccountCount(poolID string, provider Provider) int {
-	return r.manager.pool(poolID, provider).accountCount(provider)
 }
 
 func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {

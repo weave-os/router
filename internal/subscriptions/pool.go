@@ -284,7 +284,8 @@ func (p *Pool) tryLease(provider Provider, sessionID string) (Account, func(), e
 	ids := make([]string, 0, len(p.accounts))
 	for id, state := range p.accounts {
 		if state.account.Provider == provider && state.account.Enabled &&
-			subscriptionAccountStateRoutable(state.account.State, state.account.CooldownTil, now) {
+			subscriptionAccountStateRoutable(state.account.State, state.account.CooldownTil, now) &&
+			!(state.leased > 0 && awaitingProbe(state.account.State)) {
 			ids = append(ids, id)
 		}
 	}
@@ -314,6 +315,14 @@ func (p *Pool) tryLease(provider Provider, sessionID string) (Account, func(), e
 	account := state.account
 	var releaseOnce sync.Once
 	return account, func() { releaseOnce.Do(func() { p.release(account.ID) }) }, nil
+}
+
+// awaitingProbe reports whether an account is past a cooldown or exhaustion but
+// has not yet answered a request successfully. It takes one request at a time
+// (half-open): if that request is rejected again the account cools down
+// again, instead of every concurrent request being spent on it.
+func awaitingProbe(state auth.SubscriptionAccountState) bool {
+	return state == auth.SubscriptionAccountStateCooldown || state == auth.SubscriptionAccountStateExhausted
 }
 
 func subscriptionAccountStateRoutable(state auth.SubscriptionAccountState, cooldownUntil, now time.Time) bool {
