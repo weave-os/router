@@ -337,7 +337,7 @@ func permanentErrorDiagnosticAttrs(proxyErr error, requestBytes int, redact Reda
 	bodyFormat := errorBodyFormatNonJSON
 	if len(bufferedErr.Body) == 0 {
 		bodyFormat = errorBodyFormatEmpty
-	} else if trimmed := strings.TrimSpace(string(bufferedErr.Body)); json.Valid(bufferedErr.Body) || strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[") {
+	} else if trimmedBody := strings.TrimSpace(string(bufferedErr.Body)); json.Valid(bufferedErr.Body) || strings.HasPrefix(trimmedBody, "{") || strings.HasPrefix(trimmedBody, "[") {
 		bodyFormat = errorBodyFormatJSON
 	}
 	attrs.String("upstream.error_body_format", string(bodyFormat)).
