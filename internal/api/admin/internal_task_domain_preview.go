@@ -12,10 +12,24 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// maxTaskDomainPreviewBytes bounds the policy plus evidence a caller may send.
-const maxTaskDomainPreviewBytes = 4 << 20
+const (
+	// maxTaskDomainPreviewBytes bounds every policy and evidence document in one batch.
+	maxTaskDomainPreviewBytes = 16 << 20
+	// maxTaskDomainPreviewItems covers every serving lane of one control-plane read.
+	maxTaskDomainPreviewItems = 64
+)
 
-type taskDomainPreviewRequest struct {
+// TaskDomainPreviewStatus explains whether one batch item could be scored.
+type TaskDomainPreviewStatus string
+
+const (
+	TaskDomainPreviewReady            TaskDomainPreviewStatus = "ready"
+	TaskDomainPreviewInvalidRequest   TaskDomainPreviewStatus = "invalid_request"
+	TaskDomainPreviewEvidenceRejected TaskDomainPreviewStatus = "evidence_rejected"
+	TaskDomainPreviewFailed           TaskDomainPreviewStatus = "failed"
+)
+
+type taskDomainPreviewItemRequest struct {
 	Policy   json.RawMessage     `json:"policy"`
 	Evidence json.RawMessage     `json:"evidence"`
 	Cluster  string              `json:"cluster"`
@@ -23,64 +37,86 @@ type taskDomainPreviewRequest struct {
 	Domains  []taskdomain.Domain `json:"domains"`
 }
 
-type taskDomainPreviewResponse struct {
-	RecipeVersion           string                   `json:"recipe_version"`
-	RecipeInfluence         float64                  `json:"recipe_influence"`
-	Recipes                 []selection.DomainRecipe `json:"recipes"`
-	RosterSHA256            string                   `json:"roster_sha256"`
-	EvidenceSHA256          string                   `json:"evidence_sha256"`
-	BenchmarkSnapshotSHA256 string                   `json:"benchmark_snapshot_sha256"`
-	BenchmarkIngestDate     string                   `json:"benchmark_ingest_date"`
-	Preview                 selection.DomainPreview  `json:"preview"`
+type taskDomainPreviewRequest struct {
+	Items []taskDomainPreviewItemRequest `json:"items"`
 }
 
-// InternalTaskDomainPreviewHandler scores a published policy and its evidence
-// with this worker's task-domain recipe and selector, so the control plane
-// displays exactly what serving computes instead of a second implementation.
-// Pure computation: the caller supplies both immutable documents.
+type taskDomainPreviewItem struct {
+	Status                  TaskDomainPreviewStatus  `json:"status"`
+	RosterSHA256            string                   `json:"roster_sha256,omitempty"`
+	EvidenceSHA256          string                   `json:"evidence_sha256,omitempty"`
+	BenchmarkSnapshotSHA256 string                   `json:"benchmark_snapshot_sha256,omitempty"`
+	BenchmarkIngestDate     string                   `json:"benchmark_ingest_date,omitempty"`
+	Preview                 *selection.DomainPreview `json:"preview,omitempty"`
+}
+
+type taskDomainPreviewResponse struct {
+	RecipeVersion   string                   `json:"recipe_version"`
+	RecipeInfluence float64                  `json:"recipe_influence"`
+	Recipes         []selection.DomainRecipe `json:"recipes"`
+	Items           []taskDomainPreviewItem  `json:"items"`
+}
+
+// InternalTaskDomainPreviewHandler scores published policies and their
+// evidence with this worker's task-domain recipe and selector, so the control
+// plane displays exactly what serving computes instead of a second
+// implementation. Pure computation over caller-supplied immutable documents;
+// one request carries every lane of a control-plane read.
 func InternalTaskDomainPreviewHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxTaskDomainPreviewBytes)
 		var req taskDomainPreviewRequest
-		if err := c.ShouldBindJSON(&req); err != nil || len(req.Policy) == 0 || len(req.Evidence) == 0 || req.Cluster == "" {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "policy, evidence and cluster are required"})
+		if err := c.ShouldBindJSON(&req); err != nil || len(req.Items) == 0 || len(req.Items) > maxTaskDomainPreviewItems {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "between 1 and 64 preview items are required"})
 			return
 		}
-		profile := taskdomain.Profile{taskdomain.UI: false, taskdomain.Logic: false, taskdomain.Data: false, taskdomain.Infra: false, taskdomain.Docs: false}
-		for _, domain := range req.Domains {
-			if _, known := profile[domain]; !known {
-				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "unknown task domain"})
-				return
-			}
-			profile[domain] = true
-		}
-		roster, err := rosterdata.Parse(req.Policy)
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "policy is not a valid selection policy"})
-			return
-		}
-		roster.SHA256 = rosterdata.SHA256Hex(req.Policy)
-		evidence, err := selection.ParseDomainEvidence(req.Evidence, roster)
-		if err != nil {
-			observability.FromGin(c).Error("Task-domain evidence rejected for preview", "roster_sha256", roster.SHA256, "err", err)
-			c.AbortWithStatusJSON(http.StatusUnprocessableEntity, gin.H{"error": "evidence does not match this policy or the worker's evidence contract"})
-			return
-		}
-		if _, exists := roster.Clusters[req.Cluster]; !exists {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "cluster is not in the policy"})
-			return
-		}
-		preview, err := selection.PreviewDomainRanking(roster, evidence, req.Cluster, req.Harness, profile)
-		if err != nil {
-			observability.FromGin(c).Error("Task-domain preview failed", "roster_sha256", roster.SHA256, "cluster", req.Cluster, "err", err)
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "Failed to preview task-domain ranking."})
-			return
-		}
-		c.JSON(http.StatusOK, taskDomainPreviewResponse{
+		response := taskDomainPreviewResponse{
 			RecipeVersion: selection.DomainRecipeVersion, RecipeInfluence: selection.DomainInfluence, Recipes: selection.DomainRecipes(),
-			RosterSHA256: roster.SHA256, EvidenceSHA256: rosterdata.SHA256Hex(req.Evidence),
-			BenchmarkSnapshotSHA256: evidence.BenchmarkSnapshotSHA256, BenchmarkIngestDate: evidence.BenchmarkIngestDate,
-			Preview: preview,
-		})
+			Items: make([]taskDomainPreviewItem, 0, len(req.Items)),
+		}
+		for _, item := range req.Items {
+			response.Items = append(response.Items, previewTaskDomainItem(c, item))
+		}
+		c.JSON(http.StatusOK, response)
 	}
+}
+
+func previewTaskDomainItem(c *gin.Context, req taskDomainPreviewItemRequest) taskDomainPreviewItem {
+	invalid := taskDomainPreviewItem{Status: TaskDomainPreviewInvalidRequest}
+	if len(req.Policy) == 0 || len(req.Evidence) == 0 || req.Cluster == "" {
+		return invalid
+	}
+	profile := taskdomain.Profile{taskdomain.UI: false, taskdomain.Logic: false, taskdomain.Data: false, taskdomain.Infra: false, taskdomain.Docs: false}
+	for _, domain := range req.Domains {
+		if _, known := profile[domain]; !known {
+			return invalid
+		}
+		profile[domain] = true
+	}
+	roster, err := rosterdata.Parse(req.Policy)
+	if err != nil {
+		return invalid
+	}
+	roster.SHA256 = rosterdata.SHA256Hex(req.Policy)
+	item := taskDomainPreviewItem{RosterSHA256: roster.SHA256, EvidenceSHA256: rosterdata.SHA256Hex(req.Evidence)}
+	if _, exists := roster.Clusters[req.Cluster]; !exists {
+		item.Status = TaskDomainPreviewInvalidRequest
+		return item
+	}
+	evidence, err := selection.ParseDomainEvidence(req.Evidence, roster)
+	if err != nil {
+		observability.FromGin(c).Error("Task-domain evidence rejected for preview", "roster_sha256", roster.SHA256, "err", err)
+		item.Status = TaskDomainPreviewEvidenceRejected
+		return item
+	}
+	preview, err := selection.PreviewDomainRanking(roster, evidence, req.Cluster, req.Harness, profile)
+	if err != nil {
+		observability.FromGin(c).Error("Task-domain preview failed", "roster_sha256", roster.SHA256, "cluster", req.Cluster, "err", err)
+		item.Status = TaskDomainPreviewFailed
+		return item
+	}
+	item.Status = TaskDomainPreviewReady
+	item.BenchmarkSnapshotSHA256, item.BenchmarkIngestDate = evidence.BenchmarkSnapshotSHA256, evidence.BenchmarkIngestDate
+	item.Preview = &preview
+	return item
 }

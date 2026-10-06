@@ -66,10 +66,10 @@ docs alone keeps baseline. With full coverage the quality term becomes 85% WII
 and 15% task mix; the price term is untouched.
 
 The recipe lives only in `internal/router/hmm/selection/domain.go`; evidence
-carries benchmark data, never weights. The control plane's admin preview posts a
-published policy and its evidence to `POST /internal/v1/task-domain/preview`,
-which runs the same selector, so the dashboard reflects whichever recipe the
-worker is running.
+carries benchmark data, never weights. The control plane's admin preview posts
+every serving lane's published policy and evidence in one batch to
+`POST /internal/v1/task-domain/preview`, which runs the same selector, so the
+dashboard reflects whichever recipe the worker is running.
 
 HMM probabilities, cluster order, membership, eligibility, manual pins, harness
 vendor preferences and stronger overrides remain authoritative. Traces include the content-free outcome and a
