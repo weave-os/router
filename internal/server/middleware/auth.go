@@ -143,7 +143,7 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 		if apiKey != nil {
 			ctx = context.WithValue(ctx, proxy.APIKeyIDContextKey{}, apiKey.ID)
 			ctx = proxy.WithManagedSubscriptionUsage(ctx)
-			owner := subscriptionOwnerForRequest(c, svc, apiKey)
+			owner := subscriptionOwnerForRequest(c, apiKey)
 			c.Set(ctxKeySubscriptionOwner, owner)
 			ctx = proxy.WithSubscriptionOwner(ctx, owner)
 			if testPlan == nil && svc.SubscriptionAccountsEnabled() {
@@ -362,7 +362,7 @@ func SubscriptionOwnerLive(c *gin.Context, svc *auth.Service) (auth.Subscription
 	if apiKey == nil || svc == nil {
 		return auth.SubscriptionOwner{}, nil
 	}
-	owner, err := svc.SubscriptionOwnerForRequestUncached(c.Request.Context(), apiKey, "")
+	owner, err := svc.SubscriptionOwnerForRequestUncached(c.Request.Context(), apiKey)
 	if err != nil {
 		observability.FromGin(c).Error("Failed to resolve request identity for subscription management", "err", err)
 		return auth.SubscriptionOwner{}, err
@@ -370,24 +370,14 @@ func SubscriptionOwnerLive(c *gin.Context, svc *auth.Service) (auth.Subscription
 	return owner, nil
 }
 
-// subscriptionOwnerForRequest resolves the caller behind the request email.
-// The resolution never writes to the *auth.APIKey: VerifyAPIKey hands out a
-// cached pointer shared by every concurrent request presenting that key, so a
-// per-request identity written there would leak across callers.
-//
-// A resolution failure falls back to the key's own identity rather than
-// refusing the turn: the projection is an attribution improvement, and an
-// unavailable one must not take routing down.
-func subscriptionOwnerForRequest(c *gin.Context, svc *auth.Service, apiKey *auth.APIKey) auth.SubscriptionOwner {
+// subscriptionOwnerForRequest binds personal capacity to the authenticated key
+// subject. Client-asserted email is attribution only and cannot grant ownership;
+// live candidate SQL revalidates subject eligibility and installation membership.
+func subscriptionOwnerForRequest(c *gin.Context, apiKey *auth.APIKey) auth.SubscriptionOwner {
 	if _, ok := requestcontext.InternalTestIdentityFrom(c.Request.Context()); ok {
 		return auth.SubscriptionOwner{}
 	}
-	email := proxy.ClientIdentityFromHeaders(c.Request.Header).Email
-	owner, err := svc.SubscriptionOwnerForRequest(c.Request.Context(), apiKey, email)
-	if err != nil {
-		observability.FromGin(c).Error("Failed to resolve request identity; billing the key's own subscriber", "err", err)
-	}
-	return owner
+	return auth.SubscriptionOwnerForKey(apiKey)
 }
 
 // AdminPrincipalFrom retrieves the admin principal set when the request authenticated via the session cookie. Returns nil for rk_-keyed or unauthed requests.

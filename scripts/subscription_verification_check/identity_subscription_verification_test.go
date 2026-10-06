@@ -63,7 +63,7 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 		require.NoError(t, err)
 	}
 	repositories := postgres.NewRepository(pool, auth.NoOpEncryptor{})
-	authService := auth.NewService(repositories.Installations, repositories.APIKeys, repositories.ExternalAPIKeys, repositories.Users, auth.NoOpAPIKeyCache{}, nil, time.Now).WithEncryptor(auth.NoOpEncryptor{}).WithRequestIdentities(repositories.RequestIdentities).WithCredentialSubjectLookup(postgres.NewCredentialSubjectRepo(pool)).WithSubscriptionAccounts(repositories.SubscriptionAccounts).WithRoutingPolicies(repositories.RoutingPolicies, nil)
+	authService := auth.NewService(repositories.Installations, repositories.APIKeys, repositories.ExternalAPIKeys, repositories.Users, auth.NoOpAPIKeyCache{}, nil, time.Now).WithEncryptor(auth.NoOpEncryptor{}).WithCredentialSubjectLookup(postgres.NewCredentialSubjectRepo(pool)).WithSubscriptionAccounts(repositories.SubscriptionAccounts).WithRoutingPolicies(repositories.RoutingPolicies, nil)
 	account, err := authService.AddSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{Owner: auth.SubscriptionOwner{InstallationID: org.String(), SubscriberID: subject.String(), APIKeyID: personalKey.String()}, Provider: auth.SubscriptionProviderCodex, ExternalAccountID: "synthetic-email-owner-" + uuid.NewString(), RefreshToken: []byte("synthetic-refresh")})
 	require.NoError(t, err)
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

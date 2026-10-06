@@ -313,7 +313,7 @@ WHERE id = @id::uuid
   AND token_refresh_lease_id = @lease_id::uuid
   AND token_refresh_version = @expected_version::bigint;
 
--- Admits candidates on the primary, ordered personal then registered member capacity.
+-- Read from the primary so admission observes current membership and sharing settings.
 -- Locks are held only for this statement and serialize with settings/access writes.
 -- name: ListModelRouterSubscriptionCandidates :many
 WITH installation AS MATERIALIZED (

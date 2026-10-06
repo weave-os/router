@@ -582,8 +582,7 @@ func main() {
 		WithRoutingPolicies(repo.RoutingPolicies, routingPolicyCache).
 		WithWIFTokenSource(buildWIFTokenSource(logger)).
 		WithEntraTokenSource(buildEntraTokenSource(logger)).
-		WithFlagOverridesDisabled(flagOverridesDisabled).
-		WithRequestIdentities(repo.RequestIdentities)
+		WithFlagOverridesDisabled(flagOverridesDisabled)
 	subscriptionPoolsEnabled := config.GetOr("ROUTER_SUBSCRIPTION_POOLS_ENABLED", "false") == "true"
 	var subscriptionRuntime *subscriptions.Runtime
 	if subscriptionPoolsEnabled {

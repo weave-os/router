@@ -32,10 +32,10 @@ func TestVerificationSQLWinningAttributionAndPaidExclusion(t *testing.T) {
 	org := uuid.New()
 	_, err = tx.Exec(ctx, `INSERT INTO router.model_router_installations(id,external_id,name) VALUES($1,$2,'telemetry-verification')`, org, org.String())
 	require.NoError(t, err)
-	q := sqlc.New(tx)
+	queries := sqlc.New(tx)
 	account, owner := uuid.New(), uuid.New()
 	now := time.Now()
-	str := func(s string) *string { return &s }
+	stringPtr := func(value string) *string { return &value }
 	cases := []struct {
 		id, source, headers string
 		status              int32
@@ -48,14 +48,14 @@ func TestVerificationSQLWinningAttributionAndPaidExclusion(t *testing.T) {
 		{"api-fallback", "", "{}", 200, false},
 	}
 	for _, tc := range cases {
-		arg := sqlc.InsertRequestTelemetryParams{InstallationID: org, RequestID: tc.id, SpanType: "router.upstream", TraceID: "synthetic-trace", Timestamp: pgtype.Timestamptz{Time: now, Valid: true}, RequestedModel: "auto", DecisionModel: "gpt-5.6-sol", DecisionProvider: "openai", DecisionReason: "synthetic", EmbedInput: "concatenated_stream", UpstreamStatusCode: tc.status, SubscriptionAccountID: pgtype.UUID{Bytes: account, Valid: true}, SubscriptionOwnerID: pgtype.UUID{Bytes: owner, Valid: true}, SubscriptionTier: str("shared"), IntendedModelFamily: str("claude-opus-5"), FinalModelFamily: str("gpt-5.6-sol"), UnifiedLimitHeaders: []byte(tc.headers)}
+		arg := sqlc.InsertRequestTelemetryParams{InstallationID: org, RequestID: tc.id, SpanType: "router.upstream", TraceID: "synthetic-trace", Timestamp: pgtype.Timestamptz{Time: now, Valid: true}, RequestedModel: "auto", DecisionModel: "gpt-5.6-sol", DecisionProvider: "openai", DecisionReason: "synthetic", EmbedInput: "concatenated_stream", UpstreamStatusCode: tc.status, SubscriptionAccountID: pgtype.UUID{Bytes: account, Valid: true}, SubscriptionOwnerID: pgtype.UUID{Bytes: owner, Valid: true}, SubscriptionTier: stringPtr("shared"), IntendedModelFamily: stringPtr("claude-opus-5"), FinalModelFamily: stringPtr("gpt-5.6-sol"), UnifiedLimitHeaders: []byte(tc.headers)}
 		if tc.source != "" {
-			arg.CredentialSource = str(tc.source)
+			arg.CredentialSource = stringPtr(tc.source)
 		}
-		require.NoError(t, q.InsertRequestTelemetry(ctx, arg))
-		require.NoError(t, q.InsertRequestTelemetry(ctx, arg), "replayed ingestion must remain exactly once")
+		require.NoError(t, queries.InsertRequestTelemetry(ctx, arg))
+		require.NoError(t, queries.InsertRequestTelemetry(ctx, arg), "replayed ingestion must remain exactly once")
 	}
-	rows, err := q.GetRoutingDecisionsForExport(ctx, sqlc.GetRoutingDecisionsForExportParams{InstallationID: org, FromTime: pgtype.Timestamptz{Time: now.Add(-time.Hour), Valid: true}, ToTime: pgtype.Timestamptz{Time: now.Add(time.Hour), Valid: true}, RowLimit: 100})
+	rows, err := queries.GetRoutingDecisionsForExport(ctx, sqlc.GetRoutingDecisionsForExportParams{InstallationID: org, FromTime: pgtype.Timestamptz{Time: now.Add(-time.Hour), Valid: true}, ToTime: pgtype.Timestamptz{Time: now.Add(time.Hour), Valid: true}, RowLimit: 100})
 	require.NoError(t, err)
 	require.Len(t, rows, len(cases), "all failed/fallback requests retained once")
 	expected := map[string]bool{}

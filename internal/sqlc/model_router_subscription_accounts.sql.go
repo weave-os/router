@@ -404,7 +404,7 @@ type ListModelRouterSubscriptionCandidatesRow struct {
 	Tier                   string
 }
 
-// Admits candidates on the primary, ordered personal then registered member capacity.
+// Read from the primary so admission observes current membership and sharing settings.
 // Locks are held only for this statement and serialize with settings/access writes.
 //
 //	WITH installation AS MATERIALIZED (

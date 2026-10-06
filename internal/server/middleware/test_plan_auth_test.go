@@ -24,12 +24,6 @@ func (forbiddenTestSecrets) GetForInstallation(context.Context, string) ([]*auth
 	panic("test admission read provider secrets")
 }
 
-type forbiddenTestIdentity struct{}
-
-func (forbiddenTestIdentity) GetSubscriberForEmail(context.Context, string, string) (string, error) {
-	panic("test admission resolved customer email")
-}
-
 type forbiddenTestSubscriptions struct {
 	failingSubscriptionAccountRepository
 }
@@ -59,7 +53,7 @@ func TestSignedTestAuthSkipsEmailSubscriptionsAndProviderSecrets(t *testing.T) {
 	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{auth.HashAPIKeySHA256(credential): {apiKey: key, installation: installation}}}
 	routingPolicies := &assignedTestRoutingPolicyRepo{}
 	service := auth.NewService(fakeInstallationRepository{}, repo, &forbiddenTestSecrets{}, nil, auth.NoOpAPIKeyCache{}, nil, time.Now).
-		WithRequestIdentities(forbiddenTestIdentity{}).WithSubscriptionAccounts(forbiddenTestSubscriptions{}).
+		WithSubscriptionAccounts(forbiddenTestSubscriptions{}).
 		WithRoutingPolicies(routingPolicies, nil)
 	signer, err := policyregistry.NewAssertionSigner([]byte(strings.Repeat("s", 32)), time.Now)
 	require.NoError(t, err)

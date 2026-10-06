@@ -283,7 +283,7 @@ func (s *Service) ListSubscriptionCandidates(ctx context.Context, owner Subscrip
 		ListSubscriptionCandidates(context.Context, SubscriptionOwner) ([]*SubscriptionAccount, error)
 	})
 	if !ok {
-		return nil, nil
+		return nil, errors.New("subscription candidate admission is not configured")
 	}
 	return repo.ListSubscriptionCandidates(ctx, owner)
 }

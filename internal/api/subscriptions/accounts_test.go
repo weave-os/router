@@ -3,7 +3,6 @@ package subscriptions_test
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -93,24 +92,12 @@ func (r *ownerRecordingRepo) UpsertSubscriptionAccount(_ context.Context, params
 	return &auth.SubscriptionAccount{ID: "account", Provider: params.Provider}, auth.SubscriptionUpsertInserted, nil
 }
 
-// projectedIdentities is Weave's email-to-person projection for one installation.
-type projectedIdentities map[string]string
-
-func (p projectedIdentities) GetSubscriberForEmail(_ context.Context, _, email string) (string, error) {
-	subjectID, projected := p[email]
-	if !projected {
-		return "", sql.ErrNoRows
-	}
-	return subjectID, nil
-}
-
 // Enrollment belongs to the verified personal key subject; an unsigned caller email cannot transfer ownership.
 func TestCreateAccountEnrollsVerifiedPersonalKeyOwner(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	accounts := &ownerRecordingRepo{}
 	svc := auth.NewService(installationRepo{}, keyRepo{}, nil, nil, auth.NoOpAPIKeyCache{}, nil, time.Now).
-		WithSubscriptionAccounts(accounts).WithCredentialSubjectLookup(verifiedSubject{}).
-		WithRequestIdentities(projectedIdentities{"sam@weave.test": "subject-sam"})
+		WithSubscriptionAccounts(accounts).WithCredentialSubjectLookup(verifiedSubject{})
 	engine := gin.New()
 	group := engine.Group("/v1", middleware.WithAuth(svc, false))
 	subscriptionsapi.Register(group, svc)

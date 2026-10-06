@@ -119,7 +119,7 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 	}); ok {
 		accounts, err = store.ListSubscriptionCandidates(ctx, requester)
 	} else {
-		return Lease{}, false, nil
+		return Lease{}, false, errors.New("subscription candidate admission is not configured")
 	}
 	if err != nil {
 		return Lease{}, false, err
@@ -182,14 +182,10 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 		if leaseErr != nil {
 			return Lease{}, present, leaseErr
 		}
-		tier := candidate.Tier
-		if tier == "" {
-			tier = auth.SubscriptionTierPersonal
-		}
 		if sessionID != "" {
 			r.affinity.Add(affinityKey, leased.ID)
 		}
-		return Lease{AccountID: leased.ID, OwnerID: candidate.SubscriberID, Tier: tier, AccessToken: leased.AccessToken,
+		return Lease{AccountID: leased.ID, OwnerID: candidate.SubscriberID, Tier: candidate.Tier, AccessToken: leased.AccessToken,
 			ProviderAccount: leased.AccountID, State: leased.State, release: release}, true, nil
 	}
 	if present {

@@ -8,7 +8,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/requestcontext"
-	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/subscriptions"
 )
 
@@ -34,19 +33,6 @@ func codexSubscriptionCanAttemptModel(model string) bool {
 
 func codexSubscriptionCoversModel(model string) bool {
 	return CodexSubscriptionCoversModel(model)
-}
-
-// claudeCoveredModels returns the catalog models a Claude (Pro/Max) subscription
-// covers — every Anthropic-primary model. Derived from the catalog so it tracks
-// model additions without a second source of truth.
-func claudeCoveredModels() []string {
-	out := make([]string, 0, 8)
-	for _, m := range catalog.Models {
-		if m.PrimaryProvider() == providers.ProviderAnthropic {
-			out = append(out, m.ID)
-		}
-	}
-	return out
 }
 
 // WithUsageObserver wires physical-account quota observation for source selection.

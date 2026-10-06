@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
-	"strings"
 	"time"
 
 	"weave-os/router/internal/observability"
@@ -18,6 +17,7 @@ import (
 	"weave-os/router/internal/providers/httputil"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/sse"
 	"weave-os/router/internal/timing"
 
 	"github.com/tidwall/gjson"
@@ -423,25 +423,14 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 			}
 			responseFrames = append(responseFrames, chunk...)
 			for {
-				end := bytes.Index(responseFrames, []byte("\n\n"))
-				separatorLen := 2
-				if crlf := bytes.Index(responseFrames, []byte("\r\n\r\n")); crlf >= 0 && (end < 0 || crlf < end) {
-					end = crlf
-					separatorLen = 4
-				}
-				if end < 0 {
+				event, consumed := sse.SplitNext(responseFrames)
+				if consumed == 0 {
 					break
 				}
-				frame := string(responseFrames[:end])
-				responseFrames = responseFrames[end+separatorLen:]
-				for _, line := range strings.Split(frame, "\n") {
-					if !strings.HasPrefix(line, "data:") {
-						continue
-					}
-					payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-					if gjson.Get(payload, "type").String() == "response.failed" || gjson.Get(payload, "type").String() == "error" {
-						terminalResponseError = &providers.UpstreamErrorResponse{Status: http.StatusBadGateway, Body: []byte(payload)}
-					}
+				responseFrames = responseFrames[consumed:]
+				_, payload := sse.ParseEvent(event)
+				if eventType := gjson.GetBytes(payload, "type").String(); eventType == "response.failed" || eventType == "error" {
+					terminalResponseError = &providers.UpstreamErrorResponse{Status: http.StatusBadGateway, Body: bytes.Clone(payload)}
 				}
 			}
 			if len(responseFrames) > 1024*1024 {
