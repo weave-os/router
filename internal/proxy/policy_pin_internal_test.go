@@ -245,6 +245,45 @@ func TestRunTurnLoop_HonouredPinBypassesForceModel(t *testing.T) {
 	assert.Equal(t, 1, rt.calls)
 }
 
+func TestRunTurnLoop_HonouredPinScoresAutomaticProbesWithoutConversationState(t *testing.T) {
+	for _, model := range []string{automaticProbeModel, ""} {
+		for _, forceModel := range []string{"", catalog.ModelIDClaudeSonnet46.String()} {
+			t.Run(model+"/"+forceModel, func(t *testing.T) {
+				env, err := translate.ParseAnthropic([]byte(`{"model":"` + model + `","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`))
+				require.NoError(t, err)
+				feats := env.RoutingFeatures(false)
+				rt := &countingPinnedRouter{decision: router.Decision{
+					Provider: providers.ProviderOpenAI, Model: catalog.ModelIDGPT55.String(),
+					Metadata: &router.RoutingMetadata{PolicyPinHonoured: true},
+				}}
+				store := newStubPinStore()
+				svc := pinnedTurnLoopService(t, rt, store)
+				res, err := svc.runTurnLoop(pinnedContext(true), env, feats, "key", uuid.Nil, "", nil,
+					router.Request{RequestedModel: model, ForceModel: forceModel})
+				require.NoError(t, err)
+				assert.Equal(t, 1, rt.calls)
+				assert.Equal(t, catalog.ModelIDGPT55.String(), res.Decision.Model)
+				assert.Equal(t, policyPinTier, res.PinTier)
+				assert.Empty(t, res.Purpose)
+				assert.Zero(t, res.SessionKey)
+				assert.False(t, res.UsageBypass)
+				assert.False(t, res.StickyHit)
+				rt.decision.Metadata = nil
+				_, err = svc.runTurnLoop(pinnedContext(true), env, feats, "key", uuid.Nil, "", nil,
+					router.Request{RequestedModel: model, ForceModel: forceModel})
+				assert.ErrorIs(t, err, router.ErrPolicyPinUnavailable)
+				store.mu.Lock()
+				defer store.mu.Unlock()
+				if forceModel == "" {
+					assert.Equal(t, []string{forceModelSessionRole, forceModelSessionRole}, store.getRoles)
+				} else {
+					assert.Empty(t, store.getRoles)
+				}
+			})
+		}
+	}
+}
+
 func TestRunTurnLoop_HonouredPinNeverServes200WithHonouredFalse(t *testing.T) {
 	env, feats := pinnedTurnLoopEnvelope(t)
 	rt := &countingPinnedRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-sonnet-5"}}

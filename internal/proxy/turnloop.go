@@ -838,8 +838,10 @@ func (s *Service) runTurnLoop(
 	// would otherwise short-circuit scoring (/force-model, sticky pins, usage
 	// bypass, blind-experiment passthrough, planner stays) is not consulted.
 	// Utility hard pins below are never policy-scored and keep their own path.
-	if _, pinned := router.HonouredPolicyPin(ctx); pinned && !s.isHardPinnedTurn(ctx, res.TurnType) {
-		if s.pinStore != nil && !isUnpinnedScoredTurn(res.TurnType) {
+	automaticProbe := res.TurnType == turntype.Probe && !s.explicitUtilityHardPin &&
+		(req.RequestedModel == "" || req.RequestedModel == automaticProbeModel)
+	if _, pinned := router.HonouredPolicyPin(ctx); pinned && (!s.isHardPinnedTurn(ctx, res.TurnType) || automaticProbe) {
+		if s.pinStore != nil && !isUnpinnedScoredTurn(res.TurnType) && !automaticProbe {
 			res.SessionKey = threadSessionKey
 			_, _, res.SessionFirstTurn = s.loadPinWithStoreState(ctx, res.SessionKey, res.PinRole)
 		}
@@ -888,8 +890,6 @@ func (s *Service) runTurnLoop(
 			return res, nil
 		}
 	}
-	automaticProbe := res.TurnType == turntype.Probe && !s.explicitUtilityHardPin &&
-		(req.RequestedModel == "" || req.RequestedModel == automaticProbeModel)
 	if hardPinnedTurn && !automaticProbe {
 		purpose, registered := utilityPurposes[res.TurnType]
 		if !registered {
