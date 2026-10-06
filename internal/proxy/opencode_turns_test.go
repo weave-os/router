@@ -149,10 +149,10 @@ func headerlessSender(t *testing.T, svc *proxy.Service, clientApp string) func(b
 }
 
 // Headerless OpenCode title calls derive the same session key from their
-// constant system prompt. They must hard-pin from the body, render no routing
+// constant system prompt. They must score independently, render no routing
 // marker (OpenCode titles the session with the reply's first line), and neither
 // serve nor rewrite the conversation's automatic pin.
-func TestService_OpenCodeHeaderlessTitleHardPinsWithoutTouchingThePin(t *testing.T) {
+func TestService_OpenCodeHeaderlessTitleScoresWithoutTouchingThePin(t *testing.T) {
 	store := newFakePinStore()
 	store.persistUpserts = true
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-4o", Reason: "cluster"}}
@@ -165,12 +165,12 @@ func TestService_OpenCodeHeaderlessTitleHardPinsWithoutTouchingThePin(t *testing
 	for range 2 {
 		getsBefore := store.getCalls
 		rec := send(openCodeHeaderlessTitleBody)
-		assert.Equal(t, openCodeHardPinModel, rec.Header().Get(proxy.HeaderRouterModel), "the automatic pin must not serve a title turn")
+		assert.Equal(t, "gpt-4o", rec.Header().Get(proxy.HeaderRouterModel), "the title uses its independently scored model")
 		assert.NotContains(t, rec.Body.String(), "Weave Router", "a routing marker would become the session title")
 		assert.Equal(t, 2, store.getCalls-getsBefore, "title turns read only session and legacy thread force state")
 	}
 
-	assert.Equal(t, 1, fr.routeCalls, "title generation must bypass the scorer")
+	assert.Equal(t, 3, fr.routeCalls, "each title must be scored independently of the conversation pin")
 	assert.Len(t, store.upserts, 1, "title generation must not anchor a pin")
 }
 

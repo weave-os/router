@@ -127,7 +127,8 @@ type Service struct {
 	// Off by default. Kill switch: ROUTER_DEEPSEEK_ESCAPE_NORMALIZE.
 	escapeNormalize bool
 	// hardPinExplore gates the Explore sub-agent hard-pin.
-	hardPinExplore bool
+	hardPinExplore         bool
+	explicitUtilityHardPin bool
 	// hardPinProvider/hardPinModel route compaction (and, when hardPinExplore is
 	// on, Explore sub-agent turns). Derived at boot from the cheapest registered
 	// model; overridable via ROUTER_HARD_PIN_PROVIDER / ROUTER_HARD_PIN_MODEL.
@@ -683,7 +684,7 @@ func routingMarkerFor(res turnLoopResult) string {
 	if decision.Model == "" {
 		return ""
 	}
-	if res.SuggestionMode || res.CallerModelPassthrough {
+	if res.SuggestionMode || res.CallerModelPassthrough || isUnpinnedScoredTurn(res.TurnType) {
 		return ""
 	}
 	// A dropped force-model pin contradicts an ack the user already saw, so it
@@ -702,7 +703,7 @@ func routingMarkerFor(res turnLoopResult) string {
 	// PriorServedModel is always empty there — suppress explicitly rather than
 	// letting it read as a first turn. A classifier verdict is parsed by the
 	// harness, not read by the user, and a prefix would corrupt it.
-	if res.HardPinned || isUnpinnedScoredTurn(res.TurnType) {
+	if res.HardPinned {
 		return ""
 	}
 	// A shadow checkpoint is news even when ordinary routing keeps the same model.
@@ -2281,6 +2282,13 @@ type HardPinRequest struct {
 // HardPinResolver picks the hard-pin tier's provider/model for one request.
 // ok=false signals no eligible provider.
 type HardPinResolver func(HardPinRequest) (provider, model string, ok bool)
+
+// WithExplicitUtilityHardPin keeps title and probe overrides opt-in; the
+// boot-time fallback model alone is not an operator choice.
+func (s *Service) WithExplicitUtilityHardPin(enabled bool) *Service {
+	s.explicitUtilityHardPin = enabled
+	return s
+}
 
 // WithHardPinResolver installs a per-request hard-pin resolver. nil
 // preserves the boot-time hardPin{Provider,Model} for every request.

@@ -37,7 +37,7 @@ func (p *codexTitleProvider) Passthrough(context.Context, providers.PreparedRequ
 	return providers.ErrNotImplemented
 }
 
-func TestCodexResponsesTitleGenerationHardPinsWithoutScoring(t *testing.T) {
+func TestCodexResponsesTitleGenerationScoresWithoutMarker(t *testing.T) {
 	routerSpy := &codexTitleRouter{}
 	provider := &codexTitleProvider{}
 	svc := NewService(
@@ -64,11 +64,11 @@ func TestCodexResponsesTitleGenerationHardPinsWithoutScoring(t *testing.T) {
 
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 	require.Len(t, provider.endpoints, 1)
-	require.Zero(t, routerSpy.routeCalls, "Codex title generation must use the hard-pin path")
-	assert.NotContains(t, rec.Body.String(), "Weave Router", "hard-pinned title responses must not carry a routing marker")
+	require.Equal(t, 1, routerSpy.routeCalls, "Codex title generation must be scored independently")
+	assert.NotContains(t, rec.Body.String(), "Weave Router", "title responses must not carry a routing marker")
 }
 
-func TestCodexResponsesTitlePromptHardPinsWithoutScoring(t *testing.T) {
+func TestCodexResponsesTitlePromptScoresWithoutMarker(t *testing.T) {
 	routerSpy := &codexTitleRouter{}
 	provider := &codexTitleProvider{}
 	svc := NewService(
@@ -95,11 +95,11 @@ func TestCodexResponsesTitlePromptHardPinsWithoutScoring(t *testing.T) {
 
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 	require.Len(t, provider.endpoints, 1)
-	require.Zero(t, routerSpy.routeCalls, "Codex title generation must use the hard-pin path")
-	assert.NotContains(t, rec.Body.String(), "Weave Router", "hard-pinned title responses must not carry a routing marker")
+	require.Equal(t, 1, routerSpy.routeCalls, "Codex title generation must be scored independently")
+	assert.NotContains(t, rec.Body.String(), "Weave Router", "title responses must not carry a routing marker")
 }
 
-func TestCodexResponsesTitlePromptAfterHarnessContextHardPins(t *testing.T) {
+func TestCodexResponsesTitlePromptAfterHarnessContextScores(t *testing.T) {
 	routerSpy := &codexTitleRouter{}
 	provider := &codexTitleProvider{}
 	svc := NewService(
@@ -126,8 +126,8 @@ func TestCodexResponsesTitlePromptAfterHarnessContextHardPins(t *testing.T) {
 
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 	require.Len(t, provider.endpoints, 1)
-	require.Zero(t, routerSpy.routeCalls, "Codex title generation must use the hard-pin path")
-	assert.NotContains(t, rec.Body.String(), "Weave Router", "hard-pinned title responses must not carry a routing marker")
+	require.Equal(t, 1, routerSpy.routeCalls, "Codex title generation must be scored independently")
+	assert.NotContains(t, rec.Body.String(), "Weave Router", "title responses must not carry a routing marker")
 }
 
 func TestCodexResponsesTitlePromptWithAssistantHistoryUsesScorer(t *testing.T) {

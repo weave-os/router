@@ -98,7 +98,7 @@ func TestService_HardPin_TitleGen_GatewayModelNotFound_ExcludedOnLaterTurns(t *t
 		nil, false, nil, store, false,
 		providers.ProviderAnthropic, servedAlias,
 		nil,
-	).WithByokOnly(true).WithHardPinResolver(resolver)
+	).WithByokOnly(true).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
 
 	ctx := ctxWithGatewayAliases(uuid.New().String(), unservedAlias, servedAlias)
 
@@ -142,7 +142,7 @@ func TestService_HardPin_TitleGen_GatewayModelNotFound_KeepsServedAliasesRoutabl
 		nil, false, nil, store, false,
 		providers.ProviderAnthropic, servedAlias,
 		nil,
-	).WithByokOnly(true).WithHardPinResolver(resolver)
+	).WithByokOnly(true).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
 
 	ctx := ctxWithGatewayAliases(uuid.New().String(), unservedAlias, servedAlias)
 	for i := 0; i < 2; i++ {
@@ -174,7 +174,7 @@ func TestService_HardPin_TitleGen_VendorModelNotFound_DoesNotExcludeModel(t *tes
 		nil, false, nil, store, false,
 		providers.ProviderAnthropic, servedAlias,
 		nil,
-	).WithHardPinResolver(resolver).
+	).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}})
 
 	ctx := authedCtx(uuid.New().String())

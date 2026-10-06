@@ -705,7 +705,7 @@ func TestService_HardPin_TitleGen_AppliesExcludedModels(t *testing.T) {
 		fr, providerMap, nil, false, nil, store, false,
 		providers.ProviderGoogle, excludedModel, // boot-time pin is the excluded model
 		nil,
-	).WithHardPinResolver(resolver)
+	).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
 
 	ctx := context.WithValue(authedCtx(uuid.New().String()),
 		proxy.InstallationExcludedModelsContextKey{}, []string{excludedModel})
@@ -1765,7 +1765,7 @@ func TestService_HardPin_TitleGen_GatewayExclusive_ResolvesAlias(t *testing.T) {
 		fr, providerMap, nil, false, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		nil,
-	).WithByokOnly(true).WithHardPinResolver(resolver)
+	).WithByokOnly(true).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
 
 	ctx := authedCtxWithGatewayKey(uuid.New().String(), aliasedModel)
 	rec := httptest.NewRecorder()
@@ -1791,7 +1791,7 @@ func TestService_HardPin_TitleGen_GatewayExclusive_NoAliasReportsConfigError(t *
 		fr, providerMap, nil, false, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5",
 		nil,
-	).WithByokOnly(true).WithHardPinResolver(resolver)
+	).WithByokOnly(true).WithExplicitUtilityHardPin(true).WithHardPinResolver(resolver)
 
 	ctx := authedCtxWithGatewayKey(uuid.New().String(), "")
 	rec := httptest.NewRecorder()

@@ -1309,6 +1309,7 @@ func main() {
 		WithDeploymentKeyedProviders(deploymentEligible).
 		WithPassthroughEligibleProviders(passthroughEligible).
 		WithHardPinResolver(hardPinResolver).
+		WithExplicitUtilityHardPin(config.GetOr("ROUTER_HARD_PIN_MODEL", "") != "").
 		WithSubAgentOverride(subAgentProvider, subAgentModel).
 		WithPlannerEnabled(plannerEnabled).
 		WithScoreToolResultTurns(scoreToolResultTurns).

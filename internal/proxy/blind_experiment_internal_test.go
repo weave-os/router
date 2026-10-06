@@ -224,6 +224,7 @@ func runBlindExperimentUtilityTurn(t *testing.T, ctx context.Context, body strin
 	routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
 	service := NewService(routerSpy, nil, nil, false, nil, newStubPinStore(), false,
 		providers.ProviderGoogle, "gemini-3.1-flash-lite-preview", nil).
+		WithExplicitUtilityHardPin(true).
 		WithCompactionHardPin(true).
 		WithSubAgentOverride(providers.ProviderGoogle, "gemini-3-flash-preview")
 	envelope, err := translate.ParseAnthropic([]byte(body))
@@ -266,7 +267,7 @@ func TestBlindExperimentPassthroughOutranksUtilityHardPins(t *testing.T) {
 	}
 }
 
-func TestBlindExperimentRouterOnKeepsUtilityHardPins(t *testing.T) {
+func TestBlindExperimentRouterOnKeepsExplicitUtilityHardPins(t *testing.T) {
 	for _, testCase := range blindExperimentUtilityTurnBodies() {
 		t.Run(string(testCase.turnType), func(t *testing.T) {
 			loopResult := runBlindExperimentUtilityTurn(t, blindExperimentContext(auth.BlindExperimentArmRouterOn), testCase.body)
