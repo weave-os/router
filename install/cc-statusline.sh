@@ -17,6 +17,7 @@
 # at 1.25× input pending TTL-aware pricing.
 
 set -euo pipefail
+export PATH="$PATH:$HOME/.weave/bin"
 
 # ---------- background self-refresh ----------
 #

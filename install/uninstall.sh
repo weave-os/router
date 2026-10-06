@@ -23,6 +23,7 @@
 #   npx @workweave/router --uninstall --scope project --dir /tmp # --dir + project scope (.claude/)
 
 set -euo pipefail
+export PATH="$PATH:$HOME/.weave/bin"
 
 scope="user"
 scope_explicit="false"

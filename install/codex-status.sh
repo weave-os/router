@@ -18,6 +18,7 @@
 # blocks on the network, and every failure path leaves the title model-only.
 
 set -euo pipefail
+export PATH="$PATH:$HOME/.weave/bin"
 
 # ---------- background self-refresh ----------
 #

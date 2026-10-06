@@ -157,7 +157,7 @@ dependencies are separately licensed and are not bundled in this package.
 
 - Node ≥ 18 (ships with `npx`)
 - `bash` on PATH (macOS / Linux native; Windows needs Git Bash or WSL)
-- `jq` on PATH — used by the Claude Code status line, the Codex lifecycle helper, and the opencode/pi JSON merges.
+- `jq` is reused when available; otherwise the installer downloads checksum-verified jq 1.8.1 to `~/.weave/bin`. No Homebrew or administrator access is needed. Downloads require access to GitHub.
 
 ## Why npx
 

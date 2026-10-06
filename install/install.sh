@@ -102,6 +102,7 @@
 # it rather than editing.
 
 set -euo pipefail
+export PATH="$PATH:$HOME/.weave/bin"
 
 # ---------- defaults ----------
 
@@ -350,6 +351,47 @@ usage() {
   print_banner
   awk 'NR<2 { next } /^set -euo/ { exit } { sub(/^# ?/, ""); print }' "$0"
   exit "${1:-0}"
+}
+
+ensure_jq() {
+  command -v jq >/dev/null 2>&1 && return 0
+  local asset checksum destination temporary actual_checksum
+  case "$(uname -s):$(uname -m)" in
+    Darwin:arm64) asset=jq-macos-arm64; checksum=a9fe3ea2f86dfc72f6728417521ec9067b343277152b114f4e98d8cb0e263603 ;;
+    Darwin:x86_64) asset=jq-macos-amd64; checksum=e80dbe0d2a2597e3c11c404f03337b981d74b4a8504b70586c354b7697a7c27f ;;
+    Linux:x86_64) asset=jq-linux-amd64; checksum=020468de7539ce70ef1bceaf7cde2e8c4f2ca6c3afb84642aabc5c97d9fc2a0d ;;
+    Linux:aarch64|Linux:arm64) asset=jq-linux-arm64; checksum=6bc62f25981328edd3cfcfe6fe51b073f2d7e7710d7ef7fcdac28d4e384fc3d4 ;;
+    MINGW*:x86_64|MSYS*:x86_64|CYGWIN*:x86_64) asset=jq-windows-amd64.exe; checksum=23cb60a1354eed6bcc8d9b9735e8c7b388cd1fdcb75726b93bc299ef22dd9334 ;;
+    *) err "Automatic jq installation is unavailable for $(uname -s)/$(uname -m). Install jq and retry."; exit 1 ;;
+  esac
+  require_cmd curl "curl is required to download jq."
+  destination="$HOME/.weave/bin"
+  mkdir -p "$destination"
+  temporary="$(mktemp "$destination/.jq.XXXXXX")"
+  info "Downloading jq 1.8.1 ($asset)."
+  if ! curl --fail --location --silent --show-error --connect-timeout 15 --max-time 120 \
+    "https://github.com/jqlang/jq/releases/download/jq-1.8.1/$asset" -o "$temporary"; then
+    rm -f "$temporary"
+    err "Could not download jq. Check access to github.com or install jq and retry."
+    exit 1
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    actual_checksum="$(sha256sum "$temporary" | awk '{print $1}')"
+  else
+    require_cmd shasum "shasum or sha256sum is required to verify jq."
+    actual_checksum="$(shasum -a 256 "$temporary" | awk '{print $1}')"
+  fi
+  if [ "$actual_checksum" != "$checksum" ]; then
+    rm -f "$temporary"
+    err "Downloaded jq failed checksum verification. Retry or install jq manually."
+    exit 1
+  fi
+  chmod 755 "$temporary"
+  case "$asset" in
+    *.exe) mv -f "$temporary" "$destination/jq.exe" ;;
+    *) mv -f "$temporary" "$destination/jq" ;;
+  esac
+  jq --version >/dev/null
 }
 
 require_cmd() {
@@ -1818,7 +1860,7 @@ fi
 # found`. Installing Codex itself still needs no jq.
 if [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" ] \
    || { [ "$mode" = "models" ] && [ "$target" = "codex" ]; }; then
-  require_cmd jq    "macOS: 'brew install jq' · Debian/Ubuntu: 'sudo apt install jq'"
+  ensure_jq
 fi
 # curl is used by the install/update paths' health/validate probes and by every
 # `models` call. The on/off toggles only ping the router best-effort after a
@@ -3554,7 +3596,7 @@ run_login() {
   extra="$(printf '%s\n' "$models_args" | tail -n +2)"
   [ -n "$provider" ] || { err "Use 'login claude' or 'login codex'."; exit 2; }
   [ -z "$extra" ] || { err "Login accepts exactly one provider."; exit 2; }
-  require_cmd jq "Install jq to enroll a subscription account."
+  ensure_jq
   require_cmd openssl "Install OpenSSL to enroll a subscription account."
   case "$provider" in
     claude) run_login_claude ;;
@@ -4317,6 +4359,7 @@ install_codex_status_script() {
 # blocks on the network, and every failure path leaves the title model-only.
 
 set -euo pipefail
+export PATH="$PATH:$HOME/.weave/bin"
 
 # ---------- background self-refresh ----------
 #
@@ -4800,6 +4843,7 @@ install_codex_directive_script() {
 # fire.
 
 set -uo pipefail
+export PATH="$PATH:$HOME/.weave/bin"
 
 # How long the toggle may take before the hook gives up and passes the prompt
 # through. npx resolves from cache after first use; the budget covers a cold
@@ -5201,6 +5245,7 @@ cat > "$statusline_file" << 'STATUSLINE_EOF'
 # at 1.25× input pending TTL-aware pricing.
 
 set -euo pipefail
+export PATH="$PATH:$HOME/.weave/bin"
 
 # ---------- background self-refresh ----------
 #

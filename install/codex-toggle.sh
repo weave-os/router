@@ -29,6 +29,7 @@
 # fire.
 
 set -uo pipefail
+export PATH="$PATH:$HOME/.weave/bin"
 
 # How long the toggle may take before the hook gives up and passes the prompt
 # through. npx resolves from cache after first use; the budget covers a cold
