@@ -3792,8 +3792,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 	}
 
-	// On a retryable 429 the bypass falls through to re-routing; rate-limit
-	// headers prime the observer so the retry skips exhausted capacity.
+	// A retryable bypass error falls through to normal dispatch. Rate-limit
+	// headers prime the observer so the retry skips exhausted capacity; a
+	// depleted-credit retry preserves the model and tries only subscriptions.
 	if routeRes.UsageBypass && routeRes.Decision.Provider == providers.ProviderAnthropic {
 		err := s.bypassToAnthropic(ctx, env, feats, routeRes.modelSwitched(), requestStart, requestID, externalID, routeRes.TurnType, routeRes.Decision.Reason, r, w)
 		if !errors.Is(err, errBypassRetryable) {
@@ -3803,19 +3804,24 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			return err
 		}
 
-		// Subscription-only mode: the subscription just failed (e.g. 429
-		// weekly-limit). Paid failover is disabled, so refuse rather than
-		// reroute onto a paid model against an already-negative balance. A
-		// linked-first turn's credits are intact: release the mark so the
-		// reroute below runs as an ordinary credit-funded turn.
+		// A depleted-credit retry may rotate linked subscriptions, but must keep
+		// the requested model and never consult the paid-model scorer. Suppress
+		// the failed direct token even when its response had no quota headers.
+		linkedSubscriptionRetry := false
 		if billing.SubscriptionOnlyFromContext(ctx) {
 			released, ok := releaseThrottledLinkedFirst(ctx)
-			if !ok {
+			if ok {
+				ctx = released
+			} else if s.managedSubscriptions != nil && managedSubscriptionCanServe(ctx, routeRes.Decision.Provider, routeRes.Decision.Model) {
+				ctx = withSuppressedClaudeSubscription(ctx)
+				linkedSubscriptionRetry = true
+				log.Info("Subscription-only bypass hit retryable error; trying linked Claude accounts",
+					"request_id", requestID, "external_id", externalID, "model", routeRes.Decision.Model)
+			} else {
 				log.Info("Subscription-only bypass hit retryable error; refusing instead of paid reroute",
 					"request_id", requestID, "external_id", externalID)
 				return ErrCreditsExhaustedSubscriptionUnavailable
 			}
-			ctx = released
 		}
 
 		// bypassToAnthropic returns before session pin/HMM history are loaded,
@@ -3833,15 +3839,17 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 
 		routeRes.UsageBypass = false
-		rerouteCtx, rerouteSpan := startRoutingSpan(ctx, req)
-		decision, rerouteErr := s.routeFor(rerouteCtx, req)
-		finishRoutingSpan(rerouteSpan, decision, rerouteErr)
-		if rerouteErr != nil {
-			log.Error("Reroute after usage-bypass failure failed", "err", rerouteErr)
-			return rerouteErr
+		if !linkedSubscriptionRetry {
+			rerouteCtx, rerouteSpan := startRoutingSpan(ctx, req)
+			decision, rerouteErr := s.routeFor(rerouteCtx, req)
+			finishRoutingSpan(rerouteSpan, decision, rerouteErr)
+			if rerouteErr != nil {
+				log.Error("Reroute after usage-bypass failure failed", "err", rerouteErr)
+				return rerouteErr
+			}
+			routeRes.Decision = decision
+			routeRes.Fresh = decision
 		}
-		routeRes.Decision = decision
-		routeRes.Fresh = decision
 	}
 
 	routeRes.SuggestionMode = r.Header.Get("x-weave-suggestion-mode") == "true"
@@ -4095,7 +4103,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				return ErrCreditsExhaustedSubscriptionUnavailable
 			}
 			ctx = released
-		case s.anthropicSubscriptionObservedExhausted(ctx, r.Header):
+		case s.anthropicSubscriptionObservedExhausted(ctx, r.Header) && !claudeSubscriptionSuppressed(ctx):
 			log.Info("Subscription-only request cannot be served on the subscription; refusing",
 				"requested_model", feats.Model, "external_id", externalID, "decision_provider", decision.Provider)
 			return ErrCreditsExhaustedSubscriptionUnavailable

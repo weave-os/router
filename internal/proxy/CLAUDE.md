@@ -219,8 +219,12 @@ observed-exhausted → strict pass-through via `bypassToAnthropic` with
 by-product of the conversation's own turns, so conserving quota by re-routing
 it buys nothing. Everything else is the usage-bypass lane's behaviour: an
 exhausted subscription falls to the scorer (deployment-key fallback /
-subscription-only 402 as usual), a retryable upstream error reroutes without
-loading the conversation's pin, and the row stays cost-neutral downstream
+subscription-only refusal as usual). With depleted credits, a retryable bypass
+error suppresses the failed direct token and tries enrolled linked Claude accounts
+on the requested model through the normal subscription dispatch loop. It does not
+run the scorer or permit paid fallback; an exhausted pool refuses. Credit-funded
+retries still reroute, without loading a classifier conversation pin, and the row
+stays cost-neutral downstream
 (`subscription_served`), not a "saving".
 
 ## Translation
