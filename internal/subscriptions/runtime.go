@@ -85,10 +85,6 @@ type Runtime struct {
 	clock     func() time.Time
 	leaseTTL  time.Duration
 	heartbeat time.Duration
-
-	// owners remembers each recently leased account's physical owner; bounded so
-	// account churn cannot grow it for the life of the replica.
-	owners *expirable.LRU[string, auth.SubscriptionOwner]
 }
 
 // NewRuntime constructs the server-side subscription credential runtime.
@@ -98,7 +94,7 @@ func NewRuntime(store AccountStore, refresher TokenRefresher, clock func() time.
 	}
 	return &Runtime{affinity: expirable.NewLRU[string, string](4096, nil, 30*time.Minute),
 		store: store, refresher: refresher, manager: NewManager(clock), clock: clock,
-		leaseTTL: refreshLeaseTTL, heartbeat: refreshLeaseHeartbeat, owners: expirable.NewLRU[string, auth.SubscriptionOwner](16384, nil, 24*time.Hour),
+		leaseTTL: refreshLeaseTTL, heartbeat: refreshLeaseHeartbeat,
 	}
 }
 
@@ -171,7 +167,6 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 		if err := r.manager.Upsert(account); err != nil {
 			return Lease{}, present, err
 		}
-		r.owners.Add(candidate.ID, owner)
 		// Each pool holds one account; r.affinity owns session preference.
 		leased, release, leaseErr := r.manager.Lease(ctx, poolID, provider, "", r.refresh(owner))
 		if errors.Is(leaseErr, ErrNoAvailableAccount) {
@@ -192,47 +187,45 @@ func (r *Runtime) Lease(ctx context.Context, requester auth.SubscriptionOwner, p
 	return Lease{}, false, nil
 }
 
-func (r *Runtime) physicalOwner(accountID string, fallback auth.SubscriptionOwner) auth.SubscriptionOwner {
-	if owner, ok := r.owners.Get(accountID); ok {
-		return owner
-	}
-	return fallback
-}
-
 func (r *Runtime) Cooldown(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string, resetAt time.Time) error {
-	if err := r.admit(ctx, accountID, owner); err != nil {
+	physicalOwner, err := r.admit(ctx, accountID, owner)
+	if err != nil {
 		return err
 	}
 	r.manager.Cooldown("account:"+accountID, provider, accountID, resetAt)
-	return r.store.UpdateSubscriptionAccountCooldown(ctx, r.physicalOwner(accountID, owner), accountID, resetAt)
+	return r.store.UpdateSubscriptionAccountCooldown(ctx, physicalOwner, accountID, resetAt)
 }
 func (r *Runtime) Exhaust(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string, resetAt time.Time) error {
-	if err := r.admit(ctx, accountID, owner); err != nil {
+	physicalOwner, err := r.admit(ctx, accountID, owner)
+	if err != nil {
 		return err
 	}
 	r.manager.Exhaust("account:"+accountID, provider, accountID, resetAt)
-	return r.updateAccountHealth(ctx, r.physicalOwner(accountID, owner), accountID, auth.SubscriptionAccountStateExhausted, true, &resetAt)
+	return r.updateAccountHealth(ctx, physicalOwner, accountID, auth.SubscriptionAccountStateExhausted, true, &resetAt)
 }
 func (r *Runtime) ReconnectRequired(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string) error {
-	if err := r.admit(ctx, accountID, owner); err != nil {
+	physicalOwner, err := r.admit(ctx, accountID, owner)
+	if err != nil {
 		return err
 	}
 	r.manager.ReconnectRequired("account:"+accountID, provider, accountID)
-	return r.updateAccountHealth(ctx, r.physicalOwner(accountID, owner), accountID, auth.SubscriptionAccountStateReconnectRequired, false, nil)
+	return r.updateAccountHealth(ctx, physicalOwner, accountID, auth.SubscriptionAccountStateReconnectRequired, false, nil)
 }
 func (r *Runtime) Activate(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string) error {
-	if err := r.admit(ctx, accountID, owner); err != nil {
+	physicalOwner, err := r.admit(ctx, accountID, owner)
+	if err != nil {
 		return err
 	}
 	r.manager.Activate("account:"+accountID, provider, accountID)
-	return r.updateAccountHealth(ctx, r.physicalOwner(accountID, owner), accountID, auth.SubscriptionAccountStateActive, true, nil)
+	return r.updateAccountHealth(ctx, physicalOwner, accountID, auth.SubscriptionAccountStateActive, true, nil)
 }
 func (r *Runtime) Disable(ctx context.Context, owner auth.SubscriptionOwner, provider Provider, accountID string) error {
-	if err := r.admit(ctx, accountID, owner); err != nil {
+	physicalOwner, err := r.admit(ctx, accountID, owner)
+	if err != nil {
 		return err
 	}
 	r.manager.Disable("account:"+accountID, provider, accountID)
-	return r.store.UpdateSubscriptionAccountState(ctx, r.physicalOwner(accountID, owner), accountID, false, nil)
+	return r.store.UpdateSubscriptionAccountState(ctx, physicalOwner, accountID, false, nil)
 }
 func (r *Runtime) updateAccountHealth(ctx context.Context, owner auth.SubscriptionOwner, accountID string, state auth.SubscriptionAccountState, enabled bool, cooldownUntil *time.Time) error {
 	if store, ok := r.store.(interface {
@@ -507,23 +500,23 @@ func (*providerAccountMismatchError) Error() string {
 }
 func (*providerAccountMismatchError) Terminal() bool { return true }
 
-// admit returns ErrNoAvailableAccount when accountID is no longer a candidate,
-// and the admission error itself when candidates cannot be read.
-func (r *Runtime) admit(ctx context.Context, accountID string, owner auth.SubscriptionOwner) error {
+// admit returns the account's physical owner, ErrNoAvailableAccount when
+// accountID is no longer a candidate, or the admission read error.
+func (r *Runtime) admit(ctx context.Context, accountID string, owner auth.SubscriptionOwner) (auth.SubscriptionOwner, error) {
 	store, ok := r.store.(interface {
 		ListSubscriptionCandidates(context.Context, auth.SubscriptionOwner) ([]*auth.SubscriptionAccount, error)
 	})
 	if !ok {
-		return errors.New("subscription candidate admission is not configured")
+		return auth.SubscriptionOwner{}, errors.New("subscription candidate admission is not configured")
 	}
 	accounts, err := store.ListSubscriptionCandidates(ctx, owner)
 	if err != nil {
-		return err
+		return auth.SubscriptionOwner{}, err
 	}
 	for _, account := range accounts {
 		if account.ID == accountID && account.SubscriberID != "" {
-			return nil
+			return auth.SubscriptionOwner{SubscriberID: account.SubscriberID, APIKeyID: account.EnrolledByAPIKeyID, InstallationID: owner.InstallationID}, nil
 		}
 	}
-	return ErrNoAvailableAccount
+	return auth.SubscriptionOwner{}, ErrNoAvailableAccount
 }

@@ -248,29 +248,6 @@ func TestProxy_NonOAuthCredentialUsesAPIKey(t *testing.T) {
 	assert.NotContains(t, gotBeta, "oauth-2025-04-20", "the oauth beta flag must only be added for subscription tokens")
 }
 
-func TestProxy_RefusesUnresolvedInboundSubscriptionBearer(t *testing.T) {
-	upstreamCalls := 0
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		upstreamCalls++
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"id":"msg_1"}`))
-	}))
-	defer upstream.Close()
-
-	// No deployment key and no resolved credential: relaying the caller's
-	// subscription bearer would dispatch OAuth inference without included-only
-	// enforcement, so the adapter refuses before any upstream I/O.
-	c := anthropic.NewClient("", upstream.URL)
-	rec := httptest.NewRecorder()
-	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-	clientReq.Header.Set("Authorization", "Bearer sk-ant-oat01-subscription-token")
-	prep := providers.PreparedRequest{Body: []byte(`{"model":"x"}`), Headers: make(http.Header)}
-
-	err := c.Proxy(context.Background(), router.Decision{Model: "claude-opus-4-8"}, prep, rec, clientReq)
-	require.Error(t, err)
-	assert.Zero(t, upstreamCalls, "an unresolved inbound subscription bearer must never reach the upstream")
-}
-
 func TestRefusesUnresolvedInboundSubscriptionBearerOnEveryEntryPoint(t *testing.T) {
 	for _, entryPoint := range []string{"proxy", "passthrough"} {
 		for _, authorization := range []string{"Bearer sk-ant-oat01-subscription-token", "bearer sk-ant-oat01-subscription-token"} {

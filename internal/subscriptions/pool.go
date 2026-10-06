@@ -385,8 +385,9 @@ func (p *Pool) refreshAccount(ctx context.Context, account Account, refresh Refr
 			// A panicking refresher must still release joiners and the in-flight entry.
 			defer func() {
 				if recovered := recover(); recovered != nil {
-					observability.FromContext(refreshCtx).Error("Subscription refresh panicked", "account_id", account.ID, "panic", recovered)
-					err = fmt.Errorf("subscription refresh panicked: %v", recovered)
+					// The payload may contain credential material; record only its type.
+					observability.FromContext(refreshCtx).Error("Subscription refresh panicked", "account_id", account.ID, "panic_type", fmt.Sprintf("%T", recovered))
+					err = errors.New("subscription refresh panicked")
 				}
 			}()
 			refreshed, err = refresh(refreshCtx, account)

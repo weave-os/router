@@ -728,6 +728,9 @@ func TestSubscriptionFailoverParity_CallerModelPassthrough(t *testing.T) {
 			_ = in.call(svc, ctx, body, rec, req)
 			assert.Equal(t, wantPaid[in.name], upstream.paidDispatches,
 				"caller model remains fixed while authorized funding falls back for either provider")
+			for _, servedModel := range upstream.servedModels {
+				assert.Equal(t, in.model, servedModel, "fallback must keep the caller's model")
+			}
 		})
 	}
 }

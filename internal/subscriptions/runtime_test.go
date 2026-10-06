@@ -954,6 +954,18 @@ func TestRuntimeSharesPoolAcrossSubscriberKeys(t *testing.T) {
 		subscriptions.ErrNoAvailableAccount)
 }
 
+func TestRuntimeActivateDuringCooldownPreservesCooldown(t *testing.T) {
+	cooldownUntil := time.Now().Add(time.Hour)
+	store := newRuntimeStore(&auth.SubscriptionAccount{
+		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderClaude,
+		Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &cooldownUntil,
+	})
+	runtime := subscriptions.NewRuntime(store, nil, nil)
+	require.NoError(t, runtime.Activate(context.Background(), testOwner, subscriptions.ProviderClaude, "account-1"))
+	require.Equal(t, auth.SubscriptionAccountStateExhausted, store.healthStates["account-1"])
+	require.Equal(t, cooldownUntil, store.cooldowns["account-1"])
+}
+
 // Shared capacity follows personal capacity and is attributed to its owner.
 func TestRuntimeLeasesAnotherMembersSharedAccountAfterPersonal(t *testing.T) {
 	store := newRuntimeStore(

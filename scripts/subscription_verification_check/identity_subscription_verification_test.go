@@ -104,6 +104,7 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 				require.NoError(t, err)
 			}
 			before := len(bearers)
+			proxyErrorsBefore := len(proxyErrors)
 			body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"synthetic identity"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 			request, err := http.NewRequest("POST", actualIngress.URL+"/v1/chat/completions", strings.NewReader(body))
 			require.NoError(t, err)
@@ -114,7 +115,8 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 			require.NoError(t, err)
 			payload, _ := io.ReadAll(response.Body)
 			response.Body.Close()
-			require.NoError(t, proxyErrors[len(proxyErrors)-1])
+			require.Len(t, proxyErrors, proxyErrorsBefore+1, "the request must reach the proxy handler")
+			require.NoError(t, proxyErrors[proxyErrorsBefore])
 			require.Equal(t, 200, response.StatusCode, string(payload))
 			require.Contains(t, string(payload), "identity answer")
 			require.Len(t, bearers, before+1)

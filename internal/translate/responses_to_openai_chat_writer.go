@@ -3,7 +3,6 @@ package translate
 import (
 	"bufio"
 	"bytes"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -794,10 +793,9 @@ func (t *ResponsesToOpenAIChatWriter) emitDone() error {
 // after output starts it emits an in-stream error frame, since the response is
 // already committed.
 func (t *ResponsesToOpenAIChatWriter) emitStreamError(errType, msg string) error {
-	t.terminalFailure = &providers.UpstreamStatusError{
+	t.terminalFailure = &providers.UpstreamErrorResponse{
 		Status: responsesFailureStatus(errType),
 		Body:   openAIErrorBody(errType, msg),
-		Cause:  fmt.Errorf("upstream Responses stream failed (%s): %s", errType, msg),
 	}
 	if t.lifecycle.State() == StreamStarted {
 		if err := t.lifecycle.Fail(); err != nil {
