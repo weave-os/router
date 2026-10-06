@@ -190,6 +190,9 @@ func verifyDispatchBilling(t *testing.T, pool *pgxpool.Pool, runtime *subscripti
 		var bearers []string
 		var bearersMu sync.Mutex
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if serveIncludedCodexQuota(w, r) {
+				return
+			}
 			bearer := r.Header.Get("Authorization")
 			bearersMu.Lock()
 			bearers = append(bearers, bearer)

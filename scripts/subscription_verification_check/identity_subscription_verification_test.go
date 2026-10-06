@@ -75,6 +75,9 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 	runtime := subscriptions.NewRuntime(authService, subscriptions.NewOAuthClient(tokenServer.Client(), tokenServer.URL, tokenServer.URL, time.Now), time.Now)
 	var bearers []string
 	providerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveIncludedCodexQuota(w, r) {
+			return
+		}
 		bearers = append(bearers, r.Header.Get("Authorization"))
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"identity answer\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"synthetic\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":11,\"output_tokens\":7}}}\n\n")
