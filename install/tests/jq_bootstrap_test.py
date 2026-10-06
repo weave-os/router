@@ -1,4 +1,5 @@
 """Offline coverage for first-run jq acquisition without a package manager."""
+import hashlib
 import os
 from pathlib import Path
 import subprocess
@@ -23,17 +24,22 @@ class JqBootstrapTest(unittest.TestCase):
             chmod = binaries / "chmod"
             chmod.write_text("#!/bin/sh\nexit 1\n")
             chmod.chmod(0o755)
+        shasum_path = subprocess.check_output(["/usr/bin/which", "shasum"], text=True).strip()
         scripts = {
             "mv": '#!/bin/sh\n/bin/mv "$@"\nfor destination; do :; done\ncase "$destination" in *.exe) /bin/ln -s "$destination" "${destination%.exe}";; esac\n',
             "uname": f'#!/bin/sh\ncase "$1" in -s) echo "{system}";; -m) echo "{architecture}";; esac\n',
-            "curl": '#!/bin/sh\nprintf "%s\\n" "$@" > "$HOME/download-args"\nwhile [ "$1" != "-o" ]; do shift; done\nprintf \'#!/bin/sh\\necho jq-1.8.1\\n\' > "$2"\n',
-            checksum_program: f'#!/bin/sh\necho "{"invalid" if corrupt else checksum}  $1"\n',
+            "curl": '#!/bin/sh\nprintf "%s\\n" "$@" > "$HOME/download-args"\nwhile [ "$1" != "-o" ]; do shift; done\nprintf \'#!/bin/sh\\necho jq-' + ("corrupt" if corrupt else "1.8.1") + '\\n\' > "$2"\n',
+            checksum_program: f'#!/bin/sh\nprintf "%s\\n" "$@" > "$HOME/{checksum_program}-args"\n' + (f'exec "{shasum_path}" -a 256 "$@"\n' if checksum_program == "sha256sum" else f'exec "{shasum_path}" "$@"\n'),
         }
         for name, script in scripts.items():
             executable = binaries / name
             executable.write_text(script)
             executable.chmod(0o755)
         source = INSTALLER.read_text()
+        downloaded_binary = b"#!/bin/sh\necho jq-1.8.1\n"
+        mock_checksum = hashlib.sha256(downloaded_binary).hexdigest()
+        self.assertIn(f"checksum={checksum}", source)
+        source = source.replace(f"checksum={checksum}", f"checksum={mock_checksum}", 1)
         cleanup_start = source.index("_spin_cleanup() {")
         cleanup_end = source.index("\ntrap _spin_cleanup", cleanup_start)
         start = source.index("ensure_jq() {")
@@ -59,7 +65,8 @@ class JqBootstrapTest(unittest.TestCase):
                 self.assertTrue((home / ".weave/bin" / ("jq.exe" if asset.endswith(".exe") else "jq")).is_file())
 
     def test_corrupt_download_is_not_installed(self) -> None:
-        completed, home = self.run_bootstrap("Darwin", "arm64", "unused", corrupt=True)
+        checksum = "a9fe3ea2f86dfc72f6728417521ec9067b343277152b114f4e98d8cb0e263603"
+        completed, home = self.run_bootstrap("Darwin", "arm64", checksum, corrupt=True)
         self.assertNotEqual(completed.returncode, 0)
         self.assertIn("checksum verification", completed.stderr)
         self.assertEqual(list((home / ".weave/bin").iterdir()), [])
@@ -68,7 +75,15 @@ class JqBootstrapTest(unittest.TestCase):
         checksum = "a9fe3ea2f86dfc72f6728417521ec9067b343277152b114f4e98d8cb0e263603"
         completed, home = self.run_bootstrap("Darwin", "arm64", checksum, checksum_program="shasum")
         self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual((home / "shasum-args").read_text().split()[:2], ["-a", "256"])
         self.assertTrue((home / ".weave/bin/jq").is_file())
+
+    def test_shasum_fallback_rejects_mismatched_download(self) -> None:
+        checksum = "a9fe3ea2f86dfc72f6728417521ec9067b343277152b114f4e98d8cb0e263603"
+        completed, home = self.run_bootstrap("Darwin", "arm64", checksum, corrupt=True, checksum_program="shasum")
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("checksum verification", completed.stderr)
+        self.assertEqual(list((home / ".weave/bin").iterdir()), [])
 
     def test_failed_install_cleans_temporary_download(self) -> None:
         checksum = "a9fe3ea2f86dfc72f6728417521ec9067b343277152b114f4e98d8cb0e263603"
