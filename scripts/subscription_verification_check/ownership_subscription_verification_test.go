@@ -124,6 +124,8 @@ func TestVerificationSQLSharingOwnershipAndIsolation(t *testing.T) {
 	// A subject-less key cannot borrow any member's capacity.
 	owner.SubscriberID = ""
 	assertCandidates([]string{})
+	// Restore the verified requester so the routing-disabled SQL gate is exercised.
+	owner.SubscriberID = personal.String()
 	_, err = tx.Exec(ctx, `UPDATE router.model_router_installations SET subscription_routing_disabled=true WHERE id=$1`, org)
 	require.NoError(t, err)
 	assertCandidates([]string{})
