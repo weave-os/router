@@ -1,0 +1,19 @@
+cmd/policyctl/serving_lifecycle_test.go
+  s_10b5814ed56527::t_c2a3d91aade064 243-272,298
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "84006106840e6a37a1116b5d7a09dfd2e5111128",
+  "prompts": {},
+  "sessions": {
+    "s_10b5814ed56527": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d421-d964-7190-8384-83d2a0dc0641",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

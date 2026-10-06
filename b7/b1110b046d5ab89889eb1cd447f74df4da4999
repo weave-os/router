@@ -1,0 +1,90 @@
+internal/proxy/turnloop_internal_test.go
+  s_f46c346a8be721::t_bbe1269f5a931f 215,250,285,332,388,434,477,606,1270,1283-1288
+.github/workflows/test.yml
+  s_f46c346a8be721::t_bbe1269f5a931f 171-175
+internal/proxy/turnloop.go
+  s_f46c346a8be721::t_bbe1269f5a931f 1285,1327-1332,1789,2217,2292,2487
+db/queries/session_pins.sql
+  s_f46c346a8be721::t_bbe1269f5a931f 142,168-172,212-214,222-225
+internal/translate/responses_to_openai_chat_response.go
+  s_f46c346a8be721::t_bbe1269f5a931f 207-215,223-225,257-259
+internal/router/sessionpin/store.go
+  s_f46c346a8be721::t_bbe1269f5a931f 58-72,127-131
+internal/observability/otel/usage_test.go
+  s_f46c346a8be721::t_bbe1269f5a931f 4,12,592-667
+internal/proxy/service.go
+  s_f46c346a8be721::t_bbe1269f5a931f 2238,2240,4743,5145,5150,5166,5189,5232,6932-6934,7566
+internal/translate/gemini_stream.go
+  s_f46c346a8be721::t_bbe1269f5a931f 158,248
+internal/proxy/force_model_session_internal_test.go
+  s_f46c346a8be721::t_bbe1269f5a931f 65-67,88-95,148,150-160,407
+internal/proxy/baseline_failover_integration_test.go
+  s_f46c346a8be721::t_bbe1269f5a931f 70,129-130
+internal/proxy/turnloop_test.go
+  s_f46c346a8be721::t_bbe1269f5a931f 353,357-362,390,396-401,783,971,975-981,1002,1006-1013,1030-1031,1039
+internal/sqlc/models.go
+  s_f46c346a8be721::t_bbe1269f5a931f 720
+internal/translate/cache_usage_test.go
+  s_f46c346a8be721::t_bbe1269f5a931f 16-17,19-23,36-37
+  s_f46c346a8be721::t_ef685e3ba77049 38-39
+internal/translate/responses_to_openai_chat_writer.go
+  s_f46c346a8be721::t_bbe1269f5a931f 430,516
+internal/proxy/router_feedback_proxy_test.go
+  s_f46c346a8be721::t_bbe1269f5a931f 257-261
+internal/proxy/usage_bypass_test.go
+  s_f46c346a8be721::t_bbe1269f5a931f 237,241-249,709-728
+  s_f46c346a8be721::t_ce760c55e5c623 729
+internal/sqlc/session_pins.sql.go
+  s_f46c346a8be721::t_bbe1269f5a931f 24,45,77,229,247,282,467-471,473-478,480-481,491,519-521,529-533,535-540,542-543,552,643,669-673,828,854-856
+  s_f46c346a8be721::t_1cd3c7cdc015da 857-858
+internal/translate/usage_sink.go
+  s_f46c346a8be721::t_bbe1269f5a931f 7,11-21
+internal/postgres/session_pin_repo.go
+  s_f46c346a8be721::t_bbe1269f5a931f 82-83,98,221
+internal/proxy/escalation_internal_test.go
+  s_f46c346a8be721::t_bbe1269f5a931f 375
+internal/translate/responses_to_anthropic_writer.go
+  s_f46c346a8be721::t_bbe1269f5a931f 587,704
+internal/observability/otel/usage.go
+  s_f46c346a8be721::t_bbe1269f5a931f 13-14,18,42-47,54-58,73-74,151-163,257-259,292-294,333-336,361-363,383-385,404-406
+internal/proxy/effort_switch_identity_internal_test.go
+  s_f46c346a8be721::t_bbe1269f5a931f 5,72-75,84-87
+internal/proxy/gemini.go
+  s_f46c346a8be721::t_bbe1269f5a931f 396-397
+internal/translate/stream.go
+  s_f46c346a8be721::t_bbe1269f5a931f 137,326-328,893-895,1001-1003
+db/migrations/0089_session-pin-output-limit.down.sql
+  s_f46c346a8be721::t_12680d06607e59 1-5
+db/migrations/0089_session-pin-output-limit.up.sql
+  s_f46c346a8be721::t_1981a031738292 1-9
+internal/proxy/output_limit_internal_test.go
+  s_f46c346a8be721::t_672349e231a82d 1-200
+internal/proxy/output_limit_response_test.go
+  s_f46c346a8be721::t_3a2469e193feb4 1-168
+internal/translate/output_limit_test.go
+  s_f46c346a8be721::t_bcae467952aebc 1-710
+scripts/session_pin_output_limit_check/main.go
+  s_f46c346a8be721::t_b926a1f977f3c7 1-275
+install/tests/cc-statusline_test.sh
+  s_f46c346a8be721::t_733b6b9a262779 74
+internal/postgres/session_pin_repo_test.go
+  s_f46c346a8be721::t_1b758a92b5ef4e 1-58
+internal/proxy/fire_telemetry_panic_internal_test.go
+  s_f46c346a8be721::t_4314b756dba4ea 8,16,67-83,91,102-105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b7b1110b046d5ab89889eb1cd447f74df4da4999",
+  "prompts": {},
+  "sessions": {
+    "s_f46c346a8be721": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "71de14b6-d915-4d45-b37d-a5a9aa83324d",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

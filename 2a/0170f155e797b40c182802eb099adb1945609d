@@ -1,0 +1,54 @@
+internal/proxy/client_identity.go
+  s_ab0b50ff6b132a::t_a23815dbb5f0f2 33,42-45
+internal/proxy/opencode_agent_turns_test.go
+  s_ab0b50ff6b132a::t_ab02b7292d5316 1-49,52,58-60,62-81,87-100,104-108,122-156
+  s_ab0b50ff6b132a::t_fd89329640aba4 50-51,53-57,61,82-86,101-103,109-121
+  s_ab0b50ff6b132a::t_3267cc1aee3abc 157-184
+internal/router/turntype/CLAUDE.md
+  s_ab0b50ff6b132a::t_50bfc7d3c2d455 25
+install/opencode-weave/test/capture.test.ts
+  s_ab0b50ff6b132a::t_f030c47e9ae7d8 40-41,167-178,182,186,223,228-278,583,609,635
+internal/proxy/client_identity_test.go
+  s_ab0b50ff6b132a::t_6fcb1124d90dac 12,284-327
+  s_ab0b50ff6b132a::t_abfd6284afb073 328
+internal/router/turntype/AGENTS.md
+  s_ab0b50ff6b132a::t_e4557a813544be 25
+internal/router/turntype/detect.go
+  s_ab0b50ff6b132a::t_b88a16da8c8b40 8
+  s_ab0b50ff6b132a::t_c7925c6ba7ff0a 71-75,83-85
+  s_ab0b50ff6b132a::t_11a22fb4d971b1 94-95,101-102
+internal/requestcontext/identity.go
+  s_ab0b50ff6b132a::t_11a22fb4d971b1 33-52,55,57-59
+  s_ab0b50ff6b132a::t_9d5fa0280f418d 53-54,56
+install/pi-router/test/mock_router.py
+  s_ab0b50ff6b132a::t_ba2043a43e1bcd 299,308
+install/opencode-weave/src/index.ts
+  s_ab0b50ff6b132a::t_1f708b4a983874 630-632
+  s_ab0b50ff6b132a::t_b76dc53e979c75 76-86
+install/pi-router/test/opencode_conformance.py
+  s_ab0b50ff6b132a::t_ba2043a43e1bcd 24,120-123,196-209
+  s_ab0b50ff6b132a::t_2c87ff9eeed16d 210
+internal/router/turntype/detect_test.go
+  s_ab0b50ff6b132a::t_58cd2173396fc3 545,547-548,550-554,575,587
+  s_ab0b50ff6b132a::t_aea2eef047468d 7,541-544,546,549,555-574,576-586,588-591
+internal/proxy/turnloop.go
+  s_ab0b50ff6b132a::t_7376a18b2da98f 745
+internal/proxy/service.go
+  s_ab0b50ff6b132a::t_d6ea8f8edd5ceb 6410
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2a0170f155e797b40c182802eb099adb1945609d",
+  "prompts": {},
+  "sessions": {
+    "s_ab0b50ff6b132a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cd58b669-a069-41dc-bef1-b4da87039ee1",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
