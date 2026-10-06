@@ -703,7 +703,7 @@ func routingMarkerFor(res turnLoopResult) string {
 	// PriorServedModel is always empty there — suppress explicitly rather than
 	// letting it read as a first turn. A classifier verdict is parsed by the
 	// harness, not read by the user, and a prefix would corrupt it.
-	if res.HardPinned {
+	if res.HardPinned || res.TurnType == turntype.Probe {
 		return ""
 	}
 	// A shadow checkpoint is news even when ordinary routing keeps the same model.
@@ -850,7 +850,7 @@ func baselineRoutingMarkerFor(res turnLoopResult, baselineModel string) string {
 // siblingRoutingMarkerFor renders the routing badge for an in-turn same-cluster
 // failover, naming the candidate that actually serves.
 func siblingRoutingMarkerFor(res turnLoopResult, siblingModel string) string {
-	if res.SuggestionMode || siblingModel == "" || baseModelOf(res.PriorServedModel) == siblingModel {
+	if res.SuggestionMode || isUnpinnedScoredTurn(res.TurnType) || res.TurnType == turntype.Probe || siblingModel == "" || baseModelOf(res.PriorServedModel) == siblingModel {
 		return ""
 	}
 	return "✦ **Weave Router** → " + siblingModel + " · " + markerReasonSibling + "\n\n"
@@ -859,7 +859,7 @@ func siblingRoutingMarkerFor(res turnLoopResult, siblingModel string) string {
 // cyberRefusalRoutingMarkerFor renders the routing badge for a turn re-served
 // after the picked model refused it.
 func cyberRefusalRoutingMarkerFor(res turnLoopResult, fallbackModel string) string {
-	if res.SuggestionMode || fallbackModel == "" || baseModelOf(res.PriorServedModel) == fallbackModel {
+	if res.SuggestionMode || isUnpinnedScoredTurn(res.TurnType) || res.TurnType == turntype.Probe || fallbackModel == "" || baseModelOf(res.PriorServedModel) == fallbackModel {
 		return ""
 	}
 	return "✦ **Weave Router** → " + fallbackModel + " · " + markerReasonCyberRefusal + "\n\n"

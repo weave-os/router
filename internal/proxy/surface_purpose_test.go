@@ -11,11 +11,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tidwall/gjson"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 )
 
 type purposeSink struct{ events []inference.AttemptEvent }
@@ -200,4 +202,64 @@ func TestClassifierTurn_DispatchUnderSurfacePurpose(t *testing.T) {
 	assert.Equal(t, inference.PolicyID("main-anthropic-messages"), event.PolicyID)
 	assert.Equal(t, inference.AttemptOutcomeServed, event.Outcome)
 	assert.Equal(t, "claude-sonnet-4-6", event.Target.CatalogID)
+}
+
+func TestAutomaticProbesServeUnderIngressPolicyWithoutConversationState(t *testing.T) {
+	for _, model := range []string{"auto", ""} {
+		t.Run(model, func(t *testing.T) {
+			provider := &fakeProvider{proxyResponse: jsonUpstream(`{"id":"msg_probe","type":"message","role":"assistant","content":[{"type":"text","text":"pong"}],"usage":{"input_tokens":1,"output_tokens":1}}`)}
+			clients := map[string]providers.Client{providers.ProviderAnthropic: provider}
+			sink := &purposeSink{}
+			executor, err := dispatch.NewExecutor(dispatch.NewClients(clients), dispatch.WithAttemptSink(sink))
+			require.NoError(t, err)
+			scorer := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeSonnet46.String()}}
+			pins := newFakePinStore()
+			svc := proxy.NewService(scorer, clients, nil, false, nil, pins, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil).WithInferenceExecutor(executor)
+			body := []byte(`{"model":"` + model + `","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`)
+			rec := httptest.NewRecorder()
+			require.NoError(t, svc.ProxyMessages(authedCtx("00000000-0000-0000-0000-000000000001"), body, rec,
+				httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, "pong", gjson.Get(rec.Body.String(), "content.0.text").String())
+			require.Len(t, provider.proxyBodies, 1)
+			assert.Equal(t, catalog.ModelIDClaudeSonnet46.String(), gjson.GetBytes(provider.proxyBodies[0], "model").String())
+			require.Len(t, sink.events, 1)
+			assert.Equal(t, inference.PurposeAnthropicMessages, sink.events[0].Purpose)
+			assert.Equal(t, inference.PolicyID("main-anthropic-messages"), sink.events[0].PolicyID)
+			assert.Equal(t, inference.AttemptOutcomeServed, sink.events[0].Outcome)
+			assert.Empty(t, pins.upserts)
+			assert.Empty(t, pins.usages)
+		})
+	}
+}
+
+func TestConcreteProbeFailureNeverRescuesAnotherModel(t *testing.T) {
+	primary := &fakeProvider{proxyErr: &providers.UpstreamErrorResponse{Status: http.StatusServiceUnavailable, Body: []byte(`{"error":"unavailable"}`)}}
+	alternate := &fakeProvider{}
+	clients := map[string]providers.Client{providers.ProviderAnthropic: primary, providers.ProviderFireworks: alternate}
+	scorer := &fakeRouter{decision: siblingClusterDecision("")}
+	sink := &purposeSink{}
+	executor, err := dispatch.NewExecutor(dispatch.NewClients(clients), dispatch.WithAttemptSink(sink))
+	require.NoError(t, err)
+	pins := newFakePinStore()
+	svc := proxy.NewService(scorer, clients, nil, false, nil, pins, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil).
+		WithInferenceExecutor(executor).WithRetrySleep(noRetrySleep).WithSiblingFailover(true).
+		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderFireworks: {}})
+	requestedModel := catalog.ModelIDClaudeOpus48.String()
+	body := []byte(`{"model":"` + requestedModel + `","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}`)
+	err = svc.ProxyMessages(authedCtx("00000000-0000-0000-0000-000000000001"), body, httptest.NewRecorder(),
+		httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader("")))
+	require.Error(t, err)
+	require.NotEmpty(t, primary.proxyBodies)
+	assert.Empty(t, alternate.proxyBodies)
+	assert.Zero(t, scorer.routeCalls)
+	require.NotEmpty(t, sink.events)
+	for _, attempt := range sink.events {
+		assert.Equal(t, requestedModel, attempt.Target.CatalogID)
+		assert.Equal(t, providers.ProviderAnthropic, attempt.Target.Provider)
+	}
+	for _, sentBody := range primary.proxyBodies {
+		assert.Equal(t, requestedModel, gjson.GetBytes(sentBody, "model").String())
+	}
+	assert.Empty(t, pins.upserts)
 }

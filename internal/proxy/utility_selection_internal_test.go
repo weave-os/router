@@ -112,7 +112,39 @@ func TestAutomaticProbeWithoutConcreteTargetScoresWithoutPinning(t *testing.T) {
 			assert.False(t, turn.CallerModelPassthrough)
 			assert.False(t, turn.HardPinned)
 			assert.Zero(t, turn.SessionKey)
+			assert.Empty(t, turn.Purpose)
+			assert.Empty(t, routingMarkerFor(turn))
 			assert.Empty(t, pins.upserts)
+		})
+	}
+}
+
+func TestDefaultProbeDroppedForceDoesNotAttachConversationState(t *testing.T) {
+	for _, requestedModel := range []string{automaticProbeModel, catalog.ModelIDClaudeSonnet46.String()} {
+		t.Run(requestedModel, func(t *testing.T) {
+			scorer := &blindExperimentRouterSpy{decision: router.Decision{
+				Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeSonnet46.String(),
+			}}
+			pins := newStubPinStore()
+			service := NewService(scorer, nil, nil, false, nil, pins, false,
+				providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
+			body := strings.Replace(blindExperimentUtilityTurnBodies()[0].body, catalog.ModelIDClaudeOpus48.String(), requestedModel, 1)
+			envelope, err := translate.ParseAnthropic([]byte(body))
+			require.NoError(t, err)
+			features := envelope.RoutingFeatures(false)
+			turn, err := service.runTurnLoop(context.Background(), envelope, features, "utility-key", uuid.New(), "", http.Header{}, router.Request{
+				RequestedModel:   features.Model,
+				ForceModel:       catalog.ModelIDGPT55.String(),
+				EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
+			})
+			require.NoError(t, err)
+			require.True(t, turn.ForcedPinDropped)
+			assert.Zero(t, turn.SessionKey)
+			service.recordTurnUsage(context.Background(), turn, turn.Decision.Provider, turn.Decision.Model, 10, 1, 0, 0, false)
+			pins.mu.Lock()
+			defer pins.mu.Unlock()
+			assert.Empty(t, pins.upserts)
+			assert.Zero(t, pins.usageHits)
 		})
 	}
 }

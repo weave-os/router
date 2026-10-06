@@ -888,7 +888,9 @@ func (s *Service) runTurnLoop(
 			return res, nil
 		}
 	}
-	if hardPinnedTurn {
+	automaticProbe := res.TurnType == turntype.Probe && !s.explicitUtilityHardPin &&
+		(req.RequestedModel == "" || req.RequestedModel == automaticProbeModel)
+	if hardPinnedTurn && !automaticProbe {
 		purpose, registered := utilityPurposes[res.TurnType]
 		if !registered {
 			return res, fmt.Errorf("hard-pinned turn type %q has no inference purpose", res.TurnType)
@@ -897,6 +899,7 @@ func (s *Service) runTurnLoop(
 	}
 	if forceModelFound && hardPinnedTurn {
 		if forcedPinEligible(forceModelPin, req) {
+			res.Purpose = utilityPurposes[res.TurnType]
 			threadPin, hmmHistory, forceHistory := sessionpin.Pin{}, sessionpin.Pin{}, sessionpin.Pin{}
 			if s.pinStore != nil {
 				threadPin, _ = s.loadPin(ctx, threadSessionKey, res.PinRole)
@@ -930,7 +933,8 @@ func (s *Service) runTurnLoop(
 	}
 
 	if res.TurnType == turntype.Probe && !s.explicitUtilityHardPin {
-		if req.RequestedModel == "" || req.RequestedModel == automaticProbeModel {
+		res.SessionKey = [sessionpin.SessionKeyLen]byte{}
+		if automaticProbe {
 			return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
 		}
 		decision, err := s.callerModelPassthroughDecision(ctx, req)

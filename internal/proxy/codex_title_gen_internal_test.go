@@ -8,9 +8,11 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 type codexTitleRouter struct {
@@ -19,15 +21,17 @@ type codexTitleRouter struct {
 
 func (r *codexTitleRouter) Route(context.Context, router.Request) (router.Decision, error) {
 	r.routeCalls++
-	return router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", Reason: "scored"}, nil
+	return router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelIDGPT55.String(), Reason: "scored"}, nil
 }
 
 type codexTitleProvider struct {
 	endpoints []providers.Endpoint
+	models    []string
 }
 
 func (p *codexTitleProvider) Proxy(_ context.Context, _ router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
 	p.endpoints = append(p.endpoints, prep.Endpoint)
+	p.models = append(p.models, gjson.GetBytes(prep.Body, "model").String())
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write([]byte(`{"id":"resp_1","object":"response","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}]}`))
 	return nil
@@ -65,6 +69,7 @@ func TestCodexResponsesTitleGenerationScoresWithoutMarker(t *testing.T) {
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 	require.Len(t, provider.endpoints, 1)
 	require.Equal(t, 1, routerSpy.routeCalls, "Codex title generation must be scored independently")
+	assert.Equal(t, []string{catalog.ModelIDGPT55.String()}, provider.models)
 	assert.NotContains(t, rec.Body.String(), "Weave Router", "title responses must not carry a routing marker")
 }
 
@@ -96,6 +101,7 @@ func TestCodexResponsesTitlePromptScoresWithoutMarker(t *testing.T) {
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 	require.Len(t, provider.endpoints, 1)
 	require.Equal(t, 1, routerSpy.routeCalls, "Codex title generation must be scored independently")
+	assert.Equal(t, []string{catalog.ModelIDGPT55.String()}, provider.models)
 	assert.NotContains(t, rec.Body.String(), "Weave Router", "title responses must not carry a routing marker")
 }
 
@@ -127,6 +133,7 @@ func TestCodexResponsesTitlePromptAfterHarnessContextScores(t *testing.T) {
 	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 	require.Len(t, provider.endpoints, 1)
 	require.Equal(t, 1, routerSpy.routeCalls, "Codex title generation must be scored independently")
+	assert.Equal(t, []string{catalog.ModelIDGPT55.String()}, provider.models)
 	assert.NotContains(t, rec.Body.String(), "Weave Router", "title responses must not carry a routing marker")
 }
 

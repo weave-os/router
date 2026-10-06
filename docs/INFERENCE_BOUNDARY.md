@@ -21,7 +21,7 @@ Router PRs [#884](https://github.com/weave-os/router/pull/884) and [#792](https:
 | Post-trim compaction handover | `compaction_handover_summary` | auxiliary inference | `proxy.Service.runCompactionHandover` | Phase 7 |
 | Title generation | ingress purpose by default; `title_generation` for explicit hard pin | auxiliary inference | request-aware scorer without conversation state, or explicit deployment override | Phase 7 |
 | Classifier turn | `classifier` | main inference (scored, no session pin) | ingress surface purpose; `aux-classifier` policy retained but no longer dispatched | Phase 7 |
-| Probe turn | `probe` | auxiliary inference | requested target, or explicit override | Phase 7 |
+| Probe turn | ingress purpose for auto/empty models; `probe` for concrete requested target or explicit override | auxiliary inference | independent scorer without conversation state, concrete requested target, or explicit override | Phase 7 |
 | Sub-agent dispatch | `sub_agent_dispatch` | auxiliary inference | turn-type/operator hard pin | Phase 7 |
 | Client compaction turn | `client_compaction` | client authoritative | client body plus current compaction hard-pin path | Phase 7 |
 | Agent shadow evaluation | `agent_shadow_evaluation` | auxiliary inference | request-scoped explicit catalog target | Phase 8 |

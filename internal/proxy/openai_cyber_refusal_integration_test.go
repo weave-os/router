@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 // cyberRefusalSSE is the shape OpenAI's classifier streams on a 200: no output
@@ -163,6 +164,40 @@ func TestProxyOpenAIResponses_CyberRefusalRescuesOffVendorAndRepins(t *testing.T
 	pin := store.upserts[len(store.upserts)-1]
 	assert.Equal(t, "claude-sonnet-5", pin.Model)
 	assert.Equal(t, providers.ProviderAnthropic, pin.Provider)
+}
+
+func TestProxyOpenAIResponses_RescuedTitleContainsOnlyTitle(t *testing.T) {
+	upstreams := &cyberRefusalUpstreams{openAIResponse: func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"error":{"code":"cyber_policy","message":"This content was flagged for possible cybersecurity risk."}}`)
+	}}
+	openAIURL, anthropicURL := upstreams.start(t)
+	pins := newFakePinStore()
+	svc := cyberRefusalService(openAIURL, anthropicURL, "test", pins, newCaptureTelemetry()).WithCyberRefusalRetry(true)
+	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"text":{"format":{"type":"json_schema","schema":{"type":"object","properties":{"title":{"type":"string"}},"required":["title"],"additionalProperties":false}}},"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Generate a concise task title."}]}]}`)
+	ctx := context.WithValue(authedCtx(cyberRefusalInstallationID), proxy.ClientIdentityContextKey{}, proxy.ClientIdentity{ClientApp: proxy.ClientAppCodex})
+	rec := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))
+	openAIHits, anthropicHits := upstreams.counts()
+	assert.Equal(t, 1, openAIHits)
+	assert.Equal(t, 1, anthropicHits)
+	var deltaText, completedText string
+	for _, line := range strings.Split(rec.Body.String(), "\n") {
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		frame := gjson.Parse(strings.TrimPrefix(line, "data: "))
+		switch frame.Get("type").String() {
+		case "response.output_text.delta":
+			deltaText += frame.Get("delta").String()
+		case "response.completed":
+			completedText = frame.Get("response.output.0.content.0.text").String()
+		}
+	}
+	assert.Equal(t, "rescued", deltaText)
+	assert.Equal(t, "rescued", completedText)
+	assert.Empty(t, pins.upserts)
 }
 
 // Once output is committed a second model's stream would interleave with the
