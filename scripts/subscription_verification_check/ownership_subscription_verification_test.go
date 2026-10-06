@@ -59,7 +59,7 @@ func TestVerificationSQLSharingOwnershipAndIsolation(t *testing.T) {
 		case 3:
 			subject = outsider
 		}
-		_, err = tx.Exec(ctx, `INSERT INTO router.model_router_subscription_accounts(id,subscriber_id,api_key_id,provider,external_account_id,refresh_token_ciphertext) VALUES($1,$2,$3,'codex',$4,'synthetic-ciphertext')`, account, subject, key, account.String())
+		_, err = tx.Exec(ctx, `INSERT INTO router.model_router_subscription_accounts(id,subscriber_id,api_key_id,provider,external_account_id,provider_user_id,refresh_token_ciphertext) VALUES($1,$2,$3,'codex',$4::varchar,$4::text,'synthetic-ciphertext')`, account, subject, key, account.String())
 		require.NoError(t, err)
 		_, err = tx.Exec(ctx, `INSERT INTO router.model_router_subscription_account_installations(installation_id,subscription_account_id) VALUES($1,$2)`, org, account)
 		require.NoError(t, err)
@@ -70,7 +70,7 @@ func TestVerificationSQLSharingOwnershipAndIsolation(t *testing.T) {
 	})
 	owner := auth.SubscriptionOwner{InstallationID: org.String(), SubscriberID: personal.String(), APIKeyID: key.String()}
 	// OAuth re-enrollment cannot silently adopt an unassigned legacy account.
-	adopted, _, adoptionErr := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{Owner: owner, Provider: auth.SubscriptionProviderCodex, ExternalAccountID: unownedAccount.String(), RefreshToken: []byte("synthetic-replacement-must-not-persist")})
+	adopted, _, adoptionErr := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{Owner: owner, Provider: auth.SubscriptionProviderCodex, ExternalAccountID: unownedAccount.String(), ProviderUserID: unownedAccount.String(), RefreshToken: []byte("synthetic-replacement-must-not-persist")})
 	require.Error(t, adoptionErr)
 	require.Nil(t, adopted)
 	var remainsUnassigned bool
@@ -147,5 +147,5 @@ func TestVerificationSQLSharingOwnershipAndIsolation(t *testing.T) {
 	sharedOwner := auth.SubscriptionOwner{InstallationID: org.String(), SubscriberID: shared.String(), APIKeyID: duplicateKey.String()}
 	require.ErrorIs(t, repo.UpdateSubscriptionAccountState(ctx, duplicateA.String(), personalOwner, true, nil), auth.ErrSubscriptionAccountNotFound)
 	require.NoError(t, repo.DeleteSubscriptionAccount(ctx, duplicateB.String(), sharedOwner))
-	require.NoError(t, repo.UpdateSubscriptionAccountState(ctx, duplicateA.String(), personalOwner, true, nil))
+	require.ErrorIs(t, repo.UpdateSubscriptionAccountState(ctx, duplicateA.String(), personalOwner, true, nil), auth.ErrSubscriptionAccountNotFound, "removing a workspace collision does not verify the legacy provider user")
 }

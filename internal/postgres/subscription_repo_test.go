@@ -121,7 +121,7 @@ func TestSubscriptionAccountsFollowSubscriberAcrossKeys(t *testing.T) {
 	} {
 		account, kind, err := repo.UpsertSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{
 			Owner: enrollingOwner, Provider: enrollment.provider,
-			ExternalAccountID: enrollment.externalAccountID, RefreshToken: []byte("ciphertext"),
+			ExternalAccountID: enrollment.externalAccountID, ProviderUserID: "synthetic-provider-user", RefreshToken: []byte("ciphertext"),
 		})
 		require.NoError(t, err)
 		assert.Equal(t, auth.SubscriptionUpsertInserted, kind)

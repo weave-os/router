@@ -461,9 +461,9 @@ func (r *subscriptionAccountRepo) ListSubscriptionCandidates(ctx context.Context
 	return accounts, nil
 }
 
-func subscriptionProviderUserID(identity *string) string {
-	if identity == nil {
+func subscriptionProviderUserID(providerUserID *string) string {
+	if providerUserID == nil {
 		return ""
 	}
-	return *identity
+	return *providerUserID
 }

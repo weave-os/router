@@ -26,7 +26,7 @@ func TestOAuthClientRefreshesCodexAndExtractsStableAccountID(t *testing.T) {
 		require.NoError(t, request.ParseForm())
 		require.Equal(t, subscriptions.CodexClientID, request.Form.Get("client_id"))
 		require.Equal(t, "refresh-secret", request.Form.Get("refresh_token"))
-		body := `{"access_token":"header.` + payload + `.sig","refresh_token":"rotated-secret","expires_in":900}`
+		body := `{"access_token":"eyJhbGciOiJSUzI1NiJ9.` + payload + `.sig","refresh_token":"rotated-secret","expires_in":900}`
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
 	})}, "https://token.test/codex", "", func() time.Time { return now })
 
@@ -138,7 +138,7 @@ func TestCodexEnrollmentVerifiesUserWithinSharedWorkspace(t *testing.T) {
 			payload := base64.RawURLEncoding.EncodeToString([]byte(`{"https://api.openai.com/auth":{"chatgpt_account_id":"shared-workspace","chatgpt_user_id":"` + user + `"}}`))
 			client := subscriptions.NewOAuthClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 				require.Equal(t, "https", request.URL.Scheme)
-				body := `{"access_token":"header.` + payload + `.sig","refresh_token":"rotated"}`
+				body := `{"access_token":"eyJhbGciOiJSUzI1NiJ9.` + payload + `.sig","refresh_token":"rotated"}`
 				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
 			})}, "https://token.test/codex", "", nil)
 			verified, err := client.VerifyCodexEnrollment(context.Background(), "shared-workspace", []byte("refresh"))
@@ -158,7 +158,7 @@ func TestCodexEnrollmentVerifiesUserWithinSharedWorkspace(t *testing.T) {
 func TestCodexEnrollmentUsesProviderIDTokenUserClaim(t *testing.T) {
 	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"https://api.openai.com/auth":{"chatgpt_account_id":"shared-workspace","user_id":"provider-user-id-token"}}`))
 	client := subscriptions.NewOAuthClient(&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
-		body := `{"id_token":"header.` + payload + `.sig","access_token":"access-without-claims","refresh_token":"rotated"}`
+		body := `{"id_token":"eyJhbGciOiJSUzI1NiJ9.` + payload + `.sig","access_token":"access-without-claims","refresh_token":"rotated"}`
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
 	})}, "https://token.test/codex", "", nil)
 	verified, err := client.VerifyCodexEnrollment(context.Background(), "shared-workspace", []byte("refresh"))

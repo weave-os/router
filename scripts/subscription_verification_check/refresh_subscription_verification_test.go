@@ -67,7 +67,7 @@ func TestVerificationSQLConcurrentSharedRefreshAndReset(t *testing.T) {
 	require.NoError(t, insecurecleartextkeyset.Write(handle, keyset.NewJSONWriter(&buf)))
 	enc, err := auth.NewTinkEncryptor(buf.String())
 	require.NoError(t, err)
-	service := auth.NewService(nil, nil, nil, nil, auth.NoOpAPIKeyCache{}, nil, time.Now).WithEncryptor(enc).WithSubscriptionAccounts(postgres.NewSubscriptionAccountRepo(pool))
+	service := auth.NewService(nil, nil, nil, nil, auth.NoOpAPIKeyCache{}, nil, time.Now).WithEncryptor(enc).WithSubscriptionAccounts(postgres.NewSubscriptionAccountRepo(pool)).WithCodexEnrollmentVerifier(verificationCodexEnrollment{})
 	// Two owners concurrently register the same physical provider identity.
 	enrollmentErrors := make([]error, 2)
 	enrolled := make([]*auth.SubscriptionAccount, 2)
@@ -107,7 +107,7 @@ func TestVerificationSQLConcurrentSharedRefreshAndReset(t *testing.T) {
 		refreshes.Add(1)
 		time.Sleep(100 * time.Millisecond)
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "synthetic-access-refreshed", "refresh_token": "synthetic-refresh-rotated", "expires_in": 3600, "token_type": "Bearer"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"id_token": verificationCodexIDToken(t, strings.SplitN(r.Form.Get("refresh_token"), ":", 2)[1]), "access_token": "synthetic-access-refreshed", "refresh_token": "synthetic-refresh-rotated", "expires_in": 3600, "token_type": "Bearer"})
 	}))
 	defer tokenServer.Close()
 	oauth := subscriptions.NewOAuthClient(tokenServer.Client(), tokenServer.URL, tokenServer.URL, time.Now)

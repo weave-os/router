@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
@@ -265,27 +266,13 @@ func (c *OAuthClient) VerifyCodexEnrollment(ctx context.Context, workspaceID str
 }
 
 func userIDFromJWT(token string) string {
-	parts := strings.Split(token, ".")
-	if len(parts) != 3 {
+	claims := jwt.MapClaims{}
+	if _, _, err := new(jwt.Parser).ParseUnverified(token, claims); err != nil {
 		return ""
 	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		return ""
-	}
-	var claims struct {
-		ChatGPTUserID string `json:"chatgpt_user_id"`
-		UserID        string `json:"user_id"`
-		OpenAIAuth    struct {
-			ChatGPTUserID string `json:"chatgpt_user_id"`
-			UserID        string `json:"user_id"`
-		} `json:"https://api.openai.com/auth"`
-	}
-	if json.Unmarshal(payload, &claims) != nil {
-		return ""
-	}
-	for _, userID := range []string{claims.OpenAIAuth.ChatGPTUserID, claims.OpenAIAuth.UserID, claims.ChatGPTUserID, claims.UserID} {
-		if userID != "" {
+	authClaims, _ := claims["https://api.openai.com/auth"].(map[string]any)
+	for _, candidate := range []any{authClaims["chatgpt_user_id"], authClaims["user_id"], claims["chatgpt_user_id"], claims["user_id"]} {
+		if userID, ok := candidate.(string); ok && userID != "" {
 			return userID
 		}
 	}

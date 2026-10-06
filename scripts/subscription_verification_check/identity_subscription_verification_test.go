@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/require"
@@ -63,12 +64,12 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 		require.NoError(t, err)
 	}
 	repositories := postgres.NewRepository(pool, auth.NoOpEncryptor{})
-	authService := auth.NewService(repositories.Installations, repositories.APIKeys, repositories.ExternalAPIKeys, repositories.Users, auth.NoOpAPIKeyCache{}, nil, time.Now).WithEncryptor(auth.NoOpEncryptor{}).WithCredentialSubjectLookup(postgres.NewCredentialSubjectRepo(pool)).WithSubscriptionAccounts(repositories.SubscriptionAccounts).WithRoutingPolicies(repositories.RoutingPolicies, nil)
+	authService := auth.NewService(repositories.Installations, repositories.APIKeys, repositories.ExternalAPIKeys, repositories.Users, auth.NoOpAPIKeyCache{}, nil, time.Now).WithEncryptor(auth.NoOpEncryptor{}).WithCredentialSubjectLookup(postgres.NewCredentialSubjectRepo(pool)).WithSubscriptionAccounts(repositories.SubscriptionAccounts).WithRoutingPolicies(repositories.RoutingPolicies, nil).WithCodexEnrollmentVerifier(verificationCodexEnrollment{})
 	account, err := authService.AddSubscriptionAccount(ctx, auth.CreateSubscriptionAccountParams{Owner: auth.SubscriptionOwner{InstallationID: org.String(), SubscriberID: subject.String(), APIKeyID: personalKey.String()}, Provider: auth.SubscriptionProviderCodex, ExternalAccountID: "synthetic-email-owner-" + uuid.NewString(), RefreshToken: []byte("synthetic-refresh")})
 	require.NoError(t, err)
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "synthetic-personal-access", "refresh_token": "synthetic-rotated-refresh", "expires_in": 3600})
+		_ = json.NewEncoder(w).Encode(map[string]any{"id_token": verificationCodexIDToken(t, account.ExternalAccountID), "access_token": "synthetic-personal-access", "refresh_token": "synthetic-rotated-refresh", "expires_in": 3600})
 	}))
 	defer tokenServer.Close()
 	runtime := subscriptions.NewRuntime(authService, subscriptions.NewOAuthClient(tokenServer.Client(), tokenServer.URL, tokenServer.URL, time.Now), time.Now)
@@ -136,4 +137,17 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 			}
 		})
 	}
+}
+
+// verificationCodexEnrollment isolates owner/admission tests from provider OAuth.
+type verificationCodexEnrollment struct{}
+
+func (verificationCodexEnrollment) VerifyCodexEnrollment(_ context.Context, workspaceID string, refresh []byte) (auth.VerifiedCodexEnrollment, error) {
+	return auth.VerifiedCodexEnrollment{ProviderUserID: "synthetic-provider-user", RefreshToken: []byte(string(refresh) + ":" + workspaceID)}, nil
+}
+func verificationCodexIDToken(t *testing.T, workspaceID string) string {
+	t.Helper()
+	token, err := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"https://api.openai.com/auth": map[string]any{"chatgpt_account_id": workspaceID, "chatgpt_user_id": "synthetic-provider-user"}}).SignedString([]byte("synthetic-signing-key"))
+	require.NoError(t, err)
+	return token
 }

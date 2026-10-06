@@ -90,7 +90,7 @@ func TestClaudeLoginReconnectsThroughAPIAndPostgres(t *testing.T) {
 	router := gin.New()
 	router.POST("/oauth/codex", func(c *gin.Context) {
 		payload := base64.RawURLEncoding.EncodeToString([]byte(`{"https://api.openai.com/auth":{"chatgpt_account_id":"chatgpt-fixture","chatgpt_user_id":"codex-user-fixture"}}`))
-		c.JSON(http.StatusOK, gin.H{"access_token": "header." + payload + ".sig", "refresh_token": c.PostForm("refresh_token")})
+		c.JSON(http.StatusOK, gin.H{"access_token": "eyJhbGciOiJSUzI1NiJ9." + payload + ".sig", "refresh_token": c.PostForm("refresh_token")})
 	})
 	router.POST("/oauth/token", func(c *gin.Context) {
 		attempt := exchanges.Add(1)
