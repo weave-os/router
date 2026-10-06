@@ -141,6 +141,13 @@ func admissionMiddlewareFixture(t *testing.T) (*ServingAdmissionConfig, policyre
 	return &ServingAdmissionConfig{Decisions: decisions, Store: store, Cache: cache, Identity: policyregistry.WorkerIdentity{Target: binding.Target, Project: binding.Project, Region: binding.Region, Revision: binding.Router.Name, ImageDigest: binding.Router.ImageDigest, Configuration: binding.Router.Configuration}}, assertion, store, builds
 }
 
+func TestDirectConversationIDUsesAnthropicHandoffEnvelope(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/v1/route/handoff", nil)
+	body := []byte(`{"user":"chat-session","metadata":{"user_id":"{\"session_id\":\"anthropic-session\"}"}}`)
+
+	assert.Equal(t, "anthropic-session", directConversationID(request, body))
+}
+
 func runAdmissionMiddleware(t *testing.T, cfg *ServingAdmissionConfig, assertion policyregistry.ServingAssertion, handler gin.HandlerFunc) *httptest.ResponseRecorder {
 	return runAdmissionMiddlewareWithBody(t, cfg, assertion, admissionTestBody, handler)
 }

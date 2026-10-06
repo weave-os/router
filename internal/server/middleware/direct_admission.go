@@ -50,18 +50,7 @@ func directAssertion(ctx context.Context, cfg *ServingAdmissionConfig, installat
 	if assertion := policyregistry.ServingAssertionFromContext(ctx); assertion != nil {
 		return *assertion, nil
 	}
-	surface := requestcontext.ConversationChat
-	switch r.URL.Path {
-	case "/v1/messages", "/v1/messages/count_tokens", "/v1/route", "/v1/route/preview":
-		surface = requestcontext.ConversationAnthropic
-	case "/v1/responses":
-		surface = requestcontext.ConversationResponses
-	default:
-		if strings.HasPrefix(r.URL.Path, "/v1beta/models/") {
-			surface = requestcontext.ConversationGemini
-		}
-	}
-	session := requestcontext.CanonicalConversationID(r.Header, body, surface)
+	session := directConversationID(r, body)
 	decider := policyregistry.ServingAdmission{Store: cfg.Store}
 	scope, binding, err := cfg.Decisions.Admit(ctx, installationID, keyID, session, decider.Decide)
 	if err != nil {
@@ -76,6 +65,21 @@ func directAssertion(ctx context.Context, cfg *ServingAdmissionConfig, installat
 		return policyregistry.ServingAssertion{}, err
 	}
 	return policyregistry.ServingAssertion{APIKeyID: keyID, BodySHA256: policyregistry.Digest(body), Scope: scope, Admission: binding}, nil
+}
+
+func directConversationID(r *http.Request, body []byte) string {
+	surface := requestcontext.ConversationChat
+	switch r.URL.Path {
+	case "/v1/messages", "/v1/messages/count_tokens", "/v1/route", "/v1/route/preview", "/v1/route/handoff":
+		surface = requestcontext.ConversationAnthropic
+	case "/v1/responses":
+		surface = requestcontext.ConversationResponses
+	default:
+		if strings.HasPrefix(r.URL.Path, "/v1beta/models/") {
+			surface = requestcontext.ConversationGemini
+		}
+	}
+	return requestcontext.CanonicalConversationID(r.Header, body, surface)
 }
 
 func directTestSurface(r *http.Request) bool {
