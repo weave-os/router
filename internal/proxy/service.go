@@ -5000,7 +5000,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
-	baselineWarmPrefill := routeRes.baselineWarmPrefillTokens(cacheCreation, decision.Model, s.baselineFor(feats.Model), req.HistoryTruncated)
+	baselineWarmPrefill := routeRes.baselineWarmPrefillTokens(cacheCreation, cacheRead, decision.Model, s.baselineFor(feats.Model), req.HistoryTruncated)
 	requestedInputCost := catalog.CounterfactualInputCost(in, cacheCreation, cacheRead, baselineWarmPrefill, reqPricing, decision.Provider)
 	if responseBuffer != nil && proxyErr == nil {
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead))
@@ -7986,7 +7986,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
-	baselineWarmPrefill := routeRes.baselineWarmPrefillTokens(cacheCreation, decision.Model, s.baselineFor(feats.Model), routeRequest.HistoryTruncated)
+	baselineWarmPrefill := routeRes.baselineWarmPrefillTokens(cacheCreation, cacheRead, decision.Model, s.baselineFor(feats.Model), routeRequest.HistoryTruncated)
 	requestedInputCost := catalog.CounterfactualInputCost(in, cacheCreation, cacheRead, baselineWarmPrefill, reqPricing, decision.Provider)
 	if !env.Stream() && proxyErr == nil {
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead))

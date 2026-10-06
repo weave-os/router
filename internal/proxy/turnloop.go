@@ -126,18 +126,23 @@ func cacheablePrefixTokens(pin sessionpin.Pin, total int, prefixBroken bool) (in
 		return 0, true // a client trim really did evict the prefix
 	}
 	cached := pin.LastCachedReadTokens + pin.LastCachedWriteTokens
-	// input_tokens is fresh-only on Anthropic (disjoint from read/write) but is
-	// prompt_tokens — already cache-inclusive — everywhere else. Mirrors
-	// catalog.EffectiveInputCost's provider branch.
-	prior := pin.LastInputTokens
-	if pin.Provider == providers.ProviderAnthropic {
-		prior += cached
-	}
+	prior := priorPromptTokens(pin)
 	if prior <= 0 {
 		return 0, false
 	}
 	share := min(1.0, float64(cached)/float64(prior))
 	return int(share * float64(total)), true
+}
+
+// priorPromptTokens is the pin's previous-turn prompt size. input_tokens is
+// fresh-only on Anthropic (disjoint from read/write) but is prompt_tokens —
+// already cache-inclusive — everywhere else. Mirrors
+// catalog.EffectiveInputCost's provider branch.
+func priorPromptTokens(pin sessionpin.Pin) int {
+	if pin.Provider == providers.ProviderAnthropic {
+		return pin.LastInputTokens + pin.LastCachedReadTokens + pin.LastCachedWriteTokens
+	}
+	return pin.LastInputTokens
 }
 
 // plannerInputTokens returns the planner's prompt-size estimate from
@@ -268,8 +273,10 @@ type turnLoopResult struct {
 	// the client transcript on every later turn, so the emit path ORs this
 	// in to keep stripping them for the life of the session.
 	SessionEverSwitched bool
-	// PriorServedEndedAt is when PriorServedModel's turn ended, from the same pin.
+	// PriorServedEndedAt and PriorPromptTokens describe PriorServedModel's turn,
+	// read from the same pin.
 	PriorServedEndedAt time.Time
+	PriorPromptTokens  int
 	// StripThinkingBlocks forces signature removal when switch history is unavailable.
 	StripThinkingBlocks bool
 	// Handover captures the summarize-or-trim step when the planner switched.
@@ -399,10 +406,11 @@ func (r turnLoopResult) modelSwitched() bool {
 // baselineWarmPrefillTokens returns the cache-creation tokens this turn paid
 // only because the router switched models. The baseline would have kept
 // serving the thread, so within its provider's cache TTL it would have read
-// the prefix warm. A first turn, client trim, or ingress truncation re-primes
-// the baseline's cache too, so those turns have nothing to correct.
-func (r turnLoopResult) baselineWarmPrefillTokens(cacheCreation int, servedModel, baselineModel string, historyTruncated bool) int {
-	if cacheCreation <= 0 || r.PriorServedModel == "" || r.PriorServedEndedAt.IsZero() || r.PrefixTrimmed || historyTruncated {
+// the previous turn's prompt warm; content appended since is a write either
+// way. A first turn, client trim, or ingress truncation re-primes the
+// baseline's cache too, so those turns have nothing to correct.
+func (r turnLoopResult) baselineWarmPrefillTokens(cacheCreation, cacheRead int, servedModel, baselineModel string, historyTruncated bool) int {
+	if cacheCreation <= 0 || r.PriorServedModel == "" || r.PrefixTrimmed || historyTruncated {
 		return 0
 	}
 	if baseModelOf(r.PriorServedModel) == servedModel {
@@ -415,7 +423,7 @@ func (r turnLoopResult) baselineWarmPrefillTokens(cacheCreation int, servedModel
 	if time.Since(r.PriorServedEndedAt) >= providers.CacheTTLFor(baseline.PrimaryProvider()) {
 		return 0
 	}
-	return cacheCreation
+	return min(cacheCreation, max(r.PriorPromptTokens-cacheRead, 0))
 }
 
 func isHMMDecision(dec router.Decision) bool {
@@ -2634,6 +2642,7 @@ func (r *turnLoopResult) applySwitchHistory(pins ...sessionpin.Pin) {
 	latest, sessionEverSwitched := latestServedTurn(pins...)
 	r.PriorServedModel = latest.LastServedModel
 	r.PriorServedEndedAt = latest.LastTurnEndedAt
+	r.PriorPromptTokens = priorPromptTokens(latest)
 	r.SessionEverSwitched = sessionEverSwitched
 }
 
