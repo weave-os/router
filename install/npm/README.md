@@ -157,7 +157,7 @@ dependencies are separately licensed and are not bundled in this package.
 
 - Node ≥ 18 (ships with `npx`)
 - `bash` on PATH (macOS / Linux native; Windows needs Git Bash or WSL)
-- `jq` is reused when available; otherwise the installer downloads checksum-verified jq 1.8.1 to `~/.weave/bin`. No Homebrew or administrator access is needed. Downloads require access to GitHub.
+- `jq` is reused when available; otherwise, on macOS (arm64/x86_64), Linux (arm64/x86_64), and Windows Git Bash (x86_64), the installer downloads checksum-verified jq 1.8.1 to `~/.weave/bin`. Other architectures need jq installed manually. No Homebrew or administrator access is needed. Downloads require access to GitHub.
 
 ## Why npx
 

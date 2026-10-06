@@ -264,6 +264,7 @@ SPIN_FRAMES='⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏'
 SPIN_INTERVAL=0.08
 spin_pid=""
 spin_log=""
+jq_download_tmp=""
 
 _spin_cleanup() {
   # Kill any active spinner child and restore the cursor. Called from the
@@ -274,6 +275,10 @@ _spin_cleanup() {
     wait "$spin_pid" 2>/dev/null || true
   fi
   spin_pid=""
+  if [ -n "$jq_download_tmp" ]; then
+    rm -f "$jq_download_tmp" 2>/dev/null || true
+    jq_download_tmp=""
+  fi
   if [ "$tty_out" = "true" ]; then
     printf '\033[?25h' # show cursor
   fi
@@ -368,10 +373,10 @@ ensure_jq() {
   destination="$HOME/.weave/bin"
   mkdir -p "$destination"
   temporary="$(mktemp "$destination/.jq.XXXXXX")"
+  jq_download_tmp="$temporary"
   info "Downloading jq 1.8.1 ($asset)."
   if ! curl --fail --location --silent --show-error --connect-timeout 15 --max-time 120 \
     "https://github.com/jqlang/jq/releases/download/jq-1.8.1/$asset" -o "$temporary"; then
-    rm -f "$temporary"
     err "Could not download jq. Check access to github.com or install jq and retry."
     exit 1
   fi
@@ -382,7 +387,6 @@ ensure_jq() {
     actual_checksum="$(shasum -a 256 "$temporary" | awk '{print $1}')"
   fi
   if [ "$actual_checksum" != "$checksum" ]; then
-    rm -f "$temporary"
     err "Downloaded jq failed checksum verification. Retry or install jq manually."
     exit 1
   fi
@@ -391,6 +395,7 @@ ensure_jq() {
     *.exe) mv -f "$temporary" "$destination/jq.exe" ;;
     *) mv -f "$temporary" "$destination/jq" ;;
   esac
+  jq_download_tmp=""
   jq --version >/dev/null
 }
 
