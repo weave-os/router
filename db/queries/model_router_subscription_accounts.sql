@@ -1,5 +1,6 @@
--- Enrollment updates only the same verified owner. Historical unassigned or
--- conflicting physical identities require administrator resolution first.
+-- Enrollment updates only the same verified owner. Codex seats are provider
+-- users within a workspace; fresh verified enrollment may repair an owned
+-- workspace-only legacy row but never adopts another owner or an unassigned row.
 -- name: UpsertModelRouterSubscriptionAccountForSubscriber :one
 WITH owned AS (
   SELECT id, subscriber_id
@@ -12,16 +13,19 @@ WITH owned AS (
                 WHERE subject.id = @subscriber_id::uuid AND subject.projection_complete AND subject.revoked_at IS NULL
                   AND access.installation_id = @installation_id::uuid AND access.access_enabled AND installation.deleted_at IS NULL)
     AND subscriber_id = @subscriber_id::uuid
+    AND (@provider::varchar <> 'codex' OR (NULLIF(@provider_user_id::text, '') IS NOT NULL AND (provider_user_id = @provider_user_id::text OR provider_user_id IS NULL)))
     AND NOT EXISTS (SELECT 1 FROM router.model_router_subscription_accounts AS other
                     WHERE other.provider = @provider::varchar AND other.external_account_id = @external_account_id::varchar
-                      AND other.id <> model_router_subscription_accounts.id)
-  ORDER BY (subscriber_id IS NULL), created_at, id
+                      AND other.id <> model_router_subscription_accounts.id
+                      AND (@provider::varchar <> 'codex' OR other.provider_user_id = @provider_user_id::text))
+  ORDER BY (provider_user_id IS NULL), created_at, id
   LIMIT 1
   FOR UPDATE
 ),
 adopted AS (
   UPDATE router.model_router_subscription_accounts
   SET subscriber_id = @subscriber_id::uuid,
+      provider_user_id = NULLIF(@provider_user_id::text, ''),
       refresh_token_ciphertext = @refresh_token_ciphertext::bytea,
       display_name = COALESCE(sqlc.narg('display_name')::text, display_name),
       enabled = TRUE,
@@ -34,40 +38,29 @@ adopted AS (
       token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
       updated_at = CURRENT_TIMESTAMP
   WHERE id = (SELECT id FROM owned)
-  RETURNING id, subscriber_id, api_key_id, provider, external_account_id, display_name,
+  RETURNING id, subscriber_id, api_key_id, provider, external_account_id, provider_user_id, display_name,
             refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
 ),
 inserted AS (
   INSERT INTO router.model_router_subscription_accounts (
-    subscriber_id, api_key_id, provider, external_account_id, refresh_token_ciphertext, display_name
+    subscriber_id, api_key_id, provider, external_account_id, provider_user_id, refresh_token_ciphertext, display_name
   )
   SELECT @subscriber_id::uuid, @api_key_id::uuid, @provider::varchar,
-         @external_account_id::varchar, @refresh_token_ciphertext::bytea,
+         @external_account_id::varchar, NULLIF(@provider_user_id::text, ''), @refresh_token_ciphertext::bytea,
          sqlc.narg('display_name')::text
-  WHERE NOT EXISTS (SELECT 1 FROM owned)
+  WHERE (@provider::varchar <> 'codex' OR NULLIF(@provider_user_id::text, '') IS NOT NULL)
+    AND NOT EXISTS (SELECT 1 FROM owned)
     AND NOT EXISTS (SELECT 1 FROM router.model_router_subscription_accounts AS physical
-                    WHERE physical.provider = @provider::varchar AND physical.external_account_id = @external_account_id::varchar)
+                    WHERE physical.provider = @provider::varchar AND physical.external_account_id = @external_account_id::varchar
+                      AND (@provider::varchar <> 'codex' OR physical.provider_user_id = @provider_user_id::text))
     AND EXISTS (SELECT 1 FROM router.credential_subjects AS subject
                 JOIN router.credential_subject_installations AS access ON access.subject_id = subject.id
                 JOIN router.model_router_installations AS installation ON installation.id = access.installation_id
                 WHERE subject.id = @subscriber_id::uuid AND subject.projection_complete AND subject.revoked_at IS NULL
                   AND access.installation_id = @installation_id::uuid AND access.access_enabled AND installation.deleted_at IS NULL)
-  ON CONFLICT (subscriber_id, provider, external_account_id) WHERE subscriber_id IS NOT NULL
-  DO UPDATE SET
-    refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
-    display_name = COALESCE(EXCLUDED.display_name, router.model_router_subscription_accounts.display_name),
-    enabled = TRUE,
-    health_state = 'unknown',
-    cooldown_until = NULL,
-    access_token_ciphertext = NULL,
-    access_token_expires_at = NULL,
-    token_refresh_lease_until = NULL,
-    token_refresh_lease_id = NULL,
-    token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
-    updated_at = CURRENT_TIMESTAMP
-  RETURNING id, subscriber_id, api_key_id, provider, external_account_id, display_name,
+  RETURNING id, subscriber_id, api_key_id, provider, external_account_id, provider_user_id, display_name,
             refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
-            (xmax = 0)::boolean AS inserted
+            TRUE::boolean AS inserted
 ),
 registered AS (
   INSERT INTO router.model_router_subscription_account_installations (installation_id, subscription_account_id)
@@ -75,13 +68,13 @@ registered AS (
   UNION ALL SELECT @installation_id::uuid, id FROM inserted
   ON CONFLICT DO NOTHING
 )
-SELECT id, subscriber_id, api_key_id, provider, external_account_id, display_name,
+SELECT id, subscriber_id, api_key_id, provider, external_account_id, provider_user_id, display_name,
        refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
        FALSE::boolean AS inserted,
        (SELECT subscriber_id IS NULL FROM owned)::boolean AS adopted
 FROM adopted
 UNION ALL
-SELECT id, subscriber_id, api_key_id, provider, external_account_id, display_name,
+SELECT id, subscriber_id, api_key_id, provider, external_account_id, provider_user_id, display_name,
        refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
        inserted::boolean,
        FALSE::boolean AS adopted
@@ -97,6 +90,7 @@ SELECT id,
        api_key_id,
        provider,
        external_account_id,
+       provider_user_id,
        display_name,
        refresh_token_ciphertext,
        enabled,
@@ -121,13 +115,14 @@ WHERE account.id = @id::uuid
        OR (account.subscriber_id IS NULL AND account.api_key_id = sqlc.narg(api_key_id)::uuid))
   AND (
       NOT @enabled::boolean
-      OR NOT EXISTS (
+      OR ((account.provider <> 'codex' OR account.provider_user_id IS NOT NULL) AND NOT EXISTS (
           SELECT 1
           FROM router.model_router_subscription_accounts AS conflicting
           WHERE conflicting.provider = account.provider
             AND conflicting.external_account_id = account.external_account_id
             AND conflicting.id <> account.id
-      )
+            AND (account.provider <> 'codex' OR conflicting.provider_user_id = account.provider_user_id)
+      ))
   );
 
 -- A stale replica must not turn an operator-disabled account back on while
@@ -247,6 +242,7 @@ WHERE id = @id::uuid
 -- The auth service decrypts the ciphertexts before returning them to Runtime.
 -- name: GetModelRouterSubscriptionCredentialRecord :one
 SELECT external_account_id,
+       provider_user_id,
        provider,
        refresh_token_ciphertext,
        access_token_ciphertext,
@@ -330,13 +326,14 @@ WITH installation AS MATERIALIZED (
   FOR SHARE OF access, subject
 )
 SELECT account.id, account.subscriber_id, account.api_key_id, account.provider,
-       account.external_account_id, account.display_name, account.refresh_token_ciphertext,
+       account.external_account_id, account.provider_user_id, account.display_name, account.refresh_token_ciphertext,
        account.enabled, account.health_state, account.cooldown_until, account.created_at,
        CASE WHEN account.subscriber_id = sqlc.narg(subscriber_id)::uuid THEN 'personal' ELSE 'shared' END AS tier
 FROM router.model_router_subscription_accounts AS account
 JOIN members ON members.subject_id = account.subscriber_id
 JOIN installation ON TRUE
-WHERE (account.subscriber_id = sqlc.narg(subscriber_id)::uuid
+WHERE (account.provider <> 'codex' OR account.provider_user_id IS NOT NULL)
+ AND (account.subscriber_id = sqlc.narg(subscriber_id)::uuid
    OR (installation.subscription_sharing_enabled
        -- Only a verified requester that remains an active member borrows shared
        -- capacity; a subject-less key matches no member and fails closed.

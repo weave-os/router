@@ -3,6 +3,7 @@ package subscription_enrollment_check_test
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -27,6 +28,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/postgres"
 	"weave-os/router/internal/sqlc"
+	"weave-os/router/internal/subscriptions"
 )
 
 func TestClaudeLoginReconnectsThroughAPIAndPostgres(t *testing.T) {
@@ -86,6 +88,10 @@ func TestClaudeLoginReconnectsThroughAPIAndPostgres(t *testing.T) {
 	var exchanges atomic.Int32
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	router.POST("/oauth/codex", func(c *gin.Context) {
+		payload := base64.RawURLEncoding.EncodeToString([]byte(`{"https://api.openai.com/auth":{"chatgpt_account_id":"chatgpt-fixture","chatgpt_user_id":"codex-user-fixture"}}`))
+		c.JSON(http.StatusOK, gin.H{"access_token": "header." + payload + ".sig", "refresh_token": c.PostForm("refresh_token")})
+	})
 	router.POST("/oauth/token", func(c *gin.Context) {
 		attempt := exchanges.Add(1)
 		accountID := accountA
@@ -133,6 +139,7 @@ func TestClaudeLoginReconnectsThroughAPIAndPostgres(t *testing.T) {
 		router.ServeHTTP(w, r)
 	}))
 	defer server.Close()
+	svc.WithCodexEnrollmentVerifier(subscriptions.NewOAuthClient(server.Client(), server.URL+"/oauth/codex", "", nil))
 
 	root, err := filepath.Abs("../..")
 	require.NoError(t, err)

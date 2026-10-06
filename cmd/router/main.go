@@ -591,16 +591,12 @@ func main() {
 		if codexIssuer := strings.TrimRight(config.GetOr("WEAVE_CODEX_OAUTH_ISSUER", ""), "/"); codexIssuer != "" {
 			codexTokenURL = codexIssuer + "/oauth/token"
 		}
-		subscriptionRuntime = subscriptions.NewRuntime(
-			authSvc,
-			subscriptions.NewOAuthClient(
-				&http.Client{Timeout: subscriptions.RefreshHTTPTimeout},
-				codexTokenURL,
-				config.GetOr("WEAVE_ANTHROPIC_OAUTH_TOKEN", ""),
-				time.Now,
-			),
-			time.Now,
+		subscriptionOAuth := subscriptions.NewOAuthClient(
+			&http.Client{Timeout: subscriptions.RefreshHTTPTimeout}, codexTokenURL,
+			config.GetOr("WEAVE_ANTHROPIC_OAUTH_TOKEN", ""), time.Now,
 		)
+		authSvc.WithCodexEnrollmentVerifier(subscriptionOAuth)
+		subscriptionRuntime = subscriptions.NewRuntime(authSvc, subscriptionOAuth, time.Now)
 		logger.Info("Server-side subscription account pools enabled")
 	} else {
 		logger.Info("Server-side subscription account pools disabled")

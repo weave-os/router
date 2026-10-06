@@ -92,6 +92,7 @@ type SubscriptionAccount struct {
 	EnrolledByAPIKeyID string
 	Provider           SubscriptionProvider
 	ExternalAccountID  string
+	ProviderUserID     string
 	// DisplayName is provider-supplied metadata for humans; it is not identity.
 	DisplayName            string
 	RefreshTokenCiphertext []byte
@@ -106,10 +107,22 @@ type CreateSubscriptionAccountParams struct {
 	Owner             SubscriptionOwner
 	Provider          SubscriptionProvider
 	ExternalAccountID string
+	ProviderUserID    string
 	DisplayName       string
 	RefreshToken      []byte
 	// InstallationExternalID identifies the authenticated installation for onboarding.
 	InstallationExternalID string
+}
+
+// VerifiedCodexEnrollment separates a provider user from their routing workspace.
+type VerifiedCodexEnrollment struct {
+	ProviderUserID string
+	RefreshToken   []byte
+}
+
+// CodexEnrollmentVerifier validates a refresh credential with the provider.
+type CodexEnrollmentVerifier interface {
+	VerifyCodexEnrollment(context.Context, string, []byte) (VerifiedCodexEnrollment, error)
 }
 
 // SubscriptionUpsertKind reports whether an upsert inserted, adopted a legacy row, or refreshed an existing identity.
@@ -130,6 +143,7 @@ func (k SubscriptionUpsertKind) FirstConnected() bool {
 // enrolled account. It never crosses the auth service boundary in this form.
 type SubscriptionCredentialRecord struct {
 	ExternalAccountID      string
+	ProviderUserID         string
 	Provider               SubscriptionProvider
 	RefreshTokenCiphertext []byte
 	AccessTokenCiphertext  []byte
@@ -145,6 +159,7 @@ type SubscriptionCredentialRecord struct {
 // subscription runtime. The access token is retained only in process memory
 // after this method returns.
 type SubscriptionCredentials struct {
+	ProviderUserID       string
 	RefreshToken         []byte
 	AccessToken          []byte
 	AccessTokenExpiresAt *time.Time
@@ -217,6 +232,21 @@ func (s *Service) AddSubscriptionAccount(ctx context.Context, params CreateSubsc
 	if params.Provider != SubscriptionProviderClaude && params.Provider != SubscriptionProviderCodex {
 		return nil, errors.New("unsupported subscription provider")
 	}
+	params.ProviderUserID = "" // Never trust caller-supplied identity.
+	if params.Provider == SubscriptionProviderCodex {
+		if s.codexEnrollmentVerifier == nil {
+			return nil, errors.New("Codex enrollment identity verification is unavailable")
+		}
+		verified, err := s.codexEnrollmentVerifier.VerifyCodexEnrollment(ctx, params.ExternalAccountID, params.RefreshToken)
+		if err != nil {
+			return nil, err
+		}
+		if verified.ProviderUserID == "" || len(verified.RefreshToken) == 0 {
+			return nil, errors.New("Codex enrollment omitted verified provider user identity")
+		}
+		params.ProviderUserID = verified.ProviderUserID
+		params.RefreshToken = verified.RefreshToken
+	}
 	ciphertext, err := s.encryptor.Encrypt(params.RefreshToken, params.ExternalAccountID, string(params.Provider))
 	if err != nil {
 		return nil, err
@@ -224,6 +254,7 @@ func (s *Service) AddSubscriptionAccount(ctx context.Context, params CreateSubsc
 	account, kind, err := s.subscriptionAccounts.UpsertSubscriptionAccount(ctx, CreateSubscriptionAccountParams{
 		Owner: params.Owner, Provider: params.Provider,
 		ExternalAccountID: params.ExternalAccountID,
+		ProviderUserID:    params.ProviderUserID,
 		DisplayName:       normalizeSubscriptionAccountDisplayName(params.DisplayName),
 		RefreshToken:      ciphertext,
 	})
@@ -399,6 +430,7 @@ func (s *Service) LoadSubscriptionCredentials(ctx context.Context, owner Subscri
 		return SubscriptionCredentials{}, err
 	}
 	credentials := SubscriptionCredentials{
+		ProviderUserID:      credentialRecord.ProviderUserID,
 		RefreshToken:        refreshToken,
 		TokenRefreshVersion: credentialRecord.TokenRefreshVersion,
 		TokenRefreshLeaseID: credentialRecord.TokenRefreshLeaseID,

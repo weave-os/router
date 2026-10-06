@@ -39,3 +39,32 @@ must deliberately reconcile duplicate identities first. The down migration keeps
 quarantined rows disabled and restores the older owner-present constraint as
 NOT VALID, so existing ownerless rows stay inert without reassignment while new
 ownerless rows are rejected.
+
+## Codex workspace and user identity
+
+Codex `chatgpt_account_id` identifies the ChatGPT workspace, not its members.
+The router preserves it as `external_account_id`, the `ChatGPT-Account-ID`
+request header, and the encryption binding. Enrollment performs a server-side
+OAuth refresh and stores the provider-returned `chatgpt_user_id` (or `user_id`)
+separately as `provider_user_id`. Display names, email headers, and owner assignment
+never establish this provider identity. Two verified users in one workspace are
+separate seats; the same user/workspace cannot be enrolled for another owner,
+even when its existing row is disabled. Refresh rejects a changed or missing
+verified user or workspace before publishing credentials.
+
+Migration 0122 disables historical Codex rows until their provider user is
+verified. To recover an assigned row, use that owner's verified personal routing
+key and run `npx @weave-os/router login codex` with a fresh provider login. The
+verified reconnect updates that owner's legacy row, retaining its ID and workspace
+binding, and leaves other owners' rows untouched. An unresolved row cannot be
+restored with Enable. Unassigned rows require administrator assignment before
+reconnect; assignment alone does not enable them. Reconnect restores registration,
+but the included-only transport gate described above still applies to serving.
+OAuth exchange can rotate the refresh token even if persistence fails; repeat a
+fresh provider login after a failed enrollment rather than reusing an old token.
+
+Rollback disables Codex rows before restoring workspace-only indices. If one
+owner has enrolled multiple provider users in the same workspace, the old unique
+index cannot represent them: rollback fails transactionally until an operator
+reconciles those registrations. It never chooses a seat, deletes credentials, or
+reassigns ownership automatically.

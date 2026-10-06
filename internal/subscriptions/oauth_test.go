@@ -131,3 +131,37 @@ func TestClaudeExternalAccountIDCanonicalizesAccountAndOrganization(t *testing.T
 	require.Empty(t, subscriptions.ClaudeExternalAccountID("account", "22222222-2222-4222-8222-222222222222"))
 	require.Empty(t, subscriptions.ClaudeExternalAccountID("11111111-1111-4111-8111-111111111111", "organization"))
 }
+
+func TestCodexEnrollmentVerifiesUserWithinSharedWorkspace(t *testing.T) {
+	for _, user := range []string{"provider-user-a", "provider-user-b", ""} {
+		t.Run(user, func(t *testing.T) {
+			payload := base64.RawURLEncoding.EncodeToString([]byte(`{"https://api.openai.com/auth":{"chatgpt_account_id":"shared-workspace","chatgpt_user_id":"` + user + `"}}`))
+			client := subscriptions.NewOAuthClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				require.Equal(t, "https", request.URL.Scheme)
+				body := `{"access_token":"header.` + payload + `.sig","refresh_token":"rotated"}`
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+			})}, "https://token.test/codex", "", nil)
+			verified, err := client.VerifyCodexEnrollment(context.Background(), "shared-workspace", []byte("refresh"))
+			if user == "" {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, user, verified.ProviderUserID)
+			require.Equal(t, []byte("rotated"), verified.RefreshToken)
+			_, err = client.VerifyCodexEnrollment(context.Background(), "different-workspace", []byte("refresh"))
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestCodexEnrollmentUsesProviderIDTokenUserClaim(t *testing.T) {
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"https://api.openai.com/auth":{"chatgpt_account_id":"shared-workspace","user_id":"provider-user-id-token"}}`))
+	client := subscriptions.NewOAuthClient(&http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		body := `{"id_token":"header.` + payload + `.sig","access_token":"access-without-claims","refresh_token":"rotated"}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
+	})}, "https://token.test/codex", "", nil)
+	verified, err := client.VerifyCodexEnrollment(context.Background(), "shared-workspace", []byte("refresh"))
+	require.NoError(t, err)
+	require.Equal(t, "provider-user-id-token", verified.ProviderUserID)
+}

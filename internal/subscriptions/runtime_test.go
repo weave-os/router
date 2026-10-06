@@ -146,14 +146,17 @@ func (s *runtimeStore) LoadSubscriptionCredentials(_ context.Context, _ auth.Sub
 	defer s.mu.Unlock()
 	enabled := true
 	var cooldownUntil *time.Time
+	var providerUserID string
 	for _, account := range s.accounts {
 		if account.ID == accountID {
+			providerUserID = account.ProviderUserID
 			enabled = account.Enabled
 			cooldownUntil = account.CooldownUntil
 			break
 		}
 	}
 	credentials := auth.SubscriptionCredentials{
+		ProviderUserID:      providerUserID,
 		RefreshToken:        append([]byte(nil), s.refreshTokens[accountID]...),
 		AccessToken:         append([]byte(nil), s.accessTokens[accountID]...),
 		TokenRefreshVersion: s.tokenRefreshVersions[accountID],
@@ -296,7 +299,7 @@ func TestRuntimePersistsExhaustedAndReconnectHealth(t *testing.T) {
 func TestRuntimeCoalescesRefreshAndPersistsRotation(t *testing.T) {
 	store := newRuntimeStore(&auth.SubscriptionAccount{
 		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderCodex,
-		ExternalAccountID: "chatgpt-1", Enabled: true,
+		ExternalAccountID: "chatgpt-1", ProviderUserID: "provider-user-1", Enabled: true,
 	})
 	store.refreshTokens["account-1"] = []byte("refresh-old")
 	var refreshes atomic.Int32
@@ -306,7 +309,7 @@ func TestRuntimeCoalescesRefreshAndPersistsRotation(t *testing.T) {
 		require.Equal(t, "refresh-old", token)
 		time.Sleep(10 * time.Millisecond)
 		return subscriptions.RefreshedToken{
-			AccessToken: "access", RefreshToken: "refresh-new", AccountID: "chatgpt-1",
+			AccessToken: "access", RefreshToken: "refresh-new", AccountID: "chatgpt-1", UserID: "provider-user-1",
 			ExpiresAt: time.Now().Add(time.Hour),
 		}, nil
 	})
@@ -1022,4 +1025,22 @@ func TestRuntimeKeepsLegacyAccountsOutOfSubscriberPool(t *testing.T) {
 	require.False(t, present)
 	require.ErrorIs(t, runtime.Cooldown(context.Background(), sibling, subscriptions.ProviderClaude, "legacy-account", time.Now().Add(time.Minute)),
 		subscriptions.ErrNoAvailableAccount)
+}
+
+func TestRuntimeRejectsDifferentCodexUserInSameWorkspace(t *testing.T) {
+	store := newRuntimeStore(&auth.SubscriptionAccount{
+		ID: "account-1", SubscriberID: "subscriber-1", EnrolledByAPIKeyID: "key-1", Provider: auth.SubscriptionProviderCodex,
+		ExternalAccountID: "shared-workspace", ProviderUserID: "provider-user-a", Enabled: true,
+	})
+	store.refreshTokens["account-1"] = []byte("refresh-old")
+	refresher := runtimeRefreshFunc(func(context.Context, subscriptions.Provider, string) (subscriptions.RefreshedToken, error) {
+		return subscriptions.RefreshedToken{AccessToken: "access", RefreshToken: "refresh-new", AccountID: "shared-workspace", UserID: "provider-user-b", ExpiresAt: time.Now().Add(time.Hour)}, nil
+	})
+	runtime := subscriptions.NewRuntime(store, refresher, nil)
+	lease, _, err := runtime.Lease(context.Background(), testOwner, subscriptions.ProviderCodex, "session-1")
+	require.Error(t, err)
+	require.Empty(t, lease.AccessToken)
+	require.Empty(t, store.rotatedTokens["account-1"])
+	require.False(t, store.enabledUpdates["account-1"])
+	require.False(t, store.accounts[0].Enabled)
 }

@@ -57,14 +57,14 @@ func (r *subscriptionAccountRepo) UpsertSubscriptionAccount(ctx context.Context,
 		return nil, auth.SubscriptionUpsertUpdated, err
 	}
 	// Concurrent enrollments of one physical account retry against the winning
-	// owner row; legacy identities always require explicit administrator resolution.
+	// owner row; Codex reconnects may repair only that owner's legacy row.
 	for attempt := 0; ; attempt++ {
 		row, err := dbbudget.Queries(r.tx).UpsertModelRouterSubscriptionAccountForSubscriber(ctx, sqlc.UpsertModelRouterSubscriptionAccountForSubscriberParams{
 			InstallationID: installationID, SubscriberID: subscriberID, APIKeyID: apiKeyID, Provider: string(params.Provider),
-			ExternalAccountID: params.ExternalAccountID, DisplayName: optionalSubscriptionAccountDisplayName(params.DisplayName), RefreshTokenCiphertext: params.RefreshToken,
+			ExternalAccountID: params.ExternalAccountID, ProviderUserID: params.ProviderUserID, DisplayName: optionalSubscriptionAccountDisplayName(params.DisplayName), RefreshTokenCiphertext: params.RefreshToken,
 		})
 		if err == nil {
-			return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID,
+			return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID,
 				row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt), subscriptionUpsertKind(row.Inserted, row.Adopted), nil
 		}
 		if attempt == subscriberEnrollmentMaxAttempts-1 || !isSubscriberAccountConflict(err) {
@@ -77,7 +77,7 @@ func isSubscriberAccountConflict(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) &&
 		pgErr.Code == uniqueViolationCode &&
-		(pgErr.ConstraintName == subscriberAccountUniqueIndex || pgErr.ConstraintName == "model_router_subscription_accounts_active_physical_identity_idx")
+		(pgErr.ConstraintName == "model_router_subscription_accounts_codex_identity_idx" || pgErr.ConstraintName == "model_router_subscription_accounts_codex_subscriber_idx" || pgErr.ConstraintName == subscriberAccountUniqueIndex || pgErr.ConstraintName == "model_router_subscription_accounts_active_physical_identity_idx")
 }
 
 func (r *subscriptionAccountRepo) UpdateSubscriptionAccountCooldown(ctx context.Context, accountID string, owner auth.SubscriptionOwner, cooldownUntil time.Time) error {
@@ -301,6 +301,7 @@ func (r *subscriptionAccountRepo) GetSubscriptionCredentialRecord(ctx context.Co
 	}
 	return &auth.SubscriptionCredentialRecord{
 		ExternalAccountID:      row.ExternalAccountID,
+		ProviderUserID:         subscriptionProviderUserID(row.ProviderUserID),
 		Provider:               auth.SubscriptionProvider(row.Provider),
 		RefreshTokenCiphertext: row.RefreshTokenCiphertext,
 		AccessTokenCiphertext:  row.AccessTokenCiphertext,
@@ -341,14 +342,14 @@ func (r *subscriptionAccountRepo) PersistSubscriptionTokens(ctx context.Context,
 }
 
 func toAuthSubscriptionAccount(row sqlc.RouterModelRouterSubscriptionAccount) *auth.SubscriptionAccount {
-	return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
+	return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID, row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
 }
 
 func toAuthSubscriptionAccountListRow(row sqlc.ListModelRouterSubscriptionAccountsRow) *auth.SubscriptionAccount {
-	return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
+	return toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID, row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
 }
 
-func toAuthSubscriptionAccountFields(id uuid.UUID, subscriberID, apiKeyID pgtype.UUID, provider, externalAccountID string, displayName *string, refreshTokenCiphertext []byte, enabled bool, healthState string, cooldownUntil, createdAt pgtype.Timestamp) *auth.SubscriptionAccount {
+func toAuthSubscriptionAccountFields(id uuid.UUID, subscriberID, apiKeyID pgtype.UUID, provider, externalAccountID string, providerUserID, displayName *string, refreshTokenCiphertext []byte, enabled bool, healthState string, cooldownUntil, createdAt pgtype.Timestamp) *auth.SubscriptionAccount {
 	var label string
 	if displayName != nil {
 		label = *displayName
@@ -356,7 +357,7 @@ func toAuthSubscriptionAccountFields(id uuid.UUID, subscriberID, apiKeyID pgtype
 	return &auth.SubscriptionAccount{
 		ID: id.String(), SubscriberID: uuidString(subscriberID), EnrolledByAPIKeyID: uuidString(apiKeyID),
 		Provider:          auth.SubscriptionProvider(provider),
-		ExternalAccountID: externalAccountID, DisplayName: label, RefreshTokenCiphertext: refreshTokenCiphertext,
+		ExternalAccountID: externalAccountID, ProviderUserID: subscriptionProviderUserID(providerUserID), DisplayName: label, RefreshTokenCiphertext: refreshTokenCiphertext,
 		Enabled: enabled, State: auth.SubscriptionAccountState(healthState),
 		CooldownUntil: timestampPtr(cooldownUntil), CreatedAt: timestampOrZero(createdAt),
 	}
@@ -452,10 +453,17 @@ func (r *subscriptionAccountRepo) ListSubscriptionCandidates(ctx context.Context
 	}
 	accounts := make([]*auth.SubscriptionAccount, 0, len(rows))
 	for _, row := range rows {
-		account := toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID,
+		account := toAuthSubscriptionAccountFields(row.ID, row.SubscriberID, row.APIKeyID, row.Provider, row.ExternalAccountID, row.ProviderUserID,
 			row.DisplayName, row.RefreshTokenCiphertext, row.Enabled, row.HealthState, row.CooldownUntil, row.CreatedAt)
 		account.Tier = auth.SubscriptionTier(row.Tier)
 		accounts = append(accounts, account)
 	}
 	return accounts, nil
+}
+
+func subscriptionProviderUserID(identity *string) string {
+	if identity == nil {
+		return ""
+	}
+	return *identity
 }

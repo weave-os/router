@@ -18,7 +18,7 @@ func (r *subscriptionAccountRepoStub) UpsertSubscriptionAccount(_ context.Contex
 		r.account = &SubscriptionAccount{
 			ID: "stable-account-id", SubscriberID: params.Owner.SubscriberID,
 			EnrolledByAPIKeyID: params.Owner.APIKeyID, Provider: params.Provider,
-			ExternalAccountID: params.ExternalAccountID, DisplayName: params.DisplayName,
+			ExternalAccountID: params.ExternalAccountID, ProviderUserID: params.ProviderUserID, DisplayName: params.DisplayName,
 		}
 	} else {
 		kind = SubscriptionUpsertUpdated
@@ -63,7 +63,7 @@ func (*subscriptionAccountRepoStub) PersistSubscriptionTokens(context.Context, s
 func TestAddSubscriptionAccountUpsertsStableProviderIdentity(t *testing.T) {
 	repo := &subscriptionAccountRepoStub{}
 	svc := NewService(nil, nil, nil, nil, NoOpAPIKeyCache{}, nil, time.Now).
-		WithSubscriptionAccounts(repo)
+		WithSubscriptionAccounts(repo).WithCodexEnrollmentVerifier(subscriptionVerifierStub{})
 	params := CreateSubscriptionAccountParams{
 		Owner: SubscriptionOwner{SubscriberID: "subscriber-1", APIKeyID: "key-1"}, Provider: SubscriptionProviderCodex,
 		ExternalAccountID: "chatgpt-account-1", DisplayName: "Acme: person@example.com", RefreshToken: []byte("refresh-old"),
@@ -85,7 +85,7 @@ func TestAddSubscriptionAccountUpsertsStableProviderIdentity(t *testing.T) {
 func TestAddSubscriptionAccountNormalizesDisplayName(t *testing.T) {
 	repo := &subscriptionAccountRepoStub{}
 	svc := NewService(nil, nil, nil, nil, NoOpAPIKeyCache{}, nil, time.Now).
-		WithSubscriptionAccounts(repo)
+		WithSubscriptionAccounts(repo).WithCodexEnrollmentVerifier(subscriptionVerifierStub{})
 
 	_, err := svc.AddSubscriptionAccount(context.Background(), CreateSubscriptionAccountParams{
 		Owner: SubscriptionOwner{SubscriberID: "subscriber-1", APIKeyID: "key-1"}, Provider: SubscriptionProviderCodex,
@@ -190,4 +190,33 @@ func TestListSubscriptionAccountsRejectsUnownedCaller(t *testing.T) {
 	accounts, err := svc.ListSubscriptionAccounts(context.Background(), SubscriptionOwner{})
 	require.NoError(t, err)
 	require.Empty(t, accounts)
+}
+
+func TestCodexEnrollmentRequiresProviderVerifiedUserIdentity(t *testing.T) {
+	repo := &subscriptionAccountRepoStub{}
+	svc := NewService(nil, nil, nil, nil, NoOpAPIKeyCache{}, nil, time.Now).WithSubscriptionAccounts(repo)
+	_, err := svc.AddSubscriptionAccount(context.Background(), CreateSubscriptionAccountParams{
+		Owner: SubscriptionOwner{SubscriberID: "subscriber-1", APIKeyID: "key-1"}, Provider: SubscriptionProviderCodex,
+		ExternalAccountID: "shared-workspace", RefreshToken: []byte("synthetic-refresh"),
+	})
+	require.Error(t, err)
+	require.Nil(t, repo.account, "workspace-only enrollment must not be persisted")
+}
+
+type subscriptionVerifierStub struct{}
+
+func (subscriptionVerifierStub) VerifyCodexEnrollment(_ context.Context, _ string, refresh []byte) (VerifiedCodexEnrollment, error) {
+	return VerifiedCodexEnrollment{ProviderUserID: "provider-user-1", RefreshToken: refresh}, nil
+}
+
+func TestCodexEnrollmentIgnoresCallerProviderUserID(t *testing.T) {
+	repo := &subscriptionAccountRepoStub{}
+	svc := NewService(nil, nil, nil, nil, NoOpAPIKeyCache{}, nil, time.Now).WithSubscriptionAccounts(repo).WithCodexEnrollmentVerifier(subscriptionVerifierStub{})
+	account, err := svc.AddSubscriptionAccount(context.Background(), CreateSubscriptionAccountParams{
+		Owner: SubscriptionOwner{SubscriberID: "subscriber-1", APIKeyID: "key-1"}, Provider: SubscriptionProviderCodex,
+		ExternalAccountID: "shared-workspace", ProviderUserID: "forged-user", RefreshToken: []byte("refresh"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, "provider-user-1", account.ProviderUserID)
+	require.Equal(t, "shared-workspace", account.ExternalAccountID)
 }

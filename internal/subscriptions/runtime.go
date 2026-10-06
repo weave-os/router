@@ -292,7 +292,7 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 				}
 				return recovered, handleErr
 			}
-			if account.Provider == ProviderCodex && refreshed.AccountID != "" && refreshed.AccountID != account.AccountID {
+			if account.Provider == ProviderCodex && ((refreshed.AccountID != "" && refreshed.AccountID != account.AccountID) || (credentials.ProviderUserID != "" && (refreshed.UserID != credentials.ProviderUserID || refreshed.AccountID != account.AccountID))) {
 				recovered, handleErr := r.handleRefreshError(ctx, owner, account, credentials, holder, &providerAccountMismatchError{})
 				if errors.Is(handleErr, errRefreshLeaseLost) {
 					continue

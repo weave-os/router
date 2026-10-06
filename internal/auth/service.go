@@ -68,26 +68,27 @@ func (NoOpInstallationChangeNotifier) NotifyInstallationChanged(string) {}
 
 // Service authenticates incoming bearer tokens. Identity only; routing/dispatch lives in proxy.Service.
 type Service struct {
-	installations          InstallationRepository
-	apiKeys                APIKeyRepository
-	credentialSubjects     CredentialSubjectLookup
-	externalKeys           ExternalAPIKeyRepository
-	users                  UserRepository
-	clusterModelLists      ClusterModelListRepository
-	userClusterModelLists  UserClusterModelListRepository
-	blindExperiments       BlindExperimentRepository
-	routingPolicies        RoutingPolicyRepository
-	routingPolicyCache     *RoutingPolicyCache
-	cache                  APIKeyCache
-	userCache              UserCache
-	userClusterCache       UserClusterListCache
-	blindExperimentCache   BlindExperimentCache
-	blindExperimentFetches singleflight.Group
-	subscriptionAccounts   SubscriptionAccountRepository
-	notifier               InstallationChangeNotifier
-	now                    Clock
-	encryptor              Encryptor
-	keypairTokens          *KeypairTokenCache
+	installations           InstallationRepository
+	apiKeys                 APIKeyRepository
+	credentialSubjects      CredentialSubjectLookup
+	externalKeys            ExternalAPIKeyRepository
+	users                   UserRepository
+	clusterModelLists       ClusterModelListRepository
+	userClusterModelLists   UserClusterModelListRepository
+	blindExperiments        BlindExperimentRepository
+	routingPolicies         RoutingPolicyRepository
+	routingPolicyCache      *RoutingPolicyCache
+	cache                   APIKeyCache
+	userCache               UserCache
+	userClusterCache        UserClusterListCache
+	blindExperimentCache    BlindExperimentCache
+	blindExperimentFetches  singleflight.Group
+	subscriptionAccounts    SubscriptionAccountRepository
+	codexEnrollmentVerifier CodexEnrollmentVerifier
+	notifier                InstallationChangeNotifier
+	now                     Clock
+	encryptor               Encryptor
+	keypairTokens           *KeypairTokenCache
 	// wifTokens is nil unless the deployment runs with a workload identity;
 	// WIF keys are then dropped rather than sent without a credential.
 	wifTokens WIFTokenSource
@@ -116,6 +117,12 @@ type Service struct {
 // WithSubscriptionAccounts wires encrypted server-side subscription storage.
 func (s *Service) WithSubscriptionAccounts(repo SubscriptionAccountRepository) *Service {
 	s.subscriptionAccounts = repo
+	return s
+}
+
+// WithCodexEnrollmentVerifier verifies provider identity before account storage.
+func (s *Service) WithCodexEnrollmentVerifier(verifier CodexEnrollmentVerifier) *Service {
+	s.codexEnrollmentVerifier = verifier
 	return s
 }
 

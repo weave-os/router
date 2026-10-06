@@ -193,6 +193,7 @@ func (q *Queries) ExtendModelRouterSubscriptionRefreshLease(ctx context.Context,
 
 const getModelRouterSubscriptionCredentialRecord = `-- name: GetModelRouterSubscriptionCredentialRecord :one
 SELECT external_account_id,
+       provider_user_id,
        provider,
        refresh_token_ciphertext,
        access_token_ciphertext,
@@ -216,6 +217,7 @@ type GetModelRouterSubscriptionCredentialRecordParams struct {
 
 type GetModelRouterSubscriptionCredentialRecordRow struct {
 	ExternalAccountID      string
+	ProviderUserID         *string
 	Provider               string
 	RefreshTokenCiphertext []byte
 	AccessTokenCiphertext  []byte
@@ -231,6 +233,7 @@ type GetModelRouterSubscriptionCredentialRecordRow struct {
 // The auth service decrypts the ciphertexts before returning them to Runtime.
 //
 //	SELECT external_account_id,
+//	       provider_user_id,
 //	       provider,
 //	       refresh_token_ciphertext,
 //	       access_token_ciphertext,
@@ -249,6 +252,7 @@ func (q *Queries) GetModelRouterSubscriptionCredentialRecord(ctx context.Context
 	var i GetModelRouterSubscriptionCredentialRecordRow
 	err := row.Scan(
 		&i.ExternalAccountID,
+		&i.ProviderUserID,
 		&i.Provider,
 		&i.RefreshTokenCiphertext,
 		&i.AccessTokenCiphertext,
@@ -268,6 +272,7 @@ SELECT id,
        api_key_id,
        provider,
        external_account_id,
+       provider_user_id,
        display_name,
        refresh_token_ciphertext,
        enabled,
@@ -292,6 +297,7 @@ type ListModelRouterSubscriptionAccountsRow struct {
 	APIKeyID               pgtype.UUID
 	Provider               string
 	ExternalAccountID      string
+	ProviderUserID         *string
 	DisplayName            *string
 	RefreshTokenCiphertext []byte
 	Enabled                bool
@@ -311,6 +317,7 @@ type ListModelRouterSubscriptionAccountsRow struct {
 //	       api_key_id,
 //	       provider,
 //	       external_account_id,
+//	       provider_user_id,
 //	       display_name,
 //	       refresh_token_ciphertext,
 //	       enabled,
@@ -337,6 +344,7 @@ func (q *Queries) ListModelRouterSubscriptionAccounts(ctx context.Context, arg L
 			&i.APIKeyID,
 			&i.Provider,
 			&i.ExternalAccountID,
+			&i.ProviderUserID,
 			&i.DisplayName,
 			&i.RefreshTokenCiphertext,
 			&i.Enabled,
@@ -370,13 +378,14 @@ WITH installation AS MATERIALIZED (
   FOR SHARE OF access, subject
 )
 SELECT account.id, account.subscriber_id, account.api_key_id, account.provider,
-       account.external_account_id, account.display_name, account.refresh_token_ciphertext,
+       account.external_account_id, account.provider_user_id, account.display_name, account.refresh_token_ciphertext,
        account.enabled, account.health_state, account.cooldown_until, account.created_at,
        CASE WHEN account.subscriber_id = $1::uuid THEN 'personal' ELSE 'shared' END AS tier
 FROM router.model_router_subscription_accounts AS account
 JOIN members ON members.subject_id = account.subscriber_id
 JOIN installation ON TRUE
-WHERE (account.subscriber_id = $1::uuid
+WHERE (account.provider <> 'codex' OR account.provider_user_id IS NOT NULL)
+ AND (account.subscriber_id = $1::uuid
    OR (installation.subscription_sharing_enabled
        -- Only a verified requester that remains an active member borrows shared
        -- capacity; a subject-less key matches no member and fails closed.
@@ -399,6 +408,7 @@ type ListModelRouterSubscriptionCandidatesRow struct {
 	APIKeyID               pgtype.UUID
 	Provider               string
 	ExternalAccountID      string
+	ProviderUserID         *string
 	DisplayName            *string
 	RefreshTokenCiphertext []byte
 	Enabled                bool
@@ -425,13 +435,14 @@ type ListModelRouterSubscriptionCandidatesRow struct {
 //	  FOR SHARE OF access, subject
 //	)
 //	SELECT account.id, account.subscriber_id, account.api_key_id, account.provider,
-//	       account.external_account_id, account.display_name, account.refresh_token_ciphertext,
+//	       account.external_account_id, account.provider_user_id, account.display_name, account.refresh_token_ciphertext,
 //	       account.enabled, account.health_state, account.cooldown_until, account.created_at,
 //	       CASE WHEN account.subscriber_id = $1::uuid THEN 'personal' ELSE 'shared' END AS tier
 //	FROM router.model_router_subscription_accounts AS account
 //	JOIN members ON members.subject_id = account.subscriber_id
 //	JOIN installation ON TRUE
-//	WHERE (account.subscriber_id = $1::uuid
+//	WHERE (account.provider <> 'codex' OR account.provider_user_id IS NOT NULL)
+//	 AND (account.subscriber_id = $1::uuid
 //	   OR (installation.subscription_sharing_enabled
 //	       -- Only a verified requester that remains an active member borrows shared
 //	       -- capacity; a subject-less key matches no member and fails closed.
@@ -456,6 +467,7 @@ func (q *Queries) ListModelRouterSubscriptionCandidates(ctx context.Context, arg
 			&i.APIKeyID,
 			&i.Provider,
 			&i.ExternalAccountID,
+			&i.ProviderUserID,
 			&i.DisplayName,
 			&i.RefreshTokenCiphertext,
 			&i.Enabled,
@@ -779,13 +791,14 @@ WHERE account.id = $3::uuid
        OR (account.subscriber_id IS NULL AND account.api_key_id = $5::uuid))
   AND (
       NOT $1::boolean
-      OR NOT EXISTS (
+      OR ((account.provider <> 'codex' OR account.provider_user_id IS NOT NULL) AND NOT EXISTS (
           SELECT 1
           FROM router.model_router_subscription_accounts AS conflicting
           WHERE conflicting.provider = account.provider
             AND conflicting.external_account_id = account.external_account_id
             AND conflicting.id <> account.id
-      )
+            AND (account.provider <> 'codex' OR conflicting.provider_user_id = account.provider_user_id)
+      ))
   )
 `
 
@@ -809,13 +822,14 @@ type UpdateModelRouterSubscriptionAccountStateParams struct {
 //	       OR (account.subscriber_id IS NULL AND account.api_key_id = $5::uuid))
 //	  AND (
 //	      NOT $1::boolean
-//	      OR NOT EXISTS (
+//	      OR ((account.provider <> 'codex' OR account.provider_user_id IS NOT NULL) AND NOT EXISTS (
 //	          SELECT 1
 //	          FROM router.model_router_subscription_accounts AS conflicting
 //	          WHERE conflicting.provider = account.provider
 //	            AND conflicting.external_account_id = account.external_account_id
 //	            AND conflicting.id <> account.id
-//	      )
+//	            AND (account.provider <> 'codex' OR conflicting.provider_user_id = account.provider_user_id)
+//	      ))
 //	  )
 func (q *Queries) UpdateModelRouterSubscriptionAccountState(ctx context.Context, arg UpdateModelRouterSubscriptionAccountStateParams) (int64, error) {
 	result, err := q.db.Exec(ctx, updateModelRouterSubscriptionAccountState,
@@ -892,18 +906,21 @@ WITH owned AS (
                 WHERE subject.id = $3::uuid AND subject.projection_complete AND subject.revoked_at IS NULL
                   AND access.installation_id = $4::uuid AND access.access_enabled AND installation.deleted_at IS NULL)
     AND subscriber_id = $3::uuid
+    AND ($1::varchar <> 'codex' OR (NULLIF($5::text, '') IS NOT NULL AND (provider_user_id = $5::text OR provider_user_id IS NULL)))
     AND NOT EXISTS (SELECT 1 FROM router.model_router_subscription_accounts AS other
                     WHERE other.provider = $1::varchar AND other.external_account_id = $2::varchar
-                      AND other.id <> model_router_subscription_accounts.id)
-  ORDER BY (subscriber_id IS NULL), created_at, id
+                      AND other.id <> model_router_subscription_accounts.id
+                      AND ($1::varchar <> 'codex' OR other.provider_user_id = $5::text))
+  ORDER BY (provider_user_id IS NULL), created_at, id
   LIMIT 1
   FOR UPDATE
 ),
 adopted AS (
   UPDATE router.model_router_subscription_accounts
   SET subscriber_id = $3::uuid,
-      refresh_token_ciphertext = $5::bytea,
-      display_name = COALESCE($6::text, display_name),
+      provider_user_id = NULLIF($5::text, ''),
+      refresh_token_ciphertext = $6::bytea,
+      display_name = COALESCE($7::text, display_name),
       enabled = TRUE,
       health_state = 'unknown',
       cooldown_until = NULL,
@@ -914,40 +931,29 @@ adopted AS (
       token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
       updated_at = CURRENT_TIMESTAMP
   WHERE id = (SELECT id FROM owned)
-  RETURNING id, subscriber_id, api_key_id, provider, external_account_id, display_name,
+  RETURNING id, subscriber_id, api_key_id, provider, external_account_id, provider_user_id, display_name,
             refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
 ),
 inserted AS (
   INSERT INTO router.model_router_subscription_accounts (
-    subscriber_id, api_key_id, provider, external_account_id, refresh_token_ciphertext, display_name
+    subscriber_id, api_key_id, provider, external_account_id, provider_user_id, refresh_token_ciphertext, display_name
   )
-  SELECT $3::uuid, $7::uuid, $1::varchar,
-         $2::varchar, $5::bytea,
-         $6::text
-  WHERE NOT EXISTS (SELECT 1 FROM owned)
+  SELECT $3::uuid, $8::uuid, $1::varchar,
+         $2::varchar, NULLIF($5::text, ''), $6::bytea,
+         $7::text
+  WHERE ($1::varchar <> 'codex' OR NULLIF($5::text, '') IS NOT NULL)
+    AND NOT EXISTS (SELECT 1 FROM owned)
     AND NOT EXISTS (SELECT 1 FROM router.model_router_subscription_accounts AS physical
-                    WHERE physical.provider = $1::varchar AND physical.external_account_id = $2::varchar)
+                    WHERE physical.provider = $1::varchar AND physical.external_account_id = $2::varchar
+                      AND ($1::varchar <> 'codex' OR physical.provider_user_id = $5::text))
     AND EXISTS (SELECT 1 FROM router.credential_subjects AS subject
                 JOIN router.credential_subject_installations AS access ON access.subject_id = subject.id
                 JOIN router.model_router_installations AS installation ON installation.id = access.installation_id
                 WHERE subject.id = $3::uuid AND subject.projection_complete AND subject.revoked_at IS NULL
                   AND access.installation_id = $4::uuid AND access.access_enabled AND installation.deleted_at IS NULL)
-  ON CONFLICT (subscriber_id, provider, external_account_id) WHERE subscriber_id IS NOT NULL
-  DO UPDATE SET
-    refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
-    display_name = COALESCE(EXCLUDED.display_name, router.model_router_subscription_accounts.display_name),
-    enabled = TRUE,
-    health_state = 'unknown',
-    cooldown_until = NULL,
-    access_token_ciphertext = NULL,
-    access_token_expires_at = NULL,
-    token_refresh_lease_until = NULL,
-    token_refresh_lease_id = NULL,
-    token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
-    updated_at = CURRENT_TIMESTAMP
-  RETURNING id, subscriber_id, api_key_id, provider, external_account_id, display_name,
+  RETURNING id, subscriber_id, api_key_id, provider, external_account_id, provider_user_id, display_name,
             refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
-            (xmax = 0)::boolean AS inserted
+            TRUE::boolean AS inserted
 ),
 registered AS (
   INSERT INTO router.model_router_subscription_account_installations (installation_id, subscription_account_id)
@@ -955,13 +961,13 @@ registered AS (
   UNION ALL SELECT $4::uuid, id FROM inserted
   ON CONFLICT DO NOTHING
 )
-SELECT id, subscriber_id, api_key_id, provider, external_account_id, display_name,
+SELECT id, subscriber_id, api_key_id, provider, external_account_id, provider_user_id, display_name,
        refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
        FALSE::boolean AS inserted,
        (SELECT subscriber_id IS NULL FROM owned)::boolean AS adopted
 FROM adopted
 UNION ALL
-SELECT id, subscriber_id, api_key_id, provider, external_account_id, display_name,
+SELECT id, subscriber_id, api_key_id, provider, external_account_id, provider_user_id, display_name,
        refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
        inserted::boolean,
        FALSE::boolean AS adopted
@@ -973,6 +979,7 @@ type UpsertModelRouterSubscriptionAccountForSubscriberParams struct {
 	ExternalAccountID      string
 	SubscriberID           uuid.UUID
 	InstallationID         uuid.UUID
+	ProviderUserID         string
 	RefreshTokenCiphertext []byte
 	DisplayName            *string
 	APIKeyID               uuid.UUID
@@ -984,6 +991,7 @@ type UpsertModelRouterSubscriptionAccountForSubscriberRow struct {
 	APIKeyID               pgtype.UUID
 	Provider               string
 	ExternalAccountID      string
+	ProviderUserID         *string
 	DisplayName            *string
 	RefreshTokenCiphertext []byte
 	Enabled                bool
@@ -994,8 +1002,9 @@ type UpsertModelRouterSubscriptionAccountForSubscriberRow struct {
 	Adopted                bool
 }
 
-// Enrollment updates only the same verified owner. Historical unassigned or
-// conflicting physical identities require administrator resolution first.
+// Enrollment updates only the same verified owner. Codex seats are provider
+// users within a workspace; fresh verified enrollment may repair an owned
+// workspace-only legacy row but never adopts another owner or an unassigned row.
 //
 //	WITH owned AS (
 //	  SELECT id, subscriber_id
@@ -1008,18 +1017,21 @@ type UpsertModelRouterSubscriptionAccountForSubscriberRow struct {
 //	                WHERE subject.id = $3::uuid AND subject.projection_complete AND subject.revoked_at IS NULL
 //	                  AND access.installation_id = $4::uuid AND access.access_enabled AND installation.deleted_at IS NULL)
 //	    AND subscriber_id = $3::uuid
+//	    AND ($1::varchar <> 'codex' OR (NULLIF($5::text, '') IS NOT NULL AND (provider_user_id = $5::text OR provider_user_id IS NULL)))
 //	    AND NOT EXISTS (SELECT 1 FROM router.model_router_subscription_accounts AS other
 //	                    WHERE other.provider = $1::varchar AND other.external_account_id = $2::varchar
-//	                      AND other.id <> model_router_subscription_accounts.id)
-//	  ORDER BY (subscriber_id IS NULL), created_at, id
+//	                      AND other.id <> model_router_subscription_accounts.id
+//	                      AND ($1::varchar <> 'codex' OR other.provider_user_id = $5::text))
+//	  ORDER BY (provider_user_id IS NULL), created_at, id
 //	  LIMIT 1
 //	  FOR UPDATE
 //	),
 //	adopted AS (
 //	  UPDATE router.model_router_subscription_accounts
 //	  SET subscriber_id = $3::uuid,
-//	      refresh_token_ciphertext = $5::bytea,
-//	      display_name = COALESCE($6::text, display_name),
+//	      provider_user_id = NULLIF($5::text, ''),
+//	      refresh_token_ciphertext = $6::bytea,
+//	      display_name = COALESCE($7::text, display_name),
 //	      enabled = TRUE,
 //	      health_state = 'unknown',
 //	      cooldown_until = NULL,
@@ -1030,40 +1042,29 @@ type UpsertModelRouterSubscriptionAccountForSubscriberRow struct {
 //	      token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
 //	      updated_at = CURRENT_TIMESTAMP
 //	  WHERE id = (SELECT id FROM owned)
-//	  RETURNING id, subscriber_id, api_key_id, provider, external_account_id, display_name,
+//	  RETURNING id, subscriber_id, api_key_id, provider, external_account_id, provider_user_id, display_name,
 //	            refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at
 //	),
 //	inserted AS (
 //	  INSERT INTO router.model_router_subscription_accounts (
-//	    subscriber_id, api_key_id, provider, external_account_id, refresh_token_ciphertext, display_name
+//	    subscriber_id, api_key_id, provider, external_account_id, provider_user_id, refresh_token_ciphertext, display_name
 //	  )
-//	  SELECT $3::uuid, $7::uuid, $1::varchar,
-//	         $2::varchar, $5::bytea,
-//	         $6::text
-//	  WHERE NOT EXISTS (SELECT 1 FROM owned)
+//	  SELECT $3::uuid, $8::uuid, $1::varchar,
+//	         $2::varchar, NULLIF($5::text, ''), $6::bytea,
+//	         $7::text
+//	  WHERE ($1::varchar <> 'codex' OR NULLIF($5::text, '') IS NOT NULL)
+//	    AND NOT EXISTS (SELECT 1 FROM owned)
 //	    AND NOT EXISTS (SELECT 1 FROM router.model_router_subscription_accounts AS physical
-//	                    WHERE physical.provider = $1::varchar AND physical.external_account_id = $2::varchar)
+//	                    WHERE physical.provider = $1::varchar AND physical.external_account_id = $2::varchar
+//	                      AND ($1::varchar <> 'codex' OR physical.provider_user_id = $5::text))
 //	    AND EXISTS (SELECT 1 FROM router.credential_subjects AS subject
 //	                JOIN router.credential_subject_installations AS access ON access.subject_id = subject.id
 //	                JOIN router.model_router_installations AS installation ON installation.id = access.installation_id
 //	                WHERE subject.id = $3::uuid AND subject.projection_complete AND subject.revoked_at IS NULL
 //	                  AND access.installation_id = $4::uuid AND access.access_enabled AND installation.deleted_at IS NULL)
-//	  ON CONFLICT (subscriber_id, provider, external_account_id) WHERE subscriber_id IS NOT NULL
-//	  DO UPDATE SET
-//	    refresh_token_ciphertext = EXCLUDED.refresh_token_ciphertext,
-//	    display_name = COALESCE(EXCLUDED.display_name, router.model_router_subscription_accounts.display_name),
-//	    enabled = TRUE,
-//	    health_state = 'unknown',
-//	    cooldown_until = NULL,
-//	    access_token_ciphertext = NULL,
-//	    access_token_expires_at = NULL,
-//	    token_refresh_lease_until = NULL,
-//	    token_refresh_lease_id = NULL,
-//	    token_refresh_version = model_router_subscription_accounts.token_refresh_version + 1,
-//	    updated_at = CURRENT_TIMESTAMP
-//	  RETURNING id, subscriber_id, api_key_id, provider, external_account_id, display_name,
+//	  RETURNING id, subscriber_id, api_key_id, provider, external_account_id, provider_user_id, display_name,
 //	            refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
-//	            (xmax = 0)::boolean AS inserted
+//	            TRUE::boolean AS inserted
 //	),
 //	registered AS (
 //	  INSERT INTO router.model_router_subscription_account_installations (installation_id, subscription_account_id)
@@ -1071,13 +1072,13 @@ type UpsertModelRouterSubscriptionAccountForSubscriberRow struct {
 //	  UNION ALL SELECT $4::uuid, id FROM inserted
 //	  ON CONFLICT DO NOTHING
 //	)
-//	SELECT id, subscriber_id, api_key_id, provider, external_account_id, display_name,
+//	SELECT id, subscriber_id, api_key_id, provider, external_account_id, provider_user_id, display_name,
 //	       refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
 //	       FALSE::boolean AS inserted,
 //	       (SELECT subscriber_id IS NULL FROM owned)::boolean AS adopted
 //	FROM adopted
 //	UNION ALL
-//	SELECT id, subscriber_id, api_key_id, provider, external_account_id, display_name,
+//	SELECT id, subscriber_id, api_key_id, provider, external_account_id, provider_user_id, display_name,
 //	       refresh_token_ciphertext, enabled, health_state, cooldown_until, created_at,
 //	       inserted::boolean,
 //	       FALSE::boolean AS adopted
@@ -1088,6 +1089,7 @@ func (q *Queries) UpsertModelRouterSubscriptionAccountForSubscriber(ctx context.
 		arg.ExternalAccountID,
 		arg.SubscriberID,
 		arg.InstallationID,
+		arg.ProviderUserID,
 		arg.RefreshTokenCiphertext,
 		arg.DisplayName,
 		arg.APIKeyID,
@@ -1099,6 +1101,7 @@ func (q *Queries) UpsertModelRouterSubscriptionAccountForSubscriber(ctx context.
 		&i.APIKeyID,
 		&i.Provider,
 		&i.ExternalAccountID,
+		&i.ProviderUserID,
 		&i.DisplayName,
 		&i.RefreshTokenCiphertext,
 		&i.Enabled,

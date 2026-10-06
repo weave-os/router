@@ -57,7 +57,7 @@ func TestCreateAccountAttributesConnectionToInstallation(t *testing.T) {
 	events := &recorder{}
 	now := time.Date(2026, 4, 27, 12, 0, 0, 0, time.UTC)
 	svc := auth.NewService(installationRepo{}, keyRepo{}, nil, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return now }).
-		WithSubscriptionAccounts(accountRepo{}).WithCredentialSubjectLookup(verifiedSubject{}).WithOnboardingObserver(events)
+		WithSubscriptionAccounts(accountRepo{}).WithCodexEnrollmentVerifier(enrollmentVerifier{}).WithCredentialSubjectLookup(verifiedSubject{}).WithOnboardingObserver(events)
 	engine := gin.New()
 	group := engine.Group("/v1", middleware.WithAuth(svc, false))
 	subscriptionsapi.Register(group, svc)
@@ -97,7 +97,7 @@ func TestCreateAccountEnrollsVerifiedPersonalKeyOwner(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	accounts := &ownerRecordingRepo{}
 	svc := auth.NewService(installationRepo{}, keyRepo{}, nil, nil, auth.NoOpAPIKeyCache{}, nil, time.Now).
-		WithSubscriptionAccounts(accounts).WithCredentialSubjectLookup(verifiedSubject{})
+		WithSubscriptionAccounts(accounts).WithCodexEnrollmentVerifier(enrollmentVerifier{}).WithCredentialSubjectLookup(verifiedSubject{})
 	engine := gin.New()
 	group := engine.Group("/v1", middleware.WithAuth(svc, false))
 	subscriptionsapi.Register(group, svc)
@@ -125,4 +125,10 @@ func (verifiedSubject) GetCredentialSubject(_ context.Context, subjectID, instal
 		return nil, auth.ErrPersonalCredentialRequired
 	}
 	return &auth.CredentialSubject{ID: subjectID, ProjectionComplete: true, AccessEnabled: true}, nil
+}
+
+type enrollmentVerifier struct{}
+
+func (enrollmentVerifier) VerifyCodexEnrollment(_ context.Context, _ string, refresh []byte) (auth.VerifiedCodexEnrollment, error) {
+	return auth.VerifiedCodexEnrollment{ProviderUserID: "provider-user-1", RefreshToken: refresh}, nil
 }
