@@ -570,6 +570,7 @@ var schemaRejectionPhrases = []string{
 	"could not compile grammar",
 	"invalid tool schema",
 	"invalid function schema",
+	"invalid schema for function",
 	"schema is not representable",
 	"invalid input schema",
 }

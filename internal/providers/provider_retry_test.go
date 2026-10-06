@@ -153,6 +153,12 @@ func TestIsUpstreamSchemaRejection(t *testing.T) {
 		want   bool
 	}{
 		{
+			name:   "OpenAI function parameters schema rejection",
+			status: http.StatusBadRequest,
+			body:   `{"error":{"message":"Invalid schema for function 'configuration': schema must have a 'type' key.","type":"invalid_request_error","code":"invalid_function_parameters"}}`,
+			want:   true,
+		},
+		{
 			name:   "fireworks schema-definition conflict",
 			status: http.StatusBadRequest,
 			body:   `{"error":{"message":"Conflict in schema definitions for key ‘description’. Previous: (pattern: ^[^\\n\\r]*$), New: (pattern: ^[\\s\\S]{0,300}$)"}}`,

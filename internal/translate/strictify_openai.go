@@ -67,6 +67,27 @@ func strictifyNode(node map[string]any, depth int, propCount *int) (out map[stri
 		}
 	}
 
+	// Strict mode closes objects; freeform dictionaries must keep their keys.
+	if additional, present := node["additionalProperties"]; present && additional != false {
+		return nil, false
+	}
+	if types, union := node["type"].([]any); union {
+		for _, schemaType := range types {
+			if schemaType == "object" {
+				return nil, false
+			}
+		}
+	}
+	if depth > 0 {
+		_, hasProperties := node["properties"]
+		if !schemaHasStrictType(node) && !hasProperties {
+			return nil, false
+		}
+		if objectType, _ := node["type"].(string); objectType == "object" && !hasProperties && node["additionalProperties"] != false {
+			return nil, false
+		}
+	}
+
 	res := make(map[string]any, len(node))
 	var droppedNotes []string
 	for k, v := range node {
