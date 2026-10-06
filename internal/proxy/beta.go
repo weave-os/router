@@ -30,7 +30,7 @@ const (
 func WriteRetiredBetaRequest(w http.ResponseWriter, r *http.Request, body []byte) (bool, error) {
 	var surface requestcontext.ConversationSurface
 	switch r.URL.Path {
-	case "/v1/messages", "/v1/route", "/v1/route/preview":
+	case "/v1/messages", "/v1/route", "/v1/route/preview", "/v1/route/handoff":
 		surface = requestcontext.ConversationAnthropic
 	case "/v1/chat/completions":
 		surface = requestcontext.ConversationChat

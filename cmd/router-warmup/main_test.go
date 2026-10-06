@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -45,11 +46,15 @@ func TestWarmupIncludesEveryModelWithSupportedEffort(t *testing.T) {
 }
 
 func TestWarmupContinuesAfterProviderFailure(t *testing.T) {
+	var stateMu sync.Mutex
 	warmupCalls := 0
 	clearCalls := 0
 	warmupSession := ""
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.Contains(string(mustReadBody(t, r)), "/unforce-model") {
+		requestBody := mustReadBody(t, r)
+		stateMu.Lock()
+		defer stateMu.Unlock()
+		if strings.Contains(string(requestBody), "/unforce-model") {
 			clearCalls++
 			if r.Header.Get("Session-Id") != warmupSession {
 				t.Errorf("clear session %q does not match warmup session %q", r.Header.Get("Session-Id"), warmupSession)
@@ -73,6 +78,8 @@ func TestWarmupContinuesAfterProviderFailure(t *testing.T) {
 	if err := executeWarmup(context.Background(), server.Client(), server.URL, "fixture-key", warmupPlan()[:2]); err == nil {
 		t.Fatal("failure hidden")
 	}
+	stateMu.Lock()
+	defer stateMu.Unlock()
 	if warmupCalls != 2 || clearCalls != 1 {
 		t.Fatal("warmup stopped before remaining models")
 	}
