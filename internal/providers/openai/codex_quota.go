@@ -3,11 +3,13 @@ package openai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
 	"time"
 
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 )
@@ -29,15 +31,20 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) erro
 	parentCtx := ctx
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
+	log := observability.FromContext(ctx)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimSuffix(strings.TrimRight(c.codexBaseURL, "/"), "/codex")+"/wham/usage", nil)
 	if err != nil {
+		log.Debug("Codex quota preflight request build failed", "err", err)
 		return codexQuotaUnavailable()
 	}
 	creds := codexSubscriptionCreds(ctx)
 	req.Header.Set("Authorization", "Bearer "+string(creds.APIKey))
 	req.Header.Set(requestcontext.ChatGPTAccountIDHeader, string(creds.AccountID))
+	req.Header.Set(codexOriginatorHeader, codexOriginatorValue)
+	req.Header.Set(codexUserAgentHeader, codexUserAgentValue)
 	resp, err := c.http.Do(req)
 	if err != nil {
+		log.Debug("Codex quota preflight transport failed", "err", err)
 		if parentCtx.Err() != nil {
 			return parentCtx.Err()
 		}
@@ -45,28 +52,44 @@ func (c *Client) checkCodexIncludedQuota(ctx context.Context, model string) erro
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
+		log.Debug("Codex quota preflight rejected", "upstream_status", resp.StatusCode)
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			body, _ := json.Marshal(codexQuotaError{Error: codexQuotaErrorDetails{Type: codexQuotaErrorAuthentication, Message: "Codex subscription authentication was rejected. Reconnect the account."}})
+			return &providers.UpstreamErrorResponse{Status: resp.StatusCode, Body: body}
+		}
 		return codexQuotaUnavailable()
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
+		log.Debug("Codex quota preflight body read failed", "err", err)
 		return codexQuotaUnavailable()
 	}
-	var status struct {
-		RateLimit  *codexIncludedQuota `json:"rate_limit"`
-		Additional []struct {
+	var quotaStatus struct {
+		RateLimit            *codexIncludedQuota `json:"rate_limit"`
+		AdditionalRateLimits []struct {
 			Model     string              `json:"normal_model_slug"`
 			RateLimit *codexIncludedQuota `json:"rate_limit"`
 		} `json:"additional_rate_limits"`
 	}
-	if json.Unmarshal(body, &status) != nil {
+	if err := json.Unmarshal(body, &quotaStatus); err != nil {
+		log.Debug("Codex quota preflight decode failed", "err", err)
 		return codexQuotaUnavailable()
 	}
-	if err = validateCodexIncludedQuota(status.RateLimit); err != nil {
+	if err = validateCodexIncludedQuota(quotaStatus.RateLimit); err != nil {
+		log.Debug("Codex included quota preflight denied inference", "err", err)
 		return err
 	}
-	for _, additional := range status.Additional {
-		if additional.Model == model {
-			if err = validateCodexIncludedQuota(additional.RateLimit); err != nil {
+	for _, modelRateLimit := range quotaStatus.AdditionalRateLimits {
+		if modelRateLimit.Model == model {
+			if err = validateCodexIncludedQuota(modelRateLimit.RateLimit); err != nil {
+				log.Debug("Codex model quota preflight denied inference", "model", model, "err", err)
+				var upstream *providers.UpstreamErrorResponse
+				if errors.As(err, &upstream) && upstream.Status == http.StatusTooManyRequests {
+					// Account cooldown applies to account-wide quota only. A model
+					// limit remains retryable without marking the whole account spent.
+					body, _ := json.Marshal(codexQuotaError{Error: codexQuotaErrorDetails{Type: codexQuotaErrorModelExhausted, Message: "Included Codex quota for the requested model is exhausted."}})
+					return &providers.UpstreamErrorResponse{Status: http.StatusServiceUnavailable, Body: body}
+				}
 				return err
 			}
 		}
@@ -97,7 +120,7 @@ func validateCodexIncludedQuota(quota *codexIncludedQuota) error {
 		}
 	}
 	if exhausted {
-		body, _ := json.Marshal(codexQuotaError{Error: codexQuotaErrorDetails{Type: codexQuotaErrorExhausted, ResetsAt: resetAt}})
+		body, _ := json.Marshal(codexQuotaError{Error: codexQuotaErrorDetails{Type: codexQuotaErrorExhausted, ResetsAt: resetAt, Message: "Codex included quota is exhausted."}})
 		return &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: body}
 	}
 	if !validWindow {
@@ -111,11 +134,16 @@ func codexQuotaUnavailable() error {
 
 type codexQuotaErrorType string
 
-const codexQuotaErrorExhausted codexQuotaErrorType = "usage_limit_reached"
+const (
+	codexQuotaErrorExhausted      codexQuotaErrorType = "usage_limit_reached"
+	codexQuotaErrorAuthentication codexQuotaErrorType = "authentication_error"
+	codexQuotaErrorModelExhausted codexQuotaErrorType = "model_usage_limit_reached"
+)
 
 type codexQuotaErrorDetails struct {
 	Type     codexQuotaErrorType `json:"type"`
 	ResetsAt int64               `json:"resets_at,omitempty"`
+	Message  string              `json:"message"`
 }
 type codexQuotaError struct {
 	Error codexQuotaErrorDetails `json:"error"`

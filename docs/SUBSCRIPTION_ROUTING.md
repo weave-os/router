@@ -29,7 +29,9 @@ that the provider cannot charge extra usage. Codex checks the authenticated
 read-only `/backend-api/wham/usage` endpoint
 before each inference attempt. Missing, unavailable, malformed, or exhausted
 included quota skips that account even when purchased OpenAI credits are present.
-The same check covers matching model-specific limits. Claude accounts with no
+The same check covers matching model-specific limits using the final upstream
+model after aliases. A model-specific rejection rotates the attempt without
+marking the whole account exhausted or placing it on cooldown. Claude accounts with no
 quota observation may serve; known exhausted or paid-overage accounts are
 excluded. Quota failures rotate to another eligible account before authorized
 Weave-funded API capacity serves the selected model. Depleted Weave credits

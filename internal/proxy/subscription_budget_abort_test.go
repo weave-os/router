@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/auth"
@@ -32,7 +33,11 @@ func TestSubscriptionBudgetAbortedCommitUsesLiveAPIFallback(t *testing.T) {
 		if calls == 1 {
 			require.True(t, CredentialsFromContext(attemptCtx).OAuth)
 			cancel()
-			buf.abortIfUncommitted(buf.currentAttemptGeneration(), func() {})
+			select {
+			case <-attemptCtx.Done():
+			case <-time.After(time.Second):
+				t.Fatal("rotation budget did not cancel subscription attempt")
+			}
 			_, err := buf.Write([]byte("must not escape"))
 			require.ErrorIs(t, err, errAttemptAborted)
 			return err
@@ -71,7 +76,11 @@ func TestSubscriptionBudgetAbortedCommitRendersCleanErrorWithoutAPI(t *testing.T
 		if calls == 1 {
 			require.True(t, CredentialsFromContext(attemptCtx).OAuth)
 			cancel()
-			buf.abortIfUncommitted(buf.currentAttemptGeneration(), func() {})
+			select {
+			case <-attemptCtx.Done():
+			case <-time.After(time.Second):
+				t.Fatal("rotation budget did not cancel subscription attempt")
+			}
 			_, err := buf.Write([]byte("must not escape"))
 			require.ErrorIs(t, err, errAttemptAborted)
 			return err
