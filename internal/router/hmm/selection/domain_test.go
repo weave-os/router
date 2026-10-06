@@ -271,6 +271,8 @@ func TestDomainEvidenceRejectsRecipeDriftAndInvalidArms(t *testing.T) {
 		{"unknown benchmark", withArms(map[string]any{"vendor-a/quality": domainArmsForTest()["vendor-a/quality"], "vendor-b/cheap": map[string]any{"global_wii": 55, "wpi": 0, "benchmarks": map[string]float64{"terminalbench_v2_1": 50}}}), false},
 		{"null quality", withArms(map[string]any{"vendor-a/quality": domainArmsForTest()["vendor-a/quality"], "vendor-b/cheap": map[string]any{"global_wii": 55, "wpi": 0, "benchmarks": map[string]any{"terminalbench_v4_0": nil}}}), false},
 		{"null arm", withArms(map[string]any{"vendor-a/quality": domainArmsForTest()["vendor-a/quality"], "vendor-b/cheap": nil}), false},
+		{"null global wii", withArms(map[string]any{"vendor-a/quality": domainArmsForTest()["vendor-a/quality"], "vendor-b/cheap": map[string]any{"global_wii": nil, "wpi": 0, "benchmarks": map[string]any{}}}), false},
+		{"missing wpi", withArms(map[string]any{"vendor-a/quality": domainArmsForTest()["vendor-a/quality"], "vendor-b/cheap": map[string]any{"global_wii": 55, "benchmarks": map[string]any{}}}), false},
 		{"out-of-range quality", withArms(map[string]any{"vendor-a/quality": domainArmsForTest()["vendor-a/quality"], "vendor-b/cheap": map[string]any{"global_wii": 55, "wpi": 0, "benchmarks": map[string]float64{"terminalbench_v4_0": 101}}}), false},
 		{"impossible ingest date", func() domainEvidenceFixture {
 			fixture := validDomainEvidenceFixture()
