@@ -1001,9 +1001,9 @@ func (s *Service) withBlindExperiment(ctx context.Context, installationID, route
 		return ctx
 	}
 	var (
-		state          BlindExperimentState
-		read, resolved bool
-		generation     uint64
+		state                BlindExperimentState
+		hasFetched, resolved bool
+		generation           uint64
 	)
 	for attempt := 0; attempt < blindExperimentFetchAttempts && !resolved; attempt++ {
 		generation = s.blindExperimentCache.InstallationGeneration(installationID)
@@ -1015,7 +1015,7 @@ func (s *Service) withBlindExperiment(ctx context.Context, installationID, route
 		if !ok {
 			break
 		}
-		state, read = fetched, true
+		state, hasFetched = fetched, true
 		// A no-op cache deliberately has no entry, so its fetched state is
 		// authoritative for this request.
 		if !s.blindExperimentCache.Enabled() {
@@ -1027,7 +1027,7 @@ func (s *Service) withBlindExperiment(ctx context.Context, installationID, route
 		}
 	}
 	if !resolved {
-		if !read {
+		if !hasFetched {
 			return ctx
 		}
 		// Invalidations here are usually unchanged-config fanout. Dropping the
