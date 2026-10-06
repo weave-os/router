@@ -1088,13 +1088,13 @@ func main() {
 		hmmRosterModels = admittedHMMRosterSource{}
 		if topic := strings.TrimSpace(config.GetOr("PUBSUB_TOPIC_ROUTER_POLICY_INVALIDATION", "")); topic != "" {
 			subscriptionCtx, cancelSubscription := context.WithTimeout(context.Background(), 30*time.Second)
-			name, cleanup, err := routerpubsub.CreateReplicaSubscription(subscriptionCtx, pubsubClient, pubsubProjectID, topic, config.GetOr("PUBSUB_SUBSCRIPTION_ROUTER_POLICY_INVALIDATION", topic))
+			subscriptionName, cleanup, err := routerpubsub.CreateReplicaSubscription(subscriptionCtx, pubsubClient, pubsubProjectID, topic, config.GetOr("PUBSUB_SUBSCRIPTION_ROUTER_POLICY_INVALIDATION", topic))
 			cancelSubscription()
 			if err != nil {
 				logger.Warn("Admission release invalidation unavailable; TTL remains authoritative", "err", err)
 			} else {
 				defer cleanup()
-				releaseListener := routerpubsub.NewPolicyReleaseListener(pubsubClient.Subscriber(name), admissionDecisions.InvalidateAll)
+				releaseListener := routerpubsub.NewPolicyReleaseListener(pubsubClient.Subscriber(subscriptionName), admissionDecisions.InvalidateAll)
 				releaseCtx, cancelRelease := context.WithCancel(context.Background())
 				defer func() { cancelRelease(); releaseListener.Wait() }()
 				safeGo(logger, "admission-release-invalidation", func() { releaseListener.Run(releaseCtx) })
