@@ -76,8 +76,23 @@ func InternalTaskDomainPreviewHandler() gin.HandlerFunc {
 			RecipeVersion: selection.DomainRecipeVersion, RecipeInfluence: selection.DomainInfluence, Recipes: selection.DomainRecipes(),
 			Items: make([]taskDomainPreviewItem, 0, len(req.Items)),
 		}
+		unscored := make(map[TaskDomainPreviewStatus]int)
 		for _, item := range req.Items {
-			response.Items = append(response.Items, previewTaskDomainItem(c, item))
+			previewed := previewTaskDomainItem(c, item)
+			if previewed.Status != TaskDomainPreviewReady {
+				unscored[previewed.Status]++
+			}
+			response.Items = append(response.Items, previewed)
+		}
+		// One line per request: the dashboard polls, and stale lanes legitimately
+		// reject evidence during a roll-out. Per-item causes are logged at debug.
+		if len(unscored) > 0 {
+			observability.FromGin(c).Warn("Task-domain preview items not scored",
+				"items", len(req.Items),
+				"invalid_request", unscored[TaskDomainPreviewInvalidRequest],
+				"evidence_rejected", unscored[TaskDomainPreviewEvidenceRejected],
+				"failed", unscored[TaskDomainPreviewFailed],
+			)
 		}
 		c.JSON(http.StatusOK, response)
 	}
@@ -124,13 +139,13 @@ func previewTaskDomainItem(c *gin.Context, req taskDomainPreviewItemRequest) tas
 	}
 	evidence, err := selection.ParseDomainEvidence(req.Evidence, roster)
 	if err != nil {
-		observability.FromGin(c).Error("Task-domain evidence rejected for preview", "roster_sha256", roster.SHA256, "err", err)
+		observability.FromGin(c).Debug("Task-domain evidence rejected for preview", "roster_sha256", roster.SHA256, "err", err)
 		item.Status = TaskDomainPreviewEvidenceRejected
 		return item
 	}
 	preview, err := selection.PreviewDomainRanking(roster, evidence, req.Cluster, req.Harness, profile)
 	if err != nil {
-		observability.FromGin(c).Error("Task-domain preview failed", "roster_sha256", roster.SHA256, "cluster", req.Cluster, "err", err)
+		observability.FromGin(c).Debug("Task-domain preview failed", "roster_sha256", roster.SHA256, "cluster", req.Cluster, "err", err)
 		item.Status = TaskDomainPreviewFailed
 		return item
 	}

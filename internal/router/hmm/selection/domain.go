@@ -176,15 +176,15 @@ func validateDomainEvidence(evidence *DomainEvidence, roster *rosterdata.Roster)
 // rejectNullBenchmarks keeps an explicit null from decoding as a zero score:
 // an unmeasured benchmark must be absent so it stays neutral.
 func rejectNullBenchmarks(payload []byte) error {
-	var nullable struct {
+	var decodedEvidence struct {
 		Arms map[string]struct {
 			Benchmarks map[Benchmark]*float64 `json:"benchmarks"`
 		} `json:"arms"`
 	}
-	if err := json.Unmarshal(payload, &nullable); err != nil {
+	if err := json.Unmarshal(payload, &decodedEvidence); err != nil {
 		return fmt.Errorf("parse domain evidence: %w", err)
 	}
-	for arm, cell := range nullable.Arms {
+	for arm, cell := range decodedEvidence.Arms {
 		for benchmark, quality := range cell.Benchmarks {
 			if quality == nil {
 				return fmt.Errorf("domain evidence has null %q quality for %q", benchmark, arm)
