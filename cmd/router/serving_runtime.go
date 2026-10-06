@@ -39,10 +39,11 @@ var managedServingEnvVars = []string{
 	"ROUTER_SERVING_SELECTION_SET_URI",
 	"ROUTER_SERVING_SELECTION_SET_SHA256",
 	"ROUTER_SERVING_SELECTION_SET_GENERATION",
+	"ROUTER_SERVING_ASSERTION_KEY",
 }
 
-func managedServingEnabled() bool {
-	return strings.TrimSpace(config.GetOr("ROUTER_SERVING_TARGET", "")) != ""
+func managedServingEnabled(mode server.DeploymentMode) bool {
+	return mode == server.DeploymentModeManaged && strings.TrimSpace(config.GetOr("ROUTER_SERVING_TARGET", "")) != ""
 }
 
 // A stamped managed revision must not boot without fleet admission.

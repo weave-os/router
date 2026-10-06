@@ -62,10 +62,14 @@ func TestDirectTestAuthSkipsEmailSubscriptionsAndProviderSecrets(t *testing.T) {
 		Admission: policyregistry.SessionReleaseBinding{Target: policyregistry.TargetStable, ActivationID: "exact-activation", BindingGeneration: 1},
 		TestPlan:  &policyregistry.TestPlanScope{Plan: policyregistry.TestPlanStable, SubjectID: subject, SessionID: session, LaunchID: launch, PolicyRevision: strings.Repeat("a", 64), ExpiresAt: time.Now().Add(time.Hour)},
 	}
-	for _, scenario := range []string{"valid", "spoofed grant", "disabled budget", "wrong credential subject"} {
+	for _, scenario := range []string{"valid", "spoofed grant", "disabled budget", "wrong credential subject", "invalid credential"} {
 		t.Run(scenario, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{}`))
-			request.Header.Set(auth.RouterKeyHeader, credential)
+			requestCredential := credential
+			if scenario == "invalid credential" {
+				requestCredential = "rk_invalid_test"
+			}
+			request.Header.Set(auth.RouterKeyHeader, requestCredential)
 			request.Header.Set("X-Weave-User-Email", "customer@example.com")
 			grant := "valid-grant"
 			if scenario == "spoofed grant" {
@@ -93,7 +97,7 @@ func TestDirectTestAuthSkipsEmailSubscriptionsAndProviderSecrets(t *testing.T) {
 			engine.ServeHTTP(response, request)
 			require.Zero(t, routingPolicies.policyReads)
 			require.Zero(t, routingPolicies.assignmentReads)
-			expected := map[string]int{"valid": http.StatusNoContent, "spoofed grant": http.StatusForbidden, "disabled budget": http.StatusForbidden, "wrong credential subject": http.StatusForbidden}
+			expected := map[string]int{"valid": http.StatusNoContent, "spoofed grant": http.StatusForbidden, "disabled budget": http.StatusForbidden, "wrong credential subject": http.StatusForbidden, "invalid credential": http.StatusUnauthorized}
 			require.Equal(t, expected[scenario], response.Code)
 		})
 	}

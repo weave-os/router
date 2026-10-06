@@ -108,7 +108,8 @@ proposal over it.
 ### Fleet-rollout gate
 
 Every worker admission reader and `policyctl serving` reader must understand the
-`artifacts/` layout, v2/v3 kinds and `state/` path before activation. Bootstrap
+schema being activated and the `state/` path before activation. Gate v3
+support specifically before the first v3 activation. Bootstrap
 validates immutable references; cache misses also resolve authoritative target
 state. An old binary that keeps writing the legacy
 state path after a new-path object exists splits the control plane, and an old binary

@@ -77,11 +77,15 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 	return func(c *gin.Context) {
 		parentCtx := c.Request.Context()
 		var testPlan *policyregistry.TestPlanScope
-		if len(serving) > 0 && serving[0] != nil && serving[0].Decisions != nil {
+		if len(serving) > 0 && serving[0] != nil {
 			var err error
 			testPlan, err = prepareDirectTest(c, svc, serving[0])
 			if err != nil {
 				observability.FromGin(c).Warn("Direct test admission rejected", "err", err)
+				if isAuthFailure(err) {
+					handleAuthError(c, err)
+					return
+				}
 				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "test_scope_rejected"})
 				return
 			}
@@ -254,6 +258,11 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}
+}
+
+func isAuthFailure(err error) bool {
+	return errors.Is(err, auth.ErrInvalidPrefix) || errors.Is(err, auth.ErrInvalidToken) ||
+		errors.Is(err, auth.ErrWrongKeyScope) || errors.Is(err, auth.ErrPersonalCredentialRequired)
 }
 
 // tryAdminCookie returns nil so callers fall through to bearer auth when the cookie is absent, admin login is disabled, or the cookie is invalid.

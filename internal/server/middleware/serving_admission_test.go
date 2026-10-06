@@ -142,8 +142,12 @@ func admissionMiddlewareFixture(t *testing.T) (*ServingAdmissionConfig, policyre
 }
 
 func runAdmissionMiddleware(t *testing.T, cfg *ServingAdmissionConfig, assertion policyregistry.ServingAssertion, handler gin.HandlerFunc) *httptest.ResponseRecorder {
+	return runAdmissionMiddlewareWithBody(t, cfg, assertion, admissionTestBody, handler)
+}
+
+func runAdmissionMiddlewareWithBody(t *testing.T, cfg *ServingAdmissionConfig, assertion policyregistry.ServingAssertion, body string, handler gin.HandlerFunc) *httptest.ResponseRecorder {
 	t.Helper()
-	request := httptest.NewRequest(http.MethodPost, "/v1/messages?original=1", strings.NewReader(admissionTestBody))
+	request := httptest.NewRequest(http.MethodPost, "/v1/messages?original=1", strings.NewReader(body))
 	request.Header.Set(auth.RouterKeyHeader, admissionTestCredential)
 	request.Header.Set(policyregistry.ServingAssertionHeader, "forged-client-assertion")
 	if assertion.TestPlan != nil {
@@ -160,6 +164,34 @@ func runAdmissionMiddleware(t *testing.T, cfg *ServingAdmissionConfig, assertion
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request)
 	return response
+}
+
+func TestServingAdmissionRejectsMalformedBodyBeforeBinding(t *testing.T) {
+	cfg, admitted, _, _ := admissionMiddlewareFixture(t)
+	store := &directAdmissionStore{assertion: admitted}
+	var err error
+	cfg.Decisions, err = policyregistry.NewAdmissionDecisionCache(store, 10, time.Minute, time.Now)
+	require.NoError(t, err)
+	response := runAdmissionMiddlewareWithBody(t, cfg, policyregistry.ServingAssertion{}, `{"messages":`, func(*gin.Context) {
+		t.Fatal("malformed request reached inference")
+	})
+	require.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
+	require.Contains(t, response.Body.String(), "invalid_request_body")
+	require.Zero(t, store.calls, "rejected requests must not create or refresh session bindings")
+}
+
+func TestServingAdmissionAllowsManagedRetirementReplyWithoutRegistryOrAttribution(t *testing.T) {
+	cfg, _, _, _ := admissionMiddlewareFixture(t)
+	cfg.Decisions = nil
+	cfg.Store = nil
+	cfg.Cache = nil
+	cfg.Attribution = nil
+	body := `{"model":"claude-sonnet-4-5","max_tokens":1,"messages":[{"role":"user","content":"/beta"}]}`
+	response := runAdmissionMiddlewareWithBody(t, cfg, policyregistry.ServingAssertion{}, body, func(c *gin.Context) {
+		t.Fatal("retired command must finish before admission or inference")
+	})
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Contains(t, response.Body.String(), "Beta has been retired")
 }
 
 func TestServingAdmissionPreservesBodyAndSnapshotWithAttributionBeforeDispatch(t *testing.T) {
@@ -259,14 +291,42 @@ func TestServingAdmissionDisabledDoesNotReadBodyOrRequireDependencies(t *testing
 type directAdmissionStore struct {
 	calls     int
 	assertion policyregistry.ServingAssertion
+	err       error
 }
 
 func (s *directAdmissionStore) Admit(_ context.Context, installationID, keyID, _ string, _ policyregistry.AdmissionDecision) (policyregistry.AdmissionScope, policyregistry.SessionReleaseBinding, error) {
 	s.calls++
+	if s.err != nil {
+		return policyregistry.AdmissionScope{}, policyregistry.SessionReleaseBinding{}, s.err
+	}
 	if installationID != s.assertion.Scope.InstallationID || keyID != s.assertion.APIKeyID {
 		return policyregistry.AdmissionScope{}, policyregistry.SessionReleaseBinding{}, errors.New("identity mismatch")
 	}
 	return s.assertion.Scope, s.assertion.Admission, nil
+}
+
+func TestDirectAdmissionMapsCredentialFailuresAndInfrastructureFailures(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantBody   string
+	}{
+		{name: "invalid credential", err: auth.ErrInvalidToken, wantStatus: http.StatusUnauthorized, wantBody: "invalid_key"},
+		{name: "revoked subject", err: auth.ErrPersonalCredentialRequired, wantStatus: http.StatusUnauthorized, wantBody: "invalid_key"},
+		{name: "registry outage", err: errors.New("primary unavailable"), wantStatus: http.StatusServiceUnavailable, wantBody: "serving_admission_unavailable"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg, admitted, _, _ := admissionMiddlewareFixture(t)
+			store := &directAdmissionStore{assertion: admitted, err: test.err}
+			var err error
+			cfg.Decisions, err = policyregistry.NewAdmissionDecisionCache(store, 10, time.Minute, time.Now)
+			require.NoError(t, err)
+			response := runAdmissionMiddleware(t, cfg, policyregistry.ServingAssertion{}, func(*gin.Context) { t.Fatal("failed admission dispatched") })
+			require.Equal(t, test.wantStatus, response.Code, response.Body.String())
+			require.Contains(t, response.Body.String(), test.wantBody)
+		})
+	}
 }
 func TestDirectAdmissionRetainsPolicyAcrossWorkerCodeRelease(t *testing.T) {
 	cfg, admitted, _, _ := admissionMiddlewareFixture(t)

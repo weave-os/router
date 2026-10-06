@@ -3,6 +3,8 @@ package middleware
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"time"
@@ -11,6 +13,7 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
@@ -47,7 +50,23 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request_body_too_large"})
 			return
 		}
+		if c.Request.Method == http.MethodPost {
+			var requestObject map[string]json.RawMessage
+			if len(bytes.TrimSpace(body)) == 0 || json.Unmarshal(body, &requestObject) != nil || requestObject == nil {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_request_body"})
+				return
+			}
+		}
 		c.Request.Body = io.NopCloser(bytes.NewReader(body))
+		retired, err := proxy.WriteRetiredBetaRequest(c.Writer, c.Request, body)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_request_body"})
+			return
+		}
+		if retired {
+			c.Abort()
+			return
+		}
 		key := APIKeyFrom(c)
 		installation := InstallationFrom(c)
 		if key == nil || installation == nil {
@@ -57,7 +76,16 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 		assertion, err := directAssertion(c.Request.Context(), cfg, installation.ID, key.ID, c.Request, body)
 		if err != nil {
 			observability.FromGin(c).Warn("Worker admission rejected", "err", err)
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "serving_admission_rejected"})
+			if isAuthFailure(err) {
+				handleAuthError(c, err)
+				return
+			}
+			if errors.Is(err, errServingFleetMismatch) {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "serving_admission_rejected"})
+				return
+			}
+			c.Header("Retry-After", "1")
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "serving_admission_unavailable"})
 			return
 		}
 		snapshot, err := cfg.Cache.Snapshot(c.Request.Context(), assertion.Admission)

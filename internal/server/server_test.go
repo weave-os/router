@@ -187,3 +187,12 @@ func TestManagedValidationRejectsPublicCredentials(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, response.Code)
 	}
 }
+
+func TestManagedCatalogMetadataRemainsPublic(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	server.RegisterWithFeatures(engine, nil, nil, fakeDeployedModelsSource{}, nil, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{ServingAdmission: &middleware.ServingAdmissionConfig{}})
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/v1/router/models?scope=catalog", nil))
+	assert.Equal(t, http.StatusOK, response.Code)
+}

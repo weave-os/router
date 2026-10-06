@@ -185,12 +185,13 @@ func cliManifestFile(t *testing.T, payload []byte) string {
 
 func cliDependencies(registry *cliServingRegistry, endpoints *cliDestinationEndpoints, output *any, env map[string]string) servingDependencies {
 	return servingDependencies{
-		openRegistry: func(context.Context, string) (servingRegistry, error) { return registry, nil },
-		endpoints:    func() (policyregistry.DestinationEndpoints, error) { return endpoints, nil },
-		writeOutput:  func(value any) error { *output = value; return nil },
-		clock:        func() time.Time { return time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC) },
-		logger:       slog.New(slog.NewTextHandler(io.Discard, nil)),
-		getenv:       func(key string) string { return env[key] },
+		openRegistry:        func(context.Context, string) (servingRegistry, error) { return registry, nil },
+		endpoints:           func() (policyregistry.DestinationEndpoints, error) { return endpoints, nil },
+		writeOutput:         func(value any) error { *output = value; return nil },
+		clock:               func() time.Time { return time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC) },
+		logger:              slog.New(slog.NewTextHandler(io.Discard, nil)),
+		getenv:              func(key string) string { return env[key] },
+		invalidateAdmission: func(context.Context, policyregistry.ServingTarget) error { return nil },
 	}
 }
 

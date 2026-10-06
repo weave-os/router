@@ -31,18 +31,15 @@ type Client struct {
 }
 
 // New bounds the HTTP client: no redirects, a fixed timeout, and a capped attestation body.
-func New(client *http.Client, token TokenSource) (*Client, error) {
+func New(client *http.Client, token TokenSource, internalToken string) (*Client, error) {
 	if client == nil || token == nil {
 		return nil, errors.New("private validation requires an HTTP client and IAM token source")
 	}
 	bounded := *client
 	bounded.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	bounded.Timeout = privateValidationTimeout
-	return &Client{http: &bounded, token: token}, nil
+	return &Client{http: &bounded, token: token, internalToken: internalToken}, nil
 }
-
-// WithInternalToken authenticates worker validation independently of public ingress.
-func (c *Client) WithInternalToken(token string) *Client { c.internalToken = token; return c }
 
 // ValidateWorker forces the exact revision to load and validate this immutable default/profile snapshot.
 func (c *Client) ValidateWorker(ctx context.Context, revision policyregistry.RevisionBinding, selection policyregistry.WorkerValidationRequest) (policyregistry.WorkerAttestation, error) {

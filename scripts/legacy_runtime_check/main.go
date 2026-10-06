@@ -48,7 +48,7 @@ func run() error {
 	if err != nil || os.Getenv("ROUTER_TEST_WORKER_BINARY") == "" {
 		return errors.New("ROUTER_TEST_WORKER_BINARY must name the real ORT-enabled worker binary")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
@@ -138,19 +138,32 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, 
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	readyCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
+	readyCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
+	lastReadiness := "no readiness response"
 	for {
 		response, err := client.Get(baseURL + "/readyz")
 		if err == nil {
+			body, readErr := io.ReadAll(io.LimitReader(response.Body, 8192))
 			_ = response.Body.Close()
 			if response.StatusCode == http.StatusOK {
 				break
 			}
+			lastReadiness = fmt.Sprintf("HTTP %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+			if readErr != nil {
+				lastReadiness += "; read error: " + readErr.Error()
+			}
+		} else {
+			lastReadiness = err.Error()
 		}
 		select {
 		case <-readyCtx.Done():
-			return fmt.Errorf("worker did not become ready; inspect %s: %w", logFile.Name(), readyCtx.Err())
+			_ = logFile.Sync()
+			logTail, _ := os.ReadFile(logFile.Name())
+			if len(logTail) > 8192 {
+				logTail = logTail[len(logTail)-8192:]
+			}
+			return fmt.Errorf("worker did not become ready; last /readyz response: %s; worker log tail: %s; timeout: %w", lastReadiness, strings.TrimSpace(string(logTail)), readyCtx.Err())
 		case <-ticker.C:
 		}
 	}

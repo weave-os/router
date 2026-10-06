@@ -18,14 +18,15 @@ import (
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/server"
 )
 
 func TestAtomicClassifierStartupIsOptInAndFailsClosed(t *testing.T) {
 	t.Setenv("ROUTER_LLM_CLASSIFIER_CONFIG", "")
-	require.NoError(t, configureAtomicClassifier(nil, nil, nil))
+	require.NoError(t, configureAtomicClassifier(nil, nil, nil, server.DeploymentModeSelfHosted))
 	t.Setenv("ROUTER_SERVING_TARGET", "prod/stable")
 	t.Setenv("ROUTER_LLM_CLASSIFIER_CONFIG", "/must-not-read")
-	require.ErrorContains(t, configureAtomicClassifier(nil, nil, nil), "managed Modal release integration")
+	require.ErrorContains(t, configureAtomicClassifier(nil, nil, nil, server.DeploymentModeManaged), "managed Modal release integration")
 	t.Setenv("ROUTER_SERVING_TARGET", "")
 	t.Setenv("ROUTER_LLM_CLASSIFIER_BEARER", strings.Repeat("b", 32))
 	t.Setenv("ROUTER_LLM_CLASSIFIER_SIGNING_KEY", strings.Repeat("s", 32))
@@ -65,7 +66,7 @@ func TestAtomicClassifierStartupIsOptInAndFailsClosed(t *testing.T) {
 			require.NoError(t, os.WriteFile(path, configBytes, 0600))
 			t.Setenv("ROUTER_LLM_CLASSIFIER_CONFIG", path)
 			service := &proxy.Service{}
-			err = configureAtomicClassifier(service, nil, map[string]struct{}{model.PrimaryProvider(): {}})
+			err = configureAtomicClassifier(service, nil, map[string]struct{}{model.PrimaryProvider(): {}}, server.DeploymentModeSelfHosted)
 			if test.wantError {
 				require.Error(t, err)
 				require.False(t, service.PolicyStrategyAvailable(router.StrategyLLMClassifier))

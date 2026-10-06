@@ -20,13 +20,14 @@ type admissionCacheEntry struct {
 // AdmissionDecisionCache keeps primary admission authoritative on misses. Its
 // epoch prevents a transaction racing invalidation from repopulating stale state.
 type AdmissionDecisionCache struct {
-	store   ServingAdmissionStore
-	ttl     time.Duration
-	now     func() time.Time
-	mu      sync.Mutex
-	epoch   uint64
-	entries *lru.Cache[admissionCacheKey, admissionCacheEntry]
-	flights singleflight.Group
+	store              ServingAdmissionStore
+	ttl                time.Duration
+	now                func() time.Time
+	mu                 sync.Mutex
+	globalEpoch        uint64
+	installationEpochs map[string]uint64
+	entries            *lru.Cache[admissionCacheKey, admissionCacheEntry]
+	admissionFlights   singleflight.Group
 }
 
 func NewAdmissionDecisionCache(store ServingAdmissionStore, capacity int, ttl time.Duration, now func() time.Time) (*AdmissionDecisionCache, error) {
@@ -37,7 +38,7 @@ func NewAdmissionDecisionCache(store ServingAdmissionStore, capacity int, ttl ti
 	if err != nil {
 		return nil, err
 	}
-	return &AdmissionDecisionCache{store: store, ttl: ttl, now: now, entries: entries}, nil
+	return &AdmissionDecisionCache{store: store, ttl: ttl, now: now, entries: entries, installationEpochs: make(map[string]uint64)}, nil
 }
 
 func (c *AdmissionDecisionCache) lookup(key admissionCacheKey) (admissionCacheEntry, bool) {
@@ -60,16 +61,18 @@ func (c *AdmissionDecisionCache) Admit(ctx context.Context, installationID, apiK
 		c.mu.Unlock()
 		return entry.Scope, entry.Binding, nil
 	}
-	epoch := c.epoch
+	globalEpoch := c.globalEpoch
+	installationEpoch := c.installationEpochs[installationID]
 	c.mu.Unlock()
 	encoded, err := CanonicalBytes(struct {
-		Key   admissionCacheKey
-		Epoch uint64
-	}{key, epoch})
+		Key               admissionCacheKey
+		GlobalEpoch       uint64
+		InstallationEpoch uint64
+	}{key, globalEpoch, installationEpoch})
 	if err != nil {
 		return AdmissionScope{}, SessionReleaseBinding{}, err
 	}
-	result := c.flights.DoChan(string(encoded), func() (any, error) {
+	admissionResult := c.admissionFlights.DoChan(string(encoded), func() (any, error) {
 		c.mu.Lock()
 		if entry, ok := c.lookup(key); ok {
 			c.mu.Unlock()
@@ -85,7 +88,7 @@ func (c *AdmissionDecisionCache) Admit(ctx context.Context, installationID, apiK
 		}
 		entry := admissionCacheEntry{Scope: scope, Binding: binding, Expires: c.now().Add(c.ttl)}
 		c.mu.Lock()
-		if c.epoch == epoch && scope.Persistent {
+		if c.globalEpoch == globalEpoch && c.installationEpochs[installationID] == installationEpoch && scope.Persistent {
 			c.entries.Add(key, entry)
 		}
 		c.mu.Unlock()
@@ -94,7 +97,7 @@ func (c *AdmissionDecisionCache) Admit(ctx context.Context, installationID, apiK
 	select {
 	case <-ctx.Done():
 		return AdmissionScope{}, SessionReleaseBinding{}, ctx.Err()
-	case admitted := <-result:
+	case admitted := <-admissionResult:
 		if admitted.Err != nil {
 			return AdmissionScope{}, SessionReleaseBinding{}, admitted.Err
 		}
@@ -106,7 +109,7 @@ func (c *AdmissionDecisionCache) Admit(ctx context.Context, installationID, apiK
 func (c *AdmissionDecisionCache) InvalidateInstallation(installationID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.epoch++
+	c.installationEpochs[installationID]++
 	for _, key := range c.entries.Keys() {
 		if key.Installation == installationID {
 			c.entries.Remove(key)
@@ -118,6 +121,6 @@ func (c *AdmissionDecisionCache) InvalidateInstallation(installationID string) {
 func (c *AdmissionDecisionCache) InvalidateAll() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.epoch++
+	c.globalEpoch++
 	c.entries.Purge()
 }

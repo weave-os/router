@@ -12,6 +12,8 @@ import (
 	"weave-os/router/internal/requestcontext"
 )
 
+var errServingFleetMismatch = errors.New("serving admission belongs to another fleet")
+
 func prepareDirectTest(c *gin.Context, svc *auth.Service, cfg *ServingAdmissionConfig) (*policyregistry.TestPlanScope, error) {
 	grant, session := c.GetHeader(policyregistry.TestPlanGrantHeader), c.GetHeader(policyregistry.TestPlanSessionHeader)
 	c.Request.Header.Del(policyregistry.TestPlanGrantHeader)
@@ -66,7 +68,7 @@ func directAssertion(ctx context.Context, cfg *ServingAdmissionConfig, installat
 		return policyregistry.ServingAssertion{}, err
 	}
 	if binding.Target != cfg.Identity.Target {
-		return policyregistry.ServingAssertion{}, errors.New("credential admission belongs to another fleet")
+		return policyregistry.ServingAssertion{}, errServingFleetMismatch
 	}
 	// Historical policy/classifier references survive a code release; physical
 	// revision identity remains mandatory for release preparation, not retention.
@@ -84,7 +86,7 @@ func directTestSurface(r *http.Request) bool {
 		return false
 	}
 	switch r.URL.Path {
-	case "/v1/messages", "/v1/messages/count_tokens", "/v1/route", "/v1/route/preview", "/v1/chat/completions", "/v1/responses":
+	case "/v1/messages", "/v1/messages/count_tokens", "/v1/route", "/v1/route/preview", "/v1/chat/completions", "/v1/responses", "/v1/router/threads":
 		return true
 	}
 	return strings.HasPrefix(r.URL.Path, "/v1beta/models/") &&

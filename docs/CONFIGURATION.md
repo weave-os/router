@@ -457,12 +457,17 @@ invalidate that installation and release broadcasts invalidate the whole cache.
 Misses use the authoritative Postgres transaction and durable conversation lock.
 Client serving headers are stripped. Worker validation additionally requires
 `ROUTER_INTERNAL_SERVICE_TOKEN`; classifier validation retains Cloud Run IAM.
+Inject `ROUTER_INTERNAL_SERVICE_TOKEN` into every worker fleet and the
+`policyctl serving` runner so exact-revision worker validation can authenticate.
+The `policyctl serving` runner and worker fleets must also share `PUBSUB_PROJECT_ID`
+and `PUBSUB_TOPIC_ROUTER_POLICY_INVALIDATION` so activation invalidations reach
+the admission caches using the same Pub/Sub project and topic.
 
 ## Routing
 
 | Variable                          | Default                      | Purpose |
 | --------------------------------- | ---------------------------- | ------- |
-| `ROUTER_DEFAULT_STRATEGY`         | `cluster`                    | Strategy used when an installation has no persisted strategy. Change only after the policy rollout gate passes. The router refuses to boot, and `/readyz` fails, when this strategy has no router configured (e.g. `hmm_embedding` without `ROUTER_POLICY_ENVIRONMENT`). Managed serving workers (`ROUTER_DEPLOYMENT_MODE=managed` with `ROUTER_SERVING_TARGET`) additionally refuse to boot unless it is set to one of the policy strategies they register (`hmm`, `hmm_embedding`); the legacy `router` service, self-hosted deployments keep the `cluster` default. |
+| `ROUTER_DEFAULT_STRATEGY`         | `cluster`                    | Strategy used when an installation has no persisted strategy. Change only after the policy rollout gate passes. The router refuses to boot, and `/readyz` fails, when this strategy has no router configured (e.g. `hmm_embedding` without `ROUTER_POLICY_ENVIRONMENT`). Managed serving workers (`ROUTER_DEPLOYMENT_MODE=managed` with `ROUTER_SERVING_TARGET`) additionally refuse to boot unless it is set to one of the policy strategies they register (`hmm`, `hmm_embedding`); the legacy `router` service and self-hosted deployments keep the `cluster` default. |
 | `ROUTER_CLUSTER_VERSION`          | *(reads `artifacts/latest`)* | Pin a specific cluster artifact version (e.g. `v0.27`). |
 | `ROUTER_CLUSTER_EMBED_TIMEOUT_MS` | `200`                        | Per-request ONNX embed timeout. Increase for slower hosts. |
 | `ROUTER_EMBED_ONLY_USER_MESSAGE`  | `true`                       | Feed only user-role text to the embedder. Set `false` to embed the full concatenated turn. |

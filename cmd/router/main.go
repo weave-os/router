@@ -529,7 +529,7 @@ func main() {
 	logger.Info("Routing via cluster scorer", "embedder", defaultEmbedderID)
 
 	var admissionDecisions *policyregistry.AdmissionDecisionCache
-	if managedServingEnabled() {
+	if managedServingEnabled(deploymentMode) {
 		target := policyregistry.ServingTarget(config.MustGet("ROUTER_SERVING_TARGET"))
 		environment, err := target.Environment()
 		if err != nil {
@@ -1060,7 +1060,7 @@ func main() {
 		defer cancelTaskSweep()
 		safeGo(logger, "task-domain-sweep", func() { taskRuntime.sweep(taskSweepCtx) })
 	}
-	if managedServingEnabled() {
+	if managedServingEnabled(deploymentMode) {
 		prepareCtx, cancelPrepare := context.WithTimeout(context.Background(), 60*time.Second)
 		admission, baseline, closeRegistry, err := buildManagedServingRuntime(prepareCtx, availableProviders, taskRuntime)
 		cancelPrepare()
@@ -1404,7 +1404,7 @@ func main() {
 		WithDefaultBaselineModel(resolveDefaultBaselineModel()).
 		WithBillingService(billingSvc)
 	inferenceDeployment.RoutableModels = servedModels
-	if err := configureAtomicClassifier(proxySvc, pool, availableProviders); err != nil {
+	if err := configureAtomicClassifier(proxySvc, pool, availableProviders, deploymentMode); err != nil {
 		logger.Error("Failed to configure atomic classifier", "err", err)
 		panic(err)
 	}

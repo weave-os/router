@@ -104,6 +104,36 @@ func TestAdmissionCacheInvalidationDuringMissDoesNotRepopulate(t *testing.T) {
 		t.Fatalf("binding=%+v err=%v", binding, err)
 	}
 }
+
+func TestAdmissionCacheInstallationInvalidationDoesNotCancelUnrelatedMiss(t *testing.T) {
+	store := &cacheAdmissionStore{enter: make(chan struct{}, 2), release: make(chan struct{})}
+	cache, err := NewAdmissionDecisionCache(store, 10, time.Minute, time.Now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var requests sync.WaitGroup
+	for _, installation := range []string{"org-a", "org-b"} {
+		installation := installation
+		requests.Add(1)
+		go func() {
+			defer requests.Done()
+			if _, _, err := cache.Admit(context.Background(), installation, "key", "session", nil); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	<-store.enter
+	<-store.enter
+	cache.InvalidateInstallation("org-a")
+	close(store.release)
+	requests.Wait()
+	if _, _, err := cache.Admit(context.Background(), "org-b", "key", "session", nil); err != nil {
+		t.Fatal(err)
+	}
+	if store.calls.Load() != 2 {
+		t.Fatalf("unrelated admission missed cache after invalidation: calls=%d", store.calls.Load())
+	}
+}
 func TestAdmissionCacheDoesNotCacheFailures(t *testing.T) {
 	store := &cacheAdmissionStore{err: errors.New("primary unavailable")}
 	cache, err := NewAdmissionDecisionCache(store, 10, time.Minute, time.Now)

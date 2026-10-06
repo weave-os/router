@@ -9,9 +9,10 @@ import (
 
 func TestManagedServingUsesFleetTarget(t *testing.T) {
 	t.Setenv("ROUTER_SERVING_TARGET", "")
-	require.False(t, managedServingEnabled())
+	require.False(t, managedServingEnabled(server.DeploymentModeManaged))
 	t.Setenv("ROUTER_SERVING_TARGET", "prod/stable")
-	require.True(t, managedServingEnabled())
+	require.True(t, managedServingEnabled(server.DeploymentModeManaged))
+	require.False(t, managedServingEnabled(server.DeploymentModeSelfHosted))
 }
 func TestValidateManagedServingBoot(t *testing.T) {
 	for _, tc := range []struct {
