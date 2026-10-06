@@ -52,6 +52,7 @@ type cyberRefusalUpstreams struct {
 	openAIHits     int
 	anthropicHits  int
 	openAIResponse func(http.ResponseWriter)
+	anthropicSSE   string
 }
 
 func (u *cyberRefusalUpstreams) counts() (openAI, anthropic int) {
@@ -76,7 +77,11 @@ func (u *cyberRefusalUpstreams) start(t *testing.T) (openAIURL, anthropicURL str
 		u.mu.Unlock()
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		_, _ = io.WriteString(w, anthropicRescueSSE)
+		response := u.anthropicSSE
+		if response == "" {
+			response = anthropicRescueSSE
+		}
+		_, _ = io.WriteString(w, response)
 	}))
 	t.Cleanup(anthropicServer.Close)
 
@@ -171,7 +176,7 @@ func TestProxyOpenAIResponses_RescuedTitleContainsOnlyTitle(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		_, _ = io.WriteString(w, `{"error":{"code":"cyber_policy","message":"This content was flagged for possible cybersecurity risk."}}`)
-	}}
+	}, anthropicSSE: strings.Replace(anthropicRescueSSE, `"text":"rescued"`, `"text":"{\"title\":\"Rescued task\"}"`, 1)}
 	openAIURL, anthropicURL := upstreams.start(t)
 	pins := newFakePinStore()
 	svc := cyberRefusalService(openAIURL, anthropicURL, "test", pins, newCaptureTelemetry()).WithCyberRefusalRetry(true)
@@ -195,8 +200,9 @@ func TestProxyOpenAIResponses_RescuedTitleContainsOnlyTitle(t *testing.T) {
 			completedText = frame.Get("response.output.0.content.0.text").String()
 		}
 	}
-	assert.Equal(t, "rescued", deltaText)
-	assert.Equal(t, "rescued", completedText)
+	assert.JSONEq(t, `{"title":"Rescued task"}`, deltaText)
+	assert.JSONEq(t, `{"title":"Rescued task"}`, completedText)
+	assert.Equal(t, 1, pins.getCalls, "titles inspect only the explicit force control, never the automatic conversation pin")
 	assert.Empty(t, pins.upserts)
 }
 

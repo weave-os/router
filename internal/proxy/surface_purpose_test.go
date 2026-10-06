@@ -229,6 +229,7 @@ func TestAutomaticProbesServeUnderIngressPolicyWithoutConversationState(t *testi
 			assert.Equal(t, inference.AttemptOutcomeServed, sink.events[0].Outcome)
 			assert.Empty(t, pins.upserts)
 			assert.Empty(t, pins.usages)
+			assert.Equal(t, 2, pins.getCalls, "probes inspect current and legacy force controls, never automatic conversation state")
 		})
 	}
 }

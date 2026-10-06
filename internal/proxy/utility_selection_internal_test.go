@@ -88,6 +88,17 @@ func TestTitleNeverEmitsDroppedForceDiagnostic(t *testing.T) {
 	}))
 }
 
+func TestBaselineMarkerNeverPrefixesMachineConsumedTurns(t *testing.T) {
+	for _, turnType := range []turntype.TurnType{turntype.TitleGen, turntype.Probe, turntype.Classifier} {
+		t.Run(string(turnType), func(t *testing.T) {
+			assert.Empty(t, baselineRoutingMarkerFor(turnLoopResult{
+				TurnType:         turnType,
+				PriorServedModel: catalog.ModelIDGPT55.String(),
+			}, catalog.ModelIDClaudeSonnet46.String()))
+		})
+	}
+}
+
 func TestAutomaticProbeWithoutConcreteTargetScoresWithoutPinning(t *testing.T) {
 	for _, requestedModel := range []string{automaticProbeModel, ""} {
 		t.Run(requestedModel, func(t *testing.T) {
@@ -139,6 +150,7 @@ func TestDefaultProbeDroppedForceDoesNotAttachConversationState(t *testing.T) {
 			})
 			require.NoError(t, err)
 			require.True(t, turn.ForcedPinDropped)
+			assert.Empty(t, routingMarkerFor(turn), "probe output remains machine-readable when a force pin is unavailable")
 			assert.Zero(t, turn.SessionKey)
 			service.recordTurnUsage(context.Background(), turn, turn.Decision.Provider, turn.Decision.Model, 10, 1, 0, 0, false)
 			pins.mu.Lock()

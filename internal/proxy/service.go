@@ -684,7 +684,7 @@ func routingMarkerFor(res turnLoopResult) string {
 	if decision.Model == "" {
 		return ""
 	}
-	if res.SuggestionMode || res.CallerModelPassthrough || isUnpinnedScoredTurn(res.TurnType) {
+	if res.SuggestionMode || res.CallerModelPassthrough || isUnpinnedScoredTurn(res.TurnType) || res.TurnType == turntype.Probe {
 		return ""
 	}
 	// A dropped force-model pin contradicts an ack the user already saw, so it
@@ -701,9 +701,8 @@ func routingMarkerFor(res turnLoopResult) string {
 	}
 	// Hard pins (compaction / sub-agent) return before the pin is loaded, so
 	// PriorServedModel is always empty there — suppress explicitly rather than
-	// letting it read as a first turn. A classifier verdict is parsed by the
-	// harness, not read by the user, and a prefix would corrupt it.
-	if res.HardPinned || res.TurnType == turntype.Probe {
+	// letting it read as a first turn.
+	if res.HardPinned {
 		return ""
 	}
 	// A shadow checkpoint is news even when ordinary routing keeps the same model.
@@ -836,7 +835,7 @@ const (
 // baseline model rather than the cost-routed OSS slug that went dark. Honors
 // suggestion mode like routingMarkerFor; the caller applies the opt-out header.
 func baselineRoutingMarkerFor(res turnLoopResult, baselineModel string) string {
-	if res.SuggestionMode || baselineModel == "" {
+	if res.SuggestionMode || isUnpinnedScoredTurn(res.TurnType) || res.TurnType == turntype.Probe || baselineModel == "" {
 		return ""
 	}
 	// A failover that lands back on the model already serving is a no-op repeat;
