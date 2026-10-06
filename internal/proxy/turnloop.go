@@ -134,12 +134,12 @@ func cacheablePrefixTokens(pin sessionpin.Pin, total int, prefixBroken bool) (in
 	return int(share * float64(total)), true
 }
 
-// priorPromptTokens is the pin's previous-turn prompt size. input_tokens is
-// fresh-only on Anthropic (disjoint from read/write) but is prompt_tokens —
-// already cache-inclusive — everywhere else. Mirrors
-// catalog.EffectiveInputCost's provider branch.
+// priorPromptTokens is the pin's previous-turn prompt size. Usage is
+// extracted by wire family: input_tokens is fresh-only on the Anthropic family
+// (disjoint from read/write) but is prompt_tokens — already cache-inclusive —
+// everywhere else.
 func priorPromptTokens(pin sessionpin.Pin) int {
-	if pin.Provider == providers.ProviderAnthropic {
+	if providers.FamilyFor(pin.Provider) == providers.FamilyAnthropic {
 		return pin.LastInputTokens + pin.LastCachedReadTokens + pin.LastCachedWriteTokens
 	}
 	return pin.LastInputTokens
