@@ -595,10 +595,16 @@ func TestRuntimeReleasesCanceledRefreshLease(t *testing.T) {
 			_, present, err := runtime.Lease(ctx, testOwner, subscriptions.ProviderClaude, "")
 			require.ErrorIs(t, err, requestErr)
 			require.True(t, present)
-			require.Empty(t, store.leaseIDs)
-			require.Empty(t, store.leaseUntil)
+			// The detached refresh releases its lease after the caller returns.
+			require.Eventually(t, func() bool {
+				store.mu.Lock()
+				defer store.mu.Unlock()
+				return len(store.leaseIDs) == 0 && len(store.leaseUntil) == 0
+			}, time.Second, time.Millisecond)
+			store.mu.Lock()
 			require.Empty(t, store.enabledUpdates)
 			require.Empty(t, store.cooldowns)
+			store.mu.Unlock()
 			acquisition, err := store.TryAcquireSubscriptionRefreshLease(context.Background(), testOwner, "account-1", "next-holder", time.Minute)
 			require.NoError(t, err)
 			require.True(t, acquisition.Acquired)

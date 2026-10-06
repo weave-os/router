@@ -95,6 +95,19 @@ func TestVerificationSQLSharingOwnershipAndIsolation(t *testing.T) {
 	for _, account := range accounts {
 		require.NotEqual(t, sharedAccount.String(), account.ID, "borrowing grants no management rights")
 	}
+	// A requester whose own membership lapsed cannot borrow shared capacity.
+	for _, revocation := range []string{
+		`UPDATE router.credential_subject_installations SET access_enabled=false WHERE subject_id=$1`,
+		`UPDATE router.credential_subjects SET revoked_at=now() WHERE id=$1`,
+	} {
+		_, err = tx.Exec(ctx, `SAVEPOINT requester_revocation`)
+		require.NoError(t, err)
+		_, err = tx.Exec(ctx, revocation, personal)
+		require.NoError(t, err)
+		assertCandidates([]string{})
+		_, err = tx.Exec(ctx, `ROLLBACK TO SAVEPOINT requester_revocation`)
+		require.NoError(t, err)
+	}
 	_, err = tx.Exec(ctx, `UPDATE router.model_router_installations SET subscription_sharing_enabled=false WHERE id=$1`, org)
 	require.NoError(t, err)
 	assertCandidates([]string{personalAccount.String()})

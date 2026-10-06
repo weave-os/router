@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -36,8 +37,10 @@ type preludeBuffer struct {
 	sealed         bool
 	preludeSent    bool
 	// committed is atomic because a rotation-budget timer reads it while the
-	// provider stream writes.
-	committed atomic.Bool
+	// provider stream writes. commitMu orders that timer's abort against commit.
+	committed     atomic.Bool
+	commitMu      sync.Mutex
+	commitAborted bool
 }
 
 func newPreludeBuffer(w http.ResponseWriter) *preludeBuffer {
@@ -134,6 +137,9 @@ func (b *preludeBuffer) Discard() {
 	b.bufStatus = 0
 	b.bufBody.Reset()
 	b.sealed = false
+	b.commitMu.Lock()
+	b.commitAborted = false
+	b.commitMu.Unlock()
 	if b.preludeSent {
 		return
 	}
@@ -148,11 +154,33 @@ func (b *preludeBuffer) Discard() {
 	}
 }
 
-func (b *preludeBuffer) commit() error {
+// errAttemptAborted rejects output from an attempt the rotation budget aborted.
+var errAttemptAborted = errors.New("subscription attempt aborted before commit")
+
+// abortIfUncommitted runs abort and rejects later commits unless provider
+// output already committed. Discard re-arms the buffer for the next attempt.
+func (b *preludeBuffer) abortIfUncommitted(abort func()) {
+	b.commitMu.Lock()
+	defer b.commitMu.Unlock()
 	if b.committed.Load() {
+		return
+	}
+	b.commitAborted = true
+	abort()
+}
+
+func (b *preludeBuffer) commit() error {
+	b.commitMu.Lock()
+	if b.committed.Load() {
+		b.commitMu.Unlock()
 		return nil
 	}
+	if b.commitAborted {
+		b.commitMu.Unlock()
+		return errAttemptAborted
+	}
 	b.committed.Store(true)
+	b.commitMu.Unlock()
 	if !b.preludeSent {
 		if b.bufStatus != 0 {
 			b.inner.WriteHeader(b.bufStatus)

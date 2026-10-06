@@ -337,7 +337,11 @@ FROM router.model_router_subscription_accounts AS account
 JOIN members ON members.subject_id = account.subscriber_id
 JOIN installation ON TRUE
 WHERE (account.subscriber_id = sqlc.narg(subscriber_id)::uuid
-   OR (installation.subscription_sharing_enabled AND EXISTS (
+   OR (installation.subscription_sharing_enabled
+       -- A personal requester borrows shared capacity only while it remains an active member.
+       AND (sqlc.narg(subscriber_id)::uuid IS NULL
+            OR EXISTS (SELECT 1 FROM members AS requester WHERE requester.subject_id = sqlc.narg(subscriber_id)::uuid))
+       AND EXISTS (
         SELECT 1 FROM router.model_router_subscription_account_installations AS registration
         WHERE registration.installation_id = installation.id AND registration.subscription_account_id = account.id)))
 ORDER BY (account.subscriber_id = sqlc.narg(subscriber_id)::uuid) DESC NULLS LAST, account.created_at, account.id

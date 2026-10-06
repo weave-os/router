@@ -123,7 +123,9 @@ SELECT
     -- NULL IN (...) is NULL, which cannot scan into the generated bool.
     COALESCE(
         t.credential_source IN ('subscription', 'codex_subscription')
-        AND t.upstream_status_code >= 200 AND t.upstream_status_code < 300
+        -- Successful rows recorded before status capture carry 0 and no error class.
+        AND ((t.upstream_status_code >= 200 AND t.upstream_status_code < 300)
+             OR (t.upstream_status_code = 0 AND t.error_class IS NULL))
         AND (
             t.unified_limit_headers->>'anthropic-ratelimit-unified-representative-claim' = 'overage'
             AND t.unified_limit_headers->>'anthropic-ratelimit-unified-overage-in-use' = 'true'
@@ -341,7 +343,9 @@ type GetRoutingDecisionsForExportRow struct {
 //	    -- NULL IN (...) is NULL, which cannot scan into the generated bool.
 //	    COALESCE(
 //	        t.credential_source IN ('subscription', 'codex_subscription')
-//	        AND t.upstream_status_code >= 200 AND t.upstream_status_code < 300
+//	        -- Successful rows recorded before status capture carry 0 and no error class.
+//	        AND ((t.upstream_status_code >= 200 AND t.upstream_status_code < 300)
+//	             OR (t.upstream_status_code = 0 AND t.error_class IS NULL))
 //	        AND (
 //	            t.unified_limit_headers->>'anthropic-ratelimit-unified-representative-claim' = 'overage'
 //	            AND t.unified_limit_headers->>'anthropic-ratelimit-unified-overage-in-use' = 'true'

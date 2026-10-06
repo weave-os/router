@@ -28,11 +28,12 @@ Authorized API fallback remains available. Synthetic transports can declare the
 capability only when their provider enforces it. Production subscription utilization
 cannot approach the target until an enforceable included-only protocol is available.
 
-Migration 119 preserves historical registration through the enrolling key,
+Migration 0121 preserves historical registration through the enrolling key,
 including soft-deleted keys. Duplicate provider/external-account identities are
 quarantined together without reallocating owners or overwriting tokens. An active
 physical-identity unique index prevents concurrent duplicate serving enrollment.
 Ordinary owner assignment does not resolve a quarantined conflict: administrators
 must deliberately reconcile duplicate identities first. The down migration keeps
-quarantined rows disabled and requires orphaned legacy rows to be reassigned before
-restoring the older key-addressability constraint.
+quarantined rows disabled and restores the older owner-present constraint as
+NOT VALID, so existing ownerless rows stay inert without reassignment while new
+ownerless rows are rejected.

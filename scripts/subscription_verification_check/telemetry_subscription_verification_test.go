@@ -42,6 +42,7 @@ func TestVerificationSQLWinningAttributionAndPaidExclusion(t *testing.T) {
 		included            bool
 	}{
 		{"included", "codex_subscription", "{}", 200, true},
+		{"historical-success", "codex_subscription", "{}", 0, true},
 		{"paid-source", "subscription_overage", "{}", 200, false},
 		{"historical-paid", "subscription", `{"anthropic-ratelimit-unified-representative-claim":"overage","anthropic-ratelimit-unified-overage-in-use":"true"}`, 200, false},
 		{"failed-subscription", "codex_subscription", "{}", 429, false},

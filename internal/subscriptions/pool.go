@@ -371,18 +371,27 @@ func (p *Pool) refreshAccount(ctx context.Context, account Account, refresh Refr
 	p.refresh[account.ID] = call
 	p.mu.Unlock()
 
-	refreshCtx, cancelRefresh := context.WithTimeout(context.WithoutCancel(ctx), refreshLeaseTTL)
-	defer cancelRefresh()
-	refreshed, err := refresh(refreshCtx, account)
-	p.mu.Lock()
-	call.acct, call.err = refreshed, err
-	delete(p.refresh, account.ID)
-	close(call.done)
-	if err == nil {
-		if state, ok := p.accounts[account.ID]; ok {
-			state.account = refreshed
+	// The refresh outlives the initiating caller so joiners still get a token,
+	// while the initiator returns at its own deadline like any joiner.
+	go func() {
+		refreshCtx, cancelRefresh := context.WithTimeout(context.WithoutCancel(ctx), refreshLeaseTTL)
+		defer cancelRefresh()
+		refreshed, err := refresh(refreshCtx, account)
+		p.mu.Lock()
+		call.acct, call.err = refreshed, err
+		delete(p.refresh, account.ID)
+		close(call.done)
+		if err == nil {
+			if state, ok := p.accounts[account.ID]; ok {
+				state.account = refreshed
+			}
 		}
+		p.mu.Unlock()
+	}()
+	select {
+	case <-ctx.Done():
+		return Account{}, ctx.Err()
+	case <-call.done:
+		return call.acct, call.err
 	}
-	p.mu.Unlock()
-	return refreshed, err
 }

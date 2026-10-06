@@ -430,7 +430,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 				responseFrames = responseFrames[consumed:]
 				_, payload := sse.ParseEvent(event)
 				if eventType := gjson.GetBytes(payload, "type").String(); eventType == "response.failed" || eventType == "error" {
-					terminalResponseError = &providers.UpstreamErrorResponse{Status: http.StatusBadGateway, Body: bytes.Clone(payload)}
+					terminalResponseError = &providers.UpstreamErrorResponse{Status: responsesFailureStatus(payload), Body: bytes.Clone(payload)}
 				}
 			}
 			if len(responseFrames) > 1024*1024 {
@@ -453,11 +453,7 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	// terminal failure arrives as one JSON object with status "failed".
 	if trailing := bytes.TrimSpace(responseFrames); terminalResponseError == nil && len(trailing) > 0 && trailing[0] == '{' &&
 		gjson.GetBytes(trailing, "status").String() == "failed" {
-		status := http.StatusBadGateway
-		if gjson.GetBytes(trailing, "error.code").String() == responsesContextOverflowCode {
-			status = http.StatusBadRequest
-		}
-		terminalResponseError = &providers.UpstreamErrorResponse{Status: status, Body: append([]byte(nil), trailing...)}
+		terminalResponseError = &providers.UpstreamErrorResponse{Status: responsesFailureStatus(trailing), Body: append([]byte(nil), trailing...)}
 	}
 	if streamErr == nil && terminalResponseError != nil {
 		streamErr = terminalResponseError
@@ -473,6 +469,17 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		log.Debug("OpenAI upstream stream complete", "bytes_total", body.n)
 	}
 	return streamErr
+}
+
+// responsesFailureStatus reports a context overflow as a terminal 400, matching
+// the non-streaming path; every other Responses failure is an upstream fault.
+func responsesFailureStatus(failure []byte) int {
+	for _, path := range []string{"error.code", "response.error.code", "code"} {
+		if gjson.GetBytes(failure, path).String() == responsesContextOverflowCode {
+			return http.StatusBadRequest
+		}
+	}
+	return http.StatusBadGateway
 }
 
 // progressReader counts upstream bytes for the stall log's bytes_received

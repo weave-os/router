@@ -223,7 +223,9 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				}
 				return nil
 			}
-			rotate := managedAttempt && (s.recordManagedSubscriptionFailure(credentialCtx, decision.Provider, decision.Model, lease, attemptErr) || providers.IsRetryable(attemptErr) || rotationCtx.Err() != nil)
+			// Budget expiry rotates only the attempt it canceled; terminal errors still stop.
+			canceledByRotationBudget := ctx.Err() == nil && rotationCtx.Err() != nil && (errors.Is(attemptErr, context.Canceled) || errors.Is(attemptErr, context.DeadlineExceeded))
+			rotate := managedAttempt && (s.recordManagedSubscriptionFailure(credentialCtx, decision.Provider, decision.Model, lease, attemptErr) || providers.IsRetryable(attemptErr) || canceledByRotationBudget)
 			if !managedAttempt && servedOnCodexSubscription(credentialCtx) && !committed(in.buf) {
 				_, quotaSpent := codexQuotaExhaustion(attemptErr)
 				if quotaSpent || codexOAuthCredentialRejected(attemptErr) || codexSubscriptionModelRejected(attemptErr) || providers.IsRetryable(attemptErr) {
@@ -252,8 +254,11 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 						in.buf.Discard()
 					}
 					apiCtx := resolveAndInjectCredentials(withSuppressedClaudeSubscription(withSuppressedCodexSubscription(ctx)), decision.Provider, decision.Model, http.Header{})
-					recordWinningCredentials(ctx, apiCtx)
-					return in.attempt(apiCtx, decision, guarded)
+					apiErr := in.attempt(apiCtx, decision, guarded)
+					if apiErr == nil {
+						recordWinningCredentials(ctx, apiCtx)
+					}
+					return apiErr
 				}
 				return attemptErr
 			}
@@ -339,9 +344,11 @@ func withSubscriptionRotationDeadline(ctx, budget context.Context) context.Conte
 func withUncommittedRotationDeadline(ctx, budget context.Context, buf *preludeBuffer) (context.Context, func()) {
 	attemptCtx, cancel := context.WithCancelCause(ctx)
 	stop := context.AfterFunc(budget, func() {
-		if !committed(buf) {
+		if buf == nil {
 			cancel(budget.Err())
+			return
 		}
+		buf.abortIfUncommitted(func() { cancel(budget.Err()) })
 	})
 	return attemptCtx, func() {
 		stop()
