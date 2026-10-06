@@ -148,9 +148,15 @@ func TestLRUBlindExperimentCacheCapacityEvictionConcurrentGenerationReadDoesNotD
 	}
 }
 
+type fakeBlindExperimentRead struct {
+	record auth.BlindExperimentRecord
+	err    error
+}
+
 type fakeBlindExperimentRepository struct {
 	record    auth.BlindExperimentRecord
 	err       error
+	reads     []fakeBlindExperimentRead
 	calls     int
 	started   chan struct{}
 	release   chan struct{}
@@ -168,6 +174,10 @@ func (repository *fakeBlindExperimentRepository) GetForUser(context.Context, str
 	}
 	if repository.onRead != nil {
 		repository.onRead()
+	}
+	if len(repository.reads) > 0 {
+		read := repository.reads[min(repository.calls, len(repository.reads))-1]
+		return read.record, read.err
 	}
 	if repository.err != nil {
 		return auth.BlindExperimentRecord{}, repository.err
@@ -379,14 +389,10 @@ func TestResolveAndStashUserBlindExperimentRereadsFetchInvalidatedDuringRead(t *
 func TestResolveAndStashUserBlindExperimentKeepsLastReadWhenInvalidationsPersist(t *testing.T) {
 	users := &fakeUserRepo{user: &auth.User{ID: "user-42", InstallationID: "inst-1", Email: "alice@example.com"}}
 	cache := auth.NewLRUBlindExperimentCache(10, time.Minute, time.Now)
+	routerOn := auth.BlindExperimentRecord{Configured: true, Enabled: true, RouterOnPercentage: 100, Seed: "seed", CanonicalSubjectKey: "account-7"}
+	passthrough := auth.BlindExperimentRecord{Configured: true, Enabled: true, RouterOnPercentage: 0, Seed: "seed", CanonicalSubjectKey: "account-7"}
 	experiments := &fakeBlindExperimentRepository{
-		record: auth.BlindExperimentRecord{
-			Configured:          true,
-			Enabled:             true,
-			RouterOnPercentage:  0,
-			Seed:                "seed",
-			CanonicalSubjectKey: "account-7",
-		},
+		reads:  []fakeBlindExperimentRead{{record: routerOn}, {record: routerOn}, {record: passthrough}},
 		onRead: func() { cache.InvalidateInstallation("inst-1") },
 	}
 	service := makeServiceWithUsers(t, users).WithBlindExperiments(experiments, cache)
@@ -395,10 +401,30 @@ func TestResolveAndStashUserBlindExperimentKeepsLastReadWhenInvalidationsPersist
 
 	state, active := auth.BlindExperimentFrom(requestContext)
 	require.True(t, active, "persistent invalidations must not silently route a passthrough experiment")
-	assert.Equal(t, auth.BlindExperimentArmPassthrough, state.Arm)
-	assert.Greater(t, experiments.calls, 1, "the read should be retried before falling back to the last result")
+	assert.Equal(t, auth.BlindExperimentArmPassthrough, state.Arm, "the final read, not an earlier one, must supply the arm")
+	assert.Equal(t, len(experiments.reads), experiments.calls, "the read should be retried before falling back to the last result")
 	_, found := cache.GetAtGeneration("inst-1", "user-42", cache.InstallationGeneration("inst-1"))
 	assert.False(t, found, "a result invalidated during its read must not be cached")
+}
+
+func TestResolveAndStashUserBlindExperimentKeepsInvalidatedReadWhenRetryFails(t *testing.T) {
+	users := &fakeUserRepo{user: &auth.User{ID: "user-42", InstallationID: "inst-1", Email: "alice@example.com"}}
+	cache := auth.NewLRUBlindExperimentCache(10, time.Minute, time.Now)
+	experiments := &fakeBlindExperimentRepository{
+		reads: []fakeBlindExperimentRead{
+			{record: auth.BlindExperimentRecord{Configured: true, Enabled: true, RouterOnPercentage: 0, Seed: "seed", CanonicalSubjectKey: "account-7"}},
+			{err: errors.New("database unavailable")},
+		},
+		onRead: func() { cache.InvalidateInstallation("inst-1") },
+	}
+	service := makeServiceWithUsers(t, users).WithBlindExperiments(experiments, cache)
+
+	requestContext := service.ResolveAndStashUser(context.Background(), "inst-1", "alice@example.com", "", "")
+
+	state, active := auth.BlindExperimentFrom(requestContext)
+	require.True(t, active, "a failed retry must not discard the assignment already read for this request")
+	assert.Equal(t, auth.BlindExperimentArmPassthrough, state.Arm)
+	assert.Equal(t, 2, experiments.calls)
 }
 
 func TestResolveAndStashUserBlindExperimentKeepsFetchAcrossUnrelatedInvalidation(t *testing.T) {

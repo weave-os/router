@@ -1001,19 +1001,21 @@ func (s *Service) withBlindExperiment(ctx context.Context, installationID, route
 		return ctx
 	}
 	var (
-		state    BlindExperimentState
-		resolved bool
+		state          BlindExperimentState
+		read, resolved bool
+		generation     uint64
 	)
 	for attempt := 0; attempt < blindExperimentFetchAttempts && !resolved; attempt++ {
-		generation := s.blindExperimentCache.InstallationGeneration(installationID)
-		if state, resolved = s.blindExperimentCache.GetAtGeneration(installationID, routerUserID, generation); resolved {
+		generation = s.blindExperimentCache.InstallationGeneration(installationID)
+		if cached, found := s.blindExperimentCache.GetAtGeneration(installationID, routerUserID, generation); found {
+			state, resolved = cached, true
 			break
 		}
 		fetched, ok := s.fetchBlindExperiment(ctx, installationID, routerUserID, generation)
 		if !ok {
-			return ctx
+			break
 		}
-		state = fetched
+		state, read = fetched, true
 		// A no-op cache deliberately has no entry, so its fetched state is
 		// authoritative for this request.
 		if !s.blindExperimentCache.Enabled() {
@@ -1025,10 +1027,13 @@ func (s *Service) withBlindExperiment(ctx context.Context, installationID, route
 		}
 	}
 	if !resolved {
+		if !read {
+			return ctx
+		}
 		// Invalidations here are usually unchanged-config fanout. Dropping the
 		// arm would route a passthrough experiment, so serve the last read
-		// (at most one change stale) without caching it.
-		observability.FromContext(ctx).Warn("Blind router experiment assignment kept changing during reads; using the last read uncached", "installation_id", installationID, "router_user_id", routerUserID, "attempts", blindExperimentFetchAttempts)
+		// without caching it.
+		observability.FromContext(ctx).Warn("Blind router experiment assignment could not be confirmed after invalidation; using the last read uncached", "installation_id", installationID, "router_user_id", routerUserID, "fetch_generation", generation, "current_generation", s.blindExperimentCache.InstallationGeneration(installationID))
 	}
 	state = state.AtTime(s.now())
 	if !state.Active && state.CohortExperimentID == "" {
@@ -1072,8 +1077,7 @@ func (s *Service) fetchBlindExperiment(ctx context.Context, installationID, rout
 		observability.FromContext(ctx).Warn("Failed to fetch blind router experiment assignment", "router_user_id", routerUserID, "err", result.Err)
 		return BlindExperimentState{}, false
 	}
-	state, ok := result.Val.(BlindExperimentState)
-	return state, ok
+	return result.Val.(BlindExperimentState), true
 }
 
 func userIdentityKey(email, claudeAccountUUID string) string {
