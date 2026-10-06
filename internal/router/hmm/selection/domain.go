@@ -110,10 +110,10 @@ func ParseDomainEvidence(payload []byte, roster *rosterdata.Roster) (*DomainEvid
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return nil, errors.New("domain evidence has trailing content")
 	}
-	// An explicit null would decode as a zero score; an unmeasured benchmark
-	// must be absent so it stays neutral.
+	// An explicit null arm or quality would decode as zero scores; an
+	// unmeasured benchmark must be absent so it stays neutral.
 	var nullableEvidence struct {
-		Arms map[string]struct {
+		Arms map[string]*struct {
 			Benchmarks map[Benchmark]*float64 `json:"benchmarks"`
 		} `json:"arms"`
 	}
@@ -121,6 +121,9 @@ func ParseDomainEvidence(payload []byte, roster *rosterdata.Roster) (*DomainEvid
 		return nil, fmt.Errorf("parse domain evidence: %w", err)
 	}
 	for arm, cell := range nullableEvidence.Arms {
+		if cell == nil {
+			return nil, fmt.Errorf("domain evidence has null arm %q", arm)
+		}
 		for benchmark, quality := range cell.Benchmarks {
 			if quality == nil {
 				return nil, fmt.Errorf("domain evidence has null %q quality for %q", benchmark, arm)
