@@ -8,7 +8,9 @@ accounts remain visible for administrator assignment but never enter serving.
 Each request reads candidates from the primary database: the requester's personal
 accounts first, then accounts registered to the installation whose owners remain
 active members. Organization sharing defaults on; disabling sharing retains
-personal capacity. Enrollment keys are attribution only and do not partition
+personal capacity. Shared capacity requires a verified requester who is still an
+active member; routing keys without a credential subject receive no subscription
+capacity. Enrollment keys are attribution only and do not partition
 serving pools. Refresh, quota, cooldown, and rotation use physical account identity.
 The ten-second rotation budget is shared across account and model alternatives.
 

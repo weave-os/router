@@ -121,8 +121,9 @@ func TestVerificationSQLSharingOwnershipAndIsolation(t *testing.T) {
 	_, err = tx.Exec(ctx, `UPDATE router.credential_subjects SET revoked_at=now() WHERE id=$1`, shared)
 	require.NoError(t, err)
 	assertCandidates([]string{personalAccount.String()})
+	// A subject-less key cannot borrow any member's capacity.
 	owner.SubscriberID = ""
-	assertCandidates([]string{personalAccount.String()})
+	assertCandidates([]string{})
 	_, err = tx.Exec(ctx, `UPDATE router.model_router_installations SET subscription_routing_disabled=true WHERE id=$1`, org)
 	require.NoError(t, err)
 	assertCandidates([]string{})

@@ -130,14 +130,9 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 				require.Equal(t, auth.SubscriptionTierPersonal, winner.SubscriptionTier)
 			} else {
 				require.Empty(t, identity.SubscriberID, "unsigned email cannot authenticate the projected owner")
-				if scenario.name == "legacy-sharing-on" {
-					require.Equal(t, "Bearer synthetic-personal-access", bearers[before])
-					require.True(t, winner.Served)
-					require.Equal(t, auth.SubscriptionTierShared, winner.SubscriptionTier)
-				} else {
-					require.Equal(t, "Bearer synthetic-api-key", bearers[before])
-					require.False(t, winner.Served)
-				}
+				// Subject-less keys fail closed to API capacity even with sharing on.
+				require.Equal(t, "Bearer synthetic-api-key", bearers[before])
+				require.False(t, winner.Served)
 			}
 		})
 	}
