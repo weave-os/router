@@ -1,0 +1,74 @@
+internal/postgres/classifier_session_repo.go
+  s_395fcfacea68ca::t_d6f80c5f08d73a 60,71-72,77-89,102-110,119,133-134
+db/queries/classifier_sessions.sql
+  s_395fcfacea68ca::t_694245026103b5 55,59
+  s_395fcfacea68ca::t_d6f80c5f08d73a 32-39,43-49
+internal/router/classifier_context.go
+  s_395fcfacea68ca::t_d6f80c5f08d73a 27,35-36,38-42,46-47,49,52,88,97-98
+internal/proxy/classifier_context.go
+  s_395fcfacea68ca::t_d6f80c5f08d73a 8,17-23,34,37-38,42-50,55,58,62,84-87,89-90,92,95-97,103,128,131-138
+internal/translate/escalation_observation_test.go
+  s_395fcfacea68ca::t_d6f80c5f08d73a 50-102
+internal/proxy/classifier_replay.go
+  s_395fcfacea68ca::t_d6f80c5f08d73a 1-35
+docs/LLM_CLASSIFIER_CONTEXT.md
+  s_395fcfacea68ca::t_19e4ce1c830b8c 9,11-12,22-27,36-38,44,65-69,72-83,91-118,129-137,172-177
+  s_395fcfacea68ca::t_bc982c1e69024f 171
+  s_395fcfacea68ca::t_496d6ebaa5b12a 138
+internal/websearch/anthropic_request.go
+  s_395fcfacea68ca::t_d6f80c5f08d73a 19-36
+internal/proxy/classifier_context_internal_test.go
+  s_395fcfacea68ca::t_d6f80c5f08d73a 48,57-58,87,98,100,111-113,116-124,127,130,141,145,148,170,177
+internal/router/classifier_context_test.go
+  s_395fcfacea68ca::t_d6f80c5f08d73a 16-17,44,46-53
+internal/proxy/classifier_identity_internal_test.go
+  s_395fcfacea68ca::t_d6f80c5f08d73a 34,36,43,50-51,69,72,105,109,112,120
+db/migrations/0110_classifier-per-call.down.sql
+  s_395fcfacea68ca::t_bc982c1e69024f 1-17
+internal/proxy/classifier_per_call_internal_test.go
+  s_395fcfacea68ca::t_d6f80c5f08d73a 1-176
+db/migrations/0110_classifier-per-call.up.sql
+  s_395fcfacea68ca::t_bc982c1e69024f 1-23
+internal/proxy/classifier_replay_test.go
+  s_395fcfacea68ca::t_d6f80c5f08d73a 1-70
+internal/proxy/classifier_session.go
+  s_395fcfacea68ca::t_d6f80c5f08d73a 19-21,133-163,173-178,183-185,188-192,198,205-206,210,212,216,223,226,230,234,244-245,250-254
+  s_395fcfacea68ca::t_bc982c1e69024f 199,207,217,231
+internal/router/classifier_session.go
+  s_395fcfacea68ca::t_d6f80c5f08d73a 38,66-72,75-76,78
+internal/proxy/classifier_session_internal_test.go
+  s_395fcfacea68ca::t_d6f80c5f08d73a 22-25,48,55-56,60-72,75,78-86,88-89,96-97,101,114,192,209,227,234-236,238,242-245,249,261,282,290,295-540
+internal/proxy/classifier_turn.go
+  s_395fcfacea68ca::t_d6f80c5f08d73a 14,68,70,73-78,83
+internal/translate/escalation_observation.go
+  s_395fcfacea68ca::t_d6f80c5f08d73a 82-83,86-88,103,236,274-293,438-439
+scripts/classifier_session_check/main.go
+  s_395fcfacea68ca::t_d6f80c5f08d73a 81,93-96,112-114,134,137-140,150-152,164-165,202-206,208,210-211,213-218,226-229
+  s_395fcfacea68ca::t_bc982c1e69024f 163,209,219-225
+  s_395fcfacea68ca::t_ebee4bb62dd86a 40,80,162,201,207,212
+  s_395fcfacea68ca::t_94fd81e1b41a37 230-231
+internal/proxy/classifier_search_internal_test.go
+  s_395fcfacea68ca::t_d6f80c5f08d73a 1-142
+internal/proxy/classifier_dispatch_internal_test.go
+  s_395fcfacea68ca::t_d6f80c5f08d73a 121,124-126,129-144,150,155-156,225
+internal/sqlc/classifier_sessions.sql.go
+  s_395fcfacea68ca::t_155378b2567634 16,27,43-81,87,110,139-140,147,153,164,168,182,189,193,206,220,245,268-269,273-294
+internal/sqlc/models.go
+  s_395fcfacea68ca::t_d0d31927f96ded 53,66-67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "24e89ffd88dbbbffa9f35639beaf925a48c88216",
+  "prompts": {},
+  "sessions": {
+    "s_395fcfacea68ca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bd20-5294-7431-af5a-fda13c268f77",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

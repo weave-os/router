@@ -1,0 +1,22 @@
+internal/proxy/gemini.go
+  s_f1ddfc363ee6c2::t_2f8de5a85b177d 91-95,302-305
+  s_f1ddfc363ee6c2::t_27aceac98305e2 306
+internal/proxy/gemini_sticky_hooks_test.go
+  s_f1ddfc363ee6c2::t_2f8de5a85b177d 1-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "7c3a622120bd7824cdacc8e99f72b27c0537ad08",
+  "prompts": {},
+  "sessions": {
+    "s_f1ddfc363ee6c2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8cda2423-38d2-448a-b281-0fd69c42cb07",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

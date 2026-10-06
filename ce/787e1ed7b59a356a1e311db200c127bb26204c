@@ -1,0 +1,22 @@
+internal/requestcontext/credentials.go
+  s_328ab02acee205::t_f030dc38d47cd0 252
+internal/proxy/subscription_internal_test.go
+  s_328ab02acee205::t_14b6aac7b8b133 187,214
+  s_328ab02acee205::t_a1fced133b0455 195-212
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ce787e1ed7b59a356a1e311db200c127bb26204c",
+  "prompts": {},
+  "sessions": {
+    "s_328ab02acee205": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ee5b-e392-7830-9600-1e7eec135801",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

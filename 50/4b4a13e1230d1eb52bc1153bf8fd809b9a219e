@@ -1,0 +1,63 @@
+docs/SUBSCRIPTION_ROUTING.md
+  s_bb837beeb3e06f::t_0a969bf666c966 28-36,39-40
+internal/providers/openai/client.go
+  s_bb837beeb3e06f::t_f60fa897b3558d 297-299
+internal/providers/openai/codex_internal_test.go
+  s_787cf7fc928eb8::t_0108bf909ab8e4 33-35,63-65,101-103,144-146,233-235,271-273,307-309
+internal/providers/openai/codex_quota.go
+  s_bb837beeb3e06f::t_eabdf98fdb6244 1-122
+internal/providers/openai/codex_quota_fixture_test.go
+  s_787cf7fc928eb8::t_c87d214c8bf12a 1-14
+internal/providers/openai/codex_quota_test.go
+  s_bb837beeb3e06f::t_07cb5670e25552 1-56
+internal/proxy/alternatives_subscription_verification_test.go
+  s_787cf7fc928eb8::t_0c31156c23555d 50-52
+internal/proxy/chat_wire_subscription_verification_test.go
+  s_787cf7fc928eb8::t_ec77c038625fd5 23-25
+internal/proxy/codex_quota_fixture_test.go
+  s_787cf7fc928eb8::t_0e82bc4f341fd4 1-14
+internal/proxy/codex_quota_rollover_test.go
+  s_bb837beeb3e06f::t_12362651e44d92 1-69
+internal/proxy/direct_rotation_subscription_verification_test.go
+  s_787cf7fc928eb8::t_fcf4c030ba2c6f 20-22
+internal/proxy/native_subscription_dispatch_internal_test.go
+  s_787cf7fc928eb8::t_21fbe941ace14d 31-33
+internal/proxy/nonstream_failure_subscription_verification_test.go
+  s_787cf7fc928eb8::t_0db8c788ce3a71 34-36
+internal/proxy/reasoning_subscription_verification_test.go
+  s_787cf7fc928eb8::t_e00c3be67ab050 31-33
+internal/proxy/safe_transport_subscription_verification_test.go
+  s_787cf7fc928eb8::t_ad7258dd3cfb7c 29-31,75-77
+internal/proxy/subscription_budget_abort_test.go
+  s_bb837beeb3e06f::t_97ed3e2b04f233 1-89
+internal/proxy/surfaces_subscription_verification_test.go
+  s_787cf7fc928eb8::t_cce4ed07f0b8b5 42-44,71-73
+internal/proxy/timeout_stream_subscription_verification_test.go
+  s_bb837beeb3e06f::t_3cc9bf36d82ccb 27-29,69-114,119-121,160-162,202-204,245-247,282-284
+internal/proxy/tool_exclusion_subscription_verification_test.go
+  s_787cf7fc928eb8::t_f15625d7fdc519 43-45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "504b4a13e1230d1eb52bc1153bf8fd809b9a219e",
+  "prompts": {},
+  "sessions": {
+    "s_787cf7fc928eb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11340-f757-7f13-811d-6144d7b9238b",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_bb837beeb3e06f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10fdb-40e1-7e30-afbc-8f42d9abecc1",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

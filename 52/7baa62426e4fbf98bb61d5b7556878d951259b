@@ -1,0 +1,19 @@
+internal/requestcontext/credentials.go
+  s_4929f4a64a3f33::t_a9f19b48308de8 248-249,255
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "527baa62426e4fbf98bb61d5b7556878d951259b",
+  "prompts": {},
+  "sessions": {
+    "s_4929f4a64a3f33": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0fa9c-a5e8-7ed3-906a-d1ee7e11263f",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

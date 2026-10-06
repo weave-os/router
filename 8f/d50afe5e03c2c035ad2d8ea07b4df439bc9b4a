@@ -1,0 +1,87 @@
+cmd/router/local_serving_runtime_test.go
+  s_9a264259daa281::t_5522f3586facc8 34-35
+  s_36d60ae320361c::t_1ba566ea972023 1-3,6-10,12-14,31-33,36-51,81
+  s_8e5cb81a307766::t_4a1a222d55e974 4-5,11,15-30,52-80
+cmd/router/main.go
+  s_9a264259daa281::t_b78cd82e52667f 168
+  s_8e5cb81a307766::t_56abea30f5a6b3 59,1047,1084-1091,1094,1556
+  s_9a264259daa281::t_4035552935e7e9 167,169-171
+  s_36d60ae320361c::t_d496ddd1ef5904 166,172-182,1073-1083,1092-1093,1095-1100,1566
+  s_9a264259daa281::t_036b98cfcfdd92 1564-1565
+internal/policyregistry/manager_test.go
+  s_f17aa3b8759386::t_10ef033804cf8d 91
+  s_36d60ae320361c::t_f78d1c5acca324 88-90,92-109
+cmd/router/local_inspection_test.go
+  s_9a264259daa281::t_b78cd82e52667f 8,11,14,37-57
+  s_04c176961d26fc::t_0bc4b7105cc151 15
+  s_9a264259daa281::t_6b4d94405dc8e9 1-7,9-10,12-13,16-36,58
+internal/policyregistry/manager.go
+  s_36d60ae320361c::t_b8e6f5894170ad 270-272
+  s_36d60ae320361c::t_968e5e0cd82a62 273,282-288,389-390
+  s_8e5cb81a307766::t_af7d4aa85942c1 391
+internal/policyregistry/serving_readiness.go
+  s_36d60ae320361c::t_968e5e0cd82a62 78-94
+cmd/router/local_policy_parity_test.go
+  s_9a264259daa281::t_078aaa2ec75af9 27
+  s_9a264259daa281::t_6ee010a38c7e5a 33,62-63,121-125,131-133
+  s_9a264259daa281::t_036b98cfcfdd92 1-26,30-32,34-61,64-101,107-120,126-130,134-139
+  s_9a264259daa281::t_553eba26edd291 28-29,102-106
+cmd/router/local_serving_runtime.go
+  s_8e5cb81a307766::t_804f13e0e1caac 131-154
+  s_36d60ae320361c::t_778ce477442ce2 1-7,9-19,28-36,39,44-61,63-70,72-87,89-97,106-122,124-130
+  s_36d60ae320361c::t_2b65e10958492c 62
+  s_36d60ae320361c::t_b8e6f5894170ad 20-24
+  s_9a264259daa281::t_12579db6f62089 8,25-27,37-38,40-43,71,88,98-105,123
+cmd/router/local_inspection.go
+  s_9a264259daa281::t_b78cd82e52667f 34-48
+  s_9a264259daa281::t_4035552935e7e9 1-22,27-33
+  s_9a264259daa281::t_38dd7f20bc0a71 23-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8fd50afe5e03c2c035ad2d8ea07b4df439bc9b4a",
+  "prompts": {},
+  "sessions": {
+    "s_04c176961d26fc": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0eae5-6fbb-70a1-bf3b-e652b125a910",
+        "model": "unknown"
+      },
+      "human_author": null
+    },
+    "s_36d60ae320361c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ee96-4bfc-7ac3-b692-fdf702b2f2bf",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    },
+    "s_8e5cb81a307766": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f350-587f-7920-bdb8-646b9ea2d8bd",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_9a264259daa281": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0eae5-6fbb-70a1-bf3b-e652b125a910",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    },
+    "s_f17aa3b8759386": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0ee96-4bfc-7ac3-b692-fdf702b2f2bf",
+        "model": "unknown"
+      },
+      "human_author": null
+    }
+  }
+}
