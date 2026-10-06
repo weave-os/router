@@ -95,7 +95,7 @@ func SelectGroupsWithDomainPreferences(
 	evidence *DomainEvidence,
 	profile DomainProfile,
 ) (Pick, map[string]map[string]float32, map[string]map[string]router.SelectionScoreComponents, map[string][]string, bool) {
-	if evidence != nil && TerminalInfluence(profile) > 0 && validateDomainEvidence(evidence, roster) != nil {
+	if evidence != nil && len(ScoredDomains(profile)) > 0 && validateDomainEvidence(evidence, roster) != nil {
 		// Untrusted or stale evidence must not alter the baseline selection.
 		evidence = nil
 	}
@@ -224,14 +224,13 @@ func scoresWithDomainPreferences(
 	scores := Scores(roster, label, cluster, qualityBias)
 	corrections := make(map[string]float32)
 	domainActive := false
-	if beta := TerminalInfluence(profile); evidence != nil && beta > 0 {
+	if domains := ScoredDomains(profile); evidence != nil && len(domains) > 0 {
 		alpha := roster.Ranking.Alpha[label]
 		if qualityBias != nil {
 			alpha = EffectiveAlpha(roster, label, *qualityBias)
 		}
 		for arm, score := range scores {
-			cell := evidence.Arms[arm]
-			correction := float32(alpha * beta * (*cell.TerminalQuality - cell.GlobalWII))
+			correction := float32(alpha * DomainInfluence * TaskQualityDelta(domains, evidence.Arms[arm]))
 			corrections[arm] = correction
 			scores[arm] = score + correction
 			domainActive = domainActive || scores[arm] != score

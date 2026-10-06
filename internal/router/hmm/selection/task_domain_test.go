@@ -43,8 +43,9 @@ func TestLiveSelectorTaskCorrectionPreservesComplexityAndEligibility(t *testing.
 	assert.Equal(t, baseline.RankedFallback[0].RosterArms, adjusted.RankedFallback[0].RosterArms)
 	components := adjusted.Trace.ScoreComponentsByGroup["low"]["vendor-a/quality"]
 	assert.InDelta(t, 30, components.BaseScore, 1e-6)
-	assert.InDelta(t, -9, components.TaskDomainCorrection, 1e-6)
-	assert.InDelta(t, 21, components.TotalScore, 1e-6)
+	// Infra weights Terminal-Bench 4.0 at 0.6 and ITBench at 0.3, both scored 0 against a WII of 90.
+	assert.InDelta(t, -4.86, components.TaskDomainCorrection, 1e-5)
+	assert.InDelta(t, 25.14, components.TotalScore, 1e-5)
 	input.CandidateRosterIDs = []string{"vendor-a/quality"}
 	eligible, err := selector(context.Background(), input)
 	require.NoError(t, err)

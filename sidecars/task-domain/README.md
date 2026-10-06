@@ -41,16 +41,38 @@ up to one second for a slot, then keeps baseline for that turn without storing a
 failure. Completed profiles use a read-only fast path. A row lock deduplicates
 inference across replicas.
 
-The existing sparse score recipe is unchanged:
+Each scored domain has a fixed benchmark mix (the weights sum to 1):
+
+| Benchmark | ui | logic | data | infra |
+|---|---:|---:|---:|---:|
+| Terminal-Bench 4.0 | 0.7 | 0.7 | 0.4 | 0.6 |
+| AA Long Context Reasoning | 0.2 | 0.2 | 0.1 | — |
+| IFBench | 0.1 | 0.1 | — | 0.1 |
+| AA-AnalystAgent | — | — | 0.3 | — |
+| Terminal-Bench-Science | — | — | 0.2 | — |
+| ITBench-AA | — | — | — | 0.3 |
 
 ```text
-beta = (.15 * logic + .25 * infra) / max(1, number_of_active_bits)
-score += alpha * beta * (TerminalBench_quality - GlobalWII)
+domain_delta = sum(weight * (benchmark_quality - GlobalWII)) over measured benchmarks
+task_delta   = mean(domain_delta) over active ui/logic/data/infra bits
+score       += alpha * 0.15 * task_delta
 ```
 
-UI/data/docs alone therefore have no correction. HMM probabilities, cluster order,
-membership, eligibility, manual pins, harness vendor preferences and stronger
-overrides remain authoritative. Traces include the content-free outcome and a
+Benchmark qualities are min-max normalized to the WII 0–100 scale. A benchmark
+an arm was not evaluated on contributes nothing (its weight is not
+redistributed), so an arm with no relevant scores keeps its score. Docs carries
+no recipe and is excluded from the mean: `logic + docs` scores as `logic`, and
+docs alone keeps baseline. With full coverage the quality term becomes 85% WII
+and 15% task mix; the price term is untouched.
+
+The recipe lives only in `internal/router/hmm/selection/domain.go`; evidence
+carries benchmark data, never weights. The control plane's admin preview posts a
+published policy and its evidence to `POST /internal/v1/task-domain/preview`,
+which runs the same selector, so the dashboard reflects whichever recipe the
+worker is running.
+
+HMM probabilities, cluster order, membership, eligibility, manual pins, harness
+vendor preferences and stronger overrides remain authoritative. Traces include the content-free outcome and a
 separate `task_domain_correction` alongside the uncorrected base score.
 
 ## Immutable release and staged model
@@ -83,9 +105,9 @@ The release JSON has exactly these fields (placeholders are not usable digests):
 
 `contract.py:SYSTEM_PROMPT` and Go's `taskdomain.SystemPrompt` contain the exact
 training prompt. Hash its UTF-8 bytes without adding a newline. Hash the final
-manifest bytes to obtain the release identity. Evidence uses the existing
-`domain_wmi_evidence_v2` contract and must match the roster, model arms, index
-versions and fixed sparse recipe. Generate a new manifest/digest for any model,
+manifest bytes to obtain the release identity. Evidence uses the
+`domain_wmi_evidence_v3` contract and must match the roster, model arms, index
+versions and benchmark identities. Generate a new manifest/digest for any model,
 tokenizer, prompt or evidence change; never overwrite a release.
 
 From this directory, on a CUDA host:
