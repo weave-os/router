@@ -40,9 +40,9 @@ func bindDomainRosterForTest(roster *rosterdata.Roster) {
 }
 
 type domainEvidenceFixture struct {
-	arms       any
-	ingestDate string
-	extra      map[string]any
+	arms             any
+	ingestDate       string
+	additionalFields map[string]any
 }
 
 func validDomainEvidenceFixture() domainEvidenceFixture {
@@ -59,7 +59,7 @@ func domainEvidencePayloadForTest(t *testing.T, roster *rosterdata.Roster, fixtu
 		"wpi_score_version": "authored-wpi", "wpi_normalization_sha256": roster.Ranking.WPINormalizationSHA256,
 		"arms": fixture.arms,
 	}
-	for field, value := range fixture.extra {
+	for field, value := range fixture.additionalFields {
 		document[field] = value
 	}
 	payload, err := json.Marshal(document)
@@ -264,7 +264,7 @@ func TestDomainEvidenceRejectsRecipeDriftAndInvalidArms(t *testing.T) {
 		{"arm without benchmarks", withArms(map[string]any{"vendor-a/quality": domainArmsForTest()["vendor-a/quality"], "vendor-b/cheap": unscored}), true},
 		{"producer-supplied recipe", func() domainEvidenceFixture {
 			fixture := validDomainEvidenceFixture()
-			fixture.extra = map[string]any{"recipes": domainRecipesForTest()}
+			fixture.additionalFields = map[string]any{"recipes": domainRecipesForTest()}
 			return fixture
 		}(), false},
 		{"missing effort arm", withArms(map[string]selection.DomainArmEvidence{"vendor-a/quality": domainArmsForTest()["vendor-a/quality"]}), false},

@@ -110,8 +110,22 @@ func ParseDomainEvidence(payload []byte, roster *rosterdata.Roster) (*DomainEvid
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return nil, errors.New("domain evidence has trailing content")
 	}
-	if err := rejectNullBenchmarks(payload); err != nil {
-		return nil, err
+	// An explicit null would decode as a zero score; an unmeasured benchmark
+	// must be absent so it stays neutral.
+	var nullableEvidence struct {
+		Arms map[string]struct {
+			Benchmarks map[Benchmark]*float64 `json:"benchmarks"`
+		} `json:"arms"`
+	}
+	if err := json.Unmarshal(payload, &nullableEvidence); err != nil {
+		return nil, fmt.Errorf("parse domain evidence: %w", err)
+	}
+	for arm, cell := range nullableEvidence.Arms {
+		for benchmark, quality := range cell.Benchmarks {
+			if quality == nil {
+				return nil, fmt.Errorf("domain evidence has null %q quality for %q", benchmark, arm)
+			}
+		}
 	}
 	if err := validateDomainEvidence(&evidence, roster); err != nil {
 		return nil, err
@@ -167,27 +181,6 @@ func validateDomainEvidence(evidence *DomainEvidence, roster *rosterdata.Roster)
 		for arm := range cluster.ArmIndices {
 			if _, exists := evidence.Arms[arm]; !exists {
 				return fmt.Errorf("domain evidence missing indexed arm %q", arm)
-			}
-		}
-	}
-	return nil
-}
-
-// rejectNullBenchmarks keeps an explicit null from decoding as a zero score:
-// an unmeasured benchmark must be absent so it stays neutral.
-func rejectNullBenchmarks(payload []byte) error {
-	var decodedEvidence struct {
-		Arms map[string]struct {
-			Benchmarks map[Benchmark]*float64 `json:"benchmarks"`
-		} `json:"arms"`
-	}
-	if err := json.Unmarshal(payload, &decodedEvidence); err != nil {
-		return fmt.Errorf("parse domain evidence: %w", err)
-	}
-	for arm, cell := range decodedEvidence.Arms {
-		for benchmark, quality := range cell.Benchmarks {
-			if quality == nil {
-				return fmt.Errorf("domain evidence has null %q quality for %q", benchmark, arm)
 			}
 		}
 	}
