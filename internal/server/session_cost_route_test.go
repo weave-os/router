@@ -32,13 +32,13 @@ type readKeyRepo struct {
 type rejectedThreadAdmissionStore struct {
 	installationID string
 	keyID          string
-	calls          int
+	admitCalls     int
 }
 
 func (store *rejectedThreadAdmissionStore) Admit(_ context.Context, installationID, keyID, _ string, _ policyregistry.AdmissionDecision) (policyregistry.AdmissionScope, policyregistry.SessionReleaseBinding, error) {
 	store.installationID = installationID
 	store.keyID = keyID
-	store.calls++
+	store.admitCalls++
 	return policyregistry.AdmissionScope{}, policyregistry.SessionReleaseBinding{}, auth.ErrPersonalCredentialRequired
 }
 
@@ -57,7 +57,7 @@ func TestThreadHandshakeRunsServingAdmissionAfterCredentialAuth(t *testing.T) {
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request)
 	require.Equal(t, http.StatusUnauthorized, response.Code)
-	assert.Equal(t, 1, admissionStore.calls, "authenticated requests reach serving admission before classifier-thread creation")
+	assert.Equal(t, 1, admissionStore.admitCalls, "authenticated requests reach serving admission before classifier-thread creation")
 	assert.Equal(t, installation.ID, admissionStore.installationID)
 	assert.Equal(t, "key-rk_thread", admissionStore.keyID)
 }
