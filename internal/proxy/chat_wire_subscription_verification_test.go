@@ -20,6 +20,9 @@ func TestVerificationUnrepresentableChatUsesAPIOnly(t *testing.T) {
 	var bearers, paths []string
 	var sent []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSyntheticCodexQuota(w, r) {
+			return
+		}
 		bearers = append(bearers, r.Header.Get("Authorization"))
 		paths = append(paths, r.URL.Path)
 		sent, _ = io.ReadAll(r.Body)

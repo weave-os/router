@@ -26,6 +26,9 @@ func TestVerificationSafeTransportDirectExhaustionUsesLinkedWithoutAPI(t *testin
 	var bearers, accountIDs, paths []string
 	var sent [][]byte
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSyntheticCodexQuota(w, r) {
+			return
+		}
 		bearers = append(bearers, r.Header.Get("Authorization"))
 		accountIDs = append(accountIDs, r.Header.Get("ChatGPT-Account-ID"))
 		paths = append(paths, r.URL.Path)
@@ -69,6 +72,9 @@ func TestVerificationSafeTransportDirectExhaustionUsesLinkedWithoutAPI(t *testin
 func TestVerificationSafeTransportManagedWinnerQuotaObservedFromHTTP(t *testing.T) {
 	var winnerBearer string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSyntheticCodexQuota(w, r) {
+			return
+		}
 		winnerBearer = r.Header.Get("Authorization")
 		if r.Header.Get("Authorization") != "Bearer quota-token" {
 			w.WriteHeader(http.StatusForbidden)

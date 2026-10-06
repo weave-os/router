@@ -30,6 +30,9 @@ func TestProxy_CodexOutOfRosterModelPreservesSelectedWireID(t *testing.T) {
 	const model = "gpt-6-astra"
 	var receivedModel string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSyntheticCodexQuota(w, r) {
+			return
+		}
 		assert.Equal(t, "/responses", r.URL.Path)
 		body, err := io.ReadAll(r.Body)
 		assert.NoError(t, err)
@@ -57,6 +60,9 @@ func TestProxy_CodexLunaSubscriptionDispatch(t *testing.T) {
 	const model = "gpt-6-luna"
 	var receivedModel, receivedAccount, receivedAuth string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSyntheticCodexQuota(w, r) {
+			return
+		}
 		assert.Equal(t, "/responses", r.URL.Path)
 		receivedAccount = r.Header.Get(requestcontext.ChatGPTAccountIDHeader)
 		receivedAuth = r.Header.Get("Authorization")
@@ -92,6 +98,9 @@ func TestProxy_CodexSubscriptionDispatch(t *testing.T) {
 	var gotPath, gotAuth, gotAccount, gotBeta, gotOriginator string
 	var gotBody []byte
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSyntheticCodexQuota(w, r) {
+			return
+		}
 		gotPath = r.URL.Path
 		gotAuth = r.Header.Get("Authorization")
 		gotAccount = r.Header.Get("ChatGPT-Account-ID")
@@ -132,6 +141,9 @@ func TestProxy_CodexSubscriptionDispatch(t *testing.T) {
 func TestProxy_CodexSubscriptionStripsUnsupportedParams(t *testing.T) {
 	var gotBody []byte
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSyntheticCodexQuota(w, r) {
+			return
+		}
 		gotBody, _ = io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "event: response.completed\ndata: {\"type\":\"response.completed\"}\n\n")
@@ -218,6 +230,9 @@ func TestProxy_CodexCredOnChatEndpointIsRejected(t *testing.T) {
 func TestProxy_NoCodexCredHitsOpenAI(t *testing.T) {
 	var gotPath, gotAccount string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSyntheticCodexQuota(w, r) {
+			return
+		}
 		gotPath = r.URL.Path
 		gotAccount = r.Header.Get("ChatGPT-Account-ID")
 		w.WriteHeader(http.StatusOK)
@@ -253,6 +268,9 @@ func TestProxy_ResponsesMaxEffortMatchesPublicModelMenu(t *testing.T) {
 			var gotPath string
 			var gotBody []byte
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if serveSyntheticCodexQuota(w, r) {
+					return
+				}
 				gotPath = r.URL.Path
 				gotBody, _ = io.ReadAll(r.Body)
 				w.Header().Set("Content-Type", "text/event-stream")
@@ -286,6 +304,9 @@ func TestProxy_ResponsesMaxEffortMatchesPublicModelMenu(t *testing.T) {
 func TestProxy_ResponsesMaxEffortUnchangedWithCodexCred(t *testing.T) {
 	var gotBody []byte
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSyntheticCodexQuota(w, r) {
+			return
+		}
 		gotBody, _ = io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)

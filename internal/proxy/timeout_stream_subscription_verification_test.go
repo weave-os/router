@@ -24,6 +24,9 @@ func TestVerificationSubscriptionTimeoutUsesAuthorizedAPI(t *testing.T) {
 	var bearers []string
 	var bearersMu sync.Mutex
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSyntheticCodexQuota(w, r) {
+			return
+		}
 		_, _ = io.Copy(io.Discard, r.Body)
 		bearer := r.Header.Get("Authorization")
 		bearersMu.Lock()
@@ -63,10 +66,59 @@ func TestVerificationSubscriptionTimeoutUsesAuthorizedAPI(t *testing.T) {
 	require.False(t, winner.Served, "API fallback must not be billed as subscription")
 }
 
+func TestVerificationResponsesSubscriptionTimeoutUsesAuthorizedAPI(t *testing.T) {
+	var bearers []string
+	var bearersMu sync.Mutex
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSyntheticCodexQuota(w, r) {
+			return
+		}
+		_, _ = io.Copy(io.Discard, r.Body)
+		bearer := r.Header.Get("Authorization")
+		bearersMu.Lock()
+		bearers = append(bearers, bearer)
+		bearersMu.Unlock()
+		if bearer == "Bearer timeout-seat" {
+			<-r.Context().Done()
+			return
+		}
+		if bearer != "Bearer synthetic-api-key" {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"api answer\"}\n\n")
+		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"synthetic\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":11,\"output_tokens\":7}}}\n\n")
+	}))
+	defer upstream.Close()
+	client := openai.NewClient("synthetic-api-key", upstream.URL)
+	client.SetCodexBaseURL(upstream.URL)
+	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "timeout-account", AccessToken: "timeout-seat", ProviderAccount: "timeout-provider"}}}
+	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, false, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithManagedSubscriptions(leaser).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
+	body := []byte(`{"model":"auto","stream":true,"input":"synthetic timeout","tools":[{"type":"function","name":"read_file","parameters":{"type":"object"}}]}`)
+	ctx := context.WithValue(managedSubscriptionContext(auth.SubscriptionProviderCodex), InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+	rec := httptest.NewRecorder()
+	started := time.Now()
+	err := svc.ProxyOpenAIResponses(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(string(body))))
+	require.NoError(t, err)
+	elapsed := time.Since(started)
+	require.GreaterOrEqual(t, elapsed, 9*time.Second)
+	require.Less(t, elapsed, 15*time.Second, "API fallback must follow the ten-second rotation budget promptly")
+	bearersMu.Lock()
+	require.Equal(t, []string{"Bearer timeout-seat", "Bearer synthetic-api-key"}, bearers)
+	bearersMu.Unlock()
+	require.Contains(t, rec.Body.String(), "api answer")
+	winner := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	require.False(t, winner.Served, "API fallback must not be billed as subscription")
+}
+
 func TestVerificationCommittedSubscriptionStreamNeverReplayed(t *testing.T) {
 	var bearers []string
 	var bearersMu sync.Mutex
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSyntheticCodexQuota(w, r) {
+			return
+		}
 		bearersMu.Lock()
 		bearers = append(bearers, r.Header.Get("Authorization"))
 		bearersMu.Unlock()
@@ -105,6 +157,9 @@ func TestVerificationCommittedFailureAcrossIngress(t *testing.T) {
 			var bearers []string
 			var bearersMu sync.Mutex
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if serveSyntheticCodexQuota(w, r) {
+					return
+				}
 				bearersMu.Lock()
 				bearers = append(bearers, r.Header.Get("Authorization"))
 				bearersMu.Unlock()
@@ -144,6 +199,9 @@ func TestVerificationCommittedCRLFFailureAcrossIngress(t *testing.T) {
 			var bearers []string
 			var bearersMu sync.Mutex
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if serveSyntheticCodexQuota(w, r) {
+					return
+				}
 				bearersMu.Lock()
 				bearers = append(bearers, r.Header.Get("Authorization"))
 				bearersMu.Unlock()
@@ -184,6 +242,9 @@ func TestVerificationDebugCommittedFailureAcrossIngress(t *testing.T) {
 				var bearers []string
 				var bearersMu sync.Mutex
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if serveSyntheticCodexQuota(w, r) {
+						return
+					}
 					bearersMu.Lock()
 					bearers = append(bearers, r.Header.Get("Authorization"))
 					bearersMu.Unlock()
@@ -218,6 +279,9 @@ func TestVerificationCommittedSubscriptionStreamOutlivesRotationBudget(t *testin
 	var bearers []string
 	var bearersMu sync.Mutex
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSyntheticCodexQuota(w, r) {
+			return
+		}
 		bearersMu.Lock()
 		bearers = append(bearers, r.Header.Get("Authorization"))
 		bearersMu.Unlock()

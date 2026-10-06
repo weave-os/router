@@ -31,6 +31,9 @@ func TestVerificationNonstreamFailedJSONCannotWin(t *testing.T) {
 			var bearers, paths, providerAccounts []string
 			var capturesMu sync.Mutex
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if serveSyntheticCodexQuota(w, r) {
+					return
+				}
 				capturesMu.Lock()
 				bearers = append(bearers, r.Header.Get("Authorization"))
 				paths = append(paths, r.URL.Path)

@@ -17,6 +17,9 @@ import (
 func TestVerificationNativeCodexSubscriptionPreferredToPaidAPI(t *testing.T) {
 	var subscriptionRequests, apiRequests int
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSyntheticCodexQuota(w, r) {
+			return
+		}
 		if r.Header.Get("Authorization") == "Bearer synthetic-api-key" {
 			apiRequests++
 		} else if r.Header.Get("Authorization") == "Bearer "+codexTestToken {

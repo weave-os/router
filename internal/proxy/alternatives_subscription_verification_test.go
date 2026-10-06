@@ -47,6 +47,9 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 			var models, bearers []string
 			var sent [][]byte
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if serveSyntheticCodexQuota(w, r) {
+					return
+				}
 				body, _ := io.ReadAll(r.Body)
 				sent = append(sent, body)
 				model := gjson.GetBytes(body, "model").String()

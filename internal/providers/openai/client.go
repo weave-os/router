@@ -294,6 +294,9 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	}
 	reqBody := rewriteModelField(prep.Body, c.modelIDMap)
 	if useCodex {
+		if err := c.checkCodexIncludedQuota(ctx, decision.Model); err != nil {
+			return err
+		}
 		baseURL = c.codexBaseURL
 		path = codexResponsesPath
 		reqBody = stripCodexUnsupportedParams(reqBody)

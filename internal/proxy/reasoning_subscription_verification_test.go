@@ -28,6 +28,9 @@ func TestVerificationOpaqueReasoningWireScope(t *testing.T) {
 			var sent [][]byte
 			var bearers []string
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if serveSyntheticCodexQuota(w, r) {
+					return
+				}
 				payload, _ := io.ReadAll(r.Body)
 				sent = append(sent, payload)
 				bearers = append(bearers, r.Header.Get("Authorization"))

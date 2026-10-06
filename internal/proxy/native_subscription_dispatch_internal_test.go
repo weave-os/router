@@ -28,6 +28,9 @@ func TestNativeCodexSubscriptionWithDepletedCredits(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			var authorizations, accountIDs, paths []string
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if serveSyntheticCodexQuota(w, r) {
+					return
+				}
 				authorizations = append(authorizations, r.Header.Get("Authorization"))
 				accountIDs = append(accountIDs, r.Header.Get("ChatGPT-Account-ID"))
 				paths = append(paths, r.URL.Path)

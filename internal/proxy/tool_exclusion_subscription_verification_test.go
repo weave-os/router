@@ -40,6 +40,9 @@ func TestVerificationRealResolverWeakToolExclusionPreventsHTTP(t *testing.T) {
 	var models, bearers []string
 	var incompatibleRequests int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSyntheticCodexQuota(w, r) {
+			return
+		}
 		body, _ := io.ReadAll(r.Body)
 		model := gjson.GetBytes(body, "model").String()
 		models = append(models, model)

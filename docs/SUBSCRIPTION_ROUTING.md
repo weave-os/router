@@ -25,13 +25,19 @@ Native OpenAI Codex and Anthropic adapters accept subscription OAuth credentials
 Anthropic-compatible bearer gateways do not advertise native Claude subscription
 support.
 An adapter's subscription capability describes transport support, not a guarantee
-that the provider cannot charge extra usage. Healthy accounts and accounts with
-no quota observation may serve; known exhausted or paid-overage accounts are
-excluded, and quota failures rotate to another eligible account or authorized API
-capacity. Depleted Weave credits prohibit paid API fallback, not subscription use.
+that the provider cannot charge extra usage. Codex checks the authenticated
+read-only `/backend-api/wham/usage` endpoint
+before each inference attempt. Missing, unavailable, malformed, or exhausted
+included quota skips that account even when purchased OpenAI credits are present.
+The same check covers matching model-specific limits. Claude accounts with no
+quota observation may serve; known exhausted or paid-overage accounts are
+excluded. Quota failures rotate to another eligible account before authorized
+Weave-funded API capacity serves the selected model. Depleted Weave credits
+prohibit paid API fallback, not subscription use.
 
 Providers control extra usage through account settings and credits. Quota headers
-are observations, not an atomic included-only reservation: an unknown account or
+are observations, not an atomic included-only reservation: an unobserved Claude
+account or
 an in-flight request can cross into provider-enabled extra usage before the router
 observes it. Disable extra usage at the provider to require a strict no-extra-usage
 boundary. The router neither enables extra usage nor uses known overage as a

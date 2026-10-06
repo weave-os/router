@@ -39,6 +39,9 @@ func TestVerificationSafeSubscriptionIngressConformance(t *testing.T) {
 				var spanMu sync.Mutex
 				var upstreamSpans []*tracev1.Span
 				collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if serveSyntheticCodexQuota(w, r) {
+						return
+					}
 					if r.URL.Path == "/v1/traces" {
 						body, _ := io.ReadAll(r.Body)
 						var exported coltracepb.ExportTraceServiceRequest
@@ -65,6 +68,9 @@ func TestVerificationSafeSubscriptionIngressConformance(t *testing.T) {
 				var bearer, path, providerAccount string
 				var gatewayMu sync.Mutex
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if serveSyntheticCodexQuota(w, r) {
+						return
+					}
 					requestBody, _ := io.ReadAll(r.Body)
 					gatewayMu.Lock()
 					bearer = r.Header.Get("Authorization")
