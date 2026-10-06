@@ -1,0 +1,51 @@
+internal/gateway/test_plans_test.go
+  s_fd38d0e69d159e::t_cc09e5bf512313 1-32
+internal/proxy/client_identity_test.go
+  s_fd38d0e69d159e::t_ec14d0882d3544 25-35,84-88,90-92
+  s_fd38d0e69d159e::t_cc09e5bf512313 12,82-83,89
+  s_fd38d0e69d159e::t_5ae42af3682a5f 93
+internal/proxy/client_identity.go
+  s_fd38d0e69d159e::t_0c2a0eff2b3cc4 108-110
+scripts/internal_test_plan_check/main_test.go
+  s_fd38d0e69d159e::t_f026d5ab048795 75-76,92-98
+internal/gateway/test_plans.go
+  s_fd38d0e69d159e::t_0c2a0eff2b3cc4 3-6,19-20
+internal/server/middleware/auth.go
+  s_fd38d0e69d159e::t_5243a5a9f07c7b 249
+  s_fd38d0e69d159e::t_ec7abe2ab3eb1f 133-141
+  s_fd38d0e69d159e::t_0c2a0eff2b3cc4 81,95-96,100,106-107,116,126,149
+cmd/router/main.go
+  s_fd38d0e69d159e::t_0c2a0eff2b3cc4 1036,1048,1520
+internal/sqlc/internal_test_plans.sql.go
+  s_fd38d0e69d159e::t_166b8126fca426 140,169,229-230,235-236
+internal/policyregistry/test_plans.go
+  s_fd38d0e69d159e::t_ec14d0882d3544 26
+  s_fd38d0e69d159e::t_cc09e5bf512313 27-28
+  s_fd38d0e69d159e::t_0c2a0eff2b3cc4 151-155,213,217
+internal/postgres/serving/test_plans.go
+  s_fd38d0e69d159e::t_cc09e5bf512313 88-95
+internal/server/middleware/test_plan_auth_test.go
+  s_fd38d0e69d159e::t_ec7abe2ab3eb1f 41-52,60,62-63,90,102
+  s_fd38d0e69d159e::t_30e31aac0f7165 101
+db/queries/internal_test_plans.sql
+  s_fd38d0e69d159e::t_0c2a0eff2b3cc4 46-47
+  s_fd38d0e69d159e::t_f026d5ab048795 59
+internal/api/admin/internal_test_plans.go
+  s_fd38d0e69d159e::t_cc09e5bf512313 4,6-8,78-81
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6bfd9d777930b8bec62da1c960c4d39cc29782a1",
+  "prompts": {},
+  "sessions": {
+    "s_fd38d0e69d159e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a102ef-3cf8-74c1-bceb-b72f6b60b2d0",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

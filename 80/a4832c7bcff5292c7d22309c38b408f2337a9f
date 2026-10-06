@@ -1,0 +1,49 @@
+internal/proxy/turn_logs.go
+  s_2b5c157257bdb4::t_25b232e5736aca 28
+  s_2b5c157257bdb4::t_b83134a978ff32 274-276,283-284,328,348-364
+  s_2b5c157257bdb4::t_a1afc8a8521fef 277-282
+  s_2b5c157257bdb4::t_c78bbd9b5a89e3 7-8,15,18,197,200,221,234-273,296-297,318,324-327,329-347,365-415,423-436
+  s_2b5c157257bdb4::t_363f21e893cc75 294-295
+  s_2b5c157257bdb4::t_60ccd887cecb6a 437
+  s_2b5c157257bdb4::t_5e59ccc84a5e77 195,285-289,292-293,311,416-422
+  s_2b5c157257bdb4::t_a23ba5036672e2 314
+  s_2b5c157257bdb4::t_a94265ba30731a 290-291
+internal/proxy/gemini.go
+  s_2b5c157257bdb4::t_bc2e8664b09c6c 401
+internal/proxy/service.go
+  s_2b5c157257bdb4::t_a23ba5036672e2 5035-5038,7992-7995
+  s_2b5c157257bdb4::t_bc2e8664b09c6c 5056,8017
+internal/providers/httputil/errors_test.go
+  s_2b5c157257bdb4::t_79f6f8e46abbfd 107,122-124
+  s_2b5c157257bdb4::t_36a08f0cfdc27e 125
+internal/proxy/turn_logs_internal_test.go
+  s_2b5c157257bdb4::t_636e2edfed361e 280-287,289,292-295,297,299
+  s_2b5c157257bdb4::t_a23ba5036672e2 252-253,290
+  s_2b5c157257bdb4::t_89d7b8065b0afb 320-340
+  s_2b5c157257bdb4::t_a1afc8a8521fef 291
+  s_2b5c157257bdb4::t_5e59ccc84a5e77 241,250,288
+  s_2b5c157257bdb4::t_bc2e8664b09c6c 229,313,366,385,414,446
+  s_2b5c157257bdb4::t_b83134a978ff32 300
+  s_2b5c157257bdb4::t_636be1e7f48a26 341-358
+  s_2b5c157257bdb4::t_8fe5cd966b67b7 259-267,296,298,302-303
+  s_2b5c157257bdb4::t_671d09f1e92496 246,249,251,254-255
+internal/providers/httputil/errors.go
+  s_2b5c157257bdb4::t_b98246dd84a8bc 69-71
+  s_2b5c157257bdb4::t_79f6f8e46abbfd 15-26,104-114
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "80a4832c7bcff5292c7d22309c38b408f2337a9f",
+  "prompts": {},
+  "sessions": {
+    "s_2b5c157257bdb4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10d45-01a8-7b60-b91b-f45b03774aad",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
