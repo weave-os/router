@@ -110,7 +110,7 @@ test("malformed source JSON never reaches the reported error", async () => {
       calls += 1;
       return new Response(calls === malformedCall ? "BODYMARKER secret response" : JSON.stringify(successfulRun));
     }), error => {
-      assert.equal(error.message, "GitHub response was not valid JSON");
+      assert.equal(error.message, "GitHub response was not valid JSON (HTTP 200)");
       assert.doesNotMatch(error.message, /BODYMARKER|secret/);
       return true;
     });

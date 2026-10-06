@@ -30,7 +30,7 @@ async function githubRequest(request, path, token, body) {
   assert.ok(response.ok, `GitHub request failed (HTTP ${response.status})`);
   if (body) return;
   try { return await response.json(); }
-  catch { throw new Error("GitHub response was not valid JSON"); }
+  catch { throw new Error(`GitHub response was not valid JSON (HTTP ${response.status})`); }
 }
 
 export async function notifyDownstream({ event, repository, sourceToken, dispatchToken, destination }, request = fetch) {
