@@ -1,0 +1,23 @@
+scripts/session_pin_output_limit_check/main.go
+  s_df48f4209c104e::t_9622206dec3517 171-182
+db/queries/session_pins.sql
+  s_df48f4209c104e::t_9622206dec3517 217-241,243-253,259-263
+internal/sqlc/session_pins.sql.go
+  s_df48f4209c104e::t_38a28d16462df3 462-486,488-498,504-508,518,556-580,582-592,598-602,611
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "fba96dfea2c15af1c34d38226f35a96feb562efd",
+  "prompts": {},
+  "sessions": {
+    "s_df48f4209c104e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a3cc-c81f-7f62-960e-bbf1cda503c7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
