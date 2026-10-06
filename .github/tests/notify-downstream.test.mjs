@@ -29,7 +29,10 @@ test("successful current main tests dispatch the configured workflow with separa
   const { calls, request, input } = scenario();
   assert.equal(await notifyDownstream(input, request), NotificationOutcome.DISPATCHED);
   assert.equal(calls.length, 3);
-  assert.equal(calls[0].options.headers.Authorization, "Bearer source-token");
+  for (const call of calls.slice(0, 2)) {
+    assert.equal(call.options.headers.Authorization, "Bearer source-token");
+    assert.equal(call.options.method, "GET");
+  }
   assert.equal(calls[2].url, "https://api.github.com/repos/example/downstream/actions/workflows/sync.yml/dispatches");
   assert.equal(calls[2].options.headers.Authorization, "Bearer dispatch-token");
   assert.equal(calls[2].options.method, "POST");
@@ -88,5 +91,29 @@ test("API and network failures do not disclose destination or token in errors", 
       assert.doesNotMatch(error.message, /private|example|token/);
       return true;
     });
+  }
+});
+
+
+test("configured ref whitespace is removed before dispatch", async () => {
+  const { calls, request, input } = scenario();
+  input.destination = JSON.stringify({ ...configuration, ref: " main " });
+  assert.equal(await notifyDownstream(input, request), NotificationOutcome.DISPATCHED);
+  assert.deepEqual(JSON.parse(calls[2].options.body), { ref: "main" });
+});
+
+test("malformed source JSON never reaches the reported error", async () => {
+  const { input } = scenario();
+  for (const malformedCall of [1, 2]) {
+    let calls = 0;
+    await assert.rejects(notifyDownstream(input, async () => {
+      calls += 1;
+      return new Response(calls === malformedCall ? "BODYMARKER secret response" : JSON.stringify(successfulRun));
+    }), error => {
+      assert.equal(error.message, "GitHub response was not valid JSON");
+      assert.doesNotMatch(error.message, /BODYMARKER|secret/);
+      return true;
+    });
+    assert.equal(calls, malformedCall);
   }
 });

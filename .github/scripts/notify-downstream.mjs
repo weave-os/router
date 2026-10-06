@@ -28,7 +28,9 @@ async function githubRequest(request, path, token, body) {
   }
   // A downstream repository may be private; never print endpoints or responses.
   assert.ok(response.ok, `GitHub request failed (HTTP ${response.status})`);
-  return body ? undefined : response.json();
+  if (body) return;
+  try { return await response.json(); }
+  catch { throw new Error("GitHub response was not valid JSON"); }
 }
 
 export async function notifyDownstream({ event, repository, sourceToken, dispatchToken, destination }, request = fetch) {
@@ -44,11 +46,11 @@ export async function notifyDownstream({ event, repository, sourceToken, dispatc
   assert.ok(Number.isSafeInteger(event.workflow_run.id) && event.workflow_run.id > 0, "Invalid source run identity");
   const run = await githubRequest(request, `repos/${repository}/actions/runs/${event.workflow_run.id}`, sourceToken);
   if (!eligibleRun(run, repository) || run.path !== TestWorkflowPath) return NotificationOutcome.INELIGIBLE;
-  const current = await githubRequest(request, `repos/${repository}/commits/${MainBranch}`, sourceToken);
-  if (current.sha !== run.head_sha) return NotificationOutcome.INELIGIBLE;
+  // Main can advance between this read and dispatch; downstream must revalidate.
+  if ((await githubRequest(request, `repos/${repository}/commits/${MainBranch}`, sourceToken)).sha !== run.head_sha) return NotificationOutcome.INELIGIBLE;
   await githubRequest(request,
     `repos/${configuration.repository}/actions/workflows/${configuration.workflow}/dispatches`,
-    dispatchToken, { ref: configuration.ref });
+    dispatchToken, { ref: configuration.ref.trim() });
   return NotificationOutcome.DISPATCHED;
 }
 
