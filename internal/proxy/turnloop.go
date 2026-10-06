@@ -930,6 +930,9 @@ func (s *Service) runTurnLoop(
 	}
 
 	if res.TurnType == turntype.Probe && !s.explicitUtilityHardPin {
+		if req.RequestedModel == "" || req.RequestedModel == automaticProbeModel {
+			return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
+		}
 		decision, err := s.callerModelPassthroughDecision(ctx, req)
 		if err != nil {
 			return res, err

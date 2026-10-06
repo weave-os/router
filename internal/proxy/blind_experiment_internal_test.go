@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
@@ -223,10 +224,10 @@ func runBlindExperimentUtilityTurn(t *testing.T, ctx context.Context, body strin
 	t.Helper()
 	routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
 	service := NewService(routerSpy, nil, nil, false, nil, newStubPinStore(), false,
-		providers.ProviderGoogle, "gemini-3.1-flash-lite-preview", nil).
+		providers.ProviderGoogle, experimentUtilityHardPinModel, nil).
 		WithExplicitUtilityHardPin(true).
 		WithCompactionHardPin(true).
-		WithSubAgentOverride(providers.ProviderGoogle, "gemini-3-flash-preview")
+		WithSubAgentOverride(providers.ProviderGoogle, experimentSubAgentOverrideModel)
 	envelope, err := translate.ParseAnthropic([]byte(body))
 	require.NoError(t, err)
 	features := envelope.RoutingFeatures(false)
@@ -276,7 +277,14 @@ func TestBlindExperimentRouterOnKeepsExplicitUtilityHardPins(t *testing.T) {
 			assert.True(t, loopResult.HardPinned)
 			assert.False(t, loopResult.CallerModelPassthrough)
 			assert.Equal(t, string(testCase.turnType)+"_hard_pin", loopResult.Decision.Reason)
-			assert.NotEqual(t, "claude-opus-4-8", loopResult.Decision.Model)
+			switch testCase.turnType {
+			case turntype.Probe, turntype.TitleGen:
+				assert.Equal(t, experimentUtilityHardPinModel, loopResult.Decision.Model)
+			case turntype.SubAgentDispatch:
+				assert.Equal(t, experimentSubAgentOverrideModel, loopResult.Decision.Model)
+			default:
+				assert.NotEqual(t, catalog.ModelIDClaudeOpus48.String(), loopResult.Decision.Model)
+			}
 		})
 	}
 }
@@ -297,10 +305,20 @@ func TestBlindExperimentPassthroughKeepsUtilityHardPinsUnderPolicyPin(t *testing
 			assert.True(t, loopResult.HardPinned)
 			assert.False(t, loopResult.CallerModelPassthrough)
 			assert.Equal(t, string(testCase.turnType)+"_hard_pin", loopResult.Decision.Reason)
-			assert.NotEqual(t, "claude-opus-4-8", loopResult.Decision.Model)
+			switch testCase.turnType {
+			case turntype.Probe, turntype.TitleGen:
+				assert.Equal(t, experimentUtilityHardPinModel, loopResult.Decision.Model)
+			case turntype.SubAgentDispatch:
+				assert.Equal(t, experimentSubAgentOverrideModel, loopResult.Decision.Model)
+			default:
+				assert.NotEqual(t, catalog.ModelIDClaudeOpus48.String(), loopResult.Decision.Model)
+			}
 		})
 	}
 }
+
+const experimentUtilityHardPinModel = "gemini-3.1-flash-lite-preview"
+const experimentSubAgentOverrideModel = "gemini-3-flash-preview"
 
 func TestBlindExperimentPassthroughYieldsUtilityTurnToForceModel(t *testing.T) {
 	routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}

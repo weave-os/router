@@ -195,7 +195,9 @@ same reason the resolver does: the alias list is the thing to fix.
 **Default titles are scored independently; probes preserve their target.** Title
 generation uses `routeWithoutPin`, without consulting or updating the conversation's
 automatic pin or emitting a routing marker. Default provider/quota probes use the
-requested model and do not cross-model fail over. Same-model credential fallback
+requested model and do not cross-model fail over. An automatic probe with no
+concrete requested model is scored independently without a session pin.
+Same-model credential fallback
 still applies, so a successful probe does not prove subscription-specific quota.
 An explicit `ROUTER_HARD_PIN_MODEL`
 retains the utility override, and deliberate `/force-model` choices still win.

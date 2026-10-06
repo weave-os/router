@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -52,10 +53,12 @@ func TestAutomaticUtilitySelectionDoesNotUseDeploymentShortcut(t *testing.T) {
 					if fixture.turnType == turntype.TitleGen {
 						assert.Equal(t, 1, scorer.routeCalls)
 						assert.Equal(t, catalog.ModelIDClaudeSonnet46.String(), turn.Decision.Model)
+						assert.Equal(t, providers.ProviderAnthropic, turn.Decision.Provider)
 						assert.False(t, turn.CallerModelPassthrough)
 					} else {
 						assert.Zero(t, scorer.routeCalls)
 						assert.Equal(t, catalog.ModelIDClaudeOpus48.String(), turn.Decision.Model)
+						assert.Equal(t, providers.ProviderAnthropic, turn.Decision.Provider)
 						assert.True(t, turn.CallerModelPassthrough)
 						assert.Equal(t, policy.OverrideSourceRequest, turn.Origin)
 					}
@@ -83,4 +86,33 @@ func TestTitleNeverEmitsDroppedForceDiagnostic(t *testing.T) {
 		ForcedPinDropped: true,
 		ForcedPinModel:   catalog.ModelIDClaudeOpus48.String(),
 	}))
+}
+
+func TestAutomaticProbeWithoutConcreteTargetScoresWithoutPinning(t *testing.T) {
+	for _, requestedModel := range []string{automaticProbeModel, ""} {
+		t.Run(requestedModel, func(t *testing.T) {
+			scorer := &blindExperimentRouterSpy{decision: router.Decision{
+				Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeSonnet46.String(),
+			}}
+			pins := newStubPinStore()
+			service := NewService(scorer, nil, nil, false, nil, pins, false,
+				providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
+			body := strings.Replace(blindExperimentUtilityTurnBodies()[0].body, catalog.ModelIDClaudeOpus48.String(), requestedModel, 1)
+			envelope, err := translate.ParseAnthropic([]byte(body))
+			require.NoError(t, err)
+			features := envelope.RoutingFeatures(false)
+			turn, err := service.runTurnLoop(context.Background(), envelope, features, "utility-key", uuid.New(), "", http.Header{}, router.Request{
+				RequestedModel: features.Model, EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
+			})
+			require.NoError(t, err)
+			require.Equal(t, turntype.Probe, turn.TurnType)
+			assert.Equal(t, catalog.ModelIDClaudeSonnet46.String(), turn.Decision.Model)
+			assert.Equal(t, providers.ProviderAnthropic, turn.Decision.Provider)
+			assert.Equal(t, 1, scorer.routeCalls)
+			assert.False(t, turn.CallerModelPassthrough)
+			assert.False(t, turn.HardPinned)
+			assert.Zero(t, turn.SessionKey)
+			assert.Empty(t, pins.upserts)
+		})
+	}
 }

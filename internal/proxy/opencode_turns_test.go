@@ -28,6 +28,7 @@ const openCodeResponsesBody = `{
 }`
 
 const openCodeHardPinModel = "gpt-4o-mini"
+const openCodeScoredTitleModel = "gpt-4o"
 
 func newOpenCodeTurnSvc(fr *fakeRouter, store *fakePinStore) *proxy.Service {
 	responsesResp := func(w http.ResponseWriter) {
@@ -63,7 +64,7 @@ func TestService_OpenCodeNativeSubagentSharesSessionIDButNotPin(t *testing.T) {
 	"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Reply with the single word pong"}]}]
 }`
 	store := newFakePinStore()
-	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-4o", Reason: "cluster"}}
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: openCodeScoredTitleModel, Reason: "cluster"}}
 	svc := newOpenCodeTurnSvc(fr, store)
 	apiKeyID := uuid.New().String()
 
@@ -155,7 +156,7 @@ func headerlessSender(t *testing.T, svc *proxy.Service, clientApp string) func(b
 func TestService_OpenCodeHeaderlessTitleScoresWithoutTouchingThePin(t *testing.T) {
 	store := newFakePinStore()
 	store.persistUpserts = true
-	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-4o", Reason: "cluster"}}
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: openCodeScoredTitleModel, Reason: "cluster"}}
 	send := headerlessSender(t, newOpenCodeTurnSvc(fr, store), proxy.ClientAppOpencode)
 
 	rec := send(openCodeHeaderlessMainBody)
@@ -165,7 +166,7 @@ func TestService_OpenCodeHeaderlessTitleScoresWithoutTouchingThePin(t *testing.T
 	for range 2 {
 		getsBefore := store.getCalls
 		rec := send(openCodeHeaderlessTitleBody)
-		assert.Equal(t, "gpt-4o", rec.Header().Get(proxy.HeaderRouterModel), "the title uses its independently scored model")
+		assert.Equal(t, openCodeScoredTitleModel, rec.Header().Get(proxy.HeaderRouterModel), "the title uses its independently scored model")
 		assert.NotContains(t, rec.Body.String(), "Weave Router", "a routing marker would become the session title")
 		assert.Equal(t, 1, store.getCalls-getsBefore, "title turns read only force-model session state, including during refusal-rescue setup")
 	}
