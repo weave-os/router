@@ -6,7 +6,6 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"time"
 
 	"weave-os/router/internal/config"
 	"weave-os/router/internal/policyclient"
@@ -17,8 +16,7 @@ import (
 )
 
 const (
-	envServingAssertionKey = "ROUTER_SERVING_ASSERTION_KEY"
-	envDefaultStrategy     = "ROUTER_DEFAULT_STRATEGY"
+	envDefaultStrategy = "ROUTER_DEFAULT_STRATEGY"
 )
 
 // managedServingStrategies are the policy strategies a managed serving worker
@@ -27,9 +25,7 @@ const (
 // cluster embedder.
 var managedServingStrategies = []router.Strategy{router.StrategyHMM, router.StrategyHMMEmbedding}
 
-// managedServingEnvVars enumerates every ROUTER_SERVING_* variable the worker
-// reads besides the assertion key. A set variable means the revision was
-// stamped as a managed serving worker, even when its value is empty.
+// Presence of serving configuration requires an explicit fleet target.
 var managedServingEnvVars = []string{
 	"ROUTER_SERVING_TARGET",
 	"ROUTER_SERVING_PROJECT",
@@ -46,33 +42,27 @@ var managedServingEnvVars = []string{
 }
 
 func managedServingEnabled() bool {
-	return strings.TrimSpace(config.GetOr(envServingAssertionKey, "")) != ""
+	return strings.TrimSpace(config.GetOr("ROUTER_SERVING_TARGET", "")) != ""
 }
 
-// validateManagedServingBoot rejects a managed revision stamped as a serving
-// worker whose assertion key is missing: without it the worker would mount
-// inference routes with no admission. Stamping is presence-based, so a variable
-// set to an empty or whitespace value still demands the key. Managed workers
-// with no ROUTER_SERVING_* variable set (legacy) and self-hosted deployments are
-// unaffected.
+// A stamped managed revision must not boot without fleet admission.
 func validateManagedServingBoot(mode server.DeploymentMode, lookup func(string) (string, bool)) error {
 	if mode != server.DeploymentModeManaged {
 		return nil
 	}
-	if key, _ := lookup(envServingAssertionKey); strings.TrimSpace(key) != "" {
+	if target, present := lookup("ROUTER_SERVING_TARGET"); present {
+		if strings.TrimSpace(target) == "" {
+			return fmt.Errorf("ROUTER_SERVING_TARGET is empty")
+		}
+		if _, err := policyregistry.ServingTarget(target).Environment(); err != nil {
+			return err
+		}
 		return validateManagedServingDefaultStrategy(lookup)
 	}
-	var stamped []string
 	for _, name := range managedServingEnvVars {
-		if _, ok := lookup(name); ok {
-			stamped = append(stamped, name)
+		if _, present := lookup(name); present {
+			return fmt.Errorf("%s requires ROUTER_SERVING_TARGET", name)
 		}
-	}
-	if len(stamped) > 0 {
-		return fmt.Errorf(
-			"%s is empty while managed serving configuration is present (%s)",
-			envServingAssertionKey, strings.Join(stamped, ", "),
-		)
 	}
 	return nil
 }
@@ -106,10 +96,6 @@ func strategyList(strategies []router.Strategy) string {
 func osEnvLookup(key string) (string, bool) { return os.LookupEnv(key) }
 
 func buildManagedServingRuntime(ctx context.Context, availableProviders map[string]struct{}, taskRuntimes ...*taskDomainRuntime) (*middleware.ServingAdmissionConfig, *policyregistry.Snapshot, func(), error) {
-	signer, err := policyregistry.NewAssertionSigner([]byte(strings.TrimSpace(config.GetOr("ROUTER_SERVING_ASSERTION_KEY", ""))), time.Now)
-	if err != nil {
-		return nil, nil, nil, err
-	}
 	identity := policyregistry.WorkerIdentity{
 		Target:  policyregistry.ServingTarget(config.MustGet("ROUTER_SERVING_TARGET")),
 		Project: config.MustGet("ROUTER_SERVING_PROJECT"), Region: config.MustGet("ROUTER_SERVING_REGION"),
@@ -142,7 +128,7 @@ func buildManagedServingRuntime(ctx context.Context, availableProviders map[stri
 		closeRegistry()
 		return nil, nil, nil, err
 	}
-	return &middleware.ServingAdmissionConfig{Signer: signer, Store: registry, Identity: identity, Cache: cache}, baseline, closeRegistry, nil
+	return &middleware.ServingAdmissionConfig{Store: registry, Identity: identity, Cache: cache}, baseline, closeRegistry, nil
 }
 
 func servingReferenceFromEnv(prefix string) policyregistry.ObjectRef {

@@ -304,6 +304,12 @@ func TestServingCLIApplyResolvesDigestDryRunsActivatesAndReplays(t *testing.T) {
 	var output any
 	env := map[string]string{"WORKFLOW_ACTOR": "github-actions:example/workflows:4242:1", "GITHUB_ACTOR": "ci-bot", "GITHUB_RUN_ID": "4242", "USER": "local-operator"}
 	dependencies := cliDependencies(registry, endpoints, &output, env)
+	invalidations := 0
+	dependencies.invalidateAdmission = func(_ context.Context, target policyregistry.ServingTarget) error {
+		require.Equal(t, fixture.Target, target)
+		invalidations++
+		return nil
+	}
 	ctx := context.Background()
 
 	require.NoError(t, runServingWith(ctx, []string{string(commandApply), "--dry-run", "--proposal-sha256", ref.SHA256}, dependencies))
@@ -313,6 +319,7 @@ func TestServingCLIApplyResolvesDigestDryRunsActivatesAndReplays(t *testing.T) {
 	require.Nil(t, prepared.Activation)
 	require.Zero(t, registry.writes, "a dry run never writes state")
 	require.Zero(t, registry.state.Generation)
+	require.Zero(t, invalidations)
 
 	require.NoError(t, runServingWith(ctx, []string{string(commandApply), "--proposal", path}, dependencies))
 	first := output.(policyregistry.ActivationResult)
@@ -323,11 +330,13 @@ func TestServingCLIApplyResolvesDigestDryRunsActivatesAndReplays(t *testing.T) {
 	require.Equal(t, "ci-bot@run:4242", first.Activation.WorkflowActor, "the GitHub run identity ignores the caller-supplied override")
 	require.EqualValues(t, 1, first.Snapshot.Generation)
 	require.Equal(t, 1, registry.writes)
+	require.Equal(t, 1, invalidations)
 
 	endpoints.err = errors.New("destination offline")
 	require.NoError(t, runServingWith(ctx, []string{string(commandApply), "--proposal-sha256", ref.SHA256}, dependencies))
 	replayed := output.(policyregistry.ActivationResult)
 	require.True(t, replayed.Replayed, "the same proposal replays its original outcome without revalidating destinations")
+	require.Equal(t, 2, invalidations, "replay repairs a lost invalidation broadcast")
 	require.Equal(t, first.Activation.ID, replayed.Activation.ID)
 	require.Equal(t, 1, registry.writes)
 	require.NoError(t, runServingWith(ctx, []string{string(commandApply), "--dry-run", "--proposal", path}, dependencies))

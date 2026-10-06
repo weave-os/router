@@ -146,9 +146,9 @@ durations; CI writes them to the GitHub job summary. This makes a cache
 regression or service-startup stall visible without downloading the complete
 log.
 
-### 9. Path-gate the Go checks and the standalone gateway build (implemented)
+### 9. Path-gate the Go checks (implemented)
 
-`Go checks` and its standalone gateway build previously ran on every pull
+`Go checks` previously ran on every pull
 request, including documentation-only ones. The classifier job now also emits a
 `go` output from [`scripts/go_ci_relevance.sh`](../scripts/go_ci_relevance.sh),
 and `Go checks` is skipped when the diff cannot reach Go compilation. The
@@ -165,14 +165,6 @@ package yet are asserted by Go tests. Package ownership is resolved against
 both the base and the head tree and the diff is taken with `--no-renames`, so
 moving a file out of a Go package still gates ON. Anything it cannot
 classify — including a failing `git` invocation — runs the checks.
-
-Inside `Go checks`, the `Build standalone gateway without worker native
-dependencies` step now runs only when the diff intersects
-`CGO_ENABLED=0 go list -deps ./cmd/router-gateway` package directories (the
-same build setting as the step it gates), or when `go.mod` or
-`go.sum` changed, or when that closure cannot be computed. The closure is
-computed in the job that already has the toolchain, so the classifier job stays
-cheap.
 
 The aggregate `Test` job accepts `skipped` for `Go checks` only when the
 classifier reported `go=false`; a skip for any other reason, a cancellation or

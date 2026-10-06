@@ -1,10 +1,8 @@
 package middleware
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"io"
 	"net/http"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/requestcontext"
@@ -79,29 +77,17 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 	return func(c *gin.Context) {
 		parentCtx := c.Request.Context()
 		var testPlan *policyregistry.TestPlanScope
-		if len(serving) > 0 && serving[0] != nil {
-			body, err := io.ReadAll(io.LimitReader(c.Request.Body, requestcontext.MaxRequestBodyBytes+1))
-			if err != nil || len(body) > requestcontext.MaxRequestBodyBytes {
-				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_request_body"})
-				return
-			}
-			c.Request.Body = io.NopCloser(bytes.NewReader(body))
-			assertion, err := serving[0].Signer.Verify(c.GetHeader(policyregistry.ServingAssertionHeader), c.Request, body, extractToken(c))
+		if len(serving) > 0 && serving[0] != nil && serving[0].Decisions != nil {
+			var err error
+			testPlan, err = prepareDirectTest(c, svc, serving[0])
 			if err != nil {
-				observability.FromGin(c).Debug("Serving assertion rejected before identity resolution", "err", err)
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "serving_assertion_required"})
+				observability.FromGin(c).Warn("Direct test admission rejected", "err", err)
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "test_scope_rejected"})
 				return
 			}
-			testPlan = assertion.TestPlan
-			if testPlan != nil && !serving[0].TestBudgetEnabled {
-				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "test_budget_unavailable"})
-				return
-			}
-			if testPlan != nil {
-				parentCtx = policyregistry.WithServingAssertion(parentCtx, assertion)
-				c.Request = c.Request.WithContext(parentCtx)
-			}
+			parentCtx = c.Request.Context()
 		}
+
 		clientSessionID := proxy.ClientIdentityFromHeaders(c.Request.Header).SessionID
 		if testPlan != nil {
 			clientSessionID = testPlan.SessionID

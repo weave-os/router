@@ -25,8 +25,9 @@ type TokenSource func(context.Context, string) (string, error)
 
 // Client never follows redirects; the revisions it calls come from immutable, validated bindings.
 type Client struct {
-	http  *http.Client
-	token TokenSource
+	http          *http.Client
+	token         TokenSource
+	internalToken string
 }
 
 // New bounds the HTTP client: no redirects, a fixed timeout, and a capped attestation body.
@@ -39,6 +40,9 @@ func New(client *http.Client, token TokenSource) (*Client, error) {
 	bounded.Timeout = privateValidationTimeout
 	return &Client{http: &bounded, token: token}, nil
 }
+
+// WithInternalToken authenticates worker validation independently of public ingress.
+func (c *Client) WithInternalToken(token string) *Client { c.internalToken = token; return c }
 
 // ValidateWorker forces the exact revision to load and validate this immutable default/profile snapshot.
 func (c *Client) ValidateWorker(ctx context.Context, revision policyregistry.RevisionBinding, selection policyregistry.WorkerValidationRequest) (policyregistry.WorkerAttestation, error) {
@@ -80,6 +84,9 @@ func (c *Client) call(ctx context.Context, revision policyregistry.RevisionBindi
 	}
 	request.Header.Set("X-Serverless-Authorization", "Bearer "+token)
 	request.Header.Set("Content-Type", "application/json")
+	if path == policyregistry.WorkerValidationPath {
+		request.Header.Set("X-Weave-Internal-Token", c.internalToken)
+	}
 	response, err := c.http.Do(request)
 	if err != nil {
 		return fmt.Errorf("call private validation endpoint: %w", err)

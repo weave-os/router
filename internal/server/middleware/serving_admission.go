@@ -15,9 +15,14 @@ import (
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
-// ServingAdmissionConfig is assembled only when the worker is running behind the managed gateway.
+// ServingAdmissionConfig is assembled only when the worker is running with managed serving.
+type TestPlanAdmitter interface {
+	Admit(context.Context, string, string, string, string) (policyregistry.ServingAssertion, error)
+}
+
 type ServingAdmissionConfig struct {
-	Signer            *policyregistry.AssertionSigner
+	Decisions         *policyregistry.AdmissionDecisionCache
+	TestPlans         TestPlanAdmitter
 	TestBudgetEnabled bool
 	Store             policyregistry.ServingStore
 	Identity          policyregistry.WorkerIdentity
@@ -25,7 +30,7 @@ type ServingAdmissionConfig struct {
 	Attribution       policyregistry.RequestAttributionStore
 }
 
-// WithServingAdmission verifies the gateway assertion and loads the admitted snapshot.
+// WithServingAdmission admits the authenticated principal and loads the selected snapshot.
 // A nil config is a no-op so existing self-hosted and old-config managed workers boot unchanged.
 func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 	if cfg == nil {
@@ -43,23 +48,15 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 			return
 		}
 		c.Request.Body = io.NopCloser(bytes.NewReader(body))
-		encoded := c.GetHeader(policyregistry.ServingAssertionHeader)
-		credential := extractToken(c)
-		assertion, err := cfg.Signer.Verify(encoded, c.Request, body, credential)
-		if err != nil {
-			observability.FromGin(c).Debug("Worker serving assertion rejected", "method", c.Request.Method, "err", err)
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "serving_assertion_required"})
-			return
-		}
 		key := APIKeyFrom(c)
 		installation := InstallationFrom(c)
 		if key == nil || installation == nil {
-			observability.FromGin(c).Warn("Worker admission identity missing", "method", c.Request.Method, "has_api_key", key != nil, "has_installation", installation != nil)
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "serving_assertion_required"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid_key"})
 			return
 		}
-		if _, err := policyregistry.ValidateWorkerAdmission(c.Request.Context(), cfg.Store, cfg.Identity, assertion, installation.ID, key.ID); err != nil {
-			observability.FromGin(c).Warn("Worker admission identity rejected", "target", assertion.Admission.Target, "activation_id", assertion.Admission.ActivationID, "err", err)
+		assertion, err := directAssertion(c.Request.Context(), cfg, installation.ID, key.ID, c.Request, body)
+		if err != nil {
+			observability.FromGin(c).Warn("Worker admission rejected", "err", err)
 			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "serving_admission_rejected"})
 			return
 		}

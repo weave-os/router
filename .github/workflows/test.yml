@@ -125,16 +125,6 @@ jobs:
       - name: Test the Go CI relevance classifier
         run: bash scripts/go_ci_relevance_test.sh
 
-      # The standalone gateway build only protects the gateway's own Go
-      # dependency closure. Computing that closure here keeps the classifier
-      # job toolchain-free; an uncomputable closure gates the build ON.
-      - name: Classify gateway closure relevance
-        id: gateway-closure
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: scripts/go_ci_relevance.sh gateway-closure "$BASE_SHA" "$HEAD_SHA" >>"$GITHUB_OUTPUT"
-
       - name: Install golang-migrate
         run: |
           curl -L https://github.com/golang-migrate/migrate/releases/download/v4.17.1/migrate.linux-amd64.tar.gz \
@@ -238,10 +228,6 @@ jobs:
         env:
           ROUTER_TEST_DATABASE_URL: postgres://router:router@localhost:5432/router?sslmode=disable&search_path=router
         run: go test -count=1 ./scripts/subscription_verification_check
-
-      - name: Build standalone gateway without worker native dependencies
-        if: ${{ steps.gateway-closure.outputs.gateway_closure_changed == 'true' }}
-        run: CGO_ENABLED=0 go build -o "$RUNNER_TEMP/router-gateway" ./cmd/router-gateway
 
       - name: Check legacy worker startup with serving dependencies unavailable
         env:

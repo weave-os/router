@@ -26,7 +26,6 @@ func TestPlanOwnedServingForcesProfileStrategyAndIgnoresCustomerHeaders(t *testi
 
 	for _, plan := range []entitlement.Plan{entitlement.PlanMax, entitlement.PlanBoost} {
 		t.Run(string(plan), func(t *testing.T) {
-			gin.SetMode(gin.TestMode)
 			engine := gin.New()
 			engine.Use(func(c *gin.Context) {
 				c.Set("router_installation", &auth.Installation{
@@ -71,7 +70,6 @@ func TestPlanOwnedServingForcesProfileStrategyAndIgnoresCustomerHeaders(t *testi
 func TestPlanOwnedServingRejectsUnknownPlan(t *testing.T) {
 	t.Parallel()
 
-	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	engine.Use(func(c *gin.Context) {
 		c.Set("router_installation", &auth.Installation{ID: "installation"})

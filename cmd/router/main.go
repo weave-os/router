@@ -528,6 +528,22 @@ func main() {
 	}
 	logger.Info("Routing via cluster scorer", "embedder", defaultEmbedderID)
 
+	var admissionDecisions *policyregistry.AdmissionDecisionCache
+	if managedServingEnabled() {
+		target := policyregistry.ServingTarget(config.MustGet("ROUTER_SERVING_TARGET"))
+		environment, err := target.Environment()
+		if err != nil {
+			panic(err)
+		}
+		admissions, err := servingpostgres.NewServingAdmissionRepo(pool, environment)
+		if err != nil {
+			panic(err)
+		}
+		admissionDecisions, err = policyregistry.NewAdmissionDecisionCache(admissions, 10000, 30*time.Second, time.Now)
+		if err != nil {
+			panic(err)
+		}
+	}
 	cache := auth.NewLRUAPIKeyCache(10000, 50000, 5*time.Minute, 60*time.Second)
 	userCache := auth.NewLRUUserCache(50000, 10*time.Minute)
 	// 5-min TTL matches the API-key cache so both halves share one staleness bound under a Pub/Sub outage.
@@ -616,7 +632,11 @@ func main() {
 	defer deleteSubscription()
 	logger.Info("Created per-replica invalidation subscription", "subscription", subscriptionName)
 
-	listener := routerpubsub.NewInvalidationListener(pubsubClient.Subscriber(subscriptionName), cache, userClusterCache, blindExperimentCache, routingPolicyCache)
+	invalidators := []auth.InstallationInvalidator{cache, userClusterCache, blindExperimentCache, routingPolicyCache}
+	if admissionDecisions != nil {
+		invalidators = append(invalidators, admissionDecisions)
+	}
+	listener := routerpubsub.NewInvalidationListener(pubsubClient.Subscriber(subscriptionName), invalidators...)
 	listenerCtx, listenerCancel := context.WithCancel(context.Background())
 	defer func() {
 		listenerCancel()
@@ -1050,6 +1070,10 @@ func main() {
 		}
 		defer closeRegistry()
 		servingAdmission = admission
+		servingAdmission.Decisions = admissionDecisions
+		if testPlansEnabled {
+			servingAdmission.TestPlans = &policyregistry.TestPlanTools{Repository: servingpostgres.NewTestPlanRepo(pool), Store: admission.Store, Clock: time.Now}
+		}
 		servingAdmission.TestBudgetEnabled = testPlansEnabled && billingSvc != nil
 		servingAdmission.Attribution = servingpostgres.NewRequestAttributionRepo(pool)
 		admittedRouter := policyregistry.NewAdmittedRouter(router.StrategyHMM, baseline)
@@ -1062,6 +1086,20 @@ func main() {
 			router.StrategyHMM: rosterSource, router.StrategyHMMEmbedding: rosterSource,
 		}
 		hmmRosterModels = admittedHMMRosterSource{}
+		if topic := strings.TrimSpace(config.GetOr("PUBSUB_TOPIC_ROUTER_POLICY_INVALIDATION", "")); topic != "" {
+			subscriptionCtx, cancelSubscription := context.WithTimeout(context.Background(), 30*time.Second)
+			name, cleanup, err := routerpubsub.CreateReplicaSubscription(subscriptionCtx, pubsubClient, pubsubProjectID, topic, config.GetOr("PUBSUB_SUBSCRIPTION_ROUTER_POLICY_INVALIDATION", topic))
+			cancelSubscription()
+			if err != nil {
+				logger.Warn("Admission release invalidation unavailable; TTL remains authoritative", "err", err)
+			} else {
+				defer cleanup()
+				releaseListener := routerpubsub.NewPolicyReleaseListener(pubsubClient.Subscriber(name), admissionDecisions.InvalidateAll)
+				releaseCtx, cancelRelease := context.WithCancel(context.Background())
+				defer func() { cancelRelease(); releaseListener.Wait() }()
+				safeGo(logger, "admission-release-invalidation", func() { releaseListener.Run(releaseCtx) })
+			}
+		}
 		logger.Info("Managed serving admission enabled", "target", admission.Identity.Target, "revision", admission.Identity.Revision)
 	} else if policyEnvironmentRaw != "" {
 		registryURI := strings.TrimSpace(config.GetOr("WEAVE_REGISTRY_URI", "gs://weave_ml/weave_registry"))

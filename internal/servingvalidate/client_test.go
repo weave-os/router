@@ -25,12 +25,14 @@ func TestPrivateValidationPreservesIAMAudienceAndExactSnapshot(t *testing.T) {
 		require.Empty(t, r.Header.Get("Authorization"))
 		switch r.URL.Path {
 		case policyregistry.WorkerValidationPath:
+			require.Equal(t, "worker-secret", r.Header.Get("X-Weave-Internal-Token"))
 			require.Equal(t, http.MethodPost, r.Method)
 			var request policyregistry.WorkerValidationRequest
 			require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
 			require.Equal(t, selection, request)
 			require.NoError(t, json.NewEncoder(w).Encode(worker))
 		case policyregistry.ClassifierAttestationPath:
+			require.Empty(t, r.Header.Get("X-Weave-Internal-Token"))
 			require.Equal(t, http.MethodGet, r.Method)
 			require.NoError(t, json.NewEncoder(w).Encode(classifier))
 		default:
@@ -45,6 +47,7 @@ func TestPrivateValidationPreservesIAMAudienceAndExactSnapshot(t *testing.T) {
 		return "private-identity", nil
 	})
 	require.NoError(t, err)
+	client.WithInternalToken("worker-secret")
 	revision := policyregistry.RevisionBinding{URL: server.URL, Audience: audience}
 	observedWorker, err := client.ValidateWorker(context.Background(), revision, selection)
 	require.NoError(t, err)

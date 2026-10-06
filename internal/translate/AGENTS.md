@@ -8,7 +8,7 @@ Cross-format wire-format conversion. Pure functions, no I/O, no provider knowled
 
 Covers all three directions: Anthropic ⇄ OpenAI and Gemini ⇄ {Anthropic, OpenAI} via a `RequestEnvelope` intermediate + per-target `emit_*.go` files.
 
-**[`../proxy`](../proxy) owns inference translation; [`../gateway`](../gateway) reuses pure envelope/control parsing and synthetic retirement replies only.** Gateway ordinary dispatch preserves the original body. Providers stay ignorant of cross-format concerns.
+**[`../proxy`](../proxy) owns inference translation.** Direct worker admission preserves the original body. Providers stay ignorant of cross-format concerns.
 
 ## Adding a wire-format pair
 

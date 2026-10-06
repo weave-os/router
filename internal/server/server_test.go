@@ -8,8 +8,10 @@ import (
 	"testing"
 
 	"weave-os/router/internal/analytics"
+	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/server"
+	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -43,6 +45,7 @@ func TestRegister_DeploymentMode(t *testing.T) {
 	productRoutes := []string{
 		"GET /health",
 		"GET /readyz",
+		"GET /startupz",
 		"GET /validate",
 		"POST /v1/client-events",
 		"GET /v1/router/models",
@@ -162,11 +165,25 @@ func TestRegisterSeparatesLivenessFromReadiness(t *testing.T) {
 	}{
 		{path: "/health", wantStatus: http.StatusOK},
 		{path: "/readyz", wantStatus: http.StatusServiceUnavailable},
+		{path: "/startupz", wantStatus: http.StatusServiceUnavailable},
 	} {
 		t.Run(test.path, func(t *testing.T) {
 			response := httptest.NewRecorder()
 			engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, test.path, nil))
 			assert.Equal(t, test.wantStatus, response.Code)
 		})
+	}
+}
+
+func TestManagedValidationRejectsPublicCredentials(t *testing.T) {
+	t.Setenv("ROUTER_INTERNAL_SERVICE_TOKEN", "internal-fixture-token")
+	engine := gin.New()
+	server.RegisterWithFeatures(engine, nil, nil, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{ServingAdmission: &middleware.ServingAdmissionConfig{}})
+	for _, credential := range []string{"", "rk_public-key"} {
+		request := httptest.NewRequest(http.MethodPost, policyregistry.WorkerValidationPath, nil)
+		request.Header.Set("Authorization", "Bearer "+credential)
+		response := httptest.NewRecorder()
+		engine.ServeHTTP(response, request)
+		assert.Equal(t, http.StatusUnauthorized, response.Code)
 	}
 }

@@ -6,7 +6,7 @@ Composition root. Only place that constructs concrete adapters + wires them toge
 
 ## Rules
 
-- **`cmd/router/main.go` wires worker provider adapters and persistence. `cmd/router-gateway/main.go` wires only gateway authentication, admission persistence, the registry and IAM forwarding.** The gateway must not construct provider clients, billing, ONNX routing or policy-selection runtimes. Keep its image independent of worker releases.
+- **`cmd/router/main.go` wires admission, policy runtime, providers and persistence.** The shared stable fleet serves Default/Boost/Max; internal credentials are admitted only in the internal fleet.
 - Keep `main.go` focused on wiring. Today's helpers:
   - `buildClusterScorer` — per-version Scorer assembly + embedder warmup
   - `buildExploringRouter` — optionally wraps the cluster router in `banditexplore` (env-flag gated; off by default)
@@ -36,3 +36,8 @@ Provider registration:
 - Provider credential mode follows `byokOnly` in `cmd/router/main.go`, not `managed` alone. Preserve installation BYOK opt-in and client subscription routing when changing registration.
 
 Single source of truth for provider→env-var mapping = `providers.APIKeyEnvVars` in [`../internal/providers/provider.go`](../internal/providers/provider.go). Admin `/config` view reads it so it can't drift from actual wiring.
+
+`cmd/router-warmup` emits a full-catalog request plan by default. Live warmup
+requires `-execute`, a fleet origin and `ROUTER_WARMUP_API_KEY`. It chooses each
+model's least supported declared effort and reports all failures. Keep it broad;
+do not execute live warmup as a unit-test or local validation step.

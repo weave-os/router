@@ -121,7 +121,7 @@ type Features struct {
 	// PolicyPinEnabled registers the x-weave-policy-pin middleware. Off means
 	// the header is never read.
 	PolicyPinEnabled bool
-	// ServingAdmission verifies gateway assertions and pins request snapshots.
+	// ServingAdmission admits authenticated requests and pins policy snapshots.
 	// Nil keeps legacy/self-hosted workers on their existing admission path.
 	ServingAdmission *middleware.ServingAdmissionConfig
 	TestPlans        *policyregistry.TestPlanTools
@@ -173,7 +173,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	var servingAdmissionMiddleware []gin.HandlerFunc
 	if features.ServingAdmission != nil {
 		servingAdmissionMiddleware = []gin.HandlerFunc{middleware.WithServingAdmission(features.ServingAdmission)}
-		engine.POST(policyregistry.WorkerValidationPath, middleware.WithTimeout(30*time.Second), middleware.ServingValidationHandler(features.ServingAdmission))
+		engine.POST(policyregistry.WorkerValidationPath, middleware.WithTimeout(30*time.Second), middleware.WithInternalServiceAuth(strings.TrimSpace(os.Getenv("ROUTER_INTERNAL_SERVICE_TOKEN"))), middleware.ServingValidationHandler(features.ServingAdmission))
 	}
 	var discoveryMiddleware []gin.HandlerFunc
 	if features.ServingAdmission != nil {
@@ -187,6 +187,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 
 	engine.GET("/health", middleware.WithTimeout(healthTimeout), admin.HealthHandler)
 	engine.GET("/readyz", middleware.WithTimeout(readinessTimeout), admin.ReadinessHandler(readinessChecker))
+	engine.GET("/startupz", middleware.WithTimeout(readinessTimeout), admin.ReadinessHandler(readinessChecker))
 
 	// /v1/version reports the binary's git commit + build time (via -ldflags),
 	// used by the README's managed-deployment badge. Public build metadata, unauthed like /health.

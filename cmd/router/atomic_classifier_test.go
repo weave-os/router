@@ -23,10 +23,10 @@ import (
 func TestAtomicClassifierStartupIsOptInAndFailsClosed(t *testing.T) {
 	t.Setenv("ROUTER_LLM_CLASSIFIER_CONFIG", "")
 	require.NoError(t, configureAtomicClassifier(nil, nil, nil))
-	t.Setenv("ROUTER_SERVING_ASSERTION_KEY", "managed")
+	t.Setenv("ROUTER_SERVING_TARGET", "prod/stable")
 	t.Setenv("ROUTER_LLM_CLASSIFIER_CONFIG", "/must-not-read")
 	require.ErrorContains(t, configureAtomicClassifier(nil, nil, nil), "managed Modal release integration")
-	t.Setenv("ROUTER_SERVING_ASSERTION_KEY", "")
+	t.Setenv("ROUTER_SERVING_TARGET", "")
 	t.Setenv("ROUTER_LLM_CLASSIFIER_BEARER", strings.Repeat("b", 32))
 	t.Setenv("ROUTER_LLM_CLASSIFIER_SIGNING_KEY", strings.Repeat("s", 32))
 	model, found := catalog.ByID(catalog.ModelIDGPT55.String())

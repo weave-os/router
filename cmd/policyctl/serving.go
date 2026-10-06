@@ -13,6 +13,7 @@ import (
 	"os"
 	"time"
 
+	gcppubsub "cloud.google.com/go/pubsub/v2"
 	"google.golang.org/api/idtoken"
 
 	"weave-os/router/internal/policyregistry"
@@ -38,12 +39,13 @@ type servingRegistry interface {
 }
 
 type servingDependencies struct {
-	openRegistry func(context.Context, string) (servingRegistry, error)
-	endpoints    func() (policyregistry.DestinationEndpoints, error)
-	writeOutput  func(any) error
-	clock        func() time.Time
-	logger       *slog.Logger
-	getenv       func(string) string
+	invalidateAdmission func(context.Context, policyregistry.ServingTarget) error
+	openRegistry        func(context.Context, string) (servingRegistry, error)
+	endpoints           func() (policyregistry.DestinationEndpoints, error)
+	writeOutput         func(any) error
+	clock               func() time.Time
+	logger              *slog.Logger
+	getenv              func(string) string
 }
 
 func runServing(ctx context.Context, args []string) (runErr error) {
@@ -61,7 +63,7 @@ func runServing(ctx context.Context, args []string) (runErr error) {
 			return policyregistry.NewGCSRegistry(ctx, root)
 		},
 		endpoints: func() (policyregistry.DestinationEndpoints, error) {
-			return servingvalidate.New(&http.Client{}, func(ctx context.Context, audience string) (string, error) {
+			client, err := servingvalidate.New(&http.Client{}, func(ctx context.Context, audience string) (string, error) {
 				source, err := idtoken.NewTokenSource(ctx, audience)
 				if err != nil {
 					return "", err
@@ -72,8 +74,13 @@ func runServing(ctx context.Context, args []string) (runErr error) {
 				}
 				return token.AccessToken, nil
 			})
+			if err != nil {
+				return nil, err
+			}
+			return client.WithInternalToken(os.Getenv("ROUTER_INTERNAL_SERVICE_TOKEN")), nil
 		},
-		writeOutput: writeJSON, clock: time.Now, logger: logger, getenv: os.Getenv,
+		invalidateAdmission: publishAdmissionInvalidation,
+		writeOutput:         writeJSON, clock: time.Now, logger: logger, getenv: os.Getenv,
 	})
 }
 
@@ -261,6 +268,14 @@ func servingApply(ctx context.Context, dependencies servingDependencies, root, p
 	if err != nil {
 		return err
 	}
+	if dependencies.invalidateAdmission != nil {
+		invalidateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		err := dependencies.invalidateAdmission(invalidateCtx, proposal.Target)
+		cancel()
+		if err != nil {
+			dependencies.logger.Warn("Admission invalidation publish failed; worker TTL is the fallback", "target", proposal.Target, "err", err)
+		}
+	}
 	if err := dependencies.writeOutput(activation); err != nil {
 		return fmt.Errorf("activated; output observation degraded; reconcile the same proposal without creating another activation: %w", err)
 	}
@@ -325,4 +340,21 @@ func servingProposalStatus(ctx context.Context, registry servingRegistry, ref po
 		Activated  bool                     `json:"activated"`
 		Generation int64                    `json:"generation"`
 	}{ref, false, snapshot.Generation})
+}
+
+// Every applied or replayed activation can change retained binding eligibility.
+func publishAdmissionInvalidation(ctx context.Context, target policyregistry.ServingTarget) error {
+	project, topic := os.Getenv("GCP_PROJECT_ID"), os.Getenv("PUBSUB_TOPIC_ROUTER_POLICY_INVALIDATION")
+	if project == "" || topic == "" {
+		return errors.New("admission invalidation requires project and topic configuration")
+	}
+	client, err := gcppubsub.NewClient(ctx, project)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+	publisher := client.Publisher(topic)
+	defer publisher.Stop()
+	_, err = publisher.Publish(ctx, &gcppubsub.Message{Data: []byte(target)}).Get(ctx)
+	return err
 }
