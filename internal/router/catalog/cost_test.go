@@ -79,6 +79,32 @@ func TestEffectiveInputCost_UsesBindingCacheWritePrice(t *testing.T) {
 	assert.InDelta(t, 0.000185, legacy, 1e-12, "unspecified values preserve legacy 1.25x behavior")
 }
 
+func TestCounterfactualInputCost_RepricesWarmPrefillAsCacheRead(t *testing.T) {
+	opus := catalog.Pricing{InputUSDPer1M: 5, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.10}
+
+	// 2k fresh + 100k cold prefill: $0.01 + $0.625 actual; the warm baseline reads the prefill for $0.05.
+	assert.InDelta(t, 0.635, catalog.CounterfactualInputCost(2_000, 100_000, 0, 0, opus, "anthropic"), 1e-12)
+	assert.InDelta(t, 0.060, catalog.CounterfactualInputCost(2_000, 100_000, 0, 100_000, opus, "anthropic"), 1e-12)
+}
+
+func TestCounterfactualInputCost_SameResultForEitherUsageShape(t *testing.T) {
+	opus := catalog.Pricing{InputUSDPer1M: 5, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.10}
+
+	// OpenAI-shaped input_tokens include cached tokens; the fresh split must survive the repricing.
+	anthropic := catalog.CounterfactualInputCost(2_000, 100_000, 5_000, 100_000, opus, "anthropic")
+	openai := catalog.CounterfactualInputCost(107_000, 100_000, 5_000, 100_000, opus, "openai")
+	assert.InDelta(t, anthropic, openai, 1e-12)
+}
+
+func TestCounterfactualInputCost_ClampsWarmPrefillToCacheCreation(t *testing.T) {
+	opus := catalog.Pricing{InputUSDPer1M: 5, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.10}
+
+	all := catalog.CounterfactualInputCost(2_000, 100_000, 0, 100_000, opus, "anthropic")
+	assert.InDelta(t, all, catalog.CounterfactualInputCost(2_000, 100_000, 0, 500_000, opus, "anthropic"), 1e-12)
+	assert.InDelta(t, catalog.EffectiveInputCost(2_000, 100_000, 0, opus, "anthropic"),
+		catalog.CounterfactualInputCost(2_000, 100_000, 0, -1, opus, "anthropic"), 1e-12)
+}
+
 func TestEffectiveCost_SelectsLongContextTier(t *testing.T) {
 	price := catalog.Pricing{
 		InputUSDPer1M:        0.20,

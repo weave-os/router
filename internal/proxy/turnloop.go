@@ -394,6 +394,28 @@ func (r turnLoopResult) modelSwitched() bool {
 	return transition || r.SessionEverSwitched || r.StripThinkingBlocks
 }
 
+// baselineWarmPrefillTokens returns the cache-creation tokens this turn paid
+// only because the router switched models. The baseline would have kept
+// serving the thread, so within its provider's cache TTL it would have read
+// the prefix warm. A first turn, client trim, or ingress truncation re-primes
+// the baseline's cache too, so those turns have nothing to correct.
+func (r turnLoopResult) baselineWarmPrefillTokens(cacheCreation int, servedModel, baselineModel string, historyTruncated bool) int {
+	if cacheCreation <= 0 || r.PriorServedModel == "" || r.PriorTurnGapMS == nil || r.PrefixTrimmed || historyTruncated {
+		return 0
+	}
+	if baseModelOf(r.PriorServedModel) == servedModel {
+		return 0
+	}
+	baseline, ok := catalog.ByID(baselineModel)
+	if !ok {
+		return 0
+	}
+	if time.Duration(*r.PriorTurnGapMS)*time.Millisecond >= providers.CacheTTLFor(baseline.PrimaryProvider()) {
+		return 0
+	}
+	return cacheCreation
+}
+
 func isHMMDecision(dec router.Decision) bool {
 	if dec.Metadata != nil && router.IsHMMStrategy(router.Strategy(dec.Metadata.Strategy)) {
 		return true

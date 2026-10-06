@@ -29,6 +29,14 @@ func EffectiveInputCost(inputTokens, cacheCreation, cacheRead int, p Pricing, up
 		float64(cacheRead)*p.EffectiveCacheReadMultiplier()) / 1_000_000 * p.InputUSDPer1M
 }
 
+// CounterfactualInputCost is EffectiveInputCost for the savings baseline, with
+// warmPrefill of the cache-creation tokens priced as cache reads: a baseline
+// that never switched models would have read that prefix from a warm cache.
+func CounterfactualInputCost(inputTokens, cacheCreation, cacheRead, warmPrefill int, p Pricing, upstreamProvider string) float64 {
+	warmPrefill = min(max(warmPrefill, 0), cacheCreation)
+	return EffectiveInputCost(inputTokens, cacheCreation-warmPrefill, cacheRead+warmPrefill, p, upstreamProvider)
+}
+
 // EffectiveOutputCost returns USD output cost for a call. Output tokens
 // have no caching multipliers — straight tokens × per-1M price.
 func EffectiveOutputCost(inputTokens, outputTokens int, p Pricing) float64 {
