@@ -10,8 +10,8 @@ mkdir -p "$work/bin" "$work/home"
 export FAKE_CURL_LOG="$work/curl.log"
 export FAKE_ENROLLMENTS="$work/enrollments.jsonl"
 
-payload="$(printf '%s' '{"chatgpt_account_id":"chatgpt-test","email":"codex@example.test","organizations":[{"id":"org-test","name":"Codex Org"}]}' | openssl base64 -A | tr '+/' '-_' | tr -d '=')"
-export FAKE_JWT="header.$payload.signature"
+payload="$(printf '%s' '{"chatgpt_account_id":"chatgpt-test","chatgpt_user_id":"codex-user-test","email":"codex@example.test","organizations":[{"id":"org-test","name":"Codex Org"}]}' | openssl base64 -A | tr '+/' '-_' | tr -d '=')"
+export FAKE_JWT="eyJhbGciOiJSUzI1NiJ9.$payload.signature"
 
 cat >"$work/bin/curl" <<'FAKE_CURL'
 #!/usr/bin/env bash

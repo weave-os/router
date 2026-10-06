@@ -43,6 +43,9 @@ const (
 	passthroughTimeout    = 10 * time.Second
 	routeTimeout          = 5 * time.Second
 	adminTimeout          = 10 * time.Second
+	// subscriptionAccountTimeout includes a 15-second provider exchange plus
+	// authentication, membership checks and the encrypted account write.
+	subscriptionAccountTimeout = 30 * time.Second
 	// catalogModelsTimeout bounds GET /v1/router/models; must exceed the HMM
 	// sidecar client budget (policyclient.DefaultTimeout) or a cold cache 503s.
 	catalogModelsTimeout = policyclient.DefaultTimeout * 2
@@ -264,7 +267,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	adminAuthed.GET("/validate", admin.ValidateHandler)
 	adminAuthed.POST("/v1/client-events", admin.ClientEventHandler(authSvc))
 	if authSvc.SubscriptionAccountsEnabled() {
-		subscriptionGroup := engine.Group("/v1", middleware.WithTimeout(adminTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission))
+		subscriptionGroup := engine.Group("/v1", middleware.WithTimeout(subscriptionAccountTimeout), middleware.WithAuth(authSvc, byokRequiresOptIn, features.ServingAdmission))
 		subscriptionGroup.Use(servingAdmissionMiddleware...)
 		subscriptionsapi.Register(subscriptionGroup, authSvc)
 	}
