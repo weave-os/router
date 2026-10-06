@@ -201,8 +201,10 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			}
 			attemptErr := in.attempt(credentialCtx, decision, guarded)
 			stopRotationDeadline()
+			// The attempt context is canceled now; health bookkeeping must still persist.
+			bookkeepingCtx := context.WithoutCancel(credentialCtx)
 			if !committed(in.buf) {
-				s.recordSubscriptionModelRejection(credentialCtx, decision.Provider, decision.Model, attemptErr)
+				s.recordSubscriptionModelRejection(bookkeepingCtx, decision.Provider, decision.Model, attemptErr)
 			}
 			lease.Release()
 			if attemptErr == nil {
@@ -212,7 +214,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				}
 				if managedAttempt {
 					s.markManagedSubscriptionServed(ctx, credentialCtx, lease)
-					s.recordManagedSubscriptionSuccess(credentialCtx, decision.Provider, decision.Model, lease)
+					s.recordManagedSubscriptionSuccess(bookkeepingCtx, decision.Provider, decision.Model, lease)
 				}
 				if attempt.Index > 0 {
 					log.Info("dispatchWithFallback: succeeded on fallback",
@@ -225,11 +227,11 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			}
 			// Budget expiry rotates only the attempt it canceled; terminal errors still stop.
 			canceledByRotationBudget := ctx.Err() == nil && rotationCtx.Err() != nil && (errors.Is(attemptErr, context.Canceled) || errors.Is(attemptErr, context.DeadlineExceeded))
-			rotate := managedAttempt && (s.recordManagedSubscriptionFailure(credentialCtx, decision.Provider, decision.Model, lease, attemptErr) || providers.IsRetryable(attemptErr) || canceledByRotationBudget)
+			rotate := managedAttempt && (s.recordManagedSubscriptionFailure(bookkeepingCtx, decision.Provider, decision.Model, lease, attemptErr) || providers.IsRetryable(attemptErr) || canceledByRotationBudget)
 			if !managedAttempt && servedOnCodexSubscription(credentialCtx) && !committed(in.buf) {
 				_, quotaSpent := codexQuotaExhaustion(attemptErr)
-				if quotaSpent || codexOAuthCredentialRejected(attemptErr) || codexSubscriptionModelRejected(attemptErr) || providers.IsRetryable(attemptErr) {
-					s.recordCodexQuotaExhaustion(credentialCtx, http.Header{}, attemptErr)
+				if quotaSpent || codexOAuthCredentialRejected(attemptErr) || codexSubscriptionModelRejected(attemptErr) || providers.IsRetryable(attemptErr) || canceledByRotationBudget {
+					s.recordCodexQuotaExhaustion(bookkeepingCtx, http.Header{}, attemptErr)
 					attemptCtx = resolveAndInjectCredentials(withSuppressedCodexSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{})
 					rotate = true
 				}
@@ -343,12 +345,16 @@ func withSubscriptionRotationDeadline(ctx, budget context.Context) context.Conte
 // rotation, not the length of a committed stream.
 func withUncommittedRotationDeadline(ctx, budget context.Context, buf *preludeBuffer) (context.Context, func()) {
 	attemptCtx, cancel := context.WithCancelCause(ctx)
+	var generation uint64
+	if buf != nil {
+		generation = buf.currentAttemptGeneration()
+	}
 	stop := context.AfterFunc(budget, func() {
 		if buf == nil {
 			cancel(budget.Err())
 			return
 		}
-		buf.abortIfUncommitted(func() { cancel(budget.Err()) })
+		buf.abortIfUncommitted(generation, func() { cancel(budget.Err()) })
 	})
 	return attemptCtx, func() {
 		stop()

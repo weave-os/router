@@ -16,8 +16,8 @@ import (
 )
 
 // chatChunks returns the parsed data payloads of a translated chat SSE stream,
-// asserting every frame is a well-formed chat.completion.chunk and that the
-// stream ends with [DONE].
+// asserting every frame is a well-formed chat.completion.chunk or error frame.
+// Successful streams end with [DONE]; failed streams never carry it.
 func chatChunks(t *testing.T, body string) []gjson.Result {
 	t.Helper()
 	var out []gjson.Result
@@ -308,7 +308,8 @@ data: {"type":"response.failed","response":{"id":"resp_1","status":"failed","err
 }
 
 // A stream that dies without a terminal event must surface an error to the
-// proxy (usage accounting depends on it) and still close the client's stream.
+// proxy (usage accounting depends on it) and end with an error frame rather
+// than the [DONE] success terminator.
 func TestResponsesToOpenAIChatWriter_TruncatedStream(t *testing.T) {
 	rec := httptest.NewRecorder()
 	w := translate.NewResponsesToOpenAIChatWriter(rec, "gpt-5.6-luna", nil)

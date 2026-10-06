@@ -414,10 +414,10 @@ func TestSubscriptionExhausted_ServesOnDeploymentKey(t *testing.T) {
 	// falls back to its own deployment key. Either way the spent token is gone.
 }
 
-// TestSubscriptionExhausted_NoDeploymentKey_KeepsSubscription guards the
-// safety rail: with no deployment / BYOK Anthropic key to fall through to,
-// dropping the subscription would leave the turn with no credential (a 400,
-// worse than the 429). So the subscription is kept even when exhausted.
+// TestSubscriptionExhausted_NoDeploymentKey_RefusesBeforeDispatch guards the
+// fail-closed rail: with no deployment / BYOK Anthropic key to fall through to,
+// the exhausted subscription is never sent and the turn is refused with
+// ErrSubscriptionPoolExhausted before dispatch.
 func TestSubscriptionExhausted_NoDeploymentKey_RefusesBeforeDispatch(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl}}
 	p := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {

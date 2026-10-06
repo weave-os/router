@@ -134,7 +134,7 @@ func RequestPresentsCoveringSubscription(ctx context.Context, headers http.Heade
 // observe the same quota windows. Direct OAuth retains token-keyed observation.
 func (s *Service) withUsageObserver(ctx context.Context, headers http.Header) context.Context {
 	_, anthroTok := presentSubscriptionTokens(ctx, headers)
-	if s.usageObserver == nil && anthroTok == "" && !managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) {
+	if s.usageObserver == nil && anthroTok == "" && !managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) && !managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude) {
 		return ctx
 	}
 	ctx = withUnifiedLimitCapture(ctx)

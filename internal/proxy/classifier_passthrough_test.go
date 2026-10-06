@@ -159,8 +159,8 @@ func TestClassifier_ExhaustedSubscription_ServesOnDeploymentKey(t *testing.T) {
 	assertNoPinWrite(t, store)
 }
 
-// With no deployment / BYOK key to fall through to, dropping the subscription
-// would leave the turn with no credential; the scored turn keeps it.
+// With no deployment / BYOK key to fall through to, the scored turn is refused
+// before dispatch instead of sending the spent subscription.
 func TestClassifier_ExhaustedSubscription_NoFallbackRefusesBeforeDispatch(t *testing.T) {
 	svc, fr, p, _ := classifierPassthroughFixture(t, exhaustedObserver())
 	rec, req := classifierRequest()

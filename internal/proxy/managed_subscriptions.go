@@ -258,7 +258,11 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 		}
 		seen[lease.AccountID] = true
 		if s.subscriptionModels.managedDenied("account:"+lease.AccountID, lease.AccountID, provider, model, s.clockNow()) {
-			modelDenial = anthropicSubscriptionModelUnavailable(model)
+			if poolProvider == subscriptions.ProviderCodex {
+				modelDenial = codexSubscriptionModelUnavailable()
+			} else {
+				modelDenial = anthropicSubscriptionModelUnavailable(model)
+			}
 			lease.Release()
 			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, lease.AccountID)
 			continue

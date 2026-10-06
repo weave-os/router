@@ -118,8 +118,6 @@ func TestVerificationAutomaticAlternativeHTTP(t *testing.T) {
 				require.Equal(t, codexCoveredModel, winner.IntendedModel)
 				require.Equal(t, "alternative-account", winner.SubscriptionAccountID)
 				require.Equal(t, "synthetic-owner", winner.SubscriptionOwnerID)
-			} else if scenario.max {
-				require.Equal(t, []string{"Bearer synthetic-api-key"}, bearers)
 			} else {
 				require.Equal(t, []string{"Bearer alternative-seat", "Bearer synthetic-api-key"}, bearers)
 				require.Equal(t, models[0], models[1])

@@ -10,6 +10,7 @@ import (
 	"os"
 	"testing"
 	"time"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/sqlc"
 )
 
@@ -49,7 +50,7 @@ func TestVerificationSQLWinningAttributionAndPaidExclusion(t *testing.T) {
 		{"api-fallback", "", "{}", 200, false},
 	}
 	for _, tc := range cases {
-		arg := sqlc.InsertRequestTelemetryParams{InstallationID: org, RequestID: tc.id, SpanType: "router.upstream", TraceID: "synthetic-trace", Timestamp: pgtype.Timestamptz{Time: now, Valid: true}, RequestedModel: "auto", DecisionModel: "gpt-5.6-sol", DecisionProvider: "openai", DecisionReason: "synthetic", EmbedInput: "concatenated_stream", UpstreamStatusCode: tc.status, SubscriptionAccountID: pgtype.UUID{Bytes: account, Valid: true}, SubscriptionOwnerID: pgtype.UUID{Bytes: owner, Valid: true}, SubscriptionTier: stringPtr("shared"), IntendedModelFamily: stringPtr("claude-opus-5"), FinalModelFamily: stringPtr("gpt-5.6-sol"), UnifiedLimitHeaders: []byte(tc.headers)}
+		arg := sqlc.InsertRequestTelemetryParams{InstallationID: org, RequestID: tc.id, SpanType: "router.upstream", TraceID: "synthetic-trace", Timestamp: pgtype.Timestamptz{Time: now, Valid: true}, RequestedModel: "auto", DecisionModel: "gpt-5.6-sol", DecisionProvider: providers.ProviderOpenAI, DecisionReason: "synthetic", EmbedInput: "concatenated_stream", UpstreamStatusCode: tc.status, SubscriptionAccountID: pgtype.UUID{Bytes: account, Valid: true}, SubscriptionOwnerID: pgtype.UUID{Bytes: owner, Valid: true}, SubscriptionTier: stringPtr("shared"), IntendedModelFamily: stringPtr("claude-opus-5"), FinalModelFamily: stringPtr("gpt-5.6-sol"), UnifiedLimitHeaders: []byte(tc.headers)}
 		if tc.source != "" {
 			arg.CredentialSource = stringPtr(tc.source)
 		}

@@ -63,15 +63,22 @@ func TestVerificationSafeSubscriptionIngressConformance(t *testing.T) {
 				defer emitter.Shutdown(context.Background())
 				var sent []byte
 				var bearer, path, providerAccount string
+				var gatewayMu sync.Mutex
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					requestBody, _ := io.ReadAll(r.Body)
+					gatewayMu.Lock()
 					bearer = r.Header.Get("Authorization")
 					path = r.URL.Path
 					providerAccount = r.Header.Get("ChatGPT-Account-ID")
-					if bearer != "Bearer synthetic-included-token" {
+					authorized := bearer == "Bearer synthetic-included-token"
+					if authorized {
+						sent = requestBody
+					}
+					gatewayMu.Unlock()
+					if !authorized {
 						w.WriteHeader(http.StatusForbidden)
 						return
 					}
-					sent, _ = io.ReadAll(r.Body)
 					w.Header().Set("Content-Type", "text/event-stream")
 					for _, frame := range []string{
 						`{"type":"response.output_text.delta","output_index":0,"delta":"synthetic answer"}`,
@@ -96,6 +103,8 @@ func TestVerificationSafeSubscriptionIngressConformance(t *testing.T) {
 				rec := httptest.NewRecorder()
 				err = fixture.run(svc, ctx, []byte(body), rec, httptest.NewRequest(http.MethodPost, fixture.path, strings.NewReader(body)))
 				require.NoError(t, err)
+				gatewayMu.Lock()
+				defer gatewayMu.Unlock()
 				require.Equal(t, "/responses", path)
 				require.Equal(t, "Bearer synthetic-included-token", bearer)
 				require.Equal(t, "synthetic-provider-account", providerAccount)
@@ -131,11 +140,14 @@ func TestVerificationSafeSubscriptionIngressConformance(t *testing.T) {
 				require.Equal(t, "10000000-0000-4000-8000-000000000002", attrs["subscription.owner_id"])
 				require.Equal(t, "shared", attrs["subscription.tier"])
 				require.Equal(t, "org_subscription_verification", attrs["external_id"])
+				statusFound := false
 				for _, attribute := range upstreamSpans[len(upstreamSpans)-1].Attributes {
 					if attribute.Key == "upstream.status_code" {
+						statusFound = true
 						require.EqualValues(t, 200, attribute.Value.GetIntValue())
 					}
 				}
+				require.True(t, statusFound, "upstream span must report upstream.status_code")
 
 			})
 		}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
@@ -27,10 +28,14 @@ func TestVerificationNonstreamFailedJSONCannotWin(t *testing.T) {
 	}
 	for _, fixture := range fixtures {
 		t.Run(fixture.name, func(t *testing.T) {
-			var bearers, paths []string
+			var bearers, paths, providerAccounts []string
+			var capturesMu sync.Mutex
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				capturesMu.Lock()
 				bearers = append(bearers, r.Header.Get("Authorization"))
 				paths = append(paths, r.URL.Path)
+				providerAccounts = append(providerAccounts, r.Header.Get("ChatGPT-Account-ID"))
+				capturesMu.Unlock()
 				w.Header().Set("Content-Type", "application/json")
 				_, _ = io.WriteString(w, `{"id":"synthetic-failure","object":"response","status":"failed","error":{"code":"usage_limit_reached","message":"synthetic included exhaustion"},"output":[],"usage":{"input_tokens":11,"output_tokens":0}}`)
 			}))
@@ -43,12 +48,15 @@ func TestVerificationNonstreamFailedJSONCannotWin(t *testing.T) {
 			rec := httptest.NewRecorder()
 			err := fixture.run(svc, ctx, []byte(fixture.body), rec, httptest.NewRequest(http.MethodPost, fixture.path, strings.NewReader(fixture.body)))
 			assert.Error(t, err, "failed provider JSON must not become successful request")
+			capturesMu.Lock()
+			defer capturesMu.Unlock()
 			require.GreaterOrEqual(t, len(bearers), 3, "uncommitted failed JSON rotates personal, shared, then API")
 			require.Equal(t, []string{"Bearer first-seat", "Bearer second-seat"}, bearers[:2])
 			for _, bearer := range bearers[2:] {
 				require.Equal(t, "Bearer synthetic-api-key", bearer)
 			}
-			t.Logf("paths=%v", paths)
+			require.Equal(t, "/responses", paths[0], "the personal subscription attempt uses the Codex Responses endpoint")
+			require.Equal(t, "first-provider", providerAccounts[0], "the personal lease keeps its provider account identity")
 			winner := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 			assert.False(t, winner.Served, "failure must not count as an included winner")
 			require.False(t, winner.OverageInUse)

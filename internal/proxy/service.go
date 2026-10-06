@@ -4019,7 +4019,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		Float64("catalog.actual_input_per_1m", actDecisionPricing.InputUSDPer1M).
 		Float64("catalog.actual_output_per_1m", actDecisionPricing.OutputUSDPer1M).
 		Int64("latency.route_ms", routeMs)
-	applySubscriptionDecisionSpanTelemetry(ctx, decisionBuilder, decision.Model)
+	applySubscriptionDecisionSpanTelemetry(ctx, decisionBuilder, feats.Model, decision.Model)
 	applyServingSpanAttrs(ctx, decisionBuilder)
 	applySidecarAttrs(decisionBuilder, routeRes)
 	applyPlannerAttrs(decisionBuilder, routeRes)
@@ -4577,7 +4577,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			buf:             preludeBuf,
 			initialDecision: decision,
 			alternatives: func() []router.Decision {
-				if routeRes.HardPinned {
+				if routeRes.HardPinned || routeRes.AuthoritativePerTurn {
 					return nil
 				}
 				return s.subscriptionAlternativeDecisions(ctx, req, decision)
@@ -5034,7 +5034,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	applyPlannerAttrs(upstreamBuilder, routeRes)
 	applyRoutingStateAttrs(upstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyEffortAttrs(upstreamBuilder, effortServed)
-	s.applySubscriptionSpanTelemetry(ctx, upstreamBuilder, decision.Model)
+	s.applySubscriptionSpanTelemetry(ctx, upstreamBuilder, feats.Model, decision.Model)
 	addTimingAttrs(ctx, upstreamBuilder)
 
 	obs := buildObservationContext(ctx, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))
@@ -6918,7 +6918,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		Float64("catalog.actual_input_per_1m", actDecisionPricing.InputUSDPer1M).
 		Float64("catalog.actual_output_per_1m", actDecisionPricing.OutputUSDPer1M).
 		Int64("latency.route_ms", routeMs)
-	applySubscriptionDecisionSpanTelemetry(ctx, openaiDecisionBuilder, decision.Model)
+	applySubscriptionDecisionSpanTelemetry(ctx, openaiDecisionBuilder, feats.Model, decision.Model)
 	applyServingSpanAttrs(ctx, openaiDecisionBuilder)
 	applySidecarAttrs(openaiDecisionBuilder, routeRes)
 	applyPlannerAttrs(openaiDecisionBuilder, routeRes)
@@ -6962,7 +6962,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			ChatOnlyParams: env.RequiresChatCompletionsParams(opts.Capabilities),
 			Broad:          s.ResolveOpenAIResponsesBroad(ctx),
 		}) && !s.gatewayLacksResponses(responsesEndpointKey)
-		if !env.RequiresChatCompletionsParams(opts.Capabilities) && s.includedOnlySubscriptionTransport(decision.Provider) &&
+		if !env.RequiresChatCompletionsParams(opts.Capabilities) && !s.gatewayLacksResponses(responsesEndpointKey) && s.includedOnlySubscriptionTransport(decision.Provider) &&
 			(servedOnCodexSubscription(resolvedCtx) || managedSubscriptionCanServe(ctx, decision.Provider, decision.Model)) {
 			openAIResponsesEndpoint = true
 		}
@@ -7603,7 +7603,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		buf:             preludeBuf,
 		initialDecision: decision,
 		alternatives: func() []router.Decision {
-			if routeRes.HardPinned {
+			if routeRes.HardPinned || routeRes.AuthoritativePerTurn {
 				return nil
 			}
 			return s.subscriptionAlternativeDecisions(ctx, routeRequest, decision)
@@ -8030,7 +8030,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	applyPlannerAttrs(openaiUpstreamBuilder, routeRes)
 	applyRoutingStateAttrs(openaiUpstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
 	applyEffortAttrs(openaiUpstreamBuilder, effortServed)
-	s.applySubscriptionSpanTelemetry(ctx, openaiUpstreamBuilder, decision.Model)
+	s.applySubscriptionSpanTelemetry(ctx, openaiUpstreamBuilder, feats.Model, decision.Model)
 	addTimingAttrs(ctx, openaiUpstreamBuilder)
 
 	openaiObs := buildObservationContext(ctx, decision, routeRes.Fresh, s.effectiveCaptureMode(ctx))

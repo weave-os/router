@@ -178,12 +178,11 @@ func TestLinkedFirst_Anthropic_BypassThrottled_ReroutesOnCredits(t *testing.T) {
 	assert.NotContains(t, rec.Body.String(), "credits are depleted")
 }
 
-// TestLinkedFirst_Anthropic_SpentClaudePlan_NoFallbackKey_Refuses402: with the
-// plan observed-exhausted and no Anthropic fallback key, nothing can serve the
-// turn — the spent credential is deliberately kept (claudeSubscriptionExhausted
-// won't strip it) rather than left empty, so releasing the mark would only
-// dispatch onto a plan already known to 429. The pre-dispatch refusal stays.
-func TestLinkedFirst_Anthropic_SpentClaudePlan_NoFallbackKey_Refuses402(t *testing.T) {
+// TestLinkedFirst_Anthropic_SpentClaudePlan_NoFallbackKey_RefusesPoolExhausted:
+// with the plan observed-exhausted and no Anthropic fallback key, nothing can
+// serve the turn, so it is refused as subscription pool exhaustion before any
+// dispatch onto a plan already known to 429.
+func TestLinkedFirst_Anthropic_SpentClaudePlan_NoFallbackKey_RefusesPoolExhausted(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl}}
 	p := &fakeProvider{proxyResponse: bypassStreamResponse}
 	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
@@ -196,8 +195,7 @@ func TestLinkedFirst_Anthropic_SpentClaudePlan_NoFallbackKey_Refuses402(t *testi
 	rec, req, body := bypassRequest(t)
 	ctx := billing.WithSubscriptionOnly(bypassCtx(0.80), billing.SubscriptionOnlyLinkedFirst)
 	err := svc.ProxyMessages(ctx, body, rec, req)
-	require.Error(t, err)
-	assert.True(t, errors.Is(err, proxy.ErrSubscriptionPoolExhausted) || errors.Is(err, proxy.ErrCreditsExhaustedSubscriptionUnavailable))
+	require.ErrorIs(t, err, proxy.ErrSubscriptionPoolExhausted)
 	assert.Empty(t, p.proxyBodies, "a plan already known to be spent must not be dispatched on when nothing else can serve")
 }
 

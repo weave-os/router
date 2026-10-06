@@ -421,13 +421,16 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 			if debug && first {
 				log.Debug("OpenAI upstream first chunk", "bytes", len(chunk))
 			}
+			if terminalResponseError != nil {
+				return
+			}
 			responseFrames = append(responseFrames, chunk...)
 			for {
-				event, consumed := sse.SplitNext(responseFrames)
-				if consumed == 0 {
+				event, eventByteCount := sse.SplitNext(responseFrames)
+				if eventByteCount == 0 {
 					break
 				}
-				responseFrames = responseFrames[consumed:]
+				responseFrames = responseFrames[eventByteCount:]
 				_, payload := sse.ParseEvent(event)
 				if eventType := gjson.GetBytes(payload, "type").String(); eventType == "response.failed" || eventType == "error" {
 					terminalResponseError = &providers.UpstreamErrorResponse{Status: responsesFailureStatus(payload), Body: bytes.Clone(payload)}
@@ -473,9 +476,9 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 
 // responsesFailureStatus reports a context overflow as a terminal 400, matching
 // the non-streaming path; every other Responses failure is an upstream fault.
-func responsesFailureStatus(failure []byte) int {
+func responsesFailureStatus(failureBody []byte) int {
 	for _, path := range []string{"error.code", "response.error.code", "code"} {
-		if gjson.GetBytes(failure, path).String() == responsesContextOverflowCode {
+		if gjson.GetBytes(failureBody, path).String() == responsesContextOverflowCode {
 			return http.StatusBadRequest
 		}
 	}

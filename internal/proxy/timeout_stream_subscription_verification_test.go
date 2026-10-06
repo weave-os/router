@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"weave-os/router/internal/auth"
@@ -21,10 +22,13 @@ import (
 
 func TestVerificationSubscriptionTimeoutUsesAuthorizedAPI(t *testing.T) {
 	var bearers []string
+	var bearersMu sync.Mutex
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = io.Copy(io.Discard, r.Body)
 		bearer := r.Header.Get("Authorization")
+		bearersMu.Lock()
 		bearers = append(bearers, bearer)
+		bearersMu.Unlock()
 		if bearer == "Bearer timeout-seat" {
 			<-r.Context().Done()
 			return
@@ -48,9 +52,12 @@ func TestVerificationSubscriptionTimeoutUsesAuthorizedAPI(t *testing.T) {
 	started := time.Now()
 	err := svc.ProxyOpenAIChatCompletion(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
 	require.NoError(t, err)
-	require.Less(t, time.Since(started), 12*time.Second)
-	require.GreaterOrEqual(t, time.Since(started), 9*time.Second)
+	elapsed := time.Since(started)
+	require.GreaterOrEqual(t, elapsed, sameBindingRetryBudget-time.Second)
+	require.Less(t, elapsed, 3*sameBindingRetryBudget, "API fallback must follow the rotation budget promptly")
+	bearersMu.Lock()
 	require.Equal(t, []string{"Bearer timeout-seat", "Bearer synthetic-api-key"}, bearers)
+	bearersMu.Unlock()
 	require.Contains(t, rec.Body.String(), "api answer")
 	winner := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	require.False(t, winner.Served, "API fallback must not be billed as subscription")
@@ -58,8 +65,11 @@ func TestVerificationSubscriptionTimeoutUsesAuthorizedAPI(t *testing.T) {
 
 func TestVerificationCommittedSubscriptionStreamNeverReplayed(t *testing.T) {
 	var bearers []string
+	var bearersMu sync.Mutex
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bearersMu.Lock()
 		bearers = append(bearers, r.Header.Get("Authorization"))
+		bearersMu.Unlock()
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"committed answer\"}\n\n")
 		w.(http.Flusher).Flush()
@@ -75,7 +85,9 @@ func TestVerificationCommittedSubscriptionStreamNeverReplayed(t *testing.T) {
 	rec := httptest.NewRecorder()
 	err := svc.ProxyOpenAIChatCompletion(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
 	require.Error(t, err)
+	bearersMu.Lock()
 	require.Equal(t, []string{"Bearer first-seat"}, bearers)
+	bearersMu.Unlock()
 	require.Contains(t, rec.Body.String(), "committed answer")
 	require.NotContains(t, rec.Body.String(), "[DONE]")
 }
@@ -91,8 +103,11 @@ func TestVerificationCommittedFailureAcrossIngress(t *testing.T) {
 	for _, fixture := range fixtures {
 		t.Run(fixture.name, func(t *testing.T) {
 			var bearers []string
+			var bearersMu sync.Mutex
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				bearersMu.Lock()
 				bearers = append(bearers, r.Header.Get("Authorization"))
+				bearersMu.Unlock()
 				w.Header().Set("Content-Type", "text/event-stream")
 				_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"committed answer\"}\n\n")
 				w.(http.Flusher).Flush()
@@ -107,7 +122,9 @@ func TestVerificationCommittedFailureAcrossIngress(t *testing.T) {
 			rec := httptest.NewRecorder()
 			err := fixture.run(svc, ctx, []byte(fixture.body), rec, httptest.NewRequest(http.MethodPost, fixture.path, strings.NewReader(fixture.body)))
 			require.Error(t, err)
+			bearersMu.Lock()
 			require.Equal(t, []string{"Bearer first-seat"}, bearers)
+			bearersMu.Unlock()
 			require.Contains(t, rec.Body.String(), "committed answer")
 			require.False(t, ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage).Served, "failed committed stream cannot count as successful subscription winner")
 		})
@@ -125,8 +142,11 @@ func TestVerificationCommittedCRLFFailureAcrossIngress(t *testing.T) {
 	for _, fixture := range fixtures {
 		t.Run(fixture.name, func(t *testing.T) {
 			var bearers []string
+			var bearersMu sync.Mutex
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				bearersMu.Lock()
 				bearers = append(bearers, r.Header.Get("Authorization"))
+				bearersMu.Unlock()
 				w.Header().Set("Content-Type", "text/event-stream")
 				_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"committed answer\"}\r\n\r\n")
 				w.(http.Flusher).Flush()
@@ -141,7 +161,9 @@ func TestVerificationCommittedCRLFFailureAcrossIngress(t *testing.T) {
 			rec := httptest.NewRecorder()
 			err := fixture.run(svc, ctx, []byte(fixture.body), rec, httptest.NewRequest(http.MethodPost, fixture.path, strings.NewReader(fixture.body)))
 			require.Error(t, err)
+			bearersMu.Lock()
 			require.Equal(t, []string{"Bearer first-seat"}, bearers)
+			bearersMu.Unlock()
 			require.Contains(t, rec.Body.String(), "committed answer")
 			require.False(t, ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage).Served, "failed committed stream cannot count as successful subscription winner")
 		})
@@ -160,8 +182,11 @@ func TestVerificationDebugCommittedFailureAcrossIngress(t *testing.T) {
 		for _, fixture := range fixtures {
 			t.Run(fixture.name+map[string]string{"\n\n": "/LF", "\r\n\r\n": "/CRLF"}[newline], func(t *testing.T) {
 				var bearers []string
+				var bearersMu sync.Mutex
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					bearersMu.Lock()
 					bearers = append(bearers, r.Header.Get("Authorization"))
+					bearersMu.Unlock()
 					w.Header().Set("Content-Type", "text/event-stream")
 					_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"committed answer\"}"+newline)
 					w.(http.Flusher).Flush()
@@ -179,7 +204,9 @@ func TestVerificationDebugCommittedFailureAcrossIngress(t *testing.T) {
 				err := fixture.run(svc, ctx, []byte(fixture.body), rec, httptest.NewRequest(http.MethodPost, fixture.path, strings.NewReader(fixture.body)))
 				require.Error(t, err)
 				require.Contains(t, debugLogs.String(), "OpenAI upstream first chunk")
+				bearersMu.Lock()
 				require.Equal(t, []string{"Bearer first-seat"}, bearers)
+				bearersMu.Unlock()
 				require.Contains(t, rec.Body.String(), "committed answer")
 				require.False(t, ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage).Served, "failed committed stream cannot count as successful subscription winner")
 			})
@@ -189,8 +216,11 @@ func TestVerificationDebugCommittedFailureAcrossIngress(t *testing.T) {
 
 func TestVerificationCommittedSubscriptionStreamOutlivesRotationBudget(t *testing.T) {
 	var bearers []string
+	var bearersMu sync.Mutex
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bearersMu.Lock()
 		bearers = append(bearers, r.Header.Get("Authorization"))
+		bearersMu.Unlock()
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"early output \"}\n\n")
 		w.(http.Flusher).Flush()
@@ -212,7 +242,9 @@ func TestVerificationCommittedSubscriptionStreamOutlivesRotationBudget(t *testin
 	rec := httptest.NewRecorder()
 	err := svc.ProxyOpenAIChatCompletion(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
 	require.NoError(t, err, "the rotation budget bounds pre-output attempts, not a committed stream")
+	bearersMu.Lock()
 	require.Equal(t, []string{"Bearer long-seat"}, bearers)
+	bearersMu.Unlock()
 	require.Contains(t, rec.Body.String(), "late output")
 	require.True(t, ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage).Served)
 }

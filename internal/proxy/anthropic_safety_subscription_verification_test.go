@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
@@ -19,7 +21,10 @@ func TestVerificationUnprovenAnthropicExtraUsageNeverDispatched(t *testing.T) {
 		t.Run(map[bool]string{true: "authorized-api", false: "no-api"}[withAPI], func(t *testing.T) {
 			var oauthCharges, apiRequests int
 			var winningPayload []byte
+			var capturesMu sync.Mutex
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				capturesMu.Lock()
+				defer capturesMu.Unlock()
 				if r.Header.Get("Authorization") != "" {
 					oauthCharges++
 				} else if r.Header.Get("X-Api-Key") == "synthetic-api-key" {
@@ -62,10 +67,10 @@ func TestVerificationUnprovenAnthropicExtraUsageNeverDispatched(t *testing.T) {
 }
 
 func TestVerificationSuppressedInboundAnthropicOAuthNeverRelayed(t *testing.T) {
-	var oauthCharges int
+	var oauthCharges atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.Header.Get("Authorization"), "sk-ant-oat") {
-			oauthCharges++
+			oauthCharges.Add(1)
 		}
 		w.WriteHeader(http.StatusUnauthorized)
 	}))
@@ -77,5 +82,9 @@ func TestVerificationSuppressedInboundAnthropicOAuthNeverRelayed(t *testing.T) {
 	request := httptest.NewRequest("POST", "/v1/messages", strings.NewReader(body))
 	request.Header.Set("Authorization", "Bearer sk-ant-oat01-synthetic-inbound-token")
 	_ = svc.ProxyMessages(ctx, []byte(body), httptest.NewRecorder(), request)
-	require.Zero(t, oauthCharges, "a suppressed inbound subscription bearer must not be relayed by the adapter passthrough tier")
+	require.Zero(t, oauthCharges.Load(), "a suppressed inbound subscription bearer must not be relayed by inference dispatch")
+	passthroughRequest := httptest.NewRequest("POST", "/v1/messages/count_tokens", strings.NewReader(body))
+	passthroughRequest.Header.Set("Authorization", "Bearer sk-ant-oat01-synthetic-inbound-token")
+	require.Error(t, svc.PassthroughToNamedProvider(ctx, providers.ProviderAnthropic, []byte(body), httptest.NewRecorder(), passthroughRequest))
+	require.Zero(t, oauthCharges.Load(), "a suppressed inbound subscription bearer must not be relayed by the adapter passthrough tier")
 }

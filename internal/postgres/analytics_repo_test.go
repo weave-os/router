@@ -78,6 +78,7 @@ func TestSubscriptionWinnerAttributionSurvivesInsertAndExport(t *testing.T) {
 		SubscriptionTier:      auth.SubscriptionTierShared,
 		IntendedModelFamily:   intendedFamily,
 		FinalModelFamily:      finalFamily,
+		CredentialSource:      credentialSource,
 	})
 	require.NoError(t, err)
 	columns := strings.Split(strings.Split(strings.Split(capture.query, "(")[1], ")")[0], ",")
@@ -90,6 +91,7 @@ func TestSubscriptionWinnerAttributionSurvivesInsertAndExport(t *testing.T) {
 	assert.Equal(t, &tier, arguments["subscription_tier"])
 	assert.Equal(t, &intendedFamily, arguments["intended_model_family"])
 	assert.Equal(t, &finalFamily, arguments["final_model_family"])
+	assert.Equal(t, &credentialSource, arguments["credential_source"])
 
 	decision := decisionFromExportRow(sqlc.GetRoutingDecisionsForExportRow{
 		SubscriptionAccountID: pgtype.UUID{Bytes: accountID, Valid: true},

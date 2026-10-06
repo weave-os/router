@@ -28,7 +28,7 @@ func TestSubscriptionWinnerTelemetryPreservesOwnerAndAlternative(t *testing.T) {
 	assert.Equal(t, auth.SubscriptionTierShared, telemetry.SubscriptionTier)
 
 	attrs := otel.NewAttrBuilder(6)
-	(&Service{}).applySubscriptionSpanTelemetry(ctx, attrs, "gpt-5.4")
+	(&Service{}).applySubscriptionSpanTelemetry(ctx, attrs, "auto", "gpt-5.4")
 	values := make(map[string]string)
 	for _, attr := range attrs.Build() {
 		values[attr.Key] = attr.Value.GetStringValue()
@@ -57,6 +57,10 @@ func TestFailedAPIFallbackReplacesInboundSubscriptionAttribution(t *testing.T) {
 	recordWinningCredentials(ctx, apiCtx)
 
 	require.Same(t, CredentialsFromContext(apiCtx), CredentialsFromContext(ctx))
+	winner := CredentialsFromContext(ctx)
+	require.Equal(t, credSourceBYOK, winner.Source)
+	require.Equal(t, []byte("api-sentinel"), winner.APIKey)
+	require.False(t, winner.OAuth)
 	assert.False(t, (&Service{}).costNeutralSubscriptionServed(ctx))
 	telemetry := InsertTelemetryParams{RequestedModel: "claude-sonnet-5", DecisionModel: "claude-sonnet-5"}
 	applySubscriberTelemetry(ctx, &telemetry)

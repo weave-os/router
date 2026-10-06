@@ -113,6 +113,16 @@ func (p *Pool) Upsert(account Account) error {
 		if existing.account.State == auth.SubscriptionAccountStateActive && account.State == auth.SubscriptionAccountStateUnknown {
 			account.State = existing.account.State
 		}
+		// A stale durable snapshot cannot clear local fencing recorded by this
+		// replica before the database write is visible.
+		if !existing.account.Enabled {
+			account.Enabled = false
+			account.State = existing.account.State
+		}
+		if existing.account.CooldownTil.After(account.CooldownTil) {
+			account.CooldownTil = existing.account.CooldownTil
+			account.State = existing.account.State
+		}
 		existing.account = account
 		return nil
 	}
@@ -262,12 +272,7 @@ func (p *Pool) Lease(ctx context.Context, provider Provider, sessionID string, r
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return Account{}, nil, err
 		}
-		var terminal terminalRefreshError
-		if errors.As(err, &terminal) && terminal.Terminal() {
-			p.ReconnectRequired(account.ID)
-			continue
-		}
-		p.Cooldown(account.ID, p.clock().Add(time.Minute))
+		// refreshAccount already fenced the failed account; try the next one.
 	}
 	return Account{}, nil, ErrNoAvailableAccount
 }
@@ -377,6 +382,15 @@ func (p *Pool) refreshAccount(ctx context.Context, account Account, refresh Refr
 		refreshCtx, cancelRefresh := context.WithTimeout(context.WithoutCancel(ctx), refreshLeaseTTL)
 		defer cancelRefresh()
 		refreshed, err := refresh(refreshCtx, account)
+		// Classify here so a failure is recorded even when every waiter left.
+		var terminal terminalRefreshError
+		switch {
+		case err == nil, errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		case errors.As(err, &terminal) && terminal.Terminal():
+			p.ReconnectRequired(account.ID)
+		default:
+			p.Cooldown(account.ID, p.clock().Add(time.Minute))
+		}
 		p.mu.Lock()
 		call.acct, call.err = refreshed, err
 		delete(p.refresh, account.ID)

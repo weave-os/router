@@ -271,6 +271,33 @@ func TestProxy_RefusesUnresolvedInboundSubscriptionBearer(t *testing.T) {
 	assert.Zero(t, upstreamCalls, "an unresolved inbound subscription bearer must never reach the upstream")
 }
 
+func TestRefusesUnresolvedInboundSubscriptionBearerOnEveryEntryPoint(t *testing.T) {
+	for _, entryPoint := range []string{"proxy", "passthrough"} {
+		for _, authorization := range []string{"Bearer sk-ant-oat01-subscription-token", "bearer sk-ant-oat01-subscription-token"} {
+			t.Run(entryPoint+"/"+authorization[:6], func(t *testing.T) {
+				upstreamCalls := 0
+				upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					upstreamCalls++
+					w.WriteHeader(http.StatusOK)
+				}))
+				defer upstream.Close()
+				c := anthropic.NewClient("", upstream.URL)
+				clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(""))
+				clientReq.Header.Set("Authorization", authorization)
+				prep := providers.PreparedRequest{Body: []byte(`{"model":"x"}`), Headers: make(http.Header)}
+				var err error
+				if entryPoint == "proxy" {
+					err = c.Proxy(context.Background(), router.Decision{Model: "claude-opus-4-8"}, prep, httptest.NewRecorder(), clientReq)
+				} else {
+					err = c.Passthrough(context.Background(), prep, httptest.NewRecorder(), clientReq)
+				}
+				require.Error(t, err)
+				assert.Zero(t, upstreamCalls, "an unresolved inbound subscription bearer must never reach the upstream")
+			})
+		}
+	}
+}
+
 func TestProxy_DeploymentKeyOutranksInboundSubscriptionBearerAndDropsBeta(t *testing.T) {
 	var (
 		gotAuth   string

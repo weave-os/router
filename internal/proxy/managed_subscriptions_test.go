@@ -525,6 +525,8 @@ func TestDispatchWithFallbackKeepsManagedModelDenialModelSpecific(t *testing.T) 
 	var upstreamErr *providers.UpstreamErrorResponse
 	require.ErrorAs(t, err, &upstreamErr)
 	assert.Equal(t, http.StatusNotFound, upstreamErr.Status)
+	assert.True(t, anthropicSubscriptionModelRejected(err))
+	assert.False(t, isSubscriptionPoolError(err))
 	assert.Equal(t, 1, client.calls, "denied account/model is dispatched once")
 }
 

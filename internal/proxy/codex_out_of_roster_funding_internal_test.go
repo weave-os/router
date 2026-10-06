@@ -261,7 +261,3 @@ func TestCodexOutOfRosterModel_ChatOnlyRequestWithoutAPICredentialRefusesBeforeD
 	assert.ErrorIs(t, err, ErrCreditsExhaustedSubscriptionUnavailable)
 	assert.Empty(t, client.attempts, "the Codex token must not be sent to Chat Completions without an API fallback")
 }
-
-// A spent linked Codex plan must settle as an ordinary metered turn: dispatched
-// on the Weave key, debited at notional cost, and never labeled
-// subscription-served in billing or telemetry.

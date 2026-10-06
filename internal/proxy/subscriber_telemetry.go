@@ -151,7 +151,7 @@ func applySubscriptionWinnerTelemetry(ctx context.Context, telemetry *InsertTele
 	telemetry.SubscriptionTier = winningUsage.SubscriptionTier
 }
 
-func (s *Service) applySubscriptionSpanTelemetry(ctx context.Context, attrs *otel.AttrBuilder, selectedModel string) {
+func (s *Service) applySubscriptionSpanTelemetry(ctx context.Context, attrs *otel.AttrBuilder, requestedModel, selectedModel string) {
 	if keyID := apiKeyIDFromContext(ctx); keyID != "" {
 		attrs.String("api_key_id", keyID)
 	}
@@ -159,7 +159,7 @@ func (s *Service) applySubscriptionSpanTelemetry(ctx context.Context, attrs *ote
 	if source != "" {
 		attrs.String("credential.source", source)
 	}
-	telemetry := InsertTelemetryParams{DecisionModel: selectedModel}
+	telemetry := InsertTelemetryParams{RequestedModel: requestedModel, DecisionModel: selectedModel}
 	applySubscriptionWinnerTelemetry(ctx, &telemetry)
 	if telemetry.SubscriptionAccountID != "" {
 		attrs.String("subscription.account_id", telemetry.SubscriptionAccountID).
@@ -176,11 +176,15 @@ func (s *Service) applySubscriptionSpanTelemetry(ctx context.Context, attrs *ote
 
 // Decision attribution keeps admitted failures in their original family even
 // when credential selection rejects the request before an upstream span starts.
-func applySubscriptionDecisionSpanTelemetry(ctx context.Context, attrs *otel.AttrBuilder, selectedModel string) {
+func applySubscriptionDecisionSpanTelemetry(ctx context.Context, attrs *otel.AttrBuilder, requestedModel, selectedModel string) {
 	if keyID := apiKeyIDFromContext(ctx); keyID != "" {
 		attrs.String("api_key_id", keyID)
 	}
-	if family := canonicalTelemetryModelFamily(selectedModel); family != "" {
+	intendedModel := requestedModel
+	if canonicalTelemetryModelFamily(intendedModel) == "" {
+		intendedModel = selectedModel
+	}
+	if family := canonicalTelemetryModelFamily(intendedModel); family != "" {
 		attrs.String("model.intended_family", family)
 	}
 }

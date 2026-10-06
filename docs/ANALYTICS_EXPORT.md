@@ -171,7 +171,8 @@ Field groups:
 | End user | `user_id`, `user_email`, `user_account_uuid` |
 | Decision | `requested_model`, `decision_model`, `decision_provider`, `candidate_models`, `chosen_score`, `decision_reason`, `sticky_hit`, `failover_used`, `cross_format` |
 | Tokens | `estimated_input_tokens`, `input_tokens`, `output_tokens`, `cache_creation_tokens`, `cache_read_tokens` |
-| Economics | `subscription_served`, `actual_input_cost_usd`, `actual_output_cost_usd` |
+| Economics | `subscription_served`, `actual_input_cost_usd`, `actual_output_cost_usd`, `credential_source` |
+| Subscription attribution | `subscription_account_id`, `subscription_owner_id`, `subscription_tier`, `intended_model_family`, `final_model_family` |
 | Performance | `route_latency_ms`, `upstream_latency_ms`, `total_latency_ms`, `ttft_ms` |
 | Outcome | `upstream_status_code`, `upstream_finish_reason`, `stop_reason`, `tool_use_blocks`, `invalid_tool_args_blocks` |
 | Trial git context | `client_git_head_sha`, `client_git_branch`, `client_git_dirty` — the client-reported starting tree, stamped on the first turn of a session for installations in trial mode only; null everywhere else. `client_git_head_sha` is abbreviated as the client printed it, so compare by prefix. |
@@ -187,6 +188,7 @@ to tolerate new columns. Version `2` dropped `requested_input_cost_usd`,
 [Computing savings yourself](#computing-savings-yourself). Version `3` added
 `subscription_served` and zeroed the `actual_*` costs of those rows — see
 [Subscription-served turns cost $0](#subscription-served-turns-cost-0).
+Version `3` later added, additively, `credential_source`, `subscription_account_id`, `subscription_owner_id`, `subscription_tier`, `intended_model_family`, and `final_model_family`.
 
 ### `decision_reason` is prose, not an enum
 

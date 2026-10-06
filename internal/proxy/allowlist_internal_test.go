@@ -35,27 +35,6 @@ func TestAllowedModelsForRequest_BuildsSet(t *testing.T) {
 	assert.Equal(t, map[string]struct{}{"a": {}, "b": {}}, got)
 }
 
-func TestAllowedModelsForRequest_IgnoresSubscriptionStatePreferences(t *testing.T) {
-	ctx := ctxWithAllowedModels("a", "b")
-
-	assert.Equal(t, map[string]struct{}{"a": {}, "b": {}}, allowedModelsForRequest(ctx))
-}
-
-func TestAllowedModelsForRequest_SubscriptionPreferenceWithoutAllowlistIsUnrestricted(t *testing.T) {
-
-	assert.Nil(t, allowedModelsForRequest(context.Background()))
-}
-
-func TestAllowedModelsForRequest_ActiveCodexPreferenceKeepsCrossProviderModels(t *testing.T) {
-	ctx := ctxWithAllowedModels("gpt-5.6-sol", "grok-4.6", "claude-fable-5-1")
-
-	assert.Equal(t, map[string]struct{}{
-		"gpt-5.6-sol":      {},
-		"grok-4.6":         {},
-		"claude-fable-5-1": {},
-	}, allowedModelsForRequest(ctx))
-}
-
 // The allowlist is enforced by desugaring into the exclusion set: every
 // routable model absent from a non-empty allowlist must come back excluded.
 func TestExcludedModelsForRequest_AllowlistExcludesTheComplement(t *testing.T) {

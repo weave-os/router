@@ -224,7 +224,7 @@ func (o *Observer) Record(key CredentialKey, snap Snapshot) {
 	defer o.mu.Unlock()
 	// Merge per-window with the prior (non-stale) observation: a single response
 	// may report only one window, and replacing the whole snapshot would erase
-	// the other window's last-known utilization — making CostFactor look slack
+	// the other window's last-known utilization — making the account look slack
 	// and selecting exhausted accounts until TTL. A genuinely reset window reports used≈0
 	// (still present), so it correctly overwrites; only an OMITTED window is
 	// preserved from the prior snapshot.

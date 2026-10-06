@@ -38,9 +38,13 @@ type preludeBuffer struct {
 	preludeSent    bool
 	// committed is atomic because a rotation-budget timer reads it while the
 	// provider stream writes. commitMu orders that timer's abort against commit.
-	committed     atomic.Bool
-	commitMu      sync.Mutex
-	commitAborted bool
+	committed atomic.Bool
+	commitMu  sync.Mutex
+	// attemptGeneration advances on Discard so a late budget timer from a
+	// failed attempt cannot block the next attempt's commit.
+	attemptGeneration uint64
+	abortedGeneration uint64
+	commitAborted     bool
 }
 
 func newPreludeBuffer(w http.ResponseWriter) *preludeBuffer {
@@ -139,6 +143,7 @@ func (b *preludeBuffer) Discard() {
 	b.sealed = false
 	b.commitMu.Lock()
 	b.commitAborted = false
+	b.attemptGeneration++
 	b.commitMu.Unlock()
 	if b.preludeSent {
 		return
@@ -154,18 +159,25 @@ func (b *preludeBuffer) Discard() {
 	}
 }
 
-// errAttemptAborted rejects output from an attempt the rotation budget aborted.
+// The budget timer and the provider stream race; once the timer cancels an
+// attempt, output that arrives before cancellation propagates must not reach
+// the client as a committed response that dispatch already abandoned.
 var errAttemptAborted = errors.New("subscription attempt aborted before commit")
 
-// abortIfUncommitted runs abort and rejects later commits unless provider
-// output already committed. Discard re-arms the buffer for the next attempt.
-func (b *preludeBuffer) abortIfUncommitted(abort func()) {
+func (b *preludeBuffer) currentAttemptGeneration() uint64 {
 	b.commitMu.Lock()
 	defer b.commitMu.Unlock()
-	if b.committed.Load() {
+	return b.attemptGeneration
+}
+
+func (b *preludeBuffer) abortIfUncommitted(generation uint64, abort func()) {
+	b.commitMu.Lock()
+	defer b.commitMu.Unlock()
+	if b.committed.Load() || generation != b.attemptGeneration {
 		return
 	}
 	b.commitAborted = true
+	b.abortedGeneration = generation
 	abort()
 }
 
@@ -175,7 +187,7 @@ func (b *preludeBuffer) commit() error {
 		b.commitMu.Unlock()
 		return nil
 	}
-	if b.commitAborted {
+	if b.commitAborted && b.abortedGeneration == b.attemptGeneration {
 		b.commitMu.Unlock()
 		return errAttemptAborted
 	}
@@ -635,7 +647,12 @@ func (s *Service) dispatchSubscriptionAlternatives(ctx context.Context, in failo
 		if in.buf != nil {
 			in.buf.Discard()
 		}
-		attemptCtx := s.resolveCredentials(context.WithValue(ctx, subscriptionOnlyAttemptKey{}, true), target.Provider, target.Model, http.Header{})
+		attemptCtx := context.WithValue(ctx, subscriptionOnlyAttemptKey{}, true)
+		if target.Provider != selected.Provider {
+			// A selected provider's OAuth credential never carries to another provider.
+			attemptCtx = clearCredentials(attemptCtx)
+		}
+		attemptCtx = s.resolveCredentials(attemptCtx, target.Provider, target.Model, http.Header{})
 		winner, attemptErr := s.dispatchWithFallback(attemptCtx, attemptIn)
 		if attemptErr == nil {
 			if index > 0 && in.onAlternative != nil {

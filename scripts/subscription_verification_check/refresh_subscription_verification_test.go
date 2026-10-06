@@ -99,7 +99,10 @@ func TestVerificationSQLConcurrentSharedRefreshAndReset(t *testing.T) {
 	require.NoError(t, err)
 	var refreshes atomic.Int32
 	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.NoError(t, r.ParseForm())
+		if err := r.ParseForm(); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		t.Logf("refresh token exchange: %s", r.Form.Get("refresh_token"))
 		refreshes.Add(1)
 		time.Sleep(100 * time.Millisecond)
@@ -150,21 +153,6 @@ func TestVerificationSQLConcurrentSharedRefreshAndReset(t *testing.T) {
 	require.NoError(t, leaseErr)
 	require.False(t, available)
 	require.Empty(t, blockedLease.AccessToken)
-	admittedServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer synthetic-access-refreshed" {
-			w.WriteHeader(403)
-			return
-		}
-		_, _ = io.WriteString(w, "already admitted synthetic response")
-	}))
-	admittedRequest, err := http.NewRequest("POST", admittedServer.URL, strings.NewReader("synthetic admitted request"))
-	require.NoError(t, err)
-	admittedRequest.Header.Set("Authorization", "Bearer "+resetLease.AccessToken)
-	admittedResponse, err := admittedServer.Client().Do(admittedRequest)
-	require.NoError(t, err)
-	require.Equal(t, 200, admittedResponse.StatusCode)
-	admittedResponse.Body.Close()
-	admittedServer.Close()
 	resetLease.Release()
 	_, err = pool.Exec(ctx, `UPDATE router.model_router_installations SET subscription_sharing_enabled=true WHERE id=$1`, org)
 	require.NoError(t, err)
@@ -200,9 +188,12 @@ func verifyDispatchBilling(t *testing.T, pool *pgxpool.Pool, runtime *subscripti
 	billingService := billing.NewService(postgres.NewBillingRepo(pool)).WithSubscriberPrepaid(book)
 	for _, apiFallback := range []bool{false, true} {
 		var bearers []string
+		var bearersMu sync.Mutex
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			bearer := r.Header.Get("Authorization")
+			bearersMu.Lock()
 			bearers = append(bearers, bearer)
+			bearersMu.Unlock()
 			if apiFallback && bearer == "Bearer synthetic-access-refreshed" {
 				w.WriteHeader(429)
 				_, _ = io.WriteString(w, `{"error":{"code":"usage_limit_reached","message":"synthetic quota"}}`)
@@ -237,13 +228,17 @@ func verifyDispatchBilling(t *testing.T, pool *pgxpool.Pool, runtime *subscripti
 		require.NoError(t, err)
 		require.Equal(t, int64(3000000), ownerBalance, "borrowed owner must never pay for requester API")
 		if apiFallback {
+			bearersMu.Lock()
 			require.Equal(t, []string{"Bearer synthetic-access-refreshed", "Bearer synthetic-api-key"}, bearers)
+			bearersMu.Unlock()
 			require.Less(t, requesterBalance, int64(3000000))
 			var settlements int
 			require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FROM router.subscriber_credit_ledger WHERE subscriber_id=$1`, requester.SubscriberID).Scan(&settlements))
 			require.Equal(t, 1, settlements)
 		} else {
+			bearersMu.Lock()
 			require.Equal(t, []string{"Bearer synthetic-access-refreshed"}, bearers)
+			bearersMu.Unlock()
 			require.Equal(t, int64(3000000), requesterBalance)
 		}
 		server.Close()

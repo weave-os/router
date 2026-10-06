@@ -306,10 +306,8 @@ func (c *Client) subscriptionAuth(ctx context.Context, inbound *http.Request) bo
 	if c.apiKey != "" {
 		return false
 	}
-	if raw, found := strings.CutPrefix(inbound.Header.Get("authorization"), "Bearer "); found {
-		return strings.HasPrefix(strings.TrimSpace(raw), subscriptionTokenPrefix)
-	}
-	return false
+	scheme, token, found := strings.Cut(strings.TrimSpace(inbound.Header.Get("authorization")), " ")
+	return found && strings.EqualFold(scheme, "Bearer") && strings.HasPrefix(strings.TrimSpace(token), subscriptionTokenPrefix)
 }
 
 // claudeSubscriptionAuth reports whether this request authenticates with a
@@ -482,6 +480,9 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 }
 
 func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
+	if requestcontext.CredentialsFromContext(ctx) == nil && c.authScheme != AuthBearer && c.subscriptionAuth(ctx, r) {
+		return errInboundSubscriptionRelay
+	}
 	url := requestcontext.EffectiveBaseURL(ctx, c.baseURL) + r.URL.Path
 	if r.URL.RawQuery != "" {
 		url += "?" + r.URL.RawQuery

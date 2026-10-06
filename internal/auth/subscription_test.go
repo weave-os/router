@@ -175,6 +175,8 @@ func TestSubscriptionOwnerForKeyPrefersCredentialSubject(t *testing.T) {
 	require.Equal(t, subscriberOwner.SubscriberID, sibling.SubscriberID)
 	legacyOwner := SubscriptionOwnerForKey(&APIKey{ID: "key-3"})
 	require.Empty(t, legacyOwner.SubscriberID)
+	require.Equal(t, "key-3", legacyOwner.APIKeyID)
+	require.True(t, legacyOwner.Valid())
 	require.False(t, SubscriptionOwnerForKey(nil).Valid())
 
 	require.Equal(t, "subscriber:subscriber-1", subscriberOwner.LogKey())

@@ -61,11 +61,11 @@ func (s *Service) openaiFallbackKeyAvailable(ctx context.Context) bool {
 }
 
 // codexSubscriptionExhausted reports whether the caller's present Codex
-// subscription has bound its plan window per the usage observer AND a
-// non-subscription OpenAI key exists to serve the turn instead. The Codex
-// counterpart of claudeSubscriptionExhausted: when true the caller suppresses
-// the spent token pre-dispatch (withSuppressedCodexSubscription) so the turn
-// runs on Weave credits rather than buying another rejected round-trip.
+// subscription has bound its plan window or is drawing billable overage per the
+// usage observer, regardless of whether an OpenAI fallback key exists. When true the
+// caller suppresses the spent token pre-dispatch (withSuppressedCodexSubscription)
+// so the turn tries an eligible shared subscription or API fallback, and is
+// refused when neither is available.
 func (s *Service) codexSubscriptionExhausted(ctx context.Context, headers http.Header) bool {
 	if s.usageObserver == nil {
 		return false

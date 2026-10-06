@@ -9,6 +9,8 @@ CREATE TABLE router.model_router_subscription_account_installations (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (installation_id, subscription_account_id)
 );
+CREATE INDEX model_router_subscription_account_installations_account_idx
+ON router.model_router_subscription_account_installations(subscription_account_id);
 
 INSERT INTO router.model_router_subscription_account_installations (installation_id, subscription_account_id)
 SELECT enrolling_key.installation_id, account.id
@@ -20,7 +22,7 @@ WHERE installation.deleted_at IS NULL;
 -- Historical duplicate physical identities cannot safely choose an owner or
 -- token. Quarantine every conflicting row instead of silently reallocating it.
 UPDATE router.model_router_subscription_accounts AS account
-SET enabled = FALSE
+SET enabled = FALSE, health_state = 'disabled', cooldown_until = NULL
 WHERE EXISTS (
  SELECT 1 FROM router.model_router_subscription_accounts AS other
  WHERE other.provider = account.provider

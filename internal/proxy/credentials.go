@@ -28,7 +28,12 @@ type Credentials = requestcontext.Credentials
 type CredentialsContextKey = requestcontext.CredentialsContextKey
 
 // CredentialsFromContext returns the resolved credentials stashed on ctx.
+// An explicit nil override from clearCredentials keeps synthetic calls off the
+// winning credential.
 func CredentialsFromContext(ctx context.Context) *Credentials {
+	if override, set := ctx.Value(CredentialsContextKey{}).(*Credentials); set && override == nil {
+		return nil
+	}
 	if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.Finished {
 		return usage.WinningCredentials
 	}

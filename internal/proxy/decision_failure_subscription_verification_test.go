@@ -59,7 +59,7 @@ func TestVerificationAdmissionFailureExportsDecisionWithoutUpstream(t *testing.T
 	ctx = context.WithValue(ctx, ExternalIDContextKey{}, "org_subscription_verification")
 	body := `{"model":"gpt-5.6-sol","stream":true,"messages":[{"role":"user","content":"synthetic unavailable capacity"}],"tools":[{"type":"function","function":{"name":"read_file","parameters":{"type":"object"}}}]}`
 	rec := httptest.NewRecorder()
-	require.Error(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))))
+	require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(body))), ErrCreditsExhaustedSubscriptionUnavailable)
 	require.Zero(t, requests, "admission rejection cannot dispatch authorized API when credits are depleted")
 	require.NoError(t, emitter.Shutdown(context.Background()))
 	mu.Lock()

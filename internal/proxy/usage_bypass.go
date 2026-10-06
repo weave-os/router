@@ -523,7 +523,7 @@ func (s *Service) bypassToAnthropic(
 		Float64("cost.requested_output_usd", outputCost).
 		Float64("cost.actual_input_usd", inputCost).
 		Float64("cost.actual_output_usd", outputCost).Int64("upstream.status_code", int64(upstreamStatus(outcomeErr)))
-	s.applySubscriptionSpanTelemetry(ctx, bypassBuilder, decision.Model)
+	s.applySubscriptionSpanTelemetry(ctx, bypassBuilder, feats.Model, decision.Model)
 	otel.Record(ctx, otel.Span{
 		Name:  "router.usage_bypass",
 		Start: requestStart,

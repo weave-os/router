@@ -149,14 +149,6 @@ intersects a user's selection with the API-key-scoped list. A plain override
 would let an individual re-admit a model the org deliberately removed —
 privilege escalation through an admin control.
 
-**Subscription plan-aware routing is an overlay, not a roster mutation.** When
-enabled, the request observes the user's Claude and Codex plan families. If at
-least one plan has headroom, models covered only by exhausted plans are added
-to the request's hard exclusions. If every linked plan is exhausted, the
-overlay contributes no exclusions and normal paid/BYOK routing resumes. Unknown
-state also contributes no exclusions; only reliable quota exhaustion changes
-eligibility. The global HMM roster remains unchanged.
-
 **Two paths deliberately bypass `excluded_models` and need explicit allowlist
 handling:** `usageBypassEngaged` (consults `SafetyExcludedModels`, since
 exclusions are a preference the bypass may override — but an allowlist is not)

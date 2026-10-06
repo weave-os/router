@@ -108,7 +108,7 @@ func TestCreateAccountEnrollsVerifiedPersonalKeyOwner(t *testing.T) {
 	request := httptest.NewRequest(http.MethodPost, "/v1/subscriptions/accounts", bytes.NewReader(body))
 	request.Header.Set("Authorization", "Bearer rk_test")
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("X-Weave-User-Email", "Sam@Weave.test")
+	request.Header.Set("X-Weave-User-Email", "Ali@Weave.test")
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request)
 
@@ -118,6 +118,11 @@ func TestCreateAccountEnrollsVerifiedPersonalKeyOwner(t *testing.T) {
 
 type verifiedSubject struct{}
 
-func (verifiedSubject) GetCredentialSubject(context.Context, string, string) (*auth.CredentialSubject, error) {
-	return &auth.CredentialSubject{ID: "subject-sam", ProjectionComplete: true, AccessEnabled: true}, nil
+// GetCredentialSubject admits only the key's own subject in its installation,
+// so ownership cannot come from the caller email.
+func (verifiedSubject) GetCredentialSubject(_ context.Context, subjectID, installationID string) (*auth.CredentialSubject, error) {
+	if subjectID != "subject-sam" || installationID != "installation" {
+		return nil, auth.ErrPersonalCredentialRequired
+	}
+	return &auth.CredentialSubject{ID: subjectID, ProjectionComplete: true, AccessEnabled: true}, nil
 }
