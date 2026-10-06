@@ -142,8 +142,8 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 // verificationCodexEnrollment isolates owner/admission tests from provider OAuth.
 type verificationCodexEnrollment struct{}
 
-func (verificationCodexEnrollment) VerifyCodexEnrollment(_ context.Context, workspaceID string, refresh []byte) (auth.VerifiedCodexEnrollment, error) {
-	return auth.VerifiedCodexEnrollment{ProviderUserID: "synthetic-provider-user", RefreshToken: []byte(string(refresh) + ":" + workspaceID)}, nil
+func (verificationCodexEnrollment) VerifyCodexEnrollment(_ context.Context, workspaceID string, refreshToken []byte) (auth.VerifiedCodexEnrollment, error) {
+	return auth.VerifiedCodexEnrollment{ProviderUserID: "synthetic-provider-user", RefreshToken: []byte(string(refreshToken) + ":" + workspaceID)}, nil
 }
 func verificationCodexIDToken(t *testing.T, workspaceID string) string {
 	t.Helper()

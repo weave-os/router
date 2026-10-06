@@ -271,8 +271,8 @@ func userIDFromJWT(token string) string {
 		return ""
 	}
 	authClaims, _ := claims["https://api.openai.com/auth"].(map[string]any)
-	for _, candidate := range []any{authClaims["chatgpt_user_id"], authClaims["user_id"], claims["chatgpt_user_id"], claims["user_id"]} {
-		if userID, ok := candidate.(string); ok && userID != "" {
+	for _, userIDClaim := range []any{authClaims["chatgpt_user_id"], authClaims["user_id"], claims["chatgpt_user_id"], claims["user_id"]} {
+		if userID, ok := userIDClaim.(string); ok && userID != "" {
 			return userID
 		}
 	}
