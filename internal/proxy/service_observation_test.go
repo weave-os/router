@@ -148,10 +148,6 @@ func (r *shadowRequestRouter) Route(_ context.Context, request router.Request) (
 
 func TestPolicyShadowComparisonSkipsDryRunAndCollectsServingRoute(t *testing.T) {
 	const installID = "66666666-6666-6666-6666-666666666666"
-	serving := router.Decision{
-		Provider: providers.ProviderAnthropic,
-		Model:    "claude-haiku-4-5",
-	}
 	scorerDecision := router.Decision{
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-opus-4-7",
@@ -210,7 +206,7 @@ func TestPolicyShadowComparisonSkipsDryRunAndCollectsServingRoute(t *testing.T) 
 	assert.Equal(t, "rollout-1", row.RolloutID)
 	assert.True(t, row.TrainingAllowed)
 	assert.Equal(t, "cluster", row.ServingStrategy)
-	assert.Equal(t, serving.Model, row.ServingModel)
+	assert.Equal(t, scorerDecision.Model, row.ServingModel)
 	assert.Equal(t, "future-policy", row.ShadowStrategy)
 	assert.Equal(t, "gpt-5.5", row.ShadowModel)
 	assert.Equal(t, "shadow-route-1", row.ShadowRouteID)

@@ -28,6 +28,7 @@ const openCodeResponsesBody = `{
 }`
 
 const openCodeHardPinModel = "gpt-4o-mini"
+const openCodeScoredTitleModel = "gpt-4o"
 
 func newOpenCodeTurnSvc(fr *fakeRouter, store *fakePinStore) *proxy.Service {
 	responsesResp := func(w http.ResponseWriter) {
@@ -63,7 +64,7 @@ func TestService_OpenCodeNativeSubagentSharesSessionIDButNotPin(t *testing.T) {
 	"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"Reply with the single word pong"}]}]
 }`
 	store := newFakePinStore()
-	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-4o", Reason: "cluster"}}
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: openCodeScoredTitleModel, Reason: "cluster"}}
 	svc := newOpenCodeTurnSvc(fr, store)
 	apiKeyID := uuid.New().String()
 
@@ -149,13 +150,13 @@ func headerlessSender(t *testing.T, svc *proxy.Service, clientApp string) func(b
 }
 
 // Headerless OpenCode title calls derive the same session key from their
-// constant system prompt. They must hard-pin from the body, render no routing
+// constant system prompt. They must score independently, render no routing
 // marker (OpenCode titles the session with the reply's first line), and neither
 // serve nor rewrite the conversation's automatic pin.
-func TestService_OpenCodeHeaderlessTitleHardPinsWithoutTouchingThePin(t *testing.T) {
+func TestService_OpenCodeHeaderlessTitleScoresWithoutTouchingThePin(t *testing.T) {
 	store := newFakePinStore()
 	store.persistUpserts = true
-	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-4o", Reason: "cluster"}}
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: openCodeScoredTitleModel, Reason: "cluster"}}
 	send := headerlessSender(t, newOpenCodeTurnSvc(fr, store), proxy.ClientAppOpencode)
 
 	rec := send(openCodeHeaderlessMainBody)
@@ -165,12 +166,12 @@ func TestService_OpenCodeHeaderlessTitleHardPinsWithoutTouchingThePin(t *testing
 	for range 2 {
 		getsBefore := store.getCalls
 		rec := send(openCodeHeaderlessTitleBody)
-		assert.Equal(t, openCodeHardPinModel, rec.Header().Get(proxy.HeaderRouterModel), "the automatic pin must not serve a title turn")
+		assert.Equal(t, openCodeScoredTitleModel, rec.Header().Get(proxy.HeaderRouterModel), "the title uses its independently scored model")
 		assert.NotContains(t, rec.Body.String(), "Weave Router", "a routing marker would become the session title")
-		assert.Equal(t, 2, store.getCalls-getsBefore, "title turns read only session and legacy thread force state")
+		assert.Equal(t, 1, store.getCalls-getsBefore, "title turns read only force-model session state, including during refusal-rescue setup")
 	}
 
-	assert.Equal(t, 1, fr.routeCalls, "title generation must bypass the scorer")
+	assert.Equal(t, 3, fr.routeCalls, "each title must be scored independently of the conversation pin")
 	assert.Len(t, store.upserts, 1, "title generation must not anchor a pin")
 }
 

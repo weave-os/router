@@ -15,6 +15,8 @@ import (
 
 const blindExperimentPublicDecisionReason = "cluster_argmax"
 
+const automaticProbeModel = "auto"
+
 // ErrPassthroughModelUnknown is returned when passthrough must serve the
 // requested model verbatim but it names no catalog model (e.g. a harness's
 // "auto" placeholder), so it isn't misreported as missing provider keys.

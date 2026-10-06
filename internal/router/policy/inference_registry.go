@@ -612,7 +612,7 @@ func defaultPolicySpecs() []PolicySpec {
 		},
 		hardPinPolicy(PurposeTitleGeneration, "aux-title-generation", "Keep hidden title-generation calls cheap and isolated from the main session pin."),
 		hardPinPolicy(PurposeClassifier, "aux-classifier", "Serve client classifier turns without contaminating the main session pin."),
-		hardPinPolicy(PurposeProbe, "aux-probe", "Serve provider and quota probes without creating a durable session pin."),
+		hardPinPolicy(PurposeProbe, "aux-probe", "Preserve the caller's provider and quota probe target unless explicitly overridden, without creating a durable session pin."),
 		hardPinPolicy(PurposeSubAgentDispatch, "aux-sub-agent-dispatch", "Apply the reviewed deployment hard pin for sub-agent work while preserving tenant eligibility."),
 		{
 			Purpose:            PurposeClientCompaction,

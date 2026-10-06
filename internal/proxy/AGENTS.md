@@ -183,14 +183,24 @@ has catalog bindings to walk), and a model stays routable unless **every**
 gateway key aliasing it has refused, since a second endpoint may serve it. The
 alias itself is still the customer-side fix — this only caps the bill at one 404.
 
-**The hard-pin tier resolves against the same bindings.** Probe/title-gen/
-compaction turns bypass the scorer, so `hardPinResolver` gets its
+**The hard-pin tier resolves against the same bindings.** Compaction and explicitly
+deployment-pinned utility turns bypass the scorer, so `hardPinResolver` gets its
 own `HardPinRequest` carrying `CustomBindings` + `GatewayProviders` and selects
 via `cluster.FastestModelForRequest`. Without them a gateway-only installation
 resolved nothing and every such turn 503'd `ErrClusterUnavailable` ("cluster
 scorer failed") while its scored turns routed fine — prod 2026-08-26. An empty
 result under a gateway now reports `ErrGatewayServesNoDeployedModel` for the
 same reason the resolver does: the alias list is the thing to fix.
+
+**Default titles are scored independently; probes preserve their target.** Title
+generation uses `routeWithoutPin`, without consulting or updating the conversation's
+automatic pin or emitting a routing marker. Default provider/quota probes use the
+requested model and do not cross-model fail over. An automatic probe with no
+concrete requested model is scored independently without a session pin.
+Same-model credential fallback
+still applies, so a successful probe does not prove subscription-specific quota.
+An explicit `ROUTER_HARD_PIN_MODEL`
+retains the utility override, and deliberate `/force-model` choices still win.
 
 **Classifier turns are scored, not hard-pinned.** Claude Code's security
 monitor is a fresh window (own system prompt, ~50k-token transcript as

@@ -673,6 +673,7 @@ func main() {
 	safeGo(logger, "session-turn-clock-sweep", func() { runSessionTurnClockSweep(context.Background(), sessionTurnClock) })
 
 	hardPinExplore := config.GetOr("ROUTER_HARD_PIN_EXPLORE", "true") == "true"
+	hardPinOverrideConfigured := strings.TrimSpace(config.GetOr("ROUTER_HARD_PIN_MODEL", "")) != ""
 	// Hard-pin compaction runs on every installation, so it must land on a
 	// provider with real deployment auth (env-keyed, excluding BYOK/passthrough)
 	// or it 401s. In managed/byokOnly mode no provider has deployment auth, so
@@ -696,7 +697,7 @@ func main() {
 	// Not wired when ROUTER_HARD_PIN_MODEL is set — an operator override is
 	// absolute and must never be silently rewritten by excluded_models.
 	var hardPinResolver proxy.HardPinResolver
-	if config.GetOr("ROUTER_HARD_PIN_MODEL", "") == "" {
+	if !hardPinOverrideConfigured {
 		reqVersion := config.GetOr("ROUTER_CLUSTER_VERSION", cluster.LatestVersion)
 		if version, vErr := cluster.ResolveVersion(reqVersion); vErr == nil {
 			if bundle, bErr := cluster.LoadBundle(version); bErr == nil {
@@ -893,7 +894,7 @@ func main() {
 	}
 	// The client's own compaction turn is served by proxy.compactionHardPin on
 	// Anthropic unless the operator pinned every utility turn explicitly.
-	compactionHardPin := config.GetOr("ROUTER_HARD_PIN_MODEL", "") == ""
+	compactionHardPin := !hardPinOverrideConfigured
 	clientCompactionProvider, clientCompactionModel := providers.ProviderAnthropic, compactionModel
 	if !compactionHardPin {
 		clientCompactionProvider, clientCompactionModel = hardPinProvider, hardPinModel
@@ -1309,6 +1310,7 @@ func main() {
 		WithDeploymentKeyedProviders(deploymentEligible).
 		WithPassthroughEligibleProviders(passthroughEligible).
 		WithHardPinResolver(hardPinResolver).
+		WithExplicitUtilityHardPin(hardPinOverrideConfigured).
 		WithSubAgentOverride(subAgentProvider, subAgentModel).
 		WithPlannerEnabled(plannerEnabled).
 		WithScoreToolResultTurns(scoreToolResultTurns).
