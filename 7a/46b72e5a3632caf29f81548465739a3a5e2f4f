@@ -1,0 +1,23 @@
+internal/api/admin/internal_task_domain_preview_test.go
+  s_78314889e48d65::t_5ba20e8c594dca 70-79,86,89,91-119,121-133
+internal/api/admin/internal_task_domain_preview.go
+  s_78314889e48d65::t_5ba20e8c594dca 15-20,22-32,40-52,54-57,60-64,69-70,73-75,77-78,80-92,94-116,118-121
+sidecars/task-domain/README.md
+  s_78314889e48d65::t_5ba20e8c594dca 69-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7a46b72e5a3632caf29f81548465739a3a5e2f4f",
+  "prompts": {},
+  "sessions": {
+    "s_78314889e48d65": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "80f6f84c-7250-4cb3-a86b-83d9b0c00d7d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
