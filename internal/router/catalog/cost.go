@@ -33,7 +33,6 @@ func EffectiveInputCost(inputTokens, cacheCreation, cacheRead int, p Pricing, up
 // warmPrefill of the cache-creation tokens priced as cache reads: a baseline
 // that never switched models would have read that prefix from a warm cache.
 func CounterfactualInputCost(inputTokens, cacheCreation, cacheRead, warmPrefill int, p Pricing, upstreamProvider string) float64 {
-	warmPrefill = min(max(warmPrefill, 0), cacheCreation)
 	return EffectiveInputCost(inputTokens, cacheCreation-warmPrefill, cacheRead+warmPrefill, p, upstreamProvider)
 }
 

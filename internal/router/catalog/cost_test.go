@@ -96,15 +96,6 @@ func TestCounterfactualInputCost_SameResultForEitherUsageShape(t *testing.T) {
 	assert.InDelta(t, anthropic, openai, 1e-12)
 }
 
-func TestCounterfactualInputCost_ClampsWarmPrefillToCacheCreation(t *testing.T) {
-	opus := catalog.Pricing{InputUSDPer1M: 5, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.10}
-
-	all := catalog.CounterfactualInputCost(2_000, 100_000, 0, 100_000, opus, "anthropic")
-	assert.InDelta(t, all, catalog.CounterfactualInputCost(2_000, 100_000, 0, 500_000, opus, "anthropic"), 1e-12)
-	assert.InDelta(t, catalog.EffectiveInputCost(2_000, 100_000, 0, opus, "anthropic"),
-		catalog.CounterfactualInputCost(2_000, 100_000, 0, -1, opus, "anthropic"), 1e-12)
-}
-
 func TestEffectiveCost_SelectsLongContextTier(t *testing.T) {
 	price := catalog.Pricing{
 		InputUSDPer1M:        0.20,

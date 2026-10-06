@@ -268,6 +268,8 @@ type turnLoopResult struct {
 	// the client transcript on every later turn, so the emit path ORs this
 	// in to keep stripping them for the life of the session.
 	SessionEverSwitched bool
+	// PriorServedEndedAt is when PriorServedModel's turn ended, from the same pin.
+	PriorServedEndedAt time.Time
 	// StripThinkingBlocks forces signature removal when switch history is unavailable.
 	StripThinkingBlocks bool
 	// Handover captures the summarize-or-trim step when the planner switched.
@@ -400,7 +402,7 @@ func (r turnLoopResult) modelSwitched() bool {
 // the prefix warm. A first turn, client trim, or ingress truncation re-primes
 // the baseline's cache too, so those turns have nothing to correct.
 func (r turnLoopResult) baselineWarmPrefillTokens(cacheCreation int, servedModel, baselineModel string, historyTruncated bool) int {
-	if cacheCreation <= 0 || r.PriorServedModel == "" || r.PriorTurnGapMS == nil || r.PrefixTrimmed || historyTruncated {
+	if cacheCreation <= 0 || r.PriorServedModel == "" || r.PriorServedEndedAt.IsZero() || r.PrefixTrimmed || historyTruncated {
 		return 0
 	}
 	if baseModelOf(r.PriorServedModel) == servedModel {
@@ -410,7 +412,7 @@ func (r turnLoopResult) baselineWarmPrefillTokens(cacheCreation int, servedModel
 	if !ok {
 		return 0
 	}
-	if time.Duration(*r.PriorTurnGapMS)*time.Millisecond >= providers.CacheTTLFor(baseline.PrimaryProvider()) {
+	if time.Since(r.PriorServedEndedAt) >= providers.CacheTTLFor(baseline.PrimaryProvider()) {
 		return 0
 	}
 	return cacheCreation
@@ -922,7 +924,7 @@ func (s *Service) runTurnLoop(
 			res.SessionKey = threadSessionKey
 			res.PinModel = forceModelPin.Model
 			res.PinAgeSec = pinAge(forceModelPin)
-			res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(threadPin, hmmHistory, forceHistory)
+			res.applySwitchHistory(threadPin, hmmHistory, forceHistory)
 			res.EscalateEffort = !forceHistory.LastTurnEndedAt.IsZero() &&
 				(forceHistory.LastOutputTokens == 0 || forceHistory.ConsecutiveUpstreamErrors > 0)
 			res.Decision = pinDecision(forceModelPin)
@@ -1227,7 +1229,7 @@ func (s *Service) runTurnLoop(
 			req.AutomaticExcludedModels = addToSet(req.AutomaticExcludedModels, model)
 		}
 	}
-	res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(pin, hmmHistory, forceHistory)
+	res.applySwitchHistory(pin, hmmHistory, forceHistory)
 	req.PolicyTurnContext = buildPolicyTurnContext(req, res, pin, hmmHistory)
 	// Computed before any same-turn pin-drop guards below so it reflects the
 	// prior turn's outcome; Service.effortEscalation gates whether it's acted on.
@@ -1596,9 +1598,9 @@ func (s *Service) runTurnLoop(
 		res.PinModel = commandContinuation.Model
 		res.PinAgeSec = pinAge(commandContinuation)
 		if forceModelCleared {
-			res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(commandContinuation, hmmHistory, forceHistory, forceModelPin)
+			res.applySwitchHistory(commandContinuation, hmmHistory, forceHistory, forceModelPin)
 		} else {
-			res.PriorServedModel, res.SessionEverSwitched = switchHistoryFromPins(commandContinuation, hmmHistory, forceHistory)
+			res.applySwitchHistory(commandContinuation, hmmHistory, forceHistory)
 		}
 		res.EscalateEffort = !commandContinuation.LastTurnEndedAt.IsZero() &&
 			(commandContinuation.LastOutputTokens == 0 || commandContinuation.ConsecutiveUpstreamErrors > 0)
@@ -2622,6 +2624,20 @@ func (s *Service) loadHMMHistory(ctx context.Context, sessionKey [sessionpin.Ses
 }
 
 func switchHistoryFromPins(pins ...sessionpin.Pin) (string, bool) {
+	latest, sessionEverSwitched := latestServedTurn(pins...)
+	return latest.LastServedModel, sessionEverSwitched
+}
+
+// applySwitchHistory records the latest served turn across pins, so switch
+// detection and the savings baseline's cache-TTL check read the same turn.
+func (r *turnLoopResult) applySwitchHistory(pins ...sessionpin.Pin) {
+	latest, sessionEverSwitched := latestServedTurn(pins...)
+	r.PriorServedModel = latest.LastServedModel
+	r.PriorServedEndedAt = latest.LastTurnEndedAt
+	r.SessionEverSwitched = sessionEverSwitched
+}
+
+func latestServedTurn(pins ...sessionpin.Pin) (sessionpin.Pin, bool) {
 	var latest sessionpin.Pin
 	sessionEverSwitched := false
 	seenModel := ""
@@ -2638,7 +2654,7 @@ func switchHistoryFromPins(pins ...sessionpin.Pin) (string, bool) {
 			latest = pin
 		}
 	}
-	return latest.LastServedModel, sessionEverSwitched
+	return latest, sessionEverSwitched
 }
 
 func buildPolicyTurnContext(

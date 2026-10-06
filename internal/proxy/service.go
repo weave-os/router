@@ -3843,7 +3843,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			hmmHistory := s.loadHMMHistory(ctx, sessionKey, role)
 			forceHistory := s.loadForceModelHistory(ctx, sessionKey, role)
 			routeRes.SessionKey = sessionKey
-			routeRes.PriorServedModel, routeRes.SessionEverSwitched = switchHistoryFromPins(pin, hmmHistory, forceHistory)
+			routeRes.applySwitchHistory(pin, hmmHistory, forceHistory)
 		}
 
 		routeRes.UsageBypass = false
