@@ -1,5 +1,6 @@
 internal/router/hmm/selection/domain_preview_test.go
   s_78314889e48d65::t_e11d2b6af4783c 1-20,22-76
+  s_78314889e48d65::t_3b591b95604c54 21
 internal/api/admin/internal_task_domain_preview.go
   s_78314889e48d65::t_fc4bba6667f29d 1-68,73-75,77-86
   s_78314889e48d65::t_37a62c87283dde 69,71-72,76
@@ -12,6 +13,8 @@ internal/router/hmm/selection/domain_test.go
   s_78314889e48d65::t_7da3eb88448131 45,49,54-55,60-65,265,267
   s_78314889e48d65::t_44616c742aa45f 18-30,42-44,46-48,50,52,56-57,73,78-98,111-116,121-135,141-159,161-168,188,199-200,209,212,219-221,234,240,245-246,249,252-257,259-261,263-264,266,268-277,280,290,319
   s_78314889e48d65::t_dc62fa408d08af 51
+  s_78314889e48d65::t_a8007890ea9e84 108,198,201,207
+  s_78314889e48d65::t_3b591b95604c54 160
 internal/router/hmm/selection/selection.go
   s_78314889e48d65::t_b6578b69349d7f 98,227,233
 sidecars/task-domain/README.md
@@ -22,6 +25,7 @@ sidecars/task-domain/README.md
 internal/router/hmm/selection/domain_preview.go
   s_78314889e48d65::t_e1b7ce8a02dfda 1-65,67-80,82-92,95-96,98-100
   s_78314889e48d65::t_bd351ac2072128 81,93-94,97
+  s_78314889e48d65::t_3b591b95604c54 66
 internal/api/admin/internal_task_domain_preview_test.go
   s_78314889e48d65::t_9e369b169a01b7 36-37
   s_78314889e48d65::t_e11d2b6af4783c 1-35,38-107,109-114
