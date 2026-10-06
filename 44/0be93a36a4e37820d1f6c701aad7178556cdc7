@@ -1,0 +1,66 @@
+internal/proxy/codex_title_gen_internal_test.go
+  s_b33b83fee39994::t_051b10a26c00c6 40,67-68,71,98-99,102,129-130
+internal/proxy/service_observation_test.go
+  s_b33b83fee39994::t_051b10a26c00c6 209
+docs/POLICY_INFERENCE.md
+  s_b33b83fee39994::t_051b10a26c00c6 6,30
+internal/router/turntype/CLAUDE.md
+  s_b33b83fee39994::t_051b10a26c00c6 15-16
+docs/POLICY_INFERENCE.json
+  s_b33b83fee39994::t_051b10a26c00c6 3,556
+internal/proxy/CLAUDE.md
+  s_b33b83fee39994::t_051b10a26c00c6 186-187,195-203
+  s_b33b83fee39994::t_f1eafdb76abda7 204
+internal/proxy/service_session_pin_test.go
+  s_b33b83fee39994::t_051b10a26c00c6 708,1768,1794
+internal/router/policy/inference_registry.go
+  s_b33b83fee39994::t_051b10a26c00c6 615
+internal/proxy/AGENTS.md
+  s_b33b83fee39994::t_051b10a26c00c6 186-187,195-203
+  s_b33b83fee39994::t_214f1cbf1bf6d0 204
+internal/proxy/opencode_turns_test.go
+  s_b33b83fee39994::t_051b10a26c00c6 31,67,153,156,159,169,171,174
+internal/proxy/service.go
+  s_b33b83fee39994::t_051b10a26c00c6 130-131,687,706,2286-2291
+  s_b33b83fee39994::t_b5dc26422ebb53 2292
+cmd/router/main.go
+  s_b33b83fee39994::t_051b10a26c00c6 676,700,897,1313
+internal/proxy/turnloop.go
+  s_b33b83fee39994::t_051b10a26c00c6 518-520,530,532-533,552-553,555,932-943
+  s_b33b83fee39994::t_663b77dd352d5e 944-945
+internal/proxy/blind_experiment_internal_test.go
+  s_b33b83fee39994::t_051b10a26c00c6 13,227-228,230,271,280-287,308-315,320-321
+  s_b33b83fee39994::t_65df8a89a16564 322
+docs/CONFIGURATION.md
+  s_b33b83fee39994::t_051b10a26c00c6 475,665
+internal/proxy/surface_purpose_test.go
+  s_b33b83fee39994::t_051b10a26c00c6 113-115,132-146,148-150,152-173
+internal/proxy/gateway_unserved_model_test.go
+  s_b33b83fee39994::t_051b10a26c00c6 101,145,177
+internal/proxy/openai_cyber_refusal.go
+  s_b33b83fee39994::t_051b10a26c00c6 234
+internal/router/turntype/AGENTS.md
+  s_b33b83fee39994::t_051b10a26c00c6 15-16
+internal/proxy/blind_experiment.go
+  s_b33b83fee39994::t_051b10a26c00c6 18-19
+docs/INFERENCE_BOUNDARY.md
+  s_b33b83fee39994::t_051b10a26c00c6 22,24
+internal/proxy/utility_selection_internal_test.go
+  s_b33b83fee39994::t_051b10a26c00c6 1-118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "440be93a36a4e37820d1f6c701aad7178556cdc7",
+  "prompts": {},
+  "sessions": {
+    "s_b33b83fee39994": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a10f29-b454-71c3-949d-17a38738c8b2",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
