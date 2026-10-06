@@ -1,0 +1,25 @@
+internal/router/policy/harness_test.go
+  s_ad333410ca20de::t_3c37b2969333d3 33-39
+internal/router/policy/harness.go
+  s_ad333410ca20de::t_63b73f355a3475 21-31
+internal/router/policy/arm_selector.go
+  s_ad333410ca20de::t_f8d39ef0a3b978 63
+internal/router/policy/arm_selector_test.go
+  s_ad333410ca20de::t_e1f1788095ff15 103-118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7aad12012571b45d2aaee190d05def4e4ef7c1ca",
+  "prompts": {},
+  "sessions": {
+    "s_ad333410ca20de": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a01e24f1-97a2-4888-9a9d-1946250a0294",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+scripts/smoke/run.sh
+  s_cba51ff194424d::t_337b3131582bb4 33-34
+docker-compose.yml
+  s_cba51ff194424d::t_337b3131582bb4 84,166
+.github/workflows/test.yml
+  s_cba51ff194424d::t_337b3131582bb4 31-33
+smoke/mitmproxy/docker-compose.yml
+  s_cba51ff194424d::t_337b3131582bb4 31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2778d8e291f045a153f314d064d3dbb8333e54ab",
+  "prompts": {},
+  "sessions": {
+    "s_cba51ff194424d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09259-4d5f-7d53-9896-3f1e6fa28e4d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

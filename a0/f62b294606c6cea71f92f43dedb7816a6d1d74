@@ -1,0 +1,35 @@
+internal/postgres/subscription_repo.go
+  s_0e1de158f24bda::t_13da5fb096aa1b 464-465,468
+internal/postgres/subscription_repo_test.go
+  s_0e1de158f24bda::t_cda8c70d10f000 124
+internal/subscriptions/oauth.go
+  s_0e1de158f24bda::t_09184cd3720372 14,269-270,273-275
+internal/subscriptions/oauth_test.go
+  s_0e1de158f24bda::t_008baba0ba55c1 29,141,161
+scripts/subscription_enrollment_check/codex_identity_test.go
+  s_0e1de158f24bda::t_48c79e7d19b3d5 65,74,76,81,83-87,90,92-93
+scripts/subscription_enrollment_check/enrollment_test.go
+  s_0e1de158f24bda::t_f01748bb91c881 93
+scripts/subscription_verification_check/identity_subscription_verification_test.go
+  s_0e1de158f24bda::t_85b770a7abd82e 7,67,72,141-153
+scripts/subscription_verification_check/ownership_subscription_verification_test.go
+  s_0e1de158f24bda::t_b203948a025990 62,73,150
+scripts/subscription_verification_check/refresh_subscription_verification_test.go
+  s_0e1de158f24bda::t_741727cda8a7b5 70,110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a0f62b294606c6cea71f92f43dedb7816a6d1d74",
+  "prompts": {},
+  "sessions": {
+    "s_0e1de158f24bda": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10f70-ce92-7123-bd9a-002ae9d5867f",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
