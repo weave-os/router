@@ -409,7 +409,7 @@ func (r turnLoopResult) modelSwitched() bool {
 // the previous turn's prompt warm; content appended since is a write either
 // way. A first turn, client trim, or ingress truncation re-primes the
 // baseline's cache too, so those turns have nothing to correct.
-func (r turnLoopResult) baselineWarmPrefillTokens(cacheCreation, cacheRead int, servedModel, baselineModel string, historyTruncated bool) int {
+func (r turnLoopResult) baselineWarmPrefillTokens(requestStart time.Time, cacheCreation, cacheRead int, servedModel, baselineModel string, historyTruncated bool) int {
 	if cacheCreation <= 0 || r.PriorServedModel == "" || r.PrefixTrimmed || historyTruncated {
 		return 0
 	}
@@ -420,7 +420,8 @@ func (r turnLoopResult) baselineWarmPrefillTokens(cacheCreation, cacheRead int, 
 	if !ok {
 		return 0
 	}
-	if time.Since(r.PriorServedEndedAt) >= providers.CacheTTLFor(baseline.PrimaryProvider()) {
+	// Prefill happens at request start, so this turn's generation time does not count against the TTL.
+	if requestStart.Sub(r.PriorServedEndedAt) >= providers.CacheTTLFor(baseline.PrimaryProvider()) {
 		return 0
 	}
 	return min(cacheCreation, max(r.PriorPromptTokens-cacheRead, 0))
@@ -2632,17 +2633,17 @@ func (s *Service) loadHMMHistory(ctx context.Context, sessionKey [sessionpin.Ses
 }
 
 func switchHistoryFromPins(pins ...sessionpin.Pin) (string, bool) {
-	latest, sessionEverSwitched := latestServedTurn(pins...)
-	return latest.LastServedModel, sessionEverSwitched
+	latestTurn, sessionEverSwitched := latestServedTurn(pins...)
+	return latestTurn.LastServedModel, sessionEverSwitched
 }
 
 // applySwitchHistory records the latest served turn across pins, so switch
 // detection and the savings baseline's cache-TTL check read the same turn.
 func (r *turnLoopResult) applySwitchHistory(pins ...sessionpin.Pin) {
-	latest, sessionEverSwitched := latestServedTurn(pins...)
-	r.PriorServedModel = latest.LastServedModel
-	r.PriorServedEndedAt = latest.LastTurnEndedAt
-	r.PriorPromptTokens = priorPromptTokens(latest)
+	latestTurn, sessionEverSwitched := latestServedTurn(pins...)
+	r.PriorServedModel = latestTurn.LastServedModel
+	r.PriorServedEndedAt = latestTurn.LastTurnEndedAt
+	r.PriorPromptTokens = priorPromptTokens(latestTurn)
 	r.SessionEverSwitched = sessionEverSwitched
 }
 
