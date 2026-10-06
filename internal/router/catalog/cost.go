@@ -9,16 +9,16 @@ import (
 // EffectiveInputCost returns the true USD input cost after applying cache
 // pricing. Fresh tokens at base rate; cache-creation at the binding's
 // effective write multiplier; cache-read at the binding's effective read
-// multiplier. upstreamProvider distinguishes
-// Anthropic (input_tokens is fresh-only) from OpenAI / Gemini
-// (prompt_tokens includes cached tokens — must subtract).
+// multiplier. upstreamProvider's wire family distinguishes Anthropic-spec
+// upstreams (input_tokens is fresh-only) from OpenAI / Gemini (prompt_tokens
+// includes cached tokens — must subtract).
 //
 // Single source of truth for the proxy's OTel emitter, telemetry write
 // path, and the billing debit hook.
 func EffectiveInputCost(inputTokens, cacheCreation, cacheRead int, p Pricing, upstreamProvider string) float64 {
 	p = p.ForInputTokens(inputTokens)
 	fresh := inputTokens
-	if upstreamProvider != providers.ProviderAnthropic {
+	if providers.FamilyFor(upstreamProvider) != providers.FamilyAnthropic {
 		fresh = inputTokens - cacheCreation - cacheRead
 	}
 	if fresh < 0 {
