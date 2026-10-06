@@ -170,14 +170,14 @@ func (b *preludeBuffer) currentAttemptGeneration() uint64 {
 	return b.attemptGeneration
 }
 
-func (b *preludeBuffer) abortIfUncommitted(generation uint64, abort func()) {
+func (b *preludeBuffer) abortIfUncommitted(attemptGeneration uint64, abort func()) {
 	b.commitMu.Lock()
 	defer b.commitMu.Unlock()
-	if b.committed.Load() || generation != b.attemptGeneration {
+	if b.committed.Load() || attemptGeneration != b.attemptGeneration {
 		return
 	}
 	b.commitAborted = true
-	b.abortedGeneration = generation
+	b.abortedGeneration = attemptGeneration
 	abort()
 }
 

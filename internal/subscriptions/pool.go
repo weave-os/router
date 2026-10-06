@@ -4,11 +4,13 @@ package subscriptions
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"sync"
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/observability"
 )
 
 // Provider identifies the subscription family an account can serve.
@@ -113,12 +115,8 @@ func (p *Pool) Upsert(account Account) error {
 		if existing.account.State == auth.SubscriptionAccountStateActive && account.State == auth.SubscriptionAccountStateUnknown {
 			account.State = existing.account.State
 		}
-		// A stale durable snapshot cannot clear local fencing recorded by this
-		// replica before the database write is visible.
-		if !existing.account.Enabled {
-			account.Enabled = false
-			account.State = existing.account.State
-		}
+		// A stale durable snapshot cannot shorten a cooldown this replica recorded
+		// before its database write is visible. Durable re-enablement still wins.
 		if existing.account.CooldownTil.After(account.CooldownTil) {
 			account.CooldownTil = existing.account.CooldownTil
 			account.State = existing.account.State
@@ -381,7 +379,18 @@ func (p *Pool) refreshAccount(ctx context.Context, account Account, refresh Refr
 	go func() {
 		refreshCtx, cancelRefresh := context.WithTimeout(context.WithoutCancel(ctx), refreshLeaseTTL)
 		defer cancelRefresh()
-		refreshed, err := refresh(refreshCtx, account)
+		var refreshed Account
+		var err error
+		func() {
+			// A panicking refresher must still release joiners and the in-flight entry.
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					observability.FromContext(refreshCtx).Error("Subscription refresh panicked", "account_id", account.ID, "panic", recovered)
+					err = fmt.Errorf("subscription refresh panicked: %v", recovered)
+				}
+			}()
+			refreshed, err = refresh(refreshCtx, account)
+		}()
 		// Classify here so a failure is recorded even when every waiter left.
 		var terminal terminalRefreshError
 		switch {

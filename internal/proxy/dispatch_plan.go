@@ -345,16 +345,16 @@ func withSubscriptionRotationDeadline(ctx, budget context.Context) context.Conte
 // rotation, not the length of a committed stream.
 func withUncommittedRotationDeadline(ctx, budget context.Context, buf *preludeBuffer) (context.Context, func()) {
 	attemptCtx, cancel := context.WithCancelCause(ctx)
-	var generation uint64
+	var attemptGeneration uint64
 	if buf != nil {
-		generation = buf.currentAttemptGeneration()
+		attemptGeneration = buf.currentAttemptGeneration()
 	}
 	stop := context.AfterFunc(budget, func() {
 		if buf == nil {
 			cancel(budget.Err())
 			return
 		}
-		buf.abortIfUncommitted(generation, func() { cancel(budget.Err()) })
+		buf.abortIfUncommitted(attemptGeneration, func() { cancel(budget.Err()) })
 	})
 	return attemptCtx, func() {
 		stop()
