@@ -231,7 +231,7 @@ func (s *Service) cyberRefusalFallback(
 	avoidProvider string,
 ) (model, provider string, ok bool) {
 	model = s.ResolveCyberRefusalFallbackModel(ctx)
-	if s.pinStore != nil {
+	if s.pinStore != nil && sessionKey != ([sessionpin.SessionKeyLen]byte{}) {
 		if existing, found, err := s.pinStore.Get(context.Background(), sessionKey, role); err == nil && found &&
 			pinMatchesEffectiveStrategy(ctx, existing) && existing.PairedModel != "" &&
 			!providerAvoided(providerForModel(existing.PairedProvider, existing.PairedModel), avoidProvider) {

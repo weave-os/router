@@ -62,6 +62,12 @@ func TestAutomaticUtilitySelectionDoesNotUseDeploymentShortcut(t *testing.T) {
 					service.recordTurnUsage(ctx, turn, turn.Decision.Provider, turn.Decision.Model, 100, 10, 0, 0, false)
 					pins.mu.Lock()
 					defer pins.mu.Unlock()
+					if fixture.turnType == turntype.TitleGen {
+						assert.Equal(t, []string{forceModelSessionRole}, pins.getRoles)
+					} else {
+						assert.Equal(t, []string{forceModelSessionRole, roleForTier(catalog.TierFor(features.Model))}, pins.getRoles,
+							"probes also inspect the legacy thread pin for explicit force-model compatibility")
+					}
 					assert.Empty(t, pins.upserts)
 					assert.Zero(t, pins.usageHits)
 				})

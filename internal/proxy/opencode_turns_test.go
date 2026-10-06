@@ -167,7 +167,7 @@ func TestService_OpenCodeHeaderlessTitleScoresWithoutTouchingThePin(t *testing.T
 		rec := send(openCodeHeaderlessTitleBody)
 		assert.Equal(t, "gpt-4o", rec.Header().Get(proxy.HeaderRouterModel), "the title uses its independently scored model")
 		assert.NotContains(t, rec.Body.String(), "Weave Router", "a routing marker would become the session title")
-		assert.Equal(t, 2, store.getCalls-getsBefore, "title turns read only session and legacy thread force state")
+		assert.Equal(t, 1, store.getCalls-getsBefore, "title turns read only force-model session state, including during refusal-rescue setup")
 	}
 
 	assert.Equal(t, 3, fr.routeCalls, "each title must be scored independently of the conversation pin")

@@ -153,7 +153,9 @@ func TestUtilityTurns_DispatchUnderResolvedPurpose(t *testing.T) {
 				require.Len(t, sink.events, 1)
 				event := sink.events[0]
 				purpose, policyID, model := tc.purpose, tc.policyID, "claude-haiku-4-5"
-				if !explicit {
+				if explicit {
+					assert.Zero(t, fr.routeCalls)
+				} else {
 					model = "claude-sonnet-4-6"
 					if tc.purpose == inference.PurposeTitleGeneration {
 						purpose, policyID = inference.PurposeAnthropicMessages, "main-anthropic-messages"
