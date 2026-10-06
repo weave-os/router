@@ -205,8 +205,8 @@ func TestCodexEnrollmentRequiresProviderVerifiedUserIdentity(t *testing.T) {
 
 type subscriptionVerifierStub struct{}
 
-func (subscriptionVerifierStub) VerifyCodexEnrollment(_ context.Context, _ string, refresh []byte) (VerifiedCodexEnrollment, error) {
-	return VerifiedCodexEnrollment{ProviderUserID: "provider-user-1", RefreshToken: refresh}, nil
+func (subscriptionVerifierStub) VerifyCodexEnrollment(_ context.Context, _ string, refreshToken []byte) (VerifiedCodexEnrollment, error) {
+	return VerifiedCodexEnrollment{ProviderUserID: "provider-user-1", RefreshToken: refreshToken}, nil
 }
 
 func TestCodexEnrollmentIgnoresCallerProviderUserID(t *testing.T) {

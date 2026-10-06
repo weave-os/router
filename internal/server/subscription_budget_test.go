@@ -38,14 +38,14 @@ func (subscriptionBudgetAccounts) UpsertSubscriptionAccount(_ context.Context, p
 
 type subscriptionBudgetVerifier struct{}
 
-func (subscriptionBudgetVerifier) VerifyCodexEnrollment(ctx context.Context, _ string, refresh []byte) (auth.VerifiedCodexEnrollment, error) {
+func (subscriptionBudgetVerifier) VerifyCodexEnrollment(ctx context.Context, _ string, refreshToken []byte) (auth.VerifiedCodexEnrollment, error) {
 	// Model an exchange that needs its entire documented budget without a slow
 	// sleep: reject a route whose remaining deadline cannot accommodate it.
 	deadline, ok := ctx.Deadline()
 	if !ok || time.Until(deadline) <= subscriptions.RefreshHTTPTimeout {
 		return auth.VerifiedCodexEnrollment{}, context.DeadlineExceeded
 	}
-	return auth.VerifiedCodexEnrollment{ProviderUserID: "provider-user", RefreshToken: refresh}, nil
+	return auth.VerifiedCodexEnrollment{ProviderUserID: "provider-user", RefreshToken: refreshToken}, nil
 }
 
 func TestRegisteredSubscriptionRouteAllowsProviderExchangeBudget(t *testing.T) {

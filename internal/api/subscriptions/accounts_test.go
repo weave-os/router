@@ -129,6 +129,6 @@ func (verifiedSubject) GetCredentialSubject(_ context.Context, subjectID, instal
 
 type enrollmentVerifier struct{}
 
-func (enrollmentVerifier) VerifyCodexEnrollment(_ context.Context, _ string, refresh []byte) (auth.VerifiedCodexEnrollment, error) {
-	return auth.VerifiedCodexEnrollment{ProviderUserID: "provider-user-1", RefreshToken: refresh}, nil
+func (enrollmentVerifier) VerifyCodexEnrollment(_ context.Context, _ string, refreshToken []byte) (auth.VerifiedCodexEnrollment, error) {
+	return auth.VerifiedCodexEnrollment{ProviderUserID: "provider-user-1", RefreshToken: refreshToken}, nil
 }
