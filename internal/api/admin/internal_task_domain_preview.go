@@ -1,7 +1,10 @@
 package admin
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 
 	"weave-os/router/internal/observability"
@@ -64,9 +67,8 @@ type taskDomainPreviewResponse struct {
 // one request carries every lane of a control-plane read.
 func InternalTaskDomainPreviewHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxTaskDomainPreviewBytes)
 		var req taskDomainPreviewRequest
-		if err := c.ShouldBindJSON(&req); err != nil || len(req.Items) == 0 || len(req.Items) > maxTaskDomainPreviewItems {
+		if err := decodeTaskDomainPreviewRequest(c, &req); err != nil || len(req.Items) == 0 || len(req.Items) > maxTaskDomainPreviewItems {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "between 1 and 64 preview items are required"})
 			return
 		}
@@ -79,6 +81,23 @@ func InternalTaskDomainPreviewHandler() gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, response)
 	}
+}
+
+// decodeTaskDomainPreviewRequest reads the whole bounded body so trailing
+// content cannot slip past the size limit.
+func decodeTaskDomainPreviewRequest(c *gin.Context, req *taskDomainPreviewRequest) error {
+	body, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, maxTaskDomainPreviewBytes))
+	if err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	if err := decoder.Decode(req); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
+		return errors.New("trailing content after preview request")
+	}
+	return nil
 }
 
 func previewTaskDomainItem(c *gin.Context, req taskDomainPreviewItemRequest) taskDomainPreviewItem {

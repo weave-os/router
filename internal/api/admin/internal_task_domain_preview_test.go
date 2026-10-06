@@ -2,7 +2,9 @@ package admin_test
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -106,10 +108,14 @@ func TestInternalTaskDomainPreviewScoresEveryItemWithWorkerRecipe(t *testing.T) 
 	require.Len(t, reply.Items, 6)
 
 	infra := reply.Items[0]
-	assert.Equal(t, admin.TaskDomainPreviewReady, infra.Status)
-	assert.Equal(t, rosterdata.SHA256Hex(evidence), infra.EvidenceSHA256)
+	require.Equal(t, admin.TaskDomainPreviewReady, infra.Status)
+	require.NotNil(t, infra.Preview)
+	require.NotEmpty(t, infra.Preview.Arms)
+	assert.Equal(t, fmt.Sprintf("%x", sha256.Sum256(evidence)), infra.EvidenceSHA256)
 	assert.Equal(t, previewCheapArm, infra.Preview.EffectiveWinner)
 	assert.InDelta(t, -4.86, infra.Preview.Arms[0].Correction, 1e-5)
+	require.Equal(t, admin.TaskDomainPreviewReady, reply.Items[1].Status)
+	require.NotNil(t, reply.Items[1].Preview)
 	assert.Equal(t, previewQualityArm, reply.Items[1].Preview.EffectiveWinner, "docs alone keeps baseline")
 
 	for index, expected := range []admin.TaskDomainPreviewStatus{
@@ -132,4 +138,11 @@ func TestInternalTaskDomainPreviewRejectsEmptyAndOversizedBatches(t *testing.T) 
 	for _, body := range []map[string]any{{"items": []map[string]any{}}, {"items": oversized}} {
 		assert.Equal(t, http.StatusBadRequest, postTaskDomainPreview(t, body).Code)
 	}
+	valid, err := json.Marshal(map[string]any{"items": []map[string]any{{"policy": policy, "evidence": evidence, "cluster": "low"}}})
+	require.NoError(t, err)
+	engine := gin.New()
+	engine.POST("/preview", admin.InternalTaskDomainPreviewHandler())
+	recorder := httptest.NewRecorder()
+	engine.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/preview", bytes.NewReader(append(valid, []byte(` {"items":[]}`)...))))
+	assert.Equal(t, http.StatusBadRequest, recorder.Code, "trailing content is rejected")
 }

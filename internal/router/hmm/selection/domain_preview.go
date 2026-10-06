@@ -16,15 +16,18 @@ type DomainPreviewBenchmark struct {
 
 // DomainPreviewArm compares an arm's neutral baseline with its task-corrected score.
 type DomainPreviewArm struct {
-	Arm           string                   `json:"arm"`
-	BaselineRank  int                      `json:"baseline_rank"`
-	EffectiveRank int                      `json:"effective_rank"`
-	GlobalWII     float64                  `json:"global_wii"`
-	WPI           float64                  `json:"wpi"`
-	BaselineScore float32                  `json:"baseline_score"`
-	Correction    float32                  `json:"correction"`
-	AdjustedScore float32                  `json:"adjusted_score"`
-	Benchmarks    []DomainPreviewBenchmark `json:"benchmarks"`
+	Arm           string  `json:"arm"`
+	BaselineRank  int     `json:"baseline_rank"`
+	EffectiveRank int     `json:"effective_rank"`
+	GlobalWII     float64 `json:"global_wii"`
+	WPI           float64 `json:"wpi"`
+	BaselineScore float32 `json:"baseline_score"`
+	Correction    float32 `json:"correction"`
+	AdjustedScore float32 `json:"adjusted_score"`
+	// Scored is false for an arm, such as an unmeasured pin, the selector orders
+	// without a score; its score fields are then zero and carry no meaning.
+	Scored     bool                     `json:"scored"`
+	Benchmarks []DomainPreviewBenchmark `json:"benchmarks"`
 }
 
 // DomainPreview is the live selector's within-cluster order for one task profile.
@@ -43,6 +46,9 @@ type DomainPreview struct {
 // once without and once with the task profile. Pins and harness vendor
 // priority apply exactly as in serving.
 func PreviewDomainRanking(roster *rosterdata.Roster, evidence *DomainEvidence, label, harness string, profile DomainProfile) (DomainPreview, error) {
+	if roster == nil {
+		return DomainPreview{}, errors.New("domain preview requires a roster")
+	}
 	cluster, exists := roster.Clusters[label]
 	if !exists {
 		return DomainPreview{}, fmt.Errorf("cluster %q is not in the policy", label)
@@ -78,21 +84,25 @@ func PreviewDomainRanking(roster *rosterdata.Roster, evidence *DomainEvidence, l
 	if len(domains) > 0 {
 		preview.Influence = DomainInfluence
 	}
-	numericLeader := 0
+	numericLeader := -1
 	for position, arm := range baselineOrder {
-		cell, score := evidence.Arms[arm], components[label][arm]
+		cell := evidence.Arms[arm]
+		score, scored := components[label][arm]
 		previewArm := DomainPreviewArm{
 			Arm: arm, BaselineRank: position + 1, EffectiveRank: effectiveRanks[arm],
-			GlobalWII: cell.GlobalWII, WPI: cell.WPI,
+			GlobalWII: cell.GlobalWII, WPI: cell.WPI, Scored: scored,
 			BaselineScore: score.BaseScore, Correction: score.TaskDomainCorrection, AdjustedScore: score.TotalScore,
 		}
 		for _, gap := range BenchmarkGaps(domains, cell) {
 			previewArm.Benchmarks = append(previewArm.Benchmarks, DomainPreviewBenchmark{BenchmarkGap: gap, Contribution: alpha * DomainInfluence * gap.Gap})
 		}
 		preview.Arms = append(preview.Arms, previewArm)
-		if previewArm.AdjustedScore > preview.Arms[numericLeader].AdjustedScore {
+		if scored && (numericLeader < 0 || previewArm.AdjustedScore > preview.Arms[numericLeader].AdjustedScore) {
 			numericLeader = position
 		}
+	}
+	if numericLeader < 0 {
+		return DomainPreview{}, fmt.Errorf("cluster %q has no scored arms", label)
 	}
 	preview.NumericWinner = preview.Arms[numericLeader].Arm
 	preview.WinnerSuppressed = preview.NumericWinner != preview.EffectiveWinner

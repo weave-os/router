@@ -17,17 +17,14 @@ func TestDomainPreviewMatchesServingSelection(t *testing.T) {
 	preview, err := selection.PreviewDomainRanking(roster, evidence, "low", "", profile)
 	require.NoError(t, err)
 
-	pick, scores, _, _, ok := selection.SelectGroupsWithDomainPreferences(
-		roster, []selection.Group{{Label: "low"}}, "", candidateSet("vendor-a/quality", "vendor-b/cheap"), nil, nil, evidence, profile,
-	)
-	require.True(t, ok)
-	assert.Equal(t, pick.Arm, preview.EffectiveWinner)
+	assert.Equal(t, "vendor-b/cheap", preview.EffectiveWinner)
 	assert.Equal(t, "vendor-a/quality", preview.BaselineWinner)
 	assert.Equal(t, 0.15, preview.Influence)
 	quality, cheap := preview.Arms[0], preview.Arms[1]
 	assert.Equal(t, []int{1, 2}, []int{quality.BaselineRank, quality.EffectiveRank})
 	assert.Equal(t, []int{2, 1}, []int{cheap.BaselineRank, cheap.EffectiveRank})
-	assert.Equal(t, scores["low"]["vendor-a/quality"], quality.AdjustedScore)
+	assert.InDelta(t, 25.14, quality.AdjustedScore, 1e-5)
+	assert.True(t, quality.Scored)
 	assert.InDelta(t, -4.86, quality.Correction, 1e-5)
 	total := 0.0
 	for _, term := range quality.Benchmarks {
@@ -63,6 +60,26 @@ func TestDomainPreviewReportsPinSuppressedLeader(t *testing.T) {
 	assert.Equal(t, "vendor-b/cheap", preview.NumericWinner)
 	assert.Equal(t, "vendor-a/quality", preview.EffectiveWinner)
 	assert.True(t, preview.WinnerSuppressed)
+}
+
+func TestDomainPreviewNeverCrownsAnUnscoredPin(t *testing.T) {
+	roster := dynamicRoster()
+	evidence := domainEvidenceForTest(t, roster)
+	cluster := roster.Clusters["low"]
+	cluster.ArmScores = map[string]float64{"vendor-a/quality": -30, "vendor-b/cheap": -25}
+	cluster.ArmIndices = nil
+	cluster.Arms = append([]string{"vendor-c/pinned"}, cluster.Arms...)
+	cluster.ManualPinsByHarness = map[rosterdata.Harness][]string{rosterdata.HarnessPI: {"vendor-c/pinned"}}
+	roster.Clusters["low"] = cluster
+	evidence.Arms["vendor-c/pinned"] = selection.DomainArmEvidence{GlobalWII: 50}
+	preview, err := selection.PreviewDomainRanking(roster, evidence, "low", "pi", fullProfile(selection.DomainInfra))
+	require.NoError(t, err)
+	assert.False(t, preview.Arms[0].Scored)
+	assert.Equal(t, "vendor-c/pinned", preview.EffectiveWinner)
+	assert.Equal(t, "vendor-b/cheap", preview.NumericWinner)
+	assert.True(t, preview.WinnerSuppressed)
+	_, err = selection.PreviewDomainRanking(nil, evidence, "low", "", fullProfile(selection.DomainInfra))
+	require.Error(t, err)
 }
 
 func TestDomainPreviewRejectsUnboundEvidence(t *testing.T) {
