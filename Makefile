@@ -66,6 +66,7 @@ test-statusline: ## Run the cc-statusline.sh regression tests (offline)
 	@bash install/tests/cc-statusline_test.sh
 
 test-install: ## Run offline installer regression tests
+	@npm install --prefix install/npm --ignore-scripts --package-lock=false --no-audit --no-fund
 	@bash install/tests/jq_bootstrap_test.sh
 	@bash install/tests/claude-status_test.sh
 	@bash install/tests/codex_install_test.sh

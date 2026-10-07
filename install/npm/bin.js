@@ -41,15 +41,15 @@ if (!existsSync(script)) {
 if (process.platform === "win32") {
   const bash = pickBash();
   if (bash) {
-    const result = spawnSync(bash, [script, ...args], {
+    const bashResult = spawnSync(bash, [script, ...args], {
       stdio: "inherit",
       env: { ...process.env, WEAVE_ROUTER_NPM_PACKAGE: packageName },
     });
-    if (result.error) {
-      console.error("Weave Router:", result.error.message);
+    if (bashResult.error) {
+      console.error("Weave Router:", bashResult.error.message);
       process.exit(1);
     }
-    process.exit(result.status ?? 1);
+    process.exit(bashResult.status ?? 1);
   }
 
   const windowsInstaller = path.join(__dirname, "windows.js");
@@ -58,15 +58,15 @@ if (process.platform === "win32") {
     process.exit(1);
   }
   console.log("Git Bash was not found; using the native Windows installer.");
-  const result = spawnSync(process.execPath, [windowsInstaller, ...args], {
+  const installerResult = spawnSync(process.execPath, [windowsInstaller, ...(isUninstall ? ["--uninstall"] : []), ...args], {
     stdio: "inherit",
     env: { ...process.env, WEAVE_ROUTER_NPM_PACKAGE: packageName },
   });
-  if (result.error) {
-    console.error("Weave Router:", result.error.message);
+  if (installerResult.error) {
+    console.error("Weave Router:", installerResult.error.message);
     process.exit(1);
   }
-  process.exit(result.status ?? 1);
+  process.exit(installerResult.status ?? 1);
 }
 
 const bash = pickBash();
@@ -77,7 +77,7 @@ if (!bash) {
   process.exit(1);
 }
 
-const result = spawnSync(bash, [script, ...args], {
+const unixBashResult = spawnSync(bash, [script, ...args], {
   stdio: "inherit",
   env: {
     ...process.env,
@@ -85,24 +85,31 @@ const result = spawnSync(bash, [script, ...args], {
   },
 });
 
-if (result.error) {
-  console.error("Weave Router:", result.error.message);
+if (unixBashResult.error) {
+  console.error("Weave Router:", unixBashResult.error.message);
   process.exit(1);
 }
-process.exit(result.status ?? 1);
+process.exit(unixBashResult.status ?? 1);
 
 function pickBash() {
   if (process.platform !== "win32") return "bash";
-  const candidates = [
+  const bashCandidates = [
     process.env.SHELL,
     "C:\\Program Files\\Git\\bin\\bash.exe",
     "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
     ...String(process.env.PATH || "").split(path.delimiter).map((directory) => path.join(directory, "bash.exe")),
   ].filter(Boolean);
-  for (const c of candidates) {
-    if (existsSync(c)) return c;
-  }
-  return null;
+  return bashCandidates.find((candidate) => existsSync(candidate) && isGitBash(candidate)) || null;
+}
+
+function isGitBash(executable) {
+  const probe = spawnSync(executable, ["-lc", "uname -s"], {
+    encoding: "utf8",
+    timeout: 3000,
+    windowsHide: true,
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  return probe.status === 0 && /^(?:MINGW|MSYS)/.test(probe.stdout.trim());
 }
 
 function openDefaultEntrypoint(url) {

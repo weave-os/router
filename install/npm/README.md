@@ -17,7 +17,7 @@ npx @weave-os/router login codex            # enroll ChatGPT Pro/Plus device flo
 npx @weave-os/router status                 # connectivity, native configs, account health
 npx @weave-os/router --opencode            # skip the picker, target opencode
 npx @weave-os/router --pi                  # skip the picker, target pi + Loom UI
-npx @weave-os/router --scope project       # per-repo install, commit settings.json (or .codex/ / opencode.json)
+npx @weave-os/router --scope project       # per-repo install; key-bearing config stays out of git
 npx @weave-os/router --local               # self-hosted via docker-compose (localhost:8080)
 npx @weave-os/router --base-url https://router.acme.internal
 npx @weave-os/router --email you@example.com # set identity without prompting
@@ -117,9 +117,8 @@ Four install targets:
   install. `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, and `gpt-6-sol`
   can use the active ChatGPT plan; other selected models use their WorkWeave
   deployment or BYOK credential.
-  The block lives between begin/end markers
-  so re-running the installer rewrites it cleanly and `--uninstall --codex`
-   removes it without touching the rest of your config. Codex does not load
+  Re-running the installer refreshes the Weave provider, and `--uninstall --codex`
+   removes it while preserving the other settings in your config. Codex does not load
    third-party slash-command files; the installer provides native skills
    `$force-model` (`$fm`), `$unforce-model` (`$ufm`), and `$router-feedback`
    (`$rf`), whose invocations are handled by the router directly. It also
@@ -167,7 +166,7 @@ dependencies are separately licensed and are not bundled in this package.
 ## Why npx
 
 `npx @weave-os/router` provides one-command setup and painless version
-pinning. The Windows entrypoint is native Node.js and needs no shell install.
+pinning.
 
 ## Older npm
 

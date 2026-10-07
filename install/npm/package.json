@@ -77,5 +77,8 @@
     "llm-router",
     "pi",
     "pi-package"
-  ]
+  ],
+  "dependencies": {
+    "smol-toml": "1.9.0"
+  }
 }
