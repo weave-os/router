@@ -24,6 +24,17 @@ func paidFallbackForbidden(ctx context.Context) bool {
 	return subscriptionAttemptOnly(ctx) || subscriptionStateModelsEnabled(ctx) && !subscriptionAPIOnly(ctx) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx)
 }
 
+func paidFallbackForbiddenForModel(ctx context.Context, model string) bool {
+	if subscriptionAttemptOnly(ctx) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
+		return true
+	}
+	if !subscriptionStateModelsEnabled(ctx) || subscriptionAPIOnly(ctx) {
+		return false
+	}
+	_, exhaustedModel := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[model]
+	return !exhaustedModel
+}
+
 // subscriptionStatePaidRescueContext permits paid recovery only when its target
 // is explicitly present in the installation's exhausted-state model set.
 func subscriptionStatePaidRescueContext(ctx context.Context, model string) context.Context {
@@ -31,6 +42,15 @@ func subscriptionStatePaidRescueContext(ctx context.Context, model string) conte
 		return context.WithValue(ctx, subscriptionAPIOnlyKey{}, true)
 	}
 	return ctx
+}
+
+func hasSubscriptionStatePaidRescue(ctx context.Context, candidates []router.Decision) bool {
+	for _, candidate := range candidates {
+		if !paidFallbackForbiddenForModel(ctx, candidate.Model) {
+			return true
+		}
+	}
+	return false
 }
 
 // releaseUnservableLinkedFirst drops a linked-first mark after routing when the

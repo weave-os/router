@@ -4546,6 +4546,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		!routeRes.CallerModelPassthrough &&
 		decision.Reason != translate.ReasonUserForceModel &&
 		s.shouldFailover(ctx) &&
+		!paidFallbackForbiddenForModel(ctx, baselineModel) &&
 		!anthropicExcluded &&
 		baselineAllowed &&
 		decision.Provider != providers.ProviderAnthropic &&
@@ -4576,7 +4577,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	subscriptionRetryEligible := decision.Provider == providers.ProviderAnthropic &&
 		!agentShadowMode &&
 		servedOnSubscription(ctx) &&
-		!paidFallbackForbidden(ctx) &&
+		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx) && len(installationSubscriptionModelsWhenInactiveFromContext(ctx)) > 0) &&
 		s.anthropicFallbackKeyAvailable(ctx)
 
 	// Same-cluster model failover: when the routed model's only binding is dark,
@@ -4591,7 +4592,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		!routeRes.CallerModelPassthrough &&
 		decision.Reason != translate.ReasonUserForceModel &&
 		(s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, siblingDecisions[0])) &&
-		!paidFallbackForbidden(ctx)
+		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx) && hasSubscriptionStatePaidRescue(ctx, siblingDecisions))
 
 	primaryProvider := decision.Provider
 	// Captured before rescue: failover replaces decision.Model, so afterwards
@@ -4651,6 +4652,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				decision = target
 				bindings = targetBindings
 				marker = suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, target.Model), target.Model, markerReasonSibling))
+			},
+			onSubscriptionStatePaidTarget: func(target router.Decision, _ []catalog.ProviderBinding) {
+				if !agentShadowMode && !routeRes.AuthoritativePerTurn && target.Provider != providers.ProviderAnthropic && !routeRes.HardPinned && !routeRes.Handover.Invoked && routeRes.PrefixTrimmed {
+					log.Info("Context trimming detected on selected exhausted-state route; rewriting context with handover summary", "decision_model", target.Model)
+					compactionHandoverOutcome = s.runCompactionHandover(ctx, env, r.Header, target.Model, req)
+					compactionHandoverRan = true
+				}
 			},
 			bindings:               bindings,
 			attempt:                attempt,
@@ -7643,7 +7651,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if cyberRetryEligible {
 		target, found := s.cyberRefusalRetryTarget(ctx, decision, routeRes.SessionKey, stickyStateRole(routeRes),
 			overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI)
-		cyberRetryViable = found && (s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, target))
+		cyberRetryViable = found && (s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, target)) &&
+			(!subscriptionStateModelsEnabled(ctx) || !paidFallbackForbiddenForModel(ctx, target.Model))
 		cyberRetryTarget = target
 	}
 	cyberRetryArmed = cyberRetryViable
@@ -7658,14 +7667,14 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	codexRetryViable := decision.Provider == providers.ProviderOpenAI &&
 		servedOnCodexSubscription(ctx) &&
 		!blindExperimentPassthroughActive(ctx) &&
-		!paidFallbackForbidden(ctx) &&
+		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx) && len(installationSubscriptionModelsWhenInactiveFromContext(ctx)) > 0) &&
 		s.openaiFallbackKeyAvailable(ctx)
 	// OpenAI-compatible callers can route to Anthropic too; give their Claude
 	// subscription model-access rejection the same paid recovery as /v1/messages.
 	claudeRetryViable := decision.Provider == providers.ProviderAnthropic &&
 		servedOnSubscription(ctx) &&
 		!blindExperimentPassthroughActive(ctx) &&
-		!paidFallbackForbidden(ctx) &&
+		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx) && len(installationSubscriptionModelsWhenInactiveFromContext(ctx)) > 0) &&
 		s.anthropicFallbackKeyAvailable(ctx)
 
 	siblingDecisions := s.siblingFailoverDecisions(ctx, rescueBasisForTurn(decision, routeRes), overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI)
@@ -7674,7 +7683,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		!routeRes.CallerModelPassthrough &&
 		!strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) &&
 		(s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, siblingDecisions[0])) &&
-		!paidFallbackForbidden(ctx)
+		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx) && hasSubscriptionStatePaidRescue(ctx, siblingDecisions))
 
 	primaryProvider := decision.Provider
 	primaryModel := decision.Model
@@ -7788,7 +7797,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		// Remember the plan is spent so later turns suppress the token pre-dispatch
 		// instead of buying another rejected round-trip per turn until it resets.
 		s.recordCodexQuotaExhaustion(ctx, r.Header, proxyErr)
-		subCtx := withSuppressedCodexSubscription(ctx)
+		subCtx := subscriptionStatePaidRescueContext(withSuppressedCodexSubscription(ctx), decision.Model)
 		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderOpenAI, decision.Model, r.Header)
 		subOpts := opts
 		subOpts.FastMode = fastModeForAttempt(subCtx, decision.Model, providers.ProviderOpenAI)
@@ -7834,7 +7843,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	claudeFailoverUsed := false
 	claudeRetryRan := false
 	if claudeRetryViable && proxyErr != nil && !preludeBuf.Committed() && anthropicSubscriptionModelRejected(proxyErr) {
-		subCtx := withSuppressedClaudeSubscription(ctx)
+		subCtx := subscriptionStatePaidRescueContext(withSuppressedClaudeSubscription(ctx), decision.Model)
 		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, decision.Model, r.Header)
 		subOpts := opts
 		subOpts.FastMode = fastModeForAttempt(subCtx, decision.Model, providers.ProviderAnthropic)
@@ -7892,7 +7901,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		retryOpts.ModelSwitched = true
 		retryEffort := s.resolveEffort(ctx, cyberRetryTarget, retryOpts.Capabilities, routeRes.EscalateEffort)
 		retryEffort.apply(&retryOpts)
-		retryCtx := resolveAndInjectCredentials(ctx, cyberRetryTarget.Provider, cyberRetryTarget.Model, r.Header)
+		retryCtx := resolveAndInjectCredentials(subscriptionStatePaidRescueContext(ctx, cyberRetryTarget.Model), cyberRetryTarget.Provider, cyberRetryTarget.Model, r.Header)
 		retryOpts.FastMode = fastModeForAttempt(retryCtx, cyberRetryTarget.Model, cyberRetryTarget.Provider)
 		retryBindings := s.resolveBindingsForDispatch(retryCtx, cyberRetryTarget)
 		retryMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, cyberRefusalRoutingMarkerFor(routeRes, cyberRetryTarget.Model), cyberRetryTarget.Model, markerReasonCyberRefusal))
@@ -7974,7 +7983,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			siblingOpts.ModelSwitched = true
 			siblingEffort := s.resolveEffort(ctx, siblingDecision, siblingOpts.Capabilities, routeRes.EscalateEffort)
 			siblingEffort.apply(&siblingOpts)
-			siblingCtx := s.resolveCredentials(ctx, siblingDecision.Provider, siblingDecision.Model, r.Header)
+			siblingCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(ctx, siblingDecision.Model), siblingDecision.Provider, siblingDecision.Model, r.Header)
 			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
 			siblingMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, siblingDecision.Model), siblingDecision.Model, markerReasonSibling))

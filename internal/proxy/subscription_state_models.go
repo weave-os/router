@@ -225,6 +225,15 @@ func (s *Service) subscriptionStatePaidTargetAvailable(ctx context.Context, head
 
 func (s *Service) dispatchSubscriptionStateTarget(ctx context.Context, in failoverInputs, target router.Decision, usesIncludedSubscription bool) (int, error) {
 	ctx = s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, in.subscriptionStateHeaders)
+	resolvedTargetBindings := s.resolveBindingsForDispatch(ctx, target)
+	if in.onSubscriptionStateTarget != nil {
+		in.onSubscriptionStateTarget(target, resolvedTargetBindings)
+	} else if in.onAlternative != nil {
+		in.onAlternative(target)
+	}
+	if !usesIncludedSubscription && in.onSubscriptionStatePaidTarget != nil {
+		in.onSubscriptionStatePaidTarget(target, resolvedTargetBindings)
+	}
 	attempt, err := in.buildAlternative(target)
 	if err != nil {
 		return -1, err
@@ -234,19 +243,12 @@ func (s *Service) dispatchSubscriptionStateTarget(ctx context.Context, in failov
 	}
 	in.initialDecision = target
 	in.attempt = attempt
-	in.bindings = s.resolveBindingsForDispatch(ctx, target)
+	in.bindings = resolvedTargetBindings
 	if usesIncludedSubscription {
 		// A subscription-capable binding cannot rotate onto a paid gateway.
 		in.bindings = []catalog.ProviderBinding{{Provider: target.Provider}}
 		in.deferFlushOnExhaustion = true
 	}
 	winner, err := s.dispatchWithFallback(ctx, in)
-	if err == nil {
-		if in.onSubscriptionStateTarget != nil {
-			in.onSubscriptionStateTarget(target, in.bindings)
-		} else if in.onAlternative != nil {
-			in.onAlternative(target)
-		}
-	}
 	return winner, err
 }

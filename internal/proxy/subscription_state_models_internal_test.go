@@ -303,6 +303,7 @@ func TestSubscriptionStateModelsPaidFallbackSkipsUnavailableProvider(t *testing.
 	buffer := newPreludeBuffer(rec)
 	var winner router.Decision
 	var servedModels []string
+	var paidTargetSelected bool
 	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
 		w: rec, buf: buffer, subscriptionStateRequest: &req,
 		initialDecision: router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
@@ -315,9 +316,13 @@ func TestSubscriptionStateModelsPaidFallbackSkipsUnavailableProvider(t *testing.
 			}, nil
 		},
 		onSubscriptionStateTarget: func(decision router.Decision, _ []catalog.ProviderBinding) { winner = decision },
+		onSubscriptionStatePaidTarget: func(decision router.Decision, _ []catalog.ProviderBinding) {
+			paidTargetSelected = decision.Model == statePaidModel
+		},
 	})
 	require.NoError(t, err)
 	require.Equal(t, statePaidModel, winner.Model)
+	require.True(t, paidTargetSelected, "paid-target preparation runs only after subscription candidates fail")
 	require.Equal(t, 0, claude.calls)
 	require.Equal(t, []string{statePaidModel}, servedModels)
 }
@@ -350,6 +355,8 @@ func TestSubscriptionStateModelsEmptySelectedStateFailsClosed(t *testing.T) {
 func TestSubscriptionStatePaidRescueRequiresExhaustedSetTarget(t *testing.T) {
 	ctx := conditionalModelsContext([]string{stateClaudeModel, stateCodexModel}, []string{statePaidModel})
 	require.True(t, paidFallbackForbidden(ctx))
+	require.False(t, paidFallbackForbiddenForModel(ctx, statePaidModel))
+	require.True(t, paidFallbackForbiddenForModel(ctx, stateClaudeModel))
 
 	allowedRescueCtx := subscriptionStatePaidRescueContext(ctx, statePaidModel)
 	require.False(t, paidFallbackForbidden(allowedRescueCtx))
