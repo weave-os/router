@@ -179,6 +179,8 @@ type ModelID string
 const (
 	ModelIDClaudeHaiku45  ModelID = "claude-haiku-4-5"
 	ModelIDClaudeSonnet46 ModelID = "claude-sonnet-4-6"
+	ModelIDClaudeOpus47   ModelID = "claude-opus-4-7"
+	ModelIDGPT56Luna      ModelID = "gpt-5.6-luna"
 	ModelIDClaudeOpus48   ModelID = "claude-opus-4-8"
 	ModelIDGPT55          ModelID = "gpt-5.5"
 )

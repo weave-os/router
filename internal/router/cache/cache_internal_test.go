@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router/catalog"
 
 	lru "github.com/hashicorp/golang-lru/v2"
 
@@ -34,7 +35,7 @@ func TestBucket_InvalidMaxBucketsPerInstallationNoOpsInsteadOfPanic(t *testing.T
 	c := newBrokenCache(t, cfg)
 
 	assert.NotPanics(t, func() {
-		b := c.bucket("inst-1", FormatAnthropic, 0, "v1", 0, NewProvenance(ProvenanceScope{CredentialSubject: "subject", Product: "legacy", Model: "claude-haiku-4-5", Provider: providers.ProviderAnthropic, UpstreamScope: "deployment"}), true)
+		b := c.bucket("inst-1", FormatAnthropic, 0, "v1", 0, NewProvenance(ProvenanceScope{CredentialSubject: "subject", Product: ProductLegacy, Model: catalog.ModelIDClaudeHaiku45, Provider: providers.ProviderAnthropic, UpstreamScope: "deployment"}), true)
 		assert.Nil(t, b, "bucket allocation failure must surface as nil, not panic")
 	})
 }
@@ -47,7 +48,7 @@ func TestBucket_InvalidBucketSizeNoOpsInsteadOfPanic(t *testing.T) {
 	c := newBrokenCache(t, cfg)
 
 	assert.NotPanics(t, func() {
-		b := c.bucket("inst-1", FormatAnthropic, 0, "v1", 0, NewProvenance(ProvenanceScope{CredentialSubject: "subject", Product: "legacy", Model: "claude-haiku-4-5", Provider: providers.ProviderAnthropic, UpstreamScope: "deployment"}), true)
+		b := c.bucket("inst-1", FormatAnthropic, 0, "v1", 0, NewProvenance(ProvenanceScope{CredentialSubject: "subject", Product: ProductLegacy, Model: catalog.ModelIDClaudeHaiku45, Provider: providers.ProviderAnthropic, UpstreamScope: "deployment"}), true)
 		assert.Nil(t, b, "bucket allocation failure must surface as nil, not panic")
 	})
 }
@@ -62,12 +63,12 @@ func TestLookupAndStore_SurviveBrokenBucketAllocation(t *testing.T) {
 	emb := []float32{1, 0, 0, 0}
 
 	assert.NotPanics(t, func() {
-		c.Store("inst-1", FormatAnthropic, emb, 0, CachedResponse{StatusCode: http.StatusOK}, "v1", 0, NewProvenance(ProvenanceScope{CredentialSubject: "subject", Product: "legacy", Model: "claude-haiku-4-5", Provider: providers.ProviderAnthropic, UpstreamScope: "deployment"}))
+		c.Store("inst-1", FormatAnthropic, emb, 0, CachedResponse{StatusCode: http.StatusOK}, "v1", 0, NewProvenance(ProvenanceScope{CredentialSubject: "subject", Product: ProductLegacy, Model: catalog.ModelIDClaudeHaiku45, Provider: providers.ProviderAnthropic, UpstreamScope: "deployment"}))
 	})
 
 	var hit bool
 	assert.NotPanics(t, func() {
-		_, hit = c.Lookup("inst-1", FormatAnthropic, emb, []int{0}, "v1", 0, NewProvenance(ProvenanceScope{CredentialSubject: "subject", Product: "legacy", Model: "claude-haiku-4-5", Provider: providers.ProviderAnthropic, UpstreamScope: "deployment"}))
+		_, hit = c.Lookup("inst-1", FormatAnthropic, emb, []int{0}, "v1", 0, NewProvenance(ProvenanceScope{CredentialSubject: "subject", Product: ProductLegacy, Model: catalog.ModelIDClaudeHaiku45, Provider: providers.ProviderAnthropic, UpstreamScope: "deployment"}))
 	})
 	assert.False(t, hit, "broken bucket allocation must degrade to a cache miss")
 }

@@ -3,6 +3,7 @@ package cache_test
 import (
 	"fmt"
 	"testing"
+	"weave-os/router/internal/router/catalog"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -11,7 +12,7 @@ import (
 )
 
 func provenanceScope() cache.ProvenanceScope {
-	return cache.ProvenanceScope{CredentialSubject: "subject", Product: "legacy", Profile: "profile", ProfileRevision: "revision", Release: "release", Binding: "binding", Model: "claude-haiku-4-5", Provider: providers.ProviderAnthropic, UpstreamScope: "account"}
+	return cache.ProvenanceScope{CredentialSubject: "subject", Product: cache.ProductLegacy, Profile: "profile", ProfileRevision: "revision", Release: "release", Binding: "binding", Model: catalog.ModelIDClaudeHaiku45, Provider: providers.ProviderAnthropic, UpstreamScope: "account"}
 }
 
 func TestCache_ProvenanceIsolation(t *testing.T) {
@@ -25,12 +26,12 @@ func TestCache_ProvenanceIsolation(t *testing.T) {
 	assert.Equal(t, provenance, response.Provenance)
 	for name, mutate := range map[string]func(*cache.ProvenanceScope){
 		"subject":          func(s *cache.ProvenanceScope) { s.CredentialSubject = "other" },
-		"product":          func(s *cache.ProvenanceScope) { s.Product = "boost" },
+		"product":          func(s *cache.ProvenanceScope) { s.Product = cache.ProductBoost },
 		"profile":          func(s *cache.ProvenanceScope) { s.Profile = "other" },
 		"profile revision": func(s *cache.ProvenanceScope) { s.ProfileRevision = "other" },
 		"release":          func(s *cache.ProvenanceScope) { s.Release = "other" },
 		"binding":          func(s *cache.ProvenanceScope) { s.Binding = "other" },
-		"model":            func(s *cache.ProvenanceScope) { s.Model = "claude-opus-4-7" },
+		"model":            func(s *cache.ProvenanceScope) { s.Model = catalog.ModelIDClaudeOpus47 },
 		"provider":         func(s *cache.ProvenanceScope) { s.Provider = providers.ProviderAnthropicGateway },
 		"upstream account": func(s *cache.ProvenanceScope) { s.UpstreamScope = "other" },
 	} {
@@ -55,6 +56,10 @@ func TestCache_IncompleteProvenanceCannotPopulate(t *testing.T) {
 		"provider":        func(s *cache.ProvenanceScope) { s.Provider = "" },
 		"upstream":        func(s *cache.ProvenanceScope) { s.UpstreamScope = "" },
 		"partial profile": func(s *cache.ProvenanceScope) { s.ProfileRevision = "" },
+		"orphan revision": func(s *cache.ProvenanceScope) { s.Profile = "" },
+		"orphan release":  func(s *cache.ProvenanceScope) { s.Binding = "" },
+		"orphan binding":  func(s *cache.ProvenanceScope) { s.Release = "" },
+		"unknown product": func(s *cache.ProvenanceScope) { s.Product = "unknown" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			scope := provenanceScope()

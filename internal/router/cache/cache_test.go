@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 	"time"
+	"weave-os/router/internal/router/catalog"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/cache"
@@ -281,5 +282,5 @@ func TestPerInstallationBucketCapIsolatesTenants(t *testing.T) {
 }
 
 func testProvenance() cache.Provenance {
-	return cache.NewProvenance(cache.ProvenanceScope{CredentialSubject: "subject", Product: "legacy", Model: "claude-haiku-4-5", Provider: providers.ProviderAnthropic, UpstreamScope: "deployment"})
+	return cache.NewProvenance(cache.ProvenanceScope{CredentialSubject: "subject", Product: cache.ProductLegacy, Model: catalog.ModelIDClaudeHaiku45, Provider: providers.ProviderAnthropic, UpstreamScope: "deployment"})
 }

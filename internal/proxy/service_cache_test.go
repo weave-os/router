@@ -9,7 +9,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"weave-os/router/internal/router/catalog"
 
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/providers"
@@ -49,7 +51,7 @@ func anthropicBody(prompt string, stream bool) []byte {
 		streamLit = "true"
 	}
 	return []byte(`{
-		"model":"claude-opus-4-7",
+		"model":"` + catalog.ModelIDClaudeOpus47.String() + `",
 		"max_tokens":4096,
 		"stream":` + streamLit + `,
 		"messages":[{"role":"user","content":"` + prompt + `"}]
@@ -60,7 +62,7 @@ func anthropicBody(prompt string, stream bool) []byte {
 func decisionWithEmbedding(emb []float32, clusterIDs []int) router.Decision {
 	return router.Decision{
 		Provider: providers.ProviderAnthropic,
-		Model:    "claude-haiku-4-5",
+		Model:    catalog.ModelIDClaudeHaiku45.String(),
 		Reason:   "test",
 		Metadata: &router.RoutingMetadata{
 			Embedding:  emb,
@@ -89,7 +91,7 @@ func TestService_Cache_HitShortCircuitsProvider(t *testing.T) {
 	}
 	fr := &fakeRouter{decision: decisionWithEmbedding(emb, []int{0, 1, 2, 3})}
 	c := cache.New(cache.DefaultConfig())
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, c, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, c, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
 
 	ctx := proxyContextWithExternalID(t, "tenant-1")
 	body := anthropicBody("ping", false)
@@ -117,7 +119,7 @@ func TestService_Cache_StreamingBypasses(t *testing.T) {
 	}
 	fr := &fakeRouter{decision: decisionWithEmbedding(emb, []int{0})}
 	c := cache.New(cache.DefaultConfig())
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, c, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, c, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
 
 	ctx := proxyContextWithExternalID(t, "tenant-1")
 	body := anthropicBody("streaming please", true)
@@ -139,9 +141,9 @@ func TestService_Cache_HeuristicDecisionBypasses(t *testing.T) {
 		proxyResponse: func(w http.ResponseWriter) { _, _ = w.Write([]byte(`{"id":"x"}`)) },
 	}
 	// Decision with no Metadata — what the heuristic router produces.
-	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "heuristic"}}
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeHaiku45.String(), Reason: "heuristic"}}
 	c := cache.New(cache.DefaultConfig())
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, c, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, c, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
 
 	ctx := proxyContextWithExternalID(t, "tenant-1")
 	body := anthropicBody("ask", false)
@@ -164,7 +166,7 @@ func TestService_Cache_MissingExternalIDBypasses(t *testing.T) {
 	}
 	fr := &fakeRouter{decision: decisionWithEmbedding(emb, []int{0})}
 	c := cache.New(cache.DefaultConfig())
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, c, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, c, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
 
 	body := anthropicBody("ask", false)
 
@@ -199,7 +201,7 @@ func TestService_Cache_HitOmitsFeedbackLink(t *testing.T) {
 	fr := &fakeRouter{decision: decisionWithEmbedding(emb, []int{0, 1, 2, 3})}
 	c := cache.New(cache.DefaultConfig())
 	signer := feedback.NewSigner("cache-secret", time.Hour)
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, c, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, c, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil).
 		WithFeedback(nil, signer, "https://router.example.com")
 
 	ctx := context.WithValue(proxyContextWithExternalID(t, "tenant-1"), proxy.InstallationIDContextKey{}, uuid.New().String())
@@ -223,7 +225,7 @@ func TestService_Cache_DisabledByNilCache(t *testing.T) {
 	}
 	fr := &fakeRouter{decision: decisionWithEmbedding(emb, []int{0})}
 	// nil cache equivalent to ROUTER_SEMANTIC_CACHE_ENABLED=false.
-	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
 
 	ctx := proxyContextWithExternalID(t, "tenant-1")
 	body := anthropicBody("ask", false)
@@ -249,21 +251,21 @@ func TestService_Cache_VerifiedProvenanceChangesDispatch(t *testing.T) {
 		{"messages", anthropicBody("ordinary prompt", false), (*proxy.Service).ProxyMessages},
 		{"chat", []byte(`{"model":"auto","max_tokens":4096,"messages":[{"role":"user","content":"ordinary prompt"}]}`), (*proxy.Service).ProxyOpenAIChatCompletion},
 	} {
-		for name, change := range map[string]func(context.Context, *fakeRouter) context.Context{
+		for name, mutateCacheScope := range map[string]func(context.Context, *fakeRouter) context.Context{
 			"credential subject": func(ctx context.Context, _ *fakeRouter) context.Context {
-				return requestcontext.WithServingIdentity(ctx, requestcontext.ServingIdentity{CredentialIdentity: "other-subject", Plan: string(entitlement.PlanBoost), ProfileKey: "profile", ProfileRevision: "revision"})
+				return requestcontext.WithServingIdentity(ctx, requestcontext.ServingIdentity{ReleaseID: "release", BindingID: "binding", CredentialIdentity: "other-subject", Plan: string(entitlement.PlanBoost), ProfileKey: "profile", ProfileRevision: "revision"})
 			},
 			"product": func(ctx context.Context, _ *fakeRouter) context.Context {
-				return requestcontext.WithServingIdentity(ctx, requestcontext.ServingIdentity{CredentialIdentity: "subject", ProfileKey: "profile", ProfileRevision: "revision"})
+				return requestcontext.WithServingIdentity(ctx, requestcontext.ServingIdentity{ReleaseID: "release", BindingID: "binding", CredentialIdentity: "subject", ProfileKey: "profile", ProfileRevision: "revision"})
 			},
 			"profile": func(ctx context.Context, _ *fakeRouter) context.Context {
-				return requestcontext.WithServingIdentity(ctx, requestcontext.ServingIdentity{CredentialIdentity: "subject", Plan: string(entitlement.PlanBoost), ProfileKey: "other-profile", ProfileRevision: "revision"})
+				return requestcontext.WithServingIdentity(ctx, requestcontext.ServingIdentity{ReleaseID: "release", BindingID: "binding", CredentialIdentity: "subject", Plan: string(entitlement.PlanBoost), ProfileKey: "other-profile", ProfileRevision: "revision"})
 			},
 			"revision": func(ctx context.Context, _ *fakeRouter) context.Context {
-				return requestcontext.WithServingIdentity(ctx, requestcontext.ServingIdentity{CredentialIdentity: "subject", Plan: string(entitlement.PlanBoost), ProfileKey: "profile", ProfileRevision: "other-revision"})
+				return requestcontext.WithServingIdentity(ctx, requestcontext.ServingIdentity{ReleaseID: "release", BindingID: "binding", CredentialIdentity: "subject", Plan: string(entitlement.PlanBoost), ProfileKey: "profile", ProfileRevision: "other-revision"})
 			},
 			"model": func(ctx context.Context, router *fakeRouter) context.Context {
-				router.decision.Model = "claude-sonnet-4-6"
+				router.decision.Model = catalog.ModelIDClaudeSonnet46.String()
 				return ctx
 			},
 			"provider": func(ctx context.Context, router *fakeRouter) context.Context {
@@ -277,8 +279,8 @@ func TestService_Cache_VerifiedProvenanceChangesDispatch(t *testing.T) {
 			t.Run(surface.name+"/"+name, func(t *testing.T) {
 				provider := &fakeProvider{proxyResponse: cacheUpstreamReply("provider response")}
 				fr := &fakeRouter{decision: decisionWithEmbedding(embeddingFixture(1), []int{0})}
-				svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider, providers.ProviderAnthropicGateway: provider}, nil, false, cache.New(cache.DefaultConfig()), nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
-				ctx := requestcontext.WithServingIdentity(proxyContextWithExternalID(t, "tenant"), requestcontext.ServingIdentity{CredentialIdentity: "subject", Plan: string(entitlement.PlanBoost), ProfileKey: "profile", ProfileRevision: "revision"})
+				svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider, providers.ProviderAnthropicGateway: provider}, nil, false, cache.New(cache.DefaultConfig()), nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
+				ctx := requestcontext.WithServingIdentity(proxyContextWithExternalID(t, "tenant"), requestcontext.ServingIdentity{ReleaseID: "release", BindingID: "binding", CredentialIdentity: "subject", Plan: string(entitlement.PlanBoost), ProfileKey: "profile", ProfileRevision: "revision"})
 				invoke := func(ctx context.Context) *httptest.ResponseRecorder {
 					rec := httptest.NewRecorder()
 					require.NoError(t, surface.invoke(svc, ctx, surface.body, rec, httptest.NewRequest(http.MethodPost, "/test", nil)))
@@ -292,7 +294,7 @@ func TestService_Cache_VerifiedProvenanceChangesDispatch(t *testing.T) {
 				require.Len(t, provider.proxyBodies, 1)
 				assert.Equal(t, fr.decision.Model, second.Header().Get(proxy.HeaderRouterModel))
 				assert.Equal(t, fr.decision.Provider, second.Header().Get(proxy.HeaderRouterProvider))
-				changed := invoke(change(ctx, fr))
+				changed := invoke(mutateCacheScope(ctx, fr))
 				assert.Empty(t, changed.Header().Get(proxy.HeaderRouterCache))
 				assert.Len(t, provider.proxyBodies, 2)
 			})
@@ -300,66 +302,119 @@ func TestService_Cache_VerifiedProvenanceChangesDispatch(t *testing.T) {
 	}
 }
 
+type cacheTestSurface struct {
+	name      string
+	plainBody []byte
+	invoke    func(*proxy.Service, context.Context, []byte, http.ResponseWriter, *http.Request) error
+}
+
+func cacheTestSurfaces() []cacheTestSurface {
+	return []cacheTestSurface{
+		{"messages", anthropicBody("prompt", false), (*proxy.Service).ProxyMessages},
+		{"chat", []byte(`{"model":"auto","max_tokens":4096,"messages":[{"role":"user","content":"prompt"}]}`), (*proxy.Service).ProxyOpenAIChatCompletion},
+	}
+}
+
 func TestService_Cache_UnsafeRequestsCannotHitOrPopulate(t *testing.T) {
-	for name, shape := range map[string]struct{ path, json string }{
-		"tools":      {"tools", `[{"name":"Read","input_schema":{"type":"object"}}]`},
-		"structured": {"output_config", `{"format":{"type":"json_schema","schema":{"type":"object"}}}`},
-		"media":      {"messages", `[{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"YWJj"}}]}]`},
-	} {
-		t.Run(name, func(t *testing.T) {
-			provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
-				_, _ = w.Write([]byte(`{"content":[{"type":"text","text":"provider response"}]}`))
-			}}
-			fr := &fakeRouter{decision: decisionWithEmbedding(embeddingFixture(1), []int{0})}
-			svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, cache.New(cache.DefaultConfig()), nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
-			ctx := proxyContextWithExternalID(t, "tenant")
-			plain := anthropicBody("prompt", false)
-			unsafe, err := sjson.SetRawBytes(plain, shape.path, []byte(shape.json))
-			require.NoError(t, err)
-			invoke := func(body []byte) *httptest.ResponseRecorder {
-				rec := httptest.NewRecorder()
-				require.NoError(t, svc.ProxyMessages(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/test", nil)))
-				return rec
+	for _, surface := range cacheTestSurfaces() {
+		shapes := map[string]struct{ path, json string }{
+			"tools":      {"tools", `[{"name":"Read","input_schema":{"type":"object"}}]`},
+			"structured": {"output_config", `{"format":{"type":"json_schema","schema":{"type":"object"}}}`},
+			"media":      {"messages", `[{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"YWJj"}}]}]`},
+		}
+		if surface.name == "chat" {
+			shapes = map[string]struct{ path, json string }{
+				"tools":        {"tools", `[{"type":"function","function":{"name":"Read","parameters":{"type":"object"}}}]`},
+				"structured":   {"response_format", `{"type":"json_schema","json_schema":{"name":"answer","schema":{"type":"object"}}}`},
+				"media":        {"messages", `[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,YWJj"}}]}]`},
+				"usage detail": {"stream_options", `{"include_usage":true}`},
 			}
-			invoke(unsafe)
-			invoke(unsafe)
-			require.Len(t, provider.proxyBodies, 2, "unsafe requests cannot populate")
-			invoke(plain)
-			require.Len(t, provider.proxyBodies, 3)
-			require.Equal(t, proxy.RouterCacheHit, invoke(plain).Header().Get(proxy.HeaderRouterCache))
-			assert.Empty(t, invoke(unsafe).Header().Get(proxy.HeaderRouterCache))
-			assert.Len(t, provider.proxyBodies, 4, "unsafe requests cannot hit a populated ordinary bucket")
-		})
+		}
+		for name, shape := range shapes {
+			t.Run(surface.name+"/"+name, func(t *testing.T) {
+				provider := &fakeProvider{proxyResponse: cacheUpstreamReply("provider response")}
+				fr := &fakeRouter{decision: decisionWithEmbedding(embeddingFixture(1), []int{0})}
+				svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, cache.New(cache.DefaultConfig()), nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
+				ctx := proxyContextWithExternalID(t, "tenant")
+				unsafe, err := sjson.SetRawBytes(surface.plainBody, shape.path, []byte(shape.json))
+				require.NoError(t, err)
+				invoke := func(body []byte) *httptest.ResponseRecorder {
+					rec := httptest.NewRecorder()
+					require.NoError(t, surface.invoke(svc, ctx, body, rec, httptest.NewRequest(http.MethodPost, "/test", nil)))
+					return rec
+				}
+				invoke(unsafe)
+				invoke(unsafe)
+				require.Len(t, provider.proxyBodies, 2, "unsafe requests cannot populate")
+				invoke(surface.plainBody)
+				require.Len(t, provider.proxyBodies, 3)
+				require.Equal(t, proxy.RouterCacheHit, invoke(surface.plainBody).Header().Get(proxy.HeaderRouterCache))
+				assert.Empty(t, invoke(unsafe).Header().Get(proxy.HeaderRouterCache))
+				assert.Len(t, provider.proxyBodies, 4, "unsafe requests cannot hit a populated ordinary bucket")
+			})
+		}
 	}
 }
 
 func TestService_Cache_RequestRestrictionsBypassPopulatedCache(t *testing.T) {
-	for name, restrict := range map[string]func(context.Context) context.Context{
-		"allowed": func(ctx context.Context) context.Context {
-			return context.WithValue(ctx, proxy.InstallationAllowedModelsContextKey{}, []string{"claude-haiku-4-5"})
-		},
-		"excluded": func(ctx context.Context) context.Context {
-			return context.WithValue(ctx, proxy.InstallationExcludedModelsContextKey{}, []string{"claude-opus-4-7"})
-		},
-		"missing key": func(ctx context.Context) context.Context {
-			return context.WithValue(ctx, proxy.APIKeyIDContextKey{}, "")
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) { _, _ = w.Write([]byte(`{"content":[{"type":"text","text":"response"}]}`)) }}
-			fr := &fakeRouter{decision: decisionWithEmbedding(embeddingFixture(1), []int{0})}
-			svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, cache.New(cache.DefaultConfig()), nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	for _, surface := range cacheTestSurfaces() {
+		for name, restrict := range map[string]func(context.Context) context.Context{
+			"allowed": func(ctx context.Context) context.Context {
+				return context.WithValue(ctx, proxy.InstallationAllowedModelsContextKey{}, []string{catalog.ModelIDClaudeHaiku45.String()})
+			},
+			"excluded": func(ctx context.Context) context.Context {
+				return context.WithValue(ctx, proxy.InstallationExcludedModelsContextKey{}, []string{catalog.ModelIDClaudeOpus47.String()})
+			},
+			"missing key": func(ctx context.Context) context.Context {
+				return context.WithValue(ctx, proxy.APIKeyIDContextKey{}, "")
+			},
+		} {
+			t.Run(surface.name+"/"+name, func(t *testing.T) {
+				provider := &fakeProvider{proxyResponse: cacheUpstreamReply("response")}
+				fr := &fakeRouter{decision: decisionWithEmbedding(embeddingFixture(1), []int{0})}
+				svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: provider}, nil, false, cache.New(cache.DefaultConfig()), nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
+				ctx := proxyContextWithExternalID(t, "tenant")
+				invoke := func(ctx context.Context) {
+					require.NoError(t, surface.invoke(svc, ctx, surface.plainBody, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/test", nil)))
+				}
+				invoke(ctx)
+				invoke(ctx)
+				require.Len(t, provider.proxyBodies, 1)
+				invoke(restrict(ctx))
+				invoke(restrict(ctx))
+				assert.Len(t, provider.proxyBodies, 3)
+			})
+		}
+	}
+}
+
+func TestService_Cache_StructuredResponsesCannotHitOrPopulateChatCache(t *testing.T) {
+	for _, structuredFirst := range []bool{false, true} {
+		t.Run(fmt.Sprint(structuredFirst), func(t *testing.T) {
+			provider := &fakeProvider{proxyResponse: responsesTextUpstream}
+			decision := decisionWithEmbedding(embeddingFixture(1), []int{0})
+			decision.Model = catalog.ModelIDGPT56Luna.String()
+			decision.Provider = providers.ProviderOpenAI
+			svc := openAIChatServiceWithDecision(provider, decision, cache.New(cache.DefaultConfig()))
 			ctx := proxyContextWithExternalID(t, "tenant")
-			invoke := func(ctx context.Context) {
+			chat := []byte(chatCacheableTurnBody)
+			structured := []byte(`{"model":"auto","stream":false,"max_output_tokens":4096,"input":[{"role":"user","content":"summarize the release notes"}],"text":{"format":{"type":"json_schema","name":"answer","schema":{"type":"object"}}}}`)
+			invoke := func(responses bool) *httptest.ResponseRecorder {
 				rec := httptest.NewRecorder()
-				require.NoError(t, svc.ProxyMessages(ctx, anthropicBody("prompt", false), rec, httptest.NewRequest(http.MethodPost, "/test", nil)))
+				if responses {
+					require.NoError(t, svc.ProxyOpenAIResponses(ctx, structured, rec, httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))
+				} else {
+					require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, chat, rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)))
+				}
+				return rec
 			}
-			invoke(ctx)
-			invoke(ctx)
-			require.Len(t, provider.proxyBodies, 1)
-			invoke(restrict(ctx))
-			invoke(restrict(ctx))
-			assert.Len(t, provider.proxyBodies, 3)
+			invoke(structuredFirst)
+			second := invoke(!structuredFirst)
+			assert.Empty(t, second.Header().Get(proxy.HeaderRouterCache))
+			assert.Len(t, provider.proxyBodies, 2)
+			third := invoke(false)
+			assert.Equal(t, proxy.RouterCacheHit, third.Header().Get(proxy.HeaderRouterCache))
+			assert.Equal(t, "chat.completion", gjson.GetBytes(third.Body.Bytes(), "object").String())
 		})
 	}
 }
@@ -377,9 +432,9 @@ func TestService_Cache_FallbackBodyNeverStoredUnderInitialTarget(t *testing.T) {
 			primary := &fakeProvider{proxyErr: &providers.UpstreamErrorResponse{Status: 503, Body: []byte(`{"error":{"message":"unavailable"}}`)}}
 			fallback := &fakeProvider{proxyResponse: cacheUpstreamReply("fallback response")}
 			decision := decisionWithEmbedding(embeddingFixture(1), []int{0})
-			decision.Model = "claude-sonnet-4-6"
+			decision.Model = catalog.ModelIDClaudeSonnet46.String()
 			fr := &fakeRouter{decision: decision}
-			svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: primary, providers.ProviderAnthropicGateway: fallback}, nil, false, cache.New(cache.DefaultConfig()), nil, false, providers.ProviderAnthropic, "claude-sonnet-4-6", nil).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderAnthropicGateway: {}})
+			svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: primary, providers.ProviderAnthropicGateway: fallback}, nil, false, cache.New(cache.DefaultConfig()), nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeSonnet46.String(), nil).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderAnthropicGateway: {}})
 			ctx := proxyContextWithExternalID(t, "tenant")
 			invoke := func() *httptest.ResponseRecorder {
 				rec := httptest.NewRecorder()

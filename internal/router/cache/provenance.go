@@ -3,18 +3,28 @@ package cache
 import (
 	"crypto/sha256"
 	"encoding/json"
+
+	"weave-os/router/internal/router/catalog"
+)
+
+type Product string
+
+const (
+	ProductLegacy Product = "legacy"
+	ProductBoost  Product = "boost"
+	ProductMax    Product = "max"
 )
 
 // ProvenanceScope contains verified identity and dispatch facts, never raw
 // credentials. Optional serving identifiers distinguish admitted revisions.
 type ProvenanceScope struct {
 	CredentialSubject string
-	Product           string
+	Product           Product
 	Profile           string
 	ProfileRevision   string
 	Release           string
 	Binding           string
-	Model             string
+	Model             catalog.ModelID
 	Provider          string
 	UpstreamScope     string
 }
@@ -29,14 +39,19 @@ type Provenance struct {
 
 // NewProvenance fails closed when required isolation dimensions are absent.
 func NewProvenance(scope ProvenanceScope) Provenance {
-	if scope.Profile != "" && scope.ProfileRevision == "" {
+	if (scope.Profile == "") != (scope.ProfileRevision == "") || (scope.Release == "") != (scope.Binding == "") {
 		return Provenance{}
 	}
 	if scope.CredentialSubject == "" || scope.Product == "" || scope.Model == "" || scope.Provider == "" || scope.UpstreamScope == "" {
 		return Provenance{}
 	}
+	switch scope.Product {
+	case ProductLegacy, ProductBoost, ProductMax:
+	default:
+		return Provenance{}
+	}
 	encoded, _ := json.Marshal(scope)
-	return Provenance{digest: sha256.Sum256(encoded), model: scope.Model, provider: scope.Provider}
+	return Provenance{digest: sha256.Sum256(encoded), model: scope.Model.String(), provider: scope.Provider}
 }
 
 // Valid reports whether provenance has a complete verified scope.
