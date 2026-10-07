@@ -114,6 +114,48 @@ The router key lives in `ANTHROPIC_CUSTOM_HEADERS` so Claude Code can keep
 using its normal Anthropic auth (`Authorization` / `x-api-key`) for the
 logged-in user's Team/Pro/Max/individual plan.
 
+#### Claude Code Remote Control compatibility
+
+[Remote Control](https://code.claude.com/docs/en/remote-control) requires direct
+access to the Anthropic API and is unavailable while Weave Router's custom
+`ANTHROPIC_BASE_URL` is active. Your claude.ai subscription login can remain
+configured for ordinary routed requests, but it does not remove this restriction.
+
+To use Remote Control, turn routing off for your install scope:
+
+```bash
+# User-scope install
+npx @weave-os/router off --claude
+
+# Project-scope install; run from the repository
+npx @weave-os/router off --claude --scope project
+```
+
+Fully quit and reopen Claude Code: it reads the configuration at launch. Requests
+then go directly to Anthropic and bypass Weave Router; they are not routed,
+measured, or governed by Weave Router. The toggle preserves the Router endpoint
+and key for restoration. Weave Router does not proxy Remote Control or
+automatically switch routing for it.
+
+When finished, run the matching command and fully quit and reopen Claude Code
+again to resume routing:
+
+```bash
+# User-scope install
+npx @weave-os/router on --claude
+
+# Project-scope install; run from the repository
+npx @weave-os/router on --claude --scope project
+```
+
+Remote Control also requires an eligible claude.ai subscription and sign-in;
+API-key authentication is not supported. Team and Enterprise organizations need
+an Owner to enable Remote Control. If it still fails with routing off, follow
+[Anthropic's current troubleshooting](https://code.claude.com/docs/en/remote-control#troubleshooting)
+for subscription/auth eligibility, admin settings, organization policy,
+cloud-provider routing, and network access. See also
+[Weave's Remote Control troubleshooting](https://docs.workweave.ai/router/troubleshooting#claude-code-remote-control).
+
 ### Codex (`--codex`)
 
 **User scope:**
