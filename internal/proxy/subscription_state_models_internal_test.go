@@ -337,13 +337,15 @@ func TestSubscriptionStateFailedTargetReachesRecoveryCallback(t *testing.T) {
 		EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}),
 	}
 	var recoveryDecision router.Decision
+	var attemptedModel string
 	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
 		w:                        httptest.NewRecorder(),
 		subscriptionStateRequest: &request,
 		initialDecision:          router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
 		purpose:                  inference.PurposeAnthropicMessages,
 		buildAlternative: func(router.Decision) (dispatchAttempt, error) {
-			return func(context.Context, router.Decision, providers.Client) error {
+			return func(_ context.Context, attempted router.Decision, _ providers.Client) error {
+				attemptedModel = attempted.Model
 				return &providers.UpstreamStatusError{Status: http.StatusBadRequest}
 			}, nil
 		},
@@ -353,6 +355,7 @@ func TestSubscriptionStateFailedTargetReachesRecoveryCallback(t *testing.T) {
 	})
 	require.Error(t, err)
 	require.Equal(t, statePaidModel, recoveryDecision.Model)
+	require.Equal(t, statePaidModel, attemptedModel)
 }
 
 func TestSubscriptionStateModelsProtectPaidSummaries(t *testing.T) {
