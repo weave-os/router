@@ -244,13 +244,11 @@ func (s *Service) dispatchSubscriptionStateTarget(ctx context.Context, in failov
 		in.bindings = []catalog.ProviderBinding{{Provider: target.Provider}}
 		in.deferFlushOnExhaustion = true
 	}
-	winner, err := s.dispatchWithFallback(ctx, in)
-	if err == nil {
-		if in.onSubscriptionStateTarget != nil {
-			in.onSubscriptionStateTarget(target, in.bindings)
-		} else if in.onAlternative != nil {
-			in.onAlternative(target)
-		}
+	if in.onSubscriptionStateTarget != nil {
+		in.onSubscriptionStateTarget(target, in.bindings)
+	} else if in.onAlternative != nil {
+		in.onAlternative(target)
 	}
+	winner, err := s.dispatchWithFallback(ctx, in)
 	return winner, err
 }

@@ -4822,7 +4822,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	subscriptionFailoverUsed := false
 	subscriptionRetryRan := false
 	subscriptionFailoverAttempted := false
-	if subscriptionRetryEligible && !baselineAttempted && proxyErr != nil &&
+	if subscriptionRetryEligible && !paidFallbackForbiddenForModel(ctx, decision.Model) && !baselineAttempted && proxyErr != nil &&
 		!preludeBuf.Committed() &&
 		(providers.IsRetryable(proxyErr) || anthropicOAuthCredentialRejected(proxyErr) || anthropicSubscriptionModelRejected(proxyErr)) {
 		subscriptionRetryRan = true
@@ -7805,7 +7805,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	codexFailoverUsed := false
 	codexRetryRan := false
-	if codexRetryViable && proxyErr != nil && !preludeBuf.Committed() &&
+	if codexRetryViable && !paidFallbackForbiddenForModel(ctx, decision.Model) && proxyErr != nil && !preludeBuf.Committed() &&
 		(providers.IsRetryable(proxyErr) || codexOAuthCredentialRejected(proxyErr) || codexSubscriptionModelRejected(proxyErr)) {
 		// Remember the plan is spent so later turns suppress the token pre-dispatch
 		// instead of buying another rejected round-trip per turn until it resets.
@@ -7855,7 +7855,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	claudeFailoverUsed := false
 	claudeRetryRan := false
-	if claudeRetryViable && proxyErr != nil && !preludeBuf.Committed() && anthropicSubscriptionModelRejected(proxyErr) {
+	if claudeRetryViable && !paidFallbackForbiddenForModel(ctx, decision.Model) && proxyErr != nil && !preludeBuf.Committed() && anthropicSubscriptionModelRejected(proxyErr) {
 		subCtx := subscriptionStatePaidRescueContext(withSuppressedClaudeSubscription(ctx), decision.Model)
 		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, decision.Model, r.Header)
 		subOpts := opts

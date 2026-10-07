@@ -327,6 +327,34 @@ func TestSubscriptionStateModelsPaidFallbackSkipsUnavailableProvider(t *testing.
 	require.Equal(t, []string{statePaidModel}, servedModels)
 }
 
+func TestSubscriptionStateFailedTargetReachesRecoveryCallback(t *testing.T) {
+	paid := &fakeClient{name: providers.ProviderOpenRouter}
+	svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderOpenRouter: paid}, nil, false, nil, nil, false, "", "", nil)
+	ctx := context.WithValue(context.Background(), InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+	request := router.Request{
+		AllowedModels:    allowedModelsForRequest(ctx),
+		EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}),
+	}
+	var recoveryDecision router.Decision
+	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
+		w:                        httptest.NewRecorder(),
+		subscriptionStateRequest: &request,
+		initialDecision:          router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
+		purpose:                  inference.PurposeAnthropicMessages,
+		buildAlternative: func(router.Decision) (dispatchAttempt, error) {
+			return func(context.Context, router.Decision, providers.Client) error {
+				return &providers.UpstreamStatusError{Status: http.StatusBadRequest}
+			}, nil
+		},
+		onSubscriptionStateTarget: func(target router.Decision, _ []catalog.ProviderBinding) {
+			recoveryDecision = target
+		},
+	})
+	require.Error(t, err)
+	require.Equal(t, statePaidModel, recoveryDecision.Model)
+}
+
 func TestSubscriptionStateModelsProtectPaidSummaries(t *testing.T) {
 	env, err := translate.ParseAnthropic([]byte(sampleConversation))
 	require.NoError(t, err)

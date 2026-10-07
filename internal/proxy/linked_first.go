@@ -48,13 +48,13 @@ func subscriptionStatePaidRescueDecisions(ctx context.Context, candidates []rout
 	if !subscriptionStateModelsEnabled(ctx) {
 		return candidates
 	}
-	allowed := make([]router.Decision, 0, len(candidates))
+	allowedDecisions := make([]router.Decision, 0, len(candidates))
 	for _, candidate := range candidates {
 		if !paidFallbackForbiddenForModel(ctx, candidate.Model) {
-			allowed = append(allowed, candidate)
+			allowedDecisions = append(allowedDecisions, candidate)
 		}
 	}
-	return allowed
+	return allowedDecisions
 }
 
 // releaseUnservableLinkedFirst drops a linked-first mark after routing when the
