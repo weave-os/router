@@ -83,7 +83,7 @@ func ResolveBindingWithCustom(id string, available map[string]struct{}, custom m
 	}
 	binding := ProviderBinding{Provider: provider}
 	if len(m.Providers) > 0 {
-		binding.Price = m.Providers[0].Price
+		binding.Price = m.Providers[0].Price.WithoutInferenceGeoPremium()
 	}
 	return binding, true
 }
@@ -139,7 +139,7 @@ func EnumerateBindingsWithCustom(id string, available map[string]struct{}, custo
 	for _, provider := range customProviders {
 		binding := ProviderBinding{Provider: provider}
 		if len(m.Providers) > 0 {
-			binding.Price = m.Providers[0].Price
+			binding.Price = m.Providers[0].Price.WithoutInferenceGeoPremium()
 		}
 		out = append(out, IndexedBinding{Index: next, ProviderBinding: binding})
 		next++

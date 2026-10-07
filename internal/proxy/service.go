@@ -5174,7 +5174,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			DebugRef:                 obs.DebugRef,
 			TTFTMs:                   obs.TTFTMs,
 			CacheCreationTokens:      cacheTokenPtr(cacheCreation),
-			CacheCreation1hTokens:    cacheTokenPtr(usageMods.CacheCreation1h),
+			CacheCreation1hTokens:    cacheCreation1hPtr(cacheCreation, usageMods.CacheCreation1h),
 			CacheReadTokens:          cacheTokenPtr(cacheRead),
 			Speed:                    string(extractor.Speed()),
 			InferenceGeo:             string(extractor.InferenceGeo()),
@@ -6278,6 +6278,16 @@ func addTimingAttrs(ctx context.Context, b *otel.AttrBuilder) {
 
 // cacheTokenPtr returns nil for zero so the DB column stays NULL when the
 // upstream didn't report cache usage (distinguishing "no cache" from "0 hits").
+// cacheCreation1hPtr records the 1-hour share whenever the turn wrote cache,
+// so a priced 0 stays distinguishable from a turn with no writes (NULL).
+func cacheCreation1hPtr(cacheCreation, oneHour int) *int32 {
+	if cacheCreation <= 0 {
+		return nil
+	}
+	v := int32(oneHour)
+	return &v
+}
+
 func cacheTokenPtr(n int) *int32 {
 	if n <= 0 {
 		return nil
@@ -8213,7 +8223,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			DebugRef:                 openaiObs.DebugRef,
 			TTFTMs:                   openaiObs.TTFTMs,
 			CacheCreationTokens:      cacheTokenPtr(cacheCreation),
-			CacheCreation1hTokens:    cacheTokenPtr(usageMods.CacheCreation1h),
+			CacheCreation1hTokens:    cacheCreation1hPtr(cacheCreation, usageMods.CacheCreation1h),
 			CacheReadTokens:          cacheTokenPtr(cacheRead),
 			Speed:                    string(extractor.Speed()),
 			InferenceGeo:             string(extractor.InferenceGeo()),

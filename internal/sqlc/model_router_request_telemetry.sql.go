@@ -116,6 +116,9 @@ SELECT
     t.output_tokens,
     t.cache_creation_tokens,
     t.cache_read_tokens,
+    t.cache_creation_1h_tokens,
+    t.speed,
+    t.inference_geo,
     -- A Claude response with the plain overage claim used paid credits, even though the caller's
     -- OAuth credential served it. Historical rows retain that evidence in
     -- unified_limit_headers; newer rows also use subscription_overage source.
@@ -240,6 +243,9 @@ type GetRoutingDecisionsForExportRow struct {
 	OutputTokens                    *int32
 	CacheCreationTokens             *int32
 	CacheReadTokens                 *int32
+	CacheCreation1hTokens           *int32
+	Speed                           *string
+	InferenceGeo                    *string
 	SubscriptionServed              bool
 	CredentialSource                *string
 	SubscriptionAccountID           pgtype.UUID
@@ -336,6 +342,9 @@ type GetRoutingDecisionsForExportRow struct {
 //	    t.output_tokens,
 //	    t.cache_creation_tokens,
 //	    t.cache_read_tokens,
+//	    t.cache_creation_1h_tokens,
+//	    t.speed,
+//	    t.inference_geo,
 //	    -- A Claude response with the plain overage claim used paid credits, even though the caller's
 //	    -- OAuth credential served it. Historical rows retain that evidence in
 //	    -- unified_limit_headers; newer rows also use subscription_overage source.
@@ -465,6 +474,9 @@ func (q *Queries) GetRoutingDecisionsForExport(ctx context.Context, arg GetRouti
 			&i.OutputTokens,
 			&i.CacheCreationTokens,
 			&i.CacheReadTokens,
+			&i.CacheCreation1hTokens,
+			&i.Speed,
+			&i.InferenceGeo,
 			&i.SubscriptionServed,
 			&i.CredentialSource,
 			&i.SubscriptionAccountID,

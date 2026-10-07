@@ -58,6 +58,7 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 		return
 	}
 	pricing, _ := catalog.PrimaryPriceFor(usage.Model)
+	usageMods := catalog.UsageModifiers{CacheCreation1h: usage.CacheCreation1h, InferenceGeo: catalog.InferenceGeo(usage.InferenceGeo)}
 	apiKeyID := apiKeyIDFromContext(ctx)
 	auxRequestID := requestID + requestIDSuffix
 
@@ -76,6 +77,7 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 		CacheCreation:   usage.CacheCreation,
 		CacheRead:       usage.CacheRead,
 		Pricing:         pricing,
+		UsageModifiers:  usageMods,
 		HasOverride:     billing.HasOverrideFromContext(ctx),
 		ByokServed:      byokServed,
 		APIKeyID:        apiKeyID,
@@ -87,8 +89,8 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 		return
 	}
 	clientID := ClientIdentityFrom(ctx)
-	inputCost := catalog.EffectiveInputCost(usage.InputTokens, usage.CacheCreation, usage.CacheRead, pricing, usage.Provider, catalog.UsageModifiers{})
-	outputCost := catalog.EffectiveOutputCost(usage.InputTokens, usage.OutputTokens, pricing, catalog.UsageModifiers{})
+	inputCost := catalog.EffectiveInputCost(usage.InputTokens, usage.CacheCreation, usage.CacheRead, pricing, usage.Provider, usageMods)
+	outputCost := catalog.EffectiveOutputCost(usage.InputTokens, usage.OutputTokens, pricing, usageMods)
 
 	s.fireTelemetry(InsertTelemetryParams{
 		InstallationID:   installationID.String(),
@@ -110,7 +112,9 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 		InputTokens:            int32(usage.InputTokens),
 		OutputTokens:           int32(usage.OutputTokens),
 		CacheCreationTokens:    cacheTokenPtr(usage.CacheCreation),
+		CacheCreation1hTokens:  cacheCreation1hPtr(usage.CacheCreation, usage.CacheCreation1h),
 		CacheReadTokens:        cacheTokenPtr(usage.CacheRead),
+		InferenceGeo:           usage.InferenceGeo,
 		DeviceID:               clientID.DeviceID,
 		SessionID:              clientID.SessionID,
 		RouterUserID:           auth.UserIDFrom(ctx),

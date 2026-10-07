@@ -379,6 +379,24 @@ func TestSSETranslator_ForwardsAnthropicUsageModifiers(t *testing.T) {
 
 		assert.Equal(t, 322, sink.cacheCreation)
 		assert.False(t, sink.cacheSplitReported)
+		assert.Zero(t, sink.cacheCreation1h)
+		assert.Empty(t, sink.speed)
+		assert.Empty(t, sink.inferenceGeo)
+	})
+	t.Run("non-streaming body with split", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		sink := &fakeUsageSink{}
+		translator := translate.NewSSETranslator(rec, "claude-opus-5", sink)
+		translator.Header().Set("Content-Type", "application/json")
+		translator.WriteHeader(http.StatusOK)
+		_, err := translator.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude-opus-5","stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":4,"cache_creation_input_tokens":322,"cache_creation":{"ephemeral_5m_input_tokens":22,"ephemeral_1h_input_tokens":300},"speed":"fast","inference_geo":"us"}}`))
+		require.NoError(t, err)
+		require.NoError(t, translator.Finalize())
+
+		assert.True(t, sink.cacheSplitReported)
+		assert.Equal(t, 300, sink.cacheCreation1h)
+		assert.Equal(t, "fast", sink.speed)
+		assert.Equal(t, "us", sink.inferenceGeo)
 	})
 }
 

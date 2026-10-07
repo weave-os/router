@@ -163,6 +163,23 @@ func TestProxyMessages_UnreportedCacheSplitUsesRequestTTL(t *testing.T) {
 	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD))
 }
 
+// A request that declares the 5-minute TTL keeps unsplit cache writes at the
+// 5-minute rate: the fallback reads the dispatched body, not a default.
+func TestProxyMessages_UnreportedCacheSplitWithFiveMinuteRequestStaysFiveMinute(t *testing.T) {
+	upstream := &bypassFakeProvider{respBody: `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"model":"claude-opus-5","stop_reason":"end_turn","usage":{"input_tokens":1200,"output_tokens":340,"cache_creation_input_tokens":5000}}`}
+	svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, upstream)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	body := []byte(`{"model":"claude-opus-4-7","system":[{"type":"text","text":"stable prefix","cache_control":{"type":"ephemeral","ttl":"5m"}}],"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral","ttl":"5m"}}]}]}`)
+	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastLunaModel), body, rec, req))
+
+	base, ok := catalog.PriceFor(providers.ProviderAnthropic, fastOpusModel)
+	require.True(t, ok)
+	want := routerResponseCostFromPricing(base, providers.ProviderAnthropic, 1200, 340, 5000, 0, catalog.UsageModifiers{})
+	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD))
+}
+
 // fastQuotaFakeProvider refuses every fast-tier body with Anthropic's
 // fast-mode quota 429 and answers standard-speed bodies with respBody,
 // recording each dispatched body in order.

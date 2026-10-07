@@ -248,3 +248,22 @@ func TestCounterfactualInputCost_ReusesObservedTTLSplit(t *testing.T) {
 	// A fully warm baseline writes nothing, so the split contributes nothing.
 	assert.InDelta(t, 0.05, catalog.CounterfactualInputCost(0, 100_000, 0, 100_000, opus, providers.ProviderAnthropic, m), 1e-12)
 }
+
+func TestSynthesizedBindingsDoNotInheritUSInferenceGeoPremium(t *testing.T) {
+	const custom = "custom_anthropic_endpoint"
+	available := map[string]struct{}{custom: {}}
+	customs := map[string][]string{"claude-fable-5-1": {custom}}
+
+	binding, ok := catalog.ResolveBindingWithCustom("claude-fable-5-1", available, customs)
+	require.True(t, ok)
+	require.Equal(t, custom, binding.Provider)
+	assert.Equal(t, 1.0, binding.Price.EffectiveUSInferenceGeoMultiplier())
+
+	bindings := catalog.EnumerateBindingsWithCustom("claude-fable-5-1", available, customs)
+	require.Len(t, bindings, 1)
+	assert.Equal(t, 1.0, bindings[0].Price.EffectiveUSInferenceGeoMultiplier())
+
+	primary, ok := catalog.PrimaryPriceFor("claude-fable-5-1")
+	require.True(t, ok)
+	assert.Equal(t, catalog.USInferenceGeoMultiplier, primary.EffectiveUSInferenceGeoMultiplier(), "first-party binding keeps the premium")
+}

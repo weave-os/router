@@ -579,7 +579,7 @@ func (s *Service) bypassToAnthropic(
 			CaptureMode:            s.effectiveCaptureMode(ctx).String(),
 			TurnType:               string(turnType),
 			CacheCreationTokens:    cacheTokenPtr(cacheCreation),
-			CacheCreation1hTokens:  cacheTokenPtr(usageMods.CacheCreation1h),
+			CacheCreation1hTokens:  cacheCreation1hPtr(cacheCreation, usageMods.CacheCreation1h),
 			CacheReadTokens:        cacheTokenPtr(cacheRead),
 			Speed:                  string(extractor.Speed()),
 			InferenceGeo:           string(extractor.InferenceGeo()),

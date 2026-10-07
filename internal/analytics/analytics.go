@@ -68,6 +68,10 @@ type Decision struct {
 	OutputTokens         *int64 `json:"output_tokens"`
 	CacheCreationTokens  *int64 `json:"cache_creation_tokens"`
 	CacheReadTokens      *int64 `json:"cache_read_tokens"`
+	// CacheCreation1hTokens is the 1-hour-TTL share of CacheCreationTokens.
+	CacheCreation1hTokens *int64  `json:"cache_creation_1h_tokens"`
+	Speed                 *string `json:"speed"`
+	InferenceGeo          *string `json:"inference_geo"`
 
 	// SubscriptionServed turns use included personal or shared quota; Actual* export as $0 while token counts stay real.
 	SubscriptionServed    bool                   `json:"subscription_served"`

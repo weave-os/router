@@ -44,9 +44,26 @@ func (p Pricing) EffectiveCacheWrite1hMultiplier(upstreamProvider string) float6
 	return p.EffectiveCacheWriteMultiplier()
 }
 
-func (p Pricing) inferenceGeoMultiplier(geo InferenceGeo) float64 {
-	if geo == InferenceGeoUS && p.USInferenceGeoMultiplier > 0 {
+// EffectiveUSInferenceGeoMultiplier returns the binding's US-inference
+// multiplier, or 1 when it charges no geography premium.
+func (p Pricing) EffectiveUSInferenceGeoMultiplier() float64 {
+	if p.USInferenceGeoMultiplier > 0 {
 		return p.USInferenceGeoMultiplier
+	}
+	return 1
+}
+
+// WithoutInferenceGeoPremium returns p for a binding that borrows a
+// first-party list price (a custom endpoint, or an unbound provider): only
+// first-party Anthropic charges the US-inference premium.
+func (p Pricing) WithoutInferenceGeoPremium() Pricing {
+	p.USInferenceGeoMultiplier = 0
+	return p
+}
+
+func (p Pricing) inferenceGeoMultiplier(geo InferenceGeo) float64 {
+	if geo == InferenceGeoUS {
+		return p.EffectiveUSInferenceGeoMultiplier()
 	}
 	return 1
 }
