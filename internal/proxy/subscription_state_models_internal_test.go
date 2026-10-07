@@ -33,16 +33,6 @@ const (
 	statePaidModel   = "deepseek/deepseek-v4-flash"
 )
 
-type stateModelRoutingPolicy struct{ mode auth.RoutingPolicyMode }
-
-func (p stateModelRoutingPolicy) GetPolicy(context.Context, string) (auth.RoutingPolicy, error) {
-	return auth.RoutingPolicy{Mode: p.mode}, nil
-}
-
-func (stateModelRoutingPolicy) HasAssignment(context.Context, string, string, int64) (bool, error) {
-	return false, nil
-}
-
 type stateModelRouter struct{}
 
 func (stateModelRouter) Route(_ context.Context, req router.Request) (router.Decision, error) {
@@ -81,11 +71,11 @@ func (l *stateModelLeaser) Lease(_ context.Context, owner auth.SubscriptionOwner
 
 func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 	for _, scenario := range []struct {
-		name                                                                                                 string
-		claude, codex, emptyPaid, depleted, liveReject, committedFailure, forced, forcedSubset, demoteClaude bool
-		utilityTarget, passthroughTarget                                                                     bool
-		want                                                                                                 string
-		wantErr                                                                                              bool
+		name                                                                                                                           string
+		claude, codex, emptyPaid, depleted, liveReject, committedFailure, forced, forceWithRequestSubset, demoteClaude, cooldownClaude bool
+		utilityTarget, passthroughTarget                                                                                               bool
+		want                                                                                                                           string
+		wantErr                                                                                                                        bool
 	}{
 		{name: "Claude included before paid", claude: true, codex: true, want: stateClaudeModel},
 		{name: "Claude exhausted uses active Codex", codex: true, want: stateCodexModel},
@@ -95,10 +85,11 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 		{name: "empty exhausted set refuses paid", emptyPaid: true, wantErr: true},
 		{name: "explicit force cannot buy an active-only model", forced: true, wantErr: true},
 		{name: "explicit force still uses included capacity", forced: true, claude: true, want: stateClaudeModel},
-		{name: "force model overrides request subset", forced: true, forcedSubset: true, claude: true, want: stateClaudeModel},
+		{name: "force model overrides request subset", forced: true, forceWithRequestSubset: true, claude: true, want: stateClaudeModel},
 		{name: "utility target follows subscription state model sets", utilityTarget: true, claude: true, want: stateClaudeModel},
 		{name: "passthrough target follows exhausted funding set", passthroughTarget: true, claude: true, codex: true, want: statePaidModel},
 		{name: "session-demoted Claude selects healthy Codex", claude: true, codex: true, demoteClaude: true, want: stateCodexModel},
+		{name: "session-cooling Claude selects healthy Codex", claude: true, codex: true, cooldownClaude: true, want: stateCodexModel},
 		{name: "depleted credits still serve Codex", codex: true, depleted: true, want: stateCodexModel},
 		{name: "depleted credits prohibit cheap paid fallback", depleted: true, wantErr: true},
 		{name: "committed subscription failure never replays", claude: true, committedFailure: true, wantErr: true},
@@ -125,8 +116,11 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 			if scenario.demoteClaude {
 				ctx = context.WithValue(ctx, SessionDemotedModelsContextKey{}, []string{stateClaudeModel})
 			}
+			if scenario.cooldownClaude {
+				ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, map[string]time.Time{stateClaudeModel: time.Now().Add(time.Minute)})
+			}
 			if scenario.passthroughTarget {
-				authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(stateModelRoutingPolicy{mode: auth.RoutingPolicyPassthrough}, nil)
+				authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: auth.RoutingPolicyPassthrough}, nil)
 				var err error
 				ctx, err = authService.WithRoutingPolicy(ctx, "state-model-test-installation")
 				require.NoError(t, err)
@@ -138,7 +132,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 			if scenario.forced {
 				req.ForceModel = stateClaudeModel
 			}
-			if scenario.forcedSubset {
+			if scenario.forceWithRequestSubset {
 				req.AllowedModels = modelSet([]string{stateCodexModel})
 			}
 			initialModel := stateClaudeModel

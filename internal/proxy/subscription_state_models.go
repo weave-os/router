@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/translate"
 )
 
 type subscriptionStateAllowedModelsKey struct{}
@@ -66,17 +67,14 @@ func (s *Service) subscriptionStateModelAvailable(ctx context.Context, req route
 				continue
 			}
 		}
-		if _, excluded := s.excludedProvidersForRequest(ctx)[binding.Provider]; excluded {
-			continue
-		}
 		if !s.supportsSubscriptionTransport(binding.Provider) {
 			continue
 		}
 		if managedSubscriptionCanServe(ctx, binding.Provider, model) {
 			return true
 		}
-		resolved := s.resolveCredentials(clearCredentials(ctx), binding.Provider, model, headers)
-		if !servedOnSubscription(resolved) {
+		resolvedCredentials := s.resolveCredentials(clearCredentials(ctx), binding.Provider, model, headers)
+		if !servedOnSubscription(resolvedCredentials) {
 			continue
 		}
 		if binding.Provider == providers.ProviderAnthropic && !s.claudeSubscriptionExhausted(ctx, headers) ||
@@ -92,7 +90,21 @@ func (s *Service) subscriptionStateModelAvailable(ctx context.Context, req route
 // authorizes a paid attempt, even after a live quota rejection or stale pin.
 func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failoverInputs) (int, error) {
 	request := *in.stateRequest
-	request.AutomaticExcludedModels = mergeExcludedModels(request.AutomaticExcludedModels, modelSet(sessionDemotedModelsFromContext(ctx)))
+	sessionUnavailableModels := modelSet(sessionDemotedModelsFromContext(ctx))
+	if sessionUnavailableModels == nil {
+		sessionUnavailableModels = make(map[string]struct{})
+	}
+	for model, cooldownUntil := range sessionCooldownModelsFromContext(ctx) {
+		if cooldownUntil.After(s.clockNow()) {
+			sessionUnavailableModels[model] = struct{}{}
+		}
+	}
+	request.AutomaticExcludedModels = mergeExcludedModels(request.AutomaticExcludedModels, sessionUnavailableModels)
+	if request.ForceModel == "" && (in.origin == policy.OverrideSourceRequest || in.initialDecision.Reason == translate.ReasonUserForceModel) {
+		// runTurnLoop already validated and readmitted a strict force-model pin;
+		// preserve that exception when rebuilding the request for state routing.
+		request.ForceModel = in.initialDecision.Model
+	}
 	in.stateRequest = nil
 	in.alternatives = nil
 	activeModels := make([]string, 0)
@@ -204,11 +216,11 @@ func subscriptionRotationExpired(ctx, budget context.Context) bool {
 }
 
 func (s *Service) subscriptionStatePaidTargetAvailable(ctx context.Context, headers http.Header, target router.Decision) bool {
-	resolved := s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, headers)
-	if servedOnSubscription(resolved) || servedOnCodexSubscription(resolved) {
+	resolvedCredentials := s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, headers)
+	if servedOnSubscription(resolvedCredentials) || servedOnCodexSubscription(resolvedCredentials) {
 		return false
 	}
-	return len(s.resolveBindingsForDispatch(resolved, target)) > 0
+	return len(s.resolveBindingsForDispatch(resolvedCredentials, target)) > 0
 }
 
 func (s *Service) dispatchSubscriptionStateTarget(ctx context.Context, in failoverInputs, target router.Decision, included bool) (int, error) {

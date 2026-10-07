@@ -145,8 +145,8 @@ func TestUsageBypassDecision_ClassifierLaneOutranksUsageBypass(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, router.Decision{Provider: providers.ProviderAnthropic, Model: model, Reason: reasonUsageBypass}, mainLoop)
 
-	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{model})
-	_, ok = svc.usageBypassDecision(ctx, http.Header{}, req, nil, turntype.Classifier)
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{})
+	_, ok = svc.usageBypassDecision(ctx, http.Header{}, req, []string{model}, turntype.Classifier)
 	assert.False(t, ok, "a session strike on the requested model blocks the classifier lane too")
 }
 
