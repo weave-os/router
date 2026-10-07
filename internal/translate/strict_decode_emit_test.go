@@ -85,8 +85,8 @@ func TestPrepareOpenAIResponses_NonStrictifiableFallsBack(t *testing.T) {
 	assert.Equal(t, false, tool0["strict"])
 	params, _ := tool0["parameters"].(map[string]any)
 	require.NotNil(t, params)
-	assert.NotContains(t, params, "additionalProperties",
-		"the original schema is emitted untouched on fallback")
+	assert.Equal(t, false, params["additionalProperties"],
+		"the root object must be explicitly closed even when oneOf prevents strict mode")
 	choice := params["properties"].(map[string]any)["choice"].(map[string]any)
 	assert.Contains(t, choice, "oneOf")
 }

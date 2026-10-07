@@ -54,10 +54,16 @@ func toolTurnNeedsExplicitEffortNone(opts EmitOptions, hasTools bool) bool {
 }
 
 // samplersAccepted reports whether the target accepts temperature / top_p.
-// Reasoning gpt-5.x models 400 on non-default values on both endpoints;
+// OpenAI reasoning models 400 on non-default values on both endpoints;
 // other CapReasoning targets (OpenRouter, xAI) sample normally.
 func samplersAccepted(opts EmitOptions) bool {
-	return !opts.Capabilities.Supports(router.CapReasoning) || !strings.HasPrefix(opts.TargetModel, "gpt-5")
+	return !opts.Capabilities.Supports(router.CapReasoning) ||
+		(!isOpenAIReasoningTarget(opts) && !strings.HasPrefix(opts.TargetModel, "gpt-5"))
+}
+
+func isOpenAIReasoningTarget(opts EmitOptions) bool {
+	return opts.TargetProvider == providers.ProviderOpenAI ||
+		strings.HasPrefix(opts.TargetModel, "gpt-") || strings.HasPrefix(opts.TargetModel, "o")
 }
 
 // clampOpenAIToolCallID makes a tool-call id safe for the OpenAI wire format:

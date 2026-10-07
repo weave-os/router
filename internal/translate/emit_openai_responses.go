@@ -620,6 +620,9 @@ func writeResponsesFunctionTools(jw *jsonWriter, tools []responsesFunctionTool) 
 				params = strictParams
 				strict = true
 			} else {
+				if closedParams, ok := closeOpenAISchemaObjects(params); ok {
+					params = closedParams
+				}
 				observability.Get().Info("Responses strictify fallback — emitting non-strict tool",
 					"tool_name", tool.name)
 			}

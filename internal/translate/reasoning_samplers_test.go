@@ -91,6 +91,63 @@ func TestReasoningSamplers_OpenAISource_DropsTemperatureForGPT5(t *testing.T) {
 	assert.False(t, hasTopP)
 }
 
+func TestReasoningSamplers_OpenAIResponses_DropsTemperatureForGPT6(t *testing.T) {
+	src := []byte(`{
+		"model":"gpt-6-luna",
+		"messages":[{"role":"user","content":"hi"}],
+		"temperature":0,
+		"top_p":0.5
+	}`)
+	env, err := translate.ParseOpenAI(src)
+	require.NoError(t, err)
+
+	out, err := env.PrepareOpenAIResponses(nil, translate.EmitOptions{
+		TargetModel:  "gpt-6-luna",
+		Capabilities: router.Lookup("gpt-6-luna"),
+	})
+	require.NoError(t, err)
+
+	_, hasTemp, hasTopP := samplerFields(t, out.Body)
+	assert.False(t, hasTemp, "OpenAI reasoning Responses targets reject temperature")
+	assert.False(t, hasTopP, "OpenAI reasoning Responses targets reject top_p")
+}
+
+func TestReasoningSamplers_OpenAIResponses_DropsTemperatureForOpenAIReasoningModel(t *testing.T) {
+	src := []byte(`{"model":"x","messages":[{"role":"user","content":"hi"}],"temperature":0}`)
+	env, err := translate.ParseOpenAI(src)
+	require.NoError(t, err)
+	out, err := env.PrepareOpenAIResponses(nil, translate.EmitOptions{
+		TargetModel: "o4-mini", TargetProvider: providers.ProviderOpenAI,
+		Capabilities: router.NewSpec(router.CapReasoning),
+	})
+	require.NoError(t, err)
+	_, hasTemp, _ := samplerFields(t, out.Body)
+	assert.False(t, hasTemp, "OpenAI reasoning models reject temperature independent of model generation")
+}
+
+func TestReasoningSamplers_AnthropicSource_DropsTemperatureForGPT6(t *testing.T) {
+	src := []byte(`{
+		"model":"claude-3-5-haiku-20241022",
+		"messages":[{"role":"user","content":"hi"}],
+		"temperature":0,
+		"top_p":0.9,
+		"max_tokens":256
+	}`)
+	env, err := translate.ParseAnthropic(src)
+	require.NoError(t, err)
+
+	out, err := env.PrepareOpenAI(nil, translate.EmitOptions{
+		TargetModel:    "gpt-6-luna",
+		TargetProvider: providers.ProviderOpenAI,
+		Capabilities:   router.Lookup("gpt-6-luna"),
+	})
+	require.NoError(t, err)
+
+	_, hasTemp, hasTopP := samplerFields(t, out.Body)
+	assert.False(t, hasTemp, "OpenAI reasoning chat targets reject temperature")
+	assert.False(t, hasTopP, "OpenAI reasoning chat targets reject top_p")
+}
+
 func TestReasoningSamplers_OpenAISource_KeepsTemperatureForOSSReasoning(t *testing.T) {
 	src := []byte(`{
 		"model":"x",

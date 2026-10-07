@@ -55,6 +55,53 @@ func strictifyOpenAISchema(schema any) (out any, ok bool) {
 	return res, true
 }
 
+// closeOpenAISchemaObjects adds additionalProperties:false to object schemas
+// without enabling strict mode or changing required/optional semantics. The
+// Responses API requires object schemas to explicitly declare whether unknown
+// keys are accepted, including when a schema union prevents strictification.
+func closeOpenAISchemaObjects(schema any) (any, bool) {
+	root, isMap := schema.(map[string]any)
+	if !isMap {
+		return nil, false
+	}
+	if root["type"] != "object" {
+		return schema, true
+	}
+	return closeOpenAISchemaNode(root)
+}
+
+func closeOpenAISchemaNode(node map[string]any) (map[string]any, bool) {
+	closed := make(map[string]any, len(node)+1)
+	for key, value := range node {
+		closed[key] = value
+	}
+	if properties, ok := node["properties"].(map[string]any); ok && len(properties) > 0 {
+		if additional, present := node["additionalProperties"]; present && additional != false {
+			return nil, false
+		}
+		closed["additionalProperties"] = false
+	}
+	properties, ok := node["properties"].(map[string]any)
+	if !ok {
+		return closed, true
+	}
+	closedProperties := make(map[string]any, len(properties))
+	for name, value := range properties {
+		nested, isSchema := value.(map[string]any)
+		if !isSchema {
+			closedProperties[name] = value
+			continue
+		}
+		child, ok := closeOpenAISchemaNode(nested)
+		if !ok {
+			return nil, false
+		}
+		closedProperties[name] = child
+	}
+	closed["properties"] = closedProperties
+	return closed, true
+}
+
 // strictifyNode transforms one schema node, recursing into properties, items,
 // and anyOf branches.
 func strictifyNode(node map[string]any, depth int, propCount *int) (out map[string]any, ok bool) {
