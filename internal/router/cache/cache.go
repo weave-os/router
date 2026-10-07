@@ -1,5 +1,5 @@
 // Package cache short-circuits near-duplicate non-streaming requests by cosine
-// similarity on prompt embedding, isolated per (installation, inbound-format).
+// similarity on prompt embedding, isolated per (installation, inbound-format, verified provenance).
 // Entries expire lazily on Lookup once past the configured TTL.
 package cache
 
@@ -9,6 +9,7 @@ import (
 	"math"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -18,6 +19,7 @@ import (
 
 // CachedResponse captures the upstream response in the inbound wire format.
 type CachedResponse struct {
+	Provenance Provenance
 	StatusCode int
 	Headers    http.Header
 	Body       []byte // Bounded by MaxBodyBytes; oversized entries are dropped.
@@ -28,7 +30,7 @@ type Config struct {
 	PerClusterThreshold map[int]float32
 	DefaultThreshold    float32
 	// BucketSize caps each per-(installation, format, clusterID, clusterVersion,
-	// knobsHash) LRU.
+	// knobsHash, provenance) LRU.
 	BucketSize int
 	// MaxBucketsPerInstallation caps buckets per installation. Bucket identity
 	// includes attacker-influenceable inputs (cluster version, knobs hash), so
@@ -61,10 +63,14 @@ func DefaultConfig() Config {
 // for inner buckets would leak one goroutine per bucket evicted past
 // MaxBucketsPerInstallation.
 type Cache struct {
-	cfg           Config
-	now           func() time.Time
-	installations *lru.Cache[string, *installationCache]
-	mu            sync.Mutex
+	cfg                   Config
+	now                   func() time.Time
+	installations         *lru.Cache[string, *installationCache]
+	mu                    sync.Mutex
+	hits                  atomic.Uint64
+	misses                atomic.Uint64
+	bucketEvictions       atomic.Uint64
+	installationEvictions atomic.Uint64
 }
 
 type installationCache struct {
@@ -92,16 +98,14 @@ func New(cfg Config) *Cache {
 	if cfg.MaxBodyBytes <= 0 {
 		cfg.MaxBodyBytes = def.MaxBodyBytes
 	}
-	installations, err := lru.New[string, *installationCache](cfg.MaxInstallations)
+	c := &Cache{cfg: cfg, now: time.Now}
+	installations, err := lru.NewWithEvict[string, *installationCache](cfg.MaxInstallations, func(string, *installationCache) { c.installationEvictions.Add(1) })
 	if err != nil {
 		// lru.New only errors on size <= 0, which we just guarded against.
 		panic(err)
 	}
-	return &Cache{
-		cfg:           cfg,
-		now:           time.Now,
-		installations: installations,
-	}
+	c.installations = installations
+	return c
 }
 
 // Format names the inbound wire format. Lookups must match storage so
@@ -118,6 +122,7 @@ type bucketKey struct {
 	clusterID      int
 	clusterVersion string
 	knobsHash      uint64
+	provenance     Provenance
 }
 
 // entryKey is a 16-byte sha256-truncated embedding digest, so we don't
@@ -141,13 +146,22 @@ func (c *Cache) thresholdFor(clusterID int) float32 {
 
 // Lookup walks buckets for (installation, format, clusterIDs) and returns the
 // first entry whose cosine clears the threshold. embedding must be L2-normalized.
-func (c *Cache) Lookup(installationID string, format Format, embedding []float32, clusterIDs []int, clusterVersion string, knobsHash uint64) (CachedResponse, bool) {
-	if c == nil || len(embedding) == 0 || len(clusterIDs) == 0 {
+func (c *Cache) Lookup(installationID string, format Format, embedding []float32, clusterIDs []int, clusterVersion string, knobsHash uint64, provenance Provenance) (response CachedResponse, hit bool) {
+	if c != nil {
+		defer func() {
+			if hit {
+				c.hits.Add(1)
+			} else {
+				c.misses.Add(1)
+			}
+		}()
+	}
+	if c == nil || !provenance.Valid() || installationID == "" || len(embedding) == 0 || len(clusterIDs) == 0 {
 		return CachedResponse{}, false
 	}
 	now := c.now()
 	for _, cid := range clusterIDs {
-		bucket := c.bucket(installationID, format, cid, clusterVersion, knobsHash, false)
+		bucket := c.bucket(installationID, format, cid, clusterVersion, knobsHash, provenance, false)
 		if bucket == nil {
 			continue
 		}
@@ -164,7 +178,10 @@ func (c *Cache) Lookup(installationID string, format Format, embedding []float32
 			}
 			sim := cosine(embedding, e.embedding)
 			if sim >= threshold {
-				return e.response, true
+				response := e.response
+				response.Headers = response.Headers.Clone()
+				response.Body = append([]byte(nil), response.Body...)
+				return response, true
 			}
 		}
 	}
@@ -173,17 +190,20 @@ func (c *Cache) Lookup(installationID string, format Format, embedding []float32
 
 // Store persists a response. clusterID should be one of the routing
 // decision's top-p clusters. Oversized bodies are silently dropped.
-func (c *Cache) Store(installationID string, format Format, embedding []float32, clusterID int, resp CachedResponse, clusterVersion string, knobsHash uint64) {
-	if c == nil || len(embedding) == 0 {
+func (c *Cache) Store(installationID string, format Format, embedding []float32, clusterID int, resp CachedResponse, clusterVersion string, knobsHash uint64, provenance Provenance) {
+	if c == nil || !provenance.Valid() || installationID == "" || len(embedding) == 0 {
 		return
 	}
 	if len(resp.Body) > c.cfg.MaxBodyBytes {
 		return
 	}
-	bucket := c.bucket(installationID, format, clusterID, clusterVersion, knobsHash, true)
+	bucket := c.bucket(installationID, format, clusterID, clusterVersion, knobsHash, provenance, true)
 	if bucket == nil {
 		return
 	}
+	resp.Provenance = provenance
+	resp.Headers = resp.Headers.Clone()
+	resp.Body = append([]byte(nil), resp.Body...)
 	// Deep-copy: caller's slice may be mutated/recycled.
 	embedCopy := make([]float32, len(embedding))
 	copy(embedCopy, embedding)
@@ -196,12 +216,13 @@ func (c *Cache) Store(installationID string, format Format, embedding []float32,
 
 // bucket returns the LRU for a key. create=false returns nil if missing
 // (lookup path); create=true allocates lazily, capped per-installation.
-func (c *Cache) bucket(installationID string, format Format, clusterID int, clusterVersion string, knobsHash uint64, create bool) *lru.Cache[entryKey, *entry] {
+func (c *Cache) bucket(installationID string, format Format, clusterID int, clusterVersion string, knobsHash uint64, provenance Provenance, create bool) *lru.Cache[entryKey, *entry] {
 	key := bucketKey{
 		format:         format,
 		clusterID:      clusterID,
 		clusterVersion: clusterVersion,
 		knobsHash:      knobsHash,
+		provenance:     provenance,
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -210,7 +231,7 @@ func (c *Cache) bucket(installationID string, format Format, clusterID int, clus
 		if !create {
 			return nil
 		}
-		buckets, err := lru.New[bucketKey, *lru.Cache[entryKey, *entry]](c.cfg.MaxBucketsPerInstallation)
+		buckets, err := lru.NewWithEvict[bucketKey, *lru.Cache[entryKey, *entry]](c.cfg.MaxBucketsPerInstallation, func(bucketKey, *lru.Cache[entryKey, *entry]) { c.bucketEvictions.Add(1) })
 		if err != nil {
 			observability.Get().Error("cache: failed to allocate installation bucket LRU; treating as cache miss", "err", err)
 			return nil
@@ -261,4 +282,17 @@ func cosine(a, b []float32) float32 {
 		sum += a[i] * b[i]
 	}
 	return sum
+}
+
+// Stats reports bounded aggregate counters without identity labels.
+type Stats struct {
+	Hits                  uint64
+	Misses                uint64
+	BucketEvictions       uint64
+	InstallationEvictions uint64
+}
+
+// Stats returns a concurrent-safe snapshot of cache activity.
+func (c *Cache) Stats() Stats {
+	return Stats{Hits: c.hits.Load(), Misses: c.misses.Load(), BucketEvictions: c.bucketEvictions.Load(), InstallationEvictions: c.installationEvictions.Load()}
 }

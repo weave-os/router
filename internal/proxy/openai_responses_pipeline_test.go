@@ -35,9 +35,8 @@ func responsesTextUpstream(w http.ResponseWriter) {
 	}
 }
 
-const chatCacheableTurnBody = `{"model":"auto","stream":false,"max_tokens":256,
+const chatCacheableTurnBody = `{"model":"auto","stream":false,"max_tokens":4096,
   "messages":[{"role":"user","content":"summarize the release notes"}],
-  "tools":[{"type":"function","function":{"name":"noop","parameters":{"type":"object"}}}],
   "reasoning_effort":"medium"}`
 
 func openAIChatServiceWithDecision(provider providers.Client, decision router.Decision, c *cache.Cache) *proxy.Service {

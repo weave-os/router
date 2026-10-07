@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/cache"
 
 	"github.com/stretchr/testify/assert"
@@ -55,9 +56,9 @@ func TestCache_IdenticalEmbeddingHits(t *testing.T) {
 	emb := l2Normalize([]float32{1, 0, 0, 0})
 	want := sampleResponse(`{"id":"resp-1"}`)
 
-	c.Store("inst-1", cache.FormatAnthropic, emb, 0, want, "v1", 0)
+	c.Store("inst-1", cache.FormatAnthropic, emb, 0, want, "v1", 0, testProvenance())
 
-	got, hit := c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{0, 1, 2, 3}, "v1", 0)
+	got, hit := c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{0, 1, 2, 3}, "v1", 0, testProvenance())
 	require.True(t, hit, "identical embedding should hit")
 	assert.Equal(t, want.Body, got.Body)
 	assert.Equal(t, want.StatusCode, got.StatusCode)
@@ -78,9 +79,9 @@ func TestCache_NearDuplicateHitsAboveThreshold(t *testing.T) {
 	}
 	require.Greater(t, sim, float32(0.95), "test fixture cosine must be above the threshold")
 
-	c.Store("inst-1", cache.FormatAnthropic, a, 0, sampleResponse(`{"id":"resp-near"}`), "v1", 0)
+	c.Store("inst-1", cache.FormatAnthropic, a, 0, sampleResponse(`{"id":"resp-near"}`), "v1", 0, testProvenance())
 
-	_, hit := c.Lookup("inst-1", cache.FormatAnthropic, b, []int{0}, "v1", 0)
+	_, hit := c.Lookup("inst-1", cache.FormatAnthropic, b, []int{0}, "v1", 0, testProvenance())
 	assert.True(t, hit, "near-duplicate above threshold should hit")
 }
 
@@ -93,9 +94,9 @@ func TestCache_BelowThresholdMisses(t *testing.T) {
 	// Distant — cosine ~0.5.
 	b := blendVectors(a, l2Normalize([]float32{0, 1, 0, 0}), 0.5)
 
-	c.Store("inst-1", cache.FormatAnthropic, a, 0, sampleResponse(`{"id":"resp"}`), "v1", 0)
+	c.Store("inst-1", cache.FormatAnthropic, a, 0, sampleResponse(`{"id":"resp"}`), "v1", 0, testProvenance())
 
-	_, hit := c.Lookup("inst-1", cache.FormatAnthropic, b, []int{0}, "v1", 0)
+	_, hit := c.Lookup("inst-1", cache.FormatAnthropic, b, []int{0}, "v1", 0, testProvenance())
 	assert.False(t, hit, "below-threshold cosine must miss")
 }
 
@@ -110,12 +111,12 @@ func TestCache_PerClusterThresholdOverride(t *testing.T) {
 	a := l2Normalize([]float32{1, 0, 0, 0})
 	b := blendVectors(a, l2Normalize([]float32{0, 1, 0, 0}), 0.7) // cosine ≈ 0.7
 
-	c.Store("inst-1", cache.FormatAnthropic, a, 0, sampleResponse(`{"id":"strict"}`), "v1", 0)
-	_, hitStrict := c.Lookup("inst-1", cache.FormatAnthropic, b, []int{0}, "v1", 0)
+	c.Store("inst-1", cache.FormatAnthropic, a, 0, sampleResponse(`{"id":"strict"}`), "v1", 0, testProvenance())
+	_, hitStrict := c.Lookup("inst-1", cache.FormatAnthropic, b, []int{0}, "v1", 0, testProvenance())
 	assert.False(t, hitStrict, "default 0.99 threshold should reject 0.7 cosine")
 
-	c.Store("inst-1", cache.FormatAnthropic, a, 7, sampleResponse(`{"id":"loose"}`), "v1", 0)
-	resp, hitLoose := c.Lookup("inst-1", cache.FormatAnthropic, b, []int{7}, "v1", 0)
+	c.Store("inst-1", cache.FormatAnthropic, a, 7, sampleResponse(`{"id":"loose"}`), "v1", 0, testProvenance())
+	resp, hitLoose := c.Lookup("inst-1", cache.FormatAnthropic, b, []int{7}, "v1", 0, testProvenance())
 	require.True(t, hitLoose, "cluster 7 override 0.5 threshold should accept 0.7 cosine")
 	assert.Equal(t, []byte(`{"id":"loose"}`), resp.Body)
 }
@@ -124,9 +125,9 @@ func TestCache_BucketIsolationAcrossInstallations(t *testing.T) {
 	c := cache.New(cache.DefaultConfig())
 	emb := l2Normalize([]float32{1, 0, 0, 0})
 
-	c.Store("inst-A", cache.FormatAnthropic, emb, 0, sampleResponse(`{"who":"A"}`), "v1", 0)
+	c.Store("inst-A", cache.FormatAnthropic, emb, 0, sampleResponse(`{"who":"A"}`), "v1", 0, testProvenance())
 
-	_, hit := c.Lookup("inst-B", cache.FormatAnthropic, emb, []int{0}, "v1", 0)
+	_, hit := c.Lookup("inst-B", cache.FormatAnthropic, emb, []int{0}, "v1", 0, testProvenance())
 	assert.False(t, hit, "embeddings must not cross installations")
 }
 
@@ -134,9 +135,9 @@ func TestCache_BucketIsolationAcrossFormats(t *testing.T) {
 	c := cache.New(cache.DefaultConfig())
 	emb := l2Normalize([]float32{1, 0, 0, 0})
 
-	c.Store("inst-1", cache.FormatAnthropic, emb, 0, sampleResponse(`{"fmt":"anth"}`), "v1", 0)
+	c.Store("inst-1", cache.FormatAnthropic, emb, 0, sampleResponse(`{"fmt":"anth"}`), "v1", 0, testProvenance())
 
-	_, hit := c.Lookup("inst-1", cache.FormatOpenAI, emb, []int{0}, "v1", 0)
+	_, hit := c.Lookup("inst-1", cache.FormatOpenAI, emb, []int{0}, "v1", 0, testProvenance())
 	assert.False(t, hit, "cached Anthropic response must not replay for OpenAI")
 }
 
@@ -146,13 +147,13 @@ func TestCache_TTLExpiry(t *testing.T) {
 	c := cache.New(cfg)
 
 	emb := l2Normalize([]float32{1, 0, 0, 0})
-	c.Store("inst-1", cache.FormatAnthropic, emb, 0, sampleResponse(`{"id":"old"}`), "v1", 0)
+	c.Store("inst-1", cache.FormatAnthropic, emb, 0, sampleResponse(`{"id":"old"}`), "v1", 0, testProvenance())
 
-	_, hit := c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{0}, "v1", 0)
+	_, hit := c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{0}, "v1", 0, testProvenance())
 	require.True(t, hit, "fresh entry should hit")
 
 	time.Sleep(80 * time.Millisecond)
-	_, hit = c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{0}, "v1", 0)
+	_, hit = c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{0}, "v1", 0, testProvenance())
 	assert.False(t, hit, "expired entry must miss")
 }
 
@@ -161,9 +162,9 @@ func TestCache_LookupScansAllTopPClusters(t *testing.T) {
 	emb := l2Normalize([]float32{1, 0, 0, 0})
 
 	// Store in cluster 5; top-p lookup must find it via the scan.
-	c.Store("inst-1", cache.FormatAnthropic, emb, 5, sampleResponse(`{"id":"in-5"}`), "v1", 0)
+	c.Store("inst-1", cache.FormatAnthropic, emb, 5, sampleResponse(`{"id":"in-5"}`), "v1", 0, testProvenance())
 
-	got, hit := c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{2, 3, 5, 7}, "v1", 0)
+	got, hit := c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{2, 3, 5, 7}, "v1", 0, testProvenance())
 	require.True(t, hit, "top-p sweep should locate entries in any listed cluster")
 	assert.Equal(t, []byte(`{"id":"in-5"}`), got.Body)
 }
@@ -179,9 +180,9 @@ func TestCache_StoreDropsOversizedBodies(t *testing.T) {
 		StatusCode: http.StatusOK,
 		Headers:    http.Header{},
 		Body:       bigBody,
-	}, "v1", 0)
+	}, "v1", 0, testProvenance())
 
-	_, hit := c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{0}, "v1", 0)
+	_, hit := c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{0}, "v1", 0, testProvenance())
 	assert.False(t, hit, "oversized bodies must not be stored")
 }
 
@@ -189,18 +190,18 @@ func TestCache_NilCacheLookupAndStoreAreSafe(t *testing.T) {
 	// Disabled-mode: callers pass nil and expect no-op.
 	var c *cache.Cache
 
-	_, hit := c.Lookup("inst-1", cache.FormatAnthropic, []float32{1}, []int{0}, "v1", 0)
+	_, hit := c.Lookup("inst-1", cache.FormatAnthropic, []float32{1}, []int{0}, "v1", 0, testProvenance())
 	assert.False(t, hit, "nil cache must report a miss without panicking")
 
-	c.Store("inst-1", cache.FormatAnthropic, []float32{1}, 0, sampleResponse(`x`), "v1", 0)
+	c.Store("inst-1", cache.FormatAnthropic, []float32{1}, 0, sampleResponse(`x`), "v1", 0, testProvenance())
 }
 
 func TestCache_EmptyEmbeddingMisses(t *testing.T) {
 	c := cache.New(cache.DefaultConfig())
-	_, hit := c.Lookup("inst-1", cache.FormatAnthropic, nil, []int{0}, "v1", 0)
+	_, hit := c.Lookup("inst-1", cache.FormatAnthropic, nil, []int{0}, "v1", 0, testProvenance())
 	assert.False(t, hit, "empty embedding must miss")
-	c.Store("inst-1", cache.FormatAnthropic, nil, 0, sampleResponse(`x`), "v1", 0)
-	_, hit = c.Lookup("inst-1", cache.FormatAnthropic, l2Normalize([]float32{1, 0, 0, 0}), []int{0}, "v1", 0)
+	c.Store("inst-1", cache.FormatAnthropic, nil, 0, sampleResponse(`x`), "v1", 0, testProvenance())
+	_, hit = c.Lookup("inst-1", cache.FormatAnthropic, l2Normalize([]float32{1, 0, 0, 0}), []int{0}, "v1", 0, testProvenance())
 	assert.False(t, hit, "empty-embedding store must be a no-op")
 }
 
@@ -208,12 +209,12 @@ func TestBucketKeyIsolatesByVersion(t *testing.T) {
 	c := cache.New(cache.DefaultConfig())
 	emb := l2Normalize([]float32{1, 0, 0, 0})
 
-	c.Store("inst-1", cache.FormatAnthropic, emb, 0, sampleResponse(`{"v":"0.51"}`), "v0.51", 0)
+	c.Store("inst-1", cache.FormatAnthropic, emb, 0, sampleResponse(`{"v":"0.51"}`), "v0.51", 0, testProvenance())
 
-	_, hitOther := c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{0}, "v0.52", 0)
+	_, hitOther := c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{0}, "v0.52", 0, testProvenance())
 	assert.False(t, hitOther, "different cluster version must not share cache bucket")
 
-	got, hitSame := c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{0}, "v0.51", 0)
+	got, hitSame := c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{0}, "v0.51", 0, testProvenance())
 	require.True(t, hitSame, "same cluster version must hit")
 	assert.Equal(t, []byte(`{"v":"0.51"}`), got.Body)
 }
@@ -222,12 +223,12 @@ func TestBucketKeyIsolatesByKnobs(t *testing.T) {
 	c := cache.New(cache.DefaultConfig())
 	emb := l2Normalize([]float32{1, 0, 0, 0})
 
-	c.Store("inst-1", cache.FormatAnthropic, emb, 0, sampleResponse(`{"alpha":"0.5"}`), "v0.53", 0xDEADBEEF)
+	c.Store("inst-1", cache.FormatAnthropic, emb, 0, sampleResponse(`{"alpha":"0.5"}`), "v0.53", 0xDEADBEEF, testProvenance())
 
-	_, hitOther := c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{0}, "v0.53", 0xCAFEBABE)
+	_, hitOther := c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{0}, "v0.53", 0xCAFEBABE, testProvenance())
 	assert.False(t, hitOther, "different effective knobs hash must not share cache bucket")
 
-	got, hitSame := c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{0}, "v0.53", 0xDEADBEEF)
+	got, hitSame := c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{0}, "v0.53", 0xDEADBEEF, testProvenance())
 	require.True(t, hitSame, "same effective knobs hash must hit")
 	assert.Equal(t, []byte(`{"alpha":"0.5"}`), got.Body)
 }
@@ -242,18 +243,18 @@ func TestBucketMapEvictsBeyondPerInstallationCap(t *testing.T) {
 	c := cache.New(cfg)
 	emb := l2Normalize([]float32{1, 0, 0, 0})
 
-	c.Store("inst-1", cache.FormatAnthropic, emb, 0, sampleResponse(`{"k":"first"}`), "v1", 1)
-	_, hit := c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{0}, "v1", 1)
+	c.Store("inst-1", cache.FormatAnthropic, emb, 0, sampleResponse(`{"k":"first"}`), "v1", 1, testProvenance())
+	_, hit := c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{0}, "v1", 1, testProvenance())
 	require.True(t, hit, "first bucket should be present immediately after Store")
 
 	// Fill the cap with distinct knob hashes (4 more total) to evict the first.
 	for i := uint64(2); i <= 5; i++ {
-		c.Store("inst-1", cache.FormatAnthropic, emb, 0, sampleResponse(`{"k":"x"}`), "v1", i)
+		c.Store("inst-1", cache.FormatAnthropic, emb, 0, sampleResponse(`{"k":"x"}`), "v1", i, testProvenance())
 	}
 
-	_, hit = c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{0}, "v1", 1)
+	_, hit = c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{0}, "v1", 1, testProvenance())
 	assert.False(t, hit, "first bucket should be evicted once cap exceeded")
-	_, hit = c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{0}, "v1", 5)
+	_, hit = c.Lookup("inst-1", cache.FormatAnthropic, emb, []int{0}, "v1", 5, testProvenance())
 	assert.True(t, hit, "most-recent bucket should remain after eviction")
 }
 
@@ -267,14 +268,18 @@ func TestPerInstallationBucketCapIsolatesTenants(t *testing.T) {
 	emb := l2Normalize([]float32{1, 0, 0, 0})
 
 	// Victim stores one bucket.
-	c.Store("victim", cache.FormatAnthropic, emb, 0, sampleResponse(`{"k":"victim"}`), "v1", 99)
+	c.Store("victim", cache.FormatAnthropic, emb, 0, sampleResponse(`{"k":"victim"}`), "v1", 99, testProvenance())
 
 	// Attacker churns knob hashes well past their own cap.
 	for i := uint64(0); i < 50; i++ {
-		c.Store("attacker", cache.FormatAnthropic, emb, 0, sampleResponse(`{"k":"x"}`), "v1", i)
+		c.Store("attacker", cache.FormatAnthropic, emb, 0, sampleResponse(`{"k":"x"}`), "v1", i, testProvenance())
 	}
 
-	got, hit := c.Lookup("victim", cache.FormatAnthropic, emb, []int{0}, "v1", 99)
+	got, hit := c.Lookup("victim", cache.FormatAnthropic, emb, []int{0}, "v1", 99, testProvenance())
 	require.True(t, hit, "victim bucket must survive attacker knob churn")
 	assert.Equal(t, []byte(`{"k":"victim"}`), got.Body)
+}
+
+func testProvenance() cache.Provenance {
+	return cache.NewProvenance(cache.ProvenanceScope{CredentialSubject: "subject", Product: "legacy", Model: "claude-haiku-4-5", Provider: providers.ProviderAnthropic, UpstreamScope: "deployment"})
 }
