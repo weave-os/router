@@ -115,7 +115,7 @@ function configPaths(root, target, scope, directory) {
 }
 
 function ensureProjectFilesPrivate(root, target) {
-  const entries = {
+  const projectConfigPaths = {
     claude: [".claude/settings.local.json", ".claude/.weave-router-state.json"],
     codex: [".codex/config.toml"],
     opencode: ["opencode.json", ".weave-parked.json"],
@@ -123,10 +123,10 @@ function ensureProjectFilesPrivate(root, target) {
   }[target];
   const gitignorePath = path.join(root, ".gitignore");
   refuseSymlink(gitignorePath);
-  const trackedFiles = findGitRoot(root) ? execFileSync("git", ["-C", root, "ls-files", "--", ...entries], { encoding: "utf8" }).trim().split(/\r?\n/).filter(Boolean) : [];
+  const trackedFiles = findGitRoot(root) ? execFileSync("git", ["-C", root, "ls-files", "--", ...projectConfigPaths], { encoding: "utf8" }).trim().split(/\r?\n/).filter(Boolean) : [];
   if (trackedFiles.length) throw new Error(`Project config is already tracked by git and may expose credentials: ${trackedFiles.join(", ")}. Untrack it before installing.`);
   const existingEntries = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, "utf8").split(/\r?\n/) : [];
-  const missingEntries = entries.filter((entry) => !existingEntries.includes(entry));
+  const missingEntries = projectConfigPaths.filter((entry) => !existingEntries.includes(entry));
   if (missingEntries.length) {
     fs.mkdirSync(root, { recursive: true });
     fs.appendFileSync(gitignorePath, `${existingEntries.length && existingEntries.at(-1) ? "\n" : ""}${missingEntries.join("\n")}\n`);
@@ -191,8 +191,8 @@ function installCodex(filePath, baseUrl, key, email) {
 
 function installOpenCode(paths, baseUrl, key, email) {
   const settings = readJson(paths.config);
-  const parked = readJson(paths.parked);
-  if (!Object.hasOwn(parked, "direct_model") && typeof settings.model === "string" && !settings.model.startsWith("weave/")) {
+  const parkedModel = readJson(paths.parked);
+  if (!Object.hasOwn(parkedModel, "direct_model") && typeof settings.model === "string" && !settings.model.startsWith("weave/")) {
     writeJson(paths.parked, { direct_model: settings.model });
   }
   settings["$schema"] ||= "https://opencode.ai/config.json";
@@ -245,8 +245,8 @@ function uninstall(paths, target) {
     if (!fs.existsSync(paths.state) && ![settings.env?.ANTHROPIC_CUSTOM_HEADERS, localSettings?.env?.ANTHROPIC_CUSTOM_HEADERS].some((headers) => /^X-Weave-Router-Key:/m.test(headers || ""))) return;
     restoreField(settings.env, "ANTHROPIC_BASE_URL", state.env?.ANTHROPIC_BASE_URL, state.installedBaseUrl || settings.env?.ANTHROPIC_BASE_URL);
     restoreField(settings.env, "ENABLE_TOOL_SEARCH", state.env?.ENABLE_TOOL_SEARCH, "true");
-    const customHeaders = (value, originalAppHeaders) => {
-      const preservedHeaders = (value || "").split("\n").filter((header) => !/^X-Weave-(?:Router-Key|User-Email|User-Name):/i.test(header) && !/^X-App:\s*claude-code\s*$/i.test(header));
+    const customHeaders = (headerBlock, originalAppHeaders) => {
+      const preservedHeaders = (headerBlock || "").split("\n").filter((header) => !/^X-Weave-(?:Router-Key|User-Email|User-Name):/i.test(header) && !/^X-App:\s*claude-code\s*$/i.test(header));
       if (!preservedHeaders.some((header) => /^X-App:/i.test(header))) preservedHeaders.push(...(originalAppHeaders || []));
       return preservedHeaders.filter(Boolean).join("\n");
     };
@@ -278,10 +278,10 @@ function uninstall(paths, target) {
     if (!fs.existsSync(paths.config)) return;
     const settings = readJson(paths.config);
     if (!settings.provider?.weave) return;
-    const parked = readJson(paths.parked);
+    const parkedModel = readJson(paths.parked);
     delete settings.provider?.weave;
     if (settings.model === "weave/auto") {
-      if (typeof parked.direct_model === "string") settings.model = parked.direct_model;
+      if (typeof parkedModel.direct_model === "string") settings.model = parkedModel.direct_model;
       else delete settings.model;
     }
     writeJson(paths.config, settings);
