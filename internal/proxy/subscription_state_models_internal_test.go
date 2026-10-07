@@ -156,11 +156,13 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 			var servedModels []string
 			var subscriptionFunding []bool
 			var winner router.Decision
-			_, err := svc.dispatchWithFallback(ctx, failoverInputs{
+			dispatch := failoverInputs{
 				w: rec, buf: buffer, subscriptionStateRequest: &req,
-				initialDecision: initialDecision,
-				purpose:         inference.PurposeAnthropicMessages,
-				origin:          origin,
+				subscriptionStateWinnerProvider: new(string),
+				subscriptionStateTargetProvider: new(string),
+				initialDecision:                 initialDecision,
+				purpose:                         inference.PurposeAnthropicMessages,
+				origin:                          origin,
 				buildAlternative: func(target router.Decision) (dispatchAttempt, error) {
 					return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
 						servedModels = append(servedModels, decision.Model)
@@ -170,13 +172,17 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 					}, nil
 				},
 				onAlternative: func(decision router.Decision) { winner = decision },
-			})
+			}
+			_, err := svc.dispatchWithFallback(ctx, dispatch)
 			if scenario.wantErr {
 				require.Error(t, err)
 				require.Zero(t, paid.calls)
 			} else {
 				require.NoError(t, err)
 				require.Equal(t, scenario.want, winner.Model)
+				if scenario.want == statePaidModel {
+					require.Equal(t, providers.ProviderOpenRouter, *dispatch.subscriptionStateWinnerProvider)
+				}
 				require.Equal(t, scenario.want, rec.Header().Get(HeaderRouterModel))
 				require.Contains(t, rec.Body.String(), "answer")
 			}
@@ -338,11 +344,14 @@ func TestSubscriptionStateFailedTargetReachesRecoveryCallback(t *testing.T) {
 	}
 	var recoveryDecision router.Decision
 	var attemptedModel string
+	winnerProvider := new(string)
 	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
-		w:                        httptest.NewRecorder(),
-		subscriptionStateRequest: &request,
-		initialDecision:          router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
-		purpose:                  inference.PurposeAnthropicMessages,
+		w:                               httptest.NewRecorder(),
+		subscriptionStateRequest:        &request,
+		subscriptionStateWinnerProvider: winnerProvider,
+		subscriptionStateTargetProvider: new(string),
+		initialDecision:                 router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
+		purpose:                         inference.PurposeAnthropicMessages,
 		buildAlternative: func(router.Decision) (dispatchAttempt, error) {
 			return func(_ context.Context, attemptedTarget router.Decision, _ providers.Client) error {
 				attemptedModel = attemptedTarget.Model

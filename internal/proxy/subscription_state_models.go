@@ -249,6 +249,9 @@ func (s *Service) dispatchSubscriptionStateTarget(ctx context.Context, in failov
 	} else if in.onAlternative != nil {
 		in.onAlternative(target)
 	}
+	if in.subscriptionStateTargetProvider != nil {
+		*in.subscriptionStateTargetProvider = target.Provider
+	}
 	winner, err := s.dispatchWithFallback(ctx, in)
 	return winner, err
 }

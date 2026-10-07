@@ -255,6 +255,18 @@ type failoverInputs struct {
 	onAlternative                 func(router.Decision)
 	onSubscriptionStateTarget     func(router.Decision, []catalog.ProviderBinding)
 	onSubscriptionStatePaidTarget func(router.Decision, []catalog.ProviderBinding)
+	// subscriptionStateWinnerProvider preserves provider identity because the
+	// state dispatcher runs a narrowed binding list whose indexes are local.
+	subscriptionStateWinnerProvider *string
+	subscriptionStateTargetProvider *string
+}
+
+func (s *Service) dispatchWithSubscriptionStateModels(ctx context.Context, in *failoverInputs) (int, error) {
+	winner, err := s.dispatchSubscriptionStateModels(ctx, *in)
+	if in.subscriptionStateWinnerProvider != nil && winner >= 0 {
+		*in.subscriptionStateWinnerProvider = *in.subscriptionStateTargetProvider
+	}
+	return winner, err
 }
 
 // errDispatchWithoutPurpose rejects a walk no registered purpose authorizes:
@@ -269,7 +281,8 @@ var errDispatchWithoutPurpose = errors.New("dispatchWithFallback: no inference p
 // instead of a generic 502.
 func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (winnerIdx int, err error) {
 	if in.subscriptionStateRequest != nil && subscriptionStateModelsEnabled(ctx) && in.buildAlternative != nil {
-		return s.dispatchSubscriptionStateModels(ctx, in)
+		winner, err := s.dispatchWithSubscriptionStateModels(ctx, &in)
+		return winner, err
 	}
 	if subscriptionStateModelsEnabled(ctx) && !subscriptionAttemptOnly(ctx) {
 		if _, allowed := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[in.initialDecision.Model]; !allowed {

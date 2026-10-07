@@ -4601,6 +4601,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	primaryModel := decision.Model
 	primaryDecision := decision
 	var winnerIdx int
+	var subscriptionStateWinnerProvider string
 	subscriptionPoolFailure := false
 	// A released prelude can only take an SSE error frame, so every dispatch in
 	// the chain renders through this — a JSON envelope appended to a live stream
@@ -4620,13 +4621,15 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		// Nothing was dispatched — enters the rescue chain as if every binding pre-committed failed.
 		winnerIdx, proxyErr = -1, attemptBuildErr
 	} else {
-		winnerIdx, proxyErr = s.dispatchWithFallback(ctx, failoverInputs{
+		dispatch := failoverInputs{
 			// contentSink is the raw w when capture is off.
-			w:                        contentSink,
-			buf:                      preludeBuf,
-			initialDecision:          decision,
-			subscriptionStateRequest: &req,
-			subscriptionStateHeaders: r.Header,
+			w:                               contentSink,
+			buf:                             preludeBuf,
+			initialDecision:                 decision,
+			subscriptionStateRequest:        &req,
+			subscriptionStateHeaders:        r.Header,
+			subscriptionStateWinnerProvider: &subscriptionStateWinnerProvider,
+			subscriptionStateTargetProvider: new(string),
 			alternatives: func() []router.Decision {
 				if routeRes.HardPinned || routeRes.AuthoritativePerTurn {
 					return nil
@@ -4668,7 +4671,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			deferFlushOnExhaustion: baselineViable || subscriptionRetryEligible || siblingViable,
 			purpose:                routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
 			origin:                 routeRes.dispatchOrigin(decision),
-		})
+		}
+		winnerIdx, proxyErr = s.dispatchWithFallback(ctx, dispatch)
 		subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 	}
 	if subscriptionStatePaidTargetAttempted {
@@ -4981,7 +4985,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	subscriptionFailoverUsed = subscriptionFailoverUsed || subscriptionCredentialFallbackUsed(ctx)
 	finalProvider := primaryProvider
-	if winnerIdx >= 0 && winnerIdx < len(bindings) {
+	if subscriptionStateWinnerProvider != "" {
+		finalProvider = subscriptionStateWinnerProvider
+	} else if winnerIdx >= 0 && winnerIdx < len(bindings) {
 		finalProvider = bindings[winnerIdx].Provider
 	} else if baselineAttempted {
 		// Baseline ran but no binding served (winnerIdx == -1); the last
@@ -7698,6 +7704,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		surfacePurpose = inference.PurposeOpenAIResponses
 	}
 	var winnerIdx int
+	var subscriptionStateWinnerProvider string
 	subscriptionStatePaidTargetAttempted := false
 	// A released prelude can only take an SSE error frame, so every dispatch in
 	// the chain renders through this — a JSON envelope appended to a live stream
@@ -7718,13 +7725,15 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 		flushBufferedIfPresent(w, err)
 	}
-	winnerIdx, proxyErr = s.dispatchWithFallback(ctx, failoverInputs{
+	dispatch := failoverInputs{
 		// contentSink is the raw w when capture is off.
-		w:                        contentSink,
-		buf:                      preludeBuf,
-		initialDecision:          decision,
-		subscriptionStateRequest: &routeRequest,
-		subscriptionStateHeaders: r.Header,
+		w:                               contentSink,
+		buf:                             preludeBuf,
+		initialDecision:                 decision,
+		subscriptionStateRequest:        &routeRequest,
+		subscriptionStateHeaders:        r.Header,
+		subscriptionStateWinnerProvider: &subscriptionStateWinnerProvider,
+		subscriptionStateTargetProvider: new(string),
 		alternatives: func() []router.Decision {
 			if routeRes.HardPinned || routeRes.AuthoritativePerTurn {
 				return nil
@@ -7761,7 +7770,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		deferFlushOnExhaustion: cyberRetryViable || codexRetryViable || claudeRetryViable || siblingViable,
 		purpose:                routeRes.dispatchPurpose(surfacePurpose),
 		origin:                 routeRes.dispatchOrigin(decision),
-	})
+	}
+	winnerIdx, proxyErr = s.dispatchWithFallback(ctx, dispatch)
 	if subscriptionStatePaidTargetAttempted {
 		codexRetryViable = false
 		claudeRetryViable = false
@@ -8062,7 +8072,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 	}
 	finalProvider := decision.Provider
-	if winnerIdx >= 0 && winnerIdx < len(bindings) {
+	if subscriptionStateWinnerProvider != "" {
+		finalProvider = subscriptionStateWinnerProvider
+	} else if winnerIdx >= 0 && winnerIdx < len(bindings) {
 		finalProvider = bindings[winnerIdx].Provider
 	}
 	decision.Provider = finalProvider
