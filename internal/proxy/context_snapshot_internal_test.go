@@ -75,7 +75,7 @@ func TestContextSnapshotUsesFinalServedModel(t *testing.T) {
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	headers := http.Header{}
 	setContextEstimateHeaders(headers, 72000, 8000)
-	headers.Set(HeaderRouterContextWindow, "1000000")
+	headers.Set(HeaderRouterContextWindow, "1048576")
 	headers.Set(HeaderRouterModel, "deepseek/deepseek-v4-pro")
 	snapshot := contextSnapshotJSONForDecision(headers, "request-final", "claude-opus-4-8", "claude-opus-4-8", providers.ProviderAnthropic, now, now)
 	parsed := ParseContextSnapshot(snapshot)

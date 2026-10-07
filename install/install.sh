@@ -4525,8 +4525,16 @@ state_lock_for() {
 }
 
 acquire_state_lock() {
-  local lock="$1" attempt=0
+  local lock="$1" attempt=0 lock_mtime now dead
   while ! mkdir "$lock" 2>/dev/null; do
+    lock_mtime="$(stat -c %Y "$lock" 2>/dev/null || stat -f %m "$lock" 2>/dev/null)" || lock_mtime=0
+    now="$(date +%s 2>/dev/null)" || now=0
+    if [ "$lock_mtime" -gt 0 ] && [ $((now - lock_mtime)) -gt 30 ]; then
+      dead="${lock}.dead.$$"
+      mv "$lock" "$dead" 2>/dev/null || continue
+      rmdir "$dead" 2>/dev/null || true
+      continue
+    fi
     attempt=$((attempt + 1))
     [ "$attempt" -lt 1000 ] || return 1
     sleep 0.01
@@ -4739,7 +4747,7 @@ refresh_session_cost() {
       rm -f "$context_tmp" "$savings_tmp"
       exit 0
     fi
-    trap 'release_state_lock "$state_lock"' EXIT
+    trap 'release_state_lock "$state_lock"; rmdir "$lock" 2>/dev/null || true' EXIT
     if [ "$(cat "$active_file" 2>/dev/null)" = "$generation" ]; then
       if [ "${WEAVE_CODEX_STATUS_CONTEXT:-1}" != "0" ]; then
         if [ -n "$fresh_snapshot" ]; then
@@ -4834,8 +4842,7 @@ if [ "${WEAVE_CAPTURE_LLM_CLASSIFIER:-}" = "1" ] && [ -n "${WEAVE_CAPTURE_HOOK_T
   esac
   fi
 fi
-session_id="$(safe_session_id "$(jq -r '.session_id // empty' <<<"$payload")")" || session_id=""
-[ -n "$session_id" ] || exit 0
+session_id="$(safe_session_id "$(jq -r '.session_id // empty' <<<"$payload")")" || exit 0
 active_file="$(generation_file_for "$session_id")"
 state_lock="$(state_lock_for "$session_id")"
 mkdir -p "$state_root"

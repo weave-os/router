@@ -69,6 +69,8 @@ absent "$(cat "$work/title")" 'ctx est.'
 # A cached snapshot for a prior automatic route must not override an explicit pin.
 cp "$fixture" "$context_file"
 forced_payload='{"hook_event_name":"Stop","session_id":"session-context","model":"gpt-5.6-sol","last_assistant_message":"Weave Router: force-model applied: gpt-5.6-sol (session pin)"}'
+make_snapshot
+cp "$fixture" "$context_file"
 printf '%s' "$forced_payload" | "$codex" >/dev/null
 absent "$(cat "$work/title")" 'last Router ctx est.'
 contains "$(cat "$work/title")" 'gpt-5.6-sol'

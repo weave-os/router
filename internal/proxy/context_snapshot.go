@@ -68,9 +68,7 @@ func setContextEstimateHeaders(headers http.Header, estimate, reserve int) {
 }
 
 func contextSnapshotJSON(headers http.Header, requestID, requestedModel string, requestedAt, recordedAt time.Time) []byte {
-	servedModel := headers.Get(HeaderRouterModel)
-	servedProvider := headers.Get(HeaderRouterProvider)
-	return contextSnapshotJSONForDecision(headers, requestID, requestedModel, servedModel, servedProvider, requestedAt, recordedAt)
+	return contextSnapshotJSONForDecision(headers, requestID, requestedModel, headers.Get(HeaderRouterModel), headers.Get(HeaderRouterProvider), requestedAt, recordedAt)
 }
 
 func contextSnapshotJSONForDecision(headers http.Header, requestID, requestedModel, servedModel, servedProvider string, requestedAt, recordedAt time.Time) []byte {
