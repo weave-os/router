@@ -1,0 +1,51 @@
+internal/router/catalog/cost_test.go
+  s_b496684bf00a71::t_fb7eae37e0fede 251-269
+internal/translate/cache_usage_test.go
+  s_b496684bf00a71::t_fb7eae37e0fede 382-399
+internal/proxy/fastmode_internal_test.go
+  s_b496684bf00a71::t_fb7eae37e0fede 166-182
+db/queries/model_router_request_telemetry.sql
+  s_b496684bf00a71::t_9dd808e205a582 805-807
+internal/analytics/analytics.go
+  s_b496684bf00a71::t_f2c92f073e2b63 71-74
+internal/analytics/pricebook.go
+  s_b496684bf00a71::t_2442596c638342 17-28,33-38,50-56,61-66
+internal/analytics/schema.go
+  s_b496684bf00a71::t_5a53546faca461 65-67
+internal/postgres/analytics_repo.go
+  s_b496684bf00a71::t_a9ca8936a24037 93-100
+internal/proxy/auxiliary_inference.go
+  s_b496684bf00a71::t_7cba4757525b83 61,80,92-93,115,117
+internal/proxy/fastmode.go
+  s_b496684bf00a71::t_d76d203bf475a0 120,130-131
+internal/proxy/handover.go
+  s_b496684bf00a71::t_762c924dd72f4a 285-290
+internal/proxy/service.go
+  s_b496684bf00a71::t_29ca6823af064c 5177,6281-6290,8226
+internal/proxy/usage_bypass.go
+  s_b496684bf00a71::t_c7979f329aef7b 582
+internal/router/catalog/lookup.go
+  s_b496684bf00a71::t_1645100131c848 86,142
+internal/router/catalog/usage_modifiers.go
+  s_b496684bf00a71::t_a5b72a5c89db86 47-50,55-69
+internal/router/handover/summarizer.go
+  s_b496684bf00a71::t_7d4ba820ebc89c 25-28
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_b496684bf00a71::t_88933d7738f3cb 119-121,246-248,345-347,477-479
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d8036391177cb96caedcba405c3536a897efd5c9",
+  "prompts": {},
+  "sessions": {
+    "s_b496684bf00a71": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2a29c49f-7977-4c38-a5da-39e02609d972",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
