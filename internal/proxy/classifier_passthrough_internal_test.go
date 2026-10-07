@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/translate"
@@ -112,8 +113,9 @@ func TestClassifierPassthroughEngaged(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			provider, ok := tc.svc.classifierPassthroughEngaged(tc.ctx, tc.headers, tc.req, tc.turnType)
-			assert.Equal(t, tc.want, ok)
-			if tc.want {
+			want := tc.want && !subscriptionStateModelsEnabled(tc.ctx)
+			assert.Equal(t, want, ok)
+			if want {
 				assert.Equal(t, providers.ProviderAnthropic, provider)
 			}
 		})
@@ -143,7 +145,8 @@ func TestUsageBypassDecision_ClassifierLaneOutranksUsageBypass(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, router.Decision{Provider: providers.ProviderAnthropic, Model: model, Reason: reasonUsageBypass}, mainLoop)
 
-	_, ok = svc.usageBypassDecision(ctx, http.Header{}, req, []string{model}, turntype.Classifier)
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{model})
+	_, ok = svc.usageBypassDecision(ctx, http.Header{}, req, nil, turntype.Classifier)
 	assert.False(t, ok, "a session strike on the requested model blocks the classifier lane too")
 }
 
@@ -154,16 +157,18 @@ func TestRunTurnLoop_ClassifierPassthrough_NoSessionState(t *testing.T) {
 	store := newStubPinStore()
 	store.getFound = true
 	store.getPin = sessionpin.Pin{Provider: providers.ProviderOpenAI, Model: "gpt-5.5", Reason: "cluster", PinnedUntil: time.Now().Add(time.Hour)}
-	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	svc := NewService(&betaTestRouter{}, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
+		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyLLMClassifier, Router: &betaTestRouter{}})
 	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, classifierTestSubToken)
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{"claude-sonnet-4-6"})
 	var zeroKey [sessionpin.SessionKeyLen]byte
 
 	res, err := svc.runTurnLoop(ctx, env, feats, "api-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: feats.Model})
 
 	require.NoError(t, err)
 	assert.Equal(t, turntype.Classifier, res.TurnType)
-	assert.True(t, res.UsageBypass, "passthrough dispatches through the bypass lane")
-	assert.Equal(t, router.Decision{Provider: providers.ProviderAnthropic, Model: feats.Model, Reason: reasonClassifierPassthrough}, res.Decision)
+	assert.False(t, res.UsageBypass, "classifier turns must use their classifier policy even when subscription quota is available")
+	assert.Empty(t, res.Decision)
 	assert.Equal(t, zeroKey, res.SessionKey, "a classifier carries no session key, so nothing can be written back")
 	assert.Empty(t, res.PriorServedModel, "the conversation's pin is not consulted for a classifier")
 	assert.False(t, res.SessionEverSwitched)

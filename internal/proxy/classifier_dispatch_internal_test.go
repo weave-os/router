@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -160,6 +162,35 @@ func TestClassifierDispatchAcrossProtocols(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestClassifierDispatchUsesConfiguredSubscriptionState(t *testing.T) {
+	const model = "claude-sonnet-4-6"
+	fixtureService, principal, store := classifierSessionFixture(t, classifierMedium)
+	upstream := &classifierResponseProvider{}
+	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, false, nil, nil, false, "", "", nil)
+	require.NoError(t, svc.WithClassifierSessions(fixtureService.classifierSessions.config, store, fixtureService.classifierSessions.classifier))
+	ctx := classifierAdmit(t, svc, principal)
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{model})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{model})
+	ctx = context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+	ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
+	modelRecord, found := catalog.ByID(model)
+	require.True(t, found)
+	arm := armid.ForModel(modelRecord)
+	classes := []string{string(escalation.Low), string(escalation.Medium), string(escalation.High), string(escalation.Maximum)}
+	roster := &rosterdata.Roster{SchemaVersion: rosterdata.SchemaVersionPolicyV1, SHA256: strings.Repeat("b", 64), ClassOrder: classes, Clusters: map[string]rosterdata.Cluster{}}
+	for _, class := range classes {
+		roster.Clusters[class] = rosterdata.Cluster{Arms: []string{arm}, ArmScores: map[string]float64{arm: 1}}
+	}
+	resolver := policy.NewResolver(map[string]struct{}{model: {}}, map[string]struct{}{providers.ProviderAnthropic: {}}, armid.ForModel, policy.ManagedProviderPolicy())
+	capabilities := policy.Capabilities{SchemaVersion: policy.SchemaVersionV4, AuthoritativePerTurnSelection: true}
+	routing := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyLLMClassifier, Unavailable: router.ErrClassifierUnavailable, ClassifierArtifactID: "llm-classifier-v1.0.0", ClassifierArtifactSHA256: strings.Repeat("a", 64), SelectionPolicyReleaseID: "llm-classifier-v1.0.0", SelectionPolicySHA256: roster.SHA256}, policy.AtomicClassifierFacts{Release: "llm-classifier-v1.0.0", ReleaseSHA256: strings.Repeat("a", 64)}, resolver).WithCapabilities(capabilities).WithArmSelector(selection.Selector(roster))
+	svc.WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyLLMClassifier, Router: routing, Capabilities: capabilities, Unavailable: router.ErrClassifierUnavailable})
+	recorder := httptest.NewRecorder()
+	err := svc.ProxyMessages(ctx, []byte(`{"model":"claude-sonnet-4-6","max_tokens":1024,"messages":[{"role":"user","content":"first"}]}`), recorder, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	require.Error(t, err, "depleted subscription-only funds and a classifier-excluded paid state must refuse before provider dispatch")
+	require.Empty(t, upstream.body)
 }
 
 func TestClassifierRecapServesWithoutAnchoringPin(t *testing.T) {

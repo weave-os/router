@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/providers/openaicompat"
@@ -16,7 +17,6 @@ import (
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/require"
-	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
@@ -32,6 +32,16 @@ const (
 	stateCodexModel  = "gpt-5.6-sol"
 	statePaidModel   = "deepseek/deepseek-v4-flash"
 )
+
+type stateModelRoutingPolicy struct{ mode auth.RoutingPolicyMode }
+
+func (p stateModelRoutingPolicy) GetPolicy(context.Context, string) (auth.RoutingPolicy, error) {
+	return auth.RoutingPolicy{Mode: p.mode}, nil
+}
+
+func (stateModelRoutingPolicy) HasAssignment(context.Context, string, string, int64) (bool, error) {
+	return false, nil
+}
 
 type stateModelRouter struct{}
 
@@ -73,7 +83,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 	for _, scenario := range []struct {
 		name                                                                                                 string
 		claude, codex, emptyPaid, depleted, liveReject, committedFailure, forced, forcedSubset, demoteClaude bool
-		utilityTarget                                                                                        bool
+		utilityTarget, passthroughTarget                                                                     bool
 		want                                                                                                 string
 		wantErr                                                                                              bool
 	}{
@@ -87,6 +97,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 		{name: "explicit force still uses included capacity", forced: true, claude: true, want: stateClaudeModel},
 		{name: "force model overrides request subset", forced: true, forcedSubset: true, claude: true, want: stateClaudeModel},
 		{name: "utility target follows subscription state model sets", utilityTarget: true, claude: true, want: stateClaudeModel},
+		{name: "passthrough target follows exhausted funding set", passthroughTarget: true, claude: true, codex: true, want: statePaidModel},
 		{name: "session-demoted Claude selects healthy Codex", claude: true, codex: true, demoteClaude: true, want: stateCodexModel},
 		{name: "depleted credits still serve Codex", codex: true, depleted: true, want: stateCodexModel},
 		{name: "depleted credits prohibit cheap paid fallback", depleted: true, wantErr: true},
@@ -114,6 +125,12 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 			if scenario.demoteClaude {
 				ctx = context.WithValue(ctx, SessionDemotedModelsContextKey{}, []string{stateClaudeModel})
 			}
+			if scenario.passthroughTarget {
+				authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(stateModelRoutingPolicy{mode: auth.RoutingPolicyPassthrough}, nil)
+				var err error
+				ctx, err = authService.WithRoutingPolicy(ctx, "state-model-test-installation")
+				require.NoError(t, err)
+			}
 			if scenario.depleted {
 				ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
 			}
@@ -128,6 +145,11 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 			if scenario.utilityTarget {
 				initialModel = statePaidModel
 			}
+			initialProvider := providers.ProviderAnthropic
+			if scenario.passthroughTarget {
+				initialModel = statePaidModel
+				initialProvider = providers.ProviderOpenRouter
+			}
 			rec := httptest.NewRecorder()
 			buffer := newPreludeBuffer(rec)
 			var served []string
@@ -135,7 +157,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 			var winner router.Decision
 			_, err := svc.dispatchWithFallback(ctx, failoverInputs{
 				w: rec, buf: buffer, stateRequest: &req,
-				initialDecision: router.Decision{Model: initialModel, Provider: providers.ProviderAnthropic},
+				initialDecision: router.Decision{Model: initialModel, Provider: initialProvider},
 				purpose:         inference.PurposeAnthropicMessages,
 				buildAlternative: func(target router.Decision) (dispatchAttempt, error) {
 					return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {

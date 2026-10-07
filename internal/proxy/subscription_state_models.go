@@ -104,7 +104,8 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 	budget, cancel := context.WithTimeout(ctx, sameBindingRetryBudget)
 	defer cancel()
 	ctx = context.WithValue(ctx, subscriptionRotationBudgetKey{}, budget)
-	hasFixedTarget := request.ForceModel != "" || in.origin == policy.OverrideSourceDeployment || in.origin == policy.OverrideSourceRequest
+	hasFixedTarget := request.ForceModel != "" || callerModelPassthroughActive(ctx) ||
+		in.origin == policy.OverrideSourceDeployment || in.origin == policy.OverrideSourceRequest
 	for len(activeModels) > 0 && budget.Err() == nil {
 		attemptCtx, attemptReq := s.subscriptionStateRequest(ctx, request, activeModels)
 		attemptCtx = context.WithValue(attemptCtx, subscriptionOnlyAttemptKey{}, true)
