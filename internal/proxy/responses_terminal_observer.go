@@ -101,12 +101,19 @@ func (o *responsesTerminalObserver) Finalize() {
 // event wins: an upstream that revises the envelope states its outcome last.
 func (o *responsesTerminalObserver) observeEvent(event []byte) {
 	eventType, payload := sse.ParseEvent(event)
-	o.state.noteFrame(eventType, payload)
+	o.state.noteFrame(event, eventType, payload)
 	if len(payload) == 0 {
 		// A non-streaming body carries no SSE framing.
 		payload = event
 	}
-	switch gjson.GetBytes(payload, "type").String() {
+	if !completeTailPayload(payload) {
+		return
+	}
+	kind := gjson.GetBytes(payload, "type").String()
+	if kind == "" {
+		kind = string(eventType)
+	}
+	switch kind {
 	case "":
 	case responsesCompletedEvent, responsesIncompleteEvent, responsesFailedEvent, streamCutErrorEvent:
 		o.state.started, o.state.ended = true, true

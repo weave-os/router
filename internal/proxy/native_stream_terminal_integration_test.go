@@ -49,10 +49,10 @@ var (
 // 200 event stream that ends cleanly at the transport level however much of
 // the protocol it carried.
 func scriptedStream(attempts ...[]string) *fakeProvider {
-	call := 0
+	attemptIndex := 0
 	return &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
-		frames := attempts[min(call, len(attempts)-1)]
-		call++
+		frames := attempts[min(attemptIndex, len(attempts)-1)]
+		attemptIndex++
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		for _, frame := range frames {

@@ -42,9 +42,18 @@ type streamTerminalState struct {
 	ended   bool
 }
 
-// noteFrame records one parsed frame's shape.
-func (s *streamTerminalState) noteFrame(eventType, payload []byte) {
-	s.framed = s.framed || len(eventType) > 0 || len(payload) > 0
+// A comment-only frame (a keepalive) is SSE too: a stream of nothing else
+// never started rather than being an unframed body.
+func (s *streamTerminalState) noteFrame(event, eventType, payload []byte) {
+	s.framed = s.framed || len(eventType) > 0 || len(payload) > 0 ||
+		bytes.HasPrefix(bytes.TrimLeft(event, "\r\n"), []byte(":"))
+}
+
+// completeTailPayload reports whether a final frame that arrived without its
+// blank-line delimiter carries a whole payload; a truncated one must not count
+// as the terminal it was cut from.
+func completeTailPayload(payload []byte) bool {
+	return string(bytes.TrimSpace(payload)) == openAIChatDoneSentinel || gjson.ValidBytes(payload)
 }
 
 // err reports how the stream ended: nil once a terminal arrived or when the
@@ -74,6 +83,10 @@ type streamTerminalObserver struct {
 	buf     bytes.Buffer
 	framing sse.Scanner
 	state   streamTerminalState
+	// openChoices are chat choice indexes that emitted without finishing yet;
+	// with n > 1 one choice can finish while another is still generating.
+	openChoices     map[int64]struct{}
+	finishedChoices map[int64]struct{}
 }
 
 func newStreamTerminalObserver(inner http.ResponseWriter, protocol nativeStreamProtocol) *streamTerminalObserver {
@@ -94,6 +107,12 @@ func (o *streamTerminalObserver) Write(p []byte) (int, error) {
 		}
 		o.observeEvent(event)
 		o.buf.Next(n)
+	}
+	// A terminal frame is small; resyncing on the next delimiter bounds memory
+	// for an oversized frame or an unframed body without losing one.
+	if o.buf.Len() > streamCutCarryCap {
+		o.buf.Reset()
+		o.framing.Reset()
 	}
 	return o.inner.Write(p)
 }
@@ -130,14 +149,22 @@ func (o *streamTerminalObserver) streamErr() error {
 		rest := o.buf.Bytes()
 		o.buf.Reset()
 		o.framing.Reset()
-		o.observeEvent(rest)
+		eventType, payload := sse.ParseEvent(rest)
+		if completeTailPayload(payload) {
+			o.observeEvent(rest)
+		} else {
+			o.state.noteFrame(rest, eventType, payload)
+		}
+	}
+	if o.protocol == nativeStreamOpenAIChat && len(o.finishedChoices) > 0 && len(o.openChoices) == 0 {
+		o.state.ended = true
 	}
 	return o.state.err()
 }
 
 func (o *streamTerminalObserver) observeEvent(event []byte) {
 	eventType, payload := sse.ParseEvent(event)
-	o.state.noteFrame(eventType, payload)
+	o.state.noteFrame(event, eventType, payload)
 	switch o.protocol {
 	case nativeStreamAnthropic:
 		kind := string(eventType)
@@ -159,25 +186,35 @@ func (o *streamTerminalObserver) observeEvent(event []byte) {
 			return
 		}
 		o.state.started = true
-		if gjson.GetBytes(payload, "error").Exists() || chatChunkFinished(payload) {
+		if gjson.GetBytes(payload, "error").Exists() {
 			o.state.ended = true
+			return
 		}
+		o.observeChatChoices(payload)
 	}
 }
 
-// chatChunkFinished reports whether a chat.completion.chunk carries a
-// finish_reason on any choice.
-func chatChunkFinished(payload []byte) bool {
-	finished := false
+func (o *streamTerminalObserver) observeChatChoices(payload []byte) {
 	gjson.GetBytes(payload, "choices").ForEach(func(_, choice gjson.Result) bool {
-		finished = choice.Get("finish_reason").String() != ""
-		return !finished
+		index := choice.Get("index").Int()
+		if choice.Get("finish_reason").String() != "" {
+			if o.finishedChoices == nil {
+				o.finishedChoices = make(map[int64]struct{})
+			}
+			o.finishedChoices[index] = struct{}{}
+			delete(o.openChoices, index)
+			return true
+		}
+		if _, finished := o.finishedChoices[index]; !finished {
+			if o.openChoices == nil {
+				o.openChoices = make(map[int64]struct{})
+			}
+			o.openChoices[index] = struct{}{}
+		}
+		return true
 	})
-	return finished
 }
 
-// isStreamTerminalMissing reports whether err is the observer's verdict that a
-// native stream ended without a terminal event.
 func isStreamTerminalMissing(err error) bool {
 	return errors.Is(err, translate.ErrStreamIncomplete) || errors.Is(err, translate.ErrStreamEmpty)
 }
