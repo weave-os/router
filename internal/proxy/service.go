@@ -973,8 +973,8 @@ func installationAllowedModelSet(ctx context.Context) map[string]struct{} {
 	if !subscriptionStateModelsEnabled(ctx) {
 		return allowed
 	}
-	stateModels, selected := ctx.Value(subscriptionStateAllowedModelsKey{}).(map[string]struct{})
-	if !selected {
+	stateModels, hasSelectedStateModels := ctx.Value(subscriptionStateAllowedModelsKey{}).(map[string]struct{})
+	if !hasSelectedStateModels {
 		stateModels = modelSet(append(append([]string{}, installationSubscriptionModelsWhenActiveFromContext(ctx)...), installationSubscriptionModelsWhenInactiveFromContext(ctx)...))
 	}
 	if allowed == nil {
@@ -4620,11 +4620,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	} else {
 		winnerIdx, proxyErr = s.dispatchWithFallback(ctx, failoverInputs{
 			// contentSink is the raw w when capture is off.
-			w:               contentSink,
-			buf:             preludeBuf,
-			initialDecision: decision,
-			stateRequest:    &req,
-			stateHeaders:    r.Header,
+			w:                        contentSink,
+			buf:                      preludeBuf,
+			initialDecision:          decision,
+			subscriptionStateRequest: &req,
+			subscriptionStateHeaders: r.Header,
 			alternatives: func() []router.Decision {
 				if routeRes.HardPinned || routeRes.AuthoritativePerTurn {
 					return nil
@@ -7705,11 +7705,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	winnerIdx, proxyErr = s.dispatchWithFallback(ctx, failoverInputs{
 		// contentSink is the raw w when capture is off.
-		w:               contentSink,
-		buf:             preludeBuf,
-		initialDecision: decision,
-		stateRequest:    &routeRequest,
-		stateHeaders:    r.Header,
+		w:                        contentSink,
+		buf:                      preludeBuf,
+		initialDecision:          decision,
+		subscriptionStateRequest: &routeRequest,
+		subscriptionStateHeaders: r.Header,
 		alternatives: func() []router.Decision {
 			if routeRes.HardPinned || routeRes.AuthoritativePerTurn {
 				return nil

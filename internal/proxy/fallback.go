@@ -248,8 +248,8 @@ type failoverInputs struct {
 	// origin names the override source that fixed the decision's model.
 	purpose                   inference.Purpose
 	origin                    policy.OverrideSource
-	stateRequest              *router.Request
-	stateHeaders              http.Header
+	subscriptionStateRequest  *router.Request
+	subscriptionStateHeaders  http.Header
 	alternatives              []router.Decision
 	buildAlternative          func(router.Decision) (dispatchAttempt, error)
 	onAlternative             func(router.Decision)
@@ -267,7 +267,7 @@ var errDispatchWithoutPurpose = errors.New("dispatchWithFallback: no inference p
 // error. On final-attempt error it flushes the upstream's own envelope to w
 // instead of a generic 502.
 func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (winnerIdx int, err error) {
-	if in.stateRequest != nil && subscriptionStateModelsEnabled(ctx) && in.buildAlternative != nil {
+	if in.subscriptionStateRequest != nil && subscriptionStateModelsEnabled(ctx) && in.buildAlternative != nil {
 		return s.dispatchSubscriptionStateModels(ctx, in)
 	}
 	if subscriptionStateModelsEnabled(ctx) && !subscriptionAttemptOnly(ctx) {

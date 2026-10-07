@@ -89,7 +89,7 @@ func (s *Service) subscriptionStateModelAvailable(ctx context.Context, req route
 // each active target must actually use a subscription. Only the exhausted set
 // authorizes a paid attempt, even after a live quota rejection or stale pin.
 func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failoverInputs) (int, error) {
-	request := *in.stateRequest
+	request := *in.subscriptionStateRequest
 	sessionUnavailableModels := modelSet(sessionDemotedModelsFromContext(ctx))
 	if sessionUnavailableModels == nil {
 		sessionUnavailableModels = make(map[string]struct{})
@@ -105,11 +105,11 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		// preserve that exception when rebuilding the request for state routing.
 		request.ForceModel = in.initialDecision.Model
 	}
-	in.stateRequest = nil
+	in.subscriptionStateRequest = nil
 	in.alternatives = nil
 	activeModels := make([]string, 0)
 	for _, model := range installationSubscriptionModelsWhenActiveFromContext(ctx) {
-		if s.subscriptionStateModelAvailable(ctx, request, in.stateHeaders, model) {
+		if s.subscriptionStateModelAvailable(ctx, request, in.subscriptionStateHeaders, model) {
 			activeModels = append(activeModels, model)
 		}
 	}
@@ -131,7 +131,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		}
 		target := in.initialDecision
 		if !hasFixedTarget {
-			if provider, engaged := s.usageBypassEngaged(ctx, in.stateHeaders, attemptReq); engaged {
+			if provider, engaged := s.usageBypassEngaged(ctx, in.subscriptionStateHeaders, attemptReq); engaged {
 				target.Model = request.RequestedModel
 				target.Provider = provider
 				target.Reason = reasonUsageBypass
@@ -163,13 +163,13 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			return winner, err
 		}
 		observability.FromContext(ctx).Info("Subscription model unavailable; selecting another included target", "model", target.Model, "provider", target.Provider)
-		remaining := activeModels[:0]
+		remainingModels := activeModels[:0]
 		for _, model := range activeModels {
 			if model != target.Model {
-				remaining = append(remaining, model)
+				remainingModels = append(remainingModels, model)
 			}
 		}
-		activeModels = remaining
+		activeModels = remainingModels
 		if hasFixedTarget {
 			break
 		}
@@ -188,7 +188,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 	target := in.initialDecision
 	for {
 		_, permitted := paidReq.AllowedModels[target.Model]
-		if permitted && s.subscriptionStatePaidTargetAvailable(paidCtx, in.stateHeaders, target) {
+		if permitted && s.subscriptionStatePaidTargetAvailable(paidCtx, in.subscriptionStateHeaders, target) {
 			break
 		}
 		if hasFixedTarget {
@@ -223,8 +223,8 @@ func (s *Service) subscriptionStatePaidTargetAvailable(ctx context.Context, head
 	return len(s.resolveBindingsForDispatch(resolvedCredentials, target)) > 0
 }
 
-func (s *Service) dispatchSubscriptionStateTarget(ctx context.Context, in failoverInputs, target router.Decision, included bool) (int, error) {
-	ctx = s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, in.stateHeaders)
+func (s *Service) dispatchSubscriptionStateTarget(ctx context.Context, in failoverInputs, target router.Decision, usesIncludedSubscription bool) (int, error) {
+	ctx = s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, in.subscriptionStateHeaders)
 	attempt, err := in.buildAlternative(target)
 	if err != nil {
 		return -1, err
@@ -235,7 +235,7 @@ func (s *Service) dispatchSubscriptionStateTarget(ctx context.Context, in failov
 	in.initialDecision = target
 	in.attempt = attempt
 	in.bindings = s.resolveBindingsForDispatch(ctx, target)
-	if included {
+	if usesIncludedSubscription {
 		// A subscription-capable binding cannot rotate onto a paid gateway.
 		in.bindings = []catalog.ProviderBinding{{Provider: target.Provider}}
 		in.deferFlushOnExhaustion = true
