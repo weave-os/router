@@ -344,8 +344,8 @@ func TestSubscriptionStateFailedTargetReachesRecoveryCallback(t *testing.T) {
 		initialDecision:          router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
 		purpose:                  inference.PurposeAnthropicMessages,
 		buildAlternative: func(router.Decision) (dispatchAttempt, error) {
-			return func(_ context.Context, attempted router.Decision, _ providers.Client) error {
-				attemptedModel = attempted.Model
+			return func(_ context.Context, attemptedTarget router.Decision, _ providers.Client) error {
+				attemptedModel = attemptedTarget.Model
 				return &providers.UpstreamStatusError{Status: http.StatusBadRequest}
 			}, nil
 		},
