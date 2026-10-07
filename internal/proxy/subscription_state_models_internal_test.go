@@ -71,11 +71,11 @@ func (l *stateModelLeaser) Lease(_ context.Context, owner auth.SubscriptionOwner
 
 func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 	for _, scenario := range []struct {
-		name                                                                                                                           string
-		claude, codex, emptyPaid, depleted, liveReject, committedFailure, forced, forceWithRequestSubset, demoteClaude, cooldownClaude bool
-		utilityTarget, passthroughTarget                                                                                               bool
-		want                                                                                                                           string
-		wantErr                                                                                                                        bool
+		name                                                                                                                                      string
+		claude, codex, emptyPaid, depleted, liveReject, committedFailure, forced, forcedPin, forceWithRequestSubset, demoteClaude, cooldownClaude bool
+		utilityTarget, passthroughTarget                                                                                                          bool
+		want                                                                                                                                      string
+		wantErr                                                                                                                                   bool
 	}{
 		{name: "Claude included before paid", claude: true, codex: true, want: stateClaudeModel},
 		{name: "Claude exhausted uses active Codex", codex: true, want: stateCodexModel},
@@ -85,6 +85,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 		{name: "empty exhausted set refuses paid", emptyPaid: true, wantErr: true},
 		{name: "explicit force cannot buy an active-only model", forced: true, wantErr: true},
 		{name: "explicit force still uses included capacity", forced: true, claude: true, want: stateClaudeModel},
+		{name: "readmitted force pin survives state request rebuild", forcedPin: true, forceWithRequestSubset: true, claude: true, want: stateClaudeModel},
 		{name: "force model overrides request subset", forced: true, forceWithRequestSubset: true, claude: true, want: stateClaudeModel},
 		{name: "utility target follows subscription state model sets", utilityTarget: true, claude: true, want: stateClaudeModel},
 		{name: "passthrough target follows exhausted funding set", passthroughTarget: true, claude: true, codex: true, want: statePaidModel},
@@ -144,6 +145,12 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 				initialModel = statePaidModel
 				initialProvider = providers.ProviderOpenRouter
 			}
+			initialDecision := router.Decision{Model: initialModel, Provider: initialProvider}
+			var origin policy.OverrideSource
+			if scenario.forcedPin {
+				initialDecision.Reason = translate.ReasonUserForceModel
+				origin = policy.OverrideSourceRequest
+			}
 			rec := httptest.NewRecorder()
 			buffer := newPreludeBuffer(rec)
 			var served []string
@@ -151,8 +158,9 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 			var winner router.Decision
 			_, err := svc.dispatchWithFallback(ctx, failoverInputs{
 				w: rec, buf: buffer, stateRequest: &req,
-				initialDecision: router.Decision{Model: initialModel, Provider: initialProvider},
+				initialDecision: initialDecision,
 				purpose:         inference.PurposeAnthropicMessages,
+				origin:          origin,
 				buildAlternative: func(target router.Decision) (dispatchAttempt, error) {
 					return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
 						served = append(served, decision.Model)

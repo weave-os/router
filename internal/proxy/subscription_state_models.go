@@ -100,7 +100,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		}
 	}
 	request.AutomaticExcludedModels = mergeExcludedModels(request.AutomaticExcludedModels, sessionUnavailableModels)
-	if request.ForceModel == "" && (in.origin == policy.OverrideSourceRequest || in.initialDecision.Reason == translate.ReasonUserForceModel) {
+	if request.ForceModel == "" && in.initialDecision.Reason == translate.ReasonUserForceModel {
 		// runTurnLoop already validated and readmitted a strict force-model pin;
 		// preserve that exception when rebuilding the request for state routing.
 		request.ForceModel = in.initialDecision.Model
