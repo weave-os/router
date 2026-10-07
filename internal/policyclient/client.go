@@ -998,6 +998,13 @@ func (c *Client) doPolicyAttempt(
 	if err != nil {
 		return nil, nil, false, c.attemptError(ctx, attemptCtx, attempt, fmt.Errorf("call policy sidecar: %w", err))
 	}
+	if resp.StatusCode == http.StatusRequestEntityTooLarge {
+		resp.Body.Close()
+		return nil, nil, true, fmt.Errorf(
+			"policy sidecar rejected %d-byte %s request (status %d): %w",
+			len(body), path, resp.StatusCode, policy.ErrContextWindowExceeded,
+		)
+	}
 	payload, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	resp.Body.Close()
 	if readErr != nil {

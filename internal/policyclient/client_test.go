@@ -641,6 +641,26 @@ func TestClientRejectsUnknownRouteSchema(t *testing.T) {
 	assert.Contains(t, err.Error(), "unsupported policy route schema")
 }
 
+func TestClientDecideMapsSidecar413ToContextWindowExceeded(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusRequestEntityTooLarge)
+		_, _ = w.Write([]byte("<html><body>Request Entity Too Large</body></html>"))
+	}))
+	defer server.Close()
+
+	_, err := New(server.URL, server.Client(), time.Second).Decide(
+		context.Background(),
+		policy.Query{Candidates: []policy.Candidate{{RosterID: "model-a"}}},
+	)
+
+	require.ErrorIs(t, err, policy.ErrContextWindowExceeded)
+	assert.NotContains(t, err.Error(), "decode policy route response")
+	assert.Equal(t, 1, attempts)
+}
+
 func TestClientRetriesTransientRouteFailureWithoutFallback(t *testing.T) {
 	attempts := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

@@ -379,6 +379,17 @@ func TestClassifyDispatchError_HMMUnavailableStaysAnOutage(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, cls.Status)
 }
 
+func TestClassifyDispatchError_SidecarOversizedBodyIsContextOverflowNotHMMUnavailable(t *testing.T) {
+	err := fmt.Errorf("hmm: sidecar decide: %w", errors.Join(policy.ErrContextWindowExceeded, hmm.ErrHMMUnavailable))
+	cls, ok := proxy.ClassifyDispatchError(err)
+
+	require.True(t, ok)
+	assert.Equal(t, proxy.DispatchErrorContextWindowExceeded, cls.Kind)
+	assert.Equal(t, http.StatusBadRequest, cls.Status)
+	assert.Equal(t, "context_length_exceeded", proxy.OpenAIErrorCode(cls.Kind))
+	assert.False(t, cls.RetryAfter)
+}
+
 func TestClassifyDispatchError_ResponsesChatCompletionsBodyIs400ClientError(t *testing.T) {
 	// ProxyOpenAIResponses' exact wrapping of the ingress rejection.
 	err := fmt.Errorf("translate responses request: %w", translate.ErrResponsesChatCompletionsBody)
