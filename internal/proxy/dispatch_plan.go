@@ -114,9 +114,11 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 	rotationStart := s.clockNow()
 	rotationCtx, cancelRotation := context.WithTimeout(ctx, sameBindingRetryBudget)
 	defer cancelRotation()
-	if existing, _ := ctx.Value(subscriptionRotationBudgetKey{}).(context.Context); existing != nil {
-		cancelRotation()
-		rotationCtx = existing
+	if ctx.Value(subscriptionRotationBudgetDisabledKey{}) != true {
+		if existing, _ := ctx.Value(subscriptionRotationBudgetKey{}).(context.Context); existing != nil {
+			cancelRotation()
+			rotationCtx = existing
+		}
 	}
 	transport := dispatch.Transport{
 		OperationID: string(in.purpose),

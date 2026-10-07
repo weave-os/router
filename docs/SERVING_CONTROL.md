@@ -2,7 +2,7 @@
 
 The `policyctl serving` group is the low-level interface for a trusted deployment
 workflow. It does not build images, deploy Cloud Run services, change revision tags,
-grant IAM access, or turn on gateway-managed serving. Those preparation steps belong
+grant IAM access, or turn on managed serving. Those preparation steps belong
 to the environment's orchestrator. Existing top-level policy commands (`compile`,
 `check-rosters`, `validate`, `publish`, `promote`, `rollback`, `status`) remain the
 legacy lane-head interface for the self-hosted HMM path; they must not be used to
@@ -107,14 +107,11 @@ proposal over it.
 
 ### Fleet-rollout gate
 
-Every `ReadServingState` reader — the gateway (`cmd/router-gateway`, on `/readyz`,
-`/startupz` and every admission) and `policyctl serving` itself (`status`, `apply`,
-`rollback`, and the controller behind them) — must run a binary that understands the
-`artifacts/` layout, the v2 kinds, and the `state/` path **before** the first v2 or
-new-path `apply` against a target. Managed workers (`cmd/router`) never read target
-state: they resolve the immutable artifacts their boot refs and the gateway's
-assertion name, so they are in the same gate for the v2 kinds and the `artifacts/`
-layout, but not for the `state/` path. An old binary that keeps writing the legacy
+Every worker admission reader and `policyctl serving` reader must understand the
+schema being activated and the `state/` path before activation. Gate v3
+support specifically before the first v3 activation. Bootstrap
+validates immutable references; cache misses also resolve authoritative target
+state. An old binary that keeps writing the legacy
 state path after a new-path object exists splits the control plane, and an old binary
 cannot decode a target whose current selection set is v2, so its admissions fail
 closed. Gate the first apply per target on image rollout, not on merge. After the
@@ -317,8 +314,8 @@ serving mode. It accepts `WorkerValidationRequest` (target, optional profile key
 exact selection), loads that snapshot, verifies local boot identity and its own
 catalog, and returns `WorkerAttestation`. It does not admit a conversation, invoke
 an inference provider, bill a request, poll a mutable head, or check unrelated
-targets. Cloud Run IAM and private ingress must restrict this endpoint to the
-gateway and explicitly approved validation principals before enabling the mode.
+targets. The internal service token restricts this endpoint to approved validation
+principals even when worker ingress permits load balancer requests.
 
 The classifier must implement `GET /internal/serving/attestation`, returning
 `ClassifierAttestation`: readiness, exact revision, complete core identity,
@@ -363,7 +360,6 @@ operation do not require this new endpoint.
 | Evidence, build, and lane attestation verification at apply | The only integrity check on externally produced audit payloads |
 | Live destination validation (worker `/internal/serving/validate`, classifier `/internal/serving/attestation`) | Registry bytes cannot prove a revision is live |
 | Authoritative `ReadServingState` on every admission | The control-plane read must stay live; no stale fallback |
-| Serving assertion HMAC over deterministic bytes | The gateway→worker signature boundary needs deterministic signed bytes |
 | Registry containment of every `ObjectRef` | Refs may not address objects outside the registry root |
 | `previous_selection_set` binding + `withdraw_activations` chain | Proposals must name the exact incumbent; emergency pin withdrawal depends on the chain |
 
@@ -375,7 +371,7 @@ proposals, the `--approved-proposal`/`--workflow-actor` binding flags, the
 
 ## Admission timing measurement
 
-Every gateway admission emits exactly one `Serving admission timing` record at `Info`
+Every uncached worker admission emits exactly one `Serving admission timing` record at `Info`
 from `ServingAdmissionRepo.Admit`, including denied and failed attempts. Durations are
 monotonic (`time.Since`, never the database clock) and carry no request content — no
 installation, key, subject, conversation or session identifier, no binding JSON and no
@@ -404,86 +400,36 @@ only the resulting `target` appears, never the installation id or the enrollment
 and generation. `activation_id` is stamped only after the transaction commits, so a
 stale-generation denial reports no activation.
 
-The record is measurement only. It exists to size the deferred fail-closed target-state
-cache in gateway admission after seven days of production data; **no admission cache
-exists**, and every admission still performs the authoritative registry reads in the
-order `ReadServingState` → selection sets → release selection.
+The timing record measures authoritative cache misses. Workers cache persistent
+admission decisions in a bounded 10,000-entry LRU for 30 seconds. Cache keys bind
+installation, API key and canonical conversation identity. Anonymous turns always
+consult primary. Concurrent misses share one bounded transaction; Postgres remains
+responsible for binding convergence across processes. Invalidation prevents an
+in-flight transaction from repopulating stale cache entries. Installation changes
+use the existing broadcast subscription; release traffic changes publish fleet
+invalidation. Missed delivery falls back to TTL expiry.
 
 ## Local verification
 
-### Default-off and managed boot
-
-In `ROUTER_DEPLOYMENT_MODE=managed` the worker refuses to boot when any other
-`ROUTER_SERVING_*` variable is set while `ROUTER_SERVING_ASSERTION_KEY` is empty,
-so a serving-stamped revision with dropped key injection can never mount
-inference routes without admission. An unset or whitespace-only
-`ROUTER_SERVING_ASSERTION_KEY` on a revision with no serving stamping keeps the
-worker on its existing managed/self-hosted path. It does not read serving control heads, subject
-projections, session bindings or request-attribution tables. A nonempty weak key
-fails boot; it does not silently fall back. A serving worker also refuses to
-boot unless `ROUTER_DEFAULT_STRATEGY` is one of the policy strategies it
-registers (`hmm`, `hmm_embedding`): an unset or `cluster` default would score
-every installation without a persisted strategy, and every retired `hmm_beta`
-installation, on the legacy cluster embedder. On the request path a managed
-worker answers 503 `routing_strategy_unavailable` when the persisted or remapped
-strategy is not selectable instead of rerouting to `cluster`; only the legacy
-(non-managed) path keeps the cluster fallback. Apply additive router migrations
-`0095` through the coordinated migration path before enabling a gateway.
-
-The gateway exposes `/health` for process liveness, `/startupz` for boot
-readiness and `/readyz` for admission readiness. Readiness has a five-second
-total budget to ping PostgreSQL, resolve the environment's active default
-binding from the registry, and acquire a worker IAM token. Missing activation or
-unavailable dependencies return 503; no session is admitted and no inference is
-dispatched. Deployment configuration must use `/readyz` for traffic-admission
-checks, not `/health`. Token acquisition does not prove the destination's
-`run.invoker` grant; private deployment smoke still must.
-
-`/startupz` runs the same checks except that a target with no activation yet is
-boot-ready, because a container gated on an activation can never be the one that
-deploys the first activation. Deployment configuration must use `/startupz` for
-the container startup probe and `/readyz` after activation. Requests remain
-fail-closed on an unactivated target: forwarding resolves the binding per
-request and has nothing to resolve.
-
-Managed workers require `ROUTER_SERVING_TARGET`, `ROUTER_SERVING_PROJECT`,
-`ROUTER_SERVING_REGION`, `ROUTER_SERVING_IMAGE_DIGEST`, and
-`ROUTER_SERVING_REVISION` (or Cloud Run's `K_REVISION`). Both
-`ROUTER_SERVING_CONFIGURATION` and `ROUTER_SERVING_SELECTION_SET` take the suffixes
-`_URI`, `_SHA256`, `_GENERATION` for exact immutable references. Set
-`ROUTER_SERVING_REGISTRY_URI` explicitly. Keep the signing secret consistent across
-gateway and worker, restricted to those identities; validation callers never
-receive it. Existing provider, database and HMM timeout/auth configuration still
-applies. The gateway separately requires `ROUTER_SERVING_ENVIRONMENT` (`prod` or
-`staging`), the registry URI, signing key, and normal router-primary DB settings.
-
-Worker startup validates the bootstrap selection set's default and all profile
-lanes, compiled catalog compatibility, and physical worker identity. It reads
-no mutable lane head and contacts no classifier. This static readiness closure
-must remain available for the lifetime of the worker revision; bootstrap artifacts
-are retention roots. It deliberately does not cache an inference runtime or claim
-live classifier readiness. Private proposal validation and every uncached admitted
-tuple load exercise the actual classifier/runtime. Thus classifier-only releases
-can reuse a worker and cold-start it after its original classifier retires.
-`/readyz` tests local bootstrap/database/strategy readiness; it does not replace
-the exact-tuple private validation required before activation.
+Managed admission is enabled by `ROUTER_SERVING_TARGET`. Bootstrap validates exact
+worker image, revision, configuration and all profile lanes. `/startupz` and
+`/readyz` retain worker bootstrap/database/strategy checks; exact proposal validation
+uses the internal service token in addition to Cloud Run identity. The classifier
+remains IAM-private. Request limits, capacity permits and streaming deadlines are
+owned by the worker.
 
 ### Product compatibility and retention
 
-The gateway preserves inference, authenticated catalog/roster/preview, subscription,
-analytics-key export, version, and signed-feedback surfaces. Historical feedback
-looks up the original request's installation-scoped immutable attribution and
-forwards to that worker; it never substitutes the current release. Configure the
-same `ROUTER_FEEDBACK_LINK_SECRET` on gateway and workers when feedback is enabled.
-Pre-cutover links without attribution fail explicitly, so environment cutover must
-either drain those links or provide an independently reviewed migration path.
+Workers preserve inference, catalog/roster/preview, subscription, analytics,
+session costs and feedback endpoints. Client serving and test headers are consumed
+at the authentication boundary and never confer ordinary admission authority.
 
-Feedback links can outlive the seven-day session retirement window (default token
-lifetime is 30 days, and tokens may be non-expiring). Keep their attribution and
-referenced workers/artifacts as retention roots in addition to bootstrap references,
-retained sessions and in-flight drain. This implementation deletes none of them;
-retention remains report-only. Secret rotation and legacy-session/link cutover need
-an operator-approved plan before production ingress changes.
+Retained conversations preserve immutable policy, classifier and admission
+attribution, while the current fleet code serves them. No historical worker hop is
+performed. Physical revision identity remains mandatory for preparation and
+promotion validation. Historical policy/classifier artifacts remain retention
+roots. Rollback switches the target worker service's default traffic and verifies
+exactly one 100% revision; other fleets remain independent.
 
 ### Automated checks
 
@@ -503,14 +449,8 @@ itself). Every serving-control change touches Go, so the commands above always
 run for them. `Inference boundary` and the aggregate `Test` check stay
 unconditional, and push, merge and `workflow_dispatch` runs gate everything ON.
 
-Within `Go checks`, the standalone gateway build
-(`CGO_ENABLED=0 go build ./cmd/router-gateway`, which guards the gateway
-against worker-only cgo dependencies) runs whenever the diff touches
-`go.mod`/`go.sum` or any package directory in
-`CGO_ENABLED=0 go list -deps ./cmd/router-gateway` — `internal/policyregistry`,
-`internal/postgres/serving` and `internal/gateway` among them — and whenever
-that closure cannot be computed. Only diffs provably outside the gateway's
-dependency closure skip it.
+Go checks are gated by `scripts/go_ci_relevance.sh`; the retired gateway has no
+build, Dockerfile, package closure or CI job.
 
 Tests include a real Cloud Storage client against an ephemeral local JSON API
 fixture, immutable publish collisions, generation-CAS conflicts, exact-generation
@@ -600,7 +540,7 @@ collection.
 V1/v2 decoding and v2 profile/candidate equality remain unchanged. New binaries can
 serve old sets. Old binaries cannot decode v3: keep writing v2 while they coexist
 on a target. Before the first v3 activation, upgrade **all** target-state readers
-(gateway and controller/policyctl), destination workers and private deployment
+(workers and controller/policyctl), destination workers and private deployment
 normalizers/verifiers. An old stable worker may continue on v2 while internal uses
 v3, provided shared readers understand both. Keep old workers available only for
 their compatible retained selections.
@@ -613,7 +553,7 @@ to make an old reader appear compatible.
 
 The private integration PR must:
 
-1. Pin this public runtime and upgrade the gateway, workers, controller/policyctl
+1. Pin this public runtime and upgrade workers and controller/policyctl
    before enabling v3 writes. Preserve candidate build attestations, invocation-time
    verified internal candidate selection and manual stable promotion without rebuild.
 2. Extend selection normalization, candidate composition, roster promotion and
@@ -621,7 +561,7 @@ The private integration PR must:
    candidate as `source_candidate`; read effective policies from the set.
 3. Bind app capabilities to immutable metadata for the actual shared code candidate.
    Roster changes reuse image capabilities. Verify every effective policy, classifier
-   compatibility, revision readiness/identity and gateway traffic. Retain the Cloud
+   compatibility, revision readiness/identity and worker traffic. Retain the Cloud
    Run controller execution evidence; no new executor receipt is assumed.
 4. Configure the internal/stable shared worker topology and retain historical
    revisions and artifacts through session and rollback windows. Validate customer
@@ -635,7 +575,7 @@ The private integration PR must:
 Cloud Run traffic cutover does not provide authenticated roster assignment,
 per-conversation policy/classifier retention, exact serving attribution or atomic
 configuration rollback. Keep the selection-set CAS, immutable activation history,
-signed admission, exact revision forwarding and private destination validation.
+authoritative admission, policy retention and exact preparation validation.
 V3 removes per-profile candidate/binding duplication from new configuration; it
 retains legacy readers and historical profile bindings for sessions and rollback.
 No app deployment-time prerequisite gate or routine production live-request test
@@ -643,11 +583,9 @@ is introduced. Implementation tests are separate from live rollout acceptance.
 ## Internal production plan tests
 
 `ROUTER_TEST_PLANS_ENABLED` defaults to false. It enables internal launch
-preparation on managed workers with billing and test-grant admission on production
-gateways. Roll out assertion v2 readers to all retained stable workers before
-enabling either writer. Ordinary admissions continue using v1 with no test scope;
-old strict readers reject v2. Enabling this setting is an operational action,
-separate from implementing or validating the feature.
+preparation and grant admission on managed workers with billing. Grant admission
+uses server-owned exact test scope, independently of ordinary entitlement scope.
+Enabling this setting is an operational action separate from implementation.
 
 Internal tools require the existing `/internal/v1` shared-token authentication.
 They list eligible personal subjects, preview an exact selection, prepare a
@@ -664,12 +602,11 @@ Preparation re-resolves the preview, and each admission checks the grant digest,
 current eligibility, single bound session, expiry/revocation and exact retained
 activation/profile/policy. There is no fallback to a current head.
 
-`X-Weave-Test-Grant` and `X-Weave-Test-Session` are consumed at the gateway and
-removed from the worker hop. The gateway also removes provider credentials and
-client email attribution; only the signed v2 test scope selects identity, plan,
-session and billing subject. Workers verify it before email/subscriber resolution
-and authenticate without provider-secret lookup. `/v1/test-plan/validate` loads the
-exact worker snapshot without inference and returns the admitted scope and tuple.
+`X-Weave-Test-Grant` and `X-Weave-Test-Session` are consumed by worker auth.
+The worker strips provider credentials and client email attribution, verifies the
+grant before subscriber resolution and avoids provider-secret lookup. Only the
+server-resolved test scope selects identity, plan, session and billing subject.
+`/v1/test-plan/validate` loads the exact snapshot without inference.
 
 Test inference is prepaid-only, uses `internal_test_budgets` and
 `internal_test_credit_ledger`, and meters the authenticating key's spend atomically.
@@ -681,3 +618,13 @@ remains owned by the ordinary subscriber tests.
 
 The synthetic database check lives in `scripts/internal_test_plan_check` and
 requires `ROUTER_TEST_DATABASE_URL` naming a disposable loopback database.
+
+## Broad model warmup
+
+`go run ./cmd/router-warmup` prints a full catalog warmup plan without network
+calls. Each reasoning model uses its least supported declared effort; GPT-5.4 Pro
+uses `medium`. The tool continues across failures and reports them together.
+Deployment owners can explicitly execute against each isolated fleet with
+`ROUTER_WARMUP_API_KEY` and `-execute -origin <fleet-origin>`; this incurs live
+inference costs. No warmup was executed during implementation. Wire this tool
+into private warmup automation before cutover; do not narrow warmup to one model.

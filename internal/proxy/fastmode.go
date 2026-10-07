@@ -31,7 +31,7 @@ type anthropicTierAttempt struct {
 	streamCut     *streamCutObserver
 	marker        string
 	setExtractor  func(*otel.UsageExtractor)
-	setStreamCost func(router.Decision, bool)
+	setStreamCost func(router.Decision, bool, func() bool)
 	logBody       func(router.Decision, []byte)
 }
 
@@ -117,7 +117,7 @@ func fastModeForAttempt(ctx context.Context, model, provider string) bool {
 
 // servedPricing returns the rate the winning attempt is billed at: the fast
 // rate when it was dispatched fast, else the binding's list price, else the
-// primary binding's list price.
+// primary binding's list price without its first-party geography premium.
 func servedPricing(provider, model string, fast bool) (catalog.Pricing, bool) {
 	if fast {
 		if fastPrice, ok := catalog.FastPriceFor(provider, model); ok {
@@ -127,5 +127,6 @@ func servedPricing(provider, model string, fast bool) (catalog.Pricing, bool) {
 	if price, ok := catalog.PriceFor(provider, model); ok {
 		return price, true
 	}
-	return catalog.PrimaryPriceFor(model)
+	price, ok := catalog.PrimaryPriceFor(model)
+	return price.WithoutInferenceGeoPremium(), ok
 }

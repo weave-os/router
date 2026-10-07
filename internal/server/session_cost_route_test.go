@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/server"
 	"weave-os/router/internal/server/middleware"
@@ -28,19 +29,37 @@ type readKeyRepo struct {
 	subjectIDs   map[string]string
 }
 
-func TestThreadHandshakeKeepsCredentialOnlyAuthWithManagedServing(t *testing.T) {
+type rejectedThreadAdmissionStore struct {
+	installationID string
+	keyID          string
+	admitCalls     int
+}
+
+func (store *rejectedThreadAdmissionStore) Admit(_ context.Context, installationID, keyID, _ string, _ policyregistry.AdmissionDecision) (policyregistry.AdmissionScope, policyregistry.SessionReleaseBinding, error) {
+	store.installationID = installationID
+	store.keyID = keyID
+	store.admitCalls++
+	return policyregistry.AdmissionScope{}, policyregistry.SessionReleaseBinding{}, auth.ErrPersonalCredentialRequired
+}
+
+func TestThreadHandshakeRunsServingAdmissionAfterCredentialAuth(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	installation := &auth.Installation{ID: uuid.NewString()}
 	repo := readKeyRepo{installation: installation, scopes: map[string]auth.APIKeyScope{"rk_thread": auth.ScopeRouting}}
 	authSvc := auth.NewService(nil, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, time.Now)
+	admissionStore := &rejectedThreadAdmissionStore{}
+	decisions, err := policyregistry.NewAdmissionDecisionCache(admissionStore, 10, time.Minute, time.Now)
+	require.NoError(t, err)
 	engine := gin.New()
-	server.RegisterWithFeatures(engine, authSvc, nil, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{ServingAdmission: &middleware.ServingAdmissionConfig{}})
+	server.RegisterWithFeatures(engine, authSvc, nil, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{ServingAdmission: &middleware.ServingAdmissionConfig{Decisions: decisions}})
 	request := httptest.NewRequest(http.MethodPost, "/v1/router/threads", strings.NewReader(`{}`))
 	request.Header.Set(auth.RouterKeyHeader, "rk_thread")
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request)
-	require.Equal(t, http.StatusBadRequest, response.Code)
-	require.Contains(t, response.Body.String(), "invalid_new_chat_id", "handshake must reach its own validator without a serving assertion")
+	require.Equal(t, http.StatusUnauthorized, response.Code)
+	assert.Equal(t, 1, admissionStore.admitCalls, "authenticated requests reach serving admission before classifier-thread creation")
+	assert.Equal(t, installation.ID, admissionStore.installationID)
+	assert.Equal(t, "key-rk_thread", admissionStore.keyID)
 }
 
 func (r readKeyRepo) GetActiveByHashWithInstallation(_ context.Context, hash string) (*auth.APIKey, *auth.Installation, error) {

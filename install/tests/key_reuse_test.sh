@@ -21,6 +21,9 @@ fake_bin="$work/bin"
 mkdir -p "$fake_bin"
 printf '%s\n' '#!/usr/bin/env bash' 'exit 22' >"$fake_bin/curl"
 chmod +x "$fake_bin/curl"
+# shellcheck disable=SC2016 # Preserve the stub's literal $1 for its execution.
+printf '%s\n' '#!/usr/bin/env bash' 'if [ "${1:-}" = "--version" ]; then echo "2.0.18"; fi' >"$fake_bin/opencode"
+chmod +x "$fake_bin/opencode"
 test_path="$fake_bin:$PATH"
 
 pass=0

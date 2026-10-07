@@ -3,6 +3,8 @@ package middleware
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"time"
@@ -11,13 +13,19 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
 
-// ServingAdmissionConfig is assembled only when the worker is running behind the managed gateway.
+// ServingAdmissionConfig is assembled only when the worker is running with managed serving.
+type TestPlanAdmitter interface {
+	Admit(context.Context, string, string, string, string) (policyregistry.ServingAssertion, error)
+}
+
 type ServingAdmissionConfig struct {
-	Signer            *policyregistry.AssertionSigner
+	Decisions         *policyregistry.AdmissionDecisionCache
+	TestPlans         TestPlanAdmitter
 	TestBudgetEnabled bool
 	Store             policyregistry.ServingStore
 	Identity          policyregistry.WorkerIdentity
@@ -25,7 +33,7 @@ type ServingAdmissionConfig struct {
 	Attribution       policyregistry.RequestAttributionStore
 }
 
-// WithServingAdmission verifies the gateway assertion and loads the admitted snapshot.
+// WithServingAdmission admits the authenticated principal and loads the selected snapshot.
 // A nil config is a no-op so existing self-hosted and old-config managed workers boot unchanged.
 func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 	if cfg == nil {
@@ -42,25 +50,42 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusRequestEntityTooLarge, gin.H{"error": "request_body_too_large"})
 			return
 		}
+		if c.Request.Method == http.MethodPost {
+			var requestObject map[string]json.RawMessage
+			if len(bytes.TrimSpace(body)) == 0 || json.Unmarshal(body, &requestObject) != nil || requestObject == nil {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_request_body"})
+				return
+			}
+		}
 		c.Request.Body = io.NopCloser(bytes.NewReader(body))
-		encoded := c.GetHeader(policyregistry.ServingAssertionHeader)
-		credential := extractToken(c)
-		assertion, err := cfg.Signer.Verify(encoded, c.Request, body, credential)
+		retired, err := proxy.WriteRetiredBetaRequest(c.Writer, c.Request, body)
 		if err != nil {
-			observability.FromGin(c).Debug("Worker serving assertion rejected", "method", c.Request.Method, "err", err)
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "serving_assertion_required"})
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_request_body"})
+			return
+		}
+		if retired {
+			c.Abort()
 			return
 		}
 		key := APIKeyFrom(c)
 		installation := InstallationFrom(c)
 		if key == nil || installation == nil {
-			observability.FromGin(c).Warn("Worker admission identity missing", "method", c.Request.Method, "has_api_key", key != nil, "has_installation", installation != nil)
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "serving_assertion_required"})
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid_key"})
 			return
 		}
-		if _, err := policyregistry.ValidateWorkerAdmission(c.Request.Context(), cfg.Store, cfg.Identity, assertion, installation.ID, key.ID); err != nil {
-			observability.FromGin(c).Warn("Worker admission identity rejected", "target", assertion.Admission.Target, "activation_id", assertion.Admission.ActivationID, "err", err)
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "serving_admission_rejected"})
+		assertion, err := directAssertion(c.Request.Context(), cfg, installation.ID, key.ID, c.Request, body)
+		if err != nil {
+			observability.FromGin(c).Warn("Worker admission rejected", "err", err)
+			if isAuthFailure(err) {
+				handleAuthError(c, err)
+				return
+			}
+			if errors.Is(err, errServingFleetMismatch) {
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "serving_admission_rejected"})
+				return
+			}
+			c.Header("Retry-After", "1")
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "serving_admission_unavailable"})
 			return
 		}
 		snapshot, err := cfg.Cache.Snapshot(c.Request.Context(), assertion.Admission)

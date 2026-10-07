@@ -1,7 +1,8 @@
 package catalog
 
-// FastPricing returns the binding's fast-tier pricing. ok is false when the
-// binding has no fast tier.
+// FastPricing returns the binding's fast-tier pricing; unset cache-read and
+// geography multipliers inherit Price's. ok is false when the binding has no
+// fast tier.
 func (b ProviderBinding) FastPricing() (Pricing, bool) {
 	if b.FastPrice.InputUSDPer1M <= 0 && b.FastPrice.OutputUSDPer1M <= 0 {
 		return Pricing{}, false
@@ -9,6 +10,9 @@ func (b ProviderBinding) FastPricing() (Pricing, bool) {
 	fast := b.FastPrice
 	if fast.CacheReadMultiplier == 0 {
 		fast.CacheReadMultiplier = b.Price.CacheReadMultiplier
+	}
+	if fast.USInferenceGeoMultiplier == 0 {
+		fast.USInferenceGeoMultiplier = b.Price.USInferenceGeoMultiplier
 	}
 	return fast, true
 }

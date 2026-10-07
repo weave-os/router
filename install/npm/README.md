@@ -17,7 +17,7 @@ npx @weave-os/router login codex            # enroll ChatGPT Pro/Plus device flo
 npx @weave-os/router status                 # connectivity, native configs, account health
 npx @weave-os/router --opencode            # skip the picker, target opencode
 npx @weave-os/router --pi                  # skip the picker, target pi + Loom UI
-npx @weave-os/router --scope project       # per-repo install, commit settings.json (or .codex/ / opencode.json)
+npx @weave-os/router --scope project       # per-repo install; key-bearing config stays out of git
 npx @weave-os/router --local               # self-hosted via docker-compose (localhost:8080)
 npx @weave-os/router --base-url https://router.acme.internal
 npx @weave-os/router --email you@example.com # set identity without prompting
@@ -87,11 +87,14 @@ npx @weave-os/router --uninstall --codex --scope project
 
 ## What it does
 
-This package is a thin Node wrapper around [`install.sh`](../install.sh) from
-the Weave Router repo. It exists so you can install from any machine with
-Node ≥ 18 — no `curl | sh`, no Git clone, no PATH fiddling. Everything the
-shell installer documents (targets, scopes, flags, environment variables)
-works identically here.
+On macOS and Linux, this package runs [`install.sh`](../install.sh). On
+Windows, it uses the full Bash installer when Git Bash is available and
+otherwise falls back to a native Node.js installer, so a fresh Windows machine
+does not need Git Bash, WSL, or jq for basic setup. The no-Bash path configures
+the client's router connection and supports uninstall for Claude Code, Codex,
+OpenCode, and pi. It does not yet install shell-based status displays, hooks, or
+slash-command assets; commands such as `status`, `update`, `models`,
+subscription login, and account management still require Git Bash or WSL.
 
 Four install targets:
 
@@ -114,9 +117,8 @@ Four install targets:
   install. `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, and `gpt-6-sol`
   can use the active ChatGPT plan; other selected models use their WorkWeave
   deployment or BYOK credential.
-  The block lives between begin/end markers
-  so re-running the installer rewrites it cleanly and `--uninstall --codex`
-   removes it without touching the rest of your config. Codex does not load
+  Re-running the installer refreshes the Weave provider, and `--uninstall --codex`
+   removes it while preserving the other settings in your config. Codex does not load
    third-party slash-command files; the installer provides native skills
    `$force-model` (`$fm`), `$unforce-model` (`$ufm`), and `$router-feedback`
    (`$rf`), whose invocations are handled by the router directly. It also
@@ -156,13 +158,15 @@ dependencies are separately licensed and are not bundled in this package.
 ## Requirements
 
 - Node ≥ 18 (ships with `npx`)
-- `bash` on PATH (macOS / Linux native; Windows needs Git Bash or WSL)
+- Windows users can run the command from PowerShell with Node.js/npm installed;
+  Git Bash/WSL is optional for basic setup
+- macOS/Linux users need Bash on PATH
 - `jq` is reused when available; otherwise, on macOS (arm64/x86_64), Linux (arm64/x86_64), and Windows Git Bash (x86_64), the installer downloads checksum-verified jq 1.8.1 to `~/.weave/bin`. Other architectures need jq installed manually. No Homebrew or administrator access is needed. Downloads require access to GitHub.
 
 ## Why npx
 
-`npx @weave-os/router` gives Windows support via Git Bash, painless version
-pinning, and discoverability via the npm registry.
+`npx @weave-os/router` provides one-command setup and painless version
+pinning.
 
 ## Older npm
 

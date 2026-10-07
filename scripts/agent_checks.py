@@ -122,7 +122,6 @@ class Suite:
 SMOKE_PATHS = (
     "internal/*",
     "cmd/router/*",
-    "cmd/router-gateway/*",
     "db/*",
     "smoke/*",
     "scripts/smoke/*",
@@ -279,7 +278,6 @@ SUITES = (
             "db/*",
             "internal/postgres/*",
             "internal/policyregistry/*",
-            "internal/gateway/*",
             "cmd/*",
             "go.*",
             ".github/*",

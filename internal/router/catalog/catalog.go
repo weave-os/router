@@ -50,6 +50,10 @@ type Pricing struct {
 	// input price (e.g. 0.10 for Anthropic, 0.50 for OpenAI). Zero means
 	// "unspecified — use DefaultCacheReadMultiplier".
 	CacheReadMultiplier float64
+	// USInferenceGeoMultiplier scales every token category when the provider
+	// reports US-only inference. Zero means the binding has no geography
+	// premium (models that reject inference_geo, or non-first-party bindings).
+	USInferenceGeoMultiplier float64
 	// LongContext applies alternate rates above a provider's prompt-size
 	// threshold.
 	LongContext *LongContextPricing
@@ -99,10 +103,11 @@ func (p Pricing) ForInputTokens(inputTokens int) Pricing {
 	}
 	long := p.LongContext
 	return Pricing{
-		InputUSDPer1M:        long.InputUSDPer1M,
-		OutputUSDPer1M:       long.OutputUSDPer1M,
-		CacheWriteMultiplier: long.CacheWriteMultiplier,
-		CacheReadMultiplier:  long.CacheReadMultiplier,
+		InputUSDPer1M:            long.InputUSDPer1M,
+		OutputUSDPer1M:           long.OutputUSDPer1M,
+		CacheWriteMultiplier:     long.CacheWriteMultiplier,
+		CacheReadMultiplier:      long.CacheReadMultiplier,
+		USInferenceGeoMultiplier: p.USInferenceGeoMultiplier,
 	}
 }
 
@@ -266,22 +271,23 @@ var Models = []Model{
 		{Provider: providers.ProviderOpenAIGateway, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00}},
 	}},
 	{ID: "claude-sonnet-4-6", Source: SourceClosedSource, Tier: TierMid, AdvisorRank: 2, ContextWindow: 200_000, Providers: []ProviderBinding{
-		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.10, USInferenceGeoMultiplier: USInferenceGeoMultiplier}},
 		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00}},
 		{Provider: providers.ProviderOpenAIGateway, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00}},
 	}},
 	// 1M context is behind the context-1m beta (catalog carries 200K like the
-	// rest of Sonnet). Priced at standard $3/$15, not the $2/$10 introductory
-	// rate (through 2026-08-31) — avoids a compile-time price going stale.
+	// rest of Sonnet). $2/$10, cache reads $0.20/MTok (0.1x): the launch-time
+	// introductory rate became the standard price and the scheduled
+	// 2026-09-01 increase to $3/$15 was cancelled.
 	{ID: "claude-sonnet-5", Source: SourceClosedSource, Tier: TierMid, AdvisorRank: 4, ContextWindow: 200_000, Providers: []ProviderBinding{
-		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.10}},
-		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 3.00, OutputUSDPer1M: 15.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.10, USInferenceGeoMultiplier: USInferenceGeoMultiplier}},
+		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.10}},
 	}},
 	// Sonnet 5.5: $2/$10, cache reads at $0.20/MTok (0.1x), no fast tier.
 	// Native 1M context; thinking cannot be disabled (between_tools is the
 	// floor) and forced tool_choice is rejected, like Opus 5.5.
 	{ID: "claude-sonnet-5-5", Source: SourceClosedSource, Tier: TierMid, AdvisorRank: 6, ContextWindow: 1_000_000, Providers: []ProviderBinding{
-		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.10, USInferenceGeoMultiplier: USInferenceGeoMultiplier}},
 		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.10}},
 	}},
 	// Legacy Opus IDs kept passthrough-priced (no Tier — not a routing
@@ -305,23 +311,23 @@ var Models = []Model{
 	// catalog reports 200K and the pre-filter expands to 1M when the beta
 	// header is present (contextWindowForRequest in proxy/service.go).
 	{ID: "claude-opus-4-6", Source: SourceClosedSource, Tier: TierHigh, AdvisorRank: 3, ContextWindow: 200_000, Providers: []ProviderBinding{
-		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10, USInferenceGeoMultiplier: USInferenceGeoMultiplier}},
 		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00}},
 		{Provider: providers.ProviderOpenAIGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00}},
 	}},
 	{ID: "claude-opus-4-7", Source: SourceClosedSource, Tier: TierHigh, AdvisorRank: 5, ContextWindow: 200_000, Providers: []ProviderBinding{
-		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10, USInferenceGeoMultiplier: USInferenceGeoMultiplier}},
 		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00}},
 		{Provider: providers.ProviderOpenAIGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00}},
 	}},
 	// Opus 4.8 retired from routing; kept as priced passthrough so lingering BYOK/direct pins bill at real cost.
 	{ID: "claude-opus-4-8", Source: SourceClosedSource, AdvisorRank: 5, ContextWindow: 200_000, Providers: []ProviderBinding{
-		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10}, FastPrice: Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00}},
+		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10, USInferenceGeoMultiplier: USInferenceGeoMultiplier}, FastPrice: Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00}},
 		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10}},
 	}},
 	// 1M context natively (no context-1m beta header), same $5/$25 as opus-4-8.
 	{ID: "claude-opus-5", Source: SourceClosedSource, Tier: TierHigh, AdvisorRank: 7, ContextWindow: 1_000_000, Providers: []ProviderBinding{
-		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10}, FastPrice: Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00}},
+		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10, USInferenceGeoMultiplier: USInferenceGeoMultiplier}, FastPrice: Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00}},
 		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00, CacheReadMultiplier: 0.10}},
 		{Provider: providers.ProviderOpenAIGateway, Price: Pricing{InputUSDPer1M: 5.00, OutputUSDPer1M: 25.00}},
 	}},
@@ -330,7 +336,7 @@ var Models = []Model{
 	// rejected like Fable 5.1. Not a cluster roster member until it has
 	// quality labels.
 	{ID: "claude-opus-5-5", Source: SourceClosedSource, Tier: TierHigh, AdvisorRank: 7, ContextWindow: 1_000_000, Providers: []ProviderBinding{
-		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 4.00, OutputUSDPer1M: 20.00, CacheReadMultiplier: 0.05}, FastPrice: Pricing{InputUSDPer1M: 8.00, OutputUSDPer1M: 40.00}},
+		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 4.00, OutputUSDPer1M: 20.00, CacheReadMultiplier: 0.05, USInferenceGeoMultiplier: USInferenceGeoMultiplier}, FastPrice: Pricing{InputUSDPer1M: 8.00, OutputUSDPer1M: 40.00}},
 		{Provider: providers.ProviderAnthropicGateway, Price: Pricing{InputUSDPer1M: 4.00, OutputUSDPer1M: 20.00, CacheReadMultiplier: 0.05}},
 		{Provider: providers.ProviderOpenAIGateway, Price: Pricing{InputUSDPer1M: 4.00, OutputUSDPer1M: 20.00}},
 	}},
@@ -339,13 +345,13 @@ var Models = []Model{
 	// Safety classifiers can return stop_reason "refusal" (HTTP 200); see
 	// mapStopReason in translate.
 	{ID: "claude-fable-5", Source: SourceClosedSource, AdvisorRank: 8, ContextWindow: 1_000_000, Providers: []ProviderBinding{
-		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00, CacheReadMultiplier: 0.10}},
+		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00, CacheReadMultiplier: 0.10, USInferenceGeoMultiplier: USInferenceGeoMultiplier}},
 	}},
 	// Fable 5.1: same $10/$50 as Fable 5, cache reads at $0.25/MTok (0.025x).
 	// Native 1M context, adaptive thinking always on, stop_reason "refusal"
 	// like Fable 5. Not a cluster roster member until it has quality labels.
 	{ID: "claude-fable-5-1", Source: SourceClosedSource, Tier: TierHigh, AdvisorRank: 9, ContextWindow: 1_000_000, Providers: []ProviderBinding{
-		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00, CacheReadMultiplier: 0.025}},
+		{Provider: providers.ProviderAnthropic, Price: Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00, CacheReadMultiplier: 0.025, USInferenceGeoMultiplier: USInferenceGeoMultiplier}},
 	}},
 
 	// --- OpenAI GPT-4.x (legacy) ---

@@ -80,7 +80,6 @@ class AgentChecksTest(unittest.TestCase):
             "internal/dispatch/executor.go",
             "internal/sse/frame.go",
             "internal/router/policy/plan.go",
-            "internal/gateway/gateway.go",
         ):
             with self.subTest(path=path):
                 self.assertIn(

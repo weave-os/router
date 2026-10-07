@@ -12,7 +12,7 @@ Single source of truth for per-model data: capability tier, subscription coverag
 - `Tier` — Low / Mid / High.
 - `ContextWindow` — model's total input+output token budget in tokens. 0 falls back to `DefaultContextWindow` (128K).
 - Lookup helpers: `ByID`, `ResolveBinding`, `PriceFor(provider, id)`, `PrimaryPriceFor(id)`, `TierFor`, `IsAtOrBelow`, `AllowedAtOrBelow`, `AllPrimaryPricing`, `ValidateDeployed`, `ContextWindowFor`.
-- Cost math: `EffectiveInputCost`, `EffectiveOutputCost` — the OTel emitter, telemetry write path, and billing debit hook all funnel through these.
+- Cost math: `EffectiveInputCost`, `EffectiveOutputCost` — the OTel emitter, telemetry write path, and billing debit hook all funnel through these. `UsageModifiers` carries the rate changers: the 1-hour share of cache writes (provider-reported when available, otherwise inferred from the dispatched request's declared TTL; 2x on Anthropic-spec upstreams vs 1.25x for 5-minute) and the provider-reported inference geography (`Pricing.USInferenceGeoMultiplier`, set only on first-party Anthropic bindings of models that accept `inference_geo`). Fast-tier pricing is selected by the caller (`FastPriceFor`) and stacks with both.
 - Wire listing (`listing.go`): `ModelListing` / `ModelListingResponse` are the rows and body of `GET /v1/router/models`; `Listing()` projects the whole catalog for `?scope=catalog` (`ScopeCatalog`). Both the worker's admin handler and the gateway's credential-free catalog answer serialize this one projection so the two never drift.
 
 ## Adding a model

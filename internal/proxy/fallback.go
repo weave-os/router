@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
@@ -245,11 +246,16 @@ type failoverInputs struct {
 	deferFlushOnExhaustion bool
 	// purpose names the registered operation the walk is authorized under;
 	// origin names the override source that fixed the decision's model.
-	purpose          inference.Purpose
-	origin           policy.OverrideSource
-	alternatives     []router.Decision
-	buildAlternative func(router.Decision) (dispatchAttempt, error)
-	onAlternative    func(router.Decision)
+	purpose                         inference.Purpose
+	origin                          policy.OverrideSource
+	subscriptionStateRequest        *router.Request
+	subscriptionStateHeaders        http.Header
+	alternatives                    []router.Decision
+	buildAlternative                func(router.Decision) (dispatchAttempt, error)
+	onAlternative                   func(router.Decision)
+	onSubscriptionStateTarget       func(router.Decision, []catalog.ProviderBinding)
+	onSubscriptionStatePaidTarget   func(router.Decision, []catalog.ProviderBinding)
+	subscriptionStateWinnerProvider *string
 }
 
 // errDispatchWithoutPurpose rejects a walk no registered purpose authorizes:
@@ -263,6 +269,14 @@ var errDispatchWithoutPurpose = errors.New("dispatchWithFallback: no inference p
 // error. On final-attempt error it flushes the upstream's own envelope to w
 // instead of a generic 502.
 func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (winnerIdx int, err error) {
+	if in.subscriptionStateRequest != nil && subscriptionStateModelsEnabled(ctx) && in.buildAlternative != nil {
+		return s.dispatchSubscriptionStateModels(ctx, in)
+	}
+	if subscriptionStateModelsEnabled(ctx) && !subscriptionAttemptOnly(ctx) {
+		if _, allowed := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[in.initialDecision.Model]; !allowed {
+			return -1, cluster.ErrAllowlistEmptiesPool
+		}
+	}
 	if len(in.alternatives) > 0 && in.buildAlternative != nil {
 		return s.dispatchSubscriptionAlternatives(ctx, in)
 	}
@@ -610,6 +624,7 @@ func attemptIdxLabel(i int) string {
 type subscriptionOnlyAttemptKey struct{}
 type subscriptionAPIOnlyKey struct{}
 type subscriptionRotationBudgetKey struct{}
+type subscriptionRotationBudgetDisabledKey struct{}
 
 func subscriptionAttemptOnly(ctx context.Context) bool {
 	value, _ := ctx.Value(subscriptionOnlyAttemptKey{}).(bool)

@@ -319,6 +319,7 @@ type DebitInferenceParams struct {
 	CacheCreation   int
 	CacheRead       int
 	Pricing         catalog.Pricing
+	UsageModifiers  catalog.UsageModifiers
 	HasOverride     bool
 	// SubscriptionServed: turn ran on the customer's own Anthropic/Codex
 	// subscription token, so Weave charges nothing.
@@ -546,8 +547,8 @@ func warnOnUnknownPricing(p DebitInferenceParams) {
 // computeNotionalMicros returns the would-be charge in USD micros,
 // regardless of override status, for the shadow billing trail.
 func computeNotionalMicros(p DebitInferenceParams) int64 {
-	inUSD := catalog.EffectiveInputCost(p.InputTokens, p.CacheCreation, p.CacheRead, p.Pricing, p.Provider)
-	outUSD := catalog.EffectiveOutputCost(p.InputTokens, p.OutputTokens, p.Pricing)
+	inUSD := catalog.EffectiveInputCost(p.InputTokens, p.CacheCreation, p.CacheRead, p.Pricing, p.Provider, p.UsageModifiers)
+	outUSD := catalog.EffectiveOutputCost(p.InputTokens, p.OutputTokens, p.Pricing, p.UsageModifiers)
 	return catalog.USDToMicros(inUSD + outUSD)
 }
 

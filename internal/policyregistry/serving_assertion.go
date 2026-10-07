@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// ServingAssertionHeader is reserved for the authenticated gateway-to-worker hop.
+// ServingAssertionHeader is a legacy wire header stripped by direct worker auth.
 const ServingAssertionHeader = "X-Weave-Serving-Assertion"
 
 // ServerlessAuthorizationHeader carries IAM separately from client subscription credentials.
@@ -26,7 +26,8 @@ const assertionLifetime = 2 * time.Minute
 const maxAssertionBytes = 16 * 1024
 
 // ServingAssertion is request-scoped authority; it is never accepted directly from a client.
-// The signature complements private IAM ingress and limits validation identities to their own endpoints.
+// Direct workers construct this scope after primary admission; legacy signing
+// helpers remain for historical compatibility and are not an ingress trust path.
 type ServingAssertion struct {
 	TestPlan         *TestPlanScope        `json:"test_plan,omitempty"`
 	SchemaVersion    ServingSchema         `json:"schema_version"`

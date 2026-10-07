@@ -216,7 +216,7 @@ var registry = map[string]ModelSpec{
 	"muse-spark-1.3": museSpark,
 
 	"gpt-5.4":      openaiReasoning,
-	"gpt-5.4-pro":  openaiReasoning,
+	"gpt-5.4-pro":  NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"medium", "high", "xhigh"}, AlwaysOn: true}, CapReasoning, CapXhighEffort),
 	"gpt-5.4-mini": openaiReasoning,
 	"gpt-5.4-nano": openaiReasoning,
 

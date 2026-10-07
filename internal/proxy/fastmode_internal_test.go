@@ -102,7 +102,7 @@ func TestProxyMessages_FastModeAnthropicDispatchesFastAndBillsFastRate(t *testin
 
 	fast, ok := catalog.FastPriceFor(providers.ProviderAnthropic, fastOpusModel)
 	require.True(t, ok)
-	want := routerResponseCostFromPricing(fast, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0)
+	want := routerResponseCostFromPricing(fast, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0, catalog.UsageModifiers{})
 	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD))
 }
 
@@ -124,8 +124,54 @@ func TestProxyMessages_FastModeOffLeavesRequestAndListPrice(t *testing.T) {
 
 	base, ok := catalog.PriceFor(providers.ProviderAnthropic, fastOpusModel)
 	require.True(t, ok)
-	want := routerResponseCostFromPricing(base, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0)
+	want := routerResponseCostFromPricing(base, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0, catalog.UsageModifiers{})
 	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD))
+}
+
+// A client that sends speed:"fast" itself is billed at the fast rate even when
+// the installation never opted the model in, and the reported 1h cache split
+// and US geography reprice the same turn.
+func TestProxyMessages_ReportedFastSpeedBillsFastRateWithoutOptIn(t *testing.T) {
+	upstream := &bypassFakeProvider{respBody: `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"model":"claude-opus-5","stop_reason":"end_turn","usage":{"input_tokens":1200,"output_tokens":340,"cache_creation_input_tokens":5000,"cache_creation":{"ephemeral_5m_input_tokens":1000,"ephemeral_1h_input_tokens":4000},"speed":"fast","inference_geo":"us"}}`}
+	svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, upstream)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	body := []byte(`{"model":"claude-opus-4-7","speed":"fast","messages":[{"role":"user","content":"hi"}]}`)
+	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastLunaModel), body, rec, req))
+
+	// $10/$50 fast: (1200 + 1000x1.25 + 4000x2) input + 340 output, x1.1 US.
+	assert.Equal(t, "0.13365", rec.Header().Get(HeaderRouterCostUSD))
+}
+
+// An upstream that omits usage.cache_creation is priced from the TTL the
+// dispatched request declared.
+func TestProxyMessages_UnreportedCacheSplitUsesRequestTTL(t *testing.T) {
+	upstream := &bypassFakeProvider{respBody: `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"model":"claude-opus-5","stop_reason":"end_turn","usage":{"input_tokens":1200,"output_tokens":340,"cache_creation_input_tokens":5000}}`}
+	svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, upstream)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	body := []byte(`{"model":"claude-opus-4-7","system":[{"type":"text","text":"stable prefix","cache_control":{"type":"ephemeral","ttl":"1h"}}],"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral","ttl":"1h"}}]}]}`)
+	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastLunaModel), body, rec, req))
+
+	// $5/$25: (1200 + 5000x2) input + 340 output.
+	assert.Equal(t, "0.0645", rec.Header().Get(HeaderRouterCostUSD))
+}
+
+// A request that declares the 5-minute TTL keeps unsplit cache writes at the
+// 5-minute rate: the fallback reads the dispatched body, not a default.
+func TestProxyMessages_UnreportedCacheSplitWithFiveMinuteRequestStaysFiveMinute(t *testing.T) {
+	upstream := &bypassFakeProvider{respBody: `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"model":"claude-opus-5","stop_reason":"end_turn","usage":{"input_tokens":1200,"output_tokens":340,"cache_creation_input_tokens":5000}}`}
+	svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, upstream)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	body := []byte(`{"model":"claude-opus-4-7","system":[{"type":"text","text":"stable prefix","cache_control":{"type":"ephemeral","ttl":"5m"}}],"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral","ttl":"5m"}}]}]}`)
+	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastLunaModel), body, rec, req))
+
+	// $5/$25: (1200 + 5000x1.25) input + 340 output.
+	assert.Equal(t, "0.04575", rec.Header().Get(HeaderRouterCostUSD))
 }
 
 // fastQuotaFakeProvider refuses every fast-tier body with Anthropic's
@@ -171,7 +217,7 @@ func TestProxyMessages_FastModeQuotaRejectionRetriesAtStandardSpeedAndBillsListP
 
 	base, ok := catalog.PriceFor(providers.ProviderAnthropic, fastOpusModel)
 	require.True(t, ok)
-	want := routerResponseCostFromPricing(base, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0)
+	want := routerResponseCostFromPricing(base, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0, catalog.UsageModifiers{})
 	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD), "a turn served at standard speed bills at list price")
 }
 
@@ -214,11 +260,11 @@ func TestAnthropicTierAttempt_OrdinaryRateLimitStaysFast(t *testing.T) {
 		env:           env,
 		r:             req,
 		opts:          opts,
-		native:        svc.anthropicNativeAttempt(env, req, prep, httptest.NewRecorder(), nil, &anthropicPreludeState{}, nil, "", func(*otel.UsageExtractor) {}, func(router.Decision, bool) {}),
+		native:        svc.anthropicNativeAttempt(env, req, prep, httptest.NewRecorder(), nil, &anthropicPreludeState{}, nil, "", func(*otel.UsageExtractor) {}, func(router.Decision, bool, func() bool) {}),
 		sink:          httptest.NewRecorder(),
 		preludeState:  &anthropicPreludeState{},
 		setExtractor:  func(*otel.UsageExtractor) {},
-		setStreamCost: func(router.Decision, bool) {},
+		setStreamCost: func(router.Decision, bool, func() bool) {},
 		logBody:       func(router.Decision, []byte) { t.Fatal("an ordinary rate limit must not re-emit the body") },
 	}
 	var served []bool
@@ -280,11 +326,11 @@ func TestAnthropicTierAttempt_ReemitsWhenBindingLosesFastTier(t *testing.T) {
 		env:           env,
 		r:             req,
 		opts:          opts,
-		native:        svc.anthropicNativeAttempt(env, req, prep, httptest.NewRecorder(), nil, &anthropicPreludeState{}, nil, "", func(*otel.UsageExtractor) {}, func(router.Decision, bool) {}),
+		native:        svc.anthropicNativeAttempt(env, req, prep, httptest.NewRecorder(), nil, &anthropicPreludeState{}, nil, "", func(*otel.UsageExtractor) {}, func(router.Decision, bool, func() bool) {}),
 		sink:          httptest.NewRecorder(),
 		preludeState:  &anthropicPreludeState{},
 		setExtractor:  func(*otel.UsageExtractor) {},
-		setStreamCost: func(router.Decision, bool) {},
+		setStreamCost: func(router.Decision, bool, func() bool) {},
 		logBody:       func(_ router.Decision, body []byte) { loggedBodies = append(loggedBodies, body) },
 	}
 	var served []bool

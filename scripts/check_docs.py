@@ -35,7 +35,7 @@ def repo_root() -> Path:
 
 def tracked(root: Path, pattern: str) -> list[Path]:
     output = subprocess.check_output(["git", "ls-files", "-z", "--", pattern], cwd=root)
-    return [Path(name.decode()) for name in output.split(b"\0") if name]
+    return [Path(name.decode()) for name in output.split(b"\0") if name and (root / Path(name.decode())).is_file()]
 
 
 def without_fences(text: str) -> str:

@@ -668,6 +668,7 @@ func TestProxyMessages_NativeAnthropicResponseSignals(t *testing.T) {
 		events            []string
 		wantStopReason    *string
 		wantToolUseBlocks *int32
+		wantCut           bool
 	}{
 		{
 			name:              "observed tool turn",
@@ -680,6 +681,7 @@ func TestProxyMessages_NativeAnthropicResponseSignals(t *testing.T) {
 			name:    "stream cut before message_delta stays unknown",
 			enabled: true,
 			events:  toolTurn[:4],
+			wantCut: true,
 		},
 		{
 			name:    "flag off keeps the row as it is today",
@@ -708,9 +710,16 @@ func TestProxyMessages_NativeAnthropicResponseSignals(t *testing.T) {
 			rec := httptest.NewRecorder()
 			body := []byte(`{"model":"claude-opus-4-7","stream":true,"messages":[{"role":"user","content":"hello"}]}`)
 			httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-			require.NoError(t, svc.ProxyMessages(ctx, body, rec, httpReq))
+			err := svc.ProxyMessages(ctx, body, rec, httpReq)
 
 			row := telem.firstRow(t)
+			if tt.wantCut {
+				require.Error(t, err, "a stream without message_stop is not a served turn")
+				assert.Equal(t, proxy.TurnErrorStreamCut, row.ErrorClass)
+			} else {
+				require.NoError(t, err)
+				assert.Empty(t, row.ErrorClass)
+			}
 			assert.Equal(t, tt.wantStopReason, row.StopReason)
 			assert.Equal(t, tt.wantStopReason, row.UpstreamFinishReason)
 			assert.Equal(t, tt.wantToolUseBlocks, row.ToolUseBlocks)

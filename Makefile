@@ -9,7 +9,7 @@
 #   (and .env.local if present). Start Postgres via `make db` or point
 #   DATABASE_URL at any Postgres you already have running.
 
-.PHONY: generate generate-statusline generate-inference-policy check-inference-policy inference-boundary generate-agent-guides check-agent-guides check-docs build test test-verbose test-statusline test-install smoke initdb migrate-up migrate-down migrate-create seed setup full-setup db dev check fmt vet precommit install-hooks help install-cc uninstall-cc up up-hmm down down-hmm logs
+.PHONY: generate generate-statusline generate-inference-policy check-inference-policy inference-boundary generate-agent-guides check-agent-guides check-docs build test test-verbose test-statusline setup-install-tests test-install smoke initdb migrate-up migrate-down migrate-create seed setup full-setup db dev check fmt vet precommit install-hooks help install-cc uninstall-cc up up-hmm down down-hmm logs
 
 # Load DATABASE_URL from .env files (matches docker-compose defaults).
 SAFE_AGENT_GOALS := doctor check-plan check-changed smoke
@@ -65,7 +65,10 @@ test-verbose: ## Run all tests with verbose output
 test-statusline: ## Run the cc-statusline.sh regression tests (offline)
 	@bash install/tests/cc-statusline_test.sh
 
-test-install: ## Run offline installer regression tests
+setup-install-tests: ## Install npm dependencies before running offline installer tests
+	@npm install --prefix install/npm --ignore-scripts --package-lock=false --no-audit --no-fund
+
+test-install: ## Run offline installer regression tests (after make setup-install-tests)
 	@bash install/tests/jq_bootstrap_test.sh
 	@bash install/tests/claude-status_test.sh
 	@bash install/tests/codex_install_test.sh

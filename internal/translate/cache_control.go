@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/tidwall/gjson"
 )
 
 var (
@@ -73,6 +75,11 @@ const (
 	anthropicCacheControlTTL5m
 )
 
+const (
+	anthropicCacheTTLWire5m = "5m"
+	anthropicCacheTTLWire1h = "1h"
+)
+
 func validateAnthropicCacheControls(request map[string]any) (int, error) {
 	count := 0
 	seenFiveMinuteTTL := false
@@ -137,10 +144,10 @@ func validateAnthropicCacheControl(v any) (anthropicCacheControlTTL, error) {
 		case "type":
 		case "ttl":
 			value, ok := value.(string)
-			if !ok || (value != "5m" && value != "1h") {
+			if !ok || (value != anthropicCacheTTLWire5m && value != anthropicCacheTTLWire1h) {
 				return anthropicCacheControlTTL5m, fmt.Errorf("%w: ttl must be 5m or 1h", ErrAnthropicCacheControlInvalid)
 			}
-			if value == "1h" {
+			if value == anthropicCacheTTLWire1h {
 				ttl = anthropicCacheControlTTL1h
 			}
 		default:
@@ -204,4 +211,37 @@ func addCacheControlToLastMessageBlock(request map[string]any) (func(), bool) {
 			message["content"] = originalContent
 		}
 	}, true
+}
+
+// AnthropicRequestCacheTTL1h reports whether an Anthropic Messages body
+// declares at least one cache breakpoint and every breakpoint — block-level
+// and the top-level automatic one — asks for the 1-hour TTL. Callers use it
+// to price cache writes when the upstream omits usage.cache_creation; a body
+// that mixes TTLs reports false because its writes cannot be attributed.
+func AnthropicRequestCacheTTL1h(body []byte) bool {
+	declared, all1h := 0, true
+	observe := func(policy gjson.Result) {
+		if !policy.Exists() {
+			return
+		}
+		declared++
+		if policy.Get("ttl").String() != anthropicCacheTTLWire1h {
+			all1h = false
+		}
+	}
+	observeBlocks := func(blocks gjson.Result) {
+		blocks.ForEach(func(_, block gjson.Result) bool {
+			observe(block.Get("cache_control"))
+			return true
+		})
+	}
+	request := gjson.ParseBytes(body)
+	observe(request.Get("cache_control"))
+	observeBlocks(request.Get("tools"))
+	observeBlocks(request.Get("system"))
+	request.Get("messages").ForEach(func(_, message gjson.Result) bool {
+		observeBlocks(message.Get("content"))
+		return true
+	})
+	return declared > 0 && all1h
 }

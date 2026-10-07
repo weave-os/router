@@ -7,6 +7,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/sse"
 )
 
@@ -16,6 +17,7 @@ type UsageSink interface {
 	RecordUsage(inputTokens, outputTokens int)
 	RecordCacheUsage(cacheCreationTokens, cacheReadTokens int)
 	RecordReasoningUsage(reasoningTokens int)
+	RecordUsageModifiers(cacheCreation1hTokens int, cacheSplitReported bool, speed, inferenceGeo string)
 	RecordOutputLimitReached()
 }
 
@@ -58,6 +60,16 @@ type UsageExtractor struct {
 	cacheRead          int
 	reasoning          int
 	outputLimitReached bool
+
+	// cacheCreation1h is the reported 1-hour share of cacheCreation; it is
+	// meaningful only when cacheSplitReported. Otherwise the share falls back
+	// to requestCacheTTL1h, evaluated lazily because upstreams that report the
+	// split never need the request body scanned.
+	cacheCreation1h    int
+	cacheSplitReported bool
+	requestCacheTTL1h  func() bool
+	speed              string
+	inferenceGeo       string
 
 	stopReason    string
 	toolUseBlocks int
@@ -160,6 +172,33 @@ func (u *UsageExtractor) RecordReasoningUsage(reasoningTokens int) {
 	}
 }
 
+// RecordUsageModifiers sets the rate-changing usage attributes directly. A
+// call without a cache split, or with empty speed / geography, leaves any
+// previously recorded value in place: Anthropic reports them on message_start
+// and omits them from message_delta.
+func (u *UsageExtractor) RecordUsageModifiers(cacheCreation1hTokens int, cacheSplitReported bool, speed, inferenceGeo string) {
+	if cacheSplitReported {
+		u.cacheCreation1h = cacheCreation1hTokens
+		u.cacheSplitReported = true
+	}
+	if speed != "" {
+		u.speed = speed
+	}
+	if inferenceGeo != "" {
+		u.inferenceGeo = inferenceGeo
+	}
+}
+
+// SetRequestCacheTTL1h installs the check for whether every cache breakpoint
+// of the dispatched request asked for the 1-hour TTL. When the upstream does
+// not report the per-TTL split, a true result prices all cache writes at the
+// 1-hour rate.
+func (u *UsageExtractor) SetRequestCacheTTL1h(oneHour func() bool) {
+	if u != nil {
+		u.requestCacheTTL1h = oneHour
+	}
+}
+
 // RecordOutputLimitReached latches explicit upstream truncation for this attempt.
 // Translation repairs and trailing usage frames cannot clear the upstream fact.
 func (u *UsageExtractor) RecordOutputLimitReached() {
@@ -188,6 +227,37 @@ func (u *UsageExtractor) CacheTokens() (creation, read int) {
 		return 0, 0
 	}
 	return u.cacheCreation, u.cacheRead
+}
+
+// UsageModifiers returns the rate-changing attributes of the call: the 1-hour
+// share of cache writes (reported, else derived from the request's declared
+// TTL) and the reported inference geography.
+func (u *UsageExtractor) UsageModifiers() catalog.UsageModifiers {
+	if u == nil {
+		return catalog.UsageModifiers{}
+	}
+	oneHour := u.cacheCreation1h
+	if !u.cacheSplitReported && u.cacheCreation > 0 && u.requestCacheTTL1h != nil && u.requestCacheTTL1h() {
+		oneHour = u.cacheCreation
+	}
+	return catalog.UsageModifiers{CacheCreation1h: oneHour, InferenceGeo: catalog.InferenceGeo(u.inferenceGeo)}
+}
+
+// Speed returns the provider-reported serving speed; empty when not reported.
+func (u *UsageExtractor) Speed() catalog.Speed {
+	if u == nil {
+		return ""
+	}
+	return catalog.Speed(u.speed)
+}
+
+// InferenceGeo returns the provider-reported inference geography; empty when
+// not reported.
+func (u *UsageExtractor) InferenceGeo() catalog.InferenceGeo {
+	if u == nil {
+		return ""
+	}
+	return catalog.InferenceGeo(u.inferenceGeo)
 }
 
 // ReasoningTokens returns the reasoning share of output tokens. Zero means the
@@ -285,6 +355,7 @@ func (u *UsageExtractor) extractAnthropicSSE(eventType []byte, data []byte) {
 	if !found {
 		return
 	}
+	u.RecordUsageModifiers(anthropicUsageModifiers(anthropicUsage(data)))
 
 	if bytes.Equal(eventType, []byte(anthropicEventMessageStart)) {
 		if input > 0 {
@@ -352,6 +423,7 @@ func (u *UsageExtractor) tryExtractFromJSON() {
 	switch providers.FamilyFor(u.provider) {
 	case providers.FamilyAnthropic:
 		u.extractAnthropicJSONResponse(u.leftover)
+		u.RecordUsageModifiers(anthropicUsageModifiers(anthropicUsage(u.leftover)))
 	case providers.FamilyOpenAICompat:
 		u.extractOpenAIChatJSONResponse(u.leftover)
 	case providers.FamilyGemini:
@@ -462,7 +534,7 @@ func extractUsageGJSON(data []byte, provider string) (input, output, cacheCreati
 
 	usage := gjson.GetBytes(data, "usage")
 	if !usage.Exists() && family == providers.FamilyAnthropic {
-		usage = gjson.GetBytes(data, "message.usage")
+		usage = anthropicUsage(data)
 	}
 	// OpenAI Responses streaming nests usage under the terminal response event
 	// (response.completed); the non-streaming body carries it at the top level.
@@ -496,6 +568,23 @@ func extractUsageGJSON(data []byte, provider string) (input, output, cacheCreati
 	}
 
 	return input, output, cacheCreation, cacheRead, reasoning, true
+}
+
+// anthropicUsage returns the usage object of a non-streaming body or
+// message_delta (top level) or of a message_start event (under message).
+func anthropicUsage(data []byte) gjson.Result {
+	if usage := gjson.GetBytes(data, "usage"); usage.Exists() {
+		return usage
+	}
+	return gjson.GetBytes(data, "message.usage")
+}
+
+// anthropicUsageModifiers mirrors translate.AnthropicUsageModifiers;
+// duplicated for the same import-cycle reason as openaiCacheTokens.
+func anthropicUsageModifiers(usage gjson.Result) (cacheCreation1h int, cacheSplitReported bool, speed, inferenceGeo string) {
+	oneHour := usage.Get("cache_creation.ephemeral_1h_input_tokens")
+	cacheSplitReported = oneHour.Type == gjson.Number || usage.Get("cache_creation.ephemeral_5m_input_tokens").Type == gjson.Number
+	return int(oneHour.Int()), cacheSplitReported, usage.Get("speed").String(), usage.Get("inference_geo").String()
 }
 
 // openaiReasoningTokens mirrors translate.OpenAIReasoningTokens; duplicated for

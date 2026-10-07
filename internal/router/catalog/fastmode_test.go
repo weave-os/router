@@ -22,7 +22,7 @@ func TestFastPriceFor_PublishedRatesInheritCacheMultiplier(t *testing.T) {
 
 	opusFast, ok := FastPriceFor(providers.ProviderAnthropic, "claude-opus-5")
 	require.True(t, ok)
-	assert.Equal(t, Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00, CacheReadMultiplier: 0.10}, opusFast)
+	assert.Equal(t, Pricing{InputUSDPer1M: 10.00, OutputUSDPer1M: 50.00, CacheReadMultiplier: 0.10, USInferenceGeoMultiplier: USInferenceGeoMultiplier}, opusFast)
 }
 
 func TestFastPriceFor_BaseListPriceUnchanged(t *testing.T) {

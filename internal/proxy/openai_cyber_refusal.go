@@ -164,6 +164,13 @@ func (g *cyberRefusalGate) Finalize() error {
 	return g.release()
 }
 
+// Abandon drops anything still withheld without delivering it, for an attempt
+// that will be retried: released, the preamble would commit the client to it.
+func (g *cyberRefusalGate) Abandon() {
+	g.holding = false
+	g.discardHeld()
+}
+
 func (g *cyberRefusalGate) release() error {
 	if g.held.Len() == 0 {
 		return nil

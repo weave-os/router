@@ -256,6 +256,7 @@ func TestStrictify_PropertyNamesDroppedToDescription(t *testing.T) {
 			"data":{
 				"type":"object",
 				"properties":{},
+				"additionalProperties":false,
 				"propertyNames":{"pattern":"^[a-z]+$"}
 			}
 		},
@@ -327,36 +328,7 @@ func TestStrictify_UnevaluatedPropertiesBails(t *testing.T) {
 	require.False(t, ok, "unevaluatedProperties is not expressible in strict mode; must bail")
 }
 
-// Workflow.args is bare {} — makeNullable's synthetic anyOf branch had no 'type' key
-// and OpenAI strict mode 400'd; verify the fix adds an explicit value-type union.
-func TestStrictify_TypelessOptionalGetsExplicitValueType(t *testing.T) {
-	out, ok := strictifyFromJSON(t, `{
-		"type":"object",
-		"properties":{"args":{}},
-		"required":[]
-	}`)
-	require.True(t, ok, "a typeless optional property must survive strictification, not bail")
-
-	args := out["properties"].(map[string]any)["args"].(map[string]any)
-	branches, has := args["anyOf"].([]any)
-	require.True(t, has, "a typeless optional is made nullable via anyOf")
-	require.Len(t, branches, 2)
-	valueBranch := branches[0].(map[string]any)
-	assert.Equal(t, []any{"string", "number", "boolean", "object", "array", "null"}, valueBranch["type"],
-		"a typeless branch must carry an explicit value-type union so OpenAI strict mode doesn't 400")
-	assert.Equal(t, map[string]any{"type": "null"}, branches[1])
-
-	// Object-capable union needs additionalProperties:false + empty properties/required (OpenAI strict-mode 400).
-	assert.Equal(t, false, valueBranch["additionalProperties"],
-		"a type union including \"object\" needs additionalProperties:false or OpenAI 400s")
-	assert.Equal(t, map[string]any{}, valueBranch["properties"],
-		"an object-capable branch needs a properties map, even if empty")
-	assert.Equal(t, []any{}, valueBranch["required"],
-		"an object-capable branch needs a required list, even if empty")
-
-	// Array-capable union needs an items sub-schema (OpenAI strict-mode 400); primitives only, no recursion.
-	items, hasItems := valueBranch["items"].(map[string]any)
-	require.True(t, hasItems, "a type union including \"array\" needs an items sub-schema or OpenAI 400s")
-	assert.Equal(t, []any{"string", "number", "boolean", "null"}, items["type"],
-		"items must bottom out at primitives, not recurse into object/array")
+func TestStrictify_TypelessOptionalBails(t *testing.T) {
+	_, ok := strictifyFromJSON(t, `{"type":"object","properties":{"args":{}},"required":[]}`)
+	require.False(t, ok, "arbitrary JSON must not be narrowed to empty objects and primitive arrays")
 }

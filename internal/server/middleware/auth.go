@@ -1,10 +1,8 @@
 package middleware
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"io"
 	"net/http"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/requestcontext"
@@ -80,28 +78,20 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 		parentCtx := c.Request.Context()
 		var testPlan *policyregistry.TestPlanScope
 		if len(serving) > 0 && serving[0] != nil {
-			body, err := io.ReadAll(io.LimitReader(c.Request.Body, requestcontext.MaxRequestBodyBytes+1))
-			if err != nil || len(body) > requestcontext.MaxRequestBodyBytes {
-				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_request_body"})
-				return
-			}
-			c.Request.Body = io.NopCloser(bytes.NewReader(body))
-			assertion, err := serving[0].Signer.Verify(c.GetHeader(policyregistry.ServingAssertionHeader), c.Request, body, extractToken(c))
+			var err error
+			testPlan, err = prepareDirectTest(c, svc, serving[0])
 			if err != nil {
-				observability.FromGin(c).Debug("Serving assertion rejected before identity resolution", "err", err)
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "serving_assertion_required"})
+				observability.FromGin(c).Warn("Direct test admission rejected", "err", err)
+				if isAuthFailure(err) {
+					handleAuthError(c, err)
+					return
+				}
+				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "test_scope_rejected"})
 				return
 			}
-			testPlan = assertion.TestPlan
-			if testPlan != nil && !serving[0].TestBudgetEnabled {
-				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "test_budget_unavailable"})
-				return
-			}
-			if testPlan != nil {
-				parentCtx = policyregistry.WithServingAssertion(parentCtx, assertion)
-				c.Request = c.Request.WithContext(parentCtx)
-			}
+			parentCtx = c.Request.Context()
 		}
+
 		clientSessionID := proxy.ClientIdentityFromHeaders(c.Request.Header).SessionID
 		if testPlan != nil {
 			clientSessionID = testPlan.SessionID
@@ -177,10 +167,10 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 				ctx = context.WithValue(ctx, proxy.InstallationAllowedModelsContextKey{}, installation.AllowedModels)
 			}
 			if len(installation.ModelsWhenSubscriptionActive) > 0 {
-				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionPreferredModelsWhenActiveContextKey{}, installation.ModelsWhenSubscriptionActive)
+				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionModelsWhenActiveContextKey{}, installation.ModelsWhenSubscriptionActive)
 			}
 			if len(installation.ModelsWhenSubscriptionInactive) > 0 {
-				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionPreferredModelsWhenInactiveContextKey{}, installation.ModelsWhenSubscriptionInactive)
+				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionModelsWhenInactiveContextKey{}, installation.ModelsWhenSubscriptionInactive)
 			}
 			if len(installation.ExcludedProviders) > 0 {
 				ctx = context.WithValue(ctx, proxy.InstallationExcludedProvidersContextKey{}, installation.ExcludedProviders)
@@ -268,6 +258,11 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}
+}
+
+func isAuthFailure(err error) bool {
+	return errors.Is(err, auth.ErrInvalidPrefix) || errors.Is(err, auth.ErrInvalidToken) ||
+		errors.Is(err, auth.ErrWrongKeyScope) || errors.Is(err, auth.ErrPersonalCredentialRequired)
 }
 
 // tryAdminCookie returns nil so callers fall through to bearer auth when the cookie is absent, admin login is disabled, or the cookie is invalid.

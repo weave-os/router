@@ -22,6 +22,10 @@ type Usage struct {
 	OutputTokens  int
 	CacheCreation int
 	CacheRead     int
+	// CacheCreation1h is the 1-hour-TTL share of CacheCreation and
+	// InferenceGeo the reported inference geography; both change the rate.
+	CacheCreation1h int
+	InferenceGeo    string
 	// Model and Provider identify the upstream the summarizer dispatched
 	// to so the ledger row can record them. Empty means "not reported".
 	Model    string

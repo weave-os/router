@@ -19,6 +19,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/translate"
@@ -188,6 +189,21 @@ func (s *ProviderSummarizer) resolve(ctx context.Context, request policy.Resolut
 	if s.plans == nil || s.executor == nil {
 		return policy.ResolvedPlan{}, errors.New("handover: summarizer has no plan resolver or executor")
 	}
+	if subscriptionStateModelsEnabled(ctx) {
+		// Summaries use deployment credentials, so active-only models cannot
+		// authorize their paid inference as a side effect of switching models.
+		paidCtx := context.WithValue(ctx, subscriptionStateAllowedModelsKey{}, modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx)))
+		allowed := allowedModelsForRequest(paidCtx)
+		request.RouterRequest.ExcludedModels = cloneStringSet(request.RouterRequest.ExcludedModels)
+		if request.RouterRequest.ExcludedModels == nil {
+			request.RouterRequest.ExcludedModels = make(map[string]struct{})
+		}
+		for _, model := range catalog.Models {
+			if _, permitted := allowed[model.ID]; !permitted {
+				request.RouterRequest.ExcludedModels[model.ID] = struct{}{}
+			}
+		}
+	}
 	plan, err := s.plans.Resolve(request)
 	if err != nil {
 		observability.FromContext(ctx).Warn("Summarizer plan resolution failed", "purpose", string(request.Purpose), "err", err)
@@ -282,10 +298,12 @@ func extractAnthropicUsage(body []byte) handover.Usage {
 		return handover.Usage{}
 	}
 	return handover.Usage{
-		InputTokens:   int(usage.Get("input_tokens").Int()),
-		OutputTokens:  int(usage.Get("output_tokens").Int()),
-		CacheCreation: int(usage.Get("cache_creation_input_tokens").Int()),
-		CacheRead:     int(usage.Get("cache_read_input_tokens").Int()),
+		InputTokens:     int(usage.Get("input_tokens").Int()),
+		OutputTokens:    int(usage.Get("output_tokens").Int()),
+		CacheCreation:   int(usage.Get("cache_creation_input_tokens").Int()),
+		CacheRead:       int(usage.Get("cache_read_input_tokens").Int()),
+		CacheCreation1h: int(usage.Get("cache_creation.ephemeral_1h_input_tokens").Int()),
+		InferenceGeo:    usage.Get("inference_geo").String(),
 	}
 }
 

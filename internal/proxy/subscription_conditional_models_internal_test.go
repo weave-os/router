@@ -15,8 +15,8 @@ const conditionalModelsCodexToken = "chatgpt-jwt-conditional-models"
 
 func conditionalModelsContext(active, inactive []string) context.Context {
 	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, conditionalModelsSubscriptionToken)
-	ctx = context.WithValue(ctx, InstallationSubscriptionPreferredModelsWhenActiveContextKey{}, active)
-	return context.WithValue(ctx, InstallationSubscriptionPreferredModelsWhenInactiveContextKey{}, inactive)
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, active)
+	return context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, inactive)
 }
 
 func conditionalModelsObserverFor(token string, snapshot usage.Snapshot) *usage.Observer {

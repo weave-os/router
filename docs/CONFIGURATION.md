@@ -414,9 +414,10 @@ Set `DATABASE_URL` directly, or compose it from the individual vars:
 
 ## Managed serving (`ROUTER_SERVING_*`)
 
-These variables apply only to Weave's managed deployment, where a `router-gateway`
-process admits a session and forwards it to a managed `router` worker revision that
-is pinned to immutable registry artifacts. Self-hosted deployments leave them unset.
+These variables apply to managed workers that admit and serve requests directly.
+The public hostname selects the stable fleet (Default, Boost and Max); a separate
+internal hostname selects the isolated internal fleet. Self-hosted deployments
+leave them unset.
 The control-plane semantics — candidates, selection sets, proposals, target state
 and the activation flow — are documented in
 [`SERVING_CONTROL.md`](SERVING_CONTROL.md); this table only records which binary
@@ -430,9 +431,7 @@ kept out of revision-specific stamping.
 
 | Variable | Read by | Source | Absent or invalid |
 | --- | --- | --- | --- |
-| `ROUTER_SERVING_ASSERTION_KEY` | Gateway and worker | Terraform (Secret Manager reference) | Gateway: boot fails. Worker: unset or whitespace-only keeps the worker on its existing managed/self-hosted path, except in `managed` mode with any other `ROUTER_SERVING_*` variable set, where boot fails; a key shorter than 32 bytes fails boot rather than serving unsigned traffic. |
-| `ROUTER_SERVING_ENVIRONMENT` | Gateway | Terraform | Boot fails. Must be `prod` or `staging`. |
-| `ROUTER_SERVING_REGISTRY_URI` | Gateway and worker | Terraform (both services) and deploy script (worker) | Gateway: boot fails. Worker: falls back to `WEAVE_REGISTRY_URI`, then `gs://weave_ml/weave_registry`; set it explicitly. |
+| `ROUTER_SERVING_REGISTRY_URI` | Worker | Terraform and deploy script (worker) | Falls back to `WEAVE_REGISTRY_URI`, then `gs://weave_ml/weave_registry`; set it explicitly. |
 | `ROUTER_SERVING_TARGET` | Worker | Deploy script and Terraform | Boot fails. Must name a known target (`staging`, `prod/stable`, `prod/weave-internal`). |
 | `ROUTER_SERVING_PROJECT` | Worker | Deploy script and Terraform | Boot fails. |
 | `ROUTER_SERVING_REGION` | Worker | Deploy script and Terraform | Boot fails. |
@@ -450,23 +449,25 @@ The three `ROUTER_SERVING_CONFIGURATION_*` and three
 (`{uri, sha256, generation}`), so a partially stamped triple is rejected rather
 than resolved loosely.
 
-With a nonempty `ROUTER_SERVING_ASSERTION_KEY`, managed worker boot is fail-closed:
-the worker validates its attested identity (target, project, region, revision,
-image digest, configuration reference) before mounting inference endpoints, and
-a failure stops boot rather than degrading to an unattested path. If the worker
-key is unset or whitespace-only, it skips managed-serving preparation and mounts
-inference endpoints without serving-admission checks; in
-`ROUTER_DEPLOYMENT_MODE=managed` that is allowed only on a revision with no other
-`ROUTER_SERVING_*` variable, so a serving-stamped worker whose key injection was
-dropped refuses to boot instead. The gateway validates its environment and signing
-key before it opens the registry, and `/readyz` stays fail-closed afterwards.
-Keep the signing key identical on gateway and workers of the same environment.
+A nonempty `ROUTER_SERVING_TARGET` enables managed admission. Boot validates the
+worker identity and all immutable configuration references before mounting
+inference. Partially stamped managed revisions fail closed. Admission decisions
+use a 10,000-entry per-process LRU with a 30-second TTL; installation broadcasts
+invalidate that installation and release broadcasts invalidate the whole cache.
+Misses use the authoritative Postgres transaction and durable conversation lock.
+Client serving headers are stripped. Worker validation additionally requires
+`ROUTER_INTERNAL_SERVICE_TOKEN`; classifier validation retains Cloud Run IAM.
+Inject `ROUTER_INTERNAL_SERVICE_TOKEN` into every worker fleet and the
+`policyctl serving` runner so exact-revision worker validation can authenticate.
+The `policyctl serving` runner and worker fleets must also share `PUBSUB_PROJECT_ID`
+and `PUBSUB_TOPIC_ROUTER_POLICY_INVALIDATION` so activation invalidations reach
+the admission caches using the same Pub/Sub project and topic.
 
 ## Routing
 
 | Variable                          | Default                      | Purpose |
 | --------------------------------- | ---------------------------- | ------- |
-| `ROUTER_DEFAULT_STRATEGY`         | `cluster`                    | Strategy used when an installation has no persisted strategy. Change only after the policy rollout gate passes. The router refuses to boot, and `/readyz` fails, when this strategy has no router configured (e.g. `hmm_embedding` without `ROUTER_POLICY_ENVIRONMENT`). Managed serving workers (`ROUTER_DEPLOYMENT_MODE=managed` with `ROUTER_SERVING_ASSERTION_KEY`) additionally refuse to boot unless it is set to one of the policy strategies they register (`hmm`, `hmm_embedding`); the legacy `router` service, self-hosted deployments and the gateway keep the `cluster` default. |
+| `ROUTER_DEFAULT_STRATEGY`         | `cluster`                    | Strategy used when an installation has no persisted strategy. Change only after the policy rollout gate passes. The router refuses to boot, and `/readyz` fails, when this strategy has no router configured (e.g. `hmm_embedding` without `ROUTER_POLICY_ENVIRONMENT`). Managed serving workers (`ROUTER_DEPLOYMENT_MODE=managed` with `ROUTER_SERVING_TARGET`) additionally refuse to boot unless it is set to one of the policy strategies they register (`hmm`, `hmm_embedding`); the legacy `router` service and self-hosted deployments keep the `cluster` default. |
 | `ROUTER_CLUSTER_VERSION`          | *(reads `artifacts/latest`)* | Pin a specific cluster artifact version (e.g. `v0.27`). |
 | `ROUTER_CLUSTER_EMBED_TIMEOUT_MS` | `200`                        | Per-request ONNX embed timeout. Increase for slower hosts. |
 | `ROUTER_EMBED_ONLY_USER_MESSAGE`  | `true`                       | Feed only user-role text to the embedder. Set `false` to embed the full concatenated turn. |

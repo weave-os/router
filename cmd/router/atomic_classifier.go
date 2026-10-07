@@ -21,6 +21,7 @@ import (
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/router/hmm/selection"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/server"
 )
 
 type atomicClassifierConfig struct {
@@ -34,12 +35,12 @@ type atomicClassifierConfig struct {
 
 // Legacy/isolated composition only. Managed ingress must first gain an attested
 // Modal binding; this config must not bypass the controller's release ownership.
-func configureAtomicClassifier(service *proxy.Service, pool *pgxpool.Pool, providers map[string]struct{}) error {
+func configureAtomicClassifier(service *proxy.Service, pool *pgxpool.Pool, providers map[string]struct{}, deploymentMode server.DeploymentMode) error {
 	path := os.Getenv("ROUTER_LLM_CLASSIFIER_CONFIG")
 	if path == "" {
 		return nil
 	}
-	if managedServingEnabled() {
+	if managedServingEnabled(deploymentMode) {
 		return errors.New("llm classifier requires managed Modal release integration before enabling managed serving")
 	}
 	payload, err := os.ReadFile(path)

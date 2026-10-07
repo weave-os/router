@@ -32,6 +32,8 @@ check() { if [ "$2" = "$3" ]; then ok "$1"; else no "$1" "$2" "$3"; fi; }
 
 printf 'packaging\n'
 
+node --test "$npm_dir/windows.test.js"
+
 tarball="$(cd "$npm_dir" && npm pack --pack-destination "$work" 2>/dev/null | tail -1)"
 [ -f "$work/$tarball" ] || { echo "npm pack produced no tarball" >&2; exit 1; }
 pkg="$work/extracted"
@@ -41,7 +43,7 @@ root="$pkg/package"
 
 # The registry itself must ship: install.sh sources it at runtime, so a tarball
 # without it is an installer that cannot resolve a single directive.
-for asset in registry.sh directives.tsv install.sh uninstall.sh cc-statusline.sh codex-status.sh bin.js; do
+for asset in registry.sh directives.tsv install.sh uninstall.sh cc-statusline.sh codex-status.sh bin.js windows.js; do
   if [ -f "$root/$asset" ]; then ok "the tarball ships $asset"; else no "the tarball ships $asset" "present" "missing"; fi
 done
 
@@ -114,6 +116,9 @@ case "$(uname -s)" in
 esac
 printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\\n" "$@" >"'"$browser_log"'"' >"$home/bin/$browser_opener"
 chmod +x "$home/bin/$browser_opener"
+# shellcheck disable=SC2016 # Preserve the stub's literal $1 for its execution.
+printf '%s\n' '#!/usr/bin/env bash' 'if [ "${1:-}" = "--version" ]; then echo "2.0.18"; fi' >"$home/bin/opencode"
+chmod +x "$home/bin/opencode"
 
 HOME="$home" PATH="$home/bin:$PATH" NO_COLOR=1 \
   node "$root/bin.js" >/dev/null 2>&1

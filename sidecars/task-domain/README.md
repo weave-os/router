@@ -152,20 +152,32 @@ toolkit) and vLLM usage-stat reporting.
 
 ## Managed worker binding and admission
 
-Apply the task-domain migration before enabling any candidate. Mount a binding
-inventory and set `ROUTER_TASK_DOMAIN_BINDINGS_PATH` to its path:
+Apply the task-domain migration before enabling any candidate. Set
+`ROUTER_TASK_DOMAIN_BINDINGS_PATH` to the reviewed inventory's generation-pinned
+GCS URI and `ROUTER_TASK_DOMAIN_BINDINGS_SHA256` to its exact-byte digest. The
+worker reads metadata directly using its application-default GCS credentials;
+no filesystem mount is needed. The inventory keeps the same JSON shape:
 
 ```json
 [
   {
-    "release_file": "/artifacts/release.json",
+    "release_file": "gs://weave_ml/weave_registry/router_task_domain/releases/sha256/MANIFEST_SHA256.json#GENERATION",
     "release_sha256": "MANIFEST_SHA256",
     "endpoint": "https://task-classifier.example.net",
     "bearer_env": "TASK_DOMAIN_BEARER",
-    "evidence_files": {"DOMAIN_EVIDENCE_SHA256": "/artifacts/evidence.json"}
+    "evidence_files": {"DOMAIN_EVIDENCE_SHA256": "gs://weave_ml/weave_registry/router_task_domain/evidence/sha256/DOMAIN_EVIDENCE_SHA256.json#GENERATION"}
   }
 ]
 ```
+
+The inventory itself lives at
+`gs://weave_ml/weave_registry/router_task_domain/bindings/sha256/INVENTORY_SHA256.json#GENERATION`.
+Every GCS reference requires a positive generation and must match its metadata
+namespace and expected SHA-256; arbitrary buckets, URLs and mutable pointers are
+rejected. Each object is limited to 4 MiB, and startup GCS metadata reads share a
+one-minute deadline. Local paths remain supported for development, with an
+optional inventory digest; local release and evidence bytes still require their
+exact digests. Model weights are not read from this metadata registry.
 
 This inventory maps immutable releases to deployment-owned endpoints; it does not
 activate them. Admission must select the same manifest digest in the candidate's

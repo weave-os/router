@@ -151,7 +151,7 @@ func Middleware() gin.HandlerFunc {
 		serviceName,
 		otelgin.WithGinFilter(func(c *gin.Context) bool {
 			path := c.FullPath()
-			return path != "/health" && path != "/readyz" && path != "/validate"
+			return path != "/health" && path != "/readyz" && path != "/startupz" && path != "/validate"
 		}),
 	)
 }

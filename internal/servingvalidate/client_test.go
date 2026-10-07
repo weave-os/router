@@ -25,12 +25,14 @@ func TestPrivateValidationPreservesIAMAudienceAndExactSnapshot(t *testing.T) {
 		require.Empty(t, r.Header.Get("Authorization"))
 		switch r.URL.Path {
 		case policyregistry.WorkerValidationPath:
+			require.Equal(t, "worker-secret", r.Header.Get("X-Weave-Internal-Token"))
 			require.Equal(t, http.MethodPost, r.Method)
 			var request policyregistry.WorkerValidationRequest
 			require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
 			require.Equal(t, selection, request)
 			require.NoError(t, json.NewEncoder(w).Encode(worker))
 		case policyregistry.ClassifierAttestationPath:
+			require.Empty(t, r.Header.Get("X-Weave-Internal-Token"))
 			require.Equal(t, http.MethodGet, r.Method)
 			require.NoError(t, json.NewEncoder(w).Encode(classifier))
 		default:
@@ -43,7 +45,7 @@ func TestPrivateValidationPreservesIAMAudienceAndExactSnapshot(t *testing.T) {
 	client, err := servingvalidate.New(server.Client(), func(_ context.Context, got string) (string, error) {
 		require.Equal(t, audience, got)
 		return "private-identity", nil
-	})
+	}, "worker-secret")
 	require.NoError(t, err)
 	revision := policyregistry.RevisionBinding{URL: server.URL, Audience: audience}
 	observedWorker, err := client.ValidateWorker(context.Background(), revision, selection)
@@ -65,7 +67,7 @@ func TestPrivateWorkerValidationPreservesEveryManagedTarget(t *testing.T) {
 	defer server.Close()
 	client, err := servingvalidate.New(server.Client(), func(context.Context, string) (string, error) {
 		return "private-identity", nil
-	})
+	}, "")
 	require.NoError(t, err)
 	for _, target := range []policyregistry.ServingTarget{
 		policyregistry.TargetStaging,
@@ -109,7 +111,7 @@ func TestPrivateValidationRejectsRedirectsAndIncompleteWireResponses(t *testing.
 				_, _ = w.Write([]byte(test.payload))
 			}))
 			defer server.Close()
-			client, err := servingvalidate.New(server.Client(), func(context.Context, string) (string, error) { return "private-identity", nil })
+			client, err := servingvalidate.New(server.Client(), func(context.Context, string) (string, error) { return "private-identity", nil }, "")
 			require.NoError(t, err)
 			_, err = client.AttestClassifier(context.Background(), policyregistry.RevisionBinding{URL: server.URL, Audience: server.URL})
 			require.ErrorContains(t, err, test.expected)
@@ -122,7 +124,7 @@ func TestPrivateValidationRejectsNonHTTPSRevisionsBeforeMintingTokens(t *testing
 	client, err := servingvalidate.New(&http.Client{}, func(context.Context, string) (string, error) {
 		t.Error("token minted for a plaintext or credentialed destination")
 		return "", nil
-	})
+	}, "")
 	require.NoError(t, err)
 	for _, revision := range []policyregistry.RevisionBinding{
 		{URL: "http://localhost", Audience: "https://service.example"},
@@ -133,9 +135,9 @@ func TestPrivateValidationRejectsNonHTTPSRevisionsBeforeMintingTokens(t *testing
 		_, err := client.AttestClassifier(context.Background(), revision)
 		require.ErrorContains(t, err, "HTTPS")
 	}
-	_, err = servingvalidate.New(nil, func(context.Context, string) (string, error) { return "", nil })
+	_, err = servingvalidate.New(nil, func(context.Context, string) (string, error) { return "", nil }, "")
 	require.Error(t, err)
-	_, err = servingvalidate.New(&http.Client{}, nil)
+	_, err = servingvalidate.New(&http.Client{}, nil, "")
 	require.Error(t, err)
 }
 
@@ -153,7 +155,7 @@ func TestPrivateValidationAllowsScaleFromZeroBeforeEndpointWork(t *testing.T) {
 	})}
 	client, err := servingvalidate.New(httpClient, func(context.Context, string) (string, error) {
 		return "private-identity", nil
-	})
+	}, "")
 	require.NoError(t, err)
 
 	attestation, err := client.AttestClassifier(context.Background(), policyregistry.RevisionBinding{

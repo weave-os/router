@@ -143,16 +143,18 @@ func TestInvalidationListener_RunForwardsNonEmptyMessagesToCache(t *testing.T) {
 		{Data: []byte("install-2")},
 	}}
 	cache := &fakeAPIKeyCache{}
-	l := NewInvalidationListener(nil, cache)
+	admissionCache := &fakeAPIKeyCache{}
+	l := NewInvalidationListener(nil, cache, admissionCache)
 	l.subscriber = sub
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go l.Run(ctx)
 
 	require.Eventually(t, func() bool {
-		return len(cache.Invalidated()) == 2
+		return len(cache.Invalidated()) == 2 && len(admissionCache.Invalidated()) == 2
 	}, time.Second, 5*time.Millisecond, "Run must invalidate the cache for every non-empty message")
 	assert.Equal(t, []string{"install-1", "install-2"}, cache.Invalidated())
+	assert.Equal(t, cache.Invalidated(), admissionCache.Invalidated(), "one broadcast invalidates authentication and admission together")
 
 	cancel()
 	l.Wait()

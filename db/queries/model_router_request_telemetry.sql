@@ -53,6 +53,8 @@
 -- normal completion). latest_tool_call_counts is {tool: {calls, errors}} over
 -- only the tool results this request delivered, unlike tool_error_counts,
 -- which re-counts the whole history on every turn.
+-- failover_used marks a turn a rescue served; failover_attempted marks any turn
+-- on which a rescue was dispatched, whether or not it served.
 -- name: InsertRequestTelemetry :exec
 INSERT INTO router.model_router_request_telemetry (
     installation_id,
@@ -108,8 +110,11 @@ INSERT INTO router.model_router_request_telemetry (
     debug_ref,
     ttft_ms,
     cache_creation_tokens,
+    cache_creation_1h_tokens,
     cache_read_tokens,
     reasoning_tokens,
+    speed,
+    inference_geo,
     device_id,
     session_id,
     router_user_id,
@@ -136,6 +141,7 @@ INSERT INTO router.model_router_request_telemetry (
     autonomy_append_fired,
     workspace_append_fired,
     failover_used,
+    failover_attempted,
     degenerate_shadow,
     session_key,
     role,
@@ -278,8 +284,11 @@ INSERT INTO router.model_router_request_telemetry (
     sqlc.narg('debug_ref')::varchar,
     sqlc.narg('ttft_ms')::bigint,
     sqlc.narg('cache_creation_tokens')::int,
+    sqlc.narg('cache_creation_1h_tokens')::int,
     sqlc.narg('cache_read_tokens')::int,
     sqlc.narg('reasoning_tokens')::int,
+    sqlc.narg('speed')::text,
+    sqlc.narg('inference_geo')::text,
     sqlc.narg('device_id')::varchar,
     sqlc.narg('session_id')::varchar,
     sqlc.narg('router_user_id')::uuid,
@@ -306,6 +315,7 @@ INSERT INTO router.model_router_request_telemetry (
     sqlc.narg('autonomy_append_fired')::boolean,
     sqlc.narg('workspace_append_fired')::boolean,
     sqlc.narg('failover_used')::boolean,
+    sqlc.narg('failover_attempted')::boolean,
     sqlc.narg('degenerate_shadow')::boolean,
     sqlc.narg('session_key')::bytea,
     sqlc.narg('role')::varchar,
@@ -796,6 +806,9 @@ SELECT
     t.output_tokens,
     t.cache_creation_tokens,
     t.cache_read_tokens,
+    t.cache_creation_1h_tokens,
+    t.speed,
+    t.inference_geo,
     -- A Claude response with the plain overage claim used paid credits, even though the caller's
     -- OAuth credential served it. Historical rows retain that evidence in
     -- unified_limit_headers; newer rows also use subscription_overage source.

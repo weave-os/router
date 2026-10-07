@@ -131,23 +131,35 @@ func admissionMiddlewareFixture(t *testing.T) (*ServingAdmissionConfig, policyre
 	})
 	require.NoError(t, err)
 	now := time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC)
-	signer, err := policyregistry.NewAssertionSigner([]byte(strings.Repeat("s", 32)), func() time.Time { return now })
-	require.NoError(t, err)
 	digest, persistent := policyregistry.ServingConversationDigest("credential", "conversation")
 	assertion := policyregistry.ServingAssertion{
 		APIKeyID: "credential", Scope: policyregistry.AdmissionScope{InstallationID: "installation", CredentialIdentity: "credential", ConversationDigest: digest, Persistent: persistent},
 		Admission: policyregistry.SessionReleaseBinding{Target: binding.Target, ActivationID: "activation-previous", Selection: policyregistry.ServingSelection{Release: releaseRef, Binding: bindingRef}, BindingGeneration: 3, CreatedAt: now, LastAdmittedAt: now},
 	}
-	return &ServingAdmissionConfig{Signer: signer, Store: store, Cache: cache, Identity: policyregistry.WorkerIdentity{Target: binding.Target, Project: binding.Project, Region: binding.Region, Revision: binding.Router.Name, ImageDigest: binding.Router.ImageDigest, Configuration: binding.Router.Configuration}}, assertion, store, builds
+	decisions, err := policyregistry.NewAdmissionDecisionCache(&directAdmissionStore{assertion: assertion}, 10, time.Minute, time.Now)
+	require.NoError(t, err)
+	return &ServingAdmissionConfig{Decisions: decisions, Store: store, Cache: cache, Identity: policyregistry.WorkerIdentity{Target: binding.Target, Project: binding.Project, Region: binding.Region, Revision: binding.Router.Name, ImageDigest: binding.Router.ImageDigest, Configuration: binding.Router.Configuration}}, assertion, store, builds
+}
+
+func TestDirectConversationIDUsesAnthropicHandoffEnvelope(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/v1/route/handoff", nil)
+	body := []byte(`{"user":"chat-session","metadata":{"user_id":"{\"session_id\":\"anthropic-session\"}"}}`)
+
+	assert.Equal(t, "anthropic-session", directConversationID(request, body))
 }
 
 func runAdmissionMiddleware(t *testing.T, cfg *ServingAdmissionConfig, assertion policyregistry.ServingAssertion, handler gin.HandlerFunc) *httptest.ResponseRecorder {
+	return runAdmissionMiddlewareWithBody(t, cfg, assertion, admissionTestBody, handler)
+}
+
+func runAdmissionMiddlewareWithBody(t *testing.T, cfg *ServingAdmissionConfig, assertion policyregistry.ServingAssertion, body string, handler gin.HandlerFunc) *httptest.ResponseRecorder {
 	t.Helper()
-	request := httptest.NewRequest(http.MethodPost, "/v1/messages?original=1", strings.NewReader(admissionTestBody))
+	request := httptest.NewRequest(http.MethodPost, "/v1/messages?original=1", strings.NewReader(body))
 	request.Header.Set(auth.RouterKeyHeader, admissionTestCredential)
-	encoded, err := cfg.Signer.Sign(assertion, request, []byte(admissionTestBody), admissionTestCredential)
-	require.NoError(t, err)
-	request.Header.Set(policyregistry.ServingAssertionHeader, encoded)
+	request.Header.Set(policyregistry.ServingAssertionHeader, "forged-client-assertion")
+	if assertion.TestPlan != nil {
+		request = request.WithContext(policyregistry.WithServingAssertion(request.Context(), assertion))
+	}
 	request = request.WithContext(observability.WithRequestID(request.Context(), "request-original"))
 	engine := gin.New()
 	engine.Use(func(c *gin.Context) {
@@ -159,6 +171,34 @@ func runAdmissionMiddleware(t *testing.T, cfg *ServingAdmissionConfig, assertion
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request)
 	return response
+}
+
+func TestServingAdmissionRejectsMalformedBodyBeforeBinding(t *testing.T) {
+	cfg, admitted, _, _ := admissionMiddlewareFixture(t)
+	store := &directAdmissionStore{assertion: admitted}
+	var err error
+	cfg.Decisions, err = policyregistry.NewAdmissionDecisionCache(store, 10, time.Minute, time.Now)
+	require.NoError(t, err)
+	response := runAdmissionMiddlewareWithBody(t, cfg, policyregistry.ServingAssertion{}, `{"messages":`, func(*gin.Context) {
+		t.Fatal("malformed request reached inference")
+	})
+	require.Equal(t, http.StatusBadRequest, response.Code, response.Body.String())
+	require.Contains(t, response.Body.String(), "invalid_request_body")
+	require.Zero(t, store.calls, "rejected requests must not create or refresh session bindings")
+}
+
+func TestServingAdmissionAllowsManagedRetirementReplyWithoutRegistryOrAttribution(t *testing.T) {
+	cfg, _, _, _ := admissionMiddlewareFixture(t)
+	cfg.Decisions = nil
+	cfg.Store = nil
+	cfg.Cache = nil
+	cfg.Attribution = nil
+	body := `{"model":"claude-sonnet-4-5","max_tokens":1,"messages":[{"role":"user","content":"/beta"}]}`
+	response := runAdmissionMiddlewareWithBody(t, cfg, policyregistry.ServingAssertion{}, body, func(c *gin.Context) {
+		t.Fatal("retired command must finish before admission or inference")
+	})
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Contains(t, response.Body.String(), "Beta has been retired")
 }
 
 func TestServingAdmissionPreservesBodyAndSnapshotWithAttributionBeforeDispatch(t *testing.T) {
@@ -219,9 +259,9 @@ func TestServingAdmissionAttributionFailurePreventsDispatch(t *testing.T) {
 	}
 }
 
-func TestServingAdmissionPhysicalIdentityMismatchPreventsSnapshotLoad(t *testing.T) {
+func TestServingAdmissionFleetMismatchPreventsSnapshotLoad(t *testing.T) {
 	cfg, admitted, store, builds := admissionMiddlewareFixture(t)
-	cfg.Identity.Revision = "worker-other"
+	cfg.Identity.Target = policyregistry.TargetInternal
 	cfg.Attribution = admissionAttributionFunc(func(context.Context, string, policyregistry.ServingAssertion) error {
 		t.Fatal("rejected worker identity wrote attribution")
 		return nil
@@ -229,7 +269,7 @@ func TestServingAdmissionPhysicalIdentityMismatchPreventsSnapshotLoad(t *testing
 	response := runAdmissionMiddleware(t, cfg, admitted, func(*gin.Context) { t.Fatal("wrong worker dispatched inference") })
 	assert.Equal(t, http.StatusForbidden, response.Code)
 	assert.Contains(t, response.Body.String(), "serving_admission_rejected")
-	assert.Equal(t, []policyregistry.ServingKind{policyregistry.ServingBindings}, store.objectReads)
+	assert.Empty(t, store.objectReads)
 	assert.Zero(t, store.policyReads)
 	assert.Zero(t, *builds)
 }
@@ -253,4 +293,80 @@ func TestServingAdmissionDisabledDoesNotReadBodyOrRequireDependencies(t *testing
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, request)
 	assert.Equal(t, http.StatusAccepted, response.Code)
+}
+
+type directAdmissionStore struct {
+	calls     int
+	assertion policyregistry.ServingAssertion
+	err       error
+}
+
+func (s *directAdmissionStore) Admit(_ context.Context, installationID, keyID, _ string, _ policyregistry.AdmissionDecision) (policyregistry.AdmissionScope, policyregistry.SessionReleaseBinding, error) {
+	s.calls++
+	if s.err != nil {
+		return policyregistry.AdmissionScope{}, policyregistry.SessionReleaseBinding{}, s.err
+	}
+	if installationID != s.assertion.Scope.InstallationID || keyID != s.assertion.APIKeyID {
+		return policyregistry.AdmissionScope{}, policyregistry.SessionReleaseBinding{}, errors.New("identity mismatch")
+	}
+	return s.assertion.Scope, s.assertion.Admission, nil
+}
+
+func TestDirectAdmissionMapsCredentialFailuresAndInfrastructureFailures(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantBody   string
+	}{
+		{name: "invalid credential", err: auth.ErrInvalidToken, wantStatus: http.StatusUnauthorized, wantBody: "invalid_key"},
+		{name: "revoked subject", err: auth.ErrPersonalCredentialRequired, wantStatus: http.StatusUnauthorized, wantBody: "invalid_key"},
+		{name: "registry outage", err: errors.New("primary unavailable"), wantStatus: http.StatusServiceUnavailable, wantBody: "serving_admission_unavailable"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg, admitted, _, _ := admissionMiddlewareFixture(t)
+			store := &directAdmissionStore{assertion: admitted, err: test.err}
+			var err error
+			cfg.Decisions, err = policyregistry.NewAdmissionDecisionCache(store, 10, time.Minute, time.Now)
+			require.NoError(t, err)
+			response := runAdmissionMiddleware(t, cfg, policyregistry.ServingAssertion{}, func(*gin.Context) { t.Fatal("failed admission dispatched") })
+			require.Equal(t, test.wantStatus, response.Code, response.Body.String())
+			require.Contains(t, response.Body.String(), test.wantBody)
+		})
+	}
+}
+func TestDirectAdmissionRetainsPolicyAcrossWorkerCodeRelease(t *testing.T) {
+	cfg, admitted, _, _ := admissionMiddlewareFixture(t)
+	primary := &directAdmissionStore{assertion: admitted}
+	var err error
+	cfg.Decisions, err = policyregistry.NewAdmissionDecisionCache(primary, 10, time.Minute, time.Now)
+	require.NoError(t, err)
+	cfg.Identity.Revision = "worker-0002"
+	cfg.Identity.ImageDigest = "sha256:" + strings.Repeat("e", 64)
+	cfg.Attribution = admissionAttributionFunc(func(_ context.Context, _ string, got policyregistry.ServingAssertion) error {
+		require.Equal(t, admitted.Admission, got.Admission)
+		return nil
+	})
+	for range 2 {
+		response := runAdmissionMiddleware(t, cfg, admitted, func(c *gin.Context) {
+			require.NotNil(t, policyregistry.ServingSnapshotFromContext(c.Request.Context()))
+			body, err := io.ReadAll(c.Request.Body)
+			require.NoError(t, err)
+			require.Equal(t, admissionTestBody, string(body))
+			c.Status(http.StatusNoContent)
+		})
+		require.Equal(t, http.StatusNoContent, response.Code, response.Body.String())
+	}
+	// No canonical session in this fixture: each turn must consult primary.
+	require.Equal(t, 2, primary.calls)
+}
+func TestDirectAdmissionRejectsOtherFleet(t *testing.T) {
+	cfg, admitted, _, _ := admissionMiddlewareFixture(t)
+	primary := &directAdmissionStore{assertion: admitted}
+	var err error
+	cfg.Decisions, err = policyregistry.NewAdmissionDecisionCache(primary, 10, time.Minute, time.Now)
+	require.NoError(t, err)
+	cfg.Identity.Target = policyregistry.TargetInternal
+	response := runAdmissionMiddleware(t, cfg, admitted, func(c *gin.Context) { t.Fatal("cross-fleet dispatch") })
+	require.Equal(t, http.StatusForbidden, response.Code)
 }
