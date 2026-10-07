@@ -58,7 +58,7 @@ func toolTurnNeedsExplicitEffortNone(opts EmitOptions, hasTools bool) bool {
 // other CapReasoning targets (OpenRouter, xAI) sample normally.
 func samplersAccepted(opts EmitOptions) bool {
 	return !opts.Capabilities.Supports(router.CapReasoning) ||
-		(!isOpenAIReasoningTarget(opts) && !strings.HasPrefix(opts.TargetModel, "gpt-5"))
+		!isOpenAIReasoningTarget(opts)
 }
 
 func isOpenAIReasoningTarget(opts EmitOptions) bool {
