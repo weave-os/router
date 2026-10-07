@@ -18,10 +18,10 @@ func linkedFirst(ctx context.Context) bool {
 
 // paidFallbackForbidden reports whether a live subscription failure may not be
 // rescued on metered capacity. Only a credits_depleted turn has nowhere to fall
-// through to; a linked-first turn's organization credits are intact, so its
-// plan throttling the turn rolls over the same way an observed-spent plan does.
+// through to. Configured subscription sets also forbid the ordinary same-model
+// paid rescue; their dispatcher separately authorizes the exhausted model set.
 func paidFallbackForbidden(ctx context.Context) bool {
-	return billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx)
+	return subscriptionAttemptOnly(ctx) || subscriptionStateModelsEnabled(ctx) && !subscriptionAPIOnly(ctx) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx)
 }
 
 // releaseUnservableLinkedFirst drops a linked-first mark after routing when the

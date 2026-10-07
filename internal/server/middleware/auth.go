@@ -177,10 +177,10 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 				ctx = context.WithValue(ctx, proxy.InstallationAllowedModelsContextKey{}, installation.AllowedModels)
 			}
 			if len(installation.ModelsWhenSubscriptionActive) > 0 {
-				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionPreferredModelsWhenActiveContextKey{}, installation.ModelsWhenSubscriptionActive)
+				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionModelsWhenActiveContextKey{}, installation.ModelsWhenSubscriptionActive)
 			}
 			if len(installation.ModelsWhenSubscriptionInactive) > 0 {
-				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionPreferredModelsWhenInactiveContextKey{}, installation.ModelsWhenSubscriptionInactive)
+				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionModelsWhenInactiveContextKey{}, installation.ModelsWhenSubscriptionInactive)
 			}
 			if len(installation.ExcludedProviders) > 0 {
 				ctx = context.WithValue(ctx, proxy.InstallationExcludedProvidersContextKey{}, installation.ExcludedProviders)

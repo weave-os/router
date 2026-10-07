@@ -47,6 +47,11 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		return err
 	}
 
+	if subscriptionStateModelsEnabled(ctx) {
+		// Native Gemini cannot use Claude or Codex OAuth capacity.
+		ctx = context.WithValue(ctx, subscriptionStateAllowedModelsKey{}, modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx)))
+		ctx = context.WithValue(ctx, subscriptionAPIOnlyKey{}, true)
+	}
 	ctx, rateLimit := s.withRateLimitTurn(ctx)
 	log := observability.FromContext(ctx)
 	requestStart := time.Now()

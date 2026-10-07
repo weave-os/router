@@ -25,11 +25,11 @@ type Installation struct {
 	// routing is confined to these models minus ExcludedModels.
 	// Empty = no restriction; fail-closed when no eligible overlap remains.
 	AllowedModels []string
-	// ModelsWhenSubscriptionActive is the ordered soft preference while the
-	// caller's subscription has headroom. Empty means no state-specific preference.
+	// ModelsWhenSubscriptionActive limits models served through included Claude
+	// or Codex capacity. Empty refuses included serving when either set is configured.
 	ModelsWhenSubscriptionActive []string
-	// ModelsWhenSubscriptionInactive is the ordered soft preference after the
-	// caller's subscription is exhausted. Empty means no state-specific preference.
+	// ModelsWhenSubscriptionInactive limits paid fallback after included targets
+	// are unavailable. Empty refuses paid fallback when either set is configured.
 	ModelsWhenSubscriptionInactive []string
 	// ExcludedProviders is the per-installation provider exclusion list.
 	// Empty means no exclusion.

@@ -520,13 +520,13 @@ type InstallationExcludedModelsContextKey struct{}
 // means no restriction.
 type InstallationAllowedModelsContextKey struct{}
 
-// InstallationSubscriptionPreferredModelsWhenActiveContextKey carries the
-// installation's ordered soft preferences while its subscription has headroom.
-type InstallationSubscriptionPreferredModelsWhenActiveContextKey struct{}
+// InstallationSubscriptionModelsWhenActiveContextKey carries the
+// installation's model set for included Claude and Codex serving.
+type InstallationSubscriptionModelsWhenActiveContextKey struct{}
 
-// InstallationSubscriptionPreferredModelsWhenInactiveContextKey carries the
-// installation's ordered soft preferences after its subscription is exhausted.
-type InstallationSubscriptionPreferredModelsWhenInactiveContextKey struct{}
+// InstallationSubscriptionModelsWhenInactiveContextKey carries the
+// installation's model set for paid fallback after included targets are unavailable.
+type InstallationSubscriptionModelsWhenInactiveContextKey struct{}
 
 // InstallationExcludedProvidersContextKey is the context key for the authed
 // installation's provider exclusion list. Carried as []string.
@@ -919,8 +919,8 @@ func installationAllowedModelsFromContext(ctx context.Context) []string {
 	return out
 }
 
-func installationSubscriptionPreferredModelsWhenActiveFromContext(ctx context.Context) []string {
-	v := ctx.Value(InstallationSubscriptionPreferredModelsWhenActiveContextKey{})
+func installationSubscriptionModelsWhenActiveFromContext(ctx context.Context) []string {
+	v := ctx.Value(InstallationSubscriptionModelsWhenActiveContextKey{})
 	if v == nil {
 		return nil
 	}
@@ -928,8 +928,8 @@ func installationSubscriptionPreferredModelsWhenActiveFromContext(ctx context.Co
 	return out
 }
 
-func installationSubscriptionPreferredModelsWhenInactiveFromContext(ctx context.Context) []string {
-	v := ctx.Value(InstallationSubscriptionPreferredModelsWhenInactiveContextKey{})
+func installationSubscriptionModelsWhenInactiveFromContext(ctx context.Context) []string {
+	v := ctx.Value(InstallationSubscriptionModelsWhenInactiveContextKey{})
 	if v == nil {
 		return nil
 	}
@@ -941,7 +941,7 @@ func installationSubscriptionPreferredModelsWhenInactiveFromContext(ctx context.
 // set: the installation policy allowlist further narrowed by a request-level
 // AllowedModelsHeader subset when one is present. Nil = no policy.
 func allowedModelsForRequest(ctx context.Context) map[string]struct{} {
-	if planOwnedServingRequest(ctx) {
+	if planOwnedServingRequest(ctx) && !subscriptionStateModelsEnabled(ctx) {
 		return nil
 	}
 	policy := installationAllowedModelSet(ctx)
@@ -961,22 +961,35 @@ func allowedModelsForRequest(ctx context.Context) map[string]struct{} {
 	return out
 }
 
-// installationAllowedModelSet returns only the installation's explicit positive
-// model allowlist as a set. Subscription state is a soft preference and cannot
-// remove providers or models from this set.
+// installationAllowedModelSet intersects subscription-state limits with the
+// installation's model policy. Neither state can widen the global allowlist.
 func installationAllowedModelSet(ctx context.Context) map[string]struct{} {
-	if planOwnedServingRequest(ctx) {
-		return nil
+	var allowed map[string]struct{}
+	if !planOwnedServingRequest(ctx) || subscriptionStateModelsEnabled(ctx) {
+		if base := installationAllowedModelsFromContext(ctx); len(base) > 0 {
+			allowed = modelSet(base)
+		}
 	}
-	base := installationAllowedModelsFromContext(ctx)
-	if len(base) == 0 {
-		return nil
+	if !subscriptionStateModelsEnabled(ctx) {
+		return allowed
 	}
-	out := make(map[string]struct{}, len(base))
-	for _, m := range base {
-		out[m] = struct{}{}
+	state, selected := ctx.Value(subscriptionStateAllowedModelsKey{}).(map[string]struct{})
+	if !selected {
+		state = modelSet(append(append([]string{}, installationSubscriptionModelsWhenActiveFromContext(ctx)...), installationSubscriptionModelsWhenInactiveFromContext(ctx)...))
 	}
-	return out
+	if allowed == nil {
+		if state == nil {
+			return make(map[string]struct{})
+		}
+		return state
+	}
+	intersection := make(map[string]struct{})
+	for model := range state {
+		if _, permitted := allowed[model]; permitted {
+			intersection[model] = struct{}{}
+		}
+	}
+	return intersection
 }
 
 // modelPermittedByAllowlist reports whether model clears the org's positive
@@ -1092,7 +1105,7 @@ func (s *Service) excludedModelsFor(ctx context.Context, allowed map[string]stru
 		return mergeExcludedModels(s.excludedModelsOverride, ineligible)
 	}
 	var excluded []string
-	if !planOwnedServingRequest(ctx) {
+	if !planOwnedServingRequest(ctx) || subscriptionStateModelsEnabled(ctx) {
 		excluded = installationExcludedModelsFromContext(ctx)
 	}
 	out := make(map[string]struct{}, len(excluded)+len(ineligible))
@@ -1126,7 +1139,7 @@ func (s *Service) productIneligibleModels(ctx context.Context) map[string]struct
 }
 
 func installationExcludedProvidersFromContext(ctx context.Context) []string {
-	if planOwnedServingRequest(ctx) {
+	if planOwnedServingRequest(ctx) && !subscriptionStateModelsEnabled(ctx) {
 		return nil
 	}
 	v := ctx.Value(InstallationExcludedProvidersContextKey{})
@@ -3680,7 +3693,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	// Linked-first is a funding preference; only depleted capacity restricts
 	// selection to providers the caller's subscription can serve.
-	if paidFallbackForbidden(ctx) {
+	if billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
 		enabledProviders = restrictToSubscriptionProviders(ctx, r.Header, enabledProviders)
 	}
 
@@ -3984,7 +3997,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Subscription-only turns are excluded (like the OpenAI path): the mode is an
 	// unfoldable routing signal absent from the cache key, so a stored body would
 	// bypass the exhausted-sub 402 guard and the depleted-credits warning below.
-	cacheEligible := routeRes.EscalationOrdinal == 0 && routeRes.llmEscalation == nil && !clientRecoveryApplied && s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && externalID != "" && !bypassEval && !compactionHandoverRan && !billing.SubscriptionOnlyFromContext(ctx) && !requestAllowedModelsPresent(ctx)
+	cacheEligible := routeRes.EscalationOrdinal == 0 && routeRes.llmEscalation == nil && !clientRecoveryApplied && s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && externalID != "" && !bypassEval && !compactionHandoverRan && !billing.SubscriptionOnlyFromContext(ctx) && !requestAllowedModelsPresent(ctx) && !subscriptionStateModelsEnabled(ctx)
 	if cacheEligible {
 		if resp, hit := s.semanticCache.Lookup(externalID, cache.FormatAnthropic, decision.Metadata.Embedding, decision.Metadata.ClusterIDs, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash); hit {
 			s.writeCachedResponse(w, resp, decision)
@@ -4118,7 +4131,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// to the single Anthropic binding (shouldFailover is already false with an
 	// OAuth credential in context; this is belt-and-suspenders) so failover
 	// can't reroute onto a paid provider.
-	if billing.SubscriptionOnlyFromContext(ctx) && !routeRes.UsageBypass {
+	if billing.SubscriptionOnlyFromContext(ctx) && !routeRes.UsageBypass && !subscriptionStateModelsEnabled(ctx) {
 		switch {
 		case !servedOnSubscription(ctx) && !managedSubscriptionCanServe(ctx, decision.Provider, decision.Model):
 			released, ok := releaseUnservableLinkedFirst(ctx, decision)
@@ -4610,6 +4623,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			w:               contentSink,
 			buf:             preludeBuf,
 			initialDecision: decision,
+			stateRequest:    &req,
+			stateHeaders:    r.Header,
 			alternatives: func() []router.Decision {
 				if routeRes.HardPinned || routeRes.AuthoritativePerTurn {
 					return nil
@@ -6781,7 +6796,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	// Linked-first is a funding preference; only depleted capacity restricts
 	// selection to providers the caller's subscription can serve.
-	if paidFallbackForbidden(ctx) {
+	if billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
 		enabledProviders = restrictToSubscriptionProviders(ctx, r.Header, enabledProviders)
 	}
 
@@ -6916,7 +6931,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	// See the ProxyMessages cache-eligibility note: subscription-only requests
 	// bypass the semantic cache because the key does not capture that mode.
-	cacheEligible := routeRes.EscalationOrdinal == 0 && routeRes.llmEscalation == nil && s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && externalID != "" && !bypassEval && !responsesPassthrough && !billing.SubscriptionOnlyFromContext(ctx) && !requestAllowedModelsPresent(ctx)
+	cacheEligible := routeRes.EscalationOrdinal == 0 && routeRes.llmEscalation == nil && s.semanticCacheAllowed(ctx) && s.semanticCache != nil && !env.Stream() && decision.Metadata != nil && externalID != "" && !bypassEval && !responsesPassthrough && !billing.SubscriptionOnlyFromContext(ctx) && !requestAllowedModelsPresent(ctx) && !subscriptionStateModelsEnabled(ctx)
 	if cacheEligible {
 		if resp, hit := s.semanticCache.Lookup(externalID, cache.FormatOpenAI, decision.Metadata.Embedding, decision.Metadata.ClusterIDs, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash); hit {
 			s.writeCachedResponse(w, resp, decision)
@@ -7058,7 +7073,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// linked-first, whose organization credits are intact, so the turn
 	// continues paid instead. When it did, pin dispatch to that single binding
 	// so failover can't reroute onto a paid provider.
-	if billing.SubscriptionOnlyFromContext(ctx) {
+	if billing.SubscriptionOnlyFromContext(ctx) && !subscriptionStateModelsEnabled(ctx) {
 		if !servedOnSubscription(ctx) && !managedSubscriptionCanServe(ctx, decision.Provider, decision.Model) {
 			released, ok := releaseUnservableLinkedFirst(ctx, decision)
 			if !ok {
@@ -7688,6 +7703,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		w:               contentSink,
 		buf:             preludeBuf,
 		initialDecision: decision,
+		stateRequest:    &routeRequest,
+		stateHeaders:    r.Header,
 		alternatives: func() []router.Decision {
 			if routeRes.HardPinned || routeRes.AuthoritativePerTurn {
 				return nil

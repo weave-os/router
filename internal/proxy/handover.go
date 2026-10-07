@@ -19,6 +19,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/translate"
@@ -187,6 +188,21 @@ func summarizerRequest(scope router.Request, env *translate.RequestEnvelope) rou
 func (s *ProviderSummarizer) resolve(ctx context.Context, request policy.ResolutionRequest) (policy.ResolvedPlan, error) {
 	if s.plans == nil || s.executor == nil {
 		return policy.ResolvedPlan{}, errors.New("handover: summarizer has no plan resolver or executor")
+	}
+	if subscriptionStateModelsEnabled(ctx) {
+		// Summaries use deployment credentials, so active-only models cannot
+		// authorize their paid inference as a side effect of switching models.
+		paidCtx := context.WithValue(ctx, subscriptionStateAllowedModelsKey{}, modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx)))
+		allowed := allowedModelsForRequest(paidCtx)
+		request.RouterRequest.ExcludedModels = cloneStringSet(request.RouterRequest.ExcludedModels)
+		if request.RouterRequest.ExcludedModels == nil {
+			request.RouterRequest.ExcludedModels = make(map[string]struct{})
+		}
+		for _, model := range catalog.Models {
+			if _, permitted := allowed[model.ID]; !permitted {
+				request.RouterRequest.ExcludedModels[model.ID] = struct{}{}
+			}
+		}
 	}
 	plan, err := s.plans.Resolve(request)
 	if err != nil {

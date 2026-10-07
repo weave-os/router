@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
@@ -247,6 +248,8 @@ type failoverInputs struct {
 	// origin names the override source that fixed the decision's model.
 	purpose          inference.Purpose
 	origin           policy.OverrideSource
+	stateRequest     *router.Request
+	stateHeaders     http.Header
 	alternatives     []router.Decision
 	buildAlternative func(router.Decision) (dispatchAttempt, error)
 	onAlternative    func(router.Decision)
@@ -263,6 +266,15 @@ var errDispatchWithoutPurpose = errors.New("dispatchWithFallback: no inference p
 // error. On final-attempt error it flushes the upstream's own envelope to w
 // instead of a generic 502.
 func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (winnerIdx int, err error) {
+	if in.stateRequest != nil && subscriptionStateModelsEnabled(ctx) && in.buildAlternative != nil {
+		return s.dispatchSubscriptionStateModels(ctx, in)
+	}
+	if subscriptionStateModelsEnabled(ctx) && !subscriptionAttemptOnly(ctx) {
+		paid := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))
+		if _, allowed := paid[in.initialDecision.Model]; !allowed {
+			return -1, cluster.ErrAllowlistEmptiesPool
+		}
+	}
 	if len(in.alternatives) > 0 && in.buildAlternative != nil {
 		return s.dispatchSubscriptionAlternatives(ctx, in)
 	}

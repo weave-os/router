@@ -18,7 +18,18 @@ Automatic alternatives reuse the existing policy's request-compatible ordering
 and preserve the selected quality tier, tool/context exclusions and provider
 allowlist. Explicit models stay fixed. Boost follows stable source ordering; Max
 retains its existing subscription exclusion. After eligible included capacity is
-exhausted, authorized API capacity serves the originally selected model. Committed
+exhausted, authorized API capacity serves the originally selected model unless
+subscription-aware model sets are configured. With those sets enabled, the
+active set limits included Claude/Codex targets and the exhausted set limits
+paid fallback. Exhausting Claude does not make its active-only models eligible
+for paid use while Codex remains available. Every selected included target must
+actually use a subscription; after eligible active targets are unavailable,
+the router selects a request-compatible model from the exhausted set. The
+installation allowlist and request safety constraints still apply to both sets.
+An empty enabled state refuses that funding lane. Disabling the sets retains
+ordinary routing; Max continues to ignore linked subscriptions and these sets.
+Paid handover summaries also respect the exhausted set; an excluded summary
+preserves full history instead of silently buying an active-only model. Committed
 streams are never replayed, and terminal upstream failures are accounted as errors.
 
 Native OpenAI Codex and Anthropic adapters accept subscription OAuth credentials.
