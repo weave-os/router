@@ -399,9 +399,9 @@ func TestService_Cache_StructuredResponsesCannotHitOrPopulateChatCache(t *testin
 			ctx := proxyContextWithExternalID(t, "tenant")
 			chat := []byte(chatCacheableTurnBody)
 			structured := []byte(`{"model":"auto","stream":false,"max_output_tokens":4096,"input":[{"role":"user","content":"summarize the release notes"}],"text":{"format":{"type":"json_schema","name":"answer","schema":{"type":"object"}}}}`)
-			invoke := func(responses bool) *httptest.ResponseRecorder {
+			invoke := func(useResponsesAPI bool) *httptest.ResponseRecorder {
 				rec := httptest.NewRecorder()
-				if responses {
+				if useResponsesAPI {
 					require.NoError(t, svc.ProxyOpenAIResponses(ctx, structured, rec, httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))
 				} else {
 					require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, chat, rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)))
