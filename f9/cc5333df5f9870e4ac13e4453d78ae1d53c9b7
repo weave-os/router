@@ -50,6 +50,7 @@ install/tests/codex-status_test.sh
 docs/CONFIGURATION.md
   s_527111cf8ce1b4::t_e77ced0957530b 844-860,862
   s_527111cf8ce1b4::t_c57436845b115a 861
+  s_527111cf8ce1b4::t_ff54eedee1f3e2 863
 install/README.md
   s_527111cf8ce1b4::t_e77ced0957530b 651-665
   s_527111cf8ce1b4::t_ff5b09301b220a 404
@@ -60,6 +61,7 @@ internal/sqlc/model_router_request_telemetry.sql.go
   s_527111cf8ce1b4::t_49ca2b3375aa0d 543-548,550-551,576,595-600,602-603,624
   s_527111cf8ce1b4::t_68691785bd6819 2110-2111,2465,2699-2700,3053
   s_527111cf8ce1b4::t_c657d59ef7501e 549,601
+  s_527111cf8ce1b4::t_73ab48abfc1d03 2285-2286,2874-2875
 internal/api/admin/session_cost.go
   s_527111cf8ce1b4::t_d7a3f88a9c36eb 23-36
   s_527111cf8ce1b4::t_521df8da702409 73-76,80
