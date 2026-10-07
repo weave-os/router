@@ -195,7 +195,6 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	engine.GET("/startupz", admin.StartupHandler(features.Startup))
 	engine.GET("/capacityz", admin.CapacityHandler(features.Capacity))
 	engine.GET("/readyz", middleware.WithTimeout(readinessTimeout), admin.ReadinessHandler(readinessChecker))
-	engine.GET("/startupz", middleware.WithTimeout(readinessTimeout), admin.ReadinessHandler(readinessChecker))
 
 	// /v1/version reports the binary's git commit + build time (via -ldflags),
 	// used by the README's managed-deployment badge. Public build metadata, unauthed like /health.
