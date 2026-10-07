@@ -626,5 +626,13 @@ calls. Each reasoning model uses its least supported declared effort; GPT-5.4 Pr
 uses `medium`. The tool continues across failures and reports them together.
 Deployment owners can explicitly execute against each isolated fleet with
 `ROUTER_WARMUP_API_KEY` and `-execute -origin <fleet-origin>`; this incurs live
-inference costs. No warmup was executed during implementation. Wire this tool
-into private warmup automation before cutover; do not narrow warmup to one model.
+inference costs.
+
+Worker startup separately warms resources known to that worker before marking
+the `/startupz` probe ready. It exercises the local scorer and classifier, warms
+the actual provider transports, and runs one synthetic generation for each
+boot-known deployment model and required auxiliary target. Startup generations
+use the `startup_warmup` policy: one attempt without fallback, at most four
+concurrent calls, up to 30 seconds per model, and the shared 170-second boot
+deadline. Provider failures in required startup work fail boot; this bounded
+worker warmup does not replace the operator-run full-catalog warmup.

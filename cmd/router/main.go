@@ -1068,7 +1068,7 @@ func main() {
 		defer cancelTaskSweep()
 		safeGo(logger, "task-domain-sweep", func() { taskRuntime.sweep(taskSweepCtx) })
 	}
-if managedServingEnabled(deploymentMode) {
+	if managedServingEnabled(deploymentMode) {
 		prepareCtx, cancelPrepare := context.WithTimeout(startupCtx, 60*time.Second)
 		admission, baseline, closeRegistry, err := buildManagedServingRuntime(prepareCtx, availableProviders, taskRuntime)
 		cancelPrepare()
@@ -1588,7 +1588,7 @@ if managedServingEnabled(deploymentMode) {
 	if os.Getenv("PUBSUB_EMULATOR_HOST") == "" {
 		initializedOrigins["https://pubsub.googleapis.com"] = struct{}{}
 	}
-	if managedServingEnabled() || policyEnvironmentRaw != "" {
+	if managedServingEnabled(deploymentMode) || policyEnvironmentRaw != "" {
 		initializedOrigins["https://storage.googleapis.com"] = struct{}{}
 	}
 	if err := egressProbe.wait(startupCtx, logger, providerMap, envKeyedProviders, initializedOrigins); err != nil {
