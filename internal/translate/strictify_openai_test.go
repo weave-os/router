@@ -21,6 +21,27 @@ func strictifyFromJSON(t *testing.T, schema string) (map[string]any, bool) {
 	return m, true
 }
 
+func TestCloseOpenAISchemaObjects_LeavesAllOfBranchesOpen(t *testing.T) {
+	var schema any
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"type":"object",
+		"allOf":[
+			{"type":"object","properties":{"left":{"type":"string"}},"required":["left"]},
+			{"type":"object","properties":{"right":{"type":"string"}},"required":["right"]}
+		]
+	}`), &schema))
+
+	closed, ok := closeOpenAISchemaObjects(schema)
+	require.True(t, ok)
+	root := closed.(map[string]any)
+	branches := root["allOf"].([]any)
+	for _, branch := range branches {
+		branchSchema := branch.(map[string]any)
+		assert.NotContains(t, branchSchema, "additionalProperties",
+			"each branch must allow properties declared by its allOf siblings")
+	}
+}
+
 func TestStrictify_OptionalBecomesNullableAndRequired(t *testing.T) {
 	out, ok := strictifyFromJSON(t, `{
 		"type":"object",

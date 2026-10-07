@@ -139,7 +139,7 @@ func TestPrepareOpenAIResponses_FallbackClosesNestedObjectsSafely(t *testing.T) 
 	choice := properties["choice"].(map[string]any)["oneOf"].([]any)[0].(map[string]any)
 	assert.Equal(t, false, choice["additionalProperties"], "object union branches are closed")
 	allOf := params["allOf"].([]any)[0].(map[string]any)
-	assert.Equal(t, false, allOf["additionalProperties"], "the branch itself is closed around its declared keys")
+	assert.NotContains(t, allOf, "additionalProperties", "allOf branches stay open to sibling branch properties")
 }
 
 func TestPrepareGemini_ValidatedModeOnGemini3x(t *testing.T) {

@@ -118,6 +118,10 @@ func closeOpenAISchemaNode(node map[string]any) map[string]any {
 					children = append(children, item)
 					continue
 				}
+				if keyword == "allOf" {
+					children = append(children, childSchema)
+					continue
+				}
 				children = append(children, closeOpenAISchemaNode(childSchema))
 			}
 			closed[keyword] = children
