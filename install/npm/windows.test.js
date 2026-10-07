@@ -1,5 +1,5 @@
 const assert = require("node:assert/strict");
-const { execFile } = require("node:child_process");
+const { execFile, execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
 const os = require("node:os");
@@ -210,4 +210,29 @@ test("the Windows wrapper probes Git Bash without profile or BASH_ENV banners", 
 
 test("native installer rejects control characters in email headers", async () => {
   await assert.rejects(runInstaller("--codex", "--non-interactive", "--base-url", baseUrl, "--email", "user\n@example.com"), (error) => error.stderr.includes("control characters"));
+});
+
+test("project setup handles large Git indexes without listing unrelated paths", async () => {
+  const project = path.join(temporaryHome, "large-project");
+  fs.mkdirSync(project);
+  await runFile("git", ["init", "-q", project]);
+  const fixture = path.join(project, "fixture");
+  fs.writeFileSync(fixture, "synthetic fixture");
+  const objectId = (await runFile("git", ["-C", project, "hash-object", "-w", fixture])).stdout.trim();
+  const indexEntries = Array.from({ length: 12000 }, (_, index) => `100644 ${objectId}\tfiles/${"x".repeat(100)}-${index}\n`).join("");
+  execFileSync("git", ["-C", project, "update-index", "--index-info"], { input: indexEntries });
+  await runInstallerAt(project, ["--codex", "--scope", "project", "--non-interactive", "--base-url", baseUrl], { cwd: project });
+  assert.equal(TOML.parse(fs.readFileSync(path.join(project, ".codex", "config.toml"), "utf8")).model_provider, "weave");
+});
+
+test("Codex uninstall after upgrading a stateless install removes the managed provider", async () => {
+  const home = path.join(temporaryHome, "codex-upgrade");
+  const config = path.join(home, ".codex", "config.toml");
+  fs.mkdirSync(path.dirname(config), { recursive: true });
+  fs.writeFileSync(config, 'model_provider = "weave"\nmodel = "weave-auto"\n[model_providers.weave]\nname = "Weave Router"\n');
+  await runInstallerAt(home, ["--codex", "--non-interactive", "--base-url", baseUrl]);
+  await runInstallerAt(home, ["--codex", "--uninstall"]);
+  const settings = TOML.parse(fs.readFileSync(config, "utf8"));
+  assert.equal(settings.model_provider, undefined);
+  assert.equal(settings.model_providers?.weave, undefined);
 });

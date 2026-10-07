@@ -139,7 +139,7 @@ async function ensureProjectFilesPrivate(root, target) {
     }
     let trackedFiles;
     try {
-      trackedFiles = execFileSync("git", ["-C", repositoryRoot, "ls-files", "-z"], { encoding: "utf8" }).split("\0").filter(Boolean);
+      trackedFiles = execFileSync("git", ["-C", repositoryRoot, "ls-files", "-z", "--", ...[...projectConfigPaths, ".claude/settings.json"].map((configPath) => `:(literal)${path.relative(repositoryRoot, path.join(root, configPath)).split(path.sep).join("/")}`)], { encoding: "utf8" }).split("\0").filter(Boolean);
     } catch (error) {
       if (error.code !== "ENOENT") throw error;
       try {
@@ -198,7 +198,7 @@ function installClaude(paths, baseUrl, key, email) {
 function installCodex(paths, baseUrl, key, email) {
   const settings = readToml(paths.config);
   const state = readJson(paths.state);
-  state.modelProvider ||= { exists: Object.hasOwn(settings, "model_provider"), value: settings.model_provider };
+  state.modelProvider ||= { exists: Object.hasOwn(settings, "model_provider") && settings.model_provider !== "weave", value: settings.model_provider !== "weave" ? settings.model_provider : undefined };
   writeJson(paths.state, state);
   const currentModel = settings.model;
   const hasUserModel = typeof currentModel === "string" && currentModel !== "weave-auto";
