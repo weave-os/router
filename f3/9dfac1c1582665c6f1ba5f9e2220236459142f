@@ -1,0 +1,20 @@
+internal/providers/google/native_client.go
+  s_5e8e39d3453282::t_2f1df3d836abb5 65-66
+  s_5e8e39d3453282::t_d63a6c276055ab 57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "f39dfac1c1582665c6f1ba5f9e2220236459142f",
+  "prompts": {},
+  "sessions": {
+    "s_5e8e39d3453282": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2c6d70fa-3ec5-4c6d-ac32-11ce75ef01ab",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

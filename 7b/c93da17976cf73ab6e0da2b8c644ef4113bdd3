@@ -1,0 +1,39 @@
+internal/server/middleware/traffic_capture.go
+  s_fa2c7ee8de2e18::t_28cc1f58b430e6 1-153
+cmd/router/traffic_capture.go
+  s_fa2c7ee8de2e18::t_28cc1f58b430e6 1-118
+cmd/router/traffic_capture_test.go
+  s_fa2c7ee8de2e18::t_28cc1f58b430e6 1-240
+internal/trafficcapture/capture_test.go
+  s_fa2c7ee8de2e18::t_28cc1f58b430e6 1-47
+internal/providers/httputil/traffic_capture_test.go
+  s_fa2c7ee8de2e18::t_28cc1f58b430e6 1-151
+internal/server/middleware/traffic_capture_test.go
+  s_fa2c7ee8de2e18::t_28cc1f58b430e6 1-116
+internal/trafficcapture/capture.go
+  s_fa2c7ee8de2e18::t_28cc1f58b430e6 1-100
+cmd/router/main.go
+  s_fa2c7ee8de2e18::t_28cc1f58b430e6 12,1445-1458,1497,1499-1503,1505
+internal/providers/httputil/httputil.go
+  s_fa2c7ee8de2e18::t_28cc1f58b430e6 272
+internal/server/server.go
+  s_fa2c7ee8de2e18::t_28cc1f58b430e6 30,114-115,149-151
+internal/providers/httputil/traffic_capture.go
+  s_fa2c7ee8de2e18::t_28cc1f58b430e6 1-227
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7bc93da17976cf73ab6e0da2b8c644ef4113bdd3",
+  "prompts": {},
+  "sessions": {
+    "s_fa2c7ee8de2e18": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0ea0e-250d-74d3-9341-d6de94d9cd65",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

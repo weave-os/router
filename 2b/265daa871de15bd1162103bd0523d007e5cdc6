@@ -1,0 +1,23 @@
+install/uninstall.sh
+  s_ec362c057a07f3::t_d825bcaebced17 561-563,566
+install/tests/key_reuse_test.sh
+  s_ec362c057a07f3::t_8b5ba3c71dc457 94-99,101-122
+  s_ec362c057a07f3::t_944d133a94f357 13,15
+  s_ec362c057a07f3::t_9bd4ee5cdd5f50 100
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "2b265daa871de15bd1162103bd0523d007e5cdc6",
+  "prompts": {},
+  "sessions": {
+    "s_ec362c057a07f3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "581aa5e0-1763-4c7f-bafc-82c55c426f55",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

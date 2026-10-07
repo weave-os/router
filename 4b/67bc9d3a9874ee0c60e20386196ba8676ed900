@@ -1,0 +1,63 @@
+internal/gateway/products.go
+  s_995f50c8cb9d9c::t_d350e10e38cb76 127-140
+docs/SERVING_CONTROL.md
+  s_995f50c8cb9d9c::t_d350e10e38cb76 458-459
+cmd/router/startup_egress.go
+  s_995f50c8cb9d9c::t_93d7637c6a0d32 7,24-27
+  s_995f50c8cb9d9c::t_d350e10e38cb76 15,41-44,51-53,84-86
+  s_995f50c8cb9d9c::t_72333dc8eae40c 56-57,59,62,71,81,83,95,104,107,109
+internal/gateway/products_test.go
+  s_995f50c8cb9d9c::t_93d7637c6a0d32 21,33-63
+  s_48845d7bfeb9dc::t_0a09aaa39d9e4f 64-65
+scripts/legacy_runtime_check/README.md
+  s_995f50c8cb9d9c::t_e2af45666806aa 5-9
+internal/gateway/gateway.go
+  s_995f50c8cb9d9c::t_d350e10e38cb76 96
+  s_995f50c8cb9d9c::t_72333dc8eae40c 210
+smoke/mitmproxy/startup.go
+  s_995f50c8cb9d9c::t_72333dc8eae40c 33
+cmd/router/startup_inference.go
+  s_995f50c8cb9d9c::t_72333dc8eae40c 171,175
+internal/gateway/iam/authorizer_test.go
+  s_995f50c8cb9d9c::t_2c3363b255a202 79-110
+internal/health/config_test.go
+  s_995f50c8cb9d9c::t_81c9d9cbfb4fb2 4-5,39-56,58
+  s_995f50c8cb9d9c::t_01312354eecd3e 57
+  s_995f50c8cb9d9c::t_7f51124281d6d7 59
+scripts/legacy_runtime_check/main.go
+  s_995f50c8cb9d9c::t_e2af45666806aa 2,14,78-91,93,100,126-127
+cmd/router/startup_egress_test.go
+  s_995f50c8cb9d9c::t_93d7637c6a0d32 9-10,67,73,75,77-86
+  s_995f50c8cb9d9c::t_d350e10e38cb76 11,74,76,87
+  s_48845d7bfeb9dc::t_06012235229b7f 88-89
+internal/health/config.go
+  s_995f50c8cb9d9c::t_72333dc8eae40c 5,66,69
+internal/dispatch/buffered.go
+  s_995f50c8cb9d9c::t_723903ada03837 31,36-39,46,65
+internal/gateway/iam/authorizer.go
+  s_995f50c8cb9d9c::t_723903ada03837 26-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4b67bc9d3a9874ee0c60e20386196ba8676ed900",
+  "prompts": {},
+  "sessions": {
+    "s_48845d7bfeb9dc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f433-1544-71c1-a304-2faa7575e7b4",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
+    "s_995f50c8cb9d9c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f3da-c220-7d30-a2c2-f7306bea491b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
