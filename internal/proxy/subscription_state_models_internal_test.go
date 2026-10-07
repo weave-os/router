@@ -357,6 +357,9 @@ func TestSubscriptionStatePaidRescueRequiresExhaustedSetTarget(t *testing.T) {
 	require.True(t, paidFallbackForbidden(ctx))
 	require.False(t, paidFallbackForbiddenForModel(ctx, statePaidModel))
 	require.True(t, paidFallbackForbiddenForModel(ctx, stateClaudeModel))
+	require.Equal(t, []router.Decision{{Model: statePaidModel}}, subscriptionStatePaidRescueDecisions(ctx, []router.Decision{
+		{Model: stateClaudeModel}, {Model: statePaidModel}, {Model: stateCodexModel},
+	}))
 
 	allowedRescueCtx := subscriptionStatePaidRescueContext(ctx, statePaidModel)
 	require.False(t, paidFallbackForbidden(allowedRescueCtx))

@@ -226,11 +226,6 @@ func (s *Service) subscriptionStatePaidTargetAvailable(ctx context.Context, head
 func (s *Service) dispatchSubscriptionStateTarget(ctx context.Context, in failoverInputs, target router.Decision, usesIncludedSubscription bool) (int, error) {
 	ctx = s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, in.subscriptionStateHeaders)
 	resolvedTargetBindings := s.resolveBindingsForDispatch(ctx, target)
-	if in.onSubscriptionStateTarget != nil {
-		in.onSubscriptionStateTarget(target, resolvedTargetBindings)
-	} else if in.onAlternative != nil {
-		in.onAlternative(target)
-	}
 	if !usesIncludedSubscription && in.onSubscriptionStatePaidTarget != nil {
 		in.onSubscriptionStatePaidTarget(target, resolvedTargetBindings)
 	}
@@ -250,5 +245,12 @@ func (s *Service) dispatchSubscriptionStateTarget(ctx context.Context, in failov
 		in.deferFlushOnExhaustion = true
 	}
 	winner, err := s.dispatchWithFallback(ctx, in)
+	if err == nil {
+		if in.onSubscriptionStateTarget != nil {
+			in.onSubscriptionStateTarget(target, in.bindings)
+		} else if in.onAlternative != nil {
+			in.onAlternative(target)
+		}
+	}
 	return winner, err
 }

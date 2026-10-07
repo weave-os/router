@@ -3972,6 +3972,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// non-Anthropic model unaware of elided edits/decisions, so rewrite the
 	// envelope with a handover summary before dispatch.
 	compactionHandoverRan := false
+	subscriptionStatePaidTargetAttempted := false
 	var compactionHandoverOutcome handoverOutcome
 	// Detection runs pre-routing in runTurnLoop; routeRes.PrefixTrimmed carries
 	// the verdict. Skip if a model-switch handover already rewrote env this
@@ -4577,7 +4578,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	subscriptionRetryEligible := decision.Provider == providers.ProviderAnthropic &&
 		!agentShadowMode &&
 		servedOnSubscription(ctx) &&
-		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx) && len(installationSubscriptionModelsWhenInactiveFromContext(ctx)) > 0) &&
+		!paidFallbackForbiddenForModel(ctx, decision.Model) &&
 		s.anthropicFallbackKeyAvailable(ctx)
 
 	// Same-cluster model failover: when the routed model's only binding is dark,
@@ -4585,14 +4586,14 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// turns (a different model incurs the paid spend that mode forbids). BYOK
 	// normally disables failover, but a gateway-aliased sibling uses the same
 	// held credentials, so it stays eligible.
-	siblingDecisions := s.siblingFailoverDecisions(ctx, rescueBasisForTurn(decision, routeRes), overflowEstimate, env.SignatureTokenSavings(), outputReserve)
+	siblingDecisions := subscriptionStatePaidRescueDecisions(ctx, s.siblingFailoverDecisions(ctx, rescueBasisForTurn(decision, routeRes), overflowEstimate, env.SignatureTokenSavings(), outputReserve))
 	siblingViable := s.ResolveSiblingFailover(ctx) &&
 		len(siblingDecisions) > 0 &&
 		!agentShadowMode &&
 		!routeRes.CallerModelPassthrough &&
 		decision.Reason != translate.ReasonUserForceModel &&
 		(s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, siblingDecisions[0])) &&
-		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx) && hasSubscriptionStatePaidRescue(ctx, siblingDecisions))
+		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx))
 
 	primaryProvider := decision.Provider
 	// Captured before rescue: failover replaces decision.Model, so afterwards
@@ -4654,6 +4655,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				marker = suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, target.Model), target.Model, markerReasonSibling))
 			},
 			onSubscriptionStatePaidTarget: func(target router.Decision, _ []catalog.ProviderBinding) {
+				subscriptionStatePaidTargetAttempted = true
 				if !agentShadowMode && !routeRes.AuthoritativePerTurn && target.Provider != providers.ProviderAnthropic && !routeRes.HardPinned && !routeRes.Handover.Invoked && routeRes.PrefixTrimmed {
 					log.Info("Context trimming detected on selected exhausted-state route; rewriting context with handover summary", "decision_model", target.Model)
 					compactionHandoverOutcome = s.runCompactionHandover(ctx, env, r.Header, target.Model, req)
@@ -4668,6 +4670,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			origin:                 routeRes.dispatchOrigin(decision),
 		})
 		subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
+	}
+	if subscriptionStatePaidTargetAttempted {
+		subscriptionRetryEligible = false
 	}
 	primaryFailureErr := proxyErr
 	primarySubscriptionArmFailure := proxyErr
@@ -7667,23 +7672,23 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	codexRetryViable := decision.Provider == providers.ProviderOpenAI &&
 		servedOnCodexSubscription(ctx) &&
 		!blindExperimentPassthroughActive(ctx) &&
-		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx) && len(installationSubscriptionModelsWhenInactiveFromContext(ctx)) > 0) &&
+		!paidFallbackForbiddenForModel(ctx, decision.Model) &&
 		s.openaiFallbackKeyAvailable(ctx)
 	// OpenAI-compatible callers can route to Anthropic too; give their Claude
 	// subscription model-access rejection the same paid recovery as /v1/messages.
 	claudeRetryViable := decision.Provider == providers.ProviderAnthropic &&
 		servedOnSubscription(ctx) &&
 		!blindExperimentPassthroughActive(ctx) &&
-		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx) && len(installationSubscriptionModelsWhenInactiveFromContext(ctx)) > 0) &&
+		!paidFallbackForbiddenForModel(ctx, decision.Model) &&
 		s.anthropicFallbackKeyAvailable(ctx)
 
-	siblingDecisions := s.siblingFailoverDecisions(ctx, rescueBasisForTurn(decision, routeRes), overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI)
+	siblingDecisions := subscriptionStatePaidRescueDecisions(ctx, s.siblingFailoverDecisions(ctx, rescueBasisForTurn(decision, routeRes), overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI))
 	siblingViable := s.ResolveSiblingFailover(ctx) &&
 		len(siblingDecisions) > 0 &&
 		!routeRes.CallerModelPassthrough &&
 		!strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) &&
 		(s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, siblingDecisions[0])) &&
-		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx) && hasSubscriptionStatePaidRescue(ctx, siblingDecisions))
+		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx))
 
 	primaryProvider := decision.Provider
 	primaryModel := decision.Model
@@ -7693,6 +7698,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		surfacePurpose = inference.PurposeOpenAIResponses
 	}
 	var winnerIdx int
+	subscriptionStatePaidTargetAttempted := false
 	// A released prelude can only take an SSE error frame, so every dispatch in
 	// the chain renders through this — a JSON envelope appended to a live stream
 	// is unparseable to the client.
@@ -7746,6 +7752,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			bindings = targetBindings
 			marker = suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, target.Model), target.Model, markerReasonSibling))
 		},
+		onSubscriptionStatePaidTarget: func(router.Decision, []catalog.ProviderBinding) {
+			subscriptionStatePaidTargetAttempted = true
+		},
 		bindings:               bindings,
 		attempt:                attempt,
 		flushErr:               flushErrAsOpenAI,
@@ -7753,6 +7762,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		purpose:                routeRes.dispatchPurpose(surfacePurpose),
 		origin:                 routeRes.dispatchOrigin(decision),
 	})
+	if subscriptionStatePaidTargetAttempted {
+		codexRetryViable = false
+		claudeRetryViable = false
+	}
 	primaryFailureErr := proxyErr
 	subscriptionPoolFailure := isSubscriptionPoolError(proxyErr)
 	primarySubscriptionArmFailure := proxyErr
