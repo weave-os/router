@@ -138,13 +138,27 @@ func TestTaskDomainGCSBindingLoadsExactGenerationAndBytes(t *testing.T) {
 		taskDomainTestObject(taskDomainReleases, releaseDigest):  releasePayload,
 		taskDomainTestObject(taskDomainEvidence, evidenceDigest): evidence,
 	}
-	reader := taskDomainTestGCSReader(t, objects)
+	reader, requests := taskDomainTestGCSReader(t, objects)
 	loaded, err := loadTaskDomainBindings(context.Background(), reader, taskDomainTestURI(taskDomainBindings, bindingsDigest), bindingsDigest)
 	require.NoError(t, err)
 	require.Len(t, loaded, 1)
 	assert.Equal(t, release, loaded[releaseDigest].release)
 	assert.Equal(t, evidence, loaded[releaseDigest].evidence[evidenceDigest])
 	require.NotNil(t, loaded[releaseDigest].classifier)
+	require.Len(t, requests, 3)
+	for _, object := range []string{taskDomainTestObject(taskDomainBindings, bindingsDigest), taskDomainTestObject(taskDomainReleases, releaseDigest), taskDomainTestObject(taskDomainEvidence, evidenceDigest)} {
+		request := <-requests
+		assert.Equal(t, "/weave_ml/"+object, request.URL.Path)
+		assert.Equal(t, "7", request.URL.Query().Get("generation"))
+	}
+
+	latest, err := reader.client.Bucket("weave_ml").Object(taskDomainTestObject(taskDomainBindings, bindingsDigest)).NewReader(context.Background())
+	require.NoError(t, err, "the fixture must serve the current object for an unpinned read")
+	latestPayload, err := io.ReadAll(latest)
+	require.NoError(t, err)
+	require.NoError(t, latest.Close())
+	assert.Equal(t, bindingsPayload, latestPayload)
+	assert.Empty(t, (<-requests).URL.Query().Get("generation"))
 
 	for _, object := range []string{taskDomainTestObject(taskDomainBindings, bindingsDigest), taskDomainTestObject(taskDomainReleases, releaseDigest), taskDomainTestObject(taskDomainEvidence, evidenceDigest)} {
 		t.Run(object, func(t *testing.T) {
@@ -155,8 +169,13 @@ func TestTaskDomainGCSBindingLoadsExactGenerationAndBytes(t *testing.T) {
 			objects[object] = original
 		})
 	}
+	for len(requests) > 0 {
+		<-requests
+	}
 	_, err = reader.read(context.Background(), strings.Replace(taskDomainTestURI(taskDomainBindings, bindingsDigest), "#7", "#8", 1), bindingsDigest, taskDomainBindings)
 	require.Error(t, err, "a missing generation must not fall back to the latest object")
+	require.Len(t, requests, 1)
+	assert.Equal(t, "8", (<-requests).URL.Query().Get("generation"))
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	_, err = reader.read(ctx, taskDomainTestURI(taskDomainBindings, bindingsDigest), bindingsDigest, taskDomainBindings)
@@ -193,7 +212,7 @@ func TestTaskDomainMetadataAndInventoryBounds(t *testing.T) {
 	_, err := reader.read(context.Background(), path, "", taskDomainBindings)
 	require.ErrorContains(t, err, "size limit")
 	digest := rosterdata.SHA256Hex(oversized)
-	gcsReader := taskDomainTestGCSReader(t, map[string][]byte{taskDomainTestObject(taskDomainBindings, digest): oversized})
+	gcsReader, _ := taskDomainTestGCSReader(t, map[string][]byte{taskDomainTestObject(taskDomainBindings, digest): oversized})
 	_, err = gcsReader.read(context.Background(), taskDomainTestURI(taskDomainBindings, digest), digest, taskDomainBindings)
 	require.ErrorContains(t, err, "size limit")
 }
@@ -206,12 +225,15 @@ func taskDomainTestURI(kind taskDomainMetadataKind, digest string) string {
 	return "gs://weave_ml/" + taskDomainTestObject(kind, digest) + "#7"
 }
 
-func taskDomainTestGCSReader(t *testing.T, objects map[string][]byte) *taskDomainMetadataReader {
+func taskDomainTestGCSReader(t *testing.T, objects map[string][]byte) (*taskDomainMetadataReader, <-chan *http.Request) {
 	t.Helper()
+	requests := make(chan *http.Request, 32)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, name, found := strings.Cut(r.URL.Path, "/b/weave_ml/o/")
+		requests <- r
+		_, name, found := strings.Cut(r.URL.Path, "/weave_ml/")
 		payload, exists := objects[name]
-		if r.Method != http.MethodGet || !found || !exists || r.URL.Query().Get("generation") != "7" || r.URL.Query().Get("alt") != "media" {
+		generation := r.URL.Query().Get("generation")
+		if r.Method != http.MethodGet || !found || !exists || (generation != "" && generation != "7") {
 			http.Error(w, "immutable object not found", http.StatusNotFound)
 			return
 		}
@@ -220,8 +242,8 @@ func taskDomainTestGCSReader(t *testing.T, objects map[string][]byte) *taskDomai
 		_, _ = io.Copy(w, strings.NewReader(string(payload)))
 	}))
 	t.Cleanup(server.Close)
-	client, err := storage.NewClient(context.Background(), option.WithEndpoint(server.URL), option.WithoutAuthentication(), storage.WithJSONReads())
+	client, err := storage.NewClient(context.Background(), option.WithEndpoint(server.URL), option.WithoutAuthentication())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
-	return &taskDomainMetadataReader{client: client}
+	return &taskDomainMetadataReader{client: client}, requests
 }
