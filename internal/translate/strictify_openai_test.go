@@ -256,6 +256,7 @@ func TestStrictify_PropertyNamesDroppedToDescription(t *testing.T) {
 			"data":{
 				"type":"object",
 				"properties":{},
+				"additionalProperties":false,
 				"propertyNames":{"pattern":"^[a-z]+$"}
 			}
 		},
