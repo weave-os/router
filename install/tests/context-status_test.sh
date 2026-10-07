@@ -58,7 +58,7 @@ absent "$(cat "$work/title")" '%'
 scope="$(printf '%s' "$(cd "$work/helpers" && pwd -P)" | cksum | awk '{print $1}')"
 context_file="$XDG_CACHE_HOME/weave-router/codex/$scope-session-context.context"
 [ -f "$context_file" ]
-[ "$(stat -f %Lp "$context_file" 2>/dev/null || stat -c %a "$context_file")" = 600 ]
+[ "$(stat -c %a "$context_file" 2>/dev/null || stat -f %Lp "$context_file")" = 600 ]
 absent "$(cat "$context_file")" 'rk_synthetic'
 # Use only cached data while testing invalidation; there must be no racing refresh.
 rm "$HOME/.codex/config.toml"
@@ -66,6 +66,12 @@ make_snapshot 301
 cp "$fixture" "$context_file"
 run_codex
 absent "$(cat "$work/title")" 'ctx est.'
+# A cached snapshot for a prior automatic route must not override an explicit pin.
+cp "$fixture" "$context_file"
+forced_payload='{"hook_event_name":"Stop","session_id":"session-context","model":"gpt-5.6-sol","last_assistant_message":"Weave Router: force-model applied: gpt-5.6-sol (session pin)"}'
+printf '%s' "$forced_payload" | "$codex" >/dev/null
+absent "$(cat "$work/title")" 'last Router ctx est.'
+contains "$(cat "$work/title")" 'gpt-5.6-sol'
 make_snapshot
 jq '.session_id="foreign-session"' "$fixture" >"$context_file"
 run_codex

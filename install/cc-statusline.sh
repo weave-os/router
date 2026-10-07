@@ -419,7 +419,14 @@ weave_hidden_gate() {
       file://*) ;;
       *) url="$url/v1/display-settings" ;;
     esac
-    body="$(curl -fsS --max-time 5 -H "X-Weave-Router-Key: $key" "$url" 2>/dev/null)" || exit 0
+    header_file="$(mktemp "$cache_dir/.headers.XXXXXX")" || exit 0
+    chmod 600 "$header_file"
+    printf 'header = "X-Weave-Router-Key: %s"\n' "$key" >"$header_file"
+    if ! body="$(curl -fsS --max-time 5 -K "$header_file" "$url" 2>/dev/null)"; then
+      rm -f "$header_file"
+      exit 0
+    fi
+    rm -f "$header_file"
     hidden="$(printf '%s' "$body" | jq -r '.hide_terminal_surfaces // false' 2>/dev/null)"
     tmp="$cache.tmp.$$"
     if [ "$hidden" = "true" ]; then
@@ -933,8 +940,7 @@ router_context_fallback() {
       served="$(normalize_model "$(jq -r '.served_model' <<<"$snapshot")")"
       requested="$(normalize_model "$(jq -r '.requested_model // empty' <<<"$snapshot")")"
       if [ "$served" = "$transcript_model" ] && [ "$requested" = "$requested_norm" ]; then
-        estimate="$(jq -r '.estimate_tokens' <<<"$snapshot")"
-        context_clause="$(awk -v e="$estimate" -v w="$(jq -r '.context_window' <<<"$snapshot")" 'BEGIN {
+        context_clause="$(awk -v e="$(jq -r '.estimate_tokens' <<<"$snapshot")" -v w="$(jq -r '.context_window' <<<"$snapshot")" 'BEGIN {
           printf " · last Router ctx est. ~%s/%s", (e < 1000 ? e : sprintf("%.0fk", e/1000)), (w < 1000 ? w : sprintf("%.0fk", w/1000))
         }')"
       fi
@@ -956,7 +962,7 @@ router_context_fallback() {
     fi
     trap 'rmdir "$cache.lock" 2>/dev/null' EXIT
     settings_base="$HOME"
-    case "$self" in */.claude) settings_base="${self%/.claude}" ;; esac
+    case "$helper_dir" in */.claude) settings_base="${helper_dir%/.claude}" ;; esac
     settings="$settings_base/.claude/settings.json"
     local_settings="$settings_base/.claude/settings.local.json"
     base=""
@@ -976,13 +982,16 @@ router_context_fallback() {
     url="${base%/}"
     case "$url" in file://*) ;; *) url="${url%/v1}/v1/sessions/$session/cost" ;; esac
     tmp="$(mktemp "$root/.snapshot.XXXXXX")" || exit 0
+    header_file="$(mktemp "$root/.headers.XXXXXX")" || { rm -f "$tmp"; exit 0; }
     chmod 600 "$tmp"
-    if curl -fsS --max-time 5 --max-filesize 8192 -H "X-Weave-Router-Key: $key" "$url" -o "$tmp" 2>/dev/null \
+    chmod 600 "$header_file"
+    printf 'header = "X-Weave-Router-Key: %s"\n' "$key" >"$header_file"
+    if curl -fsS --max-time 5 --max-filesize 8192 -K "$header_file" "$url" -o "$tmp" 2>/dev/null \
        && [ "$(wc -c <"$tmp")" -le 8192 ] \
        && [ "$(jq -r '.session_id // empty' "$tmp" 2>/dev/null)" = "$session" ]; then
       mv "$tmp" "$cache"
     fi
-    rm -f "$tmp"
+    rm -f "$tmp" "$header_file"
   ) >/dev/null 2>&1 &
   disown 2>/dev/null || true
 }

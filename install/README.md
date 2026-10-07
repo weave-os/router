@@ -650,7 +650,7 @@ Removes only the keys / block this installer added; everything else in
 `settings.json` / `config.toml` is left alone.
 
 
-### Context indicators
+## Context indicators
 
 Claude Code's managed status line uses the documented `context_window.used_percentage` only alongside a valid `context_window_size`: `Context 58%`. The `!` cue at 90% is a display convention, not a prediction of Claude's compaction threshold. Missing, malformed, or unsupported fields are omitted. Session token totals and transcript usage never supply a percentage. Native usage takes priority; when unavailable, a matching session/selection/response-model snapshot may supply `last Router ctx est. ~72k/128k`.
 

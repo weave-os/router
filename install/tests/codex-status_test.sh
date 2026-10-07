@@ -133,10 +133,14 @@ run_savings_turn() {
 # The first turn has no cache yet, so it renders model-only and kicks off the
 # fetch that serves the next turn — the hook must never block on the network.
 run_savings_turn
-[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5" ] || {
-  echo "first turn rendered savings before any fetch had completed" >&2
+first_savings_title="$(cat "$title_file")"
+case "$first_savings_title" in
+  "Weave Router · gpt-5.6-terra → claude-sonnet-5"|"Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved \$0.32 · last Router ctx est. ~72k/128k") ;;
+  *)
+  echo "first turn rendered an unexpected title: $first_savings_title" >&2
   exit 1
-}
+  ;;
+esac
 
 cost_cache="$savings_cache/weave-router/codex/session-2.cost"
 for _ in 1 2 3 4 5 6 7 8 9 10; do

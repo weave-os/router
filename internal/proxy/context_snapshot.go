@@ -68,13 +68,19 @@ func setContextEstimateHeaders(headers http.Header, estimate, reserve int) {
 }
 
 func contextSnapshotJSON(headers http.Header, requestID, requestedModel string, requestedAt, recordedAt time.Time) []byte {
+	servedModel := headers.Get(HeaderRouterModel)
+	servedProvider := headers.Get(HeaderRouterProvider)
+	return contextSnapshotJSONForDecision(headers, requestID, requestedModel, servedModel, servedProvider, requestedAt, recordedAt)
+}
+
+func contextSnapshotJSONForDecision(headers http.Header, requestID, requestedModel, servedModel, servedProvider string, requestedAt, recordedAt time.Time) []byte {
 	estimate, _ := strconv.Atoi(headers.Get(HeaderRouterContextEstimate))
-	window, _ := strconv.Atoi(headers.Get(HeaderRouterContextWindow))
 	reserve, _ := strconv.Atoi(headers.Get(HeaderRouterContextReserve))
+	window := contextWindowForRequest(servedModel, servedProvider)
 	snapshot := ContextSnapshot{
 		Version: ContextSnapshotVersion, EstimateKind: ContextEstimateKind(headers.Get(HeaderRouterContextEstimateKind)),
 		EstimateTokens: estimate, ContextWindow: window, OutputReserveTokens: reserve,
-		RequestedModel: requestedModel, ServedModel: headers.Get(HeaderRouterModel), RequestID: requestID, RequestedAt: requestedAt.UTC(), RecordedAt: recordedAt.UTC(),
+		RequestedModel: requestedModel, ServedModel: servedModel, RequestID: requestID, RequestedAt: requestedAt.UTC(), RecordedAt: recordedAt.UTC(),
 	}
 	if !snapshot.Fresh(recordedAt) {
 		return nil

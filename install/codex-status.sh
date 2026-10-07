@@ -163,6 +163,34 @@ context_file_for() {
   printf '%s/%s-%s.context' "$state_root" "$scope" "$id"
 }
 
+generation_file_for() {
+  local id scope
+  id="$(safe_session_id "$1")" || return 1
+  scope="$(printf '%s' "$helper_dir" | cksum | awk '{print $1}')"
+  printf '%s/active-%s-%s' "$state_root" "$scope" "$id"
+}
+
+state_lock_for() {
+  local id scope
+  id="$(safe_session_id "$1")" || return 1
+  scope="$(printf '%s' "$helper_dir" | cksum | awk '{print $1}')"
+  printf '%s/state-%s-%s.lock' "$state_root" "$scope" "$id"
+}
+
+acquire_state_lock() {
+  local lock="$1" attempt=0
+  while ! mkdir "$lock" 2>/dev/null; do
+    attempt=$((attempt + 1))
+    [ "$attempt" -lt 1000 ] || return 1
+    sleep 0.01
+  done
+  return 0
+}
+
+release_state_lock() {
+  rmdir "$1" 2>/dev/null || true
+}
+
 context_snapshot() {
   local file="$1" id="$2" now
   [ -f "$file" ] || return 0
@@ -184,10 +212,9 @@ context_snapshot() {
 }
 
 context_clause() {
-  local snapshot="$1" estimate
+  local snapshot="$1"
   [ -n "$snapshot" ] || return 0
-  estimate="$(jq -r '.estimate_tokens' <<<"$snapshot")"
-  awk -v estimate="$estimate" -v window="$(jq -r '.context_window' <<<"$snapshot")" 'BEGIN {
+  awk -v estimate="$(jq -r '.estimate_tokens' <<<"$snapshot")" -v window="$(jq -r '.context_window' <<<"$snapshot")" 'BEGIN {
     printf " · last Router ctx est. ~%s/%s", (estimate < 1000 ? estimate : sprintf("%.0fk", estimate/1000)), (window < 1000 ? window : sprintf("%.0fk", window/1000))
   }'
 }
@@ -273,7 +300,7 @@ refresh_session_cost() {
   [ "${WEAVE_CODEX_STATUS_SAVINGS:-1}" = "0" ] && [ "${WEAVE_CODEX_STATUS_CONTEXT:-1}" = "0" ] && return 0
   command -v curl >/dev/null 2>&1 || return 0
 
-  local endpoint base_url key
+  local endpoint base_url key active_file state_lock
   endpoint="$(read_codex_endpoint)" || return 0
   base_url="$(printf '%s' "$endpoint" | sed -n 1p)"
   key="$(printf '%s' "$endpoint" | sed -n 2p)"
@@ -281,6 +308,8 @@ refresh_session_cost() {
 
   mkdir -p "$state_root" 2>/dev/null || return 0
   chmod 700 "$state_root" 2>/dev/null || true
+  active_file="$(generation_file_for "$id")" || return 0
+  state_lock="$(state_lock_for "$id")" || return 0
 
   (
     exec </dev/null
@@ -305,59 +334,91 @@ refresh_session_cost() {
       file://*) ;;
       *) url="${url%/v1}/v1/sessions/$id/cost" ;;
     esac
-    body="$(curl -fsS --max-time 5 --max-filesize 8192 -H "X-Weave-Router-Key: $key" "$url" 2>/dev/null)" || exit 0
+    header_file="$(mktemp "$state_root/.headers.XXXXXX")" || exit 0
+    chmod 600 "$header_file"
+    printf 'header = "X-Weave-Router-Key: %s"\n' "$key" >"$header_file"
+    if ! body="$(curl -fsS --max-time 5 --max-filesize 8192 -K "$header_file" "$url" 2>/dev/null)"; then
+      rm -f "$header_file"
+      exit 0
+    fi
+    rm -f "$header_file"
     [ "$(printf '%s' "$body" | wc -c)" -le 8192 ] || exit 0
     response_session="$(jq -r '.session_id // empty' <<<"$body" 2>/dev/null)" || exit 0
     [ -z "$response_session" ] || [ "$response_session" = "$id" ] || exit 0
+    context_tmp=""
+    fresh_snapshot=""
+    fresh_title=""
+    savings_tmp=""
+    savings=""
+    fresh_model=""
+    fresh_requested=""
     if [ "${WEAVE_CODEX_STATUS_CONTEXT:-1}" != "0" ]; then
       context_tmp="$(mktemp "$state_root/.context.XXXXXX")" || exit 0
       chmod 600 "$context_tmp"
-      printf '%s' "$body" >"$context_tmp"
+      printf '%s' "$body" >"$context_tmp" || { rm -f "$context_tmp"; exit 0; }
       fresh_snapshot="$(context_snapshot "$context_tmp" "$id")"
-      # A newer hook (including PreCompact) invalidates this in-flight fetch.
-      if [ "$(cat "$state_root/active-$(printf '%s' "$helper_dir" | cksum | awk '{print $1}')" 2>/dev/null)" = "$generation" ]; then
-        if [ -n "$fresh_snapshot" ]; then
-          mv "$context_tmp" "$context_file"
-          if [ ! -f "$disabled_marker" ]; then
-            fresh_model="$(safe_display_value "$(jq -r '.served_model' <<<"$fresh_snapshot")")"
-            fresh_requested="$(jq -r '.requested_model // empty' <<<"$fresh_snapshot")"
-            if { [ -z "$requested_model" ] || [ "$fresh_requested" = "$requested_model" ]; } && { [ -z "$marker_model" ] || [ "$fresh_model" = "$routed_model" ]; }; then
-              shown_requested="$requested_model"
-              [ -n "$shown_requested" ] || shown_requested="$(safe_display_value "$fresh_requested")"
-              if [ -n "$shown_requested" ] && [ "$fresh_model" != "$shown_requested" ]; then
-                fresh_title="Weave Router · $shown_requested → $fresh_model"
-              else
-                fresh_title="Weave Router · $fresh_model"
-              fi
-            fi
+      if [ -n "$fresh_snapshot" ]; then
+        fresh_model="$(safe_display_value "$(jq -r '.served_model' <<<"$fresh_snapshot")")"
+        fresh_requested="$(jq -r '.requested_model // empty' <<<"$fresh_snapshot")"
+        if { [ -z "$requested_model" ] || [ "$fresh_requested" = "$requested_model" ]; } \
+           && { [ -z "$force_model" ] || [ "$fresh_model" = "$(safe_display_value "$force_model")" ]; } \
+           && { [ -z "$marker_model" ] || [ "$fresh_model" = "$routed_model" ]; }; then
+          shown_requested="$requested_model"
+          [ -n "$shown_requested" ] || shown_requested="$(safe_display_value "$fresh_requested")"
+          if [ -n "$shown_requested" ] && [ "$fresh_model" != "$shown_requested" ]; then
+            fresh_title="Weave Router · $shown_requested → $fresh_model"
+          else
+            fresh_title="Weave Router · $fresh_model"
           fi
-        else
-          rm -f "$context_file"
         fi
       fi
-      rm -f "$context_tmp"
     fi
     if [ "${WEAVE_CODEX_STATUS_SAVINGS:-1}" != "0" ]; then
       # savings_usd is the router's own (requested - actual). A body without it
       # (404, error envelope, older router) leaves the cache untouched.
       savings="$(printf '%s' "$body" | jq -r '.savings_usd // empty' 2>/dev/null)" || savings=""
-      case "$savings" in
-        ''|*[!0-9.eE+-]*) ;;
-        *)
-          tmp="$file.tmp.$$"
-          mkdir -p "$(dirname "$file")" 2>/dev/null
-          if printf '%s' "$savings" >"$tmp" 2>/dev/null; then
-            chmod 600 "$tmp" 2>/dev/null
-            mv "$tmp" "$file" 2>/dev/null
+      case "$savings" in ''|*[!0-9.eE+-]*) savings="" ;; esac
+      if [ -n "$savings" ]; then
+        savings_tmp="$(mktemp "$state_root/.cost.XXXXXX")" || savings=""
+        if [ -n "$savings" ]; then
+          if ! chmod 600 "$savings_tmp" 2>/dev/null || ! printf '%s' "$savings" >"$savings_tmp" 2>/dev/null; then
+            rm -f "$savings_tmp"
+            savings_tmp=""
           fi
-          rm -f "$tmp" 2>/dev/null
-          ;;
-      esac
+        fi
+      fi
     fi
-    if [ -n "${fresh_title:-}" ] \
-       && [ "$(cat "$state_root/active-$(printf '%s' "$helper_dir" | cksum | awk '{print $1}')" 2>/dev/null)" = "$generation" ]; then
-      emit_title "$fresh_title$(savings_clause "$file")$(context_clause "$fresh_snapshot")"
+    if ! acquire_state_lock "$state_lock"; then
+      rm -f "$context_tmp" "$savings_tmp"
+      exit 0
     fi
+    trap 'release_state_lock "$state_lock"' EXIT
+    if [ "$(cat "$active_file" 2>/dev/null)" = "$generation" ]; then
+      if [ "${WEAVE_CODEX_STATUS_CONTEXT:-1}" != "0" ]; then
+        if [ -n "$fresh_snapshot" ]; then
+          if mv "$context_tmp" "$context_file" 2>/dev/null; then
+            context_tmp=""
+          else
+            fresh_title=""
+          fi
+        else
+          rm -f "$context_file"
+        fi
+      fi
+      if [ -n "$savings_tmp" ]; then
+        if mv "$savings_tmp" "$file" 2>/dev/null; then
+          savings_tmp=""
+        else
+          rm -f "$savings_tmp"
+          savings_tmp=""
+        fi
+      fi
+        if [ -n "$fresh_title" ] && [ ! -f "$disabled_marker" ]; then
+        emit_title "$fresh_title$(savings_clause "$file")$(context_clause "$fresh_snapshot")"
+      fi
+    fi
+    release_state_lock "$state_lock"
+    rm -f "$context_tmp" "$savings_tmp"
   ) >/dev/null 2>&1 &
   disown 2>/dev/null || true
 }
@@ -371,10 +432,6 @@ savings_clause() {
   local file="$1" raw
   [ "${WEAVE_CODEX_STATUS_SAVINGS:-1}" = "0" ] && return 0
   [ -f "$file" ] || return 0
-  local recorded now
-  recorded="$(stat -c %Y "$file" 2>/dev/null || stat -f %m "$file" 2>/dev/null)" || return 0
-  now="$(date +%s)"
-  [ "$recorded" -le "$now" ] && [ $(( now - recorded )) -le 300 ] || return 0
   raw="$(cat "$file" 2>/dev/null)" || return 0
   case "$raw" in
     ''|*[!0-9.eE+-]*) return 0 ;;
@@ -430,18 +487,23 @@ if [ "${WEAVE_CAPTURE_LLM_CLASSIFIER:-}" = "1" ] && [ -n "${WEAVE_CAPTURE_HOOK_T
   esac
   fi
 fi
-scope="$(printf '%s' "$helper_dir" | cksum | awk '{print $1}')"
-active_file="$state_root/active-$scope"
+session_id="$(safe_session_id "$(jq -r '.session_id // empty' <<<"$payload")")" || session_id=""
+[ -n "$session_id" ] || exit 0
+active_file="$(generation_file_for "$session_id")"
+state_lock="$(state_lock_for "$session_id")"
 mkdir -p "$state_root"
 chmod 700 "$state_root"
+acquire_state_lock "$state_lock" || exit 0
+trap 'release_state_lock "$state_lock"' EXIT
 generation="$(mktemp "$state_root/.generation.XXXXXX")"
 printf '%s' "$generation" >"$generation"
 chmod 600 "$generation"
 mv "$generation" "$active_file"
 if [ "$hook_event_name" = "SessionStart" ] || [ "$hook_event_name" = "PreCompact" ]; then
-  reset_context="$(context_file_for "$(jq -r '.session_id // empty' <<<"$payload")")" || reset_context=""
+  reset_context="$(context_file_for "$session_id")" || reset_context=""
   [ -z "$reset_context" ] || rm -f "$reset_context"
 fi
+release_state_lock "$state_lock"
 if [ "$hook_event_name" = "SessionStart" ]; then
   if [ -f "$disabled_marker" ]; then
     emit_title "Codex · direct"
@@ -518,7 +580,7 @@ if [ -n "$context_file" ] && [ "${WEAVE_CODEX_STATUS_CONTEXT:-1}" != "0" ]; then
   if [ -n "$snapshot" ]; then
     snapshot_model="$(safe_display_value "$(jq -r '.served_model' <<<"$snapshot")")"
     snapshot_requested="$(jq -r '.requested_model // empty' <<<"$snapshot")"
-    if { [ -z "$marker_model" ] || [ "$snapshot_model" = "$routed_model" ]; } && { [ -z "$requested_model" ] || [ "$snapshot_requested" = "$requested_model" ]; }; then
+    if { [ -z "$marker_model" ] || [ "$snapshot_model" = "$routed_model" ]; } && { [ -z "$requested_model" ] || [ "$snapshot_requested" = "$requested_model" ]; } && { [ -z "$force_model" ] || [ "$snapshot_model" = "$(safe_display_value "$force_model")" ]; }; then
       routed_model="$snapshot_model"
       [ -n "$requested_model" ] || requested_model="$(safe_display_value "$snapshot_requested")"
       context="$(context_clause "$snapshot")"

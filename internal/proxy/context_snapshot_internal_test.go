@@ -3,7 +3,6 @@ package proxy
 import (
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"testing"
 	"time"
 
@@ -58,21 +57,6 @@ func TestCachedContextEstimateUsesLiveRequest(t *testing.T) {
 	require.Equal(t, "hit", rec.Result().Header.Get(HeaderRouterCache))
 }
 
-func TestContextEstimateHeadersUseOriginalRequestEstimate(t *testing.T) {
-	original, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-5","max_tokens":32,"messages":[{"role":"user","content":"a much longer original client request"}]}`))
-	require.NoError(t, err)
-	originalEstimate := original.ContextOverflowTokenEstimate()
-	require.Greater(t, originalEstimate, 1)
-
-	handover, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-5","max_tokens":32,"messages":[{"role":"user","content":"summary"}]}`))
-	require.NoError(t, err)
-	require.Less(t, handover.ContextOverflowTokenEstimate(), originalEstimate)
-
-	headers := http.Header{}
-	setContextEstimateHeaders(headers, originalEstimate, 8000)
-	require.Equal(t, strconv.Itoa(originalEstimate), headers.Get(HeaderRouterContextEstimate))
-}
-
 func TestContextSnapshotFreshness(t *testing.T) {
 	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
 	snapshot := ContextSnapshot{Version: 1, EstimateKind: ContextEstimateApproximate, EstimateTokens: 72000, ContextWindow: 128000, OutputReserveTokens: 8000, ServedModel: "gpt-5.6-sol", RequestID: "request-test", RequestedAt: now.Add(-time.Minute), RecordedAt: now}
@@ -85,4 +69,17 @@ func TestContextSnapshotFreshness(t *testing.T) {
 	snapshot.EstimateTokens = 0
 	require.False(t, snapshot.Fresh(now))
 	require.Nil(t, ParseContextSnapshot([]byte(`{"version":`)))
+}
+
+func TestContextSnapshotUsesFinalServedModel(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	headers := http.Header{}
+	setContextEstimateHeaders(headers, 72000, 8000)
+	headers.Set(HeaderRouterContextWindow, "1000000")
+	headers.Set(HeaderRouterModel, "deepseek/deepseek-v4-pro")
+	snapshot := contextSnapshotJSONForDecision(headers, "request-final", "claude-opus-4-8", "claude-opus-4-8", providers.ProviderAnthropic, now, now)
+	parsed := ParseContextSnapshot(snapshot)
+	require.NotNil(t, parsed)
+	require.Equal(t, "claude-opus-4-8", parsed.ServedModel)
+	require.Equal(t, 1_000_000, parsed.ContextWindow)
 }
