@@ -20,19 +20,20 @@ const usdMicrosPerUSD = 1_000_000.0
 // hook reads. The *_usd_micros integers are authoritative; decimal fields are
 // derived for display only.
 type sessionCostResponse struct {
-	SessionID              string  `json:"session_id"`
-	RequestCount           int64   `json:"request_count"`
-	ActualCostUSDMicros    int64   `json:"actual_cost_usd_micros"`
-	ActualCostUSD          float64 `json:"actual_cost_usd"`
-	RequestedCostUSDMicros int64   `json:"requested_cost_usd_micros"`
-	RequestedCostUSD       float64 `json:"requested_cost_usd"`
-	SavingsUSDMicros       int64   `json:"savings_usd_micros"`
-	SavingsUSD             float64 `json:"savings_usd"`
-	InputTokens            int64   `json:"input_tokens"`
-	OutputTokens           int64   `json:"output_tokens"`
-	CacheCreationTokens    int64   `json:"cache_creation_tokens"`
-	CacheReadTokens        int64   `json:"cache_read_tokens"`
-	LastRecordedAt         string  `json:"last_recorded_at"`
+	ContextSnapshot        *proxy.ContextSnapshot `json:"context_snapshot,omitempty"`
+	SessionID              string                 `json:"session_id"`
+	RequestCount           int64                  `json:"request_count"`
+	ActualCostUSDMicros    int64                  `json:"actual_cost_usd_micros"`
+	ActualCostUSD          float64                `json:"actual_cost_usd"`
+	RequestedCostUSDMicros int64                  `json:"requested_cost_usd_micros"`
+	RequestedCostUSD       float64                `json:"requested_cost_usd"`
+	SavingsUSDMicros       int64                  `json:"savings_usd_micros"`
+	SavingsUSD             float64                `json:"savings_usd"`
+	InputTokens            int64                  `json:"input_tokens"`
+	OutputTokens           int64                  `json:"output_tokens"`
+	CacheCreationTokens    int64                  `json:"cache_creation_tokens"`
+	CacheReadTokens        int64                  `json:"cache_read_tokens"`
+	LastRecordedAt         string                 `json:"last_recorded_at"`
 }
 
 // SessionCostHandler returns committed router cost for a session, scoped to the
@@ -69,9 +70,14 @@ func SessionCostHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 			return
 		}
 
+		if cost.ContextSnapshot != nil && !cost.ContextSnapshot.Fresh(time.Now()) {
+			cost.ContextSnapshot = nil
+		}
+		c.Header("Cache-Control", "no-store")
 		savings := cost.RequestedCostUSDMicros - cost.ActualCostUSDMicros
 		c.JSON(http.StatusOK, sessionCostResponse{
 			SessionID:              cost.SessionID,
+			ContextSnapshot:        cost.ContextSnapshot,
 			RequestCount:           cost.RequestCount,
 			ActualCostUSDMicros:    cost.ActualCostUSDMicros,
 			ActualCostUSD:          float64(cost.ActualCostUSDMicros) / usdMicrosPerUSD,

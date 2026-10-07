@@ -93,6 +93,9 @@ weave_self_refresh() {
   return 0
 }
 
+async_title_enabled=0
+[ ! -t 2 ] || async_title_enabled=1
+
 state_root="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router/codex"
 helper_dir="$(cd "$(dirname "$0")" 2>/dev/null && pwd -P)"
 disabled_marker="$helper_dir/.weave-router-disabled"
@@ -102,7 +105,7 @@ emit_title() {
   local title="$1"
   if [ -n "${WEAVE_CODEX_STATUS_TITLE_FILE:-}" ]; then
     printf '%s\n' "$title" >"$WEAVE_CODEX_STATUS_TITLE_FILE"
-  elif [ -t 2 ] && [ -w /dev/tty ]; then
+  elif { [ -t 2 ] || [ "${async_title_enabled:-0}" = "1" ]; } && [ -w /dev/tty ]; then
     printf '\033]0;%s\007' "$title" >/dev/tty
   fi
   return 0
@@ -118,7 +121,7 @@ safe_session_id() {
 }
 
 safe_display_value() {
-  printf '%s' "$1" | sed 's/[^A-Za-z0-9._:\/-]//g' | cut -c1-128
+  printf '%s' "$1" | sed 's/[^A-Za-z0-9._:\/-]//g' | cut -c1-64
 }
 
 state_file_for() {
@@ -151,6 +154,43 @@ cost_file_for() {
   local id
   id="$(safe_session_id "$1")" || return 1
   printf '%s/%s.cost' "$state_root" "$id"
+}
+
+context_file_for() {
+  local id scope
+  id="$(safe_session_id "$1")" || return 1
+  scope="$(printf '%s' "$helper_dir" | cksum | awk '{print $1}')"
+  printf '%s/%s-%s.context' "$state_root" "$scope" "$id"
+}
+
+context_snapshot() {
+  local file="$1" id="$2" now
+  [ -f "$file" ] || return 0
+  [ "$(wc -c <"$file")" -le 4096 ] || return 0
+  now="$(date +%s)"
+  jq -ce --arg session "$id" --argjson now "$now" '
+
+    def tokens: type == "number" and floor == . and . > 0 and . <= 2147483647;
+    def epoch: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
+    .context_snapshot as $s |
+    select(.session_id == $session and $s.version == 1 and $s.estimate_kind == "approximate") |
+    select(($s.estimate_tokens | tokens) and ($s.context_window | tokens) and ($s.output_reserve_tokens | tokens)) |
+    select(($s.served_model | type) == "string" and ($s.served_model | test("^[A-Za-z0-9._:/-]{1,128}$"))) |
+    select(($s.request_id | type) == "string" and ($s.request_id | length) > 0 and ($s.request_id | length) <= 128) |
+    ($s.recorded_at | epoch) as $recorded | ($s.requested_at | epoch) as $requested |
+    select($requested > 0 and $requested <= $recorded and $recorded <= $now and $now - $recorded <= 300) |
+    $s
+  ' "$file" 2>/dev/null || true
+}
+
+context_clause() {
+  local snapshot="$1" estimate window
+  [ -n "$snapshot" ] || return 0
+  estimate="$(jq -r '.estimate_tokens' <<<"$snapshot")"
+  window="$(jq -r '.context_window' <<<"$snapshot")"
+  awk -v estimate="$estimate" -v window="$window" 'BEGIN {
+    printf " · last Router ctx est. ~%s/%s", (estimate < 1000 ? estimate : sprintf("%.0fk", estimate/1000)), (window < 1000 ? window : sprintf("%.0fk", window/1000))
+  }'
 }
 
 # Reads the router base URL and key out of the Codex config this install owns.
@@ -230,8 +270,8 @@ read_codex_endpoint() {
 # Fire-and-forget on purpose — a slow or unreachable router must never stall a
 # Codex turn, and every failure simply leaves the previous cache in place.
 refresh_session_cost() {
-  local id="$1" file="$2"
-  [ "${WEAVE_CODEX_STATUS_SAVINGS:-1}" = "0" ] && return 0
+  local id="$1" file="$2" context_file="$3" generation="$4"
+  [ "${WEAVE_CODEX_STATUS_SAVINGS:-1}" = "0" ] && [ "${WEAVE_CODEX_STATUS_CONTEXT:-1}" = "0" ] && return 0
   command -v curl >/dev/null 2>&1 || return 0
 
   local endpoint base_url key
@@ -266,7 +306,40 @@ refresh_session_cost() {
       file://*) ;;
       *) url="${url%/v1}/v1/sessions/$id/cost" ;;
     esac
-    body="$(curl -fsS --max-time 5 -H "X-Weave-Router-Key: $key" "$url" 2>/dev/null)" || exit 0
+    body="$(curl -fsS --max-time 5 --max-filesize 8192 -H "X-Weave-Router-Key: $key" "$url" 2>/dev/null)" || exit 0
+    [ "$(printf '%s' "$body" | wc -c)" -le 8192 ] || exit 0
+    response_session="$(jq -r '.session_id // empty' <<<"$body" 2>/dev/null)" || exit 0
+    [ -z "$response_session" ] || [ "$response_session" = "$id" ] || exit 0
+    if [ "${WEAVE_CODEX_STATUS_CONTEXT:-1}" != "0" ]; then
+      context_tmp="$(mktemp "$state_root/.context.XXXXXX")" || exit 0
+      chmod 600 "$context_tmp"
+      printf '%s' "$body" >"$context_tmp"
+      fresh_snapshot="$(context_snapshot "$context_tmp" "$id")"
+      # A newer hook (including PreCompact) invalidates this in-flight fetch.
+      if [ "$(cat "$state_root/active-$(printf '%s' "$helper_dir" | cksum | awk '{print $1}')" 2>/dev/null)" = "$generation" ]; then
+        if [ -n "$fresh_snapshot" ]; then
+          mv "$context_tmp" "$context_file"
+          if [ ! -f "$disabled_marker" ]; then
+            fresh_model="$(safe_display_value "$(jq -r '.served_model' <<<"$fresh_snapshot")")"
+            fresh_requested="$(jq -r '.requested_model // empty' <<<"$fresh_snapshot")"
+            if { [ -z "$requested_model" ] || [ "$fresh_requested" = "$requested_model" ]; } && { [ -z "$marker_model" ] || [ "$fresh_model" = "$routed_model" ]; }; then
+              shown_requested="$requested_model"
+              [ -n "$shown_requested" ] || shown_requested="$(safe_display_value "$fresh_requested")"
+              if [ -n "$shown_requested" ] && [ "$fresh_model" != "$shown_requested" ]; then
+                fresh_title="Weave Router · $shown_requested → $fresh_model"
+              else
+                fresh_title="Weave Router · $fresh_model"
+              fi
+              emit_title "$fresh_title$(savings_clause "$file")$(context_clause "$fresh_snapshot")"
+            fi
+          fi
+        else
+          rm -f "$context_file"
+        fi
+      fi
+      rm -f "$context_tmp"
+    fi
+    [ "${WEAVE_CODEX_STATUS_SAVINGS:-1}" != "0" ] || exit 0
     # savings_usd is the router's own (requested - actual). A body without it
     # (404, error envelope, older router) writes nothing and leaves the cache.
     savings="$(printf '%s' "$body" | jq -r '.savings_usd // empty' 2>/dev/null)" || exit 0
@@ -293,6 +366,10 @@ savings_clause() {
   local file="$1" raw
   [ "${WEAVE_CODEX_STATUS_SAVINGS:-1}" = "0" ] && return 0
   [ -f "$file" ] || return 0
+  local recorded now
+  recorded="$(stat -c %Y "$file" 2>/dev/null || stat -f %m "$file" 2>/dev/null)" || return 0
+  now="$(date +%s)"
+  [ "$recorded" -le "$now" ] && [ $(( now - recorded )) -le 300 ] || return 0
   raw="$(cat "$file" 2>/dev/null)" || return 0
   case "$raw" in
     ''|*[!0-9.eE+-]*) return 0 ;;
@@ -348,6 +425,18 @@ if [ "${WEAVE_CAPTURE_LLM_CLASSIFIER:-}" = "1" ] && [ -n "${WEAVE_CAPTURE_HOOK_T
   esac
   fi
 fi
+scope="$(printf '%s' "$helper_dir" | cksum | awk '{print $1}')"
+active_file="$state_root/active-$scope"
+mkdir -p "$state_root"
+chmod 700 "$state_root"
+generation="$(mktemp "$state_root/.generation.XXXXXX")"
+printf '%s' "$generation" >"$generation"
+chmod 600 "$generation"
+mv "$generation" "$active_file"
+if [ "$hook_event_name" = "SessionStart" ] || [ "$hook_event_name" = "PreCompact" ]; then
+  reset_context="$(context_file_for "$(jq -r '.session_id // empty' <<<"$payload")")" || reset_context=""
+  [ -z "$reset_context" ] || rm -f "$reset_context"
+fi
 if [ "$hook_event_name" = "SessionStart" ]; then
   if [ -f "$disabled_marker" ]; then
     emit_title "Codex · direct"
@@ -357,7 +446,11 @@ if [ "$hook_event_name" = "SessionStart" ]; then
   exit 0
 fi
 
-if [ "$hook_event_name" = "PreToolUse" ] || [ "$hook_event_name" = "PreCompact" ]; then
+if [ "$hook_event_name" = "PreCompact" ]; then
+  [ -f "$disabled_marker" ] || emit_title "Weave Router · active"
+  exit 0
+fi
+if [ "$hook_event_name" = "PreToolUse" ]; then
   exit 0
 fi
 
@@ -413,19 +506,36 @@ fi
 # turn would not be included even in a blocking read — reading first and
 # refreshing after costs a turn of freshness and buys never blocking Codex.
 savings=""
+context=""
+context_file="$(context_file_for "$session_id" 2>/dev/null)" || context_file=""
+if [ -n "$context_file" ] && [ "${WEAVE_CODEX_STATUS_CONTEXT:-1}" != "0" ]; then
+  snapshot="$(context_snapshot "$context_file" "$session_id")"
+  if [ -n "$snapshot" ]; then
+    snapshot_model="$(safe_display_value "$(jq -r '.served_model' <<<"$snapshot")")"
+    snapshot_requested="$(jq -r '.requested_model // empty' <<<"$snapshot")"
+    if { [ -z "$marker_model" ] || [ "$snapshot_model" = "$routed_model" ]; } && { [ -z "$requested_model" ] || [ "$snapshot_requested" = "$requested_model" ]; }; then
+      routed_model="$snapshot_model"
+      [ -n "$requested_model" ] || requested_model="$(safe_display_value "$snapshot_requested")"
+      context="$(context_clause "$snapshot")"
+    fi
+  fi
+fi
 cost_file=""
 if cost_file="$(cost_file_for "$session_id" 2>/dev/null)"; then
   savings="$(savings_clause "$cost_file")"
-  refresh_session_cost "$(safe_session_id "$session_id")" "$cost_file"
+
 fi
 
 if [ -n "$routed_model" ] && [ -n "$requested_model" ] && [ "$routed_model" != "$requested_model" ]; then
-  title="Weave Router · $routed_model ← $requested_model$savings"
+  title="Weave Router · $requested_model → $routed_model$savings"
 elif [ -n "$routed_model" ]; then
   title="Weave Router · $routed_model$savings"
 elif [ -n "$requested_model" ]; then
-  title="Weave Router · active ← $requested_model$savings"
+  title="Weave Router · $requested_model → active$savings"
 else
   title="Weave Router · active$savings"
 fi
-emit_title "$title"
+emit_title "$title$context"
+if [ -n "$cost_file" ] && [ -n "$context_file" ]; then
+  refresh_session_cost "$(safe_session_id "$session_id")" "$cost_file" "$context_file" "$generation"
+fi

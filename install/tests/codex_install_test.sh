@@ -92,11 +92,13 @@ grep -Fq '[[hooks.SessionStart]]' "$config" \
   || fail "Codex SessionStart hook was not installed"
 grep -Fq '[[hooks.Stop]]' "$config" \
   || fail "Codex Stop hook was not installed"
+grep -Fq '[[hooks.PreCompact]]' "$config" \
+  || fail "Codex PreCompact hook was not installed"
 if grep -Fq '[[hooks.PreToolUse]]' "$config"; then
   fail "ordinary Codex installs registered classifier-only hooks"
 fi
 status_helper="$home/.weave/codex-status.sh"
-  [ "$(grep -Fc "command = \"$status_helper\"" "$config")" -eq 2 ] \
+  [ "$(grep -Fc "command = \"$status_helper\"" "$config")" -eq 3 ] \
   || fail "Codex hooks do not point at the installed status helper"
 [ -f "$status_helper" ] || fail "Codex status helper was not installed"
 grep -Fq '<!-- weave-router managed codex status -->' "$status_helper" \
@@ -574,7 +576,7 @@ registered_hook="$(awk -F'"' '/^command = /{print $2}' "$config" | grep -F 'code
 # The duplicates are the same orphan class: Codex normalized our block out of
 # the markers, so the previous install could not see them and appended more.
 # Stripping by helper filename collapses them to the one the block re-adds.
-[ "$(grep -c "command = \"$home/.weave/codex-status.sh\"" "$config")" -eq 2 ] \
+[ "$(grep -c "command = \"$home/.weave/codex-status.sh\"" "$config")" -eq 3 ] \
   || fail "expected exactly one status registration per event, got $(grep -c "command = \"$home/.weave/codex-status.sh\"" "$config")"
 
 # A third party's hook in a group we also wrote to must survive.

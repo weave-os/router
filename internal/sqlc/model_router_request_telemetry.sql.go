@@ -540,7 +540,15 @@ SELECT
     COALESCE(SUM(t.output_tokens), 0)::bigint AS output_tokens,
     COALESCE(SUM(t.cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
     COALESCE(SUM(t.cache_read_tokens), 0)::bigint AS cache_read_tokens,
-    MAX(t.created_at)::timestamptz AS last_recorded_at
+    MAX(t.created_at)::timestamptz AS last_recorded_at,
+    (SELECT latest.context_snapshot
+     FROM router.model_router_request_telemetry latest
+     WHERE latest.installation_id = $1::uuid
+       AND latest.session_id = $2::varchar
+       AND latest.span_type = 'router.upstream'
+       AND latest.turn_type IN ('main_loop', 'tool_result', 'compaction')
+     ORDER BY latest.timestamp DESC, latest.created_at DESC
+     LIMIT 1) AS context_snapshot
 FROM router.model_router_request_telemetry t
 WHERE t.installation_id = $1::uuid
   AND t.session_id = $2::varchar
@@ -565,6 +573,7 @@ type GetSessionCostRow struct {
 	CacheCreationTokens    int64
 	CacheReadTokens        int64
 	LastRecordedAt         pgtype.Timestamptz
+	ContextSnapshot        []byte
 }
 
 // Committed cost of one client session for this installation. Includes
@@ -583,7 +592,15 @@ type GetSessionCostRow struct {
 //	    COALESCE(SUM(t.output_tokens), 0)::bigint AS output_tokens,
 //	    COALESCE(SUM(t.cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
 //	    COALESCE(SUM(t.cache_read_tokens), 0)::bigint AS cache_read_tokens,
-//	    MAX(t.created_at)::timestamptz AS last_recorded_at
+//	    MAX(t.created_at)::timestamptz AS last_recorded_at,
+//	    (SELECT latest.context_snapshot
+//	     FROM router.model_router_request_telemetry latest
+//	     WHERE latest.installation_id = $1::uuid
+//	       AND latest.session_id = $2::varchar
+//	       AND latest.span_type = 'router.upstream'
+//	       AND latest.turn_type IN ('main_loop', 'tool_result', 'compaction')
+//	     ORDER BY latest.timestamp DESC, latest.created_at DESC
+//	     LIMIT 1) AS context_snapshot
 //	FROM router.model_router_request_telemetry t
 //	WHERE t.installation_id = $1::uuid
 //	  AND t.session_id = $2::varchar
@@ -604,6 +621,7 @@ func (q *Queries) GetSessionCost(ctx context.Context, arg GetSessionCostParams) 
 		&i.CacheCreationTokens,
 		&i.CacheReadTokens,
 		&i.LastRecordedAt,
+		&i.ContextSnapshot,
 	)
 	return i, err
 }
@@ -2089,7 +2107,8 @@ INSERT INTO router.model_router_request_telemetry (
     user_prompt_gap_ms,
     user_prompt_gap_prior_model,
     error_class,
-    latest_tool_call_counts
+    latest_tool_call_counts,
+    context_snapshot
 ) VALUES (
     $1::uuid,
     $2::uuid,
@@ -2263,7 +2282,8 @@ INSERT INTO router.model_router_request_telemetry (
     $170::bigint,
     $171::varchar,
     $172::varchar,
-    $173::jsonb
+    $173::jsonb,
+    $174::jsonb
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 `
@@ -2442,6 +2462,7 @@ type InsertRequestTelemetryParams struct {
 	UserPromptGapPriorModel                  *string
 	ErrorClass                               *string
 	LatestToolCallCounts                     []byte
+	ContextSnapshot                          []byte
 }
 
 // Records a completed proxied request for the dashboard UI and routing
@@ -2675,7 +2696,8 @@ type InsertRequestTelemetryParams struct {
 //	    user_prompt_gap_ms,
 //	    user_prompt_gap_prior_model,
 //	    error_class,
-//	    latest_tool_call_counts
+//	    latest_tool_call_counts,
+//	    context_snapshot
 //	) VALUES (
 //	    $1::uuid,
 //	    $2::uuid,
@@ -2849,7 +2871,8 @@ type InsertRequestTelemetryParams struct {
 //	    $170::bigint,
 //	    $171::varchar,
 //	    $172::varchar,
-//	    $173::jsonb
+//	    $173::jsonb,
+//	    $174::jsonb
 //	)
 //	ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestTelemetryParams) error {
@@ -3027,6 +3050,7 @@ func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestT
 		arg.UserPromptGapPriorModel,
 		arg.ErrorClass,
 		arg.LatestToolCallCounts,
+		arg.ContextSnapshot,
 	)
 	return err
 }

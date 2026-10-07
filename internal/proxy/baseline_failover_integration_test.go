@@ -116,6 +116,8 @@ func TestProxyMessages_OSSOutageFailsOverToBaselineAnthropic(t *testing.T) {
 	// The buffered initial marker is replaced before it becomes visible, so the
 	// client sees only the model that produced provider output.
 	assert.Equal(t, "claude-opus-4-8", rec.Header().Get(proxy.HeaderRouterModel), "x-router-model reflects the baseline model that served")
+	assertContextHeaders(t, rec.Header())
+	assert.Equal(t, "1000000", rec.Header().Get(proxy.HeaderRouterContextWindow))
 	initialMarker := strings.Index(respBody, "deepseek/deepseek-v4-pro")
 	fallbackMarker := strings.Index(respBody, "claude-opus-4-8")
 	require.Equal(t, -1, initialMarker, "failed initial decision marker stays hidden")

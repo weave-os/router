@@ -64,6 +64,7 @@ test-verbose: ## Run all tests with verbose output
 
 test-statusline: ## Run the cc-statusline.sh regression tests (offline)
 	@bash install/tests/cc-statusline_test.sh
+	@bash install/tests/context-status_test.sh
 
 setup-install-tests: ## Install npm dependencies before running offline installer tests
 	@npm install --prefix install/npm --ignore-scripts --package-lock=false --no-audit --no-fund

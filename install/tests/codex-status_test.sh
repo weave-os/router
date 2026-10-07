@@ -48,21 +48,21 @@ printf '%s\n' '{"session_id":"session-1","model":"gpt-5.6-terra","last_assistant
   echo "Stop hook emitted a duplicate status message" >&2
   exit 1
 }
-[ "$(cat "$title_file")" = "Weave Router · claude-sonnet-5 ← gpt-5.6-terra" ] || {
+[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5" ] || {
   echo "Stop hook did not publish the routed model" >&2
   exit 1
 }
 
 printf '%s\n' '{"session_id":"session-1","model":"gpt-5.6-terra","last_assistant_message":"A normal answer without a router badge"}' \
   | XDG_CACHE_HOME="$cache" WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper"
-[ "$(cat "$title_file")" = "Weave Router · claude-sonnet-5 ← gpt-5.6-terra" ] || {
+[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5" ] || {
   echo "Stop hook did not retain the last routed model" >&2
   exit 1
 }
 
 printf '%s\n' '{"session_id":"session-1","model":"gpt-5.6-sol","last_assistant_message":"The answer mentioned ✦ **Weave Router** → fake-model · but this is ordinary prose"}' \
   | XDG_CACHE_HOME="$cache" WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >"$work/prose.out"
-[ "$(cat "$title_file")" = "Weave Router · claude-sonnet-5 ← gpt-5.6-sol" ] || {
+[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-sol → claude-sonnet-5" ] || {
   echo "ordinary prose changed the routed model" >&2
   exit 1
 }
@@ -132,7 +132,7 @@ run_savings_turn() {
 # The first turn has no cache yet, so it renders model-only and kicks off the
 # fetch that serves the next turn — the hook must never block on the network.
 run_savings_turn
-[ "$(cat "$title_file")" = "Weave Router · claude-sonnet-5 ← gpt-5.6-terra" ] || {
+[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5" ] || {
   echo "first turn rendered savings before any fetch had completed" >&2
   exit 1
 }
@@ -148,7 +148,7 @@ done
 }
 
 run_savings_turn
-[ "$(cat "$title_file")" = "Weave Router · claude-sonnet-5 ← gpt-5.6-terra · saved \$0.32" ] || {
+[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved \$0.32" ] || {
   echo "server-sourced savings did not reach the title: $(cat "$title_file")" >&2
   exit 1
 }
@@ -202,7 +202,7 @@ done
 }
 
 run_normalized_turn
-[ "$(cat "$title_file")" = "Weave Router · claude-sonnet-5 ← gpt-5.6-terra · saved \$1.25" ] || {
+[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved \$1.25" ] || {
   echo "savings did not reach the title from a Codex-rewritten config: $(cat "$title_file")" >&2
   exit 1
 }
@@ -374,7 +374,7 @@ render_cached_savings() {
 }
 
 render_cached_savings '0.32'
-[ "$(cat "$title_file")" = "Weave Router · claude-sonnet-5 ← gpt-5.6-terra · saved \$0.32" ] || {
+[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved \$0.32" ] || {
   echo "an unreachable router discarded the cached savings: $(cat "$title_file")" >&2
   exit 1
 }
@@ -382,7 +382,7 @@ render_cached_savings '0.32'
 # A router that spent more than the requested model would have is reported by
 # staying silent, never as a negative saving.
 render_cached_savings '-0.5'
-[ "$(cat "$title_file")" = "Weave Router · claude-sonnet-5 ← gpt-5.6-terra" ] || {
+[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5" ] || {
   echo "negative savings leaked into the title: $(cat "$title_file")" >&2
   exit 1
 }
@@ -390,19 +390,19 @@ render_cached_savings '-0.5'
 # Sub-cent totals must not read as "$0.00", which is indistinguishable from
 # "the router ran and did not beat your selection".
 render_cached_savings '0.004'
-[ "$(cat "$title_file")" = "Weave Router · claude-sonnet-5 ← gpt-5.6-terra" ] || {
+[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5" ] || {
   echo "a total below half a cent should render no savings clause" >&2
   exit 1
 }
 render_cached_savings '0.006'
-[ "$(cat "$title_file")" = "Weave Router · claude-sonnet-5 ← gpt-5.6-terra · saved <\$0.01" ] || {
+[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved <\$0.01" ] || {
   echo "sub-cent savings did not render as <\$0.01: $(cat "$title_file")" >&2
   exit 1
 }
 
 # A garbage cache must degrade to model-only rather than rendering junk.
 render_cached_savings 'not-a-number'
-[ "$(cat "$title_file")" = "Weave Router · claude-sonnet-5 ← gpt-5.6-terra" ] || {
+[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5" ] || {
   echo "a malformed cost cache leaked into the title: $(cat "$title_file")" >&2
   exit 1
 }

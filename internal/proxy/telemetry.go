@@ -51,6 +51,7 @@ type InsertInferenceAttemptParams struct {
 // Costs are USD micros ($1.00 = 1,000,000) summed as integers so no float rounding accumulates.
 // Actual = router's chosen binding; Requested = client's originally-requested model.
 type SessionCost struct {
+	ContextSnapshot        *ContextSnapshot
 	SessionID              string
 	RequestCount           int64
 	ActualCostUSDMicros    int64
@@ -64,7 +65,8 @@ type SessionCost struct {
 
 // InsertTelemetryParams mirrors one router.upstream span row.
 type InsertTelemetryParams struct {
-	InstallationID string
+	ContextSnapshot []byte
+	InstallationID  string
 	// APIKeyID attributes the row to the authenticating api key (per-key spend
 	// audit). Empty leaves the column NULL.
 	APIKeyID                        string

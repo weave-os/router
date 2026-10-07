@@ -213,3 +213,27 @@ func TestSessionCostHandler(t *testing.T) {
 		require.Empty(t, repo.seenSessionID, "an unauthenticated caller must not reach the repository")
 	})
 }
+
+func TestSessionCostContextExpiry(t *testing.T) {
+	for _, age := range []time.Duration{time.Minute, 6 * time.Minute} {
+		t.Run(age.String(), func(t *testing.T) {
+			now := time.Now().Add(-age)
+			repo := &sessionCostRepo{cost: proxy.SessionCost{SessionID: "session-context", ContextSnapshot: &proxy.ContextSnapshot{
+				Version: 1, EstimateKind: proxy.ContextEstimateApproximate, EstimateTokens: 72000, ContextWindow: 128000, OutputReserveTokens: 8000,
+				ServedModel: "gpt-5.6-sol", RequestID: "test-request", RequestedAt: now.Add(-time.Second), RecordedAt: now,
+			}}}
+			engine := sessionCostEngine(t, repo, &auth.Installation{ID: uuid.NewString()})
+			rec := httptest.NewRecorder()
+			engine.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/sessions/session-context/cost", nil))
+			require.Equal(t, http.StatusOK, rec.Code)
+			require.Equal(t, "no-store", rec.Header().Get("Cache-Control"))
+			var body map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			if age < proxy.ContextSnapshotTTL {
+				require.Contains(t, body, "context_snapshot")
+			} else {
+				require.NotContains(t, body, "context_snapshot")
+			}
+		})
+	}
+}

@@ -14,7 +14,11 @@ const (
 	// HeaderRouterContextWindow carries the effective context window (tokens)
 	// of the model that served the turn, so window-aware clients (pi) can budget
 	// auto-compaction against the served model rather than the requested one.
-	HeaderRouterContextWindow = "x-router-context-window"
+	HeaderRouterContextWindow       = "x-router-context-window"
+	HeaderRouterContextEstimate     = "x-router-context-estimate-tokens"
+	HeaderRouterContextReserve      = "x-router-context-output-reserve-tokens"
+	HeaderRouterContextEstimateKind = "x-router-context-estimate-kind"
+	HeaderRouterContextVersion      = "x-router-context-version"
 	// HeaderRouterCache reports semantic-cache status; value is RouterCacheHit
 	// on a cache hit and the header is omitted otherwise.
 	HeaderRouterCache = "x-router-cache"
