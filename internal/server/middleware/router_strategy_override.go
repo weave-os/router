@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -86,17 +87,7 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 		case strategy == "":
 			strategy = defaultStrategy
 		}
-		if !selectable(strategy) {
-			if managedServing {
-				observability.FromGin(c).Error(
-					"Persisted router strategy is not registered or unavailable on this managed worker",
-					"installation_id", installation.ID,
-					"persisted_strategy", installation.RoutingStrategy,
-					"effective_strategy", strategy,
-				)
-				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "routing_strategy_unavailable"})
-				return
-			}
+		if !managedServing && !selectable(strategy) {
 			observability.FromGin(c).Warn(
 				"Persisted router strategy is not registered or unavailable; using cluster",
 				"installation_id", installation.ID,
@@ -104,27 +95,53 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 			)
 			strategy = router.StrategyCluster
 		}
-
-		raw := strings.ToLower(strings.TrimSpace(c.GetHeader(RouterStrategyOverrideHeader)))
-		if raw != "" {
-			requested := router.Strategy(raw)
-			switch {
-			case managedServing && requested == router.StrategyHMMBeta:
-				observability.FromGin(c).Warn("Retired beta strategy override ignored", "effective_strategy", strategy)
-			case !installation.PolicyHeaderOverridesEnabled:
-				observability.FromGin(c).Warn("Router-strategy override ignored: installation is not authorized for policy headers", "installation_id", installation.ID)
-			case !selectable(requested):
-				observability.FromGin(c).Warn("Router-strategy override ignored: strategy is not registered or unavailable", "installation_id", installation.ID, "requested_strategy", raw)
-			default:
-				strategy = requested
-				observability.FromGin(c).Info("Router-strategy override applied", "installation_id", installation.ID, "requested_strategy", raw)
-			}
+		if requested, ok := headerStrategyOverride(c, installation, managedServing, strategy, selectable); ok {
+			strategy = requested
+		}
+		if !selectable(strategy) {
+			observability.FromGin(c).Error(
+				"Persisted router strategy is not registered or unavailable on this managed worker",
+				"installation_id", installation.ID,
+				"persisted_strategy", installation.RoutingStrategy,
+				"effective_strategy", strategy,
+			)
+			c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "routing_strategy_unavailable"})
+			return
 		}
 
 		ctx := router.WithStrategy(c.Request.Context(), strategy)
 		c.Request = c.Request.WithContext(ctx)
 		c.Next()
 	}
+}
+
+// headerStrategyOverride returns the strategy named by RouterStrategyOverrideHeader
+// when the installation is authorized for policy headers and the strategy is
+// selectable. Managed workers never honour the retired hmm_beta lane.
+func headerStrategyOverride(
+	c *gin.Context,
+	installation *auth.Installation,
+	managedServing bool,
+	effective router.Strategy,
+	selectable func(router.Strategy) bool,
+) (router.Strategy, bool) {
+	raw := strings.ToLower(strings.TrimSpace(c.GetHeader(RouterStrategyOverrideHeader)))
+	if raw == "" {
+		return "", false
+	}
+	requested := router.Strategy(raw)
+	switch {
+	case managedServing && requested == router.StrategyHMMBeta:
+		observability.FromGin(c).Warn("Retired beta strategy override ignored", "effective_strategy", effective)
+	case !installation.PolicyHeaderOverridesEnabled:
+		observability.FromGin(c).Warn("Router-strategy override ignored: installation is not authorized for policy headers", "installation_id", installation.ID)
+	case !selectable(requested):
+		observability.FromGin(c).Warn("Router-strategy override ignored: strategy is not registered or unavailable", "installation_id", installation.ID, "requested_strategy", raw)
+	default:
+		observability.FromGin(c).Info("Router-strategy override applied", "installation_id", installation.ID, "requested_strategy", raw)
+		return requested, true
+	}
+	return "", false
 }
 
 // NormalizeRouterStrategyDefault clamps an unregistered deployment default to
