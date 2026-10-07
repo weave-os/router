@@ -2713,6 +2713,10 @@ const semanticCacheMaxBodyBytes = 1 << 20
 // no telemetry row to back a feedback page, so the link is omitted on hits
 // entirely — the skip here guards against ever replaying the cached one.
 var headersToSkipOnHit = map[string]struct{}{
+	http.CanonicalHeaderKey(HeaderRouterContextVersion):      {},
+	http.CanonicalHeaderKey(HeaderRouterContextEstimateKind): {},
+	http.CanonicalHeaderKey(HeaderRouterContextReserve):      {},
+	http.CanonicalHeaderKey(HeaderRouterContextEstimate):     {},
 	"Request-Id":              {},
 	"X-Request-Id":            {},
 	"X-Router-Decision":       {},
@@ -2748,7 +2752,7 @@ func cloneCacheHeaders(h http.Header) http.Header {
 // feedback link is set: a cache hit writes no telemetry row, so its feedback
 // page would have no routing context to show.
 func (s *Service) writeCachedResponse(w http.ResponseWriter, resp cache.CachedResponse, decision router.Decision) {
-	for k, vs := range resp.Headers {
+	for k, vs := range cloneCacheHeaders(resp.Headers) {
 		for _, v := range vs {
 			w.Header().Add(k, v)
 		}
@@ -4007,6 +4011,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	if cacheEligible {
 		if resp, hit := s.semanticCache.Lookup(externalID, cache.FormatAnthropic, decision.Metadata.Embedding, decision.Metadata.ClusterIDs, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash, cacheProvenance); hit {
+			setContextEstimateHeaders(w.Header(), overflowEstimate, max(contextWindowOutputReserve, feats.MaxTokens))
 			s.writeCachedResponse(w, resp, decision)
 			otel.Record(ctx, otel.Span{
 				Name:  "router.cache_hit",
@@ -4033,6 +4038,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	w.Header().Set(HeaderRouterProvider, decision.Provider)
 	w.Header().Set(HeaderRouterModel, decision.Model)
 	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
+	setContextEstimateHeaders(w.Header(), overflowEstimate, outputReserve)
 	if !agentShadowMode {
 		s.setFeedbackLinkHeader(ctx, w, installationID, externalID, requestID, auth.UserIDFrom(ctx))
 	}
@@ -5188,6 +5194,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			DecisionReason:           telemetryDecisionReason(ctx, decision.Reason),
 			RequestedAllowedModels:   requestedAllowedModelsForTelemetry(ctx),
 			EstimatedInputTokens:     int32(feats.Tokens),
+			ContextSnapshot:          contextSnapshotJSONForDecision(w.Header(), requestID, feats.Model, decision.Model, decision.Provider, requestStart, s.clockNow()),
 			StickyHit:                stickyHit,
 			PinTier:                  routeRes.PinTier,
 			EmbedInput:               embedInput,
@@ -6435,6 +6442,9 @@ func isDegenerateResponse(outputTokens, toolUseBlocks int, stopReason string, st
 
 // fireTelemetry persists a telemetry row asynchronously. Telemetry loss is acceptable.
 func (s *Service) fireTelemetry(p InsertTelemetryParams) {
+	if p.UpstreamStatusCode != http.StatusOK || !conversationContextTurn(turntype.TurnType(p.TurnType)) {
+		p.ContextSnapshot = nil
+	}
 	if s.telemetry == nil {
 		return
 	}
@@ -6969,6 +6979,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	if cacheEligible {
 		if resp, hit := s.semanticCache.Lookup(externalID, cache.FormatOpenAI, decision.Metadata.Embedding, decision.Metadata.ClusterIDs, decision.Metadata.ClusterRouterVersion, decision.Metadata.EffectiveKnobsHash, cacheProvenance); hit {
+			setContextEstimateHeaders(w.Header(), env.ContextOverflowTokenEstimate(), max(contextWindowOutputReserve, feats.MaxTokens))
 			s.writeCachedResponse(w, resp, decision)
 			otel.Record(ctx, otel.Span{
 				Name:  "router.cache_hit",
@@ -6999,6 +7010,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	w.Header().Set(HeaderRouterProvider, decision.Provider)
 	w.Header().Set(HeaderRouterModel, decision.Model)
 	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
+	setContextEstimateHeaders(w.Header(), env.ContextOverflowTokenEstimate(), outputReserveOAI)
 	s.setFeedbackLinkHeader(ctx, w, installationID, externalID, requestID, auth.UserIDFrom(ctx))
 
 	reqPricing := otel.Lookup(s.baselineFor(feats.Model))
@@ -8288,6 +8300,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			DecisionReason:           telemetryDecisionReason(ctx, decision.Reason),
 			RequestedAllowedModels:   requestedAllowedModelsForTelemetry(ctx),
 			EstimatedInputTokens:     int32(feats.Tokens),
+			ContextSnapshot:          contextSnapshotJSONForDecision(w.Header(), requestID, feats.Model, decision.Model, decision.Provider, requestStart, s.clockNow()),
 			StickyHit:                stickyHit,
 			PinTier:                  routeRes.PinTier,
 			EmbedInput:               embedInput,

@@ -842,3 +842,23 @@ The committed cluster artifacts (centroids, rankings, model registry,
 metadata) live under `internal/router/cluster/artifacts/v<X.Y>/`. The
 `artifacts/latest` pointer selects the default served version;
 `ROUTER_CLUSTER_VERSION` overrides per-deployment.
+
+## Response context snapshot
+
+Successful proxied responses report a per-request context snapshot in headers:
+
+| Header | Meaning |
+| --- | --- |
+| `x-router-context-window` | Effective served model/provider window, in integer tokens; unchanged from the existing Pi contract. |
+| `x-router-context-estimate-tokens` | Conservative whole-request overflow estimate, in integer tokens, using the same request envelope as capacity filtering. Includes image estimates; not a tokenizer count or client compaction percentage. |
+| `x-router-context-output-reserve-tokens` | Output reserve used in capacity filtering: the greater of 8,000 tokens and the request's output limit. This part of the window is not input headroom. |
+| `x-router-context-estimate-kind` | `approximate` in version 1. |
+| `x-router-context-version` | `1` for the companion estimate contract. |
+
+The estimate describes input to this Router request. The window describes the binding that served it, including provider failover. It does not describe the client's private context budget or the maximum window of the eligible pool. A conservative estimate can exceed the served window when the Router admits the widest candidates for the provider to decide actual fit. Do not derive client usage percentages or warnings from it. Omitted, unknown-version, or invalid values are unavailable, never zero. Clients must retain existing model displays when companions are absent. Native CLI integrations need no CORS changes.
+
+Anthropic Messages, OpenAI Chat Completions/Responses through the HTTP adapter, Gemini, and semantic-cache replies carry this contract. Cache replies compute estimates from the current request rather than replaying stored headers. Non-HTTP transports that cannot preserve headers must omit the display.
+
+The authenticated `GET /v1/sessions/:session_id/cost` response optionally includes `context_snapshot` for the latest conversation request (main loop, tool result, or client compaction) in that installation/session. It contains version, estimate kind/tokens, served window, output reserve, requested/served models, request ID, and UTC request/completion times. Snapshots expire five minutes after completion; a missing, malformed, failed latest request, or older Router omits the field. Title generation, probes, classifiers, recaps, and subagent dispatches do not replace the conversation snapshot. The existing read-key authentication and rate limits apply, and responses use `Cache-Control: no-store`. No eligible-model pool, private thresholds, credentials, or prompt content is returned. Telemetry is asynchronous, so a fetch can lag the completed turn. Semantic-cache hits have live headers but do not create an upstream telemetry snapshot; the session endpoint may still describe an earlier request.
+
+Migration `0126` adds a nullable snapshot to existing request telemetry so client hooks can read it across Router replicas. Apply the migration before running the new binary; older binaries leave it null. This metadata bridge is required because lifecycle hooks cannot access inference response headers. It creates no new context-history endpoint or stored routine.

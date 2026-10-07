@@ -111,6 +111,7 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.Inse
 		CohortTreatmentApplied:                   p.CohortTreatmentApplied,
 		CohortBypassReason:                       stringPtrOrNil(string(p.CohortBypassReason)),
 		EstimatedInputTokens:                     p.EstimatedInputTokens,
+		ContextSnapshot:                          p.ContextSnapshot,
 		StickyHit:                                p.StickyHit,
 		PinTier:                                  stringPtrOrNil(p.PinTier),
 		EmbedInput:                               p.EmbedInput,
@@ -833,6 +834,7 @@ func (r *TelemetryRepo) GetSessionCost(ctx context.Context, installationID, sess
 		CacheCreationTokens:    row.CacheCreationTokens,
 		CacheReadTokens:        row.CacheReadTokens,
 		LastRecordedAt:         row.LastRecordedAt.Time,
+		ContextSnapshot:        proxy.ParseContextSnapshot(row.ContextSnapshot),
 	}, nil
 }
 

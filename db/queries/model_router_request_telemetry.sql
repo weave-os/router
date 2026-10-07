@@ -229,7 +229,8 @@ INSERT INTO router.model_router_request_telemetry (
     user_prompt_gap_ms,
     user_prompt_gap_prior_model,
     error_class,
-    latest_tool_call_counts
+    latest_tool_call_counts,
+    context_snapshot
 ) VALUES (
     @installation_id::uuid,
     sqlc.narg('api_key_id')::uuid,
@@ -403,7 +404,8 @@ INSERT INTO router.model_router_request_telemetry (
     sqlc.narg('user_prompt_gap_ms')::bigint,
     sqlc.narg('user_prompt_gap_prior_model')::varchar,
     sqlc.narg('error_class')::varchar,
-    sqlc.narg('latest_tool_call_counts')::jsonb
+    sqlc.narg('latest_tool_call_counts')::jsonb,
+    sqlc.narg('context_snapshot')::jsonb
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING;
 
@@ -895,7 +897,15 @@ SELECT
     COALESCE(SUM(t.output_tokens), 0)::bigint AS output_tokens,
     COALESCE(SUM(t.cache_creation_tokens), 0)::bigint AS cache_creation_tokens,
     COALESCE(SUM(t.cache_read_tokens), 0)::bigint AS cache_read_tokens,
-    MAX(t.created_at)::timestamptz AS last_recorded_at
+    MAX(t.created_at)::timestamptz AS last_recorded_at,
+    (SELECT latest.context_snapshot
+     FROM router.model_router_request_telemetry latest
+     WHERE latest.installation_id = @installation_id::uuid
+       AND latest.session_id = @session_id::varchar
+       AND latest.span_type = 'router.upstream'
+       AND latest.turn_type IN ('main_loop', 'tool_result', 'compaction')
+     ORDER BY latest.timestamp DESC, latest.created_at DESC
+     LIMIT 1) AS context_snapshot
 FROM router.model_router_request_telemetry t
 WHERE t.installation_id = @installation_id::uuid
   AND t.session_id = @session_id::varchar

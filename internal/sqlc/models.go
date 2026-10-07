@@ -698,6 +698,7 @@ type RouterModelRouterRequestTelemetry struct {
 	Speed                   *string
 	InferenceGeo            *string
 	FailoverAttempted       *bool
+	ContextSnapshot         []byte
 }
 
 type RouterModelRouterSubscriptionAccount struct {

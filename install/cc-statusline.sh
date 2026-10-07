@@ -419,7 +419,14 @@ weave_hidden_gate() {
       file://*) ;;
       *) url="$url/v1/display-settings" ;;
     esac
-    body="$(curl -fsS --max-time 5 -H "X-Weave-Router-Key: $key" "$url" 2>/dev/null)" || exit 0
+    header_file="$(mktemp "$cache_dir/.headers.XXXXXX")" || exit 0
+    chmod 600 "$header_file"
+    printf 'header = "X-Weave-Router-Key: %s"\n' "$key" >"$header_file"
+    if ! body="$(curl -fsS --max-time 5 -K "$header_file" "$url" 2>/dev/null)"; then
+      rm -f "$header_file"
+      exit 0
+    fi
+    rm -f "$header_file"
     hidden="$(printf '%s' "$body" | jq -r '.hide_terminal_surfaces // false' 2>/dev/null)"
     tmp="$cache.tmp.$$"
     if [ "$hidden" = "true" ]; then
@@ -438,12 +445,26 @@ if weave_hidden_gate </dev/null; then
 fi
 
 input="$(cat)"
+jq -e 'type == "object"' >/dev/null 2>&1 <<<"$input" || exit 0
 transcript_path="$(printf '%s' "$input" | jq -r '.transcript_path // empty')"
 # Prefer model.id over display_name: pricing keys + the response model id in
 # the transcript are canonical ids (e.g. claude-opus-4-7), while display_name
 # is a human label ("Opus 4.7 (1M context)") that won't hit the pricing table,
 # preventing a price comparison. id passes through normalize_model cleanly.
 selected_display="$(printf '%s' "$input" | jq -r '.model.id // .model.display_name // "?"')"
+
+# Claude owns this percentage and its window; session totals never establish it.
+context_clause="$(jq -r '
+  .context_window as $c |
+  if ($c.context_window_size | type) == "number" and $c.context_window_size > 0 and $c.context_window_size <= 2147483647
+     and ($c.context_window_size | floor) == $c.context_window_size
+     and ($c.used_percentage | type) == "number" and $c.used_percentage >= 0 and $c.used_percentage <= 100
+  then " · Context " + ($c.used_percentage | floor | tostring) + "%" +
+       (if $c.used_percentage >= 90 then " !" else "" end)
+  else "" end
+' <<<"$input" 2>/dev/null)" || context_clause=""
+
+[ "${WEAVE_STATUSLINE_CONTEXT:-1}" != "0" ] || context_clause=""
 
 # Normalize a model id to a pricing-table key. CC + the decisions log carry
 # two flavors of annotation we don't want in the lookup:
@@ -888,6 +909,94 @@ weave_refresh_on_price_miss() {
 }
 weave_refresh_on_price_miss "$requested_norm" "$transcript_model" 2>/dev/null || true
 
+router_context_fallback() {
+  [ -z "$context_clause" ] || return 0
+  [ "${WEAVE_STATUSLINE_CONTEXT:-1}" != "0" ] || return 0
+  local session helper_dir scope cache root now snapshot
+  session="$(jq -r '.session_id // empty' <<<"$input")"
+  case "$session" in ''|*[!A-Za-z0-9._-]*) return 0 ;; esac
+  [ "${#session}" -le 128 ] || return 0
+  helper_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+  scope="$(printf '%s' "$helper_dir" | cksum | awk '{print $1}')"
+  root="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router/claude-context"
+  cache="$root/$scope-$session.json"
+  now="$(date +%s)"
+  if [ -f "$cache" ] && [ "$(wc -c <"$cache")" -le 8192 ]; then
+    snapshot="$(jq -ce --arg session "$session" --argjson now "$now" '
+
+    def tokens: type == "number" and floor == . and . > 0 and . <= 2147483647;
+    def epoch: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
+    .context_snapshot as $s |
+    select(.session_id == $session and $s.version == 1 and $s.estimate_kind == "approximate") |
+    select(($s.estimate_tokens | tokens) and ($s.context_window | tokens) and ($s.output_reserve_tokens | tokens)) |
+    select(($s.served_model | type) == "string" and ($s.served_model | test("^[A-Za-z0-9._:/-]{1,128}$"))) |
+    select(($s.request_id | type) == "string" and ($s.request_id | length) > 0 and ($s.request_id | length) <= 128) |
+    ($s.recorded_at | epoch) as $recorded | ($s.requested_at | epoch) as $requested |
+    select($requested > 0 and $requested <= $recorded and $recorded <= $now and $now - $recorded <= 300) |
+    $s
+    ' "$cache" 2>/dev/null)" || snapshot=""
+    if [ -n "$snapshot" ]; then
+      local served requested
+      served="$(normalize_model "$(jq -r '.served_model' <<<"$snapshot")")"
+      requested="$(normalize_model "$(jq -r '.requested_model // empty' <<<"$snapshot")")"
+      if [ "$served" = "$transcript_model" ] && [ "$requested" = "$requested_norm" ]; then
+        context_clause="$(awk -v e="$(jq -r '.estimate_tokens' <<<"$snapshot")" -v w="$(jq -r '.context_window' <<<"$snapshot")" 'BEGIN {
+          printf " · last Router ctx est. ~%s/%s", (e < 1000 ? e : sprintf("%.0fk", e/1000)), (w < 1000 ? w : sprintf("%.0fk", w/1000))
+        }')"
+      fi
+    fi
+  fi
+  command -v curl >/dev/null 2>&1 || return 0
+  mkdir -p "$root" 2>/dev/null || return 0
+  chmod 700 "$root"
+  (
+    exec </dev/null
+    # Serialize refreshes; a timeout cannot delay the status-line process.
+    if ! mkdir "$cache.lock" 2>/dev/null; then
+      lock_mtime="$(stat -c %Y "$cache.lock" 2>/dev/null || stat -f %m "$cache.lock" 2>/dev/null)" || lock_mtime=0
+      [ $(( $(date +%s) - lock_mtime )) -gt 30 ] || exit 0
+      dead="$cache.lock.dead.$$"
+      mv "$cache.lock" "$dead" 2>/dev/null || exit 0
+      rm -rf "$dead"
+      mkdir "$cache.lock" 2>/dev/null || exit 0
+    fi
+    trap 'rmdir "$cache.lock" 2>/dev/null' EXIT
+    settings_base="$HOME"
+    case "$helper_dir" in */.claude) settings_base="${helper_dir%/.claude}" ;; esac
+    settings="$settings_base/.claude/settings.json"
+    local_settings="$settings_base/.claude/settings.local.json"
+    base=""
+    key=""
+    for settings_file in "$settings" "$local_settings"; do
+      [ -f "$settings_file" ] || continue
+      if jq -e '.env | has("ANTHROPIC_BASE_URL")' "$settings_file" >/dev/null 2>&1; then
+        base="$(jq -r '.env.ANTHROPIC_BASE_URL // empty' "$settings_file" 2>/dev/null)"
+      fi
+      if jq -e '.env | has("ANTHROPIC_CUSTOM_HEADERS")' "$settings_file" >/dev/null 2>&1; then
+        key="$(jq -r '.env.ANTHROPIC_CUSTOM_HEADERS // "" | split("\n")[] | select(startswith("X-Weave-Router-Key:")) | sub("^X-Weave-Router-Key:[[:space:]]*"; "")' "$settings_file" 2>/dev/null | head -n1)"
+      fi
+    done
+    base="${WEAVE_ROUTER_BASE_URL:-${ANTHROPIC_BASE_URL:-$base}}"
+    key="${WEAVE_ROUTER_KEY:-$key}"
+    [ -n "$base" ] && [ -n "$key" ] || exit 0
+    url="${base%/}"
+    case "$url" in file://*) ;; *) url="${url%/v1}/v1/sessions/$session/cost" ;; esac
+    tmp="$(mktemp "$root/.snapshot.XXXXXX")" || exit 0
+    header_file="$(mktemp "$root/.headers.XXXXXX")" || { rm -f "$tmp"; exit 0; }
+    chmod 600 "$tmp"
+    chmod 600 "$header_file"
+    printf 'header = "X-Weave-Router-Key: %s"\n' "$key" >"$header_file"
+    if curl -fsS --max-time 5 --max-filesize 8192 -K "$header_file" "$url" -o "$tmp" 2>/dev/null \
+       && [ "$(wc -c <"$tmp")" -le 8192 ] \
+       && [ "$(jq -r '.session_id // empty' "$tmp" 2>/dev/null)" = "$session" ]; then
+      mv "$tmp" "$cache"
+    fi
+    rm -f "$tmp" "$header_file"
+  ) >/dev/null 2>&1 &
+  disown 2>/dev/null || true
+}
+router_context_fallback 2>/dev/null || true
+
 # Brand color (#FF6C47) on terminals that grok 24-bit truecolor — that's
 # every modern one (iTerm2, Apple Terminal, vscode, ghostty, alacritty,
 # wezterm, kitty). Falls back gracefully on any escape-stripping terminal.
@@ -920,3 +1029,5 @@ fi
 if [[ "$has_pin_record" == "true" ]]; then
   printf ' · last pin: %s' "$last_pin_model"
 fi
+
+printf '%s' "$context_clause"

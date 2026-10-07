@@ -63,6 +63,7 @@ func TestProxyGeminiGenerateContent_RoutesToGoogleProvider(t *testing.T) {
 	require.NoError(t, svc.ProxyGeminiGenerateContent(ctx, []byte(geminiInjectedBody), rec, httpReq))
 
 	assert.Equal(t, "gemini-2.5-pro", rec.Header().Get(proxy.HeaderRouterModel))
+	assertContextHeaders(t, rec.Header())
 	assert.Equal(t, providers.ProviderGoogle, rec.Header().Get(proxy.HeaderRouterProvider))
 	require.Len(t, googleProv.proxyBodies, 1, "the upstream Google client must be invoked once")
 	body := string(googleProv.proxyBodies[0])

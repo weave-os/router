@@ -391,6 +391,7 @@ func (s *Service) bypassToAnthropic(
 	w.Header().Set(HeaderRouterProvider, decision.Provider)
 	w.Header().Set(HeaderRouterModel, decision.Model)
 	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
+	setContextEstimateHeaders(w.Header(), env.ContextOverflowTokenEstimate(), max(contextWindowOutputReserve, feats.MaxTokens))
 
 	p, provErr := s.provider(providers.ProviderAnthropic)
 	if provErr != nil {
@@ -563,6 +564,7 @@ func (s *Service) bypassToAnthropic(
 			DecisionReason:         telemetryDecisionReason(ctx, decision.Reason),
 			RequestedAllowedModels: requestedAllowedModelsForTelemetry(ctx),
 			EstimatedInputTokens:   int32(feats.Tokens),
+			ContextSnapshot:        contextSnapshotJSON(w.Header(), requestID, feats.Model, requestStart, s.clockNow()),
 			InputTokens:            int32(in),
 			OutputTokens:           int32(out),
 			RequestedInputCostUSD:  inputCost,
