@@ -1,0 +1,52 @@
+internal/proxy/gemini.go
+  s_4c0034ccad74ec::t_2cf7fe1c97d5c8 282
+internal/proxy/feedback_completion.go
+  s_4c0034ccad74ec::t_2cf7fe1c97d5c8 41,48,108-113,121-126,236-238,264-271,286-289,305,321,329,332,355,366-374
+  s_4c0034ccad74ec::t_8dcfb50f4a40fe 150-155
+  s_4c0034ccad74ec::t_a32c03715b56be 235
+  s_4c0034ccad74ec::t_9a2285b9948ad9 375-376
+internal/proxy/observation_work.go
+  s_4c0034ccad74ec::t_2cf7fe1c97d5c8 24,33,42-50
+internal/proxy/service.go
+  s_4c0034ccad74ec::t_2cf7fe1c97d5c8 3401,5186,5768,6274
+internal/proxy/feedback_completion_observation_test.go
+  s_4c0034ccad74ec::t_8dcfb50f4a40fe 173
+  s_4c0034ccad74ec::t_71d8505d305a90 1-172,174-184
+internal/proxy/feedback_completion_observation_internal_test.go
+  s_4c0034ccad74ec::t_8dcfb50f4a40fe 1-94
+  s_4c0034ccad74ec::t_fd355d0c01b011 95-97
+  s_4c0034ccad74ec::t_23cc48a0c31912 98-108
+internal/proxy/feedback_completion_internal_test.go
+  s_4c0034ccad74ec::t_8dcfb50f4a40fe 6,295-367,369-370,375-381,383,390-392
+  s_4c0034ccad74ec::t_e6098e4f8b9edc 368
+  s_4c0034ccad74ec::t_7935aba8a95879 371-374
+  s_4c0034ccad74ec::t_a764542fae8397 382
+  s_4c0034ccad74ec::t_dce52f39d3cbc9 384-389
+internal/proxy/observation_workers_internal_test.go
+  s_4c0034ccad74ec::t_71d8505d305a90 102,119
+internal/proxy/feedback_completion_proxy_test.go
+  s_4c0034ccad74ec::t_71d8505d305a90 50-60,62
+internal/proxy/telemetry.go
+  s_4c0034ccad74ec::t_2cf7fe1c97d5c8 477
+internal/api/gemini/feedback_completion_test.go
+  s_4c0034ccad74ec::t_71d8505d305a90 1-54,57-70,73-78,84-91
+  s_4c0034ccad74ec::t_edb05097ae7cd7 55-56
+  s_4c0034ccad74ec::t_7bace336db0ef7 71-72
+  s_4c0034ccad74ec::t_d47474d5705fe7 79-83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "7834be203a3b0901e983cfef06dbe6cad257d42a",
+  "prompts": {},
+  "sessions": {
+    "s_4c0034ccad74ec": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fce3d7f0-1d8e-41dc-b00b-b7fbbad1fc43",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

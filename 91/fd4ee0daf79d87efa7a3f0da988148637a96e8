@@ -1,0 +1,19 @@
+internal/providers/httputil/errors_test.go
+  s_2ab2e0fccef46f::t_5cf246e8378ae1 83-99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "91fd4ee0daf79d87efa7a3f0da988148637a96e8",
+  "prompts": {},
+  "sessions": {
+    "s_2ab2e0fccef46f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10d99-4510-78b0-a5ab-bc86051e40fd",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
