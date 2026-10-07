@@ -6347,7 +6347,7 @@ router_context_fallback() {
     $s
     ' "$cache" 2>/dev/null)" || snapshot=""
     if [ -n "$snapshot" ]; then
-      local served requested estimate
+      local served requested
       served="$(normalize_model "$(jq -r '.served_model' <<<"$snapshot")")"
       requested="$(normalize_model "$(jq -r '.requested_model // empty' <<<"$snapshot")")"
       if [ "$served" = "$transcript_model" ] && [ "$requested" = "$requested_norm" ]; then

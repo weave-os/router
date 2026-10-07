@@ -308,6 +308,7 @@ fi
 grep -qx 'user-authored status helper' "$status_helper" \
   || fail "installer modified an unowned Codex status helper"
 rm -f "$status_helper"
+mkdir -p "$(dirname "$status_helper")"
 
 # A same-named user skill is not ours to overwrite or remove. This also
 # covers an upgrade on a machine where the name was already taken.
