@@ -116,6 +116,8 @@ case "$(uname -s)" in
 esac
 printf '%s\n' '#!/usr/bin/env bash' 'printf "%s\\n" "$@" >"'"$browser_log"'"' >"$home/bin/$browser_opener"
 chmod +x "$home/bin/$browser_opener"
+printf '%s\n' '#!/usr/bin/env bash' 'if [ "${1:-}" = "--version" ]; then echo "2.0.18"; fi' >"$home/bin/opencode"
+chmod +x "$home/bin/opencode"
 
 HOME="$home" PATH="$home/bin:$PATH" NO_COLOR=1 \
   node "$root/bin.js" >/dev/null 2>&1

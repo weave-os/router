@@ -32,6 +32,7 @@ async function runInstaller(...args) {
     env: {
       ...process.env,
       USERPROFILE: temporaryHome,
+      XDG_CONFIG_HOME: path.join(temporaryHome, ".config"),
       WEAVE_ROUTER_KEY: "rk_test_native_windows",
     },
   });

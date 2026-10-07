@@ -97,7 +97,7 @@ function configPaths(root, target, scope, directory) {
   if (target === "opencode") {
     const configDirectory = scope === "project" || directory
       ? root
-      : path.join(process.env.XDG_CONFIG_HOME || path.join(root, ".config"), "opencode");
+      : path.join(process.env.XDG_CONFIG_HOME || process.env.APPDATA || path.join(root, ".config"), "opencode");
     return { config: path.join(configDirectory, "opencode.json") };
   }
   const piRoot = path.join(root, ".pi", scope === "project" || directory ? "" : "agent");
