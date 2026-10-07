@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/translate"
@@ -75,7 +76,7 @@ func TestClientBudgetDoesNotUseRouterAddedBeta(t *testing.T) {
 	budget := resolveClientBudget(clientIdentity, headers, testOpus, false)
 	env, err := translate.ParseAnthropic([]byte(`{"model":"` + testOpus + `","messages":[{"role":"user","content":"hello"}]}`))
 	require.NoError(t, err)
-	prepared, err := env.PrepareAnthropic(headers, translate.EmitOptions{TargetModel: testOpus, Capabilities: router.Lookup(testOpus), EnableExtendedContext: true})
+	prepared, err := env.PrepareAnthropic(headers, translate.EmitOptions{TargetModel: testOpus, TargetProvider: providers.ProviderAnthropic, Capabilities: router.Lookup(testOpus), EnableExtendedContext: true})
 	require.NoError(t, err)
 	assert.True(t, translate.HasContext1MBeta(prepared.Headers))
 	assert.False(t, budget.InboundContext1M)

@@ -245,6 +245,7 @@ type failoverInputs struct {
 	deferFlushOnExhaustion bool
 	// purpose names the registered operation the walk is authorized under;
 	// origin names the override source that fixed the decision's model.
+	contextRequest   router.Request
 	purpose          inference.Purpose
 	origin           policy.OverrideSource
 	alternatives     []router.Decision
@@ -295,8 +296,15 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 	if err != nil {
 		return -1, err
 	}
+	// Explicit pins preserve the estimate-only bypass used by the turn loop.
+	if in.initialDecision.Reason == translate.ReasonUserForceModel {
+		if _, estimated := in.contextRequest.ContextWindowExcludedModels[in.initialDecision.Model]; estimated {
+			in.contextRequest.OverflowAdmittedModels = modelSet([]string{in.initialDecision.Model})
+		}
+	}
 	plan, err := plans.ResolveRouted(policy.RoutedResolutionRequest{
 		Purpose:  policy.Purpose(in.purpose),
+		Request:  in.contextRequest,
 		Decision: in.initialDecision,
 		Bindings: in.bindings,
 		Origin:   in.origin,

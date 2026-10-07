@@ -345,11 +345,6 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionContextWindow})
 			continue
 		}
-		contextWindow := catalog.ContextWindowFor(id)
-		if exceedsContextWindow(req, id, contextWindow) {
-			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionContextWindow})
-			continue
-		}
 
 		if len(gateways) > 0 {
 			allowedBindings := gatewayBindings(id, gateways, req.CustomBindings)
@@ -357,12 +352,15 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 				diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionGatewayNotServed})
 				continue
 			}
+			if exceedsContextWindow(req, id, bindingContextWindow(req, id, allowedBindings)) {
+				diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionContextWindow})
+				continue
+			}
 			base = r.appendCandidates(base, candidateContext{
 				req:             req,
 				catalogID:       id,
 				rosterID:        rosterID,
 				model:           model,
-				contextWindow:   contextWindow,
 				armContext:      armContext,
 				preferenceRanks: preferenceRanks,
 			}, allowedBindings)
@@ -383,12 +381,16 @@ func (r *Resolver) Resolve(req router.Request) ResolvedCandidates {
 			continue
 		}
 
+		if exceedsContextWindow(req, id, bindingContextWindow(req, id, allowedBindings)) {
+			diagnostics = append(diagnostics, Diagnostic{CatalogID: id, RosterID: rosterID, Reason: ExclusionContextWindow})
+			continue
+		}
+
 		base = r.appendCandidates(base, candidateContext{
 			req:             req,
 			catalogID:       id,
 			rosterID:        rosterID,
 			model:           model,
-			contextWindow:   contextWindow,
 			armContext:      armContext,
 			preferenceRanks: preferenceRanks,
 		}, allowedBindings)
@@ -482,8 +484,23 @@ func estimatedCostUSD(req router.Request, pricing catalog.Pricing) float64 {
 		float64(outputTokens)*pricing.OutputUSDPer1M) / 1_000_000
 }
 
-func requiredContextTokens(req router.Request) int {
-	return max(req.EstimatedInputTokens, 0) + expectedOutputTokens(req)
+func requiredContextTokens(req router.Request, modelID string) int {
+	input := req.EstimatedInputTokens
+	if req.ContextInputTokens > 0 {
+		input = req.ContextInputTokens
+		if model, known := catalog.ByID(modelID); known && providers.FamilyFor(model.PrimaryProvider()) != providers.FamilyAnthropic {
+			input -= req.ContextSignatureSavings
+		}
+	}
+	return max(input, 0) + max(req.ContextOutputReserve, expectedOutputTokens(req))
+}
+
+func bindingContextWindow(req router.Request, modelID string, bindings []catalog.IndexedBinding) int {
+	window := catalog.EffectiveContextWindowForBinding(modelID, bindings[0].Provider, req.EnableExtendedContext)
+	for _, binding := range bindings[1:] {
+		window = min(window, catalog.EffectiveContextWindowForBinding(modelID, binding.Provider, req.EnableExtendedContext))
+	}
+	return window
 }
 
 // exceedsContextWindow reports whether the request's estimate rules the model
@@ -494,7 +511,7 @@ func exceedsContextWindow(req router.Request, catalogID string, contextWindow in
 	if _, admitted := req.OverflowAdmittedModels[catalogID]; admitted {
 		return false
 	}
-	return requiredContextTokens(req) > contextWindow
+	return requiredContextTokens(req, catalogID) > contextWindow
 }
 
 func expectedOutputTokens(req router.Request) int {
@@ -511,7 +528,6 @@ type candidateContext struct {
 	catalogID       string
 	rosterID        string
 	model           catalog.Model
-	contextWindow   int
 	armContext      ArmContext
 	preferenceRanks map[string]*int
 }
@@ -556,7 +572,7 @@ func (r *Resolver) appendCandidates(base []eligibleCandidate, ctx candidateConte
 			EffectiveOutputUSDPer1M:      pricing.OutputUSDPer1M * marginalCostFactor,
 			EffectiveEstimatedCostUSD:    estimatedCostUSD(ctx.req, pricing) * marginalCostFactor,
 			Capabilities: CandidateCapabilities{
-				ContextWindow:  ctx.contextWindow,
+				ContextWindow:  catalog.EffectiveContextWindowForBinding(ctx.catalogID, binding.Provider, ctx.req.EnableExtendedContext),
 				Tier:           ctx.model.Tier.String(),
 				SupportsTools:  ctx.model.ToolUseQuality != catalog.ToolUseLow && ctx.model.AgenticUse != catalog.AgenticLow,
 				SupportsImages: ctx.model.ImageInput != catalog.ImageInputUnsupported,

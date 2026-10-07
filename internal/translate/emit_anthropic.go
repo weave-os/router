@@ -113,7 +113,7 @@ func deriveAnthropicHeaders(in http.Header, opts EmitOptions, body []byte) http.
 		h.Set("anthropic-version", "2023-06-01")
 	}
 	beta := filterBetaHeader(in.Get("anthropic-beta"), opts.TargetModel)
-	if opts.EnableExtendedContext && router.Lookup(opts.TargetModel).Supports(router.CapExtendedContext) {
+	if opts.EnableExtendedContext && providers.SupportsExtendedContext(opts.TargetModel, opts.TargetProvider) {
 		beta = ensureBetaToken(beta, context1MBeta)
 	}
 	if gjson.GetBytes(body, "context_management").Exists() {

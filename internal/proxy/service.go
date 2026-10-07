@@ -1268,33 +1268,15 @@ func planOwnedServingRequest(ctx context.Context) bool {
 // response when comparing the request estimate against the context window.
 const contextWindowOutputReserve = 8_000
 
-// extendedContextTriggerTokens triggers the context-1m-2025-08-07 beta well
-// below the 200K standard window: FullTokenEstimate (body bytes ÷5) undercounts
-// real tokens by ~20-30% on dense Claude Code bodies, so 140K estimated is
-// roughly 175-200K real — the beta must be in place before that arrives.
-const extendedContextTriggerTokens = 140_000
-
-// shouldEnableExtendedContext reports whether a request is large enough to
-// warrant a CapExtendedContext model's 1M window. Gating on the estimate keeps
-// ordinary turns on the standard window; the trigger is low enough that the
-// ÷5 undercount can't let a genuinely-near-200K request slip through.
-func shouldEnableExtendedContext(est, outputReserve int) bool {
-	return est+outputReserve > extendedContextTriggerTokens
-}
-
-// contextWindowForRequest returns the effective context window for a model.
-// CapExtendedContext models (Opus 4.6+, Sonnet 4.6) always report 1M since the
-// proxy unconditionally injects the context-1m beta for them — gating on the
-// client's beta header or the token estimate instead would let a large
-// request slip onto 200K and overflow on the first turn.
+// contextWindowForRequest uses the dispatch path's supported binding capacity.
 func contextWindowForRequest(modelID string, provider ...string) int {
-	if router.Lookup(modelID).Supports(router.CapExtendedContext) {
-		return 1_000_000
+	selectedProvider := ""
+	if len(provider) > 0 {
+		selectedProvider = provider[0]
+	} else if model, known := catalog.ByID(modelID); known {
+		selectedProvider = model.PrimaryProvider()
 	}
-	if len(provider) > 0 && provider[0] != "" {
-		return catalog.ContextWindowForBinding(modelID, provider[0])
-	}
-	return catalog.ContextWindowFor(modelID)
+	return catalog.EffectiveContextWindowForBinding(modelID, selectedProvider, true)
 }
 
 // minContextWindowForModel returns the smallest context window any enabled
@@ -1302,23 +1284,15 @@ func contextWindowForRequest(modelID string, provider ...string) int {
 // a 512K primary blocks even when a 1M fallback exists. Nil enabledProviders
 // falls back to the model-level window.
 func minContextWindowForModel(model string, enabledProviders map[string]struct{}) int {
-	cw := contextWindowForRequest(model)
-	if len(enabledProviders) == 0 {
-		return cw
+	bindings := catalog.EnumerateBindings(model, enabledProviders)
+	if len(bindings) == 0 {
+		return contextWindowForRequest(model)
 	}
-	m, ok := catalog.ByID(model)
-	if !ok || len(m.Providers) == 0 {
-		return cw
+	window := contextWindowForRequest(model, bindings[0].Provider)
+	for _, binding := range bindings[1:] {
+		window = min(window, contextWindowForRequest(model, binding.Provider))
 	}
-	for _, b := range m.Providers {
-		if _, enabled := enabledProviders[b.Provider]; !enabled {
-			continue
-		}
-		if w := contextWindowForRequest(model, b.Provider); w < cw {
-			cw = w
-		}
-	}
-	return cw
+	return window
 }
 
 // modelStripsAnthropicSignatures reports whether dispatching to model drops
@@ -3734,6 +3708,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		ForceModel:                   forceModel,
 		ForceCluster:                 forceCluster,
 		EstimatedInputTokens:         feats.Tokens,
+		ContextInputTokens:           overflowEstimate,
+		ContextSignatureSavings:      env.SignatureTokenSavings(),
+		ContextOutputReserve:         outputReserve,
+		EnableExtendedContext:        true,
 		HasTools:                     feats.HasTools,
 		HasImages:                    feats.HasImages,
 		TranslationRequirements:      env.TranslationRequirements(router.EndpointAnthropicMessages),
@@ -4063,7 +4041,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		IncludeStreamUsage:                s.usageRequired(),
 		SessionAffinity:                   sessionAffinityHint(routeRes.SessionKey),
 		ModelSwitched:                     routeRes.modelSwitched(),
-		EnableExtendedContext:             shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserve),
+		EnableExtendedContext:             true,
 		EnableServerSideFallback:          s.ResolveAnthropicServerSideFallback(ctx),
 		KeepCrossVendorOrchestrationTools: s.ccOrchToolsCrossVendor,
 		KeepCrossVendorTaskTools:          s.ResolveCCTaskToolsCrossVendor(ctx),
@@ -4596,6 +4574,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		winnerIdx, proxyErr = -1, attemptBuildErr
 	} else {
 		winnerIdx, proxyErr = s.dispatchWithFallback(ctx, failoverInputs{
+			contextRequest: req,
 			// contentSink is the raw w when capture is off.
 			w:               contentSink,
 			buf:             preludeBuf,
@@ -4746,6 +4725,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			reqStats = providers.RequestMutationStats{}
 			logUpstreamBody(log, routeRes.SessionKey, baselineDecision, feats, baselinePrep.Body)
 			winnerIdx, proxyErr = s.dispatchWithFallback(baselineCtx, failoverInputs{
+				contextRequest:  req,
 				w:               contentSink,
 				buf:             preludeBuf,
 				initialDecision: baselineDecision,
@@ -4819,6 +4799,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			reqStats = providers.RequestMutationStats{}
 			logUpstreamBody(log, routeRes.SessionKey, decision, feats, subPrep.Body)
 			winnerIdx, proxyErr = s.dispatchWithFallback(subCtx, failoverInputs{
+				contextRequest:  req,
 				w:               contentSink,
 				buf:             preludeBuf,
 				initialDecision: decision,
@@ -4911,6 +4892,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			respSummary = translate.ResponseSummary{}
 			reqStats = providers.RequestMutationStats{}
 			winnerIdx, proxyErr = s.dispatchWithFallback(siblingCtx, failoverInputs{
+				contextRequest:         req,
 				w:                      contentSink,
 				buf:                    preludeBuf,
 				initialDecision:        siblingDecision,
@@ -6806,6 +6788,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		ForceModel:                   forceModel,
 		ForceCluster:                 forceCluster,
 		EstimatedInputTokens:         feats.Tokens,
+		ContextInputTokens:           overflowEstimateOAI,
+		ContextSignatureSavings:      env.SignatureTokenSavings(),
+		ContextOutputReserve:         outputReserveOAI,
+		EnableExtendedContext:        true,
 		HasTools:                     feats.HasTools,
 		HasImages:                    feats.HasImages,
 		TranslationRequirements:      env.TranslationRequirements(router.EndpointOpenAIChat),
@@ -6967,7 +6953,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		SessionAffinity:          sessionAffinityHint(routeRes.SessionKey),
 		EnableServerSideFallback: s.ResolveAnthropicServerSideFallback(ctx),
 		ModelSwitched:            routeRes.modelSwitched(),
-		EnableExtendedContext:    shouldEnableExtendedContext(env.FullTokenEstimate(), outputReserveOAI),
+		EnableExtendedContext:    true,
 	}
 	effortServed := s.resolveEffort(ctx, decision, opts.Capabilities, routeRes.EscalateEffort)
 	effortServed.apply(&opts)
@@ -7492,7 +7478,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			dispatchAnthropic := func(actx context.Context, d router.Decision, p providers.Client, fast bool) (error, func(error) error) {
 				fastServed = fast
 				attemptPrep := prep
-				if fast != targetOpts.FastMode {
+				if fast != targetOpts.FastMode || d.Provider != targetOpts.TargetProvider {
 					attemptOpts := targetOpts
 					attemptOpts.TargetProvider = d.Provider
 					attemptOpts.FastMode = fast
@@ -7626,6 +7612,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		flushBufferedIfPresent(w, err)
 	}
 	winnerIdx, proxyErr = s.dispatchWithFallback(ctx, failoverInputs{
+		contextRequest: routeRequest,
 		// contentSink is the raw w when capture is off.
 		w:               contentSink,
 		buf:             preludeBuf,
@@ -7727,6 +7714,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			codexRetryRan = true
 			respSummary = translate.ResponseSummary{}
 			winnerIdx, proxyErr = s.dispatchWithFallback(subCtx, failoverInputs{
+				contextRequest:  routeRequest,
 				w:               contentSink,
 				buf:             preludeBuf,
 				initialDecision: decision,
@@ -7771,6 +7759,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			claudeRetryRan = true
 			respSummary = translate.ResponseSummary{}
 			winnerIdx, proxyErr = s.dispatchWithFallback(subCtx, failoverInputs{
+				contextRequest:         routeRequest,
 				w:                      contentSink,
 				buf:                    preludeBuf,
 				initialDecision:        decision,
@@ -7845,6 +7834,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			effortServed = retryEffort
 			respSummary = translate.ResponseSummary{}
 			winnerIdx, proxyErr = s.dispatchWithFallback(retryCtx, failoverInputs{
+				contextRequest:         routeRequest,
 				w:                      contentSink,
 				buf:                    preludeBuf,
 				initialDecision:        cyberRetryTarget,
@@ -7924,6 +7914,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			effortServed = siblingEffort
 			respSummary = translate.ResponseSummary{}
 			winnerIdx, proxyErr = s.dispatchWithFallback(siblingCtx, failoverInputs{
+				contextRequest:         routeRequest,
 				w:                      contentSink,
 				buf:                    preludeBuf,
 				initialDecision:        siblingDecision,
