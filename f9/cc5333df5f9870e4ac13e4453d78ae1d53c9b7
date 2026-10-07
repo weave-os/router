@@ -1,0 +1,122 @@
+internal/proxy/context_snapshot_internal_test.go
+  s_527111cf8ce1b4::t_26c2329db6dfb3 1-72
+install/codex-status.sh
+  s_527111cf8ce1b4::t_df0974b9e20be9 124,192
+  s_527111cf8ce1b4::t_50c5bbdb7b07de 311-312
+  s_527111cf8ce1b4::t_b25cdc0ec80372 326-329,514,518
+  s_527111cf8ce1b4::t_ae5435925ca162 342
+  s_527111cf8ce1b4::t_b91c1285e3e35e 159-191,193-195,273-274,309-310,313-322,324,330-341,371,428-439,449-453,509-513,515-517,519-522,526,530,534,538-541
+  s_527111cf8ce1b4::t_6cdd5d070c18c0 323
+  s_527111cf8ce1b4::t_eface4a14d20b3 325
+  s_527111cf8ce1b4::t_a2c13b46dfb9e3 369-370
+  s_527111cf8ce1b4::t_48c711b4fc9822 372
+  s_527111cf8ce1b4::t_5ce56c2990c9cc 96-98,108
+internal/sqlc/models.go
+  s_527111cf8ce1b4::t_49ca2b3375aa0d 701
+install/install.sh
+  s_527111cf8ce1b4::t_df0974b9e20be9 4511,4517,4520-4529,4531,4541,4867-4868,5793-5795,5797-5802,5805,6249-6293,6301-6306,6309-6310,6317,6320-6335,6368-6369
+  s_527111cf8ce1b4::t_b25cdc0ec80372 4673-4689,4716-4719,4775-4786,4796-4800,4856-4865
+  s_527111cf8ce1b4::t_ae5435925ca162 5785,5803-5804
+  s_527111cf8ce1b4::t_78c4a5308ef7a8 6311-6316
+  s_527111cf8ce1b4::t_56aafc8231a65a 4508-4510
+  s_527111cf8ce1b4::t_609e0744159fa8 4512-4516
+  s_527111cf8ce1b4::t_fa8af8f9646eba 4518-4519
+  s_527111cf8ce1b4::t_271c89e85b02c7 4530
+  s_527111cf8ce1b4::t_9e62ea750e6e87 4532-4534,4538-4540
+  s_527111cf8ce1b4::t_122399c834c729 4542
+  s_527111cf8ce1b4::t_f8cc80f6381f65 4670-4672
+  s_527111cf8ce1b4::t_079510f169dfe9 4866
+  s_527111cf8ce1b4::t_e2b45295be7e43 4869
+  s_527111cf8ce1b4::t_8957c23d02a5c2 5796
+  s_527111cf8ce1b4::t_ce46d289261e53 6294-6296,6298-6300
+  s_527111cf8ce1b4::t_a3adceb1fa5859 6307-6308
+  s_527111cf8ce1b4::t_818cf2439d5af2 6318-6319
+  s_527111cf8ce1b4::t_d059083d06e2b7 921-925,4443-4445,4455,4471,4506-4507,4535-4537,4620-4621,4656-4669,4873,4877,4881,4885-4888,6297
+internal/proxy/usage_bypass.go
+  s_527111cf8ce1b4::t_521df8da702409 394
+  s_527111cf8ce1b4::t_df6f7ed864697f 567
+internal/api/admin/session_cost_test.go
+  s_527111cf8ce1b4::t_26c2329db6dfb3 216-239
+Makefile
+  s_527111cf8ce1b4::t_bd8dc23e0d605c 67
+internal/proxy/service.go
+  s_527111cf8ce1b4::t_d7a3f88a9c36eb 2716,2718-2719
+  s_527111cf8ce1b4::t_521df8da702409 2717,4008,4034,6969,6999
+  s_527111cf8ce1b4::t_0be13f51d9d30f 2755,6439-6440
+  s_527111cf8ce1b4::t_df6f7ed864697f 5190,8289
+  s_527111cf8ce1b4::t_9a56b22200b271 6438
+install/tests/codex-status_test.sh
+  s_527111cf8ce1b4::t_b91c1285e3e35e 51,58,65,135,151,205,377,385,393,398,405
+docs/CONFIGURATION.md
+  s_527111cf8ce1b4::t_e77ced0957530b 844-860,862
+  s_527111cf8ce1b4::t_c57436845b115a 861
+install/README.md
+  s_527111cf8ce1b4::t_e77ced0957530b 651-665
+  s_527111cf8ce1b4::t_ff5b09301b220a 404
+internal/proxy/headers.go
+  s_527111cf8ce1b4::t_521df8da702409 20
+  s_527111cf8ce1b4::t_d7a3f88a9c36eb 17-19,21
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_527111cf8ce1b4::t_49ca2b3375aa0d 543-548,550-551,576,595-600,602-603,624
+  s_527111cf8ce1b4::t_68691785bd6819 2110-2111,2465,2699-2700,3053
+  s_527111cf8ce1b4::t_c657d59ef7501e 549,601
+internal/api/admin/session_cost.go
+  s_527111cf8ce1b4::t_d7a3f88a9c36eb 23-36
+  s_527111cf8ce1b4::t_521df8da702409 73-76,80
+db/migrations/0126_telemetry-context-snapshot.up.sql
+  s_527111cf8ce1b4::t_521df8da702409 1-3
+install/tests/context-status_test.sh
+  s_527111cf8ce1b4::t_c7d0f561bf209e 1-57,59-110
+  s_527111cf8ce1b4::t_bd8dc23e0d605c 58
+db/queries/model_router_request_telemetry.sql
+  s_527111cf8ce1b4::t_50c5bbdb7b07de 232-233,407-408
+  s_527111cf8ce1b4::t_521df8da702409 900-908
+db/migrations/0126_telemetry-context-snapshot.down.sql
+  s_527111cf8ce1b4::t_521df8da702409 1-3
+internal/proxy/telemetry.go
+  s_527111cf8ce1b4::t_521df8da702409 68
+  s_527111cf8ce1b4::t_d7a3f88a9c36eb 54,69
+internal/proxy/context_snapshot.go
+  s_527111cf8ce1b4::t_b25cdc0ec80372 18,36-38
+  s_527111cf8ce1b4::t_df6f7ed864697f 72,79
+  s_527111cf8ce1b4::t_0be13f51d9d30f 1-3,11-17,19-21,32-34,43-45,54-56,70-71,86,95
+  s_527111cf8ce1b4::t_d7a3f88a9c36eb 4-8,10,22-31,35,41-42,46-53,57-69,73-78,80-85,94
+  s_527111cf8ce1b4::t_1b5a7ef352bfda 9
+  s_527111cf8ce1b4::t_239ba5beb8ca4b 39-40
+  s_527111cf8ce1b4::t_9fc0a39aa90921 87-89,91-93
+  s_527111cf8ce1b4::t_1d238cea7a5bc6 90
+internal/proxy/gemini.go
+  s_527111cf8ce1b4::t_521df8da702409 226
+  s_527111cf8ce1b4::t_df6f7ed864697f 444
+internal/postgres/telemetry.go
+  s_527111cf8ce1b4::t_521df8da702409 114,837
+install/cc-statusline.sh
+  s_527111cf8ce1b4::t_df0974b9e20be9 449-451,453-458,461,905-949,958-962,965-966,973,976-991,1024-1025
+  s_527111cf8ce1b4::t_78c4a5308ef7a8 967-972
+  s_527111cf8ce1b4::t_ae5435925ca162 441,459-460
+  s_527111cf8ce1b4::t_bd8dc23e0d605c 452,950-957,963-964,974-975
+install/tests/codex_install_test.sh
+  s_527111cf8ce1b4::t_d78eea651c10ae 95-96,101,579
+internal/proxy/baseline_failover_integration_test.go
+  s_527111cf8ce1b4::t_dab4b6e4b03c90 119-120
+internal/proxy/gemini_test.go
+  s_527111cf8ce1b4::t_08014f31fab48e 66
+internal/proxy/service_test.go
+  s_527111cf8ce1b4::t_aeba6aa7dfd828 223,387,1350,1680-1688
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f9cc5333df5f9870e4ac13e4453d78ae1d53c9b7",
+  "prompts": {},
+  "sessions": {
+    "s_527111cf8ce1b4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a117b4-a8de-70d0-9d4b-4f1c0d2f682e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Wesley Lin <wesley@workweave.ai>"
+    }
+  }
+}
