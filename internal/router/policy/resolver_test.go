@@ -626,3 +626,31 @@ func TestResolverKeepsVendorRoutingWhenNoGatewayConfigured(t *testing.T) {
 	require.Len(t, resolved.Candidates, 1)
 	assert.Equal(t, providers.ProviderAnthropic, resolved.Candidates[0].Provider)
 }
+
+func TestResolverEffectiveBindingCapacityBoundary(t *testing.T) {
+	const model = "claude-opus-4-7"
+	for _, tc := range []struct {
+		name      string
+		providers map[string]struct{}
+		window    int
+	}{
+		{"direct", set(providers.ProviderAnthropic), 1_000_000},
+		{"messages gateway", set(providers.ProviderAnthropicGateway), 1_000_000},
+		{"chat gateway", set(providers.ProviderOpenAIGateway), 200_000},
+		{"mixed bindings conservative", set(providers.ProviderAnthropic, providers.ProviderOpenAIGateway), 200_000},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resolver := policy.NewResolver(set(model), tc.providers, catalogRosterID, policy.ProviderPolicy{})
+			request := router.Request{EnableExtendedContext: true, EstimatedInputTokens: 1, ContextInputTokens: tc.window - 8_000, ContextOutputReserve: 8_000}
+			fits := resolver.Resolve(request)
+			require.Len(t, fits.Candidates, 1)
+			assert.Equal(t, model, fits.Candidates[0].CatalogID)
+			request.ContextInputTokens++
+			rejected := resolver.Resolve(request)
+			assert.Empty(t, rejected.Candidates)
+			assert.Contains(t, rejected.Diagnostics, policy.Diagnostic{CatalogID: model, RosterID: model, Reason: policy.ExclusionContextWindow})
+			request.OverflowAdmittedModels = set(model)
+			assert.Len(t, resolver.Resolve(request).Candidates, 1)
+		})
+	}
+}

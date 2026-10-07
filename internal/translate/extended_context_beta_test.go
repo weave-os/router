@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"testing"
 
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
@@ -23,6 +24,7 @@ func TestEnableExtendedContext_InjectsContext1MBeta(t *testing.T) {
 	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
 		TargetModel:           "claude-opus-4-8",
 		EnableExtendedContext: true,
+		TargetProvider:        providers.ProviderAnthropic,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "context-1m-2025-08-07", prep.Headers.Get("anthropic-beta"))
@@ -38,6 +40,7 @@ func TestEnableExtendedContext_NoOpWithoutCapability(t *testing.T) {
 	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
 		TargetModel:           "claude-haiku-4-5",
 		EnableExtendedContext: true,
+		TargetProvider:        providers.ProviderAnthropic,
 	})
 	require.NoError(t, err)
 	assert.Empty(t, prep.Headers.Get("anthropic-beta"))
@@ -55,6 +58,7 @@ func TestEnableExtendedContext_DedupesClientBeta(t *testing.T) {
 	prep, err := env.PrepareAnthropic(in, translate.EmitOptions{
 		TargetModel:           "claude-opus-4-8",
 		EnableExtendedContext: true,
+		TargetProvider:        providers.ProviderAnthropic,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "context-1m-2025-08-07", prep.Headers.Get("anthropic-beta"))
@@ -71,6 +75,7 @@ func TestEnableExtendedContext_PreservesOtherBetas(t *testing.T) {
 	prep, err := env.PrepareAnthropic(in, translate.EmitOptions{
 		TargetModel:           "claude-opus-4-8",
 		EnableExtendedContext: true,
+		TargetProvider:        providers.ProviderAnthropic,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "interleaved-thinking-2025-05-14,context-1m-2025-08-07", prep.Headers.Get("anthropic-beta"))

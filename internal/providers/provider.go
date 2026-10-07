@@ -857,3 +857,9 @@ type Client interface {
 	// Passthrough forwards an inbound request to the same path on the upstream with no model rewriting.
 	Passthrough(ctx context.Context, prep PreparedRequest, w http.ResponseWriter, r *http.Request) error
 }
+
+// SupportsExtendedContext reports whether the Messages binding can carry the
+// model's context-1m beta. OpenAI-compatible bindings cannot send that option.
+func SupportsExtendedContext(modelID, provider string) bool {
+	return (provider == ProviderAnthropic || provider == ProviderAnthropicGateway) && router.Lookup(modelID).Supports(router.CapExtendedContext)
+}

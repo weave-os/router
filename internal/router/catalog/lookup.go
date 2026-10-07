@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 )
 
@@ -412,4 +413,24 @@ func ValidateDeployed(deployed []string) error {
 	}
 	sort.Strings(missing)
 	return fmt.Errorf("catalog: deployed models missing or unconfigured — add or fix them in internal/router/catalog/catalog.go: %s", strings.Join(missing, ", "))
+}
+
+// EffectiveContextWindowForBinding includes extended capacity only when the
+// request path enables the beta on a supported binding. An explicit binding
+// limit remains authoritative even when the model supports extended context.
+func EffectiveContextWindowForBinding(modelID, provider string, extendedContext bool) int {
+	window := ContextWindowForBinding(modelID, provider)
+	model, known := ByID(modelID)
+	if !known {
+		return window
+	}
+	for _, binding := range model.Providers {
+		if binding.Provider == provider && binding.ContextWindow > 0 {
+			return window
+		}
+	}
+	if extendedContext && providers.SupportsExtendedContext(modelID, provider) {
+		return max(window, 1_000_000)
+	}
+	return window
 }

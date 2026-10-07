@@ -14,6 +14,7 @@ import (
 // from.
 type RoutedResolutionRequest struct {
 	Purpose  Purpose
+	Request  router.Request
 	Decision router.Decision
 	Bindings []catalog.ProviderBinding
 	// Origin names the override source that fixed the decision's model
@@ -62,6 +63,9 @@ func (r *PlanResolver) ResolveRouted(request RoutedResolutionRequest) (ResolvedP
 	for index, providerBinding := range request.Bindings {
 		if providerBinding.Provider == "" {
 			return ResolvedPlan{}, resolutionError(ResolutionErrorNoEligibleBinding, request.Purpose, spec.PolicyID, "routed binding names no provider")
+		}
+		if exceedsContextWindow(request.Request, model, catalog.EffectiveContextWindowForBinding(model, providerBinding.Provider, request.Request.EnableExtendedContext)) {
+			return ResolvedPlan{}, ErrContextWindowExceeded
 		}
 		bindingIndex, upstreamID := catalogBinding(model, providerBinding)
 		binding := Binding{

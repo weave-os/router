@@ -1674,3 +1674,28 @@ func TestService_ProxyOpenAIResponses_NativeDispatchAppliesArmEffort(t *testing.
 		})
 	}
 }
+
+func TestService_ContextCapacityMatchesDispatchedBinding(t *testing.T) {
+	const model = "claude-opus-4-7"
+	for _, tc := range []struct {
+		name, provider       string
+		wantWindow, wantBeta string
+	}{
+		{"direct", providers.ProviderAnthropic, "1000000", "context-1m-2025-08-07"},
+		{"messages gateway", providers.ProviderAnthropicGateway, "1000000", "context-1m-2025-08-07"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			upstream := &fakeProvider{proxyResponse: func(w http.ResponseWriter) { _, _ = w.Write([]byte(`{"content":[{"type":"text","text":"ok"}]}`)) }}
+			fr := &fakeRouter{decision: router.Decision{Model: model, Provider: tc.provider, Reason: "test"}}
+			svc := proxy.NewService(fr, map[string]providers.Client{tc.provider: upstream}, nil, false, nil, nil, false, providers.ProviderAnthropic, model, nil)
+			body := []byte(`{"model":"auto","max_tokens":4096,"messages":[{"role":"user","content":"` + strings.Repeat("x", 1_500_000) + `"}]}`)
+			recorder := httptest.NewRecorder()
+			require.NoError(t, svc.ProxyMessages(context.Background(), body, recorder, httptest.NewRequest(http.MethodPost, "/v1/messages", nil)))
+			require.Len(t, upstream.proxyBodies, 1)
+			assert.Equal(t, tc.provider, recorder.Header().Get(proxy.HeaderRouterProvider))
+			assert.Equal(t, tc.wantWindow, recorder.Header().Get(proxy.HeaderRouterContextWindow))
+			assert.Equal(t, tc.wantBeta, upstream.proxyHeaders[0].Get("anthropic-beta"))
+			assert.Contains(t, string(upstream.proxyBodies[0]), strings.Repeat("x", 1_500_000), "history must stay intact")
+		})
+	}
+}

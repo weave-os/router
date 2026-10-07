@@ -154,6 +154,9 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		RequestedModel:                feats.Model,
 		ForceCluster:                  forceCluster,
 		EstimatedInputTokens:          feats.Tokens,
+		ContextInputTokens:            overflowEstimate,
+		ContextSignatureSavings:       env.SignatureTokenSavings(),
+		ContextOutputReserve:          outputReserve,
 		HasTools:                      feats.HasTools,
 		HasImages:                     feats.HasImages,
 		TranslationRequirements:       env.TranslationRequirements(router.EndpointGeminiGenerate),
@@ -330,6 +333,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		return err
 	}
 	winnerIdx, proxyErr := s.dispatchWithFallback(ctx, failoverInputs{
+		contextRequest:  routeRequest,
 		w:               contentSink,
 		buf:             preludeBuf,
 		initialDecision: decision,

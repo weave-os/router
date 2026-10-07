@@ -123,7 +123,15 @@ type Request struct {
 	ClientApp string
 	// RolloutID correlates eval/shadow traffic across route and outcome events.
 	RolloutID string
-	HasTools  bool
+	// ContextInputTokens and ContextSignatureSavings carry the full-envelope
+	// estimate independently of the text estimate used for routing cost.
+	ContextInputTokens      int
+	ContextSignatureSavings int
+	ContextOutputReserve    int
+	// EnableExtendedContext is true only on paths that emit the context beta.
+	EnableExtendedContext bool
+
+	HasTools bool
 	// HasImages: scorer drops text-only models from the eligible pool; turn
 	// loop evicts a text-only session pin.
 	HasImages bool

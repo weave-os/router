@@ -39,7 +39,7 @@ type anthropicTierAttempt struct {
 // plus whether that dispatch is fast.
 func (a *anthropicTierAttempt) forBinding(actx context.Context, d router.Decision) (translate.EmitOptions, dispatchAttempt, bool, error) {
 	fast := fastModeForAttempt(actx, d.Model, d.Provider)
-	if fast == a.opts.FastMode {
+	if fast == a.opts.FastMode && d.Provider == a.opts.TargetProvider {
 		return a.opts, a.native, fast, nil
 	}
 	attemptOpts := a.opts

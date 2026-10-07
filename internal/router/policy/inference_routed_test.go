@@ -178,3 +178,21 @@ func TestResolveRouted_AuthorizesHardPinnedUtilityTurns(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveRoutedRechecksConcreteBindingContext(t *testing.T) {
+	const model = "claude-opus-4-7"
+	request := policy.RoutedResolutionRequest{Purpose: policy.PurposeAnthropicMessages, Decision: router.Decision{Model: model, Provider: providers.ProviderAnthropic}, Bindings: []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}}, Request: router.Request{EnableExtendedContext: true, ContextInputTokens: 992_000, ContextOutputReserve: 8_000}}
+	plan, err := routedResolver(t).ResolveRouted(request)
+	require.NoError(t, err)
+	assert.Equal(t, providers.ProviderAnthropic, plan.SelectedBinding().Provider)
+	request.Request.ContextInputTokens++
+	_, err = routedResolver(t).ResolveRouted(request)
+	assert.ErrorIs(t, err, policy.ErrContextWindowExceeded)
+	request.Request.ContextInputTokens = 250_000
+	request.Bindings = append(request.Bindings, catalog.ProviderBinding{Provider: providers.ProviderOpenAIGateway})
+	_, err = routedResolver(t).ResolveRouted(request)
+	assert.ErrorIs(t, err, policy.ErrContextWindowExceeded, "fallback cannot use the selected binding's extended window")
+	request.Request.OverflowAdmittedModels = set(model)
+	_, err = routedResolver(t).ResolveRouted(request)
+	assert.NoError(t, err)
+}

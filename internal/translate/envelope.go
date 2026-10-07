@@ -63,9 +63,8 @@ type EmitOptions struct {
 	// (x-weave-effort header / :level suffix). Wins over ForceReasoningEffort;
 	// per-model caps applied by ResolveForceEffort.
 	ForceEffort string
-	// CapExtendedContext targets (Opus 4.6+, Sonnet 4.6) get a 1M window
-	// instead of 200K, avoiding a 400 "prompt is too long" on large requests.
-	// No-op below 200K input. deriveAnthropicHeaders gates on CapExtendedContext.
+	// EnableExtendedContext permits the context beta on a supported Messages
+	// binding. Policy admission and dispatch must use the same setting.
 	EnableExtendedContext bool
 	// EnableServerSideFallback opts an Anthropic-targeted request into
 	// Anthropic re-serving a safety-refused turn on a fallback model. Ignored
