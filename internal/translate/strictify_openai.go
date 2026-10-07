@@ -2,6 +2,7 @@ package translate
 
 import (
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 )
@@ -62,14 +63,11 @@ func closeOpenAISchemaObjects(schema any) (any, bool) {
 	if !isMap {
 		return nil, false
 	}
-	return closeOpenAISchemaNode(root)
+	return closeOpenAISchemaNode(root), true
 }
 
-func closeOpenAISchemaNode(node map[string]any) (map[string]any, bool) {
-	closed := make(map[string]any, len(node)+1)
-	for key, value := range node {
-		closed[key] = value
-	}
+func closeOpenAISchemaNode(node map[string]any) map[string]any {
+	closed := maps.Clone(node)
 
 	// Closing an object that composes properties from another schema can
 	// reject keys required by that schema. Keep such a node open while still
@@ -106,20 +104,12 @@ func closeOpenAISchemaNode(node map[string]any) (map[string]any, bool) {
 						closedProperties[name] = property
 						continue
 					}
-					child, ok := closeOpenAISchemaNode(propertySchema)
-					if !ok {
-						return nil, false
-					}
-					closedProperties[name] = child
+					closedProperties[name] = closeOpenAISchemaNode(propertySchema)
 				}
 				closed[keyword] = closedProperties
 				continue
 			}
-			child, ok := closeOpenAISchemaNode(nested)
-			if !ok {
-				return nil, false
-			}
-			closed[keyword] = child
+			closed[keyword] = closeOpenAISchemaNode(nested)
 		case []any:
 			children := make([]any, 0, len(nested))
 			for _, item := range nested {
@@ -128,16 +118,12 @@ func closeOpenAISchemaNode(node map[string]any) (map[string]any, bool) {
 					children = append(children, item)
 					continue
 				}
-				child, ok := closeOpenAISchemaNode(childSchema)
-				if !ok {
-					return nil, false
-				}
-				children = append(children, child)
+				children = append(children, closeOpenAISchemaNode(childSchema))
 			}
 			closed[keyword] = children
 		}
 	}
-	return closed, true
+	return closed
 }
 
 func schemaNodeIsObject(node map[string]any) bool {
@@ -156,14 +142,6 @@ func schemaNodeIsObject(node map[string]any) bool {
 		}
 	}
 	return false
-}
-
-func cloneSchemaNode(node map[string]any) map[string]any {
-	cloned := make(map[string]any, len(node))
-	for key, value := range node {
-		cloned[key] = value
-	}
-	return cloned
 }
 
 // strictifyNode transforms one schema node, recursing into properties, items,
