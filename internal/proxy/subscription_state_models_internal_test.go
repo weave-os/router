@@ -347,6 +347,15 @@ func TestSubscriptionStateModelsEmptySelectedStateFailsClosed(t *testing.T) {
 	require.False(t, modelPermittedByAllowlist(ctx, stateClaudeModel))
 }
 
+func TestSubscriptionStatePaidRescueRequiresExhaustedSetTarget(t *testing.T) {
+	ctx := conditionalModelsContext([]string{stateClaudeModel, stateCodexModel}, []string{statePaidModel})
+	require.True(t, paidFallbackForbidden(ctx))
+
+	allowedRescueCtx := subscriptionStatePaidRescueContext(ctx, statePaidModel)
+	require.False(t, paidFallbackForbidden(allowedRescueCtx))
+	require.True(t, paidFallbackForbidden(subscriptionStatePaidRescueContext(ctx, stateClaudeModel)))
+}
+
 func TestSubscriptionStateModelsKeepSafetyExclusions(t *testing.T) {
 	ctx := conditionalModelsContext([]string{stateClaudeModel, stateCodexModel}, []string{statePaidModel})
 	request := router.Request{

@@ -24,6 +24,15 @@ func paidFallbackForbidden(ctx context.Context) bool {
 	return subscriptionAttemptOnly(ctx) || subscriptionStateModelsEnabled(ctx) && !subscriptionAPIOnly(ctx) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx)
 }
 
+// subscriptionStatePaidRescueContext permits paid recovery only when its target
+// is explicitly present in the installation's exhausted-state model set.
+func subscriptionStatePaidRescueContext(ctx context.Context, model string) context.Context {
+	if _, exhaustedModel := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[model]; exhaustedModel {
+		return context.WithValue(ctx, subscriptionAPIOnlyKey{}, true)
+	}
+	return ctx
+}
+
 // releaseUnservableLinkedFirst drops a linked-first mark after routing when the
 // turn did not resolve onto the caller's subscription (a force-model pin or
 // hard-pin to an uncovered model, a managed pool with no seat). The balance
