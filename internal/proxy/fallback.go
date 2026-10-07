@@ -281,8 +281,7 @@ var errDispatchWithoutPurpose = errors.New("dispatchWithFallback: no inference p
 // instead of a generic 502.
 func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (winnerIdx int, err error) {
 	if in.subscriptionStateRequest != nil && subscriptionStateModelsEnabled(ctx) && in.buildAlternative != nil {
-		winner, err := s.dispatchWithSubscriptionStateModels(ctx, &in)
-		return winner, err
+		return s.dispatchWithSubscriptionStateModels(ctx, &in)
 	}
 	if subscriptionStateModelsEnabled(ctx) && !subscriptionAttemptOnly(ctx) {
 		if _, allowed := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[in.initialDecision.Model]; !allowed {
