@@ -246,16 +246,15 @@ type failoverInputs struct {
 	deferFlushOnExhaustion bool
 	// purpose names the registered operation the walk is authorized under;
 	// origin names the override source that fixed the decision's model.
-	purpose                       inference.Purpose
-	origin                        policy.OverrideSource
-	subscriptionStateRequest      *router.Request
-	subscriptionStateHeaders      http.Header
-	alternatives                  []router.Decision
-	buildAlternative              func(router.Decision) (dispatchAttempt, error)
-	onAlternative                 func(router.Decision)
-	onSubscriptionStateTarget     func(router.Decision, []catalog.ProviderBinding)
-	onSubscriptionStatePaidTarget func(router.Decision, []catalog.ProviderBinding)
-	// subscriptionStateWinnerProvider carries the provider selected by state routing.
+	purpose                         inference.Purpose
+	origin                          policy.OverrideSource
+	subscriptionStateRequest        *router.Request
+	subscriptionStateHeaders        http.Header
+	alternatives                    []router.Decision
+	buildAlternative                func(router.Decision) (dispatchAttempt, error)
+	onAlternative                   func(router.Decision)
+	onSubscriptionStateTarget       func(router.Decision, []catalog.ProviderBinding)
+	onSubscriptionStatePaidTarget   func(router.Decision, []catalog.ProviderBinding)
 	subscriptionStateWinnerProvider *string
 }
 

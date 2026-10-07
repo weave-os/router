@@ -361,6 +361,7 @@ func TestSubscriptionStateFailedTargetReachesRecoveryCallback(t *testing.T) {
 		},
 	})
 	require.Error(t, err)
+	require.Empty(t, *winnerProvider, "a failed target must not be recorded as the provider that served the request")
 	require.Equal(t, statePaidModel, recoveryDecision.Model)
 	require.Equal(t, statePaidModel, attemptedModel)
 }
