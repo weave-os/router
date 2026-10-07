@@ -3,6 +3,7 @@ package proxy
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -28,7 +29,7 @@ func TestContextEstimateHeadersProtocols(t *testing.T) {
 			env, err := fixture.parse([]byte(fixture.body))
 			require.NoError(t, err)
 			headers := http.Header{}
-			setContextEstimateHeaders(headers, env, 16000)
+			setContextEstimateHeaders(headers, env.ContextOverflowTokenEstimate(), 16000)
 			require.Equal(t, "16000", headers.Get(HeaderRouterContextReserve))
 			require.Equal(t, "approximate", headers.Get(HeaderRouterContextEstimateKind))
 			require.Equal(t, "1", headers.Get(HeaderRouterContextVersion))
@@ -42,7 +43,7 @@ func TestCachedContextEstimateUsesLiveRequest(t *testing.T) {
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-5","max_tokens":32,"messages":[{"role":"user","content":"a fresh request"}]}`))
 	require.NoError(t, err)
 	rec := httptest.NewRecorder()
-	setContextEstimateHeaders(rec.Header(), env, 8000)
+	setContextEstimateHeaders(rec.Header(), env.ContextOverflowTokenEstimate(), 8000)
 	estimate := rec.Header().Get(HeaderRouterContextEstimate)
 	stale := http.Header{}
 	stale.Set(HeaderRouterContextEstimate, "999999")
@@ -55,6 +56,21 @@ func TestCachedContextEstimateUsesLiveRequest(t *testing.T) {
 	require.Equal(t, "approximate", rec.Result().Header.Get(HeaderRouterContextEstimateKind))
 	require.NotEqual(t, "1", rec.Result().Header.Get(HeaderRouterContextWindow))
 	require.Equal(t, "hit", rec.Result().Header.Get(HeaderRouterCache))
+}
+
+func TestContextEstimateHeadersUseOriginalRequestEstimate(t *testing.T) {
+	original, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-5","max_tokens":32,"messages":[{"role":"user","content":"a much longer original client request"}]}`))
+	require.NoError(t, err)
+	originalEstimate := original.ContextOverflowTokenEstimate()
+	require.Greater(t, originalEstimate, 1)
+
+	handover, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-5","max_tokens":32,"messages":[{"role":"user","content":"summary"}]}`))
+	require.NoError(t, err)
+	require.Less(t, handover.ContextOverflowTokenEstimate(), originalEstimate)
+
+	headers := http.Header{}
+	setContextEstimateHeaders(headers, originalEstimate, 8000)
+	require.Equal(t, strconv.Itoa(originalEstimate), headers.Get(HeaderRouterContextEstimate))
 }
 
 func TestContextSnapshotFreshness(t *testing.T) {

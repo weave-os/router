@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"weave-os/router/internal/router/turntype"
-	"weave-os/router/internal/translate"
 )
 
 type ContextEstimateKind string
@@ -53,11 +52,10 @@ func ParseContextSnapshot(encoded []byte) *ContextSnapshot {
 	return &snapshot
 }
 
-func setContextEstimateHeaders(headers http.Header, env *translate.RequestEnvelope, reserve int) {
+func setContextEstimateHeaders(headers http.Header, estimate, reserve int) {
 	for _, name := range []string{HeaderRouterContextEstimate, HeaderRouterContextReserve, HeaderRouterContextEstimateKind, HeaderRouterContextVersion} {
 		headers.Del(name)
 	}
-	estimate := env.ContextOverflowTokenEstimate()
 	if estimate <= 0 {
 		return
 	}

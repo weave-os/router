@@ -4531,11 +4531,10 @@ context_snapshot() {
 }
 
 context_clause() {
-  local snapshot="$1" estimate window
+  local snapshot="$1" estimate
   [ -n "$snapshot" ] || return 0
   estimate="$(jq -r '.estimate_tokens' <<<"$snapshot")"
-  window="$(jq -r '.context_window' <<<"$snapshot")"
-  awk -v estimate="$estimate" -v window="$window" 'BEGIN {
+  awk -v estimate="$estimate" -v window="$(jq -r '.context_window' <<<"$snapshot")" 'BEGIN {
     printf " · last Router ctx est. ~%s/%s", (estimate < 1000 ? estimate : sprintf("%.0fk", estimate/1000)), (window < 1000 ? window : sprintf("%.0fk", window/1000))
   }'
 }
@@ -4677,7 +4676,6 @@ refresh_session_cost() {
               else
                 fresh_title="Weave Router · $fresh_model"
               fi
-              emit_title "$fresh_title$(savings_clause "$file")$(context_clause "$fresh_snapshot")"
             fi
           fi
         else
@@ -4686,20 +4684,27 @@ refresh_session_cost() {
       fi
       rm -f "$context_tmp"
     fi
-    [ "${WEAVE_CODEX_STATUS_SAVINGS:-1}" != "0" ] || exit 0
-    # savings_usd is the router's own (requested - actual). A body without it
-    # (404, error envelope, older router) writes nothing and leaves the cache.
-    savings="$(printf '%s' "$body" | jq -r '.savings_usd // empty' 2>/dev/null)" || exit 0
-    case "$savings" in
-      ''|*[!0-9.eE+-]*) exit 0 ;;
-    esac
-    tmp="$file.tmp.$$"
-    mkdir -p "$(dirname "$file")" 2>/dev/null
-    if printf '%s' "$savings" >"$tmp" 2>/dev/null; then
-      chmod 600 "$tmp" 2>/dev/null
-      mv "$tmp" "$file" 2>/dev/null
+    if [ "${WEAVE_CODEX_STATUS_SAVINGS:-1}" != "0" ]; then
+      # savings_usd is the router's own (requested - actual). A body without it
+      # (404, error envelope, older router) leaves the cache untouched.
+      savings="$(printf '%s' "$body" | jq -r '.savings_usd // empty' 2>/dev/null)" || savings=""
+      case "$savings" in
+        ''|*[!0-9.eE+-]*) ;;
+        *)
+          tmp="$file.tmp.$$"
+          mkdir -p "$(dirname "$file")" 2>/dev/null
+          if printf '%s' "$savings" >"$tmp" 2>/dev/null; then
+            chmod 600 "$tmp" 2>/dev/null
+            mv "$tmp" "$file" 2>/dev/null
+          fi
+          rm -f "$tmp" 2>/dev/null
+          ;;
+      esac
     fi
-    rm -f "$tmp" 2>/dev/null
+    if [ -n "${fresh_title:-}" ] \
+       && [ "$(cat "$state_root/active-$(printf '%s' "$helper_dir" | cksum | awk '{print $1}')" 2>/dev/null)" = "$generation" ]; then
+      emit_title "$fresh_title$(savings_clause "$file")$(context_clause "$fresh_snapshot")"
+    fi
   ) >/dev/null 2>&1 &
   disown 2>/dev/null || true
 }
@@ -6249,12 +6254,12 @@ weave_refresh_on_price_miss "$requested_norm" "$transcript_model" 2>/dev/null ||
 router_context_fallback() {
   [ -z "$context_clause" ] || return 0
   [ "${WEAVE_STATUSLINE_CONTEXT:-1}" != "0" ] || return 0
-  local session self scope cache root now snapshot
+  local session helper_dir scope cache root now snapshot
   session="$(jq -r '.session_id // empty' <<<"$input")"
   case "$session" in ''|*[!A-Za-z0-9._-]*) return 0 ;; esac
   [ "${#session}" -le 128 ] || return 0
-  self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-  scope="$(printf '%s' "$self" | cksum | awk '{print $1}')"
+  helper_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+  scope="$(printf '%s' "$helper_dir" | cksum | awk '{print $1}')"
   root="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router/claude-context"
   cache="$root/$scope-$session.json"
   now="$(date +%s)"
@@ -6273,13 +6278,12 @@ router_context_fallback() {
     $s
     ' "$cache" 2>/dev/null)" || snapshot=""
     if [ -n "$snapshot" ]; then
-      local served requested estimate window
+      local served requested estimate
       served="$(normalize_model "$(jq -r '.served_model' <<<"$snapshot")")"
       requested="$(normalize_model "$(jq -r '.requested_model // empty' <<<"$snapshot")")"
       if [ "$served" = "$transcript_model" ] && [ "$requested" = "$requested_norm" ]; then
         estimate="$(jq -r '.estimate_tokens' <<<"$snapshot")"
-        window="$(jq -r '.context_window' <<<"$snapshot")"
-        context_clause="$(awk -v e="$estimate" -v w="$window" 'BEGIN {
+        context_clause="$(awk -v e="$estimate" -v w="$(jq -r '.context_window' <<<"$snapshot")" 'BEGIN {
           printf " · last Router ctx est. ~%s/%s", (e < 1000 ? e : sprintf("%.0fk", e/1000)), (w < 1000 ? w : sprintf("%.0fk", w/1000))
         }')"
       fi

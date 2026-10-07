@@ -111,7 +111,8 @@ XDG_CACHE_HOME="$cache" WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" --
 savings_home="$work/home"
 mkdir -p "$savings_home/.codex"
 cost_body="$work/cost.json"
-printf '%s\n' '{"session_id":"session-2","savings_usd":0.32}' >"$cost_body"
+snapshot_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+jq -cn --arg snapshot_time "$snapshot_time" '{session_id:"session-2",savings_usd:0.32,context_snapshot:{version:1,estimate_kind:"approximate",estimate_tokens:72000,context_window:128000,output_reserve_tokens:8000,requested_model:"gpt-5.6-terra",served_model:"claude-sonnet-5",request_id:"request-2",requested_at:$snapshot_time,recorded_at:$snapshot_time}}' >"$cost_body"
 cat >"$savings_home/.codex/config.toml" <<TOML
 # >>> weave-router managed (do not edit between markers) >>>
 model_provider = "weave"
@@ -147,8 +148,17 @@ done
   exit 1
 }
 
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved \$0.32 · last Router ctx est. ~72k/128k" ] && break
+  sleep 0.2
+done
+[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved \$0.32 · last Router ctx est. ~72k/128k" ] || {
+  echo "async fetch wrote savings but did not refresh the title: $(cat "$title_file")" >&2
+  exit 1
+}
+
 run_savings_turn
-[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved \$0.32" ] || {
+[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved \$0.32 · last Router ctx est. ~72k/128k" ] || {
   echo "server-sourced savings did not reach the title: $(cat "$title_file")" >&2
   exit 1
 }
@@ -370,6 +380,7 @@ render_cached_savings() {
   printf '%s' "$1" >"$cost_cache"
   printf '%s\n' '{"session_id":"session-2","model":"gpt-5.6-terra","last_assistant_message":"✦ **Weave Router** → claude-sonnet-5 · best pick"}' \
     | HOME="$work/empty-home" XDG_CACHE_HOME="$savings_cache" \
+      WEAVE_CODEX_STATUS_CONTEXT=0 \
       WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
 }
 

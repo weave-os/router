@@ -905,12 +905,12 @@ weave_refresh_on_price_miss "$requested_norm" "$transcript_model" 2>/dev/null ||
 router_context_fallback() {
   [ -z "$context_clause" ] || return 0
   [ "${WEAVE_STATUSLINE_CONTEXT:-1}" != "0" ] || return 0
-  local session self scope cache root now snapshot
+  local session helper_dir scope cache root now snapshot
   session="$(jq -r '.session_id // empty' <<<"$input")"
   case "$session" in ''|*[!A-Za-z0-9._-]*) return 0 ;; esac
   [ "${#session}" -le 128 ] || return 0
-  self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-  scope="$(printf '%s' "$self" | cksum | awk '{print $1}')"
+  helper_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+  scope="$(printf '%s' "$helper_dir" | cksum | awk '{print $1}')"
   root="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router/claude-context"
   cache="$root/$scope-$session.json"
   now="$(date +%s)"
@@ -929,13 +929,12 @@ router_context_fallback() {
     $s
     ' "$cache" 2>/dev/null)" || snapshot=""
     if [ -n "$snapshot" ]; then
-      local served requested estimate window
+      local served requested estimate
       served="$(normalize_model "$(jq -r '.served_model' <<<"$snapshot")")"
       requested="$(normalize_model "$(jq -r '.requested_model // empty' <<<"$snapshot")")"
       if [ "$served" = "$transcript_model" ] && [ "$requested" = "$requested_norm" ]; then
         estimate="$(jq -r '.estimate_tokens' <<<"$snapshot")"
-        window="$(jq -r '.context_window' <<<"$snapshot")"
-        context_clause="$(awk -v e="$estimate" -v w="$window" 'BEGIN {
+        context_clause="$(awk -v e="$estimate" -v w="$(jq -r '.context_window' <<<"$snapshot")" 'BEGIN {
           printf " · last Router ctx est. ~%s/%s", (e < 1000 ? e : sprintf("%.0fk", e/1000)), (w < 1000 ? w : sprintf("%.0fk", w/1000))
         }')"
       fi

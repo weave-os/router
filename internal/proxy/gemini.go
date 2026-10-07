@@ -223,7 +223,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	w.Header().Set(HeaderRouterProvider, decision.Provider)
 	w.Header().Set(HeaderRouterModel, decision.Model)
 	w.Header().Set(HeaderRouterContextWindow, strconv.Itoa(contextWindowForRequest(decision.Model, decision.Provider)))
-	setContextEstimateHeaders(w.Header(), env, outputReserve)
+	setContextEstimateHeaders(w.Header(), env.ContextOverflowTokenEstimate(), outputReserve)
 	// Gemini path does not resolve a router user, matching the decision span
 	// below which omits router_user_id.
 	s.setFeedbackLinkHeader(ctx, w, installationID, externalID, requestID, "")
