@@ -25,11 +25,13 @@ func TestReplayStartupFixtureExercisesServingAdapters(t *testing.T) {
 	for _, test := range []struct {
 		provider, model, host, path, output string
 		tokens                              int
+		effort                              startupReasoningEffort
 	}{
-		{providers.ProviderAnthropic, "claude-haiku-4-5", "api.anthropic.com", "/v1/messages", "content.0.text", 32},
-		{providers.ProviderAnthropic, "claude-opus-4-8", "api.anthropic.com", "/v1/messages", "content.0.text", 1024},
-		{providers.ProviderOpenAI, "gpt-4.1", "api.openai.com", "/v1/chat/completions", "choices.0.message.content", 32},
-		{providers.ProviderOpenAI, "gpt-5.5", "api.openai.com", "/v1/responses", "output.0.content.0.text", 1024},
+		{provider: providers.ProviderAnthropic, model: "claude-haiku-4-5", host: "api.anthropic.com", path: "/v1/messages", output: "content.0.text", tokens: 32},
+		{provider: providers.ProviderAnthropic, model: "claude-opus-4-8", host: "api.anthropic.com", path: "/v1/messages", output: "content.0.text", tokens: 1024},
+		{provider: providers.ProviderOpenAI, model: "gpt-4.1", host: "api.openai.com", path: "/v1/chat/completions", output: "choices.0.message.content", tokens: 32},
+		{provider: providers.ProviderOpenAI, model: "gpt-5.5", host: "api.openai.com", path: "/v1/responses", output: "output.0.content.0.text", tokens: 1024, effort: startupReasoningEffortLow},
+		{provider: providers.ProviderOpenAI, model: "gpt-5.4-pro", host: "api.openai.com", path: "/v1/responses", output: "output.0.content.0.text", tokens: 1024, effort: startupReasoningEffortMedium},
 	} {
 		t.Run(test.model, func(t *testing.T) {
 			store, err := newStore(t.TempDir())
@@ -78,7 +80,7 @@ func TestReplayStartupFixtureExercisesServingAdapters(t *testing.T) {
 			case providers.ProviderOpenAI:
 				client = openai.NewClient(startupFixtureKey, upstream.URL)
 				if test.path == "/v1/responses" {
-					options.ForceReasoningEffort = "low"
+					options.ForceReasoningEffort = string(test.effort)
 					prepared, err = envelope.PrepareOpenAIResponses(nil, options)
 				} else {
 					prepared, err = envelope.PrepareOpenAI(nil, options)
@@ -107,6 +109,7 @@ func TestReplayStartupFixtureExercisesServingAdapters(t *testing.T) {
 }
 
 const startupChatRequest = `{"model":"gpt-4.1","messages":[{"role":"user","content":"Reply with OK."}],"max_tokens":32,"stream":false}`
+const startupResponsesInvalidEffort = `{"model":"gpt-5.4-pro","input":[{"role":"user","content":[{"type":"input_text","text":"Reply with OK."}]}],"store":false,"max_output_tokens":1024,"reasoning":{"effort":"invalid","summary":"detailed"},"stream":false}`
 
 func TestReplayStartupFixtureCannotHideOrdinaryCassetteMisses(t *testing.T) {
 	for _, test := range []struct {
@@ -118,6 +121,7 @@ func TestReplayStartupFixtureCannotHideOrdinaryCassetteMisses(t *testing.T) {
 		{name: "extra message field", body: strings.Replace(startupChatRequest, `"role":"user"`, `"role":"user","name":"customer"`, 1)},
 		{name: "streaming", body: strings.Replace(startupChatRequest, `"stream":false`, `"stream":true`, 1)},
 		{name: "unbounded output", body: strings.Replace(startupChatRequest, `"max_tokens":32`, `"max_tokens":32000`, 1)},
+		{name: "unknown reasoning effort", path: "/v1/responses", body: startupResponsesInvalidEffort},
 		{name: "unknown host", host: "provider.invalid"},
 		{name: "unknown endpoint", path: "/v1/unknown"},
 		{name: "query parameters", path: "/v1/chat/completions?extra=true"},

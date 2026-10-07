@@ -8,6 +8,16 @@ import (
 
 const startupFixtureKey = "smoke-fixture-key-unused-outside-replay"
 
+type startupReasoningEffort string
+
+const (
+	startupReasoningEffortLow    startupReasoningEffort = "low"
+	startupReasoningEffortMedium startupReasoningEffort = "medium"
+	startupReasoningEffortHigh   startupReasoningEffort = "high"
+	startupReasoningEffortXhigh  startupReasoningEffort = "xhigh"
+	startupReasoningEffortMax    startupReasoningEffort = "max"
+)
+
 // Startup fixtures are authored responses, never provider recordings. They only
 // match the bounded boot prompt with the isolated runner's fake credentials.
 func startupFixture(host string, req *http.Request, body []byte) *cassette {
@@ -52,10 +62,23 @@ func startupFixture(host string, req *http.Request, body []byte) *cassette {
 			"usage":   map[string]any{"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
 		}
 	case host == "api.openai.com" && req.URL.Path == "/v1/responses" && req.Header.Get("Authorization") == "Bearer "+startupFixtureKey:
+		reasoning, ok := request["reasoning"].(map[string]any)
+		if !ok || len(reasoning) != 2 || reasoning["summary"] != "detailed" {
+			return nil
+		}
+		effort, ok := reasoning["effort"].(string)
+		if !ok {
+			return nil
+		}
+		switch startupReasoningEffort(effort) {
+		case startupReasoningEffortLow, startupReasoningEffortMedium, startupReasoningEffortHigh, startupReasoningEffortXhigh, startupReasoningEffortMax:
+		default:
+			return nil
+		}
 		expected["input"] = []any{map[string]any{"role": "user", "content": []any{map[string]any{"type": "input_text", "text": "Reply with OK."}}}}
 		expected["store"] = false
 		expected["max_output_tokens"] = float64(1024)
-		expected["reasoning"] = map[string]any{"effort": "low", "summary": "detailed"}
+		expected["reasoning"] = map[string]any{"effort": effort, "summary": "detailed"}
 		response = map[string]any{
 			"id": "resp_smoke_startup", "object": "response", "status": "completed", "model": model,
 			"output": []any{map[string]any{"id": "msg_smoke_startup", "type": "message", "role": "assistant", "status": "completed", "content": []any{map[string]any{"type": "output_text", "text": "OK", "annotations": []any{}}}}},
