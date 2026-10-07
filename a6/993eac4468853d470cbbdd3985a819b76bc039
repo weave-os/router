@@ -1,0 +1,37 @@
+docs/CONFIGURATION.md
+  s_6e53ad610c08fe::t_ba93e4889e0802 665
+internal/proxy/surface_purpose_test.go
+  s_6e53ad610c08fe::t_1879ab8b9a0fc7 156-158
+internal/proxy/opencode_turns_test.go
+  s_6e53ad610c08fe::t_153d8911bd843c 170
+internal/router/turntype/CLAUDE.md
+  s_6e53ad610c08fe::t_1879ab8b9a0fc7 15-16
+cmd/router/main.go
+  s_6e53ad610c08fe::t_1879ab8b9a0fc7 680,704,901,1317
+internal/proxy/utility_selection_internal_test.go
+  s_6e53ad610c08fe::t_1879ab8b9a0fc7 65-70
+internal/proxy/openai_cyber_refusal.go
+  s_6e53ad610c08fe::t_bdb36884d7af31 234
+internal/proxy/CLAUDE.md
+  s_6e53ad610c08fe::t_ba93e4889e0802 197-200
+internal/proxy/AGENTS.md
+  s_6e53ad610c08fe::t_94708ce44c14c7 197-200
+internal/router/turntype/AGENTS.md
+  s_6e53ad610c08fe::t_383b51aea7d9c9 15-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a6993eac4468853d470cbbdd3985a819b76bc039",
+  "prompts": {},
+  "sessions": {
+    "s_6e53ad610c08fe": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10f29-b454-71c3-949d-17a38738c8b2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

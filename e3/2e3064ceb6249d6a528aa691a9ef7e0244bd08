@@ -1,0 +1,53 @@
+internal/proxy/service.go
+  s_54f3fae2e86b5f::t_40e8d57dfa8f96 944,964-965,967,969-971,973-974,976-977,980-992,1142,3992,4126,4618,6922,7064,7674
+  s_54f3fae2e86b5f::t_bd75b4be9f2be2 3688,6787
+  s_54f3fae2e86b5f::t_d4a70d30ec97f8 523-525,527-529,922-923,931-932,968,978,1108,4619,7675
+internal/proxy/usage_bypass.go
+  s_54f3fae2e86b5f::t_40e8d57dfa8f96 53
+internal/proxy/linked_first.go
+  s_54f3fae2e86b5f::t_9f0887d871a8a5 21-22
+  s_54f3fae2e86b5f::t_40e8d57dfa8f96 24
+internal/auth/installation.go
+  s_54f3fae2e86b5f::t_a7a12f65388b3d 28-29,31-32
+internal/proxy/subscription_state_models_internal_test.go
+  s_54f3fae2e86b5f::t_3c11627e6034fc 5-6,9,12-14,166-209,212-237,271
+  s_54f3fae2e86b5f::t_f1c5fff511b75d 1-4,7-8,10,17-31,34-42,49-73,78-103,105,113-124,126-145,154-165,254,266,312,315
+  s_54f3fae2e86b5f::t_b9db5822dd4b0f 15,238,242,251,263,274-308,313-314,316
+  s_54f3fae2e86b5f::t_2ed53064a55cea 32-33,43-48,74,76-77,106-108,110-112,125,146-153
+  s_54f3fae2e86b5f::t_580599dd0115bd 11,16,75,104,109,210-211,239-241,243-250,252-253,255-262,264-265,267-270,272-273,309-311
+internal/proxy/subscription_state_models.go
+  s_54f3fae2e86b5f::t_bd75b4be9f2be2 1-20,23-51,53-68,70-72,75-88,91-100,107,116,118-121,123-127,129-153,155,157-163,165-172,174-179,181-201
+  s_54f3fae2e86b5f::t_a7a12f65388b3d 52,69,73-74,90,101-106,117,180
+  s_54f3fae2e86b5f::t_9f0887d871a8a5 108-115,128
+  s_54f3fae2e86b5f::t_53582c9c89c6e0 21-22,89,122,154,156,164,173
+internal/proxy/fallback.go
+  s_54f3fae2e86b5f::t_40e8d57dfa8f96 251,269-277
+  s_54f3fae2e86b5f::t_a7a12f65388b3d 252
+  s_54f3fae2e86b5f::t_88bfd2978386fc 18
+docs/SUBSCRIPTION_ROUTING.md
+  s_54f3fae2e86b5f::t_8788aa1e02f958 21-32
+internal/proxy/gemini.go
+  s_54f3fae2e86b5f::t_50cf821598ecda 50-54
+internal/proxy/handover.go
+  s_54f3fae2e86b5f::t_5db1c147afa419 22,192-206
+internal/proxy/subscription_conditional_models_internal_test.go
+  s_54f3fae2e86b5f::t_edb100a3606a2a 18-19
+internal/server/middleware/auth.go
+  s_54f3fae2e86b5f::t_6b927828fea8b0 180,183
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e32e3064ceb6249d6a528aa691a9ef7e0244bd08",
+  "prompts": {},
+  "sessions": {
+    "s_54f3fae2e86b5f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11490-fa25-73a2-84d7-c8dee0aed02d",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
