@@ -16,6 +16,7 @@
   },
   "files": [
     "bin.js",
+    "windows.js",
     "install.sh",
     "uninstall.sh",
     "cc-statusline.sh",

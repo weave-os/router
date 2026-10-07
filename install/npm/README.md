@@ -87,11 +87,14 @@ npx @weave-os/router --uninstall --codex --scope project
 
 ## What it does
 
-This package is a thin Node wrapper around [`install.sh`](../install.sh) from
-the Weave Router repo. It exists so you can install from any machine with
-Node ≥ 18 — no `curl | sh`, no Git clone, no PATH fiddling. Everything the
-shell installer documents (targets, scopes, flags, environment variables)
-works identically here.
+On macOS and Linux, this package runs [`install.sh`](../install.sh). On
+Windows, it uses the full Bash installer when Git Bash is available and
+otherwise falls back to a native Node.js installer, so a fresh Windows machine
+does not need Git Bash, WSL, or jq for basic setup. The no-Bash path configures
+the client's router connection and supports uninstall for Claude Code, Codex,
+OpenCode, and pi. It does not yet install shell-based status displays, hooks, or
+slash-command assets; commands such as `status`, `update`, `models`,
+subscription login, and account management still require Git Bash or WSL.
 
 Four install targets:
 
@@ -156,13 +159,15 @@ dependencies are separately licensed and are not bundled in this package.
 ## Requirements
 
 - Node ≥ 18 (ships with `npx`)
-- `bash` on PATH (macOS / Linux native; Windows needs Git Bash or WSL)
+- Windows users can run the command from PowerShell with Node.js/npm installed;
+  Git Bash/WSL is optional for basic setup
+- macOS/Linux users need Bash on PATH
 - `jq` is reused when available; otherwise, on macOS (arm64/x86_64), Linux (arm64/x86_64), and Windows Git Bash (x86_64), the installer downloads checksum-verified jq 1.8.1 to `~/.weave/bin`. Other architectures need jq installed manually. No Homebrew or administrator access is needed. Downloads require access to GitHub.
 
 ## Why npx
 
-`npx @weave-os/router` gives Windows support via Git Bash, painless version
-pinning, and discoverability via the npm registry.
+`npx @weave-os/router` provides one-command setup and painless version
+pinning. The Windows entrypoint is native Node.js and needs no shell install.
 
 ## Older npm
 

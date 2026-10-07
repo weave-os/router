@@ -38,6 +38,37 @@ if (!existsSync(script)) {
   process.exit(1);
 }
 
+if (process.platform === "win32") {
+  const bash = pickBash();
+  if (bash) {
+    const result = spawnSync(bash, [script, ...args], {
+      stdio: "inherit",
+      env: { ...process.env, WEAVE_ROUTER_NPM_PACKAGE: packageName },
+    });
+    if (result.error) {
+      console.error("Weave Router:", result.error.message);
+      process.exit(1);
+    }
+    process.exit(result.status ?? 1);
+  }
+
+  const windowsInstaller = path.join(__dirname, "windows.js");
+  if (!existsSync(windowsInstaller)) {
+    console.error("Weave Router: native Windows installer missing from package.");
+    process.exit(1);
+  }
+  console.log("Git Bash was not found; using the native Windows installer.");
+  const result = spawnSync(process.execPath, [windowsInstaller, ...args], {
+    stdio: "inherit",
+    env: { ...process.env, WEAVE_ROUTER_NPM_PACKAGE: packageName },
+  });
+  if (result.error) {
+    console.error("Weave Router:", result.error.message);
+    process.exit(1);
+  }
+  process.exit(result.status ?? 1);
+}
+
 const bash = pickBash();
 if (!bash) {
   console.error(
@@ -66,6 +97,7 @@ function pickBash() {
     process.env.SHELL,
     "C:\\Program Files\\Git\\bin\\bash.exe",
     "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
+    ...String(process.env.PATH || "").split(path.delimiter).map((directory) => path.join(directory, "bash.exe")),
   ].filter(Boolean);
   for (const c of candidates) {
     if (existsSync(c)) return c;
