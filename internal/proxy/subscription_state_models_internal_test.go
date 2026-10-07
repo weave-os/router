@@ -159,7 +159,6 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 			dispatch := failoverInputs{
 				w: rec, buf: buffer, subscriptionStateRequest: &req,
 				subscriptionStateWinnerProvider: new(string),
-				subscriptionStateTargetProvider: new(string),
 				initialDecision:                 initialDecision,
 				purpose:                         inference.PurposeAnthropicMessages,
 				origin:                          origin,
@@ -349,7 +348,6 @@ func TestSubscriptionStateFailedTargetReachesRecoveryCallback(t *testing.T) {
 		w:                               httptest.NewRecorder(),
 		subscriptionStateRequest:        &request,
 		subscriptionStateWinnerProvider: winnerProvider,
-		subscriptionStateTargetProvider: new(string),
 		initialDecision:                 router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
 		purpose:                         inference.PurposeAnthropicMessages,
 		buildAlternative: func(router.Decision) (dispatchAttempt, error) {

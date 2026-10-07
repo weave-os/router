@@ -113,12 +113,12 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			activeModels = append(activeModels, model)
 		}
 	}
-	budget, cancel := context.WithTimeout(ctx, sameBindingRetryBudget)
+	rotationBudget, cancel := context.WithTimeout(ctx, sameBindingRetryBudget)
 	defer cancel()
-	ctx = context.WithValue(ctx, subscriptionRotationBudgetKey{}, budget)
+	ctx = context.WithValue(ctx, subscriptionRotationBudgetKey{}, rotationBudget)
 	hasFixedTarget := request.ForceModel != "" || callerModelPassthroughActive(ctx) ||
 		in.origin == policy.OverrideSourceDeployment || in.origin == policy.OverrideSourceRequest
-	for len(activeModels) > 0 && budget.Err() == nil {
+	for len(activeModels) > 0 && rotationBudget.Err() == nil {
 		attemptCtx, attemptReq := s.subscriptionStateRequest(ctx, request, activeModels)
 		attemptCtx = context.WithValue(attemptCtx, subscriptionOnlyAttemptKey{}, true)
 		attemptReq.EnabledProviders = make(map[string]struct{})
@@ -157,7 +157,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		if err == nil || committed(in.buf) || ctx.Err() != nil {
 			return winner, err
 		}
-		internalRotationExpired := subscriptionRotationExpired(ctx, budget)
+		internalRotationExpired := subscriptionRotationExpired(ctx, rotationBudget)
 		if !internalRotationExpired && !isSubscriptionPoolError(err) && !errors.Is(err, ErrCreditsExhaustedSubscriptionUnavailable) && !providers.IsRetryable(err) &&
 			!codexSubscriptionModelRejected(err) && !anthropicSubscriptionModelRejected(err) && !codexOAuthCredentialRejected(err) && !anthropicOAuthCredentialRejected(err) {
 			return winner, err
@@ -181,7 +181,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 	paidCtx, paidReq := s.subscriptionStateRequest(ctx, request, paidModels)
 	paidCtx = billing.ReleaseLinkedFirst(paidCtx)
 	paidCtx = context.WithValue(paidCtx, subscriptionAPIOnlyKey{}, true)
-	if subscriptionRotationExpired(ctx, budget) {
+	if subscriptionRotationExpired(ctx, rotationBudget) {
 		paidCtx = context.WithValue(paidCtx, subscriptionRotationBudgetDisabledKey{}, true)
 	}
 	paidCtx = withSuppressedClaudeSubscription(withSuppressedCodexSubscription(paidCtx))
@@ -211,8 +211,8 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 	return s.dispatchSubscriptionStateTarget(paidCtx, in, target, false)
 }
 
-func subscriptionRotationExpired(ctx, budget context.Context) bool {
-	return ctx.Err() == nil && budget.Err() != nil
+func subscriptionRotationExpired(ctx, rotationBudget context.Context) bool {
+	return ctx.Err() == nil && rotationBudget.Err() != nil
 }
 
 func (s *Service) subscriptionStatePaidTargetAvailable(ctx context.Context, headers http.Header, target router.Decision) bool {
@@ -249,8 +249,8 @@ func (s *Service) dispatchSubscriptionStateTarget(ctx context.Context, in failov
 	} else if in.onAlternative != nil {
 		in.onAlternative(target)
 	}
-	if in.subscriptionStateTargetProvider != nil {
-		*in.subscriptionStateTargetProvider = target.Provider
+	if in.subscriptionStateWinnerProvider != nil {
+		*in.subscriptionStateWinnerProvider = target.Provider
 	}
 	winner, err := s.dispatchWithFallback(ctx, in)
 	return winner, err
