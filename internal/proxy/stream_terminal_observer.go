@@ -186,7 +186,7 @@ func (o *streamTerminalObserver) observeEvent(event []byte) {
 			return
 		}
 		o.state.started = true
-		if gjson.GetBytes(payload, "error").Exists() {
+		if upstreamErr := gjson.GetBytes(payload, "error"); upstreamErr.Exists() && upstreamErr.Type != gjson.Null {
 			o.state.ended = true
 			return
 		}

@@ -42,6 +42,7 @@ func TestStreamTerminalObserver(t *testing.T) {
 		{name: "chat cut", protocol: nativeStreamOpenAIChat, body: chatDelta, want: translate.ErrStreamIncomplete},
 		{name: "chat error object", protocol: nativeStreamOpenAIChat, body: chatDelta + `data: {"error":{"message":"overloaded"}}` + "\n\n"},
 		{name: "chat empty body", protocol: nativeStreamOpenAIChat, want: translate.ErrStreamEmpty},
+		{name: "chat null error field is not an end", protocol: nativeStreamOpenAIChat, body: `data: {"error":null,"choices":[{"index":0,"delta":{"content":"a"},"finish_reason":null}]}` + "\n\n", want: translate.ErrStreamIncomplete},
 		{name: "chat keepalives only", protocol: nativeStreamOpenAIChat, body: ": OPENROUTER PROCESSING\n\n", want: translate.ErrStreamEmpty},
 		{name: "chat second choice still generating", protocol: nativeStreamOpenAIChat, body: chatDelta + chatSecondChoiceDelta + chatFinish, want: translate.ErrStreamIncomplete},
 		{name: "chat every choice finished", protocol: nativeStreamOpenAIChat, body: chatDelta + chatSecondChoiceDelta + chatFinish + chatSecondChoiceFinish},
