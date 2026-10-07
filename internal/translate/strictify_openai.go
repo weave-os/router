@@ -82,7 +82,7 @@ func strictifyNode(node map[string]any, depth int, propCount *int) (out map[stri
 	if !schemaHasStrictType(node) && !hasProperties {
 		return nil, false
 	}
-	if objectType, _ := node["type"].(string); objectType == "object" && len(properties) == 0 && node["additionalProperties"] != false {
+	if node["type"] == "object" && len(properties) == 0 && node["additionalProperties"] != false {
 		return nil, false
 	}
 
