@@ -71,10 +71,11 @@ func (l *stateModelLeaser) Lease(_ context.Context, owner auth.SubscriptionOwner
 
 func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 	for _, scenario := range []struct {
-		name                                                                     string
-		claude, codex, emptyPaid, depleted, liveReject, committedFailure, forced bool
-		want                                                                     string
-		wantErr                                                                  bool
+		name                                                                                                 string
+		claude, codex, emptyPaid, depleted, liveReject, committedFailure, forced, forcedSubset, demoteClaude bool
+		utilityTarget                                                                                        bool
+		want                                                                                                 string
+		wantErr                                                                                              bool
 	}{
 		{name: "Claude included before paid", claude: true, codex: true, want: stateClaudeModel},
 		{name: "Claude exhausted uses active Codex", codex: true, want: stateCodexModel},
@@ -84,6 +85,9 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 		{name: "empty exhausted set refuses paid", emptyPaid: true, wantErr: true},
 		{name: "explicit force cannot buy an active-only model", forced: true, wantErr: true},
 		{name: "explicit force still uses included capacity", forced: true, claude: true, want: stateClaudeModel},
+		{name: "force model overrides request subset", forced: true, forcedSubset: true, claude: true, want: stateClaudeModel},
+		{name: "utility target follows subscription state model sets", utilityTarget: true, claude: true, want: stateClaudeModel},
+		{name: "session-demoted Claude selects healthy Codex", claude: true, codex: true, demoteClaude: true, want: stateCodexModel},
 		{name: "depleted credits still serve Codex", codex: true, depleted: true, want: stateCodexModel},
 		{name: "depleted credits prohibit cheap paid fallback", depleted: true, wantErr: true},
 		{name: "committed subscription failure never replays", claude: true, committedFailure: true, wantErr: true},
@@ -107,12 +111,22 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 				paidModels = nil
 			}
 			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, paidModels)
+			if scenario.demoteClaude {
+				ctx = context.WithValue(ctx, SessionDemotedModelsContextKey{}, []string{stateClaudeModel})
+			}
 			if scenario.depleted {
 				ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyCreditsDepleted)
 			}
 			req := router.Request{AllowedModels: allowedModelsForRequest(ctx), EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter})}
 			if scenario.forced {
 				req.ForceModel = stateClaudeModel
+			}
+			if scenario.forcedSubset {
+				req.AllowedModels = modelSet([]string{stateCodexModel})
+			}
+			initialModel := stateClaudeModel
+			if scenario.utilityTarget {
+				initialModel = statePaidModel
 			}
 			rec := httptest.NewRecorder()
 			buffer := newPreludeBuffer(rec)
@@ -121,7 +135,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 			var winner router.Decision
 			_, err := svc.dispatchWithFallback(ctx, failoverInputs{
 				w: rec, buf: buffer, stateRequest: &req,
-				initialDecision: router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
+				initialDecision: router.Decision{Model: initialModel, Provider: providers.ProviderAnthropic},
 				purpose:         inference.PurposeAnthropicMessages,
 				buildAlternative: func(target router.Decision) (dispatchAttempt, error) {
 					return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
@@ -154,6 +168,16 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSubscriptionRotationExpiredOnlyForInternalBudget(t *testing.T) {
+	parent, cancelParent := context.WithCancel(context.Background())
+	defer cancelParent()
+	budget, cancelBudget := context.WithCancel(context.Background())
+	cancelBudget()
+	require.True(t, subscriptionRotationExpired(parent, budget))
+	cancelParent()
+	require.False(t, subscriptionRotationExpired(parent, budget), "caller cancellation must not enter paid fallback")
 }
 
 func TestSubscriptionStateModelsIntersectGlobalAllowlist(t *testing.T) {
@@ -227,7 +251,7 @@ func TestSubscriptionStateModelsHTTPIngress(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, scenario.want, rec.Header().Get(HeaderRouterModel))
 				require.Contains(t, rec.Body.String(), "synthetic answer")
-				require.Len(t, models, 1, "exhausted plans must not trigger expensive API calls")
+				require.Equal(t, []string{scenario.want}, models, "upstream must receive the selected state-set model")
 				require.NotContains(t, credentials, "Bearer expensive-paid-key")
 				if scenario.want == statePaidModel {
 					require.Equal(t, []string{"Bearer cheap-paid-key"}, credentials)
@@ -235,6 +259,43 @@ func TestSubscriptionStateModelsHTTPIngress(t *testing.T) {
 			})
 		}
 	}
+}
+
+func TestSubscriptionStateModelsPaidFallbackSkipsUnavailableProvider(t *testing.T) {
+	claude := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{writeBytes: []byte("must not be called")}}}
+	paid := &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("cheap paid answer")}}}
+	svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: claude, providers.ProviderOpenRouter: paid}, nil, false, nil, nil, false, "", "", nil).
+		WithManagedSubscriptions(&stateModelLeaser{active: map[subscriptions.Provider]bool{}})
+	svc.deploymentKeyedProviders = map[string]struct{}{providers.ProviderOpenRouter: {}}
+	ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
+	ctx = context.WithValue(ctx, InstallationExcludedProvidersContextKey{}, []string{providers.ProviderAnthropic})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{stateClaudeModel, statePaidModel})
+	req := router.Request{
+		AllowedModels:    allowedModelsForRequest(ctx),
+		EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}),
+	}
+	rec := httptest.NewRecorder()
+	buffer := newPreludeBuffer(rec)
+	var winner router.Decision
+	var servedModels []string
+	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
+		w: rec, buf: buffer, stateRequest: &req,
+		initialDecision: router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
+		purpose:         inference.PurposeAnthropicMessages,
+		buildAlternative: func(target router.Decision) (dispatchAttempt, error) {
+			return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+				servedModels = append(servedModels, decision.Model)
+				buffer.Seal()
+				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+			}, nil
+		},
+		onSubscriptionStateTarget: func(decision router.Decision, _ []catalog.ProviderBinding) { winner = decision },
+	})
+	require.NoError(t, err)
+	require.Equal(t, statePaidModel, winner.Model)
+	require.Equal(t, 0, claude.calls)
+	require.Equal(t, []string{statePaidModel}, servedModels)
 }
 
 func TestSubscriptionStateModelsProtectPaidSummaries(t *testing.T) {

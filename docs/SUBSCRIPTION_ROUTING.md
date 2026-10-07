@@ -28,9 +28,11 @@ the router selects a request-compatible model from the exhausted set. The
 installation allowlist and request safety constraints still apply to both sets.
 An empty enabled state refuses that funding lane. Disabling the sets retains
 ordinary routing; Max continues to ignore linked subscriptions and these sets.
-Paid handover summaries also respect the exhausted set; an excluded summary
-preserves full history instead of silently buying an active-only model. Committed
-streams are never replayed, and terminal upstream failures are accounted as errors.
+Paid switch and compaction handover summaries respect the exhausted set instead
+of silently buying an active-only model. If a switch summary is rejected, the
+original history is preserved; if a compaction summary is rejected, the already
+compacted body remains unchanged. Committed streams are never replayed, and
+terminal upstream failures are accounted as errors.
 
 Native OpenAI Codex and Anthropic adapters accept subscription OAuth credentials.
 Anthropic-compatible bearer gateways do not advertise native Claude subscription

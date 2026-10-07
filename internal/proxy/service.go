@@ -973,18 +973,18 @@ func installationAllowedModelSet(ctx context.Context) map[string]struct{} {
 	if !subscriptionStateModelsEnabled(ctx) {
 		return allowed
 	}
-	state, selected := ctx.Value(subscriptionStateAllowedModelsKey{}).(map[string]struct{})
+	stateModels, selected := ctx.Value(subscriptionStateAllowedModelsKey{}).(map[string]struct{})
 	if !selected {
-		state = modelSet(append(append([]string{}, installationSubscriptionModelsWhenActiveFromContext(ctx)...), installationSubscriptionModelsWhenInactiveFromContext(ctx)...))
+		stateModels = modelSet(append(append([]string{}, installationSubscriptionModelsWhenActiveFromContext(ctx)...), installationSubscriptionModelsWhenInactiveFromContext(ctx)...))
 	}
 	if allowed == nil {
-		if state == nil {
+		if stateModels == nil {
 			return make(map[string]struct{})
 		}
-		return state
+		return stateModels
 	}
 	intersection := make(map[string]struct{})
-	for model := range state {
+	for model := range stateModels {
 		if _, permitted := allowed[model]; permitted {
 			intersection[model] = struct{}{}
 		}
@@ -4647,6 +4647,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				bindings = s.resolveBindingsForDispatch(ctx, target)
 				marker = suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, target.Model), target.Model, markerReasonSibling))
 			},
+			onSubscriptionStateTarget: func(target router.Decision, targetBindings []catalog.ProviderBinding) {
+				decision = target
+				bindings = targetBindings
+				marker = suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, target.Model), target.Model, markerReasonSibling))
+			},
 			bindings:               bindings,
 			attempt:                attempt,
 			flushErr:               flushErrAsAnthropic,
@@ -7725,6 +7730,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		onAlternative: func(target router.Decision) {
 			decision = target
 			bindings = s.resolveBindingsForDispatch(ctx, target)
+			marker = suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, target.Model), target.Model, markerReasonSibling))
+		},
+		onSubscriptionStateTarget: func(target router.Decision, targetBindings []catalog.ProviderBinding) {
+			decision = target
+			bindings = targetBindings
 			marker = suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, target.Model), target.Model, markerReasonSibling))
 		},
 		bindings:               bindings,

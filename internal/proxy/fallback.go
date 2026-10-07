@@ -246,13 +246,14 @@ type failoverInputs struct {
 	deferFlushOnExhaustion bool
 	// purpose names the registered operation the walk is authorized under;
 	// origin names the override source that fixed the decision's model.
-	purpose          inference.Purpose
-	origin           policy.OverrideSource
-	stateRequest     *router.Request
-	stateHeaders     http.Header
-	alternatives     []router.Decision
-	buildAlternative func(router.Decision) (dispatchAttempt, error)
-	onAlternative    func(router.Decision)
+	purpose                   inference.Purpose
+	origin                    policy.OverrideSource
+	stateRequest              *router.Request
+	stateHeaders              http.Header
+	alternatives              []router.Decision
+	buildAlternative          func(router.Decision) (dispatchAttempt, error)
+	onAlternative             func(router.Decision)
+	onSubscriptionStateTarget func(router.Decision, []catalog.ProviderBinding)
 }
 
 // errDispatchWithoutPurpose rejects a walk no registered purpose authorizes:
@@ -270,8 +271,7 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 		return s.dispatchSubscriptionStateModels(ctx, in)
 	}
 	if subscriptionStateModelsEnabled(ctx) && !subscriptionAttemptOnly(ctx) {
-		paid := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))
-		if _, allowed := paid[in.initialDecision.Model]; !allowed {
+		if _, allowed := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[in.initialDecision.Model]; !allowed {
 			return -1, cluster.ErrAllowlistEmptiesPool
 		}
 	}
@@ -622,6 +622,7 @@ func attemptIdxLabel(i int) string {
 type subscriptionOnlyAttemptKey struct{}
 type subscriptionAPIOnlyKey struct{}
 type subscriptionRotationBudgetKey struct{}
+type subscriptionRotationBudgetDisabledKey struct{}
 
 func subscriptionAttemptOnly(ctx context.Context) bool {
 	value, _ := ctx.Value(subscriptionOnlyAttemptKey{}).(bool)
