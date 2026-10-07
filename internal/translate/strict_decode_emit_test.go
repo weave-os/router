@@ -57,8 +57,8 @@ func TestPrepareOpenAIResponses_StrictTools(t *testing.T) {
 }
 
 func TestPrepareOpenAIResponses_NonStrictifiableFallsBack(t *testing.T) {
-	// oneOf is outside the strict subset: the tool must emit its ORIGINAL
-	// schema without strict rather than fail or mangle it.
+	// oneOf is outside the strict subset: fallback preserves that construct
+	// while closing object schemas that can be closed without changing meaning.
 	body := `{
 	  "model":"claude-opus-4-8","max_tokens":4096,
 	  "tools":[{"name":"Pick","input_schema":{
@@ -89,6 +89,57 @@ func TestPrepareOpenAIResponses_NonStrictifiableFallsBack(t *testing.T) {
 		"the root object must be explicitly closed even when oneOf prevents strict mode")
 	choice := params["properties"].(map[string]any)["choice"].(map[string]any)
 	assert.Contains(t, choice, "oneOf")
+}
+
+func TestPrepareOpenAIResponses_FallbackClosesNestedObjectsSafely(t *testing.T) {
+	body := `{
+	  "model":"claude-opus-4-8","max_tokens":4096,
+	  "tools":[{"name":"Execute","input_schema":{
+	    "type":"object",
+	    "properties":{
+	      "steps":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}},
+	      "empty":{"type":"object","properties":{}},
+	      "freeform":{"type":"object","additionalProperties":{"type":"string"}},
+	      "dynamic":{"type":"object","additionalProperties":{"type":"object","properties":{"value":{"type":"string"}}}},
+	      "choice":{"oneOf":[{"type":"object","properties":{"mode":{"type":"string"}}}]}
+	    },
+	    "required":["steps"],
+	    "allOf":[{"type":"object","properties":{"extra":{"type":"string"}},"required":["extra"]}]
+	  }}],
+	  "messages":[{"role":"user","content":"run"}]
+	}`
+	env, err := translate.ParseAnthropic([]byte(body))
+	require.NoError(t, err)
+	prep, err := env.PrepareOpenAIResponses(http.Header{}, translate.EmitOptions{
+		TargetModel: "gpt-5.5", Capabilities: router.Lookup("gpt-5.5"),
+	})
+	require.NoError(t, err)
+
+	var out map[string]any
+	require.NoError(t, json.Unmarshal(prep.Body, &out))
+	tools, _ := out["tools"].([]any)
+	require.Len(t, tools, 1)
+	tool, _ := tools[0].(map[string]any)
+	assert.Equal(t, false, tool["strict"])
+	params, _ := tool["parameters"].(map[string]any)
+	require.NotNil(t, params)
+	assert.NotContains(t, params, "additionalProperties", "closing the root would forbid the allOf branch's required extra key")
+
+	properties := params["properties"].(map[string]any)
+	steps := properties["steps"].(map[string]any)
+	items := steps["items"].(map[string]any)
+	assert.Equal(t, false, items["additionalProperties"], "object array items are closed")
+	empty := properties["empty"].(map[string]any)
+	assert.Equal(t, false, empty["additionalProperties"], "explicit empty property objects are closed")
+	freeform := properties["freeform"].(map[string]any)
+	assert.Equal(t, map[string]any{"type": "string"}, freeform["additionalProperties"], "freeform dictionaries keep their value schema")
+	dynamic := properties["dynamic"].(map[string]any)
+	dynamicValues := dynamic["additionalProperties"].(map[string]any)
+	assert.Equal(t, false, dynamicValues["additionalProperties"], "object schemas under additionalProperties are closed")
+	choice := properties["choice"].(map[string]any)["oneOf"].([]any)[0].(map[string]any)
+	assert.Equal(t, false, choice["additionalProperties"], "object union branches are closed")
+	allOf := params["allOf"].([]any)[0].(map[string]any)
+	assert.Equal(t, false, allOf["additionalProperties"], "the branch itself is closed around its declared keys")
 }
 
 func TestPrepareGemini_ValidatedModeOnGemini3x(t *testing.T) {

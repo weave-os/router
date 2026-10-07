@@ -16,7 +16,11 @@ func TestResponsesFreeformSchemaPreservesJSON(t *testing.T) {
 			prepared, err := envelope.PrepareOpenAIResponses(nil, EmitOptions{TargetModel: "gpt-5.6-luna"})
 			require.NoError(t, err)
 			require.False(t, gjson.GetBytes(prepared.Body, "tools.0.strict").Bool())
-			require.JSONEq(t, definition, gjson.GetBytes(prepared.Body, "tools.0.parameters.properties.requestBody.properties.definition").Raw)
+			expectedDefinition := definition
+			if definition == `{"type":"object","properties":{}}` {
+				expectedDefinition = `{"type":"object","properties":{},"additionalProperties":false}`
+			}
+			require.JSONEq(t, expectedDefinition, gjson.GetBytes(prepared.Body, "tools.0.parameters.properties.requestBody.properties.definition").Raw)
 		})
 	}
 }
