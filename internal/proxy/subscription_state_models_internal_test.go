@@ -328,8 +328,8 @@ func TestSubscriptionStateModelsPaidFallbackSkipsUnavailableProvider(t *testing.
 }
 
 func TestSubscriptionStateFailedTargetReachesRecoveryCallback(t *testing.T) {
-	paid := &fakeClient{name: providers.ProviderOpenRouter}
-	svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderOpenRouter: paid}, nil, false, nil, nil, false, "", "", nil)
+	paidClient := &fakeClient{name: providers.ProviderOpenRouter}
+	svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderOpenRouter: paidClient}, nil, false, nil, nil, false, "", "", nil)
 	ctx := context.WithValue(context.Background(), InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel})
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 	request := router.Request{
