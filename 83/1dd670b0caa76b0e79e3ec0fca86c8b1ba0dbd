@@ -58,6 +58,7 @@ internal/router/catalog/catalog.go
   s_b496684bf00a71::t_0cab8322845553 53-56,108-110
   s_b496684bf00a71::t_c83967a7698817 106-107
   s_b496684bf00a71::t_b9b6975e5ae4e6 274,290,314,319,325,330,339,348,354
+  s_b496684bf00a71::t_cb4dd94bb74cff 283
 internal/proxy/usage_bypass_internal_test.go
   s_b496684bf00a71::t_0c4576f2f2b083 406,640-641
 db/migrations/0124_telemetry-cache-ttl-speed-geo.up.sql
