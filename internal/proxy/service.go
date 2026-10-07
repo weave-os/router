@@ -3156,10 +3156,11 @@ func (s *Service) anthropicNativeAttempt(
 	streamCut *streamCutObserver,
 	marker string,
 	setExtractor func(*otel.UsageExtractor),
-	setStreamCost func(router.Decision, bool),
+	setStreamCost func(router.Decision, bool, func() bool),
 ) dispatchAttempt {
 	return func(actx context.Context, d router.Decision, p providers.Client) error {
-		setStreamCost(d, false)
+		requestCacheTTL1h := func() bool { return translate.AnthropicRequestCacheTTL1h(prep.Body) }
+		setStreamCost(d, false, requestCacheTTL1h)
 		attemptMarker := preludeState.markerForAttempt(marker, preludeBuf)
 		attemptSink := sink
 		if marker != "" || (preludeBuf != nil && preludeBuf.PreludeSent()) {
@@ -3172,7 +3173,7 @@ func (s *Service) anthropicNativeAttempt(
 		proxyWriter := attemptSink
 		if s.usageRequired() {
 			ex := otel.NewUsageExtractor(attemptSink, d.Provider)
-			ex.SetRequestCacheTTL1h(func() bool { return translate.AnthropicRequestCacheTTL1h(prep.Body) })
+			ex.SetRequestCacheTTL1h(requestCacheTTL1h)
 			proxyWriter = ex
 			setExtractor(ex)
 		}
@@ -4210,9 +4211,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// tier; each attempt closure sets it before dispatch so the stream cost
 	// calculator and post-dispatch billing price the winning attempt.
 	fastServed := false
-	setStreamCost := func(d router.Decision, inputIncludesCache bool) {
+	setStreamCost := func(d router.Decision, inputIncludesCache bool, requestCacheTTL1h func() bool) {
 		if streamCost != nil {
-			streamCost.SetCostCalculator(routerCostCalculatorFor(d.Model, d.Provider, fastServed), inputIncludesCache)
+			streamCost.SetCostCalculator(routerCostCalculatorFor(d.Model, d.Provider, fastServed), inputIncludesCache, requestCacheTTL1h)
 		}
 	}
 	anthropicTierAttemptFor := func(targetOpts translate.EmitOptions, prep providers.PreparedRequest, targetMarker string) *anthropicTierAttempt {
@@ -4294,7 +4295,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				attemptOpts.FastMode = fastModeForAttempt(actx, d.Model, d.Provider)
 				attemptOpts.ReasoningReplayScope = s.reasoningReplayScope(actx, d)
 				fastServed = attemptOpts.FastMode
-				setStreamCost(d, true)
+				setStreamCost(d, true, nil)
 				respSummary = translate.ResponseSummary{}
 				var prep providers.PreparedRequest
 				var emitErr error
@@ -4428,7 +4429,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			// Translators are stateful, so a retry rebuilds the chain via a fresh call.
 			dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (error, func(error) error) {
 				fastServed = false
-				setStreamCost(d, true)
+				setStreamCost(d, true, nil)
 				respSummary = translate.ResponseSummary{}
 				var usage otel.UsageSink
 				if s.usageRequired() {

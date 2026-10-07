@@ -134,8 +134,13 @@ type streamCostWriter struct {
 	messageStartCreation int
 	// Anthropic reports these rate changers on message_start only.
 	messageStartCreation1h int
+	messageStartSplit      bool
 	messageStartSpeed      catalog.Speed
 	messageStartGeo        catalog.InferenceGeo
+	// requestCacheTTL1h prices unsplit cache writes at the 1-hour rate when
+	// every breakpoint of the dispatched request asked for it; nil when the
+	// attempt is not an Anthropic-spec request.
+	requestCacheTTL1h func() bool
 }
 
 func newStreamCostWriter(inner http.ResponseWriter) *streamCostWriter {
@@ -152,9 +157,10 @@ func (w *streamCostWriter) Flush() {
 	}
 }
 
-func (w *streamCostWriter) SetCostCalculator(calculator routerCostCalculator, inputIncludesCache bool) {
+func (w *streamCostWriter) SetCostCalculator(calculator routerCostCalculator, inputIncludesCache bool, requestCacheTTL1h func() bool) {
 	w.calculate = calculator
 	w.inputIncludesCache = inputIncludesCache
+	w.requestCacheTTL1h = requestCacheTTL1h
 }
 
 func (w *streamCostWriter) Write(p []byte) (int, error) {
@@ -189,7 +195,9 @@ func (w *streamCostWriter) annotateEvent(event []byte) []byte {
 		w.messageStartInput = int(usage.Get("input_tokens").Int())
 		w.messageStartRead = int(usage.Get("cache_read_input_tokens").Int())
 		w.messageStartCreation = int(usage.Get("cache_creation_input_tokens").Int())
-		w.messageStartCreation1h = int(usage.Get("cache_creation.ephemeral_1h_input_tokens").Int())
+		oneHour := usage.Get("cache_creation.ephemeral_1h_input_tokens")
+		w.messageStartCreation1h = int(oneHour.Int())
+		w.messageStartSplit = oneHour.Exists() || usage.Get("cache_creation.ephemeral_5m_input_tokens").Exists()
 		w.messageStartSpeed = catalog.Speed(usage.Get("speed").String())
 		w.messageStartGeo = catalog.InferenceGeo(usage.Get("inference_geo").String())
 		return event
@@ -222,6 +230,9 @@ func (w *streamCostWriter) annotateEvent(event []byte) []byte {
 		inputTokens += cacheCreation + cacheRead
 	}
 	mods := catalog.UsageModifiers{CacheCreation1h: w.messageStartCreation1h, InferenceGeo: w.messageStartGeo}
+	if !w.messageStartSplit && cacheCreation > 0 && w.requestCacheTTL1h != nil && w.requestCacheTTL1h() {
+		mods.CacheCreation1h = cacheCreation
+	}
 	cost, err := json.Marshal(w.calculate(inputTokens, outputTokens, cacheCreation, cacheRead, w.messageStartSpeed, mods))
 	if err != nil {
 		return event

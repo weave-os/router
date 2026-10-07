@@ -31,7 +31,7 @@ type anthropicTierAttempt struct {
 	streamCut     *streamCutObserver
 	marker        string
 	setExtractor  func(*otel.UsageExtractor)
-	setStreamCost func(router.Decision, bool)
+	setStreamCost func(router.Decision, bool, func() bool)
 	logBody       func(router.Decision, []byte)
 }
 

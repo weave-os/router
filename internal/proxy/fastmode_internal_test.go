@@ -249,11 +249,11 @@ func TestAnthropicTierAttempt_OrdinaryRateLimitStaysFast(t *testing.T) {
 		env:           env,
 		r:             req,
 		opts:          opts,
-		native:        svc.anthropicNativeAttempt(env, req, prep, httptest.NewRecorder(), nil, &anthropicPreludeState{}, nil, "", func(*otel.UsageExtractor) {}, func(router.Decision, bool) {}),
+		native:        svc.anthropicNativeAttempt(env, req, prep, httptest.NewRecorder(), nil, &anthropicPreludeState{}, nil, "", func(*otel.UsageExtractor) {}, func(router.Decision, bool, func() bool) {}),
 		sink:          httptest.NewRecorder(),
 		preludeState:  &anthropicPreludeState{},
 		setExtractor:  func(*otel.UsageExtractor) {},
-		setStreamCost: func(router.Decision, bool) {},
+		setStreamCost: func(router.Decision, bool, func() bool) {},
 		logBody:       func(router.Decision, []byte) { t.Fatal("an ordinary rate limit must not re-emit the body") },
 	}
 	var served []bool
@@ -315,11 +315,11 @@ func TestAnthropicTierAttempt_ReemitsWhenBindingLosesFastTier(t *testing.T) {
 		env:           env,
 		r:             req,
 		opts:          opts,
-		native:        svc.anthropicNativeAttempt(env, req, prep, httptest.NewRecorder(), nil, &anthropicPreludeState{}, nil, "", func(*otel.UsageExtractor) {}, func(router.Decision, bool) {}),
+		native:        svc.anthropicNativeAttempt(env, req, prep, httptest.NewRecorder(), nil, &anthropicPreludeState{}, nil, "", func(*otel.UsageExtractor) {}, func(router.Decision, bool, func() bool) {}),
 		sink:          httptest.NewRecorder(),
 		preludeState:  &anthropicPreludeState{},
 		setExtractor:  func(*otel.UsageExtractor) {},
-		setStreamCost: func(router.Decision, bool) {},
+		setStreamCost: func(router.Decision, bool, func() bool) {},
 		logBody:       func(_ router.Decision, body []byte) { loggedBodies = append(loggedBodies, body) },
 	}
 	var served []bool

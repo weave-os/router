@@ -444,7 +444,7 @@ func (s *Service) bypassToAnthropic(
 	var streamCost *streamCostWriter
 	if env.Stream() {
 		streamCost = newStreamCostWriter(respW)
-		streamCost.SetCostCalculator(routerCostCalculatorFor(decision.Model, decision.Provider, opts.FastMode), false)
+		streamCost.SetCostCalculator(routerCostCalculatorFor(decision.Model, decision.Provider, opts.FastMode), false, func() bool { return translate.AnthropicRequestCacheTTL1h(prep.Body) })
 		respW = streamCost
 	}
 	if warning := subscriptionOnlyWarningMarkerForRequest(ctx, r.Header, subscriptionOnlyWarningMarker); warning != "" {

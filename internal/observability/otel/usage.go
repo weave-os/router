@@ -580,10 +580,12 @@ func anthropicUsage(data []byte) gjson.Result {
 }
 
 // anthropicUsageModifiers mirrors translate.recordAnthropicUsageModifiers;
-// duplicated for the same import-cycle reason as openaiCacheTokens.
+// duplicated for the same import-cycle reason as openaiCacheTokens. A null or
+// empty cache_creation is not a split: only a present per-TTL count is.
 func anthropicUsageModifiers(usage gjson.Result) (cacheCreation1h int, cacheSplitReported bool, speed, inferenceGeo string) {
-	split := usage.Get("cache_creation")
-	return int(split.Get("ephemeral_1h_input_tokens").Int()), split.Exists(), usage.Get("speed").String(), usage.Get("inference_geo").String()
+	oneHour := usage.Get("cache_creation.ephemeral_1h_input_tokens")
+	reported := oneHour.Exists() || usage.Get("cache_creation.ephemeral_5m_input_tokens").Exists()
+	return int(oneHour.Int()), reported, usage.Get("speed").String(), usage.Get("inference_geo").String()
 }
 
 // openaiReasoningTokens mirrors translate.OpenAIReasoningTokens; duplicated for

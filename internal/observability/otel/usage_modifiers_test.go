@@ -2,6 +2,7 @@ package otel_test
 
 import (
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -16,7 +17,7 @@ import (
 // service_tier and inference_geo ride on the full usage object, while
 // message_delta repeats only the token totals.
 const (
-	anthropicSplitBody = `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude-opus-5","stop_reason":"end_turn","usage":{"input_tokens":3,"cache_creation_input_tokens":322,"cache_read_input_tokens":8895,"cache_creation":{"ephemeral_5m_input_tokens":22,"ephemeral_1h_input_tokens":300},"output_tokens":4,"service_tier":"standard","speed":"fast","inference_geo":"us"}}`
+	anthropicSplitBody   = `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude-opus-5","stop_reason":"end_turn","usage":{"input_tokens":3,"cache_creation_input_tokens":322,"cache_read_input_tokens":8895,"cache_creation":{"ephemeral_5m_input_tokens":22,"ephemeral_1h_input_tokens":300},"output_tokens":4,"service_tier":"standard","speed":"fast","inference_geo":"us"}}`
 	anthropicNoSplitBody = `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude-opus-5","stop_reason":"end_turn","usage":{"input_tokens":3,"cache_creation_input_tokens":322,"cache_read_input_tokens":8895,"output_tokens":4}}`
 )
 
@@ -61,15 +62,17 @@ func TestUsageExtractor_GatewayStreamingSplitIsParsedByFamily(t *testing.T) {
 
 func TestUsageExtractor_UnreportedSplitFallsBackToRequestTTL(t *testing.T) {
 	cases := []struct {
-		name         string
-		declared1h   bool
-		body         string
-		want1h       int
-		wantChecked  bool
+		name        string
+		declared1h  bool
+		body        string
+		want1h      int
+		wantChecked bool
 	}{
 		{name: "1h request, no split", declared1h: true, body: anthropicNoSplitBody, want1h: 322, wantChecked: true},
 		{name: "5m or mixed request, no split", declared1h: false, body: anthropicNoSplitBody, want1h: 0, wantChecked: true},
 		{name: "reported split wins over declared TTL", declared1h: true, body: anthropicSplitBody, want1h: 300, wantChecked: false},
+		{name: "null cache_creation is not a split", declared1h: true, body: strings.Replace(anthropicNoSplitBody, `"output_tokens":4`, `"output_tokens":4,"cache_creation":null`, 1), want1h: 322, wantChecked: true},
+		{name: "empty cache_creation is not a split", declared1h: true, body: strings.Replace(anthropicNoSplitBody, `"output_tokens":4`, `"output_tokens":4,"cache_creation":{}`, 1), want1h: 322, wantChecked: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

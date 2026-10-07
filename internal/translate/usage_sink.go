@@ -23,10 +23,12 @@ type UsageSink interface {
 }
 
 // recordAnthropicUsageModifiers forwards the rate-changing attributes of an
-// Anthropic usage object to sink.
+// Anthropic usage object to sink. A null or empty cache_creation is not a
+// split: only a present per-TTL count is.
 func recordAnthropicUsageModifiers(sink UsageSink, usage gjson.Result) {
-	split := usage.Get("cache_creation")
-	sink.RecordUsageModifiers(int(split.Get("ephemeral_1h_input_tokens").Int()), split.Exists(), usage.Get("speed").String(), usage.Get("inference_geo").String())
+	oneHour := usage.Get("cache_creation.ephemeral_1h_input_tokens")
+	reported := oneHour.Exists() || usage.Get("cache_creation.ephemeral_5m_input_tokens").Exists()
+	sink.RecordUsageModifiers(int(oneHour.Int()), reported, usage.Get("speed").String(), usage.Get("inference_geo").String())
 }
 
 // recordOutputLimit forwards an observed upstream output cap to sink; a nil

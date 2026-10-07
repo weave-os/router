@@ -25,7 +25,7 @@ func TestStreamCostWriterAnnotatesFinalMessageDelta(t *testing.T) {
 			CacheCreationTokens: creation,
 			CacheReadTokens:     read,
 		}
-	}, true)
+	}, true, nil)
 
 	_, err := writer.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":10}}}\n\nevent: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"input_tokens\":100,\"output_tokens\":7,\"cache_read_input_tokens\":3}}\n\n"))
 	require.NoError(t, err)
@@ -125,7 +125,7 @@ func tokenEchoingCost(input, output, creation, read int, _ catalog.Speed, _ cata
 
 func newAnnotatingStreamCostWriter(inner http.ResponseWriter) *streamCostWriter {
 	writer := newStreamCostWriter(inner)
-	writer.SetCostCalculator(tokenEchoingCost, true)
+	writer.SetCostCalculator(tokenEchoingCost, true, nil)
 	return writer
 }
 
@@ -226,7 +226,7 @@ func TestStreamCostWriterPricesMessageStartModifiers(t *testing.T) {
 	const model = "claude-opus-5"
 	rec := httptest.NewRecorder()
 	writer := newStreamCostWriter(rec)
-	writer.SetCostCalculator(routerCostCalculatorFor(model, providers.ProviderAnthropic, false), false)
+	writer.SetCostCalculator(routerCostCalculatorFor(model, providers.ProviderAnthropic, false), false, nil)
 
 	_, err := writer.Write([]byte("event: message_start\n" +
 		`data: {"type":"message_start","message":{"usage":{"input_tokens":10,"cache_creation_input_tokens":5000,"cache_creation":{"ephemeral_5m_input_tokens":1000,"ephemeral_1h_input_tokens":4000},"speed":"fast","inference_geo":"us"}}}` + "\n\n" +
@@ -245,4 +245,33 @@ func TestStreamCostWriterPricesMessageStartModifiers(t *testing.T) {
 	}
 	require.True(t, annotated.Exists())
 	assert.InDelta(t, want.TotalUSD, annotated.Get("usd").Float(), 1e-12)
+}
+
+// A gateway stream without a per-TTL split prices its trailer from the
+// dispatched request's declared TTL, matching telemetry and billing.
+func TestStreamCostWriterUnsplitWritesUseRequestTTL(t *testing.T) {
+	const model = "claude-opus-5"
+	for _, cacheCreation := range []string{``, `,"cache_creation":null`, `,"cache_creation":{}`} {
+		rec := httptest.NewRecorder()
+		writer := newStreamCostWriter(rec)
+		writer.SetCostCalculator(routerCostCalculatorFor(model, providers.ProviderAnthropicGateway, false), false, func() bool { return true })
+
+		_, err := writer.Write([]byte("event: message_start\n" +
+			`data: {"type":"message_start","message":{"usage":{"input_tokens":10,"cache_creation_input_tokens":5000` + cacheCreation + `}}}` + "\n\n" +
+			"event: message_delta\n" +
+			`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":7}}` + "\n\n"))
+		require.NoError(t, err)
+
+		price, ok := catalog.PriceFor(providers.ProviderAnthropicGateway, model)
+		require.True(t, ok)
+		want := routerResponseCostFromPricing(price, providers.ProviderAnthropicGateway, 10, 7, 5000, 0, catalog.UsageModifiers{CacheCreation1h: 5000})
+		var annotated gjson.Result
+		for _, event := range strings.Split(rec.Body.String(), "\n\n") {
+			if strings.HasPrefix(event, "event: message_delta") {
+				annotated = gjson.Get(strings.SplitN(event, "data: ", 2)[1], "usage.weave_cost")
+			}
+		}
+		require.True(t, annotated.Exists(), cacheCreation)
+		assert.InDelta(t, want.TotalUSD, annotated.Get("usd").Float(), 1e-12, cacheCreation)
+	}
 }
