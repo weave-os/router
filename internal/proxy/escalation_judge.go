@@ -149,7 +149,7 @@ func parseEscalationJudgment(encoded []byte) (llmescalation.Judgment, error) {
 				judgment.CostKnown = true
 				judgment.CostSource = llmescalation.CostSourceProviderReported
 			} else if pricing, found := catalog.PriceFor(providers.ProviderFireworks, policy.EscalationJudgeModel); found {
-				judgment.CostUSD = catalog.EffectiveInputCost(prompt, 0, cached, pricing, providers.ProviderFireworks) + catalog.EffectiveOutputCost(prompt, completion, pricing)
+				judgment.CostUSD = catalog.EffectiveInputCost(prompt, 0, cached, pricing, providers.ProviderFireworks, catalog.UsageModifiers{}) + catalog.EffectiveOutputCost(prompt, completion, pricing, catalog.UsageModifiers{})
 				judgment.CostKnown = true
 				judgment.CostSource = llmescalation.CostSourceCatalogEstimate
 			}

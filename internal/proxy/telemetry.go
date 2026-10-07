@@ -135,11 +135,17 @@ type InsertTelemetryParams struct {
 	TrainingAllowed          bool
 	CaptureMode              string
 	// DebugRef is populated only when authorized policy debug mode is enabled.
-	DebugRef              string
-	TTFTMs                *int64
-	CacheCreationTokens   *int32
+	DebugRef            string
+	TTFTMs              *int64
+	CacheCreationTokens *int32
+	// CacheCreation1hTokens is the 1-hour-TTL share of CacheCreationTokens.
+	CacheCreation1hTokens *int32
 	CacheReadTokens       *int32
 	ReasoningTokens       *int32
+	// Speed and InferenceGeo are the provider-reported usage.speed and
+	// usage.inference_geo; empty when not reported.
+	Speed                 string
+	InferenceGeo          string
 	DeviceID              string
 	SessionID             string
 	RouterUserID          string

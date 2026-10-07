@@ -22,6 +22,10 @@ type fakeUsageSink struct {
 	cacheRead          int
 	reasoning          int
 	outputLimitReached bool
+	cacheCreation1h    int
+	cacheSplitReported bool
+	speed              string
+	inferenceGeo       string
 }
 
 func (f *fakeUsageSink) RecordUsage(input, output int) {
@@ -36,6 +40,13 @@ func (f *fakeUsageSink) RecordCacheUsage(creation, read int) {
 
 func (f *fakeUsageSink) RecordReasoningUsage(reasoning int) {
 	f.reasoning = reasoning
+}
+
+func (f *fakeUsageSink) RecordUsageModifiers(cacheCreation1h int, cacheSplitReported bool, speed, inferenceGeo string) {
+	f.cacheCreation1h = cacheCreation1h
+	f.cacheSplitReported = cacheSplitReported
+	f.speed = speed
+	f.inferenceGeo = inferenceGeo
 }
 
 func (f *fakeUsageSink) RecordOutputLimitReached() {
@@ -337,4 +348,56 @@ func TestOpenAIReasoningTokens_PrefersResponsesShapeWithoutDoubleCounting(t *tes
 	usage := gjson.Parse(`{"output_tokens_details":{"reasoning_tokens":21},"completion_tokens_details":{"reasoning_tokens":7}}`)
 	assert.Equal(t, 21, translate.OpenAIReasoningTokens(usage))
 	assert.Equal(t, 7, translate.OpenAIReasoningTokens(gjson.Parse(`{"completion_tokens_details":{"reasoning_tokens":7}}`)))
+}
+
+func TestSSETranslator_ForwardsAnthropicUsageModifiers(t *testing.T) {
+	t.Run("streaming message_start", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		sink := &fakeUsageSink{}
+		translator := translate.NewSSETranslator(rec, "claude-opus-5", sink)
+		translator.Header().Set("Content-Type", "text/event-stream")
+		translator.WriteHeader(http.StatusOK)
+
+		event := "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"claude-opus-5\",\"usage\":{\"input_tokens\":3,\"output_tokens\":0,\"cache_creation_input_tokens\":9217,\"cache_creation\":{\"ephemeral_5m_input_tokens\":17,\"ephemeral_1h_input_tokens\":9200},\"speed\":\"fast\",\"inference_geo\":\"us\"}}}\n\n"
+		_, err := translator.Write([]byte(event))
+		require.NoError(t, err)
+
+		assert.Equal(t, 9200, sink.cacheCreation1h)
+		assert.True(t, sink.cacheSplitReported)
+		assert.Equal(t, "fast", sink.speed)
+		assert.Equal(t, "us", sink.inferenceGeo)
+	})
+	t.Run("non-streaming body without split", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		sink := &fakeUsageSink{}
+		translator := translate.NewSSETranslator(rec, "claude-opus-5", sink)
+		translator.Header().Set("Content-Type", "application/json")
+		translator.WriteHeader(http.StatusOK)
+		_, err := translator.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"claude-opus-5","stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":4,"cache_creation_input_tokens":322}}`))
+		require.NoError(t, err)
+		require.NoError(t, translator.Finalize())
+
+		assert.Equal(t, 322, sink.cacheCreation)
+		assert.False(t, sink.cacheSplitReported)
+	})
+}
+
+func TestAnthropicRequestCacheTTL1h(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{name: "no breakpoints", body: `{"messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`, want: false},
+		{name: "default 5m breakpoint", body: `{"system":[{"type":"text","text":"s","cache_control":{"type":"ephemeral"}}]}`, want: false},
+		{name: "explicit 5m breakpoint", body: `{"tools":[{"name":"t","cache_control":{"type":"ephemeral","ttl":"5m"}}]}`, want: false},
+		{name: "all block breakpoints 1h", body: `{"tools":[{"name":"t","cache_control":{"type":"ephemeral","ttl":"1h"}}],"system":[{"type":"text","text":"s","cache_control":{"type":"ephemeral","ttl":"1h"}}],"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral","ttl":"1h"}}]}]}`, want: true},
+		{name: "top-level automatic 1h", body: `{"cache_control":{"type":"ephemeral","ttl":"1h"},"messages":[{"role":"user","content":"hi"}]}`, want: true},
+		{name: "1h prefix with 5m tail", body: `{"system":[{"type":"text","text":"s","cache_control":{"type":"ephemeral","ttl":"1h"}}],"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral"}}]}]}`, want: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, translate.AnthropicRequestCacheTTL1h([]byte(tc.body)))
+		})
+	}
 }

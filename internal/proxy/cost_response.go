@@ -72,21 +72,27 @@ type routerResponseCost struct {
 	CacheCreationTokens int     `json:"cache_creation_tokens"`
 }
 
-type routerCostCalculator func(inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens int) routerResponseCost
+type routerCostCalculator func(inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens int, speed catalog.Speed, mods catalog.UsageModifiers) routerResponseCost
 
+// routerCostCalculatorFor binds the attempt's rate; a reported fast speed
+// reprices at the fast rate even when the router did not dispatch fast.
 func routerCostCalculatorFor(model, provider string, fast bool) routerCostCalculator {
 	pricing, ok := servedPricing(provider, model, fast)
 	if !ok {
 		return nil
 	}
-	return func(inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens int) routerResponseCost {
-		return routerResponseCostFromPricing(pricing, provider, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens)
+	return func(inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens int, speed catalog.Speed, mods catalog.UsageModifiers) routerResponseCost {
+		served := pricing
+		if speed == catalog.SpeedFast && !fast {
+			served, _ = servedPricing(provider, model, true)
+		}
+		return routerResponseCostFromPricing(served, provider, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens, mods)
 	}
 }
 
-func routerResponseCostFromPricing(pricing catalog.Pricing, provider string, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens int) routerResponseCost {
-	inputUSD := catalog.EffectiveInputCost(inputTokens, cacheCreationTokens, cacheReadTokens, pricing, provider)
-	outputUSD := catalog.EffectiveOutputCost(inputTokens, outputTokens, pricing)
+func routerResponseCostFromPricing(pricing catalog.Pricing, provider string, inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens int, mods catalog.UsageModifiers) routerResponseCost {
+	inputUSD := catalog.EffectiveInputCost(inputTokens, cacheCreationTokens, cacheReadTokens, pricing, provider, mods)
+	outputUSD := catalog.EffectiveOutputCost(inputTokens, outputTokens, pricing, mods)
 	return routerResponseCost{
 		TotalUSD:            roundUSD(inputUSD + outputUSD),
 		InputUSD:            roundUSD(inputUSD),
@@ -126,6 +132,10 @@ type streamCostWriter struct {
 	messageStartInput    int
 	messageStartRead     int
 	messageStartCreation int
+	// Anthropic reports these rate changers on message_start only.
+	messageStartCreation1h int
+	messageStartSpeed      catalog.Speed
+	messageStartGeo        catalog.InferenceGeo
 }
 
 func newStreamCostWriter(inner http.ResponseWriter) *streamCostWriter {
@@ -179,6 +189,9 @@ func (w *streamCostWriter) annotateEvent(event []byte) []byte {
 		w.messageStartInput = int(usage.Get("input_tokens").Int())
 		w.messageStartRead = int(usage.Get("cache_read_input_tokens").Int())
 		w.messageStartCreation = int(usage.Get("cache_creation_input_tokens").Int())
+		w.messageStartCreation1h = int(usage.Get("cache_creation.ephemeral_1h_input_tokens").Int())
+		w.messageStartSpeed = catalog.Speed(usage.Get("speed").String())
+		w.messageStartGeo = catalog.InferenceGeo(usage.Get("inference_geo").String())
 		return event
 	}
 	if string(eventType) != "message_delta" || w.calculate == nil {
@@ -208,7 +221,8 @@ func (w *streamCostWriter) annotateEvent(event []byte) []byte {
 	if w.inputIncludesCache {
 		inputTokens += cacheCreation + cacheRead
 	}
-	cost, err := json.Marshal(w.calculate(inputTokens, outputTokens, cacheCreation, cacheRead))
+	mods := catalog.UsageModifiers{CacheCreation1h: w.messageStartCreation1h, InferenceGeo: w.messageStartGeo}
+	cost, err := json.Marshal(w.calculate(inputTokens, outputTokens, cacheCreation, cacheRead, w.messageStartSpeed, mods))
 	if err != nil {
 		return event
 	}

@@ -133,6 +133,7 @@ func (t *SSETranslator) Finalize() error {
 				int(usage.Get("cache_creation_input_tokens").Int()),
 				int(usage.Get("cache_read_input_tokens").Int()),
 			)
+			recordAnthropicUsageModifiers(t.usageSink, usage)
 		}
 	}
 	recordOutputLimit(t.usageSink, gjson.GetBytes(body, "stop_reason").Str == "max_tokens")
@@ -244,6 +245,7 @@ func (t *SSETranslator) handleMessageStart(data []byte) error {
 				int(usageResult.Get("cache_creation_input_tokens").Int()),
 				int(usageResult.Get("cache_read_input_tokens").Int()),
 			)
+			recordAnthropicUsageModifiers(t.usageSink, usageResult)
 		}
 	}
 

@@ -3172,6 +3172,7 @@ func (s *Service) anthropicNativeAttempt(
 		proxyWriter := attemptSink
 		if s.usageRequired() {
 			ex := otel.NewUsageExtractor(attemptSink, d.Provider)
+			ex.SetRequestCacheTTL1h(func() bool { return translate.AnthropicRequestCacheTTL1h(prep.Body) })
 			proxyWriter = ex
 			setExtractor(ex)
 		}
@@ -4960,6 +4961,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// pre-dispatch lookup always returns the catalog's PRIMARY binding price,
 	// which would misreport cost after a successful failover to a different
 	// binding's rate — or after a fast-tier dispatch, billed at the fast rate.
+	// A client-sent speed:"fast" is billed fast even when the installation
+	// has not opted the model into fast mode.
+	if extractor.Speed() == catalog.SpeedFast {
+		fastServed = true
+	}
 	if actBindingPricing, ok := servedPricing(finalProvider, decision.Model, fastServed); ok {
 		actPricing = actBindingPricing
 	}
@@ -5007,10 +5013,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
+	usageMods := extractor.UsageModifiers()
 	baselineWarmPrefill := routeRes.baselineWarmPrefillTokens(requestStart, cacheCreation, cacheRead, decision.Model, s.baselineFor(feats.Model), req.HistoryTruncated)
-	requestedInputCost := catalog.CounterfactualInputCost(in, cacheCreation, cacheRead, baselineWarmPrefill, reqPricing, decision.Provider)
+	requestedInputCost := catalog.CounterfactualInputCost(in, cacheCreation, cacheRead, baselineWarmPrefill, reqPricing, decision.Provider, usageMods)
 	if responseBuffer != nil && proxyErr == nil {
-		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead))
+		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead, usageMods))
 	}
 	upstreamBuilder := otel.NewAttrBuilder(41).
 		String("request_id", requestID).
@@ -5035,11 +5042,14 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		Int64("usage.output_tokens", int64(out)).
 		Int64("usage.cache_creation_input_tokens", int64(cacheCreation)).
 		Int64("usage.cache_read_input_tokens", int64(cacheRead)).
+		Int64("usage.cache_creation_1h_input_tokens", int64(usageMods.CacheCreation1h)).
+		String("usage.speed", string(extractor.Speed())).
+		String("usage.inference_geo", string(extractor.InferenceGeo())).
 		Float64("cost.requested_input_usd", requestedInputCost).
 		Int64("cost.baseline_warm_prefill_tokens", int64(baselineWarmPrefill)).
-		Float64("cost.requested_output_usd", catalog.EffectiveOutputCost(in, out, reqPricing)).
-		Float64("cost.actual_input_usd", catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider)).
-		Float64("cost.actual_output_usd", catalog.EffectiveOutputCost(in, out, actPricing)).
+		Float64("cost.requested_output_usd", catalog.EffectiveOutputCost(in, out, reqPricing, usageMods)).
+		Float64("cost.actual_input_usd", catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider, usageMods)).
+		Float64("cost.actual_output_usd", catalog.EffectiveOutputCost(in, out, actPricing, usageMods)).
 		Bool("cost.subscription_served", s.costNeutralSubscriptionServed(ctx)).
 		Bool("cost.fast_mode", fastServed).
 		Int64("latency.upstream_ms", proxyMs).
@@ -5128,9 +5138,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			InputTokens:              int32(in),
 			OutputTokens:             int32(out),
 			RequestedInputCostUSD:    requestedInputCost,
-			RequestedOutputCostUSD:   catalog.EffectiveOutputCost(in, out, reqPricing),
-			ActualInputCostUSD:       catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider),
-			ActualOutputCostUSD:      catalog.EffectiveOutputCost(in, out, actPricing),
+			RequestedOutputCostUSD:   catalog.EffectiveOutputCost(in, out, reqPricing, usageMods),
+			ActualInputCostUSD:       catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider, usageMods),
+			ActualOutputCostUSD:      catalog.EffectiveOutputCost(in, out, actPricing, usageMods),
 			RouteLatencyMs:           routeMs,
 			UpstreamLatencyMs:        proxyMs,
 			TotalLatencyMs:           time.Since(requestStart).Milliseconds(),
@@ -5163,7 +5173,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			DebugRef:                 obs.DebugRef,
 			TTFTMs:                   obs.TTFTMs,
 			CacheCreationTokens:      cacheTokenPtr(cacheCreation),
+			CacheCreation1hTokens:    cacheTokenPtr(usageMods.CacheCreation1h),
 			CacheReadTokens:          cacheTokenPtr(cacheRead),
+			Speed:                    string(extractor.Speed()),
+			InferenceGeo:             string(extractor.InferenceGeo()),
 			ReasoningTokens:          cacheTokenPtr(extractor.ReasoningTokens()),
 			DeviceID:                 clientID.DeviceID,
 			SessionID:                clientID.SessionID,
@@ -5239,7 +5252,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// upstream call since the cache-hit branch above already returned.
 	var subscriberSettlement subscriberSettlementState
 	if proxyErr == nil && !agentShadowMode {
-		subscriberSettlement = s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
+		subscriberSettlement = s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead, usageMods)
 		if compactionHandoverOutcome.Invoked && !compactionHandoverOutcome.FallbackToFullHistory {
 			s.billAuxiliaryInference(ctx, requestID, auxSuffixCompactionHandoverSummry, externalID, compactionHandoverOutcome.SummaryUsage)
 		}
@@ -5332,7 +5345,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		policyResp = &policyOutcomeResponse{Body: policyRespBody, Truncated: policyRespTrunc}
 	}
 	if !agentShadowMode {
-		s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, finalProvider, fastServed, feats.Tokens, in, out, cacheCreation, cacheRead, routeMs, proxyMs, proxyErr, policyResp)
+		s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, finalProvider, fastServed, feats.Tokens, in, out, cacheCreation, cacheRead, usageMods, routeMs, proxyMs, proxyErr, policyResp)
 	}
 	return proxyErr
 }
@@ -5667,7 +5680,7 @@ func isAuthoritativePinHoldMismatch(res turnLoopResult, served router.Decision) 
 	}
 }
 
-func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, decision router.Decision, effort effortResolution, finalProvider string, servedFast bool, estimatedInputTokens, inputTokens, outputTokens, cacheCreation, cacheRead int, routeMs, proxyMs int64, proxyErr error, response *policyOutcomeResponse) {
+func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, decision router.Decision, effort effortResolution, finalProvider string, servedFast bool, estimatedInputTokens, inputTokens, outputTokens, cacheCreation, cacheRead int, usageMods catalog.UsageModifiers, routeMs, proxyMs int64, proxyErr error, response *policyOutcomeResponse) {
 	routeDecision, routeMetadata, reporter, ok := s.policyOutcomeRoute(res, decision)
 	if !ok {
 		return
@@ -5775,8 +5788,8 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 		payload["error"] = proxyErr.Error()
 	}
 	if price, ok := servedPricing(finalProvider, decision.Model, servedFast); ok {
-		inputCost := catalog.EffectiveInputCost(inputTokens, cacheCreation, cacheRead, price, finalProvider)
-		outputCost := catalog.EffectiveOutputCost(inputTokens, outputTokens, price)
+		inputCost := catalog.EffectiveInputCost(inputTokens, cacheCreation, cacheRead, price, finalProvider, usageMods)
+		outputCost := catalog.EffectiveOutputCost(inputTokens, outputTokens, price, usageMods)
 		payload["cost_usd"] = inputCost + outputCost
 	}
 	log := observability.FromContext(ctx).With("route_id", routeMetadata.RouteID)
@@ -6374,7 +6387,7 @@ func (s *Service) fireTelemetry(p InsertTelemetryParams) {
 // (`_summary` request_id suffix). No-op when billing is unwired or
 // externalID is empty. Unknown summarizer model prices as zero rather than
 // skipping the ledger row, keeping the audit trail complete.
-func (s *Service) emitBilling(ctx context.Context, requestID, externalID, requestedModel string, decision router.Decision, actPricing catalog.Pricing, routeRes turnLoopResult, in, out, cacheCreation, cacheRead int) subscriberSettlementState {
+func (s *Service) emitBilling(ctx context.Context, requestID, externalID, requestedModel string, decision router.Decision, actPricing catalog.Pricing, routeRes turnLoopResult, in, out, cacheCreation, cacheRead int, usageMods catalog.UsageModifiers) subscriberSettlementState {
 	if s.billing == nil || externalID == "" {
 		return captureSubscriberSettlementState(ctx)
 	}
@@ -6391,6 +6404,7 @@ func (s *Service) emitBilling(ctx context.Context, requestID, externalID, reques
 		CacheCreation:      cacheCreation,
 		CacheRead:          cacheRead,
 		Pricing:            actPricing,
+		UsageModifiers:     usageMods,
 		HasOverride:        hasOverride,
 		SubscriptionServed: routeRes.UsageBypass || servedOnSubscription(ctx),
 		ByokServed:         servedOnBYOK(ctx),
@@ -7506,6 +7520,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				var usage otel.UsageSink
 				if s.usageRequired() {
 					extractor = otel.NewUsageExtractor(nil, providers.ProviderAnthropic)
+					extractor.SetRequestCacheTTL1h(func() bool { return translate.AnthropicRequestCacheTTL1h(attemptPrep.Body) })
 					usage = extractor
 				}
 				attemptSink := makeMarkerSink(target.Model, targetMarker)
@@ -7972,6 +7987,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	ctx = s.resolveCredentials(ctx, finalProvider, decision.Model, r.Header)
 
 	// Re-resolve pricing for the binding that actually served (see ProxyMessages).
+	// A client-sent speed:"fast" is billed fast even when the installation
+	// has not opted the model into fast mode.
+	if extractor.Speed() == catalog.SpeedFast {
+		fastServed = true
+	}
 	if actBindingPricing, ok := servedPricing(finalProvider, decision.Model, fastServed); ok {
 		actPricing = actBindingPricing
 	}
@@ -7993,10 +8013,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
+	usageMods := extractor.UsageModifiers()
 	baselineWarmPrefill := routeRes.baselineWarmPrefillTokens(requestStart, cacheCreation, cacheRead, decision.Model, s.baselineFor(feats.Model), routeRequest.HistoryTruncated)
-	requestedInputCost := catalog.CounterfactualInputCost(in, cacheCreation, cacheRead, baselineWarmPrefill, reqPricing, decision.Provider)
+	requestedInputCost := catalog.CounterfactualInputCost(in, cacheCreation, cacheRead, baselineWarmPrefill, reqPricing, decision.Provider, usageMods)
 	if !env.Stream() && proxyErr == nil {
-		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead))
+		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead, usageMods))
 	}
 
 	// chat/completions passthrough: no translator runs, so the usage
@@ -8032,11 +8053,14 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		Int64("usage.output_tokens", int64(out)).
 		Int64("usage.cache_creation_input_tokens", int64(cacheCreation)).
 		Int64("usage.cache_read_input_tokens", int64(cacheRead)).
+		Int64("usage.cache_creation_1h_input_tokens", int64(usageMods.CacheCreation1h)).
+		String("usage.speed", string(extractor.Speed())).
+		String("usage.inference_geo", string(extractor.InferenceGeo())).
 		Float64("cost.requested_input_usd", requestedInputCost).
 		Int64("cost.baseline_warm_prefill_tokens", int64(baselineWarmPrefill)).
-		Float64("cost.requested_output_usd", catalog.EffectiveOutputCost(in, out, reqPricing)).
-		Float64("cost.actual_input_usd", catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider)).
-		Float64("cost.actual_output_usd", catalog.EffectiveOutputCost(in, out, actPricing)).
+		Float64("cost.requested_output_usd", catalog.EffectiveOutputCost(in, out, reqPricing, usageMods)).
+		Float64("cost.actual_input_usd", catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider, usageMods)).
+		Float64("cost.actual_output_usd", catalog.EffectiveOutputCost(in, out, actPricing, usageMods)).
 		Bool("cost.subscription_served", s.costNeutralSubscriptionServed(ctx)).
 		Bool("cost.fast_mode", fastServed).
 		Int64("latency.upstream_ms", proxyMs).
@@ -8097,7 +8121,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	var subscriberSettlement subscriberSettlementState
 	if proxyErr == nil {
-		subscriberSettlement = s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead)
+		subscriberSettlement = s.emitBilling(ctx, requestID, externalID, feats.Model, decision, actPricing, routeRes, in, out, cacheCreation, cacheRead, usageMods)
 	}
 
 	// See ProxyMessages for the two-strike eviction rationale.
@@ -8153,9 +8177,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			InputTokens:              int32(in),
 			OutputTokens:             int32(out),
 			RequestedInputCostUSD:    requestedInputCost,
-			RequestedOutputCostUSD:   catalog.EffectiveOutputCost(in, out, reqPricing),
-			ActualInputCostUSD:       catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider),
-			ActualOutputCostUSD:      catalog.EffectiveOutputCost(in, out, actPricing),
+			RequestedOutputCostUSD:   catalog.EffectiveOutputCost(in, out, reqPricing, usageMods),
+			ActualInputCostUSD:       catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider, usageMods),
+			ActualOutputCostUSD:      catalog.EffectiveOutputCost(in, out, actPricing, usageMods),
 			RouteLatencyMs:           routeMs,
 			UpstreamLatencyMs:        proxyMs,
 			TotalLatencyMs:           time.Since(requestStart).Milliseconds(),
@@ -8188,7 +8212,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			DebugRef:                 openaiObs.DebugRef,
 			TTFTMs:                   openaiObs.TTFTMs,
 			CacheCreationTokens:      cacheTokenPtr(cacheCreation),
+			CacheCreation1hTokens:    cacheTokenPtr(usageMods.CacheCreation1h),
 			CacheReadTokens:          cacheTokenPtr(cacheRead),
+			Speed:                    string(extractor.Speed()),
+			InferenceGeo:             string(extractor.InferenceGeo()),
 			ReasoningTokens:          cacheTokenPtr(extractor.ReasoningTokens()),
 			DeviceID:                 clientID.DeviceID,
 			SessionID:                clientID.SessionID,
@@ -8262,7 +8289,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 
 	log.Info("ProxyOpenAIChatCompletion complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", finalProvider != primaryProvider || codexFailoverUsed || claudeFailoverUsed || siblingFailoverUsed, "subscription_failover", codexFailoverUsed || claudeFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(proxyErr)), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned}, append(append(armStrikeLogFieldsWithPrimaryReason(armDemotedOAI, armDemotionReasonOAI, rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI), plannerLogFields(routeRes)...), rateLimit.completionLogFields()...)...), downgradeShadowLogFields(routeRes)...)...)
-	s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, finalProvider, fastServed, feats.Tokens, in, out, cacheCreation, cacheRead, routeMs, proxyMs, proxyErr, nil)
+	s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, finalProvider, fastServed, feats.Tokens, in, out, cacheCreation, cacheRead, usageMods, routeMs, proxyMs, proxyErr, nil)
 
 	// Subscription-only mode disables paid failover by pinning dispatch to the
 	// single subscription binding above, so a dispatch failure here is the

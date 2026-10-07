@@ -694,6 +694,9 @@ type RouterModelRouterRequestTelemetry struct {
 	SubscriptionTier        *string
 	IntendedModelFamily     *string
 	FinalModelFamily        *string
+	CacheCreation1hTokens   *int32
+	Speed                   *string
+	InferenceGeo            *string
 }
 
 type RouterModelRouterSubscriptionAccount struct {

@@ -7,15 +7,17 @@ import (
 )
 
 // EffectiveInputCost returns the true USD input cost after applying cache
-// pricing. Fresh tokens at base rate; cache-creation at the binding's
-// effective write multiplier; cache-read at the binding's effective read
-// multiplier. upstreamProvider's wire family distinguishes Anthropic-spec
-// upstreams (input_tokens is fresh-only) from OpenAI / Gemini (prompt_tokens
-// includes cached tokens — must subtract).
+// pricing. Fresh tokens at base rate; 5-minute cache-creation at the binding's
+// effective write multiplier; 1-hour cache-creation (m.CacheCreation1h, a
+// subset of cacheCreation) at the 1-hour write multiplier; cache-read at the
+// binding's effective read multiplier; the whole sum scaled by the US
+// inference-geography multiplier when it applies. upstreamProvider's wire
+// family distinguishes Anthropic-spec upstreams (input_tokens is fresh-only)
+// from OpenAI / Gemini (prompt_tokens includes cached tokens — must subtract).
 //
 // Single source of truth for the proxy's OTel emitter, telemetry write
 // path, and the billing debit hook.
-func EffectiveInputCost(inputTokens, cacheCreation, cacheRead int, p Pricing, upstreamProvider string) float64 {
+func EffectiveInputCost(inputTokens, cacheCreation, cacheRead int, p Pricing, upstreamProvider string, m UsageModifiers) float64 {
 	p = p.ForInputTokens(inputTokens)
 	fresh := inputTokens
 	if providers.FamilyFor(upstreamProvider) != providers.FamilyAnthropic {
@@ -24,23 +26,32 @@ func EffectiveInputCost(inputTokens, cacheCreation, cacheRead int, p Pricing, up
 	if fresh < 0 {
 		fresh = 0
 	}
+	oneHour := min(max(m.CacheCreation1h, 0), max(cacheCreation, 0))
+	fiveMinute := cacheCreation - oneHour
 	return (float64(fresh) +
-		float64(cacheCreation)*p.EffectiveCacheWriteMultiplier() +
-		float64(cacheRead)*p.EffectiveCacheReadMultiplier()) / 1_000_000 * p.InputUSDPer1M
+		float64(fiveMinute)*p.EffectiveCacheWriteMultiplier() +
+		float64(oneHour)*p.EffectiveCacheWrite1hMultiplier(upstreamProvider) +
+		float64(cacheRead)*p.EffectiveCacheReadMultiplier()) / 1_000_000 * p.InputUSDPer1M * p.inferenceGeoMultiplier(m.InferenceGeo)
 }
 
 // CounterfactualInputCost is EffectiveInputCost for the savings baseline, with
 // warmPrefill of the cache-creation tokens priced as cache reads: a baseline
 // that never switched models would have read that prefix from a warm cache.
-func CounterfactualInputCost(inputTokens, cacheCreation, cacheRead, warmPrefill int, p Pricing, upstreamProvider string) float64 {
-	return EffectiveInputCost(inputTokens, cacheCreation-warmPrefill, cacheRead+warmPrefill, p, upstreamProvider)
+// The remaining writes keep the observed 5-minute/1-hour proportion.
+func CounterfactualInputCost(inputTokens, cacheCreation, cacheRead, warmPrefill int, p Pricing, upstreamProvider string, m UsageModifiers) float64 {
+	remaining := cacheCreation - warmPrefill
+	if cacheCreation > 0 && m.CacheCreation1h > 0 {
+		m.CacheCreation1h = int(math.Round(float64(m.CacheCreation1h) * float64(remaining) / float64(cacheCreation)))
+	}
+	return EffectiveInputCost(inputTokens, remaining, cacheRead+warmPrefill, p, upstreamProvider, m)
 }
 
 // EffectiveOutputCost returns USD output cost for a call. Output tokens
-// have no caching multipliers — straight tokens × per-1M price.
-func EffectiveOutputCost(inputTokens, outputTokens int, p Pricing) float64 {
+// have no caching multipliers — tokens × per-1M price, scaled by the US
+// inference-geography multiplier when it applies.
+func EffectiveOutputCost(inputTokens, outputTokens int, p Pricing, m UsageModifiers) float64 {
 	p = p.ForInputTokens(inputTokens)
-	return float64(outputTokens) / 1_000_000 * p.OutputUSDPer1M
+	return float64(outputTokens) / 1_000_000 * p.OutputUSDPer1M * p.inferenceGeoMultiplier(m.InferenceGeo)
 }
 
 // USDToMicros rounds a float64 USD value to BIGINT micros (USD x 1e6) for

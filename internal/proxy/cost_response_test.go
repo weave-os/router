@@ -17,7 +17,7 @@ import (
 func TestStreamCostWriterAnnotatesFinalMessageDelta(t *testing.T) {
 	rec := httptest.NewRecorder()
 	writer := newStreamCostWriter(rec)
-	writer.SetCostCalculator(func(input, output, creation, read int) routerResponseCost {
+	writer.SetCostCalculator(func(input, output, creation, read int, _ catalog.Speed, _ catalog.UsageModifiers) routerResponseCost {
 		return routerResponseCost{
 			TotalUSD:            1.25,
 			InputUSD:            0.75,
@@ -88,7 +88,7 @@ func TestRouterResponseCostFromPricingRoundsFloatNoise(t *testing.T) {
 	// gpt-5.4-mini pricing: 12 input + 9 output tokens yielded
 	// 0.000049500000000000004 before rounding.
 	pricing := catalog.Pricing{InputUSDPer1M: 0.75, OutputUSDPer1M: 4.5}
-	cost := routerResponseCostFromPricing(pricing, providers.ProviderOpenAI, 12, 9, 0, 0)
+	cost := routerResponseCostFromPricing(pricing, providers.ProviderOpenAI, 12, 9, 0, 0, catalog.UsageModifiers{})
 
 	rec := httptest.NewRecorder()
 	setRouterCostHeaders(rec.Header(), cost)
@@ -113,7 +113,7 @@ const streamCostFixture = "event: message_start\n" +
 
 // tokenEchoingCost encodes its inputs so the annotation proves which counts
 // reached the calculator.
-func tokenEchoingCost(input, output, creation, read int) routerResponseCost {
+func tokenEchoingCost(input, output, creation, read int, _ catalog.Speed, _ catalog.UsageModifiers) routerResponseCost {
 	return routerResponseCost{
 		TotalUSD:            float64(input+output) / 1000,
 		InputUSD:            float64(input) / 1000,
@@ -218,4 +218,31 @@ func TestStreamCostWriter_WriteErrorBeforeConsumeRetriesSameEvent(t *testing.T) 
 		writeChunks(t, writer, frames[2:])
 		assert.Equal(t, want, sink.Body.String())
 	})
+}
+
+// The trailer prices the turn the way telemetry does: the 1h split, geography
+// and a client-sent fast speed reported on message_start all reach the rate.
+func TestStreamCostWriterPricesMessageStartModifiers(t *testing.T) {
+	const model = "claude-opus-5"
+	rec := httptest.NewRecorder()
+	writer := newStreamCostWriter(rec)
+	writer.SetCostCalculator(routerCostCalculatorFor(model, providers.ProviderAnthropic, false), false)
+
+	_, err := writer.Write([]byte("event: message_start\n" +
+		`data: {"type":"message_start","message":{"usage":{"input_tokens":10,"cache_creation_input_tokens":5000,"cache_creation":{"ephemeral_5m_input_tokens":1000,"ephemeral_1h_input_tokens":4000},"speed":"fast","inference_geo":"us"}}}` + "\n\n" +
+		"event: message_delta\n" +
+		`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":7}}` + "\n\n"))
+	require.NoError(t, err)
+
+	fast, ok := catalog.FastPriceFor(providers.ProviderAnthropic, model)
+	require.True(t, ok)
+	want := routerResponseCostFromPricing(fast, providers.ProviderAnthropic, 10, 7, 5000, 0, catalog.UsageModifiers{CacheCreation1h: 4000, InferenceGeo: catalog.InferenceGeoUS})
+	var annotated gjson.Result
+	for _, event := range strings.Split(rec.Body.String(), "\n\n") {
+		if strings.HasPrefix(event, "event: message_delta") {
+			annotated = gjson.Get(strings.SplitN(event, "data: ", 2)[1], "usage.weave_cost")
+		}
+	}
+	require.True(t, annotated.Exists())
+	assert.InDelta(t, want.TotalUSD, annotated.Get("usd").Float(), 1e-12)
 }

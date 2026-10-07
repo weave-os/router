@@ -456,6 +456,7 @@ func (s *Service) bypassToAnthropic(
 	var extractor *otel.UsageExtractor
 	if s.usageRequired() {
 		extractor = otel.NewUsageExtractor(respW, decision.Provider)
+		extractor.SetRequestCacheTTL1h(func() bool { return translate.AnthropicRequestCacheTTL1h(prep.Body) })
 		respW = extractor
 	}
 
@@ -490,12 +491,13 @@ func (s *Service) bypassToAnthropic(
 	// actual to $0 downstream when cost.subscription_served is set.
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
-	pricing, _ := servedPricing(decision.Provider, decision.Model, opts.FastMode)
+	usageMods := extractor.UsageModifiers()
+	pricing, _ := servedPricing(decision.Provider, decision.Model, opts.FastMode || extractor.Speed() == catalog.SpeedFast)
 	if !env.Stream() && proxyErr == nil {
-		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(pricing, decision.Provider, in, out, cacheCreation, cacheRead))
+		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(pricing, decision.Provider, in, out, cacheCreation, cacheRead, usageMods))
 	}
-	inputCost := catalog.EffectiveInputCost(in, cacheCreation, cacheRead, pricing, decision.Provider)
-	outputCost := catalog.EffectiveOutputCost(in, out, pricing)
+	inputCost := catalog.EffectiveInputCost(in, cacheCreation, cacheRead, pricing, decision.Provider, usageMods)
+	outputCost := catalog.EffectiveOutputCost(in, out, pricing, usageMods)
 
 	// Same identity block as the routed upstream span so Weave groups bypass turns by user/session.
 	clientID := ClientIdentityFrom(ctx)
@@ -519,6 +521,9 @@ func (s *Service) bypassToAnthropic(
 		Int64("usage.output_tokens", int64(out)).
 		Int64("usage.cache_creation_input_tokens", int64(cacheCreation)).
 		Int64("usage.cache_read_input_tokens", int64(cacheRead)).
+		Int64("usage.cache_creation_1h_input_tokens", int64(usageMods.CacheCreation1h)).
+		String("usage.speed", string(extractor.Speed())).
+		String("usage.inference_geo", string(extractor.InferenceGeo())).
 		Float64("cost.requested_input_usd", inputCost).
 		Float64("cost.requested_output_usd", outputCost).
 		Float64("cost.actual_input_usd", inputCost).
@@ -574,7 +579,10 @@ func (s *Service) bypassToAnthropic(
 			CaptureMode:            s.effectiveCaptureMode(ctx).String(),
 			TurnType:               string(turnType),
 			CacheCreationTokens:    cacheTokenPtr(cacheCreation),
+			CacheCreation1hTokens:  cacheTokenPtr(usageMods.CacheCreation1h),
 			CacheReadTokens:        cacheTokenPtr(cacheRead),
+			Speed:                  string(extractor.Speed()),
+			InferenceGeo:           string(extractor.InferenceGeo()),
 			ReasoningTokens:        cacheTokenPtr(extractor.ReasoningTokens()),
 			DeviceID:               clientID.DeviceID,
 			SessionID:              clientID.SessionID,

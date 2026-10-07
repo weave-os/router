@@ -639,8 +639,8 @@ func TestAnthropicGatewayPricesCacheReadsLikeDirectAnthropic(t *testing.T) {
 
 			assert.InDelta(t, 0.10, gateway.CacheReadMultiplier, 1e-9)
 			assert.InDelta(t,
-				EffectiveInputCost(0, 0, 1_000_000, direct, providers.ProviderAnthropic),
-				EffectiveInputCost(0, 0, 1_000_000, gateway, providers.ProviderAnthropicGateway),
+				EffectiveInputCost(0, 0, 1_000_000, direct, providers.ProviderAnthropic, UsageModifiers{}),
+				EffectiveInputCost(0, 0, 1_000_000, gateway, providers.ProviderAnthropicGateway, UsageModifiers{}),
 				1e-9,
 			)
 		})

@@ -102,7 +102,7 @@ func TestProxyMessages_FastModeAnthropicDispatchesFastAndBillsFastRate(t *testin
 
 	fast, ok := catalog.FastPriceFor(providers.ProviderAnthropic, fastOpusModel)
 	require.True(t, ok)
-	want := routerResponseCostFromPricing(fast, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0)
+	want := routerResponseCostFromPricing(fast, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0, catalog.UsageModifiers{})
 	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD))
 }
 
@@ -124,7 +124,42 @@ func TestProxyMessages_FastModeOffLeavesRequestAndListPrice(t *testing.T) {
 
 	base, ok := catalog.PriceFor(providers.ProviderAnthropic, fastOpusModel)
 	require.True(t, ok)
-	want := routerResponseCostFromPricing(base, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0)
+	want := routerResponseCostFromPricing(base, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0, catalog.UsageModifiers{})
+	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD))
+}
+
+// A client that sends speed:"fast" itself is billed at the fast rate even when
+// the installation never opted the model in, and the reported 1h cache split
+// and US geography reprice the same turn.
+func TestProxyMessages_ReportedFastSpeedBillsFastRateWithoutOptIn(t *testing.T) {
+	upstream := &bypassFakeProvider{respBody: `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"model":"claude-opus-5","stop_reason":"end_turn","usage":{"input_tokens":1200,"output_tokens":340,"cache_creation_input_tokens":5000,"cache_creation":{"ephemeral_5m_input_tokens":1000,"ephemeral_1h_input_tokens":4000},"speed":"fast","inference_geo":"us"}}`}
+	svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, upstream)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	body := []byte(`{"model":"claude-opus-4-7","speed":"fast","messages":[{"role":"user","content":"hi"}]}`)
+	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastLunaModel), body, rec, req))
+
+	fast, ok := catalog.FastPriceFor(providers.ProviderAnthropic, fastOpusModel)
+	require.True(t, ok)
+	want := routerResponseCostFromPricing(fast, providers.ProviderAnthropic, 1200, 340, 5000, 0, catalog.UsageModifiers{CacheCreation1h: 4000, InferenceGeo: catalog.InferenceGeoUS})
+	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD))
+}
+
+// An upstream that omits usage.cache_creation is priced from the TTL the
+// dispatched request declared.
+func TestProxyMessages_UnreportedCacheSplitUsesRequestTTL(t *testing.T) {
+	upstream := &bypassFakeProvider{respBody: `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"model":"claude-opus-5","stop_reason":"end_turn","usage":{"input_tokens":1200,"output_tokens":340,"cache_creation_input_tokens":5000}}`}
+	svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderAnthropic, Model: fastOpusModel}, upstream)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	body := []byte(`{"model":"claude-opus-4-7","system":[{"type":"text","text":"stable prefix","cache_control":{"type":"ephemeral","ttl":"1h"}}],"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral","ttl":"1h"}}]}]}`)
+	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastLunaModel), body, rec, req))
+
+	base, ok := catalog.PriceFor(providers.ProviderAnthropic, fastOpusModel)
+	require.True(t, ok)
+	want := routerResponseCostFromPricing(base, providers.ProviderAnthropic, 1200, 340, 5000, 0, catalog.UsageModifiers{CacheCreation1h: 5000})
 	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD))
 }
 
@@ -171,7 +206,7 @@ func TestProxyMessages_FastModeQuotaRejectionRetriesAtStandardSpeedAndBillsListP
 
 	base, ok := catalog.PriceFor(providers.ProviderAnthropic, fastOpusModel)
 	require.True(t, ok)
-	want := routerResponseCostFromPricing(base, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0)
+	want := routerResponseCostFromPricing(base, providers.ProviderAnthropic, inputTokens, outputTokens, 0, 0, catalog.UsageModifiers{})
 	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD), "a turn served at standard speed bills at list price")
 }
 
