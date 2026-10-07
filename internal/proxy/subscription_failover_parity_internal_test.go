@@ -108,7 +108,9 @@ func parityAnthropicIngress() parityIngress {
 				return "event: message_start\n" +
 					`data: {"type":"message_start","message":{"usage":{"input_tokens":5,"output_tokens":1}}}` + "\n\n" +
 					"event: message_delta\n" +
-					`data: {"type":"message_delta","usage":{"output_tokens":2}}` + "\n\n"
+					`data: {"type":"message_delta","usage":{"output_tokens":2}}` + "\n\n" +
+					"event: message_stop\n" +
+					`data: {"type":"message_stop"}` + "\n\n"
 			}
 			return `{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],` +
 				`"model":"` + parityAnthropicModel + `","stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":2}}`

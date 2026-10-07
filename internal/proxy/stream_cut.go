@@ -28,6 +28,9 @@ const (
 	streamFailureOutputStallWatchdog    streamFailureClass = "output_stall_watchdog"
 	streamFailureSlowThroughputWatchdog streamFailureClass = "slow_throughput_watchdog"
 	streamFailureUpstreamErrorFrame     streamFailureClass = "upstream_error_frame"
+	streamFailureUpstreamIncomplete     streamFailureClass = "upstream_incomplete"
+	streamFailureUpstreamEmpty          streamFailureClass = "upstream_empty"
+	streamFailureUpstreamTimeout        streamFailureClass = "upstream_timeout"
 	streamFailureClientCanceled         streamFailureClass = "client_canceled"
 	streamFailureDeadline               streamFailureClass = "deadline"
 	streamFailureOther                  streamFailureClass = "other"
@@ -272,10 +275,20 @@ func classifyStreamFailure(err error, lastEvent string) streamFailureClass {
 		return streamFailureOutputStallWatchdog
 	case errors.Is(err, providers.ErrUpstreamSlowThroughput):
 		return streamFailureSlowThroughputWatchdog
+	case errors.Is(err, translate.ErrStreamIncomplete):
+		return streamFailureUpstreamIncomplete
+	case errors.Is(err, translate.ErrStreamEmpty):
+		return streamFailureUpstreamEmpty
 	case errors.Is(err, context.Canceled):
 		return streamFailureClientCanceled
+	// The HTTP/1 response-header timeout also matches DeadlineExceeded, yet it
+	// is the upstream's silence, not the request budget.
+	case providers.IsResponseHeaderTimeout(err):
+		return streamFailureUpstreamTimeout
 	case errors.Is(err, context.DeadlineExceeded):
 		return streamFailureDeadline
+	case isNetTimeout(err):
+		return streamFailureUpstreamTimeout
 	case errors.Is(err, syscall.ECONNRESET), errors.Is(err, syscall.EPIPE), errors.Is(err, net.ErrClosed):
 		return streamFailureUpstreamReset
 	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
@@ -285,6 +298,13 @@ func classifyStreamFailure(err error, lastEvent string) streamFailureClass {
 	default:
 		return streamFailureOther
 	}
+}
+
+// isNetTimeout reports whether a transport layer timed out on the upstream,
+// such as HTTP/2's response-header timeout, which carries no deadline sentinel.
+func isNetTimeout(err error) bool {
+	var netErr net.Error
+	return errors.As(err, &netErr) && netErr.Timeout()
 }
 
 // isUpstreamStatusFailure reports whether the upstream named the failure

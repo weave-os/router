@@ -111,7 +111,9 @@ func TestService_Cache_HitShortCircuitsProvider(t *testing.T) {
 func TestService_Cache_StreamingBypasses(t *testing.T) {
 	emb := embeddingFixture(2)
 	provider := &fakeProvider{
-		proxyResponse: func(w http.ResponseWriter) { _, _ = w.Write([]byte("event: stream-payload\n")) },
+		proxyResponse: func(w http.ResponseWriter) {
+			_, _ = w.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\"}\n\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))
+		},
 	}
 	fr := &fakeRouter{decision: decisionWithEmbedding(emb, []int{0})}
 	c := cache.New(cache.DefaultConfig())

@@ -49,6 +49,7 @@ func TestProxyMessages_NativeToolUseStopPersistsLastToolDetail(t *testing.T) {
 		frames         []string
 		wantName       string
 		wantInputBytes *int32
+		wantCut        bool
 	}{
 		{
 			name:           "tool_use stop names the last tool and its input size",
@@ -57,8 +58,9 @@ func TestProxyMessages_NativeToolUseStopPersistsLastToolDetail(t *testing.T) {
 			wantInputBytes: ptrTo(int32(len(editInput))),
 		},
 		{
-			name:   "stream cut before message_delta leaves the detail unknown",
-			frames: frames[:6],
+			name:    "stream cut before message_delta leaves the detail unknown",
+			frames:  frames[:6],
+			wantCut: true,
 		},
 		{
 			name: "end_turn stop leaves the detail unknown",
@@ -89,7 +91,12 @@ func TestProxyMessages_NativeToolUseStopPersistsLastToolDetail(t *testing.T) {
 			ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, installID)
 			rec := httptest.NewRecorder()
 			httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-			require.NoError(t, svc.ProxyMessages(ctx, []byte(toolUseHistoryBody), rec, httpReq))
+			err := svc.ProxyMessages(ctx, []byte(toolUseHistoryBody), rec, httpReq)
+			if tt.wantCut {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
 
 			row := telem.firstRow(t)
 			assert.Equal(t, tt.wantName, row.LastToolUseName)

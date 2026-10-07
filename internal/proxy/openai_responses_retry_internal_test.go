@@ -31,6 +31,17 @@ type responsesRetryClient struct {
 
 func (*responsesRetryClient) SupportsSubscriptions() bool { return true }
 
+// writeChatCompletionText streams text as a complete chat/completions turn.
+func writeChatCompletionText(w http.ResponseWriter, text string) {
+	for _, frame := range []string{
+		`{"id":"c1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"` + text + `"},"finish_reason":null}]}`,
+		`{"id":"c1","object":"chat.completion.chunk","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":12,"completion_tokens":3}}`,
+		"[DONE]",
+	} {
+		_, _ = io.WriteString(w, "data: "+frame+"\n\n")
+	}
+}
+
 func (c *responsesRetryClient) Proxy(_ context.Context, _ router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
 	c.endpoints = append(c.endpoints, prep.Endpoint)
 	if len(c.endpoints) == 1 {
@@ -40,6 +51,10 @@ func (c *responsesRetryClient) Proxy(_ context.Context, _ router.Decision, prep 
 		}
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
+	if prep.Endpoint == providers.EndpointChatCompletions {
+		writeChatCompletionText(w, "served after retry")
+		return nil
+	}
 	for _, frame := range []string{
 		`{"type":"response.output_text.delta","output_index":0,"delta":"served after retry"}`,
 		`{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"served after retry"}]}],"usage":{"input_tokens":12,"output_tokens":3}}}`,

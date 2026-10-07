@@ -46,12 +46,16 @@ type servingClient struct {
 	calls int
 }
 
-func (c *servingClient) Proxy(_ context.Context, _ router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
+func (c *servingClient) Proxy(_ context.Context, _ router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
 	c.calls++
 	if c.err != nil {
 		return c.err
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
+	if prep.Endpoint == providers.EndpointChatCompletions {
+		writeChatCompletionText(w, "served by sibling")
+		return nil
+	}
 	for _, frame := range []string{
 		`{"type":"response.output_text.delta","output_index":0,"delta":"served by sibling"}`,
 		`{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"served by sibling"}]}],"usage":{"input_tokens":12,"output_tokens":3}}}`,

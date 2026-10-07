@@ -53,6 +53,8 @@
 -- normal completion). latest_tool_call_counts is {tool: {calls, errors}} over
 -- only the tool results this request delivered, unlike tool_error_counts,
 -- which re-counts the whole history on every turn.
+-- failover_used marks a turn a rescue served; failover_attempted marks any turn
+-- on which a rescue was dispatched, whether or not it served.
 -- name: InsertRequestTelemetry :exec
 INSERT INTO router.model_router_request_telemetry (
     installation_id,
@@ -139,6 +141,7 @@ INSERT INTO router.model_router_request_telemetry (
     autonomy_append_fired,
     workspace_append_fired,
     failover_used,
+    failover_attempted,
     degenerate_shadow,
     session_key,
     role,
@@ -312,6 +315,7 @@ INSERT INTO router.model_router_request_telemetry (
     sqlc.narg('autonomy_append_fired')::boolean,
     sqlc.narg('workspace_append_fired')::boolean,
     sqlc.narg('failover_used')::boolean,
+    sqlc.narg('failover_attempted')::boolean,
     sqlc.narg('degenerate_shadow')::boolean,
     sqlc.narg('session_key')::bytea,
     sqlc.narg('role')::varchar,

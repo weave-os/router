@@ -187,10 +187,13 @@ type InsertTelemetryParams struct {
 	// WorkspaceAppendFired is set when the served attempt carried
 	// WorkspaceSystemText (cross-vendor emitters only); nil otherwise.
 	WorkspaceAppendFired *bool
-	FailoverUsed         *bool
-	DegenerateShadow     *bool
-	PolicyPinRequested   *bool
-	PolicyPinHonoured    *bool
+	// FailoverUsed marks a turn a failover served; FailoverAttempted marks any
+	// turn on which one was dispatched, including a failover that also failed.
+	FailoverUsed       *bool
+	FailoverAttempted  *bool
+	DegenerateShadow   *bool
+	PolicyPinRequested *bool
+	PolicyPinHonoured  *bool
 
 	// SessionKey + Role are the offline join key to spiral_shadow_events and
 	// session_pins (16-byte digest + roleForTier of the requested model). Nil /

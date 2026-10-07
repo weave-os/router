@@ -174,6 +174,7 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.Inse
 		AutonomyAppendFired:                      p.AutonomyAppendFired,
 		WorkspaceAppendFired:                     p.WorkspaceAppendFired,
 		FailoverUsed:                             p.FailoverUsed,
+		FailoverAttempted:                        p.FailoverAttempted,
 		DegenerateShadow:                         p.DegenerateShadow,
 		PolicyPinRequested:                       p.PolicyPinRequested,
 		PolicyPinHonoured:                        p.PolicyPinHonoured,

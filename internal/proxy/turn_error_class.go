@@ -39,6 +39,13 @@ func classifyTurnError(err error, stopReason string, invalidToolArgsBlocks int) 
 		if isUpstreamWatchdogError(err) {
 			return TurnErrorStreamStalled
 		}
+		// Ahead of the status: a post-commit cut is rendered as a synthetic 502
+		// frame that wraps this verdict. An empty stream shares stream_cut
+		// because consumers mirror this vocabulary as a closed enum; the stream
+		// failure class keeps the two apart.
+		if isStreamTerminalMissing(err) {
+			return TurnErrorStreamCut
+		}
 		if status := upstreamStatus(err); status != 0 {
 			return classifyUpstreamStatus(status)
 		}
@@ -47,7 +54,7 @@ func classifyTurnError(err error, stopReason string, invalidToolArgsBlocks int) 
 			return TurnErrorStreamStalled
 		case streamFailureClientCanceled:
 			return TurnErrorClientCanceled
-		case streamFailureDeadline:
+		case streamFailureDeadline, streamFailureUpstreamTimeout:
 			return TurnErrorTimeout
 		case streamFailureUpstreamEOF, streamFailureUpstreamReset, streamFailureUpstreamErrorFrame:
 			return TurnErrorStreamCut

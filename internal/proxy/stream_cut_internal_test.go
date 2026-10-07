@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"syscall"
 	"testing"
@@ -40,6 +41,10 @@ func TestClassifyStreamFailure(t *testing.T) {
 		{name: "slow throughput watchdog", err: providers.ErrUpstreamSlowThroughput, want: streamFailureSlowThroughputWatchdog},
 		{name: "client disconnect", err: context.Canceled, lastEvent: "content_block_delta", want: streamFailureClientCanceled},
 		{name: "request deadline", err: context.DeadlineExceeded, want: streamFailureDeadline},
+		{name: "stream without a terminal event", err: translate.ErrStreamIncomplete, lastEvent: "content_block_delta", want: streamFailureUpstreamIncomplete},
+		{name: "stream that never started", err: translate.ErrStreamEmpty, want: streamFailureUpstreamEmpty},
+		{name: "http/1 response-header timeout", err: http1HeaderTimeout(), want: streamFailureUpstreamTimeout},
+		{name: "http/2 response-header timeout", err: http2HeaderTimeout(), want: streamFailureUpstreamTimeout},
 		{name: "upstream status after commit", err: &providers.UpstreamStatusError{Status: 502}, want: streamFailureUpstreamErrorFrame},
 		{name: "upstream error event then transport failure", err: errors.New("stream closed"), lastEvent: streamCutErrorEvent, want: streamFailureUpstreamErrorFrame},
 		{name: "unattributable", err: errors.New("stream closed"), lastEvent: "content_block_delta", want: streamFailureOther},
@@ -71,6 +76,11 @@ func TestClassifyTurnError(t *testing.T) {
 		{name: "watchdog abort is not a client cancel", err: fmt.Errorf("%w: %w", providers.ErrUpstreamIdleTimeout, context.Canceled), want: TurnErrorStreamStalled},
 		{name: "client cancel", err: context.Canceled, want: TurnErrorClientCanceled},
 		{name: "deadline", err: context.DeadlineExceeded, want: TurnErrorTimeout},
+		{name: "client cancel during the upstream request", err: &url.Error{Op: "Post", URL: "https://upstream.test", Err: context.Canceled}, want: TurnErrorClientCanceled},
+		{name: "http/1 response-header timeout", err: http1HeaderTimeout(), want: TurnErrorTimeout},
+		{name: "http/2 response-header timeout", err: http2HeaderTimeout(), want: TurnErrorTimeout},
+		{name: "stream without a terminal event", err: translate.ErrStreamIncomplete, want: TurnErrorStreamCut},
+		{name: "stream that never started", err: translate.ErrStreamEmpty, want: TurnErrorStreamCut},
 		{name: "unattributable failure", err: errors.New("stream closed"), want: TurnErrorOther},
 		{name: "refusal", stopReason: "refusal", want: TurnErrorRefusal},
 		{name: "openai output cap", stopReason: "length", want: TurnErrorMaxTokens},
@@ -80,6 +90,38 @@ func TestClassifyTurnError(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Equal(t, tc.want, classifyTurnError(tc.err, tc.stopReason, tc.invalidToolArgs))
 		})
+	}
+}
+
+// headerTimeoutError mirrors net/http's HTTP/2 response-header timeout: a
+// net.Error reporting Timeout() with no context.DeadlineExceeded in its chain.
+type headerTimeoutError struct{ msg string }
+
+func (e headerTimeoutError) Error() string   { return e.msg }
+func (e headerTimeoutError) Timeout() bool   { return true }
+func (e headerTimeoutError) Temporary() bool { return true }
+
+func http2HeaderTimeout() error {
+	return &url.Error{Op: "Post", URL: "https://upstream.test", Err: headerTimeoutError{msg: "http2: timeout awaiting response headers"}}
+}
+
+// http1HeaderTimeout mirrors the HTTP/1 transport's error, which also matches
+// context.DeadlineExceeded.
+type http1TimeoutError struct{}
+
+func (http1TimeoutError) Error() string        { return "net/http: timeout awaiting response headers" }
+func (http1TimeoutError) Timeout() bool        { return true }
+func (http1TimeoutError) Is(target error) bool { return target == context.DeadlineExceeded }
+
+func http1HeaderTimeout() error {
+	return &url.Error{Op: "Post", URL: "https://upstream.test", Err: http1TimeoutError{}}
+}
+
+func TestClassifyTurnErrorReadsCutThroughSyntheticFrame(t *testing.T) {
+	for _, err := range []error{translate.ErrStreamIncomplete, translate.ErrStreamEmpty} {
+		framed := emitAnthropicSSEErrorEvent(httptest.NewRecorder(), err)
+		assert.Equal(t, TurnErrorStreamCut, classifyTurnError(framed, "", 0),
+			"the router's 502 frame stands in for the cut, not an upstream 5xx")
 	}
 }
 
