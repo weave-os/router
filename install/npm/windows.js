@@ -3,12 +3,13 @@
 // another installation beyond the npx command they already ran.
 
 const fs = require("node:fs");
-const path = require("node:path");
 const { execFileSync } = require("node:child_process");
+const path = require("node:path");
 const { emitKeypressEvents } = require("node:readline");
 const readline = require("node:readline/promises");
 const { stdin, stdout } = require("node:process");
 const TOML = require("smol-toml");
+const git = require("isomorphic-git");
 
 const defaultBaseUrl = process.env.WEAVE_ROUTER_URL || "https://router.workweave.ai";
 const packageName = process.env.WEAVE_ROUTER_NPM_PACKAGE || "@weave-os/router";
@@ -17,7 +18,10 @@ const claudeAttribution = {
   pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)",
 };
 
+let patchToml;
+
 async function main() {
+  ({ patch: patchToml } = await import("@decimalturn/toml-patch"));
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
     console.log("Usage: npx @weave-os/router [--claude|--codex|--opencode|--pi] [--scope user|project] [--dir PATH] [--base-url URL] [--uninstall]");
@@ -45,10 +49,10 @@ async function main() {
     console.log(`Weave Router removed from ${target} settings.`);
     return;
   }
-  if (options.scope === "project") ensureProjectFilesPrivate(root, target);
+  const trackedProjectPaths = options.scope === "project" ? await ensureProjectFilesPrivate(root, target) : new Set();
 
   const baseUrl = (options.baseUrl || defaultBaseUrl).replace(/\/+$/, "");
-  let key = process.env.WEAVE_ROUTER_KEY || readInstalledKey(paths, target);
+  let key = process.env.WEAVE_ROUTER_KEY || readInstalledKey(paths, target, trackedProjectPaths);
   if (!key && options.nonInteractive) throw new Error("--non-interactive requires WEAVE_ROUTER_KEY.");
   if (!key) {
     console.log(`Get your Weave Router API key at ${baseUrl}`);
@@ -63,8 +67,9 @@ async function main() {
   if (!keyIsValid) console.warn("Warning: could not validate the key. Check the router URL and key if requests fail.");
 
   const email = options.email || process.env.WEAVE_USER_EMAIL || "";
+  if (/[\x00-\x1f\x7f]/.test(email)) throw new Error("Email must not contain control characters.");
   if (target === "claude") installClaude(paths, baseUrl, key, email);
-  else if (target === "codex") installCodex(paths.config, baseUrl, key, email);
+  else if (target === "codex") installCodex(paths, baseUrl, key, email);
   else if (target === "opencode") installOpenCode(paths, baseUrl, key, email);
   else installPi(paths, baseUrl, key, email);
   console.log(`Weave Router configured for ${target} at ${paths.config}.`);
@@ -103,7 +108,7 @@ function configPaths(root, target, scope, directory) {
     localConfig: scope === "project" ? path.join(root, ".claude", "settings.local.json") : null,
     state: path.join(root, ".claude", ".weave-router-state.json"),
   };
-  if (target === "codex") return { config: path.join(root, ".codex", "config.toml") };
+  if (target === "codex") return { config: path.join(root, ".codex", "config.toml"), state: path.join(root, ".codex", ".weave-router-state.json") };
   if (target === "opencode") {
     const configDirectory = scope === "project" || directory
       ? root
@@ -114,16 +119,38 @@ function configPaths(root, target, scope, directory) {
   return { config: path.join(piRoot, "models.json"), settings: path.join(piRoot, "settings.json"), state: path.join(piRoot, ".weave-router-state.json") };
 }
 
-function ensureProjectFilesPrivate(root, target) {
+async function ensureProjectFilesPrivate(root, target) {
   const projectConfigPaths = {
     claude: [".claude/settings.local.json", ".claude/.weave-router-state.json"],
-    codex: [".codex/config.toml"],
+    codex: [".codex/config.toml", ".codex/.weave-router-state.json"],
     opencode: ["opencode.json", ".weave-parked.json"],
     pi: [".pi/models.json", ".pi/settings.json", ".pi/.weave-router-state.json"],
   }[target];
   const gitignorePath = path.join(root, ".gitignore");
   refuseSymlink(gitignorePath);
-  const trackedFiles = findGitRoot(root) ? execFileSync("git", ["-C", root, "ls-files", "--", ...projectConfigPaths], { encoding: "utf8" }).trim().split(/\r?\n/).filter(Boolean) : [];
+  const repositoryRoot = findGitRoot(root);
+  const trackedProjectPaths = new Set();
+  if (repositoryRoot) {
+    let gitDirectory = path.join(repositoryRoot, ".git");
+    if (fs.statSync(gitDirectory).isFile()) {
+      const gitDirectoryPointer = fs.readFileSync(gitDirectory, "utf8").trim();
+      if (!gitDirectoryPointer.startsWith("gitdir: ")) throw new Error(`Invalid git directory pointer at ${gitDirectory}.`);
+      gitDirectory = path.resolve(repositoryRoot, gitDirectoryPointer.slice("gitdir: ".length));
+    }
+    let trackedFiles;
+    try {
+      trackedFiles = execFileSync("git", ["-C", repositoryRoot, "ls-files", "-z"], { encoding: "utf8" }).split("\0").filter(Boolean);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      try {
+        trackedFiles = await git.listFiles({ fs, dir: repositoryRoot, gitdir: gitDirectory });
+      } catch (indexError) {
+        throw new Error(`Cannot safely inspect this project's Git index: ${indexError.message}. Use --scope user to install without Git.`);
+      }
+    }
+    for (const trackedFile of trackedFiles) trackedProjectPaths.add(path.resolve(repositoryRoot, trackedFile));
+  }
+  const trackedFiles = projectConfigPaths.filter((configPath) => trackedProjectPaths.has(path.join(root, configPath)));
   if (trackedFiles.length) throw new Error(`Project config is already tracked by git and may expose credentials: ${trackedFiles.join(", ")}. Untrack it before installing.`);
   const existingEntries = fs.existsSync(gitignorePath) ? fs.readFileSync(gitignorePath, "utf8").split(/\r?\n/) : [];
   const missingEntries = projectConfigPaths.filter((entry) => !existingEntries.includes(entry));
@@ -131,6 +158,7 @@ function ensureProjectFilesPrivate(root, target) {
     fs.mkdirSync(root, { recursive: true });
     fs.appendFileSync(gitignorePath, `${existingEntries.length && existingEntries.at(-1) ? "\n" : ""}${missingEntries.join("\n")}\n`);
   }
+  return trackedProjectPaths;
 }
 
 function installClaude(paths, baseUrl, key, email) {
@@ -167,8 +195,11 @@ function installClaude(paths, baseUrl, key, email) {
   writeJson(paths.state, state);
 }
 
-function installCodex(filePath, baseUrl, key, email) {
-  const settings = readToml(filePath);
+function installCodex(paths, baseUrl, key, email) {
+  const settings = readToml(paths.config);
+  const state = readJson(paths.state);
+  state.modelProvider ||= { exists: Object.hasOwn(settings, "model_provider"), value: settings.model_provider };
+  writeJson(paths.state, state);
   const currentModel = settings.model;
   const hasUserModel = typeof currentModel === "string" && currentModel !== "weave-auto";
   settings.model_provider = "weave";
@@ -186,7 +217,7 @@ function installCodex(filePath, baseUrl, key, email) {
       "X-Weave-Codex-Native-Model-Pin": "1",
     },
   };
-  writeToml(filePath, settings);
+  writeToml(paths.config, settings);
 }
 
 function installOpenCode(paths, baseUrl, key, email) {
@@ -269,11 +300,13 @@ function uninstall(paths, target) {
     if (!fs.existsSync(paths.config)) return;
     const settings = readToml(paths.config);
     if (!settings.model_providers?.weave?.http_headers?.["X-Weave-Router-Key"]) return;
-    if (settings.model_provider === "weave") delete settings.model_provider;
+    const state = readJson(paths.state);
+    restoreField(settings, "model_provider", state.modelProvider, "weave");
     if (settings.model === "weave-auto") delete settings.model;
     delete settings.model_providers?.weave;
     if (settings.model_providers && !Object.keys(settings.model_providers).length) delete settings.model_providers;
     writeToml(paths.config, settings);
+    fs.rmSync(paths.state, { force: true });
   } else if (target === "opencode") {
     if (!fs.existsSync(paths.config)) return;
     const settings = readJson(paths.config);
@@ -309,10 +342,15 @@ function restoreField(record, field, savedValue, installedValue) {
   else delete record[field];
 }
 
-function readInstalledKey(paths, target) {
+function readInstalledKey(paths, target, trackedProjectPaths) {
   try {
     if (target === "claude") {
-      return (readJson(paths.localConfig || paths.config).env?.ANTHROPIC_CUSTOM_HEADERS || "").match(/^X-Weave-Router-Key:\s*(\S+)/m)?.[1] || "";
+      for (const configPath of [paths.localConfig, paths.config].filter(Boolean)) {
+        if (trackedProjectPaths.has(configPath)) continue;
+        const installedKey = (readJson(configPath).env?.ANTHROPIC_CUSTOM_HEADERS || "").match(/^X-Weave-Router-Key:\s*(\S+)/m)?.[1];
+        if (installedKey) return installedKey;
+      }
+      return "";
     }
     if (target === "codex") return readToml(paths.config).model_providers?.weave?.http_headers?.["X-Weave-Router-Key"] || "";
     if (target === "opencode") return readJson(paths.config).provider?.weave?.options?.headers?.["X-Weave-Router-Key"] || "";
@@ -375,7 +413,7 @@ function readJson(filePath) {
 
 function writeJson(filePath, value) { writeText(filePath, `${JSON.stringify(value, null, 2)}\n`); }
 function readToml(filePath) { return TOML.parse(readText(filePath), { integersAsBigInt: true }); }
-function writeToml(filePath, settings) { writeText(filePath, TOML.stringify(settings, { numbersAsFloat: true })); }
+function writeToml(filePath, settings) { writeText(filePath, patchToml(readText(filePath), settings)); }
 function readText(filePath) { try { return fs.readFileSync(filePath, "utf8"); } catch (error) { if (error.code === "ENOENT") return ""; throw error; } }
 function writeText(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });

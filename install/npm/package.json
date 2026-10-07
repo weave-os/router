@@ -79,6 +79,8 @@
     "pi-package"
   ],
   "dependencies": {
+    "@decimalturn/toml-patch": "3.3.0",
+    "isomorphic-git": "1.43.1",
     "smol-toml": "1.9.0"
   }
 }

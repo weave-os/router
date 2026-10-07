@@ -344,6 +344,7 @@ jobs:
 
       - name: Run installer tests
         run: |
+          make setup-install-tests
           make test-install
           bash install/pi-router/test/opencode_smoke.sh
 

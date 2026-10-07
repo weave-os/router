@@ -103,11 +103,12 @@ function pickBash() {
 }
 
 function isGitBash(executable) {
-  const probe = spawnSync(executable, ["-lc", "uname -s"], {
+  const probe = spawnSync(executable, ["--noprofile", "--norc", "-c", "uname -s"], {
     encoding: "utf8",
     timeout: 3000,
     windowsHide: true,
     stdio: ["ignore", "pipe", "ignore"],
+    env: { ...process.env, BASH_ENV: "" },
   });
   return probe.status === 0 && /^(?:MINGW|MSYS)/.test(probe.stdout.trim());
 }
