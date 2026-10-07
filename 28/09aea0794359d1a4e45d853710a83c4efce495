@@ -1,0 +1,16 @@
+internal/proxy/hmm_outcome_internal_test.go
+  h_16c9377d4ebc00 95
+internal/proxy/service.go
+  h_16c9377d4ebc00 493-494,3913,3916,4286-4289
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "2809aea0794359d1a4e45d853710a83c4efce495",
+  "prompts": {},
+  "humans": {
+    "h_16c9377d4ebc00": {
+      "author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
