@@ -8,7 +8,7 @@ on:
 jobs:
   weave-checks:
     if: github.event.pull_request.head.repo.full_name == github.repository
-    uses: weave-os/checks/.github/workflows/weave-checks.yml@38f84fa049d33e50da5fc4e81da5e6e656bad484 # v1.0
+    uses: weave-os/checks/.github/workflows/weave-checks.yml@v1.0.1
     permissions:
       id-token: write
     with:

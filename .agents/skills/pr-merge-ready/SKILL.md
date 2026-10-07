@@ -36,10 +36,10 @@ Not every reviewer needs a manual `resolveReviewThread` call. Some bots re-scan 
 
 Identify the author(s) from each `unresolved_comments` entry's `authors` field (or the `<!-- weave-check: -->` marker in `body`) during triage, and carry that classification into the resolve step.
 
-**Reading a weave-checks finding against its own criteria.** The marker's `<slug>` maps to a repo-local `.weave-checks/<slug>.md` if one exists, else to the default check `starter-checks/<slug>.md` in `weave-os/checks` at the SHA pinned in `.github/workflows/weave-checks.yml` (this repo runs with `use-default-checks: true`). When triaging a `weave-checks[bot]` thread, read that file — "Do Not Flag"/"Exclusions" is the fastest false-positive check:
+**Reading a weave-checks finding against its own criteria.** The marker's `<slug>` maps to a repo-local `.weave-checks/<slug>.md` if one exists, else to the default check `starter-checks/<slug>.md` in `weave-os/checks` at the release tag pinned in `.github/workflows/weave-checks.yml` (this repo runs with `use-default-checks: true`). When triaging a `weave-checks[bot]` thread, read that file — "Do Not Flag"/"Exclusions" is the fastest false-positive check:
 
 ```bash
-REF=$(sed -nE 's#.*weave-os/checks/.github/workflows/weave-checks.yml@([0-9a-f]{40}).*#\1#p' .github/workflows/weave-checks.yml)
+REF=$(sed -nE 's#.*weave-os/checks/.github/workflows/weave-checks.yml@(v[0-9]+\.[0-9]+\.[0-9]+).*#\1#p' .github/workflows/weave-checks.yml)
 gh api "repos/weave-os/checks/contents/starter-checks/<slug>.md?ref=$REF" -H 'Accept: application/vnd.github.raw'
 ```
 
