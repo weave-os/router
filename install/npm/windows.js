@@ -300,8 +300,7 @@ function uninstall(paths, target) {
     if (!fs.existsSync(paths.config)) return;
     const settings = readToml(paths.config);
     if (!settings.model_providers?.weave?.http_headers?.["X-Weave-Router-Key"]) return;
-    const state = readJson(paths.state);
-    restoreField(settings, "model_provider", state.modelProvider, "weave");
+    restoreField(settings, "model_provider", readJson(paths.state).modelProvider, "weave");
     if (settings.model === "weave-auto") delete settings.model;
     delete settings.model_providers?.weave;
     if (settings.model_providers && !Object.keys(settings.model_providers).length) delete settings.model_providers;
