@@ -140,10 +140,8 @@ func TestProxyMessages_ReportedFastSpeedBillsFastRateWithoutOptIn(t *testing.T) 
 	body := []byte(`{"model":"claude-opus-4-7","speed":"fast","messages":[{"role":"user","content":"hi"}]}`)
 	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastLunaModel), body, rec, req))
 
-	fast, ok := catalog.FastPriceFor(providers.ProviderAnthropic, fastOpusModel)
-	require.True(t, ok)
-	want := routerResponseCostFromPricing(fast, providers.ProviderAnthropic, 1200, 340, 5000, 0, catalog.UsageModifiers{CacheCreation1h: 4000, InferenceGeo: catalog.InferenceGeoUS})
-	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD))
+	// $10/$50 fast: (1200 + 1000x1.25 + 4000x2) input + 340 output, x1.1 US.
+	assert.Equal(t, "0.13365", rec.Header().Get(HeaderRouterCostUSD))
 }
 
 // An upstream that omits usage.cache_creation is priced from the TTL the
@@ -157,10 +155,8 @@ func TestProxyMessages_UnreportedCacheSplitUsesRequestTTL(t *testing.T) {
 	body := []byte(`{"model":"claude-opus-4-7","system":[{"type":"text","text":"stable prefix","cache_control":{"type":"ephemeral","ttl":"1h"}}],"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral","ttl":"1h"}}]}]}`)
 	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastLunaModel), body, rec, req))
 
-	base, ok := catalog.PriceFor(providers.ProviderAnthropic, fastOpusModel)
-	require.True(t, ok)
-	want := routerResponseCostFromPricing(base, providers.ProviderAnthropic, 1200, 340, 5000, 0, catalog.UsageModifiers{CacheCreation1h: 5000})
-	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD))
+	// $5/$25: (1200 + 5000x2) input + 340 output.
+	assert.Equal(t, "0.0645", rec.Header().Get(HeaderRouterCostUSD))
 }
 
 // A request that declares the 5-minute TTL keeps unsplit cache writes at the
@@ -174,10 +170,8 @@ func TestProxyMessages_UnreportedCacheSplitWithFiveMinuteRequestStaysFiveMinute(
 	body := []byte(`{"model":"claude-opus-4-7","system":[{"type":"text","text":"stable prefix","cache_control":{"type":"ephemeral","ttl":"5m"}}],"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral","ttl":"5m"}}]}]}`)
 	require.NoError(t, svc.ProxyMessages(fastModeCtx(fastLunaModel), body, rec, req))
 
-	base, ok := catalog.PriceFor(providers.ProviderAnthropic, fastOpusModel)
-	require.True(t, ok)
-	want := routerResponseCostFromPricing(base, providers.ProviderAnthropic, 1200, 340, 5000, 0, catalog.UsageModifiers{})
-	assert.Equal(t, strconv.FormatFloat(want.TotalUSD, 'f', -1, 64), rec.Header().Get(HeaderRouterCostUSD))
+	// $5/$25: (1200 + 5000x1.25) input + 340 output.
+	assert.Equal(t, "0.04575", rec.Header().Get(HeaderRouterCostUSD))
 }
 
 // fastQuotaFakeProvider refuses every fast-tier body with Anthropic's

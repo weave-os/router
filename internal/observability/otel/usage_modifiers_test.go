@@ -72,6 +72,7 @@ func TestUsageExtractor_UnreportedSplitFallsBackToRequestTTL(t *testing.T) {
 		{name: "5m or mixed request, no split", declared1h: false, body: anthropicNoSplitBody, want1h: 0, wantChecked: true},
 		{name: "reported split wins over declared TTL", declared1h: true, body: anthropicSplitBody, want1h: 300, wantChecked: false},
 		{name: "null cache_creation is not a split", declared1h: true, body: strings.Replace(anthropicNoSplitBody, `"output_tokens":4`, `"output_tokens":4,"cache_creation":null`, 1), want1h: 322, wantChecked: true},
+		{name: "null per-TTL counts are not a split", declared1h: true, body: strings.Replace(anthropicNoSplitBody, `"output_tokens":4`, `"output_tokens":4,"cache_creation":{"ephemeral_5m_input_tokens":null,"ephemeral_1h_input_tokens":null}`, 1), want1h: 322, wantChecked: true},
 		{name: "empty cache_creation is not a split", declared1h: true, body: strings.Replace(anthropicNoSplitBody, `"output_tokens":4`, `"output_tokens":4,"cache_creation":{}`, 1), want1h: 322, wantChecked: true},
 	}
 	for _, tc := range cases {

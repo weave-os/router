@@ -75,7 +75,6 @@ const (
 	anthropicCacheControlTTL5m
 )
 
-// Wire values of cache_control.ttl.
 const (
 	anthropicCacheTTLWire5m = "5m"
 	anthropicCacheTTLWire1h = "1h"

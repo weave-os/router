@@ -234,9 +234,8 @@ func TestStreamCostWriterPricesMessageStartModifiers(t *testing.T) {
 		`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":7}}` + "\n\n"))
 	require.NoError(t, err)
 
-	fast, ok := catalog.FastPriceFor(providers.ProviderAnthropic, model)
-	require.True(t, ok)
-	want := routerResponseCostFromPricing(fast, providers.ProviderAnthropic, 10, 7, 5000, 0, catalog.UsageModifiers{CacheCreation1h: 4000, InferenceGeo: catalog.InferenceGeoUS})
+	// $10/$50 fast: (10 + 1000x1.25 + 4000x2) input + 7 output, x1.1 US.
+	const wantTotalUSD = 0.102245
 	var annotated gjson.Result
 	for _, event := range strings.Split(rec.Body.String(), "\n\n") {
 		if strings.HasPrefix(event, "event: message_delta") {
@@ -244,14 +243,14 @@ func TestStreamCostWriterPricesMessageStartModifiers(t *testing.T) {
 		}
 	}
 	require.True(t, annotated.Exists())
-	assert.InDelta(t, want.TotalUSD, annotated.Get("usd").Float(), 1e-12)
+	assert.InDelta(t, wantTotalUSD, annotated.Get("usd").Float(), 1e-12)
 }
 
 // A gateway stream without a per-TTL split prices its trailer from the
 // dispatched request's declared TTL, matching telemetry and billing.
 func TestStreamCostWriterUnsplitWritesUseRequestTTL(t *testing.T) {
 	const model = "claude-opus-5"
-	for _, cacheCreation := range []string{``, `,"cache_creation":null`, `,"cache_creation":{}`} {
+	for _, cacheCreation := range []string{``, `,"cache_creation":null`, `,"cache_creation":{}`, `,"cache_creation":{"ephemeral_5m_input_tokens":null,"ephemeral_1h_input_tokens":null}`} {
 		rec := httptest.NewRecorder()
 		writer := newStreamCostWriter(rec)
 		writer.SetCostCalculator(routerCostCalculatorFor(model, providers.ProviderAnthropicGateway, false), false, func() bool { return true })
@@ -262,9 +261,8 @@ func TestStreamCostWriterUnsplitWritesUseRequestTTL(t *testing.T) {
 			`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":7}}` + "\n\n"))
 		require.NoError(t, err)
 
-		price, ok := catalog.PriceFor(providers.ProviderAnthropicGateway, model)
-		require.True(t, ok)
-		want := routerResponseCostFromPricing(price, providers.ProviderAnthropicGateway, 10, 7, 5000, 0, catalog.UsageModifiers{CacheCreation1h: 5000})
+		// $5/$25: (10 + 5000x2) input + 7 output.
+		const wantTotalUSD = 0.050225
 		var annotated gjson.Result
 		for _, event := range strings.Split(rec.Body.String(), "\n\n") {
 			if strings.HasPrefix(event, "event: message_delta") {
@@ -272,6 +270,6 @@ func TestStreamCostWriterUnsplitWritesUseRequestTTL(t *testing.T) {
 			}
 		}
 		require.True(t, annotated.Exists(), cacheCreation)
-		assert.InDelta(t, want.TotalUSD, annotated.Get("usd").Float(), 1e-12, cacheCreation)
+		assert.InDelta(t, wantTotalUSD, annotated.Get("usd").Float(), 1e-12, cacheCreation)
 	}
 }

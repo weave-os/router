@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/sse"
+	"weave-os/router/internal/translate"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -195,11 +196,11 @@ func (w *streamCostWriter) annotateEvent(event []byte) []byte {
 		w.messageStartInput = int(usage.Get("input_tokens").Int())
 		w.messageStartRead = int(usage.Get("cache_read_input_tokens").Int())
 		w.messageStartCreation = int(usage.Get("cache_creation_input_tokens").Int())
-		oneHour := usage.Get("cache_creation.ephemeral_1h_input_tokens")
-		w.messageStartCreation1h = int(oneHour.Int())
-		w.messageStartSplit = oneHour.Exists() || usage.Get("cache_creation.ephemeral_5m_input_tokens").Exists()
-		w.messageStartSpeed = catalog.Speed(usage.Get("speed").String())
-		w.messageStartGeo = catalog.InferenceGeo(usage.Get("inference_geo").String())
+		oneHour, split, speed, geo := translate.AnthropicUsageModifiers(usage)
+		w.messageStartCreation1h = oneHour
+		w.messageStartSplit = split
+		w.messageStartSpeed = catalog.Speed(speed)
+		w.messageStartGeo = catalog.InferenceGeo(geo)
 		return event
 	}
 	if string(eventType) != "message_delta" || w.calculate == nil {
