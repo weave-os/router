@@ -12,10 +12,15 @@ import (
 
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/hmm/rosterdata"
 )
+
+func admittedDistributionWiredProviders() map[string]struct{} {
+	return map[string]struct{}{providers.ProviderOpenAI: {}, providers.ProviderXAI: {}}
+}
 
 func profileDistributionSnapshot(arm string) *policyregistry.Snapshot {
 	return &policyregistry.Snapshot{Candidate: policyregistry.Candidate{Policy: &rosterdata.Roster{
@@ -30,7 +35,7 @@ func profileDistributionSnapshot(arm string) *policyregistry.Snapshot {
 func TestAdmittedRoutingDistributionUsesEachRequestsPolicy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.GET("/v1/router/routing-distribution", admin.AdmittedRoutingDistributionHandler(policyregistry.AdmittedRosterSource{}))
+	engine.GET("/v1/router/routing-distribution", admin.AdmittedRoutingDistributionHandler(policyregistry.AdmittedRosterSource{}, admittedDistributionWiredProviders()))
 	for _, profile := range []struct{ arm, model string }{
 		{"openai/gpt-5.6-luna", "gpt-5.6-luna"},
 		{"x-ai/grok-4.6", "grok-4.6"},
@@ -58,7 +63,7 @@ func TestAdmittedRoutingDistributionUsesEachRequestsPolicy(t *testing.T) {
 func TestAdmittedRoutingDistributionFailsClosedWithoutSnapshot(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.GET("/v1/router/routing-distribution", admin.AdmittedRoutingDistributionHandler(policyregistry.AdmittedRosterSource{}))
+	engine.GET("/v1/router/routing-distribution", admin.AdmittedRoutingDistributionHandler(policyregistry.AdmittedRosterSource{}, admittedDistributionWiredProviders()))
 	for _, strategy := range []router.Strategy{"", router.StrategyHMM, router.StrategyHMMEmbedding} {
 		request := httptest.NewRequest(http.MethodGet, "/v1/router/routing-distribution?strategy="+string(strategy), nil)
 		recorder := httptest.NewRecorder()
@@ -70,7 +75,7 @@ func TestAdmittedRoutingDistributionFailsClosedWithoutSnapshot(t *testing.T) {
 func TestAdmittedRoutingDistributionRejectsNonHMMAndAppliesExclusions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.GET("/v1/router/routing-distribution", admin.AdmittedRoutingDistributionHandler(policyregistry.AdmittedRosterSource{}))
+	engine.GET("/v1/router/routing-distribution", admin.AdmittedRoutingDistributionHandler(policyregistry.AdmittedRosterSource{}, admittedDistributionWiredProviders()))
 	for _, query := range []string{"strategy=" + string(router.StrategyCluster), "strategy=" + string(router.StrategyRL), "strategy=" + string(router.StrategyHMMBeta), "strategy=unknown", "excluded_models=gpt-5.6-luna", "grid=102"} {
 		request := httptest.NewRequest(http.MethodGet, "/v1/router/routing-distribution?"+query, nil)
 		request = request.WithContext(policyregistry.WithServingSnapshot(request.Context(), profileDistributionSnapshot("openai/gpt-5.6-luna")))

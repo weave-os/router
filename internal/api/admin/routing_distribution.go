@@ -51,16 +51,16 @@ type routingDistributionResponse struct {
 // the eligible pool so the preview matches what Route would do for an
 // installation with those exclusions — the control plane passes the requesting
 // org's lists, keeping the endpoint unauthed/global while still org-correct.
-func RoutingDistributionHandler(dist RoutingDistributionSource, hmmRosters ...*rosterdata.Roster) gin.HandlerFunc {
-	return routingDistributionHandler(dist, nil, hmmRosters)
+func RoutingDistributionHandler(dist RoutingDistributionSource, availableProviders map[string]struct{}, hmmRosters ...*rosterdata.Roster) gin.HandlerFunc {
+	return routingDistributionHandler(dist, nil, availableProviders, hmmRosters)
 }
 
 // AdmittedRoutingDistributionHandler never substitutes a boot roster or legacy scorer.
-func AdmittedRoutingDistributionHandler(source AdmittedDistributionRosterSource) gin.HandlerFunc {
-	return routingDistributionHandler(nil, source, nil)
+func AdmittedRoutingDistributionHandler(source AdmittedDistributionRosterSource, availableProviders map[string]struct{}) gin.HandlerFunc {
+	return routingDistributionHandler(nil, source, availableProviders, nil)
 }
 
-func routingDistributionHandler(dist RoutingDistributionSource, admitted AdmittedDistributionRosterSource, hmmRosters []*rosterdata.Roster) gin.HandlerFunc {
+func routingDistributionHandler(dist RoutingDistributionSource, admitted AdmittedDistributionRosterSource, availableProviders map[string]struct{}, hmmRosters []*rosterdata.Roster) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		gridN := 0 // 0 -> scorer default
 		if raw := c.Query("grid"); raw != "" {
@@ -87,13 +87,13 @@ func routingDistributionHandler(dist RoutingDistributionSource, admitted Admitte
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "admitted routing distribution unavailable"})
 				return
 			}
-			points, err = hmmselection.RoutingDistribution(roster, gridN, excludedModels, excludedProviders)
+			points, err = hmmselection.RoutingDistribution(roster, gridN, availableProviders, excludedModels, excludedProviders)
 		} else if router.IsHMMStrategy(strategy) {
 			if len(hmmRosters) == 0 || hmmRosters[0] == nil {
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "hmm routing distribution unavailable"})
 				return
 			}
-			points, err = hmmselection.RoutingDistribution(hmmRosters[0], gridN, excludedModels, excludedProviders)
+			points, err = hmmselection.RoutingDistribution(hmmRosters[0], gridN, availableProviders, excludedModels, excludedProviders)
 		} else {
 			if dist == nil {
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "routing distribution unavailable"})
