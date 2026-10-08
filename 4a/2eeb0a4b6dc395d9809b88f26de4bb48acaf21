@@ -1,0 +1,43 @@
+internal/proxy/codex_receipt_test.go
+  s_6e776831a9cc94::t_6567167c0e0c7c 27-42,52
+  s_6e776831a9cc94::t_6085a48e01cb46 4,12,43-51
+  s_6e776831a9cc94::t_6bdfa7b2a4d892 53
+internal/proxy/codex_receipt.go
+  s_6e776831a9cc94::t_637310a9c49d3d 4,24-32
+internal/translate/responses.go
+  s_6e776831a9cc94::t_02d8c3914ff149 633-634,770-773,784-785
+  s_6e776831a9cc94::t_af68c84e26650a 638
+  s_0970f7100c7e81::t_f15588e394c18f 1824-1828
+  s_6e776831a9cc94::t_cb9989488658a7 1011-1025,1175-1176,1183-1190,1193,1217-1231,1257-1258,1262,1265,1276-1277,1281,1284,1305-1306,1311,1314,1341,1358,1422-1434,1436,1439-1443,1453-1459,1640,1655,1667,1671-1672,1708-1709,2395,2418-2424
+internal/proxy/service.go
+  s_6e776831a9cc94::t_ec32a7c3fbe88a 5899,5901,6227-6230
+  s_6e776831a9cc94::t_9762832b3d904c 6231-6232
+internal/translate/responses_test.go
+  s_6e776831a9cc94::t_ed83b7f2ff86e3 1212,1214,1228
+  s_6e776831a9cc94::t_d6fe07aa6cf807 1151-1152,1179-1211,1213,1215-1227,1229-1253
+  s_6e776831a9cc94::t_663381e6b49bb4 1254
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "4a2eeb0a4b6dc395d9809b88f26de4bb48acaf21",
+  "prompts": {},
+  "sessions": {
+    "s_0970f7100c7e81": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1a42406d-cdca-4da7-b104-db057e63607d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    },
+    "s_6e776831a9cc94": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "996189e8-562a-4cd9-8ae8-5b11917a80c9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

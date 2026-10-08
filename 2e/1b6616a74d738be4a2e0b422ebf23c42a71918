@@ -1,0 +1,96 @@
+db/queries/model_router_request_telemetry.sql
+  s_f230e6a16e6d98::t_49f3877a9b5829 110-116,268-274,749-755
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_f230e6a16e6d98::t_2da4950489427b 102-108,209-215,298-304,410-416,1921-1927,2079-2084,2086-2099,2101-2104,2108-2109,2112,2114-2118,2120-2129,2131,2136-2145,2147,2150,2154,2156-2163,2165-2174,2241-2247,2448-2454,2606-2611,2613-2626,2628-2631,2635-2636,2639,2641-2645,2647-2656,2658,2663-2672,2674,2677,2681,2683-2690,2692-2701,2767-2773
+internal/proxy/gemini.go
+  s_f230e6a16e6d98::t_69a6f3d596198f 484
+db/queries/blind_experiment.sql
+  s_f230e6a16e6d98::t_fc29c4b5609fe6 30-41
+  s_f230e6a16e6d98::t_3185f208b1a896 12-29,48-51
+internal/sqlc/blind_experiment.sql.go
+  s_60e4e28e975353::t_68f924d4004775 41-52,87,119-130,161
+  s_f230e6a16e6d98::t_6e1fee5cf7b820 12,23-40,59-62,81-86,101-118,137-140,155-160
+internal/postgres/analytics_repo.go
+  s_f230e6a16e6d98::t_88b8daac781e51 152,156
+  s_f230e6a16e6d98::t_99c3596b4db634 79-85,157-160,164-166
+  s_f230e6a16e6d98::t_7878974001f4a1 153-155,161-163
+  s_f230e6a16e6d98::t_c899900b9359f7 167
+internal/analytics/schema.go
+  s_f230e6a16e6d98::t_1e475fc1c2a64a 48-54
+internal/api/analytics/routing_decisions_test.go
+  s_f230e6a16e6d98::t_de6121981e5a61 132-165
+internal/postgres/analytics_repo_test.go
+  s_f230e6a16e6d98::t_5b0a487cd2f06b 152-184
+internal/proxy/blind_experiment_internal_test.go
+  s_f230e6a16e6d98::t_69a6f3d596198f 198
+  s_f230e6a16e6d98::t_30013e7f41baa9 213-245
+  s_f230e6a16e6d98::t_00a0f6253890be 257
+  s_f230e6a16e6d98::t_85d9f6a4e68213 246-256,258-270
+internal/sqlc/models.go
+  s_f230e6a16e6d98::t_6e1fee5cf7b820 31-37,54-76
+  s_60e4e28e975353::t_68f924d4004775 38-53
+  s_f230e6a16e6d98::t_2da4950489427b 626-632
+internal/postgres/blind_experiment_repo.go
+  s_f230e6a16e6d98::t_fc29c4b5609fe6 41-44,59
+  s_f230e6a16e6d98::t_4c88d50f43443e 5-6,37-40,53-58
+internal/auth/blind_experiment.go
+  s_f230e6a16e6d98::t_4c88d50f43443e 7,58-65,67-69,78-83,95-100,150-151,153-159,161-163,186-193,195-208,216-219
+  s_f230e6a16e6d98::t_7878974001f4a1 34-35,37-39,164-166
+  s_f230e6a16e6d98::t_fc29c4b5609fe6 66,70-77,101,160,209-215,220
+  s_f230e6a16e6d98::t_88b8daac781e51 31-33,36,40-42
+  s_f230e6a16e6d98::t_42f84c84fa6be9 54,118-124,143,152,194
+internal/proxy/service.go
+  s_f230e6a16e6d98::t_69a6f3d596198f 5107,8043
+db/migrations/0113_blind-router-experiment-cohorts.up.sql
+  s_f230e6a16e6d98::t_b8bf873026c963 65-93
+  s_f230e6a16e6d98::t_e86171d40aeb39 1-16,20,22-25,30-63,104-105
+  s_f230e6a16e6d98::t_8a1724ce106ebd 17-19,21,26-29,64,94-103
+internal/proxy/usage_bypass.go
+  s_f230e6a16e6d98::t_69a6f3d596198f 566
+internal/analytics/analytics.go
+  s_f230e6a16e6d98::t_1e475fc1c2a64a 52-58
+internal/postgres/telemetry.go
+  s_f230e6a16e6d98::t_99c3596b4db634 105-109,111
+  s_f230e6a16e6d98::t_7878974001f4a1 110
+db/migrations/0113_blind-router-experiment-cohorts.down.sql
+  s_f230e6a16e6d98::t_e86171d40aeb39 1-2,15-20,22-28
+  s_f230e6a16e6d98::t_b8bf873026c963 3-4
+  s_f230e6a16e6d98::t_8a1724ce106ebd 5-14,21
+internal/auth/service.go
+  s_f230e6a16e6d98::t_42f84c84fa6be9 948-950
+  s_f230e6a16e6d98::t_4c88d50f43443e 946
+internal/proxy/telemetry.go
+  s_f230e6a16e6d98::t_88b8daac781e51 88
+  s_f230e6a16e6d98::t_69dedaa5dede47 82-87,325-337,345,352-357,366-367,373-375,627
+  s_f230e6a16e6d98::t_7878974001f4a1 338-344,346,358-365,368-372
+internal/auth/blind_experiment_test.go
+  s_f230e6a16e6d98::t_e5eb153612f729 268-283
+  s_f230e6a16e6d98::t_ae00e6d2449003 199-236,238-248
+  s_f230e6a16e6d98::t_d6443493b4335a 253
+  s_f230e6a16e6d98::t_5af2bfb7029ed6 237
+  s_f230e6a16e6d98::t_526769e5b7ae22 249-252,254-267
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2e1b6616a74d738be4a2e0b422ebf23c42a71918",
+  "prompts": {},
+  "sessions": {
+    "s_60e4e28e975353": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0d6b8-0c05-73e1-b24d-f0c4e776802a",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_f230e6a16e6d98": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0d6b8-0c05-73e1-b24d-f0c4e776802a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+scripts/task_domain_migration_test.sh
+  s_4656f0ff098c70::t_7237ca2c11bc5b 1-39
+.github/workflows/test.yml
+  s_4656f0ff098c70::t_7237ca2c11bc5b 166-168
+db/migrations/0123_task-domain-retry-after.up.sql
+  s_4656f0ff098c70::t_7be03e7b3cb7c7 3-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d245c6ff27830fd3bfaa0874edff3310f9902e1a",
+  "prompts": {},
+  "sessions": {
+    "s_4656f0ff098c70": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11428-0222-73e0-beb3-42e23a3968c5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+internal/server/session_cost_route_test.go
+  s_1639860e28960e::t_360f1b2843b74e 35,41,60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c4cfa7ecafcf6c657dea8ae485a2910a520b484a",
+  "prompts": {},
+  "sessions": {
+    "s_1639860e28960e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a112b1-c802-7021-b4cd-dfec74516f39",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
