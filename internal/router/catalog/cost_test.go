@@ -272,16 +272,16 @@ func TestSynthesizedBindingsDoNotInheritUSInferenceGeoPremium(t *testing.T) {
 func TestEffectiveCost_AnthropicPromptLengthTierCountsCachedTokens(t *testing.T) {
 	price, ok := catalog.PriceFor(providers.ProviderAnthropic, "claude-haiku-5-5")
 	require.True(t, ok)
-	none := catalog.UsageModifiers{}
+	noModifiers := catalog.UsageModifiers{}
 
 	// A 100K prompt (1k fresh + 99k reads) stays on the $0.10 tier.
-	assert.InDelta(t, (1_000+99_000*0.10)/1e6*0.10, catalog.EffectiveInputCost(1_000, 0, 99_000, price, providers.ProviderAnthropic, none), 1e-12)
+	assert.InDelta(t, (1_000+99_000*0.10)/1e6*0.10, catalog.EffectiveInputCost(1_000, 0, 99_000, price, providers.ProviderAnthropic, noModifiers), 1e-12)
 	// Anthropic input_tokens excludes cache, so 1k fresh + 100k reads is a
 	// 101K prompt on the $0.50/$2.50 tier.
-	assert.InDelta(t, (1_000+100_000*0.10)/1e6*0.50, catalog.EffectiveInputCost(1_000, 0, 100_000, price, providers.ProviderAnthropic, none), 1e-12)
-	prompt := catalog.PromptTokens(1_000, 0, 100_000, providers.ProviderAnthropic)
-	assert.Equal(t, 101_000, prompt)
-	assert.InDelta(t, 1_000/1e6*2.50, catalog.EffectiveOutputCost(prompt, 1_000, price, none), 1e-12)
+	assert.InDelta(t, (1_000+100_000*0.10)/1e6*0.50, catalog.EffectiveInputCost(1_000, 0, 100_000, price, providers.ProviderAnthropic, noModifiers), 1e-12)
+	promptTokens := catalog.PromptTokens(1_000, 0, 100_000, providers.ProviderAnthropic)
+	assert.Equal(t, 101_000, promptTokens)
+	assert.InDelta(t, 1_000/1e6*2.50, catalog.EffectiveOutputCost(promptTokens, 1_000, price, noModifiers), 1e-12)
 	// OpenAI-family prompt_tokens already includes cached tokens.
 	assert.Equal(t, 101_000, catalog.PromptTokens(101_000, 5_000, 90_000, providers.ProviderOpenAI))
 }
