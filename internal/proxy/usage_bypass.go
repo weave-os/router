@@ -464,7 +464,9 @@ func (s *Service) bypassToAnthropic(
 	proxyStart := time.Now()
 	inferenceParentCtx := ctx
 	ctx, inferenceSpan := startInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
-	proxyErr := p.Proxy(ctx, decision, prep, respW, r)
+	toolNames := translate.NewAnthropicToolNameWriter(respW, prep.ResponseToolNames)
+	proxyErr := p.Proxy(ctx, decision, prep, toolNames, r)
+	proxyErr = finalizeAfterProxy(proxyErr, toolNames.Finalize)
 	finishInferenceSpan(inferenceSpan, decision, decision.Provider, 0, proxyErr)
 	ctx = restoreParentSpan(ctx, inferenceParentCtx)
 	// The Anthropic adapter returns a buffered *UpstreamErrorResponse on 4xx/5xx

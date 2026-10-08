@@ -3202,7 +3202,9 @@ func (s *Service) anthropicNativeAttempt(
 		if preludeBuf != nil {
 			preludeBuf.Seal()
 		}
-		err := p.Proxy(actx, d, prep, streamCut.attach(proxyWriter), r)
+		toolNames := translate.NewAnthropicToolNameWriter(proxyWriter, prep.ResponseToolNames)
+		err := p.Proxy(actx, d, prep, streamCut.attach(toolNames), r)
+		err = finalizeAfterProxy(err, toolNames.Finalize)
 		if err == nil && terminal != nil {
 			err = terminal.streamErr()
 		}
@@ -7634,13 +7636,14 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				if preludeBuf != nil {
 					preludeBuf.Seal()
 				}
-				rawErr := p.Proxy(actx, d, attemptPrep, translator, r)
+				toolNames := translate.NewAnthropicToolNameWriter(translator, attemptPrep.ResponseToolNames)
+				rawErr := p.Proxy(actx, d, attemptPrep, toolNames, r)
 				finalize := func(err error) error {
 					// Post-commit streaming error: see same-format OpenAI case above.
 					if err != nil && env.Stream() && preludeBuf.Committed() {
 						_ = emitOpenAISSEErrorEvent(sink, err)
 					}
-					return finalizeAfterProxy(err, translator.Finalize)
+					return finalizeAfterProxy(finalizeAfterProxy(err, toolNames.Finalize), translator.Finalize)
 				}
 				return rawErr, finalize
 			}

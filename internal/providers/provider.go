@@ -760,8 +760,10 @@ const (
 )
 
 type PreparedRequest struct {
-	Body    []byte
-	Headers http.Header
+	// ResponseToolNames reverses wire aliases so clients receive executable names.
+	ResponseToolNames map[string]string
+	Body              []byte
+	Headers           http.Header
 	// Endpoint selects the upstream surface (zero value = chat/completions).
 	Endpoint Endpoint
 	// Stats records translation-time mutations applied to the body (populated
