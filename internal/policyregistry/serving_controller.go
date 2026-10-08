@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/subscriptions/entitlement"
 )
 
 // ServingStore is shared by admission, proposal validation and the single activation controller.
@@ -262,6 +263,7 @@ func (c *ServingController) validateProposal(ctx context.Context, proposal Propo
 	}
 	base, baseBinding := prepared.Candidate, prepared.Binding
 	base.Policy = prepared.PolicyReference
+	boostProfile, _ := entitlement.ServingProfileFor(entitlement.PlanBoost)
 	for key, lane := range set.Profiles {
 		profile, err := c.validateSelection(ctx, destinations, proposal.Target, key, lane.Selection)
 		if err != nil {
@@ -272,6 +274,10 @@ func (c *ServingController) validateProposal(ctx context.Context, proposal Propo
 		}
 		if profile.Binding.Router != baseBinding.Router || profile.Binding.Classifier != baseBinding.Classifier {
 			return errors.New("profile must reuse its lane's prepared worker and classifier revisions")
+		}
+		if key == boostProfile.Key && profile.PolicyReference != base.Policy {
+			c.logger.Warn("Rejected independent Boost roster", "target", proposal.Target, "selection_set_sha256", proposal.SelectionSet.SHA256, "default_policy_sha256", base.Policy.SHA256, "boost_policy_sha256", profile.PolicyReference.SHA256)
+			return errors.New("Boost must use the default roster")
 		}
 	}
 	source, err := lanes.candidate(ctx, proposal.SourceCandidate)
@@ -323,16 +329,30 @@ func (c *ServingController) validateProposal(ctx context.Context, proposal Propo
 		if !exists {
 			return errors.New("registered profile keys cannot be removed")
 		}
-		if proposal.Scope != ChangeProfile && !sameLaneProfile(lane.Profile, next.Profile) {
+		// Boost follows Default atomically; all other profiles keep their own pins.
+		linkedBoost := key == boostProfile.Key && (proposal.Scope == ChangeRoster || proposal.Scope == ChangeFull || proposal.Scope == ChangeCustom)
+		if !linkedBoost && proposal.Scope != ChangeProfile && !sameLaneProfile(lane.Profile, next.Profile) {
 			return errors.New("base promotion must retain destination profile revisions")
 		}
-		if proposal.Scope == ChangeProfile && key != proposal.ProfileKey || proposal.Scope == ChangeRoster {
+		if proposal.Scope == ChangeCustom && linkedBoost && !sameLaneProfileExceptPolicy(lane.Profile, next.Profile) {
+			return errors.New("custom promotion changes Boost profile outside its policy")
+		}
+		if proposal.Scope == ChangeProfile && key != proposal.ProfileKey || proposal.Scope == ChangeRoster && !linkedBoost {
 			same, err := lanes.sameLane(ctx, lane, next)
 			if err != nil {
 				return err
 			}
 			if !same {
 				return errors.New("proposal changes an out-of-scope customer tuple")
+			}
+		}
+		if proposal.Scope == ChangeRoster && linkedBoost {
+			same, err := lanes.sameLaneExceptPolicy(ctx, lane, next)
+			if err != nil {
+				return err
+			}
+			if !same {
+				return errors.New("roster-only promotion changes Boost outside its policy")
 			}
 		}
 	}
@@ -483,6 +503,13 @@ func sameLaneProfile(left, right *laneProfile) bool {
 	return left == nil || *left == *right
 }
 
+func sameLaneProfileExceptPolicy(left, right *laneProfile) bool {
+	if (left == nil) != (right == nil) {
+		return false
+	}
+	return left == nil || left.Key == right.Key && left.Requirements == right.Requirements
+}
+
 // sameLane holds when two lanes serve the same tuple. Candidates are compared by composition so a
 // v2 candidate folding a v1 release counts as the same tuple during the layout transition.
 func (r *laneReader) sameLane(ctx context.Context, left, right resolvedLane) (bool, error) {
@@ -500,6 +527,26 @@ func (r *laneReader) sameLane(ctx context.Context, left, right resolvedLane) (bo
 	if err != nil {
 		return false, err
 	}
+	return leftCandidate.Equal(rightCandidate), nil
+}
+
+// sameLaneExceptPolicy holds when two lanes differ only in their selected policy. Roster changes
+// may update Boost's policy pin with Default, while retaining its code, binding, profile
+// requirements, and deployment identity.
+func (r *laneReader) sameLaneExceptPolicy(ctx context.Context, left, right resolvedLane) (bool, error) {
+	if left.Binding != right.Binding || !sameLaneProfileExceptPolicy(left.Profile, right.Profile) {
+		return false, nil
+	}
+	leftCandidate, err := r.effectiveCandidate(ctx, left)
+	if err != nil {
+		return false, err
+	}
+	rightCandidate, err := r.effectiveCandidate(ctx, right)
+	if err != nil {
+		return false, err
+	}
+	leftCandidate.Policy = PolicyObject{}
+	rightCandidate.Policy = PolicyObject{}
 	return leftCandidate.Equal(rightCandidate), nil
 }
 
