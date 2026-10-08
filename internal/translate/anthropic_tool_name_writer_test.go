@@ -9,8 +9,58 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/translate"
 )
+
+type progressArmerRecorder struct {
+	*httptest.ResponseRecorder
+	outputMark     func()
+	reasoningMark  func()
+	outputArmed    bool
+	reasoningArmed bool
+}
+
+func (r *progressArmerRecorder) ArmOutputProgress(mark func()) bool {
+	r.outputMark = mark
+	return r.outputArmed
+}
+
+func (r *progressArmerRecorder) ArmReasoningProgress(mark func()) bool {
+	r.reasoningMark = mark
+	return r.reasoningArmed
+}
+
+var (
+	_ providers.OutputProgressArmer    = (*progressArmerRecorder)(nil)
+	_ providers.ReasoningProgressArmer = (*progressArmerRecorder)(nil)
+)
+
+func TestAnthropicToolNameWriterForwardsProgressArming(t *testing.T) {
+	inner := &progressArmerRecorder{
+		ResponseRecorder: httptest.NewRecorder(),
+		outputArmed:      true,
+		reasoningArmed:   true,
+	}
+	writer := translate.NewAnthropicToolNameWriter(inner, nil)
+	outputMark := func() {}
+	reasoningMark := func() {}
+
+	require.True(t, writer.ArmOutputProgress(outputMark))
+	require.NotNil(t, inner.outputMark)
+	inner.outputMark()
+	outputMark()
+	require.True(t, writer.ArmReasoningProgress(reasoningMark))
+	require.NotNil(t, inner.reasoningMark)
+	inner.reasoningMark()
+	reasoningMark()
+}
+
+func TestAnthropicToolNameWriterProgressArmingFallsBackWhenUnsupported(t *testing.T) {
+	writer := translate.NewAnthropicToolNameWriter(httptest.NewRecorder(), nil)
+	require.False(t, writer.ArmOutputProgress(func() {}))
+	require.False(t, writer.ArmReasoningProgress(func() {}))
+}
 
 func TestAnthropicToolNameRoundTrip(t *testing.T) {
 	name := strings.Repeat("x", 65)

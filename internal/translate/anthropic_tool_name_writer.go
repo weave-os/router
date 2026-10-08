@@ -7,7 +7,13 @@ import (
 	"net/http"
 
 	"github.com/tidwall/gjson"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/sse"
+)
+
+var (
+	_ providers.OutputProgressArmer    = (*AnthropicToolNameWriter)(nil)
+	_ providers.ReasoningProgressArmer = (*AnthropicToolNameWriter)(nil)
 )
 
 // AnthropicToolNameWriter restores wire aliases before protocol translation or
@@ -34,6 +40,24 @@ func (w *AnthropicToolNameWriter) WriteHeader(status int) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 	}
 	w.ChunkedWriter.WriteHeader(status)
+}
+
+// ArmOutputProgress forwards output-bearing progress to the wrapped writer.
+func (w *AnthropicToolNameWriter) ArmOutputProgress(mark func()) bool {
+	arm, ok := w.Inner.(providers.OutputProgressArmer)
+	if !ok {
+		return false
+	}
+	return arm.ArmOutputProgress(mark)
+}
+
+// ArmReasoningProgress forwards reasoning progress to the wrapped writer.
+func (w *AnthropicToolNameWriter) ArmReasoningProgress(mark func()) bool {
+	arm, ok := w.Inner.(providers.ReasoningProgressArmer)
+	if !ok {
+		return false
+	}
+	return arm.ArmReasoningProgress(mark)
 }
 
 func (w *AnthropicToolNameWriter) Write(chunk []byte) (int, error) {
