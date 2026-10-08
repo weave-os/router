@@ -853,7 +853,9 @@ func normalizeResponsesToolNamespace(namespace string) string {
 	return namespace
 }
 
-var responsesGeneratedToolAliasPattern = regexp.MustCompile(`_[0-9a-f]{10}$`)
+const responsesToolAliasHashBytes = 5
+
+var responsesGeneratedToolAliasPattern = regexp.MustCompile(fmt.Sprintf(`_[0-9a-f]{%d}$`, 2*responsesToolAliasHashBytes))
 
 func sanitizeResponsesToolAlias(name string) string {
 	var out strings.Builder
@@ -873,7 +875,7 @@ func sanitizeResponsesToolAlias(name string) string {
 	// Hash the original so names sharing a prefix or differing only in
 	// rewritten characters keep distinct, reversible aliases.
 	sum := sha256.Sum256([]byte(name))
-	suffix := fmt.Sprintf("_%x", sum[:5])
+	suffix := fmt.Sprintf("_%x", sum[:responsesToolAliasHashBytes])
 	if maxBase := responsesMaxToolAliasBytes - len(suffix); len(alias) > maxBase {
 		alias = alias[:maxBase]
 	}
@@ -882,7 +884,7 @@ func sanitizeResponsesToolAlias(name string) string {
 
 func responsesToolAliasWithHash(base string, identity responsesToolIdentity, attempt int) string {
 	sum := sha256.Sum256([]byte(identity.namespace + "\x00" + identity.name + "\x00" + strconv.FormatBool(identity.custom) + "\x00" + strconv.Itoa(attempt)))
-	suffix := fmt.Sprintf("__%x", sum[:5])
+	suffix := fmt.Sprintf("__%x", sum[:responsesToolAliasHashBytes])
 	maxBase := responsesMaxToolAliasBytes - len(suffix)
 	if len(base) > maxBase {
 		base = base[:maxBase]

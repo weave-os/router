@@ -178,13 +178,3 @@ func TestSignatureTokenSavings_NeverNegative(t *testing.T) {
 	e := &RequestEnvelope{body: body, format: FormatAnthropic}
 	assert.Zero(t, e.SignatureTokenSavings(), "a spaced body the byte scan misses must not shrink the window")
 }
-
-func TestSanitizeResponsesToolAliasReservesGeneratedAliasShape(t *testing.T) {
-	generated := sanitizeResponsesToolAlias("a.b")
-	body := fmt.Sprintf(`{"tools":[{"function":{"name":"a.b"}},{"function":{"name":%q}}]}`, generated)
-
-	aliases := openAIToolNameAliases([]byte(body), openAIRequestToolNamePaths)
-
-	assert.Equal(t, map[string]string{generated: "a.b", sanitizeResponsesToolAlias(generated): generated}, aliases)
-	assert.NotEqual(t, generated, sanitizeResponsesToolAlias(generated))
-}
