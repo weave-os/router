@@ -248,6 +248,18 @@ func TestAnthropicSameFormat_DefaultInjectionPreservesSourceBytes(t *testing.T) 
 	assert.Equal(t, original, body)
 }
 
+// Haiku 5.5 documents a 128K output ceiling; larger explicit budgets are
+// clamped rather than forwarded for Anthropic to reject.
+func TestAnthropicSameFormat_ExplicitMaxTokensClampsToHaiku55Ceiling(t *testing.T) {
+	body := []byte(`{"model":"claude-haiku-5-5","messages":[{"role":"user","content":"hi"}],"max_tokens":200000}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-haiku-5-5",
+		Capabilities: router.Lookup("claude-haiku-5-5"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+	assert.Equal(t, float64(128000), out["max_tokens"])
+}
+
 // Regression: an explicit max_tokens is clamped to modelMaxOutputTokens, whose
 // absent-key zero value falls back to the global 8192. Kimi K3 really accepts
 // 131072 output tokens, so without an entry a large request was silently

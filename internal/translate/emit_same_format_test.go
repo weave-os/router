@@ -905,6 +905,21 @@ func TestAnthropicSameFormat_DisabledThinkingKeptForExtendedModel(t *testing.T) 
 	assert.NotContains(t, out, "output_config")
 }
 
+// Haiku 5.5 is adaptive but not always-on; Anthropic accepts
+// thinking.type=disabled for it, so the cheap no-thinking path passes through.
+func TestAnthropicSameFormat_DisabledThinkingKeptForHaiku55(t *testing.T) {
+	body := []byte(`{"model":"claude-haiku-5-5","messages":[{"role":"user","content":"hi"}],"max_tokens":1024,"thinking":{"type":"disabled"}}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "claude-haiku-5-5",
+		Capabilities: router.Lookup("claude-haiku-5-5"),
+	}
+	out := parseAndEmit(t, body, "anthropic", opts)
+	thinking, _ := out["thinking"].(map[string]any)
+	require.NotNil(t, thinking, "disabled thinking must be preserved for Haiku 5.5")
+	assert.Equal(t, "disabled", thinking["type"])
+	assert.NotContains(t, out, "output_config")
+}
+
 // A non-thinking model has neither capability, so a disabled thinking block is
 // dropped entirely.
 func TestAnthropicSameFormat_DisabledThinkingStrippedForNonThinkingModel(t *testing.T) {
