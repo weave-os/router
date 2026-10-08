@@ -1102,6 +1102,19 @@ func sanitizeAnthropicToolNamesBytes(body []byte) ([]byte, error) {
 			return nil, fmt.Errorf("rewrite declared tool name: %w", err)
 		}
 	}
+	for index, block := range gjson.GetBytes(out, "system").Array() {
+		if !isAnthropicSystemOnlyContentBlock(block.Get("type").String()) {
+			continue
+		}
+		alias, ok := aliases[block.Get("tool.name").String()]
+		if !ok {
+			continue
+		}
+		out, err = sjson.SetBytes(out, fmt.Sprintf("system.%d.tool.name", index), alias)
+		if err != nil {
+			return nil, fmt.Errorf("rewrite system tool change name: %w", err)
+		}
+	}
 	if choice.Get("type").String() == "tool" {
 		if alias, ok := aliases[choiceName]; ok {
 			out, err = sjson.SetBytes(out, "tool_choice.name", alias)
@@ -1136,10 +1149,7 @@ func aliasedToolReferencePaths(toolResult gjson.Result, aliases map[string]strin
 
 func rewriteToolReferenceNames(raw string, paths []string, aliases map[string]string) (string, error) {
 	for _, path := range paths {
-		alias, ok := aliases[gjson.Get(raw, path).String()]
-		if !ok {
-			continue
-		}
+		alias := aliases[gjson.Get(raw, path).String()]
 		var err error
 		raw, err = sjson.Set(raw, path, alias)
 		if err != nil {

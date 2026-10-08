@@ -2233,6 +2233,10 @@ func TestSanitizeAnthropicToolNamesKeepsToolReferencesResolvable(t *testing.T) {
 			{"name": %q, "input_schema": {"type": "object"}, "defer_loading": true},
 			{"name": %q, "input_schema": {"type": "object"}, "defer_loading": true}
 		],
+		"system": [
+			{"type": "text", "text": "system prompt"},
+			{"type": "tool_addition", "tool": {"type": "tool_reference", "name": %q}}
+		],
 		"messages": [
 			{"role": "user", "content": "load the tools"},
 			{"role": "assistant", "content": [
@@ -2244,9 +2248,14 @@ func TestSanitizeAnthropicToolNamesKeepsToolReferencesResolvable(t *testing.T) {
 					{"type": "tool_reference", "tool_name": %q}
 				]},
 				{"type": "tool_addition", "tool": {"type": "tool_reference", "name": %q}}
+			]},
+			{"role": "assistant", "content": "loaded"},
+			{"role": "user", "content": [
+				{"type": "text", "text": "unload it"},
+				{"type": "tool_removal", "tool": {"type": "tool_reference", "name": %q}}
 			]}
 		]
-	}`, validLongName, invalidDeclaredName, validLongName, invalidDeclaredName, invalidDeclaredName))
+	}`, validLongName, invalidDeclaredName, invalidDeclaredName, validLongName, invalidDeclaredName, invalidDeclaredName, invalidDeclaredName))
 
 	env, err := translate.ParseAnthropic(body)
 	require.NoError(t, err)
@@ -2260,7 +2269,9 @@ func TestSanitizeAnthropicToolNamesKeepsToolReferencesResolvable(t *testing.T) {
 	require.Len(t, refs, 2)
 	assert.Equal(t, validLongName, refs[0].Get("tool_name").String())
 	assert.Equal(t, alias, refs[1].Get("tool_name").String())
+	assert.Equal(t, alias, gjson.GetBytes(prep.Body, `system.#(type=="tool_addition").tool.name`).String())
 	assert.Equal(t, alias, gjson.GetBytes(prep.Body, `messages.#.content.#(type=="tool_addition").tool.name|0`).String())
+	assert.Equal(t, alias, gjson.GetBytes(prep.Body, `messages.#.content.#(type=="tool_removal").tool.name|0`).String())
 	assert.NotContains(t, string(prep.Body), invalidDeclaredName)
 }
 
