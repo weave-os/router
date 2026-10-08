@@ -56,6 +56,9 @@ func TestResponsesWriterDeclaresTranslatedFunctionArgumentsPlaintext(t *testing.
 				assert.Empty(t, marker.Array())
 			}
 			assert.JSONEq(t, `{"message":"Inspect project tests"}`, calls[len(calls)-1].Get("arguments").Str)
+			if stream {
+				assert.JSONEq(t, `{"message":"Inspect project tests"}`, calls[1].Get("arguments").Str, "Codex executes output_item.done")
+			}
 		})
 	}
 }
