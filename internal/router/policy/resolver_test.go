@@ -14,6 +14,40 @@ import (
 
 func catalogRosterID(model catalog.Model) string { return model.ID }
 
+func TestManagedResolverMiMoV26FlashProviderOrder(t *testing.T) {
+	resolver := policy.NewResolver(
+		set(catalog.ModelMiMoV26Flash),
+		set(providers.ProviderMakora, providers.ProviderDeepInfra, providers.ProviderOpenRouter),
+		catalogRosterID,
+		policy.ManagedProviderPolicy(),
+	)
+	cases := []struct {
+		name       string
+		enabled    map[string]struct{}
+		provider   string
+		upstreamID string
+	}{
+		{"Makora primary", set(providers.ProviderMakora, providers.ProviderDeepInfra, providers.ProviderOpenRouter), providers.ProviderMakora, "XiaomiMiMo/MiMo-V2.6-Flash-RL"},
+		{"DeepInfra fallback", set(providers.ProviderDeepInfra, providers.ProviderOpenRouter), providers.ProviderDeepInfra, "XiaomiMiMo/MiMo-V2.6-Flash"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			resolved := resolver.Resolve(router.Request{EnabledProviders: tc.enabled})
+			require.Len(t, resolved.Candidates, 1)
+			require.Equal(t, catalog.ModelMiMoV26Flash, resolved.Candidates[0].CatalogID)
+			require.Equal(t, tc.provider, resolved.Candidates[0].Provider)
+			require.Equal(t, tc.upstreamID, resolved.Candidates[0].UpstreamID)
+		})
+	}
+	resolved := resolver.Resolve(router.Request{EnabledProviders: set(providers.ProviderOpenRouter)})
+	require.Empty(t, resolved.Candidates)
+	require.Contains(t, resolved.Diagnostics, policy.Diagnostic{
+		CatalogID: catalog.ModelMiMoV26Flash,
+		RosterID:  catalog.ModelMiMoV26Flash,
+		Reason:    policy.ExclusionProviderPolicy,
+	})
+}
+
 func TestManagedResolverUsesCurrentProvidersAndNeverOpenRouter(t *testing.T) {
 	resolver := policy.NewResolver(
 		set("deepseek/deepseek-v4-pro", "xiaomi/mimo-v2.5-pro"),
