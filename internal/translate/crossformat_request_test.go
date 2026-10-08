@@ -2194,8 +2194,8 @@ func TestSanitizeOverlongToolUseNames(t *testing.T) {
 
 func TestSanitizeAnthropicToolNamesUsesFieldSpecificLimits(t *testing.T) {
 	validHistoricalUnicodeName := strings.Repeat("界", 100)
-	invalidDeclaredName := strings.Repeat("a", 65)
-	collidingDeclaredName := "invalid_tool_11655326c708d70319be2610e8a57d9a5b959d3b"
+	invalidDeclaredName := strings.Repeat("a", 129)
+	collidingDeclaredName := "invalid_tool_d96debf1bdcbc896e6c134ea76e8141f40d78536"
 	body := []byte(fmt.Sprintf(`{
 		"model": "claude-opus-4-7",
 		"tools": [
@@ -2223,6 +2223,47 @@ func TestSanitizeAnthropicToolNamesUsesFieldSpecificLimits(t *testing.T) {
 	assert.Equal(t, declaredAlias, gjson.GetBytes(prep.Body, "messages.0.content.1.name").String())
 }
 
+func TestSanitizeAnthropicToolNamesKeepsToolReferencesResolvable(t *testing.T) {
+	validLongName := "mcp__claude_ai_Atlassian_Rovo_2__getJiraProjectIssueTypesMetadata"
+	invalidDeclaredName := strings.Repeat("a", 129)
+	body := []byte(fmt.Sprintf(`{
+		"model": "claude-sonnet-5-5",
+		"tools": [
+			{"name": "ToolSearch", "input_schema": {"type": "object"}},
+			{"name": %q, "input_schema": {"type": "object"}, "defer_loading": true},
+			{"name": %q, "input_schema": {"type": "object"}, "defer_loading": true}
+		],
+		"messages": [
+			{"role": "user", "content": "load the tools"},
+			{"role": "assistant", "content": [
+				{"type": "tool_use", "id": "toolu_search", "name": "ToolSearch", "input": {}}
+			]},
+			{"role": "user", "content": [
+				{"type": "tool_result", "tool_use_id": "toolu_search", "content": [
+					{"type": "tool_reference", "tool_name": %q},
+					{"type": "tool_reference", "tool_name": %q}
+				]},
+				{"type": "tool_addition", "tool": {"type": "tool_reference", "name": %q}}
+			]}
+		]
+	}`, validLongName, invalidDeclaredName, validLongName, invalidDeclaredName, invalidDeclaredName))
+
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-sonnet-5-5"})
+	require.NoError(t, err)
+
+	assert.Equal(t, validLongName, gjson.GetBytes(prep.Body, "tools.1.name").String())
+	alias := gjson.GetBytes(prep.Body, "tools.2.name").String()
+	assert.Regexp(t, `^invalid_tool_[a-f0-9]{40}$`, alias)
+	refs := gjson.GetBytes(prep.Body, `messages.2.content.#(type=="tool_result").content`).Array()
+	require.Len(t, refs, 2)
+	assert.Equal(t, validLongName, refs[0].Get("tool_name").String())
+	assert.Equal(t, alias, refs[1].Get("tool_name").String())
+	assert.Equal(t, alias, gjson.GetBytes(prep.Body, `messages.#.content.#(type=="tool_addition").tool.name|0`).String())
+	assert.NotContains(t, string(prep.Body), invalidDeclaredName)
+}
+
 func TestSanitizeAnthropicHistoricalToolNameCountsUnicodeCharacters(t *testing.T) {
 	overlongHistoricalName := strings.Repeat("界", 201)
 	body := []byte(fmt.Sprintf(`{
@@ -2241,8 +2282,8 @@ func TestSanitizeAnthropicHistoricalToolNameCountsUnicodeCharacters(t *testing.T
 }
 
 func TestSanitizeAnthropicToolNameAliasStableAcrossReplay(t *testing.T) {
-	invalidDeclaredName := strings.Repeat("a", 65)
-	collidingDeclaredName := "invalid_tool_11655326c708d70319be2610e8a57d9a5b959d3b"
+	invalidDeclaredName := strings.Repeat("a", 129)
+	collidingDeclaredName := "invalid_tool_d96debf1bdcbc896e6c134ea76e8141f40d78536"
 	initialBody := []byte(fmt.Sprintf(`{
 		"model": "claude-opus-4-7",
 		"tools": [
