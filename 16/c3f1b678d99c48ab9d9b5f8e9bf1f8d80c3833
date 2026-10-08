@@ -1,0 +1,23 @@
+db/migrations/0106_telemetry-session-browse-index.down.sql
+  s_8cda41880b7fad::t_6c3bff62a795c1 3
+  s_8cda41880b7fad::t_555bd6478bdeee 1-2,4-6
+db/migrations/0106_telemetry-session-browse-index.up.sql
+  s_8cda41880b7fad::t_555bd6478bdeee 1-23,40
+  s_8cda41880b7fad::t_6c3bff62a795c1 24-39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "16c3f1b678d99c48ab9d9b5f8e9bf1f8d80c3833",
+  "prompts": {},
+  "sessions": {
+    "s_8cda41880b7fad": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b5966f36-e713-4dc5-97ac-250877476589",
+        "model": "claude-opus-5"
+      },
+      "human_author": null
+    }
+  }
+}

@@ -1,0 +1,23 @@
+internal/auth/routing_policy.go
+  s_1dc0cf4eba8335::t_b8a076bc96c496 75-78,80
+  s_1dc0cf4eba8335::t_f33bff148ee568 79,88,92-99,103,110,116,131,137,148-149
+internal/auth/routing_policy_test.go
+  s_1dc0cf4eba8335::t_199b17f8d94845 6,116-131
+  s_1dc0cf4eba8335::t_dd5ad7fd04836c 132-133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c32901bd50511f79de02dd8dc434896547eff7f1",
+  "prompts": {},
+  "sessions": {
+    "s_1dc0cf4eba8335": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e407-4296-7123-8715-f61d2e240e62",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

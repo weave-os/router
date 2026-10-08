@@ -1,0 +1,22 @@
+internal/translate/emit_openai.go
+  s_324b4cb293e3aa::t_732d2ad2d0b69a 598-607
+  s_324b4cb293e3aa::t_4772970433a181 567-570
+internal/translate/crossformat_request_test.go
+  s_324b4cb293e3aa::t_ca1aedcc7c3d7e 924-1017
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "83cdc3b8a5f15d93357ee5304eb5ff4e919198a9",
+  "prompts": {},
+  "sessions": {
+    "s_324b4cb293e3aa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c66d667e-3ada-4c92-84bc-7fb684688b60",
+        "model": "qwen/qwen3.8-max"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

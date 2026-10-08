@@ -1,0 +1,34 @@
+sidecars/task-domain/batching.py
+  s_e81a08893a9ba2::t_4425c0b689c480 14,89-93,135,137-138,140,143-160
+sidecars/task-domain/tests/test_app.py
+  s_e81a08893a9ba2::t_b52752b59bcb4a 2,49-78,92,145,147,153,157,204,207,214,244-307
+  s_e81a08893a9ba2::t_ed5212834053e5 83,93,122,216
+  s_e81a08893a9ba2::t_5ef1625a8b8ee4 308-309
+sidecars/task-domain/tests/test_contract.py
+  s_e81a08893a9ba2::t_4425c0b689c480 3,8,44
+internal/router/taskdomain/contracts.go
+  s_e81a08893a9ba2::t_4425c0b689c480 28-29
+sidecars/task-domain/app.py
+  s_e81a08893a9ba2::t_4425c0b689c480 69,74-80,113,116-119,124-125
+internal/policyclient/task_domain_test.go
+  s_e81a08893a9ba2::t_4425c0b689c480 66,81,84-88
+  s_e81a08893a9ba2::t_3c2d82a86c36d1 89
+internal/policyclient/task_domain.go
+  s_e81a08893a9ba2::t_4425c0b689c480 64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "23cee65a2002b5907c701f4d98ef28827b8af7f1",
+  "prompts": {},
+  "sessions": {
+    "s_e81a08893a9ba2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9391cca-911c-46df-b82c-9f07d5d2219d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
