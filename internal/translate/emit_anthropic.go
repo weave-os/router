@@ -1054,29 +1054,15 @@ func sanitizeAnthropicToolNamesBytes(body []byte) ([]byte, map[string]string, er
 	out, err := rewriteMessageBlocks(
 		body,
 		func(block gjson.Result) bool {
-			switch block.Get("type").String() {
-			case "tool_use":
-				name := block.Get("name").String()
-				_, hasAlias := aliases[name]
-				return hasAlias || utf8.RuneCountInString(name) > maxAnthropicHistoricalToolNameChars
-			case "tool_result":
-				return len(aliases) > 0 && len(aliasedToolReferencePaths(block, aliases)) > 0
-			case string(anthropicSystemOnlyContentToolAddition), string(anthropicSystemOnlyContentToolRemoval):
-				_, hasAlias := aliases[block.Get("tool.name").String()]
-				return hasAlias
-			default:
+			if block.Get("type").String() != "tool_use" {
 				return false
 			}
+			name := block.Get("name").String()
+			_, hasAlias := aliases[name]
+			return hasAlias || utf8.RuneCountInString(name) > maxAnthropicHistoricalToolNameChars
 		},
 		func(raw string) (string, error) {
-			block := gjson.Parse(raw)
-			switch block.Get("type").String() {
-			case "tool_result":
-				return rewriteToolReferenceNames(raw, aliasedToolReferencePaths(block, aliases), aliases)
-			case string(anthropicSystemOnlyContentToolAddition), string(anthropicSystemOnlyContentToolRemoval):
-				return rewriteToolReferenceNames(raw, []string{"tool.name"}, aliases)
-			}
-			name := block.Get("name").String()
+			name := gjson.Get(raw, "name").String()
 			alias, ok := aliases[name]
 			if !ok {
 				alias = sanitizedAnthropicToolName(name)
@@ -1102,19 +1088,6 @@ func sanitizeAnthropicToolNamesBytes(body []byte) ([]byte, map[string]string, er
 			return nil, nil, fmt.Errorf("rewrite declared tool name: %w", err)
 		}
 	}
-	for index, block := range gjson.GetBytes(out, "system").Array() {
-		if !isAnthropicSystemOnlyContentBlock(block.Get("type").String()) {
-			continue
-		}
-		alias, ok := aliases[block.Get("tool.name").String()]
-		if !ok {
-			continue
-		}
-		out, err = sjson.SetBytes(out, fmt.Sprintf("system.%d.tool.name", index), alias)
-		if err != nil {
-			return nil, nil, fmt.Errorf("rewrite system tool change name: %w", err)
-		}
-	}
 	if choice.Get("type").String() == "tool" {
 		if alias, ok := aliases[choiceName]; ok {
 			out, err = sjson.SetBytes(out, "tool_choice.name", alias)
@@ -1132,39 +1105,6 @@ func sanitizeAnthropicToolNamesBytes(body []byte) ([]byte, map[string]string, er
 		clientNames[alias] = name
 	}
 	return out, clientNames, nil
-}
-
-// aliasedToolReferencePaths returns the tool_name paths of tool_reference
-// blocks inside a tool_result (ToolSearch output) that name an aliased tool.
-// Anthropic resolves each reference against the declared tools, so the
-// reference must carry the same alias as the declaration.
-func aliasedToolReferencePaths(toolResult gjson.Result, aliases map[string]string) []string {
-	content := toolResult.Get("content")
-	if !content.IsArray() {
-		return nil
-	}
-	var paths []string
-	for index, item := range content.Array() {
-		if item.Get("type").String() != "tool_reference" {
-			continue
-		}
-		if _, ok := aliases[item.Get("tool_name").String()]; ok {
-			paths = append(paths, fmt.Sprintf("content.%d.tool_name", index))
-		}
-	}
-	return paths
-}
-
-func rewriteToolReferenceNames(raw string, paths []string, aliases map[string]string) (string, error) {
-	for _, path := range paths {
-		alias := aliases[gjson.Get(raw, path).String()]
-		var err error
-		raw, err = sjson.Set(raw, path, alias)
-		if err != nil {
-			return "", fmt.Errorf("rewrite tool_reference name: %w", err)
-		}
-	}
-	return raw, nil
 }
 
 func sanitizedAnthropicToolName(name string) string {

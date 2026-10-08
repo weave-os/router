@@ -41,8 +41,13 @@ func collectAnthropicToolNameEdits(blocks gjson.Result, path string, aliases map
 	}
 	switch anthropicToolNameBlock(blocks.Get("type").String()) {
 	case anthropicToolNameReference:
-		if name, ok := aliases[blocks.Get("name").String()]; ok {
-			*edits = append(*edits, anthropicToolNameEdit{path: path + ".name", name: name})
+		// ToolSearch results carry tool_name; tool_addition/tool_removal carry name.
+		field := "name"
+		if blocks.Get("tool_name").Exists() {
+			field = "tool_name"
+		}
+		if name, ok := aliases[blocks.Get(field).String()]; ok {
+			*edits = append(*edits, anthropicToolNameEdit{path: path + "." + field, name: name})
 		}
 	case anthropicToolNameUse:
 		if restoreUses {
