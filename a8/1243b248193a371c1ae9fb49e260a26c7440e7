@@ -1,0 +1,19 @@
+.github/workflows/weave-checks.yml
+  s_f0e0d9ca379623::t_e7b2a7905f2ae1 15,18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a81243b248193a371c1ae9fb49e260a26c7440e7",
+  "prompts": {},
+  "sessions": {
+    "s_f0e0d9ca379623": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11c14-7bdd-7793-bdf4-59700bd23d06",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
