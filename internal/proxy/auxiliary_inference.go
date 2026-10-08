@@ -90,7 +90,7 @@ func (s *Service) billAuxiliaryInference(ctx context.Context, requestID, request
 	}
 	clientID := ClientIdentityFrom(ctx)
 	inputCost := catalog.EffectiveInputCost(usage.InputTokens, usage.CacheCreation, usage.CacheRead, pricing, usage.Provider, usageMods)
-	outputCost := catalog.EffectiveOutputCost(usage.InputTokens, usage.OutputTokens, pricing, usageMods)
+	outputCost := catalog.EffectiveOutputCost(catalog.PromptTokens(usage.InputTokens, usage.CacheCreation, usage.CacheRead, usage.Provider), usage.OutputTokens, pricing, usageMods)
 
 	s.fireTelemetry(InsertTelemetryParams{
 		InstallationID:   installationID.String(),
@@ -130,7 +130,7 @@ func (s *Service) recordEscalationJudgeInference(installationID, requestID strin
 	inputCost, outputCost := 0.0, 0.0
 	if pricing, found := catalog.PriceFor(job.Provider, job.Model); found {
 		inputCost = catalog.EffectiveInputCost(judgment.Usage.InputTokens, 0, judgment.Usage.CacheReadTokens, pricing, job.Provider, catalog.UsageModifiers{})
-		outputCost = catalog.EffectiveOutputCost(judgment.Usage.InputTokens, judgment.Usage.OutputTokens, pricing, catalog.UsageModifiers{})
+		outputCost = catalog.EffectiveOutputCost(catalog.PromptTokens(judgment.Usage.InputTokens, 0, judgment.Usage.CacheReadTokens, job.Provider), judgment.Usage.OutputTokens, pricing, catalog.UsageModifiers{})
 	}
 	if judgment.CostSource == llmescalation.CostSourceProviderReported {
 		inputCost, outputCost = judgment.CostUSD, 0

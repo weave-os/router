@@ -55,6 +55,7 @@ func TestFamilyAndVersion(t *testing.T) {
 		{"claude-opus-4-7", "claude-opus", [2]int{4, 7}, true},
 		{"claude-opus-4-8", "claude-opus", [2]int{4, 8}, true},
 		{"claude-haiku-4-5", "claude-haiku", [2]int{4, 5}, true},
+		{"claude-haiku-5-5", "claude-haiku", [2]int{5, 5}, true},
 		{"claude-fable-5", "claude-fable", [2]int{5, 0}, true},
 		{"gpt-4.1", "gpt", [2]int{4, 1}, true},
 		{"gpt-4.1-mini", "gpt-mini", [2]int{4, 1}, true},

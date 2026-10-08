@@ -5114,9 +5114,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		String("usage.inference_geo", string(extractor.InferenceGeo())).
 		Float64("cost.requested_input_usd", requestedInputCost).
 		Int64("cost.baseline_warm_prefill_tokens", int64(baselineWarmPrefill)).
-		Float64("cost.requested_output_usd", catalog.EffectiveOutputCost(in, out, reqPricing, usageMods)).
+		Float64("cost.requested_output_usd", catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, reqPricing, usageMods)).
 		Float64("cost.actual_input_usd", catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider, usageMods)).
-		Float64("cost.actual_output_usd", catalog.EffectiveOutputCost(in, out, actPricing, usageMods)).
+		Float64("cost.actual_output_usd", catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, actPricing, usageMods)).
 		Bool("cost.subscription_served", s.costNeutralSubscriptionServed(ctx)).
 		Bool("cost.fast_mode", fastServed).
 		Int64("latency.upstream_ms", proxyMs).
@@ -5203,9 +5203,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			InputTokens:              int32(in),
 			OutputTokens:             int32(out),
 			RequestedInputCostUSD:    requestedInputCost,
-			RequestedOutputCostUSD:   catalog.EffectiveOutputCost(in, out, reqPricing, usageMods),
+			RequestedOutputCostUSD:   catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, reqPricing, usageMods),
 			ActualInputCostUSD:       catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider, usageMods),
-			ActualOutputCostUSD:      catalog.EffectiveOutputCost(in, out, actPricing, usageMods),
+			ActualOutputCostUSD:      catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, actPricing, usageMods),
 			RouteLatencyMs:           routeMs,
 			UpstreamLatencyMs:        proxyMs,
 			TotalLatencyMs:           time.Since(requestStart).Milliseconds(),
@@ -5855,7 +5855,7 @@ func (s *Service) reportPolicyOutcome(ctx context.Context, res turnLoopResult, d
 	}
 	if price, ok := servedPricing(finalProvider, decision.Model, servedFast); ok {
 		inputCost := catalog.EffectiveInputCost(inputTokens, cacheCreation, cacheRead, price, finalProvider, usageMods)
-		outputCost := catalog.EffectiveOutputCost(inputTokens, outputTokens, price, usageMods)
+		outputCost := catalog.EffectiveOutputCost(catalog.PromptTokens(inputTokens, cacheCreation, cacheRead, finalProvider), outputTokens, price, usageMods)
 		payload["cost_usd"] = inputCost + outputCost
 	}
 	log := observability.FromContext(ctx).With("route_id", routeMetadata.RouteID)
@@ -8189,9 +8189,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		String("usage.inference_geo", string(extractor.InferenceGeo())).
 		Float64("cost.requested_input_usd", requestedInputCost).
 		Int64("cost.baseline_warm_prefill_tokens", int64(baselineWarmPrefill)).
-		Float64("cost.requested_output_usd", catalog.EffectiveOutputCost(in, out, reqPricing, usageMods)).
+		Float64("cost.requested_output_usd", catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, reqPricing, usageMods)).
 		Float64("cost.actual_input_usd", catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider, usageMods)).
-		Float64("cost.actual_output_usd", catalog.EffectiveOutputCost(in, out, actPricing, usageMods)).
+		Float64("cost.actual_output_usd", catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, actPricing, usageMods)).
 		Bool("cost.subscription_served", s.costNeutralSubscriptionServed(ctx)).
 		Bool("cost.fast_mode", fastServed).
 		Int64("latency.upstream_ms", proxyMs).
@@ -8310,9 +8310,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			InputTokens:              int32(in),
 			OutputTokens:             int32(out),
 			RequestedInputCostUSD:    requestedInputCost,
-			RequestedOutputCostUSD:   catalog.EffectiveOutputCost(in, out, reqPricing, usageMods),
+			RequestedOutputCostUSD:   catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, reqPricing, usageMods),
 			ActualInputCostUSD:       catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider, usageMods),
-			ActualOutputCostUSD:      catalog.EffectiveOutputCost(in, out, actPricing, usageMods),
+			ActualOutputCostUSD:      catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, actPricing, usageMods),
 			RouteLatencyMs:           routeMs,
 			UpstreamLatencyMs:        proxyMs,
 			TotalLatencyMs:           time.Since(requestStart).Milliseconds(),

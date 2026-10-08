@@ -1343,6 +1343,9 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 		case "disabled":
 			if opts.Capabilities.Supports(router.CapExtendedThinking) {
 				// Legacy extended-thinking models accept thinking.type=disabled.
+			} else if opts.Capabilities.Supports(router.CapAdaptiveThinking) &&
+				!opts.Capabilities.Reasoning().AlwaysOn {
+				// Adaptive models that are not always-on (claude-haiku-5-5) accept it too.
 			} else if opts.Capabilities.Supports(router.CapAdaptiveThinking) {
 				// Adaptive models are always-on and 400 on thinking.type=disabled
 				// (e.g. claude-fable-5); map the "no thinking" intent to the
@@ -1423,6 +1426,7 @@ func resolvePassthroughOverrides(body []byte) (EmitOverrides, bool) {
 
 var modelMaxOutputTokens = map[string]int{
 	catalog.ModelIDClaudeHaiku45.String(): 64000,
+	"claude-haiku-5-5":                    128000,
 	"gpt-4.1":                             32768, "gpt-4.1-mini": 32768, "gpt-4.1-nano": 32768,
 	"gpt-4o": 16384, "gpt-4o-mini": 16384,
 	"gpt-4-turbo": 4096, "gpt-4": 8192,
