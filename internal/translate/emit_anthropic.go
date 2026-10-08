@@ -1112,7 +1112,7 @@ func sanitizeAnthropicToolNamesBytes(body []byte) ([]byte, map[string]string, er
 		}
 		out, err = sjson.SetBytes(out, fmt.Sprintf("system.%d.tool.name", index), alias)
 		if err != nil {
-			return nil, fmt.Errorf("rewrite system tool change name: %w", err)
+			return nil, nil, fmt.Errorf("rewrite system tool change name: %w", err)
 		}
 	}
 	if choice.Get("type").String() == "tool" {

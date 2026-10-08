@@ -63,7 +63,7 @@ func TestAnthropicToolNameWriterProgressArmingFallsBackWhenUnsupported(t *testin
 }
 
 func TestAnthropicToolNameRoundTrip(t *testing.T) {
-	name := strings.Repeat("x", 65)
+	name := strings.Repeat("x", 129)
 	body := []byte(fmt.Sprintf(`{"model":"claude-sonnet-5-5","max_tokens":1024,"tools":[{"name":%q,"input_schema":{"type":"object"}}],"messages":[{"role":"user","content":"hello"}]}`, name))
 	env, err := translate.ParseAnthropic(body)
 	require.NoError(t, err)

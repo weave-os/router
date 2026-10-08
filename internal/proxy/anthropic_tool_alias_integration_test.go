@@ -16,8 +16,8 @@ import (
 )
 
 func TestProxyMessages_AnthropicToolAliasRoundTrip(t *testing.T) {
-	name := strings.Repeat("x", 65)
-	const alias = "invalid_tool_78c741ddc482e4cdf8c474a0876347a0905b6233"
+	name := strings.Repeat("x", 129)
+	const alias = "invalid_tool_2699b675922cc84a9b0dfd926eb7f8211c78693d"
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprint(stream), func(t *testing.T) {
 			upstream := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
