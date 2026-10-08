@@ -163,6 +163,9 @@ jobs:
             -database 'postgres://router:router@localhost:5432/router?sslmode=disable&search_path=router' \
             up
 
+      - name: Check task-domain legacy migration upgrade
+        run: bash scripts/task_domain_migration_test.sh
+
       # Detects schema/query drift: if migrations or queries change
       # without regenerating internal/sqlc/, this fails the build.
       - name: Check sqlc generation is up to date
