@@ -6081,7 +6081,7 @@ func (s *Service) requestUsesNonDeploymentCreds(ctx context.Context, headers htt
 }
 
 // enabledProvidersForRequest returns providers with resolvable credentials
-// for this request (deployment key, BYOK, or client-supplied header).
+// for this request (deployment key, BYOK, client header, or linked subscription).
 // surfaceProvider is the inbound wire-format's natural provider. A
 // client-supplied bearer header is treated as creds for that surface only —
 // never a licence to enable other OpenAI-compat upstreams sharing the same
@@ -6154,6 +6154,15 @@ func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvide
 				out[surfaceProvider] = struct{}{}
 			}
 		}
+	}
+	// Linked subscription pools provide credentials independently of the
+	// inbound harness's native bearer. Enroll their native provider lanes
+	// before applying installation exclusions and gateway exclusivity.
+	if managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude) && s.supportsSubscriptionTransport(providers.ProviderAnthropic) {
+		out[providers.ProviderAnthropic] = struct{}{}
+	}
+	if managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) && !codexChatEndpoint(ctx) && s.supportsSubscriptionTransport(providers.ProviderOpenAI) {
+		out[providers.ProviderOpenAI] = struct{}{}
 	}
 	// Provider exclusions trump every enrollment path above: an excluded
 	// provider must not be served even when credentials exist for it. The

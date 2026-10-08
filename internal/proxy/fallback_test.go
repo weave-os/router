@@ -19,6 +19,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/translate"
 )
 
 // fakeClient is a per-attempt scripted providers.Client; Proxy replays the
@@ -1182,3 +1183,36 @@ type fakeFlushTracker struct {
 }
 
 func (f *fakeFlushTracker) Flush() { f.onFlush() }
+
+func TestResolveBindingsForDispatch_LinkedSubscriptionWithoutAPIKey(t *testing.T) {
+	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: &fakeClient{}}), deploymentKeyedProviders: map[string]struct{}{}}
+	ctx := managedSubscriptionContext(auth.SubscriptionProviderCodex)
+	decision := router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-6.1-sol", Reason: translate.ReasonUserForceModel}
+	t.Run("linked Codex supplies the forced model binding", func(t *testing.T) {
+		bindings := svc.resolveBindingsForDispatch(ctx, decision)
+		require.Len(t, bindings, 1)
+		assert.Equal(t, providers.ProviderOpenAI, bindings[0].Provider)
+		assert.Empty(t, svc.deploymentKeyedProviders, "linked request must not change deployment credentials")
+	})
+	t.Run("provider exclusions still refuse the binding", func(t *testing.T) {
+		excluded := context.WithValue(ctx, InstallationExcludedProvidersContextKey{}, []string{providers.ProviderOpenAI})
+		assert.Empty(t, svc.resolveBindingsForDispatch(excluded, decision))
+	})
+	t.Run("API-only request cannot use linked binding", func(t *testing.T) {
+		paid := context.WithValue(ctx, subscriptionAPIOnlyKey{}, true)
+		assert.Empty(t, svc.resolveBindingsForDispatch(paid, decision))
+	})
+	t.Run("unsupported transport cannot use linked binding", func(t *testing.T) {
+		unsupported := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: nil}), deploymentKeyedProviders: map[string]struct{}{}}
+		assert.Empty(t, unsupported.resolveBindingsForDispatch(ctx, decision))
+	})
+}
+
+func TestResolveBindingsForDispatch_LinkedSubscriptionPreservesFundedBindings(t *testing.T) {
+	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &fakeClient{}}), deploymentKeyedProviders: map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderAnthropicGateway: {}}}
+	decision := router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-5"}
+	before := svc.resolveBindingsForDispatch(context.Background(), decision)
+	require.Len(t, before, 2)
+	linked := svc.resolveBindingsForDispatch(managedSubscriptionContext(auth.SubscriptionProviderClaude), decision)
+	assert.Equal(t, before, linked, "linked enrollment must preserve the existing deployment-funded binding walk")
+}

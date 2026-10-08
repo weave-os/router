@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -361,4 +362,47 @@ func TestEnabledProvidersForRequest_VendorByokKeyDoesNotDisplaceVendors(t *testi
 
 	assert.Contains(t, got, providers.ProviderOpenAI,
 		"a vendor BYOK key is not a gateway and must not narrow the eligible set")
+}
+
+// Linked accounts must be eligible across harness surfaces without an API key.
+func TestEnabledProvidersForRequest_LinkedSubscriptions(t *testing.T) {
+	s := &Service{clients: dispatch.NewClients(map[string]providers.Client{
+		providers.ProviderAnthropic: &fakeClient{}, providers.ProviderOpenAI: &fakeClient{},
+	}), deploymentKeyedProviders: map[string]struct{}{}, byokOnly: true}
+	ctx := context.WithValue(routerKeyedCtx(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{
+		auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {},
+	})
+	t.Run("Claude harness can route to linked Codex", func(t *testing.T) {
+		assert.Equal(t, map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}}, s.enabledProvidersForRequest(ctx, providers.ProviderAnthropic, http.Header{}))
+	})
+	t.Run("API-only funding does not enroll linked accounts", func(t *testing.T) {
+		paid := context.WithValue(ctx, subscriptionAPIOnlyKey{}, true)
+		assert.Empty(t, s.enabledProvidersForRequest(paid, providers.ProviderAnthropic, http.Header{}))
+	})
+	t.Run("disabled subscriptions do not enroll linked accounts", func(t *testing.T) {
+		disabled := context.WithValue(ctx, InstallationSubscriptionRoutingDisabledContextKey{}, true)
+		assert.Empty(t, s.enabledProvidersForRequest(disabled, providers.ProviderAnthropic, http.Header{}))
+	})
+	t.Run("unsupported subscription transports stay unavailable", func(t *testing.T) {
+		unsupported := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: nil, providers.ProviderOpenAI: nil}), deploymentKeyedProviders: map[string]struct{}{}, byokOnly: true}
+		assert.Empty(t, unsupported.enabledProvidersForRequest(ctx, providers.ProviderAnthropic, http.Header{}))
+	})
+	t.Run("Max funding cannot enroll subscriptions", func(t *testing.T) {
+		maxCtx := entitlement.WithProductScope(ctx, entitlement.PlanMax)
+		assert.Empty(t, s.enabledProvidersForRequest(maxCtx, providers.ProviderAnthropic, http.Header{}))
+	})
+	t.Run("linked Codex excludes models outside subscription coverage", func(t *testing.T) {
+		enabled := s.enabledProvidersForRequest(ctx, providers.ProviderAnthropic, http.Header{})
+		excluded := s.excludeCodexOAuthOnlyModels(ctx, http.Header{}, enabled, nil)
+		assert.Contains(t, excluded, "gpt-5.4-mini")
+		assert.NotContains(t, excluded, "gpt-6.1-sol")
+	})
+	t.Run("provider exclusion still wins", func(t *testing.T) {
+		excluded := context.WithValue(ctx, InstallationExcludedProvidersContextKey{}, []string{providers.ProviderOpenAI})
+		assert.Equal(t, map[string]struct{}{providers.ProviderAnthropic: {}}, s.enabledProvidersForRequest(excluded, providers.ProviderAnthropic, http.Header{}))
+	})
+	t.Run("chat endpoint cannot serve linked Codex", func(t *testing.T) {
+		chat := context.WithValue(ctx, codexChatEndpointContextKey{}, true)
+		assert.NotContains(t, s.enabledProvidersForRequest(chat, providers.ProviderOpenAI, http.Header{}), providers.ProviderOpenAI)
+	})
 }

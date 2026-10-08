@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"strconv"
 	"sync"
@@ -375,6 +376,13 @@ func (s *Service) resolveBindingsForDispatch(ctx context.Context, decision route
 		// Legacy "all registered" mode — fall back to single-attempt to
 		// avoid retrying on providers whose keys aren't actually wired.
 		return []catalog.ProviderBinding{primary}
+	}
+	// A linked subscription makes the selected native binding available
+	// without a deployment API key. Extend only this request's binding set;
+	// lease/funding guards still control subscription exhaustion and fallback.
+	if managedSubscriptionCanServe(ctx, decision.Provider, decision.Model) && s.supportsSubscriptionTransport(decision.Provider) {
+		available = maps.Clone(available)
+		available[decision.Provider] = struct{}{}
 	}
 	// Exclusions must hold during failover too, or a fallback binding could
 	// resurrect a provider the scorer already filtered out.
