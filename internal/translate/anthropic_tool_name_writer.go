@@ -121,7 +121,9 @@ func restoreAnthropicResponseToolNames(body []byte, names map[string]string) ([]
 		return rewritten, err
 	}
 	var response any
-	if err := json.Unmarshal(rewritten, &response); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(rewritten))
+	decoder.UseNumber()
+	if err := decoder.Decode(&response); err != nil {
 		return nil, fmt.Errorf("decode Anthropic response after tool-name restoration: %w", err)
 	}
 	safeJSON, err := json.Marshal(response)

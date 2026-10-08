@@ -153,3 +153,15 @@ func TestAnthropicToolNameWriterJSONEscapesRestoredHTMLCharacters(t *testing.T) 
 	require.Equal(t, originalName, gjson.Get(sink.Body.String(), "content.0.name").String())
 	require.Equal(t, "nosniff", sink.Header().Get("X-Content-Type-Options"))
 }
+
+func TestAnthropicToolNameWriterPreservesLargeNumbers(t *testing.T) {
+	const response = `{"content":[{"type":"tool_use","name":"wire_alias","input":{"large":9007199254740993}}]}`
+	sink := httptest.NewRecorder()
+	writer := translate.NewAnthropicToolNameWriter(sink, map[string]string{"wire_alias": "client_name"})
+	writer.Header().Set("Content-Type", "application/json")
+	writer.WriteHeader(http.StatusOK)
+	_, err := writer.Write([]byte(response))
+	require.NoError(t, err)
+	require.NoError(t, writer.Finalize())
+	require.Equal(t, int64(9007199254740993), gjson.Get(sink.Body.String(), "content.0.input.large").Int())
+}
