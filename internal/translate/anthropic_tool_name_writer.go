@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -142,6 +143,12 @@ func restoreAnthropicResponseToolNames(body []byte, names map[string]string) ([]
 	decoder.UseNumber()
 	if err := decoder.Decode(&response); err != nil {
 		return nil, fmt.Errorf("decode Anthropic response after tool-name restoration: %w", err)
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("decode Anthropic response after tool-name restoration: trailing JSON value")
+		}
+		return nil, fmt.Errorf("decode Anthropic response after tool-name restoration: trailing data: %w", err)
 	}
 	safeJSON, err := json.Marshal(response)
 	if err != nil {

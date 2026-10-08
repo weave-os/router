@@ -165,3 +165,15 @@ func TestAnthropicToolNameWriterPreservesLargeNumbers(t *testing.T) {
 	require.NoError(t, writer.Finalize())
 	require.Equal(t, int64(9007199254740993), gjson.Get(sink.Body.String(), "content.0.input.large").Int())
 }
+
+func TestAnthropicToolNameWriterRejectsTrailingJSON(t *testing.T) {
+	response := `{"content":[{"type":"tool_use","name":"wire_alias","input":{}}]} {"unexpected":true}`
+	sink := httptest.NewRecorder()
+	writer := translate.NewAnthropicToolNameWriter(sink, map[string]string{"wire_alias": "client_name"})
+	writer.Header().Set("Content-Type", "application/json")
+	writer.WriteHeader(http.StatusOK)
+	_, err := writer.Write([]byte(response))
+	require.NoError(t, err)
+	err = writer.Finalize()
+	require.ErrorContains(t, err, "trailing JSON value")
+}
