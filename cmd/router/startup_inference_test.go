@@ -29,7 +29,7 @@ type startupInferenceClient struct {
 	calls               map[string]int
 	body                string
 	failure             error
-	wait                bool
+	waitForCancellation bool
 	receivedCredentials bool
 	credentials         *requestcontext.Credentials
 }
@@ -45,7 +45,7 @@ func (c *startupInferenceClient) Proxy(ctx context.Context, decision router.Deci
 		c.credentials = credentials
 	}
 	c.mu.Unlock()
-	if c.wait {
+	if c.waitForCancellation {
 		<-ctx.Done()
 		return ctx.Err()
 	}
@@ -164,7 +164,7 @@ func TestStartupRejectsUnroutableModelBeforeGeneration(t *testing.T) {
 
 func TestStartupGenerationHonorsWholeBootDeadline(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		client := &startupInferenceClient{wait: true}
+		client := &startupInferenceClient{waitForCancellation: true}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
 		err := warmStartupModels(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)), dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: client}), map[string]struct{}{catalog.ModelIDGPT55.String(): {}}, map[string]struct{}{providers.ProviderOpenAI: {}})

@@ -16,7 +16,6 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -87,8 +86,7 @@ func main() {
 	defer stopProcess()
 	startupCtx, cancelStartup := context.WithTimeout(processCtx, startupTimeout)
 	defer cancelStartup()
-	var startupReady atomic.Bool
-	essentialTaskErrors := make(chan error, 1)
+	startup := startupState{taskErrors: make(chan error, 1)}
 	egressProbe, err := newStartupEgressProbe(config.GetOr("ROUTER_STARTUP_EGRESS_ORIGINS", ""))
 	if err != nil {
 		logger.Error("Invalid startup egress configuration; refusing to boot", "err", err)
@@ -1155,7 +1153,7 @@ func main() {
 		defer cancelManagers()
 		safeGo(logger, "stable-policy-manager", func() {
 			if err := runEssentialTask(managerCtx, func() { stableManager.Run(managerCtx) }); err != nil {
-				essentialTaskErrors <- fmt.Errorf("stable policy manager: %w", err)
+				startup.reportTaskFailure(fmt.Errorf("stable policy manager: %w", err))
 			}
 		})
 
@@ -1607,7 +1605,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	err = completeStartup(startupCtx, readinessChecker, capacity, essentialTaskErrors, &startupReady)
+	err = startup.complete(startupCtx, readinessChecker, capacity)
 	if err != nil {
 		logger.Error("Startup completion failed; refusing to boot", "err", err)
 		panic(err)
@@ -1617,7 +1615,7 @@ func main() {
 	logger.Info("Router startup initialization complete")
 	serverFeatures := server.Features{
 		TestPlans:           testPlans,
-		Startup:             startupReady.Load,
+		Startup:             startup.ready.Load,
 		Capacity:            capacity,
 		PolicyPinEnabled:    policyPinEnabled,
 		ServingAdmission:    servingAdmission,
@@ -1666,7 +1664,7 @@ func main() {
 		defer apmFailCancel()
 		apm.ShutdownWithContext(apmFailCtx)
 		return
-	case err := <-essentialTaskErrors:
+	case err := <-startup.taskErrors:
 		logger.Error("Essential serving task stopped; restarting instance", "err", err)
 	case <-processCtx.Done():
 		logger.Info("Received shutdown signal; draining")

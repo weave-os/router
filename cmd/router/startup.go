@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -16,7 +17,19 @@ import (
 
 const startupTimeout = 170 * time.Second
 
-func completeStartup(ctx context.Context, checker readinessChecker, capacity *health.Capacity, essentialTaskErrors <-chan error, ready *atomic.Bool) error {
+type startupState struct {
+	completionMu sync.Mutex
+	ready        atomic.Bool
+	taskErrors   chan error
+}
+
+func (s *startupState) reportTaskFailure(err error) {
+	s.completionMu.Lock()
+	defer s.completionMu.Unlock()
+	s.taskErrors <- err
+}
+
+func (s *startupState) complete(ctx context.Context, checker readinessChecker, capacity *health.Capacity) error {
 	checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	err := checker.CheckHealth(checkCtx)
@@ -30,15 +43,18 @@ func completeStartup(ctx context.Context, checker readinessChecker, capacity *he
 	if !capacity.Snapshot().Ready {
 		return fmt.Errorf("worker has no capacity after initialization")
 	}
+	// Failure publication and the readiness latch must commit in one order.
+	s.completionMu.Lock()
+	defer s.completionMu.Unlock()
 	select {
-	case err := <-essentialTaskErrors:
+	case err := <-s.taskErrors:
 		return err
 	default:
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	ready.Store(true)
+	s.ready.Store(true)
 	return nil
 }
 

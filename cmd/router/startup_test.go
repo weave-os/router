@@ -8,7 +8,6 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
-	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -86,7 +85,7 @@ func TestEssentialTaskDeathRequiresRestartButCancellationDoesNot(t *testing.T) {
 
 func TestStartupCompletionWaitsForFinalReadinessAndProbesStayLatched(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		var ready atomic.Bool
+		startup := startupState{taskErrors: make(chan error, 1)}
 		capacity, err := health.NewCapacity(health.Limits{})
 		require.NoError(t, err)
 		checked := make(chan struct{})
@@ -99,7 +98,7 @@ func TestStartupCompletionWaitsForFinalReadinessAndProbesStayLatched(t *testing.
 			return nil
 		}), nil, strategySet{router.StrategyCluster: true}, router.StrategyCluster)
 		engine := gin.New()
-		engine.GET("/startupz", admin.StartupHandler(ready.Load))
+		engine.GET("/startupz", admin.StartupHandler(startup.ready.Load))
 		probe := func() int {
 			response := httptest.NewRecorder()
 			engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/startupz", nil))
@@ -107,7 +106,7 @@ func TestStartupCompletionWaitsForFinalReadinessAndProbesStayLatched(t *testing.
 		}
 		completed := make(chan error, 1)
 		go func() {
-			completed <- completeStartup(context.Background(), checker, capacity, nil, &ready)
+			completed <- startup.complete(context.Background(), checker, capacity)
 		}()
 		<-checked
 		require.Equal(t, http.StatusServiceUnavailable, probe())
@@ -122,13 +121,12 @@ func TestStartupCompletionWaitsForFinalReadinessAndProbesStayLatched(t *testing.
 func TestStartupCompletionRejectsUnhealthyInstance(t *testing.T) {
 	for _, failure := range []string{"database", "classifier", "strategy", "capacity", "essential task", "canceled boot"} {
 		t.Run(failure, func(t *testing.T) {
-			var ready atomic.Bool
+			startup := startupState{taskErrors: make(chan error, 1)}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			capacity, err := health.NewCapacity(health.Limits{MaxRequests: 1})
 			require.NoError(t, err)
 			checker := newReadinessChecker(databasePingerFunc(healthyDatabase), nil, strategySet{router.StrategyCluster: true}, router.StrategyCluster)
-			taskErrors := make(chan error, 1)
 			switch failure {
 			case "database":
 				checker.database = databasePingerFunc(func(context.Context) error { return errors.New("database lost during warmup") })
@@ -140,12 +138,12 @@ func TestStartupCompletionRejectsUnhealthyInstance(t *testing.T) {
 				permit := capacity.TryAcquire()
 				defer permit.Release()
 			case "essential task":
-				taskErrors <- errors.New("policy manager stopped")
+				startup.reportTaskFailure(errors.New("policy manager stopped"))
 			case "canceled boot":
 				cancel()
 			}
-			require.Error(t, completeStartup(ctx, checker, capacity, taskErrors, &ready))
-			require.False(t, ready.Load())
+			require.Error(t, startup.complete(ctx, checker, capacity))
+			require.False(t, startup.ready.Load())
 		})
 	}
 }
@@ -154,7 +152,7 @@ func TestFinalStartupReadinessRespectsProbeAndRemainingBootBudgets(t *testing.T)
 	for _, remaining := range []time.Duration{time.Second, startupTimeout} {
 		t.Run(remaining.String(), func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				var ready atomic.Bool
+				startup := startupState{taskErrors: make(chan error, 1)}
 				capacity, err := health.NewCapacity(health.Limits{})
 				require.NoError(t, err)
 				checker := newReadinessChecker(databasePingerFunc(func(ctx context.Context) error {
@@ -164,9 +162,9 @@ func TestFinalStartupReadinessRespectsProbeAndRemainingBootBudgets(t *testing.T)
 				ctx, cancel := context.WithTimeout(context.Background(), remaining)
 				defer cancel()
 				started := time.Now()
-				require.ErrorIs(t, completeStartup(ctx, checker, capacity, nil, &ready), context.DeadlineExceeded)
+				require.ErrorIs(t, startup.complete(ctx, checker, capacity), context.DeadlineExceeded)
 				require.Equal(t, min(remaining, 3*time.Second), time.Since(started))
-				require.False(t, ready.Load())
+				require.False(t, startup.ready.Load())
 			})
 		})
 	}
