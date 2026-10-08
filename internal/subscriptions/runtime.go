@@ -401,8 +401,8 @@ func (r *Runtime) handleRefreshError(ctx context.Context, owner auth.Subscriptio
 		if holder.tookOver {
 			// The previous holder may have spent this refresh token before its
 			// lease expired, so the rejection is not proof the account is dead.
-			// Fail closed: release so the next attempt acquires cleanly and, if
-			// the token is truly revoked, disables with certainty.
+			// Release so the next attempt acquires cleanly and can classify
+			// a rejection of the current credentials.
 			log.Warn("Subscription credential refresh rejected on a taken-over lease; not disabling", "err", refreshErr)
 			return Account{}, r.releaseRefreshLease(ctx, owner, account.ID, leaseID, errRefreshLeaseLost)
 		}
@@ -469,8 +469,10 @@ func (r *Runtime) recordRefreshFailure(ctx context.Context, owner auth.Subscript
 	if errors.Is(refreshErr, context.Canceled) || errors.Is(refreshErr, context.DeadlineExceeded) {
 		return refreshErr
 	}
-	var terminal interface{ Terminal() bool }
-	if errors.As(refreshErr, &terminal) && terminal.Terminal() {
+	var terminal terminalRefreshError
+	var oauthErr *OAuthRefreshError
+	credentialRejected := errors.As(refreshErr, &oauthErr) && oauthErr.Terminal()
+	if errors.As(refreshErr, &terminal) && terminal.Terminal() && !credentialRejected {
 		if err := r.store.DisableSubscriptionAccountIfRefreshHolder(ctx, owner, accountID, leaseID, expectedVersion); err != nil {
 			if errors.Is(err, auth.ErrSubscriptionRefreshConflict) {
 				return errRefreshLeaseLost
@@ -481,7 +483,11 @@ func (r *Runtime) recordRefreshFailure(ctx context.Context, owner auth.Subscript
 		}
 		return refreshErr
 	}
-	cooldownUntil := r.clock().Add(time.Minute)
+	cooldownDuration := time.Minute
+	if credentialRejected {
+		cooldownDuration = CredentialRejectionCooldown
+	}
+	cooldownUntil := r.clock().Add(cooldownDuration)
 	if err := r.store.CooldownSubscriptionAccountIfRefreshHolder(ctx, owner, accountID, leaseID, expectedVersion, cooldownUntil); err != nil {
 		if errors.Is(err, auth.ErrSubscriptionRefreshConflict) {
 			return errRefreshLeaseLost

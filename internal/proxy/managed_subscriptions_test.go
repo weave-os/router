@@ -23,13 +23,14 @@ import (
 )
 
 type scriptedSubscriptionLeaser struct {
-	leases      []subscriptions.Lease
-	next        int
-	repeatLast  bool
-	providers   []subscriptions.Provider
-	owners      []auth.SubscriptionOwner
-	cooldownIDs []string
-	disabledIDs []string
+	leases        []subscriptions.Lease
+	next          int
+	repeatLast    bool
+	providers     []subscriptions.Provider
+	owners        []auth.SubscriptionOwner
+	cooldownIDs   []string
+	cooldownUntil map[string]time.Time
+	disabledIDs   []string
 }
 
 type healthSubscriptionLeaser struct {
@@ -56,7 +57,11 @@ func (s *scriptedSubscriptionLeaser) Lease(_ context.Context, owner auth.Subscri
 	return lease, true, nil
 }
 
-func (s *scriptedSubscriptionLeaser) Cooldown(_ context.Context, _ auth.SubscriptionOwner, _ subscriptions.Provider, accountID string, _ time.Time) error {
+func (s *scriptedSubscriptionLeaser) Cooldown(_ context.Context, _ auth.SubscriptionOwner, _ subscriptions.Provider, accountID string, resetAt time.Time) error {
+	if s.cooldownUntil == nil {
+		s.cooldownUntil = make(map[string]time.Time)
+	}
+	s.cooldownUntil[accountID] = resetAt
 	s.cooldownIDs = append(s.cooldownIDs, accountID)
 	return nil
 }
@@ -564,34 +569,51 @@ func TestDispatchWithFallbackBoundsManagedAccountRotationByTime(t *testing.T) {
 	require.Equal(t, 1, leaser.next)
 }
 
-func TestDispatchWithFallbackDisablesRejectedManagedAccountBeforeRotation(t *testing.T) {
-	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{
-		{AccountID: "opaque-a", AccessToken: "token-a"},
-		{AccountID: "opaque-b", AccessToken: "token-b"},
-	}}
-	client := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{
-		{err: &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized}},
-		{writeBytes: []byte("served")},
-	}}
-	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: client}).WithManagedSubscriptions(leaser)
-	recorder := httptest.NewRecorder()
-	buffer := newPreludeBuffer(recorder)
-	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+func TestDispatchWithFallbackCoolsRejectedManagedAccountBeforeRotation(t *testing.T) {
+	for _, family := range []struct {
+		upstream     string
+		subscription auth.SubscriptionProvider
+		model        string
+	}{
+		{providers.ProviderAnthropic, auth.SubscriptionProviderClaude, "claude-opus-4-8"},
+		{providers.ProviderOpenAI, auth.SubscriptionProviderCodex, "gpt-5.6-sol"},
+	} {
+		for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
+			t.Run(family.upstream+"/"+http.StatusText(status), func(t *testing.T) {
+				leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{
+					{AccountID: "opaque-a", AccessToken: "token-a"},
+					{AccountID: "opaque-b", AccessToken: "token-b"},
+				}}
+				client := &fakeClient{name: family.upstream, outcomes: []fakeOutcome{
+					{err: &providers.UpstreamErrorResponse{Status: status}},
+					{writeBytes: []byte("served")},
+				}}
+				svc := newServiceWithProviders(t, map[string]providers.Client{family.upstream: client}).WithManagedSubscriptions(leaser)
+				startedAt := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+				svc.now = func() time.Time { return startedAt }
+				recorder := httptest.NewRecorder()
+				buffer := newPreludeBuffer(recorder)
+				request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 
-	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), failoverInputs{
-		w: recorder, buf: buffer,
-		initialDecision: router.Decision{Model: "claude-opus-4-8", Provider: providers.ProviderAnthropic},
-		purpose:         inference.PurposeAnthropicMessages,
-		bindings:        []catalog.ProviderBinding{{Provider: providers.ProviderAnthropic}},
-		attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
-			buffer.Seal()
-			return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, request)
-		},
-	})
+				_, err := svc.dispatchWithFallback(managedSubscriptionContext(family.subscription), failoverInputs{
+					w: recorder, buf: buffer,
+					initialDecision: router.Decision{Model: family.model, Provider: family.upstream},
+					purpose:         inference.PurposeAnthropicMessages,
+					bindings:        []catalog.ProviderBinding{{Provider: family.upstream}},
+					attempt: func(ctx context.Context, decision router.Decision, client providers.Client) error {
+						buffer.Seal()
+						return client.Proxy(ctx, decision, providers.PreparedRequest{}, buffer, request)
+					},
+				})
 
-	require.NoError(t, err)
-	require.Equal(t, []string{"opaque-a"}, leaser.disabledIDs)
-	require.Equal(t, "served", recorder.Body.String())
+				require.NoError(t, err)
+				require.Empty(t, leaser.disabledIDs)
+				require.Equal(t, []string{"opaque-a"}, leaser.cooldownIDs)
+				require.Equal(t, startedAt.Add(5*time.Minute), leaser.cooldownUntil["opaque-a"])
+				require.Equal(t, "served", recorder.Body.String())
+			})
+		}
+	}
 }
 
 func TestDispatchWithFallbackDoesNotReplayCommittedManagedStream(t *testing.T) {

@@ -17,6 +17,10 @@ import (
 type Provider string
 
 const (
+	// CredentialRejectionCooldown bounds provider credential failures so linked
+	// accounts are retried without requiring a new enrollment.
+	CredentialRejectionCooldown = 5 * time.Minute
+
 	// ProviderClaude is an Anthropic/Claude subscription.
 	ProviderClaude Provider = "claude"
 	// ProviderCodex is an OpenAI/Codex subscription.
@@ -394,8 +398,11 @@ func (p *Pool) refreshAccount(ctx context.Context, account Account, refresh Refr
 		}()
 		// Classify here so a failure is recorded even when every waiter left.
 		var terminal terminalRefreshError
+		var oauthErr *OAuthRefreshError
 		switch {
 		case err == nil, errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		case errors.As(err, &oauthErr) && oauthErr.Terminal():
+			p.Cooldown(account.ID, p.clock().Add(CredentialRejectionCooldown))
 		case errors.As(err, &terminal) && terminal.Terminal():
 			p.ReconnectRequired(account.ID)
 		default:
