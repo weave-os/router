@@ -73,10 +73,11 @@ func TestOpenAIToolNameWriterRestoresClientNames(t *testing.T) {
 		contentType string
 		body        string
 	}{
-		"chat stream":      {"text/event-stream", fmt.Sprintf("data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"function\":{\"name\":%q,\"arguments\":\"\"}}]}}]}\n\ndata: [DONE]\n\n", alias)},
-		"chat json":        {"application/json", fmt.Sprintf(`{"choices":[{"index":0,"message":{"role":"assistant","tool_calls":[{"id":"c1","type":"function","function":{"name":%q,"arguments":"{}"}}]}}]}`, alias)},
-		"responses stream": {"text/event-stream", fmt.Sprintf("event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"name\":%[1]q}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"output\":[{\"type\":\"function_call\",\"name\":%[1]q}]}}\n\n", alias)},
-		"responses json":   {"application/json", fmt.Sprintf(`{"output":[{"type":"function_call","call_id":"c1","name":%q,"arguments":"{}"}]}`, alias)},
+		"chat stream":                            {"text/event-stream", fmt.Sprintf("data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"function\":{\"name\":%q,\"arguments\":\"\"}}]}}]}\n\ndata: [DONE]\n\n", alias)},
+		"chat stream without trailing separator": {"text/event-stream", fmt.Sprintf("data: {\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"c1\",\"function\":{\"name\":%q,\"arguments\":\"\"}}]}}]}", alias)},
+		"chat json":                              {"application/json", fmt.Sprintf(`{"choices":[{"index":0,"message":{"role":"assistant","tool_calls":[{"id":"c1","type":"function","function":{"name":%q,"arguments":"{}"}}]}}]}`, alias)},
+		"responses stream":                       {"text/event-stream", fmt.Sprintf("event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"item\":{\"type\":\"function_call\",\"name\":%[1]q}}\n\nevent: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"output\":[{\"type\":\"function_call\",\"name\":%[1]q}]}}\n\n", alias)},
+		"responses json":                         {"application/json", fmt.Sprintf(`{"output":[{"type":"function_call","call_id":"c1","name":%q,"arguments":"{}"}]}`, alias)},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

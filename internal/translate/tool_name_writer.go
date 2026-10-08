@@ -136,7 +136,17 @@ func (w *ToolNameWriter) Finalize() error {
 		return nil
 	}
 	body := w.pending.Bytes()
-	if !w.streaming {
+	if w.streaming {
+		// A stream may end without the blank line that terminates its last record.
+		_, payload := sse.ParseEvent(body)
+		rewritten, err := w.restore(payload, w.names)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(payload, rewritten) {
+			body = bytes.Replace(body, payload, rewritten, 1)
+		}
+	} else {
 		var err error
 		body, err = w.restore(body, w.names)
 		if err != nil {
