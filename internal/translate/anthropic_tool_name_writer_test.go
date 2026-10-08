@@ -130,11 +130,7 @@ func TestAnthropicToolNameWriterPreservesUnchangedResponses(t *testing.T) {
 			require.NoError(t, writer.Finalize())
 			require.Equal(t, body, sink.Body.String())
 			require.Equal(t, status, sink.Code)
-			if status < 400 && len(names) > 0 {
-				require.Equal(t, "nosniff", sink.Header().Get("X-Content-Type-Options"))
-			} else {
-				require.Empty(t, sink.Header().Get("X-Content-Type-Options"))
-			}
+			require.Equal(t, "nosniff", sink.Header().Get("X-Content-Type-Options"))
 		}
 	}
 }
