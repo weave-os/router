@@ -1280,6 +1280,7 @@ write_pi_models_config() {
         { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5 (via Weave Router)", reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 128000 },
         { id: "claude-opus-4-7",   name: "Claude Opus 4.7 (via Weave Router)",   reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 64000 },
         { id: "claude-sonnet-4-6", name: "Claude Sonnet 4.6 (via Weave Router)", reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 64000 },
+        { id: "claude-haiku-5-5",  name: "Claude Haiku 5.5 (via Weave Router)",  reasoning: true, input: ["text","image"], contextWindow: 1000000, maxTokens: 128000 },
         { id: "claude-haiku-4-5",  name: "Claude Haiku 4.5 (via Weave Router)",  reasoning: true, input: ["text","image"], contextWindow: 200000, maxTokens: 32000 },
         { id: "gpt-6-astra",       name: "GPT-6 Astra (via Weave Router)",       reasoning: true, input: ["text","image"], contextWindow: 1050000, maxTokens: 128000 },
         { id: "gpt-6-sol",         name: "GPT-6 Sol (via Weave Router)",         reasoning: true, input: ["text","image"], contextWindow: 1050000, maxTokens: 128000 },
@@ -2667,7 +2668,7 @@ prepare_claude_context_window() {
   model="${model:-sonnet}"
   case "$model" in
     *'[1m]') context_window=""; return 0 ;;
-    sonnet|opus|fable|claude-sonnet-4-6|claude-sonnet-5|claude-sonnet-5-5|claude-opus-4-6|claude-opus-4-7|claude-opus-4-8|claude-opus-5|claude-opus-5-5|claude-fable-5|claude-fable-5-1) ;;
+    sonnet|opus|fable|claude-sonnet-4-6|claude-sonnet-5|claude-sonnet-5-5|claude-haiku-5-5|claude-opus-4-6|claude-opus-4-7|claude-opus-4-8|claude-opus-5|claude-opus-5-5|claude-fable-5|claude-fable-5-1) ;;
     *) err "Cannot assert 1M support for '$model'. Select a supported Sonnet/Opus/Fable model first; leaving it unchanged."; return 1 ;;
   esac
   context_managed_model="${model}[1m]"
@@ -5902,6 +5903,7 @@ prices='{
     "claude-fable-5":                   0.01,
     "claude-fable-5-1":                 0.01,
     "claude-haiku-4-5":                 0.001,
+    "claude-haiku-5-5":                 0.0001,
     "claude-opus-4-0":                  0.015,
     "claude-opus-4-1":                  0.015,
     "claude-opus-4-5":                  0.005,
@@ -5993,6 +5995,7 @@ prices='{
     "claude-fable-5":                   0.05,
     "claude-fable-5-1":                 0.05,
     "claude-haiku-4-5":                 0.005,
+    "claude-haiku-5-5":                 0.0005,
     "claude-opus-4-0":                  0.075,
     "claude-opus-4-1":                  0.075,
     "claude-opus-4-5":                  0.025,
@@ -6084,6 +6087,7 @@ prices='{
     "claude-fable-5":                   0.1,
     "claude-fable-5-1":                 0.025,
     "claude-haiku-4-5":                 0.1,
+    "claude-haiku-5-5":                 0.1,
     "claude-opus-4-0":                  0.1,
     "claude-opus-4-1":                  0.1,
     "claude-opus-4-5":                  0.1,

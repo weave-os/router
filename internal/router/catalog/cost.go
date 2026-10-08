@@ -18,7 +18,7 @@ import (
 // Single source of truth for the proxy's OTel emitter, telemetry write
 // path, and the billing debit hook.
 func EffectiveInputCost(inputTokens, cacheCreation, cacheRead int, p Pricing, upstreamProvider string, usageModifiers UsageModifiers) float64 {
-	p = p.ForInputTokens(inputTokens)
+	p = p.ForInputTokens(PromptTokens(inputTokens, cacheCreation, cacheRead, upstreamProvider))
 	fresh := inputTokens
 	if providers.FamilyFor(upstreamProvider) != providers.FamilyAnthropic {
 		fresh = inputTokens - cacheCreation - cacheRead
@@ -46,11 +46,22 @@ func CounterfactualInputCost(inputTokens, cacheCreation, cacheRead, warmPrefill 
 	return EffectiveInputCost(inputTokens, remaining, cacheRead+warmPrefill, p, upstreamProvider, usageModifiers)
 }
 
+// PromptTokens returns the full prompt length that selects a LongContext
+// tier. Anthropic-family input_tokens counts only uncached tokens, so the
+// cache writes and reads are added back; other families already include them.
+func PromptTokens(inputTokens, cacheCreation, cacheRead int, upstreamProvider string) int {
+	if providers.FamilyFor(upstreamProvider) != providers.FamilyAnthropic {
+		return inputTokens
+	}
+	return inputTokens + max(cacheCreation, 0) + max(cacheRead, 0)
+}
+
 // EffectiveOutputCost returns USD output cost for a call. Output tokens
 // have no caching multipliers — tokens × per-1M price, scaled by the US
-// inference-geography multiplier when it applies.
-func EffectiveOutputCost(inputTokens, outputTokens int, p Pricing, usageModifiers UsageModifiers) float64 {
-	p = p.ForInputTokens(inputTokens)
+// inference-geography multiplier when it applies. promptTokens is the full
+// prompt length (see PromptTokens) and only selects the LongContext tier.
+func EffectiveOutputCost(promptTokens, outputTokens int, p Pricing, usageModifiers UsageModifiers) float64 {
+	p = p.ForInputTokens(promptTokens)
 	return float64(outputTokens) / 1_000_000 * p.OutputUSDPer1M * p.inferenceGeoMultiplier(usageModifiers.InferenceGeo)
 }
 

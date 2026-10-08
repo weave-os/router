@@ -192,6 +192,16 @@ var registry = map[string]ModelSpec{
 	"claude-opus-4-1":  anthropicExtended,
 	"claude-opus-4-0":  anthropicExtended,
 
+	// Haiku 5.5 is adaptive-only but, unlike Sonnet/Opus 5.5, accepts
+	// thinking.type=disabled and forced tool_choice.
+	"claude-haiku-5-5": NewSpecWithReasoning(
+		ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}},
+		CapAdaptiveThinking,
+		CapExtendedContext,
+		CapXhighEffort,
+		CapServerSideFallback,
+	),
+
 	"claude-sonnet-4-5": NewSpec(),
 	"claude-sonnet-4-0": NewSpec(),
 
