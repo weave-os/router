@@ -48,7 +48,7 @@ func (w *AnthropicToolNameWriter) WriteHeader(status int) {
 	w.status = status
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.streaming = strings.Contains(w.inner.Header().Get("Content-Type"), "text/event-stream") && status < 400
-	if w.streaming || isJSONMediaType(w.inner.Header().Get("Content-Type")) {
+	if (len(w.names) > 0 && status < 400) || w.streaming || isJSONMediaType(w.inner.Header().Get("Content-Type")) {
 		w.Header().Del("Content-Length")
 	}
 	w.headersEmitted = true
