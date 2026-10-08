@@ -43,7 +43,6 @@ func TestAnthropicToolNameRoundTrip(t *testing.T) {
 
 	t.Run("SSE every split", func(t *testing.T) {
 		stream := fmt.Sprintf("event: content_block_start\r\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"call_1\",\"name\":%q,\"input\":{}}}\r\n\r\nevent: message_stop\ndata: {\"type\":\"message_stop\"}\n\n", alias)
-		expected := strings.Replace(stream, fmt.Sprintf("\"name\":%q", alias), fmt.Sprintf("\"name\":%q", name), 1)
 		for split := 0; split <= len(stream); split++ {
 			sink := httptest.NewRecorder()
 			writer := translate.NewAnthropicToolNameWriter(sink, prep.ResponseToolNames)
@@ -54,7 +53,14 @@ func TestAnthropicToolNameRoundTrip(t *testing.T) {
 			_, err = writer.Write([]byte(stream[split:]))
 			require.NoError(t, err)
 			require.NoError(t, writer.Finalize())
-			require.Equal(t, expected, sink.Body.String(), "split %d", split)
+			var restoredToolName string
+			for _, line := range strings.Split(sink.Body.String(), "\n") {
+				if strings.HasPrefix(line, "data: ") && gjson.Get(line[6:], "content_block.type").String() == "tool_use" {
+					restoredToolName = gjson.Get(line[6:], "content_block.name").String()
+				}
+			}
+			require.Equal(t, name, restoredToolName, "split %d", split)
+			require.Contains(t, sink.Body.String(), "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
 		}
 	})
 }
@@ -74,6 +80,26 @@ func TestAnthropicToolNameWriterPreservesUnchangedResponses(t *testing.T) {
 			require.NoError(t, writer.Finalize())
 			require.Equal(t, body, sink.Body.String())
 			require.Equal(t, status, sink.Code)
+			if status < 400 && len(names) > 0 {
+				require.Equal(t, "nosniff", sink.Header().Get("X-Content-Type-Options"))
+			} else {
+				require.Empty(t, sink.Header().Get("X-Content-Type-Options"))
+			}
 		}
 	}
+}
+
+func TestAnthropicToolNameWriterJSONEscapesRestoredHTMLCharacters(t *testing.T) {
+	const originalName = "</script><script>alert(1)</script>"
+	response := `{"content":[{"type":"tool_use","name":"wire_alias","input":{}}]}`
+	sink := httptest.NewRecorder()
+	writer := translate.NewAnthropicToolNameWriter(sink, map[string]string{"wire_alias": originalName})
+	writer.Header().Set("Content-Type", "application/json")
+	writer.WriteHeader(http.StatusOK)
+	_, err := writer.Write([]byte(response))
+	require.NoError(t, err)
+	require.NoError(t, writer.Finalize())
+	require.NotContains(t, sink.Body.String(), "<script>")
+	require.Equal(t, originalName, gjson.Get(sink.Body.String(), "content.0.name").String())
+	require.Equal(t, "nosniff", sink.Header().Get("X-Content-Type-Options"))
 }

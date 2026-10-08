@@ -2,6 +2,8 @@ package translate
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/tidwall/gjson"
@@ -29,6 +31,7 @@ func (w *AnthropicToolNameWriter) WriteHeader(status int) {
 	w.status = status
 	if len(w.names) > 0 && status < 400 {
 		w.Header().Del("Content-Length")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
 	}
 	w.ChunkedWriter.WriteHeader(status)
 }
@@ -89,5 +92,17 @@ func restoreAnthropicResponseToolNames(body []byte, names map[string]string) ([]
 	for _, path := range []string{"content_block", "content", "message.content"} {
 		collectAnthropicToolNameEdits(gjson.GetBytes(body, path), path, names, true, &edits)
 	}
-	return applyAnthropicToolNameEdits(body, edits)
+	rewritten, err := applyAnthropicToolNameEdits(body, edits)
+	if err != nil || bytes.Equal(rewritten, body) {
+		return rewritten, err
+	}
+	var response any
+	if err := json.Unmarshal(rewritten, &response); err != nil {
+		return nil, fmt.Errorf("decode Anthropic response after tool-name restoration: %w", err)
+	}
+	safeJSON, err := json.Marshal(response)
+	if err != nil {
+		return nil, fmt.Errorf("encode Anthropic response after tool-name restoration: %w", err)
+	}
+	return safeJSON, nil
 }

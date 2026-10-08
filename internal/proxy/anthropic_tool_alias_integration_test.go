@@ -44,8 +44,17 @@ func TestProxyMessages_AnthropicToolAliasRoundTrip(t *testing.T) {
 			require.Len(t, upstream.proxyBodies, 1)
 			require.Equal(t, alias, gjson.GetBytes(upstream.proxyBodies[0], "tools.1.name").String())
 			require.Equal(t, alias, gjson.GetBytes(upstream.proxyBodies[0], "messages.2.content.0.content.0.name").String())
-			require.Contains(t, sink.Body.String(), fmt.Sprintf(`"name":%q`, name))
+			if stream {
+				for _, line := range strings.Split(sink.Body.String(), "\n") {
+					if strings.HasPrefix(line, "data: ") && gjson.Get(line[6:], "content_block.type").String() == "tool_use" {
+						require.Equal(t, name, gjson.Get(line[6:], "content_block.name").String())
+					}
+				}
+			} else {
+				require.Equal(t, name, gjson.Get(sink.Body.String(), "content.0.name").String())
+			}
 			require.NotContains(t, sink.Body.String(), alias)
+			require.Equal(t, "nosniff", sink.Header().Get("X-Content-Type-Options"))
 			require.Contains(t, sink.Body.String(), "call_next")
 		})
 	}
