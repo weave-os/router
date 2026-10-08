@@ -574,7 +574,10 @@ func (c *portableCodexResponsesConverter) convertAgentMessage(item gjson.Result,
 			textParts = append(textParts, text)
 			hasPlainText = hasPlainText || strings.TrimSpace(text) != ""
 		case "encrypted_content":
-			c.report("responses_encrypted_agent_content_dropped", "dropped", partPath)
+			// Unlike a reasoning digest, plaintext here can be only the delivery
+			// header. The encrypted block contains the task itself.
+			c.markNativeOnly("responses_agent_message_native_only", partPath)
+			return nil, false
 		default:
 			c.markNativeOnly("responses_agent_message_native_only", partPath)
 			return nil, false
@@ -585,7 +588,9 @@ func (c *portableCodexResponsesConverter) convertAgentMessage(item gjson.Result,
 		return nil, false
 	}
 	c.report("responses_agent_message_projected", "projected", path)
-	return map[string]any{"role": "assistant", "content": strings.Join(textParts, "\n")}, true
+	// This is communication delivered to the receiving agent, not its own
+	// generated answer. Preserve the supplied attribution and task verbatim.
+	return map[string]any{"role": EscalationRoleUser, "content": strings.Join(textParts, "\n")}, true
 }
 
 func (c *portableCodexResponsesConverter) appendToolCall(messages *[]map[string]any, item gjson.Result, path string, custom bool) {

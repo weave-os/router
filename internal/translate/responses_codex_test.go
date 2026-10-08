@@ -160,7 +160,7 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexTools(t *test
 func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexHistory(t *testing.T) {
 	body := []byte("{ \"model\":\"gpt-5.6-sol\",\"input\":[" +
 		`{"type":"reasoning","id":"rs_1","encrypted_content":"opaque","summary":[]},` +
-		`{"type":"agent_message","id":"am_1","author":"child","recipient":"parent","content":[{"type":"input_text","text":"plain update"},{"type":"encrypted_content","encrypted_content":"opaque-agent"}]},` +
+		`{"type":"agent_message","id":"am_1","author":"child","recipient":"parent","content":[{"type":"input_text","text":"plain update"}]},` +
 		`{"type":"function_call","call_id":"call_fn","name":"lookup","namespace":"collaboration","arguments":"{\"q\":1}"},` +
 		`{"type":"custom_tool_call","call_id":"call_custom","name":"exec","namespace":"functions","input":"text(true);"},` +
 		`{"type":"function_call_output","call_id":"call_fn","output":[{"type":"input_text","text":"one"},{"type":"input_text","text":"two"}]},` +
@@ -176,7 +176,7 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexHistory(t *te
 
 	messages := gjson.GetBytes(converted.Body, "messages").Array()
 	require.Len(t, messages, 6)
-	assert.Equal(t, "assistant", messages[0].Get("role").Str)
+	assert.Equal(t, string(translate.EscalationRoleUser), messages[0].Get("role").Str)
 	assert.Equal(t, "plain update", messages[0].Get("content").Str)
 
 	assert.Equal(t, "assistant", messages[1].Get("role").Str)
@@ -197,7 +197,6 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexHistory(t *te
 	assert.Equal(t, translate.ResponsesToolMapping{Alias: "collaboration__lookup", Name: "lookup", Namespace: "collaboration"}, converted.ToolMappings["collaboration__lookup"])
 	assert.Equal(t, translate.ResponsesToolMapping{Alias: "exec", Name: "exec", Custom: true}, converted.ToolMappings["exec"])
 	assertReportCode(t, converted.Report, "responses_encrypted_reasoning_dropped")
-	assertReportCode(t, converted.Report, "responses_encrypted_agent_content_dropped")
 	assertReportCode(t, converted.Report, "responses_agent_message_projected")
 	assertReportCode(t, converted.Report, "responses_structured_tool_output_projected")
 	assertReportCode(t, converted.Report, "responses_message_phase_dropped")
@@ -360,7 +359,6 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexEncryptedOnly
 	require.NoError(t, err)
 	assert.True(t, converted.Requirements.NativeOnly)
 	assert.Empty(t, gjson.GetBytes(converted.Body, "messages").Array())
-	assertReportCode(t, converted.Report, "responses_encrypted_agent_content_dropped")
 	assertReportCode(t, converted.Report, "responses_agent_message_native_only")
 }
 
