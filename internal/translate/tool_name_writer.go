@@ -110,18 +110,13 @@ func (w *ToolNameWriter) Write(chunk []byte) (int, error) {
 		return len(chunk), nil
 	}
 	for {
-		record, consumed := w.scanner.Next(w.pending.Bytes())
+		_, consumed := w.scanner.Next(w.pending.Bytes())
 		if consumed == 0 {
 			break
 		}
-		_, payload := sse.ParseEvent(record)
-		rewritten, err := w.restore(payload, w.names)
+		frame, err := w.restoreRecord(w.pending.Bytes()[:consumed])
 		if err != nil {
 			return 0, err
-		}
-		frame := w.pending.Bytes()[:consumed]
-		if !bytes.Equal(payload, rewritten) {
-			frame = bytes.Replace(frame, payload, rewritten, 1)
 		}
 		if _, err = w.inner.Write(frame); err != nil {
 			return 0, err
@@ -131,20 +126,24 @@ func (w *ToolNameWriter) Write(chunk []byte) (int, error) {
 	return len(chunk), nil
 }
 
+func (w *ToolNameWriter) restoreRecord(record []byte) ([]byte, error) {
+	_, payload := sse.ParseEvent(record)
+	rewritten, err := w.restore(payload, w.names)
+	if err != nil || bytes.Equal(payload, rewritten) {
+		return record, err
+	}
+	return bytes.Replace(record, payload, rewritten, 1), nil
+}
+
 func (w *ToolNameWriter) Finalize() error {
 	if w.pending.Len() == 0 {
 		return nil
 	}
 	body := w.pending.Bytes()
 	if w.streaming {
-		// A stream may end without the blank line that terminates its last record.
-		_, payload := sse.ParseEvent(body)
-		rewritten, err := w.restore(payload, w.names)
-		if err != nil {
-			return err
-		}
-		if !bytes.Equal(payload, rewritten) {
-			body = bytes.Replace(body, payload, rewritten, 1)
+		// An unterminated final record may be truncated JSON; forward it unchanged then.
+		if restored, err := w.restoreRecord(body); err == nil {
+			body = restored
 		}
 	} else {
 		var err error

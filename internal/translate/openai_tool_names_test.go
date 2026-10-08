@@ -14,7 +14,7 @@ import (
 )
 
 func TestPrepareOpenAIAliasesLongToolNamesReversibly(t *testing.T) {
-	long := "mcp__claude_ai_Atlassian_Rovo_2__getJiraProjectIssueTypesMetadata"
+	long := "mcp__claude_ai_Example_Server_2__getProjectIssueTypesMetadataLong"
 	sibling := long[:64] + "Y"
 	valid := strings.Repeat("v", 64)
 	body := []byte(fmt.Sprintf(`{"model":"claude-sonnet-5-5","max_tokens":1024,

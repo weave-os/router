@@ -12,8 +12,6 @@ var (
 	openAIRequestToolNamePaths    = []string{"tools.#.function.name", "tool_choice.function.name", "messages.#.tool_calls.#.function.name"}
 )
 
-// openAIToolNameAliases maps every sanitizeResponsesToolAlias rewrite in the
-// source request back to the client's tool name.
 func openAIToolNameAliases(body []byte, paths []string) map[string]string {
 	aliases := make(map[string]string)
 	var add func(gjson.Result)

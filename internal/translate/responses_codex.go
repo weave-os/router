@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -852,6 +853,8 @@ func normalizeResponsesToolNamespace(namespace string) string {
 	return namespace
 }
 
+var responsesGeneratedToolAliasPattern = regexp.MustCompile(`_[0-9a-f]{10}$`)
+
 func sanitizeResponsesToolAlias(name string) string {
 	var out strings.Builder
 	for _, char := range name {
@@ -862,7 +865,9 @@ func sanitizeResponsesToolAlias(name string) string {
 		out.WriteByte('_')
 	}
 	alias := out.String()
-	if alias == name && len(alias) <= responsesMaxToolAliasBytes {
+	// Names shaped like generated aliases are rewritten too, so an unchanged
+	// name can never equal another tool's alias.
+	if alias == name && len(alias) <= responsesMaxToolAliasBytes && !responsesGeneratedToolAliasPattern.MatchString(name) {
 		return alias
 	}
 	// Hash the original so names sharing a prefix or differing only in

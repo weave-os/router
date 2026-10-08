@@ -15,7 +15,7 @@ import (
 )
 
 func TestProxyMessages_OpenAIToolAliasRoundTrip(t *testing.T) {
-	const name = "mcp__claude_ai_Atlassian_Rovo_2__getJiraProjectIssueTypesMetadata"
+	const name = "mcp__claude_ai_Example_Server_2__getProjectIssueTypesMetadataLong"
 	var upstream *fakeProvider
 	var alias string
 	upstream = &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
