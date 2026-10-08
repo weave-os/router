@@ -68,6 +68,12 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 	if err != nil {
 		return providers.PreparedRequest{}, fmt.Errorf("normalize anthropic final assistant: %w", err)
 	}
+	if e.format == FormatOpenAI {
+		body, err = appendAnthropicAssistantContinuation(body)
+		if err != nil {
+			return providers.PreparedRequest{}, fmt.Errorf("append anthropic continuation: %w", err)
+		}
+	}
 	body, err = applyAnthropicCachePolicy(body, true)
 	if err != nil {
 		return providers.PreparedRequest{}, err
