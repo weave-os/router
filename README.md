@@ -251,13 +251,16 @@ dashboard, where selection is an organization-wide setting. See
 | `POST /v1/route`               | Returns the decision, no upstream call   |
 | `GET /v1/models` &nbsp;·&nbsp; `POST /v1/messages/count_tokens` | Anthropic passthrough |
 | `GET /health` &nbsp;·&nbsp; `GET /readyz` &nbsp;·&nbsp; `GET /validate` | liveness + dependency readiness + key check |
+| `GET /startupz` &nbsp;·&nbsp; `GET /capacityz` | completed startup warmup + local serving capacity |
 | `POST /v1/client-events`       | Harness CLI's `off`/`on`/`uninstall` report (`harness` = `claude_code`/`codex`/`opencode`/`pi`); logged + exported as `router.harness_lifecycle`, nothing stored |
 | `GET /v1/sessions/:session_id/cost` | One session's committed cost + savings, scoped to your key's installation; `rk_` or `ra_` key ([docs](docs/SESSION_COST.md)) |
 | `GET /v1/analytics/routing-decisions` | Raw routing decisions as cursor-paginated NDJSON ([docs](docs/ANALYTICS_EXPORT.md)) |
 | `GET /v1/analytics/schema` &nbsp;·&nbsp; `GET /v1/analytics/models` | Export field dictionary + price book |
 
-Keep liveness probes on `/health`. Point startup or readiness probes at
-`/readyz` when configured policy sidecars must be ready before traffic arrives.
+Use `/startupz` for Cloud Run startup probes: each instance completes its required
+warmup and final dependency check before it starts accepting requests. Startup
+success stays latched; probes do not repeat warmup. Keep liveness on `/health`,
+capacity readiness on `/capacityz`, and `/readyz` for dependency diagnostics.
 
 Routed non-stream responses include `x-router-cost-usd`,
 `x-router-cost-input-usd`, `x-router-cost-output-usd`,

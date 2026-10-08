@@ -412,8 +412,9 @@ invalidation. Missed delivery falls back to TTL expiry.
 ## Local verification
 
 Managed admission is enabled by `ROUTER_SERVING_TARGET`. Bootstrap validates exact
-worker image, revision, configuration and all profile lanes. `/startupz` and
-`/readyz` retain worker bootstrap/database/strategy checks; exact proposal validation
+worker image, revision, configuration and all profile lanes. `/startupz` observes
+completed startup warmup and the final database/strategy readiness check;
+`/readyz` continues checking dependencies on each call. Exact proposal validation
 uses the internal service token in addition to Cloud Run identity. The classifier
 remains IAM-private. Request limits, capacity permits and streaming deadlines are
 owned by the worker.
@@ -634,5 +635,10 @@ the actual provider transports, and runs one synthetic generation for each
 boot-known deployment model and required auxiliary target. Startup generations
 use the `startup_warmup` policy: one attempt without fallback, at most four
 concurrent calls, up to 30 seconds per model, and the shared 170-second boot
-deadline. Provider failures in required startup work fail boot; this bounded
-worker warmup does not replace the operator-run full-catalog warmup.
+deadline. After warmup, a final dependency check has at most three seconds within
+that same boot deadline. Startup succeeds only with local capacity and no reported
+essential-task failure, before the HTTP listener starts. Required warmup or final
+readiness failure aborts boot. Optional beta-lane models remain outside this
+required warmup, and dynamic policy/tenant caches keep their existing behavior.
+Repeated startup probes only observe completion. This per-instance warmup does
+not replace the operator-run full-catalog warmup.

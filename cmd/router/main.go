@@ -1607,20 +1607,12 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	capacity.SampleResources()
-	if !capacity.Snapshot().Ready {
-		panic("worker has no capacity after initialization")
+	err = completeStartup(startupCtx, readinessChecker, capacity, essentialTaskErrors, &startupReady)
+	if err != nil {
+		logger.Error("Startup completion failed; refusing to boot", "err", err)
+		panic(err)
 	}
 	go capacity.RunResourceSampler(processCtx)
-	if err := startupCtx.Err(); err != nil {
-		panic(err)
-	}
-	select {
-	case err := <-essentialTaskErrors:
-		panic(err)
-	default:
-	}
-	startupReady.Store(true)
 	cancelStartup()
 	logger.Info("Router startup initialization complete")
 	serverFeatures := server.Features{

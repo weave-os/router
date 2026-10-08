@@ -5,14 +5,42 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"sync/atomic"
 	"time"
 
 	"github.com/cenkalti/backoff/v5"
+	"weave-os/router/internal/health"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 )
 
 const startupTimeout = 170 * time.Second
+
+func completeStartup(ctx context.Context, checker readinessChecker, capacity *health.Capacity, essentialTaskErrors <-chan error, ready *atomic.Bool) error {
+	checkCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	err := checker.CheckHealth(checkCtx)
+	if err != nil {
+		return fmt.Errorf("final startup readiness check: %w", err)
+	}
+	if err := checkCtx.Err(); err != nil {
+		return err
+	}
+	capacity.SampleResources()
+	if !capacity.Snapshot().Ready {
+		return fmt.Errorf("worker has no capacity after initialization")
+	}
+	select {
+	case err := <-essentialTaskErrors:
+		return err
+	default:
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	ready.Store(true)
+	return nil
+}
 
 func warmStartupDatabase(ctx context.Context, log *slog.Logger, warm func(context.Context) error) error {
 	started := time.Now()
