@@ -84,9 +84,12 @@ func (w *AnthropicToolNameWriter) Write(chunk []byte) (int, error) {
 	}
 	if len(w.names) == 0 || w.status >= 400 {
 		if w.streaming || strings.Contains(w.inner.Header().Get("Content-Type"), "json") {
+			consumed := len(chunk)
 			var escaped bytes.Buffer
 			json.HTMLEscape(&escaped, chunk)
 			chunk = escaped.Bytes()
+			_, err := w.inner.Write(chunk)
+			return consumed, err
 		}
 		return w.inner.Write(chunk)
 	}
