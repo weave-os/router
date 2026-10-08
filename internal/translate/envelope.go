@@ -1313,6 +1313,9 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 		StripThoughtSignature:        true,
 		SanitizeAnthropicToolSchemas: true,
 	}
+	if opts.Capabilities.Supports(router.CapTemperatureUnsupported) && gjson.GetBytes(body, "temperature").Exists() {
+		ov.DeleteKeys = append(ov.DeleteKeys, "temperature")
+	}
 
 	// User-forced effort wins over inbound heuristic; no-op on non-adaptive targets.
 	if forced := resolveForceEffort(opts); forced != "" && opts.Capabilities.Supports(router.CapAdaptiveThinking) {
