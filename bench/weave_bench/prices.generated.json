@@ -1,5 +1,5 @@
 {
-  "pricing_version": "catalog-sha256:f4174318b5455228",
+  "pricing_version": "catalog-sha256:c789a08504a34650",
   "models": {
     "claude-fable-5": {
       "input_usd_per_million": 10,
@@ -500,9 +500,9 @@
       "cache_write_multiplier": 1.25
     },
     "xiaomi/mimo-v2.6-flash": {
-      "input_usd_per_million": 0.14,
+      "input_usd_per_million": 0.13,
       "output_usd_per_million": 0.28,
-      "cache_read_multiplier": 0.02,
+      "cache_read_multiplier": 0.015384615384615385,
       "cache_write_multiplier": 1.25
     },
     "xiaomi/mimo-v2.6-pro": {

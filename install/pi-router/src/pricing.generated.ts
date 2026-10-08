@@ -7,7 +7,7 @@ export interface ModelPricing {
 	cacheReadMultiplier: number;
 }
 
-export const PRICING_VERSION = "catalog-sha256:f4174318b5455228";
+export const PRICING_VERSION = "catalog-sha256:c789a08504a34650";
 
 export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.freeze({
 	"claude-fable-5": { inputUsdPerMillion: 10, outputUsdPerMillion: 50, cacheReadMultiplier: 0.1 },
@@ -93,7 +93,7 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.free
 	"qwen/qwen3.7-plus": { inputUsdPerMillion: 0.4, outputUsdPerMillion: 1.6, cacheReadMultiplier: 0.2 },
 	"qwen/qwen3.8-max": { inputUsdPerMillion: 2, outputUsdPerMillion: 6, cacheReadMultiplier: 0.125 },
 	"xiaomi/mimo-v2.5-pro": { inputUsdPerMillion: 1, outputUsdPerMillion: 3, cacheReadMultiplier: 0.1 },
-	"xiaomi/mimo-v2.6-flash": { inputUsdPerMillion: 0.14, outputUsdPerMillion: 0.28, cacheReadMultiplier: 0.02 },
+	"xiaomi/mimo-v2.6-flash": { inputUsdPerMillion: 0.13, outputUsdPerMillion: 0.28, cacheReadMultiplier: 0.015384615384615385 },
 	"xiaomi/mimo-v2.6-pro": { inputUsdPerMillion: 0.435, outputUsdPerMillion: 0.87, cacheReadMultiplier: 0.00827586 },
 	"z-ai/glm-5": { inputUsdPerMillion: 1, outputUsdPerMillion: 3.2, cacheReadMultiplier: 0.2 },
 	"z-ai/glm-5.1": { inputUsdPerMillion: 1.4, outputUsdPerMillion: 4.4, cacheReadMultiplier: 0.18571428571428572 },

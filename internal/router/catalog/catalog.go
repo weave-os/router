@@ -13,6 +13,9 @@ import (
 // ModelGPT6Luna is the canonical GPT-6 Luna model ID.
 const ModelGPT6Luna = "gpt-6-luna"
 
+// ModelMiMoV26Flash is the canonical Xiaomi MiMo-V2.6-Flash model ID.
+const ModelMiMoV26Flash = "xiaomi/mimo-v2.6-flash"
+
 // Tier is the coarse capability bucket. Higher is stronger; integer
 // ordering is load-bearing (planner compares freshTier > pinTier).
 type Tier int
@@ -663,16 +666,17 @@ var Models = []Model{
 			Price: Pricing{InputUSDPer1M: 0.060, OutputUSDPer1M: 0.180, CacheReadMultiplier: 0.20}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.060, OutputUSDPer1M: 0.180, CacheReadMultiplier: 0.10}},
 	}},
-	// MiMo-V2.6 Flash: DeepInfra serves the native OpenAI-compatible endpoint
-	// and exposes Xiaomi's canonical model ID. The model is multimodal and has
-	// a 1M context window; its cache-read rate is 2% of input.
-	{ID: "xiaomi/mimo-v2.6-flash", Source: SourceOpenSource, Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+	// Makora uses Xiaomi's official -RL checkpoint name; DeepInfra exposes the
+	// same Flash family without that suffix and remains the direct fallback.
+	{ID: ModelMiMoV26Flash, Source: SourceOpenSource, Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderMakora, UpstreamID: "XiaomiMiMo/MiMo-V2.6-Flash-RL",
+			Price: Pricing{InputUSDPer1M: 0.130, OutputUSDPer1M: 0.280, CacheReadMultiplier: 0.002 / 0.130}},
 		{Provider: providers.ProviderDeepInfra, UpstreamID: "XiaomiMiMo/MiMo-V2.6-Flash",
 			Price: Pricing{InputUSDPer1M: 0.140, OutputUSDPer1M: 0.280, CacheReadMultiplier: 0.02}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.140, OutputUSDPer1M: 0.280, CacheReadMultiplier: 0.10}},
 	}},
-	// MiMo-V2.6 Pro: same DeepInfra-first policy as Flash, with the higher
-	// capability tier reserved for maximum-complexity Max requests.
+	// MiMo-V2.6 Pro remains DeepInfra-first, with the higher capability tier
+	// reserved for maximum-complexity Max requests.
 	{ID: "xiaomi/mimo-v2.6-pro", Source: SourceOpenSource, Tier: TierHigh, ContextWindow: 1_048_576, ThinkTagReasoning: true, Providers: []ProviderBinding{
 		{Provider: providers.ProviderDeepInfra, UpstreamID: "XiaomiMiMo/MiMo-V2.6-Pro",
 			Price: Pricing{InputUSDPer1M: 0.435, OutputUSDPer1M: 0.870, CacheReadMultiplier: 0.00827586}},
