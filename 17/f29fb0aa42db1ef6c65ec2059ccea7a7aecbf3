@@ -1,0 +1,36 @@
+internal/proxy/usage_bypass.go
+  s_7d2905aecea577::t_041fa002a75c29 467-469
+internal/translate/emit_anthropic.go
+  s_7d2905aecea577::t_c3adf05f6d54e6 58,87,1017,1068,1078,1085,1089-1097
+internal/proxy/anthropic_tool_alias_integration_test.go
+  s_7d2905aecea577::t_96705779f767f2 1-52
+internal/translate/anthropic_tool_reference.go
+  s_7d2905aecea577::t_c3adf05f6d54e6 1-69
+internal/translate/anthropic_tool_name_writer.go
+  s_7d2905aecea577::t_041fa002a75c29 1-93
+internal/proxy/service.go
+  s_7d2905aecea577::t_041fa002a75c29 3205-3207,7639-7640,7646
+internal/translate/anthropic_tool_reference_test.go
+  s_7d2905aecea577::t_099c8855a973c1 33-46,48-51
+  s_7d2905aecea577::t_52a07a1012e28c 1-32,47
+internal/providers/provider.go
+  s_7d2905aecea577::t_5aa9a8b3ff52cb 763-766
+internal/translate/anthropic_tool_name_writer_test.go
+  s_7d2905aecea577::t_26ca16c6223080 1-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "17f29fb0aa42db1ef6c65ec2059ccea7a7aecbf3",
+  "prompts": {},
+  "sessions": {
+    "s_7d2905aecea577": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11c12-8702-74c0-902d-6d5443462625",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

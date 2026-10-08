@@ -1,0 +1,99 @@
+db/migrations/0121_subscription-sharing.up.sql
+  s_d632eaeadae7dc::t_7dd8166a7ef3e0 12-13,25
+docs/ANALYTICS_EXPORT.md
+  s_d632eaeadae7dc::t_ca50ea42b035a2 174-175,191
+internal/api/subscriptions/accounts_test.go
+  s_d632eaeadae7dc::t_984e10d3b9fd4b 111,121-127
+internal/auth/subscription_test.go
+  s_d632eaeadae7dc::t_ed30dc1d49d071 178-179
+internal/postgres/analytics_repo_test.go
+  s_d632eaeadae7dc::t_49c323c21c7d1f 81,94
+internal/providers/anthropic/client.go
+  s_d632eaeadae7dc::t_fd00e96d3189cd 309-310,483-485
+internal/providers/anthropic/client_test.go
+  s_d632eaeadae7dc::t_770a12cd7e9c61 274-300
+internal/providers/openai/client.go
+  s_d632eaeadae7dc::t_255e5eff6e99bb 424-426,429-430,433,479,481
+internal/proxy/anthropic_safety_subscription_verification_test.go
+  s_d632eaeadae7dc::t_c242fea9301491 11-12,24,26-27,70,73,85-89
+internal/proxy/classifier_passthrough_test.go
+  s_d632eaeadae7dc::t_2a30d231d0145f 162-163
+internal/proxy/codex_failover.go
+  s_d632eaeadae7dc::t_b48c4236737f68 64-68
+internal/proxy/credentials.go
+  s_d632eaeadae7dc::t_c14aeedb25b209 31-32,34-36
+internal/proxy/decision_failure_subscription_verification_test.go
+  s_d632eaeadae7dc::t_3982a070cba922 62
+internal/proxy/dispatch_plan.go
+  s_d632eaeadae7dc::t_cc8f260781fd29 204-205,207,217,230,233-234,348-351,357
+internal/proxy/fallback.go
+  s_d632eaeadae7dc::t_4227db0fe42502 41-47,146,162-164,167,170-176,180,190,650-655
+internal/proxy/gemini.go
+  s_d632eaeadae7dc::t_cf2089a05eb174 394
+internal/proxy/linked_first_test.go
+  s_d632eaeadae7dc::t_ea102558c8c22f 181-185,198
+internal/proxy/managed_subscriptions.go
+  s_d632eaeadae7dc::t_aa2dc785764127 261-265
+internal/proxy/managed_subscriptions_test.go
+  s_d632eaeadae7dc::t_f1af6a44285bd3 528-529
+internal/proxy/nonstream_failure_subscription_verification_test.go
+  s_d632eaeadae7dc::t_609d392c2ef6ec 11,31-32,34,37-38,51-52,58-59
+internal/proxy/service.go
+  s_d632eaeadae7dc::t_3a8baad3bd0b10 4022,4580,5037,6921,6965,7606,8033
+internal/proxy/subscriber_telemetry.go
+  s_d632eaeadae7dc::t_abaa850ea47f46 154,162,179,183-187
+internal/proxy/subscription_exhaustion_internal_test.go
+  s_d632eaeadae7dc::t_c4ea479811145e 137-138
+internal/proxy/subscription_failover_parity_internal_test.go
+  s_d632eaeadae7dc::t_c1d7edac244d07 295-296,315,708-710
+internal/proxy/subscription_observation.go
+  s_d632eaeadae7dc::t_37d0ad704b01bd 137
+internal/proxy/subscription_winner_telemetry_internal_test.go
+  s_d632eaeadae7dc::t_19a266442169af 31,60-63
+internal/proxy/surfaces_subscription_verification_test.go
+  s_d632eaeadae7dc::t_193edf9f066e59 66,68-69,73-78,106-107,143,146,150
+internal/proxy/timeout_stream_subscription_verification_test.go
+  s_d632eaeadae7dc::t_7df677218f75b5 12,25,29,31,55-58,60,68,70,72,88,90,106,108,110,125,127,145,147,149,164,166,185,187,189,207,209,219,221,223,245,247
+internal/proxy/usage/AGENTS.md
+  s_d632eaeadae7dc::t_0e2ed35be6b5b9 19
+internal/proxy/usage/CLAUDE.md
+  s_d632eaeadae7dc::t_371a4106ceff8f 19
+internal/proxy/usage/usage.go
+  s_d632eaeadae7dc::t_306a840f307fda 227
+internal/proxy/usage_bypass.go
+  s_d632eaeadae7dc::t_f326af0e0f0b50 526
+internal/proxy/usage_bypass_test.go
+  s_d632eaeadae7dc::t_1b1faa814bbf1f 417-420
+internal/subscriptions/pool.go
+  s_d632eaeadae7dc::t_9c039d2db25713 116-125,275,385-393
+internal/subscriptions/runtime.go
+  s_d632eaeadae7dc::t_386a46a9377f8c 89-91,101,174-176,196,203-204,210-211,217-218,224-225,231-232,510-512,517,521,525,528
+internal/subscriptions/runtime_test.go
+  s_d632eaeadae7dc::t_a3a77c40aa5ac9 37-56,59,210-217,219-220,222,957-988
+internal/translate/responses_to_openai_chat_writer.go
+  s_d632eaeadae7dc::t_1960061dbdc1ef 797-801
+internal/translate/responses_to_openai_chat_writer_test.go
+  s_d632eaeadae7dc::t_d409ef98ecebea 19-20,311-312
+scripts/subscription_verification_check/identity_subscription_verification_test.go
+  s_d632eaeadae7dc::t_47f0fef909232f 87,92,117
+scripts/subscription_verification_check/refresh_subscription_verification_test.go
+  s_d632eaeadae7dc::t_2e269d2020ea8c 102-105,191,194,196,231,233,239,241
+scripts/subscription_verification_check/telemetry_subscription_verification_test.go
+  s_d632eaeadae7dc::t_05697e57aa22ef 13,53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c604b7cddcdcfdd66a7f516c2a7bd9e36aadfa41",
+  "prompts": {},
+  "sessions": {
+    "s_d632eaeadae7dc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10e86-de05-7d62-bbcb-696c6ad54cc8",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

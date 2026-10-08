@@ -1,0 +1,49 @@
+db/queries/model_router_request_telemetry.sql
+  s_21dea1a19b16c4::t_776d2a42becac8 7
+frontend/src/components/charts/DrillDownModal.tsx
+  s_21dea1a19b16c4::t_69e405b53b211b 102,112,115
+internal/analytics/schema.go
+  s_21dea1a19b16c4::t_3f21d93bc424da 31
+internal/proxy/autonomy_append_internal_test.go
+  s_980914d43580db::t_73da00d7110d1f 76
+internal/proxy/feedback_footer_internal_test.go
+  s_980914d43580db::t_eed3c8bc036bf7 67
+internal/proxy/marker_internal_test.go
+  s_21dea1a19b16c4::t_2aad8316f1d7fe 14,343-354
+internal/proxy/turnloop.go
+  s_21dea1a19b16c4::t_ef57b48a329fc4 537-538,540
+internal/router/turntype/AGENTS.md
+  s_980914d43580db::t_3451895911b418 17
+internal/router/turntype/CLAUDE.md
+  s_21dea1a19b16c4::t_c5e5b918c0c5bf 17
+internal/router/turntype/detect.go
+  s_21dea1a19b16c4::t_a5d5f90d90a60c 28-31,53-56,109-111,182-191
+internal/router/turntype/detect_test.go
+  s_980914d43580db::t_c49f5fbbfaaeed 310-331
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_21dea1a19b16c4::t_00f950608a712f 2345
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "18c9927cffa896c341e101f962ae5972639359c9",
+  "prompts": {},
+  "sessions": {
+    "s_21dea1a19b16c4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "dc507d76-4381-4bc4-9bb4-3fb9526ae3dd",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    },
+    "s_980914d43580db": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ae5ab8c5-50a9-4ae6-930a-ff22188bfb75",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,41 @@
+install/npm/windows.js
+  s_787cf7fc928eb8::t_b25d4398e5e7e3 49,244-277
+  s_787cf7fc928eb8::t_0c6829ac612591 1-48,50-58,60-96,103-128,130-143,150-206,208-243,278-320
+  s_787cf7fc928eb8::t_b7bbd5016743cc 129,144-149,207
+  s_787cf7fc928eb8::t_f43f29c8629abd 59,97-102
+install/npm/bin.js
+  s_787cf7fc928eb8::t_7dad71ade5d678 42-54,60,100
+  s_787cf7fc928eb8::t_694b96e8d8f877 41,55-59,61-69
+  s_787cf7fc928eb8::t_d75f02c81ead47 70-71
+install/npm/package.json
+  s_787cf7fc928eb8::t_6584e660af2424 19
+install/npm/windows.test.js
+  s_787cf7fc928eb8::t_edf4c0fbb5d1ca 54-56
+  s_787cf7fc928eb8::t_fcc5cf5d96619e 68-80
+  s_787cf7fc928eb8::t_f3ab5d616042d1 2,8-9,30-31,47,61-62
+  s_787cf7fc928eb8::t_705427d85e1347 7,13,20-23
+  s_787cf7fc928eb8::t_676a7b53dcaef7 1,3-6,10-12,14-19,24,26-29,32-46,48-53,57-60,63-67
+  s_787cf7fc928eb8::t_239fcbc7fe4e77 25
+install/tests/packaging_test.sh
+  s_787cf7fc928eb8::t_753b4b3cc11c56 46
+  s_787cf7fc928eb8::t_200e1ce165d7be 35-36
+install/npm/README.md
+  s_787cf7fc928eb8::t_4f18e3157fe00f 91-97,162-163
+  s_787cf7fc928eb8::t_6584e660af2424 90,164,169-170
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a538d45abd46c94fe4ca6306a8cfef60ab8976d5",
+  "prompts": {},
+  "sessions": {
+    "s_787cf7fc928eb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11340-f757-7f13-811d-6144d7b9238b",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
