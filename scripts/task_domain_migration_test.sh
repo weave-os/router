@@ -8,7 +8,7 @@ container_id="$(docker run --detach --rm --publish 127.0.0.1::5432 \
 trap 'docker rm --force "$container_id" >/dev/null' EXIT
 port="$(docker port "$container_id" 5432/tcp | sed 's/.*://')"
 export PGPASSWORD=router
-for attempt in {1..30}; do
+for _ in {1..30}; do
   if pg_isready -h 127.0.0.1 -p "$port" -U router -d router >/dev/null; then break; fi
   sleep 1
 done
