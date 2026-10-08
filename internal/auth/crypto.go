@@ -2,6 +2,7 @@ package auth
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 
 	"github.com/tink-crypto/tink-go/v2/aead"
@@ -23,13 +24,32 @@ type tinkEncryptor struct {
 	aead tink.AEAD
 }
 
-// NewTinkEncryptor creates an Encryptor from a Tink keyset JSON.
+// NewTinkEncryptor creates an Encryptor from a cleartext Tink keyset JSON.
 func NewTinkEncryptor(keysetJSON string) (Encryptor, error) {
 	reader := keyset.NewJSONReader(bytes.NewBufferString(keysetJSON))
 	handle, err := insecurecleartextkeyset.Read(reader)
 	if err != nil {
 		return nil, fmt.Errorf("read keyset: %w", err)
 	}
+	return newTinkEncryptorFromHandle(handle)
+}
+
+// NewWrappedTinkEncryptor creates an Encryptor from a Tink keyset JSON whose
+// key material is encrypted under kek, a key-encryption key that usually
+// lives in a KMS. The keyset is decrypted once, here; kek is not retained.
+func NewWrappedTinkEncryptor(encryptedKeysetJSON string, kek tink.AEAD) (Encryptor, error) {
+	if kek == nil {
+		return nil, errors.New("read encrypted keyset: nil key-encryption key")
+	}
+	reader := keyset.NewJSONReader(bytes.NewBufferString(encryptedKeysetJSON))
+	handle, err := keyset.Read(reader, kek)
+	if err != nil {
+		return nil, fmt.Errorf("read encrypted keyset: %w", err)
+	}
+	return newTinkEncryptorFromHandle(handle)
+}
+
+func newTinkEncryptorFromHandle(handle *keyset.Handle) (Encryptor, error) {
 	primitive, err := aead.New(handle)
 	if err != nil {
 		return nil, fmt.Errorf("create AEAD primitive: %w", err)

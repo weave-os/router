@@ -110,7 +110,7 @@ spec can't carry.
 
 An endpoint that publishes both surfaces is configured as two keys pointing at
 the same base URL. Snowflake Cortex, for example, serves Claude at
-`/api/v2/cortex/v1/messages` and everything else (GPT, Llama, Mistral,
+`/api/v2/cortex/v1/messages` and the other models (GPT, Llama, Mistral,
 DeepSeek, Arctic) at `/api/v2/cortex/v1/chat/completions`:
 
 ```bash
@@ -120,7 +120,7 @@ curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
   -d '{"provider":"anthropic_gateway","key":"<snowflake PAT>",
        "base_url":"https://<account>.snowflakecomputing.com/api/v2/cortex/v1"}'
 
-# Everything else over the Chat Completions surface, under Cortex's own IDs.
+# The other models over the Chat Completions surface, under Cortex's own IDs.
 curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
   -H 'content-type: application/json' \
   -d '{"provider":"openai_gateway","key":"<snowflake PAT>",
@@ -598,7 +598,7 @@ The name is matched **exactly** — it must be a canonical catalog ID
 effort suffix (`opus:high`). There is no prefix, substring, or nearest-match
 fallback: a name the router doesn't recognize is refused, never approximated.
 
-That strictness is the point. Approximate matching served a model the caller
+Approximate matching served a model the caller
 never named — `/fm qwen 3.8` resolved through the bare `qwen` alias to
 `qwen/qwen3-coder` and acked as if the pin took. The whole rest of the command
 line is now read as the model name, so that input is rejected instead. To pin
@@ -740,6 +740,45 @@ tinkey create-keyset --key-template AES256_GCM --out-format json
 
 A *malformed* keyset still fails closed (the router refuses to boot); only a
 genuinely absent value triggers the unencrypted bypass.
+
+### Encrypted keyset (key-encryption key)
+
+By default `EXTERNAL_KEY_ENCRYPTION_KEY` is a cleartext keyset, so whoever can
+read the router's environment can decrypt every stored provider key. Setting a
+key-encryption key (KEK) makes the router read `EXTERNAL_KEY_ENCRYPTION_KEY` as
+a Tink *encrypted* keyset instead, and decrypt it once at boot.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `EXTERNAL_KEY_ENCRYPTION_KEK_URI` | *(unset)* | HashiCorp Vault or OpenBao transit key that wraps the keyset, as a Tink key URI: `hcvault://<host>[:port]/<mount>/keys/<name>`. The KEK stays in Vault; boot makes one transit `decrypt` call. |
+| `VAULT_ADDR` | `https://<host>` from the URI | Vault address, for a plain-HTTP or differently addressed server (for example `http://openbao.openbao.svc:8200`). |
+| `VAULT_TOKEN` | *(unset)* | Token for the transit call. Required with `EXTERNAL_KEY_ENCRYPTION_KEK_URI`; it needs only `update` on `<mount>/decrypt/<name>`. TLS honours the standard `VAULT_CACERT`, `VAULT_CLIENT_CERT`, `VAULT_CLIENT_KEY` and `VAULT_SKIP_VERIFY`. |
+| `EXTERNAL_KEY_ENCRYPTION_KEK` | *(unset)* | A cleartext Tink AEAD keyset (JSON) used as the KEK, for deployments without Vault that still want the KEK and the wrapped keyset in different secret stores. |
+
+Set at most one of `EXTERNAL_KEY_ENCRYPTION_KEK_URI` and
+`EXTERNAL_KEY_ENCRYPTION_KEK`. Boot fails when both are set, when a KEK is set
+but `EXTERNAL_KEY_ENCRYPTION_KEY` is not, when the token is missing, or when the
+keyset does not decrypt under the KEK. With neither set, the keyset is read as
+cleartext exactly as before.
+
+Create the transit key with `derived=false` and wrap a new keyset with
+`cmd/wrapkeyset`, which reads the same variables:
+
+```bash
+vault secrets enable transit
+vault write -f transit/keys/router-kek
+
+tinkey create-keyset --key-template AES256_GCM --out-format json \
+  | EXTERNAL_KEY_ENCRYPTION_KEK_URI=hcvault://vault.example.com:8200/transit/keys/router-kek \
+    VAULT_TOKEN=<token with transit/encrypt/router-kek> \
+    go run ./cmd/wrapkeyset > keyset.enc.json
+```
+
+To move an existing deployment over, pipe its current cleartext
+`EXTERNAL_KEY_ENCRYPTION_KEY` into `cmd/wrapkeyset` instead of a new keyset:
+the key material is unchanged, so rows already stored still decrypt. The output
+is the standard Tink encrypted-keyset JSON, the same format `tinkey
+create-keyset --master-key-uri` produces for the KMS types Tinkey supports.
 
 ## Telemetry (OpenTelemetry)
 
