@@ -498,7 +498,7 @@ func (s *Service) bypassToAnthropic(
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(pricing, decision.Provider, in, out, cacheCreation, cacheRead, usageMods))
 	}
 	inputCost := catalog.EffectiveInputCost(in, cacheCreation, cacheRead, pricing, decision.Provider, usageMods)
-	outputCost := catalog.EffectiveOutputCost(in, out, pricing, usageMods)
+	outputCost := catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, pricing, usageMods)
 
 	// Same identity block as the routed upstream span so Weave groups bypass turns by user/session.
 	clientID := ClientIdentityFrom(ctx)

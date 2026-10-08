@@ -387,9 +387,9 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		Int64("usage.cache_read_input_tokens", int64(cacheRead)).
 		Float64("cost.requested_input_usd", requestedInputCost).
 		Int64("cost.baseline_warm_prefill_tokens", int64(baselineWarmPrefill)).
-		Float64("cost.requested_output_usd", catalog.EffectiveOutputCost(in, out, reqPricing, usageMods)).
+		Float64("cost.requested_output_usd", catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, reqPricing, usageMods)).
 		Float64("cost.actual_input_usd", catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, decision.Provider, usageMods)).
-		Float64("cost.actual_output_usd", catalog.EffectiveOutputCost(in, out, actPricing, usageMods)).
+		Float64("cost.actual_output_usd", catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, decision.Provider), out, actPricing, usageMods)).
 		Bool("cost.subscription_served", s.costNeutralSubscriptionServed(ctx)).
 		Int64("latency.upstream_ms", proxyMs).
 		Int64("latency.total_ms", time.Since(requestStart).Milliseconds()).
@@ -448,9 +448,9 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			InputTokens:            int32(in),
 			OutputTokens:           int32(out),
 			RequestedInputCostUSD:  requestedInputCost,
-			RequestedOutputCostUSD: catalog.EffectiveOutputCost(in, out, reqPricing, usageMods),
+			RequestedOutputCostUSD: catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, finalProvider), out, reqPricing, usageMods),
 			ActualInputCostUSD:     catalog.EffectiveInputCost(in, cacheCreation, cacheRead, actPricing, finalProvider, usageMods),
-			ActualOutputCostUSD:    catalog.EffectiveOutputCost(in, out, actPricing, usageMods),
+			ActualOutputCostUSD:    catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, finalProvider), out, actPricing, usageMods),
 			RouteLatencyMs:         routeMs,
 			UpstreamLatencyMs:      proxyMs,
 			TotalLatencyMs:         time.Since(requestStart).Milliseconds(),

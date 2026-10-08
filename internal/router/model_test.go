@@ -53,6 +53,15 @@ func TestLookup_GPT6AstraReasoning(t *testing.T) {
 	assert.True(t, spec.Reasoning().AlwaysOn)
 }
 
+func TestLookup_Haiku55AcceptsDisabledThinkingAndForcedTools(t *testing.T) {
+	spec := router.Lookup("claude-haiku-5-5")
+	assert.True(t, spec.Supports(router.CapAdaptiveThinking))
+	assert.True(t, spec.Supports(router.CapXhighEffort))
+	assert.False(t, spec.Supports(router.CapAutoToolChoiceOnly))
+	assert.False(t, spec.Reasoning().AlwaysOn)
+	assert.Equal(t, []string{"low", "medium", "high", "max", "xhigh"}, spec.Reasoning().Levels)
+}
+
 func TestLookup_GPT61SolRequiresReasoning(t *testing.T) {
 	spec := router.Lookup("gpt-6.1-sol")
 	assert.True(t, spec.Supports(router.CapReasoning))
