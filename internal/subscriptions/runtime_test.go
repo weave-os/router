@@ -125,7 +125,7 @@ func (s *runtimeStore) ExtendSubscriptionRefreshLease(_ context.Context, _ auth.
 	if s.leaseIDs[accountID] != leaseID {
 		return false, nil
 	}
-	s.leaseUntil[accountID] = time.Now().Add(leaseTTL)
+	s.leaseUntil[accountID] = s.clock().Add(leaseTTL)
 	return true, nil
 }
 
@@ -216,7 +216,7 @@ func (s *runtimeStore) UpdateSubscriptionAccountHealth(_ context.Context, _ auth
 		}
 		account.Enabled = account.Enabled && enabled
 		// Mirror SQL: activation preserves an unexpired cooldown.
-		if state == auth.SubscriptionAccountStateActive && account.CooldownUntil != nil && account.CooldownUntil.After(time.Now()) {
+		if state == auth.SubscriptionAccountStateActive && account.CooldownUntil != nil && account.CooldownUntil.After(s.clock()) {
 			state = account.State
 			cooldownUntil = account.CooldownUntil
 		}

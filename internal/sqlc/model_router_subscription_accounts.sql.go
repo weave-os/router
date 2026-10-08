@@ -14,8 +14,8 @@ import (
 
 const cooldownModelRouterSubscriptionAccountIfRefreshHolder = `-- name: CooldownModelRouterSubscriptionAccountIfRefreshHolder :execrows
 UPDATE router.model_router_subscription_accounts
-SET cooldown_until = $1::timestamp,
-    health_state = 'cooldown',
+SET cooldown_until = GREATEST(cooldown_until, $1::timestamp),
+    health_state = CASE WHEN cooldown_until > $1::timestamp THEN health_state ELSE 'cooldown' END,
     token_refresh_lease_until = NULL,
     token_refresh_lease_id = NULL,
     updated_at = CURRENT_TIMESTAMP
@@ -39,8 +39,8 @@ type CooldownModelRouterSubscriptionAccountIfRefreshHolderParams struct {
 // A stale refresh failure must not put the winner's credentials on cooldown.
 //
 //	UPDATE router.model_router_subscription_accounts
-//	SET cooldown_until = $1::timestamp,
-//	    health_state = 'cooldown',
+//	SET cooldown_until = GREATEST(cooldown_until, $1::timestamp),
+//	    health_state = CASE WHEN cooldown_until > $1::timestamp THEN health_state ELSE 'cooldown' END,
 //	    token_refresh_lease_until = NULL,
 //	    token_refresh_lease_id = NULL,
 //	    updated_at = CURRENT_TIMESTAMP
@@ -673,8 +673,8 @@ func (q *Queries) TryAcquireModelRouterSubscriptionRefreshLease(ctx context.Cont
 
 const updateModelRouterSubscriptionAccountCooldown = `-- name: UpdateModelRouterSubscriptionAccountCooldown :execrows
 UPDATE router.model_router_subscription_accounts
-SET cooldown_until = $1::timestamp,
-    health_state = 'cooldown',
+SET cooldown_until = GREATEST(cooldown_until, $1::timestamp),
+    health_state = CASE WHEN cooldown_until > $1::timestamp THEN health_state ELSE 'cooldown' END,
     updated_at = CURRENT_TIMESTAMP
 WHERE id = $2::uuid
   AND (subscriber_id = $3::uuid
@@ -693,8 +693,8 @@ type UpdateModelRouterSubscriptionAccountCooldownParams struct {
 // persisting a quota cooldown.
 //
 //	UPDATE router.model_router_subscription_accounts
-//	SET cooldown_until = $1::timestamp,
-//	    health_state = 'cooldown',
+//	SET cooldown_until = GREATEST(cooldown_until, $1::timestamp),
+//	    health_state = CASE WHEN cooldown_until > $1::timestamp THEN health_state ELSE 'cooldown' END,
 //	    updated_at = CURRENT_TIMESTAMP
 //	WHERE id = $2::uuid
 //	  AND (subscriber_id = $3::uuid
