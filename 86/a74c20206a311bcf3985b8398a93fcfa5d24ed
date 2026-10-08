@@ -1,0 +1,21 @@
+internal/proxy/stream_terminal_observer.go
+  s_eb4f32844b0b0e::t_e68aa4f182f359 189
+internal/proxy/stream_terminal_observer_internal_test.go
+  s_eb4f32844b0b0e::t_1e766a44cc4a72 45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "86a74c20206a311bcf3985b8398a93fcfa5d24ed",
+  "prompts": {},
+  "sessions": {
+    "s_eb4f32844b0b0e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1da55428-b9f4-4152-bae2-a6b4c2c17fc3",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

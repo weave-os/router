@@ -1,0 +1,37 @@
+internal/proxy/classifier_passthrough_internal_test.go
+  s_54f3fae2e86b5f::t_453fa2bf514691 116-118,163
+  s_54f3fae2e86b5f::t_d80a8e7e39923d 148
+  s_54f3fae2e86b5f::t_6b9aa9cd295554 149
+  s_54f3fae2e86b5f::t_1768fb241c2cc5 170-171
+  s_54f3fae2e86b5f::t_ed4b0f4fcb5bfc 15,160-161
+internal/proxy/subscription_state_models_internal_test.go
+  s_54f3fae2e86b5f::t_ec2fd40fdc2fd6 36-45
+  s_54f3fae2e86b5f::t_4568647a33c73b 86
+  s_54f3fae2e86b5f::t_9a124b085efdba 12
+  s_54f3fae2e86b5f::t_f249f0fc2e90c7 100,128,133,148-152,160
+  s_54f3fae2e86b5f::t_e95abd2f739cc2 129-132
+internal/proxy/classifier_dispatch_internal_test.go
+  s_54f3fae2e86b5f::t_0cf8b92261651d 15-16
+  s_54f3fae2e86b5f::t_e298f0d8d11b93 167-170,173-174,177,186-187,190-193
+  s_54f3fae2e86b5f::t_370e8be1d1d56e 175
+  s_54f3fae2e86b5f::t_d52aaa7301ce40 171-172,176,178-185,188-189
+  s_54f3fae2e86b5f::t_79d2900dcb98c6 194-195
+internal/proxy/subscription_state_models.go
+  s_54f3fae2e86b5f::t_5a35bd4cdad07b 107-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a617eaefd3cc153cfa70994da720310488e7f270",
+  "prompts": {},
+  "sessions": {
+    "s_54f3fae2e86b5f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11490-fa25-73a2-84d7-c8dee0aed02d",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

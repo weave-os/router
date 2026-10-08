@@ -1,0 +1,19 @@
+internal/proxy/service.go
+  s_09edbb821b9872::t_a98413fc43eb93 93-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "0048278c165bd12a994cbf692ed743c73db3e951",
+  "prompts": {},
+  "sessions": {
+    "s_09edbb821b9872": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "447128a0-53a8-407d-9e55-94b925e335bd",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

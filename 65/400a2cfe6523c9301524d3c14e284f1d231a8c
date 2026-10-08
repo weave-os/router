@@ -1,0 +1,26 @@
+internal/proxy/codex_luna_coverage_test.go
+  s_4929f4a64a3f33::t_57b9644caed4b7 1-51,53-59
+  s_4929f4a64a3f33::t_ce1fe5b50e8508 52
+internal/providers/openai/codex_internal_test.go
+  s_4929f4a64a3f33::t_ce1fe5b50e8508 29-59
+internal/proxy/subscription_internal_test.go
+  s_4929f4a64a3f33::t_ce1fe5b50e8508 17-18,189,192,216
+internal/requestcontext/codex_coverage_test.go
+  s_4929f4a64a3f33::t_db4670f762a3ac 1-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "65400a2cfe6523c9301524d3c14e284f1d231a8c",
+  "prompts": {},
+  "sessions": {
+    "s_4929f4a64a3f33": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0fa9c-a5e8-7ed3-906a-d1ee7e11263f",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

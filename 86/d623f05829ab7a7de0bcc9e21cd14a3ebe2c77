@@ -1,0 +1,25 @@
+install/opencode-weave/README.md
+  s_7a6983f650cc20::t_dda250ca138a86 58-66
+install/tests/opencode_install_test.sh
+  s_7a6983f650cc20::t_2e08d3574f57fe 64-69
+install/install.sh
+  s_7a6983f650cc20::t_b98ff763e42e85 1605-1607
+  s_7a6983f650cc20::t_10898cf45ae2aa 2022-2035
+  s_7a6983f650cc20::t_dfbf98cd9d241f 4679
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "86d623f05829ab7a7de0bcc9e21cd14a3ebe2c77",
+  "prompts": {},
+  "sessions": {
+    "s_7a6983f650cc20": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8d33a3a8-6f68-469d-94ea-381659064f80",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
