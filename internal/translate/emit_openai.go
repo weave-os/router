@@ -99,11 +99,13 @@ func (e *RequestEnvelope) PrepareOpenAI(in http.Header, opts EmitOptions) (provi
 	}
 	var body []byte
 	var stats providers.RequestMutationStats
+	var toolNames map[string]string
 	switch e.format {
 	case FormatOpenAI:
 		body, err = e.buildOpenAIFromOpenAI(opts)
 	case FormatAnthropic:
 		body, stats, err = e.buildOpenAIFromAnthropic(opts)
+		toolNames = openAIToolNameAliases(e.body, anthropicRequestToolNamePaths)
 	default:
 		return providers.PreparedRequest{}, fmt.Errorf("unsupported source format for OpenAI emit: %d", e.format)
 	}
@@ -129,7 +131,7 @@ func (e *RequestEnvelope) PrepareOpenAI(in http.Header, opts EmitOptions) (provi
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}
-	return providers.PreparedRequest{Body: body, Headers: headers, Stats: stats}, nil
+	return providers.PreparedRequest{Body: body, Headers: headers, Stats: stats, ResponseToolNames: toolNames}, nil
 }
 
 // applySessionAffinity attaches an upstream-specific prompt-cache routing hint

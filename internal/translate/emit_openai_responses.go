@@ -34,11 +34,14 @@ func (e *RequestEnvelope) PrepareOpenAIResponses(in http.Header, opts EmitOption
 	}
 	var body []byte
 	var stats providers.RequestMutationStats
+	var toolNames map[string]string
 	switch e.format {
 	case FormatAnthropic:
 		body, stats, err = e.buildResponsesFromAnthropic(opts)
+		toolNames = openAIToolNameAliases(e.body, anthropicRequestToolNamePaths)
 	case FormatOpenAI:
 		body, err = e.buildResponsesFromOpenAI(opts)
+		toolNames = openAIToolNameAliases(e.body, openAIRequestToolNamePaths)
 	default:
 		return providers.PreparedRequest{}, fmt.Errorf("PrepareOpenAIResponses: unsupported source format: %d", e.format)
 	}
@@ -53,7 +56,7 @@ func (e *RequestEnvelope) PrepareOpenAIResponses(in http.Header, opts EmitOption
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}
-	return providers.PreparedRequest{Body: body, Endpoint: providers.EndpointResponses, Stats: stats}, nil
+	return providers.PreparedRequest{Body: body, Endpoint: providers.EndpointResponses, Stats: stats, ResponseToolNames: toolNames}, nil
 }
 
 // applyResponsesSessionAffinity mirrors applySessionAffinity for the Responses

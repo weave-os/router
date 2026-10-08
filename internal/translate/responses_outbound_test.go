@@ -150,8 +150,8 @@ func TestPrepareOpenAIResponses_SanitizesHistoricalToolName(t *testing.T) {
 	input, _ := out["input"].([]any)
 	require.Len(t, input, 2)
 	call, _ := input[0].(map[string]any)
-	assert.Equal(t, "dots_schema_search_--scope_all", call["name"])
-	assert.Regexp(t, `^[a-zA-Z0-9_-]+$`, call["name"])
+	assert.Regexp(t, `^dots_schema_search_--scope_all_[0-9a-f]{10}$`, call["name"])
+	assert.Equal(t, "dots schema search --scope all", prep.ResponseToolNames[call["name"].(string)])
 }
 
 func topLevelResponsesFields(t *testing.T, body []byte) []string {

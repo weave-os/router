@@ -862,10 +862,17 @@ func sanitizeResponsesToolAlias(name string) string {
 		out.WriteByte('_')
 	}
 	alias := out.String()
-	if len(alias) > responsesMaxToolAliasBytes {
-		alias = alias[:responsesMaxToolAliasBytes]
+	if alias == name && len(alias) <= responsesMaxToolAliasBytes {
+		return alias
 	}
-	return alias
+	// Hash the original so names sharing a prefix or differing only in
+	// rewritten characters keep distinct, reversible aliases.
+	sum := sha256.Sum256([]byte(name))
+	suffix := fmt.Sprintf("_%x", sum[:5])
+	if maxBase := responsesMaxToolAliasBytes - len(suffix); len(alias) > maxBase {
+		alias = alias[:maxBase]
+	}
+	return alias + suffix
 }
 
 func responsesToolAliasWithHash(base string, identity responsesToolIdentity, attempt int) string {

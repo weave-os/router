@@ -4382,7 +4382,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				if preludeBuf != nil {
 					preludeBuf.Seal()
 				}
-				rawErr := p.Proxy(actx, d, prep, streamCut.attach(translator), r)
+				toolNames := translate.NewOpenAIToolNameWriter(translator, prep.ResponseToolNames)
+				rawErr := p.Proxy(actx, d, prep, streamCut.attach(toolNames), r)
 				finalize := func(err error) error {
 					// Post-commit: HTTP 200 + message_start already on the wire, so
 					// render the error as an in-stream `event: error` frame instead of
@@ -4392,7 +4393,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 						streamCut.noteCut(err)
 						err = emitAnthropicSSEErrorEvent(sink, err)
 					}
-					finErr := finalizeAfterProxy(err, translator.Finalize)
+					finErr := finalizeAfterProxy(finalizeAfterProxy(err, toolNames.Finalize), translator.Finalize)
 					respSummary = translator.Summary()
 					return finErr
 				}
@@ -7394,6 +7395,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				// A translated attempt reads Responses SSE, which the chat-shaped
 				// usage extractor can't parse — the translator records usage instead.
 				var translator *translate.ResponsesToOpenAIChatWriter
+				var toolNames *translate.ToolNameWriter
 				// A native attempt has no translator, so its terminal Responses event
 				// is the only source for the turn's finish reason.
 				var nativeTerminal *responsesTerminalObserver
@@ -7410,7 +7412,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					if err := translator.Prelude(env.Stream()); err != nil {
 						log.Error("chat/completions prelude failed (Responses upstream)", "err", err)
 					}
-					proxyWriter = translator
+					toolNames = translate.NewOpenAIToolNameWriter(translator, prep.ResponseToolNames)
+					proxyWriter = toolNames
 				case surface == surfaceResponsesNative:
 					nativeTerminal = newResponsesTerminalObserver(attemptSink)
 					proxyWriter = nativeTerminal
@@ -7445,7 +7448,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					_ = emitOpenAISSEErrorEvent(sink, err)
 				}
 				if translator != nil {
-					err = finalizeAfterProxy(err, translator.Finalize)
+					err = finalizeAfterProxy(finalizeAfterProxy(err, toolNames.Finalize), translator.Finalize)
 					if err == nil {
 						err = translator.UpstreamError()
 					}

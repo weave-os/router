@@ -15,16 +15,17 @@ import (
 )
 
 var (
-	_ providers.OutputProgressArmer    = (*AnthropicToolNameWriter)(nil)
-	_ providers.ReasoningProgressArmer = (*AnthropicToolNameWriter)(nil)
+	_ providers.OutputProgressArmer    = (*ToolNameWriter)(nil)
+	_ providers.ReasoningProgressArmer = (*ToolNameWriter)(nil)
 )
 
-// AnthropicToolNameWriter restores wire aliases before protocol translation or
+// ToolNameWriter restores wire aliases before protocol translation or
 // client delivery. Each dispatch attempt owns its buffer and alias mapping.
-type AnthropicToolNameWriter struct {
+type ToolNameWriter struct {
 	inner          http.ResponseWriter
 	flusher        http.Flusher
 	names          map[string]string
+	restore        func([]byte, map[string]string) ([]byte, error)
 	pending        bytes.Buffer
 	scanner        sse.Scanner
 	status         int
@@ -32,16 +33,26 @@ type AnthropicToolNameWriter struct {
 	headersEmitted bool
 }
 
-func NewAnthropicToolNameWriter(inner http.ResponseWriter, names map[string]string) *AnthropicToolNameWriter {
-	flusher, _ := inner.(http.Flusher)
-	return &AnthropicToolNameWriter{inner: inner, flusher: flusher, names: names}
+// NewAnthropicToolNameWriter restores aliases in an upstream Anthropic Messages response.
+func NewAnthropicToolNameWriter(inner http.ResponseWriter, names map[string]string) *ToolNameWriter {
+	return newToolNameWriter(inner, names, restoreAnthropicResponseToolNames)
 }
 
-func (w *AnthropicToolNameWriter) Header() http.Header {
+// NewOpenAIToolNameWriter restores aliases in an upstream OpenAI Chat or Responses response.
+func NewOpenAIToolNameWriter(inner http.ResponseWriter, names map[string]string) *ToolNameWriter {
+	return newToolNameWriter(inner, names, restoreOpenAIResponseToolNames)
+}
+
+func newToolNameWriter(inner http.ResponseWriter, names map[string]string, restore func([]byte, map[string]string) ([]byte, error)) *ToolNameWriter {
+	flusher, _ := inner.(http.Flusher)
+	return &ToolNameWriter{inner: inner, flusher: flusher, names: names, restore: restore}
+}
+
+func (w *ToolNameWriter) Header() http.Header {
 	return w.inner.Header()
 }
 
-func (w *AnthropicToolNameWriter) WriteHeader(status int) {
+func (w *ToolNameWriter) WriteHeader(status int) {
 	if w.headersEmitted {
 		return
 	}
@@ -55,14 +66,14 @@ func (w *AnthropicToolNameWriter) WriteHeader(status int) {
 	w.inner.WriteHeader(status)
 }
 
-func (w *AnthropicToolNameWriter) Flush() {
+func (w *ToolNameWriter) Flush() {
 	if w.flusher != nil {
 		w.flusher.Flush()
 	}
 }
 
 // ArmOutputProgress forwards output-bearing progress to the wrapped writer.
-func (w *AnthropicToolNameWriter) ArmOutputProgress(mark func()) bool {
+func (w *ToolNameWriter) ArmOutputProgress(mark func()) bool {
 	arm, ok := w.inner.(providers.OutputProgressArmer)
 	if !ok {
 		return false
@@ -71,7 +82,7 @@ func (w *AnthropicToolNameWriter) ArmOutputProgress(mark func()) bool {
 }
 
 // ArmReasoningProgress forwards reasoning progress to the wrapped writer.
-func (w *AnthropicToolNameWriter) ArmReasoningProgress(mark func()) bool {
+func (w *ToolNameWriter) ArmReasoningProgress(mark func()) bool {
 	arm, ok := w.inner.(providers.ReasoningProgressArmer)
 	if !ok {
 		return false
@@ -79,7 +90,7 @@ func (w *AnthropicToolNameWriter) ArmReasoningProgress(mark func()) bool {
 	return arm.ArmReasoningProgress(mark)
 }
 
-func (w *AnthropicToolNameWriter) Write(chunk []byte) (int, error) {
+func (w *ToolNameWriter) Write(chunk []byte) (int, error) {
 	if !w.headersEmitted {
 		w.WriteHeader(http.StatusOK)
 	}
@@ -104,7 +115,7 @@ func (w *AnthropicToolNameWriter) Write(chunk []byte) (int, error) {
 			break
 		}
 		_, payload := sse.ParseEvent(record)
-		rewritten, err := restoreAnthropicResponseToolNames(payload, w.names)
+		rewritten, err := w.restore(payload, w.names)
 		if err != nil {
 			return 0, err
 		}
@@ -120,14 +131,14 @@ func (w *AnthropicToolNameWriter) Write(chunk []byte) (int, error) {
 	return len(chunk), nil
 }
 
-func (w *AnthropicToolNameWriter) Finalize() error {
+func (w *ToolNameWriter) Finalize() error {
 	if w.pending.Len() == 0 {
 		return nil
 	}
 	body := w.pending.Bytes()
 	if !w.streaming {
 		var err error
-		body, err = restoreAnthropicResponseToolNames(body, w.names)
+		body, err = w.restore(body, w.names)
 		if err != nil {
 			return err
 		}
