@@ -42,12 +42,12 @@ func collectAnthropicToolNameEdits(blocks gjson.Result, path string, aliases map
 	switch anthropicToolNameBlock(blocks.Get("type").String()) {
 	case anthropicToolNameReference:
 		// ToolSearch results carry tool_name; tool_addition/tool_removal carry name.
-		field := "name"
+		nameField := "name"
 		if blocks.Get("tool_name").Exists() {
-			field = "tool_name"
+			nameField = "tool_name"
 		}
-		if name, ok := aliases[blocks.Get(field).String()]; ok {
-			*edits = append(*edits, anthropicToolNameEdit{path: path + "." + field, name: name})
+		if name, ok := aliases[blocks.Get(nameField).String()]; ok {
+			*edits = append(*edits, anthropicToolNameEdit{path: path + "." + nameField, name: name})
 		}
 	case anthropicToolNameUse:
 		if restoreUses {
@@ -58,7 +58,9 @@ func collectAnthropicToolNameEdits(blocks gjson.Result, path string, aliases map
 	case anthropicToolNameResult:
 		collectAnthropicToolNameEdits(blocks.Get("content"), path+".content", aliases, restoreUses, edits)
 	case anthropicToolNameBlock(anthropicSystemOnlyContentToolAddition), anthropicToolNameBlock(anthropicSystemOnlyContentToolRemoval):
-		collectAnthropicToolNameEdits(blocks.Get("tool"), path+".tool", aliases, restoreUses, edits)
+		if name, ok := aliases[blocks.Get("tool.name").String()]; ok {
+			*edits = append(*edits, anthropicToolNameEdit{path: path + ".tool.name", name: name})
+		}
 	}
 }
 
