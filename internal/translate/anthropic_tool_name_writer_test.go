@@ -135,6 +135,19 @@ func TestAnthropicToolNameWriterPreservesUnchangedResponses(t *testing.T) {
 	}
 }
 
+func TestAnthropicToolNameWriterEscapesPassthroughJSON(t *testing.T) {
+	const body = `{"error":{"message":"</script><script>alert(1)</script>"}}`
+	sink := httptest.NewRecorder()
+	writer := translate.NewAnthropicToolNameWriter(sink, nil)
+	writer.Header().Set("Content-Type", "application/json")
+	writer.WriteHeader(http.StatusBadRequest)
+	_, err := writer.Write([]byte(body))
+	require.NoError(t, err)
+	require.Equal(t, "</script><script>alert(1)</script>", gjson.Get(sink.Body.String(), "error.message").String())
+	require.NotContains(t, sink.Body.String(), "<script>")
+	require.Equal(t, "nosniff", sink.Header().Get("X-Content-Type-Options"))
+}
+
 func TestAnthropicToolNameWriterJSONEscapesRestoredHTMLCharacters(t *testing.T) {
 	const originalName = "</script><script>alert(1)</script>"
 	response := `{"content":[{"type":"tool_use","name":"wire_alias","input":{}}]}`
