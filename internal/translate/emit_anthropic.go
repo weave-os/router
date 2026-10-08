@@ -59,6 +59,15 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 	if err != nil {
 		return providers.PreparedRequest{}, fmt.Errorf("sanitize anthropic tool names: %w", err)
 	}
+	// Validate explicit breakpoints before normalization can remove empty blocks.
+	body, err = applyAnthropicCachePolicy(body, false)
+	if err != nil {
+		return providers.PreparedRequest{}, err
+	}
+	body, err = normalizeAnthropicFinalAssistant(body)
+	if err != nil {
+		return providers.PreparedRequest{}, fmt.Errorf("normalize anthropic final assistant: %w", err)
+	}
 	body, err = applyAnthropicCachePolicy(body, true)
 	if err != nil {
 		return providers.PreparedRequest{}, err
