@@ -1,0 +1,142 @@
+internal/postgres/serving/startup_test.go
+  s_995f50c8cb9d9c::t_9f3669eb5829b4 4-67
+  s_995f50c8cb9d9c::t_cf07e607cbd73f 1-3
+smoke/mitmproxy/startup.go
+  s_995f50c8cb9d9c::t_8c42f21cec89d1 39
+  s_995f50c8cb9d9c::t_7da8b5942af57c 1-35,40-47,49-56,59-83
+  s_995f50c8cb9d9c::t_9ca6c5463394fb 36-38,48,57-58
+internal/dispatch/buffered.go
+  s_995f50c8cb9d9c::t_63d4ffbb91dcf2 5,23-32,34-42,58-60,62-63,69
+  s_995f50c8cb9d9c::t_9f3669eb5829b4 33,61,72-74
+scripts/smoke/runner.py
+  s_995f50c8cb9d9c::t_7da8b5942af57c 37,78-83,363,372,378,381-387
+smoke/mitmproxy/proxy.go
+  s_995f50c8cb9d9c::t_7da8b5942af57c 107-109
+internal/health/config.go
+  s_995f50c8cb9d9c::t_7ca686b6f60ab4 1-7,9-11,27-52,54-73
+  s_995f50c8cb9d9c::t_3f42790637057a 8,12-26
+  s_995f50c8cb9d9c::t_c2c89dc705ba22 53
+cmd/router/startup_test.go
+  s_995f50c8cb9d9c::t_9f3669eb5829b4 4-79
+  s_995f50c8cb9d9c::t_ef71f64cdb8582 1-3
+internal/api/admin/health.go
+  s_995f50c8cb9d9c::t_ac039ba6338c09 7,23-43
+  s_995f50c8cb9d9c::t_df4e03712459aa 44
+internal/providers/openai/startup.go
+  s_995f50c8cb9d9c::t_4787551066b1d3 1-3,6-9,11
+  s_995f50c8cb9d9c::t_9f3669eb5829b4 4-5,10
+cmd/router/startup_inference.go
+  s_995f50c8cb9d9c::t_a3b8eabcb3ccf8 81-84,88-90
+  s_995f50c8cb9d9c::t_9f3669eb5829b4 4-9,11-14,16-21,23-26,31-37,99-111,115-122,144-145,147-149,151-155,157-159,161-185,188-195,198-203,211-212,221-266,269-324
+  s_995f50c8cb9d9c::t_4cec14b4463ffc 10,22,38-80,85-87,91-98,112-114,123-143,146,150,156,160
+  s_995f50c8cb9d9c::t_e8849e44269f0d 29-30
+  s_995f50c8cb9d9c::t_210978aa5aa85f 204-210,213-220
+  s_995f50c8cb9d9c::t_2c6ce30151d9c1 1-3,15,27-28,186-187,196-197,267-268,325
+smoke/mitmproxy/cassettes/README.md
+  s_995f50c8cb9d9c::t_7da8b5942af57c 14-21
+smoke/mitmproxy/startup_test.go
+  s_995f50c8cb9d9c::t_8c42f21cec89d1 72-76,130-141
+  s_995f50c8cb9d9c::t_482618de419d85 1-71,77-129,142-171
+internal/providers/anthropic/startup.go
+  s_995f50c8cb9d9c::t_4787551066b1d3 1-3,6-9,11
+  s_995f50c8cb9d9c::t_9f3669eb5829b4 4-5,10
+internal/health/config_test.go
+  s_995f50c8cb9d9c::t_c2c89dc705ba22 1-36
+internal/providers/google/startup.go
+  s_995f50c8cb9d9c::t_9f3669eb5829b4 4-5,10
+  s_995f50c8cb9d9c::t_4787551066b1d3 1-3,6-9,11
+internal/providers/httputil/startup_test.go
+  s_995f50c8cb9d9c::t_9f3669eb5829b4 4-71
+  s_995f50c8cb9d9c::t_55115c30c6dcf4 1-3,72
+cmd/router/startup_egress.go
+  s_995f50c8cb9d9c::t_9f3669eb5829b4 13,18-19,22-23,30,39,42-52,54-69,71-72,74-75,78-93,95
+internal/health/resources.go
+  s_995f50c8cb9d9c::t_b66ebc1006d968 31-36
+  s_995f50c8cb9d9c::t_3f42790637057a 42,55-88,98-100
+  s_995f50c8cb9d9c::t_fbadc3af3a9a21 152
+  s_995f50c8cb9d9c::t_3ceaff7e0c11cf 1-30,37-41,43-54,89-97,101-151,153-217
+internal/health/resources_test.go
+  s_995f50c8cb9d9c::t_c2c89dc705ba22 1-13,18-32,34-38,42,45-63,65-72
+  s_995f50c8cb9d9c::t_fbadc3af3a9a21 14-17,33,39-41,43-44,64,77
+  s_995f50c8cb9d9c::t_3f42790637057a 73-76,78-87
+internal/api/admin/health_test.go
+  s_995f50c8cb9d9c::t_19189f685af980 8,23-36
+  s_995f50c8cb9d9c::t_c6e3119fd0b604 37-38
+cmd/router/main.go
+  s_995f50c8cb9d9c::t_bc519dca3b3e8c 53,965-966
+  s_995f50c8cb9d9c::t_dfc6471521bd8c 19,33,140,147,558,621,1072,1120,1141,1156,1677,1683
+  s_995f50c8cb9d9c::t_2aae8c77ad811e 961-962,964,967-968,1598
+  s_995f50c8cb9d9c::t_9f3669eb5829b4 86-91,148-149,963,969,1081-1085,1149-1154,1157-1160,1167-1175,1588-1597,1599-1625,1628-1629,1678-1680,1905-1913
+  s_995f50c8cb9d9c::t_2c6ce30151d9c1 1080,1148
+  s_995f50c8cb9d9c::t_a77bc8755d4e6a 1587
+internal/server/middleware/capacity.go
+  s_995f50c8cb9d9c::t_ac039ba6338c09 1-38
+internal/health/capacity.go
+  s_995f50c8cb9d9c::t_19189f685af980 98-100
+  s_995f50c8cb9d9c::t_70a0bce910b25e 1-62,64-97,101-194
+  s_995f50c8cb9d9c::t_ac039ba6338c09 63
+internal/health/capacity_test.go
+  s_995f50c8cb9d9c::t_c2c89dc705ba22 1-120
+internal/server/middleware/capacity_test.go
+  s_995f50c8cb9d9c::t_19189f685af980 1-76
+internal/providers/openaicompat/startup.go
+  s_995f50c8cb9d9c::t_9f3669eb5829b4 4-5,10
+  s_995f50c8cb9d9c::t_4787551066b1d3 1-3,6-9,11
+internal/inference/request.go
+  s_995f50c8cb9d9c::t_9f3669eb5829b4 23
+internal/providers/httputil/startup.go
+  s_995f50c8cb9d9c::t_4fb399dda42216 1-14,18-22,26-27,37-38,42-44
+  s_995f50c8cb9d9c::t_9f3669eb5829b4 15-17,23-25,28-30,32-36,39-41
+  s_995f50c8cb9d9c::t_89caa73445c3b5 31
+scripts/serving_admission_check/main.go
+  s_995f50c8cb9d9c::t_12cda610411f1c 90-92,100-134
+  s_995f50c8cb9d9c::t_e99a0d573ae527 135-136
+internal/server/server.go
+  s_995f50c8cb9d9c::t_ac039ba6338c09 22,120-121,139-141,195-196
+cmd/router/startup.go
+  s_995f50c8cb9d9c::t_9f3669eb5829b4 4-72
+  s_995f50c8cb9d9c::t_87798b865b7d47 1-3,73
+cmd/router/startup_inference_test.go
+  s_995f50c8cb9d9c::t_9f3669eb5829b4 4-18,20-22,27-33,35-43,47-68,82,146-175,177-178,181-184,188-195,208-239
+  s_995f50c8cb9d9c::t_0e75d71970a474 1-3,24-26,240
+  s_995f50c8cb9d9c::t_889f29c321c46f 19,23,34,44-46,69-81,83-91,94-112,115-145
+  s_995f50c8cb9d9c::t_bc519dca3b3e8c 92-93,113-114
+  s_995f50c8cb9d9c::t_210978aa5aa85f 176,179-180,185-187,196-207
+scripts/smoke/test_runner.py
+  s_995f50c8cb9d9c::t_482618de419d85 37-39,85-91,225-232,342-370
+  s_995f50c8cb9d9c::t_66829efa1d49f3 371
+internal/postgres/serving/startup.go
+  s_995f50c8cb9d9c::t_1f14a0de3c34f0 1-25,31-42
+  s_995f50c8cb9d9c::t_797c3d2ad5ed68 26-30
+cmd/router/startup_egress_test.go
+  s_995f50c8cb9d9c::t_9f3669eb5829b4 6-7,10,12,25-27,30-31,34-48,52-60,64-65,67-68,71-72,74-78
+internal/router/policy/inference_purpose.go
+  s_995f50c8cb9d9c::t_9f3669eb5829b4 19,47
+internal/router/policy/inference_registry.go
+  s_995f50c8cb9d9c::t_9f3669eb5829b4 543-551,553-557
+  s_995f50c8cb9d9c::t_5a7a84942fc76d 552
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "af11df6c9e472f49caef555b6ab22943658f1f67",
+  "prompts": {},
+  "sessions": {
+    "s_48845d7bfeb9dc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f433-1544-71c1-a304-2faa7575e7b4",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
+    "s_995f50c8cb9d9c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f3da-c220-7d30-a2c2-f7306bea491b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
