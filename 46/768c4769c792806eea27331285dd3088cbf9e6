@@ -1,0 +1,79 @@
+internal/proxy/fastmode.go
+  s_8960fd48237f12::t_5cfbc4c316fa70 42
+internal/translate/emit_anthropic.go
+  s_8960fd48237f12::t_0675c5bb4fbc7c 116
+internal/router/policy/inference_constraints.go
+  s_8960fd48237f12::t_5cfbc4c316fa70 94
+internal/proxy/usage_bypass.go
+  s_8960fd48237f12::t_5cfbc4c316fa70 415
+internal/translate/envelope.go
+  s_8960fd48237f12::t_5cfbc4c316fa70 66-67
+internal/router/policy/resolver_test.go
+  s_4e65156213fd63::t_8e3a1e280e7182 629-656
+internal/router/policy/resolver.go
+  s_8960fd48237f12::t_5cfbc4c316fa70 355-358,384-388,487-503,514,575
+internal/router/router.go
+  s_8960fd48237f12::t_5cfbc4c316fa70 126-134
+internal/proxy/client_budget_internal_test.go
+  s_4e65156213fd63::t_8e3a1e280e7182 79
+  s_8960fd48237f12::t_c057cdf1888898 8
+internal/proxy/AGENTS.md
+  s_8960fd48237f12::t_58718ac8aaf90f 42-43
+internal/proxy/service_test.go
+  s_8960fd48237f12::t_ecb5c6decc7e67 1677-1701
+internal/providers/provider.go
+  s_8960fd48237f12::t_0675c5bb4fbc7c 860-865
+internal/translate/extended_context_beta_test.go
+  s_4e65156213fd63::t_8e3a1e280e7182 7,27,43,61,78
+internal/proxy/gemini.go
+  s_8960fd48237f12::t_5cfbc4c316fa70 157-159
+  s_8960fd48237f12::t_9f8758c9cafe5d 336
+internal/router/policy/inference_constraints_internal_test.go
+  s_4e65156213fd63::t_8e3a1e280e7182 8,23-33
+  s_8960fd48237f12::t_ba271e9f469005 34
+internal/proxy/service.go
+  s_8960fd48237f12::t_c057cdf1888898 7615
+  s_8960fd48237f12::t_5cfbc4c316fa70 1271,1273-1277,1279,1287-1289,1291-1293,1295,3711-3714,4044,4577,4728,4802,4895,6791-6794,6956
+  s_8960fd48237f12::t_f47110f72a29c7 7481
+  s_4e65156213fd63::t_b19b50e3794fb6 7717,7762,7837,7917
+internal/router/catalog/lookup.go
+  s_8960fd48237f12::t_0675c5bb4fbc7c 8,432
+  s_8960fd48237f12::t_5cfbc4c316fa70 417-431,433-436
+internal/router/policy/inference_routed_test.go
+  s_8960fd48237f12::t_ecb5c6decc7e67 181-198
+internal/proxy/route_preview.go
+  s_8960fd48237f12::t_5cfbc4c316fa70 108-111
+internal/router/catalog/context_capacity_internal_test.go
+  s_4e65156213fd63::t_8e3a1e280e7182 1-4,7-45
+  s_8960fd48237f12::t_bc5b5e3135e375 5-6
+internal/proxy/CLAUDE.md
+  s_4e65156213fd63::t_c43869e11c50e9 42-43
+internal/proxy/fallback.go
+  s_8960fd48237f12::t_a4c3ec277fb230 248,299-304,307
+internal/router/policy/inference_routed.go
+  s_8960fd48237f12::t_5e30d31b73e917 17,67-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "46768c4769c792806eea27331285dd3088cbf9e6",
+  "prompts": {},
+  "sessions": {
+    "s_4e65156213fd63": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1131f-7590-7db0-ab39-9d287d6ee16b",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Wesley Lin <wesley@workweave.ai>"
+    },
+    "s_8960fd48237f12": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a113a0-b447-73d1-893e-09cd7017cdef",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Wesley Lin <wesley@workweave.ai>"
+    }
+  }
+}

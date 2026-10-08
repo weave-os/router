@@ -1,0 +1,23 @@
+internal/proxy/dispatch_error_test.go
+  s_e9dbc80246be9d::t_afdd1a3da30655 382-392
+internal/policyclient/client.go
+  s_e9dbc80246be9d::t_665d3db695ce08 1001-1007
+internal/policyclient/client_test.go
+  s_e9dbc80246be9d::t_afdd1a3da30655 644-663
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "93f7fbbf1305d2e0850ed6bdc630372cc03fed70",
+  "prompts": {},
+  "sessions": {
+    "s_e9dbc80246be9d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11809-6a9b-7b11-9ab7-8f72423f9b2b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

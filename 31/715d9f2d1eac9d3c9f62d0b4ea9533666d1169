@@ -1,0 +1,47 @@
+internal/observability/otel/environment_test.go
+  s_61b1cde474dcb0::t_5ade8f538c7b8e 1-18,28-30,32-34,36-40,44-45
+  s_61b1cde474dcb0::t_95f082b8b7f90b 31,35
+  s_61b1cde474dcb0::t_47574b9af49da7 53-60
+  s_61b1cde474dcb0::t_b2f0cb9f96c68e 19-27,41-43,46-52
+cmd/router-gateway/telemetry_test.go
+  s_61b1cde474dcb0::t_571d9294af6f05 18,37,40-41,44-49,51-52,71,88
+  s_61b1cde474dcb0::t_d617419e94ca59 38-39,42-43,50,69
+internal/observability/otel/environment.go
+  s_61b1cde474dcb0::t_5ade8f538c7b8e 1-5,7-12,14-18,20-26,28-34,47,50-54,83-84,86,89-91
+  s_61b1cde474dcb0::t_1d59e173cbf336 13
+  s_61b1cde474dcb0::t_0974769b9561a8 58,64-65,71-72,80-81,88
+  s_61b1cde474dcb0::t_91c6c77ab95578 48-49
+  s_61b1cde474dcb0::t_b2f0cb9f96c68e 6,19,27,35-46,55-57,59-63,66-70,73-75,78-79,82,85,87
+  s_61b1cde474dcb0::t_95f082b8b7f90b 77
+  s_61b1cde474dcb0::t_2dde4a8cb0f7b3 76
+internal/gateway/latency_test.go
+  s_61b1cde474dcb0::t_80a3af12b53cb6 112-115,117-122
+internal/gateway/latency.go
+  s_61b1cde474dcb0::t_80a3af12b53cb6 62-64,71,96,103,108,118,122,124,140,151
+  s_61b1cde474dcb0::t_b08a404981d185 56-61,70
+cmd/router-gateway/main.go
+  s_61b1cde474dcb0::t_80a3af12b53cb6 22
+  s_61b1cde474dcb0::t_8e10183aac1b74 53,62
+  s_61b1cde474dcb0::t_77c02cf81b8aef 40-43,45,48-50,52,54-55,57-61
+  s_61b1cde474dcb0::t_b2f0cb9f96c68e 37,44,46-47,51,56,67-69
+cmd/router/main.go
+  s_61b1cde474dcb0::t_80a3af12b53cb6 1825,1835-1836,1843,1845,1849
+  s_61b1cde474dcb0::t_571d9294af6f05 1842
+  s_61b1cde474dcb0::t_b2f0cb9f96c68e 1837,1839-1840,1844,1850
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "31715d9f2d1eac9d3c9f62d0b4ea9533666d1169",
+  "prompts": {},
+  "sessions": {
+    "s_61b1cde474dcb0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1100f-68b7-7ad2-b1d9-0f8a40482812",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

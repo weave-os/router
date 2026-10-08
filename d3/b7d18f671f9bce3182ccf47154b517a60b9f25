@@ -1,0 +1,45 @@
+internal/proxy/marker_internal_test.go
+  s_99a26d7f7deb6c::t_5d910b4459889f 400-411
+internal/translate/responses.go
+  s_99a26d7f7deb6c::t_1a6069aa822012 534-536
+  s_99a26d7f7deb6c::t_efda0b2e9797ce 376-435
+  s_99a26d7f7deb6c::t_59661988d4fb7b 537,984-1011
+  s_99a26d7f7deb6c::t_6a45dd82482afd 643-648
+  s_99a26d7f7deb6c::t_836fc15ba32683 1012,1150-1174,1184-1206,1223-1228,1230
+  s_99a26d7f7deb6c::t_9b88f414c6d951 834,1518-1523,1898
+  s_99a26d7f7deb6c::t_107e94fe01613d 1047-1050,1060-1063,1083-1090,1119-1122,1331-1333,1921-1923
+  s_99a26d7f7deb6c::t_2f32d221fb473b 1013
+internal/proxy/service.go
+  s_99a26d7f7deb6c::t_a764ffa873dea9 536-542,564-566
+  s_99a26d7f7deb6c::t_615fff4d9709d3 5642,5675-5681,6231-6233
+  s_99a26d7f7deb6c::t_98b1c544e53723 5704-5708
+  s_99a26d7f7deb6c::t_034d20ae356297 6234
+internal/translate/responses_codex.go
+  s_99a26d7f7deb6c::t_1c837598702ee9 358
+  s_99a26d7f7deb6c::t_b3aba72580d376 378-379
+  s_99a26d7f7deb6c::t_433b5768a919e5 380
+internal/proxy/feedback_footer_internal_test.go
+  s_99a26d7f7deb6c::t_d0b67cabec927a 20,25-29
+internal/proxy/feedback.go
+  s_99a26d7f7deb6c::t_861084b56cdece 231-233
+  s_99a26d7f7deb6c::t_cb655095311d96 198-203
+internal/translate/responses_test.go
+  s_99a26d7f7deb6c::t_2ee78b97a561ae 920-1007,1009-1012
+  s_99a26d7f7deb6c::t_9d1dad2906e6f0 1008
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d3b7d18f671f9bce3182ccf47154b517a60b9f25",
+  "prompts": {},
+  "sessions": {
+    "s_99a26d7f7deb6c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6a458e13-f54a-43f2-8dcb-023370249ea7",
+        "model": "grok-4.6"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
