@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"strings"
 
@@ -46,10 +47,10 @@ func (w *AnthropicToolNameWriter) WriteHeader(status int) {
 	}
 	w.status = status
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if len(w.names) > 0 && status < 400 {
+	w.streaming = strings.Contains(w.inner.Header().Get("Content-Type"), "text/event-stream") && status < 400
+	if w.streaming || isJSONMediaType(w.inner.Header().Get("Content-Type")) {
 		w.Header().Del("Content-Length")
 	}
-	w.streaming = strings.Contains(w.inner.Header().Get("Content-Type"), "text/event-stream") && status < 400
 	w.headersEmitted = true
 	w.inner.WriteHeader(status)
 }
@@ -83,7 +84,7 @@ func (w *AnthropicToolNameWriter) Write(chunk []byte) (int, error) {
 		w.WriteHeader(http.StatusOK)
 	}
 	if len(w.names) == 0 || w.status >= 400 {
-		if w.streaming || strings.Contains(w.inner.Header().Get("Content-Type"), "json") {
+		if w.streaming || isJSONMediaType(w.inner.Header().Get("Content-Type")) {
 			consumed := len(chunk)
 			var escaped bytes.Buffer
 			json.HTMLEscape(&escaped, chunk)
@@ -135,6 +136,11 @@ func (w *AnthropicToolNameWriter) Finalize() error {
 	w.pending.Reset()
 	w.scanner.Reset()
 	return err
+}
+
+func isJSONMediaType(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	return err == nil && (strings.HasSuffix(mediaType, "/json") || strings.HasSuffix(mediaType, "+json"))
 }
 
 func restoreAnthropicResponseToolNames(body []byte, names map[string]string) ([]byte, error) {

@@ -140,6 +140,7 @@ func TestAnthropicToolNameWriterEscapesPassthroughJSON(t *testing.T) {
 	sink := httptest.NewRecorder()
 	writer := translate.NewAnthropicToolNameWriter(sink, nil)
 	writer.Header().Set("Content-Type", "application/json")
+	writer.Header().Set("Content-Length", fmt.Sprint(len(body)))
 	writer.WriteHeader(http.StatusBadRequest)
 	written, err := writer.Write([]byte(body))
 	require.NoError(t, err)
@@ -147,6 +148,22 @@ func TestAnthropicToolNameWriterEscapesPassthroughJSON(t *testing.T) {
 	require.Equal(t, "</script><script>alert(1)</script>", gjson.Get(sink.Body.String(), "error.message").String())
 	require.NotContains(t, sink.Body.String(), "<script>")
 	require.Equal(t, "nosniff", sink.Header().Get("X-Content-Type-Options"))
+	require.Empty(t, sink.Header().Get("Content-Length"))
+}
+
+func TestAnthropicToolNameWriterParsesJSONMediaTypeCaseInsensitively(t *testing.T) {
+	for _, contentType := range []string{"Application/JSON", "application/vnd.example+json"} {
+		t.Run(contentType, func(t *testing.T) {
+			const body = `{"message":"<script>"}`
+			sink := httptest.NewRecorder()
+			writer := translate.NewAnthropicToolNameWriter(sink, nil)
+			writer.Header().Set("Content-Type", contentType)
+			_, err := writer.Write([]byte(body))
+			require.NoError(t, err)
+			require.NotContains(t, sink.Body.String(), "<script>")
+			require.Equal(t, "<script>", gjson.Get(sink.Body.String(), "message").String())
+		})
+	}
 }
 
 func TestAnthropicToolNameWriterJSONEscapesRestoredHTMLCharacters(t *testing.T) {
