@@ -23,6 +23,9 @@ const (
 	// CapAutoToolChoiceOnly marks models that 400 on a forced tool_choice
 	// ({"type":"any"} / {"type":"tool"}); emit downgrades those to auto.
 	CapAutoToolChoiceOnly ModelCapability = "auto_tool_choice_only"
+	// CapTemperatureUnsupported marks Anthropic models that reject the
+	// temperature parameter even though they accept other sampling controls.
+	CapTemperatureUnsupported ModelCapability = "temperature_unsupported"
 )
 
 // ModelSpec describes what a model supports. Zero value is safe: provider
@@ -164,9 +167,13 @@ var openAICompatBase = NewSpec()
 var registry = map[string]ModelSpec{
 	// claude-fable-5 has adaptive thinking always on (disabled is rejected);
 	// 1M context is native, so CapExtendedContext's beta header is a no-op.
-	"claude-fable-5":   anthropicAdaptiveFallback,
-	"claude-fable-5-1": anthropicAdaptiveFallbackAutoTools,
-	"claude-opus-5-5":  anthropicAdaptiveFallbackAutoTools,
+	"claude-fable-5": anthropicAdaptiveFallback,
+	"claude-fable-5-1": NewSpecWithReasoning(
+		ReasoningCapabilities{Levels: []string{"low", "medium", "high", "max", "xhigh"}, AlwaysOn: true},
+		CapAdaptiveThinking, CapExtendedContext, CapXhighEffort, CapServerSideFallback,
+		CapAutoToolChoiceOnly, CapTemperatureUnsupported,
+	),
+	"claude-opus-5-5": anthropicAdaptiveFallbackAutoTools,
 	// Sonnet 5.5 accepts xhigh, unlike Sonnet 5.
 	"claude-sonnet-5-5": anthropicAdaptiveFallbackAutoTools,
 	"claude-opus-5":     anthropicAdaptiveFallback,

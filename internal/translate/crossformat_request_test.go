@@ -1304,6 +1304,28 @@ func TestCrossFormat_OpenAIToAnthropic_ScalarFieldsCarriedThrough(t *testing.T) 
 	assert.Equal(t, []any{"STOP", "END"}, seqs)
 }
 
+func TestCrossFormat_OpenAIToAnthropic_ReasoningTargetOmitsSamplers(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-6-luna",
+		"messages":[{"role":"user","content":"hi"}],
+		"temperature":0.4,
+		"top_p":0.8,
+		"top_k":12
+	}`)
+	env, err := translate.ParseOpenAI(body)
+	require.NoError(t, err)
+
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
+		TargetModel: "claude-fable-5-1", Capabilities: router.Lookup("claude-fable-5-1"), TargetProvider: "anthropic",
+	})
+	require.NoError(t, err)
+
+	doc := unmarshalBody(t, prep.Body)
+	assert.NotContains(t, doc, "temperature")
+	assert.Equal(t, float64(0.8), doc["top_p"], "Fable still accepts top_p")
+	assert.Equal(t, float64(12), doc["top_k"], "Anthropic-specific top_k remains available")
+}
+
 func TestCrossFormat_AnthropicToOpenAI_ScalarFieldsCarriedThrough(t *testing.T) {
 	body := []byte(`{
 		"model": "claude-sonnet-4-20250514",
