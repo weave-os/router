@@ -248,6 +248,9 @@ func newTransport(dialTimeout, tlsTimeout, responseHeaderTimeout time.Duration, 
 		ResponseHeaderTimeout: responseHeaderTimeout,
 		ForceAttemptHTTP2:     true,
 	}
+	if defaultHTTPTransport, ok := http.DefaultTransport.(*http.Transport); ok && defaultHTTPTransport.TLSClientConfig != nil {
+		t.TLSClientConfig = defaultHTTPTransport.TLSClientConfig.Clone()
+	}
 	// ConfigureTransports is the only way to reach the h2 keepalive knobs;
 	// http.Transport exposes no fields for them. ForceAttemptHTTP2 still ensures h2 on error.
 	if h2, err := http2.ConfigureTransports(t); err == nil {

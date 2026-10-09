@@ -74,6 +74,9 @@ func routingDistributionHandler(dist RoutingDistributionSource, admitted Admitte
 		excludedModels := parseCSVSet(c.Query("excluded_models"))
 		excludedProviders := parseCSVSet(c.Query("excluded_providers"))
 		strategy := router.Strategy(strings.ToLower(strings.TrimSpace(c.Query("strategy"))))
+		if strategy == "" && len(hmmRosters) > 0 && hmmRosters[0] != nil {
+			strategy = router.StrategyHMMEmbedding
+		}
 		var points []cluster.DistributionPoint
 		var err error
 		if admitted != nil {
