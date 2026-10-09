@@ -212,15 +212,25 @@ func (r *SessionPinRepo) ExpireAndCoolDownModel(ctx context.Context, expired ses
 	})
 }
 
-func (r *SessionPinRepo) AcquireRecoveryProbe(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, model string, token uuid.UUID, until time.Time) (bool, error) {
+func (r *SessionPinRepo) AcquireRecoveryProbe(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, model string, token uuid.UUID, leaseFor time.Duration) (bool, error) {
 	q := dbbudget.Queries(r.tx)
 	rows, err := q.AcquireSessionPinRecoveryProbeLease(ctx, sqlc.AcquireSessionPinRecoveryProbeLeaseParams{
-		SessionKey: sessionKey[:],
-		Model:      model,
-		LeaseToken: token,
-		LeaseUntil: pgtype.Timestamptz{Time: until.UTC(), Valid: true},
+		SessionKey:   sessionKey[:],
+		Model:        model,
+		LeaseToken:   token,
+		LeaseSeconds: leaseFor.Seconds(),
 	})
 	return rows == 1, err
+}
+
+func (r *SessionPinRepo) ClearDemotionCooldown(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role, model string, observedUntil time.Time) error {
+	q := dbbudget.Queries(r.tx)
+	return q.DeleteSessionPinDemotionCooldown(ctx, sqlc.DeleteSessionPinDemotionCooldownParams{
+		Model:         model,
+		SessionKey:    sessionKey[:],
+		Role:          role,
+		ObservedUntil: pgtype.Timestamptz{Time: observedUntil.UTC(), Valid: true},
+	})
 }
 
 func (r *SessionPinRepo) ReleaseRecoveryProbe(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, model string, token uuid.UUID) error {

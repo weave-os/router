@@ -61,6 +61,100 @@ func TestTwoModelRecoveryOnlyLeasesOneExpiredArmPerRequest(t *testing.T) {
 	defer result.releaseCooldownProbes()
 
 	require.Len(t, result.CooldownProbeReleases, 1, "one request must not lock both allowed models while selecting its probe")
+	// Equal expiries tie-break by name, so the Opus arm is the probe.
+	assert.Equal(t, map[string]time.Time{recoveryOpusModel: rateLimitTestNow}, result.CooldownProbes)
+	assert.Equal(t, []string{catalog.ModelGPT6Luna}, result.SessionDemotedModels, "the expired arm this request did not lease stays out of the turn")
+}
+
+// An in-process lease is a safety net for stores without durable leases: a
+// request that never released must not deny the arm forever.
+func TestLocalRecoveryProbeLeaseExpires(t *testing.T) {
+	svc, _ := cooldownTurnLoopService(&rolePinStore{byRole: map[string]sessionpin.Pin{}}, true)
+	now := rateLimitTestNow
+	svc.now = func() time.Time { return now }
+	key := nonZeroSessionKey()
+
+	_, acquired := svc.acquireRecoveryProbe(context.Background(), key, recoveryOpusModel)
+	require.True(t, acquired)
+	_, acquired = svc.acquireRecoveryProbe(context.Background(), key, recoveryOpusModel)
+	assert.False(t, acquired, "a live lease admits one probe")
+
+	now = now.Add(recoveryProbeLeaseDuration)
+	release, acquired := svc.acquireRecoveryProbe(context.Background(), key, recoveryOpusModel)
+	require.True(t, acquired, "an abandoned lease frees after its safety duration")
+	release()
+	_, acquired = svc.acquireRecoveryProbe(context.Background(), key, recoveryOpusModel)
+	assert.True(t, acquired, "a released lease frees immediately")
+}
+
+func TestRecoveryProbeLeaseCoversRequestDeadline(t *testing.T) {
+	svc, _ := cooldownTurnLoopService(&rolePinStore{byRole: map[string]sessionpin.Pin{}}, true)
+
+	assert.Equal(t, recoveryProbeLeaseDuration, svc.recoveryProbeLeaseFor(context.Background()))
+
+	ctx, cancel := context.WithDeadline(context.Background(), rateLimitTestNow.Add(30*time.Minute))
+	defer cancel()
+	assert.Equal(t, 31*time.Minute, svc.recoveryProbeLeaseFor(ctx), "a longer request keeps its lease one minute past the deadline")
+
+	short, cancelShort := context.WithDeadline(context.Background(), rateLimitTestNow.Add(time.Minute))
+	defer cancelShort()
+	assert.Equal(t, recoveryProbeLeaseDuration, svc.recoveryProbeLeaseFor(short), "a short request keeps the safety duration")
+}
+
+type clearedCooldown struct {
+	role, model string
+	until       time.Time
+}
+
+// recoveryLeaseStore is rolePinStore with a durable-lease contract so the
+// proxy takes the shared-lease path and reports recoveries to the store.
+type recoveryLeaseStore struct {
+	rolePinStore
+	leaseFor []time.Duration
+	cleared  []clearedCooldown
+}
+
+func (s *recoveryLeaseStore) AcquireRecoveryProbe(_ context.Context, _ [sessionpin.SessionKeyLen]byte, _ string, _ uuid.UUID, leaseFor time.Duration) (bool, error) {
+	s.leaseFor = append(s.leaseFor, leaseFor)
+	return true, nil
+}
+
+func (s *recoveryLeaseStore) ReleaseRecoveryProbe(context.Context, [sessionpin.SessionKeyLen]byte, string, uuid.UUID) error {
+	return nil
+}
+
+func (s *recoveryLeaseStore) ClearDemotionCooldown(_ context.Context, _ [sessionpin.SessionKeyLen]byte, role, model string, observedUntil time.Time) error {
+	s.cleared = append(s.cleared, clearedCooldown{role: role, model: model, until: observedUntil})
+	return nil
+}
+
+var _ sessionpin.RecoveryProbeStore = (*recoveryLeaseStore)(nil)
+
+// A durable lease is requested as a duration, never a worker-clock instant,
+// and a probe that served cleanly lifts its cooldown from both rows the next
+// turn merges, keyed to the expiry it observed.
+func TestRecoveredProbeClearsCooldownFromBothRows(t *testing.T) {
+	expired := rateLimitTestNow.Add(-time.Second)
+	store := &recoveryLeaseStore{rolePinStore: rolePinStore{byRole: map[string]sessionpin.Pin{
+		hmmHistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyCluster, DemotionCooldowns: map[string]time.Time{recoveryOpusModel: expired}},
+	}}}
+	svc, _ := cooldownTurnLoopService(store, true)
+	result := runDemotionTurnLoop(t, svc, context.Background())
+	result.releaseCooldownProbes()
+	require.Equal(t, []time.Duration{recoveryProbeLeaseDuration}, store.leaseFor)
+	require.Equal(t, map[string]time.Time{recoveryOpusModel: expired}, result.CooldownProbes)
+
+	svc.clearRecoveredCooldown(context.Background(), result, freshTurnModel, nil)
+	assert.Empty(t, store.cleared, "a turn served by another model recovers nothing")
+
+	svc.clearRecoveredCooldown(context.Background(), result, recoveryOpusModel, &providers.UpstreamErrorResponse{Status: http.StatusBadGateway})
+	assert.Empty(t, store.cleared, "a failed probe leaves the cooldown for the strike to rewrite")
+
+	svc.clearRecoveredCooldown(context.Background(), result, recoveryOpusModel, nil)
+	assert.Equal(t, []clearedCooldown{
+		{role: sessionpin.DefaultRole, model: recoveryOpusModel, until: expired},
+		{role: hmmHistoryRole(sessionpin.DefaultRole), model: recoveryOpusModel, until: expired},
+	}, store.cleared)
 }
 
 func twoModelGatewayContext() context.Context {

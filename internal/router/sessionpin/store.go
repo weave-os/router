@@ -237,6 +237,13 @@ type CooldownStore interface {
 // pair across router workers. The token makes release safe after lease expiry
 // and reacquisition by a later request.
 type RecoveryProbeStore interface {
-	AcquireRecoveryProbe(ctx context.Context, sessionKey [SessionKeyLen]byte, model string, token uuid.UUID, until time.Time) (bool, error)
+	// AcquireRecoveryProbe claims the probe for leaseFor, measured on the
+	// store's own clock so every worker agrees on when an abandoned lease frees.
+	AcquireRecoveryProbe(ctx context.Context, sessionKey [SessionKeyLen]byte, model string, token uuid.UUID, leaseFor time.Duration) (bool, error)
 	ReleaseRecoveryProbe(ctx context.Context, sessionKey [SessionKeyLen]byte, model string, token uuid.UUID) error
+	// ClearDemotionCooldown removes model from the (sessionKey, role) row's
+	// DemotionCooldowns after a successful probe, unless the stored expiry is
+	// later than observedUntil: a newer cooldown from a concurrent failure
+	// must survive the recovery that preceded it.
+	ClearDemotionCooldown(ctx context.Context, sessionKey [SessionKeyLen]byte, role, model string, observedUntil time.Time) error
 }

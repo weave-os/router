@@ -9,12 +9,14 @@ import (
 	"context"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const acquireSessionPinRecoveryProbeLease = `-- name: AcquireSessionPinRecoveryProbeLease :execrows
 INSERT INTO router.session_pin_recovery_probe_leases (session_key, model, lease_token, lease_until)
-VALUES ($1::bytea, $2::varchar, $3::uuid, $4::timestamptz)
+VALUES (
+  $1::bytea, $2::varchar, $3::uuid,
+  CURRENT_TIMESTAMP + make_interval(secs => $4::double precision)
+)
 ON CONFLICT (session_key, model) DO UPDATE SET
   lease_token = EXCLUDED.lease_token,
   lease_until = EXCLUDED.lease_until
@@ -22,17 +24,22 @@ WHERE router.session_pin_recovery_probe_leases.lease_until <= CURRENT_TIMESTAMP
 `
 
 type AcquireSessionPinRecoveryProbeLeaseParams struct {
-	SessionKey []byte
-	Model      string
-	LeaseToken uuid.UUID
-	LeaseUntil pgtype.Timestamptz
+	SessionKey   []byte
+	Model        string
+	LeaseToken   uuid.UUID
+	LeaseSeconds float64
 }
 
 // Atomically claim one expired or unused recovery probe lease across all
-// router workers. An active lease produces zero affected rows.
+// router workers. An active lease produces zero affected rows. The expiry is
+// computed on the database clock that the conflict guard and sweep compare
+// against, so a worker with a skewed clock cannot shorten or extend a lease.
 //
 //	INSERT INTO router.session_pin_recovery_probe_leases (session_key, model, lease_token, lease_until)
-//	VALUES ($1::bytea, $2::varchar, $3::uuid, $4::timestamptz)
+//	VALUES (
+//	  $1::bytea, $2::varchar, $3::uuid,
+//	  CURRENT_TIMESTAMP + make_interval(secs => $4::double precision)
+//	)
 //	ON CONFLICT (session_key, model) DO UPDATE SET
 //	  lease_token = EXCLUDED.lease_token,
 //	  lease_until = EXCLUDED.lease_until
@@ -42,7 +49,7 @@ func (q *Queries) AcquireSessionPinRecoveryProbeLease(ctx context.Context, arg A
 		arg.SessionKey,
 		arg.Model,
 		arg.LeaseToken,
-		arg.LeaseUntil,
+		arg.LeaseSeconds,
 	)
 	if err != nil {
 		return 0, err

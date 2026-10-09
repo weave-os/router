@@ -98,7 +98,7 @@ func (s *recoveryObservedStore) Get(ctx context.Context, key [sessionpin.Session
 	return s.rolePinStore.Get(ctx, key, role)
 }
 
-func (s *recoveryObservedStore) AcquireRecoveryProbe(_ context.Context, key [sessionpin.SessionKeyLen]byte, model string, token uuid.UUID, _ time.Time) (bool, error) {
+func (s *recoveryObservedStore) AcquireRecoveryProbe(_ context.Context, key [sessionpin.SessionKeyLen]byte, model string, token uuid.UUID, _ time.Duration) (bool, error) {
 	s.leaseMu.Lock()
 	defer s.leaseMu.Unlock()
 	if s.probeLeases == nil {
@@ -123,6 +123,10 @@ func (s *recoveryObservedStore) ReleaseRecoveryProbe(_ context.Context, key [ses
 	if lease := s.probeLeases[leaseKey]; lease.token == token {
 		delete(s.probeLeases, leaseKey)
 	}
+	return nil
+}
+
+func (s *recoveryObservedStore) ClearDemotionCooldown(context.Context, [sessionpin.SessionKeyLen]byte, string, string, time.Time) error {
 	return nil
 }
 

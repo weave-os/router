@@ -1,8 +1,13 @@
 -- Atomically claim one expired or unused recovery probe lease across all
--- router workers. An active lease produces zero affected rows.
+-- router workers. An active lease produces zero affected rows. The expiry is
+-- computed on the database clock that the conflict guard and sweep compare
+-- against, so a worker with a skewed clock cannot shorten or extend a lease.
 -- name: AcquireSessionPinRecoveryProbeLease :execrows
 INSERT INTO router.session_pin_recovery_probe_leases (session_key, model, lease_token, lease_until)
-VALUES (@session_key::bytea, @model::varchar, @lease_token::uuid, @lease_until::timestamptz)
+VALUES (
+  @session_key::bytea, @model::varchar, @lease_token::uuid,
+  CURRENT_TIMESTAMP + make_interval(secs => @lease_seconds::double precision)
+)
 ON CONFLICT (session_key, model) DO UPDATE SET
   lease_token = EXCLUDED.lease_token,
   lease_until = EXCLUDED.lease_until

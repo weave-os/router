@@ -93,11 +93,14 @@ strike.** Under `transient_rate_limit` (default off),
 (`rate_limit_cooldown_seconds`, default 45) in `Pin.DemotionCooldowns`;
 committed-stream failures and other rescued failures stay permanent.
 `runTurnLoop` folds only *active* cooldowns into `AutomaticExcludedModels`.
-At expiry, a Postgres lease grants one in-flight request per session/model the
-recovery probe across router workers; concurrent requests use their other
-candidates. A lease token prevents a delayed release from clearing a newer
-probe; abandoned leases expire after 15 minutes, or one minute after a known
-request deadline. Cooldowns are soft in one more way than the
+At expiry, a Postgres lease grants the recovery probe to one in-flight request
+per session/model across router workers; concurrent requests use their other
+candidates, and the request's remaining expired arms stay excluded for that
+turn. A lease token prevents a delayed release from clearing a newer probe;
+abandoned leases expire after 15 minutes, or one minute after a known request
+deadline, measured on the database clock. A probe that completes without an
+upstream error clears its cooldown from both stored rows unless a newer
+cooldown has replaced it, so a recovered arm needs no further leases. Cooldowns are soft in one more way than the
 deployment exclusion: `rescueWalkOrReadmitCooling` appends cooling arms
 (soonest expiry first) *after* every healthy rescue candidate, so a session
 whose whole rescue pool is throttled readmits a cooling arm instead of

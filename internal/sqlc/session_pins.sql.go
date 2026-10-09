@@ -81,6 +81,43 @@ func (q *Queries) DeleteSessionPin(ctx context.Context, arg DeleteSessionPinPara
 	return i, err
 }
 
+const deleteSessionPinDemotionCooldown = `-- name: DeleteSessionPinDemotionCooldown :exec
+UPDATE router.session_pins
+SET demotion_cooldowns = demotion_cooldowns - $1::varchar
+WHERE session_key = $2::bytea
+  AND role = $3::varchar
+  AND demotion_cooldowns ? $1::varchar
+  AND (demotion_cooldowns ->> $1::varchar)::timestamptz <= $4::timestamptz
+`
+
+type DeleteSessionPinDemotionCooldownParams struct {
+	Model         string
+	SessionKey    []byte
+	Role          string
+	ObservedUntil pgtype.Timestamptz
+}
+
+// Removes model's cooldown from one (session_key, role) row after a recovery
+// probe served the model successfully, so later turns no longer need a lease
+// to use it. The guard keeps a cooldown written by a concurrent failure after
+// the probe observed its expiry.
+//
+//	UPDATE router.session_pins
+//	SET demotion_cooldowns = demotion_cooldowns - $1::varchar
+//	WHERE session_key = $2::bytea
+//	  AND role = $3::varchar
+//	  AND demotion_cooldowns ? $1::varchar
+//	  AND (demotion_cooldowns ->> $1::varchar)::timestamptz <= $4::timestamptz
+func (q *Queries) DeleteSessionPinDemotionCooldown(ctx context.Context, arg DeleteSessionPinDemotionCooldownParams) error {
+	_, err := q.db.Exec(ctx, deleteSessionPinDemotionCooldown,
+		arg.Model,
+		arg.SessionKey,
+		arg.Role,
+		arg.ObservedUntil,
+	)
+	return err
+}
+
 const disableSessionPinProvider = `-- name: DisableSessionPinProvider :exec
 UPDATE router.session_pins
 SET disabled_providers = CASE

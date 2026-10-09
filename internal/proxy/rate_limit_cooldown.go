@@ -209,6 +209,22 @@ func harnessSafeModels(models []string, hasTools bool) []string {
 	return out
 }
 
+// expiredDemotionCooldowns is the complement of activeDemotionCooldowns: the
+// arms whose cooldown has lapsed and now need a recovery probe.
+func expiredDemotionCooldowns(cooldowns map[string]time.Time, now time.Time) map[string]time.Time {
+	var expired map[string]time.Time
+	for model, until := range cooldowns {
+		if now.Before(until) {
+			continue
+		}
+		if expired == nil {
+			expired = make(map[string]time.Time, len(cooldowns))
+		}
+		expired[model] = until
+	}
+	return expired
+}
+
 // cooldownsByExpiry lists the models in cooldowns soonest-to-recover first,
 // ties broken by name, so an exhausted rescue readmits the arm that has
 // cooled the longest before one that was throttled a moment ago.

@@ -316,6 +316,10 @@ type turnLoopResult struct {
 	// CooldownProbeReleases hold one half-open probe slot per expired model
 	// until provider dispatch completes.
 	CooldownProbeReleases []func()
+	// CooldownProbes maps each model this request holds a recovery probe for
+	// to the cooldown expiry it observed, so a successful turn clears exactly
+	// that cooldown and leaves a newer one alone.
+	CooldownProbes map[string]time.Time
 	// SessionStrikeReadmitModels are the session-lifetime demotions the
 	// in-turn rescue may readmit as a last resort when no other candidate is
 	// left: a session that has struck out every arm must not 502 a turn that
@@ -334,9 +338,7 @@ type turnLoopResult struct {
 
 func (res turnLoopResult) releaseCooldownProbes() {
 	for _, release := range res.CooldownProbeReleases {
-		if release != nil {
-			release()
-		}
+		release()
 	}
 }
 
@@ -1269,16 +1271,24 @@ func (s *Service) runTurnLoop(
 			res.SessionCooldownModels = readmittableCooldowns(cooling, demoted, req.HasImages)
 			demoted = mergeSessionStrikes(demoted, cooldownsByExpiry(cooling))
 		}
-		for model, until := range cooldowns {
-			if now.Before(until) || slices.Contains(demoted, model) {
+		// One probe per request: the first expired arm (longest cooled first)
+		// whose lease this request wins is readmitted; every other expired arm
+		// stays out this turn so it is never served without a lease.
+		expired := expiredDemotionCooldowns(cooldowns, now)
+		probed := false
+		for _, model := range cooldownsByExpiry(expired) {
+			if slices.Contains(demoted, model) {
 				continue
 			}
-			if release, acquired := s.acquireRecoveryProbe(ctx, res.SessionKey, model); acquired {
-				res.CooldownProbeReleases = append(res.CooldownProbeReleases, release)
-				break
-			} else {
-				demoted = mergeSessionStrikes(demoted, []string{model})
+			if !probed {
+				if release, acquired := s.acquireRecoveryProbe(ctx, res.SessionKey, model); acquired {
+					res.CooldownProbeReleases = append(res.CooldownProbeReleases, release)
+					res.CooldownProbes = map[string]time.Time{model: expired[model]}
+					probed = true
+					continue
+				}
 			}
+			demoted = mergeSessionStrikes(demoted, []string{model})
 		}
 	}
 	if len(demoted) > 0 {

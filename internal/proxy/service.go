@@ -65,7 +65,7 @@ type TelemetryEmitter interface {
 // Service orchestrates routing decisions and provider dispatch.
 type Service struct {
 	recoveryProbeMu     sync.Mutex
-	recoveryProbeLeases map[string]uint64
+	recoveryProbeLeases map[string]localRecoveryProbeLease
 	nextRecoveryProbeID uint64
 
 	router             router.Router
@@ -1886,6 +1886,27 @@ func (s *Service) WithTransientRateLimit(enabled bool, cooldownSeconds int) *Ser
 
 const recoveryProbeLeaseDuration = 15 * time.Minute
 
+// localRecoveryProbeLease is the in-process stand-in for a durable lease row:
+// the id keeps a stale release from freeing a newer lease, the expiry keeps a
+// request that never released from denying the model forever.
+type localRecoveryProbeLease struct {
+	id    uint64
+	until time.Time
+}
+
+// recoveryProbeLeaseFor bounds a lease to the safety duration, or one minute
+// past a known request deadline when that is later, so a probe cannot be
+// freed while its request may still be streaming.
+func (s *Service) recoveryProbeLeaseFor(ctx context.Context) time.Duration {
+	leaseFor := recoveryProbeLeaseDuration
+	if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
+		if untilDeadline := deadline.Add(time.Minute).Sub(s.clockNow()); untilDeadline > leaseFor {
+			leaseFor = untilDeadline
+		}
+	}
+	return leaseFor
+}
+
 // acquireRecoveryProbe grants one in-flight recovery attempt for a session/model
 // pair. A durable pin store shares the lease across router workers; the local
 // map keeps stores used by offline tests and tooling behaviorally equivalent.
@@ -1893,13 +1914,10 @@ func (s *Service) acquireRecoveryProbe(ctx context.Context, sessionKey [sessionp
 	if sessionKey == ([sessionpin.SessionKeyLen]byte{}) || model == "" {
 		return func() {}, true
 	}
+	leaseFor := s.recoveryProbeLeaseFor(ctx)
 	if store, ok := s.pinStore.(sessionpin.RecoveryProbeStore); ok {
 		token := uuid.New()
-		leaseUntil := s.clockNow().Add(recoveryProbeLeaseDuration)
-		if deadline, hasDeadline := ctx.Deadline(); hasDeadline && deadline.Add(time.Minute).After(leaseUntil) {
-			leaseUntil = deadline.Add(time.Minute)
-		}
-		acquired, err := store.AcquireRecoveryProbe(ctx, sessionKey, model, token, leaseUntil)
+		acquired, err := store.AcquireRecoveryProbe(ctx, sessionKey, model, token, leaseFor)
 		if err != nil {
 			observability.FromContext(ctx).Warn("failed to acquire recovery probe lease; keeping model out for this request", "model", model, "err", err)
 			return nil, false
@@ -1919,29 +1937,56 @@ func (s *Service) acquireRecoveryProbe(ctx context.Context, sessionKey [sessionp
 		}, true
 	}
 	key := string(sessionKey[:]) + "\x00" + model
+	now := s.clockNow()
 	s.recoveryProbeMu.Lock()
-	if _, exists := s.recoveryProbeLeases[key]; exists {
+	if lease, exists := s.recoveryProbeLeases[key]; exists && now.Before(lease.until) {
 		s.recoveryProbeMu.Unlock()
 		return nil, false
 	}
 	if s.recoveryProbeLeases == nil {
-		s.recoveryProbeLeases = make(map[string]uint64)
+		s.recoveryProbeLeases = make(map[string]localRecoveryProbeLease)
 	}
 	s.nextRecoveryProbeID++
 	leaseID := s.nextRecoveryProbeID
-	s.recoveryProbeLeases[key] = leaseID
+	s.recoveryProbeLeases[key] = localRecoveryProbeLease{id: leaseID, until: now.Add(leaseFor)}
 	s.recoveryProbeMu.Unlock()
 
 	var once sync.Once
 	return func() {
 		once.Do(func() {
 			s.recoveryProbeMu.Lock()
-			if s.recoveryProbeLeases[key] == leaseID {
+			if s.recoveryProbeLeases[key].id == leaseID {
 				delete(s.recoveryProbeLeases, key)
 			}
 			s.recoveryProbeMu.Unlock()
 		})
 	}, true
+}
+
+// clearRecoveredCooldown lifts the cooldown behind this request's recovery
+// probe once the probed model served the turn without an upstream error, on
+// every row the next turn merges (see mergeDemotionCooldowns). A failed probe
+// leaves the cooldown to maybeStrikeArmAfterRescuedFailure, which rewrites it.
+func (s *Service) clearRecoveredCooldown(ctx context.Context, res turnLoopResult, servedModel string, proxyErr error) {
+	observedUntil, probed := res.CooldownProbes[servedModel]
+	if !probed || proxyErr != nil {
+		return
+	}
+	store, ok := s.pinStore.(sessionpin.RecoveryProbeStore)
+	if !ok {
+		return
+	}
+	pinRole := res.PinRole
+	if pinRole == "" {
+		pinRole = sessionpin.DefaultRole
+	}
+	// context.Background(): the request ctx is already canceled once streaming
+	// finishes, and the recovery must still land.
+	for _, role := range demotionRoles(pinRole, pinRole) {
+		if err := store.ClearDemotionCooldown(context.Background(), res.SessionKey, role, servedModel, observedUntil); err != nil {
+			observability.FromContext(ctx).Warn("failed to clear recovered cooldown; next turns keep probing", "model", servedModel, "role", role, "err", err)
+		}
+	}
 }
 
 // WithNativeAnthropicResponseSignals is the kill switch
@@ -5227,6 +5272,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	if !agentShadowMode {
 		s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead, extractor.OutputLimitReached())
+		s.clearRecoveredCooldown(ctx, routeRes, decision.Model, proxyErr)
 	}
 
 	var subscriberTelemetry *InsertTelemetryParams
@@ -8320,6 +8366,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 
 	s.recordTurnUsage(ctx, routeRes, finalProvider, decision.ServedIdentity(), in, out, cacheCreation, cacheRead, extractor.OutputLimitReached())
+	s.clearRecoveredCooldown(ctx, routeRes, decision.Model, proxyErr)
 
 	var subscriberSettlement subscriberSettlementState
 	if proxyErr == nil {

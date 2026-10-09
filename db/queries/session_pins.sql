@@ -433,6 +433,18 @@ ON CONFLICT (session_key, role) DO UPDATE SET
 WHERE router.session_pins.routing_strategy = EXCLUDED.routing_strategy
   OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy <> 'hmm_beta');
 
+-- Removes model's cooldown from one (session_key, role) row after a recovery
+-- probe served the model successfully, so later turns no longer need a lease
+-- to use it. The guard keeps a cooldown written by a concurrent failure after
+-- the probe observed its expiry.
+-- name: DeleteSessionPinDemotionCooldown :exec
+UPDATE router.session_pins
+SET demotion_cooldowns = demotion_cooldowns - @model::varchar
+WHERE session_key = @session_key::bytea
+  AND role = @role::varchar
+  AND demotion_cooldowns ? @model::varchar
+  AND (demotion_cooldowns ->> @model::varchar)::timestamptz <= @observed_until::timestamptz;
+
 -- Garbage-collects pins that have been expired for >24h. The 24h grace
 -- means a transient Postgres outage doesn't immediately prune live pins;
 -- the hourly sweep is bounded because the row count is one per active
