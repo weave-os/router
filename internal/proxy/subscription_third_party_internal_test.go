@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -164,4 +165,20 @@ func TestSubscriptionThirdPartyRefusalRescuesInboundSubscription(t *testing.T) {
 			assert.Equal(t, 1, upstream.paidDispatches)
 		})
 	}
+}
+
+func TestSubscriptionThirdPartyRefusalRescuesOpenAIIngress(t *testing.T) {
+	in := parityAnthropicIngress()
+	upstream := &parityUpstream{subErr: thirdPartyRefusalError(), okBody: in.upstreamOK(false)}
+	svc := in.parityService(upstream)
+	body := []byte(`{"model":"` + in.model + `","max_tokens":4096,"stream":false,"messages":[{"role":"user","content":"investigate the failing dispatch"}]}`)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+
+	require.NoError(t, svc.ProxyOpenAIChatCompletion(in.subCtx(), body, recorder, request))
+
+	assert.Equal(t, http.StatusOK, recorder.Code)
+	assert.NotContains(t, recorder.Body.String(), "Third-party apps")
+	assert.Equal(t, 1, upstream.subDispatches)
+	assert.Equal(t, 1, upstream.paidDispatches)
 }

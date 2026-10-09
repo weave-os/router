@@ -7840,7 +7840,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		!paidFallbackForbiddenForModel(ctx, decision.Model) &&
 		s.openaiFallbackKeyAvailable(ctx)
 	// OpenAI-compatible callers can route to Anthropic too; give their Claude
-	// subscription model-access rejection the same paid recovery as /v1/messages.
+	// subscription model-access and third-party refusals the same paid recovery
+	// as /v1/messages.
 	claudeRetryViable := decision.Provider == providers.ProviderAnthropic &&
 		servedOnSubscription(ctx) &&
 		!blindExperimentPassthroughActive(ctx) &&
@@ -8022,7 +8023,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	claudeFailoverUsed := false
 	claudeRetryRan := false
-	if claudeRetryViable && !paidFallbackForbiddenForModel(ctx, decision.Model) && proxyErr != nil && !preludeBuf.Committed() && anthropicSubscriptionModelRejected(proxyErr) {
+	if claudeRetryViable && !paidFallbackForbiddenForModel(ctx, decision.Model) && proxyErr != nil && !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(proxyErr) || anthropicSubscriptionThirdPartyRefused(proxyErr)) {
 		subCtx := subscriptionStatePaidRescueContext(withSuppressedClaudeSubscription(ctx), decision.Model)
 		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, decision.Model, r.Header)
 		subOpts := opts
