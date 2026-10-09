@@ -74,7 +74,9 @@ func TestShouldStripCCTool(t *testing.T) {
 		{"ToolSearch", true, false, false},      // independent of the orchestration flag
 		{"TodoWrite", false, false, true},       // CC-only non-orchestration: stripped
 		{"TodoWrite", true, true, true},         // TodoWrite is not one of the four task tools
-		{"SendMessage", true, true, true},       // CC-only subagent messaging: stripped even when both flags on
+		{"SendMessage", true, true, false},      // peer messaging follows the orchestration flag
+		{"SendMessage", true, false, false},
+		{"SendMessage", false, true, true},
 	}
 	for _, tc := range cases {
 		opts := ccToolFilterOptions{KeepOrchestration: tc.keepOrchestration, KeepTaskTools: tc.keepTaskTools}

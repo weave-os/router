@@ -38,7 +38,7 @@ var claudeCodeOnlyToolNames = map[string]struct{}{
 	"TaskList":    {},
 	"TaskOutput":  {},
 	"TaskStop":    {},
-	"SendMessage": {}, // teammate/subagent messaging: CC-internal like Task*
+	"SendMessage": {},
 	// Plan mode / skills / workflows.
 	"EnterPlanMode":   {},
 	"ExitPlanMode":    {},
@@ -88,6 +88,7 @@ var claudeCodeOrchestrationToolNames = map[string]struct{}{
 	"Agent":         {},
 	"TaskOutput":    {},
 	"TaskStop":      {},
+	"SendMessage":   {},
 	"Workflow":      {},
 	"Skill":         {},
 	"EnterPlanMode": {},
