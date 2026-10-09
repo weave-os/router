@@ -483,7 +483,7 @@ func (s *Service) bypassToAnthropic(
 	if providers.IsRetryable(proxyErr) {
 		return errBypassRetryable
 	}
-	if anthropicSubscriptionModelRejected(proxyErr) && s.anthropicFallbackKeyAvailable(ctx) && !billing.SubscriptionOnlyFromContext(ctx) {
+	if (anthropicSubscriptionModelRejected(proxyErr) || anthropicSubscriptionThirdPartyRefused(proxyErr)) && s.anthropicFallbackKeyAvailable(ctx) && !billing.SubscriptionOnlyFromContext(ctx) {
 		return errBypassRetryable
 	}
 	if errors.As(proxyErr, &upstreamErr) {
