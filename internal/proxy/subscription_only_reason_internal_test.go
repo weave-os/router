@@ -2,6 +2,8 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
 	"testing"
 
 	"weave-os/router/internal/billing"
@@ -53,4 +55,29 @@ func TestSubscriptionOnlyUnavailableNamesTheGate(t *testing.T) {
 
 	depletedCtx := billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlyCreditsDepleted)
 	assert.Equal(t, ErrCreditsExhaustedSubscriptionUnavailable, subscriptionOnlyUnavailable(depletedCtx))
+}
+
+func TestSubscriptionOnlyWarningShowsOncePerConversation(t *testing.T) {
+	capCtx := billing.WithSubscriptionOnly(context.Background(), billing.SubscriptionOnlySpendCapReached)
+	fresh := withSubscriptionOnlyWarningEcho(capCtx, []byte(`{"messages":[{"role":"user","content":"hi"}]}`))
+	assert.Equal(t, subscriptionSpendCapWarningMarker, subscriptionOnlyWarningMarkerForRequest(fresh, http.Header{}, anthropicSubscriptionOnlyWarnings))
+
+	shownBody := []byte(`{"messages":[{"role":"user","content":"hi"},{"role":"assistant","content":[{"type":"text","text":` +
+		jsonString(subscriptionSpendCapWarningMarker+"hello") + `}]},{"role":"user","content":"again"}]}`)
+	shown := withSubscriptionOnlyWarningEcho(capCtx, shownBody)
+	assert.Empty(t, subscriptionOnlyWarningMarkerForRequest(shown, http.Header{}, anthropicSubscriptionOnlyWarnings),
+		"a warning the conversation already shows must not repeat")
+
+	depleted := billing.WithSubscriptionOnly(shown, billing.SubscriptionOnlyCreditsDepleted)
+	assert.Equal(t, subscriptionOnlyWarningMarker, subscriptionOnlyWarningMarkerForRequest(depleted, http.Header{}, anthropicSubscriptionOnlyWarnings),
+		"a changed reason is new information and must show")
+
+	delegated := withSubscriptionOnlyWarningEcho(shown, []byte(`{"messages":[{"role":"user","content":"stripped"}]}`))
+	assert.Empty(t, subscriptionOnlyWarningMarkerForRequest(delegated, http.Header{}, anthropicSubscriptionOnlyWarnings),
+		"a later stripped body must not forget an earlier echo")
+}
+
+func jsonString(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }
