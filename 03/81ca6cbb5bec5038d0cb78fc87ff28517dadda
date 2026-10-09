@@ -1,0 +1,36 @@
+internal/proxy/managed_subscriptions.go
+  s_d53a2d12bea3ba::t_621b1eb820b30e 357-359,362-363
+internal/proxy/managed_subscriptions_test.go
+  s_d53a2d12bea3ba::t_0999a083a145ef 26-33,60-64,572-616
+internal/subscriptions/runtime_test.go
+  s_d53a2d12bea3ba::t_621b1eb820b30e 534
+  s_d53a2d12bea3ba::t_0999a083a145ef 21,98,242,466-516,547-549,931-933,1096,1101,1115
+  s_d53a2d12bea3ba::t_96140618eba8fe 586,929,1083-1095,1097-1100,1102-1114,1116
+internal/subscriptions/pool.go
+  s_d53a2d12bea3ba::t_621b1eb820b30e 20-23,401,404-405
+internal/subscriptions/pool_test.go
+  s_d53a2d12bea3ba::t_054971d100f608 5,210-243
+  s_d53a2d12bea3ba::t_a53e63dd962446 244
+internal/subscriptions/runtime.go
+  s_d53a2d12bea3ba::t_621b1eb820b30e 404-405,472-475,486-490
+docs/SUBSCRIPTION_ROUTING.md
+  s_d53a2d12bea3ba::t_449017f026342f 73-82
+internal/subscriptions/oauth.go
+  s_d53a2d12bea3ba::t_5b4b3b5aaaab87 105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0381ca6cbb5bec5038d0cb78fc87ff28517dadda",
+  "prompts": {},
+  "sessions": {
+    "s_d53a2d12bea3ba": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11d51-9fb2-7a50-8057-637f1c3c2ead",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,27 @@
+internal/translate/emit_anthropic.go
+  s_7597b41f89257c::t_a3995611b01af3 778
+  s_7597b41f89257c::t_b4495e1b932b56 251,764-768,771-773
+  s_7597b41f89257c::t_d5e7d72baeae52 774-777
+internal/translate/crossformat_request_test.go
+  s_7597b41f89257c::t_e0081c5b77626c 1319,1325
+  s_7597b41f89257c::t_cd82c2d8ed2c2d 1307-1318,1320-1324,1326-1328
+internal/router/model.go
+  s_7597b41f89257c::t_6f9b6b65d5400a 26-28,171-175
+  s_7597b41f89257c::t_e86297df8be8cd 170,176
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0c4bef72f96e282cebac7bb07a8f56657492808d",
+  "prompts": {},
+  "sessions": {
+    "s_7597b41f89257c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11859-0d8f-79d2-b65c-7f5de75d27f3",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

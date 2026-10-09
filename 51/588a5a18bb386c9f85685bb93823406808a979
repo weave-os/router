@@ -1,0 +1,108 @@
+internal/translate/usage_sink.go
+  s_b496684bf00a71::t_3d780b4fc2df78 3-4,16-19,25-29
+  s_b496684bf00a71::t_d52dbc0faff64d 30-31
+internal/proxy/cost_response.go
+  s_b496684bf00a71::t_ee8e1c54402818 93-95
+  s_b496684bf00a71::t_df09a2cc7215be 75,77-78,84-89,135-138,192-194,224-225
+db/queries/model_router_request_telemetry.sql
+  s_b496684bf00a71::t_40830a6ac9c8f7 111,114-115,284,287-288
+internal/billing/service.go
+  s_b496684bf00a71::t_22702768aacce5 322,550-551
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_b496684bf00a71::t_eab29a5933eb94 1961,1964-1965,2136-2139,2141-2149,2151-2156,2158-2161,2163-2173,2175-2182,2184-2187,2189-2191,2193-2197,2199-2203,2205-2206,2208-2209,2212-2217,2223,2229,2232,2234,2236,2238-2241,2245-2246,2248-2252,2311,2314-2315,2542,2545-2546,2717-2720,2722-2730,2732-2737,2739-2742,2744-2754,2756-2763,2765-2768,2770-2772,2774-2778,2780-2784,2786-2787,2789-2790,2793-2798,2804,2810,2813,2815,2817,2819-2822,2826-2827,2829-2833,2891,2894-2895
+internal/proxy/auxiliary_inference_internal_test.go
+  s_b496684bf00a71::t_0c4576f2f2b083 218-219
+internal/proxy/auxiliary_inference.go
+  s_b496684bf00a71::t_ee8e1c54402818 90-91,128-129
+internal/router/catalog/fastmode_test.go
+  s_b496684bf00a71::t_5b6d6f97709bfc 25
+internal/observability/otel/usage.go
+  s_b496684bf00a71::t_e868655d47eceb 66-67,70,192-196,240
+  s_b496684bf00a71::t_3d780b4fc2df78 582
+  s_b496684bf00a71::t_c794ea18bdcfc1 10,20,64-65,68-69,71-73,175-191,197-201,232-239,241-262,358,426,537,573-581,583-587
+  s_b496684bf00a71::t_81d50ad9a3560a 588
+internal/proxy/fastmode_internal_test.go
+  s_b496684bf00a71::t_0c4576f2f2b083 105,127,209
+  s_b496684bf00a71::t_f7acc3a954c24c 128-129,131-162
+  s_b496684bf00a71::t_f758d55706b60a 130
+internal/router/catalog/catalog_test.go
+  s_b496684bf00a71::t_0c4576f2f2b083 642-643
+internal/postgres/telemetry.go
+  s_b496684bf00a71::t_3e3a5d71b72bb7 156,159-160
+internal/proxy/openai_responses_pipeline_test.go
+  s_b496684bf00a71::t_0c4576f2f2b083 129-130
+internal/translate/stream.go
+  s_b496684bf00a71::t_3d780b4fc2df78 136,248
+internal/observability/otel/usage_modifiers_test.go
+  s_b496684bf00a71::t_1907ec0d8f4855 1-105
+internal/translate/cache_control.go
+  s_b496684bf00a71::t_e3fd9f9a4d5569 7-8,78-83,148,151,229
+  s_b496684bf00a71::t_b52b09e23c4fc4 216-228,230-248
+internal/translate/cache_usage_test.go
+  s_b496684bf00a71::t_a74dd63837c03c 50,352-403
+  s_b496684bf00a71::t_b52b09e23c4fc4 25-28,45-49
+  s_b496684bf00a71::t_77e3ee107b9407 51
+internal/proxy/service.go
+  s_b496684bf00a71::t_f7df1ce1d5444a 4964-4968,5016,5018,5020,5045-5047,5050-5052,5141-5143,5176,5178-5179,5255,5348,5683,5791-5792,6390,6407,7990-7994,8016,8018,8020,8056-8058,8061-8063,8124,8180-8182,8215,8217-8218,8292
+  s_b496684bf00a71::t_e868655d47eceb 3175,7523
+internal/router/catalog/fastmode.go
+  s_b496684bf00a71::t_0cab8322845553 3-5,14-15
+  s_b496684bf00a71::t_df20b23ddcc314 16
+internal/proxy/cost_response_test.go
+  s_b496684bf00a71::t_dbab7bfddc1ce5 20,116,222-247
+  s_b496684bf00a71::t_0c4576f2f2b083 91
+  s_b496684bf00a71::t_6ec3f57532b44d 248
+internal/proxy/telemetry.go
+  s_b496684bf00a71::t_f7df1ce1d5444a 138-142,145-148
+internal/router/catalog/catalog.go
+  s_b496684bf00a71::t_0cab8322845553 53-56,108-110
+  s_b496684bf00a71::t_c83967a7698817 106-107
+  s_b496684bf00a71::t_b9b6975e5ae4e6 274,282,289,313,318,324,329,338,347,353
+internal/proxy/usage_bypass_internal_test.go
+  s_b496684bf00a71::t_0c4576f2f2b083 406,640-641
+db/migrations/0124_telemetry-cache-ttl-speed-geo.up.sql
+  s_b496684bf00a71::t_3c90c989164bcd 1-11
+internal/translate/empty_completion_native_test.go
+  s_b496684bf00a71::t_b52b09e23c4fc4 28-29
+internal/router/catalog/cost_test.go
+  s_b496684bf00a71::t_0c4576f2f2b083 76,80,88-89,96-97,106,109,116,135-136,140-141
+  s_b496684bf00a71::t_5b6d6f97709bfc 11,167-250
+internal/proxy/usage_bypass.go
+  s_b496684bf00a71::t_f7df1ce1d5444a 494-495,497,499-500,524-526,582,584-585
+  s_b496684bf00a71::t_e868655d47eceb 459
+internal/proxy/escalation_judge.go
+  s_b496684bf00a71::t_ee8e1c54402818 152
+internal/proxy/gemini.go
+  s_b496684bf00a71::t_f7df1ce1d5444a 358,360,362,384-386,444-446,503,541
+internal/router/catalog/usage_modifiers.go
+  s_b496684bf00a71::t_0cab8322845553 1-52
+internal/router/catalog/cost.go
+  s_b496684bf00a71::t_49a8dea88903cc 10-16,20,29-30,32-34,40-46,50-52,54
+internal/sqlc/models.go
+  s_b496684bf00a71::t_eab29a5933eb94 697-699
+db/migrations/0124_telemetry-cache-ttl-speed-geo.down.sql
+  s_b496684bf00a71::t_3c90c989164bcd 1-8
+internal/proxy/hmm_outcome_internal_test.go
+  s_b496684bf00a71::t_4bd30051896c92 64,110,156,203
+  s_b496684bf00a71::t_0c4576f2f2b083 70-71
+internal/router/catalog/AGENTS.md
+  s_b496684bf00a71::t_ee79edd5b40f3c 15
+internal/router/catalog/CLAUDE.md
+  s_b496684bf00a71::t_4bbff0fd8f11ad 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "51588a5a18bb386c9f85685bb93823406808a979",
+  "prompts": {},
+  "sessions": {
+    "s_b496684bf00a71": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2a29c49f-7977-4c38-a5da-39e02609d972",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
