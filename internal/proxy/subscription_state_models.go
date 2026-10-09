@@ -113,7 +113,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			activeModels = append(activeModels, model)
 		}
 	}
-	rotationBudget, cancel := context.WithTimeout(ctx, sameBindingRetryBudget)
+	rotationBudget, cancel := context.WithTimeout(ctx, subscriptionRotationTimeout(ctx))
 	defer cancel()
 	ctx = context.WithValue(ctx, subscriptionRotationBudgetKey{}, rotationBudget)
 	hasFixedTarget := request.ForceModel != "" || callerModelPassthroughActive(ctx) ||

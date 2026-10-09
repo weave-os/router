@@ -335,6 +335,17 @@ func committed(b *preludeBuffer) bool {
 // dispatch executor.
 const sameBindingRetryBudget = 10 * time.Second
 
+// Subscription-only inference has no paid rescue. Allow slow prefill and
+// reasoning to reach first output instead of treating them as failed retries.
+const subscriptionOnlyFirstOutputTimeout = 120 * time.Second
+
+func subscriptionRotationTimeout(ctx context.Context) time.Duration {
+	if paidFallbackForbidden(ctx) {
+		return subscriptionOnlyFirstOutputTimeout
+	}
+	return sameBindingRetryBudget
+}
+
 // clockNow reads the current time through the injectable clock, falling back
 // to time.Now when no fake is wired.
 func (s *Service) clockNow() time.Time {
@@ -635,7 +646,7 @@ func subscriptionAPIOnly(ctx context.Context) bool {
 	return value
 }
 func (s *Service) dispatchSubscriptionAlternatives(ctx context.Context, in failoverInputs) (int, error) {
-	budget, cancel := context.WithTimeout(ctx, sameBindingRetryBudget)
+	budget, cancel := context.WithTimeout(ctx, subscriptionRotationTimeout(ctx))
 	defer cancel()
 	ctx = context.WithValue(ctx, subscriptionRotationBudgetKey{}, budget)
 	selected := in.initialDecision
