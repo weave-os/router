@@ -8038,7 +8038,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			log.Warn("Claude subscription failover: no fallback Anthropic binding available; surfacing the original error",
 				"model", decision.Model, "upstream_status", upstreamStatus(proxyErr))
 		default:
-			log.Warn("Claude subscription failover: subscription cannot access model, retrying on Weave credits",
+			log.Warn("Claude subscription failover: subscription rejected the turn, retrying on Weave credits",
 				"model", decision.Model,
 				"err", proxyErr,
 				"upstream_status", upstreamStatus(proxyErr),
