@@ -354,10 +354,18 @@ func (e *RequestEnvelope) buildResponsesFromAnthropic(opts EmitOptions) ([]byte,
 
 // writeResponsesInputFromAnthropic converts Anthropic messages into Responses
 // input items (text/image messages, reasoning, function_call, function_call_output).
+// Reasoning is replayed only for the turn in progress (after the latest typed
+// user prompt): earlier turns' reasoning plans already-answered prompts and
+// would otherwise dominate the context of a long session.
 func writeResponsesInputFromAnthropic(jw *jsonWriter, body []byte, scope string) {
+	messages := gjson.GetBytes(body, "messages")
+	replayFrom := latestUserPromptIndex(messages) + 1
 	jw.Key("input")
 	jw.Arr()
-	gjson.GetBytes(body, "messages").ForEach(func(_, msg gjson.Result) bool {
+	msgIdx := -1
+	messages.ForEach(func(_, msg gjson.Result) bool {
+		msgIdx++
+		replayReasoning := msgIdx >= replayFrom
 		role := msg.Get("role").String()
 		content := msg.Get("content")
 		if content.Type == gjson.String {
@@ -391,7 +399,7 @@ func writeResponsesInputFromAnthropic(jw *jsonWriter, body []byte, scope string)
 				}
 			case "thinking":
 				sig := block.Get("signature").String()
-				if _, emitted := emittedReasoningSignatures[sig]; emitted || !openAIReasoningSignatureReplayable(sig, scope) {
+				if _, emitted := emittedReasoningSignatures[sig]; emitted || !replayReasoning || !openAIReasoningSignatureReplayable(sig, scope) {
 					return true
 				}
 				flushContent()
@@ -402,7 +410,7 @@ func writeResponsesInputFromAnthropic(jw *jsonWriter, body []byte, scope string)
 				flushContent()
 				// Claude Code's round-trip drops the thinking block but keeps
 				// the tool_use id, so replay the reasoning item carried on it.
-				if sig != "" {
+				if sig != "" && replayReasoning {
 					if _, emitted := emittedReasoningSignatures[sig]; !emitted && emitResponsesReasoningItem(jw, sig, scope) {
 						emittedReasoningSignatures[sig] = struct{}{}
 					}
@@ -449,6 +457,33 @@ func writeResponsesInputFromAnthropic(jw *jsonWriter, body []byte, scope string)
 		return true
 	})
 	jw.EndArr()
+}
+
+// latestUserPromptIndex returns the index of the last user message that is a
+// typed prompt rather than a tool_result batch, or -1 when there is none.
+func latestUserPromptIndex(messages gjson.Result) int {
+	latest, idx := -1, -1
+	messages.ForEach(func(_, msg gjson.Result) bool {
+		idx++
+		if msg.Get("role").String() != "user" {
+			return true
+		}
+		content := msg.Get("content")
+		if !content.IsArray() {
+			latest = idx
+			return true
+		}
+		hasToolResult := false
+		content.ForEach(func(_, block gjson.Result) bool {
+			hasToolResult = block.Get("type").String() == "tool_result"
+			return !hasToolResult
+		})
+		if !hasToolResult {
+			latest = idx
+		}
+		return true
+	})
+	return latest
 }
 
 // emitResponsesReasoningItem replays encrypted reasoning only to the account

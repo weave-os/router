@@ -392,6 +392,49 @@ func TestPrepareOpenAIResponses_ReplaysSignedReasoning(t *testing.T) {
 	assert.Equal(t, "toolu_1", toolCall["call_id"])
 }
 
+func TestPrepareOpenAIResponses_ReplaysOnlyCurrentTurnReasoning(t *testing.T) {
+	prior := openAIReasoningTestSignature(t, "rs_prior", "enc_prior", "scope_a")
+	loop := openAIReasoningTestSignature(t, "rs_loop", "enc_loop", "scope_a")
+	current := openAIReasoningTestSignature(t, "rs_current", "enc_current", "scope_a")
+	body := []byte(`{
+		"model":"claude-opus-4-8","max_tokens":1024,
+		"messages":[
+			{"role":"user","content":"prompt A"},
+			{"role":"assistant","content":[
+				{"type":"thinking","thinking":"","signature":` + strconv.Quote(prior) + `},
+				{"type":"text","text":"answer A"}
+			]},
+			{"role":"user","content":[{"type":"text","text":"prompt B"}]},
+			{"role":"assistant","content":[
+				{"type":"thinking","thinking":"","signature":` + strconv.Quote(loop) + `},
+				{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"main.go"}}
+			]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok"}]},
+			{"role":"assistant","content":[
+				{"type":"thinking","thinking":"","signature":` + strconv.Quote(current) + `},
+				{"type":"tool_use","id":"toolu_2","name":"Read","input":{"file_path":"go.mod"}}
+			]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_2","content":"ok"}]}
+		]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareOpenAIResponses(http.Header{}, translate.EmitOptions{TargetModel: "gpt-5.5", Capabilities: router.Lookup("gpt-5.5"), ReasoningReplayScope: "scope_a"})
+	require.NoError(t, err)
+
+	var out struct {
+		Input []map[string]any `json:"input"`
+	}
+	require.NoError(t, json.Unmarshal(prep.Body, &out))
+	var replayed []any
+	for _, item := range out.Input {
+		if item["type"] == "reasoning" {
+			replayed = append(replayed, item["id"])
+		}
+	}
+	assert.Equal(t, []any{"rs_loop", "rs_current"}, replayed)
+}
+
 func TestPrepareOpenAIResponses_ReplaysSignedReasoningAfterModelSwitch(t *testing.T) {
 	sig := openAIReasoningTestSignature(t, "rs_prev", "enc_prev", "scope_a")
 	body := []byte(`{
