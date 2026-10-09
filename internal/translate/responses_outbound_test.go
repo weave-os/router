@@ -394,7 +394,7 @@ func TestPrepareOpenAIResponses_ReplaysSignedReasoning(t *testing.T) {
 
 func TestPrepareOpenAIResponses_ReplaysOnlyCurrentTurnReasoning(t *testing.T) {
 	prior := openAIReasoningTestSignature(t, "rs_prior", "enc_prior", "scope_a")
-	loop := openAIReasoningTestSignature(t, "rs_loop", "enc_loop", "scope_a")
+	promptBLoop := openAIReasoningTestSignature(t, "rs_loop", "enc_loop", "scope_a")
 	current := openAIReasoningTestSignature(t, "rs_current", "enc_current", "scope_a")
 	body := []byte(`{
 		"model":"claude-opus-4-8","max_tokens":1024,
@@ -406,7 +406,7 @@ func TestPrepareOpenAIResponses_ReplaysOnlyCurrentTurnReasoning(t *testing.T) {
 			]},
 			{"role":"user","content":[{"type":"text","text":"prompt B"}]},
 			{"role":"assistant","content":[
-				{"type":"thinking","thinking":"","signature":` + strconv.Quote(loop) + `},
+				{"type":"thinking","thinking":"","signature":` + strconv.Quote(promptBLoop) + `},
 				{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"main.go"}}
 			]},
 			{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok"}]},
