@@ -44,6 +44,7 @@ func runDemotionTurnLoop(t *testing.T, svc *Service, ctx context.Context) turnLo
 		http.Header{},
 		router.Request{
 			RequestedModel:       features.Model,
+			ExcludedModels:       svc.excludedModelsForRequest(ctx),
 			EstimatedInputTokens: features.Tokens,
 			HasTools:             features.HasTools,
 			ConversationMessages: conversationMessagesForRouting(env),

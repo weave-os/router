@@ -320,6 +320,9 @@ type turnLoopResult struct {
 	// to the cooldown expiry it observed, so a successful turn clears exactly
 	// that cooldown and leaves a newer one alone.
 	CooldownProbes map[string]time.Time
+	// CooldownProbeDeniedModels are expired models held by another request.
+	// They stay hard-excluded for this turn, including the rescue walk.
+	CooldownProbeDeniedModels []string
 	// SessionStrikeReadmitModels are the session-lifetime demotions the
 	// in-turn rescue may readmit as a last resort when no other candidate is
 	// left: a session that has struck out every arm must not 502 a turn that
@@ -1261,7 +1264,7 @@ func (s *Service) runTurnLoop(
 	// explicit /force-model of the same model still routes through.
 	demoted := mergeSessionStrikes(pin.DemotedModels, hmmHistory.DemotedModels)
 	res.SessionStrikeReadmitModels = harnessSafeModels(imageSafeModels(demoted, req.HasImages), req.HasTools)
-	if s.ResolveTransientRateLimit(ctx) {
+	if s.ResolveTransientRateLimit(ctx) && !forceModelFound {
 		// A transient strike expires: only one request per session/model may
 		// probe the recovered arm at a time.
 		cooldowns := mergeDemotionCooldowns(pin.DemotionCooldowns, hmmHistory.DemotionCooldowns)
@@ -1277,7 +1280,8 @@ func (s *Service) runTurnLoop(
 		expired := expiredDemotionCooldowns(cooldowns, now)
 		probed := false
 		for _, model := range cooldownsByExpiry(expired) {
-			if slices.Contains(demoted, model) {
+			if slices.Contains(demoted, model) ||
+				modelExcludedForRecoveryProbe(req, model) {
 				continue
 			}
 			if !probed {
@@ -1289,6 +1293,9 @@ func (s *Service) runTurnLoop(
 				}
 			}
 			demoted = mergeSessionStrikes(demoted, []string{model})
+			res.CooldownProbeDeniedModels = append(res.CooldownProbeDeniedModels, model)
+			req.ExcludedModels = excludingModel(req.ExcludedModels, model)
+			ctx = context.WithValue(ctx, SessionCooldownProbeDeniedModelsContextKey{}, res.CooldownProbeDeniedModels)
 		}
 	}
 	if len(demoted) > 0 {
@@ -2264,6 +2271,13 @@ func (s *Service) runTurnLoop(
 		}
 	}
 	return res, routeErr
+}
+
+func modelExcludedForRecoveryProbe(req router.Request, model string) bool {
+	if _, excluded := req.ExcludedModels[model]; excluded || automaticallyDisabled(req, model) {
+		return true
+	}
+	return req.HasImages && !catalog.AcceptsImages(model)
 }
 
 func (s *Service) hmmCostGatedDecision(

@@ -211,6 +211,9 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			ctx = context.WithValue(ctx, SessionStrikeReadmitModelsContextKey{}, routeRes.SessionStrikeReadmitModels)
 		}
 	}
+	if len(routeRes.CooldownProbeDeniedModels) > 0 {
+		ctx = context.WithValue(ctx, SessionCooldownProbeDeniedModelsContextKey{}, routeRes.CooldownProbeDeniedModels)
+	}
 	routeRes.SuggestionMode = r.Header.Get("x-weave-suggestion-mode") == "true"
 	decision := routeRes.Decision
 	s.firePolicyShadowForServingDecision(ctx, decision, routeRequest)

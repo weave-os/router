@@ -553,6 +553,10 @@ type SessionDemotedModelsContextKey struct{}
 // honouring them would leave no candidate.
 type SessionCooldownModelsContextKey struct{}
 
+// SessionCooldownProbeDeniedModelsContextKey carries expired models leased by
+// another in-flight request; rescue paths must not read them back in.
+type SessionCooldownProbeDeniedModelsContextKey struct{}
+
 // SessionStrikeReadmitModelsContextKey carries the session-lifetime demotions
 // ([]string) the in-turn rescue may readmit when every other candidate,
 // cooling arms included, is gone. Image-unsafe arms are already dropped.
@@ -3043,6 +3047,11 @@ func (s *Service) WithBanditRouter(r router.Router) *Service {
 // which strategy actually served the turn.
 func (s *Service) routeFor(ctx context.Context, req router.Request) (router.Decision, error) {
 	var err error
+	if denied, _ := ctx.Value(SessionCooldownProbeDeniedModelsContextKey{}).([]string); len(denied) > 0 {
+		for _, model := range denied {
+			req.ExcludedModels = excludingModel(req.ExcludedModels, model)
+		}
+	}
 	req, err = s.applyTranslationPlan(ctx, req)
 	if err != nil {
 		return router.Decision{}, err
@@ -3945,6 +3954,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if len(routeRes.SessionStrikeReadmitModels) > 0 {
 			ctx = context.WithValue(ctx, SessionStrikeReadmitModelsContextKey{}, routeRes.SessionStrikeReadmitModels)
 		}
+	}
+	if len(routeRes.CooldownProbeDeniedModels) > 0 {
+		ctx = context.WithValue(ctx, SessionCooldownProbeDeniedModelsContextKey{}, routeRes.CooldownProbeDeniedModels)
 	}
 
 	// A retryable bypass error falls through to normal dispatch. Rate-limit
@@ -7067,6 +7079,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		if len(routeRes.SessionStrikeReadmitModels) > 0 {
 			ctx = context.WithValue(ctx, SessionStrikeReadmitModelsContextKey{}, routeRes.SessionStrikeReadmitModels)
 		}
+	}
+	if len(routeRes.CooldownProbeDeniedModels) > 0 {
+		ctx = context.WithValue(ctx, SessionCooldownProbeDeniedModelsContextKey{}, routeRes.CooldownProbeDeniedModels)
 	}
 	routeRes.SuggestionMode = r.Header.Get("x-weave-suggestion-mode") == "true"
 	decision := routeRes.Decision

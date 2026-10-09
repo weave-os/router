@@ -110,13 +110,16 @@ type clearedCooldown struct {
 // proxy takes the shared-lease path and reports recoveries to the store.
 type recoveryLeaseStore struct {
 	rolePinStore
-	leaseFor []time.Duration
-	cleared  []clearedCooldown
+	leaseFor  []time.Duration
+	cleared   []clearedCooldown
+	attempted []string
+	denyAll   bool
 }
 
-func (s *recoveryLeaseStore) AcquireRecoveryProbe(_ context.Context, _ [sessionpin.SessionKeyLen]byte, _ string, _ uuid.UUID, leaseFor time.Duration) (bool, error) {
+func (s *recoveryLeaseStore) AcquireRecoveryProbe(_ context.Context, _ [sessionpin.SessionKeyLen]byte, model string, _ uuid.UUID, leaseFor time.Duration) (bool, error) {
+	s.attempted = append(s.attempted, model)
 	s.leaseFor = append(s.leaseFor, leaseFor)
-	return true, nil
+	return !s.denyAll, nil
 }
 
 func (s *recoveryLeaseStore) ReleaseRecoveryProbe(context.Context, [sessionpin.SessionKeyLen]byte, string, uuid.UUID) error {
@@ -155,6 +158,50 @@ func TestRecoveredProbeClearsCooldownFromBothRows(t *testing.T) {
 		{role: sessionpin.DefaultRole, model: recoveryOpusModel, until: expired},
 		{role: hmmHistoryRole(sessionpin.DefaultRole), model: recoveryOpusModel, until: expired},
 	}, store.cleared)
+}
+
+func TestRecoveryProbeLeaseDeniedModelsAreHardExcluded(t *testing.T) {
+	cooldowns := map[string]time.Time{
+		catalog.ModelGPT6Luna: rateLimitTestNow,
+		recoveryOpusModel:     rateLimitTestNow,
+	}
+	store := &recoveryLeaseStore{
+		rolePinStore: rolePinStore{byRole: map[string]sessionpin.Pin{
+			hmmHistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyCluster, DemotionCooldowns: cooldowns},
+		}},
+		denyAll: true,
+	}
+	svc, scorer := cooldownTurnLoopService(store, true)
+	result := runDemotionTurnLoop(t, svc, context.Background())
+
+	assert.Empty(t, result.CooldownProbes)
+	assert.ElementsMatch(t, []string{catalog.ModelGPT6Luna, recoveryOpusModel}, result.CooldownProbeDeniedModels)
+	require.Len(t, scorer.requests, 1)
+	for _, model := range []string{catalog.ModelGPT6Luna, recoveryOpusModel} {
+		assert.Contains(t, scorer.requests[0].ExcludedModels, model, "lease-denied models must not be restored by soft automatic-exclusion fallback")
+	}
+	ctx := context.WithValue(context.Background(), SessionCooldownProbeDeniedModelsContextKey{}, result.CooldownProbeDeniedModels)
+	assert.Contains(t, svc.rescueExcludedModels(ctx), catalog.ModelGPT6Luna, "rescue must not readmit a model whose probe is leased elsewhere")
+	assert.Contains(t, svc.rescueExcludedModels(ctx), recoveryOpusModel)
+}
+
+func TestRecoveryProbeSkipsHardExcludedExpiredModel(t *testing.T) {
+	excludedModel := catalog.ModelGPT6Luna
+	eligibleModel := recoveryOpusModel
+	store := &recoveryLeaseStore{rolePinStore: rolePinStore{byRole: map[string]sessionpin.Pin{
+		hmmHistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyCluster, DemotionCooldowns: map[string]time.Time{
+			excludedModel: rateLimitTestNow.Add(-time.Minute),
+			eligibleModel: rateLimitTestNow,
+		}},
+	}}}
+	svc, _ := cooldownTurnLoopService(store, true)
+	ctx := context.WithValue(context.Background(), InstallationExcludedModelsContextKey{}, []string{excludedModel})
+	result := runDemotionTurnLoop(t, svc, ctx)
+	defer result.releaseCooldownProbes()
+
+	assert.Equal(t, []string{eligibleModel}, store.attempted, "an ineligible old cooldown must not consume the only probe slot")
+	assert.Equal(t, map[string]time.Time{eligibleModel: rateLimitTestNow}, result.CooldownProbes)
+	assert.NotContains(t, result.SessionDemotedModels, eligibleModel)
 }
 
 func twoModelGatewayContext() context.Context {

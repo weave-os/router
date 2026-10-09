@@ -297,15 +297,19 @@ func walkRescueCandidates(
 	return append(crossProvider, sameProvider...)
 }
 
-// rescueExcludedModels is the soft exclusion set an in-turn rescue must honor:
-// the deployment-wide set plus the models this session demoted.
+// rescueExcludedModels is the exclusion set an in-turn rescue must honor:
+// deployment and session demotions plus models leased by another probe.
 func (s *Service) rescueExcludedModels(ctx context.Context) map[string]struct{} {
 	demoted := sessionDemotedModelsFromContext(ctx)
-	if len(demoted) == 0 {
+	probeDenied, _ := ctx.Value(SessionCooldownProbeDeniedModelsContextKey{}).([]string)
+	if len(demoted) == 0 && len(probeDenied) == 0 {
 		return s.globalAutomaticExcludedModels(ctx)
 	}
-	session := make(map[string]struct{}, len(demoted))
+	session := make(map[string]struct{}, len(demoted)+len(probeDenied))
 	for _, model := range demoted {
+		session[model] = struct{}{}
+	}
+	for _, model := range probeDenied {
 		session[model] = struct{}{}
 	}
 	return mergeExcludedModels(session, s.globalAutomaticExcludedModels(ctx))
