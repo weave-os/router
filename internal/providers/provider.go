@@ -504,17 +504,45 @@ func IsResponseHeaderTimeout(err error) bool {
 	return strings.Contains(urlErr.Err.Error(), "timeout awaiting response headers")
 }
 
-// IsUpstreamModelNotFound reports whether err is a buffered upstream 404,
-// meaning the chosen provider doesn't serve the model (stale id, renamed
-// binding, no active endpoint). Retrying the SAME binding is futile but a
-// DIFFERENT one may carry the model, so this gates cross-binding failover —
-// distinct from IsRetryable, which covers same-provider transient faults.
+// unknownModelPhrases are prose 400 bodies naming the requested model as
+// unserved: Snowflake Cortex answers `unknown model "<id>"` on a surface that
+// lacks the model instead of 404ing.
+var unknownModelPhrases = []string{
+	"unknown model",
+}
+
+// IsUpstreamModelNotFound reports whether err is a buffered upstream 404, or a
+// 400 naming the model as unknown, meaning the chosen provider doesn't serve
+// the model (stale id, renamed binding, no active endpoint). Retrying the SAME
+// binding is futile but a DIFFERENT one may carry the model, so this gates
+// cross-binding failover — distinct from IsRetryable, which covers
+// same-provider transient faults.
 func IsUpstreamModelNotFound(err error) bool {
 	var buffered *UpstreamErrorResponse
-	if errors.As(err, &buffered) {
-		return buffered.Status == http.StatusNotFound
+	if !errors.As(err, &buffered) {
+		return false
+	}
+	if buffered.Status == http.StatusNotFound {
+		return true
+	}
+	if buffered.Status != http.StatusBadRequest {
+		return false
+	}
+	body := strings.ToLower(string(buffered.Body))
+	for _, phrase := range unknownModelPhrases {
+		if strings.Contains(body, phrase) {
+			return true
+		}
 	}
 	return false
+}
+
+// IsUpstreamNotFoundStatus reports whether err is a buffered upstream 404 —
+// the only answer that can mean the request hit a path the upstream never
+// mounted, as opposed to a mounted path refusing the model.
+func IsUpstreamNotFoundStatus(err error) bool {
+	var buffered *UpstreamErrorResponse
+	return errors.As(err, &buffered) && buffered.Status == http.StatusNotFound
 }
 
 // IsUpstreamProviderBillingBlocked reports whether err is a buffered 402
