@@ -357,14 +357,43 @@ func (w subscriptionOnlyWarnings) forReason(ctx context.Context) string {
 }
 
 // subscriptionOnlyWarningMarkerForRequest returns the subscription-only
-// warning when a funding gate disabled paid fallback for the turn and the
-// caller has not opted out of terminal routing surfaces.
+// warning when a funding gate disabled paid fallback for the turn, the
+// conversation has not already shown that warning, and the caller has not
+// opted out of terminal routing surfaces. Once shown, later turns keep their
+// ordinary routing marker; a different warning (the reason changed) still shows.
 func subscriptionOnlyWarningMarkerForRequest(ctx context.Context, headers http.Header, warnings subscriptionOnlyWarnings) string {
 	warning := warnings.forReason(ctx)
 	if warning == "" {
 		return ""
 	}
+	if echoed, _ := ctx.Value(subscriptionOnlyWarningsEchoedContextKey{}).(map[string]bool); echoed[warning] {
+		return ""
+	}
 	return suppressMarkerIfRequested(ctx, headers, warning)
+}
+
+type subscriptionOnlyWarningsEchoedContextKey struct{}
+
+var allSubscriptionOnlyWarnings = []string{
+	subscriptionOnlyWarningMarker,
+	subscriptionOnlyWarningMarkerCodex,
+	subscriptionSpendCapWarningMarker,
+	subscriptionSpendCapWarningMarkerCodex,
+}
+
+// withSubscriptionOnlyWarningEcho records which subscription-only warnings the
+// client's history already carries, so each shows once per conversation rather
+// than on every turn. Must read the body before the routing-marker strip. Merges
+// with an earlier record because the Responses path strips its badge before
+// delegating to the chat path.
+func withSubscriptionOnlyWarningEcho(ctx context.Context, body []byte) context.Context {
+	echoed := translate.EchoedInAssistantText(body, allSubscriptionOnlyWarnings)
+	if prior, ok := ctx.Value(subscriptionOnlyWarningsEchoedContextKey{}).(map[string]bool); ok {
+		for warning, seen := range prior {
+			echoed[warning] = echoed[warning] || seen
+		}
+	}
+	return context.WithValue(ctx, subscriptionOnlyWarningsEchoedContextKey{}, echoed)
 }
 
 // ErrCreditsExhaustedSubscriptionUnavailable is returned by ProxyMessages and
