@@ -340,11 +340,19 @@ const sameBindingRetryBudget = 10 * time.Second
 // reasoning to reach first output instead of treating them as failed retries.
 const subscriptionOnlyFirstOutputTimeout = 120 * time.Second
 
-func subscriptionRotationTimeout(ctx context.Context) time.Duration {
+func (s *Service) subscriptionRotationTimeout(ctx context.Context) time.Duration {
 	// Attempt-level restrictions can still have funded exhausted-state recovery.
 	// Extend waiting only when the entire request has no paid funding.
 	if billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
 		return subscriptionOnlyFirstOutputTimeout
+	}
+	// Self-hosted deployments do not run billing middleware. An explicit empty
+	// deployment key set plus no request-paid credentials also leaves no rescue.
+	if s.deploymentKeyedProviders != nil && len(s.deploymentKeyedProviders) == 0 && len(BuildCredentialsMap(externalKeysFromContext(ctx))) == 0 {
+		creds := CredentialsFromContext(ctx)
+		if creds == nil || servedOnSubscription(ctx) {
+			return subscriptionOnlyFirstOutputTimeout
+		}
 	}
 	return sameBindingRetryBudget
 }
@@ -649,7 +657,7 @@ func subscriptionAPIOnly(ctx context.Context) bool {
 	return value
 }
 func (s *Service) dispatchSubscriptionAlternatives(ctx context.Context, in failoverInputs) (int, error) {
-	budget, cancel := context.WithTimeout(ctx, subscriptionRotationTimeout(ctx))
+	budget, cancel := context.WithTimeout(ctx, s.subscriptionRotationTimeout(ctx))
 	defer cancel()
 	ctx = context.WithValue(ctx, subscriptionRotationBudgetKey{}, budget)
 	selected := in.initialDecision
