@@ -123,6 +123,15 @@ type RouterClusterModelList struct {
 	UpdatedAt      pgtype.Timestamptz
 }
 
+type RouterCodexUsageReset struct {
+	SubscriberID uuid.UUID
+	LeaseID      pgtype.UUID
+	LeaseUntil   pgtype.Timestamp
+	AccountID    pgtype.UUID
+	CreditID     *string
+	RequestID    pgtype.UUID
+}
+
 // Opaque account-owned identity projection; no private account table dependency
 type RouterCredentialSubject struct {
 	ID                   uuid.UUID
