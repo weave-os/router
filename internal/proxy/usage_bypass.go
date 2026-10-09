@@ -475,7 +475,9 @@ func (s *Service) bypassToAnthropic(
 	// error like a connection reset / TLS timeout) AND no bytes have been
 	// committed to w, return errBypassRetryable so the caller falls through to
 	// the normal routed dispatch. Non-retryable *UpstreamErrorResponse values
-	// (400/401/403) still flush — those won't be fixed by a different upstream.
+	// (400/401/403) still flush — those won't be fixed by a different upstream —
+	// except the subscription model-access 404 and third-party-client 400, which
+	// a paid key does fix.
 	// Local prep errors (provider-not-configured, emit-body) are returned
 	// directly so the client sees the real failure instead of a silent reroute.
 	var upstreamErr *providers.UpstreamErrorResponse
