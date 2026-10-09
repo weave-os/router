@@ -510,6 +510,10 @@ func newBypassSpanCollector(t *testing.T) *bypassSpanCollector {
 	c.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
+		if r.URL.Path != "/v1/traces" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		var req coltracepb.ExportTraceServiceRequest
 		require.NoError(t, proto.Unmarshal(body, &req))
 		c.mu.Lock()
