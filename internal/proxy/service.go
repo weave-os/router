@@ -2204,7 +2204,7 @@ func (s *Service) WithContentCapture(mode ContentCaptureMode, maxBytes int, reda
 //   - gemini-3.x: pinned "low" — effort-immune on hard tasks (0/15 in the sweep).
 //   - grok-4.x: pinned "low" — omitting effort falls to xAI's non-disableable
 //     "high" default, a ~15 s fixed TTFT stall on every pinned turn.
-//   - everything else: "" — left to its own path.
+//   - any other model: "" (left to its own path).
 func forcedReasoningEffort(model string, escalate bool) string {
 	// Unconditional: omitting effort falls to xAI's non-disableable "high" default
 	// (~15 s TTFT stall) — a defect to correct, not an escalation to tune.
@@ -6145,6 +6145,17 @@ func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvide
 		out[providers.ProviderAnthropic] = struct{}{}
 	}
 	if codexSubscriptionFromContext(ctx) != nil {
+		out[providers.ProviderOpenAI] = struct{}{}
+	}
+	// A server-side pool enrolled for this caller supplies its own credential
+	// at dispatch (leaseManagedSubscription), so it enrolls its provider the
+	// same way an inbound subscription bearer does. Without this, a deployment
+	// with no ANTHROPIC_API_KEY / OPENAI_API_KEY never routes a router-keyed
+	// request to the pool it enrolled.
+	if managedSubscriptionEnrolled(ctx, subscriptions.ProviderClaude) {
+		out[providers.ProviderAnthropic] = struct{}{}
+	}
+	if managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex) {
 		out[providers.ProviderOpenAI] = struct{}{}
 	}
 	// Client-supplied headers are only consulted when NOT authed via a
