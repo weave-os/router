@@ -112,11 +112,10 @@ func TestRescued429_CooldownHonoursOrgOverride(t *testing.T) {
 	assert.Equal(t, rateLimitTestNow.Add(120*time.Second), store.cooldowns[0].until)
 }
 
-// Every rescued failure that is not a buffered 429 keeps the session-lifetime
-// demotion under the flag.
+// A 5xx outside the transient gateway set and an idle timeout retain the
+// session-lifetime demotion under the rate-limit cooldown policy.
 func TestRescuedNon429_StaysPermanentUnderFlag(t *testing.T) {
 	for _, err := range []error{
-		&providers.UpstreamErrorResponse{Status: http.StatusBadGateway},
 		&providers.UpstreamErrorResponse{Status: http.StatusInternalServerError},
 		providers.ErrUpstreamIdleTimeout,
 	} {
@@ -130,6 +129,24 @@ func TestRescuedNon429_StaysPermanentUnderFlag(t *testing.T) {
 		assert.Empty(t, store.cooldowns)
 		require.Len(t, store.demotions, 2)
 		assert.Equal(t, sessionpin.DemotionReasonRescuedFailure, store.demotions[0].reason)
+	}
+}
+
+func TestRescuedTransientGatewayFailureGetsBoundedCooldown(t *testing.T) {
+	for _, status := range []int{http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout} {
+		store := &cooldownStubPinStore{}
+		svc := newRateLimitTestService(store, true, 45)
+
+		model, reason := strikeRescuedPrimary(svc, context.Background(), &providers.UpstreamErrorResponse{Status: status})
+
+		assert.Equal(t, demotedArm, model)
+		assert.Equal(t, sessionpin.DemotionReasonTransientFailure, reason)
+		assert.Empty(t, store.demotions)
+		require.Len(t, store.cooldowns, 2)
+		for _, withdrawal := range store.cooldowns {
+			assert.Equal(t, rateLimitTestNow.Add(45*time.Second), withdrawal.until)
+			assert.Equal(t, sessionpin.DemotionReasonTransientFailure, withdrawal.reason)
+		}
 	}
 }
 

@@ -186,6 +186,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	routeStart := time.Now()
 	routeCtx, routeSpan := startRoutingSpan(ctx, routeRequest)
 	routeRes, err := s.runTurnLoop(routeCtx, env, feats, apiKeyID, installationID, subAgentHint, r.Header, routeRequest)
+	defer routeRes.releaseCooldownProbes()
 	var escalationCapture *captureWriter
 	defer func() {
 		s.completeEscalation(ctx, routeRes, returnErr, escalationCapture, translate.EscalationResponseGemini)

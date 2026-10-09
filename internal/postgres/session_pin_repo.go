@@ -7,6 +7,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/google/uuid"
 	"weave-os/router/internal/postgres/dbbudget"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/sessionpin"
@@ -27,6 +28,7 @@ func NewSessionPinRepo(tx sqlc.DBTX) *SessionPinRepo {
 
 var _ sessionpin.Store = (*SessionPinRepo)(nil)
 var _ sessionpin.CooldownStore = (*SessionPinRepo)(nil)
+var _ sessionpin.RecoveryProbeStore = (*SessionPinRepo)(nil)
 
 func (r *SessionPinRepo) Get(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool, error) {
 	q := dbbudget.Queries(r.tx)
@@ -210,9 +212,32 @@ func (r *SessionPinRepo) ExpireAndCoolDownModel(ctx context.Context, expired ses
 	})
 }
 
+func (r *SessionPinRepo) AcquireRecoveryProbe(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, model string, token uuid.UUID, until time.Time) (bool, error) {
+	q := dbbudget.Queries(r.tx)
+	rows, err := q.AcquireSessionPinRecoveryProbeLease(ctx, sqlc.AcquireSessionPinRecoveryProbeLeaseParams{
+		SessionKey: sessionKey[:],
+		Model:      model,
+		LeaseToken: token,
+		LeaseUntil: pgtype.Timestamptz{Time: until.UTC(), Valid: true},
+	})
+	return rows == 1, err
+}
+
+func (r *SessionPinRepo) ReleaseRecoveryProbe(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, model string, token uuid.UUID) error {
+	q := dbbudget.Queries(r.tx)
+	return q.ReleaseSessionPinRecoveryProbeLease(ctx, sqlc.ReleaseSessionPinRecoveryProbeLeaseParams{
+		SessionKey: sessionKey[:],
+		Model:      model,
+		LeaseToken: token,
+	})
+}
+
 func (r *SessionPinRepo) SweepExpired(ctx context.Context) error {
 	q := dbbudget.Queries(r.tx)
-	return q.SweepExpiredSessionPins(ctx)
+	if err := q.SweepExpiredSessionPins(ctx); err != nil {
+		return err
+	}
+	return q.SweepExpiredSessionPinRecoveryProbeLeases(ctx)
 }
 
 func toSessionPin(row sqlc.RouterSessionPin) sessionpin.Pin {

@@ -1008,6 +1008,13 @@ type RouterSessionPin struct {
 	DemotionCooldowns         []byte
 }
 
+type RouterSessionPinRecoveryProbeLease struct {
+	SessionKey []byte
+	Model      string
+	LeaseToken uuid.UUID
+	LeaseUntil pgtype.Timestamptz
+}
+
 // Conversation release pins; admission transactions lock installation, key, subject, then conversation
 type RouterSessionReleaseBinding struct {
 	InstallationID        uuid.UUID

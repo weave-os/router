@@ -64,6 +64,10 @@ type TelemetryEmitter interface {
 
 // Service orchestrates routing decisions and provider dispatch.
 type Service struct {
+	recoveryProbeMu     sync.Mutex
+	recoveryProbeLeases map[string]uint64
+	nextRecoveryProbeID uint64
+
 	router             router.Router
 	subscriptionModels subscriptionModelAccess
 	// strategies contains every non-default router and its optional lifecycle
@@ -1870,13 +1874,74 @@ func (s *Service) WithRescuedFailureArmDemotion(enabled bool) *Service {
 	return s
 }
 
-// WithTransientRateLimit sets the deployment defaults for treating an
-// upstream 429 as throttling rather than a dead arm
+// WithTransientRateLimit sets the deployment defaults for temporarily
+// withdrawing rescued 429 and gateway 5xx failures rather than striking them
+// for the session
 // (ROUTER_TRANSIENT_RATE_LIMIT, ROUTER_RATE_LIMIT_COOLDOWN_SECONDS).
 func (s *Service) WithTransientRateLimit(enabled bool, cooldownSeconds int) *Service {
 	s.transientRateLimit = enabled
 	s.rateLimitCooldownSeconds = cooldownSeconds
 	return s
+}
+
+const recoveryProbeLeaseDuration = 15 * time.Minute
+
+// acquireRecoveryProbe grants one in-flight recovery attempt for a session/model
+// pair. A durable pin store shares the lease across router workers; the local
+// map keeps stores used by offline tests and tooling behaviorally equivalent.
+func (s *Service) acquireRecoveryProbe(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, model string) (func(), bool) {
+	if sessionKey == ([sessionpin.SessionKeyLen]byte{}) || model == "" {
+		return func() {}, true
+	}
+	if store, ok := s.pinStore.(sessionpin.RecoveryProbeStore); ok {
+		token := uuid.New()
+		leaseUntil := s.clockNow().Add(recoveryProbeLeaseDuration)
+		if deadline, hasDeadline := ctx.Deadline(); hasDeadline && deadline.Add(time.Minute).After(leaseUntil) {
+			leaseUntil = deadline.Add(time.Minute)
+		}
+		acquired, err := store.AcquireRecoveryProbe(ctx, sessionKey, model, token, leaseUntil)
+		if err != nil {
+			observability.FromContext(ctx).Warn("failed to acquire recovery probe lease; keeping model out for this request", "model", model, "err", err)
+			return nil, false
+		}
+		if !acquired {
+			return nil, false
+		}
+		var once sync.Once
+		return func() {
+			once.Do(func() {
+				releaseCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				if err := store.ReleaseRecoveryProbe(releaseCtx, sessionKey, model, token); err != nil {
+					observability.FromContext(ctx).Warn("failed to release recovery probe lease; it will expire", "model", model, "err", err)
+				}
+			})
+		}, true
+	}
+	key := string(sessionKey[:]) + "\x00" + model
+	s.recoveryProbeMu.Lock()
+	if _, exists := s.recoveryProbeLeases[key]; exists {
+		s.recoveryProbeMu.Unlock()
+		return nil, false
+	}
+	if s.recoveryProbeLeases == nil {
+		s.recoveryProbeLeases = make(map[string]uint64)
+	}
+	s.nextRecoveryProbeID++
+	leaseID := s.nextRecoveryProbeID
+	s.recoveryProbeLeases[key] = leaseID
+	s.recoveryProbeMu.Unlock()
+
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			s.recoveryProbeMu.Lock()
+			if s.recoveryProbeLeases[key] == leaseID {
+				delete(s.recoveryProbeLeases, key)
+			}
+			s.recoveryProbeMu.Unlock()
+		})
+	}, true
 }
 
 // WithNativeAnthropicResponseSignals is the kill switch
@@ -3805,6 +3870,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	} else {
 		routeRes, routeErr = s.runTurnLoop(routeCtx, env, feats, apiKeyID, installationID, "", r.Header, req)
 	}
+	defer routeRes.releaseCooldownProbes()
 	var escalationCapture *captureWriter
 	defer func() {
 		if !preparingHandoff(ctx) {
@@ -6931,6 +6997,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	routeStart := time.Now()
 	routeCtx, routeSpan := startRoutingSpan(ctx, routeRequest)
 	routeRes, err := s.runTurnLoop(routeCtx, env, feats, apiKeyID, installationID, subAgentHint, r.Header, routeRequest)
+	defer routeRes.releaseCooldownProbes()
 	var escalationCapture *captureWriter
 	defer func() {
 		s.completeEscalation(ctx, routeRes, returnErr, escalationCapture, translate.EscalationResponseChat)

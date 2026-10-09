@@ -85,14 +85,19 @@ re-anchors, post-command continuations, band swap, sibling failover, the policy
  deadline default, and loop escalation — every path where the router
 picked the model. `forcedPinEligible` deliberately does not.
 
-**A rescued 429 is a cooldown, not a session-lifetime strike.** Under
-`transient_rate_limit` (default off), `maybeStrikeArmAfterRescuedFailure`
-records a rescued primary's buffered upstream 429 as
-`DemotionReasonRateLimited` with an expiry (`rate_limit_cooldown_seconds`,
-default 45) in `Pin.DemotionCooldowns`; committed-stream failures and non-429
-rescued failures stay permanent. `runTurnLoop` folds only *active* cooldowns
-into `AutomaticExcludedModels`, so an expired arm is scored and rescued again
-with no extra state change. Cooldowns are soft in one more way than the
+**Rescued transient failures get a bounded cooldown, not a session-lifetime
+strike.** Under `transient_rate_limit` (default off),
+`maybeStrikeArmAfterRescuedFailure` records a rescued primary's buffered 429 as
+`DemotionReasonRateLimited`, and 502/503/504 as
+`DemotionReasonTransientFailure`, with an expiry
+(`rate_limit_cooldown_seconds`, default 45) in `Pin.DemotionCooldowns`;
+committed-stream failures and other rescued failures stay permanent.
+`runTurnLoop` folds only *active* cooldowns into `AutomaticExcludedModels`.
+At expiry, a Postgres lease grants one in-flight request per session/model the
+recovery probe across router workers; concurrent requests use their other
+candidates. A lease token prevents a delayed release from clearing a newer
+probe; abandoned leases expire after 15 minutes, or one minute after a known
+request deadline. Cooldowns are soft in one more way than the
 deployment exclusion: `rescueWalkOrReadmitCooling` appends cooling arms
 (soonest expiry first) *after* every healthy rescue candidate, so a session
 whose whole rescue pool is throttled readmits a cooling arm instead of

@@ -74,10 +74,9 @@ func (s *Service) maybeDemoteArmAfterCommittedStreamFailure(
 // already proved the primary unusable for this turn; without the strike the
 // next turn re-decides from scratch and returns to the same arm.
 //
-// Under transient_rate_limit a primary that failed with a buffered 429 is
-// throttled, not dead: the strike is a cooldown (ResolveRateLimitCooldown)
-// after which the arm is eligible again, and the reason is
-// DemotionReasonRateLimited. Every other rescued failure keeps the
+// Under transient_rate_limit a primary that failed with a buffered 429 or
+// gateway 5xx is temporarily withdrawn (ResolveRateLimitCooldown) and becomes
+// eligible again when its cooldown expires. Other rescued failures keep the
 // session-lifetime demotion.
 //
 // Returns the demoted model, or "" when nothing was demoted. Shares the
@@ -129,6 +128,10 @@ func (s *Service) maybeStrikeArmAfterRescuedFailure(
 	reason, cooldownUntil := sessionpin.DemotionReasonRescuedFailure, time.Time{}
 	if headerTimeout {
 		reason = sessionpin.DemotionReasonResponseHeaderTimeout
+	} else if s.ResolveTransientRateLimit(ctx) && isTransientGatewayFailure(primaryErr) {
+		cooldown := s.ResolveRateLimitCooldown(ctx)
+		reason, cooldownUntil = sessionpin.DemotionReasonTransientFailure, s.clockNow().Add(cooldown)
+		rateLimitTurnFromContext(ctx).recordCooldown(cooldownUntil, cooldown)
 	} else if s.ResolveTransientRateLimit(ctx) && isRateLimitedPrimaryFailure(primaryErr) {
 		cooldown := s.ResolveRateLimitCooldown(ctx)
 		reason, cooldownUntil = sessionpin.DemotionReasonRateLimited, s.clockNow().Add(cooldown)
@@ -138,6 +141,15 @@ func (s *Service) maybeStrikeArmAfterRescuedFailure(
 		return "", ""
 	}
 	return primary.Model, reason
+}
+
+func isTransientGatewayFailure(err error) bool {
+	switch upstreamStatus(err) {
+	case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	default:
+		return false
+	}
 }
 
 // maybeDemoteArmAfterUnrescuedStall protects the next automatic turn when a
@@ -306,8 +318,8 @@ func armDemotionLogFields(committedDemoted, rescuedDemoted string) []any {
 }
 
 // armStrikeLogFields is armDemotionLogFields with the rescued strike's own
-// reason: rescued_failure for the session-lifetime strike, rate_limited for a
-// cooldown.
+// reason: rescued_failure for the session-lifetime strike, rate_limited or
+// transient_failure for a cooldown.
 func armStrikeLogFields(committedDemoted, rescuedDemoted string, rescuedReason sessionpin.DemotionReason) []any {
 	return armStrikeLogFieldsWithPrimaryReason(committedDemoted, sessionpin.DemotionReasonCommittedStreamFailure, rescuedDemoted, rescuedReason)
 }
