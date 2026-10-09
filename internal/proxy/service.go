@@ -1623,7 +1623,7 @@ func (s *Service) avoidCodexOnChatEndpoint(ctx context.Context, provider, model 
 		return ctx, nil
 	}
 	if !s.openaiFallbackKeyAvailable(ctx) {
-		return nil, ErrCreditsExhaustedSubscriptionUnavailable
+		return nil, subscriptionOnlyUnavailable(ctx)
 	}
 	return withCodexChatEndpoint(ctx), nil
 }
