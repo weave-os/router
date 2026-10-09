@@ -258,9 +258,11 @@ dashboard, where selection is an organization-wide setting. See
 | `GET /v1/analytics/schema` &nbsp;·&nbsp; `GET /v1/analytics/models` | Export field dictionary + price book |
 
 Use `/startupz` for Cloud Run startup and `/livez` for its process responsive
-check. The listener starts after artifact/client initialization and bounded,
-best-effort database and provider connection preparation. Preparation failures
-log warnings and boot continues. Startup sends no prompts and performs no
+check. The listener starts after artifact/client initialization and bounded
+connection preparation. `/startupz` also pings PostgreSQL with a two-second
+budget: failure returns 503, so Cloud Run withholds traffic and retries while
+the process stays running. Provider preparation failures only log warnings.
+`/livez` does not contact the database. Startup sends no prompts and performs no
 embedding or HMM inference; it cannot guarantee the latency of first inference.
 `/readyz` retains dependency diagnostics.
 

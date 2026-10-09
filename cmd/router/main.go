@@ -136,12 +136,12 @@ func main() {
 	defer pool.Close()
 
 	// pgxpool connects lazily; first request otherwise pays to build the pool inside
-	// its own budget. Bounded and warn-only so an unreachable DB can't stall boot.
+	// its own budget. Failure keeps /startupz unsuccessful until the DB recovers.
 	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	pingErr := pool.Ping(pingCtx)
 	pingCancel()
 	if pingErr != nil {
-		logger.Warn("Postgres ping at boot failed; early requests may be slow", "err", pingErr)
+		logger.Warn("Postgres ping at boot failed; startup probe requires database connectivity", "err", pingErr)
 	}
 
 	// Gates the self-hoster dashboard + /admin/v1/* API. Defaults to selfhosted
@@ -1557,6 +1557,7 @@ func main() {
 	egressProbe.prepare(processCtx, logger, providerMap, envKeyedProviders, initializedOrigins)
 	logger.Info("Router startup initialization complete")
 	serverFeatures := server.Features{
+		StartupDatabasePing: pool.Ping,
 		TestPlans:           testPlans,
 		PolicyPinEnabled:    policyPinEnabled,
 		ServingAdmission:    servingAdmission,

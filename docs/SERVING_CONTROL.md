@@ -632,7 +632,11 @@ inference costs and is separate from service startup.
 Startup loads required artifacts and clients, then prepares database/provider
 connections before listening. Provider preparation sends credential-free HEAD
 requests through retained transports to exercise DNS/TCP/TLS; any HTTP response
-proves connectivity only. Preparation is bounded and warns on failure without
-aborting boot. Startup performs no synthetic generation, embedding or HMM
+proves connectivity only. Provider preparation is bounded and warns on failure
+without aborting boot. `/startupz` requires a successful PostgreSQL ping within
+two seconds on each request, returning 503 while the database is unreachable
+and permitting startup once it recovers. The process stays running during a
+database outage; `/livez` remains independent of all dependencies.
+Startup performs no synthetic generation, embedding or HMM
 inference, and does not establish a first-inference latency guarantee.
-Repeated `/startupz` and `/livez` probes perform no external work.
+Probes never repeat artifact initialization or perform inference.

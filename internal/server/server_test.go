@@ -5,7 +5,9 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"weave-os/router/internal/analytics"
 	"weave-os/router/internal/policyregistry"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeDeployedModelsSource is a stand-in for *cluster.Multiversion in route
@@ -158,7 +161,9 @@ func TestRegisterSeparatesResponsiveAndStartupChecksFromReadiness(t *testing.T) 
 	checker := healthCheckerFunc(func(context.Context) error {
 		return errors.New("dependency unavailable")
 	})
-	server.Register(engine, nil, nil, nil, nil, server.DeploymentModeManaged, nil, checker, nil, nil)
+	server.RegisterWithFeatures(engine, nil, nil, nil, nil, server.DeploymentModeManaged, nil, checker, nil, nil, server.Features{
+		StartupDatabasePing: func(context.Context) error { return nil },
+	})
 
 	for _, test := range []struct {
 		path       string
@@ -175,6 +180,93 @@ func TestRegisterSeparatesResponsiveAndStartupChecksFromReadiness(t *testing.T) 
 			assert.Equal(t, test.wantStatus, response.Code)
 		})
 	}
+}
+
+func TestStartupCheckRequiresDatabaseAndRecovers(t *testing.T) {
+	for _, mode := range []server.DeploymentMode{server.DeploymentModeManaged, server.DeploymentModeSelfHosted} {
+		t.Run(string(mode), func(t *testing.T) {
+			engine := gin.New()
+			var databaseAvailable atomic.Bool
+			server.RegisterWithFeatures(engine, nil, nil, nil, nil, mode, nil, nil, nil, nil, server.Features{
+				StartupDatabasePing: func(context.Context) error {
+					if !databaseAvailable.Load() {
+						return errors.New("postgres internal-host unavailable")
+					}
+					return nil
+				},
+			})
+			for _, available := range []bool{false, true, false} {
+				databaseAvailable.Store(available)
+				response := httptest.NewRecorder()
+				engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/startupz", nil))
+				if available {
+					assert.Equal(t, http.StatusOK, response.Code)
+				} else {
+					assert.Equal(t, http.StatusServiceUnavailable, response.Code)
+					assert.NotContains(t, response.Body.String(), "internal-host")
+				}
+			}
+		})
+	}
+}
+
+func TestStartupCheckRequiresDatabaseWiring(t *testing.T) {
+	engine := gin.New()
+	server.Register(engine, nil, nil, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil)
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/startupz", nil))
+	assert.Equal(t, http.StatusServiceUnavailable, response.Code)
+}
+
+func TestStartupDatabaseTimeoutDoesNotBlockResponsiveChecks(t *testing.T) {
+	engine := gin.New()
+	started := make(chan context.Context, 1)
+	server.RegisterWithFeatures(engine, nil, nil, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{
+		StartupDatabasePing: func(ctx context.Context) error {
+			started <- ctx
+			<-ctx.Done()
+			return ctx.Err()
+		},
+	})
+	response := httptest.NewRecorder()
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/startupz", nil))
+	}()
+	select {
+	case ctx := <-started:
+		deadline, ok := ctx.Deadline()
+		require.True(t, ok)
+		assert.LessOrEqual(t, time.Until(deadline), 2*time.Second)
+	case <-time.After(time.Second):
+		t.Fatal("Startup check never attempted database connection")
+	}
+	for _, path := range []string{"/livez", "/health"} {
+		probe := httptest.NewRecorder()
+		engine.ServeHTTP(probe, httptest.NewRequest(http.MethodGet, path, nil))
+		assert.Equal(t, http.StatusOK, probe.Code)
+	}
+	select {
+	case <-finished:
+		assert.Equal(t, http.StatusServiceUnavailable, response.Code)
+	case <-time.After(3 * time.Second):
+		t.Fatal("Startup database check exceeded its timeout")
+	}
+}
+
+func TestStartupDatabaseCheckHonorsRequestCancellation(t *testing.T) {
+	engine := gin.New()
+	server.RegisterWithFeatures(engine, nil, nil, nil, nil, server.DeploymentModeManaged, nil, nil, nil, nil, server.Features{
+		StartupDatabasePing: func(ctx context.Context) error {
+			return ctx.Err()
+		},
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, httptest.NewRequestWithContext(ctx, http.MethodGet, "/startupz", nil))
+	assert.Equal(t, http.StatusServiceUnavailable, response.Code)
 }
 
 func TestManagedValidationRejectsPublicCredentials(t *testing.T) {

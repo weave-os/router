@@ -2,6 +2,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -35,6 +36,8 @@ import (
 const (
 	healthTimeout    = 1 * time.Second
 	readinessTimeout = 2 * time.Second
+	// Leave time to return a database failure before Cloud Run's 3-second probe timeout.
+	startupTimeout = 2 * time.Second
 	// Cold-cache key probe costs 3 sequential Postgres round trips; 1s made that a credential rejection.
 	validateTimeout = 5 * time.Second
 
@@ -114,8 +117,10 @@ func ParseDefaultStrategy(raw string) router.Strategy {
 	return strategy
 }
 
-// Features toggles optional request surfaces that are off by default.
+// Features configures dependencies and optional request surfaces.
 type Features struct {
+	// StartupDatabasePing is required for /startupz to succeed.
+	StartupDatabasePing func(context.Context) error
 	// TrafficCapture records local conversation HTTP exchanges when explicitly configured.
 	TrafficCapture trafficcapture.Recorder
 	// PolicyPinEnabled registers the x-weave-policy-pin middleware. Off means
@@ -188,8 +193,8 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	engine.GET("/livez", middleware.WithTimeout(healthTimeout), admin.HealthHandler)
 	engine.GET("/health", middleware.WithTimeout(healthTimeout), admin.HealthHandler)
 	engine.GET("/readyz", middleware.WithTimeout(readinessTimeout), admin.ReadinessHandler(readinessChecker))
-	// The listener starts after initialization and best-effort connection preparation.
-	engine.GET("/startupz", middleware.WithTimeout(healthTimeout), admin.HealthHandler)
+	// Initialization finishes before listening; database connectivity gates startup.
+	engine.GET("/startupz", middleware.WithTimeout(startupTimeout), admin.StartupHandler(features.StartupDatabasePing))
 
 	// /v1/version reports the binary's git commit + build time (via -ldflags),
 	// used by the README's managed-deployment badge. Public build metadata, unauthed like /health.
