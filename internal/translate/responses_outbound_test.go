@@ -396,43 +396,66 @@ func TestPrepareOpenAIResponses_ReplaysOnlyCurrentTurnReasoning(t *testing.T) {
 	prior := openAIReasoningTestSignature(t, "rs_prior", "enc_prior", "scope_a")
 	promptBLoop := openAIReasoningTestSignature(t, "rs_loop", "enc_loop", "scope_a")
 	current := openAIReasoningTestSignature(t, "rs_current", "enc_current", "scope_a")
-	body := []byte(`{
-		"model":"claude-opus-4-8","max_tokens":1024,
-		"messages":[
-			{"role":"user","content":"prompt A"},
-			{"role":"assistant","content":[
-				{"type":"thinking","thinking":"","signature":` + strconv.Quote(prior) + `},
-				{"type":"text","text":"answer A"}
-			]},
-			{"role":"user","content":[{"type":"text","text":"prompt B"}]},
-			{"role":"assistant","content":[
-				{"type":"thinking","thinking":"","signature":` + strconv.Quote(promptBLoop) + `},
-				{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"main.go"}}
-			]},
-			{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok"}]},
-			{"role":"assistant","content":[
-				{"type":"thinking","thinking":"","signature":` + strconv.Quote(current) + `},
-				{"type":"tool_use","id":"toolu_2","name":"Read","input":{"file_path":"go.mod"}}
-			]},
-			{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_2","content":"ok"}]}
-		]
-	}`)
-	env, err := translate.ParseAnthropic(body)
-	require.NoError(t, err)
-	prep, err := env.PrepareOpenAIResponses(http.Header{}, translate.EmitOptions{TargetModel: "gpt-5.5", Capabilities: router.Lookup("gpt-5.5"), ReasoningReplayScope: "scope_a"})
-	require.NoError(t, err)
+	priorCarrierID := "toolu_0__openai_reasoning__" + base64.RawURLEncoding.EncodeToString([]byte(prior))
+	head := `
+		{"role":"user","content":"prompt A"},
+		{"role":"assistant","content":[{"type":"tool_use","id":"` + priorCarrierID + `","name":"Read","input":{"file_path":"a.go"}}]},
+		{"role":"user","content":[{"type":"tool_result","tool_use_id":"` + priorCarrierID + `","content":"ok"}]},
+		{"role":"assistant","content":[{"type":"text","text":"answer A"}]},
+		{"role":"user","content":[{"type":"text","text":"prompt B"}]},
+		{"role":"assistant","content":[
+			{"type":"thinking","thinking":"","signature":` + strconv.Quote(promptBLoop) + `},
+			{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"main.go"}}
+		]},`
+	tail := `,
+		{"role":"assistant","content":[
+			{"type":"thinking","thinking":"","signature":` + strconv.Quote(current) + `},
+			{"type":"tool_use","id":"toolu_2","name":"Read","input":{"file_path":"go.mod"}}
+		]},
+		{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_2","content":"ok"}]}`
 
-	var out struct {
-		Input []map[string]any `json:"input"`
+	cases := []struct {
+		name        string
+		loopResults string
+		want        []any
+	}{
+		{
+			name:        "tool results continue the prompt B loop",
+			loopResults: `{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok"}]}`,
+			want:        []any{"rs_loop", "rs_current"},
+		},
+		{
+			name:        "injected reminder beside tool results continues the loop",
+			loopResults: `{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok"},{"type":"text","text":"<system-reminder>todo list changed</system-reminder>"}]}`,
+			want:        []any{"rs_loop", "rs_current"},
+		},
+		{
+			name:        "typed prompt beside tool results starts a new turn",
+			loopResults: `{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok"},{"type":"text","text":"prompt C"}]}`,
+			want:        []any{"rs_current"},
+		},
 	}
-	require.NoError(t, json.Unmarshal(prep.Body, &out))
-	var replayed []any
-	for _, item := range out.Input {
-		if item["type"] == "reasoning" {
-			replayed = append(replayed, item["id"])
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte(`{"model":"claude-opus-4-8","max_tokens":1024,"messages":[` + head + tc.loopResults + tail + `]}`)
+			env, err := translate.ParseAnthropic(body)
+			require.NoError(t, err)
+			prep, err := env.PrepareOpenAIResponses(http.Header{}, translate.EmitOptions{TargetModel: "gpt-5.5", Capabilities: router.Lookup("gpt-5.5"), ReasoningReplayScope: "scope_a"})
+			require.NoError(t, err)
+
+			var out struct {
+				Input []map[string]any `json:"input"`
+			}
+			require.NoError(t, json.Unmarshal(prep.Body, &out))
+			var replayed []any
+			for _, item := range out.Input {
+				if item["type"] == "reasoning" {
+					replayed = append(replayed, item["id"])
+				}
+			}
+			assert.Equal(t, tc.want, replayed)
+		})
 	}
-	assert.Equal(t, []any{"rs_loop", "rs_current"}, replayed)
 }
 
 func TestPrepareOpenAIResponses_ReplaysSignedReasoningAfterModelSwitch(t *testing.T) {

@@ -459,31 +459,36 @@ func writeResponsesInputFromAnthropic(jw *jsonWriter, body []byte, scope string)
 	jw.EndArr()
 }
 
-// latestUserPromptIndex returns the index of the last user message that is a
-// typed prompt rather than a tool_result batch, or -1 when there is none.
+// latestUserPromptIndex returns the index of the last user message carrying
+// input a person typed, or -1 when there is none. Tool results and Claude
+// Code's injected wrapper blocks (<system-reminder>, ...) are not typed input.
 func latestUserPromptIndex(messages gjson.Result) int {
 	latest, idx := -1, -1
 	messages.ForEach(func(_, msg gjson.Result) bool {
 		idx++
-		if msg.Get("role").String() != "user" {
-			return true
-		}
-		content := msg.Get("content")
-		if !content.IsArray() {
-			latest = idx
-			return true
-		}
-		hasToolResult := false
-		content.ForEach(func(_, block gjson.Result) bool {
-			hasToolResult = block.Get("type").String() == "tool_result"
-			return !hasToolResult
-		})
-		if !hasToolResult {
+		if msg.Get("role").String() == "user" && hasTypedUserInput(msg.Get("content")) {
 			latest = idx
 		}
 		return true
 	})
 	return latest
+}
+
+func hasTypedUserInput(content gjson.Result) bool {
+	if content.Type == gjson.String {
+		return !isOnlyKnownInjectedText(content.String())
+	}
+	typed := false
+	content.ForEach(func(_, block gjson.Result) bool {
+		switch block.Get("type").String() {
+		case "image":
+			typed = true
+		case "text":
+			typed = !isOnlyKnownInjectedText(block.Get("text").String())
+		}
+		return !typed
+	})
+	return typed
 }
 
 // emitResponsesReasoningItem replays encrypted reasoning only to the account
