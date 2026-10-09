@@ -383,12 +383,54 @@ func writeAnthropicUsageFromOpenAI(jw *jsonWriter, usage gjson.Result) {
 	jw.EndObj()
 }
 
-// OpenAIToAnthropicError re-wraps an OpenAI error as Anthropic format.
+// OpenAIToAnthropicError re-wraps an OpenAI or Gemini error as Anthropic format.
 func OpenAIToAnthropicError(body []byte) []byte {
 	errType := gjson.GetBytes(body, "error.type").String()
 	errMsg := gjson.GetBytes(body, "error.message").String()
-	if errType == "" && errMsg == "" {
+	status := gjson.GetBytes(body, "error.status").String()
+	if errType == "" && errMsg == "" && status == "" {
 		return body
+	}
+	if status != "" {
+		switch strings.ToUpper(status) {
+		case "RESOURCE_EXHAUSTED":
+			errType = "rate_limit_error"
+		case "UNAVAILABLE":
+			errType = "overloaded_error"
+		case "INVALID_ARGUMENT":
+			errType = "invalid_request_error"
+		case "PERMISSION_DENIED":
+			errType = "permission_error"
+		case "UNAUTHENTICATED":
+			errType = "authentication_error"
+		case "NOT_FOUND":
+			errType = "not_found_error"
+		default:
+			if errType == "" {
+				errType = "api_error"
+			}
+		}
+	} else if errType != "" {
+		switch strings.ToLower(errType) {
+		case "resource_exhausted":
+			errType = "rate_limit_error"
+		case "unavailable":
+			errType = "overloaded_error"
+		case "invalid_argument":
+			errType = "invalid_request_error"
+		case "permission_denied":
+			errType = "permission_error"
+		case "unauthenticated":
+			errType = "authentication_error"
+		case "not_found":
+			errType = "not_found_error"
+		}
+	}
+	if errType == "" {
+		errType = "api_error"
+	}
+	if errMsg == "" && status != "" {
+		errMsg = status
 	}
 	jw := newJSONWriter()
 	jw.Obj()
