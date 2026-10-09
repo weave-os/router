@@ -116,9 +116,9 @@ func TestSubscriptionRotationTimeoutSelfHostedCredentials(t *testing.T) {
 	svc := &Service{deploymentKeyedProviders: map[string]struct{}{}}
 	ctx := context.Background()
 	require.Equal(t, 120*time.Second, svc.subscriptionRotationTimeout(ctx))
-	paidCtx := context.WithValue(ctx, CredentialsContextKey{}, &Credentials{APIKey: "synthetic", Source: credSourceClient})
+	paidCtx := context.WithValue(ctx, CredentialsContextKey{}, &Credentials{APIKey: []byte("synthetic"), Source: credSourceClient})
 	require.Equal(t, 10*time.Second, svc.subscriptionRotationTimeout(paidCtx))
-	byokCtx := context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderOpenAI, Plaintext: "synthetic"}})
+	byokCtx := context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{{Provider: providers.ProviderOpenAI, Plaintext: []byte("synthetic")}})
 	require.Equal(t, 10*time.Second, svc.subscriptionRotationTimeout(byokCtx))
 	svc.deploymentKeyedProviders[providers.ProviderOpenAI] = struct{}{}
 	require.Equal(t, 10*time.Second, svc.subscriptionRotationTimeout(ctx))
