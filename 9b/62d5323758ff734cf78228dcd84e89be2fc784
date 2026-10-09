@@ -1,0 +1,21 @@
+internal/proxy/linked_first.go
+  s_a4e23a7d42c137::t_8e968b8c2a186c 76-77,83
+internal/proxy/linked_first_test.go
+  s_a4e23a7d42c137::t_e2dbf8899091ad 223,243-249,269,287,303,305-306
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9b62d5323758ff734cf78228dcd84e89be2fc784",
+  "prompts": {},
+  "sessions": {
+    "s_a4e23a7d42c137": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d42702a6-9ef3-4265-b4d2-278b83bc1f0b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
