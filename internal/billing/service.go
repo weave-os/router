@@ -41,10 +41,15 @@ type SubscriptionOnlyReason string
 
 const (
 	// SubscriptionOnlyCreditsDepleted marks a turn the organization cannot pay
-	// for: prepaid credits are gone, a balance row is missing, or a spend cap is
-	// reached. The caller's own plan is absorbing work Weave would otherwise
-	// have billed, so the turn carries the top-up CTA.
+	// for: prepaid credits are gone or a balance row is missing. The caller's
+	// own plan is absorbing work Weave would otherwise have billed, so the turn
+	// carries the top-up CTA.
 	SubscriptionOnlyCreditsDepleted SubscriptionOnlyReason = "credits_depleted"
+	// SubscriptionOnlySpendCapReached marks a turn a configured spend cap (API
+	// key lifetime, org monthly, or engineer monthly) bars from paid capacity.
+	// The organization may still hold credits, so the turn names the cap rather
+	// than claiming credits are depleted, and carries no top-up CTA.
+	SubscriptionOnlySpendCapReached SubscriptionOnlyReason = "spend_cap_reached"
 	// SubscriptionOnlyLinkedFirst marks a turn the caller's own linked plan
 	// funds by preference, ahead of any metered capacity. Nothing is depleted,
 	// so the turn keeps its ordinary routing marker.
@@ -61,27 +66,35 @@ var SubscriptionOnlyContextKey = subscriptionOnlyContextKeyT{}
 // what the caller is told, instead of silently inheriting the depleted-credits
 // warning — which is how linked-first turns came to claim credits were gone.
 //
-// A funding failure outranks a funding preference: once a gate has recorded
-// credits_depleted, linked-first cannot take it back, because the caller still
-// needs to be told paid fallback is off. Today the inference routes mount the
-// allowance gate ahead of the balance and spend-cap gates, so the escalation
-// only ever runs in that direction; the precedence is enforced here rather than
-// left resting on that registration order, which neither gate can see.
+// A recorded reason is never downgraded (see precedence): a funding failure
+// outranks a funding preference, because the caller still needs to be told
+// paid fallback is off, and a depleted balance outranks a reached cap, because
+// only adding credits restores routing then. The precedence is enforced here
+// rather than left resting on gate registration order, which no gate can see.
 func WithSubscriptionOnly(ctx context.Context, reason SubscriptionOnlyReason) context.Context {
-	if reason == SubscriptionOnlyLinkedFirst {
-		if existing, ok := subscriptionOnlyReason(ctx); ok && existing == SubscriptionOnlyCreditsDepleted {
-			return ctx
-		}
+	if existing, ok := subscriptionOnlyReason(ctx); ok && existing.precedence() > reason.precedence() {
+		return ctx
 	}
 	return context.WithValue(ctx, SubscriptionOnlyContextKey, reason)
+}
+
+func (r SubscriptionOnlyReason) precedence() int {
+	switch r {
+	case SubscriptionOnlyCreditsDepleted:
+		return 2
+	case SubscriptionOnlySpendCapReached:
+		return 1
+	default:
+		return 0
+	}
 }
 
 // ReleaseLinkedFirst clears a linked-first mark so the turn continues on
 // metered capacity. A linked plan is the preferred funding source, not the
 // only one: once it cannot serve, the turn falls through to the organization
-// balance the gates already admitted it against. A credits_depleted mark is
-// kept — there is nothing to fall through to, and the caller still needs the
-// top-up CTA.
+// balance the gates already admitted it against. A credits_depleted or
+// spend_cap_reached mark is kept — there is nothing to fall through to, and
+// the caller still needs to be told paid fallback is off.
 func ReleaseLinkedFirst(ctx context.Context) context.Context {
 	if reason, ok := subscriptionOnlyReason(ctx); ok && reason == SubscriptionOnlyLinkedFirst {
 		return context.WithValue(ctx, SubscriptionOnlyContextKey, nil)

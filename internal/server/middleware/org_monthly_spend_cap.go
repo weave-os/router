@@ -73,7 +73,7 @@ func WithOrgMonthlySpendCap(svc *billing.Service) gin.HandlerFunc {
 					"spent_usd_micros", result.SpentMicros,
 					"monthly_limit_usd_micros", *result.LimitMicros,
 				)
-				c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context(), billing.SubscriptionOnlyCreditsDepleted))
+				c.Request = c.Request.WithContext(billing.WithSubscriptionOnly(c.Request.Context(), billing.SubscriptionOnlySpendCapReached))
 				c.Next()
 				return
 			}

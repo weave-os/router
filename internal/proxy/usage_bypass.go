@@ -319,24 +319,54 @@ const subscriptionOnlyWarningMarkerCodex = routingMarkerPrefix +
 	"your Weave router credits are depleted, so this turn is running on your own ChatGPT (Codex) subscription and paid model fallback is disabled. Add credits to restore full routing: " +
 	topUpURL + "\n\n"
 
-// subscriptionOnlyWarnsDepleted reports whether a subscription-only turn is
-// standing in for capacity the organization could not fund, and so must carry
-// the depleted-credits warning and its top-up CTA. A linked-first turn is the
-// ordinary funded path — the caller's own plan paying first by design — and
-// keeps its routing marker, so it no longer claims credits are gone.
-func subscriptionOnlyWarnsDepleted(ctx context.Context) bool {
-	reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx)
-	return ok && reason == billing.SubscriptionOnlyCreditsDepleted
+// subscriptionSpendCapWarningMarker is prepended to a subscription-only turn
+// a spend cap barred from paid capacity. The organization may still hold
+// credits, so it names the cap and carries no top-up CTA.
+const subscriptionSpendCapWarningMarker = routingMarkerPrefix +
+	"a Weave router spend cap has been reached, so this turn is running on your own Anthropic subscription and paid model fallback is disabled.\n\n"
+
+// subscriptionSpendCapWarningMarkerCodex is the Codex/OpenAI-surface
+// counterpart to subscriptionSpendCapWarningMarker.
+const subscriptionSpendCapWarningMarkerCodex = routingMarkerPrefix +
+	"a Weave router spend cap has been reached, so this turn is running on your own ChatGPT (Codex) subscription and paid model fallback is disabled.\n\n"
+
+// subscriptionOnlyWarnings holds one surface's subscription-only warning per
+// reason that disabled paid fallback.
+type subscriptionOnlyWarnings struct {
+	creditsDepleted string
+	spendCapReached string
 }
 
-// subscriptionOnlyWarningMarkerForRequest returns the depletion warning only
-// when the turn is subscription-only because credits are depleted and the
-// caller has not opted out of terminal routing surfaces.
-func subscriptionOnlyWarningMarkerForRequest(ctx context.Context, headers http.Header, marker string) string {
-	if !subscriptionOnlyWarnsDepleted(ctx) {
+var (
+	anthropicSubscriptionOnlyWarnings = subscriptionOnlyWarnings{subscriptionOnlyWarningMarker, subscriptionSpendCapWarningMarker}
+	codexSubscriptionOnlyWarnings     = subscriptionOnlyWarnings{subscriptionOnlyWarningMarkerCodex, subscriptionSpendCapWarningMarkerCodex}
+)
+
+// forReason returns the warning for why the turn is subscription-only, or ""
+// when nothing disabled paid fallback. A linked-first turn is the ordinary
+// funded path — the caller's own plan paying first by design — and keeps its
+// routing marker.
+func (w subscriptionOnlyWarnings) forReason(ctx context.Context) string {
+	reason, _ := billing.SubscriptionOnlyReasonFromContext(ctx)
+	switch reason {
+	case billing.SubscriptionOnlyCreditsDepleted:
+		return w.creditsDepleted
+	case billing.SubscriptionOnlySpendCapReached:
+		return w.spendCapReached
+	default:
 		return ""
 	}
-	return suppressMarkerIfRequested(ctx, headers, marker)
+}
+
+// subscriptionOnlyWarningMarkerForRequest returns the subscription-only
+// warning when a funding gate disabled paid fallback for the turn and the
+// caller has not opted out of terminal routing surfaces.
+func subscriptionOnlyWarningMarkerForRequest(ctx context.Context, headers http.Header, warnings subscriptionOnlyWarnings) string {
+	warning := warnings.forReason(ctx)
+	if warning == "" {
+		return ""
+	}
+	return suppressMarkerIfRequested(ctx, headers, warning)
 }
 
 // ErrCreditsExhaustedSubscriptionUnavailable is returned by ProxyMessages and
@@ -349,6 +379,21 @@ func subscriptionOnlyWarningMarkerForRequest(ctx context.Context, headers http.H
 // that DID resolve onto the subscription surfaces the raw upstream error
 // instead — it's the caller's own plan failing, with nowhere to fail over to.
 var ErrCreditsExhaustedSubscriptionUnavailable = errors.New("credits exhausted and subscription unavailable for this turn")
+
+// ErrSpendCapSubscriptionUnavailable is the ErrCreditsExhaustedSubscriptionUnavailable
+// variant for a turn a spend cap, not a depleted balance, made subscription-only.
+// It wraps the credits sentinel so every errors.Is refusal check still matches.
+var ErrSpendCapSubscriptionUnavailable = fmt.Errorf("spend cap reached: %w", ErrCreditsExhaustedSubscriptionUnavailable)
+
+// subscriptionOnlyUnavailable returns the refusal for a subscription-only
+// turn the caller's subscription cannot serve, naming the gate that disabled
+// paid fallback.
+func subscriptionOnlyUnavailable(ctx context.Context) error {
+	if reason, _ := billing.SubscriptionOnlyReasonFromContext(ctx); reason == billing.SubscriptionOnlySpendCapReached {
+		return ErrSpendCapSubscriptionUnavailable
+	}
+	return ErrCreditsExhaustedSubscriptionUnavailable
+}
 
 // errBypassRetryable is returned by bypassToAnthropic when the bypass attempt
 // hit a retryable upstream error (e.g., Anthropic 429 weekly-limit) BEFORE
@@ -448,7 +493,7 @@ func (s *Service) bypassToAnthropic(
 		streamCost.SetCostCalculator(routerCostCalculatorFor(decision.Model, decision.Provider, opts.FastMode), false, func() bool { return translate.AnthropicRequestCacheTTL1h(prep.Body) })
 		respW = streamCost
 	}
-	if warning := subscriptionOnlyWarningMarkerForRequest(ctx, r.Header, subscriptionOnlyWarningMarker); warning != "" {
+	if warning := subscriptionOnlyWarningMarkerForRequest(ctx, r.Header, anthropicSubscriptionOnlyWarnings); warning != "" {
 		respW = translate.NewAnthropicRoutingMarkerWriter(respW, decision.Model, warning)
 	}
 

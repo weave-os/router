@@ -161,6 +161,16 @@ func TestClassifyDispatchError_BanditRLandHMMUnavailableRetry(t *testing.T) {
 	}
 }
 
+func TestClassifyDispatchError_SpendCapIs402WithoutTopUpCTA(t *testing.T) {
+	cls, ok := proxy.ClassifyDispatchError(proxy.ErrSpendCapSubscriptionUnavailable)
+
+	require.True(t, ok, "the spend-cap sentinel must be classified")
+	assert.Equal(t, proxy.DispatchErrorSpendCapReached, cls.Kind)
+	assert.Equal(t, http.StatusPaymentRequired, cls.Status)
+	assert.Contains(t, cls.Message, "spend cap")
+	assert.NotContains(t, cls.Message, "credits", "a reached cap must not claim the balance is depleted")
+}
+
 func TestClassifyDispatchError_CreditsExhaustedIs402(t *testing.T) {
 	cls, ok := proxy.ClassifyDispatchError(proxy.ErrCreditsExhaustedSubscriptionUnavailable)
 

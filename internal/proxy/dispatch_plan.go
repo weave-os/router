@@ -194,7 +194,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				credentialCtx, stopRotationDeadline = withUncommittedRotationDeadline(credentialCtx, rotationCtx, in.buf)
 			}
 			if creds := CredentialsFromContext(credentialCtx); paidFallbackForbidden(ctx) && (creds == nil || !creds.OAuth) {
-				return dispatchAbort{err: ErrCreditsExhaustedSubscriptionUnavailable}
+				return dispatchAbort{err: subscriptionOnlyUnavailable(ctx)}
 			}
 			if creds := CredentialsFromContext(credentialCtx); creds != nil && creds.OAuth {
 				if state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); state != nil {

@@ -3987,7 +3987,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			} else {
 				log.Info("Subscription-only bypass hit retryable error; refusing instead of paid reroute",
 					"request_id", requestID, "external_id", externalID)
-				return ErrCreditsExhaustedSubscriptionUnavailable
+				return subscriptionOnlyUnavailable(ctx)
 			}
 		}
 
@@ -4277,13 +4277,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			if !ok {
 				log.Info("Subscription-only request cannot be served on the subscription; refusing",
 					"requested_model", feats.Model, "external_id", externalID, "decision_provider", decision.Provider)
-				return ErrCreditsExhaustedSubscriptionUnavailable
+				return subscriptionOnlyUnavailable(ctx)
 			}
 			ctx = released
 		case s.anthropicSubscriptionObservedExhausted(ctx, r.Header) && !claudeSubscriptionSuppressed(ctx):
 			log.Info("Subscription-only request cannot be served on the subscription; refusing",
 				"requested_model", feats.Model, "external_id", externalID, "decision_provider", decision.Provider)
-			return ErrCreditsExhaustedSubscriptionUnavailable
+			return subscriptionOnlyUnavailable(ctx)
 		default:
 			bindings = []catalog.ProviderBinding{{Provider: decision.Provider}}
 		}
@@ -4359,7 +4359,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// guard above has already refused any turn that wouldn't run on the caller's
 	// own sub, so a turn reaching here is served free and should carry the top-up
 	// CTA. A linked-first turn keeps its ordinary marker.
-	if warning := subscriptionOnlyWarningMarkerForRequest(ctx, r.Header, subscriptionOnlyWarningMarker); warning != "" {
+	if warning := subscriptionOnlyWarningMarkerForRequest(ctx, r.Header, anthropicSubscriptionOnlyWarnings); warning != "" {
 		marker = warning
 	}
 	// toolValidator compiles the request's tool schemas once (LRU-cached);
@@ -7259,7 +7259,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			if !ok {
 				log.Info("Subscription-only request cannot be served on the subscription; refusing",
 					"requested_model", feats.Model, "external_id", externalID, "decision_provider", decision.Provider)
-				return ErrCreditsExhaustedSubscriptionUnavailable
+				return subscriptionOnlyUnavailable(ctx)
 			}
 			ctx = released
 		} else {
@@ -7280,7 +7280,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
 
 	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
-	if warning := subscriptionOnlyWarningMarkerForRequest(ctx, r.Header, subscriptionOnlyWarningMarkerCodex); warning != "" {
+	if warning := subscriptionOnlyWarningMarkerForRequest(ctx, r.Header, codexSubscriptionOnlyWarnings); warning != "" {
 		marker = warning
 	}
 

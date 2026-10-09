@@ -100,8 +100,10 @@ func TestProxyMessages_OverEngineerCap_CoveringSubscription_ServesFreeNo402(t *t
 	require.Len(t, p.proxyBodies, 1, "the turn must serve on the subscription exactly once")
 	require.NotNil(t, p.proxyCreds[0], "the dispatch must carry the caller's subscription credential")
 	assert.True(t, p.proxyCreds[0].OAuth, "the turn must serve on the caller's own Claude subscription")
-	assert.Contains(t, rec.Body.String(), "credits are depleted",
-		"a subscription-only turn must surface the depleted-credits warning")
+	assert.Contains(t, rec.Body.String(), "spend cap has been reached",
+		"a cap-driven subscription-only turn must name the spend cap")
+	assert.NotContains(t, rec.Body.String(), "credits are depleted",
+		"a reached cap must not claim the organization's credits are depleted")
 
 	for _, d := range repo.recordedDebits() {
 		assert.Equal(t, int64(0), d.DeltaUsdMicros,
