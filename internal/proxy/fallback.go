@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -340,7 +341,9 @@ const sameBindingRetryBudget = 10 * time.Second
 const subscriptionOnlyFirstOutputTimeout = 120 * time.Second
 
 func subscriptionRotationTimeout(ctx context.Context) time.Duration {
-	if paidFallbackForbidden(ctx) {
+	// Attempt-level restrictions can still have funded exhausted-state recovery.
+	// Extend waiting only when the entire request has no paid funding.
+	if billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
 		return subscriptionOnlyFirstOutputTimeout
 	}
 	return sameBindingRetryBudget

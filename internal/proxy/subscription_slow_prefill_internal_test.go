@@ -55,3 +55,23 @@ func TestSubscriptionOnlySlowFirstOutputDoesNotUsePaidCapacity(t *testing.T) {
 	require.Contains(t, rec.Body.String(), "slow subscription answer")
 	require.EqualValues(t, 1, calls.Load(), "subscription-only requests must not use the available paid key")
 }
+
+// State-model policy forbids paid attempts only inside the active set; a
+// funded request can still recover through its configured exhausted set.
+func TestSubscriptionRotationTimeoutPreservesFundedRecovery(t *testing.T) {
+	stateCtx := context.WithValue(context.Background(), InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateCodexModel})
+	stateCtx = context.WithValue(stateCtx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+	for _, tc := range []struct {
+		name string
+		ctx  context.Context
+		want time.Duration
+	}{
+		{"funded configured sets", stateCtx, 10 * time.Second},
+		{"linked first configured sets", billing.WithSubscriptionOnly(stateCtx, billing.SubscriptionOnlyLinkedFirst), 10 * time.Second},
+		{"depleted configured sets", billing.WithSubscriptionOnly(stateCtx, billing.SubscriptionOnlyCreditsDepleted), 120 * time.Second},
+		{"funded subscription attempt", context.WithValue(stateCtx, subscriptionOnlyAttemptKey{}, true), 10 * time.Second},
+		{"ordinary funded", context.Background(), 10 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) { require.Equal(t, tc.want, subscriptionRotationTimeout(tc.ctx)) })
+	}
+}
