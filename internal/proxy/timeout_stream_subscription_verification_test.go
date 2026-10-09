@@ -21,6 +21,7 @@ import (
 )
 
 func TestVerificationSubscriptionTimeoutUsesAuthorizedAPI(t *testing.T) {
+	setSameBindingRetryBudget(t, 2*time.Second)
 	var bearers []string
 	var bearersMu sync.Mutex
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -56,8 +57,8 @@ func TestVerificationSubscriptionTimeoutUsesAuthorizedAPI(t *testing.T) {
 	err := svc.ProxyOpenAIChatCompletion(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
 	require.NoError(t, err)
 	elapsed := time.Since(started)
-	require.GreaterOrEqual(t, elapsed, 9*time.Second)
-	require.Less(t, elapsed, 15*time.Second, "API fallback must follow the ten-second rotation budget promptly")
+	require.GreaterOrEqual(t, elapsed, sameBindingRetryBudget-time.Second)
+	require.Less(t, elapsed, sameBindingRetryBudget+5*time.Second, "API fallback must follow the rotation budget promptly")
 	bearersMu.Lock()
 	require.Equal(t, []string{"Bearer timeout-seat", "Bearer synthetic-api-key"}, bearers)
 	bearersMu.Unlock()
@@ -67,6 +68,7 @@ func TestVerificationSubscriptionTimeoutUsesAuthorizedAPI(t *testing.T) {
 }
 
 func TestVerificationResponsesSubscriptionTimeoutUsesAuthorizedAPI(t *testing.T) {
+	setSameBindingRetryBudget(t, 2*time.Second)
 	var bearers []string
 	var bearersMu sync.Mutex
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -102,8 +104,8 @@ func TestVerificationResponsesSubscriptionTimeoutUsesAuthorizedAPI(t *testing.T)
 	err := svc.ProxyOpenAIResponses(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(string(body))))
 	require.NoError(t, err)
 	elapsed := time.Since(started)
-	require.GreaterOrEqual(t, elapsed, 9*time.Second)
-	require.Less(t, elapsed, 15*time.Second, "API fallback must follow the ten-second rotation budget promptly")
+	require.GreaterOrEqual(t, elapsed, sameBindingRetryBudget-time.Second)
+	require.Less(t, elapsed, sameBindingRetryBudget+5*time.Second, "API fallback must follow the rotation budget promptly")
 	bearersMu.Lock()
 	require.Equal(t, []string{"Bearer timeout-seat", "Bearer synthetic-api-key"}, bearers)
 	bearersMu.Unlock()
@@ -276,6 +278,7 @@ func TestVerificationDebugCommittedFailureAcrossIngress(t *testing.T) {
 }
 
 func TestVerificationCommittedSubscriptionStreamOutlivesRotationBudget(t *testing.T) {
+	setSameBindingRetryBudget(t, time.Second)
 	var bearers []string
 	var bearersMu sync.Mutex
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -311,4 +314,13 @@ func TestVerificationCommittedSubscriptionStreamOutlivesRotationBudget(t *testin
 	bearersMu.Unlock()
 	require.Contains(t, rec.Body.String(), "late output")
 	require.True(t, ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage).Served)
+}
+
+// setSameBindingRetryBudget shrinks the rotation budget for a test that waits
+// it out in real time. Tests using it must not run in parallel.
+func setSameBindingRetryBudget(t *testing.T, budget time.Duration) {
+	t.Helper()
+	previous := sameBindingRetryBudget
+	sameBindingRetryBudget = budget
+	t.Cleanup(func() { sameBindingRetryBudget = previous })
 }

@@ -742,7 +742,7 @@ func TestDispatchWithFallback_SlowAttemptsStopBeforeRetryCount(t *testing.T) {
 	s.retrySleep = noopSleep
 	// Absolute, not a multiple of sameBindingRetryBudget — a multiple would
 	// trivially pass even if the budget check were removed.
-	const slowAttempt = 30 * time.Second
+	const slowAttempt = 90 * time.Second
 	base := time.Now()
 	reads := 0
 	s.now = func() time.Time {
