@@ -220,6 +220,7 @@ func (h *headerObservingProvider) Passthrough(ctx context.Context, prep provider
 // planRefusingProvider answers Anthropic's third-party-client refusal on any
 // subscription credential and serves on every paid key.
 type planRefusingProvider struct {
+	stream            bool
 	subscriptionCalls int
 	paidCalls         int
 }
@@ -239,7 +240,13 @@ func (p *planRefusingProvider) Proxy(ctx context.Context, _ router.Decision, _ p
 		}
 	}
 	p.paidCalls++
-	bypassStreamResponse(w)
+	if p.stream {
+		bypassStreamResponse(w)
+		return nil
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, `{"id":"msg_1","type":"message","role":"assistant","model":"`+bypassScorerPickMdl+`","content":[{"type":"text","text":"hi"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
 	return nil
 }
 
@@ -259,7 +266,7 @@ func underThresholdObserver() *usage.Observer {
 func TestLinkedFirst_Anthropic_BypassThirdPartyRefusal_ReroutesOnCredits(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(map[bool]string{false: "non_streaming", true: "streaming"}[stream], func(t *testing.T) {
-			p := &planRefusingProvider{}
+			p := &planRefusingProvider{stream: stream}
 			fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl, Reason: "cluster:v0.2"}}
 			svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
 				WithUsageObserver(underThresholdObserver()).
@@ -277,6 +284,7 @@ func TestLinkedFirst_Anthropic_BypassThirdPartyRefusal_ReroutesOnCredits(t *test
 			assert.NotEqual(t, http.StatusBadRequest, rec.Code)
 			assert.NotContains(t, rec.Body.String(), "Third-party apps")
 			assert.NotContains(t, rec.Body.String(), "credits are depleted")
+			assert.Contains(t, rec.Body.String(), `"text":"hi"`)
 		})
 	}
 }
@@ -292,8 +300,10 @@ func TestCreditsDepleted_Anthropic_BypassThirdPartyRefusal_StaysOffCredits(t *te
 
 	rec, req, body := bypassRequest(t)
 	ctx := billing.WithSubscriptionOnly(bypassCtx(0.80), billing.SubscriptionOnlyCreditsDepleted)
-	_ = svc.ProxyMessages(ctx, body, rec, req)
+	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
 
+	assert.Equal(t, http.StatusBadRequest, rec.Code, "the plan's refusal must reach the caller")
+	assert.Contains(t, rec.Body.String(), "Third-party apps")
 	assert.Equal(t, 1, p.subscriptionCalls)
 	assert.Zero(t, p.paidCalls, "paid fallback is forbidden when credits are depleted")
 }

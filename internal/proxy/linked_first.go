@@ -73,12 +73,13 @@ func releaseUnservableLinkedFirst(ctx context.Context, decision router.Decision)
 
 // releaseThrottledLinkedFirst drops a linked-first mark when the caller's plan
 // refused the turn live — a retryable 429 the observer had not yet recorded,
-// which is usually the first exhaustion signal — so the reroute that follows
+// which is usually the first exhaustion signal, or a model-access or
+// third-party-client refusal the bypass reroutes — so the reroute that follows
 // runs on organization credits instead of being refused as if they were gone.
 func releaseThrottledLinkedFirst(ctx context.Context) (context.Context, bool) {
 	if !linkedFirst(ctx) {
 		return ctx, false
 	}
-	observability.FromContext(ctx).Info("Linked subscription throttled the turn; rerouting on organization credits")
+	observability.FromContext(ctx).Info("Linked subscription rejected the turn; rerouting on organization credits")
 	return billing.ReleaseLinkedFirst(ctx), true
 }
