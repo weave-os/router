@@ -50,6 +50,29 @@ excluded. Quota failures rotate to another eligible account before authorized
 Weave-funded API capacity serves the selected model. Depleted Weave credits
 prohibit paid API fallback, not subscription use.
 
+The per-installation flag `codex_auto_usage_reset_enabled` defaults to **false**.
+For a personal rollout, set `codex_auto_usage_reset_subscriber_ids` to the verified
+subscriber's ID before enabling the boolean flag. This comma-separated restriction
+is matched against authenticated ownership, not email or client identity headers;
+other users remain off. An empty restriction allows all subscribers when the
+boolean flag is enabled. The restriction alone never enables resets.
+When enabled, an exhausted managed Codex pool can redeem an earned reset credit
+(the same action as Codex `/usage` → Reset) before the existing paid fallback.
+The router verifies live account-wide exhaustion across the requester's enabled,
+connected personal Codex accounts, then picks the available credit with the earliest
+expiration; equal expirations are chosen randomly and credits without an expiration
+come last. Shared accounts never contribute reset credits. Unknown quota or an
+unavailable credit inventory prevents redemption. If an account already has headroom,
+the router recovers that account without consuming a reset.
+
+After redemption, quota must show headroom before the router clears exhaustion and
+switches the session to that account. At most one reset recovery is attempted per
+request within the existing rotation deadline. Migration 0128 coordinates sessions
+and replicas; an uncertain provider response retains the selected credit and
+idempotency key for a later retry. No available reset leaves the existing exhaustion
+and authorized fallback behavior in place. The flag does not enable subscription
+routing when it is disabled and does not change Max's subscription exclusion.
+
 Providers control extra usage through account settings and credits. Quota headers
 are observations, not an atomic included-only reservation: an unobserved Claude
 account or

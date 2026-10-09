@@ -96,7 +96,7 @@ func (s *runtimeStore) TryAcquireSubscriptionRefreshLease(_ context.Context, _ a
 	defer s.mu.Unlock()
 	now := time.Now()
 	for _, account := range s.accounts {
-		if account.ID == accountID && (!account.Enabled || (account.CooldownUntil != nil && account.CooldownUntil.After(now))) {
+		if account.ID == accountID && !account.Enabled {
 			return auth.RefreshLeaseAcquisition{}, nil
 		}
 	}
@@ -147,9 +147,11 @@ func (s *runtimeStore) LoadSubscriptionCredentials(_ context.Context, _ auth.Sub
 	enabled := true
 	var cooldownUntil *time.Time
 	var providerUserID string
+	var state auth.SubscriptionAccountState
 	for _, account := range s.accounts {
 		if account.ID == accountID {
 			providerUserID = account.ProviderUserID
+			state = account.State
 			enabled = account.Enabled
 			cooldownUntil = account.CooldownUntil
 			break
@@ -162,6 +164,7 @@ func (s *runtimeStore) LoadSubscriptionCredentials(_ context.Context, _ auth.Sub
 		TokenRefreshVersion: s.tokenRefreshVersions[accountID],
 		TokenRefreshLeaseID: s.leaseIDs[accountID],
 		Enabled:             enabled,
+		State:               state,
 		CooldownUntil:       cooldownUntil,
 	}
 	if expiry := s.accessExpiry[accountID]; !expiry.IsZero() {
