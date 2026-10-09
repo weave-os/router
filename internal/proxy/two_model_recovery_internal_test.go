@@ -204,6 +204,28 @@ func TestRecoveryProbeSkipsHardExcludedExpiredModel(t *testing.T) {
 	assert.NotContains(t, result.SessionDemotedModels, eligibleModel)
 }
 
+func TestRecoveryProbeSkipsModelWithoutEligibleProviderBinding(t *testing.T) {
+	store := &recoveryLeaseStore{rolePinStore: rolePinStore{byRole: map[string]sessionpin.Pin{
+		hmmHistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyCluster, DemotionCooldowns: map[string]time.Time{
+			recoveryOpusModel: rateLimitTestNow.Add(-time.Minute),
+		}},
+	}}}
+	svc, _ := cooldownTurnLoopService(store, true)
+	env, features := demotionTurnLoopEnv(t)
+	result, err := svc.runTurnLoop(context.Background(), env, features, "api-key", uuid.New(), "", http.Header{}, router.Request{
+		RequestedModel:       features.Model,
+		EnabledProviders:     map[string]struct{}{providers.ProviderOpenAI: {}},
+		EstimatedInputTokens: features.Tokens,
+		HasTools:             features.HasTools,
+		ConversationMessages: conversationMessagesForRouting(env),
+	})
+	require.NoError(t, err)
+	defer result.releaseCooldownProbes()
+
+	assert.Empty(t, store.attempted, "a model with no binding for this request must not consume the recovery lease")
+	assert.Empty(t, result.CooldownProbes)
+}
+
 func twoModelGatewayContext() context.Context {
 	ctx := rescuedFailureCtx()
 	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{catalog.ModelGPT6Luna, recoveryOpusModel})

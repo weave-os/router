@@ -1264,7 +1264,7 @@ func (s *Service) runTurnLoop(
 	// explicit /force-model of the same model still routes through.
 	demoted := mergeSessionStrikes(pin.DemotedModels, hmmHistory.DemotedModels)
 	res.SessionStrikeReadmitModels = harnessSafeModels(imageSafeModels(demoted, req.HasImages), req.HasTools)
-	if s.ResolveTransientRateLimit(ctx) && !forceModelFound {
+	if s.ResolveTransientRateLimit(ctx) && (!forceModelFound || !forcedPinEligible(forceModelPin, req)) {
 		// A transient strike expires: only one request per session/model may
 		// probe the recovered arm at a time.
 		cooldowns := mergeDemotionCooldowns(pin.DemotionCooldowns, hmmHistory.DemotionCooldowns)
@@ -2275,6 +2275,13 @@ func (s *Service) runTurnLoop(
 
 func modelExcludedForRecoveryProbe(req router.Request, model string) bool {
 	if _, excluded := req.ExcludedModels[model]; excluded || automaticallyDisabled(req, model) {
+		return true
+	}
+	if len(req.GatewayProviders) > 0 {
+		if _, available := gatewayProviderFor(model, req.CustomBindings, req.GatewayProviders); !available {
+			return true
+		}
+	} else if req.EnabledProviders != nil && len(catalog.EnumerateBindingsWithCustom(model, req.EnabledProviders, req.CustomBindings)) == 0 {
 		return true
 	}
 	return req.HasImages && !catalog.AcceptsImages(model)
