@@ -68,8 +68,9 @@ var SubscriptionOnlyContextKey = subscriptionOnlyContextKeyT{}
 //
 // A recorded reason is never downgraded (see precedence): a funding failure
 // outranks a funding preference, because the caller still needs to be told
-// paid fallback is off, and a depleted balance outranks a reached cap, because
-// only adding credits restores routing then. The precedence is enforced here
+// paid fallback is off, and a depleted balance's warning outranks a reached
+// cap's, because its top-up CTA is the more pressing action (a reached cap
+// still blocks paid routing after a top-up). The precedence is enforced here
 // rather than left resting on gate registration order, which no gate can see.
 func WithSubscriptionOnly(ctx context.Context, reason SubscriptionOnlyReason) context.Context {
 	if existing, ok := subscriptionOnlyReason(ctx); ok && existing.precedence() > reason.precedence() {

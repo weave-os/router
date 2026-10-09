@@ -325,8 +325,6 @@ const subscriptionOnlyWarningMarkerCodex = routingMarkerPrefix +
 const subscriptionSpendCapWarningMarker = routingMarkerPrefix +
 	"a Weave router spend cap has been reached, so this turn is running on your own Anthropic subscription and paid model fallback is disabled.\n\n"
 
-// subscriptionSpendCapWarningMarkerCodex is the Codex/OpenAI-surface
-// counterpart to subscriptionSpendCapWarningMarker.
 const subscriptionSpendCapWarningMarkerCodex = routingMarkerPrefix +
 	"a Weave router spend cap has been reached, so this turn is running on your own ChatGPT (Codex) subscription and paid model fallback is disabled.\n\n"
 
