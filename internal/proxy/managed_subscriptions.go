@@ -354,12 +354,13 @@ func (s *Service) recordManagedSubscriptionFailure(ctx context.Context, provider
 			"provider", poolProvider, "account_id", lease.AccountID, "cooldown_until", resetAt)
 		return true
 	case http.StatusUnauthorized, http.StatusForbidden:
-		if err := reconnectManagedSubscription(ctx, s.managedSubscriptions, owner, poolProvider, lease.AccountID); err != nil {
-			observability.FromContext(ctx).Error("Failed to disable rejected subscription account",
+		resetAt := s.clockNow().Add(subscriptions.CredentialRejectionCooldown)
+		if err := s.managedSubscriptions.Cooldown(ctx, owner, poolProvider, lease.AccountID, resetAt); err != nil {
+			observability.FromContext(ctx).Error("Failed to persist rejected subscription account cooldown",
 				"provider", poolProvider, "account_id", lease.AccountID, "err", err)
 		}
-		observability.FromContext(ctx).Warn("Subscription account credential rejected",
-			"provider", poolProvider, "account_id", lease.AccountID, "upstream_status", status)
+		observability.FromContext(ctx).Warn("Subscription account credential rejected; cooling down",
+			"provider", poolProvider, "account_id", lease.AccountID, "upstream_status", status, "cooldown_until", resetAt)
 		return true
 	default:
 		return false
@@ -384,15 +385,6 @@ func (s *Service) recordManagedSubscriptionSuccess(ctx context.Context, provider
 		observability.FromContext(ctx).Error("Failed to mark subscription account active",
 			"provider", poolProvider, "account_id", lease.AccountID, "err", err)
 	}
-}
-
-func reconnectManagedSubscription(ctx context.Context, leaser subscriptions.Leaser, owner auth.SubscriptionOwner, provider subscriptions.Provider, accountID string) error {
-	if health, ok := leaser.(interface {
-		ReconnectRequired(context.Context, auth.SubscriptionOwner, subscriptions.Provider, string) error
-	}); ok {
-		return health.ReconnectRequired(ctx, owner, provider, accountID)
-	}
-	return leaser.Disable(ctx, owner, provider, accountID)
 }
 
 func managedSubscriptionResetAt(err error, now time.Time) time.Time {

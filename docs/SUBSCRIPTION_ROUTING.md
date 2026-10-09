@@ -70,6 +70,16 @@ quarantined rows disabled and restores the older owner-present constraint as
 NOT VALID, so existing ownerless rows stay inert without reassignment while new
 ownerless rows are rejected.
 
+## Credential rejection recovery
+
+An upstream inference 401/403 or an OAuth refresh 400/401/403 puts the linked
+account on a five-minute cooldown while preserving its enabled state. After the
+cooldown, it is eligible for another attempt without a new login. Other linked
+accounts and authorized API fallback can serve requests during the cooldown;
+subscription-only requests retain their paid-fallback restriction. Manual
+disabling and a verified provider identity change still require explicit recovery.
+Already disabled registrations are not automatically re-enabled by this behavior.
+
 ## Codex workspace and user identity
 
 Codex `chatgpt_account_id` identifies the ChatGPT workspace, not its members.

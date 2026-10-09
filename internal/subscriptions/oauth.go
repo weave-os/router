@@ -102,7 +102,7 @@ func (e *OAuthRefreshError) Error() string {
 	return fmt.Sprintf("%s subscription token refresh failed with status %d", e.Provider, e.Status)
 }
 
-// Terminal reports whether retrying the same refresh token is unsafe or futile.
+// Terminal distinguishes credential rejection from transient token-endpoint failures.
 func (e *OAuthRefreshError) Terminal() bool {
 	return e.Status == http.StatusBadRequest || e.Status == http.StatusUnauthorized || e.Status == http.StatusForbidden
 }
