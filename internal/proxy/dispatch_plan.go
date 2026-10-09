@@ -112,7 +112,8 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 	lastIdx := 0
 	managedBinding := false
 	rotationStart := s.clockNow()
-	rotationCtx, cancelRotation := context.WithTimeout(ctx, s.subscriptionRotationTimeout(ctx))
+	rotationTimeout := s.subscriptionRotationTimeout(ctx)
+	rotationCtx, cancelRotation := context.WithTimeout(ctx, rotationTimeout)
 	defer cancelRotation()
 	if ctx.Value(subscriptionRotationBudgetDisabledKey{}) != true {
 		if existing, _ := ctx.Value(subscriptionRotationBudgetKey{}).(context.Context); existing != nil {
@@ -244,12 +245,12 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				}
 				return attemptErr
 			}
-			if spent := s.clockNow().Sub(retryStart); spent >= sameBindingRetryBudget || rotationCtx.Err() != nil {
+			if spent := s.clockNow().Sub(retryStart); spent >= rotationTimeout || rotationCtx.Err() != nil {
 				log.Warn("dispatchWithFallback: subscription account rotation budget spent, not retrying",
 					"model", decision.Model,
 					"provider", decision.Provider,
 					"spent_ms", spent.Milliseconds(),
-					"budget_ms", sameBindingRetryBudget.Milliseconds(),
+					"budget_ms", rotationTimeout.Milliseconds(),
 					"subscription_account_attempt", account+1,
 					"err", attemptErr)
 				poolProvider, subscriptionProvider := managedSubscriptionProviderFromUpstream(decision.Provider, decision.Model)

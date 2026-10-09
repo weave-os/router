@@ -348,11 +348,9 @@ func (s *Service) subscriptionRotationTimeout(ctx context.Context) time.Duration
 	}
 	// Self-hosted deployments do not run billing middleware. An explicit empty
 	// deployment key set plus no request-paid credentials also leaves no rescue.
-	if s.deploymentKeyedProviders != nil && len(s.deploymentKeyedProviders) == 0 && len(BuildCredentialsMap(externalKeysFromContext(ctx))) == 0 {
-		creds := CredentialsFromContext(ctx)
-		if creds == nil || servedOnSubscription(ctx) {
-			return subscriptionOnlyFirstOutputTimeout
-		}
+	noPaidKeys := s.deploymentKeyedProviders != nil && len(s.deploymentKeyedProviders) == 0 && len(BuildCredentialsMap(externalKeysFromContext(ctx))) == 0
+	if !linkedFirst(ctx) && noPaidKeys && (CredentialsFromContext(ctx) == nil || servedOnSubscription(ctx)) {
+		return subscriptionOnlyFirstOutputTimeout
 	}
 	return sameBindingRetryBudget
 }
