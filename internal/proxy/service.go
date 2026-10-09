@@ -1302,7 +1302,7 @@ func shouldEnableExtendedContext(est, outputReserve int) bool {
 // request slip onto 200K and overflow on the first turn.
 func contextWindowForRequest(modelID string, provider ...string) int {
 	if router.Lookup(modelID).Supports(router.CapExtendedContext) {
-		return 1_000_000
+		return catalog.EffectiveContextWindowFor(modelID)
 	}
 	if len(provider) > 0 && provider[0] != "" {
 		return catalog.ContextWindowForBinding(modelID, provider[0])
