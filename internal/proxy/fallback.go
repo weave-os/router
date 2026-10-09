@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -335,6 +336,25 @@ func committed(b *preludeBuffer) bool {
 // dispatch executor.
 const sameBindingRetryBudget = 10 * time.Second
 
+// Subscription-only inference has no paid rescue. Allow slow prefill and
+// reasoning to reach first output instead of treating them as failed retries.
+const subscriptionOnlyFirstOutputTimeout = 120 * time.Second
+
+func (s *Service) subscriptionRotationTimeout(ctx context.Context) time.Duration {
+	// Attempt-level restrictions can still have funded exhausted-state recovery.
+	// Extend waiting only when the entire request has no paid funding.
+	if billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
+		return subscriptionOnlyFirstOutputTimeout
+	}
+	// Self-hosted deployments do not run billing middleware. An explicit empty
+	// deployment key set plus no request-paid credentials also leaves no rescue.
+	noPaidKeys := s.deploymentKeyedProviders != nil && len(s.deploymentKeyedProviders) == 0 && len(BuildCredentialsMap(externalKeysFromContext(ctx))) == 0
+	if !linkedFirst(ctx) && noPaidKeys && (CredentialsFromContext(ctx) == nil || servedOnSubscription(ctx)) {
+		return subscriptionOnlyFirstOutputTimeout
+	}
+	return sameBindingRetryBudget
+}
+
 // clockNow reads the current time through the injectable clock, falling back
 // to time.Now when no fake is wired.
 func (s *Service) clockNow() time.Time {
@@ -635,7 +655,7 @@ func subscriptionAPIOnly(ctx context.Context) bool {
 	return value
 }
 func (s *Service) dispatchSubscriptionAlternatives(ctx context.Context, in failoverInputs) (int, error) {
-	budget, cancel := context.WithTimeout(ctx, sameBindingRetryBudget)
+	budget, cancel := context.WithTimeout(ctx, s.subscriptionRotationTimeout(ctx))
 	defer cancel()
 	ctx = context.WithValue(ctx, subscriptionRotationBudgetKey{}, budget)
 	selected := in.initialDecision
