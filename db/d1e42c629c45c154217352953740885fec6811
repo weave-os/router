@@ -1,0 +1,24 @@
+sidecars/task-domain/tests/test_app.py
+  s_e81a08893a9ba2::t_d8c4c6442f7030 50,68,396-402
+  s_e81a08893a9ba2::t_c2fee9b0041db8 403-404
+internal/policyclient/task_domain_test.go
+  s_e81a08893a9ba2::t_d8c4c6442f7030 84,86
+sidecars/task-domain/app.py
+  s_e81a08893a9ba2::t_d8c4c6442f7030 54-57,121,125,133
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dbd1e42c629c45c154217352953740885fec6811",
+  "prompts": {},
+  "sessions": {
+    "s_e81a08893a9ba2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9391cca-911c-46df-b82c-9f07d5d2219d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

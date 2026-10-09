@@ -1,0 +1,29 @@
+install/tests/jq_bootstrap_test.py
+  s_787cf7fc928eb8::t_f6b2c9e512b7d4 68-69
+  s_787cf7fc928eb8::t_842f7d825f4e88 2,27,31-32,39-42,78,81-86
+  s_bb837beeb3e06f::t_00fd2518b19308 87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c61f3be7fd0495528bd3acfe746ccdeea711a30c",
+  "prompts": {},
+  "sessions": {
+    "s_787cf7fc928eb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11340-f757-7f13-811d-6144d7b9238b",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_bb837beeb3e06f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10fdb-40e1-7e30-afbc-8f42d9abecc1",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+internal/proxy/codex_out_of_roster_funding_internal_test.go
+  s_c2a20e60e4cc5c::t_f2b5d48b8f1752 261-297
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "64a9917a5ec6f18b76a2363825554d55cd1e0982",
+  "prompts": {},
+  "sessions": {
+    "s_c2a20e60e4cc5c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10e26-d439-7632-bd34-a546869f3d55",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,47 @@
+internal/router/catalog/catalog.go
+  s_5f4657d97c467a::t_edd46156f48b98 604-605,608,615-616,618-619
+internal/proxy/turnloop_internal_test.go
+  s_5f4657d97c467a::t_46fda3fca4437f 503,510,529,598,657,702,721,730,745-746,768,810,830,900,920,948,967,994,1013,1149,1168,1198,1217,1247,1295,1314
+internal/proxy/deepseek_retirement_internal_test.go
+  s_5f4657d97c467a::t_3de1bad0da392c 18-27
+  s_5f4657d97c467a::t_ab5a1737266d27 1-17
+internal/router/rl/rl_test.go
+  s_5f4657d97c467a::t_c974f718b6e2a9 59,78,83,91,97-98,140,173,176,185
+internal/router/planner/policy_test.go
+  s_5f4657d97c467a::t_043d81544f8000 92,101-102,107,114
+internal/router/catalog/deepseek_retirement_test.go
+  s_5f4657d97c467a::t_3de1bad0da392c 30-39
+  s_5f4657d97c467a::t_ab5a1737266d27 1-29
+internal/router/cluster/candidate_k12_test.go
+  s_5f4657d97c467a::t_043d81544f8000 85,88
+internal/proxy/force_model.go
+  s_5f4657d97c467a::t_edd46156f48b98 156-157,159
+bench/weave_bench/prices.generated.json
+  s_5f4657d97c467a::t_ee5d4d2aa4ceb6 2,95-97,113-115
+install/cc-statusline.sh
+  s_5f4657d97c467a::t_e1db4e9d2cb866 477,480,568,571,659,662
+install/install.sh
+  s_5f4657d97c467a::t_c29baee904b64b 5661,5664,5752,5755,5843,5846
+install/pi-router/src/pricing.generated.ts
+  s_5f4657d97c467a::t_0caf49377458cd 10,28,31
+internal/router/cluster/scorer_test.go
+  s_5f4657d97c467a::t_9fec537aa934ea 1259,1264,1280
+internal/router/hmm/hmm_test.go
+  s_5f4657d97c467a::t_ace893e3b1cc1a 202
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c6cb8a18641461b471b36ece6c3dcf3ce3f35736",
+  "prompts": {},
+  "sessions": {
+    "s_5f4657d97c467a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0fe2d-588a-7401-8e1a-94c9e0bae104",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
