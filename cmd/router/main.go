@@ -1552,9 +1552,9 @@ func main() {
 	if managedServingEnabled(deploymentMode) || policyEnvironmentRaw != "" {
 		initializedOrigins["https://storage.googleapis.com"] = struct{}{}
 	}
-	egressCtx, stopEgress := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	egressProbe.prepare(egressCtx, logger, providerMap, envKeyedProviders, initializedOrigins)
-	stopEgress()
+	processCtx, stopProcess := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stopProcess()
+	egressProbe.prepare(processCtx, logger, providerMap, envKeyedProviders, initializedOrigins)
 	logger.Info("Router startup initialization complete")
 	serverFeatures := server.Features{
 		TestPlans:           testPlans,
@@ -1596,9 +1596,6 @@ func main() {
 		}
 	}()
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-
 	select {
 	case err := <-serverErr:
 		logger.Error("Server exited with error", "err", err)
@@ -1608,8 +1605,8 @@ func main() {
 		defer apmFailCancel()
 		apm.ShutdownWithContext(apmFailCtx)
 		return
-	case sig := <-stop:
-		logger.Info("Received shutdown signal; draining", "signal", sig.String())
+	case <-processCtx.Done():
+		logger.Info("Received shutdown signal; draining")
 	}
 
 	// Cloud Run gives 10s between SIGTERM and SIGKILL; budget across three
