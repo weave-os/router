@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"github.com/stretchr/testify/assert"
@@ -95,4 +96,20 @@ func TestStartupEgressDoesNotInitializeUnknownTenantProviders(t *testing.T) {
 		return false, nil
 	}}
 	require.NoError(t, probe.wait(context.Background(), slog.Default(), map[string]providers.Client{providers.ProviderOpenAIGateway: client}, nil, nil))
+}
+
+func TestStartupConnectionFailureDoesNotPreventBoot(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		probe, err := newStartupEgressProbe("")
+		require.NoError(t, err)
+		client := startupProvider{warm: func(ctx context.Context, _ string) (bool, error) {
+			<-ctx.Done()
+			return true, ctx.Err()
+		}}
+		var logs bytes.Buffer
+		started := time.Now()
+		probe.prepare(t.Context(), slog.New(slog.NewTextHandler(&logs, nil)), map[string]providers.Client{providers.ProviderOpenAI: client}, map[string]struct{}{providers.ProviderOpenAI: {}}, nil)
+		require.LessOrEqual(t, time.Since(started), startupEgressTimeout)
+		require.Contains(t, logs.String(), "continuing boot")
+	})
 }

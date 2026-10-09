@@ -8,7 +8,7 @@ Composition root. Only place that constructs concrete adapters + wires them toge
 
 - **`cmd/router/main.go` wires admission, policy runtime, providers and persistence.** The shared stable fleet serves Default/Boost/Max; ordinary internal serving credentials are admitted only in the internal fleet. Scoped internal test-plan grants are the stable-fleet exception.
 - Keep `main.go` focused on wiring. Today's helpers:
-  - `buildClusterScorer` — per-version Scorer assembly + embedder warmup
+  - `buildClusterScorer` — per-version scorer and embedder initialization
   - `buildExploringRouter` — optionally wraps the cluster router in `banditexplore` (env-flag gated; off by default)
   - `buildSemanticCache` — response-cache assembly
   - `buildOtelEmitter` — OTel span exporter

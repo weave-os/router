@@ -20,7 +20,6 @@ const (
 	PurposeTitleGeneration           Purpose = "title_generation"
 	PurposeClassifier                Purpose = "classifier"
 	PurposeProbe                     Purpose = "probe"
-	PurposeStartupWarmup             Purpose = "startup_warmup"
 	PurposeSubAgentDispatch          Purpose = "sub_agent_dispatch"
 	PurposeClientCompaction          Purpose = "client_compaction"
 	PurposeAgentShadowEvaluation     Purpose = "agent_shadow_evaluation"

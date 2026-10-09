@@ -2,7 +2,6 @@ package dispatch
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 
@@ -20,30 +19,6 @@ type Buffered struct {
 	Consume func(context.Context, Attempt, *http.Response) error
 	// Reason is recorded on the router.Decision handed to the provider.
 	Reason string
-	// MaxResponseBytes bounds retained output when positive.
-	MaxResponseBytes int
-}
-
-// ErrBufferedResponseTooLarge means an auxiliary response exceeded its allocation budget.
-var ErrBufferedResponseTooLarge = errors.New("buffered inference response exceeded its byte budget")
-
-type boundedResponseWriter struct {
-	recorder  *httptest.ResponseRecorder
-	remaining int
-	overflow  bool
-}
-
-func (w *boundedResponseWriter) Header() http.Header { return w.recorder.Header() }
-
-func (w *boundedResponseWriter) WriteHeader(status int) { w.recorder.WriteHeader(status) }
-
-func (w *boundedResponseWriter) Write(payload []byte) (int, error) {
-	if len(payload) > w.remaining {
-		w.overflow = true
-		return 0, ErrBufferedResponseTooLarge
-	}
-	w.remaining -= len(payload)
-	return w.recorder.Write(payload)
 }
 
 // Transport adapts b into an executor Transport. The prepared wire model must
@@ -59,22 +34,13 @@ func (b Buffered) Transport() Transport {
 			return err
 		}
 		rec := httptest.NewRecorder()
-		var writer http.ResponseWriter = rec
-		var bounded *boundedResponseWriter
-		if b.MaxResponseBytes > 0 {
-			bounded = &boundedResponseWriter{recorder: rec, remaining: b.MaxResponseBytes}
-			writer = bounded
-		}
 		decision := router.Decision{
 			Provider: attempt.Target.Provider,
 			Model:    attempt.Target.CatalogID,
 			Reason:   b.Reason,
 		}
-		if err := client.Proxy(ctx, decision, prep, writer, req); err != nil {
+		if err := client.Proxy(ctx, decision, prep, rec, req); err != nil {
 			return err
-		}
-		if bounded != nil && bounded.overflow {
-			return ErrBufferedResponseTooLarge
 		}
 		if err := ctx.Err(); err != nil {
 			return err

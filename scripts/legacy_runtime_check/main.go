@@ -1,5 +1,5 @@
 // Command legacy_runtime_check boots the real worker in both legacy deployment modes.
-// Its Postgres fixture must be local; Pub/Sub and generation use in-process fixtures.
+// Its Postgres fixture must be local; Pub/Sub is an in-process gRPC fixture and no provider is called.
 package main
 
 import (
@@ -11,13 +11,11 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -52,8 +50,6 @@ func run() error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
-	// The retained base runtime predates startup generation; only the candidate binary must perform it.
-	requireStartupGeneration := os.Getenv("ROUTER_TEST_REQUIRE_STARTUP_GENERATION") == "true"
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
 		return err
@@ -78,36 +74,15 @@ func run() error {
 	pubsubpb.RegisterSubscriberServer(pubsub, pubsubFixture{})
 	defer pubsub.Stop()
 	go func() { _ = pubsub.Serve(listener) }()
-	var startupGenerations atomic.Int64
-	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case r.Method == http.MethodHead && r.URL.Path == "/":
-			w.WriteHeader(http.StatusOK)
-		case r.Method == http.MethodPost && r.Header.Get("Authorization") == "Bearer fixture-never-sent-to-provider" && r.URL.Path == "/v1/chat/completions":
-			startupGenerations.Add(1)
-			_, _ = io.WriteString(w, `{"id":"chatcmpl_fixture","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`)
-		case r.Method == http.MethodPost && r.Header.Get("Authorization") == "Bearer fixture-never-sent-to-provider" && r.URL.Path == "/v1/responses":
-			startupGenerations.Add(1)
-			_, _ = io.WriteString(w, `{"id":"resp_fixture","object":"response","status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"OK","annotations":[]}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`)
-		default:
-			http.NotFound(w, r)
-		}
-	}))
-	defer provider.Close()
 	for _, mode := range []server.DeploymentMode{server.DeploymentModeSelfHosted, server.DeploymentModeManaged} {
-		generationsBefore := startupGenerations.Load()
-		if err := checkWorker(ctx, binary, dsn, listener.Addr().String(), provider.URL, token, mode); err != nil {
+		if err := checkWorker(ctx, binary, dsn, listener.Addr().String(), token, mode); err != nil {
 			return fmt.Errorf("%s worker: %w", mode, err)
-		}
-		if requireStartupGeneration && startupGenerations.Load() == generationsBefore {
-			return fmt.Errorf("%s worker became ready without a startup model generation", mode)
 		}
 	}
 	return nil
 }
 
-func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, providerURL, token string, mode server.DeploymentMode) error {
+func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, token string, mode server.DeploymentMode) error {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
@@ -133,8 +108,7 @@ func checkWorker(ctx context.Context, binary, dsn, pubsubAddress, providerURL, t
 		"PUBSUB_TOPIC_ROUTER_INVALIDATION=legacy-invalidation",
 		"PUBSUB_SUBSCRIPTION_ROUTER_INVALIDATION=legacy-invalidation",
 		"OPENAI_API_KEY=fixture-never-sent-to-provider",
-		"OPENAI_BASE_URL=" + providerURL,
-		"ROUTER_RESTRICT_UPSTREAM_EGRESS=false",
+		"OPENAI_BASE_URL=http://127.0.0.1:1",
 		"ROUTER_SEMANTIC_CACHE_ENABLED=false",
 		"GIN_MODE=release",
 	}

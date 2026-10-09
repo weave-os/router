@@ -19,7 +19,6 @@ import (
 	subscriptionsapi "weave-os/router/internal/api/subscriptions"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
-	"weave-os/router/internal/health"
 	"weave-os/router/internal/policyclient"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/proxy"
@@ -117,8 +116,6 @@ func ParseDefaultStrategy(raw string) router.Strategy {
 
 // Features toggles optional request surfaces that are off by default.
 type Features struct {
-	Startup  func() bool
-	Capacity *health.Capacity
 	// TrafficCapture records local conversation HTTP exchanges when explicitly configured.
 	TrafficCapture trafficcapture.Recorder
 	// PolicyPinEnabled registers the x-weave-policy-pin middleware. Off means
@@ -136,9 +133,6 @@ type Features struct {
 
 // RegisterWithFeatures is Register with optional request features enabled.
 func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *proxy.Service, deployedModels admin.DeployedModelsSource, hmmModels admin.HMMRosterSource, mode DeploymentMode, billingSvc *billing.Service, readinessChecker admin.HealthChecker, hmmRosterSources map[router.Strategy]policy.RosterSource, analyticsSvc *analytics.Service, features Features, hmmDistributionRosters ...*rosterdata.Roster) {
-	if features.Capacity != nil {
-		engine.Use(middleware.WithCapacity(features.Capacity))
-	}
 	// Browser clients need an explicit expose list before fetch can read the
 	// router's routing and cost metadata from a cross-origin response.
 	engine.Use(func(c *gin.Context) {
@@ -191,10 +185,11 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		discovery.GET("/v1/test-plan/validate", middleware.WithTimeout(catalogModelsTimeout), admin.TestPlanValidationHandler)
 	}
 
+	engine.GET("/livez", middleware.WithTimeout(healthTimeout), admin.HealthHandler)
 	engine.GET("/health", middleware.WithTimeout(healthTimeout), admin.HealthHandler)
-	engine.GET("/startupz", admin.StartupHandler(features.Startup))
-	engine.GET("/capacityz", admin.CapacityHandler(features.Capacity))
 	engine.GET("/readyz", middleware.WithTimeout(readinessTimeout), admin.ReadinessHandler(readinessChecker))
+	// The listener starts after initialization and best-effort connection preparation.
+	engine.GET("/startupz", middleware.WithTimeout(healthTimeout), admin.HealthHandler)
 
 	// /v1/version reports the binary's git commit + build time (via -ldflags),
 	// used by the README's managed-deployment badge. Public build metadata, unauthed like /health.

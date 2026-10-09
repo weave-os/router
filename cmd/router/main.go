@@ -29,7 +29,6 @@ import (
 	"weave-os/router/internal/escalationmodal"
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/flags"
-	"weave-os/router/internal/health"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/apm"
 	"weave-os/router/internal/observability/otel"
@@ -49,7 +48,6 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/proxy/usage"
 	routerpubsub "weave-os/router/internal/pubsub"
-	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandit"
 	"weave-os/router/internal/router/banditexplore"
@@ -82,11 +80,6 @@ import (
 
 func main() {
 	logger := observability.Get()
-	processCtx, stopProcess := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stopProcess()
-	startupCtx, cancelStartup := context.WithTimeout(processCtx, startupTimeout)
-	defer cancelStartup()
-	startup := startupState{taskErrors: make(chan error, 1)}
 	egressProbe, err := newStartupEgressProbe(config.GetOr("ROUTER_STARTUP_EGRESS_ORIGINS", ""))
 	if err != nil {
 		logger.Error("Invalid startup egress configuration; refusing to boot", "err", err)
@@ -142,9 +135,13 @@ func main() {
 	}
 	defer pool.Close()
 
-	if err := warmStartupDatabase(startupCtx, logger, func(ctx context.Context) error { return servingpostgres.WarmDatabase(ctx, pool) }); err != nil {
-		logger.Error("Startup database initialization failed; refusing to boot", "err", err)
-		panic(err)
+	// pgxpool connects lazily; first request otherwise pays to build the pool inside
+	// its own budget. Bounded and warn-only so an unreachable DB can't stall boot.
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	pingErr := pool.Ping(pingCtx)
+	pingCancel()
+	if pingErr != nil {
+		logger.Warn("Postgres ping at boot failed; early requests may be slow", "err", pingErr)
 	}
 
 	// Gates the self-hoster dashboard + /admin/v1/* API. Defaults to selfhosted
@@ -516,7 +513,7 @@ func main() {
 		panic(err)
 	}
 
-	rtr, defaultEmbedderID, err := buildClusterScorer(startupCtx, availableProviders)
+	rtr, defaultEmbedderID, err := buildClusterScorer(availableProviders)
 	if err != nil {
 		// Ops alerts on Cloud Run boot failures; silent degradation would mask quality regressions.
 		logger.Error("Cluster scorer failed to build; refusing to boot", "err", err)
@@ -616,7 +613,7 @@ func main() {
 
 	// Fans out Pub/Sub invalidations to this replica's cache; the 5-min TTL
 	// is the safety net if the listener falls behind.
-	subCtx, subCancel := context.WithTimeout(startupCtx, 30*time.Second)
+	subCtx, subCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	subscriptionName, deleteSubscription, err := routerpubsub.CreateReplicaSubscription(
 		subCtx, pubsubClient, pubsubProjectID, pubsubTopicID, pubsubSubscriptionPrefix,
 	)
@@ -956,15 +953,6 @@ func main() {
 
 	// Strategy-specific artifacts own selection membership; the legacy cluster bundle must not constrain HMM candidates.
 	routingTargets := catalog.RoutingTargetSet(availableProviders)
-	startupModels := startupModelSet(envKeyedProviders, inferenceDeployment)
-	startupTargets := startupDeploymentTargets(envKeyedProviders, inferenceDeployment)
-	if escalationJudgeEnabled {
-		startupTargets = append(startupTargets, startupModelTarget{
-			CatalogID:   policy.EscalationJudgeModel,
-			Provider:    providers.ProviderFireworks,
-			Credentials: &requestcontext.Credentials{APIKey: []byte(escalationJudgeKey), BaseURL: openaiCompatProvider.FireworksBaseURL},
-		})
-	}
 	logger.Info("Catalog routing targets resolved", "catalog_routing_targets", len(routingTargets))
 
 	// One resolver serves every purpose: auxiliary summaries pick from the
@@ -1067,7 +1055,7 @@ func main() {
 		safeGo(logger, "task-domain-sweep", func() { taskRuntime.sweep(taskSweepCtx) })
 	}
 	if managedServingEnabled(deploymentMode) {
-		prepareCtx, cancelPrepare := context.WithTimeout(startupCtx, 60*time.Second)
+		prepareCtx, cancelPrepare := context.WithTimeout(context.Background(), 60*time.Second)
 		admission, baseline, closeRegistry, err := buildManagedServingRuntime(prepareCtx, availableProviders, taskRuntime)
 		cancelPrepare()
 		if err != nil {
@@ -1075,12 +1063,6 @@ func main() {
 			panic(err)
 		}
 		defer closeRegistry()
-		for _, arm := range baseline.Policy.AllArms() {
-			model := hmm.CatalogIDForRoster(arm)
-			if len(catalog.EnumerateBindings(model, envKeyedProviders)) > 0 {
-				startupModels[model] = struct{}{}
-			}
-		}
 		servingAdmission = admission
 		servingAdmission.Decisions = admissionDecisions
 		if testPlansEnabled {
@@ -1115,7 +1097,7 @@ func main() {
 		logger.Info("Managed serving admission enabled", "target", admission.Identity.Target, "revision", admission.Identity.Revision)
 	} else if policyEnvironmentRaw != "" {
 		registryURI := strings.TrimSpace(config.GetOr("WEAVE_REGISTRY_URI", "gs://weave_ml/weave_registry"))
-		policyRegistry, registryErr := policyregistry.NewGCSRegistry(startupCtx, registryURI)
+		policyRegistry, registryErr := policyregistry.NewGCSRegistry(context.Background(), registryURI)
 		if registryErr != nil {
 			logger.Error("Router policy registry failed to initialize; refusing to boot", "err", registryErr)
 			panic(registryErr)
@@ -1136,41 +1118,22 @@ func main() {
 			logger.Error("Stable router policy manager is invalid; refusing to boot", "err", managerErr)
 			panic(managerErr)
 		}
-		refreshCtx, cancelRefresh := context.WithTimeout(startupCtx, 30*time.Second)
+		refreshCtx, cancelRefresh := context.WithTimeout(context.Background(), 30*time.Second)
 		refreshErr := stableManager.Refresh(refreshCtx)
 		cancelRefresh()
 		if refreshErr != nil {
 			logger.Error("No valid stable router policy snapshot; refusing to boot", "err", refreshErr)
 			panic(refreshErr)
 		}
-		for _, arm := range stableManager.Active().Policy.AllArms() {
-			model := hmm.CatalogIDForRoster(arm)
-			if len(catalog.EnumerateBindings(model, envKeyedProviders)) > 0 {
-				startupModels[model] = struct{}{}
-			}
-		}
-		managerCtx, cancelManagers := context.WithCancel(processCtx)
+		managerCtx, cancelManagers := context.WithCancel(context.Background())
 		defer cancelManagers()
-		safeGo(logger, "stable-policy-manager", func() {
-			if err := runEssentialTask(managerCtx, func() { stableManager.Run(managerCtx) }); err != nil {
-				startup.reportTaskFailure(fmt.Errorf("stable policy manager: %w", err))
-			}
-		})
+		safeGo(logger, "stable-policy-manager", func() { stableManager.Run(managerCtx) })
 
 		stableDynamicRouter := policyregistry.NewDynamicRouter(stableManager, router.StrategyHMM)
 		hmmRouter = stableDynamicRouter
 		hmmEmbeddingRouter = policyregistry.NewDynamicRouter(stableManager, router.StrategyHMMEmbedding)
 		hmmCapabilities = hmmRouter.(policy.CapabilitySource).CurrentCapabilities()
 		hmmReadinessChecker = stableManager
-		for _, previewer := range []policy.RoutePreviewer{stableDynamicRouter, hmmEmbeddingRouter.(*policyregistry.DynamicRouter)} {
-			warmCtx, cancelWarm := context.WithTimeout(startupCtx, 30*time.Second)
-			err := warmClassifier(warmCtx, previewer)
-			cancelWarm()
-			if err != nil {
-				logger.Error("Stable classifier startup initialization failed", "err", err)
-				panic(err)
-			}
-		}
 		hmmRosterSources = map[router.Strategy]policy.RosterSource{
 			router.StrategyHMM:          stableManager,
 			router.StrategyHMMEmbedding: stableManager,
@@ -1589,34 +1552,12 @@ func main() {
 	if managedServingEnabled(deploymentMode) || policyEnvironmentRaw != "" {
 		initializedOrigins["https://storage.googleapis.com"] = struct{}{}
 	}
-	if err := egressProbe.wait(startupCtx, logger, providerMap, envKeyedProviders, initializedOrigins); err != nil {
-		logger.Error("Startup transport initialization failed; refusing to boot", "err", err)
-		panic(err)
-	}
-	if err := warmStartupModels(startupCtx, logger, inferenceExecutor.Clients(), startupModels, envKeyedProviders, startupTargets...); err != nil {
-		logger.Error("Startup model generation failed; refusing to boot", "err", err)
-		panic(err)
-	}
-	limits, err := health.LimitsFromEnv(250, 0)
-	if err != nil {
-		panic(err)
-	}
-	capacity, err := health.NewCapacity(limits)
-	if err != nil {
-		panic(err)
-	}
-	err = startup.complete(startupCtx, readinessChecker, capacity)
-	if err != nil {
-		logger.Error("Startup completion failed; refusing to boot", "err", err)
-		panic(err)
-	}
-	go capacity.RunResourceSampler(processCtx)
-	cancelStartup()
+	egressCtx, stopEgress := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	egressProbe.prepare(egressCtx, logger, providerMap, envKeyedProviders, initializedOrigins)
+	stopEgress()
 	logger.Info("Router startup initialization complete")
 	serverFeatures := server.Features{
 		TestPlans:           testPlans,
-		Startup:             startup.ready.Load,
-		Capacity:            capacity,
 		PolicyPinEnabled:    policyPinEnabled,
 		ServingAdmission:    servingAdmission,
 		SubscriberAllowance: subscriberAllowanceSvc,
@@ -1655,6 +1596,9 @@ func main() {
 		}
 	}()
 
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+
 	select {
 	case err := <-serverErr:
 		logger.Error("Server exited with error", "err", err)
@@ -1664,13 +1608,10 @@ func main() {
 		defer apmFailCancel()
 		apm.ShutdownWithContext(apmFailCtx)
 		return
-	case err := <-startup.taskErrors:
-		logger.Error("Essential serving task stopped; restarting instance", "err", err)
-	case <-processCtx.Done():
-		logger.Info("Received shutdown signal; draining")
+	case sig := <-stop:
+		logger.Info("Received shutdown signal; draining", "signal", sig.String())
 	}
 
-	capacity.Shutdown()
 	// Cloud Run gives 10s between SIGTERM and SIGKILL; budget across three
 	// flush stages (defer on apm.Shutdown would never run in time):
 	//   srv.Shutdown 6.0s + emitter.Shutdown 1.5s + apm.Shutdown 1.5s = 9.0s,
@@ -1746,7 +1687,7 @@ func parseOtelHeaders(raw string) map[string]string {
 // than silently degrade to a default model. Also returns the default
 // version's embedder ID so the caller can log the resolved value rather than
 // a hardcoded literal.
-func buildClusterScorer(ctx context.Context, availableProviders map[string]struct{}) (router.Router, string, error) {
+func buildClusterScorer(availableProviders map[string]struct{}) (router.Router, string, error) {
 	logger := observability.Get()
 
 	requestedVersion := config.GetOr("ROUTER_CLUSTER_VERSION", cluster.LatestVersion)
@@ -1794,7 +1735,6 @@ func buildClusterScorer(ctx context.Context, availableProviders map[string]struc
 		}
 	}
 	scorers := make(map[string]*cluster.Scorer, len(versions))
-	warmed := make(map[string]cluster.Embedder)
 	var defaultEmbedderID string
 	for _, v := range versions {
 		bundle, err := cluster.LoadBundle(v)
@@ -1835,7 +1775,6 @@ func buildClusterScorer(ctx context.Context, availableProviders map[string]struc
 			logger.Warn("Cluster scorer version skipped; embedder unavailable", "cluster_version", v, "embedder", bundle.EmbedderID(), "err", err)
 			continue
 		}
-		warmed[embedder.ID()] = embedder
 
 		scorer, err := cluster.NewScorer(bundle, cfg, embedder, availableProviders)
 		if err != nil {
@@ -1865,42 +1804,6 @@ func buildClusterScorer(ctx context.Context, availableProviders map[string]struc
 		"build_all_versions", buildAll,
 	)
 
-	// Warmup: burn each embedder's lazy ONNX graph-optimization cost at boot.
-	for id, embedder := range warmed {
-		type warmupResult struct {
-			err error
-		}
-		warmupDone := make(chan warmupResult, 1)
-		go func(e cluster.Embedder) {
-			_, err := e.Embed(context.Background(), "warmup")
-			warmupDone <- warmupResult{err: err}
-		}(embedder)
-		select {
-		case res := <-warmupDone:
-			if res.err != nil {
-				_ = embedders.Close()
-				return nil, "", fmt.Errorf("Warm embedder %q: %w", id, res.err)
-			}
-		case <-time.After(15 * time.Second):
-			// Drain the goroutine before closing to avoid use-after-free.
-			go func() {
-				<-warmupDone
-				_ = embedders.Close()
-			}()
-			return nil, "", fmt.Errorf("Cluster embedder %q warmup timed out after 15s", id)
-		}
-		logger.Info("Cluster embedder warmed", "embedder", id, "embed_dim", embedder.Dim())
-	}
-
-	for version, scorer := range scorers {
-		warmCtx, cancelWarm := context.WithTimeout(ctx, 15*time.Second)
-		err := warmLocalRouter(warmCtx, scorer)
-		cancelWarm()
-		if err != nil {
-			return nil, "", fmt.Errorf("warm cluster scorer %s: %w", version, err)
-		}
-		logger.Info("Cluster scorer initialized", "cluster_version", version)
-	}
 	return multi, defaultEmbedderID, nil
 }
 

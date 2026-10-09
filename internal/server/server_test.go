@@ -43,6 +43,7 @@ func TestRegister_DeploymentMode(t *testing.T) {
 
 	// Product surface — always mounted regardless of deployment mode.
 	productRoutes := []string{
+		"GET /livez",
 		"GET /health",
 		"GET /readyz",
 		"GET /startupz",
@@ -151,7 +152,7 @@ func TestRegisterMountsAnalyticsExportInBothModes(t *testing.T) {
 	})
 }
 
-func TestRegisterSeparatesLivenessFromReadiness(t *testing.T) {
+func TestRegisterSeparatesResponsiveAndStartupChecksFromReadiness(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	checker := healthCheckerFunc(func(context.Context) error {
@@ -163,9 +164,10 @@ func TestRegisterSeparatesLivenessFromReadiness(t *testing.T) {
 		path       string
 		wantStatus int
 	}{
+		{path: "/livez", wantStatus: http.StatusOK},
 		{path: "/health", wantStatus: http.StatusOK},
 		{path: "/readyz", wantStatus: http.StatusServiceUnavailable},
-		{path: "/startupz", wantStatus: http.StatusServiceUnavailable},
+		{path: "/startupz", wantStatus: http.StatusOK},
 	} {
 		t.Run(test.path, func(t *testing.T) {
 			response := httptest.NewRecorder()

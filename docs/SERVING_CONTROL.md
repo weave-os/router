@@ -412,9 +412,9 @@ invalidation. Missed delivery falls back to TTL expiry.
 ## Local verification
 
 Managed admission is enabled by `ROUTER_SERVING_TARGET`. Bootstrap validates exact
-worker image, revision, configuration and all profile lanes. `/startupz` observes
-completed startup warmup and the final database/strategy readiness check;
-`/readyz` continues checking dependencies on each call. Exact proposal validation
+worker image, revision, configuration and all profile lanes. `/startupz` becomes
+available after initialization; `/livez` is the process responsive check.
+`/readyz` retains database/strategy diagnostics; exact proposal validation
 uses the internal service token in addition to Cloud Run identity. The classifier
 remains IAM-private. Request limits, capacity permits and streaming deadlines are
 owned by the worker.
@@ -627,18 +627,12 @@ calls. Each reasoning model uses its least supported declared effort; GPT-5.4 Pr
 uses `medium`. The tool continues across failures and reports them together.
 Deployment owners can explicitly execute against each isolated fleet with
 `ROUTER_WARMUP_API_KEY` and `-execute -origin <fleet-origin>`; this incurs live
-inference costs.
+inference costs and is separate from service startup.
 
-Worker startup separately warms resources known to that worker before marking
-the `/startupz` probe ready. It exercises the local scorer and classifier, warms
-the actual provider transports, and runs one synthetic generation for each
-boot-known deployment model and required auxiliary target. Startup generations
-use the `startup_warmup` policy: one attempt without fallback, at most four
-concurrent calls, up to 30 seconds per model, and the shared 170-second boot
-deadline. After warmup, a final dependency check has at most three seconds within
-that same boot deadline. Startup succeeds only with local capacity and no reported
-essential-task failure, before the HTTP listener starts. Required warmup or final
-readiness failure aborts boot. Optional beta-lane models remain outside this
-required warmup, and dynamic policy/tenant caches keep their existing behavior.
-Repeated startup probes only observe completion. This per-instance warmup does
-not replace the operator-run full-catalog warmup.
+Startup loads required artifacts and clients, then prepares database/provider
+connections before listening. Provider preparation sends credential-free HEAD
+requests through retained transports to exercise DNS/TCP/TLS; any HTTP response
+proves connectivity only. Preparation is bounded and warns on failure without
+aborting boot. Startup performs no synthetic generation, embedding or HMM
+inference, and does not establish a first-inference latency guarantee.
+Repeated `/startupz` and `/livez` probes perform no external work.

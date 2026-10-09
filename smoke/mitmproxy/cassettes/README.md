@@ -11,15 +11,6 @@ response body here was auth-header-sanitized before being written (see
 `sanitizeHeaders` in `../store.go`) — `Authorization` / `x-api-key` never make
 it into a cassette.
 
-In replay-only mode, `../startup.go` supplies authored JSON responses for the
-router's startup generations. It requires the isolated runner's fake provider
-credential, the exact single `Reply with OK.` prompt, a nonstreaming request,
-the startup output budget, and the translated Anthropic/OpenAI request shape.
-This exercises the real initialization and provider adapters without paid calls
-or adding a production warmup bypass. Other unmatched requests still fail with
-a cassette miss. `record` mode always calls the real upstream;
-`replay-or-record` serves matching cassettes and calls upstream only on a miss.
-
 ## Refreshing
 
 Cassettes go stale when a fixture, scenario, or Anthropic's own response shape

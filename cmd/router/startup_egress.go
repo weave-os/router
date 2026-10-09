@@ -15,7 +15,7 @@ import (
 	"weave-os/router/internal/providers/httputil"
 )
 
-const startupEgressTimeout = 120 * time.Second
+const startupEgressTimeout = 10 * time.Second
 
 type startupTransportWarmer interface {
 	WarmTransport(context.Context, string) (bool, error)
@@ -43,6 +43,13 @@ func newStartupEgressProbe(rawOrigins string) (*startupEgressProbe, error) {
 	transport.DisableKeepAlives = true
 	probe.client = &http.Client{Transport: transport, Timeout: 5 * time.Second}
 	return probe, nil
+}
+
+// prepare waits for bounded connection preparation, but never prevents serving.
+func (p *startupEgressProbe) prepare(ctx context.Context, log *slog.Logger, clients map[string]providers.Client, enabled map[string]struct{}, initializedOrigins map[string]struct{}) {
+	if err := p.wait(ctx, log, clients, enabled, initializedOrigins); err != nil {
+		log.Warn("Startup connection preparation failed; continuing boot", "err", err)
+	}
 }
 
 func (p *startupEgressProbe) wait(ctx context.Context, log *slog.Logger, clients map[string]providers.Client, enabled map[string]struct{}, initializedOrigins map[string]struct{}) error {
