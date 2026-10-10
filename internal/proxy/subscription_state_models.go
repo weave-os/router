@@ -113,7 +113,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 			activeModels = append(activeModels, model)
 		}
 	}
-	rotationBudget, cancel := context.WithTimeout(ctx, sameBindingRetryBudget)
+	rotationBudget, cancel := context.WithTimeout(ctx, subscriptionRotationBudget)
 	defer cancel()
 	ctx = context.WithValue(ctx, subscriptionRotationBudgetKey{}, rotationBudget)
 	hasFixedTarget := request.ForceModel != "" || callerModelPassthroughActive(ctx) ||
@@ -157,8 +157,9 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		if err == nil || committed(in.buf) || ctx.Err() != nil {
 			return winner, err
 		}
-		internalRotationExpired := subscriptionRotationExpired(ctx, rotationBudget)
-		if !internalRotationExpired && !isSubscriptionPoolError(err) && !errors.Is(err, ErrCreditsExhaustedSubscriptionUnavailable) && !providers.IsRetryable(err) &&
+		// An attempt may outlive the rotation budget; its own error, not the
+		// elapsed clock, decides whether another target may serve the turn.
+		if !isSubscriptionPoolError(err) && !errors.Is(err, ErrCreditsExhaustedSubscriptionUnavailable) && !providers.IsRetryable(err) &&
 			!codexSubscriptionModelRejected(err) && !anthropicSubscriptionModelRejected(err) && !codexOAuthCredentialRejected(err) && !anthropicOAuthCredentialRejected(err) && !anthropicSubscriptionThirdPartyRefused(err) {
 			return winner, err
 		}
@@ -176,6 +177,9 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 	}
 	if billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
 		return -1, ErrSubscriptionPoolExhausted
+	}
+	if ctx.Err() != nil {
+		return -1, ctx.Err()
 	}
 	paidModels := installationSubscriptionModelsWhenInactiveFromContext(ctx)
 	paidCtx, paidReq := s.subscriptionStateRequest(ctx, request, paidModels)
