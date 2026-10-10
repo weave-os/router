@@ -36,7 +36,7 @@ func TestProxyCodexSubscriptionUsesPreparedConversationAffinity(t *testing.T) {
 				if serveSyntheticCodexQuota(w, r) {
 					return
 				}
-				received = append(received, r.Header.Get("Session-Id"))
+				received = append(received, r.Header.Get(codexSessionIDHeader))
 				w.Header().Set("Content-Type", "text/event-stream")
 				_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\"}\n\n")
 			}))
@@ -52,7 +52,7 @@ func TestProxyCodexSubscriptionUsesPreparedConversationAffinity(t *testing.T) {
 			prep := providers.PreparedRequest{
 				Endpoint: providers.EndpointResponses,
 				Body:     body,
-				Headers:  http.Header{"Session-Id": []string{"stale-affinity"}},
+				Headers:  http.Header{codexSessionIDHeader: []string{"stale-affinity"}},
 			}
 			for i := 0; i < 2; i++ {
 				err := client.Proxy(ctx, router.Decision{Model: "gpt-6.1-sol", Provider: providers.ProviderOpenAI}, prep, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))

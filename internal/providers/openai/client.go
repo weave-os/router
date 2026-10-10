@@ -41,6 +41,7 @@ const (
 	codexOpenAIBetaValue  = "responses=experimental"
 	codexOriginatorHeader = "originator"
 	codexOriginatorValue  = "codex_cli_rs"
+	codexSessionIDHeader  = "Session-Id"
 	codexUserAgentHeader  = "User-Agent"
 	codexUserAgentValue   = "codex_cli_rs"
 )
@@ -331,8 +332,9 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		upstream.Header.Set(codexOriginatorHeader, codexOriginatorValue)
 		upstream.Header.Set(codexUserAgentHeader, codexUserAgentValue)
 		// Codex uses session-id for cache affinity; the API body hint alone is insufficient.
-		if affinity := requestcontext.NormalizeClientIdentifier(gjson.GetBytes(reqBody, "prompt_cache_key").String()); affinity != "" && httpguts.ValidHeaderFieldValue(affinity) {
-			upstream.Header.Set("Session-Id", affinity)
+		affinity := requestcontext.NormalizeClientIdentifier(gjson.GetBytes(reqBody, "prompt_cache_key").String())
+		if affinity != "" && httpguts.ValidHeaderFieldValue(affinity) {
+			upstream.Header.Set(codexSessionIDHeader, affinity)
 		}
 	}
 
