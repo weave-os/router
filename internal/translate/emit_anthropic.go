@@ -1182,13 +1182,26 @@ func isEmptyDomainList(v any) bool {
 	}
 }
 
+func isUnsupportedAnthropicPattern(pattern string) bool {
+	// Strict tools validate patterns against a narrower dialect than RE2: lookarounds,
+	// inline flags and \b/\B 400 the request, and Go compiles the latter two.
+	if strings.Contains(pattern, "(?") || strings.Contains(pattern, `\b`) || strings.Contains(pattern, `\B`) {
+		return true
+	}
+	_, err := regexp.Compile(pattern)
+	return err != nil
+}
+
 func sanitizeAnthropicSchema(v any) any {
 	switch node := v.(type) {
 	case map[string]any:
 		out := make(map[string]any, len(node))
 		for k, child := range node {
 			if k == "pattern" {
-				continue
+				s, ok := child.(string)
+				if !ok || isUnsupportedAnthropicPattern(s) {
+					continue
+				}
 			}
 			out[k] = sanitizeAnthropicSchema(child)
 		}
