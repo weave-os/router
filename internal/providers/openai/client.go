@@ -22,6 +22,7 @@ import (
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+	"golang.org/x/net/http/httpguts"
 )
 
 const DefaultBaseURL = "https://api.openai.com"
@@ -329,6 +330,10 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		upstream.Header.Set(codexOpenAIBetaHeader, codexOpenAIBetaValue)
 		upstream.Header.Set(codexOriginatorHeader, codexOriginatorValue)
 		upstream.Header.Set(codexUserAgentHeader, codexUserAgentValue)
+		// Codex uses session-id for cache affinity; the API body hint alone is insufficient.
+		if affinity := requestcontext.NormalizeClientIdentifier(gjson.GetBytes(reqBody, "prompt_cache_key").String()); affinity != "" && httpguts.ValidHeaderFieldValue(affinity) {
+			upstream.Header.Set("Session-Id", affinity)
+		}
 	}
 
 	t := timing.TimingFrom(ctx)
