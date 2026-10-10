@@ -20,6 +20,8 @@ import (
 	"weave-os/router/internal/subscriptions"
 )
 
+const hungSeatHeaderTimeout = 200 * time.Millisecond
+
 func TestVerificationSubscriptionTimeoutUsesAuthorizedAPI(t *testing.T) {
 	var bearers []string
 	var bearersMu sync.Mutex
@@ -45,7 +47,8 @@ func TestVerificationSubscriptionTimeoutUsesAuthorizedAPI(t *testing.T) {
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"synthetic\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":11,\"output_tokens\":7}}}\n\n")
 	}))
 	defer upstream.Close()
-	client := openai.NewClient("synthetic-api-key", upstream.URL)
+	// A short header timeout stands in for the provider watchdog that now owns a hung subscription attempt.
+	client := openai.NewClientWithTimeouts("synthetic-api-key", upstream.URL, hungSeatHeaderTimeout, time.Minute)
 	client.SetCodexBaseURL(upstream.URL)
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "timeout-account", AccessToken: "timeout-seat", ProviderAccount: "timeout-provider"}}}
 	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, false, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithManagedSubscriptions(leaser).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
@@ -56,8 +59,7 @@ func TestVerificationSubscriptionTimeoutUsesAuthorizedAPI(t *testing.T) {
 	err := svc.ProxyOpenAIChatCompletion(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
 	require.NoError(t, err)
 	elapsed := time.Since(started)
-	require.GreaterOrEqual(t, elapsed, 9*time.Second)
-	require.Less(t, elapsed, 15*time.Second, "API fallback must follow the ten-second rotation budget promptly")
+	require.Less(t, elapsed, 5*time.Second, "API fallback follows the provider timeout, not a ten-second router deadline")
 	bearersMu.Lock()
 	require.Equal(t, []string{"Bearer timeout-seat", "Bearer synthetic-api-key"}, bearers)
 	bearersMu.Unlock()
@@ -91,7 +93,8 @@ func TestVerificationResponsesSubscriptionTimeoutUsesAuthorizedAPI(t *testing.T)
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"synthetic\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":11,\"output_tokens\":7}}}\n\n")
 	}))
 	defer upstream.Close()
-	client := openai.NewClient("synthetic-api-key", upstream.URL)
+	// A short header timeout stands in for the provider watchdog that now owns a hung subscription attempt.
+	client := openai.NewClientWithTimeouts("synthetic-api-key", upstream.URL, hungSeatHeaderTimeout, time.Minute)
 	client.SetCodexBaseURL(upstream.URL)
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "timeout-account", AccessToken: "timeout-seat", ProviderAccount: "timeout-provider"}}}
 	svc := NewService(staticRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel, Reason: "test"}}, map[string]providers.Client{providers.ProviderOpenAI: client}, nil, false, nil, nil, false, providers.ProviderOpenAI, codexCoveredModel, nil).WithManagedSubscriptions(leaser).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
@@ -102,8 +105,7 @@ func TestVerificationResponsesSubscriptionTimeoutUsesAuthorizedAPI(t *testing.T)
 	err := svc.ProxyOpenAIResponses(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(string(body))))
 	require.NoError(t, err)
 	elapsed := time.Since(started)
-	require.GreaterOrEqual(t, elapsed, 9*time.Second)
-	require.Less(t, elapsed, 15*time.Second, "API fallback must follow the ten-second rotation budget promptly")
+	require.Less(t, elapsed, 5*time.Second, "API fallback follows the provider timeout, not a ten-second router deadline")
 	bearersMu.Lock()
 	require.Equal(t, []string{"Bearer timeout-seat", "Bearer synthetic-api-key"}, bearers)
 	bearersMu.Unlock()
@@ -291,7 +293,7 @@ func TestVerificationCommittedSubscriptionStreamOutlivesRotationBudget(t *testin
 		select {
 		case <-r.Context().Done():
 			return
-		case <-time.After(sameBindingRetryBudget + time.Second):
+		case <-time.After(subscriptionRotationBudget + time.Second):
 		}
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"late output\"}\n\n")
 		_, _ = io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"synthetic\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":11,\"output_tokens\":7}}}\n\n")

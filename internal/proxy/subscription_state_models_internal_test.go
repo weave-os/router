@@ -199,16 +199,6 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 	}
 }
 
-func TestSubscriptionRotationExpiredOnlyForInternalBudget(t *testing.T) {
-	parent, cancelParent := context.WithCancel(context.Background())
-	defer cancelParent()
-	budget, cancelBudget := context.WithCancel(context.Background())
-	cancelBudget()
-	require.True(t, subscriptionRotationExpired(parent, budget))
-	cancelParent()
-	require.False(t, subscriptionRotationExpired(parent, budget), "caller cancellation must not enter paid fallback")
-}
-
 func TestSubscriptionStateModelsIntersectGlobalAllowlist(t *testing.T) {
 	ctx := conditionalModelsContext([]string{stateClaudeModel, stateCodexModel}, []string{statePaidModel})
 	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{stateCodexModel})

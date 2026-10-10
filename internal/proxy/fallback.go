@@ -8,7 +8,6 @@ import (
 	"maps"
 	"net/http"
 	"strconv"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -38,15 +37,7 @@ type preludeBuffer struct {
 	bufBody        bytes.Buffer
 	sealed         bool
 	preludeSent    bool
-	// committed is atomic because a rotation-budget timer reads it while the
-	// provider stream writes. commitMu orders that timer's abort against commit.
-	committed atomic.Bool
-	commitMu  sync.Mutex
-	// attemptGeneration advances on Discard so a late budget timer from a
-	// failed attempt cannot block the next attempt's commit.
-	attemptGeneration uint64
-	abortedGeneration uint64
-	commitAborted     bool
+	committed      atomic.Bool
 }
 
 func newPreludeBuffer(w http.ResponseWriter) *preludeBuffer {
@@ -143,10 +134,6 @@ func (b *preludeBuffer) Discard() {
 	b.bufStatus = 0
 	b.bufBody.Reset()
 	b.sealed = false
-	b.commitMu.Lock()
-	b.commitAborted = false
-	b.attemptGeneration++
-	b.commitMu.Unlock()
 	if b.preludeSent {
 		return
 	}
@@ -161,40 +148,10 @@ func (b *preludeBuffer) Discard() {
 	}
 }
 
-// The budget timer and the provider stream race; once the timer cancels an
-// attempt, output that arrives before cancellation propagates must not reach
-// the client as a committed response that dispatch already abandoned.
-var errAttemptAborted = errors.New("subscription attempt aborted before commit")
-
-func (b *preludeBuffer) currentAttemptGeneration() uint64 {
-	b.commitMu.Lock()
-	defer b.commitMu.Unlock()
-	return b.attemptGeneration
-}
-
-func (b *preludeBuffer) abortIfUncommitted(attemptGeneration uint64, abort func()) {
-	b.commitMu.Lock()
-	defer b.commitMu.Unlock()
-	if b.committed.Load() || attemptGeneration != b.attemptGeneration {
-		return
-	}
-	b.commitAborted = true
-	b.abortedGeneration = attemptGeneration
-	abort()
-}
-
 func (b *preludeBuffer) commit() error {
-	b.commitMu.Lock()
-	if b.committed.Load() {
-		b.commitMu.Unlock()
+	if b.committed.Swap(true) {
 		return nil
 	}
-	if b.commitAborted && b.abortedGeneration == b.attemptGeneration {
-		b.commitMu.Unlock()
-		return errAttemptAborted
-	}
-	b.committed.Store(true)
-	b.commitMu.Unlock()
 	if !b.preludeSent {
 		if b.bufStatus != 0 {
 			b.inner.WriteHeader(b.bufStatus)
@@ -331,10 +288,11 @@ func committed(b *preludeBuffer) bool {
 	return b.Committed()
 }
 
-// sameBindingRetryBudget caps wall-clock across managed-subscription account
-// rotations on one binding; per-target transient retries are bounded by the
-// dispatch executor.
-const sameBindingRetryBudget = 10 * time.Second
+// subscriptionRotationBudget bounds how long included-capacity accounts and
+// model alternatives may be leased and admitted, shared across one request's
+// rotation walk. It never cancels an attempt already in flight: provider
+// header/stream watchdogs and the caller own inference lifetime.
+const subscriptionRotationBudget = 10 * time.Second
 
 // clockNow reads the current time through the injectable clock, falling back
 // to time.Now when no fake is wired.
@@ -643,7 +601,7 @@ func subscriptionAPIOnly(ctx context.Context) bool {
 	return value
 }
 func (s *Service) dispatchSubscriptionAlternatives(ctx context.Context, in failoverInputs) (int, error) {
-	budget, cancel := context.WithTimeout(ctx, sameBindingRetryBudget)
+	budget, cancel := context.WithTimeout(ctx, subscriptionRotationBudget)
 	defer cancel()
 	ctx = context.WithValue(ctx, subscriptionRotationBudgetKey{}, budget)
 	selected := in.initialDecision
@@ -686,6 +644,9 @@ func (s *Service) dispatchSubscriptionAlternatives(ctx context.Context, in failo
 		if committed(in.buf) || ctx.Err() != nil {
 			return winner, attemptErr
 		}
+	}
+	if ctx.Err() != nil {
+		return 0, ctx.Err()
 	}
 	if paidFallbackForbidden(ctx) {
 		return 0, ErrSubscriptionPoolExhausted
