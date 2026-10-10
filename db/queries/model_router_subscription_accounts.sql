@@ -309,7 +309,7 @@ WHERE id = @id::uuid
   AND token_refresh_lease_id = @lease_id::uuid
   AND token_refresh_version = @expected_version::bigint;
 
--- Read from the primary so admission observes current membership and sharing settings.
+-- Read from the primary so admission observes current membership, key opt-in and sharing settings.
 -- Locks are held only for this statement and serialize with settings/access writes.
 -- name: ListModelRouterSubscriptionCandidates :many
 WITH installation AS MATERIALIZED (
@@ -336,8 +336,15 @@ WHERE (account.provider <> 'codex' OR account.provider_user_id IS NOT NULL)
  AND (account.subscriber_id = sqlc.narg(subscriber_id)::uuid
    OR (installation.subscription_sharing_enabled
        -- Only a verified requester that remains an active member borrows shared
-       -- capacity; a subject-less key matches no member and fails closed.
-       AND EXISTS (SELECT 1 FROM members AS requester WHERE requester.subject_id = sqlc.narg(subscriber_id)::uuid)
+       -- capacity. A subject-less key fails closed unless an admin opted it in.
+       AND (EXISTS (SELECT 1 FROM members AS requester WHERE requester.subject_id = sqlc.narg(subscriber_id)::uuid)
+         OR (sqlc.narg(subscriber_id)::uuid IS NULL AND EXISTS (
+           SELECT 1 FROM router.model_router_api_keys AS requester_key
+           WHERE requester_key.id = sqlc.narg(api_key_id)::uuid
+             AND requester_key.installation_id = installation.id
+             AND requester_key.deleted_at IS NULL
+             AND requester_key.credential_subject_id IS NULL
+             AND requester_key.shared_subscription_access)))
        AND EXISTS (
         SELECT 1 FROM router.model_router_subscription_account_installations AS registration
         WHERE registration.installation_id = installation.id AND registration.subscription_account_id = account.id)))

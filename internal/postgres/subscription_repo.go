@@ -437,17 +437,24 @@ func (r *subscriptionAccountRepo) ListSubscriptionCandidates(ctx context.Context
 	if err != nil {
 		return nil, auth.ErrSubscriptionAccountNotFound
 	}
-	// Serving requires a verified requester; subject-less keys get no capacity.
-	if owner.SubscriberID == "" {
+	params := sqlc.ListModelRouterSubscriptionCandidatesParams{InstallationID: installationID}
+	switch {
+	case owner.SubscriberID != "":
+		subscriberID, err := uuid.Parse(owner.SubscriberID)
+		if err != nil {
+			return nil, auth.ErrSubscriptionAccountNotFound
+		}
+		params.SubscriberID = pgtype.UUID{Bytes: subscriberID, Valid: true}
+	case owner.APIKeyID != "":
+		apiKeyID, err := uuid.Parse(owner.APIKeyID)
+		if err != nil {
+			return nil, auth.ErrSubscriptionAccountNotFound
+		}
+		params.APIKeyID = pgtype.UUID{Bytes: apiKeyID, Valid: true}
+	default:
 		return nil, nil
 	}
-	subscriberID, err := uuid.Parse(owner.SubscriberID)
-	if err != nil {
-		return nil, auth.ErrSubscriptionAccountNotFound
-	}
-	rows, err := dbbudget.Queries(r.tx).ListModelRouterSubscriptionCandidates(ctx, sqlc.ListModelRouterSubscriptionCandidatesParams{
-		InstallationID: installationID, SubscriberID: pgtype.UUID{Bytes: subscriberID, Valid: true},
-	})
+	rows, err := dbbudget.Queries(r.tx).ListModelRouterSubscriptionCandidates(ctx, params)
 	if err != nil {
 		return nil, err
 	}
