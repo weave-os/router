@@ -94,7 +94,7 @@ INSERT INTO router.model_router_api_keys (
 ) VALUES (
     $1::uuid, $2::varchar, $3::varchar,
     $4::varchar, $5::varchar, $6::varchar, 'routing', $7::uuid
-) RETURNING id, installation_id, external_id, name, key_prefix, key_hash, key_suffix, last_used_at, created_at, deleted_at, created_by, spend_cap_usd_micros, spent_usd_micros, scope, credential_subject_id, harness
+) RETURNING id, installation_id, external_id, name, key_prefix, key_hash, key_suffix, last_used_at, created_at, deleted_at, created_by, spend_cap_usd_micros, spent_usd_micros, scope, credential_subject_id, harness, shared_subscription_access
 `
 
 type InsertPersonalRoutingKeyParams struct {
@@ -114,7 +114,7 @@ type InsertPersonalRoutingKeyParams struct {
 //	) VALUES (
 //	    $1::uuid, $2::varchar, $3::varchar,
 //	    $4::varchar, $5::varchar, $6::varchar, 'routing', $7::uuid
-//	) RETURNING id, installation_id, external_id, name, key_prefix, key_hash, key_suffix, last_used_at, created_at, deleted_at, created_by, spend_cap_usd_micros, spent_usd_micros, scope, credential_subject_id, harness
+//	) RETURNING id, installation_id, external_id, name, key_prefix, key_hash, key_suffix, last_used_at, created_at, deleted_at, created_by, spend_cap_usd_micros, spent_usd_micros, scope, credential_subject_id, harness, shared_subscription_access
 func (q *Queries) InsertPersonalRoutingKey(ctx context.Context, arg InsertPersonalRoutingKeyParams) (RouterModelRouterAPIKey, error) {
 	row := q.db.QueryRow(ctx, insertPersonalRoutingKey,
 		arg.InstallationID,
@@ -143,6 +143,7 @@ func (q *Queries) InsertPersonalRoutingKey(ctx context.Context, arg InsertPerson
 		&i.Scope,
 		&i.CredentialSubjectID,
 		&i.Harness,
+		&i.SharedSubscriptionAccess,
 	)
 	return i, err
 }

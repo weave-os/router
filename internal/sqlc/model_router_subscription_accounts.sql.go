@@ -367,7 +367,7 @@ const listModelRouterSubscriptionCandidates = `-- name: ListModelRouterSubscript
 WITH installation AS MATERIALIZED (
   SELECT id, subscription_sharing_enabled
   FROM router.model_router_installations
-  WHERE id = $2::uuid AND deleted_at IS NULL AND NOT subscription_routing_disabled
+  WHERE id = $3::uuid AND deleted_at IS NULL AND NOT subscription_routing_disabled
   FOR SHARE
 ), members AS MATERIALIZED (
   SELECT access.subject_id
@@ -388,8 +388,15 @@ WHERE (account.provider <> 'codex' OR account.provider_user_id IS NOT NULL)
  AND (account.subscriber_id = $1::uuid
    OR (installation.subscription_sharing_enabled
        -- Only a verified requester that remains an active member borrows shared
-       -- capacity; a subject-less key matches no member and fails closed.
-       AND EXISTS (SELECT 1 FROM members AS requester WHERE requester.subject_id = $1::uuid)
+       -- capacity. A subject-less key fails closed unless an admin opted it in.
+       AND (EXISTS (SELECT 1 FROM members AS requester WHERE requester.subject_id = $1::uuid)
+         OR ($1::uuid IS NULL AND EXISTS (
+           SELECT 1 FROM router.model_router_api_keys AS requester_key
+           WHERE requester_key.id = $2::uuid
+             AND requester_key.installation_id = installation.id
+             AND requester_key.deleted_at IS NULL
+             AND requester_key.credential_subject_id IS NULL
+             AND requester_key.shared_subscription_access)))
        AND EXISTS (
         SELECT 1 FROM router.model_router_subscription_account_installations AS registration
         WHERE registration.installation_id = installation.id AND registration.subscription_account_id = account.id)))
@@ -399,6 +406,7 @@ FOR SHARE OF account
 
 type ListModelRouterSubscriptionCandidatesParams struct {
 	SubscriberID   pgtype.UUID
+	APIKeyID       pgtype.UUID
 	InstallationID uuid.UUID
 }
 
@@ -418,13 +426,13 @@ type ListModelRouterSubscriptionCandidatesRow struct {
 	Tier                   string
 }
 
-// Read from the primary so admission observes current membership and sharing settings.
+// Read from the primary so admission observes current membership, key opt-in and sharing settings.
 // Locks are held only for this statement and serialize with settings/access writes.
 //
 //	WITH installation AS MATERIALIZED (
 //	  SELECT id, subscription_sharing_enabled
 //	  FROM router.model_router_installations
-//	  WHERE id = $2::uuid AND deleted_at IS NULL AND NOT subscription_routing_disabled
+//	  WHERE id = $3::uuid AND deleted_at IS NULL AND NOT subscription_routing_disabled
 //	  FOR SHARE
 //	), members AS MATERIALIZED (
 //	  SELECT access.subject_id
@@ -445,15 +453,22 @@ type ListModelRouterSubscriptionCandidatesRow struct {
 //	 AND (account.subscriber_id = $1::uuid
 //	   OR (installation.subscription_sharing_enabled
 //	       -- Only a verified requester that remains an active member borrows shared
-//	       -- capacity; a subject-less key matches no member and fails closed.
-//	       AND EXISTS (SELECT 1 FROM members AS requester WHERE requester.subject_id = $1::uuid)
+//	       -- capacity. A subject-less key fails closed unless an admin opted it in.
+//	       AND (EXISTS (SELECT 1 FROM members AS requester WHERE requester.subject_id = $1::uuid)
+//	         OR ($1::uuid IS NULL AND EXISTS (
+//	           SELECT 1 FROM router.model_router_api_keys AS requester_key
+//	           WHERE requester_key.id = $2::uuid
+//	             AND requester_key.installation_id = installation.id
+//	             AND requester_key.deleted_at IS NULL
+//	             AND requester_key.credential_subject_id IS NULL
+//	             AND requester_key.shared_subscription_access)))
 //	       AND EXISTS (
 //	        SELECT 1 FROM router.model_router_subscription_account_installations AS registration
 //	        WHERE registration.installation_id = installation.id AND registration.subscription_account_id = account.id)))
 //	ORDER BY (account.subscriber_id = $1::uuid) DESC NULLS LAST, account.created_at, account.id
 //	FOR SHARE OF account
 func (q *Queries) ListModelRouterSubscriptionCandidates(ctx context.Context, arg ListModelRouterSubscriptionCandidatesParams) ([]ListModelRouterSubscriptionCandidatesRow, error) {
-	rows, err := q.db.Query(ctx, listModelRouterSubscriptionCandidates, arg.SubscriberID, arg.InstallationID)
+	rows, err := q.db.Query(ctx, listModelRouterSubscriptionCandidates, arg.SubscriberID, arg.APIKeyID, arg.InstallationID)
 	if err != nil {
 		return nil, err
 	}

@@ -349,7 +349,8 @@ type RouterModelRouterAPIKey struct {
 	Scope               string
 	CredentialSubjectID pgtype.UUID
 	// Optional onboarding harness id (claude_code, codex, opencode, pi). Null for keys minted outside harness onboarding.
-	Harness *string
+	Harness                  *string
+	SharedSubscriptionAccess bool
 }
 
 // Customer-owned provider API keys for BYOK routing
