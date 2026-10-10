@@ -409,6 +409,15 @@ func TestSubscriptionCandidatesAdmitOnlyOptedInSharedKeys(t *testing.T) {
 	assert.Equal(t, account.ID, candidates[0].ID)
 	assert.Equal(t, auth.SubscriptionTierShared, candidates[0].Tier)
 
+	_, err = fixture.pool.Exec(ctx, "UPDATE router.model_router_api_keys SET shared_subscription_access = FALSE WHERE id = $1", fixture.legacyKey)
+	require.NoError(t, err)
+	candidates, err = admission.ListSubscriptionCandidates(ctx, sharedKeyOwner)
+	require.NoError(t, err)
+	assert.Empty(t, candidates, "opting the key back out revokes borrowing")
+
+	_, err = fixture.pool.Exec(ctx, "UPDATE router.model_router_api_keys SET shared_subscription_access = TRUE WHERE id = $1", fixture.legacyKey)
+	require.NoError(t, err)
+
 	_, err = fixture.pool.Exec(ctx,
 		"UPDATE router.model_router_installations SET subscription_sharing_enabled = FALSE WHERE id = $1", fixture.installationID)
 	require.NoError(t, err)
