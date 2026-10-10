@@ -84,6 +84,7 @@ test-install: ## Run offline installer regression tests (after make setup-instal
 	@bash install/tests/registry_test.sh
 	@bash install/tests/packaging_test.sh
 	@bash install/tests/tool_search_test.sh
+	@bash install/tests/organization_policy_hook_test.sh
 	@bash install/tests/context_window_test.sh
 	@bash install/tests/client_events_test.sh
 
