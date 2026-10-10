@@ -328,7 +328,7 @@ func main() {
 		if !byokOnly {
 			trustedRouterKey = config.GetOr("TRUSTEDROUTER_API_KEY", "")
 		}
-		providerMap[providers.ProviderTrustedRouter] = openaiCompatProvider.NewClient(trustedRouterKey, trustedRouterBaseURL)
+		providerMap[providers.ProviderTrustedRouter] = openaiCompatProvider.NewClientWithModelIDMap(trustedRouterKey, trustedRouterBaseURL, upstreamIDsForProvider(providers.ProviderTrustedRouter), openaiCompatProvider.WithModelListHTTPClient(discoveryHTTPClient))
 		switch {
 		case byokOnly:
 			logger.Info("TrustedRouter provider enabled (BYOK only)", "base_url", trustedRouterBaseURL)

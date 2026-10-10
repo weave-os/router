@@ -731,8 +731,8 @@ var Models = []Model{
 	}},
 	// kimi-k3 is a separate price class from k2.7 ($3/$15 vs $0.95/$4), not its
 	// successor — both stay routable. First multimodal Kimi, so unlike k2.5-k2.7
-	// it carries no ImageInputUnsupported. OpenRouter and TrustedRouter
-	// (identical list price) are the outage fallbacks.
+	// it carries no ImageInputUnsupported. OpenRouter and TrustedRouter are
+	// the outage fallbacks.
 	{ID: "moonshotai/kimi-k3", Source: SourceOpenSource, Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/kimi-k3",
 			Price: Pricing{InputUSDPer1M: 3.000, OutputUSDPer1M: 15.000, CacheReadMultiplier: 0.10}},
