@@ -540,13 +540,13 @@ func TestDispatchWithFallbackBoundsManagedAccountRotationByTime(t *testing.T) {
 	}}
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: client}).WithManagedSubscriptions(leaser)
 	startedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	// The first attempt takes 11s: every clock read before it sees the start,
+	// The first attempt outlasts the budget: every clock read before it sees the start,
 	// every read after it sees the budget already spent.
 	svc.now = func() time.Time {
 		if client.calls == 0 {
 			return startedAt
 		}
-		return startedAt.Add(11 * time.Second)
+		return startedAt.Add(sameBindingRetryBudget + time.Second)
 	}
 
 	_, err := svc.dispatchWithFallback(managedSubscriptionTestContext(), failoverInputs{

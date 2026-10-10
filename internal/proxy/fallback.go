@@ -333,8 +333,12 @@ func committed(b *preludeBuffer) bool {
 
 // sameBindingRetryBudget caps wall-clock across managed-subscription account
 // rotations on one binding; per-target transient retries are bounded by the
-// dispatch executor.
-const sameBindingRetryBudget = 10 * time.Second
+// dispatch executor. It also bounds time to first output on a subscription
+// attempt, so it must outlast slow-thinking models on large requests: at 10s,
+// healthy Claude seat turns on claude-fable-5-1 were cancelled and billed to
+// API capacity. Rotation after a fast 429/401 is unaffected, since those fail
+// well inside the budget. A var so tests can shrink it.
+var sameBindingRetryBudget = 60 * time.Second
 
 // clockNow reads the current time through the injectable clock, falling back
 // to time.Now when no fake is wired.
