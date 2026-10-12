@@ -206,7 +206,8 @@ acquired AS (
     AND (subscriber_id = sqlc.narg(subscriber_id)::uuid
          OR (subscriber_id IS NULL AND api_key_id = sqlc.narg(api_key_id)::uuid))
     AND enabled = TRUE
-    AND (cooldown_until IS NULL OR cooldown_until <= CURRENT_TIMESTAMP)
+    -- Token rotation also serves quota management for exhausted accounts.
+    -- Runtime checks serving health separately before admitting inference.
     AND (token_refresh_lease_until IS NULL OR token_refresh_lease_until <= CURRENT_TIMESTAMP)
   RETURNING id
 )

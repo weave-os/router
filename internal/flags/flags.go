@@ -104,6 +104,8 @@ const (
 	KeyCCAutonomySystemAppend               Key = "cc_autonomy_system_append"
 	KeyCCWorkspaceSystemAppend              Key = "cc_workspace_system_append"
 	KeySubscriptionPlanAwareRouting         Key = "subscription_plan_aware_routing_enabled"
+	KeyCodexAutoUsageReset                  Key = "codex_auto_usage_reset_enabled"
+	KeyCodexAutoUsageResetSubscribers       Key = "codex_auto_usage_reset_subscriber_ids"
 	KeyCommittedStreamArmDemotion           Key = "committed_stream_arm_demotion"
 	KeyRescuedFailureArmDemotion            Key = "rescued_failure_arm_demotion"
 	KeyTransientRateLimit                   Key = "transient_rate_limit"
@@ -148,7 +150,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 22
+const RegistryVersion = 23
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -156,6 +158,8 @@ const RegistryVersion = 22
 // are already per-installation columns on model_router_installations, or are
 // consumed at construction time and have no per-request read site to override.
 var Registry = []Definition{
+	{Key: KeyCodexAutoUsageReset, Kind: KindBool, Description: "Redeem an earned Codex usage reset when all personal accounts are exhausted, choosing the soonest expiring credit. Off by default.", OrgOverridable: true},
+	{Key: KeyCodexAutoUsageResetSubscribers, Kind: KindString, Description: "Restrict automatic Codex resets to these comma-separated verified subscriber IDs. Empty allows all subscribers when the reset flag is enabled.", OrgOverridable: true},
 	{Key: KeyEscalationActiveClassifier, Kind: KindString, Description: "Active escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation. Absent preserves legacy XGB flags.", OrgOverridable: true},
 	{Key: KeyEscalationShadowClassifier, Kind: KindString, Description: "Independent shadow escalation classifier: none, xgb, switchyard_llm_v1, or llm_escalation.", OrgOverridable: true},
 	{Key: KeyEscalationCadence, Kind: KindInt, Description: "Completed turns between LLM checkpoints: 3, 4, or 5. Default 3.", OrgOverridable: true},

@@ -78,13 +78,16 @@ type Leaser interface {
 // Runtime admits primary candidates, refreshes physical accounts, and retains
 // session affinity only within the winning ownership tier.
 type Runtime struct {
-	affinity  *expirable.LRU[string, string]
-	store     AccountStore
-	refresher TokenRefresher
-	manager   *Manager
-	clock     func() time.Time
-	leaseTTL  time.Duration
-	heartbeat time.Duration
+	affinity       *expirable.LRU[string, string]
+	store          AccountStore
+	refresher      TokenRefresher
+	manager        *Manager
+	clock          func() time.Time
+	leaseTTL       time.Duration
+	heartbeat      time.Duration
+	resetClient    CodexResetClient
+	resetStore     ResetStore
+	resetTieChoice func(int) int
 }
 
 // NewRuntime constructs the server-side subscription credential runtime.
@@ -237,6 +240,17 @@ func (r *Runtime) updateAccountHealth(ctx context.Context, owner auth.Subscripti
 }
 
 func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
+	return r.refreshCredentials(owner, false)
+}
+
+// Quota management may refresh exhausted accounts without admitting inference.
+func (r *Runtime) refreshCredentials(owner auth.SubscriptionOwner, allowExhausted bool) Refresher {
+	available := func(credentials auth.SubscriptionCredentials) bool {
+		if allowExhausted {
+			return credentials.Enabled && resetAccountStateEligible(credentials.State)
+		}
+		return subscriptionCredentialAvailable(credentials, r.clock())
+	}
 	return func(ctx context.Context, account Account) (Account, error) {
 		wait := refreshWaitInitial
 		for attempt := 0; attempt < refreshRetryLimit; attempt++ {
@@ -252,7 +266,7 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 					observability.FromContext(ctx).Error("Failed to load subscription credentials while waiting for refresh", "owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider, "err", loadErr)
 					return Account{}, loadErr
 				}
-				if !subscriptionCredentialAvailable(credentials, r.clock()) {
+				if !available(credentials) {
 					return Account{}, ErrNoAvailableAccount
 				}
 				if subscriptionAccessTokenUsable(credentials, r.clock()) {
@@ -277,7 +291,7 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 				observability.FromContext(ctx).Error("Failed to load subscription credentials for refresh", "owner_id", owner.LogKey(), "account_id", account.ID, "provider", account.Provider, "err", err)
 				return Account{}, r.releaseRefreshLease(ctx, owner, account.ID, leaseID, err)
 			}
-			if !subscriptionCredentialAvailable(credentials, r.clock()) {
+			if !available(credentials) {
 				return Account{}, r.releaseRefreshLease(ctx, owner, account.ID, leaseID, ErrNoAvailableAccount)
 			}
 			if subscriptionAccessTokenUsable(credentials, r.clock()) {
@@ -306,7 +320,7 @@ func (r *Runtime) refresh(owner auth.SubscriptionOwner) Refresher {
 					return Account{}, err
 				}
 				latest, loadErr := r.store.LoadSubscriptionCredentials(ctx, owner, account.ID)
-				if loadErr == nil && subscriptionCredentialAvailable(latest, r.clock()) && subscriptionAccessTokenUsable(latest, r.clock()) {
+				if loadErr == nil && available(latest) && subscriptionAccessTokenUsable(latest, r.clock()) {
 					return applySubscriptionCredentials(account, latest), nil
 				}
 				if loadErr != nil {

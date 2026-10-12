@@ -226,6 +226,20 @@ func (p *Pool) Activate(accountID string) bool {
 	return true
 }
 
+// restoreQuota clears a cooldown only after a live quota check has confirmed headroom.
+func (p *Pool) restoreQuota(accountID string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if state, ok := p.accounts[accountID]; ok && state.account.Enabled && resetAccountStateEligible(state.account.State) {
+		state.account.State = auth.SubscriptionAccountStateActive
+		state.account.CooldownTil = time.Time{}
+		// Quota recovery may have refreshed credentials outside this pool.
+		// Reload the persisted token instead of reviving its old cached bearer.
+		state.account.AccessToken = ""
+		state.account.AccessTokenExpiresAt = time.Time{}
+	}
+}
+
 // Remove deletes an account and any sticky session references to it.
 func (p *Pool) Remove(accountID string) bool {
 	p.mu.Lock()

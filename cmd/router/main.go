@@ -253,6 +253,7 @@ func main() {
 		logger.Info("Anthropic provider enabled (client auth passthrough)", "base_url", anthropic.DefaultBaseURL)
 	}
 
+	var codexResetClient subscriptions.CodexResetClient
 	{
 		openaiBaseURL := config.GetOr("OPENAI_BASE_URL", openaiProvider.DefaultBaseURL)
 		openaiKey := ""
@@ -274,6 +275,7 @@ func main() {
 			}
 		}
 		providerMap[providers.ProviderOpenAI] = openaiClient
+		codexResetClient = openaiClient
 		switch {
 		case byokOnly:
 			logger.Info("OpenAI provider enabled (BYOK only)", "base_url", openaiBaseURL)
@@ -605,7 +607,8 @@ func main() {
 			config.GetOr("WEAVE_ANTHROPIC_OAUTH_TOKEN", ""), time.Now,
 		)
 		authSvc.WithCodexEnrollmentVerifier(subscriptionOAuth)
-		subscriptionRuntime = subscriptions.NewRuntime(authSvc, subscriptionOAuth, time.Now)
+		subscriptionRuntime = subscriptions.NewRuntime(authSvc, subscriptionOAuth, time.Now).
+			WithCodexResets(codexResetClient, postgres.NewCodexResetStore(pool))
 		logger.Info("Server-side subscription account pools enabled")
 	} else {
 		logger.Info("Server-side subscription account pools disabled")
@@ -1244,6 +1247,8 @@ func main() {
 		flags.KeyEscalationXGBoostShadowMarkerEnabled: boolDefault(false),
 		flags.KeyEscalationXGBoostEpoch:               "0",
 		flags.KeySubscriptionPlanAwareRouting:         boolDefault(false),
+		flags.KeyCodexAutoUsageReset:                  boolDefault(false),
+		flags.KeyCodexAutoUsageResetSubscribers:       "",
 		flags.KeyStruggleShadowEnabled:                boolDefault(struggleShadowEnabled),
 		flags.KeySpiralShadowEnabled:                  boolDefault(spiralShadowEnabled),
 		flags.KeyTurnSignalCapture:                    boolDefault(turnSignalCaptureEnabled),

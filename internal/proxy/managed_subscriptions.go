@@ -59,6 +59,7 @@ func subscriptionOwnerFromContext(ctx context.Context) auth.SubscriptionOwner {
 type ManagedSubscriptionUsage struct {
 	Served                bool
 	SubscriptionAttempted bool
+	ResetAttempted        bool
 	CredentialSource      string
 	OverageInUse          bool
 	SubscriptionAccountID string
@@ -223,17 +224,35 @@ func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model 
 	}
 
 	owner := subscriptionOwnerFromContext(ctx)
-	if winner, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); winner != nil {
-		for pair := range winner.AttemptedAccounts {
-			if strings.HasSuffix(pair, "\x00"+model) {
-				owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, strings.TrimSuffix(pair, "\x00"+model))
-			}
+	ctx = WithManagedSubscriptionUsage(ctx)
+	requestUsage := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+	for pair := range requestUsage.AttemptedAccounts {
+		if strings.HasSuffix(pair, "\x00"+model) {
+			owner.ExcludedAccountIDs = append(owner.ExcludedAccountIDs, strings.TrimSuffix(pair, "\x00"+model))
 		}
 	}
 	seen := make(map[string]bool)
 	var modelDenial error
 	for {
 		lease, present, err := s.managedSubscriptions.Lease(ctx, owner, poolProvider, ClientIdentityFrom(ctx).SessionID)
+		if poolProvider == subscriptions.ProviderCodex && !requestUsage.ResetAttempted && subscriptions.CodexAutoUsageResetEnabled(ctx, owner.SubscriberID) && (errors.Is(err, subscriptions.ErrNoAvailableAccount) || err == nil && !present) {
+			requestUsage.ResetAttempted = true
+			if resetter, ok := s.managedSubscriptions.(interface {
+				ResetCodex(context.Context, auth.SubscriptionOwner, string) (subscriptions.Lease, bool, error)
+			}); ok {
+				if restored, recovered, resetErr := resetter.ResetCodex(ctx, owner, ClientIdentityFrom(ctx).SessionID); resetErr != nil {
+					err = resetErr
+				} else if recovered {
+					lease, present, err = restored, true, nil
+					delete(seen, lease.AccountID)
+					delete(requestUsage.AttemptedAccounts, lease.AccountID+"\x00"+model)
+					if s.usageObserver != nil {
+						s.usageObserver.Forget(s.usageObserver.Key([]byte("subscription-account:" + lease.AccountID)))
+						s.usageObserver.Forget(s.usageObserver.Key([]byte(lease.AccessToken)))
+					}
+				}
+			}
+		}
 		if err != nil || !present {
 			if !subscriptionAttemptOnly(ctx) && !paidFallbackForbidden(ctx) && s.managedProviderFallbackAvailable(ctx, poolProvider) {
 				return ctx, subscriptions.Lease{}, false, nil

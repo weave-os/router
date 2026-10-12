@@ -213,6 +213,13 @@ func (o *Observer) freshFor(s Snapshot) time.Duration {
 // Key derives the CredentialKey for a token under this observer's salt.
 func (o *Observer) Key(token []byte) CredentialKey { return KeyFor(o.salt, token) }
 
+// Forget removes stale exhaustion after quota has been independently restored.
+func (o *Observer) Forget(key CredentialKey) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	delete(o.data, key)
+}
+
 // Record stores a snapshot for a credential, stamped with the current time.
 // A snapshot with no usable window is ignored (don't overwrite good data with
 // an empty observation from a response that carried no rate-limit headers).
