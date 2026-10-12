@@ -11,6 +11,8 @@ const (
 	HeaderRouterProvider = "x-router-provider"
 	// HeaderRouterModel carries the model that served the turn.
 	HeaderRouterModel = "x-router-model"
+	// HeaderRouterNotice describes a successful upstream recovery to API clients.
+	HeaderRouterNotice = "x-router-notice"
 	// HeaderRouterContextWindow carries the effective context window (tokens)
 	// of the model that served the turn, so window-aware clients (pi) can budget
 	// auto-compaction against the served model rather than the requested one.

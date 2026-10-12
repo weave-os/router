@@ -221,6 +221,7 @@ type turnLoopResult struct {
 	// AuthoritativePerTurn is true only for eligible main/tool-result turns
 	// whose active policy declared model-authoritative dispatch.
 	AuthoritativePerTurn bool
+	ClassifierPrediction *router.ClassifierPrediction
 	// UsageBypass is true when the caller's own subscription has headroom:
 	// ProxyMessages must serve the requested model straight through with no
 	// billing debit, bypassing Decision's normal dispatch.

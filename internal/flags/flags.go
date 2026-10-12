@@ -377,7 +377,7 @@ var Registry = []Definition{
 		Key:            KeyRescuedFailureArmDemotion,
 		EnvVar:         "ROUTER_RESCUED_FAILURE_ARM_DEMOTION",
 		Kind:           KindBool,
-		Description:    "Withdraw the primary model from a session's automatic selection after an upstream response-header timeout, whether or not a model rescue ran, or after another pre-commit failure followed by a same-cluster sibling rescue. Off by default.",
+		Description:    "Withdraw the failed model from a session's automatic selection after an upstream response-header timeout or a pre-commit upstream failure followed by model rescue. On by default.",
 		OrgOverridable: true,
 	},
 	{

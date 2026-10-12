@@ -18,27 +18,22 @@ func linkedFirst(ctx context.Context) bool {
 
 // paidFallbackForbidden reports whether a live subscription failure may not be
 // rescued on metered capacity. Only a credits_depleted turn has nowhere to fall
-// through to. Configured subscription sets also forbid the ordinary same-model
-// paid rescue; their dispatcher separately authorizes the exhausted model set.
+// through to. Subscription preferences do not authorize or prohibit paid spend.
 func paidFallbackForbidden(ctx context.Context) bool {
-	return subscriptionAttemptOnly(ctx) || subscriptionStateModelsEnabled(ctx) && !subscriptionAPIOnly(ctx) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx)
+	return subscriptionAttemptOnly(ctx) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx)
 }
 
 func paidFallbackForbiddenForModel(ctx context.Context, model string) bool {
 	if subscriptionAttemptOnly(ctx) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
 		return true
 	}
-	if !subscriptionStateModelsEnabled(ctx) || subscriptionAPIOnly(ctx) {
-		return false
-	}
-	_, exhaustedModel := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[model]
-	return !exhaustedModel
+	return !modelPermittedByAllowlist(ctx, model)
 }
 
 // subscriptionStatePaidRescueContext permits paid recovery only when its target
-// is explicitly present in the installation's exhausted-state model set.
+// is permitted by the installation policy and the request is funded.
 func subscriptionStatePaidRescueContext(ctx context.Context, model string) context.Context {
-	if _, exhaustedModel := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[model]; exhaustedModel {
+	if subscriptionStateModelsEnabled(ctx) && !paidFallbackForbiddenForModel(ctx, model) {
 		return context.WithValue(ctx, subscriptionAPIOnlyKey{}, true)
 	}
 	return ctx

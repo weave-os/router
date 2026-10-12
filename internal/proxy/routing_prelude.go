@@ -1,6 +1,9 @@
 package proxy
 
-import "weave-os/router/internal/translate"
+import (
+	"strings"
+	"weave-os/router/internal/translate"
+)
 
 type anthropicPreludeState struct {
 	visibleBlocks int64
@@ -17,6 +20,9 @@ func (s *openAIPreludeState) emit(
 	writer *translate.OpenAIRoutingMarkerWriter,
 	prelude *preludeBuffer,
 ) error {
+	if prelude != nil {
+		prelude.waitForUpstream = strings.Contains(marker, upstreamUnavailableMarkerPrefix)
+	}
 	if prelude == nil || !prelude.PreludeSent() || marker != s.lastMarker {
 		if err := writer.Prelude(streaming); err != nil {
 			return err
@@ -26,6 +32,9 @@ func (s *openAIPreludeState) emit(
 		}
 		if err := prelude.CommitPrelude(); err != nil {
 			return err
+		}
+		if prelude.waitForUpstream {
+			return nil
 		}
 		s.lastMarker = marker
 		return nil
@@ -50,6 +59,9 @@ func (s *anthropicPreludeState) emit(
 	},
 	prelude *preludeBuffer,
 ) error {
+	if prelude != nil {
+		prelude.waitForUpstream = strings.Contains(marker, upstreamUnavailableMarkerPrefix)
+	}
 	if prelude == nil || !prelude.PreludeSent() {
 		if err := writer.Prelude(streaming); err != nil {
 			return err
@@ -64,6 +76,9 @@ func (s *anthropicPreludeState) emit(
 	}
 	if err := prelude.CommitPrelude(); err != nil {
 		return err
+	}
+	if prelude.waitForUpstream {
+		return nil
 	}
 	s.visibleBlocks++
 	s.lastMarker = marker

@@ -15,7 +15,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
@@ -31,13 +30,14 @@ import (
 // false and the caller can Discard() and retry or render the error itself.
 // Committed() is the retry gate (replaces firstByteGuard.written).
 type preludeBuffer struct {
-	inner          http.ResponseWriter
-	initialHeaders http.Header
-	bufStatus      int
-	bufBody        bytes.Buffer
-	sealed         bool
-	preludeSent    bool
-	committed      atomic.Bool
+	inner           http.ResponseWriter
+	initialHeaders  http.Header
+	bufStatus       int
+	bufBody         bytes.Buffer
+	sealed          bool
+	preludeSent     bool
+	waitForUpstream bool
+	committed       atomic.Bool
 }
 
 func newPreludeBuffer(w http.ResponseWriter) *preludeBuffer {
@@ -104,6 +104,9 @@ func (b *preludeBuffer) PreludeSent() bool { return b.preludeSent }
 // CommitPrelude makes the buffered prelude client-visible without marking the
 // attempt committed. A later provider error can still be retried or fail over.
 func (b *preludeBuffer) CommitPrelude() error {
+	if b.waitForUpstream {
+		return nil
+	}
 	if !b.preludeSent && b.bufStatus != 0 {
 		b.inner.WriteHeader(b.bufStatus)
 	}
@@ -134,6 +137,7 @@ func (b *preludeBuffer) Discard() {
 	b.bufStatus = 0
 	b.bufBody.Reset()
 	b.sealed = false
+	b.waitForUpstream = false
 	if b.preludeSent {
 		return
 	}
@@ -156,12 +160,12 @@ func (b *preludeBuffer) commit() error {
 		if b.bufStatus != 0 {
 			b.inner.WriteHeader(b.bufStatus)
 		}
-		if b.bufBody.Len() > 0 {
-			if _, err := b.inner.Write(b.bufBody.Bytes()); err != nil {
-				return err
-			}
-		}
 		b.preludeSent = true
+	}
+	if b.bufBody.Len() > 0 {
+		if _, err := b.inner.Write(b.bufBody.Bytes()); err != nil {
+			return err
+		}
 	}
 	b.bufStatus = 0
 	b.bufBody.Reset()
@@ -211,6 +215,7 @@ type failoverInputs struct {
 	alternatives                    []router.Decision
 	buildAlternative                func(router.Decision) (dispatchAttempt, error)
 	onAlternative                   func(router.Decision)
+	onModelFailure                  func(router.Decision, error)
 	onSubscriptionStateTarget       func(router.Decision, []catalog.ProviderBinding)
 	onSubscriptionStatePaidTarget   func(router.Decision, []catalog.ProviderBinding)
 	subscriptionStateWinnerProvider *string
@@ -229,11 +234,6 @@ var errDispatchWithoutPurpose = errors.New("dispatchWithFallback: no inference p
 func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (winnerIdx int, err error) {
 	if in.subscriptionStateRequest != nil && subscriptionStateModelsEnabled(ctx) && in.buildAlternative != nil {
 		return s.dispatchSubscriptionStateModels(ctx, in)
-	}
-	if subscriptionStateModelsEnabled(ctx) && !subscriptionAttemptOnly(ctx) {
-		if _, allowed := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[in.initialDecision.Model]; !allowed {
-			return -1, cluster.ErrAllowlistEmptiesPool
-		}
 	}
 	if len(in.alternatives) > 0 && in.buildAlternative != nil {
 		return s.dispatchSubscriptionAlternatives(ctx, in)
@@ -643,6 +643,9 @@ func (s *Service) dispatchSubscriptionAlternatives(ctx context.Context, in failo
 		}
 		if committed(in.buf) || ctx.Err() != nil {
 			return winner, attemptErr
+		}
+		if in.onModelFailure != nil {
+			in.onModelFailure(target, attemptErr)
 		}
 	}
 	if ctx.Err() != nil {

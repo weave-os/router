@@ -532,7 +532,7 @@ func TestMaybeDemoteArmAfterRescuedFailure_Classification(t *testing.T) {
 		{name: "unrescued response header timeout", rescueRan: false, flagOn: true, err: headerTimeoutErr, want: true, demotionReason: sessionpin.DemotionReasonResponseHeaderTimeout},
 		{name: "no rescue ran", rescueRan: false, flagOn: true, err: &providers.UpstreamErrorResponse{Status: http.StatusBadGateway}, want: false},
 		{name: "no primary error", rescueRan: true, flagOn: true, err: nil, want: false},
-		{name: "provider overloaded 529", rescueRan: true, flagOn: true, err: &providers.UpstreamErrorResponse{Status: providerOverloadedStatus}, want: false},
+		{name: "provider overloaded 529", rescueRan: true, flagOn: true, err: &providers.UpstreamErrorResponse{Status: providerOverloadedStatus}, want: true},
 		{name: "gateway lacks model", rescueRan: true, flagOn: true, err: &providers.UpstreamErrorResponse{Status: http.StatusNotFound}, want: false},
 		{name: "subscription pool exhausted", rescueRan: true, flagOn: true, err: ErrSubscriptionPoolExhausted, want: false},
 		{name: "client cancellation", rescueRan: true, flagOn: true, err: fmt.Errorf("copy body: %w", context.Canceled), want: false},

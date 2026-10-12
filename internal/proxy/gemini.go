@@ -49,7 +49,6 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 
 	if subscriptionStateModelsEnabled(ctx) {
 		// Native Gemini cannot use Claude or Codex OAuth capacity.
-		ctx = context.WithValue(ctx, subscriptionStateAllowedModelsKey{}, modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx)))
 		ctx = context.WithValue(ctx, subscriptionAPIOnlyKey{}, true)
 	}
 	ctx, rateLimit := s.withRateLimitTurn(ctx)
@@ -198,6 +197,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		s.recordPolicyPinRouteFailure(ctx, requestID, requestStart, feats.Model, routeRes.TurnType, inboundUserPrompt, err)
 		return err
 	}
+	routeRequest.ClassifierPrediction = routeRes.ClassifierPrediction
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
 	if len(routeRes.SessionDisabledProviders) > 0 {
 		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)

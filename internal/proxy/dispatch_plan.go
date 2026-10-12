@@ -212,6 +212,11 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				}
 			}
 			attemptErr := in.attempt(credentialCtx, decision, guarded)
+			subscriptionRateLimited := providers.IsUpstreamRateLimited(attemptErr) &&
+				(managedAttempt || servedOnSubscription(credentialCtx) || servedOnCodexSubscription(credentialCtx))
+			if attemptErr != nil && !subscriptionRateLimited && !committed(in.buf) && ctx.Err() == nil && in.onModelFailure != nil {
+				in.onModelFailure(decision, attemptErr)
+			}
 			// Health bookkeeping must persist even if the caller has gone.
 			bookkeepingCtx := context.WithoutCancel(credentialCtx)
 			if !committed(in.buf) {

@@ -174,6 +174,35 @@ func TestParseDynamicRoster(t *testing.T) {
 	assert.Equal(t, []string{"provider/manual"}, roster.Clusters["low"].ManualPinsByHarness["pi"])
 }
 
+func TestParseDynamicRosterAllowsUnscoredPooledManualPin(t *testing.T) {
+	const roster = `{
+  "schema_version": "hmm_router_cluster_roster_v7",
+  "ranking": {
+    "alpha": {"low": 0.4}, "alpha_min": {"low": 0.05}, "alpha_max": {"low": 0.8},
+    "quality_bias_neutral": 0.7,
+    "wii_score_version": "wii-v1", "wii_normalization_sha256": "wii-sha",
+    "wpi_score_version": "wpi-v1", "wpi_normalization_sha256": "wpi-sha"
+  },
+  "clusters": {
+    "low": {
+      "complexity_label": "low",
+      "arms": ["provider/manual", "provider/scored"],
+      "arms_by_harness": {"codex": ["provider/manual", "provider/scored"]},
+      "cost_ref_usd": 0.02,
+      "latency_ref_ms": 8000,
+      "arm_scores": {"provider/scored": 10},
+      "arm_indices": {"provider/scored": {"wii_v1": 50, "wpi_v1": 10}},
+      "manual_pins_by_harness": {"*": ["provider/manual"]}
+    }
+  }
+}`
+
+	parsed, err := rosterdata.Parse([]byte(roster))
+
+	require.NoError(t, err)
+	assert.NotContains(t, parsed.Clusters["low"].ArmScores, "provider/manual")
+}
+
 // A policy may key every per-harness surface on opencode; any harness outside
 // the shared vocabulary is still rejected so a roster typo cannot silently
 // serve the pooled order.

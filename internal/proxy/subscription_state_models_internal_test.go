@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"fmt"
 	"github.com/tidwall/gjson"
 	"io"
 	"net/http"
@@ -38,7 +39,14 @@ type stateModelRouter struct{}
 func (stateModelRouter) Route(_ context.Context, req router.Request) (router.Decision, error) {
 	resolver := policy.NewResolver(modelSet([]string{stateClaudeModel, stateCodexModel, statePaidModel}), nil, func(model catalog.Model) string { return model.ID }, policy.ProviderPolicy{})
 	eligible := modelSet(resolver.Resolve(req).CandidateModels())
-	for _, model := range []string{stateClaudeModel, stateCodexModel, statePaidModel} {
+	orderedModels := append([]string(nil), req.PreferredModels...)
+	orderedModels = append(orderedModels, stateClaudeModel, stateCodexModel, statePaidModel)
+	seen := make(map[string]struct{}, len(orderedModels))
+	for _, model := range orderedModels {
+		if _, duplicate := seen[model]; duplicate {
+			continue
+		}
+		seen[model] = struct{}{}
 		if _, admitted := eligible[model]; admitted {
 			entry, _ := catalog.ByID(model)
 			for _, binding := range entry.Providers {
@@ -82,8 +90,8 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 		{name: "both exhausted use cheap paid set", want: statePaidModel},
 		{name: "live Claude exhaustion rotates to Codex", claude: true, codex: true, liveReject: true, want: stateCodexModel},
 		{name: "live exhaustion uses cheap paid set", claude: true, liveReject: true, want: statePaidModel},
-		{name: "empty exhausted set refuses paid", emptyPaid: true, wantErr: true},
-		{name: "explicit force cannot buy an active-only model", forced: true, wantErr: true},
+		{name: "empty inactive preferences allow ordinary paid routing", emptyPaid: true, want: stateClaudeModel},
+		{name: "explicit force uses authorized API capacity", forced: true, want: stateClaudeModel},
 		{name: "explicit force still uses included capacity", forced: true, claude: true, want: stateClaudeModel},
 		{name: "readmitted force pin survives state request rebuild", forcedPin: true, forceWithRequestSubset: true, claude: true, want: stateClaudeModel},
 		{name: "force model overrides request subset", forced: true, forceWithRequestSubset: true, claude: true, want: stateClaudeModel},
@@ -106,6 +114,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 			codex := &fakeClient{name: providers.ProviderOpenAI, outcomes: []fakeOutcome{{writeBytes: []byte("included Codex answer")}}}
 			paid := &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("cheap paid answer")}}}
 			svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: claude, providers.ProviderOpenAI: codex, providers.ProviderOpenRouter: paid}, nil, false, nil, nil, false, "", "", nil).
+				WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter})).
 				WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: scenario.claude, subscriptions.ProviderCodex: scenario.codex}})
 			ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
 			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
@@ -186,10 +195,10 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 				require.Contains(t, rec.Body.String(), "answer")
 			}
 			for i, model := range servedModels {
-				if model == statePaidModel {
+				if model == statePaidModel || scenario.emptyPaid || scenario.forced && !scenario.claude {
 					require.False(t, subscriptionFunding[i])
 				} else {
-					require.True(t, subscriptionFunding[i], "expensive models must never reach paid credentials")
+					require.True(t, subscriptionFunding[i], "included targets must actually use subscription credentials")
 				}
 			}
 			if scenario.liveReject && !scenario.wantErr {
@@ -322,6 +331,79 @@ func TestSubscriptionStateModelsPaidFallbackSkipsUnavailableProvider(t *testing.
 	require.Equal(t, []string{statePaidModel}, servedModels)
 }
 
+func TestSubscriptionStateModelsPaidRetryPreservesPreferences(t *testing.T) {
+	claude := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{writeBytes: []byte("lower ranked paid answer")}}}
+	codex := &fakeClient{name: providers.ProviderOpenAI, outcomes: []fakeOutcome{{writeBytes: []byte("lower ranked Codex answer")}}}
+	paid := &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("preferred paid answer")}}}
+	svc := NewService(stateModelRouter{}, map[string]providers.Client{
+		providers.ProviderAnthropic:  claude,
+		providers.ProviderOpenAI:     codex,
+		providers.ProviderOpenRouter: paid,
+	}, nil, false, nil, nil, false, "", "", nil).
+		WithAvailableModels(modelSet([]string{stateClaudeModel, stateCodexModel, statePaidModel})).
+		WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderOpenAI, providers.ProviderOpenRouter}))
+	ctx := context.WithValue(context.Background(), InstallationExcludedProvidersContextKey{}, []string{providers.ProviderAnthropic})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{stateClaudeModel, statePaidModel})
+	req := router.Request{EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter})}
+	recorder := httptest.NewRecorder()
+	buffer := newPreludeBuffer(recorder)
+	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
+		w: recorder, buf: buffer, subscriptionStateRequest: &req,
+		initialDecision: router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
+		purpose:         inference.PurposeAnthropicMessages,
+		buildAlternative: func(router.Decision) (dispatchAttempt, error) {
+			return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+				buffer.Seal()
+				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, nil)
+			}, nil
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "preferred paid answer", recorder.Body.String(), "unavailable Claude capacity must retain the next preferred paid model")
+	require.Zero(t, claude.calls)
+	require.Zero(t, codex.calls)
+}
+
+func TestExhaustedSubscriptionCanServeOnlyAllowedModelOnPaidAPI(t *testing.T) {
+	for _, quotaRejected := range []bool{false, true} {
+		t.Run(fmt.Sprintf("quota-rejected=%t", quotaRejected), func(t *testing.T) {
+			outcomes := []fakeOutcome{{writeBytes: []byte("authorized paid answer")}}
+			if quotaRejected {
+				outcomes = append([]fakeOutcome{{err: &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"rate_limit_error"}}`)}}}, outcomes...)
+			}
+			claude := &fakeClient{name: providers.ProviderAnthropic, outcomes: outcomes}
+			svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: claude}, nil, false, nil, nil, false, "", "", nil).
+				WithAvailableModels(modelSet([]string{stateClaudeModel})).
+				WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic})).
+				WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: quotaRejected}})
+			ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+			ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{stateClaudeModel})
+			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel})
+			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+			request := router.Request{AllowedModels: allowedModelsForRequest(ctx), EnabledProviders: modelSet([]string{providers.ProviderAnthropic})}
+			recorder := httptest.NewRecorder()
+			buffer := newPreludeBuffer(recorder)
+			var failures modelAttemptFailures
+			_, err := svc.dispatchWithFallback(ctx, failoverInputs{
+				w: recorder, buf: buffer, subscriptionStateRequest: &request,
+				initialDecision: router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
+				purpose:         inference.PurposeAnthropicMessages,
+				buildAlternative: func(router.Decision) (dispatchAttempt, error) {
+					return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+						buffer.Seal()
+						return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buffer, nil)
+					}, nil
+				},
+				onModelFailure: func(decision router.Decision, err error) { failures.record(decision, err) },
+			})
+			require.NoError(t, err)
+			require.Equal(t, "authorized paid answer", recorder.Body.String())
+			require.Empty(t, failures, "exhausted account capacity must not strike a model that paid API capacity can serve")
+		})
+	}
+}
+
 func TestSubscriptionStateFailedTargetReachesRecoveryCallback(t *testing.T) {
 	paidClient := &fakeClient{name: providers.ProviderOpenRouter}
 	svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderOpenRouter: paidClient}, nil, false, nil, nil, false, "", "", nil)
@@ -362,10 +444,6 @@ func TestSubscriptionStateModelsProtectPaidSummaries(t *testing.T) {
 	fake := &fakeHandoverProvider{respBody: canonicalAnthropicResponse, respStatus: http.StatusOK}
 	summarizer := newTestSummarizer(t, fake, "", time.Second)
 	ctx := conditionalModelsContext([]string{policy.HandoverSummaryDefaultModel}, []string{statePaidModel})
-	_, _, err = summarizer.Summarize(ctx, env, router.Request{})
-	require.Error(t, err)
-	require.Zero(t, fake.calls)
-	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{policy.HandoverSummaryDefaultModel})
 	text, _, err := summarizer.Summarize(ctx, env, router.Request{})
 	require.NoError(t, err)
 	require.Equal(t, "Refactor in progress: step 1 done, step 2 pending.", text)
@@ -381,18 +459,18 @@ func TestSubscriptionStateModelsEmptySelectedStateFailsClosed(t *testing.T) {
 	require.False(t, modelPermittedByAllowlist(ctx, stateClaudeModel))
 }
 
-func TestSubscriptionStatePaidRescueRequiresExhaustedSetTarget(t *testing.T) {
+func TestSubscriptionPreferencesDoNotRestrictFundedModels(t *testing.T) {
 	ctx := conditionalModelsContext([]string{stateClaudeModel, stateCodexModel}, []string{statePaidModel})
-	require.True(t, paidFallbackForbidden(ctx))
+	require.False(t, paidFallbackForbidden(ctx))
 	require.False(t, paidFallbackForbiddenForModel(ctx, statePaidModel))
-	require.True(t, paidFallbackForbiddenForModel(ctx, stateClaudeModel))
-	require.Equal(t, []router.Decision{{Model: statePaidModel}}, subscriptionStatePaidRescueDecisions(ctx, []router.Decision{
+	require.False(t, paidFallbackForbiddenForModel(ctx, stateClaudeModel))
+	require.Equal(t, []router.Decision{{Model: stateClaudeModel}, {Model: statePaidModel}, {Model: stateCodexModel}}, subscriptionStatePaidRescueDecisions(ctx, []router.Decision{
 		{Model: stateClaudeModel}, {Model: statePaidModel}, {Model: stateCodexModel},
 	}))
 
 	allowedRescueCtx := subscriptionStatePaidRescueContext(ctx, statePaidModel)
 	require.False(t, paidFallbackForbidden(allowedRescueCtx))
-	require.True(t, paidFallbackForbidden(subscriptionStatePaidRescueContext(ctx, stateClaudeModel)))
+	require.False(t, paidFallbackForbidden(subscriptionStatePaidRescueContext(ctx, stateClaudeModel)))
 }
 
 func TestSubscriptionStateModelsKeepSafetyExclusions(t *testing.T) {

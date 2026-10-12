@@ -12,11 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 
-	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/hmm/armid"
 	"weave-os/router/internal/router/hmm/rosterdata"
@@ -164,16 +162,18 @@ func TestClassifierDispatchAcrossProtocols(t *testing.T) {
 	}
 }
 
-func TestClassifierDispatchUsesConfiguredSubscriptionState(t *testing.T) {
-	const model = "claude-sonnet-4-6"
+func TestClassifierDispatchAllowsOrgModelOutsideSubscriptionPreferences(t *testing.T) {
+	model := catalog.ModelIDClaudeSonnet46.String()
 	fixtureService, principal, store := classifierSessionFixture(t, classifierMedium)
 	upstream := &classifierResponseProvider{}
-	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, false, nil, nil, false, "", "", nil)
+	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, false, nil, nil, false, "", "", nil).
+		WithAvailableModels(modelSet([]string{model})).
+		WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic}))
 	require.NoError(t, svc.WithClassifierSessions(fixtureService.classifierSessions.config, store, fixtureService.classifierSessions.classifier))
 	ctx := classifierAdmit(t, svc, principal)
-	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{model})
-	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{})
-	ctx = context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
+	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{model})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{catalog.ModelGPT6Luna})
+	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{catalog.ModelGPT6Luna})
 	modelRecord, found := catalog.ByID(model)
 	require.True(t, found)
 	arm := armid.ForModel(modelRecord)
@@ -187,9 +187,10 @@ func TestClassifierDispatchUsesConfiguredSubscriptionState(t *testing.T) {
 	routing := policy.NewSidecarRouter(policy.SidecarRouterConfig{Strategy: router.StrategyLLMClassifier, Unavailable: router.ErrClassifierUnavailable, ClassifierArtifactID: "llm-classifier-v1.0.0", ClassifierArtifactSHA256: strings.Repeat("a", 64), SelectionPolicyReleaseID: "llm-classifier-v1.0.0", SelectionPolicySHA256: roster.SHA256}, policy.AtomicClassifierFacts{Release: "llm-classifier-v1.0.0", ReleaseSHA256: strings.Repeat("a", 64)}, resolver).WithCapabilities(capabilities).WithArmSelector(selection.Selector(roster))
 	svc.WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyLLMClassifier, Router: routing, Capabilities: capabilities, Unavailable: router.ErrClassifierUnavailable})
 	recorder := httptest.NewRecorder()
-	err := svc.ProxyMessages(ctx, []byte(`{"model":"claude-sonnet-4-6","max_tokens":1024,"messages":[{"role":"user","content":"first"}]}`), recorder, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
-	require.ErrorIs(t, err, cluster.ErrAllowlistEmptiesPool, "a classifier-selected model outside both configured state sets must be refused")
-	require.Empty(t, upstream.body)
+	err := svc.ProxyMessages(ctx, []byte(fmt.Sprintf(`{"model":%q,"max_tokens":1024,"messages":[{"role":"user","content":"first"}]}`, model)), recorder, httptest.NewRequest(http.MethodPost, routePathMessages, nil))
+	require.NoError(t, err, "subscription preferences must not exclude an org-allowed classifier selection")
+	require.Equal(t, model, gjson.GetBytes(upstream.body, "model").String())
+	require.Contains(t, recorder.Body.String(), "answer")
 }
 
 func TestClassifierRecapServesWithoutAnchoringPin(t *testing.T) {

@@ -69,8 +69,8 @@ func (s *Service) maybeDemoteArmAfterCommittedStreamFailure(
 }
 
 // maybeDemoteArmAfterRescuedFailure withdraws the primary arm from the
-// session's automatic selection after its attempt failed pre-commit and the
-// sibling rescue ran, whether or not the rescuer then served. The rescue
+// session's automatic selection after its attempt failed pre-commit and a
+// different-model rescue ran, whether or not the rescuer then served. The rescue
 // already proved the primary unusable for this turn; without the strike the
 // next turn re-decides from scratch and returns to the same arm.
 //
@@ -345,7 +345,6 @@ func armStrikeLogFieldsWithPrimaryReason(primaryDemoted string, primaryReason se
 //
 //   - a 404 is the gateway lacking the model, remembered per endpoint by
 //     rememberGatewayLacksModel, so striking the arm would double-count it;
-//   - a 529 is provider capacity, owned by maybeDisableProviderAfterOverload;
 //   - a managed-subscription pool error has no upstream at all and is owned by
 //     maybeExpireSubscriptionArmPin;
 //   - a bare context cancellation is the client going away, not the arm.
@@ -370,7 +369,7 @@ func isRescuedPrimaryFailure(err error) bool {
 	if providers.IsUpstreamModelNotFound(err) || isSubscriptionPoolError(err) {
 		return false
 	}
-	return upstreamStatus(err) != providerOverloadedStatus
+	return true
 }
 
 // isCommittedStreamFailure reports whether err is an upstream-owned end of a

@@ -282,8 +282,12 @@ func validateSchema(r *Roster) error {
 		if cluster.LatencyRefMS <= 0 {
 			return fmt.Errorf("cluster %q has non-positive latency_ref_ms", label)
 		}
+		pooledPins := armSet(cluster.ManualPinsByHarness[HarnessAll])
 		for _, arm := range cluster.Arms {
 			if _, ok := cluster.ArmScores[arm]; !ok {
+				if _, pinned := pooledPins[arm]; pinned {
+					continue
+				}
 				return fmt.Errorf("cluster %q arm %q has no arm_scores entry", label, arm)
 			}
 		}

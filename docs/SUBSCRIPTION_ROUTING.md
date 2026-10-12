@@ -19,22 +19,19 @@ canceled by it and finishes under the provider timeouts and the caller deadline.
 Automatic alternatives reuse the existing policy's request-compatible ordering
 and preserve the selected quality tier, tool/context exclusions and provider
 allowlist. Explicit models stay fixed. Boost follows stable source ordering; Max
-retains its existing subscription exclusion. After eligible included capacity is
-exhausted, authorized API capacity serves the originally selected model unless
-subscription-aware model sets are configured. With those sets enabled, the
-active set limits included Claude/Codex targets and the exhausted set limits
-paid fallback. Exhausting Claude does not make its active-only models eligible
-for paid use while Codex remains available. Every selected included target must
-actually use a subscription; after eligible active targets are unavailable,
-the router selects a request-compatible model from the exhausted set. The
-installation allowlist and request safety constraints still apply to both sets.
-An empty enabled state refuses that funding lane. Disabling the sets retains
-ordinary routing; Max continues to ignore linked subscriptions and these sets.
-Paid switch and compaction handover summaries respect the exhausted set instead
-of silently buying an active-only model. If a switch summary is rejected, the
-original history is preserved; if a compaction summary is rejected, the already
-compacted body remains unchanged. Committed streams are never replayed, and
-terminal upstream failures are accounted as errors.
+retains its existing subscription exclusion. Subscription-aware model lists are
+ordered soft preferences only: the active list ranks organization-allowed models
+that can use included subscription capacity, and the exhausted list ranks
+candidates for authorized API spend. Neither list narrows model eligibility.
+The organization allowlist, request restrictions, provider availability, product
+boundary and safety checks remain the eligibility gates. An empty preference list
+means no extra ranking. A caller with depleted credits still cannot fall through
+to paid API capacity, and an included target is attempted only on a native
+subscription-capable provider. Paid switch summaries and compaction handovers
+follow the same organization policy and funding constraints. If a switch summary
+is rejected, the original history is preserved; if a compaction summary is
+rejected, the already compacted body remains unchanged. Committed streams are
+never replayed, and terminal upstream failures are accounted as errors.
 
 Native OpenAI Codex and Anthropic adapters accept subscription OAuth credentials.
 Anthropic-compatible bearer gateways do not advertise native Claude subscription

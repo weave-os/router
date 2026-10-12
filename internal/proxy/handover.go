@@ -190,16 +190,13 @@ func (s *ProviderSummarizer) resolve(ctx context.Context, request policy.Resolut
 		return policy.ResolvedPlan{}, errors.New("handover: summarizer has no plan resolver or executor")
 	}
 	if subscriptionStateModelsEnabled(ctx) {
-		// Summaries use deployment credentials, so active-only models cannot
-		// authorize their paid inference as a side effect of switching models.
-		paidCtx := context.WithValue(ctx, subscriptionStateAllowedModelsKey{}, modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx)))
-		allowed := allowedModelsForRequest(paidCtx)
+		allowed := allowedModelsForRequest(ctx)
 		request.RouterRequest.ExcludedModels = cloneStringSet(request.RouterRequest.ExcludedModels)
 		if request.RouterRequest.ExcludedModels == nil {
 			request.RouterRequest.ExcludedModels = make(map[string]struct{})
 		}
 		for _, model := range catalog.Models {
-			if _, permitted := allowed[model.ID]; !permitted {
+			if _, permitted := allowed[model.ID]; allowed != nil && !permitted {
 				request.RouterRequest.ExcludedModels[model.ID] = struct{}{}
 			}
 		}

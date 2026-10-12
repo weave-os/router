@@ -793,7 +793,7 @@ func main() {
 	// Session-level demotion of the primary arm after a response-header timeout
 	// or another pre-commit failure followed by sibling rescue. Off until baked
 	// off against the committed-stream demotion.
-	rescuedFailureArmDemotion := config.GetOr("ROUTER_RESCUED_FAILURE_ARM_DEMOTION", "false") == "true"
+	rescuedFailureArmDemotion := config.GetOr("ROUTER_RESCUED_FAILURE_ARM_DEMOTION", "true") == "true"
 	// Upstream 429s as transient throttling: cooldown demotion, fail-open
 	// rescue and Retry-After-aware same-binding retry. Off until baked off.
 	transientRateLimit := config.GetOr("ROUTER_TRANSIENT_RATE_LIMIT", "false") == "true"

@@ -288,9 +288,8 @@ type Service struct {
 	// ROUTER_COMMITTED_STREAM_ARM_DEMOTION; see
 	// ResolveCommittedStreamArmDemotion.
 	committedStreamArmDemotion bool
-	// rescuedFailureArmDemotion is the deployment default for
-	// ROUTER_RESCUED_FAILURE_ARM_DEMOTION; see
-	// ResolveRescuedFailureArmDemotion.
+	// rescuedFailureArmDemotion controls whether a model that failed pre-commit
+	// is withdrawn after a different model rescues the turn.
 	rescuedFailureArmDemotion bool
 	// transientRateLimit and rateLimitCooldownSeconds are the deployment
 	// defaults for ROUTER_TRANSIENT_RATE_LIMIT and
@@ -863,6 +862,53 @@ func siblingRoutingMarkerFor(res turnLoopResult, siblingModel string) string {
 	return "✦ **Weave Router** → " + siblingModel + " · " + markerReasonSibling + "\n\n"
 }
 
+const upstreamUnavailableMarkerPrefix = "Upstream provider "
+
+type modelAttemptFailure struct {
+	decision router.Decision
+	err      error
+}
+
+type modelAttemptFailures []modelAttemptFailure
+
+func (failures *modelAttemptFailures) record(decision router.Decision, err error) {
+	if !providers.IsRetryable(err) || !isRescuedPrimaryFailure(err) {
+		return
+	}
+	for index, failure := range *failures {
+		if failure.decision.Model == decision.Model {
+			(*failures)[index] = modelAttemptFailure{decision: decision, err: err}
+			return
+		}
+	}
+	*failures = append(*failures, modelAttemptFailure{decision: decision, err: err})
+}
+
+func upstreamRecoveryNotice(failures modelAttemptFailures, servedModel string) string {
+	for index := len(failures) - 1; index >= 0; index-- {
+		if failures[index].decision.Model != servedModel {
+			return "Upstream provider " + failures[index].decision.Provider + " is unavailable; rerouting this request to " + servedModel
+		}
+	}
+	return ""
+}
+
+func upstreamUnavailableRoutingMarkerFor(res turnLoopResult, provider, model string) string {
+	if res.SuggestionMode || isUnpinnedScoredTurn(res.TurnType) || res.TurnType == turntype.Probe || model == "" {
+		return ""
+	}
+	return routingMarkerPrefix + model + " · " + upstreamUnavailableMarkerPrefix + provider + " is unavailable; rerouting this request to " + model + "\n\n"
+}
+
+func modelFailureRoutingMarkerFor(res turnLoopResult, model string, failures []modelAttemptFailure) string {
+	for index := len(failures) - 1; index >= 0; index-- {
+		if providers.IsRetryable(failures[index].err) && failures[index].decision.Model != model {
+			return upstreamUnavailableRoutingMarkerFor(res, failures[index].decision.Provider, model)
+		}
+	}
+	return siblingRoutingMarkerFor(res, model)
+}
+
 // cyberRefusalRoutingMarkerFor renders the routing badge for a turn re-served
 // after the picked model refused it.
 func cyberRefusalRoutingMarkerFor(res turnLoopResult, fallbackModel string) string {
@@ -969,8 +1015,8 @@ func allowedModelsForRequest(ctx context.Context) map[string]struct{} {
 	return out
 }
 
-// installationAllowedModelSet intersects subscription-state limits with the
-// installation's model policy. Neither state can widen the global allowlist.
+// installationAllowedModelSet applies organization policy and any request-scoped
+// dispatch restriction. Subscription preferences never remove eligible models.
 func installationAllowedModelSet(ctx context.Context) map[string]struct{} {
 	var allowed map[string]struct{}
 	if !planOwnedServingRequest(ctx) || subscriptionStateModelsEnabled(ctx) {
@@ -983,7 +1029,7 @@ func installationAllowedModelSet(ctx context.Context) map[string]struct{} {
 	}
 	stateModels, hasSelectedStateModels := ctx.Value(subscriptionStateAllowedModelsKey{}).(map[string]struct{})
 	if !hasSelectedStateModels {
-		stateModels = modelSet(append(append([]string{}, installationSubscriptionModelsWhenActiveFromContext(ctx)...), installationSubscriptionModelsWhenInactiveFromContext(ctx)...))
+		return allowed
 	}
 	if allowed == nil {
 		if stateModels == nil {
@@ -1770,6 +1816,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 		cyberRefusalRetry:              true,
 		anthropicServerSideFallback:    true,
 		siblingFailover:                true,
+		rescuedFailureArmDemotion:      true,
 		openAIResponsesBroad:           true,
 		nativeAnthropicResponseSignals: true,
 		nativeOpenAIResponseSignals:    true,
@@ -3938,6 +3985,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		s.recordPolicyPinRouteFailure(ctx, requestID, requestStart, feats.Model, routeRes.TurnType, inboundUserPrompt, routeErr)
 		return routeErr
 	}
+	req.ClassifierPrediction = routeRes.ClassifierPrediction
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
 	if preparingHandoff(ctx) {
 		return s.finishHandoffPreparation(ctx, w, env, req, routeRes)
@@ -4740,6 +4788,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// decision.Model names the rescuer rather than what failed.
 	primaryModel := decision.Model
 	primaryDecision := decision
+	var modelFailures modelAttemptFailures
 	var winnerIdx int
 	var subscriptionStateWinnerProvider string
 	subscriptionPoolFailure := false
@@ -4783,18 +4832,24 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				alternativeOpts.ModelSwitched = true
 				alternativeEffort := s.resolveEffort(ctx, target, alternativeOpts.Capabilities, routeRes.EscalateEffort)
 				alternativeEffort.apply(&alternativeOpts)
-				alternativeMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, target.Model), target.Model, markerReasonSibling))
+				alternativeMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, modelFailureRoutingMarkerFor(routeRes, target.Model, modelFailures), target.Model, markerReasonSibling))
 				return buildAttempt(target, alternativeOpts, alternativeMarker)
 			},
 			onAlternative: func(target router.Decision) {
 				decision = target
 				bindings = s.resolveBindingsForDispatch(ctx, target)
-				marker = suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, target.Model), target.Model, markerReasonSibling))
+				marker = suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, modelFailureRoutingMarkerFor(routeRes, target.Model, modelFailures), target.Model, markerReasonSibling))
+			},
+			onModelFailure: func(failed router.Decision, failure error) {
+				if !isSubscriptionPoolError(failure) {
+					log.Warn("Model attempt failed before output", "model", failed.Model, "provider", failed.Provider, "upstream_status", upstreamStatus(failure), "err", failure)
+				}
+				modelFailures.record(failed, failure)
 			},
 			onSubscriptionStateTarget: func(target router.Decision, targetBindings []catalog.ProviderBinding) {
 				decision = target
 				bindings = targetBindings
-				marker = suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, target.Model), target.Model, markerReasonSibling))
+				marker = suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, modelFailureRoutingMarkerFor(routeRes, target.Model, modelFailures), target.Model, markerReasonSibling))
 			},
 			onSubscriptionStatePaidTarget: func(target router.Decision, _ []catalog.ProviderBinding) {
 				subscriptionStatePaidTargetAttempted = true
@@ -5066,7 +5121,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			siblingCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(ctx, siblingDecision.Model), siblingDecision.Provider, siblingDecision.Model, r.Header)
 			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
-			siblingMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, siblingDecision.Model), siblingDecision.Model, markerReasonSibling))
+			siblingMarkerText := siblingRoutingMarkerFor(routeRes, siblingDecision.Model)
+			if providers.IsRetryable(proxyErr) {
+				siblingMarkerText = upstreamUnavailableRoutingMarkerFor(routeRes, decision.Provider, siblingDecision.Model)
+			}
+			siblingMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingMarkerText, siblingDecision.Model, markerReasonSibling))
 			siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker)
 			if siblingBuildErr != nil {
 				log.Error("Sibling failover: preparing the candidate request failed; trying the next candidate",
@@ -5135,9 +5194,14 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		finalProvider = providers.ProviderAnthropic
 	}
 	decision.Provider = finalProvider
+	if proxyErr == nil {
+		if notice := upstreamRecoveryNotice(modelFailures, decision.Model); notice != "" {
+			w.Header().Set(HeaderRouterNotice, notice)
+		}
+	}
 	// Same-provider subscription->Weave retries keep finalProvider ==
 	// primaryProvider, so OR in subscriptionFailoverUsed.
-	failoverUsed := finalProvider != primaryProvider || subscriptionFailoverUsed || siblingFailoverUsed
+	failoverUsed := finalProvider != primaryProvider || decision.Model != primaryModel || subscriptionFailoverUsed || siblingFailoverUsed
 	failoverAttempted := failoverUsed || baselineAttempted || subscriptionFailoverAttempted || siblingRescueRan
 
 	// Re-resolve credentials for the binding that actually served — each
@@ -5490,6 +5554,15 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			if armDemoted == "" && unrescuedStallDemoted != "" {
 				armDemoted = unrescuedStallDemoted
 				armDemotionReasonValue = sessionpin.DemotionReasonUnrescuedStall
+			}
+		}
+		for _, failure := range modelFailures {
+			if !failoverAttempted || failure.decision.Model == decision.Model || failure.decision.Model == rescuedArmDemoted || failure.decision.Model == armDemoted {
+				continue
+			}
+			demoted, reason := s.maybeStrikeArmAfterRescuedFailure(ctx, true, routeRes.HardPinned, failure.err, failure.decision, installationID, routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
+			if demoted != "" {
+				rescuedArmDemoted, rescuedArmDemotionReason = demoted, reason
 			}
 		}
 
@@ -7080,6 +7153,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		s.recordPolicyPinRouteFailure(ctx, requestID, requestStart, feats.Model, routeRes.TurnType, inboundUserPromptOAI, err)
 		return err
 	}
+	routeRequest.ClassifierPrediction = routeRes.ClassifierPrediction
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
 	if len(routeRes.SessionDisabledProviders) > 0 {
 		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
@@ -7452,7 +7526,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		if rw, ok := w.(*translate.ResponsesWriter); ok {
 			rw.SetRoutedModel(target.Model)
 			if targetMarker != "" && targetMarker != responsesMarker {
-				if err := rw.EmitRoutingBadge(targetMarker); err != nil {
+				if strings.Contains(targetMarker, upstreamUnavailableMarkerPrefix) {
+					rw.QueueRoutingBadge(targetMarker)
+				} else if err := rw.EmitRoutingBadge(targetMarker); err != nil {
 					return nil, fmt.Errorf("emit Responses routing badge: %w", err)
 				}
 				responsesMarker = targetMarker
@@ -7871,6 +7947,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	primaryProvider := decision.Provider
 	primaryModel := decision.Model
 	primaryDecision := decision
+	var modelFailures modelAttemptFailures
 	surfacePurpose := inference.PurposeOpenAIChatCompletions
 	if isResponsesWriter {
 		surfacePurpose = inference.PurposeOpenAIResponses
@@ -7919,18 +7996,24 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			alternativeOpts.ModelSwitched = true
 			alternativeEffort := s.resolveEffort(ctx, target, alternativeOpts.Capabilities, routeRes.EscalateEffort)
 			alternativeEffort.apply(&alternativeOpts)
-			alternativeMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, target.Model), target.Model, markerReasonSibling))
+			alternativeMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, modelFailureRoutingMarkerFor(routeRes, target.Model, modelFailures), target.Model, markerReasonSibling))
 			return buildAttempt(target, alternativeOpts, alternativeMarker)
 		},
 		onAlternative: func(target router.Decision) {
 			decision = target
 			bindings = s.resolveBindingsForDispatch(ctx, target)
-			marker = suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, target.Model), target.Model, markerReasonSibling))
+			marker = suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, modelFailureRoutingMarkerFor(routeRes, target.Model, modelFailures), target.Model, markerReasonSibling))
+		},
+		onModelFailure: func(failed router.Decision, failure error) {
+			if !isSubscriptionPoolError(failure) {
+				log.Warn("Model attempt failed before output", "model", failed.Model, "provider", failed.Provider, "upstream_status", upstreamStatus(failure), "err", failure)
+			}
+			modelFailures.record(failed, failure)
 		},
 		onSubscriptionStateTarget: func(target router.Decision, targetBindings []catalog.ProviderBinding) {
 			decision = target
 			bindings = targetBindings
-			marker = suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, target.Model), target.Model, markerReasonSibling))
+			marker = suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, modelFailureRoutingMarkerFor(routeRes, target.Model, modelFailures), target.Model, markerReasonSibling))
 		},
 		onSubscriptionStatePaidTarget: func(router.Decision, []catalog.ProviderBinding) {
 			subscriptionStatePaidTargetAttempted = true
@@ -8179,7 +8262,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			siblingCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(ctx, siblingDecision.Model), siblingDecision.Provider, siblingDecision.Model, r.Header)
 			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
-			siblingMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, siblingDecision.Model), siblingDecision.Model, markerReasonSibling))
+			siblingMarkerText := siblingRoutingMarkerFor(routeRes, siblingDecision.Model)
+			if providers.IsRetryable(proxyErr) {
+				siblingMarkerText = upstreamUnavailableRoutingMarkerFor(routeRes, decision.Provider, siblingDecision.Model)
+			}
+			siblingMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingMarkerText, siblingDecision.Model, markerReasonSibling))
 			siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker)
 			if siblingBuildErr != nil {
 				log.Error("Sibling failover: preparing the candidate request failed; trying the next candidate",
@@ -8248,7 +8335,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		finalProvider = bindings[winnerIdx].Provider
 	}
 	decision.Provider = finalProvider
-	failoverUsed := finalProvider != primaryProvider || codexFailoverUsed || claudeFailoverUsed || siblingFailoverUsed
+	if proxyErr == nil {
+		if notice := upstreamRecoveryNotice(modelFailures, decision.Model); notice != "" {
+			w.Header().Set(HeaderRouterNotice, notice)
+		}
+	}
+	failoverUsed := finalProvider != primaryProvider || decision.Model != primaryModel || codexFailoverUsed || claudeFailoverUsed || siblingFailoverUsed
 	failoverAttempted := failoverUsed || codexRetryRan || claudeRetryRan || siblingRescueRan
 
 	// Re-resolve credentials for the binding that actually served — each
@@ -8429,6 +8521,14 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			}
 		}
 		s.maybeExpireSubscriptionArmPin(ctx, primarySubscriptionArmFailure, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes))
+		for _, failure := range modelFailures {
+			if !failoverAttempted || failure.decision.Model == decision.Model || failure.decision.Model == rescuedArmDemotedOAI || failure.decision.Model == armDemotedOAI {
+				continue
+			}
+			if demoted, reason := s.maybeStrikeArmAfterRescuedFailure(ctx, true, routeRes.HardPinned, failure.err, failure.decision, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole); demoted != "" {
+				rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI = demoted, reason
+			}
+		}
 		// See ProxyMessages for the two-strike provider-disable rationale.
 		s.maybeDisableProviderAfterOverload(ctx, stickyHit, proxyErr, finalProvider, decision.Reason, installationIDFromContext(ctx), routeRes.SessionKey, stickyStateRole(routeRes), routeRes.PinRole)
 	}

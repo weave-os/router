@@ -149,7 +149,7 @@ func rescuedFailureTurnCases(t *testing.T) []rescuedFailureTurnCase {
 		{name: "flag off", flagOn: false, withSibling: true, primaryErr: upstream502, reason: authoritative},
 		{name: "no sibling to rescue with", flagOn: true, withSibling: false, primaryErr: upstream502, reason: authoritative, wantTurnErr: true},
 		{name: "unrescued response header timeout", flagOn: true, withSibling: false, primaryErr: headerTimeout, reason: authoritative, wantTurnErr: true, wantDemoted: true, wantDemotionReason: sessionpin.DemotionReasonResponseHeaderTimeout},
-		{name: "primary overloaded 529", flagOn: true, withSibling: true, primaryErr: overloaded, reason: authoritative},
+		{name: "primary overloaded 529", flagOn: true, withSibling: true, primaryErr: overloaded, reason: authoritative, wantDemoted: true},
 		{name: "gateway lacks primary", flagOn: true, withSibling: true, primaryErr: notFound, reason: authoritative},
 		{name: "user forced primary", flagOn: true, withSibling: true, primaryErr: upstream502, reason: translate.ReasonUserForceModel, wantTurnErr: true},
 	}

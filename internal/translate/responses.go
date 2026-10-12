@@ -676,6 +676,7 @@ type ResponsesWriter struct {
 	completedEmitted            bool
 	badgePrepended              bool
 	badgeText                   string
+	pendingRoutingBadge         string
 	terminalBadgeProvenance     bool
 	nativeBadgeTargetSelected   bool
 	nativeBadgeDeltaPrepended   bool
@@ -798,6 +799,29 @@ func (t *ResponsesWriter) SetBadgeText(text string) {
 		return
 	}
 	t.badgeText = text + "\n\n"
+}
+
+// QueueRoutingBadge holds a corrected badge until this attempt produces output.
+// A failed attempt can replace the pending badge without exposing it to the client.
+func (t *ResponsesWriter) QueueRoutingBadge(text string) {
+	if !t.streaming {
+		t.SetBadgeText(text)
+		return
+	}
+	t.pendingRoutingBadge = text
+}
+
+func (t *ResponsesWriter) emitPendingRoutingBadge() error {
+	if t.pendingRoutingBadge == "" {
+		return nil
+	}
+	badge := t.pendingRoutingBadge
+	t.pendingRoutingBadge = ""
+	if !t.passthrough && !t.badgePrepended {
+		t.SetBadgeText(badge)
+		return nil
+	}
+	return t.EmitRoutingBadge(badge)
 }
 
 // SetRoutedModel updates the model reported by terminal response envelopes.
@@ -1727,6 +1751,11 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 		return nil
 	}
 	toolCall := eventType == responsesFunctionCallArgumentsDelta || eventType == responsesCustomToolCallInputDelta || (eventType == responsesOutputItemAdded && (itemType == responsesFunctionCallItem || itemType == responsesCustomToolCallItem)) || (eventType == responsesOutputItemDone && (itemType == responsesFunctionCallItem || itemType == responsesCustomToolCallItem))
+	if toolCall || eventType == responsesOutputTextDelta {
+		if err := t.emitPendingRoutingBadge(); err != nil {
+			return err
+		}
+	}
 	reasoningItem := eventType == responsesOutputItemAdded && itemType == responsesReasoningItem
 	if toolCall || reasoningItem {
 		if toolCall {
@@ -2158,6 +2187,9 @@ func (t *ResponsesWriter) openTextItem() error {
 // Codex drops reasoning-summary items from custom providers (text is the only guaranteed surface),
 // and tool-call-only turns produce no text of their own without this.
 func (t *ResponsesWriter) ensureBadgeItem() error {
+	if err := t.emitPendingRoutingBadge(); err != nil {
+		return err
+	}
 	if t.badgePrepended {
 		return nil
 	}

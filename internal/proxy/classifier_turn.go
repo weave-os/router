@@ -101,6 +101,7 @@ func (s *Service) runClassifierTurn(ctx context.Context, request router.Request,
 		return turn, err
 	}
 	request.ClassifierPrediction = &prediction
+	turn.ClassifierPrediction = request.ClassifierPrediction
 	// A recap is scored but, as on the scorer path, never anchors the session.
 	unpinned := isUnpinnedScoredTurn(turn.TurnType)
 	if !unpinned {

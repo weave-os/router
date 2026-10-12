@@ -161,9 +161,9 @@ func (s *Service) ResolveCommittedStreamArmDemotion(ctx context.Context) bool {
 }
 
 // ResolveRescuedFailureArmDemotion reports the
-// ROUTER_RESCUED_FAILURE_ARM_DEMOTION flag: on, the primary model of a turn
-// whose attempt failed pre-commit and was handed to a same-cluster sibling
-// leaves the session's automatic selection.
+// ROUTER_RESCUED_FAILURE_ARM_DEMOTION flag: on, a model whose upstream attempt
+// failed pre-commit and was handed to another model for rescue leaves the
+// session's automatic selection.
 func (s *Service) ResolveRescuedFailureArmDemotion(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyRescuedFailureArmDemotion, s.rescuedFailureArmDemotion)
 }
