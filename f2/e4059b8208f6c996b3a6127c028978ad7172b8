@@ -1,0 +1,19 @@
+install/npm/package.json
+  s_b606a0b04ceeb1::t_100290b3847e2e 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "f2e4059b8208f6c996b3a6127c028978ad7172b8",
+  "prompts": {},
+  "sessions": {
+    "s_b606a0b04ceeb1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2c1bb7a0-3852-4d27-8741-6a344a196cc3",
+        "model": "claude-opus-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

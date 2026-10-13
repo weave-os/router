@@ -1,0 +1,75 @@
+internal/proxy/service.go
+  s_6e53ad610c08fe::t_663b4e2bb435a7 130
+  s_6e53ad610c08fe::t_a3354bb435519e 687,706
+  s_6e53ad610c08fe::t_dee89bf54527c4 131,2286-2291
+  s_6e53ad610c08fe::t_8facca7f6326b8 2292
+internal/proxy/turnloop.go
+  s_6e53ad610c08fe::t_dee89bf54527c4 530,532-533,555,932-940
+  s_6e53ad610c08fe::t_572df5fcd35bff 518-520,552-553
+  s_e81a08893a9ba2::t_53f433fdfa2fcb 941-942
+internal/proxy/blind_experiment_internal_test.go
+  s_6e53ad610c08fe::t_a3354bb435519e 227,270
+internal/proxy/surface_purpose_test.go
+  s_6e53ad610c08fe::t_e1c2771fb54cec 113-115,132-146,148-150,152-171
+docs/POLICY_INFERENCE.md
+  s_6e53ad610c08fe::t_663b4e2bb435a7 6,30
+internal/router/policy/inference_registry.go
+  s_6e53ad610c08fe::t_dee89bf54527c4 615
+docs/POLICY_INFERENCE.json
+  s_6e53ad610c08fe::t_663b4e2bb435a7 3,556
+cmd/router/main.go
+  s_6e53ad610c08fe::t_dee89bf54527c4 1312
+internal/router/turntype/AGENTS.md
+  s_6e53ad610c08fe::t_663b4e2bb435a7 15-16
+internal/proxy/opencode_turns_test.go
+  s_6e53ad610c08fe::t_a3354bb435519e 152,155,168,173
+internal/proxy/utility_selection_internal_test.go
+  s_6e53ad610c08fe::t_c85d28725e68ac 1-11,13-21,28-34,37-44,46-70,80
+  s_6e53ad610c08fe::t_e12e8bb775a6f2 12,22-27,36,71-79
+  s_6e53ad610c08fe::t_663b4e2bb435a7 35,45
+internal/proxy/CLAUDE.md
+  s_6e53ad610c08fe::t_572df5fcd35bff 186-187,195-199
+  s_e81a08893a9ba2::t_be01b1fcb4921e 200
+internal/router/turntype/CLAUDE.md
+  s_6e53ad610c08fe::t_572df5fcd35bff 15-16
+internal/proxy/AGENTS.md
+  s_6e53ad610c08fe::t_663b4e2bb435a7 186-187,195-199
+  s_6e53ad610c08fe::t_7d59a4b3e64e74 200
+docs/INFERENCE_BOUNDARY.md
+  s_6e53ad610c08fe::t_572df5fcd35bff 22,24
+internal/proxy/gateway_unserved_model_test.go
+  s_6e53ad610c08fe::t_b4a89923b72111 101,145,177
+internal/proxy/service_observation_test.go
+  s_6e53ad610c08fe::t_a3354bb435519e 209
+internal/proxy/codex_title_gen_internal_test.go
+  s_6e53ad610c08fe::t_b4a89923b72111 40,67-68,71,98-99,102,129-130
+internal/proxy/service_session_pin_test.go
+  s_6e53ad610c08fe::t_b4a89923b72111 708,1768,1794
+docs/CONFIGURATION.md
+  s_6e53ad610c08fe::t_572df5fcd35bff 475
+  s_6e53ad610c08fe::t_663b4e2bb435a7 665
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "69b241503fa6bdd0c86f3fe9786b79c6c20065ba",
+  "prompts": {},
+  "sessions": {
+    "s_6e53ad610c08fe": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10f29-b454-71c3-949d-17a38738c8b2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_e81a08893a9ba2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9391cca-911c-46df-b82c-9f07d5d2219d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+internal/subscriptions/runtime.go
+  s_1329d82a6b5096::t_e8f253ea64f4cc 175,179,196,204,212
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "e2b46a82bba1410f42220c25692369c4161e7d99",
+  "prompts": {},
+  "sessions": {
+    "s_1329d82a6b5096": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06411-d06e-7bf2-a146-148e786307ea",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

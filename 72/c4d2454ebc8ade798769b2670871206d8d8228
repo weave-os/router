@@ -1,0 +1,62 @@
+internal/server/server.go
+  s_e8da6067fe904f::t_32078ebff867f0 160,185-186,191-192,202,207-218
+  s_e8da6067fe904f::t_1d1fe8b964821a 219-220
+docs/SERVING_CONTROL.md
+  s_e8da6067fe904f::t_b39e47e87ae360 322-357
+internal/gateway/products.go
+  s_e8da6067fe904f::t_6d614efc89fc3b 37
+internal/gateway/discovery.go
+  s_e8da6067fe904f::t_c0a45056332e40 69,92-93,105
+  s_e8da6067fe904f::t_6d614efc89fc3b 1-10,12-59,61-68,70-85,87-91,94-96,98-100,102-103,110-124
+  s_e8da6067fe904f::t_e2495de94d239f 11,60,86
+  s_e8da6067fe904f::t_90772ebaf7a88c 101,104,106-109
+  s_e8da6067fe904f::t_2e0f60ebcf0f8c 97
+internal/gateway/products_test.go
+  s_e8da6067fe904f::t_55b6debc86ea56 10,213,216-219,222-225,234-237,266,269-271
+cmd/router-gateway/main.go
+  s_e8da6067fe904f::t_e2495de94d239f 89
+  s_e8da6067fe904f::t_32078ebff867f0 84-88,90-93
+  s_e8da6067fe904f::t_44675637413ee9 6
+internal/gateway/gateway.go
+  s_e8da6067fe904f::t_6d614efc89fc3b 67-69
+internal/server/middleware/serving_discovery.go
+  s_e8da6067fe904f::t_32078ebff867f0 13-15
+  s_e8da6067fe904f::t_90772ebaf7a88c 16-22,24-25,27-30,32-36,38-42
+  s_e8da6067fe904f::t_c0a45056332e40 23,26,31,37
+internal/gateway/iam/service_identity.go
+  s_e8da6067fe904f::t_6d614efc89fc3b 1-10,17-19,21-50,53-54,57-63
+  s_e8da6067fe904f::t_44675637413ee9 14
+  s_e8da6067fe904f::t_e2495de94d239f 11-13,15-16,20,51-52,55-56
+internal/server/middleware/serving_discovery_test.go
+  s_e8da6067fe904f::t_55b6debc86ea56 29,32-33,43,152-154
+internal/gateway/discovery_integration_test.go
+  s_e8da6067fe904f::t_8a19ee4129f2c1 247-249
+  s_e8da6067fe904f::t_90772ebaf7a88c 596-599,619-627
+  s_e8da6067fe904f::t_55b6debc86ea56 10,246,331,350-376,379-382,413,418,421,424,438,446,459,471,474,477,481,483,493,519-520,548,580,585-595,600-618
+  s_e8da6067fe904f::t_2e0f60ebcf0f8c 468-470,541-543
+internal/server/serving_distribution_test.go
+  s_e8da6067fe904f::t_55b6debc86ea56 21
+internal/gateway/iam/service_identity_test.go
+  s_e8da6067fe904f::t_a2a81296cbc8d3 1-24,26-45,50-58,62-67,71,77-79
+  s_e8da6067fe904f::t_90772ebaf7a88c 25,46-49,59-61,68-70,72-76
+internal/policyregistry/serving_lifecycle.go
+  s_e8da6067fe904f::t_90772ebaf7a88c 15-17,340
+internal/policyregistry/serving_discovery.go
+  s_e8da6067fe904f::t_32078ebff867f0 6-7,10,16,55-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "72c4d2454ebc8ade798769b2670871206d8d8228",
+  "prompts": {},
+  "sessions": {
+    "s_e8da6067fe904f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0da23-0e01-7511-a735-9fd7440e0689",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

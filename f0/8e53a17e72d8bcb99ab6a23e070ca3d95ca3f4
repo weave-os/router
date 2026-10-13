@@ -1,0 +1,23 @@
+internal/proxy/task_domain_internal_test.go
+  s_1a913f258562e3::t_fa5875cf976c4d 127
+docs/INFERENCE_BOUNDARY.md
+  s_1a913f258562e3::t_c1a40f4cd338a3 31,71
+internal/proxy/task_domain.go
+  s_1a913f258562e3::t_c1a40f4cd338a3 83-84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f08e53a17e72d8bcb99ab6a23e070ca3d95ca3f4",
+  "prompts": {},
+  "sessions": {
+    "s_1a913f258562e3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1090f-cc58-7d93-ae92-99567d91de8b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

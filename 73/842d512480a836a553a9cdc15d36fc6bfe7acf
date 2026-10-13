@@ -1,0 +1,19 @@
+cmd/router/main.go
+  s_1639860e28960e::t_874241db6efac9 1091,1097
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "73842d512480a836a553a9cdc15d36fc6bfe7acf",
+  "prompts": {},
+  "sessions": {
+    "s_1639860e28960e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a112b1-c802-7021-b4cd-dfec74516f39",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

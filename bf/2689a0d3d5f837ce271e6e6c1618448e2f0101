@@ -1,0 +1,19 @@
+internal/proxy/client_identity_test.go
+  s_ab0b50ff6b132a::t_a0bb5e7912afa2 305
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bf2689a0d3d5f837ce271e6e6c1618448e2f0101",
+  "prompts": {},
+  "sessions": {
+    "s_ab0b50ff6b132a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cd58b669-a069-41dc-bef1-b4da87039ee1",
+        "model": "grok-4.6"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

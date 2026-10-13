@@ -1,0 +1,34 @@
+internal/proxy/fallback.go
+  s_5e8e39d3453282::t_8809e760486a1d 262-264,268-279
+  s_5e8e39d3453282::t_f39c317c667adb 355-363
+  s_5e8e39d3453282::t_eda97d94eda3df 344-351
+  s_5e8e39d3453282::t_b3b089123e95bf 228
+  s_5e8e39d3453282::t_e7f5f41b8e312b 352
+  s_5e8e39d3453282::t_441c39fe92bbe9 280-281
+internal/proxy/service.go
+  s_5e8e39d3453282::t_ad83614070d4cd 294-297
+internal/proxy/CLAUDE.md
+  s_5e8e39d3453282::t_f2fb14bf286e43 136-137
+internal/proxy/AGENTS.md
+  s_5e8e39d3453282::t_11c360bb34a753 136-137
+internal/proxy/fallback_test.go
+  s_5e8e39d3453282::t_fe0239fdce1912 9
+  s_5e8e39d3453282::t_b8c589c653bac6 647-674,679-681,683-685,687-708
+  s_5e8e39d3453282::t_7231bd2812c666 675-678,682,686
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "9688e1abcf5429e61240712b4d4baefc9def4d0f",
+  "prompts": {},
+  "sessions": {
+    "s_5e8e39d3453282": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2c6d70fa-3ec5-4c6d-ac32-11ce75ef01ab",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

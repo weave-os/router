@@ -1,0 +1,23 @@
+cmd/router-gateway/startup.go
+  s_d3de2adad0efe9::t_9d2c9b3d1d7811 1-37
+cmd/router-gateway/startup_test.go
+  s_d3de2adad0efe9::t_9d2c9b3d1d7811 1-76
+cmd/router-gateway/main.go
+  s_d3de2adad0efe9::t_9d2c9b3d1d7811 6,68,71-73,75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "734f2083ac58676b0288fddb21f5e472e7475bf3",
+  "prompts": {},
+  "sessions": {
+    "s_d3de2adad0efe9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ea6e-30d8-7e13-a35e-d9af1e391921",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

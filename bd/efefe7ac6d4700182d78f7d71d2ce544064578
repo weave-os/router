@@ -1,0 +1,35 @@
+internal/router/sessionpin/store.go
+  s_28c8815db4c15b::t_c90c2502da75f1 100-103
+internal/proxy/service.go
+  s_28c8815db4c15b::t_c90c2502da75f1 4869
+internal/auth/service.go
+  s_28c8815db4c15b::t_c90c2502da75f1 904-914
+internal/auth/blind_experiment_test.go
+  s_28c8815db4c15b::t_c90c2502da75f1 138-156
+internal/proxy/turnloop_internal_test.go
+  s_28c8815db4c15b::t_c90c2502da75f1 263
+internal/auth/blind_experiment_cache.go
+  s_28c8815db4c15b::t_c90c2502da75f1 12,23,73
+  s_28c8815db4c15b::t_d29365f716b643 74
+internal/postgres/session_strategy_repo_test.go
+  s_28c8815db4c15b::t_c90c2502da75f1 19,230-245
+  s_28c8815db4c15b::t_ad170ed16b09bc 246
+internal/postgres/session_pin_repo.go
+  s_28c8815db4c15b::t_c90c2502da75f1 81-82,85,96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "bdefefe7ac6d4700182d78f7d71d2ce544064578",
+  "prompts": {},
+  "sessions": {
+    "s_28c8815db4c15b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0832c-78ed-7dc3-829b-0f975789e8e8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

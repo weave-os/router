@@ -1,0 +1,53 @@
+internal/billing/service.go
+  s_db32a17f649f32::t_ed0ab802fcac28 36-56,59-64,67-68,70-83
+internal/proxy/classifier_passthrough_test.go
+  s_db32a17f649f32::t_ab2b5623c47999 182
+internal/proxy/enabled_providers_internal_test.go
+  s_db32a17f649f32::t_db102fa47eac79 278
+internal/proxy/managed_subscriptions_test.go
+  s_db32a17f649f32::t_25648109dda3ca 249
+internal/proxy/openai_subscription_pool_failover_test.go
+  s_db32a17f649f32::t_d2899ea3cbd772 91,180
+internal/proxy/service.go
+  s_db32a17f649f32::t_172fd45946b9f9 4043-4049,6826,6829
+internal/proxy/spend_limit.go
+  s_db32a17f649f32::t_6352ac077370fd 66
+internal/proxy/subscription_failover_parity_internal_test.go
+  s_db32a17f649f32::t_a66ce305fbd581 683
+internal/proxy/subscription_model_access_internal_test.go
+  s_db32a17f649f32::t_0a67260b584f8a 84,110
+internal/proxy/subscription_only_openai_test.go
+  s_db32a17f649f32::t_7a2055ae4d3351 58,88,108,131
+internal/proxy/subscription_only_reason_internal_test.go
+  s_db32a17f649f32::t_4cccaf9c4033aa 1-34
+internal/proxy/usage_bypass.go
+  s_db32a17f649f32::t_341cbfc580db6c 318-327,436
+internal/proxy/usage_bypass_test.go
+  s_db32a17f649f32::t_45a6c5b2ac0292 562,588,614-615,643-644,678
+internal/server/middleware/api_key_spend_cap.go
+  s_db32a17f649f32::t_7c3adc1fadbee2 79
+internal/server/middleware/balance_check.go
+  s_db32a17f649f32::t_95cfa60e08ef75 82,128
+internal/server/middleware/org_monthly_spend_cap.go
+  s_db32a17f649f32::t_f24e5d4a973ac3 72
+internal/server/middleware/subscriber_allowance.go
+  s_db32a17f649f32::t_56471baf5bd817 191
+internal/server/middleware/subscriber_allowance_dispatch_test.go
+  s_db32a17f649f32::t_795e36719c5e13 85-110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5dadde8502fc86eb29c555fa966a53b2100b70e9",
+  "prompts": {},
+  "sessions": {
+    "s_db32a17f649f32": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "71a2c506-d446-4f20-ba02-4b28fde5d61f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

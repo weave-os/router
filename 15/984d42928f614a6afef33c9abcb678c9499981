@@ -1,0 +1,19 @@
+internal/translate/strictify_openai.go
+  s_e14ec094ef4d1f::t_ed6c6f0516bc17 85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "15984d42928f614a6afef33c9abcb678c9499981",
+  "prompts": {},
+  "sessions": {
+    "s_e14ec094ef4d1f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11324-33ed-74d0-81af-88e1fab110a2",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

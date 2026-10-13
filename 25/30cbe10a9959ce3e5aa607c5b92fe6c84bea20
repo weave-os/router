@@ -1,0 +1,27 @@
+internal/proxy/context_snapshot.go
+  s_527111cf8ce1b4::t_61d1a8eabe8d95 71
+internal/proxy/context_snapshot_internal_test.go
+  s_527111cf8ce1b4::t_61d1a8eabe8d95 78
+install/tests/context-status_test.sh
+  s_527111cf8ce1b4::t_61d1a8eabe8d95 72-73
+install/codex-status.sh
+  s_527111cf8ce1b4::t_6e57f02914a8d0 181,183-190,403,424,498
+install/install.sh
+  s_527111cf8ce1b4::t_6f26e56a8f075b 4528,4530-4537,4750,4845
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2530cbe10a9959ce3e5aa607c5b92fe6c84bea20",
+  "prompts": {},
+  "sessions": {
+    "s_527111cf8ce1b4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a117b4-a8de-70d0-9d4b-4f1c0d2f682e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Wesley Lin <wesley@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,96 @@
+internal/server/middleware/traffic_capture.go
+  s_5a695ca299c909::t_b7276fc6e8497c 58-60,62-65
+  s_5a695ca299c909::t_9aa7ba66cde5bf 4,80-81,95,97,105-106,175,181,193-200
+  s_5a695ca299c909::t_c63ca8b7bc35df 36-39,57,107,118-122,135,137-142
+  s_5a695ca299c909::t_348ab24d76ec55 42,56,69,94,102-104,108-110,133,183-188,201-224
+  s_5a695ca299c909::t_241c76d9cc6d34 173-174
+  s_5a695ca299c909::t_a31e00ad6fbe82 180
+  s_5a695ca299c909::t_8922e4ffa622e0 51
+  s_8d4f1b9a26bdc5::t_c06fb34b36b056 225
+docker-compose.yml
+  s_5a695ca299c909::t_2a83cc659d0b95 136-137,139-142,144
+  s_5a695ca299c909::t_eaaa2f4d899b27 10-11
+  s_5a695ca299c909::t_ad1db7812a5398 138
+internal/trafficcapture/capture.go
+  s_5a695ca299c909::t_599933c640cda6 29,41-42,61-62
+  s_5a695ca299c909::t_8922e4ffa622e0 23
+cmd/router/main.go
+  s_5a695ca299c909::t_2a83cc659d0b95 1509-1510
+cmd/router/traffic_capture.go
+  s_5a695ca299c909::t_241c76d9cc6d34 12
+  s_5a695ca299c909::t_906b099b1ef246 83
+  s_5a695ca299c909::t_9504d84e6494bd 4,7,44-48,52-60,84,93-132,153-194,265-295,299-301,305-321
+  s_5a695ca299c909::t_1f978ede15cbd3 133-152,195-212,218-264,296-298,302-304
+  s_5a695ca299c909::t_0b81674c6945c6 213-217
+  s_15240875e400ad::t_7d283be2c6b893 322
+internal/providers/httputil/traffic_capture.go
+  s_5a695ca299c909::t_c63ca8b7bc35df 235-240,260
+  s_5a695ca299c909::t_b2cd26191bbd8e 7,40,44-45,48-52,63,65,72,77-78,89-98,102,107,110-111,122-123,127-128,130-134,137-138,144-150,152,155,162-167,172-175,178-182,199-211,213-214,227-228,230,232,241,243,245,247,252-253,255-257,264,268-274
+  s_5a695ca299c909::t_906b099b1ef246 47
+  s_5a695ca299c909::t_8922e4ffa622e0 28-31,35
+  s_5a695ca299c909::t_9f15177df2b294 106,161,217-224,233,258-259,261,263
+  s_5a695ca299c909::t_178bcc935f8d82 108-109,124-125
+  s_5a695ca299c909::t_ad1db7812a5398 212
+  s_5a695ca299c909::t_241c76d9cc6d34 104-105,159-160
+internal/providers/httputil/traffic_capture_test.go
+  s_5a695ca299c909::t_968d719e950231 20-41
+  s_5a695ca299c909::t_8922e4ffa622e0 93-94
+internal/server/middleware/traffic_capture_test.go
+  s_5a695ca299c909::t_8922e4ffa622e0 99-101
+  s_5a695ca299c909::t_0b45f18babd71f 186
+  s_5a695ca299c909::t_968d719e950231 4,17-25,31-52,175-185,187-203
+internal/trafficcapture/body.go
+  s_5a695ca299c909::t_881cac1611ef23 45-49
+  s_5a695ca299c909::t_82a6171e5f2ed6 32-34,37-43,75,86-87
+  s_5a695ca299c909::t_4c0a6d2efab572 1-31,35-36,44,50-74,76-85,88-90
+cmd/router/traffic_capture_test.go
+  s_5a695ca299c909::t_3b6e0d18c28b2a 251,288-290
+  s_5a695ca299c909::t_241c76d9cc6d34 252-253
+  s_5a695ca299c909::t_a8953651ed8e6e 192-195,210-212
+  s_5a695ca299c909::t_cc9a605da90202 5
+  s_5a695ca299c909::t_019bed7abaad25 7,11,213-227
+  s_5a695ca299c909::t_a1935a90070b5f 228-229,231-250,254-287,291-327
+  s_d3de2adad0efe9::t_baaa7c0ddcf4a0 230
+internal/trafficcapture/redact.go
+  s_5a695ca299c909::t_942908b8498dbc 1-91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bd8bea36f259c378a8f13ce1b69ba5c48222b9fd",
+  "prompts": {},
+  "sessions": {
+    "s_15240875e400ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e966-a338-7e41-9d3b-a973876443c2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_5a695ca299c909": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ea0e-250d-74d3-9341-d6de94d9cd65",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_8d4f1b9a26bdc5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0ea6e-30d8-7e13-a35e-d9af1e391921",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_d3de2adad0efe9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ea6e-30d8-7e13-a35e-d9af1e391921",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

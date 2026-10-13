@@ -1,0 +1,21 @@
+internal/api/admin/llm_escalation.go
+  s_84d4be4e6bc25a::t_2623ff573adac5 43-44,48
+internal/api/admin/escalation_dashboard_test.go
+  s_84d4be4e6bc25a::t_2623ff573adac5 7,35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8577deb7b5e6df9cbb08d9ceba85aeca3293b028",
+  "prompts": {},
+  "sessions": {
+    "s_84d4be4e6bc25a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b06a-e4ca-7013-8316-0a07835294a3",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

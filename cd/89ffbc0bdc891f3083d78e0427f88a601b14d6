@@ -1,0 +1,30 @@
+install/install.sh
+  s_0970f7100c7e81::t_6006ce422cf368 3186-3254
+  s_0970f7100c7e81::t_06bc74ad8f0948 3460
+install/README.md
+  s_0970f7100c7e81::t_47b19b2926f5c7 281-291
+install/tests/codex-status_test.sh
+  s_0970f7100c7e81::t_394b150826294e 226
+  s_0970f7100c7e81::t_b82d8b32f973cb 11-16
+  s_0970f7100c7e81::t_23ec3de5261f64 219-225,227-243,245-271,273-286
+  s_0970f7100c7e81::t_8a94bea75cdb35 244
+  s_0970f7100c7e81::t_f309d576dd69ba 272
+install/codex-status.sh
+  s_0970f7100c7e81::t_42e76db50af8db 22-90,296
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "cd89ffbc0bdc891f3083d78e0427f88a601b14d6",
+  "prompts": {},
+  "sessions": {
+    "s_0970f7100c7e81": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1a42406d-cdca-4da7-b104-db057e63607d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

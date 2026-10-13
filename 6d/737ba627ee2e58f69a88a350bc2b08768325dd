@@ -1,0 +1,21 @@
+scripts/smoke/test_runner.py
+  s_2a05efb374be75::t_67f9294c0dc9e5 23
+scripts/smoke/runner.py
+  s_2a05efb374be75::t_67f9294c0dc9e5 23-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6d737ba627ee2e58f69a88a350bc2b08768325dd",
+  "prompts": {},
+  "sessions": {
+    "s_2a05efb374be75": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e9e5-5891-7b40-8cb6-3fc254b09418",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

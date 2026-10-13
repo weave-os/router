@@ -1,0 +1,23 @@
+internal/translate/gemini_test.go
+  s_c476918fddaeaa::t_06f9a1f50e55e8 1101-1102,1129-1138
+internal/translate/emit_gemini.go
+  s_c476918fddaeaa::t_3072a51c3bca22 1352
+  s_c476918fddaeaa::t_36a055dae57697 1405,1413,1455-1459,1463-1467,2031,2039-2045,2048,2057-2071
+  s_c476918fddaeaa::t_b2209f959dd338 2072-2073
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "aa3b00d70d10bbcfa7a77c1a268a93b0737fd21a",
+  "prompts": {},
+  "sessions": {
+    "s_c476918fddaeaa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c58c6326-9916-4dc2-b74d-a9c60d3bd350",
+        "model": "grok-4.6"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

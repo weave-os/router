@@ -1,0 +1,26 @@
+cmd/policyctl/preview_test.go
+  s_eef74eff975806::t_786aa02d1efafe 46-48,79-80,108-109,111
+  s_eef74eff975806::t_a698ef272fb276 21,44-45,49-78,81-107,110,112-118
+  s_eef74eff975806::t_934f70a47d1e61 119
+cmd/policyctl/preview.go
+  s_eef74eff975806::t_1140bcbcfe2277 4,16,162-172,176-177,179,182-183,194,199,215,267,291-293
+  s_eef74eff975806::t_7502d707e514de 180
+  s_eef74eff975806::t_f5c46b7a6591d5 181
+  s_eef74eff975806::t_a4ec415ab5650a 294-295
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "bac4db23283679a0ab328096289d256c742f54f2",
+  "prompts": {},
+  "sessions": {
+    "s_eef74eff975806": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0eea5-47b7-7733-b668-22e3b98f688b",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

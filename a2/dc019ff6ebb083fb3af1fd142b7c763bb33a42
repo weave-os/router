@@ -1,0 +1,25 @@
+install/README.md
+  s_99a26d7f7deb6c::t_1d7e740a3cca6d 123
+install/npm/README.md
+  s_99a26d7f7deb6c::t_2dd0bf590de4b6 115
+install/codex-status.sh
+  s_99a26d7f7deb6c::t_ad036ecb05697c 146-148
+install/install.sh
+  s_99a26d7f7deb6c::t_47654b11fb28cf 3272-3274
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "a2dc019ff6ebb083fb3af1fd142b7c763bb33a42",
+  "prompts": {},
+  "sessions": {
+    "s_99a26d7f7deb6c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6a458e13-f54a-43f2-8dcb-023370249ea7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

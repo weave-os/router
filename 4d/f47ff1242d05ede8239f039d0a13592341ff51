@@ -1,0 +1,334 @@
+internal/server/middleware/direct_admission.go
+  s_8960fd48237f12::t_267129aecbe60c 1-98
+internal/proxy/service_cache_test.go
+  s_8960fd48237f12::t_267129aecbe60c 114-116
+internal/analytics/schema.go
+  s_8960fd48237f12::t_267129aecbe60c 65-67
+AGENTS.md
+  s_8960fd48237f12::t_267129aecbe60c 20,159,182
+install/npm/README.md
+  s_8960fd48237f12::t_267129aecbe60c 20,90-97,120-121,161-163,168-169
+internal/proxy/beta.go
+  s_8960fd48237f12::t_267129aecbe60c 7,28-47
+  s_8960fd48237f12::t_31ff6c0f6b78f4 48
+internal/proxy/classifier_dispatch_internal_test.go
+  s_8960fd48237f12::t_267129aecbe60c 15,19,167-192
+  s_8960fd48237f12::t_f36264744c44a5 193-194
+internal/translate/strictify_openai_test.go
+  s_8960fd48237f12::t_267129aecbe60c 259,331-333
+internal/router/catalog/fastmode_test.go
+  s_8960fd48237f12::t_267129aecbe60c 25
+scripts/test_check_docs.py
+  s_8960fd48237f12::t_267129aecbe60c 8,15-24
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_8960fd48237f12::t_267129aecbe60c 119-121,246-248,345-347,477-479,1973,1976-1977,2004,2149-2152,2154-2162,2164-2169,2171-2174,2176-2181,2183-2186,2189-2192,2194-2199,2202,2205,2207-2209,2212-2219,2222-2223,2225-2231,2236,2239-2240,2243,2245,2247-2248,2250-2255,2258-2259,2262-2266,2325,2328-2329,2356,2502-2503,2559,2562-2563,2590,2735-2738,2740-2748,2750-2755,2757-2760,2762-2767,2769-2772,2775-2778,2780-2785,2788,2791,2793-2795,2798-2805,2808-2809,2811-2817,2822,2825-2826,2829,2831,2833-2834,2836-2841,2844-2845,2848-2852,2910,2913-2914,2941
+internal/proxy/gemini.go
+  s_8960fd48237f12::t_267129aecbe60c 50-54,363,365,367,389-391,449-451,508,546
+internal/translate/empty_completion_native_test.go
+  s_8960fd48237f12::t_267129aecbe60c 28-29
+smoke/mitmproxy/cassettes/2ad7397c4dc74d96a7206c34493417fac93676705efd719ba4a754ffffef4a60.json
+  s_8960fd48237f12::t_267129aecbe60c 10,13,17
+smoke/mitmproxy/cassettes/d6fc9046ebb4ec512f2ed0e9faacbcfb1d3a0c8a4f7d49c28a526dccd6ffc302.json
+  s_8960fd48237f12::t_267129aecbe60c 10,13,17
+db/migrations/0124_telemetry-cache-ttl-speed-geo.down.sql
+  s_8960fd48237f12::t_267129aecbe60c 1-8
+internal/servingvalidate/client.go
+  s_8960fd48237f12::t_267129aecbe60c 28-30,34,41,84-86
+internal/translate/cache_usage_test.go
+  s_8960fd48237f12::t_267129aecbe60c 25-28,45-51,352-421
+smoke/mitmproxy/cassettes/8dd28f89a1590c19153640f75433556304328dad4724c5f57f8be89e003f927b.json
+  s_8960fd48237f12::t_267129aecbe60c 10,13,17
+.github/workflows/test.yml
+  s_8960fd48237f12::t_267129aecbe60c 333
+internal/billing/service.go
+  s_8960fd48237f12::t_267129aecbe60c 322,550-551
+Makefile
+  s_8960fd48237f12::t_267129aecbe60c 12,68-71
+cmd/router/task_domain.go
+  s_8960fd48237f12::t_267129aecbe60c 8,10,12-13,16,47-60,63,65-67,73-89,103,105,108,122,128,130,133-150,152,155,157,159,162-164,168-182
+  s_8960fd48237f12::t_104231010872e8 183
+.github/workflows/publish_npm.yml
+  s_8960fd48237f12::t_267129aecbe60c 69
+internal/providers/provider.go
+  s_8960fd48237f12::t_267129aecbe60c 573
+internal/proxy/subscription_state_models.go
+  s_8960fd48237f12::t_267129aecbe60c 1-257
+internal/router/catalog/cost.go
+  s_8960fd48237f12::t_267129aecbe60c 10-16,20,23,29-30,32-34,40-46,50-52,54
+internal/router/catalog/CLAUDE.md
+  s_8960fd48237f12::t_267129aecbe60c 15
+install/npm/package.json
+  s_8960fd48237f12::t_267129aecbe60c 19,80-85
+internal/analytics/pricebook.go
+  s_8960fd48237f12::t_267129aecbe60c 17-28,33-38,50-56,61-66
+internal/proxy/auxiliary_inference_internal_test.go
+  s_8960fd48237f12::t_267129aecbe60c 218-219
+internal/proxy/fallback.go
+  s_8960fd48237f12::t_267129aecbe60c 18,249-258,272-279,627
+internal/policyclient/client.go
+  s_8960fd48237f12::t_267129aecbe60c 1001-1007
+docs/CONFIGURATION.md
+  s_8960fd48237f12::t_267129aecbe60c 417-420,434,452-464,470
+internal/server/server.go
+  s_8960fd48237f12::t_267129aecbe60c 124,176,190,213,267-270
+internal/translate/usage_sink.go
+  s_8960fd48237f12::t_267129aecbe60c 3-4,16-19,25-36
+  s_8960fd48237f12::t_c707622f12d28f 37
+install/tests/packaging_test.sh
+  s_8960fd48237f12::t_267129aecbe60c 35-36,46,119-121
+internal/observability/otel/pricing_test.go
+  s_8960fd48237f12::t_267129aecbe60c 27
+install/npm/windows.js
+  s_8960fd48237f12::t_267129aecbe60c 1-439
+smoke/mitmproxy/cassettes/ce7b8426d863183f7eb03e632a3dace137bed9fbb8ce04b7734af34dabb33d19.json
+  s_8960fd48237f12::t_267129aecbe60c 11,14,18
+internal/proxy/service_observation_test.go
+  s_8960fd48237f12::t_267129aecbe60c 671,684,713,716-722
+cmd/router/atomic_classifier_test.go
+  s_8960fd48237f12::t_267129aecbe60c 21,26-27,29-30,69
+db/migrations/0125_telemetry-failover-attempted.up.sql
+  s_8960fd48237f12::t_267129aecbe60c 1-8
+install/npm/windows.test.js
+  s_8960fd48237f12::t_267129aecbe60c 1-238
+internal/auth/installation.go
+  s_8960fd48237f12::t_267129aecbe60c 28-29,31-32
+internal/observability/apm/apm.go
+  s_8960fd48237f12::t_267129aecbe60c 154
+internal/postgres/telemetry.go
+  s_8960fd48237f12::t_267129aecbe60c 156,159-160,177
+cmd/policyctl/serving_lifecycle_test.go
+  s_8960fd48237f12::t_267129aecbe60c 188-194,308-313,323,334,340
+internal/proxy/auxiliary_inference.go
+  s_8960fd48237f12::t_267129aecbe60c 61,80,92-93,115,117,132-133
+scripts/legacy_runtime_check/main.go
+  s_8960fd48237f12::t_267129aecbe60c 51,141,143,147,152-157,161-166
+smoke/mitmproxy/cassettes/f3249ba5e36d05b18079f731c9bab5156c2bbb148180e01e466ef57c685fd298.json
+  s_8960fd48237f12::t_267129aecbe60c 11,14,18
+internal/translate/stream.go
+  s_8960fd48237f12::t_267129aecbe60c 136,248
+docs/SUBSCRIPTION_ROUTING.md
+  s_8960fd48237f12::t_267129aecbe60c 21-35
+internal/translate/CLAUDE.md
+  s_8960fd48237f12::t_267129aecbe60c 11
+internal/policyregistry/serving_admission_cache_test.go
+  s_8960fd48237f12::t_267129aecbe60c 1-172
+internal/proxy/usage_bypass_internal_test.go
+  s_8960fd48237f12::t_267129aecbe60c 406,640-641
+internal/server/middleware/serving_admission_test.go
+  s_8960fd48237f12::t_267129aecbe60c 139-148,152-155,157,159-162,176-203,262,264,272,297-372
+cmd/CLAUDE.md
+  s_8960fd48237f12::t_267129aecbe60c 9,39-43
+cmd/router/task_domain_test.go
+  s_8960fd48237f12::t_267129aecbe60c 5-11,15,18,54-249
+internal/server/middleware/auth.go
+  s_8960fd48237f12::t_267129aecbe60c 81-82,84-89,92,94,170,173,263-265
+  s_8960fd48237f12::t_b6058a51c493b8 266-267
+internal/proxy/failover_attempted_internal_test.go
+  s_8960fd48237f12::t_267129aecbe60c 1-110
+internal/router/catalog/catalog.go
+  s_8960fd48237f12::t_267129aecbe60c 53-56,106-110,274,279-281,283-284,290,314,319,325,330,339,348,354
+cmd/router/serving_runtime.go
+  s_8960fd48237f12::t_267129aecbe60c 19,28,42,45-46,49,54-60,64-65,132
+scripts/check_docs.py
+  s_8960fd48237f12::t_267129aecbe60c 38
+internal/policyregistry/serving_assertion.go
+  s_8960fd48237f12::t_267129aecbe60c 13,29-30
+internal/proxy/AGENTS.md
+  s_8960fd48237f12::t_267129aecbe60c 309-310
+internal/translate/schema_fidelity_test.go
+  s_8960fd48237f12::t_267129aecbe60c 1-38
+internal/proxy/cost_response.go
+  s_8960fd48237f12::t_267129aecbe60c 12,76,78-79,85-90,94-96,136-144,161,164,199-203,233-237
+internal/proxy/subscription_conditional_models_internal_test.go
+  s_8960fd48237f12::t_267129aecbe60c 18-19
+internal/router/catalog/usage_modifiers.go
+  s_8960fd48237f12::t_267129aecbe60c 1-69
+scripts/go_ci_relevance.sh
+  s_8960fd48237f12::t_267129aecbe60c 6,11,59
+internal/router/catalog/cost_test.go
+  s_8960fd48237f12::t_267129aecbe60c 7,11,76,80,88-89,96-97,101-119,135-136,140-141,167-269
+db/migrations/0124_telemetry-cache-ttl-speed-geo.up.sql
+  s_8960fd48237f12::t_267129aecbe60c 1-11
+internal/server/session_cost_route_test.go
+  s_8960fd48237f12::t_267129aecbe60c 14,32-45,50-52,54,59-62
+internal/router/catalog/AGENTS.md
+  s_8960fd48237f12::t_267129aecbe60c 15
+internal/proxy/openai_responses_retry_internal_test.go
+  s_8960fd48237f12::t_267129aecbe60c 5,35-46,56-59
+internal/proxy/cost_response_test.go
+  s_8960fd48237f12::t_267129aecbe60c 20,28,91,116,128,222-275
+internal/translate/AGENTS.md
+  s_8960fd48237f12::t_267129aecbe60c 11
+internal/server/middleware/test_plan_auth_test.go
+  s_8960fd48237f12::t_267129aecbe60c 5,48,65,67-72,74-76,78-79,85,100,105-115
+sidecars/task-domain/README.md
+  s_8960fd48237f12::t_267129aecbe60c 155-159,164,168,173-180
+  s_8960fd48237f12::t_29cc3bd9b153f5 181
+CLAUDE.md
+  s_8960fd48237f12::t_267129aecbe60c 20,159,182
+internal/sqlc/models.go
+  s_8960fd48237f12::t_267129aecbe60c 697-700
+internal/proxy/beta_internal_test.go
+  s_8960fd48237f12::t_267129aecbe60c 31-45
+internal/proxy/turn_error_class.go
+  s_8960fd48237f12::t_267129aecbe60c 42-48,57
+internal/proxy/tool_use_telemetry_integration_test.go
+  s_8960fd48237f12::t_267129aecbe60c 52,61-63,94-99
+cmd/AGENTS.md
+  s_8960fd48237f12::t_267129aecbe60c 9,39-43
+internal/analytics/analytics.go
+  s_8960fd48237f12::t_267129aecbe60c 71-74
+internal/observability/otel/usage.go
+  s_8960fd48237f12::t_267129aecbe60c 10,20,64-73,175-201,232-262,358,426,537,573-588
+  s_8960fd48237f12::t_05f360abac6bd8 589
+internal/proxy/fastmode_internal_test.go
+  s_8960fd48237f12::t_267129aecbe60c 105,127,131-176,220,263,267,329,333
+internal/proxy/openai_cyber_refusal.go
+  s_8960fd48237f12::t_267129aecbe60c 167-173
+internal/proxy/stream_cut.go
+  s_8960fd48237f12::t_267129aecbe60c 31-33,278-281,284-287,290-291,303-307
+  s_8960fd48237f12::t_4e264210752ea8 308-309
+internal/pubsub/invalidation_internal_test.go
+  s_8960fd48237f12::t_267129aecbe60c 146-147,154,157
+internal/router/handover/summarizer.go
+  s_8960fd48237f12::t_267129aecbe60c 25-28
+internal/proxy/subscription_failover_parity_internal_test.go
+  s_8960fd48237f12::t_267129aecbe60c 111-113
+internal/proxy/stream_terminal_observer.go
+  s_8960fd48237f12::t_267129aecbe60c 1-227
+internal/proxy/responses_terminal_observer.go
+  s_8960fd48237f12::t_267129aecbe60c 9-16,37-39,51,103-104,109-122
+internal/server/server_test.go
+  s_8960fd48237f12::t_267129aecbe60c 11,14,48,168,177-198
+internal/proxy/openai_responses_pipeline_test.go
+  s_8960fd48237f12::t_267129aecbe60c 128-129
+internal/proxy/rescued_failure_demotion_internal_test.go
+  s_8960fd48237f12::t_267129aecbe60c 49,55-58
+internal/router/catalog/lookup.go
+  s_8960fd48237f12::t_267129aecbe60c 86,142
+install/tests/key_reuse_test.sh
+  s_8960fd48237f12::t_267129aecbe60c 24-26
+cmd/router-warmup/main.go
+  s_8960fd48237f12::t_267129aecbe60c 1-136
+internal/translate/strictify_openai.go
+  s_8960fd48237f12::t_267129aecbe60c 70-88
+smoke/mitmproxy/cassettes/9b626717e3f2dc5919d7a7f1eb5e942a0986c13507477a7408990384faa33e5a.json
+  s_8960fd48237f12::t_267129aecbe60c 10,13,17
+internal/server/middleware/serving_admission.go
+  s_8960fd48237f12::t_267129aecbe60c 6-7,16,21-25,27-28,36,53-59,61,63-67,73,76-88
+install/README.md
+  s_8960fd48237f12::t_267129aecbe60c 117-158
+cmd/router-warmup/main_test.go
+  s_8960fd48237f12::t_267129aecbe60c 1-95
+docs/CI.md
+  s_8960fd48237f12::t_267129aecbe60c 149,151
+internal/proxy/dispatch_error_test.go
+  s_8960fd48237f12::t_267129aecbe60c 382-392
+db/queries/model_router_request_telemetry.sql
+  s_8960fd48237f12::t_267129aecbe60c 56-57,113,116-117,144,287,290-291,318,809-811
+install/install.sh
+  s_8960fd48237f12::t_267129aecbe60c 5709,5800
+internal/router/catalog/fastmode.go
+  s_8960fd48237f12::t_267129aecbe60c 3-5,14-15
+  s_8960fd48237f12::t_60a2037a75f2ac 16
+internal/proxy/stream_terminal_observer_internal_test.go
+  s_8960fd48237f12::t_267129aecbe60c 1-110
+internal/proxy/subscription_state_models_internal_test.go
+  s_8960fd48237f12::t_267129aecbe60c 1-459
+internal/providers/provider_retry_test.go
+  s_8960fd48237f12::t_267129aecbe60c 156-160
+  s_8960fd48237f12::t_d5caa7485c3057 155
+internal/proxy/CLAUDE.md
+  s_8960fd48237f12::t_267129aecbe60c 309-310
+internal/proxy/usage_bypass.go
+  s_8960fd48237f12::t_267129aecbe60c 53,447,459,494-495,497,499-500,524-526,582,584-585
+internal/router/model.go
+  s_8960fd48237f12::t_267129aecbe60c 219
+install/cc-statusline.sh
+  s_8960fd48237f12::t_267129aecbe60c 476,567
+internal/proxy/dispatch_plan.go
+  s_8960fd48237f12::t_267129aecbe60c 117-121
+smoke/mitmproxy/cassettes/53b462972e28354dc4af2e11bc384ed32264a03dfa74391358671f9f63529fa1.json
+  s_8960fd48237f12::t_267129aecbe60c 10,13,17
+internal/observability/otel/usage_modifiers_test.go
+  s_8960fd48237f12::t_267129aecbe60c 1-109
+internal/proxy/linked_first.go
+  s_8960fd48237f12::t_267129aecbe60c 21-22,24-57
+internal/policyclient/client_test.go
+  s_8960fd48237f12::t_267129aecbe60c 644-663
+internal/postgres/analytics_repo.go
+  s_8960fd48237f12::t_267129aecbe60c 93-100
+internal/proxy/classifier_passthrough_internal_test.go
+  s_8960fd48237f12::t_267129aecbe60c 15,116-118,150-153,163-164,166,173-174
+internal/policyregistry/serving_admission_cache.go
+  s_8960fd48237f12::t_267129aecbe60c 1-126
+internal/proxy/hmm_outcome_internal_test.go
+  s_8960fd48237f12::t_267129aecbe60c 64,70-71,110,156,203
+internal/proxy/telemetry.go
+  s_8960fd48237f12::t_267129aecbe60c 138-142,145-148,190-196
+internal/translate/cache_control.go
+  s_8960fd48237f12::t_267129aecbe60c 7-8,78-82,147,150,215-246
+  s_8960fd48237f12::t_b0fce7ed00562c 247
+smoke/mitmproxy/cassettes/7fbc7a63fae278692c893ba8e341f5b0074ef0130266b2cdb7ab00b59b61e2bf.json
+  s_8960fd48237f12::t_267129aecbe60c 10,13,17
+smoke/mitmproxy/cassettes/cb8f816f8fcf528137671cf518fffd1924022334a9ac93f69b257dece434faf0.json
+  s_8960fd48237f12::t_267129aecbe60c 1-17
+db/migrations/0125_telemetry-failover-attempted.down.sql
+  s_8960fd48237f12::t_267129aecbe60c 1-6
+docs/SERVING_CONTROL.md
+  s_8960fd48237f12::t_267129aecbe60c 5,110-114,317-318,374,403-410,414-419,423-432,452-453,543,556,564,578,586-588,605-609,621-630
+cmd/policyctl/serving.go
+  s_8960fd48237f12::t_267129aecbe60c 16,42-48,53,67,77-81,83-86,274-279,345-359
+  s_8960fd48237f12::t_3dc6e824b3474f 360
+internal/proxy/handover.go
+  s_8960fd48237f12::t_267129aecbe60c 22,192-206,301-306
+smoke/mitmproxy/cassettes/0feb08ea0fc4a2ac2adefd797e470df5d06abdf412672c2423be4c9a696e067a.json
+  s_8960fd48237f12::t_267129aecbe60c 10,13,17
+internal/proxy/fastmode.go
+  s_8960fd48237f12::t_267129aecbe60c 34,120,130-131
+internal/proxy/stream_cut_internal_test.go
+  s_8960fd48237f12::t_267129aecbe60c 10,44-48,80-84,97-128,151-153
+internal/proxy/native_stream_terminal_integration_test.go
+  s_8960fd48237f12::t_267129aecbe60c 1-162
+internal/proxy/escalation_judge.go
+  s_8960fd48237f12::t_267129aecbe60c 152
+scripts/go_ci_relevance_test.sh
+  s_8960fd48237f12::t_267129aecbe60c 17,29,55-56,65,80-81,85-93,95-97,99,102-107
+internal/servingvalidate/client_test.go
+  s_8960fd48237f12::t_267129aecbe60c 28,35,48,70,114,127,138,140,158
+install/npm/bin.js
+  s_8960fd48237f12::t_267129aecbe60c 41-71,80,88-89,92,96,100,102-113
+internal/router/catalog/catalog_test.go
+  s_8960fd48237f12::t_267129aecbe60c 642-643
+install/tests/registry_test.sh
+  s_8960fd48237f12::t_267129aecbe60c 32-34
+cmd/router/atomic_classifier.go
+  s_8960fd48237f12::t_267129aecbe60c 24,38,43
+cmd/router/serving_runtime_test.go
+  s_8960fd48237f12::t_267129aecbe60c 5,10-15,18-20,22-29,31-33,35-36,40,45,51,53-54
+internal/proxy/service.go
+  s_8960fd48237f12::t_267129aecbe60c 523-525,527-529,922-923,931-932,944,964-965,967-971,973-974,976-978,980-992,1108,1142,3172,3175-3176,3189,3193-3197,3202-3204,3696,3975,3984,4142,4243,4245,4327,4461,4557,4588,4596,4603,4611,4633-4638,4661-4673,4683-4685,4769,4833-4834,4838,4874,4932,4993-4995,5004-5007,5023-5027,5075,5077,5079,5104-5106,5109-5111,5122-5123,5197-5199,5232,5234-5235,5257,5312,5398,5405,5740,5848-5849,6337-6346,6457,6474,6828,7112,7411-7417,7422-7424,7445-7454,7617,7677-7678,7693,7700,7703,7709,7719-7720,7742-7747,7770-7777,7785-7788,7828,7833,7878-7879,7937,8019,8085-8087,8091-8092,8106-8110,8132,8134,8136,8172-8174,8177-8179,8190-8191,8241,8297-8299,8332,8334-8335,8354-8355,8409-8410
+  s_8960fd48237f12::t_51195cacd88f12 4003,6965
+cmd/router/main.go
+  s_8960fd48237f12::t_267129aecbe60c 531-546,635-639,1064,1074-1077,1090-1103,1409
+bench/weave_bench/prices.generated.json
+  s_8960fd48237f12::t_0d46b7b283519a 2,83-84
+install/pi-router/src/pricing.generated.ts
+  s_8960fd48237f12::t_47fd78751317c6 10,26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4df47ff1242d05ede8239f039d0a13592341ff51",
+  "prompts": {},
+  "sessions": {
+    "s_8960fd48237f12": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a113a0-b447-73d1-893e-09cd7017cdef",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Wesley Lin <wesley@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,24 @@
+internal/api/admin/internal_routing_discovery_test.go
+  s_eef74eff975806::t_0033d51b07f145 192-196,198
+  s_eef74eff975806::t_184dcee9ebbf48 168-191,197,199
+internal/api/admin/internal_routing_discovery.go
+  s_eef74eff975806::t_37c1169ef84cca 121,186,193,204-209
+internal/router/catalog/listing.go
+  s_eef74eff975806::t_37c1169ef84cca 40-57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "17f4caea981f7fc537d4e4342a5f8cd3f72ce46d",
+  "prompts": {},
+  "sessions": {
+    "s_eef74eff975806": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0eea5-47b7-7733-b668-22e3b98f688b",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

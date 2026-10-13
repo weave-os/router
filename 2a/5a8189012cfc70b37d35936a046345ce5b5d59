@@ -1,0 +1,50 @@
+Makefile
+  s_049874a7166f8d::t_fa742ca9adcb92 63
+install/README.md
+  s_049874a7166f8d::t_d3aa65f085d6ed 309-327
+install/npm/scripts/copy-installer.js
+  s_049874a7166f8d::t_6cdd6714363250 14
+install/npm/.gitignore
+  s_049874a7166f8d::t_6cdd6714363250 3,9
+install/npm/package.json
+  s_049874a7166f8d::t_d3aa65f085d6ed 3
+  s_049874a7166f8d::t_6cdd6714363250 23
+install/install.sh
+  s_049874a7166f8d::t_f4eae5ef68137b 3727-3732
+  s_049874a7166f8d::t_1c3ee528f34a80 4190-4212,4222,4378-4379,4383-4389,4393-4401,4405-4408
+  s_049874a7166f8d::t_a3018b742e3968 555-559
+  s_049874a7166f8d::t_b4d77d2bb0bfb0 4217-4221,4223-4377,4381,4391,4402-4403
+  s_049874a7166f8d::t_c6bb8da48b2cf9 669
+  s_049874a7166f8d::t_d858843b4ceb97 709-714,716,4213-4216,4380,4382,4390,4392,4404,4415-4420
+  s_049874a7166f8d::t_224a5a0530458a 715,717-725,738
+install/tests/codex-toggle_test.sh
+  s_049874a7166f8d::t_e1054924923a88 12-16
+  s_049874a7166f8d::t_70959b2822b3a8 136-141
+  s_049874a7166f8d::t_0705e3e84700f8 168-192
+  s_049874a7166f8d::t_7ed9f20b19ee83 63-65,67-70,73-74,105,114,118,121
+  s_049874a7166f8d::t_1ac838a88182ef 1-11,17-62,66,71-72,75-104,106-113,115-117,119-120,122-135,142-143,153,155,166-167,193-197
+  s_049874a7166f8d::t_a138330118fe0d 144-152,154,156-165
+install/codex-toggle.sh
+  s_049874a7166f8d::t_5ca5108293f3fc 1-118,124-151
+  s_049874a7166f8d::t_4e529aa490f08f 119-123
+install/tests/codex_install_test.sh
+  s_049874a7166f8d::t_d9c940f600d7d8 345,347-353,403-408,412-420
+  s_049874a7166f8d::t_517d288c69d893 688-740
+  s_049874a7166f8d::t_70959b2822b3a8 409-411
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2a5a8189012cfc70b37d35936a046345ce5b5d59",
+  "prompts": {},
+  "sessions": {
+    "s_049874a7166f8d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7b6a9f0a-cd46-4fd9-942c-7daea97cec2a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

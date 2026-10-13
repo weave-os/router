@@ -1,0 +1,139 @@
+internal/requestcontext/identity.go
+  s_fd38d0e69d159e::t_d22dfebf8c2f78 70-78
+internal/policyregistry/test_plans.go
+  s_fd38d0e69d159e::t_478f9c13a83a19 1-13,15-25,27-39,41-48,50-56,58-64,66-80,82-89,91-96,98-121,123-154,156-159,161-230
+  s_fd38d0e69d159e::t_d4b6cfa1424a52 14,26,40,49,57,65,81,90,97,122,155
+  s_fd38d0e69d159e::t_88682d35b5b936 160
+internal/server/middleware/balance_check.go
+  s_fd38d0e69d159e::t_7494fb6da1effb 43-56
+internal/gateway/gateway.go
+  s_fd38d0e69d159e::t_d4b6cfa1424a52 67
+  s_fd38d0e69d159e::t_45ee679598d04b 46,68-72,75-77,79-82,137-152,164,232
+internal/auth/service.go
+  s_fd38d0e69d159e::t_18253eebac5b09 806-809,812-814,831,855,877
+  s_fd38d0e69d159e::t_16e59116d5537b 805,810-811,832-833
+internal/billing/prepaid.go
+  s_fd38d0e69d159e::t_4367d4876ccb93 18,21,26,45-49,51,56
+internal/api/anthropic/messages.go
+  s_fd38d0e69d159e::t_a7f084fdfbb8b2 125
+internal/api/admin/internal_test_plans.go
+  s_fd38d0e69d159e::t_d4b6cfa1424a52 15,28,49,70,82
+  s_fd38d0e69d159e::t_a7f084fdfbb8b2 1-13,16-26,29-47,50-68,71-80,88,91
+  s_fd38d0e69d159e::t_5f329ee4f263d1 14,27,48,69,81,83-87,89-90
+internal/server/middleware/auth.go
+  s_fd38d0e69d159e::t_a7f084fdfbb8b2 86-87,93-94,96-99,103
+  s_fd38d0e69d159e::t_16e59116d5537b 104,106,108,112-120,129
+  s_fd38d0e69d159e::t_57f323f2a59a92 4,7,9-10,35-36,78,81-85,88-92,95,100-102,107,126-128,147,247,345-347,384-386
+  s_fd38d0e69d159e::t_18253eebac5b09 111
+internal/sqlc/models.go
+  s_fd38d0e69d159e::t_ab4a396875c2f8 251-281
+internal/billing/test_budget_test.go
+  s_fd38d0e69d159e::t_eb99f1d5dd2609 33
+  s_fd38d0e69d159e::t_bf0f5523edfdbe 1-32,34-56
+internal/server/middleware/test_plan_auth_test.go
+  s_fd38d0e69d159e::t_fbe4350a30539a 1-3,19,26-27,40-41,90
+  s_fd38d0e69d159e::t_f9b29a3f775e64 4-18,20-25,28-39,42-47,49-89
+  s_fd38d0e69d159e::t_0fdf4ce98c419e 48
+internal/policyregistry/serving_snapshot.go
+  s_fd38d0e69d159e::t_d4b6cfa1424a52 16
+  s_fd38d0e69d159e::t_d3f93cd90de081 14-15,17-20,26-29
+cmd/router/main.go
+  s_fd38d0e69d159e::t_dc7579dc6ec3a6 239-240
+  s_fd38d0e69d159e::t_a7f084fdfbb8b2 241,1047,1518-1524,1526
+internal/policyregistry/serving_assertion.go
+  s_fd38d0e69d159e::t_6e91c4fbdffb8b 23-24,31,62-64,130,142-156
+  s_fd38d0e69d159e::t_d4b6cfa1424a52 22
+  s_fd38d0e69d159e::t_a7f084fdfbb8b2 120-122
+cmd/router-gateway/main.go
+  s_fd38d0e69d159e::t_7ebe6fadfa70fe 91-96
+internal/postgres/serving/test_plans.go
+  s_fd38d0e69d159e::t_d4b6cfa1424a52 16-82
+  s_fd38d0e69d159e::t_e32c172a67cfb3 1-15,83-90
+internal/server/middleware/org_monthly_spend_cap.go
+  s_fd38d0e69d159e::t_5de8f55ee46d49 18-21
+internal/policyregistry/test_plans_test.go
+  s_fd38d0e69d159e::t_6e762bb6954929 1-51,53-63,65-69,71-115,117-139,141-142,145-163,165-175
+  s_fd38d0e69d159e::t_0cb0ae6959c590 176-192
+  s_fd38d0e69d159e::t_afb6018f019f4e 143-144
+  s_fd38d0e69d159e::t_243a80a7e83aa5 52,64,70,116,140,164
+internal/server/middleware/agent_shadow_eval.go
+  s_fd38d0e69d159e::t_17cda8b22e1fe7 9,21-24
+db/queries/internal_test_plans.sql
+  s_fd38d0e69d159e::t_d4b6cfa1424a52 14
+  s_fd38d0e69d159e::t_eff8655f4f03d2 59-61
+  s_fd38d0e69d159e::t_478f9c13a83a19 1-13,15-58,62-71
+internal/proxy/managed_subscriptions.go
+  s_fd38d0e69d159e::t_a089cbb0f48a16 15,46-48
+internal/sqlc/internal_test_plans.sql.go
+  s_fd38d0e69d159e::t_665cacc15782d6 140-185,278
+  s_fd38d0e69d159e::t_f2caa32f88cfb0 1-139,186-277,279-283
+internal/server/server.go
+  s_fd38d0e69d159e::t_dfe4c136bcd813 262
+  s_fd38d0e69d159e::t_a7f084fdfbb8b2 124,177,181-183,234-239
+  s_fd38d0e69d159e::t_faef38bd665de5 261,267,325,357,396,417,447
+internal/billing/test_budget.go
+  s_fd38d0e69d159e::t_d4b6cfa1424a52 9-26
+  s_fd38d0e69d159e::t_9b2036001c94f6 1-8,27-30
+db/migrations/0118_internal-test-plan-launches.up.sql
+  s_fd38d0e69d159e::t_478f9c13a83a19 1-31
+internal/server/middleware/test_plan_allowance_test.go
+  s_fd38d0e69d159e::t_704e569ddd3cbd 5,12-46,86
+  s_fd38d0e69d159e::t_495ecb314f4473 1-4,6,8-11
+  s_fd38d0e69d159e::t_1929daa5fde950 7,47-85
+internal/api/openai/responses.go
+  s_fd38d0e69d159e::t_a7f084fdfbb8b2 10,36
+internal/server/session_cost_route_test.go
+  s_fd38d0e69d159e::t_b1c63cd2a8bf16 32-43
+  s_fd38d0e69d159e::t_cf106ffe00a241 9,31
+  s_fd38d0e69d159e::t_36d03699f113c4 44-45
+internal/server/middleware/serving_admission.go
+  s_fd38d0e69d159e::t_0fdf4ce98c419e 72
+  s_fd38d0e69d159e::t_d195cdcce93069 15,20,22-25,79-80
+  s_fd38d0e69d159e::t_a7f084fdfbb8b2 21
+  s_fd38d0e69d159e::t_1929daa5fde950 73-76,81
+internal/postgres/serving/test_budget.go
+  s_fd38d0e69d159e::t_d4b6cfa1424a52 13-39
+  s_fd38d0e69d159e::t_20cac0852397aa 1-12,40-53
+scripts/internal_test_plan_check/main_test.go
+  s_fd38d0e69d159e::t_e7dea4b55dcae8 28,45,47,49,51,57,91,94,100
+  s_fd38d0e69d159e::t_16e59116d5537b 8,14,23-25,30-44
+  s_fd38d0e69d159e::t_18253eebac5b09 1-7,9-13,15-22,26-27,29,46,48,50,52-56,58-79,82-90,92-93,95-99,101-106
+  s_fd38d0e69d159e::t_0aa4d3d13990e4 80-81
+internal/proxy/client_identity.go
+  s_fd38d0e69d159e::t_84eb0077ed5209 75-77
+internal/billing/service.go
+  s_fd38d0e69d159e::t_3ae69dc0fd8a7d 370-372
+internal/api/openai/completions.go
+  s_fd38d0e69d159e::t_a7f084fdfbb8b2 11,32
+internal/gateway/test_plans.go
+  s_fd38d0e69d159e::t_935ad169d94087 1-18
+docs/SERVING_CONTROL.md
+  s_fd38d0e69d159e::t_da97013ffe9020 644-683
+  s_fd38d0e69d159e::t_0fdf4ce98c419e 643
+internal/api/gemini/generate_content.go
+  s_fd38d0e69d159e::t_a7f084fdfbb8b2 13,58
+db/migrations/0118_internal-test-plan-launches.down.sql
+  s_fd38d0e69d159e::t_478f9c13a83a19 1-5
+internal/policyregistry/test_plan_gateway_test.go
+  s_fd38d0e69d159e::t_bc4e7a42e715c3 4-17,20-21,23,25-27,29-30,32,34-37,40-104
+  s_fd38d0e69d159e::t_9f6f3751697dd3 1-3,18-19,22,24,28,31,33,38-39,105
+internal/requestcontext/test_identity.go
+  s_fd38d0e69d159e::t_397f7f0399cf9d 1-4,15-18
+  s_fd38d0e69d159e::t_d4b6cfa1424a52 5-14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "94a51411bca630f96f7936f73ee03e48dc4670f8",
+  "prompts": {},
+  "sessions": {
+    "s_fd38d0e69d159e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a102ef-3cf8-74c1-bceb-b72f6b60b2d0",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

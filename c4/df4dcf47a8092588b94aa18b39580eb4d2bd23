@@ -1,0 +1,53 @@
+sidecars/task-domain/README.md
+  s_e81a08893a9ba2::t_f4d976191c6b54 114-126
+  s_e81a08893a9ba2::t_40ddd4b90deeb5 104,127-130
+sidecars/task-domain/app.py
+  s_e81a08893a9ba2::t_bf2c1f73b147db 16-23,44-45,47-61,74,78
+  s_e81a08893a9ba2::t_c10e2dbb724190 5,8,24-27,31-33,46,66-73,84,99,102-109,112,114
+sidecars/task-domain/tests/test_app.py
+  s_e81a08893a9ba2::t_6ca629a998879a 241
+  s_e81a08893a9ba2::t_e0b4aa114a9d40 8,10,23-53,55-64,90-91,93-96,104-107,110-117,119-126,128-129,131,172-191,194,196-206,209-215,218-220,224,226-227,230-235,239-240,247-248
+  s_e81a08893a9ba2::t_62ca950be543bb 54,68,86,92,100,109,136-171,195,217,237-238,243,252
+  s_e81a08893a9ba2::t_33e2eab5a877be 118,127
+  s_e81a08893a9ba2::t_041a6eb5d1493a 108
+  s_e81a08893a9ba2::t_3641f23bcd35c1 130
+  s_e81a08893a9ba2::t_147cdbb12e23ce 132-134
+  s_e81a08893a9ba2::t_8cb498ea275013 216
+internal/policyclient/task_domain_test.go
+  s_e81a08893a9ba2::t_dbd9798c90716e 8,11,64-86
+  s_e81a08893a9ba2::t_b5520560813e30 87-88
+sidecars/task-domain/tests/test_contract.py
+  s_e81a08893a9ba2::t_e0b4aa114a9d40 7,38-42
+internal/policyclient/task_domain.go
+  s_e81a08893a9ba2::t_dbd9798c90716e 13,15,63-65
+sidecars/task-domain/contract.py
+  s_e81a08893a9ba2::t_c10e2dbb724190 20-21
+sidecars/task-domain/Dockerfile
+  s_e81a08893a9ba2::t_c10e2dbb724190 7
+sidecars/task-domain/batching.py
+  s_e81a08893a9ba2::t_bf2c1f73b147db 7,9-10,22,41-76,93,95,117-118,122-125,134-135,140
+  s_e81a08893a9ba2::t_c10e2dbb724190 33
+  s_e81a08893a9ba2::t_a0ab12187a81db 1-6,8,11-16,20-21,23-32,34-38,78-92,94,96-116,119-121,126-133,136-139,141-146
+  s_e81a08893a9ba2::t_119716a77a2c32 17-19,39-40,77
+sidecars/task-domain/server.py
+  s_e81a08893a9ba2::t_bf2c1f73b147db 15,63-65
+  s_e81a08893a9ba2::t_c6debaaafc60f8 6,20-21,34,42-47,49-50,52-53,56
+internal/router/taskdomain/contracts.go
+  s_e81a08893a9ba2::t_dbd9798c90716e 26-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c4df4dcf47a8092588b94aa18b39580eb4d2bd23",
+  "prompts": {},
+  "sessions": {
+    "s_e81a08893a9ba2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9391cca-911c-46df-b82c-9f07d5d2219d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

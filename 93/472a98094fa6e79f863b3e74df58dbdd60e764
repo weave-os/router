@@ -1,0 +1,21 @@
+db/migrations/0108_telemetry-session-browse-index.down.sql
+  s_8b731208ccace1::t_be0701c174b675 1-6
+db/migrations/0108_telemetry-session-browse-index.up.sql
+  s_8b731208ccace1::t_be0701c174b675 1-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "93472a98094fa6e79f863b3e74df58dbdd60e764",
+  "prompts": {},
+  "sessions": {
+    "s_8b731208ccace1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d32ad481-8c3b-486f-88b5-d4c6cfdf3554",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

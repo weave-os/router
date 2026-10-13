@@ -1,0 +1,33 @@
+internal/translate/tool_result_coalesce_test.go
+  s_ad1a6d343b4297::t_20289718bfa232 1-176
+internal/proxy/duplicate_tool_results_test.go
+  s_ad1a6d343b4297::t_eb77ef9fed69ad 1-124
+internal/translate/tool_result_coalesce.go
+  s_ad1a6d343b4297::t_a16c5ca50ec99d 1-2,18,256
+  s_ad1a6d343b4297::t_61cd7ee6874745 3-17,19-255
+  s_ad1a6d343b4297::t_2542a8eb5f38e7 257-259
+internal/translate/tool_result_coalesce_codex_test.go
+  s_ad1a6d343b4297::t_032e230c45ea76 1-104
+internal/translate/CLAUDE.md
+  s_ad1a6d343b4297::t_218474a58ae218 74-77
+internal/proxy/service.go
+  s_ad1a6d343b4297::t_2d4ed77e69ae65 3563-3566,6591-6594
+internal/translate/AGENTS.md
+  s_ad1a6d343b4297::t_b31b969d1bb2b9 74-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d445a71c204046239e0ffb409f2e45b3843e3cd9",
+  "prompts": {},
+  "sessions": {
+    "s_ad1a6d343b4297": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "dc0a75e9-cc1d-4cf1-a253-3272c530a7f1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sam Coutts <sam@workweave.ai>"
+    }
+  }
+}

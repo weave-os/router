@@ -1,0 +1,22 @@
+internal/proxy/turnloop.go
+  s_6e53ad610c08fe::t_fcb257f5f4eef7 841-844
+internal/proxy/policy_pin_internal_test.go
+  s_6e53ad610c08fe::t_fcb257f5f4eef7 271-274,278
+  s_6e53ad610c08fe::t_79e551e794ff00 248-270,275-277,279-286
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c54f677bb174128866ca660fb86aa1f37a931afb",
+  "prompts": {},
+  "sessions": {
+    "s_6e53ad610c08fe": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10f29-b454-71c3-949d-17a38738c8b2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

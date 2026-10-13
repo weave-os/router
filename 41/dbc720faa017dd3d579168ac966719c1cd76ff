@@ -1,0 +1,21 @@
+internal/router/catalog/cost.go
+  s_4e8d6828f8e357::t_89084243a1e2ff 12-14,21
+internal/router/catalog/cost_test.go
+  s_4e8d6828f8e357::t_c41ebc3ca3799a 7,100-118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "41dbc720faa017dd3d579168ac966719c1cd76ff",
+  "prompts": {},
+  "sessions": {
+    "s_4e8d6828f8e357": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "e9c9e58d-adfb-4ffc-bcb4-0429956f160c",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+internal/sqlc/escalation_sessions.sql.go
+  s_2cdf095f803427::t_6cc2df7e5e289e 153,169,175
+db/queries/escalation_sessions.sql
+  s_2cdf095f803427::t_e9b352dd2d54e5 105,110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "86bb9644135836b762c36ef45e183effb5fdb31b",
+  "prompts": {},
+  "sessions": {
+    "s_2cdf095f803427": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ea16-2bea-7652-8478-21c9418c36ac",
+        "model": "gpt-6-astra"
+      },
+      "human_author": null
+    }
+  }
+}

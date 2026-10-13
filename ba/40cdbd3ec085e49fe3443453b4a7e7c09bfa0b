@@ -1,0 +1,32 @@
+internal/proxy/classifier_turn.go
+  s_395fcfacea68ca::t_2b7fb9237a7d89 68
+internal/proxy/classifier_tool_errors_internal_test.go
+  s_395fcfacea68ca::t_595c37f4f47677 1-65
+internal/proxy/classifier_context.go
+  s_395fcfacea68ca::t_2b7fb9237a7d89 35,79,110,114,117,122,130
+internal/translate/escalation_observation.go
+  s_395fcfacea68ca::t_2b7fb9237a7d89 55-57
+internal/translate/escalation_tool_result.go
+  s_395fcfacea68ca::t_2b7fb9237a7d89 23,27-30
+internal/translate/escalation_tool_result_test.go
+  s_395fcfacea68ca::t_2b7fb9237a7d89 20-23,27-28,50-52
+  s_395fcfacea68ca::t_726122bfd3baf0 18-19
+internal/proxy/classifier_per_call_internal_test.go
+  s_395fcfacea68ca::t_2b7fb9237a7d89 125,161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ba40cdbd3ec085e49fe3443453b4a7e7c09bfa0b",
+  "prompts": {},
+  "sessions": {
+    "s_395fcfacea68ca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bd20-5294-7431-af5a-fda13c268f77",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

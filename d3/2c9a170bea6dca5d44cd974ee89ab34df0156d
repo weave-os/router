@@ -1,0 +1,49 @@
+internal/proxy/fallback.go
+  s_54f3fae2e86b5f::t_5018b3da10382a 249-255
+  s_54f3fae2e86b5f::t_f1cfdca084d16f 256
+  s_54f3fae2e86b5f::t_b7d4afa8db8453 274
+  s_54f3fae2e86b5f::t_a3b18db38a8c25 625
+internal/proxy/service.go
+  s_54f3fae2e86b5f::t_a6652dc6e37848 4640,4642,7677,7679
+  s_54f3fae2e86b5f::t_0b5e77b1aa9c92 4641,4643-4644,7676,7678
+  s_54f3fae2e86b5f::t_d10bb233d08324 976,978,981,984,987
+  s_54f3fae2e86b5f::t_8dd21ef552dd7c 7680
+internal/proxy/subscription_state_models.go
+  s_54f3fae2e86b5f::t_c6e6ddd4e3a9c9 69-71,95,147-148,171-173,199-202
+  s_54f3fae2e86b5f::t_dcf87b53328570 233
+  s_54f3fae2e86b5f::t_cf44c636e41231 178,185,205
+  s_54f3fae2e86b5f::t_facf0252ddf2f5 120
+  s_54f3fae2e86b5f::t_fb7ea688a1ec4f 33
+  s_54f3fae2e86b5f::t_f516a1e5690ccb 112,114-115
+  s_54f3fae2e86b5f::t_61fea952ad2319 42,98,101,107-109,130,143,153-154,159-160,167-168,176-177,179-184,186-188,198,206-213,231-232,234-236
+  s_54f3fae2e86b5f::t_00337613010cfc 34-35
+  s_54f3fae2e86b5f::t_43044e7ee91dc8 61-63
+internal/proxy/subscription_state_models_internal_test.go
+  s_54f3fae2e86b5f::t_24a25f7bf87b83 88-89,124-130,138,254,264-280,282-287,289-292,294-297
+  s_54f3fae2e86b5f::t_e7b2eb067be3a9 281,288,298
+  s_54f3fae2e86b5f::t_4381a5238618b7 293
+  s_54f3fae2e86b5f::t_4267c652040713 74,76-78
+  s_54f3fae2e86b5f::t_f2c17d3604a2bf 75,90,114-116,173-180
+  s_54f3fae2e86b5f::t_8b77ccd246c433 181-182,299-300
+docs/SUBSCRIPTION_ROUTING.md
+  s_54f3fae2e86b5f::t_613656e0b922d7 31-35
+internal/proxy/dispatch_plan.go
+  s_54f3fae2e86b5f::t_4267c652040713 119-120
+  s_54f3fae2e86b5f::t_43467dd1d95859 117-118,121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d32c9a170bea6dca5d44cd974ee89ab34df0156d",
+  "prompts": {},
+  "sessions": {
+    "s_54f3fae2e86b5f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11490-fa25-73a2-84d7-c8dee0aed02d",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

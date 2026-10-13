@@ -1,0 +1,22 @@
+install/opencode-weave/README.md
+  s_7a6983f650cc20::t_e0494f50dd828d 58-61
+install/install.sh
+  s_7a6983f650cc20::t_1321590153df45 4679
+  s_7a6983f650cc20::t_661c86651002a6 965
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "08d9e78239a9cce806d5cb6016a12c3dbae7441a",
+  "prompts": {},
+  "sessions": {
+    "s_7a6983f650cc20": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8d33a3a8-6f68-469d-94ea-381659064f80",
+        "model": "grok-4.6"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

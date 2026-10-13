@@ -1,0 +1,54 @@
+cmd/router/main.go
+  s_5fd0522fa1ca82::t_6d1f9e7759ece5 684,891,931
+  s_5fd0522fa1ca82::t_b9f98f3124e7cc 681-683
+db/queries/model_router_request_telemetry.sql
+  s_5fd0522fa1ca82::t_9dcca1e99e2ab0 107-118,194-205
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_5fd0522fa1ca82::t_7ed13e2f0b8c7e 1702-1713,1789-1800,1806-1891,2000-2011,2087-2098,2178-2188
+internal/proxy/telemetry.go
+  s_5fd0522fa1ca82::t_87ba43625ce2f7 144-157,242-276
+  s_5fd0522fa1ca82::t_702a5860ad0e50 277
+internal/proxy/authority_cache_shadow_internal_test.go
+  s_5fd0522fa1ca82::t_bd6bff2e27bb27 89
+  s_5fd0522fa1ca82::t_34d03037d4b2c8 1-88,90-246
+internal/proxy/flag_resolution.go
+  s_5fd0522fa1ca82::t_22f6375d359bc9 85-90
+internal/proxy/service.go
+  s_5fd0522fa1ca82::t_df399cde324e24 3979,5973
+  s_5fd0522fa1ca82::t_fc0c084aee3338 154-158,1259,1379-1384
+  s_5fd0522fa1ca82::t_55867bdfa16e14 1385-1387
+internal/proxy/turnloop.go
+  s_5fd0522fa1ca82::t_5489e6b48d9e7e 1498
+  s_5fd0522fa1ca82::t_6a75c0b21529d9 1497
+  s_5fd0522fa1ca82::t_50597c9afaefc6 1461-1466
+  s_5fd0522fa1ca82::t_768120dee135e3 238-264,1091-1104
+  s_5fd0522fa1ca82::t_9126c2c310d059 1500,1506
+  s_5fd0522fa1ca82::t_0830e478f3796b 1420-1460,1467-1496,1499,1501-1505,1507-1509
+internal/sqlc/models.go
+  s_5fd0522fa1ca82::t_7ed13e2f0b8c7e 251-272
+db/migrations/0068_telemetry-authority-cache-shadow.down.sql
+  s_5fd0522fa1ca82::t_4cd3d386438a66 1-16
+internal/postgres/telemetry.go
+  s_5fd0522fa1ca82::t_47b558ebee8f73 88-173
+db/migrations/0068_telemetry-authority-cache-shadow.up.sql
+  s_5fd0522fa1ca82::t_4cd3d386438a66 1-64
+internal/flags/flags.go
+  s_5fd0522fa1ca82::t_22f6375d359bc9 59,177-181
+  s_5fd0522fa1ca82::t_e57f068ddbf921 182-183
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "0372f2cf44e4865eec5bde2df7998d501ecfbd43",
+  "prompts": {},
+  "sessions": {
+    "s_5fd0522fa1ca82": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "037ed040-a119-4d82-b49a-d8cb21fe393d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

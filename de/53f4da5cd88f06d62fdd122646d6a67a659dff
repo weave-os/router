@@ -1,0 +1,19 @@
+internal/policyclient/client.go
+  s_c5edd0ad29d1e4::t_92c47657c759cc 752,848-850
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "de53f4da5cd88f06d62fdd122646d6a67a659dff",
+  "prompts": {},
+  "sessions": {
+    "s_c5edd0ad29d1e4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b54a388a-4ca8-4006-b9b3-cb77b570f4b1",
+        "model": "deepseek/deepseek-v4-flash"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

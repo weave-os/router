@@ -1,0 +1,35 @@
+internal/router/escalation/escalation.go
+  s_fc12c125adae65::t_622a458b8373f5 184
+db/queries/escalation_sessions.sql
+  s_fc12c125adae65::t_622a458b8373f5 83,85,87-90,93-94
+internal/proxy/escalation_commit_internal_test.go
+  s_fc12c125adae65::t_622a458b8373f5 45,49-52
+internal/postgres/escalation_repo.go
+  s_fc12c125adae65::t_622a458b8373f5 146-156,168
+internal/proxy/escalation_internal_test.go
+  s_fc12c125adae65::t_622a458b8373f5 71
+scripts/escalation_state_check/main.go
+  s_fc12c125adae65::t_622a458b8373f5 120,130,137,229,267,312,337
+  s_fc12c125adae65::t_6fcc9434c66c9c 379-380,389-414,416,419,421,424,427
+  s_fc12c125adae65::t_3e6bcc35251138 415,417-418,420,422-423,425-426
+internal/proxy/escalation.go
+  s_fc12c125adae65::t_622a458b8373f5 81,136,183,186,225-227
+internal/sqlc/escalation_sessions.sql.go
+  s_fc12c125adae65::t_5861bf9b512edd 245,247-251,253-254,257,262-264,267,270,272-276,278-279,282,285
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "557e3153a3343656b7619010c5b69b91acc90328",
+  "prompts": {},
+  "sessions": {
+    "s_fc12c125adae65": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0872c-1993-76d1-bd9a-9a9c26a4cffb",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

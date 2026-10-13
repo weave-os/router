@@ -1,0 +1,143 @@
+internal/proxy/service.go
+  s_4a9e207784ff57::t_58f4a069203a34 7770-7785,7806
+  s_4a9e207784ff57::t_59d9d308225bbd 6715
+  s_4a9e207784ff57::t_ad00ecebec35ad 7795
+  s_4a9e207784ff57::t_a200453e3588d8 7833,7842
+  s_4a9e207784ff57::t_22bc86fe2b4ad7 7849-7850
+  s_4a9e207784ff57::t_9987d27b5a16c8 7867-7868
+  s_4a9e207784ff57::t_05414b7ebc5d18 7817-7818,7820
+  s_4a9e207784ff57::t_31ece70c08c843 7799-7800,7807-7808,7823
+  s_4a9e207784ff57::t_dc763c4f1486a4 6745-6746
+  s_4a9e207784ff57::t_1c252cd6791761 7801-7804
+  s_4a9e207784ff57::t_535e193ef58181 7834
+  s_4a9e207784ff57::t_c5d97d5ebd7114 7793-7794
+  s_4a9e207784ff57::t_58be9a710974f0 7805
+install/README.md
+  s_4a9e207784ff57::t_88363bdad9d488 530-531
+  s_4a9e207784ff57::t_d786c1a091f191 196-200
+  s_4a9e207784ff57::t_de8b11b990e45c 442-443
+internal/translate/responses.go
+  s_4a9e207784ff57::t_9f0e276aaa2a5b 766,1985
+  s_4a9e207784ff57::t_f1805fc20dbb63 805-806
+  s_4a9e207784ff57::t_be7c82afa8bcbf 808
+  s_4a9e207784ff57::t_2928141377d3e1 1978
+  s_4a9e207784ff57::t_fb4af566d99511 314,341,366,1159,1431
+  s_4a9e207784ff57::t_5e67b95739813e 310,312,315,1986
+  s_4a9e207784ff57::t_58a1e87dbab942 401
+  s_4a9e207784ff57::t_ad6bafe4b15579 763,765
+  s_4a9e207784ff57::t_98112c9509701e 320
+  s_4a9e207784ff57::t_7703774c507ec7 613
+install/opencode-weave/README.md
+  s_4a9e207784ff57::t_96259ed06f9c4e 52-54
+  s_4a9e207784ff57::t_1151935622493a 11
+  s_4a9e207784ff57::t_89719275aa4026 75-79
+install/opencode-weave/package.json
+  s_4a9e207784ff57::t_06a2c221ee6b62 5
+  s_4a9e207784ff57::t_a8ea41fead7fed 7
+  s_4a9e207784ff57::t_a60252ea5bb286 2
+.github/workflows/test.yml
+  s_4a9e207784ff57::t_a45e1b479046b2 208
+  s_4a9e207784ff57::t_f0c71ec1bed058 200-207,209-219,221,223-225
+  s_4a9e207784ff57::t_2499d70c9a8558 220
+install/pi-router/test/mock_router.py
+  s_4a9e207784ff57::t_da1474d4f952d5 2,4-5,7-9
+  s_4a9e207784ff57::t_b3cea6e08d85db 47-48
+  s_4a9e207784ff57::t_a9bfd4acd39751 50
+  s_4a9e207784ff57::t_af6c02260ff9a1 268-374
+internal/proxy/service_test.go
+  s_4a9e207784ff57::t_94b0d70d384c44 512
+  s_4a9e207784ff57::t_b9e65ff405c792 541-562
+  s_4a9e207784ff57::t_b658f13f92c7af 490-492
+  s_4a9e207784ff57::t_903862dab15a20 477
+  s_4a9e207784ff57::t_82b18111d35695 470
+  s_4a9e207784ff57::t_4029bc7f52269a 535
+install/npm/README.md
+  s_4a9e207784ff57::t_77163d8a6e31e5 133-134,136-140
+install/tests/packaging_test.sh
+  s_4a9e207784ff57::t_c62a54ea2ec2e6 110-115
+  s_4a9e207784ff57::t_89cbf6dd280318 44
+  s_4a9e207784ff57::t_096bcbedc7d3b5 150-154
+  s_4a9e207784ff57::t_18d9c257c40050 109
+internal/proxy/directive_prefix_internal_test.go
+  s_4a9e207784ff57::t_5f0b552c77780f 97-103
+install/uninstall.sh
+  s_4a9e207784ff57::t_6c08919774d119 513-514
+  s_4a9e207784ff57::t_9aed471379bdbb 537
+  s_4a9e207784ff57::t_ea14d0f756663a 506
+  s_4a9e207784ff57::t_3f7490f0d5aa9c 467-469
+  s_4a9e207784ff57::t_111dadb413d5c0 470,477-479
+  s_4a9e207784ff57::t_b9946b89c03dc1 448-449,451-454
+install/opencode-weave/src/index.ts
+  s_4a9e207784ff57::t_58bd58201d1f67 485
+  s_4a9e207784ff57::t_8d12b2e35ac5a9 434
+  s_4a9e207784ff57::t_0ebfa16d9bfbbe 361
+  s_4a9e207784ff57::t_41e00e1f2c472e 535-545
+  s_4a9e207784ff57::t_798e26f49da115 572-574
+  s_4a9e207784ff57::t_aac54aff7ab068 359-360,362-367
+  s_4a9e207784ff57::t_cadaed777604a3 47,49
+  s_4a9e207784ff57::t_66e72ebccfe30e 469
+  s_4a9e207784ff57::t_d16709cca64548 609
+  s_4a9e207784ff57::t_5c5624adc02dc2 285-288
+  s_4a9e207784ff57::t_b2969de78d40e5 393
+  s_4a9e207784ff57::t_121d5c15331f48 32-33
+  s_4a9e207784ff57::t_0a5562e77481ff 417-419
+Makefile
+  s_4a9e207784ff57::t_95f851d2a94bc7 62
+README.md
+  s_4a9e207784ff57::t_de1efa50eac69f 204-209
+install/opencode-weave/test/capture.test.ts
+  s_4a9e207784ff57::t_5f509f0a57e887 180-208
+  s_4a9e207784ff57::t_d66651c7d4da6e 166-179
+  s_4a9e207784ff57::t_01653883e68e7b 257-277
+install/install.sh
+  s_4a9e207784ff57::t_7ad9c65768d0ee 11
+  s_4a9e207784ff57::t_d618d5325e5435 1024-1025
+  s_4a9e207784ff57::t_0e4e47ac43fab7 1072
+  s_4a9e207784ff57::t_b38fcc608b6fe2 2677-2681
+  s_4a9e207784ff57::t_44b06d8d2ed71f 4649
+  s_4a9e207784ff57::t_ded0522de06258 4674
+  s_4a9e207784ff57::t_3c1728a9b5771b 4631-4632
+  s_4a9e207784ff57::t_28c49ce127f96f 946-948
+  s_4a9e207784ff57::t_a1621b40ddd598 12-14
+  s_4a9e207784ff57::t_003f9e1159b3ac 968-974
+  s_4a9e207784ff57::t_37333e2fc2e2bb 1022-1023,1026-1040
+  s_4a9e207784ff57::t_2253f3b77c5432 124-126
+  s_4a9e207784ff57::t_3757907de35a26 1043-1044
+  s_4a9e207784ff57::t_cca0e53fb8410b 2632,2639-2643,2645,2665-2667,2669-2673,2685-2687,2689-2690,2692,2694,2697,2699,2702-2706
+install/tests/opencode_install_test.sh
+  s_4a9e207784ff57::t_f2f970450a8aac 1-90
+internal/translate/responses_codex.go
+  s_4a9e207784ff57::t_ed2133c932b55a 449,472
+.github/workflows/publish_npm.yml
+  s_4a9e207784ff57::t_e86ab0d35543f6 67,69-71
+  s_4a9e207784ff57::t_7f74282fc9c078 68
+  s_4a9e207784ff57::t_47e00b4bc8ef00 72-79
+.github/workflows/check_non_go.yml
+  s_4a9e207784ff57::t_6697464668ae30 64
+  s_4a9e207784ff57::t_d06395c026654c 62,65-68,74
+  s_4a9e207784ff57::t_739fca8fcb4407 63
+internal/proxy/client_identity.go
+  s_4a9e207784ff57::t_7a10147aed74bc 191-194
+install/pi-router/test/opencode_smoke.sh
+  s_4a9e207784ff57::t_66566d0a8de9a9 57-58
+  s_4a9e207784ff57::t_c501e72e12a7d1 5-7
+  s_4a9e207784ff57::t_1c444e76500939 72-74,77
+install/opencode-weave/package-lock.json
+  s_4a9e207784ff57::t_9ec4ab0170a6f0 2,7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "41364b79b9bebbd883c1068f92af055213239d4d",
+  "prompts": {},
+  "sessions": {
+    "s_4a9e207784ff57": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f5f86a39-06ab-4a77-9015-a88abf0943e8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+install/install.sh
+  s_8b731208ccace1::t_4aa4ce0a1b9570 5934-5938
+  s_8b731208ccace1::t_d45b507bd07e9d 2505
+  s_8b731208ccace1::t_5673d423064850 2511
+install/tests/context_window_test.sh
+  s_8b731208ccace1::t_d744acf8879341 58-68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9093923187e9a199413a6b7b8bf00f758230b59e",
+  "prompts": {},
+  "sessions": {
+    "s_8b731208ccace1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d32ad481-8c3b-486f-88b5-d4c6cfdf3554",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

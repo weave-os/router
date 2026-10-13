@@ -1,0 +1,75 @@
+internal/postgres/repository.go
+  s_ca417744b2c4cd::t_6e8285ca2fe29e 224-243
+internal/sqlc/model_router_installations.sql.go
+  s_ca417744b2c4cd::t_9ab7f02bbc6465 25,46,74,80,94,126,132,141,179,314-341,346
+  s_ca417744b2c4cd::t_17dcc62bc46b12 342-345,347
+internal/auth/installation.go
+  s_ca417744b2c4cd::t_9059863d5379a7 121-123
+  s_ca417744b2c4cd::t_319ca396d334be 80-85
+internal/proxy/gemini.go
+  s_ca417744b2c4cd::t_eb83449c54c1ab 142,212
+  s_ca417744b2c4cd::t_4e23833c6fcdbd 219
+db/migrations/0055_installation-hide-terminal-surfaces.down.sql
+  s_ca417744b2c4cd::t_a1f3a9a37874ac 1-6
+internal/proxy/feedback.go
+  s_ca417744b2c4cd::t_1631980750154e 207-210
+  s_ca417744b2c4cd::t_670c6bb2a44fd7 166-172
+db/migrations/0055_installation-hide-terminal-surfaces.up.sql
+  s_ca417744b2c4cd::t_5618d3e65dc509 1-13
+db/queries/model_router_installations.sql
+  s_ca417744b2c4cd::t_f34768f09eec4b 105-116
+internal/sqlc/model_router_api_keys.sql.go
+  s_ca417744b2c4cd::t_9ab7f02bbc6465 105,124,171
+internal/server/middleware/auth_test.go
+  s_ca417744b2c4cd::t_5f6c2562253907 133-135
+install/cc-statusline.sh
+  s_ca417744b2c4cd::t_bdfdc235014962 280-344
+internal/proxy/marker_optout_internal_test.go
+  s_ca417744b2c4cd::t_7341cbcf464d58 4,38,42-54
+  s_ca417744b2c4cd::t_bac5ea6e24901d 55
+internal/sqlc/models.go
+  s_ca417744b2c4cd::t_9ab7f02bbc6465 123-124
+internal/auth/service.go
+  s_ca417744b2c4cd::t_6263c872820ec9 444-455
+internal/api/admin/display_settings_test.go
+  s_ca417744b2c4cd::t_c48f87221f4cae 1-51
+internal/server/middleware/auth.go
+  s_ca417744b2c4cd::t_6de0033ce9aebd 133-135
+internal/postgres/converters.go
+  s_ca417744b2c4cd::t_811c74dd58ea62 51
+internal/server/server.go
+  s_ca417744b2c4cd::t_317985666cd7f5 228-231
+internal/proxy/feedback_footer_internal_test.go
+  s_ca417744b2c4cd::t_7f5f581dfd12da 36-39
+  s_ca417744b2c4cd::t_1aca1908a34c1c 21,29,34,48,60
+  s_ca417744b2c4cd::t_747e80f898c6bf 35
+install/install.sh
+  s_ca417744b2c4cd::t_f76ecb9369ccfe 3073-3137
+internal/proxy/service.go
+  s_ca417744b2c4cd::t_f805738b1d6ce3 381-387
+  s_ca417744b2c4cd::t_4e23833c6fcdbd 2786,3105,3224,4996,5026
+  s_ca417744b2c4cd::t_eb83449c54c1ab 2642,2750,4904,4988
+  s_ca417744b2c4cd::t_6918effb1647af 629-636
+  s_ca417744b2c4cd::t_e310b3d3d1f9af 448-454
+internal/auth/service_test.go
+  s_ca417744b2c4cd::t_fa897c9556d4f1 223-232
+  s_ca417744b2c4cd::t_48cd31ac4b8399 146
+internal/api/admin/display_settings.go
+  s_ca417744b2c4cd::t_cfae0ff087ca3b 1-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "a457f5da0c5c00980058891842fd45bd0a1de9da",
+  "prompts": {},
+  "sessions": {
+    "s_ca417744b2c4cd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "88a49ec3-fb5d-4217-8792-c09695a9c6af",
+        "model": "moonshotai/kimi-k3"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

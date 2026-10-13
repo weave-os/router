@@ -1,0 +1,30 @@
+install/tests/codex-status_test.sh
+  s_99a26d7f7deb6c::t_bf5d2f41d8e03e 34-44,63-68
+install/codex-status.sh
+  s_99a26d7f7deb6c::t_f386cc8b2391e1 124-125
+  s_99a26d7f7deb6c::t_93c805b9ee5855 118-119
+  s_99a26d7f7deb6c::t_1fbfba7298e17f 16
+  s_99a26d7f7deb6c::t_3a6aeac1a995b5 120-123,126-138
+install/install.sh
+  s_99a26d7f7deb6c::t_c8ed95aabf7e11 3299-3301
+  s_99a26d7f7deb6c::t_bee9a90b0158ed 3298
+  s_99a26d7f7deb6c::t_b6c2984d8ea620 3115-3118
+  s_99a26d7f7deb6c::t_1ea8dce4ba7942 3122
+  s_99a26d7f7deb6c::t_066ce933b311f2 3142,3244-3264
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "69cfaa6bc9cd8aadedd289559b61a7beb630cbbb",
+  "prompts": {},
+  "sessions": {
+    "s_99a26d7f7deb6c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6a458e13-f54a-43f2-8dcb-023370249ea7",
+        "model": "claude-opus-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

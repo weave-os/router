@@ -1,0 +1,37 @@
+internal/translate/emit_anthropic.go
+  s_a5df84e074129c::t_a304a33f2e1053 833-841,843
+  s_a5df84e074129c::t_b1557fcdac4f29 125-127,154-156,867-869,872
+  s_a5df84e074129c::t_ad9fe6b6e62005 157
+  s_a5df84e074129c::t_cdbc02ee8894bb 870-871
+  s_a5df84e074129c::t_b2b8171e9bdfcb 873-875
+docs/SMOKE.md
+  s_a5df84e074129c::t_8f27258f2d2182 114-119,131
+smoke/mitmproxy/cassettes/2cfeec0f8905c8d5919374626199233271b00502e480f2dcf186b2eb58d4b982.json
+  s_a5df84e074129c::t_dcf4b5a478f20d 1-18
+smoke/tool_delta_test.go
+  s_a5df84e074129c::t_7e9d2fc030b98f 37,41
+  s_a5df84e074129c::t_d3c48744775eb1 1-36,38-40,42-49
+internal/translate/emit_anthropic_system_only_blocks_test.go
+  s_a5df84e074129c::t_a304a33f2e1053 49,54-56,122-125
+  s_a5df84e074129c::t_b84f52290685e1 7,126-160
+internal/translate/passthrough.go
+  s_a5df84e074129c::t_b1557fcdac4f29 25,30-35,42-47
+internal/proxy/service.go
+  s_a5df84e074129c::t_c6a078f7c56369 2868,2871
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "468fbde2edc1c8b7cbb364b2e3198866917b9a8d",
+  "prompts": {},
+  "sessions": {
+    "s_a5df84e074129c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0aba2-3139-7511-a0e2-268a9329d5fa",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

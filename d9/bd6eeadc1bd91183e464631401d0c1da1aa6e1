@@ -1,0 +1,26 @@
+internal/proxy/AGENTS.md
+  s_fbb2a600456c7f::t_cba27f96063906 71-73
+internal/proxy/CLAUDE.md
+  s_fbb2a600456c7f::t_cba27f96063906 71-73
+cmd/router/main.go
+  s_fbb2a600456c7f::t_585540e24de376 948
+  s_fbb2a600456c7f::t_a1053d32c46c6c 1436-1452
+cmd/router/routable_models_test.go
+  s_fbb2a600456c7f::t_29e9c8a75c90f6 1-34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "d9bd6eeadc1bd91183e464631401d0c1da1aa6e1",
+  "prompts": {},
+  "sessions": {
+    "s_fbb2a600456c7f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8086e78c-443c-4f17-9403-bd977911194e",
+        "model": "grok-4.6"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

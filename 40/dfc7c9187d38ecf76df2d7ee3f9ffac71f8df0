@@ -1,0 +1,23 @@
+install/tests/registry_test.sh
+  s_787cf7fc928eb8::t_275bfa9f7dddde 32
+install/tests/packaging_test.sh
+  s_787cf7fc928eb8::t_275bfa9f7dddde 119
+install/tests/key_reuse_test.sh
+  s_787cf7fc928eb8::t_275bfa9f7dddde 24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "40dfc7c9187d38ecf76df2d7ee3f9ffac71f8df0",
+  "prompts": {},
+  "sessions": {
+    "s_787cf7fc928eb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11340-f757-7f13-811d-6144d7b9238b",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

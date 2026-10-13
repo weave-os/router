@@ -1,0 +1,22 @@
+internal/server/middleware/direct_admission.go
+  s_1639860e28960e::t_2e9ceb252f4798 53,70-82
+  s_1639860e28960e::t_8de701e73c658b 83-84
+internal/server/middleware/serving_admission_test.go
+  s_1639860e28960e::t_466f3da37ce588 144-150
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8ef36370a7217c3b210ff6fa47e55acce34d0cc5",
+  "prompts": {},
+  "sessions": {
+    "s_1639860e28960e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a112b1-c802-7021-b4cd-dfec74516f39",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

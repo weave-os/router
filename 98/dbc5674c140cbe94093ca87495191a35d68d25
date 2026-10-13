@@ -1,0 +1,25 @@
+install/cc-statusline.sh
+  s_5f31ec9147a0ee::t_f5e4d1e8b3a6ba 824,835,854,856
+.github/workflows/weave-checks.yml
+  s_5f31ec9147a0ee::t_f5e4d1e8b3a6ba 11
+install/tests/cc-statusline_test.sh
+  s_5f31ec9147a0ee::t_7a0b87139554fc 245-270
+install/install.sh
+  s_5f31ec9147a0ee::t_f5e4d1e8b3a6ba 6008,6019,6038,6040
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "98dbc5674c140cbe94093ca87495191a35d68d25",
+  "prompts": {},
+  "sessions": {
+    "s_5f31ec9147a0ee": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ead5-be69-7b21-9f07-9f8f1ea322ff",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

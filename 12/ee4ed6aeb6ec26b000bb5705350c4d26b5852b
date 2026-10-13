@@ -1,0 +1,61 @@
+internal/proxy/gemini.go
+  s_2102d669460bb3::t_c83b7af47855f1 189
+internal/sqlc/models.go
+  s_2102d669460bb3::t_c83b7af47855f1 1011-1017
+internal/proxy/arm_demotion.go
+  s_2102d669460bb3::t_c83b7af47855f1 131-134,146-152
+  s_2102d669460bb3::t_772e01ba4e3197 77-79,321-322
+  s_2102d669460bb3::t_feff753ce17424 153-154
+internal/proxy/rate_limit_cooldown.go
+  s_2102d669460bb3::t_f70e2f2a7c85dc 16-17,25-26
+db/queries/session_pin_recovery_probe_leases.sql
+  s_2102d669460bb3::t_c83b7af47855f1 1-23
+internal/router/sessionpin/store.go
+  s_2102d669460bb3::t_c83b7af47855f1 140-143,235-241
+  s_2102d669460bb3::t_0fd39a940367c2 242
+internal/proxy/flag_resolution.go
+  s_2102d669460bb3::t_29ecc27356c2cb 172,180-182
+internal/proxy/two_model_recovery_internal_test.go
+  s_2102d669460bb3::t_6dc47345420256 51-53,55-65
+  s_2102d669460bb3::t_4728c5e585fd15 54
+  s_2102d669460bb3::t_c83b7af47855f1 1-50,66-168
+internal/proxy/turnloop.go
+  s_2102d669460bb3::t_c83b7af47855f1 8,316-318,335-342,1263-1267,1272-1277,1279-1282
+  s_2102d669460bb3::t_5bd24f9b3f6cf8 1278
+internal/postgres/session_pin_repo.go
+  s_2102d669460bb3::t_c83b7af47855f1 10,31,215-234,237-240
+internal/proxy/AGENTS.md
+  s_2102d669460bb3::t_c83b7af47855f1 88-100
+internal/proxy/service.go
+  s_2102d669460bb3::t_c83b7af47855f1 67-70,1887-1946,3873,7000
+  s_2102d669460bb3::t_70328dc76fb702 1877-1879
+db/migrations/20261009024142_session-pin-recovery-probe-leases.up.sql
+  s_2102d669460bb3::t_c83b7af47855f1 1-16
+internal/proxy/recovery_policy_acceptance_internal_test.go
+  s_2102d669460bb3::t_c83b7af47855f1 1-222
+internal/proxy/rate_limit_cooldown_internal_test.go
+  s_2102d669460bb3::t_c83b7af47855f1 115-116,135-149
+  s_2102d669460bb3::t_03b09c34764fb1 150-152
+internal/sqlc/session_pin_recovery_probe_leases.sql.go
+  s_2102d669460bb3::t_c83b7af47855f1 1-91
+internal/proxy/CLAUDE.md
+  s_2102d669460bb3::t_c83b7af47855f1 88-100
+db/migrations/20261009024142_session-pin-recovery-probe-leases.down.sql
+  s_2102d669460bb3::t_c83b7af47855f1 1-5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "12ee4ed6aeb6ec26b000bb5705350c4d26b5852b",
+  "prompts": {},
+  "sessions": {
+    "s_2102d669460bb3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11d97-ceda-7c71-a7ef-6f5185962c3b",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

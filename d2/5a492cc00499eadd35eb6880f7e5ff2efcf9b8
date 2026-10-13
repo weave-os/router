@@ -1,0 +1,19 @@
+internal/proxy/service.go
+  s_db5ceb4c1961e2::t_6456411ae051e2 1264
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d25a492cc00499eadd35eb6880f7e5ff2efcf9b8",
+  "prompts": {},
+  "sessions": {
+    "s_db5ceb4c1961e2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e45a-e201-77e1-af77-0fbe381aa81f",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

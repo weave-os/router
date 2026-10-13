@@ -1,0 +1,20 @@
+internal/proxy/service.go
+  s_b40f812e11f9a2::t_174872a5e81f53 373-375
+  s_b40f812e11f9a2::t_89f3c33ace8641 5570-5571
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "e26bf2c1f71836701e0ef7140f9191b2737ae3ed",
+  "prompts": {},
+  "sessions": {
+    "s_b40f812e11f9a2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "be376180-8312-42f8-a2e9-87f208750c73",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,45 @@
+internal/router/model_test.go
+  s_9fefea60b06ca2::t_afdcbd95438ab7 31,46-53
+  s_9fefea60b06ca2::t_09ed5ff4cfb909 54
+install/cc-statusline.sh
+  s_9fefea60b06ca2::t_116f443b1b96ed 513,594,675
+internal/router/catalog/catalog.go
+  s_9fefea60b06ca2::t_afdcbd95438ab7 363-369
+install/install.sh
+  s_9fefea60b06ca2::t_21aa6c411aa607 906
+  s_9fefea60b06ca2::t_116f443b1b96ed 4502,4583,4664
+internal/router/model.go
+  s_9fefea60b06ca2::t_afdcbd95438ab7 135-136,176
+  s_9fefea60b06ca2::t_512da8ebbc58db 177
+internal/router/catalog/catalog_test.go
+  s_9fefea60b06ca2::t_afdcbd95438ab7 177-198,353
+internal/observability/otel/pricing_test.go
+  s_9fefea60b06ca2::t_afdcbd95438ab7 30
+internal/providers/openai/codex_internal_test.go
+  s_9fefea60b06ca2::t_afdcbd95438ab7 191-230
+internal/providers/openai/client.go
+  s_9fefea60b06ca2::t_afdcbd95438ab7 12,44-46,50-52,288
+internal/proxy/force_model.go
+  s_9fefea60b06ca2::t_afdcbd95438ab7 90-93
+  s_9fefea60b06ca2::t_116f443b1b96ed 88-89
+internal/proxy/force_model_internal_test.go
+  s_9fefea60b06ca2::t_afdcbd95438ab7 159,161,163,165-167,183,185,187
+install/pi-router/src/pricing.generated.ts
+  s_9fefea60b06ca2::t_cb8ebac6cdcea6 10,66
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d27cc72191de3970425b26eaa543846394fc3535",
+  "prompts": {},
+  "sessions": {
+    "s_9fefea60b06ca2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06914-2a0c-7201-b07a-5dce404de9a7",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

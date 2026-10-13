@@ -1,0 +1,35 @@
+internal/router/catalog/AGENTS.md
+  s_b496684bf00a71::t_f8e3cca2e37c57 15
+internal/translate/usage_sink.go
+  s_b496684bf00a71::t_f8e3cca2e37c57 25-28,30-35
+internal/observability/otel/usage_modifiers_test.go
+  s_b496684bf00a71::t_f8e3cca2e37c57 75
+internal/proxy/cost_response.go
+  s_b496684bf00a71::t_f8e3cca2e37c57 12,199-203
+internal/observability/otel/usage.go
+  s_b496684bf00a71::t_f8e3cca2e37c57 582-583,586-587
+internal/proxy/cost_response_test.go
+  s_b496684bf00a71::t_f8e3cca2e37c57 237-238,246,253,264-265,273
+internal/proxy/fastmode_internal_test.go
+  s_b496684bf00a71::t_f8e3cca2e37c57 143-144,158-159,173-174
+internal/router/catalog/cost.go
+  s_b496684bf00a71::t_f8e3cca2e37c57 11,20,29,34,41,43-44,46,52,54
+internal/router/catalog/CLAUDE.md
+  s_b496684bf00a71::t_f8e3cca2e37c57 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "50dda7b1398121b8516c941801cd0702463c5a53",
+  "prompts": {},
+  "sessions": {
+    "s_b496684bf00a71": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2a29c49f-7977-4c38-a5da-39e02609d972",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

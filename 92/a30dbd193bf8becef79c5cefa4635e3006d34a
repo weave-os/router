@@ -1,0 +1,24 @@
+internal/proxy/service.go
+  s_05332cfebfc6c9::t_de2dac266a63f5 4676
+  s_05332cfebfc6c9::t_d39af8278992e2 1628
+internal/observability/safego.go
+  s_05332cfebfc6c9::t_15eb678f5cfd16 36-39
+cmd/router/main.go
+  s_05332cfebfc6c9::t_36551da3c1490a 1026-1029
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "92a30dbd193bf8becef79c5cefa4635e3006d34a",
+  "prompts": {},
+  "sessions": {
+    "s_05332cfebfc6c9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "85913535-0f0d-42ed-bbe1-807f1beee73e",
+        "model": "deepseek/deepseek-v4-flash"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

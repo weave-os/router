@@ -1,0 +1,23 @@
+install/codex-directive.sh
+  s_049874a7166f8d::t_8ac1db19db1ae5 138,140-141,146-151
+install/install.sh
+  s_049874a7166f8d::t_b76ad3ee02df81 4155,4157-4158,4163-4168
+install/tests/codex-directive_test.sh
+  s_049874a7166f8d::t_b76ad3ee02df81 257-269
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "439bc7feebf7918c57b9f655fd1b6070a5966684",
+  "prompts": {},
+  "sessions": {
+    "s_049874a7166f8d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7b6a9f0a-cd46-4fd9-942c-7daea97cec2a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

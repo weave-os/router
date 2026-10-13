@@ -1,0 +1,70 @@
+db/queries/model_router_subscription_accounts.sql
+  s_1329d82a6b5096::t_f8691446c7ab3d 1-25
+db/migrations/0072_subscription-accounts.up.sql
+  s_1329d82a6b5096::t_f8691446c7ab3d 1-16
+internal/server/server.go
+  s_1329d82a6b5096::t_7743105da31cf4 18,142-145
+internal/subscriptions/pkce.go
+  s_1329d82a6b5096::t_fe24f4e3c28c05 1-46
+internal/subscriptions/pool.go
+  s_1329d82a6b5096::t_9157079de997f7 49-50,68-70,75-76,90,95,147-149
+  s_1329d82a6b5096::t_e10f7e493a3216 186,193-199
+  s_1329d82a6b5096::t_818cf846faf272 1-48,51-67,71-74,77-89,91-94,96-112,128-146,150-162,164-185,187-192,200-261
+  s_1329d82a6b5096::t_9643157952a841 113-127,163
+internal/subscriptions/pool_test.go
+  s_1329d82a6b5096::t_66d7a82b3203c2 62
+  s_1329d82a6b5096::t_818cf846faf272 1-14,19-27,29-53,55-61,80-83
+  s_1329d82a6b5096::t_9157079de997f7 15,17-18,28,54
+  s_1329d82a6b5096::t_00bf582916e881 16
+  s_1329d82a6b5096::t_9643157952a841 63-79
+internal/sqlc/models.go
+  s_1329d82a6b5096::t_a520f446c1bf0c 283-292
+  s_1329d82a6b5096::t_40afa6108ae8c7 293-294
+internal/sqlc/model_router_subscription_accounts.sql.go
+  s_1329d82a6b5096::t_5cd89f9b27a0f7 3
+  s_1329d82a6b5096::t_a520f446c1bf0c 1-2,4-158
+internal/postgres/subscription_repo.go
+  s_1329d82a6b5096::t_ca4c614d5a9f09 1-102
+internal/subscriptions/pkce_test.go
+  s_1329d82a6b5096::t_fe24f4e3c28c05 1-17
+internal/auth/subscription.go
+  s_1329d82a6b5096::t_f8691446c7ab3d 1-22,31-82,98-114
+  s_1329d82a6b5096::t_7bfc640240bfe1 83-97
+  s_1329d82a6b5096::t_02073c00e81fa9 23-30
+install/install.sh
+  s_1329d82a6b5096::t_fe237a5f68a2e5 38
+  s_1329d82a6b5096::t_db3ac50fbd38e4 1118,1135,1147-1149,1184-1198
+  s_1329d82a6b5096::t_dadfa8d3177776 1199
+install/npm/README.md
+  s_1329d82a6b5096::t_db3ac50fbd38e4 9
+db/migrations/0072_subscription-accounts.down.sql
+  s_1329d82a6b5096::t_f8691446c7ab3d 1
+cmd/router/main.go
+  s_1329d82a6b5096::t_fe237a5f68a2e5 479-484
+internal/api/subscriptions/accounts.go
+  s_1329d82a6b5096::t_7743105da31cf4 1-15,17,22-25,28-125
+  s_1329d82a6b5096::t_039e9e3c2f778a 16,18-21,26-27
+internal/auth/service.go
+  s_1329d82a6b5096::t_da5112f70a43be 74,102-105
+  s_1329d82a6b5096::t_8117cc7f5596c2 106-107
+docs/CONFIGURATION.md
+  s_1329d82a6b5096::t_4afb1109387591 37
+internal/postgres/repository.go
+  s_1329d82a6b5096::t_02073c00e81fa9 25,41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "6407d129eda5036fba4dece2d3afab3a68dfd7e0",
+  "prompts": {},
+  "sessions": {
+    "s_1329d82a6b5096": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06411-d06e-7bf2-a146-148e786307ea",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

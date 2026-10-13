@@ -1,0 +1,19 @@
+install/README.md
+  s_d9150db9a39f31::t_dbd20ebfa825bb 117-158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cd67f826437448f79516593d576547c2528882ac",
+  "prompts": {},
+  "sessions": {
+    "s_d9150db9a39f31": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a117cd-cd1f-76a0-9b7b-1bf3bdbbb42c",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Wesley Lin <wesley@workweave.ai>"
+    }
+  }
+}

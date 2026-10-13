@@ -1,0 +1,40 @@
+internal/proxy/openai_cyber_refusal_integration_test.go
+  s_6e53ad610c08fe::t_d716d068b2ba22 22,169-200
+  s_6e53ad610c08fe::t_dc6b6d54ab8198 201-202
+docs/CONFIGURATION.md
+  s_6e53ad610c08fe::t_70fdccbcb0afb7 475,665
+internal/proxy/codex_title_gen_internal_test.go
+  s_6e53ad610c08fe::t_5ecbc6765a2643 11,15,24,29,34,72,104,136
+internal/proxy/surface_purpose_test.go
+  s_6e53ad610c08fe::t_5ecbc6765a2643 256
+  s_6e53ad610c08fe::t_d716d068b2ba22 237
+  s_6e53ad610c08fe::t_2dd989f4cad437 14
+  s_6e53ad610c08fe::t_3578860ab1e4d1 20,206-236,238-255,257-265
+internal/proxy/service.go
+  s_6e53ad610c08fe::t_5ecbc6765a2643 706,853,862
+docs/INFERENCE_BOUNDARY.md
+  s_6e53ad610c08fe::t_5ecbc6765a2643 24
+internal/proxy/turnloop.go
+  s_6e53ad610c08fe::t_fbf548b8cad1ef 891-893,902,937
+  s_6e53ad610c08fe::t_5ecbc6765a2643 936
+internal/proxy/utility_selection_internal_test.go
+  s_6e53ad610c08fe::t_3578860ab1e4d1 115-116,121-135,138-147
+  s_6e53ad610c08fe::t_2dd989f4cad437 136-137
+  s_6e53ad610c08fe::t_db01f67310ede2 148-150
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8e3df92064dc00a6c02a6a99bcd62d774619294b",
+  "prompts": {},
+  "sessions": {
+    "s_6e53ad610c08fe": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10f29-b454-71c3-949d-17a38738c8b2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

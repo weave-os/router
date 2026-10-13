@@ -1,0 +1,19 @@
+internal/translate/responses.go
+  s_9febe1691bb1a5::t_39f87b9623d88a 564-566
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "dde408d7c44113449fb825985c9e74130aaeb00f",
+  "prompts": {},
+  "sessions": {
+    "s_9febe1691bb1a5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "86b75021-2a22-4cc1-90b9-40ee66b5fea8",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

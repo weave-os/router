@@ -1,0 +1,19 @@
+internal/proxy/cluster_overrides.go
+  s_2f40bb97923467::t_6529ff04cd963e 3-7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "7f2d4f0bafa7eae76ed72d5114b1da0a56faab7d",
+  "prompts": {},
+  "sessions": {
+    "s_2f40bb97923467": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "94fcecb7-2f4d-43f6-bda6-f33d59ff2276",
+        "model": "moonshotai/kimi-k3"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

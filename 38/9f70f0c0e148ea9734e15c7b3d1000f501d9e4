@@ -1,0 +1,23 @@
+cmd/router/local_inspection_test.go
+  s_8e5cb81a307766::t_5bb1f8f3e0fba8 56-57
+internal/providers/httputil/httputil.go
+  s_8e5cb81a307766::t_1aa8eacfc16eeb 251-253
+cmd/router/local_inspection.go
+  s_8e5cb81a307766::t_20df73b8db0abd 44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "389f70f0c0e148ea9734e15c7b3d1000f501d9e4",
+  "prompts": {},
+  "sessions": {
+    "s_8e5cb81a307766": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f350-587f-7920-bdb8-646b9ea2d8bd",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

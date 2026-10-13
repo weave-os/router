@@ -1,0 +1,19 @@
+internal/translate/openai_cache_usage.go
+  s_00fc0f6bc93aab::t_3f603832cf7032 6-7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "f161a62845dd96be6eb74a9e3b65867781e795f3",
+  "prompts": {},
+  "sessions": {
+    "s_00fc0f6bc93aab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "58323feb-e361-4f8d-af85-d7bedfa2cf15",
+        "model": "grok-4.6"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

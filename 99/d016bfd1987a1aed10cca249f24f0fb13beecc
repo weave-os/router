@@ -1,0 +1,35 @@
+internal/translate/responses_codex.go
+  s_6e776831a9cc94::t_8108cdfda1a931 48-54,61-83,99-132
+  s_6e776831a9cc94::t_2a1417066607b7 55-60,84-98
+  s_6e776831a9cc94::t_cb8f658e4302c8 169
+internal/translate/responses.go
+  s_6e776831a9cc94::t_1a83fbb0b3fcfa 35-37
+  s_6e776831a9cc94::t_89ac42522434a3 32-34
+internal/proxy/service.go
+  s_6e776831a9cc94::t_a8fc79b21b3eb6 623-625
+  s_6e776831a9cc94::t_d8f4e701ad26ef 445-448
+  s_6e776831a9cc94::t_fd7496f944e375 6734-6736
+  s_6e776831a9cc94::t_73f6f8c79da13e 5758-5760,5763
+internal/translate/router_feedback_test.go
+  s_6e776831a9cc94::t_83e2acd8e61359 391
+  s_6e776831a9cc94::t_f6fa4de2bb5de9 387-390,393-413
+  s_6e776831a9cc94::t_de95f7ad8855d1 392
+internal/proxy/marker_internal_test.go
+  s_6e776831a9cc94::t_edd977c35f7acc 441-448
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "99d016bfd1987a1aed10cca249f24f0fb13beecc",
+  "prompts": {},
+  "sessions": {
+    "s_6e776831a9cc94": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "996189e8-562a-4cd9-8ae8-5b11917a80c9",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

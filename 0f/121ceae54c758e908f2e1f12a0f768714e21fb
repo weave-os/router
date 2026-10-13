@@ -1,0 +1,43 @@
+internal/api/openai/responses.go
+  s_3724c1d4ec4b89::t_89d0ced5ecfa4c 40
+internal/router/catalog/catalog.go
+  s_3724c1d4ec4b89::t_89d0ced5ecfa4c 173
+  s_3724c1d4ec4b89::t_c99167b4f1b9b1 172,174-175
+internal/auth/routing_policy.go
+  s_3724c1d4ec4b89::t_89d0ced5ecfa4c 85,110,119,131,140
+  s_3724c1d4ec4b89::t_e21f1c78e70efe 93-96,148
+internal/proxy/service.go
+  s_3724c1d4ec4b89::t_e21f1c78e70efe 7421,7428
+internal/api/gemini/generate_content.go
+  s_3724c1d4ec4b89::t_89d0ced5ecfa4c 62
+internal/api/anthropic/messages.go
+  s_3724c1d4ec4b89::t_89d0ced5ecfa4c 61
+internal/auth/routing_policy_test.go
+  s_3724c1d4ec4b89::t_89d0ced5ecfa4c 208-228
+  s_3724c1d4ec4b89::t_e21f1c78e70efe 125-126,132-174
+internal/postgres/routing_policy_repo.go
+  s_3724c1d4ec4b89::t_89d0ced5ecfa4c 18,22
+internal/api/openai/completions.go
+  s_3724c1d4ec4b89::t_89d0ced5ecfa4c 36
+internal/proxy/routing_policy_internal_test.go
+  s_3724c1d4ec4b89::t_89d0ced5ecfa4c 17,46,54,58,71,80,83
+internal/proxy/subscription_failover_parity_internal_test.go
+  s_3724c1d4ec4b89::t_973cbe70c53207 572,575-576,734-785
+  s_3724c1d4ec4b89::t_6ebe5638b9e906 786-787
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0f121ceae54c758e908f2e1f12a0f768714e21fb",
+  "prompts": {},
+  "sessions": {
+    "s_3724c1d4ec4b89": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e527-9a19-7141-92ed-476c3d2ffaac",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+install/cc-statusline.sh
+  s_527111cf8ce1b4::t_3d5ccafe692259 939
+install/tests/codex_install_test.sh
+  s_527111cf8ce1b4::t_3d5ccafe692259 311
+install/install.sh
+  s_527111cf8ce1b4::t_168e783f4cfce1 6350
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3b3060108a2dc6978659e56b7b1f39f7a3470bdf",
+  "prompts": {},
+  "sessions": {
+    "s_527111cf8ce1b4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a117b4-a8de-70d0-9d4b-4f1c0d2f682e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Wesley Lin <wesley@workweave.ai>"
+    }
+  }
+}

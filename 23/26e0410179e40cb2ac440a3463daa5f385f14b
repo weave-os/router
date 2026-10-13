@@ -1,0 +1,35 @@
+scripts/serving_admission_check/main_test.go
+  s_94b2e4e59b0016::t_3ea455159a1df5 9,14,16-17,42-83
+  s_94b2e4e59b0016::t_95813c2a92ce27 84-85
+internal/postgres/escalation_dashboard.go
+  s_94b2e4e59b0016::t_ede731d35904c1 28-29,32-35,38
+internal/postgres/poolconfig/timeouts.go
+  s_94b2e4e59b0016::t_ede731d35904c1 6-7
+internal/postgres/dbbudget/budget.go
+  s_94b2e4e59b0016::t_ac4b1d1a0e72d2 18-19,27-35,43-47,49,55,65,70,82,86,98,131,135,141,151,156,162
+scripts/database_budget_check/main.go
+  s_94b2e4e59b0016::t_2afb23efd11d2e 174-181
+  s_94b2e4e59b0016::t_314a564c0ee6d1 49,217-218
+  s_94b2e4e59b0016::t_41690aecaabd08 72-73,113-148,150,155,204,207
+  s_94b2e4e59b0016::t_cebd217929fc42 219-220
+internal/postgres/serving/admission.go
+  s_94b2e4e59b0016::t_3ea455159a1df5 64
+scripts/database_budget_check/main_test.go
+  s_94b2e4e59b0016::t_314a564c0ee6d1 1-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2326e0410179e40cb2ac440a3463daa5f385f14b",
+  "prompts": {},
+  "sessions": {
+    "s_94b2e4e59b0016": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e9a8-459f-7de1-8b25-c642f955c9d7",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

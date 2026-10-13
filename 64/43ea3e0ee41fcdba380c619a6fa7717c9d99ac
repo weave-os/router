@@ -1,0 +1,19 @@
+internal/proxy/escalation.go
+  s_d94ffb0464bee6::t_177d4c16cd4280 110-112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6443ea3e0ee41fcdba380c619a6fa7717c9d99ac",
+  "prompts": {},
+  "sessions": {
+    "s_d94ffb0464bee6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a822-4905-79b3-a637-c99551e4524e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

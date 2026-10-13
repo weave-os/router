@@ -1,0 +1,24 @@
+internal/proxy/service.go
+  s_9ef40d94c2b5d1::t_47c9bf53cbfb76 5059
+  s_9ef40d94c2b5d1::t_e18326cca25e1e 5550-5555,7955
+internal/proxy/gemini.go
+  s_9ef40d94c2b5d1::t_47c9bf53cbfb76 498
+internal/proxy/auxiliary_inference.go
+  s_9ef40d94c2b5d1::t_47c9bf53cbfb76 134
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "22ecb473cf147cea5f1d9c9695d459785056bccb",
+  "prompts": {},
+  "sessions": {
+    "s_9ef40d94c2b5d1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5df3b4a0-ad3e-4421-a33e-f459b7fff8d3",
+        "model": "grok-4.6"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

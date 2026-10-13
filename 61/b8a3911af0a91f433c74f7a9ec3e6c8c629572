@@ -1,0 +1,33 @@
+docs/LLM_CLASSIFIER_CONTEXT.md
+  s_395fcfacea68ca::t_cc212b2356976f 54-56,65-69
+  s_395fcfacea68ca::t_05e78d67affc48 70
+internal/postgres/classifier_session_repo.go
+  s_395fcfacea68ca::t_cc212b2356976f 7,14,20-21,23-26,30,53-57
+internal/proxy/classifier_turn.go
+  s_395fcfacea68ca::t_cc212b2356976f 9,12,77-81
+scripts/classifier_session_check/main.go
+  s_395fcfacea68ca::t_745d737fb44d43 11,238
+  s_395fcfacea68ca::t_fb02d8ae6c7831 248-251
+  s_395fcfacea68ca::t_cc212b2356976f 24,40,44-49,83,102-104,181-237,239-247,252-258
+  s_395fcfacea68ca::t_ebe9f208b309e6 259-261
+internal/proxy/classifier_dispatch_internal_test.go
+  s_395fcfacea68ca::t_745d737fb44d43 23,172-173,175-178,180-211
+  s_395fcfacea68ca::t_76ac7929f7774a 24,174,179
+  s_395fcfacea68ca::t_16b62c2d797c56 212
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "61b8a3911af0a91f433c74f7a9ec3e6c8c629572",
+  "prompts": {},
+  "sessions": {
+    "s_395fcfacea68ca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0bd20-5294-7431-af5a-fda13c268f77",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

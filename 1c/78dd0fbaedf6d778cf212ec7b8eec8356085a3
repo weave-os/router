@@ -1,0 +1,62 @@
+internal/proxy/service.go
+  s_8960fd48237f12::t_c057cdf1888898 6891
+  s_8960fd48237f12::t_2b1c678af4dbc4 2744-2746,3985,4983,6897,8000
+  s_8960fd48237f12::t_faa2f2420d0f83 3977,3979,4976,6889,7993
+  s_8960fd48237f12::t_9e3598c32b673d 3978
+  s_8960fd48237f12::t_8a89c49284422f 3982-3984
+  s_8960fd48237f12::t_1d36c6215194fb 6890
+  s_8960fd48237f12::t_4d9f90dd2323da 6892-6894
+  s_8960fd48237f12::t_94dfec0bbac717 3981,4005,6895,6917
+internal/router/cache/provenance.go
+  s_8960fd48237f12::t_2b1c678af4dbc4 1-31,35-49
+  s_8960fd48237f12::t_3c4fcabc3b4352 32-34
+internal/router/cache/cache_internal_test.go
+  s_8960fd48237f12::t_2b1c678af4dbc4 7,37,50,65,70
+internal/router/cache/cache_test.go
+  s_8960fd48237f12::t_2b1c678af4dbc4 9,59,61,82,84,97,99,114-115,118-119,128,130,138,140,150,152,156,165,167,183,185,193,196,201,203-204,212,214,217,226,228,231,246-247,252,255,257,271,275,278,282-284
+  s_8960fd48237f12::t_ae5ecb0481f663 285
+internal/proxy/openai_responses_pipeline_test.go
+  s_8960fd48237f12::t_9394c946ffd292 38
+internal/router/cache/AGENTS.md
+  s_8960fd48237f12::t_9394c946ffd292 11,20-21
+internal/router/cache/CLAUDE.md
+  s_8960fd48237f12::t_9394c946ffd292 11,20-21
+internal/proxy/semantic_cache_internal_test.go
+  s_8960fd48237f12::t_bc5b5e3135e375 1-25
+internal/proxy/service_cache_test.go
+  s_8960fd48237f12::t_faa2f2420d0f83 53,62,75,140
+  s_8960fd48237f12::t_428643637e5c3e 276,376,393,406-410
+  s_8960fd48237f12::t_6d6c17463808f2 13,17,20,45,240-275,277-301,306-314,316-375,377-379,381-392,394-402,404,411-412
+  s_8960fd48237f12::t_f033c8652107fc 5,302-305,315,380,403,405
+internal/proxy/escalation_completion_internal_test.go
+  s_8960fd48237f12::t_c057cdf1888898 152-154
+internal/router/cache/provenance_test.go
+  s_8960fd48237f12::t_3c4fcabc3b4352 1-4,7-113
+  s_8960fd48237f12::t_25a3d07a9755c0 5-6
+internal/router/cache/cache.go
+  s_8960fd48237f12::t_3c4fcabc3b4352 12,66-73,101-102,107-108,149-158,234,286-298
+  s_8960fd48237f12::t_bc5b5e3135e375 2,33
+  s_8960fd48237f12::t_2b1c678af4dbc4 22,125,159,164,181-184,193-194,200,204-206,219,225
+internal/proxy/semantic_cache.go
+  s_8960fd48237f12::t_2b1c678af4dbc4 1-4,9-16,21,23-30,34-43,50-52,54-56,64-70,72-82,84,100
+  s_8960fd48237f12::t_25a3d07a9755c0 17-20,92-94
+  s_8960fd48237f12::t_3c4fcabc3b4352 31-33,44-49
+  s_8960fd48237f12::t_faa2f2420d0f83 7,22,53,57-63,71,83
+  s_8960fd48237f12::t_f67b640a71851d 5-6,8,85-91,95-99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1c78dd0fbaedf6d778cf212ec7b8eec8356085a3",
+  "prompts": {},
+  "sessions": {
+    "s_8960fd48237f12": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a113a0-b447-73d1-893e-09cd7017cdef",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Wesley Lin <wesley@workweave.ai>"
+    }
+  }
+}

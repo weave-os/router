@@ -1,0 +1,23 @@
+internal/proxy/feedback.go
+  s_99a26d7f7deb6c::t_b1d5b1eebff325 198
+internal/proxy/service.go
+  s_99a26d7f7deb6c::t_b25c3938a74c68 532-533
+internal/translate/responses.go
+  s_99a26d7f7deb6c::t_32de19745592c9 1184
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b45a74cf46162dbcc1eba0e9864d930bad4290a2",
+  "prompts": {},
+  "sessions": {
+    "s_99a26d7f7deb6c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6a458e13-f54a-43f2-8dcb-023370249ea7",
+        "model": "grok-4.6"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

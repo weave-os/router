@@ -1,0 +1,19 @@
+install/tests/cc-statusline_test.sh
+  s_284e0ecced7cff::t_a61b725e4ad3e6 206-209,217,222-224,230-242
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "48485911b4522f76b4157383025c7b6dc99f413b",
+  "prompts": {},
+  "sessions": {
+    "s_284e0ecced7cff": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "c3933bac-22e8-45c3-b855-4f7d92be1097",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

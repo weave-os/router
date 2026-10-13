@@ -1,0 +1,19 @@
+internal/proxy/service_cache_test.go
+  s_8960fd48237f12::t_45b587a87a8267 402,404
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c258816638d77e2f080624bdf4f925b2cc026bbc",
+  "prompts": {},
+  "sessions": {
+    "s_8960fd48237f12": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a113a0-b447-73d1-893e-09cd7017cdef",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Wesley Lin <wesley@workweave.ai>"
+    }
+  }
+}

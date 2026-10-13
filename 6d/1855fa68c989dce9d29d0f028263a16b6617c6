@@ -1,0 +1,21 @@
+internal/router/cluster/candidate_k12_test.go
+  s_c3a894d0f8f412::t_1112711b122f3a 82-83
+internal/router/catalog/catalog.go
+  s_c3a894d0f8f412::t_f21022db87ac71 516-517
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "6d1855fa68c989dce9d29d0f028263a16b6617c6",
+  "prompts": {},
+  "sessions": {
+    "s_c3a894d0f8f412": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b89221a0-2a6e-4b57-ab91-5b896dc1b8ba",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

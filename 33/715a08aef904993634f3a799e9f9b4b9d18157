@@ -1,0 +1,33 @@
+install/install.sh
+  s_32ab2cb9054632::t_66d91e1b626702 2116-2119
+  s_32ab2cb9054632::t_48c728710bc051 1553-1557
+  s_32ab2cb9054632::t_9f4a5727f8842f 2092-2097
+  s_32ab2cb9054632::t_66b8d8888c7660 1515,1535-1552,1558
+  s_32ab2cb9054632::t_748a067687096f 2210-2215,2231-2243
+  s_32ab2cb9054632::t_9398a508c96d8b 2216-2224
+  s_32ab2cb9054632::t_fad43dac096b02 1479,1493,1502-1504
+  s_32ab2cb9054632::t_5461d3df7997db 2225
+  s_32ab2cb9054632::t_48bf9b37fdb5b5 1516-1521,1524-1525,1531,1559
+  s_32ab2cb9054632::t_3ff4b9cfe74118 2183-2187,2198-2209,2245
+  s_32ab2cb9054632::t_57ccb2ef828379 1480-1490,1498-1501,1505-1506
+  s_32ab2cb9054632::t_447b87c30fa0b9 1560,2244
+install/tests/models_test.sh
+  s_32ab2cb9054632::t_9ecdbda871c72b 225-236
+  s_32ab2cb9054632::t_79557e6f895bc6 334-394
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "33715a08aef904993634f3a799e9f9b4b9d18157",
+  "prompts": {},
+  "sessions": {
+    "s_32ab2cb9054632": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6f6090cd-f83b-4eff-b1c3-94b47d9dd39e",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

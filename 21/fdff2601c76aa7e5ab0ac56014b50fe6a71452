@@ -1,0 +1,22 @@
+internal/proxy/managed_subscriptions_test.go
+  s_8697acb4176b05::t_60cc58553999a5 14,151-171
+  s_8697acb4176b05::t_77de0f5e357a70 172
+internal/proxy/managed_subscriptions.go
+  s_8697acb4176b05::t_60cc58553999a5 11,106-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "21fdff2601c76aa7e5ab0ac56014b50fe6a71452",
+  "prompts": {},
+  "sessions": {
+    "s_8697acb4176b05": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a068bd-b05d-7a42-bf65-794c0e3a8ba1",
+        "model": "gpt-5.4"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

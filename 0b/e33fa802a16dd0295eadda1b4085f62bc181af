@@ -1,0 +1,19 @@
+internal/policyregistry/serving_controller.go
+  s_e653349cb134e6::t_d9c459a26854d3 337,506-512,537
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0be33fa802a16dd0295eadda1b4085f62bc181af",
+  "prompts": {},
+  "sessions": {
+    "s_e653349cb134e6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0fe99-ec28-7521-a791-88eb6df335d9",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

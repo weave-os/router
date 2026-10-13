@@ -1,0 +1,27 @@
+internal/server/server_test.go
+  s_f1929ee44adfce::t_0d0265b8756865 8,11-12,14,16,21
+  s_f1929ee44adfce::t_558c97d0f1abf8 154-155
+  s_f1929ee44adfce::t_d73f52c26a6f23 13
+  s_f1929ee44adfce::t_602577994fc04a 121-153,156-235
+internal/server/server.go
+  s_f1929ee44adfce::t_d578215c3c9fcb 251
+  s_f1929ee44adfce::t_925a8aede60516 237-241,247
+docs/ROUTE_DECISION_API.md
+  s_f1929ee44adfce::t_f12ea31f9350ca 91-92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.18",
+  "base_commit_sha": "3db3d4f4274a4782c244861e3dd17aedd7638e3d",
+  "prompts": {},
+  "sessions": {
+    "s_f1929ee44adfce": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7b9c796f-2c8e-433a-a836-220f5b2f761d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

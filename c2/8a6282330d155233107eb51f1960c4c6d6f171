@@ -1,0 +1,102 @@
+smoke/mitmproxy/store_test.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 3-35
+.github/workflows/test.yml
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 9-14,17,20-57,61,69,75-76,78,101,168-169,176-177,179,192-193,195,205-206,208,227,275-338
+internal/proxy/gemini_test.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 131,154
+cmd/policyctl/commands.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 35-51,230-234,244-255,274-279,394-400,413-422,424
+  s_9a2807b2bb04f2::t_4627ae76daff63 423,425
+internal/proxy/openai_subscription_pool_failover_test.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 1-138
+internal/translate/claudecode_task_reminder_test.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 237-298
+scripts/smoke/run.sh
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 31-34,67-85,133,149-161,173-174,177,186-187,190,196-197
+docker-bake.smoke.hcl
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 1-24
+internal/translate/emit_same_format_test.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 604-605,608-612,617,619-620,628-629,631-632,635-637,643-646
+  s_9a2807b2bb04f2::t_68cf7276f0cc21 603,606-607,613-616,618,621-627,630,633-634,638-642
+internal/server/server.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 144,147,268,295,343,358
+internal/policyclient/auth.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 4,8,13,15,19-27,29-30,39,43,50-125,141,145-154,161
+internal/server/middleware/router_strategy_override_test.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 17-19,21-31,41,97,123,146,153-163,166,171-207,213-230
+  s_9a2807b2bb04f2::t_f622c3fda22028 231
+internal/proxy/beta.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 23,85-88
+  s_9a2807b2bb04f2::t_f55fa1c1612a20 89
+smoke/mitmproxy/store.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 128-135
+internal/proxy/pin_eviction.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 160-186
+cmd/policyctl/commands_test.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 1-83
+internal/proxy/sibling_failover_integration_test.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 101,165,213,254-255,308
+internal/policyclient/auth_test.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 8-9,81-103,126-195
+internal/proxy/dispatch_plan_test.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 169
+internal/server/middleware/router_strategy_override.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 19-21,23-33,42-43,47-53,65,67,80-81,94-96
+internal/policyclient/client_test.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 258-298
+internal/proxy/baseline_failover_integration_test.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 283,364
+docker-compose.yml
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 84,166-170
+internal/policyclient/client.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 463-470
+docs/CI.md
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 1-155
+internal/api/admin/policy_catalog_test.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 67,73-75
+Dockerfile
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 213-227
+internal/proxy/pin_eviction_internal_test.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 408-456
+.github/workflows/check_cluster_routing.yml
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 66
+internal/translate/claudecode_tool_filter.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 252-280,289-296,339-340,345-351
+internal/proxy/service.go
+  s_9a2807b2bb04f2::t_5aa4f509d41f48 6940
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 1601-1607,4167,4383,4720,6941-6947,6983,6988,7062,7068,7074,7127-7188,7191-7193,7199-7202,7205,7283,7285-7286,7333,7406,7450
+smoke/mitmproxy/docker-compose.yml
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 31
+internal/proxy/retry_sleep_test.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 1-8
+.github/workflows/smoke.yml
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 31,59,72-92,96,112,119,138,150-170,177
+internal/proxy/failover_integration_test.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 342-343,390-391,425-426,477-478,550-551,615
+internal/proxy/service_test.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 872-873
+smoke/mitmproxy/docker-compose.ci-cache.yml
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 30-36
+docs/README.md
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 16
+internal/proxy/beta_internal_test.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 224-243
+internal/proxy/rescue_error_render_test.go
+  s_9a2807b2bb04f2::t_fed272c92cb1d8 41-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c28a6282330d155233107eb51f1960c4c6d6f171",
+  "prompts": {},
+  "sessions": {
+    "s_9a2807b2bb04f2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0931b-55aa-7b40-ac2e-47b658e2ab59",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,30 @@
+internal/translate/responses_codex.go
+  s_37ad595f097112::t_79344130c056ce 577-580,591-593
+internal/translate/responses.go
+  s_37ad595f097112::t_79344130c056ce 2485-2487,2556,2642-2648,2726
+internal/proxy/codex_collaboration_integration_test.go
+  s_37ad595f097112::t_43f90c1339ce58 5-6,25,45-53,62-78,80,85-90,94-112,120
+  s_37ad595f097112::t_d29de751ed8aed 113-119
+internal/translate/responses_codex_test.go
+  s_37ad595f097112::t_79344130c056ce 163,179
+internal/translate/responses_collaboration_test.go
+  s_37ad595f097112::t_d39121637e28da 4,38-39,42,44
+  s_37ad595f097112::t_975f4b6c90e7f4 71-87
+  s_37ad595f097112::t_6602a1a6282f51 5,15-21,23-27,29-32,34-37,40-41,43,45-56,58,63-70,88-97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fecd6d1b0467e7de2de585b6d44f3080073db15d",
+  "prompts": {},
+  "sessions": {
+    "s_37ad595f097112": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11d73-e2ff-7990-896e-f702d9f5bcab",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

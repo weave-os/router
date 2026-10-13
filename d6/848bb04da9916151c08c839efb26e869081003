@@ -1,0 +1,28 @@
+cmd/router/startup.go
+  s_d35d7172a8b896::t_2d73f88ce2e515 8,12,19-43
+  s_d35d7172a8b896::t_ee58182d79afb1 44
+cmd/router/startup_test.go
+  s_d35d7172a8b896::t_d700ac8c656d72 9-11,16,18-19,86-173
+README.md
+  s_d35d7172a8b896::t_2d73f88ce2e515 254,260-263
+docs/SERVING_CONTROL.md
+  s_d35d7172a8b896::t_2d73f88ce2e515 415-417,638-644
+cmd/router/main.go
+  s_d35d7172a8b896::t_2d73f88ce2e515 1610-1612,1615
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d6848bb04da9916151c08c839efb26e869081003",
+  "prompts": {},
+  "sessions": {
+    "s_d35d7172a8b896": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10e49-64cc-77a3-af7c-11c7b4524e4a",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

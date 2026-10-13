@@ -1,0 +1,23 @@
+internal/proxy/provider_overload_internal_test.go
+  s_bf12674e0975a6::t_d13bac51fd652e 97-98
+internal/router/sessionpin/store.go
+  s_bf12674e0975a6::t_11b01ce3d7b1c3 71-73
+internal/proxy/failover_integration_test.go
+  s_bf12674e0975a6::t_7ed720104145a1 424-426
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "2c82f635296ae44113a5baf87a15c679c30d07d8",
+  "prompts": {},
+  "sessions": {
+    "s_bf12674e0975a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d0e97ff1-3147-4e7a-b36b-b2509e614e8b",
+        "model": "deepseek/deepseek-v4-pro"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

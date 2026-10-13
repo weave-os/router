@@ -1,0 +1,23 @@
+install/tests/cc-statusline_test.sh
+  s_d5165fb8d3c8eb::t_0d9e2d1f705a15 170,177,184,188,314-315,338,351,365,378,480,486,501,508,519,525,539,553,567,615-616,651,674
+install/tests/key_reuse_test.sh
+  s_d5165fb8d3c8eb::t_52d8280190bd45 154-158,260-264,340,351,450-454
+internal/dispatch/attempt_sink_test.go
+  s_d5165fb8d3c8eb::t_f1e86871eb807d 87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c51f1acfbc20f4ba7d2b6924b587010d60381faa",
+  "prompts": {},
+  "sessions": {
+    "s_d5165fb8d3c8eb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "811cfb39-b733-4ed9-a66b-3d449d1adc24",
+        "model": "unknown"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

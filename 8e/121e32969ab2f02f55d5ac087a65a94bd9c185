@@ -1,0 +1,41 @@
+db/queries/model_router_request_telemetry.sql
+  s_d632eaeadae7dc::t_4dd024a24cd9ba 806-808
+db/queries/model_router_subscription_accounts.sql
+  s_d632eaeadae7dc::t_cef777a02489da 340-344
+docs/SUBSCRIPTION_ROUTING.md
+  s_d632eaeadae7dc::t_6cb582daa9ead3 31,37-39
+internal/providers/openai/client.go
+  s_d632eaeadae7dc::t_3ba2ef78913baa 433,456,474-484
+internal/proxy/dispatch_plan.go
+  s_d632eaeadae7dc::t_38a7232f6e731e 226-228,257-261,347,349,351
+internal/proxy/fallback.go
+  s_d632eaeadae7dc::t_791e1a8c771167 10,40-43,140-142,157-171,173,175,178-181,183
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_d632eaeadae7dc::t_59b3748f0189e9 126-128,346-348
+internal/sqlc/model_router_subscription_accounts.sql.go
+  s_d632eaeadae7dc::t_03bda156e5481a 380-384,435-439
+internal/subscriptions/pool.go
+  s_d632eaeadae7dc::t_15f514ca7fa12e 374-387,389-395
+internal/subscriptions/runtime_test.go
+  s_d632eaeadae7dc::t_8e33e7a5cc07ce 598-604,607
+scripts/subscription_verification_check/ownership_subscription_verification_test.go
+  s_d632eaeadae7dc::t_8383f98c2f56f7 98-110
+scripts/subscription_verification_check/telemetry_subscription_verification_test.go
+  s_d632eaeadae7dc::t_6909b75a49ba89 45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8e121e32969ab2f02f55d5ac087a65a94bd9c185",
+  "prompts": {},
+  "sessions": {
+    "s_d632eaeadae7dc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10e86-de05-7d62-bbcb-696c6ad54cc8",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

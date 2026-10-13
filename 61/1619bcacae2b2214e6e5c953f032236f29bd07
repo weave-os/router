@@ -1,0 +1,27 @@
+internal/router/catalog/catalog.go
+  s_e3b5d67ea6eb7e::t_3d90ca2c0e027e 407-415
+internal/proxy/force_model.go
+  s_e3b5d67ea6eb7e::t_982834318540e2 93-94,96
+install/install.sh
+  s_e3b5d67ea6eb7e::t_398fcc0a1c71ae 2149,2218
+install/cc-statusline.sh
+  s_e3b5d67ea6eb7e::t_398fcc0a1c71ae 186,255
+internal/observability/otel/pricing_test.go
+  s_e3b5d67ea6eb7e::t_b518a44e825335 74-77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "611619bcacae2b2214e6e5c953f032236f29bd07",
+  "prompts": {},
+  "sessions": {
+    "s_e3b5d67ea6eb7e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a02260d2-79ff-401e-bb3f-6430397b6292",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

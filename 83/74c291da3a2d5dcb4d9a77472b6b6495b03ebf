@@ -1,0 +1,21 @@
+.github/workflows/smoke.yml
+  s_f46c346a8be721::t_404bb54b2b9bac 227
+install/tests/cc-statusline_test.sh
+  s_f46c346a8be721::t_404bb54b2b9bac 165,172,179,183,309-310,333,346,360,373,475,481,496,503,514,520,534,548,562,610-611,646,669
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8374c291da3a2d5dcb4d9a77472b6b6495b03ebf",
+  "prompts": {},
+  "sessions": {
+    "s_f46c346a8be721": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "71de14b6-d915-4d45-b37d-a5a9aa83324d",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

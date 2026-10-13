@@ -1,0 +1,51 @@
+internal/proxy/service.go
+  s_c83b9791b31b4c::t_b0f9a24a43354c 3395,3398-3399,3484-3485
+  s_c83b9791b31b4c::t_440f155c8e140b 3387-3390,3411-3415
+  s_c83b9791b31b4c::t_a65c0c5d30aaaa 3416-3417
+internal/router/planner/policy_test.go
+  s_c83b9791b31b4c::t_b6ebefdafaf106 102,128
+  s_c83b9791b31b4c::t_b0f9a24a43354c 8,10,86-101,103-106,108-113,115-127,129-137,140-141,170
+  s_c83b9791b31b4c::t_0975d53a09ae8e 107,114
+  s_c83b9791b31b4c::t_d8962371c9f646 171
+  s_c83b9791b31b4c::t_69fcab3cab7b5f 138-139,142-143
+  s_c83b9791b31b4c::t_440f155c8e140b 146-171
+internal/router/planner/policy.go
+  s_c83b9791b31b4c::t_b0f9a24a43354c 49-50,144-145,185-186,238-245
+  s_c83b9791b31b4c::t_b056708f421133 246-247
+  s_c83b9791b31b4c::t_69fcab3cab7b5f 147-152
+  s_c83b9791b31b4c::t_889c16d05d72d4 47-48,236-237
+  s_c83b9791b31b4c::t_440f155c8e140b 51-56,85-89,188-190,210-235
+  s_c83b9791b31b4c::t_11075d45d7de36 208-209
+internal/proxy/turnloop_internal_test.go
+  s_c83b9791b31b4c::t_5386adaefd056c 119-124
+internal/proxy/turnloop.go
+  s_c83b9791b31b4c::t_5386adaefd056c 105-111,834-835
+  s_af4a85109d27a6::t_bfc5b52e3ab90b 836
+  s_c83b9791b31b4c::t_440f155c8e140b 1072-1076,1196-1202
+internal/router/catalog/catalog.go
+  s_c83b9791b31b4c::t_0e85ee9876c05e 43-44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "e9547eb888e640bd0b1015acc9958d33591159a7",
+  "prompts": {},
+  "sessions": {
+    "s_af4a85109d27a6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a015f7-f802-7a43-99b4-49120efc8eaa",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_c83b9791b31b4c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a01636-0d3f-72b1-8dd9-19a20eba3771",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

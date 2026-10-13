@@ -1,0 +1,26 @@
+internal/translate/claudecode_tool_filter_internal_test.go
+  s_795f96ecbec890::t_d9affbe6b24dd1 39
+internal/translate/claudecode_tool_filter.go
+  s_795f96ecbec890::t_5642a35adf5bdc 31-39
+internal/translate/claudecode_tool_filter_test.go
+  s_795f96ecbec890::t_55f016410a9039 128
+  s_795f96ecbec890::t_23a31856ad1ba1 247
+  s_795f96ecbec890::t_e799e61cd9e0fb 195
+  s_795f96ecbec890::t_450477b55e7220 93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "87cdd6fdde1e74096c41fd77d70ece41b4cd7fc6",
+  "prompts": {},
+  "sessions": {
+    "s_795f96ecbec890": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "09957444-4668-4059-8323-4dac9338d7d9",
+        "model": "deepseek/deepseek-v4-flash"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

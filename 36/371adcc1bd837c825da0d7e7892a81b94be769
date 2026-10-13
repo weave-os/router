@@ -1,0 +1,42 @@
+internal/proxy/context_snapshot.go
+  s_527111cf8ce1b4::t_5a6e135fc8ae71 55
+install/cc-statusline.sh
+  s_527111cf8ce1b4::t_5a6e135fc8ae71 908,912-913,937
+  s_527111cf8ce1b4::t_5d61ecd8e94b8a 932
+install/install.sh
+  s_527111cf8ce1b4::t_5d61ecd8e94b8a 6281
+  s_527111cf8ce1b4::t_134a4a69ff288b 4534,4537,4687-4706,6257,6261-6262,6286
+internal/proxy/gemini.go
+  s_527111cf8ce1b4::t_5a6e135fc8ae71 226
+internal/proxy/usage_bypass.go
+  s_527111cf8ce1b4::t_5a6e135fc8ae71 394
+internal/proxy/service.go
+  s_527111cf8ce1b4::t_5a6e135fc8ae71 4008,4034,6969,6999
+install/codex-status.sh
+  s_527111cf8ce1b4::t_0fa1371a759706 187,190,340-359
+internal/proxy/context_snapshot_internal_test.go
+  s_527111cf8ce1b4::t_1c852e2193bd1d 6,61-73
+  s_527111cf8ce1b4::t_5a6e135fc8ae71 32,46
+  s_527111cf8ce1b4::t_84afd62e45960a 74-75
+install/tests/codex-status_test.sh
+  s_527111cf8ce1b4::t_934887e3cc02fc 383
+  s_527111cf8ce1b4::t_6bfb75deca7b70 114,152,155,161
+  s_527111cf8ce1b4::t_3da9cf2c3c5f8e 151,153-154,156-159
+  s_527111cf8ce1b4::t_d89dea5dc8e8f9 115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "36371adcc1bd837c825da0d7e7892a81b94be769",
+  "prompts": {},
+  "sessions": {
+    "s_527111cf8ce1b4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a117b4-a8de-70d0-9d4b-4f1c0d2f682e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Wesley Lin <wesley@workweave.ai>"
+    }
+  }
+}

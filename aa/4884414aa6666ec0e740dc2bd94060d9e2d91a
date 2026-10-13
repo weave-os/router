@@ -1,0 +1,24 @@
+internal/router/catalog/cost_test.go
+  s_058485d2635629::t_0ae3e8ab0f9cec 83-86
+  s_058485d2635629::t_ad97cbbf79e8a0 81-82,87-89
+internal/postgres/telemetry.go
+  s_058485d2635629::t_2775a5b0614ef3 27,32
+internal/router/catalog/cost.go
+  s_058485d2635629::t_f73754a69cee02 50-59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "aa4884414aa6666ec0e740dc2bd94060d9e2d91a",
+  "prompts": {},
+  "sessions": {
+    "s_058485d2635629": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bc459cec-44c1-4e73-9977-ec456ecc2a56",
+        "model": "grok-4.6"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,27 @@
+cmd/router/main.go
+  s_d35d7172a8b896::t_d9350f55fcce7a 138,544
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fc381118f824e39c22b85307de75f2aa288ea6ad",
+  "prompts": {},
+  "sessions": {
+    "s_05c7be361198ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10e4a-da2f-73b2-a9fe-5b9aa946f694",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
+    "s_d35d7172a8b896": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10e49-64cc-77a3-af7c-11c7b4524e4a",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

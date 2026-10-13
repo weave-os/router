@@ -1,0 +1,45 @@
+internal/proxy/service.go
+  s_049874a7166f8d::t_c331f25c9f1424 6018-6025
+  s_049874a7166f8d::t_7fb732d3a90fd7 3163-3170
+internal/proxy/force_model.go
+  s_049874a7166f8d::t_6b1f20884119d6 637-638,640
+internal/translate/router_session_test.go
+  s_049874a7166f8d::t_c718c737e9f1bf 1-53
+internal/proxy/router_feedback.go
+  s_049874a7166f8d::t_64734409dfa33c 8
+  s_049874a7166f8d::t_20d5c3ec25cd3f 91-92,94
+  s_049874a7166f8d::t_965ef5a205ae64 112-113,115
+internal/proxy/directive_prefix_internal_test.go
+  s_049874a7166f8d::t_8489bd01a9ce13 4-5,8,10,12,15-77
+  s_049874a7166f8d::t_0f050067a00a1b 1-3,6-7,9,11,13-14,78-119
+internal/proxy/router_session.go
+  s_049874a7166f8d::t_1f99c0ef42ba16 1-59
+internal/proxy/client_identity.go
+  s_049874a7166f8d::t_ab806845e5a33f 175-191
+internal/translate/router_session.go
+  s_049874a7166f8d::t_8541cb7a48f3e3 1-64
+internal/proxy/force_model_exclusions_internal_test.go
+  s_049874a7166f8d::t_481a77799a0786 419-422
+internal/proxy/dispatch_error.go
+  s_049874a7166f8d::t_fc0fac6e11fdb0 123-124
+  s_049874a7166f8d::t_bafd25364ed86d 125-127
+install/README.md
+  s_049874a7166f8d::t_673f930a45e71b 299-300
+  s_049874a7166f8d::t_46306943a7792d 312-322
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6f4e620d00fd69354271af2772872652d5dd83e7",
+  "prompts": {},
+  "sessions": {
+    "s_049874a7166f8d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7b6a9f0a-cd46-4fd9-942c-7daea97cec2a",
+        "model": "claude-opus-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

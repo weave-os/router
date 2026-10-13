@@ -1,0 +1,30 @@
+internal/proxy/service.go
+  s_4a9e207784ff57::t_4c84b1824fe4a4 7770-7771,7782-7787
+  s_4a9e207784ff57::t_19a60087c1ce17 7804,7806,7811-7816,7818
+  s_4a9e207784ff57::t_dec280fc96b06c 7788-7789
+internal/proxy/service_session_pin_test.go
+  s_4a9e207784ff57::t_51b3b783b007c7 1357-1365,1372,1376-1377
+  s_4a9e207784ff57::t_f2ef2ccbf37ced 1347-1351,1353-1356,1366-1371,1374-1375,1378-1379
+  s_4a9e207784ff57::t_a5e15ae4254eb0 1352
+  s_4a9e207784ff57::t_fae3eab7559517 1373
+install/pi-router/test/opencode_smoke.sh
+  s_4a9e207784ff57::t_4ef3b3c03dd0bd 83-87,89-93
+  s_4a9e207784ff57::t_1fcc40ea16ee0a 60-69
+  s_4a9e207784ff57::t_7bc4dc9e194abf 32-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "fa5740f3dba72ef2bfc2df8a71cc8c219294fa3b",
+  "prompts": {},
+  "sessions": {
+    "s_4a9e207784ff57": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f5f86a39-06ab-4a77-9015-a88abf0943e8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

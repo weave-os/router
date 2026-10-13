@@ -1,0 +1,22 @@
+internal/observability/service_name_internal_test.go
+  s_61b1cde474dcb0::t_fcbdf3afbc6a34 19
+cmd/router-gateway/telemetry_test.go
+  s_61b1cde474dcb0::t_fcbdf3afbc6a34 36-39,42,60
+  s_61b1cde474dcb0::t_8d18a58fc18b42 40-41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "89a5271c3aa370e4abf6259222615c756ef5bbc4",
+  "prompts": {},
+  "sessions": {
+    "s_61b1cde474dcb0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1100f-68b7-7ad2-b1d9-0f8a40482812",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

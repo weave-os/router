@@ -1,0 +1,45 @@
+cmd/router/main.go
+  s_f35ebff08868ef::t_7a71996d63d614 1053-1075,1149
+internal/postgres/flag_definitions_test.go
+  s_f35ebff08868ef::t_0e4caf9a0ad97d 88
+docs/CONFIGURATION.md
+  s_f35ebff08868ef::t_faa3620c10ae7a 3-4,16
+  s_f35ebff08868ef::t_6728ae11f9ccf1 425-435,437-443
+  s_f35ebff08868ef::t_965e9b10e3e108 436
+internal/proxy/plan_aware_routing_internal_test.go
+  s_f35ebff08868ef::t_0e4caf9a0ad97d 5,14,126-187
+  s_f35ebff08868ef::t_4874c3a3e61cf1 13,28-31,56,69,86,99,112
+internal/proxy/managed_subscriptions.go
+  s_f35ebff08868ef::t_7a71996d63d614 105
+internal/proxy/plan_aware_routing.go
+  s_f35ebff08868ef::t_7a71996d63d614 9,204-207,209
+internal/flags/flags_test.go
+  s_f35ebff08868ef::t_0e4caf9a0ad97d 184-200
+  s_f35ebff08868ef::t_4874c3a3e61cf1 168-172
+internal/proxy/managed_subscriptions_test.go
+  s_f35ebff08868ef::t_4874c3a3e61cf1 15,136,138,158,160
+  s_f35ebff08868ef::t_6728ae11f9ccf1 177-197
+internal/server/middleware/plan_aware_routing_test.go
+  s_f35ebff08868ef::t_6728ae11f9ccf1 1-57
+internal/proxy/service_cache_test.go
+  s_f35ebff08868ef::t_4874c3a3e61cf1 13,173,176
+internal/flags/flags.go
+  s_f35ebff08868ef::t_7a71996d63d614 4-5,69,73,77,90,98-103
+  s_f35ebff08868ef::t_95ee53ce813dd4 47-68,76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "657927400cd21e4d762d05cfd257458db6141c0d",
+  "prompts": {},
+  "sessions": {
+    "s_f35ebff08868ef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06ebd-52b6-77f1-b091-7e56996579e8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

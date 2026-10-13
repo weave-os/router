@@ -1,0 +1,41 @@
+db/queries/model_router_request_telemetry.sql
+  s_5fd0522fa1ca82::t_72f981478c1dc8 109,197
+internal/proxy/authority_cache_shadow_internal_test.go
+  s_5fd0522fa1ca82::t_094248c766ff15 278,295-296,331-333,343-344,348-352,356,358-363,366
+  s_5fd0522fa1ca82::t_9aec9b8277f5e8 279-294,297-330,334-342,345-347,353-355,357,364-365
+  s_5fd0522fa1ca82::t_5e992679887c0f 36-48,66-75,80,120-127,133-136
+db/migrations/0068_telemetry-authority-cache-shadow.up.sql
+  s_5fd0522fa1ca82::t_72f981478c1dc8 30,44-45,47,49
+internal/proxy/service.go
+  s_5fd0522fa1ca82::t_72f981478c1dc8 1379-1380
+internal/postgres/telemetry.go
+  s_5fd0522fa1ca82::t_72f981478c1dc8 164
+db/migrations/0068_telemetry-authority-cache-shadow.down.sql
+  s_5fd0522fa1ca82::t_72f981478c1dc8 14
+internal/proxy/telemetry.go
+  s_5fd0522fa1ca82::t_dd13b5acb184e9 148
+  s_5fd0522fa1ca82::t_72f981478c1dc8 244-247,254-255
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_5fd0522fa1ca82::t_72f981478c1dc8 1704,1792,1795,1797-1802,1884,2005,2093,2096,2098-2103,2184
+internal/proxy/turnloop.go
+  s_5fd0522fa1ca82::t_9aec9b8277f5e8 270-277
+  s_5fd0522fa1ca82::t_d9cc27cfd378f5 255-260,1102-1104,1428-1432,1474-1486,1489-1493
+internal/sqlc/models.go
+  s_5fd0522fa1ca82::t_72f981478c1dc8 253-254,257
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "9c2b194ca2a216347d6d22122362f66bee837c56",
+  "prompts": {},
+  "sessions": {
+    "s_5fd0522fa1ca82": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "037ed040-a119-4d82-b49a-d8cb21fe393d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

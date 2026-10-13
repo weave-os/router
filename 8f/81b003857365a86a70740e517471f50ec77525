@@ -1,0 +1,45 @@
+internal/translate/responses_response.go
+  s_00fc0f6bc93aab::t_4ca8ca9ad34d69 146-151,153
+internal/translate/translate.go
+  s_00fc0f6bc93aab::t_f132f0302b2433 361-363
+internal/observability/otel/usage_test.go
+  s_00fc0f6bc93aab::t_5110290c17acec 100-101,105-109,111-121,220,234-243
+  s_00fc0f6bc93aab::t_e5ad0f2b862b84 110
+  s_00fc0f6bc93aab::t_cb62622deba3ff 244-246
+internal/translate/responses_to_anthropic_writer_stream_test.go
+  s_00fc0f6bc93aab::t_83fe8f0ee56734 219
+internal/translate/openai_cache_usage.go
+  s_00fc0f6bc93aab::t_41ab73f82d45f1 1-4,6-7,11-31
+  s_00fc0f6bc93aab::t_72bf9bec78415c 5,8-10
+internal/translate/responses_to_anthropic_writer.go
+  s_00fc0f6bc93aab::t_dc9c6039292e25 87-90,242-248,579,582,691,699-702,1007,1009
+  s_00fc0f6bc93aab::t_0853366b2f389c 1014-1017
+  s_00fc0f6bc93aab::t_01babc06160dcd 85-86
+internal/translate/stream.go
+  s_00fc0f6bc93aab::t_ae833efb1d928f 822-823,948,951-952,956
+  s_00fc0f6bc93aab::t_a0ae8569ca7ec8 656-658,677
+internal/observability/otel/usage.go
+  s_00fc0f6bc93aab::t_b31b012631abf4 251
+  s_00fc0f6bc93aab::t_86a1ad216ba278 108-109,295,302-325
+  s_00fc0f6bc93aab::t_600dfa8fd62f2e 326
+internal/translate/responses_outbound_test.go
+  s_00fc0f6bc93aab::t_7ef7f2d47dad3e 346,383
+internal/translate/cache_usage_test.go
+  s_00fc0f6bc93aab::t_ae7efb63944bf6 11,223-287
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "8f81b003857365a86a70740e517471f50ec77525",
+  "prompts": {},
+  "sessions": {
+    "s_00fc0f6bc93aab": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "58323feb-e361-4f8d-af85-d7bedfa2cf15",
+        "model": "grok-4.6"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

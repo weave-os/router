@@ -1,0 +1,23 @@
+install/codex-status.sh
+  s_6e776831a9cc94::t_97b7a15b3d1a45 49,51-52
+install/install.sh
+  s_6e776831a9cc94::t_da9324afba49d8 3213,3215-3216
+install/tests/codex-status_test.sh
+  s_6e776831a9cc94::t_0531bd83eae820 259-262,264
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d5a7fe7a8d048adb44f77c4172c1bc8c956d9ea6",
+  "prompts": {},
+  "sessions": {
+    "s_6e776831a9cc94": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "996189e8-562a-4cd9-8ae8-5b11917a80c9",
+        "model": "grok-4.6"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+internal/proxy/decision_span_embed_test.go
+  s_e45c411ed5dd87::t_67fa726f06a655 11,263-298
+internal/proxy/routing_policy_internal_test.go
+  s_e45c411ed5dd87::t_0b1ead2c0480d5 182-184
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "bccdd7e25a1fe5cd85661e239e8afbe954507a5f",
+  "prompts": {},
+  "sessions": {
+    "s_e45c411ed5dd87": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "37124c3f-efd9-45d4-ac37-7cb2e79b4782",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,49 @@
+internal/subscriptions/runtime.go
+  s_b1869c30c4c419::t_b429b181431eca 33
+  s_b1869c30c4c419::t_feb817444cdbbb 240,257-258,285,288,297,300-301
+  s_b1869c30c4c419::t_7a70cd229556f6 20,35-36,189,249-251,290,292,294,303-304,308-310,350,356-359,367-370
+db/migrations/0093_subscription-access-token-lease.down.sql
+  s_b1869c30c4c419::t_fd9edc02ec3f78 1-10
+internal/server/middleware/auth_test.go
+  s_b1869c30c4c419::t_b429b181431eca 118,537-543
+internal/auth/subscription.go
+  s_b1869c30c4c419::t_b429b181431eca 50,63,71,73-74,95-96,193-194,199,213-230
+  s_b1869c30c4c419::t_feb817444cdbbb 239,243,249-252,254-255,260,275,279,283
+internal/auth/subscription_test.go
+  s_b1869c30c4c419::t_fd9edc02ec3f78 117
+  s_b1869c30c4c419::t_b429b181431eca 43,84,140-146
+  s_b1869c30c4c419::t_feb817444cdbbb 79-81,93,97-98,112,133,135
+  s_b1869c30c4c419::t_be2e1c3866406a 128
+internal/sqlc/model_router_subscription_accounts.sql.go
+  s_b1869c30c4c419::t_afdea0239a5946 15-61,84-131,139,158,172,187,359,365-366,370-373,380,386-387,390
+db/queries/model_router_subscription_accounts.sql
+  s_b1869c30c4c419::t_b429b181431eca 77-78,99,121-148
+  s_b1869c30c4c419::t_afdea0239a5946 71
+internal/auth/service_test.go
+  s_b1869c30c4c419::t_b6fc0c2f5b7cea 581-597,626
+internal/postgres/subscription_repo.go
+  s_b1869c30c4c419::t_b429b181431eca 140,155,196-199,207,255-304
+internal/subscriptions/runtime_test.go
+  s_b1869c30c4c419::t_028282b7bf18a8 6,35-40,56,59-64,69,73,76-78,102,116-120,284,362-363,394-400,402-421,423-491,493-494,500-522,524-536
+  s_b1869c30c4c419::t_be2e1c3866406a 343,492,495-499,537-540,542-547,549-556,558-583,585,587-588,590-601,603-610,612-625,630-655
+  s_b1869c30c4c419::t_fd9edc02ec3f78 584
+  s_b1869c30c4c419::t_feb817444cdbbb 18-29,101,121,127,158,251,254,258,263,332,401,422,523,541,548,557,586,589,602,611,626-629
+db/migrations/0093_subscription-access-token-lease.up.sql
+  s_b1869c30c4c419::t_fd9edc02ec3f78 1-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "6a8f836aec7228c10a111dab25a9b27a2ed5f202",
+  "prompts": {},
+  "sessions": {
+    "s_b1869c30c4c419": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0acf0-0b45-7061-8d2c-628c474d0e36",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

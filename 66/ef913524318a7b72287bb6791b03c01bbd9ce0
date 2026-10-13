@@ -1,0 +1,74 @@
+internal/sqlc/model_router_installations.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/cluster_model_lists.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/model_router_users.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/policy_shadow_decisions.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/model_router_subscription_accounts.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/router_feedback.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/model_router_inference_attempts.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/session_pins.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/loop_escalation_events.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/spend_limits.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/session_strategy_preferences.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/spiral_shadow_events.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/struggle_escalation_events.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/autopay.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/billing.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/global_automatic_routing_exclusions.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/model_router_api_keys.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/struggle_shadow_events.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/model_router_external_api_keys.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/request_feedback.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/escalation_check_fixtures.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/user_cluster_model_lists.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/flag_definitions.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/blind_experiment.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/db.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+internal/sqlc/escalation_sessions.sql.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3,124-125
+internal/sqlc/models.go
+  s_dc841142dd86a8::t_9e1ef2ca28b9ea 3
+  s_dc841142dd86a8::t_791b4ba67e7a98 419-423
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "66ef913524318a7b72287bb6791b03c01bbd9ce0",
+  "prompts": {},
+  "sessions": {
+    "s_dc841142dd86a8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08c98-6b91-7643-8031-133ff9002149",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

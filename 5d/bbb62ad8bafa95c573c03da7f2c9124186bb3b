@@ -1,0 +1,49 @@
+docs/CONFIGURATION.md
+  s_980914d43580db::t_9f417cc917dc8f 422-423
+docs/INFERENCE_BOUNDARY.md
+  s_980914d43580db::t_d4492c24e2b894 20
+internal/api/gemini/generate_content.go
+  s_980914d43580db::t_df3b6f305ab4d1 131
+internal/api/openai/completions.go
+  s_980914d43580db::t_934406b9960a3e 54,76-85,91
+internal/api/openai/responses.go
+  s_980914d43580db::t_67b1a57ffbbd90 58
+internal/proxy/AGENTS.md
+  s_980914d43580db::t_aef52ce4d41794 40,42,44,193
+internal/proxy/CLAUDE.md
+  s_980914d43580db::t_8f2f30c0c74d1d 40,42,44,193
+internal/proxy/context_overflow.go
+  s_980914d43580db::t_ef510900630e18 1-74
+internal/proxy/context_overflow_internal_test.go
+  s_980914d43580db::t_d01ae5e79ff2d1 4-7,166-270
+internal/proxy/context_overflow_test.go
+  s_980914d43580db::t_7365c75b36e70a 1-82
+internal/proxy/dispatch_error.go
+  s_980914d43580db::t_c328f8bb2f2be4 180-183
+internal/proxy/fallback.go
+  s_980914d43580db::t_e8e936536dedb6 418-420,449-451,476-478,506-511,535
+internal/proxy/gemini.go
+  s_980914d43580db::t_412214e0a15cc9 134-135,156
+internal/proxy/service.go
+  s_980914d43580db::t_b1a08cafccbed5 53,1390-1431,3644-3645,3650,3652,3689,6621-6622,6627,6629,6663,8138-8147
+internal/translate/responses.go
+  s_980914d43580db::t_966cef08af3574 651-655,1899,1930-1986,2580
+internal/translate/responses_context_overflow_test.go
+  s_980914d43580db::t_e552c64bcabd3b 1-45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "5dbbb62ad8bafa95c573c03da7f2c9124186bb3b",
+  "prompts": {},
+  "sessions": {
+    "s_980914d43580db": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ae5ab8c5-50a9-4ae6-930a-ff22188bfb75",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

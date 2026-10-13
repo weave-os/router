@@ -1,0 +1,29 @@
+install/tests/opencode_install_test.sh
+  s_ceefd8963cf671::t_7728aa3b4fb0f5 79,105
+install/uninstall.sh
+  s_ceefd8963cf671::t_d47001f464b95a 545-549
+install/directives.tsv
+  s_ceefd8963cf671::t_d074eae392f648 10
+install/install.sh
+  s_ceefd8963cf671::t_c9fe73b6a7ac2f 1017,1022-1025
+install/README.md
+  s_ceefd8963cf671::t_7a299b5d7e8879 440
+install/tests/packaging_test.sh
+  s_ceefd8963cf671::t_0d6358fe0ff477 44
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a981862dbe0aa56115c209d0e4253444ec183fbb",
+  "prompts": {},
+  "sessions": {
+    "s_ceefd8963cf671": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cf3d9b91-4071-434c-af7b-d28f84ad47fa",
+        "model": "grok-4.6"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

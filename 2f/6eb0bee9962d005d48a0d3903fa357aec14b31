@@ -1,0 +1,19 @@
+internal/router/hmm/selection/domain_test.go
+  s_f4fb01213503cf::t_1cec40656c3e5e 90-109
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2f6eb0bee9962d005d48a0d3903fa357aec14b31",
+  "prompts": {},
+  "sessions": {
+    "s_f4fb01213503cf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0e9df-892d-7171-aee5-b0a6ef9a6f46",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

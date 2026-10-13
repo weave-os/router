@@ -1,0 +1,25 @@
+internal/proxy/turnloop.go
+  s_94c5aff1c61861::t_77b1ff91e4c70f 112-115
+internal/router/planner/corrected_test.go
+  s_94c5aff1c61861::t_77b1ff91e4c70f 132-134
+internal/router/planner/export_test.go
+  s_94c5aff1c61861::t_77b1ff91e4c70f 5-7
+internal/router/planner/policy.go
+  s_94c5aff1c61861::t_77b1ff91e4c70f 93-95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "e925bfb4e89b990b0872a8b5dfcff6af4173e0ac",
+  "prompts": {},
+  "sessions": {
+    "s_94c5aff1c61861": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6cc7c8d2-6482-486a-8410-f231e3bec8db",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

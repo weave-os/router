@@ -1,0 +1,21 @@
+internal/postgres/subscriber_credit_repo_replay_test.go
+  s_09a0dc83398285::t_ae7aec22f36146 1-130
+internal/postgres/subscriber_credit_repo.go
+  s_09a0dc83398285::t_99f63756374663 224,244
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "8445e3433ac18ca98c8132ede7b628d35ff552bf",
+  "prompts": {},
+  "sessions": {
+    "s_09a0dc83398285": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ea15-1f4f-7250-89be-d9b83ae4baf4",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

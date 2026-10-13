@@ -1,0 +1,24 @@
+internal/translate/strictify_openai_test.go
+  s_03fd6c6344a121::t_e1dc59573c5ec8 108,115-116,121-129
+  s_03fd6c6344a121::t_5257ac1760226c 105-106,118-120
+  s_03fd6c6344a121::t_dbfd87f9b5ab57 107
+internal/translate/strictify_openai.go
+  s_03fd6c6344a121::t_8806e43d86300c 127,131-132,136
+  s_03fd6c6344a121::t_5a0dd153de9ae6 128-130,135
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "0f60a378fa3688135b25b5d1623191f4a203bc1e",
+  "prompts": {},
+  "sessions": {
+    "s_03fd6c6344a121": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bf21189c-af6a-451f-856f-3ed0bf0befb7",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
