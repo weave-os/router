@@ -94,6 +94,7 @@ internal/proxy/managed_subscriptions.go
   s_5184255b00bb11::t_3811259e8c44d8 69,198,252,379,417,444-461
   s_5184255b00bb11::t_ff6fb840e13e61 253-265
   s_5184255b00bb11::t_613a182fe3785b 462
+  s_5184255b00bb11::t_5278b0dc1ac9a9 70
 internal/proxy/subscription_budget_abort_test.go
   s_5184255b00bb11::t_701d79e2b513f3 19,22,45,47-48,73
 internal/dispatch/authorization.go
@@ -117,6 +118,7 @@ internal/proxy/dispatch_plan.go
   s_5184255b00bb11::t_451333b981d1b3 146,182,256
   s_5184255b00bb11::t_bd32b751be0d0a 113,166-176,257-258,324-325,329
   s_5184255b00bb11::t_3811259e8c44d8 213-215
+  s_5184255b00bb11::t_5278b0dc1ac9a9 327
 internal/proxy/AGENTS.md
   s_5184255b00bb11::t_a9c122df52cd78 312,314,318,320
 ---
