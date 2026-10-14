@@ -127,7 +127,7 @@ func TestRoutingDistributionHandler_EmptyPoolIs400(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
-func TestRoutingDistributionHandler_UsesHMMRosterForHMMStrategy(t *testing.T) {
+func TestRoutingDistributionHandler_UsesHMMRosterForHMMStrategyAndPinnedDefault(t *testing.T) {
 	src := &fakeDistributionSource{err: errors.New("legacy cluster source must not run")}
 	roster := &rosterdata.Roster{
 		SchemaVersion: rosterdata.SchemaVersionV7,
@@ -149,10 +149,15 @@ func TestRoutingDistributionHandler_UsesHMMRosterForHMMStrategy(t *testing.T) {
 	engine := gin.New()
 	engine.GET("/v1/router/routing-distribution", admin.RoutingDistributionHandler(src, roster))
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/router/routing-distribution?strategy=hmm_embedding&grid=2", nil)
-	rec := httptest.NewRecorder()
-	engine.ServeHTTP(rec, req)
+	for _, query := range []string{
+		"?strategy=hmm_embedding&grid=2",
+		"",
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/v1/router/routing-distribution"+query, nil)
+		rec := httptest.NewRecorder()
+		engine.ServeHTTP(rec, req)
 
-	require.Equal(t, http.StatusOK, rec.Code)
-	assert.Zero(t, src.lastGrid)
+		require.Equal(t, http.StatusOK, rec.Code)
+		assert.Zero(t, src.lastGrid)
+	}
 }

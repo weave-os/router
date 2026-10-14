@@ -85,6 +85,28 @@ func TestDynamicRouterReportsAvailabilityAfterRefresh(t *testing.T) {
 	assert.True(t, dynamic.Available())
 }
 
+func TestLocalPinnedRouterDoesNotRelaxManagedAdmission(t *testing.T) {
+	snapshot := &policyregistry.Snapshot{
+		Candidate: policyregistry.Candidate{Policy: validLoader(t).policy},
+		Routers:   map[router.Strategy]router.Router{router.StrategyHMM: fixedRouter{model: "pinned"}},
+	}
+	local := policyregistry.NewLocalPinnedRouter(router.StrategyHMM, snapshot)
+	decision, err := local.Route(context.Background(), router.Request{})
+	require.NoError(t, err)
+	assert.Equal(t, "pinned", decision.Model)
+
+	managed := policyregistry.NewAdmittedRouter(router.StrategyHMM, snapshot)
+	_, err = managed.Route(context.Background(), router.Request{})
+	require.ErrorIs(t, err, policyregistry.ErrNoActivePolicy)
+	_, err = policyregistry.NewLocalPinnedRouter(router.StrategyHMMEmbedding, snapshot).Route(context.Background(), router.Request{})
+	require.ErrorIs(t, err, policyregistry.ErrNoActivePolicy)
+
+	roster := policyregistry.LocalPinnedRosterSource{Snapshot: snapshot}
+	arms, err := roster.Roster(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"openai/gpt-5.6-sol"}, arms)
+}
+
 func validLoader(t *testing.T) *fakeLoader {
 	t.Helper()
 	policyJSON := []byte(`{

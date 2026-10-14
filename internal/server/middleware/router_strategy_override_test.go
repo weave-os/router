@@ -146,6 +146,31 @@ func TestRouterStrategyOverride_ExplicitClusterWinsOverDeploymentDefault(t *test
 	assert.Equal(t, router.StrategyCluster, observed)
 }
 
+func TestLocalPinnedStrategyOverridesPersistedAndAuthorizedHeader(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.Use(func(c *gin.Context) {
+		c.Set("router_installation", &auth.Installation{
+			ID: "inst-local", RoutingStrategy: router.StrategyCluster, PolicyHeaderOverridesEnabled: true,
+		})
+		c.Next()
+	})
+	engine.Use(middleware.WithLocalPinnedRouterStrategy(router.StrategyHMMEmbedding))
+	var observed router.Strategy
+	engine.GET("/probe", func(c *gin.Context) {
+		observed = router.StrategyFromContext(c.Request.Context())
+		c.Status(http.StatusOK)
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	request.Header.Set(middleware.RouterStrategyOverrideHeader, string(router.StrategyCluster))
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	assert.Equal(t, http.StatusOK, response.Code)
+	assert.Equal(t, router.StrategyHMMEmbedding, observed)
+}
+
 func TestNormalizeRouterStrategyDefault(t *testing.T) {
 	assert.Equal(t, router.StrategyHMM, middleware.NormalizeRouterStrategyDefault(router.StrategyHMM, router.StrategyHMM))
 	assert.Equal(t, router.StrategyCluster, middleware.NormalizeRouterStrategyDefault(router.Strategy("typo"), router.StrategyHMM))
