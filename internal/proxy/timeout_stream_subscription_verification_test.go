@@ -59,7 +59,7 @@ func TestVerificationSubscriptionTimeoutRefusesAPIWithoutQuotaProof(t *testing.T
 	rec := httptest.NewRecorder()
 	started := time.Now()
 	err := svc.ProxyOpenAIChatCompletion(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
-	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+	require.False(t, isSubscriptionPoolError(err), "a provider timeout must not be mislabeled as quota exhaustion")
 	var timeoutErr net.Error
 	require.ErrorAs(t, err, &timeoutErr, "the original provider timeout must survive pool failure")
 	require.True(t, timeoutErr.Timeout())
@@ -109,7 +109,7 @@ func TestVerificationResponsesSubscriptionTimeoutRefusesAPIWithoutQuotaProof(t *
 	rec := httptest.NewRecorder()
 	started := time.Now()
 	err := svc.ProxyOpenAIResponses(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(string(body))))
-	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+	require.False(t, isSubscriptionPoolError(err), "a provider timeout must not be mislabeled as quota exhaustion")
 	var timeoutErr net.Error
 	require.ErrorAs(t, err, &timeoutErr, "the original provider timeout must survive pool failure")
 	require.True(t, timeoutErr.Timeout())

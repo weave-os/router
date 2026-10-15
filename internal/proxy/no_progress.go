@@ -237,6 +237,32 @@ func (t *noProgressTracker) recordAndDetect(sessionKey [sessionpin.SessionKeyLen
 	return ring.recordAndDetect(fp, now)
 }
 
+// detect checks the next request against completed calls without recording retries.
+func (t *noProgressTracker) detect(sessionKey [sessionpin.SessionKeyLen]byte, installationID uuid.UUID, role string, fp noProgressFingerprint, now time.Time) (bool, int) {
+	if t == nil || t.cache == nil {
+		return false, 0
+	}
+	key, ok := noProgressBucketKey(sessionKey, installationID, role)
+	if !ok {
+		return false, 0
+	}
+	ring, ok := t.cache.Get(key)
+	if !ok || ring == nil {
+		return false, 1
+	}
+	ring.mu.Lock()
+	defer ring.mu.Unlock()
+	count := 1
+	cutoff := now.Add(-noProgressTimeWindow)
+	start := max(0, len(ring.entries)-(noProgressWindowSize-1))
+	for _, entry := range ring.entries[start:] {
+		if entry.fp == fp && !entry.when.Before(cutoff) {
+			count++
+		}
+	}
+	return count >= noProgressMatchThreshold, count
+}
+
 // noProgressBucketKey picks the LRU bucket key. ok=false means no anchor is
 // available and the caller must skip detection.
 func noProgressBucketKey(sessionKey [sessionpin.SessionKeyLen]byte, installationID uuid.UUID, role string) (string, bool) {

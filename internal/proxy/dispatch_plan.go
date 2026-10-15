@@ -183,7 +183,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				if forcedClaudeClientAppRefused(ctx, decision, nil) {
 					return dispatchAbort{err: errors.Join(ErrSubscriptionClientAppRefused, leaseErr, lastSubscriptionErr)}
 				}
-				return dispatchAbort{err: errors.Join(leaseErr, lastSubscriptionErr)}
+				return dispatchAbort{err: subscriptionRotationFailure(leaseErr, lastSubscriptionErr)}
 			}
 			if !managedAttempt {
 				credentialCtx = attemptCtx
@@ -333,7 +333,16 @@ func (s *Service) afterSubscriptionRotationBudget(ctx context.Context, decision 
 	if errors.Is(rotationErr, ErrSubscriptionPoolUnavailable) {
 		return rotationErr
 	}
-	return errors.Join(ErrSubscriptionPoolExhausted, rotationErr)
+	return subscriptionRotationFailure(ErrSubscriptionPoolExhausted, rotationErr)
+}
+
+// subscriptionRotationFailure preserves transport faults when no alternate account
+// can be leased; an empty rotation pool does not establish quota exhaustion.
+func subscriptionRotationFailure(poolErr, attemptErr error) error {
+	if isSubscriptionPoolError(poolErr) && providers.IsRetryable(attemptErr) && upstreamStatus(attemptErr) != http.StatusTooManyRequests {
+		return attemptErr
+	}
+	return errors.Join(poolErr, attemptErr)
 }
 
 func recordWinningCredentials(ctx, credentialCtx context.Context) {
