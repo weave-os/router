@@ -32,6 +32,8 @@ for *every* request: using a tiny on-box embedder, not a vibes-based prompt.
 
 [![#1 Product of the Day on Product Hunt](https://api.producthunt.com/widgets/embed-image/v1/top-post-badge.svg?post_id=1247729&theme=light&period=daily)](https://www.producthunt.com/posts/weave-router-2-0?embed=true&utm_source=badge-top-post-badge&utm_medium=badge&utm_campaign=badge-weave-router-2-0)
 
+[简体中文](README.zh-CN.md) · English
+
 *Built by [Weave](https://www.workweave.ai): The #1 engineering intelligence platform,
 loved by Robinhood, PostHog, Reducto, and hundreds of others.*
 
