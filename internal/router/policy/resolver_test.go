@@ -201,23 +201,23 @@ func TestResolverRejectsAmbiguousRosterMappings(t *testing.T) {
 
 func TestResolverRejectsCandidatesThatCannotFitEstimatedInput(t *testing.T) {
 	resolver := policy.NewResolver(
-		set("claude-opus-4-8"),
+		set("claude-haiku-4-5"),
 		set(providers.ProviderAnthropic),
 		catalogRosterID,
 		policy.ManagedProviderPolicy(),
 	)
 
-	resolved := resolver.Resolve(router.Request{EstimatedInputTokens: catalog.ContextWindowFor("claude-opus-4-8") + 1})
+	resolved := resolver.Resolve(router.Request{EstimatedInputTokens: catalog.EffectiveContextWindowFor("claude-haiku-4-5") + 1})
 
 	assert.Empty(t, resolved.Candidates)
 	assert.Contains(t, resolved.Diagnostics, policy.Diagnostic{
-		CatalogID: "claude-opus-4-8",
-		RosterID:  "claude-opus-4-8",
+		CatalogID: "claude-haiku-4-5",
+		RosterID:  "claude-haiku-4-5",
 		Reason:    policy.ExclusionContextWindow,
 	})
 }
 
-func TestResolverAllowsExactContextFit(t *testing.T) {
+func TestResolverAllowsExtendedContextModelUpTo1M(t *testing.T) {
 	resolver := policy.NewResolver(
 		set("claude-opus-4-8"),
 		set(providers.ProviderAnthropic),
@@ -225,15 +225,30 @@ func TestResolverAllowsExactContextFit(t *testing.T) {
 		policy.ManagedProviderPolicy(),
 	)
 
-	resolved := resolver.Resolve(router.Request{EstimatedInputTokens: catalog.ContextWindowFor("claude-opus-4-8")})
+	// 500K tokens exceeds the 200K base catalog window but fits inside the 1M extended context window.
+	resolved := resolver.Resolve(router.Request{EstimatedInputTokens: 500_000})
 
 	assert.Equal(t, []string{"claude-opus-4-8"}, resolved.CandidateModels())
 	assert.Empty(t, resolved.Diagnostics)
 }
 
+func TestResolverAllowsExactContextFit(t *testing.T) {
+	resolver := policy.NewResolver(
+		set("claude-haiku-4-5"),
+		set(providers.ProviderAnthropic),
+		catalogRosterID,
+		policy.ManagedProviderPolicy(),
+	)
+
+	resolved := resolver.Resolve(router.Request{EstimatedInputTokens: catalog.EffectiveContextWindowFor("claude-haiku-4-5")})
+
+	assert.Equal(t, []string{"claude-haiku-4-5"}, resolved.CandidateModels())
+	assert.Empty(t, resolved.Diagnostics)
+}
+
 func TestResolverIncludesExpectedOutputInContextBudget(t *testing.T) {
 	resolver := policy.NewResolver(
-		set("claude-opus-4-8"),
+		set("claude-haiku-4-5"),
 		set(providers.ProviderAnthropic),
 		catalogRosterID,
 		policy.ManagedProviderPolicy(),
@@ -241,36 +256,36 @@ func TestResolverIncludesExpectedOutputInContextBudget(t *testing.T) {
 	expectedOutputTokens := 2_000
 
 	resolved := resolver.Resolve(router.Request{
-		EstimatedInputTokens: catalog.ContextWindowFor("claude-opus-4-8") - 1_000,
+		EstimatedInputTokens: catalog.EffectiveContextWindowFor("claude-haiku-4-5") - 1_000,
 		RoutingKnobs:         &router.Overrides{ExpectedOutputTokens: &expectedOutputTokens},
 	})
 
 	assert.Empty(t, resolved.Candidates)
 	assert.Contains(t, resolved.Diagnostics, policy.Diagnostic{
-		CatalogID: "claude-opus-4-8",
-		RosterID:  "claude-opus-4-8",
+		CatalogID: "claude-haiku-4-5",
+		RosterID:  "claude-haiku-4-5",
 		Reason:    policy.ExclusionContextWindow,
 	})
 }
 
 func TestResolverKeepsOverflowAdmittedModels(t *testing.T) {
 	resolver := policy.NewResolver(
-		set("claude-opus-4-8", "claude-sonnet-4-6"),
+		set("claude-opus-4-8", "claude-haiku-4-5"),
 		set(providers.ProviderAnthropic),
 		catalogRosterID,
 		policy.ManagedProviderPolicy(),
 	)
 
 	resolved := resolver.Resolve(router.Request{
-		EstimatedInputTokens:   catalog.ContextWindowFor("claude-opus-4-8") + 1,
+		EstimatedInputTokens:   catalog.EffectiveContextWindowFor("claude-opus-4-8") + 1,
 		OverflowAdmittedModels: set("claude-opus-4-8"),
 	})
 
 	assert.Equal(t, []string{"claude-opus-4-8"}, resolved.CandidateModels(),
 		"the provider's exact count decides for a model the proxy admitted on total overflow")
 	assert.Equal(t, []policy.Diagnostic{{
-		CatalogID: "claude-sonnet-4-6",
-		RosterID:  "claude-sonnet-4-6",
+		CatalogID: "claude-haiku-4-5",
+		RosterID:  "claude-haiku-4-5",
 		Reason:    policy.ExclusionContextWindow,
 	}}, resolved.Diagnostics)
 }

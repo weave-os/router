@@ -452,6 +452,13 @@ func TestContextWindowFor_KnownModels(t *testing.T) {
 	assert.Equal(t, 204_800, ContextWindowFor("minimax/minimax-m2.7"))
 	// Unknown model falls back to DefaultContextWindow.
 	assert.Equal(t, DefaultContextWindow, ContextWindowFor("not-a-real-model"))
+
+	// EffectiveContextWindowFor unlocks 1M for CapExtendedContext models and
+	// their dated variants, while preserving catalog values for other models.
+	assert.Equal(t, 1_000_000, EffectiveContextWindowFor("claude-opus-4-8"))
+	assert.Equal(t, 1_000_000, EffectiveContextWindowFor("claude-opus-4-8-20251001"))
+	assert.Equal(t, 200_000, EffectiveContextWindowFor("claude-haiku-4-5"))
+	assert.Equal(t, DefaultContextWindow, EffectiveContextWindowFor("not-a-real-model"))
 }
 
 func TestGPT61SolCachedAndLongContextPricing(t *testing.T) {
