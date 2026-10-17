@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"weave-os/router/internal/router/turntype"
@@ -42,6 +43,13 @@ func TestFeedbackFooter_ClientGating(t *testing.T) {
 	t.Run("hidden terminal surfaces suppress the hint even for a main-loop turn", func(t *testing.T) {
 		hiddenCtx := context.WithValue(context.Background(), InstallationHideTerminalSurfacesContextKey{}, true)
 		assert.Empty(t, withStore.feedbackFooter(hiddenCtx, ClientAppClaudeCode, turntype.MainLoop, false), "hidden orgs get no /rf hint")
+	})
+
+	t.Run("a hidden feedback prompt suppresses the hint while the marker stays visible", func(t *testing.T) {
+		ctx := context.WithValue(context.Background(), InstallationHideFeedbackPromptContextKey{}, true)
+		assert.Empty(t, withStore.feedbackFooter(ctx, ClientAppClaudeCode, turntype.MainLoop, false))
+		assert.Empty(t, withStore.feedbackFooter(ctx, ClientAppCodex, turntype.MainLoop, false))
+		assert.Equal(t, "marker", suppressMarkerIfRequested(ctx, http.Header{}, "marker"))
 	})
 
 	t.Run("an echoed footer with no new human turn suppresses the hint", func(t *testing.T) {

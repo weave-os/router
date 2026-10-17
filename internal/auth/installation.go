@@ -98,6 +98,9 @@ type Installation struct {
 	// HideTerminalSurfaces suppresses the routing marker, feedback footer, and
 	// statusline; routing and feedback recording are unaffected. Defaults false.
 	HideTerminalSurfaces bool
+	// HideFeedbackPrompt suppresses only the trailing /rf feedback hint;
+	// /rf submissions are still recorded. Defaults false.
+	HideFeedbackPrompt bool
 	// ShowModelSelectionReasoning enables a short explanation in newly emitted
 	// model-selection markers. It does not change the routing decision.
 	ShowModelSelectionReasoning bool

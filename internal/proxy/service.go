@@ -607,6 +607,11 @@ type InstallationSubscriptionRoutingDisabledContextKey struct{}
 // suppresses the routing marker, feedback footer, and feedback-link header.
 type InstallationHideTerminalSurfacesContextKey struct{}
 
+// InstallationHideFeedbackPromptContextKey carries the installation's
+// hide-feedback-prompt toggle (bool; absent == false); suppresses only the
+// trailing /rf feedback footer.
+type InstallationHideFeedbackPromptContextKey struct{}
+
 // InstallationShowModelSelectionReasoningContextKey carries the org's opt-in
 // for an explanatory line in newly emitted serving-model markers.
 type InstallationShowModelSelectionReasoningContextKey struct{}

@@ -208,7 +208,7 @@ func TestWithAuthPrefersRouterKeyHeader(t *testing.T) {
 		ID: "inst-1", ExternalID: "ext-1", RoutingRolloutID: "rollout-1",
 		PolicyShadowStrategy: "future-policy", PolicyDebugEnabled: true,
 		PolicyRoutingIntent: "high", AITrainingAllowed: true,
-		ShowModelSelectionReasoning: true,
+		ShowModelSelectionReasoning: true, HideFeedbackPrompt: true,
 	}
 	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{
 		hash: {apiKey: apiKey, installation: installation},
@@ -229,6 +229,7 @@ func TestWithAuthPrefersRouterKeyHeader(t *testing.T) {
 		assert.Equal(t, "high", ctx.Value(proxy.PolicyRoutingIntentContextKey{}))
 		assert.Equal(t, true, ctx.Value(proxy.PolicyTrainingAllowedContextKey{}))
 		assert.Equal(t, true, ctx.Value(proxy.InstallationShowModelSelectionReasoningContextKey{}))
+		assert.Equal(t, true, ctx.Value(proxy.InstallationHideFeedbackPromptContextKey{}))
 		c.Status(http.StatusOK)
 	})
 
