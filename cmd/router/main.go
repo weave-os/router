@@ -29,6 +29,7 @@ import (
 	"weave-os/router/internal/escalationmodal"
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/flags"
+	"weave-os/router/internal/keywrap"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/apm"
 	"weave-os/router/internal/observability/otel"
@@ -179,11 +180,36 @@ func main() {
 	// EXTERNAL_KEY_ENCRYPTION_KEY is optional: unset falls back to a no-op
 	// encryptor (BYOK secrets stored unencrypted, fine for self-hosted/local).
 	// A malformed keyset still fails closed — only a genuinely absent var bypasses.
+	// With EXTERNAL_KEY_ENCRYPTION_KEK_URI or EXTERNAL_KEY_ENCRYPTION_KEK set,
+	// the keyset is read as encrypted under that key-encryption key instead.
 	keysetJSON := config.GetOr("EXTERNAL_KEY_ENCRYPTION_KEY", "")
+	kekConfig := keywrap.Config{
+		KEKURI:        config.GetOr("EXTERNAL_KEY_ENCRYPTION_KEK_URI", ""),
+		KEKKeysetJSON: config.GetOr("EXTERNAL_KEY_ENCRYPTION_KEK", ""),
+		VaultAddr:     config.GetOr("VAULT_ADDR", ""),
+		VaultToken:    config.GetOr("VAULT_TOKEN", ""),
+	}
 	var encryptor auth.Encryptor
 	if keysetJSON == "" {
+		if kekConfig.Enabled() {
+			err := errors.New("a key-encryption key is configured but EXTERNAL_KEY_ENCRYPTION_KEY is unset")
+			logger.Error("Refusing to store BYOK secrets unencrypted", "err", err)
+			panic(err)
+		}
 		logger.Warn("EXTERNAL_KEY_ENCRYPTION_KEY not set; BYOK secrets will be stored unencrypted at rest. Set EXTERNAL_KEY_ENCRYPTION_KEY to a Tink AES-256-GCM keyset to enable encryption.")
 		encryptor = auth.NoOpEncryptor{}
+	} else if kekConfig.Enabled() {
+		kek, kekErr := keywrap.NewKEK(kekConfig)
+		if kekErr != nil {
+			logger.Error("Failed to configure the keyset key-encryption key", "err", kekErr)
+			panic(kekErr)
+		}
+		encryptor, err = auth.NewWrappedTinkEncryptor(keysetJSON, kek)
+		if err != nil {
+			logger.Error("Failed to decrypt the Tink keyset with the key-encryption key", "err", err)
+			panic(err)
+		}
+		logger.Info("BYOK keyset loaded encrypted under a key-encryption key")
 	} else {
 		encryptor, err = auth.NewTinkEncryptor(keysetJSON)
 		if err != nil {
