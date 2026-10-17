@@ -43,18 +43,22 @@ loved by Robinhood, PostHog, Reducto, and hundreds of others.*
 
 Point Claude Code, Codex, Cursor, or your own app at `localhost:8080`. The router:
 
-- 🎯 **Routes per action.** A cluster scorer derived from
-  [Avengers-Pro](https://arxiv.org/abs/2508.12631) [^1] picks the right
-  model from your enabled providers, for every upstream API request.
+- 🎯 **Routes per action.** The default `cluster` strategy uses a scorer derived
+  from [Avengers-Pro](https://arxiv.org/abs/2508.12631) [^1] to pick a model
+  from your enabled providers for each upstream API request. Managed workers
+  may register policy strategies instead; see the configuration reference.
   (See [docs/SEMANTICS.md](docs/SEMANTICS.md) for the canonical terminology:
   the router routes per **action**, not per **turn**.)
 - 🔌 **Speaks everyone's API.** Anthropic Messages, OpenAI Chat Completions,
   Gemini native. Streaming, tools, vision, the works.
 - 🧠 **Knows OSS too.** DeepSeek, Kimi, GLM, Qwen, Llama, Mistral via
   OpenRouter (or any OpenAI-compatible endpoint).
-- 🔒 **BYOK by default.** Provider keys stay on your box, encrypted at rest.
-- 📊 **Observable.** OTLP traces out of the box. See them in the Weave dashboard (http://localhost:8080/ui/dashboard) or drop in Honeycomb, Datadog,
-  Grafana, whatever.
+- 🔒 **BYOK by default.** Provider keys stay on your box, encrypted at rest when
+  `EXTERNAL_KEY_ENCRYPTION_KEY` is set ([BYOK encryption](docs/CONFIGURATION.md#byok-encryption)).
+- 📊 **Observable.** The built-in dashboard at http://localhost:8080/ui/dashboard
+  shows requests, tokens, model usage and spend. Set
+  `OTEL_EXPORTER_OTLP_ENDPOINT` to also export OTLP traces to Honeycomb,
+  Datadog, Grafana, or any OTLP-compatible collector.
 
 ## 30-second quickstart
 
@@ -181,11 +185,10 @@ above.
 `~/.codex/config.toml` (or `<repo>/.codex/config.toml` with `--scope project`)
 with a managed `[model_providers.weave]` block and sets `model_provider = "weave"`.
 The provider preserves Codex's existing ChatGPT OAuth login while the router
-key rides in an `X-Weave-Router-Key` HTTP header and the installer selects the
-HMM strategy for the public hosted endpoint. `--codex --local` and custom
-self-hosted URLs keep their router's configured default because the HMM
-sidecar is optional. HMM and forced selections in the native Codex family
-(`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`) use that OAuth credential;
+key rides in an `X-Weave-Router-Key` HTTP header. The installer doesn't pin a
+routing strategy, so every endpoint, hosted or self-hosted, uses its own
+default. HMM and forced selections in the native Codex family
+(the catalog's Codex subscription models, such as `gpt-5.6-sol` and `gpt-6-sol`) use that OAuth credential;
 every other selected model uses its WorkWeave deployment or BYOK credential,
 matching the Claude Code plugin's model-to-credential dispatch.
 Codex does not load third-party slash-command files, so the installer ships
