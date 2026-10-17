@@ -246,9 +246,6 @@ func ParseResponsesEscalationObservation(body []byte) (EscalationObservation, er
 				roleName := item.Get("role").String()
 				if roleName == "" {
 					roleName = string(EscalationRoleUser)
-					if kind == escalationWireAgentMessage {
-						roleName = string(EscalationRoleAssistant)
-					}
 				}
 				role, err := escalationSemanticRole(roleName)
 				if err != nil {
