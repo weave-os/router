@@ -2,6 +2,7 @@ package subscriptions_test
 
 import (
 	"context"
+	"net/http"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -205,4 +206,39 @@ func TestManagerDoesNotCrossOwnerOrProviderPools(t *testing.T) {
 func mustLeaseError(p *subscriptions.Pool, provider subscriptions.Provider) error {
 	_, _, err := p.Lease(context.Background(), provider, "", nil)
 	return err
+}
+
+func TestPoolRetriesRejectedRefreshAfterFiveMinutes(t *testing.T) {
+	for _, provider := range []subscriptions.Provider{subscriptions.ProviderClaude, subscriptions.ProviderCodex} {
+		for _, status := range []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusForbidden} {
+			t.Run(string(provider)+"/"+http.StatusText(status), func(t *testing.T) {
+				startedAt := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+				now := startedAt
+				pool := subscriptions.NewPool("owner-1", provider, func() time.Time { return now })
+				require.NoError(t, pool.Upsert(subscriptions.Account{ID: "account-1", OwnerID: "owner-1", Provider: provider, Enabled: true}))
+				refreshes := 0
+				refresh := func(_ context.Context, account subscriptions.Account) (subscriptions.Account, error) {
+					refreshes++
+					if refreshes == 1 {
+						return subscriptions.Account{}, &subscriptions.OAuthRefreshError{Provider: provider, Status: status}
+					}
+					account.AccessToken = "access-recovered"
+					return account, nil
+				}
+				_, _, err := pool.Lease(context.Background(), provider, "session-1", refresh)
+				require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
+				now = startedAt.Add(5*time.Minute - time.Second)
+				_, _, err = pool.Lease(context.Background(), provider, "session-1", refresh)
+				require.ErrorIs(t, err, subscriptions.ErrNoAvailableAccount)
+				require.Equal(t, 1, refreshes)
+				now = startedAt.Add(5 * time.Minute)
+				account, release, err := pool.Lease(context.Background(), provider, "session-1", refresh)
+				require.NoError(t, err)
+				require.True(t, account.Enabled)
+				require.Equal(t, "access-recovered", account.AccessToken)
+				require.Equal(t, 2, refreshes)
+				release()
+			})
+		}
+	}
 }
