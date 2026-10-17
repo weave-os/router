@@ -81,3 +81,28 @@ func openAIToolChoice(body []byte) (toolChoiceKind, string) {
 	}
 	return toolChoiceUnrecognized, ""
 }
+
+// openAIRequiredAllowedTools reads an OpenAI allowed_tools choice in required
+// mode and returns its tool names. ok is false for any other shape, an empty
+// subset or an unnamed entry, so a subset that cannot be read is never widened
+// to every declared tool.
+func openAIRequiredAllowedTools(body []byte) (names []string, ok bool) {
+	r := gjson.GetBytes(body, "tool_choice")
+	if r.Get("type").String() != "allowed_tools" || r.Get("allowed_tools.mode").String() != "required" {
+		return nil, false
+	}
+	subset := r.Get("allowed_tools.tools")
+	tools := subset.Array()
+	if !subset.IsArray() || len(tools) == 0 {
+		return nil, false
+	}
+	names = make([]string, 0, len(tools))
+	for _, tool := range tools {
+		name := tool.Get("function.name")
+		if tool.Get("type").String() != "function" || name.Type != gjson.String || name.String() == "" {
+			return nil, false
+		}
+		names = append(names, name.String())
+	}
+	return names, true
+}
