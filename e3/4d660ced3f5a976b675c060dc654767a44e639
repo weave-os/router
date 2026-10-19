@@ -1,0 +1,25 @@
+internal/proxy/turnloop.go
+  s_cf3edf59ccc81b::t_aaf16edfdba834 747-750
+CLAUDE.md
+  s_cf3edf59ccc81b::t_aaf16edfdba834 125
+internal/proxy/service_session_pin_test.go
+  s_cf3edf59ccc81b::t_aaf16edfdba834 300-301
+AGENTS.md
+  s_cf3edf59ccc81b::t_aaf16edfdba834 125
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "e34d660ced3f5a976b675c060dc654767a44e639",
+  "prompts": {},
+  "sessions": {
+    "s_cf3edf59ccc81b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a081d5-4f5d-76f0-8014-f2c31f63fbb8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

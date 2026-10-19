@@ -1,0 +1,20 @@
+internal/proxy/force_model.go
+  s_799f504049b9af::t_50a52b6f35fa18 160-162
+  s_799f504049b9af::t_c2958b04d8df5b 202-205
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "d151abe5569b75dee62b6402b2cb3a936600091e",
+  "prompts": {},
+  "sessions": {
+    "s_799f504049b9af": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5842e58e-0d13-4901-addd-8afb5b31965d",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

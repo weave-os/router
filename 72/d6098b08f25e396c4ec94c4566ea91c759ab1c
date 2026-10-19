@@ -1,0 +1,23 @@
+internal/router/policy/resolver_test.go
+  s_3211b1482b7151::t_bdd5285e28f718 322-337,343-373
+  s_3211b1482b7151::t_e3d8ea17069bae 338-342
+internal/router/policy/resolver.go
+  s_3211b1482b7151::t_1abcc4dc415b0a 11
+  s_3211b1482b7151::t_edce50dbc86c92 413-415,418-420,424-425,427,432-435,438-442
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "72d6098b08f25e396c4ec94c4566ea91c759ab1c",
+  "prompts": {},
+  "sessions": {
+    "s_3211b1482b7151": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bca6d564-81fe-4094-bb2d-0b0bae4bb3c4",
+        "model": "deepseek/deepseek-v4-pro-0813"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

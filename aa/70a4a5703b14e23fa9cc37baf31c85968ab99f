@@ -1,0 +1,29 @@
+docs/SUBSCRIPTION_ROUTING.md
+  s_bb837beeb3e06f::t_1be1186e8e2ffa 32-34
+internal/providers/openai/client.go
+  s_bb837beeb3e06f::t_b6bbe3a6f1593d 307-311
+internal/providers/openai/codex_quota.go
+  s_bb837beeb3e06f::t_5275688b02e49b 6,12,34,37,43-44,47,55-59,64,67-69,74-75,78-79,82-92,123,137-141,146
+internal/providers/openai/codex_quota_test.go
+  s_bb837beeb3e06f::t_4120b04a04b1b0 4,8,10-11,26,33,39-40,44,53,58-157
+internal/proxy/codex_quota_rollover_test.go
+  s_bb837beeb3e06f::t_8d7ccdd37dd277 9,11,18-19,29,31-35,39,43-50,58,60,77-78,90-118
+internal/proxy/subscription_budget_abort_test.go
+  s_bb837beeb3e06f::t_4713a52efdfbb0 8,36-40,79-83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "aa70a4a5703b14e23fa9cc37baf31c85968ab99f",
+  "prompts": {},
+  "sessions": {
+    "s_bb837beeb3e06f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10fdb-40e1-7e30-afbc-8f42d9abecc1",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
