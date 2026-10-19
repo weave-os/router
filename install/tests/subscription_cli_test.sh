@@ -100,6 +100,25 @@ for provider in claude codex; do
   fi
 done
 
+for saved_dir in "$work/saved-home" "$work/custom install"; do
+  mkdir -p "$saved_dir/.claude"
+  printf '%s' '{"env":{"ANTHROPIC_BASE_URL":"https://selfhosted.example.test","ANTHROPIC_AUTH_TOKEN":"rk_saved_fixture"}}' >"$saved_dir/.claude/settings.json"
+  saved_args=()
+  if [ "$saved_dir" = "$work/custom install" ]; then
+    saved_args=(--dir "$saved_dir")
+  fi
+  if saved_output="$(env "${common_env[@]}" HOME="$saved_dir" WEAVE_ROUTER_URL= \
+      FAKE_VALIDATION_STATUS=401 FAKE_VALIDATION_BODY='{"error":"invalid_key"}' \
+      bash "$installer" login claude "${saved_args[@]}" --quiet 2>&1)"; then
+    echo 'login accepted a rejected key for a saved self-hosted install' >&2
+    exit 1
+  fi
+  grep -Fq -- '--claude --scope user --rotate-key --base-url https://selfhosted.example.test' <<<"$saved_output"
+  if [ "${#saved_args[@]}" -gt 0 ]; then
+    grep -Fq -- "--dir $(printf '%q' "$saved_dir")" <<<"$saved_output"
+  fi
+done
+
 if missing_output="$(env "${common_env[@]}" bash "$installer" login claude --quiet 2>&1)"; then
   echo 'login succeeded without a Router install' >&2
   exit 1

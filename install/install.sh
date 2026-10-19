@@ -3129,7 +3129,7 @@ models_api_error() {
 # models_fail turns the status left by models_api into a message that says what
 # to do next, then exits. $1 names the attempted operation.
 models_fail() {
-  local what="$1" detail
+  local what="$1" detail repair_command
   detail="$(models_api_error)"
   case "$models_http_status" in
     ""|000)
@@ -3142,10 +3142,9 @@ models_fail() {
       else
         err "Weave Router is not set up with a valid API key for $target in the $scope scope."
         printf '  The router at %s rejected the Router API key for this install (HTTP %s).\n' "$base_url" "$models_http_status" >&2
-        printf "  Run 'npx %s --%s --scope %s --rotate-key' and paste the complete rk_... key from %s, then retry this command.\n" "$npm_package_name" "$target" "$scope" "$base_url" >&2
-        if [ "$base_url_explicit" = "true" ] || [ -n "$install_dir" ]; then
-          printf '  Keep the same --base-url and --dir options when repairing a custom install.\n' >&2
-        fi
+        repair_command="npx $npm_package_name --$target --scope $scope --rotate-key --base-url $(printf '%q' "$base_url")"
+        [ -n "$install_dir" ] && repair_command="$repair_command --dir $(printf '%q' "$install_dir")"
+        printf "  Run '%s' and paste the complete rk_... key from %s, then retry this command.\n" "$repair_command" "$base_url" >&2
         if [ -n "${WEAVE_ROUTER_KEY:-}" ]; then
           printf '  WEAVE_ROUTER_KEY is set and overrides saved keys; replace or unset it before retrying.\n' >&2
         fi
