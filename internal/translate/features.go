@@ -512,6 +512,8 @@ var claudeCodeInjectedBlockPrefixes = []string{
 	"<local-command-stdout>",
 	"<local-command-stderr>",
 	"<local-command-caveat>",
+	"<task-notification>",
+	"</summary>\n<result>",
 }
 
 func isClaudeCodeInjectedBlock(text string) bool {
