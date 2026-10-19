@@ -1,0 +1,22 @@
+internal/translate/responses_test.go
+  s_99a26d7f7deb6c::t_b89258c350a758 945,947-948
+internal/translate/responses.go
+  s_99a26d7f7deb6c::t_cdbc0f2ae3f09f 536-537,1172,1174-1176,1179-1186,1188,1202-1204,1206-1210,1212,1215-1216,1219-1227,1230,1256
+  s_99a26d7f7deb6c::t_235c3d0a61e5df 1045-1047,1050-1055,1064-1066,1069-1074,1093-1095,1098-1105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "cfddaee65aac89f0c8c0ff97490f6e332294b26a",
+  "prompts": {},
+  "sessions": {
+    "s_99a26d7f7deb6c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6a458e13-f54a-43f2-8dcb-023370249ea7",
+        "model": "grok-4.6"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
