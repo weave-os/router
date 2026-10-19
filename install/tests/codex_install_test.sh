@@ -450,13 +450,11 @@ HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" on --codex --scope u
 
 # `login codex` is where users hit this first: it refused to enroll a
 # subscription against a working install and told them to run the installer
-# again. The device-authorization step still fails offline here -- what must not
-# come back is the "no install" refusal that precedes it.
+# again. The offline validation failure confirms that the install was found.
 login_out="$(HOME="$home" PATH="$test_path" NO_COLOR=1 \
   bash "$installer" login codex --scope user 2>&1 || true)"
-if printf '%s' "$login_out" | grep -q 'No Weave Router install found'; then
-  fail "login codex did not see an install whose markers Codex had dropped"
-fi
+printf '%s' "$login_out" | grep -Fq 'Could not reach the router at https://router.workweave.ai' \
+  || fail "login codex did not validate an install whose markers Codex had dropped"
 
 # The key reader has to accept both spellings of the header name: our writer
 # emits one quoted inline table, Codex re-emits it as a bare key in a subtable.

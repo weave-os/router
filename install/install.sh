@@ -3136,12 +3136,19 @@ models_fail() {
       err "Could not reach the router at $base_url. Is it running?"
       ;;
     401|403)
-      # 403 with a message is the ROUTER_EXCLUDED_MODELS/PROVIDERS env pin,
-      # which is actionable on its own; a bare 401/403 is a key problem.
-      if [ -n "$detail" ]; then
+      # Preserve policy errors; invalid_key needs local setup instructions.
+      if [ -n "$detail" ] && [ "$detail" != "invalid_key" ]; then
         err "$detail"
       else
-        err "The router rejected this installation's key. Re-run 'npx $npm_package_name --$target --rotate-key' to install a current one."
+        err "Weave Router is not set up with a valid API key for $target in the $scope scope."
+        printf '  The router at %s rejected the Router API key for this install (HTTP %s).\n' "$base_url" "$models_http_status" >&2
+        printf "  Run 'npx %s --%s --scope %s --rotate-key' and paste the complete rk_... key from %s, then retry this command.\n" "$npm_package_name" "$target" "$scope" "$base_url" >&2
+        if [ "$base_url_explicit" = "true" ] || [ -n "$install_dir" ]; then
+          printf '  Keep the same --base-url and --dir options when repairing a custom install.\n' >&2
+        fi
+        if [ -n "${WEAVE_ROUTER_KEY:-}" ]; then
+          printf '  WEAVE_ROUTER_KEY is set and overrides saved keys; replace or unset it before retrying.\n' >&2
+        fi
       fi
       ;;
     404)
@@ -3628,11 +3635,14 @@ run_login() {
   [ -n "$provider" ] || { err "Use 'login claude' or 'login codex'."; exit 2; }
   [ -z "$extra" ] || { err "Login accepts exactly one provider."; exit 2; }
   ensure_jq
+  case "$provider" in
+    claude|codex) models_api GET "/validate" || models_fail "checking Router setup" ;;
+    *) err "Unknown subscription provider: $provider."; exit 2 ;;
+  esac
   require_cmd openssl "Install OpenSSL to enroll a subscription account."
   case "$provider" in
     claude) run_login_claude ;;
     codex) run_login_codex ;;
-    *) err "Unknown subscription provider: $provider."; exit 2 ;;
   esac
 }
 
@@ -3722,7 +3732,8 @@ if [ "$mode" = "models" ] || [ "$mode" = "accounts" ] || [ "$mode" = "login" ] |
       models_base="$(resolve_installed_endpoint)"
     fi
     if [ -z "$models_base" ]; then
-      err "No Weave Router install found for $target in this scope. Run 'npx $npm_package_name --$target' first, or pass --base-url."
+      err "Weave Router is not installed for $target in the $scope scope."
+      printf "  Run 'npx %s --%s --scope %s' first, then retry this command. For an existing custom router, pass --base-url <url>.\n" "$npm_package_name" "$target" "$scope" >&2
       exit 1
     fi
     base_url="$models_base"

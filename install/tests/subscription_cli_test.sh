@@ -51,10 +51,15 @@ case "$url" in
     printf '{"id_token":"%s","access_token":"access-new","refresh_token":"refresh-new","expires_in":3600}' "$FAKE_JWT"
     ;;
   */validate)
-    printf '%s' '{}' >"$out"
-    [ "$want_status" = "true" ] && printf '200'
+    printf '%s' "${FAKE_VALIDATION_BODY:-\{\}}" >"$out"
+    [ "$want_status" = "true" ] && printf '%s' "${FAKE_VALIDATION_STATUS:-200}"
     ;;
   */v1/subscriptions/accounts)
+    if [ -n "${FAKE_ENROLLMENT_STATUS:-}" ]; then
+      printf '%s' '{"error":"invalid_key"}' >"$out"
+      [ "$want_status" = "true" ] && printf '%s' "$FAKE_ENROLLMENT_STATUS"
+      exit 0
+    fi
     if [ -n "$data_file" ]; then
       jq -e '.refresh_token | startswith("refresh-")' "$data_file" >/dev/null
       jq -c . "$data_file" >>"$FAKE_ENROLLMENTS"
@@ -73,6 +78,57 @@ printf '#!/usr/bin/env bash\nexit 0\n' >"$work/bin/open"
 chmod +x "$work/bin/open"
 
 common_env=(HOME="$work/home" PATH="$work/bin:$PATH" WEAVE_ROUTER_KEY="rk_test_secret" NO_COLOR=1)
+
+for provider in claude codex; do
+  : >"$FAKE_CURL_LOG"
+  if rejected_output="$(env "${common_env[@]}" FAKE_VALIDATION_STATUS=401 \
+      FAKE_VALIDATION_BODY='{"error":"invalid_key"}' \
+      bash "$installer" login "$provider" --base-url https://router.example.test --non-interactive --quiet 2>&1)"; then
+    echo "$provider login accepted a rejected Router key" >&2
+    exit 1
+  fi
+  grep -Fq 'Weave Router is not set up with a valid API key' <<<"$rejected_output"
+  grep -Fq -- "--$provider --scope user --rotate-key" <<<"$rejected_output"
+  grep -Fq 'WEAVE_ROUTER_KEY' <<<"$rejected_output"
+  if grep -Eq 'oauth|deviceauth|subscriptions/accounts' "$FAKE_CURL_LOG"; then
+    echo "$provider login started authorization before validating the Router key" >&2
+    exit 1
+  fi
+  if grep -Fq 'rk_test_secret' <<<"$rejected_output"; then
+    echo 'rejected Router key leaked into terminal output' >&2
+    exit 1
+  fi
+done
+
+if missing_output="$(env "${common_env[@]}" bash "$installer" login claude --quiet 2>&1)"; then
+  echo 'login succeeded without a Router install' >&2
+  exit 1
+fi
+grep -Fq 'Weave Router is not installed for claude in the user scope' <<<"$missing_output"
+grep -Fq 'npx @weave-os/router --claude --scope user' <<<"$missing_output"
+
+if enrollment_output="$(env "${common_env[@]}" FAKE_ENROLLMENT_STATUS=401 \
+    bash "$installer" login codex --base-url https://router.example.test --non-interactive --quiet 2>&1)"; then
+  echo 'login accepted a key rejected during enrollment' >&2
+  exit 1
+fi
+grep -Fq 'Weave Router is not set up with a valid API key' <<<"$enrollment_output"
+grep -Fq -- '--codex --scope user --rotate-key' <<<"$enrollment_output"
+
+for validation_status in 403 503; do
+  if unavailable_output="$(env "${common_env[@]}" FAKE_VALIDATION_STATUS="$validation_status" \
+      FAKE_VALIDATION_BODY='{"error":"fixture_router_unavailable"}' \
+      bash "$installer" login codex --base-url https://router.example.test --non-interactive --quiet 2>&1)"; then
+    echo "login continued after HTTP $validation_status" >&2
+    exit 1
+  fi
+  grep -Fq 'fixture_router_unavailable' <<<"$unavailable_output"
+  if grep -Fq -- '--rotate-key' <<<"$unavailable_output"; then
+    echo "HTTP $validation_status was incorrectly reported as a rejected key" >&2
+    exit 1
+  fi
+done
+
 env "${common_env[@]}" bash "$installer" login codex --base-url https://router.example.test --non-interactive --quiet \
   | grep -Fq 'Codex subscription enrolled.'
 
