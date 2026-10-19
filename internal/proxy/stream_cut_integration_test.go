@@ -107,6 +107,7 @@ func TestProxyMessages_ThinkingOnlyIdleCutReportsNoFinalBlocks(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rec.Code, "the status went out with the first provider byte")
 	assert.Contains(t, rec.Body.String(), "event: error\ndata: ")
+	assert.Contains(t, rec.Body.String(), "please retry your request", "the client must recognize the watchdog failure as retryable")
 	assert.NotContains(t, rec.Body.String(), "message_stop", "the router does not fabricate a clean end to a cut turn")
 	assert.Len(t, provider.proxyBodies, 1, "a committed stream is never re-dispatched")
 
@@ -148,6 +149,7 @@ func TestProxyMessages_ClientCancelClassifiedSeparately(t *testing.T) {
 
 	logged := logBuf.String()
 	assert.Contains(t, logged, "stream_failure_class=client_canceled")
+	assert.NotContains(t, rec.Body.String(), "please retry your request")
 	assert.Contains(t, logged, "stream_cut_replay_retryable=false",
 		"a caller that hung up is not a failure a replay could recover")
 	assert.Contains(t, logged, "stream_upstream_frames=2")
