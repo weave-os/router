@@ -1,0 +1,64 @@
+internal/observability/otel/batch.go
+  s_d3e8ab72481692::t_0bcd786b9c0be0 1-58
+internal/observability/otel/emitter.go
+  s_d3e8ab72481692::t_0bcd786b9c0be0 6,22-26,40-46,48-49,54,57,60-64,67,91-95,97-98,102-103,106-108,113-114,116-119,123-124,128-129,131-132,134-135,137-146,149,154-157,160-176,178,182,184,189-191,196-199,204-208,212,214-215,219-231,233-235,240,242,245-255,257,260,267
+  s_d3e8ab72481692::t_9af30ec2e1f9d5 120-122
+internal/proxy/service.go
+  s_d3e8ab72481692::t_0bcd786b9c0be0 138,1825
+internal/observability/otel/batch_test.go
+  s_d3e8ab72481692::t_9af30ec2e1f9d5 1-26,29-53
+  s_d3e8ab72481692::t_78d466f8b7b9cc 27-28
+internal/proxy/turn_logs_surface_test.go
+  s_d3e8ab72481692::t_78d466f8b7b9cc 1-52,62-64,70-72,78-80,84-112,116-118,121-127,130-152,154-158
+  s_d3e8ab72481692::t_cf74770c49ef83 128-129,153
+  s_61361d95232b52::t_0edf9b6e02cc59 53-61,65-69,73-77,81-83,113-115,119-120
+internal/observability/otel/emitter_internal_test.go
+  s_d3e8ab72481692::t_9af30ec2e1f9d5 1-232
+internal/proxy/turn_logs_internal_test.go
+  s_d3e8ab72481692::t_78d466f8b7b9cc 400-547
+internal/proxy/turn_logs.go
+  s_d3e8ab72481692::t_0bcd786b9c0be0 29,167-169,171-178,196,199,201,204-211,213-216,218-220
+internal/proxy/cache_writer.go
+  s_d3e8ab72481692::t_0bcd786b9c0be0 39
+docs/CONFIGURATION.md
+  s_d3e8ab72481692::t_9af30ec2e1f9d5 667-676,698-699,707-719
+  s_d3e8ab72481692::t_6162e7acd3ddac 720
+internal/observability/global_logger_budget_test.go
+  s_4b35a13fba5b13::t_1c82292f147909 34
+internal/observability/safego_test.go
+  s_4b35a13fba5b13::t_c9261477cc0aab 8,19,38,57,68-84
+internal/proxy/fire_telemetry_panic_internal_test.go
+  s_4b35a13fba5b13::t_450f4a8d9836cd 8,73,95-111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e05d73df6ee008cff1fda131e8bdfbed7d389104",
+  "prompts": {},
+  "sessions": {
+    "s_4b35a13fba5b13": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "094ce583-8ad8-46c4-b22e-3a996be99c98",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
+    "s_61361d95232b52": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a09381-a132-77c1-8d47-c9a6b9cb12d5",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
+    "s_d3e8ab72481692": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "39d89a93-464c-4a3d-b258-d42f78994f63",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

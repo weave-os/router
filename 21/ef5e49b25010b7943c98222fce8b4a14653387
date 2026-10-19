@@ -1,0 +1,71 @@
+db/migrations/0060_installation-first-request-served.up.sql
+  s_0f9feb492f212a::t_4aea22fd2ebaad 1-13
+frontend/src/app/(app)/dashboard/page.tsx
+  s_0f9feb492f212a::t_347f5da8f3fd11 42-43,46-69,81-84,87-88,91-92,130-138
+internal/sqlc/model_router_api_keys.sql.go
+  s_0f9feb492f212a::t_85f27521b3f6b5 105,124,173
+frontend/src/components/CopyBlock.tsx
+  s_0f9feb492f212a::t_25e61938669133 20-24,28-31
+db/migrations/0060_installation-first-request-served.down.sql
+  s_0f9feb492f212a::t_4aea22fd2ebaad 1-6
+internal/sqlc/model_router_installations.sql.go
+  s_0f9feb492f212a::t_85f27521b3f6b5 25,46,76,82,96,130,136,145,185,197-216
+  s_0f9feb492f212a::t_748a2049659f41 217-218
+internal/auth/service_test.go
+  s_0f9feb492f212a::t_a6203ea3e7bf8d 292-301,307,309,317
+  s_0f9feb492f212a::t_c7d21fdc147e64 507-550,552-563
+  s_0f9feb492f212a::t_76b13af79da93f 551
+  s_0f9feb492f212a::t_b12dca5e72e646 149-153
+  s_0f9feb492f212a::t_16cb04b48c7e66 172-187
+  s_0f9feb492f212a::t_e8b21a052b3889 160,163,166,169
+  s_0f9feb492f212a::t_0ab1a0be95f1e9 291
+internal/sqlc/models.go
+  s_0f9feb492f212a::t_85f27521b3f6b5 127-128
+frontend/src/components/RouterOnboarding.tsx
+  s_0f9feb492f212a::t_7303226a252511 7
+  s_0f9feb492f212a::t_15288860b36af8 26-29,299,306-308,338,344-355,357-359,361
+  s_0f9feb492f212a::t_bce8e294b8f068 58-83,89
+  s_0f9feb492f212a::t_7a38a74c0c0a43 384-389,399-400,403
+  s_0f9feb492f212a::t_22d20ebe0bed0d 35,37-38,51,138,302,311,375
+  s_0f9feb492f212a::t_66a17a07036642 22-25,130,134-135
+internal/postgres/repository.go
+  s_0f9feb492f212a::t_b6f8f69fe1150e 101-109
+frontend/src/lib/api.ts
+  s_0f9feb492f212a::t_add55235e5976d 148-154,266-268
+internal/postgres/converters.go
+  s_0f9feb492f212a::t_6057b658608401 93-100
+  s_0f9feb492f212a::t_207f944df804c5 57
+internal/server/middleware/auth_test.go
+  s_0f9feb492f212a::t_5f13d358064f90 113-116
+internal/auth/service.go
+  s_0f9feb492f212a::t_0ea77391505ccf 545,592
+  s_0f9feb492f212a::t_246445b39995fb 708,717
+  s_0f9feb492f212a::t_59e0330a6103e4 702-707,714-716,718-719
+internal/auth/analytics_key.go
+  s_0f9feb492f212a::t_0ea77391505ccf 32,53
+internal/server/server.go
+  s_0f9feb492f212a::t_99b7c844d80088 162
+internal/auth/installation.go
+  s_0f9feb492f212a::t_f66e817480fa67 87-91
+  s_0f9feb492f212a::t_84081ce2f77588 106-109
+db/queries/model_router_installations.sql
+  s_0f9feb492f212a::t_fa43f852df7077 129-138
+internal/api/admin/onboarding.go
+  s_0f9feb492f212a::t_3c7dfe33cb7809 1-34
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "21ef5e49b25010b7943c98222fce8b4a14653387",
+  "prompts": {},
+  "sessions": {
+    "s_0f9feb492f212a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cfa837bc-ce01-41ce-8e93-ff62d6a7c7b2",
+        "model": "claude-opus-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

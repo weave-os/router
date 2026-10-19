@@ -1,0 +1,14 @@
+smoke/mitmproxy/cassettes/6e7d98eac056b88b07947739c0477752429ed135352bbdefa049557fe074296c.json
+  h_16c9377d4ebc00 1-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e03d02f59984a76c339ebb2daa57d8ecf40725d4",
+  "prompts": {},
+  "humans": {
+    "h_16c9377d4ebc00": {
+      "author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
