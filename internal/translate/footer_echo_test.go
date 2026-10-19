@@ -49,6 +49,12 @@ func TestFeedbackFooterSinceLastHumanTurn_ClaudeCodeTaskNotification(t *testing.
 	}
 }
 
+func TestWithoutLeadingClientInjectedText_QuotedResultWrapper(t *testing.T) {
+	quotedResult := "</summary>\n<result>background task completed</result>\n<usage><total_tokens>0</total_tokens></usage>"
+	assert.Empty(t, translate.WithoutLeadingClientInjectedText(quotedResult))
+	assert.Equal(t, "please run the tests", translate.WithoutLeadingClientInjectedText(quotedResult+"please run the tests"))
+}
+
 func TestFeedbackFooterSinceLastHumanTurn_NewHumanTurnResets(t *testing.T) {
 	body := buildBody(t, []map[string]any{
 		{"role": "assistant", "content": []any{textBlock("all done" + sampleFooter())}},

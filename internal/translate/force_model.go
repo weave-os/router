@@ -467,22 +467,13 @@ func leadingInjectedPrefixEnd(text string) int {
 func isOnlyKnownInjectedText(text string) bool {
 	rest := strings.TrimSpace(text)
 	for rest != "" {
-		// Checks the LEADING tag against the known set, then consumes exactly
-		// that block: leadingInjectedPrefixEnd would run past an unknown block
-		// sitting behind a known one.
-		if !isClaudeCodeInjectedBlock(rest) {
+		// Consume exactly the known leading block; the generic prefix parser
+		// would also consume unknown tags after a known wrapper.
+		blockEnd := leadingClaudeCodeInjectedBlockEnd(rest)
+		if blockEnd == 0 {
 			return false
 		}
-		gt := strings.Index(rest, ">")
-		if gt < 0 {
-			return false
-		}
-		closeTag := "</" + rest[1:gt] + ">"
-		closeIdx := strings.Index(rest[gt+1:], closeTag)
-		if closeIdx < 0 {
-			return false
-		}
-		rest = strings.TrimSpace(rest[gt+1+closeIdx+len(closeTag):])
+		rest = strings.TrimSpace(rest[blockEnd:])
 	}
 	return true
 }
