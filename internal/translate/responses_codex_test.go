@@ -241,6 +241,11 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexReasoningFail
 			item: `{"type":"reasoning","summary":[]}`,
 			code: "responses_reasoning_replay_native_only",
 		},
+		{
+			name: "null content without encrypted replay",
+			item: `{"type":"reasoning","summary":[],"content":null}`,
+			code: "responses_reasoning_replay_native_only",
+		},
 	}
 
 	for _, test := range tests {
@@ -256,23 +261,46 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexReasoningFail
 }
 
 func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexReasoningSummaryIsPortable(t *testing.T) {
-	body := []byte(`{
+	tests := []struct {
+		name string
+		item string
+	}{
+		{
+			name: "absent content",
+			item: `{"type":"reasoning","id":"rs_1","encrypted_content":"opaque","summary":[{"type":"summary_text","text":"**Evaluating** the schema"}]}`,
+		},
+		{
+			name: "null content",
+			item: `{"type":"reasoning","id":"rs_1","encrypted_content":"opaque","summary":[{"type":"summary_text","text":"**Evaluating** the schema"}],"content":null}`,
+		},
+		{
+			name: "empty content array",
+			item: `{"type":"reasoning","id":"rs_1","encrypted_content":"opaque","summary":[{"type":"summary_text","text":"**Evaluating** the schema"}],"content":[]}`,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body := []byte(`{
 		"model":"gpt-6.1-sol",
 		"input":[
 			{"type":"message","role":"user","content":[{"type":"input_text","text":"investigate"}]},
-			{"type":"reasoning","id":"rs_1","encrypted_content":"opaque","summary":[{"type":"summary_text","text":"**Evaluating** the schema"}]},
+			` + test.item + `,
 			{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}
 		]
 	}`)
 
-	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
-	require.NoError(t, err)
-	assert.False(t, converted.Requirements.NativeOnly)
-	assert.False(t, converted.Requirements.ReasoningReplay)
-	messages := gjson.GetBytes(converted.Body, "messages").Array()
-	require.Len(t, messages, 2)
-	assert.NotContains(t, string(converted.Body), "Evaluating")
-	assertReportCode(t, converted.Report, "responses_encrypted_reasoning_dropped")
+			converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+			require.NoError(t, err)
+			assert.False(t, converted.Requirements.NativeOnly)
+			assert.False(t, converted.Requirements.ReasoningReplay)
+			assert.Equal(t, body, converted.OriginalBody)
+			messages := gjson.GetBytes(converted.Body, "messages").Array()
+			require.Len(t, messages, 2)
+			assert.NotContains(t, string(converted.Body), "Evaluating")
+			assertReportCode(t, converted.Report, "responses_encrypted_reasoning_dropped")
+		})
+	}
 }
 
 func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexToolOutputImageHoisted(t *testing.T) {
