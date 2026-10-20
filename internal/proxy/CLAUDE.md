@@ -107,9 +107,11 @@ with no new check and `/force-model` still reaches them. After the recovery
 timeout `runTurnLoop` lets one eligible request claim the half-open probe and
 readmits the model for that request alone: a served operation closes the
 circuit and resets it, another 529 reopens it for twice as long (capped), and a
-request that served something else releases the slot. Committed streams,
-client cancellations, other statuses and BYOK gateways are not overload
-evidence. State is in-process per replica by design: the request path reads an
+request that served something else releases the slot. Only main and
+tool-result turns that can sibling-rescue (never Gemini ingress or caller
+credentials) take the probe, so a failed probe never reaches the client.
+Committed streams, client cancellations, other statuses and BYOK gateways are
+not overload evidence. State is in-process per replica by design: the request path reads an
 atomically published set, and a served request on a closed circuit takes no
 lock. The semantic cache is skipped while any circuit is open, as for any
 automatic exclusion.

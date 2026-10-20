@@ -14,6 +14,7 @@ import (
 
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/breaker"
 )
@@ -188,6 +189,44 @@ func TestOverloadBreaker_UnexercisedProbeIsReleased(t *testing.T) {
 	h.primary.failWith = nil
 	assert.Equal(t, rescuedPrimaryModel, h.turn(t, rescuedFailureCtx()).Header().Get(HeaderRouterModel))
 	assert.Equal(t, breaker.StateClosed, h.state())
+}
+
+// A due probe goes only to a request whose sibling rescue would absorb
+// another 529; every other request leaves the circuit due for the next one.
+func TestOverloadBreaker_ProbeOnlyWhereRescuable(t *testing.T) {
+	cases := []struct {
+		name     string
+		ctx      func() context.Context
+		endpoint router.TranslationEndpoint
+		want     bool
+	}{
+		{name: "messages", ctx: rescuedFailureCtx, endpoint: router.EndpointAnthropicMessages, want: true},
+		{name: "chat completions", ctx: rescuedFailureCtx, endpoint: router.EndpointOpenAIChat, want: true},
+		{name: "gemini never rescues", ctx: rescuedFailureCtx, endpoint: router.EndpointGeminiGenerate},
+		{name: "sibling failover off", endpoint: router.EndpointAnthropicMessages, ctx: func() context.Context {
+			return flags.WithOverrides(rescuedFailureCtx(), flags.Overrides{Bools: map[flags.Key]bool{flags.KeySiblingFailover: false}})
+		}},
+		{name: "caller credentials", endpoint: router.EndpointAnthropicMessages, ctx: func() context.Context {
+			return requestcontext.WithCredentials(rescuedFailureCtx(), &Credentials{Source: credSourceBYOK})
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newOverloadHarness(true)
+			h.svc.overloadBreaker.RecordOverload(rescuedPrimaryModel)
+			h.svc.overloadBreaker.RecordOverload(rescuedPrimaryModel)
+			h.clock = h.clock.Add(30 * time.Second)
+			req := router.Request{TranslationRequirements: router.TranslationRequirements{Endpoint: tc.endpoint}}
+
+			_, release, claimed := h.svc.claimOverloadProbe(tc.ctx(), req)
+
+			assert.Equal(t, tc.want, claimed)
+			if claimed {
+				release()
+			}
+			assert.Equal(t, breaker.StateOpen, h.state())
+		})
+	}
 }
 
 // Flag off, nothing is recorded and every turn pays the overload and rescue

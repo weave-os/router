@@ -58,7 +58,7 @@ func (s *Service) overloadOpenModels(ctx context.Context) map[string]struct{} {
 // The release runs with the turn's other probe releases and is a no-op once
 // the dispatch outcome has resolved the circuit.
 func (s *Service) claimOverloadProbe(ctx context.Context, req router.Request) (context.Context, func(), bool) {
-	if s.overloadBreaker == nil || !s.ResolveProviderOverloaded(ctx) {
+	if s.overloadBreaker == nil || !s.ResolveProviderOverloaded(ctx) || !s.overloadProbeRescuable(ctx, req) {
 		return ctx, nil, false
 	}
 	eligibility := req
@@ -72,6 +72,17 @@ func (s *Service) claimOverloadProbe(ctx context.Context, req router.Request) (c
 	logOverloadTransition(ctx, transition)
 	release := func() { s.overloadBreaker.ReleaseProbe(probe) }
 	return context.WithValue(ctx, overloadProbeContextKey{}, probe), release, true
+}
+
+// overloadProbeRescuable reports whether a 529 on the probe would be absorbed
+// by the sibling rescue instead of reaching the client: the Gemini ingress
+// never rescues, and the others only under the conditions their siblingViable
+// checks share.
+func (s *Service) overloadProbeRescuable(ctx context.Context, req router.Request) bool {
+	return req.TranslationRequirements.Endpoint != router.EndpointGeminiGenerate &&
+		s.ResolveSiblingFailover(ctx) &&
+		s.shouldFailover(ctx) &&
+		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx))
 }
 
 // recordOverloadOutcome feeds one dispatch operation's result to the breaker:

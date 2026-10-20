@@ -870,8 +870,8 @@ func (s *Service) runTurnLoop(
 	// A due overload circuit readmits its model for this one request; the
 	// ordinary selection paths decide whether the probe actually reaches it,
 	// and an unexercised slot is released when the request ends. Only main
-	// and tool-result turns probe: they carry the sibling rescue that absorbs
-	// a failed probe, which utility turns do not.
+	// and tool-result turns that can sibling-rescue probe, so a failed probe
+	// never reaches the client.
 	if !forceModelFound && authoritativePolicyTurn(res.TurnType) {
 		if probeCtx, release, claimed := s.claimOverloadProbe(ctx, req); claimed {
 			ctx = probeCtx
