@@ -1,0 +1,25 @@
+cmd/router-warmup/main_test.go
+  s_1639860e28960e::t_21ab53bc971c17 10,49,54-57,81-82
+internal/proxy/beta.go
+  s_1639860e28960e::t_51c9362735bfdb 33
+internal/server/session_cost_route_test.go
+  s_1639860e28960e::t_ac406c8fd3eacc 32-36,38-41,50-51,60-62
+internal/proxy/beta_internal_test.go
+  s_1639860e28960e::t_68faf66b34319f 33-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0f46f7c101087dbb2b3796e5bbab1b2c1e03d413",
+  "prompts": {},
+  "sessions": {
+    "s_1639860e28960e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a112b1-c802-7021-b4cd-dfec74516f39",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
