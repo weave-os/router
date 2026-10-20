@@ -80,7 +80,7 @@ func TestAnthropicSSETranslator_KeepsNamedToolDropsNameless(t *testing.T) {
 	// must survive (and promote stop_reason to tool_use), the nameless dropped.
 	body := driveAnthropicSSE(t, "z-ai/glm-5.1", []string{
 		`data: {"id":"c1","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_good","type":"function","function":{"name":"Read","arguments":"{\"path\":\"a.go\"}"}}]},"finish_reason":null}]}` + "\n\n",
-		`data: {"id":"c1","choices":[{"index":1,"delta":{"tool_calls":[{"index":1,"id":"call_bad","type":"function","function":{"name":"","arguments":""}}]},"finish_reason":null}]}` + "\n\n",
+		`data: {"id":"c1","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"call_bad","type":"function","function":{"name":"","arguments":""}}]},"finish_reason":null}]}` + "\n\n",
 		`data: {"id":"c1","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}` + "\n\n",
 		"data: [DONE]\n\n",
 	})

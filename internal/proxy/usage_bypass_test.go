@@ -130,7 +130,7 @@ func TestUsageBypass_CodexSubscriptionPreservesRequestedModel(t *testing.T) {
 	p := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"id":"chatcmpl-1","object":"chat.completion","choices":[]}`))
+		_, _ = w.Write([]byte(`data: {"type":"response.completed","response":{"id":"resp_synthetic","object":"response","status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"hi"}]}],"usage":{"input_tokens":10,"output_tokens":5}}}` + "\n\n"))
 	}}
 	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
 	obs.Record(obs.Key([]byte(codexToken)), usage.Snapshot{

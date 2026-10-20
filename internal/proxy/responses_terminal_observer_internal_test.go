@@ -192,8 +192,8 @@ func TestResponsesTerminalObserver_FinalizeIsIdempotent(t *testing.T) {
 	for _, frame := range strings.SplitAfter(responsesTerminalCappedStream, "\n\n") {
 		writeChunks(t, obs, []string{frame})
 	}
-	assert.Equal(t, responsesTerminalState{observed: true, signals: responsesTerminalCappedSignals}, stateOf(obs),
-		"a later terminal statement wins")
+	assert.Equal(t, responsesTerminalState{observed: true, signals: responsesTerminalToolSignals}, stateOf(obs),
+		"the first terminal outcome owns the turn signals")
 }
 
 // The native passthrough runs no translator, so the observer is what keeps the
@@ -205,4 +205,32 @@ func TestResponsesTerminalObserver_ForwardsOutputProgressArming(t *testing.T) {
 
 	assert.False(t, newResponsesTerminalObserver(httptest.NewRecorder()).ArmOutputProgress(func() {}),
 		"a writer that cannot classify output frames must not claim to be armed")
+}
+
+func TestResponsesTerminalObserverFirstTerminalOwnsSignals(t *testing.T) {
+	const failed = `data: {"type":"response.failed","response":{"status":"failed","error":{"code":"server_error","message":"synthetic failure"}}}` + "\n\n"
+	for _, fixture := range []struct {
+		name   string
+		body   string
+		want   responsesTerminalState
+		failed bool
+	}{
+		{name: "success then failure", body: responsesTerminalToolStream + failed, want: responsesTerminalState{observed: true, signals: responsesTerminalToolSignals}},
+		{name: "failure then success", body: failed + responsesTerminalToolStream, failed: true},
+		{name: "success then revised success", body: responsesTerminalToolStream + responsesTerminalCappedStream, want: responsesTerminalState{observed: true, signals: responsesTerminalToolSignals}},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			observer := newResponsesTerminalObserver(recorder)
+			writeChunks(t, observer, chunkEvery(fixture.body, 7))
+			observer.Finalize()
+			assert.Equal(t, fixture.want, stateOf(observer))
+			if fixture.failed {
+				require.Error(t, observer.OutcomeError())
+			} else {
+				require.NoError(t, observer.OutcomeError())
+			}
+			assert.Equal(t, fixture.body, recorder.Body.String())
+		})
+	}
 }

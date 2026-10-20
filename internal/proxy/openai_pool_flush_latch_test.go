@@ -26,7 +26,7 @@ func (f fixedRouter) Route(context.Context, router.Request) (router.Decision, er
 
 // TestProxyOpenAIChatCompletion_ManagedPoolFailureIsRenderedOnce: the held
 // upstream error must not be written alongside a second pool failure. Rotation
-// preserves the original throttle, and the client receives that failure once.
+// preserves the original throttle, and the client receives the billing override once.
 func TestProxyOpenAIChatCompletion_ManagedPoolFailureIsRenderedOnce(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "opaque-a", AccessToken: "token-a"}}}
 	openAI := &fakeClient{name: providers.ProviderOpenAI, outcomes: []fakeOutcome{
@@ -63,7 +63,15 @@ func TestProxyOpenAIChatCompletion_ManagedPoolFailureIsRenderedOnce(t *testing.T
 
 	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted,
 		"the pool sentinel must survive for the handler to classify")
-	assert.Equal(t, 1, strings.Count(rec.Body.String(), "rate_limit_error"),
-		"the client sees the pool failure exactly once")
-	assert.Equal(t, 0, strings.Count(rec.Body.String(), `"code":"upstream_error"`))
+	class, classified := ClassifyDispatchError(err)
+	require.True(t, classified)
+	assert.Equal(t, DispatchErrorCreditsExhausted, class.Kind)
+	assert.Equal(t, http.StatusPaymentRequired, class.Status)
+	assert.Equal(t, http.StatusOK, rec.Code, "the visible Chat prelude has committed SSE delivery")
+	assert.Equal(t, "text/event-stream", rec.Header().Get("Content-Type"))
+	assert.Equal(t, 1, strings.Count(rec.Body.String(), `"error":`),
+		"the client sees the classified billing failure exactly once")
+	assert.Contains(t, rec.Body.String(), "Your Weave router credits are exhausted")
+	assert.Contains(t, rec.Body.String(), `"code":"upstream_error"`)
+	assert.NotContains(t, rec.Body.String(), "quota exhausted")
 }

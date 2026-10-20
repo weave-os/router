@@ -297,7 +297,11 @@ func TestCreditsDepleted_Anthropic_BypassThirdPartyRefusal_StaysOffCredits(t *te
 
 	rec, req, body := bypassRequest(t)
 	ctx := billing.WithSubscriptionOnly(bypassCtx(0.80), billing.SubscriptionOnlyCreditsDepleted)
-	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
+	err := svc.ProxyMessages(ctx, body, rec, req)
+	var upstream *providers.UpstreamErrorResponse
+	require.ErrorAs(t, err, &upstream)
+	assert.Equal(t, http.StatusBadRequest, upstream.Status)
+	assert.Contains(t, string(upstream.Body), "Third-party apps")
 
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "the plan's refusal must reach the caller")
 	assert.Contains(t, rec.Body.String(), "Third-party apps")

@@ -160,3 +160,91 @@ func TestProxyOpenAIResponses_EmptyNativeStreamRetriedBeforeCommit(t *testing.T)
 	assert.Contains(t, rec.Body.String(), "response.completed")
 	assert.NotContains(t, rec.Body.String(), "response.failed")
 }
+
+func TestProxyGemini_NativeStreamWithoutFinishReasonFailsInStream(t *testing.T) {
+	const model = "gemini-2.5-pro"
+	provider := scriptedStream([]string{`data: {"candidates":[{"index":0,"content":{"parts":[{"text":"partial"}]}}]}` + "\n\n"})
+	svc := nativeSurfaceService(provider, providers.ProviderGoogle, model)
+	body := []byte(`{"model":"` + model + `","stream":true,"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	rec := httptest.NewRecorder()
+	err := svc.ProxyGeminiGenerateContent(authedCtx(uuid.NewString()), body, rec, httptest.NewRequest(http.MethodPost, "/v1beta/models/"+model+":streamGenerateContent", nil))
+	require.Error(t, err)
+	assert.Contains(t, rec.Body.String(), "partial")
+	assert.Contains(t, rec.Body.String(), `"error":`)
+	assert.Len(t, provider.proxyBodies, 1)
+}
+
+func TestProxyMessages_NativeDeclaredFailureIsNotSuccess(t *testing.T) {
+	provider := scriptedStream(append(append([]string{}, anthropicCutFrames...), `event: error
+data: {"type":"error","error":{"type":"overloaded_error","message":"synthetic provider failure"}}
+
+`))
+	svc := nativeSurfaceService(provider, providers.ProviderAnthropic, "claude-opus-4-8")
+	rec := httptest.NewRecorder()
+	err := svc.ProxyMessages(authedCtx(uuid.NewString()), []byte(streamCutTurnBody), rec, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+	require.Error(t, err)
+	assert.Equal(t, 1, strings.Count(rec.Body.String(), "event: error"))
+	assert.NotContains(t, rec.Body.String(), "message_stop")
+	assert.Len(t, provider.proxyBodies, 1)
+}
+
+func TestProxyGemini_NativeBufferedWithoutFinishReasonFails(t *testing.T) {
+	const model = "gemini-2.5-pro"
+	provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"candidates":[{"index":0,"content":{"parts":[{"text":"unfinished synthetic answer"}]}}]}`)
+	}}
+	svc := nativeSurfaceService(provider, providers.ProviderGoogle, model)
+	body := []byte(`{"model":"` + model + `","stream":false,"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	rec := httptest.NewRecorder()
+	err := svc.ProxyGeminiGenerateContent(authedCtx(uuid.NewString()), body, rec, httptest.NewRequest(http.MethodPost, "/v1beta/models/"+model+":generateContent", nil))
+	require.Error(t, err)
+	require.Equal(t, http.StatusBadGateway, rec.Code)
+	require.NotContains(t, rec.Body.String(), "unfinished synthetic answer")
+	require.Contains(t, rec.Body.String(), `"error":`)
+}
+
+func TestNativeBufferedDeclaredFailureIsNotSuccess(t *testing.T) {
+	for _, fixture := range []struct {
+		name         string
+		providerName string
+		model        string
+		body         string
+		failure      string
+	}{
+		{
+			name: "anthropic", providerName: providers.ProviderAnthropic, model: "claude-opus-4-8",
+			body:    `{"model":"claude-opus-4-8","stream":false,"max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`,
+			failure: `{"type":"error","error":{"type":"invalid_request_error","message":"synthetic buffered failure"}}`,
+		},
+		{
+			name: "chat", providerName: providers.ProviderOpenRouter, model: nativeChatModel,
+			body:    `{"model":"` + nativeChatModel + `","stream":false,"messages":[{"role":"user","content":"hi"}]}`,
+			failure: `{"error":{"type":"invalid_request_error","message":"synthetic buffered failure"}}`,
+		},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = io.WriteString(w, fixture.failure)
+			}}
+			service := nativeSurfaceService(provider, fixture.providerName, fixture.model)
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+			ctx := authedCtx(uuid.NewString())
+			var err error
+			if fixture.providerName == providers.ProviderAnthropic {
+				err = service.ProxyMessages(ctx, []byte(fixture.body), recorder, request)
+			} else {
+				err = service.ProxyOpenAIChatCompletion(ctx, []byte(fixture.body), recorder, request)
+			}
+			var failure *providers.UpstreamErrorResponse
+			require.ErrorAs(t, err, &failure)
+			require.JSONEq(t, fixture.failure, string(failure.Body))
+			require.Equal(t, http.StatusBadRequest, recorder.Code)
+			require.JSONEq(t, fixture.failure, recorder.Body.String())
+			require.Len(t, provider.proxyBodies, 1)
+		})
+	}
+}

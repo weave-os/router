@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"errors"
+	"mime"
 	"net/http"
 
 	"weave-os/router/internal/providers"
@@ -12,85 +13,31 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// nativeStreamProtocol names the wire format a native passthrough stream
-// speaks, which decides what counts as its start and its terminal event.
-type nativeStreamProtocol uint8
-
-const (
-	nativeStreamAnthropic nativeStreamProtocol = iota
-	nativeStreamOpenAIChat
-)
-
-const (
-	anthropicMessageStartEvent = "message_start"
-	anthropicMessageStopEvent  = "message_stop"
-	openAIChatDoneSentinel     = "[DONE]"
-)
-
-// streamTerminalState records whether a native passthrough stream began and
-// whether the upstream declared its end. The adapters return nil on a clean
-// EOF after a 2xx, so without it a connection closed mid-turn reads as a
-// served turn. An upstream error event counts as declared: the upstream named
-// the failure on the wire itself.
+// streamTerminalState keeps the completion verdict separate from provider failure.
 type streamTerminalState struct {
-	// wrote and framed tell an SSE stream apart from a body the upstream sent
-	// unframed (a JSON answer to a streaming request), which has no terminal
-	// event to miss.
-	wrote   bool
-	framed  bool
-	started bool
-	ended   bool
+	observation *translate.ProviderStreamObservation
 }
 
-// A comment-only frame (a keepalive) is SSE too: a stream of nothing else
-// never started rather than being an unframed body.
-func (s *streamTerminalState) noteFrame(event, eventType, payload []byte) {
-	s.framed = s.framed || len(eventType) > 0 || len(payload) > 0 ||
-		bytes.HasPrefix(bytes.TrimLeft(event, "\r\n"), []byte(":"))
-}
+func (s streamTerminalState) err() error { return s.observation.EOF() }
 
-// completeTailPayload reports whether a final frame that arrived without its
-// blank-line delimiter carries a whole payload; a truncated one must not count
-// as the terminal it was cut from.
+// completeTailPayload excludes a truncated terminal from completion evidence.
 func completeTailPayload(payload []byte) bool {
-	return string(bytes.TrimSpace(payload)) == openAIChatDoneSentinel || gjson.ValidBytes(payload)
+	return string(bytes.TrimSpace(payload)) == "[DONE]" || gjson.ValidBytes(payload)
 }
 
-// err reports how the stream ended: nil once a terminal arrived or when the
-// body was not SSE, translate.ErrStreamEmpty when the upstream never started
-// the response, and translate.ErrStreamIncomplete when it started but never
-// finished.
-func (s streamTerminalState) err() error {
-	switch {
-	case s.ended, s.wrote && !s.framed:
-		return nil
-	case !s.started:
-		return translate.ErrStreamEmpty
-	default:
-		return translate.ErrStreamIncomplete
-	}
-}
-
-// streamTerminalObserver tees a native Anthropic or OpenAI chat stream to
-// inner unchanged while tracking its streamTerminalState. Native Responses
-// streams are tracked by responsesTerminalObserver, which already parses
-// their terminal events.
+// streamTerminalObserver tees native provider records unchanged while sharing
+// lifecycle observation with response translators.
 type streamTerminalObserver struct {
-	inner    http.ResponseWriter
-	protocol nativeStreamProtocol
+	inner http.ResponseWriter
 	// buf holds the bytes of the frame currently being assembled; SSE frames
 	// arrive split across writes.
 	buf     bytes.Buffer
 	framing sse.Scanner
 	state   streamTerminalState
-	// openChoices are chat choice indexes that emitted without finishing yet;
-	// with n > 1 one choice can finish while another is still generating.
-	openChoices     map[int64]struct{}
-	finishedChoices map[int64]struct{}
 }
 
-func newStreamTerminalObserver(inner http.ResponseWriter, protocol nativeStreamProtocol) *streamTerminalObserver {
-	return &streamTerminalObserver{inner: inner, protocol: protocol}
+func newStreamTerminalObserver(inner http.ResponseWriter, protocol translate.Format) *streamTerminalObserver {
+	return &streamTerminalObserver{inner: inner, state: streamTerminalState{observation: translate.NewProviderStreamObservation(protocol)}}
 }
 
 func (o *streamTerminalObserver) Header() http.Header { return o.inner.Header() }
@@ -98,8 +45,12 @@ func (o *streamTerminalObserver) Header() http.Header { return o.inner.Header() 
 func (o *streamTerminalObserver) WriteHeader(status int) { o.inner.WriteHeader(status) }
 
 func (o *streamTerminalObserver) Write(p []byte) (int, error) {
-	o.state.wrote = o.state.wrote || len(p) > 0
 	o.buf.Write(p)
+	// JSON responses require whole-body validation; the carry cap below only
+	// bounds partial SSE records, not complete buffered responses.
+	if mediaType, _, _ := mime.ParseMediaType(o.Header().Get("Content-Type")); mediaType == "application/json" {
+		return o.inner.Write(p)
+	}
 	for {
 		event, n := o.framing.Next(o.buf.Bytes())
 		if n == 0 {
@@ -142,77 +93,40 @@ func (o *streamTerminalObserver) ArmReasoningProgress(mark func()) bool {
 	return arm.ArmReasoningProgress(mark)
 }
 
-// streamErr reports the stream's ending once the upstream call has returned,
-// first reading a final frame that arrived without a trailing blank line.
+// streamErr validates the final record once the provider call has returned.
 func (o *streamTerminalObserver) streamErr() error {
 	if o.buf.Len() > 0 {
-		rest := o.buf.Bytes()
+		rest := bytes.Clone(o.buf.Bytes())
 		o.buf.Reset()
 		o.framing.Reset()
-		eventType, payload := sse.ParseEvent(rest)
-		if completeTailPayload(payload) {
-			o.observeEvent(rest)
-		} else {
-			o.state.noteFrame(rest, eventType, payload)
-		}
-	}
-	if o.protocol == nativeStreamOpenAIChat && len(o.finishedChoices) > 0 && len(o.openChoices) == 0 {
-		o.state.ended = true
+		o.state.observation.ObserveEvent(rest)
+		o.state.observation.ObserveBody(rest)
 	}
 	return o.state.err()
 }
 
-func (o *streamTerminalObserver) observeEvent(event []byte) {
-	eventType, payload := sse.ParseEvent(event)
-	o.state.noteFrame(event, eventType, payload)
-	switch o.protocol {
-	case nativeStreamAnthropic:
-		kind := string(eventType)
-		if kind == "" {
-			kind = gjson.GetBytes(payload, "type").String()
-		}
-		switch kind {
-		case anthropicMessageStartEvent:
-			o.state.started = true
-		case anthropicMessageStopEvent, streamCutErrorEvent:
-			o.state.ended = true
-		}
-	case nativeStreamOpenAIChat:
-		if len(payload) == 0 {
-			return
-		}
-		if string(bytes.TrimSpace(payload)) == openAIChatDoneSentinel {
-			o.state.ended = true
-			return
-		}
-		o.state.started = true
-		if upstreamErr := gjson.GetBytes(payload, "error"); upstreamErr.Exists() && upstreamErr.Type != gjson.Null {
-			o.state.ended = true
-			return
-		}
-		o.observeChatChoices(payload)
+// Cancel records the attempt context after consuming any complete final record.
+func (o *streamTerminalObserver) Cancel(cause error) {
+	if cause == nil {
+		return
 	}
+	_ = o.streamErr()
+	o.state.observation.Cancel(cause)
 }
 
-func (o *streamTerminalObserver) observeChatChoices(payload []byte) {
-	gjson.GetBytes(payload, "choices").ForEach(func(_, choice gjson.Result) bool {
-		index := choice.Get("index").Int()
-		if choice.Get("finish_reason").String() != "" {
-			if o.finishedChoices == nil {
-				o.finishedChoices = make(map[int64]struct{})
-			}
-			o.finishedChoices[index] = struct{}{}
-			delete(o.openChoices, index)
-			return true
-		}
-		if _, finished := o.finishedChoices[index]; !finished {
-			if o.openChoices == nil {
-				o.openChoices = make(map[int64]struct{})
-			}
-			o.openChoices[index] = struct{}{}
-		}
-		return true
-	})
+// DeclaredError reports provider rejection without imposing streaming EOF rules.
+func (o *streamTerminalObserver) DeclaredError() error {
+	_ = o.streamErr()
+	return o.state.observation.DeclaredError()
+}
+
+func (o *streamTerminalObserver) OutcomeError() error {
+	_ = o.streamErr()
+	return o.state.observation.OutcomeError()
+}
+
+func (o *streamTerminalObserver) observeEvent(event []byte) {
+	o.state.observation.ObserveEvent(event)
 }
 
 func isStreamTerminalMissing(err error) bool {

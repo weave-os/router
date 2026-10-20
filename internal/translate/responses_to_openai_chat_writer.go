@@ -45,6 +45,7 @@ type ResponsesToOpenAIChatWriter struct {
 	// closed guards against emitting after [DONE] or an error frame.
 	closed          bool
 	terminalFailure error
+	failureOwner    bool
 
 	// Reasoning resets the stall clock without changing output latency/throughput.
 	onOutputProgress    func()
@@ -87,6 +88,9 @@ type ResponsesToOpenAIChatWriter struct {
 	upstreamFinishReason string
 	lifecycle            *StreamLifecycle
 }
+
+// SetFailureOwner leaves terminal failure delivery to the request owner.
+func (t *ResponsesToOpenAIChatWriter) SetFailureOwner() { t.failureOwner = true }
 
 // WithLogger installs the request-scoped logger for this translator's lines.
 func (t *ResponsesToOpenAIChatWriter) WithLogger(log *slog.Logger) *ResponsesToOpenAIChatWriter {
@@ -219,6 +223,9 @@ func (t *ResponsesToOpenAIChatWriter) Prelude(streaming bool) error {
 // Finalize emits the terminal chunk + [DONE] for a streaming client, or renders
 // the buffered stream as one chat.completion body for a non-streaming client.
 func (t *ResponsesToOpenAIChatWriter) Finalize() error {
+	if t.failureOwner && t.terminalFailure != nil {
+		return t.terminalFailure
+	}
 	if !t.streaming {
 		return t.finalizeBuffered()
 	}
@@ -229,6 +236,10 @@ func (t *ResponsesToOpenAIChatWriter) Finalize() error {
 		return err
 	}
 	if err := t.lifecycle.EOF(); err != nil {
+		if t.failureOwner {
+			t.terminalFailure = err
+			return err
+		}
 		if t.lifecycle.State() == StreamStarted {
 			if emitErr := t.emitStreamError("api_error", "upstream stream ended before a terminal event"); emitErr != nil {
 				return emitErr
@@ -294,6 +305,13 @@ func (t *ResponsesToOpenAIChatWriter) translateEvent(raw []byte) error {
 			"request_model", t.requestModel,
 			"frame_bytes", len(data))
 		return t.emitStreamError("api_error", malformedResponsesFrameMessage)
+	}
+	if failure := providerDeclaredStreamFailure(FormatOpenAIResponses, raw); failure != nil {
+		t.terminalFailure = failure
+		if t.failureOwner {
+			t.closed = true
+			return failure
+		}
 	}
 	// Match on the payload type: intermediaries may drop the SSE event name.
 	switch responsesEventType(gjson.GetBytes(data, "type").String()) {
@@ -570,6 +588,12 @@ func (t *ResponsesToOpenAIChatWriter) reconciledFinishReason() string {
 
 // finalizeBuffered renders the buffered stream as one chat.completion body.
 func (t *ResponsesToOpenAIChatWriter) finalizeBuffered() error {
+	if t.failureOwner && t.statusCode < 400 {
+		if failure := providerBufferedFailure(FormatOpenAIResponses, t.buf.Bytes()); failure != nil {
+			t.terminalFailure = failure
+			return failure
+		}
+	}
 	if t.statusCode >= 400 {
 		return t.finalizeError()
 	}
@@ -618,6 +642,14 @@ func (t *ResponsesToOpenAIChatWriter) finalizeBuffered() error {
 // finalizeError renders a one-shot OpenAI error body. Streaming errors are
 // rendered as an in-stream frame by emitStreamError instead.
 func (t *ResponsesToOpenAIChatWriter) finalizeError() error {
+	if t.failureOwner {
+		if t.statusCode >= 400 {
+			t.terminalFailure = &providers.UpstreamErrorResponse{Status: t.statusCode, Body: append([]byte(nil), t.buf.Bytes()...)}
+		} else {
+			t.terminalFailure = ErrStreamIncomplete
+		}
+		return t.terminalFailure
+	}
 	if err := bufferedContextOverflow(t.buf.Bytes(), openAIErrorBody); err != nil {
 		return err
 	}
@@ -793,9 +825,15 @@ func (t *ResponsesToOpenAIChatWriter) emitDone() error {
 // after output starts it emits an in-stream error frame, since the response is
 // already committed.
 func (t *ResponsesToOpenAIChatWriter) emitStreamError(errType, msg string) error {
-	t.terminalFailure = &providers.UpstreamErrorResponse{
-		Status: responsesFailureStatus(errType),
-		Body:   openAIErrorBody(errType, msg),
+	if t.terminalFailure == nil {
+		t.terminalFailure = &providers.UpstreamErrorResponse{
+			Status: responsesFailureStatus(errType),
+			Body:   openAIErrorBody(errType, msg),
+		}
+	}
+	if t.failureOwner {
+		t.closed = true
+		return t.terminalFailure
 	}
 	if t.lifecycle.State() == StreamStarted {
 		if err := t.lifecycle.Fail(); err != nil {
@@ -824,7 +862,8 @@ func (t *ResponsesToOpenAIChatWriter) emitEmptyCompletion() error {
 		return t.emitStreamError(upstreamEmptyCompletionType, upstreamEmptyCompletionMessage)
 	}
 	t.closed = true
-	return emptyCompletionOpenAIError()
+	t.terminalFailure = emptyCompletionOpenAIError()
+	return t.terminalFailure
 }
 
 func (t *ResponsesToOpenAIChatWriter) writeChunkHeader() {

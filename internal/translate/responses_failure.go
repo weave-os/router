@@ -14,6 +14,26 @@ import (
 // in-stream failure for a prompt larger than the model's window.
 const responsesContextOverflowCode = "context_length_exceeded"
 
+func providerDeclaredStreamFailure(format Format, event []byte) error {
+	observation := NewProviderStreamObservation(format)
+	observation.ObserveEvent(event)
+	return observation.DeclaredError()
+}
+
+func providerBufferedFailure(format Format, body []byte) error {
+	observation := NewProviderStreamObservation(format)
+	observation.ObserveBody(body)
+	for len(body) > 0 {
+		event, n := splitBufferedResponsesEvent(body)
+		if n == 0 {
+			break
+		}
+		observation.ObserveEvent(event)
+		body = body[n:]
+	}
+	return observation.DeclaredError()
+}
+
 // responsesErrorEventFailure extracts the type/message of a Responses `error`
 // event. OpenAI nests them under "error" (code, then type); the flat
 // top-level shape is read as a fallback.

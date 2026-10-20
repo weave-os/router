@@ -66,31 +66,7 @@ func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc 
 		}
 		c.Request = c.Request.WithContext(ctx)
 
-		if err := svc.ProxyMessages(c.Request.Context(), body, c.Writer, c.Request); err != nil {
-			cls, ok := proxy.ClassifyDispatchError(err)
-			if ok && cls.Kind == proxy.DispatchErrorUpstreamStatus {
-				if c.Writer.Written() {
-					return
-				}
-				writeAnthropicError(c, cls.Status, "api_error", cls.Message)
-				return
-			}
-			if c.Writer.Written() {
-				log.Error("Proxy failed mid-stream", "err", err)
-				return
-			}
-			if ok {
-				proxy.LogDispatchErrorClass(log, cls, err)
-				if cls.RetryAfter {
-					c.Header("Retry-After", "1")
-				}
-				writeAnthropicError(c, cls.Status, anthropicErrorType(cls.Kind), cls.Message)
-				return
-			}
-			log.Error("Proxy failed", "err", err)
-			writeAnthropicError(c, http.StatusBadGateway, "api_error", "Upstream call failed.")
-			return
-		}
+		_ = svc.ProxyMessages(c.Request.Context(), body, c.Writer, c.Request)
 	}
 }
 

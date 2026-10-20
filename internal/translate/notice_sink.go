@@ -128,16 +128,24 @@ func noticeTerminal(format Format, event []byte) bool {
 	eventType, payload := sse.ParseEvent(event)
 	switch format {
 	case FormatAnthropic:
-		return string(eventType) == "message_stop" || string(eventType) == "error"
+		kind := string(eventType)
+		if kind == "" {
+			kind = gjson.GetBytes(payload, "type").Str
+		}
+		return gjson.ValidBytes(payload) && (kind == "message_stop" || kind == "error")
 	case FormatOpenAIResponses:
-		switch gjson.GetBytes(payload, "type").String() {
+		kind := gjson.GetBytes(payload, "type").Str
+		if kind == "" {
+			kind = string(eventType)
+		}
+		switch kind {
 		case "response.completed", "response.incomplete", "response.failed":
-			return true
+			return gjson.ValidBytes(payload)
 		}
 	case FormatOpenAI:
-		return string(payload) == "[DONE]" || gjson.GetBytes(payload, "error").Exists()
+		return string(payload) == "[DONE]" || (gjson.ValidBytes(payload) && gjson.GetBytes(payload, "error").Exists() && gjson.GetBytes(payload, "error").Type != gjson.Null)
 	case FormatGemini:
-		return gjson.GetBytes(payload, "candidates.0.finishReason").String() != "" || gjson.GetBytes(payload, "error").Exists()
+		return gjson.ValidBytes(payload) && gjson.GetBytes(payload, "error").Exists() && gjson.GetBytes(payload, "error").Type != gjson.Null
 	}
 	return false
 }
@@ -201,4 +209,10 @@ func noticeProviderContent(format Format, event []byte) bool {
 		return gjson.GetBytes(payload, "candidates.0.content.parts.#").Int() > 0
 	}
 	return false
+}
+
+func (s *protocolNoticeSink) ResetAttempt() {
+	if s.responses != nil {
+		s.responses.ResetAttempt()
+	}
 }

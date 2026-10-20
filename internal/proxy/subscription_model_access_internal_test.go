@@ -29,7 +29,7 @@ func TestSubscriptionModelAccessDoesNotPayAndRemembers(t *testing.T) {
 			for i := 0; i < 2; i++ {
 				rec, req, body := in.request(t, stream)
 				require.ErrorIs(t, in.call(svc, in.subCtx(), body, rec, req), ErrSubscriptionPoolUnavailable)
-				assert.Empty(t, rec.Body.String(), "the handler owns rendering the unpaid refusal")
+				assert.Contains(t, rec.Body.String(), "Subscription account service is temporarily unavailable.")
 			}
 			assert.Equal(t, 1, upstream.subDispatches)
 			assert.Zero(t, upstream.paidDispatches, "a model denial is not quota exhaustion")
@@ -47,7 +47,7 @@ func TestSubscriptionModelAccessOpenAIIngressDoesNotPayAndRemembers(t *testing.T
 		recorder := httptest.NewRecorder()
 		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 		require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(in.subCtx(), body, recorder, request), ErrSubscriptionPoolUnavailable)
-		assert.Empty(t, recorder.Body.String(), "the handler owns rendering the unpaid refusal")
+		assert.Contains(t, recorder.Body.String(), "Subscription account service is temporarily unavailable.")
 	}
 
 	assert.Equal(t, 1, upstream.subDispatches)
@@ -62,7 +62,7 @@ func TestSubscriptionModelAccessPreservesFailedAttemptAttribution(t *testing.T) 
 	svc.telemetry = telemetry
 	rec, req, body := in.request(t, false)
 	require.ErrorIs(t, in.call(svc, in.subCtx(), body, rec, req), ErrSubscriptionPoolUnavailable)
-	assert.Empty(t, rec.Body.String(), "blocked funding must not commit a success response")
+	assert.Contains(t, rec.Body.String(), "Subscription account service is temporarily unavailable.")
 	assert.Equal(t, 1, upstream.subDispatches)
 	assert.Zero(t, upstream.paidDispatches)
 	// Learning a denial must not retroactively change the credential of the failed attempt.

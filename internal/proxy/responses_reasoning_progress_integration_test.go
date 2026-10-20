@@ -258,7 +258,11 @@ func TestResponsesReasoningProgress_StallAndCancellation(t *testing.T) {
 			if tc.initialReasoning {
 				assert.EqualValues(t, 1, attempts.Load(), "thinking-only commitment prohibits replay")
 				assert.Contains(t, rec.Body.String(), "signature_delta")
-				assert.Contains(t, rec.Body.String(), "event: error")
+				if tc.cancelCaller || tc.deadline > 0 {
+					assert.NotContains(t, rec.Body.String(), "event: error", "caller cancellation cannot synthesize an upstream failure")
+				} else {
+					assert.Contains(t, rec.Body.String(), "event: error")
+				}
 				assert.NotContains(t, rec.Body.String(), "event: message_stop")
 				assert.Contains(t, logBuf.String(), "stream_failure_class="+tc.failureClass)
 				if tc.stallKind == "output_idle" {

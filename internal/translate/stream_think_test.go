@@ -55,7 +55,7 @@ func TestThinkTagStreaming_RoutesLeadingThinkToThinking(t *testing.T) {
 	// <think> split across deltas, then the real answer.
 	feedChat(t, w,
 		`{"choices":[{"delta":{"content":"<think>rea"},"finish_reason":null}]}`,
-		`{"choices":[{"delta":{"content":"soning here</","finish_reason":null}]}`,
+		`{"choices":[{"delta":{"content":"soning here</"},"finish_reason":null}]}`,
 		`{"choices":[{"delta":{"content":"think>the answer"},"finish_reason":"stop"}]}`,
 	)
 	require.NoError(t, w.Finalize())

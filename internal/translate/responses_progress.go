@@ -10,7 +10,9 @@ const (
 	responsesIncomplete                 responsesEventType = "response.incomplete"
 	responsesFailed                     responsesEventType = "response.failed"
 	responsesFunctionCallArgumentsDelta responsesEventType = "response.function_call_arguments.delta"
+	responsesFunctionCallArgumentsDone  responsesEventType = "response.function_call_arguments.done"
 	responsesCustomToolCallInputDelta   responsesEventType = "response.custom_tool_call_input.delta"
+	responsesCustomToolCallInputDone    responsesEventType = "response.custom_tool_call_input.done"
 	responsesOutputTextDelta            responsesEventType = "response.output_text.delta"
 	responsesOutputTextDone             responsesEventType = "response.output_text.done"
 	responsesRefusalDelta               responsesEventType = "response.refusal.delta"
@@ -24,6 +26,7 @@ const (
 	responsesOutputItemDone             responsesEventType = "response.output_item.done"
 	responsesReasoningSummaryDelta      responsesEventType = "response.reasoning_summary_text.delta"
 	responsesReasoningTextDelta         responsesEventType = "response.reasoning_text.delta"
+	responsesReasoningTextDone          responsesEventType = "response.reasoning_text.done"
 )
 
 type responsesItemType string
@@ -39,8 +42,10 @@ const (
 type responsesContentType string
 
 const (
-	responsesOutputText responsesContentType = "output_text"
-	responsesRefusal    responsesContentType = "refusal"
+	responsesOutputText    responsesContentType = "output_text"
+	responsesRefusal       responsesContentType = "refusal"
+	responsesSummaryText   responsesContentType = "summary_text"
+	responsesReasoningText responsesContentType = "reasoning_text"
 )
 
 // Both translators use the same completed-item gate, including opaque reasoning

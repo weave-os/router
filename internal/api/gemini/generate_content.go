@@ -1,7 +1,6 @@
 package gemini
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -66,34 +65,7 @@ func GenerateContentHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handl
 		}
 		c.Request = c.Request.WithContext(ctx)
 
-		if err := svc.ProxyGeminiGenerateContent(c.Request.Context(), body, c.Writer, c.Request); err != nil {
-			cls, ok := proxy.ClassifyDispatchError(err)
-			if ok && cls.Kind == proxy.DispatchErrorUpstreamStatus {
-				if c.Writer.Written() {
-					return
-				}
-				writeGeminiError(c, cls.Status, "UPSTREAM_ERROR", cls.Message)
-				return
-			}
-			if c.Writer.Written() {
-				log.Error("Proxy failed mid-stream", "err", err)
-				return
-			}
-			if errors.Is(err, proxy.ErrGeminiCrossFormatUnsupported) {
-				writeGeminiError(c, http.StatusNotImplemented, "UNIMPLEMENTED", "Cross-format request not supported by the upstream Gemini provider.")
-				return
-			}
-			if ok {
-				proxy.LogDispatchErrorClass(log, cls, err)
-				if cls.RetryAfter {
-					c.Header("Retry-After", "1")
-				}
-				writeGeminiError(c, cls.Status, geminiErrorStatus(cls.Kind), cls.Message)
-				return
-			}
-			log.Error("Gemini proxy failed", "err", err)
-			writeGeminiError(c, http.StatusBadGateway, "UPSTREAM_ERROR", "Upstream call failed.")
-		}
+		_ = svc.ProxyGeminiGenerateContent(c.Request.Context(), body, c.Writer, c.Request)
 	}
 }
 
@@ -123,29 +95,6 @@ func injectModelAndStream(body []byte, model string, stream bool) ([]byte, error
 		return nil, err
 	}
 	return out, nil
-}
-
-// geminiErrorStatus maps a classified dispatch error to the Gemini native
-// error envelope's "status" field. Gemini's taxonomy is finer-grained than
-// Anthropic/OpenAI's two-way split, so this switches on Kind directly rather
-// than reusing DispatchErrorKind.IsClientError.
-func geminiErrorStatus(kind proxy.DispatchErrorKind) string {
-	switch kind {
-	case proxy.DispatchErrorNotImplemented:
-		return "UNIMPLEMENTED"
-	case proxy.DispatchErrorProviderNotConfigured:
-		return "FAILED_PRECONDITION"
-	case proxy.DispatchErrorRequestNotJSONObject, proxy.DispatchErrorContextWindowExceeded:
-		return "INVALID_ARGUMENT"
-	case proxy.DispatchErrorNoEligibleProvider:
-		return "FAILED_PRECONDITION"
-	case proxy.DispatchErrorInvalidRoutingKnobs, proxy.DispatchErrorPlanOverrideRejected:
-		return "INVALID_ARGUMENT"
-	case proxy.DispatchErrorRLPolicyUnavailable, proxy.DispatchErrorBanditUnavailable, proxy.DispatchErrorHMMUnavailable, proxy.DispatchErrorPolicyUnavailable, proxy.DispatchErrorClusterUnavailable, proxy.DispatchErrorPlanUnresolvable, proxy.DispatchErrorPolicyPinUnavailable:
-		return "UNAVAILABLE"
-	default:
-		return "UPSTREAM_ERROR"
-	}
 }
 
 func writeGeminiError(c *gin.Context, status int, errStatus, message string) {

@@ -178,8 +178,7 @@ type dispatchAttempt func(ctx context.Context, decision router.Decision, p provi
 // failoverInputs bundles the inputs dispatchWithFallback needs that don't
 // belong to a single attempt.
 type failoverInputs struct {
-	// w is the real client writer; flushErr writes here directly (bypassing
-	// buf) so the client sees the upstream error in its expected format.
+	// w receives response headers identifying the current provider attempt.
 	w http.ResponseWriter
 	// buf is the writer per-attempt code writes through; its Committed()
 	// bit gates retry. nil when failover is impossible (single binding,
@@ -193,15 +192,6 @@ type failoverInputs struct {
 	bindings []catalog.ProviderBinding
 	// attempt does one per-binding dispatch.
 	attempt dispatchAttempt
-	// flushErr renders the final-attempt upstream error to w in the
-	// entry point's wire format. Optional — nil means do nothing on
-	// exhaustion (the error is still returned to the caller).
-	flushErr func(w http.ResponseWriter, err error)
-	// deferFlushOnExhaustion suppresses flushErr on exhaustion (still
-	// discards the buffer and returns the error), letting the caller run a
-	// higher-level fallback instead (e.g. ProxyMessages' baseline failover
-	// re-dispatching the Anthropic model when a routed OSS model exhausts).
-	deferFlushOnExhaustion bool
 	// purpose names the registered operation the walk is authorized under;
 	// origin names the override source that fixed the decision's model.
 	purpose                         inference.Purpose
@@ -224,8 +214,7 @@ var errDispatchWithoutPurpose = errors.New("dispatchWithFallback: no inference p
 // runs the attempt closure against each binding in order through the
 // dispatch executor, retrying on providers.IsRetryable errors while no bytes
 // have reached the client. Returns the winning (or last-tried) index and
-// error. On final-attempt error it flushes the upstream's own envelope to w
-// instead of a generic 502.
+// error. The request delivery owner renders the final failure.
 func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (winnerIdx int, err error) {
 	ctx = s.withSubscriptionFundingAuthorization(ctx, in.subscriptionStateHeaders)
 	if in.subscriptionStateRequest != nil && subscriptionStateModelsEnabled(ctx) && in.buildAlternative != nil {
@@ -256,9 +245,6 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 				Status: http.StatusServiceUnavailable,
 				Body: []byte(fmt.Sprintf(`{"error":{"message":%q,"type":"api_error"}}`,
 					fmt.Sprintf("forced model %s unavailable: provider %s not configured", in.initialDecision.Model, in.initialDecision.Provider))),
-			}
-			if in.flushErr != nil && !in.deferFlushOnExhaustion {
-				in.flushErr(in.w, err)
 			}
 			return -1, err
 		}
@@ -437,149 +423,11 @@ func prioritizeSelectedArmBinding(
 	return ordered, true
 }
 
-// flushBufferedIfPresent writes an *UpstreamErrorResponse through to the
-// client verbatim. No-op for other error types.
-//
-// Content-Length/Encoding are dropped: MaxBufferedErrorBytes caps the body
-// we hold, so the upstream's advertised length may exceed what we actually
-// write, breaking HTTP framing. net/http recomputes Content-Length itself.
-func flushBufferedIfPresent(w http.ResponseWriter, err error) {
-	var resp *providers.UpstreamErrorResponse
-	// An overflow is left to the ingress handler, which answers in the
-	// client's native prompt-too-long shape.
-	if !errors.As(err, &resp) || isUpstreamContextOverflow(err) {
-		return
-	}
-	for k, vs := range resp.Headers {
-		canon := http.CanonicalHeaderKey(k)
-		if _, hop := providers.HopByHopHeaders[canon]; hop {
-			continue
-		}
-		if canon == "Content-Length" || canon == "Content-Encoding" {
-			continue
-		}
-		for _, v := range vs {
-			w.Header().Add(k, v)
-		}
-	}
-	w.WriteHeader(resp.Status)
-	_, _ = w.Write(resp.Body)
-}
-
-// emitAnthropicSSEErrorEvent writes an Anthropic-shape `event: error` SSE
-// frame and returns *UpstreamStatusError so flushErr becomes a no-op.
-// Used when the upstream errors after Prelude already committed HTTP 200 +
-// message_start — a JSON error envelope would corrupt the SSE stream, but
-// an `event: error` frame terminates cleanly.
-func emitAnthropicSSEErrorEvent(sink http.ResponseWriter, err error) error {
-	var resp *providers.UpstreamErrorResponse
-	status := http.StatusBadGateway
-	body := []byte(`{"type":"error","error":{"type":"api_error","message":"upstream stream failed"}}`)
-	switch cls, classified := ClassifyDispatchError(err); {
-	case classified && cls.Kind == DispatchErrorContextWindowExceeded:
-		status = cls.Status
-		body = anthropicErrorFrameBody(cls)
-	case errors.As(err, &resp):
-		status = resp.Status
-		body = translate.OpenAIToAnthropicError(resp.Body)
-	case classified:
-		status = cls.Status
-		body = anthropicErrorFrameBody(cls)
-	}
-	_, _ = sink.Write([]byte("event: error\ndata: "))
-	_, _ = sink.Write(body)
-	_, _ = sink.Write([]byte("\n\n"))
-	if f, ok := sink.(http.Flusher); ok {
-		f.Flush()
-	}
-	return &providers.UpstreamStatusError{Status: status, Cause: err}
-}
-
-// emitOpenAISSEErrorEvent is emitAnthropicSSEErrorEvent's OpenAI-shape
-// counterpart: writes a verbatim `data: {...}` frame, used after
-// OpenAIRoutingMarkerWriter has already committed HTTP 200.
-func emitOpenAISSEErrorEvent(sink http.ResponseWriter, err error) error {
-	var resp *providers.UpstreamErrorResponse
-	status := http.StatusBadGateway
-	body := []byte(`{"error":{"message":"upstream stream failed","type":"server_error","code":"upstream_error"}}`)
-	switch cls, classified := ClassifyDispatchError(err); {
-	case classified && cls.Kind == DispatchErrorContextWindowExceeded:
-		status = cls.Status
-		body = openAIErrorFrameBody(cls)
-	case errors.As(err, &resp):
-		status = resp.Status
-		body = resp.Body
-	case classified:
-		status = cls.Status
-		body = openAIErrorFrameBody(cls)
-	}
-	_, _ = sink.Write([]byte("data: "))
-	_, _ = sink.Write(body)
-	_, _ = sink.Write([]byte("\n\n"))
-	if f, ok := sink.(http.Flusher); ok {
-		f.Flush()
-	}
-	return &providers.UpstreamStatusError{Status: status, Cause: err}
-}
-
-// anthropicErrorFrameBody renders a classified dispatch error as an
-// Anthropic error body. The ingress handler cannot write its own envelope
-// once the stream is committed, so the frame carries the class's own message
-// rather than the generic upstream-failure text.
-func anthropicErrorFrameBody(cls DispatchErrorClass) []byte {
-	return []byte(fmt.Sprintf(`{"type":"error","error":{"type":%q,"message":%q}}`,
-		errorFrameType(cls), cls.Message))
-}
-
-// openAIErrorFrameBody is anthropicErrorFrameBody's OpenAI-shape counterpart.
-func openAIErrorFrameBody(cls DispatchErrorClass) []byte {
-	code := OpenAIErrorCode(cls.Kind)
-	if code == "" {
-		code = "upstream_error"
-	}
-	return []byte(fmt.Sprintf(`{"error":{"message":%q,"type":%q,"code":%q}}`,
-		cls.Message, errorFrameType(cls), code))
-}
-
 func errorFrameType(cls DispatchErrorClass) string {
 	if cls.Kind.IsClientError() {
 		return "invalid_request_error"
 	}
 	return "api_error"
-}
-
-// emitGeminiSSEErrorEvent writes a terminal error frame to a committed
-// Gemini stream; called only on post-commit transport or truncation failure.
-func emitGeminiSSEErrorEvent(sink http.ResponseWriter) {
-	_, _ = sink.Write([]byte("data: {\"error\":{\"code\":\"UNAVAILABLE\",\"message\":\"upstream stream failed\"}}\n\n"))
-	if f, ok := sink.(http.Flusher); ok {
-		f.Flush()
-	}
-}
-
-// flushUpstreamErrorAsAnthropic is ProxyMessages' flushErr: translates the
-// OpenAI-compat upstream's error body to Anthropic-shape JSON. No-op when
-// err is not an *UpstreamErrorResponse.
-func flushUpstreamErrorAsAnthropic(w http.ResponseWriter, err error) {
-	var resp *providers.UpstreamErrorResponse
-	if !errors.As(err, &resp) || isUpstreamContextOverflow(err) {
-		return
-	}
-	for k, vs := range resp.Headers {
-		canon := http.CanonicalHeaderKey(k)
-		if _, hop := providers.HopByHopHeaders[canon]; hop {
-			continue
-		}
-		if canon == "Content-Type" || canon == "Content-Length" {
-			continue // body is rewritten below
-		}
-		for _, v := range vs {
-			w.Header().Add(k, v)
-		}
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(resp.Status)
-	_, _ = w.Write(translate.OpenAIToAnthropicError(resp.Body))
 }
 
 // attemptIdxLabel formats i for the x-router-fallback-attempt header.
@@ -613,7 +461,6 @@ func (s *Service) dispatchSubscriptionAlternatives(ctx context.Context, in failo
 		}
 		attemptIn := in
 		attemptIn.alternatives = nil
-		attemptIn.deferFlushOnExhaustion = true
 		if index > 0 {
 			attempt, buildErr := in.buildAlternative(target)
 			if buildErr != nil {

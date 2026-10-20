@@ -73,10 +73,8 @@ const (
 )
 
 // DispatchErrorClass is the format-agnostic classification of a dispatch
-// error: the HTTP status to return, the client-facing message, whether to
-// set Retry-After, and how (if at all) the handler should log it. Format
-// packages own only the envelope shape (writeAnthropicError/writeOpenAIError/
-// writeGeminiError) and any per-Kind "type" string their wire format needs.
+// error: the HTTP status, client-facing message, retry advice and logging.
+// The request delivery owner projects this class into a protocol sink.
 type DispatchErrorClass struct {
 	Kind       DispatchErrorKind
 	Status     int
@@ -95,10 +93,7 @@ type DispatchErrorClass struct {
 // is false when err doesn't match any known sentinel, meaning the caller
 // should fall back to its own generic upstream-failure response.
 //
-// Callers must check c.Writer.Written() (mid-stream failure) before calling
-// this — that's HTTP-plumbing, not classification — and must handle
-// format-specific sentinels (e.g. proxy.ErrGeminiCrossFormatUnsupported)
-// themselves before falling through here.
+// The request delivery owner chooses HTTP or SSE after recovery is exhausted.
 func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	var statusErr *providers.UpstreamStatusError
 	var bufferedErr *providers.UpstreamErrorResponse

@@ -33,8 +33,7 @@ func plannedInputs(rec *httptest.ResponseRecorder, buf *preludeBuffer, bindings 
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{Body: body}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
-		purpose:  inference.PurposeAnthropicMessages,
+		purpose: inference.PurposeAnthropicMessages,
 	}
 }
 
@@ -149,7 +148,7 @@ func TestDispatchPlanned_SameBindingRetryUsesInjectedSleep(t *testing.T) {
 	assert.Equal(t, "ok", rec.Body.String())
 }
 
-func TestDispatchPlanned_ExhaustionFlushesUpstreamEnvelope(t *testing.T) {
+func TestDispatchPlanned_ExhaustionReturnsUpstreamFailure(t *testing.T) {
 	only := &fakeClient{name: providers.ProviderFireworks, outcomes: []fakeOutcome{{err: &providers.UpstreamErrorResponse{Status: 404, Body: []byte(`nope`)}}}}
 	s := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderFireworks: only})
 
@@ -160,23 +159,24 @@ func TestDispatchPlanned_ExhaustionFlushesUpstreamEnvelope(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Equal(t, 1, only.calls, "404 must not same-binding-retry")
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assertUndeliveredDispatchFailure(t, rec, err, only.outcomes[0].err)
 }
 
-func TestDispatchPlanned_DeferredFlushLeavesWriterUntouched(t *testing.T) {
-	only := &fakeClient{name: providers.ProviderFireworks, outcomes: []fakeOutcome{{err: &providers.UpstreamErrorResponse{Status: 500, Body: []byte(`boom`)}}}}
+func TestDispatchPlanned_RetryExhaustionLeavesWriterUntouched(t *testing.T) {
+	failure := &providers.UpstreamErrorResponse{Status: http.StatusInternalServerError, Body: []byte(`boom`)}
+	only := &fakeClient{name: providers.ProviderFireworks, outcomes: []fakeOutcome{{err: failure}, {err: failure}, {err: failure}}}
 	s := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderFireworks: only})
 	s.retrySleep = noopSleep
 
 	rec := httptest.NewRecorder()
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderFireworks}}, nil)
-	in.deferFlushOnExhaustion = true
 	_, err := s.dispatchWithFallback(context.Background(), in)
 
 	require.Error(t, err)
+	assert.Equal(t, 1+dispatch.MaxSameBindingRetries, only.calls)
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Empty(t, rec.Body.String(), "caller owns the deferred error")
+	assertUndeliveredDispatchFailure(t, rec, err, only.outcomes[0].err)
 }
 
 func TestDispatchPlanned_ProviderMissingAtRuntimeSkipsToNext(t *testing.T) {
