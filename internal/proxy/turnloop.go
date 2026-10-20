@@ -19,6 +19,7 @@ import (
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/escalation"
@@ -318,6 +319,10 @@ type turnLoopResult struct {
 	// cooldown, plus any overload-circuit probe, until provider dispatch
 	// completes.
 	CooldownProbeReleases []func()
+	// OverloadProbe is the overload-circuit probe this request holds, if
+	// any; the ingress carries it to dispatch so only its outcome resolves
+	// the circuit.
+	OverloadProbe *breaker.Probe
 	// CooldownProbes maps each model this request holds a recovery probe for
 	// to the cooldown expiry it observed, so a successful turn clears exactly
 	// that cooldown and leaves a newer one alone.
@@ -873,8 +878,9 @@ func (s *Service) runTurnLoop(
 	// and tool-result turns that can sibling-rescue probe, so a failed probe
 	// never reaches the client.
 	if !forceModelFound && authoritativePolicyTurn(res.TurnType) {
-		if probeCtx, release, claimed := s.claimOverloadProbe(ctx, req); claimed {
-			ctx = probeCtx
+		if probe, release, claimed := s.claimOverloadProbe(ctx, req); claimed {
+			ctx = withOverloadProbe(ctx, probe)
+			res.OverloadProbe = &probe
 			res.CooldownProbeReleases = append(res.CooldownProbeReleases, release)
 			req.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
 		}

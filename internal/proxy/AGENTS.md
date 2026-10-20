@@ -105,9 +105,12 @@ model's circuit, and `globalAutomaticExcludedModels` adds open models to the
 deployment-wide soft exclusion, so every automatic path routes around them
 with no new check and `/force-model` still reaches them. After the recovery
 timeout `runTurnLoop` lets one eligible request claim the half-open probe and
-readmits the model for that request alone: a served operation closes the
-circuit and resets it, another 529 reopens it for twice as long (capped), and a
-request that served something else releases the slot. Only main and
+readmits the model for that request alone; only that request's own outcome
+resolves the circuit (a probe token travels from routing to dispatch, so an
+older in-flight success cannot close it). A served probe closes and resets the
+circuit, a 529 reopens it for twice as long (capped), and a request that
+served something else releases the slot, which then yields to any other due
+circuit not yet offered. Only main and
 tool-result turns that can sibling-rescue (never Gemini ingress or caller
 credentials) take the probe, so a failed probe never reaches the client.
 Committed streams, client cancellations, other statuses and BYOK gateways are

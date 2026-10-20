@@ -229,6 +229,25 @@ func TestOverloadBreaker_ProbeOnlyWhereRescuable(t *testing.T) {
 	}
 }
 
+// A request that does not hold the probe cannot resolve the circuit: a slow
+// success that started before the circuit opened leaves it half-open, and
+// only the probe's own outcome closes or reopens it.
+func TestRecordOverloadOutcome_OnlyTheProbeResolves(t *testing.T) {
+	h := newOverloadHarness(true)
+	h.svc.overloadBreaker.RecordOverload(rescuedPrimaryModel)
+	h.svc.overloadBreaker.RecordOverload(rescuedPrimaryModel)
+	h.clock = h.clock.Add(30 * time.Second)
+	probe, _, claimed := h.svc.claimOverloadProbe(rescuedFailureCtx(), router.Request{})
+	require.True(t, claimed)
+	probeCtx := withOverloadProbe(rescuedFailureCtx(), probe)
+
+	h.svc.recordOverloadOutcome(rescuedFailureCtx(), rescuedPrimaryModel, providers.ProviderAnthropic, false, nil)
+	assert.Equal(t, breaker.StateHalfOpen, h.state(), "a success without the probe does not close the circuit")
+
+	h.svc.recordOverloadOutcome(probeCtx, rescuedPrimaryModel, providers.ProviderAnthropic, false, overloaded529())
+	assert.Equal(t, breaker.StateOpen, h.state(), "the probe's own 529 reopens it")
+}
+
 // Flag off, nothing is recorded and every turn pays the overload and rescue
 // exactly as before.
 func TestOverloadBreaker_FlagOffKeepsTodaysBehaviour(t *testing.T) {

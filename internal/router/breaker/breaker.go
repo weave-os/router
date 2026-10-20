@@ -66,6 +66,10 @@ type circuit struct {
 	reopens    int
 	probeToken uint64
 	probeUntil time.Time
+	// offeredAt is when the probe was last claimed; a released probe sorts
+	// behind circuits not yet offered so one unwanted model cannot starve
+	// the others.
+	offeredAt time.Time
 }
 
 // Registry holds one circuit per model. The open set and the earliest instant
@@ -114,9 +118,10 @@ func (r *Registry) OpenModels() map[string]struct{} {
 	return nil
 }
 
-// RecordOverload counts one overload failure of model. A closed circuit opens
-// once Strikes failures fall within Window; a half-open circuit reopens with a
-// doubled recovery timeout; an open circuit is unchanged.
+// RecordOverload counts one overload failure of model from a request that does
+// not hold its probe. A closed circuit opens once Strikes failures fall within
+// Window; an open or half-open circuit is unchanged, since only its probe
+// decides recovery.
 func (r *Registry) RecordOverload(model string) Transition {
 	if model == "" {
 		return Transition{}
@@ -129,14 +134,8 @@ func (r *Registry) RecordOverload(model string) Transition {
 		c = &circuit{state: StateClosed}
 		r.circuits[model] = c
 	}
-	switch c.state {
-	case StateOpen:
-		return Transition{Model: model, From: StateOpen, To: StateOpen}
-	case StateHalfOpen:
-		c.state, c.openedAt, c.reopens = StateOpen, now, c.reopens+1
-		c.probeToken, c.probeUntil = 0, time.Time{}
-		r.publishLocked()
-		return Transition{Model: model, From: StateHalfOpen, To: StateOpen, RecoveryAfter: r.recoveryLocked(c.reopens)}
+	if c.state != StateClosed {
+		return Transition{Model: model, From: c.state, To: c.state}
 	}
 	c.failures = withinWindow(append(c.failures, now), now, r.cfg.Window, r.cfg.Strikes)
 	if len(c.failures) < r.cfg.Strikes {
@@ -148,27 +147,26 @@ func (r *Registry) RecordOverload(model string) Transition {
 	return Transition{Model: model, From: StateClosed, To: StateOpen, Failures: failures, RecoveryAfter: r.recoveryLocked(0)}
 }
 
-// RecordServed reports that model answered a request. A half-open circuit
-// closes and its whole state resets; every other state is unchanged, so a
-// served request on a healthy model never takes the lock.
-func (r *Registry) RecordServed(model string) Transition {
-	if _, open := r.OpenModels()[model]; !open {
-		return Transition{Model: model, From: StateClosed, To: StateClosed}
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	c := r.circuits[model]
-	if c == nil || c.state != StateHalfOpen {
-		return Transition{Model: model, From: StateOpen, To: StateOpen}
-	}
-	delete(r.circuits, model)
-	r.publishLocked()
-	return Transition{Model: model, From: StateHalfOpen, To: StateClosed}
+// ProbeSucceeded closes the probed circuit and resets its whole state. No-op
+// unless p still holds the circuit's half-open slot.
+func (r *Registry) ProbeSucceeded(p Probe) Transition {
+	return r.resolveProbe(p, func(c *circuit, _ time.Time) {
+		delete(r.circuits, p.Model)
+	})
 }
 
-// ClaimProbe grants the half-open slot of the first due circuit (longest open
-// first) that eligible accepts. A circuit is due once its recovery timeout has
-// elapsed, or when a previous probe's lease expired unresolved.
+// ProbeFailed reopens the probed circuit with a doubled recovery timeout,
+// capped at RecoveryCap. No-op unless p still holds the half-open slot.
+func (r *Registry) ProbeFailed(p Probe) Transition {
+	return r.resolveProbe(p, func(c *circuit, now time.Time) {
+		c.state, c.openedAt, c.reopens = StateOpen, now, c.reopens+1
+	})
+}
+
+// ClaimProbe grants the half-open slot of the first due circuit that eligible
+// accepts, preferring circuits whose probe was offered least recently, then the
+// longest open. A circuit is due once its recovery timeout has elapsed, or when
+// a previous probe's lease expired unresolved.
 func (r *Registry) ClaimProbe(eligible func(model string) bool) (Probe, Transition, bool) {
 	if len(r.OpenModels()) == 0 || r.now().UnixNano() < r.nextDue.Load() {
 		return Probe{}, Transition{}, false
@@ -184,6 +182,9 @@ func (r *Registry) ClaimProbe(eligible func(model string) bool) (Probe, Transiti
 	}
 	sort.Slice(due, func(i, j int) bool {
 		a, b := r.circuits[due[i]], r.circuits[due[j]]
+		if !a.offeredAt.Equal(b.offeredAt) {
+			return a.offeredAt.Before(b.offeredAt)
+		}
 		if !a.openedAt.Equal(b.openedAt) {
 			return a.openedAt.Before(b.openedAt)
 		}
@@ -196,7 +197,7 @@ func (r *Registry) ClaimProbe(eligible func(model string) bool) (Probe, Transiti
 		c := r.circuits[model]
 		from := c.state
 		r.nextToken++
-		c.state, c.probeToken, c.probeUntil = StateHalfOpen, r.nextToken, now.Add(r.cfg.ProbeLease)
+		c.state, c.probeToken, c.probeUntil, c.offeredAt = StateHalfOpen, r.nextToken, now.Add(r.cfg.ProbeLease), now
 		r.publishLocked()
 		return Probe{Model: model, token: c.probeToken}, Transition{Model: model, From: from, To: StateHalfOpen}, true
 	}
@@ -205,18 +206,32 @@ func (r *Registry) ClaimProbe(eligible func(model string) bool) (Probe, Transiti
 
 // ReleaseProbe returns a slot whose request ended without resolving it (the
 // model was not dispatched, or failed for a reason other than overload). The
-// circuit goes back to open and stays due, so the next eligible request may
-// probe at once. No-op when the probe was already resolved or reclaimed.
+// circuit goes back to open and stays due, behind any due circuit not yet
+// offered. No-op when the probe was already resolved or reclaimed.
 func (r *Registry) ReleaseProbe(p Probe) Transition {
+	return r.resolveProbe(p, func(c *circuit, _ time.Time) {
+		c.state = StateOpen
+	})
+}
+
+func (r *Registry) resolveProbe(p Probe, apply func(*circuit, time.Time)) Transition {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	c := r.circuits[p.Model]
 	if c == nil || c.state != StateHalfOpen || c.probeToken != p.token {
 		return Transition{Model: p.Model}
 	}
-	c.state, c.probeToken, c.probeUntil = StateOpen, 0, time.Time{}
+	c.probeToken, c.probeUntil = 0, time.Time{}
+	apply(c, r.now())
+	t := Transition{Model: p.Model, From: StateHalfOpen, To: StateClosed}
+	if _, kept := r.circuits[p.Model]; kept {
+		t.To = c.state
+	}
+	if t.To == StateOpen {
+		t.RecoveryAfter = r.recoveryLocked(c.reopens)
+	}
 	r.publishLocked()
-	return Transition{Model: p.Model, From: StateHalfOpen, To: StateOpen}
+	return t
 }
 
 // State reports model's current position, for logs and tests.
