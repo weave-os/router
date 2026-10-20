@@ -1307,19 +1307,21 @@ func TestResponsesWriter_PassthroughAppendsFeedbackFooter(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	w := translate.NewResponsesWriter(rec, "gpt-5.6-sol")
-	w.SetFooterText(footer)
+	feedback := configureResponsesFeedback(w, footer)
 	w.SetPassthroughBadge()
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(200)
 	_, err := w.Write([]byte(native.String()))
 	require.NoError(t, err)
 	require.NoError(t, w.Finalize())
+	require.NoError(t, feedback.Finalize())
 
 	events := parseSSEEvents(t, rec.Body.Bytes())
-	require.Len(t, events, 3)
+	require.Len(t, events, 6)
 	assert.Equal(t, "ok", events[0]["delta"])
-	assert.Equal(t, "ok"+footer, events[1]["text"])
-	output := events[2]["response"].(map[string]any)["output"].([]any)
+	assert.Equal(t, footer, events[1]["delta"])
+	assert.Equal(t, "ok"+footer, events[2]["text"])
+	output := events[5]["response"].(map[string]any)["output"].([]any)
 	assert.Equal(t, "ok"+footer, output[0].(map[string]any)["content"].([]any)[0].(map[string]any)["text"])
 }
 
@@ -1346,16 +1348,17 @@ func TestResponsesWriter_PassthroughReasoningThenTextKeepsBadgeAndFooter(t *test
 	rec := httptest.NewRecorder()
 	w := translate.NewResponsesWriter(rec, "gpt-5.6-sol")
 	w.SetBadgeText(passthroughTestMarker)
-	w.SetFooterText(footer)
+	feedback := configureResponsesFeedback(w, footer)
 	w.SetPassthroughBadge()
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(200)
 	_, err := w.Write([]byte(native.String()))
 	require.NoError(t, err)
 	require.NoError(t, w.Finalize())
+	require.NoError(t, feedback.Finalize())
 
 	events := parseSSEEvents(t, rec.Body.Bytes())
-	require.Len(t, events, len(payloads)+6)
+	require.Len(t, events, len(payloads)+7)
 	for i, event := range events {
 		if i == 0 {
 			assert.EqualValues(t, 0, event["sequence_number"])
@@ -1371,7 +1374,8 @@ func TestResponsesWriter_PassthroughReasoningThenTextKeepsBadgeAndFooter(t *test
 	assert.EqualValues(t, 1, events[7]["output_index"])
 	assert.EqualValues(t, 2, events[9]["output_index"])
 	assert.Equal(t, "ok", events[11]["delta"])
-	assert.Equal(t, "ok"+footer, events[12]["text"])
+	assert.Equal(t, footer, events[12]["delta"])
+	assert.Equal(t, "ok"+footer, events[13]["text"])
 	output := events[len(events)-1]["response"].(map[string]any)["output"].([]any)
 	require.Len(t, output, 3)
 	assert.Equal(t, "message", output[0].(map[string]any)["type"])
@@ -1394,13 +1398,14 @@ func TestResponsesWriter_PassthroughFooterSkippedOnToolCall(t *testing.T) {
 	}
 	rec := httptest.NewRecorder()
 	w := translate.NewResponsesWriter(rec, "gpt-5.6-sol")
-	w.SetFooterText(footer)
+	feedback := configureResponsesFeedback(w, footer)
 	w.SetPassthroughBadge()
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(200)
 	_, err := w.Write([]byte(native.String()))
 	require.NoError(t, err)
 	require.NoError(t, w.Finalize())
+	require.NoError(t, feedback.Finalize())
 	events := parseSSEEvents(t, rec.Body.Bytes())
 	require.Len(t, events, 3)
 	assert.Equal(t, "ok", events[0]["delta"])
@@ -1408,10 +1413,8 @@ func TestResponsesWriter_PassthroughFooterSkippedOnToolCall(t *testing.T) {
 }
 
 func TestResponsesWriter_TranslatedStreamAppendsFeedbackFooter(t *testing.T) {
-	const footer = "\n\n_Weave Router feedback:_ `$rf +` good"
-	rec := httptest.NewRecorder()
-	w := translate.NewResponsesWriter(rec, "gpt-5.5")
-	w.SetFooterText(footer)
+	const footer = regressionFeedback
+	w, rec := feedbackRegressionWriter(false, true)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(200)
 	for _, c := range []string{

@@ -24,3 +24,9 @@ func noticeWireText(text string) string {
 	}
 	return routerNoticeSentinel + strings.TrimSpace(text) + "\n\n"
 }
+
+// isRouterOnlyNoticeText distinguishes a complete notice part from a provider
+// answer that shares the same part with a prefixed router badge.
+func isRouterOnlyNoticeText(text string) bool {
+	return IsRouterNoticeText(text) && strings.TrimSpace(routerOwnedNoticePattern.ReplaceAllString(text, "")) == ""
+}

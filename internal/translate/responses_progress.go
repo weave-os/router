@@ -34,6 +34,7 @@ const (
 	responsesFunctionCallItem   responsesItemType = "function_call"
 	responsesCustomToolCallItem responsesItemType = "custom_tool_call"
 	responsesComputerCallItem   responsesItemType = "computer_call"
+	responsesWebSearchCallItem  responsesItemType = "web_search_call"
 )
 
 type responsesContentType string

@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/feedback"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
 )
@@ -198,8 +199,8 @@ const feedbackFooterText = "\n\n_Weave Router feedback:_ `/rf +` good experience
 // Codex reserves `/…` for built-ins, so `$rf` is used instead; the sentinel prefix is kept identical so ingress stripping matches both.
 const feedbackFooterTextCodex = "\n\n_Weave Router feedback:_ `$rf +` good experience · `$rf -` poor experience · note optional, e.g. `$rf - too slow`"
 
-// feedbackFooter returns the in-terminal rating hint for a streamed response,
-// or "" to stay transparent. Gated to terminalFeedbackClients (avoid
+// feedbackIntent returns the in-terminal rating hint for an eligible completion,
+// or an empty intent to stay transparent. Gated to terminalFeedbackClients (avoid
 // contaminating non-chat surfaces), to deployments with durable feedback
 // storage (never advertise a command we can't record — the header-based link
 // still ships for GUI clients), and to MainLoop/ToolResult turns: subagent
@@ -209,24 +210,24 @@ const feedbackFooterTextCodex = "\n\n_Weave Router feedback:_ `$rf +` good exper
 // echoedSinceHumanTurn suppresses the hint when the history already
 // shows it since the user's last real input (background-task continuations
 // each produce a natural stop and would otherwise stack duplicate hints).
-func (s *Service) feedbackFooter(ctx context.Context, clientApp string, tt turntype.TurnType, echoedSinceHumanTurn bool) string {
+func (s *Service) feedbackIntent(ctx context.Context, clientApp string, tt turntype.TurnType, echoedSinceHumanTurn bool) translate.FeedbackIntent {
 	if hideTerminalSurfacesForRequest(ctx) {
-		return ""
+		return translate.FeedbackIntent{}
 	}
 	if s.feedbackStore == nil {
-		return ""
+		return translate.FeedbackIntent{}
 	}
 	if _, ok := terminalFeedbackClients[clientApp]; !ok {
-		return ""
+		return translate.FeedbackIntent{}
 	}
 	if tt != turntype.MainLoop && tt != turntype.ToolResult {
-		return ""
+		return translate.FeedbackIntent{}
 	}
 	if echoedSinceHumanTurn {
-		return ""
+		return translate.FeedbackIntent{}
 	}
 	if clientApp == ClientAppCodex {
-		return feedbackFooterTextCodex
+		return translate.FeedbackIntent{Text: feedbackFooterTextCodex}
 	}
-	return feedbackFooterText
+	return translate.FeedbackIntent{Text: feedbackFooterText}
 }

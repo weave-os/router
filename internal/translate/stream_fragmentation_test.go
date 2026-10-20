@@ -545,7 +545,7 @@ func streamFamilies() []streamFamily {
 			},
 			run: func(t *testing.T, fixture streamFixture, chunks [][]byte) streamObservation {
 				rec := httptest.NewRecorder()
-				w := translate.NewAnthropicRoutingFooterWriter(rec, testFooter)
+				w := newAnthropicFooterTestWriter(rec, testFooter)
 				commitUpstreamResponse(w, fixture.streaming)
 				return runPassthrough(w, rec, chunks)
 			},
@@ -559,7 +559,7 @@ func streamFamilies() []streamFamily {
 			},
 			run: func(t *testing.T, fixture streamFixture, chunks [][]byte) streamObservation {
 				rec := httptest.NewRecorder()
-				w := translate.NewOpenAIRoutingFooterWriter(rec, testFooter)
+				w := newOpenAIFooterTestWriter(rec, testFooter)
 				commitUpstreamResponse(w, fixture.streaming)
 				return runPassthrough(w, rec, chunks)
 			},
@@ -573,7 +573,7 @@ func streamFamilies() []streamFamily {
 			},
 			run: func(t *testing.T, fixture streamFixture, chunks [][]byte) streamObservation {
 				rec := httptest.NewRecorder()
-				w := translate.NewGeminiRoutingFooterWriter(rec, testFooter)
+				w := newGeminiFooterTestWriter(rec, testFooter)
 				commitUpstreamResponse(w, fixture.streaming)
 				return runPassthrough(w, rec, chunks)
 			},

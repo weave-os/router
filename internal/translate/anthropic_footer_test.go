@@ -1,6 +1,7 @@
 package translate_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -27,7 +28,7 @@ func anthropicAnswerStream(stopReason string) string {
 
 func TestAnthropicRoutingFooterWriter_InjectsBeforeMessageDelta(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w := translate.NewAnthropicRoutingFooterWriter(rec, testFooter)
+	w := newAnthropicFooterTestWriter(rec, testFooter)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 
@@ -72,7 +73,7 @@ func TestAnthropicRoutingFooterWriter_InjectsBeforeMessageDelta(t *testing.T) {
 // the rating prompt as the entire message and bury the answer in the trace.
 func TestAnthropicRoutingFooterWriter_FoldsIntoFinalTextBlock(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w := translate.NewAnthropicRoutingFooterWriter(rec, testFooter)
+	w := newAnthropicFooterTestWriter(rec, testFooter)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 
@@ -91,7 +92,7 @@ func TestAnthropicRoutingFooterWriter_FoldsIntoFinalTextBlock(t *testing.T) {
 
 func TestAnthropicRoutingFooterWriter_SkipsToolUseTurn(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w := translate.NewAnthropicRoutingFooterWriter(rec, testFooter)
+	w := newAnthropicFooterTestWriter(rec, testFooter)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 
@@ -103,7 +104,7 @@ func TestAnthropicRoutingFooterWriter_SkipsToolUseTurn(t *testing.T) {
 
 func TestAnthropicRoutingFooterWriter_EmptyFooterPassthrough(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w := translate.NewAnthropicRoutingFooterWriter(rec, "")
+	w := newAnthropicFooterTestWriter(rec, "")
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 
@@ -115,7 +116,7 @@ func TestAnthropicRoutingFooterWriter_EmptyFooterPassthrough(t *testing.T) {
 
 func TestAnthropicRoutingFooterWriter_NonStreamingPassthrough(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w := translate.NewAnthropicRoutingFooterWriter(rec, testFooter)
+	w := newFooterTestWriter(rec, translate.FormatAnthropic, testFooter, false)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
@@ -127,7 +128,7 @@ func TestAnthropicRoutingFooterWriter_NonStreamingPassthrough(t *testing.T) {
 
 func TestAnthropicRoutingFooterWriter_NoContentNoFooter(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w := translate.NewAnthropicRoutingFooterWriter(rec, testFooter)
+	w := newAnthropicFooterTestWriter(rec, testFooter)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 
@@ -142,7 +143,7 @@ func TestAnthropicRoutingFooterWriter_NoContentNoFooter(t *testing.T) {
 
 func TestAnthropicRoutingFooterWriter_EventSplitAcrossWrites(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w := translate.NewAnthropicRoutingFooterWriter(rec, testFooter)
+	w := newAnthropicFooterTestWriter(rec, testFooter)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 
@@ -157,4 +158,148 @@ func TestAnthropicRoutingFooterWriter_EventSplitAcrossWrites(t *testing.T) {
 	assert.Contains(t, body, "Weave Router feedback", "split stream must still get a footer")
 	// Footer must appear exactly once.
 	assert.Equal(t, 1, strings.Count(body, "Weave Router feedback"))
+}
+
+func TestAnthropicRoutingFooterWriter_WaitsForMessageStop(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := newAnthropicFooterTestWriter(rec, testFooter)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	terminal := buildAnthropicSSE("message_stop", `{"type":"message_stop"}`)
+	stream := strings.TrimSuffix(anthropicAnswerStream("end_turn"), terminal)
+	_, err := w.Write([]byte(stream))
+	require.NoError(t, err)
+	assert.NotContains(t, rec.Body.String(), "Weave Router feedback")
+	_, err = w.Write([]byte(terminal))
+	require.NoError(t, err)
+	assert.Equal(t, 1, strings.Count(rec.Body.String(), "Weave Router feedback"))
+}
+
+func TestAnthropicRoutingFooterWriter_IncompleteTailDrainsUnchanged(t *testing.T) {
+	for _, tail := range []string{"", "event: message_st"} {
+		t.Run(tail, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			w := newAnthropicFooterTestWriter(rec, testFooter)
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			terminal := buildAnthropicSSE("message_stop", `{"type":"message_stop"}`)
+			stream := strings.TrimSuffix(anthropicAnswerStream("end_turn"), terminal) + tail
+			_, err := w.Write([]byte(stream))
+			require.NoError(t, err)
+			require.NoError(t, w.Finalize())
+			assert.Equal(t, stream, rec.Body.String())
+		})
+	}
+}
+
+func TestAnthropicRoutingFooterWriter_PreservesHeldPingOrder(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := newAnthropicFooterTestWriter(rec, testFooter)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	stop := buildAnthropicSSE("content_block_stop", `{"type":"content_block_stop","index":0}`)
+	ping := buildAnthropicSSE("ping", `{"type":"ping"}`)
+	stream := strings.Replace(anthropicAnswerStream("end_turn"), stop, stop+ping, 1)
+	_, err := w.Write([]byte(stream))
+	require.NoError(t, err)
+	assert.Less(t, strings.Index(rec.Body.String(), "Weave Router feedback"), strings.Index(rec.Body.String(), "event: content_block_stop"))
+	assert.Less(t, strings.Index(rec.Body.String(), "event: content_block_stop"), strings.Index(rec.Body.String(), "event: ping"))
+}
+
+type footerTestWriter struct {
+	*translate.CompletionObserver
+	finalize func() error
+}
+
+func (w *footerTestWriter) Finalize() error {
+	if err := w.Finish(nil); err != nil {
+		return err
+	}
+	return w.finalize()
+}
+
+func newFooterTestWriter(w http.ResponseWriter, format translate.Format, footer string, streaming bool) *footerTestWriter {
+	delivery := translate.NewFeedbackDelivery(context.Background(), translate.FeedbackIntent{Text: footer})
+	var adapter interface {
+		http.ResponseWriter
+		Finalize() error
+	}
+	switch format {
+	case translate.FormatAnthropic:
+		adapter = translate.NewAnthropicRoutingFooterWriter(w, delivery)
+	case translate.FormatOpenAI:
+		adapter = translate.NewOpenAIRoutingFooterWriter(w, delivery)
+	case translate.FormatGemini:
+		adapter = translate.NewGeminiRoutingFooterWriter(w, delivery)
+	}
+	return &footerTestWriter{
+		CompletionObserver: translate.NewCompletionObserver(adapter, format, streaming, delivery),
+		finalize:           adapter.Finalize,
+	}
+}
+
+func newAnthropicFooterTestWriter(w http.ResponseWriter, footer string) *footerTestWriter {
+	return newFooterTestWriter(w, translate.FormatAnthropic, footer, true)
+}
+
+func newOpenAIFooterTestWriter(w http.ResponseWriter, footer string) *footerTestWriter {
+	return newFooterTestWriter(w, translate.FormatOpenAI, footer, true)
+}
+
+func newGeminiFooterTestWriter(w http.ResponseWriter, footer string) *footerTestWriter {
+	return newFooterTestWriter(w, translate.FormatGemini, footer, true)
+}
+
+func TestAnthropicRoutingFooterWriter_FinalAnswerBeforeTrailingThinking(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := newAnthropicFooterTestWriter(rec, testFooter)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	stop := buildAnthropicSSE("content_block_stop", `{"type":"content_block_stop","index":0}`)
+	thinking := buildAnthropicSSE("content_block_start", `{"type":"content_block_start","index":1,"content_block":{"type":"thinking","thinking":""}}`) +
+		buildAnthropicSSE("content_block_delta", `{"type":"content_block_delta","index":1,"delta":{"type":"thinking_delta","thinking":"check"}}`) +
+		buildAnthropicSSE("content_block_stop", `{"type":"content_block_stop","index":1}`)
+	stream := strings.Replace(anthropicAnswerStream("end_turn"), stop, stop+thinking, 1)
+	_, err := w.Write([]byte(stream))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+	assert.Equal(t, 1, strings.Count(rec.Body.String(), "Weave Router feedback"))
+	assert.Less(t, strings.Index(rec.Body.String(), "Weave Router feedback"), strings.Index(rec.Body.String(), stop))
+	assert.Less(t, strings.Index(rec.Body.String(), stop), strings.Index(rec.Body.String(), thinking))
+}
+
+func TestFeedbackCompletionAdapters_UndelimitedTerminal(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		format translate.Format
+		stream string
+	}{
+		{"Messages", translate.FormatAnthropic, anthropicAnswerStream("end_turn")},
+		{"Chat", translate.FormatOpenAI, strings.TrimSuffix(openAIAnswerStream("stop"), "data: [DONE]\n\n")},
+		{"Gemini", translate.FormatGemini, geminiAnswerStream()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			w := newFooterTestWriter(rec, tc.format, testFooter, true)
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			_, err := w.Write([]byte(strings.TrimRight(tc.stream, "\n")))
+			require.NoError(t, err)
+			require.NoError(t, w.Finalize())
+			assert.Equal(t, 1, strings.Count(rec.Body.String(), "Weave Router feedback"))
+		})
+	}
+}
+
+func TestAnthropicRoutingFooterWriter_DoesNotHoldNoticeLifecycle(t *testing.T) {
+	rec := httptest.NewRecorder()
+	feedback := translate.NewFeedbackDelivery(context.Background(), translate.FeedbackIntent{Text: testFooter})
+	adapter := translate.NewAnthropicRoutingFooterWriter(rec, feedback)
+	adapter.Header().Set("Content-Type", "text/event-stream")
+	adapter.WriteHeader(http.StatusOK)
+	caps := translate.NoticeCapabilities{Format: translate.FormatAnthropic, Streaming: true, Presentation: translate.NoticeText}
+	notices := translate.NewNoticeDelivery(context.Background(), translate.NewProtocolNoticeSink(adapter, caps), caps)
+	_, err := notices.Deliver(translate.NewRouterNotice(translate.NoticeModelSelection, "selected model", "synthetic-model", ""))
+	require.NoError(t, err)
+	assert.Contains(t, rec.Body.String(), "event: content_block_stop", "notice lifecycle must complete before provider dispatch")
 }

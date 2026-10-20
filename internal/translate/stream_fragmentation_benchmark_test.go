@@ -1,6 +1,7 @@
 package translate_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -52,7 +53,7 @@ func buildResponsesToAnthropicWriter(b *testing.B, rec *httptest.ResponseRecorde
 
 func buildAnthropicRoutingFooterWriter(b *testing.B, rec *httptest.ResponseRecorder) (http.ResponseWriter, func() error) {
 	b.Helper()
-	w := translate.NewAnthropicRoutingFooterWriter(rec, testFooter)
+	w := newAnthropicFooterTestWriter(rec, testFooter)
 	commitUpstreamResponse(w, true)
 	return w, nil
 }
@@ -153,13 +154,23 @@ func BenchmarkStreamWriterFullChain(b *testing.B) {
 				body:   body,
 				expect: "Weave Router feedback",
 				build: func(b *testing.B, rec *httptest.ResponseRecorder) (http.ResponseWriter, func() error) {
-					footer := translate.NewAnthropicRoutingFooterWriter(rec, testFooter)
+					delivery := translate.NewFeedbackDelivery(context.Background(), translate.FeedbackIntent{Text: testFooter})
+					footer := translate.NewAnthropicRoutingFooterWriter(rec, delivery)
 					marker := translate.NewAnthropicRoutingMarkerWriter(footer, "gpt-x", testMarker)
 					writer := translate.NewAnthropicSSETranslator(marker, "gpt-x", nil)
 					if err := writer.Prelude(true); err != nil {
 						b.Fatal(err)
 					}
-					return writer, writer.Finalize
+					observer := translate.NewCompletionObserver(writer, translate.FormatOpenAI, true, delivery)
+					return observer, func() error {
+						if err := observer.Finish(nil); err != nil {
+							return err
+						}
+						if err := writer.Finalize(); err != nil {
+							return err
+						}
+						return footer.Finalize()
+					}
 				},
 			}
 			benchmarkWriterChain(b, chain, chunks)

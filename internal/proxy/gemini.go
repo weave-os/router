@@ -73,6 +73,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	// Best-effort: a strip failure returns a nil body, so we log-and-continue
 	// with the original bytes rather than aborting the turn over cosmetic
 	// cleanup — matching the OpenAI chat path's feedback-footer strip.
+	footerEchoedSinceHumanTurn := translate.FeedbackFooterSinceLastHumanTurnInGemini(body)
 	if strippedBody, stripErr := translate.StripFeedbackFooterFromGeminiContents(body); stripErr != nil {
 		log.Error("Failed to strip feedback footer from Gemini contents", "err", stripErr)
 	} else {
@@ -306,11 +307,16 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	// Append the one-click feedback thumbs as a trailing part on streaming
 	// answers (see ProxyMessages for the rationale). The Gemini path resolves no
 	// router user, matching the decision span and feedback header above.
-	clientSink := w
+	var feedbackIntent translate.FeedbackIntent
 	if env.Stream() {
-		if footer := s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType, false); footer != "" {
-			clientSink = translate.NewGeminiRoutingFooterWriter(w, footer)
-		}
+		feedbackIntent = s.feedbackIntent(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn)
+	}
+	ctx, feedbackDelivery := withFeedbackDelivery(ctx, feedbackIntent)
+	clientSink := w
+	if env.Stream() && feedbackDelivery.Enabled() {
+		footer := translate.NewGeminiRoutingFooterWriter(w, feedbackDelivery)
+		defer func() { returnErr = finalizeAfterProxy(returnErr, footer.Finalize) }()
+		clientSink = footer
 	}
 	clientSink, escalationCapture = s.captureEscalationResponse(clientSink, routeRes)
 	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
@@ -331,7 +337,8 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			proxySink = extractor
 		}
 		preludeBuf.Seal()
-		err := p.Proxy(actx, d, prep, proxySink, r)
+		source, finishFeedback := feedbackProviderWriter(actx, proxySink, translate.FormatGemini, env.Stream())
+		err := finishFeedback(p.Proxy(actx, d, prep, source, r))
 		if err == nil && env.Stream() && !preludeBuf.Committed() {
 			return translate.ErrStreamEmpty
 		}
