@@ -20,7 +20,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "black>=25.1,<26",
+    "black>=25.1,<27",
     "pytest>=8.3,<9",
     "pytest-asyncio>=0.24,<0.25",
     "respx>=0.22,<0.23",
