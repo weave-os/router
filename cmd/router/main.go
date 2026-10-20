@@ -1429,6 +1429,7 @@ func main() {
 	proxySvc = proxySvc.WithInferenceExecutor(inferenceExecutor).WithInferencePlans(inferencePlans).WithInferenceDeployment(inferenceDeployment)
 	if subscriptionRuntime != nil {
 		proxySvc.WithManagedSubscriptions(subscriptionRuntime)
+		proxySvc.WithWeeklyUsageRecorder(postgres.NewSubscriptionUsageRecorder(pool))
 	}
 	for _, spec := range configuredPolicySpecs {
 		proxySvc = proxySvc.WithPolicyStrategy(spec)
