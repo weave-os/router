@@ -372,10 +372,10 @@ func (item *responsesFailureItem) snapshot() json.RawMessage {
 		}
 		body := part.body
 		if part.textSet {
-			var content map[string]json.RawMessage
-			_ = json.Unmarshal(body, &content)
-			content[part.field], _ = json.Marshal(part.text.String())
-			body, _ = json.Marshal(content)
+			var partFields map[string]json.RawMessage
+			_ = json.Unmarshal(body, &partFields)
+			partFields[part.field], _ = json.Marshal(part.text.String())
+			body, _ = json.Marshal(partFields)
 		}
 		parts[key.index] = body
 		arrays[array] = parts
