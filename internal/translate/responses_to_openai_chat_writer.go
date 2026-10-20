@@ -650,7 +650,7 @@ func (t *ResponsesToOpenAIChatWriter) emitToolCall(oi int) error {
 		return nil
 	}
 	slot := t.toolCallCount
-	name, args, id := call.Name, call.Arguments, t.toolLedger.ProjectID(oi, clampOpenAIToolCallID)
+	id := t.toolLedger.ProjectID(oi, clampOpenAIToolCallID)
 	if err := t.lifecycle.Output(0); err != nil {
 		return err
 	}
@@ -661,10 +661,10 @@ func (t *ResponsesToOpenAIChatWriter) emitToolCall(oi int) error {
 	t.bw.WriteString(`,"id":`)
 	sse.WriteJSONString(t.bw, id)
 	t.bw.WriteString(`,"type":"function","function":{"name":`)
-	sse.WriteJSONString(t.bw, name)
+	sse.WriteJSONString(t.bw, call.Name)
 	t.bw.WriteString(`,"arguments":`)
 	// arguments is a JSON-encoded string on the chat wire.
-	sse.WriteJSONString(t.bw, args)
+	sse.WriteJSONString(t.bw, call.Arguments)
 	t.bw.WriteString(`}}]},"finish_reason":null}]}`)
 	t.bw.WriteString("\n\n")
 	return t.flushEvent()

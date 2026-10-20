@@ -67,19 +67,18 @@ func writeOpenAIMessageFromAnthropic(jw *jsonWriter, content gjson.Result) int {
 	var textParts []string
 	var toolCallBlocks []AcceptedToolCall
 	ledger := NewToolCallLedger()
-	sourceIndex := 0
 
-	content.ForEach(func(_, block gjson.Result) bool {
+	content.ForEach(func(index, block gjson.Result) bool {
 		switch block.Get("type").String() {
 		case "text":
 			if t := block.Get("text").String(); t != "" {
 				textParts = append(textParts, t)
 			}
 		case "tool_use":
+			sourceIndex := int(index.Int())
 			call := ledger.Close(sourceIndex, block.Get("id").String(), block.Get("name").String(), block.Get("input").Raw).Accept(nil)
-			sourceIndex++
 			if call.Suppression == ToolCallNotSuppressed {
-				call.ID = ledger.ProjectID(sourceIndex-1, clampOpenAIToolCallID)
+				call.ID = ledger.ProjectID(sourceIndex, clampOpenAIToolCallID)
 				toolCallBlocks = append(toolCallBlocks, call)
 			}
 		}
@@ -283,7 +282,6 @@ func writeAnthropicContentFromOpenAI(jw *jsonWriter, message gjson.Result, calls
 	for index, call := range calls {
 		wireIDs.Upsert(index, call.ID, call.Name)
 		id := wireIDs.ProjectID(index, func(id string) string { return uniqueToolUseIDWithNonce(id, toolIDNonce) })
-		name, inputRaw := call.Name, call.Arguments
 
 		jw.Obj()
 		jw.Key("type")
@@ -291,9 +289,9 @@ func writeAnthropicContentFromOpenAI(jw *jsonWriter, message gjson.Result, calls
 		jw.Key("id")
 		jw.Str(id)
 		jw.Key("name")
-		jw.Str(name)
+		jw.Str(call.Name)
 		jw.Key("input")
-		jw.Raw(inputRaw)
+		jw.Raw(call.Arguments)
 		jw.EndObj()
 	}
 	jw.EndArr()
