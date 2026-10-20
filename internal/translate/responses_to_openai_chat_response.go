@@ -36,7 +36,11 @@ func responsesToOpenAIChatResponse(body []byte, requestModel string, toolValidat
 	}
 	var toolCalls []toolCall
 	var issues []toolcheck.Issue
+	ledger := NewToolCallLedger()
+	outputIndex := 0
 	root.Get("output").ForEach(func(_, item gjson.Result) bool {
+		index := outputIndex
+		outputIndex++
 		switch item.Get("type").String() {
 		case "reasoning":
 			if summary := joinReasoningSummary(item.Get("summary")); summary != "" {
@@ -53,19 +57,17 @@ func responsesToOpenAIChatResponse(body []byte, requestModel string, toolValidat
 				return true
 			})
 		case "function_call":
-			name := item.Get("name").String()
-			if name == "" {
-				// A nameless call makes the client invoke tool "" in a loop.
+			call := ledger.Close(index, item.Get("call_id").String(), item.Get("name").String(), item.Get("arguments").String()).Accept(toolValidator)
+			if call.Suppression != ToolCallNotSuppressed {
 				return true
 			}
-			verdict := toolValidator.Check(name, item.Get("arguments").String())
-			if verdict.Issue != nil {
-				issues = append(issues, *verdict.Issue)
+			if call.Issue != nil {
+				issues = append(issues, *call.Issue)
 			}
 			toolCalls = append(toolCalls, toolCall{
-				id:   callIDOrGenerated(item.Get("call_id").String()),
-				name: name,
-				args: verdict.Args,
+				id:   ledger.ProjectID(index, clampOpenAIToolCallID),
+				name: call.Name,
+				args: call.Arguments,
 			})
 		}
 		return true

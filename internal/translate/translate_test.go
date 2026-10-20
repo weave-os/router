@@ -126,7 +126,7 @@ func TestTranslateResponse_StopReasons(t *testing.T) {
 		{"end_turn", "stop"},
 		{"max_tokens", "length"},
 		{"stop_sequence", "stop"},
-		{"tool_use", "tool_calls"},
+		{"tool_use", "stop"},
 	}
 	for _, tt := range tests {
 		body := `{"id":"x","content":[{"type":"text","text":"hi"}],"model":"m","stop_reason":"` + tt.anthropic + `"}`

@@ -57,6 +57,8 @@ func writeOpenAIMessageFromGemini(jw *jsonWriter, candidate gjson.Result) (hasTo
 		args string
 	}
 	var toolCalls []toolCallEntry
+	ledger := NewToolCallLedger()
+	sourceIndex := 0
 
 	// First pass: find any thoughtSignature in the candidate's parts.
 	// Gemini 3.x emits one sig per turn — usually on the leading text or
@@ -80,8 +82,13 @@ func writeOpenAIMessageFromGemini(jw *jsonWriter, candidate gjson.Result) (hasTo
 			if sig == "" {
 				sig = inheritedSig
 			}
-			id := embedSignatureInID(generateToolCallID(), sig)
-			toolCalls = append(toolCalls, toolCallEntry{id: id, name: name, args: args})
+			call := ledger.Close(sourceIndex, generateToolCallID(), name, args).Accept(nil)
+			sourceIndex++
+			if call.Suppression != ToolCallNotSuppressed {
+				return true
+			}
+			id := embedSignatureInID(call.ID, sig)
+			toolCalls = append(toolCalls, toolCallEntry{id: id, name: call.Name, args: call.Arguments})
 			return true
 		}
 		if t := part.Get("text").String(); t != "" {

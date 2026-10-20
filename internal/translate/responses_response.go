@@ -36,14 +36,21 @@ func responsesToAnthropicResponse(body []byte, requestModel, reasoningScope stri
 	}
 	model := clientFacingModel(requestModel, root.Get("model").String())
 
+	ledger := NewToolCallLedger()
+	accepted := make(map[int]AcceptedToolCall)
+	var issues []toolcheck.Issue
 	hasToolCall := false
-	root.Get("output").ForEach(func(_, item gjson.Result) bool {
-		if item.Get("type").String() == "function_call" {
-			hasToolCall = true
-			return false
+	for index, item := range root.Get("output").Array() {
+		if responsesItemType(item.Get("type").String()) != responsesFunctionCallItem {
+			continue
 		}
-		return true
-	})
+		call := ledger.Close(index, item.Get("call_id").String(), item.Get("name").String(), item.Get("arguments").String()).Accept(toolValidator)
+		accepted[index] = call
+		if call.Issue != nil {
+			issues = append(issues, *call.Issue)
+		}
+		hasToolCall = hasToolCall || call.Suppression == ToolCallNotSuppressed
+	}
 
 	stopReason := "end_turn"
 	if hasToolCall {
@@ -65,9 +72,8 @@ func responsesToAnthropicResponse(body []byte, requestModel, reasoningScope stri
 
 	jw.Key("content")
 	jw.Arr()
-	var issues []toolcheck.Issue
 	pendingReasoningSignature := ""
-	root.Get("output").ForEach(func(_, item gjson.Result) bool {
+	root.Get("output").ForEach(func(index, item gjson.Result) bool {
 		switch item.Get("type").String() {
 		case "reasoning":
 			text := joinReasoningSummary(item.Get("summary"))
@@ -103,28 +109,25 @@ func responsesToAnthropicResponse(body []byte, requestModel, reasoningScope stri
 				return true
 			})
 		case "function_call":
+			call := accepted[int(index.Int())]
+			if call.Suppression != ToolCallNotSuppressed {
+				return true
+			}
 			jw.Obj()
 			jw.Key("type")
 			jw.Str("tool_use")
 			jw.Key("id")
-			id := item.Get("call_id").String()
+			id := ledger.ProjectID(int(index.Int()), sanitizeToolUseID)
 			if pendingReasoningSignature != "" {
 				id = embedOpenAIReasoningSignatureInID(id, pendingReasoningSignature)
 				pendingReasoningSignature = ""
 			}
 			jw.Str(id)
 			jw.Key("name")
-			name := item.Get("name").String()
+			name := call.Name
 			jw.Str(name)
 			jw.Key("input")
-			// Validate (and safely repair) the args against the request's
-			// tool schema; with a nil validator this degrades to the historic
-			// syntax-check + `{}` substitution.
-			verdict := toolValidator.Check(name, item.Get("arguments").String())
-			if verdict.Issue != nil {
-				issues = append(issues, *verdict.Issue)
-			}
-			jw.Raw(verdict.Args)
+			jw.Raw(call.Arguments)
 			jw.EndObj()
 		}
 		return true

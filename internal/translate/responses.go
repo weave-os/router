@@ -720,7 +720,7 @@ type responsesToolItem struct {
 	name        string
 	mapping     ResponsesToolMapping
 	outputIndex int
-	arguments   strings.Builder
+	call        AcceptedToolCall
 	opened      bool
 	closed      bool
 }
@@ -1131,6 +1131,9 @@ func (t *ResponsesWriter) Finalize() error {
 			return err
 		}
 		if !t.completedEmitted && t.finishReason != "" {
+			if err := t.closeOpenItems(); err != nil {
+				return err
+			}
 			if !t.hasUpstreamOutput {
 				return emptyCompletionOpenAIError()
 			}
@@ -2012,11 +2015,11 @@ func (t *ResponsesWriter) translateChunk(raw []byte) error {
 		return nil
 	}
 	if bytes.Equal(bytes.TrimSpace(data), []byte("[DONE]")) {
-		if !t.lifecycle.OutputStarted() {
-			return nil
-		}
 		if err := t.closeOpenItems(); err != nil {
 			return err
+		}
+		if !t.lifecycle.OutputStarted() {
+			return nil
 		}
 		if t.completedEmitted {
 			return nil
@@ -2067,9 +2070,6 @@ func (t *ResponsesWriter) translateChunk(raw []byte) error {
 	}
 
 	if tcs := delta.Get("tool_calls"); tcs.IsArray() {
-		if tcs.Get("#").Int() > 0 {
-			t.sawToolCall = true
-		}
 		for _, tc := range tcs.Array() {
 			idx := int(tc.Get("index").Int())
 			if err := t.appendToolCall(idx, tc); err != nil {
@@ -2169,76 +2169,31 @@ func (t *ResponsesWriter) ensureBadgeItem() error {
 }
 
 func (t *ResponsesWriter) appendToolCall(idx int, tc gjson.Result) error {
+	entry := t.toolLedger.AppendArguments(idx, tc.Get("id").String(), tc.Get("function.name").String(), tc.Get("function.arguments").String())
+	if entry.Name == "" {
+		return nil
+	}
+	if _, opened := t.toolItems[idx]; opened {
+		return nil
+	}
 	if err := t.ensureBadgeItem(); err != nil {
 		return err
 	}
-	entry := t.toolLedger.Upsert(idx, tc.Get("id").Str, tc.Get("function.name").Str)
-	item, ok := t.toolItems[idx]
-	justOpened := false
-	if !ok {
-		mapping := ResponsesToolMapping{Name: entry.Name}
-		if mapped, found := t.toolMappings[entry.Name]; found {
-			mapping = mapped
-		}
-		item = &responsesToolItem{
-			mapping: mapping,
-		}
-		t.toolItems[idx] = item
-		item.outputIndex = t.nextOutputIndex()
-		item.callID = entry.ExternalID
-		item.name = mapping.Name
-		if item.name == "" {
-			item.name = entry.Name
-		}
-		// Buffer nameless chunks; the mapping decides function_call vs
-		// custom_tool_call only once the name arrives from a later delta.
-		if len(t.toolMappings) == 0 || item.name != "" {
-			item.itemID = newResponsesID(toolCallItemIDPrefix(item.mapping.Custom))
-			if err := t.emitFunctionCallItemAdded(item); err != nil {
-				return err
-			}
-			item.opened = true
-			justOpened = true
-		}
+	mapping, mapped := t.toolMappings[entry.Name]
+	if !mapped {
+		mapping = ResponsesToolMapping{Name: entry.Name}
 	}
-	// Later chunks may carry name/id only on first delta; pick up any later
-	// arrivals defensively.
-	if item.name == "" && entry.Name != "" {
-		if mapped, found := t.toolMappings[entry.Name]; found {
-			item.mapping = mapped
-			item.name = mapped.Name
-		} else {
-			item.name = entry.Name
-		}
-	}
-	if !item.opened && item.name != "" {
-		item.itemID = newResponsesID(toolCallItemIDPrefix(item.mapping.Custom))
-		if err := t.emitFunctionCallItemAdded(item); err != nil {
-			return err
-		}
-		item.opened = true
-		justOpened = true
-	}
+	item := &responsesToolItem{mapping: mapping, name: mapping.Name, callID: t.toolLedger.ProjectID(idx, clampOpenAIToolCallID), itemID: newResponsesID(toolCallItemIDPrefix(mapping.Custom))}
+	t.toolItems[idx] = item
+	item.outputIndex = t.nextOutputIndex()
 	if err := t.lifecycle.Output(item.outputIndex); err != nil {
 		return err
 	}
-	if item.opened && item.name != "" {
-		t.hasUpstreamOutput = true
+	if err := t.emitFunctionCallItemAdded(item); err != nil {
+		return err
 	}
-	args := tc.Get("function.arguments").Str
-	if args != "" {
-		t.toolLedger.AppendArguments(idx, tc.Get("id").Str, tc.Get("function.name").Str, args)
-		item.arguments.WriteString(args)
-	}
-	if !item.opened {
-		return nil
-	}
-	if justOpened && item.arguments.Len() > 0 {
-		return t.emitFunctionArgsDelta(item, item.arguments.String())
-	}
-	if args != "" {
-		return t.emitFunctionArgsDelta(item, args)
-	}
+	item.opened = true
+	t.hasUpstreamOutput = true
 	return nil
 }
 
@@ -2266,6 +2221,14 @@ func (t *ResponsesWriter) computeBadgeText() string {
 }
 
 func (t *ResponsesWriter) closeOpenItems() error {
+	for _, entry := range t.toolLedger.Entries() {
+		call := entry.Accept(nil)
+		if item, exists := t.toolItems[entry.SourceIndex]; exists {
+			item.call = call
+			t.sawToolCall = true
+		}
+	}
+
 	if t.textItem != nil && !t.textItem.closed {
 		if t.footerText != "" && !t.sawToolCall && t.finishReason == "stop" && !feedbackFooterPattern.MatchString(t.textItem.text.String()) {
 			t.textItem.text.WriteString(t.footerText)
@@ -2284,17 +2247,21 @@ func (t *ResponsesWriter) closeOpenItems() error {
 		}
 		t.textItem.closed = true
 	}
-	for _, item := range t.toolItems {
-		if item.closed {
+	for _, entry := range t.toolLedger.Entries() {
+		item, exists := t.toolItems[entry.SourceIndex]
+		if !exists {
 			continue
 		}
-		if len(t.toolMappings) > 0 && !item.opened {
-			return fmt.Errorf("portable Codex tool call is missing a function name")
+		if item.closed || !item.opened {
+			continue
 		}
-		if err := t.emitFunctionArgsDone(item); err != nil && len(t.toolMappings) > 0 {
+		if err := t.emitFunctionArgsDelta(item, item.call.Arguments); err != nil {
 			return err
 		}
-		if err := t.emitFunctionCallItemDone(item); err != nil && len(t.toolMappings) > 0 {
+		if err := t.emitFunctionArgsDone(item); err != nil {
+			return err
+		}
+		if err := t.emitFunctionCallItemDone(item); err != nil {
 			return err
 		}
 		item.closed = true
@@ -2501,7 +2468,7 @@ func (t *ResponsesWriter) emitFunctionArgsDelta(item *responsesToolItem, delta s
 
 func (t *ResponsesWriter) emitFunctionArgsDone(item *responsesToolItem) error {
 	if item.mapping.Custom {
-		input, err := customToolInput(item.arguments.String())
+		input, err := customToolInput(item.call.Arguments)
 		if err != nil {
 			return err
 		}
@@ -2520,13 +2487,13 @@ func (t *ResponsesWriter) emitFunctionArgsDone(item *responsesToolItem) error {
 	return t.writeEvent("response.function_call_arguments.done", map[string]any{
 		"item_id":      item.itemID,
 		"output_index": item.outputIndex,
-		"arguments":    item.arguments.String(),
+		"arguments":    item.call.Arguments,
 	})
 }
 
 func (t *ResponsesWriter) emitFunctionCallItemDone(item *responsesToolItem) error {
 	if item.mapping.Custom {
-		input, err := customToolInput(item.arguments.String())
+		input, err := customToolInput(item.call.Arguments)
 		if err != nil {
 			return err
 		}
@@ -2541,7 +2508,7 @@ func (t *ResponsesWriter) emitFunctionCallItemDone(item *responsesToolItem) erro
 	}
 	call := map[string]any{
 		"id": item.itemID, "type": "function_call", "status": "completed",
-		"call_id": item.callID, "name": item.name, "arguments": item.arguments.String(),
+		"call_id": item.callID, "name": item.name, "arguments": item.call.Arguments,
 	}
 	if item.mapping.Namespace != "" {
 		call["namespace"] = item.mapping.Namespace
@@ -2608,7 +2575,7 @@ func (t *ResponsesWriter) assembleOutput() []any {
 			continue
 		}
 		if item.mapping.Custom {
-			input, err := customToolInput(item.arguments.String())
+			input, err := customToolInput(item.call.Arguments)
 			if err != nil {
 				continue
 			}
@@ -2632,7 +2599,7 @@ func (t *ResponsesWriter) assembleOutput() []any {
 			"status":    "completed",
 			"call_id":   item.callID,
 			"name":      item.name,
-			"arguments": item.arguments.String(),
+			"arguments": item.call.Arguments,
 		}
 		if item.mapping.Namespace != "" {
 			call["namespace"] = item.mapping.Namespace
@@ -2668,7 +2635,8 @@ func chatCompletionToResponse(body []byte, responseID, model string, createdAt i
 	output := make([]any, 0, 2)
 	text := badge
 	text += chatContentText(choice.Get("content"))
-	if footer != "" && choice.Get("tool_calls.#").Int() == 0 && !feedbackFooterPattern.MatchString(text) {
+	calls, _ := acceptedChatToolCalls(choice.Get("tool_calls"), nil, false)
+	if footer != "" && len(calls) == 0 && !feedbackFooterPattern.MatchString(text) {
 		text += footer
 	}
 	if text != "" {
@@ -2684,35 +2652,35 @@ func chatCompletionToResponse(body []byte, responseID, model string, createdAt i
 			}},
 		})
 	}
-	if tcs := choice.Get("tool_calls"); tcs.IsArray() {
-		for _, tc := range tcs.Array() {
-			alias := tc.Get("function.name").Str
-			mapping, mapped := mappings[alias]
-			if !mapped {
-				mapping = ResponsesToolMapping{Name: alias}
-			}
-			item := map[string]any{
-				"id":      newResponsesID(toolCallItemIDPrefix(mapping.Custom)),
-				"status":  "completed",
-				"call_id": tc.Get("id").Str,
-				"name":    mapping.Name,
-			}
-			if mapping.Namespace != "" {
-				item["namespace"] = mapping.Namespace
-			}
-			if mapping.Custom {
-				input, err := customToolInput(tc.Get("function.arguments").Str)
-				if err != nil {
-					return nil, err
-				}
-				item["type"] = "custom_tool_call"
-				item["input"] = input
-			} else {
-				item["type"] = "function_call"
-				item["arguments"] = tc.Get("function.arguments").Str
-			}
-			output = append(output, item)
+	wireIDs := NewToolCallLedger()
+	for index, call := range calls {
+		wireIDs.Upsert(index, call.ID, call.Name)
+		alias := call.Name
+		mapping, mapped := mappings[alias]
+		if !mapped {
+			mapping = ResponsesToolMapping{Name: alias}
 		}
+		item := map[string]any{
+			"id":      newResponsesID(toolCallItemIDPrefix(mapping.Custom)),
+			"status":  "completed",
+			"call_id": wireIDs.ProjectID(index, clampOpenAIToolCallID),
+			"name":    mapping.Name,
+		}
+		if mapping.Namespace != "" {
+			item["namespace"] = mapping.Namespace
+		}
+		if mapping.Custom {
+			input, err := customToolInput(call.Arguments)
+			if err != nil {
+				return nil, err
+			}
+			item["type"] = "custom_tool_call"
+			item["input"] = input
+		} else {
+			item["type"] = "function_call"
+			item["arguments"] = call.Arguments
+		}
+		output = append(output, item)
 	}
 	out["output"] = output
 

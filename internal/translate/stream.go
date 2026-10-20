@@ -36,8 +36,11 @@ type SSETranslator struct {
 	model   string
 	created int64
 	// toolIdx advances on content_block_stop for tool_use blocks.
-	toolIdx       int
-	currentIsTool bool
+	toolIdx              int
+	currentIsTool        bool
+	toolLedger           *ToolCallLedger
+	currentToolSource    int
+	toolInitialArguments string
 
 	usageSink   UsageSink
 	inputTokens int // persists input token count from message_start for use in handleMessageDelta
@@ -48,13 +51,14 @@ type SSETranslator struct {
 func NewSSETranslator(w http.ResponseWriter, model string, sink UsageSink) *SSETranslator {
 	flusher, _ := w.(http.Flusher)
 	return &SSETranslator{
-		inner:     w,
-		flusher:   flusher,
-		bw:        bufio.NewWriterSize(w, 8192),
-		model:     model,
-		created:   time.Now().Unix(),
-		usageSink: sink,
-		lifecycle: NewStreamLifecycle(),
+		inner:      w,
+		flusher:    flusher,
+		bw:         bufio.NewWriterSize(w, 8192),
+		model:      model,
+		created:    time.Now().Unix(),
+		usageSink:  sink,
+		lifecycle:  NewStreamLifecycle(),
+		toolLedger: NewToolCallLedger(),
 	}
 }
 
@@ -259,20 +263,22 @@ func (t *SSETranslator) handleContentBlockStart(data []byte) error {
 	if !t.currentIsTool {
 		return nil
 	}
+	t.currentToolSource = int(gjson.GetBytes(data, "index").Int())
+	entry := t.toolLedger.Upsert(t.currentToolSource, gjson.GetBytes(data, "content_block.id").String(), gjson.GetBytes(data, "content_block.name").String())
+	t.toolInitialArguments = gjson.GetBytes(data, "content_block.input").Raw
+	if entry.Name == "" {
+		return nil
+	}
 	if err := t.lifecycle.Output(0); err != nil {
 		return err
 	}
-
-	id := gjson.GetBytes(data, "content_block.id").Str
-	name := gjson.GetBytes(data, "content_block.name").Str
-
 	t.writeChunkHeader()
 	t.bw.WriteString(`"choices":[{"index":0,"delta":{"tool_calls":[{"index":`)
 	sse.WriteJSONInt(t.bw, int64(t.toolIdx))
 	t.bw.WriteString(`,"id":`)
-	sse.WriteJSONString(t.bw, id)
+	sse.WriteJSONString(t.bw, t.toolLedger.ProjectID(t.currentToolSource, clampOpenAIToolCallID))
 	t.bw.WriteString(`,"type":"function","function":{"name":`)
-	sse.WriteJSONString(t.bw, name)
+	sse.WriteJSONString(t.bw, entry.Name)
 	t.bw.WriteString(`,"arguments":""}}]},"finish_reason":null}]}`)
 	t.bw.WriteString("\n\n")
 	return t.flushEvent()
@@ -295,18 +301,10 @@ func (t *SSETranslator) handleContentBlockDelta(data []byte) error {
 		return t.flushEvent()
 
 	case "input_json_delta":
-		if err := t.lifecycle.Output(0); err != nil {
-			return err
+		if t.currentIsTool {
+			t.toolLedger.AppendArguments(t.currentToolSource, "", "", gjson.GetBytes(data, "delta.partial_json").String())
 		}
-		partial := gjson.GetBytes(data, "delta.partial_json").Str
-		t.writeChunkHeader()
-		t.bw.WriteString(`"choices":[{"index":0,"delta":{"tool_calls":[{"index":`)
-		sse.WriteJSONInt(t.bw, int64(t.toolIdx))
-		t.bw.WriteString(`,"function":{"arguments":`)
-		sse.WriteJSONString(t.bw, partial)
-		t.bw.WriteString(`}}]},"finish_reason":null}]}`)
-		t.bw.WriteString("\n\n")
-		return t.flushEvent()
+		return nil
 
 	default:
 		return nil
@@ -314,11 +312,30 @@ func (t *SSETranslator) handleContentBlockDelta(data []byte) error {
 }
 
 func (t *SSETranslator) handleContentBlockStop() error {
-	if t.currentIsTool {
-		t.toolIdx++
+	if !t.currentIsTool {
+		return nil
 	}
 	t.currentIsTool = false
-	return nil
+	entry, _ := t.toolLedger.Entry(t.currentToolSource)
+	// Anthropic's initial input is commonly an empty placeholder, not an
+	// authoritative terminal snapshot. Use it only when no delta supplied args.
+	fallback := ""
+	if entry.Arguments.Len() == 0 {
+		fallback = t.toolInitialArguments
+	}
+	entry = t.toolLedger.Close(t.currentToolSource, "", "", fallback)
+	call := entry.Accept(nil)
+	if call.Suppression != ToolCallNotSuppressed {
+		return nil
+	}
+	t.writeChunkHeader()
+	t.bw.WriteString(`"choices":[{"index":0,"delta":{"tool_calls":[{"index":`)
+	sse.WriteJSONInt(t.bw, int64(t.toolIdx))
+	t.bw.WriteString(`,"function":{"arguments":`)
+	sse.WriteJSONString(t.bw, call.Arguments)
+	t.bw.WriteString("}}]},\"finish_reason\":null}]}\n\n")
+	t.toolIdx++
+	return t.flushEvent()
 }
 
 func (t *SSETranslator) handleMessageDelta(data []byte) error {
@@ -328,8 +345,15 @@ func (t *SSETranslator) handleMessageDelta(data []byte) error {
 	}
 
 	rawStopReason := delta.Get("stop_reason").Str
+	// A terminal delta can be the last usable boundary when a provider omits
+	// content_block_stop. Settle buffered arguments before choosing tool intent.
+	if rawStopReason != "" {
+		if err := t.handleContentBlockStop(); err != nil {
+			return err
+		}
+	}
 	recordOutputLimit(t.usageSink, rawStopReason == "max_tokens")
-	finishReason := mapStopReason(rawStopReason)
+	finishReason := reconciledChatToolFinish(mapStopReason(rawStopReason), t.toolIdx)
 	if err := t.lifecycle.Output(0); err != nil {
 		return err
 	}
@@ -419,21 +443,6 @@ type AnthropicSSETranslator struct {
 	// real text arrives, or dropped if only whitespace ever comes.
 	pendingText strings.Builder
 	toolBlocks  map[int]int
-	// suppressedTools holds tool_call indices refused for carrying no function
-	// name (see emitDelta); later argument fragments reuse the index and must
-	// be dropped too.
-	suppressedTools map[int]struct{}
-	// toolArgsBuffer accumulates input_json_delta fragments per content-block
-	// index so the concatenated args can be validated at content_block_stop.
-	// OpenAI-compat upstreams (GLM, Kimi, Qwen, gpt-oss) intermittently emit
-	// JSON that fails to parse — partial keys, unbalanced braces, truncation.
-	toolArgsBuffer map[int]*strings.Builder
-	// toolArgsInvalid latches per-block-index when buffered args fail JSON
-	// parsing at content_block_stop. Surfaced via Summary.
-	toolArgsInvalid map[int]struct{}
-	// toolNames records each block's function name for schema validation at
-	// content_block_stop.
-	toolNames map[int]string
 	// toolValidator validates/repairs buffered tool args (see toolcheck). Nil
 	// means syntax-check-only.
 	toolValidator *toolcheck.Validator
@@ -550,18 +559,14 @@ const upstreamErrorBodyCap = 8 << 10
 func NewAnthropicSSETranslator(w http.ResponseWriter, requestModel string, sink UsageSink) *AnthropicSSETranslator {
 	flusher, _ := w.(http.Flusher)
 	return &AnthropicSSETranslator{
-		inner:           w,
-		flusher:         flusher,
-		bw:              bufio.NewWriterSize(w, 8192),
-		requestModel:    requestModel,
-		toolBlocks:      make(map[int]int),
-		suppressedTools: make(map[int]struct{}),
-		toolArgsBuffer:  make(map[int]*strings.Builder),
-		toolArgsInvalid: make(map[int]struct{}),
-		toolNames:       make(map[int]string),
-		usageSink:       sink,
-		lifecycle:       NewStreamLifecycle(),
-		toolLedger:      NewToolCallLedger(),
+		inner:        w,
+		flusher:      flusher,
+		bw:           bufio.NewWriterSize(w, 8192),
+		requestModel: requestModel,
+		toolBlocks:   make(map[int]int),
+		usageSink:    sink,
+		lifecycle:    NewStreamLifecycle(),
+		toolLedger:   NewToolCallLedger(),
 	}
 }
 
@@ -698,10 +703,10 @@ func (t *AnthropicSSETranslator) Summary() ResponseSummary {
 		StopReason:            t.emittedStopReason,
 		StopReasonPromoted:    t.toolUseEmitted && openAIFinishToAnthropic(t.finishReason) != "tool_use",
 		ToolUseBlocks:         t.toolUseCount,
-		InvalidToolArgsBlocks: len(t.toolArgsInvalid),
+		InvalidToolArgsBlocks: countUnrepairableToolArgs(t.toolCallIssues),
 		TextOnlyTurnNudged:    t.nudgeEmitted,
 		StopReasonDemoted:     t.stopReasonDemoted,
-		SuppressedToolCalls:   len(t.suppressedTools),
+		SuppressedToolCalls:   t.toolLedger.SuppressedCount(),
 		ToolCallIssues:        t.toolCallIssues,
 		OutputTokens:          t.usageOutputTokens,
 		InputTokens:           t.usageInputTokens,
@@ -1108,9 +1113,8 @@ func (t *AnthropicSSETranslator) emitDelta(delta gjson.Result) error {
 
 	// GLM-5.1 (and other vLLM/SGLang upstreams) emit `"tool_calls": null` on
 	// plain-text deltas. gjson's ForEach over null yields one zero-value
-	// iteration (index=0, name=""), which would spuriously trip the
-	// nameless-call guard below and drop the real tool_call that later arrives
-	// at index 0. Only iterate real arrays.
+	// iteration (index=0, name=""), which would allocate a phantom call and
+	// identity before the real tool_call arrives. Only iterate real arrays.
 	toolCalls := delta.Get("tool_calls")
 	if !toolCalls.IsArray() {
 		return nil
@@ -1120,28 +1124,17 @@ func (t *AnthropicSSETranslator) emitDelta(delta gjson.Result) error {
 	var emitErr error
 	toolCalls.ForEach(func(_, tc gjson.Result) bool {
 		idx := int(tc.Get("index").Int())
+		entry := t.toolLedger.AppendArguments(idx, tc.Get("id").String(), tc.Get("function.name").String(), tc.Get("function.arguments").String())
+		if entry.Name == "" {
+			return true
+		}
 		if err := t.lifecycle.Output(t.blockIdx); err != nil {
 			emitErr = err
 			return false
 		}
-		if _, suppressed := t.suppressedTools[idx]; suppressed {
-			// Argument fragments of a tool_call we refused to open. Drop them
-			// so they don't stream into a stale/zero block index.
-			return true
-		}
 		blockIdx, ok := t.toolBlocks[idx]
 		if !ok {
-			entry := t.toolLedger.Upsert(idx, tc.Get("id").Str, tc.Get("function.name").Str)
-			id := entry.ExternalID
-			name := entry.Name
-			// A tool_call with no function name (GLM/Qwen/Kimi/gpt-oss
-			// occasionally emit one) would make the client invoke tool "" and
-			// loop. Drop it before closing text/thinking so it can't truncate
-			// a legitimate text block; the turn ends on its real stop_reason.
-			if name == "" {
-				t.suppressedTools[idx] = struct{}{}
-				return true
-			}
+			id, name := t.toolLedger.ProjectID(idx, t.uniqueToolUseID), entry.Name
 			if t.textOpen {
 				if err := t.emitContentBlockStop(t.blockIdx - 1); err != nil {
 					emitErr = err
@@ -1162,7 +1155,6 @@ func (t *AnthropicSSETranslator) emitDelta(delta gjson.Result) error {
 			}
 			blockIdx = t.blockIdx
 			t.toolBlocks[idx] = blockIdx
-			t.toolNames[blockIdx] = name
 			t.toolUseEmitted = true
 			t.toolUseCount++
 			t.blockIdx++
@@ -1170,49 +1162,19 @@ func (t *AnthropicSSETranslator) emitDelta(delta gjson.Result) error {
 				return false
 			}
 		}
-		if args := tc.Get("function.arguments").Str; args != "" {
-			// Buffer only — one input_json_delta is emitted per tool block at
-			// content_block_stop, after validation. Malformed upstream args
-			// then degrade to `{}` instead of the client's strict parser
-			// rejecting the whole turn. Costs one delta's worth of latency;
-			// tool args are typically <1KB.
-			buf, ok := t.toolArgsBuffer[blockIdx]
-			if !ok {
-				buf = &strings.Builder{}
-				t.toolArgsBuffer[blockIdx] = buf
-			}
-			buf.WriteString(args)
-		}
+
 		return true
 	})
 	return emitErr
 }
 
-// emitValidatedToolArgsDelta emits one input_json_delta per tool block at
-// content_block_stop, after toolcheck validation/repair. No-op if no args
-// were buffered. Unparseable args degrade to `{}` so the client can still
-// dispatch the tool (it then errors on missing params) rather than the whole
-// turn failing to parse; schema mismatches repair can't fix forward as-is.
-func (t *AnthropicSSETranslator) emitValidatedToolArgsDelta(blockIdx int) error {
-	buf, ok := t.toolArgsBuffer[blockIdx]
-	if !ok || buf.Len() == 0 {
-		return nil
+func (t *AnthropicSSETranslator) emitValidatedToolArgsDelta(sourceIndex, blockIdx int) error {
+	entry, _ := t.toolLedger.Entry(sourceIndex)
+	call := entry.Accept(t.toolValidator)
+	if call.Issue != nil {
+		t.toolCallIssues = append(t.toolCallIssues, *call.Issue)
 	}
-	payload := buf.String()
-	verdict := t.toolValidator.Check(t.toolNames[blockIdx], payload)
-	if verdict.Issue != nil {
-		t.toolCallIssues = append(t.toolCallIssues, *verdict.Issue)
-		if verdict.Issue.Bucket == toolcheck.BucketInvalidJSON && !verdict.Issue.Repaired {
-			t.toolArgsInvalid[blockIdx] = struct{}{}
-			t.log().Error(
-				"AnthropicSSE tool_use args failed JSON validation — substituting empty args",
-				"block_index", blockIdx,
-				"upstream_model", t.modelFromUpstream,
-				"args_len", len(payload),
-			)
-		}
-	}
-	return t.emitContentBlockDeltaJSON(blockIdx, verdict.Args)
+	return t.emitContentBlockDeltaJSON(blockIdx, call.Arguments)
 }
 
 // routerNudgeCommand is the Bash payload synthesized when the upstream
@@ -1290,10 +1252,10 @@ func (t *AnthropicSSETranslator) synthesizeTextOnlyTurnNudge() error {
 	if t.toolUseEmitted || !t.requestHadTools || !t.started {
 		return nil
 	}
-	// A structured tool call was already dropped as malformed (see
-	// suppressedTools); nudging on top would re-add a tool_use the model
+	// A structured tool call was already suppressed for missing a name;
+	// nudging on top would re-add a tool_use the model
 	// never sent and loop degenerate-shape upstreams to the turn ceiling.
-	if len(t.suppressedTools) > 0 {
+	if t.toolLedger.SuppressedCount() > 0 {
 		return nil
 	}
 	switch t.finishReason {
@@ -1380,8 +1342,13 @@ func (t *AnthropicSSETranslator) finishStream() error {
 		}
 		t.thinkingOpen = false
 	}
-	for _, blockIdx := range t.toolBlocks {
-		if err := t.emitValidatedToolArgsDelta(blockIdx); err != nil {
+	for _, entry := range t.toolLedger.Entries() {
+		blockIdx, opened := t.toolBlocks[entry.SourceIndex]
+		if !opened {
+			entry.Accept(t.toolValidator)
+			continue
+		}
+		if err := t.emitValidatedToolArgsDelta(entry.SourceIndex, blockIdx); err != nil {
 			return err
 		}
 		if err := t.emitContentBlockStop(blockIdx); err != nil {

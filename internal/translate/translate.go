@@ -47,7 +47,8 @@ func AnthropicToOpenAIResponse(body []byte, requestModel string) ([]byte, error)
 	jw.Key("index")
 	jw.Int(0)
 	jw.Key("message")
-	writeOpenAIMessageFromAnthropic(jw, gjson.GetBytes(body, "content"))
+	acceptedCount := writeOpenAIMessageFromAnthropic(jw, gjson.GetBytes(body, "content"))
+	stopReason = reconciledChatToolFinish(stopReason, acceptedCount)
 	jw.Key("finish_reason")
 	jw.Str(stopReason)
 	jw.EndObj()
@@ -58,13 +59,15 @@ func AnthropicToOpenAIResponse(body []byte, requestModel string) ([]byte, error)
 	return jw.Bytes(), nil
 }
 
-func writeOpenAIMessageFromAnthropic(jw *jsonWriter, content gjson.Result) {
+func writeOpenAIMessageFromAnthropic(jw *jsonWriter, content gjson.Result) int {
 	jw.Obj()
 	jw.Key("role")
 	jw.Str("assistant")
 
 	var textParts []string
-	var toolCallBlocks []gjson.Result
+	var toolCallBlocks []AcceptedToolCall
+	ledger := NewToolCallLedger()
+	sourceIndex := 0
 
 	content.ForEach(func(_, block gjson.Result) bool {
 		switch block.Get("type").String() {
@@ -73,7 +76,12 @@ func writeOpenAIMessageFromAnthropic(jw *jsonWriter, content gjson.Result) {
 				textParts = append(textParts, t)
 			}
 		case "tool_use":
-			toolCallBlocks = append(toolCallBlocks, block)
+			call := ledger.Close(sourceIndex, block.Get("id").String(), block.Get("name").String(), block.Get("input").Raw).Accept(nil)
+			sourceIndex++
+			if call.Suppression == ToolCallNotSuppressed {
+				call.ID = ledger.ProjectID(sourceIndex-1, clampOpenAIToolCallID)
+				toolCallBlocks = append(toolCallBlocks, call)
+			}
 		}
 		return true
 	})
@@ -91,16 +99,16 @@ func writeOpenAIMessageFromAnthropic(jw *jsonWriter, content gjson.Result) {
 		for _, block := range toolCallBlocks {
 			jw.Obj()
 			jw.Key("id")
-			jw.Str(block.Get("id").String())
+			jw.Str(block.ID)
 			jw.Key("type")
 			jw.Str("function")
 			jw.Key("function")
 			jw.Obj()
 			jw.Key("name")
-			jw.Str(block.Get("name").String())
+			jw.Str(block.Name)
 			// Anthropic input is a JSON object; OpenAI arguments is that object serialized as a string.
 			jw.Key("arguments")
-			jw.Str(block.Get("input").Raw)
+			jw.Str(block.Arguments)
 			jw.EndObj()
 			jw.EndObj()
 		}
@@ -108,6 +116,7 @@ func writeOpenAIMessageFromAnthropic(jw *jsonWriter, content gjson.Result) {
 	}
 
 	jw.EndObj()
+	return len(toolCallBlocks)
 }
 
 func writeOpenAIUsageFromAnthropic(jw *jsonWriter, usage gjson.Result) {
@@ -196,13 +205,8 @@ func openAIToAnthropicResponse(body []byte, requestModel string, toolValidator *
 	firstChoice := gjson.GetBytes(body, "choices.0")
 	message := firstChoice.Get("message")
 	finishReason := firstChoice.Get("finish_reason").String()
-	// Anthropic invariant: tool_use stop_reason iff a tool_use block exists.
-	// Some OpenAI-compat upstreams (GLM-5.1, vLLM Qwen/MiMo) violate it both
-	// ways, so we correct both, mirroring emitMessageDelta:
-	//   - Promote: named tool call present but finish_reason="stop".
-	//   - Demote: finish_reason="tool_calls" but every call was nameless
-	//     (dropped below) — else we'd ship tool_use with zero blocks.
-	if anyNamedToolCall(message.Get("tool_calls")) {
+	calls, issues := acceptedChatToolCalls(message.Get("tool_calls"), toolValidator, escapeNormalize)
+	if len(calls) > 0 {
 		finishReason = "tool_calls"
 	} else if finishReason == "tool_calls" {
 		finishReason = "stop"
@@ -219,7 +223,7 @@ func openAIToAnthropicResponse(body []byte, requestModel string, toolValidator *
 	jw.Key("model")
 	jw.Str(model)
 	jw.Key("content")
-	issues := writeAnthropicContentFromOpenAI(jw, message, toolValidator, thinkTagReasoning, escapeNormalize, toolIDNonce)
+	writeAnthropicContentFromOpenAI(jw, message, calls, thinkTagReasoning, toolIDNonce)
 	jw.Key("stop_reason")
 	jw.Str(openAIFinishToAnthropicStopReason(finishReason))
 	jw.Key("stop_sequence")
@@ -239,7 +243,7 @@ func writeAnthropicThinkingBlock(jw *jsonWriter, thinking string) {
 	jw.EndObj()
 }
 
-func writeAnthropicContentFromOpenAI(jw *jsonWriter, message gjson.Result, toolValidator *toolcheck.Validator, thinkTagReasoning, escapeNormalize bool, toolIDNonce string) (issues []toolcheck.Issue) {
+func writeAnthropicContentFromOpenAI(jw *jsonWriter, message gjson.Result, calls []AcceptedToolCall, thinkTagReasoning bool, toolIDNonce string) {
 	jw.Arr()
 	reasoning := message.Get("reasoning_content").String()
 	if reasoning == "" {
@@ -275,64 +279,52 @@ func writeAnthropicContentFromOpenAI(jw *jsonWriter, message gjson.Result, toolV
 		jw.Str(text)
 		jw.EndObj()
 	}
-	message.Get("tool_calls").ForEach(func(_, tc gjson.Result) bool {
-		id := tc.Get("id").String()
-		name := tc.Get("function.name").String()
-		// Drop nameless tool_calls; see anyNamedToolCall. Mirrors the
-		// streaming guard in emitDelta.
-		if name == "" {
-			return true
-		}
-		argsStr := tc.Get("function.arguments").String()
-
-		if escapeNormalize && isEditToolName(name) {
-			var inputMap map[string]any
-			if json.Unmarshal([]byte(argsStr), &inputMap) == nil {
-				normalizeEditEscapes(escapeNormalize, name, inputMap)
-				if b, err := json.Marshal(inputMap); err == nil {
-					argsStr = string(b)
-				}
-			}
-		}
-		// Validate (and safely repair) args against the request's tool schema;
-		// nil validator degrades to syntax-check + `{}` substitution.
-		verdict := toolValidator.Check(name, argsStr)
-		if verdict.Issue != nil {
-			issues = append(issues, *verdict.Issue)
-		}
-		inputRaw := verdict.Args
+	wireIDs := NewToolCallLedger()
+	for index, call := range calls {
+		wireIDs.Upsert(index, call.ID, call.Name)
+		id := wireIDs.ProjectID(index, func(id string) string { return uniqueToolUseIDWithNonce(id, toolIDNonce) })
+		name, inputRaw := call.Name, call.Arguments
 
 		jw.Obj()
 		jw.Key("type")
 		jw.Str("tool_use")
 		jw.Key("id")
-		jw.Str(uniqueToolUseIDWithNonce(id, toolIDNonce))
+		jw.Str(id)
 		jw.Key("name")
 		jw.Str(name)
 		jw.Key("input")
 		jw.Raw(inputRaw)
 		jw.EndObj()
-		return true
-	})
+	}
 	jw.EndArr()
-	return issues
 }
 
-// anyNamedToolCall reports whether tool_calls has a call with a non-empty
-// function name. Nameless tool_calls (seen intermittently from GLM/Qwen/Kimi/
-// gpt-oss on vLLM/SGLang) are malformed: forwarded as-is they make the client
-// invoke tool "" and infinite-loop retrying, so they're dropped and must not
-// drive stop_reason promotion.
-func anyNamedToolCall(toolCalls gjson.Result) bool {
-	found := false
-	toolCalls.ForEach(func(_, tc gjson.Result) bool {
-		if tc.Get("function.name").String() != "" {
-			found = true
-			return false
+func acceptedChatToolCalls(toolCalls gjson.Result, validator *toolcheck.Validator, escapeNormalize bool) ([]AcceptedToolCall, []toolcheck.Issue) {
+	ledger := NewToolCallLedger()
+	var calls []AcceptedToolCall
+	var issues []toolcheck.Issue
+	for index, toolCall := range toolCalls.Array() {
+		name := toolCall.Get("function.name").String()
+		arguments := toolCall.Get("function.arguments").String()
+		if escapeNormalize && isEditToolName(name) {
+			var input map[string]any
+			if json.Unmarshal([]byte(arguments), &input) == nil {
+				normalizeEditEscapes(escapeNormalize, name, input)
+				if encoded, err := json.Marshal(input); err == nil {
+					arguments = string(encoded)
+				}
+			}
 		}
-		return true
-	})
-	return found
+		call := ledger.Close(index, toolCall.Get("id").String(), name, arguments).Accept(validator)
+		if call.Suppression != ToolCallNotSuppressed {
+			continue
+		}
+		if call.Issue != nil {
+			issues = append(issues, *call.Issue)
+		}
+		calls = append(calls, call)
+	}
+	return calls, issues
 }
 
 // isEditToolName reports whether name is a file-edit tool subject to escape normalization.
@@ -403,4 +395,27 @@ func OpenAIToAnthropicError(body []byte) []byte {
 	jw.EndObj()
 	jw.EndObj()
 	return jw.Bytes()
+}
+
+type chatFinishReason string
+
+const (
+	chatFinishStop     chatFinishReason = "stop"
+	chatFinishTools    chatFinishReason = "tool_calls"
+	chatFinishLength   chatFinishReason = "length"
+	chatFinishFiltered chatFinishReason = "content_filter"
+)
+
+func reconciledChatToolFinish(reason string, accepted int) string {
+	switch chatFinishReason(reason) {
+	case chatFinishLength, chatFinishFiltered:
+		return reason
+	}
+	if accepted > 0 {
+		return string(chatFinishTools)
+	}
+	if chatFinishReason(reason) == chatFinishTools {
+		return string(chatFinishStop)
+	}
+	return reason
 }

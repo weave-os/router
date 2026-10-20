@@ -26,14 +26,16 @@ type GeminiToOpenAISSETranslator struct {
 	buf        bytes.Buffer
 	scanner    sse.Scanner
 
-	model     string
-	chatID    string
-	created   int64
-	started   bool
-	closed    bool
-	toolIdx   int
-	finished  bool
-	lifecycle *StreamLifecycle
+	model           string
+	chatID          string
+	created         int64
+	started         bool
+	closed          bool
+	toolIdx         int
+	finished        bool
+	lifecycle       *StreamLifecycle
+	toolLedger      *ToolCallLedger
+	toolSourceIndex int
 	// pendingSig is a thoughtSignature from a text part with no functionCall
 	// sibling, held for the next tool_call chunk.
 	pendingSig string
@@ -50,14 +52,15 @@ type GeminiToOpenAISSETranslator struct {
 func NewGeminiToOpenAISSETranslator(w http.ResponseWriter, model string, sink UsageSink) *GeminiToOpenAISSETranslator {
 	flusher, _ := w.(http.Flusher)
 	return &GeminiToOpenAISSETranslator{
-		inner:     w,
-		flusher:   flusher,
-		bw:        bufio.NewWriterSize(w, 8192),
-		model:     model,
-		chatID:    generateChatCmplID(),
-		created:   time.Now().Unix(),
-		usageSink: sink,
-		lifecycle: NewStreamLifecycle(),
+		inner:      w,
+		flusher:    flusher,
+		bw:         bufio.NewWriterSize(w, 8192),
+		model:      model,
+		chatID:     generateChatCmplID(),
+		created:    time.Now().Unix(),
+		usageSink:  sink,
+		lifecycle:  NewStreamLifecycle(),
+		toolLedger: NewToolCallLedger(),
 	}
 }
 
@@ -222,7 +225,12 @@ func (t *GeminiToOpenAISSETranslator) translateEvent(raw []byte) error {
 					// part in a turn carries one.
 					t.pendingSig = sig
 				}
-				if err := t.emitToolCallChunk(t.toolIdx, name, argsRaw, sig); err != nil {
+				call := t.toolLedger.Close(t.toolSourceIndex, generateToolCallID(), name, argsRaw).Accept(nil)
+				t.toolSourceIndex++
+				if call.Suppression != ToolCallNotSuppressed {
+					return true
+				}
+				if err := t.emitToolCallChunk(t.toolIdx, call.ID, call.Name, call.Arguments, sig); err != nil {
 					emitErr = err
 					return false
 				}
@@ -310,7 +318,7 @@ func (t *GeminiToOpenAISSETranslator) emitTextDelta(text string) error {
 // JSON in one chunk. The Gemini thoughtSignature is smuggled into the tool-call
 // id (embedSignatureInID) so it replays on the next request without an
 // off-spec field that typed SDKs drop and Anthropic upstreams reject.
-func (t *GeminiToOpenAISSETranslator) emitToolCallChunk(idx int, name, argsRaw, sig string) error {
+func (t *GeminiToOpenAISSETranslator) emitToolCallChunk(idx int, callID, name, argsRaw, sig string) error {
 	if err := t.ensureStarted(); err != nil {
 		return err
 	}
@@ -318,7 +326,7 @@ func (t *GeminiToOpenAISSETranslator) emitToolCallChunk(idx int, name, argsRaw, 
 		return err
 	}
 	t.markOutputProgress()
-	id := embedSignatureInID(generateToolCallID(), sig)
+	id := embedSignatureInID(callID, sig)
 	t.writeChunkHeader()
 	t.bw.WriteString(`"choices":[{"index":0,"delta":{"tool_calls":[{"index":`)
 	sse.WriteJSONInt(t.bw, int64(idx))

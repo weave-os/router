@@ -62,21 +62,11 @@ type ResponsesToAnthropicWriter struct {
 	itemBlocks map[int]int
 	// itemKind records the Anthropic block kind per output_index so the matching
 	// output_item.done can close it correctly.
-	itemKind map[int]string
-	// toolArgs accumulates function_call_arguments deltas per output_index,
-	// emitted as one input_json_delta at item close; unparseable becomes `{}`
-	// (mirrors AnthropicSSETranslator) rather than breaking the client's parser.
-	toolArgs                  map[int]*strings.Builder
+	itemKind                  map[int]string
 	reasoningSignatures       map[int]string
 	pendingReasoningSignature string
-	// suppressed holds output_indexes of nameless function_call items — a nameless
-	// tool_use makes the client invoke tool "" in a loop, so we drop the block and
-	// its later arg deltas/done event (mirrors AnthropicSSETranslator).
-	suppressed map[int]struct{}
-
-	// toolName records the function_call name per output_index so its arguments
-	// can be validated against that tool's schema at emit time.
-	toolName map[int]string
+	emittedTools              map[int]struct{}
+	outputLimitReached        bool
 	// toolValidator validates/repairs tool args against the request's schemas
 	// (see toolcheck); nil means syntax-check-only (no tools in the request).
 	toolValidator *toolcheck.Validator
@@ -113,10 +103,8 @@ func NewResponsesToAnthropicWriter(w http.ResponseWriter, requestModel string, s
 		statusCode:          http.StatusOK,
 		itemBlocks:          make(map[int]int),
 		itemKind:            make(map[int]string),
-		toolArgs:            make(map[int]*strings.Builder),
 		reasoningSignatures: make(map[int]string),
-		suppressed:          make(map[int]struct{}),
-		toolName:            make(map[int]string),
+		emittedTools:        make(map[int]struct{}),
 		lifecycle:           NewStreamLifecycle(),
 		toolLedger:          NewToolCallLedger(),
 	}
@@ -370,6 +358,9 @@ func (t *ResponsesToAnthropicWriter) translateResponsesEvent(raw []byte) error {
 				return err
 			}
 		}
+		if err := t.settleTools(resp); err != nil {
+			return err
+		}
 		if !t.lifecycle.OutputStarted() && !t.hasPendingOutput() {
 			t.captureFinalResponse(data)
 			return t.emitEmptyCompletion()
@@ -387,37 +378,30 @@ func (t *ResponsesToAnthropicWriter) translateResponsesEvent(raw []byte) error {
 func (t *ResponsesToAnthropicWriter) handleOutputItemAdded(data []byte) error {
 	oi := int(gjson.GetBytes(data, "output_index").Int())
 	item := gjson.GetBytes(data, "item")
-	if item.Get("type").String() != "function_call" {
-		if item.Get("type").String() == "reasoning" {
-			t.captureReasoningSignature(oi, item)
+	switch responsesItemType(item.Get("type").String()) {
+	case responsesFunctionCallItem:
+		entry := t.toolLedger.Upsert(oi, item.Get("call_id").String(), item.Get("name").String())
+		if entry.Name == "" {
+			return nil
 		}
-		return nil
+		if _, exists := t.itemBlocks[oi]; exists {
+			return nil
+		}
+		if _, emitted := t.emittedTools[oi]; emitted {
+			return nil
+		}
+		index := t.blockIdx
+		t.blockIdx++
+		t.toolUseCount++
+		t.itemBlocks[oi], t.itemKind[oi] = index, "tool_use"
+		if err := t.lifecycle.Output(index); err != nil {
+			return err
+		}
+		return t.emitContentBlockStartTool(index, t.toolLedger.ProjectID(oi, sanitizeToolUseID), entry.Name)
+	case responsesReasoningItem:
+		t.captureReasoningSignature(oi, item)
 	}
-	name := item.Get("name").String()
-	entry := t.toolLedger.Upsert(oi, item.Get("call_id").String(), name)
-	if name == "" {
-		// Nameless call would make the client invoke tool "" and loop; drop it.
-		// reconciledStopReason demotes a terminal tool_use claim with no
-		// surviving block to end_turn.
-		t.suppressed[oi] = struct{}{}
-		t.log().Warn(
-			"ResponsesToAnthropic dropping nameless function_call",
-			"request_model", t.requestModel,
-			"call_id", item.Get("call_id").String(),
-		)
-		return nil
-	}
-	idx := t.blockIdx
-	t.itemBlocks[oi] = idx
-	t.itemKind[oi] = "tool_use"
-	t.toolName[oi] = entry.Name
-	t.toolUseCount++
-	t.blockIdx++
-	if err := t.lifecycle.Output(idx); err != nil {
-		return err
-	}
-	// Anthropic tool_use.id maps from call_id (not the fc_ item id).
-	return t.emitContentBlockStartTool(idx, entry.ExternalID, entry.Name)
+	return nil
 }
 
 func (t *ResponsesToAnthropicWriter) handleTextDelta(data []byte) error {
@@ -442,36 +426,23 @@ func (t *ResponsesToAnthropicWriter) handleReasoningDelta(data []byte) error {
 	return t.emitContentBlockDeltaThinking(idx, gjson.GetBytes(data, "delta").String())
 }
 
-// bufferToolArgs accumulates a tool call's arguments. appendMode=true appends
-// a streamed fragment; false replaces the buffer with a complete value.
 func (t *ResponsesToAnthropicWriter) bufferToolArgs(data []byte, field string, appendMode bool) {
-	s := gjson.GetBytes(data, field).String()
-	if s == "" && appendMode {
-		return
-	}
 	oi := int(gjson.GetBytes(data, "output_index").Int())
-	if _, dropped := t.suppressed[oi]; dropped {
-		return
+	arguments := gjson.GetBytes(data, field).String()
+	if appendMode {
+		t.toolLedger.AppendArguments(oi, "", "", arguments)
+	} else {
+		t.toolLedger.SetArguments(oi, arguments)
 	}
-	buf, ok := t.toolArgs[oi]
-	if !ok {
-		buf = &strings.Builder{}
-		t.toolArgs[oi] = buf
-	}
-	if !appendMode {
-		buf.Reset()
-	}
-	buf.WriteString(s)
 }
 
 func (t *ResponsesToAnthropicWriter) handleOutputItemDone(data []byte) error {
 	oi := int(gjson.GetBytes(data, "output_index").Int())
-	if _, dropped := t.suppressed[oi]; dropped {
-		delete(t.suppressed, oi)
-		delete(t.toolArgs, oi)
-		return nil
-	}
 	item := gjson.GetBytes(data, "item")
+	if responsesItemType(item.Get("type").String()) == responsesFunctionCallItem {
+		t.toolLedger.Close(oi, item.Get("call_id").String(), item.Get("name").String(), item.Get("arguments").String())
+		return t.emitAcceptedTool(oi)
+	}
 	if item.Get("type").String() == "reasoning" {
 		t.captureReasoningSignature(oi, item)
 	}
@@ -483,12 +454,6 @@ func (t *ResponsesToAnthropicWriter) handleOutputItemDone(data []byte) error {
 		return t.emitDoneOnlyItem(oi, item)
 	}
 	switch t.itemKind[oi] {
-	case "tool_use":
-		// item.arguments is authoritative; used when streamed deltas were
-		// absent or malformed.
-		if err := t.emitValidatedToolArgsDelta(oi, idx, item.Get("arguments").String()); err != nil {
-			return err
-		}
 	case "thinking":
 		if err := t.emitReasoningSignatureDelta(oi, idx); err != nil {
 			return err
@@ -505,25 +470,8 @@ func (t *ResponsesToAnthropicWriter) handleOutputItemDone(data []byte) error {
 func (t *ResponsesToAnthropicWriter) emitDoneOnlyItem(oi int, item gjson.Result) error {
 	switch item.Get("type").String() {
 	case "function_call":
-		name := item.Get("name").String()
-		if name == "" {
-			delete(t.toolArgs, oi)
-			return nil // nameless call → drop, as in handleOutputItemAdded
-		}
-		idx := t.blockIdx
-		t.blockIdx++
-		t.toolUseCount++
-		t.toolName[oi] = name
-		if err := t.lifecycle.Output(idx); err != nil {
-			return err
-		}
-		if err := t.emitContentBlockStartTool(idx, item.Get("call_id").String(), name); err != nil {
-			return err
-		}
-		if err := t.emitValidatedToolArgsDelta(oi, idx, item.Get("arguments").String()); err != nil {
-			return err
-		}
-		return t.emitContentBlockStop(idx)
+		t.toolLedger.Close(oi, item.Get("call_id").String(), item.Get("name").String(), item.Get("arguments").String())
+		return t.emitAcceptedTool(oi)
 	case "message":
 		var text strings.Builder
 		item.Get("content").ForEach(func(_, part gjson.Result) bool {
@@ -602,6 +550,7 @@ func (t *ResponsesToAnthropicWriter) captureFinalResponse(data []byte) {
 		return
 	}
 	recordOutputLimit(t.usageSink, responsesOutputLimitReached(resp))
+	t.outputLimitReached = responsesOutputLimitReached(resp)
 	hasToolCall := false
 	outputIndex := 0
 	resp.Get("output").ForEach(func(_, item gjson.Result) bool {
@@ -638,14 +587,10 @@ func (t *ResponsesToAnthropicWriter) captureFinalResponse(data []byte) {
 }
 
 func (t *ResponsesToAnthropicWriter) finishStream() error {
-	// A still-open block here means the stream ended before output_item.done
-	// (truncation); flush buffered tool args so it still delivers input_json_delta.
+	// Tool calls settle before the terminal transition; close remaining
+	// text/thinking blocks after a successful terminal event.
 	for oi, idx := range t.itemBlocks {
 		switch t.itemKind[oi] {
-		case "tool_use":
-			if err := t.emitValidatedToolArgsDelta(oi, idx, ""); err != nil {
-				return err
-			}
 		case "thinking":
 			if err := t.emitReasoningSignatureDelta(oi, idx); err != nil {
 				return err
@@ -669,7 +614,15 @@ func (t *ResponsesToAnthropicWriter) finishStream() error {
 }
 
 func (t *ResponsesToAnthropicWriter) hasPendingOutput() bool {
-	return t.toolUseCount > 0 || len(t.itemBlocks) > 0 || len(t.toolArgs) > 0
+	if t.toolUseCount > 0 || len(t.itemBlocks) > 0 {
+		return true
+	}
+	for _, entry := range t.toolLedger.Entries() {
+		if entry.Name != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // emitTerminalOutput covers a valid Responses stream whose terminal envelope
@@ -697,6 +650,8 @@ func (t *ResponsesToAnthropicWriter) reconciledStopReason() string {
 	switch {
 	case t.toolUseCount > 0:
 		return "tool_use"
+	case t.outputLimitReached:
+		return "max_tokens"
 	case t.finalStopReason == "" || t.finalStopReason == "tool_use":
 		// No terminal event, or it claimed tool_use with no block surviving.
 		return "end_turn"
@@ -1007,44 +962,56 @@ func (t *ResponsesToAnthropicWriter) emitReasoningSignatureDelta(oi, index int) 
 	return t.flushEvent()
 }
 
-// emitValidatedToolArgsDelta emits one input_json_delta for a tool block after
-// toolcheck validation/repair. Falls back to the terminal item's authoritative
-// `arguments` if the buffered concatenation is empty/unparseable, so a lost
-// delta stream can't break the client's parser; unrepairable args degrade to
-// `{}` and unrepairable schema mismatches are forwarded as-is so the client's
-// own tool error surfaces.
-func (t *ResponsesToAnthropicWriter) emitValidatedToolArgsDelta(oi, index int, fallback string) error {
-	buf, ok := t.toolArgs[oi]
-	delete(t.toolArgs, oi)
-	buffered := ""
-	if ok {
-		buffered = buf.String()
-	}
-	raw := buffered
-	if raw == "" || (!gjson.Valid(raw) && fallback != "" && gjson.Valid(fallback)) {
-		raw = fallback
-	}
-	verdict := t.toolValidator.Check(t.toolName[oi], raw)
-	if verdict.Issue != nil {
-		t.toolCallIssues = append(t.toolCallIssues, *verdict.Issue)
-		if verdict.Issue.Bucket == toolcheck.BucketInvalidJSON && !verdict.Issue.Repaired {
-			t.log().Warn(
-				"ResponsesToAnthropic tool_use args failed JSON validation — substituting empty args",
-				"block_index", index,
-				"request_model", t.requestModel,
-				"buffered_len", len(buffered),
-				"fallback_len", len(fallback),
-			)
+func (t *ResponsesToAnthropicWriter) settleTools(resp gjson.Result) error {
+	for index, item := range resp.Get("output").Array() {
+		if responsesItemType(item.Get("type").String()) == responsesFunctionCallItem {
+			t.toolLedger.Close(index, item.Get("call_id").String(), item.Get("name").String(), item.Get("arguments").String())
 		}
 	}
-	args := verdict.Args
-	delete(t.toolName, oi)
+	for _, entry := range t.toolLedger.Entries() {
+		if err := t.emitAcceptedTool(entry.SourceIndex); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (t *ResponsesToAnthropicWriter) emitAcceptedTool(oi int) error {
+	if _, emitted := t.emittedTools[oi]; emitted {
+		return nil
+	}
+	entry, _ := t.toolLedger.Entry(oi)
+	call := entry.Accept(t.toolValidator)
+	t.emittedTools[oi] = struct{}{}
+	if call.Issue != nil {
+		t.toolCallIssues = append(t.toolCallIssues, *call.Issue)
+	}
+	if call.Suppression != ToolCallNotSuppressed {
+		return nil
+	}
+	index, opened := t.itemBlocks[oi]
+	if !opened {
+		index = t.blockIdx
+		t.blockIdx++
+		t.toolUseCount++
+		if err := t.lifecycle.Output(index); err != nil {
+			return err
+		}
+		if err := t.emitContentBlockStartTool(index, t.toolLedger.ProjectID(oi, sanitizeToolUseID), call.Name); err != nil {
+			return err
+		}
+	}
+	delete(t.itemBlocks, oi)
+	delete(t.itemKind, oi)
 	t.bw.WriteString("event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":")
 	sse.WriteJSONInt(t.bw, int64(index))
 	t.bw.WriteString(",\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":")
-	sse.WriteJSONString(t.bw, args)
+	sse.WriteJSONString(t.bw, call.Arguments)
 	t.bw.WriteString("}}\n\n")
-	return t.flushEvent()
+	if err := t.flushEvent(); err != nil {
+		return err
+	}
+	return t.emitContentBlockStop(index)
 }
 
 func (t *ResponsesToAnthropicWriter) emitContentBlockStop(index int) error {
