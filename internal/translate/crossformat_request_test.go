@@ -724,6 +724,46 @@ func TestCrossFormat_OpenAIToGemini_KeepsToolsForGemini2x(t *testing.T) {
 	assert.True(t, hasFunctionResponse, "Gemini 2.x must still receive functionResponse parts")
 }
 
+func TestCrossFormat_OpenAIToGemini_AllowedToolsRequired(t *testing.T) {
+	cases := []struct {
+		name    string
+		model   string
+		allowed string
+		want    string
+	}{
+		{"one tool", "gemini-2.5-pro", `[{"type":"function","function":{"name":"tool_a"}}]`, `{"functionCallingConfig":{"mode":"ANY","allowedFunctionNames":["tool_a"]}}`},
+		{"two tools", "gemini-2.5-pro", `[{"type":"function","function":{"name":"tool_a"}},{"type":"function","function":{"name":"tool_b"}}]`, `{"functionCallingConfig":{"mode":"ANY","allowedFunctionNames":["tool_a","tool_b"]}}`},
+		{"gemini 3.x", "gemini-3.1-pro-preview", `[{"type":"function","function":{"name":"tool_a"}}]`, `{"functionCallingConfig":{"mode":"ANY","allowedFunctionNames":["tool_a"]}}`},
+		{"empty subset", "gemini-2.5-pro", `[]`, ``},
+		{"unnamed entry", "gemini-2.5-pro", `[{"type":"function","function":{"name":"tool_a"}},{"type":"function","function":{}}]`, ``},
+		{"tools not an array", "gemini-2.5-pro", `{"type":"function","function":{"name":"tool_a"}}`, ``},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte(`{
+				"model": "gpt-6.1-sol",
+				"messages": [{"role": "user", "content": "hi"}],
+				"tools": [
+					{"type": "function", "function": {"name": "tool_a", "parameters": {"type": "object"}}},
+					{"type": "function", "function": {"name": "tool_b", "parameters": {"type": "object"}}}
+				],
+				"tool_choice": {"type": "allowed_tools", "allowed_tools": {"mode": "required", "tools": ` + tc.allowed + `}}
+			}`)
+			env, err := translate.ParseOpenAI(body)
+			require.NoError(t, err)
+			prep, err := env.PrepareGemini(http.Header{}, translate.EmitOptions{TargetModel: tc.model})
+			require.NoError(t, err)
+
+			toolConfig := gjson.GetBytes(prep.Body, "toolConfig")
+			if tc.want == "" {
+				assert.False(t, toolConfig.Exists(), "a subset that cannot be read must not widen to every tool")
+				return
+			}
+			assert.JSONEq(t, tc.want, toolConfig.Raw)
+		})
+	}
+}
+
 func TestCrossFormat_OpenAIToGemini_Image(t *testing.T) {
 	openAIBase64Body := []byte(`{
 		"model": "gpt-4",
