@@ -566,7 +566,7 @@ func (s *Service) bypassToAnthropic(
 	// directly so the client sees the real failure instead of a silent reroute.
 	var upstreamErr *providers.UpstreamErrorResponse
 	s.recordSubscriptionModelRejection(ctx, decision.Provider, decision.Model, proxyErr)
-	if proxyErr != nil && !preludeBuf.Committed() {
+	if proxyErr != nil {
 		preludeBuf.Discard()
 	}
 	if env.Stream() && proxyErr != nil && preludeBuf.Committed() {
