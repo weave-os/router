@@ -125,14 +125,22 @@ func TestReadmitForcedModel_LiftsSubsetOnlyExclusion(t *testing.T) {
 
 func TestReadmitForcedModel_KeepsPolicyExclusion(t *testing.T) {
 	s := &Service{availableModels: map[string]struct{}{testSol: {}, testTerra: {}, testOpus: {}}}
-	ctx := ctxWithRequestSubset(ctxWithAllowedModels(testSol, testTerra), testSol)
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`))
 	require.NoError(t, err)
-	req := router.Request{ExcludedModels: s.excludedModelsForRequest(ctx)}
 
-	pin := sessionpin.Pin{Model: testOpus, Provider: providers.ProviderAnthropic}
-	got := s.readmitForcedModel(ctx, req, env, translate.RoutingFeatures{MaxTokens: 16}, pin)
-	assert.Contains(t, got, testOpus)
+	for _, gateway := range []bool{false, true} {
+		ctx := ctxWithAllowedModels(testSol, testTerra)
+		provider := providers.ProviderAnthropic
+		if gateway {
+			ctx = context.WithValue(gatewayKeyCtx(testOpus), InstallationAllowedModelsContextKey{}, []string{testSol, testTerra})
+			provider = providers.ProviderAnthropicGateway
+		}
+		ctx = ctxWithRequestSubset(ctx, testSol)
+		req := router.Request{ExcludedModels: s.excludedModelsForRequest(ctx)}
+		pin := sessionpin.Pin{Model: testOpus, Provider: provider}
+		got := s.readmitForcedModel(ctx, req, env, translate.RoutingFeatures{MaxTokens: 16}, pin)
+		assert.Contains(t, got, testOpus, "a force cannot lift installation policy; gateway=%t", gateway)
+	}
 }
 
 func TestReadmitForcedModel_KeepsAdvisorPairingExclusion(t *testing.T) {
@@ -215,10 +223,11 @@ func TestRequestAllowedModelsPresent(t *testing.T) {
 		ctxWithRequestSubset(context.Background(), testSol)))
 }
 
-func TestReadmitForcedModel_GatewayBypassKeepsUnsignedHistoryGeminiExclusion(t *testing.T) {
+func TestReadmitForcedModel_KeepsUnsignedHistoryGeminiExclusion(t *testing.T) {
 	const gemini = "gemini-3.1-pro-preview"
 	s := &Service{availableModels: map[string]struct{}{testOpus: {}, gemini: {}}}
-	ctx := context.WithValue(gatewayKeyCtx(gemini), InstallationAllowedModelsContextKey{}, []string{testOpus})
+	ctx := context.WithValue(gatewayKeyCtx(gemini), InstallationAllowedModelsContextKey{}, []string{testOpus, gemini})
+	ctx = ctxWithRequestSubset(ctx, testOpus)
 	req := router.Request{ExcludedModels: s.excludedModelsForRequest(ctx)}
 	require.Contains(t, req.ExcludedModels, gemini)
 	pin := sessionpin.Pin{Model: gemini, Provider: providers.ProviderAnthropicGateway}

@@ -189,10 +189,11 @@ dispatch answers `policy.ErrGatewayServesNoDeployedModel` (HTTP 400, "add
 aliases") instead of reporting the router as unavailable. Deployment-keyed
 gateways are excluded from this: a self-hosted deployment keyed for a gateway
 still serves the catalog's own gateway bindings.
-Under gateway-exclusive routing `allowed_models` bounds automatic selection
-only: a `/force-model` may pin any model a gateway key aliases
-(`forcePolicyExcludedModels`, `readmitForcedModel`), since the tenant's
-endpoint enforces model access itself. `excluded_models` still refuses it.
+Gateway aliases describe endpoint capability, not permission: `allowed_models`
+and `excluded_models` still bind `/force-model`, header overrides, and saved
+forced pins. A forced model must pass installation policy and be aliased by an
+active gateway key. Only the request-level allowlist subset may be lifted by
+`readmitForcedModel`.
 
 **A gateway's `model_not_found` is remembered per (endpoint, model).** An
 alias can name a model the endpoint does not actually publish — a Snowflake

@@ -38,10 +38,10 @@ func (s *Service) forcedModelBinding(ctx context.Context, model, provider string
 	gateways := s.gatewayProvidersForRequest(ctx)
 	// Checked directly, not via the exclusion set: a forced model may be
 	// passthrough-only and so never enters the desugared exclusions.
-	if len(gateways) == 0 && !modelPermittedByAllowlist(ctx, model) {
+	if !modelPermittedByAllowlist(ctx, model) {
 		return "", fmt.Sprintf("%s is not on this organization's allowed-model list", model)
 	}
-	if _, drop := s.forcePolicyExcludedModels(ctx)[model]; drop {
+	if _, drop := s.policyExcludedModels(ctx)[model]; drop {
 		return "", fmt.Sprintf("%s is excluded on this installation", model)
 	}
 	// Gateway-exclusive routing drops every vendor from the eligible set, so
@@ -84,17 +84,6 @@ func (s *Service) forcedModelBinding(ctx context.Context, model, provider string
 		}
 	}
 	return permitted[0], ""
-}
-
-// forcePolicyExcludedModels is the installation exclusion set a forced model
-// must clear. A tenant's own gateway enforces model access upstream, so under
-// gateway-exclusive routing the positive allowlist bounds only automatic
-// selection; the gateway's aliases bound the force instead.
-func (s *Service) forcePolicyExcludedModels(ctx context.Context) map[string]struct{} {
-	if len(s.gatewayProvidersForRequest(ctx)) > 0 {
-		return s.excludedModelsFor(ctx, nil)
-	}
-	return s.policyExcludedModels(ctx)
 }
 
 // gatewayForcedBinding pins a forced model to a gateway that aliases it. Only
