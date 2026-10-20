@@ -60,7 +60,8 @@ func (s *Service) overloadOpenModels(ctx context.Context) map[string]struct{} {
 	return readmitted
 }
 
-// overloadOrg is the organization the breaker scopes this request to.
+// overloadOrg keys the breaker by the request's installation ID. It returns ""
+// for a request with no installation, which the breaker never records or withdraws for.
 func overloadOrg(ctx context.Context) string {
 	if id := installationIDFromContext(ctx); id != uuid.Nil {
 		return id.String()

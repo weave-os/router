@@ -240,10 +240,10 @@ func TestOnlyTheOwnerProbesAnIsolatedCircuit(t *testing.T) {
 	strike(r, cortexOrg, overloadedModel, true, 3)
 	c.Advance(30 * time.Second)
 
-	_, _, other := r.ClaimProbe(weaveOrg, anyModel)
+	_, _, claimedByOther := r.ClaimProbe(weaveOrg, anyModel)
 	owner, _, ok := r.ClaimProbe(cortexOrg, anyModel)
 
-	assert.False(t, other)
+	assert.False(t, claimedByOther)
 	require.True(t, ok)
 	assert.Equal(t, breaker.StateClosed, r.ProbeSucceeded(owner).To)
 	assert.Nil(t, r.Withdrawn(cortexOrg))

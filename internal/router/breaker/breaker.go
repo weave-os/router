@@ -10,6 +10,7 @@
 package breaker
 
 import (
+	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -146,9 +147,10 @@ func (r *Registry) Withdrawn(org string) map[string]struct{} {
 // request that does not hold the circuit's probe. isolated selects org's own
 // circuit for the model instead of the shared one. A closed circuit opens once
 // Strikes failures fall within Window; on an open shared circuit the failure
-// can only confirm it for org, since only its probe decides recovery.
+// can only confirm it for org, since only its probe decides recovery. org must
+// be non-empty.
 func (r *Registry) RecordOverload(org, model string, isolated bool) Transition {
-	if org == "" || model == "" {
+	if model == "" {
 		return Transition{}
 	}
 	r.mu.Lock()
@@ -257,8 +259,7 @@ func (r *Registry) ClaimProbe(org string, eligible func(model string) bool) (Pro
 		r.nextToken++
 		c.state, c.probeToken, c.probeUntil, c.offeredAt = StateHalfOpen, r.nextToken, now.Add(r.cfg.ProbeLease), now
 		r.publishLocked()
-		probe := Probe{Model: c.model, key: key, token: c.probeToken}
-		return probe, Transition{Model: c.model, Org: org, Isolated: c.org != "", From: from, To: StateHalfOpen}, true
+		return Probe{Model: c.model, key: key, token: c.probeToken}, Transition{Model: c.model, Org: org, Isolated: c.org != "", From: from, To: StateHalfOpen}, true
 	}
 	return Probe{}, Transition{}, false
 }
@@ -426,10 +427,5 @@ func recentFailures(failures []time.Time, cutoff time.Time, limit int) []time.Ti
 }
 
 func hasFailureAfter(failures []time.Time, cutoff time.Time) bool {
-	for _, at := range failures {
-		if at.After(cutoff) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(failures, func(at time.Time) bool { return at.After(cutoff) })
 }
