@@ -8,6 +8,7 @@ package catalog
 
 import (
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
 )
 
 // ModelGPT6Luna is the canonical GPT-6 Luna model ID.
@@ -180,6 +181,8 @@ const (
 type ModelID string
 
 const (
+	// ModelIDGemini4Argon is the canonical Gemini 4 Argon routing ID.
+	ModelIDGemini4Argon       ModelID = router.ModelGemini4Argon
 	ModelIDClaudeHaiku45      ModelID = "claude-haiku-4-5"
 	ModelIDClaudeSonnet46     ModelID = "claude-sonnet-4-6"
 	ModelIDClaudeOpus47       ModelID = "claude-opus-4-7"
@@ -602,6 +605,9 @@ var Models = []Model{
 	// introductory rate also ends 2026-12-31.
 	{ID: "gemini-3.8-flash", Source: SourceClosedSource, Tier: TierMid, ContextWindow: 1_048_576, Providers: []ProviderBinding{
 		{Provider: providers.ProviderGoogle, Price: Pricing{InputUSDPer1M: 1.50, OutputUSDPer1M: 7.50, CacheReadMultiplier: 0.10}},
+	}},
+	{ID: ModelIDGemini4Argon.String(), Source: SourceClosedSource, HMMTarget: true, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderGoogle, Price: Pricing{InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheReadMultiplier: 0.10}},
 	}},
 	{ID: "google/gemma-4-26b-a4b-it", Source: SourceOpenSource, Tier: TierLow, ContextWindow: 262_144, Providers: []ProviderBinding{
 		{Provider: providers.ProviderGoogle, UpstreamID: "gemma-4-26b-a4b-it", Price: Pricing{InputUSDPer1M: 0.15, OutputUSDPer1M: 0.60, CacheReadMultiplier: 0.10}},

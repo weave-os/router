@@ -116,7 +116,7 @@ func buildManagedServingRuntime(ctx context.Context, availableProviders map[stri
 	timeout := parseEnvDurationMs("ROUTER_HMM_SIDECAR_TIMEOUT_MS", policyclient.DefaultTimeout)
 	attemptTimeout := parseEnvAttemptTimeoutMs("ROUTER_HMM_SIDECAR_ATTEMPT_TIMEOUT_MS", policyclient.DeriveAttemptTimeout(timeout))
 	cache, err := policyregistry.NewServingRuntimeCache(registry, hmmPolicySnapshotBuilder(
-		availableProviders, managedServingStrategies,
+		availableProviders, append(slices.Clone(managedServingStrategies), router.StrategyHMMBeta, router.StrategyHMMQwen),
 		config.GetOr("ROUTER_HMM_SIDECAR_AUTH", policySidecarAuthGoogleIDToken), timeout, attemptTimeout,
 		taskRuntimes...,
 	))

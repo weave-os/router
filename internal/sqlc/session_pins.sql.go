@@ -18,7 +18,7 @@ WHERE session_key = $1::bytea
   AND role        = $2::varchar
   AND (
     routing_strategy = $3::varchar
-    OR (routing_strategy = '' AND $3::varchar <> 'hmm_beta')
+    OR (routing_strategy = '' AND $3::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   )
   AND pinned_until > CURRENT_TIMESTAMP
 RETURNING session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, demoted_models, consecutive_downgrade_votes, last_output_limit_at, consecutive_upgrade_votes, demotion_cooldowns, turn_strikes
@@ -39,7 +39,7 @@ type DeleteSessionPinParams struct {
 //	  AND role        = $2::varchar
 //	  AND (
 //	    routing_strategy = $3::varchar
-//	    OR (routing_strategy = '' AND $3::varchar <> 'hmm_beta')
+//	    OR (routing_strategy = '' AND $3::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
 //	  )
 //	  AND pinned_until > CURRENT_TIMESTAMP
 //	RETURNING session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, demoted_models, consecutive_downgrade_votes, last_output_limit_at, consecutive_upgrade_votes, demotion_cooldowns, turn_strikes
@@ -155,7 +155,7 @@ WHERE session_key = $2::bytea
   AND role        = $3::varchar
   AND (
     routing_strategy = $4::varchar
-    OR (routing_strategy = '' AND $4::varchar <> 'hmm_beta')
+    OR (routing_strategy = '' AND $4::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   )
 `
 
@@ -182,7 +182,7 @@ type DisableSessionPinProviderParams struct {
 //	  AND role        = $3::varchar
 //	  AND (
 //	    routing_strategy = $4::varchar
-//	    OR (routing_strategy = '' AND $4::varchar <> 'hmm_beta')
+//	    OR (routing_strategy = '' AND $4::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
 //	  )
 func (q *Queries) DisableSessionPinProvider(ctx context.Context, arg DisableSessionPinProviderParams) error {
 	_, err := q.db.Exec(ctx, disableSessionPinProvider,
@@ -219,7 +219,7 @@ ON CONFLICT (session_key, role) DO UPDATE SET
   last_seen_at     = CURRENT_TIMESTAMP,
   demotion_cooldowns = router.session_pins.demotion_cooldowns || EXCLUDED.demotion_cooldowns
 WHERE router.session_pins.routing_strategy = EXCLUDED.routing_strategy
-  OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy <> 'hmm_beta')
+  OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy NOT IN ('hmm_beta', 'hmm_qwen'))
 `
 
 type ExpireAndCoolDownSessionPinModelParams struct {
@@ -264,7 +264,7 @@ type ExpireAndCoolDownSessionPinModelParams struct {
 //	  last_seen_at     = CURRENT_TIMESTAMP,
 //	  demotion_cooldowns = router.session_pins.demotion_cooldowns || EXCLUDED.demotion_cooldowns
 //	WHERE router.session_pins.routing_strategy = EXCLUDED.routing_strategy
-//	  OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy <> 'hmm_beta')
+//	  OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy NOT IN ('hmm_beta', 'hmm_qwen'))
 func (q *Queries) ExpireAndCoolDownSessionPinModel(ctx context.Context, arg ExpireAndCoolDownSessionPinModelParams) error {
 	_, err := q.db.Exec(ctx, expireAndCoolDownSessionPinModel,
 		arg.SessionKey,
@@ -308,7 +308,7 @@ ON CONFLICT (session_key, role) DO UPDATE SET
     ELSE array_append(router.session_pins.demoted_models, $7::varchar)
   END
 WHERE router.session_pins.routing_strategy = EXCLUDED.routing_strategy
-  OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy <> 'hmm_beta')
+  OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy NOT IN ('hmm_beta', 'hmm_qwen'))
 `
 
 type ExpireAndDemoteSessionPinModelParams struct {
@@ -361,7 +361,7 @@ type ExpireAndDemoteSessionPinModelParams struct {
 //	    ELSE array_append(router.session_pins.demoted_models, $7::varchar)
 //	  END
 //	WHERE router.session_pins.routing_strategy = EXCLUDED.routing_strategy
-//	  OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy <> 'hmm_beta')
+//	  OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy NOT IN ('hmm_beta', 'hmm_qwen'))
 func (q *Queries) ExpireAndDemoteSessionPinModel(ctx context.Context, arg ExpireAndDemoteSessionPinModelParams) error {
 	_, err := q.db.Exec(ctx, expireAndDemoteSessionPinModel,
 		arg.SessionKey,
@@ -444,7 +444,7 @@ WHERE session_key = $1::bytea
   AND role        = $2::varchar
   AND (
     routing_strategy = $3::varchar
-    OR (routing_strategy = '' AND $3::varchar <> 'hmm_beta')
+    OR (routing_strategy = '' AND $3::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   )
 RETURNING consecutive_overload_errors
 `
@@ -470,7 +470,7 @@ type IncrementSessionPinOverloadErrorsParams struct {
 //	  AND role        = $2::varchar
 //	  AND (
 //	    routing_strategy = $3::varchar
-//	    OR (routing_strategy = '' AND $3::varchar <> 'hmm_beta')
+//	    OR (routing_strategy = '' AND $3::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
 //	  )
 //	RETURNING consecutive_overload_errors
 func (q *Queries) IncrementSessionPinOverloadErrors(ctx context.Context, arg IncrementSessionPinOverloadErrorsParams) (int32, error) {
@@ -487,7 +487,7 @@ WHERE session_key = $1::bytea
   AND role        = $2::varchar
   AND (
     routing_strategy = $3::varchar
-    OR (routing_strategy = '' AND $3::varchar <> 'hmm_beta')
+    OR (routing_strategy = '' AND $3::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   )
 RETURNING consecutive_upstream_errors
 `
@@ -511,7 +511,7 @@ type IncrementSessionPinUpstreamErrorsParams struct {
 //	  AND role        = $2::varchar
 //	  AND (
 //	    routing_strategy = $3::varchar
-//	    OR (routing_strategy = '' AND $3::varchar <> 'hmm_beta')
+//	    OR (routing_strategy = '' AND $3::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
 //	  )
 //	RETURNING consecutive_upstream_errors
 func (q *Queries) IncrementSessionPinUpstreamErrors(ctx context.Context, arg IncrementSessionPinUpstreamErrorsParams) (int32, error) {
@@ -528,7 +528,7 @@ WHERE session_key = $1::bytea
   AND role        = $2::varchar
   AND (
     routing_strategy = $3::varchar
-    OR (routing_strategy = '' AND $3::varchar <> 'hmm_beta')
+    OR (routing_strategy = '' AND $3::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   )
   AND consecutive_overload_errors > 0
 `
@@ -549,7 +549,7 @@ type ResetSessionPinOverloadErrorsParams struct {
 //	  AND role        = $2::varchar
 //	  AND (
 //	    routing_strategy = $3::varchar
-//	    OR (routing_strategy = '' AND $3::varchar <> 'hmm_beta')
+//	    OR (routing_strategy = '' AND $3::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
 //	  )
 //	  AND consecutive_overload_errors > 0
 func (q *Queries) ResetSessionPinOverloadErrors(ctx context.Context, arg ResetSessionPinOverloadErrorsParams) error {
@@ -564,7 +564,7 @@ WHERE session_key = $1::bytea
   AND role        = $2::varchar
   AND (
     routing_strategy = $3::varchar
-    OR (routing_strategy = '' AND $3::varchar <> 'hmm_beta')
+    OR (routing_strategy = '' AND $3::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   )
   AND consecutive_upstream_errors > 0
 `
@@ -585,7 +585,7 @@ type ResetSessionPinUpstreamErrorsParams struct {
 //	  AND role        = $2::varchar
 //	  AND (
 //	    routing_strategy = $3::varchar
-//	    OR (routing_strategy = '' AND $3::varchar <> 'hmm_beta')
+//	    OR (routing_strategy = '' AND $3::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
 //	  )
 //	  AND consecutive_upstream_errors > 0
 func (q *Queries) ResetSessionPinUpstreamErrors(ctx context.Context, arg ResetSessionPinUpstreamErrorsParams) error {
@@ -691,7 +691,7 @@ WHERE session_key = $11::bytea
   AND role        = $12::varchar
   AND (
     routing_strategy = $13::varchar
-    OR (routing_strategy = '' AND $13::varchar <> 'hmm_beta')
+    OR (routing_strategy = '' AND $13::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   )
 `
 
@@ -785,7 +785,7 @@ type UpdateSessionPinUsageParams struct {
 //	  AND role        = $12::varchar
 //	  AND (
 //	    routing_strategy = $13::varchar
-//	    OR (routing_strategy = '' AND $13::varchar <> 'hmm_beta')
+//	    OR (routing_strategy = '' AND $13::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
 //	  )
 func (q *Queries) UpdateSessionPinUsage(ctx context.Context, arg UpdateSessionPinUsageParams) error {
 	_, err := q.db.Exec(ctx, updateSessionPinUsage,

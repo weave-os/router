@@ -1341,7 +1341,7 @@ func (t *AnthropicSSETranslator) synthesizeTextOnlyTurnNudge() error {
 			return nil
 		}
 	}
-	if isGemini3xModel(t.requestModel) || isGemini3xModel(t.modelFromUpstream) {
+	if usesGemini3Contract(t.requestModel) || usesGemini3Contract(t.modelFromUpstream) {
 		t.log().Debug(
 			"AnthropicSSE suppressed text-only-turn nudge on Gemini-3.x (sig-less tool_use would poison next-turn history)",
 			"upstream_model", t.modelFromUpstream,

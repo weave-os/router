@@ -149,6 +149,11 @@ and `configuration`), `requirements` (`runtime_contract`, `policy_schema`,
 `classifier_wire_schema`, `taxonomy_sha256`), and `provenance` (`router_revision`,
 `weave_revision`, `build_attestation`).
 
+The optional `strategy_policies` map pins an independent compiled policy for a
+beta classifier variant. Each key must identify a pinned classifier variant;
+the policy must share its schema and ordered taxonomy. Routing and model discovery
+use that policy only for the requested strategy, preserving the default policy.
+
 **`selection_set`** (`schema_version: router_serving_selection_set_v2`) — one per
 target per change: `target`, `default` lane, `profiles` (map of profile key → lane;
 explicit even when `{}`). A **lane** is `candidate` (`ObjectRef`), `project`, `region`, `router` and

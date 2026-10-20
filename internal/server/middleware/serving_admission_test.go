@@ -187,15 +187,11 @@ func TestServingAdmissionRejectsMalformedBodyBeforeBinding(t *testing.T) {
 	require.Zero(t, store.calls, "rejected requests must not create or refresh session bindings")
 }
 
-func TestServingAdmissionAllowsManagedRetirementReplyWithoutRegistryOrAttribution(t *testing.T) {
-	cfg, _, _, _ := admissionMiddlewareFixture(t)
-	cfg.Decisions = nil
-	cfg.Store = nil
-	cfg.Cache = nil
-	cfg.Attribution = nil
+func TestServingAdmissionAllowsRetirementReplyAfterAuthentication(t *testing.T) {
+	cfg, admitted, _, _ := admissionMiddlewareFixture(t)
 	body := `{"model":"claude-sonnet-4-5","max_tokens":1,"messages":[{"role":"user","content":"/beta"}]}`
-	response := runAdmissionMiddlewareWithBody(t, cfg, policyregistry.ServingAssertion{}, body, func(c *gin.Context) {
-		t.Fatal("retired command must finish before admission or inference")
+	response := runAdmissionMiddlewareWithBody(t, cfg, admitted, body, func(c *gin.Context) {
+		t.Fatal("retired command must finish before inference")
 	})
 	require.Equal(t, http.StatusOK, response.Code)
 	require.Contains(t, response.Body.String(), "Beta has been retired")

@@ -19,7 +19,7 @@ WHERE session_key = @session_key::bytea
   AND role        = @role::varchar
   AND (
     routing_strategy = @expected_routing_strategy::varchar
-    OR (routing_strategy = '' AND @expected_routing_strategy::varchar <> 'hmm_beta')
+    OR (routing_strategy = '' AND @expected_routing_strategy::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   )
   AND pinned_until > CURRENT_TIMESTAMP
 RETURNING *;
@@ -272,7 +272,7 @@ WHERE session_key = @session_key::bytea
   AND role        = @role::varchar
   AND (
     routing_strategy = @expected_routing_strategy::varchar
-    OR (routing_strategy = '' AND @expected_routing_strategy::varchar <> 'hmm_beta')
+    OR (routing_strategy = '' AND @expected_routing_strategy::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   );
 
 -- Atomically increments consecutive_upstream_errors and returns the
@@ -288,7 +288,7 @@ WHERE session_key = @session_key::bytea
   AND role        = @role::varchar
   AND (
     routing_strategy = @expected_routing_strategy::varchar
-    OR (routing_strategy = '' AND @expected_routing_strategy::varchar <> 'hmm_beta')
+    OR (routing_strategy = '' AND @expected_routing_strategy::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   )
 RETURNING consecutive_upstream_errors;
 
@@ -302,7 +302,7 @@ WHERE session_key = @session_key::bytea
   AND role        = @role::varchar
   AND (
     routing_strategy = @expected_routing_strategy::varchar
-    OR (routing_strategy = '' AND @expected_routing_strategy::varchar <> 'hmm_beta')
+    OR (routing_strategy = '' AND @expected_routing_strategy::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   )
   AND consecutive_upstream_errors > 0;
 
@@ -321,7 +321,7 @@ WHERE session_key = @session_key::bytea
   AND role        = @role::varchar
   AND (
     routing_strategy = @expected_routing_strategy::varchar
-    OR (routing_strategy = '' AND @expected_routing_strategy::varchar <> 'hmm_beta')
+    OR (routing_strategy = '' AND @expected_routing_strategy::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   )
 RETURNING consecutive_overload_errors;
 
@@ -335,7 +335,7 @@ WHERE session_key = @session_key::bytea
   AND role        = @role::varchar
   AND (
     routing_strategy = @expected_routing_strategy::varchar
-    OR (routing_strategy = '' AND @expected_routing_strategy::varchar <> 'hmm_beta')
+    OR (routing_strategy = '' AND @expected_routing_strategy::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   )
   AND consecutive_overload_errors > 0;
 
@@ -355,7 +355,7 @@ WHERE session_key = @session_key::bytea
   AND role        = @role::varchar
   AND (
     routing_strategy = @expected_routing_strategy::varchar
-    OR (routing_strategy = '' AND @expected_routing_strategy::varchar <> 'hmm_beta')
+    OR (routing_strategy = '' AND @expected_routing_strategy::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   );
 
 -- Expires the pin row and appends a model to demoted_models (deduped) in one
@@ -398,7 +398,7 @@ ON CONFLICT (session_key, role) DO UPDATE SET
     ELSE array_append(router.session_pins.demoted_models, @model::varchar)
   END
 WHERE router.session_pins.routing_strategy = EXCLUDED.routing_strategy
-  OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy <> 'hmm_beta');
+  OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy NOT IN ('hmm_beta', 'hmm_qwen'));
 
 -- Time-limited counterpart of ExpireAndDemoteSessionPinModel: expires the pin
 -- row and records model in demotion_cooldowns until the given instant, so the
@@ -431,7 +431,7 @@ ON CONFLICT (session_key, role) DO UPDATE SET
   last_seen_at     = CURRENT_TIMESTAMP,
   demotion_cooldowns = router.session_pins.demotion_cooldowns || EXCLUDED.demotion_cooldowns
 WHERE router.session_pins.routing_strategy = EXCLUDED.routing_strategy
-  OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy <> 'hmm_beta');
+  OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy NOT IN ('hmm_beta', 'hmm_qwen'));
 
 -- Removes model's cooldown from one (session_key, role) row after a recovery
 -- probe served the model successfully, so later turns no longer need a lease

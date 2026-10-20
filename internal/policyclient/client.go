@@ -122,12 +122,13 @@ func New(baseURL string, client *http.Client, timeout time.Duration, opts ...Opt
 
 // ClassifierHealth is the immutable classifier identity reported by readiness.
 type ClassifierHealth struct {
-	SchemaVersion         string   `json:"schema_version"`
-	ClassifierArtifactID  string   `json:"classifier_artifact_id"`
-	ClassifierSHA256      string   `json:"classifier_artifact_sha256"`
-	ClassifierImageDigest string   `json:"classifier_image_digest"`
-	ClassifierClassOrder  []string `json:"classifier_class_order"`
-	ClassifierTaxonomySHA string   `json:"classifier_taxonomy_sha256"`
+	SchemaVersion         string                                        `json:"schema_version"`
+	ClassifierArtifactID  string                                        `json:"classifier_artifact_id"`
+	ClassifierSHA256      string                                        `json:"classifier_artifact_sha256"`
+	ClassifierImageDigest string                                        `json:"classifier_image_digest"`
+	ClassifierClassOrder  []string                                      `json:"classifier_class_order"`
+	ClassifierTaxonomySHA string                                        `json:"classifier_taxonomy_sha256"`
+	ClassifierVariants    map[router.Strategy]policy.ClassifierArtifact `json:"classifier_variants,omitempty"`
 }
 
 // ReadClassifierHealth returns the exact classifier identity behind a tagged revision.

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/rosterdata"
 )
 
@@ -35,13 +36,14 @@ type ServingValidationStore interface {
 // as a lane embedded in a v2/v3 selection set. PolicyReference is the effective
 // policy; Candidate retains the immutable build composition.
 type PreparedSelection struct {
-	Selection       ServingSelection
-	ProfileKey      string
-	Target          ServingTarget
-	Candidate       CandidateComposition
-	Binding         LaneBinding
-	Policy          *rosterdata.Roster
-	PolicyReference PolicyObject
+	Selection        ServingSelection
+	ProfileKey       string
+	Target           ServingTarget
+	Candidate        CandidateComposition
+	Binding          LaneBinding
+	Policy           *rosterdata.Roster
+	PolicyReference  PolicyObject
+	StrategyPolicies map[router.Strategy]StrategyPolicy
 }
 
 // ServingValidator verifies exact revision attestations, catalog compatibility and private endpoint smoke.
@@ -819,5 +821,12 @@ func ReadPreparedSelection(ctx context.Context, store ServingStore, target Servi
 	if policy.SchemaVersion != candidate.Requirements.PolicySchema || !slices.Equal(policy.ClassOrder, candidate.Classifier.Identity.ClassOrder) {
 		return PreparedSelection{}, errors.New("compiled policy does not match classifier schema/taxonomy")
 	}
-	return PreparedSelection{Selection: selection, ProfileKey: profileKey, Target: target, Candidate: candidate, Binding: binding, Policy: policy, PolicyReference: policyReference}, nil
+	strategyPolicies, err := loadStrategyPolicies(ctx, store, candidate)
+	if err != nil {
+		return PreparedSelection{}, err
+	}
+	return PreparedSelection{
+		Selection: selection, ProfileKey: profileKey, Target: target, Candidate: candidate,
+		Binding: binding, Policy: policy, PolicyReference: policyReference, StrategyPolicies: strategyPolicies,
+	}, nil
 }

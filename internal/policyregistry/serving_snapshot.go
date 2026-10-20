@@ -144,6 +144,7 @@ func (c *ServingRuntimeCache) Snapshot(ctx context.Context, admission SessionRel
 		Policy:             prepared.Policy,
 		ClassifierAudience: prepared.Binding.Classifier.Audience,
 	}
+	candidate.StrategyPolicies = prepared.StrategyPolicies
 	routers, err := c.builder(ctx, candidate)
 	if err != nil {
 		return nil, err

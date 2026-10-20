@@ -31,6 +31,9 @@ const (
 	CapAssistantPrefillUnsupported ModelCapability = "assistant_prefill_unsupported"
 )
 
+// ModelGemini4Argon is the canonical Google Gemini 4 Argon model ID.
+const ModelGemini4Argon = "gemini-4-argon"
+
 // ModelSpec describes what a model supports. Zero value is safe: provider
 // adapters strip all capability-gated fields when Supports reports false.
 type ModelSpec struct {
@@ -212,10 +215,11 @@ var registry = map[string]ModelSpec{
 	"claude-sonnet-4-5": NewSpec(),
 	"claude-sonnet-4-0": NewSpec(),
 
-	"gpt-6-astra": openaiAstra,
-	"gpt-6-sol":   openai6,
-	"gpt-6.1-sol": openai61,
-	"gpt-6-luna":  openai6,
+	"gpt-6-astra":     openaiAstra,
+	"gpt-6-sol":       openai6,
+	"gpt-6.1-sol":     openai61,
+	"gpt-6-luna":      openai6,
+	ModelGemini4Argon: google3Base,
 
 	"gpt-5.6-sol":      openai56,
 	"gpt-5.6-sol-pro":  openai56,

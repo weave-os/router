@@ -9,7 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/policy"
 )
 
 const testRegistryRoot = "gs://weave_ml/weave_registry"
@@ -22,6 +24,27 @@ func TestReleaseValidationBindsClassifierTaxonomyAndPolicyPath(t *testing.T) {
 	err := release.Validate(testRegistryRoot)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "taxonomy digest")
+}
+
+func TestReleasePinsQwenBundleEndpointAndAudience(t *testing.T) {
+	release := validRelease()
+	release.Classifier.Variants = map[router.Strategy]policy.ClassifierArtifact{
+		router.StrategyHMMQwen: {
+			ArtifactID:    "qwen-classifier",
+			PackageSHA256: strings.Repeat("f", 64),
+			Endpoint:      "https://router-qwen.modal.run/",
+			Audience:      "https://weave-router/qwen-classifier",
+		},
+	}
+	require.NoError(t, release.Validate(testRegistryRoot))
+
+	release.Classifier.Variants[router.StrategyHMMQwen] = policy.ClassifierArtifact{
+		ArtifactID:    "qwen-classifier",
+		PackageSHA256: strings.Repeat("f", 64),
+		Endpoint:      "https://untrusted.example/",
+		Audience:      "https://weave-router/qwen-classifier",
+	}
+	require.Error(t, release.Validate(testRegistryRoot))
 }
 
 func TestDecodeLaneHeadRejectsUnknownFieldsAndWrongFacet(t *testing.T) {

@@ -10,12 +10,16 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/router/policy"
 )
 
 // ReleaseSchemaV1 is the first atomic classifier-and-selection-policy release.
@@ -45,12 +49,28 @@ const (
 
 // ClassifierIdentity binds a release to immutable classifier bytes and taxonomy.
 type ClassifierIdentity struct {
-	ArtifactID     string   `json:"artifact_id"`
-	PackageSHA256  string   `json:"package_sha256"`
-	ImageDigest    string   `json:"image_digest"`
-	WireSchema     string   `json:"wire_schema"`
-	ClassOrder     []string `json:"class_order"`
-	TaxonomySHA256 string   `json:"taxonomy_sha256"`
+	ArtifactID     string                                        `json:"artifact_id"`
+	PackageSHA256  string                                        `json:"package_sha256"`
+	ImageDigest    string                                        `json:"image_digest"`
+	WireSchema     string                                        `json:"wire_schema"`
+	ClassOrder     []string                                      `json:"class_order"`
+	TaxonomySHA256 string                                        `json:"taxonomy_sha256"`
+	Variants       map[router.Strategy]policy.ClassifierArtifact `json:"variants,omitempty"`
+}
+
+// Equal includes alternate classifiers so a retained release cannot change its model.
+func (c ClassifierIdentity) Equal(other ClassifierIdentity) bool {
+	return c.ArtifactID == other.ArtifactID && c.PackageSHA256 == other.PackageSHA256 && c.ImageDigest == other.ImageDigest && c.WireSchema == other.WireSchema && c.TaxonomySHA256 == other.TaxonomySHA256 && slices.Equal(c.ClassOrder, other.ClassOrder) && maps.Equal(c.Variants, other.Variants)
+}
+
+func (c ClassifierIdentity) validateVariants() error {
+	for strategy, artifact := range c.Variants {
+		endpoint, err := url.Parse(artifact.Endpoint)
+		if !router.IsBetaStrategy(strategy) || strings.TrimSpace(artifact.ArtifactID) == "" || !validDigest(artifact.PackageSHA256) || err != nil || endpoint.Scheme != "https" || !strings.HasSuffix(endpoint.Hostname(), ".modal.run") || endpoint.Path != "" && endpoint.Path != "/" || endpoint.RawQuery != "" || endpoint.Fragment != "" || strings.TrimSpace(artifact.Audience) == "" {
+			return fmt.Errorf("invalid alternate classifier %q", strategy)
+		}
+	}
+	return nil
 }
 
 // PolicyObject identifies immutable Go selection-policy bytes.
@@ -172,6 +192,9 @@ func (r Release) Validate(registryRoot string) error {
 	}
 	if TaxonomyDigest(r.Classifier.ClassOrder) != r.Classifier.TaxonomySHA256 {
 		return errors.New("release classifier taxonomy digest does not match class_order")
+	}
+	if err := r.Classifier.validateVariants(); err != nil {
+		return err
 	}
 	if r.Policy.SchemaVersion != rosterdata.SchemaVersionPolicyV1 || !validDigest(r.Policy.SHA256) || r.Policy.Generation <= 0 {
 		return errors.New("release selection policy schema, digest, and generation are invalid")

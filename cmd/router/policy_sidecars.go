@@ -28,6 +28,7 @@ var reservedPolicyStrategies = map[router.Strategy]struct{}{
 	router.StrategyHMM:           {},
 	router.StrategyHMMEmbedding:  {},
 	router.StrategyHMMBeta:       {},
+	router.StrategyHMMQwen:       {},
 	router.StrategyBandit:        {},
 }
 
