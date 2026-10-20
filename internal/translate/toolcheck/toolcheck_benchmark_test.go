@@ -15,14 +15,14 @@ func BenchmarkToolcheckNestedNormalization(b *testing.B) {
 			nested := strings.Repeat(`{"child":`, depth) + `1e+06` + strings.Repeat(`}`, depth)
 			args := `{"optional":"","nested":` + nested + `}`
 			want := `{"nested":` + nested + `}`
-			if normalized, _ := normalizeArgs(args, nil); normalized != want {
+			if normalized, _ := normalizeEmptyOptionals(args, nil); normalized != want {
 				b.Fatal("fixture did not normalize the top-level optional field")
 			}
 			b.SetBytes(int64(len(args)))
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				toolcheckNormalizationBenchmarkSink, _ = normalizeArgs(args, nil)
+				toolcheckNormalizationBenchmarkSink, _ = normalizeEmptyOptionals(args, nil)
 			}
 		})
 	}
@@ -129,7 +129,7 @@ func BenchmarkToolcheckCleanNormalization(b *testing.B) {
 			b.ReportAllocs()
 			b.SetBytes(int64(len(args)))
 			for i := 0; i < b.N; i++ {
-				toolcheckNormalizationBenchmarkSink, _ = normalizeArgs(args, nil)
+				toolcheckNormalizationBenchmarkSink, _ = normalizeEmptyOptionals(args, nil)
 			}
 		})
 	}
@@ -137,15 +137,15 @@ func BenchmarkToolcheckCleanNormalization(b *testing.B) {
 
 func BenchmarkToolcheckDuplicateNormalization(b *testing.B) {
 	for _, size := range []int{128, 512, 2048, 8192, 16384} {
-		args := `{"known":"ok"` + strings.Repeat(`,"x":null`, size) + `}`
+		args := `{"known":"ok"` + strings.Repeat(`,"x":""`, size) + `}`
 		b.Run(strconv.Itoa(size), func(b *testing.B) {
-			if got, actions := normalizeArgs(args, nil); got != `{"known":"ok"}` || len(actions) != size {
+			if got, actions := normalizeEmptyOptionals(args, nil); got != `{"known":"ok"}` || len(actions) != size {
 				b.Fatal("fixture did not delete each duplicate")
 			}
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				toolcheckNormalizationBenchmarkSink, _ = normalizeArgs(args, nil)
+				toolcheckNormalizationBenchmarkSink, _ = normalizeEmptyOptionals(args, nil)
 			}
 		})
 	}
