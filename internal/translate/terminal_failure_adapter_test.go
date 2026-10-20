@@ -164,3 +164,47 @@ func TestNativeResponsesSnapshotAllocationScalesWithOutput(t *testing.T) {
 	t.Logf("snapshot allocation: 256 deltas=%d bytes; 1024 deltas=%d bytes", small, large)
 	require.Less(t, large, small*6, "four times the output must not cause quadratic allocation")
 }
+
+func TestResponsesFailureSnapshotRejectsAmplifyingIndexes(t *testing.T) {
+	for _, event := range []string{
+		`{"type":"response.content_part.added","content_index":4096,"part":{"type":"output_text","text":"synthetic"}}`,
+		`{"type":"response.reasoning_summary_part.added","summary_index":4096,"part":{"type":"summary_text","text":"synthetic"}}`,
+		`{"type":"response.output_text.delta","content_index":4096,"delta":"synthetic"}`,
+		`{"type":"response.reasoning_summary_text.delta","summary_index":4096,"delta":"synthetic"}`,
+	} {
+		t.Run(gjson.Get(event, "type").Str, func(t *testing.T) {
+			writer, _ := newNativeStreamWriter(false)
+			_, err := writer.Write([]byte("data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[]}}\n\n"))
+			require.NoError(t, err)
+			_, err = fmt.Fprintf(writer, "data: %s\n\n", event)
+			require.NoError(t, err)
+			snapshot := writer.FailureSnapshot()
+			require.Zero(t, gjson.GetBytes(snapshot, "output.0.content.#").Int())
+			require.Zero(t, gjson.GetBytes(snapshot, "output.0.summary.#").Int())
+		})
+	}
+}
+
+func TestResponsesFailureSnapshotIgnoresInvalidIndexesWithoutPoisoningOutput(t *testing.T) {
+	for _, fixture := range []struct {
+		event, field, item, outputPath string
+	}{
+		{"response.output_text.delta", "content_index", `{"id":"msg_synthetic","type":"message","role":"assistant","content":[]}`, "output.0.content.0.text"},
+		{"response.reasoning_summary_text.delta", "summary_index", `{"id":"rs_synthetic","type":"reasoning","summary":[]}`, "output.0.summary.0.text"},
+	} {
+		for _, index := range []string{"-1", "2000000000", "9223372036854775807", "1.5", `"1"`} {
+			t.Run(fixture.field+"/"+index, func(t *testing.T) {
+				writer, _ := newNativeStreamWriter(false)
+				_, err := fmt.Fprintf(writer, "data: {\"type\":\"response.output_item.added\",\"item\":%s}\n\n", fixture.item)
+				require.NoError(t, err)
+				_, err = fmt.Fprintf(writer, "data: {\"type\":%q,%q:%s,\"delta\":\"invalid\"}\n\n", fixture.event, fixture.field, index)
+				require.NoError(t, err)
+				_, err = fmt.Fprintf(writer, "data: {\"type\":%q,%q:0,\"delta\":\"valid\"}\n\n", fixture.event, fixture.field)
+				require.NoError(t, err)
+				snapshot := writer.FailureSnapshot()
+				require.Equal(t, "valid", gjson.GetBytes(snapshot, fixture.outputPath).Str)
+				require.Less(t, len(snapshot), 512)
+			})
+		}
+	}
+}

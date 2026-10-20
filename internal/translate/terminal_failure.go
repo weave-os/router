@@ -211,6 +211,10 @@ func responsesFailurePayload(payload []byte) bool {
 		responsesEventType(root.Get("type").Str) == responsesFailed || root.Get("type").Str == "error"
 }
 
+// Bound sparse padding in diagnostic snapshots so tiny upstream records cannot
+// amplify into unbounded array allocations. Forwarded provider records are unchanged.
+const maxResponsesFailureSnapshotParts = 4096
+
 // responsesFailureItem retains native item metadata and append-only deltas.
 // JSON is assembled only when a terminal failure needs a complete snapshot.
 type responsesFailureItem struct {
@@ -237,6 +241,16 @@ func (t *ResponsesWriter) captureFailureEvent(event []byte) {
 		return
 	}
 	root := gjson.ParseBytes(payload)
+	for _, field := range []string{"content_index", "summary_index"} {
+		value := root.Get(field)
+		if !value.Exists() {
+			continue
+		}
+		index := value.Int()
+		if value.Type != gjson.Number || index < 0 || index >= maxResponsesFailureSnapshotParts || value.Float() != float64(index) {
+			return
+		}
+	}
 	kind := responsesEventType(root.Get("type").Str)
 	if kind == "" {
 		kind = responsesEventType(eventName)
@@ -363,9 +377,6 @@ func (item *responsesFailureItem) snapshot() json.RawMessage {
 		parts, exists := arrays[array]
 		if !exists {
 			_ = json.Unmarshal(fields[array], &parts)
-		}
-		if key.index < 0 {
-			continue
 		}
 		if key.index >= len(parts) {
 			parts = append(parts, make([]json.RawMessage, key.index+1-len(parts))...)
