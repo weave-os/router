@@ -63,7 +63,7 @@ type circuit struct {
 	state      State
 	failures   []time.Time
 	openedAt   time.Time
-	step       int
+	reopens    int
 	probeToken uint64
 	probeUntil time.Time
 }
@@ -133,17 +133,17 @@ func (r *Registry) RecordOverload(model string) Transition {
 	case StateOpen:
 		return Transition{Model: model, From: StateOpen, To: StateOpen}
 	case StateHalfOpen:
-		c.state, c.openedAt, c.step = StateOpen, now, c.step+1
+		c.state, c.openedAt, c.reopens = StateOpen, now, c.reopens+1
 		c.probeToken, c.probeUntil = 0, time.Time{}
 		r.publishLocked()
-		return Transition{Model: model, From: StateHalfOpen, To: StateOpen, RecoveryAfter: r.recoveryLocked(c.step)}
+		return Transition{Model: model, From: StateHalfOpen, To: StateOpen, RecoveryAfter: r.recoveryLocked(c.reopens)}
 	}
 	c.failures = withinWindow(append(c.failures, now), now, r.cfg.Window, r.cfg.Strikes)
 	if len(c.failures) < r.cfg.Strikes {
 		return Transition{Model: model, From: StateClosed, To: StateClosed}
 	}
 	failures := len(c.failures)
-	c.state, c.openedAt, c.step, c.failures = StateOpen, now, 0, nil
+	c.state, c.openedAt, c.reopens, c.failures = StateOpen, now, 0, nil
 	r.publishLocked()
 	return Transition{Model: model, From: StateClosed, To: StateOpen, Failures: failures, RecoveryAfter: r.recoveryLocked(0)}
 }
@@ -190,7 +190,7 @@ func (r *Registry) ClaimProbe(eligible func(model string) bool) (Probe, Transiti
 		return due[i] < due[j]
 	})
 	for _, model := range due {
-		if eligible != nil && !eligible(model) {
+		if !eligible(model) {
 			continue
 		}
 		c := r.circuits[model]
@@ -229,9 +229,9 @@ func (r *Registry) State(model string) State {
 	return StateClosed
 }
 
-func (r *Registry) recoveryLocked(step int) time.Duration {
+func (r *Registry) recoveryLocked(reopens int) time.Duration {
 	d := r.cfg.RecoveryBase
-	for i := 0; i < step && d < r.cfg.RecoveryCap; i++ {
+	for i := 0; i < reopens && d < r.cfg.RecoveryCap; i++ {
 		d *= 2
 	}
 	return min(d, r.cfg.RecoveryCap)
@@ -241,7 +241,7 @@ func (r *Registry) recoveryLocked(step int) time.Duration {
 func (r *Registry) dueAtLocked(c *circuit) (time.Time, bool) {
 	switch c.state {
 	case StateOpen:
-		return c.openedAt.Add(r.recoveryLocked(c.step)), true
+		return c.openedAt.Add(r.recoveryLocked(c.reopens)), true
 	case StateHalfOpen:
 		return c.probeUntil, true
 	}
