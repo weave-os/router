@@ -1,0 +1,21 @@
+internal/policyclient/resilience_test.go
+  s_1e566b418f640d::t_c11c899162af99 170-175
+internal/policyclient/resilience.go
+  s_1e566b418f640d::t_c11c899162af99 91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "4cb2ee11957f9977239437258709315d42dc26bd",
+  "prompts": {},
+  "sessions": {
+    "s_1e566b418f640d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "246667ac-2929-450d-b32a-9edfbd1010f3",
+        "model": "grok-4.6"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

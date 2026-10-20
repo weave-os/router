@@ -1,0 +1,23 @@
+internal/providers/httputil/httputil_test.go
+  s_5e8e39d3453282::t_a6d460c3107794 278-279
+internal/observability/global_logger_budget_test.go
+  s_5e8e39d3453282::t_bc15b80f57d4c8 51-56
+internal/providers/httputil/httputil.go
+  s_5e8e39d3453282::t_6f5417133dad6d 164-166
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "70a7c43f08fccff4ffe96d0d79cf998cf685ac3b",
+  "prompts": {},
+  "sessions": {
+    "s_5e8e39d3453282": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2c6d70fa-3ec5-4c6d-ac32-11ce75ef01ab",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

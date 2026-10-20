@@ -1,0 +1,307 @@
+db/queries/model_router_request_telemetry.sql
+  s_fc12c125adae65::t_6257b1f0ab3d79 34-38,142-151,254-263
+Makefile
+  s_fc12c125adae65::t_6257b1f0ab3d79 12,23,29-37,213,222
+internal/proxy/subsidy.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 10,26,28,297
+internal/server/server.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 157-162
+internal/sqlc/model_router_inference_attempts.sql.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-231
+cmd/router/inference_policy_config_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-59
+internal/inference/executor.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-29
+internal/proxy/translation_plan.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 141,150,235,256
+internal/providers/openaicompat/list_models_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 11,44
+internal/proxy/service.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 20,23,65-75,327-329,336,1447,1854-1861,1888,1967-1982,2315,2414-2420,2648,2737,2744,2746-2751,3247,3480,3692,3709,3712,3761,3800,3802-3803,3807-3810,3812,3814,3820-3823,3919,3922,3927-3928,4059-4070,4072-4073,4087-4090,4179-4180,4254-4255,4323-4324,5096-5097,5167,5281,5288,5385,6044,6311-6327,6329-6331,6354-6355,6357-6363,6370,6393,6437-6445,6777-6780,6784-6798,6800-6801,6813-6819,6878-6879,7199-7200
+internal/architecture/inference_boundary_baseline.json
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-234
+internal/architecture/testdata/direct_fixed_model/fixture.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-10
+internal/proxy/dispatch_error_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 10,64-99
+  s_fc12c125adae65::t_383c9beba562f8 100
+go.mod
+  s_fc12c125adae65::t_6257b1f0ab3d79 40,106
+internal/proxy/dispatch_plan.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-244
+internal/proxy/header_forwarding.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 8,11-12,16,19,21,26,30,32
+internal/dispatch/executor.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-362
+docs/README.md
+  s_fc12c125adae65::t_6257b1f0ab3d79 9-10
+internal/api/admin/internal_inference_policies_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-199
+internal/proxy/openai_cyber_refusal_integration_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 4,11,126-131,238-239,245-288
+  s_fc12c125adae65::t_22f54e30546a7b 289-290
+internal/proxy/dispatch_error.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 9,60-62,99,174,308-317,368-393,416
+internal/router/policy/inference_plan.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-577
+internal/requestcontext/credentials.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-256
+internal/requestcontext/forwarding.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-127
+internal/providers/cortexagents/client_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 17,23,244,269,276,279
+internal/providers/google/native_client_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 15,110-111
+internal/providers/anthropic/list_models_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 11,45
+internal/providers/openaicompat/list_models.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 13,78-79
+internal/providers/openai/codex_internal_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 12,21
+.github/CODEOWNERS
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-5
+internal/dispatch/target.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-65
+internal/proxy/service_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 539-595
+internal/proxy/fastmode_internal_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 217,219,283,285
+internal/proxy/CLAUDE.md
+  s_fc12c125adae65::t_6257b1f0ab3d79 229,234
+internal/requestcontext/header_forwarding_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-168
+docs/POLICY_INFERENCE.json
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-652
+internal/proxy/telemetry.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 5,9-11,32-44,214-218,386-416
+internal/proxy/failover_integration_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 4,28-66,211-215,274-323,350-351,354-356,438-441
+internal/proxy/fallback_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 12,18,60,85-114,132,151-170,194,245,284,325,370,409,455,491,533,570,610,650,677,698,709,758,769,794,828,864,1148-1172
+  s_fc12c125adae65::t_e76dba217c7811 1173
+internal/router/handover/summarizer.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 13,37-40,45
+internal/proxy/client_identity.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 11,14-16,19,23
+.github/workflows/test.yml
+  s_fc12c125adae65::t_6257b1f0ab3d79 13-28,31-33
+internal/translate/responses.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 622,625,730-762,777-779,783-784,786-796,931-947,963-966,1367-1380,1509,1515,1519,1525,1530,1535,1541,1551,1560-1575,1584-1586,1693-1714,1975
+internal/proxy/usage_bypass_internal_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 15,73,390
+internal/proxy/authoritative_turnloop_internal_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 39
+docs/POLICY_INFERENCE.md
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-33
+internal/architecture/requestcontext_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-53
+internal/proxy/compaction.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 8,15,89,111-113,155-166,172,175-177,179-182,195-208,230,337,391,413,431-434,436,439,443,448,466,469,471,538
+internal/router/policy/inference_constraints.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-123
+internal/proxy/translation_plan_internal_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 7,17,21,162
+internal/router/policy/inference_registry_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-241
+internal/inference/outcome.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-12
+AGENTS.md
+  s_fc12c125adae65::t_6257b1f0ab3d79 114-120,134-135,142-149
+  s_fc12c125adae65::t_24263439e5ad84 150
+internal/architecture/testdata/named_constant_fixed_model/fixture.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-12
+internal/translate/anthropic_marker.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 25,54,60,92,96-124,193
+db/migrations/0078_inference-telemetry-provenance.up.sql
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-68
+internal/providers/google/native_client.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 14,95,106-107,173,189,211
+internal/router/policy/inference_inspection_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-77
+internal/proxy/handover_internal_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 14,16-18,21-22,34-37,40-44,68-84,123,125,141,143,161,163,181,183,193-241,243-246,248-439
+internal/proxy/bandswap_integration_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 6,99
+internal/proxy/openai_responses_pipeline_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 190
+internal/proxy/fastmode.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 30,53,88
+internal/dispatch/executor_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-435
+internal/proxy/handover.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 17-18,23,70-73,75-77,85-87,90-96,98,104-106,123-129,141,148-150,153-195,199-205,210-223,226-258,263-264,266-267,272-289,291-292,294-299,301-306,308-314,316,318,325-326,436,441-444,450-451,458,475
+internal/providers/anthropic/client_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 15,200-201,237-238,300,526,557,562
+CLAUDE.md
+  s_fc12c125adae65::t_6257b1f0ab3d79 114-120,134-135,142-149
+  s_fc12c125adae65::t_b4f63380bbc471 150
+cmd/geninferencepolicy/main.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-55
+internal/providers/anthropic/list_models.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 15,35,53-54,119-120
+internal/api/gemini/generate_content.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 135,137
+internal/requestcontext/wif_forwarding_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-63
+internal/requestcontext/identity.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-84
+db/queries/model_router_inference_attempts.sql
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-63
+internal/architecture/testdata/concrete_provider_import/fixture.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-3
+internal/proxy/routing_prelude.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-94
+internal/router/policy/inference_plan_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-447
+internal/dispatch/clients.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-89
+internal/proxy/credentials.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 9,15-18,21-31,37,41,43,48-58,97,99,103,107
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1809-1818,1921-1930,2038-2046,2082-2086,2190-2199,2302-2311,2418-2426
+internal/translate/responses_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 394-489
+internal/proxy/compaction_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 11,15,27-32,35,37-38,131,133,200-201,205-207,213-237,319,322-323,325,328,331,335,366-367,371,375,378-379,386-387,395-396,399,402-403,405,408,410-411,413,419-420,423,429-430,493
+internal/proxy/turnloop.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 12,177-185,391-433,673-679,735,737,808,1708,2039
+internal/providers/anthropic/bearer_auth_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 12,72
+internal/architecture/inference_boundary_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-551
+internal/translate/openai_marker.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 160-170
+internal/translate/openai_marker_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 132-147
+internal/dispatch/buffered.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-53
+internal/router/policy/inference_routed_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-180
+internal/providers/cortexagents/client.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 21,105,109,139
+internal/router/policy/inference_deployment.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-107
+internal/sqlc/models.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 153-180,371-381
+db/migrations/0078_inference-telemetry-provenance.down.sql
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-16
+cmd/CLAUDE.md
+  s_fc12c125adae65::t_6257b1f0ab3d79 16,20
+internal/router/policy/inference_registry.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-677
+internal/providers/openaicompat/client_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 14,83-84,120,125,151-152
+internal/router/policy/inference_routed.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-135
+internal/architecture/testdata/unregistered_inference_purpose/fixture.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-7
+internal/providers/AGENTS.md
+  s_fc12c125adae65::t_6257b1f0ab3d79 14,16
+internal/architecture/testdata/unregistered_purpose/fixture.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-21
+internal/router/policy/inference_inspection.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-268
+internal/postgres/telemetry.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 8,51,194-202,206-270
+  s_fc12c125adae65::t_aebdbcb01ad41f 271
+internal/router/policy/resolver.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 129-149,281,387-391,404,406-408,486,507,533-546,551-563
+  s_fc12c125adae65::t_d648978d7b55b6 564
+cmd/router/main.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 26,440-444,611-615,657-659,661-663,777,780-836,844-848,850,1180-1181,1245,1249-1250,1253-1254,1999-2004,2006,2008-2009,2011,2017-2028,2034-2035,2039-2040,2044-2045,2047
+internal/requestcontext/identity_forwarding_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-94
+internal/proxy/gemini.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 11,125,314-315
+internal/inference/telemetry.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-77
+internal/translate/anthropic_marker_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 126-153
+internal/postgres/inference_telemetry_internal_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-114
+internal/proxy/baseline_failover_integration_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 116-117,119-123
+internal/inference/request.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-194
+internal/providers/openaicompat/wif_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 13,35,40
+internal/proxy/upstream_models.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 18-20
+docs/INFERENCE_BOUNDARY.md
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-102
+internal/architecture/testdata/raw_inference_http/fixture.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-17
+internal/providers/CLAUDE.md
+  s_fc12c125adae65::t_6257b1f0ab3d79 14,16
+internal/proxy/managed_subscriptions_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 17,76,232,257,279-280,282,291,320,349,376,390-422
+  s_fc12c125adae65::t_b1b4343cd342d8 423
+internal/proxy/dispatch_plan_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-268
+internal/architecture/testdata/aliased_provider_client/fixture.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-15
+internal/dispatch/target_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-57
+internal/providers/anthropic/subscription_identity_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 16,50,98
+internal/providers/openai/client.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 18,87-88,227,230,244,268,275,291,301-302,470,486
+docs/CONFIGURATION.md
+  s_fc12c125adae65::t_6257b1f0ab3d79 419-421
+internal/providers/openaicompat/client.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 19,266,272,287,327-329,449-450
+internal/architecture/doc.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-2
+internal/proxy/turnloop_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 35
+internal/proxy/AGENTS.md
+  s_fc12c125adae65::t_6257b1f0ab3d79 229,234
+internal/proxy/surface_purpose_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-161
+internal/inference/contracts_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-15
+cmd/AGENTS.md
+  s_fc12c125adae65::t_6257b1f0ab3d79 16,20
+internal/proxy/auxiliary_inference_internal_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 13,148
+internal/providers/anthropic/client.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 18,203,252,271,295,298,332-334,425,444-445
+internal/translate/stream.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 761-780
+internal/router/policy/inference_purpose.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-169
+internal/proxy/enabled_providers_internal_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 7,23,26,62,65,109,112,173,176,245,259,272,288,291,309,313,331,334
+internal/api/admin/internal_inference_policies.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-51
+internal/dispatch/executor_internal_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-17
+internal/providers/openai/client_test.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 17,116
+internal/router/policy/inference_projection.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 1-132
+internal/translate/responses_to_anthropic_writer.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 217-236
+internal/proxy/fallback.go
+  s_fc12c125adae65::t_6257b1f0ab3d79 12,16,35,83,97-120,133-135,152-154,156-161,163,202-205,208-216,219-221,236-249,261-264,432,435-439,442,447,455-459,462,467
+go.sum
+  s_fc12c125adae65::t_5ce001489fa8ae 310-311,348-349
+internal/translate/escalation_response.go
+  s_fc12c125adae65::t_8b0c4eb91afadd 19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a287060d823ff694a6a39fec70017286ddcf81a4",
+  "prompts": {},
+  "sessions": {
+    "s_fc12c125adae65": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0872c-1993-76d1-bd9a-9a9c26a4cffb",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

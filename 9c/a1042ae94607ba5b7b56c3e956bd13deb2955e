@@ -1,0 +1,23 @@
+internal/router/hmm/selection/distribution.go
+  s_eef74eff975806::t_1baa2c547cdab9 35
+  s_eef74eff975806::t_182ee11a3e4000 15,27-28
+  s_eef74eff975806::t_f6b32dcd2666be 29
+internal/router/hmm/selection/distribution_test.go
+  s_eef74eff975806::t_fdba8c9f92c48e 101-105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "9ca1042ae94607ba5b7b56c3e956bd13deb2955e",
+  "prompts": {},
+  "sessions": {
+    "s_eef74eff975806": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0eea5-47b7-7733-b668-22e3b98f688b",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
