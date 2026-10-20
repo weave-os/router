@@ -1,0 +1,19 @@
+internal/postgres/repository.go
+  s_e790ec9259d346::t_91fa54a8eba599 38-43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "f5b647673d9e745935432a95c6c802ad8dd8b58b",
+  "prompts": {},
+  "sessions": {
+    "s_e790ec9259d346": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f94f023a-8c80-4ef9-9ade-e84de8422fa4",
+        "model": "unknown"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

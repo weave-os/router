@@ -1,0 +1,19 @@
+internal/proxy/gemini.go
+  s_8c07cbaac32551::t_41fe0d158d77b0 522
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "96e6554b910a7a461d626baa775d63a67e310a8e",
+  "prompts": {},
+  "sessions": {
+    "s_8c07cbaac32551": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f88e-2dbc-7912-b3cf-34aa1988b388",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

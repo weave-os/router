@@ -1,0 +1,63 @@
+internal/postgres/escalation_repo.go
+  s_1711b1cdf285a5::t_3cf79540185b6e 148-160
+  s_34c7b528a2660c::t_bb9dfb306b595c 49-57
+db/queries/escalation_sessions.sql
+  s_34c7b528a2660c::t_bb9dfb306b595c 29-33
+  s_1711b1cdf285a5::t_3cf79540185b6e 76-81,93-97
+internal/proxy/service.go
+  s_34c7b528a2660c::t_bb9dfb306b595c 3461,6080
+internal/proxy/turnloop.go
+  s_34c7b528a2660c::t_bb9dfb306b595c 1675
+internal/postgres/escalation_check_fixture.go
+  s_fc12c125adae65::t_432911273f4e19 1-68
+internal/proxy/escalation_completion_internal_test.go
+  s_fc12c125adae65::t_d24f6d93e582d3 14,136-151,154-165
+  s_34c7b528a2660c::t_38e691d5d30822 152-153
+  s_fc12c125adae65::t_058feb158c3e3c 166-169
+db/queries/escalation_check_fixtures.sql
+  s_34c7b528a2660c::t_bb9dfb306b595c 16,21
+scripts/escalation_state_check/main.go
+  s_34c7b528a2660c::t_ad8a333f41d05c 56
+  s_fc12c125adae65::t_432911273f4e19 60,357
+  s_1711b1cdf285a5::t_3cf79540185b6e 136-137
+  s_fc12c125adae65::t_d02135bb18cfbc 63,124-135,229,267,312,337
+internal/proxy/escalation_internal_test.go
+  s_fc12c125adae65::t_d24f6d93e582d3 326-327,329-344
+  s_34c7b528a2660c::t_38e691d5d30822 328
+internal/sqlc/escalation_check_fixtures.sql.go
+  s_fc12c125adae65::t_e41d2a6a1be5bd 37,42,52,57-58,60
+internal/sqlc/escalation_sessions.sql.go
+  s_fc12c125adae65::t_2c09931e2735ef 95-127,254-257,277-280
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "d40f70737011ed3ff2e30db8f5fc59e571afc255",
+  "prompts": {},
+  "sessions": {
+    "s_1711b1cdf285a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0833b-a9ba-7153-8d32-00b7bc91c073",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_34c7b528a2660c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0872c-1993-76d1-bd9a-9a9c26a4cffb",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_fc12c125adae65": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0872c-1993-76d1-bd9a-9a9c26a4cffb",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
