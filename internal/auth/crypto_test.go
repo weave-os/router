@@ -21,6 +21,11 @@ func TestAADFor_GoldenBytes(t *testing.T) {
 	)
 }
 
+func TestNewWrappedTinkEncryptor_NilKEK(t *testing.T) {
+	_, err := NewWrappedTinkEncryptor(`{"encryptedKeyset":"","keysetInfo":{}}`, nil)
+	require.Error(t, err)
+}
+
 func TestTinkEncryptor_RoundTrip(t *testing.T) {
 	enc := newTestEncryptor(t)
 	plaintext := []byte("sk-ant-test-key-1234567890")
