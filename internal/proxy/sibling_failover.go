@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"sort"
 	"time"
@@ -153,7 +154,7 @@ func (s *Service) rescueWalkOrReadmitCooling(
 	if len(decisions) > 0 || reason != ReasonSiblingFailover {
 		return decisions
 	}
-	if overloaded := sortedModels(s.overloadOpenModels(ctx)); len(overloaded) > 0 {
+	if overloaded := slices.Sorted(maps.Keys(s.overloadOpenModels(ctx))); len(overloaded) > 0 {
 		if decisions = s.readmissionWalk(ctx, failed, candidates, overloaded, reason, excludedModels, est, sigSavings, outputReserve, providerFor); len(decisions) > 0 {
 			return decisions
 		}
