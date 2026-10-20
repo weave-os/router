@@ -157,6 +157,7 @@ func (d *NoticeDelivery) Write(payload []byte) (int, error) {
 	var escaped bytes.Buffer
 	json.HTMLEscape(&escaped, payload)
 	if !d.capabilities.Streaming {
+		d.sink.Header().Set("Content-Type", "application/json")
 		_, d.failure = d.sink.Write(escaped.Bytes())
 		return consumedBytes, d.failure
 	}

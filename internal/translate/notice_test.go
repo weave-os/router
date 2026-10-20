@@ -79,7 +79,7 @@ func TestNoticeWritersEscapeProviderHTMLWithoutChangingJSONText(t *testing.T) {
 						payload = "data: " + payload + "\n\n"
 						contentType = "text/event-stream"
 					}
-					writer.Header().Set("Content-Type", contentType)
+					writer.Header().Set("Content-Type", "text/html")
 					writer.Header().Set("Content-Length", fmt.Sprint(len(payload)))
 					writer.WriteHeader(http.StatusOK)
 					consumed, err := writer.Write([]byte(payload))
@@ -87,6 +87,7 @@ func TestNoticeWritersEscapeProviderHTMLWithoutChangingJSONText(t *testing.T) {
 					assert.Equal(t, len(payload), consumed)
 					writer.(http.Flusher).Flush()
 					assert.NotContains(t, rec.Body.String(), "<script>")
+					assert.Equal(t, contentType, rec.Result().Header.Get("Content-Type"))
 					assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
 					assert.Empty(t, rec.Result().Header.Get("Content-Length"))
 					body := rec.Body.String()
@@ -357,6 +358,26 @@ func TestNoticeReplayRecognition(t *testing.T) {
 			if format == translate.FormatAnthropic || format == translate.FormatGemini {
 				assert.Contains(t, string(stripped), "provider signature")
 			}
+		})
+	}
+}
+
+func TestNoticeReplayPreservesUnmarkedQuotedHeadings(t *testing.T) {
+	const quotedText = "Please explain this heading: **WEAVE ROUTER** — an ordinary heading\n\nKeep this paragraph."
+	for _, role := range []string{"user", "assistant"} {
+		t.Run("messages/"+role, func(t *testing.T) {
+			body := []byte(`{"messages":[{"role":"` + role + `","content":` + fmt.Sprintf("%q", quotedText) + `}]}`)
+			stripped, err := translate.StripRoutingMarkerFromMessages(body)
+			require.NoError(t, err)
+			assert.Equal(t, quotedText, gjson.GetBytes(stripped, "messages.0.content").String())
+		})
+	}
+	for _, role := range []string{"user", "model"} {
+		t.Run("gemini/"+role, func(t *testing.T) {
+			body := []byte(`{"contents":[{"role":"` + role + `","parts":[{"text":` + fmt.Sprintf("%q", quotedText) + `}]}]}`)
+			stripped, err := translate.StripRoutingMarkerFromGeminiContents(body)
+			require.NoError(t, err)
+			assert.Equal(t, quotedText, gjson.GetBytes(stripped, "contents.0.parts.0.text").String())
 		})
 	}
 }

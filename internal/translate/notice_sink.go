@@ -49,6 +49,11 @@ func NewProtocolNoticeSink(w http.ResponseWriter, capabilities NoticeCapabilitie
 	return sink
 }
 func (s *protocolNoticeSink) WriteHeader(status int) {
+	if s.streaming && s.ResponseWriter.Header().Get("Content-Type") != "application/json" {
+		s.ResponseWriter.Header().Set("Content-Type", "text/event-stream")
+	} else {
+		s.ResponseWriter.Header().Set("Content-Type", "application/json")
+	}
 	s.Header().Set("X-Content-Type-Options", "nosniff")
 	// Escaping provider JSON can change its encoded length.
 	s.Header().Del("Content-Length")
@@ -138,6 +143,11 @@ func noticeTerminal(format Format, event []byte) bool {
 }
 
 func (s *protocolNoticeSink) Write(payload []byte) (int, error) {
+	if s.streaming && s.ResponseWriter.Header().Get("Content-Type") != "application/json" {
+		s.ResponseWriter.Header().Set("Content-Type", "text/event-stream")
+	} else {
+		s.ResponseWriter.Header().Set("Content-Type", "application/json")
+	}
 	s.Header().Set("X-Content-Type-Options", "nosniff")
 	s.Header().Del("Content-Length")
 	if s.format == FormatAnthropic {
