@@ -654,7 +654,7 @@ type ResponsesWriter struct {
 	failureCode         string
 	failureMessage      string
 	failureSnapshot     json.RawMessage
-	failureOutput       map[int]json.RawMessage
+	failureOutput       map[int]*responsesFailureItem
 
 	statusCode       int
 	streaming        bool

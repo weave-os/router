@@ -138,3 +138,29 @@ func TestResponsesFailureSnapshotRetainsNativePartialItems(t *testing.T) {
 		})
 	}
 }
+
+func TestNativeResponsesSnapshotAllocationScalesWithOutput(t *testing.T) {
+	measure := func(deltas int) int64 {
+		return testing.Benchmark(func(b *testing.B) {
+			for range b.N {
+				writer, _ := newNativeStreamWriter(false)
+				_, err := writer.Write([]byte("data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"id\":\"msg_synthetic\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[]}}\n\n"))
+				if err != nil {
+					b.Fatal(err)
+				}
+				frame := []byte("data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"content_index\":0,\"delta\":\"synthetic text delta for testing\"}\n\n")
+				for range deltas {
+					if _, err := writer.Write(frame); err != nil {
+						b.Fatal(err)
+					}
+				}
+				if len(writer.FailureSnapshot()) == 0 {
+					b.Fatal("missing partial output snapshot")
+				}
+			}
+		}).AllocedBytesPerOp()
+	}
+	small, large := measure(256), measure(1024)
+	t.Logf("snapshot allocation: 256 deltas=%d bytes; 1024 deltas=%d bytes", small, large)
+	require.Less(t, large, small*6, "four times the output must not cause quadratic allocation")
+}

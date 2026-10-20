@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sort"
-	"strconv"
+	"strings"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -177,7 +177,7 @@ func (t *ResponsesWriter) FailureSnapshot() json.RawMessage {
 	sort.Ints(indexes)
 	items := make([]json.RawMessage, 0, len(indexes))
 	for _, index := range indexes {
-		items = append(items, t.failureOutput[index])
+		items = append(items, t.failureOutput[index].snapshot())
 	}
 	snapshot, _ := json.Marshal(map[string]any{"output": items})
 	return snapshot
@@ -211,6 +211,26 @@ func responsesFailurePayload(payload []byte) bool {
 		responsesEventType(root.Get("type").Str) == responsesFailed || root.Get("type").Str == "error"
 }
 
+// responsesFailureItem retains native item metadata and append-only deltas.
+// JSON is assembled only when a terminal failure needs a complete snapshot.
+type responsesFailureItem struct {
+	body   json.RawMessage
+	parts  map[responsesFailurePartKey]*responsesFailurePart
+	fields map[string]*strings.Builder
+}
+
+type responsesFailurePartKey struct {
+	summary bool
+	index   int
+}
+
+type responsesFailurePart struct {
+	body    json.RawMessage
+	field   string
+	text    strings.Builder
+	textSet bool
+}
+
 func (t *ResponsesWriter) captureFailureEvent(event []byte) {
 	eventName, payload := sse.ParseEvent(event)
 	if !gjson.ValidBytes(payload) {
@@ -223,80 +243,149 @@ func (t *ResponsesWriter) captureFailureEvent(event []byte) {
 	}
 	index := int(root.Get("output_index").Int())
 	if t.failureOutput == nil {
-		t.failureOutput = make(map[int]json.RawMessage)
+		t.failureOutput = make(map[int]*responsesFailureItem)
 	}
-	item := []byte(t.failureOutput[index])
+	item := t.failureOutput[index]
 	switch kind {
 	case responsesOutputItemAdded, responsesOutputItemDone:
 		if next := root.Get("item"); next.IsObject() {
-			item = []byte(next.Raw)
+			// Complete items supersede any earlier partial fields.
+			t.failureOutput[index] = &responsesFailureItem{body: json.RawMessage(next.Raw)}
 		}
 	case responsesContentPartAdded, responsesContentPartDone, responsesReasoningSummaryPartAdded, responsesReasoningSummaryPartDone:
-		if len(item) == 0 || !root.Get("part").IsObject() {
+		if item == nil || !root.Get("part").IsObject() {
 			return
 		}
-		path := "content." + strconv.FormatInt(root.Get("content_index").Int(), 10)
+		key := responsesFailurePartKey{index: int(root.Get("content_index").Int())}
 		if kind == responsesReasoningSummaryPartAdded || kind == responsesReasoningSummaryPartDone {
-			path = "summary." + strconv.FormatInt(root.Get("summary_index").Int(), 10)
+			key.summary, key.index = true, int(root.Get("summary_index").Int())
 		}
-		item, _ = sjson.SetRawBytes(item, path, []byte(root.Get("part").Raw))
+		if item.parts == nil {
+			item.parts = make(map[responsesFailurePartKey]*responsesFailurePart)
+		}
+		item.parts[key] = &responsesFailurePart{body: json.RawMessage(root.Get("part").Raw)}
 	case responsesOutputTextDelta, responsesOutputTextDone, responsesRefusalDelta, responsesRefusalDone,
 		responsesReasoningSummaryDelta, responsesReasoningSummaryDone, responsesReasoningTextDelta, responsesReasoningTextDone:
-		item = captureFailureText(item, root, kind)
+		if item == nil {
+			item = &responsesFailureItem{}
+			t.failureOutput[index] = item
+		}
+		item.captureText(root, kind)
 	case responsesFunctionCallArgumentsDelta, responsesCustomToolCallInputDelta, responsesFunctionCallArgumentsDone, responsesCustomToolCallInputDone:
-		if len(item) == 0 {
+		if item == nil {
 			return
 		}
 		field := "arguments"
 		if kind == responsesCustomToolCallInputDelta || kind == responsesCustomToolCallInputDone {
 			field = "input"
 		}
-		value := root.Get(field).Str
-		if kind == responsesFunctionCallArgumentsDelta || kind == responsesCustomToolCallInputDelta {
-			value = gjson.GetBytes(item, field).Str + root.Get("delta").Str
+		if item.fields == nil {
+			item.fields = make(map[string]*strings.Builder)
 		}
-		item, _ = sjson.SetBytes(item, field, value)
-	default:
-		return
-	}
-	if len(item) > 0 {
-		t.failureOutput[index] = bytes.Clone(item)
+		builder := item.fields[field]
+		if builder == nil {
+			builder = &strings.Builder{}
+			builder.WriteString(gjson.GetBytes(item.body, field).Str)
+			item.fields[field] = builder
+		}
+		if kind == responsesFunctionCallArgumentsDelta || kind == responsesCustomToolCallInputDelta {
+			builder.WriteString(root.Get("delta").Str)
+		} else {
+			builder.Reset()
+			builder.WriteString(root.Get(field).Str)
+		}
 	}
 }
 
-func captureFailureText(item []byte, event gjson.Result, kind responsesEventType) []byte {
+func (item *responsesFailureItem) captureText(event gjson.Result, kind responsesEventType) {
 	itemType, partType := responsesMessageItem, responsesOutputText
-	array, index, field := "content", event.Get("content_index").Int(), "text"
+	key, field := responsesFailurePartKey{index: int(event.Get("content_index").Int())}, "text"
 	delta := kind == responsesOutputTextDelta || kind == responsesRefusalDelta || kind == responsesReasoningSummaryDelta || kind == responsesReasoningTextDelta
 	switch kind {
 	case responsesRefusalDelta, responsesRefusalDone:
 		partType, field = responsesRefusal, "refusal"
 	case responsesReasoningSummaryDelta, responsesReasoningSummaryDone:
 		itemType, partType = responsesReasoningItem, responsesSummaryText
-		array, index = "summary", event.Get("summary_index").Int()
+		key.summary, key.index = true, int(event.Get("summary_index").Int())
 	case responsesReasoningTextDelta, responsesReasoningTextDone:
 		itemType, partType = responsesReasoningItem, responsesReasoningText
 	}
-	if len(item) == 0 {
+	array := "content"
+	if key.summary {
+		array = "summary"
+	}
+	if len(item.body) == 0 {
 		envelope := map[string]any{"id": event.Get("item_id").Str, "type": itemType, "status": "in_progress", array: []any{}}
 		if itemType == responsesMessageItem {
 			envelope["role"] = "assistant"
 		}
-		item, _ = json.Marshal(envelope)
+		item.body, _ = json.Marshal(envelope)
 	}
-	path := array + "." + strconv.FormatInt(index, 10)
-	if !gjson.GetBytes(item, path).IsObject() {
-		part := map[string]any{"type": partType}
-		if partType == responsesOutputText {
-			part["annotations"] = []any{}
+	if item.parts == nil {
+		item.parts = make(map[responsesFailurePartKey]*responsesFailurePart)
+	}
+	part := item.parts[key]
+	if part == nil {
+		part = &responsesFailurePart{}
+		parts := gjson.GetBytes(item.body, array).Array()
+		if key.index >= 0 && key.index < len(parts) && parts[key.index].IsObject() {
+			part.body = json.RawMessage(parts[key.index].Raw)
+		} else {
+			envelope := map[string]any{"type": partType}
+			if partType == responsesOutputText {
+				envelope["annotations"] = []any{}
+			}
+			part.body, _ = json.Marshal(envelope)
 		}
-		encodedPart, _ := json.Marshal(part)
-		item, _ = sjson.SetRawBytes(item, path, encodedPart)
+		item.parts[key] = part
 	}
-	text := event.Get(field).Str
+	if !part.textSet {
+		part.field, part.textSet = field, true
+		part.text.WriteString(gjson.GetBytes(part.body, field).Str)
+	}
 	if delta {
-		text = gjson.GetBytes(item, path+"."+field).Str + event.Get("delta").Str
+		part.text.WriteString(event.Get("delta").Str)
+	} else {
+		part.text.Reset()
+		part.text.WriteString(event.Get(field).Str)
 	}
-	item, _ = sjson.SetBytes(item, path+"."+field, text)
-	return item
+}
+
+func (item *responsesFailureItem) snapshot() json.RawMessage {
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal(item.body, &fields)
+	arrays := make(map[string][]json.RawMessage)
+	for key, part := range item.parts {
+		array := "content"
+		if key.summary {
+			array = "summary"
+		}
+		parts, exists := arrays[array]
+		if !exists {
+			_ = json.Unmarshal(fields[array], &parts)
+		}
+		if key.index < 0 {
+			continue
+		}
+		if key.index >= len(parts) {
+			parts = append(parts, make([]json.RawMessage, key.index+1-len(parts))...)
+		}
+		body := part.body
+		if part.textSet {
+			var content map[string]json.RawMessage
+			_ = json.Unmarshal(body, &content)
+			content[part.field], _ = json.Marshal(part.text.String())
+			body, _ = json.Marshal(content)
+		}
+		parts[key.index] = body
+		arrays[array] = parts
+	}
+	for array, parts := range arrays {
+		fields[array], _ = json.Marshal(parts)
+	}
+	for field, builder := range item.fields {
+		fields[field], _ = json.Marshal(builder.String())
+	}
+	body, _ := json.Marshal(fields)
+	return body
 }

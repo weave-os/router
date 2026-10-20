@@ -244,3 +244,22 @@ func TestNoticeDeclaredFailureAbsorbsLaterOutcome(t *testing.T) {
 		}
 	}
 }
+
+func TestNoticeDeliveryRejectsDoneWithUnfinishedChoice(t *testing.T) {
+	for _, delimited := range []bool{false, true} {
+		t.Run(fmt.Sprint(delimited), func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			delivery := noticeDelivery(context.Background(), recorder, translate.FormatOpenAI)
+			records := `data: {"choices":[{"index":0,"delta":{"content":"complete"},"finish_reason":"stop"},{"index":1,"delta":{"content":"partial"}}]}` + "\n\ndata: [DONE]"
+			if delimited {
+				records += "\n\n"
+			}
+			_, err := delivery.Write([]byte(records))
+			require.NoError(t, err)
+			require.NoError(t, delivery.DeliverFailure(syntheticTerminalFailure(), true))
+			require.Contains(t, recorder.Body.String(), "partial")
+			require.NotContains(t, recorder.Body.String(), "[DONE]")
+			require.Equal(t, 1, strings.Count(recorder.Body.String(), "synthetic subscription pool exhausted"))
+		})
+	}
+}

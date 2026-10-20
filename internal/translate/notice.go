@@ -306,6 +306,12 @@ func (d *NoticeDelivery) writeRecord(event, record []byte) error {
 	if chatDone && d.chatDone {
 		return nil
 	}
+	d.observation.ObserveEvent(event)
+	if chatDone && d.observation.EOF() != nil {
+		// An unfinished choice cannot publish a successful end or suppress
+		// the request owner's eventual protocol-native failure.
+		return nil
+	}
 	_, d.failure = d.sink.Write(record)
 	if d.failure != nil {
 		return d.failure
@@ -314,7 +320,6 @@ func (d *NoticeDelivery) writeRecord(event, record []byte) error {
 		d.providerContentStarted = true
 	}
 	d.chatDone = d.chatDone || chatDone
-	d.observation.ObserveEvent(event)
 	d.terminalFailure = d.terminalFailure || d.observation.State() == StreamFailed
 	if d.terminalFailure || noticeTerminal(d.capabilities.Format, event) {
 		d.terminal = true
