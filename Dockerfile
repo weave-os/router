@@ -51,7 +51,7 @@ COPY frontend/ ./
 # where the Go server reads it.
 RUN npm run build
 
-FROM golang:1.25.9-bookworm AS build-stage
+FROM golang:1.26.10-bookworm AS build-stage
 
 ARG ONNXRUNTIME_VERSION
 ARG TOKENIZERS_VERSION
@@ -213,7 +213,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # The smoke suite's one-shot seed command does not need the router's CGO/ONNX
 # runtime. Keep it as a small target in this Dockerfile so CI does not start a
 # fresh Go SDK container and run `go run` on every smoke invocation.
-FROM golang:1.25.9-bookworm AS seed-build
+FROM golang:1.26.10-bookworm AS seed-build
 WORKDIR /app
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download

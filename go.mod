@@ -1,8 +1,8 @@
 module weave-os/router
 
-go 1.25.0
+go 1.26.0
 
-toolchain go1.25.9
+toolchain go1.26.10
 
 require (
 	cloud.google.com/go/auth v0.20.0

@@ -97,7 +97,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.9'
+          go-version: '1.26.10'
           cache-dependency-path: go.sum
 
       - name: Check policy registry and inference boundary
@@ -133,7 +133,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.9'
+          go-version: '1.26.10'
           cache-dependency-path: go.sum
 
       - name: Test the Go CI relevance classifier
@@ -207,7 +207,7 @@ jobs:
       - name: Lint
         uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9 # v8
         with:
-          version: v2.6.2
+          version: v2.15.0
 
       - name: Run tests with vetting
         run: go test -vet=all -count=1 ./...
@@ -441,7 +441,7 @@ jobs:
       - name: Set up Go for the serving contract
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.9'
+          go-version: '1.26.10'
           cache-dependency-path: go.sum
 
       - name: Verify Go to bundled Python contract
