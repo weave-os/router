@@ -113,8 +113,12 @@ served something else releases the slot, which then yields to any other due
 circuit not yet offered. Only main and
 tool-result turns that can sibling-rescue (never Gemini ingress or caller
 credentials) take the probe, so a failed probe never reaches the client.
-Committed streams, client cancellations, other statuses and BYOK gateways are
-not overload evidence. State is in-process per replica by design: the request path reads an
+An open circuit only stops the router *choosing* the model: when a sibling
+rescue finds no other eligible candidate (a two-model roster whose other arm
+just failed), `rescueWalkOrReadmitCooling` readmits open-circuit models before
+session strikes, so the turn tries the overloaded model instead of surfacing
+the other arm's error. Committed streams, client cancellations, other statuses
+and BYOK gateways are not overload evidence. State is in-process per replica by design: the request path reads an
 atomically published set, and a served request on a closed circuit takes no
 lock. The semantic cache is skipped while any circuit is open, as for any
 automatic exclusion.

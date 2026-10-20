@@ -248,6 +248,49 @@ func TestRecordOverloadOutcome_OnlyTheProbeResolves(t *testing.T) {
 	assert.Equal(t, breaker.StateOpen, h.state(), "the probe's own 529 reopens it")
 }
 
+// An open circuit only stops the router choosing the model. When a two-model
+// roster's other arm fails and nothing else is eligible, the sibling rescue
+// readmits the overloaded model rather than surfacing the failure.
+func TestRescueDecisions_ReadmitsOpenCircuitAsLastResort(t *testing.T) {
+	md := &router.RoutingMetadata{
+		CandidateModels:    []string{"claude-sonnet-5", "claude-opus-5"},
+		CandidateProviders: map[string]string{"claude-opus-5": providers.ProviderAnthropic},
+	}
+	failed := overloadedDecision(md)
+	failed.Model = "claude-sonnet-5"
+	for _, tc := range []struct {
+		name    string
+		enabled bool
+		want    []string
+	}{
+		{name: "flag on readmits the open circuit", enabled: true, want: []string{"claude-opus-5"}},
+		{name: "flag off has nothing withdrawn", enabled: false, want: []string{"claude-opus-5"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := siblingService(providers.ProviderAnthropic).WithProviderOverloaded(tc.enabled).
+				WithOverloadBreaker(breaker.New(breaker.Config{Strikes: 1, Window: time.Minute, RecoveryBase: time.Minute}, nil))
+			s.overloadBreaker.RecordOverload("claude-opus-5")
+
+			assert.Equal(t, tc.want, siblingModels(s.siblingFailoverDecisions(context.Background(), failed, 1_000, 0, 0)))
+		})
+	}
+}
+
+// A healthy candidate still outranks an open circuit in the rescue walk.
+func TestRescueDecisions_PrefersHealthyCandidateOverOpenCircuit(t *testing.T) {
+	md := &router.RoutingMetadata{
+		CandidateModels:    []string{"claude-sonnet-5", "claude-opus-5", "claude-haiku-4-5"},
+		CandidateProviders: map[string]string{"claude-opus-5": providers.ProviderAnthropic, "claude-haiku-4-5": providers.ProviderAnthropic},
+	}
+	failed := overloadedDecision(md)
+	failed.Model = "claude-sonnet-5"
+	s := siblingService(providers.ProviderAnthropic).WithProviderOverloaded(true).
+		WithOverloadBreaker(breaker.New(breaker.Config{Strikes: 1, Window: time.Minute, RecoveryBase: time.Minute}, nil))
+	s.overloadBreaker.RecordOverload("claude-opus-5")
+
+	assert.Equal(t, []string{"claude-haiku-4-5"}, siblingModels(s.siblingFailoverDecisions(context.Background(), failed, 1_000, 0, 0)))
+}
+
 // Flag off, nothing is recorded and every turn pays the overload and rescue
 // exactly as before.
 func TestOverloadBreaker_FlagOffKeepsTodaysBehaviour(t *testing.T) {

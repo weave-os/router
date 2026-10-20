@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"slices"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -124,6 +125,16 @@ func (s *Service) recordOverloadOutcome(ctx context.Context, model, provider str
 	if overloaded {
 		logOverloadTransition(ctx, s.overloadBreaker.RecordOverload(model))
 	}
+}
+
+// sortedModels lists a model set in a stable order.
+func sortedModels(set map[string]struct{}) []string {
+	models := make([]string, 0, len(set))
+	for model := range set {
+		models = append(models, model)
+	}
+	slices.Sort(models)
+	return models
 }
 
 // isProviderOverloaded reports a buffered upstream 529, the status Anthropic's
