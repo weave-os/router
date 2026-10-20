@@ -789,16 +789,11 @@ func (s *Service) handleForceModelCommand(
 	threadSessionKey, forceModelSessionKey [sessionpin.SessionKeyLen]byte,
 	inputTokens int,
 ) error {
-	_, msg, err := s.applyForceModelCommand(ctx, env, cmd, installationID, threadSessionKey, forceModelSessionKey)
+	_, ack, err := s.applyForceModelCommand(ctx, cmd, installationID, threadSessionKey, forceModelSessionKey)
 	if err != nil {
 		return err
 	}
-	switch env.SourceFormat() {
-	case translate.FormatOpenAI:
-		return writeSyntheticOpenAIResponse(w, env, msg, inputTokens)
-	default:
-		return writeSyntheticAnthropicResponse(w, env, msg, inputTokens)
-	}
+	return writeCommandAcknowledgment(ctx, w, env, ack, inputTokens)
 }
 
 // applyForceModelCommand updates the session pin without deciding whether the
@@ -807,35 +802,28 @@ func (s *Service) handleForceModelCommand(
 // req.ForceModel resolves the same effort) when a force was applied.
 func (s *Service) applyForceModelCommand(
 	ctx context.Context,
-	env *translate.RequestEnvelope,
 	cmd translate.ForceModelResult,
 	installationID uuid.UUID,
 	threadSessionKey, forceModelSessionKey [sessionpin.SessionKeyLen]byte,
-) (string, string, error) {
+) (string, commandAcknowledgment, error) {
 	log := observability.FromContext(ctx)
 
-	// Formatted as a routing marker (✦ **Weave Router** → …\n\n) so
-	// StripRoutingMarkerFromMessages strips it from later inbound requests;
-	// otherwise it'd persist in history and leak router internals upstream.
-	var msg string
+	ack := newCommandAcknowledgment(translate.CommandForceModel)
 	if cmd.Clear {
 		if err := s.clearLegacyForceModelPins(ctx, installationID, threadSessionKey); err != nil {
 			log.Error("/unforce-model: legacy pin cleanup failed", "err", err)
-			return "", "", err
+			return "", commandAcknowledgment{}, err
 		}
 		if err := s.clearForceModelSessionPin(ctx, installationID, forceModelSessionKey); err != nil {
 			log.Error("/unforce-model: session pin clear failed", "err", err)
-			return "", "", err
+			return "", commandAcknowledgment{}, err
 		}
-		msg = "✦ **Weave Router** → force-model cleared · resuming automatic model selection\n\n"
-		if env.SourceFormat() == translate.FormatOpenAI {
-			msg = "Weave Router: force-model cleared; resuming automatic model selection"
-		}
+		ack.outcome.Pin.Transition = translate.PinCleared
 		log.Debug("/unforce-model: session pin cleared",
 			"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
 			"role", forceModelSessionRole,
 		)
-		return "", msg, nil
+		return "", ack, nil
 	}
 
 	canonicalModel, provider, known, effortLevel := resolveForceModelWithEffort(cmd.Model)
@@ -847,15 +835,9 @@ func (s *Service) applyForceModelCommand(
 			"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
 			"role", forceModelSessionRole,
 		)
-		hint := "Use a model ID or shorthand, e.g. " + forceModelExamples + "."
-		if suggestion != "" {
-			hint = fmt.Sprintf("Did you mean %q?", suggestion)
-		}
-		msg = fmt.Sprintf("✦ **Weave Router** → force-model: %q isn't a recognized model · keeping automatic routing. %s\n\n", cmd.Model, hint)
-		if env.SourceFormat() == translate.FormatOpenAI {
-			msg = fmt.Sprintf("Weave Router: force-model: %q isn't a recognized model; keeping automatic routing. %s", cmd.Model, hint)
-		}
-		return "", msg, nil
+		ack.outcome.Disposition = translate.CommandRejected
+		ack.force = forceAcknowledgment{rejection: forceUnknownModel, inputModel: cmd.Model, suggestion: suggestion}
+		return "", ack, nil
 	}
 
 	binding, reason := s.forcedModelBinding(ctx, canonicalModel, provider)
@@ -868,30 +850,25 @@ func (s *Service) applyForceModelCommand(
 			"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
 			"role", forceModelSessionRole,
 		)
-		msg = fmt.Sprintf("✦ **Weave Router** → force-model rejected: %s · keeping automatic routing. Ask an admin to allow the provider, or force a model from one that is permitted.\n\n", reason)
-		if env.SourceFormat() == translate.FormatOpenAI {
-			msg = fmt.Sprintf("Weave Router: force-model rejected: %s; keeping automatic routing. Ask an admin to allow the provider, or force a model from one that is permitted.", reason)
-		}
-		return "", msg, nil
+		ack.outcome.Disposition = translate.CommandRejected
+		ack.force = forceAcknowledgment{rejection: forceExcludedModel, reason: reason}
+		return "", ack, nil
 	}
 
 	if err := s.clearLegacyForceModelPins(ctx, installationID, threadSessionKey); err != nil {
 		log.Error("/force-model: legacy pin cleanup failed", "err", err)
-		return "", "", err
+		return "", commandAcknowledgment{}, err
 	}
 	if err := s.setForceModelSessionPin(ctx, forceModelSessionKey, installationID, canonicalModel, binding, effortLevel); err != nil {
 		log.Error("/force-model: session pin upsert failed", "err", err)
-		return "", "", err
+		return "", commandAcknowledgment{}, err
 	}
 	shownModel := canonicalModel
 	if effortLevel != "" {
 		shownModel = canonicalModel + ":" + effortLevel
 	}
-	clear := directivePrefix(ClientIdentityFrom(ctx).ClientApp) + "unforce-model"
-	msg = fmt.Sprintf("✦ **Weave Router** → force-model applied: %s (%s) · Use %s to clear\n\n", shownModel, binding, clear)
-	if env.SourceFormat() == translate.FormatOpenAI {
-		msg = fmt.Sprintf("Weave Router: force-model applied: %s (%s). Use %s to clear.", shownModel, binding, clear)
-	}
+	ack.outcome.Pin = translate.CommandPin{Transition: translate.PinApplied, Model: canonicalModel, Provider: binding, Effort: effortLevel}
+	ack.force.clearCommand = directivePrefix(ClientIdentityFrom(ctx).ClientApp) + "unforce-model"
 	log.Debug("/force-model: session pin set",
 		"input_model", cmd.Model,
 		"canonical_model", canonicalModel,
@@ -900,7 +877,7 @@ func (s *Service) applyForceModelCommand(
 		"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
 		"role", forceModelSessionRole,
 	)
-	return shownModel, msg, nil
+	return shownModel, ack, nil
 }
 
 // writeSyntheticAnthropicResponse writes a minimal Anthropic Messages API

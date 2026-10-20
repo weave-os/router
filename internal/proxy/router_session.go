@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	"weave-os/router/internal/observability"
@@ -25,35 +24,13 @@ func (s *Service) handleRouterSessionCommand(
 ) error {
 	log := observability.FromContext(ctx)
 	identity := ClientIdentityFrom(ctx)
-	msg := routerSessionMessage(identity.SessionID, identity.ClientApp, env.SourceFormat())
+	ack := newCommandAcknowledgment(translate.CommandRouterSession)
+	ack.sessionID, ack.clientApp = identity.SessionID, identity.ClientApp
 
 	log.Debug("/router-session: answered from request identity",
 		"has_session_id", identity.SessionID != "",
 		"client_app", identity.ClientApp,
 	)
 
-	if env.SourceFormat() == translate.FormatOpenAI {
-		return writeSyntheticOpenAIResponse(w, env, msg, inputTokens)
-	}
-	return writeSyntheticAnthropicResponse(w, env, msg, inputTokens)
-}
-
-// routerSessionMessage renders the ack in the marker style each surface uses:
-// OpenAI-format clients (Codex) get plain text, Anthropic-format clients get
-// the ✦ marker the rest of the router's synthetic replies use there.
-func routerSessionMessage(sessionID, clientApp string, format translate.Format) string {
-	if sessionID == "" {
-		// No session header means nothing here is correlated, so naming a
-		// substitute id would point support at the wrong session. Say so.
-		const detail = "no session id on this request. This client did not send one, so its turns are not correlated in router telemetry."
-		if format == translate.FormatOpenAI {
-			return "Weave Router: " + detail
-		}
-		return "✦ **Weave Router** → " + detail + "\n\n"
-	}
-	hint := directivePrefix(clientApp) + "router-feedback"
-	if format == translate.FormatOpenAI {
-		return fmt.Sprintf("Weave Router: session id: %s. Quote it in support requests; %s attaches feedback to this session.", sessionID, hint)
-	}
-	return fmt.Sprintf("✦ **Weave Router** → session id: `%s` · quote it in support requests; `%s` attaches feedback to this session\n\n", sessionID, hint)
+	return writeCommandAcknowledgment(ctx, w, env, ack, inputTokens)
 }

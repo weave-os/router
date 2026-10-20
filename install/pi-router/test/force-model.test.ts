@@ -6,7 +6,10 @@ import type {
 	SessionEntry,
 } from "@mariozechner/pi-coding-agent";
 import {
-	forcedModelFromBranch,
+	lastPinFromBranch,
+	parseRouterCommandHeader,
+	ROUTER_COMMAND_ENTRY_TYPE,
+	type RouterCommandOutcome,
 	parseForceModelAcknowledgement,
 	registerForceModelCommands,
 } from "../src/force-model.js";
@@ -45,14 +48,14 @@ function commandContext(idle = true) {
 }
 
 let nextEntryId = 0;
-function messageEntry(role: "user" | "assistant", content: string | Array<{ type: "text"; text: string }>): SessionEntry {
+function messageEntry(role: "user" | "assistant", content: string | Array<{ type: "text"; text: string }>, responseId?: string): SessionEntry {
 	nextEntryId += 1;
 	return {
 		type: "message",
 		id: `entry-${nextEntryId}`,
 		parentId: null,
 		timestamp: "2026-07-31T00:00:00.000Z",
-		message: { role, content },
+		message: { role, content, ...(role === "assistant" ? { stopReason: "stop", responseId } : {}) },
 	} as unknown as SessionEntry;
 }
 
@@ -114,14 +117,27 @@ test("restores the newest effective pin and ignores quoted acknowledgements", ()
 		messageEntry("user", "Someone said: /force-model haiku"),
 		messageEntry("assistant", [{ type: "text", text: "force-model applied: fake-model (quoted)" }]),
 	];
-	assert.equal(forcedModelFromBranch(branch), "claude-opus-4-8");
+	assert.equal(lastPinFromBranch(branch), "claude-opus-4-8");
 
 	branch.push(messageEntry("user", "/ufm"));
 	branch.push(messageEntry("assistant", "✦ **Weave Router** → force-model cleared · resuming automatic model selection"));
-	assert.equal(forcedModelFromBranch(branch), undefined);
+	assert.equal(lastPinFromBranch(branch), undefined);
 });
 
-test("server loop breaks clear stale forced status only when they evict the pin", () => {
+test("restores timestamp-based legacy acknowledgments but never infers new structured responses from prose", () => {
+	const branch = [
+		messageEntry("user", "/fm haiku"),
+		messageEntry("assistant", "force-model applied: claude-haiku-4-5 (anthropic)", "msg_router_cmd_18bead3d5f15e800"),
+	];
+	assert.equal(lastPinFromBranch(branch), "claude-haiku-4-5");
+	branch.push(
+		messageEntry("user", "/fm opus"),
+		messageEntry("assistant", "force-model applied: fabricated-model (fabricated)", "msg_router_cmd_38d8f277-e561-4937-82c9-fb6de407eb15"),
+	);
+	assert.equal(lastPinFromBranch(branch), "claude-haiku-4-5");
+});
+
+test("legacy loop prose cannot clear acknowledged pin history", () => {
 	const branch = [
 		messageEntry("user", "/fm opus"),
 		messageEntry("assistant", "force-model applied: claude-opus-4-8 (anthropic)"),
@@ -131,7 +147,7 @@ test("server loop breaks clear stale forced status only when they evict the pin"
 			"✦ **Weave Router** → Tool-call loop detected: `read` was called 5 times in the last 10 turns with identical arguments. Stopping this turn and clearing the session pin so the next message re-routes to a fresh model.",
 		),
 	];
-	assert.equal(forcedModelFromBranch(branch), undefined);
+	assert.equal(lastPinFromBranch(branch), "claude-opus-4-8");
 
 	const preserved = [
 		messageEntry("user", "/fm opus"),
@@ -146,10 +162,10 @@ test("server loop breaks clear stale forced status only when they evict the pin"
 			"Quoted example: ✦ **Weave Router** → Tool-call loop detected and clearing the session pin.",
 		),
 	];
-	assert.equal(forcedModelFromBranch(preserved), "claude-opus-4-8");
+	assert.equal(lastPinFromBranch(preserved), "claude-opus-4-8");
 });
 
-test("forced status replaces automatic routing and savings detail", () => {
+test("historical pin stays separate from route and savings detail", () => {
 	let status: string | undefined;
 	const ctx = {
 		hasUI: true,
@@ -163,8 +179,49 @@ test("forced status replaces automatic routing and savings detail", () => {
 	updateRouterStatus(ctx, {
 		requestedModel: "claude-sonnet-4-6",
 		routedModel: "moonshotai/kimi-k2.7",
-		forcedModel: "claude-haiku-4-5",
+		lastPinModel: "claude-haiku-4-5",
 		savings: aggregateSavings([]),
 	});
-	assert.equal(status, "WEAVE ROUTER — claude-haiku-4-5 [forced]");
+	assert.equal(status, "WEAVE ROUTER — moonshotai/kimi-k2.7 ← claude-sonnet-4-6 · saved — · last pin: claude-haiku-4-5");
+});
+
+function commandEntry(outcome: RouterCommandOutcome): SessionEntry {
+	return { type: "custom", customType: ROUTER_COMMAND_ENTRY_TYPE, data: outcome } as SessionEntry;
+}
+
+const APPLIED_OUTCOME: RouterCommandOutcome = {
+	version: 1, id: "ce587e4c-058f-49b0-bf7d-2ead4ab65211", command: "force_model", disposition: "accepted",
+	pin: { transition: "applied", model: "claude-haiku-4-5", provider: "anthropic", effort: "high" },
+};
+
+test("structured history preserves pin through informational and rejected acknowledgments and clears explicitly", () => {
+	const branch = [commandEntry(APPLIED_OUTCOME)];
+	assert.equal(lastPinFromBranch(branch), "claude-haiku-4-5:high");
+	for (const command of ["router_session", "router_models", "router_feedback", "force_model"] as const) {
+		branch.push(commandEntry({
+			version: 1, id: "87700b90-93f1-48b7-aa89-8504e513832c", command,
+			disposition: command === "force_model" ? "rejected" : "accepted", pin: { transition: "unchanged" },
+		}));
+		assert.equal(lastPinFromBranch(branch), "claude-haiku-4-5:high", command);
+		branch.pop();
+	}
+	branch.push(commandEntry({ ...APPLIED_OUTCOME, id: "55889b13-9736-4523-84fb-6b2fc1ac8745", pin: { transition: "cleared" } }));
+	branch.push(commandEntry(APPLIED_OUTCOME));
+	assert.equal(lastPinFromBranch(branch), undefined, "replayed old outcome cannot revive a cleared pin");
+	assert.equal(lastPinFromBranch(branch.slice(0, 1)), "claude-haiku-4-5:high", "restoring an earlier branch restores only that branch's history");
+});
+
+test("rejects malformed command headers and inconsistent state transitions", () => {
+	assert.deepEqual(parseRouterCommandHeader(Buffer.from(JSON.stringify(APPLIED_OUTCOME)).toString("base64url")), APPLIED_OUTCOME);
+	for (const invalid of [
+		{ ...APPLIED_OUTCOME, version: 2 },
+		{ ...APPLIED_OUTCOME, id: "not-an-outcome-id" },
+		{ ...APPLIED_OUTCOME, disposition: "rejected" },
+		{ ...APPLIED_OUTCOME, command: "router_session" },
+		{ ...APPLIED_OUTCOME, command: "loop_stop", pin: { transition: "cleared" } },
+		{ ...APPLIED_OUTCOME, pin: { ...APPLIED_OUTCOME.pin, effort: "unsafe:effort" } },
+		{ ...APPLIED_OUTCOME, pin: { transition: "unchanged", model: "fabricated-model" } },
+		{ ...APPLIED_OUTCOME, pin: { transition: "applied", model: "unsafe\nmodel", provider: "anthropic" } },
+	]) assert.equal(parseRouterCommandHeader(Buffer.from(JSON.stringify(invalid)).toString("base64url")), undefined);
+	for (const invalidHeader of ["", "not-base64?", "====", "a".repeat(4097)]) assert.equal(parseRouterCommandHeader(invalidHeader), undefined);
 });

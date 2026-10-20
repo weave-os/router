@@ -127,10 +127,6 @@ func (s *Service) handleTextRepetitionBreak(
 		}
 	}
 
-	switch env.SourceFormat() {
-	case translate.FormatOpenAI:
-		return writeSyntheticOpenAIResponse(w, env, msg, inputTokens)
-	default:
-		return writeSyntheticAnthropicResponse(w, env, msg, inputTokens)
-	}
+	ack := newCommandAcknowledgment(translate.CommandLoopStop)
+	return writeCommandOutcome(ctx, w, env, msg, ack.outcome, inputTokens)
 }

@@ -119,12 +119,12 @@ func TestBoostServingAppliesForceModelCommand(t *testing.T) {
 	forceKey := [sessionpin.SessionKeyLen]byte{3}
 
 	forcedModel, message, err := svc.applyForceModelCommand(
-		boostPlanOwnedContext(), env, translate.ForceModelResult{Model: "sol"}, uuid.New(), threadKey, forceKey,
+		boostPlanOwnedContext(), translate.ForceModelResult{Model: "sol"}, uuid.New(), threadKey, forceKey,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "gpt-6.1-sol", forcedModel)
-	assert.Contains(t, message, "force-model applied")
-	assert.NotContains(t, message, "automatic model selection")
+	assert.Contains(t, message.render(env.SourceFormat()), "force-model applied")
+	assert.NotContains(t, message.render(env.SourceFormat()), "automatic model selection")
 
 	stored, found, err := store.Get(context.Background(), forceKey, forceModelSessionRole)
 	require.NoError(t, err)
@@ -151,10 +151,10 @@ func TestMaxServingStillRejectsClosedSourceForceModel(t *testing.T) {
 	svc := &Service{pinStore: store}
 	env := forceCommandEnv(t)
 	_, message, err := svc.applyForceModelCommand(
-		planOwnedContext(), env, translate.ForceModelResult{Model: "opus"}, uuid.New(),
+		planOwnedContext(), translate.ForceModelResult{Model: "opus"}, uuid.New(),
 		[sessionpin.SessionKeyLen]byte{4}, [sessionpin.SessionKeyLen]byte{5},
 	)
 	require.NoError(t, err)
-	assert.Contains(t, message, "force-model rejected")
+	assert.Contains(t, message.render(env.SourceFormat()), "force-model rejected")
 	assert.Empty(t, store.pins)
 }
