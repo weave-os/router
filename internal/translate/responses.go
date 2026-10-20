@@ -309,16 +309,11 @@ func responsesInputItemToMessages(item gjson.Result) ([]map[string]any, error) {
 // the first assistant text delta. Stripped on ingress so it doesn't accumulate
 // in history (defeats prompt-cache reuse) or leak router-injected content
 // upstream.
-var responsesBadgePattern = regexp.MustCompile(`(?is)\A(?:\*\*WEAVE ROUTER\*\* — .*?\n\n|✦ \*\*WEAVE ROUTER\*\* → .*?\n\n)`)
+var responsesBadgePattern = regexp.MustCompile(`(?is)\A(?:` + regexp.QuoteMeta(routerNoticeSentinel) + `.*?\n\n|` + legacyNoticeExpression + `)`)
 
-// responsesTerminalBadgeSentinel is an invisible router-owned prefix that
-// distinguishes injected badge text from user-authored assistant prose.
-const responsesTerminalBadgeSentinel = "\u2063\u2060\u2063\u2060"
+const responsesTerminalBadgeSentinel = routerNoticeSentinel
 
-var responsesTerminalBadgePattern = regexp.MustCompile(
-	`(?is)\A` + regexp.QuoteMeta(responsesTerminalBadgeSentinel) +
-		`(?:\*\*WEAVE ROUTER\*\* — .*?\n\n|✦ \*\*WEAVE ROUTER\*\* → .*?\n\n)`,
-)
+var responsesTerminalBadgePattern = regexp.MustCompile(`(?is)\A` + regexp.QuoteMeta(routerNoticeSentinel) + `.*?\n\n`)
 
 // StripRoutingBadgeFromResponsesInput removes a provenance-marked router badge
 // from assistant items. Call only for clients opted into terminal surfaces.
@@ -685,6 +680,7 @@ type ResponsesWriter struct {
 	nativeBadgeContentIndex     int64
 	nativeBadgeHasContentIndex  bool
 	nativeSyntheticBadgeEmitted bool
+	nativeNoticeItems           []json.RawMessage
 	nativePreludeCreated        bool
 	nativeStreamStarted         bool
 	nativeResponseID            string
@@ -1062,7 +1058,7 @@ func (t *ResponsesWriter) detectNativeResponsesSSE() bool {
 // upstream Write emitting created later if this hasn't run yet.
 func (t *ResponsesWriter) Prelude(streaming bool) error {
 	if t.passthrough {
-		if !streaming || !t.passthroughBadge || t.nativeSyntheticBadgeEmitted || t.computeBadgeText() == "" {
+		if !streaming || !t.passthroughBadge || t.nativePreludeCreated {
 			return nil
 		}
 		t.inner.Header().Set("Content-Type", "text/event-stream")
@@ -1078,6 +1074,9 @@ func (t *ResponsesWriter) Prelude(streaming bool) error {
 			return err
 		}
 		t.nativePreludeCreated = true
+		if t.computeBadgeText() == "" {
+			return nil
+		}
 		return t.emitNativeSyntheticBadge(1, 0)
 	}
 	if !streaming || t.headersEmitted {
@@ -1520,27 +1519,17 @@ func (t *ResponsesWriter) rewriteNativePassthroughFields(data []byte) ([]byte, b
 			changed = true
 		}
 	}
-	if !t.nativeSyntheticBadgeEmitted || (root.Get("type").Str != "response.completed" && root.Get("type").Str != "response.incomplete") {
+	if !t.nativeSyntheticBadgeEmitted || (root.Get("type").Str != "response.completed" && root.Get("type").Str != "response.incomplete" && root.Get("type").Str != "response.failed") {
 		return data, changed
 	}
 	output := root.Get("response.output")
 	if !output.IsArray() {
 		return data, changed
 	}
-	for _, item := range output.Array() {
-		if item.Get("id").Str == t.nativeBadgeItemID {
-			return data, changed
-		}
+	items := make([]string, 0, len(output.Array())+len(t.nativeNoticeItems))
+	for _, noticeItem := range t.nativeNoticeItems {
+		items = append(items, string(noticeItem))
 	}
-	badgeItem, err := json.Marshal(map[string]any{
-		"id": t.nativeBadgeItemID, "type": "message", "status": "completed", "role": "assistant",
-		"content": []any{map[string]any{"type": "output_text", "text": t.computeBadgeText(), "annotations": []any{}}},
-	})
-	if err != nil {
-		return data, changed
-	}
-	items := make([]string, 0, len(output.Array())+1)
-	items = append(items, string(badgeItem))
 	for _, item := range output.Array() {
 		items = append(items, item.Raw)
 	}
@@ -1680,6 +1669,14 @@ func (t *ResponsesWriter) emitNativeSyntheticBadge(base, outputIndex int64) erro
 	}); err != nil {
 		return err
 	}
+	completedNotice, err := json.Marshal(map[string]any{
+		"id": itemID, "type": "message", "status": "completed", "role": "assistant",
+		"content": []any{map[string]any{"type": "output_text", "text": text, "annotations": []any{}}},
+	})
+	if err != nil {
+		return err
+	}
+	t.nativeNoticeItems = append(t.nativeNoticeItems, completedNotice)
 	t.nativeSyntheticBadgeEmitted = true
 	t.nativeBadgeTargetSelected = true
 	t.nativeBadgeItemID = itemID
@@ -1890,14 +1887,8 @@ func (t *ResponsesWriter) FinalizeError(err error) error {
 		if t.nativeResponseID != "" {
 			env["id"] = t.nativeResponseID
 		}
-		if t.nativeBadgeItemID != "" {
-			env["output"] = []any{map[string]any{
-				"id": t.nativeBadgeItemID, "type": "message", "status": "completed", "role": "assistant",
-				"content": []any{map[string]any{
-					"type": "output_text", "text": t.computeBadgeText(), "annotations": []any{},
-				}},
-			}}
-		} else {
+		env["output"] = t.nativeNoticeItems
+		if len(t.nativeNoticeItems) == 0 {
 			env["output"] = []any{}
 		}
 		env["error"] = t.failureError()
@@ -1956,6 +1947,7 @@ func (t *ResponsesWriter) FailContextOverflow(streaming bool, code, message stri
 		if err != nil {
 			return err
 		}
+		t.sealInner()
 		t.inner.Header().Set("Content-Type", "application/json")
 		t.inner.Header().Del("Content-Length")
 		t.inner.Header().Del("Content-Encoding")

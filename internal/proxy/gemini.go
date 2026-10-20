@@ -319,12 +319,11 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
 	bindings := s.resolveBindingsForDispatch(ctx, decision)
 	primaryDecision := decision
+	notices := &requestNoticeStream{}
 	attempt := func(actx context.Context, d router.Decision, p providers.Client) error {
-		attemptSink := http.ResponseWriter(preludeBuf)
-		if marker != "" {
-			mw := translate.NewGeminiRoutingMarkerWriter(attemptSink, marker)
-			mw.Prepare(env.Stream())
-			attemptSink = mw
+		attemptSink, noticeErr := notices.prepare(r.Context(), preludeBuf, preludeBuf, translate.FormatGemini, env.Stream(), d.Model, marker)
+		if noticeErr != nil {
+			return fmt.Errorf("emit Gemini router notice: %w", noticeErr)
 		}
 		proxySink := attemptSink
 		if s.usageRequired() {
@@ -347,9 +346,15 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		initialDecision: decision,
 		bindings:        bindings,
 		attempt:         attempt,
-		flushErr:        flushBufferedIfPresent,
-		purpose:         routeRes.dispatchPurpose(inference.PurposeGeminiGenerateContent),
-		origin:          routeRes.dispatchOrigin(decision),
+		flushErr: func(w http.ResponseWriter, err error) {
+			if env.Stream() && preludeBuf.PreludeSent() {
+				emitGeminiSSEErrorEvent(w)
+				return
+			}
+			flushBufferedIfPresent(w, err)
+		},
+		purpose: routeRes.dispatchPurpose(inference.PurposeGeminiGenerateContent),
+		origin:  routeRes.dispatchOrigin(decision),
 	})
 	primaryFailureErr := proxyErr
 	proxyMs := time.Since(proxyStart).Milliseconds()

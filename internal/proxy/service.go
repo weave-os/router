@@ -3366,7 +3366,7 @@ func (s *Service) anthropicNativeAttempt(
 	prep providers.PreparedRequest,
 	sink http.ResponseWriter,
 	preludeBuf *preludeBuffer,
-	preludeState *anthropicPreludeState,
+	preludeState *requestNoticeStream,
 	streamCut *streamCutObserver,
 	marker string,
 	setExtractor func(*otel.UsageExtractor),
@@ -3375,14 +3375,9 @@ func (s *Service) anthropicNativeAttempt(
 	return func(actx context.Context, d router.Decision, p providers.Client) error {
 		requestCacheTTL1h := func() bool { return translate.AnthropicRequestCacheTTL1h(prep.Body) }
 		setStreamCost(d, false, requestCacheTTL1h)
-		attemptMarker := preludeState.markerForAttempt(marker, preludeBuf)
-		attemptSink := sink
-		if marker != "" || (preludeBuf != nil && preludeBuf.PreludeSent()) {
-			markerWriter := translate.NewAnthropicRoutingMarkerWriter(sink, d.Model, attemptMarker)
-			if err := preludeState.emit(env.Stream(), marker, markerWriter, preludeBuf); err != nil {
-				return fmt.Errorf("emit Anthropic routing marker: %w", err)
-			}
-			attemptSink = markerWriter
+		attemptSink, noticeErr := preludeState.prepare(r.Context(), sink, preludeBuf, translate.FormatAnthropic, env.Stream(), d.Model, marker)
+		if noticeErr != nil {
+			return fmt.Errorf("emit Anthropic router notice: %w", noticeErr)
 		}
 		proxyWriter := attemptSink
 		if s.usageRequired() {
@@ -4450,7 +4445,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// translators validate/repair model tool calls against it. Nil if no tools.
 	toolValidator := env.ToolValidator()
 	setExtractor := func(e *otel.UsageExtractor) { extractor = e }
-	anthropicPrelude := &anthropicPreludeState{}
+	anthropicPrelude := &requestNoticeStream{}
 	// fastServed tracks whether the most recent attempt went out on the fast
 	// tier; each attempt closure sets it before dispatch so the stream cost
 	// calculator and post-dispatch billing price the winning attempt.
@@ -4560,28 +4555,29 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					usage = extractor
 				}
 				var translator translate.ResponseTranslator
-				attemptMarker := anthropicPrelude.markerForAttempt(targetMarker, preludeBuf)
+				attemptSink, noticeErr := anthropicPrelude.prepare(r.Context(), sink, preludeBuf, translate.FormatAnthropic, env.Stream(), d.Model, targetMarker)
+				if noticeErr != nil {
+					return noticeErr, func(err error) error { return err }
+				}
 				if useResponses {
-					responsesTranslator := translate.NewResponsesToAnthropicWriter(sink, d.Model, usage).
+					responsesTranslator := translate.NewResponsesToAnthropicWriter(attemptSink, d.Model, usage).
 						WithReasoningScope(attemptOpts.ReasoningReplayScope).
-						WithRoutingMarker(attemptMarker).
 						WithEstimatedInputTokens(feats.Tokens).
 						WithRequestHadTools(feats.HasTools).
 						WithToolValidator(toolValidator)
-					if err := anthropicPrelude.emit(env.Stream(), targetMarker, responsesTranslator, preludeBuf); err != nil {
+					if err := responsesTranslator.Prelude(env.Stream()); err != nil {
 						return fmt.Errorf("emit Anthropic routing marker: %w", err), func(err error) error { return err }
 					}
 					translator = responsesTranslator
 				} else {
-					chatTranslator := translate.NewAnthropicSSETranslator(sink, d.Model, usage).
+					chatTranslator := translate.NewAnthropicSSETranslator(attemptSink, d.Model, usage).
 						WithLogger(log).
-						WithRoutingMarker(attemptMarker).
 						WithEstimatedInputTokens(feats.Tokens).
 						WithRequestHadTools(feats.HasTools).
 						WithThinkTagReasoning(catalog.ThinkTagReasoningFor(d.Model)).
 						WithEscapeNormalize(s.escapeNormalize).
 						WithToolValidator(toolValidator)
-					if err := anthropicPrelude.emit(env.Stream(), targetMarker, chatTranslator, preludeBuf); err != nil {
+					if err := chatTranslator.Prelude(env.Stream()); err != nil {
 						return fmt.Errorf("emit Anthropic routing marker: %w", err), func(err error) error { return err }
 					}
 					translator = chatTranslator
@@ -4682,15 +4678,17 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					usage = extractor
 				}
 				// SSE chain: Gemini → OpenAI → Anthropic.
-				attemptMarker := anthropicPrelude.markerForAttempt(targetMarker, preludeBuf)
-				anthropicTr := translate.NewAnthropicSSETranslator(sink, d.Model, usage).
+				attemptSink, noticeErr := anthropicPrelude.prepare(r.Context(), sink, preludeBuf, translate.FormatAnthropic, env.Stream(), d.Model, targetMarker)
+				if noticeErr != nil {
+					return noticeErr, func(err error) error { return err }
+				}
+				anthropicTr := translate.NewAnthropicSSETranslator(attemptSink, d.Model, usage).
 					WithLogger(log).
-					WithRoutingMarker(attemptMarker).
 					WithEstimatedInputTokens(feats.Tokens).
 					WithRequestHadTools(feats.HasTools).
 					WithEscapeNormalize(s.escapeNormalize).
 					WithToolValidator(toolValidator)
-				if err := anthropicPrelude.emit(env.Stream(), targetMarker, anthropicTr, preludeBuf); err != nil {
+				if err := anthropicTr.Prelude(env.Stream()); err != nil {
 					return fmt.Errorf("emit Anthropic routing marker: %w", err), func(err error) error { return err }
 				}
 				if preludeBuf != nil {
@@ -7406,28 +7404,35 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// ResponsesWriter's legacy badge that ignored suppression and never showed the routing reason.
 	verbatimPassthrough := responsesPassthrough && decision.Provider == providers.ProviderOpenAI
 	if rw, ok := w.(*translate.ResponsesWriter); ok {
-		if marker != "" && !verbatimPassthrough {
-			rw.SetBadgeText(marker)
-		}
 		if footer := s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn); footer != "" {
 			rw.SetFooterText(footer)
 		}
 	}
-	// Keep a stable copy for a possible chat/completions fallback after a native
-	// Responses endpoint rejects the request.
-	translatedMarker := marker
-	responsesMarker := marker
 	responsesPreludeWillEmit := env.Stream() && !verbatimPassthrough && (len(bindings) <= 1 || marker != "")
 	if verbatimPassthrough {
 		responsesPreludeWillEmit = env.Stream() && supportsResponsesTerminalSurfaces(clientID.ClientApp) && marker != ""
 	}
 
 	var responsesPreludeBuf *preludeBuffer
-	if rw, ok := contentSink.(*translate.ResponsesWriter); ok && (verbatimPassthrough || responsesPreludeWillEmit) {
+	responsesNotices := &requestNoticeStream{}
+	if rw, ok := contentSink.(*translate.ResponsesWriter); ok {
+		var noticeErr error
 		rw.WrapInner(func(inner http.ResponseWriter) http.ResponseWriter {
 			responsesPreludeBuf = newPreludeBuffer(inner)
-			return responsesPreludeBuf
+			noticeMarker := marker
+			if verbatimPassthrough && !supportsResponsesTerminalSurfaces(clientID.ClientApp) {
+				noticeMarker = ""
+			}
+			noticeSink, prepareErr := responsesNotices.prepare(r.Context(), responsesPreludeBuf, responsesPreludeBuf, translate.FormatOpenAIResponses, env.Stream(), decision.Model, noticeMarker)
+			noticeErr = prepareErr
+			if prepareErr != nil {
+				return responsesPreludeBuf
+			}
+			return noticeSink
 		})
+		if noticeErr != nil {
+			return fmt.Errorf("emit Responses router notice: %w", noticeErr)
+		}
 	}
 	var preludeBuf *preludeBuffer
 	var rootSink http.ResponseWriter
@@ -7458,9 +7463,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// surfaces are enabled.
 			// Parse native SSE when this client needs a badge and/or footer.
 			if supportsResponsesTerminalSurfaces(clientID.ClientApp) && (marker != "" || s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn) != "") {
-				if marker != "" {
-					rw.SetBadgeText(marker)
-				}
 				rw.SetPassthroughBadge()
 			} else {
 				rw.SetPassthrough()
@@ -7471,42 +7473,25 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				log.Error("Responses prelude failed", "err", err)
 			} else {
 				rw.Flush()
-				if err := responsesPreludeBuf.CommitPrelude(); err != nil {
-					return fmt.Errorf("commit Responses prelude: %w", err)
-				}
 			}
 		}
 	}
 
 	var captureW *captureWriter
 	var sink http.ResponseWriter = rootSink
-	openAIPrelude := &openAIPreludeState{}
+	openAIPrelude := &requestNoticeStream{}
 	if cacheEligible {
 		captureW = newCaptureWriter(rootSink, semanticCacheMaxBodyBytes)
 		sink = captureW
 	}
 
 	_, isResponses := w.(*translate.ResponsesWriter)
-	// makeMarkerSink wraps sink with an OpenAIRoutingMarkerWriter emitting the
-	// marker chunk + HTTP 200 eagerly (skipped for /v1/responses). Called per
-	// attempt so retries re-emit into a fresh preludeBuffer state.
-	//
-	// Wrapped even when marker == "": it's the only ArmOutputProgress provider
-	// for the OpenAI→openaicompat passthrough, and the empty-marker Prelude
-	// still flips the streaming flag so the watchdog can arm (emits a harmless
-	// ": routing complete" comment, not a content chunk).
-	makeMarkerSink := func(model, markerText string) http.ResponseWriter {
-		// Codex passthrough streams raw Responses SSE; wrapping it in a
-		// chat-completions marker writer would inject a foreign frame (and the
-		// output-progress scan reads choices[].delta, which Responses lacks).
+	makeMarkerSink := func(model, markerText string) (http.ResponseWriter, error) {
 		if isResponses || verbatimPassthrough {
-			return sink
+			return sink, nil
 		}
-		mw := translate.NewOpenAIRoutingMarkerWriter(sink, model, markerText)
-		if err := openAIPrelude.emit(env.Stream(), markerText, mw, preludeBuf); err != nil {
-			log.Error("OpenAI routing-marker prelude failed", "err", err)
-		}
-		return mw
+		noticeSink, noticeErr := openAIPrelude.prepare(r.Context(), sink, preludeBuf, translate.FormatOpenAI, env.Stream(), model, markerText)
+		return noticeSink, noticeErr
 	}
 
 	// Chat caller: emit onto Responses and translate back; skipped for Responses-ingress (handled above).
@@ -7544,11 +7529,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string) (dispatchAttempt, error) {
 		if rw, ok := w.(*translate.ResponsesWriter); ok {
 			rw.SetRoutedModel(target.Model)
-			if targetMarker != "" && targetMarker != responsesMarker {
-				if err := rw.EmitRoutingBadge(targetMarker); err != nil {
-					return nil, fmt.Errorf("emit Responses routing badge: %w", err)
+			if targetMarker != "" && (!verbatimPassthrough || supportsResponsesTerminalSurfaces(clientID.ClientApp)) {
+				_, noticeErr := responsesNotices.prepare(r.Context(), responsesPreludeBuf, responsesPreludeBuf, translate.FormatOpenAIResponses, env.Stream(), target.Model, targetMarker)
+				if noticeErr != nil {
+					return nil, fmt.Errorf("emit Responses router notice: %w", noticeErr)
 				}
-				responsesMarker = targetMarker
 			}
 		}
 		switch providers.FamilyFor(target.Provider) {
@@ -7622,7 +7607,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				// only the response body identifies it. The gate withholds the
 				// pre-output frames so a refusal can be swallowed and the turn
 				// re-dispatched off-vendor while the client has seen nothing.
-				refusalGate := newCyberRefusalGate(makeMarkerSink(target.Model, targetMarker),
+				noticeSink, noticeErr := makeMarkerSink(target.Model, targetMarker)
+				if noticeErr != nil {
+					return fmt.Errorf("emit OpenAI router notice: %w", noticeErr)
+				}
+				refusalGate := newCyberRefusalGate(noticeSink,
 					cyberRetryArmed && d.Provider == providers.ProviderOpenAI)
 				var attemptSink http.ResponseWriter = refusalGate
 				proxyWriter := attemptSink
@@ -7771,9 +7760,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 						return err
 					}
 					responsesPassthrough = false
-					if translatedMarker != "" {
-						rw.SetBadgeText(translatedMarker)
-					}
 				}
 				translateToResponses = false
 				s.rememberGatewayLacksResponses(responsesEndpointKey)
@@ -7803,7 +7789,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					extractor = otel.NewUsageExtractor(nil, d.Provider)
 					usage = extractor
 				}
-				attemptSink := makeMarkerSink(target.Model, targetMarker)
+				attemptSink, noticeErr := makeMarkerSink(target.Model, targetMarker)
+				if noticeErr != nil {
+					return noticeErr, func(err error) error { return err }
+				}
 				translator := translate.NewGeminiToOpenAISSETranslator(attemptSink, d.Model, usage)
 				if preludeBuf != nil {
 					preludeBuf.Seal()
@@ -7868,7 +7857,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					extractor.SetRequestCacheTTL1h(func() bool { return translate.AnthropicRequestCacheTTL1h(attemptPrep.Body) })
 					usage = extractor
 				}
-				attemptSink := makeMarkerSink(target.Model, targetMarker)
+				attemptSink, noticeErr := makeMarkerSink(target.Model, targetMarker)
+				if noticeErr != nil {
+					return noticeErr, func(err error) error { return err }
+				}
 				translator := translate.NewSSETranslator(attemptSink, d.Model, usage)
 				if preludeBuf != nil {
 					preludeBuf.Seal()
@@ -8221,9 +8213,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			if verbatimPassthrough {
 				verbatimPassthrough = false
 				responsesPassthrough = false
-				if retryMarker != "" {
-					rw.SetBadgeText(retryMarker)
-				}
 			}
 			cyberRetryRan = true
 			effortServed = retryEffort

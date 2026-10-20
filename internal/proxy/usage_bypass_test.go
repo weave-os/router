@@ -19,6 +19,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/sjson"
 )
 
 const (
@@ -611,6 +612,8 @@ func TestSubscriptionOnly_NonBypassServedOnSub_Serves(t *testing.T) {
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil)
 
 	rec, req, body := bypassRequest(t)
+	body, err := sjson.SetBytes(body, "stream", true)
+	require.NoError(t, err)
 	// Gate disabled (no InstallationUsageBypassContextKey) => usage-bypass never
 	// engages; the caller still presents a Claude OAuth subscription and the
 	// scorer routes to Anthropic, so the turn serves on that subscription.

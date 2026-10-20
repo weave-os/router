@@ -28,6 +28,7 @@ const (
 	FormatOpenAI Format = iota
 	FormatAnthropic
 	FormatGemini
+	FormatOpenAIResponses
 )
 
 // EmitOptions parameterizes output-body construction.
@@ -979,7 +980,7 @@ func encodeJSONStringNoHTMLEscape(s string) ([]byte, error) {
 
 // routingMarkerPattern matches the "✦ **Weave Router** → ..." snippet
 // injected in cross-format responses.
-var routingMarkerPattern = regexp.MustCompile(`(?s)✦ \*\*Weave Router\*\* → .*?\n\n`)
+var routingMarkerPattern = routerOwnedNoticePattern
 
 // feedbackFooterPattern matches the rating footer appended to streamed
 // responses (see proxy.Service.feedbackFooter), absorbing leading newlines

@@ -1,86 +1,38 @@
 package proxy
 
-import "weave-os/router/internal/translate"
+import (
+	"context"
+	"net/http"
 
-type anthropicPreludeState struct {
-	visibleBlocks int64
-	lastMarker    string
-}
+	"weave-os/router/internal/translate"
+)
 
-type openAIPreludeState struct {
+// The coordinator outlives binding attempts; the buffer's provider commitment
+// remains the retry gate even after a notice becomes visible.
+type requestNoticeStream struct {
+	delivery   *translate.NoticeDelivery
 	lastMarker string
 }
 
-func (s *openAIPreludeState) emit(
-	streaming bool,
-	marker string,
-	writer *translate.OpenAIRoutingMarkerWriter,
-	prelude *preludeBuffer,
-) error {
-	if prelude == nil || !prelude.PreludeSent() || marker != s.lastMarker {
-		if err := writer.Prelude(streaming); err != nil {
-			return err
-		}
-		if !streaming || marker == "" || prelude == nil {
-			return nil
-		}
-		if err := prelude.CommitPrelude(); err != nil {
-			return err
-		}
-		s.lastMarker = marker
-		return nil
+func (s *requestNoticeStream) prepare(ctx context.Context, sink http.ResponseWriter, prelude *preludeBuffer, format translate.Format, streaming bool, model, marker string) (http.ResponseWriter, error) {
+	if s.delivery == nil {
+		capabilities := translate.NoticeCapabilities{Format: format, Streaming: streaming, Presentation: translate.NoticeText, Eager: streaming && (format == translate.FormatOpenAI || format == translate.FormatOpenAIResponses)}
+		s.delivery = translate.NewNoticeDelivery(ctx, translate.NewProtocolNoticeSink(sink, capabilities), capabilities)
 	}
-	writer.ContinueAfterPrelude(streaming)
-	return nil
+	retainNotices := prelude == nil || prelude.PreludeSent()
+	s.delivery.ResetAttempt(retainNotices)
+	if !retainNotices {
+		s.lastMarker = ""
+	}
+	if marker != "" && marker != s.lastMarker {
+		notice := translate.NewRouterNotice(translate.NoticeModelSelection, marker, model, "")
+		outcome, err := s.delivery.Deliver(notice)
+		if err != nil {
+			return nil, err
+		}
+		if outcome == translate.NoticeDelivered {
+			s.lastMarker = marker
+		}
+	}
+	return s.delivery, nil
 }
-
-func (s *anthropicPreludeState) markerForAttempt(marker string, prelude *preludeBuffer) string {
-	if prelude == nil || !prelude.PreludeSent() || marker != s.lastMarker {
-		return marker
-	}
-	return ""
-}
-
-func (s *anthropicPreludeState) emit(
-	streaming bool,
-	marker string,
-	writer interface {
-		Prelude(bool) error
-		ContinueAfterPrelude(bool, int64) error
-	},
-	prelude *preludeBuffer,
-) error {
-	if prelude == nil || !prelude.PreludeSent() {
-		if err := writer.Prelude(streaming); err != nil {
-			return err
-		}
-		return nil
-	}
-	if err := writer.ContinueAfterPrelude(streaming, s.visibleBlocks); err != nil {
-		return err
-	}
-	if !streaming || marker == "" || marker == s.lastMarker {
-		return nil
-	}
-	if err := prelude.CommitPrelude(); err != nil {
-		return err
-	}
-	s.visibleBlocks++
-	s.lastMarker = marker
-	return nil
-}
-
-var (
-	_ interface {
-		Prelude(bool) error
-		ContinueAfterPrelude(bool, int64) error
-	} = (*translate.AnthropicRoutingMarkerWriter)(nil)
-	_ interface {
-		Prelude(bool) error
-		ContinueAfterPrelude(bool, int64) error
-	} = (*translate.AnthropicSSETranslator)(nil)
-	_ interface {
-		Prelude(bool) error
-		ContinueAfterPrelude(bool, int64) error
-	} = (*translate.ResponsesToAnthropicWriter)(nil)
-)

@@ -470,10 +470,6 @@ type AnthropicSSETranslator struct {
 	// cross-format paths where real usage arrives later, at message_delta.
 	estimatedInputTokens int
 
-	// routingMarker is emitted as a standalone text block at index 0.
-	routingMarker string
-	markerEmitted bool
-
 	// requestHadTools is true when the inbound request carried tools. Used at
 	// finishStream to detect "model produced no tool_use though tools were
 	// available" (Gemini-3.1, Mimo-v2.5 sometimes emit prose/<think> instead)
@@ -580,13 +576,6 @@ func (t *AnthropicSSETranslator) WithToolValidator(v *toolcheck.Validator) *Anth
 // carry the same correlation fields as the rest of the request.
 func (t *AnthropicSSETranslator) WithLogger(log *slog.Logger) *AnthropicSSETranslator {
 	t.logger = log
-	return t
-}
-
-// WithRoutingMarker installs a text snippet emitted as a standalone content
-// block at index 0 after message_start. Empty string disables it.
-func (t *AnthropicSSETranslator) WithRoutingMarker(marker string) *AnthropicSSETranslator {
-	t.routingMarker = marker
 	return t
 }
 
@@ -755,7 +744,7 @@ func (t *AnthropicSSETranslator) WriteHeader(code int) {
 	)
 }
 
-// Prelude commits SSE headers and emits message_start (+ routing marker)
+// Prelude commits SSE headers and emits message_start
 // immediately so the client sees the message envelope while upstream is
 // still doing prefill. Call after the routing decision when streaming=true.
 func (t *AnthropicSSETranslator) Prelude(streaming bool) error {
@@ -776,27 +765,7 @@ func (t *AnthropicSSETranslator) Prelude(streaming bool) error {
 		return err
 	}
 	t.started = true
-	return t.emitRoutingMarkerIfConfigured()
-}
-
-// ContinueAfterPrelude resumes a stream whose message_start and earlier
-// prelude content blocks were emitted by a previous attempt.
-func (t *AnthropicSSETranslator) ContinueAfterPrelude(streaming bool, existingBlocks int64) error {
-	if !streaming || t.started {
-		return nil
-	}
-	t.inner.Header().Set("Content-Type", "text/event-stream")
-	t.inner.Header().Del("Content-Length")
-	t.inner.Header().Del("Content-Encoding")
-	t.statusCode = http.StatusOK
-	t.streaming = true
-	t.headersEmitted = true
-	t.started = true
-	t.blockIdx = int(existingBlocks)
-	if err := t.lifecycle.Start(); err != nil {
-		return err
-	}
-	return t.emitRoutingMarkerIfConfigured()
+	return nil
 }
 
 func (t *AnthropicSSETranslator) Write(data []byte) (int, error) {
@@ -991,9 +960,6 @@ func (t *AnthropicSSETranslator) translateOpenAIEvent(raw []byte) error {
 			return err
 		}
 		t.started = true
-		if err := t.emitRoutingMarkerIfConfigured(); err != nil {
-			return err
-		}
 	}
 
 	delta := firstChoice.Get("delta")
@@ -1379,36 +1345,12 @@ func (t *AnthropicSSETranslator) synthesizeTextOnlyTurnNudge() error {
 	return nil
 }
 
-// emitRoutingMarkerIfConfigured emits the routing marker as a standalone text
-// block at the current index, once per response.
-func (t *AnthropicSSETranslator) emitRoutingMarkerIfConfigured() error {
-	if t.markerEmitted || t.routingMarker == "" {
-		return nil
-	}
-	idx := t.blockIdx
-	if err := t.emitContentBlockStartText(idx); err != nil {
-		return err
-	}
-	if err := t.emitContentBlockDeltaText(idx, t.routingMarker); err != nil {
-		return err
-	}
-	if err := t.emitContentBlockStop(idx); err != nil {
-		return err
-	}
-	t.blockIdx++
-	t.markerEmitted = true
-	return nil
-}
-
 func (t *AnthropicSSETranslator) finishStream() error {
 	if !t.started {
 		if err := t.emitMessageStart(); err != nil {
 			return err
 		}
 		t.started = true
-		if err := t.emitRoutingMarkerIfConfigured(); err != nil {
-			return err
-		}
 	}
 	if t.thinkTagReasoning {
 		// Drain any buffered <think> content (an unclosed tag surfaces as

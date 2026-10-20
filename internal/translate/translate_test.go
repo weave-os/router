@@ -1,6 +1,7 @@
 package translate_test
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -877,8 +878,10 @@ func TestAnthropicSSETranslator_EmptyStreamEmitsSyntheticMessage(t *testing.T) {
 func TestAnthropicSSETranslator_RoutingMarkerEmittedBeforeUpstreamContent(t *testing.T) {
 	rec := httptest.NewRecorder()
 	marker := "✦ **Weave Router** → deepseek/deepseek-v4-pro (openrouter) · reason: switched to save on cache reads\n\n"
-	translator := translate.NewAnthropicSSETranslator(rec, "gpt-4o", nil).
-		WithRoutingMarker(marker)
+	delivery := noticeDelivery(context.Background(), rec, translate.FormatAnthropic)
+	_, noticeErr := delivery.Deliver(translate.NewRouterNotice(translate.NoticeModelSelection, marker, "gpt-4o", ""))
+	require.NoError(t, noticeErr)
+	translator := translate.NewAnthropicSSETranslator(delivery, "gpt-4o", nil)
 
 	translator.Header().Set("Content-Type", "text/event-stream")
 	translator.WriteHeader(http.StatusOK)
@@ -920,8 +923,10 @@ func TestAnthropicSSETranslator_RoutingMarkerEmittedOnEmptyUpstream(t *testing.T
 	rec := httptest.NewRecorder()
 	marker := "✦ **Weave Router** → gpt-5-mini (openai) · reason: top scorer\n\n"
 	markerProse := "✦ **Weave Router** → gpt-5-mini (openai) · reason: top scorer"
-	translator := translate.NewAnthropicSSETranslator(rec, "claude-opus-4-7", nil).
-		WithRoutingMarker(marker)
+	delivery := noticeDelivery(context.Background(), rec, translate.FormatAnthropic)
+	_, noticeErr := delivery.Deliver(translate.NewRouterNotice(translate.NoticeModelSelection, marker, "claude-opus-4-7", ""))
+	require.NoError(t, noticeErr)
+	translator := translate.NewAnthropicSSETranslator(delivery, "claude-opus-4-7", nil)
 
 	translator.Header().Set("Content-Type", "text/event-stream")
 	translator.WriteHeader(http.StatusOK)

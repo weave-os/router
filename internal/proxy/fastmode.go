@@ -27,7 +27,7 @@ type anthropicTierAttempt struct {
 	native        dispatchAttempt
 	sink          http.ResponseWriter
 	preludeBuf    *preludeBuffer
-	preludeState  *anthropicPreludeState
+	preludeState  *requestNoticeStream
 	streamCut     *streamCutObserver
 	marker        string
 	setExtractor  func(*otel.UsageExtractor)

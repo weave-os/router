@@ -36,7 +36,6 @@ type ResponsesToAnthropicWriter struct {
 	// constant id would collapse a session's turns into one undercounted record.
 	messageID string
 
-	routingMarker        string
 	estimatedInputTokens int
 	requestHadTools      bool
 	// reasoningScope binds minted reasoning signatures to the account+model
@@ -138,11 +137,6 @@ func (t *ResponsesToAnthropicWriter) WithReasoningScope(scope string) *Responses
 	return t
 }
 
-func (t *ResponsesToAnthropicWriter) WithRoutingMarker(marker string) *ResponsesToAnthropicWriter {
-	t.routingMarker = marker
-	return t
-}
-
 func (t *ResponsesToAnthropicWriter) WithEstimatedInputTokens(n int) *ResponsesToAnthropicWriter {
 	if n > 0 {
 		t.estimatedInputTokens = n
@@ -215,7 +209,7 @@ func (t *ResponsesToAnthropicWriter) Flush() {
 	}
 }
 
-// Prelude eagerly commits SSE headers + message_start (+ routing marker) for
+// Prelude eagerly commits SSE headers + message_start for
 // streaming clients, so the envelope arrives while upstream is still reasoning.
 func (t *ResponsesToAnthropicWriter) Prelude(streaming bool) error {
 	if !streaming || t.started {
@@ -235,27 +229,7 @@ func (t *ResponsesToAnthropicWriter) Prelude(streaming bool) error {
 	if err := t.emitMessageStart(); err != nil {
 		return err
 	}
-	return t.emitRoutingMarkerIfConfigured()
-}
-
-// ContinueAfterPrelude resumes a stream whose message_start and earlier
-// prelude content blocks were emitted by a previous attempt.
-func (t *ResponsesToAnthropicWriter) ContinueAfterPrelude(streaming bool, existingBlocks int64) error {
-	if !streaming || t.started {
-		return nil
-	}
-	t.inner.Header().Set("Content-Type", "text/event-stream")
-	t.inner.Header().Del("Content-Length")
-	t.inner.Header().Del("Content-Encoding")
-	t.streaming = true
-	t.statusCode = http.StatusOK
-	t.headersEmitted = true
-	t.started = true
-	t.blockIdx = int(existingBlocks)
-	if err := t.lifecycle.Start(); err != nil {
-		return err
-	}
-	return t.emitRoutingMarkerIfConfigured()
+	return nil
 }
 
 // Finalize emits the streaming trailer (message_delta + message_stop) for a
@@ -957,24 +931,6 @@ func (t *ResponsesToAnthropicWriter) emitMessageStart() error {
 	sse.WriteJSONInt(t.bw, int64(t.estimatedInputTokens))
 	t.bw.WriteString(",\"output_tokens\":0}}}\n\n")
 	return t.flushEvent()
-}
-
-func (t *ResponsesToAnthropicWriter) emitRoutingMarkerIfConfigured() error {
-	if t.routingMarker == "" {
-		return nil
-	}
-	idx := t.blockIdx
-	if err := t.emitContentBlockStartText(idx); err != nil {
-		return err
-	}
-	if err := t.emitContentBlockDeltaText(idx, t.routingMarker); err != nil {
-		return err
-	}
-	if err := t.emitContentBlockStop(idx); err != nil {
-		return err
-	}
-	t.blockIdx++
-	return nil
 }
 
 func (t *ResponsesToAnthropicWriter) emitContentBlockStartText(index int) error {
