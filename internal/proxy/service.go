@@ -4451,6 +4451,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	setStreamCost := func(d router.Decision, inputIncludesCache bool, requestCacheTTL1h func() bool) {
 		if streamCost != nil {
 			streamCost.SetCostCalculator(routerCostCalculatorFor(d.Model, d.Provider, fastServed), inputIncludesCache, requestCacheTTL1h)
+			// Each attempt assigns extractor after this setup; resolve it at invocation.
 			streamCost.source = func() providerusage.Facts { return extractor.UsageFacts() }
 		}
 	}

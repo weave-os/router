@@ -72,9 +72,8 @@ func ParseGemini(object gjson.Result) Facts {
 	if !object.IsObject() {
 		return Facts{}
 	}
-	visible, reasoning := count(object.Get("candidatesTokenCount")), count(object.Get("thoughtsTokenCount"))
 	return Facts{Present: true, InputBasis: InputInclusive, OutputBasis: OutputExcludesReasoning,
-		Input: count(object.Get("promptTokenCount")), Output: visible, Reasoning: reasoning,
+		Input: count(object.Get("promptTokenCount")), Output: count(object.Get("candidatesTokenCount")), Reasoning: count(object.Get("thoughtsTokenCount")),
 		Total: count(object.Get("totalTokenCount")), CacheRead: count(object.Get("cachedContentTokenCount")),
 	}
 }

@@ -20,7 +20,6 @@ import (
 	"weave-os/router/internal/router/turntype"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
-	"weave-os/router/internal/usage"
 
 	"github.com/google/uuid"
 )
@@ -545,7 +544,7 @@ func (s *Service) bypassToAnthropic(
 	}
 
 	if streamCost != nil {
-		streamCost.source = func() usage.Facts { return extractor.UsageFacts() }
+		streamCost.source = extractor.UsageFacts
 	}
 	proxyStart := time.Now()
 	inferenceParentCtx := ctx

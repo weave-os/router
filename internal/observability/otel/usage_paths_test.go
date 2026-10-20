@@ -25,9 +25,9 @@ func TestUsageFactsNativeAndTranslatedPaths(t *testing.T) {
 	const responsesUsage = `{"input_tokens":100,"output_tokens":10,"total_tokens":110,"input_tokens_details":{"cached_tokens":50,"cache_write_tokens":30},"output_tokens_details":{"reasoning_tokens":3}}`
 	const geminiUsage = `{"promptTokenCount":100,"candidatesTokenCount":7,"thoughtsTokenCount":3,"totalTokenCount":110,"cachedContentTokenCount":80}`
 	type path struct {
-		name, provider, body, stream string
-		translator                   func(http.ResponseWriter, translate.UsageSink) usageTranslator
-		prelude                      bool
+		name, provider, body, sseBody string
+		translator                    func(http.ResponseWriter, translate.UsageSink) usageTranslator
+		prelude                       bool
 	}
 	cases := []path{
 		{"anthropic-chat", providers.ProviderAnthropic, `{"id":"msg_synthetic","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":` + anthropicUsage + `}`,
@@ -76,7 +76,7 @@ func TestUsageFactsNativeAndTranslatedPaths(t *testing.T) {
 				}
 				t.Run(label, func(t *testing.T) {
 					nativeStream := otel.NewUsageExtractor(httptest.NewRecorder(), tt.provider)
-					_, err := nativeStream.Write([]byte(tt.stream))
+					_, err := nativeStream.Write([]byte(tt.sseBody))
 					require.NoError(t, err)
 					assert.Equal(t, native.UsageFacts(), nativeStream.UsageFacts())
 					sink := otel.NewUsageExtractor(nil, tt.provider)
@@ -88,7 +88,7 @@ func TestUsageFactsNativeAndTranslatedPaths(t *testing.T) {
 					payload := tt.body
 					// Responses adapters intentionally consume upstream SSE for both client modes.
 					if stream || tt.name == "responses-chat" || tt.name == "responses-anthropic" {
-						payload = tt.stream
+						payload = tt.sseBody
 					}
 					if stream {
 						w.Header().Set("Content-Type", "text/event-stream")
