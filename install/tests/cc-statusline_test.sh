@@ -197,6 +197,16 @@ for ack in 'session id: synthetic-session' 'models this installation can be rout
   check_contains "$ack preserves the historical pin" "$out" "last pin: claude-opus-4-7"
 done
 
+# A partially written or corrupt JSONL record does not erase valid history.
+for malformed_position in before after; do
+  : > "$c/partial.jsonl"
+  if [ "$malformed_position" = before ]; then printf 'not-json\n' >> "$c/partial.jsonl"; fi
+  head -n 1 "$c/pin.jsonl" >> "$c/partial.jsonl"
+  if [ "$malformed_position" = after ]; then printf '{"partial":\n' >> "$c/partial.jsonl"; fi
+  out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_STATUSLINE_CONTEXT=0 render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/partial.jsonl")"
+  check_contains "malformed line $malformed_position acknowledgment preserves history" "$out" "last pin: claude-opus-4-7"
+done
+
 for transition in unchanged applied cleared malformed unsupported duplicate; do
   head -n 1 "$c/pin.jsonl" > "$c/typed.jsonl"
   case "$transition" in

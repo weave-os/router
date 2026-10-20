@@ -222,10 +222,11 @@ context_snapshot() {
   ' "$file" 2>/dev/null || true
 }
 
-# The Stop payload preserves raw Markdown, including unused reference definitions.
+# The Stop payload preserves this exact router wire record in raw Markdown.
+# A general Markdown parser would add a runtime dependency to standalone installs.
 command_outcome() {
   printf '%s' "$1" | jq -Rsec '
-    def token: type == "string" and test("^[A-Za-z0-9._:/-]{1,128}$");
+    def safe_identifier: type == "string" and test("^[A-Za-z0-9._:/-]{1,128}$");
     capture("(?:^|\n)\\[weave-router-command-v1\\]: <weave-router:(?<encoded>[A-Za-z0-9_-]{1,8192})>(?:\n|$)").encoded |
     gsub("-"; "+") | gsub("_"; "/") | @base64d | fromjson |
     select(.version == 1 and (.id | type == "string" and test("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"))) |
@@ -234,8 +235,8 @@ command_outcome() {
     select(.pin.transition == "unchanged" or
       (.command == "force_model" and .disposition == "accepted" and
         (.pin.transition == "cleared" or (.pin.transition == "applied" and
-          (.pin.model | token) and (.pin.provider | token) and
-          (.pin.effort == null or (.pin.effort | token))))))
+          (.pin.model | safe_identifier) and (.pin.provider | safe_identifier) and
+          (.pin.effort == null or (.pin.effort | safe_identifier))))))
   ' 2>/dev/null || true
 }
 
@@ -549,7 +550,7 @@ elif [ "$hook_event_name" = "UserPromptSubmit" ]; then
   else
     rm -f "$turn_file"
   fi
-elif [ "$hook_event_name" = "Stop" ] && [ -f "$turn_file" ] && [ "$(cat "$turn_file")" != "$turn_id" ]; then
+elif [ "$hook_event_name" = "Stop" ] && [ -n "$turn_id" ] && [ -f "$turn_file" ] && [ "$(cat "$turn_file")" != "$turn_id" ]; then
   exit 0
 fi
 generation="$(mktemp "$state_root/.generation.XXXXXX")"

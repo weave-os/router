@@ -794,9 +794,9 @@ if [[ -n "$transcript_path" && -f "$transcript_path" ]]; then
 
   # Fold acknowledged transitions in transcript order. Content-block copies and
   # replayed outcome IDs are the same event, not a newer state change.
-  force_state="$(jq -nr '
+  force_state="$(jq -nRr '
     def model: type == "string" and test("^[A-Za-z0-9._:/-]{1,128}$");
-    def valid:
+    def valid_command_outcome:
       try (.version == 1 and (.id | type == "string" and test("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"))
         and (.command | IN("force_model", "router_session", "router_models", "router_feedback", "loop_stop"))
         and (.disposition | IN("accepted", "rejected"))
@@ -806,11 +806,11 @@ if [[ -n "$transcript_path" && -f "$transcript_path" ]]; then
         and (if .pin.transition == "applied" then (.pin.model | model)
           and (.pin.provider | model)
           and ((.pin.effort // "") | type == "string" and test("^[A-Za-z0-9_-]{0,32}$")) else true end)) catch false;
-    reduce inputs as $entry ({seen:{}, pin:null};
+    reduce (inputs | fromjson? | objects) as $entry ({seen:{}, pin:null};
       if $entry.type != "assistant" or $entry.message.model != "weave-router" then .
       elif ($entry.message | has("router_command")) then
         $entry.message.router_command as $o |
-        if ($o | valid) and (.seen[$o.id] != true) then
+        if ($o | valid_command_outcome) and (.seen[$o.id] != true) then
           .seen[$o.id] = true |
           if $o.pin.transition == "applied" then
             .pin = ($o.pin.model + (if ($o.pin.effort // "") == "" then "" else ":" + $o.pin.effort end))
@@ -1007,9 +1007,9 @@ router_context_fallback() {
       previous="$cache"
       [ -f "$previous" ] || previous=/dev/null
       if [ "$(cat "$active_file" 2>/dev/null)" = "$generation" ] && jq -e -s '
-        def stamp: split(".") as $p | $p[0] | sub("Z$"; "") as $whole |
-          [$whole, ((($p[1] // "") | sub("Z$"; "")) + "000000000")[0:9]];
-        def observation: [.context_snapshot.requested_at | stamp] + [.context_snapshot.recorded_at | stamp];
+        def timestamp_parts: split(".") as $p |
+          [($p[0] | sub("Z$"; "")), ((($p[1] // "") | sub("Z$"; "")) + "000000000")[0:9]];
+        def observation: [.context_snapshot.requested_at | timestamp_parts] + [.context_snapshot.recorded_at | timestamp_parts];
         (.[0] | observation) as $fresh |
         if length == 1 or .[1].context_snapshot == null then true else $fresh > (.[1] | observation) or ($fresh == (.[1] | observation) and .[0].context_snapshot.request_id == .[1].context_snapshot.request_id) end
         ' "$tmp" "$previous" 2>/dev/null; then

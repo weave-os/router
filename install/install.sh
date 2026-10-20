@@ -4609,10 +4609,11 @@ context_snapshot() {
   ' "$file" 2>/dev/null || true
 }
 
-# The Stop payload preserves raw Markdown, including unused reference definitions.
+# The Stop payload preserves this exact router wire record in raw Markdown.
+# A general Markdown parser would add a runtime dependency to standalone installs.
 command_outcome() {
   printf '%s' "$1" | jq -Rsec '
-    def token: type == "string" and test("^[A-Za-z0-9._:/-]{1,128}$");
+    def safe_identifier: type == "string" and test("^[A-Za-z0-9._:/-]{1,128}$");
     capture("(?:^|\n)\\[weave-router-command-v1\\]: <weave-router:(?<encoded>[A-Za-z0-9_-]{1,8192})>(?:\n|$)").encoded |
     gsub("-"; "+") | gsub("_"; "/") | @base64d | fromjson |
     select(.version == 1 and (.id | type == "string" and test("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"))) |
@@ -4621,8 +4622,8 @@ command_outcome() {
     select(.pin.transition == "unchanged" or
       (.command == "force_model" and .disposition == "accepted" and
         (.pin.transition == "cleared" or (.pin.transition == "applied" and
-          (.pin.model | token) and (.pin.provider | token) and
-          (.pin.effort == null or (.pin.effort | token))))))
+          (.pin.model | safe_identifier) and (.pin.provider | safe_identifier) and
+          (.pin.effort == null or (.pin.effort | safe_identifier))))))
   ' 2>/dev/null || true
 }
 
@@ -4936,7 +4937,7 @@ elif [ "$hook_event_name" = "UserPromptSubmit" ]; then
   else
     rm -f "$turn_file"
   fi
-elif [ "$hook_event_name" = "Stop" ] && [ -f "$turn_file" ] && [ "$(cat "$turn_file")" != "$turn_id" ]; then
+elif [ "$hook_event_name" = "Stop" ] && [ -n "$turn_id" ] && [ -f "$turn_file" ] && [ "$(cat "$turn_file")" != "$turn_id" ]; then
   exit 0
 fi
 generation="$(mktemp "$state_root/.generation.XXXXXX")"
@@ -6329,9 +6330,9 @@ if [[ -n "$transcript_path" && -f "$transcript_path" ]]; then
 
   # Fold acknowledged transitions in transcript order. Content-block copies and
   # replayed outcome IDs are the same event, not a newer state change.
-  force_state="$(jq -nr '
+  force_state="$(jq -nRr '
     def model: type == "string" and test("^[A-Za-z0-9._:/-]{1,128}$");
-    def valid:
+    def valid_command_outcome:
       try (.version == 1 and (.id | type == "string" and test("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"))
         and (.command | IN("force_model", "router_session", "router_models", "router_feedback", "loop_stop"))
         and (.disposition | IN("accepted", "rejected"))
@@ -6341,11 +6342,11 @@ if [[ -n "$transcript_path" && -f "$transcript_path" ]]; then
         and (if .pin.transition == "applied" then (.pin.model | model)
           and (.pin.provider | model)
           and ((.pin.effort // "") | type == "string" and test("^[A-Za-z0-9_-]{0,32}$")) else true end)) catch false;
-    reduce inputs as $entry ({seen:{}, pin:null};
+    reduce (inputs | fromjson? | objects) as $entry ({seen:{}, pin:null};
       if $entry.type != "assistant" or $entry.message.model != "weave-router" then .
       elif ($entry.message | has("router_command")) then
         $entry.message.router_command as $o |
-        if ($o | valid) and (.seen[$o.id] != true) then
+        if ($o | valid_command_outcome) and (.seen[$o.id] != true) then
           .seen[$o.id] = true |
           if $o.pin.transition == "applied" then
             .pin = ($o.pin.model + (if ($o.pin.effort // "") == "" then "" else ":" + $o.pin.effort end))
@@ -6542,9 +6543,9 @@ router_context_fallback() {
       previous="$cache"
       [ -f "$previous" ] || previous=/dev/null
       if [ "$(cat "$active_file" 2>/dev/null)" = "$generation" ] && jq -e -s '
-        def stamp: split(".") as $p | $p[0] | sub("Z$"; "") as $whole |
-          [$whole, ((($p[1] // "") | sub("Z$"; "")) + "000000000")[0:9]];
-        def observation: [.context_snapshot.requested_at | stamp] + [.context_snapshot.recorded_at | stamp];
+        def timestamp_parts: split(".") as $p |
+          [($p[0] | sub("Z$"; "")), ((($p[1] // "") | sub("Z$"; "")) + "000000000")[0:9]];
+        def observation: [.context_snapshot.requested_at | timestamp_parts] + [.context_snapshot.recorded_at | timestamp_parts];
         (.[0] | observation) as $fresh |
         if length == 1 or .[1].context_snapshot == null then true else $fresh > (.[1] | observation) or ($fresh == (.[1] | observation) and .[0].context_snapshot.request_id == .[1].context_snapshot.request_id) end
         ' "$tmp" "$previous" 2>/dev/null; then

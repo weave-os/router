@@ -146,6 +146,15 @@ command_turn "$(command_message "$new_applied")" turn-current
 [ "$(cat "$title_file")" = "$before_stale" ] || { echo 'a delayed Stop overwrote the active turn' >&2; exit 1; }
 command_turn "$(command_message "$new_applied")" turn-new
 assert_command_title 'last pin: claude-opus-4-7:high'
+# Older Stop payloads can omit turn_id even when prompt hooks provide one.
+missing_turn_clear="$(jq '.id="00000000-0000-4000-8000-000000000005"' <<<"$cleared")"
+jq -nc --arg text "$(command_message "$missing_turn_clear")" '{hook_event_name:"Stop",session_id:"commands",model:"gpt-5.6-terra",last_assistant_message:$text}' |
+  HOME="$work/empty-home" XDG_CACHE_HOME="$command_cache" WEAVE_CODEX_STATUS_CONTEXT=0 WEAVE_CODEX_STATUS_SAVINGS=0 WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper"
+[[ "$(cat "$title_file")" != *'last pin:'* ]] || { echo 'Stop without turn_id lost its clear acknowledgment' >&2; exit 1; }
+empty_turn_apply="$(jq '.id="00000000-0000-4000-8000-000000000006"' <<<"$applied")"
+jq -nc --arg text "$(command_message "$empty_turn_apply")" '{hook_event_name:"Stop",session_id:"commands",turn_id:"",model:"gpt-5.6-terra",last_assistant_message:$text}' |
+  HOME="$work/empty-home" XDG_CACHE_HOME="$command_cache" WEAVE_CODEX_STATUS_CONTEXT=0 WEAVE_CODEX_STATUS_SAVINGS=0 WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper"
+assert_command_title 'last pin: claude-opus-4-7:high'
 command_turn 'Weave Router: force-model rejected: policy; keeping automatic routing.' turn-new
 assert_command_title 'last pin: claude-opus-4-7:high'
 command_turn 'Weave Router: force-model cleared; resuming automatic model selection' turn-new
