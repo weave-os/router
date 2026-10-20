@@ -23,7 +23,6 @@ type terminalDelivery struct {
 	buffers   []*responseCostBuffer
 	responses *translate.ResponsesWriter
 	after     func(error)
-	finished  bool
 }
 
 type deliveryResponseWriter struct {
@@ -78,10 +77,6 @@ func registerResponseCostBuffer(ctx context.Context, buffer *responseCostBuffer)
 }
 
 func (o *terminalDelivery) finish(returnErr *error) {
-	if o.finished {
-		return
-	}
-	o.finished = true
 	if o.ctx.Err() != nil && (*returnErr == nil || isStreamTerminalMissing(*returnErr)) {
 		*returnErr = o.ctx.Err()
 	}
@@ -132,7 +127,7 @@ func (o *terminalDelivery) deliver(cause error) {
 	}
 	LogDispatchErrorClass(observability.FromContext(o.ctx), class, cause)
 	var upstream *providers.UpstreamErrorResponse
-	var flushed *providers.UpstreamStatusError
+	var statusErr *providers.UpstreamStatusError
 	if class.Kind == DispatchErrorUpstreamStatus {
 		switch {
 		case errors.As(cause, &upstream):
@@ -140,10 +135,10 @@ func (o *terminalDelivery) deliver(cause error) {
 			if !o.client.written {
 				copyFailureHeaders(o.client.Header(), upstream.Headers)
 			}
-		case errors.As(cause, &flushed):
-			failure.ProviderBody = flushed.Body
+		case errors.As(cause, &statusErr):
+			failure.ProviderBody = statusErr.Body
 			if !o.client.written {
-				copyFailureHeaders(o.client.Header(), flushed.Headers)
+				copyFailureHeaders(o.client.Header(), statusErr.Headers)
 			}
 		}
 	}

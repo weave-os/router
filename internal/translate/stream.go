@@ -1104,7 +1104,7 @@ func (t *AnthropicSSETranslator) translateOpenAIEvent(raw []byte) error {
 		recordOutputLimit(t.usageSink, fr == "length")
 		t.markOutputProgress()
 	}
-	if !t.failureOwner && t.observation.Facts().State == StreamTerminal && t.lifecycle.State() == StreamStarted {
+	if !t.failureOwner && t.observation.State() == StreamTerminal && t.lifecycle.State() == StreamStarted {
 		if err := t.lifecycle.Terminal(); err != nil {
 			return err
 		}

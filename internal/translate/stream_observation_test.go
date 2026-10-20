@@ -18,10 +18,9 @@ func TestProviderStreamObservationGeminiRequiresEveryCandidateTerminal(t *testin
 	o.ObserveEvent([]byte(`data: {"candidates":[{"index":0,"content":{"parts":[{"text":"first"}]}},{"index":1,"content":{"parts":[{"text":"second"}]}}]}`))
 	o.ObserveEvent([]byte(`data: {"candidates":[{"index":0,"finishReason":"STOP"}]}`))
 	require.ErrorIs(t, o.OutcomeError(), translate.ErrStreamIncomplete)
-	assert.True(t, o.Facts().UsableOutput)
 	o.ObserveEvent([]byte(`data: {"candidates":[{"index":1,"finishReason":"MAX_TOKENS"}]}`))
 	require.NoError(t, o.OutcomeError())
-	assert.Equal(t, translate.StreamTerminal, o.Facts().State)
+	assert.Equal(t, translate.StreamTerminal, o.State())
 }
 
 func TestProviderStreamObservationKeepsDeclaredFailureDistinctFromCompletion(t *testing.T) {
@@ -42,7 +41,7 @@ func TestProviderStreamObservationKeepsDeclaredFailureDistinctFromCompletion(t *
 		require.ErrorAs(t, o.OutcomeError(), &failure)
 		assert.Equal(t, fixture.status, failure.Status)
 		assert.Same(t, failure, o.DeclaredError())
-		assert.Equal(t, translate.StreamFailed, o.Facts().State)
+		assert.Equal(t, translate.StreamFailed, o.State())
 	}
 }
 
@@ -69,20 +68,17 @@ func TestProviderStreamObservationIgnoresKeepalivesAndPreservesCancellation(t *t
 		o := translate.NewProviderStreamObservation(format)
 		o.ObserveEvent([]byte(": keepalive"))
 		require.ErrorIs(t, o.OutcomeError(), translate.ErrStreamEmpty)
-		assert.False(t, o.Facts().UsableOutput)
 		o.Cancel(context.Canceled)
 		require.ErrorIs(t, o.OutcomeError(), context.Canceled)
 		require.NoError(t, o.EOF())
 		assert.Nil(t, o.DeclaredError())
-		assert.Equal(t, translate.StreamCanceled, o.Facts().State)
+		assert.Equal(t, translate.StreamCanceled, o.State())
 	}
 }
 
-func TestProviderStreamObservationReasoningIsProviderProgress(t *testing.T) {
+func TestProviderStreamObservationReasoningDoesNotCompleteAttempt(t *testing.T) {
 	o := translate.NewProviderStreamObservation(translate.FormatGemini)
 	o.ObserveEvent([]byte(`data: {"candidates":[{"content":{"parts":[{"thought":true,"text":"reasoning"}]}}]}`))
-	assert.True(t, o.Facts().ReasoningProgress)
-	assert.False(t, o.Facts().UsableOutput)
 	require.ErrorIs(t, o.OutcomeError(), translate.ErrStreamIncomplete)
 }
 
@@ -174,7 +170,7 @@ func TestProviderStreamObservationIgnoresRecordsAfterExplicitEnd(t *testing.T) {
 			o.ObserveEvent([]byte(`data: {"truncated":`))
 			o.ObserveEvent([]byte(`data: {"error":{"message":"late error"}}`))
 			require.NoError(t, o.OutcomeError())
-			assert.Equal(t, translate.StreamTerminal, o.Facts().State)
+			assert.Equal(t, translate.StreamTerminal, o.State())
 		})
 	}
 }

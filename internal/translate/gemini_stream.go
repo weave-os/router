@@ -338,7 +338,7 @@ func (t *GeminiToOpenAISSETranslator) translateEvent(raw []byte) error {
 		}
 		return nil
 	}
-	if t.observation.Facts().State == StreamTerminal {
+	if t.observation.State() == StreamTerminal {
 		mapped := mapGeminiFinishReason(t.finishReason, t.toolIdx > 0)
 		if err := t.emitFinalChunk(mapped, usage); err != nil {
 			return err

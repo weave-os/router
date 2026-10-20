@@ -10,18 +10,11 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// ProviderStreamFacts exclude router notices and describe only upstream records.
-type ProviderStreamFacts struct {
-	State             StreamState
-	UsableOutput      bool
-	ReasoningProgress bool
-}
-
 // ProviderStreamObservation accepts provider indexes in any order. The separate
 // StreamLifecycle orders client output indexes after conversion.
 type ProviderStreamObservation struct {
 	format      Format
-	facts       ProviderStreamFacts
+	state       StreamState
 	framed      bool
 	declaredErr error
 	cancelCause error
@@ -36,8 +29,8 @@ func NewProviderStreamObservation(format Format) *ProviderStreamObservation {
 	return &ProviderStreamObservation{format: format}
 }
 
-// Facts returns provider-only lifecycle and progress evidence.
-func (o *ProviderStreamObservation) Facts() ProviderStreamFacts { return o.facts }
+// State returns the provider lifecycle state, independently of client delivery.
+func (o *ProviderStreamObservation) State() StreamState { return o.state }
 
 // DeclaredError excludes EOF validation and caller cancellation.
 func (o *ProviderStreamObservation) DeclaredError() error { return o.declaredErr }
@@ -47,14 +40,14 @@ func (o *ProviderStreamObservation) ObserveEvent(event []byte) {
 	eventType, payload := sse.ParseEvent(event)
 	o.framed = o.framed || len(eventType) > 0 || len(payload) > 0 ||
 		bytes.HasPrefix(bytes.TrimSpace(event), []byte(":"))
-	if o.explicitEnd || o.facts.State == StreamCanceled || len(payload) == 0 {
+	if o.explicitEnd || o.state == StreamCanceled || len(payload) == 0 {
 		return
 	}
 	if o.format == FormatOpenAI && bytes.Equal(bytes.TrimSpace(payload), []byte("[DONE]")) {
 		if len(o.openChoices) > 0 && len(o.openChoices)+len(o.finished) > 1 {
-			o.facts.State = StreamStarted
+			o.state = StreamStarted
 		} else {
-			o.facts.State = StreamTerminal
+			o.state = StreamTerminal
 		}
 		o.explicitEnd = true
 		return
@@ -102,24 +95,24 @@ func (o *ProviderStreamObservation) ObserveBody(body []byte) {
 		o.fail(body)
 		return
 	}
-	o.facts.State = StreamTerminal
+	o.state = StreamTerminal
 }
 
 // Cancel records an interrupted attempt without replacing a completed outcome.
 func (o *ProviderStreamObservation) Cancel(cause error) {
-	if o.explicitEnd || o.facts.State == StreamTerminal || o.facts.State == StreamFailed {
+	if o.explicitEnd || o.state == StreamTerminal || o.state == StreamFailed {
 		return
 	}
-	o.facts.State = StreamCanceled
+	o.state = StreamCanceled
 	o.cancelCause = cause
 }
 
 // EOF validates completeness, independently of whether a terminal was a failure.
 func (o *ProviderStreamObservation) EOF() error {
-	if o.malformed && o.facts.State != StreamFailed && o.facts.State != StreamCanceled {
+	if o.malformed && o.state != StreamFailed && o.state != StreamCanceled {
 		return ErrStreamIncomplete
 	}
-	switch o.facts.State {
+	switch o.state {
 	case StreamTerminal, StreamFailed, StreamCanceled:
 		return nil
 	case StreamIdle:
@@ -141,13 +134,13 @@ func (o *ProviderStreamObservation) OutcomeError() error {
 }
 
 func (o *ProviderStreamObservation) start() {
-	if o.facts.State == StreamIdle {
-		o.facts.State = StreamStarted
+	if o.state == StreamIdle {
+		o.state = StreamStarted
 	}
 }
 
 func (o *ProviderStreamObservation) fail(payload []byte) {
-	o.facts.State = StreamFailed
+	o.state = StreamFailed
 	o.explicitEnd = true
 	o.declaredErr = &providers.UpstreamErrorResponse{Status: providerStreamFailureStatus(payload), Body: bytes.Clone(payload)}
 }
@@ -184,12 +177,8 @@ func (o *ProviderStreamObservation) observeAnthropic(eventType []byte, root gjso
 		o.start()
 	case "content_block_start", "content_block_delta", "content_block_stop", "message_delta":
 		o.start()
-		block := root.Get("content_block")
-		delta := root.Get("delta")
-		o.facts.UsableOutput = o.facts.UsableOutput || block.Get("text").Str != "" || block.Get("type").Str == "tool_use" || delta.Get("text").Str != "" || delta.Get("partial_json").Str != ""
-		o.facts.ReasoningProgress = o.facts.ReasoningProgress || block.Get("thinking").Str != "" || delta.Get("thinking").Str != "" || delta.Get("signature").Str != ""
 	case "message_stop":
-		o.facts.State = StreamTerminal
+		o.state = StreamTerminal
 		o.explicitEnd = true
 	case "error":
 		o.fail([]byte(root.Raw))
@@ -202,18 +191,6 @@ func (o *ProviderStreamObservation) observeChoices(choices gjson.Result, gemini 
 		finish := choice.Get("finish_reason").Str
 		if gemini {
 			finish = choice.Get("finishReason").Str
-			choice.Get("content.parts").ForEach(func(_, part gjson.Result) bool {
-				if part.Get("thought").Bool() {
-					o.facts.ReasoningProgress = o.facts.ReasoningProgress || part.Get("text").Str != ""
-				} else {
-					o.facts.UsableOutput = o.facts.UsableOutput || part.Get("text").Str != "" || part.Get("functionCall").Exists()
-				}
-				return true
-			})
-		} else {
-			delta := choice.Get("delta")
-			o.facts.UsableOutput = o.facts.UsableOutput || delta.Get("content").Str != "" || delta.Get("tool_calls.#").Int() > 0 || delta.Get("function_call").Exists()
-			o.facts.ReasoningProgress = o.facts.ReasoningProgress || delta.Get("reasoning_content").Str != "" || delta.Get("reasoning").Str != ""
 		}
 		if finish != "" {
 			if o.finished == nil {
@@ -230,9 +207,9 @@ func (o *ProviderStreamObservation) observeChoices(choices gjson.Result, gemini 
 		return true
 	})
 	if len(o.finished) > 0 && len(o.openChoices) == 0 {
-		o.facts.State = StreamTerminal
+		o.state = StreamTerminal
 	} else if len(o.openChoices) > 0 {
-		o.facts.State = StreamStarted
+		o.state = StreamStarted
 	}
 }
 
@@ -245,14 +222,7 @@ func (o *ProviderStreamObservation) observeResponses(eventType []byte, root gjso
 		return
 	}
 	o.start()
-	o.facts.UsableOutput = o.facts.UsableOutput || nativeResponsesEventHasUsableOutput(root)
 	switch kind {
-	case responsesReasoningSummaryDelta, responsesReasoningTextDelta:
-		o.facts.ReasoningProgress = o.facts.ReasoningProgress || root.Get("delta").Str != ""
-	case responsesOutputItemDone:
-		if responsesItemType(root.Get("item.type").Str) == responsesReasoningItem {
-			o.facts.ReasoningProgress = o.facts.ReasoningProgress || completedReasoningHasProgress(root.Get("item"))
-		}
 	case responsesFailed, "error":
 		o.fail([]byte(root.Raw))
 	case responsesCompleted, responsesIncomplete:
@@ -260,8 +230,7 @@ func (o *ProviderStreamObservation) observeResponses(eventType []byte, root gjso
 			o.fail([]byte(root.Raw))
 			return
 		}
-		o.facts.UsableOutput = o.facts.UsableOutput || responsesResponseHasUsableOutput(root.Get("response"))
-		o.facts.State = StreamTerminal
+		o.state = StreamTerminal
 		o.explicitEnd = true
 	}
 }

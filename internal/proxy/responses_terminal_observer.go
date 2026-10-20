@@ -96,7 +96,7 @@ func (o *responsesTerminalObserver) Finalize() {
 
 // observeEvent records the same first terminal that owns lifecycle completion.
 func (o *responsesTerminalObserver) observeEvent(event []byte) {
-	switch o.state.observation.Facts().State {
+	switch o.state.observation.State() {
 	case translate.StreamTerminal, translate.StreamFailed, translate.StreamCanceled:
 		return
 	}
@@ -134,11 +134,6 @@ func (o *responsesTerminalObserver) DeclaredError() error {
 func (o *responsesTerminalObserver) OutcomeError() error {
 	o.Finalize()
 	return o.state.observation.OutcomeError()
-}
-
-func (o *responsesTerminalObserver) streamErr() error {
-	o.Finalize()
-	return o.state.err()
 }
 
 var (

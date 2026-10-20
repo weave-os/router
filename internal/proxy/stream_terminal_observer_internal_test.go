@@ -252,3 +252,39 @@ func TestNativeBufferedDeclaredErrorPreservesBodyCompatibility(t *testing.T) {
 		}
 	}
 }
+
+func TestStreamTerminalObserverLargeBufferedJSON(t *testing.T) {
+	for _, fixture := range []struct {
+		name   string
+		format translate.Format
+		body   string
+		failed bool
+	}{
+		{
+			name: "gemini completed", format: translate.FormatGemini,
+			body: `{"candidates":[{"content":{"parts":[{"text":"` + strings.Repeat("x", streamCutCarryCap+1) + `"}]},"finishReason":"STOP"}]}`,
+		},
+		{
+			name: "anthropic declared failure", format: translate.FormatAnthropic, failed: true,
+			body: `{"type":"error","error":{"type":"api_error","message":"` + strings.Repeat("x", streamCutCarryCap+1) + `"}}`,
+		},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			recorder.Header().Set("Content-Type", "application/json; charset=utf-8")
+			observer := newStreamTerminalObserver(recorder, fixture.format)
+			for offset := 0; offset < len(fixture.body); offset += 4096 {
+				_, err := observer.Write([]byte(fixture.body[offset:min(offset+4096, len(fixture.body))]))
+				require.NoError(t, err)
+			}
+			if fixture.failed {
+				var failure *providers.UpstreamErrorResponse
+				require.ErrorAs(t, observer.DeclaredError(), &failure)
+				require.JSONEq(t, fixture.body, string(failure.Body))
+			} else {
+				require.NoError(t, observer.OutcomeError())
+			}
+			require.Equal(t, fixture.body, recorder.Body.String())
+		})
+	}
+}

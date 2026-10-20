@@ -113,7 +113,7 @@ func TestTerminalDeliveryReplacesBufferedBodyBeforeCostFlush(t *testing.T) {
 	require.True(t, registerResponseCostBuffer(ctx, buffer))
 	_, err := buffer.Write([]byte(`{"partial":"invalid success"}`))
 	require.NoError(t, err)
-	returned := error(policy.ErrContextWindowExceeded)
+	returned := policy.ErrContextWindowExceeded
 	finish(&returned)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 	require.NotContains(t, rec.Body.String(), "invalid success")
@@ -139,7 +139,7 @@ func TestTerminalDeliveryCallerCancellationSupersedesMissingTerminal(t *testing.
 	rec := httptest.NewRecorder()
 	_, _, finish := beginTerminalDelivery(ctx, rec, translate.FormatAnthropic, true)
 	cancel()
-	cause := error(translate.ErrStreamIncomplete)
+	cause := translate.ErrStreamIncomplete
 	finish(&cause)
 	require.ErrorIs(t, cause, context.Canceled)
 	require.Empty(t, rec.Body.String())

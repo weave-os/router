@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"net/http"
+	"strings"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/sse"
@@ -45,6 +46,11 @@ func (o *streamTerminalObserver) WriteHeader(status int) { o.inner.WriteHeader(s
 
 func (o *streamTerminalObserver) Write(p []byte) (int, error) {
 	o.buf.Write(p)
+	// JSON responses require whole-body validation; the carry cap below only
+	// bounds partial SSE records, not complete buffered responses.
+	if strings.Contains(o.Header().Get("Content-Type"), "application/json") {
+		return o.inner.Write(p)
+	}
 	for {
 		event, n := o.framing.Next(o.buf.Bytes())
 		if n == 0 {

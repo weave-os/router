@@ -266,7 +266,7 @@ func (d *NoticeDelivery) finalize() error {
 			d.observation.ObserveEvent(pending)
 		}
 	}
-	if (d.capabilities.Format == FormatOpenAI || d.capabilities.Format == FormatGemini) && d.observation.Facts().State == StreamTerminal && d.observation.EOF() == nil {
+	if (d.capabilities.Format == FormatOpenAI || d.capabilities.Format == FormatGemini) && d.observation.State() == StreamTerminal && d.observation.EOF() == nil {
 		d.terminal = true
 	}
 	d.queued = nil
@@ -315,7 +315,7 @@ func (d *NoticeDelivery) writeRecord(event, record []byte) error {
 	}
 	d.chatDone = d.chatDone || chatDone
 	d.observation.ObserveEvent(event)
-	d.terminalFailure = d.terminalFailure || d.observation.Facts().State == StreamFailed
+	d.terminalFailure = d.terminalFailure || d.observation.State() == StreamFailed
 	if d.terminalFailure || noticeTerminal(d.capabilities.Format, event) {
 		d.terminal = true
 	}
