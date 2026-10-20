@@ -26,6 +26,7 @@ type forceAcknowledgment struct {
 	suggestion   string
 	reason       string
 	clearCommand string
+	parentOnly   bool
 }
 
 type feedbackAcknowledgment string
@@ -110,6 +111,12 @@ func (ack commandAcknowledgment) renderForce(format translate.Format) string {
 	model := pin.Model
 	if pin.Effort != "" {
 		model += ":" + pin.Effort
+	}
+	if ack.force.parentOnly {
+		if format == translate.FormatOpenAI {
+			return fmt.Sprintf("Weave Router: force-parent applied: %s (%s). Subagents use automatic routing. Use %s to clear.", model, pin.Provider, ack.force.clearCommand)
+		}
+		return fmt.Sprintf("✦ **Weave Router** → force-parent applied: %s (%s) · Subagents use automatic routing · Use %s to clear\n\n", model, pin.Provider, ack.force.clearCommand)
 	}
 	if format == translate.FormatOpenAI {
 		return fmt.Sprintf("Weave Router: force-model applied: %s (%s). Use %s to clear.", model, pin.Provider, ack.force.clearCommand)

@@ -1951,6 +1951,7 @@ WEAVE_REGISTRY_DATA=$(cat <<'WEAVE_REGISTRY_EOF'
 # canonical|aliases|capability|claude|codex|opencode|pi|cursor|adapter
 # aliases are comma-separated; client columns are yes/no. adapter is the native asset kind.
 force-model|fm|prompt|yes|yes|yes|yes|manual|command,skill
+force-parent||prompt|yes|yes|yes|yes|manual|command,skill
 unforce-model|ufm|prompt|yes|yes|yes|yes|manual|command,skill
 router-feedback|rf|prompt|yes|yes|yes|no|manual|command,skill
 router-off||local-toggle|yes|yes|no|no|manual|command,skill
@@ -5012,8 +5013,8 @@ if [ "$structured_command" = 1 ]; then
 else
   # Legacy acknowledgments remain readable; only explicit force and clear mutate history.
   case "$first_line" in
-    "Weave Router: force-model applied: "*" ("*|"✦ **Weave Router** → force-model applied: "*" ("*)
-      force_model="${first_line#*force-model applied: }"
+    "Weave Router: force-model applied: "*" ("*|"✦ **Weave Router** → force-model applied: "*" ("*|"Weave Router: force-parent applied: "*" ("*|"✦ **Weave Router** → force-parent applied: "*" ("*)
+      force_model="${first_line#*applied: }"
       force_model="${force_model%% (*}"
       last_pin_model="$(safe_display_value "$force_model")"
       ;;
@@ -6354,8 +6355,8 @@ if [[ -n "$transcript_path" && -f "$transcript_path" ]]; then
         else . end
       else
         ([$entry.message.content[]? | select(.type? == "text") | .text] | join(" ") | sub("^(?:✦ \\*\\*Weave Router\\*\\* →|Weave Router:)[[:space:]]*"; "")) as $t |
-        if ($t | test("^force-model applied: [A-Za-z0-9._:/-]+")) then
-          .pin = ($t | capture("force-model applied: (?<m>[A-Za-z0-9._:/-]+)").m)
+        if ($t | test("^force-(model|parent) applied: [A-Za-z0-9._:/-]+")) then
+          .pin = ($t | capture("force-(?:model|parent) applied: (?<m>[A-Za-z0-9._:/-]+)").m)
         elif ($t | test("^force-model cleared\\b")) then .pin = null else . end
       end) | if .pin then "APPLIED " + .pin else "CLEARED" end
     ' "$transcript_path" 2>/dev/null || true)"

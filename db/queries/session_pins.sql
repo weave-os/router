@@ -63,12 +63,12 @@ RETURNING *;
 -- name: UpsertSessionPin :exec
 INSERT INTO router.session_pins (
   session_key, role, installation_id, pinned_provider,
-  pinned_model, pinned_effort, paired_provider, paired_model,
+  pinned_model, pinned_effort, forced_thread_key, paired_provider, paired_model,
   decision_reason, routing_strategy, policy_group, turn_count, pinned_until,
   consecutive_downgrade_votes, consecutive_upgrade_votes
 ) VALUES (
   @session_key::bytea, @role::varchar, @installation_id::uuid,
-  @pinned_provider::varchar, @pinned_model::varchar, @pinned_effort::varchar,
+  @pinned_provider::varchar, @pinned_model::varchar, @pinned_effort::varchar, @forced_thread_key::varchar,
   @paired_provider::varchar, @paired_model::varchar,
   @decision_reason::text, @routing_strategy::varchar, @policy_group::varchar,
   @turn_count::int, @pinned_until::timestamp,
@@ -79,6 +79,7 @@ ON CONFLICT (session_key, role) DO UPDATE SET
   pinned_provider = EXCLUDED.pinned_provider,
   pinned_model    = EXCLUDED.pinned_model,
   pinned_effort   = EXCLUDED.pinned_effort,
+  forced_thread_key = EXCLUDED.forced_thread_key,
   decision_reason = EXCLUDED.decision_reason,
   routing_strategy = EXCLUDED.routing_strategy,
   turn_count      = CASE

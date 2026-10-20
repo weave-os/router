@@ -606,6 +606,15 @@ The name is matched **exactly** — it must be a canonical catalog ID
 effort suffix (`opus:high`). There is no prefix, substring, or nearest-match
 fallback: a name the router doesn't recognize is refused, never approximated.
 
+`/force-parent <model>[:effort]` (Codex: `$force-parent`) uses the same model
+resolution and restrictions, but pins only the invoking thread. It replaces a
+conversation-wide force, so children sharing its client-session ID resume normal
+automatic routing. `/force-model` restores conversation-wide pinning, and
+`/unforce-model` clears either mode. Parent scope follows the router's thread
+digest, which includes the first user message: after compaction rewrites that
+message, reapply `/force-parent` in the parent. An explicit deployment or request
+header override still applies independently to children.
+
 That strictness is the point. Approximate matching served a model the caller
 never named — `/fm qwen 3.8` resolved through the bare `qwen` alias to
 `qwen/qwen3-coder` and acked as if the pin took. The whole rest of the command

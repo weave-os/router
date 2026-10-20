@@ -227,6 +227,11 @@ for transition in unchanged applied cleared malformed unsupported duplicate; do
     *) check_contains "$transition metadata preserves prior pin" "$out" "last pin: claude-opus-4-7" ;;
   esac
 done
+sed 's/force-model applied:/force-parent applied:/' "$c/pin.jsonl" > "$c/parent-pin.jsonl"
+out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
+  WEAVE_ROUTER_BASE_URL="file://$c/display-settings.json" \
+  render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/parent-pin.jsonl")"
+check_contains "parent pin is shown in the statusline" "$out" "last pin: claude-opus-4-7"
 
 printf '{"type":"assistant","message":{"model":"<synthetic>"}}\n' >> "$c/pin.jsonl"
 out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \

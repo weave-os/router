@@ -193,7 +193,7 @@ func (s *Service) resumeHandoff(ctx context.Context, env *translate.RequestEnvel
 	}
 	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
 	forceKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, claims.Route.SessionKey)
-	_, forced, _ := s.loadForceModelSessionPin(ctx, forceKey)
+	_, forced, _ := s.loadForceModelSessionPin(ctx, forceKey, claims.Route.SessionKey)
 	if req.ForceModel != "" || forced {
 		return turnLoopResult{}, ErrHandoffInvalid
 	}

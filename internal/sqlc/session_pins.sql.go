@@ -21,7 +21,7 @@ WHERE session_key = $1::bytea
     OR (routing_strategy = '' AND $3::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   )
   AND pinned_until > CURRENT_TIMESTAMP
-RETURNING session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, demoted_models, consecutive_downgrade_votes, last_output_limit_at, consecutive_upgrade_votes, demotion_cooldowns, turn_strikes
+RETURNING session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, demoted_models, consecutive_downgrade_votes, last_output_limit_at, consecutive_upgrade_votes, demotion_cooldowns, turn_strikes, forced_thread_key
 `
 
 type DeleteSessionPinParams struct {
@@ -42,7 +42,7 @@ type DeleteSessionPinParams struct {
 //	    OR (routing_strategy = '' AND $3::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
 //	  )
 //	  AND pinned_until > CURRENT_TIMESTAMP
-//	RETURNING session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, demoted_models, consecutive_downgrade_votes, last_output_limit_at, consecutive_upgrade_votes, demotion_cooldowns, turn_strikes
+//	RETURNING session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, demoted_models, consecutive_downgrade_votes, last_output_limit_at, consecutive_upgrade_votes, demotion_cooldowns, turn_strikes, forced_thread_key
 func (q *Queries) DeleteSessionPin(ctx context.Context, arg DeleteSessionPinParams) (RouterSessionPin, error) {
 	row := q.db.QueryRow(ctx, deleteSessionPin, arg.SessionKey, arg.Role, arg.ExpectedRoutingStrategy)
 	var i RouterSessionPin
@@ -78,6 +78,7 @@ func (q *Queries) DeleteSessionPin(ctx context.Context, arg DeleteSessionPinPara
 		&i.ConsecutiveUpgradeVotes,
 		&i.DemotionCooldowns,
 		&i.TurnStrikes,
+		&i.ForcedThreadKey,
 	)
 	return i, err
 }
@@ -376,7 +377,7 @@ func (q *Queries) ExpireAndDemoteSessionPinModel(ctx context.Context, arg Expire
 }
 
 const getSessionPin = `-- name: GetSessionPin :one
-SELECT session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, demoted_models, consecutive_downgrade_votes, last_output_limit_at, consecutive_upgrade_votes, demotion_cooldowns, turn_strikes
+SELECT session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, demoted_models, consecutive_downgrade_votes, last_output_limit_at, consecutive_upgrade_votes, demotion_cooldowns, turn_strikes, forced_thread_key
 FROM router.session_pins
 WHERE session_key = $1::bytea
   AND role        = $2::varchar
@@ -394,7 +395,7 @@ type GetSessionPinParams struct {
 // last_turn_ended_at carry the previous turn's upstream usage; the
 // planner reads them to weigh switch EV against eviction cost.
 //
-//	SELECT session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, demoted_models, consecutive_downgrade_votes, last_output_limit_at, consecutive_upgrade_votes, demotion_cooldowns, turn_strikes
+//	SELECT session_key, role, installation_id, pinned_provider, pinned_model, decision_reason, turn_count, pinned_until, first_pinned_at, last_seen_at, last_input_tokens, last_cached_read_tokens, last_cached_write_tokens, last_output_tokens, last_turn_ended_at, consecutive_upstream_errors, last_served_model, has_ever_switched, paired_provider, paired_model, consecutive_overload_errors, disabled_providers, policy_group, routing_strategy, pinned_effort, demoted_models, consecutive_downgrade_votes, last_output_limit_at, consecutive_upgrade_votes, demotion_cooldowns, turn_strikes, forced_thread_key
 //	FROM router.session_pins
 //	WHERE session_key = $1::bytea
 //	  AND role        = $2::varchar
@@ -433,6 +434,7 @@ func (q *Queries) GetSessionPin(ctx context.Context, arg GetSessionPinParams) (R
 		&i.ConsecutiveUpgradeVotes,
 		&i.DemotionCooldowns,
 		&i.TurnStrikes,
+		&i.ForcedThreadKey,
 	)
 	return i, err
 }
@@ -809,22 +811,23 @@ func (q *Queries) UpdateSessionPinUsage(ctx context.Context, arg UpdateSessionPi
 const upsertSessionPin = `-- name: UpsertSessionPin :exec
 INSERT INTO router.session_pins (
   session_key, role, installation_id, pinned_provider,
-  pinned_model, pinned_effort, paired_provider, paired_model,
+  pinned_model, pinned_effort, forced_thread_key, paired_provider, paired_model,
   decision_reason, routing_strategy, policy_group, turn_count, pinned_until,
   consecutive_downgrade_votes, consecutive_upgrade_votes
 ) VALUES (
   $1::bytea, $2::varchar, $3::uuid,
-  $4::varchar, $5::varchar, $6::varchar,
-  $7::varchar, $8::varchar,
-  $9::text, $10::varchar, $11::varchar,
-  $12::int, $13::timestamp,
-  $14::int,
-  $15::int
+  $4::varchar, $5::varchar, $6::varchar, $7::varchar,
+  $8::varchar, $9::varchar,
+  $10::text, $11::varchar, $12::varchar,
+  $13::int, $14::timestamp,
+  $15::int,
+  $16::int
 )
 ON CONFLICT (session_key, role) DO UPDATE SET
   pinned_provider = EXCLUDED.pinned_provider,
   pinned_model    = EXCLUDED.pinned_model,
   pinned_effort   = EXCLUDED.pinned_effort,
+  forced_thread_key = EXCLUDED.forced_thread_key,
   decision_reason = EXCLUDED.decision_reason,
   routing_strategy = EXCLUDED.routing_strategy,
   turn_count      = CASE
@@ -952,6 +955,7 @@ type UpsertSessionPinParams struct {
 	PinnedProvider            string
 	PinnedModel               string
 	PinnedEffort              string
+	ForcedThreadKey           string
 	PairedProvider            string
 	PairedModel               string
 	DecisionReason            string
@@ -1002,22 +1006,23 @@ type UpsertSessionPinParams struct {
 //
 //	INSERT INTO router.session_pins (
 //	  session_key, role, installation_id, pinned_provider,
-//	  pinned_model, pinned_effort, paired_provider, paired_model,
+//	  pinned_model, pinned_effort, forced_thread_key, paired_provider, paired_model,
 //	  decision_reason, routing_strategy, policy_group, turn_count, pinned_until,
 //	  consecutive_downgrade_votes, consecutive_upgrade_votes
 //	) VALUES (
 //	  $1::bytea, $2::varchar, $3::uuid,
-//	  $4::varchar, $5::varchar, $6::varchar,
-//	  $7::varchar, $8::varchar,
-//	  $9::text, $10::varchar, $11::varchar,
-//	  $12::int, $13::timestamp,
-//	  $14::int,
-//	  $15::int
+//	  $4::varchar, $5::varchar, $6::varchar, $7::varchar,
+//	  $8::varchar, $9::varchar,
+//	  $10::text, $11::varchar, $12::varchar,
+//	  $13::int, $14::timestamp,
+//	  $15::int,
+//	  $16::int
 //	)
 //	ON CONFLICT (session_key, role) DO UPDATE SET
 //	  pinned_provider = EXCLUDED.pinned_provider,
 //	  pinned_model    = EXCLUDED.pinned_model,
 //	  pinned_effort   = EXCLUDED.pinned_effort,
+//	  forced_thread_key = EXCLUDED.forced_thread_key,
 //	  decision_reason = EXCLUDED.decision_reason,
 //	  routing_strategy = EXCLUDED.routing_strategy,
 //	  turn_count      = CASE
@@ -1144,6 +1149,7 @@ func (q *Queries) UpsertSessionPin(ctx context.Context, arg UpsertSessionPinPara
 		arg.PinnedProvider,
 		arg.PinnedModel,
 		arg.PinnedEffort,
+		arg.ForcedThreadKey,
 		arg.PairedProvider,
 		arg.PairedModel,
 		arg.DecisionReason,

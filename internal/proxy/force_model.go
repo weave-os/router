@@ -559,7 +559,7 @@ func (s *Service) setForceModelSessionPin(
 	ctx context.Context,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	installationID uuid.UUID,
-	canonicalModel, provider, effort string,
+	canonicalModel, provider, effort, forcedThreadKey string,
 ) error {
 	if s.pinStore == nil || installationID == uuid.Nil {
 		return nil
@@ -568,22 +568,23 @@ func (s *Service) setForceModelSessionPin(
 		return fmt.Errorf("preserve force-model control history: %w", err)
 	}
 	forced := sessionpin.Pin{
-		SessionKey:     sessionKey,
-		Role:           forceModelSessionRole,
-		InstallationID: installationID,
-		Provider:       provider,
-		Model:          canonicalModel,
-		Effort:         effort,
-		Reason:         translate.ReasonUserForceModel,
-		TurnCount:      1,
-		PinnedUntil:    pinNeverExpires,
+		SessionKey:      sessionKey,
+		Role:            forceModelSessionRole,
+		InstallationID:  installationID,
+		Provider:        provider,
+		Model:           canonicalModel,
+		Effort:          effort,
+		ForcedThreadKey: forcedThreadKey,
+		Reason:          translate.ReasonUserForceModel,
+		TurnCount:       1,
+		PinnedUntil:     pinNeverExpires,
 	}
 	return s.pinStore.Upsert(context.Background(), forced)
 }
 
 func (s *Service) loadForceModelSessionPin(
 	ctx context.Context,
-	sessionKey [sessionpin.SessionKeyLen]byte,
+	sessionKey, threadSessionKey [sessionpin.SessionKeyLen]byte,
 ) (sessionpin.Pin, bool, bool) {
 	if s.pinStore == nil {
 		return sessionpin.Pin{}, false, false
@@ -598,6 +599,11 @@ func (s *Service) loadForceModelSessionPin(
 	}
 	if !found || !pin.PinnedUntil.After(time.Now()) || !isUserForcedReason(pin.Reason) || pin.Model == "" || pin.Provider == "" {
 		return sessionpin.Pin{}, false, false
+	}
+	if pin.ForcedThreadKey != "" && pin.ForcedThreadKey != sessionKeyHex(threadSessionKey) {
+		// Suppress pre-session-scope force rows on children as an explicit clear
+		// does, so switching from force-model cannot revive an inherited pin.
+		return pin, false, true
 	}
 	return pin, true, false
 }
@@ -762,7 +768,7 @@ func (s *Service) applyForceModelHeader(
 		// omits routing knobs from the request passed to the scorer.
 		forcedModel += ":" + effortLevel
 	}
-	if err := s.setForceModelSessionPin(ctx, forceModelSessionKey, installationID, canonicalModel, provider, effortLevel); err != nil {
+	if err := s.setForceModelSessionPin(ctx, forceModelSessionKey, installationID, canonicalModel, provider, effortLevel, ""); err != nil {
 		log.Error("x-weave-force-model: session pin upsert failed", "err", err)
 		return ctx, forcedModel, nil
 	}
@@ -859,7 +865,13 @@ func (s *Service) applyForceModelCommand(
 		log.Error("/force-model: legacy pin cleanup failed", "err", err)
 		return "", commandAcknowledgment{}, err
 	}
-	if err := s.setForceModelSessionPin(ctx, forceModelSessionKey, installationID, canonicalModel, binding, effortLevel); err != nil {
+	forcedThreadKey := ""
+	command := "force-model"
+	if cmd.ParentOnly {
+		forcedThreadKey = sessionKeyHex(threadSessionKey)
+		command = "force-parent"
+	}
+	if err := s.setForceModelSessionPin(ctx, forceModelSessionKey, installationID, canonicalModel, binding, effortLevel, forcedThreadKey); err != nil {
 		log.Error("/force-model: session pin upsert failed", "err", err)
 		return "", commandAcknowledgment{}, err
 	}
@@ -869,7 +881,9 @@ func (s *Service) applyForceModelCommand(
 	}
 	ack.outcome.Pin = translate.CommandPin{Transition: translate.PinApplied, Model: canonicalModel, Provider: binding, Effort: effortLevel}
 	ack.force.clearCommand = directivePrefix(ClientIdentityFrom(ctx).ClientApp) + "unforce-model"
-	log.Debug("/force-model: session pin set",
+	ack.force.parentOnly = cmd.ParentOnly
+	log.Debug("/"+command+": session pin set",
+		"forced_thread_key", forcedThreadKey,
 		"input_model", cmd.Model,
 		"canonical_model", canonicalModel,
 		"provider", binding,

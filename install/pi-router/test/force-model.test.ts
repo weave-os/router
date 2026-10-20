@@ -61,7 +61,7 @@ function messageEntry(role: "user" | "assistant", content: string | Array<{ type
 
 test("registers the Claude-parity command aliases", () => {
 	const { commands } = extensionHarness();
-	assert.deepEqual([...commands.keys()], ["fm", "force-model", "ufm", "unforce-model"]);
+	assert.deepEqual([...commands.keys()], ["fm", "force-model", "force-parent", "ufm", "unforce-model"]);
 });
 
 test("forwards one canonical force-model turn with the argument verbatim", async () => {
@@ -224,4 +224,17 @@ test("rejects malformed command headers and inconsistent state transitions", () 
 		{ ...APPLIED_OUTCOME, pin: { transition: "applied", model: "unsafe\nmodel", provider: "anthropic" } },
 	]) assert.equal(parseRouterCommandHeader(Buffer.from(JSON.stringify(invalid)).toString("base64url")), undefined);
 	for (const invalidHeader of ["", "not-base64?", "====", "a".repeat(4097)]) assert.equal(parseRouterCommandHeader(invalidHeader), undefined);
+});
+
+test("force-parent forwards parent scope and restores its acknowledged pin", async () => {
+	const { commands, sent } = extensionHarness();
+	const { ctx, notifications } = commandContext();
+	await commands.get("force-parent")?.handler(" opus:high ", ctx);
+	await commands.get("force-parent")?.handler(" ", ctx);
+	assert.deepEqual(sent, [{ content: "/force-parent opus:high", options: undefined }]);
+	assert.equal(notifications.length, 1);
+	assert.equal(forcedModelFromBranch([
+		messageEntry("user", "/force-parent opus:high"),
+		messageEntry("assistant", "force-parent applied: claude-opus-5-5:high (anthropic)"),
+	]), "claude-opus-5-5:high");
 });

@@ -41,6 +41,9 @@ type Pin struct {
 	// `:level` suffix of /force-model or x-weave-force-model); empty means the
 	// model's default. Persisted so later turns served from the pin carry it.
 	Effort string
+	// ForcedThreadKey restricts an explicit pin to this thread digest. Empty
+	// means the force applies to every thread in the client conversation.
+	ForcedThreadKey string
 	// PairedProvider/PairedModel are the scorer's runner-up pick, refreshed by
 	// Upsert on a genuine scorer re-run, preserved on a same-model refresh, and
 	// cleared on a model change without a fresh pair (force-model, loop-break,

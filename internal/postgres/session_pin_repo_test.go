@@ -82,3 +82,10 @@ func TestToSessionPinDemotionCooldowns(t *testing.T) {
 		assert.Nil(t, toSessionPin(sqlc.RouterSessionPin{DemotionCooldowns: []byte(`{"m":"soon"}`)}).DemotionCooldowns)
 	})
 }
+
+func TestToSessionPinPreservesForcedThreadScope(t *testing.T) {
+	const parentThreadKey = "0123456789abcdef0123456789abcdef"
+	pin := toSessionPin(sqlc.RouterSessionPin{ForcedThreadKey: parentThreadKey})
+	assert.Equal(t, parentThreadKey, pin.ForcedThreadKey)
+	assert.Empty(t, toSessionPin(sqlc.RouterSessionPin{}).ForcedThreadKey)
+}

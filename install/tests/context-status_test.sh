@@ -121,6 +121,10 @@ cp "$fixture" "$context_file"
 printf '%s' "$forced_payload" | "$codex" >/dev/null
 absent "$(cat "$work/title")" 'last Router ctx est.'
 contains "$(cat "$work/title")" 'gpt-5.6-sol'
+parent_payload='{"hook_event_name":"Stop","session_id":"session-context","model":"gpt-5.6-sol","last_assistant_message":"Weave Router: force-parent applied: gpt-6-astra (openai). Subagents use automatic routing."}'
+printf '%s' "$parent_payload" | "$codex" >/dev/null
+contains "$(cat "$work/title")" 'gpt-6-astra'
+absent "$(cat "$work/title")" 'last Router ctx est.'
 make_snapshot
 jq '.session_id="foreign-session"' "$fixture" >"$context_file"
 run_codex

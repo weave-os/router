@@ -182,7 +182,7 @@ func (s *Service) handleLoopEscalation(
 		}
 	}
 	if len(forceModelSessionKeys) > 0 {
-		forcePin, active, _ := s.loadForceModelSessionPin(ctx, forceModelSessionKeys[0])
+		forcePin, active, _ := s.loadForceModelSessionPin(ctx, forceModelSessionKeys[0], sessionKey)
 		if active {
 			userForced = true
 			loopingModel = forcePin.Model

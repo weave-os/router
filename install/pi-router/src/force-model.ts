@@ -91,13 +91,13 @@ function messageText(message: unknown): string | undefined {
 
 export function parseForceModelDirective(text: string): ForceModelDirective | undefined {
 	const command = text.trim();
-	if (/^\/(?:force-model|fm)\s+\S+/i.test(command)) return "force";
+	if (/^\/(?:force-model|force-parent|fm)\s+\S+/i.test(command)) return "force";
 	if (/^\/(?:unforce-model|ufm)$/i.test(command)) return "clear";
 	return undefined;
 }
 
 export function parseForceModelAcknowledgement(text: string): ForceModelTransition | undefined {
-	const applied = /^(?:(?:✦ \*\*Weave Router\*\* →|Weave Router:)\s+)?force-model applied:\s+([^\s()]+)/i.exec(text.trim());
+	const applied = /^(?:(?:✦ \*\*Weave Router\*\* →|Weave Router:)\s+)?force-(?:model|parent) applied:\s+([^\s()]+)/i.exec(text.trim());
 	if (applied) return { kind: "applied", model: applied[1] };
 	if (/^(?:(?:✦ \*\*Weave Router\*\* →|Weave Router:)\s+)?force-model cleared\b/i.test(text.trim())) return { kind: "cleared" };
 	if (/is(?:n't| not) a recognized model/i.test(text)) return { kind: "noop" };
@@ -178,6 +178,16 @@ export function registerForceModelCommands(pi: ExtensionAPI): void {
 			handler: forceModel,
 		});
 	}
+	pi.registerCommand("force-parent", {
+		description: "Pin only this parent thread while subagents route automatically",
+		handler: async (args, ctx) => {
+			if (!args.trim()) {
+				ctx.ui.notify("Usage: /force-parent <model-id>", "warning");
+				return;
+			}
+			sendRouterCommand(pi, `/force-parent ${args.trim()}`, ctx);
+		},
+	});
 	for (const name of ["ufm", "unforce-model"]) {
 		pi.registerCommand(name, {
 			description: "Clear this session's forced Weave Router model",

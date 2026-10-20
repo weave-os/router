@@ -1012,6 +1012,7 @@ type RouterSessionPin struct {
 	ConsecutiveUpgradeVotes   int32
 	DemotionCooldowns         []byte
 	TurnStrikes               []string
+	ForcedThreadKey           string
 }
 
 type RouterSessionPinRecoveryProbeLease struct {

@@ -207,6 +207,7 @@ Codex skills, invoked with `$`:
 | Skill | Purpose |
 | --- | --- |
 | `$force-model <model-id>` / `$fm <model-id>` | Pin the session to a model through the router |
+| `$force-parent <model-id>[:effort]` | Pin only this thread; subagents route automatically |
 | `$unforce-model` / `$ufm` | Clear the session model pin |
 | `$router-feedback <text>` / `$rf <text>` | Send feedback through the router |
 
@@ -351,7 +352,7 @@ toggles — in a detached fork, so no Codex turn blocks on it, and it skips the
 replacement when the bytes are unchanged. The `WEAVE_STATUSLINE_*` variables
 above are accepted as fallbacks for users who configure both clients together.
 
-**Codex skill invocations are answered by the router.** `$fm`/`$force-model`,
+**Codex skill invocations are answered by the router.** `$fm`/`$force-model`, `$force-parent`,
 `$ufm`/`$unforce-model`, `$rf`/`$router-feedback` and `$router-session` reach
 the router; the local toggles do not, and are covered below. Codex sends a
 `$name` invocation as two user messages: the text the user typed, then a second
@@ -498,6 +499,7 @@ installer owns the config file.
 | Directive | Claude Code | Codex | opencode | pi | Cursor |
 | --- | --- | --- | --- | --- | --- |
 | force-model (`fm`) | `/force-model` | `$force-model` | `/force-model` | `/fm` (native) | manual |
+| force-parent | `/force-parent` | `$force-parent` | `/force-parent` | `/force-parent` (native) | manual |
 | unforce-model (`ufm`) | `/unforce-model` | `$unforce-model` | `/unforce-model` | `/ufm` (native) | manual |
 | router-feedback (`rf`) | `/router-feedback` | `$router-feedback` | `/router-feedback` | — | manual |
 | router-session | `/router-session` | `$router-session` | — | — | — |

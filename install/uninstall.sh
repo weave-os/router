@@ -44,6 +44,7 @@ WEAVE_REGISTRY_DATA=$(cat <<'WEAVE_REGISTRY_EOF'
 # canonical|aliases|capability|claude|codex|opencode|pi|cursor|adapter
 # aliases are comma-separated; client columns are yes/no. adapter is the native asset kind.
 force-model|fm|prompt|yes|yes|yes|yes|manual|command,skill
+force-parent||prompt|yes|yes|yes|yes|manual|command,skill
 unforce-model|ufm|prompt|yes|yes|yes|yes|manual|command,skill
 router-feedback|rf|prompt|yes|yes|yes|no|manual|command,skill
 router-off||local-toggle|yes|yes|no|no|manual|command,skill

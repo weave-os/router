@@ -625,8 +625,8 @@ if [ "$structured_command" = 1 ]; then
 else
   # Legacy acknowledgments remain readable; only explicit force and clear mutate history.
   case "$first_line" in
-    "Weave Router: force-model applied: "*" ("*|"✦ **Weave Router** → force-model applied: "*" ("*)
-      force_model="${first_line#*force-model applied: }"
+    "Weave Router: force-model applied: "*" ("*|"✦ **Weave Router** → force-model applied: "*" ("*|"Weave Router: force-parent applied: "*" ("*|"✦ **Weave Router** → force-parent applied: "*" ("*)
+      force_model="${first_line#*applied: }"
       force_model="${force_model%% (*}"
       last_pin_model="$(safe_display_value "$force_model")"
       ;;
