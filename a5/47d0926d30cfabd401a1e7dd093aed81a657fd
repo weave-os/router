@@ -1,0 +1,29 @@
+internal/proxy/escalation_commit_internal_test.go
+  s_34c7b528a2660c::t_4a27be9332ff21 1-90
+internal/proxy/escalation.go
+  s_fc12c125adae65::t_81b81f68afb52e 225-228
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "a547d0926d30cfabd401a1e7dd093aed81a657fd",
+  "prompts": {},
+  "sessions": {
+    "s_34c7b528a2660c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0872c-1993-76d1-bd9a-9a9c26a4cffb",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_fc12c125adae65": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0872c-1993-76d1-bd9a-9a9c26a4cffb",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

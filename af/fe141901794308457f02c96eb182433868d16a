@@ -1,0 +1,19 @@
+scripts/legacy_runtime_check/main.go
+  s_995f50c8cb9d9c::t_f923b4fe451378 169-173
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "affe141901794308457f02c96eb182433868d16a",
+  "prompts": {},
+  "sessions": {
+    "s_995f50c8cb9d9c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f3da-c220-7d30-a2c2-f7306bea491b",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

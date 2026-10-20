@@ -1,0 +1,21 @@
+internal/proxy/compaction.go
+  s_bfc7cad9f2d324::t_d31136e6c541e6 69-75,82
+internal/proxy/compaction_test.go
+  s_bfc7cad9f2d324::t_d31136e6c541e6 174,178
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "00d6da3168f2810b24715ff404c5a062c8748b17",
+  "prompts": {},
+  "sessions": {
+    "s_bfc7cad9f2d324": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a049eb-ff2b-7f60-857b-fa1261f39747",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
