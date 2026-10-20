@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/sse"
 	"weave-os/router/internal/translate/toolcheck"
+	"weave-os/router/internal/usage"
 
 	"github.com/tidwall/gjson"
 )
@@ -26,6 +27,7 @@ var _ providers.OutputProgressArmer = (*ResponsesToOpenAIChatWriter)(nil)
 // Reasoning is one-way: only the summary reaches the client; encrypted
 // items have no chat field to live on.
 type ResponsesToOpenAIChatWriter struct {
+	providerUsageState
 	inner        http.ResponseWriter
 	flusher      http.Flusher
 	bw           *bufio.Writer
@@ -73,14 +75,8 @@ type ResponsesToOpenAIChatWriter struct {
 	logger *slog.Logger
 
 	// Captured from the terminal response.completed/.incomplete event.
-	finalFinishReason  string
-	hasUsage           bool
-	usageInput         int
-	usageOutput        int
-	usageTotal         int
-	usageCacheRead     int
-	usageCacheCreation int
-	usageReasoning     int
+	finalFinishReason string
+	hasUsage          bool
 
 	toolCallCount        int
 	emittedFinishReason  string
@@ -246,10 +242,10 @@ func (t *ResponsesToOpenAIChatWriter) Summary() ResponseSummary {
 		ToolUseBlocks:         t.toolCallCount,
 		InvalidToolArgsBlocks: countUnrepairableToolArgs(t.toolCallIssues),
 		ToolCallIssues:        t.toolCallIssues,
-		OutputTokens:          t.usageOutput,
-		InputTokens:           t.usageInput,
-		CacheReadTokens:       t.usageCacheRead,
-		CacheCreationTokens:   t.usageCacheCreation,
+		OutputTokens:          t.UsageFacts().BilledOutputTokens(),
+		InputTokens:           t.UsageFacts().Input.Value,
+		CacheReadTokens:       t.UsageFacts().CacheRead.Value,
+		CacheCreationTokens:   t.UsageFacts().CacheWrite.Value,
 	}
 }
 
@@ -464,24 +460,12 @@ func (t *ResponsesToOpenAIChatWriter) captureFinalResponse(resp gjson.Result) {
 	t.recordUsage(resp.Get("usage"))
 }
 
-func (t *ResponsesToOpenAIChatWriter) recordUsage(usage gjson.Result) {
-	if !usage.Exists() {
+func (t *ResponsesToOpenAIChatWriter) recordUsage(object gjson.Result) {
+	if !object.IsObject() {
 		return
 	}
-	t.hasUsage = true
-	t.usageInput = int(usage.Get("input_tokens").Int())
-	t.usageOutput = int(usage.Get("output_tokens").Int())
-	t.usageTotal = int(usage.Get("total_tokens").Int())
-	if t.usageTotal == 0 {
-		t.usageTotal = t.usageInput + t.usageOutput
-	}
-	t.usageReasoning = OpenAIReasoningTokens(usage)
-	t.usageCacheCreation, t.usageCacheRead = OpenAICacheTokens(usage)
-	if t.usageSink != nil {
-		t.usageSink.RecordUsage(t.usageInput, t.usageOutput)
-		t.usageSink.RecordCacheUsage(t.usageCacheCreation, t.usageCacheRead)
-		t.usageSink.RecordReasoningUsage(t.usageReasoning)
-	}
+	facts := t.observeUsage(object, usage.ParseOpenAI, t.usageSink)
+	t.hasUsage = facts.Present
 }
 
 // finishStream flushes any tool call still open (upstream truncated before
@@ -588,7 +572,8 @@ func (t *ResponsesToOpenAIChatWriter) finalizeBuffered() error {
 			"upstream_error_message", errMsg)
 		return t.finalizeError()
 	}
-	chat, issues, err := responsesToOpenAIChatResponse(finalResp, t.requestModel, t.toolValidator)
+	t.recordUsage(resp.Get("usage"))
+	chat, issues, err := responsesToOpenAIChatResponse(finalResp, t.requestModel, t.toolValidator, t.UsageFacts())
 	t.toolCallIssues = append(t.toolCallIssues, issues...)
 	if err != nil {
 		t.log().Error("ResponsesToOpenAIChat: translate failed", "err", err)
@@ -597,11 +582,9 @@ func (t *ResponsesToOpenAIChatWriter) finalizeBuffered() error {
 	if !chatCompletionHasUsableOutput(chat) && !chatCompletionHasReasoningOutput(chat) {
 		t.log().Error("ResponsesToOpenAIChat: upstream returned an empty completion",
 			"request_model", t.requestModel)
-		t.recordUsage(resp.Get("usage"))
 		recordOutputLimit(t.usageSink, responsesOutputLimitReached(resp))
 		return t.finalizeEmptyCompletion()
 	}
-	t.recordUsage(resp.Get("usage"))
 	recordOutputLimit(t.usageSink, responsesOutputLimitReached(resp))
 	root := gjson.ParseBytes(chat)
 	t.emittedFinishReason = root.Get("choices.0.finish_reason").String()
@@ -764,23 +747,8 @@ func (t *ResponsesToOpenAIChatWriter) emitFinalChunk(finishReason string) error 
 // writeUsageJSON serializes chat-shape usage, including the cached-token and
 // reasoning-token details Responses reports.
 func (t *ResponsesToOpenAIChatWriter) writeUsageJSON() {
-	t.bw.WriteString(`,"usage":{"prompt_tokens":`)
-	sse.WriteJSONInt(t.bw, int64(t.usageInput))
-	t.bw.WriteString(`,"completion_tokens":`)
-	sse.WriteJSONInt(t.bw, int64(t.usageOutput))
-	t.bw.WriteString(`,"total_tokens":`)
-	sse.WriteJSONInt(t.bw, int64(t.usageTotal))
-	if t.usageCacheRead > 0 {
-		t.bw.WriteString(`,"prompt_tokens_details":{"cached_tokens":`)
-		sse.WriteJSONInt(t.bw, int64(t.usageCacheRead))
-		t.bw.WriteByte('}')
-	}
-	if t.usageReasoning > 0 {
-		t.bw.WriteString(`,"completion_tokens_details":{"reasoning_tokens":`)
-		sse.WriteJSONInt(t.bw, int64(t.usageReasoning))
-		t.bw.WriteByte('}')
-	}
-	t.bw.WriteByte('}')
+	t.bw.WriteString(`,"usage":`)
+	t.bw.Write(chatUsageJSON(t.UsageFacts()))
 }
 
 func (t *ResponsesToOpenAIChatWriter) emitDone() error {

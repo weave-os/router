@@ -14,6 +14,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/sse"
 	"weave-os/router/internal/translate/toolcheck"
+	"weave-os/router/internal/usage"
 
 	"github.com/tidwall/gjson"
 )
@@ -23,6 +24,7 @@ var _ providers.OutputProgressArmer = (*AnthropicSSETranslator)(nil)
 // SSETranslator translates Anthropic streaming SSE to OpenAI chat.completion.chunk
 // on the fly. Non-streaming responses buffer for Finalize.
 type SSETranslator struct {
+	providerUsageState
 	inner   http.ResponseWriter
 	flusher http.Flusher
 	bw      *bufio.Writer
@@ -39,9 +41,8 @@ type SSETranslator struct {
 	toolIdx       int
 	currentIsTool bool
 
-	usageSink   UsageSink
-	inputTokens int // persists input token count from message_start for use in handleMessageDelta
-	lifecycle   *StreamLifecycle
+	usageSink UsageSink
+	lifecycle *StreamLifecycle
 }
 
 // NewSSETranslator wraps w. Call Finalize after upstream returns.
@@ -122,23 +123,11 @@ func (t *SSETranslator) Finalize() error {
 		return err
 	}
 
-	if t.usageSink != nil {
-		usage := gjson.GetBytes(body, "usage")
-		if usage.Exists() {
-			t.usageSink.RecordUsage(
-				int(usage.Get("input_tokens").Int()),
-				int(usage.Get("output_tokens").Int()),
-			)
-			t.usageSink.RecordCacheUsage(
-				int(usage.Get("cache_creation_input_tokens").Int()),
-				int(usage.Get("cache_read_input_tokens").Int()),
-			)
-			recordAnthropicUsageModifiers(t.usageSink, usage)
-		}
-	}
+	t.observeUsage(gjson.GetBytes(body, "usage"), usage.ParseAnthropic, t.usageSink)
+
 	recordOutputLimit(t.usageSink, gjson.GetBytes(body, "stop_reason").Str == "max_tokens")
 
-	translated, err := AnthropicToOpenAIResponse(body, t.model)
+	translated, err := anthropicToOpenAIResponse(body, t.model, t.UsageFacts())
 	if err != nil {
 		t.inner.Header().Set("Content-Type", "application/json")
 		t.inner.WriteHeader(http.StatusBadGateway)
@@ -227,26 +216,11 @@ func (t *SSETranslator) handleMessageStart(data []byte) error {
 	t.writeChunkHeader()
 	t.bw.WriteString(`"choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]`)
 
-	usageResult := gjson.GetBytes(data, "message.usage")
-	if usageResult.Exists() {
-		inputTokens := usageResult.Get("input_tokens").Int()
-		t.inputTokens = int(inputTokens)
-		outputTokens := usageResult.Get("output_tokens").Int()
-		t.bw.WriteString(`,"usage":{"prompt_tokens":`)
-		sse.WriteJSONInt(t.bw, inputTokens)
-		t.bw.WriteString(`,"completion_tokens":`)
-		sse.WriteJSONInt(t.bw, outputTokens)
-		t.bw.WriteString(`,"total_tokens":`)
-		sse.WriteJSONInt(t.bw, inputTokens+outputTokens)
-		t.bw.WriteByte('}')
-		if t.usageSink != nil {
-			t.usageSink.RecordUsage(int(inputTokens), 0)
-			t.usageSink.RecordCacheUsage(
-				int(usageResult.Get("cache_creation_input_tokens").Int()),
-				int(usageResult.Get("cache_read_input_tokens").Int()),
-			)
-			recordAnthropicUsageModifiers(t.usageSink, usageResult)
-		}
+	object := gjson.GetBytes(data, "message.usage")
+	if object.IsObject() {
+		facts := t.observeUsage(object, usage.ParseAnthropic, t.usageSink)
+		t.bw.WriteString(`,"usage":`)
+		t.bw.Write(chatUsageJSON(facts))
 	}
 
 	t.bw.WriteString("}\n\n")
@@ -339,19 +313,11 @@ func (t *SSETranslator) handleMessageDelta(data []byte) error {
 	sse.WriteJSONString(t.bw, finishReason)
 	t.bw.WriteString(`}]`)
 
-	usageResult := gjson.GetBytes(data, "usage")
-	if usageResult.Exists() {
-		outputTokens := usageResult.Get("output_tokens").Int()
-		t.bw.WriteString(`,"usage":{"prompt_tokens":`)
-		sse.WriteJSONInt(t.bw, int64(t.inputTokens))
-		t.bw.WriteString(`,"completion_tokens":`)
-		sse.WriteJSONInt(t.bw, outputTokens)
-		t.bw.WriteString(`,"total_tokens":`)
-		sse.WriteJSONInt(t.bw, int64(t.inputTokens)+outputTokens)
-		t.bw.WriteByte('}')
-		if t.usageSink != nil {
-			t.usageSink.RecordUsage(0, int(outputTokens))
-		}
+	object := gjson.GetBytes(data, "usage")
+	if object.IsObject() {
+		facts := t.observeUsage(object, usage.ParseAnthropic, t.usageSink)
+		t.bw.WriteString(`,"usage":`)
+		t.bw.Write(chatUsageJSON(facts))
 	}
 
 	t.bw.WriteString("}\n\n")
@@ -391,6 +357,7 @@ var _ http.Flusher = (*SSETranslator)(nil)
 // AnthropicSSETranslator translates OpenAI Chat Completions SSE to Anthropic
 // Messages format on the fly. Non-streaming responses buffer for Finalize.
 type AnthropicSSETranslator struct {
+	providerUsageState
 	inner   http.ResponseWriter
 	flusher http.Flusher
 	bw      *bufio.Writer
@@ -449,14 +416,10 @@ type AnthropicSSETranslator struct {
 	// (post tool_use promotion), surfaced via Summary.
 	emittedStopReason string
 
-	finishReason             string
-	usageInputTokens         int
-	usageOutputTokens        int
-	usageCacheCreationTokens int
-	usageCacheReadTokens     int
-	hasUsage                 bool
-	messageID                string
-	modelFromUpstream        string
+	finishReason      string
+	hasUsage          bool
+	messageID         string
+	modelFromUpstream string
 
 	usageSink UsageSink
 
@@ -703,10 +666,10 @@ func (t *AnthropicSSETranslator) Summary() ResponseSummary {
 		StopReasonDemoted:     t.stopReasonDemoted,
 		SuppressedToolCalls:   len(t.suppressedTools),
 		ToolCallIssues:        t.toolCallIssues,
-		OutputTokens:          t.usageOutputTokens,
-		InputTokens:           t.usageInputTokens,
-		CacheReadTokens:       t.usageCacheReadTokens,
-		CacheCreationTokens:   t.usageCacheCreationTokens,
+		OutputTokens:          t.UsageFacts().BilledOutputTokens(),
+		InputTokens:           t.UsageFacts().PromptTokens(),
+		CacheReadTokens:       t.UsageFacts().CacheRead.Value,
+		CacheCreationTokens:   t.UsageFacts().CacheWrite.Value,
 	}
 }
 
@@ -853,23 +816,13 @@ func (t *AnthropicSSETranslator) Finalize() error {
 		return err
 	}
 
-	if t.usageSink != nil {
-		usage := gjson.GetBytes(body, "usage")
-		if usage.Exists() {
-			t.usageSink.RecordUsage(
-				int(usage.Get("prompt_tokens").Int()),
-				int(usage.Get("completion_tokens").Int()),
-			)
-			cw, cr := OpenAICacheTokens(usage)
-			t.usageSink.RecordCacheUsage(cw, cr)
-			t.usageSink.RecordReasoningUsage(OpenAIReasoningTokens(usage))
-		}
-	}
+	t.observeUsage(gjson.GetBytes(body, "usage"), usage.ParseOpenAI, t.usageSink)
+
 	// Raw upstream cap, observed before openAIToAnthropicResponse promotes a
 	// surviving tool call to stop_reason=tool_use.
 	recordOutputLimit(t.usageSink, gjson.GetBytes(body, "choices.0.finish_reason").Str == "length")
 
-	translated, issues, err := openAIToAnthropicResponse(body, t.requestModel, t.toolValidator, t.thinkTagReasoning, t.escapeNormalize)
+	translated, issues, err := openAIToAnthropicResponse(body, t.requestModel, t.toolValidator, t.thinkTagReasoning, t.escapeNormalize, t.UsageFacts())
 	t.toolCallIssues = append(t.toolCallIssues, issues...)
 	if err != nil {
 		t.inner.Header().Set("Content-Type", "application/json")
@@ -985,23 +938,12 @@ func (t *AnthropicSSETranslator) translateOpenAIEvent(raw []byte) error {
 }
 
 func (t *AnthropicSSETranslator) extractAndForwardUsage(data []byte) {
-	usage := gjson.GetBytes(data, "usage")
-	if !usage.Exists() {
+	object := gjson.GetBytes(data, "usage")
+	if !object.IsObject() {
 		return
 	}
-	prompt := usage.Get("prompt_tokens").Int()
-	completion := usage.Get("completion_tokens").Int()
-	cacheCreation, cachedRead := OpenAICacheTokens(usage)
-	t.usageInputTokens = int(prompt)
-	t.usageOutputTokens = int(completion)
-	t.usageCacheCreationTokens = cacheCreation
-	t.usageCacheReadTokens = cachedRead
-	t.hasUsage = true
-	if t.usageSink != nil {
-		t.usageSink.RecordUsage(int(prompt), int(completion))
-		t.usageSink.RecordCacheUsage(cacheCreation, cachedRead)
-		t.usageSink.RecordReasoningUsage(OpenAIReasoningTokens(usage))
-	}
+	facts := t.observeUsage(object, usage.ParseOpenAI, t.usageSink)
+	t.hasUsage = facts.Present
 }
 
 // appendThinking emits text into a thinking block, closing an open text block
@@ -1596,27 +1538,15 @@ func (t *AnthropicSSETranslator) emitMessageDelta() error {
 	t.log().Debug("AnthropicSSE emit", "event", "message_delta", "stop_reason", stopReason)
 	t.bw.WriteString("event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":")
 	sse.WriteJSONString(t.bw, stopReason)
-	t.bw.WriteString(",\"stop_sequence\":null},\"usage\":{")
+	t.bw.WriteString(",\"stop_sequence\":null},\"usage\":")
 	if t.hasUsage {
-		// Anthropic's input_tokens is fresh-only; subtract cache so the
-		// statusline formula doesn't double-count.
-		freshInput := max(0, t.usageInputTokens-t.usageCacheCreationTokens-t.usageCacheReadTokens)
-		t.bw.WriteString("\"input_tokens\":")
-		sse.WriteJSONInt(t.bw, int64(freshInput))
-		t.bw.WriteString(",\"output_tokens\":")
-		sse.WriteJSONInt(t.bw, int64(t.usageOutputTokens))
-		if t.usageCacheCreationTokens > 0 {
-			t.bw.WriteString(",\"cache_creation_input_tokens\":")
-			sse.WriteJSONInt(t.bw, int64(t.usageCacheCreationTokens))
-		}
-		if t.usageCacheReadTokens > 0 {
-			t.bw.WriteString(",\"cache_read_input_tokens\":")
-			sse.WriteJSONInt(t.bw, int64(t.usageCacheReadTokens))
-		}
+		jw := newJSONWriter()
+		writeAnthropicUsage(jw, t.UsageFacts())
+		t.bw.Write(jw.Bytes())
 	} else {
-		t.bw.WriteString("\"output_tokens\":0")
+		t.bw.WriteString("{\"output_tokens\":0}")
 	}
-	t.bw.WriteString("}}\n\n")
+	t.bw.WriteString("}\n\n")
 	return t.flushEvent()
 }
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"weave-os/router/internal/translate/toolcheck"
+	"weave-os/router/internal/usage"
 
 	"github.com/tidwall/gjson"
 )
@@ -13,7 +14,7 @@ import (
 // Responses `output` array carries reasoning / message / function_call items,
 // which map to Anthropic thinking / text / tool_use content blocks.
 func ResponsesToAnthropicResponse(body []byte, requestModel, reasoningScope string) ([]byte, error) {
-	out, _, err := responsesToAnthropicResponse(body, requestModel, reasoningScope, nil)
+	out, _, err := responsesToAnthropicResponse(body, requestModel, reasoningScope, nil, usage.ParseOpenAI(gjson.GetBytes(body, "usage")))
 	return out, err
 }
 
@@ -21,7 +22,7 @@ func ResponsesToAnthropicResponse(body []byte, requestModel, reasoningScope stri
 // inputs are checked (and safely repaired) against the request's tool schemas
 // via toolValidator, with one toolcheck.Issue returned per offending block. A
 // nil validator degrades to syntax-check-only.
-func responsesToAnthropicResponse(body []byte, requestModel, reasoningScope string, toolValidator *toolcheck.Validator) ([]byte, []toolcheck.Issue, error) {
+func responsesToAnthropicResponse(body []byte, requestModel, reasoningScope string, toolValidator *toolcheck.Validator, facts usage.Facts) ([]byte, []toolcheck.Issue, error) {
 	if !gjson.ValidBytes(body) {
 		return nil, nil, fmt.Errorf("unmarshal responses response: invalid JSON")
 	}
@@ -136,27 +137,8 @@ func responsesToAnthropicResponse(body []byte, requestModel, reasoningScope stri
 	jw.Key("stop_sequence")
 	jw.Null()
 
-	usage := root.Get("usage")
-	cacheWrite, cacheRead := OpenAICacheTokens(usage)
-	freshInput := usage.Get("input_tokens").Int() - int64(cacheWrite) - int64(cacheRead)
-	if freshInput < 0 {
-		freshInput = 0
-	}
 	jw.Key("usage")
-	jw.Obj()
-	jw.Key("input_tokens")
-	jw.Int(freshInput)
-	jw.Key("output_tokens")
-	jw.Int(usage.Get("output_tokens").Int())
-	if cacheWrite > 0 {
-		jw.Key("cache_creation_input_tokens")
-		jw.Int(int64(cacheWrite))
-	}
-	if cacheRead > 0 {
-		jw.Key("cache_read_input_tokens")
-		jw.Int(int64(cacheRead))
-	}
-	jw.EndObj()
+	writeAnthropicUsage(jw, facts)
 
 	jw.EndObj()
 	return jw.Bytes(), issues, nil

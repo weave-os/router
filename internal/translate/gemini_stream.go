@@ -9,6 +9,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/sse"
+	"weave-os/router/internal/usage"
 
 	"github.com/tidwall/gjson"
 )
@@ -17,6 +18,7 @@ import (
 // OpenAI chat.completion.chunk on the fly, chaining with an inner AnthropicSSETranslator
 // for Anthropic-inbound requests.
 type GeminiToOpenAISSETranslator struct {
+	providerUsageState
 	inner   http.ResponseWriter
 	flusher http.Flusher
 	bw      *bufio.Writer
@@ -144,22 +146,11 @@ func (t *GeminiToOpenAISSETranslator) Finalize() error {
 		return err
 	}
 
-	if t.usageSink != nil {
-		usage := gjson.GetBytes(body, "usageMetadata")
-		if usage.Exists() {
-			t.usageSink.RecordUsage(
-				int(usage.Get("promptTokenCount").Int()),
-				int(geminiOutputTokens(usage)),
-			)
-			t.usageSink.RecordReasoningUsage(int(usage.Get("thoughtsTokenCount").Int()))
-			if cached := int(usage.Get("cachedContentTokenCount").Int()); cached > 0 {
-				t.usageSink.RecordCacheUsage(0, cached)
-			}
-		}
-	}
+	t.observeUsage(gjson.GetBytes(body, "usageMetadata"), usage.ParseGemini, t.usageSink)
+
 	recordOutputLimit(t.usageSink, gjson.GetBytes(body, "candidates.0.finishReason").Str == "MAX_TOKENS")
 
-	translated, err := GeminiToOpenAIResponse(body, t.model)
+	translated, err := geminiToOpenAIResponse(body, t.model, t.UsageFacts())
 	if err != nil {
 		t.inner.Header().Set("Content-Type", "application/json")
 		t.inner.WriteHeader(http.StatusBadGateway)
@@ -245,45 +236,24 @@ func (t *GeminiToOpenAISSETranslator) translateEvent(raw []byte) error {
 		}
 	}
 
-	usage := geminiUsageFromBytes(data)
+	facts := t.observeUsage(gjson.GetBytes(data, "usageMetadata"), usage.ParseGemini, t.usageSink)
 	finishReason := candidate.Get("finishReason").String()
 	if finishReason != "" {
 		recordOutputLimit(t.usageSink, finishReason == "MAX_TOKENS")
 		mapped := mapGeminiFinishReason(finishReason, t.toolIdx > 0)
-		if err := t.emitFinalChunk(mapped, usage); err != nil {
+		if err := t.emitFinalChunk(mapped, facts); err != nil {
 			return err
 		}
 		t.finished = true
 		return t.emitDone()
 	}
-	if usage != nil {
+	if facts.Present {
 		// Gemini can send usage in a trailing chunk with no finishReason.
-		if err := t.emitUsageOnlyChunk(usage); err != nil {
+		if err := t.emitUsageOnlyChunk(facts); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-func geminiUsageFromBytes(data []byte) map[string]int {
-	r := gjson.GetBytes(data, "usageMetadata")
-	if !r.Exists() {
-		return nil
-	}
-	prompt := int(r.Get("promptTokenCount").Int())
-	completion := int(geminiOutputTokens(r))
-	total := int(r.Get("totalTokenCount").Int())
-	cached := int(r.Get("cachedContentTokenCount").Int())
-	if total == 0 {
-		total = prompt + completion
-	}
-	return map[string]int{
-		"prompt_tokens":     prompt,
-		"completion_tokens": completion,
-		"total_tokens":      total,
-		"cached_tokens":     cached,
-		"reasoning_tokens":  int(r.Get("thoughtsTokenCount").Int()),
-	}
 }
 
 func (t *GeminiToOpenAISSETranslator) emitFirstChunk() error {
@@ -334,7 +304,7 @@ func (t *GeminiToOpenAISSETranslator) emitToolCallChunk(idx int, name, argsRaw, 
 	return t.flushEvent()
 }
 
-func (t *GeminiToOpenAISSETranslator) emitFinalChunk(finishReason string, usage map[string]int) error {
+func (t *GeminiToOpenAISSETranslator) emitFinalChunk(finishReason string, facts usage.Facts) error {
 	if err := t.ensureStarted(); err != nil {
 		return err
 	}
@@ -346,54 +316,24 @@ func (t *GeminiToOpenAISSETranslator) emitFinalChunk(finishReason string, usage 
 	t.bw.WriteString(`"choices":[{"index":0,"delta":{},"finish_reason":`)
 	sse.WriteJSONString(t.bw, finishReason)
 	t.bw.WriteString(`}]`)
-	if usage != nil {
-		t.writeUsageJSON(usage)
-		t.recordUsageOnSink(usage)
+	if facts.Present {
+		t.writeUsageJSON(facts)
 	}
 	t.bw.WriteString("}\n\n")
 	return t.flushEvent()
 }
 
-func (t *GeminiToOpenAISSETranslator) emitUsageOnlyChunk(usage map[string]int) error {
+func (t *GeminiToOpenAISSETranslator) emitUsageOnlyChunk(facts usage.Facts) error {
 	t.writeChunkHeader()
 	t.bw.WriteString(`"choices":[]`)
-	t.writeUsageJSON(usage)
+	t.writeUsageJSON(facts)
 	t.bw.WriteString("}\n\n")
-	t.recordUsageOnSink(usage)
 	return t.flushEvent()
 }
 
-// writeUsageJSON serializes an OpenAI-shape usage object, matching the nested
-// shape AnthropicSSETranslator reads so cache numbers propagate through.
-func (t *GeminiToOpenAISSETranslator) writeUsageJSON(usage map[string]int) {
-	t.bw.WriteString(`,"usage":{"prompt_tokens":`)
-	sse.WriteJSONInt(t.bw, int64(usage["prompt_tokens"]))
-	t.bw.WriteString(`,"completion_tokens":`)
-	sse.WriteJSONInt(t.bw, int64(usage["completion_tokens"]))
-	t.bw.WriteString(`,"total_tokens":`)
-	sse.WriteJSONInt(t.bw, int64(usage["total_tokens"]))
-	if cached := usage["cached_tokens"]; cached > 0 {
-		t.bw.WriteString(`,"prompt_tokens_details":{"cached_tokens":`)
-		sse.WriteJSONInt(t.bw, int64(cached))
-		t.bw.WriteByte('}')
-	}
-	if reasoning := usage["reasoning_tokens"]; reasoning > 0 {
-		t.bw.WriteString(`,"completion_tokens_details":{"reasoning_tokens":`)
-		sse.WriteJSONInt(t.bw, int64(reasoning))
-		t.bw.WriteByte('}')
-	}
-	t.bw.WriteByte('}')
-}
-
-func (t *GeminiToOpenAISSETranslator) recordUsageOnSink(usage map[string]int) {
-	if t.usageSink == nil {
-		return
-	}
-	t.usageSink.RecordUsage(usage["prompt_tokens"], usage["completion_tokens"])
-	t.usageSink.RecordReasoningUsage(usage["reasoning_tokens"])
-	if cached := usage["cached_tokens"]; cached > 0 {
-		t.usageSink.RecordCacheUsage(0, cached)
-	}
+func (t *GeminiToOpenAISSETranslator) writeUsageJSON(facts usage.Facts) {
+	t.bw.WriteString(`,"usage":`)
+	t.bw.Write(chatUsageJSON(facts))
 }
 
 func (t *GeminiToOpenAISSETranslator) emitDone() error {

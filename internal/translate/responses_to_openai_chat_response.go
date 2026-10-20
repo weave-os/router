@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"weave-os/router/internal/translate/toolcheck"
+	"weave-os/router/internal/usage"
 
 	"github.com/tidwall/gjson"
 )
@@ -12,14 +13,14 @@ import (
 // ResponsesToOpenAIChatResponse converts a non-streaming OpenAI Responses
 // response object into a chat.completion body.
 func ResponsesToOpenAIChatResponse(body []byte, requestModel string) ([]byte, error) {
-	out, _, err := responsesToOpenAIChatResponse(body, requestModel, nil)
+	out, _, err := responsesToOpenAIChatResponse(body, requestModel, nil, usage.ParseOpenAI(gjson.GetBytes(body, "usage")))
 	return out, err
 }
 
 // responsesToOpenAIChatResponse is the validator-aware variant: checks/repairs
 // tool-call arguments against the caller's schemas, returning one
 // toolcheck.Issue per violation; nil → syntax-check-only.
-func responsesToOpenAIChatResponse(body []byte, requestModel string, toolValidator *toolcheck.Validator) ([]byte, []toolcheck.Issue, error) {
+func responsesToOpenAIChatResponse(body []byte, requestModel string, toolValidator *toolcheck.Validator, facts usage.Facts) ([]byte, []toolcheck.Issue, error) {
 	if !gjson.ValidBytes(body) {
 		return nil, nil, fmt.Errorf("unmarshal responses response: invalid JSON")
 	}
@@ -141,37 +142,11 @@ func responsesToOpenAIChatResponse(body []byte, requestModel string, toolValidat
 	jw.EndObj()
 	jw.EndArr()
 
-	usage := root.Get("usage")
-	if usage.Exists() {
-		_, cacheRead := OpenAICacheTokens(usage)
-		total := usage.Get("total_tokens").Int()
-		if total == 0 {
-			total = usage.Get("input_tokens").Int() + usage.Get("output_tokens").Int()
-		}
+	if object := root.Get("usage"); object.IsObject() {
 		jw.Key("usage")
-		jw.Obj()
-		jw.Key("prompt_tokens")
-		jw.Int(usage.Get("input_tokens").Int())
-		jw.Key("completion_tokens")
-		jw.Int(usage.Get("output_tokens").Int())
-		jw.Key("total_tokens")
-		jw.Int(total)
-		if cacheRead > 0 {
-			jw.Key("prompt_tokens_details")
-			jw.Obj()
-			jw.Key("cached_tokens")
-			jw.Int(int64(cacheRead))
-			jw.EndObj()
-		}
-		if reasoningTokens := usage.Get("output_tokens_details.reasoning_tokens").Int(); reasoningTokens > 0 {
-			jw.Key("completion_tokens_details")
-			jw.Obj()
-			jw.Key("reasoning_tokens")
-			jw.Int(reasoningTokens)
-			jw.EndObj()
-		}
-		jw.EndObj()
+		writeChatUsage(jw, facts)
 	}
+
 	jw.EndObj()
 	return jw.Bytes(), issues, nil
 }

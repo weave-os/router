@@ -7,6 +7,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/translate"
+	providerusage "weave-os/router/internal/usage"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,15 +18,14 @@ type recordingUsageSink struct {
 	limit         bool
 }
 
-func (s *recordingUsageSink) RecordUsage(inputTokens, outputTokens int) {
-	s.input, s.output = inputTokens, outputTokens
+func (s *recordingUsageSink) RecordProviderUsage(facts providerusage.Facts) {
+	if facts.Input.Reported {
+		s.input = facts.Input.Value
+	}
+	if facts.Output.Reported {
+		s.output = facts.BilledOutputTokens()
+	}
 }
-
-func (s *recordingUsageSink) RecordCacheUsage(int, int) {}
-
-func (s *recordingUsageSink) RecordReasoningUsage(int) {}
-
-func (s *recordingUsageSink) RecordUsageModifiers(int, bool, string, string) {}
 
 func (s *recordingUsageSink) RecordOutputLimitReached() { s.limit = true }
 

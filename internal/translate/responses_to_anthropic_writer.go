@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/sse"
 	"weave-os/router/internal/translate/toolcheck"
+	"weave-os/router/internal/usage"
 
 	"github.com/tidwall/gjson"
 )
@@ -25,6 +26,7 @@ var _ providers.OutputProgressArmer = (*ResponsesToAnthropicWriter)(nil)
 // `response.completed` event. Exposes the same Prelude/Write/Finalize/Summary
 // surface as AnthropicSSETranslator so the dispatch closure is identical.
 type ResponsesToAnthropicWriter struct {
+	providerUsageState
 	inner        http.ResponseWriter
 	flusher      http.Flusher
 	bw           *bufio.Writer
@@ -85,12 +87,8 @@ type ResponsesToAnthropicWriter struct {
 	toolCallIssues []toolcheck.Issue
 
 	// Captured from the terminal response.completed/.failed/.incomplete event.
-	finalStopReason    string
-	hasUsage           bool
-	usageInput         int
-	usageOutput        int
-	usageCacheRead     int
-	usageCacheCreation int
+	finalStopReason string
+	hasUsage        bool
 
 	// Summary fields.
 	toolUseCount      int
@@ -262,10 +260,10 @@ func (t *ResponsesToAnthropicWriter) Summary() ResponseSummary {
 		ToolUseBlocks:         t.toolUseCount,
 		InvalidToolArgsBlocks: countUnrepairableToolArgs(t.toolCallIssues),
 		ToolCallIssues:        t.toolCallIssues,
-		OutputTokens:          t.usageOutput,
-		InputTokens:           t.usageInput,
-		CacheReadTokens:       t.usageCacheRead,
-		CacheCreationTokens:   t.usageCacheCreation,
+		OutputTokens:          t.UsageFacts().BilledOutputTokens(),
+		InputTokens:           t.UsageFacts().Input.Value,
+		CacheReadTokens:       t.UsageFacts().CacheRead.Value,
+		CacheCreationTokens:   t.UsageFacts().CacheWrite.Value,
 	}
 }
 
@@ -623,18 +621,7 @@ func (t *ResponsesToAnthropicWriter) captureFinalResponse(data []byte) {
 	default:
 		t.finalStopReason = "end_turn"
 	}
-	usage := resp.Get("usage")
-	if usage.Exists() {
-		t.hasUsage = true
-		t.usageInput = int(usage.Get("input_tokens").Int())
-		t.usageOutput = int(usage.Get("output_tokens").Int())
-		t.usageCacheCreation, t.usageCacheRead = OpenAICacheTokens(usage)
-		if t.usageSink != nil {
-			t.usageSink.RecordUsage(t.usageInput, t.usageOutput)
-			t.usageSink.RecordCacheUsage(t.usageCacheCreation, t.usageCacheRead)
-			t.usageSink.RecordReasoningUsage(OpenAIReasoningTokens(usage))
-		}
-	}
+	t.recordOpenAIUsage(resp.Get("usage"))
 }
 
 func (t *ResponsesToAnthropicWriter) finishStream() error {
@@ -730,7 +717,8 @@ func (t *ResponsesToAnthropicWriter) finalizeBuffered() error {
 		)
 		return t.finalizeError()
 	}
-	anthropic, issues, err := responsesToAnthropicResponse(finalResp, t.requestModel, t.reasoningScope, t.toolValidator)
+	t.recordOpenAIUsage(resp.Get("usage"))
+	anthropic, issues, err := responsesToAnthropicResponse(finalResp, t.requestModel, t.reasoningScope, t.toolValidator, t.UsageFacts())
 	t.toolCallIssues = append(t.toolCallIssues, issues...)
 	if err != nil {
 		t.log().Error("ResponsesToAnthropic: translate failed", "err", err)
@@ -739,14 +727,12 @@ func (t *ResponsesToAnthropicWriter) finalizeBuffered() error {
 	if !anthropicResponseHasUsableOutput(anthropic) {
 		t.log().Error("ResponsesToAnthropic: upstream returned an empty completion",
 			"request_model", t.requestModel)
-		t.recordOpenAIUsage(resp.Get("usage"))
 		recordOutputLimit(t.usageSink, responsesOutputLimitReached(resp))
 		return t.finalizeEmptyCompletion()
 	}
 	root := gjson.ParseBytes(anthropic)
 	// Anthropic body is fresh-only for the client; sink keeps OpenAI's cache-inclusive
 	// count so EffectiveInputCost can apply the correct multipliers.
-	t.recordOpenAIUsage(resp.Get("usage"))
 	recordOutputLimit(t.usageSink, responsesOutputLimitReached(resp))
 	t.emittedStopReason = root.Get("stop_reason").String()
 	root.Get("content").ForEach(func(_, block gjson.Result) bool {
@@ -763,19 +749,12 @@ func (t *ResponsesToAnthropicWriter) finalizeBuffered() error {
 	return err
 }
 
-func (t *ResponsesToAnthropicWriter) recordOpenAIUsage(usage gjson.Result) {
-	if !usage.Exists() {
+func (t *ResponsesToAnthropicWriter) recordOpenAIUsage(object gjson.Result) {
+	if !object.IsObject() {
 		return
 	}
-	t.hasUsage = true
-	t.usageInput = int(usage.Get("input_tokens").Int())
-	t.usageOutput = int(usage.Get("output_tokens").Int())
-	t.usageCacheCreation, t.usageCacheRead = OpenAICacheTokens(usage)
-	if t.usageSink != nil {
-		t.usageSink.RecordUsage(t.usageInput, t.usageOutput)
-		t.usageSink.RecordCacheUsage(t.usageCacheCreation, t.usageCacheRead)
-		t.usageSink.RecordReasoningUsage(OpenAIReasoningTokens(usage))
-	}
+	facts := t.observeUsage(object, usage.ParseOpenAI, t.usageSink)
+	t.hasUsage = facts.Present
 }
 
 // finalizeError renders a one-shot Anthropic error body. Streaming errors are
@@ -1057,27 +1036,15 @@ func (t *ResponsesToAnthropicWriter) emitContentBlockStop(index int) error {
 func (t *ResponsesToAnthropicWriter) emitMessageDelta(stopReason string) error {
 	t.bw.WriteString("event: message_delta\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":")
 	sse.WriteJSONString(t.bw, stopReason)
-	t.bw.WriteString(",\"stop_sequence\":null},\"usage\":{")
+	t.bw.WriteString(",\"stop_sequence\":null},\"usage\":")
 	if t.hasUsage {
-		// Anthropic's input_tokens is fresh-only; subtract cache so the
-		// statusline formula doesn't double-count.
-		freshInput := max(0, t.usageInput-t.usageCacheCreation-t.usageCacheRead)
-		t.bw.WriteString("\"input_tokens\":")
-		sse.WriteJSONInt(t.bw, int64(freshInput))
-		t.bw.WriteString(",\"output_tokens\":")
-		sse.WriteJSONInt(t.bw, int64(t.usageOutput))
-		if t.usageCacheCreation > 0 {
-			t.bw.WriteString(",\"cache_creation_input_tokens\":")
-			sse.WriteJSONInt(t.bw, int64(t.usageCacheCreation))
-		}
-		if t.usageCacheRead > 0 {
-			t.bw.WriteString(",\"cache_read_input_tokens\":")
-			sse.WriteJSONInt(t.bw, int64(t.usageCacheRead))
-		}
+		jw := newJSONWriter()
+		writeAnthropicUsage(jw, t.UsageFacts())
+		t.bw.Write(jw.Bytes())
 	} else {
-		t.bw.WriteString("\"output_tokens\":0")
+		t.bw.WriteString("{\"output_tokens\":0}")
 	}
-	t.bw.WriteString("}}\n\n")
+	t.bw.WriteString("}\n\n")
 	return t.flushEvent()
 }
 

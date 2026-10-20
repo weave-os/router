@@ -11,9 +11,6 @@ import (
 	"net/http/httptest"
 	"time"
 
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
-
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
@@ -23,6 +20,10 @@ import (
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/translate"
+	"weave-os/router/internal/usage"
+
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // DefaultHandoverTimeout bounds the summarizer call. Tuned for ~5-7s p95
@@ -293,17 +294,14 @@ func extractAnthropicUsage(body []byte) handover.Usage {
 	if !gjson.ValidBytes(body) {
 		return handover.Usage{}
 	}
-	usage := gjson.GetBytes(body, "usage")
-	if !usage.IsObject() {
-		return handover.Usage{}
-	}
+	facts := usage.ParseAnthropic(gjson.GetBytes(body, "usage"))
 	return handover.Usage{
-		InputTokens:     int(usage.Get("input_tokens").Int()),
-		OutputTokens:    int(usage.Get("output_tokens").Int()),
-		CacheCreation:   int(usage.Get("cache_creation_input_tokens").Int()),
-		CacheRead:       int(usage.Get("cache_read_input_tokens").Int()),
-		CacheCreation1h: int(usage.Get("cache_creation.ephemeral_1h_input_tokens").Int()),
-		InferenceGeo:    usage.Get("inference_geo").String(),
+		InputTokens:     facts.Input.Value,
+		OutputTokens:    facts.Output.Value,
+		CacheCreation:   facts.CacheWrite.Value,
+		CacheRead:       facts.CacheRead.Value,
+		CacheCreation1h: facts.CacheWrite1h.Value,
+		InferenceGeo:    string(facts.InferenceGeo),
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/sse"
+	"weave-os/router/internal/usage"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -639,6 +640,7 @@ func responsesContentToChatContent(content gjson.Result, role string) (string, [
 // Chat Completions response (streaming SSE or buffered JSON) into the
 // Responses API shape on the fly.
 type ResponsesWriter struct {
+	providerUsageState
 	inner   http.ResponseWriter
 	flusher http.Flusher
 	bw      *bufio.Writer
@@ -700,7 +702,6 @@ type ResponsesWriter struct {
 	textItem                    *responsesTextItem
 	toolItems                   map[int]*responsesToolItem
 	finishReason                string
-	usage                       *responsesUsage
 	lifecycle                   *StreamLifecycle
 	toolLedger                  *ToolCallLedger
 	toolMappings                map[string]ResponsesToolMapping
@@ -723,12 +724,6 @@ type responsesToolItem struct {
 	arguments   strings.Builder
 	opened      bool
 	closed      bool
-}
-
-type responsesUsage struct {
-	prompt     int64
-	completion int64
-	total      int64
 }
 
 var responsesIDCounter atomic.Uint64
@@ -871,7 +866,7 @@ func (t *ResponsesWriter) ResetAttempt() {
 	t.nativeEmptyRejected = false
 	t.finishReason = ""
 	t.toolItems = map[int]*responsesToolItem{}
-	t.usage = nil
+	t.providerUsageState = providerUsageState{}
 	t.toolLedger = NewToolCallLedger()
 	// Keep headersEmitted, textItem, and prelude lifecycle so a retried
 	// translated stream does not emit a second response.created.
@@ -1161,7 +1156,8 @@ func (t *ResponsesWriter) Finalize() error {
 		return err
 	}
 
-	translated, err := chatCompletionToResponse(body, t.responseID, t.model, t.createdAt, t.toolMappings, t.computeBadgeText(), t.footerText)
+	t.observeUsage(gjson.GetBytes(body, "usage"), usage.ParseOpenAI, nil)
+	translated, err := chatCompletionToResponse(body, t.responseID, t.model, t.createdAt, t.toolMappings, t.computeBadgeText(), t.footerText, t.UsageFacts())
 	if err != nil {
 		t.inner.Header().Set("Content-Type", "application/json")
 		t.inner.WriteHeader(http.StatusBadGateway)
@@ -2035,13 +2031,7 @@ func (t *ResponsesWriter) translateChunk(raw []byte) error {
 	if m := root.Get("model").Str; m != "" && t.model == "" {
 		t.model = strings.Clone(m)
 	}
-	if usage := root.Get("usage"); usage.Type == gjson.JSON {
-		t.usage = &responsesUsage{
-			prompt:     usage.Get("prompt_tokens").Int(),
-			completion: usage.Get("completion_tokens").Int(),
-			total:      usage.Get("total_tokens").Int(),
-		}
-	}
+	t.observeUsage(root.Get("usage"), usage.ParseOpenAI, nil)
 
 	choice := root.Get("choices.0")
 	if !choice.Exists() {
@@ -2097,7 +2087,7 @@ func (t *ResponsesWriter) translateChunk(raw []byte) error {
 			return err
 		}
 		// OpenAI-compatible streams may put usage in a trailing choices:[] frame.
-		if t.usage == nil || t.completedEmitted {
+		if !t.UsageFacts().Present || t.completedEmitted {
 			return nil
 		}
 		if err := t.lifecycle.Terminal(); err != nil {
@@ -2552,16 +2542,10 @@ func (t *ResponsesWriter) emitFunctionCallItemDone(item *responsesToolItem) erro
 func (t *ResponsesWriter) emitCompleted() error {
 	env := t.responseEnvelope("completed")
 	env["output"] = t.assembleOutput()
-	// Responses clients require terminal usage even when the Chat upstream omits it.
-	usage := responsesUsage{}
-	if t.usage != nil {
-		usage = *t.usage
-	}
-	env["usage"] = map[string]any{
-		"input_tokens":  usage.prompt,
-		"output_tokens": usage.completion,
-		"total_tokens":  usage.total,
-	}
+	jw := newJSONWriter()
+	writeResponsesUsage(jw, t.UsageFacts())
+	env["usage"] = json.RawMessage(jw.Bytes())
+
 	return t.writeEvent("response.completed", map[string]any{
 		"response": env,
 	})
@@ -2647,7 +2631,7 @@ func (t *ResponsesWriter) assembleOutput() []any {
 // stream:false; Codex always streams, but other clients may not. A non-empty
 // badge leads the assistant text, synthesizing the message item when the turn
 // produced only tool calls.
-func chatCompletionToResponse(body []byte, responseID, model string, createdAt int64, mappings map[string]ResponsesToolMapping, badge, footer string) ([]byte, error) {
+func chatCompletionToResponse(body []byte, responseID, model string, createdAt int64, mappings map[string]ResponsesToolMapping, badge, footer string, facts usage.Facts) ([]byte, error) {
 	if !gjson.ValidBytes(body) {
 		return nil, fmt.Errorf("invalid JSON")
 	}
@@ -2716,12 +2700,9 @@ func chatCompletionToResponse(body []byte, responseID, model string, createdAt i
 	}
 	out["output"] = output
 
-	usage := root.Get("usage")
-	out["usage"] = map[string]any{
-		"input_tokens":  usage.Get("prompt_tokens").Int(),
-		"output_tokens": usage.Get("completion_tokens").Int(),
-		"total_tokens":  usage.Get("total_tokens").Int(),
-	}
+	jw := newJSONWriter()
+	writeResponsesUsage(jw, facts)
+	out["usage"] = json.RawMessage(jw.Bytes())
 
 	return json.Marshal(out)
 }

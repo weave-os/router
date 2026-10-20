@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/translate/toolcheck"
+	"weave-os/router/internal/usage"
 
 	"github.com/tidwall/gjson"
 )
@@ -24,6 +25,10 @@ func clientFacingModel(requestModel, upstreamModel string) string {
 
 // AnthropicToOpenAIResponse converts a non-streaming Anthropic response to OpenAI format.
 func AnthropicToOpenAIResponse(body []byte, requestModel string) ([]byte, error) {
+	return anthropicToOpenAIResponse(body, requestModel, usage.ParseAnthropic(gjson.GetBytes(body, "usage")))
+}
+
+func anthropicToOpenAIResponse(body []byte, requestModel string, facts usage.Facts) ([]byte, error) {
 	if !gjson.ValidBytes(body) {
 		return nil, fmt.Errorf("unmarshal anthropic response: invalid JSON")
 	}
@@ -53,7 +58,7 @@ func AnthropicToOpenAIResponse(body []byte, requestModel string) ([]byte, error)
 	jw.EndObj()
 	jw.EndArr()
 	jw.Key("usage")
-	writeOpenAIUsageFromAnthropic(jw, gjson.GetBytes(body, "usage"))
+	writeChatUsage(jw, facts)
 	jw.EndObj()
 	return jw.Bytes(), nil
 }
@@ -110,19 +115,6 @@ func writeOpenAIMessageFromAnthropic(jw *jsonWriter, content gjson.Result) {
 	jw.EndObj()
 }
 
-func writeOpenAIUsageFromAnthropic(jw *jsonWriter, usage gjson.Result) {
-	input := usage.Get("input_tokens").Int()
-	output := usage.Get("output_tokens").Int()
-	jw.Obj()
-	jw.Key("prompt_tokens")
-	jw.Int(input)
-	jw.Key("completion_tokens")
-	jw.Int(output)
-	jw.Key("total_tokens")
-	jw.Int(input + output)
-	jw.EndObj()
-}
-
 // mapStopReason converts an Anthropic stop_reason to an OpenAI finish_reason.
 func mapStopReason(reason any) string {
 	s, _ := reason.(string)
@@ -171,14 +163,14 @@ func AnthropicToOpenAIError(body []byte) []byte {
 // OpenAIToAnthropicResponse converts a non-streaming OpenAI response to
 // Anthropic Messages format.
 func OpenAIToAnthropicResponse(body []byte, requestModel string) ([]byte, error) {
-	out, _, err := openAIToAnthropicResponse(body, requestModel, nil, false, false)
+	out, _, err := openAIToAnthropicResponse(body, requestModel, nil, false, false, usage.ParseOpenAI(gjson.GetBytes(body, "usage")))
 	return out, err
 }
 
 // openAIToAnthropicResponse is the validator-aware variant: tool_use inputs
 // are checked/repaired against the request's tool schemas, returning one
 // toolcheck.Issue per offending block. A nil validator is syntax-check-only.
-func openAIToAnthropicResponse(body []byte, requestModel string, toolValidator *toolcheck.Validator, thinkTagReasoning, escapeNormalize bool) ([]byte, []toolcheck.Issue, error) {
+func openAIToAnthropicResponse(body []byte, requestModel string, toolValidator *toolcheck.Validator, thinkTagReasoning, escapeNormalize bool, facts usage.Facts) ([]byte, []toolcheck.Issue, error) {
 	if !gjson.ValidBytes(body) {
 		return nil, nil, fmt.Errorf("unmarshal openai response: invalid JSON")
 	}
@@ -225,7 +217,7 @@ func openAIToAnthropicResponse(body []byte, requestModel string, toolValidator *
 	jw.Key("stop_sequence")
 	jw.Null()
 	jw.Key("usage")
-	writeAnthropicUsageFromOpenAI(jw, gjson.GetBytes(body, "usage"))
+	writeAnthropicUsage(jw, facts)
 	jw.EndObj()
 	return jw.Bytes(), issues, nil
 }
@@ -353,34 +345,6 @@ func openAIFinishToAnthropicStopReason(s string) string {
 	default:
 		return "end_turn"
 	}
-}
-
-func writeAnthropicUsageFromOpenAI(jw *jsonWriter, usage gjson.Result) {
-	prompt := usage.Get("prompt_tokens").Int()
-	completion := usage.Get("completion_tokens").Int()
-	cacheWrite, cacheReadN := OpenAICacheTokens(usage)
-	cacheCreation := int64(cacheWrite)
-	cacheRead := int64(cacheReadN)
-
-	freshInput := prompt - cacheCreation - cacheRead
-	if freshInput < 0 {
-		freshInput = 0
-	}
-
-	jw.Obj()
-	jw.Key("input_tokens")
-	jw.Int(freshInput)
-	jw.Key("output_tokens")
-	jw.Int(completion)
-	if cacheRead > 0 {
-		jw.Key("cache_read_input_tokens")
-		jw.Int(cacheRead)
-	}
-	if cacheCreation > 0 {
-		jw.Key("cache_creation_input_tokens")
-		jw.Int(cacheCreation)
-	}
-	jw.EndObj()
 }
 
 // OpenAIToAnthropicError re-wraps an OpenAI error as Anthropic format.

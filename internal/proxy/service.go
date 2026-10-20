@@ -49,6 +49,7 @@ import (
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/timing"
 	"weave-os/router/internal/translate"
+	providerusage "weave-os/router/internal/usage"
 	"weave-os/router/internal/websearch"
 
 	"github.com/google/uuid"
@@ -3379,13 +3380,10 @@ func (s *Service) anthropicNativeAttempt(
 		if noticeErr != nil {
 			return fmt.Errorf("emit Anthropic router notice: %w", noticeErr)
 		}
-		proxyWriter := attemptSink
-		if s.usageRequired() {
-			ex := otel.NewUsageExtractor(attemptSink, d.Provider)
-			ex.SetRequestCacheTTL1h(requestCacheTTL1h)
-			proxyWriter = ex
-			setExtractor(ex)
-		}
+		ex := otel.NewUsageExtractor(attemptSink, d.Provider)
+		ex.SetRequestCacheTTL1h(requestCacheTTL1h)
+		var proxyWriter http.ResponseWriter = ex
+		setExtractor(ex)
 		var terminal *streamTerminalObserver
 		if env.Stream() {
 			terminal = newStreamTerminalObserver(proxyWriter, nativeStreamAnthropic)
@@ -4453,6 +4451,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	setStreamCost := func(d router.Decision, inputIncludesCache bool, requestCacheTTL1h func() bool) {
 		if streamCost != nil {
 			streamCost.SetCostCalculator(routerCostCalculatorFor(d.Model, d.Provider, fastServed), inputIncludesCache, requestCacheTTL1h)
+			streamCost.source = func() providerusage.Facts { return extractor.UsageFacts() }
 		}
 	}
 	anthropicTierAttemptFor := func(targetOpts translate.EmitOptions, prep providers.PreparedRequest, targetMarker string) *anthropicTierAttempt {
@@ -4549,8 +4548,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				}
 				reqStats = prep.Stats
 				logUpstreamBody(log, routeRes.SessionKey, d, feats, prep.Body)
-				var usage otel.UsageSink
-				if s.usageRequired() {
+				var usage translate.UsageSink
+				if s.usageRequired() || streamCost != nil {
 					extractor = otel.NewUsageExtractor(nil, d.Provider)
 					usage = extractor
 				}
@@ -4565,6 +4564,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 						WithEstimatedInputTokens(feats.Tokens).
 						WithRequestHadTools(feats.HasTools).
 						WithToolValidator(toolValidator)
+					if providers.OutputExcludesReasoning(d.Provider) {
+						responsesTranslator.SetUsageOutputBasis(providerusage.OutputExcludesReasoning)
+					}
 					if err := responsesTranslator.Prelude(env.Stream()); err != nil {
 						return fmt.Errorf("emit Anthropic routing marker: %w", err), func(err error) error { return err }
 					}
@@ -4577,6 +4579,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 						WithThinkTagReasoning(catalog.ThinkTagReasoningFor(d.Model)).
 						WithEscapeNormalize(s.escapeNormalize).
 						WithToolValidator(toolValidator)
+					if providers.OutputExcludesReasoning(d.Provider) {
+						chatTranslator.SetUsageOutputBasis(providerusage.OutputExcludesReasoning)
+					}
 					if err := chatTranslator.Prelude(env.Stream()); err != nil {
 						return fmt.Errorf("emit Anthropic routing marker: %w", err), func(err error) error { return err }
 					}
@@ -4672,8 +4677,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				fastServed = false
 				setStreamCost(d, true, nil)
 				respSummary = translate.ResponseSummary{}
-				var usage otel.UsageSink
-				if s.usageRequired() {
+				var usage translate.UsageSink
+				if s.usageRequired() || streamCost != nil {
 					extractor = otel.NewUsageExtractor(nil, d.Provider)
 					usage = extractor
 				}
@@ -4682,7 +4687,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				if noticeErr != nil {
 					return noticeErr, func(err error) error { return err }
 				}
-				anthropicTr := translate.NewAnthropicSSETranslator(attemptSink, d.Model, usage).
+				anthropicTr := translate.NewAnthropicSSETranslator(attemptSink, d.Model, nil).
 					WithLogger(log).
 					WithEstimatedInputTokens(feats.Tokens).
 					WithRequestHadTools(feats.HasTools).
@@ -4694,7 +4699,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				if preludeBuf != nil {
 					preludeBuf.Seal()
 				}
-				geminiTr := translate.NewGeminiToOpenAISSETranslator(anthropicTr, d.Model, nil)
+				geminiTr := translate.NewGeminiToOpenAISSETranslator(anthropicTr, d.Model, usage)
+				anthropicTr.SetUsageSource(geminiTr.UsageFacts)
 				rawErr := p.Proxy(actx, d, pr, streamCut.attach(geminiTr), r)
 				finalize := func(err error) error {
 					// Post-commit: see the OpenAI-compat case above.
@@ -7488,7 +7494,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		sink = captureW
 	}
 
-	_, isResponses := w.(*translate.ResponsesWriter)
+	responsesWriter, isResponses := w.(*translate.ResponsesWriter)
 	makeMarkerSink := func(model, markerText string) (http.ResponseWriter, error) {
 		if isResponses || verbatimPassthrough {
 			return sink, nil
@@ -7627,7 +7633,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				var nativeTerminal *responsesTerminalObserver
 				switch {
 				case surface == surfaceResponsesTranslated:
-					var usage otel.UsageSink
+					var usage translate.UsageSink
 					if s.usageRequired() {
 						extractor = otel.NewUsageExtractor(nil, d.Provider)
 						usage = extractor
@@ -7635,6 +7641,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					translator = translate.NewResponsesToOpenAIChatWriter(attemptSink, d.Model, usage).
 						WithLogger(log).
 						WithToolValidator(toolValidator)
+					if providers.OutputExcludesReasoning(d.Provider) {
+						translator.SetUsageOutputBasis(providerusage.OutputExcludesReasoning)
+					}
+					if isResponses {
+						responsesWriter.SetUsageSource(translator.UsageFacts)
+					}
 					if err := translator.Prelude(env.Stream()); err != nil {
 						log.Error("chat/completions prelude failed (Responses upstream)", "err", err)
 					}
@@ -7647,9 +7659,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 						extractor = otel.NewUsageExtractor(nativeTerminal, d.Provider)
 						proxyWriter = extractor
 					}
-				case s.usageRequired():
+				case s.usageRequired() || isResponses:
 					extractor = otel.NewUsageExtractor(attemptSink, d.Provider)
 					proxyWriter = extractor
+				}
+				if surface == surfaceChat && isResponses {
+					responsesWriter.SetUsageSource(extractor.UsageFacts)
 				}
 				// A Responses caller on chat/completions reads through its translating
 				// writer, whose lifecycle already rejects a stream without a terminal.
@@ -7787,7 +7802,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// its decode-time grammar. Retry once with mode=AUTO when pre-commit.
 			geminiUsedValidated := prep.Stats.GeminiValidatedToolMode
 			dispatchGemini := func(actx context.Context, d router.Decision, p providers.Client, pr providers.PreparedRequest) (error, func(error) error) {
-				var usage otel.UsageSink
+				var usage translate.UsageSink
 				if s.usageRequired() {
 					extractor = otel.NewUsageExtractor(nil, d.Provider)
 					usage = extractor
@@ -7797,6 +7812,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					return noticeErr, func(err error) error { return err }
 				}
 				translator := translate.NewGeminiToOpenAISSETranslator(attemptSink, d.Model, usage)
+				if isResponses {
+					responsesWriter.SetUsageSource(translator.UsageFacts)
+				}
 				if preludeBuf != nil {
 					preludeBuf.Seal()
 				}
@@ -7854,7 +7872,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 						return fmt.Errorf("translate openai request: %w", attemptEmitErr), func(err error) error { return err }
 					}
 				}
-				var usage otel.UsageSink
+				var usage translate.UsageSink
 				if s.usageRequired() {
 					extractor = otel.NewUsageExtractor(nil, providers.ProviderAnthropic)
 					extractor.SetRequestCacheTTL1h(func() bool { return translate.AnthropicRequestCacheTTL1h(attemptPrep.Body) })
@@ -7865,6 +7883,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					return noticeErr, func(err error) error { return err }
 				}
 				translator := translate.NewSSETranslator(attemptSink, d.Model, usage)
+				if isResponses {
+					responsesWriter.SetUsageSource(translator.UsageFacts)
+				}
 				if preludeBuf != nil {
 					preludeBuf.Seal()
 				}
