@@ -67,6 +67,40 @@ func TestRewriteEnvelope_AnthropicCollapsesToSummaryPlusLastUser(t *testing.T) {
 	}
 }
 
+func TestRewriteEnvelope_DropsEarlyUserContextUnlessSummaryRepeatsIt(t *testing.T) {
+	t.Parallel()
+
+	const policy = "<weave-organization-policy>Use the approved deployment process.</weave-organization-policy>"
+	body := `{
+  "model": "claude-opus-4-7",
+  "system": "You are a careful assistant.",
+  "messages": [
+    {"role": "user", "content": "` + policy + `"},
+    {"role": "assistant", "content": "I will follow that policy."},
+    {"role": "user", "content": "Continue the deployment."}
+  ]
+}`
+	env, err := translate.ParseAnthropic([]byte(body))
+	require.NoError(t, err)
+
+	elided := handover.RewriteEnvelope(env, "The deployment is in progress.")
+	assert.Equal(t, 2, elided)
+
+	prep, err := env.PrepareAnthropic(nil, translate.EmitOptions{TargetModel: "claude-opus-4-7"})
+	require.NoError(t, err)
+	assert.Equal(t, "You are a careful assistant.", gjson.GetBytes(prep.Body, "system").String())
+	messages := gjson.GetBytes(prep.Body, "messages")
+	require.Len(t, messages.Array(), 2)
+	assert.NotContains(t, string(prep.Body), "Use the approved deployment process.")
+	assert.Contains(t, messages.Get("0.content.0.text").String(), "The deployment is in progress.")
+	latestUserContent := messages.Get("1.content")
+	if latestUserContent.IsArray() {
+		assert.Equal(t, "Continue the deployment.", latestUserContent.Get("0.text").String())
+	} else {
+		assert.Equal(t, "Continue the deployment.", latestUserContent.String())
+	}
+}
+
 func TestRewriteEnvelope_NilEnvelopeReturnsZeroAndDoesNotPanic(t *testing.T) {
 	t.Parallel()
 
