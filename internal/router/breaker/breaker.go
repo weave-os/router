@@ -223,15 +223,15 @@ func (r *Registry) resolveProbe(p Probe, apply func(*circuit, time.Time)) Transi
 	}
 	c.probeToken, c.probeUntil = 0, time.Time{}
 	apply(c, r.now())
-	t := Transition{Model: p.Model, From: StateHalfOpen, To: StateClosed}
+	transition := Transition{Model: p.Model, From: StateHalfOpen, To: StateClosed}
 	if _, kept := r.circuits[p.Model]; kept {
-		t.To = c.state
+		transition.To = c.state
 	}
-	if t.To == StateOpen {
-		t.RecoveryAfter = r.recoveryLocked(c.reopens)
+	if transition.To == StateOpen {
+		transition.RecoveryAfter = r.recoveryLocked(c.reopens)
 	}
 	r.publishLocked()
-	return t
+	return transition
 }
 
 // State reports model's current position, for logs and tests.
