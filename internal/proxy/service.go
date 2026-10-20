@@ -32,6 +32,7 @@ import (
 	"weave-os/router/internal/router/bandswap"
 	"weave-os/router/internal/router/cache"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/escalationdashboard"
 	"weave-os/router/internal/router/handover"
@@ -1430,27 +1431,67 @@ func excludeContextOverflowModels(est, sigSavings, outputReserve int, enabledPro
 // re-admit when the context pre-filter left no model in available routable.
 // The estimate overcounts (÷4 over JSON bytes), so it alone never rules out
 // every model: the upstream decides, and a real overflow reaches the client as
-// its native prompt-too-long error so the client compacts.
-func admitWidestOnTotalOverflow(ruledOut map[string]struct{}, overflowed []string, available, enabledProviders map[string]struct{}) []string {
+// its native prompt-too-long error so the client compacts. Only models the
+// request can be served on count: one it cannot reach neither hides a total
+// overflow nor sets the widest window.
+func admitWidestOnTotalOverflow(ruledOut map[string]struct{}, overflowed []string, available, enabledProviders map[string]struct{}, bindings cluster.RequestBindings) []string {
 	if len(overflowed) == 0 {
 		return nil
 	}
 	for model := range available {
-		if _, out := ruledOut[model]; !out {
+		if _, out := ruledOut[model]; !out && servableUnder(model, enabledProviders, bindings) {
 			return nil
 		}
 	}
 	widest := 0
+	var servable []string
 	for _, model := range overflowed {
+		if !servableUnder(model, enabledProviders, bindings) {
+			continue
+		}
+		servable = append(servable, model)
 		widest = max(widest, minContextWindowForModel(model, enabledProviders))
 	}
 	var admitted []string
-	for _, model := range overflowed {
+	for _, model := range servable {
 		if minContextWindowForModel(model, enabledProviders) == widest {
 			admitted = append(admitted, model)
 		}
 	}
 	return admitted
+}
+
+// servableUnder reports whether an enabled provider serves model through a
+// catalog or configuration-declared binding; a gateway-exclusive request is
+// served only through its gateways' aliases. No enabled set, or a model
+// without catalog bindings, counts as servable.
+func servableUnder(model string, enabledProviders map[string]struct{}, bindings cluster.RequestBindings) bool {
+	if len(bindings.Gateways) > 0 {
+		for _, provider := range bindings.Custom[model] {
+			if _, gateway := bindings.Gateways[provider]; gateway {
+				return true
+			}
+		}
+		return false
+	}
+	if len(enabledProviders) == 0 {
+		return true
+	}
+	for _, provider := range bindings.Custom[model] {
+		if _, enabled := enabledProviders[provider]; enabled {
+			return true
+		}
+	}
+	m, ok := catalog.ByID(model)
+	if !ok || len(m.Providers) == 0 {
+		return true
+	}
+	for _, b := range m.Providers {
+		if _, enabled := enabledProviders[b.Provider]; enabled {
+			return true
+		}
+	}
+	return false
 }
 
 // withoutModels returns set minus models, copying only when it must change.
@@ -3886,20 +3927,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	inboundUserPrompt := env.EndsWithUserPrompt()
 	inboundLatestToolCalls := latestToolCallCountsJSON(env)
 
-	overflowEstimate := env.ContextOverflowTokenEstimate()
-	excluded, ctxOverflowed := excludeContextOverflowModels(overflowEstimate, env.SignatureTokenSavings(), outputReserve, enabledProviders, baseExcluded, s.availableModels)
-	overflowAdmitted := admitWidestOnTotalOverflow(excluded, ctxOverflowed, s.availableModels, enabledProviders)
-	excluded = withoutModels(excluded, overflowAdmitted)
-	if len(ctxOverflowed) > 0 {
-		log.Info("context window pre-filter: excluded over-capacity models",
-			"overflow_token_estimate", overflowEstimate,
-			"output_reserve", outputReserve,
-			"excluded_count", len(ctxOverflowed)-len(overflowAdmitted),
-			"excluded_models", strings.Join(ctxOverflowed, ","),
-			"admitted_for_upstream", strings.Join(overflowAdmitted, ","),
-		)
-	}
-	excluded, geminiUnsigned := excludeGemini3xOnUnsignedHistory(env, excluded, s.availableModels)
+	// Hard exclusions run first so a model the request can never use does not
+	// count as fitting and suppress the total-overflow admission below.
+	excluded, geminiUnsigned := excludeGemini3xOnUnsignedHistory(env, baseExcluded, s.availableModels)
 	if len(geminiUnsigned) > 0 {
 		log.Info("gemini pre-filter: excluded gemini-3.x for unsigned tool-call history",
 			"excluded_models", strings.Join(geminiUnsigned, ","),
@@ -3910,6 +3940,21 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		log.Info("advisor pre-filter: excluded models the advisor tool cannot advise",
 			"advisor_model", env.AdvisorToolModel(),
 			"excluded_models", strings.Join(advisorOutranking, ","),
+		)
+	}
+	overflowEstimate := env.ContextOverflowTokenEstimate()
+	customBindings := s.customBindingsForRequest(ctx)
+	gatewayProviders := s.gatewayProvidersForRequest(ctx)
+	excluded, ctxOverflowed := excludeContextOverflowModels(overflowEstimate, env.SignatureTokenSavings(), outputReserve, enabledProviders, excluded, s.availableModels)
+	overflowAdmitted := admitWidestOnTotalOverflow(excluded, ctxOverflowed, s.availableModels, enabledProviders, cluster.RequestBindings{Custom: customBindings, Gateways: gatewayProviders})
+	excluded = withoutModels(excluded, overflowAdmitted)
+	if len(ctxOverflowed) > 0 {
+		log.Info("context window pre-filter: excluded over-capacity models",
+			"overflow_token_estimate", overflowEstimate,
+			"output_reserve", outputReserve,
+			"excluded_count", len(ctxOverflowed)-len(overflowAdmitted),
+			"excluded_models", strings.Join(ctxOverflowed, ","),
+			"admitted_for_upstream", strings.Join(overflowAdmitted, ","),
 		)
 	}
 	hardExcluded := append(append([]string(nil), geminiUnsigned...), advisorOutranking...)
@@ -3937,8 +3982,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		FeedbackRole:                  roleForTier(catalog.TierFor(feats.Model)),
 		ClientSessionID:               clientSessionIDForRequest(ctx, env),
 		EnabledProviders:              enabledProviders,
-		CustomBindings:                s.customBindingsForRequest(ctx),
-		GatewayProviders:              s.gatewayProvidersForRequest(ctx),
+		CustomBindings:                customBindings,
+		GatewayProviders:              gatewayProviders,
 		ExcludedModels:                excluded,
 		AllowedModels:                 allowedModelsForRequest(ctx),
 		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserve, enabledProviders), overflowAdmitted, hardExcluded),
@@ -7060,9 +7105,15 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	inboundLastUser := env.LastUserMessage()
 	inboundUserPromptOAI := env.EndsWithUserPrompt()
 
+	excludedOAI, geminiUnsignedOAI := excludeGemini3xOnUnsignedHistory(env, baseExcludedOAI, s.availableModels)
+	if len(geminiUnsignedOAI) > 0 {
+		log.Info("gemini pre-filter: excluded gemini-3.x for unsigned tool-call history",
+			"excluded_models", strings.Join(geminiUnsignedOAI, ","),
+		)
+	}
 	overflowEstimateOAI := env.ContextOverflowTokenEstimate()
-	excludedOAI, ctxOverflowedOAI := excludeContextOverflowModels(overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI, enabledProviders, baseExcludedOAI, s.availableModels)
-	overflowAdmittedOAI := admitWidestOnTotalOverflow(excludedOAI, ctxOverflowedOAI, s.availableModels, enabledProviders)
+	excludedOAI, ctxOverflowedOAI := excludeContextOverflowModels(overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI, enabledProviders, excludedOAI, s.availableModels)
+	overflowAdmittedOAI := admitWidestOnTotalOverflow(excludedOAI, ctxOverflowedOAI, s.availableModels, enabledProviders, cluster.RequestBindings{Custom: s.customBindingsForRequest(ctx), Gateways: s.gatewayProvidersForRequest(ctx)})
 	excludedOAI = withoutModels(excludedOAI, overflowAdmittedOAI)
 	if len(ctxOverflowedOAI) > 0 {
 		log.Info("context window pre-filter: excluded over-capacity models",
@@ -7071,12 +7122,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			"excluded_count", len(ctxOverflowedOAI)-len(overflowAdmittedOAI),
 			"excluded_models", strings.Join(ctxOverflowedOAI, ","),
 			"admitted_for_upstream", strings.Join(overflowAdmittedOAI, ","),
-		)
-	}
-	excludedOAI, geminiUnsignedOAI := excludeGemini3xOnUnsignedHistory(env, excludedOAI, s.availableModels)
-	if len(geminiUnsignedOAI) > 0 {
-		log.Info("gemini pre-filter: excluded gemini-3.x for unsigned tool-call history",
-			"excluded_models", strings.Join(geminiUnsignedOAI, ","),
 		)
 	}
 
