@@ -504,11 +504,13 @@ func (s *Service) bypassToAnthropic(
 	if !env.Stream() {
 		responseBuffer = newResponseCostBuffer(w)
 		w = responseBuffer
-		defer func() {
-			if flushErr := responseBuffer.FlushToClient(); flushErr != nil {
-				log.Error("Failed to flush buffered response", "err", flushErr)
-			}
-		}()
+		if !registerResponseCostBuffer(ctx, responseBuffer) {
+			defer func() {
+				if flushErr := responseBuffer.FlushToClient(); flushErr != nil {
+					log.Error("Failed to flush buffered response", "err", flushErr)
+				}
+			}()
+		}
 	}
 
 	respW := http.ResponseWriter(w)
@@ -535,52 +537,35 @@ func (s *Service) bypassToAnthropic(
 		respW = extractor
 	}
 
-	var terminal *streamTerminalObserver
-	if env.Stream() {
-		terminal = newStreamTerminalObserver(respW, nativeStreamAnthropic)
-		respW = terminal
-	}
-	preludeBuf.Seal()
-
 	proxyStart := time.Now()
 	inferenceParentCtx := ctx
 	ctx, inferenceSpan := startInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
+	terminal := newStreamTerminalObserver(respW, translate.FormatAnthropic)
+	respW = terminal
 	toolNames := translate.NewAnthropicToolNameWriter(respW, prep.ResponseToolNames)
+	preludeBuf.Seal()
 	proxyErr := p.Proxy(ctx, decision, prep, toolNames, r)
 	proxyErr = finalizeAfterProxy(proxyErr, toolNames.Finalize)
-	if proxyErr == nil && terminal != nil {
-		proxyErr = terminal.streamErr()
+	if proxyErr == nil {
+		terminal.Cancel(ctx.Err())
+		if env.Stream() {
+			proxyErr = terminal.OutcomeError()
+		} else {
+			proxyErr = terminal.DeclaredError()
+		}
 	}
 	finishInferenceSpan(inferenceSpan, decision, decision.Provider, 0, proxyErr)
 	ctx = restoreParentSpan(ctx, inferenceParentCtx)
-	// The Anthropic adapter returns a buffered *UpstreamErrorResponse on 4xx/5xx
-	// without writing to w (the routed path flushes it via dispatchWithFallback).
-	// When the proxy error is retryable (429 weekly-limit, or a raw transport
-	// error like a connection reset / TLS timeout) AND no bytes have been
-	// committed to w, return errBypassRetryable so the caller falls through to
-	// the normal routed dispatch. Non-retryable *UpstreamErrorResponse values
-	// (400/401/403) still flush — those won't be fixed by a different upstream —
-	// except the subscription model-access 404 and third-party-client 400, which
-	// a paid key does fix.
-	// Local prep errors (provider-not-configured, emit-body) are returned
-	// directly so the client sees the real failure instead of a silent reroute.
-	var upstreamErr *providers.UpstreamErrorResponse
 	s.recordSubscriptionModelRejection(ctx, decision.Provider, decision.Model, proxyErr)
-	if proxyErr != nil {
+	if !preludeBuf.Committed() {
 		preludeBuf.Discard()
-	}
-	if env.Stream() && proxyErr != nil && preludeBuf.Committed() {
-		proxyErr = emitAnthropicSSEErrorEvent(w, proxyErr)
-	} else if !preludeBuf.Committed() && providers.IsRetryable(proxyErr) {
-		return errBypassRetryable
-	}
-	if !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(proxyErr) || anthropicSubscriptionThirdPartyRefused(proxyErr)) && s.anthropicFallbackKeyAvailable(ctx) &&
-		(!billing.SubscriptionOnlyFromContext(ctx) || linkedFirst(ctx)) {
-		return errBypassRetryable
-	}
-	if !preludeBuf.Committed() && errors.As(proxyErr, &upstreamErr) {
-		flushUpstreamErrorAsAnthropic(w, proxyErr)
-		proxyErr = nil
+		if providers.IsRetryable(proxyErr) {
+			return errBypassRetryable
+		}
+		if (anthropicSubscriptionModelRejected(proxyErr) || anthropicSubscriptionThirdPartyRefused(proxyErr)) && s.anthropicFallbackKeyAvailable(ctx) &&
+			(!billing.SubscriptionOnlyFromContext(ctx) || linkedFirst(ctx)) {
+			return errBypassRetryable
+		}
 	}
 	// Bypass never substitutes the model, so requested == actual; Weave credits
 	// actual to $0 downstream when cost.subscription_served is set.
@@ -596,10 +581,6 @@ func (s *Service) bypassToAnthropic(
 
 	// Same identity block as the routed upstream span so Weave groups bypass turns by user/session.
 	clientID := ClientIdentityFrom(ctx)
-	outcomeErr := proxyErr
-	if upstreamErr != nil {
-		outcomeErr = upstreamErr
-	}
 	bypassBuilder := otel.NewAttrBuilder(18).
 		String("request_id", requestID).
 		String("external_id", externalID).
@@ -611,7 +592,7 @@ func (s *Service) bypassToAnthropic(
 		String("decision.model", decision.Model).
 		String("decision.provider", decision.Provider).
 		String("decision.reason", decision.Reason).
-		Bool("cost.subscription_served", proxyErr == nil && upstreamErr == nil && s.costNeutralSubscriptionServed(ctx)).
+		Bool("cost.subscription_served", proxyErr == nil && s.costNeutralSubscriptionServed(ctx)).
 		Int64("usage.input_tokens", int64(in)).
 		Int64("usage.output_tokens", int64(out)).
 		Int64("usage.cache_creation_input_tokens", int64(cacheCreation)).
@@ -622,7 +603,7 @@ func (s *Service) bypassToAnthropic(
 		Float64("cost.requested_input_usd", inputCost).
 		Float64("cost.requested_output_usd", outputCost).
 		Float64("cost.actual_input_usd", inputCost).
-		Float64("cost.actual_output_usd", outputCost).Int64("upstream.status_code", int64(upstreamStatus(outcomeErr)))
+		Float64("cost.actual_output_usd", outputCost).Int64("upstream.status_code", int64(upstreamStatus(proxyErr)))
 	s.applySubscriptionSpanTelemetry(ctx, bypassBuilder, feats.Model, decision.Model)
 	otel.Record(ctx, otel.Span{
 		Name:  "router.usage_bypass",
@@ -637,10 +618,6 @@ func (s *Service) bypassToAnthropic(
 	// (usage_bypass / classifier_subscription_passthrough) marks the lane. Required for Phase 0 unified_limit_headers capture.
 	if installationID := installationIDFromContext(ctx); installationID != uuid.Nil {
 		userPrompt := env.EndsWithUserPrompt()
-		outcomeErr := proxyErr
-		if upstreamErr != nil {
-			outcomeErr = upstreamErr
-		}
 		credentialKeyPrefix, credentialKeySuffix, credSource := s.credentialKeyParts(ctx)
 		stopReason, _, _ := extractor.AnthropicResponse()
 		// The routed path's key, so a session switching lanes keeps one turn clock.
@@ -667,8 +644,8 @@ func (s *Service) bypassToAnthropic(
 			ActualOutputCostUSD:    outputCost,
 			UpstreamLatencyMs:      time.Since(proxyStart).Milliseconds(),
 			TotalLatencyMs:         time.Since(requestStart).Milliseconds(),
-			UpstreamStatusCode:     int32(upstreamStatus(outcomeErr)),
-			ErrorClass:             classifyTurnError(outcomeErr, stopReason, 0),
+			UpstreamStatusCode:     int32(upstreamStatus(proxyErr)),
+			ErrorClass:             classifyTurnError(proxyErr, stopReason, 0),
 			UserPrompt:             &userPrompt,
 			LatestToolCallCounts:   latestToolCallCountsJSON(env),
 			SessionKey:             sessionKey[:],

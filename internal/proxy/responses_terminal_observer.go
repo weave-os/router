@@ -6,8 +6,6 @@ import (
 
 	"weave-os/router/internal/sse"
 	"weave-os/router/internal/translate"
-
-	"github.com/tidwall/gjson"
 )
 
 const (
@@ -40,7 +38,7 @@ type responsesTerminalObserver struct {
 }
 
 func newResponsesTerminalObserver(inner http.ResponseWriter) *responsesTerminalObserver {
-	return &responsesTerminalObserver{inner: inner}
+	return &responsesTerminalObserver{inner: inner, state: streamTerminalState{observation: translate.NewProviderStreamObservation(translate.FormatOpenAIResponses)}}
 }
 
 func (o *responsesTerminalObserver) Header() http.Header { return o.inner.Header() }
@@ -48,7 +46,6 @@ func (o *responsesTerminalObserver) Header() http.Header { return o.inner.Header
 func (o *responsesTerminalObserver) WriteHeader(status int) { o.inner.WriteHeader(status) }
 
 func (o *responsesTerminalObserver) Write(p []byte) (int, error) {
-	o.state.wrote = o.state.wrote || len(p) > 0
 	o.scan(p)
 	return o.inner.Write(p)
 }
@@ -97,33 +94,51 @@ func (o *responsesTerminalObserver) Finalize() {
 	o.observeEvent(rest)
 }
 
-// observeEvent records the signals from a terminal event. A later terminal
-// event wins: an upstream that revises the envelope states its outcome last.
+// observeEvent records the same first terminal that owns lifecycle completion.
 func (o *responsesTerminalObserver) observeEvent(event []byte) {
-	eventType, payload := sse.ParseEvent(event)
-	o.state.noteFrame(event, eventType, payload)
+	switch o.state.observation.Facts().State {
+	case translate.StreamTerminal, translate.StreamFailed, translate.StreamCanceled:
+		return
+	}
+	_, payload := sse.ParseEvent(event)
+	o.state.observation.ObserveEvent(event)
 	if len(payload) == 0 {
 		// A non-streaming body carries no SSE framing.
 		payload = event
+		o.state.observation.ObserveBody(event)
 	}
 	if !completeTailPayload(payload) {
 		return
-	}
-	kind := gjson.GetBytes(payload, "type").String()
-	if kind == "" {
-		kind = string(eventType)
-	}
-	switch kind {
-	case "":
-	case responsesCompletedEvent, responsesIncompleteEvent, responsesFailedEvent, streamCutErrorEvent:
-		o.state.started, o.state.ended = true, true
-	default:
-		o.state.started = true
 	}
 	if signals, ok := translate.ResponsesTerminal(payload); ok {
 		o.signals = signals
 		o.observed = true
 	}
+}
+
+// Cancel records the attempt context after consuming any complete final record.
+func (o *responsesTerminalObserver) Cancel(cause error) {
+	if cause == nil {
+		return
+	}
+	o.Finalize()
+	o.state.observation.Cancel(cause)
+}
+
+// DeclaredError reports provider rejection without imposing streaming EOF rules.
+func (o *responsesTerminalObserver) DeclaredError() error {
+	o.Finalize()
+	return o.state.observation.DeclaredError()
+}
+
+func (o *responsesTerminalObserver) OutcomeError() error {
+	o.Finalize()
+	return o.state.observation.OutcomeError()
+}
+
+func (o *responsesTerminalObserver) streamErr() error {
+	o.Finalize()
+	return o.state.err()
 }
 
 var (

@@ -50,7 +50,7 @@ func TestExpiredAdmissionBudgetDoesNotAuthorizeAPI(t *testing.T) {
 	require.False(t, ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage).Served)
 }
 
-func TestExpiredRotationBudgetRendersCleanErrorWithoutAPI(t *testing.T) {
+func TestExpiredRotationBudgetReturnsFailureWithoutAPI(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "synthetic-seat", AccessToken: "seat-token"}}}
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderOpenAI: &fakeClient{name: providers.ProviderOpenAI}}).WithManagedSubscriptions(leaser)
 	ctx := expiredRotationContext(auth.SubscriptionProviderCodex)
@@ -58,10 +58,7 @@ func TestExpiredRotationBudgetRendersCleanErrorWithoutAPI(t *testing.T) {
 	buf := newPreludeBuffer(rec)
 	in := plannedInputs(rec, buf, []catalog.ProviderBinding{{Provider: providers.ProviderOpenAI}}, nil)
 	in.initialDecision = router.Decision{Provider: providers.ProviderOpenAI, Model: codexCoveredModel}
-	in.flushErr = func(w http.ResponseWriter, err error) {
-		w.WriteHeader(http.StatusTooManyRequests)
-		_, _ = w.Write([]byte("terminal error"))
-	}
+
 	calls := 0
 	in.attempt = func(context.Context, router.Decision, providers.Client) error {
 		calls++
@@ -75,5 +72,6 @@ func TestExpiredRotationBudgetRendersCleanErrorWithoutAPI(t *testing.T) {
 	require.True(t, classified)
 	require.Equal(t, http.StatusServiceUnavailable, class.Status, "a spent admission budget is not proof the pool is exhausted")
 	require.Zero(t, calls, "without an authorized paid key nothing is dispatched")
-	require.Equal(t, "terminal error", rec.Body.String())
+	require.Empty(t, rec.Body.String(), "request delivery owns failure serialization")
+	require.False(t, rec.Flushed)
 }

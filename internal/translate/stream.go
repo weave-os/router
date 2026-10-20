@@ -39,10 +39,18 @@ type SSETranslator struct {
 	toolIdx       int
 	currentIsTool bool
 
-	usageSink   UsageSink
-	inputTokens int // persists input token count from message_start for use in handleMessageDelta
-	lifecycle   *StreamLifecycle
+	usageSink       UsageSink
+	inputTokens     int // persists input token count from message_start for use in handleMessageDelta
+	lifecycle       *StreamLifecycle
+	failureOwner    bool
+	terminalFailure error
 }
+
+// SetFailureOwner leaves terminal failure delivery to the request owner.
+func (t *SSETranslator) SetFailureOwner() { t.failureOwner = true }
+
+// UpstreamError returns the retained provider failure for classification.
+func (t *SSETranslator) UpstreamError() error { return t.terminalFailure }
 
 // NewSSETranslator wraps w. Call Finalize after upstream returns.
 func NewSSETranslator(w http.ResponseWriter, model string, sink UsageSink) *SSETranslator {
@@ -99,12 +107,21 @@ func (t *SSETranslator) Flush() {
 
 // Finalize writes the buffered body for non-streaming responses.
 func (t *SSETranslator) Finalize() error {
+	if t.terminalFailure != nil {
+		if t.failureOwner {
+			return t.terminalFailure
+		}
+		return nil
+	}
 	if t.streaming {
 		if err := t.processFinalSSETail(); err != nil {
 			return err
 		}
 		if err := t.lifecycle.EOF(); err != nil {
-			if t.lifecycle.OutputStarted() {
+			if t.failureOwner {
+				t.terminalFailure = err
+			}
+			if !t.failureOwner && t.lifecycle.OutputStarted() {
 				if emitErr := t.emitStreamFailure(); emitErr != nil {
 					return emitErr
 				}
@@ -115,7 +132,17 @@ func (t *SSETranslator) Finalize() error {
 	}
 
 	body := t.buf.Bytes()
+	if t.failureOwner && t.statusCode < 400 {
+		if failure := providerBufferedFailure(FormatAnthropic, body); failure != nil {
+			t.terminalFailure = failure
+			return failure
+		}
+	}
 	if t.statusCode >= 400 {
+		if t.failureOwner {
+			t.terminalFailure = &providers.UpstreamErrorResponse{Status: t.statusCode, Body: append([]byte(nil), body...)}
+			return t.terminalFailure
+		}
 		t.inner.Header().Set("Content-Type", "application/json")
 		t.inner.WriteHeader(t.statusCode)
 		_, err := t.inner.Write(AnthropicToOpenAIError(body))
@@ -140,6 +167,10 @@ func (t *SSETranslator) Finalize() error {
 
 	translated, err := AnthropicToOpenAIResponse(body, t.model)
 	if err != nil {
+		if t.failureOwner {
+			t.terminalFailure = err
+			return err
+		}
 		t.inner.Header().Set("Content-Type", "application/json")
 		t.inner.WriteHeader(http.StatusBadGateway)
 		_, _ = t.inner.Write([]byte(`{"error":{"message":"translation failed","type":"api_error"}}`))
@@ -176,9 +207,31 @@ func (t *SSETranslator) processFinalSSETail() error {
 }
 
 func (t *SSETranslator) translateEvent(raw []byte) error {
+	if t.lifecycle.State() == StreamTerminal || t.terminalFailure != nil {
+		return nil
+	}
 	eventType, data := sse.ParseEvent(raw)
 	if len(data) == 0 {
 		return nil
+	}
+	if !gjson.ValidBytes(data) {
+		t.terminalFailure = fmt.Errorf("%w: malformed Anthropic event", ErrStreamIncomplete)
+		return t.terminalFailure
+	}
+	if failure := providerDeclaredStreamFailure(FormatAnthropic, raw); failure != nil {
+		t.terminalFailure = failure
+		if t.failureOwner || !t.lifecycle.OutputStarted() {
+			return failure
+		}
+		if t.lifecycle.State() == StreamStarted {
+			if err := t.lifecycle.Fail(); err != nil {
+				return err
+			}
+		}
+		t.bw.WriteString("data: ")
+		t.bw.Write(AnthropicToOpenAIError(data))
+		t.bw.WriteString("\n\n")
+		return t.flushEvent()
 	}
 
 	switch string(eventType) {
@@ -401,7 +454,9 @@ type AnthropicSSETranslator struct {
 	buf            bytes.Buffer
 	scanner        sse.Scanner
 
-	requestModel string
+	requestModel    string
+	failureOwner    bool
+	terminalFailure error
 
 	started bool
 	// closed guards against double-emission after [DONE] triggers finishStream.
@@ -525,6 +580,7 @@ type AnthropicSSETranslator struct {
 	// (see uniqueToolUseIDWithNonce). Lazily seeded on first use.
 	toolIDNonce string
 	lifecycle   *StreamLifecycle
+	observation *ProviderStreamObservation
 	toolLedger  *ToolCallLedger
 
 	// logger carries the request-scoped correlation fields (session_key,
@@ -561,9 +617,16 @@ func NewAnthropicSSETranslator(w http.ResponseWriter, requestModel string, sink 
 		toolNames:       make(map[int]string),
 		usageSink:       sink,
 		lifecycle:       NewStreamLifecycle(),
+		observation:     NewProviderStreamObservation(FormatOpenAI),
 		toolLedger:      NewToolCallLedger(),
 	}
 }
+
+// SetFailureOwner leaves terminal failure delivery to the request owner.
+func (t *AnthropicSSETranslator) SetFailureOwner() { t.failureOwner = true }
+
+// UpstreamError returns the retained provider failure for classification.
+func (t *AnthropicSSETranslator) UpstreamError() error { return t.terminalFailure }
 
 // WithToolValidator installs the compiled tool-schema validator so buffered
 // tool args are validated (and repaired) before emission. Pass nil to disable.
@@ -803,6 +866,12 @@ func (t *AnthropicSSETranslator) Flush() {
 // Finalize writes the buffered body for non-streaming responses, or emits
 // trailing message_delta/message_stop for streaming.
 func (t *AnthropicSSETranslator) Finalize() error {
+	if t.terminalFailure != nil {
+		if t.failureOwner {
+			return t.terminalFailure
+		}
+		return nil
+	}
 	t.log().Debug("AnthropicSSE Finalize entry",
 		"streaming", t.streaming,
 		"closed", t.closed,
@@ -818,6 +887,10 @@ func (t *AnthropicSSETranslator) Finalize() error {
 			return err
 		}
 		if t.upstreamErrorStatus != 0 {
+			if t.failureOwner {
+				t.terminalFailure = &providers.UpstreamErrorResponse{Status: t.upstreamErrorStatus, Body: []byte(t.upstreamErrorBody.String())}
+				return t.terminalFailure
+			}
 			if t.lifecycle.State() == StreamStarted {
 				if err := t.lifecycle.Fail(); err != nil {
 					return err
@@ -825,7 +898,20 @@ func (t *AnthropicSSETranslator) Finalize() error {
 			}
 			return t.finishStream()
 		}
-		if err := t.lifecycle.EOF(); err != nil {
+		if t.failureOwner && t.observation.OutcomeError() == nil && t.lifecycle.State() == StreamStarted {
+			if err := t.lifecycle.Terminal(); err != nil {
+				return err
+			}
+		}
+		completionErr := t.lifecycle.EOF()
+		if completionErr == nil {
+			completionErr = t.observation.EOF()
+		}
+		if err := completionErr; err != nil {
+			if t.failureOwner {
+				t.terminalFailure = err
+				return err
+			}
 			// Prelude is still buffered until first output; emitting an error
 			// frame here would commit the response and foreclose failover.
 			if t.lifecycle.OutputStarted() {
@@ -846,7 +932,17 @@ func (t *AnthropicSSETranslator) Finalize() error {
 	}
 
 	body := t.buf.Bytes()
+	if t.failureOwner && t.statusCode < 400 {
+		if failure := providerBufferedFailure(FormatOpenAI, body); failure != nil {
+			t.terminalFailure = failure
+			return failure
+		}
+	}
 	if t.statusCode >= 400 {
+		if t.failureOwner {
+			t.terminalFailure = &providers.UpstreamErrorResponse{Status: t.statusCode, Body: append([]byte(nil), body...)}
+			return t.terminalFailure
+		}
 		t.inner.Header().Set("Content-Type", "application/json")
 		t.inner.WriteHeader(t.statusCode)
 		_, err := t.inner.Write(OpenAIToAnthropicError(body))
@@ -872,6 +968,10 @@ func (t *AnthropicSSETranslator) Finalize() error {
 	translated, issues, err := openAIToAnthropicResponse(body, t.requestModel, t.toolValidator, t.thinkTagReasoning, t.escapeNormalize)
 	t.toolCallIssues = append(t.toolCallIssues, issues...)
 	if err != nil {
+		if t.failureOwner {
+			t.terminalFailure = err
+			return err
+		}
 		t.inner.Header().Set("Content-Type", "application/json")
 		t.inner.WriteHeader(http.StatusBadGateway)
 		_, _ = t.inner.Write([]byte(`{"type":"error","error":{"type":"api_error","message":"translation failed"}}`))
@@ -908,11 +1008,19 @@ func (t *AnthropicSSETranslator) processFinalOpenAISSETail() error {
 }
 
 func (t *AnthropicSSETranslator) translateOpenAIEvent(raw []byte) error {
+	if t.closed || t.terminalFailure != nil {
+		return nil
+	}
 	_, data := sse.ParseEvent(raw)
 	if len(data) == 0 {
 		return nil
 	}
+	t.observation.ObserveEvent(raw)
 	if bytes.Equal(bytes.TrimSpace(data), []byte("[DONE]")) {
+		if err := t.observation.EOF(); err != nil {
+			t.terminalFailure = err
+			return err
+		}
 		if t.lifecycle.State() == StreamIdle {
 			if err := t.lifecycle.Start(); err != nil {
 				return err
@@ -926,6 +1034,26 @@ func (t *AnthropicSSETranslator) translateOpenAIEvent(raw []byte) error {
 			return ErrStreamOrder
 		}
 		return t.finishStream()
+	}
+	if !gjson.ValidBytes(data) {
+		t.terminalFailure = fmt.Errorf("%w: malformed Chat Completions event", ErrStreamIncomplete)
+		return t.terminalFailure
+	}
+	if failure := t.observation.DeclaredError(); failure != nil {
+		t.terminalFailure = failure
+		if t.failureOwner || !t.lifecycle.OutputStarted() {
+			return failure
+		}
+		if t.lifecycle.State() == StreamStarted {
+			if err := t.lifecycle.Fail(); err != nil {
+				return err
+			}
+		}
+		t.bw.WriteString("event: error\ndata: ")
+		t.bw.Write(OpenAIToAnthropicError(data))
+		t.bw.WriteString("\n\n")
+		t.closed = true
+		return t.flushEvent()
 	}
 
 	// strings.Clone: gjson strings are unsafe-backed by the buffer; these
@@ -974,11 +1102,12 @@ func (t *AnthropicSSETranslator) translateOpenAIEvent(raw []byte) error {
 		// Raw upstream cap, observed before emitMessageDelta promotes a
 		// surviving tool_use block over finish_reason=length.
 		recordOutputLimit(t.usageSink, fr == "length")
+		t.markOutputProgress()
+	}
+	if !t.failureOwner && t.observation.Facts().State == StreamTerminal && t.lifecycle.State() == StreamStarted {
 		if err := t.lifecycle.Terminal(); err != nil {
 			return err
 		}
-		// Terminal output: the upstream signaled the turn is ending.
-		t.markOutputProgress()
 	}
 	t.extractAndForwardUsage(data)
 	return nil

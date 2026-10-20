@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 type sparseResponsesClient struct {
@@ -69,7 +70,17 @@ func TestProxyOpenAIResponses_NativeStreamCompletionDoesNotReplayOutput(t *testi
 					assert.NotContains(t, rec.Body.String(), `"type":"response.failed"`)
 				}
 				assert.Equal(t, 1, client.calls, "never retry after provider output commits")
-				assert.Equal(t, 1, strings.Count(rec.Body.String(), "streamed answer"))
+				answerDeltas := 0
+				for _, line := range strings.Split(rec.Body.String(), "\n") {
+					if !strings.HasPrefix(line, "data: ") {
+						continue
+					}
+					event := gjson.Parse(strings.TrimPrefix(line, "data: "))
+					if event.Get("type").Str == "response.output_text.delta" && strings.Contains(event.Get("delta").Str, "streamed answer") {
+						answerDeltas++
+					}
+				}
+				assert.Equal(t, 1, answerDeltas, "terminal snapshots must not replay output deltas")
 			})
 		}
 	}

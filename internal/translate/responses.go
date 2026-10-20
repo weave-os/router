@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/sse"
 
@@ -647,10 +648,13 @@ type ResponsesWriter struct {
 	responseID string
 	createdAt  int64
 
-	// failureCode/failureMessage override the generic response.failed error;
-	// set by FailContextOverflow so clients see the native overflow code.
-	failureCode    string
-	failureMessage string
+	// Failure details are supplied by the request owner to the protocol sink.
+	failureOwner        bool
+	providerObservation *ProviderStreamObservation
+	failureCode         string
+	failureMessage      string
+	failureSnapshot     json.RawMessage
+	failureOutput       map[int]json.RawMessage
 
 	statusCode       int
 	streaming        bool
@@ -852,6 +856,12 @@ func (t *ResponsesWriter) resetSSEScanState() {
 	t.nativeSSEClassified = false
 }
 
+// SetFailureOwner leaves terminal failure delivery to the request owner.
+func (t *ResponsesWriter) SetFailureOwner() {
+	t.failureOwner = true
+	t.providerObservation = NewProviderStreamObservation(FormatOpenAI)
+}
+
 // ResetAttempt discards buffered provider bytes from a failed retryable attempt
 // so the next dispatch does not inherit a partial or empty terminal.
 func (t *ResponsesWriter) ResetAttempt() {
@@ -859,6 +869,9 @@ func (t *ResponsesWriter) ResetAttempt() {
 		return
 	}
 	t.buf.Reset()
+	if t.failureOwner {
+		t.providerObservation = NewProviderStreamObservation(FormatOpenAI)
+	}
 	t.resetSSEScanState()
 	t.nativeStreamStarted = false
 	t.nativeResponseID = ""
@@ -869,6 +882,8 @@ func (t *ResponsesWriter) ResetAttempt() {
 	t.sawToolCall = false
 	t.completedEmitted = false
 	t.nativeEmptyRejected = false
+	t.failureOutput = nil
+	t.failureSnapshot = nil
 	t.finishReason = ""
 	t.toolItems = map[int]*responsesToolItem{}
 	t.usage = nil
@@ -1130,7 +1145,12 @@ func (t *ResponsesWriter) Finalize() error {
 		if err := t.processFinalSSETail(); err != nil {
 			return err
 		}
-		if !t.completedEmitted && t.finishReason != "" {
+		if t.failureOwner {
+			if err := t.providerObservation.OutcomeError(); err != nil {
+				return err
+			}
+		}
+		if !t.completedEmitted && (t.finishReason != "" || t.failureOwner) {
 			if !t.hasUpstreamOutput {
 				return emptyCompletionOpenAIError()
 			}
@@ -1143,7 +1163,7 @@ func (t *ResponsesWriter) Finalize() error {
 			}
 		}
 		if err := t.lifecycle.EOF(); err != nil {
-			if t.lifecycle.State() == StreamStarted {
+			if !t.failureOwner && t.lifecycle.State() == StreamStarted {
 				if emitErr := t.emitIncompleteFailure(); emitErr != nil {
 					return emitErr
 				}
@@ -1155,6 +1175,9 @@ func (t *ResponsesWriter) Finalize() error {
 
 	body := t.buf.Bytes()
 	if t.statusCode >= 400 {
+		if t.failureOwner {
+			return &providers.UpstreamErrorResponse{Status: t.statusCode, Body: bytes.Clone(body)}
+		}
 		t.inner.Header().Set("Content-Type", "application/json")
 		t.inner.WriteHeader(t.statusCode)
 		_, err := t.inner.Write(body)
@@ -1163,6 +1186,9 @@ func (t *ResponsesWriter) Finalize() error {
 
 	translated, err := chatCompletionToResponse(body, t.responseID, t.model, t.createdAt, t.toolMappings, t.computeBadgeText(), t.footerText)
 	if err != nil {
+		if t.failureOwner {
+			return err
+		}
 		t.inner.Header().Set("Content-Type", "application/json")
 		t.inner.WriteHeader(http.StatusBadGateway)
 		_, _ = t.inner.Write([]byte(`{"error":{"message":"translation failed","type":"api_error"}}`))
@@ -1706,6 +1732,7 @@ func (t *ResponsesWriter) emitNativeBadgeBeforeOutput(event []byte) error {
 }
 
 func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) error {
+	t.captureFailureEvent(event)
 	_, data := sse.ParseEvent(event)
 	var eventType responsesEventType
 	var itemType responsesItemType
@@ -1887,10 +1914,7 @@ func (t *ResponsesWriter) FinalizeError(err error) error {
 		if t.nativeResponseID != "" {
 			env["id"] = t.nativeResponseID
 		}
-		env["output"] = t.nativeNoticeItems
-		if len(t.nativeNoticeItems) == 0 {
-			env["output"] = []any{}
-		}
+		env["output"] = t.failureSnapshotOutput()
 		env["error"] = t.failureError()
 		sequence := int64(1) + t.nativeSequenceShift
 		if t.nativeLastSequenceSet {
@@ -1931,55 +1955,6 @@ func (t *ResponsesWriter) failureError() map[string]any {
 	return map[string]any{"code": "upstream_error", "message": "Upstream call failed."}
 }
 
-// FailContextOverflow ends the response with the Responses-native overflow
-// failure. Codex compacts only on an in-stream response.failed carrying this
-// code, so a streaming request whose stream has not started gets it opened
-// first; a non-streaming request gets the JSON error envelope.
-func (t *ResponsesWriter) FailContextOverflow(streaming bool, code, message string) error {
-	t.failureCode, t.failureMessage = code, message
-	if !streaming {
-		if t.httpHeadersSent {
-			return nil
-		}
-		body, err := json.Marshal(map[string]any{"error": map[string]any{
-			"message": message, "type": "invalid_request_error", "param": nil, "code": code,
-		}})
-		if err != nil {
-			return err
-		}
-		t.sealInner()
-		t.inner.Header().Set("Content-Type", "application/json")
-		t.inner.Header().Del("Content-Length")
-		t.inner.Header().Del("Content-Encoding")
-		t.inner.WriteHeader(http.StatusBadRequest)
-		t.httpHeadersSent = true
-		_, err = t.inner.Write(body)
-		return err
-	}
-	if t.passthrough {
-		if !t.nativeStreamStarted && !t.nativePreludeCreated {
-			t.inner.Header().Set("Content-Type", "text/event-stream")
-			t.inner.Header().Del("Content-Length")
-			t.inner.Header().Del("Content-Encoding")
-			t.streaming = true
-			t.statusCode = http.StatusOK
-			if !t.httpHeadersSent {
-				t.inner.WriteHeader(http.StatusOK)
-				t.httpHeadersSent = true
-			}
-			if err := t.writeNativeEvent("response.created", 0, map[string]any{"response": t.responseEnvelope("in_progress")}); err != nil {
-				return err
-			}
-			t.nativePreludeCreated = true
-		}
-	} else if !t.headersEmitted {
-		if err := t.Prelude(true); err != nil {
-			return err
-		}
-	}
-	return t.FinalizeError(nil)
-}
-
 // processSSEBuffer drains complete chat.completion.chunk events.
 func (t *ResponsesWriter) processSSEBuffer() error {
 	for {
@@ -2007,11 +1982,20 @@ func (t *ResponsesWriter) processFinalSSETail() error {
 }
 
 func (t *ResponsesWriter) translateChunk(raw []byte) error {
+	if t.failureOwner {
+		t.providerObservation.ObserveEvent(raw)
+		if err := t.providerObservation.DeclaredError(); err != nil {
+			return err
+		}
+	}
 	_, data := sse.ParseEvent(raw)
 	if len(data) == 0 {
 		return nil
 	}
 	if bytes.Equal(bytes.TrimSpace(data), []byte("[DONE]")) {
+		if t.failureOwner {
+			return nil
+		}
 		if !t.lifecycle.OutputStarted() {
 			return nil
 		}
@@ -2097,7 +2081,7 @@ func (t *ResponsesWriter) translateChunk(raw []byte) error {
 			return err
 		}
 		// OpenAI-compatible streams may put usage in a trailing choices:[] frame.
-		if t.usage == nil || t.completedEmitted {
+		if t.failureOwner || t.usage == nil || t.completedEmitted {
 			return nil
 		}
 		if err := t.lifecycle.Terminal(); err != nil {

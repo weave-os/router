@@ -23,6 +23,7 @@ import (
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
+	"github.com/tidwall/gjson"
 )
 
 // ErrGeminiCrossFormatUnsupported is returned when a Gemini-source request
@@ -38,6 +39,9 @@ var ErrGeminiCrossFormatUnsupported = errors.New("gemini cross-format emit not i
 // and "stream" (true for :streamGenerateContent) fields into body before
 // calling; both are stripped before forwarding upstream.
 func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
+	ctx, w, finishDelivery := beginTerminalDelivery(ctx, w, translate.FormatGemini, gjson.GetBytes(body, "stream").Bool())
+	defer finishDelivery(&returnErr)
+	r = r.WithContext(ctx)
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
 	ctx, returnErr = s.withClassifierInput(ctx, body, router.EndpointGeminiGenerate)
 	if returnErr != nil {
@@ -95,11 +99,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	if !env.Stream() {
 		responseBuffer = newResponseCostBuffer(w)
 		w = responseBuffer
-		defer func() {
-			if flushErr := responseBuffer.FlushToClient(); flushErr != nil {
-				log.Error("Failed to flush buffered response", "err", flushErr)
-			}
-		}()
+		registerResponseCostBuffer(ctx, responseBuffer)
 	}
 	embedFlag := s.ResolveEmbedOnlyUserMessage(ctx)
 	feats := env.RoutingFeatures(embedFlag)
@@ -330,13 +330,16 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			extractor = otel.NewUsageExtractor(attemptSink, d.Provider)
 			proxySink = extractor
 		}
+		terminal := newStreamTerminalObserver(proxySink, translate.FormatGemini)
+		proxySink = terminal
 		preludeBuf.Seal()
 		err := p.Proxy(actx, d, prep, proxySink, r)
+		if err == nil && terminal != nil {
+			terminal.Cancel(actx.Err())
+			err = terminal.OutcomeError()
+		}
 		if err == nil && env.Stream() && !preludeBuf.Committed() {
 			return translate.ErrStreamEmpty
-		}
-		if err != nil && env.Stream() && preludeBuf.Committed() {
-			emitGeminiSSEErrorEvent(contentSink)
 		}
 		return err
 	}
@@ -346,13 +349,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		initialDecision: decision,
 		bindings:        bindings,
 		attempt:         attempt,
-		flushErr: func(w http.ResponseWriter, err error) {
-			if env.Stream() && preludeBuf.PreludeSent() {
-				emitGeminiSSEErrorEvent(w)
-				return
-			}
-			flushBufferedIfPresent(w, err)
-		},
+
 		purpose: routeRes.dispatchPurpose(inference.PurposeGeminiGenerateContent),
 		origin:  routeRes.dispatchOrigin(decision),
 	})

@@ -275,7 +275,7 @@ func TestAnthropicTierAttempt_OrdinaryRateLimitStaysFast(t *testing.T) {
 }
 
 func TestProxyMessages_FastModeOpenAICrossFormatSetsPriorityTier(t *testing.T) {
-	upstream := &bypassFakeProvider{respBody: `{"id":"chatcmpl_1","object":"chat.completion","model":"gpt-5.6-luna","choices":[{"index":0,"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}`}
+	upstream := &bypassFakeProvider{respBody: `data: {"type":"response.completed","response":{"id":"resp_synthetic","object":"response","status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"hi"}]}],"usage":{"input_tokens":10,"output_tokens":5}}}` + "\n\n"}
 	svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderOpenAI, Model: fastLunaModel}, upstream)
 
 	rec := httptest.NewRecorder()
@@ -288,7 +288,7 @@ func TestProxyMessages_FastModeOpenAICrossFormatSetsPriorityTier(t *testing.T) {
 }
 
 func TestProxyOpenAIChatCompletion_FastModeSetsPriorityTier(t *testing.T) {
-	upstream := &bypassFakeProvider{respBody: `{"id":"chatcmpl_1","object":"chat.completion","model":"gpt-5.6-luna","choices":[{"index":0,"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5}}`}
+	upstream := &bypassFakeProvider{respBody: `data: {"type":"response.completed","response":{"id":"resp_synthetic","object":"response","status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"hi"}]}],"usage":{"input_tokens":10,"output_tokens":5}}}` + "\n\n"}
 	svc, _ := newFastModeService(router.Decision{Provider: providers.ProviderOpenAI, Model: fastLunaModel}, upstream)
 
 	rec := httptest.NewRecorder()

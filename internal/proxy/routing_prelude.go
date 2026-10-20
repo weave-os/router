@@ -19,6 +19,10 @@ func (s *requestNoticeStream) prepare(ctx context.Context, sink http.ResponseWri
 		capabilities := translate.NoticeCapabilities{Format: format, Streaming: streaming, Presentation: translate.NoticeText, Eager: streaming && (format == translate.FormatOpenAI || format == translate.FormatOpenAIResponses)}
 		s.delivery = translate.NewNoticeDelivery(ctx, translate.NewProtocolNoticeSink(sink, capabilities), capabilities)
 	}
+	if owner := terminalDeliveryFrom(ctx); owner != nil && owner.format == format {
+		owner.delivery = s.delivery
+		owner.prelude = prelude
+	}
 	retainNotices := prelude == nil || prelude.PreludeSent()
 	s.delivery.ResetAttempt(retainNotices)
 	if !retainNotices {

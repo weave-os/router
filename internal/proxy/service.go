@@ -3386,28 +3386,24 @@ func (s *Service) anthropicNativeAttempt(
 			proxyWriter = ex
 			setExtractor(ex)
 		}
-		var terminal *streamTerminalObserver
-		if env.Stream() {
-			terminal = newStreamTerminalObserver(proxyWriter, nativeStreamAnthropic)
-			proxyWriter = terminal
-		}
+		terminal := newStreamTerminalObserver(proxyWriter, translate.FormatAnthropic)
+		proxyWriter = terminal
 		if preludeBuf != nil {
 			preludeBuf.Seal()
 		}
 		toolNames := translate.NewAnthropicToolNameWriter(proxyWriter, prep.ResponseToolNames)
 		err := p.Proxy(actx, d, prep, streamCut.attach(toolNames), r)
 		err = finalizeAfterProxy(err, toolNames.Finalize)
-		if err == nil && terminal != nil {
-			err = terminal.streamErr()
+		if err == nil {
+			terminal.Cancel(actx.Err())
+			if env.Stream() {
+				err = terminal.OutcomeError()
+			} else {
+				err = terminal.DeclaredError()
+			}
 		}
-		// Post-commit: bytes already on the wire, so render the error as an
-		// in-stream frame instead of letting flushErr append a corrupting
-		// envelope. Pre-commit errors go through dispatchWithFallback instead.
 		if err != nil && env.Stream() && preludeBuf.Committed() {
-			// Before synthesis: the rendered 502 no longer carries the
-			// transport error the classification reads.
 			streamCut.noteCut(err)
-			err = emitAnthropicSSEErrorEvent(sink, err)
 		}
 		return err
 	}
@@ -3607,6 +3603,9 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [session
 var anthropicPingFrame = []byte(sseEvent("ping", `{"type":"ping"}`))
 
 func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
+	ctx, w, finishDelivery := beginTerminalDelivery(ctx, w, translate.FormatAnthropic, gjson.GetBytes(body, "stream").Bool())
+	defer finishDelivery(&returnErr)
+	r = r.WithContext(ctx)
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
 	switch gjson.GetBytes(body, "thread.type").String() {
 	case translate.MessageThreadContinue:
@@ -3691,11 +3690,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if !env.Stream() {
 		responseBuffer = newResponseCostBuffer(w)
 		w = responseBuffer
-		defer func() {
-			if flushErr := responseBuffer.FlushToClient(); flushErr != nil {
-				log.Error("Failed to flush buffered response", "err", flushErr)
-			}
-		}()
+		registerResponseCostBuffer(ctx, responseBuffer)
 	}
 
 	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
@@ -4558,6 +4553,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 						WithEstimatedInputTokens(feats.Tokens).
 						WithRequestHadTools(feats.HasTools).
 						WithToolValidator(toolValidator)
+					responsesTranslator.SetFailureOwner()
 					if err := responsesTranslator.Prelude(env.Stream()); err != nil {
 						return fmt.Errorf("emit Anthropic routing marker: %w", err), func(err error) error { return err }
 					}
@@ -4570,6 +4566,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 						WithThinkTagReasoning(catalog.ThinkTagReasoningFor(d.Model)).
 						WithEscapeNormalize(s.escapeNormalize).
 						WithToolValidator(toolValidator)
+					chatTranslator.SetFailureOwner()
 					if err := chatTranslator.Prelude(env.Stream()); err != nil {
 						return fmt.Errorf("emit Anthropic routing marker: %w", err), func(err error) error { return err }
 					}
@@ -4581,13 +4578,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				toolNames := translate.NewOpenAIToolNameWriter(translator, prep.ResponseToolNames)
 				rawErr := p.Proxy(actx, d, prep, streamCut.attach(toolNames), r)
 				finalize := func(err error) error {
-					// Post-commit: HTTP 200 + message_start already on the wire, so
-					// render the error as an in-stream `event: error` frame instead of
-					// a corrupting trailing envelope. Pre-commit errors go through
-					// dispatchWithFallback instead.
 					if err != nil && env.Stream() && preludeBuf.Committed() {
 						streamCut.noteCut(err)
-						err = emitAnthropicSSEErrorEvent(sink, err)
 					}
 					finErr := finalizeAfterProxy(finalizeAfterProxy(err, toolNames.Finalize), translator.Finalize)
 					respSummary = translator.Summary()
@@ -4681,6 +4673,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					WithRequestHadTools(feats.HasTools).
 					WithEscapeNormalize(s.escapeNormalize).
 					WithToolValidator(toolValidator)
+				anthropicTr.SetFailureOwner()
 				if err := anthropicTr.Prelude(env.Stream()); err != nil {
 					return fmt.Errorf("emit Anthropic routing marker: %w", err), func(err error) error { return err }
 				}
@@ -4688,12 +4681,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					preludeBuf.Seal()
 				}
 				geminiTr := translate.NewGeminiToOpenAISSETranslator(anthropicTr, d.Model, nil)
+				geminiTr.SetFailureOwner()
 				rawErr := p.Proxy(actx, d, pr, streamCut.attach(geminiTr), r)
 				finalize := func(err error) error {
 					// Post-commit: see the OpenAI-compat case above.
 					if err != nil && env.Stream() && preludeBuf.Committed() {
 						streamCut.noteCut(err)
-						err = emitAnthropicSSEErrorEvent(sink, err)
 					}
 					err = finalizeAfterProxy(err, geminiTr.Finalize)
 					finErr := finalizeAfterProxy(err, anthropicTr.Finalize)
@@ -4749,7 +4742,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Anthropic, the baseline is a distinct known Anthropic catalog model, and
 	// the prompt fits its context window (a larger-window routed model can
 	// carry a prompt the baseline would 400 as "prompt is too long").
-	// Computed pre-dispatch so the primary dispatch defers its exhaustion flush.
+	// Computed before dispatch to preserve rescue eligibility after exhaustion.
 	baselineModel := s.baselineFor(feats.Model)
 	baselineCatalog, baselineKnown := catalog.ByID(baselineModel)
 	_, explicitRequestedModel := catalog.ByID(req.RequestedModel)
@@ -4820,21 +4813,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	pickedMarker := marker
 	var winnerIdx int
 	var subscriptionStateWinnerProvider string
-	subscriptionPoolFailure := false
-	// A released prelude can only take an SSE error frame, so every dispatch in
-	// the chain renders through this — a JSON envelope appended to a live stream
-	// is unparseable to the client.
-	flushErrAsAnthropic := func(w http.ResponseWriter, err error) {
-		if env.Stream() && preludeBuf.PreludeSent() {
-			_ = emitAnthropicSSEErrorEvent(w, err)
-			return
-		}
-		// Pre-commit, the handler renders the classified sentinel itself.
-		if isSubscriptionPoolError(err) {
-			return
-		}
-		flushUpstreamErrorAsAnthropic(w, err)
-	}
+
 	if attemptBuildErr != nil {
 		// Nothing was dispatched — enters the rescue chain as if every binding pre-committed failed.
 		winnerIdx, proxyErr = -1, attemptBuildErr
@@ -4882,14 +4861,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					compactionHandoverRan = true
 				}
 			},
-			bindings:               bindings,
-			attempt:                attempt,
-			flushErr:               flushErrAsAnthropic,
-			deferFlushOnExhaustion: baselineViable || subscriptionRetryEligible || siblingViable,
-			purpose:                routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
-			origin:                 routeRes.dispatchOrigin(decision),
+			bindings: bindings,
+			attempt:  attempt,
+
+			purpose: routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
+			origin:  routeRes.dispatchOrigin(decision),
 		})
-		subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
+
 	}
 	if subscriptionStatePaidTargetAttempted {
 		subscriptionRetryEligible = false
@@ -4897,36 +4875,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	primaryFailureErr := proxyErr
 	primarySubscriptionArmFailure := proxyErr
 
-	// The deferred upstream error must reach the client exactly once: each
-	// rescue hands ownership to the next, and whichever declines to run flushes.
-	// Writing it forecloses any later rescue.
-	deferredErrFlushed := false
-	flushDeferredErr := func() {
-		if deferredErrFlushed {
-			return
-		}
-		deferredErrFlushed = true
-		if preludeBuf.Committed() {
-			// Before synthesis, for the same reason as the native path.
-			streamCut.noteCut(proxyErr)
-		}
-		if env.Stream() && preludeBuf.PreludeSent() {
-			// The handler cannot render anything once the client has bytes,
-			// so an in-stream frame is the only way the turn reports at all —
-			// including for a pool sentinel, which would otherwise truncate
-			// the stream silently. Keep the sentinel as the returned error so
-			// the handler still classifies and logs it.
-			sseErr := emitAnthropicSSEErrorEvent(contentSink, proxyErr)
-			if !subscriptionPoolFailure {
-				proxyErr = sseErr
-			}
-			return
-		}
-		// Pre-commit, the handler renders the classified sentinel itself.
-		if subscriptionPoolFailure {
-			return
-		}
-		flushUpstreamErrorAsAnthropic(contentSink, proxyErr)
+	// Closing one recovery chain can make a later sibling rescue ineligible.
+	recoveryClosed := false
+	closeRecovery := func() {
+		recoveryClosed = true
 	}
 
 	// The routed model's bindings all failed with a fault another model could
@@ -4988,7 +4940,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if baselineEmitErr != nil {
 			log.Error("Baseline failover: emit Anthropic body failed; surfacing original error", "err", baselineEmitErr, "baseline_model", baselineModel)
 			if !siblingViable {
-				flushDeferredErr()
+				closeRecovery()
 			}
 		} else {
 			log.Warn("Baseline failover: retrying requested model on Anthropic",
@@ -5014,11 +4966,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				initialDecision: baselineDecision,
 				bindings:        baselineBindings,
 				attempt:         baselineAttempt,
-				flushErr:        flushErrAsAnthropic,
-				purpose:         routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
-				origin:          routeRes.rescueOrigin(),
+
+				purpose: routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
+				origin:  routeRes.rescueOrigin(),
 			})
-			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
+
 			decision = baselineDecision
 			bindings = baselineBindings
 			baselineAttempted = true
@@ -5028,10 +4980,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 	} else if baselineViable && !siblingViable && proxyErr != nil {
 		// Baseline didn't run (mid-stream commit, or non-failoverable error);
-		// surface the deferred original error now. Guard must match
-		// deferFlushOnExhaustion above, or a deferred error is never flushed —
+		// close further recovery for the original error. Guard must match
+		// recovery viability above, or a later rescue may be skipped —
 		// unless the sibling rescue below owns the deferred flush instead.
-		flushDeferredErr()
+		closeRecovery()
 	}
 
 	// Subscription-credit failover: suppress the OAuth token and retry the SAME
@@ -5058,7 +5010,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		if subEmitErr != nil {
 			log.Error("Subscription failover: emit Anthropic body failed; surfacing original error", "err", subEmitErr, "model", decision.Model)
 			if !siblingViable {
-				flushDeferredErr()
+				closeRecovery()
 			}
 		} else if subBindings := s.resolveBindingsForDispatch(subCtx, decision); len(subBindings) == 0 {
 			// No usable Anthropic binding under suppression — surface the
@@ -5070,7 +5022,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				"err", proxyErr,
 				"upstream_status", upstreamStatus(proxyErr))
 			if !siblingViable {
-				flushDeferredErr()
+				closeRecovery()
 			}
 		} else {
 			log.Warn("Subscription failover: subscription rejected the turn, retrying requested model on Weave key",
@@ -5090,22 +5042,22 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				initialDecision: decision,
 				bindings:        subBindings,
 				attempt:         subAttempt,
-				flushErr:        flushErrAsAnthropic,
+
 				// A failed retry keeps the same dark model; hold the error so
 				// the sibling rescue below can still serve the turn.
-				deferFlushOnExhaustion: siblingViable,
-				purpose:                routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
-				origin:                 routeRes.dispatchOrigin(decision),
+
+				purpose: routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
+				origin:  routeRes.dispatchOrigin(decision),
 			})
-			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
+
 			bindings = subBindings
 			subscriptionFailoverUsed = proxyErr == nil
 		}
 	}
 	// The subscription retry didn't run (mid-stream commit, or non-retryable
-	// error); surface the deferred original error now so it's never dropped.
+	// error); close further recovery and let the request owner deliver it.
 	if subscriptionRetryEligible && !siblingViable && !baselineAttempted && !subscriptionRetryRan && proxyErr != nil && !preludeBuf.Committed() {
-		flushDeferredErr()
+		closeRecovery()
 	}
 
 	// Same-cluster failover: all bindings exhausted pre-commit — re-dispatch
@@ -5118,8 +5070,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	var rescuedPrimaryErr error
 	// Keyed off the flush, not off whether an earlier rescue ran: a failed
 	// subscription retry keeps the same dark model, so a cluster peer can still
-	// serve — but only before the deferred error reaches the wire.
-	siblingRescueOwed := siblingViable && !baselineAttempted && !deferredErrFlushed &&
+	// serve while the request still permits recovery.
+	siblingRescueOwed := siblingViable && !baselineAttempted && !recoveryClosed &&
 		!(explicitRequestedModel && isSubscriptionPoolError(proxyErr))
 	if siblingRescueOwed && proxyErr != nil && !preludeBuf.Committed() &&
 		(providers.IsRetryable(proxyErr) ||
@@ -5179,17 +5131,16 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			respSummary = translate.ResponseSummary{}
 			reqStats = providers.RequestMutationStats{}
 			winnerIdx, proxyErr = s.dispatchWithFallback(siblingCtx, failoverInputs{
-				w:                      contentSink,
-				buf:                    preludeBuf,
-				initialDecision:        siblingDecision,
-				bindings:               siblingBindings,
-				attempt:                siblingAttempt,
-				flushErr:               flushErrAsAnthropic,
-				deferFlushOnExhaustion: true,
-				purpose:                routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
-				origin:                 routeRes.rescueOrigin(),
+				w:               contentSink,
+				buf:             preludeBuf,
+				initialDecision: siblingDecision,
+				bindings:        siblingBindings,
+				attempt:         siblingAttempt,
+
+				purpose: routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
+				origin:  routeRes.rescueOrigin(),
 			})
-			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
+
 			decision = siblingDecision
 			bindings = siblingBindings
 			marker = siblingMarker
@@ -5197,9 +5148,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		}
 	}
 	// No rescuer served (none ran, or the last one failed pre-commit); surface
-	// the held error now so it's never dropped.
+	// further recovery; the request owner delivers the final failure.
 	if siblingRescueOwed && proxyErr != nil && !preludeBuf.Committed() {
-		flushDeferredErr()
+		closeRecovery()
 	}
 
 	subscriptionFailoverUsed = subscriptionFailoverUsed || subscriptionCredentialFallbackUsed(ctx)
@@ -6806,6 +6757,12 @@ func finalizeAfterProxy(proxyErr error, fn func() error) error {
 	}
 	finErr := fn()
 	if isStatus {
+		// A conversion may have buffered the envelope while the provider returned
+		// its status separately. Keep both the original cause and delivery details.
+		var buffered *providers.UpstreamErrorResponse
+		if errors.As(finErr, &buffered) && len(buffered.Body) > 0 {
+			return errors.Join(proxyErr, finErr)
+		}
 		return proxyErr
 	}
 	return finErr
@@ -6829,6 +6786,9 @@ const (
 // ProxyOpenAIChatCompletion routes an OpenAI Chat Completion request,
 // translating cross-format when the decision picks a non-OpenAI provider.
 func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
+	ctx, w, finishDelivery := beginTerminalDelivery(ctx, w, translate.FormatOpenAI, gjson.GetBytes(body, "stream").Bool())
+	defer finishDelivery(&returnErr)
+	r = r.WithContext(ctx)
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
 	ctx, returnErr = s.withClassifierInput(ctx, body, router.EndpointOpenAIChat)
 	if returnErr != nil {
@@ -6886,11 +6846,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if !env.Stream() && !isResponsesWriter {
 		responseBuffer = newResponseCostBuffer(w)
 		w = responseBuffer
-		defer func() {
-			if flushErr := responseBuffer.FlushToClient(); flushErr != nil {
-				log.Error("Failed to flush buffered response", "err", flushErr)
-			}
-		}()
+		registerResponseCostBuffer(ctx, responseBuffer)
 	}
 
 	// Bind session-scoped logger before stripping router-only history; see the
@@ -7627,6 +7583,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					translator = translate.NewResponsesToOpenAIChatWriter(attemptSink, d.Model, usage).
 						WithLogger(log).
 						WithToolValidator(toolValidator)
+					translator.SetFailureOwner()
 					if err := translator.Prelude(env.Stream()); err != nil {
 						log.Error("chat/completions prelude failed (Responses upstream)", "err", err)
 					}
@@ -7643,11 +7600,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					extractor = otel.NewUsageExtractor(attemptSink, d.Provider)
 					proxyWriter = extractor
 				}
-				// A Responses caller on chat/completions reads through its translating
-				// writer, whose lifecycle already rejects a stream without a terminal.
+				// Observe provider records before the Responses conversion can synthesize output.
 				var chatTerminal *streamTerminalObserver
-				if surface == surfaceChat && !isResponses && env.Stream() {
-					chatTerminal = newStreamTerminalObserver(proxyWriter, nativeStreamOpenAIChat)
+				if surface == surfaceChat {
+					chatTerminal = newStreamTerminalObserver(proxyWriter, translate.FormatOpenAI)
 					proxyWriter = chatTerminal
 				}
 				if preludeBuf != nil {
@@ -7655,15 +7611,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				}
 				err := p.Proxy(actx, d, prep, proxyWriter, r)
 				if err == nil && chatTerminal != nil {
-					err = chatTerminal.streamErr()
-				}
-				// Post-commit: bytes already on the wire, render as an in-stream
-				// frame instead of a corrupting envelope (pre-commit goes through
-				// dispatchWithFallback). Gate on THIS attempt being native: a non-native
-				// request through the translating ResponsesWriter still needs its own
-				// error frame; a native attempt already delivered the upstream's.
-				if err != nil && surface != surfaceResponsesNative && env.Stream() && preludeBuf.Committed() {
-					_ = emitOpenAISSEErrorEvent(sink, err)
+					chatTerminal.Cancel(actx.Err())
+					if env.Stream() {
+						err = chatTerminal.OutcomeError()
+					} else {
+						err = chatTerminal.DeclaredError()
+					}
 				}
 				if translator != nil {
 					err = finalizeAfterProxy(finalizeAfterProxy(err, toolNames.Finalize), translator.Finalize)
@@ -7674,13 +7627,18 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					nativeRespSummary = false
 				} else if nativeTerminal != nil {
 					nativeTerminal.Finalize()
+					// Resolve provider-declared failure before a buffered body is
+					// committed by the native response writer.
+					if err == nil {
+						nativeTerminal.Cancel(actx.Err())
+						if env.Stream() {
+							err = nativeTerminal.OutcomeError()
+						} else {
+							err = nativeTerminal.DeclaredError()
+						}
+					}
 					if rw, ok := w.(*translate.ResponsesWriter); ok {
 						err = finalizeAfterProxy(err, rw.Finalize)
-					}
-					// A post-commit verdict is rendered as response.failed by the
-					// Responses ingress, which owns the native stream's terminal.
-					if err == nil && env.Stream() {
-						err = nativeTerminal.state.err()
 					}
 					if isStreamTerminalMissing(err) {
 						// Releasing a withheld preamble would commit the client to a
@@ -7789,15 +7747,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					return noticeErr, func(err error) error { return err }
 				}
 				translator := translate.NewGeminiToOpenAISSETranslator(attemptSink, d.Model, usage)
+				translator.SetFailureOwner()
 				if preludeBuf != nil {
 					preludeBuf.Seal()
 				}
 				rawErr := p.Proxy(actx, d, pr, translator, r)
 				finalize := func(err error) error {
-					// Post-commit streaming error: see same-format OpenAI case above.
-					if err != nil && env.Stream() && preludeBuf.Committed() {
-						_ = emitOpenAISSEErrorEvent(sink, err)
-					}
 					return finalizeAfterProxy(err, translator.Finalize)
 				}
 				return rawErr, finalize
@@ -7857,16 +7812,13 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					return noticeErr, func(err error) error { return err }
 				}
 				translator := translate.NewSSETranslator(attemptSink, d.Model, usage)
+				translator.SetFailureOwner()
 				if preludeBuf != nil {
 					preludeBuf.Seal()
 				}
 				toolNames := translate.NewAnthropicToolNameWriter(translator, attemptPrep.ResponseToolNames)
 				rawErr := p.Proxy(actx, d, attemptPrep, toolNames, r)
 				finalize := func(err error) error {
-					// Post-commit streaming error: see same-format OpenAI case above.
-					if err != nil && env.Stream() && preludeBuf.Committed() {
-						_ = emitOpenAISSEErrorEvent(sink, err)
-					}
 					return finalizeAfterProxy(finalizeAfterProxy(err, toolNames.Finalize), translator.Finalize)
 				}
 				return rawErr, finalize
@@ -7962,25 +7914,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	var winnerIdx int
 	var subscriptionStateWinnerProvider string
 	subscriptionStatePaidTargetAttempted := false
-	// A released prelude can only take an SSE error frame, so every dispatch in
-	// the chain renders through this — a JSON envelope appended to a live stream
-	// is unparseable to the client.
-	flushErrAsOpenAI := func(w http.ResponseWriter, err error) {
-		// Native Responses bytes are passed through verbatim; there is no
-		// error frame we can synthesize into that stream.
-		if isResponses && responsesPreludeBuf != nil && responsesPreludeBuf.PreludeSent() {
-			return
-		}
-		if env.Stream() && preludeBuf.PreludeSent() {
-			_ = emitOpenAISSEErrorEvent(w, err)
-			return
-		}
-		// Pre-commit, the handler renders the classified sentinel itself.
-		if isSubscriptionPoolError(err) {
-			return
-		}
-		flushBufferedIfPresent(w, err)
-	}
 	winnerIdx, proxyErr = s.dispatchWithFallback(ctx, failoverInputs{
 		// contentSink is the raw w when capture is off.
 		w:                               contentSink,
@@ -8019,52 +7952,25 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		onSubscriptionStatePaidTarget: func(router.Decision, []catalog.ProviderBinding) {
 			subscriptionStatePaidTargetAttempted = true
 		},
-		bindings:               bindings,
-		attempt:                attempt,
-		flushErr:               flushErrAsOpenAI,
-		deferFlushOnExhaustion: cyberRetryViable || codexRetryViable || claudeRetryViable || siblingViable,
-		purpose:                routeRes.dispatchPurpose(surfacePurpose),
-		origin:                 routeRes.dispatchOrigin(decision),
+		bindings: bindings,
+		attempt:  attempt,
+
+		purpose: routeRes.dispatchPurpose(surfacePurpose),
+		origin:  routeRes.dispatchOrigin(decision),
 	})
 	if subscriptionStatePaidTargetAttempted {
 		codexRetryViable = false
 		claudeRetryViable = false
 	}
 	primaryFailureErr := proxyErr
-	subscriptionPoolFailure := isSubscriptionPoolError(proxyErr)
+
 	primarySubscriptionArmFailure := proxyErr
 	cyberRefusalSeen = cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(proxyErr)
 
-	// The deferred upstream error must reach the client exactly once: the rescue
-	// owns it, and flushes it itself when it declines to run. A managed-pool
-	// failure is rendered by the handler from the classified sentinel, so the
-	// proxy must not write it here as well.
-	deferredErrFlushed := false
-	flushDeferredErr := func() {
-		if deferredErrFlushed {
-			return
-		}
-		deferredErrFlushed = true
-		if isResponses && responsesPreludeBuf != nil && responsesPreludeBuf.PreludeSent() {
-			return
-		}
-		if env.Stream() && preludeBuf.PreludeSent() {
-			// The handler cannot render anything once the client has bytes,
-			// so an in-stream frame is the only way the turn reports at all —
-			// including for a pool sentinel, which would otherwise truncate
-			// the stream silently. Keep the sentinel as the returned error so
-			// the handler still classifies and logs it.
-			sseErr := emitOpenAISSEErrorEvent(contentSink, proxyErr)
-			if !subscriptionPoolFailure {
-				proxyErr = sseErr
-			}
-			return
-		}
-		// Pre-commit, the handler renders the classified sentinel itself.
-		if subscriptionPoolFailure {
-			return
-		}
-		flushBufferedIfPresent(contentSink, proxyErr)
+	// Closing one recovery chain can make a later sibling rescue ineligible.
+	recoveryClosed := false
+	closeRecovery := func() {
+		recoveryClosed = true
 	}
 
 	codexFailoverUsed := false
@@ -8103,16 +8009,16 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				initialDecision: decision,
 				bindings:        subBindings,
 				attempt:         subAttempt,
-				flushErr:        flushErrAsOpenAI,
+
 				// A failed retry keeps the same model; hold the error so the
 				// cyber-refusal rescue below can still serve the turn.
-				deferFlushOnExhaustion: cyberRetryViable || siblingViable,
-				purpose:                routeRes.dispatchPurpose(surfacePurpose),
-				origin:                 routeRes.dispatchOrigin(decision),
+
+				purpose: routeRes.dispatchPurpose(surfacePurpose),
+				origin:  routeRes.dispatchOrigin(decision),
 			})
 			bindings = subBindings
 			codexFailoverUsed = proxyErr == nil
-			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
+
 			cyberRefusalSeen = cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(proxyErr)
 		}
 	}
@@ -8142,28 +8048,27 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			claudeRetryRan = true
 			respSummary = translate.ResponseSummary{}
 			winnerIdx, proxyErr = s.dispatchWithFallback(subCtx, failoverInputs{
-				w:                      contentSink,
-				buf:                    preludeBuf,
-				initialDecision:        decision,
-				bindings:               subBindings,
-				attempt:                subAttempt,
-				flushErr:               flushErrAsOpenAI,
-				deferFlushOnExhaustion: cyberRetryViable || siblingViable,
-				purpose:                routeRes.dispatchPurpose(surfacePurpose),
-				origin:                 routeRes.dispatchOrigin(decision),
+				w:               contentSink,
+				buf:             preludeBuf,
+				initialDecision: decision,
+				bindings:        subBindings,
+				attempt:         subAttempt,
+
+				purpose: routeRes.dispatchPurpose(surfacePurpose),
+				origin:  routeRes.dispatchOrigin(decision),
 			})
 			bindings = subBindings
 			claudeFailoverUsed = proxyErr == nil
-			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
+
 			cyberRefusalSeen = cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(proxyErr)
 		}
 	}
 
 	// A subscription retry declined to run and no other rescue owns the held
-	// error; surface it now so it is never dropped.
+	// error; close further recovery and let the request owner deliver it.
 	if ((codexRetryViable && !codexRetryRan) || (claudeRetryViable && !claudeRetryRan)) &&
 		!cyberRetryViable && !siblingViable && proxyErr != nil && !preludeBuf.Committed() {
-		flushDeferredErr()
+		closeRecovery()
 	}
 
 	cyberRetryRan := false
@@ -8213,32 +8118,31 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			effortServed = retryEffort
 			respSummary = translate.ResponseSummary{}
 			winnerIdx, proxyErr = s.dispatchWithFallback(retryCtx, failoverInputs{
-				w:                      contentSink,
-				buf:                    preludeBuf,
-				initialDecision:        cyberRetryTarget,
-				bindings:               retryBindings,
-				attempt:                retryAttempt,
-				flushErr:               flushErrAsOpenAI,
-				deferFlushOnExhaustion: siblingViable,
-				purpose:                routeRes.dispatchPurpose(surfacePurpose),
-				origin:                 routeRes.rescueOrigin(),
+				w:               contentSink,
+				buf:             preludeBuf,
+				initialDecision: cyberRetryTarget,
+				bindings:        retryBindings,
+				attempt:         retryAttempt,
+
+				purpose: routeRes.dispatchPurpose(surfacePurpose),
+				origin:  routeRes.rescueOrigin(),
 			})
-			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
+
 			decision = cyberRetryTarget
 			bindings = retryBindings
 			marker = retryMarker
 		}
 	}
-	// The rescue declined to run; surface the held error now so it's never dropped.
+	// The rescue declined to run; close further recovery.
 	if cyberRetryViable && !cyberRetryRan && !siblingViable && proxyErr != nil && !preludeBuf.Committed() {
-		flushDeferredErr()
+		closeRecovery()
 	}
 
 	siblingFailoverUsed := false
 	siblingRescueRan := false
 	var rescuedPrimary router.Decision
 	var rescuedPrimaryErr error
-	siblingRescueOwed := siblingViable && !deferredErrFlushed &&
+	siblingRescueOwed := siblingViable && !recoveryClosed &&
 		!(explicitRequestedModel && isSubscriptionPoolError(proxyErr))
 	if siblingRescueOwed && proxyErr != nil && !preludeBuf.Committed() &&
 		(providers.IsRetryable(proxyErr) ||
@@ -8294,17 +8198,16 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			effortServed = siblingEffort
 			respSummary = translate.ResponseSummary{}
 			winnerIdx, proxyErr = s.dispatchWithFallback(siblingCtx, failoverInputs{
-				w:                      contentSink,
-				buf:                    preludeBuf,
-				initialDecision:        siblingDecision,
-				bindings:               siblingBindings,
-				attempt:                siblingAttempt,
-				flushErr:               flushErrAsOpenAI,
-				deferFlushOnExhaustion: true,
-				purpose:                routeRes.dispatchPurpose(surfacePurpose),
-				origin:                 routeRes.rescueOrigin(),
+				w:               contentSink,
+				buf:             preludeBuf,
+				initialDecision: siblingDecision,
+				bindings:        siblingBindings,
+				attempt:         siblingAttempt,
+
+				purpose: routeRes.dispatchPurpose(surfacePurpose),
+				origin:  routeRes.rescueOrigin(),
 			})
-			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
+
 			decision = siblingDecision
 			bindings = siblingBindings
 			marker = siblingMarker
@@ -8312,9 +8215,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 	}
 	// No rescuer served (none ran, or the last one failed pre-commit); surface
-	// the held error now so it's never dropped.
+	// further recovery; the request owner delivers the final failure.
 	if siblingRescueOwed && proxyErr != nil && !preludeBuf.Committed() {
-		flushDeferredErr()
+		closeRecovery()
 	}
 
 	if subscriptionCredentialFallbackUsed(ctx) {
@@ -8692,7 +8595,10 @@ func stripResponsesTerminalArtifacts(body []byte) ([]byte, error) {
 // the existing chat-completions path, then the chat-completions response is
 // re-emitted as Responses-shaped SSE / JSON. This keeps the turn loop, cache,
 // pricing, and translation matrix unchanged.
-func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
+func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
+	ctx, w, finishDelivery := beginTerminalDelivery(ctx, w, translate.FormatOpenAIResponses, gjson.GetBytes(body, "stream").Bool())
+	defer finishDelivery(&returnErr)
+	r = r.WithContext(ctx)
 	ctx = context.WithValue(ctx, responsesSurfaceContextKey{}, true)
 	ctx, inputErr := s.withClassifierInput(ctx, body, router.EndpointOpenAIResponses)
 	if inputErr != nil {
@@ -8761,6 +8667,8 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	// Routing, billing, and telemetry are reused via
 	// ProxyOpenAIChatCompletion; chatBody is used only for routing features.
 	wrapper := translate.NewResponsesWriter(w, model)
+	wrapper.SetFailureOwner()
+	terminalDeliveryFrom(ctx).responses = wrapper
 	if terminalResponses {
 		wrapper.EnableTerminalBadgeProvenance()
 	}
@@ -8775,35 +8683,14 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	deferredLog.requestBody = body
 	// Prelude emission is delegated to ProxyOpenAIChatCompletion, which knows
 	// the completed routing decision and can surface its badge before dispatch.
-	proxyErr := s.ProxyOpenAIChatCompletion(ctx, chatBody, wrapper, r)
-	if proxyErr != nil {
-		// If the Responses stream already committed (response.created is on the
-		// wire), the upstream error can no longer be rendered as a JSON error
-		// envelope — terminate the SSE stream with response.failed so a terminal
-		// Responses client sees a clean failure instead of "stream closed before
-		// response.completed". A no-op before anything is streamed, so the
-		// handler still writes the JSON error envelope in that case. An overflow
-		// always takes the Responses-native failure: Codex compacts only on an
-		// in-stream response.failed carrying context_length_exceeded.
-		finalize := func() error { return wrapper.FinalizeError(proxyErr) }
-		if isContextOverflow(proxyErr) {
-			finalize = func() error {
-				return wrapper.FailContextOverflow(gjson.GetBytes(chatBody, "stream").Bool(), openAIContextOverflowCode, contextOverflowMessage)
-			}
-		}
-		if finErr := finalize(); finErr != nil {
-			observability.FromContext(ctx).Error("Failed to finalize Responses error stream", "err", finErr)
-		}
+	terminalDeliveryFrom(ctx).after = func(err error) {
 		if deferredLog.escalation != nil {
-			deferredLog.escalation(proxyErr)
+			deferredLog.escalation(err)
 		}
 		deferredLog.run()
-		return proxyErr
 	}
-	finErr := wrapper.Finalize()
-	if deferredLog.escalation != nil {
-		deferredLog.escalation(finErr)
+	if err := s.ProxyOpenAIChatCompletion(ctx, chatBody, wrapper, r); err != nil {
+		return err
 	}
-	deferredLog.run()
-	return finErr
+	return wrapper.Finalize()
 }

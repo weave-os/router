@@ -32,9 +32,15 @@ type codexTitleProvider struct {
 func (p *codexTitleProvider) Proxy(_ context.Context, _ router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
 	p.endpoints = append(p.endpoints, prep.Endpoint)
 	p.models = append(p.models, gjson.GetBytes(prep.Body, "model").String())
+	response := `{"id":"resp_synthetic","object":"response","status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"hi"}]}],"usage":{"input_tokens":10,"output_tokens":5}}`
+	if gjson.GetBytes(prep.Body, "stream").Bool() {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, err := w.Write([]byte(`data: {"type":"response.completed","response":` + response + "}\n\n"))
+		return err
+	}
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write([]byte(`{"id":"resp_1","object":"response","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}]}`))
-	return nil
+	_, err := w.Write([]byte(response))
+	return err
 }
 
 func (p *codexTitleProvider) Passthrough(context.Context, providers.PreparedRequest, http.ResponseWriter, *http.Request) error {

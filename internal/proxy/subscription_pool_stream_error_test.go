@@ -17,10 +17,10 @@ import (
 	"weave-os/router/internal/subscriptions"
 )
 
-// TestProxyMessages_ManagedPoolStreamingFailureLeavesRenderingToHandler: the
+// TestProxyMessages_ManagedPoolStreamingFailureDeliversClassifiedHTTPFailure: the
 // Anthropic prelude stays buffered until provider output, so even a streaming
 // request retains the classified HTTP error path when the pool is unavailable.
-func TestProxyMessages_ManagedPoolStreamingFailureLeavesRenderingToHandler(t *testing.T) {
+func TestProxyMessages_ManagedPoolStreamingFailureDeliversClassifiedHTTPFailure(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "opaque-a", AccessToken: "token-a"}}}
 	anthropic := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{
 		{err: &providers.UpstreamErrorResponse{
@@ -54,14 +54,15 @@ func TestProxyMessages_ManagedPoolStreamingFailureLeavesRenderingToHandler(t *te
 	require.ErrorAs(t, err, &upstreamErr)
 	require.Equal(t, http.StatusTooManyRequests, upstreamErr.Status)
 	require.Equal(t, 1, anthropic.calls, "generic throttling must not authorize a paid retry")
-	assert.Empty(t, rec.Body.String(),
-		"the handler still owns the classified HTTP error response")
+	assert.Equal(t, http.StatusPaymentRequired, rec.Code)
+	assert.Contains(t, rec.Body.String(), "Your Weave router credits are exhausted")
+	assert.Contains(t, rec.Body.String(), `"type":"api_error"`)
+	assert.Equal(t, 1, strings.Count(rec.Body.String(), `"error":`))
 }
 
-// TestProxyMessages_ManagedPoolFailureBeforeAnyBytesLeavesRenderingToHandler:
-// pre-commit the classified envelope is the handler's to write, so the proxy
-// must leave the response body untouched.
-func TestProxyMessages_ManagedPoolFailureBeforeAnyBytesLeavesRenderingToHandler(t *testing.T) {
+// TestProxyMessages_ManagedPoolFailureBeforeAnyBytesDeliversClassifiedHTTPFailure:
+// The request owner renders the classified envelope before provider commitment.
+func TestProxyMessages_ManagedPoolFailureBeforeAnyBytesDeliversClassifiedHTTPFailure(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "opaque-a", AccessToken: "token-a"}}}
 	anthropic := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{
 		{err: &providers.UpstreamErrorResponse{
@@ -94,6 +95,8 @@ func TestProxyMessages_ManagedPoolFailureBeforeAnyBytesLeavesRenderingToHandler(
 	require.ErrorAs(t, err, &upstreamErr)
 	require.Equal(t, http.StatusTooManyRequests, upstreamErr.Status)
 	require.Equal(t, 1, anthropic.calls, "generic throttling must not authorize a paid retry")
-	assert.Empty(t, rec.Body.String(),
-		"a pre-commit pool failure is the handler's envelope to render")
+	assert.Equal(t, http.StatusPaymentRequired, rec.Code)
+	assert.Contains(t, rec.Body.String(), "Your Weave router credits are exhausted")
+	assert.Contains(t, rec.Body.String(), `"type":"api_error"`)
+	assert.Equal(t, 1, strings.Count(rec.Body.String(), `"error":`))
 }

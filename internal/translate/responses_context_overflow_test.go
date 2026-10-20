@@ -1,6 +1,7 @@
 package translate_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,34 +13,31 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Codex compacts only on an in-stream response.failed carrying
-// context_length_exceeded, whether the stream is native passthrough or
-// translated, and whether or not it had already started.
-func TestResponsesWriter_FailContextOverflow(t *testing.T) {
-	for name, setup := range map[string]func(*translate.ResponsesWriter){
-		"translated":          func(*translate.ResponsesWriter) {},
-		"passthrough":         func(w *translate.ResponsesWriter) { w.SetPassthrough() },
-		"translated started":  func(w *translate.ResponsesWriter) { require.NoError(t, w.Prelude(true)) },
-		"passthrough started": func(w *translate.ResponsesWriter) { w.SetPassthroughBadge(); require.NoError(t, w.Prelude(true)) },
-	} {
-		rec := httptest.NewRecorder()
-		w := translate.NewResponsesWriter(rec, "gpt-5.6-luna")
-		setup(w)
-		require.NoError(t, w.FailContextOverflow(true, "context_length_exceeded", "prompt is too long"), name)
-
-		out := rec.Body.String()
-		assert.Equal(t, http.StatusOK, rec.Code, name)
-		assert.Equal(t, 1, strings.Count(out, "event: response.created"), "%s: exactly one stream opening", name)
-		assert.Contains(t, out, "event: response.failed", name)
-		assert.Contains(t, out, `"code":"context_length_exceeded"`, name)
-		assert.NotContains(t, out, "upstream_error", name)
+func TestResponsesFailureDeliveryContextOverflow(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		for _, prelude := range []bool{false, true} {
+			if !streaming && prelude {
+				continue
+			}
+			rec := httptest.NewRecorder()
+			caps := translate.NoticeCapabilities{Format: translate.FormatOpenAIResponses, Streaming: streaming, Presentation: translate.NoticeText}
+			delivery := translate.NewNoticeDelivery(context.Background(), translate.NewProtocolNoticeSink(rec, caps), caps)
+			if prelude {
+				_, err := delivery.Deliver(translate.NewRouterNotice(translate.NoticeModelSelection, "synthetic routing notice", "synthetic", ""))
+				require.NoError(t, err)
+			}
+			failure := translate.TerminalFailure{Status: http.StatusBadRequest, Type: "invalid_request_error", Code: "context_length_exceeded", Message: "prompt is too long"}
+			require.NoError(t, delivery.DeliverFailure(failure, streaming))
+			if streaming {
+				assert.Equal(t, http.StatusOK, rec.Code)
+				assert.Equal(t, 1, strings.Count(rec.Body.String(), "event: response.created"))
+				assert.Equal(t, 1, strings.Count(rec.Body.String(), "event: response.failed"))
+				assert.Contains(t, rec.Body.String(), `"code":"context_length_exceeded"`)
+				assert.NotContains(t, rec.Body.String(), "upstream_error")
+			} else {
+				assert.Equal(t, http.StatusBadRequest, rec.Code)
+				assert.JSONEq(t, `{"error":{"message":"prompt is too long","type":"invalid_request_error","param":null,"code":"context_length_exceeded"}}`, rec.Body.String())
+			}
+		}
 	}
-}
-
-func TestResponsesWriter_FailContextOverflowNonStreaming(t *testing.T) {
-	rec := httptest.NewRecorder()
-	w := translate.NewResponsesWriter(rec, "gpt-5.6-luna")
-	require.NoError(t, w.FailContextOverflow(false, "context_length_exceeded", "prompt is too long"))
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
-	assert.JSONEq(t, `{"error":{"message":"prompt is too long","type":"invalid_request_error","param":null,"code":"context_length_exceeded"}}`, rec.Body.String())
 }

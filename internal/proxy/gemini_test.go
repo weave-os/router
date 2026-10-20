@@ -32,6 +32,8 @@ const geminiInjectedBody = `{
 	"contents":[{"role":"user","parts":[{"text":"hello"}]}]
 }`
 
+const geminiCompletedBody = `{"candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"synthetic Gemini answer"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1,"totalTokenCount":2}}`
+
 func geminiExperimentContext(installationID string, arm auth.BlindExperimentArm) context.Context {
 	ctx := authedCtx(installationID)
 	ctx = context.WithValue(ctx, proxy.PolicyTrainingAllowedContextKey{}, true)
@@ -46,7 +48,7 @@ func geminiExperimentContext(installationID string, arm auth.BlindExperimentArm)
 
 func TestProxyGeminiGenerateContent_RoutesToGoogleProvider(t *testing.T) {
 	store := newFakePinStore()
-	googleProv := &fakeProvider{}
+	googleProv := &fakeProvider{proxyResponse: jsonUpstream(geminiCompletedBody)}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}}
 	svc := proxy.NewService(
 		fr,
@@ -75,7 +77,7 @@ func TestProxyGeminiGenerateContent_RoutesToGoogleProvider(t *testing.T) {
 
 func TestProxyGeminiGenerateContent_RestrictsRoutingToGeminiFamily(t *testing.T) {
 	store := newFakePinStore()
-	googleProv := &fakeProvider{}
+	googleProv := &fakeProvider{proxyResponse: jsonUpstream(geminiCompletedBody)}
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}}
 	svc := proxy.NewService(
 		fr,
@@ -128,6 +130,7 @@ func TestProxyGeminiGenerateContent_DelaysMarkerUntilFirstUpstreamEvent(t *testi
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"upstream\"}]}}]}\n\n"))
+		_, _ = w.Write([]byte("data: {\"candidates\":[{\"finishReason\":\"STOP\"}]}\n\n"))
 	}}
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderGoogle, Model: "gemini-2.5-pro", Reason: "cluster"}},

@@ -123,9 +123,37 @@ func TestService_ProxyOpenAIResponses_NativeFailedTerminalRecordsNoFinishReason(
 	body := []byte(`{"model":"gpt-5.6-sol","stream":true,"input":[{"type":"reasoning","id":"rs_0","encrypted_content":"opaque"},{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(""))
-	require.NoError(t, svc.ProxyOpenAIResponses(codexNativeResponsesCtx(), body, rec, req))
+	require.Error(t, svc.ProxyOpenAIResponses(codexNativeResponsesCtx(), body, rec, req))
 
 	row := telemetry.firstRow(t)
 	assert.Nil(t, row.UpstreamFinishReason,
 		"a failed turn must not report a finish reason")
+}
+
+func TestService_ProxyOpenAIResponses_BufferedNativeFailureIsNotSuccessful(t *testing.T) {
+	const failureBody = `{"id":"resp_failed","object":"response","status":"failed","error":{"code":"server_error","message":"synthetic native failure"},"output":[]}`
+	provider := &fakeProvider{proxyResponse: func(w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, failureBody)
+	}}
+	svc := proxy.NewService(
+		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-5.6-sol", Reason: "test"}},
+		map[string]providers.Client{providers.ProviderOpenAI: provider},
+		nil, false, nil, nil, false, providers.ProviderOpenAI, "gpt-5.6-sol", nil,
+	).WithRetrySleep(noRetrySleep)
+	body := []byte(`{"model":"gpt-5.6-sol","stream":false,"input":[{"type":"reasoning","id":"rs_0","encrypted_content":"opaque"},{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}]}`)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, nativeResponsesInstallationID)
+	err := svc.ProxyOpenAIResponses(ctx, body, recorder, request)
+	require.NotEmpty(t, provider.proxyEndpoints)
+	for _, endpoint := range provider.proxyEndpoints {
+		require.Equal(t, providers.EndpointResponses, endpoint)
+	}
+	var failure *providers.UpstreamErrorResponse
+	require.ErrorAs(t, err, &failure)
+	require.JSONEq(t, failureBody, string(failure.Body))
+	require.Equal(t, http.StatusBadGateway, recorder.Code)
+	require.JSONEq(t, failureBody, recorder.Body.String())
 }

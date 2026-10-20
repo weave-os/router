@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/translate"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -49,7 +51,8 @@ func TestStreamCostWriterPassesThroughJSONErrorEnvelope(t *testing.T) {
 		Body:   []byte(`{"type":"error","error":{"type":"api_error","message":"upstream unavailable"}}`),
 	}
 
-	flushUpstreamErrorAsAnthropic(writer, err)
+	returned := deliverTerminalFailureForTest(context.Background(), writer, translate.FormatAnthropic, false, err)
+	require.Same(t, err, returned)
 
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	require.Contains(t, rec.Body.String(), "upstream unavailable")

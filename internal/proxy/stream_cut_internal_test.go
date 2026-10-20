@@ -120,14 +120,16 @@ func http1HeaderTimeout() error {
 
 func TestClassifyTurnErrorReadsCutThroughSyntheticFrame(t *testing.T) {
 	for _, err := range []error{translate.ErrStreamIncomplete, translate.ErrStreamEmpty} {
-		framed := emitAnthropicSSEErrorEvent(httptest.NewRecorder(), err)
+		framed := deliverTerminalFailureForTest(context.Background(), httptest.NewRecorder(), translate.FormatAnthropic, true, err)
+		require.Same(t, err, framed)
 		assert.Equal(t, TurnErrorStreamCut, classifyTurnError(framed, "", 0),
 			"the router's 502 frame stands in for the cut, not an upstream 5xx")
 	}
 }
 
 func TestClassifyTurnErrorDistinguishesWatchdogFrameFromUpstreamStatus(t *testing.T) {
-	err := emitAnthropicSSEErrorEvent(httptest.NewRecorder(), providers.ErrUpstreamIdleTimeout)
+	err := deliverTerminalFailureForTest(context.Background(), httptest.NewRecorder(), translate.FormatAnthropic, true, providers.ErrUpstreamIdleTimeout)
+	require.Same(t, providers.ErrUpstreamIdleTimeout, err)
 
 	assert.Equal(t, TurnErrorStreamStalled, classifyTurnError(err, "", 0),
 		"a router-generated 502 frame does not mean the upstream returned 502")

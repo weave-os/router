@@ -422,15 +422,12 @@ func TestDispatchWithFallback_NoRetryOnNonRetryableStatus(t *testing.T) {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
 	})
 
 	require.Error(t, err)
 	assert.Equal(t, 0, winnerIdx, "primary stays the winner — no retry on 400")
 	assert.Equal(t, 0, fallback.calls, "fallback must not be called on non-retryable error")
-	// 400's buffered body must reach the client since we won't retry.
-	assert.Equal(t, "bad model", rec.Body.String())
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assertUndeliveredDispatchFailure(t, rec, err, primary.outcomes[0].err)
 }
 
 func TestDispatchWithFallback_ModelNotFoundFailsOverToNextBinding(t *testing.T) {
@@ -467,7 +464,6 @@ func TestDispatchWithFallback_ModelNotFoundFailsOverToNextBinding(t *testing.T) 
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
 	})
 
 	require.NoError(t, err, "404 on primary must fail over to the next binding")
@@ -477,7 +473,7 @@ func TestDispatchWithFallback_ModelNotFoundFailsOverToNextBinding(t *testing.T) 
 	assert.Equal(t, "rescued", rec.Body.String())
 }
 
-func TestDispatchWithFallback_ModelNotFoundSingleBindingFlushes(t *testing.T) {
+func TestDispatchWithFallback_ModelNotFoundSingleBindingReturnsFailure(t *testing.T) {
 	// 404 on the sole binding: nothing to fail over to, and 404 isn't retried in-place.
 	only := &fakeClient{
 		name:     "bedrock",
@@ -500,12 +496,11 @@ func TestDispatchWithFallback_ModelNotFoundSingleBindingFlushes(t *testing.T) {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
 	})
 
 	require.Error(t, err)
 	assert.Equal(t, 1, only.calls, "404 must not same-binding-retry")
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	assertUndeliveredDispatchFailure(t, rec, err, only.outcomes[0].err)
 }
 
 func TestDispatchWithFallback_BillingBlockedFailsOverToNextBinding(t *testing.T) {
@@ -545,7 +540,6 @@ func TestDispatchWithFallback_BillingBlockedFailsOverToNextBinding(t *testing.T)
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
 	})
 
 	require.NoError(t, err, "402 on primary must fail over to the next binding")
@@ -555,7 +549,7 @@ func TestDispatchWithFallback_BillingBlockedFailsOverToNextBinding(t *testing.T)
 	assert.Equal(t, "rescued", rec.Body.String())
 }
 
-func TestDispatchWithFallback_BillingBlockedSingleBindingFlushes(t *testing.T) {
+func TestDispatchWithFallback_BillingBlockedSingleBindingReturnsFailure(t *testing.T) {
 	// 402 on the sole binding: nothing to walk to, and re-hitting the same
 	// provider only re-bills the same rejection.
 	only := &fakeClient{
@@ -579,13 +573,11 @@ func TestDispatchWithFallback_BillingBlockedSingleBindingFlushes(t *testing.T) {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
 	})
 
 	require.Error(t, err)
 	assert.Equal(t, 1, only.calls, "402 must not same-binding-retry")
-	assert.Equal(t, http.StatusPaymentRequired, rec.Code)
-	assert.Equal(t, "no credits", rec.Body.String())
+	assertUndeliveredDispatchFailure(t, rec, err, only.outcomes[0].err)
 }
 
 func TestDispatchWithFallback_NoRetryAfterBytesFlushed(t *testing.T) {
@@ -630,7 +622,7 @@ func TestDispatchWithFallback_NoRetryAfterBytesFlushed(t *testing.T) {
 	assert.Equal(t, 0, fallback.calls, "must not retry once bytes have been flushed to the client")
 }
 
-func TestDispatchWithFallback_BothFailFinalBodyFlushed(t *testing.T) {
+func TestDispatchWithFallback_BothFailReturnsFinalCause(t *testing.T) {
 	primary := &fakeClient{
 		name:     "fireworks",
 		outcomes: []fakeOutcome{{err: &providers.UpstreamErrorResponse{Status: 503, Body: []byte(`primary down`)}}},
@@ -663,15 +655,11 @@ func TestDispatchWithFallback_BothFailFinalBodyFlushed(t *testing.T) {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
 	})
 
 	require.Error(t, err)
 	assert.Equal(t, 1, winnerIdx, "last-attempted index returned even on failure")
-	// Client sees the FINAL upstream's error envelope, not the primary's.
-	assert.Equal(t, http.StatusBadGateway, rec.Code)
-	assert.Equal(t, "fallback also down", rec.Body.String())
-	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+	assertUndeliveredDispatchFailure(t, rec, err, fallback.outcomes[0].err)
 }
 
 // noopSleep is the injected backoff for retry tests — keeps them fast and
@@ -680,7 +668,7 @@ func noopSleep(context.Context, time.Duration) error { return nil }
 
 func TestDispatchWithFallback_SingleBindingExhaustsRetries(t *testing.T) {
 	// Single-binding models have nowhere to fail over, so a persistent
-	// retryable error retries in place up to dispatch.MaxSameBindingRetries before flushing.
+	// retryable error retries in place up to dispatch.MaxSameBindingRetries before returning the final failure.
 	only := &fakeClient{
 		name: "anthropic",
 		outcomes: []fakeOutcome{
@@ -707,13 +695,12 @@ func TestDispatchWithFallback_SingleBindingExhaustsRetries(t *testing.T) {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
 	})
 
 	require.Error(t, err)
 	assert.Equal(t, 0, winnerIdx)
 	assert.Equal(t, 1+dispatch.MaxSameBindingRetries, only.calls, "initial attempt + dispatch.MaxSameBindingRetries")
-	assert.Equal(t, http.StatusServiceUnavailable, rec.Code, "final upstream envelope still flushes on exhaustion")
+	assertUndeliveredDispatchFailure(t, rec, err, only.outcomes[len(only.outcomes)-1].err)
 }
 
 // hungUpstreamErr simulates a half-open HTTP/2 stream that times out at the
@@ -767,7 +754,6 @@ func TestDispatchWithFallback_SlowAttemptsStopBeforeRetryCount(t *testing.T) {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
 	})
 
 	require.Error(t, err)
@@ -803,7 +789,6 @@ func TestDispatchWithFallback_SingleBindingRetrySucceeds(t *testing.T) {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
 	})
 
 	require.NoError(t, err)
@@ -837,12 +822,11 @@ func TestDispatchWithFallback_SingleBindingNonRetryableNoRetry(t *testing.T) {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
 	})
 
 	require.Error(t, err)
 	assert.Equal(t, 1, only.calls, "non-retryable status must not retry")
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assertUndeliveredDispatchFailure(t, rec, err, only.outcomes[0].err)
 }
 
 func TestDispatchWithFallback_SingleBindingBackoffAbortsOnCancel(t *testing.T) {
@@ -873,7 +857,6 @@ func TestDispatchWithFallback_SingleBindingBackoffAbortsOnCancel(t *testing.T) {
 			buf.Seal()
 			return p.Proxy(ctx, d, providers.PreparedRequest{}, buf, r)
 		},
-		flushErr: flushBufferedIfPresent,
 	})
 
 	require.Error(t, err)
@@ -1151,30 +1134,36 @@ func TestPreludeBuffer_NoOpFlushPreCommit(t *testing.T) {
 	assert.Equal(t, 2, flushCount, "post-commit Flush passes through")
 }
 
-func TestEmitAnthropicSSEErrorEvent_GenericFailureTerminatesStream(t *testing.T) {
-	rec := httptest.NewRecorder()
-
-	err := emitAnthropicSSEErrorEvent(rec, errors.New("connection reset"))
-
-	var statusErr *providers.UpstreamStatusError
-	require.ErrorAs(t, err, &statusErr)
-	assert.Equal(t, http.StatusBadGateway, statusErr.Status)
-	assert.Contains(t, rec.Body.String(), "event: error")
-	assert.Contains(t, rec.Body.String(), `"type":"api_error"`)
-	assert.NotContains(t, rec.Body.String(), "connection reset")
+func deliverTerminalFailureForTest(ctx context.Context, sink http.ResponseWriter, format translate.Format, streaming bool, cause error) error {
+	_, client, finish := beginTerminalDelivery(ctx, sink, format, streaming)
+	if streaming {
+		client.Header().Set("Content-Type", "text/event-stream")
+		client.WriteHeader(http.StatusOK)
+	}
+	finish(&cause)
+	return cause
 }
 
-func TestEmitOpenAISSEErrorEvent_GenericFailureTerminatesStream(t *testing.T) {
-	rec := httptest.NewRecorder()
-
-	err := emitOpenAISSEErrorEvent(rec, errors.New("connection reset"))
-
-	var statusErr *providers.UpstreamStatusError
-	require.ErrorAs(t, err, &statusErr)
-	assert.Equal(t, http.StatusBadGateway, statusErr.Status)
-	assert.Contains(t, rec.Body.String(), `data: {"error":`)
-	assert.Contains(t, rec.Body.String(), `"type":"server_error"`)
-	assert.NotContains(t, rec.Body.String(), "connection reset")
+func TestTerminalDeliveryGenericFailureTerminatesStream(t *testing.T) {
+	for _, fixture := range []struct {
+		name   string
+		format translate.Format
+		prefix string
+	}{
+		{"anthropic", translate.FormatAnthropic, "event: error"},
+		{"openai", translate.FormatOpenAI, `data: {"error":`},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			cause := errors.New("connection reset")
+			returned := deliverTerminalFailureForTest(context.Background(), rec, fixture.format, true, cause)
+			require.Same(t, cause, returned)
+			assert.Equal(t, http.StatusOK, rec.Code)
+			assert.Contains(t, rec.Body.String(), fixture.prefix)
+			assert.Contains(t, rec.Body.String(), `"type":"api_error"`)
+			assert.NotContains(t, rec.Body.String(), "connection reset")
+		})
+	}
 }
 
 type fakeFlushTracker struct {
@@ -1215,4 +1204,11 @@ func TestResolveBindingsForDispatch_LinkedSubscriptionPreservesFundedBindings(t 
 	require.Len(t, before, 2)
 	linked := svc.resolveBindingsForDispatch(managedSubscriptionContext(auth.SubscriptionProviderClaude), decision)
 	assert.Equal(t, before, linked, "linked enrollment must preserve the existing deployment-funded binding walk")
+}
+
+func assertUndeliveredDispatchFailure(t *testing.T, rec *httptest.ResponseRecorder, returned, cause error) {
+	t.Helper()
+	require.Same(t, cause, returned, "dispatch returns the original final failure")
+	assert.Empty(t, rec.Body.String(), "request delivery owns failure serialization")
+	assert.False(t, rec.Flushed)
 }

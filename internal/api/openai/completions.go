@@ -40,43 +40,8 @@ func ChatCompletionHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handle
 		}
 		c.Request = c.Request.WithContext(ctx)
 
-		if err := svc.ProxyOpenAIChatCompletion(c.Request.Context(), body, c.Writer, c.Request); err != nil {
-			cls, ok := proxy.ClassifyDispatchError(err)
-			if ok && cls.Kind == proxy.DispatchErrorUpstreamStatus {
-				if c.Writer.Written() {
-					return
-				}
-				writeOpenAIError(c, cls.Status, "api_error", cls.Message)
-				return
-			}
-			if c.Writer.Written() {
-				log.Error("Proxy failed mid-stream", "err", err)
-				return
-			}
-			if ok {
-				proxy.LogDispatchErrorClass(log, cls, err)
-				if cls.RetryAfter {
-					c.Header("Retry-After", "1")
-				}
-				writeOpenAIErrorWithCode(c, cls.Status, openAIErrorType(cls.Kind), cls.Message, proxy.OpenAIErrorCode(cls.Kind))
-				return
-			}
-			log.Error("Proxy failed", "err", err)
-			writeOpenAIError(c, http.StatusBadGateway, "api_error", "Upstream call failed.")
-			return
-		}
+		_ = svc.ProxyOpenAIChatCompletion(c.Request.Context(), body, c.Writer, c.Request)
 	}
-}
-
-// openAIErrorType maps a classified dispatch error to the OpenAI Chat
-// Completions error envelope's "type" field. Like Anthropic, OpenAI only
-// distinguishes client-input problems ("invalid_request_error") from
-// everything else ("api_error").
-func openAIErrorType(kind proxy.DispatchErrorKind) string {
-	if kind.IsClientError() {
-		return "invalid_request_error"
-	}
-	return "api_error"
 }
 
 func writeOpenAIError(c *gin.Context, status int, errType, message string) {

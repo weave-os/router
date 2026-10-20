@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+	"github.com/tidwall/gjson"
 	"weave-os/router/internal/sse"
 )
 
@@ -78,7 +79,9 @@ type NoticeSink interface {
 	http.ResponseWriter
 	http.Flusher
 	EmitNotice(RouterNotice) error
+	EmitFailure(TerminalFailure, bool) error
 	ResetNotices()
+	ResetAttempt()
 	CommitNotice() error
 	ArmOutputProgress(func()) bool
 	Seal()
@@ -99,12 +102,15 @@ type NoticeDelivery struct {
 	queued                 []RouterNotice
 	seen                   map[string]struct{}
 	terminal               bool
+	terminalFailure        bool
+	chatDone               bool
+	observation            *ProviderStreamObservation
 	providerContentStarted bool
 	failure                error
 }
 
 func NewNoticeDelivery(ctx context.Context, sink NoticeSink, capabilities NoticeCapabilities) *NoticeDelivery {
-	return &NoticeDelivery{ctx: ctx, sink: sink, capabilities: capabilities, seen: make(map[string]struct{})}
+	return &NoticeDelivery{ctx: ctx, sink: sink, capabilities: capabilities, seen: make(map[string]struct{}), observation: NewProviderStreamObservation(capabilities.Format)}
 }
 
 func (d *NoticeDelivery) Header() http.Header { return d.sink.Header() }
@@ -159,7 +165,7 @@ func (d *NoticeDelivery) Write(payload []byte) (int, error) {
 	consumedBytes := len(payload)
 	var escaped bytes.Buffer
 	json.HTMLEscape(&escaped, payload)
-	if !d.capabilities.Streaming {
+	if !d.capabilities.Streaming || d.sink.Header().Get("Content-Type") == "application/json" {
 		d.sink.Header().Set("Content-Type", "application/json")
 		_, d.failure = d.sink.Write(escaped.Bytes())
 		return consumedBytes, d.failure
@@ -170,15 +176,8 @@ func (d *NoticeDelivery) Write(payload []byte) (int, error) {
 		if consumed == 0 {
 			break
 		}
-		_, d.failure = d.sink.Write(d.pending[:consumed])
-		if d.failure != nil {
-			return 0, d.failure
-		}
-		if noticeProviderContent(d.capabilities.Format, event) {
-			d.providerContentStarted = true
-		}
-		if noticeTerminal(d.capabilities.Format, event) {
-			d.terminal = true
+		if err := d.writeRecord(event, d.pending[:consumed]); err != nil {
+			return 0, err
 		}
 		d.pending = d.pending[consumed:]
 		for _, notice := range d.queued {
@@ -204,10 +203,15 @@ func (d *NoticeDelivery) ResetAttempt(retainNotices bool) {
 		d.sink.ResetNotices()
 		d.seen = make(map[string]struct{})
 		d.terminal = false
+		d.terminalFailure = false
+		d.chatDone = false
 		d.providerContentStarted = false
 	}
+	d.sink.ResetAttempt()
+	d.failure = nil
 	d.pending = nil
 	d.scanner.Reset()
+	d.observation = NewProviderStreamObservation(d.capabilities.Format)
 	for _, notice := range d.queued {
 		delete(d.seen, notice.ID)
 	}
@@ -234,4 +238,97 @@ func (d *NoticeDelivery) emit(notice RouterNotice) error {
 		return d.sink.CommitNotice()
 	}
 	return nil
+}
+
+// Finalize drains a complete final record even when upstream omitted its blank
+// delimiter. Invalid tails cannot supply a terminal or corrupt a failure frame.
+func (d *NoticeDelivery) Finalize() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.finalize()
+}
+
+func (d *NoticeDelivery) finalize() error {
+	if err := d.err(); err != nil {
+		return err
+	}
+	pending := d.pending
+	d.pending = nil
+	d.scanner.Reset()
+	if len(pending) > 0 {
+		_, payload := sse.ParseEvent(pending)
+		if json.Valid(payload) || bytes.Equal(bytes.TrimSpace(payload), []byte("[DONE]")) {
+			record := append(bytes.TrimRight(pending, "\r\n"), '\n', '\n')
+			if err := d.writeRecord(record, record); err != nil {
+				return err
+			}
+		} else {
+			d.observation.ObserveEvent(pending)
+		}
+	}
+	if (d.capabilities.Format == FormatOpenAI || d.capabilities.Format == FormatGemini) && d.observation.Facts().State == StreamTerminal && d.observation.EOF() == nil {
+		d.terminal = true
+	}
+	d.queued = nil
+	return nil
+}
+
+// DeliverFailure accepts a render-ready failure after the request owner has
+// exhausted retries and resolved HTTP versus SSE delivery.
+func (d *NoticeDelivery) DeliverFailure(failure TerminalFailure, streaming bool) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	// A protocol validator can reject a provider record after a visible notice.
+	// Abandon that record while allowing the owner to deliver its final failure.
+	if d.failure != nil {
+		d.failure = nil
+		d.pending = nil
+		d.scanner.Reset()
+	}
+	if err := d.finalize(); err != nil {
+		return err
+	}
+	if d.terminal {
+		return nil
+	}
+	d.terminal = true
+	d.terminalFailure = true
+	d.failure = d.sink.EmitFailure(failure, streaming)
+	return d.failure
+}
+
+func (d *NoticeDelivery) writeRecord(event, record []byte) error {
+	if d.terminal && (d.terminalFailure || !chatTerminalTrailer(d.capabilities.Format, event)) {
+		return nil
+	}
+	_, payload := sse.ParseEvent(event)
+	chatDone := d.capabilities.Format == FormatOpenAI && bytes.Equal(bytes.TrimSpace(payload), []byte("[DONE]"))
+	if chatDone && d.chatDone {
+		return nil
+	}
+	_, d.failure = d.sink.Write(record)
+	if d.failure != nil {
+		return d.failure
+	}
+	if noticeProviderContent(d.capabilities.Format, event) {
+		d.providerContentStarted = true
+	}
+	d.chatDone = d.chatDone || chatDone
+	d.observation.ObserveEvent(event)
+	d.terminalFailure = d.terminalFailure || d.observation.Facts().State == StreamFailed
+	if d.terminalFailure || noticeTerminal(d.capabilities.Format, event) {
+		d.terminal = true
+	}
+	return nil
+}
+
+func chatTerminalTrailer(format Format, event []byte) bool {
+	if format != FormatOpenAI {
+		return false
+	}
+	_, payload := sse.ParseEvent(event)
+	if bytes.Equal(bytes.TrimSpace(payload), []byte("[DONE]")) {
+		return true
+	}
+	return gjson.ValidBytes(payload) && gjson.GetBytes(payload, "choices").IsArray() && len(gjson.GetBytes(payload, "choices").Array()) == 0 && gjson.GetBytes(payload, "usage").Exists()
 }

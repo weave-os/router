@@ -288,7 +288,6 @@ func (s *Service) dispatchSubscriptionStateTarget(ctx context.Context, in failov
 	if usesIncludedSubscription {
 		// A subscription-capable binding cannot rotate onto a paid gateway.
 		in.bindings = []catalog.ProviderBinding{{Provider: target.Provider}}
-		in.deferFlushOnExhaustion = true
 	}
 	if in.onSubscriptionStateTarget != nil {
 		in.onSubscriptionStateTarget(target, in.bindings)

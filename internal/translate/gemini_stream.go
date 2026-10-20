@@ -3,6 +3,7 @@ package translate
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -26,14 +27,18 @@ type GeminiToOpenAISSETranslator struct {
 	buf        bytes.Buffer
 	scanner    sse.Scanner
 
-	model     string
-	chatID    string
-	created   int64
-	started   bool
-	closed    bool
-	toolIdx   int
-	finished  bool
-	lifecycle *StreamLifecycle
+	model           string
+	chatID          string
+	created         int64
+	started         bool
+	closed          bool
+	toolIdx         int
+	finishReason    string
+	terminalUsage   map[string]int
+	observation     *ProviderStreamObservation
+	lifecycle       *StreamLifecycle
+	failureOwner    bool
+	terminalFailure error
 	// pendingSig is a thoughtSignature from a text part with no functionCall
 	// sibling, held for the next tool_call chunk.
 	pendingSig string
@@ -46,18 +51,25 @@ type GeminiToOpenAISSETranslator struct {
 	onOutputProgress func()
 }
 
+// SetFailureOwner leaves terminal failure delivery to the request owner.
+func (t *GeminiToOpenAISSETranslator) SetFailureOwner() { t.failureOwner = true }
+
+// UpstreamError returns the retained provider failure for classification.
+func (t *GeminiToOpenAISSETranslator) UpstreamError() error { return t.terminalFailure }
+
 // NewGeminiToOpenAISSETranslator wraps w. Call Finalize after upstream returns.
 func NewGeminiToOpenAISSETranslator(w http.ResponseWriter, model string, sink UsageSink) *GeminiToOpenAISSETranslator {
 	flusher, _ := w.(http.Flusher)
 	return &GeminiToOpenAISSETranslator{
-		inner:     w,
-		flusher:   flusher,
-		bw:        bufio.NewWriterSize(w, 8192),
-		model:     model,
-		chatID:    generateChatCmplID(),
-		created:   time.Now().Unix(),
-		usageSink: sink,
-		lifecycle: NewStreamLifecycle(),
+		inner:       w,
+		flusher:     flusher,
+		bw:          bufio.NewWriterSize(w, 8192),
+		model:       model,
+		chatID:      generateChatCmplID(),
+		created:     time.Now().Unix(),
+		usageSink:   sink,
+		lifecycle:   NewStreamLifecycle(),
+		observation: NewProviderStreamObservation(FormatGemini),
 	}
 }
 
@@ -118,6 +130,12 @@ func (t *GeminiToOpenAISSETranslator) Flush() {
 // Finalize flushes non-streaming responses. Streaming success requires an
 // explicit Gemini finishReason; EOF alone is an incomplete upstream stream.
 func (t *GeminiToOpenAISSETranslator) Finalize() error {
+	if t.terminalFailure != nil {
+		if t.failureOwner {
+			return t.terminalFailure
+		}
+		return nil
+	}
 	if t.streaming {
 		if t.closed {
 			return nil
@@ -125,7 +143,21 @@ func (t *GeminiToOpenAISSETranslator) Finalize() error {
 		if err := t.processFinalSSETail(); err != nil {
 			return err
 		}
-		if err := t.lifecycle.EOF(); err != nil {
+		if t.failureOwner {
+			if err := t.observation.OutcomeError(); err != nil {
+				t.terminalFailure = err
+				return err
+			}
+			if err := t.emitFinalChunk(mapGeminiFinishReason(t.finishReason, t.toolIdx > 0), t.terminalUsage); err != nil {
+				return err
+			}
+			return t.emitDone()
+		}
+		completionErr := t.lifecycle.EOF()
+		if completionErr == nil {
+			completionErr = t.observation.EOF()
+		}
+		if err := completionErr; err != nil {
 			if t.lifecycle.OutputStarted() {
 				if emitErr := t.emitStreamFailure(); emitErr != nil {
 					return emitErr
@@ -137,7 +169,18 @@ func (t *GeminiToOpenAISSETranslator) Finalize() error {
 	}
 
 	body := t.buf.Bytes()
+	if t.failureOwner && t.statusCode < 400 {
+		t.observation.ObserveBody(body)
+		if failure := t.observation.OutcomeError(); failure != nil {
+			t.terminalFailure = failure
+			return failure
+		}
+	}
 	if t.statusCode >= 400 {
+		if t.failureOwner {
+			t.terminalFailure = &providers.UpstreamErrorResponse{Status: t.statusCode, Body: append([]byte(nil), body...)}
+			return t.terminalFailure
+		}
 		t.inner.Header().Set("Content-Type", "application/json")
 		t.inner.WriteHeader(t.statusCode)
 		_, err := t.inner.Write(GeminiToOpenAIError(body))
@@ -161,6 +204,10 @@ func (t *GeminiToOpenAISSETranslator) Finalize() error {
 
 	translated, err := GeminiToOpenAIResponse(body, t.model)
 	if err != nil {
+		if t.failureOwner {
+			t.terminalFailure = err
+			return err
+		}
 		t.inner.Header().Set("Content-Type", "application/json")
 		t.inner.WriteHeader(http.StatusBadGateway)
 		_, _ = t.inner.Write([]byte(`{"error":{"message":"translation failed","type":"api_error"}}`))
@@ -197,9 +244,40 @@ func (t *GeminiToOpenAISSETranslator) processFinalSSETail() error {
 }
 
 func (t *GeminiToOpenAISSETranslator) translateEvent(raw []byte) error {
+	if t.terminalFailure != nil {
+		return nil
+	}
 	_, data := sse.ParseEvent(raw)
 	if len(data) == 0 {
 		return nil
+	}
+	if t.closed {
+		if usage := geminiUsageFromBytes(data); usage != nil {
+			t.recordUsageOnSink(usage)
+		}
+		return nil
+	}
+
+	if !gjson.ValidBytes(data) {
+		t.terminalFailure = fmt.Errorf("%w: malformed Gemini event", ErrStreamIncomplete)
+		return t.terminalFailure
+	}
+	t.observation.ObserveEvent(raw)
+	if failure := t.observation.DeclaredError(); failure != nil {
+		t.terminalFailure = failure
+		if t.failureOwner || !t.lifecycle.OutputStarted() {
+			return failure
+		}
+		if t.lifecycle.State() == StreamStarted {
+			if err := t.lifecycle.Fail(); err != nil {
+				return err
+			}
+		}
+		t.bw.WriteString("data: ")
+		t.bw.Write(GeminiToOpenAIError(data))
+		t.bw.WriteString("\n\n")
+		t.closed = true
+		return t.flushEvent()
 	}
 
 	candidate := gjson.GetBytes(data, "candidates.0")
@@ -247,13 +325,24 @@ func (t *GeminiToOpenAISSETranslator) translateEvent(raw []byte) error {
 
 	usage := geminiUsageFromBytes(data)
 	finishReason := candidate.Get("finishReason").String()
-	if finishReason != "" {
+	if finishReason != "" && t.finishReason == "" {
+		t.finishReason = strings.Clone(finishReason)
 		recordOutputLimit(t.usageSink, finishReason == "MAX_TOKENS")
-		mapped := mapGeminiFinishReason(finishReason, t.toolIdx > 0)
+		if t.failureOwner {
+			t.markOutputProgress()
+		}
+	}
+	if t.failureOwner && t.finishReason != "" {
+		if usage != nil {
+			t.terminalUsage = usage
+		}
+		return nil
+	}
+	if t.observation.Facts().State == StreamTerminal {
+		mapped := mapGeminiFinishReason(t.finishReason, t.toolIdx > 0)
 		if err := t.emitFinalChunk(mapped, usage); err != nil {
 			return err
 		}
-		t.finished = true
 		return t.emitDone()
 	}
 	if usage != nil {

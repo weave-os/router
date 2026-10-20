@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -283,34 +284,18 @@ func TestClassifyDispatchError_ContextOverflowIsNative(t *testing.T) {
 	assert.Empty(t, OpenAIErrorCode(DispatchErrorUpstreamStatus))
 }
 
-func TestFlushHelpersLeaveOverflowToHandler(t *testing.T) {
-	overflow := &providers.UpstreamErrorResponse{Status: 400, Body: []byte(`{"error":{"code":"context_length_exceeded"}}`)}
-	for name, flush := range map[string]func(http.ResponseWriter, error){
-		"buffered":  flushBufferedIfPresent,
-		"anthropic": flushUpstreamErrorAsAnthropic,
-	} {
-		rec := httptest.NewRecorder()
-		flush(rec, overflow)
-		assert.Zero(t, rec.Body.Len(), "%s: the handler renders the client-native overflow", name)
-		assert.False(t, rec.Flushed, name)
-
-		rec = httptest.NewRecorder()
-		flush(rec, &providers.UpstreamErrorResponse{Status: 400, Body: []byte(`{"error":{"message":"bad tool"}}`)})
-		assert.Equal(t, http.StatusBadRequest, rec.Code, "%s: other upstream errors still flush", name)
-		assert.Contains(t, rec.Body.String(), "bad tool")
-	}
-}
-
 func TestSSEErrorEventsCarryNativeOverflow(t *testing.T) {
 	overflow := &providers.UpstreamErrorResponse{Status: 400, Body: []byte(`{"error":{"message":"maximum context length is 131072 tokens"}}`)}
 
 	rec := httptest.NewRecorder()
-	_ = emitAnthropicSSEErrorEvent(rec, overflow)
+	returned := deliverTerminalFailureForTest(context.Background(), rec, translate.FormatAnthropic, true, overflow)
+	require.Same(t, overflow, returned)
 	assert.Contains(t, rec.Body.String(), `"type":"invalid_request_error"`)
 	assert.Contains(t, rec.Body.String(), `prompt is too long`)
 
 	rec = httptest.NewRecorder()
-	_ = emitOpenAISSEErrorEvent(rec, overflow)
+	returned = deliverTerminalFailureForTest(context.Background(), rec, translate.FormatOpenAI, true, overflow)
+	require.Same(t, overflow, returned)
 	assert.Contains(t, rec.Body.String(), `"code":"context_length_exceeded"`)
 	assert.Contains(t, rec.Body.String(), `prompt is too long`)
 }

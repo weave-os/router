@@ -101,11 +101,18 @@ func (p *betaCaptureProvider) Proxy(
 	_ context.Context,
 	_ router.Decision,
 	req providers.PreparedRequest,
-	_ http.ResponseWriter,
+	w http.ResponseWriter,
 	_ *http.Request,
 ) error {
 	p.body = append([]byte(nil), req.Body...)
-	return nil
+	if req.Endpoint == providers.EndpointResponses {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, err := w.Write([]byte(`data: {"type":"response.completed","response":{"id":"resp_synthetic","object":"response","status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"hi"}]}],"usage":{"input_tokens":10,"output_tokens":5}}}` + "\n\n"))
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_, err := w.Write([]byte(`{"id":"msg_synthetic","type":"message","role":"assistant","content":[{"type":"text","text":"hi"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+	return err
 }
 
 func (p *betaCaptureProvider) Passthrough(
@@ -706,8 +713,8 @@ func TestProxyEntrypointsStripHistoricalBetaArtifactsBeforeRouting(t *testing.T)
 			svc := NewService(
 				routing,
 				map[string]providers.Client{
-					providers.ProviderAnthropic: embedTestProvider{},
-					providers.ProviderOpenAI:    embedTestProvider{},
+					providers.ProviderAnthropic: &betaCaptureProvider{},
+					providers.ProviderOpenAI:    &betaCaptureProvider{},
 				},
 				nil, false, nil, nil, false,
 				providers.ProviderAnthropic, "claude-haiku-4-5", nil,
@@ -814,8 +821,8 @@ func TestBetaPreferenceSurvivesFirstMessageRewriteWithinClientSession(t *testing
 			svc := NewService(
 				stableRouter,
 				map[string]providers.Client{
-					providers.ProviderAnthropic: embedTestProvider{},
-					providers.ProviderOpenAI:    embedTestProvider{},
+					providers.ProviderAnthropic: &betaCaptureProvider{},
+					providers.ProviderOpenAI:    &betaCaptureProvider{},
 				},
 				nil, false, nil, nil, false,
 				providers.ProviderAnthropic, "claude-haiku-4-5", nil,

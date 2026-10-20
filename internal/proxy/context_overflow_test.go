@@ -30,8 +30,8 @@ func overflowingProvider(body string) *fakeProvider {
 }
 
 // An upstream overflow must reach Claude Code as its native prompt-too-long,
-// never the upstream's own body: the handler renders the classified error.
-func TestProxyMessages_UpstreamOverflowIsLeftForNativeRendering(t *testing.T) {
+// never the upstream's own body: the request owner renders the classified error.
+func TestProxyMessages_UpstreamOverflowIsRenderedNatively(t *testing.T) {
 	upstream := overflowingProvider(`{"error":{"message":"Your input exceeds the context window of this model.","code":"context_length_exceeded"}}`)
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5", Reason: "cluster"}},
@@ -47,7 +47,12 @@ func TestProxyMessages_UpstreamOverflowIsLeftForNativeRendering(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, proxy.DispatchErrorContextWindowExceeded, cls.Kind)
 	assert.Len(t, upstream.proxyBodies, 1, "an overflow is not retried against the same window")
-	assert.Zero(t, rec.Body.Len(), "the upstream's OpenAI-shaped body must not reach an Anthropic client")
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+	assert.Equal(t, "error", gjson.GetBytes(rec.Body.Bytes(), "type").String())
+	assert.Equal(t, "invalid_request_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+	assert.Equal(t, cls.Message, gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
+	assert.False(t, gjson.GetBytes(rec.Body.Bytes(), "error.code").Exists(), "the upstream OpenAI error code must not leak into the Anthropic envelope")
 }
 
 // The pre-filter's ÷4 byte estimate counts JSON escape syntax, so an escaped

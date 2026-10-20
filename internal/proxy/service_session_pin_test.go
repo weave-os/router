@@ -1089,12 +1089,20 @@ const openAIPinTestBody = `{
 	]
 }`
 
+// pinResponsesSuccess supplies the complete native terminal snapshot consumed
+// by the Responses-to-Chat adapter used by these pinning tests.
+func pinResponsesSuccess(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, `data: {"type":"response.completed","response":{"id":"resp_pin_synthetic","object":"response","status":"completed","output":[{"id":"msg_pin_synthetic","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"synthetic pin answer","annotations":[]}]}],"usage":{"input_tokens":1,"output_tokens":1}}}`+"\n\n")
+}
+
 func newOpenAIPinSvc(fr *fakeRouter, store *fakePinStore) *proxy.Service {
 	return proxy.NewService(
 		fr,
 		map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeProvider{},
-			providers.ProviderOpenAI:    &fakeProvider{},
+			providers.ProviderOpenAI:    &fakeProvider{proxyResponse: pinResponsesSuccess},
 		},
 		nil, false, nil,
 		store,
@@ -1385,7 +1393,7 @@ func newOpenAIHardPinSvc(fr *fakeRouter, store *fakePinStore, hardPinExplore boo
 		fr,
 		map[string]providers.Client{
 			providers.ProviderAnthropic: &fakeProvider{},
-			providers.ProviderOpenAI:    &fakeProvider{},
+			providers.ProviderOpenAI:    &fakeProvider{proxyResponse: pinResponsesSuccess},
 		},
 		nil, false, nil,
 		store,

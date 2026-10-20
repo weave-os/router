@@ -78,7 +78,7 @@ func TestPublicSurfaces_DispatchThroughResolvedPlan(t *testing.T) {
 		"gemini generate content": {
 			provider: providers.ProviderGoogle, model: "gemini-2.5-pro",
 			purpose: inference.PurposeGeminiGenerateContent, policyID: "main-gemini-generate-content",
-			upstream: jsonUpstream(`{"candidates":[{"content":{"role":"model","parts":[{"text":"hi"}]}}]}`),
+			upstream: jsonUpstream(geminiCompletedBody),
 			run: func(svc *proxy.Service, w http.ResponseWriter) error {
 				return svc.ProxyGeminiGenerateContent(authedCtx("00000000-0000-0000-0000-000000000001"), []byte(geminiInjectedBody), w,
 					httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-1.5-pro:generateContent", strings.NewReader("")))
@@ -87,7 +87,15 @@ func TestPublicSurfaces_DispatchThroughResolvedPlan(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			provider := &fakeProvider{proxyResponse: tc.upstream}
+			provider := &fakeProvider{}
+			provider.proxyResponse = func(w http.ResponseWriter) {
+				if tc.provider == providers.ProviderOpenAI && provider.proxyEndpoints[len(provider.proxyEndpoints)-1] == providers.EndpointResponses {
+					w.Header().Set("Content-Type", "text/event-stream")
+					_, _ = io.WriteString(w, `data: {"type":"response.completed","response":{"id":"resp_synthetic","object":"response","status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"hi"}]}],"usage":{"input_tokens":1,"output_tokens":1}}}`+"\n\n")
+					return
+				}
+				tc.upstream(w)
+			}
 			clients := map[string]providers.Client{tc.provider: provider}
 			sink := &purposeSink{}
 			executor, err := dispatch.NewExecutor(dispatch.NewClients(clients), dispatch.WithAttemptSink(sink))

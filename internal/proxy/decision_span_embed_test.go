@@ -45,10 +45,14 @@ func (r *embedTestRouter) Route(context.Context, router.Request) (router.Decisio
 
 type embedTestProvider struct{}
 
-// Proxy answers with a minimal Anthropic message so cross-format ingresses
-// (OpenAI chat) can translate the response.
-func (embedTestProvider) Proxy(_ context.Context, _ router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
+// Proxy answers with the routed provider's native complete response so each
+// ingress observes a valid provider outcome.
+func (embedTestProvider) Proxy(_ context.Context, decision router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
 	w.Header().Set("Content-Type", "application/json")
+	if decision.Provider == providers.ProviderGoogle {
+		_, err := w.Write([]byte(`{"candidates":[{"index":0,"content":{"role":"model","parts":[{"text":"synthetic Gemini answer"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":1,"candidatesTokenCount":1,"totalTokenCount":2}}`))
+		return err
+	}
 	_, err := w.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","model":"claude-haiku-4-5",` +
 		`"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
 	return err

@@ -343,10 +343,7 @@ func TestBypass_429_ReturnsErrBypassRetryable_NoBytesWritten(t *testing.T) {
 	assert.Empty(t, rec.Body.Bytes(), "no error body must be flushed on a retryable bypass failure")
 }
 
-// TestBypass_NonRetryableError_StillFlushes: a 400 from Anthropic is the
-// caller's fault (malformed request); rerouting would mask the bug. The bypass
-// path must still flush it as the real upstream status+body, returning nil.
-func TestBypass_NonRetryableError_StillFlushes(t *testing.T) {
+func TestBypass_NonRetryableError_LeavesDeliveryToOwner(t *testing.T) {
 	upstream := &bypassFakeProvider{proxyErr: &providers.UpstreamErrorResponse{
 		Status: http.StatusBadRequest,
 		Body:   []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"bad model"}}`),
@@ -360,9 +357,12 @@ func TestBypass_NonRetryableError_StillFlushes(t *testing.T) {
 
 	err := svc.bypassToAnthropic(context.Background(), env, feats, false, time.Now(), "req-1", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
 
-	require.NoError(t, err, "a non-retryable 400 must flush and return nil — rerouting would mask a malformed request")
-	assert.Equal(t, http.StatusBadRequest, rec.Code, "the 400 must be flushed to the client verbatim")
-	assert.Contains(t, rec.Body.String(), "invalid_request_error")
+	var upstreamError *providers.UpstreamErrorResponse
+	require.ErrorAs(t, err, &upstreamError)
+	assert.Equal(t, http.StatusBadRequest, upstreamError.Status)
+	assert.Contains(t, string(upstreamError.Body), "invalid_request_error")
+	assert.NotErrorIs(t, err, errBypassRetryable)
+	assert.Empty(t, rec.Body.String(), "the request owner renders the final error")
 }
 
 // TestBypass_NilError_ReturnsNil: success path — bypass completes, returns nil.

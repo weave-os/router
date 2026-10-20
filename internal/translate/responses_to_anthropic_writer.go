@@ -49,7 +49,9 @@ type ResponsesToAnthropicWriter struct {
 	headersEmitted bool
 	started        bool
 	// closed guards against a second close after Finalize emits the trailer.
-	closed bool
+	closed          bool
+	failureOwner    bool
+	terminalFailure error
 
 	// Reasoning resets the stall clock without changing output latency/throughput.
 	onOutputProgress    func()
@@ -98,6 +100,12 @@ type ResponsesToAnthropicWriter struct {
 	lifecycle         *StreamLifecycle
 	toolLedger        *ToolCallLedger
 }
+
+// SetFailureOwner leaves terminal failure delivery to the request owner.
+func (t *ResponsesToAnthropicWriter) SetFailureOwner() { t.failureOwner = true }
+
+// UpstreamError returns the retained provider failure for classification.
+func (t *ResponsesToAnthropicWriter) UpstreamError() error { return t.terminalFailure }
 
 // NewResponsesToAnthropicWriter wraps w to translate a streaming Responses
 // upstream into Anthropic for the client.
@@ -236,6 +244,9 @@ func (t *ResponsesToAnthropicWriter) Prelude(streaming bool) error {
 // streaming client, or renders the buffered stream as one-shot Anthropic JSON
 // for a non-streaming client.
 func (t *ResponsesToAnthropicWriter) Finalize() error {
+	if t.failureOwner && t.terminalFailure != nil {
+		return t.terminalFailure
+	}
 	if t.streaming {
 		if t.closed {
 			return nil
@@ -244,6 +255,10 @@ func (t *ResponsesToAnthropicWriter) Finalize() error {
 			return err
 		}
 		if err := t.lifecycle.EOF(); err != nil {
+			if t.failureOwner {
+				t.terminalFailure = err
+				return err
+			}
 			if t.lifecycle.State() == StreamStarted {
 				if emitErr := t.emitStreamErrorEvent("api_error", "upstream stream ended before a terminal event"); emitErr != nil {
 					return emitErr
@@ -316,6 +331,13 @@ func (t *ResponsesToAnthropicWriter) translateResponsesEvent(raw []byte) error {
 			"request_model", t.requestModel,
 			"frame_bytes", len(data))
 		return t.emitStreamErrorEvent("api_error", malformedResponsesFrameMessage)
+	}
+	if failure := providerDeclaredStreamFailure(FormatOpenAIResponses, raw); failure != nil {
+		t.terminalFailure = failure
+		if t.failureOwner {
+			t.closed = true
+			return failure
+		}
 	}
 	// Match on the payload type: intermediaries may drop the SSE event name.
 	switch responsesEventType(gjson.GetBytes(data, "type").String()) {
@@ -710,6 +732,12 @@ func (t *ResponsesToAnthropicWriter) reconciledStopReason() string {
 // finalizeBuffered renders the buffered stream as a one-shot Anthropic JSON
 // body, extracting the final `response` object and reusing ResponsesToAnthropicResponse.
 func (t *ResponsesToAnthropicWriter) finalizeBuffered() error {
+	if t.failureOwner && t.statusCode < 400 {
+		if failure := providerBufferedFailure(FormatOpenAIResponses, t.buf.Bytes()); failure != nil {
+			t.terminalFailure = failure
+			return failure
+		}
+	}
 	if t.statusCode >= 400 {
 		return t.finalizeError()
 	}
@@ -781,6 +809,14 @@ func (t *ResponsesToAnthropicWriter) recordOpenAIUsage(usage gjson.Result) {
 // finalizeError renders a one-shot Anthropic error body. Streaming errors are
 // instead rendered by the dispatch's emitAnthropicSSEErrorEvent before Finalize.
 func (t *ResponsesToAnthropicWriter) finalizeError() error {
+	if t.failureOwner {
+		if t.statusCode >= 400 {
+			t.terminalFailure = &providers.UpstreamErrorResponse{Status: t.statusCode, Body: append([]byte(nil), t.buf.Bytes()...)}
+		} else {
+			t.terminalFailure = ErrStreamIncomplete
+		}
+		return t.terminalFailure
+	}
 	if err := bufferedContextOverflow(t.buf.Bytes(), responsesErrorBody); err != nil {
 		return err
 	}
@@ -1089,6 +1125,13 @@ func (t *ResponsesToAnthropicWriter) emitMessageStop() error {
 // emitStreamErrorEvent returns pre-output failures to dispatch for fallback;
 // after output starts it emits an error frame because the stream is committed.
 func (t *ResponsesToAnthropicWriter) emitStreamErrorEvent(errType, msg string) error {
+	if t.terminalFailure == nil {
+		t.terminalFailure = &providers.UpstreamErrorResponse{Status: responsesFailureStatus(errType), Body: responsesErrorBody(errType, msg)}
+	}
+	if t.failureOwner {
+		t.closed = true
+		return t.terminalFailure
+	}
 	if t.lifecycle.State() == StreamStarted {
 		if err := t.lifecycle.Fail(); err != nil {
 			return err
@@ -1116,7 +1159,8 @@ func (t *ResponsesToAnthropicWriter) emitEmptyCompletion() error {
 		return t.emitStreamErrorEvent(upstreamEmptyCompletionType, upstreamEmptyCompletionMessage)
 	}
 	t.closed = true
-	return emptyCompletionAnthropicError()
+	t.terminalFailure = emptyCompletionAnthropicError()
+	return t.terminalFailure
 }
 
 func (t *ResponsesToAnthropicWriter) flushEvent() error {

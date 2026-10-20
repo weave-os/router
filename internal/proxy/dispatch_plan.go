@@ -90,7 +90,7 @@ func routedOrigin(decision router.Decision, hardPinned, stickyHit bool) policy.O
 }
 
 // dispatchAbort marks an attempt failure the surface must return as-is: no
-// failover, no error envelope (a credential lease could not be obtained).
+// failover (a credential lease could not be obtained).
 type dispatchAbort struct{ err error }
 
 func (e dispatchAbort) Error() string { return e.err.Error() }
@@ -100,7 +100,7 @@ func (e dispatchAbort) Unwrap() error { return e.err }
 // executor for a resolved plan, keeping the surface-level failover contract:
 // per-binding headers, credential re-resolution on fallback, managed
 // subscription leasing and account rotation, prelude discard on retry, and
-// the entry point's own error rendering on exhaustion.
+// the original final failure for the request delivery owner.
 func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan inference.ResolvedPlan) (winnerIdx int, err error) {
 	log := observability.FromContext(ctx)
 	executor, err := s.inferenceExecutor()
@@ -274,27 +274,13 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 	}
 
 	req := inference.InvocationRequest{Purpose: in.purpose, RequestID: observability.RequestIDFromContext(ctx)}
-	result, runErr := executor.Run(ctx, req, plan, transport)
+	_, runErr := executor.Run(ctx, req, plan, transport)
 	if runErr == nil {
 		return lastIdx, nil
 	}
 	var abort dispatchAbort
 	if errors.As(runErr, &abort) {
-		// An abort (e.g. no subscription account to lease) renders on the same
-		// terms as binding exhaustion. Skipping it left a released prelude with
-		// no terminal frame, since the handler cannot write once the client has
-		// bytes.
-		if in.flushErr != nil && !in.deferFlushOnExhaustion && !committed(in.buf) {
-			in.flushErr(in.w, abort.err)
-		}
 		return lastIdx, abort.err
-	}
-	switch result.Summary.FallbackReason {
-	case dispatch.FailureReasonProviderNotConfigured, dispatch.FailureReasonPrepare:
-		return lastIdx, runErr
-	}
-	if in.flushErr != nil && !in.deferFlushOnExhaustion && !committed(in.buf) {
-		in.flushErr(in.w, runErr)
 	}
 	return lastIdx, runErr
 }
