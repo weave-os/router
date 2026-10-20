@@ -321,7 +321,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	primaryDecision := decision
 	notices := &requestNoticeStream{}
 	attempt := func(actx context.Context, d router.Decision, p providers.Client) error {
-		attemptSink, noticeErr := notices.prepare(r.Context(), preludeBuf, preludeBuf, translate.FormatGemini, env.Stream(), d.Model, marker)
+		attemptSink, noticeErr := notices.prepare(r.Context(), preludeBuf, preludeBuf, translate.FormatGemini, env.Stream(), translate.NewRouterNotice(translate.NoticeModelSelection, marker, d.Model, ""))
 		if noticeErr != nil {
 			return fmt.Errorf("emit Gemini router notice: %w", noticeErr)
 		}

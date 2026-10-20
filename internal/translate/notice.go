@@ -14,7 +14,10 @@ import (
 
 type NoticeKind string
 
-const NoticeModelSelection NoticeKind = "model_selection"
+const (
+	NoticeModelSelection NoticeKind = "model_selection"
+	NoticeFundingWarning NoticeKind = "funding_warning"
+)
 
 type NoticeProvenance string
 

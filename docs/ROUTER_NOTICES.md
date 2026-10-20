@@ -47,8 +47,18 @@ their wording. Other notice prose carries an invisible router-owned prefix. The
 Messages, Responses and Gemini ingress cleaners share these recognition rules;
 provider thinking, signatures, tools and usage stay outside notice cleanup.
 
-The contract initially defines `NoticeModelSelection`. A new notice kind uses the
-same delivery API and sinks; it does not require modifying provider translators.
+`NoticeModelSelection` and `NoticeFundingWarning` share the delivery API and
+sinks. Funding policy stays in proxy, using the billing reason and subscription
+family to select the existing copy and once-per-conversation replay key. Messages
+retains Anthropic attribution; Chat and Responses retain ChatGPT attribution.
+A funding warning replaces the model-selection notice when eligible. Linked-first
+funding carries no warning, and terminal-surface opt-outs suppress either kind.
+
+The subscription bypass uses the same buffered Messages boundary. Abandoned
+partial provider records and their pending warning are discarded before routed
+recovery. A committed provider response cannot recover onto a second stream.
+Upstream terminal observation and usage extraction sit above synthetic delivery,
+so a warning cannot turn an empty or truncated provider response into success.
 Client statusline/title helpers remain separate lifecycle integrations.
 
 ## Validation evidence
