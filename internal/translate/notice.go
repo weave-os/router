@@ -1,7 +1,9 @@
 package translate
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"sync"
@@ -67,11 +69,16 @@ func (c NoticeCapabilities) SupportsNotices() bool {
 	}
 }
 
-// NoticeSink owns client-wire lifecycle; it never observes upstream provider bytes.
+// NoticeSink is the client-protocol integration contract. Implementations own
+// wire lifecycle and retry continuation, including independent prelude commitment.
 type NoticeSink interface {
 	http.ResponseWriter
 	http.Flusher
 	EmitNotice(RouterNotice) error
+	ResetNotices()
+	CommitNotice() error
+	ArmOutputProgress(func()) bool
+	Seal()
 }
 
 var ErrInvalidNotice = errors.New("router notice requires identity, provenance, kind and text")
@@ -145,10 +152,15 @@ func (d *NoticeDelivery) Write(payload []byte) (int, error) {
 	if err := d.err(); err != nil {
 		return 0, err
 	}
+	// Preserve JSON text while preventing reflected HTML on passthrough paths.
+	consumedBytes := len(payload)
+	var escaped bytes.Buffer
+	json.HTMLEscape(&escaped, payload)
 	if !d.capabilities.Streaming {
-		return d.sink.Write(payload)
+		_, d.failure = d.sink.Write(escaped.Bytes())
+		return consumedBytes, d.failure
 	}
-	d.pending = append(d.pending, payload...)
+	d.pending = append(d.pending, escaped.Bytes()...)
 	for {
 		event, consumed := d.scanner.Next(d.pending)
 		if consumed == 0 {
@@ -176,7 +188,7 @@ func (d *NoticeDelivery) Write(payload []byte) (int, error) {
 		}
 		d.queued = nil
 	}
-	return len(payload), nil
+	return consumedBytes, nil
 }
 
 // ResetAttempt drops an abandoned partial record, retaining client-visible
@@ -185,9 +197,7 @@ func (d *NoticeDelivery) ResetAttempt(retainNotices bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if !retainNotices {
-		if resetter, ok := d.sink.(interface{ ResetNotices() }); ok {
-			resetter.ResetNotices()
-		}
+		d.sink.ResetNotices()
 		d.seen = make(map[string]struct{})
 		d.terminal = false
 		d.providerContentStarted = false
@@ -203,24 +213,21 @@ func (d *NoticeDelivery) ResetAttempt(retainNotices bool) {
 func (d *NoticeDelivery) ArmOutputProgress(mark func()) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	armer, ok := d.sink.(interface{ ArmOutputProgress(func()) bool })
-	return ok && armer.ArmOutputProgress(mark)
+	return d.sink.ArmOutputProgress(mark)
 }
 
 func (d *NoticeDelivery) Seal() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if sealer, ok := d.sink.(interface{ Seal() }); ok {
-		sealer.Seal()
-	}
+	d.sink.Seal()
 }
 
 func (d *NoticeDelivery) emit(notice RouterNotice) error {
 	if err := d.sink.EmitNotice(notice); err != nil {
 		return err
 	}
-	if committer, ok := d.sink.(interface{ CommitNotice() error }); ok && d.capabilities.Eager {
-		return committer.CommitNotice()
+	if d.capabilities.Eager {
+		return d.sink.CommitNotice()
 	}
 	return nil
 }

@@ -7473,6 +7473,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				log.Error("Responses prelude failed", "err", err)
 			} else {
 				rw.Flush()
+				if err := responsesPreludeBuf.CommitPrelude(); err != nil {
+					return fmt.Errorf("commit Responses prelude: %w", err)
+				}
 			}
 		}
 	}

@@ -1,6 +1,8 @@
 package translate
 
 import (
+	"bytes"
+	"encoding/json"
 	"net/http"
 
 	"github.com/tidwall/gjson"
@@ -23,9 +25,10 @@ type protocolNoticeSink struct {
 
 // NewProtocolNoticeSink selects solely by the downstream client format. The
 // existing encoders retain their index, usage and terminal-envelope rules.
-func NewProtocolNoticeSink(w http.ResponseWriter, capabilities NoticeCapabilities) NoticeSink {
+func NewProtocolNoticeSink(w http.ResponseWriter, capabilities NoticeCapabilities) *protocolNoticeSink {
 	format := capabilities.Format
 	sink := &protocolNoticeSink{capabilities: capabilities, client: w, format: format, streaming: capabilities.Streaming}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	switch format {
 	case FormatAnthropic:
 		sink.anthropic = NewAnthropicRoutingMarkerWriter(w, "", "")
@@ -44,6 +47,12 @@ func NewProtocolNoticeSink(w http.ResponseWriter, capabilities NoticeCapabilitie
 		sink.ResponseWriter = w
 	}
 	return sink
+}
+func (s *protocolNoticeSink) WriteHeader(status int) {
+	s.Header().Set("X-Content-Type-Options", "nosniff")
+	// Escaping provider JSON can change its encoded length.
+	s.Header().Del("Content-Length")
+	s.ResponseWriter.WriteHeader(status)
 }
 func (s *protocolNoticeSink) Flush() {
 	if flusher, ok := s.ResponseWriter.(http.Flusher); ok {
@@ -129,17 +138,22 @@ func noticeTerminal(format Format, event []byte) bool {
 }
 
 func (s *protocolNoticeSink) Write(payload []byte) (int, error) {
+	s.Header().Set("X-Content-Type-Options", "nosniff")
+	s.Header().Del("Content-Length")
 	if s.format == FormatAnthropic {
 		eventType, _ := sse.ParseEvent(payload)
 		if string(eventType) == "message_start" {
 			s.messageStarted = true
 		}
 	}
-	n, err := s.ResponseWriter.Write(payload)
+	// The protocol sink also accepts direct writes outside NoticeDelivery.
+	var escaped bytes.Buffer
+	json.HTMLEscape(&escaped, payload)
+	_, err := s.ResponseWriter.Write(escaped.Bytes())
 	if err == nil && s.responses != nil && !s.streaming && gjson.ValidBytes(s.responses.buf.Bytes()) {
 		err = s.responses.Finalize()
 	}
-	return n, err
+	return len(payload), err
 }
 func (s *protocolNoticeSink) ArmOutputProgress(mark func()) bool {
 	armer, ok := s.ResponseWriter.(interface{ ArmOutputProgress(func()) bool })
@@ -153,7 +167,7 @@ func (s *protocolNoticeSink) Seal() {
 }
 
 func (s *protocolNoticeSink) ResetNotices() {
-	replacement := NewProtocolNoticeSink(s.client, s.capabilities).(*protocolNoticeSink)
+	replacement := NewProtocolNoticeSink(s.client, s.capabilities)
 	*s = *replacement
 }
 

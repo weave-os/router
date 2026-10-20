@@ -1526,7 +1526,7 @@ func (t *ResponsesWriter) rewriteNativePassthroughFields(data []byte) ([]byte, b
 	if !output.IsArray() {
 		return data, changed
 	}
-	items := make([]string, 0, len(output.Array())+len(t.nativeNoticeItems))
+	items := make([]string, 0, len(t.nativeNoticeItems))
 	for _, noticeItem := range t.nativeNoticeItems {
 		items = append(items, string(noticeItem))
 	}

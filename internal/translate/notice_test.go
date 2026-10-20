@@ -60,6 +60,46 @@ func TestNoticeContractAndCapabilities(t *testing.T) {
 	}
 }
 
+func TestNoticeWritersEscapeProviderHTMLWithoutChangingJSONText(t *testing.T) {
+	const providerText = "<script>alert('provider')</script>&"
+	for _, format := range noticeFormats {
+		for _, streaming := range []bool{false, true} {
+			for _, directSink := range []bool{false, true} {
+				t.Run(fmt.Sprintf("%v/streaming=%v/direct=%v", format, streaming, directSink), func(t *testing.T) {
+					rec := httptest.NewRecorder()
+					caps := translate.NoticeCapabilities{Format: format, Presentation: translate.NoticeText, Streaming: streaming}
+					sink := translate.NewProtocolNoticeSink(rec, caps)
+					var writer http.ResponseWriter = sink
+					if !directSink {
+						writer = translate.NewNoticeDelivery(context.Background(), sink, caps)
+					}
+					payload := `{"text":"<script>alert('provider')</script>&"}`
+					contentType := "application/json"
+					if streaming {
+						payload = "data: " + payload + "\n\n"
+						contentType = "text/event-stream"
+					}
+					writer.Header().Set("Content-Type", contentType)
+					writer.Header().Set("Content-Length", fmt.Sprint(len(payload)))
+					writer.WriteHeader(http.StatusOK)
+					consumed, err := writer.Write([]byte(payload))
+					require.NoError(t, err)
+					assert.Equal(t, len(payload), consumed)
+					writer.(http.Flusher).Flush()
+					assert.NotContains(t, rec.Body.String(), "<script>")
+					assert.Equal(t, "nosniff", rec.Header().Get("X-Content-Type-Options"))
+					assert.Empty(t, rec.Result().Header.Get("Content-Length"))
+					body := rec.Body.String()
+					if streaming {
+						body = extractDataField(body)
+					}
+					assert.Equal(t, providerText, gjson.Get(body, "text").String())
+				})
+			}
+		}
+	}
+}
+
 func TestNoticeDeliveryWaitsForCompleteRecord(t *testing.T) {
 	for _, format := range noticeFormats {
 		t.Run(fmt.Sprint(format), func(t *testing.T) {
