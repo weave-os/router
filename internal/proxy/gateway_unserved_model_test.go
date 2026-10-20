@@ -32,10 +32,15 @@ const (
 type aliasGateway struct {
 	unserved   string
 	servedWith []string
+	// refusal overrides the default 404 for the unserved model.
+	refusal *providers.UpstreamErrorResponse
 }
 
 func (g *aliasGateway) Proxy(_ context.Context, decision router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
 	if decision.Model == g.unserved {
+		if g.refusal != nil {
+			return g.refusal
+		}
 		return &providers.UpstreamErrorResponse{
 			Status: http.StatusNotFound,
 			Body:   []byte(`{"error":{"message":"unknown model: ` + decision.Model + `","type":"not_found"}}`),
@@ -184,4 +189,46 @@ func TestService_HardPin_TitleGen_VendorModelNotFound_DoesNotExcludeModel(t *tes
 	}
 	require.Len(t, seen, 2)
 	assert.NotContains(t, seen[1].ExcludedModels, servedAlias)
+}
+
+// Prod 2026-09-28: Snowflake Cortex refuses an alias its Responses surface
+// lacks with a 400 `unknown model`; it must be memoized like a 404.
+func TestService_HardPin_TitleGen_GatewayUnknownModel400_ExcludedOnLaterTurns(t *testing.T) {
+	store := newFakePinStore()
+	fr := &fakeRouter{decision: router.Decision{Provider: "anthropic", Model: "claude-opus-4-7", Reason: "cluster"}}
+
+	var seen []proxy.HardPinRequest
+	resolver := func(req proxy.HardPinRequest) (string, string, bool) {
+		seen = append(seen, req)
+		for _, model := range []string{unservedAlias, servedAlias} {
+			if _, excluded := req.ExcludedModels[model]; !excluded {
+				return providers.ProviderOpenAIGateway, model, true
+			}
+		}
+		return "", "", false
+	}
+
+	gateway := &aliasGateway{unserved: unservedAlias, refusal: &providers.UpstreamErrorResponse{
+		Status: http.StatusBadRequest,
+		Body:   []byte(`{"message":"unknown model \"openai-` + unservedAlias + `\"","request_id":"b7115f6a"}`),
+	}}
+	svc := proxy.NewService(
+		fr, map[string]providers.Client{providers.ProviderOpenAIGateway: gateway},
+		nil, false, nil, store, false,
+		providers.ProviderAnthropic, servedAlias,
+		nil,
+	).WithByokOnly(true).WithHardPinResolver(resolver)
+
+	ctx := ctxWithGatewayAliases(uuid.New().String(), unservedAlias, servedAlias)
+	require.Error(t, svc.ProxyMessages(ctx, []byte(titleGenBody), httptest.NewRecorder(),
+		httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+
+	rec := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(titleGenBody), rec,
+		httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))))
+
+	require.Len(t, seen, 2)
+	assert.Contains(t, seen[1].ExcludedModels, unservedAlias)
+	assert.NotContains(t, seen[1].ExcludedModels, servedAlias)
+	assert.Equal(t, servedAlias, rec.Header().Get(proxy.HeaderRouterModel))
 }

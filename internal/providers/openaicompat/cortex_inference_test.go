@@ -107,6 +107,27 @@ func TestProxy_GatewayVersionProbeKeepsOriginalNotFound(t *testing.T) {
 	assert.Equal(t, []string{"/api/v2/cortex/chat/completions", "/api/v2/cortex/v1/chat/completions"}, paths)
 }
 
+// An unknown-model 400 comes from a mounted path, so it must not trigger the
+// version probe or teach the memo the alternate path.
+func TestProxy_GatewayUnknownModel400IsNotProbed(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"message":"unknown model \"openai-gpt-6-luna\""}`))
+	}))
+	defer srv.Close()
+
+	c := openaicompat.NewGatewayClient("tok", srv.URL+"/api/v2/cortex")
+	prep, clientReq := chatRequest()
+	for i := 0; i < 2; i++ {
+		err := c.Proxy(context.Background(), router.Decision{Model: "gpt-6-luna"}, prep, httptest.NewRecorder(), clientReq)
+		require.Error(t, err)
+		assert.True(t, providers.IsUpstreamModelNotFound(err))
+	}
+	assert.Equal(t, []string{"/api/v2/cortex/chat/completions", "/api/v2/cortex/chat/completions"}, paths)
+}
+
 // A versioned base URL is served as-is: no probe, so an OpenRouter/Fireworks
 // style endpoint never sees a duplicated version segment.
 func TestProxy_VersionedBaseURLIsNotProbed(t *testing.T) {
