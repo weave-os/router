@@ -58,7 +58,7 @@ collapse them.
 | `cluster_model_lists` | API key (org default) | fail-open | `policy.ApplyClusterArmOverrides` |
 | `model_router_user_cluster_model_lists` | router user | fail-open | same, after `mergeClusterOverrides` |
 | subscription capacity | verified account owner + installation membership (personal keys); live installation-shared key | fail-closed | primary candidate admission; personal then sharing; native OAuth support and quota/overage checks |
-| overload circuit breaker | router replica | fail-open (soft) | folded into `AutomaticExcludedModels` by `globalAutomaticExcludedModels` |
+| overload circuit breaker | shared per model, confirmed per installation; gateway traffic per installation | fail-open (soft) | folded into `AutomaticExcludedModels` by `globalAutomaticExcludedModels` |
 
 **The allowlist is desugared, not separately filtered.** `excludedModelsForRequest`
 adds every routable model absent from a non-empty allowlist to the exclusion
@@ -96,32 +96,44 @@ requests and clears them on the next real user prompt
 (`RequestEnvelope.EndsWithUserPrompt`), so the session doesn't swap back to the
 failing model mid-turn.
 
-**A model that keeps answering 529 is circuit-broken for the replica.** Under
+**A model that keeps answering 529 is circuit-broken, per organization.** Under
 `provider_overloaded` (default off), `dispatchPlanned` reports each executor
 operation to [`internal/router/breaker`](../router/breaker): an operation that
 exhausted on a buffered 529 (Anthropic's `overloaded_error`) is one strike,
-however many same-binding retries it took. Strikes within the window open the
-model's circuit, and `globalAutomaticExcludedModels` adds open models to the
-deployment-wide soft exclusion, so every automatic path routes around them
-with no new check and `/force-model` still reaches them. After the recovery
-timeout `runTurnLoop` lets one eligible request claim the half-open probe and
-readmits the model for that request alone; only that request's own outcome
-resolves the circuit (a probe token travels from routing to dispatch, so an
-older in-flight success cannot close it). A served probe closes and resets the
-circuit, a 529 reopens it for twice as long (capped), and a request that
-served something else releases the slot, which then yields to any other due
-circuit not yet offered. Only main and
-tool-result turns that can sibling-rescue (never Gemini ingress or caller
-credentials) take the probe, so a failed probe never reaches the client.
-An open circuit only stops the router *choosing* the model: when a sibling
-rescue finds no other eligible candidate (a two-model roster whose other arm
-just failed), `rescueWalkOrReadmitCooling` readmits open-circuit models before
-session strikes, so the turn tries the overloaded model instead of surfacing
-the other arm's error. Committed streams, client cancellations, other statuses
-and BYOK gateways are not overload evidence. State is in-process per replica by design: the request path reads an
-atomically published set, and a served request on a closed circuit takes no
-lock. The semantic cache is skipped while any circuit is open, as for any
-automatic exclusion.
+however many same-binding retries it took. A 529 straight from a provider
+(deployment keys, a tenant's own direct key, subscriptions) reports that
+provider's capacity, so it feeds one shared circuit per model with every
+organization's strikes. An open shared circuit withdraws the model only from
+organizations that have each seen `ROUTER_PROVIDER_OVERLOADED_ORG_CONFIRMATIONS`
+overloads themselves in the episode: one company tripping it does not move
+another until that company sees its own 529s. A 529 through an organization's
+own gateway (Snowflake Cortex and similar `*_gateway` providers) says nothing
+about anyone else, so it feeds a circuit for that organization alone, which
+no other organization feeds or sees. `globalAutomaticExcludedModels` adds the
+request organization's withdrawn models to the deployment-wide soft exclusion,
+so every automatic path routes around them with no new check and
+`/force-model` still reaches them. After the recovery timeout `runTurnLoop`
+lets one eligible request claim the half-open probe (any organization for a
+shared circuit, only the owner for a gateway circuit) and readmits the model
+for that request alone; only that request's own outcome resolves the circuit
+(a probe token travels from routing to dispatch, so an older in-flight success
+cannot close it). A served probe closes the circuit and clears every
+organization's confirmation, a 529 reopens it for twice as long (capped), and
+a request that served something else releases the slot, which then yields to
+any other due circuit not yet offered. Only main and tool-result turns that
+can sibling-rescue (never Gemini ingress or non-gateway caller credentials)
+take the probe, so a failed probe never reaches the client. An open circuit
+only stops the router *choosing* the model: when a sibling rescue finds no
+other eligible candidate (a two-model roster whose other arm just failed),
+`rescueWalkOrReadmitCooling` readmits withdrawn models before session strikes,
+so the turn tries the overloaded model instead of surfacing the other arm's
+error. Committed streams, client cancellations, other statuses and requests
+with no installation are not overload evidence. State is in-process per
+replica by design: the request path reads an atomically published
+per-organization set, a served request on a closed circuit takes no lock, and
+closed circuits whose strikes have aged out are swept. The semantic cache is
+skipped while any model is withdrawn for the request, as for any automatic
+exclusion.
 
 **Rescued transient failures get a bounded cooldown, not a session-lifetime
 strike.** Under `transient_rate_limit` (default off),

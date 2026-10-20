@@ -109,6 +109,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 	}
 
 	lastIdx := 0
+	lastProvider := in.initialDecision.Provider
 	managedBinding := false
 	ctx, rotationBudget := withSubscriptionAdmissionBudget(ctx)
 	ctx = withClientAppRefusalPaidFallback(ctx, in.initialDecision)
@@ -122,6 +123,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		},
 		Prepare: func(ctx context.Context, attempt dispatch.Attempt) (context.Context, error) {
 			lastIdx = attempt.Index
+			lastProvider = attempt.Target.Provider
 			if attempt.Index == 0 {
 				return ctx, nil
 			}
@@ -279,7 +281,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 
 	req := inference.InvocationRequest{Purpose: in.purpose, RequestID: observability.RequestIDFromContext(ctx)}
 	result, runErr := executor.Run(ctx, req, plan, transport)
-	s.recordOverloadOutcome(ctx, in.initialDecision.Model, in.initialDecision.Provider, result.Outcome.ResponseCommitted, runErr)
+	s.recordOverloadOutcome(ctx, in.initialDecision.Model, lastProvider, result.Outcome.ResponseCommitted, runErr)
 	if runErr == nil {
 		return lastIdx, nil
 	}

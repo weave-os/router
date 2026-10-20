@@ -8,6 +8,8 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/breaker"
+
+	"github.com/google/uuid"
 )
 
 // overloadBreakerReason is the disable reason reported for a model whose
@@ -15,9 +17,11 @@ import (
 const overloadBreakerReason = "provider_overloaded"
 
 // Deployment defaults for the breaker thresholds
-// (ROUTER_PROVIDER_OVERLOADED_{STRIKES,WINDOW_SECONDS,RECOVERY_SECONDS,MAX_RECOVERY_SECONDS}).
+// (ROUTER_PROVIDER_OVERLOADED_{STRIKES,WINDOW_SECONDS,ORG_CONFIRMATIONS,
+// RECOVERY_SECONDS,MAX_RECOVERY_SECONDS}).
 const (
 	DefaultOverloadStrikes            = 3
+	DefaultOverloadOrgConfirmations   = 2
 	DefaultOverloadWindowSeconds      = 120
 	DefaultOverloadRecoverySeconds    = 30
 	DefaultOverloadMaxRecoverySeconds = 600
@@ -33,24 +37,35 @@ func (s *Service) WithOverloadBreaker(registry *breaker.Registry) *Service {
 }
 
 // overloadOpenModels is the breaker's share of the deployment-wide automatic
-// exclusion set: every open or half-open model except the one this request
-// holds the probe for.
+// exclusion set for this request's organization: open shared circuits it has
+// confirmed with its own overload failures, plus its own open gateway
+// circuits, except the model this request holds the probe for. A request with
+// no organization sees nothing.
 func (s *Service) overloadOpenModels(ctx context.Context) map[string]struct{} {
-	if s.overloadBreaker == nil || !s.ResolveProviderOverloaded(ctx) {
+	org := overloadOrg(ctx)
+	if s.overloadBreaker == nil || org == "" || !s.ResolveProviderOverloaded(ctx) {
 		return nil
 	}
-	open := s.overloadBreaker.OpenModels()
+	withdrawn := s.overloadBreaker.Withdrawn(org)
 	probe, held := ctx.Value(overloadProbeContextKey{}).(breaker.Probe)
-	if _, excluded := open[probe.Model]; !held || !excluded {
-		return open
+	if _, excluded := withdrawn[probe.Model]; !held || !excluded {
+		return withdrawn
 	}
-	readmitted := make(map[string]struct{}, len(open)-1)
-	for model := range open {
+	readmitted := make(map[string]struct{}, len(withdrawn)-1)
+	for model := range withdrawn {
 		if model != probe.Model {
 			readmitted[model] = struct{}{}
 		}
 	}
 	return readmitted
+}
+
+// overloadOrg is the organization the breaker scopes this request to.
+func overloadOrg(ctx context.Context) string {
+	if id := installationIDFromContext(ctx); id != uuid.Nil {
+		return id.String()
+	}
+	return ""
 }
 
 // claimOverloadProbe hands this request the half-open slot of one due circuit
@@ -61,9 +76,13 @@ func (s *Service) claimOverloadProbe(ctx context.Context, req router.Request) (b
 	if s.overloadBreaker == nil || !s.ResolveProviderOverloaded(ctx) || !s.overloadProbeRescuable(ctx, req) {
 		return breaker.Probe{}, nil, false
 	}
+	org := overloadOrg(ctx)
+	if org == "" {
+		return breaker.Probe{}, nil, false
+	}
 	eligibility := req
 	eligibility.AutomaticExcludedModels = s.controlPlaneExcludedModels(ctx)
-	probe, transition, ok := s.overloadBreaker.ClaimProbe(func(model string) bool {
+	probe, transition, ok := s.overloadBreaker.ClaimProbe(org, func(model string) bool {
 		return !modelExcludedForRecoveryProbe(eligibility, model)
 	})
 	if !ok {
@@ -92,23 +111,27 @@ func withTurnOverloadProbe(ctx context.Context, res turnLoopResult) context.Cont
 // overloadProbeRescuable reports whether a 529 on the probe would be absorbed
 // by the sibling rescue instead of reaching the client: the Gemini ingress
 // never rescues, and the others only under the conditions their siblingViable
-// checks share.
+// checks share. A gateway organization's rescue walks its own gateway
+// aliases, so its requests may probe its isolated circuits.
 func (s *Service) overloadProbeRescuable(ctx context.Context, req router.Request) bool {
 	return req.TranslationRequirements.Endpoint != router.EndpointGeminiGenerate &&
 		s.ResolveSiblingFailover(ctx) &&
-		s.shouldFailover(ctx) &&
+		(s.shouldFailover(ctx) || len(s.gatewayProvidersForRequest(ctx)) > 0) &&
 		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx))
 }
 
 // recordOverloadOutcome feeds one dispatch operation's result to the breaker.
-// For the model this request holds the probe for, a served operation closes
-// the circuit and a 529 reopens it; for any other model a 529 is one strike
-// and a served operation changes nothing, so a slow request that began before
-// the circuit opened cannot close it. Anything else is no evidence either way.
-// BYOK gateway capacity belongs to the tenant's endpoint, not the model, so a
-// gateway-served operation never counts.
+// provider is the binding that produced the outcome: a 529 through the
+// organization's own gateway is evidence about that endpoint only and goes to
+// its isolated circuit, while a 529 straight from a provider is evidence about
+// the provider's capacity and goes to the shared circuit, attributed to the
+// organization so it can confirm. For the model this request holds the probe
+// for, a served operation closes the circuit and a 529 reopens it; otherwise a
+// served operation changes nothing, so a slow request that began before the
+// circuit opened cannot close it. Anything else is no evidence either way.
 func (s *Service) recordOverloadOutcome(ctx context.Context, model, provider string, committed bool, err error) {
-	if s.overloadBreaker == nil || model == "" || providers.IsGateway(provider) || !s.ResolveProviderOverloaded(ctx) {
+	org := overloadOrg(ctx)
+	if s.overloadBreaker == nil || model == "" || org == "" || !s.ResolveProviderOverloaded(ctx) {
 		return
 	}
 	overloaded := err != nil && !committed && !errors.Is(err, context.Canceled) && isProviderOverloaded(err)
@@ -122,7 +145,7 @@ func (s *Service) recordOverloadOutcome(ctx context.Context, model, provider str
 		return
 	}
 	if overloaded {
-		logOverloadTransition(ctx, s.overloadBreaker.RecordOverload(model))
+		logOverloadTransition(ctx, s.overloadBreaker.RecordOverload(org, model, providers.IsGateway(provider)))
 	}
 }
 
@@ -145,8 +168,11 @@ func logOverloadTransition(ctx context.Context, t breaker.Transition) {
 	}
 	log("Overload circuit changed state",
 		"model", t.Model,
+		"installation_id", t.Org,
+		"isolated", t.Isolated,
 		"from", string(t.From),
 		"to", string(t.To),
+		"org_confirmed", t.Confirmed,
 		"overload_failures", t.Failures,
 		"recovery_after_ms", t.RecoveryAfter.Milliseconds(),
 	)
