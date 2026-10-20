@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -15,6 +16,43 @@ import (
 )
 
 const regressionFeedback = "\n\n_Weave Router feedback:_ `$rf +` good · `$rf -` poor"
+
+func TestFeedbackCompletionBufferedChatTextArray(t *testing.T) {
+	w, recorder := feedbackRegressionWriter(false, false)
+	_, err := w.Write([]byte(`{"id":"chat_array","choices":[{"index":0,"message":{"role":"assistant","content":[{"type":"text","text":"answer"}]},"finish_reason":"stop"}]}`))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+	assert.Equal(t, "answer"+regressionFeedback, gjson.Get(recorder.Body.String(), "output.0.content.0.text").Str)
+}
+
+func TestResponsesFeedbackLongAnswerAllocations(t *testing.T) {
+	const deltaCount = 8192
+	delta := []byte("data: {\"type\":\"response.output_text.delta\",\"item_id\":\"msg_long\",\"output_index\":0,\"content_index\":0,\"delta\":\"0123456789abcdef\"}\n\n")
+	answer := strings.Repeat("0123456789abcdef", deltaCount)
+	terminal := []byte(`data: {"type":"response.completed","response":{"id":"resp_long","status":"completed","output":[{"type":"message","id":"msg_long","role":"assistant","content":[{"type":"output_text","text":"` + answer + `"}]}]}}` + "\n\n")
+	runtime.GC()
+	var before, after runtime.MemStats
+	runtime.ReadMemStats(&before)
+	w, recorder := feedbackRegressionWriter(true, true)
+	for range deltaCount {
+		_, err := w.Write(delta)
+		require.NoError(t, err)
+	}
+	_, err := w.Write(terminal)
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+	runtime.ReadMemStats(&after)
+	allocated := after.TotalAlloc - before.TotalAlloc
+	t.Logf("128 KiB answer in 16-byte deltas allocated %d bytes", allocated)
+	assert.Less(t, allocated, uint64(96*1024*1024), "stream accumulation must not copy every complete answer prefix")
+	footerDeltas := 0
+	for _, event := range feedbackRegressionEvents(t, recorder.Body.String()) {
+		if event.Get("type").Str == "response.output_text.delta" && strings.Contains(event.Get("delta").Str, "Weave Router feedback") {
+			footerDeltas++
+		}
+	}
+	assert.Equal(t, 1, footerDeltas)
+}
 
 type feedbackRegressionOutput struct {
 	*translate.ResponsesWriter

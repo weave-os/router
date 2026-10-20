@@ -230,7 +230,7 @@ func (o *CompletionObserver) observe(root gjson.Result, event string, buffered b
 		if buffered {
 			message = choice.Get("message")
 		}
-		o.observeText(message.Get("content").Str)
+		o.observeText(chatContentText(message.Get("content")))
 		if message.Get("tool_calls").IsArray() && len(message.Get("tool_calls").Array()) > 0 || message.Get("function_call.name").Str != "" || message.Get("function_call.arguments").Str != "" {
 			facts.Tool = true
 		}

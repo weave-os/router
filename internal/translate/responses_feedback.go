@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -23,6 +24,46 @@ type responsesFeedbackTarget struct {
 	partStarted  bool
 }
 
+type responsesFeedbackPart struct {
+	text         strings.Builder
+	noticePrefix string
+	insideNotice bool
+	lastNewline  bool
+	answerSeen   bool
+}
+
+// append classifies only new text. The retained prefix is bounded by the notice
+// introducers; notice bodies and answer prefixes are never repeatedly scanned.
+func (p *responsesFeedbackPart) append(text string) {
+	p.text.WriteString(text)
+	for _, character := range text {
+		if p.answerSeen {
+			return
+		}
+		if p.insideNotice {
+			if character == '\n' && p.lastNewline {
+				p.insideNotice = false
+				p.lastNewline = false
+			} else {
+				p.lastNewline = character == '\n'
+			}
+			continue
+		}
+		if p.noticePrefix == "" && unicode.IsSpace(character) {
+			continue
+		}
+		p.noticePrefix += string(character)
+		if p.noticePrefix == routerNoticeSentinel || p.noticePrefix == legacyRoutingMarkerPrefix {
+			p.noticePrefix = ""
+			p.insideNotice = true
+			continue
+		}
+		if !strings.HasPrefix(routerNoticeSentinel, p.noticePrefix) && !strings.HasPrefix(legacyRoutingMarkerPrefix, p.noticePrefix) {
+			p.answerSeen = true
+		}
+	}
+}
+
 // ResponsesFeedbackWriter serializes a completion suffix without changing provider facts.
 type ResponsesFeedbackWriter struct {
 	http.ResponseWriter
@@ -34,7 +75,7 @@ type ResponsesFeedbackWriter struct {
 	items         map[int64]json.RawMessage
 	startedItems  map[int64]bool
 	startedParts  map[string]bool
-	streamedParts map[string]string
+	streamedParts map[string]*responsesFeedbackPart
 	sequenceShift int64
 	lastSequence  int64
 	hasSequence   bool
@@ -43,7 +84,7 @@ type ResponsesFeedbackWriter struct {
 
 // NewResponsesFeedbackWriter attaches feedback after Responses conversion and notices.
 func NewResponsesFeedbackWriter(w http.ResponseWriter, delivery *FeedbackDelivery) *ResponsesFeedbackWriter {
-	return &ResponsesFeedbackWriter{ResponseWriter: w, delivery: delivery, items: make(map[int64]json.RawMessage), startedItems: make(map[int64]bool), startedParts: make(map[string]bool), streamedParts: make(map[string]string)}
+	return &ResponsesFeedbackWriter{ResponseWriter: w, delivery: delivery, items: make(map[int64]json.RawMessage), startedItems: make(map[int64]bool), startedParts: make(map[string]bool), streamedParts: make(map[string]*responsesFeedbackPart)}
 }
 
 func (w *ResponsesFeedbackWriter) WriteHeader(status int) {
@@ -199,7 +240,9 @@ func (w *ResponsesFeedbackWriter) selectTarget(target *responsesFeedbackTarget) 
 	}
 	target.itemStarted = w.startedItems[target.outputIndex]
 	target.partStarted = w.startedParts[responsesFeedbackPartKey(target.outputIndex, target.contentIndex)]
-	target.streamed = w.streamedParts[responsesFeedbackPartKey(target.outputIndex, target.contentIndex)]
+	if part := w.streamedParts[responsesFeedbackPartKey(target.outputIndex, target.contentIndex)]; part != nil {
+		target.streamed = part.text.String()
+	}
 	if len(target.item) == 0 {
 		target.item = w.items[target.outputIndex]
 	}
@@ -240,10 +283,17 @@ func (w *ResponsesFeedbackWriter) observe(root gjson.Result) error {
 			return nil
 		}
 		key := responsesFeedbackPartKey(outputIndex, contentIndex)
+		part := w.streamedParts[key]
+		if part == nil {
+			part = &responsesFeedbackPart{}
+			w.streamedParts[key] = part
+		}
 		if eventType == responsesContentPartAdded {
 			w.startedParts[key] = true
 			if text := root.Get("part.text").Str; text != "" {
-				w.streamedParts[key] = text
+				part = &responsesFeedbackPart{}
+				part.append(text)
+				w.streamedParts[key] = part
 			}
 		}
 		text := root.Get("text").Str
@@ -251,10 +301,12 @@ func (w *ResponsesFeedbackWriter) observe(root gjson.Result) error {
 			text = root.Get("part.text").Str
 		}
 		if eventType == responsesOutputTextDelta {
-			w.streamedParts[key] += root.Get("delta").Str
-			text = w.streamedParts[key]
-		}
-		if strings.TrimSpace(text) == "" || isRouterOnlyNoticeText(text) {
+			part.append(root.Get("delta").Str)
+			if !part.answerSeen {
+				return nil
+			}
+			text = part.text.String()
+		} else if strings.TrimSpace(text) == "" || isRouterOnlyNoticeText(text) {
 			return nil
 		}
 		target := &responsesFeedbackTarget{itemID: root.Get("item_id").Str, outputIndex: outputIndex, contentIndex: contentIndex}
@@ -262,7 +314,7 @@ func (w *ResponsesFeedbackWriter) observe(root gjson.Result) error {
 			return err
 		}
 		w.target.text = text
-		w.target.streamed = w.streamedParts[key]
+		w.target.streamed = part.text.String()
 		w.target.partStarted = w.startedParts[key]
 
 	}
