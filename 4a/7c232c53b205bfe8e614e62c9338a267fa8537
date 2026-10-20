@@ -1,0 +1,21 @@
+internal/translate/terminal_failure.go
+  s_731acdf047322b::t_7215e81228a830 214-217,244-253
+internal/translate/terminal_failure_adapter_test.go
+  s_731acdf047322b::t_a6cbe7a0f6f86c 167-210
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4a7c232c53b205bfe8e614e62c9338a267fa8537",
+  "prompts": {},
+  "sessions": {
+    "s_731acdf047322b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15b23-c841-7b82-88af-b6f978d77487",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
