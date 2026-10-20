@@ -1,0 +1,19 @@
+cmd/router/task_domain_test.go
+  s_4656f0ff098c70::t_25ee0daafa41df 141,148-161,172-174,177-178,215,228,230,232-233,235-236,245,248
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f71345fe558a1ec901ce30202829910fc774ad91",
+  "prompts": {},
+  "sessions": {
+    "s_4656f0ff098c70": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11428-0222-73e0-beb3-42e23a3968c5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

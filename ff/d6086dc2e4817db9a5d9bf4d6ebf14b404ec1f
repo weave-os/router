@@ -1,0 +1,19 @@
+internal/proxy/turnloop.go
+  s_28c8815db4c15b::t_bdae89a2f1f2df 764-765
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "ffd6086dc2e4817db9a5d9bf4d6ebf14b404ec1f",
+  "prompts": {},
+  "sessions": {
+    "s_28c8815db4c15b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0832c-78ed-7dc3-829b-0f975789e8e8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

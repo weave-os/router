@@ -1,0 +1,27 @@
+docs/SUBSCRIPTION_ROUTING.md
+  s_1db6142e1ccde1::t_afa065a3947bc4 89-93
+internal/proxy/managed_subscriptions.go
+  s_1db6142e1ccde1::t_4b086c8ce5e0dd 245-247
+internal/proxy/subscription_funding.go
+  s_1db6142e1ccde1::t_e0974903e3e1ff 80,95-96,99-101,118
+internal/proxy/subscription_third_party.go
+  s_1db6142e1ccde1::t_126706e82483a3 56-68
+internal/proxy/subscription_third_party_internal_test.go
+  s_1db6142e1ccde1::t_1b7ad5e0a6d28c 362-447
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "06144a6ac28267c65173ad06bb904eee4ea9cace",
+  "prompts": {},
+  "sessions": {
+    "s_1db6142e1ccde1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "828223f5-c12c-43c8-b2f7-b9a655f10b9e",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,28 @@
+install/install.sh
+  s_f3547789752bdd::t_1f9682a50a43b2 366-369,371,378-387,394-401,1872-1874,1900-1919,1927
+  s_f3547789752bdd::t_4c313572b1bd7c 388-393,1923-1926
+install/tests/registry_test.sh
+  s_f3547789752bdd::t_0126e497005642 196-228,412-418
+  s_f3547789752bdd::t_06371466788d65 229-245
+install/uninstall.sh
+  s_f3547789752bdd::t_1f9682a50a43b2 144-145,163-172,178-184,853,856,868,904,916,918-919,922-923
+  s_f3547789752bdd::t_b0f5971dc3009d 914-915,917,920-921,929,934,976
+  s_f3547789752bdd::t_4c313572b1bd7c 173-176
+  s_f3547789752bdd::t_a114a7df40ceb3 177
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "07e007091c938db7911a1dafa38b885e9163d70c",
+  "prompts": {},
+  "sessions": {
+    "s_f3547789752bdd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0a638-906d-7943-af31-16faa734d88d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

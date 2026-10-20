@@ -1,0 +1,19 @@
+internal/translate/crossformat_request_test.go
+  s_44fa8a85115b62::t_7a1784f4af6158 2155-2158,2160-2180,2183,2185,2187,2189,2192-2194
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f145e11dd831ffec58576b202484578a9714be8c",
+  "prompts": {},
+  "sessions": {
+    "s_44fa8a85115b62": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a082b7-8b2e-7632-9289-47bd4c7cd224",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
