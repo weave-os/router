@@ -30,6 +30,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandit"
 	"weave-os/router/internal/router/bandswap"
+	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/cache"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/cluster"
@@ -301,6 +302,11 @@ type Service struct {
 	// ROUTER_RATE_LIMIT_COOLDOWN_SECONDS; see ResolveTransientRateLimit.
 	transientRateLimit       bool
 	rateLimitCooldownSeconds int
+	// providerOverloaded is the deployment default for
+	// ROUTER_PROVIDER_OVERLOADED; overloadBreaker is the replica's per-model
+	// 529 circuit registry. See ResolveProviderOverloaded.
+	providerOverloaded bool
+	overloadBreaker    *breaker.Registry
 	// sseKeepalive is the client-silence budget before a ping is injected
 	// (ROUTER_SSE_KEEPALIVE_INTERVAL_SECONDS; 0 disables). See sse.KeepaliveWriter.
 	sseKeepalive time.Duration
@@ -1972,6 +1978,13 @@ func (s *Service) WithRescuedFailureArmDemotion(enabled bool) *Service {
 func (s *Service) WithTransientRateLimit(enabled bool, cooldownSeconds int) *Service {
 	s.transientRateLimit = enabled
 	s.rateLimitCooldownSeconds = cooldownSeconds
+	return s
+}
+
+// WithProviderOverloaded sets the deployment default for the 529 circuit
+// breaker (ROUTER_PROVIDER_OVERLOADED).
+func (s *Service) WithProviderOverloaded(enabled bool) *Service {
+	s.providerOverloaded = enabled
 	return s
 }
 

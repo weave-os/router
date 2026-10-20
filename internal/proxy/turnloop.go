@@ -314,8 +314,9 @@ type turnLoopResult struct {
 	// the in-turn rescue can readmit them when honouring them would leave no
 	// candidate. Empty unless transient_rate_limit is on.
 	SessionCooldownModels map[string]time.Time
-	// CooldownProbeReleases hold one half-open probe slot per expired model
-	// until provider dispatch completes.
+	// CooldownProbeReleases hold one half-open probe slot per expired session
+	// cooldown, plus any overload-circuit probe, until provider dispatch
+	// completes.
 	CooldownProbeReleases []func()
 	// CooldownProbes maps each model this request holds a recovery probe for
 	// to the cooldown expiry it observed, so a successful turn clears exactly
@@ -865,6 +866,18 @@ func (s *Service) runTurnLoop(
 		}
 		forceModelPin.Provider = binding
 		req.ExcludedModels = s.readmitForcedModel(ctx, req, env, feats, forceModelPin)
+	}
+	// A due overload circuit readmits its model for this one request; the
+	// ordinary selection paths decide whether the probe actually reaches it,
+	// and an unexercised slot is released when the request ends. Only main
+	// and tool-result turns probe: they carry the sibling rescue that absorbs
+	// a failed probe, which utility turns do not.
+	if !forceModelFound && authoritativePolicyTurn(res.TurnType) {
+		if probeCtx, release, claimed := s.claimOverloadProbe(ctx, req); claimed {
+			ctx = probeCtx
+			res.CooldownProbeReleases = append(res.CooldownProbeReleases, release)
+			req.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
+		}
 	}
 	if auth.RoutingPassthroughFrom(ctx) && !forceModelFound {
 		decision, err := s.callerModelPassthroughDecision(ctx, req)

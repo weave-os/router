@@ -58,6 +58,7 @@ collapse them.
 | `cluster_model_lists` | API key (org default) | fail-open | `policy.ApplyClusterArmOverrides` |
 | `model_router_user_cluster_model_lists` | router user | fail-open | same, after `mergeClusterOverrides` |
 | subscription capacity | verified account owner + installation membership (personal keys); live installation-shared key | fail-closed | primary candidate admission; personal then sharing; native OAuth support and quota/overage checks |
+| overload circuit breaker | router replica | fail-open (soft) | folded into `AutomaticExcludedModels` by `globalAutomaticExcludedModels` |
 
 **The allowlist is desugared, not separately filtered.** `excludedModelsForRequest`
 adds every routable model absent from a non-empty allowlist to the exclusion
@@ -94,6 +95,24 @@ it to `Pin.TurnStrikes` (skipped for hard pins and `/force-model`).
 requests and clears them on the next real user prompt
 (`RequestEnvelope.EndsWithUserPrompt`), so the session doesn't swap back to the
 failing model mid-turn.
+
+**A model that keeps answering 529 is circuit-broken for the replica.** Under
+`provider_overloaded` (default off), `dispatchPlanned` reports each executor
+operation to [`internal/router/breaker`](../router/breaker): an operation that
+exhausted on a buffered 529 (Anthropic's `overloaded_error`) is one strike,
+however many same-binding retries it took. Strikes within the window open the
+model's circuit, and `globalAutomaticExcludedModels` adds open models to the
+deployment-wide soft exclusion, so every automatic path routes around them
+with no new check and `/force-model` still reaches them. After the recovery
+timeout `runTurnLoop` lets one eligible request claim the half-open probe and
+readmits the model for that request alone: a served operation closes the
+circuit and resets it, another 529 reopens it for twice as long (capped), and a
+request that served something else releases the slot. Committed streams,
+client cancellations, other statuses and BYOK gateways are not overload
+evidence. State is in-process per replica by design: the request path reads an
+atomically published set, and a served request on a closed circuit takes no
+lock. The semantic cache is skipped while any circuit is open, as for any
+automatic exclusion.
 
 **Rescued transient failures get a bounded cooldown, not a session-lifetime
 strike.** Under `transient_rate_limit` (default off),

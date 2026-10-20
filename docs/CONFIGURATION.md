@@ -495,6 +495,11 @@ the admission caches using the same Pub/Sub project and topic.
 | `ROUTER_COMPACTION_TIMEOUT_MS`    | `90000`                      | Hard timeout for one compaction-handover summary call (separate from `ROUTER_HANDOVER_TIMEOUT_MS`; a Sonnet-class summary of a near-full window is slow). On timeout the full history is kept. |
 | `ROUTER_ESCALATION_JUDGE_ENABLED` | `false` | Enables the optional Weave-funded Switchyard LLM judge and requires `FIREWORKS_API_KEY`. The judge uses only the Fireworks binding for `z-ai/glm-5.3-flash`. |
 | `ROUTER_ESCALATION_JUDGE_ACTIVE_ENABLED` | `false` | Allows `switchyard_llm_v1` to be selected as the active classifier. Keep false during shadow evaluation; requires `ROUTER_ESCALATION_JUDGE_ENABLED=true`. |
+| `ROUTER_PROVIDER_OVERLOADED`      | `false`                      | Per-model 529 circuit breaker. After repeated upstream overloaded responses, the model leaves automatic selection on this replica (`/force-model` still reaches it) and is probed again after a backoff. Org-overridable as `provider_overloaded`. |
+| `ROUTER_PROVIDER_OVERLOADED_STRIKES` | `3`                       | Overloaded dispatch operations (same-binding retries count once) within the window that open a model's circuit. |
+| `ROUTER_PROVIDER_OVERLOADED_WINDOW_SECONDS` | `120`              | Window over which strikes are counted. |
+| `ROUTER_PROVIDER_OVERLOADED_RECOVERY_SECONDS` | `30`             | First open period before one request probes the model; each failed probe doubles it. |
+| `ROUTER_PROVIDER_OVERLOADED_MAX_RECOVERY_SECONDS` | `600`        | Cap on the doubled open period. |
 | `ROUTER_ONNX_ASSETS_DIR`          | `/opt/router/assets`         | Directory containing `model.onnx` + `tokenizer.json`. |
 | `ROUTER_ONNX_LIBRARY_DIR`         | *(system default)*           | Path to `libonnxruntime` (e.g. `/opt/homebrew/lib` on Apple Silicon). |
 

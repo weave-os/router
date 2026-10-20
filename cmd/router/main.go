@@ -51,6 +51,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandit"
 	"weave-os/router/internal/router/banditexplore"
+	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/cache"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/cluster"
@@ -808,6 +809,16 @@ func main() {
 	// rescue and Retry-After-aware same-binding retry. Off until baked off.
 	transientRateLimit := config.GetOr("ROUTER_TRANSIENT_RATE_LIMIT", "false") == "true"
 	rateLimitCooldownSeconds := parseEnvInt("ROUTER_RATE_LIMIT_COOLDOWN_SECONDS", proxy.DefaultRateLimitCooldownSeconds)
+	// Per-model 529 circuit breaker. The registry is always built so a per-org
+	// override can enable it; the thresholds are deployment-wide because the
+	// circuits are shared by every installation on this replica.
+	providerOverloaded := config.GetOr("ROUTER_PROVIDER_OVERLOADED", "false") == "true"
+	overloadBreaker := breaker.New(breaker.Config{
+		Strikes:      parseEnvInt("ROUTER_PROVIDER_OVERLOADED_STRIKES", proxy.DefaultOverloadStrikes),
+		Window:       time.Duration(parseEnvInt("ROUTER_PROVIDER_OVERLOADED_WINDOW_SECONDS", proxy.DefaultOverloadWindowSeconds)) * time.Second,
+		RecoveryBase: time.Duration(parseEnvInt("ROUTER_PROVIDER_OVERLOADED_RECOVERY_SECONDS", proxy.DefaultOverloadRecoverySeconds)) * time.Second,
+		RecoveryCap:  time.Duration(parseEnvInt("ROUTER_PROVIDER_OVERLOADED_MAX_RECOVERY_SECONDS", proxy.DefaultOverloadMaxRecoverySeconds)) * time.Second,
+	}, nil)
 	// nativeAnthropicResponseSignals records the stop reason and tool_use block
 	// count an Anthropic-native turn already streams past the usage extractor;
 	// kill switch for that extraction and the telemetry columns it fills.
@@ -1290,6 +1301,7 @@ func main() {
 		flags.KeyRescuedFailureArmDemotion:            boolDefault(rescuedFailureArmDemotion),
 		flags.KeyTransientRateLimit:                   boolDefault(transientRateLimit),
 		flags.KeyRateLimitCooldownSeconds:             strconv.Itoa(rateLimitCooldownSeconds),
+		flags.KeyProviderOverloaded:                   boolDefault(providerOverloaded),
 		flags.KeyNativeAnthropicResponseSignals:       boolDefault(nativeAnthropicResponseSignals),
 		flags.KeyNativeOpenAIResponseSignals:          boolDefault(nativeOpenAIResponseSignals),
 		flags.KeyEffortEscalation:                     boolDefault(effortEscalation),
@@ -1383,6 +1395,8 @@ func main() {
 		WithCommittedStreamArmDemotion(committedStreamArmDemotion).
 		WithRescuedFailureArmDemotion(rescuedFailureArmDemotion).
 		WithTransientRateLimit(transientRateLimit, rateLimitCooldownSeconds).
+		WithProviderOverloaded(providerOverloaded).
+		WithOverloadBreaker(overloadBreaker).
 		WithNativeAnthropicResponseSignals(nativeAnthropicResponseSignals).
 		WithNativeOpenAIResponseSignals(nativeOpenAIResponseSignals).
 		WithSSEKeepalive(sseKeepalive).

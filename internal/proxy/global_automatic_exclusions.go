@@ -104,8 +104,20 @@ func mergeExcludedModels(hard, automatic map[string]struct{}) map[string]struct{
 }
 
 // globalAutomaticExcludedModels returns the deployment-wide soft exclusion set
-// for this request, or nil when nothing is disabled.
+// for this request, or nil when nothing is disabled: the control plane's list
+// plus every model whose overload circuit is open.
 func (s *Service) globalAutomaticExcludedModels(ctx context.Context) map[string]struct{} {
+	controlPlane := s.controlPlaneExcludedModels(ctx)
+	overloaded := s.overloadOpenModels(ctx)
+	if len(overloaded) == 0 {
+		return controlPlane
+	}
+	return mergeExcludedModels(overloaded, controlPlane)
+}
+
+// controlPlaneExcludedModels is the operator-maintained part of
+// globalAutomaticExcludedModels.
+func (s *Service) controlPlaneExcludedModels(ctx context.Context) map[string]struct{} {
 	if s.globalAutomaticExclusions == nil {
 		return nil
 	}
@@ -123,9 +135,13 @@ func (s *Service) globalAutomaticExcludedModels(ctx context.Context) map[string]
 // globalAutomaticExclusionReason returns the operator's note for a disabled
 // model, so a dropped automatic pin says why in the logs.
 func (s *Service) globalAutomaticExclusionReason(ctx context.Context, model string) (string, bool) {
-	if s.globalAutomaticExclusions == nil {
-		return "", false
+	if s.globalAutomaticExclusions != nil {
+		if reason, disabled := s.globalAutomaticExclusions.snapshot(ctx)[model]; disabled {
+			return reason, true
+		}
 	}
-	reason, disabled := s.globalAutomaticExclusions.snapshot(ctx)[model]
-	return reason, disabled
+	if _, open := s.overloadOpenModels(ctx)[model]; open {
+		return overloadBreakerReason, true
+	}
+	return "", false
 }

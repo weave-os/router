@@ -279,6 +279,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 
 	req := inference.InvocationRequest{Purpose: in.purpose, RequestID: observability.RequestIDFromContext(ctx)}
 	result, runErr := executor.Run(ctx, req, plan, transport)
+	s.recordOverloadOutcome(ctx, in.initialDecision.Model, in.initialDecision.Provider, result.Outcome.ResponseCommitted, runErr)
 	if runErr == nil {
 		return lastIdx, nil
 	}
