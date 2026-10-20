@@ -18,6 +18,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
 
@@ -328,70 +329,61 @@ const subscriptionSpendCapWarningMarker = routingMarkerPrefix +
 const subscriptionSpendCapWarningMarkerCodex = routingMarkerPrefix +
 	"a Weave router spend cap has been reached, so this turn is running on your own ChatGPT (Codex) subscription and paid model fallback is disabled.\n\n"
 
-// subscriptionOnlyWarnings holds one surface's subscription-only warning per
-// reason that disabled paid fallback.
-type subscriptionOnlyWarnings struct {
-	creditsDepleted string
-	spendCapReached string
+// subscriptionFundingWarning keeps funding policy separate from notice encoding.
+type subscriptionFundingWarning struct {
+	reason billing.SubscriptionOnlyReason
+	source subscriptions.Provider
 }
 
-var (
-	anthropicSubscriptionOnlyWarnings = subscriptionOnlyWarnings{subscriptionOnlyWarningMarker, subscriptionSpendCapWarningMarker}
-	codexSubscriptionOnlyWarnings     = subscriptionOnlyWarnings{subscriptionOnlyWarningMarkerCodex, subscriptionSpendCapWarningMarkerCodex}
-)
-
-// forReason returns the warning for why the turn is subscription-only, or ""
-// when nothing disabled paid fallback. A linked-first turn is the ordinary
-// funded path — the caller's own plan paying first by design — and keeps its
-// routing marker.
-func (w subscriptionOnlyWarnings) forReason(ctx context.Context) string {
-	reason, _ := billing.SubscriptionOnlyReasonFromContext(ctx)
-	switch reason {
+func (w subscriptionFundingWarning) text() string {
+	switch w.reason {
 	case billing.SubscriptionOnlyCreditsDepleted:
-		return w.creditsDepleted
+		if w.source == subscriptions.ProviderCodex {
+			return subscriptionOnlyWarningMarkerCodex
+		}
+		return subscriptionOnlyWarningMarker
 	case billing.SubscriptionOnlySpendCapReached:
-		return w.spendCapReached
+		if w.source == subscriptions.ProviderCodex {
+			return subscriptionSpendCapWarningMarkerCodex
+		}
+		return subscriptionSpendCapWarningMarker
 	default:
 		return ""
 	}
 }
 
-// subscriptionOnlyWarningMarkerForRequest returns the subscription-only
-// warning when a funding gate disabled paid fallback for the turn, the
-// conversation has not already shown that warning, and the caller has not
-// opted out of terminal routing surfaces. Once shown, later turns keep their
-// ordinary routing marker; a different warning (the reason changed) still shows.
-func subscriptionOnlyWarningMarkerForRequest(ctx context.Context, headers http.Header, warnings subscriptionOnlyWarnings) string {
-	warning := warnings.forReason(ctx)
-	if warning == "" {
-		return ""
+func routerNoticeForRequest(ctx context.Context, headers http.Header, source subscriptions.Provider, model, marker string) translate.RouterNotice {
+	kind := translate.NoticeModelSelection
+	reason, _ := billing.SubscriptionOnlyReasonFromContext(ctx)
+	warning := subscriptionFundingWarning{reason: reason, source: source}
+	echoed, _ := ctx.Value(subscriptionOnlyWarningsEchoedContextKey{}).(map[subscriptionFundingWarning]bool)
+	if text := warning.text(); text != "" && !echoed[warning] {
+		kind = translate.NoticeFundingWarning
+		marker = text
 	}
-	if echoed, _ := ctx.Value(subscriptionOnlyWarningsEchoedContextKey{}).(map[string]bool); echoed[warning] {
-		return ""
-	}
-	return suppressMarkerIfRequested(ctx, headers, warning)
+	return translate.NewRouterNotice(kind, suppressMarkerIfRequested(ctx, headers, marker), model, "")
 }
 
 type subscriptionOnlyWarningsEchoedContextKey struct{}
 
-var allSubscriptionOnlyWarnings = []string{
-	subscriptionOnlyWarningMarker,
-	subscriptionOnlyWarningMarkerCodex,
-	subscriptionSpendCapWarningMarker,
-	subscriptionSpendCapWarningMarkerCodex,
+var subscriptionFundingWarnings = []subscriptionFundingWarning{
+	{reason: billing.SubscriptionOnlyCreditsDepleted, source: subscriptions.ProviderClaude},
+	{reason: billing.SubscriptionOnlyCreditsDepleted, source: subscriptions.ProviderCodex},
+	{reason: billing.SubscriptionOnlySpendCapReached, source: subscriptions.ProviderClaude},
+	{reason: billing.SubscriptionOnlySpendCapReached, source: subscriptions.ProviderCodex},
 }
 
-// withSubscriptionOnlyWarningEcho records which subscription-only warnings the
-// client's history already carries, so each shows once per conversation rather
-// than on every turn. Must read the body before the routing-marker strip. Merges
-// with an earlier record because the Responses path strips its badge before
-// delegating to the chat path.
+// Capture replay evidence before cleanup, retaining it through Responses delegation.
 func withSubscriptionOnlyWarningEcho(ctx context.Context, body []byte) context.Context {
-	echoed := translate.EchoedInAssistantText(body, allSubscriptionOnlyWarnings)
-	if prior, ok := ctx.Value(subscriptionOnlyWarningsEchoedContextKey{}).(map[string]bool); ok {
-		for warning, seen := range prior {
-			echoed[warning] = echoed[warning] || seen
-		}
+	texts := make([]string, 0, len(subscriptionFundingWarnings))
+	for _, warning := range subscriptionFundingWarnings {
+		texts = append(texts, warning.text())
+	}
+	seen := translate.EchoedInAssistantText(body, texts)
+	echoed := make(map[subscriptionFundingWarning]bool, len(subscriptionFundingWarnings))
+	prior, _ := ctx.Value(subscriptionOnlyWarningsEchoedContextKey{}).(map[subscriptionFundingWarning]bool)
+	for _, warning := range subscriptionFundingWarnings {
+		echoed[warning] = seen[warning.text()] || prior[warning]
 	}
 	return context.WithValue(ctx, subscriptionOnlyWarningsEchoedContextKey{}, echoed)
 }
@@ -519,10 +511,6 @@ func (s *Service) bypassToAnthropic(
 		}()
 	}
 
-	// Subscription-only mode: prepend a warning
-	// text block so the customer sees they're on their own subscription with
-	// paid failover disabled, and how to restore full routing. The marker writer
-	// injects only on a streaming response and is transparent otherwise.
 	respW := http.ResponseWriter(w)
 	var streamCost *streamCostWriter
 	if env.Stream() {
@@ -530,8 +518,12 @@ func (s *Service) bypassToAnthropic(
 		streamCost.SetCostCalculator(routerCostCalculatorFor(decision.Model, decision.Provider, opts.FastMode), false, func() bool { return translate.AnthropicRequestCacheTTL1h(prep.Body) })
 		respW = streamCost
 	}
-	if warning := subscriptionOnlyWarningMarkerForRequest(ctx, r.Header, anthropicSubscriptionOnlyWarnings); warning != "" {
-		respW = translate.NewAnthropicRoutingMarkerWriter(respW, decision.Model, warning)
+	preludeBuf := newPreludeBuffer(respW)
+	notices := &requestNoticeStream{}
+	notice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, decision.Model, "")
+	respW, noticeErr := notices.prepare(ctx, preludeBuf, preludeBuf, translate.FormatAnthropic, env.Stream(), notice)
+	if noticeErr != nil {
+		return fmt.Errorf("emit bypass funding notice: %w", noticeErr)
 	}
 
 	// Tap the response stream so the bypass span carries token usage for
@@ -546,12 +538,23 @@ func (s *Service) bypassToAnthropic(
 	if streamCost != nil {
 		streamCost.source = extractor.UsageFacts
 	}
+
+	var terminal *streamTerminalObserver
+	if env.Stream() {
+		terminal = newStreamTerminalObserver(respW, nativeStreamAnthropic)
+		respW = terminal
+	}
+	preludeBuf.Seal()
+
 	proxyStart := time.Now()
 	inferenceParentCtx := ctx
 	ctx, inferenceSpan := startInferenceSpan(ctx, decision, clientSessionIDForRequest(ctx, env))
 	toolNames := translate.NewAnthropicToolNameWriter(respW, prep.ResponseToolNames)
 	proxyErr := p.Proxy(ctx, decision, prep, toolNames, r)
 	proxyErr = finalizeAfterProxy(proxyErr, toolNames.Finalize)
+	if proxyErr == nil && terminal != nil {
+		proxyErr = terminal.streamErr()
+	}
 	finishInferenceSpan(inferenceSpan, decision, decision.Provider, 0, proxyErr)
 	ctx = restoreParentSpan(ctx, inferenceParentCtx)
 	// The Anthropic adapter returns a buffered *UpstreamErrorResponse on 4xx/5xx
@@ -567,14 +570,19 @@ func (s *Service) bypassToAnthropic(
 	// directly so the client sees the real failure instead of a silent reroute.
 	var upstreamErr *providers.UpstreamErrorResponse
 	s.recordSubscriptionModelRejection(ctx, decision.Provider, decision.Model, proxyErr)
-	if providers.IsRetryable(proxyErr) {
+	if proxyErr != nil {
+		preludeBuf.Discard()
+	}
+	if env.Stream() && proxyErr != nil && preludeBuf.Committed() {
+		proxyErr = emitAnthropicSSEErrorEvent(w, proxyErr)
+	} else if !preludeBuf.Committed() && providers.IsRetryable(proxyErr) {
 		return errBypassRetryable
 	}
-	if (anthropicSubscriptionModelRejected(proxyErr) || anthropicSubscriptionThirdPartyRefused(proxyErr)) && s.anthropicFallbackKeyAvailable(ctx) &&
+	if !preludeBuf.Committed() && (anthropicSubscriptionModelRejected(proxyErr) || anthropicSubscriptionThirdPartyRefused(proxyErr)) && s.anthropicFallbackKeyAvailable(ctx) &&
 		(!billing.SubscriptionOnlyFromContext(ctx) || linkedFirst(ctx)) {
 		return errBypassRetryable
 	}
-	if errors.As(proxyErr, &upstreamErr) {
+	if !preludeBuf.Committed() && errors.As(proxyErr, &upstreamErr) {
 		flushUpstreamErrorAsAnthropic(w, proxyErr)
 		proxyErr = nil
 	}

@@ -551,6 +551,8 @@ func TestSubscriptionOnly_ServesOnSubscription_EvenAboveThreshold(t *testing.T) 
 		WithUsageObserver(obs)
 
 	rec, req, body := bypassRequest(t)
+	body, err := sjson.SetBytes(body, "stream", true)
+	require.NoError(t, err)
 	ctx := billing.WithSubscriptionOnly(bypassCtx(0.80), billing.SubscriptionOnlyCreditsDepleted)
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
 
@@ -567,6 +569,8 @@ func TestSubscriptionOnlyWarning_RespectsRoutingMarkerOptOut(t *testing.T) {
 	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil)
 
 	rec, req, body := bypassRequest(t)
+	body, err := sjson.SetBytes(body, "stream", true)
+	require.NoError(t, err)
 	req.Header.Set("X-Weave-Routing-Marker", "off")
 	ctx := billing.WithSubscriptionOnly(bypassCtx(0.80), billing.SubscriptionOnlyCreditsDepleted)
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
@@ -708,9 +712,16 @@ func (s *swapErrProvider) Proxy(ctx context.Context, decision router.Decision, p
 	if s.calls > 1 {
 		err = s.second
 	}
-	orig := s.inner.proxyErr
+	orig, response := s.inner.proxyErr, s.inner.proxyResponse
 	s.inner.proxyErr = err
-	defer func() { s.inner.proxyErr = orig }()
+	if err != nil {
+		// A buffered rejection does not also write a successful response.
+		s.inner.proxyResponse = nil
+	}
+	defer func() {
+		s.inner.proxyErr = orig
+		s.inner.proxyResponse = response
+	}()
 	return s.inner.Proxy(ctx, decision, prep, w, r)
 }
 
