@@ -1011,6 +1011,14 @@ func (c *Client) doPolicyAttempt(
 	if readErr != nil {
 		return nil, nil, false, c.attemptError(ctx, attemptCtx, attempt, fmt.Errorf("read policy route response: %w", readErr))
 	}
+	if resp.StatusCode == http.StatusServiceUnavailable {
+		var failure struct {
+			Error policy.ClassifierErrorCode `json:"error"`
+		}
+		if json.Unmarshal(payload, &failure) == nil && failure.Error == policy.ClassifierWarmingCode {
+			return nil, nil, true, policy.ErrClassifierWarming
+		}
+	}
 	if !isTransientPolicyStatus(resp.StatusCode) {
 		return resp, payload, true, nil
 	}

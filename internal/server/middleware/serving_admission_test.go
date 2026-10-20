@@ -318,6 +318,8 @@ func TestDirectAdmissionMapsCredentialFailuresAndInfrastructureFailures(t *testi
 		{name: "invalid credential", err: auth.ErrInvalidToken, wantStatus: http.StatusUnauthorized, wantBody: "invalid_key"},
 		{name: "revoked subject", err: auth.ErrPersonalCredentialRequired, wantStatus: http.StatusUnauthorized, wantBody: "invalid_key"},
 		{name: "registry outage", err: errors.New("primary unavailable"), wantStatus: http.StatusServiceUnavailable, wantBody: "serving_admission_unavailable"},
+		{name: "classifier changed", err: policyregistry.ErrRoutingModelChanged, wantStatus: http.StatusConflict, wantBody: "start_new_thread_to_change_router"},
+		{name: "classifier has no conversation", err: policyregistry.ErrRoutingModelSessionRequired, wantStatus: http.StatusBadRequest, wantBody: "send Session-Id"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cfg, admitted, _, _ := admissionMiddlewareFixture(t)

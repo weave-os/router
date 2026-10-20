@@ -65,9 +65,19 @@ func (c ClassifierIdentity) Equal(other ClassifierIdentity) bool {
 
 func (c ClassifierIdentity) validateVariants() error {
 	for strategy, artifact := range c.Variants {
-		endpoint, err := url.Parse(artifact.Endpoint)
-		if !router.IsBetaStrategy(strategy) || strings.TrimSpace(artifact.ArtifactID) == "" || !validDigest(artifact.PackageSHA256) || err != nil || endpoint.Scheme != "https" || !strings.HasSuffix(endpoint.Hostname(), ".modal.run") || endpoint.Path != "" && endpoint.Path != "/" || endpoint.RawQuery != "" || endpoint.Fragment != "" || strings.TrimSpace(artifact.Audience) == "" {
+		if !router.IsBetaStrategy(strategy) || strings.TrimSpace(artifact.ArtifactID) == "" || !validDigest(artifact.PackageSHA256) {
 			return fmt.Errorf("invalid alternate classifier %q", strategy)
+		}
+		switch strategy {
+		case router.StrategyHMMBeta:
+			if artifact.PackageSHA256 == c.PackageSHA256 || artifact.Endpoint != "" || artifact.Audience != "" || artifact.ServingRevision != "" {
+				return fmt.Errorf("alternate HMM must use a distinct local artifact")
+			}
+		case router.StrategyHMMQwen:
+			endpoint, err := url.Parse(artifact.Endpoint)
+			if err != nil || endpoint.Scheme != "https" || !strings.HasSuffix(endpoint.Hostname(), ".modal.run") || endpoint.User != nil || endpoint.Port() != "" || endpoint.Path != "" && endpoint.Path != "/" || endpoint.RawQuery != "" || endpoint.Fragment != "" || strings.TrimSpace(artifact.Audience) == "" || artifact.ServingRevision != "" && !validDigest(artifact.ServingRevision) {
+				return fmt.Errorf("invalid alternate Qwen classifier")
+			}
 		}
 	}
 	return nil

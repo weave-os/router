@@ -7,9 +7,11 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
 )
 
 var errServingFleetMismatch = errors.New("serving admission belongs to another fleet")
@@ -52,7 +54,14 @@ func directAssertion(ctx context.Context, cfg *ServingAdmissionConfig, installat
 	}
 	session := directConversationID(r, body)
 	decider := policyregistry.ServingAdmission{Store: cfg.Store}
-	scope, binding, err := cfg.Decisions.Admit(ctx, installationID, keyID, session, decider.Decide)
+	var scope policyregistry.AdmissionScope
+	var binding policyregistry.SessionReleaseBinding
+	var err error
+	if model, inference := directRoutingModel(r, body); inference {
+		scope, binding, err = cfg.Decisions.AdmitRoutingModel(ctx, installationID, keyID, session, model, decider.Decide)
+	} else {
+		scope, binding, err = cfg.Decisions.Admit(ctx, installationID, keyID, session, decider.Decide)
+	}
 	if err != nil {
 		return policyregistry.ServingAssertion{}, err
 	}
@@ -65,6 +74,31 @@ func directAssertion(ctx context.Context, cfg *ServingAdmissionConfig, installat
 		return policyregistry.ServingAssertion{}, err
 	}
 	return policyregistry.ServingAssertion{APIKeyID: keyID, BodySHA256: policyregistry.Digest(body), Scope: scope, Admission: binding}, nil
+}
+
+// directRoutingModel treats implicit routing as the same classifier as weave-auto.
+// Preparation and inspection endpoints must not choose a conversation's classifier.
+func directRoutingModel(r *http.Request, body []byte) (router.RoutingModel, bool) {
+	if r.Method != http.MethodPost {
+		return "", false
+	}
+	model := gjson.GetBytes(body, "model").String()
+	switch r.URL.Path {
+	case "/v1/messages", "/v1/chat/completions", "/v1/responses", "/v1/route", "/v1/route/preview", "/v1/route/handoff":
+	default:
+		if !strings.HasPrefix(r.URL.Path, "/v1beta/models/") || (!strings.HasSuffix(r.URL.Path, ":generateContent") && !strings.HasSuffix(r.URL.Path, ":streamGenerateContent")) {
+			return "", false
+		}
+		// Gemini's handler injects this URL model over any synthetic body.model.
+		model, _, _ = strings.Cut(strings.TrimPrefix(r.URL.Path, "/v1beta/models/"), ":")
+	}
+	if router.IsRoutingModel(model) {
+		return router.RoutingModel(model), true
+	}
+	if strings.HasPrefix(model, "weave-") {
+		return "", false // Unknown selectors are rejected by routing-model middleware.
+	}
+	return router.ModelAutomatic, true
 }
 
 func directConversationID(r *http.Request, body []byte) string {
