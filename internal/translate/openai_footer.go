@@ -30,7 +30,7 @@ type OpenAIRoutingFooterWriter struct {
 	headersEmitted bool
 }
 
-// NewOpenAIRoutingFooterWriter creates a downstream Chat insertion adapter.
+// NewOpenAIRoutingFooterWriter leaves non-streaming replies and disabled delivery byte-identical.
 func NewOpenAIRoutingFooterWriter(w http.ResponseWriter, delivery *FeedbackDelivery) *OpenAIRoutingFooterWriter {
 	flusher, _ := w.(http.Flusher)
 	return &OpenAIRoutingFooterWriter{
@@ -111,8 +111,7 @@ func (w *OpenAIRoutingFooterWriter) emitCoalescedWithFooter(finishChunk []byte, 
 	if err != nil {
 		return err
 	}
-	choice := gjson.GetBytes(finishChunk, path)
-	finishOnly, err := sjson.SetRawBytes(finishChunk, "choices", []byte("["+choice.Raw+"]"))
+	finishOnly, err := sjson.SetRawBytes(finishChunk, "choices", []byte("["+gjson.GetBytes(finishChunk, path).Raw+"]"))
 	if err != nil {
 		return err
 	}

@@ -129,6 +129,37 @@ func TestCompletionObserverSelectsExplicitPrimaryIndex(t *testing.T) {
 	}
 }
 
+func TestCompletionObserverIgnoresEmptyLegacyFunctionCall(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		for _, call := range []string{`null`, `{}`, `{"name":""}`} {
+			delivery := NewFeedbackDelivery(context.Background(), FeedbackIntent{Text: observerTestFooter})
+			observer := NewCompletionObserver(httptest.NewRecorder(), FormatOpenAI, streaming, delivery)
+			messageField := "message"
+			if streaming {
+				messageField = "delta"
+			}
+			payload := `{"choices":[{"index":0,"` + messageField + `":{"content":"answer","function_call":` + call + `},"finish_reason":"stop"}]}`
+			if streaming {
+				payload = "data: " + payload + "\n\n"
+			}
+			writeCompletionFragments(t, observer, payload)
+			require.NoError(t, observer.Finish(nil))
+			assert.Equal(t, observerTestFooter, delivery.Take(), "streaming=%t function_call=%s", streaming, call)
+		}
+	}
+}
+
+func TestCompletionObserverSuppressesLegacyFunctionCallFragments(t *testing.T) {
+	for _, call := range []string{`{"name":"tool"}`, `{"arguments":"{}"}`} {
+		delivery := NewFeedbackDelivery(context.Background(), FeedbackIntent{Text: observerTestFooter})
+		observer := NewCompletionObserver(httptest.NewRecorder(), FormatOpenAI, true, delivery)
+		payload := `data: {"choices":[{"index":0,"delta":{"content":"answer","function_call":` + call + `},"finish_reason":"stop"}]}` + "\n\n"
+		writeCompletionFragments(t, observer, payload)
+		require.NoError(t, observer.Finish(nil))
+		assert.Empty(t, delivery.Take())
+	}
+}
+
 func TestCompletionObserverFragmentsPreserveProviderBytes(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	delivery := NewFeedbackDelivery(context.Background(), FeedbackIntent{Text: observerTestFooter})

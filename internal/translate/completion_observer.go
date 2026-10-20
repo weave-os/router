@@ -133,7 +133,7 @@ func (o *CompletionObserver) Finish(err error) error {
 	return err
 }
 
-func (o *CompletionObserver) text(text string) {
+func (o *CompletionObserver) observeText(text string) {
 	if strings.TrimSpace(text) != "" {
 		o.delivery.facts.Answer = true
 	}
@@ -175,7 +175,7 @@ func (o *CompletionObserver) recordFinishReason(reason completionFinishReason, n
 func (o *CompletionObserver) anthropicBlock(block gjson.Result) {
 	switch completionAnthropicBlock(block.Get("type").Str) {
 	case completionTextBlock, completionTextDelta:
-		o.text(block.Get("text").Str)
+		o.observeText(block.Get("text").Str)
 	case completionToolBlock:
 		o.delivery.facts.Tool = true
 	}
@@ -197,7 +197,7 @@ func (o *CompletionObserver) responsesItem(item gjson.Result) {
 func (o *CompletionObserver) responsesPart(part gjson.Result) {
 	switch responsesContentType(part.Get("type").Str) {
 	case responsesOutputText:
-		o.text(part.Get("text").Str)
+		o.observeText(part.Get("text").Str)
 	case responsesRefusal:
 		o.delivery.facts.Refusal = true
 	}
@@ -230,8 +230,8 @@ func (o *CompletionObserver) observe(root gjson.Result, event string, buffered b
 		if buffered {
 			message = choice.Get("message")
 		}
-		o.text(message.Get("content").Str)
-		if message.Get("tool_calls").IsArray() && len(message.Get("tool_calls").Array()) > 0 || message.Get("function_call").Exists() {
+		o.observeText(message.Get("content").Str)
+		if message.Get("tool_calls").IsArray() && len(message.Get("tool_calls").Array()) > 0 || message.Get("function_call.name").Str != "" || message.Get("function_call.arguments").Str != "" {
 			facts.Tool = true
 		}
 		if refusal := message.Get("refusal"); refusal.Exists() && refusal.Type != gjson.Null {
@@ -251,7 +251,7 @@ func (o *CompletionObserver) observe(root gjson.Result, event string, buffered b
 				facts.Tool = true
 			}
 			if !part.Get("thought").Bool() {
-				o.text(part.Get("text").Str)
+				o.observeText(part.Get("text").Str)
 			}
 		}
 		if reason := candidate.Get("finishReason"); reason.Exists() {
@@ -296,9 +296,9 @@ func (o *CompletionObserver) observe(root gjson.Result, event string, buffered b
 		case responsesFunctionCallArgumentsDelta, responsesCustomToolCallInputDelta:
 			facts.Tool = true
 		case responsesOutputTextDelta:
-			o.text(root.Get("delta").Str)
+			o.observeText(root.Get("delta").Str)
 		case responsesOutputTextDone:
-			o.text(root.Get("text").Str)
+			o.observeText(root.Get("text").Str)
 		case responsesRefusalDelta, responsesRefusalDone:
 			facts.Refusal = true
 		case responsesContentPartAdded, responsesContentPartDone:

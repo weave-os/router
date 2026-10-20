@@ -30,7 +30,7 @@ type CompletionFacts struct {
 	Echoed  bool
 }
 
-// Eligible reports whether this provider attempt completed a human-readable answer.
+// Eligible requires a closed natural answer without client tools, refusals, failures, or echoed feedback.
 func (f CompletionFacts) Eligible() bool {
 	return f.Closed && f.Outcome == CompletionNatural && f.Answer && !f.Tool && !f.Refusal && !f.Failed && !f.Echoed
 }
@@ -45,7 +45,7 @@ type FeedbackDelivery struct {
 	delivered bool
 }
 
-// NewFeedbackDelivery starts a request-owned completion phase.
+// NewFeedbackDelivery uses the caller context across retries; an attempt timeout must not cancel later delivery.
 func NewFeedbackDelivery(ctx context.Context, intent FeedbackIntent) *FeedbackDelivery {
 	return &FeedbackDelivery{ctx: ctx, intent: intent}
 }
@@ -53,7 +53,7 @@ func NewFeedbackDelivery(ctx context.Context, intent FeedbackIntent) *FeedbackDe
 // SetIntent resolves policy after routing for a Responses adapter constructed at ingress.
 func (d *FeedbackDelivery) SetIntent(intent FeedbackIntent) { d.intent = intent }
 
-// Enabled reports whether proxy policy selected feedback for this request.
+// Enabled lets adapters bypass buffering and preserve bytes when feedback is disabled.
 func (d *FeedbackDelivery) Enabled() bool { return d != nil && d.intent.Text != "" }
 
 // Take commits one eligible suffix at the downstream adapter's closure boundary.

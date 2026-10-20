@@ -32,7 +32,7 @@ type AnthropicRoutingFooterWriter struct {
 	currentAnswerSeen bool
 }
 
-// NewAnthropicRoutingFooterWriter creates a downstream Messages insertion adapter.
+// NewAnthropicRoutingFooterWriter leaves non-streaming replies and disabled delivery byte-identical.
 func NewAnthropicRoutingFooterWriter(w http.ResponseWriter, delivery *FeedbackDelivery) *AnthropicRoutingFooterWriter {
 	flusher, _ := w.(http.Flusher)
 	return &AnthropicRoutingFooterWriter{inner: w, flusher: flusher, bw: bufio.NewWriterSize(w, 4096), delivery: delivery}
@@ -67,20 +67,23 @@ func (w *AnthropicRoutingFooterWriter) Write(payload []byte) (int, error) {
 		switch kind {
 		case completionBlockStart:
 			w.currentText = completionAnthropicBlock(gjson.GetBytes(eventPayload, "content_block.type").Str) == completionTextBlock
-			if w.currentText {
-				w.flushPending()
-			}
 			w.currentNoticeOnly = false
 			w.currentAnswerSeen = false
 			w.observeText(gjson.GetBytes(eventPayload, "content_block.text").Str)
+			if w.currentText && w.currentAnswerSeen {
+				w.flushPending()
+			}
 			w.writeTail(event[:consumed])
 		case completionBlockDelta:
 			if w.currentText {
 				w.observeText(gjson.GetBytes(eventPayload, "delta.text").Str)
+				if w.currentAnswerSeen {
+					w.flushPending()
+				}
 			}
 			w.writeTail(event[:consumed])
 		case completionBlockStop:
-			if w.currentText && !w.currentNoticeOnly {
+			if w.currentText && w.currentAnswerSeen && !w.currentNoticeOnly {
 				w.flushPending()
 				w.pendingIndex = int(gjson.GetBytes(eventPayload, "index").Int())
 				w.pendingText = true

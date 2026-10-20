@@ -7410,8 +7410,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Resolve policy once. Responses ingress owns its downstream adapter so
 	// the concrete ResponsesWriter and its capture splice points stay visible.
 	var feedbackIntent translate.FeedbackIntent
-	_, responsesFeedback := w.(*translate.ResponsesWriter)
-	if env.Stream() || responsesFeedback {
+	if env.Stream() || isResponsesWriter {
 		feedbackIntent = s.feedbackIntent(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn)
 	}
 	ctx, feedbackDelivery := withFeedbackDelivery(ctx, feedbackIntent)

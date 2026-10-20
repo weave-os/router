@@ -327,7 +327,7 @@ func replaceResponsesFeedbackPayload(raw, oldPayload, newPayload []byte) []byte 
 	if offset < 0 {
 		return raw
 	}
-	rewritten := make([]byte, 0, len(raw)+len(newPayload)-len(oldPayload))
+	rewritten := make([]byte, 0, len(raw))
 	rewritten = append(rewritten, raw[:offset]...)
 	rewritten = append(rewritten, newPayload...)
 	return append(rewritten, raw[offset+len(oldPayload):]...)
@@ -427,9 +427,9 @@ func (w *ResponsesFeedbackWriter) prepareSuffix(footer string) error {
 	if strings.HasPrefix(target.text, target.streamed) {
 		delta = target.text[len(target.streamed):] + footer
 	}
-	text := fields()
-	text["delta"] = delta
-	return w.synthetic(responsesOutputTextDelta, text)
+	event := fields()
+	event["delta"] = delta
+	return w.synthetic(responsesOutputTextDelta, event)
 }
 
 func (w *ResponsesFeedbackWriter) rewriteItem(item []byte, footer string) ([]byte, error) {
@@ -482,12 +482,12 @@ func (w *ResponsesFeedbackWriter) rewriteTerminal(payload []byte, footer string)
 	return sjson.SetRawBytes(payload, "response.output.-1", item)
 }
 
-func (w *ResponsesFeedbackWriter) targetEvent(root gjson.Result, item bool) bool {
+func (w *ResponsesFeedbackWriter) targetEvent(root gjson.Result, idFromItem bool) bool {
 	if root.Get("output_index").Int() != w.target.outputIndex {
 		return false
 	}
 	id := root.Get("item_id").Str
-	if item {
+	if idFromItem {
 		id = root.Get("item.id").Str
 	}
 	return id == "" || w.target.itemID == "" || id == w.target.itemID
@@ -504,9 +504,9 @@ func (w *ResponsesFeedbackWriter) flushTail(footer string) error {
 		if textDone {
 			return nil
 		}
-		text := fields()
-		text["text"] = w.target.text + footer
-		if err := w.synthetic(responsesOutputTextDone, text); err != nil {
+		event := fields()
+		event["text"] = w.target.text + footer
+		if err := w.synthetic(responsesOutputTextDone, event); err != nil {
 			return err
 		}
 		textDone = true

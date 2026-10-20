@@ -268,6 +268,32 @@ func TestAnthropicRoutingFooterWriter_FinalAnswerBeforeTrailingThinking(t *testi
 	assert.Less(t, strings.Index(rec.Body.String(), stop), strings.Index(rec.Body.String(), thinking))
 }
 
+func TestAnthropicRoutingFooterWriter_SkipsTrailingBlankTextBlocks(t *testing.T) {
+	for _, blank := range []string{"", " "} {
+		rec := httptest.NewRecorder()
+		w := newAnthropicFooterTestWriter(rec, testFooter)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		stop := buildAnthropicSSE("content_block_stop", `{"type":"content_block_stop","index":0}`)
+		trailing := buildAnthropicSSE("content_block_start", `{"type":"content_block_start","index":1,"content_block":{"type":"text","text":"`+blank+`"}}`) +
+			buildAnthropicSSE("content_block_delta", `{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":" "}}`) +
+			buildAnthropicSSE("content_block_stop", `{"type":"content_block_stop","index":1}`)
+		stream := strings.Replace(anthropicAnswerStream("end_turn"), stop, stop+trailing, 1)
+		_, err := w.Write([]byte(stream))
+		require.NoError(t, err)
+		require.NoError(t, w.Finalize())
+		assert.Equal(t, 1, strings.Count(rec.Body.String(), "Weave Router feedback"))
+		for _, event := range splitSSEEvents(rec.Body.String()) {
+			payload := extractDataField(event)
+			if strings.Contains(gjson.Get(payload, "delta.text").Str, "Weave Router feedback") {
+				assert.EqualValues(t, 0, gjson.Get(payload, "index").Int())
+			}
+		}
+		assert.Less(t, strings.Index(rec.Body.String(), "Weave Router feedback"), strings.Index(rec.Body.String(), stop))
+		assert.Contains(t, rec.Body.String(), trailing)
+	}
+}
+
 func TestFeedbackCompletionAdapters_UndelimitedTerminal(t *testing.T) {
 	for _, tc := range []struct {
 		name   string

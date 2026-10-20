@@ -29,7 +29,7 @@ type GeminiRoutingFooterWriter struct {
 	headersEmitted bool
 }
 
-// NewGeminiRoutingFooterWriter creates a downstream Gemini insertion adapter.
+// NewGeminiRoutingFooterWriter leaves non-streaming replies and disabled delivery byte-identical.
 func NewGeminiRoutingFooterWriter(w http.ResponseWriter, delivery *FeedbackDelivery) *GeminiRoutingFooterWriter {
 	flusher, _ := w.(http.Flusher)
 	return &GeminiRoutingFooterWriter{
@@ -117,8 +117,7 @@ func (w *GeminiRoutingFooterWriter) emitCoalescedWithFooter(finishChunk []byte, 
 	if err != nil {
 		return err
 	}
-	candidate := gjson.GetBytes(finishChunk, path)
-	finishOnly, err := sjson.SetRawBytes(finishChunk, "candidates", []byte("["+candidate.Raw+"]"))
+	finishOnly, err := sjson.SetRawBytes(finishChunk, "candidates", []byte("["+gjson.GetBytes(finishChunk, path).Raw+"]"))
 	if err != nil {
 		return err
 	}
