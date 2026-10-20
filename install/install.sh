@@ -6465,10 +6465,6 @@ router_context_fallback() {
   chmod 700 "$root"
   local generation active_file
   active_file="$cache.active"
-  generation="$(mktemp "$root/.generation.XXXXXX")" || return 0
-  printf '%s' "$generation" >"$generation"
-  chmod 600 "$generation"
-  mv "$generation" "$active_file"
   now="$(date +%s)"
   if [ -f "$cache" ] && [ "$(wc -c <"$cache")" -le 8192 ]; then
     snapshot="$(jq -ce --arg session "$session" --argjson now "$now" '
@@ -6510,6 +6506,10 @@ router_context_fallback() {
       mkdir "$cache.lock" 2>/dev/null || exit 0
     fi
     trap 'rmdir "$cache.lock" 2>/dev/null' EXIT
+    generation="$(mktemp "$root/.generation.XXXXXX")" || exit 0
+    printf '%s' "$generation" >"$generation"
+    chmod 600 "$generation"
+    mv "$generation" "$active_file"
     settings_base="$HOME"
     case "$helper_dir" in */.claude) settings_base="${helper_dir%/.claude}" ;; esac
     settings="$settings_base/.claude/settings.json"

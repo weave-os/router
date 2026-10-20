@@ -175,4 +175,37 @@ for _ in $(seq 1 40); do
 done
 [ -f "$work/fetch-started" ] && [ ! -d "$claude_cache/$claude_scope-session-context.json.lock" ]
 [ "$(jq -r '.context_snapshot.request_id' "$claude_cache/$claude_scope-session-context.json")" = newer-claude ] || { echo 'an older Claude observation overwrote the newer snapshot' >&2; exit 1; }
+# Overlapping redraws share the in-flight refresh instead of invalidating it.
+make_snapshot
+jq '.context_snapshot.request_id="overlap-claude"' "$fixture" > "$work/overlap-claude.json"
+rm -f "$claude_cache/$claude_scope-session-context.json" "$work/fetch-started"
+mkdir "$work/delayed-curl-bin"
+cat > "$work/delayed-curl-bin/curl" <<'CURL'
+#!/usr/bin/env bash
+: > "$WEAVE_TEST_FETCH_STARTED"
+for _ in $(seq 1 100); do
+  if [ -f "$WEAVE_TEST_FETCH_RELEASE" ]; then exec "$WEAVE_TEST_CURL" "$@"; fi
+  sleep 0.05
+done
+exit 1
+CURL
+chmod +x "$work/delayed-curl-bin/curl"
+printf '%s' "$claude_payload" | PATH="$work/delayed-curl-bin:$PATH" WEAVE_TEST_FETCH_STARTED="$work/fetch-started" WEAVE_TEST_FETCH_RELEASE="$work/fetch-release" WEAVE_TEST_CURL="$real_curl" \
+  WEAVE_ROUTER_BASE_URL="file://$work/overlap-claude.json" WEAVE_ROUTER_KEY=rk_synthetic "$claude" >/dev/null
+for _ in $(seq 1 40); do
+  [ -f "$work/fetch-started" ] && break
+  sleep 0.1
+done
+[ -f "$work/fetch-started" ]
+printf '%s' "$claude_payload" | WEAVE_ROUTER_BASE_URL="file://$work/overlap-claude.json" WEAVE_ROUTER_KEY=rk_synthetic "$claude" >/dev/null
+: > "$work/fetch-release"
+for _ in $(seq 1 40); do
+  [ ! -d "$claude_cache/$claude_scope-session-context.json.lock" ] && break
+  sleep 0.1
+done
+[ ! -d "$claude_cache/$claude_scope-session-context.json.lock" ]
+[ -f "$claude_cache/$claude_scope-session-context.json" ] || { echo 'an overlapping redraw discarded a successful Claude refresh' >&2; exit 1; }
+[ "$(jq -r '.context_snapshot.request_id' "$claude_cache/$claude_scope-session-context.json")" = overlap-claude ]
+printf '%s\n' '{"type":"assistant","message":{"model":"gpt-5.6-luna"}}' >"$work/transcript.jsonl"
+contains "$(printf '%s' "$claude_payload" | "$claude")" 'last Router ctx est. ~72k/128k'
 echo 'Context status tests passed'
