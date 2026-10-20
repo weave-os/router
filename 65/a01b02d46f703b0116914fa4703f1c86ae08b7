@@ -1,0 +1,25 @@
+internal/proxy/plan_owned_controls_internal_test.go
+  s_bef0f1eca33fdd::t_7a1540c628f876 70-82,84,87-92
+  s_bef0f1eca33fdd::t_5e391d83da1d6f 83,85-86
+internal/proxy/force_model_exclusions_internal_test.go
+  s_bef0f1eca33fdd::t_097578c9b12162 193-195,210
+internal/proxy/force_model.go
+  s_bef0f1eca33fdd::t_ca6f0e844a0151 494-497
+  s_bef0f1eca33fdd::t_7a1540c628f876 542-548,551,561
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "65a01b02d46f703b0116914fa4703f1c86ae08b7",
+  "prompts": {},
+  "sessions": {
+    "s_bef0f1eca33fdd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0fa52-51a5-7cb2-bcc4-483dc1ebca1d",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

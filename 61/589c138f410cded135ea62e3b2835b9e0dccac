@@ -1,0 +1,25 @@
+internal/router/catalog/catalog.go
+  s_a17fa2eade940a::t_18da9bc06f9dcc 465-472
+install/cc-statusline.sh
+  s_a17fa2eade940a::t_71e4fa111464a9 457,532
+install/install.sh
+  s_a17fa2eade940a::t_71e4fa111464a9 3250,3325
+install/pi-router/src/pricing.generated.ts
+  s_a17fa2eade940a::t_8025fea85589c8 9,26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "61589c138f410cded135ea62e3b2835b9e0dccac",
+  "prompts": {},
+  "sessions": {
+    "s_a17fa2eade940a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c9d1d2d-14e5-42e3-b056-1a0e24a30a41",
+        "model": "moonshotai/kimi-k3"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
