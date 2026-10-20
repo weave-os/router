@@ -1,0 +1,30 @@
+internal/translate/tool_result_coalesce.go
+  s_ad1a6d343b4297::t_c99105941d0ddb 133-134,137-139
+  s_ad1a6d343b4297::t_f6598633b9aa16 10-18,33-39,46-48,50-67,75,77-80,84,88,103-106,109-116,125-128,130-132,140-156,158-160,170,172,181,183-186,191,195-196,228-233,235,239,244-256,259,264-271
+  s_ad1a6d343b4297::t_64a4d4ad63455d 272
+internal/translate/tool_result_coalesce_test.go
+  s_ad1a6d343b4297::t_14d8c0bf11ce31 63-75
+  s_ad1a6d343b4297::t_1b6afe1d39006c 106-115
+  s_ad1a6d343b4297::t_a7b40dcbe66d1c 193-220
+  s_ad1a6d343b4297::t_d72fd1dc38eb41 62
+internal/translate/CLAUDE.md
+  s_ad1a6d343b4297::t_c17eafbc802c31 76
+internal/translate/AGENTS.md
+  s_ad1a6d343b4297::t_eebe5b511f663a 76
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "f27520baaae2e576f514424d00a9eaec9074e750",
+  "prompts": {},
+  "sessions": {
+    "s_ad1a6d343b4297": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "dc0a75e9-cc1d-4cf1-a253-3272c530a7f1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Sam Coutts <sam@workweave.ai>"
+    }
+  }
+}

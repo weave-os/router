@@ -1,0 +1,97 @@
+Makefile
+  s_b3d94294f4c49d::t_795d311db20519 12,25-37,215
+.github/workflows/check_repository_conventions.yml
+  s_96c7df81523217::t_224f8861142610 1-25
+db/queries/flag_definitions.sql
+  s_96c7df81523217::t_5b0cf8deaedaf8 46
+db/queries/model_router_api_keys.sql
+  s_cb1d3d00c7beac::t_94d8427b0ca5cc 17,21
+db/queries/model_router_external_api_keys.sql
+  s_cb1d3d00c7beac::t_760bc16250eb5c 33-34,43
+db/queries/model_router_installations.sql
+  s_cb1d3d00c7beac::t_66702cd06a8c1c 1,11,23,78,91,101
+db/queries/model_router_subscription_accounts.sql
+  s_96c7df81523217::t_333411e2afa81f 1,23,41,48
+db/queries/policy_shadow_decisions.sql
+  s_96c7df81523217::t_d53b810974261a 1
+db/queries/struggle_escalation_events.sql
+  s_96c7df81523217::t_06e4e88f3a9c67 1,14
+internal/proxy/AGENTS.md
+  s_cb1d3d00c7beac::t_ef7a68d3540752 21,272,274
+internal/proxy/CLAUDE.md
+  s_96c7df81523217::t_b23d6bcfbf104f 21,272,274
+internal/router/cluster/AGENTS.md
+  s_cb1d3d00c7beac::t_758457b028cc47 5
+internal/router/cluster/CLAUDE.md
+  s_96c7df81523217::t_732c15759bc010 5
+internal/router/cluster/artifacts/README.md
+  s_96c7df81523217::t_5e280117d083cc 37
+internal/router/sessionpin/AGENTS.md
+  s_cb1d3d00c7beac::t_e1a1f5a2e83998 10
+internal/router/sessionpin/CLAUDE.md
+  s_96c7df81523217::t_2d3d023b250123 10
+internal/sqlc/flag_definitions.sql.go
+  s_cb1d3d00c7beac::t_b7d6fe6c99a7c7 42
+internal/sqlc/model_router_api_keys.sql.go
+  s_cb1d3d00c7beac::t_f553570e2fef03 28,32,65,69
+internal/sqlc/model_router_external_api_keys.sql.go
+  s_cb1d3d00c7beac::t_9a249bba9d882c 43-44,53,111-112,121
+internal/sqlc/model_router_installations.sql.go
+  s_cb1d3d00c7beac::t_a515bb63c2e24b 23,34,44,151,292,309,493,511,562,583
+internal/sqlc/model_router_subscription_accounts.sql.go
+  s_cb1d3d00c7beac::t_93f854e95d2a1c 25,128,161,196
+internal/sqlc/policy_shadow_decisions.sql.go
+  s_cb1d3d00c7beac::t_54f7ec6e822e07 89
+internal/sqlc/struggle_escalation_events.sql.go
+  s_cb1d3d00c7beac::t_e33e1e2a3c2f78 26,66
+scripts/check_docs/main.go
+  s_b3d94294f4c49d::t_dfa09ad0de93c0 1-346
+scripts/check_docs/main_test.go
+  s_e23ab9e1daab32::t_37ed3ec426fd48 1-57
+scripts/check_sql_queries.sh
+  s_e23ab9e1daab32::t_832a8d52a49da8 1-32
+scripts/docs_check_exceptions.txt
+  s_96c7df81523217::t_82c97b2932901f 1-13
+scripts/generate_agents.sh
+  s_e23ab9e1daab32::t_f86131a1083a75 1-93
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "306654385d4020fb7ef5d4bddea7cbd2ac624410",
+  "prompts": {},
+  "sessions": {
+    "s_96c7df81523217": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06976-10aa-7b43-8471-acea1a2ca2e4",
+        "model": "unknown"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_b3d94294f4c49d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06974-8166-72a1-9f4f-4775e6d61966",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_cb1d3d00c7beac": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06975-dbaf-7051-9db2-b5314ba5e445",
+        "model": "unknown"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_e23ab9e1daab32": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06976-413d-7173-b99a-0dfa15f4a33f",
+        "model": "unknown"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

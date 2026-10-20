@@ -1,0 +1,95 @@
+internal/router/catalog/family_test.go
+  s_9664e075462df5::t_d781107c7d56ff 70-92
+internal/proxy/claimed_tool_unavailable_internal_test.go
+  s_9664e075462df5::t_3df55e69196d32 68
+  s_9664e075462df5::t_534b161542c3f2 67
+  s_9664e075462df5::t_fe878436757d59 104
+  s_9664e075462df5::t_26a0b613d6d88b 79-92
+  s_9664e075462df5::t_4bb3a3bbca39a1 51-52
+  s_9664e075462df5::t_4922262743f99d 1-50,53-66,69-78,93-103,105-321
+internal/router/turntype/harness.go
+  s_9664e075462df5::t_a5aaa78a940f46 157
+  s_9664e075462df5::t_c0331eed0824a7 76-81,83-86,88-93,95-96,98
+  s_9664e075462df5::t_62b50ddee8d76b 1-29,37-41,46-75,82,87,94,97,99-156,158-193
+  s_9664e075462df5::t_f316dec2abc722 30-36,42-45
+internal/router/catalog/family.go
+  s_9664e075462df5::t_65635cbd8aed56 16-27
+internal/proxy/harness_escalation.go
+  s_9664e075462df5::t_a999c361416b45 1-170
+internal/translate/lastuser_toolresult_test.go
+  s_9664e075462df5::t_5baec1344e2438 1-111,113-115,117-121,133-134
+  s_9664e075462df5::t_6a5cad322626a7 112,116,122-132
+internal/proxy/service.go
+  s_9664e075462df5::t_6db6ba2c9f2519 1223-1230
+  s_9664e075462df5::t_52dedd85f95e07 1076
+  s_9664e075462df5::t_75a86351d61039 2474
+  s_9664e075462df5::t_3a784b134ebf13 3680-3682
+  s_9664e075462df5::t_d5cb50c1ca68d8 565-566
+  s_9664e075462df5::t_1b091195cac239 2462
+  s_9664e075462df5::t_237ec563b9a56d 198-200
+  s_9664e075462df5::t_c68db31d4a9a51 3158-3161
+  s_9664e075462df5::t_59c2895b1ed437 173-178
+  s_9664e075462df5::t_12ca12dd8fa2f0 528-535
+  s_9664e075462df5::t_05c601e2a17346 4151
+internal/router/turntype/detect_test.go
+  s_9664e075462df5::t_46dbf63194d12d 541-580
+  s_9664e075462df5::t_6669371385960f 431-440
+  s_9664e075462df5::t_9974392507518f 263-344
+internal/router/turntype/AGENTS.md
+  s_9664e075462df5::t_7c6a67f7b186d4 18-22
+internal/proxy/turnloop.go
+  s_9664e075462df5::t_a950260e1d66ce 1402-1405
+  s_9664e075462df5::t_4bb3a3bbca39a1 1400-1401
+  s_9664e075462df5::t_927662c317dd96 276-280
+  s_9664e075462df5::t_c5e2381ca96129 338-360,366
+  s_9664e075462df5::t_615290ec90abad 286-290,292
+  s_9664e075462df5::t_2c6e7fc333c607 840
+  s_9664e075462df5::t_043bc543cdc684 472-473
+  s_9664e075462df5::t_c6dff6f54f6e32 154-157
+cmd/router/main.go
+  s_9664e075462df5::t_e1d4b3025d451b 571-573
+  s_9664e075462df5::t_0098d3d9673dbf 807
+  s_9664e075462df5::t_4ce04a8a7e0c9d 789
+internal/proxy/harness_escalation_internal_test.go
+  s_9664e075462df5::t_4392956c9a8dce 1-203
+internal/proxy/claimed_tool_unavailable.go
+  s_9664e075462df5::t_16ea19199ffdad 1-20,22-24,27-45,48-50,54,59-60,62,65,67-87,91-97,100-101,103-105,108-109,111-112,114-154,161-166,171-179,194-195,198,200-203,215-216,223-224,232-235,237-242,244-255,262-265,269-332
+  s_9664e075462df5::t_4281f8be8df820 184
+  s_9664e075462df5::t_306f51816ca245 21,25-26,46-47,51-53,55-58,61,63-64,66,88-90,98-99,102,106-107,110,113,155-160,167-170,180-183,185-193,197,199,204-214,217-222,225-228,230-231,243,260,266-268
+  s_9664e075462df5::t_99382307c47bb5 236
+  s_9664e075462df5::t_377babd1d5c6be 196
+  s_9664e075462df5::t_236c8b6e2dd0d6 229
+  s_9664e075462df5::t_8c93f49149c9ee 256-259,261
+internal/translate/force_model.go
+  s_9664e075462df5::t_f4eab33730fb81 20-24
+internal/router/turntype/CLAUDE.md
+  s_9664e075462df5::t_2e890b7adf548a 18-22
+internal/proxy/feedback.go
+  s_9664e075462df5::t_2407ea49276b3e 209-212
+internal/translate/lastuser_toolresult.go
+  s_9664e075462df5::t_2da2f08c40a995 1-99
+internal/router/turntype/detect.go
+  s_9664e075462df5::t_f35ced3320e9aa 89-94,98
+  s_9664e075462df5::t_6ef5a50b1f75a5 81-83,95-97,99
+  s_9664e075462df5::t_05e435dc25cd37 29-45
+  s_9664e075462df5::t_f25b0002b61a7c 100,165-196
+internal/translate/claudecode_tool_filter.go
+  s_9664e075462df5::t_4e1e4c968f12ee 76-89
+  s_9664e075462df5::t_9ff2f598e85fed 4-5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "e01fbddbd75eb0b3578369b235ac09a888936345",
+  "prompts": {},
+  "sessions": {
+    "s_9664e075462df5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7567c3c0-edf8-41b7-9a83-46fc6640aaaa",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
