@@ -1,0 +1,21 @@
+internal/translate/responses_codex_test.go
+  s_d794d1d4fda641::t_bf74e0a8614a73 244-248,264-284,288,293-303
+internal/translate/responses_codex.go
+  s_d794d1d4fda641::t_6d653e4a37cfc1 451-452
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "cdee6e6d80bec45c618045aca2c9b4ddcf0ecad0",
+  "prompts": {},
+  "sessions": {
+    "s_d794d1d4fda641": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15567-3ea9-7a91-bbc3-89f60ef5e600",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
