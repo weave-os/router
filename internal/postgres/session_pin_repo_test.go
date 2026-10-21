@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/sqlc"
 
 	"github.com/jackc/pgx/v5/pgtype"
@@ -88,4 +89,28 @@ func TestToSessionPinPreservesForcedThreadScope(t *testing.T) {
 	pin := toSessionPin(sqlc.RouterSessionPin{ForcedThreadKey: parentThreadKey})
 	assert.Equal(t, parentThreadKey, pin.ForcedThreadKey)
 	assert.Empty(t, toSessionPin(sqlc.RouterSessionPin{}).ForcedThreadKey)
+}
+
+func TestToSessionPinTokenizerCalibration(t *testing.T) {
+	t.Parallel()
+
+	t.Run("round-trips the stored calibration", func(t *testing.T) {
+		t.Parallel()
+		at := time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
+		raw := []byte(`{"observations":{"openai":{"prompt":500000,"observed_at":"2026-10-21T12:00:00Z"}},"ratios":{"openai->anthropic":{"ratio":1.72,"measured_at":"2026-10-21T12:00:00Z"}}}`)
+		cal := toSessionPin(sqlc.RouterSessionPin{TokenizerCalibration: raw}).TokenizerCalibration
+		ratio, ok := cal.Ratio(sessionpin.TokenizerFamilyOpenAI, sessionpin.TokenizerFamilyAnthropic)
+		assert.True(t, ok)
+		assert.InDelta(t, 1.72, ratio, 1e-9)
+		assert.Equal(t, at, cal.Observations[sessionpin.TokenizerFamilyOpenAI].ObservedAt)
+	})
+
+	t.Run("empty or unreadable column is an empty calibration", func(t *testing.T) {
+		t.Parallel()
+		for _, raw := range [][]byte{nil, []byte(`{}`), []byte(`not json`)} {
+			_, ok := toSessionPin(sqlc.RouterSessionPin{TokenizerCalibration: raw}).TokenizerCalibration.
+				Ratio(sessionpin.TokenizerFamilyOpenAI, sessionpin.TokenizerFamilyAnthropic)
+			assert.False(t, ok)
+		}
+	})
 }

@@ -1013,6 +1013,7 @@ type RouterSessionPin struct {
 	DemotionCooldowns         []byte
 	TurnStrikes               []string
 	ForcedThreadKey           string
+	TokenizerCalibration      []byte
 }
 
 type RouterSessionPinRecoveryProbeLease struct {

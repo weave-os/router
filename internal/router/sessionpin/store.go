@@ -117,6 +117,10 @@ type Pin struct {
 	// agent turn (see TurnStrikeStore). They stay out of the session until the
 	// next real user prompt clears them.
 	TurnStrikes []string
+	// TokenizerCalibration is this row's evidence for converting token counts
+	// between tokenizer families (see TokenizerCalibration). Only
+	// TokenizerCalibrationStore writes it; Upsert and UpdateUsage leave it.
+	TokenizerCalibration TokenizerCalibration
 }
 
 // DemotionReason names why a model was withdrawn from automatic selection for

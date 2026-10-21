@@ -276,6 +276,22 @@ WHERE session_key = @session_key::bytea
     OR (routing_strategy = '' AND @expected_routing_strategy::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   );
 
+-- Replaces the thread's tokenizer calibration (observations and measured
+-- cross-tokenizer ratios; see internal/router/sessionpin). Written after a
+-- served turn with usage. The caller merges the newest evidence from the
+-- thread's pin rows first, so a concurrent writer can lose at most one
+-- observation. Missing pin or strategy mismatch is a no-op, matching
+-- UpdateSessionPinUsage.
+-- name: UpdateSessionPinTokenizerCalibration :exec
+UPDATE router.session_pins
+SET tokenizer_calibration = @tokenizer_calibration::jsonb
+WHERE session_key = @session_key::bytea
+  AND role        = @role::varchar
+  AND (
+    routing_strategy = @expected_routing_strategy::varchar
+    OR (routing_strategy = '' AND @expected_routing_strategy::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
+  );
+
 -- Atomically increments consecutive_upstream_errors and returns the
 -- new value. The turn loop calls this after a non-retryable upstream
 -- 4xx on a sticky-pinned turn; the returned count drives the

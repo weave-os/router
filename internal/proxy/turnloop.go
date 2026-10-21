@@ -280,6 +280,12 @@ type turnLoopResult struct {
 	// read from the same pin.
 	PriorServedEndedAt time.Time
 	PriorPromptTokens  int
+	// TokenizerCalibration merges this thread's tokenizer evidence across the
+	// pin rows read for switch history. It converts a cross-tokenizer turn's
+	// client-visible usage into the requested model's tokens (see
+	// clientInputTokenScale) and is extended after the turn by
+	// recordTokenizerObservation.
+	TokenizerCalibration sessionpin.TokenizerCalibration
 	// StripThinkingBlocks forces signature removal when switch history is unavailable.
 	StripThinkingBlocks bool
 	// Handover captures the summarize-or-trim step when the planner switched.
@@ -2768,6 +2774,11 @@ func (r *turnLoopResult) applySwitchHistory(pins ...sessionpin.Pin) {
 	r.PriorServedEndedAt = latestTurn.LastTurnEndedAt
 	r.PriorPromptTokens = priorPromptTokens(latestTurn)
 	r.SessionEverSwitched = sessionEverSwitched
+	cals := make([]sessionpin.TokenizerCalibration, 0, len(pins))
+	for _, pin := range pins {
+		cals = append(cals, pin.TokenizerCalibration)
+	}
+	r.TokenizerCalibration = sessionpin.MergeTokenizerCalibrations(cals...)
 }
 
 func latestServedTurn(pins ...sessionpin.Pin) (sessionpin.Pin, bool) {

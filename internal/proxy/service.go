@@ -4604,7 +4604,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					if providers.OutputExcludesReasoning(d.Provider) {
 						responsesTranslator.SetUsageOutputBasis(providerusage.OutputExcludesReasoning)
 					}
-					responsesTranslator.SetClientInputTokenScale(catalog.InputTokenScale(d.Model, feats.Model))
+					responsesTranslator.SetClientInputTokenScale(clientInputTokenScale(routeRes, d.Provider, feats.Model))
 					if err := responsesTranslator.Prelude(env.Stream()); err != nil {
 						return fmt.Errorf("emit Anthropic routing marker: %w", err), func(err error) error { return err }
 					}
@@ -4620,7 +4620,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					if providers.OutputExcludesReasoning(d.Provider) {
 						chatTranslator.SetUsageOutputBasis(providerusage.OutputExcludesReasoning)
 					}
-					chatTranslator.SetClientInputTokenScale(catalog.InputTokenScale(d.Model, feats.Model))
+					chatTranslator.SetClientInputTokenScale(clientInputTokenScale(routeRes, d.Provider, feats.Model))
 					if err := chatTranslator.Prelude(env.Stream()); err != nil {
 						return fmt.Errorf("emit Anthropic routing marker: %w", err), func(err error) error { return err }
 					}
@@ -5886,7 +5886,7 @@ func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, serve
 		return
 	}
 	if isHMMTurn(res) {
-		s.recordHMMTurnHistory(res, servedProvider, servedModel, in, out, cacheCreation, cacheRead, outputLimitReached)
+		s.recordHMMTurnHistory(ctx, res, servedProvider, servedModel, in, out, cacheCreation, cacheRead, outputLimitReached)
 		return
 	}
 	var zeroKey [sessionpin.SessionKeyLen]byte
@@ -5919,13 +5919,14 @@ func (s *Service) recordTurnUsage(ctx context.Context, res turnLoopResult, serve
 	if err := s.pinStore.UpdateUsage(context.Background(), res.SessionKey, role, usage); err != nil {
 		observability.Get().Error("session pin usage writeback failed", "err", err)
 	}
+	s.recordTokenizerObservation(ctx, res, role, servedProvider, in, cacheCreation, cacheRead)
 }
 
 func isHMMTurn(res turnLoopResult) bool {
 	return isHMMDecision(res.Decision) || isHMMDecision(res.Fresh)
 }
 
-func (s *Service) recordHMMTurnHistory(res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int, outputLimitReached bool) {
+func (s *Service) recordHMMTurnHistory(ctx context.Context, res turnLoopResult, servedProvider, servedModel string, in, out, cacheCreation, cacheRead int, outputLimitReached bool) {
 	if servedModel == "" || res.InstallationID == uuid.Nil {
 		return
 	}
@@ -5977,6 +5978,7 @@ func (s *Service) recordHMMTurnHistory(res turnLoopResult, servedProvider, serve
 	}); err != nil {
 		observability.Get().Error("HMM switch-history writeback failed", "err", err)
 	}
+	s.recordTokenizerObservation(ctx, res, role, servedProvider, in, cacheCreation, cacheRead)
 }
 
 func hmmHistoryStoredReason(res turnLoopResult) string {

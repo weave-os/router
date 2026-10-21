@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -30,6 +31,7 @@ var _ sessionpin.Store = (*SessionPinRepo)(nil)
 var _ sessionpin.CooldownStore = (*SessionPinRepo)(nil)
 var _ sessionpin.RecoveryProbeStore = (*SessionPinRepo)(nil)
 var _ sessionpin.TurnStrikeStore = (*SessionPinRepo)(nil)
+var _ sessionpin.TokenizerCalibrationStore = (*SessionPinRepo)(nil)
 
 func (r *SessionPinRepo) Get(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (sessionpin.Pin, bool, error) {
 	q := dbbudget.Queries(r.tx)
@@ -261,6 +263,22 @@ func (r *SessionPinRepo) ReleaseRecoveryProbe(ctx context.Context, sessionKey [s
 	})
 }
 
+// UpdateTokenizerCalibration replaces the row's tokenizer calibration. A
+// missing pin or a strategy mismatch is a no-op, matching UpdateUsage.
+func (r *SessionPinRepo) UpdateTokenizerCalibration(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string, expectedStrategy router.Strategy, cal sessionpin.TokenizerCalibration) error {
+	raw, err := json.Marshal(cal)
+	if err != nil {
+		return fmt.Errorf("encode tokenizer calibration: %w", err)
+	}
+	q := dbbudget.Queries(r.tx)
+	return q.UpdateSessionPinTokenizerCalibration(ctx, sqlc.UpdateSessionPinTokenizerCalibrationParams{
+		TokenizerCalibration:    raw,
+		SessionKey:              sessionKey[:],
+		Role:                    role,
+		ExpectedRoutingStrategy: string(expectedStrategy),
+	})
+}
+
 func (r *SessionPinRepo) SweepExpired(ctx context.Context) error {
 	q := dbbudget.Queries(r.tx)
 	if err := q.SweepExpiredSessionPins(ctx); err != nil {
@@ -302,10 +320,22 @@ func toSessionPin(row sqlc.RouterSessionPin) sessionpin.Pin {
 		DemotedModels:             row.DemotedModels,
 		DemotionCooldowns:         demotionCooldowns(row.DemotionCooldowns),
 		TurnStrikes:               row.TurnStrikes,
+		TokenizerCalibration:      tokenizerCalibration(row.TokenizerCalibration),
 	}
 	// Bounded copy guards against a corrupt row panicking the request handler.
 	copy(pin.SessionKey[:], row.SessionKey)
 	return pin
+}
+
+// tokenizerCalibration decodes the tokenizer_calibration JSONB column. An
+// unreadable value yields an empty calibration rather than failing the pin
+// read: the only effect is one turn's usage reported uncalibrated.
+func tokenizerCalibration(raw []byte) sessionpin.TokenizerCalibration {
+	var cal sessionpin.TokenizerCalibration
+	if len(raw) == 0 || json.Unmarshal(raw, &cal) != nil {
+		return sessionpin.TokenizerCalibration{}
+	}
+	return cal
 }
 
 // demotionCooldowns decodes the {model: RFC 3339 instant} JSONB column. An
