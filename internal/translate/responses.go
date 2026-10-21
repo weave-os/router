@@ -990,11 +990,9 @@ func (t *ResponsesWriter) Write(data []byte) (int, error) {
 				t.nativeSSEClassification = false
 				t.nativeSSEClassified = false
 				t.streaming = true
-				if !t.httpHeadersSent {
-					t.inner.Header().Set("Content-Type", "text/event-stream")
-					t.inner.WriteHeader(t.statusCode)
-					t.httpHeadersSent = true
-				}
+				t.inner.Header().Set("Content-Type", "text/event-stream")
+				t.inner.WriteHeader(t.statusCode)
+				t.httpHeadersSent = true
 				if err := t.processPassthroughSSEBuffer(); err != nil {
 					return n, err
 				}
