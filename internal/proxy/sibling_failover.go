@@ -344,10 +344,10 @@ func (s *Service) subscriptionSiblingAllowed(ctx context.Context) bool {
 	return creds != nil && creds.OAuth
 }
 
-// rescueCredentialBasis drops a subscription OAuth bearer before a rescue
+// rescueCredentialContext drops a subscription OAuth bearer before a rescue
 // candidate on another provider resolves its own credential: a ChatGPT or
 // Claude token authenticates only against its own vendor.
-func rescueCredentialBasis(ctx context.Context, failedProvider, rescueProvider string) context.Context {
+func rescueCredentialContext(ctx context.Context, failedProvider, rescueProvider string) context.Context {
 	if failedProvider == rescueProvider {
 		return ctx
 	}
