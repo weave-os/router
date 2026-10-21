@@ -1,4 +1,4 @@
-package breaker_test
+package breaker
 
 import (
 	"sync"
@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"weave-os/router/internal/router/breaker"
 )
 
 const (
@@ -28,24 +26,38 @@ func newClock() *clock { return &clock{now: time.Date(2026, 10, 20, 12, 0, 0, 0,
 
 func anyModel(string) bool { return true }
 
-func withdrawnFrom(r *breaker.Registry, org, model string) bool {
+// stateOf reports the position of model's shared circuit, or of org's
+// isolated circuit for it when isolated is set.
+func stateOf(r *Registry, org, model string, isolated bool) State {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	c := r.circuits[circuitKey(org, model, isolated)]
+	switch {
+	case c == nil:
+		return StateClosed
+	case c.state == StateOpen && c.probe.Load() != nil && r.now().Before(c.probe.Load().until):
+		return StateHalfOpen
+	}
+	return c.state
+}
+
+func withdrawnFrom(r *Registry, org, model string) bool {
 	_, ok := r.Withdrawn(org)[model]
 	return ok
 }
 
-func newRegistry(c *clock) *breaker.Registry {
-	return breaker.New(breaker.Config{
+func newRegistry(c *clock) *Registry {
+	return New(Config{
 		Strikes:          3,
 		Window:           2 * time.Minute,
 		OrgConfirmations: 2,
 		RecoveryBase:     30 * time.Second,
 		RecoveryCap:      2 * time.Minute,
-		ProbeLease:       5 * time.Minute,
 	}, c.Now)
 }
 
-func strike(r *breaker.Registry, org, model string, isolated bool, times int) breaker.Transition {
-	var last breaker.Transition
+func strike(r *Registry, org, model string, isolated bool, times int) Transition {
+	var last Transition
 	for range times {
 		last = r.RecordOverload(org, model, isolated)
 	}
@@ -54,13 +66,13 @@ func strike(r *breaker.Registry, org, model string, isolated bool, times int) br
 
 // openShared opens the shared circuit for overloadedModel with weaveOrg's
 // failures alone, which also confirms it for weaveOrg.
-func openShared(t *testing.T, r *breaker.Registry) {
+func openShared(t *testing.T, r *Registry) {
 	t.Helper()
 	strike(r, weaveOrg, overloadedModel, false, 3)
-	require.Equal(t, breaker.StateOpen, r.State(weaveOrg, overloadedModel, false))
+	require.Equal(t, StateOpen, stateOf(r, weaveOrg, overloadedModel, false))
 }
 
-func claim(t *testing.T, r *breaker.Registry, org string) breaker.Probe {
+func claim(t *testing.T, r *Registry, org string) Probe {
 	t.Helper()
 	probe, _, ok := r.ClaimProbe(org, anyModel)
 	require.True(t, ok)
@@ -73,12 +85,11 @@ func TestSharedCircuitOpensOnStrikesFromAnyOrganization(t *testing.T) {
 
 	r.RecordOverload(weaveOrg, overloadedModel, false)
 	r.RecordOverload(musinsaOrg, overloadedModel, false)
-	assert.Equal(t, breaker.StateClosed, r.State(weaveOrg, overloadedModel, false))
+	assert.Equal(t, StateClosed, stateOf(r, weaveOrg, overloadedModel, false))
 
 	opened := r.RecordOverload(cortexOrg, overloadedModel, false)
 
-	assert.Equal(t, breaker.StateOpen, opened.To)
-	assert.Equal(t, 3, opened.Failures)
+	assert.Equal(t, StateOpen, opened.To)
 	assert.Equal(t, 30*time.Second, opened.RecoveryAfter)
 }
 
@@ -135,7 +146,7 @@ func TestStrikesOutsideWindowAgeOut(t *testing.T) {
 	c.Advance(2*time.Minute + time.Second)
 	r.RecordOverload(weaveOrg, overloadedModel, false)
 
-	assert.Equal(t, breaker.StateClosed, r.State(weaveOrg, overloadedModel, false))
+	assert.Equal(t, StateClosed, stateOf(r, weaveOrg, overloadedModel, false))
 	assert.Nil(t, r.Withdrawn(weaveOrg))
 }
 
@@ -147,12 +158,12 @@ func TestIsolatedCircuitStaysWithItsOrganization(t *testing.T) {
 
 	opened := strike(r, cortexOrg, overloadedModel, true, 3)
 
-	assert.Equal(t, breaker.StateOpen, opened.To)
+	assert.Equal(t, StateOpen, opened.To)
 	assert.True(t, opened.Isolated)
 	assert.True(t, withdrawnFrom(r, cortexOrg, overloadedModel), "the owner needs no further confirmation")
-	assert.Equal(t, breaker.StateClosed, r.State(cortexOrg, overloadedModel, false), "the shared circuit is untouched")
+	assert.Equal(t, StateClosed, stateOf(r, cortexOrg, overloadedModel, false), "the shared circuit is untouched")
 	assert.False(t, withdrawnFrom(r, weaveOrg, overloadedModel))
-	assert.Equal(t, breaker.StateClosed, r.State(weaveOrg, overloadedModel, true))
+	assert.Equal(t, StateClosed, stateOf(r, weaveOrg, overloadedModel, true))
 }
 
 // Shared evidence does not reach a gateway organization's own circuit either.
@@ -161,7 +172,7 @@ func TestSharedCircuitDoesNotTouchIsolatedCircuits(t *testing.T) {
 	r := newRegistry(c)
 	openShared(t, r)
 
-	assert.Equal(t, breaker.StateClosed, r.State(cortexOrg, overloadedModel, true))
+	assert.Equal(t, StateClosed, stateOf(r, cortexOrg, overloadedModel, true))
 	assert.False(t, withdrawnFrom(r, cortexOrg, overloadedModel))
 }
 
@@ -199,7 +210,7 @@ func TestHalfOpenAdmitsExactlyOneProbe(t *testing.T) {
 	wg.Wait()
 
 	assert.Equal(t, 1, claims)
-	assert.Equal(t, breaker.StateHalfOpen, r.State(weaveOrg, overloadedModel, false))
+	assert.Equal(t, StateHalfOpen, stateOf(r, weaveOrg, overloadedModel, false))
 	assert.True(t, withdrawnFrom(r, weaveOrg, overloadedModel), "half-open stays withdrawn for everyone but the prober")
 }
 
@@ -214,11 +225,11 @@ func TestServedProbeClosesForEveryOrganization(t *testing.T) {
 
 	closed := r.ProbeSucceeded(claim(t, r, musinsaOrg))
 
-	assert.Equal(t, breaker.StateClosed, closed.To)
+	assert.Equal(t, StateClosed, closed.To)
 	assert.Nil(t, r.Withdrawn(weaveOrg))
 	assert.Nil(t, r.Withdrawn(musinsaOrg))
 	strike(r, weaveOrg, overloadedModel, false, 2)
-	assert.Equal(t, breaker.StateClosed, r.State(weaveOrg, overloadedModel, false), "strikes from before the outage do not carry over")
+	assert.Equal(t, StateClosed, stateOf(r, weaveOrg, overloadedModel, false), "strikes from before the outage do not carry over")
 }
 
 // An organization that never confirmed may still probe, so a shared circuit
@@ -245,7 +256,7 @@ func TestOnlyTheOwnerProbesAnIsolatedCircuit(t *testing.T) {
 
 	assert.False(t, claimedByOther)
 	require.True(t, ok)
-	assert.Equal(t, breaker.StateClosed, r.ProbeSucceeded(owner).To)
+	assert.Equal(t, StateClosed, r.ProbeSucceeded(owner).To)
 	assert.Nil(t, r.Withdrawn(cortexOrg))
 }
 
@@ -259,7 +270,7 @@ func TestFailedProbeReopensWithBackoffUpToCap(t *testing.T) {
 
 		reopened := r.ProbeFailed(claim(t, r, weaveOrg))
 
-		assert.Equal(t, breaker.StateOpen, reopened.To)
+		assert.Equal(t, StateOpen, reopened.To)
 		assert.Equal(t, want, reopened.RecoveryAfter)
 		assert.True(t, withdrawnFrom(r, weaveOrg, overloadedModel), "confirmations carry over a failed probe")
 	}
@@ -279,8 +290,8 @@ func TestOverloadWhileHalfOpenLeavesProbeInCharge(t *testing.T) {
 
 	r.RecordOverload(weaveOrg, overloadedModel, false)
 
-	assert.Equal(t, breaker.StateHalfOpen, r.State(weaveOrg, overloadedModel, false))
-	assert.Equal(t, breaker.StateClosed, r.ProbeSucceeded(probe).To)
+	assert.Equal(t, StateHalfOpen, stateOf(r, weaveOrg, overloadedModel, false))
+	assert.Equal(t, StateClosed, r.ProbeSucceeded(probe).To)
 }
 
 func TestReleasedProbeIsDueAgain(t *testing.T) {
@@ -292,7 +303,7 @@ func TestReleasedProbeIsDueAgain(t *testing.T) {
 	released := r.ReleaseProbe(claim(t, r, weaveOrg))
 	again := claim(t, r, weaveOrg)
 
-	assert.Equal(t, breaker.StateOpen, released.To)
+	assert.Equal(t, StateOpen, released.To)
 	assert.Equal(t, overloadedModel, again.Model)
 }
 
@@ -326,8 +337,8 @@ func TestStaleProbeCannotResolveCircuit(t *testing.T) {
 
 	assert.False(t, r.ProbeSucceeded(stale).Changed(), "a resolved probe cannot close the circuit")
 	assert.False(t, r.ReleaseProbe(stale).Changed())
-	assert.Equal(t, breaker.StateHalfOpen, r.State(weaveOrg, overloadedModel, false))
-	assert.Equal(t, breaker.StateClosed, r.ProbeSucceeded(current).To)
+	assert.Equal(t, StateHalfOpen, stateOf(r, weaveOrg, overloadedModel, false))
+	assert.Equal(t, StateClosed, r.ProbeSucceeded(current).To)
 }
 
 func TestAbandonedProbeIsReclaimedAfterLease(t *testing.T) {
@@ -337,9 +348,9 @@ func TestAbandonedProbeIsReclaimedAfterLease(t *testing.T) {
 	c.Advance(30 * time.Second)
 	stale := claim(t, r, weaveOrg)
 
-	c.Advance(4 * time.Minute)
+	c.Advance(probeLease - time.Second)
 	_, _, early := r.ClaimProbe(weaveOrg, anyModel)
-	c.Advance(time.Minute)
+	c.Advance(time.Second)
 	_, _, late := r.ClaimProbe(weaveOrg, anyModel)
 
 	assert.False(t, early)
@@ -356,7 +367,7 @@ func TestClaimSkipsIneligibleModels(t *testing.T) {
 	_, _, ok := r.ClaimProbe(weaveOrg, func(string) bool { return false })
 
 	assert.False(t, ok)
-	assert.Equal(t, breaker.StateOpen, r.State(weaveOrg, overloadedModel, false), "an ineligible request leaves the circuit due for the next one")
+	assert.Equal(t, StateOpen, stateOf(r, weaveOrg, overloadedModel, false), "an ineligible request leaves the circuit due for the next one")
 }
 
 // An organization with withdrawals of its own still never sees another
@@ -371,4 +382,49 @@ func TestIsolatedCircuitDoesNotLeakIntoOtherOrganizationsWithdrawals(t *testing.
 
 	assert.Equal(t, map[string]struct{}{otherModel: {}}, r.Withdrawn(weaveOrg))
 	assert.Equal(t, map[string]struct{}{overloadedModel: {}}, r.Withdrawn(cortexOrg))
+}
+
+// Claiming and releasing a probe run on every eligible request while a
+// circuit is due, so they must not wait on the registry lock.
+func TestClaimAndReleaseDoNotTakeTheLock(t *testing.T) {
+	c := newClock()
+	r := newRegistry(c)
+	openShared(t, r)
+	c.Advance(30 * time.Second)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	done := make(chan bool)
+	go func() {
+		probe, _, ok := r.ClaimProbe(weaveOrg, anyModel)
+		released := r.ReleaseProbe(probe).Changed()
+		withdrawn := r.Withdrawn(weaveOrg) != nil
+		done <- ok && released && withdrawn
+	}()
+
+	select {
+	case completed := <-done:
+		assert.True(t, completed)
+	case <-time.After(5 * time.Second):
+		t.Fatal("ClaimProbe or ReleaseProbe blocked on the registry lock")
+	}
+}
+
+// One-off strikes from many organizations' gateways are dropped once they
+// age out, so a long-lived replica does not accumulate circuits.
+func TestAgedOutClosedCircuitsAreSwept(t *testing.T) {
+	c := newClock()
+	r := newRegistry(c)
+	r.RecordOverload(cortexOrg, overloadedModel, true)
+	r.RecordOverload(weaveOrg, otherModel, true)
+	c.Advance(time.Minute)
+	r.RecordOverload(weaveOrg, otherModel, true)
+	c.Advance(time.Minute + time.Second)
+
+	r.RecordOverload(musinsaOrg, otherModel, true)
+
+	_, staleKept := r.circuits[circuitKey(cortexOrg, overloadedModel, true)]
+	_, liveKept := r.circuits[circuitKey(weaveOrg, otherModel, true)]
+	assert.False(t, staleKept, "a closed circuit whose strikes all aged out is dropped")
+	assert.True(t, liveKept, "a closed circuit with a strike inside the window is kept")
 }

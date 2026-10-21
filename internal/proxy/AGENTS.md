@@ -104,8 +104,9 @@ however many same-binding retries it took. A 529 straight from a provider
 (deployment keys, a tenant's own direct key, subscriptions) reports that
 provider's capacity, so it feeds one shared circuit per model with every
 organization's strikes. An open shared circuit withdraws the model only from
-organizations that have each seen `ROUTER_PROVIDER_OVERLOADED_ORG_CONFIRMATIONS`
-overloads themselves in the episode: one company tripping it does not move
+organizations that have each seen two overloads themselves in the episode
+(thresholds are fixed in [`thresholds.go`](../router/breaker/thresholds.go)):
+one company tripping it does not move
 another until that company sees its own 529s. A 529 through an organization's
 own gateway (Snowflake Cortex and similar `*_gateway` providers) says nothing
 about anyone else, so it feeds a circuit for that organization alone, which
@@ -119,9 +120,10 @@ for that request alone; only that request's own outcome resolves the circuit
 (a probe token travels from routing to dispatch, so an older in-flight success
 cannot close it). A served probe closes the circuit and clears every
 organization's confirmation, a 529 reopens it for twice as long (capped), and
-a request that served something else releases the slot, which then yields to
-any other due circuit not yet offered. Only main and tool-result turns that
-can sibling-rescue (never Gemini ingress or non-gateway caller credentials)
+a request that routed to something else releases the slot as soon as routing
+finishes, so it yields to any other due circuit not yet offered. Only main and
+tool-result turns that pass `siblingRescueAllowed` (never Gemini ingress,
+caller-model passthrough or non-gateway caller credentials)
 take the probe, so a failed probe never reaches the client. An open circuit
 only stops the router *choosing* the model: when a sibling rescue finds no
 other eligible candidate (a two-model roster whose other arm just failed),
@@ -129,9 +131,11 @@ other eligible candidate (a two-model roster whose other arm just failed),
 so the turn tries the overloaded model instead of surfacing the other arm's
 error. Committed streams, client cancellations, other statuses and requests
 with no installation are not overload evidence. State is in-process per
-replica by design: the request path reads an atomically published
-per-organization set, a served request on a closed circuit takes no lock, and
-closed circuits whose strikes have aged out are swept. The semantic cache is
+replica by design. The request path never takes the registry lock: withdrawn
+sets and the due list are an atomically published snapshot, and claiming or
+releasing a probe is a compare-and-swap on the circuit. Only overload strikes
+and probe outcomes lock and republish, and closed circuits whose strikes have
+aged out are swept. The semantic cache is
 skipped while any model is withdrawn for the request, as for any automatic
 exclusion.
 

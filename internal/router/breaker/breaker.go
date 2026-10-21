@@ -7,11 +7,16 @@
 // confirmed the overload with failures of their own. An isolated circuit
 // belongs to one organization (traffic through its own gateway) and only ever
 // sees that organization's failures.
+//
+// Request-path calls never take the lock: Withdrawn and ClaimProbe read an
+// atomically published snapshot, and claiming or releasing a probe is one
+// compare-and-swap on the circuit. Only overload failures and probe outcomes,
+// which change what the snapshot says, lock and republish.
 package breaker
 
 import (
 	"slices"
-	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -25,16 +30,12 @@ const (
 	StateClosed State = "closed"
 	// StateOpen withdraws the model until its recovery timeout elapses.
 	StateOpen State = "open"
-	// StateHalfOpen admits exactly one probe to test recovery.
+	// StateHalfOpen is an open circuit whose single probe is in flight.
 	StateHalfOpen State = "half_open"
 )
 
-// DefaultProbeLease bounds how long a claimed probe may stay unresolved before
-// another request may claim it; it covers a long streamed turn.
-const DefaultProbeLease = 15 * time.Minute
-
 // Config tunes when a circuit opens, who it withdraws the model from, and how
-// long it waits before probing.
+// long it waits before probing. Production uses Defaults.
 type Config struct {
 	// Strikes overload failures within Window open a circuit.
 	Strikes int
@@ -47,29 +48,28 @@ type Config struct {
 	// up to RecoveryCap.
 	RecoveryBase time.Duration
 	RecoveryCap  time.Duration
-	// ProbeLease defaults to DefaultProbeLease when zero.
-	ProbeLease time.Duration
 }
 
-// Probe is one claimed half-open slot. The token makes resolving a slot that
-// was since resolved or reclaimed a no-op.
+// Probe is one claimed half-open slot. Resolving or releasing a slot that
+// was since resolved or reclaimed is a no-op.
 type Probe struct {
-	Model string
-	key   string
-	token uint64
+	Model   string
+	org     string
+	key     string
+	circuit *circuit
+	slot    *probeSlot
 }
 
 // Transition reports what a call did to one circuit, for logging.
 type Transition struct {
-	Model    string
+	Model string
+	// Org is the organization whose request made the call.
 	Org      string
 	Isolated bool
 	From, To State
 	// Confirmed is true when the call made Org confirm an open shared
 	// circuit, withdrawing the model from it.
 	Confirmed bool
-	// Failures is the in-window failure count when a closed circuit opened.
-	Failures int
 	// RecoveryAfter is the open period that just started; zero otherwise.
 	RecoveryAfter time.Duration
 }
@@ -78,10 +78,21 @@ type Transition struct {
 // view of it.
 func (t Transition) Changed() bool { return t.From != t.To || t.Confirmed }
 
+// probeSlot is one holder's claim on a circuit's half-open slot, valid until
+// its lease runs out.
+type probeSlot struct{ until time.Time }
+
+// resolving holds a slot while its outcome is applied, so a lease that
+// expires mid-resolution cannot hand the circuit to a second prober.
+var resolving = &probeSlot{until: time.Unix(1<<62, 0)}
+
 type circuit struct {
+	// model and org never change, so snapshot readers use them unlocked.
 	model string
 	// org is set only on isolated circuits.
-	org      string
+	org string
+
+	// Guarded by Registry.mu.
 	state    State
 	failures []time.Time
 	// orgFailures holds each organization's recent failures on a shared
@@ -90,30 +101,41 @@ type circuit struct {
 	episodeStart time.Time
 	openedAt     time.Time
 	reopens      int
-	probeToken   uint64
-	probeUntil   time.Time
-	// offeredAt is when the probe was last claimed; a released probe sorts
-	// behind circuits not yet offered so one unwanted model cannot starve
+
+	// probe is the held half-open slot, nil when none; an open circuit with
+	// an unexpired slot is half-open.
+	probe atomic.Pointer[probeSlot]
+	// lastOffered is the UnixNano of the last claim, so a released probe
+	// yields to circuits not yet offered and one unwanted model cannot starve
 	// the others.
-	offeredAt time.Time
+	lastOffered atomic.Int64
 }
 
-// Registry holds every circuit on the replica. The per-organization withdrawn
-// sets and the earliest instant any circuit becomes due for a probe are
-// published atomically and rebuilt only when they change, so request-path
-// readers never take the lock until a probe is actually due.
+// snapshot is what request-path readers see, rebuilt whenever a circuit opens,
+// closes, reopens or gains a confirmation.
+type snapshot struct {
+	withdrawn map[string]map[string]struct{}
+	// open lists every open circuit, longest open first.
+	open []openCircuit
+	// nextDue is when the soonest open circuit becomes claimable.
+	nextDue time.Time
+}
+
+type openCircuit struct {
+	key     string
+	circuit *circuit
+	dueAt   time.Time
+}
+
+// Registry holds every circuit on the replica.
 type Registry struct {
 	cfg Config
 	now func() time.Time
 
-	mu        sync.Mutex
-	circuits  map[string]*circuit
-	nextToken uint64
+	mu       sync.Mutex
+	circuits map[string]*circuit
 
-	withdrawn atomic.Pointer[map[string]map[string]struct{}]
-	// nextDue is the UnixNano at which the soonest circuit becomes claimable;
-	// zero when every circuit is closed.
-	nextDue atomic.Int64
+	published atomic.Pointer[snapshot]
 }
 
 // New returns a registry with every circuit closed. now defaults to time.Now.
@@ -124,21 +146,18 @@ func New(cfg Config, now func() time.Time) *Registry {
 		cfg.RecoveryBase = time.Second
 	}
 	cfg.RecoveryCap = max(cfg.RecoveryCap, cfg.RecoveryBase)
-	if cfg.ProbeLease <= 0 {
-		cfg.ProbeLease = DefaultProbeLease
-	}
 	if now == nil {
 		now = time.Now
 	}
 	return &Registry{cfg: cfg, now: now, circuits: make(map[string]*circuit)}
 }
 
-// Withdrawn returns the models org may not choose automatically: open or
-// half-open shared circuits it has confirmed, plus its own open isolated
-// circuits. The map is shared and must not be modified; nil when empty.
+// Withdrawn returns the models org may not choose automatically: open shared
+// circuits it has confirmed, plus its own open isolated circuits. The map is
+// shared and must not be modified; nil when empty.
 func (r *Registry) Withdrawn(org string) map[string]struct{} {
-	if p := r.withdrawn.Load(); p != nil {
-		return (*p)[org]
+	if snap := r.published.Load(); snap != nil {
+		return snap.withdrawn[org]
 	}
 	return nil
 }
@@ -184,12 +203,77 @@ func (r *Registry) RecordOverload(org, model string, isolated bool) Transition {
 	if len(c.failures) < r.cfg.Strikes {
 		return transition
 	}
-	transition.Failures = len(c.failures)
 	c.state, c.openedAt, c.episodeStart, c.reopens, c.failures = StateOpen, now, now, 0, nil
 	transition.To, transition.RecoveryAfter = StateOpen, r.recoveryLocked(0)
 	transition.Confirmed = r.confirmedLocked(c, org, now)
 	r.publishLocked()
 	return transition
+}
+
+// ClaimProbe grants org the half-open slot of the first due circuit it may
+// probe that eligible accepts, preferring circuits whose probe was offered
+// least recently, then the longest open. Any organization may probe a shared
+// circuit, so one nobody has confirmed still recovers; an isolated circuit is
+// probed only by its owner. A circuit is due once its recovery timeout has
+// elapsed and no unexpired probe holds it. Lock-free.
+func (r *Registry) ClaimProbe(org string, eligible func(model string) bool) (Probe, Transition, bool) {
+	snap := r.published.Load()
+	if snap == nil || len(snap.open) == 0 {
+		return Probe{}, Transition{}, false
+	}
+	now := r.now()
+	if now.Before(snap.nextDue) {
+		return Probe{}, Transition{}, false
+	}
+	var picked *openCircuit
+	var held *probeSlot
+	for i := range snap.open {
+		candidate := &snap.open[i]
+		c := candidate.circuit
+		if now.Before(candidate.dueAt) || (c.org != "" && c.org != org) {
+			continue
+		}
+		slot := c.probe.Load()
+		if slot != nil && now.Before(slot.until) {
+			continue
+		}
+		if picked != nil && c.lastOffered.Load() >= picked.circuit.lastOffered.Load() {
+			continue
+		}
+		if !eligible(c.model) {
+			continue
+		}
+		picked, held = candidate, slot
+	}
+	if picked == nil {
+		return Probe{}, Transition{}, false
+	}
+	c := picked.circuit
+	slot := &probeSlot{until: now.Add(probeLease)}
+	if !c.probe.CompareAndSwap(held, slot) {
+		return Probe{}, Transition{}, false
+	}
+	if r.published.Load() != snap {
+		// A resolution republished while this claim was deciding; its due
+		// times may be stale, so leave the slot to a request that sees the
+		// new snapshot.
+		c.probe.CompareAndSwap(slot, held)
+		return Probe{}, Transition{}, false
+	}
+	c.lastOffered.Store(now.UnixNano())
+	probe := Probe{Model: c.model, org: org, key: picked.key, circuit: c, slot: slot}
+	return probe, Transition{Model: c.model, Org: org, Isolated: c.org != "", From: StateOpen, To: StateHalfOpen}, true
+}
+
+// ReleaseProbe returns a slot whose request ended without resolving it (the
+// model was not dispatched, or failed for a reason other than overload). The
+// circuit stays open and due, behind any due circuit not yet offered.
+// Lock-free; a no-op when the probe was already resolved or reclaimed.
+func (r *Registry) ReleaseProbe(p Probe) Transition {
+	if p.circuit == nil || !p.circuit.probe.CompareAndSwap(p.slot, nil) {
+		return Transition{Model: p.Model}
+	}
+	return Transition{Model: p.Model, Org: p.org, Isolated: p.circuit.org != "", From: StateHalfOpen, To: StateOpen}
 }
 
 // ProbeSucceeded closes the probed circuit and resets its whole state,
@@ -206,98 +290,32 @@ func (r *Registry) ProbeSucceeded(p Probe) Transition {
 // the half-open slot.
 func (r *Registry) ProbeFailed(p Probe) Transition {
 	return r.resolveProbe(p, func(c *circuit, now time.Time) {
-		c.state, c.openedAt, c.reopens = StateOpen, now, c.reopens+1
+		c.openedAt, c.reopens = now, c.reopens+1
 	})
-}
-
-// ReleaseProbe returns a slot whose request ended without resolving it (the
-// model was not dispatched, or failed for a reason other than overload). The
-// circuit goes back to open and stays due, behind any due circuit not yet
-// offered. No-op when the probe was already resolved or reclaimed.
-func (r *Registry) ReleaseProbe(p Probe) Transition {
-	return r.resolveProbe(p, func(c *circuit, _ time.Time) {
-		c.state = StateOpen
-	})
-}
-
-// ClaimProbe grants org the half-open slot of the first due circuit it may
-// probe that eligible accepts, preferring circuits whose probe was offered
-// least recently, then the longest open. Any organization may probe a shared
-// circuit, so one nobody has confirmed still recovers; an isolated circuit is
-// probed only by its owner. A circuit is due once its recovery timeout has
-// elapsed, or when a previous probe's lease expired unresolved.
-func (r *Registry) ClaimProbe(org string, eligible func(model string) bool) (Probe, Transition, bool) {
-	nextDue := r.nextDue.Load()
-	if nextDue == 0 || r.now().UnixNano() < nextDue {
-		return Probe{}, Transition{}, false
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	now := r.now()
-	due := make([]string, 0, len(r.circuits))
-	for key, c := range r.circuits {
-		if at, claimable := r.dueAtLocked(c); claimable && !now.Before(at) && (c.org == "" || c.org == org) {
-			due = append(due, key)
-		}
-	}
-	sort.Slice(due, func(i, j int) bool {
-		a, b := r.circuits[due[i]], r.circuits[due[j]]
-		if !a.offeredAt.Equal(b.offeredAt) {
-			return a.offeredAt.Before(b.offeredAt)
-		}
-		if !a.openedAt.Equal(b.openedAt) {
-			return a.openedAt.Before(b.openedAt)
-		}
-		return due[i] < due[j]
-	})
-	for _, key := range due {
-		c := r.circuits[key]
-		if !eligible(c.model) {
-			continue
-		}
-		from := c.state
-		r.nextToken++
-		c.state, c.probeToken, c.probeUntil, c.offeredAt = StateHalfOpen, r.nextToken, now.Add(r.cfg.ProbeLease), now
-		r.publishLocked()
-		return Probe{Model: c.model, key: key, token: c.probeToken}, Transition{Model: c.model, Org: org, Isolated: c.org != "", From: from, To: StateHalfOpen}, true
-	}
-	return Probe{}, Transition{}, false
-}
-
-// State reports the position of model's shared circuit, or of org's isolated
-// circuit for it when isolated is set.
-func (r *Registry) State(org, model string, isolated bool) State {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if c := r.circuits[circuitKey(org, model, isolated)]; c != nil {
-		return c.state
-	}
-	return StateClosed
 }
 
 func (r *Registry) resolveProbe(p Probe, apply func(*circuit, time.Time)) Transition {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	c := r.circuits[p.key]
-	if c == nil || c.state != StateHalfOpen || c.probeToken != p.token {
+	if c == nil || c != p.circuit || !c.probe.CompareAndSwap(p.slot, resolving) {
 		return Transition{Model: p.Model}
 	}
-	c.probeToken, c.probeUntil = 0, time.Time{}
 	apply(c, r.now())
-	transition := Transition{Model: p.Model, Org: c.org, Isolated: c.org != "", From: StateHalfOpen, To: StateClosed}
+	transition := Transition{Model: p.Model, Org: p.org, Isolated: c.org != "", From: StateHalfOpen, To: StateClosed}
 	if _, kept := r.circuits[p.key]; kept {
-		transition.To = c.state
-	}
-	if transition.To == StateOpen {
+		transition.To = StateOpen
 		transition.RecoveryAfter = r.recoveryLocked(c.reopens)
 	}
 	r.publishLocked()
+	c.probe.Store(nil)
 	return transition
 }
 
-// confirmedLocked reports whether shared circuit c withdraws its model from
-// org: only once org has enough failures of its own in the current episode.
-// A closed circuit withdraws nothing.
+// confirmedLocked reports whether c withdraws its model from org: always for
+// its owner when isolated, and for a shared circuit only once org has enough
+// failures of its own in the current episode. A closed circuit withdraws
+// nothing.
 func (r *Registry) confirmedLocked(c *circuit, org string, now time.Time) bool {
 	if c.state == StateClosed {
 		return false
@@ -328,13 +346,14 @@ func (r *Registry) cutoffLocked(c *circuit, now time.Time) time.Time {
 // one-off strikes from many organizations cannot accumulate.
 func (r *Registry) sweepLocked(now time.Time) {
 	cutoff := now.Add(-r.cfg.Window)
+	recent := func(at time.Time) bool { return at.After(cutoff) }
 	for key, c := range r.circuits {
-		if c.state != StateClosed || slices.ContainsFunc(c.failures, func(at time.Time) bool { return at.After(cutoff) }) {
+		if c.state != StateClosed || slices.ContainsFunc(c.failures, recent) {
 			continue
 		}
 		stale := true
 		for _, failures := range c.orgFailures {
-			if slices.ContainsFunc(failures, func(at time.Time) bool { return at.After(cutoff) }) {
+			if slices.ContainsFunc(failures, recent) {
 				stale = false
 				break
 			}
@@ -353,56 +372,42 @@ func (r *Registry) recoveryLocked(reopens int) time.Duration {
 	return min(d, r.cfg.RecoveryCap)
 }
 
-// dueAtLocked reports when open or half-open c may next be claimed for a
-// probe. A closed circuit is never due, so ok is false and the time is zero.
-func (r *Registry) dueAtLocked(c *circuit) (time.Time, bool) {
-	switch c.state {
-	case StateOpen:
-		return c.openedAt.Add(r.recoveryLocked(c.reopens)), true
-	case StateHalfOpen:
-		return c.probeUntil, true
-	}
-	return time.Time{}, false
-}
-
 func (r *Registry) publishLocked() {
 	now := r.now()
-	withdrawn := make(map[string]map[string]struct{})
-	add := func(org, model string) {
-		if withdrawn[org] == nil {
-			withdrawn[org] = make(map[string]struct{})
+	snap := &snapshot{withdrawn: make(map[string]map[string]struct{})}
+	withdraw := func(org, model string) {
+		if snap.withdrawn[org] == nil {
+			snap.withdrawn[org] = make(map[string]struct{})
 		}
-		withdrawn[org][model] = struct{}{}
+		snap.withdrawn[org][model] = struct{}{}
 	}
-	var nextDue time.Time
-	for _, c := range r.circuits {
-		at, claimable := r.dueAtLocked(c)
-		if !claimable {
+	for key, c := range r.circuits {
+		if c.state == StateClosed {
 			continue
 		}
-		if nextDue.IsZero() || at.Before(nextDue) {
-			nextDue = at
-		}
+		snap.open = append(snap.open, openCircuit{key: key, circuit: c, dueAt: c.openedAt.Add(r.recoveryLocked(c.reopens))})
 		if c.org != "" {
-			add(c.org, c.model)
+			withdraw(c.org, c.model)
 			continue
 		}
 		for org := range c.orgFailures {
 			if r.confirmedLocked(c, org, now) {
-				add(org, c.model)
+				withdraw(org, c.model)
 			}
 		}
 	}
-	if nextDue.IsZero() {
-		r.nextDue.Store(0)
-	} else {
-		r.nextDue.Store(nextDue.UnixNano())
+	slices.SortFunc(snap.open, func(a, b openCircuit) int {
+		if order := a.circuit.openedAt.Compare(b.circuit.openedAt); order != 0 {
+			return order
+		}
+		return strings.Compare(a.key, b.key)
+	})
+	for i, open := range snap.open {
+		if i == 0 || open.dueAt.Before(snap.nextDue) {
+			snap.nextDue = open.dueAt
+		}
 	}
-	if len(withdrawn) == 0 {
-		r.withdrawn.Store(nil)
-		return
-	}
-	r.withdrawn.Store(&withdrawn)
+	r.published.Store(snap)
 }
 
 func circuitKey(org, model string, isolated bool) string {

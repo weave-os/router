@@ -809,17 +809,9 @@ func main() {
 	// rescue and Retry-After-aware same-binding retry. Off until baked off.
 	transientRateLimit := config.GetOr("ROUTER_TRANSIENT_RATE_LIMIT", "false") == "true"
 	rateLimitCooldownSeconds := parseEnvInt("ROUTER_RATE_LIMIT_COOLDOWN_SECONDS", proxy.DefaultRateLimitCooldownSeconds)
-	// Per-model 529 circuit breaker. The registry is always built so a per-org
-	// override can enable it; thresholds are deployment-wide because one
-	// shared circuit per model pools every installation's provider evidence.
+	// Per-model 529 circuit breaker. Its thresholds are fixed in
+	// internal/router/breaker/thresholds.go.
 	providerOverloaded := config.GetOr("ROUTER_PROVIDER_OVERLOADED", "false") == "true"
-	overloadBreaker := breaker.New(breaker.Config{
-		Strikes:          parseEnvInt("ROUTER_PROVIDER_OVERLOADED_STRIKES", proxy.DefaultOverloadStrikes),
-		Window:           time.Duration(parseEnvInt("ROUTER_PROVIDER_OVERLOADED_WINDOW_SECONDS", proxy.DefaultOverloadWindowSeconds)) * time.Second,
-		OrgConfirmations: parseEnvInt("ROUTER_PROVIDER_OVERLOADED_ORG_CONFIRMATIONS", proxy.DefaultOverloadOrgConfirmations),
-		RecoveryBase:     time.Duration(parseEnvInt("ROUTER_PROVIDER_OVERLOADED_RECOVERY_SECONDS", proxy.DefaultOverloadRecoverySeconds)) * time.Second,
-		RecoveryCap:      time.Duration(parseEnvInt("ROUTER_PROVIDER_OVERLOADED_MAX_RECOVERY_SECONDS", proxy.DefaultOverloadMaxRecoverySeconds)) * time.Second,
-	}, nil)
 	// nativeAnthropicResponseSignals records the stop reason and tool_use block
 	// count an Anthropic-native turn already streams past the usage extractor;
 	// kill switch for that extraction and the telemetry columns it fills.
@@ -1396,8 +1388,7 @@ func main() {
 		WithCommittedStreamArmDemotion(committedStreamArmDemotion).
 		WithRescuedFailureArmDemotion(rescuedFailureArmDemotion).
 		WithTransientRateLimit(transientRateLimit, rateLimitCooldownSeconds).
-		WithProviderOverloaded(providerOverloaded).
-		WithOverloadBreaker(overloadBreaker).
+		WithProviderOverloaded(providerOverloaded, breaker.New(breaker.Defaults(), nil)).
 		WithNativeAnthropicResponseSignals(nativeAnthropicResponseSignals).
 		WithNativeOpenAIResponseSignals(nativeOpenAIResponseSignals).
 		WithSSEKeepalive(sseKeepalive).

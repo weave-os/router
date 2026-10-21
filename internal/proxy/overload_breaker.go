@@ -5,6 +5,7 @@ import (
 	"errors"
 	"maps"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -17,23 +18,14 @@ import (
 // overload circuit is open, alongside the control plane's operator notes.
 const overloadBreakerReason = "provider_overloaded"
 
-// Deployment defaults for the breaker thresholds
-// (ROUTER_PROVIDER_OVERLOADED_{STRIKES,WINDOW_SECONDS,ORG_CONFIRMATIONS,
-// RECOVERY_SECONDS,MAX_RECOVERY_SECONDS}).
-const (
-	DefaultOverloadStrikes            = 3
-	DefaultOverloadOrgConfirmations   = 2
-	DefaultOverloadWindowSeconds      = 120
-	DefaultOverloadRecoverySeconds    = 30
-	DefaultOverloadMaxRecoverySeconds = 600
-)
-
 type overloadProbeContextKey struct{}
 
-// WithOverloadBreaker wires the per-model 529 circuit breaker
-// (ROUTER_PROVIDER_OVERLOADED). Nil leaves overloads to the in-turn rescue.
-func (s *Service) WithOverloadBreaker(registry *breaker.Registry) *Service {
-	s.overloadBreaker = registry
+// WithProviderOverloaded sets the deployment default for the per-model 529
+// circuit breaker (ROUTER_PROVIDER_OVERLOADED) and the replica's registry.
+// The registry is wired even when the default is off so a per-org override
+// can enable it; nil leaves overloads to the in-turn rescue.
+func (s *Service) WithProviderOverloaded(enabled bool, registry *breaker.Registry) *Service {
+	s.providerOverloaded, s.overloadBreaker = enabled, registry
 	return s
 }
 
@@ -98,9 +90,15 @@ func withOverloadProbe(ctx context.Context, probe breaker.Probe) context.Context
 }
 
 // withTurnOverloadProbe carries a probe claimed during routing onto the
-// ingress's dispatch context.
-func withTurnOverloadProbe(ctx context.Context, res turnLoopResult) context.Context {
+// ingress's dispatch context when the turn routed to the probed model, and
+// otherwise frees the slot now so the next request can probe instead of
+// waiting for this one to finish streaming another model.
+func (s *Service) withTurnOverloadProbe(ctx context.Context, res turnLoopResult) context.Context {
 	if res.OverloadProbe == nil {
+		return ctx
+	}
+	if res.Decision.Model != res.OverloadProbe.Model {
+		s.overloadBreaker.ReleaseProbe(*res.OverloadProbe)
 		return ctx
 	}
 	return withOverloadProbe(ctx, *res.OverloadProbe)
@@ -108,14 +106,13 @@ func withTurnOverloadProbe(ctx context.Context, res turnLoopResult) context.Cont
 
 // overloadProbeRescuable reports whether a 529 on the probe would be absorbed
 // by the sibling rescue instead of reaching the client: the Gemini ingress
-// never rescues, and the others only under the conditions their siblingViable
-// checks share. A gateway organization's rescue walks its own gateway
-// aliases, so its requests may probe its isolated circuits.
+// and caller-model passthrough never rescue, and the others only when
+// siblingRescueAllowed holds. A gateway organization's rescue walks its own
+// gateway aliases, so its requests may probe its isolated circuits.
 func (s *Service) overloadProbeRescuable(ctx context.Context, req router.Request) bool {
 	return req.TranslationRequirements.Endpoint != router.EndpointGeminiGenerate &&
-		s.ResolveSiblingFailover(ctx) &&
-		(s.shouldFailover(ctx) || len(s.gatewayProvidersForRequest(ctx)) > 0) &&
-		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx))
+		!auth.RoutingPassthroughFrom(ctx) &&
+		s.siblingRescueAllowed(ctx, len(s.gatewayProvidersForRequest(ctx)) > 0)
 }
 
 // recordOverloadOutcome feeds one dispatch operation's result to the breaker.
@@ -171,7 +168,6 @@ func logOverloadTransition(ctx context.Context, transition breaker.Transition) {
 		"from", string(transition.From),
 		"to", string(transition.To),
 		"org_confirmed", transition.Confirmed,
-		"overload_failures", transition.Failures,
 		"recovery_after_ms", transition.RecoveryAfter.Milliseconds(),
 	)
 }

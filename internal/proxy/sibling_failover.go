@@ -393,6 +393,17 @@ func (s *Service) gatewaySiblingAllowed(ctx context.Context, sibling router.Deci
 	return held
 }
 
+// siblingRescueAllowed holds the request-level conditions every same-cluster
+// rescue shares: the flag is on, the rescue can re-resolve credentials
+// (deployment keys, a subscription plan, or gatewayHeld when the rescuer is
+// one of the request's own gateway aliases), and a depleted-credit turn may
+// still spend on it.
+func (s *Service) siblingRescueAllowed(ctx context.Context, gatewayHeld bool) bool {
+	return s.ResolveSiblingFailover(ctx) &&
+		(s.shouldFailover(ctx) || s.subscriptionSiblingAllowed(ctx) || gatewayHeld) &&
+		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx))
+}
+
 // gatewayProviderFor resolves the gateway binding serving a candidate: the
 // first alias-declared provider whose key the request holds.
 func gatewayProviderFor(model string, custom map[string][]string, gw map[string]struct{}) (string, bool) {

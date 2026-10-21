@@ -93,8 +93,7 @@ func newOverloadHarness(enabled bool) *overloadHarness {
 	}, nil, false, nil, &demotionStubPinStore{}, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}}).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil }).
-		WithProviderOverloaded(enabled).
-		WithOverloadBreaker(registry)
+		WithProviderOverloaded(enabled, registry)
 	h.svc.now = now
 	return h
 }
@@ -116,9 +115,11 @@ func orgCtx(org string) context.Context {
 	return context.WithValue(ctx, InstallationIDContextKey{}, org)
 }
 
-// state is the shared circuit for the primary model.
-func (h *overloadHarness) state() breaker.State {
-	return h.svc.overloadBreaker.State(h.org, rescuedPrimaryModel, false)
+// withdrawn reports whether the primary model is out of the harness
+// organization's automatic selection.
+func (h *overloadHarness) withdrawn() bool {
+	_, withdrawn := h.svc.overloadBreaker.Withdrawn(h.org)[rescuedPrimaryModel]
+	return withdrawn
 }
 
 func (h *overloadHarness) strike(org string, times int) {
@@ -133,9 +134,9 @@ func TestOverloadBreaker_OpensAndRoutesAround(t *testing.T) {
 	h := newOverloadHarness(true)
 
 	h.turn(t, h.ctx())
-	assert.Equal(t, breaker.StateClosed, h.state())
+	assert.False(t, h.withdrawn())
 	h.turn(t, h.ctx())
-	require.Equal(t, breaker.StateOpen, h.state())
+	require.True(t, h.withdrawn())
 	callsWhenOpened := h.primary.calls
 
 	rec := h.turn(t, h.ctx())
@@ -153,7 +154,7 @@ func TestOverloadBreaker_CountsTurnsNotAttempts(t *testing.T) {
 	h.turn(t, h.ctx())
 
 	assert.Greater(t, h.primary.calls, 1, "the turn retried the overloaded binding")
-	assert.Equal(t, breaker.StateClosed, h.state())
+	assert.False(t, h.withdrawn())
 }
 
 // After the recovery timeout one request probes the model; a served probe
@@ -162,14 +163,14 @@ func TestOverloadBreaker_HalfOpenProbeClosesOnSuccess(t *testing.T) {
 	h := newOverloadHarness(true)
 	h.turn(t, h.ctx())
 	h.turn(t, h.ctx())
-	require.Equal(t, breaker.StateOpen, h.state())
+	require.True(t, h.withdrawn())
 
 	h.clock = h.clock.Add(30 * time.Second)
 	h.primary.failWith = nil
 	rec := h.turn(t, h.ctx())
 
 	assert.Equal(t, rescuedPrimaryModel, rec.Header().Get(HeaderRouterModel), "the probe is routed to the recovered model")
-	assert.Equal(t, breaker.StateClosed, h.state())
+	assert.False(t, h.withdrawn())
 	assert.Equal(t, rescuedPrimaryModel, h.turn(t, h.ctx()).Header().Get(HeaderRouterModel))
 }
 
@@ -184,7 +185,7 @@ func TestOverloadBreaker_FailedProbeReopensWithBackoff(t *testing.T) {
 	rec := h.turn(t, h.ctx())
 
 	assert.Equal(t, rescuerModel, rec.Header().Get(HeaderRouterModel), "the failed probe is still rescued")
-	assert.Equal(t, breaker.StateOpen, h.state())
+	assert.True(t, h.withdrawn())
 	h.clock = h.clock.Add(59 * time.Second)
 	routedBefore := len(h.router.routed)
 	h.turn(t, h.ctx())
@@ -203,12 +204,12 @@ func TestOverloadBreaker_UnexercisedProbeIsReleased(t *testing.T) {
 	h.router.preferRescuer = true
 	rec := h.turn(t, h.ctx())
 	require.Equal(t, rescuerModel, rec.Header().Get(HeaderRouterModel))
-	assert.Equal(t, breaker.StateOpen, h.state(), "the slot went back to open")
+	assert.True(t, h.withdrawn(), "the slot went back to open")
 
 	h.router.preferRescuer = false
 	h.primary.failWith = nil
 	assert.Equal(t, rescuedPrimaryModel, h.turn(t, h.ctx()).Header().Get(HeaderRouterModel))
-	assert.Equal(t, breaker.StateClosed, h.state())
+	assert.False(t, h.withdrawn())
 }
 
 // A due probe goes only to a request whose sibling rescue would absorb
@@ -246,7 +247,7 @@ func TestOverloadBreaker_ProbeOnlyWhereRescuable(t *testing.T) {
 			if claimed {
 				release()
 			}
-			assert.Equal(t, breaker.StateOpen, h.state())
+			assert.True(t, h.withdrawn())
 		})
 	}
 }
@@ -263,10 +264,15 @@ func TestRecordOverloadOutcome_OnlyTheProbeResolves(t *testing.T) {
 	probeCtx := withOverloadProbe(h.ctx(), probe)
 
 	h.svc.recordOverloadOutcome(h.ctx(), rescuedPrimaryModel, providers.ProviderAnthropic, false, nil)
-	assert.Equal(t, breaker.StateHalfOpen, h.state(), "a success without the probe does not close the circuit")
+	assert.True(t, h.withdrawn(), "a success without the probe does not close the circuit")
+
+	_, _, reclaimed := h.svc.claimOverloadProbe(h.ctx(), router.Request{})
+	assert.False(t, reclaimed, "the probe is still held")
 
 	h.svc.recordOverloadOutcome(probeCtx, rescuedPrimaryModel, providers.ProviderAnthropic, false, overloaded529())
-	assert.Equal(t, breaker.StateOpen, h.state(), "the probe's own 529 reopens it")
+	assert.True(t, h.withdrawn(), "the probe's own 529 reopens it")
+	_, _, reclaimed = h.svc.claimOverloadProbe(h.ctx(), router.Request{})
+	assert.False(t, reclaimed, "a reopened circuit waits out its doubled recovery")
 }
 
 // An open circuit only stops the router choosing the model. When a two-model
@@ -288,8 +294,8 @@ func TestRescueDecisions_ReadmitsOpenCircuitAsLastResort(t *testing.T) {
 		{name: "flag off has nothing withdrawn", enabled: false, want: []string{"claude-opus-5"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s := siblingService(providers.ProviderAnthropic).WithProviderOverloaded(tc.enabled).
-				WithOverloadBreaker(breaker.New(breaker.Config{Strikes: 1, Window: time.Minute, OrgConfirmations: 1, RecoveryBase: time.Minute}, nil))
+			s := siblingService(providers.ProviderAnthropic).WithProviderOverloaded(tc.enabled,
+				breaker.New(breaker.Config{Strikes: 1, Window: time.Minute, OrgConfirmations: 1, RecoveryBase: time.Minute}, nil))
 			s.overloadBreaker.RecordOverload(probeTestOrg, "claude-opus-5", false)
 
 			assert.Equal(t, tc.want, siblingModels(s.siblingFailoverDecisions(orgCtx(probeTestOrg), failed, 1_000, 0, 0)))
@@ -305,8 +311,8 @@ func TestRescueDecisions_PrefersHealthyCandidateOverOpenCircuit(t *testing.T) {
 	}
 	failed := overloadedDecision(md)
 	failed.Model = "claude-sonnet-5"
-	s := siblingService(providers.ProviderAnthropic).WithProviderOverloaded(true).
-		WithOverloadBreaker(breaker.New(breaker.Config{Strikes: 1, Window: time.Minute, OrgConfirmations: 1, RecoveryBase: time.Minute}, nil))
+	s := siblingService(providers.ProviderAnthropic).WithProviderOverloaded(true,
+		breaker.New(breaker.Config{Strikes: 1, Window: time.Minute, OrgConfirmations: 1, RecoveryBase: time.Minute}, nil))
 	s.overloadBreaker.RecordOverload(probeTestOrg, "claude-opus-5", false)
 
 	assert.Equal(t, []string{"claude-haiku-4-5"}, siblingModels(s.siblingFailoverDecisions(orgCtx(probeTestOrg), failed, 1_000, 0, 0)))
@@ -322,7 +328,7 @@ func TestOverloadBreaker_FlagOffKeepsTodaysBehaviour(t *testing.T) {
 	}
 
 	assert.Equal(t, []string{rescuedPrimaryModel, rescuedPrimaryModel, rescuedPrimaryModel}, h.router.routed)
-	assert.Equal(t, breaker.StateClosed, h.state())
+	assert.False(t, h.withdrawn())
 }
 
 // A per-org override turns the breaker off for that org's requests even when
@@ -336,7 +342,7 @@ func TestOverloadBreaker_OrgOverrideDisables(t *testing.T) {
 	h.turn(t, ctx())
 	h.turn(t, ctx())
 
-	assert.Equal(t, breaker.StateClosed, h.state())
+	assert.False(t, h.withdrawn())
 }
 
 // An open circuit is a soft exclusion: the pin-drop log names why, and the
@@ -372,7 +378,7 @@ func TestRecordOverloadOutcome_IgnoresNonOverloadSignals(t *testing.T) {
 			for range 3 {
 				h.svc.recordOverloadOutcome(h.ctx(), rescuedPrimaryModel, tc.provider, tc.committed, tc.err)
 			}
-			assert.Equal(t, breaker.StateClosed, h.state())
+			assert.False(t, h.withdrawn())
 		})
 	}
 	t.Run("no organization", func(t *testing.T) {
@@ -380,7 +386,7 @@ func TestRecordOverloadOutcome_IgnoresNonOverloadSignals(t *testing.T) {
 		for range 3 {
 			h.svc.recordOverloadOutcome(context.Background(), rescuedPrimaryModel, providers.ProviderAnthropic, false, overloaded529())
 		}
-		assert.Equal(t, breaker.StateClosed, h.state())
+		assert.False(t, h.withdrawn())
 	})
 }
 
@@ -392,7 +398,7 @@ func TestOverloadBreaker_OtherOrganizationsMustConfirm(t *testing.T) {
 	musinsa := uuid.NewString()
 	h.turn(t, h.ctx())
 	h.turn(t, h.ctx())
-	require.Equal(t, breaker.StateOpen, h.state())
+	require.True(t, h.withdrawn())
 
 	h.primary.failWith = nil
 	callsBefore := h.primary.calls
@@ -424,7 +430,7 @@ func TestOverloadBreaker_SharedRecoveryClearsEveryOrganization(t *testing.T) {
 	h.primary.failWith = nil
 	h.turn(t, orgCtx(musinsa))
 
-	assert.Equal(t, breaker.StateClosed, h.state())
+	assert.False(t, h.withdrawn())
 	assert.Equal(t, rescuedPrimaryModel, h.turn(t, h.ctx()).Header().Get(HeaderRouterModel))
 }
 
@@ -437,17 +443,17 @@ func TestOverloadBreaker_GatewayOrganizationIsIsolated(t *testing.T) {
 		h.svc.recordOverloadOutcome(orgCtx(cortex), rescuedPrimaryModel, providers.ProviderAnthropicGateway, false, overloaded529())
 	}
 
-	assert.Equal(t, breaker.StateOpen, h.svc.overloadBreaker.State(cortex, rescuedPrimaryModel, true))
+	assert.Contains(t, h.svc.overloadBreaker.Withdrawn(cortex), rescuedPrimaryModel)
 	assert.Contains(t, h.svc.overloadOpenModels(orgCtx(cortex)), rescuedPrimaryModel)
-	assert.Equal(t, breaker.StateClosed, h.state(), "gateway failures are not shared evidence")
+	assert.False(t, h.withdrawn(), "gateway failures are not shared evidence")
 	assert.Empty(t, h.svc.overloadOpenModels(h.ctx()))
 
 	for range 3 {
 		h.svc.recordOverloadOutcome(h.ctx(), rescuedPrimaryModel, providers.ProviderAnthropic, false, overloaded529())
 	}
-	require.Equal(t, breaker.StateOpen, h.state())
+	require.True(t, h.withdrawn())
 	assert.Equal(t, map[string]struct{}{rescuedPrimaryModel: {}}, h.svc.overloadOpenModels(orgCtx(cortex)), "shared evidence does not confirm for the gateway organization")
-	assert.Equal(t, breaker.StateOpen, h.svc.overloadBreaker.State(cortex, rescuedPrimaryModel, true))
+	assert.Contains(t, h.svc.overloadBreaker.Withdrawn(cortex), rescuedPrimaryModel)
 }
 
 // The Snowflake shape: a two-model gateway roster whose overloaded arm is
@@ -466,8 +472,7 @@ func TestOverloadBreaker_GatewayTwoModelRosterStillServes(t *testing.T) {
 		providers.ProviderAnthropicGateway: sibling,
 	}, nil, false, nil, &cooldownStubPinStore{}, false, providers.ProviderAnthropic, recoveryOpusModel, nil).
 		WithRetrySleep(func(context.Context, time.Duration) error { return nil }).
-		WithProviderOverloaded(true).
-		WithOverloadBreaker(registry)
+		WithProviderOverloaded(true, registry)
 	ctx := twoModelGatewayContext()
 	registry.RecordOverload(installationIDFromContext(ctx).String(), recoveryOpusModel, true)
 	require.Contains(t, svc.overloadOpenModels(ctx), recoveryOpusModel)
@@ -486,8 +491,7 @@ func TestOverloadBreaker_GatewayOrganizationProbesItsOwnCircuit(t *testing.T) {
 	now := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 	registry := breaker.New(breaker.Config{Strikes: 1, Window: time.Minute, OrgConfirmations: 1, RecoveryBase: 30 * time.Second}, func() time.Time { return now })
 	svc := NewService(nil, nil, nil, false, nil, nil, false, providers.ProviderAnthropic, recoveryOpusModel, nil).
-		WithProviderOverloaded(true).
-		WithOverloadBreaker(registry)
+		WithProviderOverloaded(true, registry)
 	ctx := twoModelGatewayContext()
 	registry.RecordOverload(installationIDFromContext(ctx).String(), recoveryOpusModel, true)
 	now = now.Add(30 * time.Second)

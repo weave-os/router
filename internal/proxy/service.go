@@ -1981,13 +1981,6 @@ func (s *Service) WithTransientRateLimit(enabled bool, cooldownSeconds int) *Ser
 	return s
 }
 
-// WithProviderOverloaded sets the deployment default for the 529 circuit
-// breaker (ROUTER_PROVIDER_OVERLOADED).
-func (s *Service) WithProviderOverloaded(enabled bool) *Service {
-	s.providerOverloaded = enabled
-	return s
-}
-
 const recoveryProbeLeaseDuration = 15 * time.Minute
 
 // localRecoveryProbeLease is the in-process stand-in for a durable lease row:
@@ -4047,7 +4040,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		return routeErr
 	}
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
-	ctx = withTurnOverloadProbe(ctx, routeRes)
+	ctx = s.withTurnOverloadProbe(ctx, routeRes)
 	if preparingHandoff(ctx) {
 		return s.finishHandoffPreparation(ctx, w, env, req, routeRes)
 	}
@@ -4844,13 +4837,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// The plan-capacity mark set during dispatch must be readable here.
 	ctx = WithManagedSubscriptionUsage(ctx)
 	siblingDecisions := subscriptionStatePaidRescueDecisions(ctx, s.siblingFailoverDecisions(ctx, rescueBasisForTurn(decision, routeRes), overflowEstimate, env.SignatureTokenSavings(), outputReserve))
-	siblingViable := s.ResolveSiblingFailover(ctx) &&
-		len(siblingDecisions) > 0 &&
+	siblingViable := len(siblingDecisions) > 0 &&
 		!agentShadowMode &&
 		!routeRes.CallerModelPassthrough &&
 		decision.Reason != translate.ReasonUserForceModel &&
-		(s.shouldFailover(ctx) || s.subscriptionSiblingAllowed(ctx) || s.gatewaySiblingAllowed(ctx, siblingDecisions[0])) &&
-		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx))
+		s.siblingRescueAllowed(ctx, s.gatewaySiblingAllowed(ctx, siblingDecisions[0]))
 	// When the plan credential is the only reason the walk is open, the walk
 	// must wait for the plan's own 5xx mark: a 429 or timeout on the plan must
 	// not buy a paid sibling.
@@ -7225,7 +7216,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		return err
 	}
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
-	ctx = withTurnOverloadProbe(ctx, routeRes)
+	ctx = s.withTurnOverloadProbe(ctx, routeRes)
 	if len(routeRes.SessionDisabledProviders) > 0 {
 		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
 	}
@@ -8019,12 +8010,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	ctx = WithManagedSubscriptionUsage(ctx)
 	siblingDecisions := subscriptionStatePaidRescueDecisions(ctx, s.siblingFailoverDecisions(ctx, rescueBasisForTurn(decision, routeRes), overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI))
-	siblingViable := s.ResolveSiblingFailover(ctx) &&
-		len(siblingDecisions) > 0 &&
+	siblingViable := len(siblingDecisions) > 0 &&
 		!routeRes.CallerModelPassthrough &&
 		!strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) &&
-		(s.shouldFailover(ctx) || s.subscriptionSiblingAllowed(ctx) || s.gatewaySiblingAllowed(ctx, siblingDecisions[0])) &&
-		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx))
+		s.siblingRescueAllowed(ctx, s.gatewaySiblingAllowed(ctx, siblingDecisions[0]))
 	subscriptionOnlySibling := siblingViable && !s.shouldFailover(ctx) &&
 		!s.gatewaySiblingAllowed(ctx, siblingDecisions[0]) && s.subscriptionSiblingAllowed(ctx)
 
