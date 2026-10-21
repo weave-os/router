@@ -1020,21 +1020,31 @@ func (s *Service) runTurnLoop(
 		// it goes to the session's Anthropic model (warm cache) or the
 		// Sonnet-class compaction model rather than the cheapest utility pin.
 		compactionProvider, compactionModel, compactionPin := "", "", false
+		var compactionFallbacks []compactionSummarizer
 		origin := policy.OverrideSourceDeployment
 		if s.compactionHardPinEnabled && res.TurnType == turntype.Compaction && !useSubAgentOverride {
-			compactionProvider, compactionModel, origin, compactionPin = s.compactionHardPin(ctx, threadSessionKey, res.PinRole, req)
+			if summarizers := s.compactionSummarizers(ctx, threadSessionKey, res.PinRole, req); len(summarizers) > 0 {
+				compactionProvider, compactionModel, origin, compactionPin = summarizers[0].provider, summarizers[0].model, summarizers[0].source, true
+				compactionFallbacks = summarizers[1:]
+			}
 		}
+		hardPinReq := HardPinRequest{
+			EnabledProviders: req.EnabledProviders,
+			ExcludedModels:   req.ExcludedModels,
+			CustomBindings:   req.CustomBindings,
+			GatewayProviders: req.GatewayProviders,
+		}
+		var rescueMetadata *router.RoutingMetadata
 		switch {
 		case compactionPin:
 			provider, model = compactionProvider, compactionModel
+			utilityProvider, utilityModel := "", ""
+			if s.hardPinResolver != nil {
+				utilityProvider, utilityModel, _ = s.hardPinResolver(withAutomaticExclusions(hardPinReq, req.AutomaticExcludedModels))
+			}
+			rescueMetadata = compactionRescueMetadata(compactionFallbacks, utilityProvider, utilityModel)
 			log.Info("Hard-pin: compaction turn on compaction model", "hard_pin_model", model, "hard_pin_provider", provider)
 		case s.hardPinResolver != nil && !useSubAgentOverride:
-			hardPinReq := HardPinRequest{
-				EnabledProviders: req.EnabledProviders,
-				ExcludedModels:   req.ExcludedModels,
-				CustomBindings:   req.CustomBindings,
-				GatewayProviders: req.GatewayProviders,
-			}
 			p, m, ok := s.hardPinResolver(withAutomaticExclusions(hardPinReq, req.AutomaticExcludedModels))
 			if !ok {
 				// Utility turns are automatic, so they honor the deployment-wide
@@ -1092,6 +1102,7 @@ func (s *Service) runTurnLoop(
 			Provider: provider,
 			Model:    model,
 			Reason:   string(res.TurnType) + "_hard_pin",
+			Metadata: rescueMetadata,
 		}
 		res.Decision = hardDecision
 		res.StickyHit = true

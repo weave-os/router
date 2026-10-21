@@ -52,10 +52,26 @@ func TestCompactionHardPin(t *testing.T) {
 	assert.False(t, ok, "Anthropic disabled for the tenant → fall back to generic hard-pin")
 
 	_, _, _, ok = s.compactionHardPin(ctx, key, "", router.Request{GatewayProviders: map[string]struct{}{providers.ProviderOpenRouter: {}}})
-	assert.False(t, ok, "gateway-exclusive tenant → fall back to generic hard-pin")
+	assert.False(t, ok, "gateway-exclusive tenant aliasing no summarizer → fall back to generic hard-pin")
 
-	_, _, _, ok = s.compactionHardPin(ctx, key, "", router.Request{ExcludedModels: map[string]struct{}{policy.PrecompactionDefaultModel: {}}})
-	assert.False(t, ok, "excluded default with no pin → fall back to generic hard-pin")
+	p, m, source, ok = s.compactionHardPin(ctx, key, "", router.Request{
+		GatewayProviders: map[string]struct{}{providers.ProviderAnthropicGateway: {}},
+		CustomBindings:   map[string][]string{policy.PrecompactionDefaultModel: {providers.ProviderAnthropicGateway}},
+	})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderAnthropicGateway, p, "a held gateway alias serves the summarizer")
+	assert.Equal(t, policy.PrecompactionDefaultModel, m)
+	assert.Equal(t, policy.OverrideSourceDeployment, source)
+
+	_, m, _, ok = s.compactionHardPin(ctx, key, "", router.Request{ExcludedModels: map[string]struct{}{policy.PrecompactionDefaultModel: {}}})
+	require.True(t, ok)
+	assert.Equal(t, catalog.LatestInFamily(policy.PrecompactionLargeWindowModel, func(string) bool { return true }), m,
+		"excluded default with no pin → the large-window summarizer")
+
+	_, _, _, ok = s.compactionHardPin(ctx, key, "", router.Request{ExcludedModels: map[string]struct{}{
+		policy.PrecompactionDefaultModel: {}, "claude-opus-5": {}, "claude-opus-5-5": {},
+	}})
+	assert.False(t, ok, "every summarizer excluded → fall back to generic hard-pin")
 
 	unavailable := &Service{compactionHardPinEnabled: true, availableModels: map[string]struct{}{"claude-haiku-4-5": {}}}
 	_, _, _, ok = unavailable.compactionHardPin(ctx, key, "", router.Request{})
