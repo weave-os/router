@@ -447,7 +447,7 @@ func flushBufferedIfPresent(w http.ResponseWriter, err error) {
 	var resp *providers.UpstreamErrorResponse
 	// An overflow is left to the ingress handler, which answers in the
 	// client's native prompt-too-long shape.
-	if !errors.As(err, &resp) || isUpstreamContextOverflow(err) {
+	if !errors.As(err, &resp) || isContextOverflow(err) {
 		return
 	}
 	for k, vs := range resp.Headers {
@@ -562,7 +562,7 @@ func emitGeminiSSEErrorEvent(sink http.ResponseWriter) {
 // err is not an *UpstreamErrorResponse.
 func flushUpstreamErrorAsAnthropic(w http.ResponseWriter, err error) {
 	var resp *providers.UpstreamErrorResponse
-	if !errors.As(err, &resp) || isUpstreamContextOverflow(err) {
+	if !errors.As(err, &resp) || isContextOverflow(err) {
 		return
 	}
 	for k, vs := range resp.Headers {
