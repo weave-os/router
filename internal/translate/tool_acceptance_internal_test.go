@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"weave-os/router/internal/usage"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"

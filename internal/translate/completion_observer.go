@@ -79,7 +79,7 @@ func (o *CompletionObserver) ArmReasoningProgress(mark func()) bool {
 	return false
 }
 func (o *CompletionObserver) Write(chunk []byte) (int, error) {
-	forwarded := len(o.pending)
+	alreadyForwarded := len(o.pending)
 	o.pending = append(o.pending, chunk...)
 	if !o.streaming {
 		if gjson.ValidBytes(o.pending) {
@@ -97,19 +97,19 @@ func (o *CompletionObserver) Write(chunk []byte) (int, error) {
 		if gjson.ValidBytes(payload) {
 			o.observe(gjson.ParseBytes(payload), string(event), false)
 		}
-		if n > forwarded {
-			if _, err := o.inner.Write(o.pending[forwarded:n]); err != nil {
+		if n > alreadyForwarded {
+			if _, err := o.inner.Write(o.pending[alreadyForwarded:n]); err != nil {
 				o.delivery.facts.Failed = true
 				return 0, err
 			}
 		}
-		forwarded = max(0, forwarded-n)
+		alreadyForwarded = max(0, alreadyForwarded-n)
 		o.pending = o.pending[n:]
 	}
 	// Forward incomplete records immediately too: feedback observation must not
 	// move provider commitment or change byte/progress/accounting boundaries.
-	if len(o.pending) > forwarded {
-		if _, err := o.inner.Write(o.pending[forwarded:]); err != nil {
+	if len(o.pending) > alreadyForwarded {
+		if _, err := o.inner.Write(o.pending[alreadyForwarded:]); err != nil {
 			o.delivery.facts.Failed = true
 			return 0, err
 		}
@@ -202,13 +202,13 @@ func (o *CompletionObserver) responsesPart(part gjson.Result) {
 		o.delivery.facts.Refusal = true
 	}
 }
-func (o *CompletionObserver) responsesTerminal(response gjson.Result, completedEvent bool) {
+func (o *CompletionObserver) responsesTerminal(response gjson.Result, completedByEventType bool) {
 	for _, item := range response.Get("output").Array() {
 		o.responsesItem(item)
 	}
 	o.delivery.facts.Closed = true
 	status := nativeResponsesStatus(response.Get("status").Str)
-	if responsesTerminalIsFailure(response) || (status != nativeResponsesStatusCompleted && !(completedEvent && status == "")) {
+	if responsesTerminalIsFailure(response) || (status != nativeResponsesStatusCompleted && !(completedByEventType && status == "")) {
 		o.delivery.facts.Failed = true
 		o.delivery.facts.Outcome = CompletionSuppressed
 	} else {
