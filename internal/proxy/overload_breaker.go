@@ -132,7 +132,7 @@ func (s *Service) overloadProbeRescuable(ctx context.Context, req router.Request
 // circuit opened cannot close it. Anything else is no evidence either way.
 func (s *Service) recordOverloadOutcome(ctx context.Context, model, provider string, committed bool, err error) {
 	org := overloadOrg(ctx)
-	if s.overloadBreaker == nil || model == "" || org == "" || !s.ResolveProviderOverloaded(ctx) {
+	if s.overloadBreaker == nil || org == "" || !s.ResolveProviderOverloaded(ctx) {
 		return
 	}
 	overloaded := err != nil && !committed && !errors.Is(err, context.Canceled) && isProviderOverloaded(err)

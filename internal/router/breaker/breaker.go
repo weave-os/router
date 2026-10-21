@@ -329,12 +329,12 @@ func (r *Registry) cutoffLocked(c *circuit, now time.Time) time.Time {
 func (r *Registry) sweepLocked(now time.Time) {
 	cutoff := now.Add(-r.cfg.Window)
 	for key, c := range r.circuits {
-		if c.state != StateClosed || hasFailureAfter(c.failures, cutoff) {
+		if c.state != StateClosed || slices.ContainsFunc(c.failures, func(at time.Time) bool { return at.After(cutoff) }) {
 			continue
 		}
 		stale := true
 		for _, failures := range c.orgFailures {
-			if hasFailureAfter(failures, cutoff) {
+			if slices.ContainsFunc(failures, func(at time.Time) bool { return at.After(cutoff) }) {
 				stale = false
 				break
 			}
@@ -353,7 +353,8 @@ func (r *Registry) recoveryLocked(reopens int) time.Duration {
 	return min(d, r.cfg.RecoveryCap)
 }
 
-// dueAtLocked is when c may next be claimed for a probe.
+// dueAtLocked reports when open or half-open c may next be claimed for a
+// probe. A closed circuit is never due, so ok is false and the time is zero.
 func (r *Registry) dueAtLocked(c *circuit) (time.Time, bool) {
 	switch c.state {
 	case StateOpen:
@@ -424,8 +425,4 @@ func recentFailures(failures []time.Time, cutoff time.Time, limit int) []time.Ti
 		kept = kept[len(kept)-limit:]
 	}
 	return kept
-}
-
-func hasFailureAfter(failures []time.Time, cutoff time.Time) bool {
-	return slices.ContainsFunc(failures, func(at time.Time) bool { return at.After(cutoff) })
 }

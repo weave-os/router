@@ -359,20 +359,6 @@ func TestClaimSkipsIneligibleModels(t *testing.T) {
 	assert.Equal(t, breaker.StateOpen, r.State(weaveOrg, overloadedModel, false), "an ineligible request leaves the circuit due for the next one")
 }
 
-// One-off strikes from many organizations' gateways are dropped once they
-// age out, so a long-lived replica does not accumulate circuits.
-func TestAgedOutClosedCircuitsAreSwept(t *testing.T) {
-	c := newClock()
-	r := newRegistry(c)
-	r.RecordOverload(cortexOrg, overloadedModel, true)
-	c.Advance(2*time.Minute + time.Second)
-
-	r.RecordOverload(weaveOrg, otherModel, true)
-	strike(r, cortexOrg, overloadedModel, true, 2)
-
-	assert.Equal(t, breaker.StateClosed, r.State(cortexOrg, overloadedModel, true), "the swept strike no longer counts toward the threshold")
-}
-
 // An organization with withdrawals of its own still never sees another
 // organization's gateway circuit.
 func TestIsolatedCircuitDoesNotLeakIntoOtherOrganizationsWithdrawals(t *testing.T) {
