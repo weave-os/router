@@ -137,6 +137,42 @@ func TestCodexPlanThrottle_DoesNotBuyPaidSibling(t *testing.T) {
 	}
 }
 
+// The clear is keyed on the bearer's own vendor: after one failed Anthropic
+// sibling the walk's decision is already Anthropic, and the next Anthropic
+// candidate must still not inherit the Codex token.
+func TestRescueCredentialContext_ClearsForeignOAuthBearer(t *testing.T) {
+	codex := &Credentials{APIKey: []byte("tok"), AccountID: []byte("acct"), Source: credSourceCodexSubscription, OAuth: true}
+	ctx := context.WithValue(context.Background(), CredentialsContextKey{}, codex)
+	assert.Nil(t, CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderAnthropic)))
+	assert.Nil(t, CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderFireworks)))
+	assert.Equal(t, codex, CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderOpenAI)))
+
+	claude := &Credentials{APIKey: []byte("sk-ant-oat01-tok"), Source: credSourceSubscription, OAuth: true}
+	ctx = context.WithValue(context.Background(), CredentialsContextKey{}, claude)
+	assert.Nil(t, CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderOpenAI)))
+	assert.Equal(t, claude, CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderAnthropic)))
+
+	byok := &Credentials{APIKey: []byte("sk-byok"), Source: credSourceBYOK}
+	ctx = context.WithValue(context.Background(), CredentialsContextKey{}, byok)
+	assert.Equal(t, byok, CredentialsFromContext(rescueCredentialContext(ctx, providers.ProviderAnthropic)), "only OAuth bearers are cleared")
+}
+
+// A Responses response.failed is surfaced as a buffered 502 whatever it says;
+// only a genuine server failure is capacity evidence.
+func TestUpstreamServerFailure_ReadsTheFailureMeaning(t *testing.T) {
+	failed := func(code, typ string) error {
+		return &providers.UpstreamErrorResponse{Status: http.StatusBadGateway, Body: []byte(`{"type":"response.failed","response":{"status":"failed","error":{"code":"` + code + `","type":"` + typ + `"}},"error":{"code":"` + code + `","type":"` + typ + `"}}`)}
+	}
+	assert.True(t, upstreamServerFailure(failed("server_is_overloaded", "service_unavailable_error")))
+	assert.True(t, upstreamServerFailure(failed("server_error", "server_error")))
+	assert.True(t, upstreamServerFailure(&providers.UpstreamErrorResponse{Status: http.StatusBadGateway, Body: []byte("<html>bad gateway</html>")}))
+	assert.False(t, upstreamServerFailure(failed("rate_limit_exceeded", "requests")), "an in-stream throttle is not capacity")
+	assert.False(t, upstreamServerFailure(failed("", "rate_limit_error")))
+	assert.False(t, upstreamServerFailure(failed("usage_limit_reached", "")), "quota belongs to the quota path")
+	assert.False(t, upstreamServerFailure(&providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests}))
+	assert.False(t, upstreamServerFailure(providers.ErrUpstreamEmptyCompletion))
+}
+
 func TestSubscriptionSiblingAllowed(t *testing.T) {
 	oauth := &Credentials{APIKey: []byte("tok"), AccountID: []byte("acct"), Source: credSourceCodexSubscription, OAuth: true}
 	t.Run("subscription OAuth permits sibling rescue", func(t *testing.T) {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"weave-os/router/internal/auth"
@@ -185,7 +186,7 @@ func upstreamServerFailure(err error) bool {
 		return false
 	}
 	// A failed Responses payload surfaces as a 5xx too; one that names the
-	// plan's quota belongs to the quota path.
+	// plan's quota or a rate limit belongs to the quota/throttle path.
 	if _, quota := codexQuotaExhaustion(err); quota {
 		return false
 	}
@@ -196,11 +197,10 @@ func upstreamServerFailure(err error) bool {
 		} `json:"error"`
 	}
 	if json.Unmarshal(buffered.Body, &envelope) == nil {
-		if _, quota := codexQuotaErrorTypes[envelope.Error.Type]; quota {
-			return false
-		}
-		if _, quota := codexQuotaErrorTypes[envelope.Error.Code]; quota {
-			return false
+		for _, label := range []string{envelope.Error.Type, envelope.Error.Code} {
+			if _, quota := codexQuotaErrorTypes[label]; quota || strings.Contains(label, "rate_limit") {
+				return false
+			}
 		}
 	}
 	return true

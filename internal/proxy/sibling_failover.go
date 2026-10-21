@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 )
@@ -346,15 +347,24 @@ func (s *Service) subscriptionSiblingAllowed(ctx context.Context) bool {
 
 // rescueCredentialContext drops a subscription OAuth bearer before a rescue
 // candidate on another provider resolves its own credential: a ChatGPT or
-// Claude token authenticates only against its own vendor.
-func rescueCredentialContext(ctx context.Context, failedProvider, rescueProvider string) context.Context {
-	if failedProvider == rescueProvider {
+// Claude token authenticates only against its own vendor. Keyed on the
+// credential's provider, not the failed decision's, because the sibling walk
+// rebinds the decision after every failed candidate.
+func rescueCredentialContext(ctx context.Context, rescueProvider string) context.Context {
+	creds := CredentialsFromContext(ctx)
+	if creds == nil || !creds.OAuth || oauthCredentialProvider(creds) == rescueProvider {
 		return ctx
 	}
-	if creds := CredentialsFromContext(ctx); creds != nil && creds.OAuth {
-		return clearCredentials(ctx)
+	return clearCredentials(ctx)
+}
+
+// oauthCredentialProvider names the vendor a subscription OAuth bearer
+// authenticates against.
+func oauthCredentialProvider(creds *Credentials) string {
+	if creds.Source == credSourceCodexSubscription {
+		return providers.ProviderOpenAI
 	}
-	return ctx
+	return providers.ProviderAnthropic
 }
 
 // gatewaySiblingAllowed reports whether sibling rescue is permitted despite
