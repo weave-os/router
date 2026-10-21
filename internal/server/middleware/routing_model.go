@@ -9,6 +9,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -54,7 +55,7 @@ func applyRoutingModel(c *gin.Context, body []byte, available StrategyAvailabili
 		unavailableMessage = "decision_model_unavailable"
 	}
 	identity, managed := requestcontext.ServingIdentityFromContext(c.Request.Context())
-	internal := managed && identity.Target == string(policyregistry.TargetInternal) && identity.ReleaseID != "" && identity.BindingID != "" && identity.CredentialIdentity != "" && identity.Plan == ""
+	internal := managed && policyregistry.ExperimentalRoutingModelsPermitted(policyregistry.ServingTarget(identity.Target), entitlement.Plan(identity.Plan)) && identity.ReleaseID != "" && identity.BindingID != "" && identity.CredentialIdentity != ""
 	if (managed || model == router.ModelQwen) && !internal {
 		observability.FromGin(c).Debug("Routing model is unavailable for this serving scope", "model", model, "serving_target", identity.Target)
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "routing_model_not_permitted"})

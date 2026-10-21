@@ -144,3 +144,20 @@ func TestRoutingModelAdmissionSessionRequirementAndSubscriberIsolation(t *testin
 		assert.Empty(t, subscriber.RoutingModel, "subscriber routing remains governed by its plan")
 	}
 }
+
+func TestRoutingModelAdmissionBindsInternalBoostButNotMax(t *testing.T) {
+	store := &routingAdmissionStore{projection: AdmissionProjection{Target: TargetInternal, Plan: entitlement.PlanBoost}}
+	cache := routingAdmissionCache(t, store)
+	_, _, err := cache.AdmitRoutingModel(context.Background(), "installation", "credential", "", router.ModelQwen, routingReleaseDecision)
+	require.ErrorIs(t, err, ErrRoutingModelSessionRequired)
+	_, boost, err := cache.AdmitRoutingModel(context.Background(), "installation", "credential", "boost-conversation", router.ModelQwen, routingReleaseDecision)
+	require.NoError(t, err)
+	assert.Equal(t, router.ModelQwen, boost.RoutingModel)
+	_, _, err = cache.AdmitRoutingModel(context.Background(), "installation", "credential", "boost-conversation", router.ModelHMM, routingReleaseDecision)
+	require.ErrorIs(t, err, ErrRoutingModelChanged)
+
+	store.projection = AdmissionProjection{Target: TargetInternal, Plan: entitlement.PlanMax}
+	_, maxBinding, err := cache.AdmitRoutingModel(context.Background(), "installation", "credential", "max-conversation", router.ModelQwen, routingReleaseDecision)
+	require.NoError(t, err)
+	assert.Empty(t, maxBinding.RoutingModel)
+}

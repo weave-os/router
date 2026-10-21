@@ -50,6 +50,10 @@ func TestCodexModelCatalog_UsesCallerOAuth(t *testing.T) {
 	subscriberCatalog, err := svc.CodexModelCatalog(requestcontext.WithServingIdentity(context.Background(), identity), headers, "0.155.1")
 	require.NoError(t, err)
 	require.Len(t, gjson.GetBytes(subscriberCatalog, "models").Array(), 2)
+	identity.Plan = string(entitlement.PlanBoost)
+	boostCatalog, err := svc.CodexModelCatalog(requestcontext.WithServingIdentity(context.Background(), identity), headers, "0.155.1")
+	require.NoError(t, err)
+	assert.Equal(t, string(router.ModelQwen), gjson.GetBytes(boostCatalog, "models.3.slug").String())
 }
 
 func TestCodexModelCatalog_RequiresPairedOAuth(t *testing.T) {

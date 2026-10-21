@@ -25,8 +25,8 @@ type ModelPreparation struct {
 
 // PrepareRouterModel uses the admitted immutable runtime, including on later polls.
 func (s *Service) PrepareRouterModel(ctx context.Context, model router.RoutingModel, operation string) (ModelPreparation, error) {
-	identity, managed := requestcontext.ServingIdentityFromContext(ctx)
-	if !managed || identity.Target != string(policyregistry.TargetInternal) || identity.Plan != "" || identity.ReleaseID == "" || identity.BindingID == "" || identity.CredentialIdentity == "" || model != router.ModelQwen {
+	identity, _ := requestcontext.ServingIdentityFromContext(ctx)
+	if !internalBetaSession(ctx) || model != router.ModelQwen {
 		return ModelPreparation{}, ErrModelPreparationForbidden
 	}
 	snapshot := policyregistry.ServingSnapshotFromContext(ctx)

@@ -40,8 +40,7 @@ func (s *Service) CodexModelCatalog(ctx context.Context, headers http.Header, cl
 	if err != nil {
 		return nil, err
 	}
-	identity, _ := requestcontext.ServingIdentityFromContext(ctx)
-	return addCodexRoutingModels(catalog, internalBetaSession(ctx) && identity.Plan == "")
+	return addCodexRoutingModels(catalog, internalBetaSession(ctx))
 }
 
 func addCodexRoutingModels(catalog []byte, includeVariants bool) ([]byte, error) {

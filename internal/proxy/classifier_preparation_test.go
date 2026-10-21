@@ -11,6 +11,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/subscriptions/entitlement"
 )
 
 type preparationTestRouter struct {
@@ -71,6 +72,16 @@ func TestPrepareRouterModelUsesAdmittedClassifierAndRejectsReleaseChanges(t *tes
 	require.Len(t, preparer.operations, 2)
 }
 
+func TestPrepareRouterModelAllowsInternalBoostProfile(t *testing.T) {
+	ctx, _, preparer := preparationContext()
+	identity, _ := requestcontext.ServingIdentityFromContext(ctx)
+	identity.Plan = string(entitlement.PlanBoost)
+	preparation, err := (&Service{}).PrepareRouterModel(requestcontext.WithServingIdentity(ctx, identity), router.ModelQwen, "")
+	require.NoError(t, err)
+	require.Equal(t, router.ModelQwen, preparation.Model)
+	require.Equal(t, []string{""}, preparer.operations)
+}
+
 func TestPrepareRouterModelRejectsUnpermittedScopesBeforeSidecar(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -84,6 +95,11 @@ func TestPrepareRouterModelRejectsUnpermittedScopesBeforeSidecar(t *testing.T) {
 		{"test plan", func(ctx context.Context, _ *policyregistry.Snapshot) context.Context {
 			identity, _ := requestcontext.ServingIdentityFromContext(ctx)
 			identity.Plan = string(policyregistry.TestPlanStable)
+			return requestcontext.WithServingIdentity(ctx, identity)
+		}},
+		{"max plan", func(ctx context.Context, _ *policyregistry.Snapshot) context.Context {
+			identity, _ := requestcontext.ServingIdentityFromContext(ctx)
+			identity.Plan = string(entitlement.PlanMax)
 			return requestcontext.WithServingIdentity(ctx, identity)
 		}},
 		{"no admission", func(context.Context, *policyregistry.Snapshot) context.Context { return context.Background() }},
