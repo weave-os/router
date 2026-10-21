@@ -415,12 +415,7 @@ func circuitKey(org, model string, isolated bool) string {
 // recentFailures drops failures at or before cutoff and keeps at most limit of
 // the newest, so a storm cannot grow the slice.
 func recentFailures(failures []time.Time, cutoff time.Time, limit int) []time.Time {
-	kept := failures[:0]
-	for _, at := range failures {
-		if at.After(cutoff) {
-			kept = append(kept, at)
-		}
-	}
+	kept := slices.DeleteFunc(failures, func(at time.Time) bool { return !at.After(cutoff) })
 	if len(kept) > limit {
 		kept = kept[len(kept)-limit:]
 	}

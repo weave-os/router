@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"errors"
+	"maps"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -51,12 +52,8 @@ func (s *Service) overloadOpenModels(ctx context.Context) map[string]struct{} {
 	if _, excluded := withdrawn[probe.Model]; !held || !excluded {
 		return withdrawn
 	}
-	readmitted := make(map[string]struct{}, len(withdrawn)-1)
-	for model := range withdrawn {
-		if model != probe.Model {
-			readmitted[model] = struct{}{}
-		}
-	}
+	readmitted := maps.Clone(withdrawn)
+	delete(readmitted, probe.Model)
 	return readmitted
 }
 
@@ -157,24 +154,24 @@ func isProviderOverloaded(err error) bool {
 	return errors.As(err, &buffered) && buffered.Status == providerOverloadedStatus
 }
 
-func logOverloadTransition(ctx context.Context, t breaker.Transition) {
-	if !t.Changed() {
+func logOverloadTransition(ctx context.Context, transition breaker.Transition) {
+	if !transition.Changed() {
 		return
 	}
 	log := observability.FromContext(ctx).Info
-	if t.To == breaker.StateHalfOpen {
+	if transition.To == breaker.StateHalfOpen {
 		// A due slot can be claimed and released by many requests that end up
 		// serving another model; only the outcome transitions are news.
 		log = observability.FromContext(ctx).Debug
 	}
 	log("Overload circuit changed state",
-		"model", t.Model,
-		"installation_id", t.Org,
-		"isolated", t.Isolated,
-		"from", string(t.From),
-		"to", string(t.To),
-		"org_confirmed", t.Confirmed,
-		"overload_failures", t.Failures,
-		"recovery_after_ms", t.RecoveryAfter.Milliseconds(),
+		"model", transition.Model,
+		"installation_id", transition.Org,
+		"isolated", transition.Isolated,
+		"from", string(transition.From),
+		"to", string(transition.To),
+		"org_confirmed", transition.Confirmed,
+		"overload_failures", transition.Failures,
+		"recovery_after_ms", transition.RecoveryAfter.Milliseconds(),
 	)
 }
