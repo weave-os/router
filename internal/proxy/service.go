@@ -4857,7 +4857,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// A released prelude can only take an SSE error frame, so every dispatch in
 	// the chain renders through this — a JSON envelope appended to a live stream
 	// is unparseable to the client.
-	requestedWindowPassed := pastRequestedWindow(feats.Model, decision.Model, overflowEstimate, outputReserve)
+	// A compaction turn is how the client recovers from overflow; answering it
+	// with prompt-too-long would fail the compaction itself.
+	requestedWindowPassed := routeRes.TurnType != turntype.Compaction &&
+		pastRequestedWindow(feats.Model, decision.Model, overflowEstimate, outputReserve)
 	flushErrAsAnthropic := func(w http.ResponseWriter, err error) {
 		err = asRequestedWindowOverflow(err, requestedWindowPassed, preludeBuf.Committed())
 		if env.Stream() && preludeBuf.PreludeSent() {

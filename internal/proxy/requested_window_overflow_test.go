@@ -78,3 +78,24 @@ func TestProxyMessages_PreOutputFailureWithinRequestedWindowIsNotOverflow(t *tes
 
 	assert.NotEqual(t, proxy.DispatchErrorContextWindowExceeded, requireDispatchKind(t, err))
 }
+
+// The client's own compaction turn is its recovery from overflow: answering it
+// with prompt-too-long fails the compaction ("Automatic compaction failed").
+func TestProxyMessages_CompactionTurnPastRequestedWindowIsNotOverflow(t *testing.T) {
+	upstream := &fakeProvider{proxyErr: &providers.UpstreamErrorResponse{Status: http.StatusBadGateway}}
+	utilityPin := func(proxy.HardPinRequest) (string, string, bool) {
+		return providers.ProviderOpenAI, catalog.ModelGPT6Luna, true
+	}
+	svc := proxy.NewService(
+		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: catalog.ModelGPT6Luna, Reason: "cluster"}},
+		map[string]providers.Client{providers.ProviderOpenAI: upstream},
+		nil, false, nil, newFakePinStore(), false, providers.ProviderAnthropic, requestedWindowModel, nil,
+	).WithAvailableModels(map[string]struct{}{catalog.ModelGPT6Luna: {}, requestedWindowModel: {}}).
+		WithHardPinResolver(utilityPin)
+	body := []byte(`{"model":"` + requestedWindowModel + `","max_tokens":1024,"system":"Your task is to create a detailed summary of the conversation so far.","messages":[{"role":"user","content":"` + pastRequestedWindowPrompt + `"}]}`)
+
+	err := svc.ProxyMessages(authedCtx(overflowInstallationID), body, httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+
+	require.NotEmpty(t, upstream.proxyBodies, "the compaction turn reaches the served model")
+	assert.NotEqual(t, proxy.DispatchErrorContextWindowExceeded, requireDispatchKind(t, err))
+}
