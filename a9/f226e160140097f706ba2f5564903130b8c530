@@ -1,0 +1,31 @@
+install/cc-statusline.sh
+  s_bd59a1945f88f8::t_6a248127abb721 973-976
+install/install.sh
+  s_bd59a1945f88f8::t_290b92528cf970 6509-6512
+install/tests/context-status_test.sh
+  s_c48e1eed0dd769::t_bd768a8994bbb9 178-210
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a9f226e160140097f706ba2f5564903130b8c530",
+  "prompts": {},
+  "sessions": {
+    "s_bd59a1945f88f8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15b22-d5d7-7610-91d8-24e088cd9c9e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_c48e1eed0dd769": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15b24-5ee1-7441-a591-2cae72b1d066",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

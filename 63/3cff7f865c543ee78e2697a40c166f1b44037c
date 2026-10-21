@@ -1,0 +1,36 @@
+install/tests/registry_test.sh
+  s_a22e6d91107c71::t_1f5f27f0e209da 180-185
+  s_a22e6d91107c71::t_5ea36d4475911f 307-312
+  s_a22e6d91107c71::t_9dda6075c9020b 209-214
+  s_a22e6d91107c71::t_20b9e304c7363c 201-205
+install/uninstall.sh
+  s_a22e6d91107c71::t_fdf55993d56d25 567-568
+  s_a22e6d91107c71::t_bf12e830c37c61 167-169,171-172,177-186
+  s_a22e6d91107c71::t_f20681e9caa925 1052-1053
+install/install.sh
+  s_a22e6d91107c71::t_6d323d089669fa 5848-5849
+  s_a22e6d91107c71::t_5f4e2156f0a8e2 3583-3587
+  s_a22e6d91107c71::t_e416242c7cb2be 5031-5035
+  s_a22e6d91107c71::t_8fb70448ddba58 4638-4639
+  s_a22e6d91107c71::t_43463aeebadc43 3582
+install/tests/cc-statusline_test.sh
+  s_a22e6d91107c71::t_8ab4fab0c60e5f 314-317
+install/cc-statusline.sh
+  s_a22e6d91107c71::t_e95355e28fa45a 286-290
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "633cff7f865c543ee78e2697a40c166f1b44037c",
+  "prompts": {},
+  "sessions": {
+    "s_a22e6d91107c71": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "58d40b34-e557-41f3-ba44-45f598b7b5ec",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

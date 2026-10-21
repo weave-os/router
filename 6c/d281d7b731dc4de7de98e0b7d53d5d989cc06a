@@ -1,0 +1,21 @@
+sidecars/task-domain/README.md
+  s_e81a08893a9ba2::t_b048725a6d82ea 107-110
+sidecars/task-domain/server.py
+  s_e81a08893a9ba2::t_5dcf01e36d8d14 14,35-37,62-69,78-86,88,92
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "6cd281d7b731dc4de7de98e0b7d53d5d989cc06a",
+  "prompts": {},
+  "sessions": {
+    "s_e81a08893a9ba2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9391cca-911c-46df-b82c-9f07d5d2219d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
