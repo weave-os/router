@@ -66,21 +66,26 @@ func clientPromptTokens(t *testing.T, body string) int64 {
 
 func serveLunaTurn(t *testing.T, store sessionpin.Store, billedPrompt int) string {
 	t.Helper()
+	return serveLunaTurnBody(t, store, billedPrompt, lunaServedClaudeTurn)
+}
+
+func serveLunaTurnBody(t *testing.T, store sessionpin.Store, billedPrompt int, body string) string {
+	t.Helper()
 	svc := proxy.NewService(
 		&fakeRouter{decision: router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-6-luna", Reason: "test"}},
 		map[string]providers.Client{providers.ProviderOpenAI: lunaProvider(billedPrompt)},
 		nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil,
 	)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(lunaServedClaudeTurn))
-	require.NoError(t, svc.ProxyMessages(context.Background(), []byte(lunaServedClaudeTurn), rec, req))
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+	require.NoError(t, svc.ProxyMessages(context.Background(), []byte(body), rec, req))
 	return rec.Body.String()
 }
 
 // A Claude Code turn for Opus served on Luna reports usage in Opus tokens,
 // converted by the ratio this thread measured, so Claude Code's
 // auto-compaction tracks the window it believes it is in.
-func TestProxyMessages_LunaServedClaudeTurnReportsMeasuredOpusTokens(t *testing.T) {
+func calibratedLunaThread() *calibratingPinStore {
 	now := time.Now()
 	store := &calibratingPinStore{fakePinStore: newFakePinStore()}
 	store.hasPin = true
@@ -91,9 +96,20 @@ func TestProxyMessages_LunaServedClaudeTurnReportsMeasuredOpusTokens(t *testing.
 			Observe(sessionpin.TokenizerFamilyAnthropic, 860_000, now.Add(-time.Minute)).
 			Observe(sessionpin.TokenizerFamilyOpenAI, 500_000, now.Add(-30*time.Second)),
 	}
+	return store
+}
 
-	body := serveLunaTurn(t, store, 500_000)
+func TestProxyMessages_LunaServedClaudeTurnReportsMeasuredOpusTokens(t *testing.T) {
+	body := serveLunaTurn(t, calibratedLunaThread(), 500_000)
 	assert.EqualValues(t, 860_000, clientPromptTokens(t, body), "500K Luna tokens on a thread measured at 1.72 are 860K Opus tokens")
+}
+
+// Ingress accepts provider-qualified ids; the conversion must still apply.
+func TestProxyMessages_ProviderQualifiedRequestReportsMeasuredOpusTokens(t *testing.T) {
+	qualified := strings.Replace(lunaServedClaudeTurn, `"model":"claude-opus-5-5"`, `"model":"anthropic/claude-opus-5-5"`, 1)
+	require.NotEqual(t, lunaServedClaudeTurn, qualified)
+	body := serveLunaTurnBody(t, calibratedLunaThread(), 500_000, qualified)
+	assert.EqualValues(t, 860_000, clientPromptTokens(t, body))
 }
 
 // Until this thread has been served by both tokenizers, the router has no

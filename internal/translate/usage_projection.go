@@ -47,10 +47,6 @@ func writeOpenAIUsage(jw *jsonWriter, facts usage.Facts, inputKey, outputKey, in
 	jw.EndObj()
 }
 
-func writeAnthropicUsage(jw *jsonWriter, facts usage.Facts) {
-	writeAnthropicUsageScaled(jw, facts, 1)
-}
-
 // writeAnthropicUsageScaled projects facts onto Anthropic usage with input
 // categories multiplied by inputScale. A cross-tokenizer serve reports input
 // in the requested model's tokens, so a client budgeting compaction against
@@ -105,11 +101,9 @@ func (s *providerUsageState) SetUsageSource(source func() usage.Facts) { s.sourc
 func (s *providerUsageState) SetUsageOutputBasis(basis usage.OutputBasis) { s.outputBasis = basis }
 
 // SetClientInputTokenScale reports client-visible input usage in the
-// requested model's tokens. Non-positive values leave usage unscaled.
+// requested model's tokens. A zero scale (the default) reports usage unscaled.
 func (s *providerUsageState) SetClientInputTokenScale(scale float64) {
-	if scale > 0 {
-		s.clientInputScale = scale
-	}
+	s.clientInputScale = scale
 }
 
 func (s *providerUsageState) clientInputTokenScale() float64 {

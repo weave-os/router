@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"weave-os/router/internal/observability"
@@ -9,6 +10,7 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
+	"weave-os/router/internal/translate"
 )
 
 // Cross-tokenizer usage reporting.
@@ -52,20 +54,14 @@ func tokenizerFamilyFor(provider string) sessionpin.TokenizerFamily {
 	}
 }
 
-// requestedTokenizerFamily is the tokenizer of the model the client asked for.
-func requestedTokenizerFamily(requestedModel string) sessionpin.TokenizerFamily {
-	m, ok := catalog.ByID(requestedModel)
-	if !ok {
-		return ""
-	}
-	return tokenizerFamilyFor(m.PrimaryProvider())
-}
-
 // clientInputTokenScale returns the factor that converts input tokens billed
 // by servedProvider into requestedModel's tokens for this thread, or 1 when
 // they share a tokenizer or the thread has no measured conversion yet.
 func clientInputTokenScale(res turnLoopResult, servedProvider, requestedModel string) float64 {
-	from, to := tokenizerFamilyFor(servedProvider), requestedTokenizerFamily(requestedModel)
+	// Ingress accepts provider-qualified ids ("anthropic/claude-opus-5-5");
+	// catalog ids never carry their own provider prefix.
+	requested, _ := catalog.ByID(stripRequestedProviderQualifier(requestedModel))
+	from, to := tokenizerFamilyFor(servedProvider), tokenizerFamilyFor(requested.PrimaryProvider())
 	if from == "" || to == "" || from == to {
 		return 1
 	}
@@ -111,4 +107,23 @@ func (s *Service) recordTokenizerObservation(ctx context.Context, res turnLoopRe
 	if err := store.UpdateTokenizerCalibration(context.WithoutCancel(ctx), res.SessionKey, role, strategyForTurnLoopResult(res), cal); err != nil {
 		observability.FromContext(ctx).Error("tokenizer calibration writeback failed", "err", err)
 	}
+}
+
+// stripRequestedProviderQualifier drops a leading "<provider>/" from a
+// requested model id when the remainder is a catalog model, leaving catalog
+// ids that legitimately contain a slash (e.g. "z-ai/glm-5.3") untouched.
+func stripRequestedProviderQualifier(model string) string {
+	if _, known := catalog.ByID(model); known {
+		return model
+	}
+	provider, rest, qualified := strings.Cut(model, "/")
+	if !qualified {
+		return model
+	}
+	if stripped, had := translate.StripProviderPrefix(model, provider); had && rest != "" {
+		if _, known := catalog.ByID(stripped); known {
+			return stripped
+		}
+	}
+	return model
 }

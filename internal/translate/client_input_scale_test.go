@@ -14,8 +14,9 @@ import (
 
 // A Claude Code turn served on an OpenAI model must report its input in the
 // requested Claude model's tokens: Claude Code budgets auto-compaction against
-// the requested window from message usage, and the same history bills ~1.7-1.8x
-// more tokens on Claude. Reporting OpenAI counts let a thread grow past
+// the requested window from message usage, and the same history bills more
+// tokens on Claude. The proxy supplies the thread's measured ratio; these tests
+// use 1.8 as an arbitrary fixture. Reporting OpenAI counts let a thread grow past
 // anything Claude could hold, so compaction never fired and then could not
 // fit when it did.
 const scaledCompletion = "event: response.completed\n" +

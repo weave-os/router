@@ -2,6 +2,7 @@ package sessionpin
 
 import (
 	"context"
+	"maps"
 	"time"
 
 	"weave-os/router/internal/router"
@@ -147,20 +148,10 @@ func MergeTokenizerCalibrations(cals ...TokenizerCalibration) TokenizerCalibrati
 }
 
 func (c TokenizerCalibration) clone() TokenizerCalibration {
-	var out TokenizerCalibration
-	if c.Observations != nil {
-		out.Observations = make(map[TokenizerFamily]TokenizerObservation, len(c.Observations))
-		for k, v := range c.Observations {
-			out.Observations[k] = v
-		}
+	return TokenizerCalibration{
+		Observations: maps.Clone(c.Observations),
+		Ratios:       maps.Clone(c.Ratios),
 	}
-	if c.Ratios != nil {
-		out.Ratios = make(map[TokenizerPair]TokenizerRatioMeasurement, len(c.Ratios))
-		for k, v := range c.Ratios {
-			out.Ratios[k] = v
-		}
-	}
-	return out
 }
 
 // TokenizerCalibrationStore persists a pin row's TokenizerCalibration. It is
