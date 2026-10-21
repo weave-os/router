@@ -314,9 +314,9 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	ctx, feedbackDelivery := withFeedbackDelivery(ctx, feedbackIntent)
 	clientSink := w
 	if env.Stream() && feedbackDelivery.Enabled() {
-		footer := translate.NewGeminiRoutingFooterWriter(w, feedbackDelivery)
-		defer func() { returnErr = finalizeAfterProxy(returnErr, footer.Finalize) }()
-		clientSink = footer
+		footerWriter := translate.NewGeminiRoutingFooterWriter(w, feedbackDelivery)
+		defer func() { returnErr = finalizeAfterProxy(returnErr, footerWriter.Finalize) }()
+		clientSink = footerWriter
 	}
 	clientSink, escalationCapture = s.captureEscalationResponse(clientSink, routeRes)
 	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)

@@ -4407,9 +4407,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			clientSink = keepalive
 		}
 		if feedbackDelivery.Enabled() {
-			footer := translate.NewAnthropicRoutingFooterWriter(clientSink, feedbackDelivery)
-			defer func() { returnErr = finalizeAfterProxy(returnErr, footer.Finalize) }()
-			clientSink = footer
+			footerWriter := translate.NewAnthropicRoutingFooterWriter(clientSink, feedbackDelivery)
+			defer func() { returnErr = finalizeAfterProxy(returnErr, footerWriter.Finalize) }()
+			clientSink = footerWriter
 		}
 	}
 	clientSink, escalationCapture = s.captureEscalationResponse(clientSink, routeRes)
@@ -7416,9 +7416,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	ctx, feedbackDelivery := withFeedbackDelivery(ctx, feedbackIntent)
 	clientSink := w
 	if _, isResponses := w.(*translate.ResponsesWriter); env.Stream() && !isResponses && feedbackDelivery.Enabled() {
-		footer := translate.NewOpenAIRoutingFooterWriter(w, feedbackDelivery)
-		defer func() { returnErr = finalizeAfterProxy(returnErr, footer.Finalize) }()
-		clientSink = footer
+		footerWriter := translate.NewOpenAIRoutingFooterWriter(w, feedbackDelivery)
+		defer func() { returnErr = finalizeAfterProxy(returnErr, footerWriter.Finalize) }()
+		clientSink = footerWriter
 	}
 	clientSink, escalationCapture = s.captureEscalationResponse(clientSink, routeRes)
 	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)

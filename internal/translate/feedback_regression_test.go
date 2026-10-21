@@ -93,8 +93,8 @@ func feedbackRegressionWriter(native, streaming bool) (*feedbackRegressionOutput
 
 // configureResponsesFeedback observes the direct writer's emitted Responses wire.
 // Conversion tests that need upstream facts use feedbackRegressionWriter instead.
-func configureResponsesFeedback(writer *translate.ResponsesWriter, text string) *configuredResponsesFeedback {
-	delivery := translate.NewFeedbackDelivery(context.Background(), translate.FeedbackIntent{Text: text})
+func configureResponsesFeedback(writer *translate.ResponsesWriter, footer string) *configuredResponsesFeedback {
+	delivery := translate.NewFeedbackDelivery(context.Background(), translate.FeedbackIntent{Text: footer})
 	configured := &configuredResponsesFeedback{}
 	writer.WrapInner(func(inner http.ResponseWriter) http.ResponseWriter {
 		configured.adapter = translate.NewResponsesFeedbackWriter(inner, delivery)
