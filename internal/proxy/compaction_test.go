@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 	"weave-os/router/internal/dispatch"
@@ -9,6 +10,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
@@ -255,4 +257,49 @@ func TestTurnLoop_CompactionReadsClientIdentityBeforeHardPin(t *testing.T) {
 	assert.Equal(t, turntype.Compaction, turn.TurnType)
 	assert.Equal(t, providers.ProviderOpenAI, turn.Decision.Provider)
 	assert.Equal(t, "gpt-6.1-sol", turn.Decision.Model)
+}
+
+// A compaction turn whose every summarizer was ruled out only by the size
+// estimate must surface the native prompt-too-long error. A retryable 503
+// "cluster scorer failed" kept Claude Code retrying the same compaction.
+func TestTurnLoop_CompactionHardPinContextOverflowIsNotRoutingOutage(t *testing.T) {
+	const summarizer = "claude-haiku-5-5"
+	resolver := func(req HardPinRequest) (string, string, bool) {
+		if _, excluded := req.ExcludedModels[summarizer]; excluded {
+			return "", "", false
+		}
+		return providers.ProviderAnthropic, summarizer, true
+	}
+	run := func(t *testing.T, resolver HardPinResolver, contextWindowExcluded map[string]struct{}) error {
+		s := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: nil}, nil, false, nil, &rolePinStore{}, false, providers.ProviderAnthropic, policy.PrecompactionDefaultModel, nil).
+			WithHardPinResolver(resolver)
+		s.compactionHardPinEnabled = true
+		s.availableModels = map[string]struct{}{summarizer: {}, policy.PrecompactionDefaultModel: {}}
+		env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5-5","max_tokens":1024,"system":"Your task is to create a detailed summary of the conversation so far.","messages":[{"role":"user","content":"summarize"}]}`))
+		require.NoError(t, err)
+		features := env.RoutingFeatures(false)
+		_, err = s.runTurnLoop(context.Background(), env, features, "test-key", uuid.Nil, "", nil, router.Request{
+			RequestedModel:              features.Model,
+			EnabledProviders:            map[string]struct{}{providers.ProviderAnthropic: {}},
+			ExcludedModels:              map[string]struct{}{summarizer: {}, policy.PrecompactionDefaultModel: {}},
+			ContextWindowExcludedModels: contextWindowExcluded,
+		})
+		return err
+	}
+
+	sizeExcluded := map[string]struct{}{summarizer: {}, policy.PrecompactionDefaultModel: {}}
+	err := run(t, resolver, sizeExcluded)
+	require.ErrorIs(t, err, policy.ErrContextWindowExceeded)
+	assert.NotErrorIs(t, err, cluster.ErrClusterUnavailable)
+	class, ok := ClassifyDispatchError(err)
+	require.True(t, ok)
+	assert.Equal(t, http.StatusBadRequest, class.Status)
+
+	outsideBundle := func(HardPinRequest) (string, string, bool) { return "", "", false }
+	err = run(t, outsideBundle, sizeExcluded)
+	assert.ErrorIs(t, err, policy.ErrContextWindowExceeded,
+		"a summarizer only the compaction path can reach still classifies the size-only failure")
+
+	err = run(t, resolver, nil)
+	assert.ErrorIs(t, err, cluster.ErrClusterUnavailable, "exclusions unrelated to size keep the routing-outage class")
 }

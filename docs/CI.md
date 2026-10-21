@@ -33,10 +33,11 @@ job retains the required check name `Test` and fails unless every constituent
 job succeeds. This keeps branch protection stable while changing the critical
 path to the longest constituent job plus the fan-in job's startup time.
 
-All `actions/setup-go` uses now install Go 1.25.9 explicitly, matching the
-`toolchain go1.25.9` directive in [`go.mod`](../go.mod). Previously setup-go
-installed the `go 1.25.0` directive first. Go then downloaded 1.25.9 into the
-module cache before setup-go restored its roughly 299 MB archive. Cache
+All `actions/setup-go` uses now install Go 1.26.10 explicitly, matching the
+`toolchain go1.26.10` directive in [`go.mod`](../go.mod). Previously setup-go
+installed the `go` directive's minimum version first. Go then downloaded the
+toolchain version into the module cache before setup-go restored its roughly
+299 MB archive. Cache
 extraction repeatedly failed with `Cannot open: File exists`, and the restored
 cache was discarded. Keep the workflow pins synchronized when the toolchain
 directive changes.

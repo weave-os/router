@@ -2,22 +2,51 @@ package translate
 
 import (
 	"bufio"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
 )
 
+const RouterCommandHeader = "X-Weave-Router-Command"
+
+// WriteCommandResponse serializes an already decided command outcome. TextCarrier
+// is selected by the harness adapter because Codex drops unknown Responses fields.
+func WriteCommandResponse(w http.ResponseWriter, env *RequestEnvelope, text string, inputTokens int, outcome CommandOutcome, textCarrier bool) error {
+	encoded, err := json.Marshal(outcome)
+	if err != nil {
+		return fmt.Errorf("marshal command outcome: %w", err)
+	}
+	carrier := base64.RawURLEncoding.EncodeToString(encoded)
+	w.Header().Set(RouterCommandHeader, carrier)
+	if textCarrier {
+		text += "\n\n[weave-router-command-v1]: <weave-router:" + carrier + ">"
+	}
+	if env.SourceFormat() == FormatOpenAI {
+		id := "chatcmpl_router_cmd_" + outcome.ID
+		if env.Stream() {
+			return writeSyntheticOpenAISSE(w, id, text, inputTokens)
+		}
+		return writeSyntheticOpenAIJSON(w, id, text, inputTokens)
+	}
+	id := "msg_router_cmd_" + outcome.ID
+	if env.Stream() {
+		return writeSyntheticAnthropicSSE(w, id, text, inputTokens, &outcome)
+	}
+	return writeSyntheticAnthropicJSON(w, id, text, inputTokens, &outcome)
+}
+
 // WriteSyntheticAnthropicResponse renders a control reply without a provider request.
 func WriteSyntheticAnthropicResponse(w http.ResponseWriter, env *RequestEnvelope, text string, inputTokens int) error {
 	msgID := fmt.Sprintf("msg_router_cmd_%x", time.Now().UnixNano())
 	if env.Stream() {
-		return writeSyntheticAnthropicSSE(w, msgID, text, inputTokens)
+		return writeSyntheticAnthropicSSE(w, msgID, text, inputTokens, nil)
 	}
-	return writeSyntheticAnthropicJSON(w, msgID, text, inputTokens)
+	return writeSyntheticAnthropicJSON(w, msgID, text, inputTokens, nil)
 }
 
-func writeSyntheticAnthropicJSON(w http.ResponseWriter, msgID, text string, inputTokens int) error {
+func writeSyntheticAnthropicJSON(w http.ResponseWriter, msgID, text string, inputTokens int, outcome *CommandOutcome) error {
 	resp := map[string]any{
 		"id":            msgID,
 		"type":          "message",
@@ -33,6 +62,9 @@ func writeSyntheticAnthropicJSON(w http.ResponseWriter, msgID, text string, inpu
 			"output_tokens": len(text) / 4,
 		},
 	}
+	if outcome != nil {
+		resp["router_command"] = outcome
+	}
 	body, err := json.Marshal(resp)
 	if err != nil {
 		return fmt.Errorf("marshal synthetic response: %w", err)
@@ -42,22 +74,24 @@ func writeSyntheticAnthropicJSON(w http.ResponseWriter, msgID, text string, inpu
 	return writeErr
 }
 
-func writeSyntheticAnthropicSSE(w http.ResponseWriter, msgID, text string, inputTokens int) error {
+func writeSyntheticAnthropicSSE(w http.ResponseWriter, msgID, text string, inputTokens int, outcome *CommandOutcome) error {
 	w.Header().Set("Content-Type", "text/event-stream")
 	flusher, _ := w.(http.Flusher)
 	bw := bufio.NewWriterSize(w, 4096)
 
 	outTokens := len(text) / 4
 
+	message := map[string]any{
+		"id": msgID, "type": "message", "role": "assistant", "content": []any{}, "model": "weave-router",
+		"stop_reason": nil, "stop_sequence": nil, "usage": map[string]any{"input_tokens": inputTokens, "output_tokens": 0},
+	}
+	if outcome != nil {
+		message["router_command"] = outcome
+	}
 	events := []string{
 		commandSSEEvent("message_start", marshalCommandJSON(map[string]any{
-			"type": "message_start",
-			"message": map[string]any{
-				"id": msgID, "type": "message", "role": "assistant",
-				"content": []any{}, "model": "weave-router",
-				"stop_reason": nil, "stop_sequence": nil,
-				"usage": map[string]any{"input_tokens": inputTokens, "output_tokens": 0},
-			},
+			"type":    "message_start",
+			"message": message,
 		})),
 		commandSSEEvent("content_block_start", marshalCommandJSON(map[string]any{
 			"type": "content_block_start", "index": 0,

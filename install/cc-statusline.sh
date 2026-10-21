@@ -792,38 +792,37 @@ if [[ -n "$transcript_path" && -f "$transcript_path" ]]; then
     transcript_model="$(normalize_model "$transcript_model")"
   fi
 
-  # Read the last /force-model acknowledgement in the transcript —
-  # the only turns stamped message.model == "weave-router". The router emits
-  # one whenever a pin changes state:
-  #   * /force-model              → "force-model applied: <model> (<provider>) …"
-  #   * /unforce-model            → "force-model cleared …"
-  #   * loop / no-progress break  → "… clearing the session pin …" (expires the
-  #                                  pin, including a user-forced one)
-  #   * unrecognized model        → "… isn't a recognized model · keeping
-  #                                  automatic routing" — a NO-OP: the prior
-  #                                  pin, if any, is left untouched
-  #   * listing (historical)      → "… pick a model by id …" / "no models are
-  #                                  available to pin …" — also NO-OPs. The
-  #                                  router no longer emits these, but a
-  #                                  transcript written while it did still
-  #                                  carries them, and they must not read as
-  #                                  a clear or a live pin loses its [forced]
-  # These persist on disk (the ingress stripper only scrubs them from upstream
-  # requests). Classify each weave-router turn newest-first, skip the no-op
-  # "rejected" acks, and let the latest real state change decide: an "applied"
-  # marker records a pin (and names the model); a later clear removes it.
-  # This history cannot establish the running client's route or current pin.
-  # Restricting to weave-router turns keeps a normal reply that merely quotes
-  # these phrases from flipping the tag. (A silent server-side TTL expiry emits
-  # no turn and so can't be reflected here — the pin TTL outlives a session.)
-  force_state="$("${reverse[@]}" "$transcript_path" 2>/dev/null \
-    | jq -r 'select(.type=="assistant" and .message.model=="weave-router")
-        | ([.message.content[]? | select(.type? == "text") | .text] | join(" ") | gsub("[\n\r]"; " ")) as $t
-        | if ($t | test("force-model applied:")) then "APPLIED " + ($t | capture("force-model applied: (?<m>[^ ]+)").m)
-          elif ($t | test("isn.t a recognized model")) then "REJECTED"
-          elif ($t | test("pick a model by id|no models are available to pin")) then "REJECTED"
-          else "CLEARED" end' 2>/dev/null \
-    | grep -m1 -v '^REJECTED$' || true)"
+  # Fold acknowledged transitions in transcript order. Content-block copies and
+  # replayed outcome IDs are the same event, not a newer state change.
+  force_state="$(jq -nRr '
+    def model: type == "string" and test("^[A-Za-z0-9._:/-]{1,128}$");
+    def valid_command_outcome:
+      try (.version == 1 and (.id | type == "string" and test("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"))
+        and (.command | IN("force_model", "router_session", "router_models", "router_feedback", "loop_stop"))
+        and (.disposition | IN("accepted", "rejected"))
+        and (.pin.transition | IN("unchanged", "applied", "cleared"))
+        and (if .pin.transition == "unchanged" then true else
+          .command == "force_model" and .disposition == "accepted" end)
+        and (if .pin.transition == "applied" then (.pin.model | model)
+          and (.pin.provider | model)
+          and ((.pin.effort // "") | type == "string" and test("^[A-Za-z0-9_-]{0,32}$")) else true end)) catch false;
+    reduce (inputs | fromjson? | objects) as $entry ({seen:{}, pin:null};
+      if $entry.type != "assistant" or $entry.message.model != "weave-router" then .
+      elif ($entry.message | has("router_command")) then
+        $entry.message.router_command as $o |
+        if ($o | valid_command_outcome) and (.seen[$o.id] != true) then
+          .seen[$o.id] = true |
+          if $o.pin.transition == "applied" then
+            .pin = ($o.pin.model + (if ($o.pin.effort // "") == "" then "" else ":" + $o.pin.effort end))
+          elif $o.pin.transition == "cleared" then .pin = null else . end
+        else . end
+      else
+        ([$entry.message.content[]? | select(.type? == "text") | .text] | join(" ") | sub("^(?:✦ \\*\\*Weave Router\\*\\* →|Weave Router:)[[:space:]]*"; "")) as $t |
+        if ($t | test("^force-model applied: [A-Za-z0-9._:/-]+")) then
+          .pin = ($t | capture("force-model applied: (?<m>[A-Za-z0-9._:/-]+)").m)
+        elif ($t | test("^force-model cleared\\b")) then .pin = null else . end
+      end) | if .pin then "APPLIED " + .pin else "CLEARED" end
+    ' "$transcript_path" 2>/dev/null || true)"
   if [[ "$force_state" == APPLIED\ * ]]; then
     has_pin_record="true"
     last_pin_model="${force_state#APPLIED }"
@@ -926,6 +925,10 @@ router_context_fallback() {
   scope="$(printf '%s' "$helper_dir" | cksum | awk '{print $1}')"
   root="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router/claude-context"
   cache="$root/$scope-$session.json"
+  mkdir -p "$root" 2>/dev/null || return 0
+  chmod 700 "$root"
+  local generation active_file
+  active_file="$cache.active"
   now="$(date +%s)"
   if [ -f "$cache" ] && [ "$(wc -c <"$cache")" -le 8192 ]; then
     snapshot="$(jq -ce --arg session "$session" --argjson now "$now" '
@@ -967,6 +970,10 @@ router_context_fallback() {
       mkdir "$cache.lock" 2>/dev/null || exit 0
     fi
     trap 'rmdir "$cache.lock" 2>/dev/null' EXIT
+    generation="$(mktemp "$root/.generation.XXXXXX")" || exit 0
+    printf '%s' "$generation" >"$generation"
+    chmod 600 "$generation"
+    mv "$generation" "$active_file"
     settings_base="$HOME"
     case "$helper_dir" in */.claude) settings_base="${helper_dir%/.claude}" ;; esac
     settings="$settings_base/.claude/settings.json"
@@ -995,7 +1002,19 @@ router_context_fallback() {
     if curl -fsS --max-time 5 --max-filesize 8192 -K "$header_file" "$url" -o "$tmp" 2>/dev/null \
        && [ "$(wc -c <"$tmp")" -le 8192 ] \
        && [ "$(jq -r '.session_id // empty' "$tmp" 2>/dev/null)" = "$session" ]; then
-      mv "$tmp" "$cache"
+      # Request observation order is independent of fetch completion order.
+      # Fraction padding preserves RFC3339Nano order within the same second.
+      previous="$cache"
+      [ -f "$previous" ] || previous=/dev/null
+      if [ "$(cat "$active_file" 2>/dev/null)" = "$generation" ] && jq -e -s '
+        def timestamp_parts: split(".") as $p |
+          [($p[0] | sub("Z$"; "")), ((($p[1] // "") | sub("Z$"; "")) + "000000000")[0:9]];
+        def observation: [.context_snapshot.requested_at | timestamp_parts] + [.context_snapshot.recorded_at | timestamp_parts];
+        (.[0] | observation) as $fresh |
+        if length == 1 or .[1].context_snapshot == null then true else $fresh > (.[1] | observation) or ($fresh == (.[1] | observation) and .[0].context_snapshot.request_id == .[1].context_snapshot.request_id) end
+        ' "$tmp" "$previous" 2>/dev/null; then
+        mv "$tmp" "$cache"
+      fi
     fi
     rm -f "$tmp" "$header_file"
   ) >/dev/null 2>&1 &

@@ -735,7 +735,7 @@ func TestProxyMessages_NativeAnthropicResponseSignals(t *testing.T) {
 // leaves them unknown when the upstream stream ended before the turn did.
 func TestProxyOpenAIChatCompletion_ResponseSignalTelemetry(t *testing.T) {
 	const installID = "99999999-9999-9999-9999-999999999999"
-	completed := `{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"type":"function_call","call_id":"call_1","name":"read_file","arguments":"{\"path\":\"main.go\"}"}],"usage":{"input_tokens":11,"output_tokens":7}}}`
+	completed := `{"type":"response.completed","response":{"id":"resp_1","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"patching"}]},{"type":"function_call","call_id":"call_1","name":"read_file","arguments":"{\"path\":\"main.go\"}"}],"usage":{"input_tokens":11,"output_tokens":7}}}`
 	frames := []string{
 		`{"type":"response.output_text.delta","output_index":0,"delta":"patching"}`,
 		`{"type":"response.output_item.added","output_index":1,"item":{"type":"function_call","call_id":"call_1","name":"read_file"}}`,

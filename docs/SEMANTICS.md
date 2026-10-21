@@ -76,3 +76,43 @@ historical names:
 New code, documentation, and telemetry should use the terms above. When
 touching legacy docs, prefer updating them to the new terminology or adding a
 note that they use the pre-2026-07-23 convention.
+
+## Router command acknowledgments and pin history
+
+`translate.CommandOutcome` is the shared command contract. Proxy owns command
+policy, persistence and acknowledgment rendering; protocol encoders serialize the
+already decided outcome. Each outcome has a version, unique ID, typed command and
+disposition, and an explicit pin transition (`unchanged`, `applied`, `cleared`).
+Only a successfully persisted explicit force or clear changes the acknowledged
+pin. Session, models, feedback, rejections and automatic loop stops leave it
+unchanged. Header and tool-result commands keep their existing continuation
+behavior and do not manufacture historical acknowledgments. Outcomes do not use
+provider retry/progress accounting or `NoticeDelivery`.
+
+Harnesses show **last pin**, meaning historical acknowledgment, separately from
+the model that served a response. This is not an authoritative current-pin
+snapshot: an acknowledgment cannot establish the live server state, and a
+context snapshot describes a past request. A completed command remains applied
+if acknowledgment delivery fails; the harness cannot record an incomplete reply.
+
+| Harness | Structured carrier | Lifecycle owner |
+| --- | --- | --- |
+| Claude Code | `message.router_command` in Messages JSON or SSE `message_start.message`, retained in the transcript | Statusline folds transcript order and deduplicates outcome IDs. |
+| Codex | Unused Markdown reference definition `[weave-router-command-v1]: <weave-router:BASE64URL_JSON>` after acknowledgment prose | Stop hook decodes raw `last_assistant_message`; UserPromptSubmit records `turn_id` under the same scope/session lock to reject delayed Stop updates. |
+| Pi | `X-Weave-Router-Command` response header with unpadded base64url JSON | `after_provider_response` stages the outcome; matching successful `turn_end` commits a custom session entry. Aborted, failed or truncated responses discard it; restore follows the reachable branch. |
+
+The native Gemini surface does not intercept these commands. The Codex text
+carrier survives Chat-to-Responses conversion; unknown JSON fields alone do not
+survive the full Codex path. Claude Code 2.1.294, Codex CLI 0.160.0 and Pi 0.83.0
+were exercised with synthetic localhost responses. Unused Markdown references
+are hidden by the terminal Markdown renderers; they remain visible in raw text
+and transcripts. Full interactive TUI rendering is not an automated acceptance
+boundary. Older helpers keep the familiar acknowledgment wording. Updated
+helpers prefer structured evidence; absent metadata permits only explicit
+legacy apply/clear acknowledgments, while malformed or unsupported metadata
+cannot trigger a prose fallback. Replayed control metadata and acknowledgments
+are stripped before dispatch, preserving adjacent content, tools and reasoning.
+
+Context caches compare request-observation timestamps, including fractional
+seconds, and use lifecycle generations to discard stale fetches. They never
+infer a pin transition from a context snapshot.

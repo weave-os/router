@@ -390,7 +390,7 @@ func streamFamilies() []streamFamily {
 			fixtures: []streamFixture{
 				{
 					name: "text and tool_use turn", body: anthropicToolTurnStream(), streaming: true,
-					mustContain: []string{`"id":"msg_frag_1"`, `"content":"Hello"`, `"id":"toolu_frag_01"`, `"name":"get_weather"`, `"arguments":"{\"loc"`, `"finish_reason":"tool_calls"`, `"completion_tokens":21`, "data: [DONE]"},
+					mustContain: []string{`"id":"msg_frag_1"`, `"content":"Hello"`, `"id":"toolu_frag_01"`, `"name":"get_weather"`, `"arguments":"{\"location\":\"NYC\"}"`, `"finish_reason":"tool_calls"`, `"completion_tokens":21`, "data: [DONE]"},
 				},
 				{
 					name: "truncated before message_stop", body: anthropicToolTurnFrames().withoutLast(1).join(), streaming: true,

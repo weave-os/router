@@ -79,6 +79,31 @@ func driveResponses(t *testing.T, w preludeDrivenWriter, streaming bool, stream 
 	return w.Finalize()
 }
 
+func TestResponsesOutputLimit_SuppressedNamelessCall(t *testing.T) {
+	for _, streaming := range []bool{false, true} {
+		for _, anthropic := range []bool{false, true} {
+			t.Run(fmt.Sprintf("stream=%v/anthropic=%v", streaming, anthropic), func(t *testing.T) {
+				rec := httptest.NewRecorder()
+				sink := &fakeUsageSink{}
+				var writer preludeDrivenWriter
+				wantFinish := "length"
+				if anthropic {
+					writer = translate.NewResponsesToAnthropicWriter(rec, outputLimitResponsesModel, sink)
+					wantFinish = "max_tokens"
+				} else {
+					writer = translate.NewResponsesToOpenAIChatWriter(rec, outputLimitResponsesModel, sink)
+				}
+				stream := "data: " + `{"type":"response.incomplete","response":{"id":"resp_synthetic","status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[{"type":"message","content":[{"type":"output_text","text":"synthetic answer"}]},{"type":"function_call","call_id":"nameless","name":"","arguments":"{}"}]}}` + "\n\n"
+				require.NoError(t, driveResponses(t, writer, streaming, stream))
+				assert.True(t, sink.outputLimitReached)
+				assert.Contains(t, rec.Body.String(), `"`+wantFinish+`"`)
+				assert.NotContains(t, rec.Body.String(), `"tool_calls"`)
+				assert.NotContains(t, rec.Body.String(), `"tool_use"`)
+			})
+		}
+	}
+}
+
 // --- Anthropic Messages -> OpenAI chat (SSETranslator) ---
 
 func anthropicMessagesStream(stopReason string, outputTokens int, toolUse bool) []string {
@@ -501,7 +526,6 @@ type responsesOutputLimitCase struct {
 	wantChatFinish    string
 	wantToolCall      bool
 	wantToolName      string
-	wantChatStreamErr error
 }
 
 func responsesOutputLimitCases() []responsesOutputLimitCase {
@@ -527,7 +551,6 @@ func responsesOutputLimitCases() []responsesOutputLimitCase {
 		{
 			name:              "raw incomplete max_output_tokens with a truncated tool call is a cap",
 			stream:            responsesTruncatedToolCallStream(),
-			wantChatStreamErr: translate.ErrStreamOrder,
 			wantReached:       true,
 			wantAnthropicStop: "tool_use",
 			wantChatFinish:    "tool_calls",
@@ -595,14 +618,7 @@ func TestResponsesToOpenAIChatWriter_OutputLimit(t *testing.T) {
 			sink := &fakeUsageSink{}
 			w := translate.NewResponsesToOpenAIChatWriter(rec, outputLimitResponsesModel, sink)
 			err := driveResponses(t, w, true, tc.stream)
-			if tc.wantChatStreamErr != nil {
-				// The existing writer rejects a pending tool flush after Terminal;
-				// keep that error contract while retaining the upstream cap fact.
-				require.ErrorIs(t, err, tc.wantChatStreamErr)
-				assert.Equal(t, tc.wantReached, sink.outputLimitReached)
-				assert.NotContains(t, rec.Body.String(), `"finish_reason":"tool_calls"`)
-				return
-			}
+
 			require.NoError(t, err)
 
 			assert.Equal(t, tc.wantReached, sink.outputLimitReached)

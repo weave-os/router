@@ -98,7 +98,7 @@ if grep -Fq '[[hooks.PreToolUse]]' "$config"; then
   fail "ordinary Codex installs registered classifier-only hooks"
 fi
 status_helper="$home/.weave/codex-status.sh"
-  [ "$(grep -Fc "command = \"$status_helper\"" "$config")" -eq 3 ] \
+  [ "$(grep -Fc "command = \"$status_helper\"" "$config")" -eq 4 ] \
   || fail "Codex hooks do not point at the installed status helper"
 [ -f "$status_helper" ] || fail "Codex status helper was not installed"
 grep -Fq '<!-- weave-router managed codex status -->' "$status_helper" \
@@ -450,13 +450,11 @@ HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" on --codex --scope u
 
 # `login codex` is where users hit this first: it refused to enroll a
 # subscription against a working install and told them to run the installer
-# again. The device-authorization step still fails offline here -- what must not
-# come back is the "no install" refusal that precedes it.
+# again. The offline validation failure confirms that the install was found.
 login_out="$(HOME="$home" PATH="$test_path" NO_COLOR=1 \
   bash "$installer" login codex --scope user 2>&1 || true)"
-if printf '%s' "$login_out" | grep -q 'No Weave Router install found'; then
-  fail "login codex did not see an install whose markers Codex had dropped"
-fi
+printf '%s' "$login_out" | grep -Fq 'Could not reach the router at https://router.workweave.ai' \
+  || fail "login codex did not validate an install whose markers Codex had dropped"
 
 # The key reader has to accept both spellings of the header name: our writer
 # emits one quoted inline table, Codex re-emits it as a bare key in a subtable.
@@ -588,7 +586,7 @@ registered_hook="$(awk -F'"' '/^command = /{print $2}' "$config" | grep -F 'code
 # The duplicates are the same orphan class: Codex normalized our block out of
 # the markers, so the previous install could not see them and appended more.
 # Stripping by helper filename collapses them to the one the block re-adds.
-[ "$(grep -c "command = \"$home/.weave/codex-status.sh\"" "$config")" -eq 3 ] \
+[ "$(grep -c "command = \"$home/.weave/codex-status.sh\"" "$config")" -eq 4 ] \
   || fail "expected exactly one status registration per event, got $(grep -c "command = \"$home/.weave/codex-status.sh\"" "$config")"
 
 # A third party's hook in a group we also wrote to must survive.
@@ -908,7 +906,7 @@ assert_config_parses "install over a symlinked directive helper produced unparse
 
 grep -Fq 'important unrelated file' "$outside" \
   || fail "the install followed the symlink and overwrote its target"
-if grep -Fq 'hooks.UserPromptSubmit' "$config"; then
+if grep -Fq "command = \"$home/.weave/codex-directive.sh\"" "$config"; then
   fail "the install registered a symlinked hook path"
 fi
 grep -Fq 'model_provider = "weave"' "$config" \
@@ -938,7 +936,7 @@ ln -s "$missing" "$home/.weave/codex-directive.sh"
 run_hosted_install || fail "a dangling symlink must not fail the install"
 [ ! -e "$missing" ] \
   || fail "the install wrote through a dangling symlink and created its target"
-if grep -Fq 'hooks.UserPromptSubmit' "$config"; then
+if grep -Fq "command = \"$home/.weave/codex-directive.sh\"" "$config"; then
   fail "the install registered a dangling symlink as the prompt hook"
 fi
 

@@ -189,6 +189,45 @@ check_contains "historical pin is labeled as historical" "$out" "last pin: claud
 check_contains "historical pin does not replace the latest response model" "$out" "response model: claude-sonnet-4-5"
 check_not_contains "historical pin does not claim an active force" "$out" "[forced]"
 
+# Control acknowledgments and rejected commands do not clear an acknowledged pin.
+for ack in 'session id: synthetic-session' 'models this installation can be routed to' 'Feedback recorded' 'force-model rejected: provider is excluded'; do
+  head -n 1 "$c/pin.jsonl" > "$c/control.jsonl"
+  jq -cn --arg ack "$ack" '{type:"assistant",message:{model:"weave-router",content:[{type:"text",text:$ack}]}}' >> "$c/control.jsonl"
+  out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_STATUSLINE_CONTEXT=0 render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/control.jsonl")"
+  check_contains "$ack preserves the historical pin" "$out" "last pin: claude-opus-4-7"
+done
+
+# A partially written or corrupt JSONL record does not erase valid history.
+for malformed_position in before after; do
+  : > "$c/partial.jsonl"
+  if [ "$malformed_position" = before ]; then printf 'not-json\n' >> "$c/partial.jsonl"; fi
+  head -n 1 "$c/pin.jsonl" >> "$c/partial.jsonl"
+  if [ "$malformed_position" = after ]; then printf '{"partial":\n' >> "$c/partial.jsonl"; fi
+  out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_STATUSLINE_CONTEXT=0 render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/partial.jsonl")"
+  check_contains "malformed line $malformed_position acknowledgment preserves history" "$out" "last pin: claude-opus-4-7"
+done
+
+for transition in unchanged applied cleared malformed unsupported duplicate; do
+  head -n 1 "$c/pin.jsonl" > "$c/typed.jsonl"
+  case "$transition" in
+    applied) envelope='{"version":1,"id":"11111111-2222-4333-8444-555555555555","command":"force_model","disposition":"accepted","pin":{"transition":"applied","model":"synthetic-model","provider":"synthetic"}}' ;;
+    cleared) envelope='{"version":1,"id":"11111111-2222-4333-8444-555555555555","command":"force_model","disposition":"accepted","pin":{"transition":"cleared"}}' ;;
+    malformed) envelope='{"version":1,"id":"bad","pin":{"transition":"cleared"}}' ;;
+    unsupported) envelope='{"version":2,"id":"future","command":"force_model","disposition":"accepted","pin":{"transition":"cleared"}}' ;;
+    *) envelope='{"version":1,"id":"11111111-2222-4333-8444-555555555555","command":"router_session","disposition":"accepted","pin":{"transition":"unchanged"}}' ;;
+  esac
+  jq -cn --argjson outcome "$envelope" '{type:"assistant",message:{model:"weave-router",router_command:$outcome,content:[{type:"text",text:"force-model cleared (contradictory prose)"}]}}' >> "$c/typed.jsonl"
+  if [ "$transition" = duplicate ]; then
+    jq -cn '{type:"assistant",message:{model:"weave-router",router_command:{version:1,id:"11111111-2222-4333-8444-555555555555",command:"force_model",disposition:"accepted",pin:{transition:"cleared"}},content:[]}}' >> "$c/typed.jsonl"
+  fi
+  out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_STATUSLINE_CONTEXT=0 render "$c/cc.sh" "$c/cache" "file://$upstream" claude-sonnet-4-5 "$c/typed.jsonl")"
+  case "$transition" in
+    applied) check_contains "structured apply ignores prose" "$out" "last pin: synthetic-model" ;;
+    cleared) check_not_contains "structured clear removes pin" "$out" "last pin:" ;;
+    *) check_contains "$transition metadata preserves prior pin" "$out" "last pin: claude-opus-4-7" ;;
+  esac
+done
+
 printf '{"type":"assistant","message":{"model":"<synthetic>"}}\n' >> "$c/pin.jsonl"
 out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
   WEAVE_ROUTER_BASE_URL="file://$c/display-settings.json" \

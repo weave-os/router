@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/subscriptions/entitlement"
 )
@@ -387,6 +388,7 @@ func TestSessionReleaseIdleAndSupersessionBoundaries(t *testing.T) {
 	projection := policyregistry.AdmissionProjection{Target: policyregistry.TargetStable}
 	initial, err := policyregistry.SelectSessionRelease(nil, projection, first, sets, testRegistryRoot, servingEpoch)
 	require.NoError(t, err)
+	initial.RoutingModel = router.ModelQwen
 	for _, tc := range []struct {
 		name          string
 		now           time.Time
@@ -412,6 +414,7 @@ func TestSessionReleaseIdleAndSupersessionBoundaries(t *testing.T) {
 			}
 			assert.Equal(t, tc.now, admitted.LastAdmittedAt)
 			assert.Equal(t, servingEpoch, admitted.CreatedAt)
+			assert.Equal(t, router.ModelQwen, admitted.RoutingModel, "same-target release replacement preserves the classifier selection")
 		})
 	}
 }

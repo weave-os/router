@@ -92,7 +92,7 @@ func TestProxyMessages_OverEngineerCap_CoveringSubscription_ServesFreeNo402(t *t
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	req.Header.Set("Authorization", "Bearer "+subToken)
-	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}]}`)
+	body := []byte(`{"model":"claude-sonnet-4-6","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
 	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req),
 		"an over-cap engineer with a covering subscription must not be 402'd")
@@ -136,7 +136,7 @@ func TestProxyMessages_OverEngineerCap_WarningAlreadyShown_NotRepeated(t *testin
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	req.Header.Set("Authorization", "Bearer "+subToken)
-	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"},` +
+	body := []byte(`{"model":"claude-sonnet-4-6","stream":true,"messages":[{"role":"user","content":"hi"},` +
 		`{"role":"assistant","content":[{"type":"text","text":"✦ **Weave Router** → a Weave router spend cap has been reached, so this turn is running on your own Anthropic subscription and paid model fallback is disabled.\n\nhello"}]},` +
 		`{"role":"user","content":"again"}]}`)
 

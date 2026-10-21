@@ -67,6 +67,14 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 		assertion, err := directAssertion(c.Request.Context(), cfg, installation.ID, key.ID, c.Request, body)
 		if err != nil {
 			observability.FromGin(c).Warn("Worker admission rejected", "err", err)
+			if errors.Is(err, policyregistry.ErrRoutingModelChanged) {
+				c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "start_new_thread_to_change_router"})
+				return
+			}
+			if errors.Is(err, policyregistry.ErrRoutingModelSessionRequired) {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "routing_model_requires_conversation_id", "message": err.Error()})
+				return
+			}
 			if isAuthFailure(err) {
 				handleAuthError(c, err)
 				return

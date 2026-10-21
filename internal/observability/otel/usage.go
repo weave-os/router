@@ -4,32 +4,21 @@ import (
 	"bytes"
 	"net/http"
 
-	"github.com/tidwall/gjson"
-
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/sse"
-)
+	"weave-os/router/internal/usage"
 
-// UsageSink receives token usage and output-limit evidence already parsed by
-// translators, avoiding another parse pass.
-type UsageSink interface {
-	RecordUsage(inputTokens, outputTokens int)
-	RecordCacheUsage(cacheCreationTokens, cacheReadTokens int)
-	RecordReasoningUsage(reasoningTokens int)
-	RecordUsageModifiers(cacheCreation1hTokens int, cacheSplitReported bool, speed, inferenceGeo string)
-	RecordOutputLimitReached()
-}
+	"github.com/tidwall/gjson"
+)
 
 var (
 	_ http.ResponseWriter = (*UsageExtractor)(nil)
 	_ http.Flusher        = (*UsageExtractor)(nil)
-	_ UsageSink           = (*UsageExtractor)(nil)
+	_ usage.Sink          = (*UsageExtractor)(nil)
 )
 
-// Anthropic wire-format names the extractor recognizes. Duplicated here rather
-// than imported so otel does not import translate (translate already imports
-// observability); same precedent as openaiCacheTokens.
+// Anthropic event names used for terminal and tool observations.
 type anthropicSSEEvent string
 
 const (
@@ -54,22 +43,9 @@ type UsageExtractor struct {
 	inner    http.ResponseWriter
 	provider string
 
-	input              int
-	output             int
-	cacheCreation      int
-	cacheRead          int
-	reasoning          int
+	facts              usage.Facts
 	outputLimitReached bool
-
-	// cacheCreation1h is the reported 1-hour share of cacheCreation; it is
-	// meaningful only when cacheSplitReported. Otherwise the share falls back
-	// to requestCacheTTL1h, evaluated lazily because upstreams that report the
-	// split never need the request body scanned.
-	cacheCreation1h    int
-	cacheSplitReported bool
 	requestCacheTTL1h  func() bool
-	speed              string
-	inferenceGeo       string
 
 	stopReason    string
 	toolUseBlocks int
@@ -144,49 +120,23 @@ func (u *UsageExtractor) ArmOutputProgress(mark func()) (armed bool) {
 	return arm.ArmOutputProgress(mark)
 }
 
-// RecordUsage sets token counts directly, bypassing SSE parsing. Called by
-// translators that have already parsed usage from the upstream event stream.
-func (u *UsageExtractor) RecordUsage(inputTokens, outputTokens int) {
-	if inputTokens > 0 {
-		u.input = inputTokens
+// RecordProviderUsage merges an already parsed provider snapshot.
+func (u *UsageExtractor) RecordProviderUsage(facts usage.Facts) {
+	if u == nil {
+		return
 	}
-	if outputTokens > 0 {
-		u.output = outputTokens
+	if providers.OutputExcludesReasoning(u.provider) {
+		facts.OutputBasis = usage.OutputExcludesReasoning
 	}
+	u.facts.Merge(facts)
 }
 
-// RecordCacheUsage sets cache token counts directly. Pass 0 for a field the
-// provider does not emit.
-func (u *UsageExtractor) RecordCacheUsage(cacheCreationTokens, cacheReadTokens int) {
-	if cacheCreationTokens > 0 {
-		u.cacheCreation = cacheCreationTokens
+// UsageFacts returns an immutable snapshot with provider inclusion semantics.
+func (u *UsageExtractor) UsageFacts() usage.Facts {
+	if u == nil {
+		return usage.Facts{}
 	}
-	if cacheReadTokens > 0 {
-		u.cacheRead = cacheReadTokens
-	}
-}
-
-func (u *UsageExtractor) RecordReasoningUsage(reasoningTokens int) {
-	if reasoningTokens > 0 {
-		u.reasoning = reasoningTokens
-	}
-}
-
-// RecordUsageModifiers sets the rate-changing usage attributes directly. A
-// call without a cache split, or with empty speed / geography, leaves any
-// previously recorded value in place: Anthropic reports them on message_start
-// and omits them from message_delta.
-func (u *UsageExtractor) RecordUsageModifiers(cacheCreation1hTokens int, cacheSplitReported bool, speed, inferenceGeo string) {
-	if cacheSplitReported {
-		u.cacheCreation1h = cacheCreation1hTokens
-		u.cacheSplitReported = true
-	}
-	if speed != "" {
-		u.speed = speed
-	}
-	if inferenceGeo != "" {
-		u.inferenceGeo = inferenceGeo
-	}
+	return u.facts
 }
 
 // SetRequestCacheTTL1h installs the check for whether every cache breakpoint
@@ -219,19 +169,16 @@ func (u *UsageExtractor) Tokens() (input, output int) {
 	if u == nil {
 		return 0, 0
 	}
-	if providers.OutputExcludesReasoning(u.provider) {
-		return u.input, u.output + u.reasoning
-	}
-	return u.input, u.output
+	return u.facts.Input.Value, u.facts.BilledOutputTokens()
 }
 
 // CacheTokens returns the extracted cache creation/read counts. Zero means the
-// provider doesn't emit cache tokens (Google) or there were no cache hits.
+// provider omitted the category or reported no cache tokens.
 func (u *UsageExtractor) CacheTokens() (creation, read int) {
 	if u == nil {
 		return 0, 0
 	}
-	return u.cacheCreation, u.cacheRead
+	return u.facts.CacheWrite.Value, u.facts.CacheRead.Value
 }
 
 // UsageModifiers returns the rate-changing attributes of the call: the 1-hour
@@ -241,11 +188,11 @@ func (u *UsageExtractor) UsageModifiers() catalog.UsageModifiers {
 	if u == nil {
 		return catalog.UsageModifiers{}
 	}
-	oneHour := u.cacheCreation1h
-	if !u.cacheSplitReported && u.cacheCreation > 0 && u.requestCacheTTL1h != nil && u.requestCacheTTL1h() {
-		oneHour = u.cacheCreation
+	oneHour := u.facts.CacheWrite1h.Value
+	if !u.facts.CacheSplitReported() && u.facts.CacheWrite.Value > 0 && u.requestCacheTTL1h != nil && u.requestCacheTTL1h() {
+		oneHour = u.facts.CacheWrite.Value
 	}
-	return catalog.UsageModifiers{CacheCreation1h: oneHour, InferenceGeo: catalog.InferenceGeo(u.inferenceGeo)}
+	return catalog.UsageModifiers{CacheCreation1h: oneHour, InferenceGeo: u.facts.InferenceGeo}
 }
 
 // Speed returns the provider-reported serving speed; empty when not reported.
@@ -253,7 +200,7 @@ func (u *UsageExtractor) Speed() catalog.Speed {
 	if u == nil {
 		return ""
 	}
-	return catalog.Speed(u.speed)
+	return u.facts.Speed
 }
 
 // InferenceGeo returns the provider-reported inference geography; empty when
@@ -262,7 +209,7 @@ func (u *UsageExtractor) InferenceGeo() catalog.InferenceGeo {
 	if u == nil {
 		return ""
 	}
-	return catalog.InferenceGeo(u.inferenceGeo)
+	return u.facts.InferenceGeo
 }
 
 // ReasoningTokens returns the reasoning share of output tokens. Zero means the
@@ -271,7 +218,7 @@ func (u *UsageExtractor) ReasoningTokens() int {
 	if u == nil {
 		return 0
 	}
-	return u.reasoning
+	return u.facts.Reasoning.Value
 }
 
 // AnthropicResponse returns the turn-ending signals sniffed from an
@@ -356,26 +303,7 @@ func (u *UsageExtractor) extractAnthropicSSE(eventType []byte, data []byte) {
 		}
 	}
 
-	input, output, cacheCreation, cacheRead, _, found := extractUsageGJSON(data, providers.ProviderAnthropic)
-	if !found {
-		return
-	}
-	u.RecordUsageModifiers(anthropicUsageModifiers(anthropicUsage(data)))
-
-	if bytes.Equal(eventType, []byte(anthropicEventMessageStart)) {
-		if input > 0 {
-			u.input = input
-		}
-		if cacheCreation > 0 {
-			u.cacheCreation = cacheCreation
-		}
-		if cacheRead > 0 {
-			u.cacheRead = cacheRead
-		}
-	}
-	if bytes.Equal(eventType, []byte(anthropicEventMessageDelta)) && output > 0 {
-		u.output = output
-	}
+	u.RecordProviderUsage(usage.ParseAnthropic(anthropicUsage(data)))
 }
 
 // Final chunk with stream_options.include_usage=true carries the counts.
@@ -390,26 +318,7 @@ func (u *UsageExtractor) extractOpenAISSE(data []byte) {
 		u.RecordOutputLimitReached()
 	}
 
-	input, output, cacheCreation, cacheRead, reasoning, found := extractUsageGJSON(trimmed, u.provider)
-	if !found {
-		return
-	}
-
-	if input > 0 {
-		u.input = input
-	}
-	if output > 0 {
-		u.output = output
-	}
-	if cacheCreation > 0 {
-		u.cacheCreation = cacheCreation
-	}
-	if cacheRead > 0 {
-		u.cacheRead = cacheRead
-	}
-	if reasoning > 0 {
-		u.reasoning = reasoning
-	}
+	u.RecordProviderUsage(u.parseUsage(trimmed))
 }
 
 func (u *UsageExtractor) tryExtractFromJSON() {
@@ -417,8 +326,8 @@ func (u *UsageExtractor) tryExtractFromJSON() {
 		return
 	}
 
-	input, output, cacheCreation, cacheRead, reasoning, found := extractUsageGJSON(u.leftover, u.provider)
-	if !found {
+	facts := u.parseUsage(u.leftover)
+	if !facts.Present {
 		return
 	}
 
@@ -428,7 +337,6 @@ func (u *UsageExtractor) tryExtractFromJSON() {
 	switch providers.FamilyFor(u.provider) {
 	case providers.FamilyAnthropic:
 		u.extractAnthropicJSONResponse(u.leftover)
-		u.RecordUsageModifiers(anthropicUsageModifiers(anthropicUsage(u.leftover)))
 	case providers.FamilyOpenAICompat:
 		u.extractOpenAIChatJSONResponse(u.leftover)
 	case providers.FamilyGemini:
@@ -437,21 +345,7 @@ func (u *UsageExtractor) tryExtractFromJSON() {
 		}
 	}
 
-	if input > 0 {
-		u.input = input
-	}
-	if output > 0 {
-		u.output = output
-	}
-	if cacheCreation > 0 {
-		u.cacheCreation = cacheCreation
-	}
-	if cacheRead > 0 {
-		u.cacheRead = cacheRead
-	}
-	if reasoning > 0 {
-		u.reasoning = reasoning
-	}
+	u.RecordProviderUsage(facts)
 }
 
 // A non-streaming Anthropic body carries stop_reason at the top level and one
@@ -520,108 +414,29 @@ func (u *UsageExtractor) observeOpenAIToolCall(index int) {
 	u.toolCallIdxs[index] = struct{}{}
 }
 
-// extractUsageGJSON probes usage fields via gjson (no json.Unmarshal/map allocs).
-// OpenAI cache-read maps from cached_tokens; GPT-5.6+ cache-write maps from cache_write_tokens.
-// Google's native :generateContent uses usageMetadata; its OpenAI-compat surface
-// uses the OpenAI shape instead.
-func extractUsageGJSON(data []byte, provider string) (input, output, cacheCreation, cacheRead, reasoning int, found bool) {
-	family := providers.FamilyFor(provider)
-
+func (u *UsageExtractor) parseUsage(body []byte) usage.Facts {
+	family := providers.FamilyFor(u.provider)
+	if family == providers.FamilyAnthropic {
+		return usage.ParseAnthropic(anthropicUsage(body))
+	}
 	if family == providers.FamilyGemini {
-		if meta := gjson.GetBytes(data, "usageMetadata"); meta.Exists() {
-			input = int(meta.Get("promptTokenCount").Int())
-			// candidatesTokenCount excludes thinking; thoughtsTokenCount is billed as output.
-			output = int(meta.Get("candidatesTokenCount").Int() + meta.Get("thoughtsTokenCount").Int())
-			cacheRead = int(meta.Get("cachedContentTokenCount").Int())
-			return input, output, 0, cacheRead, int(meta.Get("thoughtsTokenCount").Int()), true
+		if meta := gjson.GetBytes(body, "usageMetadata"); meta.IsObject() {
+			return usage.ParseGemini(meta)
 		}
 	}
-
-	usage := gjson.GetBytes(data, "usage")
-	if !usage.Exists() && family == providers.FamilyAnthropic {
-		usage = anthropicUsage(data)
-	}
-	// OpenAI Responses streaming nests usage under the terminal response event
-	// (response.completed); the non-streaming body carries it at the top level.
-	if !usage.Exists() && family == providers.FamilyOpenAICompat {
-		usage = gjson.GetBytes(data, "response.usage")
-	}
-	if !usage.Exists() {
-		return 0, 0, 0, 0, 0, false
-	}
-
-	switch family {
-	case providers.FamilyAnthropic:
-		input = int(usage.Get("input_tokens").Int())
-		output = int(usage.Get("output_tokens").Int())
-		cacheCreation = int(usage.Get("cache_creation_input_tokens").Int())
-		cacheRead = int(usage.Get("cache_read_input_tokens").Int())
-	case providers.FamilyOpenAICompat, providers.FamilyGemini:
-		// Chat Completions uses prompt_tokens/completion_tokens; Responses API
-		// (Codex passthrough) uses input_tokens/output_tokens. Probe both.
-		if pt := usage.Get("prompt_tokens"); pt.Exists() {
-			input = int(pt.Int())
-			output = int(usage.Get("completion_tokens").Int())
-		} else {
-			input = int(usage.Get("input_tokens").Int())
-			output = int(usage.Get("output_tokens").Int())
+	if family == providers.FamilyOpenAICompat || family == providers.FamilyGemini {
+		object := gjson.GetBytes(body, "usage")
+		if !object.IsObject() {
+			object = gjson.GetBytes(body, "response.usage")
 		}
-		cacheCreation, cacheRead = openaiCacheTokens(usage)
-		reasoning = openaiReasoningTokens(usage)
-	default:
-		return 0, 0, 0, 0, 0, false
+		return usage.ParseOpenAI(object)
 	}
-
-	return input, output, cacheCreation, cacheRead, reasoning, true
+	return usage.Facts{}
 }
 
-// anthropicUsage returns the usage object of a non-streaming body or
-// message_delta (top level) or of a message_start event (under message).
-func anthropicUsage(data []byte) gjson.Result {
-	if usage := gjson.GetBytes(data, "usage"); usage.Exists() {
-		return usage
+func anthropicUsage(body []byte) gjson.Result {
+	if object := gjson.GetBytes(body, "usage"); object.IsObject() {
+		return object
 	}
-	return gjson.GetBytes(data, "message.usage")
-}
-
-// anthropicUsageModifiers mirrors translate.AnthropicUsageModifiers;
-// duplicated for the same import-cycle reason as openaiCacheTokens.
-func anthropicUsageModifiers(usage gjson.Result) (cacheCreation1h int, cacheSplitReported bool, speed, inferenceGeo string) {
-	oneHour := usage.Get("cache_creation.ephemeral_1h_input_tokens")
-	cacheSplitReported = oneHour.Type == gjson.Number || usage.Get("cache_creation.ephemeral_5m_input_tokens").Type == gjson.Number
-	return int(oneHour.Int()), cacheSplitReported, usage.Get("speed").String(), usage.Get("inference_geo").String()
-}
-
-// openaiReasoningTokens mirrors translate.OpenAIReasoningTokens; duplicated for
-// the same import-cycle reason as openaiCacheTokens.
-func openaiReasoningTokens(usage gjson.Result) int {
-	if r := usage.Get("output_tokens_details.reasoning_tokens"); r.Exists() {
-		return int(r.Int())
-	}
-	return int(usage.Get("completion_tokens_details.reasoning_tokens").Int())
-}
-
-// openaiCacheTokens mirrors translate.OpenAICacheTokens. Duplicated here so
-// otel does not import translate (translate already imports observability).
-func openaiCacheTokens(usage gjson.Result) (cacheWrite, cacheRead int) {
-	if !usage.Exists() {
-		return 0, 0
-	}
-	for _, prefix := range []string{"input_tokens_details", "prompt_tokens_details"} {
-		details := usage.Get(prefix)
-		if !details.Exists() {
-			continue
-		}
-		if cacheRead == 0 {
-			cacheRead = int(details.Get("cached_tokens").Int())
-		}
-		if cacheWrite == 0 {
-			if w := details.Get("cache_write_tokens"); w.Exists() {
-				cacheWrite = int(w.Int())
-			} else {
-				cacheWrite = int(details.Get("cache_creation_tokens").Int())
-			}
-		}
-	}
-	return cacheWrite, cacheRead
+	return gjson.GetBytes(body, "message.usage")
 }

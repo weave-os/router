@@ -3,6 +3,7 @@ package middleware_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -187,4 +188,39 @@ func TestRoutingModelReadsGeminiURLModel(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	engine.ServeHTTP(recorder, req)
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+}
+
+func TestRoutingModelGeminiURLOverridesBodyAndRejectsForceHeader(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, bodyModel := range []string{string(router.ModelAutomatic), string(router.ModelHMM), "upstream-model-fixture"} {
+		for _, forced := range []bool{false, true} {
+			t.Run(string(bodyModel)+"/force="+fmt.Sprint(forced), func(t *testing.T) {
+				engine := gin.New()
+				engine.POST("/v1beta/models/:modelAction", middleware.WithClassifierThread(&proxy.Service{}, func(router.Strategy) bool { return true }), func(c *gin.Context) {
+					require.False(t, forced, "a routing selector cannot bypass conflicting force headers through body.model")
+					require.Equal(t, router.StrategyHMMQwen, router.StrategyFromContext(c.Request.Context()))
+					model, selected := router.RoutingModelFromContext(c.Request.Context())
+					require.True(t, selected)
+					require.Equal(t, router.ModelQwen, model)
+					c.Status(http.StatusOK)
+				})
+				identity := requestcontext.ServingIdentity{Target: string(policyregistry.TargetInternal), ReleaseID: "reviewed-release", BindingID: "reviewed-binding", CredentialIdentity: "test-principal"}
+				ctx := requestcontext.WithServingIdentity(context.Background(), identity)
+				ctx = policyregistry.WithServingSnapshot(ctx, &policyregistry.Snapshot{Routers: map[router.Strategy]router.Router{router.StrategyHMMQwen: routingModelTestRouter{}}})
+				body := `{"model":"` + string(bodyModel) + `","contents":[{"role":"user","parts":[{"text":"hello"}]}]}`
+				request := httptest.NewRequest(http.MethodPost, "/v1beta/models/"+string(router.ModelQwen)+":generateContent", strings.NewReader(body)).WithContext(ctx)
+				if forced {
+					request.Header.Set(proxy.ForceModelHeader, "gpt-6.1-sol")
+				}
+				response := httptest.NewRecorder()
+				engine.ServeHTTP(response, request)
+				if forced {
+					require.Equal(t, http.StatusConflict, response.Code, response.Body.String())
+					require.Contains(t, response.Body.String(), "routing_model_conflicts_with_force_model")
+				} else {
+					require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+				}
+			})
+		}
+	}
 }

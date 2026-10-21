@@ -1,20 +1,23 @@
 package catalog
 
-import "weave-os/router/internal/providers"
+import (
+	"weave-os/router/internal/providers"
+	"weave-os/router/internal/usage"
+)
 
 // InferenceGeo is the inference geography a provider reports it served a call
 // from (Anthropic usage.inference_geo).
-type InferenceGeo string
+type InferenceGeo = usage.InferenceGeo
 
 // InferenceGeoUS is Anthropic's US-only inference geography.
-const InferenceGeoUS InferenceGeo = "us"
+const InferenceGeoUS = usage.InferenceGeoUS
 
 // Speed is the serving speed a provider reports it billed a call at
 // (Anthropic usage.speed).
-type Speed string
+type Speed = usage.Speed
 
 // SpeedFast is Anthropic's fast-mode serving speed.
-const SpeedFast Speed = "fast"
+const SpeedFast = usage.SpeedFast
 
 // UsageModifiers are provider-reported attributes of a call that change its
 // per-token rates without changing its token counts. The zero value prices

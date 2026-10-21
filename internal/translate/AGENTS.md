@@ -81,6 +81,13 @@ Model-emitted tool_use arguments are validated against the inbound request's `to
 
 On the emit side the failure class is prevented at decode time where the upstream exposes a knob: OpenAI Responses tools go out with `strict:true` + a strictified schema ([`strictify_openai.go`](strictify_openai.go) — additionalProperties:false, all-required, optionals as null unions; non-strictifiable schemas fall back to non-strict). Gemini 3.x gets `functionCallingConfig.mode=VALIDATED` when the client didn't force a tool_choice. Proxy-side validation always checks against the ORIGINAL schema — the explicit nulls strict mode induces are dropped by toolcheck's normalize pass.
 
+## Router notices
+
+`RouterNotice` and `NoticeDelivery` provide the shared client-wire notice boundary.
+Policy and opt-outs stay in proxy; sinks reuse the existing protocol encoders after
+conversion. Read [the notice contract](../../docs/ROUTER_NOTICES.md) before adding
+notice kinds or changing prelude/retry behavior.
+
 ## Invariants
 
 - **No I/O.** No HTTP, no DB, no filesystem.
