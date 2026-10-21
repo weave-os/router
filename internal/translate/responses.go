@@ -981,15 +981,20 @@ func (t *ResponsesWriter) Write(data []byte) (int, error) {
 			}
 			return n, err
 		}
-		if t.passthroughBadge {
+		if !t.streaming {
 			t.buf.Write(data)
-			// Some upstreams omit Content-Type; inspect the first event without
-			// consuming it, then let the normal drain present it exactly once.
+			// The Codex subscription backend omits Content-Type on SSE. Inspect the
+			// first event without consuming it, then drain it exactly once.
 			if t.detectNativeResponsesSSE() {
 				t.nativeStreamScanner.Reset()
 				t.nativeSSEClassification = false
 				t.nativeSSEClassified = false
 				t.streaming = true
+				if !t.httpHeadersSent {
+					t.inner.Header().Set("Content-Type", "text/event-stream")
+					t.inner.WriteHeader(t.statusCode)
+					t.httpHeadersSent = true
+				}
 				if err := t.processPassthroughSSEBuffer(); err != nil {
 					return n, err
 				}
@@ -1001,9 +1006,6 @@ func (t *ResponsesWriter) Write(data []byte) (int, error) {
 				}
 			}
 			return n, nil
-		}
-		if !t.streaming {
-			return t.buf.Write(data)
 		}
 		t.buf.Write(data)
 		if err := t.processPassthroughSSEBuffer(); err != nil {
