@@ -336,8 +336,7 @@ func TestFeedbackRegressionResponsesDisabledIsTransparent(t *testing.T) {
 
 func TestFeedbackRegressionResponsesNoticeAndReasoningRemainImmediate(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	delivery := translate.NewFeedbackDelivery(context.Background(), translate.FeedbackIntent{Text: regressionFeedback})
-	adapter := translate.NewResponsesFeedbackWriter(recorder, delivery)
+	adapter := translate.NewResponsesFeedbackWriter(recorder, translate.NewFeedbackDelivery(context.Background(), translate.FeedbackIntent{Text: regressionFeedback}))
 	writer := translate.NewResponsesWriter(adapter, "synthetic-model")
 	writer.SetPassthroughBadge()
 	writer.SetBadgeText("**Weave Router** — synthetic selection")

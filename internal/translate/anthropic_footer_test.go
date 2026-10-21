@@ -182,8 +182,7 @@ func TestAnthropicRoutingFooterWriter_IncompleteTailDrainsUnchanged(t *testing.T
 			w := newAnthropicFooterTestWriter(rec, testFooter)
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.WriteHeader(http.StatusOK)
-			terminal := buildAnthropicSSE("message_stop", `{"type":"message_stop"}`)
-			stream := strings.TrimSuffix(anthropicAnswerStream("end_turn"), terminal) + tail
+			stream := strings.TrimSuffix(anthropicAnswerStream("end_turn"), buildAnthropicSSE("message_stop", `{"type":"message_stop"}`)) + tail
 			_, err := w.Write([]byte(stream))
 			require.NoError(t, err)
 			require.NoError(t, w.Finalize())
@@ -318,8 +317,7 @@ func TestFeedbackCompletionAdapters_UndelimitedTerminal(t *testing.T) {
 
 func TestAnthropicRoutingFooterWriter_DoesNotHoldNoticeLifecycle(t *testing.T) {
 	rec := httptest.NewRecorder()
-	feedback := translate.NewFeedbackDelivery(context.Background(), translate.FeedbackIntent{Text: testFooter})
-	adapter := translate.NewAnthropicRoutingFooterWriter(rec, feedback)
+	adapter := translate.NewAnthropicRoutingFooterWriter(rec, translate.NewFeedbackDelivery(context.Background(), translate.FeedbackIntent{Text: testFooter}))
 	adapter.Header().Set("Content-Type", "text/event-stream")
 	adapter.WriteHeader(http.StatusOK)
 	caps := translate.NoticeCapabilities{Format: translate.FormatAnthropic, Streaming: true, Presentation: translate.NoticeText}

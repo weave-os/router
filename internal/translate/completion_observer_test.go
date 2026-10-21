@@ -77,8 +77,7 @@ func TestCompletionObserverPreservesSourceEligibilityAcrossConversion(t *testing
 			var converter http.ResponseWriter
 			var finalize func() error
 			if tt.format == FormatOpenAI {
-				adapter := NewAnthropicRoutingFooterWriter(recorder, delivery)
-				translator := NewAnthropicSSETranslator(adapter, "synthetic-model", nil)
+				translator := NewAnthropicSSETranslator(NewAnthropicRoutingFooterWriter(recorder, delivery), "synthetic-model", nil)
 				converter, finalize = translator, translator.Finalize
 			} else {
 				adapter := NewOpenAIRoutingFooterWriter(recorder, delivery)
