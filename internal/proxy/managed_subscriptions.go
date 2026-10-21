@@ -67,7 +67,11 @@ type ManagedSubscriptionUsage struct {
 	AttemptedAccounts       map[string]struct{}
 	QuotaExhaustedAccounts  map[string]time.Time
 	QuotaExhaustedProviders map[subscriptions.Provider]time.Time
-	ClientAppRefused        bool
+	// UnavailableProviders records, per pool, until when this turn's
+	// subscription attempts are known to have failed on provider capacity
+	// (5xx), which authorizes a paid rescue without proving quota exhaustion.
+	UnavailableProviders map[subscriptions.Provider]time.Time
+	ClientAppRefused     bool
 	Finished                bool
 	WinningCredentials      *Credentials
 }

@@ -243,10 +243,14 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 				return attemptErr
 			}
 			rotate := managedAttempt && (s.recordManagedSubscriptionFailure(bookkeepingCtx, decision.Provider, decision.Model, lease, attemptErr) || providers.IsRetryable(attemptErr))
+			if managedAttempt && !committed(in.buf) {
+				s.recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr)
+			}
 			if !managedAttempt && servedOnCodexSubscription(credentialCtx) && !committed(in.buf) {
 				_, quotaSpent := codexQuotaExhaustion(attemptErr)
 				if quotaSpent || codexOAuthCredentialRejected(attemptErr) || codexSubscriptionModelRejected(attemptErr) || providers.IsRetryable(attemptErr) {
 					s.recordCodexQuotaExhaustion(bookkeepingCtx, http.Header{}, attemptErr)
+					s.recordSubscriptionUnavailable(bookkeepingCtx, decision.Provider, decision.Model, attemptErr)
 					attemptCtx = resolveAndInjectCredentials(withSuppressedCodexSubscription(attemptCtx), decision.Provider, decision.Model, http.Header{})
 					rotate = true
 				}

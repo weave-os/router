@@ -330,6 +330,33 @@ func (s *Service) gatewayRescueDecisions(ctx context.Context, failed router.Deci
 	return s.rescueWalkOrReadmitCooling(ctx, failed, candidates, reason, excludedModels, automaticExcluded, est, sigSavings, outputReserve, providerFor)
 }
 
+// subscriptionSiblingAllowed reports whether sibling rescue is permitted
+// despite a subscription OAuth credential disabling generic failover. A
+// customer's own API key binds the turn to one vendor, but a Codex or Claude
+// plan is a funding source, not the only credential: every rescue candidate
+// re-resolves its own credential, so an overloaded plan-served model can still
+// hand the turn to the next scored candidate. BYOK keys keep the generic rule.
+func (s *Service) subscriptionSiblingAllowed(ctx context.Context) bool {
+	if s.byokOnly || len(externalKeysFromContext(ctx)) > 0 {
+		return false
+	}
+	creds := CredentialsFromContext(ctx)
+	return creds != nil && creds.OAuth
+}
+
+// rescueCredentialBasis drops a subscription OAuth bearer before a rescue
+// candidate on another provider resolves its own credential: a ChatGPT or
+// Claude token authenticates only against its own vendor.
+func rescueCredentialBasis(ctx context.Context, failedProvider, rescueProvider string) context.Context {
+	if failedProvider == rescueProvider {
+		return ctx
+	}
+	if creds := CredentialsFromContext(ctx); creds != nil && creds.OAuth {
+		return clearCredentials(ctx)
+	}
+	return ctx
+}
+
 // gatewaySiblingAllowed reports whether sibling rescue is permitted despite
 // BYOK disabling generic failover: the sibling must be served by a held gateway key.
 func (s *Service) gatewaySiblingAllowed(ctx context.Context, sibling router.Decision) bool {

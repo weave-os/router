@@ -4833,7 +4833,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		!agentShadowMode &&
 		!routeRes.CallerModelPassthrough &&
 		decision.Reason != translate.ReasonUserForceModel &&
-		(s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, siblingDecisions[0])) &&
+		(s.shouldFailover(ctx) || s.subscriptionSiblingAllowed(ctx) || s.gatewaySiblingAllowed(ctx, siblingDecisions[0])) &&
 		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx))
 
 	primaryProvider := decision.Provider
@@ -5168,7 +5168,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			siblingOpts.ModelSwitched = true
 			siblingEffort := s.resolveEffort(ctx, siblingDecision, siblingOpts.Capabilities, routeRes.EscalateEffort)
 			siblingEffort.apply(&siblingOpts)
-			siblingCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(ctx, siblingDecision.Model), siblingDecision.Provider, siblingDecision.Model, r.Header)
+			siblingCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialBasis(ctx, decision.Provider, siblingDecision.Provider), siblingDecision.Model), siblingDecision.Provider, siblingDecision.Model, r.Header)
 			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
 			siblingMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, siblingDecision.Model), siblingDecision.Model, markerReasonSibling))
@@ -7991,7 +7991,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		len(siblingDecisions) > 0 &&
 		!routeRes.CallerModelPassthrough &&
 		!strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) &&
-		(s.shouldFailover(ctx) || s.gatewaySiblingAllowed(ctx, siblingDecisions[0])) &&
+		(s.shouldFailover(ctx) || s.subscriptionSiblingAllowed(ctx) || s.gatewaySiblingAllowed(ctx, siblingDecisions[0])) &&
 		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx))
 
 	primaryProvider := decision.Provider
@@ -8078,6 +8078,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	primaryFailureErr := proxyErr
 	subscriptionPoolFailure := isSubscriptionPoolError(proxyErr)
 	primarySubscriptionArmFailure := proxyErr
+	if servedOnSubscription(ctx) && !preludeBuf.Committed() {
+		s.recordSubscriptionUnavailable(ctx, decision.Provider, decision.Model, proxyErr)
+	}
 	cyberRefusalSeen = cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(proxyErr)
 
 	// The deferred upstream error must reach the client exactly once: the rescue
@@ -8303,7 +8306,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			siblingOpts.ModelSwitched = true
 			siblingEffort := s.resolveEffort(ctx, siblingDecision, siblingOpts.Capabilities, routeRes.EscalateEffort)
 			siblingEffort.apply(&siblingOpts)
-			siblingCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(ctx, siblingDecision.Model), siblingDecision.Provider, siblingDecision.Model, r.Header)
+			siblingCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialBasis(ctx, decision.Provider, siblingDecision.Provider), siblingDecision.Model), siblingDecision.Provider, siblingDecision.Model, r.Header)
 			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
 			siblingMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, siblingDecision.Model), siblingDecision.Model, markerReasonSibling))
