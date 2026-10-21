@@ -4827,6 +4827,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// turns (a different model incurs the paid spend that mode forbids). BYOK
 	// normally disables failover, but a gateway-aliased sibling uses the same
 	// held credentials, so it stays eligible.
+	// The plan-capacity mark set during dispatch must be readable here.
+	ctx = WithManagedSubscriptionUsage(ctx)
 	siblingDecisions := subscriptionStatePaidRescueDecisions(ctx, s.siblingFailoverDecisions(ctx, rescueBasisForTurn(decision, routeRes), overflowEstimate, env.SignatureTokenSavings(), outputReserve))
 	siblingViable := s.ResolveSiblingFailover(ctx) &&
 		len(siblingDecisions) > 0 &&
@@ -4835,6 +4837,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		decision.Reason != translate.ReasonUserForceModel &&
 		(s.shouldFailover(ctx) || s.subscriptionSiblingAllowed(ctx) || s.gatewaySiblingAllowed(ctx, siblingDecisions[0])) &&
 		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx))
+	// When the plan credential is the only reason the walk is open, the walk
+	// must wait for the plan's own 5xx mark: a 429 or timeout on the plan must
+	// not buy a paid sibling.
+	subscriptionOnlySibling := siblingViable && !s.shouldFailover(ctx) &&
+		!s.gatewaySiblingAllowed(ctx, siblingDecisions[0]) && s.subscriptionSiblingAllowed(ctx)
 
 	primaryProvider := decision.Provider
 	// Captured before rescue: failover replaces decision.Model, so afterwards
@@ -4922,7 +4929,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	primaryFailureErr := proxyErr
 	primarySubscriptionArmFailure := proxyErr
-	if servedOnSubscription(ctx) && !preludeBuf.Committed() {
+	if (servedOnSubscription(ctx) || subscriptionOnlySibling) && !preludeBuf.Committed() {
 		s.recordSubscriptionUnavailable(ctx, decision.Provider, decision.Model, proxyErr)
 	}
 
@@ -5148,8 +5155,14 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Keyed off the flush, not off whether an earlier rescue ran: a failed
 	// subscription retry keeps the same dark model, so a cluster peer can still
 	// serve — but only before the deferred error reaches the wire.
+	// Recorded after the plan attempt and its same-model paid retry, so a 5xx on
+	// either is what opens the plan-only sibling walk.
+	if (servedOnSubscription(ctx) || subscriptionOnlySibling) && !preludeBuf.Committed() {
+		s.recordSubscriptionUnavailable(ctx, decision.Provider, decision.Model, proxyErr)
+	}
 	siblingRescueOwed := siblingViable && !baselineAttempted && !deferredErrFlushed &&
-		!(explicitRequestedModel && isSubscriptionPoolError(proxyErr))
+		!(explicitRequestedModel && isSubscriptionPoolError(proxyErr)) &&
+		(!subscriptionOnlySibling || s.subscriptionPoolUnavailable(ctx, decision.Provider, decision.Model))
 	if siblingRescueOwed && proxyErr != nil && !preludeBuf.Committed() &&
 		(providers.IsRetryable(proxyErr) ||
 			providers.IsUpstreamModelNotFound(proxyErr) ||
@@ -7989,6 +8002,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		!paidFallbackForbiddenForModel(ctx, decision.Model) &&
 		s.anthropicFallbackKeyAvailable(ctx)
 
+	ctx = WithManagedSubscriptionUsage(ctx)
 	siblingDecisions := subscriptionStatePaidRescueDecisions(ctx, s.siblingFailoverDecisions(ctx, rescueBasisForTurn(decision, routeRes), overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI))
 	siblingViable := s.ResolveSiblingFailover(ctx) &&
 		len(siblingDecisions) > 0 &&
@@ -7996,6 +8010,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		!strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) &&
 		(s.shouldFailover(ctx) || s.subscriptionSiblingAllowed(ctx) || s.gatewaySiblingAllowed(ctx, siblingDecisions[0])) &&
 		(!paidFallbackForbidden(ctx) || subscriptionStateModelsEnabled(ctx))
+	subscriptionOnlySibling := siblingViable && !s.shouldFailover(ctx) &&
+		!s.gatewaySiblingAllowed(ctx, siblingDecisions[0]) && s.subscriptionSiblingAllowed(ctx)
 
 	primaryProvider := decision.Provider
 	primaryModel := decision.Model
@@ -8081,7 +8097,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	primaryFailureErr := proxyErr
 	subscriptionPoolFailure := isSubscriptionPoolError(proxyErr)
 	primarySubscriptionArmFailure := proxyErr
-	if servedOnSubscription(ctx) && !preludeBuf.Committed() {
+	if (servedOnSubscription(ctx) || subscriptionOnlySibling) && !preludeBuf.Committed() {
 		s.recordSubscriptionUnavailable(ctx, decision.Provider, decision.Model, proxyErr)
 	}
 	cyberRefusalSeen = cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(proxyErr)
@@ -8289,8 +8305,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	siblingRescueRan := false
 	var rescuedPrimary router.Decision
 	var rescuedPrimaryErr error
+	if (servedOnSubscription(ctx) || subscriptionOnlySibling) && !preludeBuf.Committed() {
+		s.recordSubscriptionUnavailable(ctx, decision.Provider, decision.Model, proxyErr)
+	}
 	siblingRescueOwed := siblingViable && !deferredErrFlushed &&
-		!(explicitRequestedModel && isSubscriptionPoolError(proxyErr))
+		!(explicitRequestedModel && isSubscriptionPoolError(proxyErr)) &&
+		(!subscriptionOnlySibling || s.subscriptionPoolUnavailable(ctx, decision.Provider, decision.Model))
 	if siblingRescueOwed && proxyErr != nil && !preludeBuf.Committed() &&
 		(providers.IsRetryable(proxyErr) ||
 			providers.IsUpstreamModelNotFound(proxyErr) ||

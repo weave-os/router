@@ -110,6 +110,33 @@ func TestCodexPlanOverload_NoSiblingSurfacesUpstreamError(t *testing.T) {
 		"the upstream capacity error must reach the client when nothing can rescue it")
 }
 
+// A plan 429 or timeout is not capacity evidence: the walk the plan credential
+// opened stays shut and the error surfaces, so no paid sibling is bought while
+// included quota may be unused.
+func TestCodexPlanThrottle_DoesNotBuyPaidSibling(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{name: "429", err: &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"rate_limit_exceeded","message":"slow down"}}`)}},
+		{name: "transport fault", err: providers.ErrUpstreamEmptyCompletion},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			primary := &failingClient{err: tc.err}
+			sibling := &anthropicServingClient{}
+			svc := codexOverloadService(primary, sibling, true)
+
+			body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"read main.go"}]}`
+			rec := httptest.NewRecorder()
+			ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+			ctx = WithManagedSubscriptionUsage(ctx)
+			err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/chat/completions", body))
+			require.Error(t, err)
+			assert.Equal(t, 0, sibling.calls, "no paid sibling without a plan 5xx")
+		})
+	}
+}
+
 func TestSubscriptionSiblingAllowed(t *testing.T) {
 	oauth := &Credentials{APIKey: []byte("tok"), AccountID: []byte("acct"), Source: credSourceCodexSubscription, OAuth: true}
 	t.Run("subscription OAuth permits sibling rescue", func(t *testing.T) {

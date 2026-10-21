@@ -206,6 +206,13 @@ func upstreamServerFailure(err error) bool {
 	return true
 }
 
+// subscriptionPoolUnavailable reports whether the plan pool behind
+// provider/model carries a live "cannot serve this turn" mark.
+func (s *Service) subscriptionPoolUnavailable(ctx context.Context, provider, model string) bool {
+	pool, compatible := managedSubscriptionProviderFromUpstream(provider, model)
+	return compatible && subscriptionProviderUnavailable(ctx, pool, s.clockNow())
+}
+
 func subscriptionProviderUnavailable(ctx context.Context, pool subscriptions.Provider, now time.Time) bool {
 	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 	return state != nil && state.UnavailableProviders[pool].After(now)
