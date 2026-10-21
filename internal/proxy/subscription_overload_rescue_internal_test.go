@@ -120,6 +120,7 @@ func TestCodexPlanThrottle_DoesNotBuyPaidSibling(t *testing.T) {
 	}{
 		{name: "429", err: &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"rate_limit_exceeded","message":"slow down"}}`)}},
 		{name: "transport fault", err: providers.ErrUpstreamEmptyCompletion},
+		{name: "router-minted empty completion", err: emptyCompletion502()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			primary := &failingClient{err: tc.err}
@@ -171,6 +172,17 @@ func TestUpstreamServerFailure_ReadsTheFailureMeaning(t *testing.T) {
 	assert.False(t, upstreamServerFailure(failed("usage_limit_reached", "")), "quota belongs to the quota path")
 	assert.False(t, upstreamServerFailure(&providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests}))
 	assert.False(t, upstreamServerFailure(providers.ErrUpstreamEmptyCompletion))
+	assert.False(t, upstreamServerFailure(emptyCompletion502()), "an empty completion is the router's verdict, not provider capacity")
+}
+
+// emptyCompletion502 is the shape the translators hand the proxy for a clean
+// upstream terminal with no usable output: a buffered 502 wrapping the sentinel.
+func emptyCompletion502() error {
+	return &providers.UpstreamErrorResponse{
+		Status: http.StatusBadGateway,
+		Body:   []byte(`{"error":{"type":"upstream_empty_completion","message":"Upstream returned no assistant output."}}`),
+		Cause:  providers.ErrUpstreamEmptyCompletion,
+	}
 }
 
 func TestSubscriptionSiblingAllowed(t *testing.T) {

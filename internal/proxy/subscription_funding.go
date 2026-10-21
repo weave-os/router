@@ -179,10 +179,15 @@ func (s *Service) recordSubscriptionUnavailable(ctx context.Context, provider, m
 
 // upstreamServerFailure reports a buffered upstream 5xx: the provider answered
 // and could not serve. Timeouts, transport faults and 429s are excluded; they
-// say nothing about the plan's capacity to serve.
+// say nothing about the plan's capacity to serve. So is the router's own
+// empty-completion 502: the plan did answer, with nothing usable, and buying
+// paid capacity for it would turn a client's identical retries into spend.
 func upstreamServerFailure(err error) bool {
 	var buffered *providers.UpstreamErrorResponse
 	if !errors.As(err, &buffered) || buffered.Status < http.StatusInternalServerError {
+		return false
+	}
+	if errors.Is(err, providers.ErrUpstreamEmptyCompletion) {
 		return false
 	}
 	// A failed Responses payload surfaces as a 5xx too; one that names the
