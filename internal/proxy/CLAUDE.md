@@ -97,7 +97,7 @@ requests and clears them on the next real user prompt
 failing model mid-turn.
 
 **A model that keeps answering 529 is circuit-broken, per organization.** Under
-`provider_overloaded` (default off), `dispatchPlanned` reports each executor
+`provider_overloaded` (default on), `dispatchPlanned` reports each executor
 operation to [`internal/router/breaker`](../router/breaker): an operation that
 exhausted on a buffered 529 (Anthropic's `overloaded_error`) is one strike,
 however many same-binding retries it took. A 529 straight from a provider

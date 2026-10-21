@@ -811,7 +811,7 @@ func main() {
 	rateLimitCooldownSeconds := parseEnvInt("ROUTER_RATE_LIMIT_COOLDOWN_SECONDS", proxy.DefaultRateLimitCooldownSeconds)
 	// Per-model 529 circuit breaker. Its thresholds are fixed in
 	// internal/router/breaker/thresholds.go.
-	providerOverloaded := config.GetOr("ROUTER_PROVIDER_OVERLOADED", "false") == "true"
+	providerOverloaded := config.GetOr("ROUTER_PROVIDER_OVERLOADED", "true") == "true"
 	// nativeAnthropicResponseSignals records the stop reason and tool_use block
 	// count an Anthropic-native turn already streams past the usage extractor;
 	// kill switch for that extraction and the telemetry columns it fills.

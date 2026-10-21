@@ -399,7 +399,7 @@ var Registry = []Definition{
 		Key:            KeyProviderOverloaded,
 		EnvVar:         "ROUTER_PROVIDER_OVERLOADED",
 		Kind:           KindBool,
-		Description:    "Per-model 529 circuit breaker: provider overloaded responses from every organization open a shared circuit, which withdraws the model from automatic selection only for organizations that have each observed overloads themselves; traffic through an organization's own gateway gets an isolated circuit. Probed again after a backoff. Off by default.",
+		Description:    "Per-model 529 circuit breaker: provider overloaded responses from every organization open a shared circuit, which withdraws the model from automatic selection only for organizations that have each observed overloads themselves; traffic through an organization's own gateway gets an isolated circuit. Probed again after a backoff. On by default; kill switch for the breaker.",
 		OrgOverridable: true,
 	},
 	{
