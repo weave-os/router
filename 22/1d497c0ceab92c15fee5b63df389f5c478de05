@@ -1,0 +1,23 @@
+internal/translate/emit_anthropic.go
+  s_44fa8a85115b62::t_98e2d854fa65ed 8,10,821-823,826-861,867-868,871
+  s_44fa8a85115b62::t_e3448872e93f95 876-881
+  s_44fa8a85115b62::t_149219c61f190b 820
+internal/translate/crossformat_request_test.go
+  s_44fa8a85115b62::t_98e2d854fa65ed 2107-2148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "221d497c0ceab92c15fee5b63df389f5c478de05",
+  "prompts": {},
+  "sessions": {
+    "s_44fa8a85115b62": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a082b7-8b2e-7632-9289-47bd4c7cd224",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

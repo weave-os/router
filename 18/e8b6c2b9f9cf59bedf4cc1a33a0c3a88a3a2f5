@@ -1,0 +1,19 @@
+install/tests/models_test.sh
+  s_f234886be83e15::t_05c5fb70ad37bc 45-51,123-141,152,447-465,469
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "18e8b6c2b9f9cf59bedf4cc1a33a0c3a88a3a2f5",
+  "prompts": {},
+  "sessions": {
+    "s_f234886be83e15": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "fecd80f1-1961-41db-9f82-dc35c7bb06da",
+        "model": "claude-opus-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

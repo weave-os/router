@@ -1,0 +1,29 @@
+internal/auth/service.go
+  s_0f9feb492f212a::t_32665766684dc5 713-715
+internal/api/admin/onboarding.go
+  s_0f9feb492f212a::t_32665766684dc5 13-14
+db/migrations/0060_installation-first-request-served.up.sql
+  s_0f9feb492f212a::t_e831803a71829a 11-27
+frontend/src/components/RouterOnboarding.tsx
+  s_0f9feb492f212a::t_572aa9b730bc22 328-330
+internal/auth/installation.go
+  s_0f9feb492f212a::t_32665766684dc5 87-88,104
+internal/auth/service_test.go
+  s_0f9feb492f212a::t_32665766684dc5 149,505-506,530
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "576c2454cb60809ddf5c4678e2d7d35849839c37",
+  "prompts": {},
+  "sessions": {
+    "s_0f9feb492f212a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cfa837bc-ce01-41ce-8e93-ff62d6a7c7b2",
+        "model": "claude-opus-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
