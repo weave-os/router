@@ -80,7 +80,11 @@ primary candidate read. OAuth suppression, API-only model sets, BYOK, gateway
 bindings, and auxiliary calls cannot erase those facts. A non-OAuth call is
 permitted only when no compatible authorized pool exists, or every account in
 that pool has positive included-quota exhaustion evidence with an unexpired reset.
-Presented direct subscriptions require the same proof. Model compatibility is
+Presented direct subscriptions require the same proof. One exception is scoped
+to the turn: a buffered upstream 5xx on a plan attempt marks that pool as unable
+to serve the turn for a bounded cooldown, and paid rescue of the same turn (the
+same model or a scored sibling) is admitted while the mark is live. The mark is
+not quota evidence and is never persisted to the account. Model compatibility is
 catalog-based; an unrelated provider's available subscription does not block an
 API-only model.
 

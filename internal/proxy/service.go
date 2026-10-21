@@ -4922,6 +4922,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	primaryFailureErr := proxyErr
 	primarySubscriptionArmFailure := proxyErr
+	if servedOnSubscription(ctx) && !preludeBuf.Committed() {
+		s.recordSubscriptionUnavailable(ctx, decision.Provider, decision.Model, proxyErr)
+	}
 
 	// The deferred upstream error must reach the client exactly once: each
 	// rescue hands ownership to the next, and whichever declines to run flushes.

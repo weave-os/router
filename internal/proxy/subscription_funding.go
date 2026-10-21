@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -160,7 +161,7 @@ const subscriptionUnavailableCooldown = time.Minute
 // included quota is spent.
 func (s *Service) recordSubscriptionUnavailable(ctx context.Context, provider, model string, attemptErr error) {
 	pool, compatible := managedSubscriptionProviderFromUpstream(provider, model)
-	if !compatible || !upstreamServerFailure(attemptErr) {
+	if !compatible || !upstreamServerFailure(attemptErr) || callerModelPassthroughActive(ctx) {
 		return
 	}
 	state, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
@@ -180,7 +181,29 @@ func (s *Service) recordSubscriptionUnavailable(ctx context.Context, provider, m
 // say nothing about the plan's capacity to serve.
 func upstreamServerFailure(err error) bool {
 	var buffered *providers.UpstreamErrorResponse
-	return errors.As(err, &buffered) && buffered.Status >= http.StatusInternalServerError
+	if !errors.As(err, &buffered) || buffered.Status < http.StatusInternalServerError {
+		return false
+	}
+	// A failed Responses payload surfaces as a 5xx too; one that names the
+	// plan's quota belongs to the quota path.
+	if _, quota := codexQuotaExhaustion(err); quota {
+		return false
+	}
+	var envelope struct {
+		Error struct {
+			Type string `json:"type"`
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(buffered.Body, &envelope) == nil {
+		if _, quota := codexQuotaErrorTypes[envelope.Error.Type]; quota {
+			return false
+		}
+		if _, quota := codexQuotaErrorTypes[envelope.Error.Code]; quota {
+			return false
+		}
+	}
+	return true
 }
 
 func subscriptionProviderUnavailable(ctx context.Context, pool subscriptions.Provider, now time.Time) bool {

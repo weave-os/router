@@ -380,10 +380,10 @@ func TestProxyMessages_OverloadWithoutCandidatesSurfacesUpstreamError(t *testing
 	assert.Contains(t, rec.Body.String(), "Overloaded", "the deferred upstream error must reach the client")
 }
 
-// TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry: a customer
-// credential binds the turn to its provider, so sibling rescue is ineligible.
-// Confirmed subscription exhaustion authorizes API rollover; the subsequent
-// paid overload must surface exactly once.
+// TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry: confirmed
+// subscription exhaustion authorizes API rollover; when the paid binding is
+// overloaded too, the plan credential no longer pins the turn to its vendor,
+// so the scored sibling is tried and the final failure surfaces exactly once.
 func TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry(t *testing.T) {
 	var (
 		mu                sync.Mutex
@@ -418,7 +418,9 @@ func TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry(t *testing.T) 
 		mu.Lock()
 		fireworksCount++
 		mu.Unlock()
-		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(statusOverloaded)
+		_, _ = w.Write([]byte(`{"error":{"type":"overloaded_error","message":"Overloaded"}}`))
 	}))
 	defer fireworks.Close()
 
@@ -451,7 +453,7 @@ func TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry(t *testing.T) 
 	defer mu.Unlock()
 	assert.Equal(t, dispatch.MaxSameBindingRetries+1, subscriptionCount, "direct Claude retains its bounded same-binding retries")
 	assert.Greater(t, anthropicCount-subscriptionCount, 1, "the authorized API binding retries its overload")
-	assert.Zero(t, fireworksCount, "a subscription credential binds the turn to its own provider")
+	assert.Positive(t, fireworksCount, "a plan credential is a funding source, not a vendor binding: the scored sibling is tried")
 	assert.Equal(t, 1, strings.Count(rec.Body.String(), "overloaded_error"),
-		"the deferred overload is flushed exactly once across the rescue chain")
+		"the deferred failure is flushed exactly once across the rescue chain")
 }

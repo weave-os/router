@@ -639,14 +639,16 @@ func (in parityIngress) request(t *testing.T, stream bool) (*httptest.ResponseRe
 	return httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, in.path, strings.NewReader(body)), []byte(body)
 }
 
-// Non-quota failures must not buy API inference; confirmed exhaustion still
-// permits funded recovery on the same model.
+// Credential faults must not buy API inference; confirmed exhaustion still
+// permits funded recovery on the same model, and a provider 5xx on the plan
+// authorizes paid rescue of the turn without claiming the quota is spent.
 func TestSubscriptionFailoverParity_RescueDispatch(t *testing.T) {
 	triggers := []struct {
-		name string
-		err  error
+		name       string
+		err        error
+		wantRescue bool
 	}{
-		{name: "retryable fault", err: upstreamErr(http.StatusServiceUnavailable, `{"error":{"type":"overloaded_error"}}`)},
+		{name: "retryable fault", err: upstreamErr(http.StatusServiceUnavailable, `{"error":{"type":"overloaded_error"}}`), wantRescue: true},
 		{name: "rejected token", err: upstreamErr(http.StatusUnauthorized, `{"error":{"type":"authentication_error"}}`)},
 	}
 	for _, in := range parityIngresses() {
@@ -656,11 +658,20 @@ func TestSubscriptionFailoverParity_RescueDispatch(t *testing.T) {
 				svc := in.parityService(upstream)
 				rec, req, body := in.request(t, false)
 
-				require.Error(t, in.call(svc, in.subCtx(), body, rec, req))
+				err := in.call(svc, in.subCtx(), body, rec, req)
 
 				assert.Positive(t, upstream.subDispatches, "the turn must first be attempted on the caller's subscription")
+				if trigger.wantRescue {
+					require.NoError(t, err)
+					assert.Positive(t, upstream.paidDispatches, "a provider 5xx on the plan is rescued on paid capacity")
+					for _, servedModel := range upstream.servedModels {
+						assert.Equal(t, in.model, servedModel, "the rescue keeps the caller's model")
+					}
+					return
+				}
+				require.Error(t, err)
 				assert.Zero(t, upstream.paidDispatches,
-					"transient and credential faults do not establish quota exhaustion")
+					"credential faults do not establish quota exhaustion")
 			})
 		}
 
