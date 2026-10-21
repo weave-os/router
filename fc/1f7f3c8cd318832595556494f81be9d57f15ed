@@ -23,8 +23,10 @@ internal/proxy/service.go
   s_820054ea85251d::t_0f23fa45730815 4840,4844,8013,8016
 internal/router/breaker/thresholds.go
   s_820054ea85251d::t_e2eb1f1934f3f1 3,5-23,26-34
+  s_820054ea85251d::t_94783485fe724a 1-2,4,24-25,35
 internal/proxy/sibling_failover.go
   s_820054ea85251d::t_0f23fa45730815 396-397,401-402,404-406
+  s_820054ea85251d::t_8df13955f67f08 398-400,403
 ---
 {
   "schema_version": "authorship/3.0.0",
