@@ -358,8 +358,8 @@ func rescueCredentialContext(ctx context.Context, rescueProvider string) context
 	return clearCredentials(ctx)
 }
 
-// oauthCredentialProvider names the vendor a subscription OAuth bearer
-// authenticates against.
+// Codex subscription tokens are OpenAI-only; any other subscription OAuth
+// bearer is a Claude token and authenticates only against Anthropic.
 func oauthCredentialProvider(creds *Credentials) string {
 	if creds.Source == credSourceCodexSubscription {
 		return providers.ProviderOpenAI
