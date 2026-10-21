@@ -1,0 +1,27 @@
+internal/flags/flags.go
+  s_820054ea85251d::t_81ed62efa4ec4c 402
+cmd/router/main.go
+  s_820054ea85251d::t_81ed62efa4ec4c 814
+internal/proxy/CLAUDE.md
+  s_820054ea85251d::t_81ed62efa4ec4c 100
+docs/CONFIGURATION.md
+  s_820054ea85251d::t_81ed62efa4ec4c 498
+internal/proxy/AGENTS.md
+  s_820054ea85251d::t_81ed62efa4ec4c 100
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f7cee42582d3e9eee01946c86e9621912864df01",
+  "prompts": {},
+  "sessions": {
+    "s_820054ea85251d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15795-f71b-71b3-a470-34c0f2ed2beb",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
