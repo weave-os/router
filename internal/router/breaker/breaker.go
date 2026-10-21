@@ -226,7 +226,7 @@ func (r *Registry) ClaimProbe(org string, eligible func(model string) bool) (Pro
 		return Probe{}, Transition{}, false
 	}
 	var picked *openCircuit
-	var held *probeSlot
+	var observed *probeSlot
 	for i := range snap.open {
 		candidate := &snap.open[i]
 		c := candidate.circuit
@@ -243,21 +243,21 @@ func (r *Registry) ClaimProbe(org string, eligible func(model string) bool) (Pro
 		if !eligible(c.model) {
 			continue
 		}
-		picked, held = candidate, slot
+		picked, observed = candidate, slot
 	}
 	if picked == nil {
 		return Probe{}, Transition{}, false
 	}
 	c := picked.circuit
 	slot := &probeSlot{until: now.Add(probeLease)}
-	if !c.probe.CompareAndSwap(held, slot) {
+	if !c.probe.CompareAndSwap(observed, slot) {
 		return Probe{}, Transition{}, false
 	}
 	if r.published.Load() != snap {
 		// A resolution republished while this claim was deciding; its due
 		// times may be stale, so leave the slot to a request that sees the
 		// new snapshot.
-		c.probe.CompareAndSwap(slot, held)
+		c.probe.CompareAndSwap(slot, observed)
 		return Probe{}, Transition{}, false
 	}
 	c.lastOffered.Store(now.UnixNano())
@@ -280,30 +280,28 @@ func (r *Registry) ReleaseProbe(p Probe) Transition {
 // including every organization's confirmation. No-op unless p still holds the
 // circuit's half-open slot.
 func (r *Registry) ProbeSucceeded(p Probe) Transition {
-	return r.resolveProbe(p, func(*circuit, time.Time) {
-		delete(r.circuits, p.key)
-	})
+	return r.resolveProbe(p, true)
 }
 
 // ProbeFailed reopens the probed circuit with a doubled recovery timeout,
 // capped at RecoveryCap; confirmations carry over. No-op unless p still holds
 // the half-open slot.
 func (r *Registry) ProbeFailed(p Probe) Transition {
-	return r.resolveProbe(p, func(c *circuit, now time.Time) {
-		c.openedAt, c.reopens = now, c.reopens+1
-	})
+	return r.resolveProbe(p, false)
 }
 
-func (r *Registry) resolveProbe(p Probe, apply func(*circuit, time.Time)) Transition {
+func (r *Registry) resolveProbe(p Probe, closed bool) Transition {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	c := r.circuits[p.key]
 	if c == nil || c != p.circuit || !c.probe.CompareAndSwap(p.slot, resolving) {
 		return Transition{Model: p.Model}
 	}
-	apply(c, r.now())
 	transition := Transition{Model: p.Model, Org: p.org, Isolated: c.org != "", From: StateHalfOpen, To: StateClosed}
-	if _, kept := r.circuits[p.key]; kept {
+	if closed {
+		delete(r.circuits, p.key)
+	} else {
+		c.openedAt, c.reopens = r.now(), c.reopens+1
 		transition.To = StateOpen
 		transition.RecoveryAfter = r.recoveryLocked(c.reopens)
 	}
@@ -402,10 +400,10 @@ func (r *Registry) publishLocked() {
 		}
 		return strings.Compare(a.key, b.key)
 	})
-	for i, open := range snap.open {
-		if i == 0 || open.dueAt.Before(snap.nextDue) {
-			snap.nextDue = open.dueAt
-		}
+	if len(snap.open) > 0 {
+		snap.nextDue = slices.MinFunc(snap.open, func(a, b openCircuit) int {
+			return a.dueAt.Compare(b.dueAt)
+		}).dueAt
 	}
 	r.published.Store(snap)
 }

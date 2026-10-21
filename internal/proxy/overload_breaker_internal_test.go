@@ -386,7 +386,7 @@ func TestRecordOverloadOutcome_IgnoresNonOverloadSignals(t *testing.T) {
 		for range 3 {
 			h.svc.recordOverloadOutcome(context.Background(), rescuedPrimaryModel, providers.ProviderAnthropic, false, overloaded529())
 		}
-		assert.False(t, h.withdrawn())
+		assert.Empty(t, h.svc.overloadBreaker.Withdrawn(""), "failures without an organization must not reach the registry")
 	})
 }
 
