@@ -65,8 +65,7 @@ func TestCompactionHardPin(t *testing.T) {
 
 	_, m, _, ok = s.compactionHardPin(ctx, key, "", router.Request{ExcludedModels: map[string]struct{}{policy.PrecompactionDefaultModel: {}}})
 	require.True(t, ok)
-	assert.Equal(t, catalog.LatestInFamily(policy.PrecompactionLargeWindowModel, func(string) bool { return true }), m,
-		"excluded default with no pin → the large-window summarizer")
+	assert.Equal(t, "claude-opus-5-5", m, "excluded default with no pin → the newest large-window summarizer")
 
 	_, _, _, ok = s.compactionHardPin(ctx, key, "", router.Request{ExcludedModels: map[string]struct{}{
 		policy.PrecompactionDefaultModel: {}, "claude-opus-5": {}, "claude-opus-5-5": {},

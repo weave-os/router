@@ -57,7 +57,8 @@ func (s *Service) compactionPreferredSummarizer(ctx context.Context, sessionKey 
 	return pin.Model
 }
 
-// compactionSummarizer is one model a harness compaction turn may be served on.
+// compactionSummarizer is a model a harness compaction turn may be served on,
+// with the override source that authorizes it.
 type compactionSummarizer struct {
 	provider string
 	model    string
@@ -134,8 +135,7 @@ func (s *Service) compactionSummarizers(ctx context.Context, sessionKey [session
 // Anthropic directly when the tenant enables it.
 func summarizerProvider(model string, req router.Request) (string, bool) {
 	if len(req.GatewayProviders) > 0 {
-		provider, held := gatewayProviderFor(model, req.CustomBindings, req.GatewayProviders)
-		return provider, held
+		return gatewayProviderFor(model, req.CustomBindings, req.GatewayProviders)
 	}
 	if req.EnabledProviders != nil {
 		if _, enabled := req.EnabledProviders[providers.ProviderAnthropic]; !enabled {
