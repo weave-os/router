@@ -1,0 +1,43 @@
+install/npm/package.json
+  s_787cf7fc928eb8::t_f3ea003e3e3aa0 80-81,83
+  s_787cf7fc928eb8::t_267d475e16eb4e 82
+install/npm/bin.js
+  s_787cf7fc928eb8::t_3c10e2984c3869 112
+  s_787cf7fc928eb8::t_ae9659dbaa5276 44,48-49,52,61,65-66,69,80,88-89,92,96,102-111
+install/npm/README.md
+  s_787cf7fc928eb8::t_f84440c8de39c3 20,169
+  s_787cf7fc928eb8::t_3c10e2984c3869 120-121
+install/npm/windows.test.js
+  s_787cf7fc928eb8::t_4ad6b87dbeab57 148
+  s_787cf7fc928eb8::t_c5c858bd944180 7-8,33-36,38,41-42,44,53-62,72,74,76-81,90-94,105-106,109-110,113-147,149-164
+  s_787cf7fc928eb8::t_2d1a23b4eb7db1 37,47
+install/npm/windows.js
+  s_787cf7fc928eb8::t_d222e48dcb8f02 38-41,130-133
+  s_787cf7fc928eb8::t_29ea06aa2a7077 7-8,11,35,37,65-69,74,88,110,136-138,148-149,153-156,158-162,165-166
+  s_787cf7fc928eb8::t_e99048e87a105a 134,239,241-242,247,253,255,257,259-264,267,269,272-275,278,281,283-286,288,290,293-302,306-311,315,338,367
+  s_787cf7fc928eb8::t_a3ad8d22c2c813 15-18,101-102,104-105,111,114,117-125,127-129,139-141,164,167
+  s_787cf7fc928eb8::t_07cecc26112f3c 59,63
+  s_787cf7fc928eb8::t_68e138e9436bb0 142-143,145-147,157,246,248-252,254,258
+  s_787cf7fc928eb8::t_4ad6b87dbeab57 48,103,126,171,189,270,276,317,377-378
+  s_787cf7fc928eb8::t_ef720e43419814 172-188,192-197,211,214-215,225-228,232-234
+  s_787cf7fc928eb8::t_e565b07ce8aae6 2-3,144,243-245,265-266,271,280
+  s_787cf7fc928eb8::t_4f5c6dd0ad6680 135
+Makefile
+  s_787cf7fc928eb8::t_267d475e16eb4e 69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "586d27e631cb03bb8fa6405caadcd69e9beddf25",
+  "prompts": {},
+  "sessions": {
+    "s_787cf7fc928eb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11340-f757-7f13-811d-6144d7b9238b",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

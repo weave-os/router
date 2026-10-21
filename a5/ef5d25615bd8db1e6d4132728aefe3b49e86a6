@@ -1,0 +1,21 @@
+internal/translate/translate.go
+  s_33ada62e140af1::t_e98b0bec8e7fd0 71,78,81,292,294
+internal/translate/responses_to_openai_chat_writer.go
+  s_33ada62e140af1::t_e98b0bec8e7fd0 653,664,667
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a5ef5d25615bd8db1e6d4132728aefe3b49e86a6",
+  "prompts": {},
+  "sessions": {
+    "s_33ada62e140af1": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15b25-975d-7292-b866-1fa2be1426b6",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
