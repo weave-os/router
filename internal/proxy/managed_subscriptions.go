@@ -72,8 +72,8 @@ type ManagedSubscriptionUsage struct {
 	// (5xx), which authorizes a paid rescue without proving quota exhaustion.
 	UnavailableProviders map[subscriptions.Provider]time.Time
 	ClientAppRefused     bool
-	Finished                bool
-	WinningCredentials      *Credentials
+	Finished             bool
+	WinningCredentials   *Credentials
 }
 
 var (
