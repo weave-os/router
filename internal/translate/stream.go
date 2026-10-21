@@ -827,7 +827,7 @@ func (t *AnthropicSSETranslator) Finalize() error {
 	// surviving tool call to stop_reason=tool_use.
 	recordOutputLimit(t.usageSink, gjson.GetBytes(body, "choices.0.finish_reason").Str == "length")
 
-	translated, issues, err := openAIToAnthropicResponse(body, t.requestModel, t.toolValidator, t.thinkTagReasoning, t.escapeNormalize, t.UsageFacts())
+	translated, issues, err := openAIToAnthropicResponse(body, t.requestModel, t.toolValidator, t.thinkTagReasoning, t.escapeNormalize, t.UsageFacts(), t.clientInputTokenScale())
 	t.toolCallIssues = append(t.toolCallIssues, issues...)
 	if err != nil {
 		t.inner.Header().Set("Content-Type", "application/json")
@@ -1508,7 +1508,7 @@ func (t *AnthropicSSETranslator) emitMessageDelta() error {
 	t.bw.WriteString(",\"stop_sequence\":null},\"usage\":")
 	if t.hasUsage {
 		jw := newJSONWriter()
-		writeAnthropicUsage(jw, t.UsageFacts())
+		writeAnthropicUsageScaled(jw, t.UsageFacts(), t.clientInputTokenScale())
 		t.bw.Write(jw.Bytes())
 	} else {
 		t.bw.WriteString("{\"output_tokens\":0}")

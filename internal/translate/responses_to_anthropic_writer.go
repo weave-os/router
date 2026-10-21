@@ -673,7 +673,7 @@ func (t *ResponsesToAnthropicWriter) finalizeBuffered() error {
 		return t.finalizeError()
 	}
 	t.recordOpenAIUsage(resp.Get("usage"))
-	anthropic, issues, err := responsesToAnthropicResponse(finalResp, t.requestModel, t.reasoningScope, t.toolValidator, t.UsageFacts())
+	anthropic, issues, err := responsesToAnthropicResponse(finalResp, t.requestModel, t.reasoningScope, t.toolValidator, t.UsageFacts(), t.clientInputTokenScale())
 	t.toolCallIssues = append(t.toolCallIssues, issues...)
 	if err != nil {
 		t.log().Error("ResponsesToAnthropic: translate failed", "err", err)
@@ -1006,7 +1006,7 @@ func (t *ResponsesToAnthropicWriter) emitMessageDelta(stopReason string) error {
 	t.bw.WriteString(",\"stop_sequence\":null},\"usage\":")
 	if t.hasUsage {
 		jw := newJSONWriter()
-		writeAnthropicUsage(jw, t.UsageFacts())
+		writeAnthropicUsageScaled(jw, t.UsageFacts(), t.clientInputTokenScale())
 		t.bw.Write(jw.Bytes())
 	} else {
 		t.bw.WriteString("{\"output_tokens\":0}")

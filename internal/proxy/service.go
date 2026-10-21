@@ -4604,6 +4604,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					if providers.OutputExcludesReasoning(d.Provider) {
 						responsesTranslator.SetUsageOutputBasis(providerusage.OutputExcludesReasoning)
 					}
+					responsesTranslator.SetClientInputTokenScale(catalog.InputTokenScale(d.Model, feats.Model))
 					if err := responsesTranslator.Prelude(env.Stream()); err != nil {
 						return fmt.Errorf("emit Anthropic routing marker: %w", err), func(err error) error { return err }
 					}
@@ -4619,6 +4620,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					if providers.OutputExcludesReasoning(d.Provider) {
 						chatTranslator.SetUsageOutputBasis(providerusage.OutputExcludesReasoning)
 					}
+					chatTranslator.SetClientInputTokenScale(catalog.InputTokenScale(d.Model, feats.Model))
 					if err := chatTranslator.Prelude(env.Stream()); err != nil {
 						return fmt.Errorf("emit Anthropic routing marker: %w", err), func(err error) error { return err }
 					}

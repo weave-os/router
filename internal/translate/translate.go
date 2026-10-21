@@ -171,14 +171,14 @@ func AnthropicToOpenAIError(body []byte) []byte {
 // OpenAIToAnthropicResponse converts a non-streaming OpenAI response to
 // Anthropic Messages format.
 func OpenAIToAnthropicResponse(body []byte, requestModel string) ([]byte, error) {
-	out, _, err := openAIToAnthropicResponse(body, requestModel, nil, false, false, usage.ParseOpenAI(gjson.GetBytes(body, "usage")))
+	out, _, err := openAIToAnthropicResponse(body, requestModel, nil, false, false, usage.ParseOpenAI(gjson.GetBytes(body, "usage")), 1)
 	return out, err
 }
 
 // openAIToAnthropicResponse is the validator-aware variant: tool_use inputs
 // are checked/repaired against the request's tool schemas, returning one
 // toolcheck.Issue per offending block. A nil validator is syntax-check-only.
-func openAIToAnthropicResponse(body []byte, requestModel string, toolValidator *toolcheck.Validator, thinkTagReasoning, escapeNormalize bool, facts usage.Facts) ([]byte, []toolcheck.Issue, error) {
+func openAIToAnthropicResponse(body []byte, requestModel string, toolValidator *toolcheck.Validator, thinkTagReasoning, escapeNormalize bool, facts usage.Facts, clientInputScale float64) ([]byte, []toolcheck.Issue, error) {
 	if !gjson.ValidBytes(body) {
 		return nil, nil, fmt.Errorf("unmarshal openai response: invalid JSON")
 	}
@@ -220,7 +220,7 @@ func openAIToAnthropicResponse(body []byte, requestModel string, toolValidator *
 	jw.Key("stop_sequence")
 	jw.Null()
 	jw.Key("usage")
-	writeAnthropicUsage(jw, facts)
+	writeAnthropicUsageScaled(jw, facts, clientInputScale)
 	jw.EndObj()
 	return jw.Bytes(), issues, nil
 }

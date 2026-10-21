@@ -1,6 +1,8 @@
 package translate
 
 import (
+	"math"
+
 	"weave-os/router/internal/usage"
 
 	"github.com/tidwall/gjson"
@@ -46,18 +48,35 @@ func writeOpenAIUsage(jw *jsonWriter, facts usage.Facts, inputKey, outputKey, in
 }
 
 func writeAnthropicUsage(jw *jsonWriter, facts usage.Facts) {
+	writeAnthropicUsageScaled(jw, facts, 1)
+}
+
+// writeAnthropicUsageScaled projects facts onto Anthropic usage with input
+// categories multiplied by inputScale. A cross-tokenizer serve reports input
+// in the requested model's tokens, so a client budgeting compaction against
+// that model's window sees the history it would actually have to fit. Output
+// stays in served-model tokens: it is not resent and does not drive
+// compaction. Billing reads provider facts through UsageSink, never this
+// projection.
+func writeAnthropicUsageScaled(jw *jsonWriter, facts usage.Facts, inputScale float64) {
+	scale := func(n int) int64 {
+		if inputScale == 1 {
+			return int64(n)
+		}
+		return int64(math.Round(float64(n) * inputScale))
+	}
 	jw.Obj()
 	jw.Key("input_tokens")
-	jw.Int(int64(facts.FreshInputTokens()))
+	jw.Int(scale(facts.FreshInputTokens()))
 	jw.Key("output_tokens")
 	jw.Int(int64(facts.BilledOutputTokens()))
 	if facts.CacheRead.Reported {
 		jw.Key("cache_read_input_tokens")
-		jw.Int(int64(facts.CacheRead.Value))
+		jw.Int(scale(facts.CacheRead.Value))
 	}
 	if facts.CacheWrite.Reported {
 		jw.Key("cache_creation_input_tokens")
-		jw.Int(int64(facts.CacheWrite.Value))
+		jw.Int(scale(facts.CacheWrite.Value))
 	}
 	jw.EndObj()
 }
@@ -74,6 +93,9 @@ type providerUsageState struct {
 	facts       usage.Facts
 	source      func() usage.Facts
 	outputBasis usage.OutputBasis
+	// clientInputScale converts served-model input tokens into the requested
+	// model's tokenizer for client-visible Anthropic usage. Zero means 1.
+	clientInputScale float64
 }
 
 // SetUsageSource binds a downstream encoder to its provider-side usage owner.
@@ -81,6 +103,21 @@ func (s *providerUsageState) SetUsageSource(source func() usage.Facts) { s.sourc
 
 // SetUsageOutputBasis supplies the provider's output inclusion convention.
 func (s *providerUsageState) SetUsageOutputBasis(basis usage.OutputBasis) { s.outputBasis = basis }
+
+// SetClientInputTokenScale reports client-visible input usage in the
+// requested model's tokens. Non-positive values leave usage unscaled.
+func (s *providerUsageState) SetClientInputTokenScale(scale float64) {
+	if scale > 0 {
+		s.clientInputScale = scale
+	}
+}
+
+func (s *providerUsageState) clientInputTokenScale() float64 {
+	if s.clientInputScale <= 0 {
+		return 1
+	}
+	return s.clientInputScale
+}
 
 // UsageFacts returns the accumulated provider facts for downstream projection.
 func (s *providerUsageState) UsageFacts() usage.Facts {

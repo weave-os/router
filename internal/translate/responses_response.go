@@ -14,7 +14,7 @@ import (
 // Responses `output` array carries reasoning / message / function_call items,
 // which map to Anthropic thinking / text / tool_use content blocks.
 func ResponsesToAnthropicResponse(body []byte, requestModel, reasoningScope string) ([]byte, error) {
-	out, _, err := responsesToAnthropicResponse(body, requestModel, reasoningScope, nil, usage.ParseOpenAI(gjson.GetBytes(body, "usage")))
+	out, _, err := responsesToAnthropicResponse(body, requestModel, reasoningScope, nil, usage.ParseOpenAI(gjson.GetBytes(body, "usage")), 1)
 	return out, err
 }
 
@@ -22,7 +22,7 @@ func ResponsesToAnthropicResponse(body []byte, requestModel, reasoningScope stri
 // inputs are checked (and safely repaired) against the request's tool schemas
 // via toolValidator, with one toolcheck.Issue returned per offending block. A
 // nil validator degrades to syntax-check-only.
-func responsesToAnthropicResponse(body []byte, requestModel, reasoningScope string, toolValidator *toolcheck.Validator, facts usage.Facts) ([]byte, []toolcheck.Issue, error) {
+func responsesToAnthropicResponse(body []byte, requestModel, reasoningScope string, toolValidator *toolcheck.Validator, facts usage.Facts, clientInputScale float64) ([]byte, []toolcheck.Issue, error) {
 	if !gjson.ValidBytes(body) {
 		return nil, nil, fmt.Errorf("unmarshal responses response: invalid JSON")
 	}
@@ -141,7 +141,7 @@ func responsesToAnthropicResponse(body []byte, requestModel, reasoningScope stri
 	jw.Null()
 
 	jw.Key("usage")
-	writeAnthropicUsage(jw, facts)
+	writeAnthropicUsageScaled(jw, facts, clientInputScale)
 
 	jw.EndObj()
 	return jw.Bytes(), issues, nil
