@@ -49,7 +49,7 @@ func (*gatewayCompactionClient) Passthrough(context.Context, providers.PreparedR
 	return providers.ErrNotImplemented
 }
 
-// A gateway-exclusive tenant (Snowflake Cortex shape: Anthropic models behind
+// A gateway-exclusive tenant (Anthropic models behind
 // an Anthropic-spec gateway, OpenAI models behind an OpenAI-spec gateway,
 // allowlist of one model each) whose generic utility pin is the fastest model.
 func gatewayCompactionFixture(anthropicErr error) (*Service, context.Context, *gatewayCompactionClient, *gatewayCompactionClient) {
