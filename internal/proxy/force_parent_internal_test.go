@@ -82,3 +82,65 @@ func TestForceParentRoutesChildrenAndSupportsScopeTransitions(t *testing.T) {
 	assert.Equal(t, catalog.ModelIDClaudeHaiku45.String(), route(parent).Decision.Model, "clear resumes parent automatic routing")
 	assert.Equal(t, catalog.ModelIDClaudeHaiku45.String(), route(child).Decision.Model, "clear keeps children automatic")
 }
+
+func TestForceParentDoesNotOverrideChildCompaction(t *testing.T) {
+	const apiKeyID = "parent-compaction-key"
+	installationID := uuid.New()
+	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "parent-compaction-session"})
+	parent, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","max_tokens":4096,"messages":[{"role":"user","content":"Implement the parser"}]}`))
+	require.NoError(t, err)
+	compaction, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","max_tokens":4096,"messages":[{"role":"user","content":"Implement the parser"},{"role":"assistant","content":"Inspecting the source"},{"role":"user","content":"Your task is to create a detailed summary. Do not call any tools."}]}`))
+	require.NoError(t, err)
+	store := newForceModelMapStore()
+	svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeSonnet46.String(), nil).WithCompactionHardPin(true)
+	parentKey := deriveSessionKeyForRequest(ctx, parent, apiKeyID)
+	require.Equal(t, parentKey, deriveSessionKeyForRequest(ctx, compaction, apiKeyID))
+	features := compaction.RoutingFeatures(false)
+	route := func() turnLoopResult {
+		t.Helper()
+		turn, err := svc.runTurnLoop(ctx, compaction, features, apiKeyID, installationID, "explore", nil, router.Request{RequestedModel: features.Model})
+		require.NoError(t, err)
+		return turn
+	}
+	baseline := route()
+	controlKey := deriveForceModelSessionKeyForRequest(ctx, parent, apiKeyID, parentKey)
+	_, _, err = svc.applyForceModelCommand(ctx, translate.ForceModelResult{Model: catalog.ModelIDClaudeOpus48.String(), ParentOnly: true}, installationID, parentKey, controlKey)
+	require.NoError(t, err)
+	child := route()
+	assert.Equal(t, baseline.Decision.Model, child.Decision.Model, "a parent force must not change the child's compaction model")
+	assert.NotEqual(t, translate.ReasonUserForceModel, child.Decision.Reason)
+}
+
+func TestForceParentPreservesChildLoopRescue(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		parentOnly bool
+		child      bool
+		wantAction string
+	}{
+		{"parent-only child", true, true, loopActionEscalated},
+		{"parent-only parent", true, false, loopActionUserForced},
+		{"conversation-wide child", false, true, loopActionUserForced},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			installationID := uuid.New()
+			threadKey, controlKey := loopTestKey(50), loopTestKey(51)
+			store := newForceModelMapStore()
+			events := &recordingLoopStore{}
+			svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil).WithLoopEscalationStore(events)
+			_, _, err := svc.applyForceModelCommand(ctx, translate.ForceModelResult{Model: catalog.ModelIDClaudeSonnet46.String(), ParentOnly: test.parentOnly}, installationID, threadKey, controlKey)
+			require.NoError(t, err)
+			svc.handleLoopEscalation(ctx, loopTestSig, 24, 0.2, 30, installationID, threadKey, sessionpin.DefaultRole, catalog.ModelIDClaudeHaiku45.String(), test.child, controlKey)
+			require.Len(t, events.events, 1)
+			assert.Equal(t, test.wantAction, events.events[0].Action)
+			if test.wantAction == loopActionEscalated {
+				assert.Equal(t, catalog.ModelIDClaudeHaiku45.String(), events.events[0].LoopingModel)
+				pin, found, err := store.Get(ctx, threadKey, sessionpin.DefaultRole)
+				require.NoError(t, err)
+				require.True(t, found)
+				assert.Equal(t, escalateModel, pin.Model)
+			}
+		})
+	}
+}

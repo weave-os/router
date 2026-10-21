@@ -585,6 +585,7 @@ func (s *Service) setForceModelSessionPin(
 func (s *Service) loadForceModelSessionPin(
 	ctx context.Context,
 	sessionKey, threadSessionKey [sessionpin.SessionKeyLen]byte,
+	isSubagent bool,
 ) (sessionpin.Pin, bool, bool) {
 	if s.pinStore == nil {
 		return sessionpin.Pin{}, false, false
@@ -600,7 +601,7 @@ func (s *Service) loadForceModelSessionPin(
 	if !found || !pin.PinnedUntil.After(time.Now()) || !isUserForcedReason(pin.Reason) || pin.Model == "" || pin.Provider == "" {
 		return sessionpin.Pin{}, false, false
 	}
-	if pin.ForcedThreadKey != "" && pin.ForcedThreadKey != sessionKeyHex(threadSessionKey) {
+	if pin.ForcedThreadKey != "" && (isSubagent || pin.ForcedThreadKey != sessionKeyHex(threadSessionKey)) {
 		// Suppress pre-session-scope force rows on children as an explicit clear
 		// does, so switching from force-model cannot revive an inherited pin.
 		return pin, false, true

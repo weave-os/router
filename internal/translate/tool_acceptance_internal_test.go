@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
+
+	"weave-os/router/internal/usage"
 )
 
 func acceptanceResponse(calls string) []byte {
@@ -124,7 +126,7 @@ func TestAcceptedCallsGeneratedIdentityCollision(t *testing.T) {
 
 func TestAcceptedCallsBufferedAdaptersSuppressNameless(t *testing.T) {
 	chat := []byte(`{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":"synthetic answer","tool_calls":[{"id":"bad","type":"function","function":{"name":"","arguments":"{}"}}]}}]}`)
-	resp, err := chatCompletionToResponse(chat, "resp_synthetic", "synthetic", 1, nil, "", "")
+	resp, err := chatCompletionToResponse(chat, "resp_synthetic", "synthetic", 1, nil, "", "", usage.Facts{})
 	require.NoError(t, err)
 	for _, item := range gjson.GetBytes(resp, "output").Array() {
 		assert.NotEqual(t, "function_call", item.Get("type").String())

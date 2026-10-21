@@ -133,8 +133,7 @@ func Detect(env *translate.RequestEnvelope, feats translate.RoutingFeatures, sub
 	if env.SourceFormat() == translate.FormatAnthropic && isRecap(lastUserText) {
 		return Recap
 	}
-	if openCode.IsSubagent ||
-		isSubAgentDispatch(env.MetadataUserID(), env.AnthropicBillingHeader(), env.FirstUserMessageText(), subAgentHint) {
+	if IsSubAgent(env, subAgentHint, openCode) {
 		return SubAgentDispatch
 	}
 	if isClassifier(feats) {
@@ -144,6 +143,15 @@ func Detect(env *translate.RequestEnvelope, feats translate.RoutingFeatures, sub
 		return ToolResult
 	}
 	return MainLoop
+}
+
+// IsSubAgent reports child identity independently of the turn's purpose, so
+// utility turns such as compaction retain their caller's routing scope.
+func IsSubAgent(env *translate.RequestEnvelope, subAgentHint string, openCode OpenCodeCaller) bool {
+	if openCode.IsSubagent || subAgentHint != "" {
+		return true
+	}
+	return env != nil && isSubAgentDispatch(env.MetadataUserID(), env.AnthropicBillingHeader(), env.FirstUserMessageText(), subAgentHint)
 }
 
 func isProbe(feats translate.RoutingFeatures) bool {

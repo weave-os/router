@@ -53,6 +53,7 @@ func TestCommandOutcomesAcrossSurfaces(t *testing.T) {
 					excluded    bool
 				}{
 					{"/fm opus:high", translate.CommandForceModel, translate.PinApplied, translate.CommandAccepted, false},
+					{"/force-parent opus:high", translate.CommandForceModel, translate.PinApplied, translate.CommandAccepted, false},
 					{"/router-session", translate.CommandRouterSession, translate.PinUnchanged, translate.CommandAccepted, false},
 					{"/router-models", translate.CommandRouterModels, translate.PinUnchanged, translate.CommandAccepted, false},
 					{"/rf+", translate.CommandRouterFeedback, translate.PinUnchanged, translate.CommandAccepted, false},

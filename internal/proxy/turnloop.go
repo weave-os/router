@@ -856,10 +856,7 @@ func (s *Service) runTurnLoop(
 		forceModelFound = true
 	}
 	if !forceModelFound {
-		forceModelPin, forceModelFound, forceModelCleared = s.loadForceModelSessionPin(ctx, forceModelSessionKey, threadSessionKey)
-		if forceModelFound && forceModelPin.ForcedThreadKey != "" && res.TurnType == turntype.SubAgentDispatch {
-			forceModelFound, forceModelCleared = false, true
-		}
+		forceModelPin, forceModelFound, forceModelCleared = s.loadForceModelSessionPin(ctx, forceModelSessionKey, threadSessionKey, turntype.IsSubAgent(env, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))))
 	}
 	if forceModelFound {
 		binding, reason := s.forcedModelBinding(ctx, forceModelPin.Model, forceModelPin.Provider)

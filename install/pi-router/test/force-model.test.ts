@@ -233,7 +233,7 @@ test("force-parent forwards parent scope and restores its acknowledged pin", asy
 	await commands.get("force-parent")?.handler(" ", ctx);
 	assert.deepEqual(sent, [{ content: "/force-parent opus:high", options: undefined }]);
 	assert.equal(notifications.length, 1);
-	assert.equal(forcedModelFromBranch([
+	assert.equal(lastPinFromBranch([
 		messageEntry("user", "/force-parent opus:high"),
 		messageEntry("assistant", "force-parent applied: claude-opus-5-5:high (anthropic)"),
 	]), "claude-opus-5-5:high");
