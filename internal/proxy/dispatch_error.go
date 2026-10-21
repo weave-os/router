@@ -11,9 +11,9 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandit"
 	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/router/decisionmodel"
 	"weave-os/router/internal/router/eligibility"
 	"weave-os/router/internal/router/hmm"
-	"weave-os/router/internal/router/jev"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rl"
 	"weave-os/router/internal/translate"
@@ -71,7 +71,7 @@ const (
 	DispatchErrorClassifierUnavailable
 	DispatchErrorSpendCapReached
 	DispatchErrorSubscriptionClientAppRefused
-	DispatchErrorJEVUnavailable
+	DispatchErrorDecisionModelUnavailable
 )
 
 // DispatchErrorClass is the format-agnostic classification of a dispatch
@@ -400,14 +400,14 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "error",
 			LogMessage: "Bandit routing unavailable",
 		}, true
-	case errors.Is(err, jev.ErrUnavailable):
+	case errors.Is(err, decisionmodel.ErrUnavailable):
 		return DispatchErrorClass{
-			Kind:       DispatchErrorJEVUnavailable,
+			Kind:       DispatchErrorDecisionModelUnavailable,
 			Status:     http.StatusServiceUnavailable,
-			Message:    "Router unavailable: JEV routing failed and no fallback is configured.",
+			Message:    "Router unavailable: decision model routing failed and no fallback is configured.",
 			RetryAfter: true,
 			LogLevel:   "error",
-			LogMessage: "JEV routing unavailable",
+			LogMessage: "decision model routing unavailable",
 		}, true
 	case errors.Is(err, hmm.ErrHMMUnavailable):
 		return DispatchErrorClass{

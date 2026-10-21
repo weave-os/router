@@ -1,4 +1,4 @@
-package jev
+package decisionmodel
 
 import (
 	"bytes"
@@ -158,23 +158,23 @@ func (c *Client) Classify(ctx context.Context, state State, ids []QuestionID) (m
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("jev: status %d", resp.StatusCode)
+		return nil, fmt.Errorf("decision model: status %d", resp.StatusCode)
 	}
 	var decoded classifyResponse
 	if err := json.Unmarshal(payload, &decoded); err != nil {
-		return nil, fmt.Errorf("jev: decode response: %w", err)
+		return nil, fmt.Errorf("decision model: decode response: %w", err)
 	}
 	for id, q := range asked {
 		answer, found := decoded.Answers[id]
 		if !found {
-			return nil, fmt.Errorf("jev: missing answer for %s", id)
+			return nil, fmt.Errorf("decision model: missing answer for %s", id)
 		}
 		if _, valid := q.Criteria[answer.Choice]; !valid {
-			return nil, fmt.Errorf("jev: %s answered unknown label %q", id, answer.Choice)
+			return nil, fmt.Errorf("decision model: %s answered unknown label %q", id, answer.Choice)
 		}
 	}
 	return decoded.Answers, nil
 }
 
-// ErrUnavailable reports that the JEV classifier could not produce a routing decision.
-var ErrUnavailable = errors.New("jev classifier unavailable")
+// ErrUnavailable reports that the decision model classifier could not produce a routing decision.
+var ErrUnavailable = errors.New("decision model classifier unavailable")

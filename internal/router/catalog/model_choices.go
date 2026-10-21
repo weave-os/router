@@ -38,7 +38,7 @@ func ModelChoices() []ModelChoice {
 		{Model: string(router.ModelAutomatic), Description: "Automatically select an upstream model using the deployment's default router.", Kind: ModelChoiceRouter},
 		{Model: string(router.ModelHMM), Description: "Automatically select an upstream model using the experimental HMM classifier. Managed use requires internal organization access.", Kind: ModelChoiceRouter},
 		{Model: string(router.ModelQwen), Description: "Automatically select an upstream model with the Qwen classifier and its pinned roster. Requires internal organization access.", Kind: ModelChoiceRouter},
-		{Model: string(router.ModelJEV), Description: "Automatically select an upstream model with the JEV task and call complexity judge. Requires internal organization access.", Kind: ModelChoiceRouter},
+		{Model: string(router.ModelDecision), Description: "Automatically select an upstream model with the decision model task and call complexity judge. Requires internal organization access.", Kind: ModelChoiceRouter},
 	}
 	for _, entry := range Listing() {
 		choices = append(choices, ModelChoice{

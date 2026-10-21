@@ -46,7 +46,7 @@ func TestAddCodexRoutingModels_AdvertisesInternalVariantsWithoutDuplicates(t *te
 	require.Equal(t, string(router.ModelQwen), gjson.GetBytes(merged, "models.3.slug").String())
 	require.Equal(t, int64(272000), gjson.GetBytes(merged, "models.3.context_window").Int())
 	require.Contains(t, gjson.GetBytes(merged, "models.3.description").String(), "Qwen classifier")
-	require.Equal(t, string(router.ModelJEV), gjson.GetBytes(merged, "models.4.slug").String())
+	require.Equal(t, string(router.ModelDecision), gjson.GetBytes(merged, "models.4.slug").String())
 	repeated, err := addCodexRoutingModels(merged, true)
 	require.NoError(t, err)
 	require.JSONEq(t, string(merged), string(repeated))

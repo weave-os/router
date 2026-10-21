@@ -1,4 +1,4 @@
-package jev
+package decisionmodel
 
 import (
 	"context"
@@ -42,7 +42,7 @@ type sessionState struct {
 	fastSinceCheckpoint bool
 }
 
-// Router asks JEV for task complexity, call complexity and periodic escalation,
+// Router asks the decision model for task complexity, call complexity and periodic escalation,
 // then picks the model in Go.
 type Router struct {
 	classifier Classifier
@@ -51,7 +51,7 @@ type Router struct {
 	order      []string
 }
 
-// New returns a JEV router that keeps per-session state in memory, evicting the
+// New returns a decision model router that keeps per-session state in memory, evicting the
 // oldest session past maxTrackedSessions.
 func New(classifier Classifier) *Router {
 	return &Router{classifier: classifier, sessions: map[string]sessionState{}}
@@ -111,7 +111,7 @@ func (r *Router) Route(ctx context.Context, req router.Request) (router.Decision
 		session.fastSinceCheckpoint = true
 	}
 	r.store(sessionID, session)
-	decision.Reason = fmt.Sprintf("jev task=%s call=%s escalated=%t subscription=%t call_index=%d", session.taskComplexity, callComplexity, session.escalated, subscribed, callIndex)
+	decision.Reason = fmt.Sprintf("decision_model task=%s call=%s escalated=%t subscription=%t call_index=%d", session.taskComplexity, callComplexity, session.escalated, subscribed, callIndex)
 	return decision, nil
 }
 

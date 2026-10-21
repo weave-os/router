@@ -45,7 +45,7 @@ func TestCodexModelCatalog_UsesCallerOAuth(t *testing.T) {
 	require.Len(t, gjson.GetBytes(internalCatalog, "models").Array(), 5)
 	assert.Equal(t, string(router.ModelHMM), gjson.GetBytes(internalCatalog, "models.2.slug").String())
 	assert.Equal(t, string(router.ModelQwen), gjson.GetBytes(internalCatalog, "models.3.slug").String())
-	assert.Equal(t, string(router.ModelJEV), gjson.GetBytes(internalCatalog, "models.4.slug").String())
+	assert.Equal(t, string(router.ModelDecision), gjson.GetBytes(internalCatalog, "models.4.slug").String())
 	identity.Plan = string(entitlement.PlanMax)
 	subscriberCatalog, err := svc.CodexModelCatalog(requestcontext.WithServingIdentity(context.Background(), identity), headers, "0.155.1")
 	require.NoError(t, err)

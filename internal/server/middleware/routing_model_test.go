@@ -62,12 +62,12 @@ func TestRoutingModelSelectsPolicyAndPreservesRequest(t *testing.T) {
 		{name: "hmm missing from admitted release", model: string(router.ModelHMM), available: true, target: policyregistry.TargetInternal, missingStrategy: true, status: http.StatusServiceUnavailable},
 		{name: "qwen missing from admitted release", model: string(router.ModelQwen), available: true, target: policyregistry.TargetInternal, missingStrategy: true, status: http.StatusServiceUnavailable},
 		{name: "bootstrap readiness cannot admit qwen", model: string(router.ModelQwen), available: true, target: policyregistry.TargetInternal, missingSnapshot: true, status: http.StatusServiceUnavailable},
-		{name: "jev", model: string(router.ModelJEV), target: policyregistry.TargetInternal, available: true, status: http.StatusOK, want: router.StrategyJEV},
-		{name: "jev does not need an admitted snapshot policy", model: string(router.ModelJEV), target: policyregistry.TargetInternal, available: true, missingStrategy: true, status: http.StatusOK, want: router.StrategyJEV},
-		{name: "jev unavailable without judge credential", model: string(router.ModelJEV), target: policyregistry.TargetInternal, status: http.StatusServiceUnavailable},
-		{name: "self-hosted jev needs no admission", model: string(router.ModelJEV), available: true, status: http.StatusOK, want: router.StrategyJEV},
-		{name: "managed jev requires internal admission", model: string(router.ModelJEV), target: policyregistry.TargetStable, available: true, status: http.StatusForbidden},
-		{name: "subscriber profile cannot select jev", model: string(router.ModelJEV), available: true, target: policyregistry.TargetInternal, plan: entitlement.PlanMax, status: http.StatusForbidden},
+		{name: "decision_model", model: string(router.ModelDecision), target: policyregistry.TargetInternal, available: true, status: http.StatusOK, want: router.StrategyDecisionModel},
+		{name: "decision model does not need an admitted snapshot policy", model: string(router.ModelDecision), target: policyregistry.TargetInternal, available: true, missingStrategy: true, status: http.StatusOK, want: router.StrategyDecisionModel},
+		{name: "decision model unavailable without judge credential", model: string(router.ModelDecision), target: policyregistry.TargetInternal, status: http.StatusServiceUnavailable},
+		{name: "self-hosted decision model needs no admission", model: string(router.ModelDecision), available: true, status: http.StatusOK, want: router.StrategyDecisionModel},
+		{name: "managed decision model requires internal admission", model: string(router.ModelDecision), target: policyregistry.TargetStable, available: true, status: http.StatusForbidden},
+		{name: "subscriber profile cannot select decision model", model: string(router.ModelDecision), available: true, target: policyregistry.TargetInternal, plan: entitlement.PlanMax, status: http.StatusForbidden},
 		{name: "stable default remains available", model: string(router.ModelAutomatic), initial: router.StrategyHMMEmbedding, target: policyregistry.TargetStable, status: http.StatusOK, want: router.StrategyHMMEmbedding},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -75,7 +75,7 @@ func TestRoutingModelSelectsPolicyAndPreservesRequest(t *testing.T) {
 			engine := gin.New()
 			body := `{"model":"` + tc.model + `","messages":[{"role":"user","content":"hello"}]}`
 			engine.POST("/v1/messages", middleware.WithClassifierThread(&proxy.Service{}, func(strategy router.Strategy) bool {
-				require.Contains(t, []router.Strategy{router.StrategyHMMBeta, router.StrategyHMMQwen, router.StrategyJEV}, strategy)
+				require.Contains(t, []router.Strategy{router.StrategyHMMBeta, router.StrategyHMMQwen, router.StrategyDecisionModel}, strategy)
 				return tc.available
 			}), func(c *gin.Context) {
 				require.Equal(t, tc.want, router.StrategyFromContext(c.Request.Context()))

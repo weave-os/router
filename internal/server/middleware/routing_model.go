@@ -49,9 +49,9 @@ func applyRoutingModel(c *gin.Context, body []byte, available StrategyAvailabili
 	case router.ModelQwen:
 		selectedStrategy = router.StrategyHMMQwen
 		unavailableMessage = "qwen_model_unavailable"
-	case router.ModelJEV:
-		selectedStrategy = router.StrategyJEV
-		unavailableMessage = "jev_model_unavailable"
+	case router.ModelDecision:
+		selectedStrategy = router.StrategyDecisionModel
+		unavailableMessage = "decision_model_unavailable"
 	}
 	identity, managed := requestcontext.ServingIdentityFromContext(c.Request.Context())
 	internal := managed && identity.Target == string(policyregistry.TargetInternal) && identity.ReleaseID != "" && identity.BindingID != "" && identity.CredentialIdentity != "" && identity.Plan == ""
@@ -60,7 +60,7 @@ func applyRoutingModel(c *gin.Context, body []byte, available StrategyAvailabili
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "routing_model_not_permitted"})
 		return false
 	}
-	if managed && selectedStrategy != router.StrategyJEV {
+	if managed && selectedStrategy != router.StrategyDecisionModel {
 		snapshot := policyregistry.ServingSnapshotFromContext(c.Request.Context())
 		if snapshot == nil || snapshot.Routers[selectedStrategy] == nil {
 			observability.FromGin(c).Debug("Routing model is absent from admitted snapshot", "model", model)
