@@ -34,7 +34,7 @@ func TestModelSelectionReasoningIsOptInAndUsesRecordedClassification(t *testing.
 	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, marker, turn.Decision.Model, ""), "best pick for this turn")
 	assert.NotContains(t, modelSelectionMarkerForRequest(ctx, turn, marker, turn.Decision.Model, ""), "unknown-group")
 	turn.Decision.Metadata.ClassifierPredictedLabel = "high"
-	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, siblingRoutingMarkerFor(turn, "rescue-model"), "rescue-model", markerReasonSibling), "classified as high difficulty")
+	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, siblingRoutingMarkerFor(turn, "overloaded-model", "rescue-model"), "rescue-model", siblingMarkerReason("overloaded-model")), "classified as high difficulty")
 }
 
 func TestModelSelectionReasoningOnlyForNewlyServedModel(t *testing.T) {
@@ -42,7 +42,7 @@ func TestModelSelectionReasoningOnlyForNewlyServedModel(t *testing.T) {
 	turn := turnLoopResult{Decision: router.Decision{Model: "new-model"}, PriorServedModel: "old-model"}
 	marker := routingMarkerFor(turn)
 	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, marker, turn.Decision.Model, ""), "REASONING:")
-	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, siblingRoutingMarkerFor(turn, "rescue-model"), "rescue-model", markerReasonSibling), "REASONING: "+markerReasonSibling)
+	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, siblingRoutingMarkerFor(turn, "overloaded-model", "rescue-model"), "rescue-model", siblingMarkerReason("overloaded-model")), "REASONING: switched after overloaded-model was overloaded")
 	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, baselineRoutingMarkerFor(turn, "baseline-model"), "baseline-model", markerReasonBaseline), "REASONING: "+markerReasonBaseline)
 	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, cyberRefusalRoutingMarkerFor(turn, "retry-model"), "retry-model", markerReasonCyberRefusal), "REASONING: "+markerReasonCyberRefusal)
 
@@ -551,7 +551,7 @@ func TestSubscriptionTargetMarker_UnchangedModelKeepsRoutedMarker(t *testing.T) 
 	require.NotEmpty(t, routedMarker)
 	got := subscriptionTargetMarker(ctx, http.Header{}, routed, picked, picked, routedMarker)
 	assert.Equal(t, routedMarker, got)
-	assert.NotContains(t, got, markerReasonSibling, "an unchanged model was not switched after an overload")
+	assert.NotContains(t, got, "was overloaded", "an unchanged model was not switched after an overload")
 }
 
 func TestSubscriptionTargetMarker_SwitchedModelIsWordedAsRescue(t *testing.T) {
@@ -560,7 +560,7 @@ func TestSubscriptionTargetMarker_SwitchedModelIsWordedAsRescue(t *testing.T) {
 	target := router.Decision{Model: "gpt-6.1-sol", Provider: "openai"}
 	res := turnLoopResult{Decision: picked}
 
-	assert.Equal(t, "✦ **Weave Router** → gpt-6.1-sol · "+markerReasonSibling+"\n\n",
+	assert.Equal(t, "✦ **Weave Router** → gpt-6.1-sol · switched after gpt-6-luna was overloaded\n\n",
 		subscriptionTargetMarker(ctx, http.Header{}, res, picked, target, routingMarkerFor(res)))
 
 	optOut := http.Header{}
@@ -578,6 +578,6 @@ func TestSubscriptionTargetMarker_RotationBackToPickRestoresRoutedMarker(t *test
 
 	// Always compared against the original pick: after the sibling failed,
 	// rotation returning to the pick is not a rescue and must not be badged.
-	assert.Contains(t, subscriptionTargetMarker(ctx, http.Header{}, res, picked, sibling, pickedMarker), markerReasonSibling)
+	assert.Contains(t, subscriptionTargetMarker(ctx, http.Header{}, res, picked, sibling, pickedMarker), siblingMarkerReason(picked.Model))
 	assert.Empty(t, subscriptionTargetMarker(ctx, http.Header{}, res, picked, picked, pickedMarker))
 }

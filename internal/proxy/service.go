@@ -862,13 +862,30 @@ func baselineRoutingMarkerFor(res turnLoopResult, baselineModel string) string {
 	return "✦ **Weave Router** → " + baselineModel + " · " + markerReasonBaseline + "\n\n"
 }
 
+// siblingMarkerReason names the model that was overloaded so the user can see
+// which pick the rescue replaced; it falls back to generic wording when the
+// failed model is unknown.
+func siblingMarkerReason(overloadedModel string) string {
+	if overloadedModel == "" {
+		return markerReasonSibling
+	}
+	return "switched after " + overloadedModel + " was overloaded"
+}
+
+// siblingMarkerFor renders the full sibling-rescue badge, including the
+// optional model-selection reasoning line and the per-request opt-out.
+func siblingMarkerFor(ctx context.Context, h http.Header, res turnLoopResult, overloadedModel, siblingModel string) string {
+	reason := siblingMarkerReason(overloadedModel)
+	return suppressMarkerIfRequested(ctx, h, modelSelectionMarkerForRequest(ctx, res, siblingRoutingMarkerFor(res, overloadedModel, siblingModel), siblingModel, reason))
+}
+
 // siblingRoutingMarkerFor renders the routing badge for an in-turn same-cluster
-// failover, naming the candidate that actually serves.
-func siblingRoutingMarkerFor(res turnLoopResult, siblingModel string) string {
+// failover, naming the model that was overloaded and the candidate that serves.
+func siblingRoutingMarkerFor(res turnLoopResult, overloadedModel, siblingModel string) string {
 	if res.SuggestionMode || isUnpinnedScoredTurn(res.TurnType) || res.TurnType == turntype.Probe || siblingModel == "" || baseModelOf(res.PriorServedModel) == siblingModel {
 		return ""
 	}
-	return "✦ **Weave Router** → " + siblingModel + " · " + markerReasonSibling + "\n\n"
+	return "✦ **Weave Router** → " + siblingModel + " · " + siblingMarkerReason(overloadedModel) + "\n\n"
 }
 
 // subscriptionTargetMarker words the badge for a subscription-state dispatch.
@@ -879,7 +896,7 @@ func subscriptionTargetMarker(ctx context.Context, h http.Header, res turnLoopRe
 	if target.Model == picked.Model {
 		return pickedMarker
 	}
-	return suppressMarkerIfRequested(ctx, h, modelSelectionMarkerForRequest(ctx, res, siblingRoutingMarkerFor(res, target.Model), target.Model, markerReasonSibling))
+	return siblingMarkerFor(ctx, h, res, picked.Model, target.Model)
 }
 
 // cyberRefusalRoutingMarkerFor renders the routing badge for a turn re-served
@@ -4903,9 +4920,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				return buildAttempt(target, alternativeOpts, alternativeMarker)
 			},
 			onAlternative: func(target router.Decision) {
+				overloadedModel := decision.Model
 				decision = target
 				bindings = s.resolveBindingsForDispatch(ctx, target)
-				marker = suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, target.Model), target.Model, markerReasonSibling))
+				marker = siblingMarkerFor(ctx, r.Header, routeRes, overloadedModel, target.Model)
 			},
 			onSubscriptionStateTarget: func(target router.Decision, targetBindings []catalog.ProviderBinding) {
 				marker = subscriptionTargetMarker(ctx, r.Header, routeRes, primaryDecision, target, pickedMarker)
@@ -5193,7 +5211,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			siblingCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, siblingDecision.Provider), siblingDecision.Model), siblingDecision.Provider, siblingDecision.Model, r.Header)
 			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
-			siblingMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, siblingDecision.Model), siblingDecision.Model, markerReasonSibling))
+			siblingMarker := siblingMarkerFor(ctx, r.Header, routeRes, decision.Model, siblingDecision.Model)
 			siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker)
 			if siblingBuildErr != nil {
 				log.Error("Sibling failover: preparing the candidate request failed; trying the next candidate",
@@ -8078,9 +8096,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			return buildAttempt(target, alternativeOpts, alternativeMarker)
 		},
 		onAlternative: func(target router.Decision) {
+			overloadedModel := decision.Model
 			decision = target
 			bindings = s.resolveBindingsForDispatch(ctx, target)
-			marker = suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, target.Model), target.Model, markerReasonSibling))
+			marker = siblingMarkerFor(ctx, r.Header, routeRes, overloadedModel, target.Model)
 		},
 		onSubscriptionStateTarget: func(target router.Decision, targetBindings []catalog.ProviderBinding) {
 			marker = subscriptionTargetMarker(ctx, r.Header, routeRes, primaryDecision, target, pickedMarker)
@@ -8339,7 +8358,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			siblingCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, siblingDecision.Provider), siblingDecision.Model), siblingDecision.Provider, siblingDecision.Model, r.Header)
 			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
-			siblingMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, siblingDecision.Model), siblingDecision.Model, markerReasonSibling))
+			siblingMarker := siblingMarkerFor(ctx, r.Header, routeRes, decision.Model, siblingDecision.Model)
 			siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker)
 			if siblingBuildErr != nil {
 				log.Error("Sibling failover: preparing the candidate request failed; trying the next candidate",
