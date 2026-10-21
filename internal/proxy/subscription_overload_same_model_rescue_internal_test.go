@@ -16,14 +16,18 @@ import (
 
 // planThenPaidClient overloads the ChatGPT-plan attempt and serves the retry
 // that arrives on the deployment key, recording which credential each call used.
-type planThenPaidClient struct{ oauthPerCall []bool }
+type planThenPaidClient struct {
+	oauthPerCall []bool
+	models       []string
+}
 
 func (*planThenPaidClient) SupportsSubscriptions() bool { return true }
 
-func (c *planThenPaidClient) Proxy(ctx context.Context, _ router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
+func (c *planThenPaidClient) Proxy(ctx context.Context, decision router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
 	creds := CredentialsFromContext(ctx)
 	oauth := creds != nil && creds.OAuth
 	c.oauthPerCall = append(c.oauthPerCall, oauth)
+	c.models = append(c.models, decision.Model)
 	if oauth {
 		return &providers.UpstreamErrorResponse{
 			Status: http.StatusBadGateway,
@@ -56,7 +60,8 @@ func TestCodexPlanOverload_RetriesSameModelOnWeaveKey(t *testing.T) {
 	err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/chat/completions", body))
 
 	require.NoError(t, err)
-	assert.Equal(t, []bool{true, false}, client.oauthPerCall, "plan attempt first, then the same model on the deployment key")
+	assert.Equal(t, []bool{true, false}, client.oauthPerCall, "plan attempt first, then the deployment key")
+	assert.Equal(t, []string{codexCoveredModel, codexCoveredModel}, client.models, "the paid retry must keep the model the plan attempt failed on")
 	assert.Contains(t, rec.Body.String(), "served on the Weave key")
 	assert.NotContains(t, rec.Body.String(), "server_is_overloaded")
 }
