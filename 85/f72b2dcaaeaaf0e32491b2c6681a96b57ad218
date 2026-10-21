@@ -1,0 +1,22 @@
+db/migrations/20261019170417_default-hide-terminal-surfaces.down.sql
+  s_e6789ab2978050::t_ac853ec9de41b1 1-6
+db/migrations/20261019170417_default-hide-terminal-surfaces.up.sql
+  s_e6789ab2978050::t_ac853ec9de41b1 1-2,4-7
+  s_e6789ab2978050::t_e4b8dff5303638 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "85f72b2dcaaeaaf0e32491b2c6681a96b57ad218",
+  "prompts": {},
+  "sessions": {
+    "s_e6789ab2978050": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1551d-5001-71e2-bdaf-74eafb21979e",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

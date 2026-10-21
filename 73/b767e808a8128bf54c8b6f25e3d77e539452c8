@@ -1,0 +1,37 @@
+internal/router/policy/contract.go
+  s_80d9b7f7eef86b::t_e92f6b5d8e6a9d 106-108
+internal/proxy/decision_span_embed_test.go
+  s_80d9b7f7eef86b::t_c32875378493a8 49-50,112,127,144-145,173,183-231,239
+internal/router/router.go
+  s_80d9b7f7eef86b::t_bce0f30bf40258 266-268
+  s_80d9b7f7eef86b::t_7302bc618aff68 308-317
+internal/proxy/service.go
+  s_80d9b7f7eef86b::t_973a192dc44413 2628
+  s_80d9b7f7eef86b::t_a03840ee56bfc6 3400,3402-3417
+  s_80d9b7f7eef86b::t_24749ceba4e5a3 4745
+internal/router/policy/sidecar_router.go
+  s_80d9b7f7eef86b::t_ba3c04ce993f8b 432
+internal/proxy/gemini.go
+  s_80d9b7f7eef86b::t_25b4a8fa4b2269 171
+internal/policyclient/client.go
+  s_80d9b7f7eef86b::t_53115e6d4decff 488
+  s_80d9b7f7eef86b::t_72c9a66387a308 376-377,379-409
+internal/policyclient/client_test.go
+  s_80d9b7f7eef86b::t_7752f772c3c7b4 166-167,171,180,183-185,187-195,197-204,207-217,228-236
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "73b767e808a8128bf54c8b6f25e3d77e539452c8",
+  "prompts": {},
+  "sessions": {
+    "s_80d9b7f7eef86b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4d0fe794-4035-4a5e-97f9-285eeb68ee17",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

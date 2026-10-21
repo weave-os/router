@@ -1,0 +1,49 @@
+internal/sqlc/model_router_api_keys.sql.go
+  s_09a0dc83398285::t_3c8fcad2b924b9 278-279,281-283,286,288,290-318
+internal/sqlc/subscriber_billing.sql.go
+  s_09a0dc83398285::t_3c8fcad2b924b9 148,150,155,158,160,163-164,286,320,374,417,436-465,479
+  s_09a0dc83398285::t_caf7334d77aa0c 480
+scripts/mark_key_used_check/main_test.go
+  s_09a0dc83398285::t_91c543fee8fd49 21
+  s_09a0dc83398285::t_535a5056f16882 32,41,94-106
+internal/postgres/subscriber_credit_repo.go
+  s_09a0dc83398285::t_effd284894972c 298
+  s_09a0dc83398285::t_7b09c14dc03dfa 127-140
+  s_09a0dc83398285::t_dd10028d5adceb 105-114,116-117,155
+  s_09a0dc83398285::t_ebb05ebfe762da 203,208,224-228,242,244,246-251,253,265-275
+  s_09a0dc83398285::t_c4b1b7372c8f6f 229-238
+  s_09a0dc83398285::t_21d20ce6b3b989 296,299-307,311-313,316-321
+  s_09a0dc83398285::t_631627411fad65 103-104,119-126,141-152,165-179
+db/queries/subscriber_billing.sql
+  s_09a0dc83398285::t_0fc64759d5b8d4 56,110
+  s_09a0dc83398285::t_61a7576f70230b 22
+  s_09a0dc83398285::t_b37deda6d02b60 11-16,18-19,21,68,71
+internal/auth/api_key.go
+  s_09a0dc83398285::t_b78853c432c498 78
+internal/postgres/repository.go
+  s_09a0dc83398285::t_691a44e4152846 425-427,429
+  s_09a0dc83398285::t_d497c7b036fdcf 424
+internal/postgres/subscriber_credit_repo_test.go
+  s_09a0dc83398285::t_476f2ac929e639 233-269,344-387
+  s_09a0dc83398285::t_a0b59d755a4ffc 270-306
+  s_09a0dc83398285::t_7dbcfabe513ca3 307-343
+  s_09a0dc83398285::t_eaeefc535d3b10 388-389
+db/queries/model_router_api_keys.sql
+  s_09a0dc83398285::t_b37deda6d02b60 49-51,53-63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e533949fec7aa2c1efa588373e0a360e2914a9ab",
+  "prompts": {},
+  "sessions": {
+    "s_09a0dc83398285": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ea15-1f4f-7250-89be-d9b83ae4baf4",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

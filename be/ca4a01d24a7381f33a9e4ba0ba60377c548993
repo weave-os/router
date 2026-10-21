@@ -1,0 +1,41 @@
+cmd/router/local_policy_parity_test.go
+  s_8e5cb81a307766::t_645b1c831621e6 86-87,89,95-96,108,110,114
+internal/api/admin/routing_distribution.go
+  s_8e5cb81a307766::t_fe964e8dd3d767 77-79
+internal/api/admin/routing_distribution_test.go
+  s_8e5cb81a307766::t_a28cafc49d8936 130,152-158,160-162
+cmd/router/local_inspection.go
+  s_8e5cb81a307766::t_849ff32ee31af0 7,24-30
+cmd/router/main.go
+  s_8e5cb81a307766::t_dc21ce38075662 1554-1556
+  s_8e5cb81a307766::t_53e0039a4c6ea5 169
+cmd/router/local_serving_runtime.go
+  s_8e5cb81a307766::t_e7cf3e7656a258 156
+  s_8e5cb81a307766::t_645b1c831621e6 12-13,95-96,99,102,116,120,140-144,146,148,150,154-155,157-161,163
+internal/policyregistry/serving_readiness.go
+  s_8e5cb81a307766::t_94300831d9e05b 80-83,85,93
+cmd/router/local_inspection_test.go
+  s_8e5cb81a307766::t_43f3e32bebe57a 4,28-38
+internal/server/middleware/router_strategy_override.go
+  s_8e5cb81a307766::t_a8764e4acab82b 130-138
+internal/server/server.go
+  s_8e5cb81a307766::t_0ba46582b2379b 118-119,196-199,338,369,429,449
+internal/server/middleware/router_strategy_override_test.go
+  s_8e5cb81a307766::t_f3f93be17aaa24 149-173
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "beca4a01d24a7381f33a9e4ba0ba60377c548993",
+  "prompts": {},
+  "sessions": {
+    "s_8e5cb81a307766": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f350-587f-7920-bdb8-646b9ea2d8bd",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
