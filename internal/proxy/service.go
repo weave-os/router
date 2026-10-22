@@ -3643,7 +3643,7 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [session
 var anthropicPingFrame = []byte(sseEvent("ping", `{"type":"ping"}`))
 
 func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
-	ctx = withAttemptTrace(ctx, body)
+	ctx = withAttemptTrace(ctx, body, r.Header)
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
 	switch gjson.GetBytes(body, "thread.type").String() {
 	case translate.MessageThreadContinue:
@@ -5069,7 +5069,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			}
 			effortServed = baselineEffort
 			baselineBindings := s.resolveBindingsForDispatch(baselineCtx, baselineDecision)
-			baselineMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, baselineRoutingMarkerFor(routeRes, baselineModel), baselineModel, markerReasonBaseline))
+			baselineMarker := withRescueDetail(suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, baselineRoutingMarkerFor(routeRes, baselineModel), baselineModel, markerReasonBaseline)), lastFailureDetail(attemptTraceFromContext(ctx)))
 			baselineAttempt := anthropicTierAttemptFor(baselineOpts, baselinePrep, routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, baselineOpts.TargetModel, baselineMarker)).attempt(recordFastServed)
 			fastServed = baselineOpts.FastMode
 			crossFormat = false
@@ -5219,7 +5219,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			siblingCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, siblingDecision.Provider), siblingDecision.Model), siblingDecision.Provider, siblingDecision.Model, r.Header)
 			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
-			siblingMarker := siblingMarkerFor(ctx, r.Header, routeRes, decision.Model, siblingDecision.Model)
+			siblingMarker := withRescueDetail(siblingMarkerFor(ctx, r.Header, routeRes, decision.Model, siblingDecision.Model), lastFailureDetail(attemptTraceFromContext(ctx)))
 			siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker)
 			if siblingBuildErr != nil {
 				log.Error("Sibling failover: preparing the candidate request failed; trying the next candidate",
@@ -6907,7 +6907,7 @@ const (
 // ProxyOpenAIChatCompletion routes an OpenAI Chat Completion request,
 // translating cross-format when the decision picks a non-OpenAI provider.
 func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
-	ctx = withAttemptTrace(ctx, body)
+	ctx = withAttemptTrace(ctx, body, r.Header)
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
 	ctx, returnErr = s.withClassifierInput(ctx, body, router.EndpointOpenAIChat)
 	if returnErr != nil {
@@ -8285,7 +8285,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		retryCtx := resolveAndInjectCredentials(subscriptionStatePaidRescueContext(ctx, cyberRetryTarget.Model), cyberRetryTarget.Provider, cyberRetryTarget.Model, r.Header)
 		retryOpts.FastMode = fastModeForAttempt(retryCtx, cyberRetryTarget.Model, cyberRetryTarget.Provider)
 		retryBindings := s.resolveBindingsForDispatch(retryCtx, cyberRetryTarget)
-		retryMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, cyberRefusalRoutingMarkerFor(routeRes, cyberRetryTarget.Model), cyberRetryTarget.Model, markerReasonCyberRefusal))
+		retryMarker := withRescueDetail(suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, cyberRefusalRoutingMarkerFor(routeRes, cyberRetryTarget.Model), cyberRetryTarget.Model, markerReasonCyberRefusal)), lastFailureDetail(attemptTraceFromContext(ctx)))
 		retryAttempt, retryBuildErr := buildAttempt(cyberRetryTarget, retryOpts, retryMarker)
 		rw, responsesIngress := w.(*translate.ResponsesWriter)
 		switch {
@@ -8369,7 +8369,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			siblingCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, siblingDecision.Provider), siblingDecision.Model), siblingDecision.Provider, siblingDecision.Model, r.Header)
 			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
-			siblingMarker := siblingMarkerFor(ctx, r.Header, routeRes, decision.Model, siblingDecision.Model)
+			siblingMarker := withRescueDetail(siblingMarkerFor(ctx, r.Header, routeRes, decision.Model, siblingDecision.Model), lastFailureDetail(attemptTraceFromContext(ctx)))
 			siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker)
 			if siblingBuildErr != nil {
 				log.Error("Sibling failover: preparing the candidate request failed; trying the next candidate",
@@ -8806,7 +8806,7 @@ func stripResponsesTerminalArtifacts(body []byte) ([]byte, error) {
 // re-emitted as Responses-shaped SSE / JSON. This keeps the turn loop, cache,
 // pricing, and translation matrix unchanged.
 func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
-	ctx = withAttemptTrace(ctx, body)
+	ctx = withAttemptTrace(ctx, body, r.Header)
 	ctx = context.WithValue(ctx, responsesSurfaceContextKey{}, true)
 	ctx, inputErr := s.withClassifierInput(ctx, body, router.EndpointOpenAIResponses)
 	if inputErr != nil {

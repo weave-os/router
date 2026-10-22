@@ -309,6 +309,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 	case dispatch.FailureReasonProviderNotConfigured, dispatch.FailureReasonPrepare:
 		return lastIdx, runErr
 	}
+	runErr = attributeTerminalError(attemptTraceFromContext(ctx), runErr)
 	if in.flushErr != nil && !in.deferFlushOnExhaustion && !committed(in.buf) {
 		in.flushErr(in.w, runErr)
 	}

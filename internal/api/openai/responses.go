@@ -66,7 +66,7 @@ func ResponsesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc
 				return
 			}
 			log.Error("Proxy failed", "err", err)
-			writeOpenAIError(c, http.StatusBadGateway, "api_error", "Upstream call failed.")
+			writeOpenAIError(c, http.StatusBadGateway, "api_error", proxy.TerminalErrorMessage(err))
 			return
 		}
 	}

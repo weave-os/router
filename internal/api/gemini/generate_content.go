@@ -92,7 +92,7 @@ func GenerateContentHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handl
 				return
 			}
 			log.Error("Gemini proxy failed", "err", err)
-			writeGeminiError(c, http.StatusBadGateway, "UPSTREAM_ERROR", "Upstream call failed.")
+			writeGeminiError(c, http.StatusBadGateway, "UPSTREAM_ERROR", proxy.TerminalErrorMessage(err))
 		}
 	}
 }

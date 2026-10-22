@@ -39,7 +39,7 @@ func classifyFailureOwner(in failureOwnerInput) FailureOwner {
 	if err == nil {
 		return ""
 	}
-	if isUpstreamWatchdogError(err) || isStreamTerminalMissing(err) {
+	if isUpstreamWatchdogError(err) || isStreamTerminalMissing(err) || providers.IsUpstreamCyberPolicyRefusal(err) {
 		return FailureOwnerProvider
 	}
 	if cls, ok := ClassifyDispatchError(err); ok && cls.Kind != DispatchErrorUpstreamStatus {

@@ -231,7 +231,7 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 		return DispatchErrorClass{
 			Kind:    DispatchErrorUpstreamStatus,
 			Status:  statusErr.Status,
-			Message: "Upstream call failed.",
+			Message: TerminalErrorMessage(err),
 		}, true
 	case errors.As(err, &bufferedErr):
 		// Same as UpstreamStatusError: preserve the upstream status so a
@@ -240,7 +240,7 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 		return DispatchErrorClass{
 			Kind:    DispatchErrorUpstreamStatus,
 			Status:  bufferedErr.Status,
-			Message: "Upstream call failed.",
+			Message: TerminalErrorMessage(err),
 		}, true
 	case errors.Is(err, providers.ErrNotImplemented):
 		return DispatchErrorClass{

@@ -88,7 +88,7 @@ func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc 
 				return
 			}
 			log.Error("Proxy failed", "err", err)
-			writeAnthropicError(c, http.StatusBadGateway, "api_error", "Upstream call failed.")
+			writeAnthropicError(c, http.StatusBadGateway, "api_error", proxy.TerminalErrorMessage(err))
 			return
 		}
 	}

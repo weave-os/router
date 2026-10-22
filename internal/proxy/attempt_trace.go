@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"sync"
 
 	"github.com/tidwall/gjson"
@@ -24,6 +25,9 @@ type attemptTrace struct {
 	sent               []byte
 	customerCredential bool
 	attempts           []tracedAttempt
+	// hideRouterDetails is set when the request opted out of routing badges
+	// or the installation hides terminal surfaces.
+	hideRouterDetails bool
 }
 
 // tracedAttempt is one diagnosed upstream attempt.
@@ -37,11 +41,18 @@ func (a tracedAttempt) owner() FailureOwner { return FailureOwner(a.Diagnosis.Fa
 
 // withAttemptTrace starts tracing the attempts that dispatch inbound. A
 // surface that delegates to another keeps the outer surface's inbound body.
-func withAttemptTrace(ctx context.Context, inbound []byte) context.Context {
+func withAttemptTrace(ctx context.Context, inbound []byte, h http.Header) context.Context {
 	if attemptTraceFromContext(ctx) != nil {
 		return ctx
 	}
-	return context.WithValue(ctx, attemptTraceContextKey{}, &attemptTrace{inbound: inbound})
+	return context.WithValue(ctx, attemptTraceContextKey{}, &attemptTrace{
+		inbound:           inbound,
+		hideRouterDetails: suppressMarkerIfRequested(ctx, h, "x") == "",
+	})
+}
+
+func (t *attemptTrace) hideDetails() bool {
+	return t != nil && t.hideRouterDetails
 }
 
 func attemptTraceFromContext(ctx context.Context) *attemptTrace {
@@ -62,11 +73,29 @@ func (t *attemptTrace) observeSent(ctx context.Context, body []byte) {
 	if t == nil {
 		return
 	}
-	creds := CredentialsFromContext(ctx)
+	customer := customerOwnedCredential(ctx)
 	t.mu.Lock()
 	t.sent = body
-	t.customerCredential = creds != nil && creds.Source != ""
+	t.customerCredential = customer
 	t.mu.Unlock()
+}
+
+// customerOwnedCredential reports whether the attempt authenticated with the
+// customer's own key or subscription rather than a Weave-managed key or a
+// Weave-leased subscription account.
+func customerOwnedCredential(ctx context.Context) bool {
+	if managedSubscriptionCredentialSource(ctx) != "" {
+		return false
+	}
+	creds := CredentialsFromContext(ctx)
+	if creds == nil || len(creds.APIKey) == 0 || creds.SubscriptionAccountID != "" {
+		return false
+	}
+	switch creds.Source {
+	case credSourceBYOK, credSourceClient, credSourceSubscription, credSourceCodexSubscription:
+		return true
+	}
+	return false
 }
 
 // describe diagnoses the attempt dispatch just recorded and logs a failure
