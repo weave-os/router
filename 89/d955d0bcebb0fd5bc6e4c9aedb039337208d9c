@@ -1,0 +1,36 @@
+internal/translate/compaction_test.go
+  s_1e566b418f640d::t_6be2b1a01cfe8f 191-206
+internal/proxy/dispatch_error_test.go
+  s_1e566b418f640d::t_dcc10651feb07e 359-361
+internal/proxy/dispatch_plan.go
+  s_1e566b418f640d::t_ff4123d2b67508 136-140
+internal/dispatch/target_test.go
+  s_1e566b418f640d::t_dcc10651feb07e 40
+.github/workflows/smoke.yml
+  s_1e566b418f640d::t_91a8dd1e04126e 25-26
+internal/policyclient/resilience_test.go
+  s_1e566b418f640d::t_6be2b1a01cfe8f 160-175
+internal/policyclient/resilience.go
+  s_1e566b418f640d::t_7a1436a479126f 91
+  s_1e566b418f640d::t_63b5ee36c57eba 88,90,95
+internal/dispatch/target.go
+  s_1e566b418f640d::t_dcc10651feb07e 70
+internal/dispatch/executor.go
+  s_1e566b418f640d::t_dcc10651feb07e 310
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "89d955d0bcebb0fd5bc6e4c9aedb039337208d9c",
+  "prompts": {},
+  "sessions": {
+    "s_1e566b418f640d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "246667ac-2929-450d-b32a-9edfbd1010f3",
+        "model": "grok-4.6"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

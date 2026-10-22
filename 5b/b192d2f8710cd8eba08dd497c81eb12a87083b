@@ -1,0 +1,21 @@
+internal/proxy/service.go
+  s_58629a25e850e2::t_17d50e194eb96a 2972-2973
+internal/sse/keepalive_test.go
+  s_58629a25e850e2::t_17d50e194eb96a 96-97
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "5bb192d2f8710cd8eba08dd497c81eb12a87083b",
+  "prompts": {},
+  "sessions": {
+    "s_58629a25e850e2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c7c5ebb-d977-41dd-bbd9-5f8c3fecf2fe",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

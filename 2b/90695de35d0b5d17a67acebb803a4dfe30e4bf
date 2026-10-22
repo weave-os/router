@@ -1,0 +1,19 @@
+cmd/router/main.go
+  s_34c7b528a2660c::t_7c4d7ad8b487d5 1147-1174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2b90695de35d0b5d17a67acebb803a4dfe30e4bf",
+  "prompts": {},
+  "sessions": {
+    "s_34c7b528a2660c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a0872c-1993-76d1-bd9a-9a9c26a4cffb",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
