@@ -410,6 +410,8 @@ Set `DATABASE_URL` directly, or compose it from the individual vars:
 | `POSTGRES_SSLMODE`         | `require`                         | TLS mode. Use `disable` for local Docker. |
 | `POSTGRES_CONNECTION_NAME` | *(none)*                          | Cloud SQL Auth Proxy instance connection name. |
 
+Router connections report `application_name` as Cloud Run's `K_SERVICE`, or `router` elsewhere. Set `application_name` in `DATABASE_URL` or `PGAPPNAME` to override it.
+
 ## Server
 
 | Variable                 | Default      | Purpose |

@@ -101,6 +101,8 @@ func main() {
 		panic(err)
 	}
 	poolconfig.ConfigureTimeouts(cfg)
+	// Cloud Run sets K_SERVICE, so each service is distinguishable in pg_stat_activity.
+	poolconfig.ConfigureApplicationName(cfg, config.GetOr("K_SERVICE", "router"))
 	clientTLS, err := pgtls.Configure(cfg)
 	if err != nil {
 		logger.Error("Failed to configure postgres client TLS", "err", err)
