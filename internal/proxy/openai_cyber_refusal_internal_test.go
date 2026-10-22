@@ -148,7 +148,7 @@ func TestCyberRefusalGate_DropsPreambleOfFailedAttempt(t *testing.T) {
 	assert.Empty(t, rec.Body.String())
 }
 
-// A successful attempt still delivers what it held.
+// Only a nil attempt error releases the preamble; the failure hold must not swallow a served response.
 func TestCyberRefusalGate_ReleasesPreambleOfServedAttempt(t *testing.T) {
 	rec := httptest.NewRecorder()
 	gate := newCyberRefusalGate(rec, false).holdPreOutputFailure()
