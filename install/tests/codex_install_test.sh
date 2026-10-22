@@ -82,6 +82,12 @@ grep -qx 'model_provider = "weave"' "$config" \
 grep -qx 'model = "weave-auto"' "$config" \
   || fail "fresh Codex installs do not start in automatic routing mode"
 assert_top_level_setting model weave-auto
+python3 - "$config" <<'PY' || fail "fresh Codex install did not match Codex's 1M context window"
+import sys, tomllib
+config = tomllib.load(open(sys.argv[1], "rb"))
+assert config.get("model_context_window") == 872000, config.get("model_context_window")
+assert "model_auto_compact_token_limit" not in config
+PY
 grep -Fq '"X-Weave-Codex-Native-Model-Pin" = "1"' "$config" \
   || fail "Codex native model selection was not enabled"
 grep -qx 'requires_openai_auth = true' "$config" \
@@ -482,6 +488,9 @@ if grep -Fq 'model_provider = "weave"' "$config"; then
 fi
 if grep -Fq 'model = "weave-auto"' "$config"; then
   fail "uninstall left a Weave-only model on the direct provider"
+fi
+if grep -q '^model_context_window' "$config"; then
+  fail "uninstall left the managed Codex context window"
 fi
 # Codex's own state still has to survive an uninstall.
 grep -Fq '[projects."/Users/a/Code/weave"]' "$config" \

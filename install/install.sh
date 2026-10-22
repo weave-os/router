@@ -17,8 +17,9 @@
 # `dispatch` tool) — all structural (jq) merges.
 #
 # Two scopes (apply to all targets):
-#   --context-window 1m  Opt Claude Code into its selected model's 1M variant.
-#                        Preserves the prior setting for off/uninstall; never disables compaction.
+#   --context-window 1m|off  Claude Code installs default to the selected model's 1M
+#                        variant; 'off' keeps the model unchanged. Preserves the prior
+#                        setting for off/uninstall; never disables compaction.
 #
 #   - user (default):  ~/.claude/settings.json  + ~/.weave/cc-statusline.sh
 #                      ~/.codex/config.toml                       (with --codex)
@@ -117,6 +118,8 @@ npm_package_name="${WEAVE_ROUTER_NPM_PACKAGE:-@weave-os/router}"
 
 scope="user"
 context_window=""
+context_window_explicit="false"
+context_window_opt_out="false"
 scope_explicit="false"
 install_dir=""
 base_url=""
@@ -489,6 +492,9 @@ claude_statusline_router_owned() {
 # --codex) can find and replace the block instead of duplicating it.
 WEAVE_CODEX_BEGIN_MARKER="# >>> weave-router managed (do not edit between markers) >>>"
 WEAVE_CODEX_END_MARKER="# <<< weave-router managed <<<"
+# Codex's own max_context_window for its 1M-class models (gpt-6-*, gpt-5.6-*).
+# Keep in sync with npm/windows.js.
+CODEX_ONE_MILLION_CONTEXT_WINDOW=872000
 
 # ---------- identity helpers ----------
 #
@@ -866,7 +872,16 @@ write_codex_config() {
   # policy was current at install time, so a deployment-default change never
   # reaches them. Every endpoint, hosted or self-hosted, uses its own default.
   local headers_line="http_headers = { ${headers_parts} }"
+  # Codex 0.160+ ships its 1M models (gpt-6-*, gpt-5.6-*) with a 272K default
+  # window and an 872K max_context_window that the user must opt into.
+  # "weave-auto" is not in Codex's catalog, so without an explicit window Codex
+  # compacts far earlier than any routed model needs. Match Codex's own 1M
+  # maximum and leave model_auto_compact_token_limit unset so Codex derives
+  # the compaction point from that window as it does for its native models.
+  # The line lives inside the managed block so uninstall removes it; a
+  # user-authored top-level value outside the block wins and suppresses ours.
   local codex_model_line='model = "weave-auto"' codex_effort_line="" saved_option
+  local codex_context_line="model_context_window = ${CODEX_ONE_MILLION_CONTEXT_WINDOW}"
   saved_option="$(codex_existing_option "$config_file" model)"
   case "${saved_option:0:1}" in
     T) codex_model_line="" ;;
@@ -875,6 +890,10 @@ write_codex_config() {
   saved_option="$(codex_existing_option "$config_file" model_reasoning_effort)"
   case "${saved_option:0:1}" in
     S|B) codex_effort_line="${saved_option:1}" ;;
+  esac
+  saved_option="$(codex_existing_option "$config_file" model_context_window)"
+  case "${saved_option:0:1}" in
+    T|S) codex_context_line="" ;;
   esac
 
   local hook_feature_line="features.hooks = true"
@@ -961,6 +980,7 @@ ${WEAVE_CODEX_BEGIN_MARKER}
 # this block; \`./uninstall.sh --codex\` removes it. To opt out without
 # uninstalling, change the model_provider value below.
 ${hook_feature_line}
+${codex_context_line}
 model_provider = "weave"
 
 [model_providers.weave]
@@ -1504,7 +1524,11 @@ while [ $# -gt 0 ]; do
       ;;
     --context-window)
       context_window="${2:-}"
-      [ "$context_window" = "1m" ] || { err "--context-window requires '1m'."; exit 2; }
+      case "$context_window" in
+        1m) context_window_explicit="true" ;;
+        off) context_window=""; context_window_opt_out="true" ;;
+        *) err "--context-window requires '1m' or 'off'."; exit 2 ;;
+      esac
       shift 2
       ;;
     --base-url)
@@ -1618,7 +1642,7 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-if [ -n "$context_window" ]; then
+if [ -n "$context_window" ] || [ "$context_window_opt_out" = "true" ]; then
   if [ "$target" != "claude" ] || { [ "$mode" != "install" ] && [ "$mode" != "update" ]; }; then
     err "--context-window is supported only for Claude Code install/update."
     exit 2
@@ -2673,8 +2697,29 @@ prepare_claude_context_window() {
     context_settings_file="$local_settings_file"
   fi
   refuse_if_symlink "$settings_dir/.weave-context-window.json"
+  # Fresh installs default to the 1M variant so Claude Code's automatic
+  # compaction is sized for the routed models. Explicit requests fail on a
+  # conflict; the default only warns and leaves the model unchanged.
+  if [ -z "$context_window" ] && [ "$mode" = "install" ] && [ "$context_window_opt_out" != "true" ]; then
+    context_window="1m"
+  fi
   [ -n "$context_window" ] || return 0
+  local target_status=0
+  claude_context_window_target || target_status=$?
+  if [ "$target_status" -ne 0 ]; then
+    context_window=""
+    # Status 2 means the model is already a 1M variant: nothing to do.
+    [ "$target_status" -eq 1 ] && [ "$context_window_explicit" = "true" ] && return 1
+    return 0
+  fi
+}
 
+# claude_context_window_target resolves the [1m] model to write into
+# context_managed_model. It reports conflicts as errors for an explicit
+# --context-window request and as warnings for the install default.
+claude_context_window_target() {
+  local report="warn"
+  [ "$context_window_explicit" = "true" ] && report="err"
   local source model="" disabled="${CLAUDE_CODE_DISABLE_1M_CONTEXT:-}" env_model="${ANTHROPIC_MODEL:-}"
   # Highest-priority settings first; project opt-in is written only locally.
   for source in "$context_settings_file" "$settings_file" "$HOME/.claude/settings.json"; do
@@ -2684,18 +2729,18 @@ prepare_claude_context_window() {
     [ -n "$env_model" ] || env_model="$(json_get "$source" '.env.ANTHROPIC_MODEL')"
   done
   if [ -n "$disabled" ] && [ "$disabled" != "0" ] && [ "$disabled" != "false" ]; then
-    err "1M context is disabled in your Claude Code settings; remove that opt-out before using --context-window."
+    "$report" "1M context is disabled in your Claude Code settings (CLAUDE_CODE_DISABLE_1M_CONTEXT); leaving the model unchanged."
     return 1
   fi
   if [ -n "$env_model" ]; then
-    err "ANTHROPIC_MODEL overrides the model setting. Select its [1m] variant there instead; leaving it unchanged."
+    "$report" "ANTHROPIC_MODEL overrides the model setting. Select its [1m] variant there instead; leaving it unchanged."
     return 1
   fi
   model="${model:-sonnet}"
   case "$model" in
-    *'[1m]') context_window=""; return 0 ;;
+    *'[1m]') return 2 ;;
     sonnet|opus|fable|claude-sonnet-4-6|claude-sonnet-5|claude-sonnet-5-5|claude-haiku-5-5|claude-opus-4-6|claude-opus-4-7|claude-opus-4-8|claude-opus-5|claude-opus-5-5|claude-fable-5|claude-fable-5-1) ;;
-    *) err "Cannot assert 1M support for '$model'. Select a supported Sonnet/Opus/Fable model first; leaving it unchanged."; return 1 ;;
+    *) "$report" "Cannot assert 1M support for '$model'. Select a supported Sonnet/Opus/Fable model first; leaving it unchanged."; return 1 ;;
   esac
   context_managed_model="${model}[1m]"
 }

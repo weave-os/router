@@ -162,7 +162,7 @@ cloud-provider routing, and network access. See also
 
 | Path                       | Purpose                                                       |
 | -------------------------- | ------------------------------------------------------------- |
-| `~/.codex/config.toml`     | Adds a managed `[model_providers.weave]` block and sets top-level `model_provider = "weave"`. Fresh installs select `model = "weave-auto"`; the model and reasoning effort stay outside the managed markers so reinstalling preserves your selection. The provider preserves the existing ChatGPT OAuth login and keeps the target router's default routing strategy. |
+| `~/.codex/config.toml`     | Adds a managed `[model_providers.weave]` block and sets top-level `model_provider = "weave"`. Fresh installs select `model = "weave-auto"`; the model and reasoning effort stay outside the managed markers so reinstalling preserves your selection. The managed block also sets `model_context_window = 872000`, Codex's own maximum for its 1M models, so compaction triggers at the same point as native gpt-6 sessions; a top-level `model_context_window` you set yourself takes precedence. The provider preserves the existing ChatGPT OAuth login and keeps the target router's default routing strategy. |
 | `~/.weave/codex-status.sh` | Codex `SessionStart`/`Stop` hook helper. Keeps the latest routed model in the terminal title without adding status messages to the conversation. |
 
 The status helper is installed with mode `0700`, stores only the session's requested and routed model IDs under `${XDG_CACHE_HOME:-~/.cache}/weave-router/codex/`, and never stores prompts, credentials, or response bodies. Existing Codex hooks are preserved and the managed hooks are safe to reinstall or remove.
@@ -442,8 +442,9 @@ match the registry.
 
 A custom API base URL can make Claude Code use a 200k local context budget
 even when the router serves a 1M-capable model. Changing the upstream model or
-adding its beta header does not by itself change that local compaction budget.
-To opt into Claude Code's explicit 1M model variant:
+adding its beta header does not by itself change that local compaction budget,
+so a fresh install selects Claude Code's explicit 1M model variant. To apply it
+to an existing install:
 
 ```bash
 npx @weave-os/router update --claude --context-window 1m
@@ -455,9 +456,10 @@ Use it with a router/provider pool that can serve long-context requests;
 enabling the client window does not expand any upstream model's capacity.
 Longer retained histories can increase token usage and cost.
 
-The setting is opt-in: ordinary install/update keeps your model unchanged.
-An existing `ANTHROPIC_MODEL` override, a 1M opt-out, or an unrecognized model
-is not overwritten. Project installs write the selection only to
+Pass `--context-window off` to keep your model unchanged on install; a routine
+`update` also keeps it unchanged. An existing `ANTHROPIC_MODEL` override, a 1M
+opt-out, or an unrecognized model is not overwritten: install warns and
+continues, while an explicit `--context-window 1m` fails. Project installs write the selection only to
 `settings.local.json`. The previous value is recorded in
 `.claude/.weave-context-window.json`; `off`/uninstall restore it, `on` restores
 the opted-in variant, and a later user model edit is preserved. Restart Claude

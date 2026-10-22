@@ -13,6 +13,8 @@ const git = require("isomorphic-git");
 
 const defaultBaseUrl = process.env.WEAVE_ROUTER_URL || "https://router.workweave.ai";
 const packageName = process.env.WEAVE_ROUTER_NPM_PACKAGE || "@weave-os/router";
+// Codex's own max_context_window for its 1M models (gpt-6-*, gpt-5.6-*); keep in sync with install.sh.
+const CODEX_ONE_MILLION_CONTEXT_WINDOW = 872000;
 const claudeAttribution = {
   commit: "Co-Authored-By: Weave Router <router@weaveos.com>",
   pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)",
@@ -244,6 +246,10 @@ function installCodex(paths, baseUrl, key, email) {
   const hasUserModel = typeof currentModel === "string" && currentModel !== "weave-auto";
   settings.model_provider = "weave";
   if (!hasUserModel) settings.model = "weave-auto";
+  // Match Codex's own max_context_window for its 1M models; keep in sync with install.sh.
+  state.modelContextWindow ||= { exists: Object.hasOwn(settings, "model_context_window") };
+  writeJson(paths.state, state);
+  if (!state.modelContextWindow.exists) settings.model_context_window = CODEX_ONE_MILLION_CONTEXT_WINDOW;
   settings.model_providers ||= {};
   settings.model_providers.weave = {
     name: "Weave Router",
@@ -342,6 +348,7 @@ function uninstall(paths, target) {
     if (!settings.model_providers?.weave?.http_headers?.["X-Weave-Router-Key"]) return;
     restoreField(settings, "model_provider", readJson(paths.state).modelProvider, "weave");
     if (settings.model === "weave-auto") delete settings.model;
+    if (!readJson(paths.state).modelContextWindow?.exists && settings.model_context_window === CODEX_ONE_MILLION_CONTEXT_WINDOW) delete settings.model_context_window;
     delete settings.model_providers?.weave;
     if (settings.model_providers && !Object.keys(settings.model_providers).length) delete settings.model_providers;
     writeToml(paths.config, settings);

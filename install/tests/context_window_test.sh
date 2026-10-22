@@ -33,9 +33,29 @@ settings="$test_home/.claude/settings.json"
 state="$test_home/.claude/.weave-context-window.json"
 
 printf '%s\n' '{"model":"opus","statusLine":{"type":"command","command":"my-status"},"env":{"MY_SETTING":"keep"}}' >"$settings"
-run
+run --context-window off
 test "$(model "$settings")" = opus
 test ! -e "$state"
+
+# A plain fresh install defaults to the 1M variant, and uninstall restores it.
+run
+test "$(model "$settings")" = 'opus[1m]'
+test "$(jq -r '.original' "$state")" = opus
+uninstall
+test "$(model "$settings")" = opus
+test ! -e "$state"
+
+# The default warns instead of failing when 1M can't be asserted.
+printf '%s\n' '{"model":"custom-model"}' >"$settings"
+run
+test "$(model "$settings")" = custom-model
+grep -q 'Cannot assert 1M support' "$work/output"
+uninstall
+printf '%s\n' '{"env":{"CLAUDE_CODE_DISABLE_1M_CONTEXT":"true"}}' >"$settings"
+run
+test "$(model "$settings")" = unset
+uninstall
+printf '%s\n' '{"model":"opus","statusLine":{"type":"command","command":"my-status"},"env":{"MY_SETTING":"keep"}}' >"$settings"
 
 # A first-time context-window opt-in also works through update mode.
 run_update --context-window 1m
