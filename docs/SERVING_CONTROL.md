@@ -549,9 +549,11 @@ conversations use the current assignment. Preserve assignment generations during
 roster content updates: changing enrollment, authorization, entitlement or profile
 assignment generations deliberately triggers the existing rebind behavior.
 
-Retention remains bounded by the existing session lifecycle: 24 hours idle, seven
-days from activation supersession, then at least 15 minutes drain grace. Explicit
-withdrawals still force rebind. Preserve every policy, selection set, candidate,
+A conversation keeps its activation while it stays active and rebinds to the
+current activation once it has been idle for one hour, the session-pin prompt-cache
+window. Supersession age alone never forces a rebind; explicit withdrawal is the way
+to move active conversations immediately. In-flight requests drain on the old worker
+revision for at least 15 minutes. Preserve every policy, selection set, candidate,
 classifier artifact, physical revision and bootstrap closure referenced by eligible
 sessions, feedback attribution or the supported rollback history. Cache eviction
 is not permission to delete an artifact. This runtime performs no history garbage

@@ -380,10 +380,10 @@ func TestServingRequestIDIsAnyNonEmptyBoundedString(t *testing.T) {
 	}
 }
 
-func TestSessionReleaseIdleAndSupersessionBoundaries(t *testing.T) {
+func TestSessionReleaseIdleBoundary(t *testing.T) {
 	firstSet, secondSet := fixtureSet("one"), fixtureSet("two")
 	first, _ := activateFixture(t, policyregistry.ServingStateSnapshot{}, firstSet, servingEpoch)
-	second, _ := activateFixture(t, first, secondSet, servingEpoch.Add(time.Hour))
+	second, _ := activateFixture(t, first, secondSet, servingEpoch.Add(time.Minute))
 	sets := map[string]policyregistry.SelectionSetView{servingRef(t, policyregistry.ServingSelectionSets, firstSet).SHA256: firstSet.View(), servingRef(t, policyregistry.ServingSelectionSets, secondSet).SHA256: secondSet.View()}
 	projection := policyregistry.AdmissionProjection{Target: policyregistry.TargetStable}
 	initial, err := policyregistry.SelectSessionRelease(nil, projection, first, sets, testRegistryRoot, servingEpoch)
@@ -395,10 +395,9 @@ func TestSessionReleaseIdleAndSupersessionBoundaries(t *testing.T) {
 		lastAdmission time.Time
 		retained      bool
 	}{
-		{"before_idle", servingEpoch.Add(24*time.Hour - time.Nanosecond), servingEpoch, true},
-		{"at_idle", servingEpoch.Add(24 * time.Hour), servingEpoch, false},
-		{"before_retirement", servingEpoch.Add(time.Hour + 7*24*time.Hour - time.Nanosecond), servingEpoch.Add(7 * 24 * time.Hour), true},
-		{"at_retirement", servingEpoch.Add(time.Hour + 7*24*time.Hour), servingEpoch.Add(7 * 24 * time.Hour), false},
+		{"before_idle", servingEpoch.Add(time.Hour - time.Nanosecond), servingEpoch, true},
+		{"at_idle", servingEpoch.Add(time.Hour), servingEpoch, false},
+		{"active_long_after_supersession", servingEpoch.Add(30 * 24 * time.Hour), servingEpoch.Add(30*24*time.Hour - 59*time.Minute), true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			previous := initial
@@ -852,7 +851,7 @@ func TestProfileVersionAdvancePreservesOtherCustomerAndDefault(t *testing.T) {
 	projection := policyregistry.AdmissionProjection{Target: policyregistry.TargetStable, ProfileKey: profileKeyOne, AssignmentGeneration: 1}
 	previous, err := policyregistry.SelectSessionRelease(nil, projection, initial.Snapshot, sets, testRegistryRoot, servingEpoch)
 	require.NoError(t, err)
-	retained, err := policyregistry.SelectSessionRelease(&previous, projection, updated.Snapshot, sets, testRegistryRoot, servingEpoch.Add(time.Hour))
+	retained, err := policyregistry.SelectSessionRelease(&previous, projection, updated.Snapshot, sets, testRegistryRoot, servingEpoch.Add(59*time.Minute))
 	require.NoError(t, err)
 	assert.Equal(t, initialView.Profiles[profileKeyOne], retained.Selection)
 	newConversation, err := policyregistry.SelectSessionRelease(nil, projection, updated.Snapshot, sets, testRegistryRoot, servingEpoch.Add(time.Hour))

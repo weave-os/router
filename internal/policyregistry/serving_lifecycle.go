@@ -15,9 +15,9 @@ import (
 
 const (
 	// ServingIdleLifetime is measured from the last admitted request, not stream completion.
-	ServingIdleLifetime = 24 * time.Hour
-	// ServingRetirementLifetime starts once, when an activation is superseded.
-	ServingRetirementLifetime = 7 * 24 * time.Hour
+	// It matches the one-hour session-pin TTL: a rebind resets the conversation's routing
+	// state, so it must only happen once the provider prompt cache has gone cold.
+	ServingIdleLifetime = time.Hour
 	// ServingDrainGrace exceeds the current maximum 600-second worker request duration.
 	ServingDrainGrace = 15 * time.Minute
 )
@@ -316,7 +316,7 @@ func SelectSessionRelease(previous *SessionReleaseBinding, projection AdmissionP
 			if !sameSelection(selected, previous.Selection) {
 				return SessionReleaseBinding{}, errors.New("persisted session selection differs from its activation")
 			}
-			eligible := previous.ProfileKey == projection.ProfileKey && previous.ProfileName == projection.ProfileName && previous.Plan == projection.Plan && previous.EntitlementVersion == projection.EntitlementVersion && previous.EnrollmentGeneration == projection.EnrollmentGeneration && previous.AssignmentGeneration == projection.AssignmentGeneration && now.Before(previous.LastAdmittedAt.Add(ServingIdleLifetime)) && activation.WithdrawnAt == nil && (activation.SupersededAt == nil || now.Before(activation.SupersededAt.Add(ServingRetirementLifetime)))
+			eligible := previous.ProfileKey == projection.ProfileKey && previous.ProfileName == projection.ProfileName && previous.Plan == projection.Plan && previous.EntitlementVersion == projection.EntitlementVersion && previous.EnrollmentGeneration == projection.EnrollmentGeneration && previous.AssignmentGeneration == projection.AssignmentGeneration && now.Before(previous.LastAdmittedAt.Add(ServingIdleLifetime)) && activation.WithdrawnAt == nil
 			if eligible {
 				retained := *previous
 				retained.LastAdmittedAt = now
