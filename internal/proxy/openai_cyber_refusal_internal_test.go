@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"errors"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -131,6 +132,33 @@ func TestCyberRefusalGate_DeliversFailureAfterOutput(t *testing.T) {
 
 	assert.False(t, gate.failureWithheld)
 	assert.Equal(t, stream, rec.Body.String())
+}
+
+// A stream cut before output carries no failure frame; the attempt's error is
+// the only evidence, and the held preamble must still be dropped.
+func TestCyberRefusalGate_DropsPreambleOfFailedAttempt(t *testing.T) {
+	rec := httptest.NewRecorder()
+	gate := newCyberRefusalGate(rec, false).holdPreOutputFailure()
+
+	_, err := gate.Write([]byte(responsesCreatedFrame))
+	require.NoError(t, err)
+	require.NoError(t, gate.finalizeAttempt(errors.New("upstream idle timeout")))
+
+	assert.True(t, gate.failureWithheld)
+	assert.Empty(t, rec.Body.String())
+}
+
+// A successful attempt still delivers what it held.
+func TestCyberRefusalGate_ReleasesPreambleOfServedAttempt(t *testing.T) {
+	rec := httptest.NewRecorder()
+	gate := newCyberRefusalGate(rec, false).holdPreOutputFailure()
+
+	_, err := gate.Write([]byte(responsesCreatedFrame))
+	require.NoError(t, err)
+	require.NoError(t, gate.finalizeAttempt(nil))
+
+	assert.False(t, gate.failureWithheld)
+	assert.Equal(t, responsesCreatedFrame, rec.Body.String())
 }
 
 // Without the failure hold an armed refusal gate keeps today's behavior: a

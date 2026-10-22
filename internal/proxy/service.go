@@ -7795,7 +7795,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 						nativeRespSummary = true
 					}
 				}
-				if releaseErr := refusalGate.Finalize(); releaseErr != nil && (err == nil || providers.IsUpstreamCyberPolicyRefusal(releaseErr)) {
+				if releaseErr := refusalGate.finalizeAttempt(err); releaseErr != nil && (err == nil || providers.IsUpstreamCyberPolicyRefusal(releaseErr)) {
 					err = releaseErr
 				}
 				if refusalGate.refused {

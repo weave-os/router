@@ -194,6 +194,19 @@ func (g *cyberRefusalGate) Finalize() error {
 	return g.release()
 }
 
+// finalizeAttempt is Finalize for an attempt that returned attemptErr. With the
+// failure hold on, a failed attempt drops a still-withheld preamble even when
+// no failure frame arrived (a cut stream, an idle timeout): released, the
+// preamble would commit the client to a response the rescue then cannot replace.
+func (g *cyberRefusalGate) finalizeAttempt(attemptErr error) error {
+	if g.holdFailure && g.holding && attemptErr != nil && !providers.ContainsCyberPolicyRefusal(g.held.Bytes()) {
+		g.failureWithheld = true
+		g.Abandon()
+		return nil
+	}
+	return g.Finalize()
+}
+
 // Abandon drops anything still withheld without delivering it, for an attempt
 // that will be retried: released, the preamble would commit the client to it.
 func (g *cyberRefusalGate) Abandon() {
