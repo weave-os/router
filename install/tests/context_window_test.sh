@@ -149,6 +149,15 @@ uninstall --dir "$work/isolated"
 test "$(model "$work/isolated/.claude/settings.json")" = unset
 test "$(model "$settings")" = opus
 
-if run --codex --context-window 1m; then echo 'wrong target unexpectedly accepted'; exit 1; fi
+if run --opencode --context-window 1m; then echo 'wrong target unexpectedly accepted'; exit 1; fi
 if run --context-window 200k; then echo 'invalid window unexpectedly accepted'; exit 1; fi
+
+# Review-panel flags apply the same choices non-interactively.
+printf '%s\n' '{"model":"opus"}' >"$settings"
+run --no-statusline --no-attribution --yes
+test "$(model "$settings")" = 'opus[1m]'
+test "$(jq -r 'has("statusLine")' "$settings")" = false
+test "$(jq -r 'has("attribution")' "$settings")" = false
+test "$(jq -r '.env.ENABLE_TOOL_SEARCH' "$settings")" = true
+uninstall
 echo 'Claude context-window lifecycle tests passed'

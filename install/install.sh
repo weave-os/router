@@ -20,6 +20,10 @@
 #   --context-window 1m|off  Claude Code installs default to the selected model's 1M
 #                        variant; 'off' keeps the model unchanged. Preserves the prior
 #                        setting for off/uninstall; never disables compaction.
+#   --no-statusline      Claude Code: skip the Weave status line.
+#   --no-attribution     Claude Code: leave commit/PR attribution unchanged.
+#   --no-hooks           Codex: skip the Weave status and toggle hooks.
+#   --yes                Accept the recommended settings without the review panel.
 #
 #   - user (default):  ~/.claude/settings.json  + ~/.weave/cc-statusline.sh
 #                      ~/.codex/config.toml                       (with --codex)
@@ -120,6 +124,11 @@ scope="user"
 context_window=""
 context_window_explicit="false"
 context_window_opt_out="false"
+# Optional extras the review panel (or --no-* flags) can turn off.
+statusline_wanted="true"
+attribution_wanted="true"
+codex_hooks_wanted="true"
+settings_review="true"
 scope_explicit="false"
 install_dir=""
 base_url=""
@@ -895,11 +904,15 @@ write_codex_config() {
   case "${saved_option:0:1}" in
     T|S) codex_context_line="" ;;
   esac
+  [ "$context_window_opt_out" != "true" ] || codex_context_line=""
 
   local hook_feature_line="features.hooks = true"
   local hook_block=""
   local codex_hooks_enabled="true"
-  if [ -f "$config_file" ]; then
+  if [ "$codex_hooks_wanted" != "true" ]; then
+    codex_hooks_enabled="false"
+    hook_feature_line=""
+  elif [ -f "$config_file" ]; then
     if awk '
       !in_section && /^[[:space:]]*hooks[[:space:]]*=/ { conflict=1 }
       $0 == "[hooks]" { conflict=1 }
@@ -1096,7 +1109,7 @@ EOF
       mv "$tmp" "$config_file"
     fi
   fi
-  if [ "$codex_hooks_enabled" != "true" ]; then
+  if [ "$codex_hooks_enabled" != "true" ] && [ "$codex_hooks_wanted" = "true" ]; then
     warn "Existing Codex hooks configuration is not an inline array; preserving it and skipping the Weave status hooks. Routing is still enabled."
   fi
   # 0600: the file holds a router key. Even at user scope, mode 644 would
@@ -1531,6 +1544,18 @@ while [ $# -gt 0 ]; do
       esac
       shift 2
       ;;
+    --no-statusline)
+      statusline_wanted="false"; shift
+      ;;
+    --no-attribution)
+      attribution_wanted="false"; shift
+      ;;
+    --no-hooks)
+      codex_hooks_wanted="false"; shift
+      ;;
+    --yes|-y)
+      settings_review="false"; shift
+      ;;
     --base-url)
       base_url="${2:-}"; shift 2
       [ -n "$base_url" ] || { err "--base-url requires a value."; exit 2; }
@@ -1643,8 +1668,8 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -n "$context_window" ] || [ "$context_window_opt_out" = "true" ]; then
-  if [ "$target" != "claude" ] || { [ "$mode" != "install" ] && [ "$mode" != "update" ]; }; then
-    err "--context-window is supported only for Claude Code install/update."
+  if { [ "$target" != "claude" ] && [ "$target" != "codex" ]; } || { [ "$mode" != "install" ] && [ "$mode" != "update" ]; }; then
+    err "--context-window is supported only for Claude Code and Codex install/update."
     exit 2
   fi
   target_explicit="true"
@@ -2162,7 +2187,11 @@ if [ "$target" = "claude" ]; then
     statusline_install="false"
     skip "Existing Claude Code statusline detected; leaving it unchanged."
   fi
-  if [ "$statusline_install" = "true" ] \
+  # statusline_available: the slot is ours to write. The review panel or
+  # --no-statusline can still decline it.
+  statusline_available="$statusline_install"
+  [ "$statusline_wanted" = "true" ] || statusline_install="false"
+  if [ "$statusline_available" = "true" ] \
      && [ -f "$statusline_candidate_file" ] \
      && [ ! -w "$statusline_candidate_file" ]; then
     chmod u+rw "$statusline_candidate_file"
@@ -2175,14 +2204,14 @@ if [ "$target" = "claude" ]; then
     refuse_if_symlink "$settings_dir"
     refuse_if_symlink "$settings_file"
     refuse_if_symlink "$local_settings_file"
-    if [ "$statusline_install" = "true" ]; then
+    if [ "$statusline_available" = "true" ]; then
       refuse_if_symlink "$statusline_file"
       refuse_if_symlink "$statusline_ownership_file"
     fi
   fi
 
   mkdir -p "$settings_dir"
-  if [ "$statusline_install" = "true" ]; then
+  if [ "$statusline_available" = "true" ]; then
     mkdir -p "$statusline_dir"
   fi
 elif [ "$target" = "codex" ]; then
@@ -2720,6 +2749,7 @@ prepare_claude_context_window() {
 claude_context_window_target() {
   local report="warn"
   [ "$context_window_explicit" = "true" ] && report="err"
+  context_window_conflict=""
   local source model="" disabled="${CLAUDE_CODE_DISABLE_1M_CONTEXT:-}" env_model="${ANTHROPIC_MODEL:-}"
   # Highest-priority settings first; project opt-in is written only locally.
   for source in "$context_settings_file" "$settings_file" "$HOME/.claude/settings.json"; do
@@ -2729,18 +2759,25 @@ claude_context_window_target() {
     [ -n "$env_model" ] || env_model="$(json_get "$source" '.env.ANTHROPIC_MODEL')"
   done
   if [ -n "$disabled" ] && [ "$disabled" != "0" ] && [ "$disabled" != "false" ]; then
+    context_window_conflict="CLAUDE_CODE_DISABLE_1M_CONTEXT is set"
     "$report" "1M context is disabled in your Claude Code settings (CLAUDE_CODE_DISABLE_1M_CONTEXT); leaving the model unchanged."
     return 1
   fi
   if [ -n "$env_model" ]; then
+    context_window_conflict="ANTHROPIC_MODEL is set"
     "$report" "ANTHROPIC_MODEL overrides the model setting. Select its [1m] variant there instead; leaving it unchanged."
     return 1
   fi
   model="${model:-sonnet}"
+  context_current_model="$model"
   case "$model" in
     *'[1m]') return 2 ;;
     sonnet|opus|fable|claude-sonnet-4-6|claude-sonnet-5|claude-sonnet-5-5|claude-haiku-5-5|claude-opus-4-6|claude-opus-4-7|claude-opus-4-8|claude-opus-5|claude-opus-5-5|claude-fable-5|claude-fable-5-1) ;;
-    *) "$report" "Cannot assert 1M support for '$model'. Select a supported Sonnet/Opus/Fable model first; leaving it unchanged."; return 1 ;;
+    *)
+      context_window_conflict="'$model' has no known 1M variant"
+      "$report" "Cannot assert 1M support for '$model'. Select a supported Sonnet/Opus/Fable model first; leaving it unchanged."
+      return 1
+      ;;
   esac
   context_managed_model="${model}[1m]"
 }
@@ -4021,6 +4058,200 @@ elif [ -n "$user_email" ]; then
   ok "Will identify router traffic as $user_email"
 else
   info "No identity set — router traffic will be attributed by account UUID only."
+fi
+
+# ---------- settings review panel ----------
+#
+# Shows the client settings this install is about to write, with the
+# recommended values already chosen, before anything touches the client's
+# config. Enter accepts; 'c' toggles optional items; 'n' cancels with nothing
+# written. Required settings (tool search, routing) are shown but locked.
+# Every toggle has a matching flag (--context-window off, --no-statusline,
+# --no-attribution, --no-hooks) so scripted installs make the same choices,
+# and --yes / --non-interactive / --quiet / no tty skip the panel entirely.
+
+# display_path shortens a path under $HOME to ~/… for display.
+display_path() {
+  case "$1" in
+    "$HOME"/*) printf '~/%s' "${1#"$HOME"/}" ;;
+    *) printf '%s' "$1" ;;
+  esac
+}
+
+# settings_row prints one panel line: state mark, label, detail, note.
+# Usage: settings_row <number|-> <on|off|locked|warn> <label> <detail> [note]
+settings_row() {
+  local number="$1" state="$2" label="$3" detail="$4" note="${5:-}" mark
+  case "$state" in
+    on|locked) mark="${C_GREEN}✓${C_RESET}" ;;
+    warn)      mark="${C_YELLOW}!${C_RESET}" ;;
+    *)         mark="${C_DIM}·${C_RESET}" ;;
+  esac
+  if [ "$number" = "-" ]; then
+    number="  "
+  else
+    number="${C_BRAND}${number})${C_RESET}"
+  fi
+  if [ "$state" = "off" ]; then
+    detail="${C_DIM}off${C_RESET}"
+  elif [ "$state" = "warn" ]; then
+    detail="${C_YELLOW}${detail}${C_RESET}"
+  fi
+  [ -z "$note" ] || note="  ${C_DIM}${note}${C_RESET}"
+  printf "  %s %s %-14s %s%s\n" "$number" "$mark" "$label" "$detail" "$note" >/dev/tty
+}
+
+# claude_context_preview fills context_preview_state/detail/note for the
+# Claude Code 1M row without writing anything or printing warnings.
+claude_context_preview() {
+  context_settings_file="$settings_file"
+  if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
+    context_settings_file="$local_settings_file"
+  fi
+  context_current_model=""
+  local preview_status=0
+  claude_context_window_target 2>/dev/null || preview_status=$?
+  case "$preview_status" in
+    0) context_preview_state="on"; context_preview_detail="$context_current_model → $context_managed_model"; context_preview_note="compaction stays on" ;;
+    2) context_preview_state="locked"; context_preview_detail="already on a 1M model"; context_preview_note="" ;;
+    *) context_preview_state="warn"; context_preview_detail="$context_window_conflict"; context_preview_note="model left unchanged" ;;
+  esac
+  [ "$context_window_opt_out" != "true" ] || [ "$context_preview_state" != "on" ] || context_preview_state="off"
+}
+
+# codex_context_preview fills the same fields for the Codex window row.
+codex_context_preview() {
+  local existing
+  existing="$(codex_existing_option "$codex_config_file" model_context_window)"
+  case "${existing:0:1}" in
+    T|S)
+      context_preview_state="locked"
+      context_preview_detail="$(printf '%s' "${existing:1}" | sed 's/^[[:space:]]*//')"
+      context_preview_note="your setting is kept"
+      ;;
+    *)
+      context_preview_state="on"
+      context_preview_detail="model_context_window = $CODEX_ONE_MILLION_CONTEXT_WINDOW"
+      context_preview_note="Codex's 1M max; compaction derived"
+      [ "$context_window_opt_out" != "true" ] || context_preview_state="off"
+      ;;
+  esac
+}
+
+# render_settings_review prints the panel and records which numbered rows can
+# be toggled in settings_review_toggles (space-separated keys, in order).
+render_settings_review() {
+  local numbered="$1" index=0 state client_label
+  settings_review_toggles=""
+  case "$target" in
+    claude) client_label="Claude Code" ;;
+    *)      client_label="Codex" ;;
+  esac
+  printf "\n%sRecommended settings for %s%s\n" "$C_BOLD" "$client_label" "$C_RESET" >/dev/tty
+  printf "  %s──────────────────────────────────────────────────────────%s\n" "$C_DIM" "$C_RESET" >/dev/tty
+  next_row_number() {
+    if [ "$numbered" = "true" ]; then
+      index=$((index + 1))
+      settings_review_toggles="${settings_review_toggles}${settings_review_toggles:+ }$1"
+      row_number="$index"
+    else
+      row_number="-"
+    fi
+  }
+  if [ "$target" = "claude" ]; then
+    settings_row - locked "Tool search" "ENABLE_TOOL_SEARCH=true" "required"
+    claude_context_preview
+    if [ "$context_preview_state" = "on" ] || [ "$context_preview_state" = "off" ]; then
+      next_row_number context
+    else
+      row_number="-"
+    fi
+    settings_row "$row_number" "$context_preview_state" "1M context" "$context_preview_detail" "$context_preview_note"
+    if [ "$statusline_available" != "true" ]; then
+      settings_row - locked "Status line" "your existing status line" "kept"
+    else
+      state="on"; [ "$statusline_wanted" = "true" ] || state="off"
+      next_row_number statusline
+      settings_row "$row_number" "$state" "Status line" "$(display_path "$statusline_file")"
+    fi
+    state="on"; [ "$attribution_wanted" = "true" ] || state="off"
+    next_row_number attribution
+    settings_row "$row_number" "$state" "Attribution" "credit Weave Router in commits and PRs"
+  else
+    settings_row - locked "Routing" "model_provider = weave" "required"
+    codex_context_preview
+    if [ "$context_preview_state" = "locked" ]; then
+      row_number="-"
+    else
+      next_row_number context
+    fi
+    settings_row "$row_number" "$context_preview_state" "1M context" "$context_preview_detail" "$context_preview_note"
+    state="on"; [ "$codex_hooks_wanted" = "true" ] || state="off"
+    next_row_number hooks
+    settings_row "$row_number" "$state" "Status hooks" "SessionStart / Stop / PreCompact"
+  fi
+  if [ "$context_preview_state" = "warn" ]; then
+    printf "\n  %s!%s %sUnset it or switch to a [1m] model to get 1M compaction.%s\n" "$C_YELLOW" "$C_RESET" "$C_DIM" "$C_RESET" >/dev/tty
+  fi
+}
+
+# toggle_settings_review_item flips the setting behind one toggle key.
+toggle_settings_review_item() {
+  case "$1" in
+    context)
+      if [ "$context_window_opt_out" = "true" ]; then
+        context_window_opt_out="false"
+      else
+        context_window_opt_out="true"; context_window=""; context_window_explicit="false"
+      fi
+      ;;
+    statusline)
+      if [ "$statusline_wanted" = "true" ]; then statusline_wanted="false"; else statusline_wanted="true"; fi
+      statusline_install="$statusline_wanted"
+      [ "$statusline_available" = "true" ] || statusline_install="false"
+      ;;
+    attribution)
+      if [ "$attribution_wanted" = "true" ]; then attribution_wanted="false"; else attribution_wanted="true"; fi
+      ;;
+    hooks)
+      if [ "$codex_hooks_wanted" = "true" ]; then codex_hooks_wanted="false"; else codex_hooks_wanted="true"; fi
+      ;;
+  esac
+}
+
+review_client_settings() {
+  local answer choice key
+  render_settings_review false
+  printf "\nApply these? %s[Y/n/c]%s %s(c = customize)%s: " "$C_BOLD" "$C_RESET" "$C_DIM" "$C_RESET" >/dev/tty
+  read -r answer </dev/tty || answer=""
+  case "$answer" in
+    ""|y|Y|yes) return 0 ;;
+    n|N|no) err "Install cancelled; nothing was written."; exit 1 ;;
+    c|C) ;;
+    *) err "Invalid choice: $answer."; exit 2 ;;
+  esac
+  while :; do
+    render_settings_review true
+    printf "\nToggle a number, or Enter to apply: " >/dev/tty
+    read -r choice </dev/tty || choice=""
+    [ -n "$choice" ] || return 0
+    key=""
+    case "$choice" in
+      *[!0-9]*) ;;
+      *) key="$(printf '%s\n' "$settings_review_toggles" | awk -v n="$choice" '{ print $n }')" ;;
+    esac
+    if [ -z "$key" ]; then
+      warn "Choose one of the numbered settings."
+      continue
+    fi
+    toggle_settings_review_item "$key"
+  done
+}
+
+if [ "$mode" = "install" ] && [ "$settings_review" = "true" ] \
+   && [ "$non_interactive" != "true" ] && [ "$quiet" != "true" ] && [ -r /dev/tty ] \
+   && { [ "$target" = "claude" ] || [ "$target" = "codex" ]; }; then
+  review_client_settings
 fi
 
 # ---------- slash command wrappers (Claude Code and opencode) ----------
@@ -6683,21 +6914,23 @@ write_claude_settings() {
   # Force tool-search deferral to match first-party Claude Code; "auto" can inline
   # every tool schema when the custom endpoint advertises a 200K context window.
   if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
-    jq -n --arg url "$base_url" --arg sl "$statusline_path_for_settings" --arg statusline_install "$statusline_install" '{
+    jq -n --arg url "$base_url" --arg sl "$statusline_path_for_settings" --arg statusline_install "$statusline_install" --arg attribution_wanted "$attribution_wanted" '{
       env: { ANTHROPIC_BASE_URL: $url, ENABLE_TOOL_SEARCH: "true" },
       attribution: {
         commit: "Co-Authored-By: Weave Router <router@weaveos.com>",
         pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
       }
-    } + (if $statusline_install == "true" then {statusLine: { type: "command", command: $sl }} else {} end)' >"$tmp_patch"
+    } + (if $statusline_install == "true" then {statusLine: { type: "command", command: $sl }} else {} end)
+      | (if $attribution_wanted == "true" then . else del(.attribution) end)' >"$tmp_patch"
   else
-    jq -n --arg url "$base_url" --arg header "$custom_headers" --arg sl "$statusline_path_for_settings" --arg statusline_install "$statusline_install" '{
+    jq -n --arg url "$base_url" --arg header "$custom_headers" --arg sl "$statusline_path_for_settings" --arg statusline_install "$statusline_install" --arg attribution_wanted "$attribution_wanted" '{
       env: { ANTHROPIC_BASE_URL: $url, ANTHROPIC_CUSTOM_HEADERS: $header, ENABLE_TOOL_SEARCH: "true" },
       attribution: {
         commit: "Co-Authored-By: Weave Router <router@weaveos.com>",
         pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
       }
-    } + (if $statusline_install == "true" then {statusLine: { type: "command", command: $sl }} else {} end)' >"$tmp_patch"
+    } + (if $statusline_install == "true" then {statusLine: { type: "command", command: $sl }} else {} end)
+      | (if $attribution_wanted == "true" then . else del(.attribution) end)' >"$tmp_patch"
   fi
 
   # Merge with existing settings. Deep-merge env and replace statusLine only

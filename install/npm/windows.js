@@ -123,6 +123,10 @@ function parseArgs(args) {
     if (["--claude", "--codex", "--opencode", "--pi"].includes(arg)) options.target = arg.slice(2);
     else if (arg === "--uninstall") options.mode = "uninstall";
     else if (arg === "--non-interactive") options.nonInteractive = true;
+    // The settings review panel lives in install.sh; the native installer
+    // always applies the recommended settings, so these flags are accepted
+    // for command compatibility. It writes no status line or Codex hooks.
+    else if (["--yes", "-y", "--no-statusline", "--no-hooks"].includes(arg)) continue;
     else if (arg === "--local") options.baseUrl = "http://localhost:8080";
     else if (arg === "-h" || arg === "--help") options.help = true;
     else if (["--scope", "--dir", "--base-url", "--email", "--return-url"].includes(arg)) {

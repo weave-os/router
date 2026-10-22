@@ -47,6 +47,28 @@ Without `--scope`, it then asks user vs. project (defaults to user).
 `--non-interactive` skips both prompts (target defaults to Claude Code) —
 useful for CI and `curl | sh` pipelines.
 
+For Claude Code and Codex, an interactive install then shows the settings it
+is about to write, with the recommended values already selected:
+
+```text
+Recommended settings for Claude Code
+  ──────────────────────────────────────────────────────────
+     ✓ Tool search    ENABLE_TOOL_SEARCH=true  required
+     ✓ 1M context     opus → opus[1m]  compaction stays on
+     ✓ Status line    ~/.weave/cc-statusline.sh
+     ✓ Attribution    credit Weave Router in commits and PRs
+
+Apply these? [Y/n/c] (c = customize):
+```
+
+Enter applies them, `n` cancels with nothing written, and `c` numbers the
+optional rows so you can toggle them. A setting that can't be applied, such as
+1M context while `ANTHROPIC_MODEL` is set, shows as `!` with the reason. Each
+toggle has a flag for scripted installs: `--context-window off`,
+`--no-statusline`, `--no-attribution` (Claude Code), and `--no-hooks`
+(Codex). `--yes`, `--non-interactive`, and `--quiet` skip the panel and
+apply the recommended settings.
+
 The installer also prompts for your API key (or reads `$WEAVE_ROUTER_KEY`
 for non-interactive installs). Re-running it reuses the key already on disk,
 so you only ever paste it once — see [Staying up to date](#staying-up-to-date).

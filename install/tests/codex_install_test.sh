@@ -977,4 +977,18 @@ if [ -f "$config" ] && grep -Fq 'base_url = "http://127.0.0.1:41984/v1"' "$confi
   fail "failed classifier probe modified the Codex provider"
 fi
 
+# --context-window off and --no-hooks skip the optional managed settings.
+run_uninstall >/dev/null 2>&1 || true
+HOME="$home" PATH="$test_path" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
+  bash "$installer" --codex --scope user --quiet --base-url https://router.workweave.ai \
+    --context-window off --no-hooks >/dev/null 2>&1 || true
+grep -qx 'model_provider = "weave"' "$config" \
+  || fail "opt-out flags stopped Codex routing"
+if grep -q '^model_context_window' "$config"; then
+  fail "--context-window off still wrote the Codex window"
+fi
+if grep -Fq '[[hooks.SessionStart]]' "$config"; then
+  fail "--no-hooks still registered Codex hooks"
+fi
+
 echo "Codex installer routing regression tests passed"
