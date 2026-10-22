@@ -49,7 +49,19 @@ func TestPlanOwnedServingIgnoresCustomerRoutingControls(t *testing.T) {
 	assert.Nil(t, routingKnobsForRequest(ctx))
 	assert.Nil(t, (&Service{}).preferredModelsForRequest(ctx))
 	assert.Nil(t, clusterArmOverridesForRequest(ctx))
-	assert.NotContains(t, (&Service{}).excludedModelsForRequest(ctx), "customer-excluded")
+}
+
+func TestPlanOwnedServingHonorsCustomerExcludedModels(t *testing.T) {
+	t.Parallel()
+
+	for name, ctx := range map[string]context.Context{"max": planOwnedContext(), "boost": boostPlanOwnedContext()} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			svc := &Service{}
+			assert.Contains(t, svc.excludedModelsForRequest(ctx), "customer-excluded")
+			assert.Contains(t, svc.forcePolicyExcludedModels(ctx), "customer-excluded")
+		})
+	}
 }
 
 func TestBoostServingAllowsForceModelHeader(t *testing.T) {

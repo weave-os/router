@@ -1156,10 +1156,9 @@ func (s *Service) excludedModelsFor(ctx context.Context, allowed map[string]stru
 	if s.excludedModelsOverride != nil {
 		return mergeExcludedModels(s.excludedModelsOverride, ineligible)
 	}
-	var excluded []string
-	if !planOwnedServingRequest(ctx) || subscriptionStateModelsEnabled(ctx) {
-		excluded = installationExcludedModelsFromContext(ctx)
-	}
+	// Plan-owned serving drops the installation's positive routing controls,
+	// but an explicit exclusion is the customer's hard opt-out and always applies.
+	excluded := installationExcludedModelsFromContext(ctx)
 	out := make(map[string]struct{}, len(excluded)+len(ineligible))
 	for _, m := range excluded {
 		out[m] = struct{}{}
