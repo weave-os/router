@@ -26,10 +26,10 @@ func TestRouteMessagesPreserveTaskAtEveryPosition(t *testing.T) {
 				bytes := 0
 				for _, message := range got {
 					bytes += len(message.Text)
-					assert.LessOrEqual(t, len(message.Text), 8000)
+					assert.LessOrEqual(t, len(message.Text), 3000)
 					assert.True(t, utf8.ValidString(message.Text), "invalid UTF-8 at boundary %d", position)
 				}
-				assert.LessOrEqual(t, bytes, 128000)
+				assert.LessOrEqual(t, bytes, 48000)
 			})
 		}
 	}
@@ -75,13 +75,7 @@ func FuzzRouteMessagesPreserveBoundary(f *testing.F) {
 			messages[i] = router.ConversationMessage{Role: "assistant", Text: strings.Repeat("a", 3000)}
 		}
 		messages[int(index)%len(messages)] = router.ConversationMessage{Role: "user", Text: task}
-		got := latestUserText(routeMessages(messages))
-		trimmed := strings.TrimSpace(task)
-		assert.True(t, utf8.ValidString(got))
-		assert.True(t, strings.HasPrefix(trimmed, got))
-		assert.LessOrEqual(t, len(got), 8000)
-		if len(trimmed) <= 8000 {
-			assert.Equal(t, trimmed, got)
-		}
+		want := clipRouteText(task, 3000)
+		assert.Equal(t, want, latestUserText(routeMessages(messages)))
 	})
 }

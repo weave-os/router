@@ -62,6 +62,10 @@ type Capabilities struct {
 	// AuthoritativePerTurnSelection makes eligible main/tool-result decisions
 	// model-authoritative through dispatch.
 	AuthoritativePerTurnSelection bool `json:"authoritative_per_turn_selection"`
+	// InteractionStatePackageSHA256s lists the loaded classifier packages that
+	// read interaction-state inputs: the wider per-message clip and
+	// omitted_user_turn_count. Every other package keeps the default request.
+	InteractionStatePackageSHA256s []string `json:"interaction_state_package_sha256s,omitempty"`
 }
 
 // CapabilitySource returns the live capability set of a sidecar router.
@@ -125,6 +129,9 @@ type Query struct {
 	// ArtifactSHA256 selects a boot-loaded sidecar package; empty serves the
 	// sidecar's default package.
 	ArtifactSHA256 string
+	// InteractionStateInputs is set when the strategy's classifier package is
+	// one the sidecar listed in InteractionStatePackageSHA256s.
+	InteractionStateInputs bool
 }
 
 // Result is a policy sidecar's selected candidate and decision metadata.

@@ -99,6 +99,15 @@ router-generated summarizer calls for those turns. Post-selection synthetic
 loop breakers are also bypassed so one accepted policy action maps to one
 selected model dispatch attempt.
 
+An optional `interaction_state_package_sha256s` list names the loaded
+classifier packages that were trained on interaction-state inputs. A v4
+request goes to such a package only from the strategy that package serves.
+For those requests, the router clips each routed message at 8,000 bytes
+(128,000 in total) instead of 3,000 (48,000 in total). Once the shared budget
+cuts a message, older messages carry no text. The request also sets
+`omitted_user_turn_count`. Every other package receives the default request
+unchanged, and a sidecar that omits the list receives only default requests.
+
 The subscription usage-bypass gate is deliberately outside that list: it
 decides whether a turn is routed and billed at all, so a caller's own prepaid
 Claude/Codex quota still passes straight through and the `/route` call is never

@@ -107,6 +107,14 @@ func (r *SidecarRouter) CurrentCapabilities() Capabilities {
 	return r.capabilities
 }
 
+// classifierReadsInteractionStateInputs is keyed by this strategy's own
+// package, so an interaction-state alternate never changes the inputs another
+// strategy's classifier receives.
+func (r *SidecarRouter) classifierReadsInteractionStateInputs(capabilities Capabilities) bool {
+	return r.config.ClassifierArtifactSHA256 != "" &&
+		slices.Contains(capabilities.InteractionStatePackageSHA256s, r.config.ClassifierArtifactSHA256)
+}
+
 func (r *SidecarRouter) ReportOutcome(ctx context.Context, payload map[string]interface{}) error {
 	r.capabilitiesMu.RLock()
 	enabled := !r.capabilitiesSet || r.capabilities.ReportsOutcomes
@@ -142,6 +150,7 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 	strategy := r.config.Strategy
 	r.capabilitiesMu.RLock()
 	previewUnsupported := r.capabilitiesSet && !r.capabilities.SupportsPreview
+	interactionStateInputs := r.classifierReadsInteractionStateInputs(r.capabilities)
 	r.capabilitiesMu.RUnlock()
 	if previewUnsupported {
 		return PreviewResult{}, fmt.Errorf("%s: sidecar does not support preview: %w", strategy, r.config.Unavailable)
@@ -154,7 +163,7 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 	resolved := r.resolver.Resolve(req)
 	requestRouteID := uuid.NewString()
 	pin, pinned := router.HonouredPolicyPin(ctx)
-	result, err := previewer.Preview(ctx, Query{
+	query := Query{
 		ArtifactSHA256:       pin.ArtifactSHA256,
 		SchemaVersion:        r.resolver.SchemaVersion(),
 		Strategy:             strategy,
@@ -183,7 +192,9 @@ func (r *SidecarRouter) PreviewRoute(ctx context.Context, req router.Request) (P
 		CaptureMode:          req.CaptureMode,
 		DebugEnabled:         true,
 		Candidates:           resolved.Candidates,
-	})
+	}
+	query.InteractionStateInputs = interactionStateInputs
+	result, err := previewer.Preview(ctx, query)
 	if err != nil {
 		if errors.Is(err, router.ErrPolicyPinUnavailable) {
 			return PreviewResult{}, fmt.Errorf("%s: sidecar preview: %w", strategy, err)
@@ -381,7 +392,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 	if pinned && r.armSelector == nil {
 		return router.Decision{}, fmt.Errorf("%s: roster pin requires router-owned arm selection: %w", strategy, router.ErrPolicyPinUnavailable)
 	}
-	res, err := r.decider.Decide(ctx, Query{
+	query := Query{
 		TaskDomain:           req.TaskDomain,
 		ClassifierPrediction: req.ClassifierPrediction,
 		ArtifactSHA256:       pin.ArtifactSHA256,
@@ -412,7 +423,9 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		CaptureMode:          req.CaptureMode,
 		DebugEnabled:         req.DebugEnabled,
 		Candidates:           resolved.Candidates,
-	})
+	}
+	query.InteractionStateInputs = r.classifierReadsInteractionStateInputs(capabilities)
+	res, err := r.decider.Decide(ctx, query)
 	if err != nil {
 		observability.FromContext(ctx).Error("Policy router sidecar decision failed",
 			append([]any{"strategy", strategy, "err", err}, candidateLogFields(resolved)...)...)
