@@ -8307,7 +8307,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				"fallback_provider", cyberRetryTarget.Provider)
 		// The refused attempt streamed native Responses; the fallback speaks
 		// another format, so the writer has to translate for the rest of the turn.
-		case verbatimPassthrough && (!responsesIngress || !rw.ClearPassthrough()):
+		case verbatimPassthrough && (!responsesIngress || !clearWithheldPassthrough(rw, preludeBuf)):
 			log.Warn("Cyber-refusal retry: Responses passthrough already committed; surfacing the refusal",
 				"fallback_model", cyberRetryTarget.Model)
 		default:
@@ -8382,7 +8382,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// on another vendor speaks Chat Completions, so the writer translates
 			// for the rest of the turn, as the cyber-refusal rescue does.
 			if verbatimPassthrough && siblingDecision.Provider != providers.ProviderOpenAI {
-				if rw, responsesIngress := w.(*translate.ResponsesWriter); !responsesIngress || !rw.ClearPassthrough() {
+				if rw, responsesIngress := w.(*translate.ResponsesWriter); !responsesIngress || !clearWithheldPassthrough(rw, preludeBuf) {
 					log.Warn("Sibling failover: Responses passthrough already committed; trying the next candidate",
 						"sibling_model", siblingDecision.Model,
 						"sibling_provider", siblingDecision.Provider)

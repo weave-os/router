@@ -289,6 +289,17 @@ func committed(b *preludeBuffer) bool {
 	return b.Committed()
 }
 
+// clearWithheldPassthrough returns a native Responses writer to translation
+// mode for an off-format rescue. A pinned turn emits no routing notice, so the
+// failed attempt's 200 header is all the writer saw, and buf held it back from
+// the client; that header must not count as a commitment.
+func clearWithheldPassthrough(rw *translate.ResponsesWriter, buf *preludeBuffer) bool {
+	if buf != nil && !buf.Committed() && !buf.PreludeSent() {
+		rw.ForgetWithheldHeaders()
+	}
+	return rw.ClearPassthrough()
+}
+
 // subscriptionRotationBudget bounds how long included-capacity accounts and
 // model alternatives may be leased and admitted, shared across one request's
 // rotation walk. It never cancels an attempt already in flight: provider

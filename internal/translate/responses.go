@@ -905,6 +905,19 @@ func (t *ResponsesWriter) ClearPassthrough() bool {
 	return true
 }
 
+// ForgetWithheldHeaders drops the record of a passthrough header write that
+// the caller's retry buffer held back from the client. Without it a pinned
+// native attempt that failed before any output reads as committed, and a
+// rescue on another format is refused. No-op once any event was written.
+func (t *ResponsesWriter) ForgetWithheldHeaders() {
+	if !t.passthrough || t.nativePreludeCreated || t.nativeStreamStarted || t.headersEmitted || t.buf.Len() > 0 {
+		return
+	}
+	t.httpHeadersSent = false
+	t.statusCode = 0
+	t.streaming = false
+}
+
 // SetPassthroughBadge switches to native Responses passthrough with a visible
 // badge. Text-free turns get a synthetic assistant item to carry it.
 func (t *ResponsesWriter) SetPassthroughBadge() {
