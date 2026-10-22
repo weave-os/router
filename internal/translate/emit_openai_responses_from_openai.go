@@ -290,7 +290,7 @@ func writeResponsesToolsFromOpenAI(jw *jsonWriter, body []byte) {
 		})
 		return true
 	})
-	writeResponsesFunctionTools(jw, collected)
+	_ = writeResponsesFunctionTools(jw, collected, openAIReferencedToolNames(body))
 }
 
 // writeResponsesToolChoiceFromOpenAI maps the chat tool_choice to the

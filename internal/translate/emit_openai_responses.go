@@ -324,7 +324,7 @@ func (e *RequestEnvelope) buildResponsesFromAnthropic(opts EmitOptions) ([]byte,
 		jw.EndArr()
 	}
 
-	writeResponsesToolsFromAnthropic(jw, body)
+	stats.OpenAIToolsCapped = writeResponsesToolsFromAnthropic(jw, body)
 	writeResponsesToolChoiceFromAnthropic(jw, body)
 	writeOpenAIParallelToolCallsFromAnthropic(jw, body)
 
@@ -622,7 +622,7 @@ func flattenAnthropicToolResultContent(content gjson.Result) string {
 // rather than failing the request. toolcheck still validates against the
 // ORIGINAL schema downstream — strict mode's nullable optionals produce
 // explicit nulls that toolcheck's normalize pass strips before the client sees them.
-func writeResponsesToolsFromAnthropic(jw *jsonWriter, body []byte) {
+func writeResponsesToolsFromAnthropic(jw *jsonWriter, body []byte) (capped int) {
 	var collected []responsesFunctionTool
 	gjson.GetBytes(body, "tools").ForEach(func(_, tool gjson.Result) bool {
 		collected = append(collected, responsesFunctionTool{
@@ -632,7 +632,7 @@ func writeResponsesToolsFromAnthropic(jw *jsonWriter, body []byte) {
 		})
 		return true
 	})
-	writeResponsesFunctionTools(jw, collected)
+	return writeResponsesFunctionTools(jw, collected, anthropicReferencedToolNames(body))
 }
 
 // responsesFunctionTool is one source-format-neutral function tool.
@@ -643,16 +643,25 @@ type responsesFunctionTool struct {
 }
 
 // writeResponsesFunctionTools emits the `tools` key in the flat Responses shape.
-func writeResponsesFunctionTools(jw *jsonWriter, tools []responsesFunctionTool) {
+func writeResponsesFunctionTools(jw *jsonWriter, tools []responsesFunctionTool, referenced []string) (capped int) {
 	if len(tools) == 0 {
-		return
+		return 0
+	}
+	names := make([]string, len(tools))
+	for i, tool := range tools {
+		names[i] = tool.name
+	}
+	if selected := selectOpenAIToolIndexes(names, referenced); selected != nil {
+		kept := make([]responsesFunctionTool, len(selected))
+		for i, idx := range selected {
+			kept[i] = tools[idx]
+		}
+		capped = len(tools) - len(kept)
+		tools = kept
 	}
 	jw.Key("tools")
 	jw.Arr()
-	for i, tool := range tools {
-		if i >= openAIMaxTools {
-			break
-		}
+	for _, tool := range tools {
 		var params any
 		strict := false
 		if tool.schema.Exists() {
@@ -694,6 +703,7 @@ func writeResponsesFunctionTools(jw *jsonWriter, tools []responsesFunctionTool) 
 		jw.EndObj()
 	}
 	jw.EndArr()
+	return capped
 }
 
 // writeResponsesToolChoiceFromAnthropic maps the Anthropic tool_choice to the

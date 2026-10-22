@@ -348,7 +348,7 @@ func (e *RequestEnvelope) buildOpenAIFromAnthropic(opts EmitOptions) ([]byte, pr
 	}
 
 	// Tools
-	writeOpenAIToolsFromAnthropic(jw, body)
+	stats.OpenAIToolsCapped = writeOpenAIToolsFromAnthropic(jw, body)
 
 	// Tool choice
 	writeOpenAIToolChoiceFromAnthropic(jw, body)
@@ -812,24 +812,31 @@ func buildOpenAIImagePart(block gjson.Result) string {
 	return string(inner.Bytes())
 }
 
-const openAIMaxTools = 128
-
 // writeOpenAIToolsFromAnthropic emits the "tools" key into jw by converting
 // Anthropic tool definitions to OpenAI function-calling format.
-func writeOpenAIToolsFromAnthropic(jw *jsonWriter, body []byte) {
+func writeOpenAIToolsFromAnthropic(jw *jsonWriter, body []byte) (capped int) {
 	tools := gjson.GetBytes(body, "tools")
 	if !tools.Exists() || !tools.IsArray() || tools.Get("#").Int() == 0 {
-		return
+		return 0
+	}
+
+	toolList := tools.Array()
+	names := make([]string, len(toolList))
+	for i, tool := range toolList {
+		names[i] = tool.Get("name").String()
+	}
+	if selected := selectOpenAIToolIndexes(names, anthropicReferencedToolNames(body)); selected != nil {
+		kept := make([]gjson.Result, len(selected))
+		for i, idx := range selected {
+			kept[i] = toolList[idx]
+		}
+		capped = len(toolList) - len(kept)
+		toolList = kept
 	}
 
 	jw.Key("tools")
 	jw.Arr()
-	count := 0
-	tools.ForEach(func(_, tool gjson.Result) bool {
-		if count >= openAIMaxTools {
-			return false
-		}
-		count++
+	for _, tool := range toolList {
 		var params any
 		if schema := tool.Get("input_schema"); schema.Exists() {
 			_ = json.Unmarshal([]byte(schema.Raw), &params)
@@ -857,9 +864,9 @@ func writeOpenAIToolsFromAnthropic(jw *jsonWriter, body []byte) {
 		jw.RawBytes(paramBytes)
 		jw.EndObj()
 		jw.EndObj()
-		return true
-	})
+	}
 	jw.EndArr()
+	return capped
 }
 
 // writeOpenAIToolChoiceFromAnthropic emits the "tool_choice" key into jw by

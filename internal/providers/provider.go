@@ -800,6 +800,9 @@ type RequestMutationStats struct {
 	// ServerToolsStripped counts native server tools (web_search_*, web_fetch_*)
 	// removed before emitting to a non-Anthropic upstream. See websearch.StripServerTools.
 	ServerToolsStripped int
+	// OpenAIToolsCapped counts tools left out because the request declared more
+	// than an OpenAI-family upstream accepts. See translate/openai_tool_cap.go.
+	OpenAIToolsCapped int
 	// GeminiReminderInjected is true when the Gemini 3.x tool-use reminder was
 	// appended to systemInstruction. See translate/system_reminder.go.
 	GeminiReminderInjected bool
