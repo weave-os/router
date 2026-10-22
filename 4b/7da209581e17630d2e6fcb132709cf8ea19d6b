@@ -1,0 +1,46 @@
+internal/proxy/usage/usage_test.go
+  s_6bd2081d775c8f::t_bb89d925974365 132-133
+  s_6bd2081d775c8f::t_be7db026ceae6e 122-131
+  s_6bd2081d775c8f::t_1c970c3d403ea7 102,114-121
+internal/proxy/credential_key_parts_internal_test.go
+  s_6bd2081d775c8f::t_f7ab9aa7f16c12 111-124
+  s_6bd2081d775c8f::t_1c970c3d403ea7 97,103-108
+  s_6bd2081d775c8f::t_c6672b103042e5 109-110
+internal/proxy/usage/usage.go
+  s_6bd2081d775c8f::t_8b32333f006634 80
+  s_6bd2081d775c8f::t_be7db026ceae6e 148
+  s_6bd2081d775c8f::t_518f7702d33b42 84-86,372
+  s_6bd2081d775c8f::t_3e9d22d2e109f0 78
+  s_6bd2081d775c8f::t_abb8b7c3bdcfae 79
+  s_6bd2081d775c8f::t_8dc1877e3cbab6 71,81-83,87-91,360-366,370-371,373-374
+docs/ANALYTICS_EXPORT.md
+  s_6bd2081d775c8f::t_8dc1877e3cbab6 235-236,239-242
+internal/sqlc/model_router_request_telemetry.sql.go
+  s_6bd2081d775c8f::t_b5b88f5450980a 119,126-129,324,331-334
+internal/proxy/subsidy_test.go
+  s_6bd2081d775c8f::t_1c970c3d403ea7 123
+internal/proxy/usage/AGENTS.md
+  s_6bd2081d775c8f::t_bac9fcf41e65bb 11,20
+internal/proxy/managed_subscriptions.go
+  s_6bd2081d775c8f::t_f7ab9aa7f16c12 136-145
+db/queries/model_router_request_telemetry.sql
+  s_6bd2081d775c8f::t_8dc1877e3cbab6 787,794-797
+internal/proxy/usage/CLAUDE.md
+  s_6bd2081d775c8f::t_8dc1877e3cbab6 11,20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "4b7da209581e17630d2e6fcb132709cf8ea19d6b",
+  "prompts": {},
+  "sessions": {
+    "s_6bd2081d775c8f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f4eb-51b4-7ca0-9ba7-a09a7ee1c767",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+install/install.sh
+  s_e5bc34fea03f3c::t_b5d518d17c5796 1194-1196
+  s_e5bc34fea03f3c::t_802feb2494c61a 1197
+install/tests/key_reuse_test.sh
+  s_e5bc34fea03f3c::t_0d29600d68dda9 332-336,338
+  s_e5bc34fea03f3c::t_b1719d104db056 371
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "af48c3f503ed6a39e9909e5d908c47a71fe78055",
+  "prompts": {},
+  "sessions": {
+    "s_e5bc34fea03f3c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "47e26dac-14b4-4c5f-8b96-28687d110163",
+        "model": "claude-opus-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

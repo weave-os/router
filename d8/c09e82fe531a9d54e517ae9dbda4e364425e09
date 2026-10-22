@@ -1,0 +1,44 @@
+internal/proxy/AGENTS.md
+  s_820054ea85251d::t_b9291b71fbb497 107-109,123-126,134-138
+cmd/router/main.go
+  s_820054ea85251d::t_47bd9851390739 812-813,1391
+internal/proxy/overload_breaker.go
+  s_820054ea85251d::t_51430c145550bf 8
+  s_820054ea85251d::t_0f23fa45730815 23-28,93-96,100-103,109-111,114-115
+docs/CONFIGURATION.md
+  s_820054ea85251d::t_47bd9851390739 498
+internal/router/breaker/breaker.go
+  s_820054ea85251d::t_44a2dc30e5d7cb 85-88,254-260,301,311
+  s_820054ea85251d::t_e2eb1f1934f3f1 10-14,19,33,38,53-54,56-60,65-66,81-84,90,93-95,104-109,111-127,130,135-136,138,155-157,159-160,218,220-221,225-226,228-234,236-241,246,248-253,261-265,268-274,276-294,305,307,315-318,349,351,356,377-380,382,384-385,388,390,395,399-408,410
+internal/proxy/overload_breaker_internal_test.go
+  s_820054ea85251d::t_3e8cb9836fc6bc 96,118-122,137,139,157,166,173,188,207,212,250,267-270,273-275,297,314,331,345,381,389,401,433,446,448,454,456,475,494
+  s_820054ea85251d::t_dcf41acf127d28 298,315
+internal/proxy/CLAUDE.md
+  s_820054ea85251d::t_69df042684817e 107-109,123-126,134-138
+internal/router/breaker/breaker_test.go
+  s_820054ea85251d::t_d0dca28959b2d5 1,44,49-50,59-60,69,72,75,88,92,149,161,164,166,175,213,228,232,259,273,293-294,306,340-341,370
+  s_820054ea85251d::t_164c8035ffcc02 29-43,351,353,386-430
+internal/proxy/service.go
+  s_820054ea85251d::t_47bd9851390739 4043,7203
+  s_820054ea85251d::t_0f23fa45730815 4838,4842,7996,7999
+internal/router/breaker/thresholds.go
+  s_820054ea85251d::t_e2eb1f1934f3f1 3,5-23,26-34
+internal/proxy/sibling_failover.go
+  s_820054ea85251d::t_0f23fa45730815 359-368
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d8c09e82fe531a9d54e517ae9dbda4e364425e09",
+  "prompts": {},
+  "sessions": {
+    "s_820054ea85251d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15795-f71b-71b3-a470-34c0f2ed2beb",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
