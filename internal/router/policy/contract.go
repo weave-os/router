@@ -23,6 +23,15 @@ const SchemaVersionV3 = "policy_router_v3"
 // forbidden on this boundary.
 const SchemaVersionV4 = "policy_router_v4"
 
+// ClassifierArtifact identifies an alternate classifier with the sidecar's taxonomy.
+type ClassifierArtifact struct {
+	ArtifactID      string `json:"artifact_id"`
+	PackageSHA256   string `json:"package_sha256"`
+	Endpoint        string `json:"endpoint,omitempty"`
+	Audience        string `json:"audience,omitempty"`
+	ServingRevision string `json:"serving_revision,omitempty"`
+}
+
 const (
 	ExecutionModeServing = "serving"
 	ExecutionModeShadow  = "shadow"

@@ -129,7 +129,7 @@ func TestSecondAccountAdmittedBeforeBudgetMayFinishAfterIt(t *testing.T) {
 	})
 }
 
-func TestExpiredRotationBudgetAdmitsNoFurtherSubscriptionAttempt(t *testing.T) {
+func TestSlowFailedAttemptsRemainBoundedByDistinctSeats(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "seat-a", AccessToken: "token-a"}, {AccountID: "seat-b", AccessToken: "token-b"}}}
 		svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderAnthropic: &fakeClient{name: providers.ProviderAnthropic}}).WithManagedSubscriptions(leaser)
@@ -149,10 +149,9 @@ func TestExpiredRotationBudgetAdmitsNoFurtherSubscriptionAttempt(t *testing.T) {
 
 		_, err := svc.dispatchWithFallback(ctx, in)
 
-		var upstream *providers.UpstreamErrorResponse
-		require.ErrorAs(t, err, &upstream, "the provider's own failure is preserved")
-		require.Equal(t, 1, calls)
-		require.Equal(t, 1, leaser.next, "no second account leased after the budget expired")
+		require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+		require.Equal(t, 2, calls)
+		require.Equal(t, 2, leaser.next, "each account is admitted once despite slow inference")
 	})
 }
 
@@ -187,38 +186,39 @@ func TestStateModelsTerminalRejectionAfterBudgetIsNotRescued(t *testing.T) {
 	claude := &fakeClient{name: providers.ProviderAnthropic, outcomes: []fakeOutcome{{err: &providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Body: []byte(`{"error":{"type":"invalid_request_error","message":"synthetic bad request"}}`)}}}}
 	codex := &fakeClient{name: providers.ProviderOpenAI}
 	paid := &fakeClient{name: providers.ProviderOpenRouter}
+	// NewService owns background cache timers outside the synthetic-time bubble.
 	svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: claude, providers.ProviderOpenAI: codex, providers.ProviderOpenRouter: paid}, nil, false, nil, nil, false, "", "", nil).
 		WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: true, subscriptions.ProviderCodex: true}})
-	ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
-	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
-	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
-	req := router.Request{AllowedModels: allowedModelsForRequest(ctx), EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter})}
-	rec := httptest.NewRecorder()
-	buf := newPreludeBuffer(rec)
-	var served []string
-	_, err := svc.dispatchWithFallback(ctx, failoverInputs{
-		w: rec, buf: buf, subscriptionStateRequest: &req,
-		subscriptionStateWinnerProvider: new(string),
-		initialDecision:                 router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
-		purpose:                         inference.PurposeAnthropicMessages,
-		buildAlternative: func(router.Decision) (dispatchAttempt, error) {
-			return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
-				served = append(served, decision.Model)
-				// The rejection arrives after the shared rotation budget has elapsed.
-				budget, _ := attemptCtx.Value(subscriptionRotationBudgetKey{}).(context.Context)
-				require.NotNil(t, budget)
-				<-budget.Done()
-				require.NoError(t, attemptCtx.Err(), "the admitted attempt outlives the rotation budget")
-				buf.Seal()
-				return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buf, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
-			}, nil
-		},
-	})
+	synctest.Test(t, func(t *testing.T) {
+		ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
+		ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
+		ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
+		req := router.Request{AllowedModels: allowedModelsForRequest(ctx), EnabledProviders: modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter})}
+		rec := httptest.NewRecorder()
+		buf := newPreludeBuffer(rec)
+		var served []string
+		_, err := svc.dispatchWithFallback(ctx, failoverInputs{
+			w: rec, buf: buf, subscriptionStateRequest: &req,
+			subscriptionStateWinnerProvider: new(string),
+			initialDecision:                 router.Decision{Model: stateClaudeModel, Provider: providers.ProviderAnthropic},
+			purpose:                         inference.PurposeAnthropicMessages,
+			buildAlternative: func(router.Decision) (dispatchAttempt, error) {
+				return func(attemptCtx context.Context, decision router.Decision, client providers.Client) error {
+					served = append(served, decision.Model)
+					// Simulate slow inference without spending credential-admission time.
+					time.Sleep(12 * time.Second)
+					require.NoError(t, attemptCtx.Err())
+					buf.Seal()
+					return client.Proxy(attemptCtx, decision, providers.PreparedRequest{}, buf, httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+				}, nil
+			},
+		})
 
-	var upstream *providers.UpstreamErrorResponse
-	require.ErrorAs(t, err, &upstream)
-	require.Equal(t, http.StatusBadRequest, upstream.Status)
-	require.Equal(t, []string{stateClaudeModel}, served, "a terminal rejection is not retried because the attempt was slow")
-	require.Zero(t, codex.calls)
-	require.Zero(t, paid.calls)
+		var upstream *providers.UpstreamErrorResponse
+		require.ErrorAs(t, err, &upstream)
+		require.Equal(t, http.StatusBadRequest, upstream.Status)
+		require.Equal(t, []string{stateClaudeModel}, served, "a terminal rejection is not retried because the attempt was slow")
+		require.Zero(t, codex.calls)
+		require.Zero(t, paid.calls)
+	})
 }

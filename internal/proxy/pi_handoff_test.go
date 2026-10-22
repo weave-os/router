@@ -126,7 +126,7 @@ func TestPiHandoffRevalidatesSessionConfigurationAndEligibility(t *testing.T) {
 	require.NoError(t, err)
 	_, req, err := svc.anthropicRoutingRequest(parsed, clean, nil, "handoff-test")
 	require.NoError(t, err)
-	_, err = svc.resumeHandoff(parsed, env, req)
+	_, err = svc.resumeHandoff(parsed, env, req, false)
 	require.NoError(t, err)
 	for _, mutation := range []struct {
 		name  string
@@ -141,13 +141,13 @@ func TestPiHandoffRevalidatesSessionConfigurationAndEligibility(t *testing.T) {
 		t.Run(mutation.name, func(t *testing.T) {
 			changed := req
 			mutation.apply(&changed)
-			_, err := svc.resumeHandoff(parsed, env, changed)
+			_, err := svc.resumeHandoff(parsed, env, changed, false)
 			require.ErrorIs(t, err, ErrHandoffInvalid)
 		})
 	}
 	otherSession, err := translate.ParseAnthropic([]byte(strings.ReplaceAll(string(clean), "handoff-test", "other-session")))
 	require.NoError(t, err)
-	_, err = svc.resumeHandoff(parsed, otherSession, req)
+	_, err = svc.resumeHandoff(parsed, otherSession, req, false)
 	require.ErrorIs(t, err, ErrHandoffInvalid)
 }
 
@@ -236,4 +236,28 @@ func TestPiHandoffRejectsConcurrentForceAndCrossSessionCommandsBeforeMutation(t 
 	}
 	require.Empty(t, upstream.body)
 	require.Empty(t, store.upserts)
+}
+
+func TestForceParentDoesNotRejectChildHandoff(t *testing.T) {
+	svc, _, _, ctx := handoffTestService()
+	svc.pinStore = newForceModelMapStore()
+	prepared := prepareTestHandoff(t, svc, ctx)
+	body, err := sjson.Set(handoffTestBody, piHandoffField, prepared.Token)
+	require.NoError(t, err)
+	parsed, clean, err := svc.parseHandoff(ctx, []byte(body))
+	require.NoError(t, err)
+	env, err := translate.ParseAnthropic(clean)
+	require.NoError(t, err)
+	_, req, err := svc.anthropicRoutingRequest(parsed, clean, nil, "handoff-test")
+	require.NoError(t, err)
+	claims := handoffFromContext(parsed)
+	apiKeyID, _ := parsed.Value(APIKeyIDContextKey{}).(string)
+	installationID := claims.Route.InstallationID
+	controlKey := deriveForceModelSessionKeyForRequest(parsed, env, apiKeyID, claims.Route.SessionKey)
+	_, _, err = svc.applyForceModelCommand(parsed, translate.ForceModelResult{Model: "opus", ParentOnly: true}, installationID, claims.Route.SessionKey, controlKey)
+	require.NoError(t, err)
+	_, err = svc.resumeHandoff(parsed, env, req, true)
+	require.NoError(t, err, "parent-only force must preserve a child's prepared continuation")
+	_, err = svc.resumeHandoff(parsed, env, req, false)
+	require.ErrorIs(t, err, ErrHandoffInvalid, "the force still invalidates a parent continuation")
 }

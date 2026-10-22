@@ -63,6 +63,7 @@ func Schema() []Field {
 		{"cache_creation_tokens", "integer", true, "Tokens written to the upstream prompt cache."},
 		{"cache_read_tokens", "integer", true, "Tokens served from the upstream prompt cache."},
 		{"cache_creation_1h_tokens", "integer", true, "Share of cache_creation_tokens written with the 1-hour TTL, priced at cache_write_1h_multiplier from /v1/analytics/models. Null when the turn wrote no cache or predates the column."},
+		{"reasoning_tokens", "integer", true, "Share of output_tokens spent on reasoning; already included in output_tokens and priced at the output rate. Null when the upstream does not break reasoning out (Anthropic) or the row predates the column."},
 		{"speed", "string", true, "Serving speed the upstream reported (e.g. fast); fast turns are priced at the binding's fast rate. Null when not reported."},
 		{"inference_geo", "string", true, "Inference geography the upstream reported; \"us\" applies us_inference_geo_multiplier to every token category. Null when not reported."},
 		{"subscription_served", "boolean", false, "True when the turn used included Claude/Codex subscription quota. Paid Claude overage is false, even if the OAuth credential served the turn."},

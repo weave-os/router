@@ -512,6 +512,8 @@ var claudeCodeInjectedBlockPrefixes = []string{
 	"<local-command-stdout>",
 	"<local-command-stderr>",
 	"<local-command-caveat>",
+	"<task-notification>",
+	"</summary>\n<result>",
 }
 
 func isClaudeCodeInjectedBlock(text string) bool {
@@ -522,6 +524,42 @@ func isClaudeCodeInjectedBlock(text string) bool {
 		}
 	}
 	return false
+}
+
+// leadingClaudeCodeInjectedBlockEnd returns the end of a complete known
+// injected block at the start of trimmed text. The quoted-result envelope is
+// a continuation fragment rather than an opening tag, so it needs its own
+// closing-tag handling instead of the ordinary tag-name rule.
+func leadingClaudeCodeInjectedBlockEnd(trimmed string) int {
+	if strings.HasPrefix(trimmed, "</summary>\n<result>") {
+		resultEnd := strings.Index(trimmed, "</result>")
+		if resultEnd < 0 {
+			return 0
+		}
+		blockEnd := resultEnd + len("</result>")
+		remainder := strings.TrimLeft(trimmed[blockEnd:], " \t\r\n")
+		if strings.HasPrefix(remainder, "<usage>") {
+			usageEnd := strings.Index(remainder, "</usage>")
+			if usageEnd < 0 {
+				return 0
+			}
+			blockEnd = len(trimmed) - len(remainder) + usageEnd + len("</usage>")
+		}
+		return blockEnd
+	}
+	if !isClaudeCodeInjectedBlock(trimmed) {
+		return 0
+	}
+	openingTagEnd := strings.IndexByte(trimmed, '>')
+	if openingTagEnd < 0 {
+		return 0
+	}
+	closingTag := "</" + trimmed[1:openingTagEnd] + ">"
+	closingTagStart := strings.Index(trimmed[openingTagEnd+1:], closingTag)
+	if closingTagStart < 0 {
+		return 0
+	}
+	return openingTagEnd + 1 + closingTagStart + len(closingTag)
 }
 
 func openAIContentTextGJSON(v gjson.Result) string {

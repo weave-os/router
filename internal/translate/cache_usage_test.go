@@ -6,16 +6,18 @@ import (
 	"strings"
 	"testing"
 
+	"weave-os/router/internal/translate"
+	providerusage "weave-os/router/internal/usage"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
-
-	"weave-os/router/internal/translate"
 )
 
-// fakeUsageSink records the last RecordUsage / RecordCacheUsage calls and
+// fakeUsageSink records cumulative provider snapshots and
 // latches RecordOutputLimitReached.
 type fakeUsageSink struct {
+	facts              providerusage.Facts
 	input              int
 	output             int
 	cacheCreation      int
@@ -28,25 +30,14 @@ type fakeUsageSink struct {
 	inferenceGeo       string
 }
 
-func (f *fakeUsageSink) RecordUsage(input, output int) {
-	f.input = input
-	f.output = output
-}
-
-func (f *fakeUsageSink) RecordCacheUsage(creation, read int) {
-	f.cacheCreation = creation
-	f.cacheRead = read
-}
-
-func (f *fakeUsageSink) RecordReasoningUsage(reasoning int) {
-	f.reasoning = reasoning
-}
-
-func (f *fakeUsageSink) RecordUsageModifiers(cacheCreation1h int, cacheSplitReported bool, speed, inferenceGeo string) {
-	f.cacheCreation1h = cacheCreation1h
-	f.cacheSplitReported = cacheSplitReported
-	f.speed = speed
-	f.inferenceGeo = inferenceGeo
+func (f *fakeUsageSink) RecordProviderUsage(update providerusage.Facts) {
+	f.facts.Merge(update)
+	snapshot := f.facts
+	f.input, f.output = snapshot.Input.Value, snapshot.BilledOutputTokens()
+	f.cacheCreation, f.cacheRead = snapshot.CacheWrite.Value, snapshot.CacheRead.Value
+	f.reasoning = snapshot.Reasoning.Value
+	f.cacheCreation1h, f.cacheSplitReported = snapshot.CacheWrite1h.Value, snapshot.CacheSplitReported()
+	f.speed, f.inferenceGeo = string(snapshot.Speed), string(snapshot.InferenceGeo)
 }
 
 func (f *fakeUsageSink) RecordOutputLimitReached() {
@@ -219,7 +210,7 @@ func TestSSETranslator_FinalChunkCarriesPromptTokensFromMessageStart(t *testing.
 	assert.Contains(t, finalChunk, `"total_tokens":59`)
 }
 
-// UsageExtractor guards RecordUsage with if value > 0, so input tokens from
+// Absent input in a later snapshot preserves input tokens from
 // handleMessageStart must not be overwritten by the zero re-read in
 // handleMessageDelta.
 func TestSSETranslator_SinkAccumulatesInputAndOutputAcrossStream(t *testing.T) {
@@ -291,15 +282,17 @@ data: {"type":"response.completed","response":{"id":"r","status":"completed","mo
 }
 
 func TestOpenAICacheTokens_PrefersCacheWriteTokens(t *testing.T) {
-	usage := gjsonMust(`{"input_tokens_details":{"cached_tokens":10,"cache_write_tokens":4,"cache_creation_tokens":99}}`)
-	w, r := translate.OpenAICacheTokens(usage)
+	object := gjsonMust(`{"input_tokens_details":{"cached_tokens":10,"cache_write_tokens":4,"cache_creation_tokens":99}}`)
+	facts := providerusage.ParseOpenAI(object)
+	w, r := facts.CacheWrite.Value, facts.CacheRead.Value
 	assert.Equal(t, 4, w)
 	assert.Equal(t, 10, r)
 }
 
 func TestOpenAICacheTokens_FallsBackToCacheCreationTokens(t *testing.T) {
-	usage := gjsonMust(`{"prompt_tokens_details":{"cached_tokens":7,"cache_creation_tokens":3}}`)
-	w, r := translate.OpenAICacheTokens(usage)
+	object := gjsonMust(`{"prompt_tokens_details":{"cached_tokens":7,"cache_creation_tokens":3}}`)
+	facts := providerusage.ParseOpenAI(object)
+	w, r := facts.CacheWrite.Value, facts.CacheRead.Value
 	assert.Equal(t, 3, w)
 	assert.Equal(t, 7, r)
 }
@@ -345,9 +338,9 @@ data: {"type":"response.completed","response":{"id":"r","status":"completed","mo
 }
 
 func TestOpenAIReasoningTokens_PrefersResponsesShapeWithoutDoubleCounting(t *testing.T) {
-	usage := gjson.Parse(`{"output_tokens_details":{"reasoning_tokens":21},"completion_tokens_details":{"reasoning_tokens":7}}`)
-	assert.Equal(t, 21, translate.OpenAIReasoningTokens(usage))
-	assert.Equal(t, 7, translate.OpenAIReasoningTokens(gjson.Parse(`{"completion_tokens_details":{"reasoning_tokens":7}}`)))
+	object := gjson.Parse(`{"output_tokens_details":{"reasoning_tokens":21},"completion_tokens_details":{"reasoning_tokens":7}}`)
+	assert.Equal(t, 21, providerusage.ParseOpenAI(object).Reasoning.Value)
+	assert.Equal(t, 7, providerusage.ParseOpenAI(gjson.Parse(`{"completion_tokens_details":{"reasoning_tokens":7}}`)).Reasoning.Value)
 }
 
 func TestSSETranslator_ForwardsAnthropicUsageModifiers(t *testing.T) {

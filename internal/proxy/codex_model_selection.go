@@ -36,5 +36,5 @@ func codexSelectedModel(ctx context.Context) string {
 }
 
 func isCodexAutomaticModel(model string) bool {
-	return model == CodexAutomaticModel || strings.HasPrefix(model, "codex-auto-") || strings.HasPrefix(model, "gpt-daybreak-")
+	return router.IsRoutingModel(model) || strings.HasPrefix(model, "codex-auto-") || strings.HasPrefix(model, "gpt-daybreak-")
 }

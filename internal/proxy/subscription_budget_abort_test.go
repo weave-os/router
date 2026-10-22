@@ -16,12 +16,10 @@ import (
 
 func expiredRotationContext(provider auth.SubscriptionProvider) context.Context {
 	ctx := managedSubscriptionContext(provider)
-	budget, cancel := context.WithCancel(ctx)
-	cancel()
-	return context.WithValue(ctx, subscriptionRotationBudgetKey{}, budget)
+	return context.WithValue(ctx, subscriptionRotationBudgetKey{}, &subscriptionAdmissionBudget{})
 }
 
-func TestExpiredRotationBudgetUsesLiveAPIFallbackWithoutSubscriptionAttempt(t *testing.T) {
+func TestExpiredAdmissionBudgetDoesNotAuthorizeAPI(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "synthetic-seat", AccessToken: "seat-token"}}}
 	svc := newServiceWithProviders(t, map[string]providers.Client{providers.ProviderOpenAI: &fakeClient{name: providers.ProviderOpenAI}}).WithManagedSubscriptions(leaser).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderOpenAI: {}})
 	ctx := expiredRotationContext(auth.SubscriptionProviderCodex)
@@ -44,10 +42,10 @@ func TestExpiredRotationBudgetUsesLiveAPIFallbackWithoutSubscriptionAttempt(t *t
 
 	_, err := svc.dispatchWithFallback(ctx, in)
 
-	require.NoError(t, err)
+	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
 	require.Zero(t, oauthCalls, "no included attempt is admitted after the rotation budget expired")
-	require.Equal(t, 1, apiCalls)
-	require.Equal(t, "api rescue", rec.Body.String())
+	require.Zero(t, apiCalls)
+	require.Empty(t, rec.Body.String())
 	require.Empty(t, leaser.cooldownIDs, "budget expiry alone never cools down an account")
 	require.False(t, ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage).Served)
 }
@@ -72,7 +70,10 @@ func TestExpiredRotationBudgetRendersCleanErrorWithoutAPI(t *testing.T) {
 
 	_, err := svc.dispatchWithFallback(ctx, in)
 
-	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted)
+	require.ErrorIs(t, err, ErrSubscriptionPoolUnavailable)
+	class, classified := ClassifyDispatchError(err)
+	require.True(t, classified)
+	require.Equal(t, http.StatusServiceUnavailable, class.Status, "a spent admission budget is not proof the pool is exhausted")
 	require.Zero(t, calls, "without an authorized paid key nothing is dispatched")
 	require.Equal(t, "terminal error", rec.Body.String())
 }

@@ -25,9 +25,8 @@ func (f fixedRouter) Route(context.Context, router.Request) (router.Decision, er
 }
 
 // TestProxyOpenAIChatCompletion_ManagedPoolFailureIsRenderedOnce: the held
-// upstream error must not be written alongside the pool failure — the client
-// gets the classified failure once, and nothing about the throttle that
-// preceded it.
+// upstream error must not be written alongside a second pool failure. Rotation
+// preserves the original throttle, and the client receives that failure once.
 func TestProxyOpenAIChatCompletion_ManagedPoolFailureIsRenderedOnce(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "opaque-a", AccessToken: "token-a"}}}
 	openAI := &fakeClient{name: providers.ProviderOpenAI, outcomes: []fakeOutcome{
@@ -64,7 +63,7 @@ func TestProxyOpenAIChatCompletion_ManagedPoolFailureIsRenderedOnce(t *testing.T
 
 	require.ErrorIs(t, err, ErrSubscriptionPoolExhausted,
 		"the pool sentinel must survive for the handler to classify")
-	assert.Equal(t, 1, strings.Count(rec.Body.String(), `"code":"upstream_error"`),
+	assert.Equal(t, 1, strings.Count(rec.Body.String(), "rate_limit_error"),
 		"the client sees the pool failure exactly once")
-	assert.Equal(t, 0, strings.Count(rec.Body.String(), "rate_limit_error"))
+	assert.Equal(t, 0, strings.Count(rec.Body.String(), `"code":"upstream_error"`))
 }

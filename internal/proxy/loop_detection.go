@@ -157,17 +157,23 @@ func (s *Service) handleLoopEscalation(
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 	routedModel string,
+	isSubagent bool,
 	forceModelSessionKeys ...[sessionpin.SessionKeyLen]byte,
 ) {
 	log := observability.FromContext(ctx)
 
 	loopingModel := routedModel
 	userForced := false
+	var forcePin sessionpin.Pin
+	var forceModelActive, forceModelCleared bool
+	if len(forceModelSessionKeys) > 0 {
+		forcePin, forceModelActive, forceModelCleared = s.loadForceModelSessionPin(ctx, forceModelSessionKeys[0], sessionKey, isSubagent)
+	}
 	if s.pinStore != nil && installationID != uuid.Nil {
 		existing, found, err := s.pinStore.Get(ctx, sessionKey, role)
 		if err != nil {
 			log.Error("loop-escalation: prior pin lookup failed", "err", err)
-		} else if found && pinMatchesEffectiveStrategy(ctx, existing) {
+		} else if found && pinMatchesEffectiveStrategy(ctx, existing) && !(forceModelCleared && isUserForcedReason(existing.Reason)) {
 			if existing.Reason == translate.ReasonLoopEscalation {
 				return // already rescued this session; don't re-pin or double-log
 			}
@@ -181,12 +187,10 @@ func (s *Service) handleLoopEscalation(
 			}
 		}
 	}
-	if len(forceModelSessionKeys) > 0 {
-		forcePin, active, _ := s.loadForceModelSessionPin(ctx, forceModelSessionKeys[0])
-		if active {
-			userForced = true
-			loopingModel = forcePin.Model
-		}
+
+	if forceModelActive {
+		userForced = true
+		loopingModel = forcePin.Model
 	}
 
 	// Once-per-session budget, durable past pin TTL expiry: covers sessions

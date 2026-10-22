@@ -99,6 +99,13 @@ Target overrides must identify a typed source declared in the policy's precedenc
 
 ## Enforcement
 
+Funding authorization is a separate executor boundary from target selection.
+[The funding guard](../internal/dispatch/authorization.go) retains request admission policy; `Executor.Run`
+captures it before transport preparation and checks final credentials immediately
+before `Client.Proxy`. A funding denial terminates the operation without retry or
+binding failover. Main inference and buffered auxiliary operations inherit this
+guard, so clearing OAuth credentials never silently authorizes paid inference.
+
 Run `make inference-boundary`. The check uses Go type information, so import aliases, provider-client type aliases, and named string constants are resolved rather than matched only as text. Negative fixtures cover direct and named-constant targets, aliased clients, raw inference HTTP, concrete provider imports, unregistered purposes, and baseline expansion.
 
 The GitHub workflow publishes a dedicated `Inference boundary` status. Repository rulesets must require that status and CODEOWNERS approval from `@steventohme`; workflow configuration alone cannot enforce either repository setting.

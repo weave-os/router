@@ -28,6 +28,7 @@ const (
 	FormatOpenAI Format = iota
 	FormatAnthropic
 	FormatGemini
+	FormatOpenAIResponses
 )
 
 // EmitOptions parameterizes output-body construction.
@@ -756,6 +757,7 @@ func rewriteMessageBlocks(
 	}
 
 	anyChanged := false
+	droppedMessage := false
 	var msgRaws []string
 	var walkErr error
 
@@ -804,6 +806,7 @@ func rewriteMessageBlocks(
 		if len(kept) == 0 {
 			// Every block in this message was dropped; drop the message itself
 			// rather than emit an empty content array.
+			droppedMessage = true
 			return true
 		}
 
@@ -822,8 +825,32 @@ func rewriteMessageBlocks(
 	if !anyChanged {
 		return body, nil
 	}
+	if droppedMessage {
+		msgRaws = keepSystemMessagesBeforeAssistant(msgRaws)
+	}
 
 	return sjson.SetRawBytes(body, "messages", []byte("["+strings.Join(msgRaws, ",")+"]"))
+}
+
+// keepSystemMessagesBeforeAssistant moves each run of role:"system" messages
+// that no longer directly precedes an assistant turn to just before the next
+// one, or to the end. Anthropic 400s on a system message followed by a user
+// message, which a dropped assistant turn can leave behind.
+func keepSystemMessagesBeforeAssistant(msgRaws []string) []string {
+	out := make([]string, 0, len(msgRaws))
+	var pending []string
+	for _, raw := range msgRaws {
+		switch gjson.Get(raw, "role").String() {
+		case "system":
+			pending = append(pending, raw)
+			continue
+		case "assistant":
+			out = append(out, pending...)
+			pending = pending[:0]
+		}
+		out = append(out, raw)
+	}
+	return append(out, pending...)
 }
 
 // stripThinkingBlocksBytes removes thinking/redacted_thinking blocks from
@@ -953,7 +980,7 @@ func encodeJSONStringNoHTMLEscape(s string) ([]byte, error) {
 
 // routingMarkerPattern matches the "✦ **Weave Router** → ..." snippet
 // injected in cross-format responses.
-var routingMarkerPattern = regexp.MustCompile(`(?s)✦ \*\*Weave Router\*\* → .*?\n\n`)
+var routingMarkerPattern = routerOwnedNoticePattern
 
 // feedbackFooterPattern matches the rating footer appended to streamed
 // responses (see proxy.Service.feedbackFooter), absorbing leading newlines
@@ -1450,7 +1477,8 @@ var modelMaxOutputTokens = map[string]int{
 	"gemini-3.1-flash-live-preview": 65536,
 	"gemini-3.5-flash-lite":         65536, "gemini-3.6-flash": 65536,
 	"gemini-3.7-flash": 65536, "gemini-3.8-flash": 65536,
-	"gemini-2.5-pro": 65536, "gemini-2.5-flash": 65536,
+	router.ModelGemini4Argon: 32768,
+	"gemini-2.5-pro":         65536, "gemini-2.5-flash": 65536,
 	"gemini-2.5-flash-lite": 65536,
 	"gemini-2.0-flash":      8192, "gemini-2.0-flash-lite": 8192,
 	// Keyed by full catalog ID, since decision.Model keeps the vendor prefix.

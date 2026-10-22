@@ -119,8 +119,8 @@ func TestCodexQuotaExhaustion_Classification(t *testing.T) {
 	})
 }
 
-// TestCodexSubscriptionModelRejected pins the third retry trigger: only an
-// explicit model-availability rejection falls back to the API credential.
+// TestCodexSubscriptionModelRejected distinguishes model-access failures from
+// generic bad requests so pool recovery can try another included account.
 func TestCodexSubscriptionModelRejected(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -150,7 +150,7 @@ func TestCodexSubscriptionModelRejected(t *testing.T) {
 }
 
 // TestCodexOAuthCredentialRejected covers the second retry trigger: a rejected
-// or expired ChatGPT token, which the Weave key can still serve.
+// or expired ChatGPT token, which needs recovery without assuming spent quota.
 func TestCodexOAuthCredentialRejected(t *testing.T) {
 	for _, status := range []int{http.StatusUnauthorized, http.StatusForbidden} {
 		assert.True(t, codexOAuthCredentialRejected(&providers.UpstreamErrorResponse{Status: status}),

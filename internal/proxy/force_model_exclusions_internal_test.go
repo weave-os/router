@@ -517,3 +517,21 @@ func TestForcedModelBinding_GatewayExclusiveRefusesUnaliasedModel(t *testing.T) 
 	assert.Empty(t, binding)
 	assert.Contains(t, reason, "gateway keys")
 }
+
+// Gateway-exclusive forcing skips only the positive allowlist; an explicit
+// exclusion still refuses the model.
+func TestForcedModelBinding_GatewayExclusiveKeepsExplicitExclusion(t *testing.T) {
+	svc := NewService(nil, nil, nil, false, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	ctx := context.WithValue(gatewayKeyCtx("claude-opus-5"),
+		InstallationAllowedModelsContextKey{}, []string{"claude-opus-5-5"})
+
+	binding, reason := svc.forcedModelBinding(ctx, "claude-opus-5", providers.ProviderAnthropic)
+	assert.Empty(t, reason, "the gateway, not the allowlist, bounds a force")
+	assert.Equal(t, providers.ProviderAnthropicGateway, binding)
+
+	ctx = context.WithValue(ctx, InstallationExcludedModelsContextKey{}, []string{"claude-opus-5"})
+	binding, reason = svc.forcedModelBinding(ctx, "claude-opus-5", providers.ProviderAnthropic)
+	assert.Empty(t, binding)
+	assert.Contains(t, reason, "excluded on this installation")
+}

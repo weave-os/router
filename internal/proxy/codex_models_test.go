@@ -6,9 +6,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/openai"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -35,6 +39,21 @@ func TestCodexModelCatalog_UsesCallerOAuth(t *testing.T) {
 	assert.Equal(t, "gpt-6-sol", gjson.GetBytes(catalog, "models.0.slug").String())
 	assert.Equal(t, proxy.CodexAutomaticModel, gjson.GetBytes(catalog, "models.1.slug").String())
 	assert.Equal(t, "max", gjson.GetBytes(catalog, "models.1.supported_reasoning_levels.0.effort").String())
+	identity := requestcontext.ServingIdentity{Target: string(policyregistry.TargetInternal), ReleaseID: "synthetic-release", BindingID: "synthetic-binding", CredentialIdentity: "synthetic-principal"}
+	internalCatalog, err := svc.CodexModelCatalog(requestcontext.WithServingIdentity(context.Background(), identity), headers, "0.155.1")
+	require.NoError(t, err)
+	require.Len(t, gjson.GetBytes(internalCatalog, "models").Array(), 5)
+	assert.Equal(t, string(router.ModelHMM), gjson.GetBytes(internalCatalog, "models.2.slug").String())
+	assert.Equal(t, string(router.ModelQwen), gjson.GetBytes(internalCatalog, "models.3.slug").String())
+	assert.Equal(t, string(router.ModelDecision), gjson.GetBytes(internalCatalog, "models.4.slug").String())
+	identity.Plan = string(entitlement.PlanMax)
+	subscriberCatalog, err := svc.CodexModelCatalog(requestcontext.WithServingIdentity(context.Background(), identity), headers, "0.155.1")
+	require.NoError(t, err)
+	require.Len(t, gjson.GetBytes(subscriberCatalog, "models").Array(), 2)
+	identity.Plan = string(entitlement.PlanBoost)
+	boostCatalog, err := svc.CodexModelCatalog(requestcontext.WithServingIdentity(context.Background(), identity), headers, "0.155.1")
+	require.NoError(t, err)
+	assert.Equal(t, string(router.ModelQwen), gjson.GetBytes(boostCatalog, "models.3.slug").String())
 }
 
 func TestCodexModelCatalog_RequiresPairedOAuth(t *testing.T) {

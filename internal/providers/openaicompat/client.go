@@ -289,7 +289,7 @@ func rewriteModelField(body []byte, modelIDMap map[string]string) []byte {
 }
 
 func stripSnowflakeCortexUnsupportedResponsesFields(body []byte, baseURL string, endpoint providers.Endpoint) []byte {
-	if endpoint != providers.EndpointResponses || !providers.IsSnowflakeCortexBaseURL(baseURL) {
+	if endpoint != providers.EndpointResponses || !providers.IsCortexBaseURL(baseURL) {
 		return body
 	}
 	out, err := sjson.DeleteBytes(body, "reasoning.summary")
@@ -300,11 +300,11 @@ func stripSnowflakeCortexUnsupportedResponsesFields(body []byte, baseURL string,
 }
 
 // effectiveBaseURL resolves this request's base URL, folding an Azure resource
-// endpoint onto /openai/v1 and a Snowflake Cortex REST root onto
-// /api/v2/cortex/v1 — the OpenAI-spec surfaces they actually serve.
+// endpoint onto /openai/v1 and a Cortex REST or AI Gateway root onto
+// its /v1 — the OpenAI-spec surfaces they actually serve.
 func (c *Client) effectiveBaseURL(ctx context.Context) string {
 	base := providers.NormalizeAzureOpenAIBaseURL(requestcontext.EffectiveBaseURL(ctx, c.baseURL))
-	return providers.NormalizeSnowflakeCortexOpenAIBaseURL(base)
+	return providers.NormalizeCortexOpenAIBaseURL(base)
 }
 
 // setAuth sets the Authorization header, preferring BYOK credentials over the deployment-level key.

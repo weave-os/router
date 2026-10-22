@@ -38,16 +38,11 @@ func WithoutLeadingClientInjectedText(text string) string {
 			}
 			return remainder
 		}
-		openingTagEnd := strings.IndexByte(trimmed, '>')
-		if openingTagEnd < 0 {
+		blockEnd := leadingClaudeCodeInjectedBlockEnd(trimmed)
+		if blockEnd == 0 {
 			return remainder
 		}
-		closingTag := "</" + trimmed[1:openingTagEnd] + ">"
-		closingTagStart := strings.Index(trimmed[openingTagEnd+1:], closingTag)
-		if closingTagStart < 0 {
-			return remainder
-		}
-		remainder = trimmed[openingTagEnd+1+closingTagStart+len(closingTag):]
+		remainder = trimmed[blockEnd:]
 		stripped = true
 	}
 }

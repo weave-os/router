@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"sort"
@@ -18,6 +19,7 @@ import (
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/escalation"
@@ -278,6 +280,12 @@ type turnLoopResult struct {
 	// read from the same pin.
 	PriorServedEndedAt time.Time
 	PriorPromptTokens  int
+	// TokenizerCalibration merges this thread's tokenizer evidence across the
+	// pin rows read for switch history. It converts a cross-tokenizer turn's
+	// client-visible usage into the requested model's tokens (see
+	// clientInputTokenScale) and is extended after the turn by
+	// recordTokenizerObservation.
+	TokenizerCalibration sessionpin.TokenizerCalibration
 	// StripThinkingBlocks forces signature removal when switch history is unavailable.
 	StripThinkingBlocks bool
 	// Handover captures the summarize-or-trim step when the planner switched.
@@ -313,9 +321,14 @@ type turnLoopResult struct {
 	// the in-turn rescue can readmit them when honouring them would leave no
 	// candidate. Empty unless transient_rate_limit is on.
 	SessionCooldownModels map[string]time.Time
-	// CooldownProbeReleases hold one half-open probe slot per expired model
-	// until provider dispatch completes.
+	// CooldownProbeReleases hold one half-open probe slot per expired session
+	// cooldown, plus any overload-circuit probe, until provider dispatch
+	// completes.
 	CooldownProbeReleases []func()
+	// OverloadProbe is the overload-circuit probe this request holds, if
+	// any; the ingress carries it to dispatch so only its outcome resolves
+	// the circuit.
+	OverloadProbe *breaker.Probe
 	// CooldownProbes maps each model this request holds a recovery probe for
 	// to the cooldown expiry it observed, so a successful turn clears exactly
 	// that cooldown and leaves a newer one alone.
@@ -855,7 +868,7 @@ func (s *Service) runTurnLoop(
 		forceModelFound = true
 	}
 	if !forceModelFound {
-		forceModelPin, forceModelFound, forceModelCleared = s.loadForceModelSessionPin(ctx, forceModelSessionKey)
+		forceModelPin, forceModelFound, forceModelCleared = s.loadForceModelSessionPin(ctx, forceModelSessionKey, threadSessionKey, turntype.IsSubAgent(env, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))))
 	}
 	if forceModelFound {
 		binding, reason := s.forcedModelBinding(ctx, forceModelPin.Model, forceModelPin.Provider)
@@ -864,6 +877,19 @@ func (s *Service) runTurnLoop(
 		}
 		forceModelPin.Provider = binding
 		req.ExcludedModels = s.readmitForcedModel(ctx, req, env, feats, forceModelPin)
+	}
+	// A due overload circuit readmits its model for this one request; the
+	// ordinary selection paths decide whether the probe actually reaches it,
+	// and an unexercised slot is released when the request ends. Only main
+	// and tool-result turns that can sibling-rescue probe, so a failed probe
+	// never reaches the client.
+	if !forceModelFound && authoritativePolicyTurn(res.TurnType) {
+		if probe, release, claimed := s.claimOverloadProbe(ctx, req); claimed {
+			ctx = withOverloadProbe(ctx, probe)
+			res.OverloadProbe = &probe
+			res.CooldownProbeReleases = append(res.CooldownProbeReleases, release)
+			req.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
+		}
 	}
 	if auth.RoutingPassthroughFrom(ctx) && !forceModelFound {
 		decision, err := s.callerModelPassthroughDecision(ctx, req)
@@ -1019,21 +1045,31 @@ func (s *Service) runTurnLoop(
 		// it goes to the session's Anthropic model (warm cache) or the
 		// Sonnet-class compaction model rather than the cheapest utility pin.
 		compactionProvider, compactionModel, compactionPin := "", "", false
+		var compactionFallbacks []compactionSummarizer
 		origin := policy.OverrideSourceDeployment
 		if s.compactionHardPinEnabled && res.TurnType == turntype.Compaction && !useSubAgentOverride {
-			compactionProvider, compactionModel, origin, compactionPin = s.compactionHardPin(ctx, threadSessionKey, res.PinRole, req)
+			if summarizers := s.compactionSummarizers(ctx, threadSessionKey, res.PinRole, req); len(summarizers) > 0 {
+				compactionProvider, compactionModel, origin, compactionPin = summarizers[0].provider, summarizers[0].model, summarizers[0].source, true
+				compactionFallbacks = summarizers[1:]
+			}
 		}
+		hardPinReq := HardPinRequest{
+			EnabledProviders: req.EnabledProviders,
+			ExcludedModels:   req.ExcludedModels,
+			CustomBindings:   req.CustomBindings,
+			GatewayProviders: req.GatewayProviders,
+		}
+		var rescueMetadata *router.RoutingMetadata
 		switch {
 		case compactionPin:
 			provider, model = compactionProvider, compactionModel
+			utilityProvider, utilityModel := "", ""
+			if s.hardPinResolver != nil {
+				utilityProvider, utilityModel, _ = s.hardPinResolver(withAutomaticExclusions(hardPinReq, req.AutomaticExcludedModels))
+			}
+			rescueMetadata = compactionRescueMetadata(compactionFallbacks, utilityProvider, utilityModel)
 			log.Info("Hard-pin: compaction turn on compaction model", "hard_pin_model", model, "hard_pin_provider", provider)
 		case s.hardPinResolver != nil && !useSubAgentOverride:
-			hardPinReq := HardPinRequest{
-				EnabledProviders: req.EnabledProviders,
-				ExcludedModels:   req.ExcludedModels,
-				CustomBindings:   req.CustomBindings,
-				GatewayProviders: req.GatewayProviders,
-			}
 			p, m, ok := s.hardPinResolver(withAutomaticExclusions(hardPinReq, req.AutomaticExcludedModels))
 			if !ok {
 				// Utility turns are automatic, so they honor the deployment-wide
@@ -1051,7 +1087,10 @@ func (s *Service) runTurnLoop(
 			if !ok {
 				// Gateway empty result = no aliases configured (customer fix), not a router fault.
 				hardPinErr := cluster.ErrClusterUnavailable
-				if len(req.GatewayProviders) > 0 {
+				switch {
+				case s.hardPinBlockedByContextWindow(ctx, threadSessionKey, res, hardPinReq, req):
+					hardPinErr = policy.ErrContextWindowExceeded
+				case len(req.GatewayProviders) > 0:
 					hardPinErr = policy.ErrGatewayServesNoDeployedModel
 				}
 				log.Warn(
@@ -1088,6 +1127,7 @@ func (s *Service) runTurnLoop(
 			Provider: provider,
 			Model:    model,
 			Reason:   string(res.TurnType) + "_hard_pin",
+			Metadata: rescueMetadata,
 		}
 		res.Decision = hardDecision
 		res.StickyHit = true
@@ -1263,6 +1303,15 @@ func (s *Service) runTurnLoop(
 	// failover and every automatic pin reuse at once, and is the only one an
 	// explicit /force-model of the same model still routes through.
 	demoted := mergeSessionStrikes(pin.DemotedModels, hmmHistory.DemotedModels)
+	// A model rescued earlier in this agent turn stays out until the next
+	// real user prompt, which starts a new turn and readmits it.
+	if turnStrikes := mergeSessionStrikes(pin.TurnStrikes, hmmHistory.TurnStrikes); len(turnStrikes) > 0 {
+		if env.EndsWithUserPrompt() {
+			s.clearTurnStrikes(ctx, res.SessionKey, res.PinRole)
+		} else {
+			demoted = mergeSessionStrikes(demoted, turnStrikes)
+		}
+	}
 	res.SessionStrikeReadmitModels = harnessSafeModels(imageSafeModels(demoted, req.HasImages), req.HasTools)
 	if s.ResolveTransientRateLimit(ctx) && (!forceModelFound || !forcedPinEligible(forceModelPin, req)) {
 		// A transient strike expires: only one request per session/model may
@@ -2725,6 +2774,11 @@ func (r *turnLoopResult) applySwitchHistory(pins ...sessionpin.Pin) {
 	r.PriorServedEndedAt = latestTurn.LastTurnEndedAt
 	r.PriorPromptTokens = priorPromptTokens(latestTurn)
 	r.SessionEverSwitched = sessionEverSwitched
+	cals := make([]sessionpin.TokenizerCalibration, 0, len(pins))
+	for _, pin := range pins {
+		cals = append(cals, pin.TokenizerCalibration)
+	}
+	r.TokenizerCalibration = sessionpin.MergeTokenizerCalibrations(cals...)
 }
 
 func latestServedTurn(pins ...sessionpin.Pin) (sessionpin.Pin, bool) {
@@ -2939,4 +2993,30 @@ func sortedEnabledKeys(m map[string]struct{}) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// hardPinBlockedByContextWindow reports whether the hard-pin only came back
+// empty because of the context-window pre-filter, so the client gets its
+// native prompt-too-long error instead of a retryable routing outage. A
+// compaction turn rechecks its own summarizer path too, which can reach models
+// the generic resolver cannot.
+func (s *Service) hardPinBlockedByContextWindow(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, res turnLoopResult, hardPinReq HardPinRequest, req router.Request) bool {
+	if len(req.ContextWindowExcludedModels) == 0 {
+		return false
+	}
+	nonSizeExcluded := maps.Clone(req.ExcludedModels)
+	maps.DeleteFunc(nonSizeExcluded, func(model string, _ struct{}) bool {
+		_, sized := req.ContextWindowExcludedModels[model]
+		return sized
+	})
+	if s.compactionHardPinEnabled && res.TurnType == turntype.Compaction {
+		sizeFree := req
+		sizeFree.ExcludedModels = nonSizeExcluded
+		if _, _, _, ok := s.compactionHardPin(ctx, sessionKey, res.PinRole, sizeFree); ok {
+			return true
+		}
+	}
+	hardPinReq.ExcludedModels = nonSizeExcluded
+	_, _, ok := s.hardPinResolver(hardPinReq)
+	return ok
 }

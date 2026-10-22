@@ -19,22 +19,25 @@ import (
 func TestSubscriptionFailover_RecordsAttemptSeparatelyFromUse(t *testing.T) {
 	overloaded := upstreamErr(http.StatusServiceUnavailable, `{"error":{"type":"overloaded_error"}}`)
 	cases := []struct {
-		name          string
-		subErr        error
-		paidErr       error
-		wantTurnErr   bool
-		wantUsed      bool
-		wantAttempted bool
+		name           string
+		quotaExhausted bool
+		paidErr        error
+		wantTurnErr    bool
+		wantUsed       bool
+		wantAttempted  bool
 	}{
-		{name: "failed failover", subErr: overloaded, paidErr: overloaded, wantTurnErr: true, wantAttempted: true},
-		{name: "served failover", subErr: overloaded, wantUsed: true, wantAttempted: true},
+		{name: "failed failover", quotaExhausted: true, paidErr: overloaded, wantTurnErr: true, wantAttempted: true},
+		{name: "served failover", quotaExhausted: true, wantUsed: true, wantAttempted: true},
 		{name: "no failover needed"},
 	}
 	for _, in := range parityIngresses() {
 		for _, tc := range cases {
 			t.Run(in.name+"/"+tc.name, func(t *testing.T) {
-				upstream := &parityUpstream{subErr: tc.subErr, paidErr: tc.paidErr, okBody: in.upstreamOK(false)}
-				svc := in.parityService(upstream)
+				upstream := &parityUpstream{okBody: in.upstreamOK(false)}
+				if tc.quotaExhausted {
+					upstream = in.quotaFailureUpstream(tc.paidErr, false)
+				}
+				svc := in.quotaService(upstream)
 				telemetry := &auxTelemetryRepo{}
 				svc.telemetry = telemetry
 				rec, req, body := in.request(t, false)

@@ -51,9 +51,11 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/bandit"
 	"weave-os/router/internal/router/banditexplore"
+	"weave-os/router/internal/router/breaker"
 	"weave-os/router/internal/router/cache"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/router/decisionmodel"
 	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/handover"
 	"weave-os/router/internal/router/hmm"
@@ -156,6 +158,13 @@ func main() {
 		panic(err)
 	}
 	logger.Info("Router deployment mode", "mode", deploymentMode)
+	allowCodexCredits, creditsErr := config.CodexExtraCreditsAllowed()
+	if creditsErr != nil {
+		panic(creditsErr)
+	}
+	if allowCodexCredits && deploymentMode != server.DeploymentModeSelfHosted {
+		panic("ROUTER_CODEX_ALLOW_EXTRA_CREDITS is supported only in selfhosted mode")
+	}
 
 	if err := validateManagedServingBoot(deploymentMode, osEnvLookup); err != nil {
 		logger.Error("Managed serving configuration is incomplete; refusing to boot", "mode", deploymentMode, "err", err)
@@ -266,6 +275,8 @@ func main() {
 			openaiBaseURL,
 			upstreamIDsForProvider(providers.ProviderOpenAI),
 		)
+		openaiClient.SetCodexExtraCreditsAllowed(allowCodexCredits)
+		logger.Info("Codex subscription credit policy configured", "allow_extra_credits", allowCodexCredits)
 		// Local tests can point the subscription branch at a deterministic native
 		// Responses mock without changing the production ChatGPT endpoint.
 		if deploymentMode == server.DeploymentModeSelfHosted {
@@ -798,6 +809,9 @@ func main() {
 	// rescue and Retry-After-aware same-binding retry. Off until baked off.
 	transientRateLimit := config.GetOr("ROUTER_TRANSIENT_RATE_LIMIT", "false") == "true"
 	rateLimitCooldownSeconds := parseEnvInt("ROUTER_RATE_LIMIT_COOLDOWN_SECONDS", proxy.DefaultRateLimitCooldownSeconds)
+	// Per-model 529 circuit breaker. Its thresholds are fixed in
+	// internal/router/breaker/thresholds.go.
+	providerOverloaded := config.GetOr("ROUTER_PROVIDER_OVERLOADED", "true") == "true"
 	// nativeAnthropicResponseSignals records the stop reason and tool_use block
 	// count an Anthropic-native turn already streams past the usage extractor;
 	// kill switch for that extraction and the telemetry columns it fills.
@@ -1036,6 +1050,7 @@ func main() {
 	var hmmRouter router.Router
 	var hmmEmbeddingRouter router.Router
 	var hmmBetaRouter router.Router
+	var hmmQwenRouter router.Router
 	var hmmCapabilities policy.Capabilities
 	var hmmReadinessChecker admin.HealthChecker
 	var hmmRosterSources map[router.Strategy]policy.RosterSource
@@ -1073,11 +1088,19 @@ func main() {
 		admittedRouter := policyregistry.NewAdmittedRouter(router.StrategyHMM, baseline)
 		hmmRouter = admittedRouter
 		hmmEmbeddingRouter = policyregistry.NewAdmittedRouter(router.StrategyHMMEmbedding, baseline)
+		if admission.Identity.Target == policyregistry.TargetInternal {
+			hmmBetaRouter = policyregistry.NewAdmittedRouter(router.StrategyHMMBeta, baseline)
+			hmmQwenRouter = policyregistry.NewAdmittedRouter(router.StrategyHMMQwen, baseline)
+		}
 		hmmCapabilities = admittedRouter.CurrentCapabilities()
 		escalationObserver = admittedRouter
 		rosterSource := policyregistry.AdmittedRosterSource{}
 		hmmRosterSources = map[router.Strategy]policy.RosterSource{
 			router.StrategyHMM: rosterSource, router.StrategyHMMEmbedding: rosterSource,
+		}
+		if admission.Identity.Target == policyregistry.TargetInternal {
+			hmmRosterSources[router.StrategyHMMBeta] = rosterSource
+			hmmRosterSources[router.StrategyHMMQwen] = rosterSource
 		}
 		hmmRosterModels = admittedHMMRosterSource{}
 		if topic := strings.TrimSpace(config.GetOr("PUBSUB_TOPIC_ROUTER_POLICY_INVALIDATION", "")); topic != "" {
@@ -1271,6 +1294,7 @@ func main() {
 		flags.KeyRescuedFailureArmDemotion:            boolDefault(rescuedFailureArmDemotion),
 		flags.KeyTransientRateLimit:                   boolDefault(transientRateLimit),
 		flags.KeyRateLimitCooldownSeconds:             strconv.Itoa(rateLimitCooldownSeconds),
+		flags.KeyProviderOverloaded:                   boolDefault(providerOverloaded),
 		flags.KeyNativeAnthropicResponseSignals:       boolDefault(nativeAnthropicResponseSignals),
 		flags.KeyNativeOpenAIResponseSignals:          boolDefault(nativeOpenAIResponseSignals),
 		flags.KeyEffortEscalation:                     boolDefault(effortEscalation),
@@ -1311,6 +1335,7 @@ func main() {
 	servedModels := proxyRoutableModels(routingTargets, availableProviders, hmmRouter != nil)
 
 	proxySvc := proxy.NewService(routeEntry, providerMap, telemetryEmitter, embedOnlyUser, semanticCache, pinStore, hardPinExplore, hardPinProvider, hardPinModel, repo.Telemetry).
+		WithCodexExtraCredits(allowCodexCredits).
 		WithSessionStrategyStore(sessionStrategyStore).
 		WithSessionTurnClock(sessionTurnClock).
 		WithEscalation(escalationStore, escalationObserver).
@@ -1332,6 +1357,14 @@ func main() {
 		WithPolicyStrategy(policy.StrategySpec{
 			Strategy: router.StrategyHMMBeta, Router: hmmBetaRouter, Unavailable: hmm.ErrHMMUnavailable,
 			Capabilities: hmmBetaCapabilities,
+		}).
+		WithPolicyStrategy(policy.StrategySpec{
+			Strategy: router.StrategyHMMQwen, Router: hmmQwenRouter, Unavailable: hmm.ErrHMMUnavailable,
+			Capabilities: hmmCapabilities,
+		}).
+		WithPolicyStrategy(policy.StrategySpec{
+			Strategy: router.StrategyDecisionModel, Router: buildDecisionModelRouter(logger), Unavailable: decisionmodel.ErrUnavailable,
+			Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true},
 		}).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyBandit, Router: banditRouter, Unavailable: bandit.ErrBanditUnavailable}).
 		WithContentCapture(captureMode, captureMaxBytes, nil).
@@ -1355,6 +1388,7 @@ func main() {
 		WithCommittedStreamArmDemotion(committedStreamArmDemotion).
 		WithRescuedFailureArmDemotion(rescuedFailureArmDemotion).
 		WithTransientRateLimit(transientRateLimit, rateLimitCooldownSeconds).
+		WithProviderOverloaded(providerOverloaded, breaker.New(breaker.Defaults(), nil)).
 		WithNativeAnthropicResponseSignals(nativeAnthropicResponseSignals).
 		WithNativeOpenAIResponseSignals(nativeOpenAIResponseSignals).
 		WithSSEKeepalive(sseKeepalive).

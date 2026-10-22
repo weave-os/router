@@ -53,7 +53,7 @@ func TestClassifierThreadHTTPContract(t *testing.T) {
 	engine := gin.New()
 	engine.POST("/v1/router/threads", classifier.StartThreadHandler(svc))
 	for _, path := range []string{"/v1/messages", "/v1/chat/completions", "/v1/responses", "/v1beta/models/:modelAction", "/v1/route/handoff", "/v1/route", "/v1/route/preview"} {
-		engine.POST(path, middleware.WithClassifierThread(svc), func(c *gin.Context) {
+		engine.POST(path, middleware.WithClassifierThread(svc, svc.PolicyStrategyAvailable), func(c *gin.Context) {
 			body, err := io.ReadAll(c.Request.Body)
 			require.NoError(t, err)
 			require.Empty(t, c.GetHeader(proxy.ClassifierThreadHeader))

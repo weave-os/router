@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/translate"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/inference"
@@ -38,7 +40,7 @@ type stateModelRouter struct{}
 func (stateModelRouter) Route(_ context.Context, req router.Request) (router.Decision, error) {
 	resolver := policy.NewResolver(modelSet([]string{stateClaudeModel, stateCodexModel, statePaidModel}), nil, func(model catalog.Model) string { return model.ID }, policy.ProviderPolicy{})
 	eligible := modelSet(resolver.Resolve(req).CandidateModels())
-	for _, model := range []string{stateClaudeModel, stateCodexModel, statePaidModel} {
+	for _, model := range append(slices.Clone(req.PreferredModels), stateClaudeModel, stateCodexModel, statePaidModel) {
 		if _, admitted := eligible[model]; admitted {
 			entry, _ := catalog.ByID(model)
 			for _, binding := range entry.Providers {
@@ -71,15 +73,17 @@ func (l *stateModelLeaser) Lease(_ context.Context, owner auth.SubscriptionOwner
 
 func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 	for _, scenario := range []struct {
-		name                                                                                                                                      string
-		claude, codex, emptyPaid, depleted, liveReject, committedFailure, forced, forcedPin, forceWithRequestSubset, demoteClaude, cooldownClaude bool
-		utilityTarget, passthroughTarget                                                                                                          bool
-		want                                                                                                                                      string
-		wantErr                                                                                                                                   bool
+		name                                                                                                                                                                                    string
+		claude, codex, emptyPaid, depleted, liveReject, committedFailure, forced, forcedPin, forceWithRequestSubset, demoteClaude, cooldownClaude, claudeOnlyActive, readmitClaude, rejectCodex bool
+		paidSetIncludesClaude                                                                                                                                                                   bool
+		utilityTarget, passthroughTarget                                                                                                                                                        bool
+		want                                                                                                                                                                                    string
+		wantErr                                                                                                                                                                                 bool
 	}{
 		{name: "Claude included before paid", claude: true, codex: true, want: stateClaudeModel},
 		{name: "Claude exhausted uses active Codex", codex: true, want: stateCodexModel},
 		{name: "both exhausted use cheap paid set", want: statePaidModel},
+		{name: "unavailable Claude skips funding-denied paid target", paidSetIncludesClaude: true, want: statePaidModel},
 		{name: "live Claude exhaustion rotates to Codex", claude: true, codex: true, liveReject: true, want: stateCodexModel},
 		{name: "live exhaustion uses cheap paid set", claude: true, liveReject: true, want: statePaidModel},
 		{name: "empty exhausted set refuses paid", emptyPaid: true, wantErr: true},
@@ -90,9 +94,11 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 		{name: "utility target follows subscription state model sets", utilityTarget: true, claude: true, want: stateClaudeModel},
 		{name: "passthrough target follows exhausted funding set", passthroughTarget: true, claude: true, codex: true, want: statePaidModel},
 		{name: "session-demoted Claude selects healthy Codex", claude: true, codex: true, demoteClaude: true, want: stateCodexModel},
+		{name: "turn-struck Claude rescues failed Codex", claude: true, codex: true, demoteClaude: true, readmitClaude: true, rejectCodex: true, depleted: true, want: stateClaudeModel},
 		{name: "session-cooling Claude selects healthy Codex", claude: true, codex: true, cooldownClaude: true, want: stateCodexModel},
 		{name: "depleted credits still serve Codex", codex: true, depleted: true, want: stateCodexModel},
 		{name: "depleted credits prohibit cheap paid fallback", depleted: true, wantErr: true},
+		{name: "included model outside active set rescues failed active model", claude: true, codex: true, liveReject: true, claudeOnlyActive: true, want: stateCodexModel},
 		{name: "committed subscription failure never replays", claude: true, committedFailure: true, wantErr: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
@@ -104,18 +110,32 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 				claude.outcomes = []fakeOutcome{{writeBytes: []byte("partial answer"), err: &providers.UpstreamStatusError{Status: http.StatusBadGateway}}}
 			}
 			codex := &fakeClient{name: providers.ProviderOpenAI, outcomes: []fakeOutcome{{writeBytes: []byte("included Codex answer")}}}
+			if scenario.rejectCodex {
+				codex.outcomes = []fakeOutcome{{err: &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"rate_limit_error"}}`)}}}
+			}
 			paid := &fakeClient{name: providers.ProviderOpenRouter, outcomes: []fakeOutcome{{writeBytes: []byte("cheap paid answer")}}}
 			svc := NewService(stateModelRouter{}, map[string]providers.Client{providers.ProviderAnthropic: claude, providers.ProviderOpenAI: codex, providers.ProviderOpenRouter: paid}, nil, false, nil, nil, false, "", "", nil).
 				WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: scenario.claude, subscriptions.ProviderCodex: scenario.codex}})
 			ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
-			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
+			activeModels := []string{stateClaudeModel, stateCodexModel}
+			if scenario.claudeOnlyActive {
+				activeModels = []string{stateClaudeModel}
+			}
+			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, activeModels)
 			paidModels := []string{statePaidModel}
+			if scenario.paidSetIncludesClaude {
+				paidModels = append(paidModels, stateClaudeModel)
+			}
 			if scenario.emptyPaid {
 				paidModels = nil
 			}
 			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, paidModels)
+			ctx = withTurnFailures(ctx)
 			if scenario.demoteClaude {
 				ctx = context.WithValue(ctx, SessionDemotedModelsContextKey{}, []string{stateClaudeModel})
+			}
+			if scenario.readmitClaude {
+				ctx = context.WithValue(ctx, SessionStrikeReadmitModelsContextKey{}, []string{stateClaudeModel})
 			}
 			if scenario.cooldownClaude {
 				ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, map[string]time.Time{stateClaudeModel: time.Now().Add(time.Minute)})
@@ -194,6 +214,7 @@ func TestSubscriptionStateModelsFundingOrder(t *testing.T) {
 			}
 			if scenario.liveReject && !scenario.wantErr {
 				require.Equal(t, []string{stateClaudeModel, scenario.want}, servedModels)
+				require.Contains(t, turnFailuresFromContext(ctx).models, stateClaudeModel, "the rescued model is struck for the agent turn")
 			}
 		})
 	}
@@ -213,9 +234,11 @@ func TestSubscriptionStateModelsHTTPIngress(t *testing.T) {
 		for _, scenario := range []struct {
 			name          string
 			claude, codex bool
+			active        []string
 			want          string
 		}{
 			{name: "Claude", claude: true, codex: true, want: stateClaudeModel},
+			{name: "active preference wins first included attempt", claude: true, codex: true, active: []string{stateCodexModel}, want: stateCodexModel},
 			{name: "Codex after Claude exhaustion", codex: true, want: stateCodexModel},
 			{name: "cheap after both exhausted", want: statePaidModel},
 		} {
@@ -250,7 +273,11 @@ func TestSubscriptionStateModelsHTTPIngress(t *testing.T) {
 					WithManagedSubscriptions(&stateModelLeaser{activeProviders: map[subscriptions.Provider]bool{subscriptions.ProviderClaude: scenario.claude, subscriptions.ProviderCodex: scenario.codex}}).
 					WithDeploymentKeyedProviders(modelSet([]string{providers.ProviderAnthropic, providers.ProviderOpenAI, providers.ProviderOpenRouter}))
 				ctx := context.WithValue(managedSubscriptionTestContext(), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}, auth.SubscriptionProviderCodex: {}})
-				ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
+				activeModels := scenario.active
+				if activeModels == nil {
+					activeModels = []string{stateClaudeModel, stateCodexModel}
+				}
+				ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, activeModels)
 				ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 				body := `{"model":"auto","stream":true,"max_tokens":100,"messages":[{"role":"user","content":"synthetic task"}]}`
 				if surface == routePathResponses {
@@ -446,4 +473,11 @@ func TestSubscriptionStateModelsRespectManagedBoostAllowlist(t *testing.T) {
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{stateClaudeModel, stateCodexModel})
 	ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{statePaidModel})
 	require.Equal(t, map[string]struct{}{stateCodexModel: {}}, allowedModelsForRequest(ctx))
+}
+
+func TestSubscriptionStateModelsEnabledByFlagWithEmptySets(t *testing.T) {
+	ctx := context.WithValue(context.Background(), InstallationSubscriptionStateModelsEnabledContextKey{}, true)
+
+	assert.True(t, subscriptionStateModelsEnabled(ctx))
+	assert.Empty(t, installationAllowedModelSet(context.WithValue(ctx, subscriptionStateAllowedModelsKey{}, modelSet(nil))))
 }

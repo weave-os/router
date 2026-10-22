@@ -3,6 +3,8 @@ package translate
 import (
 	"strings"
 
+	"weave-os/router/internal/router"
+
 	"github.com/tidwall/gjson"
 )
 
@@ -10,7 +12,8 @@ import (
 // when the command has arguments or trailing prompt text; /beta intentionally
 // has one toggle-only form.
 type BetaCommandResult struct {
-	Invalid bool
+	Invalid  bool
+	Strategy router.Strategy
 }
 
 // ExtractBetaCommand scans the final user message for a leading /beta
@@ -109,7 +112,15 @@ func parseBetaCommand(text string) (result BetaCommandResult, found bool, stripp
 			continue
 		}
 		fields := strings.Fields(trimmed)
-		if len(fields) == 0 || fields[0] != "/beta" {
+		if len(fields) == 0 {
+			return BetaCommandResult{}, false, text
+		}
+		switch fields[0] {
+		case "/beta":
+			result.Strategy = router.StrategyHMMBeta
+		case "/beta-llm":
+			result.Strategy = router.StrategyHMMQwen
+		default:
 			return BetaCommandResult{}, false, text
 		}
 		commandLine = i
@@ -195,6 +206,10 @@ func isBetaAckOnlyContent(content gjson.Result) bool {
 func isBetaAckText(text string) bool {
 	switch strings.TrimSpace(text) {
 	case "✦ **Weave Router** → Beta enabled. Type /beta again to turn it off.",
+		"✦ **Weave Router** → Qwen beta enabled. Type /beta-llm again to turn it off.",
+		"✦ **Weave Router** → Qwen beta disabled. Stable routing restored.",
+		"✦ **Weave Router** → Qwen beta is unavailable for this session.",
+		"✦ **Weave Router** → Usage: /beta-llm",
 		"✦ **Weave Router** → " + BetaRetiredMessage,
 		"✦ **Weave Router** → Beta disabled. Stable routing restored.",
 		"✦ **Weave Router** → Beta is unavailable for this session.",

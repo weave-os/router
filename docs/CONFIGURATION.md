@@ -48,6 +48,7 @@ Claude Code keep using the user's logged-in plan.
 | `ANTHROPIC_API_KEY`   | *(none — passthrough)*                                    | Router's own Anthropic key. When unset, client `Authorization` headers pass through. |
 | `OPENAI_API_KEY`      | *(none)*                                                  | Enables the OpenAI provider (Chat Completions API). |
 | `OPENAI_BASE_URL`     | `https://api.openai.com`                                  | Override for OpenAI (e.g. Azure OpenAI). |
+| `ROUTER_CODEX_ALLOW_EXTRA_CREDITS` | `false` | Self-hosted only. Allows enrolled and caller-presented Codex logins to use verified available ChatGPT subscription credits after included quota runs out. Applies to all Codex accounts served by this deployment; does not enable API-key fallback, buy credits, or change Claude extra usage. Invalid values or enabling it in managed mode fail startup. |
 | `ROUTER_CODEX_BASE_URL` | `https://chatgpt.com/backend-api/codex`                  | Local-testing override for the ChatGPT subscription Responses backend; leave unset in production. |
 | `MINIMAX_API_KEY`     | *(none)*                                                   | Enables the native MiniMax provider through its OpenAI-compatible API. |
 | `MINIMAX_REGION`      | `global`                                                   | Set to `cn` (or `china`) to use the mainland-China endpoint. |
@@ -127,6 +128,13 @@ curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
        "base_url":"https://<account>.snowflakecomputing.com/api/v2/cortex/v1",
        "model_aliases":{"gpt-5":"openai-gpt-5"}}'
 ```
+
+A Cortex AI Gateway is configured the same way, with its endpoint
+(`https://<account-host>/api/v2/aigateways/<name>`) as the base URL. The router
+appends `/v1` like it does for the Cortex REST root. The gateway has no
+`/v1/responses` yet, so reasoning tool turns fall back to Chat Completions after
+the first probe, and native web search still runs on the account's
+`/api/v2/cortex/agent:run`.
 
 Both keys carry the same PAT; per model, the catalog's binding order decides
 which surface serves it, so Claude prefers the Anthropic one (it carries
@@ -487,6 +495,7 @@ the admission caches using the same Pub/Sub project and topic.
 | `ROUTER_COMPACTION_TIMEOUT_MS`    | `90000`                      | Hard timeout for one compaction-handover summary call (separate from `ROUTER_HANDOVER_TIMEOUT_MS`; a Sonnet-class summary of a near-full window is slow). On timeout the full history is kept. |
 | `ROUTER_ESCALATION_JUDGE_ENABLED` | `false` | Enables the optional Weave-funded Switchyard LLM judge and requires `FIREWORKS_API_KEY`. The judge uses only the Fireworks binding for `z-ai/glm-5.3-flash`. |
 | `ROUTER_ESCALATION_JUDGE_ACTIVE_ENABLED` | `false` | Allows `switchyard_llm_v1` to be selected as the active classifier. Keep false during shadow evaluation; requires `ROUTER_ESCALATION_JUDGE_ENABLED=true`. |
+| `ROUTER_PROVIDER_OVERLOADED`      | `true`                       | Per-model 529 circuit breaker. Provider-direct overloaded responses from every organization feed one shared circuit per model (3 overloaded operations within 2 minutes open it); once it opens, the model leaves automatic selection only for organizations that have each observed 2 overloads themselves. Traffic through an organization's own gateway gets a circuit of its own that no other organization feeds or sees. `/force-model` still reaches the model, and one request probes it after 30s, doubling to a 10-minute cap on each failed probe. Thresholds are fixed in `internal/router/breaker/thresholds.go`. Org-overridable as `provider_overloaded`. |
 | `ROUTER_ONNX_ASSETS_DIR`          | `/opt/router/assets`         | Directory containing `model.onnx` + `tokenizer.json`. |
 | `ROUTER_ONNX_LIBRARY_DIR`         | *(system default)*           | Path to `libonnxruntime` (e.g. `/opt/homebrew/lib` on Apple Silicon). |
 
@@ -598,6 +607,15 @@ The name is matched **exactly** — it must be a canonical catalog ID
 effort suffix (`opus:high`). There is no prefix, substring, or nearest-match
 fallback: a name the router doesn't recognize is refused, never approximated.
 
+`/force-parent <model>[:effort]` (Codex: `$force-parent`) uses the same model
+resolution and restrictions, but pins only the invoking thread. It replaces a
+conversation-wide force, so children sharing its client-session ID resume normal
+automatic routing. `/force-model` restores conversation-wide pinning, and
+`/unforce-model` clears either mode. Parent scope follows the router's thread
+digest, which includes the first user message: after compaction rewrites that
+message, reapply `/force-parent` in the parent. An explicit deployment or request
+header override still applies independently to children.
+
 That strictness is the point. Approximate matching served a model the caller
 never named — `/fm qwen 3.8` resolved through the bare `qwen` alias to
 `qwen/qwen3-coder` and acked as if the pin took. The whole rest of the command
@@ -615,7 +633,7 @@ routing on, so a typo can't look like it took effect.
 
 | Header | Effect |
 | ------ | ------ |
-| `x-weave-force-model` | Pins the session to one model, exactly as `/force-model` does — same exact-match rule. Accepts a canonical catalog ID, a bare name, or an alias (`opus`, `gpt`, `qwen-max`, …) plus an optional `:level` effort suffix (`opus:high`). A value naming no catalog model is HTTP 400. |
+| `x-weave-force-model` | Pins the session to one model, exactly as `/force-model` does — same exact-match rule. Accepts a canonical catalog ID, a bare name, or an alias (`opus`, `gpt`, `qwen-max`, …) plus an optional `:level` effort suffix (`opus:high`). Separator spelling doesn't matter (`claude-opus-5.5`, `opus 5.5`, and `claude-opus-5-5` are one name), the `claude-` prefix and Claude Code's `[1m]` tag are optional, and the effort may follow a space or dash (`astra high`). A spelling that two models share is rejected rather than guessed. A value naming no catalog model is HTTP 400; for the typed command, a close typo (`opsu`) gets a "did you mean" hint but is never pinned. |
 | `x-weave-force-cluster` | Constrains serving to one of the policy sidecar's routing clusters, leaving the choice *within* it to the policy. |
 
 `x-weave-force-cluster` takes an opaque label — the router holds no list of

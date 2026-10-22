@@ -8,6 +8,9 @@ import (
 	"sync"
 )
 
+// spoolFilePattern names the private temporary files backing captured bodies.
+const spoolFilePattern = "router-http-capture-body-*"
+
 // BodySpool stores captured body bytes in a private temporary file so capture
 // memory use stays bounded for large prompts and streamed responses.
 type BodySpool struct {
@@ -29,15 +32,9 @@ func (spool *BodySpool) Write(body []byte) {
 		return
 	}
 	if spool.file == nil {
-		bodyFile, err := os.CreateTemp("", "router-http-capture-body-*")
+		bodyFile, err := createSpoolFile()
 		if err != nil {
-			spool.err = fmt.Errorf("create temporary HTTP body capture: %w", err)
-			return
-		}
-		if err := os.Remove(bodyFile.Name()); err != nil {
-			_ = bodyFile.Close()
-			_ = os.Remove(bodyFile.Name())
-			spool.err = fmt.Errorf("unlink temporary HTTP body capture: %w", err)
+			spool.err = err
 			return
 		}
 		spool.file = bodyFile
@@ -72,7 +69,8 @@ func (spool *BodySpool) Err() error {
 	return spool.err
 }
 
-// Close releases the unlinked temporary body file after its exchange is recorded.
+// Close releases the temporary body file after its exchange is recorded,
+// deleting it where the platform could not unlink an open file up front.
 func (spool *BodySpool) Close() error {
 	spool.mu.Lock()
 	defer spool.mu.Unlock()
@@ -85,6 +83,9 @@ func (spool *BodySpool) Close() error {
 	}
 	if err := spool.file.Close(); err != nil {
 		return fmt.Errorf("close temporary HTTP body capture: %w", err)
+	}
+	if err := removeSpoolFile(spool.file); err != nil {
+		return fmt.Errorf("remove temporary HTTP body capture: %w", err)
 	}
 	return nil
 }

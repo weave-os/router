@@ -9,7 +9,9 @@ import (
 	"sync"
 	"testing"
 
+	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -26,6 +28,52 @@ type betaTestRouter struct {
 	calls    int
 	requests []router.Request
 	decision router.Decision
+}
+
+func TestQwenBetaToggleUsesAdmittedClassifierAndInternalIdentity(t *testing.T) {
+	for _, tt := range []struct {
+		name         string
+		target       policyregistry.ServingTarget
+		withIdentity bool
+		withQwen     bool
+		wantEnabled  bool
+	}{
+		{name: "internal admitted Qwen", target: policyregistry.TargetInternal, withIdentity: true, withQwen: true, wantEnabled: true},
+		{name: "retained classifier lacks Qwen", target: policyregistry.TargetInternal, withIdentity: true},
+		{name: "stable cannot enable Qwen", target: policyregistry.TargetStable, withIdentity: true, withQwen: true},
+		{name: "missing internal admission", withQwen: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &betaTestPreferenceStore{}
+			svc := (&Service{}).
+				WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMQwen, Router: policyregistry.NewAdmittedRouter(router.StrategyHMMQwen, &policyregistry.Snapshot{})}).
+				WithSessionStrategyStore(store)
+			selected := &policyregistry.Snapshot{Routers: map[router.Strategy]router.Router{}}
+			if tt.withQwen {
+				selected.Routers[router.StrategyHMMQwen] = &betaTestRouter{}
+			}
+			ctx := policyregistry.WithServingSnapshot(context.Background(), selected)
+			if tt.withIdentity {
+				ctx = requestcontext.WithServingIdentity(ctx, requestcontext.ServingIdentity{
+					Target: string(tt.target), ReleaseID: "synthetic-release", BindingID: "synthetic-binding", CredentialIdentity: "synthetic-credential",
+				})
+			}
+			env := betaTestEnvelope(t, "/beta-llm", true)
+			command, found := env.ExtractBetaCommand()
+			require.True(t, found)
+			response := httptest.NewRecorder()
+			var sessionKey [sessionstrategy.SessionKeyLen]byte
+			sessionKey[0] = 1
+			require.NoError(t, svc.handleBetaCommand(ctx, response, env, command, uuid.New(), sessionKey, sessionKey, 1))
+			if tt.wantEnabled {
+				assert.Contains(t, response.Body.String(), qwenEnabledMessage)
+				assert.Equal(t, router.StrategyHMMQwen, store.preference.Strategy)
+			} else {
+				assert.Contains(t, response.Body.String(), qwenUnavailable)
+			}
+			assert.Equal(t, tt.wantEnabled, store.found)
+		})
+	}
 }
 
 func TestWriteRetiredBetaRequestKeepsProtocolReplyAvailableBeforeAdmission(t *testing.T) {
@@ -117,7 +165,7 @@ func (s *betaTestPreferenceStore) Toggle(_ context.Context, preference sessionst
 		return false, s.toggleErr
 	}
 	s.toggles++
-	if s.found {
+	if s.found && s.preference.Strategy == preference.Strategy {
 		s.preference = sessionstrategy.Preference{}
 		s.found = false
 		return false, nil
@@ -131,6 +179,7 @@ func (s *betaTestPreferenceStore) Disable(
 	_ context.Context,
 	installationID uuid.UUID,
 	sessionKey [sessionstrategy.SessionKeyLen]byte,
+	strategy router.Strategy,
 ) (bool, error) {
 	if s.beforeWrite != nil {
 		s.beforeWrite()
@@ -141,7 +190,7 @@ func (s *betaTestPreferenceStore) Disable(
 		return false, s.toggleErr
 	}
 	s.disables++
-	if !s.found || s.preference.InstallationID != installationID || s.preference.SessionKey != sessionKey {
+	if !s.found || s.preference.InstallationID != installationID || s.preference.SessionKey != sessionKey || s.preference.Strategy != strategy {
 		return false, nil
 	}
 	s.preference = sessionstrategy.Preference{}

@@ -125,6 +125,7 @@ func TestParseAnthropicUnified_OverageIncludedIsNotPaid(t *testing.T) {
 		UsedPercent:   1.0,
 		WindowMinutes: 5 * 60,
 		ResetAt:       now.Add(time.Hour),
+		ObservedAt:    now,
 	}
 	observer.Record(key, usage.Snapshot{
 		Primary: previouslyExhaustedPrimary, RepresentativeClaim: usage.AnthropicClaimOverage, OverageInUse: true,

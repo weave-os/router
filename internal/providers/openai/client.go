@@ -105,9 +105,10 @@ func codexSubscriptionCreds(ctx context.Context) *requestcontext.Credentials {
 const responseHeaderTimeout = 120 * time.Second
 
 type Client struct {
-	apiKey  string
-	baseURL string
-	http    *http.Client
+	allowCodexExtraCredits bool
+	apiKey                 string
+	baseURL                string
+	http                   *http.Client
 	// modelIDMap rewrites routed catalog IDs to the upstream model IDs.
 	modelIDMap map[string]string
 	// sseIdleTimeout, when > 0, overrides the per-endpoint idle-progress
@@ -131,6 +132,10 @@ func NewClient(apiKey, baseURL string) *Client {
 func NewClientWithModelIDMap(apiKey, baseURL string, modelIDMap map[string]string) *Client {
 	return newClientWithModelIDMap(apiKey, baseURL, responseHeaderTimeout, modelIDMap)
 }
+
+// SetCodexExtraCreditsAllowed enables use of available ChatGPT subscription credits.
+// Configure before serving requests; it does not enable OpenAI API fallback.
+func (c *Client) SetCodexExtraCreditsAllowed(allowed bool) { c.allowCodexExtraCredits = allowed }
 
 // SetCodexBaseURL overrides the Codex subscription endpoint for local testing.
 func (c *Client) SetCodexBaseURL(baseURL string) {

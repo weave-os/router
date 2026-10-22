@@ -17,6 +17,7 @@ import (
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
@@ -37,6 +38,7 @@ var ErrGeminiCrossFormatUnsupported = errors.New("gemini cross-format emit not i
 // and "stream" (true for :streamGenerateContent) fields into body before
 // calling; both are stripped before forwarding upstream.
 func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
+	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
 	ctx, returnErr = s.withClassifierInput(ctx, body, router.EndpointGeminiGenerate)
 	if returnErr != nil {
 		return returnErr
@@ -135,9 +137,15 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	if feats.MaxTokens > outputReserve {
 		outputReserve = feats.MaxTokens
 	}
+	excluded, geminiUnsigned := excludeGemini3xOnUnsignedHistory(env, excluded, s.availableModels)
+	if len(geminiUnsigned) > 0 {
+		log.Info("gemini pre-filter: excluded gemini-3.x for unsigned tool-call history",
+			"excluded_models", strings.Join(geminiUnsigned, ","),
+		)
+	}
 	overflowEstimate := env.ContextOverflowTokenEstimate()
 	excluded, ctxOverflowed := excludeContextOverflowModels(overflowEstimate, env.SignatureTokenSavings(), outputReserve, enabledProviders, excluded, s.availableModels)
-	overflowAdmitted := admitWidestOnTotalOverflow(excluded, ctxOverflowed, s.availableModels, enabledProviders)
+	overflowAdmitted := admitWidestOnTotalOverflow(excluded, ctxOverflowed, s.availableModels, enabledProviders, cluster.RequestBindings{Custom: s.customBindingsForRequest(ctx), Gateways: s.gatewayProvidersForRequest(ctx)})
 	excluded = withoutModels(excluded, overflowAdmitted)
 	if len(ctxOverflowed) > 0 {
 		log.Info("context window pre-filter: excluded over-capacity models",
@@ -146,12 +154,6 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 			"excluded_count", len(ctxOverflowed)-len(overflowAdmitted),
 			"excluded_models", strings.Join(ctxOverflowed, ","),
 			"admitted_for_upstream", strings.Join(overflowAdmitted, ","),
-		)
-	}
-	excluded, geminiUnsigned := excludeGemini3xOnUnsignedHistory(env, excluded, s.availableModels)
-	if len(geminiUnsigned) > 0 {
-		log.Info("gemini pre-filter: excluded gemini-3.x for unsigned tool-call history",
-			"excluded_models", strings.Join(geminiUnsigned, ","),
 		)
 	}
 
@@ -317,12 +319,11 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
 	bindings := s.resolveBindingsForDispatch(ctx, decision)
 	primaryDecision := decision
+	notices := &requestNoticeStream{}
 	attempt := func(actx context.Context, d router.Decision, p providers.Client) error {
-		attemptSink := http.ResponseWriter(preludeBuf)
-		if marker != "" {
-			mw := translate.NewGeminiRoutingMarkerWriter(attemptSink, marker)
-			mw.Prepare(env.Stream())
-			attemptSink = mw
+		attemptSink, noticeErr := notices.prepare(r.Context(), preludeBuf, preludeBuf, translate.FormatGemini, env.Stream(), translate.NewRouterNotice(translate.NoticeModelSelection, marker, d.Model, ""))
+		if noticeErr != nil {
+			return fmt.Errorf("emit Gemini router notice: %w", noticeErr)
 		}
 		proxySink := attemptSink
 		if s.usageRequired() {
@@ -345,9 +346,15 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 		initialDecision: decision,
 		bindings:        bindings,
 		attempt:         attempt,
-		flushErr:        flushBufferedIfPresent,
-		purpose:         routeRes.dispatchPurpose(inference.PurposeGeminiGenerateContent),
-		origin:          routeRes.dispatchOrigin(decision),
+		flushErr: func(w http.ResponseWriter, err error) {
+			if env.Stream() && preludeBuf.PreludeSent() {
+				emitGeminiSSEErrorEvent(w)
+				return
+			}
+			flushBufferedIfPresent(w, err)
+		},
+		purpose: routeRes.dispatchPurpose(inference.PurposeGeminiGenerateContent),
+		origin:  routeRes.dispatchOrigin(decision),
 	})
 	primaryFailureErr := proxyErr
 	proxyMs := time.Since(proxyStart).Milliseconds()
@@ -405,6 +412,7 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 	applyPlannerAttrs(geminiUpstreamBuilder, routeRes)
 	applyRoutingStateAttrs(geminiUpstreamBuilder, routeRes, decision.ServedIdentity(), sessionKey)
+	applyCallerRoutingAttrs(ctx, geminiUpstreamBuilder)
 	applyEffortAttrs(geminiUpstreamBuilder, effortServed)
 	s.applySubscriptionSpanTelemetry(ctx, geminiUpstreamBuilder, feats.Model, decision.Model)
 	addTimingAttrs(ctx, geminiUpstreamBuilder)
@@ -549,7 +557,8 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	}
 
 	demotionLogFields := armStrikeLogFieldsWithPrimaryReason(armDemoted, armDemotionReason, primaryFailureDemoted, primaryFailureDemotionReason)
-	log.Info("ProxyGeminiGenerateContent complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "decision_reason", decision.Reason, "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_status", upstreamStatus(proxyErr)}, demotionLogFields...), append(plannerLogFields(routeRes), rateLimit.completionLogFields()...)...)...)
+	servedCredentialSource, servedSubscriptionTier := s.servedCredentialLogValues(ctx)
+	log.Info("ProxyGeminiGenerateContent complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "decision_reason", decision.Reason, "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "upstream_status", upstreamStatus(proxyErr), "credential_source", servedCredentialSource, "subscription_tier", servedSubscriptionTier}, demotionLogFields...), append(plannerLogFields(routeRes), rateLimit.completionLogFields()...)...)...)
 	s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, decision.Provider, false, feats.Tokens, in, out, cacheCreation, cacheRead, usageMods, routeMs, proxyMs, proxyErr, nil)
 	return proxyErr
 }

@@ -2,6 +2,7 @@ package openai
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -23,6 +24,14 @@ func TestCodexIncludedQuotaPreflight(t *testing.T) {
 		{"exhausted_with_purchased_credits", `{"rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":100}},"credits":{"has_credits":true,"balance":"57091"}}`, 429},
 		{"exhausted_secondary", `{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":20},"secondary_window":{"used_percent":100}}}`, 429},
 		{"missing_window", `{"rate_limit":{"allowed":true,"limit_reached":false}}`, 503},
+		{"usage_based_plan_without_rate_limit", `{"plan_type":"enterprise_cbp_usage_based","rate_limit":null,"spend_control":{"reached":false}}`, 0},
+		{"reported_plan_without_windows", `{"plan_type":"business","rate_limit":{"allowed":true,"limit_reached":false}}`, 0},
+		{"reported_plan_without_windows_reached", `{"plan_type":"business","rate_limit":{"allowed":false,"limit_reached":true}}`, 429},
+		{"spend_control_reached", `{"plan_type":"enterprise_cbp_usage_based","rate_limit":null,"spend_control":{"reached":true}}`, 429},
+		{"workspace_credits_depleted", `{"plan_type":"business","rate_limit":null,"rate_limit_reached_type":{"type":"workspace_owner_credits_depleted"}}`, 429},
+		{"unknown_reached_type_ignored", `{"plan_type":"business","rate_limit":null,"rate_limit_reached_type":{"type":"something_new"}}`, 0},
+		{"reported_plan_model_limit_without_rate_limit", `{"plan_type":"pro","rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":20}},"additional_rate_limits":[{"normal_model_slug":"gpt-6.1-sol","rate_limit":null}]}`, 0},
+		{"reported_plan_malformed_rate_limit", `{"plan_type":"business","rate_limit":{"allowed":true}}`, 503},
 		{"model_specific_exhaustion", `{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":20}},"additional_rate_limits":[{"normal_model_slug":"gpt-6.1-sol","rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":100}}}]}`, 503},
 		{"unrelated_model_limit", `{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":20}},"additional_rate_limits":[{"normal_model_slug":"other-model","rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":100}}}]}`, 0},
 		{"missing_quota", `{}`, 503},
@@ -158,4 +167,18 @@ func TestCodexQuotaEndpointUnavailableNeverInfers(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCodexReachedTypeKeepsWindowReset(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"plan_type":"plus","rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":40},"secondary_window":{"used_percent":100,"reset_at":1792600000}},"rate_limit_reached_type":{"type":"rate_limit_reached"}}`)
+	}))
+	defer server.Close()
+	client := NewClient("deployment-key", server.URL)
+	client.SetCodexBaseURL(server.URL)
+	err := client.checkCodexIncludedQuota(codexCtx("test-token", "test-account"), "gpt-6.1-sol")
+	var upstream *providers.UpstreamErrorResponse
+	require.True(t, errors.As(err, &upstream))
+	require.Equal(t, http.StatusTooManyRequests, upstream.Status)
+	require.Contains(t, string(upstream.Body), "1792600000")
 }

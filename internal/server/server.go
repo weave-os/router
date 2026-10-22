@@ -51,7 +51,8 @@ const (
 	subscriptionAccountTimeout = 30 * time.Second
 	// catalogModelsTimeout bounds GET /v1/router/models; must exceed the HMM
 	// sidecar client budget (policyclient.DefaultTimeout) or a cold cache 503s.
-	catalogModelsTimeout = policyclient.DefaultTimeout * 2
+	catalogModelsTimeout    = policyclient.DefaultTimeout * 2
+	modelPreparationTimeout = 10 * time.Second
 	// feedbackTimeout bounds the no-login feedback link reads/writes. Both are
 	// single-row Postgres ops plus an async span emit, so 5s is generous.
 	feedbackTimeout = 5 * time.Second
@@ -186,6 +187,10 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		discoveryMiddleware = append(discoveryMiddleware, servingAdmissionMiddleware...)
 	}
 	discovery := engine.Group("", discoveryMiddleware...)
+	if features.ServingAdmission != nil && mode == DeploymentModeManaged {
+		discovery.POST("/v1/router/models/:model/prepare", middleware.WithTimeout(modelPreparationTimeout), classifierapi.PrepareModelHandler(proxySvc))
+		discovery.GET("/v1/router/models/:model/prepare/:operation", middleware.WithTimeout(modelPreparationTimeout), classifierapi.PrepareModelHandler(proxySvc))
+	}
 	if features.ServingAdmission != nil {
 		discovery.GET("/v1/test-plan/validate", middleware.WithTimeout(catalogModelsTimeout), admin.TestPlanValidationHandler)
 	}
@@ -361,7 +366,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithForceEffortOverride(),
 	)
 	messagesMiddleware = append(messagesMiddleware, policyPinMiddleware...)
-	messagesMiddleware = append(messagesMiddleware, middleware.WithClassifierThread(proxySvc))
+	messagesMiddleware = append(messagesMiddleware, middleware.WithClassifierThread(proxySvc, strategyAvailability))
 	messagesGroup := engine.Group("", messagesMiddleware...)
 	messagesGroup.POST("/v1/messages", anthropicapi.MessagesHandler(proxySvc, authSvc))
 	messagesGroup.POST("/v1/route/handoff", anthropicapi.PrepareHandoffHandler(proxySvc, authSvc))
@@ -391,7 +396,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithRoutingKnobsOverride(),
 		middleware.WithForceEffortOverride(),
 	)
-	chatCompletionMiddleware = append(chatCompletionMiddleware, middleware.WithClassifierThread(proxySvc))
+	chatCompletionMiddleware = append(chatCompletionMiddleware, middleware.WithClassifierThread(proxySvc, strategyAvailability))
 	chatCompletionWithoutPolicyPin := append([]gin.HandlerFunc(nil), chatCompletionMiddleware...)
 	chatCompletionMiddleware = append(chatCompletionMiddleware, policyPinMiddleware...)
 	chatCompletionGroup := engine.Group("", chatCompletionMiddleware...)
@@ -452,7 +457,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithForceEffortOverride(),
 	)
 	routeMiddleware = append(routeMiddleware, policyPinMiddleware...)
-	routeMiddleware = append(routeMiddleware, middleware.WithClassifierThread(proxySvc))
+	routeMiddleware = append(routeMiddleware, middleware.WithClassifierThread(proxySvc, strategyAvailability))
 	routeGroup := engine.Group("", routeMiddleware...)
 	routeGroup.POST("/v1/route", anthropicapi.RouteHandler(proxySvc))
 
@@ -471,7 +476,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 		middleware.WithRoutingKnobsOverride(),
 	)
 	previewMiddleware = append(previewMiddleware, policyPinMiddleware...)
-	previewMiddleware = append(previewMiddleware, middleware.WithClassifierThread(proxySvc))
+	previewMiddleware = append(previewMiddleware, middleware.WithClassifierThread(proxySvc, strategyAvailability))
 	previewGroup := engine.Group("", previewMiddleware...)
 	previewGroup.POST("/v1/route/preview", anthropicapi.PreviewRouteHandler(proxySvc))
 

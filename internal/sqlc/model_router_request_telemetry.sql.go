@@ -117,6 +117,7 @@ SELECT
     t.cache_creation_tokens,
     t.cache_read_tokens,
     t.cache_creation_1h_tokens,
+    t.reasoning_tokens,
     t.speed,
     t.inference_geo,
     -- A Claude response with the plain overage claim used paid credits, even though the caller's
@@ -244,6 +245,7 @@ type GetRoutingDecisionsForExportRow struct {
 	CacheCreationTokens             *int32
 	CacheReadTokens                 *int32
 	CacheCreation1hTokens           *int32
+	ReasoningTokens                 *int32
 	Speed                           *string
 	InferenceGeo                    *string
 	SubscriptionServed              bool
@@ -343,6 +345,7 @@ type GetRoutingDecisionsForExportRow struct {
 //	    t.cache_creation_tokens,
 //	    t.cache_read_tokens,
 //	    t.cache_creation_1h_tokens,
+//	    t.reasoning_tokens,
 //	    t.speed,
 //	    t.inference_geo,
 //	    -- A Claude response with the plain overage claim used paid credits, even though the caller's
@@ -475,6 +478,7 @@ func (q *Queries) GetRoutingDecisionsForExport(ctx context.Context, arg GetRouti
 			&i.CacheCreationTokens,
 			&i.CacheReadTokens,
 			&i.CacheCreation1hTokens,
+			&i.ReasoningTokens,
 			&i.Speed,
 			&i.InferenceGeo,
 			&i.SubscriptionServed,

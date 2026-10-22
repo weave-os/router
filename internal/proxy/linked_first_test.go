@@ -260,10 +260,9 @@ func underThresholdObserver() *usage.Observer {
 	return obs
 }
 
-// TestLinkedFirst_Anthropic_BypassThirdPartyRefusal_ReroutesOnCredits: a
-// linked-first turn whose plan refuses the client app (not Claude Code) is
-// funded, so it reroutes on organization credits like a throttled bypass.
-func TestLinkedFirst_Anthropic_BypassThirdPartyRefusal_ReroutesOnCredits(t *testing.T) {
+// A client-app refusal does not establish quota exhaustion, even with available
+// organization credits and a deployment provider key.
+func TestLinkedFirst_Anthropic_BypassThirdPartyRefusal_RefusesPaidReroute(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(map[bool]string{false: "non_streaming", true: "streaming"}[stream], func(t *testing.T) {
 			p := &planRefusingProvider{stream: stream}
@@ -277,14 +276,12 @@ func TestLinkedFirst_Anthropic_BypassThirdPartyRefusal_ReroutesOnCredits(t *test
 				body = []byte(`{"model":"` + bypassRequestedMdl + `","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 			}
 			ctx := billing.WithSubscriptionOnly(bypassCtx(0.80), billing.SubscriptionOnlyLinkedFirst)
-			require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
+			require.ErrorIs(t, svc.ProxyMessages(ctx, body, rec, req), proxy.ErrSubscriptionPoolUnavailable)
 
 			assert.Positive(t, p.subscriptionCalls)
-			assert.Equal(t, 1, p.paidCalls, "the refused turn must serve once on organization credits")
-			assert.NotEqual(t, http.StatusBadRequest, rec.Code)
-			assert.NotContains(t, rec.Body.String(), "Third-party apps")
+			assert.Zero(t, p.paidCalls, "a client-app refusal cannot authorize organization-credit inference")
 			assert.NotContains(t, rec.Body.String(), "credits are depleted")
-			assert.Contains(t, rec.Body.String(), `"text":"hi"`)
+			assert.NotContains(t, rec.Body.String(), `"text":"hi"`)
 		})
 	}
 }

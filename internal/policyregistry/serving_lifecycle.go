@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/google/uuid"
@@ -235,18 +236,19 @@ func NextServingActivation(snapshot ServingStateSnapshot, proposalPayload []byte
 
 // SessionReleaseBinding is the release decision persisted under an authenticated conversation scope.
 type SessionReleaseBinding struct {
-	Target               ServingTarget    `json:"target"`
-	ActivationID         string           `json:"activation_id"`
-	Selection            ServingSelection `json:"selection"`
-	ProfileKey           string           `json:"profile_key,omitempty"`
-	ProfileName          string           `json:"profile_name,omitempty"`
-	Plan                 entitlement.Plan `json:"plan,omitempty"`
-	EntitlementVersion   int64            `json:"entitlement_version,omitempty"`
-	EnrollmentGeneration int64            `json:"enrollment_generation"`
-	AssignmentGeneration int64            `json:"assignment_generation"`
-	BindingGeneration    int64            `json:"binding_generation"`
-	CreatedAt            time.Time        `json:"created_at"`
-	LastAdmittedAt       time.Time        `json:"last_admitted_at"`
+	RoutingModel         router.RoutingModel `json:"routing_model,omitempty"`
+	Target               ServingTarget       `json:"target"`
+	ActivationID         string              `json:"activation_id"`
+	Selection            ServingSelection    `json:"selection"`
+	ProfileKey           string              `json:"profile_key,omitempty"`
+	ProfileName          string              `json:"profile_name,omitempty"`
+	Plan                 entitlement.Plan    `json:"plan,omitempty"`
+	EntitlementVersion   int64               `json:"entitlement_version,omitempty"`
+	EnrollmentGeneration int64               `json:"enrollment_generation"`
+	AssignmentGeneration int64               `json:"assignment_generation"`
+	BindingGeneration    int64               `json:"binding_generation"`
+	CreatedAt            time.Time           `json:"created_at"`
+	LastAdmittedAt       time.Time           `json:"last_admitted_at"`
 }
 
 // AdmissionProjection is read from authenticated router storage, never caller headers.
@@ -294,6 +296,7 @@ func SelectSessionRelease(previous *SessionReleaseBinding, projection AdmissionP
 	}
 	generation := int64(1)
 	createdAt := now
+	var routingModel router.RoutingModel
 	if previous != nil {
 		if previous.BindingGeneration <= 0 || previous.CreatedAt.IsZero() || previous.LastAdmittedAt.Before(previous.CreatedAt) || previous.LastAdmittedAt.After(now) {
 			return SessionReleaseBinding{}, errors.New("invalid persisted session binding")
@@ -301,6 +304,7 @@ func SelectSessionRelease(previous *SessionReleaseBinding, projection AdmissionP
 		generation = previous.BindingGeneration + 1
 		createdAt = previous.CreatedAt
 		if previous.Target == projection.Target {
+			routingModel = previous.RoutingModel
 			activation, exists := snapshot.State.Activations[previous.ActivationID]
 			if !exists {
 				return SessionReleaseBinding{}, errors.New("persisted session references an unknown activation")
@@ -324,7 +328,7 @@ func SelectSessionRelease(previous *SessionReleaseBinding, projection AdmissionP
 	if err != nil {
 		return SessionReleaseBinding{}, err
 	}
-	return SessionReleaseBinding{Target: projection.Target, ActivationID: current.ID, Selection: selection, ProfileKey: projection.ProfileKey, ProfileName: projection.ProfileName, Plan: projection.Plan, EntitlementVersion: projection.EntitlementVersion, EnrollmentGeneration: projection.EnrollmentGeneration, AssignmentGeneration: projection.AssignmentGeneration, BindingGeneration: generation, CreatedAt: createdAt, LastAdmittedAt: now}, nil
+	return SessionReleaseBinding{RoutingModel: routingModel, Target: projection.Target, ActivationID: current.ID, Selection: selection, ProfileKey: projection.ProfileKey, ProfileName: projection.ProfileName, Plan: projection.Plan, EntitlementVersion: projection.EntitlementVersion, EnrollmentGeneration: projection.EnrollmentGeneration, AssignmentGeneration: projection.AssignmentGeneration, BindingGeneration: generation, CreatedAt: createdAt, LastAdmittedAt: now}, nil
 }
 
 func selectionForActivation(activation Activation, profileKey string, sets map[string]SelectionSetView, root string, target ServingTarget) (ServingSelection, error) {

@@ -8,11 +8,14 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/anthropic"
 	"weave-os/router/internal/providers/openaicompat"
 	"weave-os/router/internal/proxy"
+	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/translate"
 
@@ -377,20 +380,34 @@ func TestProxyMessages_OverloadWithoutCandidatesSurfacesUpstreamError(t *testing
 	assert.Contains(t, rec.Body.String(), "Overloaded", "the deferred upstream error must reach the client")
 }
 
-// TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry: a customer
-// credential binds the turn to its provider, so sibling rescue is ineligible;
-// the Weave-key retry runs and the overload surfaces exactly once.
+// TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry: confirmed
+// subscription exhaustion authorizes API rollover; when the paid binding is
+// overloaded too, the plan credential no longer pins the turn to its vendor,
+// so the scored sibling is tried and the final failure surfaces exactly once.
 func TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry(t *testing.T) {
 	var (
-		mu             sync.Mutex
-		anthropicCount int
-		fireworksCount int
+		mu                sync.Mutex
+		anthropicCount    int
+		subscriptionCount int
+		fireworksCount    int
 	)
 
-	anthropicUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	anthropicUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		anthropicCount++
+		onSubscription := strings.Contains(r.Header.Get("Authorization"), "sk-ant-oat01-")
+		if onSubscription {
+			subscriptionCount++
+		}
 		mu.Unlock()
+		if onSubscription {
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("anthropic-ratelimit-unified-5h-utilization", "1")
+			w.Header().Set("anthropic-ratelimit-unified-5h-reset", "4102444800")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"type":"error","error":{"type":"rate_limit_error","message":"quota exhausted"}}`))
+			return
+		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(statusOverloaded)
 		_, _ = w.Write([]byte(overloadedSSE))
@@ -401,7 +418,9 @@ func TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry(t *testing.T) 
 		mu.Lock()
 		fireworksCount++
 		mu.Unlock()
-		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(statusOverloaded)
+		_, _ = w.Write([]byte(`{"error":{"type":"overloaded_error","message":"Overloaded"}}`))
 	}))
 	defer fireworks.Close()
 
@@ -415,7 +434,8 @@ func TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry(t *testing.T) 
 	).WithDeploymentKeyedProviders(map[string]struct{}{
 		providers.ProviderAnthropic: {},
 		providers.ProviderFireworks: {},
-	}).WithRetrySleep(noRetrySleep)
+	}).WithRetrySleep(noRetrySleep).
+		WithUsageObserver(usage.NewObserver([]byte("rollover-overload-quota-salt"), time.Hour, time.Now))
 
 	ctx := context.WithValue(
 		authedCtx("11111111-1111-1111-1111-111111111111"),
@@ -431,8 +451,9 @@ func TestProxyMessages_SubscriptionOverloadSurfacesOnceAfterRetry(t *testing.T) 
 
 	mu.Lock()
 	defer mu.Unlock()
-	assert.Greater(t, anthropicCount, 1, "the subscription retry reruns the same model on the Weave key")
-	assert.Zero(t, fireworksCount, "a subscription credential binds the turn to its own provider")
+	assert.Equal(t, dispatch.MaxSameBindingRetries+1, subscriptionCount, "direct Claude retains its bounded same-binding retries")
+	assert.Greater(t, anthropicCount-subscriptionCount, 1, "the authorized API binding retries its overload")
+	assert.Positive(t, fireworksCount, "a plan credential is a funding source, not a vendor binding: the scored sibling is tried")
 	assert.Equal(t, 1, strings.Count(rec.Body.String(), "overloaded_error"),
-		"the deferred overload is flushed exactly once across the rescue chain")
+		"the deferred failure is flushed exactly once across the rescue chain")
 }

@@ -149,6 +149,27 @@ and `configuration`), `requirements` (`runtime_contract`, `policy_schema`,
 `classifier_wire_schema`, `taxonomy_sha256`), and `provenance` (`router_revision`,
 `weave_revision`, `build_attestation`).
 
+The optional `strategy_policies` map pins an independent compiled policy for a
+beta classifier variant. Each key must identify a pinned classifier variant;
+the policy must share its schema and ordered taxonomy. Routing and model discovery
+use that policy only for the requested strategy, preserving the default policy.
+
+Clients can select an automatic router with the request `model` IDs
+`weave-auto`, `weave-hmm-20261019-0001v1`, and
+`weave-qwen-20261008-0001v2`. `weave-auto` uses the configured default;
+the other IDs select the corresponding classifier variant and its pinned roster
+within the admitted release. Managed variant selection requires internal
+organization admission without a subscriber plan. A missing variant returns 503;
+the worker never substitutes another classifier or changes the admitted release.
+Both variants use the existing classifier sidecar.
+
+`GET /v1/router/models?scope=selection` lists these IDs and upstream model IDs
+with a description and a `kind` of `router` or `direct`. Explicit router IDs take
+precedence over legacy session beta preferences. Legacy beta commands in those
+sessions direct clients to the model selector instead of changing hidden state.
+Signed atomic-classifier thread enrollment remains authoritative for `weave-auto`;
+selecting an alternate router requires a fresh thread.
+
 **`selection_set`** (`schema_version: router_serving_selection_set_v2`) — one per
 target per change: `target`, `default` lane, `profiles` (map of profile key → lane;
 explicit even when `{}`). A **lane** is `candidate` (`ObjectRef`), `project`, `region`, `router` and

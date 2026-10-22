@@ -256,6 +256,18 @@ func TestGPT6AstraCatalogRow(t *testing.T) {
 	assert.Equal(t, 1.25, fast.CacheWriteMultiplier)
 }
 
+func TestGemini4ArgonCatalogRow(t *testing.T) {
+	model, ok := ByID(ModelIDGemini4Argon.String())
+	require.True(t, ok)
+	assert.Equal(t, TierUnknown, model.Tier, "Argon is a beta HMM target, not a default cluster arm")
+	assert.True(t, model.HMMTarget)
+	require.Len(t, model.Providers, 1)
+	assert.Equal(t, providers.ProviderGoogle, model.Providers[0].Provider)
+	available := map[string]struct{}{providers.ProviderGoogle: {}}
+	assert.Contains(t, HMMRoutingTargetSet(available), model.ID)
+	assert.NotContains(t, RoutingTargetSet(available), model.ID)
+}
+
 func TestRoutingTargetSet_FiltersByTierAndRegisteredProviders(t *testing.T) {
 	targets := RoutingTargetSet(map[string]struct{}{providers.ProviderOpenAI: {}})
 

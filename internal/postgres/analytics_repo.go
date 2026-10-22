@@ -96,6 +96,7 @@ func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.D
 		CacheCreationTokens:   int32PtrToInt64(row.CacheCreationTokens),
 		CacheReadTokens:       int32PtrToInt64(row.CacheReadTokens),
 		CacheCreation1hTokens: int32PtrToInt64(row.CacheCreation1hTokens),
+		ReasoningTokens:       int32PtrToInt64(row.ReasoningTokens),
 		Speed:                 row.Speed,
 		InferenceGeo:          row.InferenceGeo,
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/translate/toolcheck"
+	"weave-os/router/internal/usage"
 
 	"github.com/tidwall/gjson"
 )
@@ -24,6 +25,10 @@ func clientFacingModel(requestModel, upstreamModel string) string {
 
 // AnthropicToOpenAIResponse converts a non-streaming Anthropic response to OpenAI format.
 func AnthropicToOpenAIResponse(body []byte, requestModel string) ([]byte, error) {
+	return anthropicToOpenAIResponse(body, requestModel, usage.ParseAnthropic(gjson.GetBytes(body, "usage")))
+}
+
+func anthropicToOpenAIResponse(body []byte, requestModel string, facts usage.Facts) ([]byte, error) {
 	if !gjson.ValidBytes(body) {
 		return nil, fmt.Errorf("unmarshal anthropic response: invalid JSON")
 	}
@@ -47,33 +52,40 @@ func AnthropicToOpenAIResponse(body []byte, requestModel string) ([]byte, error)
 	jw.Key("index")
 	jw.Int(0)
 	jw.Key("message")
-	writeOpenAIMessageFromAnthropic(jw, gjson.GetBytes(body, "content"))
+	acceptedCount := writeOpenAIMessageFromAnthropic(jw, gjson.GetBytes(body, "content"))
+	stopReason = reconciledChatToolFinish(stopReason, acceptedCount)
 	jw.Key("finish_reason")
 	jw.Str(stopReason)
 	jw.EndObj()
 	jw.EndArr()
 	jw.Key("usage")
-	writeOpenAIUsageFromAnthropic(jw, gjson.GetBytes(body, "usage"))
+	writeChatUsage(jw, facts)
 	jw.EndObj()
 	return jw.Bytes(), nil
 }
 
-func writeOpenAIMessageFromAnthropic(jw *jsonWriter, content gjson.Result) {
+func writeOpenAIMessageFromAnthropic(jw *jsonWriter, content gjson.Result) int {
 	jw.Obj()
 	jw.Key("role")
 	jw.Str("assistant")
 
 	var textParts []string
-	var toolCallBlocks []gjson.Result
+	var toolCallBlocks []AcceptedToolCall
+	ledger := NewToolCallLedger()
 
-	content.ForEach(func(_, block gjson.Result) bool {
+	content.ForEach(func(index, block gjson.Result) bool {
 		switch block.Get("type").String() {
 		case "text":
 			if t := block.Get("text").String(); t != "" {
 				textParts = append(textParts, t)
 			}
 		case "tool_use":
-			toolCallBlocks = append(toolCallBlocks, block)
+			sourceIndex := int(index.Int())
+			call := ledger.Close(sourceIndex, block.Get("id").String(), block.Get("name").String(), block.Get("input").Raw).Accept(nil)
+			if call.Suppression == ToolCallNotSuppressed {
+				call.ID = ledger.ProjectID(sourceIndex, clampOpenAIToolCallID)
+				toolCallBlocks = append(toolCallBlocks, call)
+			}
 		}
 		return true
 	})
@@ -91,16 +103,16 @@ func writeOpenAIMessageFromAnthropic(jw *jsonWriter, content gjson.Result) {
 		for _, block := range toolCallBlocks {
 			jw.Obj()
 			jw.Key("id")
-			jw.Str(block.Get("id").String())
+			jw.Str(block.ID)
 			jw.Key("type")
 			jw.Str("function")
 			jw.Key("function")
 			jw.Obj()
 			jw.Key("name")
-			jw.Str(block.Get("name").String())
+			jw.Str(block.Name)
 			// Anthropic input is a JSON object; OpenAI arguments is that object serialized as a string.
 			jw.Key("arguments")
-			jw.Str(block.Get("input").Raw)
+			jw.Str(block.Arguments)
 			jw.EndObj()
 			jw.EndObj()
 		}
@@ -108,19 +120,7 @@ func writeOpenAIMessageFromAnthropic(jw *jsonWriter, content gjson.Result) {
 	}
 
 	jw.EndObj()
-}
-
-func writeOpenAIUsageFromAnthropic(jw *jsonWriter, usage gjson.Result) {
-	input := usage.Get("input_tokens").Int()
-	output := usage.Get("output_tokens").Int()
-	jw.Obj()
-	jw.Key("prompt_tokens")
-	jw.Int(input)
-	jw.Key("completion_tokens")
-	jw.Int(output)
-	jw.Key("total_tokens")
-	jw.Int(input + output)
-	jw.EndObj()
+	return len(toolCallBlocks)
 }
 
 // mapStopReason converts an Anthropic stop_reason to an OpenAI finish_reason.
@@ -171,14 +171,14 @@ func AnthropicToOpenAIError(body []byte) []byte {
 // OpenAIToAnthropicResponse converts a non-streaming OpenAI response to
 // Anthropic Messages format.
 func OpenAIToAnthropicResponse(body []byte, requestModel string) ([]byte, error) {
-	out, _, err := openAIToAnthropicResponse(body, requestModel, nil, false, false)
+	out, _, err := openAIToAnthropicResponse(body, requestModel, nil, false, false, usage.ParseOpenAI(gjson.GetBytes(body, "usage")), 1)
 	return out, err
 }
 
 // openAIToAnthropicResponse is the validator-aware variant: tool_use inputs
 // are checked/repaired against the request's tool schemas, returning one
 // toolcheck.Issue per offending block. A nil validator is syntax-check-only.
-func openAIToAnthropicResponse(body []byte, requestModel string, toolValidator *toolcheck.Validator, thinkTagReasoning, escapeNormalize bool) ([]byte, []toolcheck.Issue, error) {
+func openAIToAnthropicResponse(body []byte, requestModel string, toolValidator *toolcheck.Validator, thinkTagReasoning, escapeNormalize bool, facts usage.Facts, clientInputScale float64) ([]byte, []toolcheck.Issue, error) {
 	if !gjson.ValidBytes(body) {
 		return nil, nil, fmt.Errorf("unmarshal openai response: invalid JSON")
 	}
@@ -196,13 +196,8 @@ func openAIToAnthropicResponse(body []byte, requestModel string, toolValidator *
 	firstChoice := gjson.GetBytes(body, "choices.0")
 	message := firstChoice.Get("message")
 	finishReason := firstChoice.Get("finish_reason").String()
-	// Anthropic invariant: tool_use stop_reason iff a tool_use block exists.
-	// Some OpenAI-compat upstreams (GLM-5.1, vLLM Qwen/MiMo) violate it both
-	// ways, so we correct both, mirroring emitMessageDelta:
-	//   - Promote: named tool call present but finish_reason="stop".
-	//   - Demote: finish_reason="tool_calls" but every call was nameless
-	//     (dropped below) — else we'd ship tool_use with zero blocks.
-	if anyNamedToolCall(message.Get("tool_calls")) {
+	calls, issues := acceptedChatToolCalls(message.Get("tool_calls"), toolValidator, escapeNormalize)
+	if len(calls) > 0 {
 		finishReason = "tool_calls"
 	} else if finishReason == "tool_calls" {
 		finishReason = "stop"
@@ -219,13 +214,13 @@ func openAIToAnthropicResponse(body []byte, requestModel string, toolValidator *
 	jw.Key("model")
 	jw.Str(model)
 	jw.Key("content")
-	issues := writeAnthropicContentFromOpenAI(jw, message, toolValidator, thinkTagReasoning, escapeNormalize, toolIDNonce)
+	writeAnthropicContentFromOpenAI(jw, message, calls, thinkTagReasoning, toolIDNonce)
 	jw.Key("stop_reason")
 	jw.Str(openAIFinishToAnthropicStopReason(finishReason))
 	jw.Key("stop_sequence")
 	jw.Null()
 	jw.Key("usage")
-	writeAnthropicUsageFromOpenAI(jw, gjson.GetBytes(body, "usage"))
+	writeAnthropicUsageScaled(jw, facts, clientInputScale)
 	jw.EndObj()
 	return jw.Bytes(), issues, nil
 }
@@ -239,7 +234,7 @@ func writeAnthropicThinkingBlock(jw *jsonWriter, thinking string) {
 	jw.EndObj()
 }
 
-func writeAnthropicContentFromOpenAI(jw *jsonWriter, message gjson.Result, toolValidator *toolcheck.Validator, thinkTagReasoning, escapeNormalize bool, toolIDNonce string) (issues []toolcheck.Issue) {
+func writeAnthropicContentFromOpenAI(jw *jsonWriter, message gjson.Result, calls []AcceptedToolCall, thinkTagReasoning bool, toolIDNonce string) {
 	jw.Arr()
 	reasoning := message.Get("reasoning_content").String()
 	if reasoning == "" {
@@ -275,64 +270,51 @@ func writeAnthropicContentFromOpenAI(jw *jsonWriter, message gjson.Result, toolV
 		jw.Str(text)
 		jw.EndObj()
 	}
-	message.Get("tool_calls").ForEach(func(_, tc gjson.Result) bool {
-		id := tc.Get("id").String()
-		name := tc.Get("function.name").String()
-		// Drop nameless tool_calls; see anyNamedToolCall. Mirrors the
-		// streaming guard in emitDelta.
-		if name == "" {
-			return true
-		}
-		argsStr := tc.Get("function.arguments").String()
-
-		if escapeNormalize && isEditToolName(name) {
-			var inputMap map[string]any
-			if json.Unmarshal([]byte(argsStr), &inputMap) == nil {
-				normalizeEditEscapes(escapeNormalize, name, inputMap)
-				if b, err := json.Marshal(inputMap); err == nil {
-					argsStr = string(b)
-				}
-			}
-		}
-		// Validate (and safely repair) args against the request's tool schema;
-		// nil validator degrades to syntax-check + `{}` substitution.
-		verdict := toolValidator.Check(name, argsStr)
-		if verdict.Issue != nil {
-			issues = append(issues, *verdict.Issue)
-		}
-		inputRaw := verdict.Args
+	wireIDs := NewToolCallLedger()
+	for index, call := range calls {
+		wireIDs.Upsert(index, call.ID, call.Name)
+		id := wireIDs.ProjectID(index, func(id string) string { return uniqueToolUseIDWithNonce(id, toolIDNonce) })
 
 		jw.Obj()
 		jw.Key("type")
 		jw.Str("tool_use")
 		jw.Key("id")
-		jw.Str(uniqueToolUseIDWithNonce(id, toolIDNonce))
+		jw.Str(id)
 		jw.Key("name")
-		jw.Str(name)
+		jw.Str(call.Name)
 		jw.Key("input")
-		jw.Raw(inputRaw)
+		jw.Raw(call.Arguments)
 		jw.EndObj()
-		return true
-	})
+	}
 	jw.EndArr()
-	return issues
 }
 
-// anyNamedToolCall reports whether tool_calls has a call with a non-empty
-// function name. Nameless tool_calls (seen intermittently from GLM/Qwen/Kimi/
-// gpt-oss on vLLM/SGLang) are malformed: forwarded as-is they make the client
-// invoke tool "" and infinite-loop retrying, so they're dropped and must not
-// drive stop_reason promotion.
-func anyNamedToolCall(toolCalls gjson.Result) bool {
-	found := false
-	toolCalls.ForEach(func(_, tc gjson.Result) bool {
-		if tc.Get("function.name").String() != "" {
-			found = true
-			return false
+func acceptedChatToolCalls(toolCalls gjson.Result, validator *toolcheck.Validator, escapeNormalize bool) ([]AcceptedToolCall, []toolcheck.Issue) {
+	ledger := NewToolCallLedger()
+	var calls []AcceptedToolCall
+	var issues []toolcheck.Issue
+	for index, toolCall := range toolCalls.Array() {
+		name := toolCall.Get("function.name").String()
+		arguments := toolCall.Get("function.arguments").String()
+		if escapeNormalize && isEditToolName(name) {
+			var input map[string]any
+			if json.Unmarshal([]byte(arguments), &input) == nil {
+				normalizeEditEscapes(escapeNormalize, name, input)
+				if encoded, err := json.Marshal(input); err == nil {
+					arguments = string(encoded)
+				}
+			}
 		}
-		return true
-	})
-	return found
+		call := ledger.Close(index, toolCall.Get("id").String(), name, arguments).Accept(validator)
+		if call.Suppression != ToolCallNotSuppressed {
+			continue
+		}
+		if call.Issue != nil {
+			issues = append(issues, *call.Issue)
+		}
+		calls = append(calls, call)
+	}
+	return calls, issues
 }
 
 // isEditToolName reports whether name is a file-edit tool subject to escape normalization.
@@ -355,34 +337,6 @@ func openAIFinishToAnthropicStopReason(s string) string {
 	}
 }
 
-func writeAnthropicUsageFromOpenAI(jw *jsonWriter, usage gjson.Result) {
-	prompt := usage.Get("prompt_tokens").Int()
-	completion := usage.Get("completion_tokens").Int()
-	cacheWrite, cacheReadN := OpenAICacheTokens(usage)
-	cacheCreation := int64(cacheWrite)
-	cacheRead := int64(cacheReadN)
-
-	freshInput := prompt - cacheCreation - cacheRead
-	if freshInput < 0 {
-		freshInput = 0
-	}
-
-	jw.Obj()
-	jw.Key("input_tokens")
-	jw.Int(freshInput)
-	jw.Key("output_tokens")
-	jw.Int(completion)
-	if cacheRead > 0 {
-		jw.Key("cache_read_input_tokens")
-		jw.Int(cacheRead)
-	}
-	if cacheCreation > 0 {
-		jw.Key("cache_creation_input_tokens")
-		jw.Int(cacheCreation)
-	}
-	jw.EndObj()
-}
-
 // OpenAIToAnthropicError re-wraps an OpenAI error as Anthropic format.
 func OpenAIToAnthropicError(body []byte) []byte {
 	errType := gjson.GetBytes(body, "error.type").String()
@@ -403,4 +357,27 @@ func OpenAIToAnthropicError(body []byte) []byte {
 	jw.EndObj()
 	jw.EndObj()
 	return jw.Bytes()
+}
+
+type chatFinishReason string
+
+const (
+	chatFinishStop     chatFinishReason = "stop"
+	chatFinishTools    chatFinishReason = "tool_calls"
+	chatFinishLength   chatFinishReason = "length"
+	chatFinishFiltered chatFinishReason = "content_filter"
+)
+
+func reconciledChatToolFinish(reason string, accepted int) string {
+	switch chatFinishReason(reason) {
+	case chatFinishLength, chatFinishFiltered:
+		return reason
+	}
+	if accepted > 0 {
+		return string(chatFinishTools)
+	}
+	if chatFinishReason(reason) == chatFinishTools {
+		return string(chatFinishStop)
+	}
+	return reason
 }

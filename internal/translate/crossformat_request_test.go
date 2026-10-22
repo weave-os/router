@@ -2401,6 +2401,79 @@ func TestCrossFormat_OpenAIToAnthropic_ToolChoiceVariants(t *testing.T) {
 	}
 }
 
+// TestCrossFormat_OpenAIToAnthropic_ParallelToolCalls covers the reverse of
+// writeOpenAIParallelToolCallsFromAnthropic: parallel_tool_calls:false must
+// reach Anthropic as tool_choice.disable_parallel_tool_use.
+func TestCrossFormat_OpenAIToAnthropic_ParallelToolCalls(t *testing.T) {
+	cases := []struct {
+		name  string
+		extra string
+		want  any
+	}{
+		{"auto", `"tool_choice":"auto","parallel_tool_calls":false`, map[string]any{"type": "auto", "disable_parallel_tool_use": true}},
+		{"required", `"tool_choice":"required","parallel_tool_calls":false`, map[string]any{"type": "any", "disable_parallel_tool_use": true}},
+		{"named", `"tool_choice":{"type":"function","function":{"name":"Bash"}},"parallel_tool_calls":false`, map[string]any{"type": "tool", "name": "Bash", "disable_parallel_tool_use": true}},
+		{"choice absent", `"parallel_tool_calls":false`, map[string]any{"type": "auto", "disable_parallel_tool_use": true}},
+		{"parallel allowed", `"tool_choice":"required","parallel_tool_calls":true`, map[string]any{"type": "any"}},
+		{"parallel allowed, choice absent", `"parallel_tool_calls":true`, nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte(`{
+				"model": "gpt-6.1-sol",
+				"messages": [{"role": "user", "content": "hi"}],
+				"tools": [{"type": "function", "function": {"name": "Bash", "parameters": {"type": "object"}}}],
+				` + tc.extra + `
+			}`)
+			env, err := translate.ParseOpenAI(body)
+			require.NoError(t, err)
+			prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
+				TargetModel:  "claude-sonnet-5",
+				Capabilities: router.Lookup("claude-sonnet-5"),
+			})
+			require.NoError(t, err)
+
+			var doc map[string]any
+			require.NoError(t, json.Unmarshal(prep.Body, &doc))
+			if tc.want == nil {
+				assert.NotContains(t, doc, "tool_choice")
+				return
+			}
+			assert.Equal(t, tc.want, doc["tool_choice"])
+		})
+	}
+
+	t.Run("only non-function tools", func(t *testing.T) {
+		body := []byte(`{"model":"gpt-6.1-sol","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"web_search_preview"}],"parallel_tool_calls":false}`)
+		env, err := translate.ParseOpenAI(body)
+		require.NoError(t, err)
+		prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-sonnet-5", Capabilities: router.Lookup("claude-sonnet-5")})
+		require.NoError(t, err)
+		assert.False(t, gjson.GetBytes(prep.Body, "tool_choice").Exists(), "no function tool reaches Anthropic, so tool_choice would be rejected")
+	})
+
+	t.Run("no tools", func(t *testing.T) {
+		body := []byte(`{"model":"gpt-6.1-sol","messages":[{"role":"user","content":"hi"}],"tools":[],"parallel_tool_calls":false}`)
+		env, err := translate.ParseOpenAI(body)
+		require.NoError(t, err)
+		prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-sonnet-5", Capabilities: router.Lookup("claude-sonnet-5")})
+		require.NoError(t, err)
+		assert.False(t, gjson.GetBytes(prep.Body, "tool_choice").Exists(), "tool_choice without tools is rejected by Anthropic")
+	})
+
+	t.Run("auto-only model keeps the limit", func(t *testing.T) {
+		body := []byte(`{"model":"gpt-6.1-sol","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"Bash","parameters":{"type":"object"}}}],"tool_choice":"required","parallel_tool_calls":false}`)
+		env, err := translate.ParseOpenAI(body)
+		require.NoError(t, err)
+		prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{
+			TargetModel:  "claude-sonnet-5-5",
+			Capabilities: router.Lookup("claude-sonnet-5-5"),
+		})
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"type":"auto","disable_parallel_tool_use":true}`, gjson.GetBytes(prep.Body, "tool_choice").Raw)
+	})
+}
+
 // TestCrossFormat_AnthropicToOpenAI_ToolChoiceVariants covers the Anthropic ->
 // OpenAI chat-completions tool_choice mapping, including "none".
 func TestCrossFormat_AnthropicToOpenAI_ToolChoiceVariants(t *testing.T) {

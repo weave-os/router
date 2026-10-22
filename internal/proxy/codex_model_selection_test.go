@@ -56,6 +56,8 @@ func TestCodexNativeModelSelection_AutomaticAndLegacyStillScore(t *testing.T) {
 		want     string
 	}{
 		{name: "automatic choice", model: proxy.CodexAutomaticModel, optIn: true, switched: true, want: proxy.CodexAutomaticModel},
+		{name: "hmm router choice", model: string(router.ModelHMM), optIn: true, switched: true, want: string(router.ModelHMM)},
+		{name: "qwen router choice", model: string(router.ModelQwen), optIn: true, switched: true, want: string(router.ModelQwen)},
 		{name: "older install", model: "gpt-6-sol", optIn: false, switched: true, want: "gpt-6-sol"},
 		// A model the session launched with (config.toml or an SDK thread
 		// option) is a baseline, not a /model choice; only a switch pins.

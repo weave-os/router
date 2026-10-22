@@ -267,10 +267,11 @@ func validatePreviewResult(result PreviewResult, expectedSchemaVersion string) e
 	if result.SchemaVersion != SchemaVersionV4 && result.RosterSHA256 == "" {
 		return fmt.Errorf("missing frozen roster identity")
 	}
-	if len(result.HMMStatePath) == 0 || len(result.HMMStateProbabilities) == 0 || len(result.ClassOrder) == 0 {
+	if len(result.ClassOrder) == 0 {
 		return fmt.Errorf("missing state or class order")
 	}
-	if result.HMMStateID < 0 || result.HMMStateID >= len(result.HMMStateProbabilities) {
+	hasHMMState := len(result.HMMStatePath) > 0 || len(result.HMMStateProbabilities) > 0 || result.SchemaVersion != SchemaVersionV4
+	if hasHMMState && (len(result.HMMStatePath) == 0 || result.HMMStateID < 0 || result.HMMStateID >= len(result.HMMStateProbabilities)) {
 		return fmt.Errorf("HMM state id is outside the posterior vector")
 	}
 	hmmTotal := 0.0
@@ -280,7 +281,7 @@ func validatePreviewResult(result PreviewResult, expectedSchemaVersion string) e
 		}
 		hmmTotal += probability
 	}
-	if math.Abs(hmmTotal-1) > 1e-6 {
+	if hasHMMState && math.Abs(hmmTotal-1) > 1e-6 {
 		return fmt.Errorf("HMM state probabilities sum to %.9f", hmmTotal)
 	}
 	for index, stateID := range result.HMMStatePath {

@@ -35,18 +35,19 @@ func (e *ForcedModelExcludedError) Unwrap() error { return ErrForcedModelExclude
 // a model's primary, so an excluded primary whose fallback is permitted must
 // pin the fallback — otherwise the eligibility check in runTurnLoop drops it.
 func (s *Service) forcedModelBinding(ctx context.Context, model, provider string) (binding, reason string) {
+	gateways := s.gatewayProvidersForRequest(ctx)
 	// Checked directly, not via the exclusion set: a forced model may be
 	// passthrough-only and so never enters the desugared exclusions.
-	if !modelPermittedByAllowlist(ctx, model) {
+	if len(gateways) == 0 && !modelPermittedByAllowlist(ctx, model) {
 		return "", fmt.Sprintf("%s is not on this organization's allowed-model list", model)
 	}
-	if _, drop := s.policyExcludedModels(ctx)[model]; drop {
+	if _, drop := s.forcePolicyExcludedModels(ctx)[model]; drop {
 		return "", fmt.Sprintf("%s is excluded on this installation", model)
 	}
 	// Gateway-exclusive routing drops every vendor from the eligible set, so
 	// resolving to the catalog primary would produce a pin the turn loop then
 	// rejects — the force would read as applied and route automatically.
-	if gateways := s.gatewayProvidersForRequest(ctx); len(gateways) > 0 {
+	if len(gateways) > 0 {
 		return gatewayForcedBinding(model, gateways, s.customBindingsForRequest(ctx))
 	}
 	excluded := s.policyExcludedProviders(ctx)
@@ -83,6 +84,17 @@ func (s *Service) forcedModelBinding(ctx context.Context, model, provider string
 		}
 	}
 	return permitted[0], ""
+}
+
+// forcePolicyExcludedModels is the installation exclusion set a forced model
+// must clear. A tenant's own gateway enforces model access upstream, so under
+// gateway-exclusive routing the positive allowlist bounds only automatic
+// selection; the gateway's aliases bound the force instead.
+func (s *Service) forcePolicyExcludedModels(ctx context.Context) map[string]struct{} {
+	if len(s.gatewayProvidersForRequest(ctx)) > 0 {
+		return s.excludedModelsFor(ctx, nil)
+	}
+	return s.policyExcludedModels(ctx)
 }
 
 // gatewayForcedBinding pins a forced model to a gateway that aliases it. Only

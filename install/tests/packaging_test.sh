@@ -132,7 +132,7 @@ HOME="$home" PATH="$home/bin:$PATH" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
 
 installed="$(cd "$home/.codex/skills" 2>/dev/null && ls -d */ 2>/dev/null | tr -d '/' | sort | tr '\n' ' ' | sed 's/ $//')"
 check "the packed entrypoint installs every Codex skill" \
-  "disable-routing fm force-model rf router-feedback router-models router-off router-on router-session router-status ufm unforce-model" "$installed"
+  "disable-routing fm force-model force-parent rf router-feedback router-models router-off router-on router-session router-status ufm unforce-model" "$installed"
 
 mkdir -p "$work/packed-opencode/.weave"
 printf '%s\n' 'export default legacyPlugin' >"$work/packed-opencode/.weave/opencode-weave.ts"

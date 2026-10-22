@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -66,6 +67,8 @@ func hmmPolicySnapshotBuilder(
 			return nil, fmt.Errorf("classifier taxonomy digest %q does not match release %q", health.ClassifierTaxonomySHA, expectedClassifier.TaxonomySHA256)
 		case !slices.Equal(health.ClassifierClassOrder, expectedClassifier.ClassOrder):
 			return nil, fmt.Errorf("classifier class order does not match release")
+		case !maps.Equal(health.ClassifierVariants, expectedClassifier.Variants):
+			return nil, fmt.Errorf("alternate classifiers do not match release")
 		}
 		capabilities, err := client.Capabilities(ctx)
 		if err != nil {
@@ -84,15 +87,36 @@ func hmmPolicySnapshotBuilder(
 		armSelector := selection.SelectorWithDomainEvidence(candidate.Policy, domainEvidence, evidenceSHA)
 		routers := make(map[router.Strategy]router.Router, len(strategies))
 		for _, strategy := range strategies {
+			artifactID, artifactSHA := expectedClassifier.ArtifactID, expectedClassifier.PackageSHA256
+			if router.IsBetaStrategy(strategy) {
+				variant, found := expectedClassifier.Variants[strategy]
+				if !found && !(strategy == router.StrategyHMMBeta && candidate.HeadSnapshot.Head.Lane == policyregistry.LaneBeta) {
+					continue
+				}
+				if found {
+					artifactID, artifactSHA = variant.ArtifactID, variant.PackageSHA256
+				}
+			}
 			policyRouter := hmm.NewForStrategy(strategy, client, availableProviders)
-			policyRouter.WithCapabilities(capabilities)
-			policyRouter.WithClassifierIdentity(expectedClassifier.ArtifactID, expectedClassifier.PackageSHA256)
+			strategyPolicySHA := candidate.Release.Policy.SHA256
+			strategyArmSelector := armSelector
+			if strategyPolicy, found := candidate.StrategyPolicies[strategy]; found {
+				strategyPolicySHA = strategyPolicy.Reference.SHA256
+				strategyArmSelector = selection.SelectorWithDomainEvidence(strategyPolicy.Roster, domainEvidence, evidenceSHA)
+			}
+			strategyCapabilities := capabilities
+			if strategy == router.StrategyHMMQwen {
+				strategyCapabilities.ReportsOutcomes = false
+				strategyCapabilities.ReportsFeedback = false
+			}
+			policyRouter.WithCapabilities(strategyCapabilities)
+			policyRouter.WithClassifierIdentity(artifactID, artifactSHA)
 			policyRouter.WithSelectionPolicyIdentity(
 				candidate.HeadSnapshot.Head.ReleaseSHA256,
-				candidate.Release.Policy.SHA256,
+				strategyPolicySHA,
 				candidate.HeadSnapshot.Generation,
 			)
-			policyRouter.WithArmSelector(armSelector)
+			policyRouter.WithArmSelector(strategyArmSelector)
 			routers[strategy] = policyRouter
 		}
 		return routers, nil

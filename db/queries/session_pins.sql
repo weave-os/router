@@ -19,7 +19,7 @@ WHERE session_key = @session_key::bytea
   AND role        = @role::varchar
   AND (
     routing_strategy = @expected_routing_strategy::varchar
-    OR (routing_strategy = '' AND @expected_routing_strategy::varchar <> 'hmm_beta')
+    OR (routing_strategy = '' AND @expected_routing_strategy::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   )
   AND pinned_until > CURRENT_TIMESTAMP
 RETURNING *;
@@ -63,12 +63,12 @@ RETURNING *;
 -- name: UpsertSessionPin :exec
 INSERT INTO router.session_pins (
   session_key, role, installation_id, pinned_provider,
-  pinned_model, pinned_effort, paired_provider, paired_model,
+  pinned_model, pinned_effort, forced_thread_key, paired_provider, paired_model,
   decision_reason, routing_strategy, policy_group, turn_count, pinned_until,
   consecutive_downgrade_votes, consecutive_upgrade_votes
 ) VALUES (
   @session_key::bytea, @role::varchar, @installation_id::uuid,
-  @pinned_provider::varchar, @pinned_model::varchar, @pinned_effort::varchar,
+  @pinned_provider::varchar, @pinned_model::varchar, @pinned_effort::varchar, @forced_thread_key::varchar,
   @paired_provider::varchar, @paired_model::varchar,
   @decision_reason::text, @routing_strategy::varchar, @policy_group::varchar,
   @turn_count::int, @pinned_until::timestamp,
@@ -79,6 +79,7 @@ ON CONFLICT (session_key, role) DO UPDATE SET
   pinned_provider = EXCLUDED.pinned_provider,
   pinned_model    = EXCLUDED.pinned_model,
   pinned_effort   = EXCLUDED.pinned_effort,
+  forced_thread_key = EXCLUDED.forced_thread_key,
   decision_reason = EXCLUDED.decision_reason,
   routing_strategy = EXCLUDED.routing_strategy,
   turn_count      = CASE
@@ -272,7 +273,23 @@ WHERE session_key = @session_key::bytea
   AND role        = @role::varchar
   AND (
     routing_strategy = @expected_routing_strategy::varchar
-    OR (routing_strategy = '' AND @expected_routing_strategy::varchar <> 'hmm_beta')
+    OR (routing_strategy = '' AND @expected_routing_strategy::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
+  );
+
+-- Replaces the thread's tokenizer calibration (observations and measured
+-- cross-tokenizer ratios; see internal/router/sessionpin). Written after a
+-- served turn with usage. The caller merges the newest evidence from the
+-- thread's pin rows first, so a concurrent writer can lose at most one
+-- observation. Missing pin or strategy mismatch is a no-op, matching
+-- UpdateSessionPinUsage.
+-- name: UpdateSessionPinTokenizerCalibration :exec
+UPDATE router.session_pins
+SET tokenizer_calibration = @tokenizer_calibration::jsonb
+WHERE session_key = @session_key::bytea
+  AND role        = @role::varchar
+  AND (
+    routing_strategy = @expected_routing_strategy::varchar
+    OR (routing_strategy = '' AND @expected_routing_strategy::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   );
 
 -- Atomically increments consecutive_upstream_errors and returns the
@@ -288,7 +305,7 @@ WHERE session_key = @session_key::bytea
   AND role        = @role::varchar
   AND (
     routing_strategy = @expected_routing_strategy::varchar
-    OR (routing_strategy = '' AND @expected_routing_strategy::varchar <> 'hmm_beta')
+    OR (routing_strategy = '' AND @expected_routing_strategy::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   )
 RETURNING consecutive_upstream_errors;
 
@@ -302,7 +319,7 @@ WHERE session_key = @session_key::bytea
   AND role        = @role::varchar
   AND (
     routing_strategy = @expected_routing_strategy::varchar
-    OR (routing_strategy = '' AND @expected_routing_strategy::varchar <> 'hmm_beta')
+    OR (routing_strategy = '' AND @expected_routing_strategy::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   )
   AND consecutive_upstream_errors > 0;
 
@@ -321,7 +338,7 @@ WHERE session_key = @session_key::bytea
   AND role        = @role::varchar
   AND (
     routing_strategy = @expected_routing_strategy::varchar
-    OR (routing_strategy = '' AND @expected_routing_strategy::varchar <> 'hmm_beta')
+    OR (routing_strategy = '' AND @expected_routing_strategy::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   )
 RETURNING consecutive_overload_errors;
 
@@ -335,7 +352,7 @@ WHERE session_key = @session_key::bytea
   AND role        = @role::varchar
   AND (
     routing_strategy = @expected_routing_strategy::varchar
-    OR (routing_strategy = '' AND @expected_routing_strategy::varchar <> 'hmm_beta')
+    OR (routing_strategy = '' AND @expected_routing_strategy::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   )
   AND consecutive_overload_errors > 0;
 
@@ -355,7 +372,7 @@ WHERE session_key = @session_key::bytea
   AND role        = @role::varchar
   AND (
     routing_strategy = @expected_routing_strategy::varchar
-    OR (routing_strategy = '' AND @expected_routing_strategy::varchar <> 'hmm_beta')
+    OR (routing_strategy = '' AND @expected_routing_strategy::varchar NOT IN ('hmm_beta', 'hmm_qwen'))
   );
 
 -- Expires the pin row and appends a model to demoted_models (deduped) in one
@@ -398,7 +415,7 @@ ON CONFLICT (session_key, role) DO UPDATE SET
     ELSE array_append(router.session_pins.demoted_models, @model::varchar)
   END
 WHERE router.session_pins.routing_strategy = EXCLUDED.routing_strategy
-  OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy <> 'hmm_beta');
+  OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy NOT IN ('hmm_beta', 'hmm_qwen'));
 
 -- Time-limited counterpart of ExpireAndDemoteSessionPinModel: expires the pin
 -- row and records model in demotion_cooldowns until the given instant, so the
@@ -431,7 +448,7 @@ ON CONFLICT (session_key, role) DO UPDATE SET
   last_seen_at     = CURRENT_TIMESTAMP,
   demotion_cooldowns = router.session_pins.demotion_cooldowns || EXCLUDED.demotion_cooldowns
 WHERE router.session_pins.routing_strategy = EXCLUDED.routing_strategy
-  OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy <> 'hmm_beta');
+  OR (router.session_pins.routing_strategy = '' AND EXCLUDED.routing_strategy NOT IN ('hmm_beta', 'hmm_qwen'));
 
 -- Removes model's cooldown from one (session_key, role) row after a recovery
 -- probe served the model successfully, so later turns no longer need a lease
@@ -444,6 +461,24 @@ WHERE session_key = @session_key::bytea
   AND role = @role::varchar
   AND demotion_cooldowns ? @model::varchar
   AND (demotion_cooldowns ->> @model::varchar)::timestamptz <= @observed_until::timestamptz;
+
+-- Records model as failed for the current agent turn on an existing
+-- (session_key, role) row (deduped). Upsert never touches turn_strikes, so the
+-- strike survives the pin rewrite to the rescuing model.
+-- name: UpdateSessionPinTurnStrike :exec
+UPDATE router.session_pins
+SET turn_strikes = array_append(turn_strikes, @model::varchar)
+WHERE session_key = @session_key::bytea
+  AND role = @role::varchar
+  AND NOT (@model::varchar = ANY(turn_strikes));
+
+-- Clears the agent-turn strikes once a real user prompt starts the next turn.
+-- name: DeleteSessionPinTurnStrikes :exec
+UPDATE router.session_pins
+SET turn_strikes = '{}'
+WHERE session_key = @session_key::bytea
+  AND role = @role::varchar
+  AND turn_strikes <> '{}';
 
 -- Garbage-collects pins that have been expired for >24h. The 24h grace
 -- means a transient Postgres outage doesn't immediately prune live pins;

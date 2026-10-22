@@ -188,6 +188,13 @@ func (s *Service) ResolveRateLimitCooldown(ctx context.Context) time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 
+// ResolveProviderOverloaded reports the ROUTER_PROVIDER_OVERLOADED flag: on,
+// the request's dispatch outcomes feed the per-model 529 circuit breaker and
+// its routing honours open circuits as deployment-wide automatic exclusions.
+func (s *Service) ResolveProviderOverloaded(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyProviderOverloaded, s.providerOverloaded)
+}
+
 // ResolveNativeAnthropicResponseSignals reports the
 // ROUTER_NATIVE_ANTHROPIC_RESPONSE_SIGNALS flag: whether an Anthropic-native
 // passthrough turn records its observed stop_reason and tool_use block count

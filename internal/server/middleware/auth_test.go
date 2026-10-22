@@ -324,6 +324,37 @@ func TestWithAuthOmitsContentCaptureOverrideWhenUnset(t *testing.T) {
 	require.Equal(t, http.StatusOK, rr.Code)
 }
 
+func TestWithAuthCarriesPaidFallbackOnSubscriptionRefusalOptIn(t *testing.T) {
+	for _, optedIn := range []bool{false, true} {
+		t.Run(map[bool]string{false: "default", true: "opted in"}[optedIn], func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			const routerToken = "rk_paid_fallback"
+			hash, prefix, suffix := auth.APITokenFingerprint(routerToken)
+			apiKey := &auth.APIKey{ID: "key-paid-fallback", KeyHash: hash, KeyPrefix: prefix, KeySuffix: suffix, PaidFallbackOnSubscriptionRefusal: optedIn}
+			installation := &auth.Installation{ID: "inst-paid-fallback", ExternalID: "ext-paid-fallback"}
+			repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{
+				hash: {apiKey: apiKey, installation: installation},
+			}}
+			svc := auth.NewService(fakeInstallationRepository{}, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return time.Now() })
+
+			engine := gin.New()
+			engine.Use(middleware.WithAuth(svc, false))
+			engine.GET("/probe", func(c *gin.Context) {
+				consented, _ := c.Request.Context().Value(proxy.APIKeyPaidFallbackOnSubscriptionRefusalContextKey{}).(bool)
+				assert.Equal(t, optedIn, consented)
+				c.Status(http.StatusOK)
+			})
+
+			req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+			req.Header.Set(middleware.RouterKeyHeader, routerToken)
+			rr := httptest.NewRecorder()
+			engine.ServeHTTP(rr, req)
+
+			require.Equal(t, http.StatusOK, rr.Code)
+		})
+	}
+}
+
 func TestWithAuthManagedModeDropsBYOKWhenNotOptedIn(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	const routerToken = "rk_managed"

@@ -11,7 +11,10 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/translate"
+
+	"github.com/tidwall/gjson"
 )
 
 // countTokensUpstreamBudget bounds the upstream count_tokens attempt. It must
@@ -28,6 +31,11 @@ const countTokensUpstreamBudget = 5 * time.Second
 // including 529 overload). Client-fault statuses (400, 401, 404, ...) are
 // replayed verbatim so a bad request or key is still reported as such.
 func (s *Service) countTokens(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) error {
+	// Routing IDs have no Anthropic tokenizer; use the existing local estimate
+	// without ever sending a virtual model ID to an upstream provider.
+	if router.IsRoutingModel(gjson.GetBytes(body, "model").String()) {
+		return writeLocalCountTokens(w, body)
+	}
 	if !s.anthropicCredentialReachable(ctx, r.Header) {
 		if err := writeLocalCountTokens(w, body); err == nil {
 			return nil

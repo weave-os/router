@@ -68,6 +68,12 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 	if err != nil {
 		return providers.PreparedRequest{}, fmt.Errorf("normalize anthropic final assistant: %w", err)
 	}
+	if opts.Capabilities.Supports(router.CapAssistantPrefillUnsupported) {
+		body, err = dropAnthropicFinalAssistant(body)
+		if err != nil {
+			return providers.PreparedRequest{}, fmt.Errorf("drop anthropic final assistant: %w", err)
+		}
+	}
 	body, err = applyAnthropicCachePolicy(body, true)
 	if err != nil {
 		return providers.PreparedRequest{}, err
@@ -743,31 +749,57 @@ func writeAnthropicTools(jw *jsonWriter, body []byte) {
 	jw.EndArr()
 }
 
+// hasAnthropicFunctionTools reports whether writeAnthropicTools emits at least
+// one tool; entries without a function member are skipped there.
+func hasAnthropicFunctionTools(body []byte) bool {
+	found := false
+	gjson.GetBytes(body, "tools").ForEach(func(_, tool gjson.Result) bool {
+		found = tool.Get("function").Exists()
+		return !found
+	})
+	return found
+}
+
 func writeAnthropicToolChoice(jw *jsonWriter, body []byte, autoOnly bool) {
 	kind, name := openAIToolChoice(body)
 	if autoOnly && (kind == toolChoiceRequired || kind == toolChoiceNamed) {
 		kind = toolChoiceAuto
 	}
+	// Anthropic carries the parallel limit on tool_choice, so a bare
+	// parallel_tool_calls:false still needs an explicit auto choice to ride on.
+	parallel := gjson.GetBytes(body, "parallel_tool_calls")
+	disableParallel := isJSONBool(parallel) && !parallel.Bool() && hasAnthropicFunctionTools(body)
+	if disableParallel && kind == toolChoiceAbsent {
+		kind = toolChoiceAuto
+	}
+	var choiceType string
 	switch kind {
 	case toolChoiceAuto:
-		jw.Key("tool_choice")
-		jw.Raw(`{"type":"auto"}`)
+		choiceType = "auto"
 	case toolChoiceRequired:
-		jw.Key("tool_choice")
-		jw.Raw(`{"type":"any"}`)
-	case toolChoiceNone:
-		// Handled upstream — tools and tool_choice both suppressed.
+		choiceType = "any"
 	case toolChoiceNamed:
-		tw := newJSONWriter()
-		tw.Obj()
-		tw.Key("type")
-		tw.Str("tool")
+		choiceType = "tool"
+	default:
+		// none is handled upstream (tools and tool_choice both suppressed);
+		// absent and unrecognized write nothing.
+		return
+	}
+	tw := newJSONWriter()
+	tw.Obj()
+	tw.Key("type")
+	tw.Str(choiceType)
+	if kind == toolChoiceNamed {
 		tw.Key("name")
 		tw.Str(name)
-		tw.EndObj()
-		jw.Key("tool_choice")
-		jw.Raw(string(tw.Bytes()))
 	}
+	if disableParallel {
+		tw.Key("disable_parallel_tool_use")
+		tw.Bool(true)
+	}
+	tw.EndObj()
+	jw.Key("tool_choice")
+	jw.Raw(string(tw.Bytes()))
 }
 
 func writeAnthropicSamplingParams(jw *jsonWriter, body []byte, capabilities router.ModelSpec) {

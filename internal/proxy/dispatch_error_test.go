@@ -12,6 +12,7 @@ import (
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/router/bandit"
 	"weave-os/router/internal/router/cluster"
+	"weave-os/router/internal/router/decisionmodel"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rl"
@@ -153,7 +154,7 @@ func TestClassifyDispatchError_AllowlistEmptiesPoolPrecedesNoEligibleProvider(t 
 }
 
 func TestClassifyDispatchError_BanditRLandHMMUnavailableRetry(t *testing.T) {
-	for _, err := range []error{bandit.ErrBanditUnavailable, rl.ErrPolicyUnavailable, hmm.ErrHMMUnavailable} {
+	for _, err := range []error{bandit.ErrBanditUnavailable, rl.ErrPolicyUnavailable, hmm.ErrHMMUnavailable, decisionmodel.ErrUnavailable} {
 		cls, ok := proxy.ClassifyDispatchError(err)
 		require.True(t, ok, "expected %v to be classified", err)
 		assert.Equal(t, http.StatusServiceUnavailable, cls.Status)
@@ -411,4 +412,12 @@ func TestClassifyDispatchError_ResponsesChatCompletionsBodyIs400ClientError(t *t
 	assert.Equal(t, http.StatusBadRequest, cls.Status)
 	assert.Contains(t, cls.Message, "moved to 'input'")
 	assert.True(t, cls.Kind.IsClientError(), "the caller sent the wrong wire format; not an upstream failure")
+}
+
+func TestClassifyDispatchError_QwenWarmingIsActionable(t *testing.T) {
+	classification, found := proxy.ClassifyDispatchError(fmt.Errorf("route: %w: %w", policy.ErrClassifierWarming, hmm.ErrHMMUnavailable))
+	require.True(t, found)
+	assert.Equal(t, http.StatusServiceUnavailable, classification.Status)
+	assert.Contains(t, classification.Message, "prepare-model")
+	assert.True(t, classification.RetryAfter)
 }

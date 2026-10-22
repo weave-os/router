@@ -6,11 +6,16 @@ import (
 	"sync"
 	"time"
 
+	"weave-os/router/internal/router"
+
 	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/sync/singleflight"
 )
 
-type admissionCacheKey struct{ Installation, APIKey, Session string }
+type admissionCacheKey struct {
+	Installation, APIKey, Session string
+	RoutingModel                  router.RoutingModel
+}
 type admissionCacheEntry struct {
 	Scope   AdmissionScope
 	Binding SessionReleaseBinding
@@ -51,11 +56,17 @@ func (c *AdmissionDecisionCache) lookup(key admissionCacheKey) (admissionCacheEn
 }
 
 func (c *AdmissionDecisionCache) Admit(ctx context.Context, installationID, apiKeyID, sessionID string, decide AdmissionDecision) (AdmissionScope, SessionReleaseBinding, error) {
+	return c.admit(ctx, installationID, apiKeyID, sessionID, "", decide)
+}
+
+func (c *AdmissionDecisionCache) admit(ctx context.Context, installationID, apiKeyID, sessionID string, model router.RoutingModel, decide AdmissionDecision) (AdmissionScope, SessionReleaseBinding, error) {
 	// Anonymous turns must select the current release independently.
 	if sessionID == "" {
 		return c.store.Admit(ctx, installationID, apiKeyID, sessionID, decide)
 	}
-	key := admissionCacheKey{installationID, apiKeyID, Digest([]byte(sessionID))}
+	// A selector change must reach primary admission instead of reusing another
+	// model's entry or joining its in-flight first-binding transaction.
+	key := admissionCacheKey{Installation: installationID, APIKey: apiKeyID, Session: Digest([]byte(sessionID)), RoutingModel: model}
 	c.mu.Lock()
 	if entry, ok := c.lookup(key); ok {
 		c.mu.Unlock()

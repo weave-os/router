@@ -349,7 +349,9 @@ type RouterModelRouterAPIKey struct {
 	Scope               string
 	CredentialSubjectID pgtype.UUID
 	// Optional onboarding harness id (claude_code, codex, opencode, pi). Null for keys minted outside harness onboarding.
-	Harness *string
+	Harness                           *string
+	SharedSubscriptionAccess          bool
+	PaidFallbackOnSubscriptionRefusal bool
 }
 
 // Customer-owned provider API keys for BYOK routing
@@ -459,14 +461,17 @@ type RouterModelRouterInstallation struct {
 	// Optional model allowlist while the caller subscription is active; empty means no conditional restriction.
 	ModelsWhenSubscriptionActive []string
 	// Optional model allowlist while the caller subscription is exhausted; empty means no conditional restriction.
-	ModelsWhenSubscriptionInactive   []string
-	FastModeModels                   []string
-	TrialCaptureEnabled              bool
-	TrialEnrollmentID                pgtype.UUID
-	TrialShadowSampleRate            pgtype.Numeric
-	TrialShadowDailyCeilingUsdMicros *int64
-	ShowModelSelectionReasoning      bool
-	SubscriptionSharingEnabled       bool
+	ModelsWhenSubscriptionInactive         []string
+	FastModeModels                         []string
+	TrialCaptureEnabled                    bool
+	TrialEnrollmentID                      pgtype.UUID
+	TrialShadowSampleRate                  pgtype.Numeric
+	TrialShadowDailyCeilingUsdMicros       *int64
+	ShowModelSelectionReasoning            bool
+	SubscriptionSharingEnabled             bool
+	SubscriptionStateModelsEnabled         bool
+	ModelsExcludedWhenSubscriptionActive   []string
+	ModelsExcludedWhenSubscriptionInactive []string
 }
 
 type RouterModelRouterRequestTelemetry struct {
@@ -1006,6 +1011,9 @@ type RouterSessionPin struct {
 	LastOutputLimitAt         pgtype.Timestamptz
 	ConsecutiveUpgradeVotes   int32
 	DemotionCooldowns         []byte
+	TurnStrikes               []string
+	ForcedThreadKey           string
+	TokenizerCalibration      []byte
 }
 
 type RouterSessionPinRecoveryProbeLease struct {

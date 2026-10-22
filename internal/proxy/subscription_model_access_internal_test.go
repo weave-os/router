@@ -20,7 +20,7 @@ func modelAccessError() error {
 	return upstreamErr(http.StatusNotFound, `{"type":"error","error":{"type":"not_found_error","message":"model: `+parityAnthropicModel+`"}}`)
 }
 
-func TestSubscriptionModelAccessRescuesAndRemembers(t *testing.T) {
+func TestSubscriptionModelAccessDoesNotPayAndRemembers(t *testing.T) {
 	in := parityAnthropicIngress()
 	for _, stream := range []bool{false, true} {
 		t.Run(boolLit(stream), func(t *testing.T) {
@@ -28,18 +28,16 @@ func TestSubscriptionModelAccessRescuesAndRemembers(t *testing.T) {
 			svc := in.parityService(upstream)
 			for i := 0; i < 2; i++ {
 				rec, req, body := in.request(t, stream)
-				require.NoError(t, in.call(svc, in.subCtx(), body, rec, req))
-				assert.Equal(t, http.StatusOK, rec.Code)
-				assert.NotContains(t, rec.Body.String(), "not_found_error")
-				assert.Contains(t, rec.Body.String(), "output_tokens")
+				require.ErrorIs(t, in.call(svc, in.subCtx(), body, rec, req), ErrSubscriptionPoolUnavailable)
+				assert.Empty(t, rec.Body.String(), "the handler owns rendering the unpaid refusal")
 			}
 			assert.Equal(t, 1, upstream.subDispatches)
-			assert.Equal(t, 2, upstream.paidDispatches)
+			assert.Zero(t, upstream.paidDispatches, "a model denial is not quota exhaustion")
 		})
 	}
 }
 
-func TestSubscriptionModelAccessOpenAIIngressRescuesAndRemembers(t *testing.T) {
+func TestSubscriptionModelAccessOpenAIIngressDoesNotPayAndRemembers(t *testing.T) {
 	in := parityAnthropicIngress()
 	upstream := &parityUpstream{subErr: modelAccessError(), okBody: in.upstreamOK(false)}
 	svc := in.parityService(upstream)
@@ -48,26 +46,29 @@ func TestSubscriptionModelAccessOpenAIIngressRescuesAndRemembers(t *testing.T) {
 	for range 2 {
 		recorder := httptest.NewRecorder()
 		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-		require.NoError(t, svc.ProxyOpenAIChatCompletion(in.subCtx(), body, recorder, request))
-		assert.Equal(t, http.StatusOK, recorder.Code)
-		assert.NotContains(t, recorder.Body.String(), "not_found_error")
+		require.ErrorIs(t, svc.ProxyOpenAIChatCompletion(in.subCtx(), body, recorder, request), ErrSubscriptionPoolUnavailable)
+		assert.Empty(t, recorder.Body.String(), "the handler owns rendering the unpaid refusal")
 	}
 
 	assert.Equal(t, 1, upstream.subDispatches)
-	assert.Equal(t, 2, upstream.paidDispatches)
+	assert.Zero(t, upstream.paidDispatches, "a model denial is not quota exhaustion")
 }
 
 func TestSubscriptionModelAccessPreservesFailedAttemptAttribution(t *testing.T) {
 	in := parityAnthropicIngress()
 	upstream := &parityUpstream{subErr: modelAccessError(), paidErr: modelAccessError()}
 	svc := in.parityService(upstream)
+	telemetry := &auxTelemetryRepo{}
+	svc.telemetry = telemetry
 	rec, req, body := in.request(t, false)
-	require.Error(t, in.call(svc, in.subCtx(), body, rec, req))
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+	require.ErrorIs(t, in.call(svc, in.subCtx(), body, rec, req), ErrSubscriptionPoolUnavailable)
+	assert.Empty(t, rec.Body.String(), "blocked funding must not commit a success response")
 	assert.Equal(t, 1, upstream.subDispatches)
-	assert.Equal(t, 1, upstream.paidDispatches)
+	assert.Zero(t, upstream.paidDispatches)
 	// Learning a denial must not retroactively change the credential of the failed attempt.
-	assert.True(t, servedOnSubscription(resolveAndInjectCredentials(in.resolved(in.subCtx()), in.provider, in.model, nil)))
+	rows := telemetry.waitForRows(1)
+	require.Len(t, rows, 1)
+	assert.Equal(t, credSourceSubscription, rows[0].CredentialSource)
 }
 
 func TestSubscriptionModelAccessDoesNotSpendWithoutPermission(t *testing.T) {
@@ -103,7 +104,7 @@ func TestSubscriptionModelAccessScopeAndExpiry(t *testing.T) {
 	assert.True(t, servedOnSubscription(svc.resolveCredentials(context.WithValue(in.subCtx(), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-other"), in.provider, in.model, nil)))
 	assert.False(t, servedOnSubscription(svc.resolveCredentials(billing.WithSubscriptionOnly(in.subCtx(), billing.SubscriptionOnlyCreditsDepleted), in.provider, in.model, nil)), "known denied OAuth must never be replayed")
 	linkedFirstContext := billing.WithSubscriptionOnly(in.subCtx(), billing.SubscriptionOnlyLinkedFirst)
-	assert.False(t, servedOnSubscription(svc.resolveCredentials(linkedFirstContext, in.provider, in.model, nil)), "a denied linked subscription must use the available infrastructure credential")
+	assert.False(t, servedOnSubscription(svc.resolveCredentials(linkedFirstContext, in.provider, in.model, nil)), "a denied linked subscription must not be replayed")
 	now = now.Add(16 * time.Minute)
 	assert.True(t, servedOnSubscription(svc.resolveCredentials(in.subCtx(), in.provider, in.model, nil)), "access changes are rechecked after expiry")
 }

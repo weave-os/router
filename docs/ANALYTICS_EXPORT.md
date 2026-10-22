@@ -170,7 +170,7 @@ Field groups:
 | Identity | `id`, `recorded_at`, `requested_at`, `request_id`, `trace_id`, `session_id`, `device_id`, `client_app`, `turn_type` |
 | End user | `user_id`, `user_email`, `user_account_uuid` |
 | Decision | `requested_model`, `decision_model`, `decision_provider`, `candidate_models`, `chosen_score`, `decision_reason`, `sticky_hit`, `failover_used`, `cross_format` |
-| Tokens | `estimated_input_tokens`, `input_tokens`, `output_tokens`, `cache_creation_tokens`, `cache_read_tokens` |
+| Tokens | `estimated_input_tokens`, `input_tokens`, `output_tokens`, `cache_creation_tokens`, `cache_read_tokens`, `reasoning_tokens` |
 | Economics | `subscription_served`, `actual_input_cost_usd`, `actual_output_cost_usd`, `credential_source` |
 | Subscription attribution | `subscription_account_id`, `subscription_owner_id`, `subscription_tier`, `intended_model_family`, `final_model_family` |
 | Performance | `route_latency_ms`, `upstream_latency_ms`, `total_latency_ms`, `ttft_ms` |

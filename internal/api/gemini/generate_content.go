@@ -141,7 +141,7 @@ func geminiErrorStatus(kind proxy.DispatchErrorKind) string {
 		return "FAILED_PRECONDITION"
 	case proxy.DispatchErrorInvalidRoutingKnobs, proxy.DispatchErrorPlanOverrideRejected:
 		return "INVALID_ARGUMENT"
-	case proxy.DispatchErrorRLPolicyUnavailable, proxy.DispatchErrorBanditUnavailable, proxy.DispatchErrorHMMUnavailable, proxy.DispatchErrorPolicyUnavailable, proxy.DispatchErrorClusterUnavailable, proxy.DispatchErrorPlanUnresolvable, proxy.DispatchErrorPolicyPinUnavailable:
+	case proxy.DispatchErrorRLPolicyUnavailable, proxy.DispatchErrorBanditUnavailable, proxy.DispatchErrorHMMUnavailable, proxy.DispatchErrorDecisionModelUnavailable, proxy.DispatchErrorPolicyUnavailable, proxy.DispatchErrorClusterUnavailable, proxy.DispatchErrorPlanUnresolvable, proxy.DispatchErrorPolicyPinUnavailable:
 		return "UNAVAILABLE"
 	default:
 		return "UPSTREAM_ERROR"

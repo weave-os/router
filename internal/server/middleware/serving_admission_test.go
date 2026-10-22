@@ -187,15 +187,11 @@ func TestServingAdmissionRejectsMalformedBodyBeforeBinding(t *testing.T) {
 	require.Zero(t, store.calls, "rejected requests must not create or refresh session bindings")
 }
 
-func TestServingAdmissionAllowsManagedRetirementReplyWithoutRegistryOrAttribution(t *testing.T) {
-	cfg, _, _, _ := admissionMiddlewareFixture(t)
-	cfg.Decisions = nil
-	cfg.Store = nil
-	cfg.Cache = nil
-	cfg.Attribution = nil
+func TestServingAdmissionAllowsRetirementReplyAfterAuthentication(t *testing.T) {
+	cfg, admitted, _, _ := admissionMiddlewareFixture(t)
 	body := `{"model":"claude-sonnet-4-5","max_tokens":1,"messages":[{"role":"user","content":"/beta"}]}`
-	response := runAdmissionMiddlewareWithBody(t, cfg, policyregistry.ServingAssertion{}, body, func(c *gin.Context) {
-		t.Fatal("retired command must finish before admission or inference")
+	response := runAdmissionMiddlewareWithBody(t, cfg, admitted, body, func(c *gin.Context) {
+		t.Fatal("retired command must finish before inference")
 	})
 	require.Equal(t, http.StatusOK, response.Code)
 	require.Contains(t, response.Body.String(), "Beta has been retired")
@@ -322,6 +318,8 @@ func TestDirectAdmissionMapsCredentialFailuresAndInfrastructureFailures(t *testi
 		{name: "invalid credential", err: auth.ErrInvalidToken, wantStatus: http.StatusUnauthorized, wantBody: "invalid_key"},
 		{name: "revoked subject", err: auth.ErrPersonalCredentialRequired, wantStatus: http.StatusUnauthorized, wantBody: "invalid_key"},
 		{name: "registry outage", err: errors.New("primary unavailable"), wantStatus: http.StatusServiceUnavailable, wantBody: "serving_admission_unavailable"},
+		{name: "classifier changed", err: policyregistry.ErrRoutingModelChanged, wantStatus: http.StatusConflict, wantBody: "start_new_thread_to_change_router"},
+		{name: "classifier has no conversation", err: policyregistry.ErrRoutingModelSessionRequired, wantStatus: http.StatusBadRequest, wantBody: "send Session-Id"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cfg, admitted, _, _ := admissionMiddlewareFixture(t)

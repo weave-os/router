@@ -25,21 +25,33 @@ import (
 // so a test can prove what reaches the router.decision span.
 type embedTestRouter struct {
 	metadata *router.RoutingMetadata
+	// provider and model override the default Anthropic decision when set.
+	provider string
+	model    string
 }
 
 func (r *embedTestRouter) Route(context.Context, router.Request) (router.Decision, error) {
-	return router.Decision{
+	decision := router.Decision{
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-haiku-4-5",
 		Reason:   "cluster",
 		Metadata: r.metadata,
-	}, nil
+	}
+	if r.provider != "" {
+		decision.Provider, decision.Model = r.provider, r.model
+	}
+	return decision, nil
 }
 
 type embedTestProvider struct{}
 
-func (embedTestProvider) Proxy(context.Context, router.Decision, providers.PreparedRequest, http.ResponseWriter, *http.Request) error {
-	return nil
+// Proxy answers with a minimal Anthropic message so cross-format ingresses
+// (OpenAI chat) can translate the response.
+func (embedTestProvider) Proxy(_ context.Context, _ router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
+	w.Header().Set("Content-Type", "application/json")
+	_, err := w.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","model":"claude-haiku-4-5",` +
+		`"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+	return err
 }
 
 func (embedTestProvider) Passthrough(context.Context, providers.PreparedRequest, http.ResponseWriter, *http.Request) error {
@@ -84,7 +96,7 @@ func newEmbedTestService(t *testing.T, collector *bypassSpanCollector, rt router
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = emitter.Shutdown(context.Background()) })
-	return NewService(rt, map[string]providers.Client{providers.ProviderAnthropic: embedTestProvider{}}, emitter, false, nil, pins, false,
+	return NewService(rt, map[string]providers.Client{providers.ProviderAnthropic: embedTestProvider{}, providers.ProviderGoogle: embedTestProvider{}}, emitter, false, nil, pins, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 }
 
@@ -261,38 +273,69 @@ func TestDecisionSpan_RolloutIDFromClientIdentity(t *testing.T) {
 	assert.Equal(t, EvalClientAppPrefix+ClientAppCodex, spanStr(t, spans[0], "client.app"))
 }
 
-func TestDecisionSpanCarriesCallerRoutingState(t *testing.T) {
-	for _, tc := range []struct {
-		name            string
-		ctx             context.Context
-		wantPassthrough bool
-		wantSource      callerRoutingSource
+func TestDecisionAndUpstreamSpansCarryCallerRoutingState(t *testing.T) {
+	type proxyCall func(*Service, context.Context, []byte, http.ResponseWriter, *http.Request) error
+	ingresses := []struct {
+		name     string
+		path     string
+		body     []byte
+		call     proxyCall
+		provider string
+		model    string
 	}{
-		{name: "default routed", ctx: context.Background(), wantSource: callerRoutingSourceDefault},
+		{name: "anthropic messages", path: "/v1/messages", body: embedTurnBody(), call: (*Service).ProxyMessages},
 		{
-			name: "experiment passthrough arm",
-			ctx: context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{
-				Active: true,
-				Arm:    auth.BlindExperimentArmPassthrough,
-			}),
-			wantPassthrough: true,
-			wantSource:      callerRoutingSourceExperiment,
+			name: "openai chat",
+			path: "/v1/chat/completions",
+			body: []byte(`{"model":"claude-opus-4-8","max_tokens":4096,` +
+				`"tools":[{"type":"function","function":{"name":"Bash","parameters":{"type":"object"}}}],` +
+				`"messages":[{"role":"user","content":"hi"}]}`),
+			call: (*Service).ProxyOpenAIChatCompletion,
 		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			collector := newBypassSpanCollector(t)
-			svc := newEmbedTestService(t, collector, &embedTestRouter{}, nil)
-			rec := httptest.NewRecorder()
-			httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-			require.NoError(t, svc.ProxyMessages(tc.ctx, embedTurnBody(), rec, httpReq))
-			require.NoError(t, svc.emitter.(*otel.Emitter).Shutdown(context.Background()))
+		{
+			name:     "gemini",
+			path:     "/v1beta/models/gemini-2.5-pro:generateContent",
+			body:     []byte(`{"model":"gemini-2.5-pro","stream":false,"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`),
+			call:     (*Service).ProxyGeminiGenerateContent,
+			provider: providers.ProviderGoogle,
+			model:    "gemini-2.5-flash",
+		},
+	}
+	for _, ingress := range ingresses {
+		for _, tc := range []struct {
+			name            string
+			ctx             context.Context
+			wantPassthrough bool
+			wantSource      callerRoutingSource
+		}{
+			{name: "default routed", ctx: context.Background(), wantSource: callerRoutingSourceDefault},
+			{
+				name: "experiment passthrough arm",
+				ctx: context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{
+					Active: true,
+					Arm:    auth.BlindExperimentArmPassthrough,
+				}),
+				wantPassthrough: true,
+				wantSource:      callerRoutingSourceExperiment,
+			},
+		} {
+			t.Run(ingress.name+"/"+tc.name, func(t *testing.T) {
+				collector := newBypassSpanCollector(t)
+				svc := newEmbedTestService(t, collector, &embedTestRouter{provider: ingress.provider, model: ingress.model}, nil)
+				rec := httptest.NewRecorder()
+				httpReq := httptest.NewRequest(http.MethodPost, ingress.path, strings.NewReader(""))
+				require.NoError(t, ingress.call(svc, tc.ctx, ingress.body, rec, httpReq))
+				require.NoError(t, svc.emitter.(*otel.Emitter).Shutdown(context.Background()))
 
-			collector.mu.Lock()
-			defer collector.mu.Unlock()
-			spans := collector.byName["router.decision"]
-			require.Len(t, spans, 1)
-			assert.Equal(t, tc.wantPassthrough, spanBool(t, spans[0], "routing.caller_passthrough"))
-			assert.Equal(t, string(tc.wantSource), spanStr(t, spans[0], "routing.caller_routing_source"))
-		})
+				collector.mu.Lock()
+				defer collector.mu.Unlock()
+				for _, spanName := range []string{"router.decision", "router.upstream"} {
+					spans := collector.byName[spanName]
+					require.Len(t, spans, 1, spanName)
+					assert.Equal(t, tc.wantPassthrough, spanBool(t, spans[0], "routing.caller_passthrough"), spanName)
+					assert.Equal(t, string(tc.wantSource), spanStr(t, spans[0], "routing.caller_routing_source"), spanName)
+				}
+			})
+		}
 	}
 }

@@ -44,6 +44,7 @@ WEAVE_REGISTRY_DATA=$(cat <<'WEAVE_REGISTRY_EOF'
 # canonical|aliases|capability|claude|codex|opencode|pi|cursor|adapter
 # aliases are comma-separated; client columns are yes/no. adapter is the native asset kind.
 force-model|fm|prompt|yes|yes|yes|yes|manual|command,skill
+force-parent||prompt|yes|yes|yes|yes|manual|command,skill
 unforce-model|ufm|prompt|yes|yes|yes|yes|manual|command,skill
 router-feedback|rf|prompt|yes|yes|yes|no|manual|command,skill
 router-off||local-toggle|yes|yes|no|no|manual|command,skill
@@ -204,6 +205,17 @@ weave_command_router_owned() {
   return 1
 }
 
+# Git Bash rewrites $HOME's /c/... form to C:/... in arguments to native
+# executables such as jq.exe, so the stored command can use either form.
+statusline_commands_match() {
+  local first_mixed second_mixed
+  [ "$1" = "$2" ] && return 0
+  command -v cygpath >/dev/null 2>&1 || return 1
+  first_mixed="$(cygpath -m -- "$1" 2>/dev/null)" && [ -n "$first_mixed" ] || return 1
+  second_mixed="$(cygpath -m -- "$2" 2>/dev/null)" && [ -n "$second_mixed" ] || return 1
+  [ "$first_mixed" = "$second_mixed" ]
+}
+
 # claude_statusline_router_owned reports whether a settings entry points at the
 # router's statusline. Existing scripts prove ownership with the marker; when a
 # script is missing, the adjacent ownership marker proves that the router wrote
@@ -212,7 +224,7 @@ claude_statusline_router_owned() {
   local settings_path="$1" expected_command="$2" script_path="$3" ownership_marker_path="$4" configured_command
   [ -f "$settings_path" ] || return 1
   configured_command="$(jq -r '.statusLine.command // empty' "$settings_path" 2>/dev/null || true)"
-  [ "$configured_command" = "$expected_command" ] || return 1
+  statusline_commands_match "$configured_command" "$expected_command" || return 1
   if [ -f "$script_path" ]; then
     if grep -Fq "$CLAUDE_STATUSLINE_MARKER" "$script_path" 2>/dev/null; then
       return 0

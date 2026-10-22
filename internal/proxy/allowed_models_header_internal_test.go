@@ -214,3 +214,21 @@ func TestRequestAllowedModelsPresent(t *testing.T) {
 	assert.True(t, requestAllowedModelsPresent(
 		ctxWithRequestSubset(context.Background(), testSol)))
 }
+
+func TestReadmitForcedModel_GatewayBypassKeepsUnsignedHistoryGeminiExclusion(t *testing.T) {
+	const gemini = "gemini-3.1-pro-preview"
+	s := &Service{availableModels: map[string]struct{}{testOpus: {}, gemini: {}}}
+	ctx := context.WithValue(gatewayKeyCtx(gemini), InstallationAllowedModelsContextKey{}, []string{testOpus})
+	req := router.Request{ExcludedModels: s.excludedModelsForRequest(ctx)}
+	require.Contains(t, req.ExcludedModels, gemini)
+	pin := sessionpin.Pin{Model: gemini, Provider: providers.ProviderAnthropicGateway}
+
+	fresh, err := translate.ParseAnthropic([]byte(`{"model":"x","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`))
+	require.NoError(t, err)
+	assert.NotContains(t, s.readmitForcedModel(ctx, req, fresh, translate.RoutingFeatures{MaxTokens: 16}, pin), gemini)
+
+	unsigned, err := translate.ParseAnthropic([]byte(`{"model":"x","max_tokens":16,"messages":[{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{}}]}]}`))
+	require.NoError(t, err)
+	assert.Contains(t, s.readmitForcedModel(ctx, req, unsigned, translate.RoutingFeatures{MaxTokens: 16}, pin), gemini,
+		"gemini-3.x cannot take unsigned tool-call history")
+}

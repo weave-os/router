@@ -79,18 +79,21 @@ const (
 	sameBindingRetryBudget = 10 * time.Second
 )
 
-// Bounded failure reasons recorded on attempt events.
+// FailureReason is a bounded machine reason recorded on attempt events.
+type FailureReason string
+
 const (
-	FailureReasonProviderNotConfigured = "provider_not_configured"
-	FailureReasonTargetMismatch        = "target_mismatch"
-	FailureReasonUpstreamStatus        = "upstream_status"
-	FailureReasonUpstreamModelNotFound = "upstream_model_not_found"
-	FailureReasonUpstreamBilling       = "upstream_billing_blocked"
-	FailureReasonTransport             = "transport"
-	FailureReasonCanceled              = "canceled"
-	FailureReasonCommitted             = "committed"
-	FailureReasonPrepare               = "prepare"
-	FailureReasonAttemptBudget         = "attempt_budget_exhausted"
+	FailureReasonProviderNotConfigured               = "provider_not_configured"
+	FailureReasonTargetMismatch                      = "target_mismatch"
+	FailureReasonUpstreamStatus                      = "upstream_status"
+	FailureReasonUpstreamModelNotFound               = "upstream_model_not_found"
+	FailureReasonUpstreamBilling                     = "upstream_billing_blocked"
+	FailureReasonTransport                           = "transport"
+	FailureReasonCanceled                            = "canceled"
+	FailureReasonCommitted                           = "committed"
+	FailureReasonPrepare                             = "prepare"
+	FailureReasonAttemptBudget                       = "attempt_budget_exhausted"
+	FailureReasonAuthorization         FailureReason = "funding_authorization"
 )
 
 // Result is the executor's report for one operation.
@@ -222,6 +225,7 @@ func (e *Executor) Run(ctx context.Context, req inference.InvocationRequest, pla
 	}
 
 	var lastErr error
+	authorize := AuthorizationFromContext(ctx)
 	for i, target := range targets {
 		attempt := Attempt{Index: i, Target: target}
 		if i > 0 {
@@ -235,6 +239,9 @@ func (e *Executor) Run(ctx context.Context, req inference.InvocationRequest, pla
 				continue
 			}
 			return fail(err, FailureReasonProviderNotConfigured)
+		}
+		if authorize != nil {
+			client = authorizationGuard{Client: client, target: target, authorize: authorize}
 		}
 
 		retryStart := e.now()
@@ -275,6 +282,10 @@ func (e *Executor) Run(ctx context.Context, req inference.InvocationRequest, pla
 			if errors.Is(attemptErr, ErrTargetMismatch) {
 				transport.reset()
 				return fail(attemptErr, FailureReasonTargetMismatch)
+			}
+			if errors.Is(attemptErr, ErrAuthorizationDenied) {
+				transport.reset()
+				return fail(attemptErr, string(FailureReasonAuthorization))
 			}
 			if transport.Terminal != nil && transport.Terminal(attempt, attemptErr) {
 				break
@@ -341,6 +352,8 @@ func failureReason(err error) string {
 		return ""
 	case errors.Is(err, ErrTargetMismatch):
 		return FailureReasonTargetMismatch
+	case errors.Is(err, ErrAuthorizationDenied):
+		return string(FailureReasonAuthorization)
 	case errors.Is(err, ErrProviderNotConfigured):
 		return FailureReasonProviderNotConfigured
 	case providers.IsUpstreamModelNotFound(err):

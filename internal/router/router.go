@@ -171,6 +171,8 @@ type Request struct {
 	// GatewayProviders is the installation's BYOK gateway providers. Non-empty
 	// means gateway-exclusive routing: only aliased models are routable.
 	GatewayProviders map[string]struct{}
+	// SubscriptionProviders holds the providers whose subscription credential can serve this request.
+	SubscriptionProviders map[string]struct{}
 	// Per-request model exclusion — nil or empty means no exclusion.
 	// If filtering empties eligible set, scorer returns ErrNoEligibleProvider.
 	// Full union: installation excluded_models plus request-time safety filters.

@@ -208,3 +208,57 @@ func TestPrepareAnthropic_LeavesOrdinaryMessagesUnchanged(t *testing.T) {
 		}
 	}
 }
+
+func TestPrepareAnthropic_ModelSwitchKeepsSystemMessageBeforeAssistantWhenThinkingOnlyTurnDropped(t *testing.T) {
+	body := []byte(`{
+		"model": "claude-opus-4-8",
+		"max_tokens": 1024,
+		"messages": [
+			{"role": "user", "content": "start"},
+			{"role": "system", "content": [
+				{"type": "text", "text": "The following tools just became available"},
+				{"type": "tool_addition", "toolset_id": "artifact"}
+			]},
+			{"role": "assistant", "content": [{"type": "thinking", "thinking": "plan", "signature": "sig-from-previous-model"}]},
+			{"role": "user", "content": "Describe your most recent action"}
+		]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-8", ModelSwitched: true})
+	require.NoError(t, err)
+
+	msgs := gjson.GetBytes(prep.Body, "messages").Array()
+	require.Len(t, msgs, 3)
+	assert.Equal(t, "user", msgs[0].Get("role").String())
+	assert.Equal(t, "start", msgs[0].Get("content").String())
+	assert.Equal(t, "user", msgs[1].Get("role").String())
+	assert.Equal(t, "Describe your most recent action", msgs[1].Get("content").String())
+	assert.Equal(t, "system", msgs[2].Get("role").String(), "a system message must precede an assistant turn or end the array")
+	assert.Equal(t, "tool_addition", msgs[2].Get("content.1.type").String())
+}
+
+func TestPrepareAnthropic_ModelSwitchMovesSystemMessageToNextAssistantTurn(t *testing.T) {
+	body := []byte(`{
+		"model": "claude-opus-4-8",
+		"max_tokens": 1024,
+		"messages": [
+			{"role": "user", "content": "start"},
+			{"role": "system", "content": [{"type": "tool_addition", "toolset_id": "artifact"}]},
+			{"role": "assistant", "content": [{"type": "thinking", "thinking": "plan", "signature": "sig-from-previous-model"}]},
+			{"role": "user", "content": "continue"},
+			{"role": "assistant", "content": [{"type": "text", "text": "done"}]},
+			{"role": "user", "content": "next"}
+		]
+	}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	prep, err := env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-8", ModelSwitched: true})
+	require.NoError(t, err)
+
+	var roles []string
+	for _, msg := range gjson.GetBytes(prep.Body, "messages").Array() {
+		roles = append(roles, msg.Get("role").String())
+	}
+	assert.Equal(t, []string{"user", "user", "system", "assistant", "user"}, roles)
+}

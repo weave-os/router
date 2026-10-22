@@ -100,8 +100,8 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 	defer actualIngress.Close()
 	for _, scenario := range []struct {
 		name, token, email string
-		wantPersonal       bool
-	}{{"legacy-projected-email", legacyToken, "synthetic-member@example.invalid", false}, {"verified-personal-bogus-email", personalToken, "unprojected@example.invalid", true}, {"legacy-sharing-on", legacyToken, "synthetic-member@example.invalid", false}} {
+		wantTier           auth.SubscriptionTier
+	}{{"legacy-projected-email", legacyToken, "synthetic-member@example.invalid", ""}, {"verified-personal-bogus-email", personalToken, "unprojected@example.invalid", auth.SubscriptionTierPersonal}, {"legacy-sharing-on", legacyToken, "synthetic-member@example.invalid", auth.SubscriptionTierShared}} {
 		t.Run(scenario.name, func(t *testing.T) {
 			if scenario.name == "legacy-sharing-on" {
 				_, err = pool.Exec(ctx, `UPDATE router.model_router_installations SET subscription_sharing_enabled=true WHERE id=$1`, org)
@@ -126,18 +126,20 @@ func TestVerificationSQLUnsignedEmailCannotClaimPersonalServing(t *testing.T) {
 			require.Len(t, bearers, before+1)
 			winner := winners[len(winners)-1]
 			identity := resolvedOwners[len(resolvedOwners)-1]
-			if scenario.wantPersonal {
+			if scenario.wantTier == auth.SubscriptionTierPersonal {
 				require.Equal(t, subject.String(), identity.SubscriberID)
-				require.Equal(t, "Bearer synthetic-personal-access", bearers[before])
-				require.True(t, winner.Served)
-				require.Equal(t, account.ID, winner.SubscriptionAccountID)
-				require.Equal(t, auth.SubscriptionTierPersonal, winner.SubscriptionTier)
 			} else {
 				require.Empty(t, identity.SubscriberID, "unsigned email cannot authenticate the projected owner")
-				// Subject-less keys fail closed to API capacity even with sharing on.
+			}
+			if scenario.wantTier == "" {
 				require.Equal(t, "Bearer synthetic-api-key", bearers[before])
 				require.False(t, winner.Served)
+				return
 			}
+			require.Equal(t, "Bearer synthetic-personal-access", bearers[before])
+			require.True(t, winner.Served)
+			require.Equal(t, account.ID, winner.SubscriptionAccountID)
+			require.Equal(t, scenario.wantTier, winner.SubscriptionTier)
 		})
 	}
 }

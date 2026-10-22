@@ -281,7 +281,7 @@ ROUTER_MODE="managed"
 run_models "$home" -- --claude
 check "list against a router without the API still exits 0" "$rc" "0"
 contains "list falls back to the public catalog" "$out" "claude-opus-5"
-contains "list says where model selection lives" "$out" "router.workweave.ai/dashboard/settings"
+contains "list says where model selection lives" "$out" "router.workweave.ai/models"
 # The catalog endpoint reports what is deployed, not what this installation
 # enabled, so the fallback must not render on/off state it cannot know.
 case "$out" in
@@ -291,14 +291,14 @@ esac
 
 run_models "$home" -- disable gpt-5.6 --claude
 check "editing against a router without the API fails" "$rc" "1"
-contains "the failure names the dashboard" "$out" "router.workweave.ai/dashboard/settings"
+contains "the failure names the dashboard" "$out" "router.workweave.ai/models"
 
 # `models providers` is read-only, same as `models list` — it must degrade the
 # same way on a 404 rather than hard-failing while listing still succeeds.
 run_models "$home" -- providers --claude
 check "providers list against a router without the API still exits 0" "$rc" "0"
 contains "providers list falls back to the public catalog" "$out" "anthropic"
-contains "providers list says where selection lives" "$out" "router.workweave.ai/dashboard/settings"
+contains "providers list says where selection lives" "$out" "router.workweave.ai/models"
 case "$out" in
   *"[x]"*|*"[ ]"*) no "the providers fallback claims no on/off state" "no checkbox markers" "$out" ;;
   *)               ok "the providers fallback claims no on/off state" ;;
@@ -310,7 +310,7 @@ check "providers list --json against a router without the API emits the provider
 
 run_models "$home" -- providers disable openai --claude
 check "editing providers against a router without the API still fails" "$rc" "1"
-contains "the providers failure names the dashboard" "$out" "router.workweave.ai/dashboard/settings"
+contains "the providers failure names the dashboard" "$out" "router.workweave.ai/models"
 
 ROUTER_MODE="full"
 

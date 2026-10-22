@@ -58,6 +58,10 @@ type APIKey struct {
 	CredentialSubjectID string
 	// Harness is the stored agent that minted this key (claude_code, codex, opencode, pi).
 	Harness string
+	// PaidFallbackOnSubscriptionRefusal is an admin opt-in that lets a forced
+	// Claude turn use paid API capacity when every linked Claude subscription
+	// refuses the client app. Never settable from a request.
+	PaidFallbackOnSubscriptionRefusal bool
 }
 
 type CreateAPIKeyParams struct {

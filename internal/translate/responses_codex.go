@@ -448,7 +448,8 @@ func (c *portableCodexResponsesConverter) convertReasoning(item gjson.Result, pa
 	// it is dropped with that reasoning rather than pinning the session to
 	// OpenAI. Native OpenAI dispatch still forwards the original body.
 	content := item.Get("content")
-	if content.Exists() && (!content.IsArray() || len(content.Array()) > 0) {
+	// Codex can serialize an empty optional content field as null.
+	if content.Type != gjson.Null && (!content.IsArray() || len(content.Array()) > 0) {
 		c.result.Requirements.ReasoningReplay = true
 		c.markNativeOnly("responses_reasoning_content_native_only", path+".content")
 		return

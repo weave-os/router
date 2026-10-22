@@ -1,6 +1,7 @@
 "use client";
 
 import { CopyBlock } from "@/components/CopyBlock";
+import { InstallShellPicker } from "@/components/InstallShellPicker";
 import { Text } from "@/components/atoms/Text";
 import { Button } from "@/components/molecules/Button";
 import { Appearance } from "@/components/types";
@@ -9,6 +10,7 @@ import {
   HARNESSES,
   type HarnessID,
   type InstallScope,
+  defaultInstallShell,
   harness,
   installCommand,
   routerOrigin,
@@ -313,6 +315,7 @@ function InstallStep({
   const origin = routerOrigin();
   const selected = harness(harnessID);
   const pinged = useFirstRequest();
+  const [shell, setShell] = useState(defaultInstallShell);
 
   useEffect(() => {
     if (pinged) onComplete();
@@ -332,11 +335,12 @@ function InstallStep({
       </div>
 
       <div className="flex w-full flex-col gap-2">
+        <InstallShellPicker shell={shell} onChange={setShell} />
         {origin === "" ? (
           <Text className="text-2xs text-muted-foreground">Preparing install command…</Text>
         ) : (
           <CopyBlock
-            value={installCommand(harnessID, scope, token ?? KEY_PLACEHOLDER, origin)}
+            value={installCommand(harnessID, scope, token ?? KEY_PLACEHOLDER, origin, shell)}
             title="Copy install command"
           />
         )}

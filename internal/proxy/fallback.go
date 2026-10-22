@@ -227,6 +227,7 @@ var errDispatchWithoutPurpose = errors.New("dispatchWithFallback: no inference p
 // error. On final-attempt error it flushes the upstream's own envelope to w
 // instead of a generic 502.
 func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (winnerIdx int, err error) {
+	ctx = s.withSubscriptionFundingAuthorization(ctx, in.subscriptionStateHeaders)
 	if in.subscriptionStateRequest != nil && subscriptionStateModelsEnabled(ctx) && in.buildAlternative != nil {
 		return s.dispatchSubscriptionStateModels(ctx, in)
 	}
@@ -446,7 +447,7 @@ func flushBufferedIfPresent(w http.ResponseWriter, err error) {
 	var resp *providers.UpstreamErrorResponse
 	// An overflow is left to the ingress handler, which answers in the
 	// client's native prompt-too-long shape.
-	if !errors.As(err, &resp) || isUpstreamContextOverflow(err) {
+	if !errors.As(err, &resp) || isContextOverflow(err) {
 		return
 	}
 	for k, vs := range resp.Headers {
@@ -561,7 +562,7 @@ func emitGeminiSSEErrorEvent(sink http.ResponseWriter) {
 // err is not an *UpstreamErrorResponse.
 func flushUpstreamErrorAsAnthropic(w http.ResponseWriter, err error) {
 	var resp *providers.UpstreamErrorResponse
-	if !errors.As(err, &resp) || isUpstreamContextOverflow(err) {
+	if !errors.As(err, &resp) || isContextOverflow(err) {
 		return
 	}
 	for k, vs := range resp.Headers {
@@ -590,7 +591,6 @@ func attemptIdxLabel(i int) string {
 type subscriptionOnlyAttemptKey struct{}
 type subscriptionAPIOnlyKey struct{}
 type subscriptionRotationBudgetKey struct{}
-type subscriptionRotationBudgetDisabledKey struct{}
 
 func subscriptionAttemptOnly(ctx context.Context) bool {
 	value, _ := ctx.Value(subscriptionOnlyAttemptKey{}).(bool)
@@ -601,16 +601,14 @@ func subscriptionAPIOnly(ctx context.Context) bool {
 	return value
 }
 func (s *Service) dispatchSubscriptionAlternatives(ctx context.Context, in failoverInputs) (int, error) {
-	budget, cancel := context.WithTimeout(ctx, subscriptionRotationBudget)
-	defer cancel()
-	ctx = context.WithValue(ctx, subscriptionRotationBudgetKey{}, budget)
+	ctx, budget := withSubscriptionAdmissionBudget(ctx)
 	selected := in.initialDecision
 	if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil {
 		usage.IntendedModel = selected.Model
 	}
 	targets := append([]router.Decision{selected}, in.alternatives...)
 	for index, target := range targets {
-		if ctx.Err() != nil || budget.Err() != nil {
+		if ctx.Err() != nil || budget.remaining <= 0 {
 			break
 		}
 		attemptIn := in
@@ -649,7 +647,7 @@ func (s *Service) dispatchSubscriptionAlternatives(ctx context.Context, in failo
 		return 0, ctx.Err()
 	}
 	if paidFallbackForbidden(ctx) {
-		return 0, ErrSubscriptionPoolExhausted
+		return 0, subscriptionPoolExhausted(ctx)
 	}
 	if in.buf != nil {
 		in.buf.Discard()

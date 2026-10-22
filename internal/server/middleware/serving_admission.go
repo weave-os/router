@@ -58,15 +58,6 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 			}
 		}
 		c.Request.Body = io.NopCloser(bytes.NewReader(body))
-		retired, err := proxy.WriteRetiredBetaRequest(c.Writer, c.Request, body)
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_request_body"})
-			return
-		}
-		if retired {
-			c.Abort()
-			return
-		}
 		key := APIKeyFrom(c)
 		installation := InstallationFrom(c)
 		if key == nil || installation == nil {
@@ -76,6 +67,14 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 		assertion, err := directAssertion(c.Request.Context(), cfg, installation.ID, key.ID, c.Request, body)
 		if err != nil {
 			observability.FromGin(c).Warn("Worker admission rejected", "err", err)
+			if errors.Is(err, policyregistry.ErrRoutingModelChanged) {
+				c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "start_new_thread_to_change_router"})
+				return
+			}
+			if errors.Is(err, policyregistry.ErrRoutingModelSessionRequired) {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "routing_model_requires_conversation_id", "message": err.Error()})
+				return
+			}
 			if isAuthFailure(err) {
 				handleAuthError(c, err)
 				return
@@ -101,6 +100,17 @@ func WithServingAdmission(cfg *ServingAdmissionConfig) gin.HandlerFunc {
 		}
 		ctx := policyregistry.WithServingAssertion(c.Request.Context(), assertion)
 		ctx = policyregistry.WithServingSnapshot(ctx, snapshot)
+		if assertion.Admission.Target != policyregistry.TargetInternal {
+			retired, err := proxy.WriteRetiredBetaRequest(c.Writer, c.Request, body)
+			if err != nil {
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid_request_body"})
+				return
+			}
+			if retired {
+				c.Abort()
+				return
+			}
+		}
 		if assertion.TestPlan != nil && assertion.TestPlan.Plan != policyregistry.TestPlanStable {
 			ctx = entitlement.WithProductScope(ctx, entitlement.Plan(assertion.TestPlan.Plan))
 		}

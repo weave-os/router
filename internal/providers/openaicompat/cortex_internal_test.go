@@ -109,3 +109,28 @@ func TestProxy_SnowflakeCortexResponsesOmitsReasoningSummary(t *testing.T) {
 		})
 	}
 }
+
+func TestProxy_CortexAIGatewayRootServesChatCompletionsUnderV1(t *testing.T) {
+	var paths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"chatcmpl_1"}`))
+	}))
+	defer srv.Close()
+	target, err := url.Parse(srv.URL)
+	require.NoError(t, err)
+
+	rt := &bodyCapturingHostRewriter{target: target}
+	c := NewGatewayClient("tok", "https://acme.snowflakecomputing.com/api/v2/aigateways/ENG")
+	c.http = &http.Client{Transport: rt}
+
+	prep := providers.PreparedRequest{
+		Body:     []byte(`{"model":"openai-gpt-5","messages":[{"role":"user","content":"hi"}]}`),
+		Endpoint: providers.EndpointChatCompletions,
+		Headers:  make(http.Header),
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	require.NoError(t, c.Proxy(context.Background(), router.Decision{Model: "openai-gpt-5"}, prep, httptest.NewRecorder(), req))
+	assert.Equal(t, []string{"/api/v2/aigateways/ENG/v1/chat/completions"}, paths)
+}

@@ -8,16 +8,18 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
+	"weave-os/router/internal/router"
+	modelcatalog "weave-os/router/internal/router/catalog"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
 // CodexAutomaticModel is the native /model choice that keeps Weave routing automatic.
-const CodexAutomaticModel = "weave-auto"
+const CodexAutomaticModel = string(router.ModelAutomatic)
 
 // CodexModelCatalog forwards Codex's account-specific catalog and adds the
-// automatic Weave choice. A visible one-entry response would make Codex hide
+// Weave routing choices. A visible one-entry response would make Codex hide
 // its native models, because visible remote catalogs replace its bundled list.
 func (s *Service) CodexModelCatalog(ctx context.Context, headers http.Header, clientVersion string) ([]byte, error) {
 	client, err := s.provider(providers.ProviderOpenAI)
@@ -38,20 +40,19 @@ func (s *Service) CodexModelCatalog(ctx context.Context, headers http.Header, cl
 	if err != nil {
 		return nil, err
 	}
-	return addCodexAutomaticModel(catalog)
+	return addCodexRoutingModels(catalog, internalBetaSession(ctx))
 }
 
-func addCodexAutomaticModel(catalog []byte) ([]byte, error) {
+func addCodexRoutingModels(catalog []byte, includeVariants bool) ([]byte, error) {
 	models := gjson.GetBytes(catalog, "models")
 	if !models.IsArray() {
 		return nil, fmt.Errorf("Codex model catalog has no models array")
 	}
 	var template, solTemplate gjson.Result
+	seen := make(map[string]bool)
 	for _, model := range models.Array() {
 		modelSlug := model.Get("slug").String()
-		if modelSlug == CodexAutomaticModel {
-			return catalog, nil
-		}
+		seen[modelSlug] = true
 		if !template.Exists() {
 			template = model
 		}
@@ -65,23 +66,30 @@ func addCodexAutomaticModel(catalog []byte) ([]byte, error) {
 	if !template.Exists() {
 		return nil, fmt.Errorf("Codex model catalog has no model to base automatic mode on")
 	}
-	automatic := []byte(template.Raw)
-	for path, value := range map[string]any{
-		"slug":         CodexAutomaticModel,
-		"display_name": "Weave Router",
-		"description":  "Automatically chooses the best model",
-		"visibility":   "list",
-		"priority":     0,
-	} {
+	for _, choice := range modelcatalog.ModelChoices() {
+		if choice.Kind != modelcatalog.ModelChoiceRouter || seen[choice.Model] || (!includeVariants && choice.Model != CodexAutomaticModel) {
+			continue
+		}
+		displayName, description := choice.Model, choice.Description
+		if choice.Model == CodexAutomaticModel {
+			displayName, description = "Weave Router", "Automatically chooses the best model"
+		}
+		routingChoice := []byte(template.Raw)
+		for path, value := range map[string]any{
+			"slug": choice.Model, "display_name": displayName, "description": description,
+			"visibility": "list", "priority": 0,
+		} {
+			var err error
+			routingChoice, err = sjson.SetBytes(routingChoice, path, value)
+			if err != nil {
+				return nil, fmt.Errorf("set routing model %s: %w", path, err)
+			}
+		}
 		var err error
-		automatic, err = sjson.SetBytes(automatic, path, value)
+		catalog, err = sjson.SetRawBytes(catalog, "models.-1", routingChoice)
 		if err != nil {
-			return nil, fmt.Errorf("set automatic model %s: %w", path, err)
+			return nil, fmt.Errorf("append routing model: %w", err)
 		}
 	}
-	withAutomatic, err := sjson.SetRawBytes(catalog, "models.-1", automatic)
-	if err != nil {
-		return nil, fmt.Errorf("append automatic model: %w", err)
-	}
-	return withAutomatic, nil
+	return catalog, nil
 }

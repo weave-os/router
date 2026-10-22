@@ -58,7 +58,7 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 		if !strategyAllowed(strategy, allowed) {
 			return false
 		}
-		return strategy != router.StrategyHMMBeta || (liveAvailability != nil && liveAvailability(strategy))
+		return !router.IsBetaStrategy(strategy) || (liveAvailability != nil && liveAvailability(strategy))
 	}
 	return func(c *gin.Context) {
 		installation := InstallationFrom(c)
@@ -81,7 +81,7 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 			return
 		}
 		switch {
-		case managedServing && (strategy == router.StrategyHMMBeta || strategy == ""):
+		case managedServing && (router.IsBetaStrategy(strategy) || strategy == ""):
 			strategy = managedDefaultStrategy
 		case strategy == "":
 			strategy = defaultStrategy
@@ -109,7 +109,7 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 		if raw != "" {
 			requested := router.Strategy(raw)
 			switch {
-			case managedServing && requested == router.StrategyHMMBeta:
+			case managedServing && router.IsBetaStrategy(requested):
 				observability.FromGin(c).Warn("Retired beta strategy override ignored", "effective_strategy", strategy)
 			case !installation.PolicyHeaderOverridesEnabled:
 				observability.FromGin(c).Warn("Router-strategy override ignored: installation is not authorized for policy headers", "installation_id", installation.ID)
@@ -134,7 +134,7 @@ func NormalizeRouterStrategyDefault(defaultStrategy router.Strategy, available .
 	allowed := make(map[router.Strategy]struct{}, len(available)+1)
 	allowed[router.StrategyCluster] = struct{}{}
 	for _, strategy := range available {
-		if strategy == router.StrategyHMMBeta || strategy == router.StrategyLLMClassifier {
+		if router.IsBetaStrategy(strategy) || strategy == router.StrategyLLMClassifier {
 			continue
 		}
 		allowed[strategy] = struct{}{}

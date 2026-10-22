@@ -21,12 +21,17 @@ jobs:
     name: Classify changed paths
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      actions: read
     outputs:
       statusline: ${{ steps.filter.outputs.statusline }}
       installer: ${{ steps.filter.outputs.installer }}
       hmm: ${{ steps.filter.outputs.hmm }}
       task-domain: ${{ steps.filter.outputs.task-domain }}
-      go: ${{ steps.go-relevance.outputs.go_changed }}
+      go: ${{ steps.go-evidence.outputs.go_evidence_reused == 'true' && 'false' || steps.go-relevance.outputs.go_changed }}
+      go-evidence-reused: ${{ steps.go-evidence.outputs.go_evidence_reused == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -72,6 +77,15 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: scripts/go_ci_relevance.sh changed "$BASE_SHA" "$HEAD_SHA" >>"$GITHUB_OUTPUT"
 
+      # A squash merge whose tree and parent tree match the merged pull
+      # request's tested merge commit reuses that run's Go checks.
+      - name: Reuse merged pull request Go checks
+        id: go-evidence
+        if: ${{ github.event_name == 'push' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/go_ci_evidence.sh reuse "$GITHUB_REPOSITORY" "$GITHUB_SHA" >>"$GITHUB_OUTPUT"
+
   inference-boundary:
     name: Inference boundary
     runs-on: ubuntu-latest
@@ -83,7 +97,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.9'
+          go-version: '1.26.10'
           cache-dependency-path: go.sum
 
       - name: Check policy registry and inference boundary
@@ -119,11 +133,14 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.9'
+          go-version: '1.26.10'
           cache-dependency-path: go.sum
 
       - name: Test the Go CI relevance classifier
         run: bash scripts/go_ci_relevance_test.sh
+
+      - name: Test the Go CI evidence reuse check
+        run: bash scripts/go_ci_evidence_test.sh
 
       - name: Install golang-migrate
         run: |
@@ -190,7 +207,7 @@ jobs:
       - name: Lint
         uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9 # v8
         with:
-          version: v2.6.2
+          version: v2.15.0
 
       - name: Run tests with vetting
         run: go test -vet=all -count=1 ./...
@@ -282,6 +299,24 @@ jobs:
             ROUTER_ONNX_LIBRARY_DIR="$native_fixture/native/lib" \
             go run ./scripts/legacy_runtime_check
 
+      # Records what this successful run tested so the squash merge's main
+      # push can reuse it; see scripts/go_ci_evidence.sh.
+      - name: Record tested Go checks tree
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/go-checks-evidence"
+          jq -n --arg tree "$(git rev-parse 'HEAD^{tree}')" --arg parent_tree "$(git rev-parse 'HEAD^1^{tree}')" \
+            '{tree: $tree, parent_tree: $parent_tree}' >"$RUNNER_TEMP/go-checks-evidence/evidence"
+
+      - name: Upload tested Go checks tree
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-checks-evidence
+          path: ${{ runner.temp }}/go-checks-evidence/evidence
+          if-no-files-found: error
+          retention-days: 30
+
   # Separate job: needs no Go toolchain, Postgres, or network. The statusline is
   # shipped to users as a standalone script, so a regression there is invisible
   # to `go test`.
@@ -337,6 +372,34 @@ jobs:
           make test-install
           bash install/pi-router/test/opencode_smoke.sh
 
+  test-install-windows:
+    name: Test native Windows installer
+    needs: changed-paths
+    if: ${{ needs.changed-paths.outputs.installer == 'true' }}
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24.12.0
+
+      - name: Run native Windows installer tests
+        shell: pwsh
+        run: |
+          npm install --prefix install/npm --ignore-scripts --package-lock=false --no-audit --no-fund
+          node --test install/npm/windows.test.js
+
+      - name: Check the npm package ships the native installer
+        shell: pwsh
+        working-directory: install/npm
+        run: |
+          $files = (npm pack --dry-run --json --ignore-scripts | ConvertFrom-Json).files.path
+          if ($files -notcontains "windows.js") { throw "windows.js missing from npm package" }
+
   test-task-domain:
     name: Test task domain service contract
     needs: changed-paths
@@ -378,7 +441,7 @@ jobs:
       - name: Set up Go for the serving contract
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25.9'
+          go-version: '1.26.10'
           cache-dependency-path: go.sum
 
       - name: Verify Go to bundled Python contract
@@ -438,6 +501,7 @@ jobs:
       - go-checks
       - test-statusline
       - test-install
+      - test-install-windows
       - test-hmm-sidecar
       - test-task-domain
     if: ${{ always() }}
@@ -450,6 +514,7 @@ jobs:
           GO_CHECKS_RESULT: ${{ needs.go-checks.result }}
           STATUSLINE_RESULT: ${{ needs.test-statusline.result }}
           INSTALLER_RESULT: ${{ needs.test-install.result }}
+          WINDOWS_INSTALLER_RESULT: ${{ needs.test-install-windows.result }}
           HMM_SIDECAR_RESULT: ${{ needs.test-hmm-sidecar.result }}
           TASK_DOMAIN_RESULT: ${{ needs.test-task-domain.result }}
           CHANGED_PATHS_RESULT: ${{ needs.changed-paths.result }}
@@ -458,6 +523,7 @@ jobs:
           HMM_SIDECAR_NEEDED: ${{ needs.changed-paths.outputs.hmm }}
           TASK_DOMAIN_NEEDED: ${{ needs.changed-paths.outputs.task-domain }}
           GO_CHECKS_NEEDED: ${{ needs.changed-paths.outputs.go }}
+          GO_EVIDENCE_REUSED: ${{ needs.changed-paths.outputs.go-evidence-reused }}
         run: |
           printf '%s\n' \
             "Changed paths: $CHANGED_PATHS_RESULT" \
@@ -465,13 +531,15 @@ jobs:
             "Go checks: $GO_CHECKS_RESULT" \
             "Statusline: $STATUSLINE_RESULT" \
             "Installer: $INSTALLER_RESULT" \
+            "Windows installer: $WINDOWS_INSTALLER_RESULT" \
             "HMM sidecar: $HMM_SIDECAR_RESULT" \
             "Task domain: $TASK_DOMAIN_RESULT" \
             "Statusline needed: $STATUSLINE_NEEDED" \
             "Installer needed: $INSTALLER_NEEDED" \
             "HMM sidecar needed: $HMM_SIDECAR_NEEDED" \
             "Task domain needed: $TASK_DOMAIN_NEEDED" \
-            "Go checks needed: $GO_CHECKS_NEEDED"
+            "Go checks needed: $GO_CHECKS_NEEDED" \
+            "Go checks reused from merged pull request: $GO_EVIDENCE_REUSED"
 
           if [ "$CHANGED_PATHS_RESULT" != success ] || \
              [ "$INFERENCE_BOUNDARY_RESULT" != success ]; then
@@ -498,6 +566,12 @@ jobs:
             exit 1
           fi
           if [ "$INSTALLER_NEEDED" != true ] && [ "$INSTALLER_RESULT" != skipped ]; then
+            exit 1
+          fi
+          if [ "$INSTALLER_NEEDED" = true ] && [ "$WINDOWS_INSTALLER_RESULT" != success ]; then
+            exit 1
+          fi
+          if [ "$INSTALLER_NEEDED" != true ] && [ "$WINDOWS_INSTALLER_RESULT" != skipped ]; then
             exit 1
           fi
           if [ "$HMM_SIDECAR_NEEDED" = true ] && [ "$HMM_SIDECAR_RESULT" != success ]; then

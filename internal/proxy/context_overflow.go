@@ -2,10 +2,13 @@ package proxy
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 )
 
@@ -64,6 +67,30 @@ func contextWindowOnlyExclusions(overflowed, admitted, hardExcluded []string) ma
 // prompt-too-long error and compacts itself.
 func isContextOverflow(err error) bool {
 	return errors.Is(err, policy.ErrContextWindowExceeded) || isUpstreamContextOverflow(err)
+}
+
+// pastRequestedWindow reports whether a request served on another model no
+// longer fits the window of the model the client asked for. The client budgets
+// compaction against that requested window, so past it the client cannot see
+// that the larger-window model it is actually served on is near its own edge.
+func pastRequestedWindow(requestedModel, servedModel string, estimate, outputReserve int) bool {
+	requested := router.StripDateSuffix(requestedModel)
+	if _, known := catalog.ByID(requested); !known || requested == servedModel || estimate <= 0 {
+		return false
+	}
+	return estimate+outputReserve > contextWindowForRequest(requested)
+}
+
+// asRequestedWindowOverflow turns a pre-output upstream failure past the
+// requested model's window into the client's native prompt-too-long, so the
+// client compacts instead of resending the same oversized history. Rate limits
+// stay throttles: compacting would not relieve them.
+func asRequestedWindowOverflow(err error, pastWindow, committed bool) error {
+	if !pastWindow || committed || err == nil || isContextOverflow(err) ||
+		!providers.IsRetryable(err) || providers.IsUpstreamRateLimited(err) {
+		return err
+	}
+	return fmt.Errorf("%w: %w", policy.ErrContextWindowExceeded, err)
 }
 
 // contextWindowExceededClass renders every context overflow the same way so

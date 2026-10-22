@@ -809,6 +809,7 @@ SELECT
     t.cache_creation_tokens,
     t.cache_read_tokens,
     t.cache_creation_1h_tokens,
+    t.reasoning_tokens,
     t.speed,
     t.inference_geo,
     -- A Claude response with the plain overage claim used paid credits, even though the caller's

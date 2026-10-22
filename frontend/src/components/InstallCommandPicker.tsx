@@ -1,6 +1,7 @@
 "use client";
 
 import { CopyBlock } from "@/components/CopyBlock";
+import { InstallShellPicker } from "@/components/InstallShellPicker";
 import { Text } from "@/components/atoms/Text";
 import { Button } from "@/components/molecules/Button";
 import { Appearance } from "@/components/types";
@@ -8,6 +9,7 @@ import {
   HARNESSES,
   type HarnessID,
   type InstallScope,
+  defaultInstallShell,
   harness,
   installCommand,
   routerOrigin,
@@ -35,6 +37,7 @@ interface InstallCommandPickerProps {
 export function InstallCommandPicker({ token }: InstallCommandPickerProps) {
   const [harnessID, setHarnessID] = useState<HarnessID>("claude");
   const [scope, setScope] = useState<InstallScope>("user");
+  const [shell, setShell] = useState(defaultInstallShell);
   const origin = routerOrigin();
   const selected = harness(harnessID);
 
@@ -86,11 +89,13 @@ export function InstallCommandPicker({ token }: InstallCommandPickerProps) {
         {scope === "project" ? selected.projectDetail : selected.detail}
       </Text>
 
+      <InstallShellPicker shell={shell} onChange={setShell} />
+
       {origin === "" ? (
         <Text className="text-2xs text-muted-foreground">Preparing install command…</Text>
       ) : (
         <CopyBlock
-          value={installCommand(harnessID, scope, token, origin)}
+          value={installCommand(harnessID, scope, token, origin, shell)}
           title="Copy install command"
         />
       )}

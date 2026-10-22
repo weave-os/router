@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -33,7 +34,7 @@ func TestModelSelectionReasoningIsOptInAndUsesRecordedClassification(t *testing.
 	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, marker, turn.Decision.Model, ""), "best pick for this turn")
 	assert.NotContains(t, modelSelectionMarkerForRequest(ctx, turn, marker, turn.Decision.Model, ""), "unknown-group")
 	turn.Decision.Metadata.ClassifierPredictedLabel = "high"
-	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, siblingRoutingMarkerFor(turn, "rescue-model"), "rescue-model", markerReasonSibling), "classified as high difficulty")
+	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, siblingRoutingMarkerFor(turn, "overloaded-model", "rescue-model"), "rescue-model", siblingMarkerReason("overloaded-model")), "classified as high difficulty")
 }
 
 func TestModelSelectionReasoningOnlyForNewlyServedModel(t *testing.T) {
@@ -41,7 +42,7 @@ func TestModelSelectionReasoningOnlyForNewlyServedModel(t *testing.T) {
 	turn := turnLoopResult{Decision: router.Decision{Model: "new-model"}, PriorServedModel: "old-model"}
 	marker := routingMarkerFor(turn)
 	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, marker, turn.Decision.Model, ""), "REASONING:")
-	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, siblingRoutingMarkerFor(turn, "rescue-model"), "rescue-model", markerReasonSibling), "REASONING: "+markerReasonSibling)
+	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, siblingRoutingMarkerFor(turn, "overloaded-model", "rescue-model"), "rescue-model", siblingMarkerReason("overloaded-model")), "REASONING: switched after overloaded-model was overloaded")
 	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, baselineRoutingMarkerFor(turn, "baseline-model"), "baseline-model", markerReasonBaseline), "REASONING: "+markerReasonBaseline)
 	assert.Contains(t, modelSelectionMarkerForRequest(ctx, turn, cyberRefusalRoutingMarkerFor(turn, "retry-model"), "retry-model", markerReasonCyberRefusal), "REASONING: "+markerReasonCyberRefusal)
 
@@ -535,4 +536,48 @@ func TestRoutingMarkerFor_ShadowEscalationShowsWithoutModelSwitchAndStripsOnEcho
 	turn.EscalationShadowMarked = true
 	turn.SuggestionMode = true
 	require.Empty(t, routingMarkerFor(turn))
+}
+
+func TestSubscriptionTargetMarker_UnchangedModelKeepsRoutedMarker(t *testing.T) {
+	ctx := context.Background()
+	picked := router.Decision{Model: "gpt-6.1-sol", Provider: "openai"}
+
+	passthrough := turnLoopResult{Decision: picked, CallerModelPassthrough: true}
+	assert.Empty(t, subscriptionTargetMarker(ctx, http.Header{}, passthrough, picked, picked, routingMarkerFor(passthrough)),
+		"a subscription target equal to the caller's model must not invent a badge in passthrough")
+
+	routed := turnLoopResult{Decision: picked}
+	routedMarker := routingMarkerFor(routed)
+	require.NotEmpty(t, routedMarker)
+	got := subscriptionTargetMarker(ctx, http.Header{}, routed, picked, picked, routedMarker)
+	assert.Equal(t, routedMarker, got)
+	assert.NotContains(t, got, "was overloaded", "an unchanged model was not switched after an overload")
+}
+
+func TestSubscriptionTargetMarker_SwitchedModelIsWordedAsRescue(t *testing.T) {
+	ctx := context.Background()
+	picked := router.Decision{Model: "gpt-6-luna", Provider: "openai"}
+	target := router.Decision{Model: "gpt-6.1-sol", Provider: "openai"}
+	res := turnLoopResult{Decision: picked}
+
+	assert.Equal(t, "✦ **Weave Router** → gpt-6.1-sol · switched after gpt-6-luna was overloaded\n\n",
+		subscriptionTargetMarker(ctx, http.Header{}, res, picked, target, routingMarkerFor(res)))
+
+	optOut := http.Header{}
+	optOut.Set(routingMarkerHeader, "off")
+	assert.Empty(t, subscriptionTargetMarker(ctx, optOut, res, picked, target, "kept"),
+		"the per-request opt-out still hides a genuine switch badge")
+}
+
+func TestSubscriptionTargetMarker_RotationBackToPickRestoresRoutedMarker(t *testing.T) {
+	ctx := context.Background()
+	picked := router.Decision{Model: "gpt-6-luna", Provider: "openai"}
+	sibling := router.Decision{Model: "gpt-6.1-sol", Provider: "openai"}
+	res := turnLoopResult{Decision: picked, CallerModelPassthrough: true}
+	pickedMarker := routingMarkerFor(res)
+
+	// Always compared against the original pick: after the sibling failed,
+	// rotation returning to the pick is not a rescue and must not be badged.
+	assert.Contains(t, subscriptionTargetMarker(ctx, http.Header{}, res, picked, sibling, pickedMarker), siblingMarkerReason(picked.Model))
+	assert.Empty(t, subscriptionTargetMarker(ctx, http.Header{}, res, picked, picked, pickedMarker))
 }

@@ -26,6 +26,35 @@ func TestFeedbackFooterSinceLastHumanTurn_ToolResultContinuation(t *testing.T) {
 	assert.True(t, translate.FeedbackFooterSinceLastHumanTurn(body))
 }
 
+func TestFeedbackFooterSinceLastHumanTurn_ClaudeCodeTaskNotification(t *testing.T) {
+	// Claude Code can append a quoted task result as a text block in a user
+	// message after the assistant has already emitted its feedback footer. This
+	// wrapper is harness output, not a new human turn, so the footer must remain
+	// suppressed for the continuation.
+	for _, testCase := range []struct {
+		name         string
+		notification string
+	}{
+		{name: "task_notification_tag", notification: "<task-notification><task-id>1</task-id></task-notification>"},
+		{name: "quoted_result_wrapper", notification: "</summary>\n<result>background task completed</result>\n<usage><total_tokens>0</total_tokens></usage>"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			body := buildBody(t, []map[string]any{
+				{"role": "user", "content": []any{textBlock("do the thing")}},
+				{"role": "assistant", "content": []any{textBlock("all done" + sampleFooter())}},
+				{"role": "user", "content": []any{textBlock(testCase.notification)}},
+			})
+			assert.True(t, translate.FeedbackFooterSinceLastHumanTurn(body))
+		})
+	}
+}
+
+func TestWithoutLeadingClientInjectedText_QuotedResultWrapper(t *testing.T) {
+	quotedResult := "</summary>\n<result>background task completed</result>\n<usage><total_tokens>0</total_tokens></usage>"
+	assert.Empty(t, translate.WithoutLeadingClientInjectedText(quotedResult))
+	assert.Equal(t, "please run the tests", translate.WithoutLeadingClientInjectedText(quotedResult+"please run the tests"))
+}
+
 func TestFeedbackFooterSinceLastHumanTurn_NewHumanTurnResets(t *testing.T) {
 	body := buildBody(t, []map[string]any{
 		{"role": "assistant", "content": []any{textBlock("all done" + sampleFooter())}},

@@ -90,7 +90,7 @@ func outOfRosterBillingCtx(ctx context.Context) context.Context {
 // TestCodexOutOfRosterModel_SubscriptionFirstFunding: a selected OpenAI model
 // outside the native Codex roster keeps its model and provider, tries the
 // caller's Codex subscription first, and only falls back to the API credential
-// on a quota, credential, or explicit model-availability rejection.
+// on confirmed quota exhaustion, not credential or model-access failures.
 func TestCodexOutOfRosterModel_SubscriptionFirstFunding(t *testing.T) {
 	modelRejected := &providers.UpstreamErrorResponse{
 		Status: http.StatusBadRequest,
@@ -128,8 +128,8 @@ func TestCodexOutOfRosterModel_SubscriptionFirstFunding(t *testing.T) {
 			{name: "personal subscription survives managed enrollment outage", enrollmentUnavailable: true, wantOAuth: []bool{true}, wantSubServed: true},
 			// 429 keeps the existing bounded same-binding retries before rescue.
 			{name: "quota rejection falls back to API credential", subscriptionEr: quotaSpent, wantOAuth: []bool{true, false}},
-			{name: "credential rejection falls back to API credential", subscriptionEr: tokenRejected, wantOAuth: []bool{true, false}},
-			{name: "unsupported model falls back to API credential", subscriptionEr: modelRejected, wantOAuth: []bool{true, false}},
+			{name: "credential rejection does not buy API capacity", subscriptionEr: tokenRejected, wantOAuth: []bool{true}, wantErr: true},
+			{name: "unsupported model does not buy API capacity", subscriptionEr: modelRejected, wantOAuth: []bool{true}, wantErr: true},
 			{name: "request-shape rejection stays terminal", subscriptionEr: shapeRejected, wantOAuth: []bool{true}, wantErr: true},
 		} {
 			t.Run(selection.name+"/"+tc.name, func(t *testing.T) {
@@ -189,10 +189,11 @@ func TestCodexOutOfRosterModel_ManagedPoolFundsBeforeAPICredential(t *testing.T)
 		poolUnavailable bool
 		wantOAuth       []bool
 		wantPoolServe   bool
+		wantErr         bool
 	}{
 		{name: "pool serves", wantOAuth: []bool{true}, wantPoolServe: true},
-		{name: "pool model rejection falls back to API credential", poolErr: modelRejected, wantOAuth: []bool{true, false}},
-		{name: "unavailable enrollment falls back to API credential", poolUnavailable: true, wantOAuth: []bool{false}},
+		{name: "pool model rejection does not buy API capacity", poolErr: modelRejected, wantOAuth: []bool{true}, wantErr: true},
+		{name: "unavailable enrollment fails closed", poolUnavailable: true, wantOAuth: []bool{}, wantErr: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{
@@ -214,7 +215,12 @@ func TestCodexOutOfRosterModel_ManagedPoolFundsBeforeAPICredential(t *testing.T)
 			rec := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body))
 
-			require.NoError(t, svc.ProxyOpenAIResponses(ctx, []byte(body), rec, req))
+			err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, req)
+			if tc.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
 
 			gotOAuth := make([]bool, 0, len(client.attempts))
 			for _, attempt := range client.attempts {
@@ -223,7 +229,7 @@ func TestCodexOutOfRosterModel_ManagedPoolFundsBeforeAPICredential(t *testing.T)
 			}
 			assert.Equal(t, tc.wantOAuth, gotOAuth)
 			if tc.poolUnavailable {
-				assert.Empty(t, leaser.providers, "unavailable enrollment must go directly to permitted API funding")
+				assert.Empty(t, leaser.providers, "unavailable enrollment cannot admit subscription or API funding")
 			} else {
 				require.NotEmpty(t, leaser.providers)
 				assert.Equal(t, subscriptions.ProviderCodex, leaser.providers[0], "the out-of-roster model must lease from the Codex pool")
@@ -233,7 +239,7 @@ func TestCodexOutOfRosterModel_ManagedPoolFundsBeforeAPICredential(t *testing.T)
 	}
 }
 
-func TestCodexOutOfRosterModel_ChatOnlyRequestUsesAPICredential(t *testing.T) {
+func TestCodexOutOfRosterModel_ChatOnlyRequestDoesNotBypassIncludedQuota(t *testing.T) {
 	client := &scriptedFundingClient{}
 	svc := outOfRosterFundingService(client, translate.ReasonUserForceModel, &auxBillingRepo{})
 	ctx := outOfRosterBillingCtx(codexSubscriptionTestCtx())
@@ -241,10 +247,8 @@ func TestCodexOutOfRosterModel_ChatOnlyRequestUsesAPICredential(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 
-	require.NoError(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, req))
-	require.Len(t, client.attempts, 1)
-	assert.Equal(t, providers.EndpointChatCompletions, client.attempts[0].endpoint)
-	assert.False(t, client.attempts[0].oauth, "a Chat Completions request must use the API credential, not Codex OAuth")
+	require.Error(t, svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, req))
+	assert.Empty(t, client.attempts, "unsupported subscription transport does not establish quota exhaustion")
 }
 
 func TestCodexOutOfRosterModel_ChatOnlyRequestWithoutAPICredentialRefusesBeforeDispatch(t *testing.T) {
