@@ -26,10 +26,10 @@ func TestRouteMessagesPreserveTaskAtEveryPosition(t *testing.T) {
 				bytes := 0
 				for _, message := range got {
 					bytes += len(message.Text)
-					assert.LessOrEqual(t, len(message.Text), 3000)
+					assert.LessOrEqual(t, len(message.Text), 8000)
 					assert.True(t, utf8.ValidString(message.Text), "invalid UTF-8 at boundary %d", position)
 				}
-				assert.LessOrEqual(t, bytes, 48000)
+				assert.LessOrEqual(t, bytes, 128000)
 			})
 		}
 	}

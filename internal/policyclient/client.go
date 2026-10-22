@@ -75,9 +75,11 @@ func DeriveAttemptTimeout(timeout time.Duration) time.Duration {
 }
 
 const (
-	maxRouteMessages           = 96
-	maxRouteMessageTextChars   = 3000
-	maxRouteMessageTotalChars  = 48000
+	maxRouteMessages = 96
+	// Per-message HMM documents embed up to 8,000 bytes of one message; a
+	// tighter clip serves a different document than the classifier trained on.
+	maxRouteMessageTextChars   = 8000
+	maxRouteMessageTotalChars  = 128000
 	maxRouteTools              = 96
 	maxRouteToolCallInputKeys  = 24
 	maxRouteToolCallInputChars = 80
@@ -295,27 +297,31 @@ type routeRequest struct {
 }
 
 type classifierRequestV4 struct {
-	SchemaVersion             string         `json:"schema_version"`
-	Strategy                  string         `json:"strategy"`
-	ExecutionMode             string         `json:"execution_mode"`
-	RouteID                   string         `json:"route_id"`
-	OrganizationID            string         `json:"organization_id,omitempty"`
-	InstallationID            string         `json:"installation_id,omitempty"`
-	ClientApp                 string         `json:"client_app,omitempty"`
-	Harness                   string         `json:"harness"`
-	RolloutID                 string         `json:"rollout_id,omitempty"`
-	PromptText                string         `json:"prompt_text"`
-	LatestUserText            string         `json:"latest_user_text"`
-	TurnIndex                 int            `json:"turn_index"`
-	IsSubagent                bool           `json:"is_subagent"`
-	VisibleTurnIndex          *int           `json:"visible_turn_index,omitempty"`
-	SessionTurnCount          *int           `json:"session_turn_count,omitempty"`
-	TurnType                  string         `json:"turn_type,omitempty"`
-	CacheState                string         `json:"cache_state,omitempty"`
-	PriorOutputTokens         *int           `json:"prior_output_tokens,omitempty"`
-	SessionEverSwitched       *bool          `json:"session_ever_switched,omitempty"`
-	HistoryTruncated          *bool          `json:"history_truncated,omitempty"`
-	ConversationMessages      []routeMessage `json:"conversation_messages,omitempty"`
+	SchemaVersion        string         `json:"schema_version"`
+	Strategy             string         `json:"strategy"`
+	ExecutionMode        string         `json:"execution_mode"`
+	RouteID              string         `json:"route_id"`
+	OrganizationID       string         `json:"organization_id,omitempty"`
+	InstallationID       string         `json:"installation_id,omitempty"`
+	ClientApp            string         `json:"client_app,omitempty"`
+	Harness              string         `json:"harness"`
+	RolloutID            string         `json:"rollout_id,omitempty"`
+	PromptText           string         `json:"prompt_text"`
+	LatestUserText       string         `json:"latest_user_text"`
+	TurnIndex            int            `json:"turn_index"`
+	IsSubagent           bool           `json:"is_subagent"`
+	VisibleTurnIndex     *int           `json:"visible_turn_index,omitempty"`
+	SessionTurnCount     *int           `json:"session_turn_count,omitempty"`
+	TurnType             string         `json:"turn_type,omitempty"`
+	CacheState           string         `json:"cache_state,omitempty"`
+	PriorOutputTokens    *int           `json:"prior_output_tokens,omitempty"`
+	SessionEverSwitched  *bool          `json:"session_ever_switched,omitempty"`
+	HistoryTruncated     *bool          `json:"history_truncated,omitempty"`
+	ConversationMessages []routeMessage `json:"conversation_messages,omitempty"`
+	// OmittedUserTurnCount is how many text-bearing user turns the route-message
+	// window dropped from the front of ConversationMessages, so a sidecar can
+	// number the visible turns as the full conversation does.
+	OmittedUserTurnCount      *int           `json:"omitted_user_turn_count,omitempty"`
 	TrainingConversationDelta []routeMessage `json:"training_conversation_delta,omitempty"`
 	AvailableTools            []string       `json:"available_tools,omitempty"`
 	InvokedTools              []string       `json:"invoked_tools,omitempty"`
@@ -801,7 +807,8 @@ func marshalRouteRequest(query policy.Query) ([]byte, error) {
 			OrganizationID: query.OrganizationID, InstallationID: query.InstallationID, ClientApp: query.ClientApp, Harness: harness, RolloutID: query.RolloutID,
 			PromptText: query.PromptText, LatestUserText: latestUserText(messages), TurnIndex: wireTurnIndex, IsSubagent: turnType == "sub_agent_dispatch",
 			VisibleTurnIndex: visibleTurnIndex, SessionTurnCount: sessionTurnCount, TurnType: turnType, CacheState: cacheState, PriorOutputTokens: priorOutputTokens,
-			SessionEverSwitched: sessionEverSwitched, HistoryTruncated: historyTruncated, ConversationMessages: messages, TrainingConversationDelta: trainingDelta,
+			SessionEverSwitched: sessionEverSwitched, HistoryTruncated: historyTruncated, ConversationMessages: messages,
+			OmittedUserTurnCount: pointerTo(userTextTurnCount(query.ConversationMessages) - routedUserTextTurnCount(messages)), TrainingConversationDelta: trainingDelta,
 			AvailableTools: availableTools, InvokedTools: invokedTools, Tools: routeTools(query.Tools),
 			FeedbackKey: query.FeedbackKey, FeedbackRole: query.FeedbackRole, ClientSessionID: query.ClientSessionID, EstimatedInputTokens: query.EstimatedInputTokens,
 			HasTools: query.HasTools, HasImages: query.HasImages, TrainingAllowed: query.TrainingAllowed, CaptureMode: query.CaptureMode, DebugEnabled: query.DebugEnabled,
@@ -1381,16 +1388,36 @@ func dedupeStrings(values []string) []string {
 }
 
 func turnIndex(messages []routeMessage) int {
+	count := routedUserTextTurnCount(messages)
+	if count <= 1 {
+		return 0
+	}
+	return count - 1
+}
+
+// routedUserTextTurnCount counts the text-bearing user turns a routed history
+// still carries after windowing and budget clipping.
+func routedUserTextTurnCount(messages []routeMessage) int {
 	count := 0
 	for _, message := range messages {
 		if message.Role == "user" && strings.TrimSpace(message.Text) != "" {
 			count++
 		}
 	}
-	if count <= 1 {
-		return 0
+	return count
+}
+
+// userTextTurnCount counts the text-bearing user turns of the full history.
+// Clipping drops the oldest messages first, so the difference from the routed
+// count is the number of turns missing from the front of the routed window.
+func userTextTurnCount(messages []router.ConversationMessage) int {
+	count := 0
+	for _, message := range messages {
+		if routeRole(message.Role) == "user" && strings.TrimSpace(message.Text) != "" {
+			count++
+		}
 	}
-	return count - 1
+	return count
 }
 
 func firstNonEmpty(values ...string) string {

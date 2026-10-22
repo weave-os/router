@@ -21,6 +21,7 @@ installation_id
 invoked_tools
 is_subagent
 latest_user_text
+omitted_user_turn_count
 organization_id
 prior_output_tokens
 prompt_text
