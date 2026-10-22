@@ -110,6 +110,64 @@ func TestCodexPlanOverload_NoSiblingSurfacesUpstreamError(t *testing.T) {
 		"the upstream capacity error must reach the client when nothing can rescue it")
 }
 
+const codexInStreamOverloadFailure = `{"type":"response.failed","sequence_number":2,"response":{"id":"resp_overloaded","object":"response","status":"failed","output":[],"error":{"code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later."}}}`
+
+// codexInStreamOverloadClient answers like the ChatGPT backend under load: an
+// HTTP 200 stream that fails before any output.
+type codexInStreamOverloadClient struct{ calls int }
+
+func (c *codexInStreamOverloadClient) Proxy(_ context.Context, _ router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
+	c.calls++
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_overloaded\",\"object\":\"response\",\"status\":\"in_progress\",\"output\":[]}}\n\n")
+	_, _ = io.WriteString(w, "event: response.in_progress\ndata: {\"type\":\"response.in_progress\",\"sequence_number\":1,\"response\":{\"id\":\"resp_overloaded\",\"object\":\"response\",\"status\":\"in_progress\",\"output\":[]}}\n\n")
+	_, _ = io.WriteString(w, "event: response.failed\ndata: "+codexInStreamOverloadFailure+"\n\n")
+	return &providers.UpstreamErrorResponse{Status: http.StatusBadGateway, Body: []byte(codexInStreamOverloadFailure)}
+}
+
+func (c *codexInStreamOverloadClient) Passthrough(context.Context, providers.PreparedRequest, http.ResponseWriter, *http.Request) error {
+	return providers.ErrNotImplemented
+}
+
+func proxyCodexResponsesOverload(t *testing.T, withSibling bool) (*codexInStreamOverloadClient, *anthropicServingClient, *httptest.ResponseRecorder, error) {
+	t.Helper()
+	primary := &codexInStreamOverloadClient{}
+	sibling := &anthropicServingClient{}
+	svc := codexOverloadService(primary, sibling, withSibling)
+	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"read main.go"}]}]}`
+	rec := httptest.NewRecorder()
+	ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx = WithManagedSubscriptionUsage(ctx)
+	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/responses", body))
+	return primary, sibling, rec, err
+}
+
+// The ChatGPT backend reports overload inside an HTTP 200 Responses stream.
+// Its pre-output lifecycle frames must not commit the turn, or every rescue is
+// skipped and Codex sees the overload instead of the next scored candidate.
+func TestCodexPlanInStreamOverload_RescuedBySiblingCandidate(t *testing.T) {
+	primary, sibling, rec, err := proxyCodexResponsesOverload(t, true)
+	require.NoError(t, err, "the sibling must serve the turn the overloaded plan model failed before output")
+	assert.GreaterOrEqual(t, primary.calls, 1)
+	assert.Equal(t, 1, sibling.calls, "exactly one sibling dispatch serves the turn")
+	out := rec.Body.String()
+	assert.Contains(t, out, "served by sibling")
+	assert.NotContains(t, out, "resp_overloaded", "no frame of the failed attempt reaches the client")
+	assert.NotContains(t, out, "response.failed")
+	assert.Contains(t, out, "event: response.completed", "Codex needs a Responses terminal for the rescued turn")
+	assert.NotContains(t, out, "chat.completion.chunk", "the sibling's Chat Completions frames are translated to Responses")
+	assert.NotContains(t, out, "[DONE]")
+}
+
+func TestCodexPlanInStreamOverload_NoSiblingSurfacesUpstreamFailure(t *testing.T) {
+	_, sibling, rec, err := proxyCodexResponsesOverload(t, false)
+	require.Error(t, err)
+	assert.Equal(t, 0, sibling.calls)
+	assert.Equal(t, 1, strings.Count(rec.Body.String(), "event: response.failed"),
+		"the unrescued failure ends the stream exactly once, so Codex does not see a truncated response")
+}
+
 // A plan 429 or timeout is not capacity evidence: the walk the plan credential
 // opened stays shut and the error surfaces, so no paid sibling is bought while
 // included quota may be unused.
