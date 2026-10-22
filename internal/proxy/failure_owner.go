@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -41,6 +42,11 @@ func classifyFailureOwner(in failureOwnerInput) FailureOwner {
 	}
 	if isUpstreamWatchdogError(err) || isStreamTerminalMissing(err) || providers.IsUpstreamCyberPolicyRefusal(err) {
 		return FailureOwnerProvider
+	}
+	// A committed stream the client abandoned is rendered as a synthetic 502;
+	// the cancellation, not the status, says who ended it.
+	if errors.Is(err, context.Canceled) {
+		return FailureOwnerClient
 	}
 	if cls, ok := ClassifyDispatchError(err); ok && cls.Kind != DispatchErrorUpstreamStatus {
 		if cls.Kind == DispatchErrorHandoff && errors.Is(err, ErrHandoffUnavailable) {

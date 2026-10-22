@@ -4,17 +4,20 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/translate"
 )
 
 func attributionService(t *testing.T, sink *recordingAttemptSink, clients map[string]providers.Client) *Service {
@@ -193,5 +196,27 @@ func TestBodyRewrittenIgnoresGeminiRoutingFields(t *testing.T) {
 	sanitized := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"tools":[]}`)
 	if !bodyRewritten(geminiForwardedBody(inbound), sanitized) {
 		t.Fatal("a body change beyond the routing fields must count as a rewrite")
+	}
+}
+
+func TestRescueDetailIsStrippedWithTheBadgeOnReplay(t *testing.T) {
+	badge := withRescueDetail(
+		"\u2063\u2060\u2063\u2060✦ **Weave Router** → model-b · switched after model-a failed\n\n",
+		translate.RescueDetailPrefix+"Fireworks returned a 503 (provider issue)\n\n",
+	)
+	body := []byte(`{"messages":[{"role":"assistant","content":[{"type":"text","text":` + strconv.Quote(badge+"answer") + `}]}]}`)
+	stripped, err := translate.StripRoutingMarkerFromMessages(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := gjson.GetBytes(stripped, "messages.0.content.0.text").String(); got != "answer" {
+		t.Fatalf("replayed text = %q, want only the answer", got)
+	}
+}
+
+func TestCanceledCommittedStreamIsClientOwned(t *testing.T) {
+	err := &providers.UpstreamStatusError{Status: http.StatusBadGateway, Cause: context.Canceled}
+	if got := classifyFailureOwner(failureOwnerInput{Err: err}); got != FailureOwnerClient {
+		t.Fatalf("owner = %q, want client", got)
 	}
 }

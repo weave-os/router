@@ -10,9 +10,16 @@ import (
 // terminal Responses badges, so replay cleanup does not depend on its wording.
 const routerNoticeSentinel = "\u2063\u2060\u2063\u2060"
 const legacyRoutingMarkerExpression = `✦ \*\*Weave Router\*\* → .*?\n\n`
+
+// RescueDetailPrefix opens the paragraph a rescue badge appends to name the
+// failed attempt; replay cleanup removes it together with the badge.
+const RescueDetailPrefix = "↳ switched: "
+
+const rescueDetailExpression = `(?:` + RescueDetailPrefix + `[^\n]*\n\n)?`
+
 const legacyNoticeExpression = `(?:\*\*WEAVE ROUTER\*\* — .*?\n\n|✦ \*\*WEAVE ROUTER\*\* → .*?\n\n)`
 
-var routerOwnedNoticePattern = regexp.MustCompile(`(?s)(?:` + regexp.QuoteMeta(routerNoticeSentinel) + `.*?\n\n|` + legacyRoutingMarkerExpression + `)`)
+var routerOwnedNoticePattern = regexp.MustCompile(`(?s)(?:` + regexp.QuoteMeta(routerNoticeSentinel) + `.*?\n\n|` + legacyRoutingMarkerExpression + `)` + rescueDetailExpression)
 
 func IsRouterNoticeText(text string) bool {
 	return routerOwnedNoticePattern.MatchString(text)

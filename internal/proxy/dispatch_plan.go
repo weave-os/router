@@ -146,7 +146,8 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		decision := in.initialDecision
 		decision.Provider = attempt.Target.Provider
 		guarded := dispatch.GuardTarget(client, attempt.Target)
-		if trace := attemptTraceFromContext(ctx); trace != nil {
+		trace := attemptTraceFromContext(ctx)
+		if trace != nil {
 			trace.beginAttempt()
 			guarded = dispatch.ObservePrepared(guarded, trace.observeSent)
 		}
@@ -266,6 +267,12 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 					s.rememberGatewayLacksModel(attemptCtx, decision.Provider, decision.Model)
 				}
 				return attemptErr
+			}
+			// Describe runs once per dispatch attempt; record the failed account
+			// call before the next account overwrites the traced body.
+			if trace != nil {
+				trace.describe(ctx, attempt, attemptErr)
+				trace.beginAttempt()
 			}
 			lastSubscriptionErr = attemptErr
 			if rotationBudget.remaining <= 0 {

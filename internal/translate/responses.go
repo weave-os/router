@@ -314,7 +314,7 @@ var responsesBadgePattern = regexp.MustCompile(`(?is)\A(?:` + regexp.QuoteMeta(r
 
 const responsesTerminalBadgeSentinel = routerNoticeSentinel
 
-var responsesTerminalBadgePattern = regexp.MustCompile(`(?is)\A` + regexp.QuoteMeta(routerNoticeSentinel) + `.*?\n\n`)
+var responsesTerminalBadgePattern = regexp.MustCompile(`(?is)\A` + regexp.QuoteMeta(routerNoticeSentinel) + `.*?\n\n` + rescueDetailExpression)
 
 // StripRoutingBadgeFromResponsesInput removes a provenance-marked router badge
 // from assistant items. Call only for clients opted into terminal surfaces.

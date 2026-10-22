@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/translate"
 )
 
 const upstreamCallFailedMessage = "Upstream call failed."
@@ -89,7 +90,7 @@ func rescueDetailLine(a tracedAttempt) string {
 	if owner == "" || owner == FailureOwnerUnknown {
 		return ""
 	}
-	return "↳ switched: " + providerDisplayName(a.Target.Provider) + " " + failureWordingFor(a).badge + " (" + string(owner) + " issue)\n\n"
+	return translate.RescueDetailPrefix + providerDisplayName(a.Target.Provider) + " " + failureWordingFor(a).badge + " (" + string(owner) + " issue)\n\n"
 }
 
 // withRescueDetail appends the rescue detail line to a rendered badge. An
