@@ -120,7 +120,7 @@ func stripRequestedProviderQualifier(model string) string {
 	if !qualified {
 		return model
 	}
-	if stripped, had := translate.StripProviderPrefix(model, provider); had && rest != "" {
+	if stripped, hadPrefix := translate.StripProviderPrefix(model, provider); hadPrefix && rest != "" {
 		if _, known := catalog.ByID(stripped); known {
 			return stripped
 		}
