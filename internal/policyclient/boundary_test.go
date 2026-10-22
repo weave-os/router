@@ -75,7 +75,7 @@ func FuzzRouteMessagesPreserveBoundary(f *testing.F) {
 			messages[i] = router.ConversationMessage{Role: "assistant", Text: strings.Repeat("a", 3000)}
 		}
 		messages[int(index)%len(messages)] = router.ConversationMessage{Role: "user", Text: task}
-		want := clipRouteText(task, 3000)
+		want := clipRouteText(task, maxRouteMessageTextChars)
 		assert.Equal(t, want, latestUserText(routeMessages(messages)))
 	})
 }

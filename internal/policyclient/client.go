@@ -1235,6 +1235,10 @@ func convertRouteMessages(messages []router.ConversationMessage, limits routeMes
 	}
 	reversed := make([]routeMessage, 0, len(messages))
 	totalText := 0
+	// Once the budget cuts a message, older messages keep no text even when a
+	// few leftover bytes would fit them: the surviving text-bearing user turns
+	// must be the newest ones, or the omitted-turn count misnumbers them.
+	budgetCut := false
 	for i := len(messages) - 1; i >= 0; i-- {
 		message := messages[i]
 		role := routeRole(message.Role)
@@ -1247,7 +1251,10 @@ func convertRouteMessages(messages []router.ConversationMessage, limits routeMes
 			if i > latestUserTextIndex {
 				budget -= boundaryReserve
 			}
-			if remaining := budget - totalText; remaining < len(text) {
+			if budgetCut && i != latestUserTextIndex {
+				text = ""
+			} else if remaining := budget - totalText; remaining < len(text) {
+				budgetCut = true
 				text = ""
 				if remaining > 0 {
 					text = clipRouteText(message.Text, remaining)
