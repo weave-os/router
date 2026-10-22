@@ -187,13 +187,13 @@ normal managed candidate validation. Configuring this standalone service does no
 change that attestation or the selected candidate. Preserve bindings for old pinned
 sessions during rollout; up to 16 releases may be loaded together.
 
-A selected but unloaded release fails snapshot construction. Invalid local
-manifests, file digests or evidence fail configuration rather than silently serving
-a different artifact. A valid release without evidence for the admitted roster
-returns `evidence_unavailable`, skips inference and retains baseline. Runtime
-service failures are optional baseline fallbacks. To disable task weighting for
-new sessions, admit a reviewed candidate without the auxiliary model; removing
-an old binding while sessions still pin it is not a safe rollback.
+Invalid local manifests, file digests or evidence fail configuration rather than
+silently serving a different artifact. A selected release that is not loaded, or a
+valid release without evidence for the admitted roster, returns
+`evidence_unavailable`, skips inference and retains baseline. Runtime service
+failures are optional baseline fallbacks. To disable task weighting for new
+sessions, admit a reviewed candidate without the auxiliary model; sessions still
+pinned to an old binding fall back to baseline once it is removed.
 
 ## Verification and rollout boundary
 
