@@ -77,3 +77,37 @@ verify CLI parsing and output, not the full interactive screen or statusline.
 Policy and protocol tests separately cover opt-outs, same-model suppression,
 replay cleanup, retry continuation, provider-progress exclusion, concurrent
 writes, cancellation, disconnects, and terminal output consistency.
+
+## Feedback completion
+
+Feedback uses a separate completion phase; `NoticeDelivery` still rejects notices
+once provider content starts. Proxy resolves one `FeedbackIntent` from durable
+feedback availability, client command syntax, presentation opt-outs, turn type,
+and replay evidence. Codex receives `$rf`; Claude Code and OpenCode receive `/rf`.
+Messages, Chat and Gemini insert feedback only for streaming clients. Responses
+supports both streaming and buffered replies, including native passthrough.
+
+`CompletionObserver` reads original provider bytes before conversion. Its typed
+`CompletionFacts` distinguish a natural answer from client tool steps, refusal, truncated
+or failed output, and successful empty/reasoning-only turns. Choice/candidate zero
+is the primary; legacy unindexed output uses the first element. The observer
+forwards bytes and progress hooks without marking progress itself. Each provider
+attempt starts with fresh facts; the request's `FeedbackDelivery` retains its
+exactly-once latch across retries and refuses delivery after cancellation.
+
+Downstream adapters serialize the authorized suffix below capture and provider
+accounting. Messages holds the final text block's close through `message_stop`.
+Chat and Gemini split coalesced final text into content, feedback, then finish.
+Responses holds the selected final answer part's closure and all following tail
+records until completion; a later answer releases an earlier candidate unchanged.
+It emits the suffix before closure and updates only the matching part, item, and
+terminal snapshots, preserving native extension fields and sequence order. A
+terminal-only snapshot receives the missing text lifecycle so emitted text agrees
+with its snapshots. The undecided closing tail can grow until terminal completion;
+it is never selectively reordered or silently capped.
+
+EOF without a terminal, failure and cancellation release undecided tails without feedback. Feedback
+never enters upstream history, provider summaries, usage, progress callbacks, or
+the provider commitment/retry decision. Replay cleaners strip the suffix before
+provider dispatch; replay recognition runs first and preserves the latest real
+human-turn boundary, including tool/task continuations on Gemini ingress.

@@ -56,7 +56,6 @@ func (t *ResponsesWriter) writeNativeResponsesFrame(event, delimiter []byte) err
 	if id := root.Get("response.id").Str; id != "" {
 		t.nativeResponseID = id
 	}
-	// Held footer events may be written after events with higher sequences.
 	if sequence := root.Get("sequence_number"); sequence.Type == gjson.Number && (!t.nativeLastSequenceSet || sequence.Int() > t.nativeLastSequence) {
 		t.nativeLastSequence = sequence.Int()
 		t.nativeLastSequenceSet = true

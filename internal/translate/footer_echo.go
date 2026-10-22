@@ -1,6 +1,9 @@
 package translate
 
-import "github.com/tidwall/gjson"
+import (
+	"github.com/tidwall/gjson"
+	"strings"
+)
 
 // FeedbackFooterSinceLastHumanTurn reports whether an assistant message
 // after the most recent human-authored turn still carries the echoed feedback
@@ -72,6 +75,34 @@ func responsesItemHasFeedbackFooter(item gjson.Result) bool {
 		case "input_text", "output_text", "text":
 			if feedbackFooterPattern.MatchString(part.Get("text").Str) {
 				return true
+			}
+		}
+	}
+	return false
+}
+
+// FeedbackFooterSinceLastHumanTurnInGemini reads replay evidence before the
+// ingress strip. Tool responses and harness task notifications do not reset it.
+func FeedbackFooterSinceLastHumanTurnInGemini(body []byte) bool {
+	contents := gjson.GetBytes(body, "contents").Array()
+	for i := len(contents) - 1; i >= 0; i-- {
+		content := contents[i]
+		switch content.Get("role").Str {
+		case "model":
+			var text strings.Builder
+			for _, part := range content.Get("parts").Array() {
+				if !part.Get("thought").Bool() {
+					text.WriteString(part.Get("text").Str)
+				}
+			}
+			if feedbackFooterPattern.MatchString(text.String()) {
+				return true
+			}
+		case "user":
+			for _, part := range content.Get("parts").Array() {
+				if isHumanText(part.Get("text").Str) {
+					return false
+				}
 			}
 		}
 	}

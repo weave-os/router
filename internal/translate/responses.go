@@ -691,12 +691,7 @@ type ResponsesWriter struct {
 	nativeOutputIndexShift      int64
 	nativeSequenceShift         int64
 	outputIndexOffset           int
-	footerText                  string
-	footerEmitted               bool
-	sawToolCall                 bool
 	hasUpstreamOutput           bool
-	nativeHeldEvents            [][]byte
-	nativeFooterCommit          bool
 	finalized                   bool
 	nativeEmptyRejected         bool
 	textItem                    *responsesTextItem
@@ -830,12 +825,6 @@ func (t *ResponsesWriter) EnableTerminalBadgeProvenance() {
 	t.terminalBadgeProvenance = true
 }
 
-// SetFooterText appends the rating hint to the last assistant text of a
-// naturally finished, tool-free turn. Empty text is a no-op.
-func (t *ResponsesWriter) SetFooterText(text string) {
-	t.footerText = text
-}
-
 func (t *ResponsesWriter) Header() http.Header { return t.inner.Header() }
 
 // resetSSEScanState discards search state whenever the writer changes mode or
@@ -860,8 +849,6 @@ func (t *ResponsesWriter) ResetAttempt() {
 	t.nativeLastSequence = t.nativeSequenceShift
 	t.nativeLastSequenceSet = t.nativePreludeCreated
 	t.hasUpstreamOutput = false
-	t.nativeHeldEvents = nil
-	t.sawToolCall = false
 	t.completedEmitted = false
 	t.nativeEmptyRejected = false
 	t.finishReason = ""
@@ -1160,7 +1147,7 @@ func (t *ResponsesWriter) Finalize() error {
 	}
 
 	t.observeUsage(gjson.GetBytes(body, "usage"), usage.ParseOpenAI, nil)
-	translated, err := chatCompletionToResponse(body, t.responseID, t.model, t.createdAt, t.toolMappings, t.computeBadgeText(), t.footerText, t.UsageFacts())
+	translated, err := chatCompletionToResponse(body, t.responseID, t.model, t.createdAt, t.toolMappings, t.computeBadgeText(), t.UsageFacts())
 	if err != nil {
 		t.inner.Header().Set("Content-Type", "application/json")
 		t.inner.WriteHeader(http.StatusBadGateway)
@@ -1313,36 +1300,6 @@ func (t *ResponsesWriter) prefixNativeBadge(data []byte, path string) ([]byte, b
 	return rewritten, true
 }
 
-func (t *ResponsesWriter) suffixNativeFooter(data []byte, path string) ([]byte, bool) {
-	if t.footerText == "" || t.sawToolCall {
-		return data, false
-	}
-	text := gjson.GetBytes(data, path)
-	if text.Type != gjson.String {
-		return data, false
-	}
-	if feedbackFooterPattern.MatchString(text.Str) {
-		return data, false
-	}
-	rewritten, err := sjson.SetBytes(append([]byte(nil), data...), path, text.Str+t.footerText)
-	if err != nil {
-		return data, false
-	}
-	return rewritten, true
-}
-
-func applyNativeRewrites(data []byte, fns ...func([]byte) ([]byte, bool)) ([]byte, bool) {
-	changed := false
-	for _, fn := range fns {
-		next, ok := fn(data)
-		if ok {
-			data = next
-			changed = true
-		}
-	}
-	return data, changed
-}
-
 func (t *ResponsesWriter) rewriteNativeResponsesPayload(data []byte) ([]byte, bool) {
 	if !gjson.ValidBytes(data) {
 		return data, false
@@ -1374,38 +1331,18 @@ func (t *ResponsesWriter) rewriteNativeResponsesPayload(data []byte) ([]byte, bo
 	case "response.output_text.done":
 		ref := nativeResponsesEventRef(root, "item_id")
 		if !t.observeNativeBadgeTarget(ref) || !t.nativeBadgeTargetMatches(ref, true) {
-			if t.nativeFooterCommit {
-				return t.suffixNativeFooter(data, "text")
-			}
 			return data, false
 		}
-		if t.nativeFooterCommit {
-			return applyNativeRewrites(data,
-				func(d []byte) ([]byte, bool) { return t.prefixNativeBadge(d, "text") },
-				func(d []byte) ([]byte, bool) { return t.suffixNativeFooter(d, "text") },
-			)
-		}
 		return t.prefixNativeBadge(data, "text")
-
 	case "response.content_part.done":
 		if root.Get("part.type").Str != "output_text" {
 			return data, false
 		}
 		ref := nativeResponsesEventRef(root, "item_id")
 		if !t.observeNativeBadgeTarget(ref) || !t.nativeBadgeTargetMatches(ref, true) {
-			if t.nativeFooterCommit {
-				return t.suffixNativeFooter(data, "part.text")
-			}
 			return data, false
 		}
-		if t.nativeFooterCommit {
-			return applyNativeRewrites(data,
-				func(d []byte) ([]byte, bool) { return t.prefixNativeBadge(d, "part.text") },
-				func(d []byte) ([]byte, bool) { return t.suffixNativeFooter(d, "part.text") },
-			)
-		}
 		return t.prefixNativeBadge(data, "part.text")
-
 	case "response.output_item.done":
 		item := root.Get("item")
 		if !nativeResponsesAssistantMessage(item) {
@@ -1419,64 +1356,29 @@ func (t *ResponsesWriter) rewriteNativeResponsesPayload(data []byte) ([]byte, bo
 		if !ok {
 			return data, false
 		}
-		ref.contentIndex = int64(partIndex)
-		ref.hasContentIndex = true
+		ref.contentIndex, ref.hasContentIndex = int64(partIndex), true
 		if !t.observeNativeBadgeTarget(ref) || !t.nativeBadgeTargetMatches(ref, true) {
-			if t.nativeFooterCommit {
-				return t.suffixNativeFooter(data, "item.content."+strconv.Itoa(partIndex)+".text")
-			}
 			return data, false
 		}
-		path := "item.content." + strconv.Itoa(partIndex) + ".text"
-		if t.nativeFooterCommit {
-			return applyNativeRewrites(data,
-				func(d []byte) ([]byte, bool) { return t.prefixNativeBadge(d, path) },
-				func(d []byte) ([]byte, bool) { return t.suffixNativeFooter(d, path) },
-			)
-		}
-		return t.prefixNativeBadge(data, path)
-
+		return t.prefixNativeBadge(data, "item.content."+strconv.Itoa(partIndex)+".text")
 	case "response.completed", "response.incomplete":
-		output := root.Get("response.output")
-		if !output.IsArray() {
-			return data, false
-		}
-		for outputIndex, item := range output.Array() {
+		for outputIndex, item := range root.Get("response.output").Array() {
 			if !nativeResponsesAssistantMessage(item) {
 				continue
 			}
-			ref := nativeResponsesBadgeRef{
-				itemID:         item.Get("id").Str,
-				outputIndex:    int64(outputIndex),
-				hasOutputIndex: true,
-			}
+			ref := nativeResponsesBadgeRef{itemID: item.Get("id").Str, outputIndex: int64(outputIndex), hasOutputIndex: true}
 			if t.nativeBadgeTargetSelected && !t.nativeBadgeTargetMatches(ref, false) {
-				// The badge rides its own synthetic item, so this message only
-				// needs the footer.
-				textPart, ok := firstNativeOutputTextPart(item)
-				if !ok {
-					continue
-				}
-				footerPath := "response.output." + strconv.Itoa(outputIndex) + ".content." + strconv.Itoa(textPart) + ".text"
-				if rewritten, changed := t.suffixNativeFooter(data, footerPath); changed {
-					return rewritten, true
-				}
 				continue
 			}
 			partIndex, ok := t.nativeOutputTextPart(item)
 			if !ok {
 				continue
 			}
-			path := "response.output." + strconv.Itoa(outputIndex) + ".content." + strconv.Itoa(partIndex) + ".text"
-			ref.contentIndex = int64(partIndex)
-			ref.hasContentIndex = true
+			ref.contentIndex, ref.hasContentIndex = int64(partIndex), true
 			if !t.observeNativeBadgeTarget(ref) || !t.nativeBadgeTargetMatches(ref, true) {
 				continue
 			}
-			return applyNativeRewrites(data,
-				func(d []byte) ([]byte, bool) { return t.prefixNativeBadge(d, path) },
-				func(d []byte) ([]byte, bool) { return t.suffixNativeFooter(d, path) },
-			)
+			return t.prefixNativeBadge(data, "response.output."+strconv.Itoa(outputIndex)+".content."+strconv.Itoa(partIndex)+".text")
 		}
 	}
 	return data, false
@@ -1583,26 +1485,14 @@ func (t *ResponsesWriter) rewriteNativeNonStreamingBody(data []byte) ([]byte, bo
 }
 
 func (t *ResponsesWriter) rewriteNativeResponsesEvent(raw []byte) []byte {
-	return t.rewriteNativeEventWith(raw, true)
-}
-
-// rewriteNativeHeldEvent re-applies badge/footer to a held event without
-// re-shifting coordinates; the shift is applied once on first sight and is not idempotent.
-func (t *ResponsesWriter) rewriteNativeHeldEvent(raw []byte) []byte {
-	return t.rewriteNativeEventWith(raw, false)
-}
-
-func (t *ResponsesWriter) rewriteNativeEventWith(raw []byte, shiftFields bool) []byte {
 	_, data := sse.ParseEvent(raw)
 	if len(data) == 0 {
 		return raw
 	}
 	rewrittenData, changed := t.rewriteNativeResponsesPayload(data)
-	if shiftFields {
-		if fields, fieldsChanged := t.rewriteNativePassthroughFields(rewrittenData); fieldsChanged {
-			rewrittenData = fields
-			changed = true
-		}
+	if fields, fieldsChanged := t.rewriteNativePassthroughFields(rewrittenData); fieldsChanged {
+		rewrittenData = fields
+		changed = true
 	}
 	if !changed {
 		return raw
@@ -1725,16 +1615,8 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 	toolCall := eventType == responsesFunctionCallArgumentsDelta || eventType == responsesCustomToolCallInputDelta || (eventType == responsesOutputItemAdded && (itemType == responsesFunctionCallItem || itemType == responsesCustomToolCallItem)) || (eventType == responsesOutputItemDone && (itemType == responsesFunctionCallItem || itemType == responsesCustomToolCallItem))
 	reasoningItem := eventType == responsesOutputItemAdded && itemType == responsesReasoningItem
 	if toolCall || reasoningItem {
-		if toolCall {
-			t.sawToolCall = true
-		}
 		if err := t.emitNativeBadgeBeforeOutput(event); err != nil {
 			return err
-		}
-		if toolCall {
-			if err := t.flushNativeHeldEvents(false); err != nil {
-				return err
-			}
 		}
 	}
 	if eventType == responsesCompleted || eventType == responsesIncomplete {
@@ -1745,51 +1627,7 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 		}
 	}
 	rewritten := t.rewriteNativeResponsesEvent(event)
-	if t.shouldHoldNativeEvent(eventType, itemType) {
-		held := append([]byte(nil), rewritten...)
-		if len(delimiter) > 0 {
-			held = append(held, delimiter...)
-		}
-		t.nativeHeldEvents = append(t.nativeHeldEvents, held)
-		return nil
-	}
-	if eventType == responsesCompleted || eventType == responsesIncomplete {
-		if err := t.flushNativeHeldEvents(true); err != nil {
-			return err
-		}
-	}
 	return t.writeNativeResponsesFrame(rewritten, delimiter)
-}
-
-func (t *ResponsesWriter) shouldHoldNativeEvent(eventType responsesEventType, itemType responsesItemType) bool {
-	if t.footerText == "" || t.sawToolCall {
-		return false
-	}
-	switch eventType {
-	case responsesOutputTextDone, responsesContentPartDone:
-		return true
-	case responsesOutputItemDone:
-		return itemType == responsesMessageItem || itemType == ""
-	}
-	return false
-}
-
-func (t *ResponsesWriter) flushNativeHeldEvents(commitFooter bool) error {
-	if len(t.nativeHeldEvents) == 0 {
-		return nil
-	}
-	if commitFooter {
-		t.nativeFooterCommit = true
-	}
-	held := t.nativeHeldEvents
-	t.nativeHeldEvents = nil
-	for _, event := range held {
-		rewritten := t.rewriteNativeHeldEvent(event)
-		if err := t.writeNativeResponsesFrame(rewritten, nil); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (t *ResponsesWriter) processPassthroughSSEBuffer() error {
@@ -1856,7 +1694,7 @@ func (t *ResponsesWriter) processFinalPassthroughSSETail() error {
 	} else {
 		t.nativeStreamScanner.Reset()
 	}
-	return t.flushNativeHeldEvents(t.footerText != "" && !t.sawToolCall)
+	return nil
 }
 
 func (t *ResponsesWriter) sealInner() {
@@ -2215,17 +2053,10 @@ func (t *ResponsesWriter) closeOpenItems() error {
 		call := entry.Accept(nil)
 		if item, exists := t.toolItems[entry.SourceIndex]; exists {
 			item.call = call
-			t.sawToolCall = true
 		}
 	}
 
 	if t.textItem != nil && !t.textItem.closed {
-		if t.footerText != "" && !t.sawToolCall && t.finishReason == "stop" && !feedbackFooterPattern.MatchString(t.textItem.text.String()) {
-			t.textItem.text.WriteString(t.footerText)
-			if err := t.emitTextDelta(t.textItem, t.footerText); err != nil {
-				return err
-			}
-		}
 		if err := t.emitTextDone(t.textItem); err != nil && len(t.toolMappings) > 0 {
 			return err
 		}
@@ -2603,7 +2434,7 @@ func (t *ResponsesWriter) assembleOutput() []any {
 // stream:false; Codex always streams, but other clients may not. A non-empty
 // badge leads the assistant text, synthesizing the message item when the turn
 // produced only tool calls.
-func chatCompletionToResponse(body []byte, responseID, model string, createdAt int64, mappings map[string]ResponsesToolMapping, badge, footer string, facts usage.Facts) ([]byte, error) {
+func chatCompletionToResponse(body []byte, responseID, model string, createdAt int64, mappings map[string]ResponsesToolMapping, badge string, facts usage.Facts) ([]byte, error) {
 	if !gjson.ValidBytes(body) {
 		return nil, fmt.Errorf("invalid JSON")
 	}
@@ -2625,9 +2456,6 @@ func chatCompletionToResponse(body []byte, responseID, model string, createdAt i
 	text := badge
 	text += chatContentText(choice.Get("content"))
 	calls, _ := acceptedChatToolCalls(choice.Get("tool_calls"), nil, false)
-	if footer != "" && len(calls) == 0 && !feedbackFooterPattern.MatchString(text) {
-		text += footer
-	}
 	if text != "" {
 		output = append(output, map[string]any{
 			"id":     newResponsesID("msg"),

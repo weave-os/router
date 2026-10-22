@@ -22,7 +22,7 @@ func openAIAnswerStream(finishReason string) string {
 
 func TestOpenAIRoutingFooterWriter_InjectsBeforeFinish(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w := translate.NewOpenAIRoutingFooterWriter(rec, testFooter)
+	w := newOpenAIFooterTestWriter(rec, testFooter)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 
@@ -50,7 +50,7 @@ func TestOpenAIRoutingFooterWriter_InjectsBeforeFinish(t *testing.T) {
 
 func TestOpenAIRoutingFooterWriter_SkipsToolCalls(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w := translate.NewOpenAIRoutingFooterWriter(rec, testFooter)
+	w := newOpenAIFooterTestWriter(rec, testFooter)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 
@@ -70,7 +70,7 @@ func openAIToolCallStopStream() string {
 
 func TestOpenAIRoutingFooterWriter_SkipsToolCallsClosedWithStop(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w := translate.NewOpenAIRoutingFooterWriter(rec, testFooter)
+	w := newOpenAIFooterTestWriter(rec, testFooter)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 
@@ -89,7 +89,7 @@ func openAICoalescedStream() string {
 
 func TestOpenAIRoutingFooterWriter_CoalescedFooterAfterText(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w := translate.NewOpenAIRoutingFooterWriter(rec, testFooter)
+	w := newOpenAIFooterTestWriter(rec, testFooter)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 
@@ -129,7 +129,7 @@ func openAIEmptyToolCallsStream() string {
 
 func TestOpenAIRoutingFooterWriter_EmptyToolCallsStillInjects(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w := translate.NewOpenAIRoutingFooterWriter(rec, testFooter)
+	w := newOpenAIFooterTestWriter(rec, testFooter)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 
@@ -141,7 +141,7 @@ func TestOpenAIRoutingFooterWriter_EmptyToolCallsStillInjects(t *testing.T) {
 
 func TestOpenAIRoutingFooterWriter_EmptyFooterPassthrough(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w := translate.NewOpenAIRoutingFooterWriter(rec, "")
+	w := newOpenAIFooterTestWriter(rec, "")
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 
@@ -153,7 +153,7 @@ func TestOpenAIRoutingFooterWriter_EmptyFooterPassthrough(t *testing.T) {
 
 func TestOpenAIRoutingFooterWriter_NonStreamingPassthrough(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w := translate.NewOpenAIRoutingFooterWriter(rec, testFooter)
+	w := newFooterTestWriter(rec, translate.FormatOpenAI, testFooter, false)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
@@ -161,4 +161,41 @@ func TestOpenAIRoutingFooterWriter_NonStreamingPassthrough(t *testing.T) {
 	_, err := w.Write([]byte(body))
 	require.NoError(t, err)
 	assert.Equal(t, body, rec.Body.String())
+}
+
+func TestOpenAIRoutingFooterWriter_SuppressesWithoutNaturalAnswer(t *testing.T) {
+	for name, delta := range map[string]string{
+		"empty":            `{}`,
+		"reasoning only":   `{"reasoning_content":"Considering the answer."}`,
+		"refusal":          `{"refusal":"I cannot help with that."}`,
+		"text and refusal": `{"content":"A partial answer.","refusal":"I cannot continue."}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			w := newOpenAIFooterTestWriter(rec, testFooter)
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			stream := `data: {"choices":[{"index":0,"delta":` + delta + `,"finish_reason":"stop"}]}` + "\n\n"
+			_, err := w.Write([]byte(stream))
+			require.NoError(t, err)
+			assert.NotContains(t, rec.Body.String(), "Weave Router feedback")
+		})
+	}
+}
+
+func TestOpenAIRoutingFooterWriter_PrimaryChoiceAndCoalescedUsage(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := newOpenAIFooterTestWriter(rec, testFooter)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	_, err := w.Write([]byte(`data: {"choices":[{"index":1,"delta":{"content":"Secondary answer"},"finish_reason":"stop"}]}` + "\n\n"))
+	require.NoError(t, err)
+	assert.NotContains(t, rec.Body.String(), "Weave Router feedback")
+	_, err = w.Write([]byte(`data: {"choices":[{"index":1,"delta":{"content":"More secondary text"},"finish_reason":"stop"},{"index":0,"delta":{"content":"Primary answer"},"finish_reason":"stop"}],"usage":{"completion_tokens":7}}` + "\n\n"))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+	assert.Equal(t, 1, strings.Count(rec.Body.String(), "Primary answer"))
+	assert.Equal(t, 1, strings.Count(rec.Body.String(), "More secondary text"))
+	assert.Equal(t, 1, strings.Count(rec.Body.String(), `"completion_tokens":7`))
+	assert.Equal(t, 1, strings.Count(rec.Body.String(), "Weave Router feedback"))
 }

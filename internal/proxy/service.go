@@ -3431,7 +3431,9 @@ func (s *Service) anthropicNativeAttempt(
 			preludeBuf.Seal()
 		}
 		toolNames := translate.NewAnthropicToolNameWriter(proxyWriter, prep.ResponseToolNames)
-		err := p.Proxy(actx, d, prep, streamCut.attach(toolNames), r)
+		source, finishFeedback := feedbackProviderWriter(actx, streamCut.attach(toolNames), translate.FormatAnthropic, env.Stream())
+		err := p.Proxy(actx, d, prep, source, r)
+		err = finishFeedback(err)
 		err = finalizeAfterProxy(err, toolNames.Finalize)
 		if err == nil && terminal != nil {
 			err = terminal.streamErr()
@@ -4411,6 +4413,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// Append the one-click feedback thumbs as a trailing content block,
 	// wrapped below the capture layer so the footer never lands in
 	// cached/logged bodies. Transparent when streaming/feedback is off.
+	var feedbackIntent translate.FeedbackIntent
+	if env.Stream() && !agentShadowMode {
+		feedbackIntent = s.feedbackIntent(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn)
+	}
+	ctx, feedbackDelivery := withFeedbackDelivery(ctx, feedbackIntent)
 	clientSink := w
 	var streamCost *streamCostWriter
 	if env.Stream() && !agentShadowMode {
@@ -4423,8 +4430,10 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			defer keepalive.Close()
 			clientSink = keepalive
 		}
-		if footer := s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn); footer != "" {
-			clientSink = translate.NewAnthropicRoutingFooterWriter(clientSink, footer)
+		if feedbackDelivery.Enabled() {
+			footerWriter := translate.NewAnthropicRoutingFooterWriter(clientSink, feedbackDelivery)
+			defer func() { returnErr = finalizeAfterProxy(returnErr, footerWriter.Finalize) }()
+			clientSink = footerWriter
 		}
 	}
 	clientSink, escalationCapture = s.captureEscalationResponse(clientSink, routeRes)
@@ -4630,7 +4639,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					preludeBuf.Seal()
 				}
 				toolNames := translate.NewOpenAIToolNameWriter(translator, prep.ResponseToolNames)
-				rawErr := p.Proxy(actx, d, prep, streamCut.attach(toolNames), r)
+				sourceFormat := translate.FormatOpenAI
+				if useResponses {
+					sourceFormat = translate.FormatOpenAIResponses
+				}
+				source, finishFeedback := feedbackProviderWriter(actx, streamCut.attach(toolNames), sourceFormat, env.Stream())
+				rawErr := finishFeedback(p.Proxy(actx, d, prep, source, r))
 				finalize := func(err error) error {
 					// Post-commit: HTTP 200 + message_start already on the wire, so
 					// render the error as an in-stream `event: error` frame instead of
@@ -4740,7 +4754,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				}
 				geminiTr := translate.NewGeminiToOpenAISSETranslator(anthropicTr, d.Model, usage)
 				anthropicTr.SetUsageSource(geminiTr.UsageFacts)
-				rawErr := p.Proxy(actx, d, pr, streamCut.attach(geminiTr), r)
+				source, finishFeedback := feedbackProviderWriter(actx, streamCut.attach(geminiTr), translate.FormatGemini, env.Stream())
+				rawErr := finishFeedback(p.Proxy(actx, d, pr, source, r))
 				finalize := func(err error) error {
 					// Post-commit: see the OpenAI-compat case above.
 					if err != nil && env.Stream() && preludeBuf.Committed() {
@@ -7443,15 +7458,18 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			bindings = []catalog.ProviderBinding{{Provider: decision.Provider}}
 		}
 	}
-	// Append the one-click feedback thumbs as a trailing chunk (see
-	// ProxyMessages). Skipped on the Responses-API path (w is a
-	// *ResponsesWriter): wrapping it would defeat maybeCaptureResponse's
-	// special-casing — /v1/responses footers are a follow-up.
+	// Resolve policy once. Responses ingress owns its downstream adapter so
+	// the concrete ResponsesWriter and its capture splice points stay visible.
+	var feedbackIntent translate.FeedbackIntent
+	if env.Stream() || isResponsesWriter {
+		feedbackIntent = s.feedbackIntent(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn)
+	}
+	ctx, feedbackDelivery := withFeedbackDelivery(ctx, feedbackIntent)
 	clientSink := w
-	if _, isResponses := w.(*translate.ResponsesWriter); env.Stream() && !isResponses {
-		if footer := s.feedbackFooter(ctx, ClientIdentityFrom(ctx).ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn); footer != "" {
-			clientSink = translate.NewOpenAIRoutingFooterWriter(w, footer)
-		}
+	if _, isResponses := w.(*translate.ResponsesWriter); env.Stream() && !isResponses && feedbackDelivery.Enabled() {
+		footerWriter := translate.NewOpenAIRoutingFooterWriter(w, feedbackDelivery)
+		defer func() { returnErr = finalizeAfterProxy(returnErr, footerWriter.Finalize) }()
+		clientSink = footerWriter
 	}
 	clientSink, escalationCapture = s.captureEscalationResponse(clientSink, routeRes)
 	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
@@ -7475,11 +7493,6 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Previously gated on policy debug; ordinary Codex turns fell through to
 	// ResponsesWriter's legacy badge that ignored suppression and never showed the routing reason.
 	verbatimPassthrough := responsesPassthrough && decision.Provider == providers.ProviderOpenAI
-	if rw, ok := w.(*translate.ResponsesWriter); ok {
-		if footer := s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn); footer != "" {
-			rw.SetFooterText(footer)
-		}
-	}
 	responsesPreludeWillEmit := env.Stream() && !verbatimPassthrough && (len(bindings) <= 1 || marker != "")
 	if verbatimPassthrough {
 		responsesPreludeWillEmit = env.Stream() && supportsResponsesTerminalSurfaces(clientID.ClientApp) && marker != ""
@@ -7534,7 +7547,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			// marker already carries the depleted-credits warning when terminal
 			// surfaces are enabled.
 			// Parse native SSE when this client needs a badge and/or footer.
-			if supportsResponsesTerminalSurfaces(clientID.ClientApp) && (marker != "" || s.feedbackFooter(ctx, clientID.ClientApp, routeRes.TurnType, footerEchoedSinceHumanTurn) != "") {
+			if supportsResponsesTerminalSurfaces(clientID.ClientApp) && (marker != "" || feedbackDelivery.Enabled()) {
 				rw.SetPassthroughBadge()
 			} else {
 				rw.SetPassthrough()
@@ -7750,7 +7763,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				if preludeBuf != nil {
 					preludeBuf.Seal()
 				}
-				err := p.Proxy(actx, d, prep, proxyWriter, r)
+				sourceFormat := translate.FormatOpenAI
+				if surface != surfaceChat {
+					sourceFormat = translate.FormatOpenAIResponses
+				}
+				source, finishFeedback := feedbackProviderWriter(actx, proxyWriter, sourceFormat, env.Stream())
+				err := finishFeedback(p.Proxy(actx, d, prep, source, r))
 				if err == nil && chatTerminal != nil {
 					err = chatTerminal.streamErr()
 				}
@@ -7892,7 +7910,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				if preludeBuf != nil {
 					preludeBuf.Seal()
 				}
-				rawErr := p.Proxy(actx, d, pr, translator, r)
+				source, finishFeedback := feedbackProviderWriter(actx, translator, translate.FormatGemini, env.Stream())
+				rawErr := finishFeedback(p.Proxy(actx, d, pr, source, r))
 				finalize := func(err error) error {
 					// Post-commit streaming error: see same-format OpenAI case above.
 					if err != nil && env.Stream() && preludeBuf.Committed() {
@@ -7964,7 +7983,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					preludeBuf.Seal()
 				}
 				toolNames := translate.NewAnthropicToolNameWriter(translator, attemptPrep.ResponseToolNames)
-				rawErr := p.Proxy(actx, d, attemptPrep, toolNames, r)
+				source, finishFeedback := feedbackProviderWriter(actx, toolNames, translate.FormatAnthropic, env.Stream())
+				rawErr := finishFeedback(p.Proxy(actx, d, attemptPrep, source, r))
 				finalize := func(err error) error {
 					// Post-commit streaming error: see same-format OpenAI case above.
 					if err != nil && env.Stream() && preludeBuf.Committed() {
@@ -8890,7 +8910,10 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	ctx = context.WithValue(ctx, responsesTransformsContextKey{}, conversion.Report)
 	// Routing, billing, and telemetry are reused via
 	// ProxyOpenAIChatCompletion; chatBody is used only for routing features.
-	wrapper := translate.NewResponsesWriter(w, model)
+	delivery := translate.NewFeedbackDelivery(ctx, translate.FeedbackIntent{})
+	ctx = context.WithValue(ctx, feedbackDeliveryContextKey{}, delivery)
+	feedbackWriter := translate.NewResponsesFeedbackWriter(w, delivery)
+	wrapper := translate.NewResponsesWriter(feedbackWriter, model)
 	if terminalResponses {
 		wrapper.EnableTerminalBadgeProvenance()
 	}
@@ -8924,13 +8947,16 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		if finErr := finalize(); finErr != nil {
 			observability.FromContext(ctx).Error("Failed to finalize Responses error stream", "err", finErr)
 		}
+		if finErr := feedbackWriter.Finalize(); finErr != nil {
+			observability.FromContext(ctx).Error("Failed to drain feedback response tail", "err", finErr)
+		}
 		if deferredLog.escalation != nil {
 			deferredLog.escalation(proxyErr)
 		}
 		deferredLog.run()
 		return proxyErr
 	}
-	finErr := wrapper.Finalize()
+	finErr := finalizeAfterProxy(wrapper.Finalize(), feedbackWriter.Finalize)
 	if deferredLog.escalation != nil {
 		deferredLog.escalation(finErr)
 	}

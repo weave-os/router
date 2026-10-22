@@ -115,3 +115,22 @@ func TestFeedbackFooterSinceLastHumanTurnInResponses(t *testing.T) {
 	assert.True(t, translate.FeedbackFooterSinceLastHumanTurnInResponses(body))
 	assert.True(t, translate.FeedbackFooterSinceLastHumanTurn(body))
 }
+
+func TestFeedbackFooterSinceLastHumanTurnInGemini(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		tail   string
+		echoed bool
+	}{
+		{"tool continuation", `,{"role":"user","parts":[{"functionResponse":{"name":"read","response":{"text":"done"}}}]}`, true},
+		{"task continuation", `,{"role":"user","parts":[{"text":"<task-notification>finished</task-notification>"}]}`, true},
+		{"new human", `,{"role":"user","parts":[{"text":"Please explain the answer"}]}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			footerJSON, err := json.Marshal("answer" + sampleFooter())
+			require.NoError(t, err)
+			body := []byte(`{"contents":[{"role":"user","parts":[{"text":"question"}]},{"role":"model","parts":[{"text":` + string(footerJSON) + `}]}` + tc.tail + `]}`)
+			assert.Equal(t, tc.echoed, translate.FeedbackFooterSinceLastHumanTurnInGemini(body))
+		})
+	}
+}

@@ -25,7 +25,7 @@ func geminiToolCallStream() string {
 
 func TestGeminiRoutingFooterWriter_InjectsBeforeFinish(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w := translate.NewGeminiRoutingFooterWriter(rec, testFooter)
+	w := newGeminiFooterTestWriter(rec, testFooter)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 
@@ -53,7 +53,7 @@ func TestGeminiRoutingFooterWriter_InjectsBeforeFinish(t *testing.T) {
 
 func TestGeminiRoutingFooterWriter_SkipsToolCallTurn(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w := translate.NewGeminiRoutingFooterWriter(rec, testFooter)
+	w := newGeminiFooterTestWriter(rec, testFooter)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 
@@ -72,7 +72,7 @@ func geminiEmptyFunctionCallStream() string {
 
 func TestGeminiRoutingFooterWriter_EmptyFunctionCallStillInjects(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w := translate.NewGeminiRoutingFooterWriter(rec, testFooter)
+	w := newGeminiFooterTestWriter(rec, testFooter)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 
@@ -89,7 +89,7 @@ func geminiCoalescedStream() string {
 
 func TestGeminiRoutingFooterWriter_CoalescedFooterAfterText(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w := translate.NewGeminiRoutingFooterWriter(rec, testFooter)
+	w := newGeminiFooterTestWriter(rec, testFooter)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 
@@ -120,7 +120,7 @@ func TestGeminiRoutingFooterWriter_CoalescedFooterAfterText(t *testing.T) {
 
 func TestGeminiRoutingFooterWriter_EmptyFooterPassthrough(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w := translate.NewGeminiRoutingFooterWriter(rec, "")
+	w := newGeminiFooterTestWriter(rec, "")
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.WriteHeader(http.StatusOK)
 
@@ -132,7 +132,7 @@ func TestGeminiRoutingFooterWriter_EmptyFooterPassthrough(t *testing.T) {
 
 func TestGeminiRoutingFooterWriter_NonStreamingPassthrough(t *testing.T) {
 	rec := httptest.NewRecorder()
-	w := translate.NewGeminiRoutingFooterWriter(rec, testFooter)
+	w := newFooterTestWriter(rec, translate.FormatGemini, testFooter, false)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 
@@ -140,4 +140,40 @@ func TestGeminiRoutingFooterWriter_NonStreamingPassthrough(t *testing.T) {
 	_, err := w.Write([]byte(body))
 	require.NoError(t, err)
 	assert.Equal(t, body, rec.Body.String())
+}
+
+func TestGeminiRoutingFooterWriter_SuppressesWithoutNaturalAnswer(t *testing.T) {
+	for name, parts := range map[string]string{
+		"empty":        `[]`,
+		"thought only": `[{"text":"Considering the answer.","thought":true}]`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			w := newGeminiFooterTestWriter(rec, testFooter)
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			stream := `data: {"candidates":[{"index":0,"content":{"parts":` + parts + `},"finishReason":"STOP"}]}` + "\n\n"
+			_, err := w.Write([]byte(stream))
+			require.NoError(t, err)
+			assert.NotContains(t, rec.Body.String(), "Weave Router feedback")
+		})
+	}
+}
+
+func TestGeminiRoutingFooterWriter_PrimaryCandidateAndCoalescedUsage(t *testing.T) {
+	rec := httptest.NewRecorder()
+	w := newGeminiFooterTestWriter(rec, testFooter)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	_, err := w.Write([]byte(`data: {"candidates":[{"index":1,"content":{"parts":[{"text":"Secondary answer"}]},"finishReason":"STOP"}]}` + "\n\n"))
+	require.NoError(t, err)
+	assert.NotContains(t, rec.Body.String(), "Weave Router feedback")
+	_, err = w.Write([]byte(`data: {"candidates":[{"index":1,"content":{"parts":[{"text":"More secondary text"}]},"finishReason":"STOP"},{"index":0,"content":{"parts":[{"text":"Primary answer","thoughtSignature":"signature"}]},"finishReason":"STOP"}],"usageMetadata":{"candidatesTokenCount":7}}` + "\n\n"))
+	require.NoError(t, err)
+	require.NoError(t, w.Finalize())
+	assert.Equal(t, 1, strings.Count(rec.Body.String(), "Primary answer"))
+	assert.Equal(t, 1, strings.Count(rec.Body.String(), "More secondary text"))
+	assert.Equal(t, 1, strings.Count(rec.Body.String(), `"candidatesTokenCount":7`))
+	assert.Equal(t, 1, strings.Count(rec.Body.String(), `"thoughtSignature":"signature"`))
+	assert.Equal(t, 1, strings.Count(rec.Body.String(), "Weave Router feedback"))
 }

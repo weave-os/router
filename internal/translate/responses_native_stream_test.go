@@ -62,9 +62,10 @@ func TestResponsesWriter_NativeSparseTerminalAfterUsableOutput(t *testing.T) {
 				for _, delimited := range []bool{false, true} {
 					t.Run(fmt.Sprintf("%s/display=%t/%s/delimited=%t", output.name, display, status, delimited), func(t *testing.T) {
 						w, rec := newNativeStreamWriter(display)
+						var feedback *configuredResponsesFeedback
 						if display {
 							w.SetBadgeText(passthroughTestMarker)
-							w.SetFooterText("feedback")
+							feedback = configureResponsesFeedback(w, "feedback")
 							// Covers content seen before footer snapshots are released.
 						}
 						native := nativeStreamFrame(`{"type":"response.created","sequence_number":0,"response":{"id":"resp_native","status":"in_progress","output":[]}}`) +
@@ -78,6 +79,9 @@ func TestResponsesWriter_NativeSparseTerminalAfterUsableOutput(t *testing.T) {
 							require.NoError(t, err)
 						}
 						require.NoError(t, w.Finalize())
+						if feedback != nil {
+							require.NoError(t, feedback.Finalize())
+						}
 						beforeError := rec.Body.String()
 						require.NoError(t, w.FinalizeError(errors.New("late upstream error")))
 						assert.Equal(t, beforeError, rec.Body.String(), "never append a second terminal")
