@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
@@ -30,7 +30,6 @@ type attemptTrace struct {
 	hideRouterDetails bool
 }
 
-// tracedAttempt is one diagnosed upstream attempt.
 type tracedAttempt struct {
 	Target    inference.Target
 	Err       error
@@ -61,18 +60,12 @@ func attemptTraceFromContext(ctx context.Context) *attemptTrace {
 }
 
 func (t *attemptTrace) beginAttempt() {
-	if t == nil {
-		return
-	}
 	t.mu.Lock()
 	t.sent, t.customerCredential = nil, false
 	t.mu.Unlock()
 }
 
 func (t *attemptTrace) observeSent(ctx context.Context, body []byte) {
-	if t == nil {
-		return
-	}
 	customer := customerOwnedCredential(ctx)
 	t.mu.Lock()
 	t.sent = body
@@ -101,9 +94,6 @@ func customerOwnedCredential(ctx context.Context) bool {
 // describe diagnoses the attempt dispatch just recorded and logs a failure
 // with its owner; an unowned failure is logged loudly so a rule can be added.
 func (t *attemptTrace) describe(ctx context.Context, attempt dispatch.Attempt, err error) inference.AttemptDiagnosis {
-	if t == nil {
-		return inference.AttemptDiagnosis{}
-	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	diagnosis := inference.AttemptDiagnosis{BodyTranslated: bodyRewritten(t.inbound, t.sent)}
@@ -120,7 +110,8 @@ func (t *attemptTrace) describe(ctx context.Context, attempt dispatch.Attempt, e
 	return diagnosis
 }
 
-// lastFailure returns the most recent failed attempt.
+// lastFailure skips served attempts: badges and terminal errors describe the
+// failure that forced a switch, not the attempt that recovered.
 func (t *attemptTrace) lastFailure() (tracedAttempt, bool) {
 	if t == nil {
 		return tracedAttempt{}, false
@@ -177,11 +168,9 @@ func bodyRewritten(inbound, sent []byte) bool {
 }
 
 func withoutTopLevelModel(body []byte) []byte {
-	model := gjson.GetBytes(body, "model")
-	if !model.Exists() || model.Index <= 0 {
+	out, err := sjson.DeleteBytes(body, "model")
+	if err != nil {
 		return body
 	}
-	out := make([]byte, 0, len(body)-len(model.Raw))
-	out = append(out, body[:model.Index]...)
-	return append(out, body[model.Index+len(model.Raw):]...)
+	return out
 }

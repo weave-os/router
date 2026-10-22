@@ -23,6 +23,7 @@ import (
 	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
+	"github.com/tidwall/sjson"
 )
 
 // ErrGeminiCrossFormatUnsupported is returned when a Gemini-source request
@@ -38,7 +39,7 @@ var ErrGeminiCrossFormatUnsupported = errors.New("gemini cross-format emit not i
 // and "stream" (true for :streamGenerateContent) fields into body before
 // calling; both are stripped before forwarding upstream.
 func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
-	ctx = withAttemptTrace(ctx, body, r.Header)
+	ctx = withAttemptTrace(ctx, geminiForwardedBody(body), r.Header)
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
 	ctx, returnErr = s.withClassifierInput(ctx, body, router.EndpointGeminiGenerate)
 	if returnErr != nil {
@@ -563,4 +564,15 @@ func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w
 	log.Info("ProxyGeminiGenerateContent complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "decision_reason", decision.Reason, "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, "", 0), "failure_owner", turnFailureOwnerFor(ctx, proxyErr, classifyTurnError(proxyErr, "", 0)), "upstream_status", upstreamStatus(proxyErr), "credential_source", servedCredentialSource, "subscription_tier", servedSubscriptionTier}, demotionLogFields...), append(plannerLogFields(routeRes), rateLimit.completionLogFields()...)...)...)
 	s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, decision.Provider, false, feats.Tokens, in, out, cacheCreation, cacheRead, usageMods, routeMs, proxyMs, proxyErr, nil)
 	return proxyErr
+}
+
+// geminiForwardedBody drops the synthetic routing fields the handler injected,
+// so the attempt trace compares against what a same-format dispatch forwards.
+func geminiForwardedBody(body []byte) []byte {
+	for _, field := range []string{"model", "stream"} {
+		if stripped, err := sjson.DeleteBytes(body, field); err == nil {
+			body = stripped
+		}
+	}
+	return body
 }

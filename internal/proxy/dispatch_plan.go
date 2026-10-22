@@ -145,7 +145,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 	transport.Attempt = func(attemptCtx context.Context, attempt dispatch.Attempt, client providers.Client) error {
 		decision := in.initialDecision
 		decision.Provider = attempt.Target.Provider
-		var guarded providers.Client = dispatch.GuardTarget(client, attempt.Target)
+		guarded := dispatch.GuardTarget(client, attempt.Target)
 		if trace := attemptTraceFromContext(ctx); trace != nil {
 			trace.beginAttempt()
 			guarded = dispatch.ObservePrepared(guarded, trace.observeSent)
