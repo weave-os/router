@@ -548,6 +548,16 @@ func (c *portableCodexResponsesConverter) convertMessageContent(content gjson.Re
 			if text := part.Get("refusal").Str; text != "" {
 				parts = append(parts, map[string]any{"type": "text", "text": text})
 			}
+		case "input_image":
+			// Only a user's inline image has a portable Chat equivalent; a file_id
+			// reference or an assistant-authored image stays on the native wire.
+			image, ok := portableResponsesImage(part)
+			if role != "user" || !ok {
+				c.markNativeOnly("responses_message_content_native_only", partPath)
+				return nil, false
+			}
+			parts = append(parts, image)
+			c.report("responses_message_image_projected", "projected", partPath)
 		default:
 			c.markNativeOnly("responses_message_content_native_only", partPath)
 			return nil, false
@@ -676,17 +686,12 @@ func (c *portableCodexResponsesConverter) convertToolOutputContent(output gjson.
 		case "input_text":
 			parts = append(parts, part.Get("text").Str)
 		case "input_image":
-			// A file_id reference has no Chat equivalent; only inline URLs project.
-			url := part.Get("image_url")
-			if url.Type != gjson.String || url.Str == "" {
+			image, ok := portableResponsesImage(part)
+			if !ok {
 				c.markNativeOnly("responses_tool_output_native_only", partPath)
 				return "", nil, true, false
 			}
-			image := map[string]any{"url": url.Str}
-			if detail := part.Get("detail").Str; detail != "" {
-				image["detail"] = detail
-			}
-			images = append(images, map[string]any{"type": "image_url", "image_url": image})
+			images = append(images, image)
 			c.report("responses_tool_output_image_hoisted", "projected", partPath)
 		default:
 			c.markNativeOnly("responses_tool_output_native_only", partPath)
@@ -694,6 +699,21 @@ func (c *portableCodexResponsesConverter) convertToolOutputContent(output gjson.
 		}
 	}
 	return strings.Join(parts, "\n"), images, true, true
+}
+
+// portableResponsesImage projects a Responses input_image part to a Chat
+// image_url part. A file_id reference has no Chat equivalent; only inline URLs
+// project.
+func portableResponsesImage(part gjson.Result) (map[string]any, bool) {
+	url := part.Get("image_url")
+	if url.Type != gjson.String || url.Str == "" {
+		return nil, false
+	}
+	image := map[string]any{"url": url.Str}
+	if detail := part.Get("detail").Str; detail != "" {
+		image["detail"] = detail
+	}
+	return map[string]any{"type": "image_url", "image_url": image}, true
 }
 
 func (c *portableCodexResponsesConverter) copyRequestControls(root gjson.Result, out map[string]any) {

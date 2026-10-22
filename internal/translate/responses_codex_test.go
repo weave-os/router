@@ -362,6 +362,43 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexRepeatedCallI
 	assert.Equal(t, "data:image/png;base64,Qg==", content[2].Get("image_url.url").Str)
 }
 
+// A pasted screenshot must not pin the whole session to OpenAI: that dropped
+// a /force-model pin to an Anthropic model with provider_not_enabled.
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexUserImageProjected(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-6.1-sol",
+		"input":[{"type":"message","role":"user","content":[
+			{"type":"input_text","text":"what is this?"},
+			{"type":"input_image","image_url":"data:image/png;base64,QQ==","detail":"high"}
+		]}]
+	}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	assert.False(t, converted.Requirements.NativeOnly)
+	assert.True(t, converted.Requirements.Images)
+
+	content := gjson.GetBytes(converted.Body, "messages.0.content").Array()
+	require.Len(t, content, 2)
+	assert.Equal(t, "what is this?", content[0].Get("text").Str)
+	assert.Equal(t, "image_url", content[1].Get("type").Str)
+	assert.Equal(t, "data:image/png;base64,QQ==", content[1].Get("image_url.url").Str)
+	assert.Equal(t, "high", content[1].Get("image_url.detail").Str)
+	assertReportCode(t, converted.Report, "responses_message_image_projected")
+}
+
+func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexMessageImageFileFailsClosed(t *testing.T) {
+	body := []byte(`{
+		"model":"gpt-6.1-sol",
+		"input":[{"type":"message","role":"user","content":[{"type":"input_image","file_id":"file_1"}]}]
+	}`)
+
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	assert.True(t, converted.Requirements.NativeOnly)
+	assertReportCode(t, converted.Report, "responses_message_content_native_only")
+}
+
 func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexToolOutputFileFailsClosed(t *testing.T) {
 	body := []byte(`{
 		"model":"gpt-6.1-sol",
