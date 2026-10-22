@@ -7591,6 +7591,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// cyberRetryArmed licenses the refusal gate to withhold an OpenAI stream's
 	// preamble; set once the rescue target is known to be dispatchable.
 	cyberRetryArmed := false
+	// preOutputRescueArmed withholds a native Responses stream until it carries
+	// output, so a failure inside the HTTP 200 (OpenAI reports overload there)
+	// stays rescuable; set once a same-model retry or sibling may serve it.
+	preOutputRescueArmed := false
 	// cyberRefusalSeen survives per-attempt writers so the re-pin runs whether
 	// the refusal was withheld, passed through, or arrived as an error body.
 	cyberRefusalSeen := false
@@ -7689,6 +7693,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				}
 				refusalGate := newCyberRefusalGate(noticeSink,
 					cyberRetryArmed && d.Provider == providers.ProviderOpenAI)
+				if surface == surfaceResponsesNative && env.Stream() && preOutputRescueArmed {
+					refusalGate.holdPreOutputFailure()
+				}
 				var attemptSink http.ResponseWriter = refusalGate
 				proxyWriter := attemptSink
 				// A translated attempt reads Responses SSE, which the chat-shaped
@@ -8045,6 +8052,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		s.siblingRescueAllowed(ctx, s.gatewaySiblingAllowed(ctx, siblingDecisions[0]))
 	subscriptionOnlySibling := siblingViable && !s.shouldFailover(ctx) &&
 		!s.gatewaySiblingAllowed(ctx, siblingDecisions[0]) && s.subscriptionSiblingAllowed(ctx)
+	preOutputRescueArmed = codexRetryViable || siblingViable
 
 	primaryProvider := decision.Provider
 	primaryModel := decision.Model

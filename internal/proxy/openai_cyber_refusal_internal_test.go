@@ -100,6 +100,54 @@ func TestCyberRefusalGate_UnarmedForwardsVerbatim(t *testing.T) {
 	require.NoError(t, gate.Finalize())
 }
 
+const responsesOverloadFailedFrame = "event: response.failed\n" +
+	`data: {"type":"response.failed","sequence_number":1,"response":{"id":"resp_1","status":"failed","output":[],"error":{"code":"server_is_overloaded","message":"Our servers are currently overloaded."}}}` + "\n\n"
+
+// A failure ending the stream before output must leave the client untouched so
+// the attempt's error can still be rescued; it is not a refusal.
+func TestCyberRefusalGate_HoldsPreOutputFailure(t *testing.T) {
+	rec := httptest.NewRecorder()
+	gate := newCyberRefusalGate(rec, false).holdPreOutputFailure()
+
+	_, err := gate.Write([]byte(responsesCreatedFrame + responsesOverloadFailedFrame))
+	require.NoError(t, err)
+	require.NoError(t, gate.Finalize())
+
+	assert.True(t, gate.failureWithheld)
+	assert.False(t, gate.refused)
+	assert.False(t, gate.withheld, "an overload is not a refusal and must not take the off-vendor rescue")
+	assert.Empty(t, rec.Body.String())
+}
+
+// Once output arrives the stream is being served; a later failure is delivered.
+func TestCyberRefusalGate_DeliversFailureAfterOutput(t *testing.T) {
+	rec := httptest.NewRecorder()
+	gate := newCyberRefusalGate(rec, false).holdPreOutputFailure()
+
+	stream := responsesCreatedFrame + responsesOutputFrame + responsesOverloadFailedFrame
+	_, err := gate.Write([]byte(stream))
+	require.NoError(t, err)
+	require.NoError(t, gate.Finalize())
+
+	assert.False(t, gate.failureWithheld)
+	assert.Equal(t, stream, rec.Body.String())
+}
+
+// Without the failure hold an armed refusal gate keeps today's behavior: a
+// failure frame counts as the end of the preamble and is delivered.
+func TestCyberRefusalGate_ArmedWithoutFailureHoldDeliversFailure(t *testing.T) {
+	rec := httptest.NewRecorder()
+	gate := newCyberRefusalGate(rec, true)
+
+	stream := responsesCreatedFrame + responsesOverloadFailedFrame
+	_, err := gate.Write([]byte(stream))
+	require.NoError(t, err)
+	require.NoError(t, gate.Finalize())
+
+	assert.False(t, gate.failureWithheld)
+	assert.Equal(t, stream, rec.Body.String())
+}
+
 // A non-streaming turn completes no SSE frame, so Finalize is where its body is
 // classified.
 func TestCyberRefusalGate_ClassifiesNonStreamingBodyOnFinalize(t *testing.T) {
