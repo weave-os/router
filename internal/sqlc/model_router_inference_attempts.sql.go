@@ -12,7 +12,7 @@ import (
 )
 
 const getInferenceAttempts = `-- name: GetInferenceAttempts :many
-SELECT id, created_at, installation_id, request_id, operation_id, attempt_index, purpose, policy_id, registry_revision, policy_revision, model, provider, binding_index, outcome, failure_reason, upstream_status_code, latency_ms, usage_known, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_usd_micros
+SELECT id, created_at, installation_id, request_id, operation_id, attempt_index, purpose, policy_id, registry_revision, policy_revision, model, provider, binding_index, outcome, failure_reason, upstream_status_code, latency_ms, usage_known, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_usd_micros, error_class, failure_owner, body_translated
 FROM router.model_router_inference_attempts
 WHERE installation_id = $1::uuid
   AND request_id = $2::varchar
@@ -27,7 +27,7 @@ type GetInferenceAttemptsParams struct {
 // Returns every attempt of one request in attempt order, grouped by operation,
 // for diagnostics and the runtime inspection API.
 //
-//	SELECT id, created_at, installation_id, request_id, operation_id, attempt_index, purpose, policy_id, registry_revision, policy_revision, model, provider, binding_index, outcome, failure_reason, upstream_status_code, latency_ms, usage_known, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_usd_micros
+//	SELECT id, created_at, installation_id, request_id, operation_id, attempt_index, purpose, policy_id, registry_revision, policy_revision, model, provider, binding_index, outcome, failure_reason, upstream_status_code, latency_ms, usage_known, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, cost_usd_micros, error_class, failure_owner, body_translated
 //	FROM router.model_router_inference_attempts
 //	WHERE installation_id = $1::uuid
 //	  AND request_id = $2::varchar
@@ -65,6 +65,9 @@ func (q *Queries) GetInferenceAttempts(ctx context.Context, arg GetInferenceAtte
 			&i.CacheCreationTokens,
 			&i.CacheReadTokens,
 			&i.CostUsdMicros,
+			&i.ErrorClass,
+			&i.FailureOwner,
+			&i.BodyTranslated,
 		); err != nil {
 			return nil, err
 		}
@@ -98,7 +101,10 @@ INSERT INTO router.model_router_inference_attempts (
     output_tokens,
     cache_creation_tokens,
     cache_read_tokens,
-    cost_usd_micros
+    cost_usd_micros,
+    error_class,
+    failure_owner,
+    body_translated
 ) VALUES (
     $1::uuid,
     $2::varchar,
@@ -120,7 +126,10 @@ INSERT INTO router.model_router_inference_attempts (
     $18::int,
     $19::int,
     $20::int,
-    $21::bigint
+    $21::bigint,
+    $22::varchar,
+    $23::varchar,
+    $24::boolean
 )
 ON CONFLICT (installation_id, request_id, operation_id, attempt_index) DO NOTHING
 `
@@ -147,6 +156,9 @@ type InsertInferenceAttemptParams struct {
 	CacheCreationTokens *int32
 	CacheReadTokens     *int32
 	CostUsdMicros       *int64
+	ErrorClass          *string
+	FailureOwner        *string
+	BodyTranslated      bool
 }
 
 // Records one upstream attempt of an inference operation. Attempts are keyed
@@ -178,7 +190,10 @@ type InsertInferenceAttemptParams struct {
 //	    output_tokens,
 //	    cache_creation_tokens,
 //	    cache_read_tokens,
-//	    cost_usd_micros
+//	    cost_usd_micros,
+//	    error_class,
+//	    failure_owner,
+//	    body_translated
 //	) VALUES (
 //	    $1::uuid,
 //	    $2::varchar,
@@ -200,7 +215,10 @@ type InsertInferenceAttemptParams struct {
 //	    $18::int,
 //	    $19::int,
 //	    $20::int,
-//	    $21::bigint
+//	    $21::bigint,
+//	    $22::varchar,
+//	    $23::varchar,
+//	    $24::boolean
 //	)
 //	ON CONFLICT (installation_id, request_id, operation_id, attempt_index) DO NOTHING
 func (q *Queries) InsertInferenceAttempt(ctx context.Context, arg InsertInferenceAttemptParams) error {
@@ -226,6 +244,9 @@ func (q *Queries) InsertInferenceAttempt(ctx context.Context, arg InsertInferenc
 		arg.CacheCreationTokens,
 		arg.CacheReadTokens,
 		arg.CostUsdMicros,
+		arg.ErrorClass,
+		arg.FailureOwner,
+		arg.BodyTranslated,
 	)
 	return err
 }

@@ -145,7 +145,11 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 	transport.Attempt = func(attemptCtx context.Context, attempt dispatch.Attempt, client providers.Client) error {
 		decision := in.initialDecision
 		decision.Provider = attempt.Target.Provider
-		guarded := dispatch.GuardTarget(client, attempt.Target)
+		var guarded providers.Client = dispatch.GuardTarget(client, attempt.Target)
+		if trace := attemptTraceFromContext(ctx); trace != nil {
+			trace.beginAttempt()
+			guarded = dispatch.ObservePrepared(guarded, trace.observeSent)
+		}
 		var lastSubscriptionErr error
 		if usage, _ := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage); usage != nil && usage.IntendedModel == "" {
 			usage.IntendedModel = decision.Model
@@ -279,6 +283,11 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		}
 	}
 
+	if trace := attemptTraceFromContext(ctx); trace != nil {
+		transport.Describe = func(attempt dispatch.Attempt, err error) inference.AttemptDiagnosis {
+			return trace.describe(ctx, attempt, err)
+		}
+	}
 	req := inference.InvocationRequest{Purpose: in.purpose, RequestID: observability.RequestIDFromContext(ctx)}
 	result, runErr := executor.Run(ctx, req, plan, transport)
 	s.recordOverloadOutcome(ctx, in.initialDecision.Model, lastProvider, result.Outcome.ResponseCommitted, runErr)

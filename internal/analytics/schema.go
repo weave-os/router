@@ -57,6 +57,8 @@ func Schema() []Field {
 		{"sticky_hit", "boolean", false, "True when the turn reused a session-sticky decision instead of scoring fresh."},
 		{"failover_used", "boolean", false, "True when the first-choice upstream failed and another served the turn."},
 		{"cross_format", "boolean", false, "True when the request was translated between API formats (e.g. Anthropic to OpenAI)."},
+		{"error_class", "string", true, "How the turn failed: rate_limited, invalid_request, auth_rejected, model_not_found, upstream_4xx, upstream_5xx, stream_cut, stream_stalled (the router's stream watchdog ended a stalled stream), timeout, client_canceled, routing_refused, refusal, max_tokens, invalid_tool_args or other. Null on a normal completion."},
+		{"failure_owner", "string", true, "Who owns the turn's failure: provider (timeouts, 5xx, overload, stalled or cut streams, refusals, 400/422 on a body the router sent unchanged), router (routing or policy outages, impossible translations, setup errors, 400/422 on a body the router rewrote), client (cancellation, oversized context, invalid request, unknown forced model, spend or credit limits, org configuration) or unknown. Null on a normal completion."},
 		{"estimated_input_tokens", "integer", true, "Input tokens estimated at decision time, before the upstream reported actuals."},
 		{"input_tokens", "integer", true, "Input tokens reported by the upstream."},
 		{"output_tokens", "integer", true, "Output tokens reported by the upstream."},

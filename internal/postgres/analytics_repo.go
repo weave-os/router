@@ -89,6 +89,8 @@ func decisionFromExportRow(row sqlc.GetRoutingDecisionsForExportRow) analytics.D
 		StickyHit:                       row.StickyHit != nil && *row.StickyHit,
 		FailoverUsed:                    row.FailoverUsed != nil && *row.FailoverUsed,
 		CrossFormat:                     row.CrossFormat != nil && *row.CrossFormat,
+		ErrorClass:                      row.ErrorClass,
+		FailureOwner:                    row.FailureOwner,
 
 		EstimatedInputTokens:  int32PtrToInt64(row.EstimatedInputTokens),
 		InputTokens:           int32PtrToInt64(row.InputTokens),

@@ -673,6 +673,7 @@ func (s *Service) bypassToAnthropic(
 			TotalLatencyMs:         time.Since(requestStart).Milliseconds(),
 			UpstreamStatusCode:     int32(upstreamStatus(outcomeErr)),
 			ErrorClass:             classifyTurnError(outcomeErr, stopReason, 0),
+			FailureOwner:           turnFailureOwnerFor(ctx, outcomeErr, classifyTurnError(outcomeErr, stopReason, 0)),
 			UserPrompt:             &userPrompt,
 			LatestToolCallCounts:   latestToolCallCountsJSON(env),
 			SessionKey:             sessionKey[:],

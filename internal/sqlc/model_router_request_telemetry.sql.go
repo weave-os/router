@@ -111,6 +111,8 @@ SELECT
     t.sticky_hit,
     t.failover_used,
     t.cross_format,
+    t.error_class,
+    t.failure_owner,
     t.estimated_input_tokens,
     t.input_tokens,
     t.output_tokens,
@@ -239,6 +241,8 @@ type GetRoutingDecisionsForExportRow struct {
 	StickyHit                       *bool
 	FailoverUsed                    *bool
 	CrossFormat                     *bool
+	ErrorClass                      *string
+	FailureOwner                    *string
 	EstimatedInputTokens            *int32
 	InputTokens                     *int32
 	OutputTokens                    *int32
@@ -339,6 +343,8 @@ type GetRoutingDecisionsForExportRow struct {
 //	    t.sticky_hit,
 //	    t.failover_used,
 //	    t.cross_format,
+//	    t.error_class,
+//	    t.failure_owner,
 //	    t.estimated_input_tokens,
 //	    t.input_tokens,
 //	    t.output_tokens,
@@ -472,6 +478,8 @@ func (q *Queries) GetRoutingDecisionsForExport(ctx context.Context, arg GetRouti
 			&i.StickyHit,
 			&i.FailoverUsed,
 			&i.CrossFormat,
+			&i.ErrorClass,
+			&i.FailureOwner,
 			&i.EstimatedInputTokens,
 			&i.InputTokens,
 			&i.OutputTokens,
@@ -2111,6 +2119,7 @@ INSERT INTO router.model_router_request_telemetry (
     user_prompt_gap_ms,
     user_prompt_gap_prior_model,
     error_class,
+    failure_owner,
     latest_tool_call_counts,
     context_snapshot
 ) VALUES (
@@ -2286,8 +2295,9 @@ INSERT INTO router.model_router_request_telemetry (
     $170::bigint,
     $171::varchar,
     $172::varchar,
-    $173::jsonb,
-    $174::jsonb
+    $173::varchar,
+    $174::jsonb,
+    $175::jsonb
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 `
@@ -2465,6 +2475,7 @@ type InsertRequestTelemetryParams struct {
 	UserPromptGapMs                          *int64
 	UserPromptGapPriorModel                  *string
 	ErrorClass                               *string
+	FailureOwner                             *string
 	LatestToolCallCounts                     []byte
 	ContextSnapshot                          []byte
 }
@@ -2521,7 +2532,7 @@ type InsertRequestTelemetryParams struct {
 // user_prompt_gap_prior_model is the model that served that response. The gap
 // is NULL on the session's first prompt and when the previous response
 // overlapped this one. error_class buckets how the turn failed (NULL on a
-// normal completion). latest_tool_call_counts is {tool: {calls, errors}} over
+// normal completion) and failure_owner names who owns that failure. latest_tool_call_counts is {tool: {calls, errors}} over
 // only the tool results this request delivered, unlike tool_error_counts,
 // which re-counts the whole history on every turn.
 // failover_used marks a turn a rescue served; failover_attempted marks any turn
@@ -2700,6 +2711,7 @@ type InsertRequestTelemetryParams struct {
 //	    user_prompt_gap_ms,
 //	    user_prompt_gap_prior_model,
 //	    error_class,
+//	    failure_owner,
 //	    latest_tool_call_counts,
 //	    context_snapshot
 //	) VALUES (
@@ -2875,8 +2887,9 @@ type InsertRequestTelemetryParams struct {
 //	    $170::bigint,
 //	    $171::varchar,
 //	    $172::varchar,
-//	    $173::jsonb,
-//	    $174::jsonb
+//	    $173::varchar,
+//	    $174::jsonb,
+//	    $175::jsonb
 //	)
 //	ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestTelemetryParams) error {
@@ -3053,6 +3066,7 @@ func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestT
 		arg.UserPromptGapMs,
 		arg.UserPromptGapPriorModel,
 		arg.ErrorClass,
+		arg.FailureOwner,
 		arg.LatestToolCallCounts,
 		arg.ContextSnapshot,
 	)

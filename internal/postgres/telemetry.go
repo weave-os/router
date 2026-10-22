@@ -263,6 +263,7 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.Inse
 		UserPromptGapMs:                          p.UserPromptGapMs,
 		UserPromptGapPriorModel:                  stringPtrOrNil(p.UserPromptGapPriorModel),
 		ErrorClass:                               stringPtrOrNil(string(p.ErrorClass)),
+		FailureOwner:                             stringPtrOrNil(string(p.FailureOwner)),
 		LatestToolCallCounts:                     p.LatestToolCallCounts,
 	})
 }
@@ -311,6 +312,9 @@ func inferenceAttemptParams(installationID uuid.UUID, event inference.AttemptEve
 		Outcome:          string(event.Outcome),
 		FailureReason:    stringPtrOrNil(event.FailureReason),
 		UsageKnown:       event.Usage.Known,
+		ErrorClass:       stringPtrOrNil(event.Diagnosis.ErrorClass),
+		FailureOwner:     stringPtrOrNil(event.Diagnosis.FailureOwner),
+		BodyTranslated:   event.Diagnosis.BodyTranslated,
 	}
 	if event.UpstreamStatusCode != 0 {
 		status := int32(event.UpstreamStatusCode)

@@ -420,6 +420,12 @@ type RouterModelRouterInferenceAttempt struct {
 	CacheCreationTokens *int32
 	CacheReadTokens     *int32
 	CostUsdMicros       *int64
+	// How the attempt failed (TurnErrorClass vocabulary); NULL on a served attempt
+	ErrorClass *string
+	// Who owns the attempt failure: provider, router, client or unknown; NULL on a served attempt
+	FailureOwner *string
+	// TRUE when the router rewrote the request body it sent (format translation or same-format rewrite); NULL on rows written before this column
+	BodyTranslated *bool
 }
 
 // Customer router installations; owns API keys
@@ -704,6 +710,8 @@ type RouterModelRouterRequestTelemetry struct {
 	InferenceGeo            *string
 	FailoverAttempted       *bool
 	ContextSnapshot         []byte
+	// Who owns the turn failure: provider, router, client or unknown; NULL on a normal completion
+	FailureOwner *string
 }
 
 type RouterModelRouterSubscriptionAccount struct {

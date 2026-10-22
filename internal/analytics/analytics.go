@@ -62,6 +62,9 @@ type Decision struct {
 	StickyHit          bool  `json:"sticky_hit"`
 	FailoverUsed       bool  `json:"failover_used"`
 	CrossFormat        bool  `json:"cross_format"`
+	// ErrorClass and FailureOwner are null on a normal completion.
+	ErrorClass   *string `json:"error_class"`
+	FailureOwner *string `json:"failure_owner"`
 
 	EstimatedInputTokens *int64 `json:"estimated_input_tokens"`
 	InputTokens          *int64 `json:"input_tokens"`

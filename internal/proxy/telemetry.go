@@ -311,8 +311,9 @@ type InsertTelemetryParams struct {
 	// from the session turn clock, never by the call site.
 	UserPromptGapMs         *int64
 	UserPromptGapPriorModel string
-	// ErrorClass is empty on a normal completion.
-	ErrorClass TurnErrorClass
+	// ErrorClass and FailureOwner are empty on a normal completion.
+	ErrorClass   TurnErrorClass
+	FailureOwner FailureOwner
 	// LatestToolCallCounts is pre-marshaled JSON {tool name: {calls, errors}}
 	// over incoming Anthropic tool results. {} marks an observed empty result;
 	// nil means outcomes were not collected, including unsupported input formats.

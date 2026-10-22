@@ -50,7 +50,7 @@
 -- user_prompt_gap_prior_model is the model that served that response. The gap
 -- is NULL on the session's first prompt and when the previous response
 -- overlapped this one. error_class buckets how the turn failed (NULL on a
--- normal completion). latest_tool_call_counts is {tool: {calls, errors}} over
+-- normal completion) and failure_owner names who owns that failure. latest_tool_call_counts is {tool: {calls, errors}} over
 -- only the tool results this request delivered, unlike tool_error_counts,
 -- which re-counts the whole history on every turn.
 -- failover_used marks a turn a rescue served; failover_attempted marks any turn
@@ -229,6 +229,7 @@ INSERT INTO router.model_router_request_telemetry (
     user_prompt_gap_ms,
     user_prompt_gap_prior_model,
     error_class,
+    failure_owner,
     latest_tool_call_counts,
     context_snapshot
 ) VALUES (
@@ -404,6 +405,7 @@ INSERT INTO router.model_router_request_telemetry (
     sqlc.narg('user_prompt_gap_ms')::bigint,
     sqlc.narg('user_prompt_gap_prior_model')::varchar,
     sqlc.narg('error_class')::varchar,
+    sqlc.narg('failure_owner')::varchar,
     sqlc.narg('latest_tool_call_counts')::jsonb,
     sqlc.narg('context_snapshot')::jsonb
 )
@@ -803,6 +805,8 @@ SELECT
     t.sticky_hit,
     t.failover_used,
     t.cross_format,
+    t.error_class,
+    t.failure_owner,
     t.estimated_input_tokens,
     t.input_tokens,
     t.output_tokens,
