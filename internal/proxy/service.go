@@ -8375,6 +8375,19 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
 			siblingMarker := siblingMarkerFor(ctx, r.Header, routeRes, decision.Model, siblingDecision.Model)
+			// A native Responses attempt left the writer in passthrough; a sibling
+			// on another vendor speaks Chat Completions, so the writer translates
+			// for the rest of the turn, as the cyber-refusal rescue does.
+			if verbatimPassthrough && siblingDecision.Provider != providers.ProviderOpenAI {
+				if rw, responsesIngress := w.(*translate.ResponsesWriter); !responsesIngress || !rw.ClearPassthrough() {
+					log.Warn("Sibling failover: Responses passthrough already committed; trying the next candidate",
+						"sibling_model", siblingDecision.Model,
+						"sibling_provider", siblingDecision.Provider)
+					continue
+				}
+				verbatimPassthrough = false
+				responsesPassthrough = false
+			}
 			siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker)
 			if siblingBuildErr != nil {
 				log.Error("Sibling failover: preparing the candidate request failed; trying the next candidate",

@@ -155,6 +155,9 @@ func TestCodexPlanInStreamOverload_RescuedBySiblingCandidate(t *testing.T) {
 	assert.Contains(t, out, "served by sibling")
 	assert.NotContains(t, out, "resp_overloaded", "no frame of the failed attempt reaches the client")
 	assert.NotContains(t, out, "response.failed")
+	assert.Contains(t, out, "event: response.completed", "Codex needs a Responses terminal for the rescued turn")
+	assert.NotContains(t, out, "chat.completion.chunk", "the sibling's Chat Completions frames are translated to Responses")
+	assert.NotContains(t, out, "[DONE]")
 }
 
 func TestCodexPlanInStreamOverload_NoSiblingSurfacesUpstreamFailure(t *testing.T) {
