@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/server/middleware"
 
 	"github.com/gin-gonic/gin"
@@ -121,6 +122,7 @@ func TestInternalSubscriptionAccountsListsSafeHealthMetadata(t *testing.T) {
 		ID: testAccountID, Provider: auth.SubscriptionProviderClaude, ExternalAccountID: "claude@example.com", DisplayName: "Claude account",
 		Enabled: true, State: auth.SubscriptionAccountStateExhausted, CooldownUntil: &resetAt,
 		RefreshTokenCiphertext: []byte("never-returned"),
+		WeeklyUsage:            &usage.Window{UsedPercent: 0.63, ObservedAt: resetAt.Add(-time.Hour), ResetAt: resetAt},
 	}}}
 	engine := internalSubscriptionAccountsEngine(repo)
 	response := httptest.NewRecorder()
@@ -138,6 +140,11 @@ func TestInternalSubscriptionAccountsListsSafeHealthMetadata(t *testing.T) {
 	assert.Equal(t, "exhausted", body[0]["state"])
 	assert.Equal(t, "claude@example.com", body[0]["external_account_id"])
 	assert.Equal(t, "Claude account", body[0]["display_name"])
+	weekly, ok := body[0]["weekly_usage"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, 63.0, weekly["used_percent"])
+	assert.Equal(t, resetAt.Add(-time.Hour).Format(time.RFC3339), weekly["checked_at"])
+	assert.Equal(t, resetAt.Format(time.RFC3339), weekly["reset_at"])
 	assert.NotContains(t, response.Body.String(), "never-returned")
 }
 
