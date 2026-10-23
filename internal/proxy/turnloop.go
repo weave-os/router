@@ -919,7 +919,7 @@ func (s *Service) runTurnLoop(
 	// bypass, blind-experiment passthrough, planner stays) is not consulted.
 	// Utility hard pins below are never policy-scored and keep their own path.
 	automaticProbe := res.TurnType == turntype.Probe && !s.explicitUtilityHardPin &&
-		(req.RequestedModel == "" || req.RequestedModel == automaticProbeModel)
+		(req.RequestedModel == "" || req.RequestedModel == automaticProbeModel || router.IsRoutingModel(req.RequestedModel))
 	if _, pinned := router.HonouredPolicyPin(ctx); pinned && (!s.isHardPinnedTurn(ctx, res.TurnType) || automaticProbe) {
 		if s.pinStore != nil && !isUnpinnedScoredTurn(res.TurnType) && !automaticProbe {
 			res.SessionKey = threadSessionKey
