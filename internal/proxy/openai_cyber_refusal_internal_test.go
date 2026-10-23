@@ -376,3 +376,31 @@ func TestCyberRefusalGate_RefusalOnlyGateReleasesOnReasoning(t *testing.T) {
 
 	assert.Equal(t, stream, rec.Body.String())
 }
+
+const responsesMessageItemFrame = "event: response.output_item.added\n" +
+	`data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","content":[]}}` + "\n\n"
+
+// A failure after release is unrescuable; the gate must name the frame that
+// released the stream so that commit can be diagnosed.
+func TestCyberRefusalGate_RecordsReleasingFrame(t *testing.T) {
+	rec := httptest.NewRecorder()
+	gate := newCyberRefusalGate(rec, false).holdPreOutputFailure()
+
+	_, err := gate.Write([]byte(responsesCreatedFrame + responsesReasoningItemFrame + responsesMessageItemFrame + responsesOverloadFailedFrame))
+	require.NoError(t, err)
+
+	assert.Equal(t, "response.output_item.added", gate.releaseEvent)
+	assert.Equal(t, "message", gate.releaseItemType)
+	assert.False(t, gate.failureWithheld)
+}
+
+func TestCyberRefusalGate_RecordsHoldCapRelease(t *testing.T) {
+	rec := httptest.NewRecorder()
+	gate := newCyberRefusalGate(rec, false).holdPreOutputFailure()
+
+	_, err := gate.Write([]byte("data: " + strings.Repeat("x", cyberRefusalHoldCap)))
+	require.NoError(t, err)
+
+	assert.Equal(t, cyberRefusalHoldCapRelease, gate.releaseEvent)
+	assert.Empty(t, gate.releaseItemType)
+}

@@ -7800,6 +7800,14 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				if releaseErr := refusalGate.finalizeAttempt(err); releaseErr != nil && (err == nil || providers.IsUpstreamCyberPolicyRefusal(releaseErr)) {
 					err = releaseErr
 				}
+				if err != nil && refusalGate.holdFailure && refusalGate.releaseEvent != "" {
+					log.Warn("Held Responses stream released before upstream failure",
+						"model", d.Model,
+						"provider", d.Provider,
+						"release_event", refusalGate.releaseEvent,
+						"release_item_type", refusalGate.releaseItemType,
+						"err", err)
+				}
 				if refusalGate.refused {
 					cyberRefusalSeen = true
 				}
@@ -8863,6 +8871,10 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		return fmt.Errorf("translate responses request: %w", err)
 	}
 	chatBody, model := conversion.Body, conversion.Model
+	if conversion.Requirements.NativeOnly {
+		observability.FromContext(ctx).Info("Responses request restricted to its native wire family",
+			"native_only_reasons", nativeOnlyReasons(conversion.Report))
+	}
 	if portableCodex && r.Header.Get(CodexNativeModelPinHeader) == "1" && conversion.CodexModelSwitch {
 		ctx = withCodexSelectedModel(ctx, model, nativeBody)
 	}

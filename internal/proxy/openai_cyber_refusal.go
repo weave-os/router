@@ -29,6 +29,10 @@ const reasonCyberRefusalRepin = "cyber-refusal-repin"
 // the cap only decides when to stop buffering and commit the stream.
 const cyberRefusalHoldCap = 1 << 20
 
+// cyberRefusalHoldCapRelease is the release event recorded when the hold cap,
+// not a frame, ended the withholding.
+const cyberRefusalHoldCapRelease = "hold_cap"
+
 // responsesPreambleEventTypes are the /v1/responses events that precede any
 // output. While the stream carries only these, nothing is committed yet, so a
 // refusal can still be withheld and the turn re-dispatched elsewhere.
@@ -100,6 +104,10 @@ type cyberRefusalGate struct {
 	// framing resumes the delimiter search inside held[scanned:] across writes;
 	// it is rewound whenever held is discarded.
 	framing sse.Scanner
+	// releaseEvent and releaseItemType name what ended the withholding, so a
+	// failure after release can be traced to the frame that committed the turn.
+	releaseEvent    string
+	releaseItemType string
 }
 
 // newCyberRefusalGate wraps w. When armed the gate withholds the stream
@@ -159,7 +167,11 @@ func (g *cyberRefusalGate) scanHeld() (refusal, failure, release bool) {
 		if n == 0 {
 			// Hold for the rest of an incomplete frame, unless buffering it would
 			// outgrow the cap.
-			return false, false, g.held.Len() >= cyberRefusalHoldCap
+			if g.held.Len() >= cyberRefusalHoldCap {
+				g.releaseEvent = cyberRefusalHoldCapRelease
+				return false, false, true
+			}
+			return false, false, false
 		}
 		b = b[n:]
 		g.scanned += n
@@ -180,6 +192,8 @@ func (g *cyberRefusalGate) scanHeld() (refusal, failure, release bool) {
 		if g.holdFailure && responsesReasoningEvent(eventType, payload) {
 			continue
 		}
+		g.releaseEvent = eventType
+		g.releaseItemType = gjson.GetBytes(payload, "item.type").String()
 		return false, false, true
 	}
 }
