@@ -89,6 +89,13 @@ explicitly to its managed Codex config.
 ./router/install/install.sh --base-url http://localhost:9000 --dev-mode
 ```
 
+## Provider waiting indicator
+
+After setup, use `npx @weave-os/router codex` or `npx @weave-os/router claude`
+to display `Waiting on upstream provider..` in the native animated status during
+provider waits. The temporary text stays out of the conversation and saved history.
+See [requirements and bridge behavior](upstream-wait/README.md).
+
 ## What gets written
 
 ### Claude Code (`--claude`, default)

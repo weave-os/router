@@ -4,7 +4,7 @@
 // published tarball is self-contained. Keeps a single source of truth for
 // the shell installer.
 
-const { copyFileSync, cpSync, chmodSync, existsSync, mkdirSync, readdirSync, lstatSync, realpathSync } = require("node:fs");
+const { copyFileSync, cpSync, chmodSync, existsSync, mkdirSync, readdirSync, lstatSync, realpathSync, rmSync } = require("node:fs");
 const path = require("node:path");
 
 const root = path.resolve(__dirname, "..");
@@ -111,6 +111,18 @@ for (const f of ["package.json", "README.md"]) {
   copyFileSync(path.join(installDir, "pi-router", f), path.join(root, "pi-router", f));
 }
 console.log("Copied pi-router/ (extension + skills).");
+
+const waitDst = path.join(root, "upstream-wait");
+rmSync(waitDst, { recursive: true, force: true });
+for (const asset of [
+  "bridge.cjs", "launch.cjs", "README.md",
+  "claude-plugin/.claude-plugin/plugin.json",
+  "claude-plugin/hooks/hooks.json", "claude-plugin/hooks/register.mjs",
+]) {
+  mkdirSync(path.dirname(path.join(waitDst, asset)), { recursive: true });
+  copyFileSync(path.join(installDir, "upstream-wait", asset), path.join(waitDst, asset));
+}
+console.log("Copied upstream-wait/ (Codex bridge and Claude Code spinner mod).");
 
 for (const f of ["LICENSE", "NOTICE"]) {
   copyFileSync(path.join(repoRoot, f), path.join(root, f));

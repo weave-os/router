@@ -368,7 +368,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	messagesMiddleware = append(messagesMiddleware, policyPinMiddleware...)
 	messagesMiddleware = append(messagesMiddleware, middleware.WithClassifierThread(proxySvc, strategyAvailability))
 	messagesGroup := engine.Group("", messagesMiddleware...)
-	messagesGroup.POST("/v1/messages", anthropicapi.MessagesHandler(proxySvc, authSvc))
+	messagesGroup.POST("/v1/messages", middleware.WithProviderWait(), anthropicapi.MessagesHandler(proxySvc, authSvc))
 	messagesGroup.POST("/v1/route/handoff", anthropicapi.PrepareHandoffHandler(proxySvc, authSvc))
 
 	chatCompletionMiddleware := []gin.HandlerFunc{
@@ -400,11 +400,11 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 	chatCompletionWithoutPolicyPin := append([]gin.HandlerFunc(nil), chatCompletionMiddleware...)
 	chatCompletionMiddleware = append(chatCompletionMiddleware, policyPinMiddleware...)
 	chatCompletionGroup := engine.Group("", chatCompletionMiddleware...)
-	chatCompletionGroup.POST("/v1/chat/completions", openaiapi.ChatCompletionHandler(proxySvc, authSvc))
+	chatCompletionGroup.POST("/v1/chat/completions", middleware.WithProviderWait(), openaiapi.ChatCompletionHandler(proxySvc, authSvc))
 	// Responses surface required by Codex CLI after wire_api="chat" was retired;
 	// translated internally to chat completions so the turn loop is reused.
 	chatCompletionWithoutPolicyPinGroup := engine.Group("", chatCompletionWithoutPolicyPin...)
-	chatCompletionWithoutPolicyPinGroup.POST("/v1/responses", openaiapi.ResponsesHandler(proxySvc, authSvc))
+	chatCompletionWithoutPolicyPinGroup.POST("/v1/responses", middleware.WithProviderWait(), openaiapi.ResponsesHandler(proxySvc, authSvc))
 	// Action suffix (:generateContent or :streamGenerateContent) lives inside modelAction because Gin treats `:` outside the leading position as a literal.
 	chatCompletionWithoutPolicyPinGroup.POST("/v1beta/models/:modelAction", geminiapi.GenerateContentHandler(proxySvc, authSvc))
 

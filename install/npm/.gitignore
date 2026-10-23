@@ -12,6 +12,7 @@ directives.tsv
 commands/
 codex-skills/
 pi-router/
+upstream-wait/
 LICENSE
 NOTICE
 

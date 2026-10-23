@@ -374,6 +374,7 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 
 	t := timing.TimingFrom(ctx)
 	t.StampUpstreamRequest()
+	defer timing.BeginProviderWait(ctx)()
 	resp, err := c.httpFor(decision.Model).Do(upstream)
 	if err != nil {
 		return fmt.Errorf("upstream call: %w", err)

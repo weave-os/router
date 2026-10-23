@@ -11,6 +11,14 @@ const packageName = JSON.parse(
   readFileSync(path.join(__dirname, "package.json"), "utf8"),
 ).name;
 
+if (args[0] === "codex" || args[0] === "claude") {
+  require("./upstream-wait/launch.cjs").main(args[0], args.slice(1)).then(
+    (code) => { process.exitCode = code; },
+    (error) => { console.error("Weave Router:", error.message); process.exitCode = 1; },
+  );
+  return;
+}
+
 const defaultEntrypointURL = "https://router.workweave.ai/start";
 
 if (packageName === "@weave-os/router" && args.length === 0) {

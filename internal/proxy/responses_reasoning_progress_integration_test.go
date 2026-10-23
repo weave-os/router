@@ -50,6 +50,8 @@ func TestResponsesReasoningProgress_LongReasoningCompletes(t *testing.T) {
 			logBuf := captureCompletionLog(t)
 			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			ctx, stamps := timing.WithTiming(ctx)
+			var providerWaiting atomic.Bool
+			ctx = timing.WithProviderWaitObserver(ctx, providerWaiting.Store)
 			reasoningFinished := make(chan struct{})
 			releaseAnswer := make(chan struct{})
 			var attempts atomic.Int32
@@ -130,6 +132,7 @@ func TestResponsesReasoningProgress_LongReasoningCompletes(t *testing.T) {
 			}
 			assert.Positive(t, stamps.UpstreamFirstByteNanos.Load())
 			assert.Zero(t, stamps.UpstreamFirstOutputNanos.Load(), "reasoning must not stamp first output")
+			assert.True(t, providerWaiting.Load(), "reasoning and keepalives must retain the upstream wait")
 			close(releaseAnswer)
 			select {
 			case err := <-finished:
@@ -139,6 +142,7 @@ func TestResponsesReasoningProgress_LongReasoningCompletes(t *testing.T) {
 			}
 			assert.EqualValues(t, 1, attempts.Load())
 			assert.Positive(t, stamps.UpstreamFirstOutputNanos.Load())
+			assert.False(t, providerWaiting.Load(), "first useful output must clear the upstream wait")
 			body := rec.Body.String()
 			assert.Contains(t, body, "answer")
 			assert.Contains(t, body, `"name":"read_file"`)

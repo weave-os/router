@@ -1,0 +1,5 @@
+{
+  "name": "weave-provider-wait",
+  "version": "0.1.0",
+  "description": "Show upstream provider waits in the native spinner."
+}
