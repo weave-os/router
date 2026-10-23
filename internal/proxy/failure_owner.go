@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/translate"
 )
 
 // FailureOwner names who is at fault for a failed attempt or turn, for the
@@ -47,6 +48,9 @@ func classifyFailureOwner(in failureOwnerInput) FailureOwner {
 	// the cancellation, not the status, says who ended it.
 	if errors.Is(err, context.Canceled) {
 		return FailureOwnerClient
+	}
+	if errors.Is(err, translate.ErrCustomToolArguments) {
+		return FailureOwnerRouter
 	}
 	if cls, ok := ClassifyDispatchError(err); ok && cls.Kind != DispatchErrorUpstreamStatus {
 		if cls.Kind == DispatchErrorHandoff && errors.Is(err, ErrHandoffUnavailable) {
@@ -109,9 +113,7 @@ func streamFailureOwner(class streamFailureClass) FailureOwner {
 // upstreamStatusOwner instead.
 func dispatchErrorKindOwner(kind DispatchErrorKind) FailureOwner {
 	switch kind {
-	case DispatchErrorSubscriptionPoolExhausted:
-		return FailureOwnerProvider
-	case DispatchErrorNotImplemented, DispatchErrorProviderNotConfigured, DispatchErrorRLPolicyUnavailable,
+	case DispatchErrorSubscriptionPoolExhausted, DispatchErrorNotImplemented, DispatchErrorProviderNotConfigured, DispatchErrorRLPolicyUnavailable,
 		DispatchErrorBanditUnavailable, DispatchErrorHMMUnavailable, DispatchErrorPolicyUnavailable,
 		DispatchErrorClusterUnavailable, DispatchErrorDecisionModelUnavailable, DispatchErrorClassifierUnavailable,
 		DispatchErrorPolicyPinUnavailable, DispatchErrorPlanTargetMismatch, DispatchErrorPlanUnresolvable,
@@ -134,10 +136,11 @@ func dispatchErrorKindOwner(kind DispatchErrorKind) FailureOwner {
 }
 
 // turnFailureOwner assigns the fault of a turn that completed with unusable
-// output, from its error class. A refusal is the model's choice.
+// output, from its error class. A refusal is the model's choice; hitting the
+// output cap is a served completion, not a failure.
 func turnFailureOwner(class TurnErrorClass) FailureOwner {
 	switch class {
-	case "":
+	case "", TurnErrorMaxTokens:
 		return ""
 	case TurnErrorRefusal, TurnErrorInvalidToolArgs:
 		return FailureOwnerProvider

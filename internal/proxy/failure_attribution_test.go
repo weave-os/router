@@ -160,6 +160,18 @@ func TestTerminalErrorMessage_RouterAndClientOwners(t *testing.T) {
 	assert.Equal(t, upstreamCallFailedMessage, TerminalErrorMessage(err))
 }
 
+func TestRouterOwnedFailureWording(t *testing.T) {
+	pool := tracedAttempt{Target: inference.Target{Provider: providers.ProviderAnthropic}, Err: ErrSubscriptionPoolExhausted,
+		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorOther), FailureOwner: string(FailureOwnerRouter)}}
+	assert.Equal(t, "↳ switched: Anthropic had no subscription capacity (router issue)\n\n", rescueDetailLine(pool))
+	assert.Equal(t, "Router error: Anthropic subscription capacity exhausted.", terminalMessageFor(pool))
+
+	customTool := tracedAttempt{Target: inference.Target{Provider: providers.ProviderAnthropic}, Err: translate.ErrCustomToolArguments,
+		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(TurnErrorOther), FailureOwner: string(FailureOwnerRouter), BodyTranslated: true}}
+	assert.Equal(t, "↳ switched: Anthropic sent tool arguments we couldn't translate (router issue)\n\n", rescueDetailLine(customTool))
+	assert.Equal(t, "Router error: Anthropic tool call translation failed.", terminalMessageFor(customTool))
+}
+
 func TestWithRescueDetail_SuppressedBadgeStaysEmpty(t *testing.T) {
 	assert.Empty(t, withRescueDetail("", "↳ switched: Fireworks timed out (provider issue)\n\n"))
 }

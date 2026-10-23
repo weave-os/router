@@ -2,8 +2,13 @@ package translate
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 )
+
+// ErrCustomToolArguments marks model tool-call arguments that cannot be
+// unwrapped into a Codex custom tool input.
+var ErrCustomToolArguments = errors.New("decode custom tool arguments")
 
 // ResponsesToolMapping describes one Responses tool after it has been
 // projected into a flat Chat Completions function. Alias is the synthetic Chat
@@ -20,18 +25,18 @@ type ResponsesToolMapping struct {
 func customToolInput(arguments string) (string, error) {
 	var wrapper map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(arguments), &wrapper); err != nil {
-		return "", fmt.Errorf("decode custom tool arguments: %w", err)
+		return "", fmt.Errorf("%w: %w", ErrCustomToolArguments, err)
 	}
 	if len(wrapper) != 1 {
-		return "", fmt.Errorf("decode custom tool arguments: expected exactly one input field")
+		return "", fmt.Errorf("%w: expected exactly one input field", ErrCustomToolArguments)
 	}
 	raw, ok := wrapper["input"]
 	if !ok {
-		return "", fmt.Errorf("decode custom tool arguments: required string field input is missing")
+		return "", fmt.Errorf("%w: required string field input is missing", ErrCustomToolArguments)
 	}
 	var input string
 	if err := json.Unmarshal(raw, &input); err != nil {
-		return "", fmt.Errorf("decode custom tool arguments: input must be a string: %w", err)
+		return "", fmt.Errorf("%w: input must be a string: %w", ErrCustomToolArguments, err)
 	}
 	return input, nil
 }

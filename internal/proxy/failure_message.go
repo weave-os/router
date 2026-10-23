@@ -58,6 +58,12 @@ func failureWordingFor(a tracedAttempt) failureWording {
 	if providers.IsUpstreamCyberPolicyRefusal(a.Err) {
 		return failureWording{"declined the request", "declined the request"}
 	}
+	if errors.Is(a.Err, ErrSubscriptionPoolExhausted) {
+		return failureWording{"had no subscription capacity", "subscription capacity exhausted"}
+	}
+	if errors.Is(a.Err, translate.ErrCustomToolArguments) {
+		return failureWording{"sent tool arguments we couldn't translate", "tool call translation failed"}
+	}
 	switch TurnErrorClass(a.Diagnosis.ErrorClass) {
 	case TurnErrorStreamStalled:
 		return failureWording{"stalled", "stream stalled"}

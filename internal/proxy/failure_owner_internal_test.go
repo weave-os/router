@@ -16,6 +16,7 @@ import (
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router/hmm"
+	"weave-os/router/internal/translate"
 )
 
 // declaredConstsOfType lists the package-level constant names declared with
@@ -122,6 +123,8 @@ func TestClassifyFailureOwner_Cases(t *testing.T) {
 		{"handoff unavailable", failureOwnerInput{Err: ErrHandoffUnavailable}, FailureOwnerRouter},
 		{"handoff invalid", failureOwnerInput{Err: ErrHandoffInvalid}, FailureOwnerClient},
 		{"context overflow", failureOwnerInput{Err: &providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Body: []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 250000 tokens > 200000 maximum"}}`)}, BodyTranslated: true}, FailureOwnerClient},
+		{"subscription pool exhausted", failureOwnerInput{Err: fmt.Errorf("dispatch: %w", ErrSubscriptionPoolExhausted)}, FailureOwnerRouter},
+		{"custom tool arguments untranslatable", failureOwnerInput{Err: fmt.Errorf("write: %w", translate.ErrCustomToolArguments), BodyTranslated: true}, FailureOwnerRouter},
 		{"unmatched", failureOwnerInput{Err: errors.New("mystery")}, FailureOwnerUnknown},
 	}
 	for _, tc := range cases {
@@ -135,5 +138,5 @@ func TestTurnFailureOwner(t *testing.T) {
 	assert.Equal(t, FailureOwnerProvider, turnFailureOwner(TurnErrorRefusal))
 	assert.Equal(t, FailureOwnerRouter, turnFailureOwner(TurnErrorRoutingRefused))
 	assert.Equal(t, FailureOwner(""), turnFailureOwner(""))
-	assert.Equal(t, FailureOwnerUnknown, turnFailureOwner(TurnErrorMaxTokens))
+	assert.Equal(t, FailureOwner(""), turnFailureOwner(TurnErrorMaxTokens))
 }
