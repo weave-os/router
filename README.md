@@ -84,6 +84,10 @@ npx @weave-os/router@0.1.0                 # pin a version
 Requires Node ≥ 18 (Claude Code, opencode, and pi paths also need `jq`). Full
 flag reference: [install/npm/README.md](install/npm/README.md).
 
+For client-specific setup, connection checks, switching back, and uninstall, see the
+[Router quickstart](https://weaveos.com/router/quickstart), [Claude Code guide](https://weaveos.com/router/claude-code),
+and [Codex CLI guide](https://weaveos.com/router/codex).
+
 The npm package is published as `@weave-os/router`. The former
 `@workweave/router` package remains available as a compatibility alias and
 continues to receive the same releases.
