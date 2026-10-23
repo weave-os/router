@@ -177,11 +177,14 @@ var forceModelAliases = map[string]string{
 	"qwen/qwen-3.8-max": "qwen/qwen3.8-max",
 	"qwen-3.8-max":      "qwen/qwen3.8-max",
 	"qwen-3.8":          "qwen/qwen3.8-max",
-	// Generic Kimi aliases follow K3; version-specific K2 pins stay exact.
-	"kimi":      "moonshotai/kimi-k3",
-	"kimi-k3":   "moonshotai/kimi-k3",
-	"kimi-k2.7": "moonshotai/kimi-k2.7",
-	"kimi-k2.6": "moonshotai/kimi-k2.6",
+	// Generic Kimi aliases follow K3.1; version-specific pins stay exact.
+	"kimi":                     "moonshotai/kimi-k3.1",
+	"kimi-k3.1":                "moonshotai/kimi-k3.1",
+	"kimi-k3.1-pro":            "moonshotai/kimi-k3.1",
+	"moonshotai/kimi-k3.1-pro": "moonshotai/kimi-k3.1",
+	"kimi-k3":                  "moonshotai/kimi-k3",
+	"kimi-k2.7":                "moonshotai/kimi-k2.7",
+	"kimi-k2.6":                "moonshotai/kimi-k2.6",
 	// Generic GLM aliases follow 5.3; version-specific pins stay exact.
 	"glm":           "z-ai/glm-5.3",
 	"zai":           "z-ai/glm-5.3",

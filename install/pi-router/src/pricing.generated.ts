@@ -7,7 +7,7 @@ export interface ModelPricing {
 	cacheReadMultiplier: number;
 }
 
-export const PRICING_VERSION = "catalog-sha256:8698bd3496e91811";
+export const PRICING_VERSION = "catalog-sha256:9d0980bd838a9b9b";
 
 export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.freeze({
 	"claude-fable-5": { inputUsdPerMillion: 10, outputUsdPerMillion: 50, cacheReadMultiplier: 0.1 },
@@ -83,6 +83,7 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.free
 	"moonshotai/kimi-k2.6": { inputUsdPerMillion: 0.95, outputUsdPerMillion: 4, cacheReadMultiplier: 0.1684 },
 	"moonshotai/kimi-k2.7": { inputUsdPerMillion: 0.95, outputUsdPerMillion: 4, cacheReadMultiplier: 0.2 },
 	"moonshotai/kimi-k3": { inputUsdPerMillion: 3, outputUsdPerMillion: 15, cacheReadMultiplier: 0.1 },
+	"moonshotai/kimi-k3.1": { inputUsdPerMillion: 2, outputUsdPerMillion: 10, cacheReadMultiplier: 0.1 },
 	"muse-spark-1.3": { inputUsdPerMillion: 1.25, outputUsdPerMillion: 4.25, cacheReadMultiplier: 0.12 },
 	"qwen/qwen3-235b-a22b-2507": { inputUsdPerMillion: 0.2266, outputUsdPerMillion: 0.9064, cacheReadMultiplier: 0.5 },
 	"qwen/qwen3-30b-a3b-instruct-2507": { inputUsdPerMillion: 0.15, outputUsdPerMillion: 0.6, cacheReadMultiplier: 0.1684 },

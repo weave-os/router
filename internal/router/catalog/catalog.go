@@ -740,6 +740,12 @@ var Models = []Model{
 		{Provider: providers.ProviderWaferAnthropic, UpstreamID: "Kimi-K3",
 			Price: Pricing{InputUSDPer1M: 3.000, OutputUSDPer1M: 15.000, CacheReadMultiplier: 0.10}},
 	}},
+	// K3.1 Pro is a post-trained K3 successor at a lower list price ($2/$10 vs
+	// $3/$15). Only Moonshot serves it so far (OpenRouter's "Pro" listing).
+	{ID: "moonshotai/kimi-k3.1", Source: SourceOpenSource, Tier: TierHigh, ContextWindow: 1_048_576, Providers: []ProviderBinding{
+		{Provider: providers.ProviderOpenRouter, UpstreamID: "moonshotai/kimi-k3.1-pro",
+			Price: Pricing{InputUSDPer1M: 2.000, OutputUSDPer1M: 10.000, CacheReadMultiplier: 0.10}},
+	}},
 	// AA top-performer additions (2026-05-18): ranked by composite of quality
 	// (Intelligence Index v4.0), cost (blended 3:1), and effective time per
 	// 2k-token query.

@@ -1485,6 +1485,7 @@ var modelMaxOutputTokens = map[string]int{
 	// OSS models accept far more than the 8192 fallback; leaving them unlisted
 	// clamped Claude Code's 64K output request, truncating every long turn.
 	"moonshotai/kimi-k3":               131072,
+	"moonshotai/kimi-k3.1":             131072,
 	"qwen/qwen3.8-max":                 64000, // Fireworks reports a 64000 output token ceiling
 	"qwen/qwen3-coder-next":            16384, // Bedrock (primary) caps Qwen models at 16K output
 	"qwen/qwen3-235b-a22b-2507":        16384,

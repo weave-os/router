@@ -1,5 +1,5 @@
 {
-  "pricing_version": "catalog-sha256:8698bd3496e91811",
+  "pricing_version": "catalog-sha256:9d0980bd838a9b9b",
   "models": {
     "claude-fable-5": {
       "input_usd_per_million": 10,
@@ -436,6 +436,12 @@
     "moonshotai/kimi-k3": {
       "input_usd_per_million": 3,
       "output_usd_per_million": 15,
+      "cache_read_multiplier": 0.1,
+      "cache_write_multiplier": 1.25
+    },
+    "moonshotai/kimi-k3.1": {
+      "input_usd_per_million": 2,
+      "output_usd_per_million": 10,
       "cache_read_multiplier": 0.1,
       "cache_write_multiplier": 1.25
     },
