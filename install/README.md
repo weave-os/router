@@ -8,10 +8,10 @@ Weave Router permanently. No shell exports, no manual config edits.
 ### Hosted Weave Router
 
 ```bash
-# Interactive: the installer asks Claude Code / Codex / opencode, then user vs. project
+# Opens the hosted setup page, which gives you a key and the install command
 npx @weave-os/router
 
-# Skip the target picker:
+# Already have a key? Install for one client directly:
 npx @weave-os/router --claude                     # Claude Code, user scope
 npx @weave-os/router --codex                      # Codex, user scope
 npx @weave-os/router --opencode                   # opencode, user scope

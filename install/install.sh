@@ -36,16 +36,16 @@
 #                       <dir>/.pi/ (run: PI_CODING_AGENT_DIR=<dir>/.pi pi)   (with --pi)
 #
 # Usage:
-#   npx @weave-os/router                                  # interactive picker (Claude Code, Codex, opencode)
-#   npx @weave-os/router --claude                         # skip the picker, target Claude Code
-#   npx @weave-os/router --codex                          # skip the picker, target Codex
+#   npx @weave-os/router                                  # open the hosted setup page to get a key
+#   npx @weave-os/router --claude                         # install for Claude Code
+#   npx @weave-os/router --codex                          # install for Codex
 #   npx @weave-os/router setup --claude --codex            # configure both native clients
 #   npx @weave-os/router login claude                      # enroll Claude Pro/Max
 #   npx @weave-os/router login codex                       # enroll ChatGPT Pro/Plus
 #   npx @weave-os/router accounts list                     # inspect enrolled accounts
 #   npx @weave-os/router status                            # router + native client status
-#   npx @weave-os/router --opencode                       # skip the picker, target opencode
-#   npx @weave-os/router --pi                              # skip the picker, target pi
+#   npx @weave-os/router --opencode                       # install for opencode
+#   npx @weave-os/router --pi                              # install for pi
 #   npx @weave-os/router --pi --lsp go,typescript          # also install language servers for pi's lsp tool
 #                                                             (go/typescript/python/rust; needs that language's toolchain)
 #   npx @weave-os/router --scope project                  # commit-with-team install
@@ -168,6 +168,11 @@ rotate_key="false"
 api_key_source=""
 # Set by verify_install; a return URL is opened only after both probes pass.
 install_verification_succeeded="false"
+# Set by verify_install: valid | rejected | unverified (router unreachable),
+# or empty when there was no key to check.
+key_verdict=""
+# Holds the HTTP status of the last /validate probe ("000" when unreachable).
+validate_status_file=""
 
 # ---------- helpers ----------
 
@@ -564,6 +569,10 @@ resolve_user_email() {
       warn "--email=\"$email\" is not a valid email; ignoring."
     fi
     printf '%s' "$candidate"
+    return
+  fi
+  if [ "${WEAVE_SETUP_IDENTITY_RESOLVED:-}" = "1" ]; then
+    normalize_email "${WEAVE_SETUP_SHARED_EMAIL:-}"
     return
   fi
   if [ -n "${WEAVE_USER_EMAIL:-}" ]; then
@@ -1646,8 +1655,32 @@ if [ "$mode" = "setup" ]; then
   [ -n "$install_dir" ] && setup_args+=(--dir "$install_dir")
   [ "$quiet" = "true" ] && setup_args+=(--quiet)
   [ "$rotate_key" = "true" ] && setup_args+=(--rotate-key)
-  [ "$setup_claude" = "true" ] && bash "$0" "${setup_args[@]}" --claude
-  [ "$setup_codex" = "true" ] && bash "$0" "${setup_args[@]}" --codex
+  # With both clients, the Claude run leaves its key and identity in a private
+  # handoff file so the Codex run doesn't ask again. The key travels by file
+  # and environment, never argv.
+  setup_handoff=""
+  shared_key=""
+  shared_email=""
+  shared_identity=""
+  if [ "$setup_claude" = "true" ] && [ "$setup_codex" = "true" ]; then
+    setup_handoff="$(mktemp -t weave-setup.XXXXXX)"
+    chmod 600 "$setup_handoff"
+  fi
+  if [ "$setup_claude" = "true" ]; then
+    WEAVE_SETUP_HANDOFF_FILE="$setup_handoff" bash "$0" "${setup_args[@]}" --claude \
+      || { setup_status=$?; rm -f "$setup_handoff"; exit "$setup_status"; }
+  fi
+  if [ -n "$setup_handoff" ]; then
+    if [ -s "$setup_handoff" ]; then
+      shared_identity="1"
+      { IFS= read -r shared_key || true; IFS= read -r shared_email || true; } <"$setup_handoff"
+    fi
+    rm -f "$setup_handoff"
+  fi
+  if [ "$setup_codex" = "true" ]; then
+    WEAVE_SETUP_SHARED_KEY="$shared_key" WEAVE_SETUP_SHARED_EMAIL="$shared_email" \
+      WEAVE_SETUP_IDENTITY_RESOLVED="$shared_identity" bash "$0" "${setup_args[@]}" --codex
+  fi
   exit 0
 fi
 
@@ -3904,6 +3937,10 @@ elif [ -n "$installed_key" ]; then
   api_key="$installed_key"
   api_key_source="disk"
   [ "$quiet" = "true" ] || info "Reusing the router key already installed (pass --rotate-key to replace it)."
+elif [ -n "${WEAVE_SETUP_SHARED_KEY:-}" ]; then
+  api_key="$WEAVE_SETUP_SHARED_KEY"
+  api_key_source="setup"
+  [ "$quiet" = "true" ] || info "Using the router key from the Claude Code setup above."
 elif [ "$mode" = "update" ]; then
   err "No router key found for $target. Export WEAVE_ROUTER_KEY, or run the installer once to set one up."
   exit 1
@@ -4239,7 +4276,42 @@ EOF
 # Wrapped in a function so the spinner's exec form sees a single command argv.
 validate_key() {
   printf '%s: %s\n' "$router_key_header" "$api_key" \
-    | curl -fsS --max-time 5 --header @- "$base_url/validate"
+    | curl -fsS --max-time 5 --header @- -o /dev/null -w '%{http_code}' \
+      "$base_url/validate" >"$validate_status_file" 2>/dev/null
+}
+
+validate_status() {
+  cat "$validate_status_file" 2>/dev/null || true
+}
+
+# key_problem explains, in plain words, why the last validate_key call failed.
+key_problem() {
+  case "$(validate_status)" in
+    401) printf 'the router did not recognize this key' ;;
+    403) printf '%s does not serve this key; it likely belongs to a different Weave Router deployment' "$base_url" ;;
+    ""|000) printf 'could not reach %s' "$base_url" ;;
+    *) printf '%s answered HTTP %s' "$base_url" "$(validate_status)" ;;
+  esac
+}
+
+# key_fix_hint prints the command that resolves key_problem for the target
+# flag in $1 (e.g. --codex).
+key_fix_hint() {
+  case "$(validate_status)" in
+    401) printf 'copy the full key from the dashboard and run: npx @weave-os/router %s --rotate-key' "$1" ;;
+    403) printf 're-run with the router URL shown next to your key: npx @weave-os/router %s --base-url <url>' "$1" ;;
+    ""|000) printf 'check your network (or --base-url), then run: npx @weave-os/router update %s' "$1" ;;
+    *) printf 'once the router is healthy, run: npx @weave-os/router update %s' "$1" ;;
+  esac
+}
+
+# record_key_verdict sets key_verdict from the last validate_key call. An
+# unreachable router is not evidence that the key is wrong.
+record_key_verdict() {
+  case "$(validate_status)" in
+    ""|000) key_verdict="unverified" ;;
+    *) key_verdict="rejected" ;;
+  esac
 }
 
 # rewrite_installed_key rewrites this target's managed config with the key in $1.
@@ -4275,26 +4347,31 @@ verify_install() {
 
   [ -n "$api_key" ] || return 0
 
+  [ -n "$validate_status_file" ] || validate_status_file="$(mktemp -t weave-validate.XXXXXX)"
   if spin "Validating API key" validate_key; then
+    key_verdict="valid"
     [ "$health_verified" = "true" ] && install_verification_succeeded="true"
     return 0
   fi
+  record_key_verdict
 
   # A key we read back off disk can have been revoked or rotated since it was
   # installed, and reusing it silently would leave a broken install behind
   # exactly where the old behavior (always prompt) would have fixed it. Ask
   # once, then rewrite the config with whatever the user pastes. Anywhere a
   # prompt isn't available — non-interactive, update, --quiet, no tty, or a
-  # key that didn't come from disk — keep the historical warn-and-continue.
-  if [ "$api_key_source" = "disk" ] && [ "$non_interactive" != "true" ] \
-     && [ "$quiet" != "true" ] && [ -r /dev/tty ]; then
-    warn "The router key already installed was rejected (revoked or rotated)."
+  # key that didn't come from disk — continue, and announce_done reports the
+  # failure instead of claiming success.
+  if [ "$key_verdict" = "rejected" ] && [ "$api_key_source" = "disk" ] \
+     && [ "$non_interactive" != "true" ] && [ "$quiet" != "true" ] && [ -r /dev/tty ]; then
+    warn "The router key already installed was rejected: $(key_problem)."
     prompt_for_key
     rewrite_installed_key "$api_key"
     if spin "Validating API key" validate_key; then
+      key_verdict="valid"
       [ "$health_verified" = "true" ] && install_verification_succeeded="true"
     else
-      warn "Router rejected the API key (check it matches the dashboard at $base_url)."
+      record_key_verdict
     fi
     return 0
   fi
@@ -4305,14 +4382,13 @@ verify_install() {
     # of the nonzero exit — a scheduled run that reports success here would
     # hide a revoked key indefinitely.
     if [ "$quiet" = "true" ]; then
-      warn "Router rejected the installed API key. Re-run the installer to set a new one."
+      warn "Router could not verify the installed API key: $(key_problem). Re-run the installer to set a new one."
     else
-      err "Router rejected the installed API key. Re-run the installer to set a new one."
+      err "Router could not verify the installed API key: $(key_problem). Re-run the installer to set a new one."
     fi
     exit 1
   fi
 
-  warn "Router rejected the API key (check it matches the dashboard at $base_url)."
 }
 
 # announce_done prints the closing line for the client named in $1. `update`
@@ -4320,15 +4396,96 @@ verify_install() {
 # skips the uninstall hint — that run was never the user's first contact with
 # the installer.
 announce_done() {
+  write_setup_handoff
   printf "\n"
   if [ "$mode" = "update" ]; then
     printf "%s✓%s %s%sWeave Router config refreshed for %s.%s\n" \
       "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_BRAND" "$1" "$C_RESET"
     return 0
   fi
-  printf "%s✓%s %s%sWeave Router installed for %s.%s\n" \
-    "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_BRAND" "$1" "$C_RESET"
+  case "$key_verdict" in
+    rejected|unverified)
+      printf "%s✗%s %sWeave Router is configured for %s, but not working yet:%s %s.\n" \
+        "$C_RED" "$C_RESET" "$C_BOLD" "$1" "$C_RESET" "$(key_problem)"
+      printf "  Fix: %s\n" "$(key_fix_hint "--$target")"
+      ;;
+    *)
+      printf "%s✓%s %s%sWeave Router installed for %s.%s\n" \
+        "$C_GREEN" "$C_RESET" "$C_BOLD" "$C_BRAND" "$1" "$C_RESET"
+      ;;
+  esac
   open_return_url_if_verified
+}
+
+# write_setup_handoff passes this run's key and identity choice to the next
+# client a multi-client `setup` installs, so each is asked for only once. A key
+# the router did not accept is not passed on.
+write_setup_handoff() {
+  [ -n "${WEAVE_SETUP_HANDOFF_FILE:-}" ] && [ -f "$WEAVE_SETUP_HANDOFF_FILE" ] || return 0
+  local shared_key=""
+  [ "$key_verdict" = "valid" ] && shared_key="$api_key"
+  printf '%s\n%s\n' "$shared_key" "$user_email" >"$WEAVE_SETUP_HANDOFF_FILE"
+}
+
+# capture_bounded prints the stdout of "$@", giving up after $1 seconds so a
+# stuck client CLI cannot hang the installer.
+capture_bounded() {
+  local seconds="$1"; shift
+  "$@" </dev/null 2>/dev/null &
+  local pid=$!
+  ( sleep "$seconds"; kill "$pid" 2>/dev/null ) >/dev/null 2>&1 &
+  local watcher=$!
+  local status=0
+  wait "$pid" || status=$?
+  kill "$watcher" 2>/dev/null || true
+  return "$status"
+}
+
+claude_login_missing() {
+  command -v claude >/dev/null 2>&1 || return 1
+  local auth_status
+  auth_status="$(capture_bounded 10 claude auth status --json || true)"
+  printf '%s' "$auth_status" | jq -e '.loggedIn == false' >/dev/null 2>&1
+}
+
+codex_login_missing() {
+  command -v codex >/dev/null 2>&1 || return 1
+  local login_status
+  login_status="$(capture_bounded 10 env CODEX_HOME="$codex_dir" codex login status || true)"
+  grep -q '^Not logged in' <<<"$login_status"
+}
+
+# print_next_steps tells a first-time user what stands between this install and
+# their first routed prompt: the client's own login and, for Codex, the hook
+# review it shows on first launch.
+print_next_steps() {
+  [ "$mode" = "install" ] && [ "$quiet" != "true" ] && [ -z "$install_dir" ] || return 0
+  case "$key_verdict" in rejected|unverified) return 0 ;; esac
+  printf "\n"
+  case "$target" in
+    claude)
+      if claude_login_missing; then
+        printf "%sNext:%s Claude Code isn't signed in yet. Run %sclaude%s and type %s/login%s (or set ANTHROPIC_API_KEY); Weave Router routes your requests once you're signed in.\n" \
+          "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
+      else
+        printf "%sNext:%s run %sclaude%s; your next prompt goes through Weave Router.\n" \
+          "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
+      fi
+      ;;
+    codex)
+      local codex_cmd="codex"
+      [ "$scope" = "project" ] && codex_cmd="CODEX_HOME=$codex_dir codex"
+      if codex_login_missing; then
+        printf "%sNext:%s Codex isn't signed in yet. Run %s%s login%s first; Weave Router routes your requests once you're signed in.\n" \
+          "$C_BOLD" "$C_RESET" "$C_BOLD" "$codex_cmd" "$C_RESET"
+      else
+        printf "%sNext:%s run %s%s%s; your next prompt goes through Weave Router.\n" \
+          "$C_BOLD" "$C_RESET" "$C_BOLD" "$codex_cmd" "$C_RESET"
+      fi
+      printf "  On first launch Codex asks you to review Weave Router's hooks. Choose %sTrust all%s, or the routed-model title and \$router-on / \$router-off won't work.\n" \
+        "$C_BOLD" "$C_RESET"
+      ;;
+  esac
 }
 
 # ---------- codex install path (dispatch + exit before the Claude-only writes) ----------
@@ -5413,6 +5570,7 @@ if [ "$target" = "codex" ]; then
     info "Run Codex with CODEX_HOME=$codex_dir codex so it picks up this config."
   fi
   [ "$mode" = "update" ] || print_uninstall_hint
+  print_next_steps
   exit 0
 fi
 
@@ -6759,3 +6917,4 @@ verify_install
 
 announce_done "Claude Code"
 [ "$mode" = "update" ] || print_uninstall_hint
+print_next_steps
