@@ -177,8 +177,8 @@ var forceModelAliases = map[string]string{
 	"qwen/qwen-3.8-max": "qwen/qwen3.8-max",
 	"qwen-3.8-max":      "qwen/qwen3.8-max",
 	"qwen-3.8":          "qwen/qwen3.8-max",
-	// Generic Kimi aliases follow K3.1; version-specific pins stay exact.
-	"kimi":                     "moonshotai/kimi-k3.1",
+	// Generic Kimi aliases follow the newest managed-servable release; version-specific pins stay exact.
+	"kimi":                     "moonshotai/kimi-k3",
 	"kimi-k3.1":                "moonshotai/kimi-k3.1",
 	"kimi-k3.1-pro":            "moonshotai/kimi-k3.1",
 	"moonshotai/kimi-k3.1-pro": "moonshotai/kimi-k3.1",

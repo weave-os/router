@@ -207,6 +207,13 @@ func TestResolveForceModel(t *testing.T) {
 		{
 			name:         "alias kimi current release",
 			input:        "kimi",
+			wantID:       "moonshotai/kimi-k3",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "kimi k3.1 version pin",
+			input:        "kimi-k3.1",
 			wantID:       "moonshotai/kimi-k3.1",
 			wantProvider: providers.ProviderOpenRouter,
 			wantKnown:    true,

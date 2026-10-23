@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
@@ -310,7 +311,7 @@ func main() {
 		if !byokOnly && openRouterPlatformEnabled {
 			openRouterKey = config.GetOr("OPENROUTER_API_KEY", "")
 		}
-		openRouterModelIDMap, err := config.ParseModelIDMap(os.Getenv("ROUTER_MODEL_ID_MAP"))
+		openRouterModelIDMap, err := openRouterModelIDs(os.Getenv("ROUTER_MODEL_ID_MAP"))
 		if err != nil {
 			panic(fmt.Sprintf("ROUTER_MODEL_ID_MAP: %v", err))
 		}
@@ -2329,6 +2330,21 @@ func registerDeploymentKeyedProvider(
 	default:
 		logger.Info(displayName+" provider registered (BYOK only — set "+keyEnvVar+" for deployment-level use)", "base_url", baseURL)
 	}
+}
+
+// openRouterModelIDs layers ROUTER_MODEL_ID_MAP over the catalog's OpenRouter
+// upstream IDs so operator overrides still win.
+func openRouterModelIDs(raw string) (map[string]string, error) {
+	overrides, err := config.ParseModelIDMap(raw)
+	if err != nil {
+		return nil, err
+	}
+	ids := upstreamIDsForProvider(providers.ProviderOpenRouter)
+	if ids == nil {
+		return overrides, nil
+	}
+	maps.Copy(ids, overrides)
+	return ids, nil
 }
 
 func upstreamIDsForProvider(provider string) map[string]string {
