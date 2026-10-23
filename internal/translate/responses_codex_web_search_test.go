@@ -28,3 +28,20 @@ func TestPortableCodex_WebSearchStaysPortable(t *testing.T) {
 	assert.Contains(t, dropped, "responses_web_search_call_dropped@input.1")
 	assert.NotContains(t, string(conversion.Body), "web_search")
 }
+
+func TestPortableCodex_ForcedWebSearchStaysNative(t *testing.T) {
+	for name, body := range map[string]string{
+		"hosted choice":       `{"model":"auto","tools":[{"type":"function","name":"exec_command","parameters":{"type":"object","properties":{}}},{"type":"web_search"}],"tool_choice":{"type":"web_search"},"input":"search it"}`,
+		"required, only tool": `{"model":"auto","tools":[{"type":"web_search_preview"}],"tool_choice":"required","input":"search it"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			conversion, err := convertPortableCodexResponses([]byte(body))
+			require.NoError(t, err)
+			assert.True(t, conversion.Requirements.NativeOnly)
+		})
+	}
+
+	conversion, err := convertPortableCodexResponses([]byte(`{"model":"auto","tools":[{"type":"function","name":"exec_command","parameters":{"type":"object","properties":{}}},{"type":"web_search"}],"tool_choice":"required","input":"run it"}`))
+	require.NoError(t, err)
+	assert.False(t, conversion.Requirements.NativeOnly, "a portable tool can still satisfy required")
+}
