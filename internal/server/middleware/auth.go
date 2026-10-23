@@ -199,6 +199,9 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 			if installation.HideTerminalSurfaces {
 				ctx = context.WithValue(ctx, proxy.InstallationHideTerminalSurfacesContextKey{}, true)
 			}
+			if installation.HideFeedbackPrompt {
+				ctx = context.WithValue(ctx, proxy.InstallationHideFeedbackPromptContextKey{}, true)
+			}
 			if installation.ShowModelSelectionReasoning {
 				ctx = context.WithValue(ctx, proxy.InstallationShowModelSelectionReasoningContextKey{}, true)
 			}

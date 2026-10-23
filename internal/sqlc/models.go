@@ -478,6 +478,7 @@ type RouterModelRouterInstallation struct {
 	SubscriptionStateModelsEnabled         bool
 	ModelsExcludedWhenSubscriptionActive   []string
 	ModelsExcludedWhenSubscriptionInactive []string
+	HideFeedbackPrompt                     bool
 }
 
 type RouterModelRouterRequestTelemetry struct {

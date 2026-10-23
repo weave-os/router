@@ -199,7 +199,8 @@ const feedbackFooterText = "\n\n_Weave Router feedback:_ `/rf +` good experience
 const feedbackFooterTextCodex = "\n\n_Weave Router feedback:_ `$rf +` good experience · `$rf -` poor experience · note optional, e.g. `$rf - too slow`"
 
 // feedbackFooter returns the in-terminal rating hint for a streamed response,
-// or "" to stay transparent. Gated to terminalFeedbackClients (avoid
+// or "" to stay transparent. Off when the installation hides its terminal
+// surfaces or just the feedback prompt. Gated to terminalFeedbackClients (avoid
 // contaminating non-chat surfaces), to deployments with durable feedback
 // storage (never advertise a command we can't record — the header-based link
 // still ships for GUI clients), and to MainLoop/ToolResult turns: subagent
@@ -211,6 +212,9 @@ const feedbackFooterTextCodex = "\n\n_Weave Router feedback:_ `$rf +` good exper
 // each produce a natural stop and would otherwise stack duplicate hints).
 func (s *Service) feedbackFooter(ctx context.Context, clientApp string, tt turntype.TurnType, echoedSinceHumanTurn bool) string {
 	if hideTerminalSurfacesForRequest(ctx) {
+		return ""
+	}
+	if hide, _ := ctx.Value(InstallationHideFeedbackPromptContextKey{}).(bool); hide {
 		return ""
 	}
 	if s.feedbackStore == nil {
