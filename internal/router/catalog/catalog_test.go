@@ -180,13 +180,15 @@ func TestResolveBinding_GemmaUsesNativeGoogleUpstreamID(t *testing.T) {
 
 func TestResolveBinding_MiniMaxUsesNativeModelIDs(t *testing.T) {
 	cases := []struct {
-		model       string
-		upstreamID  string
-		inputPrice  float64
-		outputPrice float64
+		model               string
+		upstreamID          string
+		inputPrice          float64
+		outputPrice         float64
+		cacheReadMultiplier float64
 	}{
-		{model: "minimax/minimax-m3", upstreamID: "MiniMax-M3", inputPrice: 0.300, outputPrice: 1.200},
-		{model: "minimax/minimax-m2.7", upstreamID: "MiniMax-M2.7", inputPrice: 0.300, outputPrice: 1.200},
+		{model: "minimax/minimax-m3.1-flash", upstreamID: "MiniMax-M3.1-Flash", inputPrice: 0.150, outputPrice: 0.600, cacheReadMultiplier: 0.10},
+		{model: "minimax/minimax-m3", upstreamID: "MiniMax-M3", inputPrice: 0.300, outputPrice: 1.200, cacheReadMultiplier: 0.20},
+		{model: "minimax/minimax-m2.7", upstreamID: "MiniMax-M2.7", inputPrice: 0.300, outputPrice: 1.200, cacheReadMultiplier: 0.20},
 	}
 
 	for _, tc := range cases {
@@ -197,7 +199,7 @@ func TestResolveBinding_MiniMaxUsesNativeModelIDs(t *testing.T) {
 			assert.Equal(t, tc.upstreamID, binding.UpstreamID)
 			assert.Equal(t, tc.inputPrice, binding.Price.InputUSDPer1M)
 			assert.Equal(t, tc.outputPrice, binding.Price.OutputUSDPer1M)
-			assert.Equal(t, 0.20, binding.Price.EffectiveCacheReadMultiplier())
+			assert.Equal(t, tc.cacheReadMultiplier, binding.Price.EffectiveCacheReadMultiplier())
 		})
 	}
 }

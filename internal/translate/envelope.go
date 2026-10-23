@@ -1501,6 +1501,7 @@ var modelMaxOutputTokens = map[string]int{
 	"z-ai/glm-5.3-flash":               131072,
 	"google/gemini-3.7-flash":          65536,
 	"google/gemini-3.8-flash":          65536,
+	"minimax/minimax-m3.1-flash":       524288,
 }
 
 const defaultMaxOutputTokenCap = 8192

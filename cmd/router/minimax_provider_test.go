@@ -11,6 +11,7 @@ import (
 func TestUpstreamIDsForProvider_MiniMax(t *testing.T) {
 	ids := upstreamIDsForProvider(providers.ProviderMiniMax)
 
+	assert.Equal(t, "MiniMax-M3.1-Flash", ids["minimax/minimax-m3.1-flash"])
 	assert.Equal(t, "MiniMax-M3", ids["minimax/minimax-m3"])
 	assert.Equal(t, "MiniMax-M2.7", ids["minimax/minimax-m2.7"])
 }

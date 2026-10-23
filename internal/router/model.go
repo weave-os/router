@@ -170,6 +170,13 @@ var google3Base = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"l
 
 var openAICompatBase = NewSpec()
 
+// MiniMax M3.1 Flash accepts adaptive thinking only. Explicit disable is
+// rejected, while effort is carried through OpenAI's reasoning_effort or
+// Anthropic's output_config.effort field; the provider defaults to max.
+var minimaxFlash = NewSpecWithReasoning(ReasoningCapabilities{
+	Levels: []string{"low", "medium", "high", "xhigh", "max"}, SupportsAuto: true, AlwaysOn: true,
+}, CapReasoning)
+
 var registry = map[string]ModelSpec{
 	// claude-fable-5 has adaptive thinking always on (disabled is rejected);
 	// 1M context is native, so CapExtendedContext's beta header is a no-op.
@@ -298,6 +305,8 @@ var registry = map[string]ModelSpec{
 	"qwen/qwen3-coder-next":            openAICompatBase,
 	"qwen/qwen3-next-80b-a3b-instruct": openAICompatBase,
 	"qwen/qwen3.8-max":                 openAICompatBase,
+
+	"minimax/minimax-m3.1-flash": minimaxFlash,
 }
 
 // ValidateCatalogReasoningCapabilities validates every declared model at

@@ -15,6 +15,15 @@ func TestLookup_UnknownModel(t *testing.T) {
 	assert.False(t, spec.Supports(router.CapReasoning))
 }
 
+func TestLookup_MiniMaxFlashReasoning(t *testing.T) {
+	spec := router.Lookup("minimax/minimax-m3.1-flash")
+	assert.True(t, spec.Supports(router.CapReasoning))
+	assert.False(t, spec.Supports(router.CapAdaptiveThinking))
+	assert.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, spec.Reasoning().Levels)
+	assert.True(t, spec.Reasoning().SupportsAuto)
+	assert.True(t, spec.Reasoning().AlwaysOn)
+}
+
 func TestLookup_DateSuffixNormalization(t *testing.T) {
 	tests := []struct {
 		name          string
