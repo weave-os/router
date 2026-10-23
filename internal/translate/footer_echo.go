@@ -23,7 +23,8 @@ func FeedbackFooterInHistory(body []byte) bool {
 }
 
 // FeedbackFooterInResponsesHistory is the Responses-input analogue of
-// FeedbackFooterInHistory.
+// FeedbackFooterInHistory. Must run on the original body before portable
+// conversion strips the hint.
 func FeedbackFooterInResponsesHistory(body []byte) bool {
 	input := gjson.GetBytes(body, "input")
 	if !input.IsArray() {
