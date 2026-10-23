@@ -236,9 +236,9 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 			return -1, cluster.ErrAllowlistEmptiesPool
 		}
 		if openRouterOverflowEnabled(ctx) && subscriptionAPIOnly(ctx) {
-			var ok bool
-			if ctx, in, ok = s.withOpenRouterOverflowTarget(ctx, in); !ok {
-				return -1, cluster.ErrAllowlistEmptiesPool
+			var err error
+			if ctx, in, err = s.withOpenRouterOverflowTarget(ctx, in); err != nil {
+				return -1, err
 			}
 		}
 	}

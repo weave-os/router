@@ -7,6 +7,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/cluster"
 )
 
 // openRouterOverflowEnabled reports whether the installation serves exhausted
@@ -80,20 +81,20 @@ func (s *Service) subscriptionStateTargetBindings(ctx context.Context, target ro
 }
 
 // withOpenRouterOverflowTarget rewrites a paid dispatch outside the
-// subscription-state lane onto OpenRouter. ok is false when it cannot be.
-func (s *Service) withOpenRouterOverflowTarget(ctx context.Context, in failoverInputs) (context.Context, failoverInputs, bool) {
+// subscription-state lane onto OpenRouter.
+func (s *Service) withOpenRouterOverflowTarget(ctx context.Context, in failoverInputs) (context.Context, failoverInputs, error) {
 	target := openRouterOverflowTarget(ctx, in.initialDecision)
 	bindings := s.openRouterOverflowBindings(ctx, target)
 	if len(bindings) == 0 {
-		return ctx, in, false
+		return ctx, in, cluster.ErrAllowlistEmptiesPool
 	}
 	if in.initialDecision.Provider != target.Provider {
 		if in.buildAlternative == nil {
-			return ctx, in, false
+			return ctx, in, cluster.ErrAllowlistEmptiesPool
 		}
 		attempt, err := in.buildAlternative(target)
 		if err != nil {
-			return ctx, in, false
+			return ctx, in, err
 		}
 		in.attempt = attempt
 		ctx = s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, in.subscriptionStateHeaders)
@@ -103,5 +104,5 @@ func (s *Service) withOpenRouterOverflowTarget(ctx context.Context, in failoverI
 	}
 	in.initialDecision = target
 	in.bindings = bindings
-	return ctx, in, true
+	return ctx, in, nil
 }
