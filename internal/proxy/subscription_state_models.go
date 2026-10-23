@@ -22,7 +22,7 @@ type subscriptionStateAllowedModelsKey struct{}
 func subscriptionStateModelsEnabled(ctx context.Context) bool {
 	enabled, _ := ctx.Value(InstallationSubscriptionStateModelsEnabledContextKey{}).(bool)
 	return !subscriptionFundingOutOfPlayForRequest(ctx) &&
-		(enabled ||
+		(enabled || openRouterOverflowEnabled(ctx) ||
 			len(installationSubscriptionModelsWhenActiveFromContext(ctx)) > 0 ||
 			len(installationSubscriptionModelsWhenInactiveFromContext(ctx)) > 0)
 }
@@ -209,6 +209,7 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 	paidCtx = withSuppressedClaudeSubscription(withSuppressedCodexSubscription(paidCtx))
 	target := in.initialDecision
 	for {
+		target = openRouterOverflowTarget(paidCtx, target)
 		_, permitted := paidReq.AllowedModels[target.Model]
 		if permitted && s.subscriptionStatePaidTargetAvailable(paidCtx, in.subscriptionStateHeaders, target) {
 			break
@@ -266,12 +267,12 @@ func (s *Service) subscriptionStatePaidTargetAvailable(ctx context.Context, head
 	if s.subscriptionAPIAuthorization(s.withSubscriptionFundingAuthorization(ctx, headers), target.Provider, target.Model) != nil {
 		return false
 	}
-	return len(s.resolveBindingsForDispatch(resolvedCredentials, target)) > 0
+	return len(s.subscriptionStateTargetBindings(resolvedCredentials, target)) > 0
 }
 
 func (s *Service) dispatchSubscriptionStateTarget(ctx context.Context, in failoverInputs, target router.Decision, usesIncludedSubscription bool) (int, error) {
 	ctx = s.resolveCredentials(clearCredentials(ctx), target.Provider, target.Model, in.subscriptionStateHeaders)
-	resolvedTargetBindings := s.resolveBindingsForDispatch(ctx, target)
+	resolvedTargetBindings := s.subscriptionStateTargetBindings(ctx, target)
 	if !usesIncludedSubscription && in.onSubscriptionStatePaidTarget != nil {
 		in.onSubscriptionStatePaidTarget(target, resolvedTargetBindings)
 	}

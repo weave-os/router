@@ -662,3 +662,35 @@ func TestAnthropicGatewayPricesCacheReadsLikeDirectAnthropic(t *testing.T) {
 		})
 	}
 }
+
+func TestSubscriptionOverflowBindingsStayOutOfRouting(t *testing.T) {
+	openRouterOnly := map[string]struct{}{providers.ProviderOpenRouter: {}}
+	_, routable := RoutingTargetSet(openRouterOnly)["claude-opus-4-7"]
+	assert.False(t, routable, "an overflow binding must not make a model routable")
+	_, ok := ResolveBinding("claude-opus-4-7", openRouterOnly)
+	assert.False(t, ok)
+	assert.Empty(t, EnumerateBindings("gpt-5.4", openRouterOnly))
+	assert.Equal(t, providers.ProviderOpenRouter, CustomProviderFor("claude-opus-4-7", openRouterOnly, map[string][]string{"claude-opus-4-7": {providers.ProviderOpenRouter}}),
+		"a BYOK alias must still bind where only an overflow binding exists")
+
+	binding, ok := BindingFor("claude-opus-4-7", providers.ProviderOpenRouter)
+	require.True(t, ok)
+	assert.True(t, binding.SubscriptionOverflowOnly)
+	assert.Equal(t, "anthropic/claude-opus-4.7", binding.UpstreamID)
+	price, ok := PriceFor(providers.ProviderOpenRouter, "claude-opus-4-7")
+	require.True(t, ok)
+	assert.Equal(t, binding.Price, price)
+}
+
+func TestSubscriptionOverflowBindingsTrailOpenRouterVendorModels(t *testing.T) {
+	for _, model := range Models {
+		for index, binding := range model.Providers {
+			if !binding.SubscriptionOverflowOnly {
+				continue
+			}
+			assert.Equal(t, providers.ProviderOpenRouter, binding.Provider, model.ID)
+			assert.Equal(t, len(model.Providers)-1, index, "%s: overflow binding must trail every routable binding", model.ID)
+			assert.NotEmpty(t, binding.UpstreamID, model.ID)
+		}
+	}
+}

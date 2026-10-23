@@ -235,6 +235,12 @@ func (s *Service) dispatchWithFallback(ctx context.Context, in failoverInputs) (
 		if _, allowed := modelSet(installationSubscriptionModelsWhenInactiveFromContext(ctx))[in.initialDecision.Model]; !allowed {
 			return -1, cluster.ErrAllowlistEmptiesPool
 		}
+		if openRouterOverflowEnabled(ctx) && subscriptionAPIOnly(ctx) {
+			var ok bool
+			if ctx, in, ok = s.withOpenRouterOverflowTarget(ctx, in); !ok {
+				return -1, cluster.ErrAllowlistEmptiesPool
+			}
+		}
 	}
 	if len(in.alternatives) > 0 && in.buildAlternative != nil {
 		return s.dispatchSubscriptionAlternatives(ctx, in)

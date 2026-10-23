@@ -979,11 +979,10 @@ func installationSubscriptionModelsWhenActiveFromContext(ctx context.Context) []
 }
 
 func installationSubscriptionModelsWhenInactiveFromContext(ctx context.Context) []string {
-	v := ctx.Value(InstallationSubscriptionModelsWhenInactiveContextKey{})
-	if v == nil {
-		return nil
+	out, _ := ctx.Value(InstallationSubscriptionModelsWhenInactiveContextKey{}).([]string)
+	if openRouterOverflowEnabled(ctx) {
+		return openRouterOverflowModels(out)
 	}
-	out, _ := v.([]string)
 	return out
 }
 
@@ -1385,7 +1384,7 @@ func minContextWindowForModel(model string, enabledProviders map[string]struct{}
 	if !ok || len(m.Providers) == 0 {
 		return cw
 	}
-	for _, b := range m.Providers {
+	for _, b := range catalog.RoutableBindings(m) {
 		if _, enabled := enabledProviders[b.Provider]; !enabled {
 			continue
 		}
@@ -1509,7 +1508,7 @@ func servableUnder(model string, enabledProviders map[string]struct{}, bindings 
 	if !ok || len(m.Providers) == 0 {
 		return true
 	}
-	for _, b := range m.Providers {
+	for _, b := range catalog.RoutableBindings(m) {
 		if _, enabled := enabledProviders[b.Provider]; enabled {
 			return true
 		}

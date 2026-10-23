@@ -104,6 +104,7 @@ const (
 	KeyCCAutonomySystemAppend               Key = "cc_autonomy_system_append"
 	KeyCCWorkspaceSystemAppend              Key = "cc_workspace_system_append"
 	KeySubscriptionPlanAwareRouting         Key = "subscription_plan_aware_routing_enabled"
+	KeySubscriptionExhaustedOpenRouterOnly  Key = "subscription_exhausted_openrouter_only"
 	KeyCommittedStreamArmDemotion           Key = "committed_stream_arm_demotion"
 	KeyRescuedFailureArmDemotion            Key = "rescued_failure_arm_demotion"
 	KeyTransientRateLimit                   Key = "transient_rate_limit"
@@ -149,7 +150,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 23
+const RegistryVersion = 24
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -169,6 +170,12 @@ var Registry = []Definition{
 		Key:            KeySubscriptionPlanAwareRouting,
 		Kind:           KindBool,
 		Description:    "Avoid models covered only by exhausted Claude/Codex plans while another plan has headroom. Off by default; ignored when subscription routing is disabled.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeySubscriptionExhaustedOpenRouterOnly,
+		Kind:           KindBool,
+		Description:    "Serve Claude/Codex subscriptions until exhausted, then only the OpenRouter version of the exhausted-state models (all OpenRouter-served models when none are configured). Never falls back to direct Anthropic/OpenAI API keys. Off by default.",
 		OrgOverridable: true,
 	},
 	{

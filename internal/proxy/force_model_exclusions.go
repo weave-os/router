@@ -122,7 +122,7 @@ func (s *Service) servableBindings(model, provider string) []string {
 		return []string{provider}
 	}
 	out := make([]string, 0, len(m.Providers))
-	for _, b := range m.Providers {
+	for _, b := range catalog.RoutableBindings(m) {
 		if s.deploymentKeyedProviders != nil {
 			if _, keyed := s.deploymentKeyedProviders[b.Provider]; !keyed {
 				continue

@@ -545,6 +545,20 @@ normal eligibility. `subscription_routing_disabled` suppresses this feature even
 when the org flag is on. This setting does not enable subscription-account
 enrollment or change how quota is observed.
 
+
+## Exhausted-subscription OpenRouter lane
+
+`subscription_exhausted_openrouter_only` is an organization-only boolean flag
+override (Admin → Router → Flags), default `false`. When on, Claude/Codex
+subscriptions serve first; once the router has quota-exhaustion evidence, paid
+turns go only to the OpenRouter binding of the exhausted-state models
+(`models_when_subscription_inactive`, or every OpenRouter-served model when
+that set is empty). Direct Anthropic/OpenAI API keys never serve the paid turn;
+if OpenRouter is excluded, unkeyed, or fails, the turn errors. Claude/GPT rows
+carry these OpenRouter bindings as `SubscriptionOverflowOnly`, so no other
+routing or failover path uses them. Managed deployments need
+`ROUTER_OPENROUTER_PLATFORM_ENABLED=true` (or an installation BYOK OpenRouter
+key) for the lane to have a key.
 ## Provider and model exclusions
 
 Exclusions keep traffic away from a provider or model — the control to reach
