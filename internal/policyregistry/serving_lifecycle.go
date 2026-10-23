@@ -1,8 +1,6 @@
 package policyregistry
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -382,6 +380,5 @@ func RoutingControlsDigest(allowedModels, excludedModels, excludedProviders []st
 		strategy = *routingStrategy
 	}
 	encoded, _ := json.Marshal([]any{canonical(allowedModels), canonical(excludedModels), canonical(excludedProviders), strategy})
-	sum := sha256.Sum256(encoded)
-	return hex.EncodeToString(sum[:])
+	return Digest(encoded)
 }
