@@ -795,7 +795,7 @@ func (s *Service) runTurnLoop(
 		req.TranslationRequirements = env.TranslationRequirements(translationEndpointFor(env))
 	}
 	threadSessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyID)
-	req.TranslationRequirements = s.scopeSearchRequirement(threadSessionKey, env, req.TranslationRequirements)
+	req.TranslationRequirements = s.scopeSearchRequirement(threadSessionKey, searchUseEnvelope(ctx, env), req.TranslationRequirements)
 	var compatibilityErr error
 	req, compatibilityErr = s.applyTranslationPlan(ctx, req)
 	if compatibilityErr != nil {

@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"sync"
 
 	"weave-os/router/internal/router"
@@ -59,4 +60,19 @@ func (s *Service) scopeSearchRequirement(sessionKey [sessionpin.SessionKeyLen]by
 	reqs.CitationsOrSearch = s.searchUse.observe(
 		string(sessionKey[:]), env.SearchToolUseRecency(), s.searchRequirementDecayTurns)
 	return reqs
+}
+
+// searchUseEnvelope returns the envelope whose history records search use. A
+// Responses turn routes on its portable projection, which drops hosted
+// web_search_call items, so recency must be read from the caller's native body.
+func searchUseEnvelope(ctx context.Context, env *translate.RequestEnvelope) *translate.RequestEnvelope {
+	native, ok := ctx.Value(nativeResponsesBodyContextKey{}).([]byte)
+	if !ok || len(native) == 0 {
+		return env
+	}
+	nativeEnv, err := translate.ParseOpenAI(native)
+	if err != nil {
+		return env
+	}
+	return nativeEnv
 }
