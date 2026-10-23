@@ -43,18 +43,23 @@ loved by Robinhood, PostHog, Reducto, and hundreds of others.*
 
 Point Claude Code, Codex, Cursor, or your own app at `localhost:8080`. The router:
 
-- 🎯 **Routes per action.** A cluster scorer derived from
-  [Avengers-Pro](https://arxiv.org/abs/2508.12631) [^1] picks the right
-  model from your enabled providers, for every upstream API request.
-  (See [docs/SEMANTICS.md](docs/SEMANTICS.md) for the canonical terminology:
-  the router routes per **action**, not per **turn**.)
-- 🔌 **Speaks everyone's API.** Anthropic Messages, OpenAI Chat Completions,
-  Gemini native. Streaming, tools, vision, the works.
+- 🎯 **Routes per action.** The configured routing strategy selects a model
+  from your enabled providers. The default self-hosted stack uses a cluster
+  scorer derived from [Avengers-Pro](https://arxiv.org/abs/2508.12631) [^1];
+  managed serving workers use registered policy strategies. See
+  [routing semantics](docs/SEMANTICS.md) and
+  [configuration](docs/CONFIGURATION.md).
+- 🔌 **Speaks multiple model APIs.** Anthropic Messages, OpenAI Chat Completions
+  and Responses (`/v1/responses`), and Gemini native. Streaming, tools, and
+  vision depend on the request and provider; see
+  [translation compatibility](docs/TRANSLATION_COMPATIBILITY.md).
 - 🧠 **Knows OSS too.** DeepSeek, Kimi, GLM, Qwen, Llama, Mistral via
   OpenRouter (or any OpenAI-compatible endpoint).
 - 🔒 **BYOK by default.** Provider keys stay on your box, encrypted at rest.
-- 📊 **Observable.** OTLP traces out of the box. See them in the Weave dashboard (http://localhost:8080/ui/dashboard) or drop in Honeycomb, Datadog,
-  Grafana, whatever.
+- 📊 **Observable.** In self-hosted mode, the local dashboard shows usage and
+  costs. Set `OTEL_EXPORTER_OTLP_ENDPOINT` to export per-request traces to an
+  OTLP collector; export is disabled when it is unset. See
+  [telemetry configuration](docs/CONFIGURATION.md#telemetry-opentelemetry).
 
 ## 30-second quickstart
 
@@ -126,20 +131,24 @@ curl -sS http://localhost:8080/v1/route -H "Authorization: Bearer rk_..." -d '..
 
 ### What that stack looks like
 
-Only the grey boxes are off your machine. The router, the scorer, Postgres, and
-your provider keys all stay local; prompts go from the router straight to the
-provider you configured, never to Weave.
+This diagram shows a self-hosted deployment. Only the grey boxes are off your
+machine. The router, cluster scorer, and Postgres stay local, and inference
+requests go to your configured model provider. If you enable and select the optional HMM policy, it also sends conversation
+text to its configured embedding provider
+(Google by default, or an OpenAI-compatible endpoint; see
+[HMM configuration](docs/CONFIGURATION.md#self-hosted-frozen-hmm-sidecar)).
 
 ```mermaid
 flowchart LR
     client["Claude Code, Codex, opencode,<br/>pi, Cursor, your own app"]
-    router["Router :8080<br/>/v1/messages · /v1/chat/completions<br/>/v1beta/models · /v1/route"]
+    router["Router :8080<br/>/v1/messages · /v1/chat/completions · /v1/responses<br/>/v1beta/models · /v1/route"]
     scorer["Cluster scorer<br/>in-process ONNX embedder"]
     hmm["HMM policy sidecar :8093<br/>optional, make up-hmm"]
     pg[("Postgres<br/>installations, rk_ keys,<br/>encrypted BYOK keys, usage")]
     ui["Dashboard /ui<br/>selfhosted mode only"]
     providers["Anthropic · OpenAI · Gemini<br/>OpenRouter and any<br/>OpenAI-compatible endpoint"]
-    otel["Your OTLP collector<br/>Honeycomb, Datadog, Grafana"]
+    otel["Optional OTLP collector<br/>set OTEL_EXPORTER_OTLP_ENDPOINT"]
+    embedding["Configured HMM embedding service<br/>Google by default"]
 
     client -->|"rk_… bearer token,<br/>streamed response back"| router
     router -->|"embed and score the action"| scorer
@@ -147,10 +156,11 @@ flowchart LR
     router -->|"auth, config, usage"| pg
     pg --> ui
     router -->|"provider key from env or BYOK"| providers
-    router -.->|"spans and usage logs"| otel
+    router -.->|"traces when configured"| otel
+    hmm -->|"conversation text when selected"| embedding
 
     classDef external fill:#f4f4f5,stroke:#a1a1aa,color:#3f3f46
-    class providers,otel external
+    class providers,otel,embedding external
 ```
 
 Multi-replica deployments also need Pub/Sub (`PUBSUB_*`) for cache
@@ -217,7 +227,7 @@ mascot, a persistent `WEAVE ROUTER` route/savings line, `/fm` + `/ufm`
 model-pin commands with a `[forced]` status, and context-isolated subagents
 without shipping or maintaining a forked pi binary.
 
-**Cursor** *(early beta, performance may not be the best).* Settings →
+**Cursor** *(manual setup; early beta).* Settings →
 Models → *Override OpenAI Base URL* → `http://localhost:8080/v1`, paste
 `rk_...` as the API key.
 
@@ -241,21 +251,24 @@ dashboard, where selection is an organization-wide setting. See
 > - `sk-or-...` / `sk-ant-...` / `sk-...` = your **upstream** provider key. Lives in `.env.local`.
 > - `rk_...` = your **router** key. Clients send this as a Bearer token.
 
-## Endpoints
+## Common endpoints
 
-| Endpoint                       | Format                                   |
-| ------------------------------ | ---------------------------------------- |
-| `POST /v1/messages`            | Anthropic Messages, routed               |
-| `POST /v1/chat/completions`    | OpenAI Chat Completions, routed          |
-| `POST /v1beta/models/:action`  | Gemini `generateContent`, routed         |
-| `POST /v1/route`               | Returns the decision, no upstream call   |
-| `GET /v1/models` &nbsp;·&nbsp; `POST /v1/messages/count_tokens` | Anthropic passthrough |
-| `GET /livez` &nbsp;·&nbsp; `GET /startupz` | process responsive check + completed initialization |
-| `GET /health` &nbsp;·&nbsp; `GET /readyz` &nbsp;·&nbsp; `GET /validate` | responsive-check alias + dependency diagnostics + key check |
-| `POST /v1/client-events`       | Harness CLI's `off`/`on`/`uninstall` report (`harness` = `claude_code`/`codex`/`opencode`/`pi`); logged + exported as `router.harness_lifecycle`, nothing stored |
-| `GET /v1/sessions/:session_id/cost` | One session's committed cost + savings, scoped to your key's installation; `rk_` or `ra_` key ([docs](docs/SESSION_COST.md)) |
-| `GET /v1/analytics/routing-decisions` | Raw routing decisions as cursor-paginated NDJSON ([docs](docs/ANALYTICS_EXPORT.md)) |
-| `GET /v1/analytics/schema` &nbsp;·&nbsp; `GET /v1/analytics/models` | Export field dictionary + price book |
+| Method and path | What it does |
+|---|---|
+| `POST /v1/messages` | Anthropic Messages request, routed. |
+| `POST /v1/chat/completions` | OpenAI Chat Completions request, routed. |
+| `POST /v1/responses` | OpenAI Responses create request; routing and translation depend on the request and provider ([compatibility](docs/TRANSLATION_COMPATIBILITY.md)). |
+| `POST /v1beta/models/{model}:generateContent` | Gemini native `generateContent` request, routed. |
+| `POST /v1beta/models/{model}:streamGenerateContent` | Gemini native streaming `streamGenerateContent` request, routed. |
+| `POST /v1/route` | Returns the routing decision without an upstream call. |
+| `GET /v1/models` | Anthropic passthrough except for Codex; its catalog is empty unless native model pinning is on and discovery succeeds. |
+| `POST /v1/messages/count_tokens` | Anthropic token-count request passthrough. |
+| `GET /livez` · `GET /startupz` | Process responsive check and completed initialization. |
+| `GET /health` · `GET /readyz` · `GET /validate` | Responsive-check alias, dependency diagnostics, and key check. |
+| `POST /v1/client-events` | Harness CLI `off`/`on`/`uninstall` report; logged and exported as `router.harness_lifecycle`, nothing stored. |
+| `GET /v1/sessions/:session_id/cost` | Session committed cost and savings, scoped to the key's installation; `rk_` or `ra_` key ([docs](docs/SESSION_COST.md)). |
+| `GET /v1/analytics/routing-decisions` | Raw routing decisions as cursor-paginated NDJSON ([docs](docs/ANALYTICS_EXPORT.md)). |
+| `GET /v1/analytics/schema` · `GET /v1/analytics/models` | Export field dictionary and price book. |
 
 Use `/startupz` for Cloud Run startup and `/livez` for its process responsive
 check. The listener starts after artifact/client initialization and bounded
