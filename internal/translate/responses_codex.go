@@ -268,6 +268,10 @@ func (c *portableCodexResponsesConverter) collectToolArray(tools gjson.Result, n
 			c.collectFunctionTool(tool, namespace, toolPath)
 		case "custom":
 			c.collectCustomTool(tool, namespace, toolPath)
+		case "web_search", "web_search_preview":
+			// OpenAI executes hosted search itself; scoped CitationsOrSearch keeps
+			// turns that actually searched on OpenAI, so other targets drop it.
+			c.report("responses_hosted_web_search_dropped", "dropped", toolPath)
 		default:
 			c.result.Requirements.CustomTools = true
 			c.markNativeOnly("responses_unknown_tool_native_only", toolPath)
@@ -418,6 +422,8 @@ func (c *portableCodexResponsesConverter) convertInput(input gjson.Result) []map
 			c.appendToolCall(&messages, item, path, false)
 		case "custom_tool_call":
 			c.appendToolCall(&messages, item, path, true)
+		case "web_search_call":
+			c.report("responses_web_search_call_dropped", "dropped", path)
 		case "function_call_output", "custom_tool_call_output":
 			if message, images, ok := c.convertToolOutput(item, path); ok {
 				messages = append(messages, message)

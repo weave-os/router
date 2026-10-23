@@ -12,12 +12,12 @@ import (
 // The log must name the tool or input item that pinned the request, or a
 // dropped cross-provider pin cannot be traced to its cause.
 func TestNativeOnlyReasons_NamesPreservedTransforms(t *testing.T) {
-	body := []byte(`{"model":"auto","input":"hi","tools":[{"type":"function","name":"exec_command","parameters":{"type":"object","properties":{}}},{"type":"web_search"}]}`)
+	body := []byte(`{"model":"auto","input":"hi","tools":[{"type":"function","name":"exec_command","parameters":{"type":"object","properties":{}}},{"type":"image_generation"}]}`)
 	conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
 	require.NoError(t, err)
 	require.True(t, conversion.Requirements.NativeOnly)
 
-	assert.Equal(t, []string{"responses_unknown_tool_native_only@tools.1:web_search"}, nativeOnlyReasons(conversion.Report, body))
+	assert.Equal(t, []string{"responses_unknown_tool_native_only@tools.1:image_generation"}, nativeOnlyReasons(conversion.Report, body))
 }
 
 func TestNativeOnlyReasons_Bounded(t *testing.T) {
