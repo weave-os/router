@@ -33,9 +33,29 @@ settings="$test_home/.claude/settings.json"
 state="$test_home/.claude/.weave-context-window.json"
 
 printf '%s\n' '{"model":"opus","statusLine":{"type":"command","command":"my-status"},"env":{"MY_SETTING":"keep"}}' >"$settings"
-run
+run --context-window off
 test "$(model "$settings")" = opus
 test ! -e "$state"
+
+# A plain fresh install defaults to the 1M variant, and uninstall restores it.
+run
+test "$(model "$settings")" = 'opus[1m]'
+test "$(jq -r '.original' "$state")" = opus
+uninstall
+test "$(model "$settings")" = opus
+test ! -e "$state"
+
+# The default warns instead of failing when 1M can't be asserted.
+printf '%s\n' '{"model":"custom-model"}' >"$settings"
+run
+test "$(model "$settings")" = custom-model
+grep -q 'Cannot assert 1M support' "$work/output"
+uninstall
+printf '%s\n' '{"env":{"CLAUDE_CODE_DISABLE_1M_CONTEXT":"true"}}' >"$settings"
+run
+test "$(model "$settings")" = unset
+uninstall
+printf '%s\n' '{"model":"opus","statusLine":{"type":"command","command":"my-status"},"env":{"MY_SETTING":"keep"}}' >"$settings"
 
 # A first-time context-window opt-in also works through update mode.
 run_update --context-window 1m
@@ -129,6 +149,15 @@ uninstall --dir "$work/isolated"
 test "$(model "$work/isolated/.claude/settings.json")" = unset
 test "$(model "$settings")" = opus
 
-if run --codex --context-window 1m; then echo 'wrong target unexpectedly accepted'; exit 1; fi
+if run --opencode --context-window 1m; then echo 'wrong target unexpectedly accepted'; exit 1; fi
 if run --context-window 200k; then echo 'invalid window unexpectedly accepted'; exit 1; fi
+
+# Review-panel flags apply the same choices non-interactively.
+printf '%s\n' '{"model":"opus"}' >"$settings"
+run --no-statusline --no-attribution --yes
+test "$(model "$settings")" = 'opus[1m]'
+test "$(jq -r 'has("statusLine")' "$settings")" = false
+test "$(jq -r 'has("attribution")' "$settings")" = false
+test "$(jq -r '.env.ENABLE_TOOL_SEARCH' "$settings")" = true
+uninstall
 echo 'Claude context-window lifecycle tests passed'

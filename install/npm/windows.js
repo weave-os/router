@@ -13,6 +13,8 @@ const git = require("isomorphic-git");
 
 const defaultBaseUrl = process.env.WEAVE_ROUTER_URL || "https://router.workweave.ai";
 const packageName = process.env.WEAVE_ROUTER_NPM_PACKAGE || "@weave-os/router";
+// Codex's own max_context_window for its 1M models (gpt-6-*, gpt-5.6-*); keep in sync with install.sh.
+const CODEX_ONE_MILLION_CONTEXT_WINDOW = 872000;
 const claudeAttribution = {
   commit: "Co-Authored-By: Weave Router <router@weaveos.com>",
   pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)",
@@ -121,6 +123,10 @@ function parseArgs(args) {
     if (["--claude", "--codex", "--opencode", "--pi"].includes(arg)) options.target = arg.slice(2);
     else if (arg === "--uninstall") options.mode = "uninstall";
     else if (arg === "--non-interactive") options.nonInteractive = true;
+    // The settings review panel lives in install.sh; the native installer
+    // always applies the recommended settings, so these flags are accepted
+    // for command compatibility. It writes no status line or Codex hooks.
+    else if (["--yes", "-y", "--no-statusline", "--no-hooks"].includes(arg)) continue;
     else if (arg === "--local") options.baseUrl = "http://localhost:8080";
     else if (arg === "-h" || arg === "--help") options.help = true;
     else if (["--scope", "--dir", "--base-url", "--email", "--return-url"].includes(arg)) {
@@ -244,6 +250,10 @@ function installCodex(paths, baseUrl, key, email) {
   const hasUserModel = typeof currentModel === "string" && currentModel !== "weave-auto";
   settings.model_provider = "weave";
   if (!hasUserModel) settings.model = "weave-auto";
+  // Match Codex's own max_context_window for its 1M models; keep in sync with install.sh.
+  state.modelContextWindow ||= { exists: Object.hasOwn(settings, "model_context_window") };
+  writeJson(paths.state, state);
+  if (!state.modelContextWindow.exists) settings.model_context_window = CODEX_ONE_MILLION_CONTEXT_WINDOW;
   settings.model_providers ||= {};
   settings.model_providers.weave = {
     name: "Weave Router",
@@ -342,6 +352,7 @@ function uninstall(paths, target) {
     if (!settings.model_providers?.weave?.http_headers?.["X-Weave-Router-Key"]) return;
     restoreField(settings, "model_provider", readJson(paths.state).modelProvider, "weave");
     if (settings.model === "weave-auto") delete settings.model;
+    if (!readJson(paths.state).modelContextWindow?.exists && settings.model_context_window === CODEX_ONE_MILLION_CONTEXT_WINDOW) delete settings.model_context_window;
     delete settings.model_providers?.weave;
     if (settings.model_providers && !Object.keys(settings.model_providers).length) delete settings.model_providers;
     writeToml(paths.config, settings);
