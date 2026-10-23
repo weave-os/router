@@ -404,3 +404,19 @@ func TestCyberRefusalGate_RecordsHoldCapRelease(t *testing.T) {
 	assert.Equal(t, cyberRefusalHoldCapRelease, gate.releaseEvent)
 	assert.Empty(t, gate.releaseItemType)
 }
+
+const responsesMetadataFrame = "event: response.metadata\n" +
+	`data: {"type":"response.metadata","sequence_number":1,"metadata":{}}` + "\n\n"
+
+func TestCyberRefusalGate_HoldsFailureAfterMetadata(t *testing.T) {
+	rec := httptest.NewRecorder()
+	gate := newCyberRefusalGate(rec, false).holdPreOutputFailure()
+
+	_, err := gate.Write([]byte(responsesCreatedFrame + responsesMetadataFrame + responsesOverloadFailedFrame))
+	require.NoError(t, err)
+	require.NoError(t, gate.Finalize())
+
+	assert.True(t, gate.failureWithheld)
+	assert.Empty(t, gate.releaseEvent)
+	assert.Empty(t, rec.Body.String())
+}

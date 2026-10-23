@@ -65,3 +65,49 @@ func TestCodexPlanOverload_RetriesSameModelOnWeaveKey(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "served on the Weave key")
 	assert.NotContains(t, rec.Body.String(), "server_is_overloaded")
 }
+
+// planMetadataThenOverloadClient answers the plan attempt like the ChatGPT
+// backend: lifecycle and response.metadata frames, then an in-stream overload.
+type planMetadataThenOverloadClient struct{ oauthPerCall []bool }
+
+func (*planMetadataThenOverloadClient) SupportsSubscriptions() bool { return true }
+
+func (c *planMetadataThenOverloadClient) Proxy(ctx context.Context, _ router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
+	creds := CredentialsFromContext(ctx)
+	oauth := creds != nil && creds.OAuth
+	c.oauthPerCall = append(c.oauthPerCall, oauth)
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	if oauth {
+		_, _ = io.WriteString(w, "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_overloaded\",\"object\":\"response\",\"status\":\"in_progress\",\"output\":[]}}\n\n")
+		_, _ = io.WriteString(w, "event: response.metadata\ndata: {\"type\":\"response.metadata\",\"sequence_number\":1,\"metadata\":{}}\n\n")
+		_, _ = io.WriteString(w, "event: response.failed\ndata: "+codexInStreamOverloadFailure+"\n\n")
+		return &providers.UpstreamErrorResponse{Status: http.StatusBadGateway, Body: []byte(codexInStreamOverloadFailure)}
+	}
+	_, _ = io.WriteString(w, "data: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"served on the Weave key\"}\n\n")
+	_, err := io.WriteString(w, "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"paid\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n")
+	return err
+}
+
+func (*planMetadataThenOverloadClient) Passthrough(context.Context, providers.PreparedRequest, http.ResponseWriter, *http.Request) error {
+	return providers.ErrNotImplemented
+}
+
+// response.metadata carries no output. An overload after it must still be
+// retried on the Weave key instead of reaching Codex.
+func TestCodexPlanOverloadAfterMetadata_RetriesSameModelOnWeaveKey(t *testing.T) {
+	client := &planMetadataThenOverloadClient{}
+	svc := codexOverloadService(client, &anthropicServingClient{}, false)
+	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"read main.go"}]}]}`
+	rec := httptest.NewRecorder()
+	ctx := context.WithValue(codexSubscriptionTestCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx = WithManagedSubscriptionUsage(ctx)
+	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/responses", body))
+
+	require.NoError(t, err)
+	assert.Equal(t, []bool{true, false}, client.oauthPerCall, "plan attempt first, then the deployment key")
+	out := rec.Body.String()
+	assert.Contains(t, out, "served on the Weave key")
+	assert.NotContains(t, out, "response.failed")
+	assert.NotContains(t, out, "resp_overloaded")
+}

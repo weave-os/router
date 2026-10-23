@@ -40,6 +40,8 @@ var responsesPreambleEventTypes = map[string]struct{}{
 	"response.created":     {},
 	"response.queued":      {},
 	"response.in_progress": {},
+	// The ChatGPT backend sends response.metadata ahead of any output.
+	"response.metadata": {},
 }
 
 // responsesPreOutputFailureEventTypes end a /v1/responses stream without
