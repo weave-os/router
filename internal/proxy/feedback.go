@@ -206,10 +206,10 @@ const feedbackFooterTextCodex = "\n\n_Weave Router feedback:_ `$rf +` good exper
 // dispatches and machine turns (compaction, probe, title-gen, classifier)
 // render final text the user didn't directly initiate, where a trailing /rf
 // hint would strand beneath it (e.g. under an Explore subagent's result).
-// echoedSinceHumanTurn suppresses the hint when the history already
-// shows it since the user's last real input (background-task continuations
-// each produce a natural stop and would otherwise stack duplicate hints).
-func (s *Service) feedbackFooter(ctx context.Context, clientApp string, tt turntype.TurnType, echoedSinceHumanTurn bool) string {
+// echoedInConversation suppresses the hint once the history already shows it,
+// so a conversation gets it at most once. Headless runs (`claude -p`, Agent
+// SDK, `codex exec`) never get it: their output is consumed by scripts.
+func (s *Service) feedbackFooter(ctx context.Context, clientApp string, tt turntype.TurnType, echoedInConversation bool) string {
 	if hideTerminalSurfacesForRequest(ctx) {
 		return ""
 	}
@@ -222,11 +222,21 @@ func (s *Service) feedbackFooter(ctx context.Context, clientApp string, tt turnt
 	if tt != turntype.MainLoop && tt != turntype.ToolResult {
 		return ""
 	}
-	if echoedSinceHumanTurn {
+	if echoedInConversation || isHeadlessClientUserAgent(ClientIdentityFrom(ctx).UserAgent) {
 		return ""
 	}
 	if clientApp == ClientAppCodex {
 		return feedbackFooterTextCodex
 	}
 	return feedbackFooterText
+}
+
+// isHeadlessClientUserAgent recognizes non-interactive harness runs from the
+// User-Agent: Claude Code reports its entrypoint as "(external, sdk-cli)" for
+// `claude -p` and "sdk-ts"/"sdk-py" for the Agent SDK, while interactive use
+// reports "cli"; Codex prefixes the User-Agent with its originator
+// ("codex_exec", "codex_sdk_ts").
+func isHeadlessClientUserAgent(userAgent string) bool {
+	ua := strings.ToLower(userAgent)
+	return strings.Contains(ua, ", sdk-") || strings.HasPrefix(ua, "codex_exec") || strings.HasPrefix(ua, "codex_sdk")
 }
