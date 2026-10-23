@@ -330,3 +330,49 @@ func TestCyberRefusalGate_ReleasesWhenHeldTailReachesCap(t *testing.T) {
 	assert.False(t, gate.withheld)
 	assert.Equal(t, responsesCreatedFrame+unterminated, rec.Body.String())
 }
+
+const responsesReasoningItemFrame = "event: response.output_item.added\n" +
+	`data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"id":"rs_1","type":"reasoning","summary":[]}}` + "\n\n"
+
+const responsesReasoningSummaryFrame = "event: response.reasoning_summary_text.delta\n" +
+	`data: {"type":"response.reasoning_summary_text.delta","sequence_number":2,"item_id":"rs_1","output_index":0,"summary_index":0,"delta":"thinking"}` + "\n\n"
+
+// Reasoning is not output the client can keep: an overload after it must still
+// leave the attempt rescuable.
+func TestCyberRefusalGate_HoldsFailureAfterReasoning(t *testing.T) {
+	rec := httptest.NewRecorder()
+	gate := newCyberRefusalGate(rec, false).holdPreOutputFailure()
+
+	_, err := gate.Write([]byte(responsesCreatedFrame + responsesReasoningItemFrame + responsesReasoningSummaryFrame + responsesOverloadFailedFrame))
+	require.NoError(t, err)
+	require.NoError(t, gate.Finalize())
+
+	assert.True(t, gate.failureWithheld)
+	assert.Empty(t, rec.Body.String())
+}
+
+// Held reasoning reaches the client, in order, once the stream carries output.
+func TestCyberRefusalGate_ReleasesReasoningWithOutput(t *testing.T) {
+	rec := httptest.NewRecorder()
+	gate := newCyberRefusalGate(rec, false).holdPreOutputFailure()
+
+	stream := responsesCreatedFrame + responsesReasoningItemFrame + responsesReasoningSummaryFrame + responsesOutputFrame
+	_, err := gate.Write([]byte(stream))
+	require.NoError(t, err)
+	require.NoError(t, gate.Finalize())
+
+	assert.False(t, gate.failureWithheld)
+	assert.Equal(t, stream, rec.Body.String())
+}
+
+// Only the failure hold withholds reasoning; a refusal-only gate still releases on it.
+func TestCyberRefusalGate_RefusalOnlyGateReleasesOnReasoning(t *testing.T) {
+	rec := httptest.NewRecorder()
+	gate := newCyberRefusalGate(rec, true)
+
+	stream := responsesCreatedFrame + responsesReasoningItemFrame
+	_, err := gate.Write([]byte(stream))
+	require.NoError(t, err)
+
+	assert.Equal(t, stream, rec.Body.String())
+}

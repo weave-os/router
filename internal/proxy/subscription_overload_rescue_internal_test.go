@@ -295,3 +295,44 @@ func TestAuthorizeSubscriptionAPI_ProviderOverloadAuthorizesPaidRescue(t *testin
 	require.ErrorIs(t, svc.authorizeSubscriptionAPI(ctx, subscriptions.ProviderCodex, "codex-token", "", clientAppRefusalFunding{}), ErrSubscriptionPoolUnavailable,
 		"the capacity mark is bounded by its cooldown")
 }
+
+// codexReasoningThenOverloadClient answers like the ChatGPT backend overloading
+// after reasoning began but before any output.
+type codexReasoningThenOverloadClient struct{ calls int }
+
+func (c *codexReasoningThenOverloadClient) Proxy(_ context.Context, _ router.Decision, _ providers.PreparedRequest, w http.ResponseWriter, _ *http.Request) error {
+	c.calls++
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_overloaded\",\"object\":\"response\",\"status\":\"in_progress\",\"output\":[]}}\n\n")
+	_, _ = io.WriteString(w, "event: response.output_item.added\ndata: {\"type\":\"response.output_item.added\",\"sequence_number\":1,\"output_index\":0,\"item\":{\"id\":\"rs_overloaded\",\"type\":\"reasoning\",\"summary\":[]}}\n\n")
+	_, _ = io.WriteString(w, "event: response.reasoning_summary_text.delta\ndata: {\"type\":\"response.reasoning_summary_text.delta\",\"sequence_number\":2,\"item_id\":\"rs_overloaded\",\"output_index\":0,\"summary_index\":0,\"delta\":\"thinking\"}\n\n")
+	_, _ = io.WriteString(w, "event: response.failed\ndata: "+codexInStreamOverloadFailure+"\n\n")
+	return &providers.UpstreamErrorResponse{Status: http.StatusBadGateway, Body: []byte(codexInStreamOverloadFailure)}
+}
+
+func (c *codexReasoningThenOverloadClient) Passthrough(context.Context, providers.PreparedRequest, http.ResponseWriter, *http.Request) error {
+	return nil
+}
+
+// The ChatGPT backend can overload after streaming reasoning frames. Those
+// frames must not commit the turn, or the caller's own plan session sees the
+// overload instead of the next scored candidate.
+func TestCodexPlanOverloadAfterReasoning_RescuedBySiblingCandidate(t *testing.T) {
+	primary := &codexReasoningThenOverloadClient{}
+	sibling := &anthropicServingClient{}
+	svc := codexOverloadService(primary, sibling, true)
+	body := `{"model":"auto","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"read main.go"}]}]}`
+	rec := httptest.NewRecorder()
+	ctx := context.WithValue(codexSubscriptionTestCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx = WithManagedSubscriptionUsage(ctx)
+	err := svc.ProxyOpenAIResponses(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/responses", body))
+
+	require.NoError(t, err, "the sibling must serve the turn the plan model failed before output")
+	assert.Greater(t, primary.calls, 1, "the overloaded binding is retried before the rescue")
+	assert.Equal(t, 1, sibling.calls)
+	out := rec.Body.String()
+	assert.Contains(t, out, "served by sibling")
+	assert.NotContains(t, out, "rs_overloaded", "no reasoning from the failed attempt reaches the client")
+	assert.NotContains(t, out, "response.failed")
+}

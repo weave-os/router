@@ -46,6 +46,28 @@ var responsesPreOutputFailureEventTypes = map[string]struct{}{
 	"error":           {},
 }
 
+// responsesReasoningEventTypes carry reasoning, which a failed attempt can drop
+// without contradicting a rescue: the client keeps nothing of it.
+var responsesReasoningEventTypes = map[string]struct{}{
+	"response.reasoning_summary_part.added": {},
+	"response.reasoning_summary_part.done":  {},
+	"response.reasoning_summary_text.delta": {},
+	"response.reasoning_summary_text.done":  {},
+	"response.reasoning_text.delta":         {},
+	"response.reasoning_text.done":          {},
+}
+
+func responsesReasoningEvent(eventType string, payload []byte) bool {
+	if _, reasoning := responsesReasoningEventTypes[eventType]; reasoning {
+		return true
+	}
+	switch eventType {
+	case "response.output_item.added", "response.output_item.done":
+		return gjson.GetBytes(payload, "item.type").String() == "reasoning"
+	}
+	return false
+}
+
 // cyberRefusalGate tees an OpenAI response to inner while classifying it. When
 // armed it withholds the preamble so a refusal arriving before any output can be
 // swallowed and the turn re-dispatched; the bytes are released as soon as the
@@ -152,9 +174,13 @@ func (g *cyberRefusalGate) scanHeld() (refusal, failure, release bool) {
 		if _, failed := responsesPreOutputFailureEventTypes[eventType]; failed && g.holdFailure {
 			return false, true, false
 		}
-		if _, preamble := responsesPreambleEventTypes[eventType]; !preamble {
-			return false, false, true
+		if _, preamble := responsesPreambleEventTypes[eventType]; preamble {
+			continue
 		}
+		if g.holdFailure && responsesReasoningEvent(eventType, payload) {
+			continue
+		}
+		return false, false, true
 	}
 }
 
