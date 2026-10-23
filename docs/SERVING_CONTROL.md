@@ -547,7 +547,11 @@ revision is required. Existing eligible conversations retain their original poli
 classifier and worker selection across either forward promotion or rollback. New
 conversations use the current assignment. Preserve assignment generations during
 roster content updates: changing enrollment, authorization, entitlement or profile
-assignment generations deliberately triggers the existing rebind behavior.
+assignment generations deliberately triggers the existing rebind behavior. So does
+changing the installation's allowed models, excluded models, excluded providers or
+routing strategy: admission compares a digest of those controls, so a pinned
+conversation cannot keep a roster that no longer overlaps the customer's models.
+Bindings persisted before the digest existed keep their pin.
 
 Retention remains bounded by the existing session lifecycle: 24 hours idle, seven
 days from activation supersession, then at least 15 minutes drain grace. Explicit

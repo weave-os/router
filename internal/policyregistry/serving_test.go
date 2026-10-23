@@ -495,6 +495,39 @@ func TestProfileAssignmentsDoNotFallBackAndGenerationChangesRebind(t *testing.T)
 	require.ErrorContains(t, err, "unknown activation")
 }
 
+func TestRoutingControlsChangeRebindsPinnedConversation(t *testing.T) {
+	set := fixtureSet("one")
+	profile := namespaceRef(policyregistry.ServingProfiles, "profile")
+	set.Profiles[profileKeyOne] = policyregistry.ServingSelection{Release: namespaceRef(policyregistry.ServingReleases, "custom"), Binding: namespaceRef(policyregistry.ServingBindings, "custom"), Profile: &profile}
+	first, _ := activateFixture(t, policyregistry.ServingStateSnapshot{}, set, servingEpoch)
+	sets := map[string]policyregistry.SelectionSetView{servingRef(t, policyregistry.ServingSelectionSets, set).SHA256: set.View()}
+	before := policyregistry.RoutingControlsDigest([]string{"claude-opus-5-5", "gpt-6-luna"}, nil, []string{"openai"}, nil)
+	projection := policyregistry.AdmissionProjection{Target: policyregistry.TargetStable, ProfileKey: profileKeyOne, AssignmentGeneration: 1, RoutingControlsDigest: before}
+	initial, err := policyregistry.SelectSessionRelease(nil, projection, first, sets, testRegistryRoot, servingEpoch)
+	require.NoError(t, err)
+	assert.Equal(t, before, initial.RoutingControlsDigest)
+
+	projection.RoutingControlsDigest = policyregistry.RoutingControlsDigest([]string{"gpt-6-luna", "claude-opus-5-5", "gpt-6-luna"}, nil, []string{"openai"}, nil)
+	retained, err := policyregistry.SelectSessionRelease(&initial, projection, first, sets, testRegistryRoot, servingEpoch.Add(time.Minute))
+	require.NoError(t, err)
+	assert.Equal(t, initial.BindingGeneration, retained.BindingGeneration, "reordering the same controls must keep the pin")
+
+	after := policyregistry.RoutingControlsDigest([]string{"claude-opus-5-5", "gpt-6-luna", "claude-sonnet-5-5", "claude-haiku-5-5"}, nil, []string{"openai"}, nil)
+	require.NotEqual(t, before, after)
+	projection.RoutingControlsDigest = after
+	rebound, err := policyregistry.SelectSessionRelease(&initial, projection, first, sets, testRegistryRoot, servingEpoch.Add(time.Minute))
+	require.NoError(t, err)
+	assert.Equal(t, initial.BindingGeneration+1, rebound.BindingGeneration)
+	assert.Equal(t, after, rebound.RoutingControlsDigest)
+	assert.Equal(t, initial.CreatedAt, rebound.CreatedAt)
+
+	legacy := initial
+	legacy.RoutingControlsDigest = ""
+	kept, err := policyregistry.SelectSessionRelease(&legacy, projection, first, sets, testRegistryRoot, servingEpoch.Add(time.Minute))
+	require.NoError(t, err)
+	assert.Equal(t, legacy.BindingGeneration, kept.BindingGeneration, "bindings persisted before the digest existed must not mass-rebind on deploy")
+}
+
 func TestSubscriberPlanProfileMustMatchServerOwnedMapping(t *testing.T) {
 	profile, ok := entitlement.ServingProfileFor(entitlement.PlanMax)
 	require.True(t, ok)

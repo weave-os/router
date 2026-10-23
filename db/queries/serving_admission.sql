@@ -1,6 +1,6 @@
 -- Admission shares the installation lock; assignment changes take its exclusive lock first.
 -- name: GetServingInstallationForAdmission :one
-SELECT id FROM router.model_router_installations
+SELECT id, allowed_models, excluded_models, excluded_providers, routing_strategy FROM router.model_router_installations
 WHERE id = @installation_id::uuid AND deleted_at IS NULL
 FOR SHARE;
 
