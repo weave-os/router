@@ -85,8 +85,8 @@ func TestAuthoritativeDowngradeGuards(t *testing.T) {
 	cheapFresh := router.Decision{
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-haiku-4-5",
-		Reason:   "hmm_policy(classifier 'fast' (p=0.50))",
-		Metadata: &router.RoutingMetadata{ChosenScore: 0.5},
+		Reason:   "hmm_policy(classifier 'fast' (p=0.30))",
+		Metadata: &router.RoutingMetadata{ChosenScore: 0.3},
 	}
 	confidentCheapFresh := router.Decision{
 		Provider: providers.ProviderAnthropic,
@@ -230,8 +230,8 @@ func TestAuthoritativeDowngradeShadow(t *testing.T) {
 	cheapFresh := router.Decision{
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-haiku-4-5",
-		Reason:   "hmm_policy(classifier 'fast' (p=0.50))",
-		Metadata: &router.RoutingMetadata{ChosenScore: 0.5},
+		Reason:   "hmm_policy(classifier 'fast' (p=0.30))",
+		Metadata: &router.RoutingMetadata{ChosenScore: 0.3},
 	}
 	confidentCheapFresh := router.Decision{
 		Provider: providers.ProviderAnthropic,
@@ -352,8 +352,8 @@ func TestAuthoritativeDowngradeHysteresisAcrossTurns(t *testing.T) {
 	cheaper := router.Decision{
 		Provider: providers.ProviderAnthropic,
 		Model:    "claude-haiku-4-5",
-		Reason:   "hmm_policy(classifier 'fast' (p=0.50))",
-		Metadata: &router.RoutingMetadata{ChosenScore: 0.5},
+		Reason:   "hmm_policy(classifier 'fast' (p=0.30))",
+		Metadata: &router.RoutingMetadata{ChosenScore: 0.3},
 	}
 	confirming := router.Decision{
 		Provider: providers.ProviderAnthropic,

@@ -864,14 +864,14 @@ func main() {
 		CorrectedEconomics:     config.GetOr("ROUTER_SWITCH_CORRECTED_ECONOMICS", boolDefault(proxy.DefaultPlannerCorrectedEconomics)) == "true",
 	}
 	prefixTrimFreeSwitch := config.GetOr("ROUTER_PREFIX_TRIM_FREE_SWITCH", "true") == "true"
-	hmmUpgradeConfidence := parseEnvFloat("ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD", 0.85)
+	hmmUpgradeConfidence := parseEnvFloat("ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD", proxy.DefaultHMMUpgradeConfidenceThreshold)
 	upgradeConfig, err := authoritativeUpgradeConfigFromEnv()
 	if err != nil {
 		logger.Error("Invalid authoritative upgrade shadow configuration; refusing to boot", "err", err)
 		panic(err)
 	}
 	hmmSameTierPin := config.GetOr("ROUTER_HMM_SAME_TIER_PIN", "false") == "true"
-	// authoritativeUpgradeGate keeps the 0.85 escalation floor active for authoritative-per-turn
+	// authoritativeUpgradeGate keeps the upgrade-confidence floor active for authoritative-per-turn
 	// policies; kill switch for a return to verbatim policy selection.
 	authoritativeUpgradeGate := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_GATE", "true") == "true"
 	authoritativeUpgradePolicy := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_POLICY", string(flags.AuthoritativeUpgradePolicyScore))

@@ -1867,7 +1867,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 			ExpectedRemainingTurns: DefaultPlannerExpectedRemainingTurns,
 			TierUpgradeEnabled:     DefaultPlannerTierUpgradeEnabled,
 		},
-		hmmUpgradeConfidenceThreshold:  defaultHMMUpgradeConfidenceThreshold,
+		hmmUpgradeConfidenceThreshold:  DefaultHMMUpgradeConfidenceThreshold,
 		authoritativeUpgradeGate:       true,
 		authoritativeUpgradePolicy:     flags.AuthoritativeUpgradePolicyScore,
 		authoritativeUpgradeVotes:      3,
@@ -2177,7 +2177,7 @@ func (s *Service) WithAuthoritativeUpgradeGate(enabled bool) *Service {
 }
 
 // WithAuthoritativeUpgradePolicy sets ROUTER_AUTHORITATIVE_UPGRADE_POLICY.
-// score keeps the 0.85 floor, evidence applies the composite gate, off serves the fresh policy.
+// score keeps the confidence floor, evidence applies the composite gate, off serves the fresh policy.
 func (s *Service) WithAuthoritativeUpgradePolicy(mode flags.AuthoritativeUpgradePolicy) *Service {
 	s.authoritativeUpgradePolicy = mode
 	return s

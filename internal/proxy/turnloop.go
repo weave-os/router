@@ -465,7 +465,11 @@ func isHMMDecision(dec router.Decision) bool {
 }
 
 const hmmHistoryReason = "hmm_history"
-const defaultHMMUpgradeConfidenceThreshold = 0.85
+
+// DefaultHMMUpgradeConfidenceThreshold is the top-class classifier probability
+// an upgrade must reach: with four groups, 0.50 means the winner outweighs
+// every other group combined.
+const DefaultHMMUpgradeConfidenceThreshold = 0.50
 
 const (
 	hmmReasonConfidentUpgrade        = "hmm_confident_upgrade"
@@ -1972,7 +1976,7 @@ func (s *Service) runTurnLoop(
 				res.UpgradeShadow.Applied = true
 				switch res.UpgradeShadow.Verdict.Outcome {
 				case upgradeAllow:
-					// Fall through to serve the fresh model; the 0.85 score floor does not run.
+					// Fall through to serve the fresh model; the confidence floor does not run.
 				case upgradeHold:
 					decision := pinDecision(pin)
 					res.Decision = decision

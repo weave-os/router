@@ -506,10 +506,10 @@ model. Failures are loud by design.
 ### Authoritative upgrade evidence policy
 
 Authoritative HMM turns evaluate a typed evidence policy for expensive fresh
-models. The deployment default is `score` (today's 0.85 confidence floor).
+models. The deployment default is `score`, the `ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD` floor.
 Set `ROUTER_AUTHORITATIVE_UPGRADE_POLICY=evidence` (or the installation override
 `authoritative_upgrade_policy`) to serve that policy. `off` serves the fresh
-HMM pick without the 0.85 floor.
+HMM pick without that floor.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -518,7 +518,8 @@ HMM pick without the 0.85 floor.
 | `ROUTER_AUTHORITATIVE_UPGRADE_VOTES` | `3` | Consecutive same-group expensive votes required before evidence switches. `0` disables vote hysteresis. |
 | `ROUTER_AUTHORITATIVE_UPGRADE_SHADOW_MARGIN` | unset | Top-1 minus top-2 classifier margin threshold in `[0,1]`. Unset falls back to the score gate for margin-needed cases. |
 | `ROUTER_AUTHORITATIVE_UPGRADE_SHADOW_STALE_AFTER` | unset | Pin-age cutoff as a Go duration. Unset or `0s` disables the stale-pin rule. |
-| `ROUTER_AUTHORITATIVE_UPGRADE_GATE` | `true` | Existing 0.85 floor kill switch, used when policy is `score` or evidence falls back to existing policy. |
+| `ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD` | `0.50` | Minimum top-class classifier probability (four groups, floor 0.25) for an upgrade to a pricier model than the session pin. |
+| `ROUTER_AUTHORITATIVE_UPGRADE_GATE` | `true` | Confidence-floor kill switch, used when policy is `score` or evidence falls back to existing policy. |
 
 Invalid policy, holdout, margin, or duration values fail startup. Force/hard
 pins, utility turns, deadline fallbacks, and active escalation floors still win.
