@@ -226,8 +226,8 @@ type Service struct {
 	authoritativeDowngradeGate bool
 	// hmmDowngradeHysteresisTurns is how many consecutive authoritative-per-turn
 	// votes for a cheaper-than-pin model are needed before the downgrade is
-	// applied. Env ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS, 0 (downgrade on the
-	// first vote) by default.
+	// applied. Env ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS, default
+	// DefaultHMMDowngradeHysteresisTurns; 0 downgrades on the first vote.
 	hmmDowngradeHysteresisTurns int
 	// hmmDowngradeHysteresisShadowTurns is the threshold a served
 	// authoritative-per-turn downgrade is shadow-scored against. Telemetry only.
@@ -1867,6 +1867,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 			TierUpgradeEnabled:     DefaultPlannerTierUpgradeEnabled,
 		},
 		hmmUpgradeConfidenceThreshold:  DefaultHMMUpgradeConfidenceThreshold,
+		hmmDowngradeHysteresisTurns:    DefaultHMMDowngradeHysteresisTurns,
 		authoritativeUpgradeGate:       true,
 		authoritativeUpgradePolicy:     flags.AuthoritativeUpgradePolicyScore,
 		authoritativeUpgradeVotes:      3,

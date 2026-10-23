@@ -169,6 +169,7 @@ func TestProxyMessages_OutputLimitEightActionSequence(t *testing.T) {
 					}
 					svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, false, nil, store, false,
 						providers.ProviderAnthropic, outputLimitFirstModel, nil).
+						WithHMMDowngradeHysteresisTurns(0).
 						WithNativeAnthropicResponseSignals(false).
 						WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: routes,
 							Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1, AuthoritativePerTurnSelection: true}})

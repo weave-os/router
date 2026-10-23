@@ -133,6 +133,7 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 					ExpectedRemainingTurns: 3,
 				}).
 				WithSummarizer(summarizer).
+				WithHMMDowngradeHysteresisTurns(0).
 				WithPolicyStrategy(policy.StrategySpec{
 					Strategy: strategy,
 					Router:   policyRouter,
@@ -241,7 +242,7 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 		providers.ProviderAnthropic,
 		"claude-haiku-4-5",
 		nil,
-	).WithPolicyStrategy(policy.StrategySpec{
+	).WithHMMDowngradeHysteresisTurns(0).WithPolicyStrategy(policy.StrategySpec{
 		Strategy: strategy,
 		Router:   policyRouter,
 		Capabilities: policy.Capabilities{
@@ -423,7 +424,7 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 				providers.ProviderAnthropic,
 				"claude-haiku-4-5",
 				nil,
-			).WithPolicyStrategy(policy.StrategySpec{
+			).WithHMMDowngradeHysteresisTurns(0).WithPolicyStrategy(policy.StrategySpec{
 				Strategy: strategy,
 				Router:   policyRouter,
 				Capabilities: policy.Capabilities{

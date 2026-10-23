@@ -471,6 +471,11 @@ const hmmHistoryReason = "hmm_history"
 // every other group combined.
 const DefaultHMMUpgradeConfidenceThreshold = 0.50
 
+// DefaultHMMDowngradeHysteresisTurns is how many consecutive cheaper-than-pin
+// authoritative votes a downgrade needs; half of all cheaper runs are a single
+// turn HMM reverses on the next one.
+const DefaultHMMDowngradeHysteresisTurns = 2
+
 const (
 	hmmReasonConfidentUpgrade        = "hmm_confident_upgrade"
 	hmmReasonUpgradeConfidenceLow    = "hmm_upgrade_confidence_low"

@@ -890,8 +890,8 @@ func main() {
 	// authoritativeDowngradeGate mirrors the floor for cheaper-than-pin picks; off by default.
 	authoritativeDowngradeGate := config.GetOr("ROUTER_AUTHORITATIVE_DOWNGRADE_GATE", "false") == "true"
 	// hmmDowngradeHysteresisTurns requires N consecutive cheaper-than-pin authoritative
-	// votes before the downgrade is served; 0 keeps today's switch-on-first-vote behavior.
-	hmmDowngradeHysteresisTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS", 0)
+	// votes before the downgrade is served; 0 switches on the first vote.
+	hmmDowngradeHysteresisTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS", proxy.DefaultHMMDowngradeHysteresisTurns)
 	// hmmDowngradeHysteresisShadowTurns is the threshold every served authoritative
 	// downgrade is shadow-scored against; telemetry only, 0 silences it.
 	hmmDowngradeHysteresisShadowTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_SHADOW_TURNS", 2)

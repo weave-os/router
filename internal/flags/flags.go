@@ -280,7 +280,7 @@ var Registry = []Definition{
 		Key:            KeyHMMDowngradeHysteresisTurns,
 		EnvVar:         "ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS",
 		Kind:           KindInt,
-		Description:    "Consecutive authoritative-per-turn classifier votes for a cheaper-than-pin model required before the downgrade is applied. 0 (default) downgrades on the first vote; 3 is the value a rollout would start from.",
+		Description:    "Consecutive authoritative-per-turn classifier votes for a cheaper-than-pin model required before the downgrade is applied. 2 by default; 0 downgrades on the first vote.",
 		OrgOverridable: true,
 	},
 	{
