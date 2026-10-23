@@ -49,6 +49,28 @@ func openRouterOverflowTarget(ctx context.Context, target router.Decision) route
 	return target
 }
 
+// openRouterOverflowFallbackTarget picks the first allowed exhausted-state model
+// OpenRouter can serve when routing cannot: overflow-only bindings are invisible
+// to the router, so a model reachable only through them never routes.
+func (s *Service) openRouterOverflowFallbackTarget(ctx context.Context, req router.Request, models []string, initial router.Decision) (router.Decision, bool) {
+	if !openRouterOverflowEnabled(ctx) {
+		return router.Decision{}, false
+	}
+	for _, model := range models {
+		if _, allowed := req.AllowedModels[model]; !allowed {
+			continue
+		}
+		target := initial
+		target.Model = model
+		target.Metadata = nil
+		target = openRouterOverflowTarget(ctx, target)
+		if len(s.openRouterOverflowBindings(ctx, target)) > 0 {
+			return target, true
+		}
+	}
+	return router.Decision{}, false
+}
+
 // openRouterOverflowBindings returns the only binding a paid overflow target
 // may dispatch on, or nil when OpenRouter cannot serve it for this request.
 func (s *Service) openRouterOverflowBindings(ctx context.Context, target router.Decision) []catalog.ProviderBinding {

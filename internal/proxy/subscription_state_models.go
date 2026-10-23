@@ -227,7 +227,11 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		var err error
 		target, err = s.Route(paidCtx, paidReq)
 		if err != nil {
-			return -1, err
+			fallback, ok := s.openRouterOverflowFallbackTarget(paidCtx, paidReq, paidModels, in.initialDecision)
+			if !ok {
+				return -1, err
+			}
+			target = fallback
 		}
 	}
 	observability.FromContext(ctx).Info("Included subscription targets unavailable; using exhausted model set", "model", target.Model, "provider", target.Provider)

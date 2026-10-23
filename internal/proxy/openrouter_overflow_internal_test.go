@@ -134,3 +134,14 @@ func servedTargets(served []router.Decision) []router.Decision {
 	}
 	return out
 }
+
+func TestOpenRouterOverflowServesConfiguredModelRoutingCannotSee(t *testing.T) {
+	d := newOverflowDispatch(map[subscriptions.Provider]bool{})
+	d.svc.deploymentKeyedProviders = map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenRouter: {}}
+	ctx := context.WithValue(overflowContext(true), InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{"gpt-5.4"})
+
+	require.NoError(t, d.run(ctx, true))
+
+	require.Equal(t, 0, d.anthropic.calls)
+	require.Equal(t, []router.Decision{{Model: "gpt-5.4", Provider: providers.ProviderOpenRouter}}, servedTargets(d.served))
+}
