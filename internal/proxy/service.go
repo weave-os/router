@@ -1815,6 +1815,9 @@ func codexResponsesRequest(ctx context.Context, headers http.Header) bool {
 	return false
 }
 
+// DefaultHMMUpgradeConfidenceThreshold applies when no deployment override is set.
+const DefaultHMMUpgradeConfidenceThreshold = 0.50
+
 // DefaultPlannerThresholdUSD is the minimum positive EV over remaining-turn
 // horizon to switch off a pinned model. Small enough for arbitrage; large
 // enough to avoid near-tie noise.
@@ -1867,7 +1870,7 @@ func NewService(r router.Router, providerMap map[string]providers.Client, emitte
 			ExpectedRemainingTurns: DefaultPlannerExpectedRemainingTurns,
 			TierUpgradeEnabled:     DefaultPlannerTierUpgradeEnabled,
 		},
-		hmmUpgradeConfidenceThreshold:  defaultHMMUpgradeConfidenceThreshold,
+		hmmUpgradeConfidenceThreshold:  DefaultHMMUpgradeConfidenceThreshold,
 		authoritativeUpgradeGate:       true,
 		authoritativeUpgradePolicy:     flags.AuthoritativeUpgradePolicyScore,
 		authoritativeUpgradeVotes:      3,
@@ -2177,7 +2180,7 @@ func (s *Service) WithAuthoritativeUpgradeGate(enabled bool) *Service {
 }
 
 // WithAuthoritativeUpgradePolicy sets ROUTER_AUTHORITATIVE_UPGRADE_POLICY.
-// score keeps the 0.85 floor, evidence applies the composite gate, off serves the fresh policy.
+// score keeps the configured floor, evidence applies the composite gate, off serves the fresh policy.
 func (s *Service) WithAuthoritativeUpgradePolicy(mode flags.AuthoritativeUpgradePolicy) *Service {
 	s.authoritativeUpgradePolicy = mode
 	return s

@@ -176,12 +176,16 @@ func TestUpgradeShadowPreservesServingAndPinWrites(t *testing.T) {
 		gate      bool
 		cold      bool
 		wantModel string
+		threshold float64
 	}{
-		{"warm blocked upgrade", 0.7, true, false, upgradeTestPinModel},
-		{"cold blocked upgrade", 0.7, true, true, upgradeTestPinModel},
-		{"confident upgrade", 0.91, true, false, upgradeTestFreshModel},
-		{"unscored upgrade", 0, true, false, upgradeTestFreshModel},
-		{"gate off", 0.7, false, false, upgradeTestFreshModel},
+		{"warm blocked upgrade", 0.49, true, false, upgradeTestPinModel, 0},
+		{"cold blocked upgrade", 0.49, true, true, upgradeTestPinModel, 0},
+		{"upgrade at 50 percent", 0.50, true, false, upgradeTestFreshModel, 0},
+		{"upgrade above 50 percent", 0.70, true, false, upgradeTestFreshModel, 0},
+		{"explicit 85 percent threshold", 0.70, true, false, upgradeTestPinModel, 0.85},
+		{"confident upgrade", 0.91, true, false, upgradeTestFreshModel, 0},
+		{"unscored upgrade", 0, true, false, upgradeTestFreshModel, 0},
+		{"gate off", 0.7, false, false, upgradeTestFreshModel, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var control turnLoopResult
@@ -201,6 +205,9 @@ func TestUpgradeShadowPreservesServingAndPinWrites(t *testing.T) {
 					WithAuthorityCacheShadow(enabled).WithAuthoritativeUpgradeGate(tc.gate).
 					WithAuthoritativeUpgradeConfig(AuthoritativeUpgradeConfig{MarginThreshold: &margin}).
 					WithPolicyStrategy(policy.StrategySpec{Strategy: strategy, Router: &authorityShadowTestRouter{decision: fresh}, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
+				if tc.threshold > 0 {
+					svc.WithHMMUpgradeConfidenceThreshold(tc.threshold)
+				}
 				env, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"continue"}]}`, catalog.ModelIDClaudeOpus48.String())))
 				require.NoError(t, err)
 				feats := env.RoutingFeatures(false)

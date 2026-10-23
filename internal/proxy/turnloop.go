@@ -465,7 +465,6 @@ func isHMMDecision(dec router.Decision) bool {
 }
 
 const hmmHistoryReason = "hmm_history"
-const defaultHMMUpgradeConfidenceThreshold = 0.85
 
 const (
 	hmmReasonConfidentUpgrade        = "hmm_confident_upgrade"
@@ -1972,7 +1971,7 @@ func (s *Service) runTurnLoop(
 				res.UpgradeShadow.Applied = true
 				switch res.UpgradeShadow.Verdict.Outcome {
 				case upgradeAllow:
-					// Fall through to serve the fresh model; the 0.85 score floor does not run.
+					// Fall through to serve the fresh model; the configured score floor does not run.
 				case upgradeHold:
 					decision := pinDecision(pin)
 					res.Decision = decision

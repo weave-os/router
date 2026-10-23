@@ -245,7 +245,7 @@ var Registry = []Definition{
 		Key:            KeyAuthoritativeUpgradePolicy,
 		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_POLICY",
 		Kind:           KindString,
-		Description:    "Authoritative upgrade policy: score (default 0.85 floor), evidence (composite interim policy), or off (verbatim fresh policy).",
+		Description:    "Authoritative upgrade policy: score (configured confidence floor), evidence (composite interim policy), or off (verbatim fresh policy).",
 		OrgOverridable: true,
 	},
 	{
