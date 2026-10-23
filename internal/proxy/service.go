@@ -8873,7 +8873,7 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	chatBody, model := conversion.Body, conversion.Model
 	if conversion.Requirements.NativeOnly {
 		observability.FromContext(ctx).Info("Responses request restricted to its native wire family",
-			"native_only_reasons", nativeOnlyReasons(conversion.Report))
+			"native_only_reasons", nativeOnlyReasons(conversion.Report, conversionBody))
 	}
 	if portableCodex && r.Header.Get(CodexNativeModelPinHeader) == "1" && conversion.CodexModelSwitch {
 		ctx = withCodexSelectedModel(ctx, model, nativeBody)
