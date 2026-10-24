@@ -1,13 +1,17 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -52,6 +56,34 @@ func TestGatewayCompactionContextOverflowReachesCrossGatewayRescuer(t *testing.T
 	require.NoError(t, err)
 	assert.Equal(t, []string{catalog.ModelGPT6Luna}, openAIGateway.models)
 	assert.Equal(t, catalog.ModelGPT6Luna, rec.Header().Get(HeaderRouterModel))
+}
+
+// A conversation the estimate already puts past every Claude summarizer's
+// window drops them all, leaving the Claude utility pin; its overflow must
+// still reach a larger-window model on the other gateway.
+func TestGatewayCompactionPastEverySummarizerWindowReachesCrossGatewayRescuer(t *testing.T) {
+	const sol = "gpt-6-sol"
+	svc, ctx, anthropicGateway, openAIGateway := gatewayCompactionFixture(cortexPromptTooLong())
+	svc = svc.WithHardPinResolver(func(HardPinRequest) (string, string, bool) {
+		return providers.ProviderAnthropicGateway, gatewayCompactionOpusModel, true
+	})
+	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{sol, gatewayCompactionOpusModel})
+	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+		gatewayKey(providers.ProviderAnthropicGateway, "https://gateway.example.com/anthropic", gatewayCompactionOpusModel, policy.PrecompactionDefaultModel),
+		gatewayKey(providers.ProviderOpenAIGateway, "https://gateway.example.com/openai", sol),
+	})
+	claudeWindow := catalog.ContextWindowForBinding(gatewayCompactionOpusModel, providers.ProviderAnthropicGateway)
+	require.Greater(t, catalog.ContextWindowForBinding(sol, providers.ProviderOpenAIGateway), claudeWindow+2*contextWindowOutputReserve)
+	history := strings.Repeat("a", 4*(claudeWindow+contextWindowOutputReserve))
+	body := []byte(`{"model":"claude-opus-5-5","max_tokens":20000,"stream":true,"system":"Your task is to create a detailed summary of the conversation so far.","messages":[{"role":"user","content":"` + history + `"}]}`)
+	rec := httptest.NewRecorder()
+
+	err := svc.ProxyMessages(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body)))
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{gatewayCompactionOpusModel}, anthropicGateway.models, "only the utility pin is tried on the Claude gateway")
+	assert.Equal(t, []string{sol}, openAIGateway.models)
+	assert.Equal(t, sol, rec.Header().Get(HeaderRouterModel))
 }
 
 // Nothing fits: the turn fails as the provider's fault, never as an

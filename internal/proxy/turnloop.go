@@ -1112,6 +1112,10 @@ func (s *Service) runTurnLoop(
 				return res, fmt.Errorf("hard-pin: no eligible provider for %s: %w", res.TurnType, hardPinErr)
 			}
 			provider, model = p, m
+			if s.compactionHardPinEnabled && res.TurnType == turntype.Compaction {
+				// No summarizer fits, so an overflow on the utility pin must still reach the other gateway.
+				rescueMetadata = compactionRescueMetadata(nil, "", "", s.compactionCrossProviderRescuers(compactionSummarizer{provider: p, model: m}, req))
+			}
 		default:
 			if req.EnabledProviders != nil {
 				if _, enabled := req.EnabledProviders[provider]; !enabled {
