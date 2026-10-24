@@ -242,7 +242,7 @@ func (s *Service) VerifySessionToken(ctx context.Context, rawToken string, inclu
 		ExpiresAt:   claims.ExpiresAt.UTC(),
 	}
 	if claims.Caps != nil {
-		// An empty or misspelled caps object is refused so the factory's mistake surfaces
+		// An empty or misspelled caps object is refused so the issuer's mistake surfaces
 		// instead of minting an uncapped credential.
 		noCap := claims.Caps.SessionUSDMicros == nil && claims.Caps.TaskUSDMicros == nil
 		if noCap || !validCap(claims.Caps.SessionUSDMicros) || !validCap(claims.Caps.TaskUSDMicros) || (claims.Caps.TaskUSDMicros != nil && claims.Task == "") {
