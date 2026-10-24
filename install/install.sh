@@ -4436,16 +4436,16 @@ write_setup_handoff() {
 # pipe, so a descendant that keeps stdout open cannot block the caller.
 capture_bounded() {
   local seconds="$1"; shift
-  local out status=0
-  out="$(mktemp -t weave-capture.XXXXXX)" || return 1
-  "$@" </dev/null >"$out" 2>/dev/null &
+  local out_file status=0
+  out_file="$(mktemp -t weave-capture.XXXXXX)" || return 1
+  "$@" </dev/null >"$out_file" 2>/dev/null &
   local pid=$!
   ( sleep "$seconds"; kill "$pid" 2>/dev/null; sleep 1; kill -9 "$pid" 2>/dev/null ) >/dev/null 2>&1 &
   local watcher=$!
   wait "$pid" || status=$?
   kill "$watcher" 2>/dev/null || true
-  cat "$out"
-  rm -f "$out"
+  cat "$out_file"
+  rm -f "$out_file"
   return "$status"
 }
 
