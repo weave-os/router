@@ -143,6 +143,13 @@ For fixes to `internal/billing` + `internal/server/middleware/balance_check.go` 
 - **Deterministic mock that branches on the requested model** is the cleanest way to drive both the serve path and the refusal path from one server: return 200 SSE for one model and 429 for another (the usage-bypass path forwards the requested model verbatim, so branching on `model` in the request body is reliable).
 - **What good looks like:** header `X-Router-Decision: usage_bypass`, the depleted-credits warning injected as content-block index 0 (real content re-indexed to 1), log `Balance past subscription overdraft floor: serving subscription-only`. Retryable upstream error → log `Subscription-only bypass hit retryable error; refusing instead of paid reroute` → HTTP 402. No subscription header below floor → `insufficient_credits` 402 that never logs `ProxyMessages start`.
 
+## Testing compaction (`/compact`)
+
+- **A persisted force-model pin outranks the compaction hard-pin.** A session seeded with `/force-model` stays pinned after the line is removed, so `/compact` never takes the compaction path. Seed without it (or clear the session's forced pin) and confirm `hard_pinned=true` with the compaction hard-pin reason in `ProxyMessages complete` before trusting the result.
+- **`claude -p /compact --output-format json` can report success when compaction failed** (`is_error=false`, `subtype=success`, exit 0). Check the `result` text, the router logs, and whether the transcript gained an `isCompactSummary` entry. A successful print-mode compaction can have an empty `result`.
+- **Claude Code hides the router's 400 body** behind "Compaction failed · conversation could not be reduced below the context limit"; the raw response is in `--debug-file`.
+- **A 5xx without `x-should-retry: false` is retried by the SDK** (11 attempts, ~3 minutes) before Claude Code shows the error.
+
 ## Notes
 
 - Local cluster version comes from `ROUTER_CLUSTER_VERSION` in `.env.local`; it may differ from prod, which is why `/force-model` (not the scorer) is the reliable way to hit one model.
