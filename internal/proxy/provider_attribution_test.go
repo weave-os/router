@@ -34,10 +34,10 @@ func traceOf(attempts ...tracedAttempt) *attemptTrace {
 }
 
 func TestProviderDisplayNameFor_NamesCustomerGateway(t *testing.T) {
-	assert.Equal(t, "Snowflake Cortex", providerDisplayNameFor(providers.ProviderAnthropicGateway, cortexGatewayURL))
-	assert.Equal(t, "Snowflake Cortex", providerDisplayNameFor(providers.ProviderOpenAIGateway, "https://acme.snowflakecomputing.com/api/v2/cortex/v1"))
+	assert.Equal(t, "Cortex", providerDisplayNameFor(providers.ProviderAnthropicGateway, cortexGatewayURL))
+	assert.Equal(t, "Cortex", providerDisplayNameFor(providers.ProviderOpenAIGateway, "https://acme.snowflakecomputing.com/api/v2/cortex/v1"))
 	assert.Equal(t, "your gateway (llm.acme.internal:8443)", providerDisplayNameFor(providers.ProviderOpenAIGateway, "https://llm.acme.internal:8443/v1"))
-	assert.Equal(t, "Snowflake Cortex", providerDisplayNameFor(providers.ProviderOpenAIGateway, "https://acme-xy12345.snowflakecomputing.com/api/v2/aigateways/snowflake"))
+	assert.Equal(t, "Cortex", providerDisplayNameFor(providers.ProviderOpenAIGateway, "https://acme-xy12345.snowflakecomputing.com/api/v2/aigateways/acme"))
 	assert.Equal(t, "your gateway", providerDisplayNameFor(providers.ProviderAnthropicGateway, ""))
 	assert.Equal(t, "Anthropic", providerDisplayNameFor(providers.ProviderAnthropic, ""))
 }
@@ -52,9 +52,9 @@ func TestFlushUpstreamErrorAsAnthropic_PrefixesAttributionKeepingRetrySignals(t 
 		status                            int
 		class                             TurnErrorClass
 	}{
-		{"429", `{"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}`, "Snowflake Cortex returned 429 (rate limited) after 2 router retries: Rate limit exceeded", "rate_limit_error", 429, TurnErrorRateLimited},
-		{"529", `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`, "Snowflake Cortex returned 529 (overloaded) after 2 router retries: Overloaded", "overloaded_error", 529, TurnErrorRateLimited},
-		{"5xx with Cortex body", `{"code":"390503","message":"Service temporarily unavailable. Request ID: 01b9","request_id":"01b9"}`, "Snowflake Cortex returned 503 (server error) after 2 router retries: Service temporarily unavailable. Request ID: 01b9", "", 503, TurnErrorUpstream5xx},
+		{"429", `{"type":"error","error":{"type":"rate_limit_error","message":"Rate limit exceeded"}}`, "Cortex returned 429 (rate limited) after 2 router retries: Rate limit exceeded", "rate_limit_error", 429, TurnErrorRateLimited},
+		{"529", `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`, "Cortex returned 529 (overloaded) after 2 router retries: Overloaded", "overloaded_error", 529, TurnErrorRateLimited},
+		{"5xx with Cortex body", `{"code":"390503","message":"Service temporarily unavailable. Request ID: 01b9","request_id":"01b9"}`, "Cortex returned 503 (server error) after 2 router retries: Service temporarily unavailable. Request ID: 01b9", "", 503, TurnErrorUpstream5xx},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			headers := http.Header{"Retry-After": {"7"}, "X-Should-Retry": {"true"}}
@@ -94,7 +94,7 @@ func TestFlushBufferedIfPresent_PrefixesOpenAIErrorMessage(t *testing.T) {
 	assert.Equal(t, "3", rec.Header().Get("Retry-After"))
 	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"), "a rewritten body is always served as JSON")
 	assert.Equal(t, "rate_limit_exceeded", gjson.Get(rec.Body.String(), "error.code").String())
-	assert.Equal(t, "Snowflake Cortex returned 429 (rate limited): Too many requests", gjson.Get(rec.Body.String(), "error.message").String())
+	assert.Equal(t, "Cortex returned 429 (rate limited): Too many requests", gjson.Get(rec.Body.String(), "error.message").String())
 }
 
 func TestAttributeTerminalError_AllAttemptsTimedOutNamesProvider(t *testing.T) {
@@ -102,7 +102,7 @@ func TestAttributeTerminalError_AllAttemptsTimedOutNamesProvider(t *testing.T) {
 	a := cortexAttempt("claude-opus-5-5", timeoutErr, TurnErrorTimeout)
 	err := attributeTerminalError(traceOf(a, a, a), timeoutErr)
 
-	assert.Equal(t, "Snowflake Cortex timed out after 2 router retries (provider issue).", TerminalErrorMessage(err))
+	assert.Equal(t, "Cortex timed out after 2 router retries (provider issue).", TerminalErrorMessage(err))
 }
 
 func TestSSEErrorEvents_GenericFailureNamesProvider(t *testing.T) {
@@ -112,11 +112,11 @@ func TestSSEErrorEvents_GenericFailureNamesProvider(t *testing.T) {
 
 	anthropic := httptest.NewRecorder()
 	_ = emitAnthropicSSEErrorEvent(anthropic, err)
-	assert.Contains(t, anthropic.Body.String(), `"type":"api_error","message":"Snowflake Cortex stalled mid-stream."`)
+	assert.Contains(t, anthropic.Body.String(), `"type":"api_error","message":"Cortex stalled mid-stream."`)
 
 	openAI := httptest.NewRecorder()
 	_ = emitOpenAISSEErrorEvent(openAI, err)
-	assert.Contains(t, openAI.Body.String(), `"message":"Snowflake Cortex stalled mid-stream.","type":"server_error"`)
+	assert.Contains(t, openAI.Body.String(), `"message":"Cortex stalled mid-stream.","type":"server_error"`)
 
 	plain := httptest.NewRecorder()
 	_ = emitAnthropicSSEErrorEvent(plain, stall)
@@ -138,7 +138,7 @@ func TestSiblingMarkerReason_NamesRealFailureClass(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.WithValue(context.Background(), attemptTraceContextKey{}, traceOf(tc.a))
 			assert.Equal(t, "switched after gpt-6-luna "+tc.cause, siblingMarkerReason(ctx, "gpt-6-luna"))
-			assert.Equal(t, "↳ switched: Snowflake Cortex "+tc.cause+" (provider issue)\n\n", lastFailureDetail(traceOf(tc.a)))
+			assert.Equal(t, "↳ switched: Cortex "+tc.cause+" (provider issue)\n\n", lastFailureDetail(traceOf(tc.a)))
 		})
 	}
 }
@@ -174,7 +174,7 @@ func TestSlowStartNotice_ThresholdBaselineAndCooldown(t *testing.T) {
 	now = now.Add(time.Minute)
 	notice, shown := slowStartNotice(ctx, slowStartTrace(now.Add(-41*time.Second), now.Add(-41*time.Second)), tracker, now)
 	require.True(t, shown)
-	assert.Equal(t, "↳ Snowflake Cortex took 41s to start (usually ~3s)\n\n", notice.Text)
+	assert.Equal(t, "↳ Cortex took 41s to start (usually ~3s)\n\n", notice.Text)
 
 	now = now.Add(time.Minute)
 	_, shown = slowStartNotice(ctx, slowStartTrace(now.Add(-41*time.Second), now.Add(-41*time.Second)), tracker, now)
@@ -185,7 +185,7 @@ func TestSlowStartNotice_ThresholdBaselineAndCooldown(t *testing.T) {
 	failed.Target.Provider = providers.ProviderOpenAIGateway
 	notice, shown = slowStartNotice(ctx, slowStartTrace(now.Add(-40*time.Second), now.Add(-84*time.Second), failed), tracker, now)
 	require.True(t, shown)
-	assert.Equal(t, "↳ Snowflake Cortex took 84s to start (usually ~3s; gpt-6-luna timed out first)\n\n", notice.Text)
+	assert.Equal(t, "↳ Cortex took 84s to start (usually ~3s; gpt-6-luna timed out first)\n\n", notice.Text)
 }
 
 func TestSlowStartNotice_BaselineRaisesThreshold(t *testing.T) {
@@ -208,7 +208,7 @@ func TestTerminalErrorMessage_KeepsUpstreamMessageForResponses(t *testing.T) {
 	a.Target.Provider = providers.ProviderOpenAIGateway
 	err := attributeTerminalError(traceOf(a, a, a), upstreamErr)
 
-	assert.Equal(t, "Snowflake Cortex returned 429 (rate limited) after 2 router retries: Rate limit exceeded for account. Please retry later.", TerminalErrorMessage(err))
+	assert.Equal(t, "Cortex returned 429 (rate limited) after 2 router retries: Rate limit exceeded for account. Please retry later.", TerminalErrorMessage(err))
 }
 
 func slowStartAfterBaseline(t *testing.T) (*slowStartTracker, time.Time) {
@@ -249,7 +249,7 @@ func TestAttributeStreamError_NamesGatewayFromServingAttempt(t *testing.T) {
 	ctx := context.WithValue(context.Background(), attemptTraceContextKey{}, trace)
 	err := attributeStreamError(ctx, providers.ProviderAnthropicGateway, context.DeadlineExceeded)
 
-	assert.True(t, strings.HasPrefix(TerminalErrorMessage(err), "Snowflake Cortex "), TerminalErrorMessage(err))
+	assert.True(t, strings.HasPrefix(TerminalErrorMessage(err), "Cortex "), TerminalErrorMessage(err))
 }
 
 func TestSlowStartNotice_MutedTurnGetsNoNotice(t *testing.T) {

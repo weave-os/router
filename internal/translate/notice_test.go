@@ -392,7 +392,7 @@ func TestNoticeDeliverySlowStartNoticeWaitsForProviderContent(t *testing.T) {
 	calls := 0
 	delivery.SetBeforeProviderContent(func() (translate.RouterNotice, bool) {
 		calls++
-		return translate.NewRouterNotice(translate.NoticeSlowStart, "↳ Snowflake Cortex took 41s to start (usually ~3s)\n\n", "claude-opus-5-5", ""), true
+		return translate.NewRouterNotice(translate.NoticeSlowStart, "↳ Cortex took 41s to start (usually ~3s)\n\n", "claude-opus-5-5", ""), true
 	})
 
 	_, err = delivery.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[]}}\n\nevent: ping\ndata: {\"type\":\"ping\"}\n\n"))
@@ -412,7 +412,7 @@ func TestNoticeDeliverySlowStartNoticeWaitsForProviderContent(t *testing.T) {
 }
 
 func TestSlowStartNoticeIsRouterOwned(t *testing.T) {
-	notice := translate.NewRouterNotice(translate.NoticeSlowStart, "↳ Snowflake Cortex took 41s to start (usually ~3s)\n\n", "m", "")
+	notice := translate.NewRouterNotice(translate.NoticeSlowStart, "↳ Cortex took 41s to start (usually ~3s)\n\n", "m", "")
 	rec := httptest.NewRecorder()
 	delivery := noticeDelivery(context.Background(), rec, translate.FormatAnthropic)
 	delivery.Header().Set("Content-Type", "text/event-stream")

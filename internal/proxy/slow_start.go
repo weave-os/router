@@ -171,7 +171,7 @@ func slowStartCooldownKey(ctx context.Context) (string, bool) {
 	return "", false
 }
 
-// slowStartLine reads e.g. "↳ Snowflake Cortex took 41s to start (usually
+// slowStartLine reads e.g. "↳ Cortex took 41s to start (usually
 // ~3s; gpt-6-luna timed out first)".
 func slowStartLine(snap slowStartAttempt, wait, p50 time.Duration) string {
 	provider := snap.current.providerName()

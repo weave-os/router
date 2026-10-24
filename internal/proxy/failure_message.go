@@ -19,7 +19,7 @@ import (
 
 const (
 	upstreamCallFailedMessage = "Upstream call failed."
-	cortexDisplayName         = "Snowflake Cortex"
+	cortexDisplayName         = "Cortex"
 )
 
 var providerDisplayNames = map[string]string{
@@ -51,7 +51,7 @@ func providerDisplayNameFor(provider, baseURL string) string {
 	if u, err := url.Parse(baseURL); err == nil && u.Host != "" {
 		host, hostname = u.Host, u.Hostname()
 	}
-	// Any Snowflake account host, not only the paths IsCortexBaseURL accepts,
+	// Any Cortex account host, not only the paths IsCortexBaseURL accepts,
 	// since the Anthropic gateway mounts under its own Cortex path.
 	if providers.IsCortexBaseURL(baseURL) || strings.HasSuffix(strings.ToLower(hostname), ".snowflakecomputing.com") {
 		return cortexDisplayName
@@ -209,7 +209,7 @@ func attributeAttempt(a tracedAttempt, retries int, err error) error {
 	return attributedError{err: err, message: message, prefix: prefix}
 }
 
-// attributionPrefix states what the provider did, e.g. "Snowflake Cortex
+// attributionPrefix states what the provider did, e.g. "Cortex
 // returned 429 (rate limited) after 2 router retries".
 func attributionPrefix(a tracedAttempt, retries int) string {
 	if a.owner() == FailureOwnerRouter {
