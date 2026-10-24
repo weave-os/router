@@ -68,16 +68,16 @@ func TestWithDelegatedSpendCap(t *testing.T) {
 	})
 
 	for name, tc := range map[string]struct {
-		reader *stubDelegatedSpend
-		sess   *auth.DelegatedSession
-		scope  string
+		reader           *stubDelegatedSpend
+		delegatedSession *auth.DelegatedSession
+		scope            string
 	}{
 		"session cap reached":                       {&stubDelegatedSpend{sessionSpent: 100}, session(capPtr(100), nil), "session"},
 		"task cap reached by sibling sessions":      {&stubDelegatedSpend{sessionSpent: 5, taskSpent: 500}, session(capPtr(100), capPtr(500)), "task"},
 		"task reported first when both are reached": {&stubDelegatedSpend{sessionSpent: 100, taskSpent: 500}, session(capPtr(100), capPtr(500)), "task"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			rr, reached := runDelegatedSpendCap(t, tc.reader, tc.sess)
+			rr, reached := runDelegatedSpendCap(t, tc.reader, tc.delegatedSession)
 			assert.False(t, reached)
 			require.Equal(t, http.StatusPaymentRequired, rr.Code)
 			var body map[string]any
