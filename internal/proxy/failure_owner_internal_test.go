@@ -125,6 +125,8 @@ func TestClassifyFailureOwner_Cases(t *testing.T) {
 		{"context overflow", failureOwnerInput{Err: &providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Body: []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 250000 tokens > 200000 maximum"}}`)}, BodyTranslated: true}, FailureOwnerClient},
 		{"subscription pool exhausted", failureOwnerInput{Err: fmt.Errorf("dispatch: %w", ErrSubscriptionPoolExhausted)}, FailureOwnerRouter},
 		{"custom tool arguments untranslatable", failureOwnerInput{Err: fmt.Errorf("write: %w", translate.ErrCustomToolArguments), BodyTranslated: true}, FailureOwnerRouter},
+		{"http/2 connection lost to the provider", failureOwnerInput{Err: http2LostPing()}, FailureOwnerProvider},
+		{"http/2 stream reset by the provider", failureOwnerInput{Err: http2PeerStreamReset()}, FailureOwnerProvider},
 		{"unmatched", failureOwnerInput{Err: errors.New("mystery")}, FailureOwnerUnknown},
 	}
 	for _, tc := range cases {

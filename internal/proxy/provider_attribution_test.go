@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/translate"
 )
 
 const cortexGatewayURL = "https://acme-xy12345.snowflakecomputing.com/api/v2/cortex/anthropic"
@@ -266,4 +267,12 @@ func TestSlowStartKey_SeparatesGatewayPaths(t *testing.T) {
 	assert.NotEqual(t,
 		slowStartKey(tracedAttempt{Target: target, BaseURL: "https://llm.acme.internal/team-a/v1"}),
 		slowStartKey(tracedAttempt{Target: target, BaseURL: "https://llm.acme.internal/team-b/v1"}))
+}
+
+func TestTerminalErrorMessage_CortexConnectionLossBlamesCortex(t *testing.T) {
+	err := http2LostPing()
+	a := cortexAttempt("claude-opus-5-5", err, classifyTurnError(err, "", 0))
+	a.Diagnosis.FailureOwner = string(classifyFailureOwner(failureOwnerInput{Err: err, CustomerCredential: true}))
+	assert.Equal(t, "Cortex cut the stream (provider issue).", terminalMessageFor(a))
+	assert.Equal(t, translate.RescueDetailPrefix+"Cortex cut the stream (provider issue)\n\n", rescueDetailLine(a))
 }
