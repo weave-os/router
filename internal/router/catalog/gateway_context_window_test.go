@@ -9,14 +9,14 @@ import (
 	"weave-os/router/internal/providers"
 )
 
-func TestSnowflakeGatewayContextWindowIsMeasured(t *testing.T) {
-	w, ok := SnowflakeGatewayContextWindow(ModelGPT6Luna, providers.ProviderOpenAIGateway)
+func TestCortexGatewayContextWindowIsMeasured(t *testing.T) {
+	w, ok := CortexGatewayContextWindow(ModelGPT6Luna, providers.ProviderOpenAIGateway)
 	require.True(t, ok)
 	assert.Equal(t, 910_000, w)
-	w, ok = SnowflakeGatewayContextWindow("claude-opus-5-5", providers.ProviderAnthropicGateway)
+	w, ok = CortexGatewayContextWindow("claude-opus-5-5", providers.ProviderAnthropicGateway)
 	require.True(t, ok)
 	assert.Equal(t, 1_000_000, w)
-	_, ok = SnowflakeGatewayContextWindow(ModelGPT6Luna, providers.ProviderOpenAI)
+	_, ok = CortexGatewayContextWindow(ModelGPT6Luna, providers.ProviderOpenAI)
 	assert.False(t, ok)
 }
 

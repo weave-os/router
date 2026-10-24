@@ -105,12 +105,12 @@ func customBindingsFromKeys(keys []*auth.ExternalAPIKey) map[string][]string {
 	return out
 }
 
-// snowflakeGatewayProvidersForRequest returns the gateway providers whose BYOK
-// key points at Snowflake Cortex, the only gateways with measured windows.
-func snowflakeGatewayProvidersForRequest(ctx context.Context) map[string]struct{} {
+// cortexGatewayProvidersForRequest returns the gateway providers whose BYOK
+// key points at Cortex, the only gateways with measured windows.
+func cortexGatewayProvidersForRequest(ctx context.Context) map[string]struct{} {
 	var out map[string]struct{}
 	for _, key := range externalKeysFromContext(ctx) {
-		if len(key.Plaintext) == 0 || !providers.IsGateway(key.Provider) || !isSnowflakeHost(key.BaseURL) {
+		if len(key.Plaintext) == 0 || !providers.IsGateway(key.Provider) || !isCortexHost(key.BaseURL) {
 			continue
 		}
 		if out == nil {
@@ -121,16 +121,16 @@ func snowflakeGatewayProvidersForRequest(ctx context.Context) map[string]struct{
 	return out
 }
 
-func isSnowflakeHost(baseURL string) bool {
+func isCortexHost(baseURL string) bool {
 	u, err := url.Parse(baseURL)
 	return err == nil && strings.HasSuffix(strings.ToLower(u.Hostname()), ".snowflakecomputing.com")
 }
 
 // gatewayContextWindow is contextWindowForRequest with the measured window of
-// a Snowflake Cortex gateway, which can cap a model below the vendor's window.
-func gatewayContextWindow(snowflakeGateways map[string]struct{}, modelID, provider string) int {
-	if _, snowflake := snowflakeGateways[provider]; snowflake {
-		if w, ok := catalog.SnowflakeGatewayContextWindow(modelID, provider); ok {
+// a Cortex gateway, which can cap a model below the vendor's window.
+func gatewayContextWindow(cortexGateways map[string]struct{}, modelID, provider string) int {
+	if _, measured := cortexGateways[provider]; measured {
+		if w, ok := catalog.CortexGatewayContextWindow(modelID, provider); ok {
 			return w
 		}
 	}

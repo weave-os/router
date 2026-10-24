@@ -19,7 +19,7 @@ import (
 	"weave-os/router/internal/router/sessionpin"
 )
 
-// cortexPromptTooLong is the 71-byte 400 Snowflake Cortex's AI gateway
+// cortexPromptTooLong is the 71-byte 400 Cortex's AI gateway
 // returns for a Claude request past its 1M window.
 func cortexPromptTooLong() error {
 	return &providers.UpstreamErrorResponse{
@@ -192,17 +192,17 @@ func TestStreamingCompactionOverflowingEverywhereNeverAsksToCompact(t *testing.T
 	}
 }
 
-// Only Snowflake Cortex gateways were measured; another tenant's gateway of
+// Only Cortex gateways were measured; another tenant's gateway of
 // the same provider type keeps the catalog window.
-func TestGatewayContextWindowAppliesMeasuredWindowOnlyToSnowflake(t *testing.T) {
+func TestGatewayContextWindowAppliesMeasuredWindowOnlyToCortex(t *testing.T) {
 	windowOn := func(baseURL string) int {
 		ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 			gatewayKey(providers.ProviderOpenAIGateway, baseURL, catalog.ModelGPT6Luna),
 		})
-		return gatewayContextWindow(snowflakeGatewayProvidersForRequest(ctx), catalog.ModelGPT6Luna, providers.ProviderOpenAIGateway)
+		return gatewayContextWindow(cortexGatewayProvidersForRequest(ctx), catalog.ModelGPT6Luna, providers.ProviderOpenAIGateway)
 	}
 
-	assert.Equal(t, 910_000, windowOn("https://sfengineering-es-modelrouter-prod1.snowflakecomputing.com/api/v2/aigateways/snowflake"))
+	assert.Equal(t, 910_000, windowOn("https://acme-xy12345.snowflakecomputing.com/api/v2/aigateways/acme"))
 	assert.Equal(t, catalog.ContextWindowFor(catalog.ModelGPT6Luna), windowOn("https://tenant.openai.azure.com/openai"))
 	assert.Equal(t, catalog.ContextWindowFor(catalog.ModelGPT6Luna), windowOn("https://snowflakecomputing.com.evil.example/v1"))
 }

@@ -149,7 +149,7 @@ func (s *Service) rescueWalkOrReadmitCooling(
 	est, sigSavings, outputReserve int,
 	providerFor func(id string) (string, bool),
 ) []router.Decision {
-	decisions := walkRescueCandidates(failed, candidates, reason, excludedModels, automaticExcluded, snowflakeGatewayProvidersForRequest(ctx), est, sigSavings, outputReserve, providerFor)
+	decisions := walkRescueCandidates(failed, candidates, reason, excludedModels, automaticExcluded, cortexGatewayProvidersForRequest(ctx), est, sigSavings, outputReserve, providerFor)
 	decisions = append(decisions, s.readmitCoolingRescueCandidates(ctx, failed, candidates, reason, excludedModels, est, sigSavings, outputReserve, providerFor)...)
 	if len(decisions) > 0 || reason != ReasonSiblingFailover {
 		return decisions
@@ -217,7 +217,7 @@ func (s *Service) readmissionWalk(
 			readmitExcluded[model] = struct{}{}
 		}
 	}
-	return walkRescueCandidates(failed, pool, reason, excludedModels, readmitExcluded, snowflakeGatewayProvidersForRequest(ctx), est, sigSavings, outputReserve, providerFor)
+	return walkRescueCandidates(failed, pool, reason, excludedModels, readmitExcluded, cortexGatewayProvidersForRequest(ctx), est, sigSavings, outputReserve, providerFor)
 }
 
 // rosterRescueAdmits bounds readmission on a roster-failover turn to the
@@ -281,7 +281,7 @@ func walkRescueCandidates(
 	failed router.Decision,
 	candidates []string,
 	reason string,
-	excludedModels, automaticExcluded, snowflakeGateways map[string]struct{},
+	excludedModels, automaticExcluded, cortexGateways map[string]struct{},
 	est, sigSavings, outputReserve int,
 	providerFor func(id string) (string, bool),
 ) []router.Decision {
@@ -300,7 +300,7 @@ func walkRescueCandidates(
 		if !ok {
 			continue
 		}
-		if !siblingFitsContext(snowflakeGateways, id, provider, est, sigSavings, outputReserve) {
+		if !siblingFitsContext(cortexGateways, id, provider, est, sigSavings, outputReserve) {
 			continue
 		}
 		candidate := rescueDecisionFor(failed, id, provider, reason)
@@ -416,7 +416,7 @@ func gatewayProviderFor(model string, custom map[string][]string, gw map[string]
 }
 
 // siblingFitsContext mirrors excludeContextOverflowModels for one candidate.
-func siblingFitsContext(snowflakeGateways map[string]struct{}, model, provider string, est, sigSavings, outputReserve int) bool {
+func siblingFitsContext(cortexGateways map[string]struct{}, model, provider string, est, sigSavings, outputReserve int) bool {
 	if est <= 0 {
 		return true
 	}
@@ -424,7 +424,7 @@ func siblingFitsContext(snowflakeGateways map[string]struct{}, model, provider s
 	if sigSavings > 0 && modelStripsAnthropicSignatures(model) {
 		needed -= sigSavings
 	}
-	return needed <= gatewayContextWindow(snowflakeGateways, model, provider)
+	return needed <= gatewayContextWindow(cortexGateways, model, provider)
 }
 
 // siblingCandidateOrder deduplicates the roster's eligible rescue order.
