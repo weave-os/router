@@ -290,7 +290,7 @@ _spin_cleanup() {
   if [ -n "$spin_log" ]; then
     rm -f "$spin_log" 2>/dev/null || true
   fi
-  if [ -n "$validate_status_file" ]; then
+  if [ -n "${validate_status_file:-}" ]; then
     rm -f "$validate_status_file" 2>/dev/null || true
   fi
   # Also restore stty echo in case we died mid-keypaste prompt. macOS
