@@ -56,6 +56,7 @@
 #   npx @weave-os/router --return-url https://example.com # open a URL after a verified install (or WEAVE_ROUTER_RETURN_URL)
 #   npx @weave-os/router --non-interactive                # require WEAVE_ROUTER_KEY env var (defaults target to claude)
 #   npx @weave-os/router --quiet                          # suppress banner, ping check, and trailing tips (return-url still verifies)
+#   npx @weave-os/router --claude --no-attribution        # don't credit Weave Router in Claude Code commits/PRs (kept on reinstall)
 #   npx @weave-os/router --rotate-key                     # ignore the installed key and prompt for a new one
 #   npx @weave-os/router --uninstall                      # remove a previous install (delegates to uninstall.sh)
 #
@@ -126,6 +127,7 @@ email_explicit="false"
 return_url=""
 non_interactive="false"
 quiet="false"
+attribution="true"
 router_key_header="X-Weave-Router-Key"
 # Target tool whose config we patch. "claude" (default) writes Claude Code
 # settings.json; "codex" writes ~/.codex/config.toml; "opencode" merges a
@@ -1549,6 +1551,9 @@ while [ $# -gt 0 ]; do
     --quiet)
       quiet="true"; shift
       ;;
+    --no-attribution)
+      attribution="false"; shift
+      ;;
     --rotate-key)
       rotate_key="true"; shift
       ;;
@@ -1657,6 +1662,7 @@ if [ "$mode" = "setup" ]; then
   [ -n "$return_url" ] && setup_args+=(--return-url "$return_url")
   [ -n "$install_dir" ] && setup_args+=(--dir "$install_dir")
   [ "$quiet" = "true" ] && setup_args+=(--quiet)
+  [ "$attribution" = "false" ] && setup_args+=(--no-attribution)
   [ "$rotate_key" = "true" ] && setup_args+=(--rotate-key)
   # With both clients, the Claude run leaves its key and identity in a private
   # handoff file so the Codex run doesn't ask again. The key travels by file
@@ -6807,21 +6813,19 @@ write_claude_settings() {
   # Force tool-search deferral to match first-party Claude Code; "auto" can inline
   # every tool schema when the custom endpoint advertises a 200K context window.
   if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
-    jq -n --arg url "$base_url" --arg sl "$statusline_path_for_settings" --arg statusline_install "$statusline_install" '{
-      env: { ANTHROPIC_BASE_URL: $url, ENABLE_TOOL_SEARCH: "true" },
-      attribution: {
+    jq -n --arg attribution "$attribution" --arg url "$base_url" --arg sl "$statusline_path_for_settings" --arg statusline_install "$statusline_install" '{
+      env: { ANTHROPIC_BASE_URL: $url, ENABLE_TOOL_SEARCH: "true" }
+    } + (if $attribution == "true" then {attribution: {
         commit: "Co-Authored-By: Weave Router <router@weaveos.com>",
         pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
-      }
-    } + (if $statusline_install == "true" then {statusLine: { type: "command", command: $sl }} else {} end)' >"$tmp_patch"
+      }} else {} end) + (if $statusline_install == "true" then {statusLine: { type: "command", command: $sl }} else {} end)' >"$tmp_patch"
   else
-    jq -n --arg url "$base_url" --arg header "$custom_headers" --arg sl "$statusline_path_for_settings" --arg statusline_install "$statusline_install" '{
-      env: { ANTHROPIC_BASE_URL: $url, ANTHROPIC_CUSTOM_HEADERS: $header, ENABLE_TOOL_SEARCH: "true" },
-      attribution: {
+    jq -n --arg attribution "$attribution" --arg url "$base_url" --arg header "$custom_headers" --arg sl "$statusline_path_for_settings" --arg statusline_install "$statusline_install" '{
+      env: { ANTHROPIC_BASE_URL: $url, ANTHROPIC_CUSTOM_HEADERS: $header, ENABLE_TOOL_SEARCH: "true" }
+    } + (if $attribution == "true" then {attribution: {
         commit: "Co-Authored-By: Weave Router <router@weaveos.com>",
         pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
-      }
-    } + (if $statusline_install == "true" then {statusLine: { type: "command", command: $sl }} else {} end)' >"$tmp_patch"
+      }} else {} end) + (if $statusline_install == "true" then {statusLine: { type: "command", command: $sl }} else {} end)' >"$tmp_patch"
   fi
 
   # Merge with existing settings. Deep-merge env and replace statusLine only
@@ -6839,13 +6843,21 @@ write_claude_settings() {
       | (if (.env | length) == 0 then del(.env) else . end)
       | del(.apiKeyHelper)
       | (if $b.statusLine then .statusLine = $b.statusLine else . end)
-      | (if $b.attribution then .attribution = $b.attribution else . end)
+      | (($a.attribution.commit // "") | startswith("Co-Authored-By: Weave Router")) as $ours
+      | (($a.env // {} | has("ANTHROPIC_BASE_URL")) and $a.attribution == null) as $opted_out
+      | (if $b.attribution and ($ours or ($a.attribution == null and ($opted_out | not)))
+           then .attribution = $b.attribution
+         elif ($b.attribution | not) and $ours then del(.attribution)
+         else . end)
     ' "$settings_file" "$tmp_patch")"
     printf '%s\n' "$merged" >"$settings_file"
   else
     cp "$tmp_patch" "$settings_file"
   fi
   ok "Settings written to $settings_file"
+  if [ "$quiet" != "true" ] && jq -e '(.attribution.commit // "") | startswith("Co-Authored-By: Weave Router")' "$settings_file" >/dev/null 2>&1; then
+    info "Claude Code will credit Weave Router in commits (Co-Authored-By) and PR descriptions. To turn this off, re-run with --no-attribution."
+  fi
 
   if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
     jq -n --arg header "$custom_headers" --arg router_url "$base_url" '{

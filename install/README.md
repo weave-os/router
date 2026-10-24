@@ -281,6 +281,7 @@ so no key paste is needed).
 | `--email <email>`          | auto-detected                 | Set the router identity email and skip the email prompt.                |
 | `--return-url <url>`       | off                           | Open the URL in the default browser after `/health` and `/validate` both succeed. |
 | `--non-interactive`        | off                           | Fail if `$WEAVE_ROUTER_KEY` isn't set instead of prompting. Defaults target to Claude Code so existing CI pipelines don't shift semantics. |
+| `--no-attribution`         | off                           | Don't add the `Co-Authored-By: Weave Router` commit trailer or PR line to Claude Code's settings. Reinstalls keep the choice; an `attribution` you set yourself is never replaced. |
 | `--rotate-key`             | off                           | Ignore the key already installed and prompt for a new one (or take `$WEAVE_ROUTER_KEY`). Use when rotating a key. |
 
 Override the default base URL globally by setting `$WEAVE_ROUTER_URL` before
@@ -640,10 +641,11 @@ errors invoking `cc-statusline.sh`. The script needs `jq` on PATH.
 ## Uninstall
 
 ```bash
-npx @weave-os/router --uninstall                       # Claude Code, user scope
+npx @weave-os/router --uninstall                       # every client it configured, user scope
+npx @weave-os/router --uninstall --claude              # Claude Code only
 npx @weave-os/router --uninstall --codex               # Codex, user scope
 npx @weave-os/router --uninstall --opencode            # opencode, user scope
-npx @weave-os/router --uninstall --scope project       # Claude Code, in the repo
+npx @weave-os/router --uninstall --scope project       # every client, in the repo
 npx @weave-os/router --uninstall --codex --scope project
 npx @weave-os/router --uninstall --opencode --scope project
 ```

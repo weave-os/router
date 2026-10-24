@@ -79,6 +79,7 @@ test-install: ## Run offline installer regression tests (after make setup-instal
 	@bash install/tests/codex-toggle_test.sh
 	@bash install/tests/key_reuse_test.sh
 	@bash install/tests/install_verdict_test.sh
+	@bash install/tests/attribution_uninstall_test.sh
 	@bash install/tests/return_url_test.sh
 	@bash install/tests/statusline_windows_path_test.sh
 	@bash install/tests/subscription_cli_test.sh
