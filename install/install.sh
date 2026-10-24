@@ -235,12 +235,12 @@ print_uninstall_hint() {
 }
 
 # offer_launch asks to start the client named in $1 (command in the remaining
-# args) so a working interactive install ends in the product. The client gets
-# the terminal through exec, so the EXIT cleanup runs first.
+# args) so a working interactive install ends in the product. The client runs
+# as a child, not via exec, so the EXIT trap still removes the temp files.
 offer_launch() {
   local label="$1"; shift
   [ "${WEAVE_SETUP_DEFER_LAUNCH:-}" != "1" ] && [ "$non_interactive" = "false" ] && [ "$quiet" != "true" ] \
-    && [ -t 0 ] && [ -t 1 ] && command -v "${*: -1}" >/dev/null 2>&1 || return 0
+    && [ -t 0 ] && [ -t 1 ] && command -v "${!#}" >/dev/null 2>&1 || return 0
   local answer=""
   printf "\n%sStart %s now?%s [Y/n] " "$C_BOLD" "$label" "$C_RESET" >/dev/tty
   read -r answer </dev/tty || answer="n"
@@ -248,9 +248,9 @@ offer_launch() {
     ""|y|Y|yes|Yes) ;;
     *) return 0 ;;
   esac
-  trap - EXIT INT TERM HUP
-  _spin_cleanup
-  exec "$@" </dev/tty
+  local launch_status=0
+  "$@" </dev/tty || launch_status=$?
+  exit "$launch_status"
 }
 
 # ---------- banner ----------
@@ -4515,31 +4515,21 @@ print_next_steps() {
   esac
 }
 
-# print_daily_commands lists the commands a user reaches for after install:
-# checking routing, turning it off and on, sending feedback, and undoing it.
-print_daily_commands() {
-  local pkg="npx $npm_package_name" flags="--$target" feedback
-  [ "$scope" = "project" ] && flags="$flags --scope project"
-  case "$target" in
-    claude) feedback="type /rf <what happened> in Claude Code" ;;
-    codex)  feedback="type \$rf <what happened> in Codex" ;;
-  esac
-  printf "\n"
-  printf "  %-14s %s\n" "Check routing" "$pkg status $flags"
-  printf "  %-14s %s\n" "Turn off" "$pkg off $flags"
-  printf "  %-14s %s\n" "Turn back on" "$pkg on $flags"
-  printf "  %-14s %s\n" "Give feedback" "$feedback"
-  printf "  %-14s %s\n" "Uninstall" "$(uninstall_cmd)"
-}
-
-# finish_install closes a Claude Code or Codex run: after a working first
-# install, the next steps, everyday commands and an offer to start the client;
-# otherwise only the uninstall command.
+# finish_install closes a Claude Code or Codex run. Only a working first install
+# gets onboarding; a failed check or an update must not invite the user in.
 finish_install() {
   local label="$1"; shift
   if [ "$mode" = "install" ] && [ "$quiet" != "true" ] && [ -z "$install_dir" ] && [ "$key_verdict" = "valid" ]; then
+    local pkg="npx $npm_package_name" flags="--$target" feedback="type /rf <what happened> in Claude Code"
+    [ "$scope" = "project" ] && flags="$flags --scope project"
+    [ "$target" = "codex" ] && feedback="type \$rf <what happened> in Codex"
     print_next_steps
-    print_daily_commands
+    printf "\n"
+    printf "  %-14s %s\n" "Check routing" "$pkg status $flags"
+    printf "  %-14s %s\n" "Turn off" "$pkg off $flags"
+    printf "  %-14s %s\n" "Turn back on" "$pkg on $flags"
+    printf "  %-14s %s\n" "Give feedback" "$feedback"
+    printf "  %-14s %s\n" "Uninstall" "$(uninstall_cmd)"
     offer_launch "$label" "$@"
   elif [ "$mode" != "update" ]; then
     print_uninstall_hint
