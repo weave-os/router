@@ -381,3 +381,45 @@ func TestNoticeReplayPreservesUnmarkedQuotedHeadings(t *testing.T) {
 		})
 	}
 }
+
+func TestNoticeDeliverySlowStartNoticeWaitsForProviderContent(t *testing.T) {
+	rec := httptest.NewRecorder()
+	delivery := noticeDelivery(context.Background(), rec, translate.FormatAnthropic)
+	delivery.Header().Set("Content-Type", "text/event-stream")
+	delivery.WriteHeader(http.StatusOK)
+	_, err := delivery.Deliver(translate.NewRouterNotice(translate.NoticeModelSelection, "✦ **Weave Router** → claude-opus-5-5 · best pick for this turn\n\n", "claude-opus-5-5", ""))
+	require.NoError(t, err)
+	calls := 0
+	delivery.SetBeforeProviderContent(func() (translate.RouterNotice, bool) {
+		calls++
+		return translate.NewRouterNotice(translate.NoticeSlowStart, "↳ Snowflake Cortex took 41s to start (usually ~3s)\n\n", "claude-opus-5-5", ""), true
+	})
+
+	_, err = delivery.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[]}}\n\nevent: ping\ndata: {\"type\":\"ping\"}\n\n"))
+	require.NoError(t, err)
+	assert.Zero(t, calls, "nothing is decided before provider content")
+	assert.NotContains(t, rec.Body.String(), "took 41s")
+
+	_, err = delivery.Write([]byte("event: content_block_start\ndata: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\nevent: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}\n\n"))
+	require.NoError(t, err)
+	assert.Equal(t, 1, calls)
+	body := rec.Body.String()
+	slowAt := strings.Index(body, "took 41s to start (usually ~3s)")
+	helloAt := strings.Index(body, `"text":"hello"`)
+	require.Positive(t, slowAt)
+	assert.Less(t, slowAt, helloAt, "the slow-start line precedes provider content")
+	assert.Contains(t, body, `"index":2,"delta":{"type":"text_delta","text":"hello"}`, "provider blocks shift past both notices")
+}
+
+func TestSlowStartNoticeIsRouterOwned(t *testing.T) {
+	notice := translate.NewRouterNotice(translate.NoticeSlowStart, "↳ Snowflake Cortex took 41s to start (usually ~3s)\n\n", "m", "")
+	rec := httptest.NewRecorder()
+	delivery := noticeDelivery(context.Background(), rec, translate.FormatAnthropic)
+	delivery.Header().Set("Content-Type", "text/event-stream")
+	delivery.WriteHeader(http.StatusOK)
+	_, err := delivery.Deliver(notice)
+	require.NoError(t, err)
+	text := gjson.Get(strings.TrimPrefix(strings.Split(strings.Split(rec.Body.String(), "content_block_delta\ndata: ")[1], "\n")[0], ""), "delta.text").String()
+	require.Contains(t, text, "took 41s")
+	assert.True(t, translate.IsRouterNoticeText(text), "replay cleanup recognizes the wire text")
+}

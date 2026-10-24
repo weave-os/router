@@ -698,6 +698,20 @@ func suppressMarkerIfRequested(ctx context.Context, h http.Header, marker string
 	return marker
 }
 
+// machineReadTurn reports turns whose reply the client parses, so they carry
+// no router text.
+func machineReadTurn(res turnLoopResult) bool {
+	return res.SuggestionMode || res.CallerModelPassthrough || isUnpinnedScoredTurn(res.TurnType) || res.TurnType == turntype.Probe
+}
+
+// muteSlowStartFor keeps the slow-start notice off turns that carry no
+// router text: machine-read replies and hard-pinned compaction/sub-agent turns.
+func muteSlowStartFor(ctx context.Context, res turnLoopResult) {
+	if machineReadTurn(res) || res.HardPinned {
+		attemptTraceFromContext(ctx).muteSlowStart()
+	}
+}
+
 // routingMarkerFor builds the "brand → model · note" snippet emitted when the
 // selected serving model changes, on the first routed turn, or when a shadow
 // escalation is marked without affecting selection.
@@ -706,7 +720,7 @@ func routingMarkerFor(res turnLoopResult) string {
 	if decision.Model == "" {
 		return ""
 	}
-	if res.SuggestionMode || res.CallerModelPassthrough || isUnpinnedScoredTurn(res.TurnType) || res.TurnType == turntype.Probe {
+	if machineReadTurn(res) {
 		return ""
 	}
 	// A dropped force-model pin contradicts an ack the user already saw, so it
@@ -868,30 +882,34 @@ func baselineRoutingMarkerFor(res turnLoopResult, baselineModel string) string {
 	return "✦ **Weave Router** → " + baselineModel + " · " + markerReasonBaseline + "\n\n"
 }
 
-// siblingMarkerReason names the model that was overloaded so the user can see
-// which pick the rescue replaced; it falls back to generic wording when the
-// failed model is unknown.
-func siblingMarkerReason(overloadedModel string) string {
-	if overloadedModel == "" {
+// siblingMarkerReason names the model the rescue replaced and how its last
+// attempt failed; it falls back to generic wording when the failed model is
+// unknown.
+func siblingMarkerReason(ctx context.Context, failedModel string) string {
+	if failedModel == "" {
 		return markerReasonSibling
 	}
-	return "switched after " + overloadedModel + " was overloaded"
+	cause := "was overloaded"
+	if last, ok := attemptTraceFromContext(ctx).lastFailure(); ok && baseModelOf(last.Target.CatalogID) == baseModelOf(failedModel) {
+		cause = failureWordingFor(last).badge
+	}
+	return "switched after " + failedModel + " " + cause
 }
 
 // siblingMarkerFor renders the full sibling-rescue badge, including the
 // optional model-selection reasoning line and the per-request opt-out.
-func siblingMarkerFor(ctx context.Context, h http.Header, res turnLoopResult, overloadedModel, siblingModel string) string {
-	reason := siblingMarkerReason(overloadedModel)
-	return suppressMarkerIfRequested(ctx, h, modelSelectionMarkerForRequest(ctx, res, siblingRoutingMarkerFor(res, overloadedModel, siblingModel), siblingModel, reason))
+func siblingMarkerFor(ctx context.Context, h http.Header, res turnLoopResult, failedModel, siblingModel string) string {
+	reason := siblingMarkerReason(ctx, failedModel)
+	return suppressMarkerIfRequested(ctx, h, modelSelectionMarkerForRequest(ctx, res, siblingRoutingMarkerFor(res, reason, siblingModel), siblingModel, reason))
 }
 
 // siblingRoutingMarkerFor renders the routing badge for an in-turn same-cluster
-// failover, naming the model that was overloaded and the candidate that serves.
-func siblingRoutingMarkerFor(res turnLoopResult, overloadedModel, siblingModel string) string {
+// failover, naming why the failed pick was replaced and the candidate that serves.
+func siblingRoutingMarkerFor(res turnLoopResult, reason, siblingModel string) string {
 	if res.SuggestionMode || isUnpinnedScoredTurn(res.TurnType) || res.TurnType == turntype.Probe || siblingModel == "" || baseModelOf(res.PriorServedModel) == siblingModel {
 		return ""
 	}
-	return "✦ **Weave Router** → " + siblingModel + " · " + siblingMarkerReason(overloadedModel) + "\n\n"
+	return "✦ **Weave Router** → " + siblingModel + " · " + reason + "\n\n"
 }
 
 // subscriptionTargetMarker words the badge for a subscription-state dispatch.
@@ -3442,7 +3460,7 @@ func (s *Service) anthropicNativeAttempt(
 			// Before synthesis: the rendered 502 no longer carries the
 			// transport error the classification reads.
 			streamCut.noteCut(err)
-			err = emitAnthropicSSEErrorEvent(sink, err)
+			err = emitAnthropicSSEErrorEvent(sink, attributeStreamError(actx, d.Provider, err))
 		}
 		return err
 	}
@@ -4473,6 +4491,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	var reqStats providers.RequestMutationStats
 
 	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
+	muteSlowStartFor(ctx, routeRes)
 	marker = routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, decision.Model, marker).Text
 	// toolValidator compiles the request's tool schemas once (LRU-cached);
 	// translators validate/repair model tool calls against it. Nil if no tools.
@@ -4638,7 +4657,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					// dispatchWithFallback instead.
 					if err != nil && env.Stream() && preludeBuf.Committed() {
 						streamCut.noteCut(err)
-						err = emitAnthropicSSEErrorEvent(sink, err)
+						err = emitAnthropicSSEErrorEvent(sink, attributeStreamError(actx, d.Provider, err))
 					}
 					finErr := finalizeAfterProxy(finalizeAfterProxy(err, toolNames.Finalize), translator.Finalize)
 					respSummary = translator.Summary()
@@ -4745,7 +4764,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					// Post-commit: see the OpenAI-compat case above.
 					if err != nil && env.Stream() && preludeBuf.Committed() {
 						streamCut.noteCut(err)
-						err = emitAnthropicSSEErrorEvent(sink, err)
+						err = emitAnthropicSSEErrorEvent(sink, attributeStreamError(actx, d.Provider, err))
 					}
 					err = finalizeAfterProxy(err, geminiTr.Finalize)
 					finErr := finalizeAfterProxy(err, anthropicTr.Finalize)
@@ -7459,6 +7478,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
 
 	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
+	muteSlowStartFor(ctx, routeRes)
 	marker = routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderCodex, decision.Model, marker).Text
 
 	// gpt-5.6 applies its own effort on chat/completions, so a /v1/responses
@@ -7762,7 +7782,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				// request through the translating ResponsesWriter still needs its own
 				// error frame; a native attempt already delivered the upstream's.
 				if err != nil && surface != surfaceResponsesNative && env.Stream() && preludeBuf.Committed() {
-					_ = emitOpenAISSEErrorEvent(sink, err)
+					_ = emitOpenAISSEErrorEvent(sink, attributeStreamError(actx, d.Provider, err))
 				}
 				if translator != nil {
 					err = finalizeAfterProxy(finalizeAfterProxy(err, toolNames.Finalize), translator.Finalize)
@@ -7906,7 +7926,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				finalize := func(err error) error {
 					// Post-commit streaming error: see same-format OpenAI case above.
 					if err != nil && env.Stream() && preludeBuf.Committed() {
-						_ = emitOpenAISSEErrorEvent(sink, err)
+						_ = emitOpenAISSEErrorEvent(sink, attributeStreamError(actx, d.Provider, err))
 					}
 					return finalizeAfterProxy(err, translator.Finalize)
 				}
@@ -7978,7 +7998,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				finalize := func(err error) error {
 					// Post-commit streaming error: see same-format OpenAI case above.
 					if err != nil && env.Stream() && preludeBuf.Committed() {
-						_ = emitOpenAISSEErrorEvent(sink, err)
+						_ = emitOpenAISSEErrorEvent(sink, attributeStreamError(actx, d.Provider, err))
 					}
 					return finalizeAfterProxy(finalizeAfterProxy(err, toolNames.Finalize), translator.Finalize)
 				}
@@ -8931,6 +8951,9 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		// handler still writes the JSON error envelope in that case. An overflow
 		// always takes the Responses-native failure: Codex compacts only on an
 		// in-stream response.failed carrying context_length_exceeded.
+		if msg := TerminalErrorMessage(proxyErr); msg != upstreamCallFailedMessage {
+			wrapper.SetUpstreamFailureMessage(msg)
+		}
 		finalize := func() error { return wrapper.FinalizeError(proxyErr) }
 		if isContextOverflow(proxyErr) {
 			finalize = func() error {

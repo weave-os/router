@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/tidwall/sjson"
+
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -479,8 +481,12 @@ func flushBufferedIfPresent(w http.ResponseWriter, err error) {
 			w.Header().Add(k, v)
 		}
 	}
+	body := attributedErrorBody(resp.Body, err)
+	if !bytes.Equal(body, resp.Body) {
+		w.Header().Set("Content-Type", "application/json")
+	}
 	w.WriteHeader(resp.Status)
-	_, _ = w.Write(resp.Body)
+	_, _ = w.Write(body)
 }
 
 // emitAnthropicSSEErrorEvent writes an Anthropic-shape `event: error` SSE
@@ -491,14 +497,14 @@ func flushBufferedIfPresent(w http.ResponseWriter, err error) {
 func emitAnthropicSSEErrorEvent(sink http.ResponseWriter, err error) error {
 	var resp *providers.UpstreamErrorResponse
 	status := http.StatusBadGateway
-	body := []byte(`{"type":"error","error":{"type":"api_error","message":"upstream stream failed"}}`)
+	body, _ := sjson.SetBytes([]byte(`{"type":"error","error":{"type":"api_error","message":""}}`), "error.message", attributedStreamFailure(err))
 	switch cls, classified := ClassifyDispatchError(err); {
 	case classified && cls.Kind == DispatchErrorContextWindowExceeded:
 		status = cls.Status
 		body = anthropicErrorFrameBody(cls)
 	case errors.As(err, &resp):
 		status = resp.Status
-		body = translate.OpenAIToAnthropicError(resp.Body)
+		body = attributedErrorBody(translate.OpenAIToAnthropicError(resp.Body), err)
 	case classified:
 		status = cls.Status
 		body = anthropicErrorFrameBody(cls)
@@ -518,14 +524,14 @@ func emitAnthropicSSEErrorEvent(sink http.ResponseWriter, err error) error {
 func emitOpenAISSEErrorEvent(sink http.ResponseWriter, err error) error {
 	var resp *providers.UpstreamErrorResponse
 	status := http.StatusBadGateway
-	body := []byte(`{"error":{"message":"upstream stream failed","type":"server_error","code":"upstream_error"}}`)
+	body, _ := sjson.SetBytes([]byte(`{"error":{"message":"","type":"server_error","code":"upstream_error"}}`), "error.message", attributedStreamFailure(err))
 	switch cls, classified := ClassifyDispatchError(err); {
 	case classified && cls.Kind == DispatchErrorContextWindowExceeded:
 		status = cls.Status
 		body = openAIErrorFrameBody(cls)
 	case errors.As(err, &resp):
 		status = resp.Status
-		body = resp.Body
+		body = attributedErrorBody(resp.Body, err)
 	case classified:
 		status = cls.Status
 		body = openAIErrorFrameBody(cls)
@@ -596,7 +602,7 @@ func flushUpstreamErrorAsAnthropic(w http.ResponseWriter, err error) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.Status)
-	_, _ = w.Write(translate.OpenAIToAnthropicError(resp.Body))
+	_, _ = w.Write(attributedErrorBody(translate.OpenAIToAnthropicError(resp.Body), err))
 }
 
 // attemptIdxLabel formats i for the x-router-fallback-attempt header.

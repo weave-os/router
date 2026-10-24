@@ -38,6 +38,9 @@ type authorizationGuard struct {
 	authorize Authorization
 }
 
+// Unwrap exposes the guarded client, e.g. to read its deployment endpoint.
+func (g authorizationGuard) Unwrap() providers.Client { return g.Client }
+
 func (g authorizationGuard) Proxy(ctx context.Context, decision router.Decision, prep providers.PreparedRequest, w http.ResponseWriter, r *http.Request) error {
 	if err := g.authorize(ctx, g.target); err != nil {
 		return fmt.Errorf("%w: %w", ErrAuthorizationDenied, err)

@@ -15,6 +15,9 @@ const legacyRoutingMarkerExpression = `✦ \*\*Weave Router\*\* → .*?\n\n`
 // failed attempt; replay cleanup removes it together with the badge.
 const RescueDetailPrefix = "↳ switched: "
 
+// SlowStartPrefix opens the notice naming a provider that was slow to start.
+const SlowStartPrefix = "↳ "
+
 const rescueDetailExpression = `(?:` + RescueDetailPrefix + `[^\n]*\n\n)?`
 
 const legacyNoticeExpression = `(?:\*\*WEAVE ROUTER\*\* — .*?\n\n|✦ \*\*WEAVE ROUTER\*\* → .*?\n\n)`

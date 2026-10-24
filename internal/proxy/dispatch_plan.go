@@ -1,6 +1,9 @@
 package proxy
 
 import (
+	"strings"
+	"time"
+
 	"context"
 	"errors"
 	"fmt"
@@ -148,7 +151,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 		guarded := dispatch.GuardTarget(client, attempt.Target)
 		trace := attemptTraceFromContext(ctx)
 		if trace != nil {
-			trace.beginAttempt()
+			trace.beginAttempt(attempt.Target, gatewayDeploymentBaseURL(attempt.Target.Provider, client), time.Now())
 			guarded = dispatch.ObservePrepared(guarded, trace.observeSent)
 		}
 		var lastSubscriptionErr error
@@ -272,7 +275,7 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 			// call before the next account overwrites the traced body.
 			if trace != nil {
 				trace.describe(ctx, attempt, attemptErr)
-				trace.beginAttempt()
+				trace.beginAttempt(attempt.Target, gatewayDeploymentBaseURL(attempt.Target.Provider, client), time.Now())
 			}
 			lastSubscriptionErr = attemptErr
 			if rotationBudget.remaining <= 0 {
@@ -365,4 +368,23 @@ func recordWinningCredentials(ctx, credentialCtx context.Context) {
 		usage.WinningCredentials = requestcontext.CredentialsFromContext(credentialCtx)
 		usage.Finished = true
 	}
+}
+
+// gatewayDeploymentBaseURL names the deployment-configured endpoint of a
+// customer gateway, so failures on it are attributed to that gateway.
+func gatewayDeploymentBaseURL(provider string, client providers.Client) string {
+	if !providers.IsGateway(provider) {
+		return ""
+	}
+	for client != nil {
+		if c, ok := client.(interface{ BaseURL() string }); ok {
+			return strings.TrimRight(c.BaseURL(), "/")
+		}
+		w, ok := client.(interface{ Unwrap() providers.Client })
+		if !ok {
+			return ""
+		}
+		client = w.Unwrap()
+	}
+	return ""
 }

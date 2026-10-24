@@ -1943,6 +1943,14 @@ func (t *ResponsesWriter) failureError() map[string]any {
 	return map[string]any{"code": "upstream_error", "message": "Upstream call failed."}
 }
 
+// SetUpstreamFailureMessage replaces the generic response.failed message with
+// an attributed one; a native failure code already set wins.
+func (t *ResponsesWriter) SetUpstreamFailureMessage(message string) {
+	if t.failureCode == "" && message != "" {
+		t.failureCode, t.failureMessage = "upstream_error", message
+	}
+}
+
 // FailContextOverflow ends the response with the Responses-native overflow
 // failure. Codex compacts only on an in-stream response.failed carrying this
 // code, so a streaming request whose stream has not started gets it opened

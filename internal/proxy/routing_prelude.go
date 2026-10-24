@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"weave-os/router/internal/translate"
 )
@@ -18,6 +19,11 @@ func (s *requestNoticeStream) prepare(ctx context.Context, sink http.ResponseWri
 	if s.delivery == nil {
 		capabilities := translate.NoticeCapabilities{Format: format, Streaming: streaming, Presentation: translate.NoticeText, Eager: streaming && (format == translate.FormatOpenAI || format == translate.FormatOpenAIResponses)}
 		s.delivery = translate.NewNoticeDelivery(ctx, translate.NewProtocolNoticeSink(sink, capabilities), capabilities)
+	}
+	if trace := attemptTraceFromContext(ctx); trace != nil && streaming {
+		s.delivery.SetBeforeProviderContent(func() (translate.RouterNotice, bool) {
+			return slowStartNotice(ctx, trace, slowStarts, time.Now())
+		})
 	}
 	retainNotices := prelude == nil || prelude.PreludeSent()
 	s.delivery.ResetAttempt(retainNotices)
