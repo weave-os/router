@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -155,15 +156,24 @@ func slowStartNotice(ctx context.Context, trace *attemptTrace, tracker *slowStar
 }
 
 // slowStartLine reads e.g. "↳ Snowflake Cortex took 41s to start (usually
-// ~3s) after gpt-6-luna on Snowflake Cortex timed out".
+// ~3s; gpt-6-luna timed out first)".
 func slowStartLine(snap slowStartAttempt, wait, p50 time.Duration) string {
-	line := translate.SlowStartPrefix + snap.current.providerName() + " took " + roundSeconds(wait) + " to start"
+	provider := snap.current.providerName()
+	var details []string
 	if p50 > 0 {
-		line += " (usually ~" + roundSeconds(p50) + ")"
+		details = append(details, "usually ~"+roundSeconds(p50))
 	}
 	if snap.failed {
 		failed := snap.lastFailure
-		line += " after " + failed.Target.CatalogID + " on " + failed.providerName() + " " + failureWordingFor(failed).badge
+		what := failed.Target.CatalogID
+		if name := failed.providerName(); name != provider {
+			what += " on " + name
+		}
+		details = append(details, what+" "+failureWordingFor(failed).badge+" first")
+	}
+	line := translate.SlowStartPrefix + provider + " took " + roundSeconds(wait) + " to start"
+	if len(details) > 0 {
+		line += " (" + strings.Join(details, "; ") + ")"
 	}
 	return line + "\n\n"
 }

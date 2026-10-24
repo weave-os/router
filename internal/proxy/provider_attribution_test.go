@@ -177,7 +177,7 @@ func TestSlowStartNotice_ThresholdBaselineAndCooldown(t *testing.T) {
 	failed.Target.Provider = providers.ProviderOpenAIGateway
 	notice, shown = slowStartNotice(ctx, slowStartTrace(now.Add(-40*time.Second), now.Add(-84*time.Second), failed), tracker, now)
 	require.True(t, shown)
-	assert.Equal(t, "↳ Snowflake Cortex took 84s to start (usually ~3s) after gpt-6-luna on Snowflake Cortex timed out\n\n", notice.Text)
+	assert.Equal(t, "↳ Snowflake Cortex took 84s to start (usually ~3s; gpt-6-luna timed out first)\n\n", notice.Text)
 }
 
 func TestSlowStartNotice_BaselineRaisesThreshold(t *testing.T) {
