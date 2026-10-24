@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/ed25519"
 	"time"
 )
 
@@ -15,6 +16,9 @@ const (
 	// ScopeAnalyticsRead is the ra_ export key: reads the installation's own
 	// telemetry and nothing else. It can neither route nor spend.
 	ScopeAnalyticsRead APIKeyScope = "analytics_read"
+	// ScopeSessionIssuer is a factory-registered Ed25519 public key. It is never
+	// a bearer; it verifies rs_ session tokens and is what they authenticate as.
+	ScopeSessionIssuer APIKeyScope = "session_issuer"
 )
 
 // Normalized resolves the zero value to ScopeRouting (mirrors the migration backfill);
@@ -29,6 +33,13 @@ func (s APIKeyScope) Normalized() APIKeyScope {
 // Valid reports whether the scope is one the router recognizes. Mirrors the
 // CHECK constraint on model_router_api_keys.scope.
 func (s APIKeyScope) Valid() bool {
+	n := s.Normalized()
+	return n == ScopeRouting || n == ScopeAnalyticsRead || n == ScopeSessionIssuer
+}
+
+// UserIssuable reports whether a user-facing API may mint a bearer key of this
+// scope. Session issuers are registered only through the internal endpoint.
+func (s APIKeyScope) UserIssuable() bool {
 	n := s.Normalized()
 	return n == ScopeRouting || n == ScopeAnalyticsRead
 }
@@ -62,6 +73,8 @@ type APIKey struct {
 	// Claude turn use paid API capacity when every linked Claude subscription
 	// refuses the client app. Never settable from a request.
 	PaidFallbackOnSubscriptionRefusal bool
+	// IssuerPublicKey is set only for ScopeSessionIssuer rows.
+	IssuerPublicKey ed25519.PublicKey
 }
 
 type CreateAPIKeyParams struct {
@@ -73,6 +86,8 @@ type CreateAPIKeyParams struct {
 	KeySuffix      string
 	Scope          APIKeyScope
 	CreatedBy      *string
+	// PublicJWK is the canonical issuer JWK; required for, and only for, ScopeSessionIssuer.
+	PublicJWK []byte
 }
 
 type APIKeyRepository interface {

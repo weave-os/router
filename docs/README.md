@@ -10,6 +10,7 @@ Index of Markdown documentation in the `router/` repo.
 | [POLICY_INFERENCE.md](POLICY_INFERENCE.md) | Generated static registry of inference purposes, selection policy, constraints, fallback, and migration status. |
 | [ANALYTICS_EXPORT.md](ANALYTICS_EXPORT.md) | `/v1/analytics/*` raw routing-decision export: read-only keys, cursor paging, row grain, field reference. |
 | [SUBSCRIPTION_ROUTING.md](SUBSCRIPTION_ROUTING.md) | Personal and shared subscription candidate admission, alternatives, native OAuth dispatch with quota checks, and API fallback. |
+| [DELEGATED_SESSION_TOKENS.md](DELEGATED_SESSION_TOKENS.md) | Experimental `rs_` session JWTs signed by a registered Ed25519 issuer: token claims, issuer registration and revocation. |
 | [SESSION_COST.md](SESSION_COST.md) | `GET /v1/sessions/:session_id/cost`: `rk_`/`ra_` auth, installation scope, response fields, errors, rate limit. |
 | [POLICY_ROUTER_HARNESS.md](POLICY_ROUTER_HARNESS.md) | Contract for out-of-process policy sidecars. |
 | [LLM_CLASSIFIER_CONTEXT.md](LLM_CLASSIFIER_CONTEXT.md) | Staged atomic-response classifier input contract and unresolved admission/recovery requirements; not serving-enabled. |
