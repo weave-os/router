@@ -849,6 +849,8 @@ check_contains "/router-status shows this session's line" "$reason" "This sessio
 check_not_contains "/router-status never echoes the router key" "$reason" "rk_x"
 out="$(hook_out ' /router-status ')"
 check_contains "/router-status reports routing off without the router env" "$(jq -r '.stopReason' <<<"$out")" "Weave Router is off"
+out="$(printf '{"prompt":"/router-status"}' | XDG_CACHE_HOME="$h/cache" ANTHROPIC_BASE_URL=https://api.anthropic.com bash "$h/cc.sh" --prompt-hook --dir '/tmp/my proj')"
+check_contains "a --dir install suggests commands for that install" "$(jq -r '.stopReason' <<<"$out")" "status --claude --dir /tmp/my\\ proj"
 out="$(hook_out '/router-status' ANTHROPIC_BASE_URL=https://api.anthropic.com)"
 check_contains "project-scope off (base URL back at Anthropic) reports off" "$(jq -r '.stopReason' <<<"$out")" "Weave Router is off"
 out="$(hook_out '/router-status' ANTHROPIC_BASE_URL=https://other.example)"

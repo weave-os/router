@@ -28,7 +28,8 @@ export PATH="$PATH:$HOME/.weave/bin"
 # the session's last statusline render is cached by the statusline below.
 weave_router_status_hook() {
   command -v jq >/dev/null 2>&1 || return 0
-  local payload prompt session line="" root report
+  local payload prompt session line="" root report scope_suffix=""
+  [ "$#" -eq 0 ] || scope_suffix="$(printf ' %q' "$@")"
   payload="$(cat)"
   prompt="$(jq -r '.prompt // empty' <<<"$payload" 2>/dev/null)" || return 0
   [[ "$prompt" =~ ^[[:space:]]*/router-status[[:space:]]*$ ]] || return 0
@@ -37,7 +38,7 @@ weave_router_status_hook() {
   elif [[ -n "${ANTHROPIC_BASE_URL:-}" && "${ANTHROPIC_CUSTOM_HEADERS:-}" == *"X-Weave-Router-Key:"* ]]; then
     report="Weave Router is on: Claude Code sends requests to ${ANTHROPIC_BASE_URL}."
   elif [[ -n "${ANTHROPIC_BASE_URL:-}" ]]; then
-    report="Claude Code sends requests to ${ANTHROPIC_BASE_URL}, but no Weave Router key is set. Repair it with: npx @weave-os/router update --claude"
+    report="Claude Code sends requests to ${ANTHROPIC_BASE_URL}, but no Weave Router key is set. Repair it with: npx @weave-os/router update --claude${scope_suffix}"
   else
     report="Weave Router is off: Claude Code talks to Anthropic directly. Turn it back on with /router-on."
   fi
@@ -51,11 +52,12 @@ weave_router_status_hook() {
   else
     report="$report"$'\n'"No routed turn yet in this session."
   fi
-  report="$report"$'\n'"Full check (key, login, endpoint): npx @weave-os/router status --claude"
+  report="$report"$'\n'"Full check (key, login, endpoint): npx @weave-os/router status --claude${scope_suffix}"
   jq -n --arg reason "$report" '{continue: false, stopReason: $reason, suppressOutput: true}'
 }
 if [ "${1:-}" = "--prompt-hook" ]; then
-  weave_router_status_hook || true
+  shift
+  weave_router_status_hook "$@" || true
   exit 0
 fi
 

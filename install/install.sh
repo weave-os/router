@@ -5782,7 +5782,8 @@ export PATH="$PATH:$HOME/.weave/bin"
 # the session's last statusline render is cached by the statusline below.
 weave_router_status_hook() {
   command -v jq >/dev/null 2>&1 || return 0
-  local payload prompt session line="" root report
+  local payload prompt session line="" root report scope_suffix=""
+  [ "$#" -eq 0 ] || scope_suffix="$(printf ' %q' "$@")"
   payload="$(cat)"
   prompt="$(jq -r '.prompt // empty' <<<"$payload" 2>/dev/null)" || return 0
   [[ "$prompt" =~ ^[[:space:]]*/router-status[[:space:]]*$ ]] || return 0
@@ -5791,7 +5792,7 @@ weave_router_status_hook() {
   elif [[ -n "${ANTHROPIC_BASE_URL:-}" && "${ANTHROPIC_CUSTOM_HEADERS:-}" == *"X-Weave-Router-Key:"* ]]; then
     report="Weave Router is on: Claude Code sends requests to ${ANTHROPIC_BASE_URL}."
   elif [[ -n "${ANTHROPIC_BASE_URL:-}" ]]; then
-    report="Claude Code sends requests to ${ANTHROPIC_BASE_URL}, but no Weave Router key is set. Repair it with: npx @weave-os/router update --claude"
+    report="Claude Code sends requests to ${ANTHROPIC_BASE_URL}, but no Weave Router key is set. Repair it with: npx @weave-os/router update --claude${scope_suffix}"
   else
     report="Weave Router is off: Claude Code talks to Anthropic directly. Turn it back on with /router-on."
   fi
@@ -5805,11 +5806,12 @@ weave_router_status_hook() {
   else
     report="$report"$'\n'"No routed turn yet in this session."
   fi
-  report="$report"$'\n'"Full check (key, login, endpoint): npx @weave-os/router status --claude"
+  report="$report"$'\n'"Full check (key, login, endpoint): npx @weave-os/router status --claude${scope_suffix}"
   jq -n --arg reason "$report" '{continue: false, stopReason: $reason, suppressOutput: true}'
 }
 if [ "${1:-}" = "--prompt-hook" ]; then
-  weave_router_status_hook || true
+  shift
+  weave_router_status_hook "$@" || true
   exit 0
 fi
 
@@ -6923,22 +6925,28 @@ write_claude_settings() {
   # Setting ANTHROPIC_BASE_URL makes Claude Code treat us as non-first-party.
   # Force tool-search deferral to match first-party Claude Code; "auto" can inline
   # every tool schema when the custom endpoint advertises a 200K context window.
+  local prompt_hook_scope=""
+  if [ -n "$install_dir" ]; then
+    prompt_hook_scope=" --dir $(printf '%q' "$install_dir")"
+  elif [ "$scope" = "project" ]; then
+    prompt_hook_scope=" --scope project"
+  fi
   if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
-    jq -n --arg attribution "$attribution" --arg url "$base_url" --arg sl "$statusline_path_for_settings" --arg statusline_install "$statusline_install" '{
+    jq -n --arg attribution "$attribution" --arg url "$base_url" --arg sl "$statusline_path_for_settings" --arg hs "$prompt_hook_scope" --arg statusline_install "$statusline_install" '{
       env: { ANTHROPIC_BASE_URL: $url, ENABLE_TOOL_SEARCH: "true" }
     } + (if $attribution == "true" then {attribution: {
         commit: "Co-Authored-By: Weave Router <router@weaveos.com>",
         pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
       }} else {} end) + (if $statusline_install == "true" then {statusLine: { type: "command", command: $sl },
-        hooks: {UserPromptSubmit: [{hooks: [{type: "command", command: ("[ ! -x \"" + $sl + "\" ] || \"" + $sl + "\" --prompt-hook")}]}]}} else {} end)' >"$tmp_patch"
+        hooks: {UserPromptSubmit: [{hooks: [{type: "command", command: ("[ ! -x \"" + $sl + "\" ] || \"" + $sl + "\" --prompt-hook" + $hs)}]}]}} else {} end)' >"$tmp_patch"
   else
-    jq -n --arg attribution "$attribution" --arg url "$base_url" --arg header "$custom_headers" --arg sl "$statusline_path_for_settings" --arg statusline_install "$statusline_install" '{
+    jq -n --arg attribution "$attribution" --arg url "$base_url" --arg header "$custom_headers" --arg sl "$statusline_path_for_settings" --arg hs "$prompt_hook_scope" --arg statusline_install "$statusline_install" '{
       env: { ANTHROPIC_BASE_URL: $url, ANTHROPIC_CUSTOM_HEADERS: $header, ENABLE_TOOL_SEARCH: "true" }
     } + (if $attribution == "true" then {attribution: {
         commit: "Co-Authored-By: Weave Router <router@weaveos.com>",
         pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
       }} else {} end) + (if $statusline_install == "true" then {statusLine: { type: "command", command: $sl },
-        hooks: {UserPromptSubmit: [{hooks: [{type: "command", command: ("[ ! -x \"" + $sl + "\" ] || \"" + $sl + "\" --prompt-hook")}]}]}} else {} end)' >"$tmp_patch"
+        hooks: {UserPromptSubmit: [{hooks: [{type: "command", command: ("[ ! -x \"" + $sl + "\" ] || \"" + $sl + "\" --prompt-hook" + $hs)}]}]}} else {} end)' >"$tmp_patch"
   fi
 
   # Merge with existing settings. Deep-merge env and replace statusLine only
@@ -6958,7 +6966,7 @@ write_claude_settings() {
       | (if $b.statusLine then .statusLine = $b.statusLine else . end)
       | (if $b.hooks then .hooks = ((.hooks // {})
           | .UserPromptSubmit = (((.UserPromptSubmit // [])
-              | map(if (.hooks | type) == "array" then .hooks |= map(select((.command // "" | tostring | test("cc-statusline\\.sh\"? --prompt-hook$")) | not)) else . end) | map(select((.hooks | type) != "array" or (.hooks | length) > 0)))
+              | map(if (.hooks | type) == "array" then .hooks |= map(select((.command // "" | tostring | test("cc-statusline\\.sh\"? --prompt-hook( |$)")) | not)) else . end) | map(select((.hooks | type) != "array" or (.hooks | length) > 0)))
             + $b.hooks.UserPromptSubmit))
          else . end)
       | (($a.attribution.commit // "") | startswith("Co-Authored-By: Weave Router")) as $ours

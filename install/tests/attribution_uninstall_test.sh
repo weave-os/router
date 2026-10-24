@@ -63,7 +63,7 @@ mkdir -p "$home/.claude"
 printf '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"my-own-hook.sh"},{"type":"command","command":"%s/.weave/cc-statusline.sh --prompt-hook"}]}]}}\n' "$home" >"$home/.claude/settings.json"
 install "$home" --claude >/dev/null
 install "$home" --claude >/dev/null
-check "install registers the /router-status prompt hook once" test "$(jq '[.hooks.UserPromptSubmit[].hooks[].command | select(test("cc-statusline\\.sh\"? --prompt-hook$"))] | length' "$home/.claude/settings.json")" = 1
+check "install registers the /router-status prompt hook once" test "$(jq '[.hooks.UserPromptSubmit[].hooks[].command | select(test("cc-statusline\\.sh\"? --prompt-hook( |$)"))] | length' "$home/.claude/settings.json")" = 1
 check "install keeps the user's own prompt hook" test "$(jq '[.hooks.UserPromptSubmit[].hooks[].command | select(. == "my-own-hook.sh")] | length' "$home/.claude/settings.json")" = 1
 check "a missing helper makes the hook a no-op" test "$(cd "$work" && sh -c "$(jq -r '.hooks.UserPromptSubmit[-1].hooks[0].command' "$home/.claude/settings.json" | sed 's#/.weave/#/.missing/#g')" </dev/null; echo $?)" = 0
 install "$home" --codex >/dev/null
