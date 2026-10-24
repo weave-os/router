@@ -278,11 +278,16 @@ while [ $# -gt 0 ]; do
 done
 
 # skip_if_not_installed ends a child of a bare --uninstall quietly (exit 3)
-# when file $1 holds no Weave Router config (no line matching ERE $2).
+# unless config $1 has a line matching ERE $2 or any further path exists. A
+# client that is installed still needs jq, checked here rather than up front.
 skip_if_not_installed() {
   [ -n "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] || return 0
-  [ -f "$1" ] && grep -Eq -- "$2" "$1" && return 0
-  exit 3
+  local config="$1" pattern="$2" installed="false" extra
+  shift 2
+  [ -f "$config" ] && grep -Eq -- "$pattern" "$config" && installed="true"
+  for extra in "$@"; do [ -e "$extra" ] && installed="true"; done
+  [ "$installed" = "true" ] || exit 3
+  [ "$target" = "codex" ] || command -v jq >/dev/null 2>&1 || { err "jq is required for the $target uninstall path."; exit 1; }
 }
 
 client_label() {
@@ -330,7 +335,7 @@ if [ "$target_explicit" = "false" ] && [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] \
   exit 0
 fi
 
-if { [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" ]; } && ! command -v jq >/dev/null 2>&1; then
+if [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] && { [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" ]; } && ! command -v jq >/dev/null 2>&1; then
   err "jq is required for the $target uninstall path."
   exit 1
 fi
@@ -726,6 +731,7 @@ if [ "$target" = "opencode" ]; then
     refuse_if_symlink "$opencode_dir"
   fi
   opencode_config_file="$opencode_dir/opencode.json"
+  skip_if_not_installed "$opencode_config_file" '"weave(-claude|-codex)?"' "$opencode_dir/.weave-parked.json"
   opencode_parked="$opencode_dir/.weave-parked.json"
   opencode_direct_model=""
   refuse_if_symlink "$opencode_config_file"
@@ -742,7 +748,6 @@ if [ "$target" = "opencode" ]; then
     opencode_plugin_dir="$opencode_dir/.weave"
   fi
 
-  skip_if_not_installed "$opencode_config_file" '"weave"'
   report_opencode_uninstall_event "$opencode_config_file" || true
   if [ -f "$opencode_config_file" ]; then
     # Strip every managed provider (`weave`, `weave-claude`, and the legacy
@@ -1219,6 +1224,8 @@ else
   refuse_if_symlink "$statusline_ownership_file"
 fi
 
+skip_if_not_installed "$settings_file" 'ANTHROPIC_BASE_URL|Weave Router|cc-statusline' \
+  "$(dirname "$settings_file")/.weave-parked.json" "$(dirname "$settings_file")/.weave-context-window.json" "$statusline_file"
 statusline_file_owned="false"
 statusline_setting_owned="false"
 context_state_file="$(dirname "$settings_file")/.weave-context-window.json"
@@ -1249,7 +1256,6 @@ fi
 report_claude_uninstall_event || true
 
 
-skip_if_not_installed "$settings_file" 'ANTHROPIC_BASE_URL|Weave Router|cc-statusline'
 if [ -f "$settings_file" ]; then
   # Only remove keys we actually installed: scrub our env vars, and only
   # delete `statusLine` / `apiKeyHelper` when they point at scripts this

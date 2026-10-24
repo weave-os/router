@@ -50,6 +50,12 @@ printf '{"attribution":{"commit":"Co-Authored-By: Me <me@example.com>"}}\n' >"$h
 install "$home" --claude >/dev/null
 check "the user's own attribution is kept" test "$(attribution "$home")" = '{"commit":"Co-Authored-By: Me <me@example.com>"}'
 
+home="$work/attr-pr"
+mkdir -p "$home/.claude"
+printf '{"env":{"ANTHROPIC_BASE_URL":"x"},"attribution":{"commit":"Co-Authored-By: Weave Router <router@weaveos.com>","pr":"made by me"}}\n' >"$home/.claude/settings.json"
+install "$home" --claude --no-attribution >/dev/null
+check "--no-attribution keeps a PR line the user wrote" test "$(attribution "$home")" = '{"pr":"made by me"}'
+
 echo "bare uninstall"
 
 home="$work/both"
@@ -65,6 +71,12 @@ install "$home" --codex >/dev/null
 out="$(uninstall "$home")"
 check "clients without Weave Router are not reported" has "$out" "Removed Weave Router from: Codex."
 check "clients without Weave Router print nothing" lacks "$out" "already uninstalled"
+
+home="$work/off"
+install "$home" --claude --no-attribution >/dev/null
+run_env "$home" bash "$installer" off --claude --scope user >/dev/null
+out="$(uninstall "$home")"
+check "bare uninstall finds a Claude Code install that is turned off" has "$out" "Removed Weave Router from: Claude Code."
 
 out="$(uninstall "$work/empty")"
 check "nothing installed says so" has "$out" "nothing to remove"

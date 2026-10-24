@@ -6847,7 +6847,10 @@ write_claude_settings() {
       | (($a.env // {} | has("ANTHROPIC_BASE_URL")) and $a.attribution == null) as $opted_out
       | (if $b.attribution and ($ours or ($a.attribution == null and ($opted_out | not)))
            then .attribution = $b.attribution
-         elif ($b.attribution | not) and $ours then del(.attribution)
+         elif ($b.attribution | not) and $ours then
+           .attribution |= (del(.commit)
+             | if .pr == "🤖 Generated with [Weave Router](https://router.workweave.ai)" then del(.pr) else . end)
+           | (if (.attribution | length) == 0 then del(.attribution) else . end)
          else . end)
     ' "$settings_file" "$tmp_patch")"
     printf '%s\n' "$merged" >"$settings_file"
