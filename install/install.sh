@@ -4451,7 +4451,7 @@ claude_login_missing() {
 codex_login_missing() {
   command -v codex >/dev/null 2>&1 || return 1
   local login_status
-  login_status="$(capture_bounded 10 env CODEX_HOME="$codex_dir" codex login status || true)"
+  login_status="$(capture_bounded 10 env CODEX_HOME="$codex_dir" sh -c 'codex login status 2>&1' || true)"
   grep -q '^Not logged in' <<<"$login_status"
 }
 

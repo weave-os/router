@@ -41,7 +41,7 @@ cat >"$fake_bin/codex" <<'FAKE_CODEX'
 case "$*" in
   "login status")
     if [ "${FAKE_CLIENT_LOGGED_IN:-0}" = 1 ]; then echo "Logged in using an API key"; exit 0; fi
-    echo "Not logged in"; exit 1 ;;
+    echo "Not logged in" >&2; exit 1 ;;
   --version) echo "codex-cli 0.164.0" ;;
 esac
 FAKE_CODEX
