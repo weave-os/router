@@ -58,6 +58,9 @@ func ChatCompletionHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handle
 				if cls.RetryAfter {
 					c.Header("Retry-After", "1")
 				}
+				if cls.NoClientRetry {
+					c.Header("x-should-retry", "false")
+				}
 				writeOpenAIErrorWithCode(c, cls.Status, openAIErrorType(cls.Kind), cls.Message, proxy.OpenAIErrorCode(cls.Kind))
 				return
 			}

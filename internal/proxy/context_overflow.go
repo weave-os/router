@@ -128,11 +128,12 @@ func (e *CompactionUnservableError) Error() string {
 }
 
 var compactionUnservableClass = DispatchErrorClass{
-	Kind:       DispatchErrorCompactionUnservable,
-	Status:     http.StatusBadGateway,
-	Message:    "The upstream provider rejected this compaction request as too long for every model available to it. Retrying will not help until a larger-window model is available; start a new session to continue.",
-	LogLevel:   "error",
-	LogMessage: "Compaction turn overflowed every reachable summarizer",
+	Kind:          DispatchErrorCompactionUnservable,
+	Status:        http.StatusBadGateway,
+	Message:       "The upstream provider rejected this compaction request as too long for every model available to it. Retrying will not help until a larger-window model is available; start a new session to continue.",
+	LogLevel:      "error",
+	LogMessage:    "Compaction turn overflowed every reachable summarizer",
+	NoClientRetry: true,
 }
 
 // rescuesCompactionOverflow reports whether a pre-commit failure on a harness

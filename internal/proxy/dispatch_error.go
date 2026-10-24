@@ -85,6 +85,9 @@ type DispatchErrorClass struct {
 	Status     int
 	Message    string
 	RetryAfter bool
+	// NoClientRetry tells SDK clients (x-should-retry: false) that retrying
+	// the identical request cannot succeed.
+	NoClientRetry bool
 	// LogLevel is "", "warn", or "error". Empty means the handler should not
 	// log at all (the error is either already logged upstream, e.g. a
 	// buffered UpstreamStatusError, or a routine client-input problem).

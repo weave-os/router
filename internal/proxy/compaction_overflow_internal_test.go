@@ -97,14 +97,14 @@ func TestCompactionSummarizersRespectBindingWindow(t *testing.T) {
 			catalog.ModelGPT6Luna:            {providers.ProviderOpenAIGateway},
 		},
 	}
-	fits := svc.compactionSummarizers(context.Background(), [sessionpin.SessionKeyLen]byte{}, "", req)
-	require.NotEmpty(t, fits)
+	summarizers := svc.compactionSummarizers(context.Background(), [sessionpin.SessionKeyLen]byte{}, "", req)
+	require.NotEmpty(t, summarizers)
 
 	req.EstimatedInputTokens = catalog.ContextWindowForBinding(policy.PrecompactionDefaultModel, providers.ProviderAnthropicGateway)
 	for _, s := range svc.compactionSummarizers(context.Background(), [sessionpin.SessionKeyLen]byte{}, "", req) {
 		assert.Greater(t, contextWindowForRequest(s.model, s.provider), req.EstimatedInputTokens, s.model)
 	}
-	crossProvider := svc.compactionCrossProviderRescuers(fits[0], req)
+	crossProvider := svc.compactionCrossProviderRescuers(summarizers[0], req)
 	require.Len(t, crossProvider, 1)
 	assert.Equal(t, catalog.ModelGPT6Luna, crossProvider[0].model)
 	assert.Equal(t, providers.ProviderOpenAIGateway, crossProvider[0].provider)

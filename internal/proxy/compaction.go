@@ -111,7 +111,9 @@ func (s *Service) compactionSummarizers(ctx context.Context, sessionKey [session
 		if _, excluded := req.ExcludedModels[m]; excluded {
 			return false
 		}
-		return !automaticallyDisabled(req, m) && summarizerFits(m, provider, req)
+		// Gateways may enforce a smaller window than the vendor, so the serving binding's window is the one that counts.
+		return !automaticallyDisabled(req, m) &&
+			(req.EstimatedInputTokens <= 0 || req.EstimatedInputTokens+contextWindowOutputReserve <= contextWindowForRequest(m, provider))
 	}
 	cascade := []struct {
 		model  string
@@ -130,13 +132,6 @@ func (s *Service) compactionSummarizers(ctx context.Context, sessionKey [session
 		out = append(out, compactionSummarizer{provider: provider, model: latest, source: step.source})
 	}
 	return out
-}
-
-// summarizerFits reports whether the request's estimate fits the summarizer's
-// window on the binding that would serve it. Gateways may enforce a smaller
-// window than the vendor, so the binding's own window is the one that counts.
-func summarizerFits(model, provider string, req router.Request) bool {
-	return req.EstimatedInputTokens <= 0 || req.EstimatedInputTokens+contextWindowOutputReserve <= contextWindowForRequest(model, provider)
 }
 
 // compactionCrossProviderRescuers lists the request's gateway-held models on
