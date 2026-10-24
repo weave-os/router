@@ -5786,7 +5786,9 @@ weave_router_status_hook() {
   payload="$(cat)"
   prompt="$(jq -r '.prompt // empty' <<<"$payload" 2>/dev/null)" || return 0
   [[ "$prompt" =~ ^[[:space:]]*/router-status[[:space:]]*$ ]] || return 0
-  if [[ -n "${ANTHROPIC_BASE_URL:-}" && "${ANTHROPIC_CUSTOM_HEADERS:-}" == *"X-Weave-Router-Key:"* ]]; then
+  if [[ "${ANTHROPIC_BASE_URL:-}" == https://api.anthropic.com* ]]; then
+    report="Weave Router is off: Claude Code talks to Anthropic directly. Turn it back on with /router-on."
+  elif [[ -n "${ANTHROPIC_BASE_URL:-}" && "${ANTHROPIC_CUSTOM_HEADERS:-}" == *"X-Weave-Router-Key:"* ]]; then
     report="Weave Router is on: Claude Code sends requests to ${ANTHROPIC_BASE_URL}."
   elif [[ -n "${ANTHROPIC_BASE_URL:-}" ]]; then
     report="Claude Code sends requests to ${ANTHROPIC_BASE_URL}, but no Weave Router key is set. Repair it with: npx @weave-os/router update --claude"
@@ -6928,7 +6930,7 @@ write_claude_settings() {
         commit: "Co-Authored-By: Weave Router <router@weaveos.com>",
         pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
       }} else {} end) + (if $statusline_install == "true" then {statusLine: { type: "command", command: $sl },
-        hooks: {UserPromptSubmit: [{hooks: [{type: "command", command: ($sl + " --prompt-hook")}]}]}} else {} end)' >"$tmp_patch"
+        hooks: {UserPromptSubmit: [{hooks: [{type: "command", command: ("[ ! -x \"" + $sl + "\" ] || \"" + $sl + "\" --prompt-hook")}]}]}} else {} end)' >"$tmp_patch"
   else
     jq -n --arg attribution "$attribution" --arg url "$base_url" --arg header "$custom_headers" --arg sl "$statusline_path_for_settings" --arg statusline_install "$statusline_install" '{
       env: { ANTHROPIC_BASE_URL: $url, ANTHROPIC_CUSTOM_HEADERS: $header, ENABLE_TOOL_SEARCH: "true" }
@@ -6936,7 +6938,7 @@ write_claude_settings() {
         commit: "Co-Authored-By: Weave Router <router@weaveos.com>",
         pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
       }} else {} end) + (if $statusline_install == "true" then {statusLine: { type: "command", command: $sl },
-        hooks: {UserPromptSubmit: [{hooks: [{type: "command", command: ($sl + " --prompt-hook")}]}]}} else {} end)' >"$tmp_patch"
+        hooks: {UserPromptSubmit: [{hooks: [{type: "command", command: ("[ ! -x \"" + $sl + "\" ] || \"" + $sl + "\" --prompt-hook")}]}]}} else {} end)' >"$tmp_patch"
   fi
 
   # Merge with existing settings. Deep-merge env and replace statusLine only
@@ -6956,7 +6958,7 @@ write_claude_settings() {
       | (if $b.statusLine then .statusLine = $b.statusLine else . end)
       | (if $b.hooks then .hooks = ((.hooks // {})
           | .UserPromptSubmit = (((.UserPromptSubmit // [])
-              | map(select([.hooks[]?.command // "" | strings | endswith("cc-statusline.sh --prompt-hook")] | any | not)))
+              | map(if (.hooks | type) == "array" then .hooks |= map(select((.command // "" | tostring | test("cc-statusline\\.sh\"? --prompt-hook$")) | not)) else . end) | map(select((.hooks | type) != "array" or (.hooks | length) > 0)))
             + $b.hooks.UserPromptSubmit))
          else . end)
       | (($a.attribution.commit // "") | startswith("Co-Authored-By: Weave Router")) as $ours

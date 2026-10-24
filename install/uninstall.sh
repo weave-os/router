@@ -1268,7 +1268,7 @@ if [ -f "$settings_file" ]; then
     else . end
     | (if $statusline_setting_owned == "true" then del(.statusLine) else . end)
     | (if (.hooks.UserPromptSubmit | type) == "array" then
-        .hooks.UserPromptSubmit |= map(select([.hooks[]?.command // "" | strings | endswith("cc-statusline.sh --prompt-hook")] | any | not))
+        .hooks.UserPromptSubmit |= (map(if (.hooks | type) == "array" then .hooks |= map(select((.command // "" | tostring | test("cc-statusline\\.sh\"? --prompt-hook$")) | not)) else . end) | map(select((.hooks | type) != "array" or (.hooks | length) > 0)))
         | (if (.hooks.UserPromptSubmit | length) == 0 then del(.hooks.UserPromptSubmit) else . end)
         | (if (.hooks | length) == 0 then del(.hooks) else . end)
       else . end)

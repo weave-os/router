@@ -32,7 +32,9 @@ weave_router_status_hook() {
   payload="$(cat)"
   prompt="$(jq -r '.prompt // empty' <<<"$payload" 2>/dev/null)" || return 0
   [[ "$prompt" =~ ^[[:space:]]*/router-status[[:space:]]*$ ]] || return 0
-  if [[ -n "${ANTHROPIC_BASE_URL:-}" && "${ANTHROPIC_CUSTOM_HEADERS:-}" == *"X-Weave-Router-Key:"* ]]; then
+  if [[ "${ANTHROPIC_BASE_URL:-}" == https://api.anthropic.com* ]]; then
+    report="Weave Router is off: Claude Code talks to Anthropic directly. Turn it back on with /router-on."
+  elif [[ -n "${ANTHROPIC_BASE_URL:-}" && "${ANTHROPIC_CUSTOM_HEADERS:-}" == *"X-Weave-Router-Key:"* ]]; then
     report="Weave Router is on: Claude Code sends requests to ${ANTHROPIC_BASE_URL}."
   elif [[ -n "${ANTHROPIC_BASE_URL:-}" ]]; then
     report="Claude Code sends requests to ${ANTHROPIC_BASE_URL}, but no Weave Router key is set. Repair it with: npx @weave-os/router update --claude"

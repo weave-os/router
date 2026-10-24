@@ -849,6 +849,8 @@ check_contains "/router-status shows this session's line" "$reason" "This sessio
 check_not_contains "/router-status never echoes the router key" "$reason" "rk_x"
 out="$(hook_out ' /router-status ')"
 check_contains "/router-status reports routing off without the router env" "$(jq -r '.stopReason' <<<"$out")" "Weave Router is off"
+out="$(hook_out '/router-status' ANTHROPIC_BASE_URL=https://api.anthropic.com)"
+check_contains "project-scope off (base URL back at Anthropic) reports off" "$(jq -r '.stopReason' <<<"$out")" "Weave Router is off"
 out="$(hook_out '/router-status' ANTHROPIC_BASE_URL=https://other.example)"
 check_contains "a base URL without a router key is called out" "$(jq -r '.stopReason' <<<"$out")" "no Weave Router key is set"
 out="$(hook_out 'please explain /router-status')"
