@@ -1704,7 +1704,7 @@ if [ "$mode" = "setup" ]; then
       WEAVE_SETUP_IDENTITY_RESOLVED="$identity_resolved" WEAVE_SETUP_DEFER_LAUNCH="${setup_handoff:+1}" \
       bash "$0" "${setup_args[@]}" --codex
   fi
-  [ -z "$shared_key" ] || offer_launch "Claude Code" claude
+  [ -z "$shared_key" ] || [ -n "$install_dir" ] || offer_launch "Claude Code" claude
   exit 0
 fi
 
