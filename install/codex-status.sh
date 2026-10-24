@@ -470,9 +470,9 @@ refresh_session_cost() {
 
 # Renders the cached savings as a display clause, or nothing. Values below a
 # cent read as "<$0.01" rather than "$0.00", which would be indistinguishable
-# from "the router ran and did not beat your selection". Negative totals are
-# omitted entirely: the router picked a pricier model for quality on this
-# session and "saved -$0.02" is a worse answer than staying quiet.
+# from "the router ran and did not beat your selection". A negative total means
+# the router upgraded hard turns past the requested model; it reads as "cost
+# $X more" rather than a negative saving.
 savings_clause() {
   local file="$1" raw
   [ "${WEAVE_CODEX_STATUS_SAVINGS:-1}" = "0" ] && return 0
@@ -483,6 +483,8 @@ savings_clause() {
   esac
   awk -v v="$raw" 'BEGIN{
     v = v + 0
+    if (v <= -0.01) { printf " · cost $%.2f more", -v; exit }
+    if (v <= -0.005) { printf " · cost <$0.01 more"; exit }
     if (v < 0.005) { exit }
     if (v < 0.01)  { printf " · saved <$0.01"; exit }
     printf " · saved $%.2f", v

@@ -452,11 +452,11 @@ render_cached_savings '0.32'
   exit 1
 }
 
-# A router that spent more than the requested model would have is reported by
-# staying silent, never as a negative saving.
+# A router that spent more than the requested model would have says so,
+# rather than hiding the number or showing a negative saving.
 render_cached_savings '-0.5'
-[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5" ] || {
-  echo "negative savings leaked into the title: $(cat "$title_file")" >&2
+[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · cost \$0.50 more" ] || {
+  echo "a costlier session did not read as cost more: $(cat "$title_file")" >&2
   exit 1
 }
 

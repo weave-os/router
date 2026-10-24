@@ -104,7 +104,7 @@ explicitly to its managed Codex config.
 | Path                                  | Purpose                                                       |
 | ------------------------------------- | ------------------------------------------------------------- |
 | `~/.claude/settings.json`             | Sets `env.ANTHROPIC_BASE_URL`, `env.ANTHROPIC_CUSTOM_HEADERS` with `X-Weave-Router-Key`, `env.ENABLE_TOOL_SEARCH=true` (a custom base URL otherwise inlines tool schemas into every request), `statusLine`, and Claude Code `attribution` so commits/PRs credit Weave Router. Other keys preserved. |
-| `~/.weave/cc-statusline.sh`           | Shows the response model and an estimated cost comparison, without token counts. It is not a routing health check. |
+| `~/.weave/cc-statusline.sh`           | Shows the model you picked, the model served, and an estimated session cost comparison. Also answers `/router-status` locally through a prompt hook. It is not a routing health check. |
 
 **Project scope (`--scope project`):**
 
@@ -605,16 +605,23 @@ env var to make the setting editable.
 1. Run `npx @weave-os/router status --claude` to inspect the saved settings
    in the selected scope. Connectivity verifies the key, not inference.
 2. Run `claude` and send a prompt. The terminal shows
-   `WEAVE ROUTER · response model: <model>`.
+   `WEAVE ROUTER · you picked <model> → served <model>`.
    Model names and pin acknowledgements come from the local
    transcript, which can also contain direct-provider responses or old sessions.
 3. Confirm a matching new inference request in the router's server-side
    telemetry. A saved endpoint, a successful key check, and commit/PR attribution
    do not establish that a running client used the router.
 
-The cost difference is a hypothetical transcript comparison against the current
-selected model, not verified router savings. Positive values mean a lower
-estimated cost, negative values a higher one; missing prices omit the estimate.
+The status line reads `you picked <model> → served <model>`: the model selected
+in Claude Code, then the latest response model in the transcript. `saved ~$X this
+session` prices the whole session's transcript at the served models versus your
+pick; it is an estimate, not verified router savings. When the router upgraded
+hard turns past your pick, it reads `cost ~$X more than <pick> this session`
+instead. Missing prices omit the estimate.
+
+`/router-status` answers without a model turn: a `UserPromptSubmit` hook
+(`cc-statusline.sh --prompt-hook`) reports whether routing is on, the session's
+latest status line, and the full-check command. Uninstall removes the hook.
 `last pin` describes a recorded control acknowledgement, not a verified live pin.
 
 If the status line never appears, run `claude --debug` and check stderr for
