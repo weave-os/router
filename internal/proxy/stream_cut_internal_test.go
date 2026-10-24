@@ -50,6 +50,7 @@ func TestClassifyStreamFailure(t *testing.T) {
 		{name: "upstream status after commit", err: &providers.UpstreamStatusError{Status: 502}, want: streamFailureUpstreamErrorFrame},
 		{name: "upstream error event then transport failure", err: errors.New("stream closed"), lastEvent: streamCutErrorEvent, want: streamFailureUpstreamErrorFrame},
 		{name: "http/2 keepalive ping lost", err: http2LostPing(), want: streamFailureUpstreamReset},
+		{name: "http/2 keepalive ping lost mid-stream", err: fmt.Errorf("read upstream stream: %w", errors.New("http2: client connection lost")), lastEvent: "content_block_delta", want: streamFailureUpstreamReset},
 		{name: "http/2 stream reset by the peer", err: http2PeerStreamReset(), want: streamFailureUpstreamReset},
 		{name: "http/2 goaway", err: &url.Error{Op: "Post", URL: "https://upstream.test", Err: http2.GoAwayError{ErrCode: http2.ErrCodeEnhanceYourCalm}}, want: streamFailureUpstreamReset},
 		{name: "unattributable", err: errors.New("stream closed"), lastEvent: "content_block_delta", want: streamFailureOther},
