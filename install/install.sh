@@ -234,6 +234,25 @@ print_uninstall_hint() {
     "$C_BOLD" "$C_RESET" "$C_CYAN" "$(uninstall_cmd)" "$C_RESET"
 }
 
+# offer_launch asks to start the client named in $1 (command in the remaining
+# args) so a working interactive install ends in the product. The client gets
+# the terminal through exec, so the EXIT cleanup runs first.
+offer_launch() {
+  local label="$1"; shift
+  [ "${WEAVE_SETUP_DEFER_LAUNCH:-}" != "1" ] && [ "$non_interactive" = "false" ] && [ "$quiet" != "true" ] \
+    && [ -t 0 ] && [ -t 1 ] && command -v "${*: -1}" >/dev/null 2>&1 || return 0
+  local answer=""
+  printf "\n%sStart %s now?%s [Y/n] " "$C_BOLD" "$label" "$C_RESET" >/dev/tty
+  read -r answer </dev/tty || answer="n"
+  case "$answer" in
+    ""|y|Y|yes|Yes) ;;
+    *) return 0 ;;
+  esac
+  trap - EXIT INT TERM HUP
+  _spin_cleanup
+  exec "$@" </dev/tty
+}
+
 # ---------- banner ----------
 #
 # Print the WEAVE wordmark in brand orange. Skipped under --quiet or when
@@ -1670,7 +1689,7 @@ if [ "$mode" = "setup" ]; then
     chmod 600 "$setup_handoff"
   fi
   if [ "$setup_claude" = "true" ]; then
-    WEAVE_SETUP_HANDOFF_FILE="$setup_handoff" bash "$0" "${setup_args[@]}" --claude \
+    WEAVE_SETUP_HANDOFF_FILE="$setup_handoff" WEAVE_SETUP_DEFER_LAUNCH="${setup_handoff:+1}" bash "$0" "${setup_args[@]}" --claude \
       || { setup_status=$?; [ -z "$setup_handoff" ] || rm -f "$setup_handoff"; exit "$setup_status"; }
   fi
   if [ -n "$setup_handoff" ]; then
@@ -1682,8 +1701,10 @@ if [ "$mode" = "setup" ]; then
   fi
   if [ "$setup_codex" = "true" ]; then
     WEAVE_SETUP_SHARED_KEY="$shared_key" WEAVE_SETUP_SHARED_EMAIL="$shared_email" \
-      WEAVE_SETUP_IDENTITY_RESOLVED="$identity_resolved" bash "$0" "${setup_args[@]}" --codex
+      WEAVE_SETUP_IDENTITY_RESOLVED="$identity_resolved" WEAVE_SETUP_DEFER_LAUNCH="${setup_handoff:+1}" \
+      bash "$0" "${setup_args[@]}" --codex
   fi
+  [ -z "$shared_key" ] || offer_launch "Claude Code" claude
   exit 0
 fi
 
@@ -4467,8 +4488,6 @@ codex_login_missing() {
 # their first routed prompt: the client's own login and, for Codex, the hook
 # review it shows on first launch.
 print_next_steps() {
-  [ "$mode" = "install" ] && [ "$quiet" != "true" ] && [ -z "$install_dir" ] || return 0
-  case "$key_verdict" in rejected|unverified) return 0 ;; esac
   printf "\n"
   case "$target" in
     claude)
@@ -4494,6 +4513,37 @@ print_next_steps() {
         "$C_BOLD" "$C_RESET"
       ;;
   esac
+}
+
+# print_daily_commands lists the commands a user reaches for after install:
+# checking routing, turning it off and on, sending feedback, and undoing it.
+print_daily_commands() {
+  local pkg="npx $npm_package_name" flags="--$target" feedback
+  [ "$scope" = "project" ] && flags="$flags --scope project"
+  case "$target" in
+    claude) feedback="type /rf <what happened> in Claude Code" ;;
+    codex)  feedback="type \$rf <what happened> in Codex" ;;
+  esac
+  printf "\n"
+  printf "  %-14s %s\n" "Check routing" "$pkg status $flags"
+  printf "  %-14s %s\n" "Turn off" "$pkg off $flags"
+  printf "  %-14s %s\n" "Turn back on" "$pkg on $flags"
+  printf "  %-14s %s\n" "Give feedback" "$feedback"
+  printf "  %-14s %s\n" "Uninstall" "$(uninstall_cmd)"
+}
+
+# finish_install closes a Claude Code or Codex run: after a working first
+# install, the next steps, everyday commands and an offer to start the client;
+# otherwise only the uninstall command.
+finish_install() {
+  local label="$1"; shift
+  if [ "$mode" = "install" ] && [ "$quiet" != "true" ] && [ -z "$install_dir" ] && [ "$key_verdict" = "valid" ]; then
+    print_next_steps
+    print_daily_commands
+    offer_launch "$label" "$@"
+  elif [ "$mode" != "update" ]; then
+    print_uninstall_hint
+  fi
 }
 
 # ---------- codex install path (dispatch + exit before the Claude-only writes) ----------
@@ -5577,8 +5627,11 @@ if [ "$target" = "codex" ]; then
     # point CODEX_HOME at the directory we wrote so Codex finds our config.
     info "Run Codex with CODEX_HOME=$codex_dir codex so it picks up this config."
   fi
-  [ "$mode" = "update" ] || print_uninstall_hint
-  print_next_steps
+  if [ "$scope" = "project" ]; then
+    finish_install "Codex" env CODEX_HOME="$codex_dir" codex
+  else
+    finish_install "Codex" codex
+  fi
   exit 0
 fi
 
@@ -6924,5 +6977,4 @@ verify_install
 # ---------- done ----------
 
 announce_done "Claude Code"
-[ "$mode" = "update" ] || print_uninstall_hint
-print_next_steps
+finish_install "Claude Code" claude

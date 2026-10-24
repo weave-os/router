@@ -35,6 +35,7 @@ if [ "$*" = "auth status --json" ]; then
   if [ "${FAKE_CLIENT_LOGGED_IN:-0}" = 1 ]; then echo '{"loggedIn":true}'; exit 0; fi
   echo '{"loggedIn":false}'; exit 1
 fi
+echo "FAKE CLAUDE STARTED"
 FAKE_CLAUDE
 cat >"$fake_bin/codex" <<'FAKE_CODEX'
 #!/usr/bin/env bash
@@ -44,6 +45,7 @@ case "$*" in
     [ "${FAKE_CLIENT_HOLDS_STDOUT:-0}" = 1 ] && sleep 30 &
     echo "Not logged in" >&2; exit 1 ;;
   --version) echo "codex-cli 0.164.0" ;;
+  *) echo "FAKE CODEX STARTED CODEX_HOME=${CODEX_HOME:-}" ;;
 esac
 FAKE_CODEX
 chmod +x "$fake_bin/curl" "$fake_bin/claude" "$fake_bin/codex"
@@ -71,6 +73,17 @@ install() {
   env HOME="$home" XDG_CACHE_HOME="$home/.cache" TMPDIR="$work/tmp" PATH="$test_path" NO_COLOR=1 \
     FAKE_VALIDATE_STATUS="$status" "${extra_env[@]}" \
     bash "$installer" "$@" --scope user --base-url http://127.0.0.1:9 </dev/null 2>&1
+}
+
+# pty_install <home> <answer> -- <installer args...> runs the installer on a
+# terminal, typing <answer> at its prompts.
+pty_install() {
+  local home="$1" answer="$2"; shift 3
+  mkdir -p "$home"
+  printf '%s\n' "$answer" | env HOME="$home" XDG_CACHE_HOME="$home/.cache" TMPDIR="$work/tmp" PATH="$test_path" NO_COLOR=1 \
+    WEAVE_ROUTER_KEY=rk_pty FAKE_CLIENT_LOGGED_IN=1 \
+    script -qe -c "bash $(printf '%q' "$installer") $* --scope user --email dev@example.com --base-url http://127.0.0.1:9" /dev/null 2>&1 \
+    | tr -d '\r'
 }
 
 codex_key() {
@@ -123,6 +136,36 @@ check "the login hint still shows when the client leaves a child behind" has "$o
 
 out="$(install "$work/codex-ready" 200 WEAVE_ROUTER_KEY=rk_ok FAKE_CLIENT_LOGGED_IN=1 -- --codex)"
 check "a signed-in Codex user is told to just run codex" has "$out" "Next: run codex; your next prompt goes through Weave Router."
+
+echo "install.sh closing commands and launch offer"
+
+out="$(install "$work/daily" 200 WEAVE_ROUTER_KEY=rk_daily -- --claude)"
+check "a working install lists how to check routing" has "$out" "Check routing  npx @weave-os/router status --claude"
+check "a working install lists how to turn routing off" has "$out" "Turn off       npx @weave-os/router off --claude"
+check "a working install says how to give feedback" has "$out" "type /rf <what happened> in Claude Code"
+check "a working install folds the uninstall command into the list" lacks "$out" "To uninstall:"
+check "without a terminal the client is not launched" lacks "$out" "Start Claude Code now?"
+out="$(install "$work/daily-codex" 200 WEAVE_ROUTER_KEY=rk_daily -- --codex)"
+check "Codex feedback uses its skill syntax" has "$out" "type \$rf <what happened> in Codex"
+out="$(install "$work/daily-bad" 401 WEAVE_ROUTER_KEY=rk_daily -- --claude)"
+check "a failed install still prints the uninstall command" has "$out" "To uninstall:"
+check "a failed install skips the everyday commands" lacks "$out" "Check routing"
+
+if script --version 2>/dev/null | grep -q util-linux; then
+  out="$(pty_install "$work/pty-yes" "" -- --claude)"
+  check "pressing Enter at the offer starts Claude Code" has "$out" "FAKE CLAUDE STARTED"
+  out="$(pty_install "$work/pty-no" n -- --claude)"
+  check "answering n leaves Claude Code closed" lacks "$out" "FAKE CLAUDE STARTED"
+  check "the offer is shown on a terminal" has "$out" "Start Claude Code now? [Y/n]"
+  out="$(pty_install "$work/pty-update" "" -- update --claude)"
+  check "update does not offer to start the client" lacks "$out" "Start Claude Code now?"
+  out="$(pty_install "$work/pty-setup" "" -- setup)"
+  check "setup with both clients offers to start once" test "$(grep -c 'now? \[Y/n\]' <<<"$out")" = 1
+  check "setup offers Claude Code after both installs" has "$out" "FAKE CLAUDE STARTED"
+  check "setup does not start Codex" lacks "$out" "FAKE CODEX STARTED"
+else
+  echo "  skip terminal launch checks (needs util-linux script)"
+fi
 
 echo "setup key and identity handoff"
 
