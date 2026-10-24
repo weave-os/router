@@ -17,6 +17,7 @@ type NoticeKind string
 const (
 	NoticeModelSelection NoticeKind = "model_selection"
 	NoticeFundingWarning NoticeKind = "funding_warning"
+	NoticeSlowStart      NoticeKind = "slow_start"
 )
 
 type NoticeProvenance string
@@ -101,6 +102,16 @@ type NoticeDelivery struct {
 	terminal               bool
 	providerContentStarted bool
 	failure                error
+	beforeContent          func() (RouterNotice, bool)
+}
+
+// SetBeforeProviderContent registers a notice decided when the attempt's first
+// provider content arrives. It runs just before that content is written, so it
+// can never precede the provider commit.
+func (d *NoticeDelivery) SetBeforeProviderContent(fn func() (RouterNotice, bool)) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.beforeContent = fn
 }
 
 func NewNoticeDelivery(ctx context.Context, sink NoticeSink, capabilities NoticeCapabilities) *NoticeDelivery {
@@ -170,11 +181,17 @@ func (d *NoticeDelivery) Write(payload []byte) (int, error) {
 		if consumed == 0 {
 			break
 		}
+		providerContent := noticeProviderContent(d.capabilities.Format, event)
+		if providerContent && !d.providerContentStarted && !d.terminal {
+			if d.failure = d.emitBeforeContent(); d.failure != nil {
+				return 0, d.failure
+			}
+		}
 		_, d.failure = d.sink.Write(d.pending[:consumed])
 		if d.failure != nil {
 			return 0, d.failure
 		}
-		if noticeProviderContent(d.capabilities.Format, event) {
+		if providerContent {
 			d.providerContentStarted = true
 		}
 		if noticeTerminal(d.capabilities.Format, event) {
@@ -224,6 +241,23 @@ func (d *NoticeDelivery) Seal() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.sink.Seal()
+}
+
+func (d *NoticeDelivery) emitBeforeContent() error {
+	fn := d.beforeContent
+	d.beforeContent = nil
+	if fn == nil || !d.capabilities.SupportsNotices() {
+		return nil
+	}
+	notice, ok := fn()
+	if !ok || notice.ID == "" || notice.Text == "" {
+		return nil
+	}
+	if _, exists := d.seen[notice.ID]; exists {
+		return nil
+	}
+	d.seen[notice.ID] = struct{}{}
+	return d.emit(notice)
 }
 
 func (d *NoticeDelivery) emit(notice RouterNotice) error {

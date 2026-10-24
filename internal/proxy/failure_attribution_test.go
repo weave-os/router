@@ -120,7 +120,7 @@ func TestDispatchPlanned_ExhaustionNamesOwnerInTerminalMessage(t *testing.T) {
 		header  http.Header
 		message string
 	}{
-		{"names provider", http.Header{}, "Provider Fireworks failed: server error 503."},
+		{"names provider", http.Header{}, "Fireworks returned 503 (server error) after 2 router retries (provider issue)."},
 		{"badge opt-out stays generic", http.Header{routingMarkerHeader: []string{"off"}}, upstreamCallFailedMessage},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

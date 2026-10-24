@@ -480,7 +480,7 @@ func flushBufferedIfPresent(w http.ResponseWriter, err error) {
 		}
 	}
 	w.WriteHeader(resp.Status)
-	_, _ = w.Write(resp.Body)
+	_, _ = w.Write(attributedErrorBody(resp.Body, err))
 }
 
 // emitAnthropicSSEErrorEvent writes an Anthropic-shape `event: error` SSE
@@ -491,14 +491,14 @@ func flushBufferedIfPresent(w http.ResponseWriter, err error) {
 func emitAnthropicSSEErrorEvent(sink http.ResponseWriter, err error) error {
 	var resp *providers.UpstreamErrorResponse
 	status := http.StatusBadGateway
-	body := []byte(`{"type":"error","error":{"type":"api_error","message":"upstream stream failed"}}`)
+	body := []byte(fmt.Sprintf(`{"type":"error","error":{"type":"api_error","message":%q}}`, attributedStreamFailure(err)))
 	switch cls, classified := ClassifyDispatchError(err); {
 	case classified && cls.Kind == DispatchErrorContextWindowExceeded:
 		status = cls.Status
 		body = anthropicErrorFrameBody(cls)
 	case errors.As(err, &resp):
 		status = resp.Status
-		body = translate.OpenAIToAnthropicError(resp.Body)
+		body = attributedErrorBody(translate.OpenAIToAnthropicError(resp.Body), err)
 	case classified:
 		status = cls.Status
 		body = anthropicErrorFrameBody(cls)
@@ -518,14 +518,14 @@ func emitAnthropicSSEErrorEvent(sink http.ResponseWriter, err error) error {
 func emitOpenAISSEErrorEvent(sink http.ResponseWriter, err error) error {
 	var resp *providers.UpstreamErrorResponse
 	status := http.StatusBadGateway
-	body := []byte(`{"error":{"message":"upstream stream failed","type":"server_error","code":"upstream_error"}}`)
+	body := []byte(fmt.Sprintf(`{"error":{"message":%q,"type":"server_error","code":"upstream_error"}}`, attributedStreamFailure(err)))
 	switch cls, classified := ClassifyDispatchError(err); {
 	case classified && cls.Kind == DispatchErrorContextWindowExceeded:
 		status = cls.Status
 		body = openAIErrorFrameBody(cls)
 	case errors.As(err, &resp):
 		status = resp.Status
-		body = resp.Body
+		body = attributedErrorBody(resp.Body, err)
 	case classified:
 		status = cls.Status
 		body = openAIErrorFrameBody(cls)
@@ -596,7 +596,7 @@ func flushUpstreamErrorAsAnthropic(w http.ResponseWriter, err error) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(resp.Status)
-	_, _ = w.Write(translate.OpenAIToAnthropicError(resp.Body))
+	_, _ = w.Write(attributedErrorBody(translate.OpenAIToAnthropicError(resp.Body), err))
 }
 
 // attemptIdxLabel formats i for the x-router-fallback-attempt header.

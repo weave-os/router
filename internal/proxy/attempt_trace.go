@@ -7,12 +7,14 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/tidwall/sjson"
 
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/requestcontext"
 )
 
 type attemptTraceContextKey struct{}
@@ -24,6 +26,11 @@ type attemptTrace struct {
 	inbound            []byte
 	sent               []byte
 	customerCredential bool
+	baseURL            string
+	deploymentBaseURL  string
+	current            inference.Target
+	firstAttemptAt     time.Time
+	attemptAt          time.Time
 	attempts           []tracedAttempt
 	// hideRouterDetails is set when the request opted out of routing badges
 	// or the installation hides terminal surfaces.
@@ -31,7 +38,10 @@ type attemptTrace struct {
 }
 
 type tracedAttempt struct {
-	Target    inference.Target
+	Target inference.Target
+	// BaseURL is the customer gateway the attempt reached, empty for a
+	// provider's own endpoint.
+	BaseURL   string
 	Err       error
 	Diagnosis inference.AttemptDiagnosis
 }
@@ -59,17 +69,24 @@ func attemptTraceFromContext(ctx context.Context) *attemptTrace {
 	return trace
 }
 
-func (t *attemptTrace) beginAttempt() {
+func (t *attemptTrace) beginAttempt(target inference.Target, deploymentBaseURL string, now time.Time) {
 	t.mu.Lock()
-	t.sent, t.customerCredential = nil, false
+	t.current, t.attemptAt = target, now
+	t.deploymentBaseURL = deploymentBaseURL
+	if t.firstAttemptAt.IsZero() {
+		t.firstAttemptAt = now
+	}
+	t.sent, t.customerCredential, t.baseURL = nil, false, deploymentBaseURL
 	t.mu.Unlock()
 }
 
 func (t *attemptTrace) observeSent(ctx context.Context, body []byte) {
 	customer := customerOwnedCredential(ctx)
 	t.mu.Lock()
+	baseURL := requestcontext.EffectiveBaseURL(ctx, t.deploymentBaseURL)
 	t.sent = body
 	t.customerCredential = customer
+	t.baseURL = baseURL
 	t.mu.Unlock()
 }
 
@@ -106,7 +123,7 @@ func (t *attemptTrace) describe(ctx context.Context, attempt dispatch.Attempt, e
 		}))
 		logAttemptFailure(ctx, attempt, err, diagnosis)
 	}
-	t.attempts = append(t.attempts, tracedAttempt{Target: attempt.Target, Err: err, Diagnosis: diagnosis})
+	t.attempts = append(t.attempts, tracedAttempt{Target: attempt.Target, BaseURL: t.baseURL, Err: err, Diagnosis: diagnosis})
 	return diagnosis
 }
 
@@ -124,6 +141,20 @@ func (t *attemptTrace) lastFailure() (tracedAttempt, bool) {
 		}
 	}
 	return tracedAttempt{}, false
+}
+
+// retriesOf counts the failed same-target attempts before a, so a terminal
+// error can say how often the router retried the binding.
+func (t *attemptTrace) retriesOf(a tracedAttempt) int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	n := 0
+	for _, prior := range t.attempts {
+		if prior.Err != nil && prior.Target.Provider == a.Target.Provider && prior.Target.CatalogID == a.Target.CatalogID {
+			n++
+		}
+	}
+	return max(n-1, 0)
 }
 
 func logAttemptFailure(ctx context.Context, attempt dispatch.Attempt, err error, diagnosis inference.AttemptDiagnosis) {

@@ -417,9 +417,10 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 		}
 		httputil.LogUpstreamStatus(
 			ctx,
-			"Upstream Anthropic returned error status",
+			upstreamErrorLogMessage(requestcontext.EffectiveBaseURL(ctx, c.baseURL) != DefaultBaseURL, "Upstream Anthropic returned error status"),
 			resp.StatusCode,
 			"routed_model", decision.Model,
+			"upstream_host", upstream.URL.Host,
 			"body_preview", httputil.PreviewBytes(bufBody),
 			"body_total_bytes", totalRead,
 		)
@@ -485,7 +486,8 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	if requestcontext.CredentialsFromContext(ctx) == nil && c.authScheme != AuthBearer && c.subscriptionAuth(ctx, r) {
 		return errInboundSubscriptionRelay
 	}
-	url := requestcontext.EffectiveBaseURL(ctx, c.baseURL) + r.URL.Path
+	passthroughBase := requestcontext.EffectiveBaseURL(ctx, c.baseURL)
+	url := passthroughBase + r.URL.Path
 	if r.URL.RawQuery != "" {
 		url += "?" + r.URL.RawQuery
 	}
@@ -519,10 +521,22 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	providers.CopyUpstreamHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
 	if resp.StatusCode >= 400 {
-		return httputil.WritePassthroughError(r.Context(), w, resp, nil, nil, "Upstream Anthropic returned error status (passthrough)", "path", r.URL.Path)
+		return httputil.WritePassthroughError(r.Context(), w, resp, nil, nil, upstreamErrorLogMessage(passthroughBase != DefaultBaseURL, "Upstream Anthropic returned error status")+" (passthrough)", "upstream_host", upstream.URL.Host, "path", r.URL.Path)
 	}
 	_, err = io.Copy(w, resp.Body)
 	return err
 }
 
 var _ providers.Client = (*Client)(nil)
+
+// BaseURL is the deployment endpoint, used when a request carries none.
+func (c *Client) BaseURL() string { return c.baseURL }
+
+// upstreamErrorLogMessage keeps a customer gateway's failure from being logged
+// as Anthropic's own.
+func upstreamErrorLogMessage(viaGateway bool, direct string) string {
+	if viaGateway {
+		return "Upstream gateway returned error status"
+	}
+	return direct
+}

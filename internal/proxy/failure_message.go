@@ -1,21 +1,32 @@
 package proxy
 
 import (
+	"context"
 	"errors"
+	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
+
+	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/translate"
 )
 
-const upstreamCallFailedMessage = "Upstream call failed."
+const (
+	upstreamCallFailedMessage = "Upstream call failed."
+	cortexDisplayName         = "Snowflake Cortex"
+)
 
 var providerDisplayNames = map[string]string{
 	providers.ProviderAnthropic:        "Anthropic",
-	providers.ProviderAnthropicGateway: "Anthropic",
+	providers.ProviderAnthropicGateway: "Your Anthropic gateway",
 	providers.ProviderOpenAI:           "OpenAI",
-	providers.ProviderOpenAIGateway:    "OpenAI",
+	providers.ProviderOpenAIGateway:    "Your OpenAI gateway",
 	providers.ProviderGoogle:           "Gemini",
 	providers.ProviderOpenRouter:       "OpenRouter",
 	providers.ProviderFireworks:        "Fireworks",
@@ -28,6 +39,28 @@ var providerDisplayNames = map[string]string{
 	providers.ProviderMeta:             "Meta",
 	providers.ProviderWafer:            "Wafer",
 	providers.ProviderWaferAnthropic:   "Wafer",
+}
+
+// providerDisplayNameFor names who served an attempt. A customer gateway is
+// named by its host so a gateway failure is never blamed on the model vendor.
+func providerDisplayNameFor(provider, baseURL string) string {
+	if baseURL == "" {
+		return providerDisplayName(provider)
+	}
+	host := baseURL
+	if u, err := url.Parse(baseURL); err == nil && u.Host != "" {
+		host = u.Host
+	}
+	// Any Snowflake account host, not only the paths IsCortexBaseURL accepts,
+	// since the Anthropic gateway mounts under its own Cortex path.
+	if providers.IsCortexBaseURL(baseURL) || strings.HasSuffix(strings.ToLower(strings.Split(host, ":")[0]), ".snowflakecomputing.com") {
+		return cortexDisplayName
+	}
+	return "your gateway (" + host + ")"
+}
+
+func (a tracedAttempt) providerName() string {
+	return providerDisplayNameFor(a.Target.Provider, a.BaseURL)
 }
 
 func providerDisplayName(provider string) string {
@@ -70,7 +103,10 @@ func failureWordingFor(a tracedAttempt) failureWording {
 	case TurnErrorTimeout:
 		return failureWording{"timed out", "timeout"}
 	case TurnErrorRateLimited:
-		return failureWording{"was overloaded", withStatus("overloaded")}
+		if status == providerOverloadedStatus {
+			return failureWording{"was overloaded", withStatus("overloaded")}
+		}
+		return failureWording{"was rate-limited", withStatus("rate limited")}
 	case TurnErrorUpstream5xx:
 		return failureWording{"returned a " + strconv.Itoa(status), "server error " + strconv.Itoa(status)}
 	case TurnErrorStreamCut:
@@ -96,7 +132,7 @@ func rescueDetailLine(a tracedAttempt) string {
 	if owner == "" || owner == FailureOwnerUnknown {
 		return ""
 	}
-	return translate.RescueDetailPrefix + providerDisplayName(a.Target.Provider) + " " + failureWordingFor(a).badge + " (" + string(owner) + " issue)\n\n"
+	return translate.RescueDetailPrefix + a.providerName() + " " + failureWordingFor(a).badge + " (" + string(owner) + " issue)\n\n"
 }
 
 // withRescueDetail appends the rescue detail line to a rendered badge. An
@@ -119,10 +155,12 @@ func lastFailureDetail(trace *attemptTrace) string {
 }
 
 // attributedError carries a terminal message naming the owner of the failed
-// attempt that ended the turn; it unwraps to the attempt's error.
+// attempt that ended the turn, and the attribution prefixed onto the upstream
+// error message; it unwraps to the attempt's error.
 type attributedError struct {
 	err     error
 	message string
+	prefix  string
 }
 
 func (e attributedError) Error() string { return e.err.Error() }
@@ -138,18 +176,89 @@ func attributeTerminalError(trace *attemptTrace, err error) error {
 	if !ok || !errors.Is(err, last.Err) {
 		return err
 	}
-	message := terminalMessageFor(last)
-	if message == "" {
+	return attributeAttempt(last, trace.retriesOf(last), err)
+}
+
+// attributeStreamError attributes a failure the serving attempt hit after its
+// stream committed, before dispatch has traced it.
+func attributeStreamError(ctx context.Context, provider string, err error) error {
+	trace := attemptTraceFromContext(ctx)
+	if err == nil || trace.hideDetails() {
 		return err
 	}
-	return attributedError{err: err, message: message}
+	var attributed attributedError
+	if errors.As(err, &attributed) {
+		return err
+	}
+	a := tracedAttempt{
+		Target:    inference.Target{Provider: provider},
+		BaseURL:   requestcontext.EffectiveBaseURL(ctx, ""),
+		Err:       err,
+		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(classifyTurnError(err, "", 0))},
+	}
+	a.Diagnosis.FailureOwner = string(classifyFailureOwner(failureOwnerInput{Err: err}))
+	return attributeAttempt(a, 0, err)
+}
+
+func attributeAttempt(a tracedAttempt, retries int, err error) error {
+	prefix := attributionPrefix(a, retries)
+	message := attributedTerminalMessage(a, prefix)
+	if message == "" && prefix == "" {
+		return err
+	}
+	return attributedError{err: err, message: message, prefix: prefix}
+}
+
+// attributionPrefix states what the provider did, e.g. "Snowflake Cortex
+// returned 429 (rate limited) after 2 router retries".
+func attributionPrefix(a tracedAttempt, retries int) string {
+	if a.owner() == FailureOwnerRouter {
+		return ""
+	}
+	var what string
+	switch status := upstreamStatus(a.Err); {
+	case status == http.StatusTooManyRequests:
+		what = "returned 429 (rate limited)"
+	case status == providerOverloadedStatus:
+		what = "returned 529 (overloaded)"
+	case status >= 500:
+		what = "returned " + strconv.Itoa(status) + " (server error)"
+	case status >= 400:
+		what = "returned " + strconv.Itoa(status) + " (" + failureWordingFor(a).badge + ")"
+	default:
+		switch TurnErrorClass(a.Diagnosis.ErrorClass) {
+		case TurnErrorTimeout:
+			what = "timed out"
+		case TurnErrorStreamStalled:
+			what = "stalled mid-stream"
+		case TurnErrorStreamCut:
+			what = "cut the stream"
+		default:
+			return ""
+		}
+	}
+	prefix := a.providerName() + " " + what
+	switch {
+	case retries == 1:
+		prefix += " after 1 router retry"
+	case retries > 1:
+		prefix += " after " + strconv.Itoa(retries) + " router retries"
+	}
+	return prefix
 }
 
 func terminalMessageFor(a tracedAttempt) string {
+	return attributedTerminalMessage(a, attributionPrefix(a, 0))
+}
+
+func attributedTerminalMessage(a tracedAttempt, prefix string) string {
 	wording := failureWordingFor(a).terminal
-	provider := providerDisplayName(a.Target.Provider)
+	provider := a.providerName()
 	switch a.owner() {
 	case FailureOwnerProvider:
+		if prefix != "" {
+			return prefix + " (provider issue)."
+		}
 		return "Provider " + provider + " failed: " + wording + "."
 	case FailureOwnerRouter:
 		return "Router error: " + strings.TrimPrefix(provider+" "+wording, "The provider ") + "."
@@ -169,4 +278,42 @@ func TerminalErrorMessage(err error) string {
 		return attributed.message
 	}
 	return upstreamCallFailedMessage
+}
+
+// attributedErrorBody prefixes the error message of an upstream error body
+// with err's attribution. Status, error type and every other field are kept,
+// so client retry decisions are unchanged.
+func attributedErrorBody(body []byte, err error) []byte {
+	var attributed attributedError
+	if !errors.As(err, &attributed) || attributed.prefix == "" || !gjson.ValidBytes(body) {
+		return body
+	}
+	for _, path := range []string{"error.message", "message"} {
+		msg := gjson.GetBytes(body, path)
+		if msg.Type != gjson.String {
+			continue
+		}
+		if strings.HasPrefix(msg.String(), attributed.prefix) {
+			return body
+		}
+		text := attributed.prefix
+		if msg.String() != "" {
+			text += ": " + msg.String()
+		}
+		if out, setErr := sjson.SetBytes(body, path, text); setErr == nil {
+			return out
+		}
+		return body
+	}
+	return body
+}
+
+// attributedStreamFailure is the message for a stream failure with no
+// upstream body: the attribution when known, else the generic text.
+func attributedStreamFailure(err error) string {
+	var attributed attributedError
+	if errors.As(err, &attributed) && attributed.prefix != "" {
+		return attributed.prefix + "."
+	}
+	return "upstream stream failed"
 }
