@@ -183,12 +183,12 @@ func TestVerifySessionToken_RejectsInvalidTokens(t *testing.T) {
 			return f.sign(t, c, nil)
 		},
 		"caps with only unknown fields": func(t *testing.T) string {
-			mapClaims := jwt.MapClaims{
+			unknownCapsClaims := jwt.MapClaims{
 				"iss": auth.SessionTokenIssuer, "aud": auth.SessionTokenAudience, "sub": "session-1",
 				"iat": sessionClock.Add(-time.Minute).Unix(), "exp": sessionClock.Add(time.Hour).Unix(),
 				"https://weave.ai/caps": map[string]int64{"session_usd_micro": 5_000_000},
 			}
-			token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, mapClaims)
+			token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, unknownCapsClaims)
 			token.Header["typ"], token.Header["kid"] = auth.SessionTokenType, f.kid
 			signed, err := token.SignedString(f.privateKey)
 			require.NoError(t, err)
