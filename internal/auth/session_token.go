@@ -56,10 +56,12 @@ type SessionClaims struct {
 // DelegatedSession is the verified identity of a session token. Requests
 // authenticate as the issuer key; this narrows them to one session and task.
 type DelegatedSession struct {
-	IssuerKeyID string
-	SessionID   string
-	TaskID      string
-	ExpiresAt   time.Time
+	IssuerKeyID      string
+	SessionID        string
+	TaskID           string
+	SessionCapMicros *int64
+	TaskCapMicros    *int64
+	ExpiresAt        time.Time
 }
 
 type delegatedSessionContextKey struct{}
