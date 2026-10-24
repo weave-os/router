@@ -106,7 +106,7 @@ func TestVerifySessionToken_RejectsInvalidTokens(t *testing.T) {
 	f := newSessionIssuerFixture(t)
 	_, otherKey, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
-	cap := int64(5_000_000)
+	capMicros := int64(5_000_000)
 
 	cases := map[string]func(t *testing.T) string{
 		"alg none": func(t *testing.T) string {
@@ -174,8 +174,25 @@ func TestVerifySessionToken_RejectsInvalidTokens(t *testing.T) {
 		},
 		"caps before enforcement exists": func(t *testing.T) string {
 			c := f.claims()
-			c.Caps = &auth.SessionCaps{SessionUSDMicros: &cap}
+			c.Caps = &auth.SessionCaps{SessionUSDMicros: &capMicros}
 			return f.sign(t, c, nil)
+		},
+		"empty caps object": func(t *testing.T) string {
+			c := f.claims()
+			c.Caps = &auth.SessionCaps{}
+			return f.sign(t, c, nil)
+		},
+		"caps with only unknown fields": func(t *testing.T) string {
+			mapClaims := jwt.MapClaims{
+				"iss": auth.SessionTokenIssuer, "aud": auth.SessionTokenAudience, "sub": "session-1",
+				"iat": sessionClock.Add(-time.Minute).Unix(), "exp": sessionClock.Add(time.Hour).Unix(),
+				"https://weave.ai/caps": map[string]int64{"session_usd_micro": 5_000_000},
+			}
+			token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, mapClaims)
+			token.Header["typ"], token.Header["kid"] = auth.SessionTokenType, f.kid
+			signed, err := token.SignedString(f.privateKey)
+			require.NoError(t, err)
+			return "rs_" + signed
 		},
 		"oversized": func(t *testing.T) string {
 			return "rs_" + strings.Repeat("a", auth.SessionTokenMaxBytes)
@@ -230,6 +247,22 @@ func TestVerifySessionToken_LookupFailureIsNotAnAuthRejection(t *testing.T) {
 	_, _, _, _, _, err := svc.VerifySessionToken(context.Background(), f.sign(t, f.claims(), nil), true)
 
 	require.ErrorIs(t, err, sql.ErrConnDone, "a database outage must surface as 503, not a terminal 401")
+}
+
+func TestVerifySessionToken_IssuerRegisteredAfterAMissAuthenticatesImmediately(t *testing.T) {
+	f := newSessionIssuerFixture(t)
+	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}
+	cache := auth.NewLRUAPIKeyCache(100, 100, 5*time.Minute, time.Minute)
+	svc := auth.NewService(&fakeInstallationRepository{}, repo, nil, nil, cache, nil, func() time.Time { return sessionClock }).WithSessionTokens(true)
+	token := f.sign(t, f.claims(), nil)
+
+	_, _, _, _, _, err := svc.VerifySessionToken(context.Background(), token, true)
+	require.ErrorIs(t, err, auth.ErrInvalidToken)
+
+	repo.byHash[f.apiKey.KeyHash] = fakeKeyRow{apiKey: f.apiKey, installation: f.inst}
+	_, _, _, _, session, err := svc.VerifySessionToken(context.Background(), token, true)
+	require.NoError(t, err, "a token signed before its issuer was visible must work once the issuer is registered")
+	assert.Equal(t, "session-1", session.SessionID)
 }
 
 type countingKeyRepo struct {

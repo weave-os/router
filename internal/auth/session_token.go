@@ -229,8 +229,9 @@ func (s *Service) VerifySessionToken(ctx context.Context, rawToken string, inclu
 	if claims.Subject == "" || claims.IssuedAt == nil || claims.ExpiresAt.Sub(claims.IssuedAt.Time) > SessionTokenMaxLifetime {
 		return nil, nil, nil, nil, nil, ErrInvalidToken
 	}
-	if claims.Caps != nil && (claims.Caps.SessionUSDMicros != nil || claims.Caps.TaskUSDMicros != nil) {
-		// Spend caps are not enforced yet; refusing the token keeps a cap from being silently ignored.
+	if claims.Caps != nil {
+		// Spend caps are not enforced yet; refusing any caps object, even an empty or
+		// misspelled one, keeps a cap from being silently ignored.
 		return nil, nil, nil, nil, nil, ErrInvalidToken
 	}
 	session := &DelegatedSession{
@@ -249,18 +250,16 @@ func (s *Service) VerifySessionToken(ctx context.Context, rawToken string, inclu
 
 // sessionIssuer resolves an active issuer by kid through the shared auth cache.
 // Positive entries are evicted with the installation, so revocation takes effect
-// on the same path as deleting any other key.
+// on the same path as deleting any other key. An unknown kid is not negatively
+// cached: registration could not evict it on every replica, so a token signed
+// right after its issuer is registered would 401 for the negative TTL.
 func (s *Service) sessionIssuer(ctx context.Context, kid string, includeUpstreamKeys bool) (CachedKey, error) {
 	cacheKey := SessionIssuerKeyHash(kid)
 	if cached, ok := s.cache.Get(cacheKey); ok {
-		if cached.Negative {
-			return CachedKey{}, ErrInvalidToken
-		}
 		return cached, nil
 	}
 	apiKey, installation, err := s.apiKeys.GetActiveByHashWithInstallation(ctx, cacheKey)
 	if errors.Is(err, sql.ErrNoRows) {
-		s.cache.Set(cacheKey, CachedKey{Negative: true})
 		return CachedKey{}, ErrInvalidToken
 	}
 	if err != nil {

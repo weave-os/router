@@ -89,7 +89,7 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 			}
 			subject = &auth.CredentialSubject{ID: projection.RouterCredentialSubject.ID.String(), ProjectionComplete: projection.RouterCredentialSubject.ProjectionComplete, InternalEnrolled: projection.RouterCredentialSubject.InternalEnrolled, EnrollmentGeneration: projection.RouterCredentialSubject.EnrollmentGeneration, AccessEnabled: projection.AccessEnabled, RevokedAt: timestamptzPtr(projection.RouterCredentialSubject.RevokedAt)}
 		}
-		if err := auth.ValidateCredentialSubject(key, subject); err != nil {
+		if err := auth.ValidateServingCredential(key, subject); err != nil {
 			return err
 		}
 		lane, err := queries.GetServingInstallationLaneEnrollment(ctx, installationUUID)
