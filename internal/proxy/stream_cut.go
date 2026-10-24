@@ -289,7 +289,8 @@ func classifyStreamFailure(err error, lastEvent string) streamFailureClass {
 		return streamFailureDeadline
 	case isNetTimeout(err):
 		return streamFailureUpstreamTimeout
-	case errors.Is(err, syscall.ECONNRESET), errors.Is(err, syscall.EPIPE), errors.Is(err, net.ErrClosed):
+	case errors.Is(err, syscall.ECONNRESET), errors.Is(err, syscall.EPIPE), errors.Is(err, net.ErrClosed),
+		providers.IsHTTP2ConnectionLoss(err):
 		return streamFailureUpstreamReset
 	case errors.Is(err, io.EOF), errors.Is(err, io.ErrUnexpectedEOF):
 		return streamFailureUpstreamEOF
