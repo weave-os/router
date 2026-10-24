@@ -53,7 +53,7 @@ Claude Code keep using the user's logged-in plan.
 | `MINIMAX_API_KEY`     | *(none)*                                                   | Enables the native MiniMax provider through its OpenAI-compatible API. |
 | `MINIMAX_REGION`      | `global`                                                   | Set to `cn` (or `china`) to use the mainland-China endpoint. |
 | `MINIMAX_BASE_URL`    | regional default                                           | Override the MiniMax endpoint; defaults to `https://api.minimax.io/v1` globally or `https://api.minimaxi.com/v1` for mainland China. |
-| `ROUTER_SESSION_TOKENS_ENABLED` | `false` | Experimental. Accepts factory-signed `rs_` session JWTs and mounts the internal session-issuer endpoints. See [DELEGATED_SESSION_TOKENS.md](DELEGATED_SESSION_TOKENS.md). |
+| `ROUTER_SESSION_TOKENS_ENABLED` | `false` | Experimental. Accepts issuer-signed `rs_` session JWTs and mounts the internal session-issuer endpoints. See [DELEGATED_SESSION_TOKENS.md](DELEGATED_SESSION_TOKENS.md). |
 | `ROUTER_SUBSCRIPTION_POOLS_ENABLED` | `false`                                         | Enables encrypted server-side subscription enrollment and account-management endpoints. Set `false` as the emergency pool-disable switch. |
 | `WEAVE_CODEX_OAUTH_ISSUER` | `https://auth.openai.com` | Optional Codex OAuth issuer override for self-hosted testing. |
 | `WEAVE_ANTHROPIC_OAUTH_AUTHORIZE` | `https://claude.ai/oauth/authorize` | Optional Claude OAuth authorization endpoint override used by the enrollment CLI. |

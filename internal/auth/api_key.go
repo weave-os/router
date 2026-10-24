@@ -16,7 +16,7 @@ const (
 	// ScopeAnalyticsRead is the ra_ export key: reads the installation's own
 	// telemetry and nothing else. It can neither route nor spend.
 	ScopeAnalyticsRead APIKeyScope = "analytics_read"
-	// ScopeSessionIssuer is a factory-registered Ed25519 public key. It is never
+	// ScopeSessionIssuer is a registered Ed25519 public key. It is never
 	// a bearer; it verifies rs_ session tokens and is what they authenticate as.
 	ScopeSessionIssuer APIKeyScope = "session_issuer"
 )

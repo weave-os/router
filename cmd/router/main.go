@@ -593,7 +593,7 @@ func main() {
 		logger.Info("Per-organization flag overrides disabled deployment-wide (ROUTER_FLAG_OVERRIDES_DISABLED=true)")
 	}
 
-	// Experimental: accept factory-signed rs_ session JWTs and mount the internal
+	// Experimental: accept issuer-signed rs_ session JWTs and mount the internal
 	// issuer registration endpoints. Off by default.
 	sessionTokensEnabled := config.GetOr("ROUTER_SESSION_TOKENS_ENABLED", "false") == "true"
 	if sessionTokensEnabled {

@@ -1,12 +1,13 @@
 # Delegated session tokens
 
-Experimental and off by default. Only the Weave software factory uses it.
+Experimental and off by default.
 
-A delegated session token lets the factory give one agent session a
-short-lived router credential without minting a key row per session. The
-factory holds an Ed25519 private key. Its public key is registered on an
-installation as a **session issuer**, a `model_router_api_keys` row with scope
-`session_issuer`. For each session the factory signs a standard JWT locally.
+A delegated session token lets a trusted service give each of its client
+sessions a short-lived router credential without minting a key row per
+session. The service holds an Ed25519 private key. Its public key is registered
+on an installation as a **session issuer**, a `model_router_api_keys` row with
+scope `session_issuer`. For each session the service signs a standard JWT
+locally.
 
 ## Token
 
@@ -19,7 +20,7 @@ from provider JWTs and makes the upstream header scrubbers drop it.
 | Header `alg` | `EdDSA` (Ed25519, RFC 8037); nothing else is accepted |
 | Header `typ` | `at+jwt` |
 | Header `kid` | RFC 7638 SHA-256 thumbprint of the issuer JWK, base64url |
-| `iss` | `weave-factory` |
+| `iss` | `session-issuer` |
 | `aud` | `weave-router` |
 | `sub` | Session ID |
 | `iat`, `exp` | Required; `exp - iat` is at most 24 hours |
@@ -55,5 +56,5 @@ every session. Revoking an issuer invalidates the installation's cache entries
 on every replica; every outstanding token it signed then fails with 401. There
 is no per-session revocation: a token stops working at its `exp`.
 
-To rotate the signing key, register the new public key, switch the factory to
-it, then revoke the old issuer.
+To rotate the signing key, register the new public key, switch the signing
+service to it, then revoke the old issuer.

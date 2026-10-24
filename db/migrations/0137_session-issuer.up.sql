@@ -1,6 +1,6 @@
 BEGIN;
 
--- A session issuer is a factory-held Ed25519 public key registered per
+-- A session issuer is an Ed25519 public key registered per
 -- installation. It authenticates nothing as a bearer: the router verifies
 -- short-lived rs_ JWTs signed by the matching private key and attributes them
 -- to this row. Revoking the row revokes every token it signed.

@@ -28,7 +28,7 @@ func TestWithAuth_SessionTokenAuthenticatesAsIssuerWithDelegatedSession(t *testi
 	require.NoError(t, err)
 	_, kid, _, err := auth.ParseSessionIssuerJWK(publicJWK)
 	require.NoError(t, err)
-	installation := &auth.Installation{ID: "inst-factory", ExternalID: "org-factory"}
+	installation := &auth.Installation{ID: "inst-issuer", ExternalID: "org-issuer"}
 	issuer := &auth.APIKey{ID: "issuer-1", InstallationID: installation.ID, KeyHash: auth.SessionIssuerKeyHash(kid), Scope: auth.ScopeSessionIssuer, IssuerPublicKey: publicKey}
 	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{issuer.KeyHash: {apiKey: issuer, installation: installation}}}
 	svc := auth.NewService(fakeInstallationRepository{}, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return now }).WithSessionTokens(true)

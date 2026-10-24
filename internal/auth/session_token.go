@@ -18,10 +18,10 @@ import (
 )
 
 // Delegated session tokens are RFC 9068 JWT access tokens signed with Ed25519
-// (RFC 8037) by a factory-held key whose public JWK is registered as a
+// (RFC 8037) by an issuer-held key whose public JWK is registered as a
 // session_issuer row. Validation follows RFC 8725.
 const (
-	SessionTokenIssuer      = "weave-factory"
+	SessionTokenIssuer      = "session-issuer"
 	SessionTokenAudience    = "weave-router"
 	SessionTokenType        = "at+jwt"
 	SessionTokenMaxLifetime = 24 * time.Hour

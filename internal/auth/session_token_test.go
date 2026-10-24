@@ -38,7 +38,7 @@ func newSessionIssuerFixture(t *testing.T) sessionIssuerFixture {
 	require.NoError(t, err)
 	_, kid, _, err := auth.ParseSessionIssuerJWK(publicJWK)
 	require.NoError(t, err)
-	inst := &auth.Installation{ID: "inst-factory", ExternalID: "org-factory"}
+	inst := &auth.Installation{ID: "inst-issuer", ExternalID: "org-issuer"}
 	return sessionIssuerFixture{
 		privateKey: privateKey,
 		publicJWK:  publicJWK,
