@@ -278,10 +278,10 @@ while [ $# -gt 0 ]; do
 done
 
 # skip_if_not_installed ends a child of a bare --uninstall quietly (exit 3)
-# when file $1 holds no Weave Router config (no line matching $2).
+# when file $1 holds no Weave Router config (no line matching ERE $2).
 skip_if_not_installed() {
   [ -n "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] || return 0
-  [ -f "$1" ] && grep -q -- "$2" "$1" && return 0
+  [ -f "$1" ] && grep -Eq -- "$2" "$1" && return 0
   exit 3
 }
 
@@ -1249,7 +1249,7 @@ fi
 report_claude_uninstall_event || true
 
 
-skip_if_not_installed "$settings_file" 'ANTHROPIC_BASE_URL\|Weave Router\|cc-statusline'
+skip_if_not_installed "$settings_file" 'ANTHROPIC_BASE_URL|Weave Router|cc-statusline'
 if [ -f "$settings_file" ]; then
   # Only remove keys we actually installed: scrub our env vars, and only
   # delete `statusLine` / `apiKeyHelper` when they point at scripts this
