@@ -174,12 +174,12 @@ func TestVerifySessionToken_RejectsInvalidTokens(t *testing.T) {
 		},
 		"subject longer than a billable ID": func(t *testing.T) string {
 			c := f.claims()
-			c.Subject = strings.Repeat("s", auth.SessionTokenMaxIDLength+1)
+			c.Subject = strings.Repeat("s", 256)
 			return f.sign(t, c, nil)
 		},
 		"task longer than a billable ID": func(t *testing.T) string {
 			c := f.claims()
-			c.Task = strings.Repeat("t", auth.SessionTokenMaxIDLength+1)
+			c.Task = strings.Repeat("t", 256)
 			return f.sign(t, c, nil)
 		},
 		"unknown kid": func(t *testing.T) string {

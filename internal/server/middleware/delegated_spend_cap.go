@@ -23,6 +23,11 @@ const (
 // WithAPIKeySpendCap, with the same exemptions and the same fail-closed 503.
 // Requests from any other credential, or tokens without caps, pass through
 // without a read.
+//
+// Known bug: the cap is checked before a request and spend is recorded after it
+// settles, so concurrent requests in one session or task can all pass the check
+// and overshoot the cap by the whole in-flight batch. WithAPIKeySpendCap has the
+// same bug; when the rk_ key spend cap is fixed, fix this cap the same way.
 func WithDelegatedSpendCap(svc *billing.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ctx := c.Request.Context()
