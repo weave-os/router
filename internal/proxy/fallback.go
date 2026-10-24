@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/tidwall/sjson"
+
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -479,8 +481,12 @@ func flushBufferedIfPresent(w http.ResponseWriter, err error) {
 			w.Header().Add(k, v)
 		}
 	}
+	body := attributedErrorBody(resp.Body, err)
+	if !bytes.Equal(body, resp.Body) {
+		w.Header().Set("Content-Type", "application/json")
+	}
 	w.WriteHeader(resp.Status)
-	_, _ = w.Write(attributedErrorBody(resp.Body, err))
+	_, _ = w.Write(body)
 }
 
 // emitAnthropicSSEErrorEvent writes an Anthropic-shape `event: error` SSE
@@ -491,7 +497,7 @@ func flushBufferedIfPresent(w http.ResponseWriter, err error) {
 func emitAnthropicSSEErrorEvent(sink http.ResponseWriter, err error) error {
 	var resp *providers.UpstreamErrorResponse
 	status := http.StatusBadGateway
-	body := []byte(fmt.Sprintf(`{"type":"error","error":{"type":"api_error","message":%q}}`, attributedStreamFailure(err)))
+	body, _ := sjson.SetBytes([]byte(`{"type":"error","error":{"type":"api_error","message":""}}`), "error.message", attributedStreamFailure(err))
 	switch cls, classified := ClassifyDispatchError(err); {
 	case classified && cls.Kind == DispatchErrorContextWindowExceeded:
 		status = cls.Status
@@ -518,7 +524,7 @@ func emitAnthropicSSEErrorEvent(sink http.ResponseWriter, err error) error {
 func emitOpenAISSEErrorEvent(sink http.ResponseWriter, err error) error {
 	var resp *providers.UpstreamErrorResponse
 	status := http.StatusBadGateway
-	body := []byte(fmt.Sprintf(`{"error":{"message":%q,"type":"server_error","code":"upstream_error"}}`, attributedStreamFailure(err)))
+	body, _ := sjson.SetBytes([]byte(`{"error":{"message":"","type":"server_error","code":"upstream_error"}}`), "error.message", attributedStreamFailure(err))
 	switch cls, classified := ClassifyDispatchError(err); {
 	case classified && cls.Kind == DispatchErrorContextWindowExceeded:
 		status = cls.Status

@@ -148,11 +148,27 @@ func slowStartNotice(ctx context.Context, trace *attemptTrace, tracker *slowStar
 		p50 = 0
 	}
 	wait := now.Sub(snap.firstAttemptAt)
-	if wait <= threshold || trace.hideDetails() || !tracker.claim(observability.ClientSessionIDFromContext(ctx), now) {
+	if wait <= threshold || trace.hideDetails() || isHeadlessClientUserAgent(ClientIdentityFrom(ctx).UserAgent) {
+		return translate.RouterNotice{}, false
+	}
+	if cooldownKey, ok := slowStartCooldownKey(ctx); !ok || !tracker.claim(cooldownKey, now) {
 		return translate.RouterNotice{}, false
 	}
 	text := slowStartLine(snap, wait, p50)
 	return translate.NewRouterNotice(translate.NoticeSlowStart, text, snap.current.Target.CatalogID, ""), true
+}
+
+// slowStartCooldownKey scopes the notice cooldown to the client session, or
+// to the API key when the client sends no session id, so unrelated
+// session-less callers don't share one cooldown.
+func slowStartCooldownKey(ctx context.Context) (string, bool) {
+	if session := observability.ClientSessionIDFromContext(ctx); session != "" {
+		return "session:" + session, true
+	}
+	if key := apiKeyIDFromContext(ctx); key != "" {
+		return "key:" + key, true
+	}
+	return "", false
 }
 
 // slowStartLine reads e.g. "↳ Snowflake Cortex took 41s to start (usually

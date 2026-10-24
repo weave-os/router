@@ -215,29 +215,29 @@ func attributionPrefix(a tracedAttempt, retries int) string {
 	if a.owner() == FailureOwnerRouter {
 		return ""
 	}
-	var what string
+	var outcome string
 	switch status := upstreamStatus(a.Err); {
 	case status == http.StatusTooManyRequests:
-		what = "returned 429 (rate limited)"
+		outcome = "returned 429 (rate limited)"
 	case status == providerOverloadedStatus:
-		what = "returned 529 (overloaded)"
+		outcome = "returned 529 (overloaded)"
 	case status >= 500:
-		what = "returned " + strconv.Itoa(status) + " (server error)"
+		outcome = "returned " + strconv.Itoa(status) + " (server error)"
 	case status >= 400:
-		what = "returned " + strconv.Itoa(status) + " (" + failureWordingFor(a).badge + ")"
+		outcome = "returned " + strconv.Itoa(status) + " (" + failureWordingFor(a).badge + ")"
 	default:
 		switch TurnErrorClass(a.Diagnosis.ErrorClass) {
 		case TurnErrorTimeout:
-			what = "timed out"
+			outcome = "timed out"
 		case TurnErrorStreamStalled:
-			what = "stalled mid-stream"
+			outcome = "stalled mid-stream"
 		case TurnErrorStreamCut:
-			what = "cut the stream"
+			outcome = "cut the stream"
 		default:
 			return ""
 		}
 	}
-	prefix := a.providerName() + " " + what
+	prefix := a.providerName() + " " + outcome
 	switch {
 	case retries == 1:
 		prefix += " after 1 router retry"
@@ -274,16 +274,16 @@ func attributedTerminalMessage(a tracedAttempt, prefix string) string {
 
 const maxUpstreamErrorText = 500
 
-// upstreamErrorText is the upstream body's own error message, if any.
+// Reads error.message, then message, from a JSON upstream body.
 func upstreamErrorText(err error) string {
 	var body []byte
 	var resp *providers.UpstreamErrorResponse
-	var status *providers.UpstreamStatusError
+	var statusErr *providers.UpstreamStatusError
 	switch {
 	case errors.As(err, &resp):
 		body = resp.Body
-	case errors.As(err, &status):
-		body = status.Body
+	case errors.As(err, &statusErr):
+		body = statusErr.Body
 	}
 	if !gjson.ValidBytes(body) {
 		return ""
@@ -331,10 +331,8 @@ func attributedErrorBody(body []byte, err error) []byte {
 		if msg.String() != "" {
 			text += ": " + msg.String()
 		}
-		if out, setErr := sjson.SetBytes(body, path, text); setErr == nil {
-			return out
-		}
-		return body
+		out, _ := sjson.SetBytes(body, path, text)
+		return out
 	}
 	return body
 }
