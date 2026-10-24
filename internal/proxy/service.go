@@ -5199,7 +5199,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			providers.IsUpstreamModelNotFound(proxyErr) ||
 			providers.IsUpstreamProviderBillingBlocked(proxyErr) ||
 			isSubscriptionPoolError(proxyErr) ||
-			crossBindingRejected) {
+			crossBindingRejected ||
+			rescuesCompactionOverflow(routeRes.TurnType, proxyErr)) {
 		for _, siblingDecision := range siblingDecisions {
 			// A rescuer that itself failed pre-commit hands the turn to the next
 			// candidate; a served, committed, or client-cancelled turn ends the walk.
@@ -5274,6 +5275,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if siblingRescueOwed && proxyErr != nil && !preludeBuf.Committed() {
 		flushDeferredErr()
 	}
+	proxyErr = asCompactionUnservable(routeRes.TurnType, decision, proxyErr)
 	proxyErr = asRequestedWindowOverflow(proxyErr, requestedWindowPassed, preludeBuf.Committed())
 
 	subscriptionFailoverUsed = subscriptionFailoverUsed || subscriptionCredentialFallbackUsed(ctx)
@@ -8367,7 +8369,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		(providers.IsRetryable(proxyErr) ||
 			providers.IsUpstreamModelNotFound(proxyErr) ||
 			providers.IsUpstreamProviderBillingBlocked(proxyErr) ||
-			isSubscriptionPoolError(proxyErr)) {
+			isSubscriptionPoolError(proxyErr) ||
+			rescuesCompactionOverflow(routeRes.TurnType, proxyErr)) {
 		for _, siblingDecision := range siblingDecisions {
 			// A rescuer that itself failed pre-commit hands the turn to the next
 			// candidate; a served, committed, or client-cancelled turn ends the walk.
@@ -8452,6 +8455,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if siblingRescueOwed && proxyErr != nil && !preludeBuf.Committed() {
 		flushDeferredErr()
 	}
+	proxyErr = asCompactionUnservable(routeRes.TurnType, decision, proxyErr)
 
 	if subscriptionCredentialFallbackUsed(ctx) {
 		if decision.Provider == providers.ProviderOpenAI {

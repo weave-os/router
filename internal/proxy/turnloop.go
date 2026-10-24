@@ -1054,12 +1054,13 @@ func (s *Service) runTurnLoop(
 		// it goes to the session's Anthropic model (warm cache) or the
 		// Sonnet-class compaction model rather than the cheapest utility pin.
 		compactionProvider, compactionModel, compactionPin := "", "", false
-		var compactionFallbacks []compactionSummarizer
+		var compactionFallbacks, compactionCrossProvider []compactionSummarizer
 		origin := policy.OverrideSourceDeployment
 		if s.compactionHardPinEnabled && res.TurnType == turntype.Compaction && !useSubAgentOverride {
 			if summarizers := s.compactionSummarizers(ctx, threadSessionKey, res.PinRole, req); len(summarizers) > 0 {
 				compactionProvider, compactionModel, origin, compactionPin = summarizers[0].provider, summarizers[0].model, summarizers[0].source, true
 				compactionFallbacks = summarizers[1:]
+				compactionCrossProvider = s.compactionCrossProviderRescuers(summarizers[0], req)
 			}
 		}
 		hardPinReq := HardPinRequest{
@@ -1076,7 +1077,7 @@ func (s *Service) runTurnLoop(
 			if s.hardPinResolver != nil {
 				utilityProvider, utilityModel, _ = s.hardPinResolver(withAutomaticExclusions(hardPinReq, req.AutomaticExcludedModels))
 			}
-			rescueMetadata = compactionRescueMetadata(compactionFallbacks, utilityProvider, utilityModel)
+			rescueMetadata = compactionRescueMetadata(compactionFallbacks, utilityProvider, utilityModel, compactionCrossProvider)
 			log.Info("Hard-pin: compaction turn on compaction model", "hard_pin_model", model, "hard_pin_provider", provider)
 		case s.hardPinResolver != nil && !useSubAgentOverride:
 			p, m, ok := s.hardPinResolver(withAutomaticExclusions(hardPinReq, req.AutomaticExcludedModels))

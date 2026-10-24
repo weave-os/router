@@ -72,6 +72,7 @@ const (
 	DispatchErrorSpendCapReached
 	DispatchErrorSubscriptionClientAppRefused
 	DispatchErrorDecisionModelUnavailable
+	DispatchErrorCompactionUnservable
 )
 
 // DispatchErrorClass is the format-agnostic classification of a dispatch
@@ -223,6 +224,8 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Rejected request: forced cluster has no eligible model",
 		}, true
+	case errors.As(err, new(*CompactionUnservableError)):
+		return compactionUnservableClass, true
 	// Before the generic upstream cases: an overflow must reach every client in
 	// its native shape, not as an opaque upstream failure.
 	case isContextOverflow(err):
