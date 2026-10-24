@@ -2,9 +2,11 @@ package auth_test
 
 import (
 	"context"
+	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"strings"
 	"sync"
@@ -36,8 +38,9 @@ func newSessionIssuerFixture(t *testing.T) sessionIssuerFixture {
 	require.NoError(t, err)
 	publicJWK, err := jose.JSONWebKey{Key: publicKey}.MarshalJSON()
 	require.NoError(t, err)
-	_, kid, _, err := auth.ParseSessionIssuerJWK(publicJWK)
+	thumbprint, err := (&jose.JSONWebKey{Key: publicKey}).Thumbprint(crypto.SHA256)
 	require.NoError(t, err)
+	kid := base64.RawURLEncoding.EncodeToString(thumbprint)
 	inst := &auth.Installation{ID: "inst-issuer", ExternalID: "org-issuer"}
 	return sessionIssuerFixture{
 		privateKey: privateKey,
@@ -333,18 +336,18 @@ func TestRegisterSessionIssuer_IdempotentAndInstallationBound(t *testing.T) {
 	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}, echoCreate: true}
 	svc := auth.NewService(&fakeInstallationRepository{}, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return sessionClock })
 
-	key, kid, err := svc.RegisterSessionIssuer(context.Background(), f.inst.ID, nil, f.publicJWK, nil)
+	key, kid, err := svc.RegisterSessionIssuer(context.Background(), f.inst.ID, nil, f.publicJWK)
 	require.NoError(t, err)
 	assert.Equal(t, f.kid, kid)
 	assert.Equal(t, auth.ScopeSessionIssuer, key.Scope)
-	assert.Equal(t, auth.SessionIssuerKeyHash(kid), key.KeyHash)
+	assert.Equal(t, "jwk:"+f.kid, key.KeyHash)
 
 	repo.byHash[key.KeyHash] = fakeKeyRow{apiKey: key, installation: f.inst}
-	again, _, err := svc.RegisterSessionIssuer(context.Background(), f.inst.ID, nil, f.publicJWK, nil)
+	again, _, err := svc.RegisterSessionIssuer(context.Background(), f.inst.ID, nil, f.publicJWK)
 	require.NoError(t, err)
 	assert.Same(t, key, again)
 
-	_, _, err = svc.RegisterSessionIssuer(context.Background(), "other-installation", nil, f.publicJWK, nil)
+	_, _, err = svc.RegisterSessionIssuer(context.Background(), "other-installation", nil, f.publicJWK)
 	require.ErrorIs(t, err, auth.ErrSessionIssuerConflict)
 }
 

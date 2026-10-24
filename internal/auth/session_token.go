@@ -121,7 +121,7 @@ func (s *Service) SessionTokensEnabled() bool {
 
 // RegisterSessionIssuer stores an Ed25519 public JWK as a session issuer for
 // the installation and returns its kid. Registering the same key again is a no-op.
-func (s *Service) RegisterSessionIssuer(ctx context.Context, installationID string, name *string, publicJWK []byte, createdBy *string) (*APIKey, string, error) {
+func (s *Service) RegisterSessionIssuer(ctx context.Context, installationID string, name *string, publicJWK []byte) (*APIKey, string, error) {
 	_, kid, canonical, err := ParseSessionIssuerJWK(publicJWK)
 	if err != nil {
 		return nil, "", err
@@ -139,7 +139,6 @@ func (s *Service) RegisterSessionIssuer(ctx context.Context, installationID stri
 		KeyHash:        keyHash,
 		KeySuffix:      kid[len(kid)-APITokenSuffixLen:],
 		Scope:          ScopeSessionIssuer,
-		CreatedBy:      createdBy,
 		PublicJWK:      canonical,
 	})
 	if err != nil {

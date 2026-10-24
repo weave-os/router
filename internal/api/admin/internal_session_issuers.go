@@ -35,7 +35,7 @@ func InternalRegisterSessionIssuerHandler(authSvc *auth.Service) gin.HandlerFunc
 		if req.Name != "" {
 			name = &req.Name
 		}
-		key, kid, err := authSvc.RegisterSessionIssuer(c.Request.Context(), req.InstallationID, name, req.PublicJWK, nil)
+		key, kid, err := authSvc.RegisterSessionIssuer(c.Request.Context(), req.InstallationID, name, req.PublicJWK)
 		switch {
 		case errors.Is(err, auth.ErrInvalidSessionIssuerKey):
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Public JWK must be an Ed25519 public key."})
