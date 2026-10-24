@@ -833,6 +833,9 @@ jq -cn --arg t "$h/transcript.jsonl" '{session_id:"sess-1",model:{id:"claude-opu
   | XDG_CACHE_HOME="$h/cache" WEAVE_STATUSLINE_UPDATE=0 bash "$h/cc.sh" >/dev/null 2>&1
 cached="$(cat "$h/cache/weave-router/claude-status/sess-1.line" 2>/dev/null || true)"
 check_contains "statusline caches its session line for /router-status" "$cached" "you picked opus-4-7 → served haiku-4-5"
+jq -cn '{session_id:"sess-fresh",model:{id:"claude-opus-4-7"},transcript_path:"/nonexistent"}' \
+  | XDG_CACHE_HOME="$h/cache" WEAVE_STATUSLINE_UPDATE=0 bash "$h/cc.sh" >/dev/null 2>&1
+if [ ! -e "$h/cache/weave-router/claude-status/sess-fresh.line" ]; then ok "a session with no response yet caches nothing"; else no "a session with no response yet caches nothing" "no cache file" "$(cat "$h/cache/weave-router/claude-status/sess-fresh.line")"; fi
 hook_out() { # hook_out <prompt> [env...]
   local prompt="$1"; shift
   jq -cn --arg p "$prompt" '{session_id:"sess-1",hook_event_name:"UserPromptSubmit",prompt:$p}' \

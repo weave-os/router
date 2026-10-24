@@ -1113,6 +1113,7 @@ weave_cache_status_line() {
   session="$(jq -r '.session_id // empty' <<<"$input")"
   case "$session" in ''|*[!A-Za-z0-9._-]*) return 0 ;; esac
   [ "${#session}" -le 128 ] || return 0
+  [ -n "$transcript_model" ] || return 0
   root="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router/claude-status"
   mkdir -p "$root" && chmod 700 "$root" || return 0
   printf '%s\n' "${status_text# · }" >"$root/$session.line.$$" \
