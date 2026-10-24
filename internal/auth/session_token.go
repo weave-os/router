@@ -55,17 +55,15 @@ type SessionClaims struct {
 // DelegatedSession is the verified identity of a session token. Requests
 // authenticate as the issuer key; this narrows them to one session and task.
 type DelegatedSession struct {
-	IssuerKeyID      string
-	SessionID        string
-	TaskID           string
-	SessionCapMicros *int64
-	TaskCapMicros    *int64
-	ExpiresAt        time.Time
+	IssuerKeyID string
+	SessionID   string
+	TaskID      string
+	ExpiresAt   time.Time
 }
 
 type delegatedSessionContextKey struct{}
 
-// WithDelegatedSession stores the verified session on ctx.
+// WithDelegatedSession stores the verified session on ctx; a nil session leaves ctx unchanged.
 func WithDelegatedSession(ctx context.Context, session *DelegatedSession) context.Context {
 	if session == nil {
 		return ctx
@@ -79,7 +77,6 @@ func DelegatedSessionFrom(ctx context.Context) *DelegatedSession {
 	return session
 }
 
-// IsSessionToken reports whether the bearer carries the rs_ session-token prefix.
 func IsSessionToken(token string) bool {
 	return strings.HasPrefix(token, SessionTokenPrefix+"_")
 }
@@ -112,13 +109,12 @@ func SessionIssuerKeyHash(kid string) string {
 	return sessionIssuerKeyHashPrefix + kid
 }
 
-// WithSessionTokens enables rs_ session-token verification and issuer registration.
 func (s *Service) WithSessionTokens(enabled bool) *Service {
 	s.sessionTokensEnabled = enabled
 	return s
 }
 
-// SessionTokensEnabled reports whether rs_ session tokens are accepted.
+// SessionTokensEnabled reports whether rs_ session tokens are accepted; a nil Service reports false.
 func (s *Service) SessionTokensEnabled() bool {
 	return s != nil && s.sessionTokensEnabled
 }
@@ -260,9 +256,7 @@ func (s *Service) sessionIssuer(ctx context.Context, kid string, includeUpstream
 		if cached.Negative {
 			return CachedKey{}, ErrInvalidToken
 		}
-		if cached.APIKey != nil && cached.APIKey.Scope == ScopeSessionIssuer && len(cached.APIKey.IssuerPublicKey) == ed25519.PublicKeySize {
-			return cached, nil
-		}
+		return cached, nil
 	}
 	apiKey, installation, err := s.apiKeys.GetActiveByHashWithInstallation(ctx, cacheKey)
 	if errors.Is(err, sql.ErrNoRows) {
