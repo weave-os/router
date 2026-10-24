@@ -344,9 +344,6 @@ func ContextWindowForBinding(modelID, provider string) int {
 	if !ok {
 		return DefaultContextWindow
 	}
-	if gw, ok := gatewayContextWindows[provider][modelID]; ok {
-		return gw
-	}
 	cw := m.ContextWindow
 	if cw <= 0 {
 		cw = DefaultContextWindow

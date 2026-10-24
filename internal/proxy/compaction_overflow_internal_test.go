@@ -136,8 +136,73 @@ func TestCompactionSummarizersRespectBindingWindow(t *testing.T) {
 	for _, s := range svc.compactionSummarizers(context.Background(), [sessionpin.SessionKeyLen]byte{}, "", req) {
 		assert.Greater(t, contextWindowForRequest(s.model, s.provider), req.EstimatedInputTokens, s.model)
 	}
-	crossProvider := svc.compactionCrossProviderRescuers(summarizers[0], req)
+	crossProvider := svc.compactionCrossProviderRescuers(ctx, summarizers[0], req)
 	require.Len(t, crossProvider, 1)
 	assert.Equal(t, catalog.ModelGPT6Luna, crossProvider[0].model)
 	assert.Equal(t, providers.ProviderOpenAIGateway, crossProvider[0].provider)
+}
+
+// A streaming compaction whose routing notices already reached the client
+// renders the final error in-stream, so it must be converted before that
+// write, not after.
+func TestStreamingCompactionOverflowingEverywhereNeverAsksToCompact(t *testing.T) {
+	const codexCompaction = "You are performing a CONTEXT CHECKPOINT COMPACTION. Summarize the conversation."
+	ingresses := map[string]struct {
+		body  string
+		proxy func(*Service) func(context.Context, []byte, http.ResponseWriter, *http.Request) error
+	}{
+		"anthropic_messages": {
+			body: `{"model":"claude-opus-5-5","max_tokens":20000,"stream":true,"system":"Your task is to create a detailed summary of the conversation so far.","messages":[{"role":"user","content":"summarize"}]}`,
+			proxy: func(s *Service) func(context.Context, []byte, http.ResponseWriter, *http.Request) error {
+				return s.ProxyMessages
+			},
+		},
+		"openai_chat": {
+			body: `{"model":"gpt-6-luna","stream":true,"messages":[{"role":"user","content":"` + codexCompaction + `"}]}`,
+			proxy: func(s *Service) func(context.Context, []byte, http.ResponseWriter, *http.Request) error {
+				return s.ProxyOpenAIChatCompletion
+			},
+		},
+		"openai_responses": {
+			body: `{"model":"gpt-6-luna","stream":true,"input":[{"role":"user","content":"` + codexCompaction + `"}]}`,
+			proxy: func(s *Service) func(context.Context, []byte, http.ResponseWriter, *http.Request) error {
+				return s.ProxyOpenAIResponses
+			},
+		},
+	}
+	for name, ingress := range ingresses {
+		t.Run(name, func(t *testing.T) {
+			svc, ctx, anthropicGateway, openAIGateway := gatewayCompactionFixture(cortexPromptTooLong())
+			openAIGateway.failWith = &providers.UpstreamErrorResponse{
+				Status: http.StatusBadRequest,
+				Body:   []byte(`{"error":{"message":"Your input exceeds the context window of this model. Please adjust your input and try again.","type":"invalid_request_error","param":"input","code":"context_length_exceeded"}}`),
+			}
+			body := []byte(ingress.body)
+			rec := httptest.NewRecorder()
+
+			err := ingress.proxy(svc)(ctx, body, rec, httptest.NewRequest(http.MethodPost, "/v1/x", bytes.NewReader(body)))
+
+			require.Error(t, err)
+			require.NotEmpty(t, append(anthropicGateway.models, openAIGateway.models...))
+			assert.ErrorAs(t, err, new(*CompactionUnservableError))
+			assert.NotContains(t, rec.Body.String(), "Compact the conversation")
+			assert.NotContains(t, rec.Body.String(), "context_length_exceeded")
+			assert.NotContains(t, rec.Body.String(), "prompt is too long")
+		})
+	}
+}
+
+// Only Snowflake Cortex gateways were measured; another tenant's gateway of
+// the same provider type keeps the catalog window.
+func TestGatewayContextWindowAppliesMeasuredWindowOnlyToSnowflake(t *testing.T) {
+	windowOn := func(baseURL string) int {
+		ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+			gatewayKey(providers.ProviderOpenAIGateway, baseURL, catalog.ModelGPT6Luna),
+		})
+		return gatewayContextWindow(snowflakeGatewayProvidersForRequest(ctx), catalog.ModelGPT6Luna, providers.ProviderOpenAIGateway)
+	}
+
+	assert.Equal(t, 910_000, windowOn("https://sfengineering-es-modelrouter-prod1.snowflakecomputing.com/api/v2/aigateways/snowflake"))
+	assert.Equal(t, catalog.ContextWindowFor(catalog.ModelGPT6Luna), windowOn("https://tenant.openai.azure.com/openai"))
+	assert.Equal(t, catalog.ContextWindowFor(catalog.ModelGPT6Luna), windowOn("https://snowflakecomputing.com.evil.example/v1"))
 }

@@ -4,12 +4,22 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/providers"
 )
 
-func TestContextWindowForBindingPrefersMeasuredGatewayWindow(t *testing.T) {
-	assert.Equal(t, 910_000, ContextWindowForBinding(ModelGPT6Luna, providers.ProviderOpenAIGateway))
-	assert.Equal(t, ContextWindowFor(ModelGPT6Luna), ContextWindowForBinding(ModelGPT6Luna, providers.ProviderOpenAI))
-	assert.Equal(t, 1_000_000, ContextWindowForBinding("claude-opus-5-5", providers.ProviderAnthropicGateway))
+func TestSnowflakeGatewayContextWindowIsMeasured(t *testing.T) {
+	w, ok := SnowflakeGatewayContextWindow(ModelGPT6Luna, providers.ProviderOpenAIGateway)
+	require.True(t, ok)
+	assert.Equal(t, 910_000, w)
+	w, ok = SnowflakeGatewayContextWindow("claude-opus-5-5", providers.ProviderAnthropicGateway)
+	require.True(t, ok)
+	assert.Equal(t, 1_000_000, w)
+	_, ok = SnowflakeGatewayContextWindow(ModelGPT6Luna, providers.ProviderOpenAI)
+	assert.False(t, ok)
+}
+
+func TestContextWindowForBindingKeepsCatalogWindowOnGateways(t *testing.T) {
+	assert.Equal(t, ContextWindowFor(ModelGPT6Luna), ContextWindowForBinding(ModelGPT6Luna, providers.ProviderOpenAIGateway))
 }

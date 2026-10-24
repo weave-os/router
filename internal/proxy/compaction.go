@@ -95,6 +95,7 @@ func (s *Service) compactionSummarizers(ctx context.Context, sessionKey [session
 			out = append(out, compactionSummarizer{provider: p, model: m, source: policy.OverrideSourceSession})
 		}
 	}
+	snowflakeGateways := snowflakeGatewayProvidersForRequest(ctx)
 	eligible := func(m string) bool {
 		if !anthropicSummarizerEligible(m) {
 			return false
@@ -113,7 +114,7 @@ func (s *Service) compactionSummarizers(ctx context.Context, sessionKey [session
 		}
 		// Gateways may enforce a smaller window than the vendor, so the serving binding's window is the one that counts.
 		return !automaticallyDisabled(req, m) &&
-			(req.EstimatedInputTokens <= 0 || req.EstimatedInputTokens+contextWindowOutputReserve <= contextWindowForRequest(m, provider))
+			(req.EstimatedInputTokens <= 0 || req.EstimatedInputTokens+contextWindowOutputReserve <= gatewayContextWindow(snowflakeGateways, m, provider))
 	}
 	cascade := []struct {
 		model  string
@@ -140,7 +141,8 @@ func (s *Service) compactionSummarizers(ctx context.Context, sessionKey [session
 // window, so an overflow there is only rescuable across gateways: Claude
 // counts the same transcript as roughly 1.5x the tokens gpt-6-luna does, so a
 // nominally smaller window can still fit it.
-func (s *Service) compactionCrossProviderRescuers(primary compactionSummarizer, req router.Request) []compactionSummarizer {
+func (s *Service) compactionCrossProviderRescuers(ctx context.Context, primary compactionSummarizer, req router.Request) []compactionSummarizer {
+	snowflakeGateways := snowflakeGatewayProvidersForRequest(ctx)
 	var out []compactionSummarizer
 	for model := range req.CustomBindings {
 		provider, held := gatewayProviderFor(model, req.CustomBindings, req.GatewayProviders)
@@ -161,7 +163,7 @@ func (s *Service) compactionCrossProviderRescuers(primary compactionSummarizer, 
 		if ta, tb := catalog.TierFor(a.model), catalog.TierFor(b.model); ta != tb {
 			return int(tb) - int(ta)
 		}
-		if wa, wb := contextWindowForRequest(a.model, a.provider), contextWindowForRequest(b.model, b.provider); wa != wb {
+		if wa, wb := gatewayContextWindow(snowflakeGateways, a.model, a.provider), gatewayContextWindow(snowflakeGateways, b.model, b.provider); wa != wb {
 			return wb - wa
 		}
 		return strings.Compare(a.model, b.model)
