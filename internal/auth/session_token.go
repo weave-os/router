@@ -28,6 +28,9 @@ const (
 	SessionTokenLeeway      = 30 * time.Second
 	// SessionTokenMaxBytes bounds parsing work for an unauthenticated input.
 	SessionTokenMaxBytes = 4096
+	// SessionTokenMaxIDLength matches router.delegated_token_spend.scope_id, so a verified
+	// session or task ID can always be billed.
+	SessionTokenMaxIDLength = 255
 
 	sessionIssuerKeyHashPrefix = "jwk:"
 )
@@ -228,7 +231,8 @@ func (s *Service) VerifySessionToken(ctx context.Context, rawToken string, inclu
 	if err != nil || !token.Valid {
 		return nil, nil, nil, nil, nil, ErrInvalidToken
 	}
-	if claims.Subject == "" || claims.IssuedAt == nil || claims.ExpiresAt.Sub(claims.IssuedAt.Time) > SessionTokenMaxLifetime {
+	if claims.Subject == "" || len(claims.Subject) > SessionTokenMaxIDLength || len(claims.Task) > SessionTokenMaxIDLength ||
+		claims.IssuedAt == nil || claims.ExpiresAt.Sub(claims.IssuedAt.Time) > SessionTokenMaxLifetime {
 		return nil, nil, nil, nil, nil, ErrInvalidToken
 	}
 	session := &DelegatedSession{
@@ -254,7 +258,6 @@ func (s *Service) VerifySessionToken(ctx context.Context, rawToken string, inclu
 	return issuer.Installation, issuer.APIKey, s.resolveUpstreamSecrets(ctx, issuer.ExternalKeys), issuer.ClusterModelLists, session, nil
 }
 
-// validCap accepts an absent cap or a positive one.
 func validCap(capMicros *int64) bool {
 	return capMicros == nil || *capMicros > 0
 }

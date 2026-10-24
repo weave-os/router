@@ -88,10 +88,8 @@ type PrepaidDebit struct {
 	RouterModel     string
 	// APIKeyID and RouterUserID attribute an organization debit to the key and
 	// engineer that spent it. An individual plan has no such fan-out.
-	APIKeyID     string
-	RouterUserID string
-	// DelegatedSessionID and DelegatedTaskID attribute an organization debit
-	// to a delegated session token's session and task.
+	APIKeyID           string
+	RouterUserID       string
 	DelegatedSessionID string
 	DelegatedTaskID    string
 }

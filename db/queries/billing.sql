@@ -122,7 +122,9 @@ key_spend AS (
 delegated_spend AS (
     -- Per-session and per-task spend of a delegated session token, attributed
     -- to the issuer key that signed it. Same gate and sign convention as
-    -- key_spend; no-ops for any other credential (both scope IDs NULL).
+    -- key_spend; no-ops for any other credential (both scope IDs NULL), and
+    -- when the issuer key was deleted mid-request, so its FK cannot roll back
+    -- a debit for inference already served.
     INSERT INTO router.delegated_token_spend (issuer_key_id, scope_kind, scope_id, spent_usd_micros, updated_at)
     SELECT sqlc.narg('api_key_id')::uuid, delegated.scope_kind, delegated.scope_id, -(@charged_usd_micros::bigint), NOW()
     FROM (
@@ -133,6 +135,10 @@ delegated_spend AS (
     WHERE delegated.scope_id IS NOT NULL
       AND sqlc.narg('api_key_id')::uuid IS NOT NULL
       AND EXISTS (SELECT 1 FROM updated)
+      AND EXISTS (
+          SELECT 1 FROM router.model_router_api_keys
+          WHERE id = sqlc.narg('api_key_id')::uuid
+      )
     ON CONFLICT (issuer_key_id, scope_kind, scope_id) DO UPDATE
     SET spent_usd_micros = router.delegated_token_spend.spent_usd_micros + EXCLUDED.spent_usd_micros,
         updated_at = NOW()

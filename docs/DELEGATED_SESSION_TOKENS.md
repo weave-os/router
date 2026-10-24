@@ -45,8 +45,10 @@ credit debit. Before proxying, the router reads the current totals fresh from
 Postgres (no cache) and rejects a request whose session or task total has
 reached its cap with 402 `key_spend_cap_reached` and the exhausted `scope`. A
 failed read returns 503. Shadow evals, allowance and subscription traffic keep
-their existing exemptions. Caps are checked before a request, so one in-flight
-request can overshoot a cap by its own cost.
+their existing exemptions. Caps are checked before a request and spend is
+recorded after it settles, so a cap can be overshot by the cost of every request
+in flight when it is reached. A session that sends requests one at a time
+overshoots by at most one request.
 
 ## Issuers
 

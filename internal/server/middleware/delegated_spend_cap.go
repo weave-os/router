@@ -11,7 +11,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// DelegatedSpendScope names which delegated cap a request hit.
 type DelegatedSpendScope string
 
 const (

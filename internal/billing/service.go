@@ -261,7 +261,6 @@ type APIKeySpendCapResult struct {
 // but no spend reader is wired.
 var ErrDelegatedSpendUnavailable = errors.New("delegated spend reader not configured")
 
-// WithDelegatedSpend wires the reader behind CheckDelegatedSpend.
 func (s *Service) WithDelegatedSpend(reader DelegatedSpendReader) *Service {
 	s.delegatedSpend = reader
 	return s
