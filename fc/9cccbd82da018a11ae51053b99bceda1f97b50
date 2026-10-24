@@ -1,0 +1,26 @@
+internal/proxy/anthropic_tool_alias_integration_test.go
+  s_7d2905aecea577::t_435741e3a48352 47-48,50-55,57
+  s_7d2905aecea577::t_a0031188ee8dd1 49
+internal/translate/anthropic_tool_name_writer.go
+  s_7d2905aecea577::t_435741e3a48352 5-6,34,95-107
+internal/translate/anthropic_tool_name_writer_test.go
+  s_7d2905aecea577::t_5c4c3704bd97ff 56-63,83-87
+  s_7d2905aecea577::t_435741e3a48352 91-104
+  s_7d2905aecea577::t_b7fc010704c196 105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fc9cccbd82da018a11ae51053b99bceda1f97b50",
+  "prompts": {},
+  "sessions": {
+    "s_7d2905aecea577": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11c12-8702-74c0-902d-6d5443462625",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
