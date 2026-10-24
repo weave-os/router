@@ -290,6 +290,9 @@ _spin_cleanup() {
   if [ -n "$spin_log" ]; then
     rm -f "$spin_log" 2>/dev/null || true
   fi
+  if [ -n "$validate_status_file" ]; then
+    rm -f "$validate_status_file" 2>/dev/null || true
+  fi
   # Also restore stty echo in case we died mid-keypaste prompt. macOS
   # `[ -r /dev/tty ]` returns true even when the underlying device errors
   # on open (ENXIO "Device not configured") under `curl | sh` and CI, so
@@ -1661,25 +1664,25 @@ if [ "$mode" = "setup" ]; then
   setup_handoff=""
   shared_key=""
   shared_email=""
-  shared_identity=""
+  identity_resolved=""
   if [ "$setup_claude" = "true" ] && [ "$setup_codex" = "true" ]; then
     setup_handoff="$(mktemp -t weave-setup.XXXXXX)"
     chmod 600 "$setup_handoff"
   fi
   if [ "$setup_claude" = "true" ]; then
     WEAVE_SETUP_HANDOFF_FILE="$setup_handoff" bash "$0" "${setup_args[@]}" --claude \
-      || { setup_status=$?; rm -f "$setup_handoff"; exit "$setup_status"; }
+      || { setup_status=$?; [ -z "$setup_handoff" ] || rm -f "$setup_handoff"; exit "$setup_status"; }
   fi
   if [ -n "$setup_handoff" ]; then
     if [ -s "$setup_handoff" ]; then
-      shared_identity="1"
+      identity_resolved="1"
       { IFS= read -r shared_key || true; IFS= read -r shared_email || true; } <"$setup_handoff"
     fi
     rm -f "$setup_handoff"
   fi
   if [ "$setup_codex" = "true" ]; then
     WEAVE_SETUP_SHARED_KEY="$shared_key" WEAVE_SETUP_SHARED_EMAIL="$shared_email" \
-      WEAVE_SETUP_IDENTITY_RESOLVED="$shared_identity" bash "$0" "${setup_args[@]}" --codex
+      WEAVE_SETUP_IDENTITY_RESOLVED="$identity_resolved" bash "$0" "${setup_args[@]}" --codex
   fi
   exit 0
 fi
@@ -4305,12 +4308,13 @@ key_fix_hint() {
   esac
 }
 
-# record_key_verdict sets key_verdict from the last validate_key call. An
-# unreachable router is not evidence that the key is wrong.
+# record_key_verdict sets key_verdict from the last validate_key call. Only an
+# auth answer (401/403) is evidence that the key is wrong; an unreachable or
+# failing router leaves the key unverified.
 record_key_verdict() {
   case "$(validate_status)" in
-    ""|000) key_verdict="unverified" ;;
-    *) key_verdict="rejected" ;;
+    401|403) key_verdict="rejected" ;;
+    *) key_verdict="unverified" ;;
   esac
 }
 
@@ -4428,16 +4432,20 @@ write_setup_handoff() {
 }
 
 # capture_bounded prints the stdout of "$@", giving up after $1 seconds so a
-# stuck client CLI cannot hang the installer.
+# stuck client CLI cannot hang the installer. Output goes through a file, not a
+# pipe, so a descendant that keeps stdout open cannot block the caller.
 capture_bounded() {
   local seconds="$1"; shift
-  "$@" </dev/null 2>/dev/null &
+  local out status=0
+  out="$(mktemp -t weave-capture.XXXXXX)" || return 1
+  "$@" </dev/null >"$out" 2>/dev/null &
   local pid=$!
-  ( sleep "$seconds"; kill "$pid" 2>/dev/null ) >/dev/null 2>&1 &
+  ( sleep "$seconds"; kill "$pid" 2>/dev/null; sleep 1; kill -9 "$pid" 2>/dev/null ) >/dev/null 2>&1 &
   local watcher=$!
-  local status=0
   wait "$pid" || status=$?
   kill "$watcher" 2>/dev/null || true
+  cat "$out"
+  rm -f "$out"
   return "$status"
 }
 

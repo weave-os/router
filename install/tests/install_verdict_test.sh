@@ -41,6 +41,7 @@ cat >"$fake_bin/codex" <<'FAKE_CODEX'
 case "$*" in
   "login status")
     if [ "${FAKE_CLIENT_LOGGED_IN:-0}" = 1 ]; then echo "Logged in using an API key"; exit 0; fi
+    [ "${FAKE_CLIENT_HOLDS_STDOUT:-0}" = 1 ] && sleep 30 &
     echo "Not logged in" >&2; exit 1 ;;
   --version) echo "codex-cli 0.164.0" ;;
 esac
@@ -56,6 +57,7 @@ check() { # check <name> <command...>
 }
 handoff_key_empty() { [ -s "$1" ] && [ -z "$(sed -n 1p "$1")" ]; }
 no_setup_handoff_left() { ! compgen -G "$work/tmp/weave-setup.*" >/dev/null; }
+no_temp_files_left() { ! compgen -G "$work/tmp/weave-validate.*" >/dev/null && ! compgen -G "$work/tmp/weave-capture.*" >/dev/null; }
 has() { grep -Fq -- "$2" <<<"$1"; }
 lacks() { ! grep -Fq -- "$2" <<<"$1"; }
 
@@ -97,6 +99,12 @@ check "an unreachable router is not announced as installed" lacks "$out" "Weave 
 check "an unreachable router says so" has "$out" "not working yet: could not reach http://127.0.0.1:9"
 check "an unreachable router suggests update" has "$out" "npx @weave-os/router update --codex"
 
+install "$work/outage" 200 WEAVE_ROUTER_KEY=rk_saved -- --claude >/dev/null
+out="$(install "$work/outage" 503 -- --claude)"
+check "a router outage is not announced as installed" lacks "$out" "Weave Router installed"
+check "a router outage reports the HTTP status" has "$out" "not working yet: http://127.0.0.1:9 answered HTTP 503"
+check "a router outage does not call the saved key rejected" lacks "$out" "was rejected"
+
 out="$(install "$work/claude-new" 200 WEAVE_ROUTER_KEY=rk_ok -- --claude)"
 check "a valid key is announced as installed" has "$out" "✓ Weave Router installed for Claude Code."
 check "a signed-out Claude Code user is told to /login" has "$out" "Next: Claude Code isn't signed in yet. Run claude and type /login"
@@ -107,6 +115,11 @@ check "a signed-in Claude Code user is told to just run claude" has "$out" "Next
 out="$(install "$work/codex-new" 200 WEAVE_ROUTER_KEY=rk_ok -- --codex)"
 check "a signed-out Codex user is told to codex login" has "$out" "Next: Codex isn't signed in yet. Run codex login first"
 check "Codex users are warned about the hook review" has "$out" "Choose Trust all"
+
+started=$SECONDS
+out="$(install "$work/codex-stuck" 200 WEAVE_ROUTER_KEY=rk_ok FAKE_CLIENT_HOLDS_STDOUT=1 -- --codex)"
+check "a client CLI that leaves a child holding stdout does not stall the install" test $((SECONDS - started)) -lt 20
+check "the login hint still shows when the client leaves a child behind" has "$out" "Next: Codex isn't signed in yet."
 
 out="$(install "$work/codex-ready" 200 WEAVE_ROUTER_KEY=rk_ok FAKE_CLIENT_LOGGED_IN=1 -- --codex)"
 check "a signed-in Codex user is told to just run codex" has "$out" "Next: run codex; your next prompt goes through Weave Router."
@@ -141,6 +154,7 @@ out="$(install "$home" 200 WEAVE_ROUTER_KEY=rk_setup -- setup --non-interactive)
 check "setup installs Claude Code" has "$out" "✓ Weave Router installed for Claude Code."
 check "setup installs Codex" has "$out" "✓ Weave Router installed for Codex."
 check "setup removes its handoff file" no_setup_handoff_left
+check "installs leave no validation or capture temp files behind" no_temp_files_left
 
 echo
 echo "$pass passed, $fail failed"
