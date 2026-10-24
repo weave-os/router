@@ -6932,21 +6932,21 @@ write_claude_settings() {
     prompt_hook_scope=" --scope project"
   fi
   if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
-    jq -n --arg attribution "$attribution" --arg url "$base_url" --arg sl "$statusline_path_for_settings" --arg hs "$prompt_hook_scope" --arg statusline_install "$statusline_install" '{
+    jq -n --arg attribution "$attribution" --arg url "$base_url" --arg sl "$statusline_path_for_settings" --arg prompt_hook_scope "$prompt_hook_scope" --arg statusline_install "$statusline_install" '{
       env: { ANTHROPIC_BASE_URL: $url, ENABLE_TOOL_SEARCH: "true" }
     } + (if $attribution == "true" then {attribution: {
         commit: "Co-Authored-By: Weave Router <router@weaveos.com>",
         pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
       }} else {} end) + (if $statusline_install == "true" then {statusLine: { type: "command", command: $sl },
-        hooks: {UserPromptSubmit: [{hooks: [{type: "command", command: ("[ ! -x \"" + $sl + "\" ] || \"" + $sl + "\" --prompt-hook" + $hs)}]}]}} else {} end)' >"$tmp_patch"
+        hooks: {UserPromptSubmit: [{hooks: [{type: "command", command: ("[ ! -x \"" + $sl + "\" ] || \"" + $sl + "\" --prompt-hook" + $prompt_hook_scope)}]}]}} else {} end)' >"$tmp_patch"
   else
-    jq -n --arg attribution "$attribution" --arg url "$base_url" --arg header "$custom_headers" --arg sl "$statusline_path_for_settings" --arg hs "$prompt_hook_scope" --arg statusline_install "$statusline_install" '{
+    jq -n --arg attribution "$attribution" --arg url "$base_url" --arg header "$custom_headers" --arg sl "$statusline_path_for_settings" --arg prompt_hook_scope "$prompt_hook_scope" --arg statusline_install "$statusline_install" '{
       env: { ANTHROPIC_BASE_URL: $url, ANTHROPIC_CUSTOM_HEADERS: $header, ENABLE_TOOL_SEARCH: "true" }
     } + (if $attribution == "true" then {attribution: {
         commit: "Co-Authored-By: Weave Router <router@weaveos.com>",
         pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)"
       }} else {} end) + (if $statusline_install == "true" then {statusLine: { type: "command", command: $sl },
-        hooks: {UserPromptSubmit: [{hooks: [{type: "command", command: ("[ ! -x \"" + $sl + "\" ] || \"" + $sl + "\" --prompt-hook" + $hs)}]}]}} else {} end)' >"$tmp_patch"
+        hooks: {UserPromptSubmit: [{hooks: [{type: "command", command: ("[ ! -x \"" + $sl + "\" ] || \"" + $sl + "\" --prompt-hook" + $prompt_hook_scope)}]}]}} else {} end)' >"$tmp_patch"
   fi
 
   # Merge with existing settings. Deep-merge env and replace statusLine only
