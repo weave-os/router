@@ -4820,7 +4820,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		decision.Provider != providers.ProviderAnthropic &&
 		baselineModel != decision.Model &&
 		baselineKnown && baselineCatalog.PrimaryProvider() == providers.ProviderAnthropic &&
-		siblingFitsContext(baselineModel, providers.ProviderAnthropic, overflowEstimate, env.SignatureTokenSavings(), outputReserve)
+		siblingFitsContext(nil, baselineModel, providers.ProviderAnthropic, overflowEstimate, env.SignatureTokenSavings(), outputReserve)
 	baselineEligible := !routeRes.AuthoritativePerTurn && baselineViable
 
 	// Subscription-credit failover eligibility. A Claude turn served on the
@@ -5199,7 +5199,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			providers.IsUpstreamModelNotFound(proxyErr) ||
 			providers.IsUpstreamProviderBillingBlocked(proxyErr) ||
 			isSubscriptionPoolError(proxyErr) ||
-			crossBindingRejected) {
+			crossBindingRejected ||
+			rescuesCompactionOverflow(routeRes.TurnType, proxyErr)) {
 		for _, siblingDecision := range siblingDecisions {
 			// A rescuer that itself failed pre-commit hands the turn to the next
 			// candidate; a served, committed, or client-cancelled turn ends the walk.
@@ -5271,6 +5272,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	// No rescuer served (none ran, or the last one failed pre-commit); surface
 	// the held error now so it's never dropped.
+	proxyErr = asCompactionUnservable(routeRes.TurnType, decision, proxyErr)
 	if siblingRescueOwed && proxyErr != nil && !preludeBuf.Committed() {
 		flushDeferredErr()
 	}
@@ -8367,7 +8369,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		(providers.IsRetryable(proxyErr) ||
 			providers.IsUpstreamModelNotFound(proxyErr) ||
 			providers.IsUpstreamProviderBillingBlocked(proxyErr) ||
-			isSubscriptionPoolError(proxyErr)) {
+			isSubscriptionPoolError(proxyErr) ||
+			rescuesCompactionOverflow(routeRes.TurnType, proxyErr)) {
 		for _, siblingDecision := range siblingDecisions {
 			// A rescuer that itself failed pre-commit hands the turn to the next
 			// candidate; a served, committed, or client-cancelled turn ends the walk.
@@ -8449,6 +8452,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 	// No rescuer served (none ran, or the last one failed pre-commit); surface
 	// the held error now so it's never dropped.
+	proxyErr = asCompactionUnservable(routeRes.TurnType, decision, proxyErr)
 	if siblingRescueOwed && proxyErr != nil && !preludeBuf.Committed() {
 		flushDeferredErr()
 	}

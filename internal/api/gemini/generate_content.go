@@ -88,6 +88,9 @@ func GenerateContentHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handl
 				if cls.RetryAfter {
 					c.Header("Retry-After", "1")
 				}
+				if cls.NoClientRetry {
+					c.Header("x-should-retry", "false")
+				}
 				writeGeminiError(c, cls.Status, geminiErrorStatus(cls.Kind), cls.Message)
 				return
 			}

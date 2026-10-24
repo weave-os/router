@@ -84,6 +84,9 @@ func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc 
 				if cls.RetryAfter {
 					c.Header("Retry-After", "1")
 				}
+				if cls.NoClientRetry {
+					c.Header("x-should-retry", "false")
+				}
 				writeAnthropicError(c, cls.Status, anthropicErrorType(cls.Kind), cls.Message)
 				return
 			}

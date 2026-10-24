@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"slices"
+	"strings"
 
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
@@ -94,11 +95,13 @@ func (s *Service) compactionSummarizers(ctx context.Context, sessionKey [session
 			out = append(out, compactionSummarizer{provider: p, model: m, source: policy.OverrideSourceSession})
 		}
 	}
+	snowflakeGateways := snowflakeGatewayProvidersForRequest(ctx)
 	eligible := func(m string) bool {
 		if !anthropicSummarizerEligible(m) {
 			return false
 		}
-		if _, bound := summarizerProvider(m, req); !bound {
+		provider, bound := summarizerProvider(m, req)
+		if !bound {
 			return false
 		}
 		if s.availableModels != nil {
@@ -109,7 +112,9 @@ func (s *Service) compactionSummarizers(ctx context.Context, sessionKey [session
 		if _, excluded := req.ExcludedModels[m]; excluded {
 			return false
 		}
-		return !automaticallyDisabled(req, m)
+		// Gateways may enforce a smaller window than the vendor, so the serving binding's window is the one that counts.
+		return !automaticallyDisabled(req, m) &&
+			(req.EstimatedInputTokens <= 0 || req.EstimatedInputTokens+contextWindowOutputReserve <= gatewayContextWindow(snowflakeGateways, m, provider))
 	}
 	cascade := []struct {
 		model  string
@@ -130,6 +135,42 @@ func (s *Service) compactionSummarizers(ctx context.Context, sessionKey [session
 	return out
 }
 
+// compactionCrossProviderRescuers lists the request's gateway-held models on
+// another gateway than the primary summarizer's, highest tier then widest
+// window first. Every summarizer behind one gateway shares a tokenizer and
+// window, so an overflow there is only rescuable across gateways: Claude
+// counts the same transcript as roughly 1.5x the tokens gpt-6-luna does, so a
+// nominally smaller window can still fit it.
+func (s *Service) compactionCrossProviderRescuers(ctx context.Context, primary compactionSummarizer, req router.Request) []compactionSummarizer {
+	snowflakeGateways := snowflakeGatewayProvidersForRequest(ctx)
+	var out []compactionSummarizer
+	for model := range req.CustomBindings {
+		provider, held := gatewayProviderFor(model, req.CustomBindings, req.GatewayProviders)
+		if !held || provider == primary.provider || catalog.TierFor(model) < catalog.TierMid {
+			continue
+		}
+		if _, excluded := req.ExcludedModels[model]; excluded || automaticallyDisabled(req, model) {
+			continue
+		}
+		if s.availableModels != nil {
+			if _, available := s.availableModels[model]; !available {
+				continue
+			}
+		}
+		out = append(out, compactionSummarizer{provider: provider, model: model, source: policy.OverrideSourceDeployment})
+	}
+	slices.SortFunc(out, func(a, b compactionSummarizer) int {
+		if ta, tb := catalog.TierFor(a.model), catalog.TierFor(b.model); ta != tb {
+			return int(tb) - int(ta)
+		}
+		if wa, wb := gatewayContextWindow(snowflakeGateways, a.model, a.provider), gatewayContextWindow(snowflakeGateways, b.model, b.provider); wa != wb {
+			return wb - wa
+		}
+		return strings.Compare(a.model, b.model)
+	})
+	return out
+}
+
 // summarizerProvider binds an Anthropic summarizer for this request: through
 // a held gateway key that aliases it for a gateway-exclusive tenant, else
 // Anthropic directly when the tenant enables it.
@@ -146,10 +187,11 @@ func summarizerProvider(model string, req router.Request) (string, bool) {
 }
 
 // compactionRescueMetadata gives a compaction hard pin an ordered rescue list:
-// the remaining summarizers, then the generic utility model. Without it a
-// pre-commit failure on the summarizer surfaces to the client, which retries
-// the same compaction against the same failing model.
-func compactionRescueMetadata(fallbacks []compactionSummarizer, utilityProvider, utilityModel string) *router.RoutingMetadata {
+// the remaining summarizers, then the generic utility model, then models on
+// other gateways for an overflow. Without it a pre-commit failure on the summarizer
+// surfaces to the client, which retries the same compaction against the same
+// failing model.
+func compactionRescueMetadata(fallbacks []compactionSummarizer, utilityProvider, utilityModel string, crossProvider []compactionSummarizer) *router.RoutingMetadata {
 	md := &router.RoutingMetadata{RosterFailover: true, CandidateProviders: map[string]string{}}
 	add := func(provider, model string) {
 		if model == "" || slices.Contains(md.RescueModels, model) {
@@ -162,6 +204,9 @@ func compactionRescueMetadata(fallbacks []compactionSummarizer, utilityProvider,
 		add(fallback.provider, fallback.model)
 	}
 	add(utilityProvider, utilityModel)
+	for _, rescuer := range crossProvider {
+		add(rescuer.provider, rescuer.model)
+	}
 	if len(md.RescueModels) == 0 {
 		return nil
 	}

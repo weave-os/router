@@ -10,6 +10,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
+	"weave-os/router/internal/router/turntype"
 )
 
 // contextOverflowMessage leads with Anthropic's own wording: Claude Code keys
@@ -110,4 +111,43 @@ func OpenAIErrorCode(kind DispatchErrorKind) string {
 		return openAIContextOverflowCode
 	}
 	return ""
+}
+
+// CompactionUnservableError reports a harness compaction turn that overflowed
+// every summarizer the request could reach. It deliberately does not unwrap to
+// the overflow: answering a compaction turn with prompt-too-long tells the
+// client to compact, which is the request that just failed.
+type CompactionUnservableError struct {
+	Provider string
+	Model    string
+	Cause    error
+}
+
+func (e *CompactionUnservableError) Error() string {
+	return fmt.Sprintf("compaction exceeded the context window of every reachable summarizer (last %s via %s): %v", e.Model, e.Provider, e.Cause)
+}
+
+var compactionUnservableClass = DispatchErrorClass{
+	Kind:          DispatchErrorCompactionUnservable,
+	Status:        http.StatusBadGateway,
+	Message:       "The upstream provider rejected this compaction request as too long for every model available to it. Retrying will not help until a larger-window model is available; start a new session to continue.",
+	LogLevel:      "error",
+	LogMessage:    "Compaction turn overflowed every reachable summarizer",
+	NoClientRetry: true,
+}
+
+// rescuesCompactionOverflow reports whether a pre-commit failure on a harness
+// compaction turn should walk the compaction rescue list: an overflow there
+// means this summarizer is too small, not that the client should compact.
+func rescuesCompactionOverflow(turnType turntype.TurnType, err error) bool {
+	return turnType == turntype.Compaction && isContextOverflow(err)
+}
+
+// asCompactionUnservable replaces a compaction turn's final overflow with a
+// provider-attributed failure once the rescue walk has run out.
+func asCompactionUnservable(turnType turntype.TurnType, decision router.Decision, err error) error {
+	if !rescuesCompactionOverflow(turnType, err) {
+		return err
+	}
+	return &CompactionUnservableError{Provider: decision.Provider, Model: decision.Model, Cause: err}
 }

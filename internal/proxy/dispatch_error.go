@@ -72,6 +72,7 @@ const (
 	DispatchErrorSpendCapReached
 	DispatchErrorSubscriptionClientAppRefused
 	DispatchErrorDecisionModelUnavailable
+	DispatchErrorCompactionUnservable
 )
 
 // DispatchErrorClass is the format-agnostic classification of a dispatch
@@ -84,6 +85,9 @@ type DispatchErrorClass struct {
 	Status     int
 	Message    string
 	RetryAfter bool
+	// NoClientRetry tells SDK clients (x-should-retry: false) that retrying
+	// the identical request cannot succeed.
+	NoClientRetry bool
 	// LogLevel is "", "warn", or "error". Empty means the handler should not
 	// log at all (the error is either already logged upstream, e.g. a
 	// buffered UpstreamStatusError, or a routine client-input problem).
@@ -223,6 +227,8 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Rejected request: forced cluster has no eligible model",
 		}, true
+	case errors.As(err, new(*CompactionUnservableError)):
+		return compactionUnservableClass, true
 	// Before the generic upstream cases: an overflow must reach every client in
 	// its native shape, not as an opaque upstream failure.
 	case isContextOverflow(err):

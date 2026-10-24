@@ -2,7 +2,9 @@ package proxy
 
 import (
 	"context"
+	"net/url"
 	"sort"
+	"strings"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
@@ -101,4 +103,36 @@ func customBindingsFromKeys(keys []*auth.ExternalAPIKey) map[string][]string {
 		sort.Strings(provs)
 	}
 	return out
+}
+
+// snowflakeGatewayProvidersForRequest returns the gateway providers whose BYOK
+// key points at Snowflake Cortex, the only gateways with measured windows.
+func snowflakeGatewayProvidersForRequest(ctx context.Context) map[string]struct{} {
+	var out map[string]struct{}
+	for _, key := range externalKeysFromContext(ctx) {
+		if len(key.Plaintext) == 0 || !providers.IsGateway(key.Provider) || !isSnowflakeHost(key.BaseURL) {
+			continue
+		}
+		if out == nil {
+			out = make(map[string]struct{}, 1)
+		}
+		out[key.Provider] = struct{}{}
+	}
+	return out
+}
+
+func isSnowflakeHost(baseURL string) bool {
+	u, err := url.Parse(baseURL)
+	return err == nil && strings.HasSuffix(strings.ToLower(u.Hostname()), ".snowflakecomputing.com")
+}
+
+// gatewayContextWindow is contextWindowForRequest with the measured window of
+// a Snowflake Cortex gateway, which can cap a model below the vendor's window.
+func gatewayContextWindow(snowflakeGateways map[string]struct{}, modelID, provider string) int {
+	if _, snowflake := snowflakeGateways[provider]; snowflake {
+		if w, ok := catalog.SnowflakeGatewayContextWindow(modelID, provider); ok {
+			return w
+		}
+	}
+	return contextWindowForRequest(modelID, provider)
 }
