@@ -36,6 +36,8 @@ func TestProviderDisplayNameFor_NamesCustomerGateway(t *testing.T) {
 	assert.Equal(t, "Snowflake Cortex", providerDisplayNameFor(providers.ProviderAnthropicGateway, cortexGatewayURL))
 	assert.Equal(t, "Snowflake Cortex", providerDisplayNameFor(providers.ProviderOpenAIGateway, "https://acme.snowflakecomputing.com/api/v2/cortex/v1"))
 	assert.Equal(t, "your gateway (llm.acme.internal:8443)", providerDisplayNameFor(providers.ProviderOpenAIGateway, "https://llm.acme.internal:8443/v1"))
+	assert.Equal(t, "Snowflake Cortex", providerDisplayNameFor(providers.ProviderOpenAIGateway, "https://acme-xy12345.snowflakecomputing.com/api/v2/aigateways/snowflake"))
+	assert.Equal(t, "your gateway", providerDisplayNameFor(providers.ProviderAnthropicGateway, ""))
 	assert.Equal(t, "Anthropic", providerDisplayNameFor(providers.ProviderAnthropic, ""))
 }
 

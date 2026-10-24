@@ -24,9 +24,9 @@ const (
 
 var providerDisplayNames = map[string]string{
 	providers.ProviderAnthropic:        "Anthropic",
-	providers.ProviderAnthropicGateway: "Your Anthropic gateway",
+	providers.ProviderAnthropicGateway: "your gateway",
 	providers.ProviderOpenAI:           "OpenAI",
-	providers.ProviderOpenAIGateway:    "Your OpenAI gateway",
+	providers.ProviderOpenAIGateway:    "your gateway",
 	providers.ProviderGoogle:           "Gemini",
 	providers.ProviderOpenRouter:       "OpenRouter",
 	providers.ProviderFireworks:        "Fireworks",
@@ -47,13 +47,13 @@ func providerDisplayNameFor(provider, baseURL string) string {
 	if baseURL == "" {
 		return providerDisplayName(provider)
 	}
-	host := baseURL
+	host, hostname := baseURL, ""
 	if u, err := url.Parse(baseURL); err == nil && u.Host != "" {
-		host = u.Host
+		host, hostname = u.Host, u.Hostname()
 	}
 	// Any Snowflake account host, not only the paths IsCortexBaseURL accepts,
 	// since the Anthropic gateway mounts under its own Cortex path.
-	if providers.IsCortexBaseURL(baseURL) || strings.HasSuffix(strings.ToLower(strings.Split(host, ":")[0]), ".snowflakecomputing.com") {
+	if providers.IsCortexBaseURL(baseURL) || strings.HasSuffix(strings.ToLower(hostname), ".snowflakecomputing.com") {
 		return cortexDisplayName
 	}
 	return "your gateway (" + host + ")"

@@ -376,8 +376,15 @@ func gatewayDeploymentBaseURL(provider string, client providers.Client) string {
 	if !providers.IsGateway(provider) {
 		return ""
 	}
-	if c, ok := client.(interface{ BaseURL() string }); ok {
-		return strings.TrimRight(c.BaseURL(), "/")
+	for client != nil {
+		if c, ok := client.(interface{ BaseURL() string }); ok {
+			return strings.TrimRight(c.BaseURL(), "/")
+		}
+		w, ok := client.(interface{ Unwrap() providers.Client })
+		if !ok {
+			return ""
+		}
+		client = w.Unwrap()
 	}
 	return ""
 }
