@@ -35,6 +35,9 @@ type attemptTrace struct {
 	// hideRouterDetails is set when the request opted out of routing badges
 	// or the installation hides terminal surfaces.
 	hideRouterDetails bool
+	// slowStartMuted is set for turns whose output a client parses, where
+	// router text would corrupt the reply.
+	slowStartMuted bool
 }
 
 type tracedAttempt struct {
@@ -62,6 +65,25 @@ func withAttemptTrace(ctx context.Context, inbound []byte, h http.Header) contex
 
 func (t *attemptTrace) hideDetails() bool {
 	return t != nil && t.hideRouterDetails
+}
+
+func (t *attemptTrace) muteSlowStart() {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	t.slowStartMuted = true
+	t.mu.Unlock()
+}
+
+// servingBaseURL is the gateway endpoint of the latest attempt.
+func (t *attemptTrace) servingBaseURL() string {
+	if t == nil {
+		return ""
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.baseURL
 }
 
 func attemptTraceFromContext(ctx context.Context) *attemptTrace {

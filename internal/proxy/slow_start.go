@@ -115,7 +115,7 @@ type slowStartAttempt struct {
 func (t *attemptTrace) slowStartSnapshot() (slowStartAttempt, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.attemptAt.IsZero() {
+	if t.attemptAt.IsZero() || t.slowStartMuted {
 		return slowStartAttempt{}, false
 	}
 	snap := slowStartAttempt{
@@ -199,9 +199,9 @@ func roundSeconds(d time.Duration) string {
 }
 
 func slowStartKey(a tracedAttempt) string {
-	host := ""
+	endpoint := ""
 	if u, err := url.Parse(a.BaseURL); err == nil {
-		host = u.Host
+		endpoint = u.Host + strings.TrimRight(u.Path, "/")
 	}
-	return a.Target.Provider + "|" + host + "|" + a.Target.CatalogID
+	return a.Target.Provider + "|" + endpoint + "|" + a.Target.CatalogID
 }

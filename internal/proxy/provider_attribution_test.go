@@ -198,7 +198,7 @@ func TestSlowStartNotice_BaselineRaisesThreshold(t *testing.T) {
 	now = now.Add(time.Minute)
 	_, shown := slowStartNotice(slowStartCtx("session-1", "key-1", "claude-cli/2.1.302 (external, cli)"), slowStartTrace(now.Add(-15*time.Second), now.Add(-15*time.Second)), tracker, now)
 	assert.False(t, shown, "15s is under 3x a 6s median")
-	assert.True(t, strings.HasPrefix(slowStartKey(tracedAttempt{Target: inference.Target{Provider: "p", CatalogID: "m"}, BaseURL: cortexGatewayURL}), "p|acme-xy12345.snowflakecomputing.com|m"))
+	assert.True(t, strings.HasPrefix(slowStartKey(tracedAttempt{Target: inference.Target{Provider: "p", CatalogID: "m"}, BaseURL: cortexGatewayURL}), "p|acme-xy12345.snowflakecomputing.com/api/v2/cortex/anthropic|m"))
 }
 
 func TestTerminalErrorMessage_KeepsUpstreamMessageForResponses(t *testing.T) {
@@ -242,4 +242,28 @@ func TestSlowStartNotice_SessionlessCooldownIsPerAPIKey(t *testing.T) {
 	assert.False(t, slow(slowStartCtx("", "key-a", ua)))
 	assert.True(t, slow(slowStartCtx("", "key-b", ua)))
 	assert.False(t, slow(slowStartCtx("", "", ua)))
+}
+
+func TestAttributeStreamError_NamesGatewayFromServingAttempt(t *testing.T) {
+	trace := slowStartTrace(time.Now(), time.Now())
+	ctx := context.WithValue(context.Background(), attemptTraceContextKey{}, trace)
+	err := attributeStreamError(ctx, providers.ProviderAnthropicGateway, context.DeadlineExceeded)
+
+	assert.True(t, strings.HasPrefix(TerminalErrorMessage(err), "Snowflake Cortex "), TerminalErrorMessage(err))
+}
+
+func TestSlowStartNotice_MutedTurnGetsNoNotice(t *testing.T) {
+	tracker, now := slowStartAfterBaseline(t)
+	trace := slowStartTrace(now.Add(-41*time.Second), now.Add(-41*time.Second))
+	trace.muteSlowStart()
+
+	_, shown := slowStartNotice(slowStartCtx("session-1", "key-1", "claude-cli/2.1.302 (external, cli)"), trace, tracker, now)
+	assert.False(t, shown)
+}
+
+func TestSlowStartKey_SeparatesGatewayPaths(t *testing.T) {
+	target := inference.Target{Provider: providers.ProviderOpenAIGateway, CatalogID: "m"}
+	assert.NotEqual(t,
+		slowStartKey(tracedAttempt{Target: target, BaseURL: "https://llm.acme.internal/team-a/v1"}),
+		slowStartKey(tracedAttempt{Target: target, BaseURL: "https://llm.acme.internal/team-b/v1"}))
 }

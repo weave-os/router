@@ -698,6 +698,20 @@ func suppressMarkerIfRequested(ctx context.Context, h http.Header, marker string
 	return marker
 }
 
+// machineReadTurn reports turns whose reply the client parses, so they carry
+// no router text.
+func machineReadTurn(res turnLoopResult) bool {
+	return res.SuggestionMode || res.CallerModelPassthrough || isUnpinnedScoredTurn(res.TurnType) || res.TurnType == turntype.Probe
+}
+
+// muteSlowStartFor keeps the slow-start notice off turns that carry no
+// router text: machine-read replies and hard-pinned compaction/sub-agent turns.
+func muteSlowStartFor(ctx context.Context, res turnLoopResult) {
+	if machineReadTurn(res) || res.HardPinned {
+		attemptTraceFromContext(ctx).muteSlowStart()
+	}
+}
+
 // routingMarkerFor builds the "brand → model · note" snippet emitted when the
 // selected serving model changes, on the first routed turn, or when a shadow
 // escalation is marked without affecting selection.
@@ -706,7 +720,7 @@ func routingMarkerFor(res turnLoopResult) string {
 	if decision.Model == "" {
 		return ""
 	}
-	if res.SuggestionMode || res.CallerModelPassthrough || isUnpinnedScoredTurn(res.TurnType) || res.TurnType == turntype.Probe {
+	if machineReadTurn(res) {
 		return ""
 	}
 	// A dropped force-model pin contradicts an ack the user already saw, so it
@@ -4477,6 +4491,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	var reqStats providers.RequestMutationStats
 
 	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
+	muteSlowStartFor(ctx, routeRes)
 	marker = routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, decision.Model, marker).Text
 	// toolValidator compiles the request's tool schemas once (LRU-cached);
 	// translators validate/repair model tool calls against it. Nil if no tools.
@@ -7463,6 +7478,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
 
 	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
+	muteSlowStartFor(ctx, routeRes)
 	marker = routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderCodex, decision.Model, marker).Text
 
 	// gpt-5.6 applies its own effort on chat/completions, so a /v1/responses

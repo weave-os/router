@@ -192,7 +192,7 @@ func attributeStreamError(ctx context.Context, provider string, err error) error
 	}
 	a := tracedAttempt{
 		Target:    inference.Target{Provider: provider},
-		BaseURL:   requestcontext.EffectiveBaseURL(ctx, ""),
+		BaseURL:   requestcontext.EffectiveBaseURL(ctx, trace.servingBaseURL()),
 		Err:       err,
 		Diagnosis: inference.AttemptDiagnosis{ErrorClass: string(classifyTurnError(err, "", 0))},
 	}
