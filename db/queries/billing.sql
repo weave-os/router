@@ -119,6 +119,24 @@ key_spend AS (
     WHERE id = sqlc.narg('api_key_id')::uuid
       AND EXISTS (SELECT 1 FROM updated)
 ),
+delegated_spend AS (
+    -- Per-session and per-task spend of a delegated session token, attributed
+    -- to the issuer key that signed it. Same gate and sign convention as
+    -- key_spend; no-ops for any other credential (both scope IDs NULL).
+    INSERT INTO router.delegated_token_spend (issuer_key_id, scope_kind, scope_id, spent_usd_micros, updated_at)
+    SELECT sqlc.narg('api_key_id')::uuid, delegated.scope_kind, delegated.scope_id, -(@charged_usd_micros::bigint), NOW()
+    FROM (
+        VALUES
+            ('session', sqlc.narg('delegated_session_id')::varchar),
+            ('task', sqlc.narg('delegated_task_id')::varchar)
+    ) AS delegated (scope_kind, scope_id)
+    WHERE delegated.scope_id IS NOT NULL
+      AND sqlc.narg('api_key_id')::uuid IS NOT NULL
+      AND EXISTS (SELECT 1 FROM updated)
+    ON CONFLICT (issuer_key_id, scope_kind, scope_id) DO UPDATE
+    SET spent_usd_micros = router.delegated_token_spend.spent_usd_micros + EXCLUDED.spent_usd_micros,
+        updated_at = NOW()
+),
 user_month_spend AS (
     -- Month-bucketed per-engineer spend counter for monthly limit
     -- enforcement. Same gating and sign convention as key_spend; no-ops when
@@ -202,6 +220,20 @@ SELECT (
         'organization_monthly_spend',
         'organization_spend_limits',
         'model_router_user_spend_limits',
-        'subscriber_autopay_config'
+        'subscriber_autopay_config',
+        'delegated_token_spend'
       )
-) = 8 AS billing_tables_exist;
+) = 9 AS billing_tables_exist;
+
+-- Fresh per-request read of a delegated session's and task's spend-to-date
+-- for the delegated spend-cap gate. A missing row is zero spend.
+-- name: GetDelegatedTokenSpend :one
+SELECT
+    COALESCE((
+        SELECT spent_usd_micros FROM router.delegated_token_spend
+        WHERE issuer_key_id = @issuer_key_id::uuid AND scope_kind = 'session' AND scope_id = @session_id::varchar
+    ), 0)::bigint AS session_spent_usd_micros,
+    COALESCE((
+        SELECT spent_usd_micros FROM router.delegated_token_spend
+        WHERE issuer_key_id = @issuer_key_id::uuid AND scope_kind = 'task' AND scope_id = @task_id::varchar
+    ), 0)::bigint AS task_spent_usd_micros;

@@ -175,9 +175,16 @@ func TestVerifySessionToken_RejectsInvalidTokens(t *testing.T) {
 		"unknown kid": func(t *testing.T) string {
 			return f.sign(t, f.claims(), func(tok *jwt.Token) { tok.Header["kid"] = "unknown" })
 		},
-		"caps before enforcement exists": func(t *testing.T) string {
+		"non-positive session cap": func(t *testing.T) string {
 			c := f.claims()
-			c.Caps = &auth.SessionCaps{SessionUSDMicros: &capMicros}
+			zero := int64(0)
+			c.Caps = &auth.SessionCaps{SessionUSDMicros: &zero}
+			return f.sign(t, c, nil)
+		},
+		"task cap without a task": func(t *testing.T) string {
+			c := f.claims()
+			c.Task = ""
+			c.Caps = &auth.SessionCaps{TaskUSDMicros: &capMicros}
 			return f.sign(t, c, nil)
 		},
 		"empty caps object": func(t *testing.T) string {
@@ -208,6 +215,22 @@ func TestVerifySessionToken_RejectsInvalidTokens(t *testing.T) {
 			require.ErrorIs(t, err, auth.ErrInvalidToken)
 		})
 	}
+}
+
+func TestVerifySessionToken_CarriesCaps(t *testing.T) {
+	f := newSessionIssuerFixture(t)
+	svc, _ := f.service(t, true)
+	sessionCap, taskCap := int64(2_000_000), int64(9_000_000)
+	c := f.claims()
+	c.Caps = &auth.SessionCaps{SessionUSDMicros: &sessionCap, TaskUSDMicros: &taskCap}
+
+	_, _, _, _, session, err := svc.VerifySessionToken(context.Background(), f.sign(t, c, nil), true)
+
+	require.NoError(t, err)
+	require.NotNil(t, session.SessionCapMicros)
+	require.NotNil(t, session.TaskCapMicros)
+	assert.Equal(t, sessionCap, *session.SessionCapMicros)
+	assert.Equal(t, taskCap, *session.TaskCapMicros)
 }
 
 func TestVerifySessionToken_DisabledRejectsValidToken(t *testing.T) {

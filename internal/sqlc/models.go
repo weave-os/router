@@ -149,6 +149,14 @@ type RouterCredentialSubjectInstallation struct {
 	AccessEnabled  bool
 }
 
+type RouterDelegatedTokenSpend struct {
+	IssuerKeyID    uuid.UUID
+	ScopeKind      string
+	ScopeID        string
+	SpentUsdMicros int64
+	UpdatedAt      pgtype.Timestamptz
+}
+
 type RouterEscalationCheckpoint struct {
 	Scope      []byte
 	Boundary   []byte

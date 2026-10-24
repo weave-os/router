@@ -6845,6 +6845,9 @@ func (s *Service) fireBilling(ctx context.Context, p billing.DebitInferenceParam
 	if s.billing == nil {
 		return
 	}
+	if session := auth.DelegatedSessionFrom(ctx); session != nil {
+		p.DelegatedSessionID, p.DelegatedTaskID = session.SessionID, session.TaskID
+	}
 	if p.OrganizationID == "" {
 		// Shouldn't happen on managed-mode authed requests. Debug level so a
 		// synthetic test exercising the hook doesn't page on-call.

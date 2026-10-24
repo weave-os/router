@@ -149,6 +149,7 @@ type Service struct {
 	allowances        SubscriberAllowanceSettler
 	prepaid           *PrepaidBooks
 	subscriberPrepaid SubscriberPrepaidAuthorizer
+	delegatedSpend    DelegatedSpendReader
 }
 
 // NewService constructs a billing service. The Repo is required; nil panics
@@ -256,6 +257,25 @@ type APIKeySpendCapResult struct {
 	CapMicros   *int64
 }
 
+// ErrDelegatedSpendUnavailable is returned when a delegated cap must be checked
+// but no spend reader is wired.
+var ErrDelegatedSpendUnavailable = errors.New("delegated spend reader not configured")
+
+// WithDelegatedSpend wires the reader behind CheckDelegatedSpend.
+func (s *Service) WithDelegatedSpend(reader DelegatedSpendReader) *Service {
+	s.delegatedSpend = reader
+	return s
+}
+
+// CheckDelegatedSpend reads a delegated session's and task's spend-to-date
+// fresh from storage so concurrent sessions cannot overrun a cap through a cache.
+func (s *Service) CheckDelegatedSpend(ctx context.Context, issuerKeyID, sessionID, taskID string) (sessionSpentMicros, taskSpentMicros int64, err error) {
+	if s.delegatedSpend == nil {
+		return 0, 0, ErrDelegatedSpendUnavailable
+	}
+	return s.delegatedSpend.GetDelegatedTokenSpend(ctx, issuerKeyID, sessionID, taskID)
+}
+
 // CheckAPIKeySpendCap reads fresh from the repo (not the auth cache) so a
 // hot cached key can't overrun its cap within the cache TTL.
 func (s *Service) CheckAPIKeySpendCap(ctx context.Context, apiKeyID string) (APIKeySpendCapResult, error) {
@@ -345,6 +365,10 @@ type DebitInferenceParams struct {
 	// APIKeyID attributes the debit to the authenticating key for
 	// spend-cap tracking; empty leaves per-key spend untouched.
 	APIKeyID string
+	// DelegatedSessionID and DelegatedTaskID attribute the debit to a delegated
+	// session token's session and task; empty for every other credential.
+	DelegatedSessionID string
+	DelegatedTaskID    string
 	// RouterUserID attributes the debit to the resolved engineer identity for
 	// monthly spend-limit tracking; empty leaves per-user spend untouched.
 	RouterUserID string
@@ -426,6 +450,8 @@ func (s *Service) DebitForInference(ctx context.Context, p DebitInferenceParams)
 		RouterModel:        p.Model,
 		APIKeyID:           p.APIKeyID,
 		RouterUserID:       p.RouterUserID,
+		DelegatedSessionID: p.DelegatedSessionID,
+		DelegatedTaskID:    p.DelegatedTaskID,
 	})
 	if err != nil {
 		return balanceAfter, err

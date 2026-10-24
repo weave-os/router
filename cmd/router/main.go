@@ -241,6 +241,7 @@ func main() {
 	// platform-key mode gated by balance checks. Self-hosted is never BYOK-only.
 	if billingSvc != nil {
 		billingSvc.WithInternalTestPrepaid(servingpostgres.NewInternalTestBook(pool))
+		billingSvc.WithDelegatedSpend(postgres.NewBillingRepo(pool))
 	}
 	byokOnly := deploymentMode == server.DeploymentModeManaged && billingSvc == nil
 

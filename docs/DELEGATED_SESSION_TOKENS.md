@@ -30,12 +30,23 @@ from provider JWTs and makes the upstream header scrubbers drop it.
 
 Verification uses `github.com/golang-jwt/jwt/v5` with the RFC 8725 checks:
 a fixed algorithm, issuer, audience, required expiry and issued-at, and 30
-seconds of clock leeway. A token that carries caps is rejected until per-session
-spend caps are enforced.
+seconds of clock leeway. Cap values must be positive, and a task cap requires a
+task claim.
 
 A request authenticates as the issuer key. Spend, attribution, BYOK and cluster
 lists are the issuer's; the session and task IDs travel on the request context
 as `auth.DelegatedSession`.
+
+## Spend caps
+
+Each billed request adds its cost to `router.delegated_token_spend`, keyed by
+issuer, scope (`session` or `task`) and ID, in the same transaction as the
+credit debit. Before proxying, the router reads the current totals fresh from
+Postgres (no cache) and rejects a request whose session or task total has
+reached its cap with 402 `key_spend_cap_reached` and the exhausted `scope`. A
+failed read returns 503. Shadow evals, allowance and subscription traffic keep
+their existing exemptions. Caps are checked before a request, so one in-flight
+request can overshoot a cap by its own cost.
 
 ## Issuers
 

@@ -38,7 +38,8 @@ var ErrInvalidSessionIssuerKey = errors.New("session issuer key must be an Ed255
 // ErrSessionIssuerConflict is returned when a public key is already registered to another installation.
 var ErrSessionIssuerConflict = errors.New("session issuer key is registered to another installation")
 
-// SessionCaps are optional USD spend limits a session token carries.
+// SessionCaps are optional USD spend limits a session token carries. A task
+// cap requires the task claim; both caps must be positive.
 type SessionCaps struct {
 	SessionUSDMicros *int64 `json:"session_usd_micros,omitempty"`
 	TaskUSDMicros    *int64 `json:"task_usd_micros,omitempty"`
@@ -228,16 +229,20 @@ func (s *Service) VerifySessionToken(ctx context.Context, rawToken string, inclu
 	if claims.Subject == "" || claims.IssuedAt == nil || claims.ExpiresAt.Sub(claims.IssuedAt.Time) > SessionTokenMaxLifetime {
 		return nil, nil, nil, nil, nil, ErrInvalidToken
 	}
-	if claims.Caps != nil {
-		// Spend caps are not enforced yet; refusing any caps object, even an empty or
-		// misspelled one, keeps a cap from being silently ignored.
-		return nil, nil, nil, nil, nil, ErrInvalidToken
-	}
 	session := &DelegatedSession{
 		IssuerKeyID: issuer.APIKey.ID,
 		SessionID:   claims.Subject,
 		TaskID:      claims.Task,
 		ExpiresAt:   claims.ExpiresAt.UTC(),
+	}
+	if claims.Caps != nil {
+		// An empty or misspelled caps object is refused so the factory's mistake surfaces
+		// instead of minting an uncapped credential.
+		noCap := claims.Caps.SessionUSDMicros == nil && claims.Caps.TaskUSDMicros == nil
+		if noCap || !validCap(claims.Caps.SessionUSDMicros) || !validCap(claims.Caps.TaskUSDMicros) || (claims.Caps.TaskUSDMicros != nil && claims.Task == "") {
+			return nil, nil, nil, nil, nil, ErrInvalidToken
+		}
+		session.SessionCapMicros, session.TaskCapMicros = claims.Caps.SessionUSDMicros, claims.Caps.TaskUSDMicros
 	}
 	s.fireMarkUsed(issuer.APIKey, issuer.Installation)
 	s.fireMarkFirstRequestServed(issuer.APIKey.InstallationID)
@@ -245,6 +250,11 @@ func (s *Service) VerifySessionToken(ctx context.Context, rawToken string, inclu
 		return issuer.Installation, issuer.APIKey, nil, issuer.ClusterModelLists, session, nil
 	}
 	return issuer.Installation, issuer.APIKey, s.resolveUpstreamSecrets(ctx, issuer.ExternalKeys), issuer.ClusterModelLists, session, nil
+}
+
+// validCap accepts an absent cap or a positive one.
+func validCap(capMicros *int64) bool {
+	return capMicros == nil || *capMicros > 0
 }
 
 // sessionIssuer resolves an active issuer by kid through the shared auth cache.
