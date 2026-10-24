@@ -1,0 +1,131 @@
+internal/proxy/codex_title_gen_internal_test.go
+  s_b33b83fee39994::t_051b10a26c00c6 40,67-68,71,98-99,102,129-130
+  s_6e53ad610c08fe::t_b4a89923b72111 40,67-68,71,98-99,102,129-130
+internal/proxy/service_observation_test.go
+  s_b33b83fee39994::t_051b10a26c00c6 209
+  s_6e53ad610c08fe::t_a3354bb435519e 209
+docs/POLICY_INFERENCE.md
+  s_b33b83fee39994::t_051b10a26c00c6 6,30
+  s_6e53ad610c08fe::t_663b4e2bb435a7 6,30
+internal/router/turntype/CLAUDE.md
+  s_b33b83fee39994::t_051b10a26c00c6 15-16
+  s_6e53ad610c08fe::t_1879ab8b9a0fc7 15-16
+docs/POLICY_INFERENCE.json
+  s_b33b83fee39994::t_051b10a26c00c6 3,556
+  s_6e53ad610c08fe::t_663b4e2bb435a7 3,556
+internal/proxy/CLAUDE.md
+  s_b33b83fee39994::t_051b10a26c00c6 186-187,195-203
+  s_b33b83fee39994::t_f1eafdb76abda7 204
+  s_6e53ad610c08fe::t_572df5fcd35bff 186-187,195-196,203
+  s_e81a08893a9ba2::t_be01b1fcb4921e 204
+  s_6e53ad610c08fe::t_ba93e4889e0802 197,201-202
+  s_6e53ad610c08fe::t_00f639d36112b4 198-200
+internal/proxy/service_session_pin_test.go
+  s_b33b83fee39994::t_051b10a26c00c6 708,1768,1794
+  s_6e53ad610c08fe::t_b4a89923b72111 708,1768,1794
+internal/router/policy/inference_registry.go
+  s_b33b83fee39994::t_051b10a26c00c6 615
+  s_6e53ad610c08fe::t_dee89bf54527c4 615
+internal/proxy/AGENTS.md
+  s_b33b83fee39994::t_051b10a26c00c6 186-187,195-203
+  s_b33b83fee39994::t_214f1cbf1bf6d0 204
+  s_6e53ad610c08fe::t_663b4e2bb435a7 186-187,195-196,203
+  s_6e53ad610c08fe::t_7d59a4b3e64e74 204
+  s_6e53ad610c08fe::t_94708ce44c14c7 197,201-202
+  s_6e53ad610c08fe::t_935c4d12d15d4e 198-200
+internal/proxy/opencode_turns_test.go
+  s_b33b83fee39994::t_051b10a26c00c6 31,67,153,156,159,169,171,174
+  s_6e53ad610c08fe::t_a3354bb435519e 153,156,174
+  s_6e53ad610c08fe::t_153d8911bd843c 171
+  s_6e53ad610c08fe::t_00f639d36112b4 159
+  s_6e53ad610c08fe::t_f961380ac19e18 31,67,169
+internal/proxy/service.go
+  s_b33b83fee39994::t_051b10a26c00c6 130-131,687,706,2286-2291
+  s_b33b83fee39994::t_b5dc26422ebb53 2292
+  s_6e53ad610c08fe::t_663b4e2bb435a7 130
+  s_6e53ad610c08fe::t_a3354bb435519e 687,706
+  s_6e53ad610c08fe::t_dee89bf54527c4 131,2286-2291
+  s_6e53ad610c08fe::t_8facca7f6326b8 2292
+cmd/router/main.go
+  s_b33b83fee39994::t_051b10a26c00c6 676,700,897,1313
+  s_6e53ad610c08fe::t_1879ab8b9a0fc7 676,700,897,1313
+internal/proxy/turnloop.go
+  s_b33b83fee39994::t_051b10a26c00c6 518-520,530,532-533,552-553,555,932-943
+  s_b33b83fee39994::t_663b77dd352d5e 944-945
+  s_6e53ad610c08fe::t_dee89bf54527c4 530,532-533,555,932,936-943
+  s_6e53ad610c08fe::t_572df5fcd35bff 518-520,552-553
+  s_e81a08893a9ba2::t_53f433fdfa2fcb 944-945
+  s_6e53ad610c08fe::t_f961380ac19e18 933-935
+internal/proxy/blind_experiment_internal_test.go
+  s_b33b83fee39994::t_051b10a26c00c6 13,227-228,230,271,280-287,308-315,320-321
+  s_b33b83fee39994::t_65df8a89a16564 322
+  s_6e53ad610c08fe::t_a3354bb435519e 228,271
+  s_6e53ad610c08fe::t_00f639d36112b4 13
+  s_6e53ad610c08fe::t_ddd1914549ee09 322
+  s_6e53ad610c08fe::t_f961380ac19e18 227,230,308-315,320-321
+  s_6e53ad610c08fe::t_bfc688cf33eed4 280-287
+docs/CONFIGURATION.md
+  s_b33b83fee39994::t_051b10a26c00c6 475,665
+  s_6e53ad610c08fe::t_572df5fcd35bff 475
+  s_6e53ad610c08fe::t_ba93e4889e0802 665
+internal/proxy/surface_purpose_test.go
+  s_b33b83fee39994::t_051b10a26c00c6 113-115,132-146,148-150,152-173
+  s_6e53ad610c08fe::t_e1c2771fb54cec 113-115,132-146,148-150,152-155,159-173
+  s_6e53ad610c08fe::t_1879ab8b9a0fc7 156-158
+internal/proxy/gateway_unserved_model_test.go
+  s_b33b83fee39994::t_051b10a26c00c6 101,145,177
+  s_6e53ad610c08fe::t_b4a89923b72111 101,145,177
+internal/proxy/openai_cyber_refusal.go
+  s_b33b83fee39994::t_051b10a26c00c6 234
+  s_6e53ad610c08fe::t_bdb36884d7af31 234
+internal/router/turntype/AGENTS.md
+  s_b33b83fee39994::t_051b10a26c00c6 15-16
+  s_6e53ad610c08fe::t_383b51aea7d9c9 15-16
+internal/proxy/blind_experiment.go
+  s_b33b83fee39994::t_051b10a26c00c6 18-19
+  s_6e53ad610c08fe::t_f961380ac19e18 18-19
+docs/INFERENCE_BOUNDARY.md
+  s_b33b83fee39994::t_051b10a26c00c6 22,24
+  s_6e53ad610c08fe::t_572df5fcd35bff 22,24
+internal/proxy/utility_selection_internal_test.go
+  s_b33b83fee39994::t_051b10a26c00c6 1-118
+  s_6e53ad610c08fe::t_c85d28725e68ac 1-5,7-12,14-22,29-35,38-45,47-55,57-60,62-67,74-79,89
+  s_6e53ad610c08fe::t_e12e8bb775a6f2 13,23-28,37,80-88
+  s_6e53ad610c08fe::t_663b4e2bb435a7 36,46
+  s_6e53ad610c08fe::t_1879ab8b9a0fc7 68-73
+  s_6e53ad610c08fe::t_f961380ac19e18 56,61,92
+  s_6e53ad610c08fe::t_0284517b9dc048 118
+  s_6e53ad610c08fe::t_0811d6b4a209b6 6,90-91,93-117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "440be93a36a4e37820d1f6c701aad7178556cdc7",
+  "prompts": {},
+  "sessions": {
+    "s_6e53ad610c08fe": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10f29-b454-71c3-949d-17a38738c8b2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_b33b83fee39994": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a10f29-b454-71c3-949d-17a38738c8b2",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_e81a08893a9ba2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9391cca-911c-46df-b82c-9f07d5d2219d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

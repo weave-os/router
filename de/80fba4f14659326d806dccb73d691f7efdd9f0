@@ -1,0 +1,21 @@
+internal/proxy/service.go
+  s_bf12674e0975a6::t_402a223bd65ada 3181-3183
+internal/proxy/turnloop.go
+  s_bf12674e0975a6::t_5f0643c805b14c 458-459
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "de80fba4f14659326d806dccb73d691f7efdd9f0",
+  "prompts": {},
+  "sessions": {
+    "s_bf12674e0975a6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d0e97ff1-3147-4e7a-b36b-b2509e614e8b",
+        "model": "moonshotai/kimi-k2.7"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
