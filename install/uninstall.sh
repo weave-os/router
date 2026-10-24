@@ -1267,6 +1267,11 @@ if [ -f "$settings_file" ]; then
       | (if (.env | length) == 0 then del(.env) else . end)
     else . end
     | (if $statusline_setting_owned == "true" then del(.statusLine) else . end)
+    | (if (.hooks.UserPromptSubmit | type) == "array" then
+        .hooks.UserPromptSubmit |= (map(if (.hooks | type) == "array" then .hooks |= map(select((.command // "" | tostring | test("cc-statusline\\.sh\"? --prompt-hook( |$)")) | not)) else . end) | map(select((.hooks | type) != "array" or (.hooks | length) > 0)))
+        | (if (.hooks.UserPromptSubmit | length) == 0 then del(.hooks.UserPromptSubmit) else . end)
+        | (if (.hooks | length) == 0 then del(.hooks) else . end)
+      else . end)
     | (if (.apiKeyHelper // "" | tostring | endswith("weave-key.sh"))
          then del(.apiKeyHelper) else . end)
     | (if ((.attribution.commit == "Co-Authored-By: Weave Router <router@weaveos.com>"

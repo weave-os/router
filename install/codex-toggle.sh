@@ -173,7 +173,7 @@ trap "rm -f '$out_file'" EXIT
 # word-split at runtime -- the braces are a template token, not an expansion.
 # shellcheck disable=SC1083
 run_bounded "$WEAVE_TOGGLE_TIMEOUT" "$out_file" \
-  npx --package @weave-os/router -y -- weave-router "$toggle" --codex{{SCOPE}}
+  env NPM_CONFIG_UPDATE_NOTIFIER=false npx --package @weave-os/router -y -- weave-router "$toggle" --codex{{SCOPE}}
 status=$?
 
 output="$(cat "$out_file" 2>/dev/null || true)"

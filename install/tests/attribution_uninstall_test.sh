@@ -59,9 +59,17 @@ check "--no-attribution keeps a PR line the user wrote" test "$(attribution "$ho
 echo "bare uninstall"
 
 home="$work/both"
+mkdir -p "$home/.claude"
+printf '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"my-own-hook.sh"},{"type":"command","command":"%s/.weave/cc-statusline.sh --prompt-hook"}]}]}}\n' "$home" >"$home/.claude/settings.json"
 install "$home" --claude >/dev/null
+install "$home" --claude >/dev/null
+check "install registers the /router-status prompt hook once" test "$(jq '[.hooks.UserPromptSubmit[].hooks[].command | select(test("cc-statusline\\.sh\"? --prompt-hook( |$)"))] | length' "$home/.claude/settings.json")" = 1
+check "install keeps the user's own prompt hook" test "$(jq '[.hooks.UserPromptSubmit[].hooks[].command | select(. == "my-own-hook.sh")] | length' "$home/.claude/settings.json")" = 1
+check "a missing helper makes the hook a no-op" test "$(cd "$work" && sh -c "$(jq -r '.hooks.UserPromptSubmit[-1].hooks[0].command' "$home/.claude/settings.json" | sed 's#/.weave/#/.missing/#g')" </dev/null; echo $?)" = 0
 install "$home" --codex >/dev/null
 out="$(uninstall "$home")"
+check "uninstall removes the /router-status prompt hook" test "$(jq '[.hooks.UserPromptSubmit[]?.hooks[]?.command | select(endswith("--prompt-hook"))] | length' "$home/.claude/settings.json")" = 0
+check "uninstall keeps the user's own prompt hook" test "$(jq -r '.hooks.UserPromptSubmit[0].hooks[0].command' "$home/.claude/settings.json")" = my-own-hook.sh
 check "bare uninstall removes Codex too" test "$(grep -c 'model_providers.weave' "$home/.codex/config.toml" 2>/dev/null || echo 0)" = 0
 check "bare uninstall removes Claude Code routing" test "$(jq -r '.env.ANTHROPIC_BASE_URL // "none"' "$home/.claude/settings.json")" = none
 check "bare uninstall names every client it removed" has "$out" "Removed Weave Router from: Claude Code, Codex."
