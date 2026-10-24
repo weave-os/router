@@ -192,3 +192,13 @@ func TestSlowStartNotice_BaselineRaisesThreshold(t *testing.T) {
 	assert.False(t, shown, "15s is under 3x a 6s median")
 	assert.True(t, strings.HasPrefix(slowStartKey(tracedAttempt{Target: inference.Target{Provider: "p", CatalogID: "m"}, BaseURL: cortexGatewayURL}), "p|acme-xy12345.snowflakecomputing.com|m"))
 }
+
+func TestTerminalErrorMessage_KeepsUpstreamMessageForResponses(t *testing.T) {
+	body := `{"error":{"message":"Rate limit exceeded for account. Please retry later.","type":"rate_limit_error","code":"rate_limit_exceeded"}}`
+	upstreamErr := cortexStatusError(429, body, http.Header{"Retry-After": {"2"}})
+	a := cortexAttempt("claude-opus-5", upstreamErr, TurnErrorRateLimited)
+	a.Target.Provider = providers.ProviderOpenAIGateway
+	err := attributeTerminalError(traceOf(a, a, a), upstreamErr)
+
+	assert.Equal(t, "Snowflake Cortex returned 429 (rate limited) after 2 router retries: Rate limit exceeded for account. Please retry later.", TerminalErrorMessage(err))
+}

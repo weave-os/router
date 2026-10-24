@@ -257,6 +257,9 @@ func attributedTerminalMessage(a tracedAttempt, prefix string) string {
 	switch a.owner() {
 	case FailureOwnerProvider:
 		if prefix != "" {
+			if msg := upstreamErrorText(a.Err); msg != "" {
+				return prefix + ": " + msg
+			}
 			return prefix + " (provider issue)."
 		}
 		return "Provider " + provider + " failed: " + wording + "."
@@ -267,6 +270,34 @@ func attributedTerminalMessage(a tracedAttempt, prefix string) string {
 	default:
 		return ""
 	}
+}
+
+const maxUpstreamErrorText = 500
+
+// upstreamErrorText is the upstream body's own error message, if any.
+func upstreamErrorText(err error) string {
+	var body []byte
+	var resp *providers.UpstreamErrorResponse
+	var status *providers.UpstreamStatusError
+	switch {
+	case errors.As(err, &resp):
+		body = resp.Body
+	case errors.As(err, &status):
+		body = status.Body
+	}
+	if !gjson.ValidBytes(body) {
+		return ""
+	}
+	for _, path := range []string{"error.message", "message"} {
+		if msg := gjson.GetBytes(body, path); msg.Type == gjson.String {
+			text := strings.TrimSpace(msg.String())
+			if len(text) > maxUpstreamErrorText {
+				text = strings.ToValidUTF8(text[:maxUpstreamErrorText], "") + "…"
+			}
+			return text
+		}
+	}
+	return ""
 }
 
 // TerminalErrorMessage is the client-facing message for a failed dispatch the
