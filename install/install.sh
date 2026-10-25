@@ -3813,6 +3813,9 @@ claude_routing_state() {
 
 # codex_hooks_trusted fails when Codex has not recorded a trust hash for any
 # hook in this config yet, which means it will ask for a review on next launch.
+# The installer has no TOML parser (jq only), so this matches the
+# [hooks.state."..."] tables Codex writes; a hand-edited config with unusual
+# quoting can only make status suggest an extra review, never hide a problem.
 codex_hooks_trusted() {
   awk '
     /^[[:space:]]*\[/ { in_state = ($0 ~ /^[[:space:]]*\[hooks\.state\./) }
@@ -3825,13 +3828,14 @@ file_mtime() {
   stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null
 }
 
-# newest_file prints the most recently modified file matching the glob in $1.
+# newest_file prints the newest regular file matched by the glob in $1. The
+# pattern is expanded here, unquoted, so callers pass it as a quoted string.
 newest_file() {
   local file newest="" newest_time=0 file_time
   for file in $1; do
     [ -f "$file" ] || continue
     file_time="$(file_mtime "$file")" || continue
-    if [ "${file_time:-0}" -gt "$newest_time" ]; then
+    if [ "$file_time" -gt "$newest_time" ]; then
       newest="$file"; newest_time="$file_time"
     fi
   done
@@ -3875,7 +3879,7 @@ status_problem() {
 # a running session.
 run_router_status() {
   local npx="npx $npm_package_name" scope_flags="" redacted_key key_ok="false"
-  local claude_state claude_endpoint codex_state codex_endpoint last
+  local claude_state claude_endpoint codex_state codex_endpoint last_turn
   if [ -n "$install_dir" ]; then
     scope_flags=" --dir $(printf '%q' "$install_dir")"
   elif [ "$scope" = "project" ]; then
@@ -3924,8 +3928,8 @@ run_router_status() {
       elif claude_login_missing; then
         status_problem "Claude Code isn't signed in." "run claude and type /login"
       fi
-      if last="$(last_routed_turn claude)"; then
-        printf '    last routed turn %s\n' "$last"
+      if last_turn="$(last_routed_turn claude)"; then
+        printf '    last routed turn %s\n' "$last_turn"
       else
         printf '    no routed turn yet\n'
       fi
@@ -3962,8 +3966,8 @@ run_router_status() {
       if grep -q 'codex-status' "$codex_config_file" 2>/dev/null && ! codex_hooks_trusted; then
         status_problem "Codex hasn't trusted Weave Router's hooks yet, so the routed-model title and \$router-on / \$router-off don't run." "start codex and choose Trust all when it asks to review hooks"
       fi
-      if last="$(last_routed_turn codex)"; then
-        printf '    last routed turn %s\n' "$last"
+      if last_turn="$(last_routed_turn codex)"; then
+        printf '    last routed turn %s\n' "$last_turn"
       else
         printf '    no routed turn yet\n'
       fi
