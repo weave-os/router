@@ -3231,6 +3231,17 @@ models_api_error() {
 models_fail() {
   local what="$1" detail repair_command
   detail="$(models_api_error)"
+  case "$detail" in
+    subscription_owner_unavailable|subscription_accounts_unavailable|subscription_account_update_failed|subscription_account_delete_failed)
+      err "The router couldn't finish ${what} just now. Nothing changed; try again in a minute."
+      return ;;
+    subscription_account_not_found)
+      err "No enrolled account has that id. Run 'npx $npm_package_name accounts list' to see the ids."
+      return ;;
+    subscription_account_rejected)
+      err "The router didn't accept that sign-in. Run 'npx $npm_package_name login claude' or 'login codex' again."
+      return ;;
+  esac
   case "$models_http_status" in
     ""|000)
       err "Could not reach the router at $base_url. Is it running?"
@@ -3259,12 +3270,6 @@ models_fail() {
       ;;
     *)
       case "$detail" in
-        subscription_owner_unavailable|subscription_accounts_unavailable|subscription_account_update_failed|subscription_account_delete_failed)
-          err "The router couldn't finish ${what} just now. Nothing changed; try again in a minute." ;;
-        subscription_account_not_found)
-          err "No enrolled account has that id. Run 'npx $npm_package_name accounts list' to see the ids." ;;
-        subscription_account_rejected)
-          err "The router didn't accept that sign-in. Run 'npx $npm_package_name login claude' or 'login codex' again." ;;
         "")
           case "$models_http_status" in
             5*) err "The router had a problem with ${what} (HTTP $models_http_status). Try again in a minute; 'npx $npm_package_name status' shows whether it's reachable." ;;
@@ -3813,12 +3818,13 @@ claude_routing_state() {
 
 # codex_hooks_trusted fails when Codex has not recorded a trust hash for any
 # hook in this config yet, which means it will ask for a review on next launch.
-# The installer has no TOML parser (jq only), so this matches the
-# [hooks.state."..."] tables Codex writes; a hand-edited config with unusual
-# quoting can only make status suggest an extra review, never hide a problem.
+# Codex keys trust records "<config path>:<event>:<group>:<hook>"; Weave Router
+# always installs a Stop hook in this config, so only a trusted Stop record for
+# this file counts. The installer has no TOML parser (jq only); unusual quoting
+# can only make status suggest an extra review.
 codex_hooks_trusted() {
-  awk '
-    /^[[:space:]]*\[/ { in_state = ($0 ~ /^[[:space:]]*\[hooks\.state\./) }
+  awk -v want="[hooks.state.\"$codex_config_file:stop:" '
+    /^[[:space:]]*\[/ { in_state = (index($0, want) > 0) }
     in_state && /^[[:space:]]*trusted_hash[[:space:]]*=/ { found = 1 }
     END { exit(found ? 0 : 1) }
   ' "$codex_config_file" 2>/dev/null
@@ -3828,11 +3834,11 @@ file_mtime() {
   stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null
 }
 
-# newest_file prints the newest regular file matched by the glob in $1. The
-# pattern is expanded here, unquoted, so callers pass it as a quoted string.
+# newest_file prints the newest regular file in directory $1 whose name ends in
+# $2. The directory stays quoted so a cache path with spaces still matches.
 newest_file() {
   local file newest="" newest_time=0 file_time
-  for file in $1; do
+  for file in "$1"/*"$2"; do
     [ -f "$file" ] || continue
     file_time="$(file_mtime "$file")" || continue
     if [ "$file_time" -gt "$newest_time" ]; then
@@ -3856,14 +3862,21 @@ last_routed_turn() {
   local cache="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router" file detail=""
   case "$1" in
     claude)
-      file="$(newest_file "$cache/claude-status/*.line")" || return 1
+      file="$(newest_file "$cache/claude-status" .line)" || return 1
       detail="$(head -c 512 "$file" | head -n 1)"
       detail="${detail#WEAVE ROUTER · }"
       ;;
     codex)
-      file="$(newest_file "$cache/codex/*.state")" || return 1
+      # Codex rewrites the state on command-only replies too, so its mtime is
+      # when the session last updated, not proof of a routed turn.
+      file="$(newest_file "$cache/codex" .state)" || return 1
       detail="$(sed -n 's/^routed_model=//p' "$file" | head -n 1)"
-      [ -z "$detail" ] || detail="served $detail"
+      if [ -n "$detail" ]; then
+        printf 'served %s (session updated %s)' "$detail" "$(time_ago "$(file_mtime "$file")")"
+      else
+        printf 'unknown; a session updated %s without recording the served model' "$(time_ago "$(file_mtime "$file")")"
+      fi
+      return 0
       ;;
   esac
   printf '%s%s' "$(time_ago "$(file_mtime "$file")")" "${detail:+ ($detail)}"
@@ -3899,17 +3912,26 @@ run_router_status() {
 
   printf '%sWeave Router status%s %s(%s scope; saved settings, not a running session)%s\n' \
     "$C_BOLD" "$C_RESET" "$C_DIM" "$scope" "$C_RESET"
-  printf '  Router   %s\n' "$base_url"
-  if models_api GET "/validate"; then
+  if [ -z "$base_url" ]; then
+    printf '  Router   not set up for Claude Code or Codex\n'
+  elif [ -z "$api_key" ]; then
+    printf '  Router   %s\n' "$base_url"
+    printf '  Key      none saved\n'
+    status_problem "No router key is saved for this router." "$npx update --$target$scope_flags"
+  elif models_api GET "/validate"; then
+    printf '  Router   %s\n' "$base_url"
     key_ok="true"
     printf '  Key      %s accepted (inference not checked)\n' "$redacted_key"
   elif [ "$models_http_status" = "401" ] || [ "$models_http_status" = "403" ]; then
+    printf '  Router   %s\n' "$base_url"
     printf '  Key      %s rejected\n' "$redacted_key"
     status_problem "The router rejected this key." "$npx --$target$scope_flags --rotate-key"
   elif [ -z "$models_http_status" ] || [ "$models_http_status" = "000" ]; then
+    printf '  Router   %s\n' "$base_url"
     printf '  Key      %s not checked\n' "$redacted_key"
     status_problem "Could not reach $base_url." "check your network, or pass --base-url if the router moved"
   else
+    printf '  Router   %s\n' "$base_url"
     printf '  Key      %s not checked\n' "$redacted_key"
     status_problem "The router answered HTTP $models_http_status; try again in a minute."
   fi
@@ -3981,7 +4003,9 @@ run_router_status() {
       ;;
   esac
 
-  if models_api GET "/v1/subscriptions/accounts"; then
+  if [ -z "$api_key" ]; then
+    :
+  elif models_api GET "/v1/subscriptions/accounts"; then
     printf '\n'
     if [ "$(printf '%s' "$models_http_body" | jq 'length')" -eq 0 ]; then
       printf '  Subscriptions  none enrolled %s(%s login claude | login codex)%s\n' "$C_DIM" "$npx" "$C_RESET"
@@ -4038,6 +4062,13 @@ if [ "$mode" = "models" ] || [ "$mode" = "accounts" ] || [ "$mode" = "login" ] |
     if [ -z "$models_base" ] && { [ "$mode" = "accounts" ] || [ "$mode" = "status" ] || [ "$models_auto_target" = "true" ]; } && [ "$target" = "claude" ]; then
       target="codex"
       models_base="$(resolve_installed_endpoint)"
+    fi
+    # status reports a missing install as a per-tool row instead of failing.
+    if [ -z "$models_base" ] && [ "$mode" = "status" ]; then
+      base_url=""
+      api_key=""
+      run_router_status
+      exit 0
     fi
     if [ -z "$models_base" ] && [ "$models_auto_target" = "true" ]; then
       err "Weave Router is not installed for Claude Code or Codex in the $scope scope."
@@ -4103,6 +4134,26 @@ if [ "$mode" = "models" ] || [ "$mode" = "accounts" ] || [ "$mode" = "login" ] |
     target="$login_target"
   fi
 
+  # A Claude install that lost its key must not hide a working Codex install
+  # from status: check Codex's own endpoint+key pair instead, and leave the
+  # Claude row to report the missing key.
+  if [ "$mode" = "status" ] && [ -z "$api_key" ] && [ "$target" = "claude" ] && [ "$base_url_explicit" != "true" ]; then
+    target="codex"
+    status_codex_base="$(resolve_installed_endpoint)"
+    status_codex_key="$(read_installed_key)"
+    if [ -n "$status_codex_base" ] && [ -n "$status_codex_key" ]; then
+      base_url="$status_codex_base"
+      api_key="$status_codex_key"
+      models_base_source="$(models_config_file_for_target)"
+      models_key_source="$models_base_source"
+    else
+      target="claude"
+    fi
+  fi
+  if [ -z "$api_key" ] && [ "$mode" = "status" ]; then
+    run_router_status
+    exit 0
+  fi
   if [ -z "$api_key" ]; then
     err "No router key found for $target in this scope. Re-run 'npx $npm_package_name --$target', or export WEAVE_ROUTER_KEY."
     exit 1

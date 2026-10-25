@@ -168,5 +168,35 @@ assert_not_contains 'proxy credentials do not prompt a reinstall' "$status_outpu
 assert_not_contains 'status output redacts proxy credentials' "$status_output" 'proxy_synthetic_status_1234'
 assert_not_contains 'status never performs inference' "$(cat "$REQUEST_LOG")" '/v1/messages'
 assert_not_contains 'status never mutates router state' "$(cat "$REQUEST_LOG")" 'POST '
+
+mixed_root="$work/mixed"
+mkdir -p "$mixed_root/.claude" "$mixed_root/.codex"
+printf '%s\n' '{"env":{"ANTHROPIC_BASE_URL":"https://router.example.test"}}' >"$mixed_root/.claude/settings.json"
+cat >"$mixed_root/.codex/config.toml" <<'TOML'
+model_provider = "weave"
+
+[model_providers.weave]
+base_url = "https://router.example.test"
+name = "Weave Router"
+wire_api = "responses"
+
+[model_providers.weave.http_headers]
+X-Weave-Router-Key = "rk_synthetic_status_1234"
+TOML
+status_rc=0
+status_output="$(bash "$installer" status --dir "$mixed_root" --quiet --non-interactive 2>&1)" || status_rc=$?
+assert_contains 'Claude without a key still gets its own row' "$status_output" 'Claude Code  router key missing'
+assert_contains 'a keyless Claude does not hide a working Codex' "$status_output" 'Codex        on'
+assert_contains 'status checks the Codex key when Claude has none' "$status_output" 'accepted'
+assert_contains 'keyless Claude status exits 0' "$status_rc" '0'
+
+empty_root="$work/empty"
+mkdir -p "$empty_root"
+status_rc=0
+status_output="$(bash "$installer" status --dir "$empty_root" --quiet --non-interactive 2>&1)" || status_rc=$?
+assert_contains 'empty install reports no router' "$status_output" 'Router   not set up'
+assert_contains 'empty install lists Claude with its install command' "$status_output" 'Claude Code  not set up'
+assert_contains 'empty install lists Codex with its install command' "$status_output" 'Codex        not set up'
+assert_contains 'empty install status exits 0' "$status_rc" '0'
 printf '\nFailures: %s\n' "$failures"
 [ "$failures" -eq 0 ]
