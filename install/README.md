@@ -477,6 +477,7 @@ instant. These never prompt for a key and require an explicit client:
 ```bash
 npx @weave-os/router off --claude       # route Claude Code directly to Anthropic
 npx @weave-os/router on --claude        # route Claude Code through the router again
+npx @weave-os/router status             # every tool: on/off, key check, signed in, last routed turn, fixes
 npx @weave-os/router status --codex     # report whether Codex is on the router or direct
 npx @weave-os/router disable-routing    # switch Codex back to its default provider
 npx @weave-os/router off --opencode --scope project   # project-scoped opencode
@@ -558,7 +559,8 @@ install talks to its own router with its own key, and the key is never passed
 as a command-line argument.
 
 ```bash
-npx @weave-os/router models --claude                          # every model, with its on/off state
+npx @weave-os/router models                                   # every model, for whichever client is installed
+npx @weave-os/router models --claude                          # same, for the Claude Code install
 npx @weave-os/router models --codex                           # same, for a Codex install
 npx @weave-os/router models disable gpt-5.6 --claude          # take a model out of rotation
 npx @weave-os/router models enable gpt-5.6 --claude           # put it back

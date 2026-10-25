@@ -528,8 +528,12 @@ check "models rejects an unsupported client" "$rc" "2"
 contains "models says which clients it supports" "$out" "supports --claude and --codex only"
 
 HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" models </dev/null >"$work/out" 2>&1
-check "models without a client flag is refused" "$?" "2"
-contains "models without a client flag names its clients" "$(cat "$work/out")" "requires an explicit client"
+check "models without a client flag uses the installed client" "$?" "0"
+contains "models without a client flag lists the installation's models" "$(cat "$work/out")" "Weave Router models"
+
+HOME="$work/empty-home" PATH="$test_path" NO_COLOR=1 bash "$installer" models </dev/null >"$work/out" 2>&1
+check "models without any install is refused" "$?" "1"
+contains "models without any install says how to install" "$(cat "$work/out")" "not installed for Claude Code or Codex"
 
 run_models "$home" -- enable --claude
 check "enable with no model id is refused" "$rc" "2"

@@ -434,17 +434,20 @@ grep -Fq '[projects."/Users/a/Code/weave"]' "$config" \
 seed_codex_normalized_config
 router_status="$(HOME="$home" PATH="$test_path" NO_COLOR=1 \
   bash "$installer" status --scope user 2>&1 || true)"
-printf '%s' "$router_status" | grep -q 'Codex: points at Router' \
+printf '%s' "$router_status" | grep -q 'Codex        on' \
   || fail "status did not detect a Codex install whose markers Codex had dropped"
+if printf '%s' "$router_status" | grep -q "Couldn't read Codex's router endpoint"; then
+  fail "status could not read the endpoint of a Codex install whose markers Codex had dropped"
+fi
 
 # `off` comments out model_provider but keeps the provider table, so status
 # must report the toggle state rather than the table's endpoint.
 HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" off --codex --scope user >/dev/null 2>&1
 router_status="$(HOME="$home" PATH="$test_path" NO_COLOR=1 \
   bash "$installer" status --codex --scope user 2>&1 || true)"
-printf '%s' "$router_status" | grep -q 'Codex: points at Router' \
+printf '%s' "$router_status" | grep -q 'Codex        on' \
   && fail "status reported Codex on the router after off --codex"
-printf '%s' "$router_status" | grep -q 'Codex: off' \
+printf '%s' "$router_status" | grep -q 'Codex        off' \
   || fail "status did not report Codex as off after off --codex"
 HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" on --codex --scope user >/dev/null 2>&1
 

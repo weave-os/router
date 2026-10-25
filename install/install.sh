@@ -90,7 +90,8 @@
 # the same lists the router dashboard's settings page renders. The endpoint and
 # router key both come from the install already on disk, so nothing is prompted
 # and no key is ever passed on the command line:
-#   npx @weave-os/router models --claude                            # every model, with its on/off state
+#   npx @weave-os/router models                                     # every model, for the installed client
+#   npx @weave-os/router models --claude                            # same, for one client
 #   npx @weave-os/router models disable gpt-5.6 --claude            # take a model out of rotation
 #   npx @weave-os/router models enable gpt-5.6 --claude             # put it back
 #   npx @weave-os/router models providers --claude                  # same, one row per provider
@@ -157,6 +158,7 @@ setup_codex="false"
 # `set -u` would not. --json switches the output to the raw API payload.
 models_args=""
 models_json="false"
+models_auto_target="false"
 
 # --lsp <langs>: comma-separated languages whose language servers to install
 # for the pi extension's `lsp` tool (pi target only). Empty = don't install any.
@@ -377,13 +379,37 @@ spin() {
   fi
 }
 
+# usage is the short, task-grouped help. The comment block at the top of this
+# file is the full reference.
 usage() {
-  # Print the leading comment block (lines 2..just-before `set -euo`), stripping
-  # the leading `# `. awk avoids GNU `head -n -<N>`, which BSD head on macOS
-  # rejects with "illegal line count -- -N". Banner sits above so `--help`
-  # gets the same wordmark as a fresh install run.
   print_banner
-  awk 'NR<2 { next } /^set -euo/ { exit } { sub(/^# ?/, ""); print }' "$0"
+  local npx="npx $npm_package_name"
+  cat <<USAGE
+Set up
+  $npx                          open the setup page to get a key
+  $npx --claude | --codex       install for Claude Code or Codex
+  $npx setup --claude --codex   install for both (one key prompt)
+  $npx --opencode | --pi        install for opencode or pi
+
+Every day
+  $npx status                   is each tool routed, signed in, working?
+  $npx off --claude             go direct to Anthropic (on --claude to undo)
+  $npx models                   which models the router can pick
+  $npx update --claude          refresh an install without prompting
+
+Accounts
+  $npx login claude | codex     use your Claude or ChatGPT subscription
+  $npx accounts list            show enrolled subscriptions
+
+Options
+  --scope project | --dir <path>   install for a repo or a throwaway dir
+  --base-url <url> | --local       self-hosted or local router
+  --rotate-key                     replace the saved key
+  --no-attribution                 don't credit Weave Router in commits
+  --uninstall                      remove the router from every tool
+
+Full reference: https://github.com/weave-os/router/blob/main/install/README.md
+USAGE
   exit "${1:-0}"
 }
 
@@ -1756,6 +1782,11 @@ if [ "$mode" = "login" ]; then
     claude|codex) target="$login_provider"; target_explicit="true" ;;
   esac
 elif [ "$mode" = "accounts" ] || [ "$mode" = "status" ]; then
+  target_explicit="true"
+elif [ "$mode" = "models" ] && [ "$target_explicit" != "true" ]; then
+  # Model selection belongs to the installation, not the client, so any
+  # installed client's endpoint and key will do: Claude Code, then Codex.
+  models_auto_target="true"
   target_explicit="true"
 fi
 
@@ -3227,11 +3258,21 @@ models_fail() {
         "$C_DIM" "$C_RESET" >&2
       ;;
     *)
-      if [ -n "$detail" ]; then
-        err "$what failed (HTTP $models_http_status): $detail"
-      else
-        err "$what failed (HTTP $models_http_status)."
-      fi
+      case "$detail" in
+        subscription_owner_unavailable|subscription_accounts_unavailable|subscription_account_update_failed|subscription_account_delete_failed)
+          err "The router couldn't finish ${what} just now. Nothing changed; try again in a minute." ;;
+        subscription_account_not_found)
+          err "No enrolled account has that id. Run 'npx $npm_package_name accounts list' to see the ids." ;;
+        subscription_account_rejected)
+          err "The router didn't accept that sign-in. Run 'npx $npm_package_name login claude' or 'login codex' again." ;;
+        "")
+          case "$models_http_status" in
+            5*) err "The router had a problem with ${what} (HTTP $models_http_status). Try again in a minute; 'npx $npm_package_name status' shows whether it's reachable." ;;
+            *)  err "$what failed (HTTP $models_http_status)." ;;
+          esac
+          ;;
+        *) err "$what failed (HTTP $models_http_status): $detail" ;;
+      esac
       ;;
   esac
   exit 1
@@ -3300,6 +3341,7 @@ models_list_catalog() {
     return 0
   fi
   printf "%s%sWeave Router %s%s %s· %s%s\n" "$C_BOLD" "$C_BRAND" "$what" "$C_RESET" "$C_DIM" "$base_url" "$C_RESET"
+  printf "Your organization picks which of these are on in the Weave dashboard: %s%s%s\n" "$C_BOLD" "$MODELS_DASHBOARD_URL" "$C_RESET"
   printf "%severything this router can route to%s\n\n" "$C_DIM" "$C_RESET"
   if [ "$what" = "providers" ]; then
     printf '%s' "$models_http_body" | jq -r '[.models[].provider] | unique[] | "  " + .'
@@ -3310,9 +3352,7 @@ models_list_catalog() {
         (.[] | "  " + .model)
     '
   fi
-  printf "\n%sThis router does not report which of them your installation has enabled:%s\n" "$C_DIM" "$C_RESET"
-  printf "%sselection is an organization-wide setting here. See it, and change it, at%s\n" "$C_DIM" "$C_RESET"
-  printf "%s%s%s\n" "$C_DIM" "$MODELS_DASHBOARD_URL" "$C_RESET"
+  printf "\n%sThis list is everything the router supports, not what your organization has turned on.%s\n" "$C_DIM" "$C_RESET"
 }
 
 models_list() {
@@ -3714,47 +3754,243 @@ run_login() {
   esac
 }
 
+# capture_bounded prints the stdout of "$@", giving up after $1 seconds so a
+# stuck client CLI cannot hang the installer. Output goes through a file, not a
+# pipe, so a descendant that keeps stdout open cannot block the caller.
+capture_bounded() {
+  local seconds="$1"; shift
+  local out_file status=0
+  out_file="$(mktemp -t weave-capture.XXXXXX)" || return 1
+  "$@" </dev/null >"$out_file" 2>/dev/null &
+  local pid=$!
+  ( sleep "$seconds"; kill "$pid" 2>/dev/null; sleep 1; kill -9 "$pid" 2>/dev/null ) >/dev/null 2>&1 &
+  local watcher=$!
+  wait "$pid" || status=$?
+  kill "$watcher" 2>/dev/null || true
+  cat "$out_file"
+  rm -f "$out_file"
+  return "$status"
+}
+
+claude_login_missing() {
+  command -v claude >/dev/null 2>&1 || return 1
+  local auth_status
+  auth_status="$(capture_bounded 10 claude auth status --json || true)"
+  printf '%s' "$auth_status" | jq -e '.loggedIn == false' >/dev/null 2>&1
+}
+
+codex_login_missing() {
+  command -v codex >/dev/null 2>&1 || return 1
+  local login_status
+  login_status="$(capture_bounded 10 env CODEX_HOME="$codex_dir" sh -c 'codex login status 2>&1' || true)"
+  grep -q '^Not logged in' <<<"$login_status"
+}
+
+# claude_routing_state prints "on <endpoint>", "nokey <endpoint>", "off" or
+# "absent" for this scope's saved Claude Code settings. In project scope the
+# gitignored settings.local.json overrides the committed file.
+claude_routing_state() {
+  local effective_base key_settings_file="$settings_file"
+  effective_base="$(json_get "$settings_file" '.env.ANTHROPIC_BASE_URL')"
+  if [ "$scope" = "project" ] && [ -f "$local_settings_file" ]; then
+    if jq -e '.env | has("ANTHROPIC_BASE_URL")' "$local_settings_file" >/dev/null 2>&1; then
+      effective_base="$(json_get "$local_settings_file" '.env.ANTHROPIC_BASE_URL')"
+    fi
+    if jq -e '.env | has("ANTHROPIC_CUSTOM_HEADERS")' "$local_settings_file" >/dev/null 2>&1; then
+      key_settings_file="$local_settings_file"
+    fi
+  fi
+  if router_shaped_url "$effective_base" && claude_key_present "$key_settings_file"; then
+    printf 'on %s\n' "$effective_base"
+  elif router_shaped_url "$effective_base"; then
+    printf 'nokey %s\n' "$effective_base"
+  elif [ -f "$settings_dir/.weave-parked.json" ] || [ -n "$effective_base" ]; then
+    printf 'off\n'
+  else
+    printf 'absent\n'
+  fi
+}
+
+# codex_hooks_trusted fails when Codex has not recorded a trust hash for any
+# hook in this config yet, which means it will ask for a review on next launch.
+codex_hooks_trusted() {
+  awk '
+    /^[[:space:]]*\[/ { in_state = ($0 ~ /^[[:space:]]*\[hooks\.state\./) }
+    in_state && /^[[:space:]]*trusted_hash[[:space:]]*=/ { found = 1 }
+    END { exit(found ? 0 : 1) }
+  ' "$codex_config_file" 2>/dev/null
+}
+
+file_mtime() {
+  stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null
+}
+
+# newest_file prints the most recently modified file matching the glob in $1.
+newest_file() {
+  local file newest="" newest_time=0 file_time
+  for file in $1; do
+    [ -f "$file" ] || continue
+    file_time="$(file_mtime "$file")" || continue
+    if [ "${file_time:-0}" -gt "$newest_time" ]; then
+      newest="$file"; newest_time="$file_time"
+    fi
+  done
+  [ -n "$newest" ] && printf '%s\n' "$newest"
+}
+
+time_ago() {
+  local seconds=$(( $(date +%s) - $1 ))
+  if [ "$seconds" -lt 60 ]; then printf 'just now'
+  elif [ "$seconds" -lt 3600 ]; then printf '%sm ago' "$((seconds / 60))"
+  elif [ "$seconds" -lt 86400 ]; then printf '%sh ago' "$((seconds / 3600))"
+  else printf '%sd ago' "$((seconds / 86400))"
+  fi
+}
+
+# last_routed_turn summarizes the newest turn a client's status hook recorded.
+last_routed_turn() {
+  local cache="${XDG_CACHE_HOME:-$HOME/.cache}/weave-router" file detail=""
+  case "$1" in
+    claude)
+      file="$(newest_file "$cache/claude-status/*.line")" || return 1
+      detail="$(head -c 512 "$file" | head -n 1)"
+      detail="${detail#WEAVE ROUTER · }"
+      ;;
+    codex)
+      file="$(newest_file "$cache/codex/*.state")" || return 1
+      detail="$(sed -n 's/^routed_model=//p' "$file" | head -n 1)"
+      [ -z "$detail" ] || detail="served $detail"
+      ;;
+  esac
+  printf '%s%s' "$(time_ago "$(file_mtime "$file")")" "${detail:+ ($detail)}"
+}
+
+status_problem() {
+  printf '    %s!%s %s\n' "$C_YELLOW" "$C_RESET" "$1"
+  [ -z "${2:-}" ] || printf '      %sfix:%s %s\n' "$C_DIM" "$C_RESET" "$2"
+}
+
+# run_router_status prints one block per client configured in this scope, each
+# problem followed by the command that fixes it. It describes saved config, not
+# a running session.
 run_router_status() {
-  local saved_target codex_endpoint redacted_key
-  saved_target="$target"
+  local npx="npx $npm_package_name" scope_flags="" redacted_key key_ok="false"
+  local claude_state claude_endpoint codex_state codex_endpoint last
+  if [ -n "$install_dir" ]; then
+    scope_flags=" --dir $(printf '%q' "$install_dir")"
+  elif [ "$scope" = "project" ]; then
+    scope_flags=" --scope project"
+  fi
   settings_dir="$settings_base/.claude"
   settings_file="$settings_dir/settings.json"
-  if [ "$scope" = "project" ]; then
-    local_settings_file="$settings_dir/settings.local.json"
-  else
-    local_settings_file=""
-  fi
-  codex_config_file="$settings_base/.codex/config.toml"
-  target="codex"; codex_endpoint="$(resolve_installed_endpoint)"
-  target="$saved_target"
+  local_settings_file=""
+  [ "$scope" != "project" ] || local_settings_file="$settings_dir/settings.local.json"
+  codex_dir="$settings_base/.codex"
+  codex_config_file="$codex_dir/config.toml"
   if [ "${#api_key}" -gt 8 ]; then
     redacted_key="${api_key:0:3}…${api_key: -4}"
   else
     redacted_key="redacted"
   fi
-  printf 'Router: %s\nIdentity: %s\n' "$base_url" "$redacted_key"
+
+  printf '%sWeave Router status%s %s(%s scope; saved settings, not a running session)%s\n' \
+    "$C_BOLD" "$C_RESET" "$C_DIM" "$scope" "$C_RESET"
+  printf '  Router   %s\n' "$base_url"
   if models_api GET "/validate"; then
-    printf 'Connectivity: connected (API key accepted; inference not verified)\n'
+    key_ok="true"
+    printf '  Key      %s accepted (inference not checked)\n' "$redacted_key"
+  elif [ "$models_http_status" = "401" ] || [ "$models_http_status" = "403" ]; then
+    printf '  Key      %s rejected\n' "$redacted_key"
+    status_problem "The router rejected this key." "$npx --$target$scope_flags --rotate-key"
+  elif [ -z "$models_http_status" ] || [ "$models_http_status" = "000" ]; then
+    printf '  Key      %s not checked\n' "$redacted_key"
+    status_problem "Could not reach $base_url." "check your network, or pass --base-url if the router moved"
   else
-    printf 'Connectivity: unavailable (HTTP %s)\n' "${models_http_status:-network error}"
+    printf '  Key      %s not checked\n' "$redacted_key"
+    status_problem "The router answered HTTP $models_http_status; try again in a minute."
   fi
-  printf 'Claude Code settings: %s (scope: %s)\n' "$settings_dir" "$scope"
-  # Administrative lookup includes parked credentials; routing status must not.
-  toggle_claude
-  printf 'Status describes this scope only, not a running session; other scopes or runtime overrides may differ. Restart Claude Code after on/off changes.\n'
-  printf 'Codex: %s\n' "$(if [ "$(codex_routing_state)" = "off" ]; then printf "off (default provider). Run 'on --codex' to re-enable."; elif [ "${codex_endpoint%/}" = "${base_url%/}" ]; then printf 'points at Router'; elif [ -n "$codex_endpoint" ]; then printf 'different endpoint (%s)' "$codex_endpoint"; else printf 'not configured'; fi)"
+
+  printf '\n'
+  target="claude"
+  claude_state="$(claude_routing_state)"
+  claude_endpoint="${claude_state#* }"
+  case "$claude_state" in
+    on\ *)
+      printf '  %sClaude Code%s  on %s(%s)%s\n' "$C_BOLD" "$C_RESET" "$C_DIM" "$settings_dir" "$C_RESET"
+      [ "${claude_endpoint%/}" = "${base_url%/}" ] \
+        || status_problem "Uses a different router ($claude_endpoint) than the key check above." "$npx status --claude$scope_flags"
+      if ! command -v claude >/dev/null 2>&1; then
+        status_problem "The claude command isn't on PATH." "install Claude Code: https://docs.claude.com/en/docs/claude-code"
+      elif claude_login_missing; then
+        status_problem "Claude Code isn't signed in." "run claude and type /login"
+      fi
+      if last="$(last_routed_turn claude)"; then
+        printf '    last routed turn %s\n' "$last"
+      else
+        printf '    no routed turn yet\n'
+      fi
+      ;;
+    nokey\ *)
+      printf '  %sClaude Code%s  router key missing %s(%s)%s\n' "$C_BOLD" "$C_RESET" "$C_DIM" "$settings_dir" "$C_RESET"
+      status_problem "The router key header is missing from active settings for $claude_endpoint — Weave-key authentication is not configured; other authentication methods are not checked." "$npx update --claude$scope_flags"
+      ;;
+    off)
+      printf '  %sClaude Code%s  off, talks to Anthropic directly %s(%s)%s\n' "$C_BOLD" "$C_RESET" "$C_DIM" "$settings_dir" "$C_RESET"
+      printf '      %sturn on:%s %s on --claude%s\n' "$C_DIM" "$C_RESET" "$npx" "$scope_flags"
+      ;;
+    *)
+      printf '  %sClaude Code%s  not set up %s(add it: %s --claude%s)%s\n' "$C_BOLD" "$C_RESET" "$C_DIM" "$npx" "$scope_flags" "$C_RESET"
+      ;;
+  esac
+
+  target="codex"
+  codex_state="$(codex_routing_state)"
+  codex_endpoint="$(resolve_installed_endpoint)"
+  case "$codex_state" in
+    on)
+      printf '  %sCodex%s        on\n' "$C_BOLD" "$C_RESET"
+      if [ -z "$codex_endpoint" ]; then
+        status_problem "Couldn't read Codex's router endpoint from $codex_config_file." "$npx update --codex$scope_flags"
+      elif [ "${codex_endpoint%/}" != "${base_url%/}" ]; then
+        status_problem "Uses a different router ($codex_endpoint) than the key check above." "$npx status --codex$scope_flags"
+      fi
+      if ! command -v codex >/dev/null 2>&1; then
+        status_problem "The codex command isn't on PATH." "npm install -g @openai/codex"
+      elif codex_login_missing; then
+        status_problem "Codex isn't signed in." "codex login"
+      fi
+      if grep -q 'codex-status' "$codex_config_file" 2>/dev/null && ! codex_hooks_trusted; then
+        status_problem "Codex hasn't trusted Weave Router's hooks yet, so the routed-model title and \$router-on / \$router-off don't run." "start codex and choose Trust all when it asks to review hooks"
+      fi
+      if last="$(last_routed_turn codex)"; then
+        printf '    last routed turn %s\n' "$last"
+      else
+        printf '    no routed turn yet\n'
+      fi
+      ;;
+    off)
+      printf "  %sCodex%s        off (uses Codex's default provider)\n" "$C_BOLD" "$C_RESET"
+      printf '      %sturn on:%s %s on --codex%s\n' "$C_DIM" "$C_RESET" "$npx" "$scope_flags"
+      ;;
+    *)
+      printf '  %sCodex%s        not set up %s(add it: %s --codex%s)%s\n' "$C_BOLD" "$C_RESET" "$C_DIM" "$npx" "$scope_flags" "$C_RESET"
+      ;;
+  esac
+
   if models_api GET "/v1/subscriptions/accounts"; then
-    printf 'Subscription accounts:\n'
+    printf '\n'
     if [ "$(printf '%s' "$models_http_body" | jq 'length')" -eq 0 ]; then
-      printf '  none enrolled\n'
+      printf '  Subscriptions  none enrolled %s(%s login claude | login codex)%s\n' "$C_DIM" "$npx" "$C_RESET"
     else
-      printf '%s\n' "$models_http_body" | jq -r '.[] | "  " + .provider + "  " + .external_account_id + (if (.display_name // "") != "" then "  [" + .display_name + "]" else "" end) + "  " + (if .enabled then "enabled" else "disabled" end) + (if .cooldown_until then "  cooldown until " + .cooldown_until else "  ready" end)'
+      printf '  Subscriptions\n'
+      printf '%s\n' "$models_http_body" | jq -r '.[] | "    " + .provider + "  " + .external_account_id + (if (.display_name // "") != "" then "  [" + .display_name + "]" else "" end) + "  " + (if .enabled then "enabled" else "disabled" end) + (if .cooldown_until then "  cooldown until " + .cooldown_until else "  ready" end)'
     fi
   elif [ "$models_http_status" = "404" ]; then
-    printf 'Subscription accounts: server-side pools disabled\n'
-  else
-    printf 'Subscription accounts: unavailable (HTTP %s)\n' "${models_http_status:-network error}"
+    printf '\n  Subscriptions  not offered by this router\n'
+  elif [ "$key_ok" = "true" ]; then
+    printf "\n  Subscriptions  couldn't load them just now (HTTP %s)\n" "${models_http_status:-network error}"
   fi
+  printf '\n%sRestart Claude Code after on/off; Codex picks changes up on its next run.%s\n' "$C_DIM" "$C_RESET"
 }
 
 if [ "$mode" = "models" ] || [ "$mode" = "accounts" ] || [ "$mode" = "login" ] || [ "$mode" = "status" ]; then
@@ -3795,9 +4031,14 @@ if [ "$mode" = "models" ] || [ "$mode" = "accounts" ] || [ "$mode" = "login" ] |
   fi
   if [ "$base_url_explicit" != "true" ]; then
     models_base="$(resolve_installed_endpoint)"
-    if [ -z "$models_base" ] && { [ "$mode" = "accounts" ] || [ "$mode" = "status" ]; } && [ "$target" = "claude" ]; then
+    if [ -z "$models_base" ] && { [ "$mode" = "accounts" ] || [ "$mode" = "status" ] || [ "$models_auto_target" = "true" ]; } && [ "$target" = "claude" ]; then
       target="codex"
       models_base="$(resolve_installed_endpoint)"
+    fi
+    if [ -z "$models_base" ] && [ "$models_auto_target" = "true" ]; then
+      err "Weave Router is not installed for Claude Code or Codex in the $scope scope."
+      printf "  Run 'npx %s --claude' or 'npx %s --codex' first, then retry. For an existing custom router, pass --base-url <url>.\n" "$npm_package_name" "$npm_package_name" >&2
+      exit 1
     fi
     if [ -z "$models_base" ]; then
       err "Weave Router is not installed for $target in the $scope scope."
@@ -4458,37 +4699,8 @@ write_setup_handoff() {
   printf '%s\n%s\n' "$shared_key" "$user_email" >"$WEAVE_SETUP_HANDOFF_FILE"
 }
 
-# capture_bounded prints the stdout of "$@", giving up after $1 seconds so a
-# stuck client CLI cannot hang the installer. Output goes through a file, not a
-# pipe, so a descendant that keeps stdout open cannot block the caller.
-capture_bounded() {
-  local seconds="$1"; shift
-  local out_file status=0
-  out_file="$(mktemp -t weave-capture.XXXXXX)" || return 1
-  "$@" </dev/null >"$out_file" 2>/dev/null &
-  local pid=$!
-  ( sleep "$seconds"; kill "$pid" 2>/dev/null; sleep 1; kill -9 "$pid" 2>/dev/null ) >/dev/null 2>&1 &
-  local watcher=$!
-  wait "$pid" || status=$?
-  kill "$watcher" 2>/dev/null || true
-  cat "$out_file"
-  rm -f "$out_file"
-  return "$status"
-}
 
-claude_login_missing() {
-  command -v claude >/dev/null 2>&1 || return 1
-  local auth_status
-  auth_status="$(capture_bounded 10 claude auth status --json || true)"
-  printf '%s' "$auth_status" | jq -e '.loggedIn == false' >/dev/null 2>&1
-}
 
-codex_login_missing() {
-  command -v codex >/dev/null 2>&1 || return 1
-  local login_status
-  login_status="$(capture_bounded 10 env CODEX_HOME="$codex_dir" sh -c 'codex login status 2>&1' || true)"
-  grep -q '^Not logged in' <<<"$login_status"
-}
 
 # print_next_steps tells a first-time user what stands between this install and
 # their first routed prompt: the client's own login and, for Codex, the hook

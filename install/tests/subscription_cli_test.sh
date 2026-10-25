@@ -202,8 +202,8 @@ PY
 env "${common_env[@]}" python3 "$script_dir/claude_login_test.py" "$installer"
 
 status_output="$(env "${common_env[@]}" bash "$installer" status --base-url https://router.example.test --quiet)"
-grep -Fq 'Identity: rk_…cret' <<<"$status_output"
-grep -Fq 'Connectivity: connected' <<<"$status_output"
+grep -Fq 'Key      rk_…cret accepted' <<<"$status_output"
+grep -Fq 'Router   https://router.example.test' <<<"$status_output"
 grep -Fq 'codex  chatgpt-test  [Codex Org: codex@example.test]  enabled  ready' <<<"$status_output"
 grep -Fq 'Codex Org: codex@example.test' <<<"$status_output"
 if grep -Eq 'refresh-|access-' "$FAKE_CURL_LOG"; then
