@@ -3823,8 +3823,8 @@ claude_routing_state() {
 # this file counts. The installer has no TOML parser (jq only); unusual quoting
 # can only make status suggest an extra review.
 codex_hooks_trusted() {
-  awk -v want="[hooks.state.\"$codex_config_file:stop:" '
-    /^[[:space:]]*\[/ { in_state = (index($0, want) > 0) }
+  awk -v state_prefix="[hooks.state.\"$codex_config_file:stop:" '
+    /^[[:space:]]*\[/ { in_state = (index($0, state_prefix) > 0) }
     in_state && /^[[:space:]]*trusted_hash[[:space:]]*=/ { found = 1 }
     END { exit(found ? 0 : 1) }
   ' "$codex_config_file" 2>/dev/null
