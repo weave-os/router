@@ -1,7 +1,44 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { routingThread } from "../src/metadata.js";
+import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import { PROVIDER_NAME } from "../src/config.js";
+import { registerMetadata, routingThread } from "../src/metadata.js";
+
+test("routing metadata is only added to the router provider", () => {
+	const previous = { ...process.env };
+	try {
+		delete process.env.WEAVE_PI_SUBAGENT;
+		const listeners: Array<(event: { payload: unknown }, ctx: ExtensionContext) => unknown> = [];
+		const extension = {
+			on: (event: string, listener: typeof listeners[number]) => {
+				assert.equal(event, "before_provider_request");
+				listeners.push(listener);
+			},
+		} as unknown as ExtensionAPI;
+		registerMetadata(extension);
+		assert.equal(listeners.length, 1);
+		for (const provider of [PROVIDER_NAME, "anthropic", "openai", undefined]) {
+			const ctx = {
+				model: provider ? { provider } : undefined,
+				sessionManager: { getSessionId: () => "test-session" },
+			} as ExtensionContext;
+			const payload = { messages: [], metadata: { user_id: "caller-user" } };
+			assert.equal(listeners[0]({ payload }, ctx), payload);
+			assert.equal(payload.metadata.user_id, "pi:test-session");
+			if (provider === PROVIDER_NAME) {
+				assert.deepEqual((payload as { weave_routing?: unknown }).weave_routing, {
+					conversation_id: "pi:test-session",
+					thread_id: "test-session",
+					parent_thread_id: undefined,
+				});
+			} else {
+				assert.equal("weave_routing" in payload, false);
+			}
+		}
+	} finally {
+		process.env = previous;
+	}
+});
 
 test("Pi keeps root controls across resume and allocates a fresh fork thread", () => {
 	const previous = { ...process.env };

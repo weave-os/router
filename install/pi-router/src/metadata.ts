@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { isSubagent } from "./config.js";
+import { isSubagent, PROVIDER_NAME } from "./config.js";
 
 // One id per child process so all of a subagent's requests share a single pin.
 // The parent passes WEAVE_PI_SUBAGENT_ID; a standalone child falls back to a uuid.
@@ -13,7 +13,7 @@ export function registerMetadata(pi: ExtensionAPI): void {
 
 		const userId = isSubagent() ? SUBAGENT_USER_ID : `pi:${ctx.sessionManager.getSessionId()}`;
 		body.metadata = { ...(body.metadata ?? {}), user_id: userId };
-		body.weave_routing = routingThread(ctx);
+		if (ctx.model?.provider === PROVIDER_NAME) body.weave_routing = routingThread(ctx);
 		return body;
 	});
 }
