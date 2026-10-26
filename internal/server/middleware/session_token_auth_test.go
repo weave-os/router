@@ -34,6 +34,7 @@ func TestWithAuth_SessionTokenAuthenticatesAsIssuerWithDelegatedSession(t *testi
 	svc := auth.NewService(fakeInstallationRepository{}, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return now }).WithSessionTokens(true)
 
 	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, auth.SessionClaims{
+		IssuerID: "issuer-1",
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer: auth.SessionTokenIssuer, Audience: jwt.ClaimStrings{auth.SessionTokenAudience}, Subject: "session-7",
 			IssuedAt: jwt.NewNumericDate(now), ExpiresAt: jwt.NewNumericDate(now.Add(time.Hour)),

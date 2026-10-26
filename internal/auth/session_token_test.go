@@ -59,6 +59,7 @@ func newSessionIssuerFixture(t *testing.T) sessionIssuerFixture {
 
 func (f sessionIssuerFixture) claims() *auth.SessionClaims {
 	return &auth.SessionClaims{
+		IssuerID: f.apiKey.ID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Issuer:    auth.SessionTokenIssuer,
 			Audience:  jwt.ClaimStrings{auth.SessionTokenAudience},
@@ -88,7 +89,8 @@ func (f sessionIssuerFixture) service(t *testing.T, enabled bool) (*auth.Service
 	t.Helper()
 	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{f.apiKey.KeyHash: {apiKey: f.apiKey, installation: f.inst}}}
 	svc := auth.NewService(&fakeInstallationRepository{}, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return sessionClock }).
-		WithSessionTokens(enabled)
+		WithSessionTokens(enabled).
+		WithSessionSpendCaps(true)
 	return svc, repo
 }
 
@@ -182,6 +184,21 @@ func TestVerifySessionToken_RejectsInvalidTokens(t *testing.T) {
 			c.Task = strings.Repeat("t", 256)
 			return f.sign(t, c, nil)
 		},
+		"subject containing NUL": func(t *testing.T) string {
+			c := f.claims()
+			c.Subject = "session\x00id"
+			return f.sign(t, c, nil)
+		},
+		"task containing NUL": func(t *testing.T) string {
+			c := f.claims()
+			c.Task = "task\x00id"
+			return f.sign(t, c, nil)
+		},
+		"issuer registration ID mismatch": func(t *testing.T) string {
+			c := f.claims()
+			c.IssuerID = "another-issuer-generation"
+			return f.sign(t, c, nil)
+		},
 		"unknown kid": func(t *testing.T) string {
 			return f.sign(t, f.claims(), func(tok *jwt.Token) { tok.Header["kid"] = "unknown" })
 		},
@@ -252,6 +269,19 @@ func TestVerifySessionToken_DisabledRejectsValidToken(t *testing.T) {
 	require.ErrorIs(t, err, auth.ErrInvalidToken)
 }
 
+func TestVerifySessionToken_RejectsCapsWhenBillingIsUnavailable(t *testing.T) {
+	f := newSessionIssuerFixture(t)
+	svc, _ := f.service(t, true)
+	svc.WithSessionSpendCaps(false)
+	capMicros := int64(100)
+	claims := f.claims()
+	claims.Caps = &auth.SessionCaps{SessionUSDMicros: &capMicros}
+
+	_, _, _, _, _, err := svc.VerifySessionToken(context.Background(), f.sign(t, claims, nil), true)
+
+	require.ErrorIs(t, err, auth.ErrInvalidToken)
+}
+
 func TestVerifySessionToken_RevokedIssuerRejectsOutstandingTokens(t *testing.T) {
 	f := newSessionIssuerFixture(t)
 	svc, repo := f.service(t, true)
@@ -263,6 +293,13 @@ func TestVerifySessionToken_RevokedIssuerRejectsOutstandingTokens(t *testing.T) 
 
 	_, _, _, _, _, err = svc.VerifySessionToken(context.Background(), token, true)
 	require.ErrorIs(t, err, auth.ErrInvalidToken)
+
+	reissued := *f.apiKey
+	reissued.ID = "issuer-generation-2"
+	otherInstallation := &auth.Installation{ID: "another-installation", ExternalID: "another-org"}
+	repo.byHash[f.apiKey.KeyHash] = fakeKeyRow{apiKey: &reissued, installation: otherInstallation}
+	_, _, _, _, _, err = svc.VerifySessionToken(context.Background(), token, true)
+	require.ErrorIs(t, err, auth.ErrInvalidToken, "re-registering the same signing key must not revive a prior issuer's tokens")
 }
 
 func TestVerifySessionToken_RoutingKeyStoredUnderKidIsNotAnIssuer(t *testing.T) {
