@@ -789,7 +789,9 @@ func (s *Service) runTurnLoop(
 		if routeErr == nil {
 			routeErr = policyPinServed(ctx, res)
 			if routeErr == nil {
-				logAuthoritativeUpgrade(ctx, res)
+				if !conditionalForceScoring(ctx) {
+					logAuthoritativeUpgrade(ctx, res)
+				}
 			}
 		}
 	}()
@@ -851,14 +853,14 @@ func (s *Service) runTurnLoop(
 		StripThinkingBlocks: betaArtifactHistoryFromContext(ctx),
 	}
 	res.AuthoritativePerTurn = authoritativePolicyTurn(res.TurnType) &&
-		s.authoritativePerTurnSelection(ctx)
+		(s.authoritativePerTurnSelection(ctx) || conditionalForceScoring(ctx))
 	req.TaskDomain = taskDomainInput(ctx, env, apiKeyID, res.TurnType)
 	res.PinRole = roleForTier(res.RequestedTier)
 	// Resolve user-forced state before the policy's no-automatic-routing shortcut.
 	forceModelSessionKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, threadSessionKey)
 	forceModelPin := sessionpin.Pin{}
 	forceModelFound := false
-	forceModelCleared := false
+	forceModelCleared := conditionalForceScoring(ctx)
 	if req.ForceModel != "" {
 		canonicalModel, provider, known, effort := resolveForceModelWithEffort(req.ForceModel)
 		if !known {
@@ -876,8 +878,15 @@ func (s *Service) runTurnLoop(
 		}
 		forceModelFound = true
 	}
-	if !forceModelFound {
+	if !forceModelFound && !conditionalForceScoring(ctx) {
 		forceModelPin, forceModelFound, forceModelCleared = s.loadForceModelSessionPin(ctx, forceModelSessionKey, threadSessionKey, turntype.IsSubAgent(env, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))))
+	}
+	if forceModelFound && forceModelPin.Reason == translate.ReasonUserForceModelGroup {
+		if authoritativePolicyTurn(res.TurnType) {
+			return s.runConditionalForceTurn(ctx, req, res, env, feats, apiKeyID, subAgentHint, reqHeaders, threadSessionKey, forceModelPin)
+		}
+		forceModelFound, forceModelCleared = false, true
+		forceModelPin = sessionpin.Pin{}
 	}
 	if forceModelFound {
 		binding, reason := s.forcedModelBinding(ctx, forceModelPin.Model, forceModelPin.Provider)
@@ -1728,7 +1737,7 @@ func (s *Service) runTurnLoop(
 		)
 		commandContinuationFound = false
 	}
-	if commandContinuationFound && automaticPinEligible(commandContinuation, req) {
+	if commandContinuationFound && !conditionalForceScoring(ctx) && automaticPinEligible(commandContinuation, req) {
 		decision := pinDecision(commandContinuation)
 		res.Decision = decision
 		res.StickyHit = true

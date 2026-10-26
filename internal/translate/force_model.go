@@ -12,6 +12,8 @@ import (
 // immutable sticky: scorer/planner are bypassed until /unforce-model clears it.
 const ReasonUserForceModel = "user_forced"
 
+const ReasonUserForceModelGroup = "user_forced_group"
+
 // ReasonLoopEscalation marks a session pin created when the router detects a
 // tool-call loop and escalates to opus. Immutable sticky like
 // ReasonUserForceModel, so the session doesn't re-route back into the loop.

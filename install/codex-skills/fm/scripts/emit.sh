@@ -2,7 +2,7 @@
 # Alias of force-model/scripts/emit.sh
 set -euo pipefail
 if [ "$#" -eq 0 ] || [ -z "${1:-}" ]; then
-  echo "usage: emit.sh <model-id>" >&2
+  echo "usage: emit.sh <model-id> [group]" >&2
   exit 1
 fi
 printf ' /force-model %s\n' "$*"

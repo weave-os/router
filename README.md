@@ -191,7 +191,10 @@ matching the Claude Code plugin's model-to-credential dispatch.
 Codex does not load third-party slash-command files, so the installer ships
 `$force-model <model-id>` (alias `$fm <model-id>`), `$unforce-model` (alias
 `$ufm`), and `$router-feedback <text>` (alias `$rf <text>`) as native Codex
-skills. Their invocations are handled by the router directly. Re-install and
+skills. Their invocations are handled by the router directly.
+`$fm opus medium` limits the force to medium-scored turns; other groups route
+automatically. Use `$fm opus:medium` for reasoning effort instead. Every force
+replaces the previous one, and `$ufm` clears either kind of rule. Re-install and
 `--uninstall --codex` rewrite/remove only the managed block, leaving the rest
 of your Codex config untouched. Codex also gets `$router-status`,
 `$router-off`, `$router-on`, and `$router-models` as skills that call this

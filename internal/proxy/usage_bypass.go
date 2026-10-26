@@ -51,7 +51,7 @@ const (
 // it straight through on their plan would replay the failure the strike exists
 // to avoid. The set is passed separately so the two stay distinguishable.
 func (s *Service) usageBypassDecision(ctx context.Context, headers http.Header, req router.Request, sessionDemotedModels []string, turnType turntype.TurnType) (router.Decision, bool) {
-	if subscriptionStateModelsEnabled(ctx) || slices.Contains(sessionDemotedModels, req.RequestedModel) {
+	if conditionalForceScoring(ctx) || subscriptionStateModelsEnabled(ctx) || slices.Contains(sessionDemotedModels, req.RequestedModel) {
 		return router.Decision{}, false
 	}
 	// The lane serves the requested model verbatim, so a model the product
