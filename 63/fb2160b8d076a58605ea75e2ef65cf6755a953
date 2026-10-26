@@ -1,0 +1,36 @@
+internal/auth/service.go
+  s_b5ee423ff75a2d::t_a5df56cb83c245 112-113
+cmd/router/main.go
+  s_b5ee423ff75a2d::t_a331903bf62bfe 615-616
+docs/DELEGATED_SESSION_TOKENS.md
+  s_b5ee423ff75a2d::t_be0f6f15d8a027 56-58
+internal/auth/session_token_test.go
+  s_b5ee423ff75a2d::t_030aa5347ea26f 92-93,272-280
+  s_dd20e2005ebfcb::t_1cae09748dbd94 281-284
+internal/auth/session_token.go
+  s_b5ee423ff75a2d::t_2e1f73f91295c3 124-129,252-254
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "63fb2160b8d076a58605ea75e2ef65cf6755a953",
+  "prompts": {},
+  "sessions": {
+    "s_b5ee423ff75a2d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a179b2-87fe-74d0-a095-06b95be696e9",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_dd20e2005ebfcb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a179b9-fc61-7e53-96af-b4da8c743ad5",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
