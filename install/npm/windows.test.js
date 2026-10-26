@@ -73,6 +73,9 @@ test("the native installer writes each client's config and keeps existing settin
   assert.equal(claude.env.ANTHROPIC_BASE_URL, baseUrl);
   assert.match(claude.env.ANTHROPIC_CUSTOM_HEADERS, /rk_test_native_windows/);
   assert.match(claude.env.ANTHROPIC_CUSTOM_HEADERS, /X-Custom: keep/);
+  assert.match(claude.env.ANTHROPIC_CUSTOM_HEADERS, /^X-Weave-Model-Passthrough: 1$/m);
+  assert.equal(claude.model, "weave-auto");
+  assert.equal(claude.modelPicker.options[0].model, "weave-auto");
   const codexConfig = fs.readFileSync(path.join(temporaryHome, ".codex", "config.toml"), "utf8");
   assert.match(codexConfig, /model = "gpt-4.1"/);
   assert.match(codexConfig, /model_provider = "weave"/);
@@ -96,6 +99,26 @@ test("native uninstall removes the managed Claude routing variables", async () =
   assert.equal(claude.attribution.commit, "original commit");
   assert.equal(claude.attribution.custom, "keep");
   assert.equal(claude.custom, true);
+  assert.equal(claude.model, undefined);
+  assert.equal(claude.modelPicker, undefined);
+});
+
+test("Claude keeps an explicit model and offers Weave Auto once", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "weave-router-claude-model-"));
+  try {
+    const settingsPath = path.join(home, ".claude", "settings.json");
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(settingsPath, JSON.stringify({ model: "opus", modelPicker: { options: [{ model: "my-model" }] } }));
+    await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
+    await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
+    const installed = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    assert.equal(installed.model, "opus");
+    assert.deepEqual(installed.modelPicker.options.map((option) => option.model), ["weave-auto", "my-model"]);
+    await runInstallerAt(home, ["--uninstall", "--claude"]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, "utf8")).modelPicker, { options: [{ model: "my-model" }] });
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });
 
 test("native uninstall removes Codex, OpenCode, and pi router settings", async () => {

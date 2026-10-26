@@ -201,6 +201,19 @@ async function ensureProjectFilesPrivate(root, target) {
   return trackedProjectPaths;
 }
 
+// Claude Code sends a picker model ID verbatim; the router routes only
+// weave-auto and serves every other model as-is (X-Weave-Model-Passthrough).
+const claudeWeaveAutoModel = "weave-auto";
+const claudeWeaveAutoOption = { model: claudeWeaveAutoModel, label: "Weave Auto", description: "Weave picks the best model for each turn", behavesAs: "claude-opus-5-5" };
+
+function stripClaudeWeaveAuto(layer) {
+  if (layer.model === claudeWeaveAutoModel) delete layer.model;
+  if (!layer.modelPicker || typeof layer.modelPicker !== "object") return;
+  layer.modelPicker.options = (layer.modelPicker.options || []).filter((option) => option?.model !== claudeWeaveAutoModel);
+  if (!layer.modelPicker.options.length) delete layer.modelPicker.options;
+  if (!Object.keys(layer.modelPicker).length) delete layer.modelPicker;
+}
+
 function installClaude(paths, baseUrl, key, email) {
   const settings = readJson(paths.config);
   const localSettings = paths.localConfig ? readJson(paths.localConfig) : null;
@@ -213,11 +226,12 @@ function installClaude(paths, baseUrl, key, email) {
   };
   state.installedBaseUrl = baseUrl;
   const customHeaders = localSettings?.env?.ANTHROPIC_CUSTOM_HEADERS ?? settings.env?.ANTHROPIC_CUSTOM_HEADERS ?? "";
-  const previousHeaders = customHeaders.split("\n").filter((header) => !/^X-(?:Weave-Router-Key|Weave-User-Email|Weave-User-Name|App):/i.test(header));
+  const previousHeaders = customHeaders.split("\n").filter((header) => !/^X-(?:Weave-Router-Key|Weave-User-Email|Weave-User-Name|Weave-Model-Passthrough|App):/i.test(header));
   const routerHeaders = [
     `X-Weave-Router-Key: ${key}`,
     ...(email ? [`X-Weave-User-Email: ${email}`] : []),
     "X-App: claude-code",
+    "X-Weave-Model-Passthrough: 1",
   ];
   settings.env ||= {};
   settings.env.ANTHROPIC_BASE_URL = baseUrl;
@@ -229,6 +243,11 @@ function installClaude(paths, baseUrl, key, email) {
     settings.env.ANTHROPIC_CUSTOM_HEADERS = [...previousHeaders, ...routerHeaders].filter(Boolean).join("\n");
   }
   settings.env.ENABLE_TOOL_SEARCH = "true";
+  const modelSettings = localSettings || settings;
+  const modelUnset = !process.env.ANTHROPIC_MODEL && [settings, localSettings, readJson(path.join(process.env.USERPROFILE || process.env.HOME, ".claude", "settings.json"))].every((layer) => !layer || (!Object.hasOwn(layer, "model") && !layer.env?.ANTHROPIC_MODEL));
+  modelSettings.modelPicker = { ...(modelSettings.modelPicker || {}) };
+  modelSettings.modelPicker.options = [claudeWeaveAutoOption, ...(modelSettings.modelPicker.options || []).filter((option) => option?.model !== claudeWeaveAutoModel)];
+  if (modelUnset) modelSettings.model = claudeWeaveAutoModel;
   settings.attribution = { ...(settings.attribution || {}), ...claudeAttribution };
   writeJson(paths.config, settings);
   if (paths.localConfig) writeJson(paths.localConfig, localSettings);
@@ -316,8 +335,9 @@ function uninstall(paths, target) {
     if (!fs.existsSync(paths.state) && ![settings.env?.ANTHROPIC_CUSTOM_HEADERS, localSettings?.env?.ANTHROPIC_CUSTOM_HEADERS].some((headers) => /^X-Weave-Router-Key:/m.test(headers || ""))) return;
     restoreField(settings.env, "ANTHROPIC_BASE_URL", state.env?.ANTHROPIC_BASE_URL, state.installedBaseUrl || settings.env?.ANTHROPIC_BASE_URL);
     restoreField(settings.env, "ENABLE_TOOL_SEARCH", state.env?.ENABLE_TOOL_SEARCH, "true");
+    for (const layer of [settings, localSettings]) if (layer) stripClaudeWeaveAuto(layer);
     const customHeaders = (headerBlock, originalAppHeaders) => {
-      const preservedHeaders = (headerBlock || "").split("\n").filter((header) => !/^X-Weave-(?:Router-Key|User-Email|User-Name):/i.test(header) && !/^X-App:\s*claude-code\s*$/i.test(header));
+      const preservedHeaders = (headerBlock || "").split("\n").filter((header) => !/^X-Weave-(?:Router-Key|User-Email|User-Name|Model-Passthrough):/i.test(header) && !/^X-App:\s*claude-code\s*$/i.test(header));
       if (!preservedHeaders.some((header) => /^X-App:/i.test(header))) preservedHeaders.push(...(originalAppHeaders || []));
       return preservedHeaders.filter(Boolean).join("\n");
     };

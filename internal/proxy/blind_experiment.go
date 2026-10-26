@@ -55,11 +55,15 @@ const (
 	callerRoutingSourceRoutingPolicy callerRoutingSource = "routing_policy"
 	callerRoutingSourceExperiment    callerRoutingSource = "experiment"
 	callerRoutingSourceCohort        callerRoutingSource = "cohort"
+	callerRoutingSourceClientModel   callerRoutingSource = "client_model"
 )
 
 // callerRoutingState mirrors withUserSettings precedence: an explicit routing
 // policy suppresses the blind experiment, which otherwise decides the arm.
 func callerRoutingState(ctx context.Context) (passthrough bool, source callerRoutingSource) {
+	if auth.ClientModelPassthroughFrom(ctx) {
+		return true, callerRoutingSourceClientModel
+	}
 	mode := auth.RoutingPolicyFrom(ctx).Mode
 	if mode == auth.RoutingPolicyPassthrough || mode == auth.RoutingPolicyAssigned {
 		return auth.RoutingPassthroughFrom(ctx), callerRoutingSourceRoutingPolicy
@@ -130,7 +134,7 @@ func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router
 	if !found {
 		return router.Decision{}, &PassthroughModelUnknownError{
 			Model:                    req.RequestedModel,
-			RoutingPolicyPassthrough: auth.RoutingPassthroughFrom(ctx),
+			RoutingPolicyPassthrough: auth.RoutingPassthroughFrom(ctx) && !auth.ClientModelPassthroughFrom(ctx),
 		}
 	}
 

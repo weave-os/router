@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"weave-os/router/internal/api/classifier"
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -225,5 +226,41 @@ func TestRoutingModelGeminiURLOverridesBodyAndRejectsForceHeader(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestModelPassthroughHeaderServesClientSelectedModels(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		model  string
+		header string
+		want   bool
+	}{
+		{name: "selected upstream model", model: "claude-opus-5-5", header: "1", want: true},
+		{name: "automatic routing model still routes", model: string(router.ModelAutomatic), header: "1"},
+		{name: "missing model still routes", header: "1"},
+		{name: "without opt in", model: "claude-opus-5-5"},
+		{name: "other header value", model: "claude-opus-5-5", header: "true"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			engine := gin.New()
+			engine.POST("/v1/messages", middleware.WithClassifierThread(&proxy.Service{}, nil), func(c *gin.Context) {
+				require.Equal(t, tc.want, auth.ClientModelPassthroughFrom(c.Request.Context()))
+				require.Equal(t, tc.want, auth.RoutingPassthroughFrom(c.Request.Context()))
+				c.Status(http.StatusOK)
+			})
+			body := `{"messages":[{"role":"user","content":"hello"}]}`
+			if tc.model != "" {
+				body = `{"model":"` + tc.model + `","messages":[{"role":"user","content":"hello"}]}`
+			}
+			req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+			if tc.header != "" {
+				req.Header.Set(middleware.ModelPassthroughHeader, tc.header)
+			}
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, req)
+			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+		})
 	}
 }

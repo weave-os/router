@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/proxy"
@@ -15,6 +16,10 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+// ModelPassthroughHeader opts a client into serving any requested model that
+// is not a Weave routing model as-is, so only an explicit routing model routes.
+const ModelPassthroughHeader = "X-Weave-Model-Passthrough"
+
 // applyRoutingModel runs after classifier admission and reuses its parsed body.
 func applyRoutingModel(c *gin.Context, body []byte, available StrategyAvailability) bool {
 	model := router.RoutingModel(requestedModel(c, body))
@@ -23,6 +28,10 @@ func applyRoutingModel(c *gin.Context, body []byte, available StrategyAvailabili
 			observability.FromGin(c).Debug("Unknown routing model rejected")
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "unknown_routing_model"})
 			return false
+		}
+		if model != "" && c.GetHeader(ModelPassthroughHeader) == "1" {
+			c.Request = c.Request.WithContext(auth.WithClientModelPassthrough(c.Request.Context()))
+			observability.FromGin(c).Debug("Client-selected model served without routing", "model", model)
 		}
 		return true
 	}

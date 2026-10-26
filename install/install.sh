@@ -2761,6 +2761,42 @@ gitignore_add() {
   fi
 }
 
+# Claude Code sends a picker model ID verbatim; the router routes only
+# weave-auto and serves every other model as-is (X-Weave-Model-Passthrough).
+CLAUDE_WEAVE_AUTO_OPTION='{"model":"weave-auto","label":"Weave Auto","description":"Weave picks the best model for each turn","behavesAs":"claude-opus-5-5"}'
+CLAUDE_WEAVE_AUTO_ADD_JQ='.modelPicker = ((.modelPicker // {}) | .options = ([$option] + ((.options // []) | map(select(.model != "weave-auto")))))
+  | (if $set_model == "true" and (has("model") | not) then .model = "weave-auto" else . end)'
+CLAUDE_WEAVE_AUTO_STRIP_JQ='(if .model == "weave-auto" then del(.model) else . end)
+  | (if (.modelPicker | type) == "object" then
+      .modelPicker.options = ((.modelPicker.options // []) | map(select(.model != "weave-auto")))
+      | (if (.modelPicker.options | length) == 0 then del(.modelPicker.options) else . end)
+      | (if (.modelPicker | length) == 0 then del(.modelPicker) else . end)
+    else . end)'
+
+# claude_model_unset reports whether no Claude Code settings layer or
+# ANTHROPIC_MODEL selects a model, so defaulting to Weave Auto overrides nothing.
+claude_model_unset() {
+  local source
+  [ -z "${ANTHROPIC_MODEL:-}" ] || return 1
+  for source in "$@"; do
+    [ -f "$source" ] || continue
+    if jq -e 'has("model") or (.env.ANTHROPIC_MODEL // "" | length > 0)' "$source" >/dev/null 2>&1; then
+      return 1
+    fi
+  done
+  return 0
+}
+
+# apply_claude_weave_auto adds the Weave Auto picker row to $1 and, when $2 is
+# "true", selects it as the default model.
+apply_claude_weave_auto() {
+  local target="$1" set_model="$2" merged
+  [ -f "$target" ] || printf '{}\n' >"$target"
+  merged="$(jq --argjson option "$CLAUDE_WEAVE_AUTO_OPTION" --arg set_model "$set_model" "$CLAUDE_WEAVE_AUTO_ADD_JQ" "$target")"
+  printf '%s\n' "$merged" >"$target"
+  [ "$target" = "$settings_file" ] || chmod 600 "$target"
+}
+
 prepare_claude_context_window() {
   context_settings_file="$settings_file"
   if [ "$scope" = "project" ] && [ -z "$install_dir" ]; then
@@ -2893,8 +2929,8 @@ toggle_claude() {
         # base URL to Anthropic in the local file only — committed settings.json
         # is never touched, so this stays out of `git diff`.
         if [ -f "$local_settings_file" ]; then
-          jq '{env: (.env // {})}' "$local_settings_file" >"$parked"
-          merged="$(jq '.env = ((.env // {} | del(.ANTHROPIC_CUSTOM_HEADERS)) + {ANTHROPIC_BASE_URL: "https://api.anthropic.com"})' "$local_settings_file")"
+          jq '{env: (.env // {}), weave_auto_model: (.model == "weave-auto")}' "$local_settings_file" >"$parked"
+          merged="$(jq '.env = ((.env // {} | del(.ANTHROPIC_CUSTOM_HEADERS)) + {ANTHROPIC_BASE_URL: "https://api.anthropic.com"}) | '"$CLAUDE_WEAVE_AUTO_STRIP_JQ" "$local_settings_file")"
         else
           printf '{"env":{}}\n' >"$parked"
           merged='{"env":{"ANTHROPIC_BASE_URL":"https://api.anthropic.com"}}'
@@ -2905,10 +2941,10 @@ toggle_claude() {
       else
         # Park just the router-owned env keys, then strip them so Claude Code
         # falls back to its own Anthropic login.
-        jq '{env: ((.env // {}) | {ANTHROPIC_BASE_URL, ANTHROPIC_CUSTOM_HEADERS, ENABLE_TOOL_SEARCH} | with_entries(select(.value != null)))}' "$settings_file" >"$parked"
+        jq '{env: ((.env // {}) | {ANTHROPIC_BASE_URL, ANTHROPIC_CUSTOM_HEADERS, ENABLE_TOOL_SEARCH} | with_entries(select(.value != null))), weave_auto_model: (.model == "weave-auto")}' "$settings_file" >"$parked"
         chmod 600 "$parked"
         merged="$(jq '(.env // {}) |= del(.ANTHROPIC_BASE_URL, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH)
-                      | (if (.env // {} | length) == 0 then del(.env) else . end)' "$settings_file")"
+                      | (if (.env // {} | length) == 0 then del(.env) else . end) | '"$CLAUDE_WEAVE_AUTO_STRIP_JQ" "$settings_file")"
         printf '%s\n' "$merged" >"$settings_file"
       fi
       ok "Claude Code is ${C_BOLD}off${C_RESET} (direct to Anthropic). Restart Claude Code for it to take effect."
@@ -2975,6 +3011,11 @@ toggle_claude() {
       merged="$(jq --argjson p "$parked_env" '.env = (((.env // {}) | del(.ANTHROPIC_BASE_URL)) + $p)' "$active")"
       printf '%s\n' "$merged" >"$active"
       [ "$proj" = "true" ] && chmod 600 "$active"
+      if [ "$(jq -r '.weave_auto_model // false' "$parked")" = "true" ]; then
+        apply_claude_weave_auto "$active" true
+      else
+        apply_claude_weave_auto "$active" false
+      fi
       apply_claude_context_window on "$active"
       rm -f "$parked"
       ok "Claude Code is ${C_BOLD}on${C_RESET} (routing through the Weave Router). Restart Claude Code for it to take effect."
@@ -7187,7 +7228,7 @@ write_claude_settings() {
   if [ -n "$user_name" ]; then
     custom_headers="$custom_headers"$'\n'"X-Weave-User-Name: $user_name"
   fi
-  custom_headers="$custom_headers"$'\n'"X-App: claude-code"
+  custom_headers="$custom_headers"$'\n'"X-App: claude-code"$'\n'"X-Weave-Model-Passthrough: 1"
 
   # Setting ANTHROPIC_BASE_URL makes Claude Code treat us as non-first-party.
   # Force tool-search deferral to match first-party Claude Code; "auto" can inline
@@ -7278,6 +7319,11 @@ write_claude_settings() {
     chmod 600 "$local_settings_file"
     ok "Router key header written to $local_settings_file"
   fi
+  local weave_auto_default="false"
+  if claude_model_unset "$context_settings_file" "$settings_file" "$HOME/.claude/settings.json"; then
+    weave_auto_default="true"
+  fi
+  apply_claude_weave_auto "$context_settings_file" "$weave_auto_default"
   context_window_action="install"
   if [ "$mode" = "update" ] && [ ! -f "$settings_dir/.weave-parked.json" ]; then
     context_window_action="update"

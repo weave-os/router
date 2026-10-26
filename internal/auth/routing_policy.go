@@ -44,8 +44,25 @@ func RoutingPolicyFrom(ctx context.Context) RoutingPolicy {
 	return policy
 }
 
+type clientModelPassthroughContextKey struct{}
+
+// WithClientModelPassthrough records that the client explicitly selected the
+// requested upstream model, so the request keeps it instead of being routed.
+func WithClientModelPassthrough(ctx context.Context) context.Context {
+	return context.WithValue(ctx, clientModelPassthroughContextKey{}, true)
+}
+
+// ClientModelPassthroughFrom reports whether the client selected the requested model.
+func ClientModelPassthroughFrom(ctx context.Context) bool {
+	selected, _ := ctx.Value(clientModelPassthroughContextKey{}).(bool)
+	return selected
+}
+
 // RoutingPassthroughFrom reports whether this request must keep its requested model.
 func RoutingPassthroughFrom(ctx context.Context) bool {
+	if ClientModelPassthroughFrom(ctx) {
+		return true
+	}
 	policy := RoutingPolicyFrom(ctx)
 	if policy.Mode == RoutingPolicyPassthrough {
 		return true

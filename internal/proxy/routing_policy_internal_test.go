@@ -182,6 +182,9 @@ func TestCallerRoutingStateFollowsRoutingPrecedence(t *testing.T) {
 		{name: "passthrough policy suppresses experiment router on arm", ctx: func(t *testing.T) context.Context {
 			return experiment(withPolicy(t, auth.RoutingPolicyPassthrough, false), auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn})
 		}, wantPassthrough: true, wantSource: callerRoutingSourceRoutingPolicy},
+		{name: "client-selected model overrides teams assignment", ctx: func(t *testing.T) context.Context {
+			return auth.WithClientModelPassthrough(withPolicy(t, auth.RoutingPolicyAssigned, true))
+		}, wantPassthrough: true, wantSource: callerRoutingSourceClientModel},
 		{name: "inherit policy defers to experiment", ctx: func(t *testing.T) context.Context {
 			return experiment(withPolicy(t, auth.RoutingPolicyInherit, false), passthroughArm)
 		}, wantPassthrough: true, wantSource: callerRoutingSourceExperiment},
@@ -192,4 +195,39 @@ func TestCallerRoutingStateFollowsRoutingPrecedence(t *testing.T) {
 			assert.Equal(t, tc.wantSource, source)
 		})
 	}
+}
+
+func TestClientSelectedModelBypassesRoutingAndPins(t *testing.T) {
+	routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
+	service := NewService(routerSpy, nil, nil, false, nil, newStubPinStore(), false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
+	authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: auth.RoutingPolicyAssigned, assigned: true}, nil)
+	ctx, err := authService.WithRoutingPolicy(context.Background(), "installation")
+	require.NoError(t, err)
+	ctx, err = authService.WithRoutingAssignment(ctx, "installation", "user")
+	require.NoError(t, err)
+	require.False(t, auth.RoutingPassthroughFrom(ctx), "the assigned user routes unless the client selects a model")
+	ctx = auth.WithClientModelPassthrough(ctx)
+	envelope, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`))
+	require.NoError(t, err)
+	request := router.Request{RequestedModel: catalog.ModelIDClaudeSonnet46.String(), EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}}}
+
+	turn, err := service.runTurnLoop(ctx, envelope, envelope.RoutingFeatures(false), "api-key", uuid.New(), "", http.Header{}, request)
+
+	require.NoError(t, err)
+	assert.True(t, turn.CallerModelPassthrough)
+	assert.Equal(t, catalog.ModelIDClaudeSonnet46.String(), turn.Decision.Model)
+	assert.Equal(t, 0, routerSpy.routeCalls)
+}
+
+func TestClientSelectedUnknownModelIsNotAttributedToPolicy(t *testing.T) {
+	service := NewService(nil, nil, nil, false, nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
+
+	_, err := service.callerModelPassthroughDecision(auth.WithClientModelPassthrough(context.Background()), router.Request{
+		RequestedModel:   "auto",
+		EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}},
+	})
+
+	var unknown *PassthroughModelUnknownError
+	require.ErrorAs(t, err, &unknown)
+	assert.False(t, unknown.RoutingPolicyPassthrough, "the client chose the model; no admin setting would fix it")
 }

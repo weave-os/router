@@ -150,6 +150,13 @@ EOF
 target="claude"
 
 CLAUDE_STATUSLINE_MARKER="# Claude Code statusline for the Weave Router."
+# Mirrors install.sh: removes only the Weave Auto picker row and default.
+CLAUDE_WEAVE_AUTO_STRIP_JQ='(if .model == "weave-auto" then del(.model) else . end)
+  | (if (.modelPicker | type) == "object" then
+      .modelPicker.options = ((.modelPicker.options // []) | map(select(.model != "weave-auto")))
+      | (if (.modelPicker.options | length) == 0 then del(.modelPicker.options) else . end)
+      | (if (.modelPicker | length) == 0 then del(.modelPicker) else . end)
+    else . end)'
 
 err()  { printf "\033[31merror:\033[0m %s\n" "$*" >&2; }
 warn() { printf "\033[33mwarning:\033[0m %s\n" "$*" >&2; }
@@ -1261,7 +1268,7 @@ if [ -f "$settings_file" ]; then
   # delete `statusLine` / `apiKeyHelper` when they point at scripts this
   # installer used in older versions. Otherwise an unrelated user-configured
   # statusLine or apiKeyHelper would be silently clobbered.
-  cleaned="$(jq --arg statusline_setting_owned "$statusline_setting_owned" '
+  cleaned="$(jq --arg statusline_setting_owned "$statusline_setting_owned" "$CLAUDE_WEAVE_AUTO_STRIP_JQ"' | 
     if .env then
       .env |= (del(.ANTHROPIC_BASE_URL, .ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH))
       | (if (.env | length) == 0 then del(.env) else . end)
@@ -1291,7 +1298,7 @@ if [ -n "$local_settings_file" ] && [ -f "$local_settings_file" ]; then
   # (the off path overrides it to Anthropic in the local file). Project installs
   # also keep WEAVE_ROUTER_BASE_URL here as a private endpoint marker beside the
   # router key; scrub both so uninstall fully reverts the local config.
-  cleaned="$(jq '
+  cleaned="$(jq "$CLAUDE_WEAVE_AUTO_STRIP_JQ"' |
     if .env then
       .env |= (del(.ANTHROPIC_BASE_URL, .ANTHROPIC_AUTH_TOKEN, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH, .WEAVE_ROUTER_BASE_URL))
       | (if (.env | length) == 0 then del(.env) else . end)
