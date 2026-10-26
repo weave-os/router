@@ -52,8 +52,7 @@ func TestRoutingIdentityAcrossHarnessesAndProtocols(t *testing.T) {
 				require.NoError(t, err)
 				scope := automaticStateScopeForRequest(ctx, env, "credential")
 				require.True(t, scope.Persistent)
-				expected := requestcontext.ThreadIdentity{ConversationID: "root", ThreadID: "child", Source: requestcontext.ThreadSourceExplicit, Status: requestcontext.ThreadIdentityAvailable}.AutomaticScope("credential", uuid.Nil.String())
-				require.Equal(t, expected.Key, scope.Key)
+				require.Equal(t, [16]byte{0x8d, 0x09, 0x2b, 0xb0, 0x08, 0xd3, 0x56, 0x13, 0x1b, 0x92, 0xc7, 0xe5, 0x8c, 0x60, 0x6d, 0x8c}, scope.Key)
 			})
 		}
 	}
