@@ -857,36 +857,41 @@ codex_model_catalog_file() {
   printf '%s/weave-router-models.json\n' "$1"
 }
 
+# grep, not jq: Codex installs and status don't otherwise need jq.
 codex_uses_api_key() {
-  [ "$(jq -r '.auth_mode // ""' "$1/auth.json" 2>/dev/null)" = "apikey" ]
+  grep -Eq '"auth_mode"[[:space:]]*:[[:space:]]*"apikey"' "$1/auth.json" 2>/dev/null
 }
 
-# write_codex_model_catalog writes the catalog for Codex home $1 and prints its
-# path, or removes a stale one and fails when this login doesn't need it.
+# write_codex_model_catalog prints the catalog path for Codex home $1. A failed
+# rebuild keeps a previous catalog rather than restoring the unknown-model
+# fallback; only a login that doesn't need it removes it.
 write_codex_model_catalog() {
   local dir="$1" file tmp bundled version
   file="$(codex_model_catalog_file "$dir")"
-  if ! codex_uses_api_key "$dir" || ! command -v codex >/dev/null 2>&1 \
-    || ! bundled="$(capture_bounded 20 env CODEX_HOME="$dir" codex debug models --bundled 2>/dev/null)"; then
+  if [ -f "$dir/auth.json" ] && ! codex_uses_api_key "$dir"; then
     rm -f "$file" "$file.version"
     return 1
   fi
-  version="$(capture_bounded 10 codex --version 2>/dev/null || true)"
-  tmp="$(mktemp "$dir/.weave-router-models.XXXXXX")" || return 1
-  if ! printf '%s' "$bundled" | jq -e '
-      .models as $models
-      | ([$models[] | select(.slug | endswith("-sol"))][0] // $models[0]) as $template
-      | if $template == null then error("empty catalog")
-        elif any($models[]; .slug == "weave-auto") then .
-        else .models += [$template + {slug: "weave-auto", display_name: "Weave Router",
-          description: "Automatically chooses the best model", visibility: "list", priority: 0}]
-        end' >"$tmp" 2>/dev/null; then
-    rm -f "$tmp" "$file" "$file.version"
-    return 1
+  if codex_uses_api_key "$dir" && command -v codex >/dev/null 2>&1 \
+    && bundled="$(capture_bounded 20 env CODEX_HOME="$dir" codex debug models --bundled 2>/dev/null)"; then
+    ensure_jq
+    version="$(capture_bounded 10 codex --version 2>/dev/null || true)"
+    tmp="$(mktemp "$dir/.weave-router-models.XXXXXX")" || return 1
+    if printf '%s' "$bundled" | jq -e '
+        .models as $models
+        | ([$models[] | select(.slug | endswith("-sol"))][0] // $models[0]) as $template
+        | if $template == null then error("empty catalog")
+          elif any($models[]; .slug == "weave-auto") then .
+          else .models += [$template + {slug: "weave-auto", display_name: "Weave Router",
+            description: "Automatically chooses the best model", visibility: "list", priority: 0}]
+          end' >"$tmp" 2>/dev/null; then
+      mv "$tmp" "$file"
+      printf '%s\n' "$version" >"$file.version"
+    else
+      rm -f "$tmp"
+    fi
   fi
-  mv "$tmp" "$file"
-  printf '%s\n' "$version" >"$file.version"
-  printf '%s\n' "$file"
+  [ -f "$file" ] && printf '%s\n' "$file"
 }
 
 # codex_model_catalog_stale succeeds when an API-key login has no catalog or
