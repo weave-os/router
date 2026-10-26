@@ -1027,6 +1027,7 @@ name = "Weave Router"
 base_url = "${esc_url}/v1"
 wire_api = "responses"
 requires_openai_auth = true
+model_catalog_url = "${esc_url}/v1/codex/models"
 ${headers_line}
 ${hook_block}
 ${WEAVE_CODEX_END_MARKER}

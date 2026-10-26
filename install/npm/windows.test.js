@@ -76,6 +76,7 @@ test("the native installer writes each client's config and keeps existing settin
   const codexConfig = fs.readFileSync(path.join(temporaryHome, ".codex", "config.toml"), "utf8");
   assert.match(codexConfig, /model = "gpt-4.1"/);
   assert.match(codexConfig, /model_provider = "weave"/);
+  assert.equal(TOML.parse(codexConfig).model_providers.weave.model_catalog_url, `${baseUrl}/v1/codex/models`);
   assert.equal(TOML.parse(codexConfig).profiles.work.model_provider, "openai");
   await runInstaller("--codex", "--non-interactive", "--base-url", baseUrl, "--email", "user@example.com");
   const reinstalledCodex = TOML.parse(fs.readFileSync(codexConfigPath, "utf8"));
