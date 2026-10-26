@@ -1,5 +1,6 @@
 docs/DELEGATED_SESSION_TOKENS.md
   s_a156643a835fc6::t_fb1dbd90a7e8f0 29,64
+  s_a156643a835fc6::t_bc2a28cd2d8ebd 3-5
 internal/server/middleware/session_token_auth_test.go
   s_a156643a835fc6::t_fb1dbd90a7e8f0 34
 internal/auth/session_token.go
@@ -9,6 +10,8 @@ internal/server/server.go
   s_a156643a835fc6::t_fb1dbd90a7e8f0 257-258
 internal/auth/session_token_test.go
   s_a156643a835fc6::t_fb1dbd90a7e8f0 88,98,239,259,288,309,318,330,359,373
+  s_a156643a835fc6::t_bc2a28cd2d8ebd 166,168,246-254
+  s_a156643a835fc6::t_5e704ef73c5c2d 275
 ---
 {
   "schema_version": "authorship/3.0.0",
