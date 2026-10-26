@@ -594,13 +594,6 @@ func main() {
 		logger.Info("Per-organization flag overrides disabled deployment-wide (ROUTER_FLAG_OVERRIDES_DISABLED=true)")
 	}
 
-	// Experimental: accept issuer-signed rs_ session JWTs and mount the internal
-	// issuer registration endpoints. Off by default.
-	sessionTokensEnabled := config.GetOr("ROUTER_SESSION_TOKENS_ENABLED", "false") == "true"
-	if sessionTokensEnabled {
-		logger.Info("Delegated session tokens enabled (ROUTER_SESSION_TOKENS_ENABLED=true)")
-	}
-
 	authSvc := auth.NewService(repo.Installations, repo.APIKeys, repo.ExternalAPIKeys, repo.Users, cache, userCache, time.Now).
 		WithCredentialSubjectLookup(postgres.NewCredentialSubjectRepo(pool)).
 		WithEncryptor(encryptor).
@@ -612,7 +605,6 @@ func main() {
 		WithWIFTokenSource(buildWIFTokenSource(logger)).
 		WithEntraTokenSource(buildEntraTokenSource(logger)).
 		WithFlagOverridesDisabled(flagOverridesDisabled).
-		WithSessionTokens(sessionTokensEnabled).
 		WithSessionSpendCaps(billingSvc != nil)
 	subscriptionPoolsEnabled := config.GetOr("ROUTER_SUBSCRIPTION_POOLS_ENABLED", "false") == "true"
 	var subscriptionRuntime *subscriptions.Runtime

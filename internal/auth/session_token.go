@@ -21,10 +21,12 @@ import (
 // (RFC 8037) by an issuer-held key whose public JWK is registered as a
 // session_issuer row. Validation follows RFC 8725.
 const (
-	SessionTokenIssuer      = "session-issuer"
-	SessionTokenAudience    = "weave-router"
-	SessionTokenType        = "at+jwt"
-	SessionTokenMaxLifetime = 24 * time.Hour
+	SessionTokenIssuer   = "session-issuer"
+	SessionTokenAudience = "weave-router"
+	SessionTokenType     = "at+jwt"
+	// SessionTokenMaxLifetime keeps a leaked token short-lived; issuers refresh
+	// tokens for longer sessions.
+	SessionTokenMaxLifetime = 2 * time.Hour
 	SessionTokenLeeway      = 30 * time.Second
 	// SessionTokenMaxBytes bounds parsing work for an unauthenticated input.
 	SessionTokenMaxBytes = 4096
@@ -116,20 +118,10 @@ func SessionIssuerKeyHash(kid string) string {
 	return sessionIssuerKeyHashPrefix + kid
 }
 
-func (s *Service) WithSessionTokens(enabled bool) *Service {
-	s.sessionTokensEnabled = enabled
-	return s
-}
-
 // WithSessionSpendCaps reports whether this worker can enforce token-carried spend caps.
 func (s *Service) WithSessionSpendCaps(enabled bool) *Service {
 	s.delegatedSpendCapsEnabled = enabled
 	return s
-}
-
-// SessionTokensEnabled reports whether rs_ session tokens are accepted; a nil Service reports false.
-func (s *Service) SessionTokensEnabled() bool {
-	return s != nil && s.sessionTokensEnabled
 }
 
 // RegisterSessionIssuer stores an Ed25519 public JWK as a session issuer for
@@ -200,7 +192,7 @@ func (s *Service) VerifySessionToken(ctx context.Context, rawToken string, inclu
 	if !IsSessionToken(rawToken) {
 		return nil, nil, nil, nil, nil, ErrInvalidPrefix
 	}
-	if !s.sessionTokensEnabled || len(rawToken) > SessionTokenMaxBytes {
+	if len(rawToken) > SessionTokenMaxBytes {
 		return nil, nil, nil, nil, nil, ErrInvalidToken
 	}
 	var issuer CachedKey
