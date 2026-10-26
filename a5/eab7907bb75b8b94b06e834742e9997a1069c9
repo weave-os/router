@@ -1,0 +1,19 @@
+internal/auth/session_token.go
+  s_a156643a835fc6::t_fdc0a6fcdd07ae 246
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a5eab7907bb75b8b94b06e834742e9997a1069c9",
+  "prompts": {},
+  "sessions": {
+    "s_a156643a835fc6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1703c-0931-7662-93c5-c7d0404406b5",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
