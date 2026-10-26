@@ -1,0 +1,28 @@
+docs/DELEGATED_SESSION_TOKENS.md
+  s_a156643a835fc6::t_fb1dbd90a7e8f0 29,64
+internal/server/middleware/session_token_auth_test.go
+  s_a156643a835fc6::t_fb1dbd90a7e8f0 34
+internal/auth/session_token.go
+  s_a156643a835fc6::t_56916ff5b60d7d 24-26
+  s_a156643a835fc6::t_fb1dbd90a7e8f0 27-29,195
+internal/server/server.go
+  s_a156643a835fc6::t_fb1dbd90a7e8f0 257-258
+internal/auth/session_token_test.go
+  s_a156643a835fc6::t_fb1dbd90a7e8f0 88,98,239,259,288,309,318,330,359,373
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e7b68d793d01421f101b5179be7841e3bb1fcad1",
+  "prompts": {},
+  "sessions": {
+    "s_a156643a835fc6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1703c-0931-7662-93c5-c7d0404406b5",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
