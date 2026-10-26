@@ -56,6 +56,8 @@ func TestStripHistoricalCommandsFromResponsesInput_CodexRollout(t *testing.T) {
 
 func TestStripHistoricalCommandsFromResponsesInput_SkillAttachmentGoesWithDirective(t *testing.T) {
 	body := responsesBody(t,
+		codexUserItem("hello"),
+		codexAssistantItem("hi"),
 		codexUserItem("$fm astra"),
 		codexUserItem(codexSkillBlob),
 		codexAssistantItem(forceModelAck),
@@ -63,7 +65,7 @@ func TestStripHistoricalCommandsFromResponsesInput_SkillAttachmentGoesWithDirect
 	)
 	out, err := translate.StripHistoricalCommandsFromResponsesInput(body)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"now fix the bug"}, inputTexts(t, out))
+	assert.Equal(t, []string{"hello", "now fix the bug"}, inputTexts(t, out))
 }
 
 func TestStripHistoricalCommandsFromResponsesInput_TrailingDirectiveUntouched(t *testing.T) {
@@ -78,15 +80,31 @@ func TestStripHistoricalCommandsFromResponsesInput_TrailingDirectiveUntouched(t 
 	assert.Equal(t, body, out, "the live directive must survive for ExtractForceModelCommand")
 }
 
+func TestStripHistoricalCommandsFromResponsesInput_OpeningDirectiveIsTheThreadKey(t *testing.T) {
+	// The first user message is hashed into the session key, so an opening
+	// directive stays even though a later one goes.
+	body := responsesBody(t,
+		codexUserItem("/fm astra"),
+		codexAssistantItem(forceModelAck),
+		codexUserItem("/fm fable"),
+		codexAssistantItem(forceModelAck),
+		codexUserItem("next"),
+	)
+	out, err := translate.StripHistoricalCommandsFromResponsesInput(body)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/fm astra", "next"}, inputTexts(t, out))
+}
+
 func TestStripHistoricalCommandsFromResponsesInput_MixedMessageKeepsRemainder(t *testing.T) {
 	body := responsesBody(t,
+		codexUserItem("<environment_context><cwd>/x</cwd></environment_context>"),
 		codexUserItem("/fm astra\nplease refactor the parser"),
 		codexAssistantItem("done"),
 		codexUserItem("thanks, now the tests"),
 	)
 	out, err := translate.StripHistoricalCommandsFromResponsesInput(body)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"please refactor the parser", "thanks, now the tests"}, inputTexts(t, out))
+	assert.Equal(t, []string{"<environment_context><cwd>/x</cwd></environment_context>", "please refactor the parser", "thanks, now the tests"}, inputTexts(t, out))
 }
 
 func TestStripHistoricalCommandsFromResponsesInput_EveryDirectiveFamily(t *testing.T) {
@@ -97,13 +115,15 @@ func TestStripHistoricalCommandsFromResponsesInput_EveryDirectiveFamily(t *testi
 	} {
 		t.Run(directive, func(t *testing.T) {
 			body := responsesBody(t,
+				codexUserItem("hello"),
+				codexAssistantItem("hi"),
 				codexUserItem(directive),
 				codexAssistantItem("ack"),
 				codexUserItem("next"),
 			)
 			out, err := translate.StripHistoricalCommandsFromResponsesInput(body)
 			require.NoError(t, err)
-			assert.Equal(t, []string{"next"}, inputTexts(t, out))
+			assert.Equal(t, []string{"hello", "next"}, inputTexts(t, out))
 		})
 	}
 }
@@ -123,19 +143,23 @@ func TestStripHistoricalCommandsFromResponsesInput_TaggedRemainderIsUserText(t *
 	// A tagged next-line prompt is the user's, not a client wrapper; only the
 	// directive line goes.
 	body := responsesBody(t,
+		codexUserItem("hello"),
+		codexAssistantItem("hi"),
 		codexUserItem("/fm astra\n<error>panic: nil map</error>"),
 		codexAssistantItem("looking"),
 		codexUserItem("next"),
 	)
 	out, err := translate.StripHistoricalCommandsFromResponsesInput(body)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"<error>panic: nil map</error>", "next"}, inputTexts(t, out))
+	assert.Equal(t, []string{"hello", "<error>panic: nil map</error>", "next"}, inputTexts(t, out))
 }
 
 func TestStripHistoricalCommandsFromResponsesInput_LeavesToolItemsPaired(t *testing.T) {
 	call := map[string]any{"type": "function_call", "call_id": "c1", "name": "exec", "arguments": "{}"}
 	output := map[string]any{"type": "function_call_output", "call_id": "c1", "output": "Script completed\nOutput:\n /force-model fable"}
 	body := responsesBody(t,
+		codexUserItem("hello"),
+		codexAssistantItem("hi"),
 		codexUserItem("$fm fable"),
 		call,
 		output,
@@ -145,7 +169,7 @@ func TestStripHistoricalCommandsFromResponsesInput_LeavesToolItemsPaired(t *test
 	out, err := translate.StripHistoricalCommandsFromResponsesInput(body)
 	require.NoError(t, err)
 	items := gjson.GetBytes(out, "input").Array()
-	require.Len(t, items, 4)
-	assert.Equal(t, "function_call", items[0].Get("type").Str)
-	assert.Equal(t, "function_call_output", items[1].Get("type").Str, "tool output is StripRouterCommandsFromResponsesInput's job")
+	require.Len(t, items, 6)
+	assert.Equal(t, "function_call", items[2].Get("type").Str)
+	assert.Equal(t, "function_call_output", items[3].Get("type").Str, "tool output is StripRouterCommandsFromResponsesInput's job")
 }

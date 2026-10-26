@@ -14,7 +14,10 @@ import (
 // trailing turn and its ack stripped on replay, so what remains is a dangling
 // command the model reads, reasons about, and sometimes re-runs. These passes
 // remove it from history. The trailing turn is never touched: that is where
-// the Extract*Command readers still have to find a live directive.
+// the Extract*Command readers still have to find a live directive. The first
+// user message is never touched either: it is the thread discriminator the
+// session key hashes, and rewriting it would orphan the pin the directive
+// created.
 
 // stripHistoricalDirective returns text with any leading router directive
 // removed, reporting whether one was found. Any text the user wrote alongside
@@ -50,6 +53,7 @@ func (env *RequestEnvelope) StripHistoricalCommands() (int, error) {
 	}
 	messages := msgs.Array()
 	lastUserIdx := trailingUserTurnIndex(messages)
+	firstUserIdx := leadingUserTurnIndex(messages)
 
 	changed := 0
 	rebuilt := make([]string, 0, len(messages))
@@ -62,7 +66,7 @@ func (env *RequestEnvelope) StripHistoricalCommands() (int, error) {
 				continue
 			}
 		}
-		if msg.Get("role").String() != "user" || i == lastUserIdx || isSkillAttachment(messages, i) {
+		if msg.Get("role").String() != "user" || i == firstUserIdx || i == lastUserIdx || isSkillAttachment(messages, i) {
 			rebuilt = append(rebuilt, msg.Raw)
 			continue
 		}
@@ -95,6 +99,17 @@ func trailingUserTurnIndex(messages []gjson.Result) int {
 			continue
 		}
 		return i
+	}
+	return -1
+}
+
+// leadingUserTurnIndex finds the first user message, whose text the session
+// key folds in as the thread discriminator.
+func leadingUserTurnIndex(messages []gjson.Result) int {
+	for i, msg := range messages {
+		if msg.Get("role").String() == "user" {
+			return i
+		}
 	}
 	return -1
 }
@@ -173,7 +188,13 @@ func StripHistoricalCommandsFromResponsesInput(body []byte) ([]byte, error) {
 		return body, nil
 	}
 	items := input.Array()
-	lastUserIdx := -1
+	firstUserIdx, lastUserIdx := -1, -1
+	for i, item := range items {
+		if responsesUserMessage(item) {
+			firstUserIdx = i
+			break
+		}
+	}
 	for i := len(items) - 1; i >= 0; i-- {
 		if !responsesUserMessage(items[i]) || isSkillAttachment(items, i) {
 			continue
@@ -192,7 +213,7 @@ func StripHistoricalCommandsFromResponsesInput(body []byte) ([]byte, error) {
 				continue
 			}
 		}
-		if !responsesUserMessage(item) || i == lastUserIdx || isSkillAttachment(items, i) {
+		if !responsesUserMessage(item) || i == firstUserIdx || i == lastUserIdx || isSkillAttachment(items, i) {
 			rebuilt = append(rebuilt, item.Raw)
 			continue
 		}
