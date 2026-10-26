@@ -98,7 +98,8 @@ func codexFeedbackSkillInstructions(content gjson.Result) bool {
 }
 
 // Codex records a /model switch as a retained developer message wrapped in
-// <model_switch> markers; the model it launched with leaves no such trace.
+// <model_switch> markers, or <model_instructions> when its catalog came from
+// model_catalog_url; the model it launched with leaves no such trace.
 func codexModelSwitchPresent(input gjson.Result) bool {
 	if !input.IsArray() {
 		return false
@@ -111,7 +112,9 @@ func codexModelSwitchPresent(input gjson.Result) bool {
 		if item.Get("role").Str != "developer" {
 			continue
 		}
-		if codexDeveloperMarkerContent(item.Get("content"), "<model_switch>", "</model_switch>") {
+		content := item.Get("content")
+		if codexDeveloperMarkerContent(content, "<model_switch>", "</model_switch>") ||
+			codexDeveloperMarkerContent(content, "<model_instructions>", "</model_instructions>") {
 			return true
 		}
 	}
