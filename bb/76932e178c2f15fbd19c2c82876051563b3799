@@ -1,0 +1,54 @@
+db/migrations/0057_struggle-escalation-events.down.sql
+  s_daddca850ac23d::t_d7b65f5fcbc9de 1-5
+cmd/router/main.go
+  s_daddca850ac23d::t_bbc522e7544904 593-597,599-603,846-848
+  s_daddca850ac23d::t_9f56ff4072fa38 598
+  s_daddca850ac23d::t_27e9c66364a920 604,721
+internal/proxy/struggle_roster.go
+  s_daddca850ac23d::t_d7b65f5fcbc9de 1-49
+internal/proxy/loop_detection_internal_test.go
+  s_daddca850ac23d::t_5c1bc867abc755 353-354,356-357,368
+db/queries/struggle_escalation_events.sql
+  s_daddca850ac23d::t_d7b65f5fcbc9de 1-16
+internal/proxy/turnloop.go
+  s_daddca850ac23d::t_40cedb02b73047 695
+internal/proxy/service.go
+  s_daddca850ac23d::t_9365a701d7128b 602-603
+  s_daddca850ac23d::t_1b44846d5656e3 2410,2617,2629,2641
+  s_daddca850ac23d::t_18054883dc41bb 215-227
+  s_daddca850ac23d::t_2f2c170105268b 1330-1354
+  s_daddca850ac23d::t_d1a4001ab7c223 2407-2409,2411-2413
+  s_daddca850ac23d::t_bb0a5f56ab4fd6 557
+internal/sqlc/struggle_escalation_events.sql.go
+  s_daddca850ac23d::t_83acc838b8fc6c 1-87
+internal/proxy/loop_detection.go
+  s_daddca850ac23d::t_e6f2d2e9594981 61-63
+  s_daddca850ac23d::t_283e4feedfd2ed 224
+internal/proxy/struggle_escalation.go
+  s_daddca850ac23d::t_21be381acbefc6 1-55,57-77,79-81,83-88,90-97,100-101,103-115,117-125,128,136,149-151,167-201
+  s_daddca850ac23d::t_28037fa5d50415 56,78,82,89,98-99,102,116,126-127,129-135,137-148,152-166
+internal/sqlc/models.go
+  s_daddca850ac23d::t_83acc838b8fc6c 479-492
+internal/postgres/telemetry.go
+  s_daddca850ac23d::t_5fb46d7a03d394 178-206
+db/migrations/0057_struggle-escalation-events.up.sql
+  s_daddca850ac23d::t_d7b65f5fcbc9de 1-27
+internal/translate/force_model.go
+  s_daddca850ac23d::t_b346045abd6f94 20-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "bb76932e178c2f15fbd19c2c82876051563b3799",
+  "prompts": {},
+  "sessions": {
+    "s_daddca850ac23d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e3098e4-eb30-4e8b-823c-74a083bc8bae",
+        "model": "deepseek/deepseek-v4-pro-0813"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

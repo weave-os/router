@@ -1,0 +1,79 @@
+internal/translate/gemini_footer_test.go
+  s_c48e1eed0dd769::t_72f7d62202f8f0 28,56,75,92,123,135,152,161-178
+  s_c48e1eed0dd769::t_9a140daf5a200d 144-151,153-160,179
+internal/translate/responses_feedback.go
+  s_c48e1eed0dd769::t_2718b55aa83858 1-591
+internal/translate/openai_footer_test.go
+  s_c48e1eed0dd769::t_9a140daf5a200d 165-170,172-174,176-183,201
+  s_c48e1eed0dd769::t_72f7d62202f8f0 25,53,73,92,132,144,156,171,175,184-200
+internal/translate/completion_observer_test.go
+  s_c48e1eed0dd769::t_a52198d3a7c405 90
+  s_c48e1eed0dd769::t_f9c3361f031c95 1-4,6-89,91-98,103-110,113-138,140-143,194-309
+  s_c48e1eed0dd769::t_8e7c579785ef19 5,139,144-193
+  s_c48e1eed0dd769::t_9c988388ac7e35 99-102
+  s_c48e1eed0dd769::t_c09daa0e43bc0b 111-112
+internal/translate/feedback_regression_test.go
+  s_c48e1eed0dd769::t_5520f817ead3da 1-338
+internal/translate/anthropic_footer_test.go
+  s_c48e1eed0dd769::t_9a140daf5a200d 162-164,166-175,251
+  s_c48e1eed0dd769::t_72f7d62202f8f0 4,31,76,95,107,119,131,146,165,176-250
+  s_c48e1eed0dd769::t_b0090e08264dd1 252-305
+docs/ROUTER_NOTICES.md
+  s_c48e1eed0dd769::t_64a2ddcf89efb0 80-113
+internal/proxy/feedback.go
+  s_c48e1eed0dd769::t_90046f750c1f8e 13,202-203,213,215,218,221,224,227,230,232
+internal/proxy/feedback_completion.go
+  s_c48e1eed0dd769::t_e66745551db1f0 1-33
+internal/proxy/feedback_completion_test.go
+  s_c48e1eed0dd769::t_e9863cd696b6d2 1-168
+internal/proxy/feedback_footer_internal_test.go
+  s_c48e1eed0dd769::t_c8f3cfb28ac3b5 21,25,34,39,44,49,59,72
+internal/proxy/gemini.go
+  s_c48e1eed0dd769::t_21330838d4847c 76,310,312-319,340-341
+internal/proxy/service.go
+  s_c48e1eed0dd769::t_09d90a70661ff2 3411-3413,4392-4396,4409-4412,4616-4621,4731-4732,7410-7417,7419-7422,7500,7709-7714,7856-7857,7929-7930,8833-8836,8870-8872,8879
+internal/translate/anthropic_footer.go
+  s_c48e1eed0dd769::t_e13fea79c03dbc 10,13,15-17,19-32,35-36,38,41,47,52-54,56,58-59,62-71,73-99,101,103,108-112,118-123,126-127,130-161,164-165,168
+internal/translate/completion_observer.go
+  s_c48e1eed0dd769::t_435af67bab1bad 1-319
+internal/translate/feedback_completion.go
+  s_c48e1eed0dd769::t_0c22b9276aa6dd 1-66
+internal/translate/footer_echo.go
+  s_c48e1eed0dd769::t_04ee379b260374 3-6,83-110
+internal/translate/footer_echo_test.go
+  s_c48e1eed0dd769::t_fe9f016d74f4ee 118-136
+internal/translate/gemini_footer.go
+  s_c48e1eed0dd769::t_2bbf2a0e00f907 7,16-17,23,28-29,32-33,36-39,58,80-90,107,109,114-116,118,120-121,123-131,134,136,146-153,155-160
+internal/translate/notice_content.go
+  s_c48e1eed0dd769::t_c4cd136e91c429 27-32
+internal/translate/openai_footer.go
+  s_c48e1eed0dd769::t_3188c46a4db4ed 7,17-18,24,33-34,37-40,59,81-91,106-112,114-117,119,121,123,125,128,130,143,157,162-178
+internal/translate/responses.go
+  s_c48e1eed0dd769::t_0cfb1ebbab121e 1359,1363,1365,1369,1377,1381,1493-1495,1697
+internal/translate/responses_native_stream_test.go
+  s_c48e1eed0dd769::t_6d3a15d2ee1f8b 65,68,82-84
+internal/translate/responses_progress.go
+  s_c48e1eed0dd769::t_8039735fdc7ea6 37
+internal/translate/responses_test.go
+  s_c48e1eed0dd769::t_10a0e4bad5a416 1310,1317,1320,1322-1324,1351,1358,1361,1377-1378,1401,1408,1416-1417
+internal/translate/stream_fragmentation_benchmark_test.go
+  s_c48e1eed0dd769::t_c9b4d0cd0aedcb 4,56,157-158,164-173
+internal/translate/stream_fragmentation_test.go
+  s_c48e1eed0dd769::t_ecf2009e75bc10 548,562,576
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "eb4fe0bab1efe0dcdc0f961837fffdd2c8587f14",
+  "prompts": {},
+  "sessions": {
+    "s_c48e1eed0dd769": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15b24-5ee1-7441-a591-2cae72b1d066",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

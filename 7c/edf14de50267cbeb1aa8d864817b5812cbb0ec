@@ -1,0 +1,26 @@
+scripts/task_domain_check/main.go
+  s_e81a08893a9ba2::t_11d9b0e02062e2 152,156,159,162,167,170
+  s_e81a08893a9ba2::t_5c749eae8caf2b 268-269
+internal/sqlc/task_domain_profiles.sql.go
+  s_e81a08893a9ba2::t_5c749eae8caf2b 136-137,155-156
+db/queries/task_domain_profiles.sql
+  s_e81a08893a9ba2::t_11d9b0e02062e2 7-8
+internal/postgres/task_domain_repo.go
+  s_e81a08893a9ba2::t_5c749eae8caf2b 17-20,64-67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7cedf14de50267cbeb1aa8d864817b5812cbb0ec",
+  "prompts": {},
+  "sessions": {
+    "s_e81a08893a9ba2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b9391cca-911c-46df-b82c-9f07d5d2219d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

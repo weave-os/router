@@ -1,0 +1,34 @@
+scripts/escalation_state_check/main.go
+  s_2cdf095f803427::t_a0b2509a329c16 149,475,524-525,532-534,536-541,583-584
+  s_2cdf095f803427::t_261b1eed4337de 607
+  s_2cdf095f803427::t_e9b352dd2d54e5 21,150-152,164-175,474,482-484,486-499,506-508,510-523,586-590,605-606
+  s_2cdf095f803427::t_82102e7b22775f 476-481,485,500-505,509,526-531,535,557-563,565-566,568-569,571-579,581-582
+  s_2cdf095f803427::t_0e38605ddfdd89 546-547,549,564,567,570,580
+  s_2cdf095f803427::t_fbb26cc232a7e8 41,542-545,548,550-556,585,591-604
+.github/workflows/test.yml
+  s_2cdf095f803427::t_e9b352dd2d54e5 211-215
+internal/sqlc/escalation_sessions.sql.go
+  s_2cdf095f803427::t_6cc2df7e5e289e 153,169,175
+  s_2cdf095f803427::t_f30ca1a16e4502 192-206,208-221
+  s_2cdf095f803427::t_9aab2bca77dbb5 207
+db/queries/escalation_sessions.sql
+  s_2cdf095f803427::t_e9b352dd2d54e5 105,110
+  s_2cdf095f803427::t_82102e7b22775f 123-124,126-131
+  s_2cdf095f803427::t_0e38605ddfdd89 125
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "1e58896293c588dcf653a3ec70acf68561e15742",
+  "prompts": {},
+  "sessions": {
+    "s_2cdf095f803427": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ea16-2bea-7652-8478-21c9418c36ac",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

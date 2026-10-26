@@ -1,0 +1,37 @@
+internal/sse/keepalive.go
+  s_58629a25e850e2::t_1c626e2eb7dc63 1-60,66-142
+  s_58629a25e850e2::t_6f2080e4b00518 61-65
+internal/proxy/service.go
+  s_58629a25e850e2::t_cff9cb0f1dfb0a 37,2398-2402
+  s_58629a25e850e2::t_efd916427815a1 171-175
+  s_58629a25e850e2::t_07018cd25b9e99 1293-1299
+  s_58629a25e850e2::t_70612ff862214f 2976-2984,2986
+  s_58629a25e850e2::t_f18e432c0f06f0 2403
+cmd/router/main.go
+  s_58629a25e850e2::t_92587d417be971 582,872,1406-1424
+internal/proxy/AGENTS.md
+  s_58629a25e850e2::t_171d1508c79f91 111-146
+internal/sse/keepalive_test.go
+  s_58629a25e850e2::t_e181b484f50939 26-30
+  s_58629a25e850e2::t_a54b93bef443f4 1-25,31-218
+internal/proxy/sse_keepalive_integration_test.go
+  s_58629a25e850e2::t_9defada01e8afe 1-109
+internal/proxy/CLAUDE.md
+  s_58629a25e850e2::t_171d1508c79f91 111-146
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "f470fe29e74775e87884453efdc619148c868c9d",
+  "prompts": {},
+  "sessions": {
+    "s_58629a25e850e2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "9c7c5ebb-d977-41dd-bbd9-5f8c3fecf2fe",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,112 @@
+internal/router/model.go
+  s_1639860e28960e::t_f1545e25ba5e29 219
+docs/SERVING_CONTROL.md
+  s_1639860e28960e::t_8bb0e7bb1ec829 110-113,316-317,373,402-409,413-418,422-431,451-452,542,555,563,577,585-587,604-608,620-629
+  s_1639860e28960e::t_ba47a939ec70d2 5
+internal/server/middleware/serving_admission.go
+  s_1639860e28960e::t_13a84c0696ad49 18,33,57
+  s_1639860e28960e::t_07ca0ef0ded36b 24,54,58-59
+  s_1639860e28960e::t_328eb1e213284e 19-22,25
+cmd/router/serving_runtime.go
+  s_1639860e28960e::t_c9712539d570f3 45,48,53-59,63-64,131
+  s_1639860e28960e::t_955aba2f81ceaa 19,28
+internal/server/server_test.go
+  s_1639860e28960e::t_8bb0e7bb1ec829 48,168,177-178
+  s_1639860e28960e::t_f1545e25ba5e29 11,14,179-188
+  s_1639860e28960e::t_537a24ff08a3d5 189
+internal/servingvalidate/client.go
+  s_1639860e28960e::t_102f10a8af0b22 28-30,44-46,87-89
+internal/server/middleware/serving_admission_test.go
+  s_1639860e28960e::t_cb8adb18f61991 149-151,268,292
+  s_1639860e28960e::t_13a84c0696ad49 139-141,148,223,225,233,276,301-302
+  s_1639860e28960e::t_40129cd50a6305 258-267,269-275,277-291,293-300,303-305
+cmd/router/atomic_classifier_test.go
+  s_1639860e28960e::t_74c05be7c3ac99 26,29
+internal/translate/CLAUDE.md
+  s_1639860e28960e::t_9262d66eb89580 11
+cmd/router-warmup/main_test.go
+  s_1639860e28960e::t_f1545e25ba5e29 4-10,14-33,37-52
+  s_1639860e28960e::t_aed89cc784e0d8 1-3,11-13,34-36,53
+cmd/AGENTS.md
+  s_1639860e28960e::t_f1545e25ba5e29 39-43
+  s_1639860e28960e::t_380add157cb7a8 9
+cmd/router-warmup/main.go
+  s_1639860e28960e::t_bfdb83e35139a1 29-32,34,46
+  s_1639860e28960e::t_aed89cc784e0d8 1-4,16,21-23,28,33,36-38,49-51,81-83,105
+  s_1639860e28960e::t_f1545e25ba5e29 5-15,17-20,24-27,35,39-45,47-48,52-80,84-104
+scripts/go_ci_relevance_test.sh
+  s_1639860e28960e::t_380add157cb7a8 17,29,55-56,65,80-81,85-93,95-97,99,102-107
+internal/server/middleware/direct_admission.go
+  s_1639860e28960e::t_07ca0ef0ded36b 1-22,24-75,77,82,85-86,89,92
+  s_1639860e28960e::t_13a84c0696ad49 76
+  s_1639860e28960e::t_1481095849efe2 23,78-79
+cmd/CLAUDE.md
+  s_1639860e28960e::t_380add157cb7a8 9
+  s_1639860e28960e::t_f1545e25ba5e29 39-43
+AGENTS.md
+  s_1639860e28960e::t_380add157cb7a8 20,159,182
+cmd/router/main.go
+  s_1639860e28960e::t_c9712539d570f3 531-546,635-639,1073-1076,1102
+  s_1639860e28960e::t_9fa3c77ce2d1c4 1089-1101
+internal/policyregistry/serving_admission_cache_test.go
+  s_1639860e28960e::t_f1545e25ba5e29 28,35-37,44,62-65,76-78,82,85-89,98,100,102,105,109-112,117,120,124-141
+  s_1639860e28960e::t_fa5b93e281cced 1,6-8,12-16,19-27,29,31-34,38-43,45-58,60-61,66-75,79-81,84,90-95,97,99,101,103-104,106-108,113-116,118-119,123
+internal/pubsub/invalidation_internal_test.go
+  s_1639860e28960e::t_63817a2c9d8f6e 146-147,154,157
+cmd/policyctl/serving_lifecycle_test.go
+  s_1639860e28960e::t_bfdb83e35139a1 307-308,311-312,322,333,339
+  s_1639860e28960e::t_2002ed2223d3a6 309-310
+internal/policyregistry/serving_admission_cache.go
+  s_1639860e28960e::t_d9ed8b3ed7faf8 1-56,58-78,83-123
+  s_1639860e28960e::t_bb6ef7005545c7 57,79-80,82
+internal/server/middleware/auth.go
+  s_1639860e28960e::t_13a84c0696ad49 90
+  s_1639860e28960e::t_07ca0ef0ded36b 80-82,84-85,88
+cmd/policyctl/serving.go
+  s_1639860e28960e::t_102f10a8af0b22 66,77-80
+  s_1639860e28960e::t_bfdb83e35139a1 16,42,82-83,271-278,344-359
+  s_1639860e28960e::t_258fc336207769 43-45
+  s_1639860e28960e::t_a18a639a34039c 360
+scripts/check_docs.py
+  s_1639860e28960e::t_7b19bf386765fc 38
+scripts/go_ci_relevance.sh
+  s_1639860e28960e::t_8bb0e7bb1ec829 6,59
+  s_1639860e28960e::t_380add157cb7a8 11
+CLAUDE.md
+  s_1639860e28960e::t_380add157cb7a8 20,159,182
+internal/server/server.go
+  s_1639860e28960e::t_102f10a8af0b22 176
+  s_1639860e28960e::t_8bb0e7bb1ec829 124,190
+cmd/router/serving_runtime_test.go
+  s_1639860e28960e::t_43771d01090ed8 5,10-14,17-19,21-28,30-32,34-35,39,44,50,52-53
+docs/CI.md
+  s_1639860e28960e::t_78211ec8afbdc1 149,151
+docs/CONFIGURATION.md
+  s_1639860e28960e::t_3786aec81f1c45 417-420,434,452-459,465
+internal/policyregistry/serving_assertion.go
+  s_1639860e28960e::t_2b2ef8c1385683 13,29-30
+internal/server/middleware/test_plan_auth_test.go
+  s_1639860e28960e::t_713b9704bee7e1 5,48,65,67,70-72,74-75,81,96,101-111
+internal/servingvalidate/client_test.go
+  s_1639860e28960e::t_60538ce79b9f72 28,35,50
+internal/translate/AGENTS.md
+  s_1639860e28960e::t_4033b8b16fb55c 11
+scripts/test_check_docs.py
+  s_1639860e28960e::t_265ce961d2ca8d 8,15-24
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3c2291ca8c2e5fb104a6b4212d0e08a24ec68485",
+  "prompts": {},
+  "sessions": {
+    "s_1639860e28960e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a112b1-c802-7021-b4cd-dfec74516f39",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
