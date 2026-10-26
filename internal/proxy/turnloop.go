@@ -1060,7 +1060,7 @@ func (s *Service) runTurnLoop(
 			if summarizers := s.compactionSummarizers(ctx, threadSessionKey, res.PinRole, req); len(summarizers) > 0 {
 				compactionProvider, compactionModel, origin, compactionPin = summarizers[0].provider, summarizers[0].model, summarizers[0].source, true
 				compactionFallbacks = summarizers[1:]
-				compactionCrossProvider = s.compactionCrossProviderRescuers(ctx, summarizers[0], req)
+				compactionCrossProvider = s.crossGatewayRescuers(ctx, summarizers[0], req)
 			}
 		}
 		hardPinReq := HardPinRequest{
@@ -1114,7 +1114,7 @@ func (s *Service) runTurnLoop(
 			provider, model = p, m
 			if s.compactionHardPinEnabled && res.TurnType == turntype.Compaction {
 				// No summarizer fits, so an overflow on the utility pin must still reach the other gateway.
-				rescueMetadata = compactionRescueMetadata(nil, "", "", s.compactionCrossProviderRescuers(ctx, compactionSummarizer{provider: p, model: m}, req))
+				rescueMetadata = compactionRescueMetadata(nil, "", "", s.crossGatewayRescuers(ctx, compactionSummarizer{provider: p, model: m}, req))
 			}
 		default:
 			if req.EnabledProviders != nil {

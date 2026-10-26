@@ -135,13 +135,13 @@ func (s *Service) compactionSummarizers(ctx context.Context, sessionKey [session
 	return out
 }
 
-// compactionCrossProviderRescuers lists the request's gateway-held models on
-// another gateway than the primary summarizer's, highest tier then widest
-// window first. Every summarizer behind one gateway shares a tokenizer and
-// window, so an overflow there is only rescuable across gateways: Claude
+// crossGatewayRescuers lists the request's gateway-held models on another
+// gateway than the primary's, highest tier then widest window first. Every
+// model behind one gateway shares a tokenizer and window, so an overflow there
+// is only rescuable across gateways: Claude
 // counts the same transcript as roughly 1.5x the tokens gpt-6-luna does, so a
 // nominally smaller window can still fit it.
-func (s *Service) compactionCrossProviderRescuers(ctx context.Context, primary compactionSummarizer, req router.Request) []compactionSummarizer {
+func (s *Service) crossGatewayRescuers(ctx context.Context, primary compactionSummarizer, req router.Request) []compactionSummarizer {
 	cortexGateways := cortexGatewayProvidersForRequest(ctx)
 	var out []compactionSummarizer
 	for model := range req.CustomBindings {
