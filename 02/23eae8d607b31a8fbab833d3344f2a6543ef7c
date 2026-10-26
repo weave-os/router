@@ -1,0 +1,25 @@
+install/install.sh
+  s_b6a75a58f22470::t_ca25ef019763e2 2483-2487,2492-2496
+  s_b6a75a58f22470::t_d6c94379409651 2512
+install/README.md
+  s_b6a75a58f22470::t_cc4c73da5cd43e 98
+  s_b6a75a58f22470::t_ea2b5cbc341c22 91
+install/uninstall.sh
+  s_b6a75a58f22470::t_df15e1783ca1e4 526-528
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.16",
+  "base_commit_sha": "0223eae8d607b31a8fbab833d3344f2a6543ef7c",
+  "prompts": {},
+  "sessions": {
+    "s_b6a75a58f22470": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f9f9a9d4-a49c-4240-a9e4-47782758c977",
+        "model": "gpt-5.5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

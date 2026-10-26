@@ -1,0 +1,38 @@
+internal/proxy/classifier_preparation.go
+  s_be88b6ff29624e::t_aeb4a65c091cdf 28-29
+internal/policyregistry/serving_routing_model_test.go
+  s_be88b6ff29624e::t_c06252b9882998 147-163
+internal/proxy/classifier_preparation_test.go
+  s_be88b6ff29624e::t_72345cac47722b 14,75-82
+  s_be88b6ff29624e::t_ad621de21317f3 100-104
+  s_be88b6ff29624e::t_10a78521fb4bd0 83-84
+internal/policyregistry/serving_routing_model.go
+  s_be88b6ff29624e::t_aeb4a65c091cdf 8,17-23
+  s_be88b6ff29624e::t_ca053241eb84e9 31,43
+internal/proxy/beta.go
+  s_be88b6ff29624e::t_aeb4a65c091cdf 16,70
+internal/server/middleware/routing_model_test.go
+  s_be88b6ff29624e::t_ca053241eb84e9 62-64
+internal/proxy/codex_models_test.go
+  s_be88b6ff29624e::t_ad621de21317f3 53-56
+internal/proxy/codex_models.go
+  s_be88b6ff29624e::t_aeb4a65c091cdf 43
+internal/server/middleware/routing_model.go
+  s_be88b6ff29624e::t_aeb4a65c091cdf 12,58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e0f8f93208741d3120f401272ed489e99f9722c5",
+  "prompts": {},
+  "sessions": {
+    "s_be88b6ff29624e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15be8-beac-7742-9542-9a46c2c4db5f",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
