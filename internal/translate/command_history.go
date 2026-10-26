@@ -110,7 +110,7 @@ func stripDirectiveFromMessage(msg gjson.Result, textType string) (raw string, e
 		if !found {
 			return msg.Raw, false, true, nil
 		}
-		if isOnlyInjectedCommandText(stripped) {
+		if isOnlyKnownInjectedText(stripped) {
 			return "", true, false, nil
 		}
 		out, err := sjson.Set(msg.Raw, "content", stripped)
@@ -132,14 +132,14 @@ func stripDirectiveFromMessage(msg gjson.Result, textType string) (raw string, e
 			text := part.Get("text").String()
 			stripped, ok := stripHistoricalDirective(text)
 			if !ok {
-				if !isOnlyInjectedCommandText(text) {
+				if !isOnlyKnownInjectedText(text) {
 					hasBody = true
 				}
 				partRaws = append(partRaws, part.Raw)
 				continue
 			}
 			found = true
-			if isOnlyInjectedCommandText(stripped) {
+			if isOnlyKnownInjectedText(stripped) {
 				continue
 			}
 			hasBody = true

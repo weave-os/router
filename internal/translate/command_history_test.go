@@ -119,6 +119,19 @@ func TestStripHistoricalCommandsFromResponsesInput_ProseMentionIsNotADirective(t
 	assert.Equal(t, body, out)
 }
 
+func TestStripHistoricalCommandsFromResponsesInput_TaggedRemainderIsUserText(t *testing.T) {
+	// A tagged next-line prompt is the user's, not a client wrapper; only the
+	// directive line goes.
+	body := responsesBody(t,
+		codexUserItem("/fm astra\n<error>panic: nil map</error>"),
+		codexAssistantItem("looking"),
+		codexUserItem("next"),
+	)
+	out, err := translate.StripHistoricalCommandsFromResponsesInput(body)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"<error>panic: nil map</error>", "next"}, inputTexts(t, out))
+}
+
 func TestStripHistoricalCommandsFromResponsesInput_LeavesToolItemsPaired(t *testing.T) {
 	call := map[string]any{"type": "function_call", "call_id": "c1", "name": "exec", "arguments": "{}"}
 	output := map[string]any{"type": "function_call_output", "call_id": "c1", "output": "Script completed\nOutput:\n /force-model fable"}
