@@ -622,23 +622,6 @@ The name is matched **exactly** — it must be a canonical catalog ID
 effort suffix (`opus:high`). There is no prefix, substring, or nearest-match
 fallback: a name the router doesn't recognize is refused, never approximated.
 
-`/fm opus medium` (Codex: `$fm opus medium`) forces Opus only for turns scored
-in the `medium` complexity group. The optional trailing group is `low`,
-`medium`, `high`, or `maximum`; `--group medium` is also accepted. This requires
-a classifier strategy (HMM variants or `llm_classifier`), not passthrough or a
-pinned policy replay. Main-loop and tool-result turns are scored once each;
-matching turns use the forced model, other groups use the fresh automatic
-decision. Utility turns that are not scored keep their normal behavior.
-An unavailable classification or an ineligible forced target on a matching
-turn fails explicitly instead of silently ignoring the rule.
-
-There is only one force rule per conversation: a conditional force replaces
-an unconditional pin, `/fm opus` replaces a conditional rule, and `/ufm` clears
-either. Use `:level` to request reasoning effort without a group condition
-(`/fm opus:medium`), or combine them (`/fm opus:high medium`). A trailing
-space-separated complexity label on a chat command is a condition, not effort;
-the `x-weave-force-model` header's existing effort syntax is unchanged.
-
 `/force-parent <model>[:effort]` (Codex: `$force-parent`) uses the same model
 resolution and restrictions, but pins only the invoking thread. It replaces a
 conversation-wide force, so children sharing its client-session ID resume normal

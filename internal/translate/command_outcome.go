@@ -31,7 +31,6 @@ type CommandPin struct {
 	Model      string        `json:"model,omitempty"`
 	Provider   string        `json:"provider,omitempty"`
 	Effort     string        `json:"effort,omitempty"`
-	Group      string        `json:"group,omitempty"`
 }
 
 // CommandOutcome records one command application. It is historical evidence,

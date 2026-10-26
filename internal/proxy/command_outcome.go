@@ -10,16 +10,14 @@ import (
 	"github.com/google/uuid"
 
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/translate"
 )
 
 type forceRejection string
 
 const (
-	forceUnknownModel     forceRejection = "unknown_model"
-	forceExcludedModel    forceRejection = "excluded_model"
-	forceInvalidCondition forceRejection = "invalid_condition"
+	forceUnknownModel  forceRejection = "unknown_model"
+	forceExcludedModel forceRejection = "excluded_model"
 )
 
 type forceAcknowledgment struct {
@@ -29,7 +27,6 @@ type forceAcknowledgment struct {
 	reason       string
 	clearCommand string
 	parentOnly   bool
-	group        escalation.Group
 }
 
 type feedbackAcknowledgment string
@@ -89,8 +86,6 @@ func (ack commandAcknowledgment) render(format translate.Format) string {
 
 func (ack commandAcknowledgment) renderForce(format translate.Format) string {
 	switch ack.force.rejection {
-	case forceInvalidCondition:
-		return "Weave Router: force command rejected: " + ack.force.reason + ". Existing controls are unchanged."
 	case forceUnknownModel:
 		hint := "Use a model ID or shorthand, e.g. " + forceModelExamples + "."
 		if ack.force.suggestion != "" {
@@ -116,9 +111,6 @@ func (ack commandAcknowledgment) renderForce(format translate.Format) string {
 	model := pin.Model
 	if pin.Effort != "" {
 		model += ":" + pin.Effort
-	}
-	if ack.force.group != "" {
-		return fmt.Sprintf("Weave Router: force-model applied: %s (%s), only for %s scored turns. Other groups use automatic routing. Use %s to clear.", model, pin.Provider, ack.force.group, ack.force.clearCommand)
 	}
 	if ack.force.parentOnly {
 		if format == translate.FormatOpenAI {

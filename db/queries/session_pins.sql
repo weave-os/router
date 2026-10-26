@@ -115,8 +115,6 @@ ON CONFLICT (session_key, role) DO UPDATE SET
     ELSE ''
   END,
   policy_group = CASE
-    WHEN EXCLUDED.role = 'force_model'
-      THEN EXCLUDED.policy_group
     WHEN EXCLUDED.policy_group <> ''
       THEN EXCLUDED.policy_group
     WHEN EXCLUDED.pinned_model = router.session_pins.pinned_model

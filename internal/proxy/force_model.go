@@ -14,7 +14,6 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
-	"weave-os/router/internal/router/escalation"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/translate"
 
@@ -564,7 +563,6 @@ func (s *Service) setForceModelSessionPin(
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	installationID uuid.UUID,
 	canonicalModel, provider, effort, forcedThreadKey string,
-	group escalation.Group,
 ) error {
 	if s.pinStore == nil || installationID == uuid.Nil {
 		return nil
@@ -580,13 +578,9 @@ func (s *Service) setForceModelSessionPin(
 		Model:           canonicalModel,
 		Effort:          effort,
 		ForcedThreadKey: forcedThreadKey,
-		PolicyGroup:     string(group),
 		Reason:          translate.ReasonUserForceModel,
 		TurnCount:       1,
 		PinnedUntil:     pinNeverExpires,
-	}
-	if group != "" {
-		forced.Reason = translate.ReasonUserForceModelGroup
 	}
 	return s.pinStore.Upsert(context.Background(), forced)
 }
@@ -778,7 +772,7 @@ func (s *Service) applyForceModelHeader(
 		// omits routing knobs from the request passed to the scorer.
 		forcedModel += ":" + effortLevel
 	}
-	if err := s.setForceModelSessionPin(ctx, forceModelSessionKey, installationID, canonicalModel, provider, effortLevel, "", ""); err != nil {
+	if err := s.setForceModelSessionPin(ctx, forceModelSessionKey, installationID, canonicalModel, provider, effortLevel, ""); err != nil {
 		log.Error("x-weave-force-model: session pin upsert failed", "err", err)
 		return ctx, forcedModel, nil
 	}
@@ -842,21 +836,7 @@ func (s *Service) applyForceModelCommand(
 		return "", ack, nil
 	}
 
-	modelSpec, group := cmd.Model, escalation.Group("")
-	var conditionErr error
-	if !cmd.ParentOnly {
-		modelSpec, group, conditionErr = parseConditionalForceModel(cmd.Model)
-	}
-	if conditionErr == nil && group != "" {
-		conditionErr = conditionalForceStrategyError(ctx)
-	}
-	if conditionErr != nil {
-		log.Info("/force-model: rejected condition", "input_model", cmd.Model, "err", conditionErr)
-		ack.outcome.Disposition = translate.CommandRejected
-		ack.force = forceAcknowledgment{rejection: forceInvalidCondition, reason: conditionErr.Error()}
-		return "", ack, nil
-	}
-	canonicalModel, provider, known, effortLevel := resolveForceModelWithEffort(modelSpec)
+	canonicalModel, provider, known, effortLevel := resolveForceModelWithEffort(cmd.Model)
 	if !known {
 		suggestion := suggestForceModel(cmd.Model)
 		log.Info("/force-model: rejected unknown model",
@@ -895,7 +875,7 @@ func (s *Service) applyForceModelCommand(
 		forcedThreadKey = sessionKeyHex(threadSessionKey)
 		command = "force-parent"
 	}
-	if err := s.setForceModelSessionPin(ctx, forceModelSessionKey, installationID, canonicalModel, binding, effortLevel, forcedThreadKey, group); err != nil {
+	if err := s.setForceModelSessionPin(ctx, forceModelSessionKey, installationID, canonicalModel, binding, effortLevel, forcedThreadKey); err != nil {
 		log.Error("/force-model: session pin upsert failed", "err", err)
 		return "", commandAcknowledgment{}, err
 	}
@@ -903,23 +883,18 @@ func (s *Service) applyForceModelCommand(
 	if effortLevel != "" {
 		shownModel = canonicalModel + ":" + effortLevel
 	}
-	ack.outcome.Pin = translate.CommandPin{Transition: translate.PinApplied, Model: canonicalModel, Provider: binding, Effort: effortLevel, Group: string(group)}
+	ack.outcome.Pin = translate.CommandPin{Transition: translate.PinApplied, Model: canonicalModel, Provider: binding, Effort: effortLevel}
 	ack.force.clearCommand = directivePrefix(ClientIdentityFrom(ctx).ClientApp) + "unforce-model"
 	ack.force.parentOnly = cmd.ParentOnly
-	ack.force.group = group
 	log.Debug("/"+command+": session pin set",
 		"forced_thread_key", forcedThreadKey,
 		"input_model", cmd.Model,
 		"canonical_model", canonicalModel,
 		"provider", binding,
 		"effort", effortLevel,
-		"group", group,
 		"force_model_session_key_hex", fmt.Sprintf("%x", forceModelSessionKey),
 		"role", forceModelSessionRole,
 	)
-	if group != "" {
-		return "", ack, nil
-	}
 	return shownModel, ack, nil
 }
 

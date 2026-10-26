@@ -31,7 +31,7 @@ func TestForceModelCommand_TypedForms(t *testing.T) {
 		{"/model opus-4.8", "claude-opus-4-8", ""},
 		{"$fm sol", "gpt-6.1-sol", ""},
 		{"/fm sol:high", "gpt-6.1-sol", "high"},
-		{"/fm astra:high", "gpt-6-astra", "high"},
+		{"/fm astra high", "gpt-6-astra", "high"},
 		{"/fm claude-opus-5-5[1m]", "claude-opus-5-5", ""},
 		{"/fm qwen 3.8", "qwen/qwen3.8-max", ""},
 		{"<command-name>/fm</command-name>\n/fm claude-opus-5.5", "claude-opus-5-5", ""},
