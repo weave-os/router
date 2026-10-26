@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -25,6 +26,12 @@ var gatewayOverflowIngresses = map[string]struct {
 		body: `{"model":"claude-opus-5-5","max_tokens":20000,"stream":true,"messages":[{"role":"user","content":"keep going"}]}`,
 		proxy: func(s *Service) func(context.Context, []byte, http.ResponseWriter, *http.Request) error {
 			return s.ProxyMessages
+		},
+	},
+	"openai_responses": {
+		body: `{"model":"claude-opus-5-5","stream":true,"input":[{"role":"user","content":"keep going"}]}`,
+		proxy: func(s *Service) func(context.Context, []byte, http.ResponseWriter, *http.Request) error {
+			return s.ProxyOpenAIResponses
 		},
 	},
 	"openai_chat": {
@@ -133,4 +140,26 @@ func TestOverflowRescueDecisionsSkipRescuerPastItsWindow(t *testing.T) {
 	lunaWindow := catalog.ContextWindowForBinding(catalog.ModelGPT6Luna, providers.ProviderOpenAIGateway)
 	assert.Empty(t, svc.overflowRescueDecisions(ctx, failed, "main_loop", lunaWindow, 0, contextWindowOutputReserve))
 	assert.Empty(t, svc.overflowRescueDecisions(ctx, failed, "compaction", 1000, 0, contextWindowOutputReserve), "compaction has its own rescue list")
+}
+
+// Readmitting a cooling model must not widen the rescue past the
+// cross-gateway rescuers: a low-tier model is not a stand-in for Claude.
+func TestOverflowRescueDecisionsKeepReadmissionInsideTheRescuers(t *testing.T) {
+	const mini = "gpt-4.1-mini"
+	svc, ctx, _, _ := gatewayOverflowFixture(nil, nil)
+	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{catalog.ModelGPT6Luna, gatewayCompactionOpusModel, mini})
+	ctx = context.WithValue(ctx, ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+		gatewayKey(providers.ProviderAnthropicGateway, "https://gateway.example.com/anthropic", gatewayCompactionOpusModel, policy.PrecompactionDefaultModel),
+		gatewayKey(providers.ProviderOpenAIGateway, "https://gateway.example.com/openai", catalog.ModelGPT6Luna, mini),
+	})
+	ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, map[string]time.Time{mini: time.Now().Add(time.Hour)})
+	failed := router.Decision{Provider: providers.ProviderAnthropicGateway, Model: gatewayCompactionOpusModel}
+
+	decisions := svc.overflowRescueDecisions(ctx, failed, "main_loop", 1000, 0, contextWindowOutputReserve)
+
+	models := make([]string, 0, len(decisions))
+	for _, d := range decisions {
+		models = append(models, d.Model)
+	}
+	assert.Equal(t, []string{catalog.ModelGPT6Luna}, models)
 }

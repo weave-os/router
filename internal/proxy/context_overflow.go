@@ -166,8 +166,9 @@ func (s *Service) overflowRescueDecisions(ctx context.Context, failed router.Dec
 	for _, rescuer := range rescuers {
 		models = append(models, rescuer.model)
 	}
+	// Readmission may append cooling or struck models; keep only the eligible cross-gateway rescuers.
 	return slices.DeleteFunc(s.rescueDecisions(ctx, failed, models, ReasonSiblingFailover, est, sigSavings, outputReserve), func(d router.Decision) bool {
-		return d.Provider == failed.Provider
+		return !slices.Contains(models, d.Model)
 	})
 }
 
