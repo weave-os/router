@@ -10,7 +10,7 @@ import (
 
 func TestModelChoicesDescribeRoutersWithoutAddingDispatchModels(t *testing.T) {
 	choices := ModelChoices()
-	require.Len(t, choices, len(Listing())+4)
+	require.Len(t, choices, len(Listing())+5)
 	seen := make(map[string]bool)
 	for _, choice := range choices {
 		require.NotEmpty(t, choice.Description)
@@ -26,6 +26,7 @@ func TestModelChoicesDescribeRoutersWithoutAddingDispatchModels(t *testing.T) {
 		}
 	}
 	require.True(t, seen[string(router.ModelHMM)])
+	require.True(t, seen[string(router.ModelHMMBeta)])
 	require.True(t, seen[string(router.ModelQwen)])
 	require.True(t, seen[string(router.ModelAutomatic)])
 }
