@@ -171,7 +171,7 @@ func (s *Service) handleLoopEscalation(
 	if len(forceModelSessionKeys) > 0 {
 		forcePin, forceModelActive, forceModelCleared = s.loadForceModelSessionPin(ctx, forceModelSessionKeys[0], sessionKey)
 	}
-	if s.pinStore != nil && installationID != uuid.Nil && sessionKey != ([sessionpin.SessionKeyLen]byte{}) {
+	if s.pinStore != nil && installationID != uuid.Nil {
 		existing, found, err := s.pinStore.Get(ctx, sessionKey, role)
 		if err != nil {
 			log.Error("loop-escalation: prior pin lookup failed", "err", err)
@@ -255,7 +255,7 @@ func (s *Service) handleLoopEscalation(
 	if willEscalate {
 		// Pin opus for the rest of the session (immutable sticky via
 		// ReasonLoopEscalation).
-		if s.pinStore == nil || installationID == uuid.Nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+		if s.pinStore == nil || installationID == uuid.Nil {
 			return
 		}
 		var lastServed string

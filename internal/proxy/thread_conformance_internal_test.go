@@ -21,9 +21,9 @@ import (
 func TestRoutingIdentityAcrossHarnessesAndProtocols(t *testing.T) {
 	for _, client := range []string{ClientAppCodex, ClientAppClaudeCode, ClientAppOpencode, ClientAppCursor, ClientAppGeminiCLI, "pi", "generic"} {
 		for _, protocol := range []struct {
-			name  requestcontext.ConversationSurface
-			body  string
-			parse func([]byte) (*translate.RequestEnvelope, error)
+			surface requestcontext.ConversationSurface
+			body    string
+			parse   func([]byte) (*translate.RequestEnvelope, error)
 		}{
 			{requestcontext.ConversationAnthropic, `{"messages":[{"role":"user","content":"synthetic"}]}`, translate.ParseAnthropic},
 			{requestcontext.ConversationChat, `{"messages":[{"role":"system","content":"synthetic preamble"},{"role":"user","content":"synthetic"}]}`, translate.ParseOpenAI},
@@ -36,7 +36,7 @@ func TestRoutingIdentityAcrossHarnessesAndProtocols(t *testing.T) {
 			}},
 			{requestcontext.ConversationGemini, `{"contents":[{"role":"user","parts":[{"text":"synthetic"}]}]}`, translate.ParseGemini},
 		} {
-			t.Run(client+"/"+string(protocol.name), func(t *testing.T) {
+			t.Run(client+"/"+string(protocol.surface), func(t *testing.T) {
 				headers := make(http.Header)
 				headers.Set("X-App", client)
 				headers.Set("Session-Id", "root")
@@ -56,6 +56,25 @@ func TestRoutingIdentityAcrossHarnessesAndProtocols(t *testing.T) {
 				require.Equal(t, expected.Key, scope.Key)
 			})
 		}
+	}
+}
+
+func TestBodyConversationWithoutThreadOverridesLegacySession(t *testing.T) {
+	for _, legacySession := range []string{"", "legacy-root"} {
+		t.Run(legacySession, func(t *testing.T) {
+			headers := make(http.Header)
+			if legacySession != "" {
+				headers.Set("Session-Id", legacySession)
+			}
+			ctx := requestcontext.WithClientIdentity(context.Background(), ClientIdentityFromHeaders(headers))
+			ctx, clean, err := withRequestRoutingIdentity(ctx, headers, []byte(`{"weave_routing":{"conversation_id":"body-root"}}`))
+			require.NoError(t, err)
+			require.JSONEq(t, `{}`, string(clean))
+			require.Equal(t, "body-root", clientSessionIDForRequest(ctx, nil))
+			require.Equal(t, "body-root", ClientIdentityFrom(ctx).SessionID)
+			require.Equal(t, requestcontext.ThreadIdentityMissing, requestcontext.ThreadIdentityFromContext(ctx).Status)
+			require.False(t, automaticStateScopeForRequest(ctx, nil, "credential").Persistent)
+		})
 	}
 }
 

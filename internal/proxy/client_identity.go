@@ -77,10 +77,10 @@ func withRequestRoutingIdentity(ctx context.Context, headers http.Header, body [
 	if err != nil {
 		return ctx, nil, err
 	}
-	if identity.Status != requestcontext.ThreadIdentityMissing || client.RoutingThread.Status == "" {
+	if identity.Status != requestcontext.ThreadIdentityMissing || identity.ConversationID != "" || client.RoutingThread.Status == "" {
 		client.RoutingThread = identity
 	}
-	if identity.Status != requestcontext.ThreadIdentityMissing {
+	if identity.Status != requestcontext.ThreadIdentityMissing || identity.ConversationID != "" {
 		ctx = requestcontext.WithThreadIdentity(ctx, identity)
 	}
 	if identity.ConversationID != "" {

@@ -27,6 +27,7 @@ func TestRoutingThreadIdentityValidation(t *testing.T) {
 		{"numeric thread", nil, `{"weave_routing":{"thread_id":42}}`, ThreadIdentityInvalid},
 		{"duplicate field", nil, `{"weave_routing":{"thread_id":"a","thread_id":"b"}}`, ThreadIdentityInvalid},
 		{"duplicate metadata", nil, `{"weave_routing":{"thread_id":"a"},"weave_routing":{"thread_id":"b"}}`, ThreadIdentityConflicting},
+		{"triple metadata", nil, `{"weave_routing":{"thread_id":"a"},"weave_routing":{"thread_id":"b"},"weave_routing":{"thread_id":"c"},"messages":[]}`, ThreadIdentityConflicting},
 		{"oversized", http.Header{ThreadIDHeader: {strings.Repeat("x", MaxClientIdentifierLen+1)}}, `{}`, ThreadIdentityInvalid},
 		{"invalid conversation", http.Header{"Session-Id": {"bad\x01id"}, ThreadIDHeader: {"child"}}, `{}`, ThreadIdentityInvalid},
 		{"self parent", nil, `{"weave_routing":{"thread_id":"child","parent_thread_id":"child"}}`, ThreadIdentityInvalid},
@@ -52,17 +53,26 @@ func TestRoutingThreadIdentityValidation(t *testing.T) {
 }
 
 func TestNestedOpenCodeThreadIdentity(t *testing.T) {
-	headers := make(http.Header)
-	headers.Set(OpenCodeSessionHeader, "grandchild")
-	headers.Set(OpenCodeParentSessionHeader, "child")
-	identity := ThreadIdentityFromHeaders(headers)
-	require.Equal(t, ThreadIdentityAvailable, identity.Status)
-	require.Equal(t, "child", identity.ParentThreadID)
-	require.Empty(t, identity.ConversationID)
-	headers.Set(ConversationIDHeader, "root")
-	identity = ThreadIdentityFromHeaders(headers)
-	require.Equal(t, "root", identity.ConversationID)
-	require.Equal(t, "grandchild", identity.ThreadID)
+	for _, legacyHeader := range []string{"Session-Id", ClaudeCodeSessionHeader} {
+		t.Run(legacyHeader, func(t *testing.T) {
+			headers := make(http.Header)
+			headers.Set(OpenCodeSessionHeader, "grandchild")
+			headers.Set(OpenCodeParentSessionHeader, "child")
+			identity := ThreadIdentityFromHeaders(headers)
+			require.Equal(t, ThreadIdentityAvailable, identity.Status)
+			require.Equal(t, "child", identity.ParentThreadID)
+			require.Empty(t, identity.ConversationID)
+			scope := identity.AutomaticScope("credential", "installation")
+			headers.Set(legacyHeader, "unrelated-session")
+			identity = ThreadIdentityFromHeaders(headers)
+			require.Empty(t, identity.ConversationID)
+			require.Equal(t, scope.Key, identity.AutomaticScope("credential", "installation").Key)
+			headers.Set(ConversationIDHeader, "root")
+			identity = ThreadIdentityFromHeaders(headers)
+			require.Equal(t, "root", identity.ConversationID)
+			require.Equal(t, "grandchild", identity.ThreadID)
+		})
+	}
 }
 
 func TestAutomaticScopeOwnershipBoundaries(t *testing.T) {

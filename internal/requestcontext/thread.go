@@ -86,14 +86,6 @@ func ThreadIdentityFromHeaders(headers http.Header) ThreadIdentity {
 		}
 	}
 	identity.ConversationID = headers.Get(ConversationIDHeader)
-	if identity.ConversationID == "" {
-		for _, name := range [...]string{ClaudeCodeSessionHeader, "Session-Id"} {
-			if value := headers.Get(name); value != "" {
-				identity.ConversationID = value
-				break
-			}
-		}
-	}
 	identity.ThreadID = headers.Get(ThreadIDHeader)
 	identity.ParentThreadID = headers.Get(ParentThreadIDHeader)
 	identity.Source = ThreadSourceExplicit
@@ -113,6 +105,11 @@ func ThreadIdentityFromHeaders(headers http.Header) ThreadIdentity {
 			identity.ConversationID = nativeThread
 		}
 		identity.Source = ThreadSourceOpenCode
+	} else if identity.ConversationID == "" {
+		identity.ConversationID = headers.Get(ClaudeCodeSessionHeader)
+		if identity.ConversationID == "" {
+			identity.ConversationID = headers.Get("Session-Id")
+		}
 	}
 	if identity.ThreadID == "" {
 		identity.Source = ThreadSourceUnavailable
@@ -136,13 +133,13 @@ func RoutingIdentityFromRequest(headers http.Header, body []byte) (ThreadIdentit
 		return ThreadIdentity{}, nil, err
 	}
 	if gjson.GetBytes(clean, RoutingIdentityField).Exists() {
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(body, &fields); err != nil {
-			return ThreadIdentity{}, nil, err
+		for gjson.GetBytes(clean, RoutingIdentityField).Exists() {
+			clean, err = sjson.DeleteBytes(clean, RoutingIdentityField)
+			if err != nil {
+				return ThreadIdentity{}, nil, err
+			}
 		}
-		delete(fields, RoutingIdentityField)
-		clean, err = json.Marshal(fields)
-		return ThreadIdentity{Source: ThreadSourceUnavailable, Status: ThreadIdentityConflicting}, clean, err
+		return ThreadIdentity{Source: ThreadSourceUnavailable, Status: ThreadIdentityConflicting}, clean, nil
 	}
 	merged := headers.Clone()
 	if merged == nil {
