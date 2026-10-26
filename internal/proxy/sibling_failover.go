@@ -341,13 +341,13 @@ func walkRescueCandidates(
 // deployment and session demotions, models leased by another probe, and models
 // the thread's billed usage says this request overflows.
 func (s *Service) rescueExcludedModels(ctx context.Context) map[string]struct{} {
-	demoted := slices.Concat(sessionDemotedModelsFromContext(ctx), observedOverflowModelsFromContext(ctx))
+	excluded := slices.Concat(sessionDemotedModelsFromContext(ctx), observedOverflowModelsFromContext(ctx))
 	probeDenied, _ := ctx.Value(SessionCooldownProbeDeniedModelsContextKey{}).([]string)
-	if len(demoted) == 0 && len(probeDenied) == 0 {
+	if len(excluded) == 0 && len(probeDenied) == 0 {
 		return s.globalAutomaticExcludedModels(ctx)
 	}
-	session := make(map[string]struct{}, len(demoted)+len(probeDenied))
-	for _, model := range demoted {
+	session := make(map[string]struct{}, len(excluded)+len(probeDenied))
+	for _, model := range excluded {
 		session[model] = struct{}{}
 	}
 	for _, model := range probeDenied {
