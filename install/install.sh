@@ -857,7 +857,8 @@ codex_model_catalog_file() {
   printf '%s/weave-router-models.json\n' "$1"
 }
 
-# grep, not jq: Codex installs and status don't otherwise need jq.
+# A deliberate best-effort key match rather than jq: Codex installs and status
+# don't otherwise need jq.
 codex_uses_api_key() {
   grep -Eq '"auth_mode"[[:space:]]*:[[:space:]]*"apikey"' "$1/auth.json" 2>/dev/null
 }
@@ -894,11 +895,25 @@ write_codex_model_catalog() {
   [ -f "$file" ] && printf '%s\n' "$file"
 }
 
-# codex_model_catalog_stale succeeds when an API-key login has no catalog or
-# one built by a different Codex version, which would hide its newer models.
+# codex_user_catalog_configured succeeds when config $1 sets its own top-level
+# model_catalog_json, which the installer leaves alone.
+codex_user_catalog_configured() {
+  awk -v begin="$WEAVE_CODEX_BEGIN_MARKER" -v end="$WEAVE_CODEX_END_MARKER" '
+    $0 == begin { skip = 1; next }
+    $0 == end   { skip = 0; next }
+    /^[[:space:]]*\[/ { exit 1 }
+    !skip && /^[[:space:]]*model_catalog_json[[:space:]]*=/ && !/weave-router-models\.json"/ { found = 1; exit 0 }
+    END { exit(found ? 0 : 1) }
+  ' "$1" 2>/dev/null
+}
+
+# codex_model_catalog_stale succeeds when an API-key login without its own
+# catalog has none of ours, or one built by a different Codex version, which
+# would hide its newer models.
 codex_model_catalog_stale() {
   local dir="$1" file
   codex_uses_api_key "$dir" && command -v codex >/dev/null 2>&1 || return 1
+  ! codex_user_catalog_configured "$2" || return 1
   file="$(codex_model_catalog_file "$dir")"
   [ -f "$file" ] || return 0
   [ "$(cat "$file.version" 2>/dev/null)" != "$(capture_bounded 10 codex --version 2>/dev/null || true)" ]
@@ -1070,13 +1085,7 @@ TOML
     fi
   fi
   local catalog_line="" catalog_file
-  if ! awk -v begin="$WEAVE_CODEX_BEGIN_MARKER" -v end="$WEAVE_CODEX_END_MARKER" '
-      $0 == begin { skip = 1; next }
-      $0 == end   { skip = 0; next }
-      /^[[:space:]]*\[/ { exit 1 }
-      !skip && /^[[:space:]]*model_catalog_json[[:space:]]*=/ && !/weave-router-models\.json"/ { found = 1; exit 0 }
-      END { exit(found ? 0 : 1) }
-    ' "$config_file" 2>/dev/null \
+  if ! codex_user_catalog_configured "$config_file" \
     && catalog_file="$(write_codex_model_catalog "$(dirname "$config_file")")"; then
     catalog_line="model_catalog_json = \"$(toml_escape "$catalog_file")\""
   fi
@@ -4053,7 +4062,7 @@ run_router_status() {
         status_problem "The codex command isn't on PATH." "npm install -g @openai/codex"
       elif codex_login_missing; then
         status_problem "Codex isn't signed in." "codex login"
-      elif codex_model_catalog_stale "$codex_dir"; then
+      elif codex_model_catalog_stale "$codex_dir" "$codex_config_file"; then
         status_problem "Codex doesn't have weave-auto's model details for this API-key login, so it guesses the context window." "$npx update --codex$scope_flags"
       fi
       if grep -q 'codex-status' "$codex_config_file" 2>/dev/null && ! codex_hooks_trusted; then

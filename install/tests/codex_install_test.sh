@@ -1016,6 +1016,20 @@ catalog_status="$(HOME="$catalog_home" PATH="$catalog_bin:$PATH" NO_COLOR=1 \
 if grep -Fq "weave-auto's model details" <<<"$catalog_status"; then
   fail "status flagged a fresh catalog"
 fi
+own_catalog_home="$work/own-catalog-home"
+mkdir -p "$own_catalog_home/.codex"
+cp "$catalog_home/.codex/auth.json" "$own_catalog_home/.codex/auth.json"
+printf '%s\n' 'model_catalog_json = "/opt/my-models.json"' >"$own_catalog_home/.codex/config.toml"
+HOME="$own_catalog_home" PATH="$catalog_bin:$PATH" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
+  bash "$installer" --codex --scope user --quiet --base-url http://localhost:8080 >/dev/null 2>&1
+[ "$(grep -c '^model_catalog_json' "$own_catalog_home/.codex/config.toml")" = "1" ] \
+  || fail "install replaced the user's own model_catalog_json"
+[ ! -e "$own_catalog_home/.codex/weave-router-models.json" ] || fail "install wrote a catalog over the user's own"
+catalog_status="$(HOME="$own_catalog_home" PATH="$catalog_bin:$PATH" NO_COLOR=1 \
+  bash "$installer" status --codex --scope user 2>&1 || true)"
+if grep -Fq "weave-auto's model details" <<<"$catalog_status"; then
+  fail "status flagged a user-owned catalog"
+fi
 printf '%s\n' '{"auth_mode":"chatgpt","tokens":{}}' >"$catalog_home/.codex/auth.json"
 catalog_install
 [ ! -e "$catalog_file" ] || fail "ChatGPT login kept the static catalog"
