@@ -119,7 +119,7 @@ install_output="$(run_install_output)"
 grep -Fq "npx @weave-os/router login claude" <<<"$install_output" || fail "install did not print the managed enrollment command"
 grep -Fq "npx @weave-os/router login codex" <<<"$install_output" || fail "install did not print the managed Codex enrollment command"
 login_output="$(HOME="$home" XDG_CONFIG_HOME="$home/xdg" PATH="$test_path" NO_COLOR=1 \
-  bash "$installer" login claude --dir "$install_dir" --non-interactive --quiet 2>&1 || true)"
+  bash "$installer" login claude --manual --dir "$install_dir" --non-interactive --quiet 2>&1 || true)"
 grep -Fq "Claude login requires an interactive terminal" <<<"$login_output" || fail "managed login did not reuse the OpenCode install"
 if grep -Fq "Weave Router is not installed" <<<"$login_output"; then
   fail "managed login ignored the OpenCode install endpoint"
@@ -131,11 +131,11 @@ claude_settings_dir="$install_dir/.claude"
 mkdir -p "$claude_settings_dir"
 printf '%s\n' '{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:8"}}' >"$claude_settings_dir/settings.json"
 login_output="$(HOME="$home" XDG_CONFIG_HOME="$home/xdg" PATH="$test_path" NO_COLOR=1 \
-  bash "$installer" login claude --dir "$install_dir" --non-interactive --quiet 2>&1 || true)"
+  bash "$installer" login claude --manual --dir "$install_dir" --non-interactive --quiet 2>&1 || true)"
 grep -Fq "No router key found" <<<"$login_output" || fail "managed login sent the OpenCode key to a different Claude endpoint"
 printf '%s\n' '{"env":{"ANTHROPIC_BASE_URL":"http://127.0.0.1:9/"}}' >"$claude_settings_dir/settings.json"
 login_output="$(HOME="$home" XDG_CONFIG_HOME="$home/xdg" PATH="$test_path" NO_COLOR=1 \
-  bash "$installer" login claude --dir "$install_dir" --non-interactive --quiet 2>&1 || true)"
+  bash "$installer" login claude --manual --dir "$install_dir" --non-interactive --quiet 2>&1 || true)"
 grep -Fq "Claude login requires an interactive terminal" <<<"$login_output" || fail "managed login did not reuse the OpenCode key for the matching Claude endpoint"
 rm -rf "$claude_settings_dir"
 [ "$(jq -r '.model' "$config")" = "weave/auto" ] || fail "install did not activate weave/auto"

@@ -42,6 +42,7 @@
 #   npx @weave-os/router setup --claude --codex            # configure both native clients
 #   npx @weave-os/router login claude                      # enroll Claude Pro/Max
 #   npx @weave-os/router login codex                       # enroll ChatGPT Pro/Plus
+#   npx @weave-os/router login claude --manual             # no browser here (SSH): paste a code / use a device code
 #   npx @weave-os/router accounts list                     # inspect enrolled accounts
 #   npx @weave-os/router status                            # router + native client status
 #   npx @weave-os/router --opencode                       # install for opencode
@@ -159,6 +160,9 @@ setup_codex="false"
 models_args=""
 models_json="false"
 models_auto_target="false"
+# --manual / --device-code: `login` skips the browser + localhost callback and
+# uses the paste-a-code (Claude) or device-code (Codex) flow instead.
+oauth_manual="false"
 
 # --lsp <langs>: comma-separated languages whose language servers to install
 # for the pi extension's `lsp` tool (pi target only). Empty = don't install any.
@@ -293,6 +297,8 @@ SPIN_INTERVAL=0.08
 spin_pid=""
 spin_log=""
 jq_download_tmp=""
+oauth_loopback_pid=""
+oauth_loopback_dir=""
 
 _spin_cleanup() {
   # Kill any active spinner child and restore the cursor. Called from the
@@ -316,12 +322,27 @@ _spin_cleanup() {
   if [ -n "${validate_status_file:-}" ]; then
     rm -f "$validate_status_file" 2>/dev/null || true
   fi
+  oauth_loopback_cleanup
   # Also restore stty echo in case we died mid-keypaste prompt. macOS
   # `[ -r /dev/tty ]` returns true even when the underlying device errors
   # on open (ENXIO "Device not configured") under `curl | sh` and CI, so
   # we gate on stdin being an actual tty before touching it.
   if [ -t 0 ]; then
     stty echo 2>/dev/null || true
+  fi
+}
+
+# oauth_loopback_cleanup stops the login callback listener and removes its
+# temp dir (which may hold an authorization code). Safe to call repeatedly.
+oauth_loopback_cleanup() {
+  if [ -n "${oauth_loopback_pid:-}" ]; then
+    kill "$oauth_loopback_pid" 2>/dev/null || true
+    wait "$oauth_loopback_pid" 2>/dev/null || true
+    oauth_loopback_pid=""
+  fi
+  if [ -n "${oauth_loopback_dir:-}" ]; then
+    rm -rf "$oauth_loopback_dir" 2>/dev/null || true
+    oauth_loopback_dir=""
   fi
 }
 trap _spin_cleanup EXIT INT TERM HUP
@@ -399,6 +420,7 @@ Every day
 
 Accounts
   $npx login claude | codex     use your Claude or ChatGPT subscription
+                                (--manual: no browser here, e.g. over SSH)
   $npx accounts list            show enrolled subscriptions
 
 Options
@@ -1662,6 +1684,9 @@ while [ $# -gt 0 ]; do
     --json)
       models_json="true"; shift
       ;;
+    --manual|--device-code)
+      oauth_manual="true"; shift
+      ;;
     -h|--help)
       usage 0
       ;;
@@ -1814,6 +1839,11 @@ fi
 # would flip config nobody asked to change.
 if [ "$mode" = "models" ] && [ "$target" != "claude" ] && [ "$target" != "codex" ]; then
   err "'models' supports --claude and --codex only (it resolves the router endpoint from that client's config)."
+  exit 2
+fi
+
+if [ "$oauth_manual" = "true" ] && [ "$mode" != "login" ]; then
+  err "--manual and --device-code only apply to 'login'."
   exit 2
 fi
 
@@ -3653,26 +3683,198 @@ oauth_post_form() {
   return "$curl_status"
 }
 
+# The login callback listener: node is always present under npx, unlike
+# python3/nc. argv: port (0 = any) callback-path timeout-seconds result-file
+# ready-file; the expected state arrives in WEAVE_OAUTH_STATE so it stays out
+# of ps. Exit 0 = code written to result-file, 3 = could not bind, 4 = timed
+# out, 5 = issuer returned an error (its code in result-file), 6 = installer
+# went away. A callback whose state does not match is answered 400 and ignored.
+oauth_loopback_listener_js='
+const http = require("http");
+const fs = require("fs");
+const [port, callbackPath, timeoutSeconds, resultFile, readyFile] = process.argv.slice(1);
+const expectedState = process.env.WEAVE_OAUTH_STATE || "";
+delete process.env.WEAVE_OAUTH_STATE;
+const parent = process.ppid;
+const page = (title, text) => "<!doctype html><html><head><meta charset=\"utf-8\"><title>" + title +
+  "</title></head><body style=\"font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;text-align:center\"><h1>" +
+  title + "</h1><p>" + text + "</p></body></html>";
+let finished = false;
+const server = http.createServer((req, res) => {
+  const url = new URL(req.url || "/", "http://127.0.0.1");
+  const send = (status, title, text) => {
+    res.writeHead(status, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Connection": "close" });
+    res.end(page(title, text));
+  };
+  if (finished || req.method !== "GET" || url.pathname !== callbackPath) {
+    res.writeHead(404, { "Connection": "close" });
+    res.end();
+    return;
+  }
+  const state = url.searchParams.get("state") || "";
+  if (!expectedState || state !== expectedState) {
+    process.stderr.write("Ignored a browser callback that does not belong to this login.\n");
+    send(400, "Sign-in link expired", "This page is from a different sign-in attempt. Go back to your terminal and finish the login there.");
+    return;
+  }
+  const code = url.searchParams.get("code") || "";
+  const error = url.searchParams.get("error") || (code ? "" : "missing_code");
+  finished = true;
+  if (error) {
+    fs.writeFileSync(resultFile, /^[A-Za-z0-9_.-]{1,64}$/.test(error) ? error : "unknown_error", { mode: 0o600 });
+    send(400, "Sign-in failed", "The sign-in did not complete. Check your terminal for details.");
+    res.on("finish", () => process.exit(5));
+    return;
+  }
+  fs.writeFileSync(resultFile, code, { mode: 0o600 });
+  send(200, "Signed in", "You can close this tab and return to your terminal.");
+  res.on("finish", () => process.exit(0));
+});
+server.on("error", () => process.exit(3));
+server.listen(Number(port), "127.0.0.1", () => {
+  fs.writeFileSync(readyFile + ".tmp", String(server.address().port));
+  fs.renameSync(readyFile + ".tmp", readyFile);
+});
+setTimeout(() => process.exit(4), Number(timeoutSeconds) * 1000).unref();
+setInterval(() => { try { process.kill(parent, 0); } catch (e) { process.exit(6); } }, 1000).unref();
+'
+
+# oauth_browser_unavailable prints why `login` cannot use a local browser plus
+# localhost callback on this machine, or nothing when it can.
+oauth_browser_unavailable() {
+  if [ "$oauth_manual" = "true" ]; then
+    printf '%s' "you asked for it with --manual or --device-code"
+    return 0
+  fi
+  if [ -n "${SSH_CONNECTION:-}" ] || [ -n "${SSH_TTY:-}" ] || [ -n "${SSH_CLIENT:-}" ]; then
+    printf '%s' "this is an SSH session, so a browser here could not reach this machine"
+    return 0
+  fi
+  if ! command -v node >/dev/null 2>&1; then
+    printf '%s' "Node.js is not installed"
+    return 0
+  fi
+  case "$(uname -s 2>/dev/null || printf '')" in
+    Darwin*)
+      command -v open >/dev/null 2>&1 || printf '%s' "no browser opener was found"
+      ;;
+    MINGW*|MSYS*|CYGWIN*)
+      command -v rundll32.exe >/dev/null 2>&1 || printf '%s' "no browser opener was found"
+      ;;
+    *)
+      if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+        printf '%s' "no graphical display is available"
+      elif ! command -v xdg-open >/dev/null 2>&1; then
+        printf '%s' "xdg-open is not installed"
+      fi
+      ;;
+  esac
+}
+
+# oauth_loopback_start runs the callback listener on the first of the given
+# ports that binds (0 = any free port) and sets oauth_loopback_port. Returns 1
+# when none of them bind.
+oauth_loopback_start() {
+  local callback_path="$1" state="$2" timeout_seconds port waited
+  shift 2
+  timeout_seconds="${WEAVE_OAUTH_TIMEOUT:-300}"
+  case "$timeout_seconds" in ""|*[!0-9]*) timeout_seconds=300 ;; esac
+  oauth_loopback_dir="$(mktemp -d "${TMPDIR:-/tmp}/weave-oauth.XXXXXX")" || return 1
+  chmod 700 "$oauth_loopback_dir"
+  for port in "$@"; do
+    WEAVE_OAUTH_STATE="$state" node -e "$oauth_loopback_listener_js" "$port" "$callback_path" "$timeout_seconds" \
+      "$oauth_loopback_dir/result" "$oauth_loopback_dir/ready" </dev/null >/dev/null &
+    oauth_loopback_pid=$!
+    waited=0
+    while [ ! -s "$oauth_loopback_dir/ready" ] && kill -0 "$oauth_loopback_pid" 2>/dev/null && [ "$waited" -lt 100 ]; do
+      sleep 0.1
+      waited=$((waited + 1))
+    done
+    if [ -s "$oauth_loopback_dir/ready" ]; then
+      oauth_loopback_port="$(cat "$oauth_loopback_dir/ready")"
+      return 0
+    fi
+    kill "$oauth_loopback_pid" 2>/dev/null || true
+    wait "$oauth_loopback_pid" 2>/dev/null || true
+    oauth_loopback_pid=""
+  done
+  oauth_loopback_cleanup
+  return 1
+}
+
+# oauth_loopback_wait opens the authorize URL, blocks until the listener sees
+# the callback and sets oauth_callback_code. Every failure exits the installer,
+# naming the manual flag ($2) as the way out.
+oauth_loopback_wait() {
+  local authorize_url="$1" manual_hint="$2" status=0 issuer_error
+  open_url_in_browser "$authorize_url" || true
+  printf '%s\n' "Opened your browser to sign in. Waiting for it to finish (Ctrl-C to cancel)." \
+    "If the browser didn't open, visit:" "$authorize_url"
+  wait "$oauth_loopback_pid" || status=$?
+  oauth_loopback_pid=""
+  case "$status" in
+    0)
+      oauth_callback_code="$(cat "$oauth_loopback_dir/result")"
+      oauth_loopback_cleanup
+      [ -n "$oauth_callback_code" ] || { err "The browser sign-in returned no authorization code."; exit 1; }
+      ;;
+    4)
+      oauth_loopback_cleanup
+      err "Timed out waiting for the browser sign-in. Run the login again, or add --manual to $manual_hint."
+      exit 1
+      ;;
+    5)
+      issuer_error="$(cat "$oauth_loopback_dir/result" 2>/dev/null || true)"
+      oauth_loopback_cleanup
+      err "The browser sign-in did not complete (${issuer_error:-unknown_error}). Run the login again."
+      exit 1
+      ;;
+    *)
+      oauth_loopback_cleanup
+      err "The browser sign-in was cancelled."
+      exit 130
+      ;;
+  esac
+}
+
 run_login_claude() {
-  local verifier challenge expected_state authorize_endpoint authorize_url pasted_code auth_code returned_state token_response refresh_token account_uuid organization_uuid account_email organization_name display_name external_account_id body
+  local verifier challenge expected_state authorize_endpoint authorize_url redirect_uri manual_reason pasted_code auth_code returned_state token_response refresh_token account_uuid organization_uuid account_email organization_name display_name external_account_id body
   verifier="$(openssl rand 32 | oauth_base64url)"
   challenge="$(printf '%s' "$verifier" | openssl dgst -sha256 -binary | oauth_base64url)"
   expected_state="$(openssl rand 32 | oauth_base64url)"
   authorize_endpoint="${WEAVE_ANTHROPIC_OAUTH_AUTHORIZE:-https://claude.ai/oauth/authorize}"
-  authorize_url="$authorize_endpoint?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=$(jq -nr '"https://console.anthropic.com/oauth/code/callback"|@uri')&scope=$(jq -nr '"org:create_api_key user:profile user:inference"|@uri')&code_challenge=$challenge&code_challenge_method=S256&state=$expected_state"
-  open_oauth_url "$authorize_url"
-  if [ "$non_interactive" = "true" ] || [ ! -r /dev/tty ]; then
-    err "Claude login requires an interactive terminal to paste the authorization code."
-    exit 1
+  manual_reason="$(oauth_browser_unavailable)"
+  if [ -z "$manual_reason" ]; then
+    # Claude Code's own login: a listener on 127.0.0.1, any free port, with
+    # http://localhost:<port>/callback registered as the redirect.
+    if oauth_loopback_start /callback "$expected_state" 0; then
+      redirect_uri="http://localhost:$oauth_loopback_port/callback"
+    else
+      manual_reason="no local port was free for the browser callback"
+    fi
   fi
-  printf 'Paste the Claude authorization code: ' >/dev/tty
-  read -r pasted_code </dev/tty
-  auth_code="${pasted_code%%#*}"
-  returned_state="${pasted_code#*#}"
-  [ "$auth_code" != "$pasted_code" ] || { err "Expected Claude's code#state value."; exit 1; }
-  [ "$returned_state" = "$expected_state" ] || { err "Claude authorization state did not match this login attempt."; exit 1; }
+  [ -n "$manual_reason" ] && redirect_uri="https://console.anthropic.com/oauth/code/callback"
+  authorize_url="$authorize_endpoint?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=$(jq -nr --arg value "$redirect_uri" '$value|@uri')&scope=$(jq -nr '"org:create_api_key user:profile user:inference"|@uri')&code_challenge=$challenge&code_challenge_method=S256&state=$expected_state"
+  if [ -z "$manual_reason" ]; then
+    oauth_loopback_wait "$authorize_url" "paste a code instead"
+    auth_code="$oauth_callback_code"
+    returned_state="$expected_state"
+  else
+    printf '%s\n' "Signing in by pasting a code: $manual_reason."
+    open_oauth_url "$authorize_url"
+    if [ "$non_interactive" = "true" ] || [ ! -r /dev/tty ]; then
+      err "Claude login requires an interactive terminal to paste the authorization code."
+      exit 1
+    fi
+    printf 'Paste the Claude authorization code: ' >/dev/tty
+    read -r pasted_code </dev/tty
+    auth_code="${pasted_code%%#*}"
+    returned_state="${pasted_code#*#}"
+    [ "$auth_code" != "$pasted_code" ] || { err "Expected Claude's code#state value."; exit 1; }
+    [ "$returned_state" = "$expected_state" ] || { err "Claude authorization state did not match this login attempt."; exit 1; }
+  fi
   token_response="$(oauth_post_json "${WEAVE_ANTHROPIC_OAUTH_TOKEN:-https://console.anthropic.com/v1/oauth/token}" \
-    "$(jq -nc --arg code "$auth_code" --arg state "$returned_state" --arg verifier "$verifier" '{grant_type:"authorization_code",code:$code,state:$state,client_id:"9d1c250a-e61b-44d9-88ed-5944d1962f5e",redirect_uri:"https://console.anthropic.com/oauth/code/callback",code_verifier:$verifier}')")" \
+    "$(jq -nc --arg code "$auth_code" --arg state "$returned_state" --arg verifier "$verifier" --arg redirect "$redirect_uri" '{grant_type:"authorization_code",code:$code,state:$state,client_id:"9d1c250a-e61b-44d9-88ed-5944d1962f5e",redirect_uri:$redirect,code_verifier:$verifier}')")" \
     || { err "Claude token exchange failed."; exit 1; }
   refresh_token="$(printf '%s' "$token_response" | jq -r '.refresh_token // empty')"
   [ -n "$refresh_token" ] || { err "Claude token exchange returned no refresh token."; exit 1; }
@@ -3696,8 +3898,48 @@ run_login_claude() {
 }
 
 run_login_codex() {
-  local issuer device_response device_auth_id user_code interval authorization_response authorization_code verifier token_response refresh_token account_id display_name identity_token body attempts token_form
+  local issuer authorization_code verifier challenge state redirect_uri authorize_url manual_reason token_response refresh_token account_id display_name identity_token body token_form
   issuer="${WEAVE_CODEX_OAUTH_ISSUER:-https://auth.openai.com}"
+  manual_reason="$(oauth_browser_unavailable)"
+  if [ -z "$manual_reason" ]; then
+    verifier="$(openssl rand 64 | oauth_base64url)"
+    challenge="$(printf '%s' "$verifier" | openssl dgst -sha256 -binary | oauth_base64url)"
+    state="$(openssl rand 32 | oauth_base64url)"
+    # The issuer only accepts the callback ports `codex login` registered.
+    if oauth_loopback_start /auth/callback "$state" 1455 1457; then
+      redirect_uri="http://127.0.0.1:$oauth_loopback_port/auth/callback"
+      authorize_url="$issuer/oauth/authorize?response_type=code&client_id=app_EMoamEEZ73f0CkXaXp7hrann&redirect_uri=$(jq -nr --arg value "$redirect_uri" '$value|@uri')&code_challenge=$challenge&code_challenge_method=S256&state=$state&scope=$(jq -nr '"openid profile email offline_access api.connectors.read api.connectors.invoke"|@uri')&id_token_add_organizations=true&codex_cli_simplified_flow=true&originator=codex_cli_rs"
+      oauth_loopback_wait "$authorize_url" "use a device code instead"
+      authorization_code="$oauth_callback_code"
+    else
+      manual_reason="ports 1455 and 1457, the only ones OpenAI accepts for the browser callback, are in use"
+    fi
+  fi
+  if [ -n "$manual_reason" ]; then
+    printf '%s\n' "Signing in with a device code: $manual_reason."
+    run_login_codex_device_code "$issuer"
+    redirect_uri="$issuer/deviceauth/callback"
+  fi
+  token_form="grant_type=authorization_code&code=$(jq -nr --arg value "$authorization_code" '$value|@uri')&redirect_uri=$(jq -nr --arg value "$redirect_uri" '$value|@uri')&client_id=app_EMoamEEZ73f0CkXaXp7hrann&code_verifier=$(jq -nr --arg value "$verifier" '$value|@uri')"
+  token_response="$(oauth_post_form "$issuer/oauth/token" "$token_form")" \
+    || { err "Codex token exchange failed."; exit 1; }
+  refresh_token="$(printf '%s' "$token_response" | jq -r '.refresh_token // empty')"
+  identity_token="$(printf '%s' "$token_response" | jq -r '.id_token // .access_token // empty')"
+  account_id="$(jwt_account_id "$identity_token")"
+  display_name="$(jwt_account_label "$identity_token")"
+  if [ -z "$refresh_token" ] || [ -z "$account_id" ]; then
+    err "Codex token exchange omitted account identity or refresh credentials."
+    exit 1
+  fi
+  body="$(jq -nc --arg provider codex --arg account "$account_id" --arg token "$refresh_token" --arg label "$display_name" '{provider:$provider,external_account_id:$account,refresh_token:$token} | if $label != "" then .display_name = $label else . end')"
+  models_api POST "/v1/subscriptions/accounts" "$body" || models_fail "enrolling Codex subscription"
+  ok "Codex subscription enrolled."
+}
+
+# run_login_codex_device_code runs OpenAI's device-code flow and sets the
+# caller's authorization_code and verifier.
+run_login_codex_device_code() {
+  local issuer="$1" device_response device_auth_id user_code interval authorization_response attempts
   device_response="$(oauth_post_json "$issuer/api/accounts/deviceauth/usercode" '{"client_id":"app_EMoamEEZ73f0CkXaXp7hrann"}')" \
     || { err "Could not start Codex device authorization."; exit 1; }
   device_auth_id="$(printf '%s' "$device_response" | jq -r '.device_auth_id // empty')"
@@ -3725,20 +3967,6 @@ run_login_codex() {
     err "Codex authorization returned an invalid response."
     exit 1
   fi
-  token_form="grant_type=authorization_code&code=$(jq -nr --arg value "$authorization_code" '$value|@uri')&redirect_uri=$(jq -nr --arg value "$issuer/deviceauth/callback" '$value|@uri')&client_id=app_EMoamEEZ73f0CkXaXp7hrann&code_verifier=$(jq -nr --arg value "$verifier" '$value|@uri')"
-  token_response="$(oauth_post_form "$issuer/oauth/token" "$token_form")" \
-    || { err "Codex token exchange failed."; exit 1; }
-  refresh_token="$(printf '%s' "$token_response" | jq -r '.refresh_token // empty')"
-  identity_token="$(printf '%s' "$token_response" | jq -r '.id_token // .access_token // empty')"
-  account_id="$(jwt_account_id "$identity_token")"
-  display_name="$(jwt_account_label "$identity_token")"
-  if [ -z "$refresh_token" ] || [ -z "$account_id" ]; then
-    err "Codex token exchange omitted account identity or refresh credentials."
-    exit 1
-  fi
-  body="$(jq -nc --arg provider codex --arg account "$account_id" --arg token "$refresh_token" --arg label "$display_name" '{provider:$provider,external_account_id:$account,refresh_token:$token} | if $label != "" then .display_name = $label else . end')"
-  models_api POST "/v1/subscriptions/accounts" "$body" || models_fail "enrolling Codex subscription"
-  ok "Codex subscription enrolled."
 }
 
 run_login() {

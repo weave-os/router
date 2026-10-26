@@ -12,8 +12,9 @@ npx @weave-os/router --claude              # install for Claude Code
 npx @weave-os/router --codex               # install for the OpenAI Codex CLI
 npx @weave-os/router setup --claude --codex # configure both native clients
 npx @weave-os/router accounts list --claude # list enrolled subscription accounts
-npx @weave-os/router login claude           # enroll Claude Pro/Max with PKCE
-npx @weave-os/router login codex            # enroll ChatGPT Pro/Plus device flow
+npx @weave-os/router login claude           # enroll Claude Pro/Max (browser sign-in)
+npx @weave-os/router login codex            # enroll ChatGPT Pro/Plus (browser sign-in)
+npx @weave-os/router login codex --manual   # no local browser (e.g. SSH): use a device code
 npx @weave-os/router status                 # connectivity, native configs, account health
 npx @weave-os/router --opencode            # install for opencode
 npx @weave-os/router --pi                  # install for pi + Loom UI

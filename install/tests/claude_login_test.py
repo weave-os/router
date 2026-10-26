@@ -14,7 +14,7 @@ from pathlib import Path
 def interactive_login(installer, base_url, env):
     pid, fd = pty.fork()
     if pid == 0:
-        os.execvpe("bash", ["bash", installer, "login", "claude", "--base-url",
+        os.execvpe("bash", ["bash", installer, "login", "claude", "--manual", "--base-url",
                            base_url, "--quiet"], env)
 
     output = bytearray()
