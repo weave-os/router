@@ -3701,12 +3701,13 @@ const page = (title, text) => "<!doctype html><html><head><meta charset=\"utf-8\
   title + "</h1><p>" + text + "</p></body></html>";
 let finished = false;
 const server = http.createServer((req, res) => {
-  const url = new URL(req.url || "/", "http://127.0.0.1");
+  let url = null;
+  try { url = new URL(req.url || "/", "http://127.0.0.1"); } catch (e) {}
   const send = (status, title, text) => {
     res.writeHead(status, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store", "Connection": "close" });
     res.end(page(title, text));
   };
-  if (finished || req.method !== "GET" || url.pathname !== callbackPath) {
+  if (finished || !url || req.method !== "GET" || url.pathname !== callbackPath) {
     res.writeHead(404, { "Connection": "close" });
     res.end();
     return;

@@ -83,7 +83,7 @@ chmod +x "$work/bin/curl"
 # redirects the user's browser after sign-in.
 cat >"$work/bin/open" <<'FAKE_BROWSER'
 #!/usr/bin/env python3
-import os, sys, urllib.error, urllib.parse, urllib.request
+import os, socket, sys, urllib.error, urllib.parse, urllib.request
 url = sys.argv[-1]
 log = open(os.environ["FAKE_BROWSER_LOG"], "a")
 log.write(url + "\n")
@@ -98,8 +98,14 @@ def callback(params):
             return response.status
     except urllib.error.HTTPError as error:
         return error.code
+def malformed_request():
+    parts = urllib.parse.urlsplit(redirect)
+    with socket.create_connection((parts.hostname, parts.port), timeout=10) as conn:
+        conn.sendall(b"GET //[/ HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+        return int(conn.recv(64).split()[1])
 statuses = []
 if mode == "mismatch":
+    statuses.append(malformed_request())
     statuses.append(callback({"code": "attacker-code", "state": "not-this-login"}))
 if mode == "error":
     statuses.append(callback({"error": "access_denied", "state": query["state"][0]}))
@@ -305,6 +311,8 @@ pkce_challenge() {
   printf '%s' "$1" | openssl dgst -sha256 -binary | openssl base64 -A | tr '+/' '-_' | tr -d '='
 }
 
+{ port_free 1455 && port_free 1457; } || loop_fail "ports 1455 and 1457 must be free to run the browser-login tests (is a codex login running?)"
+
 # Codex: authorization code + PKCE through 127.0.0.1:1455, like `codex login`.
 reset_loop_logs
 enrolled_before="$(wc -l <"$FAKE_ENROLLMENTS")"
@@ -362,11 +370,11 @@ for secret in authorization-code refresh-loop access-loop "$(jq -r .code_verifie
   if grep -Fq -- "$secret" <<<"$claude_loop_output"; then loop_fail "browser Claude login printed a credential"; fi
 done
 
-# A callback with someone else's state is refused and ignored; the real one still lands.
+# A malformed request and a callback with someone else's state are refused and ignored; the real one still lands.
 reset_loop_logs
 mismatch_output="$(env "${loop_env[@]}" FAKE_BROWSER=mismatch bash "$installer" login codex --base-url https://router.example.test --non-interactive --quiet 2>&1)" \
   || loop_fail "login failed after a foreign callback" "$mismatch_output"
-grep -Fq 'callback statuses: 400 200' "$FAKE_BROWSER_LOG" || loop_fail "foreign callback was not refused" "$(cat "$FAKE_BROWSER_LOG")"
+grep -Fq 'callback statuses: 404 400 200' "$FAKE_BROWSER_LOG" || loop_fail "foreign callback was not refused" "$(cat "$FAKE_BROWSER_LOG")"
 grep -Fq 'Ignored a browser callback that does not belong to this login.' <<<"$mismatch_output" || loop_fail "foreign callback was not reported" "$mismatch_output"
 if grep -Fq attacker-code "$FAKE_TOKEN_BODIES"; then loop_fail "exchanged a code from a foreign callback"; fi
 [ "$(authorize_param "?$(tail -n 1 "$FAKE_TOKEN_BODIES")" code)" = "authorization-code" ] || loop_fail "did not exchange the real code"
