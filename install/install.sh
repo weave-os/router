@@ -3816,7 +3816,6 @@ oauth_loopback_wait() {
     0)
       oauth_callback_code="$(cat "$oauth_loopback_dir/result")"
       oauth_loopback_cleanup
-      [ -n "$oauth_callback_code" ] || { err "The browser sign-in returned no authorization code."; exit 1; }
       ;;
     4)
       oauth_loopback_cleanup
@@ -3824,9 +3823,9 @@ oauth_loopback_wait() {
       exit 1
       ;;
     5)
-      issuer_error="$(cat "$oauth_loopback_dir/result" 2>/dev/null || true)"
+      issuer_error="$(cat "$oauth_loopback_dir/result")"
       oauth_loopback_cleanup
-      err "The browser sign-in did not complete (${issuer_error:-unknown_error}). Run the login again."
+      err "The browser sign-in did not complete ($issuer_error). Run the login again."
       exit 1
       ;;
     *)

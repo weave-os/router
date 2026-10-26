@@ -263,7 +263,7 @@ done <"$FAKE_CURL_LOG"
 # --- Browser sign-in through a localhost callback -------------------------
 # The fake browser above plays the issuer and calls the installer's listener.
 loop_env=("${common_env[@]}" DISPLAY=:99)
-claude_ok='{"access_token":"access-loop","refresh_token":"refresh-loop","account":{"uuid":"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee","email_address":"loop@example.test"},"organization":{"uuid":"ffffffff-ffff-4fff-8fff-ffffffffffff","name":"Loop Org"}}'
+claude_response='{"access_token":"access-loop","refresh_token":"refresh-loop","account":{"uuid":"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee","email_address":"loop@example.test"},"organization":{"uuid":"ffffffff-ffff-4fff-8fff-ffffffffffff","name":"Loop Org"}}'
 holder_pids=()
 trap 'for holder in "${holder_pids[@]:-}"; do [ -n "$holder" ] && kill "$holder" 2>/dev/null; done; rm -rf "$work"' EXIT
 
@@ -337,7 +337,7 @@ assert_listener_gone "$codex_loop_output"
 
 # Claude: any free port, http://localhost:<port>/callback, like `claude login`.
 reset_loop_logs
-claude_loop_output="$(env "${loop_env[@]}" FAKE_CLAUDE_RESPONSE="$claude_ok" \
+claude_loop_output="$(env "${loop_env[@]}" FAKE_CLAUDE_RESPONSE="$claude_response" \
   bash "$installer" login claude --base-url https://router.example.test --non-interactive --quiet 2>&1)" \
   || loop_fail "browser Claude login failed" "$claude_loop_output"
 grep -Fq 'Claude subscription enrolled.' <<<"$claude_loop_output" || loop_fail "browser Claude login did not enroll" "$claude_loop_output"
