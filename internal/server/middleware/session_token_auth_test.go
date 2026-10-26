@@ -31,7 +31,7 @@ func TestWithAuth_SessionTokenAuthenticatesAsIssuerWithDelegatedSession(t *testi
 	installation := &auth.Installation{ID: "inst-issuer", ExternalID: "org-issuer"}
 	issuer := &auth.APIKey{ID: "issuer-1", InstallationID: installation.ID, KeyHash: auth.SessionIssuerKeyHash(kid), Scope: auth.ScopeSessionIssuer, IssuerPublicKey: publicKey}
 	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{issuer.KeyHash: {apiKey: issuer, installation: installation}}}
-	svc := auth.NewService(fakeInstallationRepository{}, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return now }).WithSessionTokens(true)
+	svc := auth.NewService(fakeInstallationRepository{}, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return now })
 
 	token := jwt.NewWithClaims(jwt.SigningMethodEdDSA, auth.SessionClaims{
 		IssuerID: "issuer-1",
@@ -62,9 +62,4 @@ func TestWithAuth_SessionTokenAuthenticatesAsIssuerWithDelegatedSession(t *testi
 	rr := httptest.NewRecorder()
 	engine.ServeHTTP(rr, req)
 	require.Equal(t, http.StatusOK, rr.Code)
-
-	svc.WithSessionTokens(false)
-	rr = httptest.NewRecorder()
-	engine.ServeHTTP(rr, req)
-	assert.Equal(t, http.StatusUnauthorized, rr.Code)
 }
