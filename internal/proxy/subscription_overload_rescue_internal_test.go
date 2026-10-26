@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/subscriptions"
@@ -172,6 +174,12 @@ func TestCodexPlanInStreamOverload_NoSiblingSurfacesUpstreamFailure(t *testing.T
 // opened stays shut and the error surfaces, so no paid sibling is bought while
 // included quota may be unused.
 func TestCodexPlanThrottle_DoesNotBuyPaidSibling(t *testing.T) {
+	unavailable := &providers.UpstreamErrorResponse{
+		Status: http.StatusServiceUnavailable,
+		Cause: &providers.QuotaVerificationUnavailableError{
+			Failure: providers.QuotaVerificationFailureEndpoint, UpstreamStatus: http.StatusGatewayTimeout,
+		},
+	}
 	for _, tc := range []struct {
 		name string
 		err  error
@@ -179,19 +187,30 @@ func TestCodexPlanThrottle_DoesNotBuyPaidSibling(t *testing.T) {
 		{name: "429", err: &providers.UpstreamErrorResponse{Status: http.StatusTooManyRequests, Body: []byte(`{"error":{"type":"rate_limit_exceeded","message":"slow down"}}`)}},
 		{name: "transport fault", err: providers.ErrUpstreamEmptyCompletion},
 		{name: "router-minted empty completion", err: emptyCompletion502()},
+		{name: "quota verification unavailable", err: unavailable},
+		{name: "verification behind joined 502", err: errors.Join(codexOverloadedErr(), unavailable)},
+		{name: "verification before joined 502", err: errors.Join(unavailable, codexOverloadedErr())},
+		{name: "caller canceled", err: context.Canceled},
+		{name: "model denial", err: &providers.UpstreamErrorResponse{Status: http.StatusBadRequest, Body: []byte(`{"error":{"type":"invalid_request_error","code":"model_not_found"}}`)}},
+		{name: "authentication denial", err: &providers.UpstreamErrorResponse{Status: http.StatusUnauthorized}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			primary := &failingClient{err: tc.err}
 			sibling := &anthropicServingClient{}
-			svc := codexOverloadService(primary, sibling, true)
+			repo := &auxBillingRepo{}
+			svc := codexOverloadService(primary, sibling, true).WithBillingService(billing.NewService(repo))
 
 			body := `{"model":"auto","stream":true,"messages":[{"role":"user","content":"read main.go"}]}`
 			rec := httptest.NewRecorder()
 			ctx := context.WithValue(rescuedFailureCtx(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 			ctx = WithManagedSubscriptionUsage(ctx)
+			ctx = outOfRosterBillingCtx(ctx)
 			err := svc.ProxyOpenAIChatCompletion(ctx, []byte(body), rec, codexSubHTTPRequest("/v1/chat/completions", body))
 			require.Error(t, err)
 			assert.Equal(t, 0, sibling.calls, "no paid sibling without a plan 5xx")
+			assert.Empty(t, repo.snapshot())
+			state := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
+			assert.Empty(t, state.UnavailableProviders)
 		})
 	}
 }

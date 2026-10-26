@@ -173,8 +173,7 @@ func (s *Service) recordSubscriptionUnavailable(ctx context.Context, provider, m
 		state.UnavailableProviders = make(map[subscriptions.Provider]time.Time)
 	}
 	state.UnavailableProviders[pool] = s.clockNow().Add(subscriptionUnavailableCooldown)
-	observability.FromContext(ctx).Warn("Subscription attempt failed on provider capacity; paid rescue authorized for this turn",
-		"provider", provider, "model", model, "subscription_provider", pool, "upstream_status", upstreamStatus(attemptErr))
+	observability.FromContext(ctx).Warn("Subscription inference failed on provider capacity; paid rescue eligible subject to funding authorization", "provider", provider, "model", model, "subscription_provider", pool, "upstream_status", upstreamStatus(attemptErr))
 }
 
 // upstreamServerFailure reports a buffered upstream 5xx: the provider answered
@@ -183,6 +182,10 @@ func (s *Service) recordSubscriptionUnavailable(ctx context.Context, provider, m
 // empty-completion 502: the plan did answer, with nothing usable, and buying
 // paid capacity for it would turn a client's identical retries into spend.
 func upstreamServerFailure(err error) bool {
+	var verificationUnavailable *providers.QuotaVerificationUnavailableError
+	if errors.As(err, &verificationUnavailable) {
+		return false
+	}
 	var buffered *providers.UpstreamErrorResponse
 	if !errors.As(err, &buffered) || buffered.Status < http.StatusInternalServerError {
 		return false
