@@ -173,7 +173,7 @@ func (s *Service) recordSubscriptionUnavailable(ctx context.Context, provider, m
 		state.UnavailableProviders = make(map[subscriptions.Provider]time.Time)
 	}
 	state.UnavailableProviders[pool] = s.clockNow().Add(subscriptionUnavailableCooldown)
-	observability.FromContext(ctx).Warn("Subscription inference failed on provider capacity; paid rescue eligible subject to funding authorization", "provider", provider, "model", model, "subscription_provider", pool, "upstream_status", upstreamStatus(attemptErr))
+	observability.FromContext(ctx).Warn("Subscription inference failed on provider capacity; paid rescue eligible subject to funding authorization")
 }
 
 // upstreamServerFailure reports a buffered upstream 5xx: the provider answered

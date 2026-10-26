@@ -120,19 +120,19 @@ func TestQuotaVerificationRotationAndRealOverloadFunding(t *testing.T) {
 	exhausted := accountFailure{quotaBody: `{"rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":100,"reset_at":4102444800}}}`}
 	overloaded := accountFailure{inferenceStatus: http.StatusBadGateway, inferenceBody: `{"error":{"type":"service_unavailable_error"}}`}
 	for _, scenario := range []struct {
-		name          string
-		accounts      []accountFailure
-		includedCalls int32
-		capacity      bool
-		includedServe bool
+		name               string
+		accounts           []accountFailure
+		includedCalls      int32
+		capacityOverload   bool
+		includedSeatServes bool
 	}{
-		{name: "unknown then healthy", accounts: []accountFailure{unknown, healthy}, includedCalls: 1, includedServe: true},
+		{name: "unknown then healthy", accounts: []accountFailure{unknown, healthy}, includedCalls: 1, includedSeatServes: true},
 		{name: "unknown then exhausted", accounts: []accountFailure{unknown, exhausted}},
-		{name: "unknown then overload", accounts: []accountFailure{unknown, overloaded}, includedCalls: 1, capacity: true},
-		{name: "overload then unknown", accounts: []accountFailure{overloaded, unknown}, includedCalls: 1, capacity: true},
-		{name: "inference 502", accounts: []accountFailure{overloaded}, includedCalls: 1, capacity: true},
-		{name: "inference 503", accounts: []accountFailure{{inferenceStatus: http.StatusServiceUnavailable}}, includedCalls: 1, capacity: true},
-		{name: "inference HTML 502", accounts: []accountFailure{{inferenceStatus: http.StatusBadGateway, inferenceBody: "<html>bad gateway</html>"}}, includedCalls: 1, capacity: true},
+		{name: "unknown then overload", accounts: []accountFailure{unknown, overloaded}, includedCalls: 1, capacityOverload: true},
+		{name: "overload then unknown", accounts: []accountFailure{overloaded, unknown}, includedCalls: 1, capacityOverload: true},
+		{name: "inference 502", accounts: []accountFailure{overloaded}, includedCalls: 1, capacityOverload: true},
+		{name: "inference 503", accounts: []accountFailure{{inferenceStatus: http.StatusServiceUnavailable}}, includedCalls: 1, capacityOverload: true},
+		{name: "inference HTML 502", accounts: []accountFailure{{inferenceStatus: http.StatusBadGateway, inferenceBody: "<html>bad gateway</html>"}}, includedCalls: 1, capacityOverload: true},
 	} {
 		for _, reason := range []billing.SubscriptionOnlyReason{"", billing.SubscriptionOnlyLinkedFirst, billing.SubscriptionOnlyCreditsDepleted, billing.SubscriptionOnlySpendCapReached} {
 			t.Run(scenario.name+"/"+string(reason), func(t *testing.T) {
@@ -194,9 +194,9 @@ func TestQuotaVerificationRotationAndRealOverloadFunding(t *testing.T) {
 				body := `{"model":"codex-auto-review","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"synthetic"}]}]}`
 				recorder := httptest.NewRecorder()
 				err := svc.ProxyOpenAIResponses(ctx, []byte(body), recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(body)))
-				wantPaid := scenario.capacity && (reason == "" || reason == billing.SubscriptionOnlyLinkedFirst)
+				wantPaid := scenario.capacityOverload && (reason == "" || reason == billing.SubscriptionOnlyLinkedFirst)
 				require.Equal(t, scenario.includedCalls, includedCalls.Load())
-				if wantPaid || scenario.includedServe {
+				if wantPaid || scenario.includedSeatServes {
 					require.NoError(t, err)
 					require.Contains(t, recorder.Body.String(), "served answer")
 					debits := repo.snapshot()
@@ -215,7 +215,7 @@ func TestQuotaVerificationRotationAndRealOverloadFunding(t *testing.T) {
 				}
 				state := ctx.Value(ManagedSubscriptionUsageContextKey{}).(*ManagedSubscriptionUsage)
 				_, capacityMarked := state.UnavailableProviders[subscriptions.ProviderCodex]
-				require.Equal(t, scenario.capacity, capacityMarked)
+				require.Equal(t, scenario.capacityOverload, capacityMarked)
 				require.False(t, svc.subscriptionPoolUnavailable(ctx, providers.ProviderAnthropic, overloadRescuerModel), "capacity evidence cannot cross pools")
 				for accountIndex, account := range scenario.accounts {
 					if account.quotaStatus == http.StatusGatewayTimeout {
