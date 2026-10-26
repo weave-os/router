@@ -1,0 +1,19 @@
+internal/proxy/thread_conformance_internal_test.go
+  s_fe45311f065c44::t_70e756b712bdec 55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fd322a3ee55dceeb6754e474b1552946a1114bad",
+  "prompts": {},
+  "sessions": {
+    "s_fe45311f065c44": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17630-7642-7322-a264-569cda5bc37b",
+        "model": "weave-hmm-20261019-0001v1"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
