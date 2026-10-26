@@ -2764,6 +2764,7 @@ gitignore_add() {
 # Claude Code sends a picker model ID verbatim; the router routes only
 # weave-auto and serves every other model as-is (X-Weave-Model-Passthrough).
 CLAUDE_WEAVE_AUTO_OPTION='{"model":"weave-auto","label":"Weave Auto","description":"Weave picks the best model for each turn","behavesAs":"claude-opus-5-5"}'
+# shellcheck disable=SC2016 # jq variables, expanded by jq.
 CLAUDE_WEAVE_AUTO_ADD_JQ='.modelPicker = ((.modelPicker // {}) | .options = ([$option] + ((.options // []) | map(select(.model != "weave-auto")))))
   | (if $set_model == "true" and (has("model") | not) then .model = "weave-auto" else . end)'
 CLAUDE_WEAVE_AUTO_STRIP_JQ='(if .model == "weave-auto" then del(.model) else . end)
