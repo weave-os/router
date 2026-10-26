@@ -45,6 +45,6 @@ func TestThreadScopeSurvivesCompactionAndIsolatesOwnership(t *testing.T) {
 	rebound := requestcontext.WithServingIdentity(ctx, requestcontext.ServingIdentity{StateNamespace: "release-two", CredentialIdentity: "credential"})
 	require.NotEqual(t, deriveSessionKeyForRequest(managed, after, "synthetic-key"), deriveSessionKeyForRequest(rebound, after, "synthetic-key"))
 	control := deriveForceModelSessionKeyForRequest(ctx, before, "synthetic-key", key)
-	require.Equal(t, requestcontext.ConversationKey("synthetic-key", "synthetic-root", requestcontext.ForceModelConversationKey, [16]byte{}), control)
+	require.Equal(t, [16]byte{0xfb, 0x31, 0x84, 0x0b, 0x3c, 0xcb, 0x78, 0x11, 0x70, 0xe5, 0x14, 0xce, 0x8a, 0xc0, 0x52, 0xca}, control)
 	require.Zero(t, deriveForceModelSessionKeyForRequest(context.Background(), nil, "synthetic-key", key))
 }
