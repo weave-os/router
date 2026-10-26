@@ -93,8 +93,8 @@ func calibratedLunaThread() *calibratingPinStore {
 		Provider: providers.ProviderOpenAI, Model: "gpt-6-luna", Reason: "test",
 		PinnedUntil: now.Add(time.Hour), LastServedModel: "gpt-6-luna", LastTurnEndedAt: now,
 		TokenizerCalibration: sessionpin.TokenizerCalibration{}.
-			Observe(sessionpin.TokenizerFamilyAnthropic, 860_000, now.Add(-time.Minute)).
-			Observe(sessionpin.TokenizerFamilyOpenAI, 500_000, now.Add(-30*time.Second)),
+			Observe(sessionpin.TokenizerFamilyAnthropic, 860_000, 0, now.Add(-time.Minute)).
+			Observe(sessionpin.TokenizerFamilyOpenAI, 500_000, 0, now.Add(-30*time.Second)),
 	}
 	return store
 }

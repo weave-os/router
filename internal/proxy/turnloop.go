@@ -286,6 +286,9 @@ type turnLoopResult struct {
 	// clientInputTokenScale) and is extended after the turn by
 	// recordTokenizerObservation.
 	TokenizerCalibration sessionpin.TokenizerCalibration
+	// ContextEstimate is the request's body-size token estimate
+	// (ContextOverflowTokenEstimate), recorded with each tokenizer observation.
+	ContextEstimate int
 	// StripThinkingBlocks forces signature removal when switch history is unavailable.
 	StripThinkingBlocks bool
 	// Handover captures the summarize-or-trim step when the planner switched.
@@ -843,6 +846,7 @@ func (s *Service) runTurnLoop(
 		req.InstallationID = installationID.String()
 	}
 	res = turnLoopResult{
+		ContextEstimate:     env.ContextOverflowTokenEstimate(),
 		InstallationID:      installationID,
 		Strategy:            router.StrategyFromContext(ctx),
 		TurnType:            turntype.Detect(env, feats, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))),
@@ -1368,6 +1372,7 @@ func (s *Service) runTurnLoop(
 		}
 	}
 	res.applySwitchHistory(pin, hmmHistory, forceHistory)
+	req = s.excludeObservedOverflowModels(ctx, req, res, outputReserveFor(feats))
 	req.PolicyTurnContext = buildPolicyTurnContext(req, res, pin, hmmHistory)
 	// Computed before any same-turn pin-drop guards below so it reflects the
 	// prior turn's outcome; Service.effortEscalation gates whether it's acted on.
@@ -1628,6 +1633,9 @@ func (s *Service) runTurnLoop(
 			pinTokenEstimate := env.ContextOverflowTokenEstimate()
 			if modelStripsAnthropicSignatures(pin.Model) {
 				pinTokenEstimate -= env.SignatureTokenSavings()
+			}
+			if observed, ok := res.TokenizerCalibration.ProjectedPrompt(tokenizerFamilyFor(pin.Provider), res.ContextEstimate); ok && observed > pinTokenEstimate {
+				pinTokenEstimate = observed
 			}
 			needed := pinTokenEstimate + outputReserveForPin
 			modelCW := contextWindowForRequest(pin.Model, pin.Provider)
