@@ -2788,8 +2788,8 @@ claude_model_unset() {
   return 0
 }
 
-# apply_claude_weave_auto adds the Weave Auto picker row to $1 and, when $2 is
-# "true", selects it as the default model.
+# apply_claude_weave_auto creates $1 when missing and keeps a non-shared
+# settings file private (mode 600).
 apply_claude_weave_auto() {
   local target="$1" set_model="$2" merged
   [ -f "$target" ] || printf '{}\n' >"$target"
@@ -2930,7 +2930,7 @@ toggle_claude() {
         # base URL to Anthropic in the local file only — committed settings.json
         # is never touched, so this stays out of `git diff`.
         if [ -f "$local_settings_file" ]; then
-          jq '{env: (.env // {}), weave_auto_model: (.model == "weave-auto")}' "$local_settings_file" >"$parked"
+          jq '{env: (.env // {}), weave_auto_selected: (.model == "weave-auto")}' "$local_settings_file" >"$parked"
           merged="$(jq '.env = ((.env // {} | del(.ANTHROPIC_CUSTOM_HEADERS)) + {ANTHROPIC_BASE_URL: "https://api.anthropic.com"}) | '"$CLAUDE_WEAVE_AUTO_STRIP_JQ" "$local_settings_file")"
         else
           printf '{"env":{}}\n' >"$parked"
@@ -2942,7 +2942,7 @@ toggle_claude() {
       else
         # Park just the router-owned env keys, then strip them so Claude Code
         # falls back to its own Anthropic login.
-        jq '{env: ((.env // {}) | {ANTHROPIC_BASE_URL, ANTHROPIC_CUSTOM_HEADERS, ENABLE_TOOL_SEARCH} | with_entries(select(.value != null))), weave_auto_model: (.model == "weave-auto")}' "$settings_file" >"$parked"
+        jq '{env: ((.env // {}) | {ANTHROPIC_BASE_URL, ANTHROPIC_CUSTOM_HEADERS, ENABLE_TOOL_SEARCH} | with_entries(select(.value != null))), weave_auto_selected: (.model == "weave-auto")}' "$settings_file" >"$parked"
         chmod 600 "$parked"
         merged="$(jq '(.env // {}) |= del(.ANTHROPIC_BASE_URL, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH)
                       | (if (.env // {} | length) == 0 then del(.env) else . end) | '"$CLAUDE_WEAVE_AUTO_STRIP_JQ" "$settings_file")"
@@ -3012,7 +3012,7 @@ toggle_claude() {
       merged="$(jq --argjson p "$parked_env" '.env = (((.env // {}) | del(.ANTHROPIC_BASE_URL)) + $p)' "$active")"
       printf '%s\n' "$merged" >"$active"
       [ "$proj" = "true" ] && chmod 600 "$active"
-      if [ "$(jq -r '.weave_auto_model // false' "$parked")" = "true" ]; then
+      if [ "$(jq -r '.weave_auto_selected // false' "$parked")" = "true" ]; then
         apply_claude_weave_auto "$active" true
       else
         apply_claude_weave_auto "$active" false
