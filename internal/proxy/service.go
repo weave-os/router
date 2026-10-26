@@ -3770,6 +3770,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if err := env.StripCommandOutcomes(); err != nil {
 		return fmt.Errorf("strip command outcomes: %w", err)
 	}
+	if removed := env.StripHistoricalCommands(); removed > 0 {
+		log.Info("Stripped historical router commands from Anthropic history", "removed_messages", removed)
+	}
 	if removed := env.StripRouterFeedbackArtifacts(); removed > 0 {
 		log.Info("Stripped router-feedback artifacts from Anthropic history", "removed_messages", removed)
 	}
@@ -6999,6 +7002,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if err := env.StripCommandOutcomes(); err != nil {
 		return fmt.Errorf("strip command outcomes: %w", err)
 	}
+	if removed := env.StripHistoricalCommands(); removed > 0 {
+		log.Info("Stripped historical router commands from OpenAI history", "removed_messages", removed)
+	}
 	if removed := env.StripRouterFeedbackArtifacts(); removed > 0 {
 		log.Info("Stripped router-feedback artifacts from OpenAI history", "removed_messages", removed)
 	}
@@ -8832,6 +8838,10 @@ func stripResponsesVisualArtifacts(body []byte) ([]byte, error) {
 	stripped, err := translate.StripCommandOutcomesFromResponsesInput(body)
 	if err != nil {
 		return nil, fmt.Errorf("strip Responses command outcome: %w", err)
+	}
+	stripped, err = translate.StripHistoricalCommandsFromResponsesInput(stripped)
+	if err != nil {
+		return nil, err
 	}
 	stripped, err = translate.StripRoutingBadgeFromResponsesInput(stripped)
 	if err != nil {
