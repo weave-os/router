@@ -38,35 +38,38 @@ func stripHistoricalDirective(text string) (stripped string, found bool) {
 // StripHistoricalCommands removes router directives from every user message
 // before the trailing user turn. The returned count is the number of messages
 // edited or dropped.
-func (env *RequestEnvelope) StripHistoricalCommands() int {
+func (env *RequestEnvelope) StripHistoricalCommands() (int, error) {
 	switch env.format {
 	case FormatAnthropic, FormatOpenAI:
 	default:
-		return 0
+		return 0, nil
 	}
 	msgs := gjson.GetBytes(env.body, "messages")
 	if !msgs.IsArray() {
-		return 0
+		return 0, nil
 	}
-	all := msgs.Array()
-	lastUserIdx := trailingUserTurnIndex(all)
+	messages := msgs.Array()
+	lastUserIdx := trailingUserTurnIndex(messages)
 
 	changed := 0
-	rebuilt := make([]string, 0, len(all))
+	rebuilt := make([]string, 0, len(messages))
 	dropAttachment := false
-	for i, msg := range all {
+	for i, msg := range messages {
 		if dropAttachment {
 			dropAttachment = false
-			if isSkillAttachment(all, i) {
+			if isSkillAttachment(messages, i) {
 				changed++
 				continue
 			}
 		}
-		if msg.Get("role").String() != "user" || i == lastUserIdx || isSkillAttachment(all, i) {
+		if msg.Get("role").String() != "user" || i == lastUserIdx || isSkillAttachment(messages, i) {
 			rebuilt = append(rebuilt, msg.Raw)
 			continue
 		}
-		raw, edited, keep := stripDirectiveFromMessage(msg, "text")
+		raw, edited, keep, err := stripDirectiveFromMessage(msg, "text")
+		if err != nil {
+			return 0, err
+		}
 		if !edited {
 			rebuilt = append(rebuilt, msg.Raw)
 			continue
@@ -79,16 +82,16 @@ func (env *RequestEnvelope) StripHistoricalCommands() int {
 		rebuilt = append(rebuilt, raw)
 	}
 	if changed == 0 {
-		return 0
+		return 0, nil
 	}
-	return env.setMessages(rebuilt, changed)
+	return env.setMessages(rebuilt, changed), nil
 }
 
 // trailingUserTurnIndex finds the user message that owns the current turn,
 // looking past the skill attachment Codex appends after a typed directive.
-func trailingUserTurnIndex(all []gjson.Result) int {
-	for i := len(all) - 1; i >= 0; i-- {
-		if all[i].Get("role").String() != "user" || isSkillAttachment(all, i) {
+func trailingUserTurnIndex(messages []gjson.Result) int {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Get("role").String() != "user" || isSkillAttachment(messages, i) {
 			continue
 		}
 		return i
@@ -99,22 +102,22 @@ func trailingUserTurnIndex(all []gjson.Result) int {
 // stripDirectiveFromMessage rewrites a user message's content with its
 // leading directive removed. keep is false when nothing user-authored
 // remains and the whole message should go.
-func stripDirectiveFromMessage(msg gjson.Result, textType string) (raw string, edited, keep bool) {
+func stripDirectiveFromMessage(msg gjson.Result, textType string) (raw string, edited, keep bool, err error) {
 	content := msg.Get("content")
 	switch {
 	case content.Type == gjson.String:
 		stripped, found := stripHistoricalDirective(content.String())
 		if !found {
-			return msg.Raw, false, true
+			return msg.Raw, false, true, nil
 		}
 		if isOnlyInjectedCommandText(stripped) {
-			return "", true, false
+			return "", true, false, nil
 		}
 		out, err := sjson.Set(msg.Raw, "content", stripped)
 		if err != nil {
-			return msg.Raw, false, true
+			return "", false, false, fmt.Errorf("strip historical router command from message content: %w", err)
 		}
-		return out, true, true
+		return out, true, true, nil
 	case content.IsArray():
 		parts := content.Array()
 		partRaws := make([]string, 0, len(parts))
@@ -142,23 +145,23 @@ func stripDirectiveFromMessage(msg gjson.Result, textType string) (raw string, e
 			hasBody = true
 			out, err := sjson.Set(part.Raw, "text", stripped)
 			if err != nil {
-				return msg.Raw, false, true
+				return "", false, false, fmt.Errorf("strip historical router command from content part: %w", err)
 			}
 			partRaws = append(partRaws, out)
 		}
 		if !found {
-			return msg.Raw, false, true
+			return msg.Raw, false, true, nil
 		}
 		if !hasBody {
-			return "", true, false
+			return "", true, false, nil
 		}
 		out, err := sjson.SetRaw(msg.Raw, "content", "["+strings.Join(partRaws, ",")+"]")
 		if err != nil {
-			return msg.Raw, false, true
+			return "", false, false, fmt.Errorf("rebuild message content after historical router command strip: %w", err)
 		}
-		return out, true, true
+		return out, true, true, nil
 	default:
-		return msg.Raw, false, true
+		return msg.Raw, false, true, nil
 	}
 }
 
@@ -169,31 +172,34 @@ func StripHistoricalCommandsFromResponsesInput(body []byte) ([]byte, error) {
 	if !input.IsArray() {
 		return body, nil
 	}
-	all := input.Array()
+	items := input.Array()
 	lastUserIdx := -1
-	for i := len(all) - 1; i >= 0; i-- {
-		if !responsesUserMessage(all[i]) || isSkillAttachment(all, i) {
+	for i := len(items) - 1; i >= 0; i-- {
+		if !responsesUserMessage(items[i]) || isSkillAttachment(items, i) {
 			continue
 		}
 		lastUserIdx = i
 		break
 	}
 
-	rebuilt := make([]string, 0, len(all))
+	rebuilt := make([]string, 0, len(items))
 	changed := false
 	dropAttachment := false
-	for i, item := range all {
+	for i, item := range items {
 		if dropAttachment {
 			dropAttachment = false
-			if isSkillAttachment(all, i) {
+			if isSkillAttachment(items, i) {
 				continue
 			}
 		}
-		if !responsesUserMessage(item) || i == lastUserIdx || isSkillAttachment(all, i) {
+		if !responsesUserMessage(item) || i == lastUserIdx || isSkillAttachment(items, i) {
 			rebuilt = append(rebuilt, item.Raw)
 			continue
 		}
-		raw, edited, keep := stripDirectiveFromMessage(item, "input_text")
+		raw, edited, keep, err := stripDirectiveFromMessage(item, "input_text")
+		if err != nil {
+			return nil, err
+		}
 		if !edited {
 			rebuilt = append(rebuilt, item.Raw)
 			continue

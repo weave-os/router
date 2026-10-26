@@ -3770,7 +3770,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if err := env.StripCommandOutcomes(); err != nil {
 		return fmt.Errorf("strip command outcomes: %w", err)
 	}
-	if removed := env.StripHistoricalCommands(); removed > 0 {
+	if removed, err := env.StripHistoricalCommands(); err != nil {
+		return fmt.Errorf("strip historical router commands: %w", err)
+	} else if removed > 0 {
 		log.Info("Stripped historical router commands from Anthropic history", "removed_messages", removed)
 	}
 	if removed := env.StripRouterFeedbackArtifacts(); removed > 0 {
@@ -7002,7 +7004,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if err := env.StripCommandOutcomes(); err != nil {
 		return fmt.Errorf("strip command outcomes: %w", err)
 	}
-	if removed := env.StripHistoricalCommands(); removed > 0 {
+	if removed, err := env.StripHistoricalCommands(); err != nil {
+		return fmt.Errorf("strip historical router commands: %w", err)
+	} else if removed > 0 {
 		log.Info("Stripped historical router commands from OpenAI history", "removed_messages", removed)
 	}
 	if removed := env.StripRouterFeedbackArtifacts(); removed > 0 {
