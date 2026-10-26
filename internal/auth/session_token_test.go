@@ -89,7 +89,8 @@ func (f sessionIssuerFixture) service(t *testing.T, enabled bool) (*auth.Service
 	t.Helper()
 	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{f.apiKey.KeyHash: {apiKey: f.apiKey, installation: f.inst}}}
 	svc := auth.NewService(&fakeInstallationRepository{}, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return sessionClock }).
-		WithSessionTokens(enabled)
+		WithSessionTokens(enabled).
+		WithSessionSpendCaps(true)
 	return svc, repo
 }
 
@@ -264,6 +265,19 @@ func TestVerifySessionToken_DisabledRejectsValidToken(t *testing.T) {
 	svc, _ := f.service(t, false)
 
 	_, _, _, _, _, err := svc.VerifySessionToken(context.Background(), f.sign(t, f.claims(), nil), true)
+
+	require.ErrorIs(t, err, auth.ErrInvalidToken)
+}
+
+func TestVerifySessionToken_RejectsCapsWhenBillingIsUnavailable(t *testing.T) {
+	f := newSessionIssuerFixture(t)
+	svc, _ := f.service(t, true)
+	svc.WithSessionSpendCaps(false)
+	capMicros := int64(100)
+	claims := f.claims()
+	claims.Caps = &auth.SessionCaps{SessionUSDMicros: &capMicros}
+
+	_, _, _, _, _, err := svc.VerifySessionToken(context.Background(), f.sign(t, claims, nil), true)
 
 	require.ErrorIs(t, err, auth.ErrInvalidToken)
 }

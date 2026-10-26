@@ -53,6 +53,9 @@ recorded after it settles, so a cap can be overshot by the cost of every request
 in flight when it is reached. A session that sends requests one at a time
 overshoots by at most one request.
 
+Tokens carrying caps are rejected when billing is not configured, since that
+worker cannot enforce or record their limits.
+
 ## Issuers
 
 The control plane registers and revokes issuers through the internal API, which

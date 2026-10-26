@@ -121,6 +121,12 @@ func (s *Service) WithSessionTokens(enabled bool) *Service {
 	return s
 }
 
+// WithSessionSpendCaps reports whether this worker can enforce token-carried spend caps.
+func (s *Service) WithSessionSpendCaps(enabled bool) *Service {
+	s.delegatedSpendCapsEnabled = enabled
+	return s
+}
+
 // SessionTokensEnabled reports whether rs_ session tokens are accepted; a nil Service reports false.
 func (s *Service) SessionTokensEnabled() bool {
 	return s != nil && s.sessionTokensEnabled
@@ -243,6 +249,9 @@ func (s *Service) VerifySessionToken(ctx context.Context, rawToken string, inclu
 		ExpiresAt:   claims.ExpiresAt.UTC(),
 	}
 	if claims.Caps != nil {
+		if !s.delegatedSpendCapsEnabled {
+			return nil, nil, nil, nil, nil, ErrInvalidToken
+		}
 		// An empty or misspelled caps object is refused so the issuer's mistake surfaces
 		// instead of minting an uncapped credential.
 		noCap := claims.Caps.SessionUSDMicros == nil && claims.Caps.TaskUSDMicros == nil

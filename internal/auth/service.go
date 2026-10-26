@@ -109,6 +109,8 @@ type Service struct {
 
 	// sessionTokensEnabled gates rs_ session-token verification (ROUTER_SESSION_TOKENS_ENABLED).
 	sessionTokensEnabled bool
+	// delegatedSpendCapsEnabled is false when this worker cannot meter delegated caps.
+	delegatedSpendCapsEnabled bool
 
 	// adminPassword and adminSessionKey are empty when admin login is disabled.
 	adminPassword   string
