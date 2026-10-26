@@ -356,6 +356,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 			middleware.WithBillingSpan(),
 			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
 			middleware.WithAPIKeySpendCap(billingSvc),
+			middleware.WithDelegatedSpendCap(billingSvc),
 			middleware.WithOrgMonthlySpendCap(billingSvc),
 			middleware.WithBillingSpanEnd(),
 		)
@@ -387,6 +388,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 			middleware.WithBillingSpan(),
 			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
 			middleware.WithAPIKeySpendCap(billingSvc),
+			middleware.WithDelegatedSpendCap(billingSvc),
 			middleware.WithOrgMonthlySpendCap(billingSvc),
 			middleware.WithBillingSpanEnd(),
 		)
@@ -447,6 +449,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 			middleware.WithBillingSpan(),
 			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
 			middleware.WithAPIKeySpendCap(billingSvc),
+			middleware.WithDelegatedSpendCap(billingSvc),
 			middleware.WithOrgMonthlySpendCap(billingSvc),
 			middleware.WithBillingSpanEnd(),
 		)
