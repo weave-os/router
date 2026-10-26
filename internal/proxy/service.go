@@ -4898,6 +4898,15 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// not buy a paid sibling.
 	subscriptionOnlySibling := siblingViable && !s.shouldFailover(ctx) &&
 		!s.gatewaySiblingAllowed(ctx, siblingDecisions[0]) && s.subscriptionSiblingAllowed(ctx)
+	overflowRescue := s.overflowRescueDecisions(ctx, decision, routeRes.TurnType, overflowEstimate, env.SignatureTokenSavings(), outputReserve)
+	overflowRescueViable := len(overflowRescue) > 0 &&
+		!agentShadowMode &&
+		!routeRes.CallerModelPassthrough &&
+		decision.Reason != translate.ReasonUserForceModel &&
+		s.siblingRescueAllowed(ctx, true)
+	// Either rescue holds the primary's error until it knows whether it runs.
+	rescueArmed := siblingViable || overflowRescueViable
+	overflowRescueOnly := overflowRescueViable && !siblingViable
 
 	primaryProvider := decision.Provider
 	// Captured before rescue: failover replaces decision.Model, so afterwards
@@ -4980,7 +4989,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			bindings:               bindings,
 			attempt:                attempt,
 			flushErr:               flushErrAsAnthropic,
-			deferFlushOnExhaustion: baselineViable || subscriptionRetryEligible || siblingViable,
+			deferFlushOnExhaustion: baselineViable || subscriptionRetryEligible || rescueArmed,
 			purpose:                routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
 			origin:                 routeRes.dispatchOrigin(decision),
 		})
@@ -5086,7 +5095,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		baselinePrep, baselineEmitErr := env.PrepareAnthropic(r.Header, baselineOpts)
 		if baselineEmitErr != nil {
 			log.Error("Baseline failover: emit Anthropic body failed; surfacing original error", "err", baselineEmitErr, "baseline_model", baselineModel)
-			if !siblingViable {
+			if !rescueArmed {
 				flushDeferredErr()
 			}
 		} else {
@@ -5125,7 +5134,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			// not report baseline_failover=true and skew bake-off analysis.
 			baselineFailoverUsed = proxyErr == nil
 		}
-	} else if baselineViable && !siblingViable && proxyErr != nil {
+	} else if baselineViable && !rescueArmed && proxyErr != nil {
 		// Baseline didn't run (mid-stream commit, or non-failoverable error);
 		// surface the deferred original error now. Guard must match
 		// deferFlushOnExhaustion above, or a deferred error is never flushed —
@@ -5156,7 +5165,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		subPrep, subEmitErr := env.PrepareAnthropic(r.Header, subOpts)
 		if subEmitErr != nil {
 			log.Error("Subscription failover: emit Anthropic body failed; surfacing original error", "err", subEmitErr, "model", decision.Model)
-			if !siblingViable {
+			if !rescueArmed {
 				flushDeferredErr()
 			}
 		} else if subBindings := s.resolveBindingsForDispatch(subCtx, decision); len(subBindings) == 0 {
@@ -5168,7 +5177,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				"model", decision.Model,
 				"err", proxyErr,
 				"upstream_status", upstreamStatus(proxyErr))
-			if !siblingViable {
+			if !rescueArmed {
 				flushDeferredErr()
 			}
 		} else {
@@ -5192,7 +5201,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				flushErr:        flushErrAsAnthropic,
 				// A failed retry keeps the same dark model; hold the error so
 				// the sibling rescue below can still serve the turn.
-				deferFlushOnExhaustion: siblingViable,
+				deferFlushOnExhaustion: rescueArmed,
 				purpose:                routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
 				origin:                 routeRes.dispatchOrigin(decision),
 			})
@@ -5203,7 +5212,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	// The subscription retry didn't run (mid-stream commit, or non-retryable
 	// error); surface the deferred original error now so it's never dropped.
-	if subscriptionRetryEligible && !siblingViable && !baselineAttempted && !subscriptionRetryRan && proxyErr != nil && !preludeBuf.Committed() {
+	if subscriptionRetryEligible && !rescueArmed && !baselineAttempted && !subscriptionRetryRan && proxyErr != nil && !preludeBuf.Committed() {
 		flushDeferredErr()
 	}
 
@@ -5223,7 +5232,13 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	if (servedOnSubscription(ctx) || subscriptionOnlySibling) && !preludeBuf.Committed() {
 		s.recordSubscriptionUnavailable(ctx, decision.Provider, decision.Model, proxyErr)
 	}
-	siblingRescueOwed := siblingViable && !baselineAttempted && !deferredErrFlushed &&
+	// A gateway overflow walks only the other gateways; same-gateway peers share the window that rejected it.
+	overflowRescued := overflowRescueViable && isUpstreamContextOverflow(proxyErr)
+	rescueOrder := siblingDecisions
+	if overflowRescued {
+		rescueOrder = overflowRescue
+	}
+	siblingRescueOwed := (siblingViable || overflowRescued) && !baselineAttempted && !deferredErrFlushed &&
 		!(explicitRequestedModel && isSubscriptionPoolError(proxyErr)) &&
 		(!subscriptionOnlySibling || s.subscriptionPoolUnavailable(ctx, decision.Provider, decision.Model))
 	if siblingRescueOwed && proxyErr != nil && !preludeBuf.Committed() &&
@@ -5232,8 +5247,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			providers.IsUpstreamProviderBillingBlocked(proxyErr) ||
 			isSubscriptionPoolError(proxyErr) ||
 			crossBindingRejected ||
-			rescuesCompactionOverflow(routeRes.TurnType, proxyErr)) {
-		for _, siblingDecision := range siblingDecisions {
+			rescuesCompactionOverflow(routeRes.TurnType, proxyErr) ||
+			overflowRescued) {
+		for _, siblingDecision := range rescueOrder {
 			// A rescuer that itself failed pre-commit hands the turn to the next
 			// candidate; a served, committed, or client-cancelled turn ends the walk.
 			if siblingRescueRan && (proxyErr == nil || preludeBuf.Committed() || ctx.Err() != nil) {
@@ -5305,7 +5321,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// No rescuer served (none ran, or the last one failed pre-commit); surface
 	// the held error now so it's never dropped.
 	proxyErr = asCompactionUnservable(routeRes.TurnType, decision, proxyErr)
-	if siblingRescueOwed && proxyErr != nil && !preludeBuf.Committed() {
+	if (siblingRescueOwed || overflowRescueOnly) && proxyErr != nil && !preludeBuf.Committed() {
 		flushDeferredErr()
 	}
 	proxyErr = asRequestedWindowOverflow(proxyErr, requestedWindowPassed, preludeBuf.Committed())
@@ -8100,7 +8116,15 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		s.siblingRescueAllowed(ctx, s.gatewaySiblingAllowed(ctx, siblingDecisions[0]))
 	subscriptionOnlySibling := siblingViable && !s.shouldFailover(ctx) &&
 		!s.gatewaySiblingAllowed(ctx, siblingDecisions[0]) && s.subscriptionSiblingAllowed(ctx)
-	preOutputRescueArmed = codexRetryViable || siblingViable
+	overflowRescue := s.overflowRescueDecisions(ctx, decision, routeRes.TurnType, overflowEstimateOAI, env.SignatureTokenSavings(), outputReserveOAI)
+	overflowRescueViable := len(overflowRescue) > 0 &&
+		!routeRes.CallerModelPassthrough &&
+		!strings.HasPrefix(decision.Reason, translate.ReasonUserForceModel) &&
+		s.siblingRescueAllowed(ctx, true)
+	// Either rescue holds the primary's error until it knows whether it runs.
+	rescueArmed := siblingViable || overflowRescueViable
+	overflowRescueOnly := overflowRescueViable && !siblingViable
+	preOutputRescueArmed = codexRetryViable || rescueArmed
 
 	primaryProvider := decision.Provider
 	primaryModel := decision.Model
@@ -8176,7 +8200,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		bindings:               bindings,
 		attempt:                attempt,
 		flushErr:               flushErrAsOpenAI,
-		deferFlushOnExhaustion: cyberRetryViable || codexRetryViable || claudeRetryViable || siblingViable,
+		deferFlushOnExhaustion: cyberRetryViable || codexRetryViable || claudeRetryViable || rescueArmed,
 		purpose:                routeRes.dispatchPurpose(surfacePurpose),
 		origin:                 routeRes.dispatchOrigin(decision),
 	})
@@ -8263,7 +8287,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				flushErr:        flushErrAsOpenAI,
 				// A failed retry keeps the same model; hold the error so the
 				// cyber-refusal rescue below can still serve the turn.
-				deferFlushOnExhaustion: cyberRetryViable || siblingViable,
+				deferFlushOnExhaustion: cyberRetryViable || rescueArmed,
 				purpose:                routeRes.dispatchPurpose(surfacePurpose),
 				origin:                 routeRes.dispatchOrigin(decision),
 			})
@@ -8305,7 +8329,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				bindings:               subBindings,
 				attempt:                subAttempt,
 				flushErr:               flushErrAsOpenAI,
-				deferFlushOnExhaustion: cyberRetryViable || siblingViable,
+				deferFlushOnExhaustion: cyberRetryViable || rescueArmed,
 				purpose:                routeRes.dispatchPurpose(surfacePurpose),
 				origin:                 routeRes.dispatchOrigin(decision),
 			})
@@ -8319,7 +8343,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// A subscription retry declined to run and no other rescue owns the held
 	// error; surface it now so it is never dropped.
 	if ((codexRetryViable && !codexRetryRan) || (claudeRetryViable && !claudeRetryRan)) &&
-		!cyberRetryViable && !siblingViable && proxyErr != nil && !preludeBuf.Committed() {
+		!cyberRetryViable && !rescueArmed && proxyErr != nil && !preludeBuf.Committed() {
 		flushDeferredErr()
 	}
 
@@ -8376,7 +8400,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				bindings:               retryBindings,
 				attempt:                retryAttempt,
 				flushErr:               flushErrAsOpenAI,
-				deferFlushOnExhaustion: siblingViable,
+				deferFlushOnExhaustion: rescueArmed,
 				purpose:                routeRes.dispatchPurpose(surfacePurpose),
 				origin:                 routeRes.rescueOrigin(),
 			})
@@ -8387,7 +8411,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 	}
 	// The rescue declined to run; surface the held error now so it's never dropped.
-	if cyberRetryViable && !cyberRetryRan && !siblingViable && proxyErr != nil && !preludeBuf.Committed() {
+	if cyberRetryViable && !cyberRetryRan && !rescueArmed && proxyErr != nil && !preludeBuf.Committed() {
 		flushDeferredErr()
 	}
 
@@ -8398,7 +8422,13 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	if (servedOnSubscription(ctx) || subscriptionOnlySibling) && !preludeBuf.Committed() {
 		s.recordSubscriptionUnavailable(ctx, decision.Provider, decision.Model, proxyErr)
 	}
-	siblingRescueOwed := siblingViable && !deferredErrFlushed &&
+	// A gateway overflow walks only the other gateways; same-gateway peers share the window that rejected it.
+	overflowRescued := overflowRescueViable && isUpstreamContextOverflow(proxyErr)
+	rescueOrder := siblingDecisions
+	if overflowRescued {
+		rescueOrder = overflowRescue
+	}
+	siblingRescueOwed := (siblingViable || overflowRescued) && !deferredErrFlushed &&
 		!(explicitRequestedModel && isSubscriptionPoolError(proxyErr)) &&
 		(!subscriptionOnlySibling || s.subscriptionPoolUnavailable(ctx, decision.Provider, decision.Model))
 	if siblingRescueOwed && proxyErr != nil && !preludeBuf.Committed() &&
@@ -8406,8 +8436,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			providers.IsUpstreamModelNotFound(proxyErr) ||
 			providers.IsUpstreamProviderBillingBlocked(proxyErr) ||
 			isSubscriptionPoolError(proxyErr) ||
-			rescuesCompactionOverflow(routeRes.TurnType, proxyErr)) {
-		for _, siblingDecision := range siblingDecisions {
+			rescuesCompactionOverflow(routeRes.TurnType, proxyErr) ||
+			overflowRescued) {
+		for _, siblingDecision := range rescueOrder {
 			// A rescuer that itself failed pre-commit hands the turn to the next
 			// candidate; a served, committed, or client-cancelled turn ends the walk.
 			if siblingRescueRan && (proxyErr == nil || preludeBuf.Committed() || ctx.Err() != nil) {
@@ -8489,7 +8520,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// No rescuer served (none ran, or the last one failed pre-commit); surface
 	// the held error now so it's never dropped.
 	proxyErr = asCompactionUnservable(routeRes.TurnType, decision, proxyErr)
-	if siblingRescueOwed && proxyErr != nil && !preludeBuf.Committed() {
+	if (siblingRescueOwed || overflowRescueOnly) && proxyErr != nil && !preludeBuf.Committed() {
 		flushDeferredErr()
 	}
 

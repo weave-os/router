@@ -1,9 +1,11 @@
 package proxy
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 
 	"weave-os/router/internal/providers"
@@ -141,6 +143,33 @@ var compactionUnservableClass = DispatchErrorClass{
 // means this summarizer is too small, not that the client should compact.
 func rescuesCompactionOverflow(turnType turntype.TurnType, err error) bool {
 	return turnType == turntype.Compaction && isContextOverflow(err)
+}
+
+// overflowRescueDecisions lists the stand-ins for an upstream overflow on a
+// turn other than the harness's own compaction: gateway-held models behind
+// another gateway that the estimate fits. Peers on the failed gateway share the
+// window that just rejected the request, so without this the client is told to
+// compact a conversation the other gateway can still serve.
+func (s *Service) overflowRescueDecisions(ctx context.Context, failed router.Decision, turnType turntype.TurnType, est, sigSavings, outputReserve int) []router.Decision {
+	gateways := s.gatewayProvidersForRequest(ctx)
+	if turnType == turntype.Compaction || len(gateways) == 0 {
+		return nil
+	}
+	req := router.Request{
+		CustomBindings:          s.customBindingsForRequest(ctx),
+		GatewayProviders:        gateways,
+		ExcludedModels:          s.excludedModelsForRequest(ctx),
+		AutomaticExcludedModels: s.rescueExcludedModels(ctx),
+	}
+	rescuers := s.crossGatewayRescuers(ctx, compactionSummarizer{provider: failed.Provider, model: failed.Model}, req)
+	models := make([]string, 0, len(rescuers))
+	for _, rescuer := range rescuers {
+		models = append(models, rescuer.model)
+	}
+	// Readmission may append cooling or struck models; keep only the eligible cross-gateway rescuers.
+	return slices.DeleteFunc(s.rescueDecisions(ctx, failed, models, ReasonSiblingFailover, est, sigSavings, outputReserve), func(d router.Decision) bool {
+		return !slices.Contains(models, d.Model)
+	})
 }
 
 // asCompactionUnservable replaces a compaction turn's final overflow with a
