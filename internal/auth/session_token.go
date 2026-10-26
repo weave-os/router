@@ -48,8 +48,9 @@ type SessionCaps struct {
 // claims use collision-resistant names (RFC 7519 §4.3).
 type SessionClaims struct {
 	jwt.RegisteredClaims
-	Task string       `json:"https://weave.ai/task,omitempty"`
-	Caps *SessionCaps `json:"https://weave.ai/caps,omitempty"`
+	IssuerID string       `json:"https://weave.ai/issuer_id"`
+	Task     string       `json:"https://weave.ai/task,omitempty"`
+	Caps     *SessionCaps `json:"https://weave.ai/caps,omitempty"`
 }
 
 // DelegatedSession is the verified identity of a session token. Requests
@@ -225,7 +226,8 @@ func (s *Service) VerifySessionToken(ctx context.Context, rawToken string, inclu
 	if err != nil || !token.Valid {
 		return nil, nil, nil, nil, nil, ErrInvalidToken
 	}
-	if claims.Subject == "" || claims.IssuedAt == nil || claims.ExpiresAt.Sub(claims.IssuedAt.Time) > SessionTokenMaxLifetime {
+	if claims.IssuerID != issuer.APIKey.ID || claims.Subject == "" || strings.ContainsRune(claims.Subject, '\x00') ||
+		strings.ContainsRune(claims.Task, '\x00') || claims.IssuedAt == nil || claims.ExpiresAt.Sub(claims.IssuedAt.Time) > SessionTokenMaxLifetime {
 		return nil, nil, nil, nil, nil, ErrInvalidToken
 	}
 	if claims.Caps != nil {

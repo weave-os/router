@@ -22,6 +22,7 @@ from provider JWTs and makes the upstream header scrubbers drop it.
 | Header `kid` | RFC 7638 SHA-256 thumbprint of the issuer JWK, base64url |
 | `iss` | `session-issuer` |
 | `aud` | `weave-router` |
+| `https://weave.ai/issuer_id` | Required ID returned when registering the issuer; binds the token to that registration generation |
 | `sub` | Session ID |
 | `iat`, `exp` | Required; `exp - iat` is at most 24 hours |
 | `jti` | Optional token ID |
@@ -31,7 +32,9 @@ from provider JWTs and makes the upstream header scrubbers drop it.
 Verification uses `github.com/golang-jwt/jwt/v5` with the RFC 8725 checks:
 a fixed algorithm, issuer, audience, required expiry and issued-at, and 30
 seconds of clock leeway. A token that carries caps is rejected until per-session
-spend caps are enforced.
+spend caps are enforced. Session and task IDs cannot contain NUL. A token's
+issuer ID must match the active registration, so revoking and re-registering the
+same signing key does not revive old tokens.
 
 A request authenticates as the issuer key. Spend, attribution, BYOK and cluster
 lists are the issuer's; the session and task IDs travel on the request context
