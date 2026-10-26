@@ -135,9 +135,10 @@ func stripRequestedProviderQualifier(model string) string {
 // low for a tokenizer that bills the history denser than its divisor assumes:
 // a thread GPT billed at ~920k reaches Claude at ~1.4M, while the estimate still
 // fits it under a 1M window.
-func (s *Service) excludeObservedOverflowModels(ctx context.Context, req router.Request, res turnLoopResult, outputReserve int) router.Request {
+// It also returns the excluded models so in-turn rescues can honor them.
+func (s *Service) excludeObservedOverflowModels(ctx context.Context, req router.Request, res turnLoopResult, outputReserve int) (router.Request, []string) {
 	if res.ContextEstimate <= 0 || len(res.TokenizerCalibration.Observations) == 0 {
-		return req
+		return req, nil
 	}
 	candidates := make(map[string]struct{}, len(s.availableModels)+len(req.CustomBindings))
 	for model := range s.availableModels {
@@ -147,7 +148,7 @@ func (s *Service) excludeObservedOverflowModels(ctx context.Context, req router.
 		candidates[model] = struct{}{}
 	}
 	cortexGateways := cortexGatewayProvidersForRequest(ctx)
-	var over []string
+	var overWindow []string
 	for model := range candidates {
 		if _, excluded := req.ExcludedModels[model]; excluded {
 			continue
@@ -164,21 +165,22 @@ func (s *Service) excludeObservedOverflowModels(ctx context.Context, req router.
 		if !ok || projected+outputReserve <= gatewayContextWindow(cortexGateways, model, provider) {
 			continue
 		}
-		over = append(over, model)
+		overWindow = append(overWindow, model)
 	}
-	if len(over) == 0 {
-		return req
+	if len(overWindow) == 0 {
+		return req, nil
 	}
-	sort.Strings(over)
+	sort.Strings(overWindow)
 	observability.FromContext(ctx).Info("context window pre-filter: excluded models past the thread's observed usage",
 		"context_estimate", res.ContextEstimate,
 		"output_reserve", outputReserve,
-		"excluded_models", strings.Join(over, ","),
+		"excluded_models", strings.Join(overWindow, ","),
 	)
-	for _, model := range over {
+	for _, model := range overWindow {
 		req.ExcludedModels = excludingModel(req.ExcludedModels, model)
 		req.ContextWindowExcludedModels = addToSet(req.ContextWindowExcludedModels, model)
+		req.SafetyExcludedModels = addToSet(req.SafetyExcludedModels, model)
 	}
-	req.OverflowAdmittedModels = withoutModels(req.OverflowAdmittedModels, over)
-	return req
+	req.OverflowAdmittedModels = withoutModels(req.OverflowAdmittedModels, overWindow)
+	return req, overWindow
 }

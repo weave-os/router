@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"net/http"
 	"testing"
 	"time"
@@ -36,14 +37,16 @@ func TestExcludeObservedOverflowModelsDropsModelsPastTheThreadsUsage(t *testing.
 	}
 	req := observedOverflowRequest()
 	req.OverflowAdmittedModels = map[string]struct{}{gatewayCompactionOpusModel: {}}
+	req.ExcludedModels = map[string]struct{}{"caller-excluded": {}}
 
-	got := svc.excludeObservedOverflowModels(ctx, req, res, contextWindowOutputReserve)
+	got, _ := svc.excludeObservedOverflowModels(ctx, req, res, contextWindowOutputReserve)
 
 	assert.Contains(t, got.ExcludedModels, gatewayCompactionOpusModel)
 	assert.Contains(t, got.ContextWindowExcludedModels, gatewayCompactionOpusModel)
 	assert.NotContains(t, got.OverflowAdmittedModels, gatewayCompactionOpusModel)
 	assert.NotContains(t, got.ExcludedModels, catalog.ModelGPT6Luna, "700k still fits Luna")
-	assert.Empty(t, req.ExcludedModels, "the caller's exclusion set is not mutated")
+	assert.Contains(t, got.SafetyExcludedModels, gatewayCompactionOpusModel, "subscription bypass honors it too")
+	assert.Equal(t, map[string]struct{}{"caller-excluded": {}}, req.ExcludedModels, "the caller's exclusion set is not mutated")
 }
 
 // After compaction the body shrinks, so the same thread fits again.
@@ -55,7 +58,7 @@ func TestExcludeObservedOverflowModelsReadmitsACompactedThread(t *testing.T) {
 			Observe(sessionpin.TokenizerFamilyOpenAI, 700_000, 900_000, time.Now()),
 	}
 
-	got := svc.excludeObservedOverflowModels(ctx, observedOverflowRequest(), res, contextWindowOutputReserve)
+	got, _ := svc.excludeObservedOverflowModels(ctx, observedOverflowRequest(), res, contextWindowOutputReserve)
 
 	assert.Empty(t, got.ExcludedModels)
 }
@@ -76,4 +79,13 @@ func TestRescueDetailLineNamesContextOverflow(t *testing.T) {
 	assert.Contains(t, line, "found the conversation too long for its context window")
 	assert.NotContains(t, line, "rejected the request")
 	assert.NotContains(t, line, "client issue")
+}
+
+// Routing skipped Claude for this thread, so an in-turn rescue must not hand
+// the same turn back to it.
+func TestRescueExcludedModelsHonorsObservedOverflow(t *testing.T) {
+	svc, ctx, _, _ := gatewayCompactionFixture(nil)
+	ctx = context.WithValue(ctx, ObservedOverflowModelsContextKey{}, []string{gatewayCompactionOpusModel})
+
+	assert.Contains(t, svc.rescueExcludedModels(ctx), gatewayCompactionOpusModel)
 }

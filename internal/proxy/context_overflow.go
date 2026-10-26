@@ -11,7 +11,6 @@ import (
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/turntype"
-	"weave-os/router/internal/translate"
 )
 
 // contextOverflowMessage leads with Anthropic's own wording: Claude Code keys
@@ -151,10 +150,4 @@ func asCompactionUnservable(turnType turntype.TurnType, decision router.Decision
 		return err
 	}
 	return &CompactionUnservableError{Provider: decision.Provider, Model: decision.Model, Cause: err}
-}
-
-// outputReserveFor is the room a request leaves for the response when fitting
-// it to a window: the client's max_tokens, at least contextWindowOutputReserve.
-func outputReserveFor(feats translate.RoutingFeatures) int {
-	return max(contextWindowOutputReserve, feats.MaxTokens)
 }

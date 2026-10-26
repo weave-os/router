@@ -338,9 +338,10 @@ func walkRescueCandidates(
 }
 
 // rescueExcludedModels is the exclusion set an in-turn rescue must honor:
-// deployment and session demotions plus models leased by another probe.
+// deployment and session demotions, models leased by another probe, and models
+// the thread's billed usage says this request overflows.
 func (s *Service) rescueExcludedModels(ctx context.Context) map[string]struct{} {
-	demoted := sessionDemotedModelsFromContext(ctx)
+	demoted := slices.Concat(sessionDemotedModelsFromContext(ctx), observedOverflowModelsFromContext(ctx))
 	probeDenied, _ := ctx.Value(SessionCooldownProbeDeniedModelsContextKey{}).([]string)
 	if len(demoted) == 0 && len(probeDenied) == 0 {
 		return s.globalAutomaticExcludedModels(ctx)

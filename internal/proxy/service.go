@@ -561,6 +561,10 @@ type SessionDisabledProvidersContextKey struct{}
 // rescue walk does not resurrect an arm the session already demoted.
 type SessionDemotedModelsContextKey struct{}
 
+// ObservedOverflowModelsContextKey carries models the thread's billed usage
+// says this request overflows, so in-turn rescues skip them as routing did.
+type ObservedOverflowModelsContextKey struct{}
+
 // SessionCooldownModelsContextKey carries the session's rate-limit cooldowns
 // still in force (map[string]time.Time, model → expiry). Only populated while
 // transient_rate_limit is on; the in-turn rescue readmits these arms when
@@ -1237,6 +1241,11 @@ func sessionDemotedModelsFromContext(ctx context.Context) []string {
 		return nil
 	}
 	out, _ := v.([]string)
+	return out
+}
+
+func observedOverflowModelsFromContext(ctx context.Context) []string {
+	out, _ := ctx.Value(ObservedOverflowModelsContextKey{}).([]string)
 	return out
 }
 
@@ -4084,6 +4093,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		// not req.EnabledProviders, so stash here for the failover walk too.
 		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
 	}
+	if len(routeRes.ObservedOverflowModels) > 0 {
+		ctx = context.WithValue(ctx, ObservedOverflowModelsContextKey{}, routeRes.ObservedOverflowModels)
+	}
 	if len(routeRes.SessionDemotedModels) > 0 {
 		ctx = context.WithValue(ctx, SessionDemotedModelsContextKey{}, routeRes.SessionDemotedModels)
 		if len(routeRes.SessionCooldownModels) > 0 {
@@ -4839,7 +4851,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		decision.Provider != providers.ProviderAnthropic &&
 		baselineModel != decision.Model &&
 		baselineKnown && baselineCatalog.PrimaryProvider() == providers.ProviderAnthropic &&
-		siblingFitsContext(nil, baselineModel, providers.ProviderAnthropic, overflowEstimate, env.SignatureTokenSavings(), outputReserve)
+		siblingFitsContext(nil, baselineModel, providers.ProviderAnthropic, overflowEstimate, env.SignatureTokenSavings(), outputReserve) &&
+		!slices.Contains(observedOverflowModelsFromContext(ctx), baselineModel)
 	baselineEligible := !routeRes.AuthoritativePerTurn && baselineViable
 
 	// Subscription-credit failover eligibility. A Claude turn served on the
@@ -7271,6 +7284,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	ctx = s.withTurnOverloadProbe(ctx, routeRes)
 	if len(routeRes.SessionDisabledProviders) > 0 {
 		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
+	}
+	if len(routeRes.ObservedOverflowModels) > 0 {
+		ctx = context.WithValue(ctx, ObservedOverflowModelsContextKey{}, routeRes.ObservedOverflowModels)
 	}
 	if len(routeRes.SessionDemotedModels) > 0 {
 		ctx = context.WithValue(ctx, SessionDemotedModelsContextKey{}, routeRes.SessionDemotedModels)
