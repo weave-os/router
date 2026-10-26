@@ -786,11 +786,11 @@ func modelSelectionReason(res turnLoopResult, failoverReason string) string {
 			classification := modelSelectionComplexity(strings.ToLower(strings.TrimSpace(label)))
 			switch classification {
 			case selectionComplexityMid:
-				return "This part of the conversation was classified as medium difficulty."
+				return "request classified as medium difficulty"
 			case selectionComplexityLow, selectionComplexityMedium, selectionComplexityHigh, selectionComplexityMaximum:
-				return "This part of the conversation was classified as " + string(classification) + " difficulty."
+				return "request classified as " + string(classification) + " difficulty"
 			case selectionComplexityFast, selectionComplexityExplore, selectionComplexityBalanced:
-				return "Routing classified this part of the conversation as " + string(classification) + "."
+				return "request classified as " + string(classification)
 			}
 		}
 	}
@@ -798,9 +798,9 @@ func modelSelectionReason(res turnLoopResult, failoverReason string) string {
 		return failoverReason
 	}
 	if reason := routingReasonShort(res); reason != "" {
-		return reason + "."
+		return reason
 	}
-	return "A model was selected for this turn."
+	return "model selected for this turn"
 }
 
 func modelSelectionMarkerForRequest(ctx context.Context, res turnLoopResult, marker, servedModel, failoverReason string) string {
@@ -813,7 +813,11 @@ func modelSelectionMarkerForRequest(ctx context.Context, res turnLoopResult, mar
 	if lineEnd == -1 {
 		return marker
 	}
-	return marker[:lineEnd+1] + "REASONING: " + modelSelectionReason(res, failoverReason) + "\n" + marker[lineEnd+1:]
+	reason := modelSelectionReason(res, failoverReason)
+	if strings.Contains(marker[:lineEnd], " · "+reason) {
+		return marker
+	}
+	return marker[:lineEnd] + " · " + reason + marker[lineEnd:]
 }
 
 func sanitizeSidecarDisplayMarker(raw string) string {
