@@ -1,15 +1,3 @@
-/**
- * Injects `metadata.user_id` into the request body so the router can:
- *   - keep the main loop on a sticky session pin ("pi:<sessionId>"), and
- *   - detect subagents ("subagent:<uuid>") for an independent pin + server-side
- *     SubAgentDispatch handling.
- *
- * This is the one body-level signal we control (the session pin key derives
- * from metadata.user_id when present; subagent detection on the Anthropic
- * ingress path keys off a "subagent:" prefix). Headers can't carry it because
- * before_provider_request can't set headers.
- */
-
 import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { isSubagent } from "./config.js";
@@ -20,13 +8,27 @@ const SUBAGENT_USER_ID = `subagent:${process.env.WEAVE_PI_SUBAGENT_ID?.trim() ||
 
 export function registerMetadata(pi: ExtensionAPI): void {
 	pi.on("before_provider_request", (event, ctx: ExtensionContext) => {
-		const body = event.payload as { metadata?: { user_id?: string } } | undefined;
+		const body = event.payload as { metadata?: { user_id?: string }; weave_routing?: RoutingThread } | undefined;
 		if (!body || typeof body !== "object") return undefined;
 
 		const userId = isSubagent() ? SUBAGENT_USER_ID : `pi:${ctx.sessionManager.getSessionId()}`;
-		if (body.metadata?.user_id === userId) return undefined;
-
 		body.metadata = { ...(body.metadata ?? {}), user_id: userId };
+		body.weave_routing = routingThread(ctx);
 		return body;
 	});
+}
+
+interface RoutingThread {
+	conversation_id: string;
+	thread_id: string;
+	parent_thread_id?: string;
+}
+
+export function routingThread(ctx: ExtensionContext): RoutingThread {
+	const sessionId = ctx.sessionManager.getSessionId();
+	return {
+		conversation_id: isSubagent() ? process.env.WEAVE_PI_CONVERSATION_ID || `pi:${sessionId}` : `pi:${sessionId}`,
+		thread_id: isSubagent() ? `${SUBAGENT_USER_ID}:${sessionId}` : sessionId,
+		parent_thread_id: isSubagent() ? process.env.WEAVE_PI_PARENT_THREAD_ID : undefined,
+	};
 }

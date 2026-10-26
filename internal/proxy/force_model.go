@@ -12,6 +12,7 @@ import (
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
@@ -564,7 +565,7 @@ func (s *Service) setForceModelSessionPin(
 	installationID uuid.UUID,
 	canonicalModel, provider, effort, forcedThreadKey string,
 ) error {
-	if s.pinStore == nil || installationID == uuid.Nil {
+	if s.pinStore == nil || installationID == uuid.Nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return nil
 	}
 	if err := s.preserveForceModelControlHistory(ctx, sessionKey, canonicalModel); err != nil {
@@ -588,9 +589,8 @@ func (s *Service) setForceModelSessionPin(
 func (s *Service) loadForceModelSessionPin(
 	ctx context.Context,
 	sessionKey, threadSessionKey [sessionpin.SessionKeyLen]byte,
-	isSubagent bool,
 ) (sessionpin.Pin, bool, bool) {
-	if s.pinStore == nil {
+	if s.pinStore == nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return sessionpin.Pin{}, false, false
 	}
 	pin, found, err := s.pinStore.Get(ctx, sessionKey, forceModelSessionRole)
@@ -604,7 +604,8 @@ func (s *Service) loadForceModelSessionPin(
 	if !found || !pin.PinnedUntil.After(time.Now()) || !isUserForcedReason(pin.Reason) || pin.Model == "" || pin.Provider == "" {
 		return sessionpin.Pin{}, false, false
 	}
-	if pin.ForcedThreadKey != "" && (isSubagent || pin.ForcedThreadKey != sessionKeyHex(threadSessionKey)) {
+	if pin.ForcedThreadKey != "" && (threadSessionKey == ([sessionpin.SessionKeyLen]byte{}) || pin.ForcedThreadKey != sessionKeyHex(threadSessionKey)) {
+		observability.FromContext(ctx).Debug("thread-targeted force does not match canonical thread; reapply legacy force-parent on its issuing thread")
 		// Suppress pre-session-scope force rows on children as an explicit clear
 		// does, so switching from force-model cannot revive an inherited pin.
 		return pin, false, true
@@ -617,7 +618,7 @@ func (s *Service) loadForceModelHistory(
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 ) sessionpin.Pin {
-	if s.pinStore == nil {
+	if s.pinStore == nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return sessionpin.Pin{}
 	}
 	pin, found, err := s.pinStore.Get(ctx, sessionKey, forceModelHistoryRole(role))
@@ -638,7 +639,7 @@ func (s *Service) anchorForceModelHistory(
 	role string,
 	forcedPin sessionpin.Pin,
 ) {
-	if s.pinStore == nil || installationID == uuid.Nil {
+	if s.pinStore == nil || installationID == uuid.Nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return
 	}
 	s.upsertPin(ctx, sessionpin.Pin{
@@ -668,7 +669,7 @@ func (s *Service) clearLegacyForceModelPins(
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 ) error {
-	if s.pinStore == nil || installationID == uuid.Nil {
+	if s.pinStore == nil || installationID == uuid.Nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return nil
 	}
 	for _, role := range forceModelClearRoles() {
@@ -691,7 +692,7 @@ func (s *Service) clearForceModelSessionPin(
 	installationID uuid.UUID,
 	sessionKey [sessionpin.SessionKeyLen]byte,
 ) error {
-	if s.pinStore == nil || installationID == uuid.Nil {
+	if s.pinStore == nil || installationID == uuid.Nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return nil
 	}
 	if err := s.preserveForceModelControlHistory(ctx, sessionKey, ""); err != nil {
@@ -730,6 +731,9 @@ func (s *Service) applyForceModelHeader(
 	raw := strings.TrimSpace(r.Header.Get(ForceModelHeader))
 	if raw == "" {
 		return ctx, "", nil
+	}
+	if forceModelSessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+		return ctx, "", &ForcedModelExcludedError{Model: raw, Reason: "conversation identity unavailable; send X-Weave-Conversation-Id"}
 	}
 	log := observability.FromContext(ctx)
 	canonicalModel, provider, known, effortLevel := resolveForceModelWithEffort(raw)
@@ -819,6 +823,13 @@ func (s *Service) applyForceModelCommand(
 	log := observability.FromContext(ctx)
 
 	ack := newCommandAcknowledgment(translate.CommandForceModel)
+	if forceModelSessionKey == ([sessionpin.SessionKeyLen]byte{}) || (cmd.ParentOnly && !cmd.Clear && threadSessionKey == ([sessionpin.SessionKeyLen]byte{})) {
+		identity := requestcontext.ThreadIdentityFromContext(ctx)
+		log.Warn("force command rejected: routing identity unavailable", "thread_identity_source", identity.Source, "thread_identity_status", identity.Status)
+		ack.outcome.Disposition = translate.CommandRejected
+		ack.force = forceAcknowledgment{rejection: forceMissingIdentity, reason: "routing identity unavailable; send X-Weave-Conversation-Id and, for force-parent, X-Weave-Thread-Id"}
+		return "", ack, nil
+	}
 	if cmd.Clear {
 		if err := s.clearLegacyForceModelPins(ctx, installationID, threadSessionKey); err != nil {
 			log.Error("/unforce-model: legacy pin cleanup failed", "err", err)

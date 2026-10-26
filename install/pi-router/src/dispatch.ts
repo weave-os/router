@@ -35,6 +35,7 @@ import {
 	SUBAGENT_MODEL,
 	SUBAGENT_TIMEOUT_MS,
 } from "./config.js";
+import { routingThread } from "./metadata.js";
 
 /**
  * The slice of the LSP subsystem dispatch depends on: hand me the env a child
@@ -135,6 +136,7 @@ function runChild(
 	signal: AbortSignal | undefined,
 	index: number,
 	lspEnv: Record<string, string> | undefined,
+	parentThread: { conversation_id: string; thread_id: string },
 ): Promise<ChildResult> {
 	const args = ["--print", "--mode", "json", "--no-session", "-e", selfPath, "--model", `${PROVIDER_NAME}/${SUBAGENT_MODEL}`];
 
@@ -172,6 +174,8 @@ function runChild(
 		...lspEnv,
 		WEAVE_PI_SUBAGENT: "1",
 		WEAVE_PI_SUBAGENT_ID: randomUUID(),
+		WEAVE_PI_CONVERSATION_ID: parentThread.conversation_id,
+		WEAVE_PI_PARENT_THREAD_ID: parentThread.thread_id,
 		WEAVE_ROUTER_KEY: key,
 		WEAVE_ROUTER_URL: getRouterBaseUrl(),
 	};
@@ -343,7 +347,7 @@ export function registerDispatch(pi: ExtensionAPI, selfPath: string, lspBroker?:
 
 			const readOnly = params.readOnly ?? true;
 			const results = await mapWithConcurrencyLimit(params.tasks, DISPATCH_CONCURRENCY, (task, index) =>
-				runChild(selfPath, task, readOnly, ctx.cwd, key, signal, index, lspEnv),
+				runChild(selfPath, task, readOnly, ctx.cwd, key, signal, index, lspEnv, routingThread(ctx)),
 			);
 
 			const succeeded = results.filter((r) => r.exitCode === 0 && !r.error).length;

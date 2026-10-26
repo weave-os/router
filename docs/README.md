@@ -5,6 +5,7 @@ Index of Markdown documentation in the `router/` repo.
 | Doc | What it covers |
 |---|---|
 | [SEMANTICS.md](SEMANTICS.md) | **Canonical terminology** for sessions, rounds, turns, actions, and steps. Read this first before other docs. |
+| [THREAD_IDENTITY.md](THREAD_IDENTITY.md) | Thread identity contract, stateless legacy clients, force scopes, and automatic-state migration. |
 | [CONFIGURATION.md](CONFIGURATION.md) | Environment variables, provider keys (gateways, model aliases, key-pair auth), BYOK encryption, OTel knobs, cluster routing artifacts. |
 | [INFERENCE_BOUNDARY.md](INFERENCE_BOUNDARY.md) | Inference operation inventory, policy-boundary exceptions, and staged migration enforcement. |
 | [POLICY_INFERENCE.md](POLICY_INFERENCE.md) | Generated static registry of inference purposes, selection policy, constraints, fallback, and migration status. |

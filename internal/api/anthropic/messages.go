@@ -110,6 +110,9 @@ func stashClientIdentity(ctx context.Context, h http.Header, body []byte) contex
 	id.DeviceID = proxy.NormalizeClientIdentifier(meta.DeviceID)
 	id.AccountID = proxy.NormalizeClientIdentifier(meta.AccountID)
 	id.SessionID = requestcontext.AnthropicHeaderSessionID(h, meta)
+	if explicitRoot := h.Get(requestcontext.ConversationIDHeader); explicitRoot != "" {
+		id.SessionID = id.RoutingThread.ConversationID
+	}
 	if metaEmail := proxy.NormalizeEmail(meta.Email); metaEmail != "" {
 		id.Email = metaEmail
 	}

@@ -39,8 +39,8 @@ func TestPrecompactionPolicyReviewsEveryCascadeCandidate(t *testing.T) {
 
 func TestCompactionHardPin(t *testing.T) {
 	s := &Service{compactionHardPinEnabled: true}
-	var key [sessionpin.SessionKeyLen]byte
-	ctx := context.Background()
+	key := [sessionpin.SessionKeyLen]byte{1}
+	ctx := statefulTestContext()
 
 	p, m, source, ok := s.compactionHardPin(ctx, key, "", router.Request{})
 	require.True(t, ok)
@@ -90,8 +90,8 @@ func (s *rolePinStore) Get(_ context.Context, _ [sessionpin.SessionKeyLen]byte, 
 }
 
 func TestCompactionHardPin_CodexKeepsNonAnthropicSessionModel(t *testing.T) {
-	var key [sessionpin.SessionKeyLen]byte
-	ctx := context.Background()
+	key := [sessionpin.SessionKeyLen]byte{1}
+	ctx := statefulTestContext()
 	live := time.Now().Add(time.Hour)
 	openAIProviders := map[string]providers.Client{providers.ProviderOpenAI: nil, providers.ProviderAnthropic: nil}
 	codex := func(req router.Request) router.Request {
@@ -191,7 +191,7 @@ func TestCompactionHardPin_CodexEffortQualifiedSessionModel(t *testing.T) {
 		availableModels:          map[string]struct{}{sessionModel: {}},
 	}
 
-	provider, model, source, ok := s.compactionHardPin(context.Background(), [sessionpin.SessionKeyLen]byte{}, sessionpin.DefaultRole, router.Request{ClientApp: ClientAppCodex})
+	provider, model, source, ok := s.compactionHardPin(statefulTestContext(), [sessionpin.SessionKeyLen]byte{1}, sessionpin.DefaultRole, router.Request{ClientApp: ClientAppCodex})
 	require.True(t, ok)
 	assert.Equal(t, providers.ProviderOpenAI, provider)
 	assert.Equal(t, sessionModel, model)
@@ -201,7 +201,7 @@ func TestCompactionHardPin_CodexEffortQualifiedSessionModel(t *testing.T) {
 func TestCompactionHardPin_FamilyUpgradeHonorsRestrictions(t *testing.T) {
 	const olderModel = "z-ai/glm-5.2"
 	const newerModel = "z-ai/glm-5.3"
-	ctx := context.Background()
+	ctx := statefulTestContext()
 	store := &rolePinStore{byRole: map[string]sessionpin.Pin{
 		hmmHistoryRole(sessionpin.DefaultRole): {
 			Provider: providers.ProviderFireworks, LastServedModel: olderModel,
@@ -220,13 +220,13 @@ func TestCompactionHardPin_FamilyUpgradeHonorsRestrictions(t *testing.T) {
 		{"provider disabled", router.Request{EnabledProviders: map[string]struct{}{providers.ProviderOpenAI: {}}}, ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, model, ok := s.compactionSessionModel(ctx, [sessionpin.SessionKeyLen]byte{}, sessionpin.DefaultRole, test.req)
+			_, model, ok := s.compactionSessionModel(ctx, [sessionpin.SessionKeyLen]byte{1}, sessionpin.DefaultRole, test.req)
 			assert.Equal(t, test.want != "", ok)
 			assert.Equal(t, test.want, model)
 		})
 	}
 	s.availableModels = map[string]struct{}{olderModel: {}}
-	_, model, ok := s.compactionSessionModel(ctx, [sessionpin.SessionKeyLen]byte{}, sessionpin.DefaultRole, router.Request{})
+	_, model, ok := s.compactionSessionModel(ctx, [sessionpin.SessionKeyLen]byte{1}, sessionpin.DefaultRole, router.Request{})
 	require.True(t, ok)
 	assert.Equal(t, olderModel, model)
 }
@@ -245,7 +245,7 @@ func TestCompactionHardPin_CodexKeepsUntieredSessionFamily(t *testing.T) {
 				clients:         dispatch.NewClients(map[string]providers.Client{providers.ProviderOpenAI: nil}),
 				availableModels: map[string]struct{}{sessionModel: {}},
 			}
-			provider, model, _, ok := s.compactionHardPin(context.Background(), [sessionpin.SessionKeyLen]byte{}, sessionpin.DefaultRole, router.Request{ClientApp: ClientAppCodex})
+			provider, model, _, ok := s.compactionHardPin(statefulTestContext(), [sessionpin.SessionKeyLen]byte{1}, sessionpin.DefaultRole, router.Request{ClientApp: ClientAppCodex})
 			require.True(t, ok)
 			assert.Equal(t, providers.ProviderOpenAI, provider)
 			assert.Equal(t, sessionModel, model)
@@ -265,7 +265,7 @@ func TestTurnLoop_CompactionReadsClientIdentityBeforeHardPin(t *testing.T) {
 	s.compactionHardPinEnabled = true
 	env, err := translate.ParseOpenAI([]byte(`{"model":"gpt-5.6-luna","messages":[{"role":"user","content":"You are performing a CONTEXT CHECKPOINT COMPACTION. Create a summary."}],"max_tokens":4096}`))
 	require.NoError(t, err)
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+	ctx := context.WithValue(statefulTestContext(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 	features := env.RoutingFeatures(false)
 	turn, err := s.runTurnLoop(ctx, env, features, "test-key", uuid.Nil, "", nil, router.Request{RequestedModel: features.Model})
 	require.NoError(t, err)
@@ -293,7 +293,7 @@ func TestTurnLoop_CompactionHardPinContextOverflowIsNotRoutingOutage(t *testing.
 		env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5-5","max_tokens":1024,"system":"Your task is to create a detailed summary of the conversation so far.","messages":[{"role":"user","content":"summarize"}]}`))
 		require.NoError(t, err)
 		features := env.RoutingFeatures(false)
-		_, err = s.runTurnLoop(context.Background(), env, features, "test-key", uuid.Nil, "", nil, router.Request{
+		_, err = s.runTurnLoop(statefulTestContext(), env, features, "test-key", uuid.Nil, "", nil, router.Request{
 			RequestedModel:              features.Model,
 			EnabledProviders:            map[string]struct{}{providers.ProviderAnthropic: {}},
 			ExcludedModels:              map[string]struct{}{summarizer: {}, policy.PrecompactionDefaultModel: {}},

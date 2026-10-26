@@ -25,7 +25,7 @@ import (
 const multiBindingModel = "qwen/qwen3-235b-a22b-2507"
 
 func excludedProvidersCtx(names ...string) context.Context {
-	return context.WithValue(context.Background(),
+	return context.WithValue(statefulTestContext(),
 		InstallationExcludedProvidersContextKey{}, names)
 }
 
@@ -76,7 +76,7 @@ func TestForceModelCommand_RejectsExcludedModel(t *testing.T) {
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
-	ctx := context.WithValue(context.Background(),
+	ctx := context.WithValue(statefulTestContext(),
 		InstallationExcludedModelsContextKey{}, []string{"claude-opus-5-5"})
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
@@ -135,7 +135,7 @@ func TestForceModelCommand_SessionStrikeOutDoesNotReject(t *testing.T) {
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
-	ctx := context.WithValue(context.Background(),
+	ctx := context.WithValue(statefulTestContext(),
 		SessionDisabledProvidersContextKey{}, []string{providers.ProviderAnthropic})
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
@@ -183,7 +183,7 @@ func TestForceModelHeader_UnfencedInstallationUnaffected(t *testing.T) {
 	req.Header.Set(ForceModelHeader, "opus")
 
 	_, model, forceErr := svc.applyForceModelHeader(
-		context.Background(), req, uuid.New(), DeriveSessionKey(env, "key-1"))
+		statefulTestContext(), req, uuid.New(), deriveSessionKeyForRequest(statefulTestContext(), env, "key-1"))
 
 	require.NoError(t, forceErr)
 	assert.Equal(t, "claude-opus-5-5", model)
@@ -204,7 +204,7 @@ func TestForceModelHeader_EffortSuffixLandsOnReturnedContext(t *testing.T) {
 	req.Header.Set(ForceModelHeader, "opus:xhigh")
 
 	ctx, model, forceErr := svc.applyForceModelHeader(
-		context.Background(), req, uuid.New(), DeriveSessionKey(env, "key-1"))
+		statefulTestContext(), req, uuid.New(), deriveSessionKeyForRequest(statefulTestContext(), env, "key-1"))
 
 	require.NoError(t, forceErr)
 	assert.Equal(t, "claude-opus-5-5:xhigh", model)
@@ -299,7 +299,7 @@ func TestForceModelCommand_RejectsDeploymentExcludedModel(t *testing.T) {
 
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env,
+	require.NoError(t, svc.handleForceModelCommand(statefulTestContext(), rec, env,
 		translate.ForceModelResult{Model: "opus"},
 		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
 
@@ -431,7 +431,7 @@ func TestForcedModelBinding_RejectsPassthroughModelOutsideAllowlist(t *testing.T
 		// only bypass; must be a routing-targets-only universe.
 		WithAvailableModels(map[string]struct{}{"claude-opus-5": {}})
 
-	ctx := context.WithValue(context.Background(),
+	ctx := context.WithValue(statefulTestContext(),
 		InstallationAllowedModelsContextKey{}, []string{"claude-opus-5"})
 
 	binding, reason := svc.forcedModelBinding(ctx, "claude-opus-4-8", providers.ProviderAnthropic)
@@ -447,7 +447,7 @@ func TestForcedModelBinding_AllowsPassthroughModelInsideAllowlist(t *testing.T) 
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
-	ctx := context.WithValue(context.Background(),
+	ctx := context.WithValue(statefulTestContext(),
 		InstallationAllowedModelsContextKey{}, []string{"claude-opus-4-8"})
 
 	binding, reason := svc.forcedModelBinding(ctx, "claude-opus-4-8", providers.ProviderAnthropic)
@@ -462,7 +462,7 @@ func TestForcedModelBinding_NoAllowlistLeavesPassthroughForcingUnchanged(t *test
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 
-	binding, reason := svc.forcedModelBinding(context.Background(), "claude-opus-4-8", providers.ProviderAnthropic)
+	binding, reason := svc.forcedModelBinding(statefulTestContext(), "claude-opus-4-8", providers.ProviderAnthropic)
 
 	assert.Empty(t, reason)
 	assert.Equal(t, providers.ProviderAnthropic, binding)
@@ -474,7 +474,7 @@ func TestForcedModelBinding_RefreshesRetiredProviderOnSavedPin(t *testing.T) {
 		WithDeploymentKeyedProviders(keyed(providers.ProviderOpenRouter))
 
 	binding, reason := svc.forcedModelBinding(
-		context.Background(), "deepseek/deepseek-v4-flash", providers.ProviderMakora)
+		statefulTestContext(), "deepseek/deepseek-v4-flash", providers.ProviderMakora)
 
 	assert.Empty(t, reason)
 	assert.Equal(t, providers.ProviderOpenRouter, binding,
@@ -482,7 +482,7 @@ func TestForcedModelBinding_RefreshesRetiredProviderOnSavedPin(t *testing.T) {
 }
 
 func gatewayKeyCtx(model string) context.Context {
-	return context.WithValue(context.Background(), ExternalAPIKeysContextKey{},
+	return context.WithValue(statefulTestContext(), ExternalAPIKeysContextKey{},
 		[]*auth.ExternalAPIKey{{
 			Provider:     providers.ProviderAnthropicGateway,
 			Plaintext:    []byte("pat"),

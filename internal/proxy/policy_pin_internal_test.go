@@ -27,7 +27,7 @@ var testPolicyPin = router.PolicyPin{
 }
 
 func pinnedContext(authorized bool) context.Context {
-	return router.WithPolicyPinRequest(context.Background(), router.PolicyPinRequest{Pin: testPolicyPin, Authorized: authorized})
+	return router.WithPolicyPinRequest(statefulTestContext(), router.PolicyPinRequest{Pin: testPolicyPin, Authorized: authorized})
 }
 
 func boolPtr(v bool) *bool { return &v }
@@ -40,7 +40,7 @@ func TestApplyPolicyPinTelemetry(t *testing.T) {
 		wantRequested *bool
 		wantHonoured  *bool
 	}{
-		"header absent leaves both null":        {ctx: context.Background(), metadata: honoured},
+		"header absent leaves both null":        {ctx: statefulTestContext(), metadata: honoured},
 		"authorized and served by the pin":      {ctx: pinnedContext(true), metadata: honoured, wantRequested: boolPtr(true), wantHonoured: boolPtr(true)},
 		"authorized but not served by the pin":  {ctx: pinnedContext(true), metadata: &router.RoutingMetadata{}, wantRequested: boolPtr(true), wantHonoured: boolPtr(false)},
 		"authorized with no decision":           {ctx: pinnedContext(true), wantRequested: boolPtr(true), wantHonoured: boolPtr(false)},
@@ -114,7 +114,7 @@ func TestRecordPolicyPinRouteFailureWritesHonouredFalseRow(t *testing.T) {
 func TestRecordPolicyPinRouteFailureIsSilentWithoutAPin(t *testing.T) {
 	sink := newBypassCaptureTelemetry()
 	svc := &Service{telemetry: sink}
-	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, uuid.New().String())
+	ctx := context.WithValue(statefulTestContext(), InstallationIDContextKey{}, uuid.New().String())
 
 	svc.recordPolicyPinRouteFailure(ctx, "req-plain", time.Now(), "claude-sonnet-5", turntype.TurnType("interactive"), false, errors.New("routing failed"))
 
@@ -169,7 +169,7 @@ func TestRunTurnLoop_HonouredPinBypassesStickyPinAndScoresFresh(t *testing.T) {
 	require.NotNil(t, res.Decision.Metadata)
 	assert.True(t, res.Decision.Metadata.PolicyPinHonoured)
 
-	unpinnedRes, err := svc.runTurnLoop(context.Background(), env, feats, "key", uuid.Nil, "", nil, router.Request{RequestedModel: feats.Model})
+	unpinnedRes, err := svc.runTurnLoop(statefulTestContext(), env, feats, "key", uuid.Nil, "", nil, router.Request{RequestedModel: feats.Model})
 	require.NoError(t, err)
 	assert.Equal(t, stickyModel, unpinnedRes.Decision.Model, "without a pin the sticky session pin still serves")
 }
@@ -239,7 +239,7 @@ func TestRunTurnLoop_HonouredPinBypassesForceModel(t *testing.T) {
 	assert.Equal(t, 1, rt.calls)
 	assert.Equal(t, "gpt-5.5", res.Decision.Model, "/force-model must not outrank an honoured policy pin")
 
-	forced, err := svc.runTurnLoop(context.Background(), env, feats, "key", uuid.Nil, "", nil, req)
+	forced, err := svc.runTurnLoop(statefulTestContext(), env, feats, "key", uuid.Nil, "", nil, req)
 	require.NoError(t, err)
 	assert.Equal(t, "claude-sonnet-5", forced.Decision.Model)
 	assert.Equal(t, 1, rt.calls)
@@ -307,5 +307,5 @@ func TestPolicyPinServedGuard(t *testing.T) {
 	assert.ErrorIs(t, policyPinServed(pinnedContext(true), bypass), router.ErrPolicyPinUnavailable)
 	assert.NoError(t, policyPinServed(pinnedContext(true), utility), "utility hard pins are never policy-scored")
 	assert.NoError(t, policyPinServed(pinnedContext(false), sticky))
-	assert.NoError(t, policyPinServed(context.Background(), sticky))
+	assert.NoError(t, policyPinServed(statefulTestContext(), sticky))
 }

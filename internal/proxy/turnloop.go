@@ -799,7 +799,8 @@ func (s *Service) runTurnLoop(
 	} else if req.TranslationRequirements.IsZero() {
 		req.TranslationRequirements = env.TranslationRequirements(translationEndpointFor(env))
 	}
-	threadSessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyID)
+	automaticScope := automaticStateScopeForRequest(ctx, env, apiKeyID)
+	threadSessionKey := automaticScope.Key
 	req.TranslationRequirements = s.scopeSearchRequirement(threadSessionKey, searchUseEnvelope(ctx, env), req.TranslationRequirements)
 	var compatibilityErr error
 	req, compatibilityErr = s.applyTranslationPlan(ctx, req)
@@ -877,7 +878,7 @@ func (s *Service) runTurnLoop(
 		forceModelFound = true
 	}
 	if !forceModelFound {
-		forceModelPin, forceModelFound, forceModelCleared = s.loadForceModelSessionPin(ctx, forceModelSessionKey, threadSessionKey, turntype.IsSubAgent(env, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))))
+		forceModelPin, forceModelFound, forceModelCleared = s.loadForceModelSessionPin(ctx, forceModelSessionKey, threadSessionKey)
 	}
 	if forceModelFound {
 		binding, reason := s.forcedModelBinding(ctx, forceModelPin.Model, forceModelPin.Provider)
@@ -1221,7 +1222,7 @@ func (s *Service) runTurnLoop(
 
 	// Without a pin store, run the scorer and return its decision. The usage
 	// bypass intercepts the fresh scorer decision here too (no pins to honor).
-	if s.pinStore == nil {
+	if s.pinStore == nil || !automaticScope.Persistent {
 		return s.routeWithoutPin(ctx, req, res, reqHeaders, forceModelFound, forceModelPin)
 	}
 
@@ -2740,6 +2741,9 @@ func (s *Service) loadPin(ctx context.Context, sessionKey [sessionpin.SessionKey
 // through to the scorer), but a caller that reads absence as session state —
 // first-turn telemetry capture — must not read an outage as a fresh session.
 func (s *Service) loadPinWithStoreState(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) (_ sessionpin.Pin, active, noStoredState bool) {
+	if s.pinStore == nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+		return sessionpin.Pin{}, false, true
+	}
 	log := observability.FromContext(ctx)
 	log.Debug("loadPin called", "role", role, "session_key_hex", fmt.Sprintf("%x", sessionKey))
 	pin, found, err := s.pinStore.Get(ctx, sessionKey, role)
@@ -2760,6 +2764,9 @@ func (s *Service) loadPinWithStoreState(ctx context.Context, sessionKey [session
 }
 
 func (s *Service) loadHMMHistory(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, role string) sessionpin.Pin {
+	if s.pinStore == nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+		return sessionpin.Pin{}
+	}
 	log := observability.FromContext(ctx)
 	pin, found, err := s.pinStore.Get(ctx, sessionKey, hmmHistoryRole(role))
 	if err != nil {
@@ -2874,6 +2881,9 @@ func (s *Service) refreshPinDowngradeVotes(ctx context.Context, installationID u
 }
 
 func (s *Service) refreshPinVotes(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, existing sessionpin.Pin, role string, chosen router.Decision, downgradeVotes, upgradeVotes int) {
+	if sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+		return
+	}
 	if installationID == uuid.Nil {
 		return
 	}
@@ -2916,6 +2926,9 @@ func (s *Service) refreshPinVotes(ctx context.Context, installationID uuid.UUID,
 // writeNewPin records a freshly-routed decision as the active pin. Used on
 // first-turn routing and switch turns. UpdateUsage fills in usage stats later.
 func (s *Service) writeNewPin(ctx context.Context, installationID uuid.UUID, sessionKey [sessionpin.SessionKeyLen]byte, role string, chosen router.Decision) {
+	if sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+		return
+	}
 	log := observability.FromContext(ctx)
 	// pinDecision(pin) reconstructions carry no Metadata, so the nil guard
 	// leaves the pair empty; ON CONFLICT then preserves the stored pair
@@ -2952,6 +2965,9 @@ func (s *Service) writeNewPin(ctx context.Context, installationID uuid.UUID, ses
 // so the DB write survives request-ctx cancellation after the response has
 // finished streaming.
 func (s *Service) upsertPin(ctx context.Context, p sessionpin.Pin) {
+	if s.pinStore == nil || p.SessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+		return
+	}
 	log := observability.FromContext(ctx)
 	if p.Strategy == "" {
 		p.Strategy = router.StrategyFromContext(ctx)

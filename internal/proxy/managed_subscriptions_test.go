@@ -71,7 +71,7 @@ func managedSubscriptionTestContext() context.Context {
 }
 
 func managedSubscriptionContext(provider auth.SubscriptionProvider) context.Context {
-	ctx := context.WithValue(context.Background(), APIKeyIDContextKey{}, "key-1")
+	ctx := context.WithValue(statefulTestContext(), APIKeyIDContextKey{}, "key-1")
 	ctx = context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{
 		provider: {},
 	})

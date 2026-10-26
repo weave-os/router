@@ -45,10 +45,7 @@ func SessionIDFromHeaders(headers http.Header) string {
 // OpenCodeSessionIDFromHeaders reads OpenCode's native session headers. The
 // worker consults it only once the client is known to be OpenCode; the gateway
 // has no client detection and relies on the header name alone. A subagent resolves
-// to its parent session, as Claude Code and Codex subagents share their
-// parent's session id; the first user message still separates the subagent's
-// pin. OpenCode names only the immediate parent, so a nested subagent resolves
-// to its spawning subagent.
+// to its immediate parent for legacy correlation, not canonical root identity.
 func OpenCodeSessionIDFromHeaders(headers http.Header) string {
 	session := NormalizeClientIdentifier(headers.Get(OpenCodeSessionHeader))
 	if session == "" {
@@ -137,6 +134,10 @@ func BodySessionID(body []byte, surface ConversationSurface) string {
 // mutable message content.
 // Callers validate/bound the body before calling; ordinary dispatch retains its original bytes.
 func CanonicalConversationID(headers http.Header, body []byte, surface ConversationSurface) string {
+	identity, _, err := RoutingIdentityFromRequest(headers, body)
+	if err == nil && identity.ConversationID != "" && (headers.Get(ConversationIDHeader) != "" || gjson.GetBytes(body, RoutingIdentityField+".conversation_id").Exists()) {
+		return identity.ConversationID
+	}
 	id := SessionIDFromHeaders(headers)
 	if surface == ConversationAnthropic {
 		id = AnthropicHeaderSessionID(headers, ParseClaudeCodeMetadata(gjson.GetBytes(body, "metadata.user_id").String()))

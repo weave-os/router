@@ -71,7 +71,7 @@ func TestPublicSurfaces_DispatchThroughResolvedPlan(t *testing.T) {
 			upstream: jsonUpstream(`{"id":"resp_1","object":"response","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}]}`),
 			run: func(svc *proxy.Service, w http.ResponseWriter) error {
 				body := []byte(`{"model":"gpt-5.5","input":"hi"}`)
-				return svc.ProxyOpenAIResponses(context.Background(), body, w,
+				return svc.ProxyOpenAIResponses(statefulTestContext(), body, w,
 					httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader("")))
 			},
 		},

@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -112,7 +111,7 @@ func TestUpgradeShadowUsesCacheRulesAndExplicitIntent(t *testing.T) {
 	pin, fresh := upgradeTestPin(), upgradeTestFresh()
 	req := router.Request{RequestedModel: upgradeTestFreshModel, RoutingIntent: string(escalation.Maximum)}
 	res := turnLoopResult{RequestedTier: catalog.TierHigh}
-	shadow := svc.authoritativeUpgradeFor(context.Background(), req, pin, fresh, res, 1000)
+	shadow := svc.authoritativeUpgradeFor(statefulTestContext(), req, pin, fresh, res, 1000)
 	require.NotNil(t, shadow)
 	assert.Equal(t, upgradeGroupEscalation, shadow.Verdict.Reason)
 	assert.Empty(t, shadow.Evidence.RequestedGroup, "neither a model name nor an installation preset proves explicit intent")
@@ -125,24 +124,24 @@ func TestUpgradeShadowUsesCacheRulesAndExplicitIntent(t *testing.T) {
 	assert.True(t, *shadow.Evidence.MarginQualified, "threshold comparison is inclusive")
 
 	req.ForceCluster = string(escalation.High)
-	shadow = svc.authoritativeUpgradeFor(context.Background(), req, pin, fresh, res, 1000)
+	shadow = svc.authoritativeUpgradeFor(statefulTestContext(), req, pin, fresh, res, 1000)
 	assert.Equal(t, upgradeExplicitQualityFloor, shadow.Verdict.Reason)
 
 	req.HistoryTruncated = true
-	shadow = svc.authoritativeUpgradeFor(context.Background(), req, pin, fresh, res, 1000)
+	shadow = svc.authoritativeUpgradeFor(statefulTestContext(), req, pin, fresh, res, 1000)
 	assert.Equal(t, upgradePrefixBroken, shadow.Verdict.Reason)
 	assert.True(t, shadow.Evidence.CacheCold)
 	req.HistoryTruncated = false
 	pin.LastTurnEndedAt = time.Now().Add(-providers.CacheTTLFor(pin.Provider) - time.Minute)
-	shadow = svc.authoritativeUpgradeFor(context.Background(), req, pin, fresh, res, 1000)
+	shadow = svc.authoritativeUpgradeFor(statefulTestContext(), req, pin, fresh, res, 1000)
 	assert.Equal(t, upgradeColdPin, shadow.Verdict.Reason)
 
 	res.SessionDemotedModels = []string{upgradeTestFreshModel}
-	shadow = svc.authoritativeUpgradeFor(context.Background(), req, pin, fresh, res, 1000)
+	shadow = svc.authoritativeUpgradeFor(statefulTestContext(), req, pin, fresh, res, 1000)
 	assert.Equal(t, upgradeDemotedModel, shadow.Verdict.Reason)
 	res.SessionDemotedModels = nil
 	req.AutomaticExcludedModels = map[string]struct{}{upgradeTestFreshModel: {}}
-	shadow = svc.authoritativeUpgradeFor(context.Background(), req, pin, fresh, res, 1000)
+	shadow = svc.authoritativeUpgradeFor(statefulTestContext(), req, pin, fresh, res, 1000)
 	assert.Equal(t, upgradeIneligibleModel, shadow.Verdict.Reason)
 }
 
@@ -150,21 +149,21 @@ func TestUpgradeShadowAgeAndAbsentPin(t *testing.T) {
 	svc := (&Service{}).WithAuthorityCacheShadow(true).
 		WithAuthoritativeUpgradeConfig(AuthoritativeUpgradeConfig{StalePinAfter: time.Hour})
 	pin, fresh := upgradeTestPin(), upgradeTestFresh()
-	shadow := svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{}, 1000)
+	shadow := svc.authoritativeUpgradeFor(statefulTestContext(), router.Request{}, pin, fresh, turnLoopResult{}, 1000)
 	assert.Equal(t, upgradeStalePin, shadow.Verdict.Reason)
 	assert.Equal(t, flags.AuthoritativeUpgradePolicyOff, shadow.Mode)
 
 	pin.FirstPinnedAt = time.Now().Add(-30 * time.Minute)
-	shadow = svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{}, 1000)
+	shadow = svc.authoritativeUpgradeFor(statefulTestContext(), router.Request{}, pin, fresh, turnLoopResult{}, 1000)
 	assert.False(t, shadow.Evidence.StalePin)
 	assert.Equal(t, upgradeUncalibratedMargin, shadow.Verdict.Reason)
 
 	pin.FirstPinnedAt = time.Time{}
-	shadow = svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{}, 1000)
+	shadow = svc.authoritativeUpgradeFor(statefulTestContext(), router.Request{}, pin, fresh, turnLoopResult{}, 1000)
 	assert.Nil(t, shadow.PinAgeSec)
 	assert.False(t, shadow.Evidence.StalePin)
 
-	shadow = svc.authoritativeUpgradeFor(context.Background(), router.Request{}, sessionpin.Pin{}, fresh, turnLoopResult{}, 1000)
+	shadow = svc.authoritativeUpgradeFor(statefulTestContext(), router.Request{}, sessionpin.Pin{}, fresh, turnLoopResult{}, 1000)
 	assert.Equal(t, upgradeNoPin, shadow.Verdict.Reason)
 	assert.Nil(t, shadow.PinAgeSec)
 }
@@ -204,7 +203,7 @@ func TestUpgradeShadowPreservesServingAndPinWrites(t *testing.T) {
 				env, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"continue"}]}`, catalog.ModelIDClaudeOpus48.String())))
 				require.NoError(t, err)
 				feats := env.RoutingFeatures(false)
-				res, err := svc.runTurnLoop(router.WithStrategy(context.Background(), strategy), env, feats, "test-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: feats.Model})
+				res, err := svc.runTurnLoop(router.WithStrategy(statefulTestContext(), strategy), env, feats, "test-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: feats.Model})
 				require.NoError(t, err)
 				assert.Equal(t, tc.wantModel, res.Decision.Model)
 				require.Len(t, store.upserts, 1)
@@ -233,7 +232,7 @@ func TestUpgradeShadowPreservesServingAndPinWrites(t *testing.T) {
 
 func TestUpgradeShadowLogsNullableEvidence(t *testing.T) {
 	var output bytes.Buffer
-	ctx := observability.WithLogger(context.Background(), slog.New(slog.NewJSONHandler(&output, nil)))
+	ctx := observability.WithLogger(statefulTestContext(), slog.New(slog.NewJSONHandler(&output, nil)))
 	fresh, pin := upgradeTestFresh(), upgradeTestPin()
 	svc := (&Service{}).WithAuthorityCacheShadow(true).WithAuthoritativeUpgradeGate(true)
 	res := turnLoopResult{Fresh: fresh, Decision: pinDecision(pin), StickyHit: true}
@@ -256,7 +255,7 @@ func TestUpgradeShadowCapturesMarginOnStayButNotReplay(t *testing.T) {
 	zero := 0.0
 	fresh.Metadata.ClassifierMargin = &zero
 	served := pinDecision(upgradeTestPin())
-	obs := buildObservationContext(context.Background(), served, fresh, CaptureOff)
+	obs := buildObservationContext(statefulTestContext(), served, fresh, CaptureOff)
 	assert.Equal(t, &zero, obs.FreshClassifierMargin)
 	assert.Equal(t, string(escalation.High), obs.FreshPolicyGroup)
 	builder := otel.NewAttrBuilder(4)
@@ -269,7 +268,7 @@ func TestUpgradeShadowCapturesMarginOnStayButNotReplay(t *testing.T) {
 		}
 	}
 	assert.True(t, found)
-	replay := buildObservationContext(context.Background(), served, router.Decision{}, CaptureOff)
+	replay := buildObservationContext(statefulTestContext(), served, router.Decision{}, CaptureOff)
 	assert.Nil(t, replay.FreshClassifierMargin)
 	assert.Empty(t, replay.FreshPolicyGroup)
 }
@@ -314,7 +313,7 @@ func TestUpgradeShadowPreservesHigherPrecedencePaths(t *testing.T) {
 			env, err := translate.ParseAnthropic([]byte(body))
 			require.NoError(t, err)
 			feats := env.RoutingFeatures(false)
-			res, err := svc.runTurnLoop(router.WithStrategy(context.Background(), strategy), env, feats, "test-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: feats.Model})
+			res, err := svc.runTurnLoop(router.WithStrategy(statefulTestContext(), strategy), env, feats, "test-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: feats.Model})
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantModel, res.Decision.Model)
 			assert.Nil(t, res.UpgradeShadow)
@@ -343,7 +342,7 @@ func TestEvidenceUpgradeServesFreshWhenQualified(t *testing.T) {
 	env, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"continue"}]}`, catalog.ModelIDClaudeOpus48.String())))
 	require.NoError(t, err)
 	feats := env.RoutingFeatures(false)
-	res, err := svc.runTurnLoop(router.WithStrategy(context.Background(), strategy), env, feats, "test-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: feats.Model})
+	res, err := svc.runTurnLoop(router.WithStrategy(statefulTestContext(), strategy), env, feats, "test-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: feats.Model})
 	require.NoError(t, err)
 	assert.Equal(t, upgradeTestFreshModel, res.Decision.Model)
 	assert.False(t, res.StickyHit)
@@ -373,7 +372,7 @@ func TestEvidenceUpgradeHoldsWarmLowMarginAndCountsVotes(t *testing.T) {
 	env, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"continue"}]}`, catalog.ModelIDClaudeOpus48.String())))
 	require.NoError(t, err)
 	feats := env.RoutingFeatures(false)
-	res, err := svc.runTurnLoop(router.WithStrategy(context.Background(), strategy), env, feats, "test-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: feats.Model})
+	res, err := svc.runTurnLoop(router.WithStrategy(statefulTestContext(), strategy), env, feats, "test-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: feats.Model})
 	require.NoError(t, err)
 	assert.Equal(t, upgradeTestPinModel, res.Decision.Model)
 	assert.True(t, res.StickyHit)
@@ -392,7 +391,7 @@ func TestEvidenceUpgradeVotesResetWhenProposalLeavesSameGroup(t *testing.T) {
 	fresh := upgradeTestFresh()
 	fresh.Metadata.ClassifierMargin = &margin
 
-	shadow := svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{}, 1000)
+	shadow := svc.authoritativeUpgradeFor(statefulTestContext(), router.Request{}, pin, fresh, turnLoopResult{}, 1000)
 	assert.Equal(t, upgradeHold, shadow.Verdict.Outcome)
 	assert.Equal(t, escalation.High, shadow.Evidence.FreshGroup)
 	assert.Equal(t, escalation.Medium, shadow.Evidence.PinGroup)
@@ -401,7 +400,7 @@ func TestEvidenceUpgradeVotesResetWhenProposalLeavesSameGroup(t *testing.T) {
 
 	pin.ConsecutiveUpgradeVotes = *shadow.Evidence.VoteCount
 	fresh.Metadata.PolicyGroup = string(escalation.Medium)
-	shadow = svc.authoritativeUpgradeFor(context.Background(), router.Request{}, pin, fresh, turnLoopResult{}, 1000)
+	shadow = svc.authoritativeUpgradeFor(statefulTestContext(), router.Request{}, pin, fresh, turnLoopResult{}, 1000)
 	require.NotNil(t, shadow.Evidence.VoteCount)
 	assert.Equal(t, 1, *shadow.Evidence.VoteCount)
 }
@@ -424,7 +423,7 @@ func TestEvidenceUpgradeExclusionKeepsEligiblePin(t *testing.T) {
 	env, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"continue"}]}`, catalog.ModelIDClaudeOpus48.String())))
 	require.NoError(t, err)
 	features := env.RoutingFeatures(false)
-	res, err := svc.runTurnLoop(router.WithStrategy(context.Background(), strategy), env, features, "test-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: features.Model})
+	res, err := svc.runTurnLoop(router.WithStrategy(statefulTestContext(), strategy), env, features, "test-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: features.Model})
 	require.NoError(t, err)
 	assert.Equal(t, upgradeTestPinModel, res.Decision.Model)
 	assert.True(t, res.StickyHit)
@@ -451,7 +450,7 @@ func TestEvidenceUpgradeExclusionFailsOpenWhenOnlyDemotedModelIsAvailable(t *tes
 	env, err := translate.ParseAnthropic([]byte(fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"continue"}]}`, catalog.ModelIDClaudeOpus48.String())))
 	require.NoError(t, err)
 	features := env.RoutingFeatures(false)
-	res, err := svc.runTurnLoop(router.WithStrategy(context.Background(), strategy), env, features, "test-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: features.Model})
+	res, err := svc.runTurnLoop(router.WithStrategy(statefulTestContext(), strategy), env, features, "test-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: features.Model})
 	require.NoError(t, err)
 	assert.Equal(t, fresh.Model, res.Decision.Model)
 	assert.False(t, res.StickyHit)

@@ -108,7 +108,7 @@ func (o *escalationTestObserver) ObserveEscalation(_ context.Context, r escalati
 	return resp, nil
 }
 func escalationTestContext(active, shadow bool) context.Context {
-	return flags.WithOverrides(router.WithStrategy(context.Background(), router.StrategyHMMEmbedding), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyEscalationXGBoostEnabled: active, flags.KeyEscalationXGBoostShadowEnabled: shadow}})
+	return flags.WithOverrides(router.WithStrategy(statefulTestContext(), router.StrategyHMMEmbedding), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyEscalationXGBoostEnabled: active, flags.KeyEscalationXGBoostShadowEnabled: shadow}})
 }
 func escalationTestEnvelope(t *testing.T, turn int) *translate.RequestEnvelope {
 	t.Helper()
@@ -185,7 +185,7 @@ func TestEscalationShadowCheckpointsDoNotChangeRoutingOrEstablishFloor(t *testin
 			if showMarker {
 				overrides.Bools[flags.KeyEscalationXGBoostShadowMarkerEnabled] = true
 			}
-			ctx := flags.WithOverrides(router.WithStrategy(context.Background(), tc.strategy), overrides)
+			ctx := flags.WithOverrides(router.WithStrategy(statefulTestContext(), tc.strategy), overrides)
 			installation := uuid.New()
 			svc := NewService(escalationDispatchRouter{}, nil, nil, false, nil, newStubPinStore(), false, providers.ProviderAnthropic, "claude-opus-4-8", nil).
 				WithEscalation(store, observer).
@@ -372,7 +372,7 @@ func TestEscalationOrdinaryHigherClassificationDoesNotRaiseFloor(t *testing.T) {
 	turn := svc.beginEscalation(escalationTestContext(true, false), escalationTestEnvelope(t, 1), router.Request{}, &res, "test-key")
 	turn.session.Floor = escalation.Medium
 	res.Decision.Metadata = &router.RoutingMetadata{Escalation: &escalation.Decision{Baseline: escalation.High, Effective: escalation.High, Outcome: escalation.OutcomeFloor, Constrained: true}}
-	require.NoError(t, svc.finishEscalation(context.Background(), turn, &res, nil))
+	require.NoError(t, svc.finishEscalation(statefulTestContext(), turn, &res, nil))
 	require.Equal(t, escalation.Medium, store.sessions[turn.scope].Floor)
 }
 func TestEscalationCommitFailureDoesNotDispatchUncommittedPromotion(t *testing.T) {
@@ -399,7 +399,7 @@ func TestEscalationRecordsServedHistoryWithoutReplacingBaselinePin(t *testing.T)
 	svc := NewService(nil, nil, nil, false, nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 	res := turnLoopResult{Strategy: router.StrategyHMMEmbedding, InstallationID: uuid.New(), PinRole: "default", Decision: router.Decision{Model: "claude-sonnet-4-6", Provider: providers.ProviderAnthropic, Metadata: &router.RoutingMetadata{Strategy: string(router.StrategyHMMEmbedding), Escalation: &escalation.Decision{Baseline: escalation.Low, Effective: escalation.Medium, Outcome: escalation.OutcomePromoted, Constrained: true}}}}
 	res.SessionKey[0] = 1
-	svc.recordTurnUsage(context.Background(), res, providers.ProviderAnthropic, "claude-sonnet-4-6", 100, 20, 0, 0, false)
+	svc.recordTurnUsage(statefulTestContext(), res, providers.ProviderAnthropic, "claude-sonnet-4-6", 100, 20, 0, 0, false)
 	require.Len(t, pins.upserts, 1)
 	require.Equal(t, hmmHistoryRole(res.PinRole), pins.upserts[0].Role)
 	require.Equal(t, "claude-sonnet-4-6", pins.lastUsage.ServedModel)
@@ -413,7 +413,7 @@ func TestEscalationCommitFailurePreservesOrdinaryStickySelection(t *testing.T) {
 		roleForTier(catalog.TierFor("claude-opus-4-8")): {Provider: providers.ProviderAnthropic, Model: "claude-opus-4-7", Strategy: router.StrategyHMMEmbedding, PinnedUntil: time.Now().Add(time.Hour)},
 	}}
 	svc := NewService(nil, nil, nil, false, nil, pins, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).WithEscalation(store, observer).WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMMEmbedding, Router: escalationDispatchRouter{}, Capabilities: policy.Capabilities{SchemaVersion: policy.SchemaVersionV1}})
-	ctx := flags.WithOverrides(router.WithStrategy(context.Background(), router.StrategyHMMEmbedding), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyEscalationXGBoostEnabled: true, flags.KeyPlannerEnabled: false}})
+	ctx := flags.WithOverrides(router.WithStrategy(statefulTestContext(), router.StrategyHMMEmbedding), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyEscalationXGBoostEnabled: true, flags.KeyPlannerEnabled: false}})
 	installation := uuid.New()
 	for n := 1; n <= 5; n++ {
 		store.failCommit = n == 5
@@ -472,7 +472,7 @@ func TestEscalationShadowMarkerRequiresCommittedPositiveShadowCheckpoint(t *test
 			svc := (&Service{}).WithEscalation(store, nil)
 			turn := &escalationTurn{active: tc.active, checkpoint: escalation.Checkpoint{Ordinal: 5, Prediction: tc.prediction}}
 			var routed turnLoopResult
-			ctx := flags.WithOverrides(context.Background(), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyEscalationXGBoostShadowMarkerEnabled: tc.showMarker}})
+			ctx := flags.WithOverrides(statefulTestContext(), flags.Overrides{Bools: map[flags.Key]bool{flags.KeyEscalationXGBoostShadowMarkerEnabled: tc.showMarker}})
 			err := svc.finishEscalation(ctx, turn, &routed, nil)
 			if tc.failCommit {
 				require.ErrorIs(t, err, escalation.ErrLeaseLost)

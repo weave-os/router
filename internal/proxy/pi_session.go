@@ -15,6 +15,7 @@ import (
 
 const piSessionField = "weave_session"
 const piSessionIssuer = "weave-pi-session-v1"
+const automaticThreadStateVersion = 2
 
 type piSessionClaimsKey struct{}
 
@@ -26,9 +27,11 @@ type piSessionClaims struct {
 	APIKeyID              string                         `json:"key"`
 	InstallationID        uuid.UUID                      `json:"installation"`
 	SessionID             string                         `json:"session"`
+	ThreadID              string                         `json:"thread_id,omitempty"`
 	MetadataUserID        string                         `json:"user"`
 	SessionKey            [sessionpin.SessionKeyLen]byte `json:"thread"`
 	ServingStateNamespace string                         `json:"serving_state_namespace,omitempty"`
+	StateVersion          int                            `json:"state_version,omitempty"`
 }
 
 func piSessionFromContext(ctx context.Context) *piSessionClaims {
@@ -38,7 +41,10 @@ func piSessionFromContext(ctx context.Context) *piSessionClaims {
 
 func (claims *piSessionClaims) matches(ctx context.Context, env *translate.RequestEnvelope) bool {
 	identity, _ := requestcontext.ServingIdentityFromContext(ctx)
+	thread := requestcontext.ThreadIdentityFromContext(ctx)
 	return env != nil && claims.InstallationID == installationIDFromContext(ctx) &&
+		thread.Status != requestcontext.ThreadIdentityInvalid && thread.Status != requestcontext.ThreadIdentityConflicting &&
+		(thread.ThreadID == "" || claims.ThreadID == thread.ThreadID) &&
 		claims.ServingStateNamespace == identity.StateNamespace &&
 		claims.SessionID == clientSessionIDForRequest(ctx, env) && claims.MetadataUserID == env.MetadataUserID()
 }
@@ -69,6 +75,8 @@ func (s *Service) mintPiSession(ctx context.Context, env *translate.RequestEnvel
 	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
 	identity, _ := requestcontext.ServingIdentityFromContext(ctx)
 	claims := piSessionClaims{
+		StateVersion:     automaticThreadStateVersion,
+		ThreadID:         requestcontext.ThreadIdentityFromContext(ctx).ThreadID,
 		RegisteredClaims: jwt.RegisteredClaims{Issuer: piSessionIssuer},
 		APIKeyID:         apiKeyID, InstallationID: installationIDFromContext(ctx),
 		SessionID: clientSessionIDForRequest(ctx, env), MetadataUserID: env.MetadataUserID(), SessionKey: sessionKey,

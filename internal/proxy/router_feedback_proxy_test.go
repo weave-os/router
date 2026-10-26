@@ -500,8 +500,6 @@ func TestService_RouterFeedbackCommand_CorrelatesCompactedHMMEmbeddingRoute(t *t
 	}`)
 	routeEnv, err := translate.ParseAnthropic(routeBody)
 	require.NoError(t, err)
-	rawSessionKey := proxy.DeriveSessionKey(routeEnv, "key-1")
-	rawFeedbackKey := hex.EncodeToString(rawSessionKey[:])
 
 	store := newFakePinStore()
 	policyFeedback := &fakePolicyFeedbackRouter{decision: router.Decision{
@@ -522,6 +520,8 @@ func TestService_RouterFeedbackCommand_CorrelatesCompactedHMMEmbeddingRoute(t *t
 	ctx := router.WithStrategy(authedCtx(installationID), router.StrategyHMMEmbedding)
 	ctx = context.WithValue(ctx, proxy.ExternalIDContextKey{}, "org-test")
 	ctx = context.WithValue(ctx, proxy.PolicyTrainingAllowedContextKey{}, true)
+	rawSessionKey := statefulTestSessionKey(ctx, routeEnv, "key-1")
+	rawFeedbackKey := hex.EncodeToString(rawSessionKey[:])
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, routeBody, httptest.NewRecorder(), httpReq))
 

@@ -15,6 +15,7 @@ import (
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/inference"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
@@ -48,6 +49,8 @@ type handoffClaims struct {
 	Purpose        handoffPurpose `json:"purpose"`
 	APIKeyID       string         `json:"key"`
 	SessionID      string         `json:"session"`
+	MetadataUserID string         `json:"metadata_user_id,omitempty"`
+	ThreadID       string         `json:"thread_id,omitempty"`
 	RequestedModel string         `json:"requested_model"`
 	Tools          string         `json:"tools"`
 	Reasoning      string         `json:"reasoning"`
@@ -131,12 +134,14 @@ func (s *Service) mintHandoff(claims handoffClaims) (string, error) {
 }
 
 func (s *Service) finishHandoffPreparation(ctx context.Context, w http.ResponseWriter, env *translate.RequestEnvelope, req router.Request, route turnLoopResult) error {
-	if route.UsageBypass || route.HardPinned || isUserForcedReason(route.Decision.Reason) {
+	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
+	scope := automaticStateScopeForRequest(ctx, env, apiKeyID)
+	if route.UsageBypass || route.HardPinned || isUserForcedReason(route.Decision.Reason) || !scope.Persistent {
 		return writePreparedHandoff(w, preparedHandoff{Bypass: true})
 	}
-	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
 	claims := handoffClaims{
 		Purpose: handoffContinuation, APIKeyID: apiKeyID, SessionID: req.ClientSessionID,
+		MetadataUserID: env.MetadataUserID(), ThreadID: requestcontext.ThreadIdentityFromContext(ctx).ThreadID,
 		RequestedModel: req.RequestedModel, Tools: req.ToolConfigurationSHA256,
 		Reasoning: req.ReasoningConfigurationSHA256, Route: route,
 	}
@@ -148,7 +153,7 @@ func (s *Service) finishHandoffPreparation(ctx context.Context, w http.ResponseW
 		Token: token, Model: route.Decision.Model, Provider: route.Decision.Provider,
 		Complexity: decisionPolicyGroup(route.Decision),
 	}
-	prepared.SessionToken, err = s.mintPiSession(ctx, env, deriveSessionKeyForRequest(ctx, env, apiKeyID))
+	prepared.SessionToken, err = s.mintPiSession(ctx, env, scope.Key)
 	if err != nil {
 		return fmt.Errorf("sign Pi session: %w", err)
 	}
@@ -184,16 +189,18 @@ func (s *Service) finishHandoffPreparation(ctx context.Context, w http.ResponseW
 	return writePreparedHandoff(w, prepared)
 }
 
-func (s *Service) resumeHandoff(ctx context.Context, env *translate.RequestEnvelope, req router.Request, isSubagent bool) (turnLoopResult, error) {
+func (s *Service) resumeHandoff(ctx context.Context, env *translate.RequestEnvelope, req router.Request) (turnLoopResult, error) {
 	claims := handoffFromContext(ctx)
 	if claims.Route.Strategy != router.StrategyFromContext(ctx) ||
+		claims.MetadataUserID != env.MetadataUserID() ||
+		claims.ThreadID != requestcontext.ThreadIdentityFromContext(ctx).ThreadID ||
 		claims.SessionID != clientSessionIDForRequest(ctx, env) ||
 		claims.RequestedModel != req.RequestedModel {
 		return turnLoopResult{}, ErrHandoffInvalid
 	}
 	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
 	forceKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, claims.Route.SessionKey)
-	_, forced, _ := s.loadForceModelSessionPin(ctx, forceKey, claims.Route.SessionKey, isSubagent)
+	_, forced, _ := s.loadForceModelSessionPin(ctx, forceKey, claims.Route.SessionKey)
 	if req.ForceModel != "" || forced {
 		return turnLoopResult{}, ErrHandoffInvalid
 	}
@@ -227,6 +234,8 @@ func validateHandoffEnvelope(ctx context.Context, env *translate.RequestEnvelope
 	_, feedback := env.ExtractRouterFeedbackCommand()
 	_, serverTool := websearch.FindServerTool(body)
 	if beta || force || feedback || serverTool || headers.Get(ForceModelHeader) != "" ||
+		claims.MetadataUserID != env.MetadataUserID() ||
+		claims.ThreadID != requestcontext.ThreadIdentityFromContext(ctx).ThreadID ||
 		claims.SessionID != clientSessionIDForRequest(ctx, env) || claims.RequestedModel != env.Model() {
 		return ErrHandoffInvalid
 	}
@@ -234,6 +243,10 @@ func validateHandoffEnvelope(ctx context.Context, env *translate.RequestEnvelope
 }
 
 func (s *Service) canPrepareHandoff(ctx context.Context, env *translate.RequestEnvelope, feats translate.RoutingFeatures, headers http.Header, body []byte) bool {
+	apiKeyID, _ := ctx.Value(APIKeyIDContextKey{}).(string)
+	if !automaticStateScopeForRequest(ctx, env, apiKeyID).Persistent {
+		return false
+	}
 	_, shadow := AgentShadowEvalFromContext(ctx)
 	_, betaCommand := env.ExtractBetaCommand()
 	_, forceCommand := env.ExtractForceModelCommand()

@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"context"
 	"net/http"
 	"testing"
 	"time"
@@ -54,7 +53,7 @@ func runAuthoritativeDowngradeTurn(t *testing.T, svc *Service) turnLoopResult {
 	features := env.RoutingFeatures(false)
 
 	result, err := svc.runTurnLoop(
-		router.WithStrategy(context.Background(), authoritativeDowngradeStrategy),
+		router.WithStrategy(statefulTestContext(), authoritativeDowngradeStrategy),
 		env,
 		features,
 		"api-key",

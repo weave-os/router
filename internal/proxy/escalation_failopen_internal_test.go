@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"context"
 	"net/http"
 	"testing"
 	"time"
@@ -30,7 +29,7 @@ func TestEscalationCommitFailurePreservesEligibilityAndTurnEvidence(t *testing.T
 	svc.scopedSearchRequirement = true
 	svc.searchRequirementDecayTurns = DefaultSearchRequirementDecayTurns
 	svc.searchUse = newSearchUseTracker()
-	ctx := flags.WithOverrides(router.WithStrategy(context.Background(), router.StrategyHMMEmbedding), flags.Overrides{Bools: map[flags.Key]bool{
+	ctx := flags.WithOverrides(router.WithStrategy(statefulTestContext(), router.StrategyHMMEmbedding), flags.Overrides{Bools: map[flags.Key]bool{
 		flags.KeyEscalationXGBoostEnabled: true, flags.KeyPlannerEnabled: false, flags.KeyPrefixTrimFreeSwitch: true,
 	}})
 	installation := uuid.New()
@@ -41,7 +40,7 @@ func TestEscalationCommitFailurePreservesEligibilityAndTurnEvidence(t *testing.T
 		if n == 5 {
 			store.failCommit = true
 			svc.compaction.checkAndRecord(sessionKey, installation, role, 9, 0)
-			require.True(t, svc.searchUse.observe(string(sessionKey[:]), 0, DefaultSearchRequirementDecayTurns))
+			require.True(t, svc.searchUse.observe(sessionKeyHex(sessionKey), 0, DefaultSearchRequirementDecayTurns))
 		}
 		res, err := svc.runTurnLoop(ctx, env, feats, "test-key", installation, "", http.Header{}, router.Request{
 			RequestedModel:          feats.Model,
@@ -58,7 +57,7 @@ func TestEscalationCommitFailurePreservesEligibilityAndTurnEvidence(t *testing.T
 		require.False(t, res.StickyHit)
 		require.True(t, res.PrefixTrimmed, "fallback must retain the current turn's compaction evidence")
 		require.True(t, res.PrefixBroken)
-		remaining, found := svc.searchUse.cache.Get(string(sessionKey[:]))
+		remaining, found := svc.searchUse.cache.Get(sessionKeyHex(sessionKey))
 		require.True(t, found)
 		require.Equal(t, DefaultSearchRequirementDecayTurns-1, remaining, "fallback must not age search evidence a second time")
 	}

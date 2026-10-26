@@ -133,7 +133,7 @@ func TestMaybeExpireSubscriptionArmPin_StickyLoopEscalation(t *testing.T) {
 	installationID := uuid.New()
 	sessionKey := nonZeroSessionKey()
 
-	svc.maybeExpireSubscriptionArmPin(context.Background(), ErrSubscriptionPoolExhausted, translate.ReasonLoopEscalation, installationID, sessionKey, sessionpin.DefaultRole)
+	svc.maybeExpireSubscriptionArmPin(statefulTestContext(), ErrSubscriptionPoolExhausted, translate.ReasonLoopEscalation, installationID, sessionKey, sessionpin.DefaultRole)
 
 	require.Len(t, store.upserts, 1)
 	assert.Equal(t, pinEvictionReasonSubscriptionPool, store.upserts[0].Reason)

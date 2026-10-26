@@ -144,7 +144,7 @@ func runPolicyDeadlineFallbackTurnLoop(
 	)
 	require.NoError(t, err)
 	features := env.RoutingFeatures(false)
-	ctx := router.WithStrategy(context.Background(), strategy)
+	ctx := router.WithStrategy(statefulTestContext(), strategy)
 	var excluded map[string]struct{}
 	if len(excludedModels) > 0 {
 		excluded = make(map[string]struct{}, len(excludedModels))

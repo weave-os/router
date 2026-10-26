@@ -249,7 +249,7 @@ func TestProxyMessages_ForcedModelUnavailableDoesNotSubstituteAnthropic(t *testi
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
-	err := svc.ProxyMessages(context.Background(), body, rec, req)
+	err := svc.ProxyMessages(statefulTestContext(), body, rec, req)
 	require.Error(t, err)
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	assert.Contains(t, rec.Body.String(), "forced model gemini-3.1-pro-preview unavailable: provider google not configured")
@@ -295,7 +295,7 @@ func TestProxyMessages_OSSOutageNoBaselineWhenRequestedModelIsOSS(t *testing.T) 
 	// Caller requested the OSS model directly: baseline == routed model.
 	body := []byte(`{"model":"deepseek/deepseek-v4-pro","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
-	_ = svc.ProxyMessages(context.Background(), body, rec, req)
+	_ = svc.ProxyMessages(statefulTestContext(), body, rec, req)
 	assert.Equal(t, 0, anthropicCount, "baseline failover must not fire when the caller requested the OSS model")
 }
 
@@ -336,7 +336,7 @@ func TestProxyMessages_OSSOutageNoBaselineWhenAnthropicExcluded(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
-	_ = svc.ProxyMessages(context.Background(), body, rec, req)
+	_ = svc.ProxyMessages(statefulTestContext(), body, rec, req)
 	assert.Equal(t, 0, anthropicCount, "baseline failover must not hit Anthropic when it is excluded")
 	assert.NotEqual(t, providers.ProviderAnthropic, rec.Header().Get(proxy.HeaderRouterProvider), "served provider must not be the excluded Anthropic")
 }
@@ -376,7 +376,7 @@ func TestProxyMessages_FailedBaselineReportsAnthropicProvider(t *testing.T) {
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
 	// A non-nil installation ID gates the telemetry write.
-	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+	ctx := context.WithValue(statefulTestContext(), proxy.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	_ = svc.ProxyMessages(ctx, body, rec, req)
 
 	row := tel.firstRow(t)

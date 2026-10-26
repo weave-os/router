@@ -195,6 +195,9 @@ func (s *Service) demoteArmForSession(
 	role string,
 	pinRole string,
 ) bool {
+	if sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+		return false
+	}
 	log := observability.FromContext(ctx)
 	if clusterAllowlistsPinModel(clusterArmOverridesForRequest(ctx), model) {
 		log.Info("model kept for session despite upstream failure: cluster allowlists name no other model",

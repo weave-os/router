@@ -134,7 +134,7 @@ func TestProxyMessages_FireworksFailureFallbackToOpenRouter(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"deepseek/deepseek-v4-pro","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
-	err := svc.ProxyMessages(context.Background(), body, rec, req)
+	err := svc.ProxyMessages(statefulTestContext(), body, rec, req)
 	require.NoError(t, err, "ProxyMessages should succeed after failover to OpenRouter")
 
 	mu.Lock()
@@ -206,7 +206,7 @@ func TestProxyMessages_BothBindingsFail(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"deepseek/deepseek-v4-pro","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
-	_ = svc.ProxyMessages(context.Background(), body, rec, req)
+	_ = svc.ProxyMessages(statefulTestContext(), body, rec, req)
 
 	assert.Equal(t, http.StatusBadGateway, rec.Code)
 	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
@@ -262,7 +262,7 @@ func TestProxyMessages_SingleBindingPreservesEagerPrelude(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-haiku-4-5","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
-	require.NoError(t, svc.ProxyMessages(context.Background(), body, rec, req))
+	require.NoError(t, svc.ProxyMessages(statefulTestContext(), body, rec, req))
 	assert.Equal(t, http.StatusOK, rec.Code)
 	respBody := rec.Body.String()
 	assert.Contains(t, respBody, "message_start")
@@ -299,7 +299,7 @@ func TestProxyMessages_RoutingMarkerWaitsForProviderOutput(t *testing.T) {
 	body := []byte(`{"model":"claude-haiku-4-5","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 	done := make(chan error, 1)
 	go func() {
-		done <- svc.ProxyMessages(context.Background(), body, writer, req)
+		done <- svc.ProxyMessages(statefulTestContext(), body, writer, req)
 	}()
 
 	select {
@@ -347,7 +347,7 @@ func TestProxyMessages_SingleBindingStreamingPreCommitError(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"gpt-5","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
-	_ = svc.ProxyMessages(context.Background(), body, rec, req)
+	_ = svc.ProxyMessages(statefulTestContext(), body, rec, req)
 
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
@@ -393,7 +393,7 @@ func TestProxyMessages_AnthropicSSEOverloadRetriesSameBinding(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-haiku-4-5","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
 
-	require.NoError(t, svc.ProxyMessages(context.Background(), body, rec, req))
+	require.NoError(t, svc.ProxyMessages(statefulTestContext(), body, rec, req))
 	mu.Lock()
 	assert.Equal(t, 2, calls, "the first HTTP 200 overload is retried on the sole Anthropic binding")
 	mu.Unlock()
@@ -424,7 +424,7 @@ func TestProxyMessages_AnthropicSSEOverloadExhaustionRecords529(t *testing.T) {
 		nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", telemetry,
 	).WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}}).
 		WithRetrySleep(noRetrySleep)
-	ctx := context.WithValue(context.Background(), proxy.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
+	ctx := context.WithValue(statefulTestContext(), proxy.InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 	ctx = context.WithValue(ctx, proxy.ExternalIDContextKey{}, "org-test")
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
@@ -618,7 +618,7 @@ func TestProxyMessages_ResponsesFailureBeforeOutputFallsBackToBaseline(t *testin
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	body := []byte(`{"model":"claude-opus-4-8","stream":true,"tools":[{"name":"Read","input_schema":{"type":"object","properties":{"file_path":{"type":"string"}},"required":["file_path"]}}],"messages":[{"role":"user","content":"inspect this"}]}`)
 
-	require.NoError(t, svc.ProxyMessages(context.Background(), body, rec, req))
+	require.NoError(t, svc.ProxyMessages(statefulTestContext(), body, rec, req))
 	mu.Lock()
 	assert.GreaterOrEqual(t, openAICalls, 1)
 	mu.Unlock()
@@ -658,7 +658,7 @@ func TestProxyMessages_BaselineFailoverSkipsBaselineOverContextWindow(t *testing
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-	err := svc.ProxyMessages(context.Background(), body, rec, req)
+	err := svc.ProxyMessages(statefulTestContext(), body, rec, req)
 	require.Error(t, err, "the routed model's 502 surfaces when no baseline can fit the prompt")
 	assert.Empty(t, baseline.proxyBodies, "baseline failover must not dispatch a prompt larger than the baseline's context window")
 }
@@ -727,7 +727,7 @@ func TestProxyMessages_GeminiValidated400RetriesWithAuto(t *testing.T) {
 		`"tools":[{"name":"Read","input_schema":{"type":"object","properties":{"file_path":{"type":"string"}},"required":["file_path"]}}],` +
 		`"messages":[{"role":"user","content":"who are you"}]}`)
 
-	err := svc.ProxyMessages(context.Background(), body, rec, req)
+	err := svc.ProxyMessages(statefulTestContext(), body, rec, req)
 	require.NoError(t, err, "the AUTO-mode retry must rescue a VALIDATED-mode 400")
 
 	require.Len(t, client.bodies, 2, "first VALIDATED attempt 400s, second AUTO attempt runs")
@@ -765,7 +765,7 @@ func TestProxyMessages_GeminiNon400NotRetried(t *testing.T) {
 		`"tools":[{"name":"Read","input_schema":{"type":"object","properties":{"file_path":{"type":"string"}},"required":["file_path"]}}],` +
 		`"messages":[{"role":"user","content":"who are you"}]}`)
 
-	_ = svc.ProxyMessages(context.Background(), body, rec, req)
+	_ = svc.ProxyMessages(statefulTestContext(), body, rec, req)
 
 	assert.Len(t, client.bodies, 1, "a 503 is not a VALIDATED-schema 400 — no AUTO retry")
 }
@@ -808,7 +808,7 @@ func TestProxyMessages_OutputConfigFormat400RetriesWithoutIt(t *testing.T) {
 		`"tools":[{"name":"Read","input_schema":{"type":"object","properties":{"file_path":{"type":"string"}},"required":["file_path"]}}],` +
 		`"messages":[{"role":"user","content":"who are you"}]}`)
 
-	require.NoError(t, svc.ProxyMessages(context.Background(), body, rec, req))
+	require.NoError(t, svc.ProxyMessages(statefulTestContext(), body, rec, req))
 
 	require.Len(t, client.bodies, 2, "the rejected attempt is re-emitted once without the knob")
 	assert.Contains(t, string(client.bodies[0]), `"output_config"`, "the knob goes out as the client wrote it")
@@ -841,7 +841,7 @@ func TestProxyMessages_UnrelatedAnthropic400NotRetried(t *testing.T) {
 	body := []byte(`{"model":"claude-sonnet-5","stream":true,"max_tokens":1024,` +
 		`"output_config":{"format":{"type":"json_schema"}},"messages":[{"role":"user","content":"hi"}]}`)
 
-	_ = svc.ProxyMessages(context.Background(), body, rec, req)
+	_ = svc.ProxyMessages(statefulTestContext(), body, rec, req)
 
 	assert.Len(t, client.bodies, 1, "only a knob rejection licenses the unstructured retry")
 }

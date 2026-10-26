@@ -57,7 +57,7 @@ func TestTwoModelRecoveryOnlyLeasesOneExpiredArmPerRequest(t *testing.T) {
 		hmmHistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyCluster, DemotionCooldowns: cooldowns},
 	}}
 	svc, _ := cooldownTurnLoopService(store, true)
-	result := runDemotionTurnLoop(t, svc, context.Background())
+	result := runDemotionTurnLoop(t, svc, statefulTestContext())
 	defer result.releaseCooldownProbes()
 
 	require.Len(t, result.CooldownProbeReleases, 1, "one request must not lock both allowed models while selecting its probe")
@@ -74,29 +74,29 @@ func TestLocalRecoveryProbeLeaseExpires(t *testing.T) {
 	svc.now = func() time.Time { return now }
 	key := nonZeroSessionKey()
 
-	_, acquired := svc.acquireRecoveryProbe(context.Background(), key, recoveryOpusModel)
+	_, acquired := svc.acquireRecoveryProbe(statefulTestContext(), key, recoveryOpusModel)
 	require.True(t, acquired)
-	_, acquired = svc.acquireRecoveryProbe(context.Background(), key, recoveryOpusModel)
+	_, acquired = svc.acquireRecoveryProbe(statefulTestContext(), key, recoveryOpusModel)
 	assert.False(t, acquired, "a live lease admits one probe")
 
 	now = now.Add(recoveryProbeLeaseDuration)
-	release, acquired := svc.acquireRecoveryProbe(context.Background(), key, recoveryOpusModel)
+	release, acquired := svc.acquireRecoveryProbe(statefulTestContext(), key, recoveryOpusModel)
 	require.True(t, acquired, "an abandoned lease frees after its safety duration")
 	release()
-	_, acquired = svc.acquireRecoveryProbe(context.Background(), key, recoveryOpusModel)
+	_, acquired = svc.acquireRecoveryProbe(statefulTestContext(), key, recoveryOpusModel)
 	assert.True(t, acquired, "a released lease frees immediately")
 }
 
 func TestRecoveryProbeLeaseCoversRequestDeadline(t *testing.T) {
 	svc, _ := cooldownTurnLoopService(&rolePinStore{byRole: map[string]sessionpin.Pin{}}, true)
 
-	assert.Equal(t, recoveryProbeLeaseDuration, svc.recoveryProbeLeaseFor(context.Background()))
+	assert.Equal(t, recoveryProbeLeaseDuration, svc.recoveryProbeLeaseFor(statefulTestContext()))
 
-	ctx, cancel := context.WithDeadline(context.Background(), rateLimitTestNow.Add(30*time.Minute))
+	ctx, cancel := context.WithDeadline(statefulTestContext(), rateLimitTestNow.Add(30*time.Minute))
 	defer cancel()
 	assert.Equal(t, 31*time.Minute, svc.recoveryProbeLeaseFor(ctx), "a longer request keeps its lease one minute past the deadline")
 
-	short, cancelShort := context.WithDeadline(context.Background(), rateLimitTestNow.Add(time.Minute))
+	short, cancelShort := context.WithDeadline(statefulTestContext(), rateLimitTestNow.Add(time.Minute))
 	defer cancelShort()
 	assert.Equal(t, recoveryProbeLeaseDuration, svc.recoveryProbeLeaseFor(short), "a short request keeps the safety duration")
 }
@@ -142,18 +142,18 @@ func TestRecoveredProbeClearsCooldownFromBothRows(t *testing.T) {
 		hmmHistoryRole(sessionpin.DefaultRole): {Strategy: router.StrategyCluster, DemotionCooldowns: map[string]time.Time{recoveryOpusModel: expired}},
 	}}}
 	svc, _ := cooldownTurnLoopService(store, true)
-	result := runDemotionTurnLoop(t, svc, context.Background())
+	result := runDemotionTurnLoop(t, svc, statefulTestContext())
 	result.releaseCooldownProbes()
 	require.Equal(t, []time.Duration{recoveryProbeLeaseDuration}, store.leaseFor)
 	require.Equal(t, map[string]time.Time{recoveryOpusModel: expired}, result.CooldownProbes)
 
-	svc.clearRecoveredCooldown(context.Background(), result, freshTurnModel, nil)
+	svc.clearRecoveredCooldown(statefulTestContext(), result, freshTurnModel, nil)
 	assert.Empty(t, store.cleared, "a turn served by another model recovers nothing")
 
-	svc.clearRecoveredCooldown(context.Background(), result, recoveryOpusModel, &providers.UpstreamErrorResponse{Status: http.StatusBadGateway})
+	svc.clearRecoveredCooldown(statefulTestContext(), result, recoveryOpusModel, &providers.UpstreamErrorResponse{Status: http.StatusBadGateway})
 	assert.Empty(t, store.cleared, "a failed probe leaves the cooldown for the strike to rewrite")
 
-	svc.clearRecoveredCooldown(context.Background(), result, recoveryOpusModel, nil)
+	svc.clearRecoveredCooldown(statefulTestContext(), result, recoveryOpusModel, nil)
 	assert.Equal(t, []clearedCooldown{
 		{role: sessionpin.DefaultRole, model: recoveryOpusModel, until: expired},
 		{role: hmmHistoryRole(sessionpin.DefaultRole), model: recoveryOpusModel, until: expired},
@@ -172,7 +172,7 @@ func TestRecoveryProbeLeaseDeniedModelsAreHardExcluded(t *testing.T) {
 		denyAll: true,
 	}
 	svc, scorer := cooldownTurnLoopService(store, true)
-	result := runDemotionTurnLoop(t, svc, context.Background())
+	result := runDemotionTurnLoop(t, svc, statefulTestContext())
 
 	assert.Empty(t, result.CooldownProbes)
 	assert.ElementsMatch(t, []string{catalog.ModelGPT6Luna, recoveryOpusModel}, result.CooldownProbeDeniedModels)
@@ -180,7 +180,7 @@ func TestRecoveryProbeLeaseDeniedModelsAreHardExcluded(t *testing.T) {
 	for _, model := range []string{catalog.ModelGPT6Luna, recoveryOpusModel} {
 		assert.Contains(t, scorer.requests[0].ExcludedModels, model, "lease-denied models must not be restored by soft automatic-exclusion fallback")
 	}
-	ctx := context.WithValue(context.Background(), SessionCooldownProbeDeniedModelsContextKey{}, result.CooldownProbeDeniedModels)
+	ctx := context.WithValue(statefulTestContext(), SessionCooldownProbeDeniedModelsContextKey{}, result.CooldownProbeDeniedModels)
 	assert.Contains(t, svc.rescueExcludedModels(ctx), catalog.ModelGPT6Luna, "rescue must not readmit a model whose probe is leased elsewhere")
 	assert.Contains(t, svc.rescueExcludedModels(ctx), recoveryOpusModel)
 }
@@ -195,7 +195,7 @@ func TestRecoveryProbeSkipsHardExcludedExpiredModel(t *testing.T) {
 		}},
 	}}}
 	svc, _ := cooldownTurnLoopService(store, true)
-	ctx := context.WithValue(context.Background(), InstallationExcludedModelsContextKey{}, []string{excludedModel})
+	ctx := context.WithValue(statefulTestContext(), InstallationExcludedModelsContextKey{}, []string{excludedModel})
 	result := runDemotionTurnLoop(t, svc, ctx)
 	defer result.releaseCooldownProbes()
 
@@ -212,7 +212,7 @@ func TestRecoveryProbeSkipsModelWithoutEligibleProviderBinding(t *testing.T) {
 	}}}
 	svc, _ := cooldownTurnLoopService(store, true)
 	env, features := demotionTurnLoopEnv(t)
-	result, err := svc.runTurnLoop(context.Background(), env, features, "api-key", uuid.New(), "", http.Header{}, router.Request{
+	result, err := svc.runTurnLoop(statefulTestContext(), env, features, "api-key", uuid.New(), "", http.Header{}, router.Request{
 		RequestedModel:       features.Model,
 		EnabledProviders:     map[string]struct{}{providers.ProviderOpenAI: {}},
 		EstimatedInputTokens: features.Tokens,
@@ -312,8 +312,8 @@ func TestTwoModelRecoveryHMMRefreshDoesNotRewriteCooldown(t *testing.T) {
 		Decision: router.Decision{Provider: providers.ProviderAnthropic, Model: freshTurnModel, Reason: hmmHistoryReason}}
 	for step := 0; step <= 96; step++ {
 		now = rateLimitTestNow.Add(time.Duration(step) * 30 * time.Minute)
-		svc.recordHMMTurnHistory(context.Background(), res, providers.ProviderAnthropic, freshTurnModel, 0, 0, 0, 0, false)
-		turn := runDemotionTurnLoop(t, svc, context.Background())
+		svc.recordHMMTurnHistory(statefulTestContext(), res, providers.ProviderAnthropic, freshTurnModel, 0, 0, 0, 0, false)
+		turn := runDemotionTurnLoop(t, svc, statefulTestContext())
 		turn.releaseCooldownProbes()
 		if step == 0 {
 			assert.Contains(t, turn.SessionDemotedModels, demotedPinModel)

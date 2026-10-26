@@ -1,7 +1,6 @@
 package proxy_test
 
 import (
-	"context"
 	"net/http"
 	"testing"
 	"time"
@@ -64,7 +63,7 @@ func TestBoostLinkedFirstHonorsForcedModel(t *testing.T) {
 			if !tc.stored {
 				request.Header.Set(proxy.ForceModelHeader, tc.model+":high")
 			}
-			ctx := entitlement.WithProductScope(context.Background(), entitlement.PlanBoost)
+			ctx := entitlement.WithProductScope(statefulTestContext(), entitlement.PlanBoost)
 			ctx = billing.WithSubscriptionOnly(ctx, billing.SubscriptionOnlyLinkedFirst)
 			var err error
 			switch {

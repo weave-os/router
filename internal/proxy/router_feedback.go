@@ -127,7 +127,7 @@ func (s *Service) handleRouterFeedbackCommand(
 			)
 		}
 	}
-	if servedModel == "" && s.pinStore != nil {
+	if servedModel == "" && s.pinStore != nil && sessionKey != ([sessionpin.SessionKeyLen]byte{}) {
 		pin := sessionpin.Pin{}
 		if storedPin, found, err := s.pinStore.Get(ctx, sessionKey, role); err != nil {
 			log.Error("/router-feedback: pin lookup failed", "err", err)

@@ -33,7 +33,7 @@ func newSearchUseTracker() *searchUseTracker {
 // requirement is still active (current-turn use, or fewer than decayTurns turns since last use).
 // The counter covers uses the client's history no longer carries (compaction, previous_response_id).
 func (t *searchUseTracker) observe(key string, recency, decayTurns int) bool {
-	if t == nil || t.cache == nil {
+	if t == nil || t.cache == nil || key == "" {
 		return recency == 0
 	}
 	t.mu.Lock()
@@ -58,7 +58,7 @@ func (s *Service) scopeSearchRequirement(sessionKey [sessionpin.SessionKeyLen]by
 		return reqs
 	}
 	reqs.CitationsOrSearch = s.searchUse.observe(
-		string(sessionKey[:]), env.SearchToolUseRecency(), s.searchRequirementDecayTurns)
+		sessionKeyHex(sessionKey), env.SearchToolUseRecency(), s.searchRequirementDecayTurns)
 	return reqs
 }
 

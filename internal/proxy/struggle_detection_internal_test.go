@@ -127,7 +127,7 @@ func newStruggleTestService(store StruggleShadowStore) *Service {
 }
 
 func fireStruggle(s *Service, reason string, installationID uuid.UUID, key [sessionpin.SessionKeyLen]byte) {
-	s.handleStruggleShadow(context.Background(), reason, installationID, key, "default_high",
+	s.handleStruggleShadow(statefulTestContext(), reason, installationID, key, "default_high",
 		"claude-sonnet-5", "tool_result", 95, 42*time.Minute, true, 31522)
 }
 
@@ -304,7 +304,7 @@ func TestRunTurnLoop_PinTurnCountsCurrentTurnInclusively(t *testing.T) {
 	require.NoError(t, err)
 	feats := env.RoutingFeatures(false)
 
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-struggle", uuid.New(), "", http.Header{}, router.Request{
+	res, err := svc.runTurnLoop(statefulTestContext(), env, feats, "key-struggle", uuid.New(), "", http.Header{}, router.Request{
 		RequestedModel: feats.Model,
 	})
 	require.NoError(t, err)

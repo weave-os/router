@@ -90,7 +90,7 @@ func TestTurnLoopExcludesDemotedModelUnderAuthoritativePolicy(t *testing.T) {
 			},
 		})
 
-	res := runDemotionTurnLoop(t, svc, router.WithStrategy(context.Background(), strategy))
+	res := runDemotionTurnLoop(t, svc, router.WithStrategy(statefulTestContext(), strategy))
 
 	assert.Equal(t, freshTurnModel, res.Decision.Model)
 	require.Len(t, policyRouter.requests, 1)
@@ -112,7 +112,7 @@ func TestTurnLoopDropsDemotedPinOnScorerPath(t *testing.T) {
 	svc := NewService(scorer, nil, nil, false, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
-	res := runDemotionTurnLoop(t, svc, context.Background())
+	res := runDemotionTurnLoop(t, svc, statefulTestContext())
 
 	assert.Equal(t, freshTurnModel, res.Decision.Model)
 	assert.False(t, res.StickyHit, "a demoted pin must not be reused")
@@ -135,7 +135,7 @@ func TestTurnLoopHonoursDemotionRecordedOnHMMHistory(t *testing.T) {
 	svc := NewService(scorer, nil, nil, false, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
-	res := runDemotionTurnLoop(t, svc, context.Background())
+	res := runDemotionTurnLoop(t, svc, statefulTestContext())
 
 	assert.Equal(t, freshTurnModel, res.Decision.Model)
 	require.Len(t, scorer.requests, 1)
@@ -156,7 +156,7 @@ func TestTurnLoopKeepsForcedModelDespiteDemotion(t *testing.T) {
 	svc := NewService(scorer, nil, nil, false, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
-	res := runDemotionTurnLoop(t, svc, context.Background())
+	res := runDemotionTurnLoop(t, svc, statefulTestContext())
 
 	assert.Equal(t, demotedPinModel, res.Decision.Model)
 	assert.True(t, res.StickyHit)

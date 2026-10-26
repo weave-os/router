@@ -46,7 +46,7 @@ func TestExplicitRoutingPolicyPrecedesClassifierAndPins(t *testing.T) {
 			pins := newStubPinStore()
 			service := NewService(routerSpy, nil, nil, false, nil, pins, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
 			authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: tc.mode, assigned: tc.assigned}, nil)
-			ctx, err := authService.WithRoutingPolicy(context.Background(), "installation")
+			ctx, err := authService.WithRoutingPolicy(statefulTestContext(), "installation")
 			require.NoError(t, err)
 			ctx, err = authService.WithRoutingAssignment(ctx, "installation", "user")
 			require.NoError(t, err)
@@ -98,7 +98,7 @@ func TestRoutingPolicyPreservesExplicitForcedModel(t *testing.T) {
 				routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
 				service := NewService(routerSpy, nil, nil, false, nil, pins, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
 				authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: mode}, nil)
-				ctx, err := authService.WithRoutingPolicy(context.Background(), "installation")
+				ctx, err := authService.WithRoutingPolicy(statefulTestContext(), "installation")
 				require.NoError(t, err)
 				ctx, err = authService.WithRoutingAssignment(ctx, "installation", "user")
 				require.NoError(t, err)
@@ -132,7 +132,7 @@ func TestRoutingPolicyPreservesExplicitForcedModel(t *testing.T) {
 func TestRoutingPolicyPassthroughUnknownModelIsAttributedToPolicy(t *testing.T) {
 	service := NewService(nil, nil, nil, false, nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
 	authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: auth.RoutingPolicyPassthrough}, nil)
-	ctx, err := authService.WithRoutingPolicy(context.Background(), "installation")
+	ctx, err := authService.WithRoutingPolicy(statefulTestContext(), "installation")
 	require.NoError(t, err)
 
 	_, err = service.callerModelPassthroughDecision(ctx, router.Request{
@@ -151,7 +151,7 @@ func TestCallerRoutingStateFollowsRoutingPrecedence(t *testing.T) {
 	}
 	withPolicy := func(t *testing.T, mode auth.RoutingPolicyMode, assigned bool) context.Context {
 		authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: mode, assigned: assigned}, nil)
-		ctx, err := authService.WithRoutingPolicy(context.Background(), "installation")
+		ctx, err := authService.WithRoutingPolicy(statefulTestContext(), "installation")
 		require.NoError(t, err)
 		ctx, err = authService.WithRoutingAssignment(ctx, "installation", "user")
 		require.NoError(t, err)
@@ -164,16 +164,16 @@ func TestCallerRoutingStateFollowsRoutingPrecedence(t *testing.T) {
 		wantPassthrough bool
 		wantSource      callerRoutingSource
 	}{
-		{name: "no policy or experiment", ctx: func(*testing.T) context.Context { return context.Background() }, wantSource: callerRoutingSourceDefault},
+		{name: "no policy or experiment", ctx: func(*testing.T) context.Context { return statefulTestContext() }, wantSource: callerRoutingSourceDefault},
 		{name: "inactive experiment", ctx: func(*testing.T) context.Context {
-			return experiment(context.Background(), auth.BlindExperimentState{Arm: auth.BlindExperimentArmPassthrough})
+			return experiment(statefulTestContext(), auth.BlindExperimentState{Arm: auth.BlindExperimentArmPassthrough})
 		}, wantSource: callerRoutingSourceDefault},
-		{name: "experiment passthrough arm", ctx: func(*testing.T) context.Context { return experiment(context.Background(), passthroughArm) }, wantPassthrough: true, wantSource: callerRoutingSourceExperiment},
+		{name: "experiment passthrough arm", ctx: func(*testing.T) context.Context { return experiment(statefulTestContext(), passthroughArm) }, wantPassthrough: true, wantSource: callerRoutingSourceExperiment},
 		{name: "experiment router on arm", ctx: func(*testing.T) context.Context {
-			return experiment(context.Background(), auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn})
+			return experiment(statefulTestContext(), auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmRouterOn})
 		}, wantSource: callerRoutingSourceExperiment},
 		{name: "cohort passthrough phase", ctx: func(*testing.T) context.Context {
-			return experiment(context.Background(), auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmPassthrough, CohortExperimentID: "cohort"})
+			return experiment(statefulTestContext(), auth.BlindExperimentState{Active: true, Arm: auth.BlindExperimentArmPassthrough, CohortExperimentID: "cohort"})
 		}, wantPassthrough: true, wantSource: callerRoutingSourceCohort},
 		{name: "teams policy unassigned", ctx: func(t *testing.T) context.Context { return withPolicy(t, auth.RoutingPolicyAssigned, false) }, wantPassthrough: true, wantSource: callerRoutingSourceRoutingPolicy},
 		{name: "teams policy assigned overrides experiment passthrough", ctx: func(t *testing.T) context.Context {

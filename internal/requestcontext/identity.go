@@ -13,12 +13,13 @@ import (
 // ClientIdentity holds per-request user identification signals, persisted to
 // router.model_router_users (Email, DisplayName).
 type ClientIdentity struct {
-	DeviceID    string
-	AccountID   string
-	SessionID   string
-	Email       string
-	DisplayName string
-	UserAgent   string
+	RoutingThread ThreadIdentity
+	DeviceID      string
+	AccountID     string
+	SessionID     string
+	Email         string
+	DisplayName   string
+	UserAgent     string
 	// ClientApp is the canonical harness (codex, claude-code, ...). Every
 	// harness-keyed behaviour reads this, so an eval run is served exactly
 	// like the production client it imitates.

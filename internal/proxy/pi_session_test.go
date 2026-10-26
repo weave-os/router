@@ -49,7 +49,7 @@ func TestPiSessionRejectsInvalidProofBeforeRouting(t *testing.T) {
 		{"non-string", piSessionField, 1, ctx},
 		{"other API key", piSessionField, prepared.SessionToken, context.WithValue(ctx, APIKeyIDContextKey{}, "other-key")},
 		{"other installation", piSessionField, prepared.SessionToken, context.WithValue(ctx, InstallationIDContextKey{}, "other-installation")},
-		{"other header session", piSessionField, prepared.SessionToken, context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{SessionID: "other-session"})},
+		{"other thread", piSessionField, prepared.SessionToken, withTestThread(ctx, "other-thread")},
 		{"other metadata under shared header", "metadata.user_id", "pi:other-thread", ctx},
 		{"subagent under shared header", "metadata.user_id", "subagent:handoff-test", ctx},
 	} {
@@ -104,8 +104,8 @@ func TestPiSessionPreservesOriginalDigestAcrossCompactionAndReplicas(t *testing.
 	require.NoError(t, err)
 	compacted, err := translate.ParseAnthropic(clean)
 	require.NoError(t, err)
-	require.NotEqual(t, DeriveSessionKey(original, "handoff-test-key"), DeriveSessionKey(compacted, "handoff-test-key"))
-	expected := DeriveSessionKey(original, "handoff-test-key")
+	expected := deriveSessionKeyForRequest(ctx, original, "handoff-test-key")
+	require.Equal(t, expected, deriveSessionKeyForRequest(ctx, compacted, "handoff-test-key"))
 	require.Equal(t, expected, deriveSessionKeyForRequest(parsed, compacted, "handoff-test-key"))
 	_, _, loggedKey := bindRequestLogger(parsed, compacted, "handoff-test-key", "request", "anthropic_messages")
 	require.Equal(t, expected, loggedKey)
@@ -124,7 +124,8 @@ func TestPiSessionCannotBeMixedWithAnotherThreadsHandoff(t *testing.T) {
 	require.NoError(t, err)
 	otherEnv, err := translate.ParseAnthropic([]byte(body))
 	require.NoError(t, err)
-	otherSession, err := svc.mintPiSession(ctx, otherEnv, DeriveSessionKey(otherEnv, "handoff-test-key"))
+	childCtx := withTestThread(ctx, "independent-thread")
+	otherSession, err := svc.mintPiSession(childCtx, otherEnv, deriveSessionKeyForRequest(childCtx, otherEnv, "handoff-test-key"))
 	require.NoError(t, err)
 	body, err = sjson.Set(body, piSessionField, otherSession)
 	require.NoError(t, err)

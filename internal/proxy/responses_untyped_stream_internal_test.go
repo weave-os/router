@@ -61,7 +61,7 @@ func TestCodexCompactionPreservesUntypedResponsesStream(t *testing.T) {
 				req.Header.Set(ForceModelHeader, tc.forceModel)
 			}
 			rec := httptest.NewRecorder()
-			ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+			ctx := context.WithValue(statefulTestContext(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
 
 			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 

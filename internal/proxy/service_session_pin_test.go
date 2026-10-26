@@ -256,7 +256,7 @@ func newPinSvcWithTelemetry(fr *fakeRouter, store *fakePinStore, telemetry proxy
 }
 
 func authedCtx(installationID string) context.Context {
-	ctx := context.WithValue(context.Background(), proxy.APIKeyIDContextKey{}, "key-1")
+	ctx := context.WithValue(statefulTestContext(), proxy.APIKeyIDContextKey{}, "key-1")
 	return context.WithValue(ctx, proxy.InstallationIDContextKey{}, installationID)
 }
 
