@@ -1079,7 +1079,8 @@ brand=$'\033[38;2;255;108;71mWEAVE ROUTER\033[0m'
 # saving.
 short_model() { printf '%s' "${1#claude-}"; }
 picked=""
-if [[ -n "$selected_display" && "$selected_display" != "?" ]]; then
+# Weave Auto is a routing choice, not a model, so only the served model is shown.
+if [[ -n "$selected_display" && "$selected_display" != "?" && "$requested_norm" != "weave-auto" ]]; then
   picked="$(short_model "$requested_norm")"
 fi
 status_text=""

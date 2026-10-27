@@ -833,6 +833,11 @@ jq -cn --arg t "$h/transcript.jsonl" '{session_id:"sess-1",model:{id:"claude-opu
   | XDG_CACHE_HOME="$h/cache" WEAVE_STATUSLINE_UPDATE=0 bash "$h/cc.sh" >/dev/null 2>&1
 cached="$(cat "$h/cache/weave-router/claude-status/sess-1.line" 2>/dev/null || true)"
 check_contains "statusline caches its session line for /router-status" "$cached" "you picked opus-4-7 → served haiku-4-5"
+jq -cn --arg t "$h/transcript.jsonl" '{session_id:"sess-auto",model:{id:"weave-auto[1m]"},transcript_path:$t}' \
+  | XDG_CACHE_HOME="$h/cache" WEAVE_STATUSLINE_UPDATE=0 bash "$h/cc.sh" >/dev/null 2>&1
+cached="$(cat "$h/cache/weave-router/claude-status/sess-auto.line" 2>/dev/null || true)"
+check_contains "Weave Auto shows only the served model" "$cached" "served haiku-4-5"
+check_not_contains "Weave Auto is not labeled as a picked model" "$cached" "you picked"
 jq -cn '{session_id:"sess-fresh",model:{id:"claude-opus-4-7"},transcript_path:"/nonexistent"}' \
   | XDG_CACHE_HOME="$h/cache" WEAVE_STATUSLINE_UPDATE=0 bash "$h/cc.sh" >/dev/null 2>&1
 if [ ! -e "$h/cache/weave-router/claude-status/sess-fresh.line" ]; then ok "a session with no response yet caches nothing"; else no "a session with no response yet caches nothing" "no cache file" "$(cat "$h/cache/weave-router/claude-status/sess-fresh.line")"; fi
