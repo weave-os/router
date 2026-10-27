@@ -53,7 +53,7 @@ func addRoutingFundingSource(ctx context.Context, provider, model string, notice
 	if credentials := CredentialsFromContext(ctx); credentials != nil {
 		credentialSource = credentials.Source
 	}
-	if credentialSource == "" && managedSubscriptionCanServe(ctx, provider, model) {
+	if managedSubscriptionCanServe(ctx, provider, model) {
 		if source, eligible := managedSubscriptionProviderFromUpstream(provider, model); eligible {
 			switch source {
 			case subscriptions.ProviderClaude:

@@ -51,11 +51,12 @@ func TestNoticePreludeDoesNotCommitProviderAttempt(t *testing.T) {
 
 func TestAddRoutingFundingSource(t *testing.T) {
 	tests := []struct {
-		name     string
-		ctx      context.Context
-		provider string
-		model    string
-		want     string
+		name      string
+		ctx       context.Context
+		provider  string
+		model     string
+		want      string
+		oldSource string
 	}{
 		{
 			name: "Claude subscription",
@@ -80,9 +81,10 @@ func TestAddRoutingFundingSource(t *testing.T) {
 			ctx: billing.WithPrepaidAuthorization(context.Background(), billing.PrepaidAuthorization{
 				CapacitySource: entitlement.CapacitySourcePrepaid,
 			}),
-			provider: providers.ProviderOpenAI,
-			model:    "gpt-6-luna",
-			want:     "funded by Weave credits",
+			provider:  providers.ProviderOpenAI,
+			model:     "gpt-6-luna",
+			want:      "funded by Weave credits",
+			oldSource: "Claude subscription",
 		},
 		{
 			name: "managed Claude subscription",
@@ -92,6 +94,17 @@ func TestAddRoutingFundingSource(t *testing.T) {
 			provider: providers.ProviderAnthropic,
 			model:    "claude-opus-5",
 			want:     "funded by Claude subscription",
+		},
+		{
+			name: "managed Codex subscription is selected over BYOK",
+			ctx: context.WithValue(requestcontext.WithCredentials(WithManagedSubscriptionUsage(context.Background()), &requestcontext.Credentials{
+				Source: requestcontext.SourceBYOK,
+			}), ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{
+				auth.SubscriptionProviderCodex: {},
+			}),
+			provider: providers.ProviderOpenAI,
+			model:    "gpt-6.1-sol",
+			want:     "funded by Codex subscription",
 		},
 		{
 			name: "customer API key",
@@ -122,15 +135,16 @@ func TestAddRoutingFundingSource(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			text := "✦ **Weave Router** → gpt-6-luna · best pick for this turn\n\n"
-			if test.name == "paid retry replaces subscription source" {
-				text = "✦ **Weave Router** → gpt-6-luna · best pick for this turn · funded by Claude subscription\n\n"
+			text := "✦ **Weave Router** → gpt-6-luna · best pick for this turn"
+			if test.oldSource != "" {
+				text += " · funded by " + test.oldSource
 			}
+			text += "\n\n"
 			notice := translate.NewRouterNotice(translate.NoticeModelSelection, text, "gpt-6-luna", "")
 			got := addRoutingFundingSource(test.ctx, test.provider, test.model, notice)
 			assert.Contains(t, got.Text, test.want)
-			if test.name == "paid retry replaces subscription source" {
-				assert.NotContains(t, got.Text, "funded by Claude subscription")
+			if test.oldSource != "" {
+				assert.NotContains(t, got.Text, "funded by "+test.oldSource)
 			}
 		})
 	}
