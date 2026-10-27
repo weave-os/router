@@ -146,6 +146,16 @@ func (s *Service) ResolveCCAutonomySystemAppend(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyCCAutonomySystemAppend, s.ccAutonomySystemAppend)
 }
 
+// ResolveEarlyStopRedo reports the early_stop_redo mode (org-overridable). An
+// unset or unrecognized value resolves to off.
+func (s *Service) ResolveEarlyStopRedo(ctx context.Context) flags.EarlyStopRedoMode {
+	mode, err := flags.ParseEarlyStopRedoMode(flags.StringOr(ctx, flags.KeyEarlyStopRedo, string(s.earlyStopRedo)))
+	if err != nil {
+		return flags.EarlyStopRedoOff
+	}
+	return mode
+}
+
 // ResolveCCWorkspaceSystemAppend reports whether Claude Code main-loop and
 // tool-result turns served cross-vendor get translate.WorkspaceSystemText
 // appended (cc_workspace_system_append; org-overridable).

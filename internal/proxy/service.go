@@ -331,6 +331,9 @@ type Service struct {
 	// ccAutonomySystemAppend is the deployment default for
 	// ROUTER_CC_AUTONOMY_SYSTEM_APPEND; see ResolveCCAutonomySystemAppend.
 	ccAutonomySystemAppend bool
+	// earlyStopRedo is the deployment default for ROUTER_EARLY_STOP_REDO;
+	// see ResolveEarlyStopRedo.
+	earlyStopRedo flags.EarlyStopRedoMode
 	// ccWorkspaceSystemAppend is the deployment default for
 	// ROUTER_CC_WORKSPACE_SYSTEM_APPEND; see ResolveCCWorkspaceSystemAppend.
 	ccWorkspaceSystemAppend bool
@@ -2319,6 +2322,13 @@ func (s *Service) WithCCTaskToolsCrossVendor(enabled bool) *Service {
 // system prompt of Claude Code main-loop and tool-result turns.
 func (s *Service) WithCCAutonomySystemAppend(enabled bool) *Service {
 	s.ccAutonomySystemAppend = enabled
+	return s
+}
+
+// WithEarlyStopRedo sets the deployment default for re-serving a Claude Code
+// tool-result turn that a lower-tier model ended without a tool call.
+func (s *Service) WithEarlyStopRedo(mode flags.EarlyStopRedoMode) *Service {
+	s.earlyStopRedo = mode
 	return s
 }
 
@@ -4472,6 +4482,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// stop_reason=tool_use both record which tool the client was handed.
 	toolUseObs := newToolUseObserver(sink)
 	sink = toolUseObs
+	// Above the prelude buffer, so a withheld response leaves the turn
+	// uncommitted and still re-servable; see earlyStopGate.
+	earlyStop := newEarlyStopGate(sink, s.clockNow)
+	sink = earlyStop
+	preludeBuf.onDiscard = earlyStop.resetAttempt
 	// Attached per attempt directly above the upstream writer, so a stream
 	// that dies after commit can be described (frames, last event, gap)
 	// instead of reported as a bare synthesized 502.
@@ -4899,6 +4914,24 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	rescueArmed := siblingViable || overflowRescueViable
 	overflowRescueOnly := overflowRescueViable && !siblingViable
 
+	// A lower-tier model that ends a Claude Code tool-result turn without a
+	// tool call is re-served on the turn's highest-tier candidate while the
+	// client has seen nothing; shadow mode only logs that it would have been.
+	earlyStopMode := s.earlyStopRedoMode(ctx, routeRes, decision, env.Stream(), agentShadowMode)
+	var earlyStopTarget router.Decision
+	var earlyStopCandidates []string
+	if earlyStopMode != flags.EarlyStopRedoOff {
+		basis := rescueBasisForTurn(decision, routeRes)
+		target, found := s.earlyStopRedoTarget(ctx, basis, overflowEstimate, env.SignatureTokenSavings(), outputReserve)
+		if found && s.siblingRescueAllowed(ctx, s.gatewaySiblingAllowed(ctx, target)) && !paidFallbackForbiddenForModel(ctx, target.Model) {
+			earlyStopTarget = target
+			earlyStopCandidates = basis.Metadata.CandidateModels
+			earlyStop.observe(earlyStopMode == flags.EarlyStopRedoOn)
+		} else {
+			earlyStopMode = flags.EarlyStopRedoOff
+		}
+	}
+
 	primaryProvider := decision.Provider
 	// Captured before rescue: failover replaces decision.Model, so afterwards
 	// decision.Model names the rescuer rather than what failed.
@@ -4988,6 +5021,73 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	}
 	if subscriptionStatePaidTargetAttempted {
 		subscriptionRetryEligible = false
+	}
+	earlyStopRedone := false
+	if earlyStopMode != flags.EarlyStopRedoOff {
+		stopped := proxyErr == nil && earlyStop.earlyStop()
+		if stopped {
+			log.Info("Tool-result turn ended without a tool call below the top candidate tier",
+				"served_model", decision.Model,
+				"redo_model", earlyStopTarget.Model,
+				"early_stop_redo_mode", string(earlyStopMode),
+				"withheld", earlyStop.withheld())
+		}
+		if stopped && earlyStop.withheld() && !preludeBuf.Committed() {
+			earlyStopRedone, proxyErr = s.redoEarlyStop(ctx, earlyStopRedo{
+				gate:    earlyStop,
+				prelude: preludeBuf,
+				header:  contentSink.Header(),
+				log:     log,
+				target:  earlyStopTarget,
+				build: func(target router.Decision) (dispatchAttempt, []catalog.ProviderBinding, string, effortResolution, context.Context, error) {
+					redoOpts := opts
+					redoOpts.TargetModel = target.Model
+					redoOpts.TargetProvider = target.Provider
+					redoOpts.Capabilities = router.Lookup(target.Model)
+					redoOpts.ModelSwitched = true
+					redoEffort := s.resolveEffort(ctx, target, redoOpts.Capabilities, routeRes.EscalateEffort)
+					redoEffort.apply(&redoOpts)
+					redoCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, target.Provider), target.Model), target.Provider, target.Model, r.Header)
+					redoOpts.FastMode = fastModeForAttempt(redoCtx, target.Model, target.Provider)
+					redoMarker := earlyStopMarkerFor(ctx, r.Header, routeRes, target.Model)
+					redoAttempt, buildErr := buildAttempt(target, redoOpts, redoMarker)
+					return redoAttempt, s.resolveBindingsForDispatch(redoCtx, target), redoMarker, redoEffort, redoCtx, buildErr
+				},
+				dispatch: func(redoCtx context.Context, target router.Decision, redoBindings []catalog.ProviderBinding, redoAttempt dispatchAttempt) (int, error) {
+					return s.dispatchWithFallback(redoCtx, failoverInputs{
+						w:                      contentSink,
+						buf:                    preludeBuf,
+						initialDecision:        target,
+						bindings:               redoBindings,
+						attempt:                redoAttempt,
+						flushErr:               flushErrAsAnthropic,
+						deferFlushOnExhaustion: true,
+						purpose:                routeRes.dispatchPurpose(inference.PurposeAnthropicMessages),
+						origin:                 routeRes.rescueOrigin(),
+					})
+				},
+				served: &earlyStopServed{
+					decision:   &decision,
+					bindings:   &bindings,
+					marker:     &marker,
+					winnerIdx:  &winnerIdx,
+					extractor:  &extractor,
+					summary:    &respSummary,
+					reqStats:   &reqStats,
+					fastServed: &fastServed,
+					effort:     &effortServed,
+				},
+			})
+			if earlyStopRedone {
+				recordTurnFailure(ctx, primaryModel)
+				for _, model := range lowerTierCandidates(earlyStopTarget.Model, earlyStopCandidates) {
+					recordTurnFailure(ctx, model)
+				}
+			}
+		}
+		if releaseErr := earlyStop.disarm(); releaseErr != nil && proxyErr == nil {
+			proxyErr = releaseErr
+		}
 	}
 	primaryFailureErr := proxyErr
 	primarySubscriptionArmFailure := proxyErr
@@ -5332,7 +5432,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	decision.Provider = finalProvider
 	// Same-provider subscription->Weave retries keep finalProvider ==
 	// primaryProvider, so OR in subscriptionFailoverUsed.
-	failoverUsed := finalProvider != primaryProvider || subscriptionFailoverUsed || siblingFailoverUsed
+	failoverUsed := finalProvider != primaryProvider || subscriptionFailoverUsed || siblingFailoverUsed || earlyStopRedone
 	failoverAttempted := failoverUsed || baselineAttempted || subscriptionFailoverAttempted || siblingRescueRan
 
 	// Re-resolve credentials for the binding that actually served — each
@@ -5452,7 +5552,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		Bool("dispatch.failover_attempted", failoverAttempted).
 		Bool("dispatch.baseline_failover", baselineFailoverUsed).
 		Bool("dispatch.subscription_failover", subscriptionFailoverUsed).
-		Bool("dispatch.sibling_failover", siblingFailoverUsed)
+		Bool("dispatch.sibling_failover", siblingFailoverUsed).
+		Bool("dispatch.early_stop_redo", earlyStopRedone)
 	if s.effectiveCaptureMode(ctx) == CaptureOff {
 		upstreamBuilder.Int64("request.message_count", int64(feats.MessageCount)).
 			Bool("request.has_tools", feats.HasTools)

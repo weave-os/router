@@ -64,6 +64,28 @@ func ParseAuthoritativeUpgradePolicy(raw string) (AuthoritativeUpgradePolicy, er
 	}
 }
 
+// EarlyStopRedoMode selects what happens when a downgraded model ends a Claude
+// Code tool-result turn without calling a tool.
+type EarlyStopRedoMode string
+
+const (
+	EarlyStopRedoOff    EarlyStopRedoMode = "off"
+	EarlyStopRedoShadow EarlyStopRedoMode = "shadow"
+	EarlyStopRedoOn     EarlyStopRedoMode = "on"
+)
+
+// ParseEarlyStopRedoMode validates the deployment/override value at the
+// configuration boundary.
+func ParseEarlyStopRedoMode(raw string) (EarlyStopRedoMode, error) {
+	mode := EarlyStopRedoMode(raw)
+	switch mode {
+	case EarlyStopRedoOff, EarlyStopRedoShadow, EarlyStopRedoOn:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("early stop redo mode must be off, shadow, or on, got %q", raw)
+	}
+}
+
 // Registered flag keys. Each corresponds to exactly one entry in Registry.
 const (
 	KeyEscalationActiveClassifier           Key = "escalation_active_classifier"
@@ -102,6 +124,7 @@ const (
 	KeyAllowedModelsHeader                  Key = "allowed_models_header"
 	KeyCCTaskToolsCrossVendor               Key = "cc_task_tools_crossvendor"
 	KeyCCAutonomySystemAppend               Key = "cc_autonomy_system_append"
+	KeyEarlyStopRedo                        Key = "early_stop_redo"
 	KeyCCWorkspaceSystemAppend              Key = "cc_workspace_system_append"
 	KeySubscriptionPlanAwareRouting         Key = "subscription_plan_aware_routing_enabled"
 	KeySubscriptionExhaustedOpenRouterOnly  Key = "subscription_exhausted_openrouter_only"
@@ -365,6 +388,13 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_CC_AUTONOMY_SYSTEM_APPEND",
 		Kind:           KindBool,
 		Description:    "Append a non-interactive operating instruction to the system prompt of Claude Code / Agent SDK main-loop and tool-result turns, whatever model serves them. Off by default.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyEarlyStopRedo,
+		EnvVar:         "ROUTER_EARLY_STOP_REDO",
+		Kind:           KindString,
+		Description:    "When a Claude Code tool-result turn served below the top tier of its candidates ends without a tool call: off, shadow (log only), or on (re-serve it on the highest-tier candidate before the client sees it).",
 		OrgOverridable: true,
 	},
 	{
