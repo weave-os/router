@@ -16,8 +16,9 @@ import (
 type forceRejection string
 
 const (
-	forceUnknownModel  forceRejection = "unknown_model"
-	forceExcludedModel forceRejection = "excluded_model"
+	forceUnknownModel    forceRejection = "unknown_model"
+	forceExcludedModel   forceRejection = "excluded_model"
+	forceMissingIdentity forceRejection = "missing_identity"
 )
 
 type forceAcknowledgment struct {
@@ -100,6 +101,8 @@ func (ack commandAcknowledgment) renderForce(format translate.Format) string {
 			return fmt.Sprintf("Weave Router: force-model rejected: %s; keeping automatic routing. Ask an admin to allow the provider, or force a model from one that is permitted.", ack.force.reason)
 		}
 		return fmt.Sprintf("✦ **Weave Router** → force-model rejected: %s · keeping automatic routing. Ask an admin to allow the provider, or force a model from one that is permitted.\n\n", ack.force.reason)
+	case forceMissingIdentity:
+		return "Weave Router: force command rejected: " + ack.force.reason + ". Existing controls are unchanged."
 	}
 	pin := ack.outcome.Pin
 	if pin.Transition == translate.PinCleared {

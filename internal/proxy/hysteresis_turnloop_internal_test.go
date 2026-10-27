@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"context"
 	"net/http"
 	"strings"
 	"testing"
@@ -84,7 +83,7 @@ func TestTurnLoopHoldsPinnedEffortOnLowGapEscalation(t *testing.T) {
 			)
 			require.NoError(t, err)
 			features := env.RoutingFeatures(false)
-			ctx := router.WithStrategy(context.Background(), strategy)
+			ctx := router.WithStrategy(statefulTestContext(), strategy)
 
 			result, err := svc.runTurnLoop(
 				ctx,

@@ -109,6 +109,9 @@ func (s *Service) handleStruggleShadow(
 	sessionEverSwitched bool,
 	estInputTokens int,
 ) {
+	if sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+		return
+	}
 	log := observability.FromContext(ctx)
 	key := struggleFiredKey(sessionKey, role, reason)
 	if _, seen := s.struggleTracker.fired.Get(key); seen {

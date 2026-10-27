@@ -243,9 +243,6 @@ func noProgressBucketKey(sessionKey [sessionpin.SessionKeyLen]byte, installation
 	if sessionKey != ([sessionpin.SessionKeyLen]byte{}) {
 		return "session:" + hex.EncodeToString(sessionKey[:]) + ":" + role, true
 	}
-	if installationID != uuid.Nil {
-		return "install:" + installationID.String() + ":" + role, true
-	}
 	return "", false
 }
 

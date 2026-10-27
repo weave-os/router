@@ -94,7 +94,7 @@ func TestUsageBypassDecision_CodexSubscriptionPreservesRequestedModel(t *testing
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
 	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: obs}
-	ctx := context.WithValue(context.Background(), OpenAISubscriptionContextKey{}, codexToken)
+	ctx := context.WithValue(statefulTestContext(), OpenAISubscriptionContextKey{}, codexToken)
 	ctx = context.WithValue(ctx, OpenAIAccountIDContextKey{}, "account-1")
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
 		Enabled:   true,
@@ -131,7 +131,7 @@ func TestUsageBypassDecision_SessionDemotionBlocks_GlobalAutomaticExclusionDoesN
 		Primary: usage.Window{UsedPercent: 0.20, WindowMinutes: 300},
 	})
 	svc := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}, providers.ProviderOpenAI: &bypassFakeProvider{}}), usageObserver: obs}
-	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
+	ctx := context.WithValue(statefulTestContext(), AnthropicSubscriptionContextKey{}, token)
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
 		Enabled:   true,
 		Threshold: &threshold,
@@ -182,7 +182,7 @@ func TestUsageBypassEngaged_SafetyExclusionBlocks_PolicyExclusionDoesNot(t *test
 		return obs
 	}
 	baseCtx := func() context.Context {
-		ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
+		ctx := context.WithValue(statefulTestContext(), AnthropicSubscriptionContextKey{}, token)
 		return context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
 			Enabled:   true,
 			Threshold: &threshold,
@@ -238,7 +238,7 @@ func TestUsageBypass_PreservesSwitchHistory(t *testing.T) {
 	}
 	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithUsageObserver(obs)
-	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
+	ctx := context.WithValue(statefulTestContext(), AnthropicSubscriptionContextKey{}, token)
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
 		Enabled:   true,
 		Threshold: &threshold,
@@ -290,7 +290,7 @@ func TestUsageBypass_EngagesUnderAuthoritativePolicy(t *testing.T) {
 				AuthoritativePerTurnSelection: true,
 			},
 		})
-	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, token)
+	ctx := context.WithValue(statefulTestContext(), AnthropicSubscriptionContextKey{}, token)
 	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{
 		Enabled:   true,
 		Threshold: &threshold,
@@ -333,7 +333,7 @@ func TestBypass_429_ReturnsErrBypassRetryable_NoBytesWritten(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
-	err := svc.bypassToAnthropic(context.Background(), env, feats, false, time.Now(), "req-1", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
+	err := svc.bypassToAnthropic(statefulTestContext(), env, feats, false, time.Now(), "req-1", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
 
 	assert.ErrorIs(t, err, errBypassRetryable, "a retryable 429 must signal fall-through to routed dispatch")
 	assert.Equal(t, 1, upstream.dispatches, "the bypass attempt must hit the upstream exactly once")
@@ -358,7 +358,7 @@ func TestBypass_NonRetryableError_StillFlushes(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
-	err := svc.bypassToAnthropic(context.Background(), env, feats, false, time.Now(), "req-1", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
+	err := svc.bypassToAnthropic(statefulTestContext(), env, feats, false, time.Now(), "req-1", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
 
 	require.NoError(t, err, "a non-retryable 400 must flush and return nil — rerouting would mask a malformed request")
 	assert.Equal(t, http.StatusBadRequest, rec.Code, "the 400 must be flushed to the client verbatim")
@@ -375,7 +375,7 @@ func TestBypass_NilError_ReturnsNil(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
-	err := svc.bypassToAnthropic(context.Background(), env, feats, false, time.Now(), "req-1", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
+	err := svc.bypassToAnthropic(statefulTestContext(), env, feats, false, time.Now(), "req-1", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
 	require.NoError(t, err)
 }
 
@@ -397,7 +397,7 @@ func TestBypass_NonStreamResponseIncludesCostHeaders(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
-	err := svc.bypassToAnthropic(context.Background(), env, feats, false, time.Now(), "req-cost", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
+	err := svc.bypassToAnthropic(statefulTestContext(), env, feats, false, time.Now(), "req-cost", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
 	require.NoError(t, err)
 	require.Equal(t, upstream.respBody, rec.Body.String())
 
@@ -426,7 +426,7 @@ func TestBypass_TransportError_ReroutesViaScorer(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
-	err := svc.bypassToAnthropic(context.Background(), env, feats, false, time.Now(), "req-1", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
+	err := svc.bypassToAnthropic(statefulTestContext(), env, feats, false, time.Now(), "req-1", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
 
 	assert.ErrorIs(t, err, errBypassRetryable, "a transport error must signal fall-through to routed dispatch")
 	assert.Equal(t, 1, upstream.dispatches, "the bypass attempt must hit the upstream exactly once")
@@ -449,7 +449,7 @@ func TestBypass_LocalPrepError_PropagatesToClient(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
-	err := svc.bypassToAnthropic(context.Background(), env, feats, false, time.Now(), "req-1", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
+	err := svc.bypassToAnthropic(statefulTestContext(), env, feats, false, time.Now(), "req-1", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
 
 	require.Error(t, err, "provider-not-configured must surface as a real error")
 	assert.NotErrorIs(t, err, errBypassRetryable, "local prep errors must not trigger reroute — the client must see them")
@@ -460,7 +460,7 @@ func TestBypass_LocalPrepError_PropagatesToClient(t *testing.T) {
 // non-empty installation id so resolveAndInjectCredentials takes the
 // router-keyed subscription-first branch.
 func subscriptionCtx() context.Context {
-	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-test-subscription-token")
+	ctx := context.WithValue(statefulTestContext(), AnthropicSubscriptionContextKey{}, "sk-ant-oat01-test-subscription-token")
 	return context.WithValue(ctx, InstallationIDContextKey{}, "11111111-1111-1111-1111-111111111111")
 }
 
@@ -605,7 +605,7 @@ func TestBypass_EmitsUsageAndCost(t *testing.T) {
 		FlushInterval: 10 * time.Millisecond,
 	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = emitter.Shutdown(context.Background()) })
+	t.Cleanup(func() { _ = emitter.Shutdown(statefulTestContext()) })
 
 	upstream := &bypassFakeProvider{respBody: sse}
 	svc := newBypassService(upstream)
@@ -617,7 +617,7 @@ func TestBypass_EmitsUsageAndCost(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
 	buf := otel.NewBuffer(emitter)
-	ctx := buf.WithContext(context.Background())
+	ctx := buf.WithContext(statefulTestContext())
 	err = svc.bypassToAnthropic(ctx, env, feats, false, time.Now(), "req-1", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
 	require.NoError(t, err)
 	buf.Flush()
@@ -697,7 +697,7 @@ func TestBypass_PersistsTelemetryRowWithUnifiedHeaders(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer sk-ant-oat01-live")
 
 	installationID := uuid.New()
-	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, installationID.String())
+	ctx := context.WithValue(statefulTestContext(), InstallationIDContextKey{}, installationID.String())
 	ctx = requestcontext.WithServingIdentity(ctx, requestcontext.ServingIdentity{
 		Target: string(policyregistry.TargetInternal), ReleaseID: "managed-release", BindingID: "managed-binding",
 	})
@@ -763,7 +763,7 @@ func TestBypass_NoTelemetryRowWithoutInstallation(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 
-	err := svc.bypassToAnthropic(context.Background(), env, feats, false, time.Now(), "req-tel-2", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
+	err := svc.bypassToAnthropic(statefulTestContext(), env, feats, false, time.Now(), "req-tel-2", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
 	require.NoError(t, err)
 
 	select {
@@ -784,7 +784,7 @@ func TestBypass_TelemetryRowClassifiesOutputCap(t *testing.T) {
 	feats := env.RoutingFeatures(false)
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-	ctx := context.WithValue(context.Background(), InstallationIDContextKey{}, uuid.New().String())
+	ctx := context.WithValue(statefulTestContext(), InstallationIDContextKey{}, uuid.New().String())
 
 	err := svc.bypassToAnthropic(ctx, env, feats, false, time.Now(), "req-tel-3", "ext-1", turntype.MainLoop, "usage_bypass", req, rec)
 	require.NoError(t, err)

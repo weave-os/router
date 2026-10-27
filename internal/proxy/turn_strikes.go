@@ -76,7 +76,7 @@ func (s *Service) strikeRescuedModelsForTurn(ctx context.Context, proxyErr error
 
 func (s *Service) clearTurnStrikes(ctx context.Context, sessionKey [sessionpin.SessionKeyLen]byte, pinRole string) {
 	store, ok := s.pinStore.(sessionpin.TurnStrikeStore)
-	if !ok {
+	if !ok || sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
 		return
 	}
 	for _, role := range demotionRoles(pinRole, pinRole) {

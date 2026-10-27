@@ -18,6 +18,7 @@ import (
 
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
@@ -46,7 +47,10 @@ func handoffTestService() (*Service, *betaTestRouter, *betaCaptureProvider, cont
 	svc := NewService(nil, map[string]providers.Client{providers.ProviderAnthropic: upstream}, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithPiHandoffSecret(strings.Repeat("test-secret-", 4)).
 		WithPolicyStrategy(policy.StrategySpec{Strategy: router.StrategyHMM, Router: classifier, Capabilities: policy.Capabilities{AuthoritativePerTurnSelection: true}})
-	ctx := context.WithValue(context.Background(), APIKeyIDContextKey{}, "handoff-test-key")
+	ctx := context.WithValue(statefulTestContext(), APIKeyIDContextKey{}, "handoff-test-key")
+	identity := requestcontext.ThreadIdentityFromContext(ctx)
+	identity.ConversationID = "pi:handoff-test"
+	ctx = requestcontext.WithThreadIdentity(ctx, identity)
 	ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString())
 	return svc, classifier, upstream, router.WithStrategy(ctx, router.StrategyHMM)
 }
@@ -60,6 +64,22 @@ func prepareTestHandoff(t *testing.T, svc *Service, ctx context.Context) prepare
 	require.NotEmpty(t, prepared.Token)
 	require.NotEmpty(t, prepared.SessionToken)
 	return prepared
+}
+
+func TestLegacyPiWithoutThreadIdentityBypassesHandoff(t *testing.T) {
+	svc, classifier, upstream, ctx := handoffTestService()
+	ctx = requestcontext.WithThreadIdentity(ctx, requestcontext.ThreadIdentity{Source: requestcontext.ThreadSourceUnavailable, Status: requestcontext.ThreadIdentityMissing})
+	recorder := httptest.NewRecorder()
+	require.NoError(t, svc.ProxyMessages(WithHandoffPreparation(ctx), []byte(handoffTestBody), recorder, httptest.NewRequest(http.MethodPost, "/v1/route/handoff", nil)))
+	var prepared preparedHandoff
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &prepared))
+	require.True(t, prepared.Bypass)
+	require.Empty(t, prepared.SessionToken)
+	require.Empty(t, prepared.Token)
+	require.Empty(t, upstream.body)
+	require.NoError(t, svc.ProxyMessages(ctx, []byte(handoffTestBody), httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil)))
+	require.Positive(t, classifier.calls)
+	require.NotEmpty(t, upstream.body)
 }
 
 func TestPiHandoffPreparationDoesNotDispatchAndContinuationDoesNotReclassify(t *testing.T) {
@@ -126,7 +146,7 @@ func TestPiHandoffRevalidatesSessionConfigurationAndEligibility(t *testing.T) {
 	require.NoError(t, err)
 	_, req, err := svc.anthropicRoutingRequest(parsed, clean, nil, "handoff-test")
 	require.NoError(t, err)
-	_, err = svc.resumeHandoff(parsed, env, req, false)
+	_, err = svc.resumeHandoff(parsed, env, req)
 	require.NoError(t, err)
 	for _, mutation := range []struct {
 		name  string
@@ -141,13 +161,13 @@ func TestPiHandoffRevalidatesSessionConfigurationAndEligibility(t *testing.T) {
 		t.Run(mutation.name, func(t *testing.T) {
 			changed := req
 			mutation.apply(&changed)
-			_, err := svc.resumeHandoff(parsed, env, changed, false)
+			_, err := svc.resumeHandoff(parsed, env, changed)
 			require.ErrorIs(t, err, ErrHandoffInvalid)
 		})
 	}
 	otherSession, err := translate.ParseAnthropic([]byte(strings.ReplaceAll(string(clean), "handoff-test", "other-session")))
 	require.NoError(t, err)
-	_, err = svc.resumeHandoff(parsed, otherSession, req, false)
+	_, err = svc.resumeHandoff(parsed, otherSession, req)
 	require.ErrorIs(t, err, ErrHandoffInvalid)
 }
 
@@ -254,10 +274,8 @@ func TestForceParentDoesNotRejectChildHandoff(t *testing.T) {
 	apiKeyID, _ := parsed.Value(APIKeyIDContextKey{}).(string)
 	installationID := claims.Route.InstallationID
 	controlKey := deriveForceModelSessionKeyForRequest(parsed, env, apiKeyID, claims.Route.SessionKey)
-	_, _, err = svc.applyForceModelCommand(parsed, translate.ForceModelResult{Model: "opus", ParentOnly: true}, installationID, claims.Route.SessionKey, controlKey)
+	_, _, err = svc.applyForceModelCommand(parsed, translate.ForceModelResult{Model: "opus", ParentOnly: true}, installationID, loopTestKey(99), controlKey)
 	require.NoError(t, err)
-	_, err = svc.resumeHandoff(parsed, env, req, true)
+	_, err = svc.resumeHandoff(parsed, env, req)
 	require.NoError(t, err, "parent-only force must preserve a child's prepared continuation")
-	_, err = svc.resumeHandoff(parsed, env, req, false)
-	require.ErrorIs(t, err, ErrHandoffInvalid, "the force still invalidates a parent continuation")
 }

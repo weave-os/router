@@ -15,7 +15,7 @@ import (
 
 // codexCtx stands in for a request that arrived with `X-App: codex`.
 func codexCtx(sessionID string) context.Context {
-	return context.WithValue(context.Background(), ClientIdentityContextKey{},
+	return context.WithValue(statefulTestContext(), ClientIdentityContextKey{},
 		ClientIdentity{ClientApp: ClientAppCodex, SessionID: sessionID})
 }
 
@@ -49,7 +49,7 @@ func TestForceModelCommand_ClaudeCodeAckKeepsTheSlashForm(t *testing.T) {
 
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{},
+	ctx := context.WithValue(statefulTestContext(), ClientIdentityContextKey{},
 		ClientIdentity{ClientApp: ClientAppClaudeCode})
 	require.NoError(t, svc.handleForceModelCommand(ctx, rec, env,
 		translate.ForceModelResult{Model: "opus"},

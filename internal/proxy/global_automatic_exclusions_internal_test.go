@@ -38,8 +38,8 @@ func TestGlobalAutomaticExclusions_ServesCachedSnapshotWithinTTL(t *testing.T) {
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithGlobalAutomaticExclusions(store)
 
-	first := svc.globalAutomaticExcludedModels(context.Background())
-	second := svc.globalAutomaticExcludedModels(context.Background())
+	first := svc.globalAutomaticExcludedModels(statefulTestContext())
+	second := svc.globalAutomaticExcludedModels(statefulTestContext())
 
 	assert.Equal(t, map[string]struct{}{"claude-opus-5": {}}, first)
 	assert.Equal(t, first, second)
@@ -54,8 +54,8 @@ func TestGlobalAutomaticExclusions_ColdReadFailureFailsOpen(t *testing.T) {
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithGlobalAutomaticExclusions(store)
 
-	assert.Empty(t, svc.globalAutomaticExcludedModels(context.Background()))
-	assert.Empty(t, svc.globalAutomaticExcludedModels(context.Background()))
+	assert.Empty(t, svc.globalAutomaticExcludedModels(statefulTestContext()))
+	assert.Empty(t, svc.globalAutomaticExcludedModels(statefulTestContext()))
 	assert.Equal(t, 2, store.calls, "a failed cold read must retry rather than cache emptiness for a full TTL")
 }
 
@@ -65,12 +65,12 @@ func TestGlobalAutomaticExclusions_RefreshFailureKeepsLastSnapshot(t *testing.T)
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithGlobalAutomaticExclusions(store)
 
-	require.NotEmpty(t, svc.globalAutomaticExcludedModels(context.Background()))
+	require.NotEmpty(t, svc.globalAutomaticExcludedModels(statefulTestContext()))
 	store.err = errors.New("router database unreachable")
 	svc.globalAutomaticExclusions.refreshedAt = time.Now().Add(-2 * globalAutomaticExclusionTTL)
 
 	assert.Equal(t, map[string]struct{}{"claude-opus-5": {}},
-		svc.globalAutomaticExcludedModels(context.Background()))
+		svc.globalAutomaticExcludedModels(statefulTestContext()))
 }
 
 // The soft set must reach the router as its own field: folding it into
@@ -81,7 +81,7 @@ func TestWithPolicyRequestContext_CarriesAutomaticExclusionsSeparately(t *testin
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithGlobalAutomaticExclusions(store)
 
-	req := svc.withPolicyRequestContext(context.Background(), router.Request{})
+	req := svc.withPolicyRequestContext(statefulTestContext(), router.Request{})
 
 	assert.Equal(t, map[string]struct{}{"claude-opus-5": {}}, req.AutomaticExcludedModels)
 	assert.Empty(t, req.ExcludedModels)
@@ -119,7 +119,7 @@ func TestTurnLoop_DropsAutomaticPinOnDisabledModel(t *testing.T) {
 
 	env := forceCommandEnv(t)
 	feats := env.RoutingFeatures(false)
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil,
+	res, err := svc.runTurnLoop(statefulTestContext(), env, feats, "key-1", uuid.New(), "", nil,
 		router.Request{
 			RequestedModel:          feats.Model,
 			EnabledProviders:        keyed(providers.ProviderAnthropic),
@@ -149,7 +149,7 @@ func TestTurnLoop_KeepsForcedPinOnDisabledModel(t *testing.T) {
 
 	env := forceCommandEnv(t)
 	feats := env.RoutingFeatures(false)
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil,
+	res, err := svc.runTurnLoop(statefulTestContext(), env, feats, "key-1", uuid.New(), "", nil,
 		router.Request{
 			RequestedModel:          feats.Model,
 			EnabledProviders:        keyed(providers.ProviderAnthropic),
@@ -180,7 +180,7 @@ func TestTurnLoop_DropsEscalationPinOnDisabledModel(t *testing.T) {
 
 	env := forceCommandEnv(t)
 	feats := env.RoutingFeatures(false)
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil,
+	res, err := svc.runTurnLoop(statefulTestContext(), env, feats, "key-1", uuid.New(), "", nil,
 		router.Request{
 			RequestedModel:          feats.Model,
 			EnabledProviders:        keyed(providers.ProviderAnthropic),

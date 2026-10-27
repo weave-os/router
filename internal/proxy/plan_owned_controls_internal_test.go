@@ -27,7 +27,7 @@ func boostPlanOwnedContext() context.Context {
 
 func planOwnedContextFor(plan entitlement.Plan) context.Context {
 	alpha := 0.9
-	ctx := requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{Plan: string(plan)})
+	ctx := requestcontext.WithServingIdentity(statefulTestContext(), requestcontext.ServingIdentity{Plan: string(plan)})
 	ctx = entitlement.WithProductScope(ctx, plan)
 	ctx = context.WithValue(ctx, InstallationAllowedModelsContextKey{}, []string{"customer-allowed"})
 	ctx = context.WithValue(ctx, InstallationExcludedModelsContextKey{}, []string{"customer-excluded"})
@@ -71,7 +71,8 @@ func TestBoostServingAllowsForceModelHeader(t *testing.T) {
 	require.NoError(t, err)
 	request.Header.Set(ForceModelHeader, "claude-opus-5")
 
-	ctx, forced, err := (&Service{}).applyForceModelHeader(request.Context(), request, uuid.Nil, [sessionpin.SessionKeyLen]byte{})
+	controlKey := deriveForceModelSessionKeyForRequest(request.Context(), nil, "key-1", [sessionpin.SessionKeyLen]byte{})
+	ctx, forced, err := (&Service{}).applyForceModelHeader(request.Context(), request, uuid.Nil, controlKey)
 	require.NoError(t, err)
 	assert.Equal(t, "claude-opus-5", forced)
 	assert.True(t, planOwnedServingRequest(ctx))
@@ -85,7 +86,8 @@ func TestBoostServingHeaderForceModelCarriesEffortSameTurn(t *testing.T) {
 	request.Header.Set(ForceModelHeader, "sol:medium")
 
 	svc := &Service{}
-	ctx, forced, err := svc.applyForceModelHeader(request.Context(), request, uuid.Nil, [sessionpin.SessionKeyLen]byte{})
+	controlKey := deriveForceModelSessionKeyForRequest(request.Context(), nil, "key-1", [sessionpin.SessionKeyLen]byte{})
+	ctx, forced, err := svc.applyForceModelHeader(request.Context(), request, uuid.Nil, controlKey)
 	require.NoError(t, err)
 	assert.Equal(t, "gpt-6.1-sol:medium", forced)
 
@@ -138,7 +140,7 @@ func TestBoostServingAppliesForceModelCommand(t *testing.T) {
 	assert.Contains(t, message.render(env.SourceFormat()), "force-model applied")
 	assert.NotContains(t, message.render(env.SourceFormat()), "automatic model selection")
 
-	stored, found, err := store.Get(context.Background(), forceKey, forceModelSessionRole)
+	stored, found, err := store.Get(statefulTestContext(), forceKey, forceModelSessionRole)
 	require.NoError(t, err)
 	require.True(t, found)
 	assert.Equal(t, "gpt-6.1-sol", stored.Model)

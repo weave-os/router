@@ -19,10 +19,10 @@ func TestEscalationActivationPreservesLegacyIdentityAndIsolatesManagedState(t *t
 	const material = "credential/strategy/active/1"
 	mac := hmac.New(sha256.New, installationID[:])
 	_, _ = mac.Write([]byte(material))
-	legacy := escalationActivationID(context.Background(), installationID, material)
+	legacy := escalationActivationID(statefulTestContext(), installationID, material)
 	require.Equal(t, mac.Sum(nil), legacy[:], "legacy continuation lookup must keep its existing identity")
-	old := requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{StateNamespace: "release-a-generation-1"})
-	rebound := requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{StateNamespace: "release-a-generation-2"})
+	old := requestcontext.WithServingIdentity(statefulTestContext(), requestcontext.ServingIdentity{StateNamespace: "release-a-generation-1"})
+	rebound := requestcontext.WithServingIdentity(statefulTestContext(), requestcontext.ServingIdentity{StateNamespace: "release-a-generation-2"})
 	oldActivation := escalationActivationID(old, installationID, material)
 	require.NotEqual(t, legacy, oldActivation)
 	require.NotEqual(t, oldActivation, escalationActivationID(rebound, installationID, material))
@@ -32,7 +32,7 @@ func TestEscalationActivationPreservesLegacyIdentityAndIsolatesManagedState(t *t
 func TestManagedCredentialRotationPreservesStateWithoutCrossInstallationLeakage(t *testing.T) {
 	env, err := translate.ParseOpenAI([]byte(`{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"task"}]}`))
 	require.NoError(t, err)
-	base := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "conversation"})
+	base := context.WithValue(statefulTestContext(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "conversation"})
 	assertion := policyregistry.ServingAssertion{
 		APIKeyID:  "old-key",
 		Scope:     policyregistry.AdmissionScope{InstallationID: "installation-a", CredentialIdentity: "subject", Persistent: true},
@@ -60,7 +60,7 @@ func TestManagedCredentialRotationPreservesStateWithoutCrossInstallationLeakage(
 func TestManagedRebindIsolatesLearnedStateAndPreservesForceIntent(t *testing.T) {
 	env, err := translate.ParseOpenAI([]byte(`{"model":"gpt-5.6-sol","messages":[{"role":"user","content":"task"}]}`))
 	require.NoError(t, err)
-	base := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "conversation"})
+	base := context.WithValue(statefulTestContext(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "conversation"})
 	old := requestcontext.WithServingIdentity(base, requestcontext.ServingIdentity{StateNamespace: "release-a-generation-1"})
 	rebound := requestcontext.WithServingIdentity(base, requestcontext.ServingIdentity{StateNamespace: "release-a-generation-2"})
 	oldKey := deriveSessionKeyForRequest(old, env, "key")
@@ -75,7 +75,7 @@ func TestManagedRebindIsolatesLearnedStateAndPreservesForceIntent(t *testing.T) 
 }
 
 func TestManagedAdmissionIgnoresPersistedBetaPreference(t *testing.T) {
-	ctx := router.WithStrategy(context.Background(), router.StrategyHMMEmbedding)
+	ctx := router.WithStrategy(statefulTestContext(), router.StrategyHMMEmbedding)
 	ctx = requestcontext.WithServingIdentity(ctx, requestcontext.ServingIdentity{StateNamespace: "admitted"})
 	svc := (&Service{}).WithSessionStrategyStore(&betaTestPreferenceStore{getErr: context.DeadlineExceeded})
 	selected, err := svc.applySessionStrategy(ctx, [16]byte{1}, [16]byte{1})

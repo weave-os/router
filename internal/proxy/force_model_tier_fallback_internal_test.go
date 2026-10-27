@@ -161,7 +161,7 @@ func TestRunTurnLoop_ForcedModelContextOverflow_StaysInTier(t *testing.T) {
 
 	// The context-window pre-filter would add the forced model to ExcludedModels
 	// on the turn its window is breached; simulate that here.
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
+	res, err := svc.runTurnLoop(statefulTestContext(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
 		RequestedModel: feats.Model,
 		ExcludedModels: map[string]struct{}{forced: {}},
 	})
@@ -210,7 +210,7 @@ func TestRunTurnLoop_ForcedModelOverridesHardPin(t *testing.T) {
 	require.NoError(t, err)
 	feats := env.RoutingFeatures(false)
 
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
+	res, err := svc.runTurnLoop(statefulTestContext(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
 		RequestedModel: feats.Model,
 	})
 	require.NoError(t, err)
@@ -255,7 +255,7 @@ func TestRunTurnLoop_ForcedModelServesDespiteDisabledProvider(t *testing.T) {
 	require.NoError(t, err)
 	feats := env.RoutingFeatures(false)
 
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
+	res, err := svc.runTurnLoop(statefulTestContext(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
 		RequestedModel:   feats.Model,
 		EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
 	})
@@ -300,11 +300,11 @@ func TestForceModelHeader_OverridesHardPin(t *testing.T) {
 	headerReq, err := http.NewRequest(http.MethodPost, "/v1/messages", nil)
 	require.NoError(t, err)
 	headerReq.Header.Set(ForceModelHeader, "opus")
-	_, _, forceErr := svc.applyForceModelHeader(context.Background(), headerReq, uuid.New(), key)
+	_, _, forceErr := svc.applyForceModelHeader(statefulTestContext(), headerReq, uuid.New(), key)
 	require.NoError(t, forceErr)
 
 	feats := env.RoutingFeatures(false)
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", headerReq.Header, router.Request{
+	res, err := svc.runTurnLoop(statefulTestContext(), env, feats, "key-1", uuid.New(), "", headerReq.Header, router.Request{
 		RequestedModel: feats.Model,
 	})
 	require.NoError(t, err)

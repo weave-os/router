@@ -39,6 +39,10 @@ var ErrGeminiCrossFormatUnsupported = errors.New("gemini cross-format emit not i
 // and "stream" (true for :streamGenerateContent) fields into body before
 // calling; both are stripped before forwarding upstream.
 func (s *Service) ProxyGeminiGenerateContent(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
+	ctx, body, returnErr = withRequestRoutingIdentity(ctx, r.Header, body)
+	if returnErr != nil {
+		return returnErr
+	}
 	ctx = withAttemptTrace(ctx, geminiForwardedBody(body), r.Header)
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
 	ctx, returnErr = s.withClassifierInput(ctx, body, router.EndpointGeminiGenerate)

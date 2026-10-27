@@ -145,7 +145,7 @@ func TestAuthoritativePolicySelectsEveryEligibleTurn(t *testing.T) {
 			env, err := translate.ParseAnthropic(test.body)
 			require.NoError(t, err)
 			features := env.RoutingFeatures(false)
-			ctx := router.WithStrategy(context.Background(), strategy)
+			ctx := router.WithStrategy(statefulTestContext(), strategy)
 			req := router.Request{
 				RequestedModel:       features.Model,
 				EstimatedInputTokens: features.Tokens,
@@ -213,8 +213,8 @@ func TestAuthoritativePolicyDisablesSemanticCache(t *testing.T) {
 		},
 	})
 
-	assert.False(t, svc.semanticCacheAllowed(router.WithStrategy(context.Background(), strategy)))
-	assert.True(t, svc.semanticCacheAllowed(context.Background()))
+	assert.False(t, svc.semanticCacheAllowed(router.WithStrategy(statefulTestContext(), strategy)))
+	assert.True(t, svc.semanticCacheAllowed(statefulTestContext()))
 }
 
 func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
@@ -256,7 +256,7 @@ func TestAuthoritativePolicyPreservesExplicitForceModel(t *testing.T) {
 	features := env.RoutingFeatures(false)
 
 	result, err := svc.runTurnLoop(
-		router.WithStrategy(context.Background(), strategy),
+		router.WithStrategy(statefulTestContext(), strategy),
 		env,
 		features,
 		"api-key",
@@ -440,7 +440,7 @@ func TestAuthoritativeUpgradeConfidenceGate(t *testing.T) {
 			features := env.RoutingFeatures(false)
 
 			result, err := svc.runTurnLoop(
-				router.WithStrategy(context.Background(), strategy),
+				router.WithStrategy(statefulTestContext(), strategy),
 				env,
 				features,
 				"api-key",

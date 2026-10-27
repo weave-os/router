@@ -83,9 +83,9 @@ func TestSetForceModelSessionPin_WritesNeverExpiresSentinel(t *testing.T) {
 	svc := NewService(nil, nil, nil, false, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
-	var key [sessionpin.SessionKeyLen]byte
+	key := [sessionpin.SessionKeyLen]byte{1}
 	require.NoError(t, svc.setForceModelSessionPin(
-		context.Background(), key, uuid.New(),
+		statefulTestContext(), key, uuid.New(),
 		"claude-opus-4-8", providers.ProviderAnthropic, "", ""))
 
 	require.Len(t, store.upserts, 1)
@@ -100,9 +100,9 @@ func TestSetForceModelSessionPin_IsStrategyIndependent(t *testing.T) {
 	svc := NewService(nil, nil, nil, false, nil, store, false,
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
-	ctx := router.WithStrategy(context.Background(), router.StrategyHMMBeta)
+	ctx := router.WithStrategy(statefulTestContext(), router.StrategyHMMBeta)
 	require.NoError(t, svc.setForceModelSessionPin(
-		ctx, [sessionpin.SessionKeyLen]byte{}, uuid.New(),
+		ctx, [sessionpin.SessionKeyLen]byte{1}, uuid.New(),
 		"claude-opus-4-8", providers.ProviderAnthropic, "", ""))
 
 	require.Len(t, store.upserts, 1)

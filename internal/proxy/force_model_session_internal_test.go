@@ -144,7 +144,7 @@ func TestRunTurnLoop_ForceModelSessionPinAppliesAcrossChildThreads(t *testing.T)
 		forcedModel   = "claude-opus-5"
 	)
 	installationID := uuid.New()
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: clientSession})
+	ctx := context.WithValue(statefulTestContext(), ClientIdentityContextKey{}, ClientIdentity{SessionID: clientSession})
 	parent, err := translate.ParseAnthropic([]byte(`{
 		"model":"claude-opus-4-8",
 		"messages":[{"role":"user","content":"parent task"}]
@@ -157,7 +157,8 @@ func TestRunTurnLoop_ForceModelSessionPinAppliesAcrossChildThreads(t *testing.T)
 	require.NoError(t, err)
 
 	parentThreadKey := deriveSessionKeyForRequest(ctx, parent, apiKeyID)
-	childThreadKey := deriveSessionKeyForRequest(ctx, child, apiKeyID)
+	childCtx := withTestThread(ctx, "child-thread")
+	childThreadKey := deriveSessionKeyForRequest(childCtx, child, apiKeyID)
 	forceSessionKey := deriveForceModelSessionKeyForRequest(ctx, parent, apiKeyID, parentThreadKey)
 	require.NotEqual(t, parentThreadKey, childThreadKey)
 	require.Equal(t, forceSessionKey, deriveForceModelSessionKeyForRequest(ctx, child, apiKeyID, childThreadKey))
@@ -182,7 +183,7 @@ func TestRunTurnLoop_ForceModelSessionPinAppliesAcrossChildThreads(t *testing.T)
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 	features := child.RoutingFeatures(false)
 
-	ctx = router.WithStrategy(ctx, router.StrategyHMMBeta)
+	ctx = router.WithStrategy(childCtx, router.StrategyHMMBeta)
 	result, err := svc.runTurnLoop(ctx, child, features, apiKeyID, installationID, "", nil, router.Request{
 		RequestedModel: features.Model,
 	})
@@ -208,7 +209,7 @@ func TestRunTurnLoop_ForceModelSessionPinAppliesAcrossChildThreads(t *testing.T)
 func TestRunTurnLoop_DroppedSessionForcePreservesThreadPin(t *testing.T) {
 	const apiKeyID = "api-key"
 	installationID := uuid.New()
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "client-session"})
+	ctx := context.WithValue(statefulTestContext(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "client-session"})
 	env, err := translate.ParseAnthropic([]byte(`{
 		"model":"claude-opus-4-8",
 		"messages":[{"role":"user","content":"task"}]
@@ -269,7 +270,7 @@ func TestRunTurnLoop_DroppedSessionForcePreservesThreadPin(t *testing.T) {
 func TestRunTurnLoop_ClearTombstoneBlocksLegacyForce(t *testing.T) {
 	const apiKeyID = "api-key"
 	installationID := uuid.New()
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "client-session"})
+	ctx := context.WithValue(statefulTestContext(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "client-session"})
 	ctx = router.WithStrategy(ctx, router.StrategyCluster)
 	env, err := translate.ParseAnthropic([]byte(`{
 		"model":"claude-opus-4-8",
@@ -314,7 +315,7 @@ func TestRunTurnLoop_ClearTombstoneBlocksLegacyForce(t *testing.T) {
 func TestRunTurnLoop_SessionForceOverridesAuxiliaryHardPin(t *testing.T) {
 	const apiKeyID = "api-key"
 	installationID := uuid.New()
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "client-session"})
+	ctx := context.WithValue(statefulTestContext(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "client-session"})
 	env, err := translate.ParseAnthropic([]byte(`{
 		"model":"claude-opus-4-8",
 		"system":"Your task is to create a detailed summary of the conversation so far.",
@@ -356,7 +357,7 @@ func TestApplyForceModelCommand_FableThenAstraWritesAndClearsSessionControl(t *t
 		astraModelID = "gpt-6-astra"
 	)
 	installationID := uuid.New()
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "client-session"})
+	ctx := context.WithValue(statefulTestContext(), ClientIdentityContextKey{}, ClientIdentity{SessionID: "client-session"})
 	env, err := translate.ParseAnthropic([]byte(`{
 		"model":"claude-opus-4-8",
 		"messages":[{"role":"user","content":"task"}]
@@ -424,7 +425,7 @@ func TestRecordTurnUsage_ForcedDecisionWritesThreadHistoryOnly(t *testing.T) {
 		Role:       forceModelHistoryRole(role),
 	}
 
-	svc.recordTurnUsage(context.Background(), turnLoopResult{
+	svc.recordTurnUsage(statefulTestContext(), turnLoopResult{
 		SessionKey: threadKey,
 		PinRole:    role,
 		Decision: router.Decision{

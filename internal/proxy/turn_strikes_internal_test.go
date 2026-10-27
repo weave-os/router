@@ -55,7 +55,7 @@ func runTurnLoopWithBody(t *testing.T, svc *Service, body string) turnLoopResult
 	env, err := translate.ParseAnthropic([]byte(body))
 	require.NoError(t, err)
 	features := env.RoutingFeatures(false)
-	res, err := svc.runTurnLoop(context.Background(), env, features, "api-key", uuid.New(), "", http.Header{}, router.Request{
+	res, err := svc.runTurnLoop(statefulTestContext(), env, features, "api-key", uuid.New(), "", http.Header{}, router.Request{
 		RequestedModel:       features.Model,
 		EstimatedInputTokens: features.Tokens,
 		HasTools:             features.HasTools,
@@ -97,7 +97,7 @@ func TestTurnLoopUserPromptClearsTurnStrikes(t *testing.T) {
 	}}}
 	svc, scorer := cooldownTurnLoopService(store, false)
 
-	res := runDemotionTurnLoop(t, svc, context.Background())
+	res := runDemotionTurnLoop(t, svc, statefulTestContext())
 
 	for _, req := range scorer.requests {
 		assert.NotContains(t, req.AutomaticExcludedModels, demotedPinModel)
@@ -111,7 +111,7 @@ func TestTurnLoopUserPromptClearsTurnStrikes(t *testing.T) {
 func TestRescuedFailureStrikesModelForAgentTurn(t *testing.T) {
 	store := &turnStrikePinStore{}
 	svc := newRescuedDemotionTestService(store, false)
-	ctx := withTurnFailures(context.Background())
+	ctx := withTurnFailures(statefulTestContext())
 
 	demoted, _ := strikeRescuedPrimary(svc, ctx, &providers.UpstreamErrorResponse{Status: http.StatusServiceUnavailable, Headers: http.Header{}})
 	assert.Empty(t, demoted, "no session-lifetime demotion while the flag is off")
@@ -141,7 +141,7 @@ func TestTurnStrikeSkippedWhenTurnFailedOrPinned(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			store := &turnStrikePinStore{}
 			svc := newRescuedDemotionTestService(store, false)
-			ctx := withTurnFailures(context.Background())
+			ctx := withTurnFailures(statefulTestContext())
 			recordTurnFailure(ctx, demotedArm)
 			strike(svc, ctx)
 			assert.Empty(t, store.strikes)
@@ -193,7 +193,7 @@ func TestSiblingRescueRecordsEveryFailedModel(t *testing.T) {
 	}, nil, false, nil, nil, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}})
 	svc.retrySleep = noopSleep
-	ctx := withTurnFailures(context.Background())
+	ctx := withTurnFailures(statefulTestContext())
 
 	body := `{"model":"claude-opus-5","max_tokens":1024,"stream":true,"messages":[{"role":"user","content":"read main.go"}]}`
 	rec := httptest.NewRecorder()

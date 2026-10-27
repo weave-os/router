@@ -157,9 +157,11 @@ func (s *Service) handleLoopEscalation(
 	sessionKey [sessionpin.SessionKeyLen]byte,
 	role string,
 	routedModel string,
-	isSubagent bool,
 	forceModelSessionKeys ...[sessionpin.SessionKeyLen]byte,
 ) {
+	if sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+		return
+	}
 	log := observability.FromContext(ctx)
 
 	loopingModel := routedModel
@@ -167,7 +169,7 @@ func (s *Service) handleLoopEscalation(
 	var forcePin sessionpin.Pin
 	var forceModelActive, forceModelCleared bool
 	if len(forceModelSessionKeys) > 0 {
-		forcePin, forceModelActive, forceModelCleared = s.loadForceModelSessionPin(ctx, forceModelSessionKeys[0], sessionKey, isSubagent)
+		forcePin, forceModelActive, forceModelCleared = s.loadForceModelSessionPin(ctx, forceModelSessionKeys[0], sessionKey)
 	}
 	if s.pinStore != nil && installationID != uuid.Nil {
 		existing, found, err := s.pinStore.Get(ctx, sessionKey, role)

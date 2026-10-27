@@ -3,7 +3,6 @@ package proxy_test
 import (
 	"context"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -18,7 +17,6 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/sessionpin"
-	"weave-os/router/internal/translate"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -498,11 +496,6 @@ func TestService_RouterFeedbackCommand_CorrelatesCompactedHMMEmbeddingRoute(t *t
 			{"role":"user","content":"latest request"}
 		]
 	}`)
-	routeEnv, err := translate.ParseAnthropic(routeBody)
-	require.NoError(t, err)
-	rawSessionKey := proxy.DeriveSessionKey(routeEnv, "key-1")
-	rawFeedbackKey := hex.EncodeToString(rawSessionKey[:])
-
 	store := newFakePinStore()
 	policyFeedback := &fakePolicyFeedbackRouter{decision: router.Decision{
 		Provider: providers.ProviderAnthropic,
@@ -518,10 +511,11 @@ func TestService_RouterFeedbackCommand_CorrelatesCompactedHMMEmbeddingRoute(t *t
 			Unavailable: router.ErrStrategyUnavailable,
 		}).
 		WithAvailableModels(map[string]struct{}{"claude-haiku-4-5": {}})
-	installationID := uuid.NewString()
+	const installationID = "11111111-1111-4111-8111-111111111111"
 	ctx := router.WithStrategy(authedCtx(installationID), router.StrategyHMMEmbedding)
 	ctx = context.WithValue(ctx, proxy.ExternalIDContextKey{}, "org-test")
 	ctx = context.WithValue(ctx, proxy.PolicyTrainingAllowedContextKey{}, true)
+	const rawFeedbackKey = "f433f2e0429ecf3f2f6072c00387a733"
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
 	require.NoError(t, svc.ProxyMessages(ctx, routeBody, httptest.NewRecorder(), httpReq))
 

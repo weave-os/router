@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -52,7 +51,7 @@ func TestRunTurnLoop_ForcedTextOnlyModel_DropsPinForImageTurn(t *testing.T) {
 	feats := env.RoutingFeatures(false)
 	require.True(t, feats.HasImages, "the nested tool_result image must register as an image-bearing turn")
 
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
+	res, err := svc.runTurnLoop(statefulTestContext(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
 		RequestedModel: feats.Model,
 		HasImages:      feats.HasImages,
 	})
@@ -93,7 +92,7 @@ func TestRunTurnLoop_ForcedTextOnlyModel_HonoredWithoutImages(t *testing.T) {
 	feats := env.RoutingFeatures(false)
 	require.False(t, feats.HasImages)
 
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
+	res, err := svc.runTurnLoop(statefulTestContext(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
 		RequestedModel: feats.Model,
 		HasImages:      feats.HasImages,
 	})

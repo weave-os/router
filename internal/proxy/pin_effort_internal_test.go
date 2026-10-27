@@ -1,7 +1,6 @@
 package proxy
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -26,7 +25,7 @@ func TestForceModelCommand_PersistsEffortOnPin(t *testing.T) {
 
 	env := forceCommandEnv(t)
 	rec := httptest.NewRecorder()
-	require.NoError(t, svc.handleForceModelCommand(context.Background(), rec, env,
+	require.NoError(t, svc.handleForceModelCommand(statefulTestContext(), rec, env,
 		translate.ForceModelResult{Model: "opus:xhigh"},
 		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"), 10))
 
@@ -44,7 +43,7 @@ func TestApplyForceModelCommand_ReturnsEffortQualifiedSpec(t *testing.T) {
 		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
 
 	env := forceCommandEnv(t)
-	spec, _, err := svc.applyForceModelCommand(context.Background(),
+	spec, _, err := svc.applyForceModelCommand(statefulTestContext(),
 		translate.ForceModelResult{Model: "opus:xhigh", FromToolResult: true},
 		uuid.New(), DeriveSessionKey(env, "key-1"), DeriveSessionKey(env, "key-1"))
 	require.NoError(t, err)
@@ -67,7 +66,7 @@ func TestForceModelHeader_PersistsEffortOnPin(t *testing.T) {
 	req.Header.Set(ForceModelHeader, "opus:high")
 
 	_, _, forceErr := svc.applyForceModelHeader(
-		context.Background(), req, uuid.New(), DeriveSessionKey(env, "key-1"))
+		statefulTestContext(), req, uuid.New(), deriveSessionKeyForRequest(statefulTestContext(), env, "key-1"))
 	require.NoError(t, forceErr)
 
 	require.Len(t, store.upserts, 1)
@@ -96,7 +95,7 @@ func TestRunTurnLoop_ForcedPinRehydratesEffort(t *testing.T) {
 	require.NoError(t, err)
 	feats := env.RoutingFeatures(false)
 
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
+	res, err := svc.runTurnLoop(statefulTestContext(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
 		RequestedModel: feats.Model,
 	})
 	require.NoError(t, err)
@@ -104,7 +103,7 @@ func TestRunTurnLoop_ForcedPinRehydratesEffort(t *testing.T) {
 	assert.Equal(t, "claude-opus-4-8", res.Decision.Model)
 	assert.Equal(t, "xhigh", res.Decision.Effort)
 	assert.Equal(t, "xhigh",
-		svc.resolveEffort(context.Background(), res.Decision,
+		svc.resolveEffort(statefulTestContext(), res.Decision,
 			router.Lookup(res.Decision.Model), false).Selected)
 }
 
@@ -124,7 +123,7 @@ func TestRunTurnLoop_RequestForceModelCarriesEffort(t *testing.T) {
 	require.NoError(t, err)
 	feats := env.RoutingFeatures(false)
 
-	res, err := svc.runTurnLoop(context.Background(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
+	res, err := svc.runTurnLoop(statefulTestContext(), env, feats, "key-1", uuid.New(), "", nil, router.Request{
 		RequestedModel: feats.Model,
 		ForceModel:     "opus:medium",
 	})
@@ -147,14 +146,14 @@ func TestRefreshPin_CarriesEffortForward(t *testing.T) {
 		Effort:   "xhigh",
 		Reason:   translate.ReasonUserForceModel,
 	}
-	svc.refreshPin(context.Background(), uuid.New(), [sessionpin.SessionKeyLen]byte{},
+	svc.refreshPin(statefulTestContext(), uuid.New(), [sessionpin.SessionKeyLen]byte{1},
 		existing, "default", router.Decision{
 			Provider: existing.Provider, Model: existing.Model, Reason: existing.Reason,
 		})
 	require.Len(t, store.upserts, 1)
 	assert.Equal(t, "xhigh", store.upserts[0].Effort)
 
-	svc.refreshPin(context.Background(), uuid.New(), [sessionpin.SessionKeyLen]byte{},
+	svc.refreshPin(statefulTestContext(), uuid.New(), [sessionpin.SessionKeyLen]byte{1},
 		existing, "default", router.Decision{
 			Provider: providers.ProviderAnthropic, Model: "claude-haiku-4-5",
 		})
@@ -183,15 +182,15 @@ func TestResolveEffort_KnobWinsOverDecision(t *testing.T) {
 	decision := router.Decision{Provider: providers.ProviderAnthropic, Model: "claude-opus-4-8", Effort: "xhigh"}
 	caps := router.Lookup(decision.Model)
 
-	ctx := router.WithRoutingKnobs(context.Background(), &router.Overrides{ForceEffort: "low"})
+	ctx := router.WithRoutingKnobs(statefulTestContext(), &router.Overrides{ForceEffort: "low"})
 	knobbed := svc.resolveEffort(ctx, decision, caps, false)
 	assert.Equal(t, "low", knobbed.Selected)
 	assert.Equal(t, effortSourceUser, knobbed.Source)
 
-	arm := svc.resolveEffort(context.Background(), decision, caps, false)
+	arm := svc.resolveEffort(statefulTestContext(), decision, caps, false)
 	assert.Equal(t, "xhigh", arm.Selected)
 	assert.Equal(t, effortSourceArm, arm.Source)
 
-	assert.Empty(t, svc.resolveEffort(context.Background(),
+	assert.Empty(t, svc.resolveEffort(statefulTestContext(),
 		router.Decision{Provider: decision.Provider, Model: decision.Model}, caps, false).Selected)
 }

@@ -106,7 +106,7 @@ func decisionSpanEmbed(t *testing.T, svc *Service, collector *bypassSpanCollecto
 	t.Helper()
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-	require.NoError(t, svc.ProxyMessages(context.Background(), embedTurnBody(), rec, httpReq))
+	require.NoError(t, svc.ProxyMessages(statefulTestContext(), embedTurnBody(), rec, httpReq))
 
 	em := svc.emitter.(*otel.Emitter)
 	require.NoError(t, em.Shutdown(context.Background()))
@@ -255,7 +255,7 @@ func TestDecisionSpan_RolloutIDFromClientIdentity(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 	httpReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
-	ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{
+	ctx := context.WithValue(statefulTestContext(), ClientIdentityContextKey{}, ClientIdentity{
 		ClientApp: ClientAppCodex,
 		Eval:      true,
 		RolloutID: "rollout-example-001",

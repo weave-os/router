@@ -130,7 +130,7 @@ func TestMaybeDemoteArmAfterUnrescuedStall(t *testing.T) {
 			store := &demotionStubPinStore{}
 			svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 				WithRescuedFailureArmDemotion(tc.flagOn)
-			ctx := context.Background()
+			ctx := statefulTestContext()
 			if tc.cancelled {
 				var cancel context.CancelFunc
 				ctx, cancel = context.WithCancel(ctx)
@@ -188,7 +188,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_Classification(t *testing.T) 
 			store := &demotionStubPinStore{}
 			svc := newDemotionTestService(store, tc.flagOn)
 			installationID := uuid.New()
-			ctx := router.WithStrategy(context.Background(), router.StrategyHMM)
+			ctx := router.WithStrategy(statefulTestContext(), router.StrategyHMM)
 
 			demoted := svc.maybeDemoteArmAfterCommittedStreamFailure(
 				ctx,
@@ -235,7 +235,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_FiresWithoutStickyPin(t *test
 	svc := newDemotionTestService(store, true)
 
 	demoted := svc.maybeDemoteArmAfterCommittedStreamFailure(
-		context.Background(),
+		statefulTestContext(),
 		true,
 		false,
 		&providers.UpstreamStatusError{Status: http.StatusBadGateway},
@@ -258,7 +258,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_HardPinnedSkipped(t *testing.
 	svc := newDemotionTestService(store, true)
 
 	demoted := svc.maybeDemoteArmAfterCommittedStreamFailure(
-		context.Background(),
+		statefulTestContext(),
 		true,
 		true,
 		&providers.UpstreamStatusError{Status: http.StatusBadGateway},
@@ -295,7 +295,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_ClusterAllowlistPinSkipped(t 
 		t.Run(tc.name, func(t *testing.T) {
 			store := &demotionStubPinStore{}
 			svc := newDemotionTestService(store, true)
-			ctx := context.Background()
+			ctx := statefulTestContext()
 			if tc.keyLists != nil {
 				ctx = context.WithValue(ctx, ClusterModelListsContextKey{}, tc.keyLists)
 			}
@@ -353,7 +353,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_UserForcedSkipped(t *testing.
 		svc := newDemotionTestService(store, true)
 
 		demoted := svc.maybeDemoteArmAfterCommittedStreamFailure(
-			context.Background(),
+			statefulTestContext(),
 			true,
 			false,
 			&providers.UpstreamStatusError{Status: http.StatusBadGateway},
@@ -386,7 +386,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_UnaddressableSkipped(t *testi
 			svc := newDemotionTestService(store, true)
 
 			demoted := svc.maybeDemoteArmAfterCommittedStreamFailure(
-				context.Background(),
+				statefulTestContext(),
 				true,
 				false,
 				&providers.UpstreamStatusError{Status: http.StatusBadGateway},
@@ -469,7 +469,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_PersistsWithoutExistingRow(t 
 			svc := newDemotionTestService(store, true)
 
 			demoted := svc.maybeDemoteArmAfterCommittedStreamFailure(
-				context.Background(),
+				statefulTestContext(),
 				true,
 				false,
 				&providers.UpstreamStatusError{Status: http.StatusBadGateway},
@@ -547,7 +547,7 @@ func TestMaybeDemoteArmAfterRescuedFailure_Classification(t *testing.T) {
 			installationID := uuid.New()
 
 			demoted := svc.maybeDemoteArmAfterRescuedFailure(
-				context.Background(),
+				statefulTestContext(),
 				tc.rescueRan,
 				false,
 				tc.err,
@@ -587,7 +587,7 @@ func TestUnrescuedResponseHeaderTimeoutExcludesPrimaryOnNextTurn(t *testing.T) {
 	installationID := uuid.New()
 	primary := router.Decision{Provider: providers.ProviderAnthropic, Model: demotedPinModel, Reason: "hmm:authoritative model=" + demotedPinModel}
 	strategy := router.Strategy("response-header-timeout-next-turn")
-	turnContext := router.WithStrategy(context.Background(), strategy)
+	turnContext := router.WithStrategy(statefulTestContext(), strategy)
 	env, _ := demotionTurnLoopEnv(t)
 	sessionKey := deriveSessionKeyForRequest(turnContext, env, "api-key")
 
@@ -655,13 +655,13 @@ func TestRescuedAndCommittedDemotionsAreIndependentlyFlagged(t *testing.T) {
 			key := nonZeroSessionKey()
 
 			committed := svc.maybeDemoteArmAfterCommittedStreamFailure(
-				context.Background(), true, false,
+				statefulTestContext(), true, false,
 				&providers.UpstreamStatusError{Status: http.StatusBadGateway},
 				rescuer, "hmm:authoritative model=claude-opus-4-7",
 				installationID, key, sessionpin.DefaultRole, sessionpin.DefaultRole,
 			)
 			rescued := svc.maybeDemoteArmAfterRescuedFailure(
-				context.Background(), true, false,
+				statefulTestContext(), true, false,
 				&providers.UpstreamErrorResponse{Status: http.StatusBadGateway},
 				rescuedPrimaryDecision("hmm:authoritative model=claude-opus-4-7"),
 				installationID, key, sessionpin.DefaultRole, sessionpin.DefaultRole,
@@ -705,7 +705,7 @@ func TestMaybeDemoteArmAfterRescuedFailure_PinnedPrimarySkipped(t *testing.T) {
 			svc := newRescuedDemotionTestService(store, true)
 
 			demoted := svc.maybeDemoteArmAfterRescuedFailure(
-				context.Background(),
+				statefulTestContext(),
 				true,
 				tc.hardPinned,
 				&providers.UpstreamErrorResponse{Status: http.StatusBadGateway},
@@ -739,7 +739,7 @@ func TestMaybeDemoteArmAfterRescuedFailure_ClusterAllowlistPinSkipped(t *testing
 		t.Run(tc.name, func(t *testing.T) {
 			store := &demotionStubPinStore{}
 			svc := newRescuedDemotionTestService(store, true)
-			ctx := context.Background()
+			ctx := statefulTestContext()
 			if tc.keyLists != nil {
 				ctx = context.WithValue(ctx, ClusterModelListsContextKey{}, tc.keyLists)
 			}
@@ -774,7 +774,7 @@ func TestMaybeDemoteArmAfterRescuedFailure_PersistsWithoutExistingRow(t *testing
 	svc := newRescuedDemotionTestService(store, true)
 
 	demoted := svc.maybeDemoteArmAfterRescuedFailure(
-		context.Background(),
+		statefulTestContext(),
 		true,
 		false,
 		&providers.UpstreamErrorResponse{Status: http.StatusBadGateway},
@@ -803,7 +803,7 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_LateFailureLeavesReplacementS
 	svc := newDemotionTestService(store, true)
 	installationID := uuid.New()
 	key := nonZeroSessionKey()
-	ctxA := router.WithStrategy(context.Background(), router.StrategyHMM)
+	ctxA := router.WithStrategy(statefulTestContext(), router.StrategyHMM)
 
 	// Request A's pin, under hmm.
 	require.NoError(t, store.Upsert(ctxA, sessionpin.Pin{
@@ -817,10 +817,10 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_LateFailureLeavesReplacementS
 		Provider: "anthropic", Model: "claude-sonnet-4-6", Strategy: router.StrategyHMMBeta,
 		TurnCount: 2, PinnedUntil: time.Now().Add(time.Hour),
 	}
-	require.NoError(t, store.Upsert(context.Background(), betaPin))
+	require.NoError(t, store.Upsert(statefulTestContext(), betaPin))
 	betaHistory := betaPin
 	betaHistory.Role = hmmHistoryRole(sessionpin.DefaultRole)
-	require.NoError(t, store.Upsert(context.Background(), betaHistory))
+	require.NoError(t, store.Upsert(statefulTestContext(), betaHistory))
 	store.upserts = nil
 
 	// Request A's committed stream now fails.
@@ -861,13 +861,13 @@ func TestMaybeDemoteArmAfterCommittedStreamFailure_LateFailureLeavesReplacementS
 // watchdogs cancel too, but with their sentinel as the cause, and must keep
 // demoting.
 func TestIsCommittedStreamFailure_ClientDisconnect(t *testing.T) {
-	canceled, cancel := context.WithCancel(context.Background())
+	canceled, cancel := context.WithCancel(statefulTestContext())
 	cancel()
-	causedByClient, cancelCause := context.WithCancelCause(context.Background())
+	causedByClient, cancelCause := context.WithCancelCause(statefulTestContext())
 	cancelCause(errors.New("client went away"))
-	deadline, cancelDeadline := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	deadline, cancelDeadline := context.WithDeadline(statefulTestContext(), time.Now().Add(-time.Second))
 	defer cancelDeadline()
-	stalled, cancelStalled := context.WithCancelCause(context.Background())
+	stalled, cancelStalled := context.WithCancelCause(statefulTestContext())
 	cancelStalled(providers.ErrUpstreamOutputStall)
 
 	brokenPipe := errors.New("write tcp 10.0.0.1:443->10.0.0.2:51234: write: broken pipe")
@@ -878,14 +878,14 @@ func TestIsCommittedStreamFailure_ClientDisconnect(t *testing.T) {
 		err  error
 		want bool
 	}{
-		{name: "broken pipe, client still connected", ctx: context.Background(), err: brokenPipe, want: true},
+		{name: "broken pipe, client still connected", ctx: statefulTestContext(), err: brokenPipe, want: true},
 		{name: "broken pipe after client cancel", ctx: canceled, err: brokenPipe, want: false},
 		{name: "connection reset with cancel cause", ctx: causedByClient, err: errors.New("write: connection reset by peer"), want: false},
 		{name: "unexpected EOF after client deadline", ctx: deadline, err: errors.New("upstream call: unexpected EOF"), want: false},
 		{name: "watchdog sentinel in error, ctx canceled", ctx: canceled, err: fmt.Errorf("stream: %w", providers.ErrUpstreamIdleTimeout), want: true},
 		{name: "watchdog sentinel as cancel cause, bare error", ctx: stalled, err: errors.New("context canceled"), want: true},
 		{name: "upstream 502 after client cancel", ctx: canceled, err: &providers.UpstreamStatusError{Status: http.StatusBadGateway}, want: true},
-		{name: "529 with client connected", ctx: context.Background(), err: &providers.UpstreamErrorResponse{Status: providerOverloadedStatus}, want: false},
+		{name: "529 with client connected", ctx: statefulTestContext(), err: &providers.UpstreamErrorResponse{Status: providerOverloadedStatus}, want: false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -900,9 +900,9 @@ func TestIsCommittedStreamFailure_ClientDisconnect(t *testing.T) {
 // dispatch error carries the cancellation or is a bare downstream write
 // error, while an upstream failure behind the same frame keeps demoting.
 func TestIsCommittedStreamFailure_SSEErrorFrameKeepsCause(t *testing.T) {
-	canceled, cancel := context.WithCancel(context.Background())
+	canceled, cancel := context.WithCancel(statefulTestContext())
 	cancel()
-	live := context.Background()
+	live := statefulTestContext()
 
 	brokenPipe := errors.New("write tcp 10.0.0.1:443->10.0.0.2:51234: write: broken pipe")
 	canceledStream := fmt.Errorf("stream: %w", context.Canceled)

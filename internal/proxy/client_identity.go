@@ -39,6 +39,10 @@ func ClientIdentityFromHeaders(h http.Header) ClientIdentity {
 		Eval:        eval,
 		RolloutID:   NormalizeRolloutID(h.Get(RolloutIDHeader)),
 	}
+	id.RoutingThread = requestcontext.ThreadIdentityFromHeaders(routingIdentityHeaders(h, id.ClientApp))
+	if id.RoutingThread.ConversationID != "" {
+		id.SessionID = id.RoutingThread.ConversationID
+	}
 	if id.ClientApp == ClientAppOpencode {
 		id.OpenCodeSubagent = requestcontext.IsOpenCodeSubagent(h)
 		if id.SessionID == "" {
@@ -46,6 +50,44 @@ func ClientIdentityFromHeaders(h http.Header) ClientIdentity {
 		}
 	}
 	return id
+}
+
+type resolvedRoutingIdentityKey struct{}
+
+func routingIdentityHeaders(headers http.Header, clientApp string) http.Header {
+	if clientApp == ClientAppOpencode || (headers.Get(requestcontext.OpenCodeSessionHeader) == "" && headers.Get(requestcontext.OpenCodeParentSessionHeader) == "") {
+		return headers
+	}
+	filtered := headers.Clone()
+	filtered.Del(requestcontext.OpenCodeSessionHeader)
+	filtered.Del(requestcontext.OpenCodeParentSessionHeader)
+	return filtered
+}
+
+func withRequestRoutingIdentity(ctx context.Context, headers http.Header, body []byte) (context.Context, []byte, error) {
+	if resolved, _ := ctx.Value(resolvedRoutingIdentityKey{}).(bool); resolved {
+		return ctx, body, nil
+	}
+	client := ClientIdentityFrom(ctx)
+	clientApp := client.ClientApp
+	if clientApp == "" {
+		clientApp = ClientIdentityFromHeaders(headers).ClientApp
+	}
+	identity, clean, err := requestcontext.RoutingIdentityFromRequest(routingIdentityHeaders(headers, clientApp), body)
+	if err != nil {
+		return ctx, nil, err
+	}
+	if identity.Status != requestcontext.ThreadIdentityMissing || identity.ConversationID != "" || client.RoutingThread.Status == "" {
+		client.RoutingThread = identity
+	}
+	if identity.Status != requestcontext.ThreadIdentityMissing || identity.ConversationID != "" {
+		ctx = requestcontext.WithThreadIdentity(ctx, identity)
+	}
+	if identity.ConversationID != "" {
+		client.SessionID = identity.ConversationID
+	}
+	ctx = requestcontext.WithClientIdentity(ctx, client)
+	return context.WithValue(ctx, resolvedRoutingIdentityKey{}, true), clean, nil
 }
 
 func openCodeCaller(id ClientIdentity) turntype.OpenCodeCaller {

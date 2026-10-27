@@ -12,7 +12,7 @@ import (
 )
 
 func ctxWithKeys(keys ...*auth.ExternalAPIKey) context.Context {
-	return context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, keys)
+	return context.WithValue(statefulTestContext(), ExternalAPIKeysContextKey{}, keys)
 }
 
 func gatewayKey(provider, baseURL string, models ...string) *auth.ExternalAPIKey {

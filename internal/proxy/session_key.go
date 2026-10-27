@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"log/slog"
 
@@ -66,8 +65,12 @@ func bindRequestLogger(
 ) (context.Context, *slog.Logger, [sessionpin.SessionKeyLen]byte) {
 	clientSessionID := clientSessionIDForRequest(ctx, env)
 	ctx = observability.WithClientSessionID(ctx, clientSessionID)
-	key := deriveSessionKeyForRequest(ctx, env, apiKeyID)
+	scope := automaticStateScopeForRequest(ctx, env, apiKeyID)
+	key := scope.Key
 	log := observability.FromContext(ctx).With(
+		"thread_identity_source", scope.Source,
+		"thread_identity_status", scope.Status,
+		"automatic_state_persistent", scope.Persistent,
 		"session_key", shortKey(key),
 		"api_key_id", apiKeyID,
 		"ingress", ingress,
@@ -77,51 +80,10 @@ func bindRequestLogger(
 	if observability.RequestIDFromContext(ctx) == "" {
 		log = log.With("request_id", requestID)
 	}
-	// The client's own session id, bound when present so operators can grep
-	// by the id the user actually sees. Envelope first (Claude Code packs it
-	// in metadata.user_id); header identity covers Codex, which sends
-	// Session-Id and never a Chat Completions `user` field.
-	cs := ""
-	if env != nil {
-		cs = env.ClientSessionID()
-	}
-	if cs == "" {
-		cs = ClientIdentityFrom(ctx).SessionID
-	}
-	if cs != "" {
-		log = log.With("client_session_id", cs)
-	}
 	// Promote rather than merely attach: the access log and any FromGin caller
 	// read the gin-bound logger, so session_key would otherwise never reach
 	// the one line guaranteed to exist per request.
 	return observability.PromoteRequestLogger(ctx, log), log, key
-}
-
-// DeriveSessionKey produces a 16-byte session digest from apiKeyID, the
-// client's session identifier when present, and the first user message.
-//
-// HTTP request paths should use deriveSessionKeyForRequest so header-only
-// identifiers (Codex Session-Id, Claude Code X-Claude-Code-Session-Id) are
-// included. Envelope-only callers still pick up metadata.user_id /
-// ClientSessionID from the body.
-//
-// The first user message remains load-bearing: Claude Code's session id
-// identifies the parent conversation, not a Task/Explore sub-agent. Keying on
-// session id alone would collapse concurrent threads onto one pin. Each
-// thread's first user message is stable across turns but distinct per
-// sub-agent, so it separates them while keeping each pin stable.
-// Compacted Pi threads retain their original digest through a verified session
-// ticket, never through a caller-declared client type.
-//
-// System text substitutes for an empty first user message only when no client
-// session id is present, because it is per-turn volatile on the harnesses that
-// lead with a system message.
-func DeriveSessionKey(env *translate.RequestEnvelope, apiKeyID string) [sessionpin.SessionKeyLen]byte {
-	var clientSessionID string
-	if env != nil {
-		clientSessionID = env.ClientSessionID()
-	}
-	return deriveSessionKey(env, apiKeyID, clientSessionID)
 }
 
 func sessionCredentialIdentity(ctx context.Context, apiKeyID string) string {
@@ -132,16 +94,34 @@ func sessionCredentialIdentity(ctx context.Context, apiKeyID string) string {
 }
 
 func deriveSessionKeyForRequest(ctx context.Context, env *translate.RequestEnvelope, apiKeyID string) [sessionpin.SessionKeyLen]byte {
+	return automaticStateScopeForRequest(ctx, env, apiKeyID).Key
+}
+
+func automaticStateScopeForRequest(ctx context.Context, env *translate.RequestEnvelope, apiKeyID string) requestcontext.AutomaticStateScope {
+	identity := requestcontext.ThreadIdentityFromContext(ctx)
+	if identity.Status == "" {
+		identity.Status = requestcontext.ThreadIdentityMissing
+		identity.Source = requestcontext.ThreadSourceUnavailable
+	}
+	if identity.Status == requestcontext.ThreadIdentityInvalid || identity.Status == requestcontext.ThreadIdentityConflicting {
+		return requestcontext.AutomaticStateScope{Source: identity.Source, Status: identity.Status}
+	}
+	if identity.ConversationID == "" {
+		identity.ConversationID = clientSessionIDForRequest(ctx, env)
+	}
 	if thread, ok := ctx.Value(classifierThreadContextKey{}).(router.ClassifierThread); ok {
-		digest := sha256.Sum256([]byte("classifier-thread:" + thread.InstallationID.String() + ":" + thread.ThreadID.String()))
-		return [sessionpin.SessionKeyLen]byte(digest[:sessionpin.SessionKeyLen])
+		identity = requestcontext.ThreadIdentity{ThreadID: thread.ThreadID.String(), Source: requestcontext.ThreadSourceClassifier, Status: requestcontext.ThreadIdentityAvailable}
 	}
 	if claims := piSessionFromContext(ctx); claims != nil && claims.APIKeyID == apiKeyID && claims.matches(ctx, env) {
-		return claims.SessionKey
+		if claims.StateVersion == automaticThreadStateVersion {
+			return requestcontext.AutomaticStateScope{Key: claims.SessionKey, Persistent: true, Source: requestcontext.ThreadSourcePiTicket, Status: requestcontext.ThreadIdentityAvailable}
+		}
 	}
-	key := deriveSessionKey(env, sessionCredentialIdentity(ctx, apiKeyID), clientSessionIDForRequest(ctx, env))
-	copy(key[:], requestcontext.ServingStateKey(ctx, key[:]))
-	return key
+	scope := identity.AutomaticScope(sessionCredentialIdentity(ctx, apiKeyID), installationIDFromContext(ctx).String())
+	if scope.Persistent {
+		copy(scope.Key[:], requestcontext.ServingStateKey(ctx, scope.Key[:]))
+	}
+	return scope
 }
 
 const (
@@ -179,10 +159,16 @@ func deriveConversationSessionKeyForRequest(
 	threadSessionKey [sessionpin.SessionKeyLen]byte,
 	domain requestcontext.ConversationKeyDomain,
 ) [sessionpin.SessionKeyLen]byte {
+	if clientSessionIDForRequest(ctx, env) == "" {
+		return [sessionpin.SessionKeyLen]byte{}
+	}
 	return requestcontext.ConversationKey(sessionCredentialIdentity(ctx, apiKeyID), clientSessionIDForRequest(ctx, env), domain, threadSessionKey)
 }
 
 func clientSessionIDForRequest(ctx context.Context, env *translate.RequestEnvelope) string {
+	if identity := requestcontext.ThreadIdentityFromContext(ctx); identity.ConversationID != "" || (identity.Source == requestcontext.ThreadSourceOpenCode && identity.ParentThreadID != "") {
+		return identity.ConversationID
+	}
 	if id := ClientIdentityFrom(ctx).SessionID; id != "" {
 		return id
 	}
@@ -190,43 +176,4 @@ func clientSessionIDForRequest(ctx context.Context, env *translate.RequestEnvelo
 		return env.ClientSessionID()
 	}
 	return ""
-}
-
-func deriveSessionKey(env *translate.RequestEnvelope, apiKeyID, clientSessionID string) [sessionpin.SessionKeyLen]byte {
-	h := sha256.New()
-	h.Write([]byte(apiKeyID))
-	// Domain separator prevents cross-tier collisions from caller-controlled strings.
-	h.Write([]byte{0x00})
-
-	if clientSessionID != "" {
-		h.Write([]byte("client_session_id:"))
-		h.Write([]byte(clientSessionID))
-		h.Write([]byte{0x00})
-	} else if env != nil {
-		if uid := env.MetadataUserID(); uid != "" {
-			h.Write([]byte("user_id:"))
-			h.Write([]byte(uid))
-			h.Write([]byte{0x00})
-		}
-	}
-	if env != nil {
-		// First user message still splits Claude Code sub-agents that share one
-		// parent session id. The system-text fallback covers OpenAI-format
-		// bodies whose leading system message leaves that empty, but only when
-		// nothing else identifies the conversation: a client session id already
-		// separates them, and the harnesses that lead with system rewrite it
-		// per turn (cwd, timestamps), so folding it in there rerolls the key —
-		// and with it the upstream prompt_cache_key — on every turn.
-		disc := env.FirstUserMessageText()
-		if disc == "" && clientSessionID == "" {
-			disc = env.SystemText()
-		}
-		h.Write([]byte("first_msg:"))
-		h.Write([]byte(disc))
-	}
-
-	sum := h.Sum(nil)
-	var key [sessionpin.SessionKeyLen]byte
-	copy(key[:], sum[:sessionpin.SessionKeyLen])
-	return key
 }

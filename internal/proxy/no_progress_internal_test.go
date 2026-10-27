@@ -308,9 +308,7 @@ func TestNoProgressTracker_AgesOutOldEntries(t *testing.T) {
 	assert.Equal(t, 1, count)
 }
 
-func TestNoProgressTracker_ZeroSessionKeyWithInstallationFallsBack(t *testing.T) {
-	// Hard-pin/pinStore-nil paths leave SessionKey at zero; falling back to
-	// installationID must still detect loops while keeping isolation.
+func TestNoProgressTracker_ZeroSessionKeyIsStateless(t *testing.T) {
 	tr := newNoProgressTracker()
 	var zero [sessionpin.SessionKeyLen]byte
 	install := uuid.New()
@@ -323,8 +321,8 @@ func TestNoProgressTracker_ZeroSessionKeyWithInstallationFallsBack(t *testing.T)
 		assert.False(t, looped, "must not trip before threshold on the installation-fallback path (call %d)", i)
 	}
 	looped, count := tr.recordAndDetect(zero, install, "high", fp, now)
-	assert.True(t, looped, "installation-fallback path must still detect loops")
-	assert.Equal(t, noProgressMatchThreshold, count)
+	assert.False(t, looped)
+	assert.Zero(t, count)
 }
 
 func TestNoProgressTracker_ZeroSessionKeyAndZeroInstallationIsSkipped(t *testing.T) {
@@ -342,7 +340,7 @@ func TestNoProgressTracker_ZeroSessionKeyAndZeroInstallationIsSkipped(t *testing
 	}
 }
 
-func TestNoProgressTracker_ZeroSessionDifferentInstallationsAreIsolated(t *testing.T) {
+func TestNoProgressTracker_ZeroSessionDifferentInstallationsStayStateless(t *testing.T) {
 	// Two distinct installations each emit the same fingerprint on the
 	// zero-session-key fallback path. Their buckets must not collide.
 	tr := newNoProgressTracker()
@@ -359,7 +357,7 @@ func TestNoProgressTracker_ZeroSessionDifferentInstallationsAreIsolated(t *testi
 	// installB shouldn't see installA's history at all.
 	looped, count := tr.recordAndDetect(zero, installB, "high", fp, now)
 	assert.False(t, looped)
-	assert.Equal(t, 1, count)
+	assert.Zero(t, count)
 }
 
 func TestNoProgressTracker_NilReceiverIsNoOp(t *testing.T) {

@@ -82,7 +82,7 @@ func TestPostCommandContinuation_UsesTerminalEvidence(t *testing.T) {
 			}
 			store.pins[forceModelMapKey(key, pin.Role)] = pin
 			svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, outputLimitFirstModel, nil)
-			ctx := router.WithStrategy(context.Background(), router.StrategyCluster)
+			ctx := router.WithStrategy(statefulTestContext(), router.StrategyCluster)
 			svc.grantPostCommandContinuation(ctx, uuid.New(), key, pin.Role)
 			got, found := svc.consumePostCommandContinuation(ctx, key, pin.Role)
 			assert.Equal(t, !capped, found)
@@ -101,7 +101,7 @@ func TestRefreshPin_PreservesOutputLimitEvidence(t *testing.T) {
 	ended := time.Now().Add(-time.Second)
 	pin := sessionpin.Pin{Provider: providers.ProviderAnthropic, Model: outputLimitSecondModel, LastServedModel: outputLimitFirstModel,
 		LastTurnEndedAt: ended, LastOutputLimitAt: ended, LastOutputTokens: 128}
-	svc.refreshPin(context.Background(), uuid.New(), [sessionpin.SessionKeyLen]byte{1}, pin, sessionpin.DefaultRole,
+	svc.refreshPin(statefulTestContext(), uuid.New(), [sessionpin.SessionKeyLen]byte{1}, pin, sessionpin.DefaultRole,
 		router.Decision{Provider: providers.ProviderAnthropic, Model: outputLimitSecondModel})
 	require.Len(t, store.upserts, 1)
 	assert.Equal(t, outputLimitFirstModel, maxedOutServedModel(store.upserts[0]), "refreshing the anchor cannot lose the prior served outcome")
@@ -158,7 +158,7 @@ func TestProxyMessages_OutputLimitEightActionSequence(t *testing.T) {
 				store := newForceModelMapStore()
 				routes := &outputLimitSequenceRouter{choices: []string{outputLimitFirstModel, outputLimitSecondModel}}
 				upstream := &outputLimitSequenceProvider{stopReason: "tool_use", output: 32000}
-				ctx := context.WithValue(context.Background(), APIKeyIDContextKey{}, "output-limit-key")
+				ctx := context.WithValue(statefulTestContext(), APIKeyIDContextKey{}, "output-limit-key")
 				ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString())
 				ctx = router.WithStrategy(ctx, router.StrategyHMM)
 				messages := []any{map[string]any{"role": "user", "content": "Inspect the repository files"}}

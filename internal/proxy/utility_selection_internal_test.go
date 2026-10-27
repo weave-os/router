@@ -21,7 +21,7 @@ import (
 
 func TestAutomaticUtilitySelectionDoesNotUseDeploymentShortcut(t *testing.T) {
 	for name, ctx := range map[string]context.Context{
-		"normal routing":       context.Background(),
+		"normal routing":       statefulTestContext(),
 		"experiment router on": blindExperimentContext(auth.BlindExperimentArmRouterOn),
 		"honoured policy pin":  pinnedContext(true),
 	} {
@@ -115,7 +115,7 @@ func TestAutomaticProbeWithoutConcreteTargetScoresWithoutPinning(t *testing.T) {
 			envelope, err := translate.ParseAnthropic([]byte(body))
 			require.NoError(t, err)
 			features := envelope.RoutingFeatures(false)
-			turn, err := service.runTurnLoop(context.Background(), envelope, features, "utility-key", uuid.New(), "", http.Header{}, router.Request{
+			turn, err := service.runTurnLoop(statefulTestContext(), envelope, features, "utility-key", uuid.New(), "", http.Header{}, router.Request{
 				RequestedModel: features.Model, EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
 			})
 			require.NoError(t, err)
@@ -146,7 +146,7 @@ func TestDefaultProbeDroppedForceDoesNotAttachConversationState(t *testing.T) {
 			envelope, err := translate.ParseAnthropic([]byte(body))
 			require.NoError(t, err)
 			features := envelope.RoutingFeatures(false)
-			turn, err := service.runTurnLoop(context.Background(), envelope, features, "utility-key", uuid.New(), "", http.Header{}, router.Request{
+			turn, err := service.runTurnLoop(statefulTestContext(), envelope, features, "utility-key", uuid.New(), "", http.Header{}, router.Request{
 				RequestedModel:   features.Model,
 				ForceModel:       catalog.ModelIDGPT55.String(),
 				EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
@@ -155,7 +155,7 @@ func TestDefaultProbeDroppedForceDoesNotAttachConversationState(t *testing.T) {
 			require.True(t, turn.ForcedPinDropped)
 			assert.Empty(t, routingMarkerFor(turn), "probe output remains machine-readable when a force pin is unavailable")
 			assert.Zero(t, turn.SessionKey)
-			service.recordTurnUsage(context.Background(), turn, turn.Decision.Provider, turn.Decision.Model, 10, 1, 0, 0, false)
+			service.recordTurnUsage(statefulTestContext(), turn, turn.Decision.Provider, turn.Decision.Model, 10, 1, 0, 0, false)
 			pins.mu.Lock()
 			defer pins.mu.Unlock()
 			assert.Empty(t, pins.upserts)

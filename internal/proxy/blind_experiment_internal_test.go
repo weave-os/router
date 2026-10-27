@@ -22,7 +22,7 @@ import (
 )
 
 func blindExperimentContext(arm auth.BlindExperimentArm) context.Context {
-	return context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{
+	return context.WithValue(statefulTestContext(), auth.BlindExperimentContextKey{}, auth.BlindExperimentState{
 		Active:              true,
 		Arm:                 arm,
 		AssignmentSource:    auth.BlindExperimentAssignmentAutomatic,
@@ -400,7 +400,7 @@ func TestCohortTelemetrySeparatesScheduledIntendedAndApplied(t *testing.T) {
 		ScheduledArm: auth.BlindExperimentArmRouterOn, CohortExperimentID: uuid.NewString(),
 		CohortGroupID: 3, CohortPhaseIndex: 2, CohortRevision: 4,
 		AssignmentSource: auth.BlindExperimentAssignmentManual, CanonicalSubjectKey: "account-1"}
-	ctx := context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, state)
+	ctx := context.WithValue(statefulTestContext(), auth.BlindExperimentContextKey{}, state)
 	params := InsertTelemetryParams{}
 	applyBlindExperimentTelemetry(ctx, &params, &turnLoopResult{
 		Decision: router.Decision{Model: "claude-sonnet-4-6"}, CallerModelPassthrough: true})
@@ -410,7 +410,7 @@ func TestCohortTelemetrySeparatesScheduledIntendedAndApplied(t *testing.T) {
 	assert.True(t, *params.CohortTreatmentApplied)
 
 	state.Arm = auth.BlindExperimentArmRouterOn
-	ctx = context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, state)
+	ctx = context.WithValue(statefulTestContext(), auth.BlindExperimentContextKey{}, state)
 	params = InsertTelemetryParams{}
 	applyBlindExperimentTelemetry(ctx, &params, &turnLoopResult{Decision: router.Decision{Model: "claude-sonnet-4-6"}, HardPinned: true})
 	require.NotNil(t, params.CohortTreatmentApplied)
@@ -420,7 +420,7 @@ func TestCohortTelemetrySeparatesScheduledIntendedAndApplied(t *testing.T) {
 
 func TestCohortTelemetryRecordsUnassignedIdentityWithoutRoutingTreatment(t *testing.T) {
 	state := auth.BlindExperimentState{Enabled: true, CohortExperimentID: uuid.NewString()}
-	ctx := context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, state)
+	ctx := context.WithValue(statefulTestContext(), auth.BlindExperimentContextKey{}, state)
 	params := InsertTelemetryParams{}
 	applyBlindExperimentTelemetry(ctx, &params, nil)
 	assert.Equal(t, state.CohortExperimentID, params.CohortExperimentID)
@@ -432,7 +432,7 @@ func TestCohortTelemetryExplainsBypassedTreatment(t *testing.T) {
 	state := auth.BlindExperimentState{Active: true, Enabled: true, Arm: auth.BlindExperimentArmRouterOn,
 		ScheduledArm: auth.BlindExperimentArmRouterOn, CohortExperimentID: uuid.NewString(),
 		CohortGroupID: 2, CohortPhaseIndex: 1, CohortRevision: 1}
-	ctx := context.WithValue(context.Background(), auth.BlindExperimentContextKey{}, state)
+	ctx := context.WithValue(statefulTestContext(), auth.BlindExperimentContextKey{}, state)
 	for _, testCase := range []struct {
 		name   string
 		routed *turnLoopResult

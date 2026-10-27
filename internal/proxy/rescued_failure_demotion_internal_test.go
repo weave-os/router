@@ -99,7 +99,7 @@ func newRescuedFailureTurnService(store sessionpin.Store, decision router.Decisi
 }
 
 func rescuedFailureCtx() context.Context {
-	ctx := context.WithValue(context.Background(), APIKeyIDContextKey{}, "key-1")
+	ctx := context.WithValue(statefulTestContext(), APIKeyIDContextKey{}, "key-1")
 	return context.WithValue(ctx, InstallationIDContextKey{}, uuid.New().String())
 }
 

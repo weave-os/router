@@ -66,7 +66,7 @@ func TestAllowedModelsForRequest_SubsetNarrowsPolicyAllowlist(t *testing.T) {
 }
 
 func TestAllowedModelsForRequest_SubsetAloneRestricts(t *testing.T) {
-	ctx := ctxWithRequestSubset(context.Background(), "b")
+	ctx := ctxWithRequestSubset(statefulTestContext(), "b")
 	assert.Equal(t, map[string]struct{}{"b": {}}, allowedModelsForRequest(ctx))
 	assert.Nil(t, installationAllowedModelSet(ctx))
 }
@@ -93,15 +93,15 @@ func TestModelPermittedByAllowlist_IgnoresRequestSubset(t *testing.T) {
 }
 
 func TestTelemetryDecisionReason_PrefixesOnlyWithSubset(t *testing.T) {
-	assert.Equal(t, "cluster_argmax", telemetryDecisionReason(context.Background(), "cluster_argmax"))
-	ctx := ctxWithRequestSubset(context.Background(), "b")
+	assert.Equal(t, "cluster_argmax", telemetryDecisionReason(statefulTestContext(), "cluster_argmax"))
+	ctx := ctxWithRequestSubset(statefulTestContext(), "b")
 	assert.Equal(t, AllowlistOverrideReasonPrefix+"cluster_argmax", telemetryDecisionReason(ctx, "cluster_argmax"))
 	assert.Equal(t, translate.ReasonUserForceModel, telemetryDecisionReason(ctx, translate.ReasonUserForceModel))
 }
 
 func TestRequestedAllowedModelsForTelemetry(t *testing.T) {
-	assert.Nil(t, requestedAllowedModelsForTelemetry(context.Background()))
-	ctx := context.WithValue(context.Background(), RequestAllowedModelsContextKey{}, RequestAllowedModels{
+	assert.Nil(t, requestedAllowedModelsForTelemetry(statefulTestContext()))
+	ctx := context.WithValue(statefulTestContext(), RequestAllowedModelsContextKey{}, RequestAllowedModels{
 		Requested: []string{testTerra, testSol},
 		Effective: []string{testSol},
 	})
@@ -110,7 +110,7 @@ func TestRequestedAllowedModelsForTelemetry(t *testing.T) {
 
 func TestReadmitForcedModel_LiftsSubsetOnlyExclusion(t *testing.T) {
 	s := &Service{availableModels: map[string]struct{}{testSol: {}, testTerra: {}, testOpus: {}}}
-	ctx := ctxWithRequestSubset(context.Background(), testSol)
+	ctx := ctxWithRequestSubset(statefulTestContext(), testSol)
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}`))
 	require.NoError(t, err)
 	req := router.Request{ExcludedModels: s.excludedModelsForRequest(ctx)}
@@ -137,7 +137,7 @@ func TestReadmitForcedModel_KeepsPolicyExclusion(t *testing.T) {
 
 func TestReadmitForcedModel_KeepsAdvisorPairingExclusion(t *testing.T) {
 	s := &Service{availableModels: map[string]struct{}{testSol: {}, "claude-fable-5-1": {}}}
-	ctx := ctxWithRequestSubset(context.Background(), testSol)
+	ctx := ctxWithRequestSubset(statefulTestContext(), testSol)
 	env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}],"tools":[{"type":"advisor_20260301","name":"advisor","model":"claude-opus-5"}]}`))
 	require.NoError(t, err)
 	req := router.Request{ExcludedModels: s.excludedModelsForRequest(ctx)}
@@ -151,13 +151,13 @@ func TestReadmitForcedModel_KeepsAdvisorPairingExclusion(t *testing.T) {
 func TestReadmitForcedModel_NoSubsetIsNoOp(t *testing.T) {
 	s := &Service{availableModels: map[string]struct{}{testSol: {}, testTerra: {}}}
 	req := router.Request{ExcludedModels: map[string]struct{}{testTerra: {}}}
-	got := s.readmitForcedModel(context.Background(), req, nil, translate.RoutingFeatures{}, sessionpin.Pin{Model: testTerra})
+	got := s.readmitForcedModel(statefulTestContext(), req, nil, translate.RoutingFeatures{}, sessionpin.Pin{Model: testTerra})
 	assert.Contains(t, got, testTerra)
 }
 
 func TestModelInRequestSubset(t *testing.T) {
-	assert.True(t, modelInRequestSubset(context.Background(), testOpus))
-	ctx := ctxWithRequestSubset(context.Background(), testSol)
+	assert.True(t, modelInRequestSubset(statefulTestContext(), testOpus))
+	ctx := ctxWithRequestSubset(statefulTestContext(), testSol)
 	assert.True(t, modelInRequestSubset(ctx, testSol))
 	assert.False(t, modelInRequestSubset(ctx, testOpus))
 }
@@ -193,7 +193,7 @@ func TestTurnLoop_StickyPinOutsideRequestSubsetReroutes(t *testing.T) {
 
 	fr := &tierProbeRouter{available: map[string]struct{}{testOpus: {}, "gpt-5.4-mini": {}}}
 	svc := newSvc(fr)
-	ctx := ctxWithRequestSubset(context.Background(), "gpt-5.4-mini")
+	ctx := ctxWithRequestSubset(statefulTestContext(), "gpt-5.4-mini")
 	res, err := svc.runTurnLoop(ctx, env, feats, "key-1", uuid.New(), "", nil,
 		router.Request{RequestedModel: feats.Model, ExcludedModels: svc.excludedModelsForRequest(ctx)})
 	require.NoError(t, err)
@@ -202,7 +202,7 @@ func TestTurnLoop_StickyPinOutsideRequestSubsetReroutes(t *testing.T) {
 
 	fr = &tierProbeRouter{available: map[string]struct{}{testOpus: {}, "gpt-5.4-mini": {}}}
 	svc = newSvc(fr)
-	ctx = ctxWithRequestSubset(context.Background(), testOpus, "gpt-5.4-mini")
+	ctx = ctxWithRequestSubset(statefulTestContext(), testOpus, "gpt-5.4-mini")
 	res, err = svc.runTurnLoop(ctx, env, feats, "key-1", uuid.New(), "", nil,
 		router.Request{RequestedModel: feats.Model, ExcludedModels: svc.excludedModelsForRequest(ctx)})
 	require.NoError(t, err)
@@ -210,9 +210,9 @@ func TestTurnLoop_StickyPinOutsideRequestSubsetReroutes(t *testing.T) {
 }
 
 func TestRequestAllowedModelsPresent(t *testing.T) {
-	assert.False(t, requestAllowedModelsPresent(context.Background()))
+	assert.False(t, requestAllowedModelsPresent(statefulTestContext()))
 	assert.True(t, requestAllowedModelsPresent(
-		ctxWithRequestSubset(context.Background(), testSol)))
+		ctxWithRequestSubset(statefulTestContext(), testSol)))
 }
 
 func TestReadmitForcedModel_GatewayBypassKeepsUnsignedHistoryGeminiExclusion(t *testing.T) {

@@ -64,6 +64,9 @@ func (s *Service) expireSessionPinRow(
 	reason string,
 	invalidateContinuation bool,
 ) error {
+	if s.pinStore == nil || sessionKey == ([sessionpin.SessionKeyLen]byte{}) {
+		return nil
+	}
 	expired := expiredSessionPin(installationID, sessionKey, role, reason, router.StrategyFromContext(ctx))
 	if err := s.pinStore.Upsert(context.Background(), expired); err != nil {
 		return err

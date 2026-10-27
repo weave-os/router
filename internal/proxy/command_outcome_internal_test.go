@@ -41,7 +41,7 @@ func TestCommandOutcomesAcrossSurfaces(t *testing.T) {
 				if surface != translate.FormatAnthropic {
 					app = ClientAppCodex
 				}
-				ctx := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: app, SessionID: "synthetic-session"})
+				ctx := context.WithValue(statefulTestContext(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: app, SessionID: "synthetic-session"})
 				ctx = context.WithValue(ctx, InstallationIDContextKey{}, uuid.NewString())
 				ctx = context.WithValue(ctx, APIKeyIDContextKey{}, "synthetic-key")
 				seen := map[string]bool{}
@@ -144,7 +144,7 @@ func TestCommandOutcomeRequiresPersistence(t *testing.T) {
 	env := forceCommandEnv(t)
 	for _, command := range []translate.ForceModelResult{{Model: "opus"}, {Clear: true}} {
 		rec := httptest.NewRecorder()
-		err := svc.handleForceModelCommand(context.Background(), rec, env, command, uuid.New(), [sessionpin.SessionKeyLen]byte{1}, [sessionpin.SessionKeyLen]byte{2}, 1)
+		err := svc.handleForceModelCommand(statefulTestContext(), rec, env, command, uuid.New(), [sessionpin.SessionKeyLen]byte{1}, [sessionpin.SessionKeyLen]byte{2}, 1)
 		require.Error(t, err)
 		assert.Empty(t, rec.Header().Get(translate.RouterCommandHeader))
 		assert.Empty(t, rec.Body.String())
@@ -158,9 +158,9 @@ func TestLoopStopsPreserveHistoricalForcePin(t *testing.T) {
 		rec := httptest.NewRecorder()
 		var err error
 		if repetition {
-			err = svc.handleTextRepetitionBreak(context.Background(), rec, env, 3, "synthetic", uuid.New(), [sessionpin.SessionKeyLen]byte{1}, "maximum", "synthetic-model", providers.ProviderAnthropic, 1)
+			err = svc.handleTextRepetitionBreak(statefulTestContext(), rec, env, 3, "synthetic", uuid.New(), [sessionpin.SessionKeyLen]byte{1}, "maximum", "synthetic-model", providers.ProviderAnthropic, 1)
 		} else {
-			err = svc.handleNoProgressBreak(context.Background(), rec, env, 3, uuid.New(), [sessionpin.SessionKeyLen]byte{1}, "maximum", "synthetic-model", providers.ProviderAnthropic, 1, translate.ReasonUserForceModel)
+			err = svc.handleNoProgressBreak(statefulTestContext(), rec, env, 3, uuid.New(), [sessionpin.SessionKeyLen]byte{1}, "maximum", "synthetic-model", providers.ProviderAnthropic, 1, translate.ReasonUserForceModel)
 		}
 		require.NoError(t, err)
 		outcome := readCommandOutcome(t, rec)
@@ -178,9 +178,9 @@ func TestAcknowledgmentWriteFailureDoesNotUndoPin(t *testing.T) {
 	svc := NewService(nil, nil, nil, false, nil, store, false, providers.ProviderAnthropic, "claude-haiku-4-5", nil).
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 	key := [sessionpin.SessionKeyLen]byte{2}
-	err := svc.handleForceModelCommand(context.Background(), &commandWriteFailure{httptest.NewRecorder()}, forceCommandEnv(t), translate.ForceModelResult{Model: "opus"}, uuid.New(), [sessionpin.SessionKeyLen]byte{1}, key, 1)
+	err := svc.handleForceModelCommand(statefulTestContext(), &commandWriteFailure{httptest.NewRecorder()}, forceCommandEnv(t), translate.ForceModelResult{Model: "opus"}, uuid.New(), [sessionpin.SessionKeyLen]byte{1}, key, 1)
 	require.Error(t, err)
-	pin, found, err := store.Get(context.Background(), key, forceModelSessionRole)
+	pin, found, err := store.Get(statefulTestContext(), key, forceModelSessionRole)
 	require.NoError(t, err)
 	require.True(t, found)
 	assert.Equal(t, "claude-opus-5-5", pin.Model)
@@ -192,7 +192,7 @@ func TestHeaderPersistenceFailureRetainsSameActionForce(t *testing.T) {
 		WithDeploymentKeyedProviders(keyed(providers.ProviderAnthropic))
 	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 	request.Header.Set(ForceModelHeader, "opus:high")
-	_, model, err := svc.applyForceModelHeader(context.Background(), request, uuid.New(), [sessionpin.SessionKeyLen]byte{1})
+	_, model, err := svc.applyForceModelHeader(statefulTestContext(), request, uuid.New(), [sessionpin.SessionKeyLen]byte{1})
 	require.NoError(t, err)
 	assert.Equal(t, "claude-opus-5-5:high", model)
 	assert.Empty(t, store.pins)

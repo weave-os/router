@@ -78,7 +78,7 @@ func strikeRescuedPrimary(svc *Service, ctx context.Context, err error) (string,
 func TestRescued429_CoolsDownInsteadOfDemoting(t *testing.T) {
 	store := &cooldownStubPinStore{}
 	svc := newRateLimitTestService(store, true, 45)
-	ctx, turn := withRateLimitTurn(context.Background())
+	ctx, turn := withRateLimitTurn(statefulTestContext())
 
 	model, reason := strikeRescuedPrimary(svc, ctx, upstream429(""))
 
@@ -103,7 +103,7 @@ func TestRescued429_CoolsDownInsteadOfDemoting(t *testing.T) {
 func TestRescued429_CooldownHonoursOrgOverride(t *testing.T) {
 	store := &cooldownStubPinStore{}
 	svc := newRateLimitTestService(store, true, 45)
-	ctx := flags.WithOverrides(context.Background(), flags.Overrides{Ints: map[flags.Key]int{flags.KeyRateLimitCooldownSeconds: 120}})
+	ctx := flags.WithOverrides(statefulTestContext(), flags.Overrides{Ints: map[flags.Key]int{flags.KeyRateLimitCooldownSeconds: 120}})
 
 	_, reason := strikeRescuedPrimary(svc, ctx, upstream429(""))
 
@@ -122,7 +122,7 @@ func TestRescuedNon429_StaysPermanentUnderFlag(t *testing.T) {
 		store := &cooldownStubPinStore{}
 		svc := newRateLimitTestService(store, true, 45)
 
-		model, reason := strikeRescuedPrimary(svc, context.Background(), err)
+		model, reason := strikeRescuedPrimary(svc, statefulTestContext(), err)
 
 		assert.Equal(t, demotedArm, model)
 		assert.Equal(t, sessionpin.DemotionReasonRescuedFailure, reason)
@@ -137,7 +137,7 @@ func TestRescuedTransientGatewayFailureGetsBoundedCooldown(t *testing.T) {
 		store := &cooldownStubPinStore{}
 		svc := newRateLimitTestService(store, true, 45)
 
-		model, reason := strikeRescuedPrimary(svc, context.Background(), &providers.UpstreamErrorResponse{Status: status})
+		model, reason := strikeRescuedPrimary(svc, statefulTestContext(), &providers.UpstreamErrorResponse{Status: status})
 
 		assert.Equal(t, demotedArm, model)
 		assert.Equal(t, sessionpin.DemotionReasonTransientFailure, reason)
@@ -156,7 +156,7 @@ func TestRescuedTransientGatewayFailureGetsBoundedCooldown(t *testing.T) {
 func TestRescued429_FlagOffKeepsPermanentDemotion(t *testing.T) {
 	store := &cooldownStubPinStore{}
 	svc := newRateLimitTestService(store, false, 45)
-	ctx, turn := svc.withRateLimitTurn(context.Background())
+	ctx, turn := svc.withRateLimitTurn(statefulTestContext())
 	assert.Nil(t, turn)
 	assert.Nil(t, turn.completionLogFields())
 	assert.Nil(t, svc.throttleRetryDelay(ctx))
@@ -179,7 +179,7 @@ func TestRescued429_StoreWithoutCooldownsDemotesForSession(t *testing.T) {
 	store := &demotionStubPinStore{}
 	svc := newRateLimitTestService(store, true, 45)
 
-	model, reason := strikeRescuedPrimary(svc, context.Background(), upstream429(""))
+	model, reason := strikeRescuedPrimary(svc, statefulTestContext(), upstream429(""))
 
 	assert.Equal(t, demotedArm, model)
 	assert.Equal(t, sessionpin.DemotionReasonRateLimited, reason)
@@ -244,7 +244,7 @@ func TestRescueDecisions_ExhaustedPoolReadmitsCoolingArms(t *testing.T) {
 		"claude-sonnet-5":          rateLimitTestNow.Add(40 * time.Second),
 		"deepseek/deepseek-v4-pro": rateLimitTestNow.Add(5 * time.Second),
 	}
-	ctx := context.Background()
+	ctx := statefulTestContext()
 	ctx = context.WithValue(ctx, SessionDemotedModelsContextKey{}, []string{"claude-sonnet-5", "deepseek/deepseek-v4-pro", "claude-haiku-4-5"})
 	ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, cooling)
 	ctx, turn := withRateLimitTurn(ctx)
@@ -274,7 +274,7 @@ func TestRescueDecisions_CoolingArmRanksBehindEligibleCandidates(t *testing.T) {
 			"deepseek/deepseek-v4-pro": providers.ProviderFireworks,
 		},
 	}
-	ctx := context.Background()
+	ctx := statefulTestContext()
 	ctx = context.WithValue(ctx, SessionDemotedModelsContextKey{}, []string{"deepseek/deepseek-v4-pro"})
 	ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, map[string]time.Time{"deepseek/deepseek-v4-pro": rateLimitTestNow.Add(time.Minute)})
 	ctx, turn := withRateLimitTurn(ctx)
@@ -295,7 +295,7 @@ func TestRescueDecisions_ExhaustedPoolWithoutCooldownsStaysEmpty(t *testing.T) {
 		CandidateModels:    []string{"claude-opus-5", "claude-sonnet-5"},
 		CandidateProviders: map[string]string{"claude-sonnet-5": providers.ProviderAnthropic},
 	}
-	ctx := context.WithValue(context.Background(), SessionDemotedModelsContextKey{}, []string{"claude-sonnet-5"})
+	ctx := context.WithValue(statefulTestContext(), SessionDemotedModelsContextKey{}, []string{"claude-sonnet-5"})
 
 	assert.Empty(t, s.siblingFailoverDecisions(ctx, overloadedDecision(md), 1_000, 0, 0))
 }
@@ -311,7 +311,7 @@ func TestRescueDecisions_ReadmitsCoolingArmAbsentFromScoredCandidates(t *testing
 	}
 	failed := overloadedDecision(md)
 	failed.Model = "claude-sonnet-5"
-	ctx := context.WithValue(context.Background(), SessionDemotedModelsContextKey{}, []string{"claude-opus-5"})
+	ctx := context.WithValue(statefulTestContext(), SessionDemotedModelsContextKey{}, []string{"claude-opus-5"})
 	ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, map[string]time.Time{"claude-opus-5": rateLimitTestNow.Add(30 * time.Second)})
 
 	got := s.siblingFailoverDecisions(ctx, failed, 1_000, 0, 0)
@@ -332,7 +332,7 @@ func TestSiblingFailover_ScorerReadmitsOnlyEligibleCoolingPeersAtOrAboveSelected
 			CandidateProviders:   map[string]string{"gpt-5": providers.ProviderOpenAI},
 		},
 	}
-	ctx := context.WithValue(context.Background(), SessionDemotedModelsContextKey{}, []string{"claude-opus-5", "claude-haiku-4-5", "gpt-4.1-mini"})
+	ctx := context.WithValue(statefulTestContext(), SessionDemotedModelsContextKey{}, []string{"claude-opus-5", "claude-haiku-4-5", "gpt-4.1-mini"})
 	ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, map[string]time.Time{
 		"claude-opus-5":    rateLimitTestNow.Add(30 * time.Second),
 		"claude-haiku-4-5": rateLimitTestNow.Add(10 * time.Second),
@@ -357,7 +357,7 @@ func TestSiblingFailover_SidecarReadmitsCoolingRosterArmLast(t *testing.T) {
 			CandidateProviders: map[string]string{"gpt-4.1-mini": providers.ProviderOpenAI},
 		},
 	}
-	ctx := context.WithValue(context.Background(), SessionDemotedModelsContextKey{}, []string{"claude-opus-5", "gpt-5"})
+	ctx := context.WithValue(statefulTestContext(), SessionDemotedModelsContextKey{}, []string{"claude-opus-5", "gpt-5"})
 	ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, map[string]time.Time{
 		"claude-opus-5": rateLimitTestNow.Add(30 * time.Second),
 		"gpt-5":         rateLimitTestNow.Add(10 * time.Second),
@@ -381,7 +381,7 @@ func TestRescueDecisions_ReadmissionKeepsGlobalAutomaticExclusions(t *testing.T)
 			"claude-haiku-4-5": providers.ProviderAnthropic,
 		},
 	}
-	ctx := context.WithValue(context.Background(), SessionDemotedModelsContextKey{}, []string{"claude-sonnet-5"})
+	ctx := context.WithValue(statefulTestContext(), SessionDemotedModelsContextKey{}, []string{"claude-sonnet-5"})
 	ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, map[string]time.Time{"claude-sonnet-5": rateLimitTestNow.Add(30 * time.Second)})
 
 	got := s.siblingFailoverDecisions(ctx, overloadedDecision(md), 1_000, 0, 0)
@@ -401,7 +401,7 @@ func TestRescueDecisions_ReadmissionKeepsGlobalExclusionOnCoolingArm(t *testing.
 			"claude-haiku-4-5": providers.ProviderAnthropic,
 		},
 	}
-	ctx := context.WithValue(context.Background(), SessionDemotedModelsContextKey{}, []string{"claude-sonnet-5", "claude-haiku-4-5"})
+	ctx := context.WithValue(statefulTestContext(), SessionDemotedModelsContextKey{}, []string{"claude-sonnet-5", "claude-haiku-4-5"})
 	ctx = context.WithValue(ctx, SessionCooldownModelsContextKey{}, map[string]time.Time{
 		"claude-sonnet-5":  rateLimitTestNow.Add(10 * time.Second),
 		"claude-haiku-4-5": rateLimitTestNow.Add(30 * time.Second),
@@ -415,7 +415,7 @@ func TestRescueDecisions_ReadmissionKeepsGlobalExclusionOnCoolingArm(t *testing.
 // The gateway BYOK walk readmits cooling arms the same way.
 func TestGatewayRescueDecisions_ExhaustedPoolReadmitsCoolingArms(t *testing.T) {
 	s := &Service{}
-	ctx := context.WithValue(context.Background(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
+	ctx := context.WithValue(statefulTestContext(), ExternalAPIKeysContextKey{}, []*auth.ExternalAPIKey{
 		{Provider: providers.ProviderOpenAIGateway, Plaintext: []byte("pat"), ModelAliases: map[string]string{"grok-4.6": "grok-4.6"}},
 		{Provider: providers.ProviderAnthropicGateway, Plaintext: []byte("pat"), ModelAliases: map[string]string{"claude-opus-5": "claude-opus-5"}},
 	})
@@ -437,7 +437,7 @@ func TestGatewayRescueDecisions_ExhaustedPoolReadmitsCoolingArms(t *testing.T) {
 // completion line.
 func TestThrottleRetryDelay_RecordsHonouredRetryAfter(t *testing.T) {
 	svc := newRateLimitTestService(&cooldownStubPinStore{}, true, 45)
-	ctx, turn := svc.withRateLimitTurn(context.Background())
+	ctx, turn := svc.withRateLimitTurn(statefulTestContext())
 	require.NotNil(t, turn)
 	retryDelay := svc.throttleRetryDelay(ctx)
 	require.NotNil(t, retryDelay)
@@ -483,7 +483,7 @@ func TestTurnLoopExcludesCoolingArmBeforeExpiry(t *testing.T) {
 	}}
 	svc, scorer := cooldownTurnLoopService(store, true)
 
-	res := runDemotionTurnLoop(t, svc, context.Background())
+	res := runDemotionTurnLoop(t, svc, statefulTestContext())
 
 	assert.Equal(t, freshTurnModel, res.Decision.Model)
 	assert.False(t, res.StickyHit, "a cooling pin must not be reused")
@@ -501,7 +501,7 @@ func TestTurnLoopReadmitsArmAfterCooldownExpiry(t *testing.T) {
 	}}
 	svc, scorer := cooldownTurnLoopService(store, true)
 
-	res := runDemotionTurnLoop(t, svc, context.Background())
+	res := runDemotionTurnLoop(t, svc, statefulTestContext())
 
 	assert.Equal(t, demotedPinModel, res.Decision.Model, "the cooled arm is served again")
 	assert.True(t, res.StickyHit)
@@ -521,7 +521,7 @@ func TestTurnLoopHonoursCooldownRecordedOnHMMHistory(t *testing.T) {
 	}}
 	svc, scorer := cooldownTurnLoopService(store, true)
 
-	res := runDemotionTurnLoop(t, svc, context.Background())
+	res := runDemotionTurnLoop(t, svc, statefulTestContext())
 
 	assert.Equal(t, freshTurnModel, res.Decision.Model)
 	require.Len(t, scorer.requests, 1)
@@ -539,7 +539,7 @@ func TestTurnLoopPermanentStrikeOutranksLeftoverCooldown(t *testing.T) {
 	}}
 	svc, scorer := cooldownTurnLoopService(store, true)
 
-	res := runDemotionTurnLoop(t, svc, context.Background())
+	res := runDemotionTurnLoop(t, svc, statefulTestContext())
 
 	assert.Equal(t, freshTurnModel, res.Decision.Model)
 	require.Len(t, scorer.requests, 1)
@@ -557,7 +557,7 @@ func TestTurnLoopIgnoresCooldownsWhenFlagOff(t *testing.T) {
 	}}
 	svc, scorer := cooldownTurnLoopService(store, false)
 
-	res := runDemotionTurnLoop(t, svc, context.Background())
+	res := runDemotionTurnLoop(t, svc, statefulTestContext())
 
 	assert.Equal(t, demotedPinModel, res.Decision.Model)
 	assert.True(t, res.StickyHit)
