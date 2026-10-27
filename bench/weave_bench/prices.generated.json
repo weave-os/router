@@ -1,5 +1,5 @@
 {
-  "pricing_version": "catalog-sha256:9d0980bd838a9b9b",
+  "pricing_version": "catalog-sha256:4b13e58176fe4d8c",
   "models": {
     "claude-fable-5": {
       "input_usd_per_million": 10,
@@ -407,6 +407,12 @@
       "input_usd_per_million": 0.3,
       "output_usd_per_million": 1.2,
       "cache_read_multiplier": 0.2,
+      "cache_write_multiplier": 1.25
+    },
+    "minimax/minimax-m3.1-flash": {
+      "input_usd_per_million": 0.15,
+      "output_usd_per_million": 0.6,
+      "cache_read_multiplier": 0.1,
       "cache_write_multiplier": 1.25
     },
     "mistralai/mistral-small-2603": {
