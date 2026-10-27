@@ -175,8 +175,8 @@ func (g *earlyStopGate) withheld() bool {
 	return g.holding
 }
 
-// released names what ended the withholding, or "" while withheld.
-func (g *earlyStopGate) released() string {
+// releaseReason names what ended the withholding, or "" while withheld.
+func (g *earlyStopGate) releaseReason() string {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	return g.releaseCause
@@ -196,10 +196,10 @@ func (g *earlyStopGate) releaseOnTimeout() {
 func (g *earlyStopGate) Flush() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.flush()
+	g.flushLocked()
 }
 
-func (g *earlyStopGate) flush() {
+func (g *earlyStopGate) flushLocked() {
 	if g.holding {
 		return
 	}
@@ -229,7 +229,7 @@ func (g *earlyStopGate) release() error {
 	g.held.Reset()
 	_, err := g.body.Write(out)
 	if err == nil {
-		g.flush()
+		g.flushLocked()
 	}
 	return err
 }

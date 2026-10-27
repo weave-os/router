@@ -55,7 +55,7 @@ func TestEarlyStopGate_ReleasesAfterHoldMaxWithoutAnotherWrite(t *testing.T) {
 	_, _ = g.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\"}\n\n"))
 	require.Eventually(t, func() bool { return !g.withheld() }, time.Second, 5*time.Millisecond,
 		"a silent upstream must not hold the client past holdMax")
-	assert.Equal(t, "hold_timeout", g.released())
+	assert.Equal(t, "hold_timeout", g.releaseReason())
 	assert.Contains(t, rec.body(), "message_start")
 }
 
