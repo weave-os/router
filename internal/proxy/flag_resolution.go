@@ -93,6 +93,12 @@ func (s *Service) ResolveAuthoritativeDowngradeGate(ctx context.Context) bool {
 	return flags.BoolOr(ctx, flags.KeyAuthoritativeDowngradeGate, s.authoritativeDowngradeGate)
 }
 
+// ResolveAuthoritativeUpgradeSlidingThreshold reports whether an authoritative
+// upgrade inside a sliding-threshold band bypasses the confidence floor.
+func (s *Service) ResolveAuthoritativeUpgradeSlidingThreshold(ctx context.Context) bool {
+	return flags.BoolOr(ctx, flags.KeyAuthoritativeUpgradeSlidingThreshold, s.authoritativeUpgradeSlidingThreshold)
+}
+
 // ResolveHMMDowngradeHysteresisTurns returns how many consecutive
 // cheaper-than-pin authoritative votes are required before the downgrade is
 // applied. 0 disables hysteresis.

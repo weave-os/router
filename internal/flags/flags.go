@@ -88,6 +88,7 @@ const (
 	KeyAuthoritativeUpgradeHoldoutPct       Key = "authoritative_upgrade_holdout_pct"
 	KeyAuthoritativeUpgradeVotes            Key = "authoritative_upgrade_votes"
 	KeyAuthoritativeDowngradeGate           Key = "authoritative_downgrade_gate"
+	KeyAuthoritativeUpgradeSlidingThreshold Key = "authoritative_upgrade_sliding_threshold"
 	KeyHMMDowngradeHysteresisTurns          Key = "hmm_downgrade_hysteresis_turns"
 	KeyHMMDowngradeHysteresisShadowTurns    Key = "hmm_downgrade_hysteresis_shadow_turns"
 	KeyAuthorityCacheShadow                 Key = "authority_cache_shadow"
@@ -150,7 +151,7 @@ type Definition struct {
 // RegistryVersion changes whenever Registry's membership changes. Publish uses
 // it to make pruning safe during rolling deploys: a revision with an older
 // registry version may not delete definitions published by a newer revision.
-const RegistryVersion = 24
+const RegistryVersion = 25
 
 // Registry is the curated allowlist of flags that may carry a per-organization
 // override. It is deliberately explicit rather than derived from the env var
@@ -274,6 +275,13 @@ var Registry = []Definition{
 		EnvVar:         "ROUTER_AUTHORITATIVE_DOWNGRADE_GATE",
 		Kind:           KindBool,
 		Description:    "Apply the upgrade gate's confidence floor to authoritative-per-turn downgrades too: a cheaper-than-pin pick below the threshold keeps the pin. Off by default.",
+		OrgOverridable: true,
+	},
+	{
+		Key:            KeyAuthoritativeUpgradeSlidingThreshold,
+		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD",
+		Kind:           KindBool,
+		Description:    "Upgrade a session pin by probability bands that bypass the confidence floor: from low/medium, maximum at 0.3-0.5 serves high and >=0.5 maximum; from low, high at 0.3-0.5 serves medium and >=0.5 high, medium >=0.3 serves medium; from medium, high needs >=0.4; from high, maximum needs >=0.5. Below a band the existing upgrade gates decide. Off by default.",
 		OrgOverridable: true,
 	},
 	{
