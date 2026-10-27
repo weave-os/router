@@ -170,7 +170,7 @@ savings_home="$work/home"
 mkdir -p "$savings_home/.codex"
 cost_body="$work/cost.json"
 snapshot_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-jq -cn --arg snapshot_time "$snapshot_time" '{session_id:"session-2",savings_usd:0.32,context_snapshot:{version:1,estimate_kind:"approximate",estimate_tokens:72000,context_window:128000,output_reserve_tokens:8000,requested_model:"gpt-5.6-terra",served_model:"claude-sonnet-5",request_id:"request-2",requested_at:$snapshot_time,recorded_at:$snapshot_time}}' >"$cost_body"
+jq -cn --arg snapshot_time "$snapshot_time" '{session_id:"session-2",savings_usd:9.99,normalized_savings_usd:0.32,savings_baseline_label:"GPT-6.1 Sol",context_snapshot:{version:1,estimate_kind:"approximate",estimate_tokens:72000,context_window:128000,output_reserve_tokens:8000,requested_model:"gpt-5.6-terra",served_model:"claude-sonnet-5",request_id:"request-2",requested_at:$snapshot_time,recorded_at:$snapshot_time}}' >"$cost_body"
 cat >"$savings_home/.codex/config.toml" <<TOML
 # >>> weave-router managed (do not edit between markers) >>>
 model_provider = "weave"
@@ -193,7 +193,7 @@ run_savings_turn() {
 run_savings_turn
 first_savings_title="$(cat "$title_file")"
 case "$first_savings_title" in
-  "Weave Router · gpt-5.6-terra → claude-sonnet-5"|"Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved \$0.32 · last Router ctx est. ~72k/128k") ;;
+  "Weave Router · gpt-5.6-terra → claude-sonnet-5"|"Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved \$0.32 vs GPT-6.1 Sol · last Router ctx est. ~72k/128k") ;;
   *)
   echo "first turn rendered an unexpected title: $first_savings_title" >&2
   exit 1
@@ -211,16 +211,16 @@ done
 }
 
 for _ in 1 2 3 4 5 6 7 8 9 10; do
-  [ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved \$0.32 · last Router ctx est. ~72k/128k" ] && break
+  [ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved \$0.32 vs GPT-6.1 Sol · last Router ctx est. ~72k/128k" ] && break
   sleep 0.2
 done
-[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved \$0.32 · last Router ctx est. ~72k/128k" ] || {
+[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved \$0.32 vs GPT-6.1 Sol · last Router ctx est. ~72k/128k" ] || {
   echo "async fetch wrote savings but did not refresh the title: $(cat "$title_file")" >&2
   exit 1
 }
 
 run_savings_turn
-[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved \$0.32 · last Router ctx est. ~72k/128k" ] || {
+[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved \$0.32 vs GPT-6.1 Sol · last Router ctx est. ~72k/128k" ] || {
   echo "server-sourced savings did not reach the title: $(cat "$title_file")" >&2
   exit 1
 }
@@ -237,7 +237,7 @@ run_savings_turn
 normalized_home="$work/normalized-home"
 mkdir -p "$normalized_home/.codex"
 normalized_cost="$work/cost-normalized.json"
-printf '%s\n' '{"session_id":"session-3","savings_usd":1.25}' >"$normalized_cost"
+printf '%s\n' '{"session_id":"session-3","savings_usd":9.99,"normalized_savings_usd":1.25,"savings_baseline_label":"GPT-6.1 Sol"}' >"$normalized_cost"
 cat >"$normalized_home/.codex/config.toml" <<TOML
 model_provider = "weave"
 
@@ -274,7 +274,7 @@ done
 }
 
 run_normalized_turn
-[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved \$1.25" ] || {
+[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved \$1.25 vs GPT-6.1 Sol" ] || {
   echo "savings did not reach the title from a Codex-rewritten config: $(cat "$title_file")" >&2
   exit 1
 }
@@ -302,7 +302,7 @@ SEEN = pathlib.Path(sys.argv[2])
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         SEEN.write_text(self.headers.get("X-Weave-Router-Key") or "")
-        body = b'{"savings_usd":2.50}'
+        body = b'{"savings_usd":9.99,"normalized_savings_usd":2.50,"savings_baseline_label":"GPT-6.1 Sol"}'
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -446,30 +446,37 @@ render_cached_savings() {
       WEAVE_CODEX_STATUS_TITLE_FILE="$title_file" "$helper" >/dev/null
 }
 
-render_cached_savings '0.32'
-[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved \$0.32" ] || {
+render_cached_savings '0.32 GPT-6.1 Sol'
+[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved \$0.32 vs GPT-6.1 Sol" ] || {
   echo "an unreachable router discarded the cached savings: $(cat "$title_file")" >&2
   exit 1
 }
 
 # A router that spent more than the requested model would have says so,
 # rather than hiding the number or showing a negative saving.
-render_cached_savings '-0.5'
-[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · cost \$0.50 more" ] || {
+render_cached_savings '-0.5 GPT-6.1 Sol'
+[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · cost \$0.50 more than GPT-6.1 Sol" ] || {
   echo "a costlier session did not read as cost more: $(cat "$title_file")" >&2
   exit 1
 }
 
 # Sub-cent totals must not read as "$0.00", which is indistinguishable from
 # "the router ran and did not beat your selection".
-render_cached_savings '0.004'
+render_cached_savings '0.004 GPT-6.1 Sol'
 [ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5" ] || {
   echo "a total below half a cent should render no savings clause" >&2
   exit 1
 }
-render_cached_savings '0.006'
-[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved <\$0.01" ] || {
+render_cached_savings '0.006 GPT-6.1 Sol'
+[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5 · saved <\$0.01 vs GPT-6.1 Sol" ] || {
   echo "sub-cent savings did not render as <\$0.01: $(cat "$title_file")" >&2
+  exit 1
+}
+
+# A cache from before normalized savings has no comparison label and renders nothing.
+render_cached_savings '0.32'
+[ "$(cat "$title_file")" = "Weave Router · gpt-5.6-terra → claude-sonnet-5" ] || {
+  echo "an unlabeled legacy savings cache leaked into the title: $(cat "$title_file")" >&2
   exit 1
 }
 

@@ -407,10 +407,14 @@ refresh_session_cost() {
       fi
     fi
     if [ "${WEAVE_CODEX_STATUS_SAVINGS:-1}" != "0" ]; then
-      # savings_usd is the router's own (requested - actual). A body without it
-      # (404, error envelope, older router) leaves the cache untouched.
-      savings="$(printf '%s' "$body" | jq -r '.savings_usd // empty' 2>/dev/null)" || savings=""
-      case "$savings" in ''|*[!0-9.eE+-]*) savings="" ;; esac
+      # The router's normalized savings against Codex's comparison model, cached
+      # as "<usd> <label>". A body without it (404, error envelope, a router with
+      # no token-efficiency measurements) leaves the cache untouched.
+      savings="$(printf '%s' "$body" | jq -r '
+        select((.normalized_savings_usd | type) == "number" and (.savings_baseline_label | type) == "string"
+          and (.savings_baseline_label | test("^[A-Za-z0-9 ._-]{1,32}$"))) |
+        "\(.normalized_savings_usd) \(.savings_baseline_label)"' 2>/dev/null)" || savings=""
+      case "${savings%% *}" in ''|*[!0-9.eE+-]*) savings="" ;; esac
       if [ -n "$savings" ]; then
         savings_tmp="$(mktemp "$state_root/.cost.XXXXXX")" || savings=""
         if [ -n "$savings" ]; then
@@ -470,24 +474,30 @@ refresh_session_cost() {
 
 # Renders the cached savings as a display clause, or nothing. Values below a
 # cent read as "<$0.01" rather than "$0.00", which would be indistinguishable
-# from "the router ran and did not beat your selection". A negative total means
-# the router upgraded hard turns past the requested model; it reads as "cost
-# $X more" rather than a negative saving.
+# from "the router ran and did not beat the comparison model". A negative total
+# reads as "cost $X more than <model>" rather than a negative saving. A cache
+# without a comparison label predates normalized savings and renders nothing.
 savings_clause() {
-  local file="$1" raw
+  local file="$1" raw value label
   [ "${WEAVE_CODEX_STATUS_SAVINGS:-1}" = "0" ] && return 0
   [ -f "$file" ] || return 0
   raw="$(cat "$file" 2>/dev/null)" || return 0
-  case "$raw" in
+  value="${raw%% *}"
+  label="${raw#* }"
+  [ "$label" != "$raw" ] || return 0
+  case "$value" in
     ''|*[!0-9.eE+-]*) return 0 ;;
   esac
-  awk -v v="$raw" 'BEGIN{
+  case "$label" in
+    ''|*[!A-Za-z0-9\ ._-]*) return 0 ;;
+  esac
+  awk -v v="$value" -v vs="$label" 'BEGIN{
     v = v + 0
-    if (v <= -0.01) { printf " · cost $%.2f more", -v; exit }
-    if (v <= -0.005) { printf " · cost <$0.01 more"; exit }
+    if (v <= -0.01) { printf " · cost $%.2f more than %s", -v, vs; exit }
+    if (v <= -0.005) { printf " · cost <$0.01 more than %s", vs; exit }
     if (v < 0.005) { exit }
-    if (v < 0.01)  { printf " · saved <$0.01"; exit }
-    printf " · saved $%.2f", v
+    if (v < 0.01)  { printf " · saved <$0.01 vs %s", vs; exit }
+    printf " · saved $%.2f vs %s", v, vs
   }' 2>/dev/null || true
 }
 
