@@ -151,9 +151,9 @@ target="claude"
 
 CLAUDE_STATUSLINE_MARKER="# Claude Code statusline for the Weave Router."
 # Mirrors install.sh: removes only the Weave Auto picker row and default.
-CLAUDE_WEAVE_AUTO_STRIP_JQ='(if .model == "weave-auto" then del(.model) else . end)
+CLAUDE_WEAVE_AUTO_STRIP_JQ='(if (.model == "weave-auto" or .model == "weave-auto[1m]") then del(.model) else . end)
   | (if (.modelPicker | type) == "object" then
-      .modelPicker.options = ((.modelPicker.options // []) | map(select(.model != "weave-auto")))
+      .modelPicker.options = ((.modelPicker.options // []) | map(select(.model != "weave-auto" and .model != "weave-auto[1m]")))
       | (if (.modelPicker.options | length) == 0 then del(.modelPicker.options) else . end)
       | (if (.modelPicker | length) == 0 then del(.modelPicker) else . end)
     else . end)'

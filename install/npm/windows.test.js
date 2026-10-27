@@ -74,8 +74,8 @@ test("the native installer writes each client's config and keeps existing settin
   assert.match(claude.env.ANTHROPIC_CUSTOM_HEADERS, /rk_test_native_windows/);
   assert.match(claude.env.ANTHROPIC_CUSTOM_HEADERS, /X-Custom: keep/);
   assert.match(claude.env.ANTHROPIC_CUSTOM_HEADERS, /^X-Weave-Model-Passthrough: 1$/m);
-  assert.equal(claude.model, "weave-auto");
-  assert.equal(claude.modelPicker.options[0].model, "weave-auto");
+  assert.equal(claude.model, "weave-auto[1m]");
+  assert.equal(claude.modelPicker.options[0].model, "weave-auto[1m]");
   const codexConfig = fs.readFileSync(path.join(temporaryHome, ".codex", "config.toml"), "utf8");
   assert.match(codexConfig, /model = "gpt-4.1"/);
   assert.match(codexConfig, /model_provider = "weave"/);
@@ -111,12 +111,12 @@ test("Claude moves a pre-passthrough model to Weave Auto once, then keeps the us
     fs.writeFileSync(settingsPath, JSON.stringify({ model: "opus", modelPicker: { options: [{ model: "my-model" }] } }));
     await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
     const rolledOver = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
-    assert.equal(rolledOver.model, "weave-auto");
+    assert.equal(rolledOver.model, "weave-auto[1m]");
     fs.writeFileSync(settingsPath, JSON.stringify({ ...rolledOver, model: "opus" }));
     await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
     const installed = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
     assert.equal(installed.model, "opus");
-    assert.deepEqual(installed.modelPicker.options.map((option) => option.model), ["weave-auto", "my-model"]);
+    assert.deepEqual(installed.modelPicker.options.map((option) => option.model), ["weave-auto[1m]", "my-model"]);
     await runInstallerAt(home, ["--uninstall", "--claude"]);
     assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, "utf8")).modelPicker, { options: [{ model: "my-model" }] });
   } finally {

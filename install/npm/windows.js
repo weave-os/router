@@ -201,15 +201,17 @@ async function ensureProjectFilesPrivate(root, target) {
   return trackedProjectPaths;
 }
 
-// Claude Code sends a picker model ID verbatim; the router routes only
-// weave-auto and serves every other model as-is (X-Weave-Model-Passthrough).
-const claudeWeaveAutoModel = "weave-auto";
+// Claude Code sends a picker model ID verbatim (minus [1m], which it turns into
+// the 1M-context beta); the router routes only weave-auto and serves every other
+// model as-is (X-Weave-Model-Passthrough).
+const claudeWeaveAutoModel = "weave-auto[1m]";
+const isClaudeWeaveAuto = (model) => model === "weave-auto" || model === claudeWeaveAutoModel;
 const claudeWeaveAutoOption = { model: claudeWeaveAutoModel, label: "Weave Auto", description: "Weave picks the best model for each turn", behavesAs: "claude-opus-5-5" };
 
 function stripClaudeWeaveAuto(layer) {
-  if (layer.model === claudeWeaveAutoModel) delete layer.model;
+  if (isClaudeWeaveAuto(layer.model)) delete layer.model;
   if (!layer.modelPicker || typeof layer.modelPicker !== "object") return;
-  layer.modelPicker.options = (layer.modelPicker.options || []).filter((option) => option?.model !== claudeWeaveAutoModel);
+  layer.modelPicker.options = (layer.modelPicker.options || []).filter((option) => !isClaudeWeaveAuto(option?.model));
   if (!layer.modelPicker.options.length) delete layer.modelPicker.options;
   if (!Object.keys(layer.modelPicker).length) delete layer.modelPicker;
 }
@@ -249,11 +251,11 @@ function installClaude(paths, baseUrl, key, email) {
   const modelSettings = localSettings || settings;
   const modelUnset = !process.env.ANTHROPIC_MODEL && [settings, localSettings, readJson(path.join(process.env.USERPROFILE || process.env.HOME, ".claude", "settings.json"))].every((layer) => !layer || (!Object.hasOwn(layer, "model") && !layer.env?.ANTHROPIC_MODEL));
   modelSettings.modelPicker = { ...(modelSettings.modelPicker || {}) };
-  modelSettings.modelPicker.options = [claudeWeaveAutoOption, ...(modelSettings.modelPicker.options || []).filter((option) => option?.model !== claudeWeaveAutoModel)];
+  modelSettings.modelPicker.options = [claudeWeaveAutoOption, ...(modelSettings.modelPicker.options || []).filter((option) => !isClaudeWeaveAuto(option?.model))];
   if (weaveAutoRollout) {
     modelSettings.model = claudeWeaveAutoModel;
     if (modelSettings.env) delete modelSettings.env.ANTHROPIC_MODEL;
-  } else if (modelUnset) modelSettings.model = claudeWeaveAutoModel;
+  } else if (modelUnset || modelSettings.model === "weave-auto") modelSettings.model = claudeWeaveAutoModel;
   settings.attribution = { ...(settings.attribution || {}), ...claudeAttribution };
   writeJson(paths.config, settings);
   if (paths.localConfig) writeJson(paths.localConfig, localSettings);

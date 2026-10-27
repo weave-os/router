@@ -22,14 +22,14 @@ uninstall() {
   shift
   HOME="$home" PATH="$work/bin:$PATH" NO_COLOR=1 bash "$uninstaller" --claude "$@" </dev/null >"$work/output" 2>&1
 }
-picker_rows() { jq -c '[.modelPicker.options[]? | select(.model == "weave-auto")] | length' "$1"; }
+picker_rows() { jq -c '[.modelPicker.options[]? | select(.model == "weave-auto[1m]")] | length' "$1"; }
 
 fresh="$work/fresh"
 mkdir -p "$fresh/.claude"
 printf '%s\n' '{"modelPicker":{"options":[{"model":"my-model","label":"Mine"}]}}' >"$fresh/.claude/settings.json"
 settings="$fresh/.claude/settings.json"
 run "$fresh" --scope user
-test "$(jq -r '.model' "$settings")" = weave-auto
+test "$(jq -r '.model' "$settings")" = 'weave-auto[1m]'
 test "$(jq -r '.modelPicker.options[0].label' "$settings")" = "Weave Auto"
 test "$(jq -r '.modelPicker.options[1].model' "$settings")" = my-model
 jq -r '.env.ANTHROPIC_CUSTOM_HEADERS' "$settings" | grep -qx 'X-Weave-Model-Passthrough: 1'
@@ -41,12 +41,20 @@ run "$fresh" off --scope user
 test "$(jq -r '.model // "unset"' "$settings")" = unset
 test "$(picker_rows "$settings")" = 0
 run "$fresh" on --scope user
-test "$(jq -r '.model' "$settings")" = weave-auto
+test "$(jq -r '.model' "$settings")" = 'weave-auto[1m]'
 test "$(picker_rows "$settings")" = 1
 
 uninstall "$fresh" --scope user
 test "$(jq -r '.model // "unset"' "$settings")" = unset
 test "$(jq -c '.modelPicker' "$settings")" = '{"options":[{"model":"my-model","label":"Mine"}]}'
+
+# A plain weave-auto (picked before the 1M default) moves to the [1m] row.
+legacy="$work/legacy"
+mkdir -p "$legacy/.claude"
+printf '%s\n' '{"model":"weave-auto","modelPicker":{"options":[{"model":"weave-auto"}]},"env":{"ANTHROPIC_CUSTOM_HEADERS":"X-Weave-Model-Passthrough: 1"}}' >"$legacy/.claude/settings.json"
+run "$legacy" --scope user
+test "$(jq -r '.model' "$legacy/.claude/settings.json")" = 'weave-auto[1m]'
+test "$(jq -c '[.modelPicker.options[].model]' "$legacy/.claude/settings.json")" = '["weave-auto[1m]"]'
 
 # A model saved before passthrough was always routed, so the first passthrough
 # install moves it to Weave Auto. After that a model the user picks stays.
@@ -54,7 +62,7 @@ chosen="$work/chosen"
 mkdir -p "$chosen/.claude"
 printf '%s\n' '{"model":"opus","env":{"ANTHROPIC_MODEL":"opus"}}' >"$chosen/.claude/settings.json"
 run "$chosen" --scope user
-test "$(jq -r '.model' "$chosen/.claude/settings.json")" = weave-auto
+test "$(jq -r '.model' "$chosen/.claude/settings.json")" = 'weave-auto[1m]'
 test "$(jq -r '.env.ANTHROPIC_MODEL // "unset"' "$chosen/.claude/settings.json")" = unset
 test "$(picker_rows "$chosen/.claude/settings.json")" = 1
 jq '.model = "opus"' "$chosen/.claude/settings.json" >"$work/picked" && mv "$work/picked" "$chosen/.claude/settings.json"
@@ -72,12 +80,12 @@ mkdir -p "$project_home" "$project"
 git -C "$project" init -q
 (cd "$project" && run "$project_home" --scope project)
 test "$(jq -r '.model // "unset"' "$project/.claude/settings.json")" = unset
-test "$(jq -r '.model' "$project/.claude/settings.local.json")" = weave-auto
+test "$(jq -r '.model' "$project/.claude/settings.local.json")" = 'weave-auto[1m]'
 test "$(picker_rows "$project/.claude/settings.local.json")" = 1
 (cd "$project" && run "$project_home" off --scope project)
 test "$(jq -r '.model // "unset"' "$project/.claude/settings.local.json")" = unset
 (cd "$project" && run "$project_home" on --scope project)
-test "$(jq -r '.model' "$project/.claude/settings.local.json")" = weave-auto
+test "$(jq -r '.model' "$project/.claude/settings.local.json")" = 'weave-auto[1m]'
 (cd "$project" && uninstall "$project_home" --scope project)
 test "$(jq -r '.model // "unset"' "$project/.claude/settings.local.json")" = unset
 test "$(picker_rows "$project/.claude/settings.local.json")" = 0

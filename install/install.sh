@@ -2761,16 +2761,17 @@ gitignore_add() {
   fi
 }
 
-# Claude Code sends a picker model ID verbatim; the router routes only
-# weave-auto and serves every other model as-is (X-Weave-Model-Passthrough).
-CLAUDE_WEAVE_AUTO_OPTION='{"model":"weave-auto","label":"Weave Auto","description":"Weave picks the best model for each turn","behavesAs":"claude-opus-5-5"}'
+# Claude Code sends a picker model ID verbatim (minus [1m], which it turns into
+# the 1M-context beta); the router routes only weave-auto and serves every other
+# model as-is (X-Weave-Model-Passthrough).
+CLAUDE_WEAVE_AUTO_OPTION='{"model":"weave-auto[1m]","label":"Weave Auto","description":"Weave picks the best model for each turn","behavesAs":"claude-opus-5-5"}'
 # shellcheck disable=SC2016 # jq variables, expanded by jq.
-CLAUDE_WEAVE_AUTO_ADD_JQ='.modelPicker = ((.modelPicker // {}) | .options = ([$option] + ((.options // []) | map(select(.model != "weave-auto")))))
-  | (if $set_model == "force" then .model = "weave-auto" | (if (.env | type) == "object" then .env |= del(.ANTHROPIC_MODEL) else . end)
-     elif $set_model == "true" and (has("model") | not) then .model = "weave-auto" else . end)'
-CLAUDE_WEAVE_AUTO_STRIP_JQ='(if .model == "weave-auto" then del(.model) else . end)
+CLAUDE_WEAVE_AUTO_ADD_JQ='.modelPicker = ((.modelPicker // {}) | .options = ([$option] + ((.options // []) | map(select(.model != "weave-auto" and .model != "weave-auto[1m]")))))
+  | (if $set_model == "force" then .model = $option.model | (if (.env | type) == "object" then .env |= del(.ANTHROPIC_MODEL) else . end)
+     elif ($set_model == "true" and (has("model") | not)) or .model == "weave-auto" then .model = $option.model else . end)'
+CLAUDE_WEAVE_AUTO_STRIP_JQ='(if (.model == "weave-auto" or .model == "weave-auto[1m]") then del(.model) else . end)
   | (if (.modelPicker | type) == "object" then
-      .modelPicker.options = ((.modelPicker.options // []) | map(select(.model != "weave-auto")))
+      .modelPicker.options = ((.modelPicker.options // []) | map(select(.model != "weave-auto" and .model != "weave-auto[1m]")))
       | (if (.modelPicker.options | length) == 0 then del(.modelPicker.options) else . end)
       | (if (.modelPicker | length) == 0 then del(.modelPicker) else . end)
     else . end)'
@@ -2945,7 +2946,7 @@ toggle_claude() {
         # base URL to Anthropic in the local file only — committed settings.json
         # is never touched, so this stays out of `git diff`.
         if [ -f "$local_settings_file" ]; then
-          jq '{env: (.env // {}), weave_auto_selected: (.model == "weave-auto")}' "$local_settings_file" >"$parked"
+          jq '{env: (.env // {}), weave_auto_selected: (.model == "weave-auto" or .model == "weave-auto[1m]")}' "$local_settings_file" >"$parked"
           merged="$(jq '.env = ((.env // {} | del(.ANTHROPIC_CUSTOM_HEADERS)) + {ANTHROPIC_BASE_URL: "https://api.anthropic.com"}) | '"$CLAUDE_WEAVE_AUTO_STRIP_JQ" "$local_settings_file")"
         else
           printf '{"env":{}}\n' >"$parked"
@@ -2957,7 +2958,7 @@ toggle_claude() {
       else
         # Park just the router-owned env keys, then strip them so Claude Code
         # falls back to its own Anthropic login.
-        jq '{env: ((.env // {}) | {ANTHROPIC_BASE_URL, ANTHROPIC_CUSTOM_HEADERS, ENABLE_TOOL_SEARCH} | with_entries(select(.value != null))), weave_auto_selected: (.model == "weave-auto")}' "$settings_file" >"$parked"
+        jq '{env: ((.env // {}) | {ANTHROPIC_BASE_URL, ANTHROPIC_CUSTOM_HEADERS, ENABLE_TOOL_SEARCH} | with_entries(select(.value != null))), weave_auto_selected: (.model == "weave-auto" or .model == "weave-auto[1m]")}' "$settings_file" >"$parked"
         chmod 600 "$parked"
         merged="$(jq '(.env // {}) |= del(.ANTHROPIC_BASE_URL, .ANTHROPIC_CUSTOM_HEADERS, .ENABLE_TOOL_SEARCH)
                       | (if (.env // {} | length) == 0 then del(.env) else . end) | '"$CLAUDE_WEAVE_AUTO_STRIP_JQ" "$settings_file")"
