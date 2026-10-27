@@ -4496,8 +4496,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
 	muteSlowStartFor(ctx, routeRes)
+	fundingCtx := ctx
+	if CredentialsFromContext(fundingCtx) == nil {
+		fundingCtx = cacheCredentialCtx
+	}
 	notice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, decision.Model, marker)
-	notice = addRoutingFundingSource(ctx, decision.Provider, decision.Model, notice)
+	notice = addRoutingFundingSource(fundingCtx, decision.Provider, decision.Model, notice)
 	marker = notice.Text
 	// toolValidator compiles the request's tool schemas once (LRU-cached);
 	// translators validate/repair model tool calls against it. Nil if no tools.
@@ -4540,8 +4544,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// buildAttempt dispatches by translation family so new OpenAI-compat
 	// providers route automatically; a closure so in-turn model failover can
 	// re-emit for a candidate in a different family.
-	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string) (dispatchAttempt, error) {
+	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
 		targetNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, target.Model, targetMarker)
+		targetNotice = addRoutingFundingSource(fundingCtx, target.Provider, target.Model, targetNotice)
 		switch providers.FamilyFor(target.Provider) {
 		case providers.FamilyAnthropic:
 			prep, emitErr := env.PrepareAnthropic(r.Header, targetOpts)
@@ -4809,7 +4814,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			return nil, fmt.Errorf("%w: %s (no translation path defined for inbound Anthropic Messages)", ErrProviderNotConfigured, target.Provider)
 		}
 	}
-	attempt, attemptBuildErr := buildAttempt(decision, opts, marker)
+	attempt, attemptBuildErr := buildAttempt(decision, opts, marker, fundingCtx)
 	// An intrinsically-incompatible build error means the routed model provably
 	// can't serve this shape — let it fall through to the baseline rescue below.
 	if attemptBuildErr != nil && !translate.IsIntrinsicallyIncompatible(attemptBuildErr) {
@@ -4958,7 +4963,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				alternativeEffort := s.resolveEffort(ctx, target, alternativeOpts.Capabilities, routeRes.EscalateEffort)
 				alternativeEffort.apply(&alternativeOpts)
 				alternativeMarker := subscriptionTargetMarker(ctx, r.Header, routeRes, primaryDecision, target, pickedMarker)
-				return buildAttempt(target, alternativeOpts, alternativeMarker)
+				alternativeCtx := s.resolveCredentials(ctx, target.Provider, target.Model, r.Header)
+				return buildAttempt(target, alternativeOpts, alternativeMarker, alternativeCtx)
 			},
 			onAlternative: func(target router.Decision) {
 				overloadedModel := decision.Model
@@ -5103,7 +5109,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			effortServed = baselineEffort
 			baselineBindings := s.resolveBindingsForDispatch(baselineCtx, baselineDecision)
 			baselineMarker := withRescueDetail(suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, baselineRoutingMarkerFor(routeRes, baselineModel), baselineModel, markerReasonBaseline)), lastFailureDetail(attemptTraceFromContext(ctx)))
-			baselineAttempt := anthropicTierAttemptFor(baselineOpts, baselinePrep, routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, baselineOpts.TargetModel, baselineMarker)).attempt(recordFastServed)
+			baselineNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, baselineOpts.TargetModel, baselineMarker)
+			baselineNotice = addRoutingFundingSource(baselineCtx, providers.ProviderAnthropic, baselineOpts.TargetModel, baselineNotice)
+			baselineAttempt := anthropicTierAttemptFor(baselineOpts, baselinePrep, baselineNotice).attempt(recordFastServed)
 			fastServed = baselineOpts.FastMode
 			crossFormat = false
 			respSummary = translate.ResponseSummary{}
@@ -5178,7 +5186,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 				"model", decision.Model,
 				"err", proxyErr,
 				"upstream_status", upstreamStatus(proxyErr))
-			subAttempt := anthropicTierAttemptFor(subOpts, subPrep, routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, subOpts.TargetModel, marker)).attempt(recordFastServed)
+			subNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, subOpts.TargetModel, marker)
+			subNotice = addRoutingFundingSource(subCtx, providers.ProviderAnthropic, subOpts.TargetModel, subNotice)
+			subAttempt := anthropicTierAttemptFor(subOpts, subPrep, subNotice).attempt(recordFastServed)
 			fastServed = subOpts.FastMode
 			crossFormat = false
 			respSummary = translate.ResponseSummary{}
@@ -5261,7 +5271,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			siblingOpts.FastMode = fastModeForAttempt(siblingCtx, siblingDecision.Model, siblingDecision.Provider)
 			siblingBindings := s.resolveBindingsForDispatch(siblingCtx, siblingDecision)
 			siblingMarker := withRescueDetail(siblingMarkerFor(ctx, r.Header, routeRes, decision.Model, siblingDecision.Model), lastFailureDetail(attemptTraceFromContext(ctx)))
-			siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker)
+			siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker, siblingCtx)
 			if siblingBuildErr != nil {
 				log.Error("Sibling failover: preparing the candidate request failed; trying the next candidate",
 					"err", siblingBuildErr,
@@ -7506,8 +7516,12 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
 	muteSlowStartFor(ctx, routeRes)
+	fundingCtx := ctx
+	if CredentialsFromContext(fundingCtx) == nil {
+		fundingCtx = cacheCredentialCtx
+	}
 	notice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderCodex, decision.Model, marker)
-	notice = addRoutingFundingSource(cacheCredentialCtx, decision.Provider, decision.Model, notice)
+	notice = addRoutingFundingSource(fundingCtx, decision.Provider, decision.Model, notice)
 	marker = notice.Text
 
 	// gpt-5.6 applies its own effort on chat/completions, so a /v1/responses
@@ -7656,10 +7670,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// Dispatch keys off the provider's translation family, not a hardcoded name
 	// list, so a new OpenAI-compat provider routes here as soon as it has a
 	// ProviderFamilies entry (see internal/providers/provider.go).
-	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string) (dispatchAttempt, error) {
+	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string, fundingCtx context.Context) (dispatchAttempt, error) {
 		targetNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderCodex, target.Model, targetMarker)
-		targetFundingContext := resolveAndInjectCredentials(ctx, target.Provider, target.Model, r.Header)
-		targetNotice = addRoutingFundingSource(targetFundingContext, target.Provider, target.Model, targetNotice)
+		targetNotice = addRoutingFundingSource(fundingCtx, target.Provider, target.Model, targetNotice)
 		if rw, ok := w.(*translate.ResponsesWriter); ok {
 			rw.SetRoutedModel(target.Model)
 			if targetMarker != "" && (!verbatimPassthrough || supportsResponsesTerminalSurfaces(clientID.ClientApp)) {
@@ -8054,7 +8067,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		}
 	}
 
-	attempt, attemptBuildErr := buildAttempt(decision, opts, marker)
+	attempt, attemptBuildErr := buildAttempt(decision, opts, marker, fundingCtx)
 	if attemptBuildErr != nil {
 		finishInferenceSpan(inferenceSpan, decision, decision.Provider, -1, attemptBuildErr)
 		return attemptBuildErr
@@ -8178,7 +8191,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			alternativeEffort := s.resolveEffort(ctx, target, alternativeOpts.Capabilities, routeRes.EscalateEffort)
 			alternativeEffort.apply(&alternativeOpts)
 			alternativeMarker := subscriptionTargetMarker(ctx, r.Header, routeRes, primaryDecision, target, pickedMarker)
-			return buildAttempt(target, alternativeOpts, alternativeMarker)
+			alternativeCtx := s.resolveCredentials(ctx, target.Provider, target.Model, r.Header)
+			return buildAttempt(target, alternativeOpts, alternativeMarker, alternativeCtx)
 		},
 		onAlternative: func(target router.Decision) {
 			overloadedModel := decision.Model
@@ -8256,7 +8270,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderOpenAI, decision.Model, r.Header)
 		subOpts := opts
 		subOpts.FastMode = fastModeForAttempt(subCtx, decision.Model, providers.ProviderOpenAI)
-		subAttempt, subBuildErr := buildAttempt(decision, subOpts, marker)
+		subAttempt, subBuildErr := buildAttempt(decision, subOpts, marker, subCtx)
 		subBindings := s.resolveBindingsForDispatch(subCtx, decision)
 		switch {
 		case subBuildErr != nil:
@@ -8302,7 +8316,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		subCtx = resolveAndInjectCredentials(subCtx, providers.ProviderAnthropic, decision.Model, r.Header)
 		subOpts := opts
 		subOpts.FastMode = fastModeForAttempt(subCtx, decision.Model, providers.ProviderAnthropic)
-		subAttempt, subBuildErr := buildAttempt(decision, subOpts, marker)
+		subAttempt, subBuildErr := buildAttempt(decision, subOpts, marker, subCtx)
 		subBindings := s.resolveBindingsForDispatch(subCtx, decision)
 		switch {
 		case subBuildErr != nil:
@@ -8360,7 +8374,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		retryOpts.FastMode = fastModeForAttempt(retryCtx, cyberRetryTarget.Model, cyberRetryTarget.Provider)
 		retryBindings := s.resolveBindingsForDispatch(retryCtx, cyberRetryTarget)
 		retryMarker := withRescueDetail(suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, cyberRefusalRoutingMarkerFor(routeRes, cyberRetryTarget.Model), cyberRetryTarget.Model, markerReasonCyberRefusal)), lastFailureDetail(attemptTraceFromContext(ctx)))
-		retryAttempt, retryBuildErr := buildAttempt(cyberRetryTarget, retryOpts, retryMarker)
+		retryAttempt, retryBuildErr := buildAttempt(cyberRetryTarget, retryOpts, retryMarker, retryCtx)
 		rw, responsesIngress := w.(*translate.ResponsesWriter)
 		switch {
 		case retryBuildErr != nil:
@@ -8465,7 +8479,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				verbatimPassthrough = false
 				responsesPassthrough = false
 			}
-			siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker)
+			siblingAttempt, siblingBuildErr := buildAttempt(siblingDecision, siblingOpts, siblingMarker, siblingCtx)
 			if siblingBuildErr != nil {
 				log.Error("Sibling failover: preparing the candidate request failed; trying the next candidate",
 					"err", siblingBuildErr,

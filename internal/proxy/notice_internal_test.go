@@ -102,14 +102,36 @@ func TestAddRoutingFundingSource(t *testing.T) {
 			model:    "claude-opus-5",
 			want:     "funded by your provider API key",
 		},
+		{
+			name:     "unknown source",
+			ctx:      context.Background(),
+			provider: providers.ProviderOpenAI,
+			model:    "gpt-6-luna",
+			want:     "funded by funding source unavailable",
+		},
+		{
+			name: "paid retry replaces subscription source",
+			ctx: billing.WithPrepaidAuthorization(context.Background(), billing.PrepaidAuthorization{
+				CapacitySource: entitlement.CapacitySourcePrepaid,
+			}),
+			provider: providers.ProviderOpenAI,
+			model:    "gpt-6-luna",
+			want:     "funded by Weave credits",
+		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			notice := translate.NewRouterNotice(translate.NoticeModelSelection,
-				"✦ **Weave Router** → gpt-6-luna · best pick for this turn\n\n", "gpt-6-luna", "")
+			text := "✦ **Weave Router** → gpt-6-luna · best pick for this turn\n\n"
+			if test.name == "paid retry replaces subscription source" {
+				text = "✦ **Weave Router** → gpt-6-luna · best pick for this turn · funded by Claude subscription\n\n"
+			}
+			notice := translate.NewRouterNotice(translate.NoticeModelSelection, text, "gpt-6-luna", "")
 			got := addRoutingFundingSource(test.ctx, test.provider, test.model, notice)
 			assert.Contains(t, got.Text, test.want)
+			if test.name == "paid retry replaces subscription source" {
+				assert.NotContains(t, got.Text, "funded by Claude subscription")
+			}
 		})
 	}
 }

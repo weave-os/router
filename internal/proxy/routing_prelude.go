@@ -49,10 +49,6 @@ func addRoutingFundingSource(ctx context.Context, provider, model string, notice
 	if notice.Kind != translate.NoticeModelSelection || notice.Text == "" {
 		return notice
 	}
-	if strings.Contains(notice.Text, "funded by ") {
-		return notice
-	}
-
 	credentialSource := ""
 	if credentials := CredentialsFromContext(ctx); credentials != nil {
 		credentialSource = credentials.Source
@@ -80,10 +76,6 @@ func addRoutingFundingSource(ctx context.Context, provider, model string, notice
 	}
 
 	switch telemetryCapacitySource(ctx, credentialSource) {
-	case entitlement.CapacitySourceLinkedClaude:
-		return appendFundingSource(notice, "Claude subscription")
-	case entitlement.CapacitySourceLinkedCodex:
-		return appendFundingSource(notice, "Codex subscription")
 	case entitlement.CapacitySourcePrepaid:
 		return appendFundingSource(notice, "Weave credits")
 	case entitlement.CapacitySourceIncludedRouter:
@@ -91,18 +83,22 @@ func addRoutingFundingSource(ctx context.Context, provider, model string, notice
 	case entitlement.CapacitySourceBillingOverride:
 		return appendFundingSource(notice, "Weave-managed billing")
 	}
-	if credentialSource == "" {
-		return appendFundingSource(notice, "Weave credits")
-	}
 	return appendFundingSource(notice, "funding source unavailable")
 }
 
 func appendFundingSource(notice translate.RouterNotice, source string) translate.RouterNotice {
 	lineEnd := strings.IndexByte(notice.Text, '\n')
+	firstLine := notice.Text
+	if lineEnd >= 0 {
+		firstLine = notice.Text[:lineEnd]
+	}
+	if labelStart := strings.LastIndex(firstLine, " · funded by "); labelStart >= 0 {
+		firstLine = firstLine[:labelStart]
+	}
 	if lineEnd < 0 {
-		notice.Text += " · funded by " + source
+		notice.Text = firstLine + " · funded by " + source
 		return notice
 	}
-	notice.Text = notice.Text[:lineEnd] + " · funded by " + source + notice.Text[lineEnd:]
+	notice.Text = firstLine + " · funded by " + source + notice.Text[lineEnd:]
 	return notice
 }
