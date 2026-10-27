@@ -7234,8 +7234,10 @@ write_claude_settings() {
   # Before passthrough every model was routed, so a model saved back then was
   # never a pin. Move those installs (and new ones) to Weave Auto once; later
   # updates keep whatever the user picks.
+  # --context-window pins its own [1m] model, so it is never overridden.
   local weave_auto_rollout="true"
-  if claude_passthrough_installed "$context_settings_file" "$settings_file"; then
+  if [ -n "$context_window" ] || [ -f "$settings_dir/.weave-context-window.json" ] \
+    || claude_passthrough_installed "$context_settings_file" "$settings_file"; then
     weave_auto_rollout="false"
   fi
 

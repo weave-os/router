@@ -32,7 +32,9 @@ model() { jq -r '.model // "unset"' "$1"; }
 settings="$test_home/.claude/settings.json"
 state="$test_home/.claude/.weave-context-window.json"
 
-printf '%s\n' '{"model":"opus","statusLine":{"type":"command","command":"my-status"},"env":{"MY_SETTING":"keep"}}' >"$settings"
+# Seed an install that already went through the Weave Auto rollout, so the
+# saved model is the user's own pick.
+printf '%s\n' '{"model":"opus","statusLine":{"type":"command","command":"my-status"},"env":{"MY_SETTING":"keep","ANTHROPIC_CUSTOM_HEADERS":"X-Weave-Model-Passthrough: 1"}}' >"$settings"
 run
 test "$(model "$settings")" = opus
 test ! -e "$state"
