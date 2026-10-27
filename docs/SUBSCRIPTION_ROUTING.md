@@ -86,12 +86,20 @@ bindings, and auxiliary calls cannot erase those facts. A non-OAuth call is
 permitted only when no compatible authorized pool exists, or every account in
 that pool has positive included-quota exhaustion evidence with an unexpired reset.
 Presented direct subscriptions require the same proof. One exception is scoped
-to the turn: a buffered upstream 5xx on a plan attempt marks that pool as unable
-to serve the turn for a bounded cooldown, and paid rescue of the same turn (the
+to the turn: an eligible buffered upstream 5xx observed during plan inference
+marks that pool as unable to serve the turn for a bounded cooldown, and paid rescue of the same turn (the
 same model or a scored sibling) is admitted while the mark is live. The mark is
 not quota evidence and is never persisted to the account. Model compatibility is
 catalog-based; an unrelated provider's available subscription does not block an
-API-only model.
+API-only model. Rescue eligibility never overrides the final paid-credential
+funding guard: depleted credits and spend caps still prohibit paid dispatch.
+
+Quota-verification failures are not inference-capacity failures. Preflight
+timeouts, quota-endpoint errors, and unverifiable responses retain a shared typed
+cause even when normalized to a buffered 503. They never create a capacity mark
+or authorize paid rescue. Internal preflight timeouts remain retryable while the
+caller is live; caller cancellation remains nonretryable. Another included seat
+may serve, but uncertainty alone must surface an error rather than buy capacity.
 
 An enrollment-read error, lease contention, refresh/auth failure, model denial,
 third-party refusal, generic 429, transport failure, or spent admission budget

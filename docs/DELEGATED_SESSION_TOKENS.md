@@ -1,6 +1,8 @@
 # Delegated session tokens
 
-Experimental and off by default.
+Session token verification is always on. A deployment accepts an `rs_` token
+only when its signing key is registered as a session issuer, and the issuer
+endpoints require `ROUTER_INTERNAL_SERVICE_TOKEN`.
 
 A delegated session token lets a trusted service give each of its client
 sessions a short-lived router credential without minting a key row per
@@ -24,7 +26,7 @@ from provider JWTs and makes the upstream header scrubbers drop it.
 | `aud` | `weave-router` |
 | `https://weave.ai/issuer_id` | Required ID returned when registering the issuer; binds the token to that registration generation |
 | `sub` | Session ID |
-| `iat`, `exp` | Required; `exp - iat` is at most 24 hours |
+| `iat`, `exp` | Required; `exp - iat` is at most 2 hours; issuers refresh tokens for longer sessions |
 | `jti` | Optional token ID |
 | `https://weave.ai/task` | Optional task ID |
 | `https://weave.ai/caps` | Optional `{session_usd_micros, task_usd_micros}` |
@@ -59,8 +61,7 @@ worker cannot enforce or record their limits.
 ## Issuers
 
 The control plane registers and revokes issuers through the internal API, which
-is mounted only when `ROUTER_INTERNAL_SERVICE_TOKEN` is set and
-`ROUTER_SESSION_TOKENS_ENABLED=true`.
+is mounted only when `ROUTER_INTERNAL_SERVICE_TOKEN` is set.
 
 - `POST /internal/v1/session-issuers` with
   `{"installation_id", "name", "public_jwk"}` returns `{"issuer_id", "kid"}`.

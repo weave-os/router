@@ -107,8 +107,6 @@ type Service struct {
 	// var cannot be defeated by a stored per-org row.
 	flagOverridesDisabled bool
 
-	// sessionTokensEnabled gates rs_ session-token verification (ROUTER_SESSION_TOKENS_ENABLED).
-	sessionTokensEnabled bool
 	// delegatedSpendCapsEnabled is false when this worker cannot meter delegated caps.
 	delegatedSpendCapsEnabled bool
 

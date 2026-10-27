@@ -43,11 +43,14 @@ func TestRoutingModelSelectsPolicyAndPreservesRequest(t *testing.T) {
 		plan            entitlement.Plan
 		missingSnapshot bool
 		missingStrategy bool
+		missingPrimary  bool
+		unavailable     router.Strategy
 		status          int
 		want            router.Strategy
 	}{
 		{name: "default", model: string(router.ModelAutomatic), initial: router.StrategyHMMEmbedding, status: http.StatusOK, want: router.StrategyHMMEmbedding},
-		{name: "hmm", model: string(router.ModelHMM), available: true, status: http.StatusOK, want: router.StrategyHMMBeta},
+		{name: "hmm", model: string(router.ModelHMM), available: true, status: http.StatusOK, want: router.StrategyHMM},
+		{name: "hmm beta", model: string(router.ModelHMMBeta), available: true, status: http.StatusOK, want: router.StrategyHMMBeta},
 		{name: "hmm unavailable", model: string(router.ModelHMM), status: http.StatusServiceUnavailable},
 		{name: "qwen", model: string(router.ModelQwen), target: policyregistry.TargetInternal, available: true, status: http.StatusOK, want: router.StrategyHMMQwen},
 		{name: "qwen unavailable", model: string(router.ModelQwen), target: policyregistry.TargetInternal, status: http.StatusServiceUnavailable},
@@ -61,15 +64,21 @@ func TestRoutingModelSelectsPolicyAndPreservesRequest(t *testing.T) {
 		{name: "stable cannot select qwen", model: string(router.ModelQwen), available: true, target: policyregistry.TargetStable, status: http.StatusForbidden},
 		{name: "subscriber profile cannot select qwen", model: string(router.ModelQwen), available: true, target: policyregistry.TargetInternal, plan: entitlement.PlanMax, status: http.StatusForbidden},
 		{name: "internal boost profile selects qwen", model: string(router.ModelQwen), available: true, target: policyregistry.TargetInternal, plan: entitlement.PlanBoost, status: http.StatusOK, want: router.StrategyHMMQwen},
-		{name: "internal boost profile selects hmm", model: string(router.ModelHMM), initial: router.StrategyHMM, available: true, target: policyregistry.TargetInternal, plan: entitlement.PlanBoost, status: http.StatusOK, want: router.StrategyHMMBeta},
+		{name: "internal boost profile selects hmm", model: string(router.ModelHMM), initial: router.StrategyHMMEmbedding, available: true, target: policyregistry.TargetInternal, plan: entitlement.PlanBoost, status: http.StatusOK, want: router.StrategyHMM},
 		{name: "stable boost profile cannot select qwen", model: string(router.ModelQwen), available: true, target: policyregistry.TargetStable, plan: entitlement.PlanBoost, status: http.StatusForbidden},
-		{name: "internal hmm", model: string(router.ModelHMM), initial: router.StrategyHMMEmbedding, available: true, target: policyregistry.TargetInternal, status: http.StatusOK, want: router.StrategyHMMBeta},
-		{name: "hmm missing from admitted release", model: string(router.ModelHMM), available: true, target: policyregistry.TargetInternal, missingStrategy: true, status: http.StatusServiceUnavailable},
-		{name: "qwen missing from admitted release", model: string(router.ModelQwen), available: true, target: policyregistry.TargetInternal, missingStrategy: true, status: http.StatusServiceUnavailable},
+		{name: "internal hmm", model: string(router.ModelHMM), initial: router.StrategyHMMEmbedding, available: true, target: policyregistry.TargetInternal, status: http.StatusOK, want: router.StrategyHMM},
+		{name: "internal hmm beta", model: string(router.ModelHMMBeta), initial: router.StrategyHMMEmbedding, available: true, target: policyregistry.TargetInternal, status: http.StatusOK, want: router.StrategyHMMBeta},
+		{name: "hmm beta falls back to primary when absent from admitted release", model: string(router.ModelHMMBeta), available: true, target: policyregistry.TargetInternal, missingStrategy: true, status: http.StatusOK, want: router.StrategyHMM},
+		{name: "stable cannot select hmm beta", model: string(router.ModelHMMBeta), available: true, target: policyregistry.TargetStable, status: http.StatusForbidden},
+		{name: "hmm serves the primary classifier when the release has no beta variant", model: string(router.ModelHMM), available: true, target: policyregistry.TargetInternal, missingStrategy: true, status: http.StatusOK, want: router.StrategyHMM},
+		{name: "qwen falls back to primary when absent from admitted release", model: string(router.ModelQwen), available: true, target: policyregistry.TargetInternal, missingStrategy: true, status: http.StatusOK, want: router.StrategyHMM},
+		{name: "hmm is unavailable without a primary classifier", model: string(router.ModelHMM), available: true, target: policyregistry.TargetInternal, missingPrimary: true, status: http.StatusServiceUnavailable},
+		{name: "qwen fallback requires a primary classifier", model: string(router.ModelQwen), available: true, target: policyregistry.TargetInternal, missingStrategy: true, missingPrimary: true, status: http.StatusServiceUnavailable},
 		{name: "bootstrap readiness cannot admit qwen", model: string(router.ModelQwen), available: true, target: policyregistry.TargetInternal, missingSnapshot: true, status: http.StatusServiceUnavailable},
 		{name: "decision_model", model: string(router.ModelDecision), target: policyregistry.TargetInternal, available: true, status: http.StatusOK, want: router.StrategyDecisionModel},
 		{name: "decision model does not need an admitted snapshot policy", model: string(router.ModelDecision), target: policyregistry.TargetInternal, available: true, missingStrategy: true, status: http.StatusOK, want: router.StrategyDecisionModel},
-		{name: "decision model unavailable without judge credential", model: string(router.ModelDecision), target: policyregistry.TargetInternal, status: http.StatusServiceUnavailable},
+		{name: "decision model unavailable without judge credential or primary", model: string(router.ModelDecision), target: policyregistry.TargetInternal, status: http.StatusServiceUnavailable},
+		{name: "decision model falls back to primary without judge credential", model: string(router.ModelDecision), target: policyregistry.TargetInternal, available: true, unavailable: router.StrategyDecisionModel, status: http.StatusOK, want: router.StrategyHMM},
 		{name: "self-hosted decision model needs no admission", model: string(router.ModelDecision), available: true, status: http.StatusOK, want: router.StrategyDecisionModel},
 		{name: "managed decision model requires internal admission", model: string(router.ModelDecision), target: policyregistry.TargetStable, available: true, status: http.StatusForbidden},
 		{name: "subscriber profile cannot select decision model", model: string(router.ModelDecision), available: true, target: policyregistry.TargetInternal, plan: entitlement.PlanMax, status: http.StatusForbidden},
@@ -80,8 +89,8 @@ func TestRoutingModelSelectsPolicyAndPreservesRequest(t *testing.T) {
 			engine := gin.New()
 			body := `{"model":"` + tc.model + `","messages":[{"role":"user","content":"hello"}]}`
 			engine.POST("/v1/messages", middleware.WithClassifierThread(&proxy.Service{}, func(strategy router.Strategy) bool {
-				require.Contains(t, []router.Strategy{router.StrategyHMMBeta, router.StrategyHMMQwen, router.StrategyDecisionModel}, strategy)
-				return tc.available
+				require.Contains(t, []router.Strategy{router.StrategyHMM, router.StrategyHMMBeta, router.StrategyHMMQwen, router.StrategyDecisionModel}, strategy)
+				return tc.available && strategy != tc.unavailable
 			}), func(c *gin.Context) {
 				require.Equal(t, tc.want, router.StrategyFromContext(c.Request.Context()))
 				retained, err := io.ReadAll(c.Request.Body)
@@ -99,7 +108,10 @@ func TestRoutingModelSelectsPolicyAndPreservesRequest(t *testing.T) {
 				identity := requestcontext.ServingIdentity{Target: string(tc.target), ReleaseID: "reviewed-release", BindingID: "reviewed-binding", CredentialIdentity: "test-principal", Plan: string(tc.plan)}
 				ctx = requestcontext.WithServingIdentity(ctx, identity)
 				if !tc.missingSnapshot {
-					snapshot := &policyregistry.Snapshot{Routers: map[router.Strategy]router.Router{router.StrategyHMM: routingModelTestRouter{}}}
+					snapshot := &policyregistry.Snapshot{Routers: map[router.Strategy]router.Router{}}
+					if !tc.missingPrimary {
+						snapshot.Routers[router.StrategyHMM] = routingModelTestRouter{}
+					}
 					if !tc.missingStrategy {
 						snapshot.Routers[router.StrategyHMMBeta] = routingModelTestRouter{}
 						snapshot.Routers[router.StrategyHMMQwen] = routingModelTestRouter{}
