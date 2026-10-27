@@ -4484,7 +4484,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	sink = toolUseObs
 	// Above the prelude buffer, so a withheld response leaves the turn
 	// uncommitted and still re-servable; see earlyStopGate.
-	earlyStop := newEarlyStopGate(sink)
+	earlyStop := newEarlyStopGate(sink, log)
 	sink = earlyStop
 	preludeBuf.onDiscard = earlyStop.resetAttempt
 	// Attached per attempt directly above the upstream writer, so a stream

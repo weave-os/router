@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -20,7 +21,7 @@ const earlyStopStoppedStream = "event: message_start\ndata: {\"type\":\"message_
 
 func TestEarlyStopGate_WithholdsAStopSplitAcrossWrites(t *testing.T) {
 	rec := httptest.NewRecorder()
-	g := newEarlyStopGate(rec)
+	g := newEarlyStopGate(rec, slog.Default())
 	g.observe(true)
 	for i := 0; i < len(earlyStopStoppedStream); i += 7 {
 		end := min(i+7, len(earlyStopStoppedStream))
@@ -36,7 +37,7 @@ func TestEarlyStopGate_WithholdsAStopSplitAcrossWrites(t *testing.T) {
 
 func TestEarlyStopGate_ReleasesAtFirstToolUse(t *testing.T) {
 	rec := httptest.NewRecorder()
-	g := newEarlyStopGate(rec)
+	g := newEarlyStopGate(rec, slog.Default())
 	g.observe(true)
 	_, _ = g.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\"}\n\n"))
 	assert.Empty(t, rec.Body.String())
@@ -49,7 +50,7 @@ func TestEarlyStopGate_ReleasesAtFirstToolUse(t *testing.T) {
 
 func TestEarlyStopGate_ReleasesAfterHoldMaxWithoutAnotherWrite(t *testing.T) {
 	rec := newSyncRecorder()
-	g := newEarlyStopGate(rec)
+	g := newEarlyStopGate(rec, slog.Default())
 	g.holdMax = 10 * time.Millisecond
 	g.observe(true)
 	_, _ = g.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\"}\n\n"))
@@ -61,7 +62,7 @@ func TestEarlyStopGate_ReleasesAfterHoldMaxWithoutAnotherWrite(t *testing.T) {
 
 func TestEarlyStopGate_ShadowPassesThrough(t *testing.T) {
 	rec := httptest.NewRecorder()
-	g := newEarlyStopGate(rec)
+	g := newEarlyStopGate(rec, slog.Default())
 	g.observe(false)
 	_, _ = g.Write([]byte(earlyStopStoppedStream))
 	assert.Equal(t, earlyStopStoppedStream, rec.Body.String())
@@ -71,7 +72,7 @@ func TestEarlyStopGate_ShadowPassesThrough(t *testing.T) {
 
 func TestEarlyStopGate_DiscardStartsTheNextAttemptClean(t *testing.T) {
 	rec := httptest.NewRecorder()
-	g := newEarlyStopGate(rec)
+	g := newEarlyStopGate(rec, slog.Default())
 	g.observe(true)
 	_, _ = g.Write([]byte(earlyStopStoppedStream))
 	g.resetAttempt()

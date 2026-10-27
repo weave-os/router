@@ -57,6 +57,8 @@ type earlyStopGate struct {
 	mu      sync.Mutex
 	holdMax time.Duration
 	timer   *time.Timer
+	// log is the request logger; the hold timer has no ctx of its own.
+	log *slog.Logger
 	// active turns classification on; armed additionally withholds.
 	active  bool
 	armed   bool
@@ -75,8 +77,8 @@ type earlyStopGate struct {
 	releaseCause string
 }
 
-func newEarlyStopGate(inner http.ResponseWriter) *earlyStopGate {
-	return &earlyStopGate{inner: inner, body: inner, holdMax: earlyStopHoldMax}
+func newEarlyStopGate(inner http.ResponseWriter, log *slog.Logger) *earlyStopGate {
+	return &earlyStopGate{inner: inner, body: inner, holdMax: earlyStopHoldMax, log: log}
 }
 
 // observe starts classifying the stream; withhold additionally holds it back.
@@ -190,7 +192,9 @@ func (g *earlyStopGate) releaseOnTimeout() {
 		return
 	}
 	g.releaseCause = "hold_timeout"
-	_ = g.release()
+	if err := g.release(); err != nil {
+		g.log.Warn("Early-stop gate failed to release a withheld turn on timeout", "err", err)
+	}
 }
 
 func (g *earlyStopGate) Flush() {
