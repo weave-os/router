@@ -286,6 +286,9 @@ type turnLoopResult struct {
 	// clientInputTokenScale) and is extended after the turn by
 	// recordTokenizerObservation.
 	TokenizerCalibration sessionpin.TokenizerCalibration
+	// ContextEstimate is the request's body-size token estimate
+	// (ContextOverflowTokenEstimate), recorded with each tokenizer observation.
+	ContextEstimate int
 	// StripThinkingBlocks forces signature removal when switch history is unavailable.
 	StripThinkingBlocks bool
 	// Handover captures the summarize-or-trim step when the planner switched.
@@ -316,6 +319,9 @@ type turnLoopResult struct {
 	// stream failure. Stashed on ctx so the in-turn rescue walk honors the
 	// exclusion too, not just this turn's scorer.
 	SessionDemotedModels []string
+	// ObservedOverflowModels are models the thread's billed usage says this
+	// request overflows. Stashed on ctx so in-turn rescues skip them too.
+	ObservedOverflowModels []string
 	// SessionCooldownModels are the rate-limit cooldowns still in force
 	// (model → expiry). Also listed in SessionDemotedModels; kept apart so
 	// the in-turn rescue can readmit them when honouring them would leave no
@@ -843,6 +849,7 @@ func (s *Service) runTurnLoop(
 		req.InstallationID = installationID.String()
 	}
 	res = turnLoopResult{
+		ContextEstimate:     env.ContextOverflowTokenEstimate(),
 		InstallationID:      installationID,
 		Strategy:            router.StrategyFromContext(ctx),
 		TurnType:            turntype.Detect(env, feats, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))),
@@ -1368,6 +1375,7 @@ func (s *Service) runTurnLoop(
 		}
 	}
 	res.applySwitchHistory(pin, hmmHistory, forceHistory)
+	req, res.ObservedOverflowModels = s.excludeObservedOverflowModels(ctx, req, res, max(contextWindowOutputReserve, feats.MaxTokens))
 	req.PolicyTurnContext = buildPolicyTurnContext(req, res, pin, hmmHistory)
 	// Computed before any same-turn pin-drop guards below so it reflects the
 	// prior turn's outcome; Service.effortEscalation gates whether it's acted on.
@@ -1629,8 +1637,11 @@ func (s *Service) runTurnLoop(
 			if modelStripsAnthropicSignatures(pin.Model) {
 				pinTokenEstimate -= env.SignatureTokenSavings()
 			}
+			if projected, ok := res.TokenizerCalibration.ProjectedPrompt(tokenizerFamilyFor(pin.Provider), res.ContextEstimate); ok && projected > pinTokenEstimate {
+				pinTokenEstimate = projected
+			}
 			needed := pinTokenEstimate + outputReserveForPin
-			modelCW := contextWindowForRequest(pin.Model, pin.Provider)
+			modelCW := gatewayContextWindow(cortexGatewayProvidersForRequest(ctx), pin.Model, pin.Provider)
 			if needed > modelCW {
 				log.Info("Session pin excluded by context-window pre-filter; falling through to scorer",
 					"pin_model", pin.Model,
@@ -2297,6 +2308,8 @@ func (s *Service) runTurnLoop(
 					log.Warn("Handover summarizer returned empty summary; preserved full history instead", "pin_model", pin.Model, "fresh_model", fresh.Model)
 				default:
 					handover.RewriteEnvelope(env, summary)
+					// The observation must pair billed usage with the body actually sent.
+					res.ContextEstimate = env.ContextOverflowTokenEstimate()
 					res.Handover.SummaryTokens = estimateSummaryTokens(summary)
 					res.Handover.SummaryUsage = summaryUsage
 				}
