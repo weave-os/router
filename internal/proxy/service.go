@@ -5025,6 +5025,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	earlyStopRedone := false
 	if earlyStopMode != flags.EarlyStopRedoOff {
 		stopped := proxyErr == nil && earlyStop.earlyStop()
+		if !stopped && earlyStop.releaseCause != "" {
+			log.Debug("Early-stop gate released the turn", "release_cause", earlyStop.releaseCause, "served_model", decision.Model)
+		}
 		if stopped {
 			log.Info("Tool-result turn ended without a tool call below the top candidate tier",
 				"served_model", decision.Model,
