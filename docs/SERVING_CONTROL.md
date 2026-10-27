@@ -155,13 +155,17 @@ the policy must share its schema and ordered taxonomy. Routing and model discove
 use that policy only for the requested strategy, preserving the default policy.
 
 Clients can select an automatic router with the request `model` IDs
-`weave-auto`, `weave-hmm-20261019-0001v1`, and
-`weave-qwen-20261008-0001v2`. `weave-auto` uses the configured default;
-the other IDs select the corresponding classifier variant and its pinned roster
-within the admitted release. Managed variant selection requires internal
-organization admission without a subscriber plan. A missing variant returns 503;
-the worker never substitutes another classifier or changes the admitted release.
-Both variants use the existing classifier sidecar.
+`weave-auto`, `weave-hmm-20261019-0001v1`, `weave-hmm-beta`,
+`weave-qwen-20261008-0001v2`, and `weave-decision-model-20261019-0001v1`.
+`weave-auto` uses the configured default. `weave-hmm-20261019-0001v1` always
+selects the release's primary HMM classifier, which every managed release
+serves. The other IDs select the corresponding classifier variant and its pinned
+roster within the admitted release; when the admitted release (or, for the
+decision model, the worker) no longer provides a variant, the request is served
+by the primary HMM classifier of the same admitted release instead. The worker
+never changes the admitted release. Managed variant selection requires internal
+organization admission without a subscriber plan. Classifier variants use the
+existing classifier sidecar.
 
 `GET /v1/router/models?scope=selection` lists these IDs and upstream model IDs
 with a description and a `kind` of `router` or `direct`. Explicit router IDs take

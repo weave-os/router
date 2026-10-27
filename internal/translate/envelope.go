@@ -1494,6 +1494,7 @@ var modelMaxOutputTokens = map[string]int{
 	"deepseek/deepseek-v4.1-flash":     131072,
 	"deepseek/deepseek-v4-pro":         131072,
 	"deepseek/deepseek-v4-pro-0813":    131072,
+	"minimax/minimax-m3.1-flash":       131072,
 	"minimax/minimax-m3":               131072, // 512K context, output up to the window
 	"minimax/minimax-m2.7":             65536,
 	"z-ai/glm-5":                       65536,

@@ -85,18 +85,17 @@ func (f sessionIssuerFixture) sign(t *testing.T, claims *auth.SessionClaims, mut
 	return auth.SessionTokenPrefix + "_" + signed
 }
 
-func (f sessionIssuerFixture) service(t *testing.T, enabled bool) (*auth.Service, *fakeAPIKeyRepository) {
+func (f sessionIssuerFixture) service(t *testing.T) (*auth.Service, *fakeAPIKeyRepository) {
 	t.Helper()
 	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{f.apiKey.KeyHash: {apiKey: f.apiKey, installation: f.inst}}}
 	svc := auth.NewService(&fakeInstallationRepository{}, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return sessionClock }).
-		WithSessionTokens(enabled).
 		WithSessionSpendCaps(true)
 	return svc, repo
 }
 
 func TestVerifySessionToken_AuthenticatesAsIssuer(t *testing.T) {
 	f := newSessionIssuerFixture(t)
-	svc, _ := f.service(t, true)
+	svc, _ := f.service(t)
 
 	inst, key, _, _, session, err := svc.VerifySessionToken(context.Background(), f.sign(t, f.claims(), nil), true)
 
@@ -164,9 +163,9 @@ func TestVerifySessionToken_RejectsInvalidTokens(t *testing.T) {
 			c.ExpiresAt = jwt.NewNumericDate(sessionClock.Add(-time.Hour))
 			return f.sign(t, c, nil)
 		},
-		"lifetime over the maximum": func(t *testing.T) string {
+		"lifetime over two hours": func(t *testing.T) string {
 			c := f.claims()
-			c.ExpiresAt = jwt.NewNumericDate(c.IssuedAt.Add(auth.SessionTokenMaxLifetime + time.Minute))
+			c.ExpiresAt = jwt.NewNumericDate(c.IssuedAt.Add(2*time.Hour + time.Second))
 			return f.sign(t, c, nil)
 		},
 		"missing subject": func(t *testing.T) string {
@@ -237,16 +236,27 @@ func TestVerifySessionToken_RejectsInvalidTokens(t *testing.T) {
 	}
 	for name, build := range cases {
 		t.Run(name, func(t *testing.T) {
-			svc, _ := f.service(t, true)
+			svc, _ := f.service(t)
 			_, _, _, _, _, err := svc.VerifySessionToken(context.Background(), build(t), true)
 			require.ErrorIs(t, err, auth.ErrInvalidToken)
 		})
 	}
 }
 
+func TestVerifySessionToken_AcceptsTwoHourLifetime(t *testing.T) {
+	f := newSessionIssuerFixture(t)
+	svc, _ := f.service(t)
+	c := f.claims()
+	c.ExpiresAt = jwt.NewNumericDate(c.IssuedAt.Add(2 * time.Hour))
+
+	_, _, _, _, _, err := svc.VerifySessionToken(context.Background(), f.sign(t, c, nil), true)
+
+	require.NoError(t, err)
+}
+
 func TestVerifySessionToken_CarriesCaps(t *testing.T) {
 	f := newSessionIssuerFixture(t)
-	svc, _ := f.service(t, true)
+	svc, _ := f.service(t)
 	sessionCap, taskCap := int64(2_000_000), int64(9_000_000)
 	c := f.claims()
 	c.Caps = &auth.SessionCaps{SessionUSDMicros: &sessionCap, TaskUSDMicros: &taskCap}
@@ -260,18 +270,9 @@ func TestVerifySessionToken_CarriesCaps(t *testing.T) {
 	assert.Equal(t, taskCap, *session.TaskCapMicros)
 }
 
-func TestVerifySessionToken_DisabledRejectsValidToken(t *testing.T) {
-	f := newSessionIssuerFixture(t)
-	svc, _ := f.service(t, false)
-
-	_, _, _, _, _, err := svc.VerifySessionToken(context.Background(), f.sign(t, f.claims(), nil), true)
-
-	require.ErrorIs(t, err, auth.ErrInvalidToken)
-}
-
 func TestVerifySessionToken_RejectsCapsWhenBillingIsUnavailable(t *testing.T) {
 	f := newSessionIssuerFixture(t)
-	svc, _ := f.service(t, true)
+	svc, _ := f.service(t)
 	svc.WithSessionSpendCaps(false)
 	capMicros := int64(100)
 	claims := f.claims()
@@ -284,7 +285,7 @@ func TestVerifySessionToken_RejectsCapsWhenBillingIsUnavailable(t *testing.T) {
 
 func TestVerifySessionToken_RevokedIssuerRejectsOutstandingTokens(t *testing.T) {
 	f := newSessionIssuerFixture(t)
-	svc, repo := f.service(t, true)
+	svc, repo := f.service(t)
 	token := f.sign(t, f.claims(), nil)
 	_, _, _, _, _, err := svc.VerifySessionToken(context.Background(), token, true)
 	require.NoError(t, err)
@@ -305,7 +306,7 @@ func TestVerifySessionToken_RevokedIssuerRejectsOutstandingTokens(t *testing.T) 
 func TestVerifySessionToken_RoutingKeyStoredUnderKidIsNotAnIssuer(t *testing.T) {
 	f := newSessionIssuerFixture(t)
 	f.apiKey.Scope = auth.ScopeRouting
-	svc, _ := f.service(t, true)
+	svc, _ := f.service(t)
 
 	_, _, _, _, _, err := svc.VerifySessionToken(context.Background(), f.sign(t, f.claims(), nil), true)
 
@@ -314,7 +315,7 @@ func TestVerifySessionToken_RoutingKeyStoredUnderKidIsNotAnIssuer(t *testing.T) 
 
 func TestVerifySessionToken_LookupFailureIsNotAnAuthRejection(t *testing.T) {
 	f := newSessionIssuerFixture(t)
-	svc, repo := f.service(t, true)
+	svc, repo := f.service(t)
 	repo.override = sql.ErrConnDone
 
 	_, _, _, _, _, err := svc.VerifySessionToken(context.Background(), f.sign(t, f.claims(), nil), true)
@@ -326,7 +327,7 @@ func TestVerifySessionToken_IssuerRegisteredAfterAMissAuthenticatesImmediately(t
 	f := newSessionIssuerFixture(t)
 	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}}
 	cache := auth.NewLRUAPIKeyCache(100, 100, 5*time.Minute, time.Minute)
-	svc := auth.NewService(&fakeInstallationRepository{}, repo, nil, nil, cache, nil, func() time.Time { return sessionClock }).WithSessionTokens(true)
+	svc := auth.NewService(&fakeInstallationRepository{}, repo, nil, nil, cache, nil, func() time.Time { return sessionClock })
 	token := f.sign(t, f.claims(), nil)
 
 	_, _, _, _, _, err := svc.VerifySessionToken(context.Background(), token, true)
@@ -355,7 +356,7 @@ func TestVerifySessionToken_ManySessionsShareOneIssuerLookup(t *testing.T) {
 	f := newSessionIssuerFixture(t)
 	repo := &countingKeyRepo{fakeAPIKeyRepository: &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{f.apiKey.KeyHash: {apiKey: f.apiKey, installation: f.inst}}}}
 	cache := auth.NewLRUAPIKeyCache(100, 100, 5*time.Minute, time.Minute)
-	svc := auth.NewService(&fakeInstallationRepository{}, repo, nil, nil, cache, nil, func() time.Time { return sessionClock }).WithSessionTokens(true)
+	svc := auth.NewService(&fakeInstallationRepository{}, repo, nil, nil, cache, nil, func() time.Time { return sessionClock })
 
 	for i := range 500 {
 		c := f.claims()
@@ -369,7 +370,7 @@ func TestVerifySessionToken_ManySessionsShareOneIssuerLookup(t *testing.T) {
 
 func TestVerifyAPIKey_RejectsSessionTokenAndIssuerAsBearer(t *testing.T) {
 	f := newSessionIssuerFixture(t)
-	svc, _ := f.service(t, true)
+	svc, _ := f.service(t)
 
 	_, _, _, _, err := svc.VerifyAPIKey(context.Background(), f.sign(t, f.claims(), nil))
 	require.ErrorIs(t, err, auth.ErrInvalidToken)

@@ -123,7 +123,7 @@ func (s *Service) handleBetaCommand(
 	inputTokens int,
 ) error {
 	if _, selected := router.RoutingModelFromContext(ctx); selected {
-		return writeBetaCommandResponse(w, env, fmt.Sprintf("Select a router with `wv router set-model %s`, `wv router set-model %s`, `wv router set-model %s`, or `wv router set-model %s`, then start a new session.", router.ModelHMM, router.ModelQwen, router.ModelDecision, router.ModelAutomatic), inputTokens)
+		return writeBetaCommandResponse(w, env, fmt.Sprintf("Select a router with `wv router set-model %s`, `wv router set-model %s`, `wv router set-model %s`, `wv router set-model %s`, or `wv router set-model %s`, then start a new session.", router.ModelHMM, router.ModelHMMBeta, router.ModelQwen, router.ModelDecision, router.ModelAutomatic), inputTokens)
 	}
 	strategy := cmd.Strategy
 	enabledMessage, disabledMessage, usageMessage, unavailableMessage := betaEnabledMessage, betaDisabledMessage, betaUsageMessage, betaUnavailable

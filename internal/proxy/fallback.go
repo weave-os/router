@@ -40,6 +40,9 @@ type preludeBuffer struct {
 	sealed         bool
 	preludeSent    bool
 	committed      atomic.Bool
+	// onDiscard lets a writer holding output above this buffer drop it with
+	// the failed attempt, so a retry never appends to a stale response.
+	onDiscard func()
 }
 
 func newPreludeBuffer(w http.ResponseWriter) *preludeBuffer {
@@ -132,6 +135,9 @@ func (b *preludeBuffer) Committed() bool { return b.committed.Load() }
 func (b *preludeBuffer) Discard() {
 	if b.committed.Load() {
 		return
+	}
+	if b.onDiscard != nil {
+		b.onDiscard()
 	}
 	b.bufStatus = 0
 	b.bufBody.Reset()

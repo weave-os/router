@@ -64,6 +64,14 @@ func TestCodexIncludedQuotaPreflight(t *testing.T) {
 				var upstream *providers.UpstreamErrorResponse
 				require.ErrorAs(t, err, &upstream)
 				require.Equal(t, tc.status, upstream.Status)
+				var unavailable *providers.QuotaVerificationUnavailableError
+				if tc.status == http.StatusServiceUnavailable && tc.name != "model_specific_exhaustion" {
+					require.ErrorAs(t, err, &unavailable)
+					require.Equal(t, providers.QuotaVerificationFailureInvalidResponse, unavailable.Failure)
+					require.Equal(t, http.StatusOK, unavailable.UpstreamStatus)
+				} else {
+					require.False(t, errors.As(err, &unavailable))
+				}
 				if tc.status == http.StatusTooManyRequests {
 					require.Contains(t, string(upstream.Body), "Codex included quota is exhausted.")
 				}
@@ -126,9 +134,15 @@ func TestCodexQuotaPreflightPreservesAuthRejection(t *testing.T) {
 			require.ErrorAs(t, err, &upstream)
 			if status == http.StatusNotFound {
 				require.Equal(t, 503, upstream.Status)
+				var unavailable *providers.QuotaVerificationUnavailableError
+				require.ErrorAs(t, err, &unavailable)
+				require.Equal(t, providers.QuotaVerificationFailureEndpoint, unavailable.Failure)
+				require.Equal(t, status, unavailable.UpstreamStatus)
 			} else {
 				require.Equal(t, status, upstream.Status)
 				require.Contains(t, string(upstream.Body), "Reconnect")
+				var unavailable *providers.QuotaVerificationUnavailableError
+				require.False(t, errors.As(err, &unavailable))
 			}
 			require.NotContains(t, string(upstream.Body), "private upstream response")
 			require.Zero(t, inferenceCalls.Load())
@@ -160,6 +174,15 @@ func TestCodexQuotaEndpointUnavailableNeverInfers(t *testing.T) {
 			require.ErrorAs(t, err, &upstream)
 			require.Equal(t, 503, upstream.Status)
 			require.True(t, providers.IsRetryable(err))
+			var unavailable *providers.QuotaVerificationUnavailableError
+			require.ErrorAs(t, err, &unavailable)
+			if timeout {
+				require.Equal(t, providers.QuotaVerificationFailureTimeout, unavailable.Failure)
+				require.Zero(t, unavailable.UpstreamStatus)
+			} else {
+				require.Equal(t, providers.QuotaVerificationFailureEndpoint, unavailable.Failure)
+				require.Equal(t, http.StatusBadGateway, unavailable.UpstreamStatus)
+			}
 			require.Zero(t, inferenceCalls.Load())
 			if timeout {
 				require.GreaterOrEqual(t, time.Since(started), 2800*time.Millisecond)
@@ -167,6 +190,115 @@ func TestCodexQuotaEndpointUnavailableNeverInfers(t *testing.T) {
 			}
 		})
 	}
+}
+
+type quotaReadFailure struct {
+	err    error
+	cancel context.CancelFunc
+}
+
+func (body quotaReadFailure) Read([]byte) (int, error) {
+	if body.cancel != nil {
+		body.cancel()
+	}
+	return 0, body.err
+}
+
+func (quotaReadFailure) Close() error { return nil }
+
+func TestCodexQuotaVerificationFailureClassification(t *testing.T) {
+	for _, fixture := range []struct {
+		name           string
+		transportErr   error
+		readErr        error
+		status         int
+		body           string
+		failure        providers.QuotaVerificationFailure
+		upstreamStatus int
+	}{
+		{name: "transport", transportErr: io.ErrUnexpectedEOF, failure: providers.QuotaVerificationFailureTransport},
+		{name: "internal timeout", transportErr: context.DeadlineExceeded, failure: providers.QuotaVerificationFailureTimeout},
+		{name: "endpoint 504", status: http.StatusGatewayTimeout, body: "private upstream body", failure: providers.QuotaVerificationFailureEndpoint, upstreamStatus: http.StatusGatewayTimeout},
+		{name: "endpoint 429", status: http.StatusTooManyRequests, failure: providers.QuotaVerificationFailureEndpoint, upstreamStatus: http.StatusTooManyRequests},
+		{name: "read failure", status: http.StatusOK, readErr: io.ErrUnexpectedEOF, failure: providers.QuotaVerificationFailureTransport, upstreamStatus: http.StatusOK},
+		{name: "body timeout", status: http.StatusOK, readErr: context.DeadlineExceeded, failure: providers.QuotaVerificationFailureTimeout, upstreamStatus: http.StatusOK},
+		{name: "invalid JSON", status: http.StatusOK, body: "private upstream body", failure: providers.QuotaVerificationFailureInvalidResponse, upstreamStatus: http.StatusOK},
+		{name: "invalid model quota", status: http.StatusOK, body: `{"plan_type":"pro","additional_rate_limits":[{"normal_model_slug":"gpt-6.1-sol","rate_limit":{"allowed":true}}]}`, failure: providers.QuotaVerificationFailureInvalidResponse, upstreamStatus: http.StatusOK},
+		{name: "invalid window", status: http.StatusOK, body: `{"rate_limit":{"allowed":true,"limit_reached":false,"primary_window":{"used_percent":101}}}`, failure: providers.QuotaVerificationFailureInvalidResponse, upstreamStatus: http.StatusOK},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			client := NewClient("synthetic-paid-key", "")
+			inferenceCalls := 0
+			client.http = &http.Client{Transport: creditsRoundTripper(func(req *http.Request) (*http.Response, error) {
+				if req.URL.Path != "/backend-api/wham/usage" {
+					inferenceCalls++
+					return creditsResponse(http.StatusOK, "unexpected inference"), nil
+				}
+				if fixture.transportErr != nil {
+					return nil, fixture.transportErr
+				}
+				response := creditsResponse(fixture.status, fixture.body)
+				if fixture.readErr != nil {
+					response.Body = quotaReadFailure{err: fixture.readErr}
+				}
+				return response, nil
+			})}
+			err := creditsProxy(client, codexCtx("synthetic-token", "synthetic-account"))
+			var upstream *providers.UpstreamErrorResponse
+			require.ErrorAs(t, err, &upstream)
+			require.Equal(t, http.StatusServiceUnavailable, upstream.Status)
+			require.JSONEq(t, `{"error":{"type":"api_error","message":"Included Codex quota could not be verified."}}`, string(upstream.Body))
+			var unavailable *providers.QuotaVerificationUnavailableError
+			require.ErrorAs(t, errors.Join(errors.New("synthetic outer failure"), err), &unavailable)
+			require.Equal(t, fixture.failure, unavailable.Failure)
+			require.Equal(t, fixture.upstreamStatus, unavailable.UpstreamStatus)
+			require.NotContains(t, unavailable.Error(), "private upstream body")
+			require.False(t, errors.Is(err, context.DeadlineExceeded), "internal preflight timeout is not caller expiry")
+			require.True(t, providers.IsRetryable(err))
+			require.Zero(t, inferenceCalls)
+		})
+	}
+}
+
+func TestCodexQuotaRequestBuildFailureIsClassified(t *testing.T) {
+	client := NewClient("synthetic-paid-key", "")
+	client.SetCodexBaseURL(":invalid")
+	err := client.checkCodexIncludedQuota(context.Background(), "gpt-6.1-sol")
+	var unavailable *providers.QuotaVerificationUnavailableError
+	require.ErrorAs(t, err, &unavailable)
+	require.Equal(t, providers.QuotaVerificationFailureRequest, unavailable.Failure)
+	require.Zero(t, unavailable.UpstreamStatus)
+}
+
+func TestCodexQuotaParentCancellationIsNotRetryable(t *testing.T) {
+	for _, readingBody := range []bool{false, true} {
+		t.Run(map[bool]string{false: "transport", true: "body"}[readingBody], func(t *testing.T) {
+			ctx, cancel := context.WithCancel(codexCtx("synthetic-token", "synthetic-account"))
+			defer cancel()
+			client := NewClient("synthetic-paid-key", "")
+			client.http = &http.Client{Transport: creditsRoundTripper(func(*http.Request) (*http.Response, error) {
+				if !readingBody {
+					cancel()
+					return nil, context.Canceled
+				}
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: quotaReadFailure{err: context.Canceled, cancel: cancel}}, nil
+			})}
+			err := creditsProxy(client, ctx)
+			require.ErrorIs(t, err, context.Canceled)
+			require.False(t, providers.IsRetryable(err))
+			var unavailable *providers.QuotaVerificationUnavailableError
+			require.False(t, errors.As(err, &unavailable))
+		})
+	}
+	ctx, cancel := context.WithDeadline(codexCtx("synthetic-token", "synthetic-account"), time.Unix(1, 0))
+	defer cancel()
+	client := NewClient("synthetic-paid-key", "")
+	client.http = &http.Client{Transport: creditsRoundTripper(func(req *http.Request) (*http.Response, error) {
+		return nil, req.Context().Err()
+	})}
+	err := client.checkCodexIncludedQuota(ctx, "gpt-6.1-sol")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.False(t, providers.IsRetryable(err))
 }
 
 func TestCodexReachedTypeKeepsWindowReset(t *testing.T) {

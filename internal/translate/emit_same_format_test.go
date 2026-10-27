@@ -229,6 +229,42 @@ func TestOpenAISameFormat_ReasoningEffortKeptForReasoning(t *testing.T) {
 	assert.Equal(t, "high", out["reasoning_effort"])
 }
 
+// An always-on target 400s on a disabled effort, so "none" becomes its floor
+// level; a router-forced effort still wins.
+func TestOpenAISameFormat_DisabledEffortMapsToAlwaysOnFloor(t *testing.T) {
+	const model = "minimax/minimax-m3.1-flash"
+	body := []byte(`{"model":"minimax","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"none"}`)
+	for _, tc := range []struct {
+		name   string
+		forced string
+		want   string
+	}{
+		{name: "disabled maps to floor", want: "low"},
+		{name: "forced effort wins", forced: "high", want: "high"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := translate.EmitOptions{
+				TargetModel:          model,
+				TargetProvider:       providers.ProviderMiniMax,
+				Capabilities:         router.Lookup(model),
+				ForceReasoningEffort: tc.forced,
+			}
+			out := parseAndEmit(t, body, "openai", opts)
+			assert.Equal(t, tc.want, out["reasoning_effort"])
+		})
+	}
+}
+
+func TestOpenAISameFormat_DisabledEffortKeptWhenReasoningCanBeOff(t *testing.T) {
+	body := []byte(`{"model":"o3-mini","messages":[{"role":"user","content":"hi"}],"reasoning_effort":"none"}`)
+	opts := translate.EmitOptions{
+		TargetModel:  "o3-mini",
+		Capabilities: router.Lookup("o3-mini"),
+	}
+	out := parseAndEmit(t, body, "openai", opts)
+	assert.Equal(t, "none", out["reasoning_effort"])
+}
+
 func TestOpenAISameFormat_ReasoningEffortDeletedForGPT5OnChatCompletions(t *testing.T) {
 	body := []byte(`{
 		"model":"gpt-5.6-luna",
