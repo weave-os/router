@@ -88,6 +88,18 @@ test "$(jq -r '.model // "unset"' "$project/.claude/settings.local.json")" = uns
 test "$(jq -r '.model' "$project/.claude/settings.local.json")" = 'weave-auto[1m]'
 (cd "$project" && uninstall "$project_home" --scope project)
 test "$(jq -r '.model // "unset"' "$project/.claude/settings.local.json")" = unset
+
+# Project off must not expose a user-scope Weave Auto default to Anthropic.
+both_home="$work/both-home"
+both="$work/both"
+mkdir -p "$both_home" "$both"
+git -C "$both" init -q
+run "$both_home" --scope user
+(cd "$both" && run "$both_home" --scope project)
+(cd "$both" && run "$both_home" off --scope project)
+test "$(jq -r '.model' "$both/.claude/settings.local.json")" = opus
+(cd "$both" && run "$both_home" on --scope project)
+test "$(jq -r '.model' "$both/.claude/settings.local.json")" = 'weave-auto[1m]'
 test "$(picker_rows "$project/.claude/settings.local.json")" = 0
 
 echo "Claude Weave Auto installer regression tests passed"

@@ -2953,6 +2953,17 @@ toggle_claude() {
           merged='{"env":{"ANTHROPIC_BASE_URL":"https://api.anthropic.com"}}'
         fi
         printf '%s\n' "$merged" >"$local_settings_file"
+        # A Weave Auto default inherited from user scope would reach Anthropic
+        # directly, so pin a real model locally while off.
+        local inherited_model
+        inherited_model="$(json_get "$settings_file" '.model')"
+        [ -n "$inherited_model" ] || inherited_model="$(json_get "$HOME/.claude/settings.json" '.model')"
+        if [ -z "$(json_get "$local_settings_file" '.model')" ] && { [ "$inherited_model" = "weave-auto" ] || [ "$inherited_model" = "weave-auto[1m]" ]; }; then
+          merged="$(jq '.model = "opus"' "$local_settings_file")"
+          printf '%s\n' "$merged" >"$local_settings_file"
+          merged="$(jq '.off_pin = "opus"' "$parked")"
+          printf '%s\n' "$merged" >"$parked"
+        fi
         chmod 600 "$local_settings_file" "$parked"
         gitignore_add ".claude/.weave-parked.json"
       else
@@ -3028,6 +3039,12 @@ toggle_claude() {
       merged="$(jq --argjson p "$parked_env" '.env = (((.env // {}) | del(.ANTHROPIC_BASE_URL)) + $p)' "$active")"
       printf '%s\n' "$merged" >"$active"
       [ "$proj" = "true" ] && chmod 600 "$active"
+      local off_pin
+      off_pin="$(jq -r '.off_pin // empty' "$parked")"
+      if [ -n "$off_pin" ] && [ "$(json_get "$active" '.model')" = "$off_pin" ]; then
+        merged="$(jq 'del(.model)' "$active")"
+        printf '%s\n' "$merged" >"$active"
+      fi
       if [ "$(jq -r '.weave_auto_selected // false' "$parked")" = "true" ]; then
         apply_claude_weave_auto "$active" true
       else
