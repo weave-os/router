@@ -241,6 +241,7 @@ func main() {
 	// platform-key mode gated by balance checks. Self-hosted is never BYOK-only.
 	if billingSvc != nil {
 		billingSvc.WithInternalTestPrepaid(servingpostgres.NewInternalTestBook(pool))
+		billingSvc.WithDelegatedSpend(postgres.NewBillingRepo(pool))
 	}
 	byokOnly := deploymentMode == server.DeploymentModeManaged && billingSvc == nil
 
@@ -603,7 +604,8 @@ func main() {
 		WithRoutingPolicies(repo.RoutingPolicies, routingPolicyCache).
 		WithWIFTokenSource(buildWIFTokenSource(logger)).
 		WithEntraTokenSource(buildEntraTokenSource(logger)).
-		WithFlagOverridesDisabled(flagOverridesDisabled)
+		WithFlagOverridesDisabled(flagOverridesDisabled).
+		WithSessionSpendCaps(billingSvc != nil)
 	subscriptionPoolsEnabled := config.GetOr("ROUTER_SUBSCRIPTION_POOLS_ENABLED", "false") == "true"
 	var subscriptionRuntime *subscriptions.Runtime
 	if subscriptionPoolsEnabled {

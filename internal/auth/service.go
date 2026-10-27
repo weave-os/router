@@ -107,6 +107,9 @@ type Service struct {
 	// var cannot be defeated by a stored per-org row.
 	flagOverridesDisabled bool
 
+	// delegatedSpendCapsEnabled is false when this worker cannot meter delegated caps.
+	delegatedSpendCapsEnabled bool
+
 	// adminPassword and adminSessionKey are empty when admin login is disabled.
 	adminPassword   string
 	adminSessionKey []byte
@@ -349,7 +352,7 @@ func (s *Service) IssueAPIKey(ctx context.Context, installationID string, name *
 // returns the raw token. The token prefix follows the scope, so the credential
 // advertises its own authority.
 func (s *Service) IssueScopedAPIKey(ctx context.Context, installationID string, scope APIKeyScope, name *string, createdBy *string) (*APIKey, string, error) {
-	if !scope.Valid() {
+	if !scope.UserIssuable() {
 		return nil, "", fmt.Errorf("%w: %q", ErrInvalidKeyScope, scope)
 	}
 	scope = scope.Normalized()
@@ -372,9 +375,20 @@ func (s *Service) IssueScopedAPIKey(ctx context.Context, installationID string, 
 	return key, rawToken, nil
 }
 
-// ListAPIKeys returns all active API keys for an installation.
+// ListAPIKeys returns the installation's active user-facing API keys. Session
+// issuers are internal and never listed.
 func (s *Service) ListAPIKeys(ctx context.Context, installationID string) ([]*APIKey, error) {
-	return s.apiKeys.ListForInstallation(ctx, installationID)
+	keys, err := s.apiKeys.ListForInstallation(ctx, installationID)
+	if err != nil {
+		return nil, err
+	}
+	visible := keys[:0]
+	for _, key := range keys {
+		if key.Scope.UserIssuable() {
+			visible = append(visible, key)
+		}
+	}
+	return visible, nil
 }
 
 // RotateAPIKey soft-deletes the named key and issues a replacement under the
@@ -394,7 +408,7 @@ func (s *Service) RotateAPIKey(ctx context.Context, installationID, keyID string
 			break
 		}
 	}
-	if target == nil {
+	if target == nil || !target.Scope.UserIssuable() {
 		return nil, "", ErrAPIKeyNotFound
 	}
 	if target.CredentialSubjectID != "" {
@@ -823,6 +837,10 @@ func (s *Service) VerifyPlatformAPIKey(ctx context.Context, rawToken string) (*I
 func (s *Service) verifyAPIKey(ctx context.Context, rawToken string, includeUpstreamKeys bool) (*Installation, *APIKey, []*ExternalAPIKey, []ClusterModelList, error) {
 	if !HasAPIKeyPrefix(rawToken) {
 		return nil, nil, nil, nil, ErrInvalidPrefix
+	}
+	if IsSessionToken(rawToken) {
+		// Session tokens verify through VerifySessionToken; never as a hashed bearer.
+		return nil, nil, nil, nil, ErrInvalidToken
 	}
 
 	keyHash := HashAPIKeySHA256(rawToken)

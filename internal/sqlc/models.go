@@ -149,6 +149,14 @@ type RouterCredentialSubjectInstallation struct {
 	AccessEnabled  bool
 }
 
+type RouterDelegatedTokenSpend struct {
+	IssuerKeyID    uuid.UUID
+	ScopeKind      string
+	ScopeID        string
+	SpentUsdMicros int64
+	UpdatedAt      pgtype.Timestamptz
+}
+
 type RouterEscalationCheckpoint struct {
 	Scope      []byte
 	Boundary   []byte
@@ -345,13 +353,15 @@ type RouterModelRouterAPIKey struct {
 	CreatedBy         *string
 	SpendCapUsdMicros *int64
 	SpentUsdMicros    int64
-	// routing = rk_ data-plane key (can proxy and spend); analytics_read = ra_ export key (read-only, non-billable)
+	// routing = rk_ data-plane key (can proxy and spend); analytics_read = ra_ export key (read-only, non-billable); session_issuer = public key that signs rs_ session JWTs (never a bearer)
 	Scope               string
 	CredentialSubjectID pgtype.UUID
 	// Optional onboarding harness id (claude_code, codex, opencode, pi). Null for keys minted outside harness onboarding.
 	Harness                           *string
 	SharedSubscriptionAccess          bool
 	PaidFallbackOnSubscriptionRefusal bool
+	// Ed25519 public key (RFC 8037 OKP JWK: kty, crv, x) of a session_issuer row; NULL for every other scope
+	PublicJwk []byte
 }
 
 // Customer-owned provider API keys for BYOK routing

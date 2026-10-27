@@ -254,6 +254,8 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 			internalGroup.DELETE("/test-plans/launches/:id", admin.InternalTestPlanRevokeHandler(features.TestPlans))
 		}
 		internalGroup.POST("/provider-keys/models", admin.InternalListUpstreamModelsHandler(authSvc, proxySvc))
+		internalGroup.POST("/session-issuers", admin.InternalRegisterSessionIssuerHandler(authSvc))
+		internalGroup.DELETE("/session-issuers/:installationID/:kid", admin.InternalRevokeSessionIssuerHandler(authSvc))
 		if authSvc.SubscriptionAccountsEnabled() {
 			internalGroup.GET("/subscription-accounts/:subscriberID", admin.InternalListSubscriptionAccountsHandler(authSvc))
 			internalGroup.PATCH("/subscription-accounts/:subscriberID/:accountID", admin.InternalUpdateSubscriptionAccountHandler(authSvc))
@@ -352,6 +354,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 			middleware.WithBillingSpan(),
 			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
 			middleware.WithAPIKeySpendCap(billingSvc),
+			middleware.WithDelegatedSpendCap(billingSvc),
 			middleware.WithOrgMonthlySpendCap(billingSvc),
 			middleware.WithBillingSpanEnd(),
 		)
@@ -383,6 +386,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 			middleware.WithBillingSpan(),
 			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
 			middleware.WithAPIKeySpendCap(billingSvc),
+			middleware.WithDelegatedSpendCap(billingSvc),
 			middleware.WithOrgMonthlySpendCap(billingSvc),
 			middleware.WithBillingSpanEnd(),
 		)
@@ -443,6 +447,7 @@ func RegisterWithFeatures(engine *gin.Engine, authSvc *auth.Service, proxySvc *p
 			middleware.WithBillingSpan(),
 			middleware.WithBalanceCheck(billingSvc, billing.MinBalanceMicros),
 			middleware.WithAPIKeySpendCap(billingSvc),
+			middleware.WithDelegatedSpendCap(billingSvc),
 			middleware.WithOrgMonthlySpendCap(billingSvc),
 			middleware.WithBillingSpanEnd(),
 		)

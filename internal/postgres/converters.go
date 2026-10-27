@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"crypto/ed25519"
 	"slices"
 	"time"
 
@@ -122,7 +123,22 @@ func toAuthAPIKey(row sqlc.RouterModelRouterAPIKey) *auth.APIKey {
 		DeletedAt:                         timestampPtr(row.DeletedAt),
 		CreatedBy:                         row.CreatedBy,
 		PaidFallbackOnSubscriptionRefusal: row.PaidFallbackOnSubscriptionRefusal,
+		IssuerPublicKey:                   issuerPublicKey(row),
 	}
+}
+
+// issuerPublicKey decodes a session issuer's stored JWK. The column is written
+// only from a validated key; a row that fails to decode yields nil, which the
+// verifier rejects as an unknown issuer.
+func issuerPublicKey(row sqlc.RouterModelRouterAPIKey) ed25519.PublicKey {
+	if auth.APIKeyScope(row.Scope) != auth.ScopeSessionIssuer || len(row.PublicJwk) == 0 {
+		return nil
+	}
+	key, _, _, err := auth.ParseSessionIssuerJWK(row.PublicJwk)
+	if err != nil {
+		return nil
+	}
+	return key
 }
 
 func timestampOrZero(t pgtype.Timestamp) time.Time {

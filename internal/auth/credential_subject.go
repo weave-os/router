@@ -41,3 +41,16 @@ func ValidateCredentialSubject(key APIKey, subject *CredentialSubject) error {
 	}
 	return nil
 }
+
+// ValidateServingCredential is ValidateCredentialSubject for serving admission, which
+// also admits a session issuer. An issuer row is stored under jwk:<kid>, which no
+// bearer hashes to, so it reaches admission only through a verified session token.
+func ValidateServingCredential(key APIKey, subject *CredentialSubject) error {
+	if key.Scope == ScopeSessionIssuer {
+		if key.CredentialSubjectID != "" || subject != nil {
+			return ErrPersonalCredentialRequired
+		}
+		return nil
+	}
+	return ValidateCredentialSubject(key, subject)
+}
