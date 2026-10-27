@@ -813,6 +813,17 @@ var Models = []Model{
 			Price: Pricing{InputUSDPer1M: 0.300, OutputUSDPer1M: 1.200}},
 		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.279, OutputUSDPer1M: 1.200, CacheReadMultiplier: 0.10}},
 	}},
+	// 1,000,000 is the smallest served window (MiniMax direct); Fireworks and
+	// Together serve ~1,048,576. Always reasons: thinking disabled is a 400.
+	{ID: "minimax/minimax-m3.1-flash", Source: SourceOpenSource, Tier: TierHigh, ContextWindow: 1_000_000, Providers: []ProviderBinding{
+		{Provider: providers.ProviderFireworks, UpstreamID: "accounts/fireworks/models/minimax-m3p1-flash",
+			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.600, CacheReadMultiplier: 0.015 / 0.150}},
+		{Provider: providers.ProviderTogether, UpstreamID: "MiniMaxAI/MiniMax-M3.1-Flash",
+			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.600, CacheReadMultiplier: 0.015 / 0.150}},
+		{Provider: providers.ProviderMiniMax, UpstreamID: "MiniMax-M3.1-Flash",
+			Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.600, CacheReadMultiplier: 0.015 / 0.150}},
+		{Provider: providers.ProviderOpenRouter, Price: Pricing{InputUSDPer1M: 0.150, OutputUSDPer1M: 0.600, CacheReadMultiplier: 0.10}},
+	}},
 	// The direct endpoint serves 1M context, but fallback endpoints can be limited
 	// to 512K, so the model-level window stays conservative. Unlike m2.7 it accepts
 	// images, so ImageInput stays default.
