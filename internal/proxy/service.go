@@ -610,6 +610,10 @@ type InstallationUsageBypassContextKey struct{}
 // subscription credentials are excluded before dispatch.
 type InstallationSubscriptionRoutingDisabledContextKey struct{}
 
+// InstallationPickedModelSubscriptionContextKey carries the installation's
+// opt-in (bool) to serve client-selected models on the caller's subscription.
+type InstallationPickedModelSubscriptionContextKey struct{}
+
 // InstallationHideTerminalSurfacesContextKey is the context key for the
 // installation's hide-terminal-surfaces toggle (bool; absent == false);
 // suppresses the routing marker, feedback footer, and feedback-link header.
@@ -1097,8 +1101,17 @@ func (s *Service) routableUniverse() map[string]struct{} {
 // subscriptionRoutingDisabledForRequest reports whether the authed installation
 // has turned off subscription serving for this request.
 func subscriptionRoutingDisabledForRequest(ctx context.Context) bool {
-	disabled, _ := ctx.Value(InstallationSubscriptionRoutingDisabledContextKey{}).(bool)
-	return disabled
+	if disabled, _ := ctx.Value(InstallationSubscriptionRoutingDisabledContextKey{}).(bool); disabled {
+		return true
+	}
+	return pickedModelSubscriptionWithheld(ctx)
+}
+
+// pickedModelSubscriptionWithheld reports a client-selected model that bills
+// Weave credits because the installation has not opted it into subscriptions.
+func pickedModelSubscriptionWithheld(ctx context.Context) bool {
+	enabled, _ := ctx.Value(InstallationPickedModelSubscriptionContextKey{}).(bool)
+	return auth.ClientModelPassthroughFrom(ctx) && !enabled
 }
 
 // subscriptionFundingOutOfPlayForRequest reports that Max product scope never

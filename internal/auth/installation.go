@@ -73,6 +73,10 @@ type Installation struct {
 	// subscription token exactly as before, so the prepaid billing path is
 	// unchanged. Defaults false -- preserves today's behavior.
 	SubscriptionRoutingDisabled bool
+	// PickedModelSubscriptionEnabled lets a client-selected model (served as-is)
+	// use the caller's Claude/ChatGPT subscription. Defaults false: picked models
+	// bill Weave credits.
+	PickedModelSubscriptionEnabled bool
 	// RoutingStrategy is the canonical strategy selected for this installation.
 	// Existing installations default to the cluster scorer until allowlisted.
 	RoutingStrategy router.Strategy

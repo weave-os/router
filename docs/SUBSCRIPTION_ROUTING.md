@@ -43,6 +43,11 @@ original history is preserved; if a compaction summary is rejected, the already
 compacted body remains unchanged. Committed streams are never replayed, and
 terminal upstream failures are accounted as errors.
 
+A model the user picked in the client (sent with `X-Weave-Model-Passthrough: 1`
+and served as-is) bills Weave credits by default: neither the caller's own
+subscription bearer nor the managed pool serves it unless the installation sets
+`picked_model_subscription_enabled`. Routed requests are unaffected.
+
 Native OpenAI Codex and Anthropic adapters accept subscription OAuth credentials.
 Anthropic-compatible bearer gateways do not advertise native Claude subscription
 support.

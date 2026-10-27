@@ -16,6 +16,7 @@ import (
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
+	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
 )
 
@@ -230,4 +231,41 @@ func TestClientSelectedUnknownModelIsNotAttributedToPolicy(t *testing.T) {
 	var unknown *PassthroughModelUnknownError
 	require.ErrorAs(t, err, &unknown)
 	assert.False(t, unknown.RoutingPolicyPassthrough, "the client chose the model; no admin setting would fix it")
+}
+
+func TestPickedModelBillsWeaveCreditsUnlessSubscriptionOptedIn(t *testing.T) {
+	headers := http.Header{"Authorization": {"Bearer " + classifierTestSubToken}}
+	optedIn := func(ctx context.Context) context.Context {
+		return context.WithValue(ctx, InstallationPickedModelSubscriptionContextKey{}, true)
+	}
+	for _, tc := range []struct {
+		name             string
+		ctx              context.Context
+		wantSubscription bool
+	}{
+		{name: "routed request uses the caller's plan", ctx: context.Background(), wantSubscription: true},
+		{name: "picked model bills Weave credits by default", ctx: auth.WithClientModelPassthrough(context.Background())},
+		{name: "picked model uses the plan once the org opts in", ctx: optedIn(auth.WithClientModelPassthrough(context.Background())), wantSubscription: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			creds := CredentialsFromContext(resolveAndInjectCredentials(tc.ctx, providers.ProviderAnthropic, catalog.ModelIDClaudeSonnet46.String(), headers))
+
+			assert.Equal(t, tc.wantSubscription, creds != nil && creds.OAuth)
+		})
+	}
+}
+
+func TestPickedModelSkipsManagedSubscriptionPoolByDefault(t *testing.T) {
+	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "opaque-a", AccessToken: "token-a"}}}
+	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
+
+	_, _, managed, err := svc.leaseManagedSubscription(auth.WithClientModelPassthrough(managedSubscriptionTestContext()), providers.ProviderAnthropic, "claude-opus-4-8")
+	require.NoError(t, err)
+	assert.False(t, managed)
+
+	optedIn := context.WithValue(auth.WithClientModelPassthrough(managedSubscriptionTestContext()), InstallationPickedModelSubscriptionContextKey{}, true)
+	_, lease, managed, err := svc.leaseManagedSubscription(optedIn, providers.ProviderAnthropic, "claude-opus-4-8")
+	require.NoError(t, err)
+	assert.True(t, managed)
+	lease.Release()
 }
