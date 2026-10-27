@@ -466,14 +466,7 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 			selectionInput, escalationDecision, constrained = fallbackEscalation(req, slidingInput, resolved, escalationDecision)
 			pick, selectErr = r.selectEscalationArm(ctx, req, selectionInput, resolved, constrained)
 		}
-		// A sliding-threshold step is a preference: an empty step group serves the
-		// classifier's own ranking rather than failing the turn.
-		slidingStepped := slidingInput.ForcedGroup != originalSelectionInput.ForcedGroup
-		if selectErr != nil && !constrained && slidingStepped && errors.Is(selectErr, ErrNoEligibleArm) {
-			slidingStepped = false
-			pick, selectErr = r.selectEscalationArm(ctx, req, originalSelectionInput, resolved, false)
-		}
-		if slidingStepped && !constrained && pick.Group == slidingInput.ForcedGroup {
+		if slidingInput.LeadGroup != "" && !constrained && pick.Group == slidingInput.LeadGroup {
 			overrideReasonSuffix = ":sliding_threshold"
 		}
 		if selectErr != nil {

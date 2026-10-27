@@ -82,8 +82,10 @@ func fallbackEscalation(req router.Request, input SelectionInput, resolved Resol
 	return input, decision, false
 }
 
-// slidingThresholdGroupInput forces the step group when the sliding threshold
-// moves the session part of the way toward the classified group.
+// slidingThresholdGroupInput leads selection with the step group when the
+// sliding threshold moves the session part of the way toward the classified
+// group. The classifier's ranking stays behind it, so higher groups remain in
+// the fallback and rescue order.
 func slidingThresholdGroupInput(req router.Request, input SelectionInput) SelectionInput {
 	if req.SlidingThresholdPinGroup == "" || req.ForceCluster != "" || input.ForcedGroup != "" {
 		return input
@@ -100,7 +102,7 @@ func slidingThresholdGroupInput(req router.Request, input SelectionInput) Select
 	if _, classifiable := input.ClassProbabilities[string(target)]; !classifiable {
 		return input
 	}
-	input.ForcedGroup = string(target)
+	input.LeadGroup = string(target)
 	return input
 }
 
