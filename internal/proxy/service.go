@@ -2584,23 +2584,19 @@ func (s *Service) WithSubAgentOverride(provider, model string) *Service {
 	return s
 }
 
-// routingModelBaselines is what a client's Weave Auto stands in for: Claude
-// Code's picker row behaves as claude-opus-5-5, and Codex launches on the
-// first model of its bundled catalog.
-var routingModelBaselines = map[string]string{
-	ClientAppClaudeCode: "claude-opus-5-5",
-	ClientAppCodex:      "gpt-6.1-sol",
-}
-
 // clientRequestedModel resolves a routing model (weave-auto) to the native
 // model the client would otherwise be running, for the comparisons and
-// passthrough paths that need a concrete requested model.
+// passthrough paths that need a concrete requested model. Claude Code's picker
+// row behaves as claude-opus-5-5; Codex launches on its bundled catalog's first model.
 func clientRequestedModel(ctx context.Context, requested string) string {
 	if !router.IsRoutingModel(requested) {
 		return requested
 	}
-	if baseline, ok := routingModelBaselines[ClientIdentityFrom(ctx).ClientApp]; ok {
-		return baseline
+	switch ClientIdentityFrom(ctx).ClientApp {
+	case ClientAppClaudeCode:
+		return "claude-opus-5-5"
+	case ClientAppCodex:
+		return "gpt-6.1-sol"
 	}
 	return requested
 }
