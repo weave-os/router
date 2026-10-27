@@ -5061,7 +5061,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					redoCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, target.Provider), target.Model), target.Provider, target.Model, r.Header)
 					redoOpts.FastMode = fastModeForAttempt(redoCtx, target.Model, target.Provider)
 					redoMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, markerReasonEarlyStop, target.Model), target.Model, markerReasonEarlyStop))
-					redoAttempt, buildErr := buildAttempt(target, redoOpts, redoMarker)
+					redoAttempt, buildErr := buildAttempt(target, redoOpts, redoMarker, redoCtx)
 					return redoAttempt, s.resolveBindingsForDispatch(redoCtx, target), redoMarker, redoEffort, redoCtx, buildErr
 				},
 				dispatch: func(redoCtx context.Context, target router.Decision, redoBindings []catalog.ProviderBinding, redoAttempt dispatchAttempt) (int, error) {
