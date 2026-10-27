@@ -81,10 +81,9 @@ func TestAddRoutingFundingSource(t *testing.T) {
 			ctx: billing.WithPrepaidAuthorization(context.Background(), billing.PrepaidAuthorization{
 				CapacitySource: entitlement.CapacitySourcePrepaid,
 			}),
-			provider:  providers.ProviderOpenAI,
-			model:     "gpt-6-luna",
-			want:      "funded by Weave credits",
-			oldSource: "Claude subscription",
+			provider: providers.ProviderOpenAI,
+			model:    "gpt-6-luna",
+			want:     "funded by Weave credits",
 		},
 		{
 			name: "managed Claude subscription",
@@ -127,9 +126,10 @@ func TestAddRoutingFundingSource(t *testing.T) {
 			ctx: billing.WithPrepaidAuthorization(context.Background(), billing.PrepaidAuthorization{
 				CapacitySource: entitlement.CapacitySourcePrepaid,
 			}),
-			provider: providers.ProviderOpenAI,
-			model:    "gpt-6-luna",
-			want:     "funded by Weave credits",
+			provider:  providers.ProviderOpenAI,
+			model:     "gpt-6-luna",
+			want:      "funded by Weave credits",
+			oldSource: "Claude subscription",
 		},
 	}
 
