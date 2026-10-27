@@ -163,6 +163,10 @@ var (
 	museSpark = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh"}, SupportsBudget: true, AlwaysOn: true}, CapReasoning, CapXhighEffort)
 )
 
+// MiniMax M3.1 Flash always reasons (disable is a 400), so AlwaysOn maps a
+// disable to the floor level.
+var minimaxM31Flash = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high", "xhigh", "max"}, AlwaysOn: true}, CapReasoning, CapXhighEffort)
+
 // Gemini's OpenAI-compatible endpoint does not honor reasoning_effort or
 // Anthropic thinking fields, so the base spec strips both.
 var googleBase = NewSpecWithReasoning(ReasoningCapabilities{Levels: []string{"low", "medium", "high"}, SupportsBudget: true})
@@ -298,6 +302,8 @@ var registry = map[string]ModelSpec{
 	"qwen/qwen3-coder-next":            openAICompatBase,
 	"qwen/qwen3-next-80b-a3b-instruct": openAICompatBase,
 	"qwen/qwen3.8-max":                 openAICompatBase,
+
+	"minimax/minimax-m3.1-flash": minimaxM31Flash,
 }
 
 // ValidateCatalogReasoningCapabilities validates every declared model at
