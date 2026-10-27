@@ -200,8 +200,7 @@ func slowStartLine(snap slowStartAttempt, wait, p50 time.Duration) string {
 		}
 		details = append(details, toolDescription+snap.clientToolTiming.CallDuration.Round(time.Millisecond).String())
 	}
-	line := translate.SlowStartPrefix + provider + " took " + roundSeconds(wait) + " to first output"
-	return line + " (" + strings.Join(details, "; ") + ")\n\n"
+	return translate.SlowStartPrefix + provider + " took " + roundSeconds(wait) + " to first output (" + strings.Join(details, "; ") + ")\n\n"
 }
 
 func roundSeconds(d time.Duration) string {

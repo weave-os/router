@@ -26,9 +26,9 @@ func CodexReportedToolTiming(body []byte) (ClientToolTiming, bool) {
 	if len(items) < 2 {
 		return ClientToolTiming{}, false
 	}
-	result := items[len(items)-1]
+	toolOutput := items[len(items)-1]
 	var callType escalationWireType
-	switch escalationWireType(result.Get("type").String()) {
+	switch escalationWireType(toolOutput.Get("type").String()) {
 	case escalationWireCustomOutput:
 		callType = escalationWireCustomCall
 	case escalationWireFunctionOutput:
@@ -36,7 +36,7 @@ func CodexReportedToolTiming(body []byte) (ClientToolTiming, bool) {
 	default:
 		return ClientToolTiming{}, false
 	}
-	callID := result.Get("call_id").String()
+	callID := toolOutput.Get("call_id").String()
 	if callID == "" {
 		return ClientToolTiming{}, false
 	}
@@ -62,7 +62,7 @@ func CodexReportedToolTiming(body []byte) (ClientToolTiming, bool) {
 	if !matched {
 		return ClientToolTiming{}, false
 	}
-	output := result.Get("output")
+	output := toolOutput.Get("output")
 	if output.IsArray() {
 		fragments := output.Array()
 		if len(fragments) == 0 || escalationWireType(fragments[0].Get("type").String()) != escalationWireInputText {
