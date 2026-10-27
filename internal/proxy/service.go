@@ -24,6 +24,7 @@ import (
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/otel"
+	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/requestcontext"
@@ -1345,9 +1346,17 @@ func (s *Service) preferredModelsForRequest(ctx context.Context) []string {
 // nil when none are configured. Merges the API-key-scoped list (org default)
 // with the resolved user's own selection — see mergeClusterOverrides for the
 // composition rule. Only consumed by the HMM sidecar router.
+//
+// Plan-owned serving ignores these, except on prod/weave-internal: only Weave
+// staff can enroll an installation there, so Weave's own members keep their
+// personal tier selections while every customer plan stays plan-owned. The
+// org-wide key list is still dropped there, as for any plan.
 func clusterArmOverridesForRequest(ctx context.Context) map[string][]string {
 	if planOwnedServingRequest(ctx) {
-		return nil
+		if !weaveInternalServingRequest(ctx) {
+			return nil
+		}
+		return mergeClusterOverrides(nil, auth.UserClusterModelListsFrom(ctx))
 	}
 	v := ctx.Value(ClusterModelListsContextKey{})
 	keyScoped, _ := v.(map[string][]string)
@@ -1358,6 +1367,11 @@ func clusterArmOverridesForRequest(ctx context.Context) map[string][]string {
 func planOwnedServingRequest(ctx context.Context) bool {
 	identity, managed := requestcontext.ServingIdentityFromContext(ctx)
 	return managed && identity.Plan != ""
+}
+
+func weaveInternalServingRequest(ctx context.Context) bool {
+	identity, managed := requestcontext.ServingIdentityFromContext(ctx)
+	return managed && identity.Target == string(policyregistry.TargetInternal)
 }
 
 // contextWindowOutputReserve is the minimum tokens reserved for the model's

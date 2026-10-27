@@ -70,6 +70,10 @@ the allowlist instead of dumping the desugared exclusion list.
 ignore the installation allowlist, preferred models, excluded providers, fast
 mode, routing knobs and cluster overrides, but `excluded_models` stays hard:
 it is the customer's explicit opt-out, and it only narrows the plan's roster.
+One exception: on `prod/weave-internal`, which only Weave staff can enroll an
+installation into, a member's own per-user cluster selection still applies (the
+key-scoped cluster list does not), so Weave can place a model at a tier on its
+own traffic without touching any customer plan.
 
 **The deployment-wide automatic exclusion is soft, and is a separate request
 field for that reason.** `global_automatic_routing_exclusions` is the Weave
