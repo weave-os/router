@@ -13,7 +13,6 @@ import {
 	parseForceModelAcknowledgement,
 	registerForceModelCommands,
 } from "../src/force-model.js";
-import { aggregateSavings } from "../src/savings.js";
 import { updateRouterStatus } from "../src/ui.js";
 
 type CommandOptions = Parameters<ExtensionAPI["registerCommand"]>[1];
@@ -180,9 +179,8 @@ test("historical pin stays separate from route and savings detail", () => {
 		requestedModel: "claude-sonnet-4-6",
 		routedModel: "moonshotai/kimi-k2.7",
 		lastPinModel: "claude-haiku-4-5",
-		savings: aggregateSavings([]),
 	});
-	assert.equal(status, "WEAVE ROUTER — moonshotai/kimi-k2.7 ← claude-sonnet-4-6 · saved — · last pin: claude-haiku-4-5");
+	assert.equal(status, "WEAVE ROUTER — moonshotai/kimi-k2.7 ← claude-sonnet-4-6 · last pin: claude-haiku-4-5");
 });
 
 function commandEntry(outcome: RouterCommandOutcome): SessionEntry {

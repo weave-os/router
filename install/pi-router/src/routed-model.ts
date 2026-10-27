@@ -1,10 +1,10 @@
 /**
  * Route attribution, session savings, and the interactive Loom presentation.
  *
- * The selected Pi model is only the comparison baseline. The router's response
- * headers are authoritative for the model that actually served each response.
- * We pair those headers with Pi's finalized turn usage, persist an audit entry,
- * and rebuild the reachable total whenever a session resumes or changes branch.
+ * The router's response headers are authoritative for the model that actually
+ * served each response. We pair those headers with Pi's finalized turn usage and
+ * persist an audit entry. The savings clause is the router's normalized session
+ * figure against Pi's comparison model, refreshed after each response.
  */
 
 import type { AssistantMessage } from "@mariozechner/pi-ai";
@@ -27,6 +27,7 @@ import {
 	type RouterCommandOutcome,
 } from "./force-model.js";
 import { registerWeave } from "./provider.js";
+import { fetchSessionSavings, type SessionSavings } from "./session-savings.js";
 import {
 	aggregateSavings,
 	createSavingsEntry,
@@ -70,26 +71,44 @@ function messageUsage(message: AssistantMessage) {
 	};
 }
 
-export function registerRoutedModel(pi: ExtensionAPI): void {
+export function registerRoutedModel(pi: ExtensionAPI, request: typeof fetch = fetch): void {
 	let pendingRoutes: PendingRoute[] = [];
 	let entries: SavingsEntryData[] = [];
-	let savings = aggregateSavings(entries);
 	let requestedModel: string | undefined;
 	let routedModel: string | undefined;
 	let lastPinModel: string | undefined;
 	let lastNotifiedModel: string | undefined;
 	let activeTurnIndex: number | undefined;
 	let pendingCommand: PendingCommand | undefined;
+	let sessionSavings: SessionSavings | undefined;
+	let savingsGeneration = 0;
 
 	const refresh = (ctx: ExtensionContext) => {
 		if (isSubagent()) return;
-		updateRouterStatus(ctx, { requestedModel, routedModel, lastPinModel, savings });
+		updateRouterStatus(ctx, { requestedModel, routedModel, lastPinModel, ...(sessionSavings ? { sessionSavings } : {}) });
+	};
+
+	// Best effort: a failed or stale fetch keeps the last figure rather than
+	// falling back to a local price comparison.
+	const refreshSessionSavings = (ctx: ExtensionContext) => {
+		if (isSubagent()) return;
+		const generation = ++savingsGeneration;
+		void (async () => {
+			try {
+				const sessionId = ctx.sessionManager.getSessionId();
+				const fetched = await fetchSessionSavings(sessionId, request);
+				if (generation !== savingsGeneration || !fetched) return;
+				sessionSavings = fetched;
+				refresh(ctx);
+			} catch {
+				/* the status line stays without a savings clause */
+			}
+		})();
 	};
 
 	const restore = (ctx: ExtensionContext) => {
 		const restored = savingsFromBranch(ctx);
 		entries = restored.entries;
-		savings = restored.aggregate;
 		const lastEntry = restored.aggregate.lastEntry;
 		requestedModel = ctx.model?.id ?? lastEntry?.requestedModel;
 		routedModel =
@@ -97,6 +116,8 @@ export function registerRoutedModel(pi: ExtensionAPI): void {
 				? lastEntry.routedModel
 				: undefined;
 		lastPinModel = lastPinFromBranch(ctx.sessionManager.getBranch());
+		sessionSavings = undefined;
+		savingsGeneration++;
 		pendingRoutes = [];
 		pendingCommand = undefined;
 		activeTurnIndex = undefined;
@@ -107,6 +128,7 @@ export function registerRoutedModel(pi: ExtensionAPI): void {
 		restore(ctx);
 		if (!isSubagent()) installLoomUi(ctx);
 		refresh(ctx);
+		refreshSessionSavings(ctx);
 	});
 
 	pi.on("turn_start", (event) => {
@@ -196,11 +218,11 @@ export function registerRoutedModel(pi: ExtensionAPI): void {
 		};
 		const entry = createSavingsEntry(decision, messageUsage(message));
 		entries.push(entry);
-		savings = aggregateSavings(entries);
 		requestedModel = entry.requestedModel;
 		routedModel = entry.routedModel;
 		pi.appendEntry(SAVINGS_ENTRY_TYPE, entry);
 		refresh(ctx);
+		refreshSessionSavings(ctx);
 	});
 
 	pi.on("session_tree", (_event, ctx: ExtensionContext) => {
@@ -216,6 +238,7 @@ export function registerRoutedModel(pi: ExtensionAPI): void {
 		pendingRoutes = [];
 		pendingCommand = undefined;
 		activeTurnIndex = undefined;
+		savingsGeneration++;
 		if (!isSubagent()) clearLoomUi(ctx);
 	});
 
