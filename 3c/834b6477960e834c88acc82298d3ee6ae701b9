@@ -1,0 +1,47 @@
+internal/proxy/anthropic_safety_subscription_verification_test.go
+  s_23f3c2058aa92c::t_9bf95ea8401db1 14
+  s_23f3c2058aa92c::t_dcbd98474fe554 89-129
+internal/proxy/timeout_stream_subscription_verification_test.go
+  s_23f3c2058aa92c::t_17fc72765e334c 23-24,50-51,62,96-97,108,296
+internal/proxy/fallback.go
+  s_23f3c2058aa92c::t_13adc3521a1a36 40,152,291-295,604,648-649
+  s_23f3c2058aa92c::t_2c498450c1df36 650
+internal/proxy/subscription_deadline_internal_test.go
+  s_23f3c2058aa92c::t_72241a0734f631 1-224
+internal/proxy/subscription_state_models.go
+  s_23f3c2058aa92c::t_192b5f9d45c05b 116,160-162,181-182
+  s_23f3c2058aa92c::t_3ba8d3b336b124 183
+internal/proxy/subscription_budget_abort_test.go
+  s_23f3c2058aa92c::t_6dd3d649c627c8 17-18,20-27,32,34-38,40,44,46,48-49,51-52,55-58,64,68,70,72,74-76
+internal/proxy/fallback_test.go
+  s_23f3c2058aa92c::t_17fc72765e334c 744,754
+internal/proxy/AGENTS.md
+  s_23f3c2058aa92c::t_9e7e26ea895a0b 319-320
+  s_23f3c2058aa92c::t_96cad94908fd38 318
+docs/SUBSCRIPTION_ROUTING.md
+  s_23f3c2058aa92c::t_9e7e26ea895a0b 16-17
+internal/proxy/CLAUDE.md
+  s_23f3c2058aa92c::t_96cad94908fd38 318
+  s_23f3c2058aa92c::t_9e7e26ea895a0b 319-320
+internal/api/anthropic/subscription_slow_response_test.go
+  s_23f3c2058aa92c::t_a345a3d12e2595 1-58,65-78
+  s_23f3c2058aa92c::t_487c05bcc374f2 59-64
+internal/proxy/dispatch_plan.go
+  s_23f3c2058aa92c::t_18731e5ec5a327 115,176-179,181-183,200,203-208,215,239-242,245,257-258,332-334,339-353,355-361,363
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3c834b6477960e834c88acc82298d3ee6ae701b9",
+  "prompts": {},
+  "sessions": {
+    "s_23f3c2058aa92c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a126e3-e364-76d0-b3eb-87fef22f432c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

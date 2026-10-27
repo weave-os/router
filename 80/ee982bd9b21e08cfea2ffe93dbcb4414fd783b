@@ -1,0 +1,21 @@
+internal/api/admin/allowed_models_test.go
+  s_fbb2a600456c7f::t_7f110cb073d941 24-25
+internal/api/admin/allowed_models.go
+  s_fbb2a600456c7f::t_7f110cb073d941 77-78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "80ee982bd9b21e08cfea2ffe93dbcb4414fd783b",
+  "prompts": {},
+  "sessions": {
+    "s_fbb2a600456c7f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8086e78c-443c-4f17-9403-bd977911194e",
+        "model": "grok-4.6"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
