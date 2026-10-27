@@ -3,8 +3,11 @@ package proxy
 import (
 	"context"
 	"net/http"
+	"strings"
 	"time"
 
+	"weave-os/router/internal/subscriptions"
+	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
 )
 
@@ -40,4 +43,66 @@ func (s *requestNoticeStream) prepare(ctx context.Context, sink http.ResponseWri
 		}
 	}
 	return s.delivery, nil
+}
+
+func addRoutingFundingSource(ctx context.Context, provider, model string, notice translate.RouterNotice) translate.RouterNotice {
+	if notice.Kind != translate.NoticeModelSelection || notice.Text == "" {
+		return notice
+	}
+	if strings.Contains(notice.Text, "funded by ") {
+		return notice
+	}
+
+	credentialSource := ""
+	if credentials := CredentialsFromContext(ctx); credentials != nil {
+		credentialSource = credentials.Source
+	}
+	if credentialSource == "" && managedSubscriptionCanServe(ctx, provider, model) {
+		if source, eligible := managedSubscriptionProviderFromUpstream(provider, model); eligible {
+			switch source {
+			case subscriptions.ProviderClaude:
+				return appendFundingSource(notice, "Claude subscription")
+			case subscriptions.ProviderCodex:
+				return appendFundingSource(notice, "Codex subscription")
+			}
+		}
+	}
+
+	switch credentialSource {
+	case credSourceSubscription:
+		return appendFundingSource(notice, "Claude subscription")
+	case credSourceSubscriptionOverage:
+		return appendFundingSource(notice, "Claude subscription overage")
+	case credSourceCodexSubscription:
+		return appendFundingSource(notice, "Codex subscription")
+	case credSourceBYOK, credSourceClient:
+		return appendFundingSource(notice, "your provider API key")
+	}
+
+	switch telemetryCapacitySource(ctx, credentialSource) {
+	case entitlement.CapacitySourceLinkedClaude:
+		return appendFundingSource(notice, "Claude subscription")
+	case entitlement.CapacitySourceLinkedCodex:
+		return appendFundingSource(notice, "Codex subscription")
+	case entitlement.CapacitySourcePrepaid:
+		return appendFundingSource(notice, "Weave credits")
+	case entitlement.CapacitySourceIncludedRouter:
+		return appendFundingSource(notice, "Weave Router allowance")
+	case entitlement.CapacitySourceBillingOverride:
+		return appendFundingSource(notice, "Weave-managed billing")
+	}
+	if credentialSource == "" {
+		return appendFundingSource(notice, "Weave credits")
+	}
+	return appendFundingSource(notice, "funding source unavailable")
+}
+
+func appendFundingSource(notice translate.RouterNotice, source string) translate.RouterNotice {
+	lineEnd := strings.IndexByte(notice.Text, '\n')
+	if lineEnd < 0 {
+		notice.Text += " · funded by " + source
+		return notice
+	}
+	notice.Text = notice.Text[:lineEnd] + " · funded by " + source + notice.Text[lineEnd:]
+	return notice
 }

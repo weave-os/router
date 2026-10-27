@@ -4496,7 +4496,9 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 
 	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
 	muteSlowStartFor(ctx, routeRes)
-	marker = routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, decision.Model, marker).Text
+	notice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderClaude, decision.Model, marker)
+	notice = addRoutingFundingSource(ctx, decision.Provider, decision.Model, notice)
+	marker = notice.Text
 	// toolValidator compiles the request's tool schemas once (LRU-cached);
 	// translators validate/repair model tool calls against it. Nil if no tools.
 	toolValidator := env.ToolValidator()
@@ -7504,7 +7506,9 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 
 	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
 	muteSlowStartFor(ctx, routeRes)
-	marker = routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderCodex, decision.Model, marker).Text
+	notice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderCodex, decision.Model, marker)
+	notice = addRoutingFundingSource(cacheCredentialCtx, decision.Provider, decision.Model, notice)
+	marker = notice.Text
 
 	// gpt-5.6 applies its own effort on chat/completions, so a /v1/responses
 	// caller's original bytes serve it natively — preserving reasoning the chat
@@ -7654,6 +7658,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	// ProviderFamilies entry (see internal/providers/provider.go).
 	buildAttempt := func(target router.Decision, targetOpts translate.EmitOptions, targetMarker string) (dispatchAttempt, error) {
 		targetNotice := routerNoticeForRequest(ctx, r.Header, subscriptions.ProviderCodex, target.Model, targetMarker)
+		targetFundingContext := resolveAndInjectCredentials(ctx, target.Provider, target.Model, r.Header)
+		targetNotice = addRoutingFundingSource(targetFundingContext, target.Provider, target.Model, targetNotice)
 		if rw, ok := w.(*translate.ResponsesWriter); ok {
 			rw.SetRoutedModel(target.Model)
 			if targetMarker != "" && (!verbatimPassthrough || supportsResponsesTerminalSurfaces(clientID.ClientApp)) {
