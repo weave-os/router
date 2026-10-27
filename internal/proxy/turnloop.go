@@ -1166,7 +1166,7 @@ func (s *Service) runTurnLoop(
 			return res, nil
 		}
 
-		passthroughModel := s.baselineFor(req.RequestedModel)
+		passthroughModel := s.baselineFor(ctx, req.RequestedModel)
 		_, excluded := req.ExcludedModels[passthroughModel]
 		_, safetyExcluded := req.SafetyExcludedModels[passthroughModel]
 		_, allowlisted := req.AllowedModels[passthroughModel]

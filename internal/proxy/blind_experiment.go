@@ -106,6 +106,9 @@ func (s *Service) blindExperimentPassthroughDecision(ctx context.Context, req ro
 }
 
 func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router.Request) (router.Decision, error) {
+	// A passthrough arm or router-off policy keeps a Weave Auto user on the
+	// model their client would run without Weave.
+	req.RequestedModel = clientRequestedModel(ctx, req.RequestedModel)
 	if !modelPermittedByAllowlist(ctx, req.RequestedModel) || !modelInRequestSubset(ctx, req.RequestedModel) {
 		return router.Decision{}, fmt.Errorf("requested model %q is not allowed: %w", req.RequestedModel, cluster.ErrAllowlistEmptiesPool)
 	}
