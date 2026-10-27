@@ -20,14 +20,14 @@ func TestAddCodexRoutingModels_PreservesNativeCatalog(t *testing.T) {
 	assert.Equal(t, "Automatically chooses the best model", gjson.GetBytes(merged, "models.2.description").String())
 	assert.Equal(t, "list", gjson.GetBytes(merged, "models.2.visibility").String())
 	assert.Equal(t, "max", gjson.GetBytes(merged, "models.2.supported_reasoning_levels.0.effort").String())
-	assert.Equal(t, int64(codexRoutingContextWindow), gjson.GetBytes(merged, "models.2.context_window").Int())
+	assert.Equal(t, int64(1_000_000), gjson.GetBytes(merged, "models.2.context_window").Int())
 }
 
 func TestAddCodexRoutingModels_UsesAvailableMetadataWithoutSol(t *testing.T) {
 	merged, err := addCodexRoutingModels([]byte(`{"models":[{"slug":"gpt-6-astra","visibility":"list","context_window":272000}]}`), false)
 	require.NoError(t, err)
 	assert.Equal(t, CodexAutomaticModel, gjson.GetBytes(merged, "models.1.slug").String())
-	assert.Equal(t, int64(codexRoutingContextWindow), gjson.GetBytes(merged, "models.1.context_window").Int())
+	assert.Equal(t, int64(1_000_000), gjson.GetBytes(merged, "models.1.context_window").Int())
 }
 
 func TestAddCodexRoutingModels_RequiresAtLeastOneModel(t *testing.T) {
@@ -45,7 +45,7 @@ func TestAddCodexRoutingModels_AdvertisesInternalVariantsWithoutDuplicates(t *te
 	require.Equal(t, string(router.ModelHMM), gjson.GetBytes(merged, "models.2.slug").String())
 	require.Equal(t, string(router.ModelHMMBeta), gjson.GetBytes(merged, "models.3.slug").String())
 	require.Equal(t, string(router.ModelQwen), gjson.GetBytes(merged, "models.4.slug").String())
-	require.Equal(t, int64(codexRoutingContextWindow), gjson.GetBytes(merged, "models.4.context_window").Int())
+	require.Equal(t, int64(1_000_000), gjson.GetBytes(merged, "models.4.context_window").Int())
 	require.Contains(t, gjson.GetBytes(merged, "models.4.description").String(), "Qwen classifier")
 	require.Equal(t, string(router.ModelDecision), gjson.GetBytes(merged, "models.5.slug").String())
 	repeated, err := addCodexRoutingModels(merged, true)
