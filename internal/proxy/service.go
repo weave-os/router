@@ -1114,6 +1114,12 @@ func subscriptionRoutingDisabledForRequest(ctx context.Context) bool {
 	return pickedModelSubscriptionWithheld(ctx)
 }
 
+// PickedModelSubscriptionWithheld exposes pickedModelSubscriptionWithheld to
+// the funding gates, which ran before the client-selected model was known.
+func PickedModelSubscriptionWithheld(ctx context.Context) bool {
+	return pickedModelSubscriptionWithheld(ctx)
+}
+
 // pickedModelSubscriptionWithheld reports a client-selected model that bills
 // Weave credits because the installation has not opted it into subscriptions.
 func pickedModelSubscriptionWithheld(ctx context.Context) bool {

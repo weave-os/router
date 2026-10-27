@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/proxy"
@@ -30,7 +31,24 @@ func applyRoutingModel(c *gin.Context, body []byte, available StrategyAvailabili
 			return false
 		}
 		if model != "" && c.GetHeader(ModelPassthroughHeader) == "1" {
-			c.Request = c.Request.WithContext(auth.WithClientModelPassthrough(c.Request.Context()))
+			ctx := auth.WithClientModelPassthrough(c.Request.Context())
+			// The funding gates counted the caller's subscription before the
+			// model was known; a picked model that bills credits must not lean on it.
+			if proxy.PickedModelSubscriptionWithheld(ctx) {
+				switch reason, _ := billing.SubscriptionOnlyReasonFromContext(ctx); reason {
+				case billing.SubscriptionOnlyLinkedFirst:
+					ctx = billing.ReleaseLinkedFirst(ctx)
+				case billing.SubscriptionOnlyCreditsDepleted:
+					observability.FromGin(c).Info("Picked model refused: credits depleted", "model", model)
+					c.AbortWithStatusJSON(http.StatusPaymentRequired, gin.H{
+						"error":      "insufficient_credits",
+						"top_up_url": TopUpURL,
+						"message":    "Your organization's prepaid credits are depleted. Contact your org admin to add credits.",
+					})
+					return false
+				}
+			}
+			c.Request = c.Request.WithContext(ctx)
 			observability.FromGin(c).Debug("Client-selected model served without routing", "model", model)
 		}
 		return true

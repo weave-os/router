@@ -12,6 +12,7 @@ import (
 
 	"weave-os/router/internal/api/classifier"
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/proxy"
 	"weave-os/router/internal/requestcontext"
@@ -273,6 +274,41 @@ func TestModelPassthroughHeaderServesClientSelectedModels(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			engine.ServeHTTP(recorder, req)
 			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+		})
+	}
+}
+
+func TestModelPassthroughReleasesSubscriptionFundingGates(t *testing.T) {
+	for _, tc := range []struct {
+		name             string
+		reason           billing.SubscriptionOnlyReason
+		optedIn          bool
+		wantStatus       int
+		wantSubscription bool
+	}{
+		{name: "linked plan preference falls through to credits", reason: billing.SubscriptionOnlyLinkedFirst, wantStatus: http.StatusOK},
+		{name: "depleted credits are a 402", reason: billing.SubscriptionOnlyCreditsDepleted, wantStatus: http.StatusPaymentRequired},
+		{name: "opted-in org keeps the linked plan", reason: billing.SubscriptionOnlyLinkedFirst, optedIn: true, wantStatus: http.StatusOK, wantSubscription: true},
+		{name: "opted-in org keeps serving depleted turns on the plan", reason: billing.SubscriptionOnlyCreditsDepleted, optedIn: true, wantStatus: http.StatusOK, wantSubscription: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			engine := gin.New()
+			engine.POST("/v1/messages", func(c *gin.Context) {
+				ctx := billing.WithSubscriptionOnly(c.Request.Context(), tc.reason)
+				if tc.optedIn {
+					ctx = context.WithValue(ctx, proxy.InstallationPickedModelSubscriptionContextKey{}, true)
+				}
+				c.Request = c.Request.WithContext(ctx)
+			}, middleware.WithClassifierThread(&proxy.Service{}, nil), func(c *gin.Context) {
+				require.Equal(t, tc.wantSubscription, billing.SubscriptionOnlyFromContext(c.Request.Context()))
+				c.Status(http.StatusOK)
+			})
+			req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"claude-opus-5-5","messages":[{"role":"user","content":"hello"}]}`))
+			req.Header.Set(middleware.ModelPassthroughHeader, "1")
+			recorder := httptest.NewRecorder()
+			engine.ServeHTTP(recorder, req)
+			require.Equal(t, tc.wantStatus, recorder.Code, recorder.Body.String())
 		})
 	}
 }
