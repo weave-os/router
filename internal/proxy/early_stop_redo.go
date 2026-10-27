@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/tidwall/gjson"
@@ -37,7 +38,8 @@ const earlyStopHoldCap = 1 << 20
 
 // earlyStopHoldMax bounds how long the gate withholds a response. Claude Code
 // drops a stream after 180s without bytes, and a redo still has to stream
-// inside that window.
+// inside that window. A timer enforces it, since an upstream that is only
+// reasoning may write nothing the gate could check against.
 const earlyStopHoldMax = 60 * time.Second
 
 // earlyStopGate sits above preludeBuffer on a Claude Code tool-result turn and
@@ -51,14 +53,15 @@ type earlyStopGate struct {
 	// body is inner's write half, kept separate for the same CodeQL reason as
 	// cyberRefusalGate.body.
 	body io.Writer
-	now  func() time.Time
+	// mu serializes the attempt's writes with the hold timer's release.
+	mu      sync.Mutex
+	holdMax time.Duration
+	timer   *time.Timer
 	// active turns classification on; armed additionally withholds.
 	active  bool
 	armed   bool
 	holding bool
 	held    bytes.Buffer
-	// heldSince is when the current attempt's first byte was withheld.
-	heldSince time.Time
 	// status is the attempt's buffered HTTP status, restored with held bytes.
 	status int
 
@@ -72,21 +75,25 @@ type earlyStopGate struct {
 	releaseCause string
 }
 
-func newEarlyStopGate(inner http.ResponseWriter, now func() time.Time) *earlyStopGate {
-	return &earlyStopGate{inner: inner, body: inner, now: now}
+func newEarlyStopGate(inner http.ResponseWriter) *earlyStopGate {
+	return &earlyStopGate{inner: inner, body: inner, holdMax: earlyStopHoldMax}
 }
 
 // observe starts classifying the stream; withhold additionally holds it back.
 func (g *earlyStopGate) observe(withhold bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	g.active = true
 	g.armed = withhold
 	g.holding = withhold
-	g.resetAttempt()
+	g.resetAttemptLocked()
 }
 
 func (g *earlyStopGate) Header() http.Header { return g.inner.Header() }
 
 func (g *earlyStopGate) WriteHeader(status int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	if g.holding {
 		g.status = status
 	}
@@ -94,12 +101,14 @@ func (g *earlyStopGate) WriteHeader(status int) {
 }
 
 func (g *earlyStopGate) Write(p []byte) (int, error) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	g.classify(p)
 	if !g.holding {
 		return g.body.Write(p)
 	}
-	if g.held.Len() == 0 {
-		g.heldSince = g.now()
+	if g.held.Len() == 0 && g.timer == nil {
+		g.timer = time.AfterFunc(g.holdMax, g.releaseOnTimeout)
 	}
 	g.held.Write(p)
 	switch {
@@ -109,8 +118,6 @@ func (g *earlyStopGate) Write(p []byte) (int, error) {
 		g.releaseCause = "stop_reason_" + g.stopReason
 	case g.held.Len() >= earlyStopHoldCap:
 		g.releaseCause = "hold_cap"
-	case g.now().Sub(g.heldSince) >= earlyStopHoldMax:
-		g.releaseCause = "hold_timeout"
 	default:
 		return len(p), nil
 	}
@@ -156,13 +163,43 @@ func (g *earlyStopGate) classify(p []byte) {
 // earlyStop reports a complete response that ended the turn without a tool
 // call. Only a withheld one can still be re-served.
 func (g *earlyStopGate) earlyStop() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	return g.stopReason == stopReasonEndTurn && !g.toolUse
 }
 
 // withheld reports whether the client has seen none of the response.
-func (g *earlyStopGate) withheld() bool { return g.holding }
+func (g *earlyStopGate) withheld() bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.holding
+}
+
+// released names what ended the withholding, or "" while withheld.
+func (g *earlyStopGate) released() string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.releaseCause
+}
+
+// releaseOnTimeout gives up the redo once the hold has lasted holdMax.
+func (g *earlyStopGate) releaseOnTimeout() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if !g.holding {
+		return
+	}
+	g.releaseCause = "hold_timeout"
+	_ = g.release()
+}
 
 func (g *earlyStopGate) Flush() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.flush()
+}
+
+func (g *earlyStopGate) flush() {
 	if g.holding {
 		return
 	}
@@ -180,8 +217,10 @@ func (g *earlyStopGate) ArmOutputProgress(mark func()) (armed bool) {
 	return arm.ArmOutputProgress(mark)
 }
 
-// release delivers anything withheld and passes the rest through.
+// release delivers anything withheld and passes the rest through. Callers
+// hold mu.
 func (g *earlyStopGate) release() error {
+	g.stopTimer()
 	g.holding = false
 	if g.held.Len() == 0 {
 		return nil
@@ -190,14 +229,24 @@ func (g *earlyStopGate) release() error {
 	g.held.Reset()
 	_, err := g.body.Write(out)
 	if err == nil {
-		g.Flush()
+		g.flush()
 	}
 	return err
+}
+
+func (g *earlyStopGate) stopTimer() {
+	if g.timer != nil {
+		g.timer.Stop()
+		g.timer = nil
+	}
 }
 
 // takeWithheld hands the withheld response to the caller and stops gating, so
 // a re-serve streams straight through.
 func (g *earlyStopGate) takeWithheld() (status int, body []byte) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.stopTimer()
 	status, body = g.status, slices.Clone(g.held.Bytes())
 	g.armed, g.holding = false, false
 	g.held.Reset()
@@ -207,6 +256,8 @@ func (g *earlyStopGate) takeWithheld() (status int, body []byte) {
 // disarm releases anything still withheld and stops gating, for the rescues
 // that run after the primary dispatch.
 func (g *earlyStopGate) disarm() error {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	g.armed = false
 	return g.release()
 }
@@ -214,6 +265,13 @@ func (g *earlyStopGate) disarm() error {
 // resetAttempt drops a failed attempt's withheld bytes and signals; wired as
 // the prelude buffer's discard hook so retries start clean.
 func (g *earlyStopGate) resetAttempt() {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.resetAttemptLocked()
+}
+
+func (g *earlyStopGate) resetAttemptLocked() {
+	g.stopTimer()
 	g.holding = g.armed
 	g.held.Reset()
 	g.status = 0
@@ -232,9 +290,14 @@ func (s *Service) earlyStopRedoTarget(ctx context.Context, served router.Decisio
 		return router.Decision{}, false
 	}
 	ordered := higherTierCandidates(servedTier, served.Metadata.CandidateModels, served.Metadata.CandidateScores)
-	for _, target := range s.rescueDecisions(ctx, served, ordered, ReasonEarlyStopRedo, est, sigSavings, outputReserve) {
-		if catalog.TierFor(target.Model) > servedTier {
-			return target, true
+	admitted := s.rescueDecisions(ctx, served, ordered, ReasonEarlyStopRedo, est, sigSavings, outputReserve)
+	// The rescue walk reorders for provider diversity; the redo wants the
+	// strongest admitted model, so pick in tier-and-score order.
+	for _, model := range ordered {
+		for _, target := range admitted {
+			if target.Model == model {
+				return target, true
+			}
 		}
 	}
 	return router.Decision{}, false

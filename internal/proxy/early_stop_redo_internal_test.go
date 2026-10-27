@@ -1,7 +1,9 @@
 package proxy
 
 import (
+	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,7 +20,7 @@ const earlyStopStoppedStream = "event: message_start\ndata: {\"type\":\"message_
 
 func TestEarlyStopGate_WithholdsAStopSplitAcrossWrites(t *testing.T) {
 	rec := httptest.NewRecorder()
-	g := newEarlyStopGate(rec, time.Now)
+	g := newEarlyStopGate(rec)
 	g.observe(true)
 	for i := 0; i < len(earlyStopStoppedStream); i += 7 {
 		end := min(i+7, len(earlyStopStoppedStream))
@@ -34,7 +36,7 @@ func TestEarlyStopGate_WithholdsAStopSplitAcrossWrites(t *testing.T) {
 
 func TestEarlyStopGate_ReleasesAtFirstToolUse(t *testing.T) {
 	rec := httptest.NewRecorder()
-	g := newEarlyStopGate(rec, time.Now)
+	g := newEarlyStopGate(rec)
 	g.observe(true)
 	_, _ = g.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\"}\n\n"))
 	assert.Empty(t, rec.Body.String())
@@ -45,22 +47,21 @@ func TestEarlyStopGate_ReleasesAtFirstToolUse(t *testing.T) {
 	assert.False(t, g.earlyStop())
 }
 
-func TestEarlyStopGate_ReleasesAfterHoldMax(t *testing.T) {
-	rec := httptest.NewRecorder()
-	now := time.Unix(0, 0)
-	g := newEarlyStopGate(rec, func() time.Time { return now })
+func TestEarlyStopGate_ReleasesAfterHoldMaxWithoutAnotherWrite(t *testing.T) {
+	rec := newSyncRecorder()
+	g := newEarlyStopGate(rec)
+	g.holdMax = 10 * time.Millisecond
 	g.observe(true)
 	_, _ = g.Write([]byte("event: message_start\ndata: {\"type\":\"message_start\"}\n\n"))
-	now = now.Add(earlyStopHoldMax)
-	_, _ = g.Write([]byte("event: ping\ndata: {\"type\":\"ping\"}\n\n"))
-	assert.False(t, g.withheld(), "a long hold gives up the redo rather than risk the client timeout")
-	assert.Equal(t, "hold_timeout", g.releaseCause)
-	assert.Contains(t, rec.Body.String(), "message_start")
+	require.Eventually(t, func() bool { return !g.withheld() }, time.Second, 5*time.Millisecond,
+		"a silent upstream must not hold the client past holdMax")
+	assert.Equal(t, "hold_timeout", g.released())
+	assert.Contains(t, rec.body(), "message_start")
 }
 
 func TestEarlyStopGate_ShadowPassesThrough(t *testing.T) {
 	rec := httptest.NewRecorder()
-	g := newEarlyStopGate(rec, time.Now)
+	g := newEarlyStopGate(rec)
 	g.observe(false)
 	_, _ = g.Write([]byte(earlyStopStoppedStream))
 	assert.Equal(t, earlyStopStoppedStream, rec.Body.String())
@@ -70,7 +71,7 @@ func TestEarlyStopGate_ShadowPassesThrough(t *testing.T) {
 
 func TestEarlyStopGate_DiscardStartsTheNextAttemptClean(t *testing.T) {
 	rec := httptest.NewRecorder()
-	g := newEarlyStopGate(rec, time.Now)
+	g := newEarlyStopGate(rec)
 	g.observe(true)
 	_, _ = g.Write([]byte(earlyStopStoppedStream))
 	g.resetAttempt()
@@ -91,4 +92,32 @@ func TestHigherTierCandidates_TopTierFirst(t *testing.T) {
 func TestLowerTierCandidates(t *testing.T) {
 	assert.Equal(t, []string{"claude-haiku-4-5", "claude-sonnet-4-6"},
 		lowerTierCandidates("claude-opus-4-7", []string{"claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-6", "claude-opus-4-7"}))
+}
+
+// syncRecorder is an httptest recorder safe to read while the hold timer writes.
+type syncRecorder struct {
+	mu  sync.Mutex
+	rec *httptest.ResponseRecorder
+}
+
+func newSyncRecorder() *syncRecorder { return &syncRecorder{rec: httptest.NewRecorder()} }
+
+func (r *syncRecorder) Header() http.Header { return r.rec.Header() }
+
+func (r *syncRecorder) WriteHeader(status int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.rec.WriteHeader(status)
+}
+
+func (r *syncRecorder) Write(p []byte) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.rec.Write(p)
+}
+
+func (r *syncRecorder) body() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.rec.Body.String()
 }
