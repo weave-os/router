@@ -5052,7 +5052,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					redoEffort.apply(&redoOpts)
 					redoCtx := s.resolveCredentials(subscriptionStatePaidRescueContext(rescueCredentialContext(ctx, target.Provider), target.Model), target.Provider, target.Model, r.Header)
 					redoOpts.FastMode = fastModeForAttempt(redoCtx, target.Model, target.Provider)
-					redoMarker := earlyStopMarkerFor(ctx, r.Header, routeRes, target.Model)
+					redoMarker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, siblingRoutingMarkerFor(routeRes, markerReasonEarlyStop, target.Model), target.Model, markerReasonEarlyStop))
 					redoAttempt, buildErr := buildAttempt(target, redoOpts, redoMarker)
 					return redoAttempt, s.resolveBindingsForDispatch(redoCtx, target), redoMarker, redoEffort, redoCtx, buildErr
 				},

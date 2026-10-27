@@ -288,11 +288,6 @@ func (s *Service) earlyStopRedoMode(ctx context.Context, routeRes turnLoopResult
 	return mode
 }
 
-// earlyStopMarkerFor renders the routing badge for a re-served turn.
-func earlyStopMarkerFor(ctx context.Context, h http.Header, res turnLoopResult, redoModel string) string {
-	return suppressMarkerIfRequested(ctx, h, modelSelectionMarkerForRequest(ctx, res, siblingRoutingMarkerFor(res, markerReasonEarlyStop, redoModel), redoModel, markerReasonEarlyStop))
-}
-
 // earlyStopRedo carries what ProxyMessages lends a re-serve: the gate holding
 // the stopped response, the closures that build and dispatch the candidate,
 // and the served-attempt state the redo replaces (or restores on failure).
@@ -344,45 +339,45 @@ func (p *earlyStopServed) restore(s earlyStopServedSnapshot) {
 	*p.extractor, *p.summary, *p.reqStats, *p.fastServed, *p.effort = s.extractor, s.summary, s.reqStats, s.fastServed, s.effort
 }
 
-// redoEarlyStop re-serves a withheld early stop on in.target. If the candidate
+// redoEarlyStop re-serves a withheld early stop on redo.target. If the candidate
 // cannot be dispatched, nothing changes and the caller releases the stopped
 // response. If the redo fails before output, the stopped response is
 // delivered instead, so the client never loses a turn the router discarded.
-func (s *Service) redoEarlyStop(ctx context.Context, in earlyStopRedo) (redone bool, err error) {
-	attempt, bindings, marker, effort, redoCtx, buildErr := in.build(in.target)
+func (s *Service) redoEarlyStop(ctx context.Context, redo earlyStopRedo) (redone bool, err error) {
+	attempt, bindings, marker, effort, redoCtx, buildErr := redo.build(redo.target)
 	if buildErr != nil || len(bindings) == 0 {
-		in.log.Warn("Early-stop redo: candidate is not dispatchable; serving the stopped response",
-			"redo_model", in.target.Model, "redo_provider", in.target.Provider, "err", buildErr)
+		redo.log.Warn("Early-stop redo: candidate is not dispatchable; serving the stopped response",
+			"redo_model", redo.target.Model, "redo_provider", redo.target.Provider, "err", buildErr)
 		return false, nil
 	}
-	stopped := in.served.save()
-	header := in.header.Clone()
-	status, body := in.gate.takeWithheld()
-	in.prelude.Discard()
-	*in.served.summary = translate.ResponseSummary{}
-	*in.served.reqStats = providers.RequestMutationStats{}
-	in.log.Info("Early-stop redo: re-serving the turn on a higher-tier candidate",
-		"stopped_model", stopped.decision.Model, "redo_model", in.target.Model, "redo_provider", in.target.Provider,
+	stopped := redo.served.save()
+	header := redo.header.Clone()
+	status, body := redo.gate.takeWithheld()
+	redo.prelude.Discard()
+	*redo.served.summary = translate.ResponseSummary{}
+	*redo.served.reqStats = providers.RequestMutationStats{}
+	redo.log.Info("Early-stop redo: re-serving the turn on a higher-tier candidate",
+		"stopped_model", stopped.decision.Model, "redo_model", redo.target.Model, "redo_provider", redo.target.Provider,
 		"stopped_output_bytes", len(body))
-	winnerIdx, err := in.dispatch(redoCtx, in.target, bindings, attempt)
-	if err == nil || in.prelude.Committed() {
-		*in.served.decision, *in.served.bindings, *in.served.marker = in.target, bindings, marker
-		*in.served.winnerIdx, *in.served.effort = winnerIdx, effort
+	winnerIdx, err := redo.dispatch(redoCtx, redo.target, bindings, attempt)
+	if err == nil || redo.prelude.Committed() {
+		*redo.served.decision, *redo.served.bindings, *redo.served.marker = redo.target, bindings, marker
+		*redo.served.winnerIdx, *redo.served.effort = winnerIdx, effort
 		return err == nil, err
 	}
-	in.log.Warn("Early-stop redo failed before output; serving the stopped response",
-		"redo_model", in.target.Model, "upstream_status", upstreamStatus(err), "err", err)
-	in.served.restore(stopped)
-	in.prelude.Discard()
-	clear(in.header)
-	maps.Copy(in.header, header)
-	in.prelude.Seal()
+	redo.log.Warn("Early-stop redo failed before output; serving the stopped response",
+		"redo_model", redo.target.Model, "upstream_status", upstreamStatus(err), "err", err)
+	redo.served.restore(stopped)
+	redo.prelude.Discard()
+	clear(redo.header)
+	maps.Copy(redo.header, header)
+	redo.prelude.Seal()
 	if status != 0 {
-		in.prelude.WriteHeader(status)
+		redo.prelude.WriteHeader(status)
 	}
-	if _, err := in.gate.Write(body); err != nil {
+	if _, err := redo.gate.Write(body); err != nil {
 		return false, err
 	}
-	in.gate.Flush()
+	redo.gate.Flush()
 	return false, nil
 }
