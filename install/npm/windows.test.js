@@ -103,13 +103,16 @@ test("native uninstall removes the managed Claude routing variables", async () =
   assert.equal(claude.modelPicker, undefined);
 });
 
-test("Claude keeps an explicit model and offers Weave Auto once", async () => {
+test("Claude moves a pre-passthrough model to Weave Auto once, then keeps the user's pick", async () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "weave-router-claude-model-"));
   try {
     const settingsPath = path.join(home, ".claude", "settings.json");
     fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
     fs.writeFileSync(settingsPath, JSON.stringify({ model: "opus", modelPicker: { options: [{ model: "my-model" }] } }));
     await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
+    const rolledOver = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    assert.equal(rolledOver.model, "weave-auto");
+    fs.writeFileSync(settingsPath, JSON.stringify({ ...rolledOver, model: "opus" }));
     await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
     const installed = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
     assert.equal(installed.model, "opus");

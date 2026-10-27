@@ -2766,7 +2766,8 @@ gitignore_add() {
 CLAUDE_WEAVE_AUTO_OPTION='{"model":"weave-auto","label":"Weave Auto","description":"Weave picks the best model for each turn","behavesAs":"claude-opus-5-5"}'
 # shellcheck disable=SC2016 # jq variables, expanded by jq.
 CLAUDE_WEAVE_AUTO_ADD_JQ='.modelPicker = ((.modelPicker // {}) | .options = ([$option] + ((.options // []) | map(select(.model != "weave-auto")))))
-  | (if $set_model == "true" and (has("model") | not) then .model = "weave-auto" else . end)'
+  | (if $set_model == "force" then .model = "weave-auto" | (if (.env | type) == "object" then .env |= del(.ANTHROPIC_MODEL) else . end)
+     elif $set_model == "true" and (has("model") | not) then .model = "weave-auto" else . end)'
 CLAUDE_WEAVE_AUTO_STRIP_JQ='(if .model == "weave-auto" then del(.model) else . end)
   | (if (.modelPicker | type) == "object" then
       .modelPicker.options = ((.modelPicker.options // []) | map(select(.model != "weave-auto")))
@@ -2788,8 +2789,22 @@ claude_model_unset() {
   return 0
 }
 
+# claude_passthrough_installed reports whether a settings file already carries
+# the passthrough header, i.e. this install has been through the Weave Auto rollout.
+claude_passthrough_installed() {
+  local source
+  for source in "$@"; do
+    [ -f "$source" ] || continue
+    if jq -e '(.env.ANTHROPIC_CUSTOM_HEADERS // "") | test("(^|\\n)X-Weave-Model-Passthrough:")' "$source" >/dev/null 2>&1; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 # apply_claude_weave_auto creates $1 when missing and keeps a non-shared
-# settings file private (mode 600).
+# settings file private (mode 600). $2 is "force" (select Weave Auto over any
+# saved model), "true" (select it only when no model is set) or "false".
 apply_claude_weave_auto() {
   local target="$1" set_model="$2" merged
   [ -f "$target" ] || printf '{}\n' >"$target"
@@ -7216,6 +7231,13 @@ trap '_spin_cleanup; rm -f "$tmp_patch"' EXIT INT TERM HUP
 write_claude_settings() {
   local block_key="$1"
   prepare_claude_context_window
+  # Before passthrough every model was routed, so a model saved back then was
+  # never a pin. Move those installs (and new ones) to Weave Auto once; later
+  # updates keep whatever the user picks.
+  local weave_auto_rollout="true"
+  if claude_passthrough_installed "$context_settings_file" "$settings_file"; then
+    weave_auto_rollout="false"
+  fi
 
   # Claude Code splits ANTHROPIC_CUSTOM_HEADERS on newlines, so multiple headers
   # ride in the same env var separated by \n. Append identity headers alongside
@@ -7321,7 +7343,12 @@ write_claude_settings() {
     ok "Router key header written to $local_settings_file"
   fi
   local weave_auto_default="false"
-  if claude_model_unset "$context_settings_file" "$settings_file" "$HOME/.claude/settings.json"; then
+  if [ "$weave_auto_rollout" = "true" ]; then
+    weave_auto_default="force"
+    if [ -n "${ANTHROPIC_MODEL:-}" ]; then
+      warn "ANTHROPIC_MODEL=$ANTHROPIC_MODEL in your shell pins that model and skips Weave routing. Unset it to use Weave Auto."
+    fi
+  elif claude_model_unset "$context_settings_file" "$settings_file" "$HOME/.claude/settings.json"; then
     weave_auto_default="true"
   fi
   apply_claude_weave_auto "$context_settings_file" "$weave_auto_default"

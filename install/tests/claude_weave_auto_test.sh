@@ -48,10 +48,16 @@ uninstall "$fresh" --scope user
 test "$(jq -r '.model // "unset"' "$settings")" = unset
 test "$(jq -c '.modelPicker' "$settings")" = '{"options":[{"model":"my-model","label":"Mine"}]}'
 
-# An explicit model is the user's choice and stays; the picker row is still offered.
+# A model saved before passthrough was always routed, so the first passthrough
+# install moves it to Weave Auto. After that a model the user picks stays.
 chosen="$work/chosen"
 mkdir -p "$chosen/.claude"
-printf '%s\n' '{"model":"opus"}' >"$chosen/.claude/settings.json"
+printf '%s\n' '{"model":"opus","env":{"ANTHROPIC_MODEL":"opus"}}' >"$chosen/.claude/settings.json"
+run "$chosen" --scope user
+test "$(jq -r '.model' "$chosen/.claude/settings.json")" = weave-auto
+test "$(jq -r '.env.ANTHROPIC_MODEL // "unset"' "$chosen/.claude/settings.json")" = unset
+test "$(picker_rows "$chosen/.claude/settings.json")" = 1
+jq '.model = "opus"' "$chosen/.claude/settings.json" >"$work/picked" && mv "$work/picked" "$chosen/.claude/settings.json"
 run "$chosen" --scope user
 test "$(jq -r '.model' "$chosen/.claude/settings.json")" = opus
 test "$(picker_rows "$chosen/.claude/settings.json")" = 1

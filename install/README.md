@@ -117,9 +117,11 @@ explicitly to its managed Codex config.
 | `<repo>/.claude/.credentials.json`  | ❌ ignored | CC's per-user credentials cache.                               |
 
 The installer also adds a **Weave Auto** row to Claude Code's `/model` picker
-(`modelPicker`, Claude Code 2.1.242+) and makes it the default when no settings
-layer or `ANTHROPIC_MODEL` already selects a model (in project scope this goes in
-`settings.local.json`). Weave Auto sends `weave-auto`, which the router routes.
+(`modelPicker`, Claude Code 2.1.242+) and selects it (in project scope this goes in
+`settings.local.json`). The first install that adds the passthrough header below
+selects Weave Auto even over a saved `model` (and drops `env.ANTHROPIC_MODEL` from
+that file), since before passthrough every model was routed anyway. Later updates
+keep whatever model the user picked, and select Weave Auto only when none is set. Weave Auto sends `weave-auto`, which the router routes.
 `X-Weave-Model-Passthrough: 1` in `ANTHROPIC_CUSTOM_HEADERS` serves any other
 model Claude Code sends (a picker choice, `--model`, a subagent's model) as-is,
 without routing. `off` removes the row and the default; `on` restores them.

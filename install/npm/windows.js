@@ -226,6 +226,9 @@ function installClaude(paths, baseUrl, key, email) {
   };
   state.installedBaseUrl = baseUrl;
   const customHeaders = localSettings?.env?.ANTHROPIC_CUSTOM_HEADERS ?? settings.env?.ANTHROPIC_CUSTOM_HEADERS ?? "";
+  // Before passthrough every model was routed, so a saved model was never a pin:
+  // move those installs (and new ones) to Weave Auto once, then keep the user's picks.
+  const weaveAutoRollout = ![settings, localSettings].some((layer) => /^X-Weave-Model-Passthrough:/im.test(layer?.env?.ANTHROPIC_CUSTOM_HEADERS || ""));
   const previousHeaders = customHeaders.split("\n").filter((header) => !/^X-(?:Weave-Router-Key|Weave-User-Email|Weave-User-Name|Weave-Model-Passthrough|App):/i.test(header));
   const routerHeaders = [
     `X-Weave-Router-Key: ${key}`,
@@ -247,7 +250,10 @@ function installClaude(paths, baseUrl, key, email) {
   const modelUnset = !process.env.ANTHROPIC_MODEL && [settings, localSettings, readJson(path.join(process.env.USERPROFILE || process.env.HOME, ".claude", "settings.json"))].every((layer) => !layer || (!Object.hasOwn(layer, "model") && !layer.env?.ANTHROPIC_MODEL));
   modelSettings.modelPicker = { ...(modelSettings.modelPicker || {}) };
   modelSettings.modelPicker.options = [claudeWeaveAutoOption, ...(modelSettings.modelPicker.options || []).filter((option) => option?.model !== claudeWeaveAutoModel)];
-  if (modelUnset) modelSettings.model = claudeWeaveAutoModel;
+  if (weaveAutoRollout) {
+    modelSettings.model = claudeWeaveAutoModel;
+    if (modelSettings.env) delete modelSettings.env.ANTHROPIC_MODEL;
+  } else if (modelUnset) modelSettings.model = claudeWeaveAutoModel;
   settings.attribution = { ...(settings.attribution || {}), ...claudeAttribution };
   writeJson(paths.config, settings);
   if (paths.localConfig) writeJson(paths.localConfig, localSettings);
