@@ -61,6 +61,18 @@ Upstream terminal observation and usage extraction sit above synthetic delivery,
 so a warning cannot turn an empty or truncated provider response into success.
 Client statusline/title helpers remain separate lifecycle integrations.
 
+Slow-start notices measure dispatch to first provider content, including earlier
+attempts when a rescue occurred, but excluding client tool execution before the
+request. Identified Codex clients can also send native exec/poll timing headers
+or a code-mode `Script completed` / `Wall time … seconds` header. The notice shows
+that last result's reported call duration separately when its call ID and tool
+identity match; it never adds tool time to provider wait. A result saying
+`Process running with session ID` is labeled as a yielded call, not the underlying
+process's total runtime or a claim that it is still running at notice time.
+Missing or unrecognized headers remain unknown. This is not a session-wide tool
+duration: the observed Codex payload has no per-tool start/end timestamps,
+parallel results are not summed, and nested tool stdout is not a timing source.
+
 ## Validation evidence
 
 Synthetic localhost checks on October 20, 2026 used Claude Code 2.1.294 with
