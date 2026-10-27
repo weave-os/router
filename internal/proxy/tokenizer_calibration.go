@@ -2,11 +2,13 @@ package proxy
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"time"
 
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/router/turntype"
@@ -101,7 +103,7 @@ func (s *Service) recordTokenizerObservation(ctx context.Context, res turnLoopRe
 	if family == "" || prompt <= 0 {
 		return
 	}
-	cal := res.TokenizerCalibration.Observe(family, prompt, time.Now())
+	cal := res.TokenizerCalibration.Observe(family, prompt, res.ContextEstimate, time.Now())
 	// Detached from the request's cancellation like the usage writeback, but
 	// logged through the request-scoped logger so the line carries its IDs.
 	if err := store.UpdateTokenizerCalibration(context.WithoutCancel(ctx), res.SessionKey, role, strategyForTurnLoopResult(res), cal); err != nil {
@@ -126,4 +128,59 @@ func stripRequestedProviderQualifier(model string) string {
 		}
 	}
 	return model
+}
+
+// excludeObservedOverflowModels rules out models whose window the thread's own
+// billed usage says this request no longer fits. The body-size estimate runs
+// low for a tokenizer that bills the history denser than its divisor assumes:
+// a thread GPT billed at ~920k reaches Claude at ~1.4M, while the estimate still
+// fits it under a 1M window.
+// It also returns the excluded models so in-turn rescues can honor them.
+func (s *Service) excludeObservedOverflowModels(ctx context.Context, req router.Request, res turnLoopResult, outputReserve int) (router.Request, []string) {
+	if res.ContextEstimate <= 0 || len(res.TokenizerCalibration.Observations) == 0 {
+		return req, nil
+	}
+	candidates := make(map[string]struct{}, len(s.availableModels)+len(req.CustomBindings))
+	for model := range s.availableModels {
+		candidates[model] = struct{}{}
+	}
+	for model := range req.CustomBindings {
+		candidates[model] = struct{}{}
+	}
+	cortexGateways := cortexGatewayProvidersForRequest(ctx)
+	var overWindow []string
+	for model := range candidates {
+		if _, excluded := req.ExcludedModels[model]; excluded {
+			continue
+		}
+		provider, bound := gatewayProviderFor(model, req.CustomBindings, req.GatewayProviders)
+		if !bound {
+			binding, ok := catalog.ResolveBinding(model, req.EnabledProviders)
+			if !ok {
+				continue
+			}
+			provider = binding.Provider
+		}
+		projected, ok := res.TokenizerCalibration.ProjectedPrompt(tokenizerFamilyFor(provider), res.ContextEstimate)
+		if !ok || projected+outputReserve <= gatewayContextWindow(cortexGateways, model, provider) {
+			continue
+		}
+		overWindow = append(overWindow, model)
+	}
+	if len(overWindow) == 0 {
+		return req, nil
+	}
+	sort.Strings(overWindow)
+	observability.FromContext(ctx).Info("context window pre-filter: excluded models past the thread's observed usage",
+		"context_estimate", res.ContextEstimate,
+		"output_reserve", outputReserve,
+		"excluded_models", strings.Join(overWindow, ","),
+	)
+	for _, model := range overWindow {
+		req.ExcludedModels = excludingModel(req.ExcludedModels, model)
+		req.ContextWindowExcludedModels = addToSet(req.ContextWindowExcludedModels, model)
+		req.SafetyExcludedModels = addToSet(req.SafetyExcludedModels, model)
+	}
+	req.OverflowAdmittedModels = withoutModels(req.OverflowAdmittedModels, overWindow)
+	return req, overWindow
 }

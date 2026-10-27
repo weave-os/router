@@ -7,7 +7,7 @@ export interface ModelPricing {
 	cacheReadMultiplier: number;
 }
 
-export const PRICING_VERSION = "catalog-sha256:9d0980bd838a9b9b";
+export const PRICING_VERSION = "catalog-sha256:4b13e58176fe4d8c";
 
 export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.freeze({
 	"claude-fable-5": { inputUsdPerMillion: 10, outputUsdPerMillion: 50, cacheReadMultiplier: 0.1 },
@@ -78,6 +78,7 @@ export const MODEL_PRICING: Readonly<Record<string, ModelPricing>> = Object.free
 	"inclusionai/ling-3.0-flash": { inputUsdPerMillion: 0.06, outputUsdPerMillion: 0.18, cacheReadMultiplier: 0.2 },
 	"minimax/minimax-m2.7": { inputUsdPerMillion: 0.3, outputUsdPerMillion: 1.2, cacheReadMultiplier: 0.2 },
 	"minimax/minimax-m3": { inputUsdPerMillion: 0.3, outputUsdPerMillion: 1.2, cacheReadMultiplier: 0.2 },
+	"minimax/minimax-m3.1-flash": { inputUsdPerMillion: 0.15, outputUsdPerMillion: 0.6, cacheReadMultiplier: 0.1 },
 	"mistralai/mistral-small-2603": { inputUsdPerMillion: 0.2, outputUsdPerMillion: 0.6, cacheReadMultiplier: 0.1 },
 	"moonshotai/kimi-k2.5": { inputUsdPerMillion: 0.6, outputUsdPerMillion: 3, cacheReadMultiplier: 0.5 },
 	"moonshotai/kimi-k2.6": { inputUsdPerMillion: 0.95, outputUsdPerMillion: 4, cacheReadMultiplier: 0.1684 },

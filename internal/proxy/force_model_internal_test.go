@@ -226,6 +226,20 @@ func TestResolveForceModel(t *testing.T) {
 			wantKnown:    true,
 		},
 		{
+			name:         "alias minimax current release",
+			input:        "minimax",
+			wantID:       "minimax/minimax-m3.1-flash",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
+			name:         "explicit minimax m3 pin remains exact",
+			input:        "minimax-m3",
+			wantID:       "minimax/minimax-m3",
+			wantProvider: providers.ProviderFireworks,
+			wantKnown:    true,
+		},
+		{
 			name:         "explicit kimi k3 pin remains exact",
 			input:        "kimi-k3",
 			wantID:       "moonshotai/kimi-k3",

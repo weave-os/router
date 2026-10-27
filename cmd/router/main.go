@@ -826,6 +826,11 @@ func main() {
 	ccOrchToolsCrossVendor := config.GetOr("ROUTER_CC_ORCH_TOOLS_CROSSVENDOR", "true") == "true"
 	ccTaskToolsCrossVendor := config.GetOr("ROUTER_CC_TASK_TOOLS_CROSSVENDOR", "false") == "true"
 	ccAutonomySystemAppend := config.GetOr("ROUTER_CC_AUTONOMY_SYSTEM_APPEND", "false") == "true"
+	earlyStopRedo, err := flags.ParseEarlyStopRedoMode(config.GetOr("ROUTER_EARLY_STOP_REDO", string(flags.EarlyStopRedoOff)))
+	if err != nil {
+		logger.Error("Invalid ROUTER_EARLY_STOP_REDO; refusing to boot", "err", err)
+		panic(err)
+	}
 	ccWorkspaceSystemAppend := config.GetOr("ROUTER_CC_WORKSPACE_SYSTEM_APPEND", "false") == "true"
 	// Per-turn large-vs-small action-classifier swap. Off by default until the
 	// Layer-2 extrinsic validation clears it; enabling loads the compiled-in head.
@@ -1293,6 +1298,7 @@ func main() {
 		flags.KeyAllowedModelsHeader:                  boolDefault(allowedModelsHeader),
 		flags.KeyCCTaskToolsCrossVendor:               boolDefault(ccTaskToolsCrossVendor),
 		flags.KeyCCAutonomySystemAppend:               boolDefault(ccAutonomySystemAppend),
+		flags.KeyEarlyStopRedo:                        string(earlyStopRedo),
 		flags.KeyCCWorkspaceSystemAppend:              boolDefault(ccWorkspaceSystemAppend),
 		flags.KeyCommittedStreamArmDemotion:           boolDefault(committedStreamArmDemotion),
 		flags.KeyRescuedFailureArmDemotion:            boolDefault(rescuedFailureArmDemotion),
@@ -1415,6 +1421,7 @@ func main() {
 		WithCCOrchestrationToolsCrossVendor(ccOrchToolsCrossVendor).
 		WithCCTaskToolsCrossVendor(ccTaskToolsCrossVendor).
 		WithCCAutonomySystemAppend(ccAutonomySystemAppend).
+		WithEarlyStopRedo(earlyStopRedo).
 		WithCCWorkspaceSystemAppend(ccWorkspaceSystemAppend).
 		WithBandSwap(bandSwapEnabled).
 		WithLoopEscalationConfig(loopEscalationEnabled, loopEscalationHoldoutPct).

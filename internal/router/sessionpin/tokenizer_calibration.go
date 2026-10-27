@@ -36,7 +36,10 @@ func NewTokenizerPair(from, to TokenizerFamily) TokenizerPair {
 // plus cache reads plus cache writes, so it measures the whole history
 // regardless of cache state.
 type TokenizerObservation struct {
-	Prompt     int       `json:"prompt"`
+	Prompt int `json:"prompt"`
+	// Estimate is the router's body-size token estimate for the same request,
+	// so the thread's own tokens-per-estimate rate can project later turns.
+	Estimate   int       `json:"estimate,omitempty"`
 	ObservedAt time.Time `json:"observed_at"`
 }
 
@@ -91,7 +94,7 @@ func (c TokenizerCalibration) Ratio(from, to TokenizerFamily) (float64, bool) {
 // thread's history at at. When another family observed the thread within
 // TokenizerCalibrationMaxGap, the conversion between the two is (re)measured
 // in both directions. The receiver is not modified.
-func (c TokenizerCalibration) Observe(family TokenizerFamily, prompt int, at time.Time) TokenizerCalibration {
+func (c TokenizerCalibration) Observe(family TokenizerFamily, prompt, estimate int, at time.Time) TokenizerCalibration {
 	if family == "" || prompt <= 0 {
 		return c
 	}
@@ -99,7 +102,7 @@ func (c TokenizerCalibration) Observe(family TokenizerFamily, prompt int, at tim
 	if next.Observations == nil {
 		next.Observations = map[TokenizerFamily]TokenizerObservation{}
 	}
-	next.Observations[family] = TokenizerObservation{Prompt: prompt, ObservedAt: at}
+	next.Observations[family] = TokenizerObservation{Prompt: prompt, Estimate: estimate, ObservedAt: at}
 	if prompt < TokenizerCalibrationMinPrompt {
 		return next
 	}
@@ -117,6 +120,45 @@ func (c TokenizerCalibration) Observe(family TokenizerFamily, prompt int, at tim
 		next.Ratios[NewTokenizerPair(family, other)] = TokenizerRatioMeasurement{Ratio: float64(obs.Prompt) / float64(prompt), MeasuredAt: at}
 	}
 	return next
+}
+
+// windowFloorRatios convert between families when the thread has no measured
+// ratio: the low end of the 1.5-1.8x Claude-over-GPT spread, so a projection
+// used to rule models out never overstates the target family's count.
+var windowFloorRatios = map[TokenizerPair]float64{
+	NewTokenizerPair(TokenizerFamilyOpenAI, TokenizerFamilyAnthropic): 1.5,
+	NewTokenizerPair(TokenizerFamilyAnthropic, TokenizerFamilyOpenAI): 1 / 1.8,
+}
+
+// ProjectedPrompt projects how many tokens family would bill for a request
+// whose body-size estimate is estimate, from the thread's newest observation
+// that recorded its own estimate. The observation's tokens-per-estimate rate
+// scales with the history, so a request shrunk by compaction projects small
+// again. ok is false when no observation carries an estimate or no conversion
+// to family is known.
+func (c TokenizerCalibration) ProjectedPrompt(family TokenizerFamily, estimate int) (int, bool) {
+	if family == "" || estimate <= 0 {
+		return 0, false
+	}
+	var from TokenizerFamily
+	var latest TokenizerObservation
+	for f, obs := range c.Observations {
+		if obs.Estimate <= 0 || obs.Prompt <= 0 || (from != "" && !obs.ObservedAt.After(latest.ObservedAt)) {
+			continue
+		}
+		from, latest = f, obs
+	}
+	if from == "" {
+		return 0, false
+	}
+	ratio, ok := c.Ratio(from, family)
+	if !ok {
+		ratio, ok = windowFloorRatios[NewTokenizerPair(from, family)]
+	}
+	if !ok {
+		return 0, false
+	}
+	return int(float64(estimate) * float64(latest.Prompt) / float64(latest.Estimate) * ratio), true
 }
 
 // MergeTokenizerCalibrations combines calibrations read from several pin rows

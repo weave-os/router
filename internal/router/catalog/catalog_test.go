@@ -184,9 +184,11 @@ func TestResolveBinding_MiniMaxUsesNativeModelIDs(t *testing.T) {
 		upstreamID  string
 		inputPrice  float64
 		outputPrice float64
+		cacheRead   float64
 	}{
-		{model: "minimax/minimax-m3", upstreamID: "MiniMax-M3", inputPrice: 0.300, outputPrice: 1.200},
-		{model: "minimax/minimax-m2.7", upstreamID: "MiniMax-M2.7", inputPrice: 0.300, outputPrice: 1.200},
+		{model: "minimax/minimax-m3.1-flash", upstreamID: "MiniMax-M3.1-Flash", inputPrice: 0.150, outputPrice: 0.600, cacheRead: 0.10},
+		{model: "minimax/minimax-m3", upstreamID: "MiniMax-M3", inputPrice: 0.300, outputPrice: 1.200, cacheRead: 0.20},
+		{model: "minimax/minimax-m2.7", upstreamID: "MiniMax-M2.7", inputPrice: 0.300, outputPrice: 1.200, cacheRead: 0.20},
 	}
 
 	for _, tc := range cases {
@@ -197,9 +199,23 @@ func TestResolveBinding_MiniMaxUsesNativeModelIDs(t *testing.T) {
 			assert.Equal(t, tc.upstreamID, binding.UpstreamID)
 			assert.Equal(t, tc.inputPrice, binding.Price.InputUSDPer1M)
 			assert.Equal(t, tc.outputPrice, binding.Price.OutputUSDPer1M)
-			assert.Equal(t, 0.20, binding.Price.EffectiveCacheReadMultiplier())
+			assert.InDelta(t, tc.cacheRead, binding.Price.EffectiveCacheReadMultiplier(), 1e-9)
 		})
 	}
+}
+
+func TestMiniMaxM31FlashManagedBindings(t *testing.T) {
+	b, ok := ResolveBinding("minimax/minimax-m3.1-flash", map[string]struct{}{
+		providers.ProviderTogether: {}, providers.ProviderFireworks: {},
+	})
+	require.True(t, ok)
+	assert.Equal(t, providers.ProviderFireworks, b.Provider)
+	assert.Equal(t, "accounts/fireworks/models/minimax-m3p1-flash", b.UpstreamID)
+
+	b, ok = ResolveBinding("minimax/minimax-m3.1-flash", map[string]struct{}{providers.ProviderTogether: {}})
+	require.True(t, ok)
+	assert.Equal(t, "MiniMaxAI/MiniMax-M3.1-Flash", b.UpstreamID)
+	assert.Equal(t, 1_000_000, ContextWindowFor("minimax/minimax-m3.1-flash"))
 }
 
 func TestGPT56ProCatalogRowsAreDirectOpenAIRoutable(t *testing.T) {

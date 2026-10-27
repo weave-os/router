@@ -40,8 +40,8 @@ func TestSessionPinRepo_TokenizerCalibrationRoundTrip(t *testing.T) {
 
 	at := time.Now().UTC().Truncate(time.Second)
 	cal := sessionpin.TokenizerCalibration{}.
-		Observe(sessionpin.TokenizerFamilyAnthropic, 860_000, at).
-		Observe(sessionpin.TokenizerFamilyOpenAI, 500_000, at.Add(time.Second))
+		Observe(sessionpin.TokenizerFamilyAnthropic, 860_000, 900_000, at).
+		Observe(sessionpin.TokenizerFamilyOpenAI, 500_000, 900_000, at.Add(time.Second))
 	require.NoError(t, repo.UpdateTokenizerCalibration(ctx, key, pin.Role, router.StrategyCluster, cal))
 
 	require.NoError(t, repo.UpdateTokenizerCalibration(ctx, key, pin.Role, router.Strategy("hmm_beta"), sessionpin.TokenizerCalibration{}),
