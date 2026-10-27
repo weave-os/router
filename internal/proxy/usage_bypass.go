@@ -163,11 +163,11 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 	if snap.BillableOrExhausted() {
 		return "", false
 	}
-	// The threshold conserves remaining quota by routing to a cheaper paid
-	// model. Neither a subscription-only caller (paid failover is disabled) nor
-	// a client-selected model (never routed) has a cheaper model to conserve
-	// for, so both serve on the subscription right up to exhaustion.
-	if billing.SubscriptionOnlyFromContext(ctx) || auth.ClientModelPassthroughFrom(ctx) {
+	// Subscription-only mode: paid failover is disabled, so the threshold's
+	// purpose — disengage the bypass to conserve remaining quota by routing to a
+	// cheaper paid model — no longer applies. Serve on the subscription right up
+	// to exhaustion instead of gating early.
+	if billing.SubscriptionOnlyFromContext(ctx) {
 		return provider, true
 	}
 	util := max(snap.Primary.UsedPercent, snap.Secondary.UsedPercent)

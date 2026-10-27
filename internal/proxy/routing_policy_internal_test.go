@@ -12,9 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/auth"
-	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
-	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/sessionpin"
@@ -232,54 +230,4 @@ func TestClientSelectedUnknownModelIsNotAttributedToPolicy(t *testing.T) {
 	var unknown *PassthroughModelUnknownError
 	require.ErrorAs(t, err, &unknown)
 	assert.False(t, unknown.RoutingPolicyPassthrough, "the client chose the model; no admin setting would fix it")
-}
-
-func TestClientSelectedModelBillsCallerSubscriptionUntilExhausted(t *testing.T) {
-	const model = "claude-sonnet-4-6"
-	envelope, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`))
-	require.NoError(t, err)
-	selected := func(bypass bool) context.Context {
-		ctx := auth.WithClientModelPassthrough(context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, classifierTestSubToken))
-		if bypass {
-			ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
-		}
-		return ctx
-	}
-	for _, tc := range []struct {
-		name       string
-		ctx        context.Context
-		used       float64
-		wantBypass bool
-	}{
-		{name: "usage bypass off bills Weave credits", ctx: selected(false), used: 0.10},
-		{name: "usage bypass on bills the caller's plan", ctx: selected(true), used: 0.10, wantBypass: true},
-		{name: "plan is used past the routing threshold", ctx: selected(true), used: 0.97, wantBypass: true},
-		{name: "spent plan falls back to Weave credits", ctx: selected(true), used: 1.0},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			observer := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
-			observer.Record(observer.Key([]byte(classifierTestSubToken)), usage.Snapshot{Primary: usage.Window{UsedPercent: tc.used, WindowMinutes: 300}})
-			service := NewService(&blindExperimentRouterSpy{err: errors.New("scorer must not run")}, map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}, nil, false, nil, newStubPinStore(), false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
-			service.usageObserver = observer
-
-			turn, err := service.runTurnLoop(tc.ctx, envelope, envelope.RoutingFeatures(false), "api-key", uuid.New(), "", http.Header{}, router.Request{RequestedModel: model})
-
-			require.NoError(t, err)
-			assert.Equal(t, model, turn.Decision.Model)
-			assert.Equal(t, tc.wantBypass, turn.UsageBypass)
-			assert.Equal(t, !tc.wantBypass, turn.CallerModelPassthrough)
-		})
-	}
-}
-
-func TestUsageBypassThresholdStillAppliesToRoutedRequests(t *testing.T) {
-	observer := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
-	observer.Record(observer.Key([]byte(classifierTestSubToken)), usage.Snapshot{Primary: usage.Window{UsedPercent: 0.97, WindowMinutes: 300}})
-	service := &Service{clients: dispatch.NewClients(map[string]providers.Client{providers.ProviderAnthropic: &bypassFakeProvider{}}), usageObserver: observer}
-	ctx := context.WithValue(context.Background(), AnthropicSubscriptionContextKey{}, classifierTestSubToken)
-	ctx = context.WithValue(ctx, InstallationUsageBypassContextKey{}, UsageBypassConfig{Enabled: true})
-
-	_, engaged := service.usageBypassEngaged(ctx, http.Header{}, router.Request{RequestedModel: "claude-sonnet-4-6"})
-
-	assert.False(t, engaged, "a routed request conserves quota above the threshold")
 }

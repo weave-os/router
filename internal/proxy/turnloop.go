@@ -901,15 +901,6 @@ func (s *Service) runTurnLoop(
 		}
 	}
 	if auth.RoutingPassthroughFrom(ctx) && !forceModelFound {
-		// With the installation's usage bypass on, a client-selected model is
-		// billed to the caller's own subscription until it is spent.
-		if auth.ClientModelPassthroughFrom(ctx) {
-			if dec, ok := s.usageBypassDecision(ctx, reqHeaders, req, res.SessionDemotedModels, res.TurnType); ok {
-				res.Decision = dec
-				res.UsageBypass = true
-				return res, nil
-			}
-		}
 		decision, err := s.callerModelPassthroughDecision(ctx, req)
 		if err != nil {
 			return res, err
