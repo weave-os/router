@@ -638,6 +638,123 @@ func (q *Queries) GetSessionCost(ctx context.Context, arg GetSessionCostParams) 
 	return i, err
 }
 
+const getSessionSavingsTurns = `-- name: GetSessionSavingsTurns :many
+SELECT
+    t.timestamp,
+    COALESCE(t.client_app, '')::text AS client_app,
+    COALESCE(t.requested_model, '')::text AS requested_model,
+    COALESCE(t.decision_model, '')::text AS decision_model,
+    COALESCE(t.decision_provider, '')::text AS decision_provider,
+    COALESCE(t.decision_reason, '')::text AS decision_reason,
+    COALESCE(t.input_tokens, 0)::bigint AS input_tokens,
+    COALESCE(t.output_tokens, 0)::bigint AS output_tokens,
+    COALESCE(t.cache_creation_tokens, 0)::bigint AS cache_creation_tokens,
+    COALESCE(t.cache_read_tokens, 0)::bigint AS cache_read_tokens,
+    COALESCE(t.baseline_warm_prefill_tokens, 0)::bigint AS baseline_warm_prefill_tokens,
+    (COALESCE(t.actual_input_cost_usd, 0) + COALESCE(t.actual_output_cost_usd, 0))::bigint AS actual_cost_usd,
+    COALESCE(
+        t.credential_source IN ('subscription', 'codex_subscription')
+        AND ((t.upstream_status_code >= 200 AND t.upstream_status_code < 300)
+             OR (t.upstream_status_code = 0 AND t.error_class IS NULL))
+        AND (
+            t.unified_limit_headers->>'anthropic-ratelimit-unified-representative-claim' = 'overage'
+            AND t.unified_limit_headers->>'anthropic-ratelimit-unified-overage-in-use' = 'true'
+        ) IS DISTINCT FROM true,
+        false
+    )::boolean AS subscription_served
+FROM router.model_router_request_telemetry t
+WHERE t.installation_id = $1::uuid
+  AND t.session_id = $2::varchar
+  AND t.span_type = 'router.upstream'
+ORDER BY t.timestamp ASC
+`
+
+type GetSessionSavingsTurnsParams struct {
+	InstallationID uuid.UUID
+	SessionID      string
+}
+
+type GetSessionSavingsTurnsRow struct {
+	Timestamp                 pgtype.Timestamptz
+	ClientApp                 string
+	RequestedModel            string
+	DecisionModel             string
+	DecisionProvider          string
+	DecisionReason            string
+	InputTokens               int64
+	OutputTokens              int64
+	CacheCreationTokens       int64
+	CacheReadTokens           int64
+	BaselineWarmPrefillTokens int64
+	ActualCostUsd             int64
+	SubscriptionServed        bool
+}
+
+// Per-turn inputs to the session's normalized savings. subscription_served
+// matches GetRoutingDecisionsForExport.
+//
+//	SELECT
+//	    t.timestamp,
+//	    COALESCE(t.client_app, '')::text AS client_app,
+//	    COALESCE(t.requested_model, '')::text AS requested_model,
+//	    COALESCE(t.decision_model, '')::text AS decision_model,
+//	    COALESCE(t.decision_provider, '')::text AS decision_provider,
+//	    COALESCE(t.decision_reason, '')::text AS decision_reason,
+//	    COALESCE(t.input_tokens, 0)::bigint AS input_tokens,
+//	    COALESCE(t.output_tokens, 0)::bigint AS output_tokens,
+//	    COALESCE(t.cache_creation_tokens, 0)::bigint AS cache_creation_tokens,
+//	    COALESCE(t.cache_read_tokens, 0)::bigint AS cache_read_tokens,
+//	    COALESCE(t.baseline_warm_prefill_tokens, 0)::bigint AS baseline_warm_prefill_tokens,
+//	    (COALESCE(t.actual_input_cost_usd, 0) + COALESCE(t.actual_output_cost_usd, 0))::bigint AS actual_cost_usd,
+//	    COALESCE(
+//	        t.credential_source IN ('subscription', 'codex_subscription')
+//	        AND ((t.upstream_status_code >= 200 AND t.upstream_status_code < 300)
+//	             OR (t.upstream_status_code = 0 AND t.error_class IS NULL))
+//	        AND (
+//	            t.unified_limit_headers->>'anthropic-ratelimit-unified-representative-claim' = 'overage'
+//	            AND t.unified_limit_headers->>'anthropic-ratelimit-unified-overage-in-use' = 'true'
+//	        ) IS DISTINCT FROM true,
+//	        false
+//	    )::boolean AS subscription_served
+//	FROM router.model_router_request_telemetry t
+//	WHERE t.installation_id = $1::uuid
+//	  AND t.session_id = $2::varchar
+//	  AND t.span_type = 'router.upstream'
+//	ORDER BY t.timestamp ASC
+func (q *Queries) GetSessionSavingsTurns(ctx context.Context, arg GetSessionSavingsTurnsParams) ([]GetSessionSavingsTurnsRow, error) {
+	rows, err := q.db.Query(ctx, getSessionSavingsTurns, arg.InstallationID, arg.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetSessionSavingsTurnsRow
+	for rows.Next() {
+		var i GetSessionSavingsTurnsRow
+		if err := rows.Scan(
+			&i.Timestamp,
+			&i.ClientApp,
+			&i.RequestedModel,
+			&i.DecisionModel,
+			&i.DecisionProvider,
+			&i.DecisionReason,
+			&i.InputTokens,
+			&i.OutputTokens,
+			&i.CacheCreationTokens,
+			&i.CacheReadTokens,
+			&i.BaselineWarmPrefillTokens,
+			&i.ActualCostUsd,
+			&i.SubscriptionServed,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getTelemetryBySessionAsc = `-- name: GetTelemetryBySessionAsc :one
 SELECT
     request_id,
@@ -2001,6 +2118,7 @@ INSERT INTO router.model_router_request_telemetry (
     ttft_ms,
     cache_creation_tokens,
     cache_creation_1h_tokens,
+    baseline_warm_prefill_tokens,
     cache_read_tokens,
     reasoning_tokens,
     speed,
@@ -2179,89 +2297,89 @@ INSERT INTO router.model_router_request_telemetry (
     $54::int,
     $55::int,
     $56::int,
-    $57::text,
+    $57::int,
     $58::text,
-    $59::varchar,
+    $59::text,
     $60::varchar,
-    $61::uuid,
-    $62::text,
-    $63::varchar,
+    $61::varchar,
+    $62::uuid,
+    $63::text,
     $64::varchar,
     $65::varchar,
-    $66::uuid,
-    $67::smallint,
+    $66::varchar,
+    $67::uuid,
     $68::smallint,
-    $69::integer,
-    $70::varchar,
-    $71::boolean,
-    $72::varchar,
+    $69::smallint,
+    $70::integer,
+    $71::varchar,
+    $72::boolean,
     $73::varchar,
     $74::varchar,
-    $75::text,
+    $75::varchar,
     $76::text,
-    $77::int,
+    $77::text,
     $78::int,
-    $79::varchar,
-    $80::int,
-    $81::jsonb,
-    $82::boolean,
+    $79::int,
+    $80::varchar,
+    $81::int,
+    $82::jsonb,
     $83::boolean,
     $84::boolean,
     $85::boolean,
     $86::boolean,
-    $87::bytea,
-    $88::varchar,
+    $87::boolean,
+    $88::bytea,
     $89::varchar,
-    $90::jsonb,
-    $91::bigint,
-    $92::int,
-    $93::varchar,
+    $90::varchar,
+    $91::jsonb,
+    $92::bigint,
+    $93::int,
     $94::varchar,
     $95::varchar,
-    $96::uuid,
+    $96::varchar,
     $97::uuid,
-    $98::varchar,
+    $98::uuid,
     $99::varchar,
     $100::varchar,
-    $101::jsonb,
-    $102::boolean,
+    $101::varchar,
+    $102::jsonb,
     $103::boolean,
-    $104::varchar,
+    $104::boolean,
     $105::varchar,
     $106::varchar,
     $107::varchar,
-    $108::bigint,
+    $108::varchar,
     $109::bigint,
-    $110::boolean,
-    $111::varchar,
-    $112::bigint,
-    $113::varchar,
-    $114::boolean,
-    $115::varchar,
+    $110::bigint,
+    $111::boolean,
+    $112::varchar,
+    $113::bigint,
+    $114::varchar,
+    $115::boolean,
     $116::varchar,
     $117::varchar,
-    $118::bigint,
+    $118::varchar,
     $119::bigint,
-    $120::boolean,
-    $121::varchar,
-    $122::bigint,
-    $123::double precision,
+    $120::bigint,
+    $121::boolean,
+    $122::varchar,
+    $123::bigint,
     $124::double precision,
-    $125::int,
+    $125::double precision,
     $126::int,
     $127::int,
     $128::int,
-    $129::varchar,
-    $130::double precision,
-    $131::int,
+    $129::int,
+    $130::varchar,
+    $131::double precision,
     $132::int,
     $133::int,
     $134::int,
     $135::int,
-    $136::boolean,
-    $137::varchar[],
+    $136::int,
+    $137::boolean,
     $138::varchar[],
-    $139::varchar,
+    $139::varchar[],
     $140::varchar,
     $141::varchar,
     $142::varchar,
@@ -2269,35 +2387,36 @@ INSERT INTO router.model_router_request_telemetry (
     $144::varchar,
     $145::varchar,
     $146::varchar,
-    $147::boolean,
-    $148::varchar,
+    $147::varchar,
+    $148::boolean,
     $149::varchar,
-    $150::boolean,
-    $151::varchar,
+    $150::varchar,
+    $151::boolean,
     $152::varchar,
     $153::varchar,
     $154::varchar,
     $155::varchar,
-    $156::bigint,
-    $157::varchar,
-    $158::bigint,
+    $156::varchar,
+    $157::bigint,
+    $158::varchar,
     $159::bigint,
     $160::bigint,
     $161::bigint,
-    $162::boolean,
-    $163::varchar,
+    $162::bigint,
+    $163::boolean,
     $164::varchar,
     $165::varchar,
     $166::varchar,
     $167::varchar,
     $168::varchar,
-    $169::boolean,
-    $170::bigint,
-    $171::varchar,
+    $169::varchar,
+    $170::boolean,
+    $171::bigint,
     $172::varchar,
     $173::varchar,
-    $174::jsonb,
-    $175::jsonb
+    $174::varchar,
+    $175::jsonb,
+    $176::jsonb
 )
 ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 `
@@ -2357,6 +2476,7 @@ type InsertRequestTelemetryParams struct {
 	TtftMs                                   *int64
 	CacheCreationTokens                      *int32
 	CacheCreation1hTokens                    *int32
+	BaselineWarmPrefillTokens                *int32
 	CacheReadTokens                          *int32
 	ReasoningTokens                          *int32
 	Speed                                    *string
@@ -2593,6 +2713,7 @@ type InsertRequestTelemetryParams struct {
 //	    ttft_ms,
 //	    cache_creation_tokens,
 //	    cache_creation_1h_tokens,
+//	    baseline_warm_prefill_tokens,
 //	    cache_read_tokens,
 //	    reasoning_tokens,
 //	    speed,
@@ -2771,89 +2892,89 @@ type InsertRequestTelemetryParams struct {
 //	    $54::int,
 //	    $55::int,
 //	    $56::int,
-//	    $57::text,
+//	    $57::int,
 //	    $58::text,
-//	    $59::varchar,
+//	    $59::text,
 //	    $60::varchar,
-//	    $61::uuid,
-//	    $62::text,
-//	    $63::varchar,
+//	    $61::varchar,
+//	    $62::uuid,
+//	    $63::text,
 //	    $64::varchar,
 //	    $65::varchar,
-//	    $66::uuid,
-//	    $67::smallint,
+//	    $66::varchar,
+//	    $67::uuid,
 //	    $68::smallint,
-//	    $69::integer,
-//	    $70::varchar,
-//	    $71::boolean,
-//	    $72::varchar,
+//	    $69::smallint,
+//	    $70::integer,
+//	    $71::varchar,
+//	    $72::boolean,
 //	    $73::varchar,
 //	    $74::varchar,
-//	    $75::text,
+//	    $75::varchar,
 //	    $76::text,
-//	    $77::int,
+//	    $77::text,
 //	    $78::int,
-//	    $79::varchar,
-//	    $80::int,
-//	    $81::jsonb,
-//	    $82::boolean,
+//	    $79::int,
+//	    $80::varchar,
+//	    $81::int,
+//	    $82::jsonb,
 //	    $83::boolean,
 //	    $84::boolean,
 //	    $85::boolean,
 //	    $86::boolean,
-//	    $87::bytea,
-//	    $88::varchar,
+//	    $87::boolean,
+//	    $88::bytea,
 //	    $89::varchar,
-//	    $90::jsonb,
-//	    $91::bigint,
-//	    $92::int,
-//	    $93::varchar,
+//	    $90::varchar,
+//	    $91::jsonb,
+//	    $92::bigint,
+//	    $93::int,
 //	    $94::varchar,
 //	    $95::varchar,
-//	    $96::uuid,
+//	    $96::varchar,
 //	    $97::uuid,
-//	    $98::varchar,
+//	    $98::uuid,
 //	    $99::varchar,
 //	    $100::varchar,
-//	    $101::jsonb,
-//	    $102::boolean,
+//	    $101::varchar,
+//	    $102::jsonb,
 //	    $103::boolean,
-//	    $104::varchar,
+//	    $104::boolean,
 //	    $105::varchar,
 //	    $106::varchar,
 //	    $107::varchar,
-//	    $108::bigint,
+//	    $108::varchar,
 //	    $109::bigint,
-//	    $110::boolean,
-//	    $111::varchar,
-//	    $112::bigint,
-//	    $113::varchar,
-//	    $114::boolean,
-//	    $115::varchar,
+//	    $110::bigint,
+//	    $111::boolean,
+//	    $112::varchar,
+//	    $113::bigint,
+//	    $114::varchar,
+//	    $115::boolean,
 //	    $116::varchar,
 //	    $117::varchar,
-//	    $118::bigint,
+//	    $118::varchar,
 //	    $119::bigint,
-//	    $120::boolean,
-//	    $121::varchar,
-//	    $122::bigint,
-//	    $123::double precision,
+//	    $120::bigint,
+//	    $121::boolean,
+//	    $122::varchar,
+//	    $123::bigint,
 //	    $124::double precision,
-//	    $125::int,
+//	    $125::double precision,
 //	    $126::int,
 //	    $127::int,
 //	    $128::int,
-//	    $129::varchar,
-//	    $130::double precision,
-//	    $131::int,
+//	    $129::int,
+//	    $130::varchar,
+//	    $131::double precision,
 //	    $132::int,
 //	    $133::int,
 //	    $134::int,
 //	    $135::int,
-//	    $136::boolean,
-//	    $137::varchar[],
+//	    $136::int,
+//	    $137::boolean,
 //	    $138::varchar[],
-//	    $139::varchar,
+//	    $139::varchar[],
 //	    $140::varchar,
 //	    $141::varchar,
 //	    $142::varchar,
@@ -2861,35 +2982,36 @@ type InsertRequestTelemetryParams struct {
 //	    $144::varchar,
 //	    $145::varchar,
 //	    $146::varchar,
-//	    $147::boolean,
-//	    $148::varchar,
+//	    $147::varchar,
+//	    $148::boolean,
 //	    $149::varchar,
-//	    $150::boolean,
-//	    $151::varchar,
+//	    $150::varchar,
+//	    $151::boolean,
 //	    $152::varchar,
 //	    $153::varchar,
 //	    $154::varchar,
 //	    $155::varchar,
-//	    $156::bigint,
-//	    $157::varchar,
-//	    $158::bigint,
+//	    $156::varchar,
+//	    $157::bigint,
+//	    $158::varchar,
 //	    $159::bigint,
 //	    $160::bigint,
 //	    $161::bigint,
-//	    $162::boolean,
-//	    $163::varchar,
+//	    $162::bigint,
+//	    $163::boolean,
 //	    $164::varchar,
 //	    $165::varchar,
 //	    $166::varchar,
 //	    $167::varchar,
 //	    $168::varchar,
-//	    $169::boolean,
-//	    $170::bigint,
-//	    $171::varchar,
+//	    $169::varchar,
+//	    $170::boolean,
+//	    $171::bigint,
 //	    $172::varchar,
 //	    $173::varchar,
-//	    $174::jsonb,
-//	    $175::jsonb
+//	    $174::varchar,
+//	    $175::jsonb,
+//	    $176::jsonb
 //	)
 //	ON CONFLICT (installation_id, request_id, span_type) DO NOTHING
 func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestTelemetryParams) error {
@@ -2948,6 +3070,7 @@ func (q *Queries) InsertRequestTelemetry(ctx context.Context, arg InsertRequestT
 		arg.TtftMs,
 		arg.CacheCreationTokens,
 		arg.CacheCreation1hTokens,
+		arg.BaselineWarmPrefillTokens,
 		arg.CacheReadTokens,
 		arg.ReasoningTokens,
 		arg.Speed,

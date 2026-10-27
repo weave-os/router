@@ -34,6 +34,12 @@ type sessionCostResponse struct {
 	CacheCreationTokens    int64                  `json:"cache_creation_tokens"`
 	CacheReadTokens        int64                  `json:"cache_read_tokens"`
 	LastRecordedAt         string                 `json:"last_recorded_at"`
+	// Normalized savings against the client's comparison model; absent when
+	// that model has no token-efficiency measurements on this deployment.
+	NormalizedSavingsUSDMicros *int64   `json:"normalized_savings_usd_micros,omitempty"`
+	NormalizedSavingsUSD       *float64 `json:"normalized_savings_usd,omitempty"`
+	SavingsBaselineModel       string   `json:"savings_baseline_model,omitempty"`
+	SavingsBaselineLabel       string   `json:"savings_baseline_label,omitempty"`
 }
 
 // SessionCostHandler returns committed router cost for a session, scoped to the
@@ -75,7 +81,7 @@ func SessionCostHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 		}
 		c.Header("Cache-Control", "no-store")
 		savings := cost.RequestedCostUSDMicros - cost.ActualCostUSDMicros
-		c.JSON(http.StatusOK, sessionCostResponse{
+		response := sessionCostResponse{
 			SessionID:              cost.SessionID,
 			ContextSnapshot:        cost.ContextSnapshot,
 			RequestCount:           cost.RequestCount,
@@ -90,6 +96,15 @@ func SessionCostHandler(proxySvc *proxy.Service) gin.HandlerFunc {
 			CacheCreationTokens:    cost.CacheCreationTokens,
 			CacheReadTokens:        cost.CacheReadTokens,
 			LastRecordedAt:         cost.LastRecordedAt.UTC().Format(time.RFC3339Nano),
-		})
+		}
+		if cost.Normalized != nil {
+			micros := cost.Normalized.SavingsUSDMicros
+			usd := float64(micros) / usdMicrosPerUSD
+			response.NormalizedSavingsUSDMicros = &micros
+			response.NormalizedSavingsUSD = &usd
+			response.SavingsBaselineModel = cost.Normalized.BaselineModel
+			response.SavingsBaselineLabel = cost.Normalized.BaselineLabel
+		}
+		c.JSON(http.StatusOK, response)
 	}
 }
