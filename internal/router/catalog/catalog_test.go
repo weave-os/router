@@ -109,6 +109,7 @@ func TestCodexSubscriptionCoverageComesFromCatalog(t *testing.T) {
 		"gpt-6-luna",
 		"gpt-6-sol",
 		"gpt-6.1-sol",
+		"gpt-6.1-terra",
 	}, CodexSubscriptionModels())
 	assert.True(t, CodexSubscriptionCoversModel("gpt-6-luna"))
 	assert.False(t, CodexSubscriptionCoversModel("gpt-5.4-nano"))

@@ -222,6 +222,7 @@ var registry = map[string]ModelSpec{
 	"gpt-6-astra":     openaiAstra,
 	"gpt-6-sol":       openai6,
 	"gpt-6.1-sol":     openai61,
+	"gpt-6.1-terra":   openai61,
 	"gpt-6-luna":      openai6,
 	ModelGemini4Argon: google3Base,
 
