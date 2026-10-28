@@ -34,10 +34,12 @@ func InternalRegisterSessionIssuerHandler(authSvc *auth.Service) gin.HandlerFunc
 			return
 		}
 		if req.CredentialSubjectID != "" {
-			if _, err := uuid.Parse(req.CredentialSubjectID); err != nil {
+			subjectID, err := uuid.Parse(req.CredentialSubjectID)
+			if err != nil {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Credential subject ID must be a UUID."})
 				return
 			}
+			req.CredentialSubjectID = subjectID.String()
 		}
 		var name *string
 		if req.Name != "" {

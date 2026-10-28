@@ -60,9 +60,9 @@ func TestOwnerBoundIssuersPreserveSpendAcrossOwnersAndKeys(t *testing.T) {
 		require.NoError(t, queries.InsertCredentialSubjectInstallation(ctx, sqlc.InsertCredentialSubjectInstallationParams{SubjectID: subject.ID, InstallationID: uuid.MustParse(installation.ID)}))
 		return subject.ID.String()
 	}
-	ownerA := createSubject()
-	first := createIssuer(installation.ID, ownerA)
-	rotated := createIssuer(installation.ID, ownerA)
+	firstOwner := createSubject()
+	first := createIssuer(installation.ID, firstOwner)
+	rotated := createIssuer(installation.ID, firstOwner)
 	reassigned := createIssuer(installation.ID, createSubject())
 	legacy := createIssuer(installation.ID, "")
 	foreign := createIssuer(other.ID, "")
