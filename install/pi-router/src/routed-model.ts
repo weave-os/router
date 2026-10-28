@@ -71,6 +71,8 @@ function messageUsage(message: AssistantMessage) {
 	};
 }
 
+const SESSION_SAVINGS_SETTLE_MS = 5_000;
+
 export function registerRoutedModel(pi: ExtensionAPI, request: typeof fetch = fetch): void {
 	let pendingRoutes: PendingRoute[] = [];
 	let entries: SavingsEntryData[] = [];
@@ -82,6 +84,7 @@ export function registerRoutedModel(pi: ExtensionAPI, request: typeof fetch = fe
 	let pendingCommand: PendingCommand | undefined;
 	let sessionSavings: SessionSavings | undefined;
 	let savingsGeneration = 0;
+	let settledSavingsTimer: ReturnType<typeof setTimeout> | undefined;
 
 	const refresh = (ctx: ExtensionContext) => {
 		if (isSubagent()) return;
@@ -105,6 +108,22 @@ export function registerRoutedModel(pi: ExtensionAPI, request: typeof fetch = fe
 		})();
 	};
 
+	const cancelSettledSavingsRefresh = () => {
+		clearTimeout(settledSavingsTimer);
+		settledSavingsTimer = undefined;
+	};
+
+	// The router can commit a turn's telemetry after turn_end, so one later fetch
+	// picks up the finished turn.
+	const scheduleSettledSavingsRefresh = (ctx: ExtensionContext) => {
+		cancelSettledSavingsRefresh();
+		settledSavingsTimer = setTimeout(() => {
+			settledSavingsTimer = undefined;
+			refreshSessionSavings(ctx);
+		}, SESSION_SAVINGS_SETTLE_MS);
+		settledSavingsTimer.unref?.();
+	};
+
 	const restore = (ctx: ExtensionContext) => {
 		const restored = savingsFromBranch(ctx);
 		entries = restored.entries;
@@ -117,6 +136,7 @@ export function registerRoutedModel(pi: ExtensionAPI, request: typeof fetch = fe
 		lastPinModel = lastPinFromBranch(ctx.sessionManager.getBranch());
 		sessionSavings = undefined;
 		savingsGeneration++;
+		cancelSettledSavingsRefresh();
 		pendingRoutes = [];
 		pendingCommand = undefined;
 		activeTurnIndex = undefined;
@@ -222,6 +242,7 @@ export function registerRoutedModel(pi: ExtensionAPI, request: typeof fetch = fe
 		pi.appendEntry(SAVINGS_ENTRY_TYPE, entry);
 		refresh(ctx);
 		refreshSessionSavings(ctx);
+		scheduleSettledSavingsRefresh(ctx);
 	});
 
 	pi.on("session_tree", (_event, ctx: ExtensionContext) => {
@@ -239,6 +260,7 @@ export function registerRoutedModel(pi: ExtensionAPI, request: typeof fetch = fe
 		pendingCommand = undefined;
 		activeTurnIndex = undefined;
 		savingsGeneration++;
+		cancelSettledSavingsRefresh();
 		if (!isSubagent()) clearLoomUi(ctx);
 	});
 
