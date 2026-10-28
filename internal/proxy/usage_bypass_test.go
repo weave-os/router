@@ -602,6 +602,36 @@ func TestSubscriptionOnly_ExhaustedSubscription_Refuses402(t *testing.T) {
 	assert.Empty(t, p.proxyBodies, "no paid dispatch may occur when the subscription can't serve the turn")
 }
 
+// TestSubscriptionOnly_OverageSubscription_ServesOnSub: with paid fallback
+// disabled, a Claude plan drawing its own extra usage is the only lane left, so
+// the turn serves on it instead of being refused.
+func TestSubscriptionOnly_OverageSubscription_ServesOnSub(t *testing.T) {
+	for _, reason := range []billing.SubscriptionOnlyReason{billing.SubscriptionOnlyCreditsDepleted, billing.SubscriptionOnlySpendCapReached} {
+		t.Run(string(reason), func(t *testing.T) {
+			fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl}}
+			p := &fakeProvider{proxyResponse: bypassStreamResponse}
+			obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
+			obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{
+				RepresentativeClaim: usage.AnthropicClaimOverage,
+				OverageInUse:        true,
+				UnifiedResetAt:      time.Now().Add(72 * time.Hour),
+			})
+			svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
+				WithUsageObserver(obs)
+
+			rec, req, body := bypassRequest(t)
+			ctx := billing.WithSubscriptionOnly(
+				context.WithValue(context.Background(), proxy.AnthropicSubscriptionContextKey{}, bypassSubToken),
+				reason)
+			require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
+
+			require.Len(t, p.proxyBodies, 1, "the turn must serve exactly once")
+			require.NotNil(t, p.proxyCreds[0])
+			assert.True(t, p.proxyCreds[0].OAuth, "the turn must serve on the caller's own Claude subscription")
+		})
+	}
+}
+
 // TestSubscriptionOnly_NonBypassServedOnSub_Serves: a non-bypass turn (here the
 // usage-bypass gate is off) in subscription-only mode must still serve free on
 // the caller's own Claude OAuth subscription rather than be refused. Hard-pins,
