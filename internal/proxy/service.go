@@ -1685,6 +1685,20 @@ func subscriptionProvidersForRequest(ctx context.Context) map[string]struct{} {
 	return available
 }
 
+// selectableSubscriptionProviders is subscriptionProvidersForRequest minus a
+// presented subscription the usage observer already reports exhausted, so model
+// selection never favors a subscription the turn will be suppressed off.
+func (s *Service) selectableSubscriptionProviders(ctx context.Context, headers http.Header) map[string]struct{} {
+	available := subscriptionProvidersForRequest(ctx)
+	if s.anthropicSubscriptionObservedExhausted(ctx, headers) {
+		delete(available, providers.ProviderAnthropic)
+	}
+	if s.codexSubscriptionExhausted(ctx, headers) {
+		delete(available, providers.ProviderOpenAI)
+	}
+	return available
+}
+
 func anthropicSubscriptionFromContext(ctx context.Context) string {
 	v, _ := ctx.Value(AnthropicSubscriptionContextKey{}).(string)
 	return v
@@ -4083,7 +4097,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		EnabledProviders:              enabledProviders,
 		CustomBindings:                customBindings,
 		GatewayProviders:              gatewayProviders,
-		SubscriptionProviders:         subscriptionProvidersForRequest(ctx),
+		SubscriptionProviders:         s.selectableSubscriptionProviders(ctx, r.Header),
 		ExcludedModels:                excluded,
 		AllowedModels:                 allowedModelsForRequest(ctx),
 		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserve, enabledProviders), overflowAdmitted, hardExcluded),
@@ -7416,7 +7430,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		EnabledProviders:              enabledProviders,
 		CustomBindings:                s.customBindingsForRequest(ctx),
 		GatewayProviders:              s.gatewayProvidersForRequest(ctx),
-		SubscriptionProviders:         subscriptionProvidersForRequest(ctx),
+		SubscriptionProviders:         s.selectableSubscriptionProviders(ctx, r.Header),
 		ExcludedModels:                excludedOAI,
 		AllowedModels:                 allowedModelsForRequest(ctx),
 		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserveOAI, enabledProviders), overflowAdmittedOAI, geminiUnsignedOAI),
