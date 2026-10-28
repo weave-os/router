@@ -896,6 +896,7 @@ func main() {
 	authoritativeUpgradeVotes := parseEnvNonNegativeInt("ROUTER_AUTHORITATIVE_UPGRADE_VOTES", 3)
 	// authoritativeDowngradeGate mirrors the floor for cheaper-than-pin picks; off by default.
 	authoritativeDowngradeGate := config.GetOr("ROUTER_AUTHORITATIVE_DOWNGRADE_GATE", "false") == "true"
+	authoritativeUpgradeSlidingThreshold := config.GetOr("ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD", "false") == "true"
 	// hmmDowngradeHysteresisTurns requires N consecutive cheaper-than-pin authoritative
 	// votes before the downgrade is served; 0 switches on the first vote.
 	hmmDowngradeHysteresisTurns := parseEnvNonNegativeInt("ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS", proxy.DefaultHMMDowngradeHysteresisTurns)
@@ -1290,6 +1291,7 @@ func main() {
 		flags.KeyAuthoritativeUpgradeHoldoutPct:       strconv.Itoa(authoritativeUpgradeHoldoutPct),
 		flags.KeyAuthoritativeUpgradeVotes:            strconv.Itoa(authoritativeUpgradeVotes),
 		flags.KeyAuthoritativeDowngradeGate:           boolDefault(authoritativeDowngradeGate),
+		flags.KeyAuthoritativeUpgradeSlidingThreshold: boolDefault(authoritativeUpgradeSlidingThreshold),
 		flags.KeyHMMDowngradeHysteresisTurns:          strconv.Itoa(hmmDowngradeHysteresisTurns),
 		flags.KeyHMMDowngradeHysteresisShadowTurns:    strconv.Itoa(hmmDowngradeHysteresisShadowTurns),
 		flags.KeyAuthorityCacheShadow:                 boolDefault(authorityCacheShadow),
@@ -1411,6 +1413,7 @@ func main() {
 		WithAuthoritativeUpgradeHoldoutPct(authoritativeUpgradeHoldoutPct).
 		WithAuthoritativeUpgradeVotes(authoritativeUpgradeVotes).
 		WithAuthoritativeDowngradeGate(authoritativeDowngradeGate).
+		WithAuthoritativeUpgradeSlidingThreshold(authoritativeUpgradeSlidingThreshold).
 		WithHMMDowngradeHysteresisTurns(hmmDowngradeHysteresisTurns).
 		WithHMMDowngradeHysteresisShadowTurns(hmmDowngradeHysteresisShadowTurns).
 		WithAuthorityCacheShadow(authorityCacheShadow).

@@ -224,6 +224,10 @@ type Service struct {
 	// hmmUpgradeConfidenceThreshold keeps the pin. Env
 	// ROUTER_AUTHORITATIVE_DOWNGRADE_GATE, off by default.
 	authoritativeDowngradeGate bool
+	// authoritativeUpgradeSlidingThreshold lets an upgrade inside a per-group
+	// probability band (escalation.SlidingThresholdTarget) bypass the confidence
+	// floor. Env ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD, off by default.
+	authoritativeUpgradeSlidingThreshold bool
 	// hmmDowngradeHysteresisTurns is how many consecutive authoritative-per-turn
 	// votes for a cheaper-than-pin model are needed before the downgrade is
 	// applied. Env ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS, default
@@ -2243,6 +2247,13 @@ func (s *Service) WithAuthoritativeUpgradeVotes(votes int) *Service {
 // downgrade must also clear the confidence threshold. Off by default.
 func (s *Service) WithAuthoritativeDowngradeGate(enabled bool) *Service {
 	s.authoritativeDowngradeGate = enabled
+	return s
+}
+
+// WithAuthoritativeUpgradeSlidingThreshold sets the deployment default for
+// ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD. Off by default.
+func (s *Service) WithAuthoritativeUpgradeSlidingThreshold(enabled bool) *Service {
+	s.authoritativeUpgradeSlidingThreshold = enabled
 	return s
 }
 

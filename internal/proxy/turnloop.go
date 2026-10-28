@@ -179,12 +179,13 @@ const policyPinTier = "policy_pin"
 type pinTier string
 
 const (
-	pinTierAuthoritativeUpgradeEvidence        pinTier = "authoritative_upgrade_evidence"
-	pinTierAuthoritativeUpgradeConfidenceLow   pinTier = "authoritative_hmm_upgrade_confidence_low"
-	pinTierAuthoritativeDowngradeConfidenceLow pinTier = "authoritative_hmm_downgrade_confidence_low"
-	pinTierAuthoritativeDowngradeHysteresis    pinTier = "authoritative_hmm_downgrade_hysteresis"
-	pinTierAuthoritativeExcludedPin            pinTier = "authoritative_excluded_pin"
-	pinTierAuthoritativeExcludedReroute        pinTier = "authoritative_excluded_reroute"
+	pinTierAuthoritativeUpgradeEvidence         pinTier = "authoritative_upgrade_evidence"
+	pinTierAuthoritativeSlidingThresholdUpgrade pinTier = "authoritative_sliding_threshold_upgrade"
+	pinTierAuthoritativeUpgradeConfidenceLow    pinTier = "authoritative_hmm_upgrade_confidence_low"
+	pinTierAuthoritativeDowngradeConfidenceLow  pinTier = "authoritative_hmm_downgrade_confidence_low"
+	pinTierAuthoritativeDowngradeHysteresis     pinTier = "authoritative_hmm_downgrade_hysteresis"
+	pinTierAuthoritativeExcludedPin             pinTier = "authoritative_excluded_pin"
+	pinTierAuthoritativeExcludedReroute         pinTier = "authoritative_excluded_reroute"
 )
 
 // turnLoopResult bundles the routing decision and pin/planner state.
@@ -1800,6 +1801,10 @@ func (s *Service) runTurnLoop(
 		return res, nil
 	}
 
+	if pinFound && res.AuthoritativePerTurn && req.ForceCluster == "" &&
+		escalation.Rank(escalation.Group(pin.PolicyGroup)) >= 0 && s.ResolveAuthoritativeUpgradeSlidingThreshold(ctx) {
+		req.SlidingThresholdPinGroup = escalation.Group(pin.PolicyGroup)
+	}
 	baselineRequest := req
 	baselineTurn := res
 	escalationTurn := s.beginEscalation(ctx, env, req, &res, apiKeyID)
@@ -2014,7 +2019,18 @@ func (s *Service) runTurnLoop(
 				s.writeNewPin(ctx, installationID, res.SessionKey, res.PinRole, rerouted)
 				return res, nil
 			}
-			if s.evidenceUpgradeApplies(ctx, res.SessionKey) && res.UpgradeShadow != nil {
+			slidingServed, slidingProbability := slidingThresholdServes(req, pin, fresh)
+			if slidingServed {
+				log.Info("authoritative sliding threshold serving fresh model",
+					"pin_model", pin.Model,
+					"pin_group", req.SlidingThresholdPinGroup,
+					"fresh_model", fresh.Model,
+					"fresh_group", fresh.Metadata.PolicyGroup,
+					"classified_group", fresh.Metadata.ClassifierPredictedLabel,
+					"probability", slidingProbability,
+				)
+			}
+			if !slidingServed && s.evidenceUpgradeApplies(ctx, res.SessionKey) && res.UpgradeShadow != nil {
 				res.UpgradeShadow.Applied = true
 				switch res.UpgradeShadow.Verdict.Outcome {
 				case upgradeAllow:
@@ -2041,7 +2057,7 @@ func (s *Service) runTurnLoop(
 			// confidence >= threshold; below it the session stays on its pin.
 			// Unscored decisions, downgrades, and unpinned turns pass through.
 			evidenceServedFresh := s.evidenceUpgradeApplies(ctx, res.SessionKey) && res.UpgradeShadow != nil && res.UpgradeShadow.Verdict.Outcome == upgradeAllow
-			upgradeGateActive := s.ResolveAuthoritativeUpgradeGate(ctx) && s.resolveUpgradePolicyMode(ctx) != flags.AuthoritativeUpgradePolicyOff && !evidenceServedFresh
+			upgradeGateActive := s.ResolveAuthoritativeUpgradeGate(ctx) && s.resolveUpgradePolicyMode(ctx) != flags.AuthoritativeUpgradePolicyOff && !evidenceServedFresh && !slidingServed
 			if upgradeGateActive && pinFound && pin.Model != "" && pin.Model != fresh.Model &&
 				hmmFreshIsMoreExpensive(pin.Model, fresh.Model, plannerTokens) {
 				if confidence, ok := hmmDecisionConfidence(fresh); ok && confidence < s.hmmUpgradeConfidenceThreshold {
@@ -2131,6 +2147,9 @@ func (s *Service) runTurnLoop(
 			}
 			res.Decision = fresh
 			res.PinTier = "authoritative_per_turn"
+			if slidingServed {
+				res.PinTier = string(pinTierAuthoritativeSlidingThresholdUpgrade)
+			}
 			s.writeNewPin(ctx, installationID, res.SessionKey, res.PinRole, fresh)
 			return res, nil
 		}

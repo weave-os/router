@@ -542,6 +542,7 @@ HMM pick without that floor.
 | `ROUTER_AUTHORITATIVE_UPGRADE_SHADOW_STALE_AFTER` | unset | Pin-age cutoff as a Go duration. Unset or `0s` disables the stale-pin rule. |
 | `ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD` | `0.50` | Minimum top-class classifier probability (four groups, floor 0.25) for an upgrade to a pricier model than the session pin. |
 | `ROUTER_AUTHORITATIVE_UPGRADE_GATE` | `true` | Confidence-floor kill switch, used when policy is `score` or evidence falls back to existing policy. |
+| `ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD` | `false` | Upgrade by the predicted class's probability, bypassing the confidence floor. From a low/medium pin, maximum at 0.3-0.5 serves high and at >=0.5 maximum; from low, high at 0.3-0.5 serves medium and at >=0.5 high, and medium at >=0.3 serves medium; from medium, high needs >=0.4; from high, maximum needs >=0.5. Below a band, and for other transitions, the gates above decide. Installation override `authoritative_upgrade_sliding_threshold`. |
 
 Invalid policy, holdout, margin, or duration values fail startup. Force/hard
 pins, utility turns, deadline fallbacks, and active escalation floors still win.
