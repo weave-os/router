@@ -228,7 +228,7 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogMessage: "Rejected request: forced cluster has no eligible model",
 		}, true
 	case errors.As(err, new(*CompactionUnservableError)):
-		return compactionUnservableClass, true
+		return compactionUnservableClassFor(err), true
 	// Before the generic upstream cases: an overflow must reach every client in
 	// its native shape, not as an opaque upstream failure.
 	case isContextOverflow(err):
