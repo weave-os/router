@@ -265,6 +265,9 @@ func (s *Service) dispatchPlanned(ctx context.Context, in failoverInputs, plan i
 					rotate = true
 				}
 			}
+			if credentialRejectionStands(lastSubscriptionErr, attemptErr, codexOAuthCredentialRejected) {
+				return lastSubscriptionErr
+			}
 			if committed(in.buf) || !rotate {
 				if providers.IsUpstreamModelNotFound(attemptErr) {
 					s.rememberGatewayLacksModel(attemptCtx, decision.Provider, decision.Model)

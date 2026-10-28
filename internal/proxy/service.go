@@ -5357,6 +5357,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			reqStats = providers.RequestMutationStats{}
 			logUpstreamBody(log, routeRes.SessionKey, decision, feats, subPrep.Body)
 			subscriptionFailoverAttempted = true
+			subscriptionErr := proxyErr
 			winnerIdx, proxyErr = s.dispatchWithFallback(subCtx, failoverInputs{
 				w:               contentSink,
 				buf:             preludeBuf,
@@ -5373,6 +5374,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 			bindings = subBindings
 			subscriptionFailoverUsed = proxyErr == nil
+			if credentialRejectionStands(subscriptionErr, proxyErr, anthropicOAuthCredentialRejected) {
+				proxyErr = subscriptionErr
+				subscriptionPoolFailure = false
+				flushDeferredErr()
+			}
 		}
 	}
 	// The subscription retry didn't run (mid-stream commit, or non-retryable
@@ -8456,6 +8462,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				"request_id", requestID)
 			codexRetryRan = true
 			respSummary = translate.ResponseSummary{}
+			subscriptionErr := proxyErr
 			winnerIdx, proxyErr = s.dispatchWithFallback(subCtx, failoverInputs{
 				w:               contentSink,
 				buf:             preludeBuf,
@@ -8473,6 +8480,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			codexFailoverUsed = proxyErr == nil
 			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 			cyberRefusalSeen = cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(proxyErr)
+			if credentialRejectionStands(subscriptionErr, proxyErr, codexOAuthCredentialRejected) {
+				proxyErr = subscriptionErr
+				subscriptionPoolFailure = false
+				flushDeferredErr()
+			}
 		}
 	}
 
