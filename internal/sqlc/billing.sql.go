@@ -429,21 +429,33 @@ func (q *Queries) GetActiveBillingOverride(ctx context.Context, organizationID s
 }
 
 const getDelegatedTokenSpend = `-- name: GetDelegatedTokenSpend :one
+WITH current_issuer AS (
+    SELECT id, installation_id, credential_subject_id
+    FROM router.model_router_api_keys WHERE id = $3::uuid
+), spend_issuers AS (
+    SELECT issuer.id
+    FROM router.model_router_api_keys issuer
+    JOIN current_issuer current ON issuer.installation_id = current.installation_id
+    WHERE issuer.id = current.id
+       OR (current.credential_subject_id IS NOT NULL AND issuer.scope = 'session_issuer')
+)
 SELECT
     COALESCE((
-        SELECT spent_usd_micros FROM router.delegated_token_spend
-        WHERE issuer_key_id = $1::uuid AND scope_kind = 'session' AND scope_id = $2::varchar
+        SELECT SUM(spend.spent_usd_micros) FROM spend_issuers issuer
+        JOIN router.delegated_token_spend spend ON spend.issuer_key_id = issuer.id
+        WHERE spend.scope_kind = 'session' AND spend.scope_id = $1::varchar
     ), 0)::bigint AS session_spent_usd_micros,
     COALESCE((
-        SELECT spent_usd_micros FROM router.delegated_token_spend
-        WHERE issuer_key_id = $1::uuid AND scope_kind = 'task' AND scope_id = $3::varchar
+        SELECT SUM(spend.spent_usd_micros) FROM spend_issuers issuer
+        JOIN router.delegated_token_spend spend ON spend.issuer_key_id = issuer.id
+        WHERE spend.scope_kind = 'task' AND spend.scope_id = $2::varchar
     ), 0)::bigint AS task_spent_usd_micros
 `
 
 type GetDelegatedTokenSpendParams struct {
-	IssuerKeyID uuid.UUID
 	SessionID   string
 	TaskID      string
+	IssuerKeyID uuid.UUID
 }
 
 type GetDelegatedTokenSpendRow struct {
@@ -452,19 +464,33 @@ type GetDelegatedTokenSpendRow struct {
 }
 
 // Fresh per-request read of a delegated session's and task's spend-to-date
-// for the delegated spend-cap gate. A missing row is zero spend.
+// for the delegated spend-cap gate. Account-bound issuers share the installation's
+// counters so owner changes and signing-key rotation cannot reset a cap. Legacy
+// unbound issuers retain their original issuer-local scope. Deleted keys still count.
 //
+//	WITH current_issuer AS (
+//	    SELECT id, installation_id, credential_subject_id
+//	    FROM router.model_router_api_keys WHERE id = $3::uuid
+//	), spend_issuers AS (
+//	    SELECT issuer.id
+//	    FROM router.model_router_api_keys issuer
+//	    JOIN current_issuer current ON issuer.installation_id = current.installation_id
+//	    WHERE issuer.id = current.id
+//	       OR (current.credential_subject_id IS NOT NULL AND issuer.scope = 'session_issuer')
+//	)
 //	SELECT
 //	    COALESCE((
-//	        SELECT spent_usd_micros FROM router.delegated_token_spend
-//	        WHERE issuer_key_id = $1::uuid AND scope_kind = 'session' AND scope_id = $2::varchar
+//	        SELECT SUM(spend.spent_usd_micros) FROM spend_issuers issuer
+//	        JOIN router.delegated_token_spend spend ON spend.issuer_key_id = issuer.id
+//	        WHERE spend.scope_kind = 'session' AND spend.scope_id = $1::varchar
 //	    ), 0)::bigint AS session_spent_usd_micros,
 //	    COALESCE((
-//	        SELECT spent_usd_micros FROM router.delegated_token_spend
-//	        WHERE issuer_key_id = $1::uuid AND scope_kind = 'task' AND scope_id = $3::varchar
+//	        SELECT SUM(spend.spent_usd_micros) FROM spend_issuers issuer
+//	        JOIN router.delegated_token_spend spend ON spend.issuer_key_id = issuer.id
+//	        WHERE spend.scope_kind = 'task' AND spend.scope_id = $2::varchar
 //	    ), 0)::bigint AS task_spent_usd_micros
 func (q *Queries) GetDelegatedTokenSpend(ctx context.Context, arg GetDelegatedTokenSpendParams) (GetDelegatedTokenSpendRow, error) {
-	row := q.db.QueryRow(ctx, getDelegatedTokenSpend, arg.IssuerKeyID, arg.SessionID, arg.TaskID)
+	row := q.db.QueryRow(ctx, getDelegatedTokenSpend, arg.SessionID, arg.TaskID, arg.IssuerKeyID)
 	var i GetDelegatedTokenSpendRow
 	err := row.Scan(&i.SessionSpentUsdMicros, &i.TaskSpentUsdMicros)
 	return i, err
