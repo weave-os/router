@@ -1140,6 +1140,5 @@ func finiteTimestamptz(t pgtype.Timestamptz) *time.Time {
 	if !t.Valid || t.InfinityModifier != pgtype.Finite {
 		return nil
 	}
-	v := t.Time
-	return &v
+	return &t.Time
 }

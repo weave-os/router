@@ -34,7 +34,8 @@ var (
 	savingsBaselineSol  = savingsBaseline{model: "gpt-6.1-sol", label: "GPT-6.1 Sol"}
 )
 
-// savingsComparison is the harness and comparison model a client's turns are measured against.
+// savingsComparison picks the measured cells a client's turns are priced against; Pi has no
+// harness of its own and reuses opencode's.
 type savingsComparison struct {
 	harness  string
 	baseline savingsBaseline
@@ -167,11 +168,11 @@ func turnSavingsUSD(turn SessionSavingsTurn, comparison savingsComparison, evide
 	in, out := int(turn.InputTokens), int(turn.OutputTokens)
 	cacheCreation, cacheRead := int(turn.CacheCreationTokens), int(turn.CacheReadTokens)
 	warmPrefill := min(int(turn.BaselineWarmPrefillTokens), cacheCreation)
-	alwaysInput := catalog.CounterfactualInputCost(in, cacheCreation, cacheRead, warmPrefill, price, turn.DecisionProvider, catalog.UsageModifiers{})
-	alwaysOutput := catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, turn.DecisionProvider), out, price, catalog.UsageModifiers{})
+	baselineInputCost := catalog.CounterfactualInputCost(in, cacheCreation, cacheRead, warmPrefill, price, turn.DecisionProvider, catalog.UsageModifiers{})
+	baselineOutputCost := catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, turn.DecisionProvider), out, price, catalog.UsageModifiers{})
 	actual := float64(turn.ActualCostUSDMicros) / 1_000_000
-	return alwaysInput*cappedBound(ratio.InputPoint, ratio.InputLower, ratio.Native) +
-		alwaysOutput*cappedBound(ratio.OutputPoint, ratio.OutputLower, ratio.Native) -
+	return baselineInputCost*cappedBound(ratio.InputPoint, ratio.InputLower, ratio.Native) +
+		baselineOutputCost*cappedBound(ratio.OutputPoint, ratio.OutputLower, ratio.Native) -
 		actual*penalty
 }
 

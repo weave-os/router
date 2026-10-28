@@ -95,8 +95,7 @@ export function registerRoutedModel(pi: ExtensionAPI, request: typeof fetch = fe
 		const generation = ++savingsGeneration;
 		void (async () => {
 			try {
-				const sessionId = ctx.sessionManager.getSessionId();
-				const fetched = await fetchSessionSavings(sessionId, request);
+				const fetched = await fetchSessionSavings(ctx.sessionManager.getSessionId(), request);
 				if (generation !== savingsGeneration || !fetched) return;
 				sessionSavings = fetched;
 				refresh(ctx);
@@ -232,6 +231,7 @@ export function registerRoutedModel(pi: ExtensionAPI, request: typeof fetch = fe
 		if (isSubagent()) return;
 		restore(ctx);
 		refresh(ctx);
+		refreshSessionSavings(ctx);
 	});
 
 	pi.on("session_shutdown", (_event, ctx: ExtensionContext) => {
