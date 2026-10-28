@@ -5464,6 +5464,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// No rescuer served (none ran, or the last one failed pre-commit); surface
 	// the held error now so it's never dropped.
 	proxyErr = asCompactionUnservable(routeRes.TurnType, decision, proxyErr)
+	proxyErr = withClientTrimCounts(ctx, proxyErr, rescuedPrimaryErr)
 	if (siblingRescueOwed || overflowRescueOnly) && proxyErr != nil && !preludeBuf.Committed() {
 		flushDeferredErr()
 	}
