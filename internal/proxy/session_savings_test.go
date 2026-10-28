@@ -30,12 +30,12 @@ func opusEvidence(harness string) proxy.TokenEfficiencyEvidence {
 	from := savingsMeasuredFrom
 	return proxy.TokenEfficiencyEvidence{
 		Ratios: []proxy.TokenEfficiencyRatio{{
-			Harness: harness, BaselineModel: proxy.SavingsBaselineClaudeOpus, ServedModel: "claude-sonnet-5",
+			Harness: harness, BaselineModel: "claude-opus-5-5", ServedModel: "claude-sonnet-5",
 			InputPoint: 0.4, InputLower: 0.5, OutputPoint: 0.7, OutputLower: 0.8,
 			Validity: proxy.TokenEfficiencyValidity{From: &from},
 		}},
 		QualityFactors: []proxy.TokenEfficiencyQualityFactor{{
-			Harness: harness, BaselineModel: proxy.SavingsBaselineClaudeOpus,
+			Harness: harness, BaselineModel: "claude-opus-5-5",
 			RouterPassRateLower: 0.5, BaselinePassRateUpper: 0.6,
 		}},
 	}
@@ -50,7 +50,7 @@ func TestComputeNormalizedSessionSavings(t *testing.T) {
 			[]proxy.SessionSavingsTurn{savingsTurnAt(proxy.ClientAppClaudeCode, "claude-sonnet-5")},
 			opusEvidence(proxy.TokenEfficiencyHarnessClaudeCode))
 		require.True(t, ok)
-		require.Equal(t, proxy.NormalizedSessionSavings{BaselineModel: proxy.SavingsBaselineClaudeOpus, BaselineLabel: "Opus 5.5", SavingsUSDMicros: 2_400_000}, savings)
+		require.Equal(t, proxy.NormalizedSessionSavings{BaselineModel: "claude-opus-5-5", BaselineLabel: "Opus 5.5", SavingsUSDMicros: 2_400_000}, savings)
 	})
 
 	t.Run("subscription, forced, utility, weave-alias, unmeasured and pre-measurement turns save nothing", func(t *testing.T) {
@@ -78,7 +78,7 @@ func TestComputeNormalizedSessionSavings(t *testing.T) {
 			[]proxy.SessionSavingsTurn{savingsTurnAt("pi", "claude-sonnet-5")},
 			opusEvidence(proxy.TokenEfficiencyHarnessOpenCode))
 		require.True(t, ok)
-		require.Equal(t, proxy.NormalizedSessionSavings{BaselineModel: proxy.SavingsBaselineClaudeOpus, BaselineLabel: "Opus 5.5", SavingsUSDMicros: 2_600_000}, savings)
+		require.Equal(t, proxy.NormalizedSessionSavings{BaselineModel: "claude-opus-5-5", BaselineLabel: "Opus 5.5", SavingsUSDMicros: 2_600_000}, savings)
 	})
 
 	t.Run("a model measured in its own harness uses the point estimate, capped at 1", func(t *testing.T) {

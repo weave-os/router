@@ -33,7 +33,7 @@ absent "$(printf '%s' '{"context_window":{"context_window_size":128000,"used_per
 
 fixture="$work/snapshot.json"
 make_snapshot() {
-  jq -n --argjson age "${1:-0}" '{session_id:"session-context", savings_usd:0.32,context_snapshot:{
+  jq -n --argjson age "${1:-0}" '{session_id:"session-context", savings_usd:0.32,normalized_savings_usd:0.32,savings_baseline_label:"GPT-6.1 Sol",context_snapshot:{
     version:1,estimate_kind:"approximate",estimate_tokens:72000,context_window:128000,output_reserve_tokens:8000,
     served_model:"gpt-5.6-luna",requested_model:"gpt-5.6-sol",request_id:"synthetic-request",
     requested_at:((now - $age - 1)|floor|todateiso8601),recorded_at:((now - $age)|floor|todateiso8601)
@@ -83,7 +83,7 @@ for age in 10 0 equal; do
     jq '.context_snapshot.requested_at |= sub("\\.[0-9]+Z$"; ".1Z") | .context_snapshot.recorded_at |= sub("\\.[0-9]+Z$"; ".1Z")' "$context_file" >"$work/fractional.json"
     mv "$work/fractional.json" "$fixture"
   fi
-  jq '.savings_usd=0.44 | .context_snapshot.request_id="older-observation" | .context_snapshot.estimate_tokens=1000' "$fixture" >"$work/older.json"
+  jq '.normalized_savings_usd=0.44 | .context_snapshot.request_id="older-observation" | .context_snapshot.estimate_tokens=1000' "$fixture" >"$work/older.json"
   mv "$work/older.json" "$fixture"
   rm -f "$work/fetch-started"
   PATH="$work/curl-bin:$PATH" WEAVE_TEST_FETCH_STARTED="$work/fetch-started" WEAVE_TEST_CURL="$real_curl" run_codex
@@ -93,11 +93,11 @@ for age in 10 0 equal; do
   done
   [ -f "$work/fetch-started" ] && [ ! -d "$XDG_CACHE_HOME/weave-router/codex/session-context.cost.lock" ]
   [ "$(jq -r '.context_snapshot.request_id' "$context_file")" = "$newest_request" ] || { echo 'an older context observation overwrote the newer snapshot' >&2; exit 1; }
-  [ "$(cat "$XDG_CACHE_HOME/weave-router/codex/session-context.cost")" = '0.32' ] || { echo 'an older context observation changed savings' >&2; exit 1; }
+  [ "$(cat "$XDG_CACHE_HOME/weave-router/codex/session-context.cost")" = '0.32 GPT-6.1 Sol' ] || { echo 'an older context observation changed savings' >&2; exit 1; }
   contains "$(cat "$work/title")" 'last Router ctx est. ~72k/128k'
 done
 cp "$context_file" "$fixture"
-jq '.savings_usd=0.55' "$fixture" >"$work/same-observation.json"
+jq '.normalized_savings_usd=0.55' "$fixture" >"$work/same-observation.json"
 mv "$work/same-observation.json" "$fixture"
 rm -f "$work/fetch-started"
 PATH="$work/curl-bin:$PATH" WEAVE_TEST_FETCH_STARTED="$work/fetch-started" WEAVE_TEST_CURL="$real_curl" run_codex
@@ -105,7 +105,7 @@ for _ in $(seq 1 40); do
   [ -f "$work/fetch-started" ] && [ ! -d "$XDG_CACHE_HOME/weave-router/codex/session-context.cost.lock" ] && break
   sleep 0.1
 done
-[ "$(cat "$XDG_CACHE_HOME/weave-router/codex/session-context.cost")" = '0.55' ] || { echo 'an identical observation prevented updated savings' >&2; exit 1; }
+[ "$(cat "$XDG_CACHE_HOME/weave-router/codex/session-context.cost")" = '0.55 GPT-6.1 Sol' ] || { echo 'an identical observation prevented updated savings' >&2; exit 1; }
 contains "$(cat "$work/title")" "saved \$0.55"
 # Use only cached data while testing invalidation; there must be no racing refresh.
 rm "$HOME/.codex/config.toml"

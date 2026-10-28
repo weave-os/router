@@ -7,12 +7,6 @@ import (
 	"weave-os/router/internal/router/catalog"
 )
 
-// Comparison models the session savings figure is measured against, per client.
-const (
-	SavingsBaselineClaudeOpus = "claude-opus-5-5"
-	SavingsBaselineGPTSol     = "gpt-6.1-sol"
-)
-
 // Token-efficiency harnesses the control plane measures; Pi has no harness of
 // its own and is measured with OpenCode's cells.
 const (
@@ -28,28 +22,35 @@ const (
 	weaveModelAlias     = "weave"
 )
 
+// savingsBaseline is a comparison model the session savings figure is
+// measured against; it is never a dispatch target.
+type savingsBaseline struct {
+	model string
+	label string
+}
+
+var (
+	savingsBaselineOpus = savingsBaseline{model: "claude-opus-5-5", label: "Opus 5.5"}
+	savingsBaselineSol  = savingsBaseline{model: "gpt-6.1-sol", label: "GPT-6.1 Sol"}
+)
+
 // savingsComparison is the harness and comparison model a client's turns are measured against.
 type savingsComparison struct {
-	harness       string
-	baselineModel string
+	harness  string
+	baseline savingsBaseline
 }
 
 var savingsComparisonByClientApp = map[string]savingsComparison{
-	ClientAppClaudeCode: {harness: TokenEfficiencyHarnessClaudeCode, baselineModel: SavingsBaselineClaudeOpus},
-	ClientAppCodex:      {harness: TokenEfficiencyHarnessCodex, baselineModel: SavingsBaselineGPTSol},
-	ClientAppOpencode:   {harness: TokenEfficiencyHarnessOpenCode, baselineModel: SavingsBaselineClaudeOpus},
-	clientAppPi:         {harness: TokenEfficiencyHarnessOpenCode, baselineModel: SavingsBaselineClaudeOpus},
-	clientAppPiSubagent: {harness: TokenEfficiencyHarnessOpenCode, baselineModel: SavingsBaselineClaudeOpus},
-}
-
-var savingsBaselineLabels = map[string]string{
-	SavingsBaselineClaudeOpus: "Opus 5.5",
-	SavingsBaselineGPTSol:     "GPT-6.1 Sol",
+	ClientAppClaudeCode: {harness: TokenEfficiencyHarnessClaudeCode, baseline: savingsBaselineOpus},
+	ClientAppCodex:      {harness: TokenEfficiencyHarnessCodex, baseline: savingsBaselineSol},
+	ClientAppOpencode:   {harness: TokenEfficiencyHarnessOpenCode, baseline: savingsBaselineOpus},
+	clientAppPi:         {harness: TokenEfficiencyHarnessOpenCode, baseline: savingsBaselineOpus},
+	clientAppPiSubagent: {harness: TokenEfficiencyHarnessOpenCode, baseline: savingsBaselineOpus},
 }
 
 // SavingsBaselineModels lists every comparison model a session can be measured against.
 func SavingsBaselineModels() []string {
-	return []string{SavingsBaselineClaudeOpus, SavingsBaselineGPTSol}
+	return []string{savingsBaselineOpus.model, savingsBaselineSol.model}
 }
 
 // SessionSavingsTurn is one committed upstream turn's inputs to normalized savings.
@@ -129,8 +130,8 @@ func ComputeNormalizedSessionSavings(turns []SessionSavingsTurn, evidence TokenE
 		if !known || !evidence.measures(comparison) {
 			continue
 		}
-		savings.BaselineModel = comparison.baselineModel
-		savings.BaselineLabel = savingsBaselineLabels[comparison.baselineModel]
+		savings.BaselineModel = comparison.baseline.model
+		savings.BaselineLabel = comparison.baseline.label
 		ok = true
 		savingsUSD += turnSavingsUSD(turn, comparison, evidence)
 	}
@@ -140,7 +141,7 @@ func ComputeNormalizedSessionSavings(turns []SessionSavingsTurn, evidence TokenE
 
 func (e TokenEfficiencyEvidence) measures(comparison savingsComparison) bool {
 	for _, ratio := range e.Ratios {
-		if ratio.Harness == comparison.harness && ratio.BaselineModel == comparison.baselineModel {
+		if ratio.Harness == comparison.harness && ratio.BaselineModel == comparison.baseline.model {
 			return true
 		}
 	}
@@ -159,7 +160,7 @@ func turnSavingsUSD(turn SessionSavingsTurn, comparison savingsComparison, evide
 	if !measured {
 		return 0
 	}
-	price, priced := catalog.PrimaryPriceFor(comparison.baselineModel)
+	price, priced := catalog.PrimaryPriceFor(comparison.baseline.model)
 	if !priced {
 		return 0
 	}
@@ -185,7 +186,7 @@ func scorerSubstitution(turn SessionSavingsTurn) bool {
 
 func (e TokenEfficiencyEvidence) ratioAt(comparison savingsComparison, servedModel string, at time.Time) (TokenEfficiencyRatio, bool) {
 	for _, ratio := range e.Ratios {
-		if ratio.Harness == comparison.harness && ratio.BaselineModel == comparison.baselineModel &&
+		if ratio.Harness == comparison.harness && ratio.BaselineModel == comparison.baseline.model &&
 			ratio.ServedModel == servedModel && ratio.Validity.contains(at) {
 			return ratio, true
 		}
@@ -201,7 +202,7 @@ func (e TokenEfficiencyEvidence) passRatePenaltyAt(comparison savingsComparison,
 		return 1, true
 	}
 	for _, factor := range e.QualityFactors {
-		if factor.Harness != comparison.harness || factor.BaselineModel != comparison.baselineModel || !factor.Validity.contains(at) {
+		if factor.Harness != comparison.harness || factor.BaselineModel != comparison.baseline.model || !factor.Validity.contains(at) {
 			continue
 		}
 		if factor.RouterPassRateLower <= 0 {

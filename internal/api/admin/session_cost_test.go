@@ -132,7 +132,7 @@ func TestSessionCostHandler(t *testing.T) {
 				DecisionReason: "hmm_policy", InputTokens: 1_000_000, ActualCostUSDMicros: 1_000_000,
 			}},
 			TokenEfficiency: proxy.TokenEfficiencyEvidence{Ratios: []proxy.TokenEfficiencyRatio{{
-				Harness: proxy.TokenEfficiencyHarnessClaudeCode, BaselineModel: proxy.SavingsBaselineClaudeOpus,
+				Harness: proxy.TokenEfficiencyHarnessClaudeCode, BaselineModel: "claude-opus-5-5",
 				ServedModel: "claude-sonnet-5", InputLower: 0.5, OutputLower: 0.5,
 				Validity: proxy.TokenEfficiencyValidity{From: &measuredFrom},
 			}}},
