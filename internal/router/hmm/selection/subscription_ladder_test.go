@@ -15,8 +15,9 @@ func ladderRoster() *rosterdata.Roster {
 	return &rosterdata.Roster{
 		SchemaVersion: rosterdata.SchemaVersionV6,
 		SubscriptionLadders: map[string]map[string]string{
-			providers.ProviderAnthropic: {"medium": "anthropic/sonnet"},
-			providers.ProviderOpenAI:    {"medium": "openai/terra"},
+			providers.ProviderAnthropic:    {"medium": "anthropic/sonnet"},
+			providers.ProviderOpenAI:       {"medium": "openai/terra"},
+			selection.NoSubscriptionLadder: {"medium": "xiaomi/mimo"},
 		},
 		Clusters: map[string]rosterdata.Cluster{
 			"medium": {
@@ -31,7 +32,7 @@ func ladderRoster() *rosterdata.Roster {
 }
 
 func TestSubscriptionLadderLeadsTheGroupForTheSubscriptionInPlay(t *testing.T) {
-	everyArm := candidateSet("openai/luna", "anthropic/haiku", "openai/sol", "anthropic/sonnet", "openai/terra")
+	everyArm := candidateSet("openai/luna", "anthropic/haiku", "openai/sol", "anthropic/sonnet", "openai/terra", "xiaomi/mimo")
 	both := []string{providers.ProviderAnthropic, providers.ProviderOpenAI}
 	for _, tc := range []struct {
 		name                  string
@@ -46,7 +47,9 @@ func TestSubscriptionLadderLeadsTheGroupForTheSubscriptionInPlay(t *testing.T) {
 		{name: "both in claude code serves the claude ladder", harness: "claude_code", subscriptionProviders: both, candidates: everyArm, wantArm: "anthropic/sonnet"},
 		{name: "both in codex serves the codex ladder", harness: "codex", subscriptionProviders: both, candidates: everyArm, wantArm: "openai/terra"},
 		{name: "both in an unknown harness keeps the harness order", harness: "pi", subscriptionProviders: both, candidates: everyArm, wantArm: "openai/luna"},
-		{name: "neither drops the claude code harness order", harness: "claude_code", candidates: everyArm, wantArm: "openai/luna"},
+		{name: "neither serves the no-subscription ladder", harness: "claude_code", candidates: everyArm, wantArm: "xiaomi/mimo"},
+		{name: "neither with an ineligible ladder arm keeps the claude code order", harness: "claude_code", candidates: candidateSet("openai/luna", "anthropic/haiku"), wantArm: "anthropic/haiku"},
+		{name: "neither with an ineligible ladder arm keeps the codex order", harness: "codex", candidates: candidateSet("openai/luna", "anthropic/haiku"), wantArm: "openai/luna"},
 		{name: "an ineligible ladder arm falls back to the harness order", harness: "claude_code", subscriptionProviders: []string{providers.ProviderAnthropic}, candidates: candidateSet("openai/luna", "anthropic/haiku"), wantArm: "anthropic/haiku"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
