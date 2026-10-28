@@ -96,6 +96,10 @@ type Request struct {
 	// PreviousPolicyGroup is the last scored HMM group, used only when a
 	// continuation has no user text to classify and escalation is active.
 	PreviousPolicyGroup escalation.Group
+	// SlidingThresholdPinGroup is the session pin's group on an authoritative
+	// turn with the sliding threshold on; selection steps toward a higher
+	// classified group.
+	SlidingThresholdPinGroup escalation.Group
 
 	RequestedModel string
 	ClientBudget   ClientBudget
