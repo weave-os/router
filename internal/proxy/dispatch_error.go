@@ -552,7 +552,7 @@ func includedAllowanceSpentMessage(e *IncludedAllowanceSpentError) string {
 	if !e.Window.ResetsAt.IsZero() {
 		message += " Included usage resumes at " + e.Window.ResetsAt.UTC().Format("15:04 MST on Jan 2") + "."
 	}
-	if errors.Is(e.gate, ErrSpendCapSubscriptionUnavailable) {
+	if errors.Is(e.orgGate, ErrSpendCapSubscriptionUnavailable) {
 		return message + " A Weave router spend cap blocks paid routing until then."
 	}
 	return message + " To keep routing until then, add credits: " + topUpURL
