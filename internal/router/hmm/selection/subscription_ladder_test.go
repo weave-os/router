@@ -77,7 +77,7 @@ func TestNoSubscriptionLadderServesEachGroupWithinTheHarness(t *testing.T) {
 	roster := &rosterdata.Roster{
 		SchemaVersion: rosterdata.SchemaVersionV6,
 		SubscriptionLadders: map[string]map[string]string{
-			selection.NoSubscriptionLadder: {"medium": mimo, "high": solHigh, "maximum": opus},
+			selection.NoSubscriptionLadder: {"medium": mimo, "high": solHigh},
 		},
 		Clusters: map[string]rosterdata.Cluster{
 			"low": {
@@ -122,8 +122,8 @@ func TestNoSubscriptionLadderServesEachGroupWithinTheHarness(t *testing.T) {
 		{harness: "claude_code", group: "high", wantArm: solHigh, candidates: everyArm},
 		{harness: "codex", group: "high", wantArm: solHigh, candidates: everyArm},
 		{harness: "claude_code", group: "maximum", wantArm: opus, candidates: everyArm},
-		{harness: "codex", group: "maximum", wantArm: opus, candidates: everyArm},
-		{harness: "codex", group: "maximum", wantArm: sol, candidates: candidateSet(sol, opusMedium)},
+		{harness: "codex", group: "maximum", wantArm: sol, candidates: everyArm},
+		{harness: "codex", group: "maximum", wantArm: opusMedium, candidates: candidateSet(opus, opusMedium)},
 		{harness: "claude_code", group: "high", wantArm: opus, candidates: candidateSet(opus, mimo)},
 	} {
 		t.Run(tc.harness+"/"+tc.group+"/"+tc.wantArm, func(t *testing.T) {
