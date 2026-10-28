@@ -414,7 +414,6 @@ refresh_session_cost() {
         select((.normalized_savings_usd | type) == "number" and (.savings_baseline_label | type) == "string"
           and (.savings_baseline_label | test("^[A-Za-z0-9 ._-]{1,32}$"))) |
         "\(.normalized_savings_usd) \(.savings_baseline_label)"' 2>/dev/null)" || savings=""
-      case "${savings%% *}" in ''|*[!0-9.eE+-]*) savings="" ;; esac
       if [ -n "$savings" ]; then
         savings_tmp="$(mktemp "$state_root/.cost.XXXXXX")" || savings=""
         if [ -n "$savings" ]; then
