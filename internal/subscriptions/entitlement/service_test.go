@@ -275,6 +275,11 @@ func TestAdmitReportsExhaustedWindow(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, entitlement.AdmissionExhausted, admission.Outcome)
 			assert.Equal(t, testCase.expected, admission.ExhaustedPeriod)
+			assert.Equal(t, map[entitlement.PeriodKind]time.Time{
+				entitlement.PeriodKindBilling: time.Date(2026, 4, 1, 0, 0, 0, 0, time.UTC),
+				entitlement.PeriodKindWeekly:  time.Date(2026, 3, 15, 0, 0, 0, 0, time.UTC),
+				entitlement.PeriodKindSixHour: time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC),
+			}[testCase.expected], admission.ResetsAt, "the refusal reports when the spent window refills")
 		})
 	}
 }
