@@ -1,0 +1,28 @@
+internal/proxy/struggle_detection.go
+  s_daddca850ac23d::t_b4cf83811bb94f 14-18
+  s_daddca850ac23d::t_957d19678c946c 63-64
+  s_daddca850ac23d::t_56102151695a76 84-86
+internal/proxy/struggle_detection_internal_test.go
+  s_daddca850ac23d::t_96c807d63fe98f 5,9-10,12,15-16
+  s_daddca850ac23d::t_6f06e00cb36f0b 278-316
+internal/proxy/turnloop.go
+  s_daddca850ac23d::t_e2f7f9af8fb4a1 668-671
+internal/proxy/service.go
+  s_daddca850ac23d::t_3bb6aa621a5337 2591-2592
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "c9597bbb4a8859536dec1a9b0d501de9874a14da",
+  "prompts": {},
+  "sessions": {
+    "s_daddca850ac23d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e3098e4-eb30-4e8b-823c-74a083bc8bae",
+        "model": "qwen/qwen3.8-max"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

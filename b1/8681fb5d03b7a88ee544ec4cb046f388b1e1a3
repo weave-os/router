@@ -1,0 +1,29 @@
+internal/proxy/client_identity.go
+  s_fe45311f065c44::t_9a4b4d21ade5f7 80,83
+internal/proxy/loop_detection.go
+  s_fe45311f065c44::t_4776cabf23e9db 174,258
+internal/proxy/router_feedback_proxy_test.go
+  s_fe45311f065c44::t_33d2fff1262cbe 514,518
+internal/proxy/thread_conformance_internal_test.go
+  s_fe45311f065c44::t_21436fe54da4b3 24-26,39,62-80
+internal/requestcontext/thread.go
+  s_fe45311f065c44::t_3372dd6ab04f2f 108-112,136-140,142
+internal/requestcontext/thread_test.go
+  s_fe45311f065c44::t_bfd5604b76c723 30,56-75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b18681fb5d03b7a88ee544ec4cb046f388b1e1a3",
+  "prompts": {},
+  "sessions": {
+    "s_fe45311f065c44": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17630-7642-7322-a264-569cda5bc37b",
+        "model": "weave-hmm-20261019-0001v1"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

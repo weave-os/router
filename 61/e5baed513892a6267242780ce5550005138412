@@ -1,0 +1,37 @@
+internal/policyclient/turn_facts_test.go
+  s_ad333410ca20de::t_a705974e396ec3 75-92
+internal/router/policy/harness_test.go
+  s_ad333410ca20de::t_a9d7f270787015 21-23,32-39
+  s_ad333410ca20de::t_2d7e6c654e4c27 40-41
+internal/router/policy/harness.go
+  s_ad333410ca20de::t_2179c890649e4e 6-10,16,35-37
+internal/router/hmm/rosterdata/rosterdata.go
+  s_ad333410ca20de::t_b2f7e70afbf7d8 32-36,44
+  s_ad333410ca20de::t_dab9b766aa0e66 420
+docs/POLICY_ROUTER_HARNESS.md
+  s_ad333410ca20de::t_cc349cb4bc8f6d 46-51
+  s_ad333410ca20de::t_9de2694f05314b 43-45,52-54
+internal/router/hmm/selection/selection_test.go
+  s_ad333410ca20de::t_f3b5a4cf100f7a 13
+  s_ad333410ca20de::t_388bbd76aaeb32 160-182
+internal/router/hmm/policycompiler/compiler_test.go
+  s_ad333410ca20de::t_cbf287a866cb03 85-122
+internal/router/hmm/rosterdata/rosterdata_test.go
+  s_ad333410ca20de::t_dca21feeb63b4f 177-219
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "61e5baed513892a6267242780ce5550005138412",
+  "prompts": {},
+  "sessions": {
+    "s_ad333410ca20de": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a01e24f1-97a2-4888-9a9d-1946250a0294",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

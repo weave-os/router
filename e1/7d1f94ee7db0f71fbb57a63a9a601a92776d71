@@ -1,0 +1,27 @@
+install/npm/windows.test.js
+  s_787cf7fc928eb8::t_6eab4dc48fc359 35
+install/tests/key_reuse_test.sh
+  s_787cf7fc928eb8::t_4bd8a6b575d97b 24-25
+install/tests/packaging_test.sh
+  s_787cf7fc928eb8::t_4bd8a6b575d97b 119-120
+install/npm/windows.js
+  s_787cf7fc928eb8::t_5b8f46166ccb72 100
+install/tests/registry_test.sh
+  s_787cf7fc928eb8::t_3230d6b22e5e3b 32-33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e17d1f94ee7db0f71fbb57a63a9a601a92776d71",
+  "prompts": {},
+  "sessions": {
+    "s_787cf7fc928eb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11340-f757-7f13-811d-6144d7b9238b",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
