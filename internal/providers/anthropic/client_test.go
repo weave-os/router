@@ -576,6 +576,70 @@ func TestProxy_ForwardsConfiguredIdentityHeader(t *testing.T) {
 		"an endpoint authenticating the service, not the person, can only attribute spend from this header")
 }
 
+func TestProxy_ForwardsClientUserAgent(t *testing.T) {
+	var gotUA string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.Header.Get("User-Agent")
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_1"}`))
+	}))
+	defer upstream.Close()
+
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq.Header.Set("User-Agent", "claude-cli/2.1.283 (external, cli)")
+	prep := providers.PreparedRequest{
+		Body:    []byte(`{"model":"claude-fable-5","messages":[{"role":"user","content":"hi"}]}`),
+		Headers: make(http.Header),
+	}
+	err := anthropic.NewClient("test-key", upstream.URL).Proxy(
+		context.Background(), router.Decision{Model: "claude-fable-5"}, prep, httptest.NewRecorder(), clientReq)
+
+	require.NoError(t, err)
+	assert.Equal(t, "claude-cli/2.1.283 (external, cli)", gotUA,
+		"gateways that special-case the calling client only see it through the User-Agent")
+}
+
+func TestPassthrough_ForwardsClientUserAgent(t *testing.T) {
+	var gotUA string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.Header.Get("User-Agent")
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"input_tokens":1}`))
+	}))
+	defer upstream.Close()
+
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", strings.NewReader(`{}`))
+	clientReq.Header.Set("User-Agent", "claude-cli/2.1.283 (external, cli)")
+	prep := providers.PreparedRequest{Body: []byte(`{}`), Headers: make(http.Header)}
+
+	err := anthropic.NewClient("test-key", upstream.URL).Passthrough(context.Background(), prep, httptest.NewRecorder(), clientReq)
+
+	require.NoError(t, err)
+	assert.Equal(t, "claude-cli/2.1.283 (external, cli)", gotUA)
+}
+
+func TestProxy_ConfiguredUserAgentWinsOverClient(t *testing.T) {
+	var gotUA string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUA = r.Header.Get("User-Agent")
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_1"}`))
+	}))
+	defer upstream.Close()
+
+	clientReq := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(""))
+	clientReq.Header.Set("User-Agent", "claude-cli/2.1.283 (external, cli)")
+	prep := providers.PreparedRequest{
+		Body:    []byte(`{"model":"claude-fable-5","messages":[{"role":"user","content":"hi"}]}`),
+		Headers: make(http.Header),
+	}
+	c := anthropic.NewClient("test-key", upstream.URL).WithDefaultHeaders(http.Header{"User-Agent": {"configured-agent/1"}})
+	err := c.Proxy(context.Background(), router.Decision{Model: "claude-fable-5"}, prep, httptest.NewRecorder(), clientReq)
+
+	require.NoError(t, err)
+	assert.Equal(t, "configured-agent/1", gotUA)
+}
+
 func TestPassthrough_RelaysNothingFromARefusedRedirect(t *testing.T) {
 	var redirectTargetCalls int
 	redirectTarget := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
