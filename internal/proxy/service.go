@@ -1361,9 +1361,17 @@ func (s *Service) preferredModelsForRequest(ctx context.Context) []string {
 // nil when none are configured. Merges the API-key-scoped list (org default)
 // with the resolved user's own selection — see mergeClusterOverrides for the
 // composition rule. Only consumed by the HMM sidecar router.
+//
+// Plan-owned serving drops both lists unless the organization opts in with
+// plan_user_cluster_lists, which keeps only the member's own list: a member
+// choosing models for their own tiers is not the installation reshaping the
+// plan's roster.
 func clusterArmOverridesForRequest(ctx context.Context) map[string][]string {
 	if planOwnedServingRequest(ctx) {
-		return nil
+		if !flags.BoolOr(ctx, flags.KeyPlanUserClusterLists, false) {
+			return nil
+		}
+		return mergeClusterOverrides(nil, auth.UserClusterModelListsFrom(ctx))
 	}
 	v := ctx.Value(ClusterModelListsContextKey{})
 	keyScoped, _ := v.(map[string][]string)

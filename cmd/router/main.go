@@ -1277,6 +1277,7 @@ func main() {
 		flags.KeyEscalationXGBoostEpoch:               "0",
 		flags.KeySubscriptionPlanAwareRouting:         boolDefault(false),
 		flags.KeySubscriptionExhaustedOpenRouterOnly:  boolDefault(false),
+		flags.KeyPlanUserClusterLists:                 boolDefault(false),
 		flags.KeyStruggleShadowEnabled:                boolDefault(struggleShadowEnabled),
 		flags.KeySpiralShadowEnabled:                  boolDefault(spiralShadowEnabled),
 		flags.KeyTurnSignalCapture:                    boolDefault(turnSignalCaptureEnabled),
