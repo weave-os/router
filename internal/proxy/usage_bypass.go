@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/proxy/usage"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
 	"weave-os/router/internal/router/turntype"
@@ -110,7 +111,7 @@ func (s *Service) classifierPassthroughEngaged(ctx context.Context, headers http
 		return provider, true
 	}
 	snap, observed := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(token)))
-	if observed && snap.BillableOrExhausted() {
+	if observed && claudeSnapshotUnservable(ctx, snap) {
 		return "", false
 	}
 	return provider, true
@@ -158,9 +159,10 @@ func (s *Service) usageBypassEngaged(ctx context.Context, headers http.Header, r
 	if !observed {
 		return provider, true
 	}
-	// Never bypass a spent or billable subscription: an exhausted plan will
-	// reject the token, while overage serves it using customer-paid credits.
-	if snap.BillableOrExhausted() {
+	// Never bypass a spent subscription, nor one on overage while a paid lane
+	// remains: an exhausted plan rejects the token, and overage bills the caller.
+	if provider == providers.ProviderAnthropic && claudeSnapshotUnservable(ctx, snap) ||
+		provider != providers.ProviderAnthropic && snap.BillableOrExhausted() {
 		return "", false
 	}
 	// Subscription-only mode: paid failover is disabled, so the threshold's
@@ -238,12 +240,10 @@ func (s *Service) claudeSubscriptionExhausted(ctx context.Context, headers http.
 }
 
 // anthropicSubscriptionObservedExhausted reports whether the caller's present
-// Claude subscription is exhausted or using paid overage per the observer,
-// independent of whether a fallback key exists. claudeSubscriptionExhausted
-// layers the fallback-key requirement on top for its suppress-and-serve-on-Weave
-// -key path; subscription-only refusal uses this bare signal because paid
-// fallback is disabled there — an exhausted sub can only 429, while using
-// overage would charge the customer. The turn is refused with a controlled 402.
+// Claude subscription should not serve the turn per the observer (see
+// claudeSnapshotUnservable), independent of whether a fallback key exists.
+// Subscription-only refusal uses this bare signal: an exhausted sub can only
+// 429, so the turn is refused with a controlled 402.
 func (s *Service) anthropicSubscriptionObservedExhausted(ctx context.Context, headers http.Header) bool {
 	if s.usageObserver == nil {
 		return false
@@ -253,7 +253,18 @@ func (s *Service) anthropicSubscriptionObservedExhausted(ctx context.Context, he
 		return false
 	}
 	snap, ok := s.usageObserver.Snapshot(s.usageObserver.Key([]byte(anthroTok)))
-	return ok && snap.BillableOrExhausted()
+	return ok && claudeSnapshotUnservable(ctx, snap)
+}
+
+// claudeSnapshotUnservable reports whether an observed Claude subscription
+// should leave the turn. A usage-billed seat has no plan quota to exhaust, so
+// once paid fallback is off its overage is the caller's only lane; plan
+// overage still leaves the subscription.
+func claudeSnapshotUnservable(ctx context.Context, snap usage.Snapshot) bool {
+	if reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx); ok && reason != billing.SubscriptionOnlyLinkedFirst && snap.UsageBilled() {
+		return false
+	}
+	return snap.BillableOrExhausted()
 }
 
 // anthropicFallbackKeyAvailable reports whether a non-subscription Anthropic
