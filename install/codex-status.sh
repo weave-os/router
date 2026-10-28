@@ -491,13 +491,13 @@ savings_clause() {
   case "$label" in
     ''|*[!A-Za-z0-9\ ._-]*) return 0 ;;
   esac
-  awk -v v="$value" -v vs="$label" 'BEGIN{
+  awk -v v="$value" -v baseline="$label" 'BEGIN{
     v = v + 0
-    if (v <= -0.01) { printf " · cost $%.2f more than %s", -v, vs; exit }
-    if (v <= -0.005) { printf " · cost <$0.01 more than %s", vs; exit }
+    if (v <= -0.01) { printf " · cost $%.2f more than %s", -v, baseline; exit }
+    if (v <= -0.005) { printf " · cost <$0.01 more than %s", baseline; exit }
     if (v < 0.005) { exit }
-    if (v < 0.01)  { printf " · saved <$0.01 vs %s", vs; exit }
-    printf " · saved $%.2f vs %s", v, vs
+    if (v < 0.01)  { printf " · saved <$0.01 vs %s", baseline; exit }
+    printf " · saved $%.2f vs %s", v, baseline
   }' 2>/dev/null || true
 }
 
