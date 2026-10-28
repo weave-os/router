@@ -121,7 +121,7 @@ export function registerRoutedModel(pi: ExtensionAPI, request: typeof fetch = fe
 			settledSavingsTimer = undefined;
 			refreshSessionSavings(ctx);
 		}, SESSION_SAVINGS_SETTLE_MS);
-		settledSavingsTimer.unref?.();
+		settledSavingsTimer.unref();
 	};
 
 	const restore = (ctx: ExtensionContext) => {
