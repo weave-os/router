@@ -563,6 +563,27 @@ func TestSubscriptionOnly_ServesOnSubscription_EvenAboveThreshold(t *testing.T) 
 	assert.Contains(t, rec.Body.String(), "weave-router", "the warning must surface the top-up CTA")
 }
 
+func TestSubscriptionOnly_UsageBilledOverage_BypassKeepsRequestedModel(t *testing.T) {
+	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl}}
+	p := &fakeProvider{proxyResponse: bypassStreamResponse}
+	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
+	obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{
+		RepresentativeClaim: usage.AnthropicClaimOverage,
+		OverageInUse:        true,
+		UnifiedResetAt:      time.Now().Add(72 * time.Hour),
+	})
+	svc := proxy.NewService(fr, map[string]providers.Client{providers.ProviderAnthropic: p}, nil, false, nil, nil, false, providers.ProviderAnthropic, bypassScorerPickMdl, nil).
+		WithUsageObserver(obs)
+
+	rec, req, body := bypassRequest(t)
+	ctx := billing.WithSubscriptionOnly(bypassCtx(0.80), billing.SubscriptionOnlyCreditsDepleted)
+	require.NoError(t, svc.ProxyMessages(ctx, body, rec, req))
+
+	assert.Equal(t, 0, fr.routeCalls, "a usage-billed seat must keep the bypass engaged")
+	require.Len(t, p.proxyBodies, 1)
+	assert.Contains(t, string(p.proxyBodies[0]), `"`+bypassRequestedMdl+`"`, "bypass must preserve the caller-requested model")
+}
+
 func TestSubscriptionOnlyWarning_RespectsRoutingMarkerOptOut(t *testing.T) {
 	fr := &fakeRouter{decision: router.Decision{Provider: providers.ProviderAnthropic, Model: bypassScorerPickMdl}}
 	p := &fakeProvider{proxyResponse: bypassStreamResponse}
