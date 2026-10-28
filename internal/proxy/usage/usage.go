@@ -66,8 +66,11 @@ type Snapshot struct {
 	Secondary           Window
 	RepresentativeClaim AnthropicClaim
 	OverageInUse        bool
-	UnifiedResetAt      time.Time
-	ObservedAt          time.Time
+	// QuotaWindowsSeen records that the credential has ever reported a 5h/7d
+	// window, i.e. it has an included plan quota rather than usage billing.
+	QuotaWindowsSeen bool
+	UnifiedResetAt   time.Time
+	ObservedAt       time.Time
 }
 
 func (s Snapshot) hasData() bool {
@@ -90,6 +93,12 @@ func PaidAnthropicOverage(claim AnthropicClaim, overageInUse string) bool {
 // BillableOrExhausted reports when a Claude subscription should not be treated
 // as free capacity. Overage still serves requests, but draws paid credits.
 func (s Snapshot) BillableOrExhausted() bool { return s.OverageInUse || s.Exhausted() }
+
+// UsageBilled reports overage on a credential that has never reported an
+// included-quota window: a usage-billed seat with no plan to exhaust. Inferred
+// from in-memory history, so a fresh observer can misread a plan seat already
+// on overage.
+func (s Snapshot) UsageBilled() bool { return s.OverageInUse && !s.QuotaWindowsSeen }
 
 // exhaustedFraction is the per-window utilization at/above which a subscription
 // window is spent: the upstream 429s any further turn until the window resets.
@@ -238,6 +247,10 @@ func (o *Observer) Record(key CredentialKey, snap Snapshot) {
 	}
 	if snap.Secondary.present() {
 		snap.Secondary.ObservedAt = now
+	}
+	snap.QuotaWindowsSeen = snap.Primary.present() || snap.Secondary.present()
+	if prev, ok := o.data[key]; ok && prev.QuotaWindowsSeen {
+		snap.QuotaWindowsSeen = true
 	}
 	// Merge per-window with the prior (non-stale) observation: a single response
 	// may report only one window, and replacing the whole snapshot would erase

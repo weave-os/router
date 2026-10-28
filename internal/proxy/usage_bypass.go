@@ -257,12 +257,12 @@ func (s *Service) anthropicSubscriptionObservedExhausted(ctx context.Context, he
 }
 
 // claudeSnapshotUnservable reports whether an observed Claude subscription
-// should leave the turn. Paid overage is the caller's own provider-enabled
-// spend: avoided while a paid lane remains, but once paid fallback is off it
-// is the only lane, so only real exhaustion counts.
+// should leave the turn. A usage-billed seat has no plan quota to exhaust, so
+// once paid fallback is off its overage is the caller's only lane; plan
+// overage still leaves the subscription.
 func claudeSnapshotUnservable(ctx context.Context, snap usage.Snapshot) bool {
-	if reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx); ok && reason != billing.SubscriptionOnlyLinkedFirst {
-		return snap.Exhausted()
+	if reason, ok := billing.SubscriptionOnlyReasonFromContext(ctx); ok && reason != billing.SubscriptionOnlyLinkedFirst && snap.UsageBilled() {
+		return false
 	}
 	return snap.BillableOrExhausted()
 }
