@@ -582,6 +582,16 @@ carry these OpenRouter bindings as `SubscriptionOverflowOnly`, so no other
 routing or failover path uses them. Managed deployments need
 `ROUTER_OPENROUTER_PLATFORM_ENABLED=true` (or an installation BYOK OpenRouter
 key) for the lane to have a key.
+
+## Member tier selections on plans
+
+`plan_user_cluster_lists` is an organization-only boolean flag override
+(Admin → Router → Flags), default `false`. Max/Boost plan requests normally
+ignore every per-cluster model list. When on, each member's own per-cluster
+selection applies again on that organization's plan requests; the
+installation's key-scoped cluster lists stay ignored, and `excluded_models`
+still applies.
+
 ## Provider and model exclusions
 
 Exclusions keep traffic away from a provider or model — the control to reach
