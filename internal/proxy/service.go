@@ -1111,18 +1111,12 @@ func subscriptionRoutingDisabledForRequest(ctx context.Context) bool {
 	if disabled, _ := ctx.Value(InstallationSubscriptionRoutingDisabledContextKey{}).(bool); disabled {
 		return true
 	}
-	return pickedModelSubscriptionWithheld(ctx)
+	return PickedModelSubscriptionWithheld(ctx)
 }
 
-// PickedModelSubscriptionWithheld exposes pickedModelSubscriptionWithheld to
-// the funding gates, which ran before the client-selected model was known.
-func PickedModelSubscriptionWithheld(ctx context.Context) bool {
-	return pickedModelSubscriptionWithheld(ctx)
-}
-
-// pickedModelSubscriptionWithheld reports a client-selected model that bills
+// PickedModelSubscriptionWithheld reports a client-selected model that bills
 // Weave credits because the installation has not opted it into subscriptions.
-func pickedModelSubscriptionWithheld(ctx context.Context) bool {
+func PickedModelSubscriptionWithheld(ctx context.Context) bool {
 	enabled, _ := ctx.Value(InstallationPickedModelSubscriptionContextKey{}).(bool)
 	return auth.ClientModelPassthroughFrom(ctx) && !enabled
 }

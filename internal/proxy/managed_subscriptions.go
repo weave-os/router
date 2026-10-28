@@ -193,7 +193,7 @@ func (s *Service) costNeutralSubscriptionServed(ctx context.Context) bool {
 }
 
 func (s *Service) leaseManagedSubscription(ctx context.Context, provider, model string) (context.Context, subscriptions.Lease, bool, error) {
-	if pickedModelSubscriptionWithheld(ctx) {
+	if PickedModelSubscriptionWithheld(ctx) {
 		return ctx, subscriptions.Lease{}, false, nil
 	}
 	poolProvider, eligible := managedSubscriptionProviderFromUpstream(provider, model)
