@@ -805,8 +805,12 @@ func (s *Service) runTurnLoop(
 	} else if req.TranslationRequirements.IsZero() {
 		req.TranslationRequirements = env.TranslationRequirements(translationEndpointFor(env))
 	}
-	threadSessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyID)
-	req.TranslationRequirements = s.scopeSearchRequirement(threadSessionKey, searchUseEnvelope(ctx, env), req.TranslationRequirements)
+	isolatedSearch, _ := ctx.Value(codexWebSearchContextKey{}).(bool)
+	var threadSessionKey [sessionpin.SessionKeyLen]byte
+	if !isolatedSearch {
+		threadSessionKey = deriveSessionKeyForRequest(ctx, env, apiKeyID)
+		req.TranslationRequirements = s.scopeSearchRequirement(threadSessionKey, searchUseEnvelope(ctx, env), req.TranslationRequirements)
+	}
 	var compatibilityErr error
 	req, compatibilityErr = s.applyTranslationPlan(ctx, req)
 	if compatibilityErr != nil {
@@ -859,8 +863,25 @@ func (s *Service) runTurnLoop(
 	}
 	res.AuthoritativePerTurn = authoritativePolicyTurn(res.TurnType) &&
 		s.authoritativePerTurnSelection(ctx)
-	req.TaskDomain = taskDomainInput(ctx, env, apiKeyID, res.TurnType)
+	if !isolatedSearch {
+		req.TaskDomain = taskDomainInput(ctx, env, apiKeyID, res.TurnType)
+	}
 	res.PinRole = roleForTier(res.RequestedTier)
+
+	// Search helpers share the caller's identity for authorization, not its
+	// conversation pins. Route with the ordinary policy but never read/write
+	// force pins, sticky pins or their usage history for this isolated operation.
+	if isolatedSearch {
+		req.ForceModel = ""
+		res.HardPinned = true
+		if auth.RoutingPassthroughFrom(ctx) {
+			decision, err := s.callerModelPassthroughDecision(ctx, req)
+			res.Decision = decision
+			res.CallerModelPassthrough = true
+			return res, err
+		}
+		return s.routeWithoutPin(ctx, req, res, reqHeaders, false, sessionpin.Pin{})
+	}
 	// Resolve user-forced state before the policy's no-automatic-routing shortcut.
 	forceModelSessionKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, threadSessionKey)
 	forceModelPin := sessionpin.Pin{}
