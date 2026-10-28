@@ -36,8 +36,7 @@ func (lookup credentialSubjectLookupFunc) GetCredentialSubject(ctx context.Conte
 
 func TestInternalRegisterSessionIssuerCanonicalizesSubjectUUID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	subjectUUID := uuid.New()
-	canonicalSubjectID := subjectUUID.String()
+	canonicalSubjectID := uuid.New().String()
 	requestedSubjectID := strings.ToUpper(canonicalSubjectID)
 	var lookedUpSubjectID string
 
