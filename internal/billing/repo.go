@@ -67,7 +67,9 @@ type DebitParams struct {
 }
 
 // DelegatedSpendReader reads a delegated session's and task's spend-to-date
-// fresh from storage, bypassing every cache.
+// fresh from storage, bypassing every cache. Subject-bound issuers include other
+// issuers in the installation, preserving caps across ownership and key changes;
+// unbound issuers retain issuer-local counters.
 type DelegatedSpendReader interface {
 	GetDelegatedTokenSpend(ctx context.Context, issuerKeyID, sessionID, taskID string) (sessionSpentMicros, taskSpentMicros int64, err error)
 }
