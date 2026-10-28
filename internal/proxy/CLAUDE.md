@@ -70,6 +70,9 @@ the allowlist instead of dumping the desugared exclusion list.
 ignore the installation allowlist, preferred models, excluded providers, fast
 mode, routing knobs and cluster overrides, but `excluded_models` stays hard:
 it is the customer's explicit opt-out, and it only narrows the plan's roster.
+The organization flag `plan_user_cluster_lists` (default off) restores each
+member's own per-user cluster list on plan requests; the key-scoped list stays
+dropped.
 
 **The deployment-wide automatic exclusion is soft, and is a separate request
 field for that reason.** `global_automatic_routing_exclusions` is the Weave

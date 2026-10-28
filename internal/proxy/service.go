@@ -1361,9 +1361,17 @@ func (s *Service) preferredModelsForRequest(ctx context.Context) []string {
 // nil when none are configured. Merges the API-key-scoped list (org default)
 // with the resolved user's own selection — see mergeClusterOverrides for the
 // composition rule. Only consumed by the HMM sidecar router.
+//
+// Plan-owned serving drops both lists unless the organization opts in with
+// plan_user_cluster_lists, which keeps only the member's own list: a member
+// choosing models for their own tiers is not the installation reshaping the
+// plan's roster.
 func clusterArmOverridesForRequest(ctx context.Context) map[string][]string {
 	if planOwnedServingRequest(ctx) {
-		return nil
+		if !flags.BoolOr(ctx, flags.KeyPlanUserClusterLists, false) {
+			return nil
+		}
+		return mergeClusterOverrides(nil, auth.UserClusterModelListsFrom(ctx))
 	}
 	v := ctx.Value(ClusterModelListsContextKey{})
 	keyScoped, _ := v.(map[string][]string)
@@ -1681,6 +1689,20 @@ func subscriptionProvidersForRequest(ctx context.Context) map[string]struct{} {
 	}
 	if !codexSubscriptionSuppressed(ctx) && (openaiSubscriptionFromContext(ctx) != "" || managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex)) {
 		available[providers.ProviderOpenAI] = struct{}{}
+	}
+	return available
+}
+
+// selectableSubscriptionProviders is subscriptionProvidersForRequest minus a
+// presented subscription the usage observer already reports exhausted, so model
+// selection never favors a subscription the turn will be suppressed off.
+func (s *Service) selectableSubscriptionProviders(ctx context.Context, headers http.Header) map[string]struct{} {
+	available := subscriptionProvidersForRequest(ctx)
+	if s.anthropicSubscriptionObservedExhausted(ctx, headers) {
+		delete(available, providers.ProviderAnthropic)
+	}
+	if s.codexSubscriptionExhausted(ctx, headers) {
+		delete(available, providers.ProviderOpenAI)
 	}
 	return available
 }
@@ -4090,7 +4112,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		EnabledProviders:              enabledProviders,
 		CustomBindings:                customBindings,
 		GatewayProviders:              gatewayProviders,
-		SubscriptionProviders:         subscriptionProvidersForRequest(ctx),
+		SubscriptionProviders:         s.selectableSubscriptionProviders(ctx, r.Header),
 		ExcludedModels:                excluded,
 		AllowedModels:                 allowedModelsForRequest(ctx),
 		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserve, enabledProviders), overflowAdmitted, hardExcluded),
@@ -5471,6 +5493,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// No rescuer served (none ran, or the last one failed pre-commit); surface
 	// the held error now so it's never dropped.
 	proxyErr = asCompactionUnservable(routeRes.TurnType, decision, proxyErr)
+	proxyErr = withClientTrimCounts(ctx, proxyErr, rescuedPrimaryErr)
 	if (siblingRescueOwed || overflowRescueOnly) && proxyErr != nil && !preludeBuf.Committed() {
 		flushDeferredErr()
 	}
@@ -7424,7 +7447,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		EnabledProviders:              enabledProviders,
 		CustomBindings:                s.customBindingsForRequest(ctx),
 		GatewayProviders:              s.gatewayProvidersForRequest(ctx),
-		SubscriptionProviders:         subscriptionProvidersForRequest(ctx),
+		SubscriptionProviders:         s.selectableSubscriptionProviders(ctx, r.Header),
 		ExcludedModels:                excludedOAI,
 		AllowedModels:                 allowedModelsForRequest(ctx),
 		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserveOAI, enabledProviders), overflowAdmittedOAI, geminiUnsignedOAI),

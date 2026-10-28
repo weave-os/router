@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 
+	"weave-os/router/internal/auth"
+	"weave-os/router/internal/flags"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
@@ -49,6 +51,43 @@ func TestPlanOwnedServingIgnoresCustomerRoutingControls(t *testing.T) {
 	assert.Nil(t, routingKnobsForRequest(ctx))
 	assert.Nil(t, (&Service{}).preferredModelsForRequest(ctx))
 	assert.Nil(t, clusterArmOverridesForRequest(ctx))
+}
+
+func TestPlanOwnedServingAppliesMemberClusterListsOnlyWhenFlagged(t *testing.T) {
+	t.Parallel()
+
+	// Distinct from the key-scoped {"cluster": {"customer-arm"}} that
+	// planOwnedContextFor sets, so a merge with the key list would show.
+	member := map[string][]string{"cluster": {"member-arm"}, "other": {"member-other"}}
+	enabled := map[flags.Key]bool{flags.KeyPlanUserClusterLists: true}
+	cases := []struct {
+		name   string
+		flags  map[flags.Key]bool
+		member map[string][]string
+		want   map[string][]string
+	}{
+		{name: "flag unset", member: member},
+		{name: "flag off", flags: map[flags.Key]bool{flags.KeyPlanUserClusterLists: false}, member: member},
+		{name: "flag on keeps only the member list", flags: enabled, member: member, want: member},
+		{name: "flag on without a member list", flags: enabled},
+	}
+	for planName, plan := range map[string]entitlement.Plan{"max": entitlement.PlanMax, "boost": entitlement.PlanBoost} {
+		for _, tc := range cases {
+			t.Run(planName+"/"+tc.name, func(t *testing.T) {
+				t.Parallel()
+				ctx := flags.WithOverrides(planOwnedContextFor(plan), flags.Overrides{Bools: tc.flags})
+				if tc.member != nil {
+					ctx = context.WithValue(ctx, auth.UserClusterModelListsContextKey{}, tc.member)
+				}
+				got := clusterArmOverridesForRequest(ctx)
+				if tc.want == nil {
+					assert.Nil(t, got)
+					return
+				}
+				assert.Equal(t, tc.want, got)
+			})
+		}
+	}
 }
 
 func TestPlanOwnedServingHonorsCustomerExcludedModels(t *testing.T) {
