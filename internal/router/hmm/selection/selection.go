@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/hmm/rosterdata"
@@ -95,6 +96,65 @@ func SelectGroupsWithDomainPreferences(
 	evidence *DomainEvidence,
 	profile DomainProfile,
 ) (Pick, map[string]map[string]float32, map[string]map[string]router.SelectionScoreComponents, map[string][]string, bool) {
+	return selectGroups(roster, groups, harness, "", candidates, qualityBias, preferredModels, evidence, profile)
+}
+
+// SelectGroupsWithSubscriptions is SelectGroupsWithDomainPreferences for a
+// roster with subscription ladders: the ladder arm of the subscription in play
+// leads each group, and with no subscription in play the harness pins and
+// order give way to the pooled cluster order. Rosters without ladders select
+// exactly as SelectGroupsWithDomainPreferences.
+func SelectGroupsWithSubscriptions(
+	roster *rosterdata.Roster,
+	groups []Group,
+	harness string,
+	subscriptionProviders []string,
+	candidates map[string]struct{},
+	qualityBias *float64,
+	preferredModels []string,
+	evidence *DomainEvidence,
+	profile DomainProfile,
+) (Pick, map[string]map[string]float32, map[string]map[string]router.SelectionScoreComponents, map[string][]string, bool) {
+	if len(roster.SubscriptionLadders) == 0 {
+		return selectGroups(roster, groups, harness, "", candidates, qualityBias, preferredModels, evidence, profile)
+	}
+	if len(subscriptionProviders) == 0 {
+		return selectGroups(roster, groups, "", "", candidates, qualityBias, preferredModels, evidence, profile)
+	}
+	return selectGroups(roster, groups, harness, SubscriptionLadderProvider(harness, subscriptionProviders), candidates, qualityBias, preferredModels, evidence, profile)
+}
+
+// SubscriptionLadderProvider picks whose ladder serves: the only subscription
+// in play, or the harness's native vendor when both are. Empty means no ladder.
+func SubscriptionLadderProvider(harness string, subscriptionProviders []string) string {
+	if len(subscriptionProviders) == 1 {
+		return subscriptionProviders[0]
+	}
+	native := harnessSubscriptionProvider[rosterdata.Harness(strings.ReplaceAll(harness, "-", "_"))]
+	for _, provider := range subscriptionProviders {
+		if provider == native {
+			return provider
+		}
+	}
+	return ""
+}
+
+var harnessSubscriptionProvider = map[rosterdata.Harness]string{
+	rosterdata.HarnessClaudeCode: providers.ProviderAnthropic,
+	rosterdata.HarnessCodex:      providers.ProviderOpenAI,
+}
+
+func selectGroups(
+	roster *rosterdata.Roster,
+	groups []Group,
+	harness string,
+	ladderProvider string,
+	candidates map[string]struct{},
+	qualityBias *float64,
+	preferredModels []string,
+	evidence *DomainEvidence,
+	profile DomainProfile,
+) (Pick, map[string]map[string]float32, map[string]map[string]router.SelectionScoreComponents, map[string][]string, bool) {
 	if evidence != nil && len(ScoredDomains(profile)) > 0 && validateDomainEvidence(evidence, roster) != nil {
 		// Untrusted or stale evidence must not alter the baseline selection.
 		evidence = nil
@@ -109,7 +169,8 @@ func SelectGroupsWithDomainPreferences(
 			scoresByGroup[group.Label] = scores
 			componentsByGroup[group.Label] = components
 			order, _ := ArmOrder(cluster, harness)
-			ordersByGroup[group.Label] = preferenceOrder(roster, group.Label, cluster, harness, order, qualityBias, hasPreferenceInputs || domainActive, scores)
+			order = preferenceOrder(roster, group.Label, cluster, harness, order, qualityBias, hasPreferenceInputs || domainActive, scores)
+			ordersByGroup[group.Label] = leadWith(order, roster.SubscriptionLadders[ladderProvider][group.Label])
 		}
 	}
 	depth := 0
@@ -254,6 +315,22 @@ func scoresWithDomainPreferences(
 		componentsByArm[arm] = components
 	}
 	return scores, componentsByArm, domainActive
+}
+
+// leadWith moves arm to the front of order, adding it when the cluster's own
+// membership does not list it; an empty arm leaves order unchanged.
+func leadWith(order []string, arm string) []string {
+	if arm == "" {
+		return order
+	}
+	led := make([]string, 0, len(order)+1)
+	led = append(led, arm)
+	for _, member := range order {
+		if member != arm {
+			led = append(led, member)
+		}
+	}
+	return led
 }
 
 func preferenceRanks(models []string) map[string]int {
