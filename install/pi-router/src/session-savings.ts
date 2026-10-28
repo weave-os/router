@@ -31,14 +31,13 @@ export function parseSessionSavings(body: unknown, sessionId: string): SessionSa
 export async function fetchSessionSavings(
 	sessionId: string,
 	request: typeof fetch = fetch,
-	signal: AbortSignal = AbortSignal.timeout(5_000),
 ): Promise<SessionSavings | undefined> {
 	const routerKey = resolveRouterKey();
 	if (!routerKey || !sessionId) return undefined;
 	const response = await request(`${getRouterBaseUrl()}/v1/sessions/${encodeURIComponent(sessionId)}/cost`, {
 		redirect: "error",
 		headers: providerHeaders(getRole(), routerKey),
-		signal,
+		signal: AbortSignal.timeout(5_000),
 	});
 	if (!response.ok) return undefined;
 	const text = await response.text();

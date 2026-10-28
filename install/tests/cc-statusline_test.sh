@@ -325,8 +325,8 @@ render_session() { # render_session <cost_body>
     | sed 's/\x1b\[[0-9;]*m//g'
 }
 normalized_cache_has() { grep -qs "$1" "$c"/cache/weave-router/claude-context/*-session-normalized.json; }
-for case in "1.234|saved ~\$1.23 vs Opus 5.5 this session" "-0.4|cost ~\$0.40 more than Opus 5.5 this session" "0.004|saved <\$0.01 vs Opus 5.5 this session"; do
-  value="${case%%|*}"; expected="${case#*|}"
+for scenario in "1.234|saved ~\$1.23 vs Opus 5.5 this session" "-0.4|cost ~\$0.40 more than Opus 5.5 this session" "0.004|saved <\$0.01 vs Opus 5.5 this session"; do
+  value="${scenario%%|*}"; expected="${scenario#*|}"
   jq -cn --argjson v "$value" '{session_id:"session-normalized",savings_usd:9.99,normalized_savings_usd:$v,savings_baseline_model:"claude-opus-5-5",savings_baseline_label:"Opus 5.5"}' > "$c/cost-$value.json"
   render_session "$c/cost-$value.json" >/dev/null
   if wait_for 10 normalized_cache_has "\"normalized_savings_usd\":$value"; then
