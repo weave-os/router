@@ -93,6 +93,15 @@ func (f sessionIssuerFixture) service(t *testing.T) (*auth.Service, *fakeAPIKeyR
 	return svc, repo
 }
 
+type fakeSessionCredentialSubjects struct {
+	subjects map[string]*auth.CredentialSubject
+	err      error
+}
+
+func (f fakeSessionCredentialSubjects) GetCredentialSubject(_ context.Context, subjectID, _ string) (*auth.CredentialSubject, error) {
+	return f.subjects[subjectID], f.err
+}
+
 func TestVerifySessionToken_AuthenticatesAsIssuer(t *testing.T) {
 	f := newSessionIssuerFixture(t)
 	svc, _ := f.service(t)
@@ -104,6 +113,15 @@ func TestVerifySessionToken_AuthenticatesAsIssuer(t *testing.T) {
 	assert.Equal(t, f.apiKey.ID, key.ID)
 	require.NotNil(t, session)
 	assert.Equal(t, auth.DelegatedSession{IssuerKeyID: "issuer-1", SessionID: "session-1", TaskID: "task-1", ExpiresAt: sessionClock.Add(time.Hour)}, *session)
+}
+
+func TestVerifySessionTokenRetainsTheIssuersSubscriberForBilling(t *testing.T) {
+	f := newSessionIssuerFixture(t)
+	f.apiKey.CredentialSubjectID = "subscriber-1"
+	svc, _ := f.service(t)
+	_, key, _, _, _, err := svc.VerifySessionToken(context.Background(), f.sign(t, f.claims(), nil), true)
+	require.NoError(t, err)
+	assert.Equal(t, "subscriber-1", auth.SubscriptionOwnerForKey(key).SubscriberID)
 }
 
 func TestVerifySessionToken_RejectsInvalidTokens(t *testing.T) {
@@ -405,21 +423,39 @@ func TestParseSessionIssuerJWK_AcceptsOnlyEd25519PublicKeys(t *testing.T) {
 func TestRegisterSessionIssuer_IdempotentAndInstallationBound(t *testing.T) {
 	f := newSessionIssuerFixture(t)
 	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}, echoCreate: true}
-	svc := auth.NewService(&fakeInstallationRepository{}, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return sessionClock })
+	subject := &auth.CredentialSubject{ID: "subject-1", ProjectionComplete: true, AccessEnabled: true, EnrollmentGeneration: 1}
+	otherSubject := &auth.CredentialSubject{ID: "subject-2", ProjectionComplete: true, AccessEnabled: true, EnrollmentGeneration: 1}
+	svc := auth.NewService(&fakeInstallationRepository{}, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return sessionClock }).
+		WithCredentialSubjectLookup(fakeSessionCredentialSubjects{subjects: map[string]*auth.CredentialSubject{"subject-1": subject, "subject-2": otherSubject}})
 
-	key, kid, err := svc.RegisterSessionIssuer(context.Background(), f.inst.ID, nil, f.publicJWK)
+	key, kid, err := svc.RegisterSessionIssuer(context.Background(), f.inst.ID, "subject-1", nil, f.publicJWK)
 	require.NoError(t, err)
 	assert.Equal(t, f.kid, kid)
 	assert.Equal(t, auth.ScopeSessionIssuer, key.Scope)
 	assert.Equal(t, "jwk:"+f.kid, key.KeyHash)
+	assert.Equal(t, "subject-1", key.CredentialSubjectID)
 
 	repo.byHash[key.KeyHash] = fakeKeyRow{apiKey: key, installation: f.inst}
-	again, _, err := svc.RegisterSessionIssuer(context.Background(), f.inst.ID, nil, f.publicJWK)
+	again, _, err := svc.RegisterSessionIssuer(context.Background(), f.inst.ID, "subject-1", nil, f.publicJWK)
 	require.NoError(t, err)
 	assert.Same(t, key, again)
 
-	_, _, err = svc.RegisterSessionIssuer(context.Background(), "other-installation", nil, f.publicJWK)
+	_, _, err = svc.RegisterSessionIssuer(context.Background(), f.inst.ID, "subject-2", nil, f.publicJWK)
 	require.ErrorIs(t, err, auth.ErrSessionIssuerConflict)
+
+	_, _, err = svc.RegisterSessionIssuer(context.Background(), "other-installation", "subject-1", nil, f.publicJWK)
+	require.ErrorIs(t, err, auth.ErrSessionIssuerConflict)
+}
+
+func TestRegisterSessionIssuerRequiresALiveBoundSubject(t *testing.T) {
+	f := newSessionIssuerFixture(t)
+	repo := &fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}, echoCreate: true}
+	svc := auth.NewService(&fakeInstallationRepository{}, repo, nil, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return sessionClock }).
+		WithCredentialSubjectLookup(fakeSessionCredentialSubjects{})
+
+	_, _, err := svc.RegisterSessionIssuer(context.Background(), f.inst.ID, "subject-1", nil, f.publicJWK)
+	require.ErrorIs(t, err, auth.ErrSessionIssuerSubjectUnavailable)
+	assert.Empty(t, repo.byHash)
 }
 
 func TestIssueScopedAPIKey_RefusesSessionIssuerScope(t *testing.T) {

@@ -232,14 +232,28 @@ SELECT (
 ) = 9 AS billing_tables_exist;
 
 -- Fresh per-request read of a delegated session's and task's spend-to-date
--- for the delegated spend-cap gate. A missing row is zero spend.
+-- for the delegated spend-cap gate. Account-bound issuers share the installation's
+-- counters so owner changes and signing-key rotation cannot reset a cap. Legacy
+-- unbound issuers retain their original issuer-local scope. Deleted keys still count.
 -- name: GetDelegatedTokenSpend :one
+WITH current_issuer AS (
+    SELECT id, installation_id, credential_subject_id
+    FROM router.model_router_api_keys WHERE id = @issuer_key_id::uuid
+), spend_issuers AS (
+    SELECT issuer.id
+    FROM router.model_router_api_keys issuer
+    JOIN current_issuer current ON issuer.installation_id = current.installation_id
+    WHERE issuer.id = current.id
+       OR (current.credential_subject_id IS NOT NULL AND issuer.scope = 'session_issuer')
+)
 SELECT
     COALESCE((
-        SELECT spent_usd_micros FROM router.delegated_token_spend
-        WHERE issuer_key_id = @issuer_key_id::uuid AND scope_kind = 'session' AND scope_id = @session_id::varchar
+        SELECT SUM(spend.spent_usd_micros) FROM spend_issuers issuer
+        JOIN router.delegated_token_spend spend ON spend.issuer_key_id = issuer.id
+        WHERE spend.scope_kind = 'session' AND spend.scope_id = @session_id::varchar
     ), 0)::bigint AS session_spent_usd_micros,
     COALESCE((
-        SELECT spent_usd_micros FROM router.delegated_token_spend
-        WHERE issuer_key_id = @issuer_key_id::uuid AND scope_kind = 'task' AND scope_id = @task_id::varchar
+        SELECT SUM(spend.spent_usd_micros) FROM spend_issuers issuer
+        JOIN router.delegated_token_spend spend ON spend.issuer_key_id = issuer.id
+        WHERE spend.scope_kind = 'task' AND spend.scope_id = @task_id::varchar
     ), 0)::bigint AS task_spent_usd_micros;

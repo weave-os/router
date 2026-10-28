@@ -12,7 +12,8 @@ INSERT INTO router.model_router_api_keys (
     created_by,
     scope,
     harness,
-    public_jwk
+    public_jwk,
+    credential_subject_id
 )
 VALUES (
     @installation_id::uuid,
@@ -24,7 +25,8 @@ VALUES (
     @created_by,
     @scope::varchar,
     @harness,
-    sqlc.narg(public_jwk)::jsonb
+    sqlc.narg(public_jwk)::jsonb,
+    NULLIF(@credential_subject_id::varchar, '')::uuid
 )
 RETURNING *;
 

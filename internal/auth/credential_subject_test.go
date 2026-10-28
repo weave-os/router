@@ -36,13 +36,26 @@ func TestPersonalCredentialRequiresCompletedUnrevokedProjection(t *testing.T) {
 	require.ErrorIs(t, auth.ValidateCredentialSubject(key, &valid), auth.ErrInvalidKeyScope)
 }
 
-func TestServingAdmissionAcceptsSessionIssuerWithoutPersonalOwnership(t *testing.T) {
+func TestServingAdmissionValidatesSessionIssuerSubjectBinding(t *testing.T) {
 	issuer := auth.APIKey{ID: "issuer", Scope: auth.ScopeSessionIssuer}
-	subject := auth.CredentialSubject{ID: "subject", ProjectionComplete: true, AccessEnabled: true, InternalEnrolled: true}
+	valid := auth.CredentialSubject{ID: "subject", ProjectionComplete: true, AccessEnabled: true, InternalEnrolled: true, EnrollmentGeneration: 1}
 	require.NoError(t, auth.ValidateServingCredential(issuer, nil))
-	require.ErrorIs(t, auth.ValidateServingCredential(issuer, &subject), auth.ErrPersonalCredentialRequired)
-	issuer.CredentialSubjectID = subject.ID
-	require.ErrorIs(t, auth.ValidateServingCredential(issuer, &subject), auth.ErrPersonalCredentialRequired)
+	require.ErrorIs(t, auth.ValidateServingCredential(issuer, &valid), auth.ErrPersonalCredentialRequired)
+	issuer.CredentialSubjectID = valid.ID
+	require.NoError(t, auth.ValidateServingCredential(issuer, &valid))
+
+	for _, invalid := range []auth.CredentialSubject{
+		{ID: "someone-else", ProjectionComplete: true, AccessEnabled: true},
+		{ID: "subject", AccessEnabled: true},
+		{ID: "subject", ProjectionComplete: true},
+		{ID: "subject", ProjectionComplete: true, AccessEnabled: true, EnrollmentGeneration: -1},
+	} {
+		require.ErrorIs(t, auth.ValidateServingCredential(issuer, &invalid), auth.ErrPersonalCredentialRequired)
+	}
+	revoked := valid
+	now := time.Now()
+	revoked.RevokedAt = &now
+	require.ErrorIs(t, auth.ValidateServingCredential(issuer, &revoked), auth.ErrPersonalCredentialRequired)
 
 	readKey := auth.APIKey{ID: "read", Scope: auth.ScopeAnalyticsRead}
 	require.ErrorIs(t, auth.ValidateServingCredential(readKey, nil), auth.ErrInvalidKeyScope)
