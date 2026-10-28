@@ -1,0 +1,27 @@
+internal/translate/responses_codex_egress_test.go
+  s_4cd249a6e2e116::t_25fdc5e2cd8d6d 103
+  s_4cd249a6e2e116::t_5126b7cbdfeb8b 6
+  s_4cd249a6e2e116::t_588f4e40db8214 192-195
+  s_4cd249a6e2e116::t_d1934643000b0e 67-70,74
+  s_4cd249a6e2e116::t_1bbad2a3f4e088 138
+internal/translate/responses.go
+  s_4cd249a6e2e116::t_1decb61b5ceb9a 1198-1200,1202,1221
+  s_4cd249a6e2e116::t_63915f3d16e33d 1694
+  s_4cd249a6e2e116::t_9cbdb57ae83f80 474-485
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "85a77654207c86548785bdbdbc534d1c54d1a62f",
+  "prompts": {},
+  "sessions": {
+    "s_4cd249a6e2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "aa67b391-849b-473c-8bd2-f1c2b633482d",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

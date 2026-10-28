@@ -1,0 +1,34 @@
+internal/observability/safego.go
+  s_05332cfebfc6c9::t_c7683730951a76 36-42,44-65,69-72,74,77-79,86,94,100-102
+  s_05332cfebfc6c9::t_10950a9210e822 75-76,98-99,103-113
+internal/proxy/auxiliary_inference_internal_test.go
+  s_05332cfebfc6c9::t_6dce0e34e61ef7 312-318
+  s_05332cfebfc6c9::t_c8cb4c873b6bda 293-296
+internal/observability/safego_test.go
+  s_05332cfebfc6c9::t_9f8604afac9c39 24-25,28,30,35,40-42,44-46
+  s_05332cfebfc6c9::t_7740dd68734e14 10,13-15,17-19,22-23,27,29,33-34,36-39,50-78
+cmd/router/main.go
+  s_05332cfebfc6c9::t_d764abd5889e11 1002-1003,1005
+  s_05332cfebfc6c9::t_4748f7d4b41b53 93
+  s_05332cfebfc6c9::t_3780dffd64acea 84
+  s_05332cfebfc6c9::t_3640542cf13382 999-1001,1004,1006-1007
+  s_05332cfebfc6c9::t_8a9683eb45ac79 1028-1034
+internal/proxy/service.go
+  s_05332cfebfc6c9::t_55429ad64a5134 4678-4681
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "6997d9f862b84fcbbf64e84691c17c975c0770e2",
+  "prompts": {},
+  "sessions": {
+    "s_05332cfebfc6c9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "85913535-0f0d-42ed-bbe1-807f1beee73e",
+        "model": "deepseek/deepseek-v4-flash"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

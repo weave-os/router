@@ -1,0 +1,34 @@
+internal/sqlc/model_router_subscription_accounts.sql.go
+  s_d53a2d12bea3ba::t_f2045083191fff 17-18,42-43,676-677,696-697
+internal/postgres/subscription_repo_test.go
+  s_d53a2d12bea3ba::t_8106b2d2fec0ec 188-194,216-231
+  s_d53a2d12bea3ba::t_56509ff99545bf 232
+db/queries/model_router_subscription_accounts.sql
+  s_37ad595f097112::t_244eb2c63c53f1 132-133,300-301
+internal/subscriptions/runtime_test.go
+  s_37ad595f097112::t_1669ca988cd0b9 128,219
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "70a54a57ea2f5810eb78875a660c815c94c73a86",
+  "prompts": {},
+  "sessions": {
+    "s_37ad595f097112": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11d73-e2ff-7990-896e-f702d9f5bcab",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_d53a2d12bea3ba": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11d51-9fb2-7a50-8057-637f1c3c2ead",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

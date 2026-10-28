@@ -1,0 +1,21 @@
+cmd/router/main.go
+  s_9dae21f8fa03aa::t_aaceaaad727cf5 663-665
+internal/proxy/telemetry.go
+  s_9dae21f8fa03aa::t_aaceaaad727cf5 177-178,317-318,323-324
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "3f685b42dd6df85f29abece39778b414e4b8e7d0",
+  "prompts": {},
+  "sessions": {
+    "s_9dae21f8fa03aa": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ec2d6798-9edc-4a10-842d-e1bd4fa9c045",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

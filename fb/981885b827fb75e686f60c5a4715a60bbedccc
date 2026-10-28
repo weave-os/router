@@ -1,0 +1,20 @@
+internal/router/model.go
+  s_6de4212cfed736::t_f760cd9e82a743 126
+  s_6de4212cfed736::t_3dff17cf929f5f 127
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.22",
+  "base_commit_sha": "fb981885b827fb75e686f60c5a4715a60bbedccc",
+  "prompts": {},
+  "sessions": {
+    "s_6de4212cfed736": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3fcc2a5a-c427-4f5d-9a37-2e458ac4d309",
+        "model": "claude-sonnet-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

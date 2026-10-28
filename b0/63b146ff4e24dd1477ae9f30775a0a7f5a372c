@@ -1,0 +1,22 @@
+internal/proxy/gemini_schema_failover_integration_test.go
+  s_8219cfeb5127fb::t_7cfcfce2e38137 23-24
+internal/translate/emit_gemini.go
+  s_8219cfeb5127fb::t_4b9022cbf5350a 1479-1481
+  s_8219cfeb5127fb::t_036ae71451940a 1594-1597
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "b063b146ff4e24dd1477ae9f30775a0a7f5a372c",
+  "prompts": {},
+  "sessions": {
+    "s_8219cfeb5127fb": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bc96782f-4c33-41e7-861a-0dbf7d16449b",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
