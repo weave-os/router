@@ -30,6 +30,10 @@ func ValidateCredentialSubject(key APIKey, subject *CredentialSubject) error {
 	if key.Scope.Normalized() != ScopeRouting {
 		return ErrInvalidKeyScope
 	}
+	return validateCredentialSubjectOwnership(key, subject)
+}
+
+func validateCredentialSubjectOwnership(key APIKey, subject *CredentialSubject) error {
 	if key.CredentialSubjectID == "" {
 		if subject != nil {
 			return ErrPersonalCredentialRequired
@@ -47,10 +51,10 @@ func ValidateCredentialSubject(key APIKey, subject *CredentialSubject) error {
 // bearer hashes to, so it reaches admission only through a verified session token.
 func ValidateServingCredential(key APIKey, subject *CredentialSubject) error {
 	if key.Scope == ScopeSessionIssuer {
-		if key.CredentialSubjectID != "" || subject != nil {
-			return ErrPersonalCredentialRequired
+		if key.CredentialSubjectID == "" && subject == nil {
+			return nil
 		}
-		return nil
+		return validateCredentialSubjectOwnership(key, subject)
 	}
 	return ValidateCredentialSubject(key, subject)
 }

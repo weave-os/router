@@ -22,7 +22,8 @@ INSERT INTO router.model_router_api_keys (
     created_by,
     scope,
     harness,
-    public_jwk
+    public_jwk,
+    credential_subject_id
 )
 VALUES (
     $1::uuid,
@@ -34,22 +35,24 @@ VALUES (
     $7,
     $8::varchar,
     $9,
-    $10::jsonb
+    $10::jsonb,
+    NULLIF($11::varchar, '')::uuid
 )
 RETURNING id, installation_id, external_id, name, key_prefix, key_hash, key_suffix, last_used_at, created_at, deleted_at, created_by, spend_cap_usd_micros, spent_usd_micros, scope, credential_subject_id, harness, shared_subscription_access, paid_fallback_on_subscription_refusal, public_jwk
 `
 
 type CreateModelRouterAPIKeyParams struct {
-	InstallationID uuid.UUID
-	ExternalID     string
-	Name           *string
-	KeyPrefix      string
-	KeyHash        string
-	KeySuffix      string
-	CreatedBy      *string
-	Scope          string
-	Harness        *string
-	PublicJwk      []byte
+	InstallationID      uuid.UUID
+	ExternalID          string
+	Name                *string
+	KeyPrefix           string
+	KeyHash             string
+	KeySuffix           string
+	CreatedBy           *string
+	Scope               string
+	Harness             *string
+	PublicJwk           []byte
+	CredentialSubjectID string
 }
 
 // Creates a router API key. scope decides what the credential can do:
@@ -66,7 +69,8 @@ type CreateModelRouterAPIKeyParams struct {
 //	    created_by,
 //	    scope,
 //	    harness,
-//	    public_jwk
+//	    public_jwk,
+//	    credential_subject_id
 //	)
 //	VALUES (
 //	    $1::uuid,
@@ -78,7 +82,8 @@ type CreateModelRouterAPIKeyParams struct {
 //	    $7,
 //	    $8::varchar,
 //	    $9,
-//	    $10::jsonb
+//	    $10::jsonb,
+//	    NULLIF($11::varchar, '')::uuid
 //	)
 //	RETURNING id, installation_id, external_id, name, key_prefix, key_hash, key_suffix, last_used_at, created_at, deleted_at, created_by, spend_cap_usd_micros, spent_usd_micros, scope, credential_subject_id, harness, shared_subscription_access, paid_fallback_on_subscription_refusal, public_jwk
 func (q *Queries) CreateModelRouterAPIKey(ctx context.Context, arg CreateModelRouterAPIKeyParams) (RouterModelRouterAPIKey, error) {
@@ -93,6 +98,7 @@ func (q *Queries) CreateModelRouterAPIKey(ctx context.Context, arg CreateModelRo
 		arg.Scope,
 		arg.Harness,
 		arg.PublicJwk,
+		arg.CredentialSubjectID,
 	)
 	var i RouterModelRouterAPIKey
 	err := row.Scan(
