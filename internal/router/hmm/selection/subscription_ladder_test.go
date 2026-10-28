@@ -70,3 +70,67 @@ func TestRosterWithoutLaddersIgnoresSubscriptions(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "anthropic/haiku", pick.Arm)
 }
+
+func TestNoSubscriptionLadderServesEachGroupWithinTheHarness(t *testing.T) {
+	haiku, luna, mimo := "anthropic/claude-haiku-5.5", "openai/gpt-6-luna", "xiaomi/mimo-v2.6-pro"
+	solHigh, sol, opus, opusMedium := "openai/gpt-6.1-sol:high", "openai/gpt-6.1-sol", "anthropic/claude-opus-5.5", "anthropic/claude-opus-5.5:medium"
+	roster := &rosterdata.Roster{
+		SchemaVersion: rosterdata.SchemaVersionV6,
+		SubscriptionLadders: map[string]map[string]string{
+			selection.NoSubscriptionLadder: {"medium": mimo, "high": solHigh, "maximum": opus},
+		},
+		Clusters: map[string]rosterdata.Cluster{
+			"low": {
+				Arms: []string{luna, haiku, mimo},
+				ArmsByHarness: map[rosterdata.Harness][]string{
+					rosterdata.HarnessClaudeCode: {haiku, luna, mimo},
+					rosterdata.HarnessCodex:      {luna, haiku, mimo},
+				},
+			},
+			"medium": {
+				Arms: []string{haiku, mimo, solHigh, luna},
+				ArmsByHarness: map[rosterdata.Harness][]string{
+					rosterdata.HarnessClaudeCode: {haiku, mimo, solHigh, luna},
+					rosterdata.HarnessCodex:      {luna, haiku, mimo, solHigh},
+				},
+			},
+			"high": {
+				Arms: []string{mimo, opusMedium, solHigh, opus},
+				ArmsByHarness: map[rosterdata.Harness][]string{
+					rosterdata.HarnessClaudeCode: {opus, mimo, opusMedium, solHigh},
+					rosterdata.HarnessCodex:      {sol, mimo, opusMedium, solHigh},
+				},
+			},
+			"maximum": {
+				Arms: []string{opusMedium, opus, sol},
+				ArmsByHarness: map[rosterdata.Harness][]string{
+					rosterdata.HarnessClaudeCode: {opus, opusMedium, sol},
+					rosterdata.HarnessCodex:      {sol, opusMedium, opus},
+				},
+			},
+		},
+	}
+	everyArm := candidateSet(haiku, luna, mimo, solHigh, sol, opus, opusMedium)
+	for _, tc := range []struct {
+		harness, group, wantArm string
+		candidates              map[string]struct{}
+	}{
+		{harness: "claude_code", group: "low", wantArm: haiku, candidates: everyArm},
+		{harness: "codex", group: "low", wantArm: luna, candidates: everyArm},
+		{harness: "claude_code", group: "medium", wantArm: mimo, candidates: everyArm},
+		{harness: "codex", group: "medium", wantArm: mimo, candidates: everyArm},
+		{harness: "claude_code", group: "high", wantArm: solHigh, candidates: everyArm},
+		{harness: "codex", group: "high", wantArm: solHigh, candidates: everyArm},
+		{harness: "claude_code", group: "maximum", wantArm: opus, candidates: everyArm},
+		{harness: "codex", group: "maximum", wantArm: opus, candidates: everyArm},
+		{harness: "codex", group: "maximum", wantArm: sol, candidates: candidateSet(sol, opusMedium)},
+		{harness: "claude_code", group: "high", wantArm: opus, candidates: candidateSet(opus, mimo)},
+	} {
+		t.Run(tc.harness+"/"+tc.group+"/"+tc.wantArm, func(t *testing.T) {
+			pick, _, _, _, ok := selection.SelectGroupsWithSubscriptions(roster, []selection.Group{{Label: tc.group}}, tc.harness, nil, tc.candidates, nil, nil, nil, nil)
+
+			require.True(t, ok)
+			assert.Equal(t, tc.wantArm, pick.Arm)
+		})
+	}
+}
