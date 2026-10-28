@@ -54,8 +54,13 @@ type Roster struct {
 	ManualPins            map[string]map[string][]string    `json:"manual_pins,omitempty"`
 	ModePolicies          map[string]ModePolicy             `json:"mode_policies,omitempty"`
 	Preferences           PreferencePolicy                  `json:"preferences,omitempty"`
-	Provenance            Provenance                        `json:"provenance,omitempty"`
-	Clusters              map[string]Cluster                `json:"clusters"`
+	// SubscriptionLadders maps a subscription provider to the arm it serves in
+	// each classifier group. When present, a request with that provider's
+	// subscription in play leads with the ladder arm, and a request with no
+	// subscription in play ranks the pooled cluster order without harness pins.
+	SubscriptionLadders map[string]map[string]string `json:"subscription_ladders,omitempty"`
+	Provenance          Provenance                   `json:"provenance,omitempty"`
+	Clusters            map[string]Cluster           `json:"clusters"`
 	// SHA256 identifies the exact roster bytes when loaded from disk.
 	SHA256 string `json:"-"`
 }
@@ -149,6 +154,11 @@ func (r *Roster) AllArms() []string {
 			for _, arm := range arms {
 				seen[arm] = struct{}{}
 			}
+		}
+	}
+	for _, armsByGroup := range r.SubscriptionLadders {
+		for _, arm := range armsByGroup {
+			seen[arm] = struct{}{}
 		}
 	}
 	arms := make([]string, 0, len(seen))
@@ -321,6 +331,19 @@ func validateGoPolicy(r *Roster) error {
 			return fmt.Errorf("mode policy %q must allow at least one group", mode)
 		}
 		return fmt.Errorf("mode policy %q is not supported by Go selection", mode)
+	}
+	for provider, armsByGroup := range r.SubscriptionLadders {
+		if strings.TrimSpace(provider) == "" || len(armsByGroup) == 0 {
+			return fmt.Errorf("subscription ladder %q must name at least one group", provider)
+		}
+		for label, arm := range armsByGroup {
+			if _, exists := r.Clusters[label]; !exists {
+				return fmt.Errorf("subscription ladder %q references unknown group %q", provider, label)
+			}
+			if strings.TrimSpace(arm) == "" {
+				return fmt.Errorf("subscription ladder %q group %q has an empty arm", provider, label)
+			}
+		}
 	}
 	for label, cluster := range r.Clusters {
 		for harness, arms := range cluster.ArmsByHarness {

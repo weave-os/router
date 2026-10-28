@@ -69,10 +69,11 @@ func SelectorWithDomainEvidence(roster *rosterdata.Roster, evidence *DomainEvide
 		if input.TaskDomain != nil && input.TaskDomain.Status == taskdomain.Ready && input.TaskDomain.EvidenceSHA256 == evidenceSHA256 {
 			profile = input.TaskDomain.Profile
 		}
-		pick, scoresByGroup, scoreComponentsByGroup, ordersByGroup, ok := SelectGroupsWithDomainPreferences(
+		pick, scoresByGroup, scoreComponentsByGroup, ordersByGroup, ok := SelectGroupsWithSubscriptions(
 			roster,
 			groups,
 			input.Harness,
+			input.SubscriptionProviders,
 			candidates,
 			input.QualityBias,
 			input.PreferredModels,
@@ -119,6 +120,7 @@ func SelectorWithDomainEvidence(roster *rosterdata.Roster, evidence *DomainEvide
 				CandidateRosterIDs:     append([]string(nil), input.CandidateRosterIDs...),
 				QualityBias:            input.QualityBias,
 				PreferredModels:        append([]string(nil), input.PreferredModels...),
+				SubscriptionProviders:  append([]string(nil), input.SubscriptionProviders...),
 				EffectiveOrders:        ordersByGroup,
 				ScoresByGroup:          scoresByGroup,
 				ScoreComponentsByGroup: scoreComponentsByGroup,
