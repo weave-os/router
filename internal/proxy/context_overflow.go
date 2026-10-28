@@ -183,9 +183,8 @@ func (s *Service) overflowRescueDecisions(ctx context.Context, failed router.Dec
 // compactionUnservableClassFor answers an unservable compaction that carries
 // token counts with the prompt-too-long those counts describe; without them
 // it stays the terminal 502.
-func compactionUnservableClassFor(err error) DispatchErrorClass {
-	var unservable *CompactionUnservableError
-	if !errors.As(err, &unservable) || unservable.Tokens == 0 {
+func compactionUnservableClassFor(unservable *CompactionUnservableError) DispatchErrorClass {
+	if unservable.Tokens == 0 {
 		return compactionUnservableClass
 	}
 	class := contextWindowExceededClass
