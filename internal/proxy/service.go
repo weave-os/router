@@ -1379,6 +1379,24 @@ func clusterArmOverridesForRequest(ctx context.Context) map[string][]string {
 	return mergeClusterOverrides(keyScoped, userScoped)
 }
 
+// memberSelectedModel reports whether model is in one of the member's own
+// per-tier selections under an organization that opted in with
+// plan_user_cluster_lists. Such a pick is the member's explicit choice, so a
+// linked subscription's funding preference does not swap it for a model the
+// subscription covers. A turn with no paid capacity behind it (subscription-only
+// for any reason but linked-first) keeps the swap: the pick could not be served.
+func memberSelectedModel(ctx context.Context, model string) bool {
+	if !flags.BoolOr(ctx, flags.KeyPlanUserClusterLists, false) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
+		return false
+	}
+	for _, models := range auth.UserClusterModelListsFrom(ctx) {
+		if slices.Contains(models, model) {
+			return true
+		}
+	}
+	return false
+}
+
 func planHasDedicatedServingPolicy(ctx context.Context) bool {
 	identity, managed := requestcontext.ServingIdentityFromContext(ctx)
 	return managed && entitlement.PlanHasServingProfile(entitlement.Plan(identity.Plan))

@@ -73,7 +73,12 @@ it is the customer's explicit opt-out, and it only narrows Max's roster. Boost
 uses the ordinary installation controls because its effective policy is the
 default roster. The organization flag `plan_user_cluster_lists` (default off)
 restores each member's own per-user cluster list for Max; the key-scoped list
-stays dropped.
+stays dropped. Under the same flag a model the member selected is not swapped
+for a subscription-covered one: when no linked subscription serves it,
+`subscriptionAlternativeDecisions` offers no alternatives and the
+subscription-state lane skips its included targets and admits the pick to the
+paid set. A turn with no paid capacity behind it (credits depleted or spend cap)
+keeps the swap.
 
 **The deployment-wide automatic exclusion is soft, and is a separate request
 field for that reason.** `global_automatic_routing_exclusions` is the Weave

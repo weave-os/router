@@ -57,6 +57,14 @@ func (s *Service) subscriptionStateRequest(ctx context.Context, req router.Reque
 	return ctx, req
 }
 
+// memberPickDispatchable reports whether the request's exclusions (session
+// demotions included) still admit model, so skipping the included lane for it
+// cannot strand a turn the subscription would otherwise have served.
+func (s *Service) memberPickDispatchable(ctx context.Context, req router.Request, model string) bool {
+	_, pickReq := s.subscriptionStateRequest(ctx, req, []string{model})
+	return len(pickReq.AllowedModels) > 0
+}
+
 func (s *Service) subscriptionStateModelAvailable(ctx context.Context, req router.Request, headers http.Header, model string) bool {
 	entry, known := catalog.ByID(model)
 	if !known {
@@ -130,6 +138,16 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 	in.subscriptionStateRequest = nil
 	in.alternatives = nil
 	includedModels := s.includedSubscriptionModels(ctx, request, in.subscriptionStateHeaders)
+	if model := in.initialDecision.Model; !slices.Contains(includedModels, model) && memberSelectedModel(ctx, model) && s.memberPickDispatchable(ctx, request, model) {
+		// No linked subscription serves the member's own pick: skip the included
+		// lane and admit the pick to the paid set instead of swapping it for a
+		// covered model.
+		includedModels = nil
+		if !slices.Contains(installationSubscriptionModelsWhenInactiveFromContext(ctx), model) {
+			paidModels, _ := ctx.Value(InstallationSubscriptionModelsWhenInactiveContextKey{}).([]string)
+			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, append(slices.Clone(paidModels), model))
+		}
+	}
 	ctx, rotationBudget := withSubscriptionAdmissionBudget(ctx)
 	hasFixedTarget := request.ForceModel != "" || callerModelPassthroughActive(ctx) ||
 		in.origin == policy.OverrideSourceDeployment || in.origin == policy.OverrideSourceRequest
