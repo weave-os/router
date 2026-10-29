@@ -115,13 +115,13 @@ func TestVerifySessionToken_AuthenticatesAsIssuer(t *testing.T) {
 	assert.Equal(t, auth.DelegatedSession{IssuerKeyID: "issuer-1", SessionID: "session-1", TaskID: "task-1", ExpiresAt: sessionClock.Add(time.Hour)}, *session)
 }
 
-func TestVerifySessionTokenRetainsTheIssuersSubscriberForBilling(t *testing.T) {
+func TestVerifySessionTokenRetainsTheIssuersCredentialSubjectForBilling(t *testing.T) {
 	f := newSessionIssuerFixture(t)
-	f.apiKey.CredentialSubjectID = "subscriber-1"
+	f.apiKey.CredentialSubjectID = "subject-1"
 	svc, _ := f.service(t)
 	_, key, _, _, _, err := svc.VerifySessionToken(context.Background(), f.sign(t, f.claims(), nil), true)
 	require.NoError(t, err)
-	assert.Equal(t, "subscriber-1", auth.SubscriptionOwnerForKey(key).SubscriberID)
+	assert.Equal(t, "subject-1", auth.SubscriptionOwnerForKey(key).SubscriberID)
 }
 
 func TestVerifySessionToken_RejectsInvalidTokens(t *testing.T) {

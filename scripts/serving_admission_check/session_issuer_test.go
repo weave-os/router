@@ -18,9 +18,9 @@ import (
 	"weave-os/router/internal/sqlc"
 )
 
-// This exercises the schema constraint and actual cap query across owners and key rotation.
+// This exercises the schema constraint and actual cap query across subjects and key rotation.
 // Every fixture write rolls back in the caller-supplied local database.
-func TestOwnerBoundIssuersPreserveSpendAcrossOwnersAndKeys(t *testing.T) {
+func TestSubjectBoundIssuersPreserveSpendAcrossSubjectsAndKeyRotation(t *testing.T) {
 	dsn := os.Getenv(databaseURLEnv)
 	if dsn == "" {
 		t.Skipf("%s not set", databaseURLEnv)
@@ -60,17 +60,17 @@ func TestOwnerBoundIssuersPreserveSpendAcrossOwnersAndKeys(t *testing.T) {
 		require.NoError(t, queries.InsertCredentialSubjectInstallation(ctx, sqlc.InsertCredentialSubjectInstallationParams{SubjectID: subject.ID, InstallationID: uuid.MustParse(installation.ID)}))
 		return subject.ID.String()
 	}
-	firstOwner := createSubject()
-	first := createIssuer(installation.ID, firstOwner)
-	rotated := createIssuer(installation.ID, firstOwner)
-	reassigned := createIssuer(installation.ID, createSubject())
+	firstSubject := createSubject()
+	first := createIssuer(installation.ID, firstSubject)
+	rotated := createIssuer(installation.ID, firstSubject)
+	differentSubjectIssuer := createIssuer(installation.ID, createSubject())
 	legacy := createIssuer(installation.ID, "")
 	foreign := createIssuer(other.ID, "")
 	for _, row := range []struct {
 		issuer *auth.APIKey
 		spent  int64
 	}{
-		{first, 100}, {rotated, 200}, {reassigned, 300}, {legacy, 400}, {foreign, 900},
+		{first, 100}, {rotated, 200}, {differentSubjectIssuer, 300}, {legacy, 400}, {foreign, 900},
 	} {
 		_, err := tx.Exec(ctx, `INSERT INTO router.delegated_token_spend (issuer_key_id, scope_kind, scope_id, spent_usd_micros) VALUES ($1, 'session', 'session-1', $2), ($1, 'task', 'task-1', $2)`, row.issuer.ID, row.spent)
 		require.NoError(t, err)
@@ -79,7 +79,7 @@ func TestOwnerBoundIssuersPreserveSpendAcrossOwnersAndKeys(t *testing.T) {
 	_, err = tx.Exec(ctx, `UPDATE router.model_router_api_keys SET deleted_at = NOW() WHERE id = $1`, first.ID)
 	require.NoError(t, err)
 	billing := postgres.NewBillingRepo(tx)
-	for _, issuer := range []*auth.APIKey{rotated, reassigned} {
+	for _, issuer := range []*auth.APIKey{rotated, differentSubjectIssuer} {
 		session, task, err := billing.GetDelegatedTokenSpend(ctx, issuer.ID, "session-1", "task-1")
 		require.NoError(t, err)
 		require.EqualValues(t, 1000, session)

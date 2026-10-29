@@ -232,8 +232,8 @@ SELECT (
 ) = 9 AS billing_tables_exist;
 
 -- Fresh per-request read of a delegated session's and task's spend-to-date
--- for the delegated spend-cap gate. Account-bound issuers share the installation's
--- counters so owner changes and signing-key rotation cannot reset a cap. Legacy
+-- for the delegated spend-cap gate. Subject-bound issuers share the installation's
+-- counters so subject changes and signing-key rotation cannot reset a cap. Legacy
 -- unbound issuers retain their original issuer-local scope. Deleted keys still count.
 -- name: GetDelegatedTokenSpend :one
 WITH current_issuer AS (

@@ -30,10 +30,10 @@ func ValidateCredentialSubject(key APIKey, subject *CredentialSubject) error {
 	if key.Scope.Normalized() != ScopeRouting {
 		return ErrInvalidKeyScope
 	}
-	return validateCredentialSubjectOwnership(key, subject)
+	return validateCredentialSubjectBinding(key, subject)
 }
 
-func validateCredentialSubjectOwnership(key APIKey, subject *CredentialSubject) error {
+func validateCredentialSubjectBinding(key APIKey, subject *CredentialSubject) error {
 	if key.CredentialSubjectID == "" {
 		if subject != nil {
 			return ErrPersonalCredentialRequired
@@ -54,7 +54,7 @@ func ValidateServingCredential(key APIKey, subject *CredentialSubject) error {
 		if key.CredentialSubjectID == "" && subject == nil {
 			return nil
 		}
-		return validateCredentialSubjectOwnership(key, subject)
+		return validateCredentialSubjectBinding(key, subject)
 	}
 	return ValidateCredentialSubject(key, subject)
 }
