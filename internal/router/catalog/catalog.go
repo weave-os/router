@@ -563,6 +563,15 @@ var Models = []Model{
 			LongContext: &LongContextPricing{ThresholdTokens: 272_000, InputUSDPer1M: 8.00, OutputUSDPer1M: 30.00, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.05},
 		}},
 	}},
+	{ID: "gpt-6.1-terra", Source: SourceClosedSource, Tier: TierMid, CodexSubscription: true, ContextWindow: 1_050_000, Providers: []ProviderBinding{
+		{Provider: providers.ProviderOpenAI, Price: Pricing{
+			InputUSDPer1M: 1.00, OutputUSDPer1M: 5.00, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.05,
+			LongContext: &LongContextPricing{ThresholdTokens: 272_000, InputUSDPer1M: 2.00, OutputUSDPer1M: 7.50, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.05},
+		}, FastPrice: Pricing{
+			InputUSDPer1M: 2.00, OutputUSDPer1M: 10.00, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.05,
+			LongContext: &LongContextPricing{ThresholdTokens: 272_000, InputUSDPer1M: 4.00, OutputUSDPer1M: 15.00, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.05},
+		}},
+	}},
 	{ID: ModelGPT6Luna, Source: SourceClosedSource, Tier: TierMid, CodexSubscription: true, ContextWindow: 1_050_000, Providers: []ProviderBinding{
 		{Provider: providers.ProviderOpenAI, Price: Pricing{
 			InputUSDPer1M: 0.10, OutputUSDPer1M: 0.50, CacheWriteMultiplier: 1.25, CacheReadMultiplier: 0.10,

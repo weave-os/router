@@ -3,6 +3,7 @@ package policy
 import (
 	"context"
 	"errors"
+	"sort"
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/escalation"
@@ -24,9 +25,15 @@ type SelectionInput struct {
 	ClassOrder         []string
 	ClassProbabilities map[string]float64
 	ForcedGroup        string
+	// LeadGroup is tried before the classifier's ranking, which stays the
+	// fallback and rescue order; ForcedGroup takes precedence.
+	LeadGroup          string
 	CandidateRosterIDs []string
 	QualityBias        *float64
 	PreferredModels    []string
+	// SubscriptionProviders are the providers whose subscription can serve
+	// this request (exhausted ones already removed), sorted.
+	SubscriptionProviders []string
 	// RosterSHA256 pins selection to one boot-loaded roster; empty uses the
 	// default. Unknown digests fail with router.ErrPolicyPinUnavailable.
 	RosterSHA256 string
@@ -74,6 +81,10 @@ func selectionInputFor(strategy router.Strategy, executionMode string, req route
 		CandidateRosterIDs: candidateRosterIDs,
 		PreferredModels:    append([]string(nil), req.PreferredModels...),
 	}
+	for provider := range req.SubscriptionProviders {
+		input.SubscriptionProviders = append(input.SubscriptionProviders, provider)
+	}
+	sort.Strings(input.SubscriptionProviders)
 	if req.RoutingKnobs != nil && req.RoutingKnobs.QualityBias != nil {
 		qualityBias := *req.RoutingKnobs.QualityBias
 		input.QualityBias = &qualityBias

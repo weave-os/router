@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 
 	"weave-os/router/internal/requestcontext"
@@ -503,6 +504,10 @@ type EmitOverrides struct {
 	// model only accepts adaptive thinking (claude-opus-4-6+ / sonnet-4-6+).
 	RewriteThinkingAdaptive bool
 	OutputConfigEffort      string
+	// FloorMaxTokensValue raises an inbound max_tokens below it to this value.
+	// Set when the router turns thinking on for a caller that disabled it, so
+	// hidden reasoning cannot exhaust a budget sized for a visible-only answer.
+	FloorMaxTokensValue int64
 	// ForceOutputConfigEffort, when set, overrides any inbound output_config.effort
 	// and the heuristic OutputConfigEffort — user knob beats request-derived default.
 	// Value is already cap-applied (xhigh→max) by resolveForceEffort upstream.
@@ -585,6 +590,14 @@ func applyOverrides(body []byte, ov EmitOverrides) ([]byte, error) {
 		}
 	}
 
+	if ov.FloorMaxTokensValue > 0 {
+		if r := gjson.GetBytes(out, "max_tokens"); r.Type == gjson.Number && r.Int() < ov.FloorMaxTokensValue {
+			out, err = sjson.SetBytes(out, "max_tokens", ov.FloorMaxTokensValue)
+			if err != nil {
+				return nil, fmt.Errorf("floor max_tokens: %w", err)
+			}
+		}
+	}
 	if ov.ClampMaxTokensKey != "" && ov.ClampMaxTokensValue > 0 {
 		out = clampFieldBytes(out, ov.ClampMaxTokensKey, ov.ClampMaxTokensValue)
 	}
@@ -1377,8 +1390,14 @@ func resolveAnthropicOverrides(body []byte, opts EmitOptions) EmitOverrides {
 				// Adaptive models are always-on and 400 on thinking.type=disabled
 				// (e.g. claude-fable-5); map the "no thinking" intent to the
 				// lowest adaptive effort instead of forwarding the rejected shape.
+				// The caller sized max_tokens and sampling for a visible-only
+				// answer (Claude Code's 64-token auto-mode verdict).
 				ov.RewriteThinkingAdaptive = true
 				ov.OutputConfigEffort = effortLow
+				ov.FloorMaxTokensValue = minReasoningOutputTokens
+				if gjson.GetBytes(body, "temperature").Exists() && !slices.Contains(ov.DeleteKeys, "temperature") {
+					ov.DeleteKeys = append(ov.DeleteKeys, "temperature")
+				}
 			} else {
 				shouldDelete = true
 			}
@@ -1466,7 +1485,7 @@ var modelMaxOutputTokens = map[string]int{
 	"gpt-5.5-nano": 128000,
 	"gpt-5.6-sol":  128000, "gpt-5.6-sol-pro": 128000,
 	"gpt-5.6-terra": 128000, "gpt-5.6-luna": 128000, "gpt-5.6-luna-pro": 128000,
-	"gpt-6-astra": 128000, "gpt-6-sol": 128000, "gpt-6.1-sol": 128000, "gpt-6-luna": 128000,
+	"gpt-6-astra": 128000, "gpt-6-sol": 128000, "gpt-6.1-sol": 128000, "gpt-6.1-terra": 128000, "gpt-6-luna": 128000,
 	"grok-4.5": 131072, "grok-4.6": 131072, "grok-4.7": 131072,
 	"muse-spark-1.3": 131072, // Meta documents a 128K max output; always-on reasoning shares the budget
 	"o1":             100000, "o1-pro": 100000, "o1-mini": 65536,

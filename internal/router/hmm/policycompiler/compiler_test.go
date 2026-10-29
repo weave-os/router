@@ -120,3 +120,71 @@ func TestCompileKeepsOpenCodeHarnessPolicy(t *testing.T) {
 	assert.Equal(t, []string{"x-ai/grok-4.6"}, low.ManualPinsByHarness[rosterdata.HarnessOpenCode])
 	assert.Equal(t, []string{"openai"}, low.PreferredVendorsByHarness[rosterdata.HarnessOpenCode])
 }
+
+func TestCompileCarriesSubscriptionLadders(t *testing.T) {
+	source := []byte(`{
+  "schema_version": "hmm_router_cluster_roster_v7",
+  "ranking": {
+    "wii_v1": "six-benchmark absolute WII with frozen normalization",
+    "alpha": {"low": 0.4},
+    "alpha_min": {"low": 0.05},
+    "alpha_max": {"low": 0.8},
+    "quality_bias_neutral": 0.7,
+    "wii_score_version": "wii-v1",
+    "wii_normalization_sha256": "wii-sha",
+    "wpi_score_version": "wpi-v1",
+    "wpi_normalization_sha256": "wpi-sha"
+  },
+  "clusters": {
+    "low": {
+      "complexity_label": "low",
+      "arms": ["openai/gpt-5.6-sol"],
+      "arms_by_harness": {"codex": ["openai/gpt-5.6-sol"]},
+      "cost_ref_usd": 0.02,
+      "latency_ref_ms": 8000,
+      "arm_scores": {"openai/gpt-5.6-sol": 10},
+      "arm_indices": {"openai/gpt-5.6-sol": {"wii_v1": 50, "wpi_v1": 10}}
+    }
+  },
+  "manual_pins": {"pi": {"low": ["openai/gpt-5.6-sol"]}},
+  "subscription_ladders": {"openai": {"low": "openai/gpt-6-luna"}}
+}`)
+
+	_, policy, err := policycompiler.Compile(source, policycompiler.Options{ClassOrder: []string{"low"}})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]map[string]string{"openai": {"low": "openai/gpt-6-luna"}}, policy.SubscriptionLadders)
+	assert.Contains(t, policy.AllArms(), "openai/gpt-6-luna")
+}
+
+func TestCompileRejectsSubscriptionLadderForUnknownGroup(t *testing.T) {
+	source := []byte(`{
+  "schema_version": "hmm_router_cluster_roster_v7",
+  "ranking": {
+    "wii_v1": "six-benchmark absolute WII with frozen normalization",
+    "alpha": {"low": 0.4},
+    "alpha_min": {"low": 0.05},
+    "alpha_max": {"low": 0.8},
+    "quality_bias_neutral": 0.7,
+    "wii_score_version": "wii-v1",
+    "wii_normalization_sha256": "wii-sha",
+    "wpi_score_version": "wpi-v1",
+    "wpi_normalization_sha256": "wpi-sha"
+  },
+  "clusters": {
+    "low": {
+      "complexity_label": "low",
+      "arms": ["openai/gpt-5.6-sol"],
+      "arms_by_harness": {"codex": ["openai/gpt-5.6-sol"]},
+      "cost_ref_usd": 0.02,
+      "latency_ref_ms": 8000,
+      "arm_scores": {"openai/gpt-5.6-sol": 10},
+      "arm_indices": {"openai/gpt-5.6-sol": {"wii_v1": 50, "wpi_v1": 10}}
+    }
+  },
+  "manual_pins": {"pi": {"low": ["openai/gpt-5.6-sol"]}},
+  "subscription_ladders": {"openai": {"medium": "openai/gpt-6-luna"}}
+}`)
+
+	_, _, err := policycompiler.Compile(source, policycompiler.Options{ClassOrder: []string{"low"}})
+	require.ErrorContains(t, err, `subscription ladder "openai" references unknown group "medium"`)
+}

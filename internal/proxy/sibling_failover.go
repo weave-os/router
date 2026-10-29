@@ -5,6 +5,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"weave-os/router/internal/observability"
@@ -149,7 +150,18 @@ func (s *Service) rescueWalkOrReadmitCooling(
 	est, sigSavings, outputReserve int,
 	providerFor func(id string) (string, bool),
 ) []router.Decision {
-	decisions := walkRescueCandidates(failed, candidates, reason, excludedModels, automaticExcluded, cortexGatewayProvidersForRequest(ctx), est, sigSavings, outputReserve, providerFor)
+	var skipped []string
+	decisions := walkRescueCandidates(failed, candidates, reason, excludedModels, automaticExcluded, cortexGatewayProvidersForRequest(ctx), est, sigSavings, outputReserve, providerFor, func(model, why string) {
+		skipped = append(skipped, model+":"+why)
+	})
+	if len(skipped) > 0 {
+		observability.FromContext(ctx).Info("Rescue candidates skipped",
+			"failed_model", failed.Model,
+			"rescue_reason", reason,
+			"context_estimate", est,
+			"skipped", strings.Join(skipped, ","),
+		)
+	}
 	decisions = append(decisions, s.readmitCoolingRescueCandidates(ctx, failed, candidates, reason, excludedModels, est, sigSavings, outputReserve, providerFor)...)
 	if len(decisions) > 0 || reason != ReasonSiblingFailover {
 		return decisions
@@ -217,7 +229,7 @@ func (s *Service) readmissionWalk(
 			readmitExcluded[model] = struct{}{}
 		}
 	}
-	return walkRescueCandidates(failed, pool, reason, excludedModels, readmitExcluded, cortexGatewayProvidersForRequest(ctx), est, sigSavings, outputReserve, providerFor)
+	return walkRescueCandidates(failed, pool, reason, excludedModels, readmitExcluded, cortexGatewayProvidersForRequest(ctx), est, sigSavings, outputReserve, providerFor, nil)
 }
 
 // rosterRescueAdmits bounds readmission on a roster-failover turn to the
@@ -284,23 +296,31 @@ func walkRescueCandidates(
 	excludedModels, automaticExcluded, cortexGateways map[string]struct{},
 	est, sigSavings, outputReserve int,
 	providerFor func(id string) (string, bool),
+	skip func(model, reason string),
 ) []router.Decision {
+	if skip == nil {
+		skip = func(string, string) {}
+	}
 	var ordered, crossProvider, sameProvider []router.Decision
 	for _, id := range candidates {
 		if id == "" || id == failed.Model {
 			continue
 		}
 		if _, drop := excludedModels[id]; drop {
+			skip(id, "excluded")
 			continue
 		}
 		if _, disabled := automaticExcluded[id]; disabled {
+			skip(id, "automatic_excluded")
 			continue
 		}
 		provider, ok := providerFor(id)
 		if !ok {
+			skip(id, "no_binding")
 			continue
 		}
 		if !siblingFitsContext(cortexGateways, id, provider, est, sigSavings, outputReserve) {
+			skip(id, "context_window")
 			continue
 		}
 		candidate := rescueDecisionFor(failed, id, provider, reason)
@@ -318,15 +338,16 @@ func walkRescueCandidates(
 }
 
 // rescueExcludedModels is the exclusion set an in-turn rescue must honor:
-// deployment and session demotions plus models leased by another probe.
+// deployment and session demotions, models leased by another probe, and models
+// the thread's billed usage says this request overflows.
 func (s *Service) rescueExcludedModels(ctx context.Context) map[string]struct{} {
-	demoted := sessionDemotedModelsFromContext(ctx)
+	excluded := slices.Concat(sessionDemotedModelsFromContext(ctx), observedOverflowModelsFromContext(ctx))
 	probeDenied, _ := ctx.Value(SessionCooldownProbeDeniedModelsContextKey{}).([]string)
-	if len(demoted) == 0 && len(probeDenied) == 0 {
+	if len(excluded) == 0 && len(probeDenied) == 0 {
 		return s.globalAutomaticExcludedModels(ctx)
 	}
-	session := make(map[string]struct{}, len(demoted)+len(probeDenied))
-	for _, model := range demoted {
+	session := make(map[string]struct{}, len(excluded)+len(probeDenied))
+	for _, model := range excluded {
 		session[model] = struct{}{}
 	}
 	for _, model := range probeDenied {

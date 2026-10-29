@@ -447,3 +447,24 @@ func TestObserver_NoResetFallsBackToWindowLength(t *testing.T) {
 	_, ok := o.Snapshot(key)
 	assert.True(t, ok, "with no reset header the window-length horizon still applies")
 }
+
+func TestObserver_UsageBilledRequiresNoQuotaWindowEver(t *testing.T) {
+	clock := time.Unix(1_790_000_000, 0).UTC()
+	observer := usage.NewObserver([]byte("salt"), 10*time.Minute, func() time.Time { return clock })
+	overage := usage.Snapshot{RepresentativeClaim: usage.AnthropicClaimOverage, OverageInUse: true, UnifiedResetAt: clock.Add(72 * time.Hour)}
+
+	seat := observer.Key([]byte("sk-ant-oat01-usage-billed"))
+	observer.Record(seat, overage)
+	snap, ok := observer.Snapshot(seat)
+	require.True(t, ok)
+	assert.True(t, snap.UsageBilled(), "overage with no quota window ever reported is usage billing")
+
+	plan := observer.Key([]byte("sk-ant-oat01-plan"))
+	observer.Record(plan, usage.Snapshot{Secondary: usage.Window{UsedPercent: 0.2, WindowMinutes: 10080}})
+	clock = clock.Add(time.Hour)
+	observer.Record(plan, overage)
+	snap, ok = observer.Snapshot(plan)
+	require.True(t, ok)
+	assert.True(t, snap.OverageInUse)
+	assert.False(t, snap.UsageBilled(), "a seat that reported a quota window is a plan on overage")
+}

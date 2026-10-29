@@ -11,33 +11,35 @@ import (
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/policyregistry"
 	"weave-os/router/internal/router"
+	"weave-os/router/internal/router/catalog"
 )
 
-func TestDirectRoutingModelInferenceSelection(t *testing.T) {
+func TestDirectRoutingModelSelection(t *testing.T) {
 	for _, test := range []struct {
-		name      string
-		method    string
-		path      string
-		body      string
-		model     router.RoutingModel
-		inference bool
+		name          string
+		method        string
+		path          string
+		body          string
+		model         router.RoutingModel
+		selectsRouter bool
 	}{
-		{name: "implicit current classifier", method: http.MethodPost, path: "/v1/messages", body: `{}`, model: router.ModelAutomatic, inference: true},
-		{name: "explicit current classifier", method: http.MethodPost, path: "/v1/responses", body: `{"model":"` + string(router.ModelAutomatic) + `"}`, model: router.ModelAutomatic, inference: true},
-		{name: "new HMM", method: http.MethodPost, path: "/v1/chat/completions", body: `{"model":"` + string(router.ModelHMM) + `"}`, model: router.ModelHMM, inference: true},
-		{name: "Qwen", method: http.MethodPost, path: "/v1/messages", body: `{"model":"` + string(router.ModelQwen) + `"}`, model: router.ModelQwen, inference: true},
-		{name: "Gemini selector", method: http.MethodPost, path: "/v1beta/models/" + string(router.ModelQwen) + ":streamGenerateContent", body: `{}`, model: router.ModelQwen, inference: true},
-		{name: "Gemini URL overrides new HMM body", method: http.MethodPost, path: "/v1beta/models/" + string(router.ModelQwen) + ":generateContent", body: `{"model":"` + string(router.ModelHMM) + `"}`, model: router.ModelQwen, inference: true},
-		{name: "Gemini URL overrides current HMM body", method: http.MethodPost, path: "/v1beta/models/" + string(router.ModelQwen) + ":streamGenerateContent", body: `{"model":"` + string(router.ModelAutomatic) + `"}`, model: router.ModelQwen, inference: true},
+		{name: "implicit current classifier", method: http.MethodPost, path: "/v1/messages", body: `{}`, model: router.ModelAutomatic, selectsRouter: true},
+		{name: "explicit current classifier", method: http.MethodPost, path: "/v1/responses", body: `{"model":"` + string(router.ModelAutomatic) + `"}`, model: router.ModelAutomatic, selectsRouter: true},
+		{name: "new HMM", method: http.MethodPost, path: "/v1/chat/completions", body: `{"model":"` + string(router.ModelHMM) + `"}`, model: router.ModelHMM, selectsRouter: true},
+		{name: "concrete model does not select a classifier", method: http.MethodPost, path: "/v1/responses", body: `{"model":"` + catalog.ModelGPT6Luna + `"}`},
+		{name: "Qwen", method: http.MethodPost, path: "/v1/messages", body: `{"model":"` + string(router.ModelQwen) + `"}`, model: router.ModelQwen, selectsRouter: true},
+		{name: "Gemini selector", method: http.MethodPost, path: "/v1beta/models/" + string(router.ModelQwen) + ":streamGenerateContent", body: `{}`, model: router.ModelQwen, selectsRouter: true},
+		{name: "Gemini URL overrides new HMM body", method: http.MethodPost, path: "/v1beta/models/" + string(router.ModelQwen) + ":generateContent", body: `{"model":"` + string(router.ModelHMM) + `"}`, model: router.ModelQwen, selectsRouter: true},
+		{name: "Gemini URL overrides current HMM body", method: http.MethodPost, path: "/v1beta/models/" + string(router.ModelQwen) + ":streamGenerateContent", body: `{"model":"` + string(router.ModelAutomatic) + `"}`, model: router.ModelQwen, selectsRouter: true},
 		{name: "inspection", method: http.MethodGet, path: "/v1/models", body: `{}`},
 		{name: "prepare", method: http.MethodPost, path: "/v1/router/models/" + string(router.ModelQwen) + "/prepare", body: `{}`},
 		{name: "unknown selector", method: http.MethodPost, path: "/v1/messages", body: `{"model":"weave-unknown"}`},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			request := httptest.NewRequest(test.method, test.path, nil)
-			model, inference := directRoutingModel(request, []byte(test.body))
+			model, selectsRouter := directRoutingModel(request, []byte(test.body))
 			assert.Equal(t, test.model, model)
-			assert.Equal(t, test.inference, inference)
+			assert.Equal(t, test.selectsRouter, selectsRouter)
 		})
 	}
 }
@@ -65,8 +67,8 @@ func TestGeminiRoutingModelPersistsURLClassifier(t *testing.T) {
 				return policyregistry.SessionReleaseBinding{Target: policyregistry.TargetInternal}, nil
 			}
 			request := httptest.NewRequest(http.MethodPost, "/v1beta/models/"+string(router.ModelQwen)+":generateContent", nil)
-			model, inference := directRoutingModel(request, []byte(`{"model":"`+string(bodyModel)+`"}`))
-			require.True(t, inference)
+			model, selectsRouter := directRoutingModel(request, []byte(`{"model":"`+string(bodyModel)+`"}`))
+			require.True(t, selectsRouter)
 			_, binding, err := cache.AdmitRoutingModel(context.Background(), "installation", "credential", "conversation", model, decide)
 			require.NoError(t, err)
 			assert.Equal(t, router.ModelQwen, binding.RoutingModel)

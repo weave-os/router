@@ -3,7 +3,12 @@
 // synthesis have no I/O; execution is an injected Executor.
 package websearch
 
-import "context"
+import (
+	"context"
+	"errors"
+
+	"github.com/tidwall/gjson"
+)
 
 // DefaultMaxResults caps how many results an executor returns for one search.
 const DefaultMaxResults = 10
@@ -29,6 +34,9 @@ type Result struct {
 // Response is an executed search: the hits plus any answer text the backend
 // synthesized while searching.
 type Response struct {
+	// Model identifies the upstream model that performed the search.
+	Model   string
+	Usage   *Usage
 	Results []Result
 	Summary string
 }
@@ -38,4 +46,21 @@ type Response struct {
 // ctx, exactly like a providers.Client.
 type Executor interface {
 	Search(ctx context.Context, q Query) (Response, error)
+}
+
+// ErrCallLimitExceeded reports an explicit web-search operation budget stop.
+var ErrCallLimitExceeded = errors.New("web search max_uses exceeded")
+
+// MaxNativeSearchOperations is the bridge's server-side native tool budget.
+const MaxNativeSearchOperations = 10
+
+// CallLimit bounds native tool operations for an isolated search helper.
+func CallLimit(body []byte) int {
+	if value := gjson.GetBytes(body, "tools.0.max_uses").Int(); value > 0 {
+		if value > MaxNativeSearchOperations {
+			return MaxNativeSearchOperations
+		}
+		return int(value)
+	}
+	return 1
 }

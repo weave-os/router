@@ -247,3 +247,12 @@ func (s *Service) managedAccountQuotaExhausted(ctx context.Context, candidate ma
 func includedQuotaSpent(snapshot usage.Snapshot, now time.Time) bool {
 	return (snapshot.OverageInUse && snapshot.UnifiedResetAt.After(now)) || snapshot.ExhaustedAsOf(now)
 }
+
+// credentialRejectionStands reports whether the caller's own subscription
+// credential was rejected and funding authorization then refused the paid
+// retry before any upstream I/O. The rejection is the turn's answer: it tells
+// the client to re-authenticate, where a pool sentinel would render as a
+// retryable outage.
+func credentialRejectionStands(subscriptionErr, retryErr error, credentialRejected func(error) bool) bool {
+	return errors.Is(retryErr, dispatch.ErrAuthorizationDenied) && credentialRejected(subscriptionErr)
+}

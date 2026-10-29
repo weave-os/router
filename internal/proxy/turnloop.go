@@ -179,12 +179,13 @@ const policyPinTier = "policy_pin"
 type pinTier string
 
 const (
-	pinTierAuthoritativeUpgradeEvidence        pinTier = "authoritative_upgrade_evidence"
-	pinTierAuthoritativeUpgradeConfidenceLow   pinTier = "authoritative_hmm_upgrade_confidence_low"
-	pinTierAuthoritativeDowngradeConfidenceLow pinTier = "authoritative_hmm_downgrade_confidence_low"
-	pinTierAuthoritativeDowngradeHysteresis    pinTier = "authoritative_hmm_downgrade_hysteresis"
-	pinTierAuthoritativeExcludedPin            pinTier = "authoritative_excluded_pin"
-	pinTierAuthoritativeExcludedReroute        pinTier = "authoritative_excluded_reroute"
+	pinTierAuthoritativeUpgradeEvidence         pinTier = "authoritative_upgrade_evidence"
+	pinTierAuthoritativeSlidingThresholdUpgrade pinTier = "authoritative_sliding_threshold_upgrade"
+	pinTierAuthoritativeUpgradeConfidenceLow    pinTier = "authoritative_hmm_upgrade_confidence_low"
+	pinTierAuthoritativeDowngradeConfidenceLow  pinTier = "authoritative_hmm_downgrade_confidence_low"
+	pinTierAuthoritativeDowngradeHysteresis     pinTier = "authoritative_hmm_downgrade_hysteresis"
+	pinTierAuthoritativeExcludedPin             pinTier = "authoritative_excluded_pin"
+	pinTierAuthoritativeExcludedReroute         pinTier = "authoritative_excluded_reroute"
 )
 
 // turnLoopResult bundles the routing decision and pin/planner state.
@@ -286,6 +287,9 @@ type turnLoopResult struct {
 	// clientInputTokenScale) and is extended after the turn by
 	// recordTokenizerObservation.
 	TokenizerCalibration sessionpin.TokenizerCalibration
+	// ContextEstimate is the request's body-size token estimate
+	// (ContextOverflowTokenEstimate), recorded with each tokenizer observation.
+	ContextEstimate int
 	// StripThinkingBlocks forces signature removal when switch history is unavailable.
 	StripThinkingBlocks bool
 	// Handover captures the summarize-or-trim step when the planner switched.
@@ -316,6 +320,9 @@ type turnLoopResult struct {
 	// stream failure. Stashed on ctx so the in-turn rescue walk honors the
 	// exclusion too, not just this turn's scorer.
 	SessionDemotedModels []string
+	// ObservedOverflowModels are models the thread's billed usage says this
+	// request overflows. Stashed on ctx so in-turn rescues skip them too.
+	ObservedOverflowModels []string
 	// SessionCooldownModels are the rate-limit cooldowns still in force
 	// (model → expiry). Also listed in SessionDemotedModels; kept apart so
 	// the in-turn rescue can readmit them when honouring them would leave no
@@ -799,8 +806,12 @@ func (s *Service) runTurnLoop(
 	} else if req.TranslationRequirements.IsZero() {
 		req.TranslationRequirements = env.TranslationRequirements(translationEndpointFor(env))
 	}
-	threadSessionKey := deriveSessionKeyForRequest(ctx, env, apiKeyID)
-	req.TranslationRequirements = s.scopeSearchRequirement(threadSessionKey, searchUseEnvelope(ctx, env), req.TranslationRequirements)
+	isolatedSearch, _ := ctx.Value(codexWebSearchContextKey{}).(bool)
+	var threadSessionKey [sessionpin.SessionKeyLen]byte
+	if !isolatedSearch {
+		threadSessionKey = deriveSessionKeyForRequest(ctx, env, apiKeyID)
+		req.TranslationRequirements = s.scopeSearchRequirement(threadSessionKey, searchUseEnvelope(ctx, env), req.TranslationRequirements)
+	}
 	var compatibilityErr error
 	req, compatibilityErr = s.applyTranslationPlan(ctx, req)
 	if compatibilityErr != nil {
@@ -843,6 +854,7 @@ func (s *Service) runTurnLoop(
 		req.InstallationID = installationID.String()
 	}
 	res = turnLoopResult{
+		ContextEstimate:     env.ContextOverflowTokenEstimate(),
 		InstallationID:      installationID,
 		Strategy:            router.StrategyFromContext(ctx),
 		TurnType:            turntype.Detect(env, feats, subAgentHint, openCodeCaller(ClientIdentityFrom(ctx))),
@@ -852,8 +864,25 @@ func (s *Service) runTurnLoop(
 	}
 	res.AuthoritativePerTurn = authoritativePolicyTurn(res.TurnType) &&
 		s.authoritativePerTurnSelection(ctx)
-	req.TaskDomain = taskDomainInput(ctx, env, apiKeyID, res.TurnType)
+	if !isolatedSearch {
+		req.TaskDomain = taskDomainInput(ctx, env, apiKeyID, res.TurnType)
+	}
 	res.PinRole = roleForTier(res.RequestedTier)
+
+	// Search helpers share the caller's identity for authorization, not its
+	// conversation pins. Route with the ordinary policy but never read/write
+	// force pins, sticky pins or their usage history for this isolated operation.
+	if isolatedSearch {
+		req.ForceModel = ""
+		res.HardPinned = true
+		if auth.RoutingPassthroughFrom(ctx) {
+			decision, err := s.callerModelPassthroughDecision(ctx, req)
+			res.Decision = decision
+			res.CallerModelPassthrough = true
+			return res, err
+		}
+		return s.routeWithoutPin(ctx, req, res, reqHeaders, false, sessionpin.Pin{})
+	}
 	// Resolve user-forced state before the policy's no-automatic-routing shortcut.
 	forceModelSessionKey := deriveForceModelSessionKeyForRequest(ctx, env, apiKeyID, threadSessionKey)
 	forceModelPin := sessionpin.Pin{}
@@ -1368,6 +1397,7 @@ func (s *Service) runTurnLoop(
 		}
 	}
 	res.applySwitchHistory(pin, hmmHistory, forceHistory)
+	req, res.ObservedOverflowModels = s.excludeObservedOverflowModels(ctx, req, res, max(contextWindowOutputReserve, feats.MaxTokens))
 	req.PolicyTurnContext = buildPolicyTurnContext(req, res, pin, hmmHistory)
 	// Computed before any same-turn pin-drop guards below so it reflects the
 	// prior turn's outcome; Service.effortEscalation gates whether it's acted on.
@@ -1629,8 +1659,11 @@ func (s *Service) runTurnLoop(
 			if modelStripsAnthropicSignatures(pin.Model) {
 				pinTokenEstimate -= env.SignatureTokenSavings()
 			}
+			if projected, ok := res.TokenizerCalibration.ProjectedPrompt(tokenizerFamilyFor(pin.Provider), res.ContextEstimate); ok && projected > pinTokenEstimate {
+				pinTokenEstimate = projected
+			}
 			needed := pinTokenEstimate + outputReserveForPin
-			modelCW := contextWindowForRequest(pin.Model, pin.Provider)
+			modelCW := gatewayContextWindow(cortexGatewayProvidersForRequest(ctx), pin.Model, pin.Provider)
 			if needed > modelCW {
 				log.Info("Session pin excluded by context-window pre-filter; falling through to scorer",
 					"pin_model", pin.Model,
@@ -1768,6 +1801,10 @@ func (s *Service) runTurnLoop(
 		return res, nil
 	}
 
+	if pinFound && res.AuthoritativePerTurn && req.ForceCluster == "" &&
+		escalation.Rank(escalation.Group(pin.PolicyGroup)) >= 0 && s.ResolveAuthoritativeUpgradeSlidingThreshold(ctx) {
+		req.SlidingThresholdPinGroup = escalation.Group(pin.PolicyGroup)
+	}
 	baselineRequest := req
 	baselineTurn := res
 	escalationTurn := s.beginEscalation(ctx, env, req, &res, apiKeyID)
@@ -1982,7 +2019,18 @@ func (s *Service) runTurnLoop(
 				s.writeNewPin(ctx, installationID, res.SessionKey, res.PinRole, rerouted)
 				return res, nil
 			}
-			if s.evidenceUpgradeApplies(ctx, res.SessionKey) && res.UpgradeShadow != nil {
+			slidingServed, slidingProbability := slidingThresholdServes(req, pin, fresh)
+			if slidingServed {
+				log.Info("authoritative sliding threshold serving fresh model",
+					"pin_model", pin.Model,
+					"pin_group", req.SlidingThresholdPinGroup,
+					"fresh_model", fresh.Model,
+					"fresh_group", fresh.Metadata.PolicyGroup,
+					"classified_group", fresh.Metadata.ClassifierPredictedLabel,
+					"probability", slidingProbability,
+				)
+			}
+			if !slidingServed && s.evidenceUpgradeApplies(ctx, res.SessionKey) && res.UpgradeShadow != nil {
 				res.UpgradeShadow.Applied = true
 				switch res.UpgradeShadow.Verdict.Outcome {
 				case upgradeAllow:
@@ -2009,7 +2057,7 @@ func (s *Service) runTurnLoop(
 			// confidence >= threshold; below it the session stays on its pin.
 			// Unscored decisions, downgrades, and unpinned turns pass through.
 			evidenceServedFresh := s.evidenceUpgradeApplies(ctx, res.SessionKey) && res.UpgradeShadow != nil && res.UpgradeShadow.Verdict.Outcome == upgradeAllow
-			upgradeGateActive := s.ResolveAuthoritativeUpgradeGate(ctx) && s.resolveUpgradePolicyMode(ctx) != flags.AuthoritativeUpgradePolicyOff && !evidenceServedFresh
+			upgradeGateActive := s.ResolveAuthoritativeUpgradeGate(ctx) && s.resolveUpgradePolicyMode(ctx) != flags.AuthoritativeUpgradePolicyOff && !evidenceServedFresh && !slidingServed
 			if upgradeGateActive && pinFound && pin.Model != "" && pin.Model != fresh.Model &&
 				hmmFreshIsMoreExpensive(pin.Model, fresh.Model, plannerTokens) {
 				if confidence, ok := hmmDecisionConfidence(fresh); ok && confidence < s.hmmUpgradeConfidenceThreshold {
@@ -2099,6 +2147,9 @@ func (s *Service) runTurnLoop(
 			}
 			res.Decision = fresh
 			res.PinTier = "authoritative_per_turn"
+			if slidingServed {
+				res.PinTier = string(pinTierAuthoritativeSlidingThresholdUpgrade)
+			}
 			s.writeNewPin(ctx, installationID, res.SessionKey, res.PinRole, fresh)
 			return res, nil
 		}
@@ -2297,6 +2348,8 @@ func (s *Service) runTurnLoop(
 					log.Warn("Handover summarizer returned empty summary; preserved full history instead", "pin_model", pin.Model, "fresh_model", fresh.Model)
 				default:
 					handover.RewriteEnvelope(env, summary)
+					// The observation must pair billed usage with the body actually sent.
+					res.ContextEstimate = env.ContextOverflowTokenEstimate()
 					res.Handover.SummaryTokens = estimateSummaryTokens(summary)
 					res.Handover.SummaryUsage = summaryUsage
 				}

@@ -672,6 +672,9 @@ func TestSubscriptionFailoverParity_RescueDispatch(t *testing.T) {
 				require.Error(t, err)
 				assert.Zero(t, upstream.paidDispatches,
 					"credential faults do not establish quota exhaustion")
+				assert.Equal(t, http.StatusUnauthorized, rec.Code,
+					"the client must see its own credential rejection so it can re-authenticate")
+				assert.Contains(t, rec.Body.String(), "authentication_error")
 			})
 		}
 

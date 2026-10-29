@@ -155,6 +155,13 @@ func slowStartNotice(ctx context.Context, trace *attemptTrace, tracker *slowStar
 	if cooldownKey, ok := slowStartCooldownKey(ctx); !ok || !tracker.claim(cooldownKey, now) {
 		return translate.RouterNotice{}, false
 	}
+	observability.FromContext(ctx).Info("Slow-start notice emitted",
+		"model", snap.current.Target.CatalogID,
+		"provider", snap.current.Target.Provider,
+		"wait_ms", wait.Milliseconds(),
+		"usual_p50_ms", p50.Milliseconds(),
+		"threshold_ms", threshold.Milliseconds(),
+	)
 	if ClientIdentityFrom(ctx).ClientApp == ClientAppCodex {
 		if timing, reported := translate.CodexReportedToolTiming(trace.inbound); reported {
 			snap.clientToolTiming = &timing

@@ -14,7 +14,7 @@ func TestDomainPreviewMatchesServingSelection(t *testing.T) {
 	roster := dynamicRoster()
 	evidence := domainEvidenceForTest(t, roster)
 	profile := fullProfile(selection.DomainInfra)
-	preview, err := selection.PreviewDomainRanking(roster, evidence, "low", "", profile)
+	preview, err := selection.PreviewDomainRanking(roster, evidence, "low", "", nil, profile)
 	require.NoError(t, err)
 
 	assert.Equal(t, "vendor-b/cheap", preview.EffectiveWinner)
@@ -40,7 +40,7 @@ func TestDomainPreviewMatchesServingSelection(t *testing.T) {
 
 func TestDomainPreviewDocsOnlyKeepsBaseline(t *testing.T) {
 	roster := dynamicRoster()
-	preview, err := selection.PreviewDomainRanking(roster, domainEvidenceForTest(t, roster), "low", "", fullProfile(selection.DomainDocs))
+	preview, err := selection.PreviewDomainRanking(roster, domainEvidenceForTest(t, roster), "low", "", nil, fullProfile(selection.DomainDocs))
 	require.NoError(t, err)
 	assert.Zero(t, preview.Influence)
 	for _, arm := range preview.Arms {
@@ -55,7 +55,7 @@ func TestDomainPreviewReportsPinSuppressedLeader(t *testing.T) {
 	cluster := roster.Clusters["low"]
 	cluster.ManualPinsByHarness = map[rosterdata.Harness][]string{rosterdata.HarnessPI: {"vendor-a/quality"}}
 	roster.Clusters["low"] = cluster
-	preview, err := selection.PreviewDomainRanking(roster, domainEvidenceForTest(t, roster), "low", "pi", fullProfile(selection.DomainInfra))
+	preview, err := selection.PreviewDomainRanking(roster, domainEvidenceForTest(t, roster), "low", "pi", nil, fullProfile(selection.DomainInfra))
 	require.NoError(t, err)
 	assert.Equal(t, "vendor-b/cheap", preview.NumericWinner)
 	assert.Equal(t, "vendor-a/quality", preview.EffectiveWinner)
@@ -72,22 +72,33 @@ func TestDomainPreviewNeverCrownsAnUnscoredPin(t *testing.T) {
 	cluster.ManualPinsByHarness = map[rosterdata.Harness][]string{rosterdata.HarnessPI: {"vendor-c/pinned"}}
 	roster.Clusters["low"] = cluster
 	evidence.Arms["vendor-c/pinned"] = selection.DomainArmEvidence{GlobalWII: 50}
-	preview, err := selection.PreviewDomainRanking(roster, evidence, "low", "pi", fullProfile(selection.DomainInfra))
+	preview, err := selection.PreviewDomainRanking(roster, evidence, "low", "pi", nil, fullProfile(selection.DomainInfra))
 	require.NoError(t, err)
 	assert.False(t, preview.Arms[0].Scored)
 	assert.Equal(t, "vendor-c/pinned", preview.EffectiveWinner)
 	assert.Equal(t, "vendor-b/cheap", preview.NumericWinner)
 	assert.True(t, preview.WinnerSuppressed)
-	_, err = selection.PreviewDomainRanking(nil, evidence, "low", "", fullProfile(selection.DomainInfra))
+	_, err = selection.PreviewDomainRanking(nil, evidence, "low", "", nil, fullProfile(selection.DomainInfra))
 	require.Error(t, err)
 }
 
 func TestDomainPreviewRejectsUnboundEvidence(t *testing.T) {
 	roster := dynamicRoster()
 	evidence := domainEvidenceForTest(t, roster)
-	_, err := selection.PreviewDomainRanking(roster, evidence, "absent", "", fullProfile(selection.DomainInfra))
+	_, err := selection.PreviewDomainRanking(roster, evidence, "absent", "", nil, fullProfile(selection.DomainInfra))
 	require.Error(t, err)
 	evidence.RosterSHA256 = "f"
-	_, err = selection.PreviewDomainRanking(roster, evidence, "low", "", fullProfile(selection.DomainInfra))
+	_, err = selection.PreviewDomainRanking(roster, evidence, "low", "", nil, fullProfile(selection.DomainInfra))
 	require.Error(t, err)
+}
+
+func TestDomainPreviewFollowsSubscriptionLadder(t *testing.T) {
+	roster := dynamicRoster()
+	roster.SubscriptionLadders = map[string]map[string]string{"openai": {"low": "vendor-b/cheap"}}
+	evidence := domainEvidenceForTest(t, roster)
+
+	preview, err := selection.PreviewDomainRanking(roster, evidence, "low", "codex", []string{"openai"}, fullProfile(selection.DomainInfra))
+
+	require.NoError(t, err)
+	assert.Equal(t, "vendor-b/cheap", preview.EffectiveWinner)
 }
