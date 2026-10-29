@@ -15,21 +15,20 @@ import (
 func TestSubscriberPlanProjectionUsesServerOwnedProfile(t *testing.T) {
 	t.Parallel()
 
-	for _, plan := range []entitlement.Plan{entitlement.PlanMax, entitlement.PlanBoost} {
-		t.Run(string(plan), func(t *testing.T) {
-			profile, ok := entitlement.ServingProfileFor(plan)
-			require.True(t, ok)
-
-			projection, err := subscriberPlanProjection(string(plan), 7)
+	for _, tc := range []struct {
+		plan        entitlement.Plan
+		profileKey  string
+		profileName string
+	}{
+		{plan: entitlement.PlanMax, profileKey: "75018458-5306-5d29-9911-ec06c5376a9f", profileName: "max-default"},
+		{plan: entitlement.PlanBoost},
+	} {
+		t.Run(string(tc.plan), func(t *testing.T) {
+			projection, err := subscriberPlanProjection(string(tc.plan), 7)
 			require.NoError(t, err)
-			if entitlement.PlanHasServingProfile(plan) {
-				assert.Equal(t, profile.Key, projection.ProfileKey)
-				assert.Equal(t, profile.Name, projection.ProfileName)
-			} else {
-				assert.Empty(t, projection.ProfileKey)
-				assert.Empty(t, projection.ProfileName)
-			}
-			assert.Equal(t, plan, projection.Plan)
+			assert.Equal(t, tc.profileKey, projection.ProfileKey)
+			assert.Equal(t, tc.profileName, projection.ProfileName)
+			assert.Equal(t, tc.plan, projection.Plan)
 			assert.Equal(t, int64(7), projection.EntitlementVersion)
 			assert.Equal(t, int64(7), projection.AssignmentGeneration)
 		})

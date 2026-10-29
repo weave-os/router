@@ -437,22 +437,27 @@ func TestEmergencyWithdrawalRebindsNextAdmissionButDoesNotMutateInFlight(t *test
 }
 
 func TestEmergencyWithdrawalPreservesSubscriberPlanAndProfile(t *testing.T) {
-	for _, plan := range []entitlement.Plan{entitlement.PlanMax, entitlement.PlanBoost} {
-		t.Run(string(plan), func(t *testing.T) {
-			profile, ok := entitlement.ServingProfileFor(plan)
-			require.True(t, ok)
+	for _, tc := range []struct {
+		plan        entitlement.Plan
+		profileKey  string
+		profileName string
+	}{
+		{plan: entitlement.PlanMax, profileKey: "75018458-5306-5d29-9911-ec06c5376a9f", profileName: "max-default"},
+		{plan: entitlement.PlanBoost},
+	} {
+		t.Run(string(tc.plan), func(t *testing.T) {
 			previousSet, replacementSet := fixtureSet("old-worker"), fixtureSet("ready-worker")
-			if entitlement.PlanHasServingProfile(plan) {
+			if tc.profileKey != "" {
 				profileRef := namespaceRef(policyregistry.ServingProfiles, "unchanged-profile")
-				previousSet.Profiles[profile.Key] = policyregistry.ServingSelection{Release: namespaceRef(policyregistry.ServingReleases, "old-profile-worker"), Binding: namespaceRef(policyregistry.ServingBindings, "old-profile-worker"), Profile: &profileRef}
-				replacementSet.Profiles[profile.Key] = policyregistry.ServingSelection{Release: namespaceRef(policyregistry.ServingReleases, "ready-profile-worker"), Binding: namespaceRef(policyregistry.ServingBindings, "ready-profile-worker"), Profile: &profileRef}
+				previousSet.Profiles[tc.profileKey] = policyregistry.ServingSelection{Release: namespaceRef(policyregistry.ServingReleases, "old-profile-worker"), Binding: namespaceRef(policyregistry.ServingBindings, "old-profile-worker"), Profile: &profileRef}
+				replacementSet.Profiles[tc.profileKey] = policyregistry.ServingSelection{Release: namespaceRef(policyregistry.ServingReleases, "ready-profile-worker"), Binding: namespaceRef(policyregistry.ServingBindings, "ready-profile-worker"), Profile: &profileRef}
 			}
 			first, _ := activateFixture(t, policyregistry.ServingStateSnapshot{}, previousSet, servingEpoch)
 			sets := map[string]policyregistry.SelectionSetView{
 				servingRef(t, policyregistry.ServingSelectionSets, previousSet).SHA256:    previousSet.View(),
 				servingRef(t, policyregistry.ServingSelectionSets, replacementSet).SHA256: replacementSet.View(),
 			}
-			projection := policyregistry.AdmissionProjection{Target: policyregistry.TargetStable, ProfileKey: profile.Key, ProfileName: profile.Name, Plan: plan, EntitlementVersion: 3, EnrollmentGeneration: 2, AssignmentGeneration: 4}
+			projection := policyregistry.AdmissionProjection{Target: policyregistry.TargetStable, ProfileKey: tc.profileKey, ProfileName: tc.profileName, Plan: tc.plan, EntitlementVersion: 3, EnrollmentGeneration: 2, AssignmentGeneration: 4}
 			inFlight, err := policyregistry.SelectSessionRelease(nil, projection, first, sets, testRegistryRoot, servingEpoch)
 			require.NoError(t, err)
 			replacement, _ := activateFixture(t, first, replacementSet, servingEpoch.Add(time.Minute), first.State.CurrentActivationID)
@@ -461,16 +466,16 @@ func TestEmergencyWithdrawalPreservesSubscriberPlanAndProfile(t *testing.T) {
 			assert.Equal(t, first.State.CurrentActivationID, inFlight.ActivationID)
 			previousSelection := previousSet.Default
 			replacementSelection := replacementSet.Default
-			if entitlement.PlanHasServingProfile(plan) {
-				previousSelection = previousSet.Profiles[profile.Key]
-				replacementSelection = replacementSet.Profiles[profile.Key]
+			if tc.profileKey != "" {
+				previousSelection = previousSet.Profiles[tc.profileKey]
+				replacementSelection = replacementSet.Profiles[tc.profileKey]
 			}
 			assert.Equal(t, previousSelection, inFlight.Selection)
 			assert.Equal(t, replacement.State.CurrentActivationID, next.ActivationID)
 			assert.Equal(t, replacementSelection, next.Selection)
-			assert.Equal(t, profile.Key, next.ProfileKey)
-			assert.Equal(t, profile.Name, next.ProfileName)
-			assert.Equal(t, plan, next.Plan)
+			assert.Equal(t, tc.profileKey, next.ProfileKey)
+			assert.Equal(t, tc.profileName, next.ProfileName)
+			assert.Equal(t, tc.plan, next.Plan)
 			assert.Equal(t, int64(3), next.EntitlementVersion)
 			assert.Equal(t, int64(2), next.EnrollmentGeneration)
 			assert.Equal(t, int64(4), next.AssignmentGeneration)
@@ -542,12 +547,11 @@ func TestLegacyBoostSessionRebindsToDefaultPolicy(t *testing.T) {
 	assert.Equal(t, router.ModelQwen, admitted.RoutingModel)
 
 	stateNamespace := func(binding policyregistry.SessionReleaseBinding) string {
-		digest := [policyregistry.ConversationDigestLen]byte{1}
 		identity, _ := requestcontext.ServingIdentityFromContext(policyregistry.WithServingAssertion(context.Background(), policyregistry.ServingAssertion{
 			APIKeyID: "api-key",
 			Scope: policyregistry.AdmissionScope{
 				InstallationID: "installation", CredentialIdentity: "subject",
-				ConversationDigest: digest, Persistent: true,
+				ConversationDigest: [policyregistry.ConversationDigestLen]byte{1}, Persistent: true,
 			},
 			Admission: binding,
 		}))

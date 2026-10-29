@@ -31,6 +31,12 @@ func TestCohortCustomSelectionRetiresProfileAndRetainsHistory(t *testing.T) {
 	custom := cohortProposal(t, store, retired, &initial.Activation.SelectionSet, policyregistry.ChangeCustom, "")
 	require.NoError(t, controller.ValidateProposal(ctx, custom))
 
+	withoutCustomer := retired
+	withoutCustomer.Profiles = maps.Clone(retired.Profiles)
+	delete(withoutCustomer.Profiles, profileKeyTwo)
+	dropped := cohortProposal(t, store, withoutCustomer, &initial.Activation.SelectionSet, policyregistry.ChangeCustom, "")
+	require.ErrorContains(t, controller.ValidateProposal(ctx, dropped), "registered profile keys cannot be removed")
+
 	changed := retired
 	changed.Profiles = maps.Clone(retired.Profiles)
 	changed.Profiles[profileKeyTwo] = original.Profiles[entitlement.LegacyBoostProfileKey]

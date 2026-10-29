@@ -543,7 +543,7 @@ reuse the already-published candidate and publish only the set and proposal.
 | `router` | Move all customers together to the source image/provenance and one new worker revision; retain effective policies, requirements and classifier. |
 | `classifier` | Reuse the worker and effective policies; validate the new classifier against every roster. |
 | `full` | Preserve the complete profile inventory; full promotion reuses the exact source candidate. |
-| `custom` | Use the exact reviewed selection set. It may retire omitted profile keys while preserving every remaining lane's exact policy. |
+| `custom` | Use the exact reviewed selection set. It may retire only the legacy Boost profile key while preserving every remaining lane's exact policy. |
 | `rollback` | Restore the exact previously activated selection set on the same target. This may restore code as well as configuration. |
 
 To roll back only a roster while retaining current code, publish a `roster` or
