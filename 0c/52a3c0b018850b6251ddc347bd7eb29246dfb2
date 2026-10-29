@@ -1,0 +1,20 @@
+.github/workflows/check_migrations.yml
+  s_dc9ffd1b2d1ad9::t_c2749b0ec363ad 6,49-55
+  s_dc9ffd1b2d1ad9::t_12f65d0a106f09 56-58
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "0c52a3c0b018850b6251ddc347bd7eb29246dfb2",
+  "prompts": {},
+  "sessions": {
+    "s_dc9ffd1b2d1ad9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0b11f-e9d8-7ac2-9995-a1bc40778ab4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

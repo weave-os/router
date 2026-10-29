@@ -1,0 +1,41 @@
+internal/router/catalog/family_test.go
+  s_108b236fe89c6d::t_fe96dc710d8401 3-38
+internal/proxy/turnloop.go
+  s_108b236fe89c6d::t_e3250bfd5db05a 517
+internal/proxy/compaction_test.go
+  s_108b236fe89c6d::t_4de98f18819c65 14,476
+  s_108b236fe89c6d::t_e5c9df670583dc 225-253
+  s_108b236fe89c6d::t_fe96dc710d8401 21,209,419,426-427,437-475,477-491
+  s_108b236fe89c6d::t_47f9793cf58b7d 198-200,202-205,208,210-213
+internal/proxy/CLAUDE.md
+  s_108b236fe89c6d::t_38d7e903db2520 42-46
+internal/router/catalog/family.go
+  s_108b236fe89c6d::t_e3250bfd5db05a 46-70
+.env.example
+  s_108b236fe89c6d::t_4de98f18819c65 240-243,245
+internal/proxy/compaction.go
+  s_108b236fe89c6d::t_e5c9df670583dc 373-383,386
+  s_108b236fe89c6d::t_42d800e1b3e312 30-31,463-465
+  s_108b236fe89c6d::t_47f9793cf58b7d 209,212,215,372,384
+  s_108b236fe89c6d::t_e3250bfd5db05a 35,43,174,185-186,200,211,213-214,216,218-219,453-455,457,479-482,484-498,501-502
+docs/CONFIGURATION.md
+  s_108b236fe89c6d::t_4de98f18819c65 419
+internal/proxy/AGENTS.md
+  s_108b236fe89c6d::t_71d5869d4c67e5 42-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "c0ae049efa95206fc8aa663a3f0b7b29b23de8e1",
+  "prompts": {},
+  "sessions": {
+    "s_108b236fe89c6d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a08322-f5a8-7ad1-8c63-14d71de76912",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
