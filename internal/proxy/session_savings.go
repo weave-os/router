@@ -49,12 +49,13 @@ var savingsComparisonByClientApp = map[string]savingsComparison{
 	clientAppPiSubagent: {harness: TokenEfficiencyHarnessOpenCode, baseline: savingsBaselineOpus},
 }
 
-// SavingsBaselineModels lists every comparison model a session can be measured against.
+// SavingsBaselineModels scopes the token efficiency evidence queries to the comparison models
+// session savings are priced against.
 func SavingsBaselineModels() []string {
 	return []string{savingsBaselineOpus.model, savingsBaselineSol.model}
 }
 
-// SessionSavingsTurn is one committed upstream turn's inputs to normalized savings.
+// SessionSavingsTurn is one session turn's telemetry row, as read by GetSessionSavingsTurns.
 type SessionSavingsTurn struct {
 	Timestamp                 time.Time
 	ClientApp                 string
@@ -104,7 +105,8 @@ type TokenEfficiencyQualityFactor struct {
 	Validity              TokenEfficiencyValidity
 }
 
-// TokenEfficiencyEvidence is the applied measurement set normalized savings reads.
+// TokenEfficiencyEvidence is the control plane's applied measurements, mirrored into the
+// router.token_efficiency_* tables (migration 0139).
 type TokenEfficiencyEvidence struct {
 	Ratios         []TokenEfficiencyRatio
 	QualityFactors []TokenEfficiencyQualityFactor
