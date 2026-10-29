@@ -586,11 +586,11 @@ key) for the lane to have a key.
 ## Member tier selections on plans
 
 `plan_user_cluster_lists` is an organization-only boolean flag override
-(Admin → Router → Flags), default `false`. Max/Boost plan requests normally
-ignore every per-cluster model list. When on, each member's own per-cluster
-selection applies again on that organization's plan requests; the
-installation's key-scoped cluster lists stay ignored, and `excluded_models`
-still applies.
+(Admin → Router → Flags), default `false`. Max requests normally ignore every
+per-cluster model list. When on, each member's own per-cluster selection applies
+again to Max; the installation's key-scoped cluster lists stay ignored, and
+`excluded_models` still applies. Boost uses the default roster and ordinary
+per-cluster model lists.
 
 ## Provider and model exclusions
 

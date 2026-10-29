@@ -66,13 +66,14 @@ set, so all six existing enforcement sites honor it with no new filter loops.
 `router.Request.AllowedModels` exists only so errors and diagnostics can name
 the allowlist instead of dumping the desugared exclusion list.
 
-**Plan-owned serving keeps only the negative control.** Max/Boost profiles
-ignore the installation allowlist, preferred models, excluded providers, fast
+**Max owns a separate serving profile; Boost uses the target default.** Max
+ignores the installation allowlist, preferred models, excluded providers, fast
 mode, routing knobs and cluster overrides, but `excluded_models` stays hard:
-it is the customer's explicit opt-out, and it only narrows the plan's roster.
-The organization flag `plan_user_cluster_lists` (default off) restores each
-member's own per-user cluster list on plan requests; the key-scoped list stays
-dropped.
+it is the customer's explicit opt-out, and it only narrows Max's roster. Boost
+uses the ordinary installation controls because its effective policy is the
+default roster. The organization flag `plan_user_cluster_lists` (default off)
+restores each member's own per-user cluster list for Max; the key-scoped list
+stays dropped.
 
 **The deployment-wide automatic exclusion is soft, and is a separate request
 field for that reason.** `global_automatic_routing_exclusions` is the Weave
