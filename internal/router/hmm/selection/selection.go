@@ -99,11 +99,15 @@ func SelectGroupsWithDomainPreferences(
 	return selectGroups(roster, groups, harness, "", candidates, qualityBias, preferredModels, evidence, profile)
 }
 
+// NoSubscriptionLadder is the subscription_ladders key whose arms lead a group
+// when no subscription is in play; a group it omits keeps the harness order.
+const NoSubscriptionLadder = "none"
+
 // SelectGroupsWithSubscriptions is SelectGroupsWithDomainPreferences for a
 // roster with subscription ladders: the ladder arm of the subscription in play
-// leads each group, and with no subscription in play the harness pins and
-// order give way to the pooled cluster order. Rosters without ladders select
-// exactly as SelectGroupsWithDomainPreferences.
+// (or of NoSubscriptionLadder when none is) leads each group ahead of the
+// harness order. Rosters without ladders select exactly as
+// SelectGroupsWithDomainPreferences.
 func SelectGroupsWithSubscriptions(
 	roster *rosterdata.Roster,
 	groups []Group,
@@ -119,7 +123,7 @@ func SelectGroupsWithSubscriptions(
 		return selectGroups(roster, groups, harness, "", candidates, qualityBias, preferredModels, evidence, profile)
 	}
 	if len(subscriptionProviders) == 0 {
-		return selectGroups(roster, groups, "", "", candidates, qualityBias, preferredModels, evidence, profile)
+		return selectGroups(roster, groups, harness, NoSubscriptionLadder, candidates, qualityBias, preferredModels, evidence, profile)
 	}
 	return selectGroups(roster, groups, harness, SubscriptionLadderProvider(harness, subscriptionProviders), candidates, qualityBias, preferredModels, evidence, profile)
 }
