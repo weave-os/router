@@ -13,6 +13,9 @@ the router is whatever URL you configure, task definitions are fetched from
 their official sources, and router-billed cost comes from the
 public [analytics export](../docs/ANALYTICS_EXPORT.md).
 
+For the comparison design, pinned versions, paired-trial caveats, and cost
+provenance, read the [Router benchmark methodology](https://weaveos.com/router/benchmark-methodology).
+
 Claude Code harnesses are out of scope for now (Codex only).
 
 ## What is in the box
