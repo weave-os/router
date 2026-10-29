@@ -256,6 +256,7 @@ function installCodex(paths, baseUrl, key, email) {
       ...(email ? { "X-Weave-User-Email": email } : {}),
       "X-App": "codex",
       "X-Weave-Codex-Native-Model-Pin": "1",
+      "X-Weave-Codex-Model-Catalog": "1",
     },
   };
   writeToml(paths.config, settings);

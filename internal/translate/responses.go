@@ -37,9 +37,12 @@ type ResponsesConversion struct {
 	// native /model picker during this session, as opposed to launching with
 	// a configured model.
 	CodexModelSwitch bool
-	Requirements     router.TranslationRequirements
-	Report           []ResponseTransform
-	ToolMappings     map[string]ResponsesToolMapping
+	// CodexModelInstructions reports a <model_instructions> developer
+	// message, which marks a /model switch only for catalog-URL clients.
+	CodexModelInstructions bool
+	Requirements           router.TranslationRequirements
+	Report                 []ResponseTransform
+	ToolMappings           map[string]ResponsesToolMapping
 	// TitleGeneration reports a native Codex title-generation request. It is
 	// consumed only when the proxy has independently identified the Codex client.
 	TitleGeneration bool

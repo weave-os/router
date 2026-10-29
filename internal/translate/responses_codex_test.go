@@ -590,14 +590,6 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexModelSwitch(t
 			want: true,
 		},
 		{
-			name: "catalog-url model instructions fragment",
-			input: []any{
-				map[string]any{"type": "message", "role": "user", "content": "start"},
-				map[string]any{"type": "message", "role": "developer", "content": []any{map[string]any{"type": "input_text", "text": "<model_instructions>\nThe current model is gpt-6.1-sol.\n</model_instructions>"}}},
-			},
-			want: true,
-		},
-		{
 			name: "string content developer fragment",
 			input: []any{
 				map[string]any{"role": "developer", "content": codexModelSwitchText},
@@ -635,6 +627,18 @@ func TestConvertResponsesToChatCompletionsWithOptions_PortableCodexModelSwitch(t
 			assert.Equal(t, tc.want, converted.CodexModelSwitch)
 		})
 	}
+}
+
+func TestConvertResponsesToChatCompletionsWithOptions_CodexModelInstructionsAreSeparateFromSwitch(t *testing.T) {
+	body, err := json.Marshal(map[string]any{"model": "gpt-6-sol", "input": []any{
+		map[string]any{"type": "message", "role": "user", "content": "start"},
+		map[string]any{"type": "message", "role": "developer", "content": []any{map[string]any{"type": "input_text", "text": "<model_instructions>\nThe current model is gpt-6.1-sol.\n</model_instructions>"}}},
+	}})
+	require.NoError(t, err)
+	converted, err := translate.ConvertResponsesToChatCompletionsWithOptions(body, translate.ResponsesConversionOptions{PortableCodex: true})
+	require.NoError(t, err)
+	assert.True(t, converted.CodexModelInstructions)
+	assert.False(t, converted.CodexModelSwitch)
 }
 
 func TestConvertResponsesToChatCompletions_LegacyIgnoresCodexModelSwitch(t *testing.T) {
