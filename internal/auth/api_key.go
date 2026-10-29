@@ -86,7 +86,7 @@ type CreateAPIKeyParams struct {
 	KeySuffix      string
 	Scope          APIKeyScope
 	CreatedBy      *string
-	// CredentialSubjectID binds a non-bearer credential to its live account identity when set.
+	// CredentialSubjectID binds a non-bearer credential to its live credential subject when set.
 	CredentialSubjectID string
 	// PublicJWK is the canonical issuer JWK; required for, and only for, ScopeSessionIssuer.
 	PublicJWK []byte
