@@ -22,8 +22,13 @@ func TestSubscriberPlanProjectionUsesServerOwnedProfile(t *testing.T) {
 
 			projection, err := subscriberPlanProjection(string(plan), 7)
 			require.NoError(t, err)
-			assert.Equal(t, profile.Key, projection.ProfileKey)
-			assert.Equal(t, profile.Name, projection.ProfileName)
+			if entitlement.PlanHasServingProfile(plan) {
+				assert.Equal(t, profile.Key, projection.ProfileKey)
+				assert.Equal(t, profile.Name, projection.ProfileName)
+			} else {
+				assert.Empty(t, projection.ProfileKey)
+				assert.Empty(t, projection.ProfileName)
+			}
 			assert.Equal(t, plan, projection.Plan)
 			assert.Equal(t, int64(7), projection.EntitlementVersion)
 			assert.Equal(t, int64(7), projection.AssignmentGeneration)

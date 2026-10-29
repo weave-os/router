@@ -324,6 +324,9 @@ func (c *ServingController) validateProposal(ctx context.Context, proposal Propo
 	for key, lane := range previous.Profiles {
 		next, exists := set.Profiles[key]
 		if !exists {
+			if proposal.Scope == ChangeCustom {
+				continue
+			}
 			return errors.New("registered profile keys cannot be removed")
 		}
 		if proposal.Scope != ChangeProfile && !sameLaneProfile(lane.Profile, next.Profile) {

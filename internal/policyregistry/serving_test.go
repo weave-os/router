@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/rosterdata"
 	"weave-os/router/internal/subscriptions/entitlement"
@@ -441,9 +442,11 @@ func TestEmergencyWithdrawalPreservesSubscriberPlanAndProfile(t *testing.T) {
 			profile, ok := entitlement.ServingProfileFor(plan)
 			require.True(t, ok)
 			previousSet, replacementSet := fixtureSet("old-worker"), fixtureSet("ready-worker")
-			profileRef := namespaceRef(policyregistry.ServingProfiles, "unchanged-profile")
-			previousSet.Profiles[profile.Key] = policyregistry.ServingSelection{Release: namespaceRef(policyregistry.ServingReleases, "old-profile-worker"), Binding: namespaceRef(policyregistry.ServingBindings, "old-profile-worker"), Profile: &profileRef}
-			replacementSet.Profiles[profile.Key] = policyregistry.ServingSelection{Release: namespaceRef(policyregistry.ServingReleases, "ready-profile-worker"), Binding: namespaceRef(policyregistry.ServingBindings, "ready-profile-worker"), Profile: &profileRef}
+			if entitlement.PlanHasServingProfile(plan) {
+				profileRef := namespaceRef(policyregistry.ServingProfiles, "unchanged-profile")
+				previousSet.Profiles[profile.Key] = policyregistry.ServingSelection{Release: namespaceRef(policyregistry.ServingReleases, "old-profile-worker"), Binding: namespaceRef(policyregistry.ServingBindings, "old-profile-worker"), Profile: &profileRef}
+				replacementSet.Profiles[profile.Key] = policyregistry.ServingSelection{Release: namespaceRef(policyregistry.ServingReleases, "ready-profile-worker"), Binding: namespaceRef(policyregistry.ServingBindings, "ready-profile-worker"), Profile: &profileRef}
+			}
 			first, _ := activateFixture(t, policyregistry.ServingStateSnapshot{}, previousSet, servingEpoch)
 			sets := map[string]policyregistry.SelectionSetView{
 				servingRef(t, policyregistry.ServingSelectionSets, previousSet).SHA256:    previousSet.View(),
@@ -456,9 +459,15 @@ func TestEmergencyWithdrawalPreservesSubscriberPlanAndProfile(t *testing.T) {
 			next, err := policyregistry.SelectSessionRelease(&inFlight, projection, replacement, sets, testRegistryRoot, servingEpoch.Add(2*time.Minute))
 			require.NoError(t, err)
 			assert.Equal(t, first.State.CurrentActivationID, inFlight.ActivationID)
-			assert.Equal(t, previousSet.Profiles[profile.Key], inFlight.Selection)
+			previousSelection := previousSet.Default
+			replacementSelection := replacementSet.Default
+			if entitlement.PlanHasServingProfile(plan) {
+				previousSelection = previousSet.Profiles[profile.Key]
+				replacementSelection = replacementSet.Profiles[profile.Key]
+			}
+			assert.Equal(t, previousSelection, inFlight.Selection)
 			assert.Equal(t, replacement.State.CurrentActivationID, next.ActivationID)
-			assert.Equal(t, replacementSet.Profiles[profile.Key], next.Selection)
+			assert.Equal(t, replacementSelection, next.Selection)
 			assert.Equal(t, profile.Key, next.ProfileKey)
 			assert.Equal(t, profile.Name, next.ProfileName)
 			assert.Equal(t, plan, next.Plan)
@@ -492,6 +501,59 @@ func TestProfileAssignmentsDoNotFallBackAndGenerationChangesRebind(t *testing.T)
 	initial.ActivationID = uuid.NewString()
 	_, err = policyregistry.SelectSessionRelease(&initial, projection, first, sets, testRegistryRoot, servingEpoch.Add(time.Minute))
 	require.ErrorContains(t, err, "unknown activation")
+}
+
+func TestLegacyBoostSessionRebindsToDefaultPolicy(t *testing.T) {
+	oldSet := fixtureSet("old-boost-policy")
+	oldProfile := namespaceRef(policyregistry.ServingProfiles, "historical-boost-policy")
+	oldSet.Profiles[entitlement.LegacyBoostProfileKey] = policyregistry.ServingSelection{
+		Release: namespaceRef(policyregistry.ServingReleases, "historical-boost-release"),
+		Binding: namespaceRef(policyregistry.ServingBindings, "historical-boost-binding"),
+		Profile: &oldProfile,
+	}
+	oldActivation, _ := activateFixture(t, policyregistry.ServingStateSnapshot{}, oldSet, servingEpoch)
+	defaultSet := fixtureSet("default-policy-after-boost-retirement")
+	current, _ := activateFixture(t, oldActivation, defaultSet, servingEpoch.Add(time.Minute))
+	sets := map[string]policyregistry.SelectionSetView{
+		servingRef(t, policyregistry.ServingSelectionSets, oldSet).SHA256:     oldSet.View(),
+		servingRef(t, policyregistry.ServingSelectionSets, defaultSet).SHA256: defaultSet.View(),
+	}
+	previous := policyregistry.SessionReleaseBinding{
+		Target: policyregistry.TargetStable, ActivationID: oldActivation.State.CurrentActivationID,
+		Selection:  oldSet.Profiles[entitlement.LegacyBoostProfileKey],
+		ProfileKey: entitlement.LegacyBoostProfileKey, ProfileName: "boost-default",
+		Plan: entitlement.PlanBoost, EntitlementVersion: 8, BindingGeneration: 1,
+		CreatedAt: servingEpoch, LastAdmittedAt: servingEpoch,
+		RoutingModel: router.ModelQwen,
+	}
+	projection := policyregistry.AdmissionProjection{
+		Target: policyregistry.TargetStable, Plan: entitlement.PlanBoost,
+		EntitlementVersion: 8, AssignmentGeneration: 8,
+	}
+	admitted, err := policyregistry.SelectSessionRelease(&previous, projection, current, sets, testRegistryRoot, servingEpoch.Add(2*time.Minute))
+	require.NoError(t, err)
+	assert.Equal(t, current.State.CurrentActivationID, admitted.ActivationID)
+	assert.Equal(t, defaultSet.Default, admitted.Selection)
+	assert.Empty(t, admitted.ProfileKey)
+	assert.Empty(t, admitted.ProfileName)
+	assert.Equal(t, entitlement.PlanBoost, admitted.Plan)
+	assert.Equal(t, int64(8), admitted.EntitlementVersion)
+	assert.Equal(t, int64(2), admitted.BindingGeneration)
+	assert.Equal(t, router.ModelQwen, admitted.RoutingModel)
+
+	stateNamespace := func(binding policyregistry.SessionReleaseBinding) string {
+		digest := [policyregistry.ConversationDigestLen]byte{1}
+		identity, _ := requestcontext.ServingIdentityFromContext(policyregistry.WithServingAssertion(context.Background(), policyregistry.ServingAssertion{
+			APIKeyID: "api-key",
+			Scope: policyregistry.AdmissionScope{
+				InstallationID: "installation", CredentialIdentity: "subject",
+				ConversationDigest: digest, Persistent: true,
+			},
+			Admission: binding,
+		}))
+		return identity.StateNamespace
+	}
+	assert.NotEqual(t, stateNamespace(previous), stateNamespace(admitted))
 }
 
 func TestRoutingControlsChangeRebindsPinnedConversation(t *testing.T) {

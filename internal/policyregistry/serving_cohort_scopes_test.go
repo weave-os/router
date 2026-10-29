@@ -8,7 +8,44 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"weave-os/router/internal/policyregistry"
+	"weave-os/router/internal/subscriptions/entitlement"
 )
+
+func TestCohortCustomSelectionRetiresProfileAndRetainsHistory(t *testing.T) {
+	ctx := context.Background()
+	store, original := cohortFixture(t)
+	original.Profiles[entitlement.LegacyBoostProfileKey] = original.Profiles[profileKeyOne]
+	delete(original.Profiles, profileKeyOne)
+	controller := permissiveController(t, store)
+	initialProposal := cohortProposal(t, store, original, nil, policyregistry.ChangeFull, "")
+	initial, err := controller.Activate(ctx, store.publishArtifact(t, policyregistry.ServingProposal, initialProposal), "workflow")
+	require.NoError(t, err)
+
+	retired := original
+	retired.Profiles = maps.Clone(original.Profiles)
+	delete(retired.Profiles, entitlement.LegacyBoostProfileKey)
+	for _, scope := range []policyregistry.ChangeScope{policyregistry.ChangeFull, policyregistry.ChangeRouter, policyregistry.ChangeRoster, policyregistry.ChangeClassifier} {
+		proposal := cohortProposal(t, store, retired, &initial.Activation.SelectionSet, scope, "")
+		require.ErrorContains(t, controller.ValidateProposal(ctx, proposal), "registered profile keys cannot be removed")
+	}
+	custom := cohortProposal(t, store, retired, &initial.Activation.SelectionSet, policyregistry.ChangeCustom, "")
+	require.NoError(t, controller.ValidateProposal(ctx, custom))
+
+	changed := retired
+	changed.Profiles = maps.Clone(retired.Profiles)
+	changed.Profiles[profileKeyTwo] = original.Profiles[entitlement.LegacyBoostProfileKey]
+	invalid := cohortProposal(t, store, changed, &initial.Activation.SelectionSet, policyregistry.ChangeCustom, "")
+	require.ErrorContains(t, controller.ValidateProposal(ctx, invalid), "retain destination profile revisions")
+
+	activated, err := controller.Activate(ctx, store.publishArtifact(t, policyregistry.ServingProposal, custom), "workflow")
+	require.NoError(t, err)
+	require.Equal(t, custom.SelectionSet, activated.Activation.SelectionSet)
+	require.Contains(t, activated.Snapshot.State.Activations, initial.Activation.ID)
+	oldSelection := original.View(initial.Activation.SelectionSet).Profiles[entitlement.LegacyBoostProfileKey]
+	historical, err := policyregistry.ReadPreparedSelection(ctx, store, original.Target, entitlement.LegacyBoostProfileKey, oldSelection)
+	require.NoError(t, err)
+	require.Equal(t, original.Profiles[entitlement.LegacyBoostProfileKey].SHA256, historical.PolicyReference.SHA256)
+}
 
 func TestCohortConfigurationScopesRejectCodeOrUnrelatedPolicyChanges(t *testing.T) {
 	for _, scope := range []policyregistry.ChangeScope{policyregistry.ChangeRoster, policyregistry.ChangeProfile} {

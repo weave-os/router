@@ -817,7 +817,7 @@ func (s *Service) runTurnLoop(
 	if compatibilityErr != nil {
 		return turnLoopResult{}, compatibilityErr
 	}
-	if planOwnedServingRequest(ctx) {
+	if planHasDedicatedServingPolicy(ctx) {
 		// Plan-owned profiles ignore installation routing controls, but an
 		// explicit force-model choice remains a caller-owned override.
 		req.ForceCluster = ""
