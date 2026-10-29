@@ -206,7 +206,7 @@ var Registry = []Definition{
 	{
 		Key:            KeyPlanUserClusterLists,
 		Kind:           KindBool,
-		Description:    "Apply each member's own per-tier model selection on Max/Boost plan requests. The installation's key-scoped tier lists stay ignored. Off by default.",
+		Description:    "Honor each member's own per-tier model selection: apply it on Max plan requests (the installation's key-scoped tier lists stay ignored), and serve a selected model on paid capacity when no linked subscription can serve it instead of swapping it for a covered model. Off by default.",
 		OrgOverridable: true,
 	},
 	{
