@@ -170,10 +170,10 @@ func turnSavingsUSD(turn SessionSavingsTurn, comparison savingsComparison, evide
 	warmPrefill := min(int(turn.BaselineWarmPrefillTokens), cacheCreation)
 	baselineInputCost := catalog.CounterfactualInputCost(in, cacheCreation, cacheRead, warmPrefill, price, turn.DecisionProvider, catalog.UsageModifiers{})
 	baselineOutputCost := catalog.EffectiveOutputCost(catalog.PromptTokens(in, cacheCreation, cacheRead, turn.DecisionProvider), out, price, catalog.UsageModifiers{})
-	actual := float64(turn.ActualCostUSDMicros) / 1_000_000
+	actualCost := float64(turn.ActualCostUSDMicros) / 1_000_000
 	return baselineInputCost*cappedBound(ratio.InputPoint, ratio.InputLower, ratio.Native) +
 		baselineOutputCost*cappedBound(ratio.OutputPoint, ratio.OutputLower, ratio.Native) -
-		actual*penalty
+		actualCost*penalty
 }
 
 // scorerSubstitution reports whether the router's scorer chose the turn's model:
