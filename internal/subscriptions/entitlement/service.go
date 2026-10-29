@@ -54,7 +54,9 @@ type Admission struct {
 	Coverage Coverage
 	// ExhaustedPeriod names the spent window for AdmissionExhausted.
 	ExhaustedPeriod PeriodKind
-	// ResetsAt is when the spent window ends, for AdmissionExhausted.
+	// ResetsAt is when every spent window has ended, for AdmissionExhausted.
+	// Weeks follow the billing start and six-hour windows fixed UTC hours, so
+	// the window ExhaustedPeriod names can end before another spent one.
 	ResetsAt time.Time
 	Usage    Usage
 }
@@ -133,11 +135,15 @@ func (s *Service) Admit(ctx context.Context, subscriberID SubscriberID) (Admissi
 	usage.SixHour.LimitUsdMicros = sixHourLimit
 
 	if exhausted, kind := spentWindow(usage); exhausted {
-		resetsAt := map[PeriodKind]time.Time{
-			PeriodKindBilling: current.BillingPeriod.End,
-			PeriodKindWeekly:  weekly.End,
-			PeriodKindSixHour: sixHour.End,
-		}[kind]
+		var resetsAt time.Time
+		for _, window := range []struct {
+			usage WindowUsage
+			end   time.Time
+		}{{usage.Billing, current.BillingPeriod.End}, {usage.Weekly, weekly.End}, {usage.SixHour, sixHour.End}} {
+			if window.usage.ConsumedUsdMicros() >= window.usage.LimitUsdMicros && window.end.After(resetsAt) {
+				resetsAt = window.end
+			}
+		}
 		return Admission{Outcome: AdmissionExhausted, Plan: current.Plan, ExhaustedPeriod: kind, ResetsAt: resetsAt, Usage: usage}, nil
 	}
 	return Admission{

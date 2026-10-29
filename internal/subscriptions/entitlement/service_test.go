@@ -412,3 +412,23 @@ func TestSettleSurfacesAccountingFailures(t *testing.T) {
 		"the hold already draws the windows down, so the caller must not book this turn elsewhere")
 	assert.Contains(t, err.Error(), accountingFailure.Error())
 }
+
+func TestAdmitResetsAtWaitsForEverySpentWindow(t *testing.T) {
+	t.Parallel()
+
+	current := activeEntitlement()
+	// Weeks anchored at 10:00 end the current one at 10:00 on the 14th, inside
+	// the 06:00-12:00 window covering testNow.
+	current.BillingPeriod.Start = time.Date(2026, 2, 28, 10, 0, 0, 0, time.UTC)
+	current.BillingPeriod.End = time.Date(2026, 3, 28, 10, 0, 0, 0, time.UTC)
+	current.EffectiveAt = current.BillingPeriod.Start
+	admission, err := newService(&fakeEntitlements{current: current, found: true},
+		&fakeAllowances{weeklyFinal: maxMonthly - 1, sixHourFinal: maxMonthly - 1}).
+		Admit(context.Background(), testSubscriber)
+	require.NoError(t, err)
+
+	require.Equal(t, entitlement.AdmissionExhausted, admission.Outcome)
+	assert.Equal(t, entitlement.PeriodKindWeekly, admission.ExhaustedPeriod)
+	assert.Equal(t, time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC), admission.ResetsAt,
+		"the spent six-hour window still blocks included usage after the week ends")
+}
