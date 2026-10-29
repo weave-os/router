@@ -3,13 +3,17 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
+	"time"
 
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/subscriptions"
+	"weave-os/router/internal/subscriptions/entitlement"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // The subscription-only warning replaces the routing marker, so it must name
@@ -81,4 +85,33 @@ func TestSubscriptionOnlyWarningShowsOncePerConversation(t *testing.T) {
 func jsonString(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
+}
+
+// A subscriber reaches the organization gate because an included window is
+// spent, so the refusal names that window and its reset, not only the gate.
+func TestSubscriptionOnlyUnavailableNamesTheSpentAllowanceWindow(t *testing.T) {
+	spent := entitlement.WithSpentWindow(context.Background(), entitlement.SpentWindow{
+		Plan:     entitlement.PlanBoost,
+		Kind:     entitlement.PeriodKindSixHour,
+		ResetsAt: time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC),
+	})
+
+	depleted := subscriptionOnlyUnavailable(billing.WithSubscriptionOnly(spent, billing.SubscriptionOnlyCreditsDepleted))
+	assert.ErrorIs(t, depleted, ErrCreditsExhaustedSubscriptionUnavailable, "refusal checks match the credits sentinel")
+	cls, ok := ClassifyDispatchError(errors.Join(depleted, ErrSubscriptionPoolExhausted))
+	require.True(t, ok)
+	assert.Equal(t, DispatchErrorCreditsExhausted, cls.Kind)
+	assert.Equal(t, http.StatusPaymentRequired, cls.Status)
+	assert.Contains(t, cls.Message, "Boost plan's six-hour allowance is used up")
+	assert.Contains(t, cls.Message, "12:00 UTC on Mar 14")
+	assert.Contains(t, cls.Message, topUpURL)
+	assert.NotContains(t, cls.Message, "credits are exhausted")
+
+	capped := subscriptionOnlyUnavailable(billing.WithSubscriptionOnly(spent, billing.SubscriptionOnlySpendCapReached))
+	assert.ErrorIs(t, capped, ErrSpendCapSubscriptionUnavailable)
+	cls, ok = ClassifyDispatchError(capped)
+	require.True(t, ok)
+	assert.Equal(t, DispatchErrorSpendCapReached, cls.Kind)
+	assert.Contains(t, cls.Message, "spend cap")
+	assert.NotContains(t, cls.Message, topUpURL)
 }
