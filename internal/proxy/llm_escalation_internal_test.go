@@ -254,6 +254,41 @@ func TestQwenEscalationDoesNotRequireSwitchyardActiveRollout(t *testing.T) {
 	require.True(t, turn.active)
 }
 
+func TestQwenEscalationReadsCodexToolOutcomesFromNativeResponses(t *testing.T) {
+	configuration := &escalationConfigurationStub{selection: llmescalation.Selection{InstallationID: "installation", Epoch: 2}}
+	service := (&Service{}).
+		WithLLMEscalation(&llmEscalationStoreStub{}, nil).
+		WithQwenEscalation(&blockingEscalationJudge{}).
+		WithEscalationConfiguration(configuration, nil, false)
+	_, err := service.UpdateEscalationSelection(context.Background(), "installation", llmescalation.SelectionUpdate{Active: flags.EscalationClassifierLLM, Cadence: 3, Epoch: 2})
+	require.NoError(t, err)
+	overrides := flags.Overrides{Strings: map[flags.Key]string{
+		flags.KeyEscalationActiveClassifier: string(flags.EscalationClassifierLLM),
+	}}
+	native := []byte(`{"model":"gpt-5","input":[{"role":"user","content":"start"}]}`)
+	env, err := translate.ParseOpenAI([]byte(`{"model":"gpt-5","messages":[{"role":"user","content":"start"}]}`))
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name  string
+		app   string
+		codex bool
+	}{
+		{name: "codex", app: ClientAppCodex, codex: true},
+		{name: "other client", app: ClientAppClaudeCode, codex: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := flags.WithOverrides(router.WithStrategy(context.Background(), router.StrategyHMMEmbedding), overrides)
+			ctx = context.WithValue(ctx, nativeResponsesBodyContextKey{}, native)
+			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: tc.app})
+			requestResult := turnLoopResult{Strategy: router.StrategyHMMEmbedding, InstallationID: uuid.New(), TurnType: turntype.MainLoop}
+			turn := service.beginLLMEscalation(ctx, env, router.Request{}, &requestResult, "test-key")
+			require.NotNil(t, turn)
+			require.Equal(t, tc.codex, turn.observation.CodexToolResults)
+		})
+	}
+}
+
 func TestSwitchyardEscalationReadinessReflectsDisabledRollout(t *testing.T) {
 	configuration := &escalationConfigurationStub{selection: llmescalation.Selection{InstallationID: "installation", Active: flags.EscalationClassifierSwitchyard}}
 	service := (&Service{}).

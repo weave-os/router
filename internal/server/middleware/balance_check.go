@@ -29,7 +29,7 @@ const TopUpURL = "https://app.workweave.ai/organization/settings/weave-router"
 //     subscription-only (billing.WithSubscriptionOnly), so the proxy serves them
 //     on the caller's own subscription or refuses them, never on a paid model.
 //     Override detection above still runs.
-//   - Otherwise → pass through.
+//   - Otherwise → pass through, flagged billing.WithOrganizationPrepaid.
 //
 // The balance read is a single indexed SELECT (~2-5ms in-region). Any
 // repo error fails closed with HTTP 503: in a prepaid credit system,
@@ -158,6 +158,7 @@ func WithBalanceCheck(svc *billing.Service, minBalanceMicros int64) gin.HandlerF
 			return
 		}
 
+		c.Request = c.Request.WithContext(billing.WithOrganizationPrepaid(c.Request.Context()))
 		c.Next()
 	}
 }

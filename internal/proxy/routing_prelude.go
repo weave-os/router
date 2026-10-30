@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"weave-os/router/internal/billing"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
@@ -57,36 +58,39 @@ func addRoutingFundingSource(ctx context.Context, provider, model string, notice
 		if source, eligible := managedSubscriptionProviderFromUpstream(provider, model); eligible {
 			switch source {
 			case subscriptions.ProviderClaude:
-				return appendFundingSource(notice, "Claude subscription")
+				return setFundingSource(notice, "Claude subscription")
 			case subscriptions.ProviderCodex:
-				return appendFundingSource(notice, "Codex subscription")
+				return setFundingSource(notice, "Codex subscription")
 			}
 		}
 	}
 
 	switch credentialSource {
 	case credSourceSubscription:
-		return appendFundingSource(notice, "Claude subscription")
+		return setFundingSource(notice, "Claude subscription")
 	case credSourceSubscriptionOverage:
-		return appendFundingSource(notice, "Claude subscription overage")
+		return setFundingSource(notice, "Claude subscription overage")
 	case credSourceCodexSubscription:
-		return appendFundingSource(notice, "Codex subscription")
+		return setFundingSource(notice, "Codex subscription")
 	case credSourceBYOK, credSourceClient:
-		return appendFundingSource(notice, "your provider API key")
+		return setFundingSource(notice, "your provider API key")
 	}
 
 	switch telemetryCapacitySource(ctx, credentialSource) {
 	case entitlement.CapacitySourcePrepaid:
-		return appendFundingSource(notice, "Weave credits")
+		return setFundingSource(notice, "Weave credits")
 	case entitlement.CapacitySourceIncludedRouter:
-		return appendFundingSource(notice, "Weave Router allowance")
+		return setFundingSource(notice, "Weave Router allowance")
 	case entitlement.CapacitySourceBillingOverride:
-		return appendFundingSource(notice, "Weave-managed billing")
+		return setFundingSource(notice, "Weave-managed billing")
 	}
-	return appendFundingSource(notice, "funding source unavailable")
+	if billing.OrganizationPrepaidFromContext(ctx) {
+		return setFundingSource(notice, "Weave credits")
+	}
+	return setFundingSource(notice, "")
 }
 
-func appendFundingSource(notice translate.RouterNotice, source string) translate.RouterNotice {
+func setFundingSource(notice translate.RouterNotice, source string) translate.RouterNotice {
 	lineEnd := strings.IndexByte(notice.Text, '\n')
 	firstLine := notice.Text
 	if lineEnd >= 0 {
@@ -95,10 +99,13 @@ func appendFundingSource(notice translate.RouterNotice, source string) translate
 	if labelStart := strings.LastIndex(firstLine, " · funded by "); labelStart >= 0 {
 		firstLine = firstLine[:labelStart]
 	}
+	if source != "" {
+		firstLine += " · funded by " + source
+	}
 	if lineEnd < 0 {
-		notice.Text = firstLine + " · funded by " + source
+		notice.Text = firstLine
 		return notice
 	}
-	notice.Text = firstLine + " · funded by " + source + notice.Text[lineEnd:]
+	notice.Text = firstLine + notice.Text[lineEnd:]
 	return notice
 }
