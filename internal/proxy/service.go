@@ -1158,7 +1158,7 @@ func (s *Service) safetyExcludedModels(env *translate.RequestEnvelope, outputRes
 	if len(overflowed) == 0 && len(geminiUnsigned) == 0 && len(advisorOutranking) == 0 {
 		return nil
 	}
-	out := make(map[string]struct{}, len(overflowed)+len(geminiUnsigned)+len(advisorOutranking))
+	out := make(map[string]struct{}, len(overflowed))
 	for _, models := range [][]string{overflowed, geminiUnsigned, advisorOutranking} {
 		for _, m := range models {
 			out[m] = struct{}{}
@@ -1193,7 +1193,7 @@ func (s *Service) excludedModelsFor(ctx context.Context, allowed map[string]stru
 	// Plan-owned serving drops the installation's positive routing controls,
 	// but an explicit exclusion is the customer's hard opt-out and always applies.
 	excluded := installationExcludedModelsFromContext(ctx)
-	out := make(map[string]struct{}, len(excluded)+len(ineligible))
+	out := make(map[string]struct{}, len(excluded))
 	for _, m := range excluded {
 		out[m] = struct{}{}
 	}
@@ -1304,7 +1304,7 @@ func (s *Service) excludedProvidersForRequest(ctx context.Context) map[string]st
 	if len(sessionDisabled) == 0 {
 		return base
 	}
-	out := make(map[string]struct{}, len(base)+len(sessionDisabled))
+	out := make(map[string]struct{}, len(base))
 	for p := range base {
 		out[p] = struct{}{}
 	}
@@ -1500,7 +1500,7 @@ func excludeContextOverflowModels(est, sigSavings, outputReserve int, enabledPro
 			continue
 		}
 		if out == nil {
-			out = make(map[string]struct{}, len(excluded)+1)
+			out = make(map[string]struct{}, len(excluded))
 			for k := range excluded {
 				out[k] = struct{}{}
 			}
@@ -1642,7 +1642,7 @@ func excludeGemini3xOnUnsignedHistory(env *translate.RequestEnvelope, excluded, 
 			continue
 		}
 		if out == nil {
-			out = make(map[string]struct{}, len(excluded)+1)
+			out = make(map[string]struct{}, len(excluded))
 			for k := range excluded {
 				out[k] = struct{}{}
 			}
@@ -1775,7 +1775,7 @@ type suppressCodexModelContextKey struct{}
 
 func withSuppressedCodexModel(ctx context.Context, model string) context.Context {
 	previous, _ := ctx.Value(suppressCodexModelContextKey{}).(map[string]struct{})
-	models := make(map[string]struct{}, len(previous)+1)
+	models := make(map[string]struct{}, len(previous))
 	for id := range previous {
 		models[id] = struct{}{}
 	}
@@ -3577,7 +3577,10 @@ func newRefusalObserver(inner http.ResponseWriter) *refusalObserver {
 
 func (o *refusalObserver) Header() http.Header { return o.inner.Header() }
 
-func (o *refusalObserver) WriteHeader(status int) { o.inner.WriteHeader(status) }
+func (o *refusalObserver) WriteHeader(status int) {
+	sse.PrepareJSONResponse(o.inner)
+	o.inner.WriteHeader(status)
+}
 
 func (o *refusalObserver) Write(p []byte) (int, error) {
 	// Accumulate up to refusalScanCap so signals split across SSE chunks are caught.
@@ -3602,7 +3605,7 @@ func (o *refusalObserver) Write(p []byte) (int, error) {
 			o.category = refusalCategory(o.buf)
 		}
 	}
-	return o.inner.Write(p)
+	return sse.WriteJSONChunk(o.inner, p)
 }
 
 func (o *refusalObserver) Flush() {

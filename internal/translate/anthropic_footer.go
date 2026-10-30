@@ -92,13 +92,14 @@ func (w *AnthropicRoutingFooterWriter) WriteHeader(code int) {
 	ct := w.inner.Header().Get("Content-Type")
 	w.streaming = strings.Contains(ct, "text/event-stream") && code < 400
 	w.headersEmitted = true
+	sse.PrepareJSONResponse(w.inner)
 	w.inner.WriteHeader(code)
 }
 
 func (w *AnthropicRoutingFooterWriter) Write(data []byte) (int, error) {
 	if !w.streaming || w.footer == "" {
 		// Non-streaming or no footer: fully transparent passthrough.
-		return w.inner.Write(data)
+		return sse.WriteJSONChunk(w.inner, data)
 	}
 	return w.processUpstream(data)
 }

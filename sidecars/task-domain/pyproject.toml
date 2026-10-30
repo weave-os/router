@@ -11,3 +11,6 @@ test = ["httpx>=0.28,<1", "pytest>=8,<10"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.uv]
+constraint-dependencies = ["opentelemetry-api>=1.45.1"]

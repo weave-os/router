@@ -32,7 +32,7 @@ while IFS= read -r -d '' file; do
 		[[ "$file" == frontend/package.json || "$file" == frontend/package-lock.json || "$file" == frontend/tsconfig*.json ]]; then
 		touch "$output_dir/typescript-frontend"
 	elif [[ "$file" =~ ^install/pi-router/.+\.tsx?$ ]] ||
-		[[ "$file" == install/pi-router/package.json || "$file" == install/pi-router/package-lock.json || "$file" == install/pi-router/tsconfig*.json ]]; then
+		[[ "$file" == install/pi-router/package.json || "$file" == install/pi-router/pnpm-lock.yaml || "$file" == install/pi-router/pnpm-workspace.yaml || "$file" == install/pi-router/tsconfig*.json ]]; then
 		touch "$output_dir/typescript-pi"
 	fi
 
