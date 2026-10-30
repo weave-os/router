@@ -82,27 +82,27 @@ func (c *Client) Token(ctx context.Context, key *auth.ExternalAPIKey) ([]byte, e
 		return bytes.Clone(cached.token), nil
 	}
 	// One caller cancelling must not abort the shared exchange for other waiters.
-	response := c.group.DoChan(cacheKey, func() (any, error) {
+	inflight := c.group.DoChan(cacheKey, func() (any, error) {
 		exchangeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), exchangeTimeout)
 		defer cancel()
 		cached, ok := c.cache.Get(cacheKey)
 		if ok && c.now().Before(cached.expiresAt.Add(-advisoryRefresh)) {
 			return cached.token, nil
 		}
-		token, err := c.exchange(exchangeCtx, cfg)
+		refreshed, err := c.exchange(exchangeCtx, cfg)
 		if err != nil {
 			if ok && c.now().Before(cached.expiresAt.Add(-mandatoryRefresh)) {
 				return cached.token, nil
 			}
 			return nil, err
 		}
-		c.cache.Add(cacheKey, token)
-		return token.token, nil
+		c.cache.Add(cacheKey, refreshed)
+		return refreshed.token, nil
 	})
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	case result := <-response:
+	case result := <-inflight:
 		if result.Err != nil {
 			return nil, result.Err
 		}

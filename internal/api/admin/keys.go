@@ -212,7 +212,10 @@ type upsertExternalKeyRequest struct {
 	// ForwardedClientHeaders and BaggageHeader configure client-header passthrough to this endpoint.
 	ForwardedClientHeaders []string `json:"forwarded_client_headers"`
 	BaggageHeader          *string  `json:"baggage_header"`
-	// AuthType selects bearer, key-pair, Entra, Snowflake WIF, or Anthropic WIF auth.
+	// AuthType defaults to bearer (Key sent as-is). Keypair JWT signs with an RSA Key
+	// for AuthAccount/AuthUser; Entra exchanges a client-secret Key for those IDs.
+	// Snowflake WIF attests the router identity; Anthropic WIF exchanges it for a
+	// Claude API token using the federation IDs below. Both WIF modes take no Key.
 	AuthType         string  `json:"auth_type"`
 	AuthAccount      *string `json:"auth_account"`
 	AuthUser         *string `json:"auth_user"`

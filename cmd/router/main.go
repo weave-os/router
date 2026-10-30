@@ -1879,8 +1879,7 @@ func buildAnthropicWIFTokenSource() auth.AnthropicWIFTokenSource {
 	case "":
 		return nil
 	case auth.WIFProviderGCP:
-		audience := config.GetOr("ROUTER_ANTHROPIC_WIF_AUDIENCE", "https://api.anthropic.com")
-		identity = wif.NewGoogleIdentityTokenSource(audience)
+		identity = wif.NewGoogleIdentityTokenSource(config.GetOr("ROUTER_ANTHROPIC_WIF_AUDIENCE", "https://api.anthropic.com"))
 	case auth.WIFProviderOIDC:
 		path := config.GetOr("ROUTER_ANTHROPIC_WIF_OIDC_TOKEN_FILE", "")
 		if strings.TrimSpace(path) == "" {
