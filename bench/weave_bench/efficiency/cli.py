@@ -25,7 +25,6 @@ from weave_bench.analytics import DecisionRow, by_session, fetch_rows, parse_ndj
 from weave_bench.config import BenchConfig, require_secret
 from weave_bench.efficiency import swe_together, terminal_bench
 from weave_bench.efficiency.cells import REQUESTED_MODEL, Cell, Harness, published_cells
-from weave_bench.efficiency.pin_proxy import serve as serve_pin_proxy
 from weave_bench.efficiency.quality import ArmTasks, quality_factor
 from weave_bench.efficiency.results import (
     EvidenceStatus,
@@ -47,6 +46,8 @@ from weave_bench.efficiency.tasks import (
 from weave_bench.harbor_command import AGENT_API_KEY_ENV, INHERITED_ENV_TO_CLEAR
 
 EFFICIENCY_DIRNAME = "token-efficiency"
+# Run as a module so the proxy's server packages (the ``tap`` extra) are needed only here.
+PIN_PROXY_MODULE = "weave_bench.efficiency.pin_proxy"
 DEFAULT_PROXY_HOST = "172.17.0.1"
 DEFAULT_PROXY_PORT = 8788
 ANALYTICS_STAMP = "%Y%m%dT%H%M%S"
@@ -92,16 +93,15 @@ def _analytics_fetcher(
 
 def cmd_tasks(_args: argparse.Namespace, _load: ConfigLoader) -> int:
     for manifest in (swe_together_manifest(), terminal_bench_manifest()):
-        tasks = manifest["tasks"]
-        print(f"{manifest['benchmark']}: {len(tasks)} tasks, digest {manifest['digest']}")
+        print(f"{manifest['benchmark']}: {len(manifest['tasks'])} tasks, digest {manifest['digest']}")
     return 0
 
 
 def cmd_pin_proxy(args: argparse.Namespace, load: ConfigLoader) -> int:
     config = load(args)
     print(f"pin proxy on {args.host}:{args.port} -> {config.router.base_url}", file=sys.stderr)
-    serve_pin_proxy(config.router.base_url, args.host, args.port)
-    return 0
+    command = [sys.executable, "-m", PIN_PROXY_MODULE, "--router", config.router.base_url]
+    return subprocess.run([*command, "--host", args.host, "--port", str(args.port)], check=False).returncode
 
 
 def cmd_swe_run(args: argparse.Namespace, load: ConfigLoader) -> int:
@@ -109,9 +109,11 @@ def cmd_swe_run(args: argparse.Namespace, load: ConfigLoader) -> int:
     tasks = select_swe_together_tasks(core_only=args.core_only, explicit=(args.tasks or "").split(","))
     trials = swe_together.plan_trials(args.run_id, parse_cells(args.cells), tasks, args.n_attempts)
     run_dir = _run_dir(config, args.run_id)
+    ledger = swe_together.read_ledger(run_dir / swe_together.LEDGER_FILENAME)
     commands = [
         swe_together.trial_command(
             trial,
+            rollout_id=swe_together.next_rollout_id(trial, ledger),
             checkout=args.checkout,
             python=args.python,
             proxy_url=args.proxy_url,
@@ -122,7 +124,10 @@ def cmd_swe_run(args: argparse.Namespace, load: ConfigLoader) -> int:
     ]
     if args.dry_run:
         print(f"# {len(commands)} trials; {len(tasks)} tasks; run dir {run_dir}")
-        print(f"# checkout {args.checkout} at {swe_together.UPSTREAM_REVISION} + {swe_together.VERSIONS_PATCH.name}")
+        print(
+            f"# checkout {args.checkout}: {swe_together.UPSTREAM_REPO} at {swe_together.UPSTREAM_REVISION}"
+            f" + {swe_together.VERSIONS_PATCH.name}"
+        )
         for command in commands:
             env = " ".join(f"{name}={shlex.quote(value)}" for name, value in command.env.items())
             print(f"{env} {command.api_key_env_name}=$ROUTER_KEY {shlex.join(command.argv)}")
@@ -192,15 +197,22 @@ def _quality_comparisons(args: argparse.Namespace, config: BenchConfig) -> list[
     rows_by_session = by_session(
         fetch(min(trial.started_at for trial in every_trial), max(trial.finished_at for trial in every_trial))
     )
+    outcomes = {arm.name: terminal_bench.arm_outcomes(trials[arm.name], rows_by_session) for arm in arms}
+    for name, arm_outcomes in outcomes.items():
+        if arm_outcomes.missing_telemetry:
+            print(
+                f"warning: {name}: {len(arm_outcomes.missing_telemetry)} trials have no router rows and are left out:"
+                f" {', '.join(arm_outcomes.missing_telemetry)}",
+                file=sys.stderr,
+            )
     comparisons: list[QualityComparison] = []
     for router_arm in (arm for arm in arms if arm.is_router):
-        router_outcomes = ArmTasks(terminal_bench.arm_outcomes(trials[router_arm.name], rows_by_session))
+        router_outcomes = outcomes[router_arm.name]
         for baseline_arm in (arm for arm in arms if not arm.is_router and arm.harness is router_arm.harness):
-            factor = quality_factor(
-                router_outcomes, ArmTasks(terminal_bench.arm_outcomes(trials[baseline_arm.name], rows_by_session))
-            )
+            baseline_outcomes = outcomes[baseline_arm.name]
+            factor = quality_factor(ArmTasks(router_outcomes.by_task), ArmTasks(baseline_outcomes.by_task))
             if factor is None:
-                print(f"no defined kept rate for {router_arm.name} vs {baseline_arm.name}", file=sys.stderr)
+                print(f"no task graded by both {router_arm.name} and {baseline_arm.name}", file=sys.stderr)
                 continue
             comparisons.append(
                 QualityComparison(
@@ -210,6 +222,8 @@ def _quality_comparisons(args: argparse.Namespace, config: BenchConfig) -> list[
                     baseline_arm.baseline_model,
                     factor,
                     terminal_bench.served_mix(trials[router_arm.name], rows_by_session),
+                    len(router_outcomes.missing_telemetry),
+                    len(baseline_outcomes.missing_telemetry),
                 )
             )
     return comparisons
@@ -220,14 +234,14 @@ def cmd_report(args: argparse.Namespace, load: ConfigLoader) -> int:
     status = EvidenceStatus(args.status)
     ratio_section = None
     if args.swe_together:
-        usages = [
-            usage
+        runs = [
+            swe_together.measurement_run(
+                run_id, swe_together.read_usage(_run_dir(config, run_id) / swe_together.USAGE_FILENAME)
+            )
             for run_id in args.swe_together
-            for usage in swe_together.read_usage(_run_dir(config, run_id) / swe_together.USAGE_FILENAME)
         ]
-        comparison_models = None if args.all_pairs else REQUESTED_MODEL
-        rows = ratio_rows(swe_together.measured_trials(usages), comparison_models)
-        ratio_section = work_ratio_section(rows, status, note=f"runs: {', '.join(args.swe_together)}")
+        rows, period_notes = ratio_rows(runs, None if args.all_pairs else REQUESTED_MODEL)
+        ratio_section = work_ratio_section(rows, status, note="pooled runs per cell: " + "; ".join(period_notes))
     quality = None
     if args.terminal_bench:
         rows = [quality_row(comparison) for comparison in _quality_comparisons(args, config)]
@@ -264,39 +278,41 @@ def register(
     proxy.add_argument("--port", type=int, default=DEFAULT_PROXY_PORT)
     bind(proxy, cmd_pin_proxy)
 
-    swe = commands.add_parser("swe-together", help="work-ratio matrix on SWE-Together")
-    swe_commands = swe.add_subparsers(dest="swe_command", required=True)
-    swe_run = swe_commands.add_parser("run")
-    swe_run.add_argument("--run-id", type=run_id_arg, required=True)
-    swe_run.add_argument("--cells", default="", help="harness:model,... (default: the published cells)")
-    swe_run.add_argument("--tasks", default="", help="comma-separated task ids (default: all 25)")
-    swe_run.add_argument("--core-only", action="store_true", help="only the 9 core tasks every cell ran")
-    swe_run.add_argument("--n-attempts", type=int, default=swe_together.N_ATTEMPTS)
-    swe_run.add_argument("--workers", type=int, default=4)
-    swe_run.add_argument("--checkout", type=Path, default=Path("vendor/SWE-Together"))
-    swe_run.add_argument("--python", default=sys.executable, help="the SWE-Together environment's interpreter")
-    swe_run.add_argument("--proxy-url", default=f"http://{DEFAULT_PROXY_HOST}:{DEFAULT_PROXY_PORT}")
-    swe_run.add_argument("--env-type", default="docker")
-    swe_run.add_argument("--dry-run", action="store_true")
-    bind(swe_run, cmd_swe_run)
-    swe_collect = swe_commands.add_parser("collect")
-    swe_collect.add_argument("--run-id", type=run_id_arg, required=True)
-    swe_collect.add_argument("--analytics-ndjson", type=Path, default=None, help="replay a saved export")
-    bind(swe_collect, cmd_swe_collect)
+    swe_together_parser = commands.add_parser("swe-together", help="work-ratio matrix on SWE-Together")
+    swe_together_commands = swe_together_parser.add_subparsers(dest="swe_command", required=True)
+    swe_together_run = swe_together_commands.add_parser("run")
+    swe_together_run.add_argument("--run-id", type=run_id_arg, required=True)
+    swe_together_run.add_argument("--cells", default="", help="harness:model,... (default: the published cells)")
+    swe_together_run.add_argument("--tasks", default="", help="comma-separated task ids (default: all 25)")
+    swe_together_run.add_argument("--core-only", action="store_true", help="only the 9 core tasks every cell ran")
+    swe_together_run.add_argument("--n-attempts", type=int, default=swe_together.N_ATTEMPTS)
+    swe_together_run.add_argument("--workers", type=int, default=4)
+    swe_together_run.add_argument("--checkout", type=Path, default=Path("vendor/SWE-Together"))
+    swe_together_run.add_argument("--python", default=sys.executable, help="the SWE-Together environment's interpreter")
+    swe_together_run.add_argument("--proxy-url", default=f"http://{DEFAULT_PROXY_HOST}:{DEFAULT_PROXY_PORT}")
+    swe_together_run.add_argument("--env-type", default="docker")
+    swe_together_run.add_argument("--dry-run", action="store_true")
+    bind(swe_together_run, cmd_swe_run)
+    swe_together_collect = swe_together_commands.add_parser("collect")
+    swe_together_collect.add_argument("--run-id", type=run_id_arg, required=True)
+    swe_together_collect.add_argument("--analytics-ndjson", type=Path, default=None, help="replay a saved export")
+    bind(swe_together_collect, cmd_swe_collect)
 
-    tb = commands.add_parser("terminal-bench", help="quality arms on Terminal-Bench 4")
-    tb_commands = tb.add_subparsers(dest="tb_command", required=True)
-    tb_run = tb_commands.add_parser("run")
-    tb_run.add_argument("--run-id", type=run_id_arg, required=True)
-    tb_run.add_argument("--arms", default="", help=f"default: {','.join(terminal_bench.DEFAULT_ARMS)}")
-    tb_run.add_argument("--tasks", default="", help="comma-separated task names (default: all 33)")
-    tb_run.add_argument("--n-attempts", type=int, default=terminal_bench.N_ATTEMPTS)
-    tb_run.add_argument("--n-concurrent", type=int, default=terminal_bench.N_CONCURRENT)
-    tb_run.add_argument("--dry-run", action="store_true")
-    bind(tb_run, cmd_tb_run)
+    terminal_bench_parser = commands.add_parser("terminal-bench", help="quality arms on Terminal-Bench 4")
+    terminal_bench_commands = terminal_bench_parser.add_subparsers(dest="tb_command", required=True)
+    terminal_bench_run = terminal_bench_commands.add_parser("run")
+    terminal_bench_run.add_argument("--run-id", type=run_id_arg, required=True)
+    terminal_bench_run.add_argument("--arms", default="", help=f"default: {','.join(terminal_bench.DEFAULT_ARMS)}")
+    terminal_bench_run.add_argument("--tasks", default="", help="comma-separated task names (default: all 33)")
+    terminal_bench_run.add_argument("--n-attempts", type=int, default=terminal_bench.N_ATTEMPTS)
+    terminal_bench_run.add_argument("--n-concurrent", type=int, default=terminal_bench.N_CONCURRENT)
+    terminal_bench_run.add_argument("--dry-run", action="store_true")
+    bind(terminal_bench_run, cmd_tb_run)
 
     report = commands.add_parser("report", help="compute ratios and quality factors into a results file")
-    report.add_argument("--swe-together", nargs="*", default=[], type=run_id_arg, help="run ids to pool")
+    report.add_argument(
+        "--swe-together", nargs="*", default=[], type=run_id_arg, help="run ids, pooled per cell by the reset rules"
+    )
     report.add_argument(
         "--all-pairs", action="store_true", help="every model as comparison, not just the requested one"
     )

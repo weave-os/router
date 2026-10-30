@@ -34,12 +34,6 @@ class RequestCost:
     actual_usd: float
 
 
-def ratio_bounds(work: WorkRatios, bound_set: BoundSet) -> tuple[float, float]:
-    if bound_set is BoundSet.CAPPED:
-        return work.input_capped, work.output_capped
-    return work.input_credited, work.output_credited
-
-
 def adjusted_comparison_cost(
     cost: RequestCost, work: WorkRatios | None, bound_set: BoundSet, *, penalty: float = 1.0
 ) -> float:
@@ -47,7 +41,11 @@ def adjusted_comparison_cost(
         return cost.actual_usd
     if penalty < 1.0:
         raise ValueError(f"pass-rate penalty {penalty} is below 1")
-    input_ratio, output_ratio = ratio_bounds(work, bound_set)
+    input_ratio, output_ratio = (
+        (work.input_capped, work.output_capped)
+        if bound_set is BoundSet.CAPPED
+        else (work.input_credited, work.output_credited)
+    )
     return (cost.comparison_input_usd * input_ratio + cost.comparison_output_usd * output_ratio) / penalty
 
 

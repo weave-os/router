@@ -45,6 +45,9 @@ CLAUDE_SESSION_KEY = "session_id"
 CODEX_STREAM_FILENAME = "codex.txt"
 CODEX_THREAD_STARTED = "thread.started"
 PASSING_REWARD = 1.0
+# Harbor exceptions that mean the agent itself failed the task (it ran out of
+# time or crashed), as opposed to the sandbox or harness failing around it.
+AGENT_FAILURE_EXCEPTIONS = frozenset({"AgentTimeoutError", "NonZeroAgentExitCodeError"})
 
 
 @dataclass(frozen=True)
@@ -170,7 +173,7 @@ class HarborTrial:
     task: str
     trial_name: str
     reward: float | None
-    errored: bool
+    exception_type: str | None
     session_id: str | None
     started_at: datetime
     finished_at: datetime
@@ -219,7 +222,7 @@ def load_harbor_trials(job_dir: Path) -> list[HarborTrial]:
                 task=str(result["task_name"]).rsplit("/", 1)[-1],
                 trial_name=str(result["trial_name"]),
                 reward=rewards.get("reward"),
-                errored=result.get("exception_info") is not None,
+                exception_type=(result.get("exception_info") or {}).get("exception_type"),
                 session_id=trial_session_id(result_path.parent),
                 started_at=datetime.fromisoformat(result["started_at"]),
                 finished_at=datetime.fromisoformat(result["finished_at"]),
@@ -249,20 +252,36 @@ def catalog_cost_usd(rows: Iterable[DecisionRow], prices: PriceTable | None = No
 
 
 def trial_outcome(trial: HarborTrial, rows: Iterable[DecisionRow], prices: PriceTable | None = None) -> TaskOutcome:
-    """An errored trial with no verifier reward is infrastructure, not a failure:
-    it keeps its cost but is not graded."""
-    solved = None if trial.errored and trial.reward is None else trial.reward == PASSING_REWARD
+    """A trial without a verifier reward is a failure when the agent itself
+    failed (``AGENT_FAILURE_EXCEPTIONS``) and ungraded otherwise: an
+    infrastructure error keeps its cost but is neither a pass nor a failure."""
+    if trial.reward is not None:
+        solved: bool | None = trial.reward == PASSING_REWARD
+    else:
+        solved = False if trial.exception_type in AGENT_FAILURE_EXCEPTIONS else None
     return TaskOutcome(cost_usd=catalog_cost_usd(rows, prices), solved=solved)
+
+
+@dataclass(frozen=True)
+class ArmOutcomes:
+    by_task: dict[str, list[TaskOutcome]]
+    # Trials with no session id or no router rows: their cost is unknown, so
+    # they are left out rather than counted as free attempts.
+    missing_telemetry: tuple[str, ...]
 
 
 def arm_outcomes(
     trials: Iterable[HarborTrial], rows_by_session: Mapping[str, list[DecisionRow]], prices: PriceTable | None = None
-) -> dict[str, list[TaskOutcome]]:
-    outcomes: dict[str, list[TaskOutcome]] = defaultdict(list)
+) -> ArmOutcomes:
+    by_task: dict[str, list[TaskOutcome]] = defaultdict(list)
+    missing: list[str] = []
     for trial in trials:
-        rows = rows_by_session.get(trial.session_id or "", [])
-        outcomes[trial.task].append(trial_outcome(trial, rows, prices))
-    return dict(outcomes)
+        rows = rows_by_session.get(trial.session_id or "") if trial.session_id else None
+        if not rows:
+            missing.append(trial.trial_name)
+            continue
+        by_task[trial.task].append(trial_outcome(trial, rows, prices))
+    return ArmOutcomes(dict(by_task), tuple(missing))
 
 
 def served_mix(trials: Iterable[HarborTrial], rows_by_session: Mapping[str, list[DecisionRow]]) -> dict[str, int]:

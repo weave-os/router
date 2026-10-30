@@ -75,7 +75,9 @@ did the work (`estimates.trial_violations`):
   tokens);
 - at most half the requests failed upstream;
 - every row served the pinned model, except Claude Code's web-search side
-  requests, which only Anthropic can serve, when they are at most 10% of rows.
+  requests, which only Anthropic can serve, when they are at most 10% of rows;
+- the harness process exited cleanly: a crashed trial's partial tokens would
+  make its model look cheaper than it is.
 
 ## Tasks and attempts
 
@@ -154,10 +156,14 @@ catalog rates (`prices.generated.json`). The export's own `actual_*` cost is $0
 for subscription-served rows, so it cannot price an arm that ran on
 subscriptions.
 
-An attempt that errored before the verifier ran (sandbox or infrastructure
-failure) keeps its cost but is neither a pass nor a failure. All statistics
-are per task (mean over its graded attempts), over the tasks both arms graded,
-and intervals are task bootstraps as above.
+An attempt with no verifier reward is a **failure** when the agent itself
+failed (Harbor's `AgentTimeoutError` or `NonZeroAgentExitCodeError`), and
+**ungraded** otherwise: a sandbox or infrastructure error keeps its cost but is
+neither a pass nor a failure. An attempt with no router rows (no session id, or
+no matching export rows) has no known cost and is left out entirely; the report
+warns and counts it as `missing_telemetry`. All statistics are per task (mean
+over its graded attempts), over the tasks both arms graded, and intervals are
+task bootstraps as above.
 
 - **Pass rate**: mean over tasks of each task's solve rate.
 - **Kept rate**: savings on cost per solved task over savings on cost per
@@ -170,7 +176,8 @@ and intervals are task bootstraps as above.
   ```
 
   1 means task success changes nothing; 0.65 means 65% of the per-attempt
-  savings survive once failures are paid for.
+  savings survive once failures are paid for. It is undefined (null) when the
+  router solved nothing or the arms cost the same.
 - **Pass-rate penalty**: always-X pass rate over the router's, as a one-sided
   95% upper bound and never below 1 (`quality.capped_pass_rate_penalty`). Each
   arm's standard error comes from its bootstrap interval (half-width ÷ 1.645),
@@ -256,17 +263,19 @@ weave-bench efficiency swe-together run --run-id eff-$(date +%Y%m%d) \
   --python vendor/SWE-Together/.venv/bin/python --dry-run
 ```
 
-Drop `--dry-run` to run. The patch only makes the upstream harness's pinned
+Drop `--dry-run` to run. The pin proxy needs the `tap` extra. The patch only makes the upstream harness's pinned
 Claude Code and Codex versions settable (Opus 5.5 rejects Claude Code before
 2.1.280). Trials are recorded in `jobs/token-efficiency/<run id>/trials.jsonl`;
-rerunning the same run id skips trials that finished. Then:
+rerunning the same run id skips trials that finished cleanly and reruns the
+rest under a fresh rollout id (`<trial id>-r<n>`), so a failed attempt's rows
+never join its retry. Then:
 
 ```bash
 weave-bench efficiency swe-together collect --run-id eff-<date>
 ```
 
-This reads the export for the trials' window, keeps each trial's rows by
-rollout id (saved under `rows/`, and the whole export window as NDJSON), applies
+This reads the export for the trials' window, keeps each trial's latest
+attempt's rows by rollout id (saved under `rows/`, and the whole export window as NDJSON), applies
 the guard, and writes `usage.json`: per trial, its cell, task, attempt, token
 usage and any violations. That file is the raw evidence the ratios come from;
 `--analytics-ndjson` replays a saved export instead of fetching.
@@ -292,8 +301,10 @@ weave-bench efficiency report \
   --out token-efficiency/results/my_results.json
 ```
 
-`--swe-together` pools every listed run's trials into one estimate per cell;
-by default each harness's cells are compared against its requested model
+`--swe-together` takes every run a cell was measured in and applies the
+pooling rules above per cell, so a run that drifted or changed harness version
+starts a new period instead of being blended in (the section note names each
+cell's pooled runs and why its period started); by default each harness's cells are compared against its requested model
 (`--all-pairs` compares every ordered pair). The output follows the schema
 below and is printed as Markdown; `weave-bench efficiency render <file>`
 re-renders any results file, including the published one.
@@ -353,12 +364,12 @@ roughly 3–4× fewer tokens than Claude Code whatever the model.
       "baseline_model": "gpt-6-astra",            // X of the always-X arm
       "router_arm": "cx-router", "baseline_arm": "cx-astra",
       "tasks": 33,                                // tasks both arms graded
-      "kept_rate":          {"point": …, "lower": …, "upper": …},
+      "kept_rate":          {"point": …, "lower": …, "upper": …},   // null when undefined
       "router_pass_rate":   {"point": …, "lower": …, "upper": …},
       "baseline_pass_rate": {"point": …, "lower": …, "upper": …},
       "pass_rate_penalty": …,                     // null when the router solved nothing
-      "router":   {"solved": …, "graded": …, "attempts": …, "catalog_cost_usd": …},
-      "baseline": {"solved": …, "graded": …, "attempts": …, "catalog_cost_usd": …},
+      "router":   {"solved": …, "graded": …, "attempts": …, "catalog_cost_usd": …, "missing_telemetry": …},
+      "baseline": {"solved": …, "graded": …, "attempts": …, "catalog_cost_usd": …, "missing_telemetry": …},
       "router_served_mix": {"<model>": …}          // router rows per served model
     }]
   }

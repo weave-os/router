@@ -114,7 +114,8 @@ def task_bootstrap(
 
 @dataclass(frozen=True)
 class QualityFactor:
-    kept_rate: Interval
+    # None when undefined: the router solved nothing, or there were no naive savings.
+    kept_rate: Interval | None
     router_pass_rate: Interval
     baseline_pass_rate: Interval
     tasks: int
@@ -127,25 +128,19 @@ class QualityFactor:
     baseline_attempts: int
     baseline_cost_usd: float
 
-    @property
-    def router_cost_per_solved(self) -> float:
-        return self.router_cost_usd / self.router_solved if self.router_solved else math.inf
-
-    @property
-    def baseline_cost_per_solved(self) -> float:
-        return self.baseline_cost_usd / self.baseline_solved if self.baseline_solved else math.inf
-
 
 def quality_factor(router: ArmTasks, baseline: ArmTasks) -> QualityFactor | None:
-    """Over the tasks both arms graded at least once; None when they share none
-    or the kept rate is undefined."""
+    """Over the tasks both arms graded at least once; None when they share none."""
     tasks = sorted(
         task for task in set(router.attempts) & set(baseline.attempts) if router.graded(task) and baseline.graded(task)
     )
-    if not tasks or math.isnan(kept_rate(router, baseline, tasks)):
+    if not tasks:
         return None
+    kept_rate_defined = not math.isnan(kept_rate(router, baseline, tasks))
     return QualityFactor(
-        kept_rate=task_bootstrap(tasks, lambda sample: kept_rate(router, baseline, sample)),
+        kept_rate=task_bootstrap(tasks, lambda sample: kept_rate(router, baseline, sample))
+        if kept_rate_defined
+        else None,
         router_pass_rate=task_bootstrap(tasks, lambda sample: _mean([router.solve_rate(task) for task in sample])),
         baseline_pass_rate=task_bootstrap(tasks, lambda sample: _mean([baseline.solve_rate(task) for task in sample])),
         tasks=len(tasks),

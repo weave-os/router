@@ -33,8 +33,6 @@ class ResetReason(StrEnum):
 
 @dataclass(frozen=True)
 class QualityArms:
-    """Attempts per task: the router arm and the always-baseline arm."""
-
     router: Mapping[str, Sequence[TaskOutcome]]
     baseline: Mapping[str, Sequence[TaskOutcome]]
 
@@ -50,7 +48,6 @@ class MeasurementRun:
     run_id: str
     measured_at: datetime
     harness_versions: Mapping[Harness, str]
-    # Token usage per attempt, per task, per cell.
     trials: Mapping[Cell, Mapping[str, Sequence[TokenUsage]]] = field(default_factory=dict)
     quality: Mapping[QualityCell, QualityArms] = field(default_factory=dict)
     # Provider revision behind a model id, where one is known.
@@ -71,7 +68,7 @@ def current_period[Estimate](
     measures: Callable[[MeasurementRun], bool],
     estimate: Callable[[Sequence[MeasurementRun]], Estimate],
     identity: Callable[[MeasurementRun], Hashable],
-    intervals: Callable[[Estimate], Sequence[Interval]],
+    intervals: Callable[[Estimate], Sequence[Interval | None]],
 ) -> Period[Estimate] | None:
     period: Period[Estimate] | None = None
     for run in sorted(runs, key=lambda run: run.measured_at):
@@ -83,7 +80,7 @@ def current_period[Estimate](
         elif identity(run) != identity(period.runs[-1]):
             period = Period((run,), ResetReason.HARNESS_CHANGE, run_estimate)
         elif not all(
-            pooled.overlaps(latest)
+            pooled is None or latest is None or pooled.overlaps(latest)
             for pooled, latest in zip(intervals(period.estimate), intervals(run_estimate), strict=True)
         ):
             period = Period((run,), ResetReason.DRIFT, run_estimate)
@@ -143,7 +140,7 @@ def quality_period(runs: Sequence[MeasurementRun], cell: QualityCell) -> Period[
     def estimate(period_runs: Sequence[MeasurementRun]) -> QualityFactor:
         factor = pooled_quality_factor(period_runs, cell)
         if factor is None:
-            raise ValueError(f"{cell} has no defined kept rate over {[run.run_id for run in period_runs]}")
+            raise ValueError(f"{cell} has no task both arms graded over {[run.run_id for run in period_runs]}")
         return factor
 
     return current_period(

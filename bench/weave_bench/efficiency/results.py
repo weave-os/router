@@ -7,14 +7,15 @@ from __future__ import annotations
 
 import json
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from itertools import permutations
 from pathlib import Path
 
 from weave_bench.efficiency.cells import Cell, Harness
-from weave_bench.efficiency.estimates import EfficiencyEstimate, TokenUsage, WorkRatios, mean_usage, work_ratios
+from weave_bench.efficiency.estimates import EfficiencyEstimate, WorkRatios
+from weave_bench.efficiency.pooling import MeasurementRun, ratio_period
 from weave_bench.efficiency.quality import Interval, QualityFactor, capped_pass_rate_penalty
 from weave_bench.efficiency.tasks import swe_together_manifest, terminal_bench_manifest
 
@@ -58,21 +59,27 @@ def work_ratios_from_row(row: Mapping[str, object]) -> WorkRatios:
 
 
 def ratio_rows(
-    trials: Mapping[Cell, Mapping[str, list[TokenUsage]]], comparison_models: Mapping[Harness, str] | None = None
-) -> list[dict[str, object]]:
+    runs: Sequence[MeasurementRun], comparison_models: Mapping[Harness, str] | None = None
+) -> tuple[list[dict[str, object]], list[str]]:
     """Every ordered (comparison, served) pair within a harness, or only pairs
-    against ``comparison_models[harness]`` when given."""
-    usage = {cell: {task: mean_usage(attempts) for task, attempts in tasks.items()} for cell, tasks in trials.items()}
+    against ``comparison_models[harness]`` when given, each estimated from its
+    current pooling period (``pooling.ratio_period``), with one note per row
+    naming the runs pooled and why the period started."""
+    cells = sorted({cell for run in runs for cell in run.trials})
     rows: list[dict[str, object]] = []
-    for comparison, served in permutations(sorted(usage), 2):
+    notes: list[str] = []
+    for comparison, served in permutations(cells, 2):
         if comparison.harness is not served.harness:
             continue
         if comparison_models is not None and comparison_models.get(comparison.harness) != comparison.model:
             continue
-        if not set(usage[comparison]) & set(usage[served]):
+        period = ratio_period(runs, comparison, served)
+        if period is None:
             continue
-        rows.append(ratio_row(comparison, served, work_ratios(usage[comparison], usage[served], native=served.native)))
-    return rows
+        rows.append(ratio_row(comparison, served, period.estimate))
+        pooled = ", ".join(run.run_id for run in period.runs)
+        notes.append(f"{served.harness}/{served.model}: {pooled} ({period.reset_reason})")
+    return rows, notes
 
 
 @dataclass(frozen=True)
@@ -83,6 +90,9 @@ class QualityComparison:
     baseline_model: str
     factor: QualityFactor
     served_mix: Mapping[str, int]
+    # Finished trials with no router rows to price, left out of every count above.
+    router_missing_telemetry: int
+    baseline_missing_telemetry: int
 
 
 def _interval_dict(interval: Interval) -> dict[str, float]:
@@ -91,39 +101,39 @@ def _interval_dict(interval: Interval) -> dict[str, float]:
 
 def quality_row(comparison: QualityComparison) -> dict[str, object]:
     factor = comparison.factor
-    penalty = capped_pass_rate_penalty(factor.baseline_pass_rate, factor.router_pass_rate)
     return {
         "harness": comparison.harness.value,
         "baseline_model": comparison.baseline_model,
         "router_arm": comparison.router_arm,
         "baseline_arm": comparison.baseline_arm,
         "tasks": factor.tasks,
-        "kept_rate": _interval_dict(factor.kept_rate),
+        "kept_rate": None if factor.kept_rate is None else _interval_dict(factor.kept_rate),
         "router_pass_rate": _interval_dict(factor.router_pass_rate),
         "baseline_pass_rate": _interval_dict(factor.baseline_pass_rate),
-        "pass_rate_penalty": penalty,
+        "pass_rate_penalty": capped_pass_rate_penalty(factor.baseline_pass_rate, factor.router_pass_rate),
         "router": {
             "solved": factor.router_solved,
             "graded": factor.router_graded,
             "attempts": factor.router_attempts,
             "catalog_cost_usd": factor.router_cost_usd,
+            "missing_telemetry": comparison.router_missing_telemetry,
         },
         "baseline": {
             "solved": factor.baseline_solved,
             "graded": factor.baseline_graded,
             "attempts": factor.baseline_attempts,
             "catalog_cost_usd": factor.baseline_cost_usd,
+            "missing_telemetry": comparison.baseline_missing_telemetry,
         },
         "router_served_mix": dict(comparison.served_mix),
     }
 
 
 def work_ratio_section(rows: list[dict[str, object]], status: EvidenceStatus, note: str = "") -> dict[str, object]:
-    manifest = swe_together_manifest()
     return {
         "benchmark": "swe-together",
         "status": status.value,
-        "task_set_digest": manifest["digest"],
+        "task_set_digest": swe_together_manifest()["digest"],
         "interval": "task bootstrap, 90%",
         "note": note,
         "rows": rows,
@@ -131,11 +141,10 @@ def work_ratio_section(rows: list[dict[str, object]], status: EvidenceStatus, no
 
 
 def quality_section(rows: list[dict[str, object]], status: EvidenceStatus, note: str = "") -> dict[str, object]:
-    manifest = terminal_bench_manifest()
     return {
         "benchmark": "terminal-bench-4",
         "status": status.value,
-        "task_set_digest": manifest["digest"],
+        "task_set_digest": terminal_bench_manifest()["digest"],
         "interval": "task bootstrap, 90%",
         "note": note,
         "rows": rows,
@@ -211,7 +220,8 @@ def validate_results(document: Mapping[str, object]) -> None:
             _require(set(row) == row_keys, f"{where} keys {sorted(set(row) ^ row_keys)} differ from the schema")
             Harness(row["harness"])
             for interval_key in ("input", "output", "kept_rate", "router_pass_rate", "baseline_pass_rate"):
-                if interval_key in row:
+                # An undefined kept rate is null; every other interval is required.
+                if interval_key in row and not (interval_key == "kept_rate" and row[interval_key] is None):
                     _require_interval(row[interval_key], f"{where}.{interval_key}")
             _require(isinstance(row["tasks"], int) and row["tasks"] > 0, f"{where}.tasks must be a positive int")
 
@@ -222,7 +232,9 @@ def read_results(path: Path) -> dict[str, object]:
     return document
 
 
-def _fmt(interval: Mapping[str, float]) -> str:
+def _fmt(interval: Mapping[str, float] | None) -> str:
+    if interval is None:
+        return "—"
     return f"{interval['point']:.2f} [{interval['lower']:.2f}–{interval['upper']:.2f}]"
 
 

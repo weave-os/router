@@ -106,6 +106,7 @@ class Violation(StrEnum):
     NO_ROWS = "no_router_rows"
     FAILED_REQUESTS = "requests_failed"
     WRONG_MODEL = "served_by_unpinned_model"
+    UNFINISHED = "trial_did_not_finish"
 
 
 def _anthropic_side_request(cell: Cell, row: DecisionRow) -> bool:

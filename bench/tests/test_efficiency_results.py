@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -9,14 +10,19 @@ import pytest
 from weave_bench.benchmarks import Benchmark
 from weave_bench.efficiency.cells import REQUESTED_MODEL, Cell, Harness
 from weave_bench.efficiency.estimates import EfficiencyEstimate, TokenUsage, WorkRatios
+from weave_bench.efficiency.pooling import MeasurementRun
+from weave_bench.efficiency.quality import ArmTasks, TaskOutcome, quality_factor
 from weave_bench.efficiency.results import (
     EvidenceStatus,
+    QualityComparison,
+    quality_row,
     quality_section,
     ratio_rows,
     read_results,
     render_markdown,
     results_document,
     validate_results,
+    work_ratio_section,
     work_ratios_from_row,
 )
 from weave_bench.efficiency.savings import BoundSet, RequestCost, adjusted_savings, naive_savings
@@ -85,30 +91,64 @@ def test_ratio_rows_pair_each_served_cell_with_its_harness_comparison() -> None:
             for i in range(4)
         }
 
-    trials = {
-        Cell(Harness.CODEX, "gpt-6-astra"): tasks(1),
-        Cell(Harness.CODEX, "gpt-6-luna"): tasks(2),
-        Cell(Harness.CLAUDE_CODE, "gpt-6-luna"): tasks(3),
-    }
-    rows = ratio_rows(trials, REQUESTED_MODEL)
+    run = MeasurementRun(
+        "eff-1",
+        datetime(2026, 10, 9, tzinfo=UTC),
+        {Harness.CODEX: "0.133.0", Harness.CLAUDE_CODE: "2.1.280"},
+        trials={
+            Cell(Harness.CODEX, "gpt-6-astra"): tasks(1),
+            Cell(Harness.CODEX, "gpt-6-luna"): tasks(2),
+            Cell(Harness.CLAUDE_CODE, "gpt-6-luna"): tasks(3),
+        },
+    )
+    rows, notes = ratio_rows([run], REQUESTED_MODEL)
     assert [(row["comparison_model"], row["served_model"]) for row in rows] == [("gpt-6-astra", "gpt-6-luna")]
     assert rows[0]["input"]["point"] == pytest.approx(0.5)
     assert rows[0]["tasks"] == 4
-    assert len(ratio_rows(trials)) == 2
+    assert notes == ["codex/gpt-6-luna: eff-1 (initial)"]
+    assert len(ratio_rows([run])[0]) == 2
     validate_results(
         results_document(
-            work_ratios={
-                "benchmark": "swe-together",
-                "status": "preliminary",
-                "task_set_digest": swe_together_manifest()["digest"],
-                "interval": "task bootstrap, 90%",
-                "note": "",
-                "rows": rows,
-            },
+            work_ratios=work_ratio_section(rows, EvidenceStatus.PRELIMINARY),
             quality_factors=quality_section([], EvidenceStatus.PENDING),
             measured="test",
         )
     )
+
+
+def test_ratio_rows_use_only_the_current_period_after_drift() -> None:
+    def run(run_id: str, day: int, served_scale: float) -> MeasurementRun:
+        spread = (0.7, 1.3, 0.9, 1.2, 0.8, 1.1)
+        return MeasurementRun(
+            run_id,
+            datetime(2026, 10, day, tzinfo=UTC),
+            {Harness.CODEX: "0.133.0"},
+            trials={
+                Cell(Harness.CODEX, "gpt-6-astra"): {f"t{i}": [TokenUsage(100.0, 0, 0, 10)] for i in range(6)},
+                Cell(Harness.CODEX, "gpt-6-luna"): {
+                    f"t{i}": [TokenUsage(100.0 * factor * served_scale, 0, 0, 10)] for i, factor in enumerate(spread)
+                },
+            },
+        )
+
+    rows, notes = ratio_rows([run("old", 1, 1.0), run("new", 2, 4.0)], REQUESTED_MODEL)
+    assert rows[0]["input"]["point"] == pytest.approx(600 / (100 * sum((0.7, 1.3, 0.9, 1.2, 0.8, 1.1)) * 4))
+    assert notes == ["codex/gpt-6-luna: new (drift)"]
+
+
+def test_a_zero_solve_comparison_keeps_its_pass_rates_with_a_null_kept_rate() -> None:
+    router = ArmTasks({"t1": [TaskOutcome(1, False)], "t2": [TaskOutcome(1, False)]})
+    baseline = ArmTasks({"t1": [TaskOutcome(3, True)], "t2": [TaskOutcome(3, True)]})
+    factor = quality_factor(router, baseline)
+    assert factor is not None and factor.kept_rate is None
+    row = quality_row(QualityComparison(Harness.CODEX, "cx-router", "cx-astra", "gpt-6-astra", factor, {}, 0, 0))
+    assert row["kept_rate"] is None and row["pass_rate_penalty"] is None
+    assert row["router_pass_rate"]["point"] == 0 and row["baseline_pass_rate"]["point"] == 1
+    document = results_document(
+        work_ratios=None, quality_factors=quality_section([row], EvidenceStatus.PRELIMINARY), measured="test"
+    )
+    validate_results(document)
+    assert "| — | — |" in render_markdown(document)
 
 
 WORK = WorkRatios(EfficiencyEstimate(0.8, 0.6, 1.0, 25), EfficiencyEstimate(1.5, 1.2, 1.9, 25), native=True)
