@@ -33,11 +33,13 @@ const (
 )
 
 type taskDomainPreviewItemRequest struct {
-	Policy   json.RawMessage     `json:"policy"`
-	Evidence json.RawMessage     `json:"evidence"`
-	Cluster  string              `json:"cluster"`
-	Harness  string              `json:"harness"`
-	Domains  []taskdomain.Domain `json:"domains"`
+	Policy   json.RawMessage `json:"policy"`
+	Evidence json.RawMessage `json:"evidence"`
+	Cluster  string          `json:"cluster"`
+	Harness  string          `json:"harness"`
+	// SubscriptionProviders previews ladder selection; empty means none in play.
+	SubscriptionProviders []string            `json:"subscription_providers,omitempty"`
+	Domains               []taskdomain.Domain `json:"domains"`
 }
 
 type taskDomainPreviewRequest struct {
@@ -143,7 +145,7 @@ func previewTaskDomainItem(c *gin.Context, req taskDomainPreviewItemRequest) tas
 		item.Status = TaskDomainPreviewEvidenceRejected
 		return item
 	}
-	preview, err := selection.PreviewDomainRanking(roster, evidence, req.Cluster, req.Harness, profile)
+	preview, err := selection.PreviewDomainRanking(roster, evidence, req.Cluster, req.Harness, req.SubscriptionProviders, profile)
 	if err != nil {
 		observability.FromGin(c).Debug("Task-domain preview failed", "roster_sha256", roster.SHA256, "cluster", req.Cluster, "err", err)
 		item.Status = TaskDomainPreviewFailed

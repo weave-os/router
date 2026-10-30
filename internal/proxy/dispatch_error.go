@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -16,6 +17,7 @@ import (
 	"weave-os/router/internal/router/hmm"
 	"weave-os/router/internal/router/policy"
 	"weave-os/router/internal/router/rl"
+	"weave-os/router/internal/subscriptions/entitlement"
 	"weave-os/router/internal/translate"
 )
 
@@ -114,6 +116,8 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	var forcedClusterStrategy *ForcedClusterUnsupportedStrategyError
 	var forcedClusterUnservable *policy.ForcedClusterUnservableError
 	var resolution *policy.ResolutionError
+	var compactionUnservable *CompactionUnservableError
+	var allowanceSpent *IncludedAllowanceSpentError
 	switch {
 	case errors.Is(err, policy.ErrClassifierWarming):
 		return DispatchErrorClass{Kind: DispatchErrorPolicyUnavailable, Status: http.StatusServiceUnavailable,
@@ -141,6 +145,18 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogMessage: "Rejected forced Claude turn: subscriptions refused third-party client",
 		}, true
 	// Ahead of the pool cases: a billing-gated pool refusal carries both.
+	case errors.As(err, &allowanceSpent):
+		kind := DispatchErrorCreditsExhausted
+		if errors.Is(err, ErrSpendCapSubscriptionUnavailable) {
+			kind = DispatchErrorSpendCapReached
+		}
+		return DispatchErrorClass{
+			Kind:       kind,
+			Status:     http.StatusPaymentRequired,
+			Message:    includedAllowanceSpentMessage(allowanceSpent),
+			LogLevel:   "warn",
+			LogMessage: "Subscription-only request refused: included allowance spent and subscription unavailable",
+		}, true
 	case errors.Is(err, ErrSpendCapSubscriptionUnavailable):
 		return DispatchErrorClass{
 			Kind:       DispatchErrorSpendCapReached,
@@ -227,8 +243,8 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 			LogLevel:   "warn",
 			LogMessage: "Rejected request: forced cluster has no eligible model",
 		}, true
-	case errors.As(err, new(*CompactionUnservableError)):
-		return compactionUnservableClass, true
+	case errors.As(err, &compactionUnservable):
+		return compactionUnservableClassFor(compactionUnservable), true
 	// Before the generic upstream cases: an overflow must reach every client in
 	// its native shape, not as an opaque upstream failure.
 	case isContextOverflow(err):
@@ -517,4 +533,27 @@ func LogDispatchErrorClass(log *slog.Logger, cls DispatchErrorClass, err error) 
 	case "error":
 		log.Error(cls.LogMessage, "err", err)
 	}
+}
+
+var allowanceWindowNames = map[entitlement.PeriodKind]string{
+	entitlement.PeriodKindSixHour: "six-hour",
+	entitlement.PeriodKindWeekly:  "weekly",
+	entitlement.PeriodKindBilling: "monthly",
+}
+
+var allowancePlanNames = map[entitlement.Plan]string{
+	entitlement.PlanBoost: "Boost",
+	entitlement.PlanMax:   "Max",
+}
+
+func includedAllowanceSpentMessage(e *IncludedAllowanceSpentError) string {
+	message := fmt.Sprintf("Your Weave router %s plan's %s allowance is used up and your subscription can't serve this turn (rate-limited, or the requested model isn't subscription-covered).",
+		allowancePlanNames[e.Window.Plan], allowanceWindowNames[e.Window.Kind])
+	if !e.Window.ResetsAt.IsZero() {
+		message += " Included usage resumes at " + e.Window.ResetsAt.UTC().Format("15:04 MST on Jan 2") + "."
+	}
+	if errors.Is(e.orgGate, ErrSpendCapSubscriptionUnavailable) {
+		return message + " A Weave router spend cap blocks paid routing until then."
+	}
+	return message + " To keep routing until then, add credits: " + topUpURL
 }

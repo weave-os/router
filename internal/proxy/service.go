@@ -224,6 +224,10 @@ type Service struct {
 	// hmmUpgradeConfidenceThreshold keeps the pin. Env
 	// ROUTER_AUTHORITATIVE_DOWNGRADE_GATE, off by default.
 	authoritativeDowngradeGate bool
+	// authoritativeUpgradeSlidingThreshold lets an upgrade inside a per-group
+	// probability band (escalation.SlidingThresholdTarget) bypass the confidence
+	// floor. Env ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD, off by default.
+	authoritativeUpgradeSlidingThreshold bool
 	// hmmDowngradeHysteresisTurns is how many consecutive authoritative-per-turn
 	// votes for a cheaper-than-pin model are needed before the downgrade is
 	// applied. Env ROUTER_HMM_DOWNGRADE_HYSTERESIS_TURNS, default
@@ -1023,7 +1027,7 @@ func installationSubscriptionModelsWhenInactiveFromContext(ctx context.Context) 
 // set: the installation policy allowlist further narrowed by a request-level
 // AllowedModelsHeader subset when one is present. Nil = no policy.
 func allowedModelsForRequest(ctx context.Context) map[string]struct{} {
-	if planOwnedServingRequest(ctx) && !subscriptionStateModelsEnabled(ctx) {
+	if planHasDedicatedServingPolicy(ctx) && !subscriptionStateModelsEnabled(ctx) {
 		return nil
 	}
 	policy := installationAllowedModelSet(ctx)
@@ -1049,7 +1053,7 @@ func allowedModelsForRequest(ctx context.Context) map[string]struct{} {
 // selects it.
 func installationAllowedModelSet(ctx context.Context) map[string]struct{} {
 	var allowed map[string]struct{}
-	if !planOwnedServingRequest(ctx) || subscriptionStateModelsEnabled(ctx) {
+	if !planHasDedicatedServingPolicy(ctx) || subscriptionStateModelsEnabled(ctx) {
 		if base := installationAllowedModelsFromContext(ctx); len(base) > 0 {
 			allowed = modelSet(base)
 		}
@@ -1140,7 +1144,7 @@ func hideTerminalSurfacesForRequest(ctx context.Context) bool {
 // wins; otherwise the authed installation's persisted preference applies;
 // otherwise nil leaves the scorer on its tuned bundle defaults.
 func routingKnobsForRequest(ctx context.Context) *router.Overrides {
-	if planOwnedServingRequest(ctx) {
+	if planHasDedicatedServingPolicy(ctx) {
 		return nil
 	}
 	if k := router.RoutingKnobsFromContext(ctx); k != nil {
@@ -1231,7 +1235,7 @@ func (s *Service) productIneligibleModels(ctx context.Context) map[string]struct
 }
 
 func installationExcludedProvidersFromContext(ctx context.Context) []string {
-	if planOwnedServingRequest(ctx) && !subscriptionStateModelsEnabled(ctx) {
+	if planHasDedicatedServingPolicy(ctx) && !subscriptionStateModelsEnabled(ctx) {
 		return nil
 	}
 	v := ctx.Value(InstallationExcludedProvidersContextKey{})
@@ -1336,7 +1340,7 @@ func installationPreferredModelsFromContext(ctx context.Context) []string {
 // installationFastModeModelsFromContext returns the per-installation fast-mode
 // opt-in list stashed on ctx by the auth middleware, or nil when none is present.
 func installationFastModeModelsFromContext(ctx context.Context) []string {
-	if planOwnedServingRequest(ctx) {
+	if planHasDedicatedServingPolicy(ctx) {
 		return nil
 	}
 	v := ctx.Value(InstallationFastModeModelsContextKey{})
@@ -1355,7 +1359,7 @@ func (s *Service) preferredModelsForRequest(ctx context.Context) []string {
 	if subscriptionStateModelsEnabled(ctx) {
 		preferred = slices.Clone(installationSubscriptionModelsWhenActiveFromContext(ctx))
 	}
-	if planOwnedServingRequest(ctx) {
+	if planHasDedicatedServingPolicy(ctx) {
 		return preferred
 	}
 	for _, model := range installationPreferredModelsFromContext(ctx) {
@@ -1370,9 +1374,17 @@ func (s *Service) preferredModelsForRequest(ctx context.Context) []string {
 // nil when none are configured. Merges the API-key-scoped list (org default)
 // with the resolved user's own selection — see mergeClusterOverrides for the
 // composition rule. Only consumed by the HMM sidecar router.
+//
+// Plan-owned serving drops both lists unless the organization opts in with
+// plan_user_cluster_lists, which keeps only the member's own list: a member
+// choosing models for their own tiers is not the installation reshaping the
+// plan's roster.
 func clusterArmOverridesForRequest(ctx context.Context) map[string][]string {
-	if planOwnedServingRequest(ctx) {
-		return nil
+	if planHasDedicatedServingPolicy(ctx) {
+		if !flags.BoolOr(ctx, flags.KeyPlanUserClusterLists, false) {
+			return nil
+		}
+		return mergeClusterOverrides(nil, auth.UserClusterModelListsFrom(ctx))
 	}
 	v := ctx.Value(ClusterModelListsContextKey{})
 	keyScoped, _ := v.(map[string][]string)
@@ -1380,9 +1392,27 @@ func clusterArmOverridesForRequest(ctx context.Context) map[string][]string {
 	return mergeClusterOverrides(keyScoped, userScoped)
 }
 
-func planOwnedServingRequest(ctx context.Context) bool {
+// memberSelectedModel reports whether model is in one of the member's own
+// per-tier selections under an organization that opted in with
+// plan_user_cluster_lists. Such a pick is the member's explicit choice, so a
+// linked subscription's funding preference does not swap it for a model the
+// subscription covers. A turn with no paid capacity behind it (subscription-only
+// for any reason but linked-first) keeps the swap: the pick could not be served.
+func memberSelectedModel(ctx context.Context, model string) bool {
+	if !flags.BoolOr(ctx, flags.KeyPlanUserClusterLists, false) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
+		return false
+	}
+	for _, models := range auth.UserClusterModelListsFrom(ctx) {
+		if slices.Contains(models, model) {
+			return true
+		}
+	}
+	return false
+}
+
+func planHasDedicatedServingPolicy(ctx context.Context) bool {
 	identity, managed := requestcontext.ServingIdentityFromContext(ctx)
-	return managed && identity.Plan != ""
+	return managed && entitlement.PlanHasServingProfile(entitlement.Plan(identity.Plan))
 }
 
 // contextWindowOutputReserve is the minimum tokens reserved for the model's
@@ -1690,6 +1720,20 @@ func subscriptionProvidersForRequest(ctx context.Context) map[string]struct{} {
 	}
 	if !codexSubscriptionSuppressed(ctx) && (openaiSubscriptionFromContext(ctx) != "" || managedSubscriptionEnrolled(ctx, subscriptions.ProviderCodex)) {
 		available[providers.ProviderOpenAI] = struct{}{}
+	}
+	return available
+}
+
+// selectableSubscriptionProviders is subscriptionProvidersForRequest minus a
+// presented subscription the usage observer already reports exhausted, so model
+// selection never favors a subscription the turn will be suppressed off.
+func (s *Service) selectableSubscriptionProviders(ctx context.Context, headers http.Header) map[string]struct{} {
+	available := subscriptionProvidersForRequest(ctx)
+	if s.anthropicSubscriptionObservedExhausted(ctx, headers) {
+		delete(available, providers.ProviderAnthropic)
+	}
+	if s.codexSubscriptionExhausted(ctx, headers) {
+		delete(available, providers.ProviderOpenAI)
 	}
 	return available
 }
@@ -2256,6 +2300,13 @@ func (s *Service) WithAuthoritativeUpgradeVotes(votes int) *Service {
 // downgrade must also clear the confidence threshold. Off by default.
 func (s *Service) WithAuthoritativeDowngradeGate(enabled bool) *Service {
 	s.authoritativeDowngradeGate = enabled
+	return s
+}
+
+// WithAuthoritativeUpgradeSlidingThreshold sets the deployment default for
+// ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD. Off by default.
+func (s *Service) WithAuthoritativeUpgradeSlidingThreshold(enabled bool) *Service {
+	s.authoritativeUpgradeSlidingThreshold = enabled
 	return s
 }
 
@@ -3715,6 +3766,13 @@ func (s *Service) repinOffRefusingModel(ctx context.Context, sessionKey [session
 var anthropicPingFrame = []byte(sseEvent("ping", `{"type":"ping"}`))
 
 func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.ResponseWriter, r *http.Request) (returnErr error) {
+	// A machine search helper inherits conversation headers but must never
+	// apply a conversation-level force pin, even before bridge interception.
+	if websearch.IsClaudeCodeWebSearchHelper(body) {
+		r = r.Clone(ctx)
+		r.Header.Del(ForceModelHeader)
+	}
+	ctx = context.WithValue(ctx, nativeSearchLoggerContextKey{}, observability.FromContext(ctx))
 	ctx = s.withSubscriptionFundingAuthorization(ctx, r.Header)
 	switch gjson.GetBytes(body, "thread.type").String() {
 	case translate.MessageThreadContinue:
@@ -4016,6 +4074,12 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		return nil
 	}
 
+	if !preparingHandoff(ctx) {
+		if handled, searchErr := s.serveCodexWebSearch(ctx, body, feats.Model, env.Stream(), enabledProviders, r, w); handled {
+			return searchErr
+		}
+	}
+
 	// Pre-filter models whose context window cannot fit this request.
 	// FullTokenEstimate uses raw body bytes (÷5) to capture tool definitions,
 	// tool calls, and tool results that feats.Tokens (text-only) misses.
@@ -4091,7 +4155,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		EnabledProviders:              enabledProviders,
 		CustomBindings:                customBindings,
 		GatewayProviders:              gatewayProviders,
-		SubscriptionProviders:         subscriptionProvidersForRequest(ctx),
+		SubscriptionProviders:         s.selectableSubscriptionProviders(ctx, r.Header),
 		ExcludedModels:                excluded,
 		AllowedModels:                 allowedModelsForRequest(ctx),
 		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserve, enabledProviders), overflowAdmitted, hardExcluded),
@@ -5343,6 +5407,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			reqStats = providers.RequestMutationStats{}
 			logUpstreamBody(log, routeRes.SessionKey, decision, feats, subPrep.Body)
 			subscriptionFailoverAttempted = true
+			subscriptionErr := proxyErr
 			winnerIdx, proxyErr = s.dispatchWithFallback(subCtx, failoverInputs{
 				w:               contentSink,
 				buf:             preludeBuf,
@@ -5359,6 +5424,11 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 			bindings = subBindings
 			subscriptionFailoverUsed = proxyErr == nil
+			if credentialRejectionStands(subscriptionErr, proxyErr, anthropicOAuthCredentialRejected) {
+				proxyErr = subscriptionErr
+				subscriptionPoolFailure = false
+				flushDeferredErr()
+			}
 		}
 	}
 	// The subscription retry didn't run (mid-stream commit, or non-retryable
@@ -5472,6 +5542,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// No rescuer served (none ran, or the last one failed pre-commit); surface
 	// the held error now so it's never dropped.
 	proxyErr = asCompactionUnservable(routeRes.TurnType, decision, proxyErr)
+	proxyErr = withClientTrimCounts(ctx, proxyErr, rescuedPrimaryErr)
 	if (siblingRescueOwed || overflowRescueOnly) && proxyErr != nil && !preludeBuf.Committed() {
 		flushDeferredErr()
 	}
@@ -7424,7 +7495,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		EnabledProviders:              enabledProviders,
 		CustomBindings:                s.customBindingsForRequest(ctx),
 		GatewayProviders:              s.gatewayProvidersForRequest(ctx),
-		SubscriptionProviders:         subscriptionProvidersForRequest(ctx),
+		SubscriptionProviders:         s.selectableSubscriptionProviders(ctx, r.Header),
 		ExcludedModels:                excludedOAI,
 		AllowedModels:                 allowedModelsForRequest(ctx),
 		SafetyExcludedModels:          withoutModelsKeep(s.safetyExcludedModels(env, outputReserveOAI, enabledProviders), overflowAdmittedOAI, geminiUnsignedOAI),
@@ -8441,6 +8512,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 				"request_id", requestID)
 			codexRetryRan = true
 			respSummary = translate.ResponseSummary{}
+			subscriptionErr := proxyErr
 			winnerIdx, proxyErr = s.dispatchWithFallback(subCtx, failoverInputs{
 				w:               contentSink,
 				buf:             preludeBuf,
@@ -8458,6 +8530,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 			codexFailoverUsed = proxyErr == nil
 			subscriptionPoolFailure = isSubscriptionPoolError(proxyErr)
 			cyberRefusalSeen = cyberRefusalSeen || providers.IsUpstreamCyberPolicyRefusal(proxyErr)
+			if credentialRejectionStands(subscriptionErr, proxyErr, codexOAuthCredentialRejected) {
+				proxyErr = subscriptionErr
+				subscriptionPoolFailure = false
+				flushDeferredErr()
+			}
 		}
 	}
 

@@ -926,6 +926,29 @@ func TestAnthropicSameFormat_DisabledThinkingUpconvertedForAdaptiveModel(t *test
 	assert.Equal(t, "low", outputConfig["effort"], "disabled maps to the lowest adaptive effort")
 }
 
+// Claude Code's auto-mode classifier (stage 1) asks for a 64-token verdict with
+// thinking disabled and temperature 1, and blocks the tool call when the
+// verdict is missing. Upconverting to adaptive thinking on an always-on model
+// must not leave the visible answer competing with hidden reasoning for those
+// 64 tokens, nor send a sampling override alongside thinking.
+func TestAnthropicSameFormat_DisabledThinkingUpconvertFloorsBudgetAndDropsTemperature(t *testing.T) {
+	body := []byte(`{"model":"claude-sonnet-5","max_tokens":64,"temperature":1,"stop_sequences":["</block>"],"thinking":{"type":"disabled"},"system":"verdict","messages":[{"role":"user","content":"transcript"},{"role":"user","content":"action"}]}`)
+	for _, model := range []string{"claude-sonnet-5-5", "claude-opus-5-5"} {
+		t.Run(model, func(t *testing.T) {
+			out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{
+				TargetModel:  model,
+				Capabilities: router.Lookup(model),
+			})
+			thinking, _ := out["thinking"].(map[string]any)
+			require.NotNil(t, thinking)
+			require.Equal(t, "adaptive", thinking["type"])
+			assert.GreaterOrEqual(t, out["max_tokens"], float64(16000), "hidden reasoning must not exhaust a 64-token verdict budget")
+			assert.NotContains(t, out, "temperature", "temperature must not accompany router-enabled thinking")
+			assert.Equal(t, []any{"</block>"}, out["stop_sequences"])
+		})
+	}
+}
+
 // Legacy extended-thinking models (claude-haiku-4-5) accept thinking.type=disabled
 // natively, so it must pass through untouched.
 func TestAnthropicSameFormat_DisabledThinkingKeptForExtendedModel(t *testing.T) {

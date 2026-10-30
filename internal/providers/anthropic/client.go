@@ -228,6 +228,18 @@ func (c *Client) applyDefaultHeaders(req *http.Request) {
 	}
 }
 
+// forwardClientUserAgent relays the caller's User-Agent unless a configured
+// header already set one. Gateways key client-specific request handling off
+// it, which Go's default agent would hide.
+func forwardClientUserAgent(upstream, inbound *http.Request) {
+	if upstream.Header.Get("User-Agent") != "" {
+		return
+	}
+	if v := inbound.UserAgent(); v != "" {
+		upstream.Header.Set("User-Agent", v)
+	}
+}
+
 // applyProtectedHeaders restores c.protectedHeaders after callers layer their
 // own headers.
 func (c *Client) applyProtectedHeaders(req *http.Request) {
@@ -390,6 +402,7 @@ func (c *Client) proxyTo(ctx context.Context, cancel context.CancelCauseFunc, ur
 	requestcontext.ApplyWIFTokenType(ctx, upstream)
 	requestcontext.ApplyIdentityHeader(ctx, upstream)
 	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
+	forwardClientUserAgent(upstream, r)
 	if v := r.Header.Get("accept"); v != "" {
 		upstream.Header.Set("accept", v)
 	}
@@ -508,6 +521,7 @@ func (c *Client) Passthrough(ctx context.Context, prep providers.PreparedRequest
 	c.applyOAuthBeta(ctx, upstream, r)
 	requestcontext.ApplyWIFTokenType(ctx, upstream)
 	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
+	forwardClientUserAgent(upstream, r)
 	if v := r.Header.Get("accept"); v != "" {
 		upstream.Header.Set("accept", v)
 	}

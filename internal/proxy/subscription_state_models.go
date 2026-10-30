@@ -57,6 +57,32 @@ func (s *Service) subscriptionStateRequest(ctx context.Context, req router.Reque
 	return ctx, req
 }
 
+// memberPickPaidContext admits a member's own tier pick to this request's paid
+// set when no included subscription target serves it. It reports false, leaving
+// the included lane in charge, unless the paid lane below can actually serve the
+// pick: the exhausted set (after any OpenRouter-overflow narrowing) holds it, the
+// request's exclusions admit it, and a funded paid binding exists.
+func (s *Service) memberPickPaidContext(ctx context.Context, req router.Request, headers http.Header, pick router.Decision, includedModels []string) (context.Context, bool) {
+	if slices.Contains(includedModels, pick.Model) || !memberSelectedModel(ctx, pick.Model) {
+		return ctx, false
+	}
+	if !slices.Contains(installationSubscriptionModelsWhenInactiveFromContext(ctx), pick.Model) {
+		paidModels, _ := ctx.Value(InstallationSubscriptionModelsWhenInactiveContextKey{}).([]string)
+		ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, append(slices.Clone(paidModels), pick.Model))
+	}
+	paidModels := installationSubscriptionModelsWhenInactiveFromContext(ctx)
+	if !slices.Contains(paidModels, pick.Model) {
+		return ctx, false
+	}
+	paidCtx, paidReq := s.subscriptionStateRequest(ctx, req, paidModels)
+	if _, admitted := paidReq.AllowedModels[pick.Model]; !admitted {
+		return ctx, false
+	}
+	paidCtx = context.WithValue(billing.ReleaseLinkedFirst(paidCtx), subscriptionAPIOnlyKey{}, true)
+	paidCtx = withSuppressedClaudeSubscription(withSuppressedCodexSubscription(paidCtx))
+	return ctx, s.subscriptionStatePaidTargetAvailable(paidCtx, headers, openRouterOverflowTarget(paidCtx, pick))
+}
+
 func (s *Service) subscriptionStateModelAvailable(ctx context.Context, req router.Request, headers http.Header, model string) bool {
 	entry, known := catalog.ByID(model)
 	if !known {
@@ -130,6 +156,13 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 	in.subscriptionStateRequest = nil
 	in.alternatives = nil
 	includedModels := s.includedSubscriptionModels(ctx, request, in.subscriptionStateHeaders)
+	if pickCtx, served := s.memberPickPaidContext(ctx, request, in.subscriptionStateHeaders, in.initialDecision, includedModels); served {
+		// No linked subscription serves the member's own pick: skip the included
+		// lane and serve the pick on paid capacity instead of swapping it for a
+		// covered model.
+		ctx = pickCtx
+		includedModels = nil
+	}
 	ctx, rotationBudget := withSubscriptionAdmissionBudget(ctx)
 	hasFixedTarget := request.ForceModel != "" || callerModelPassthroughActive(ctx) ||
 		in.origin == policy.OverrideSourceDeployment || in.origin == policy.OverrideSourceRequest

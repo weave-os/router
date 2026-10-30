@@ -104,6 +104,28 @@ plus a default warehouse it can USAGE (or an explicit `SNOWFLAKE_AGENT_ROLE`
 that has one). Cortex's web search is served from Brave's index, so queries
 and results leave Snowflake's perimeter under Snowflake's vendor agreement.
 
+**Native web search with Codex subscriptions.** For a requested Codex model,
+or when no enabled provider can execute Anthropic server tools, Claude Code's
+isolated WebSearch helper can
+use an enrolled or caller-supplied Codex subscription. The router translates
+that helper to a native Responses web-search request and returns Anthropic
+search-result blocks and a cited answer. Ordinary conversations and mixed
+tool requests are unchanged. Hostname-only domain restrictions and user location are
+preserved; path-scoped or wildcard domain filters are rejected before search
+instead of being weakened. Measured token/cache usage is returned to the client.
+
+The bridge uses the existing Responses routing, account admission, quota and
+telemetry pipeline. It preserves a requested Codex-compatible model, otherwise
+uses ordinary Responses model selection; it does not pick a fixed search
+model or permit API-key fallback. Search uses low reasoning effort, a 90-second
+request deadline and a 2 MiB response bound. Because the Codex backend does
+not accept `max_tool_calls`, the bridge cancels its stream when native tool
+operations exceed `max_uses` (one by default, at most ten). Requests above that
+server-side limit are rejected before dispatch. Isolated helpers never read or
+write conversation model pins or their usage history. A successful search tool and
+terminal response are required before results are returned. No extra search
+provider key, MCP server or client configuration is needed.
+
 **OpenAI-compatible gateway.** `openai_gateway` is the same arrangement one
 wire family over: a customer endpoint speaking OpenAI Chat Completions, bearer
 auth, no default endpoint. Use it for gateways that serve models the Anthropic
@@ -520,6 +542,7 @@ HMM pick without that floor.
 | `ROUTER_AUTHORITATIVE_UPGRADE_SHADOW_STALE_AFTER` | unset | Pin-age cutoff as a Go duration. Unset or `0s` disables the stale-pin rule. |
 | `ROUTER_HMM_UPGRADE_CONFIDENCE_THRESHOLD` | `0.50` | Minimum top-class classifier probability (four groups, floor 0.25) for an upgrade to a pricier model than the session pin. |
 | `ROUTER_AUTHORITATIVE_UPGRADE_GATE` | `true` | Confidence-floor kill switch, used when policy is `score` or evidence falls back to existing policy. |
+| `ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD` | `false` | Upgrade by the predicted class's probability, bypassing the confidence floor. From a low/medium pin, maximum at 0.3-0.5 serves high and at >=0.5 maximum; from low, high at 0.3-0.5 serves medium and at >=0.5 high, and medium at >=0.3 serves medium; from medium, high needs >=0.4; from high, maximum needs >=0.5. Below a band, and for other transitions, the gates above decide. Installation override `authoritative_upgrade_sliding_threshold`. |
 
 Invalid policy, holdout, margin, or duration values fail startup. Force/hard
 pins, utility turns, deadline fallbacks, and active escalation floors still win.
@@ -559,6 +582,25 @@ carry these OpenRouter bindings as `SubscriptionOverflowOnly`, so no other
 routing or failover path uses them. Managed deployments need
 `ROUTER_OPENROUTER_PLATFORM_ENABLED=true` (or an installation BYOK OpenRouter
 key) for the lane to have a key.
+
+## Member tier selections on plans
+
+`plan_user_cluster_lists` is an organization-only boolean flag override
+(Admin → Router → Flags), default `false`. Max requests normally ignore every
+per-cluster model list. When on, each member's own per-cluster selection applies
+again to Max; the installation's key-scoped cluster lists stay ignored, and
+`excluded_models` still applies. Boost uses the default roster and ordinary
+per-cluster model lists.
+
+The flag also keeps a member's selection when a linked Claude/Codex
+subscription is preferred for funding. If the routed model is one the member
+selected and no linked subscription can serve it, the turn is served on paid
+capacity instead of being re-routed to a model the subscription covers. This
+applies only when a paid binding can serve the pick (for example, not when the
+OpenRouter overflow lane is on and the model has no OpenRouter binding). Turns
+with no paid capacity behind them (credits depleted or spend cap reached) still
+serve on the subscription.
+
 ## Provider and model exclusions
 
 Exclusions keep traffic away from a provider or model — the control to reach

@@ -505,3 +505,38 @@ func TestWithSubscriberAllowance_ChargesTheResolvedCaller(t *testing.T) {
 
 	assert.Equal(t, entitlement.SubscriberID(callerSubscriberID), metered)
 }
+
+func TestWithSubscriberAllowance_StampsSpentWindow(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		allowances *stubAllowances
+		spent      bool
+	}{
+		"six-hour window spent":  {allowances: &stubAllowances{sixHourConsumed: sixHourAllowance}, spent: true},
+		"allowance has headroom": {allowances: &stubAllowances{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			entitlements := &stubEntitlements{current: activeSubscriberEntitlement(), found: true}
+			svc := entitlement.NewService(entitlements, testCase.allowances).WithClock(func() time.Time { return allowanceNow })
+			var window entitlement.SpentWindow
+			var spent bool
+			engine := gin.New()
+			engine.POST("/v1/messages", func(c *gin.Context) {
+				c.Set("router_api_key", subscriberAPIKey())
+				middleware.WithSubscriberAllowance(svc)(c)
+				window, spent = entitlement.SpentWindowFromContext(c.Request.Context())
+				c.Status(http.StatusOK)
+			})
+			engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/messages", nil))
+
+			require.Equal(t, testCase.spent, spent)
+			if testCase.spent {
+				assert.Equal(t, entitlement.SpentWindow{
+					Plan:     entitlement.PlanBoost,
+					Kind:     entitlement.PeriodKindSixHour,
+					ResetsAt: time.Date(2026, 3, 14, 12, 0, 0, 0, time.UTC),
+				}, window)
+			}
+		})
+	}
+}

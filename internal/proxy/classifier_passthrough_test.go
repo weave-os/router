@@ -181,6 +181,24 @@ func TestClassifier_SubscriptionOnly_Exhausted_Refuses402(t *testing.T) {
 	assert.Empty(t, p.proxyBodies, "no paid dispatch may occur when the subscription cannot serve the classifier")
 }
 
+func TestClassifier_SubscriptionOnly_UsageBilledOverage_PassesThrough(t *testing.T) {
+	obs := usage.NewObserver([]byte("salt"), 10*time.Minute, time.Now)
+	obs.Record(obs.Key([]byte(bypassSubToken)), usage.Snapshot{
+		RepresentativeClaim: usage.AnthropicClaimOverage,
+		OverageInUse:        true,
+		UnifiedResetAt:      time.Now().Add(72 * time.Hour),
+	})
+	svc, fr, p, _ := classifierPassthroughFixture(t, obs)
+	rec, req := classifierRequest()
+
+	require.NoError(t, svc.ProxyMessages(billing.WithSubscriptionOnly(classifierSubscriptionCtx(), billing.SubscriptionOnlyCreditsDepleted), []byte(classifierBody), rec, req))
+
+	assert.Equal(t, 0, fr.routeCalls, "a usage-billed seat's classifier must not be scored")
+	require.Len(t, p.proxyBodies, 1)
+	assert.Contains(t, string(p.proxyBodies[0]), `"model":"`+classifierRequestedMdl+`"`)
+	assert.Equal(t, classifierPassthroughReason, rec.Header().Get(proxy.HeaderRouterDecision))
+}
+
 // A passthrough that hits a retryable upstream error falls back to the routed
 // path exactly like usage bypass, and the reroute still anchors no pin.
 func TestClassifier_PassthroughRetryable_FallsBackToRoutedDispatch_NoPin(t *testing.T) {

@@ -45,7 +45,10 @@ type DomainPreview struct {
 // eligible, at the neutral quality preference and without per-user bonuses,
 // once without and once with the task profile. Pins and harness vendor
 // priority apply exactly as in serving.
-func PreviewDomainRanking(roster *rosterdata.Roster, evidence *DomainEvidence, label, harness string, profile DomainProfile) (DomainPreview, error) {
+// PreviewDomainRanking previews one group as serving would rank it for the
+// given subscription state; nil subscriptionProviders previews a request with
+// no subscription in play.
+func PreviewDomainRanking(roster *rosterdata.Roster, evidence *DomainEvidence, label, harness string, subscriptionProviders []string, profile DomainProfile) (DomainPreview, error) {
 	if roster == nil {
 		return DomainPreview{}, errors.New("domain preview requires a roster")
 	}
@@ -69,7 +72,7 @@ func PreviewDomainRanking(roster *rosterdata.Roster, evidence *DomainEvidence, l
 		candidates[baseID] = struct{}{}
 	}
 	groups := []Group{{Label: label}}
-	_, _, components, orders, _ := SelectGroupsWithDomainPreferences(roster, groups, harness, candidates, nil, nil, evidence, profile)
+	_, _, components, orders, _ := SelectGroupsWithSubscriptions(roster, groups, harness, subscriptionProviders, candidates, nil, nil, evidence, profile)
 	effectiveOrder := orders[label]
 	effectiveRanks := make(map[string]int, len(effectiveOrder))
 	for rank, arm := range effectiveOrder {

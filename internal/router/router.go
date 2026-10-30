@@ -96,6 +96,10 @@ type Request struct {
 	// PreviousPolicyGroup is the last scored HMM group, used only when a
 	// continuation has no user text to classify and escalation is active.
 	PreviousPolicyGroup escalation.Group
+	// SlidingThresholdPinGroup is the session pin's group on an authoritative
+	// turn with the sliding threshold on; selection steps toward a higher
+	// classified group.
+	SlidingThresholdPinGroup escalation.Group
 
 	RequestedModel string
 	ClientBudget   ClientBudget
@@ -440,6 +444,7 @@ type SelectionTrace struct {
 	CandidateRosterIDs     []string                                       `json:"candidate_roster_ids"`
 	QualityBias            *float64                                       `json:"quality_bias,omitempty"`
 	PreferredModels        []string                                       `json:"preferred_models,omitempty"`
+	SubscriptionProviders  []string                                       `json:"subscription_providers,omitempty"`
 	EffectiveOrders        map[string][]string                            `json:"effective_orders"`
 	ScoresByGroup          map[string]map[string]float32                  `json:"scores_by_group,omitempty"`
 	ScoreComponentsByGroup map[string]map[string]SelectionScoreComponents `json:"score_components_by_group,omitempty"`
