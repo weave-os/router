@@ -241,6 +241,13 @@ func (s *Service) completeLLMEscalation(ctx context.Context, res turnLoopResult,
 			observability.FromContext(ctx).Info("LLM escalation interval unavailable", "completed_turns", turn.session.CompletedTurns+1)
 		}
 	}
+	intervalFailure := llmescalation.FailureNone
+	if !ready {
+		intervalFailure = llmescalation.FailureIntervalUnavailable
+	} else if llmescalation.TurnsSinceUserPrompt(messages) < llmescalation.MinTurnsAfterUserPrompt {
+		ready = false
+		intervalFailure = llmescalation.FailureRecentUserPrompt
+	}
 	capacity := false
 	if ready {
 		select {
@@ -250,10 +257,6 @@ func (s *Service) completeLLMEscalation(ctx context.Context, res turnLoopResult,
 		}
 	}
 	completionCtx, cancelCompletion := context.WithTimeout(context.WithoutCancel(ctx), llmEscalationBookkeepingTimeout)
-	intervalFailure := llmescalation.FailureNone
-	if !ready {
-		intervalFailure = llmescalation.FailureIntervalUnavailable
-	}
 	completion, err := s.llmEscalationStore.Complete(completionCtx, llmescalation.CompleteRequest{Session: turn.session, Boundary: turn.boundary, RequestID: turn.requestID, Capacity: capacity, IntervalFailure: intervalFailure})
 	cancelCompletion()
 	if err != nil || completion.Job == nil {

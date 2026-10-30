@@ -99,3 +99,20 @@ func TestRenderQwenIntervalMarksCodexExitFailures(t *testing.T) {
 	require.True(t, ready)
 	require.Equal(t, 2, strings.Count(interval, "<- [ok] "), "exit headers count only on identified Codex traffic")
 }
+
+func TestTurnsSinceUserPromptSkipsTextRidingWithToolResults(t *testing.T) {
+	prompt := func(text string) translate.EscalationMessage {
+		return translate.EscalationMessage{Role: translate.EscalationRoleUser, Blocks: []translate.EscalationBlock{{Type: translate.EscalationBlockText, Text: text}}}
+	}
+	toolResult := translate.EscalationMessage{Role: translate.EscalationRoleUser, Blocks: []translate.EscalationBlock{
+		{Type: translate.EscalationBlockToolResult, ContentJSON: `"ok"`},
+		{Type: translate.EscalationBlockText, Text: "<system-reminder>todo list is empty</system-reminder>"},
+	}}
+	act := translate.EscalationMessage{Role: translate.EscalationRoleAssistant, Blocks: []translate.EscalationBlock{{Type: translate.EscalationBlockToolCall, Name: "Bash", ArgumentsJSON: `{"command":"make test"}`}}}
+
+	messages := []translate.EscalationMessage{prompt("fix the build"), act, toolResult, act, toolResult, act}
+	require.Equal(t, 2, llmescalation.TurnsSinceUserPrompt(messages))
+
+	messages = append(messages, prompt("use the staging config instead"), act)
+	require.Equal(t, 0, llmescalation.TurnsSinceUserPrompt(messages), "the turn answering a new prompt is not an agent-only turn")
+}
