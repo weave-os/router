@@ -38,7 +38,7 @@ func InternalListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Se
 			}
 			if errors.Is(err, auth.ErrAnthropicFederationUnavailable) {
 				observability.FromGin(c).Error("Anthropic federation failed during model discovery", "external_api_key_id", req.KeyID, "err", err)
-				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Could not obtain an Anthropic workload token. Check the federation settings and Claude Console authentication history."})
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Could not obtain an Anthropic workload token. Check operator approval, federation settings, and Claude Console authentication history."})
 				return
 			}
 			if errors.Is(err, auth.ErrUpstreamCredentialUnavailable) {

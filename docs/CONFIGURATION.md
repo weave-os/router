@@ -372,6 +372,39 @@ For Google Cloud, use issuer `https://accounts.google.com` with discovery, audie
 `email` exactly. Add the target Anthropic service account to the intended workspace.
 See [Anthropic's GCP guide](https://platform.claude.com/docs/en/manage-claude/wif-providers/gcp).
 
+Managed deployments require operator-approved target bindings before federation
+can authenticate. Set `ROUTER_ANTHROPIC_FEDERATION_BINDINGS_B64` in the router worker's
+operator-owned deployment environment to a base64-encoded JSON object keyed by router
+installation UUID. Each value is the exact approved `federation_config`, including
+the rule, Anthropic organization, service account, workspace (or omission), and
+audience. For example:
+
+```json
+{"00000000-0000-0000-0000-000000000003":{
+  "federation_rule_id":"fdrl_example",
+  "organization_id":"00000000-0000-0000-0000-000000000001",
+  "service_account_id":"svac_example",
+  "workspace_id":"wrkspc_example",
+  "audience":"https://api.anthropic.com"
+}}
+```
+
+The operator must verify that the installation owner controls the Anthropic
+organization before adding a binding. Tenant-provided IDs are not evidence of
+ownership. An absent or empty map denies every managed federation request before
+minting an assertion or reading a cached token. Such denials have no Anthropic
+authentication-history entry because no exchange is sent. A tenant cannot change the
+operator's map through the provider-key API. Malformed bindings abort startup;
+changes require a new worker revision. The Weave release controller reads the operator-owned
+`router-internal/config/anthropic-federation-bindings.json` map by serving target,
+encodes it into the worker environment, and includes it in the immutable revision
+key. Approve changes to that private file before preparing the worker release. Its
+top-level keys are serving targets such as `staging` and `prod/stable`, each
+containing the installation map shown above. For urgent revocation, disable the
+Anthropic rule and retire workers retaining the old approval; a retained worker
+keeps the authorization snapshot it was released with. Self-hosted
+routers use their owner's identity and do not require this managed allowlist.
+
 Add the credential through **Settings → Provider keys → Anthropic → Anthropic
 workload identity**, or the self-hosted admin API:
 

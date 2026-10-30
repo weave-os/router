@@ -42,6 +42,7 @@ type cachedToken struct {
 // Source isolates cached tokens by key, installation and federation configuration.
 // The identity provider is called for every exchange, including refreshes.
 type Source struct {
+	bindings      map[string]auth.AnthropicFederationConfig
 	httpClient    *http.Client
 	identityToken func(context.Context, string) (string, error)
 	now           auth.Clock
@@ -73,6 +74,12 @@ func (s *Source) Token(ctx context.Context, key *auth.ExternalAPIKey) ([]byte, e
 	}
 	if federation == nil {
 		return nil, auth.ErrInvalidAnthropicFederation
+	}
+	if s.bindings != nil {
+		approved, exists := s.bindings[key.InstallationID]
+		if !exists || approved != *federation {
+			return nil, fmt.Errorf("%w: federation target is not approved for this installation", auth.ErrAnthropicFederationUnavailable)
+		}
 	}
 	encoded, _ := json.Marshal(federation)
 	cacheKey := key.InstallationID + "\x00" + key.ID + "\x00" + string(encoded)

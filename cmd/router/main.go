@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -604,7 +605,7 @@ func main() {
 		WithBlindExperiments(repo.BlindExperiments, blindExperimentCache).
 		WithRoutingPolicies(repo.RoutingPolicies, routingPolicyCache).
 		WithWIFTokenSource(buildWIFTokenSource(logger)).
-		WithAnthropicFederationTokenSource(buildAnthropicFederationTokenSource()).
+		WithAnthropicFederationTokenSource(buildAnthropicFederationTokenSource(deploymentMode)).
 		WithEntraTokenSource(buildEntraTokenSource(logger)).
 		WithFlagOverridesDisabled(flagOverridesDisabled).
 		WithSessionSpendCaps(billingSvc != nil)
@@ -2399,12 +2400,24 @@ func runEscalationSweep(ctx context.Context, store escalationStateSweeper) {
 	}
 }
 
-func buildAnthropicFederationTokenSource() auth.AnthropicFederationTokenSource {
+func buildAnthropicFederationTokenSource(deploymentMode server.DeploymentMode) auth.AnthropicFederationTokenSource {
 	tokenFile := config.GetOr("ANTHROPIC_IDENTITY_TOKEN_FILE", "")
 	identityToken := wif.GoogleIdentityToken
 	if tokenFile != "" {
 		identityToken = func(ctx context.Context, _ string) (string, error) { return wif.ReadIdentityToken(ctx, tokenFile) }
 	}
 	client := &http.Client{Timeout: 15 * time.Second}
-	return anthropicfederation.NewSource(client, identityToken, time.Now)
+	source := anthropicfederation.NewSource(client, identityToken, time.Now)
+	if deploymentMode != server.DeploymentModeManaged {
+		return source
+	}
+	encodedBindings, err := base64.StdEncoding.DecodeString(config.GetOr("ROUTER_ANTHROPIC_FEDERATION_BINDINGS_B64", "e30="))
+	if err != nil {
+		panic("invalid base64 managed Anthropic federation bindings")
+	}
+	bindings, err := anthropicfederation.ParseInstallationBindings(string(encodedBindings))
+	if err != nil {
+		panic(fmt.Errorf("invalid managed Anthropic federation configuration: %w", err))
+	}
+	return source.RequireInstallationBindings(bindings)
 }
