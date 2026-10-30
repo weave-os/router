@@ -1,11 +1,22 @@
 package sse
 
 import (
-	"bytes"
-	"encoding/json"
+	"html"
 	"io"
 	"net/http"
 	"strings"
+)
+
+// HTML entities would change JSON values, so re-express escaped HTML
+// metacharacters as JSON unicode escapes and restore structural quotes.
+var htmlToJSONEscapes = strings.NewReplacer(
+	"&lt;", `\u003c`,
+	"&gt;", `\u003e`,
+	"&amp;", `\u0026`,
+	"&#34;", `"`,
+	"&#39;", `'`,
+	"\u2028", `\u2028`,
+	"\u2029", `\u2029`,
 )
 
 // PrepareJSONResponse must run before headers commit: escaping expands bytes,
@@ -24,13 +35,12 @@ func PrepareJSONResponse(w http.ResponseWriter) {
 // It reports consumed input bytes, since escaping can expand the wire bytes.
 func WriteJSONChunk(w http.ResponseWriter, chunk []byte) (int, error) {
 	PrepareJSONResponse(w)
-	var escaped bytes.Buffer
-	json.HTMLEscape(&escaped, chunk)
-	written, err := w.Write(escaped.Bytes())
+	escaped := htmlToJSONEscapes.Replace(html.EscapeString(string(chunk)))
+	written, err := w.Write([]byte(escaped))
 	if err != nil {
 		return 0, err
 	}
-	if written != escaped.Len() {
+	if written != len(escaped) {
 		return 0, io.ErrShortWrite
 	}
 	return len(chunk), nil

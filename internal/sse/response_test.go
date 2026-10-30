@@ -33,6 +33,27 @@ func TestWriteJSONChunkPreservesFragmentedSSE(t *testing.T) {
 	}
 }
 
+func TestWriteJSONChunkMatchesStandardHTMLEscape(t *testing.T) {
+	inputs := [][]byte{
+		[]byte(`{"text":"<script>& \" ' &lt;","large":9007199254740993}`),
+		[]byte("data: {\"text\":\"☃\u2028\u2029\"}\n\n"),
+		{0xff, '<', 0xe2, 0x80},
+	}
+	for _, input := range inputs {
+		for split := 0; split <= len(input); split++ {
+			for _, chunk := range [][]byte{input[:split], input[split:]} {
+				var expected bytes.Buffer
+				json.HTMLEscape(&expected, chunk)
+				sink := httptest.NewRecorder()
+				consumed, err := sse.WriteJSONChunk(sink, chunk)
+				require.NoError(t, err)
+				require.Equal(t, len(chunk), consumed)
+				require.Equal(t, expected.Bytes(), sink.Body.Bytes())
+			}
+		}
+	}
+}
+
 func TestPrepareJSONResponseRemovesCommittedLength(t *testing.T) {
 	const payload = `{"text":"<script>"}`
 	writeErrors := make(chan error, 1)
@@ -72,11 +93,11 @@ func TestWriteJSONChunkDoesNotDoubleEscape(t *testing.T) {
 	sink := httptest.NewRecorder()
 	_, err := sse.WriteJSONChunk(sink, []byte(payload))
 	require.NoError(t, err)
-	first := bytes.Clone(sink.Body.Bytes())
+	escapedOnce := bytes.Clone(sink.Body.Bytes())
 	sink.Body.Reset()
-	_, err = sse.WriteJSONChunk(sink, first)
+	_, err = sse.WriteJSONChunk(sink, escapedOnce)
 	require.NoError(t, err)
-	require.Equal(t, first, sink.Body.Bytes())
+	require.Equal(t, escapedOnce, sink.Body.Bytes())
 	require.True(t, json.Valid(sink.Body.Bytes()))
 	require.JSONEq(t, payload, sink.Body.String())
 }
