@@ -83,7 +83,8 @@ func (v TokenEfficiencyValidity) contains(at time.Time) bool {
 	return (v.From == nil || !v.From.After(at)) && (v.To == nil || at.Before(*v.To))
 }
 
-// TokenEfficiencyRatio is a measured work ratio for one (harness, comparison model, served model).
+// TokenEfficiencyRatio scales the comparison model's cost for turns ServedModel served within
+// Validity: by the point estimate when Native, otherwise by the lower bound, capped at 1.
 type TokenEfficiencyRatio struct {
 	Harness       string
 	BaselineModel string
@@ -96,7 +97,8 @@ type TokenEfficiencyRatio struct {
 	Validity      TokenEfficiencyValidity
 }
 
-// TokenEfficiencyQualityFactor is a measured pass-rate comparison for one (harness, comparison model).
+// TokenEfficiencyQualityFactor scales billed cost by BaselinePassRateUpper / RouterPassRateLower,
+// floored at 1; a zero RouterPassRateLower makes the turn count zero.
 type TokenEfficiencyQualityFactor struct {
 	Harness               string
 	BaselineModel         string
