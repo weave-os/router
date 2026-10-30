@@ -387,6 +387,15 @@ func TestDirectConversationIDFallsBackToConversationFingerprint(t *testing.T) {
 	require.NotEmpty(t, directConversationID(responses, responsesTurn))
 	assert.Equal(t, "prompt_cache_key:cache-1", directConversationID(responses, []byte(`{"model":"auto","prompt_cache_key":"cache-1","input":"fix the build"}`)))
 
+	omittedRole := directConversationID(responses, []byte(`{"model":"auto","input":[{"type":"message","content":"hello"}]}`))
+	assert.Equal(t, omittedRole, directConversationID(responses, []byte(`{"model":"auto","input":[{"type":"message","role":"user","content":"hello"}]}`)), "Responses message items default to the user role")
+	gemini := httptest.NewRequest(http.MethodPost, "/v1beta/models/auto:generateContent", nil)
+	assert.Equal(t,
+		directConversationID(gemini, []byte(`{"contents":[{"role":"user","parts":[{"text":"hello"}]}]}`)),
+		directConversationID(gemini, []byte(`{"contents":[{"parts":[{"text":"hello"}]}]}`)),
+		"Gemini contents default to the user role")
+	require.NotEmpty(t, directConversationID(gemini, []byte(`{"contents":[{"parts":[{"text":"hello"}]}]}`)))
+
 	explicit := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 	explicit.Header.Set("Session-Id", "client-session")
 	assert.Equal(t, "client-session", directConversationID(explicit, firstTurn))

@@ -184,13 +184,32 @@ func firstUserMessageText(body []byte, surface ConversationSurface) string {
 	}
 	var text string
 	messages.ForEach(func(_, message gjson.Result) bool {
-		if message.Get("role").String() != "user" {
+		if !isUserMessage(message, surface) {
 			return true
 		}
 		text = contentText(message.Get(contentField))
 		return false
 	})
 	return text
+}
+
+// isUserMessage applies the role defaults the Responses and Gemini parsers use:
+// a Responses message item and a Gemini content without a role are user turns.
+func isUserMessage(message gjson.Result, surface ConversationSurface) bool {
+	role := message.Get("role").String()
+	if role == "user" {
+		return true
+	}
+	if role != "" {
+		return false
+	}
+	switch surface {
+	case ConversationResponses:
+		return message.Get("type").String() == "message"
+	case ConversationGemini:
+		return true
+	}
+	return false
 }
 
 // contentText ignores per-turn annotations such as cache_control, and a lone text
