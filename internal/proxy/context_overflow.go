@@ -66,6 +66,17 @@ func contextWindowOnlyExclusions(overflowed, admitted, hardExcluded []string) ma
 	return withoutModels(withoutModels(modelSet(overflowed), admitted), hardExcluded)
 }
 
+// A validated force pin delegates estimated overflow to the provider, including
+// when subscription funding or a compaction turn rebuilds eligibility.
+func readmitForcedContextEstimate(req router.Request, model string) router.Request {
+	if _, estimateOnly := req.ContextWindowExcludedModels[model]; !estimateOnly {
+		return req
+	}
+	req.ExcludedModels = withoutModels(req.ExcludedModels, []string{model})
+	req.SafetyExcludedModels = withoutModels(req.SafetyExcludedModels, []string{model})
+	return req
+}
+
 // isContextOverflow reports whether err means the request cannot fit any
 // model's window, whether the router or the upstream decided it. The router
 // never rewrites client history to make it fit: the client receives its native

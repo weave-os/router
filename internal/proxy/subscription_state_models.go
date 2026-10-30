@@ -30,6 +30,7 @@ func subscriptionStateModelsEnabled(ctx context.Context) bool {
 // subscriptionStateRequest preserves all request safety constraints while
 // narrowing eligibility. An empty configured state refuses rather than widening.
 func (s *Service) subscriptionStateRequest(ctx context.Context, req router.Request, models []string) (context.Context, router.Request) {
+	req = readmitForcedContextEstimate(req, req.ForceModel)
 	allowed := make(map[string]struct{})
 	for _, model := range models {
 		if _, excluded := req.ExcludedModels[model]; excluded {
@@ -148,9 +149,9 @@ func (s *Service) dispatchSubscriptionStateModels(ctx context.Context, in failov
 		}
 	}
 	request.AutomaticExcludedModels = mergeExcludedModels(request.AutomaticExcludedModels, sessionUnavailableModels)
-	if request.ForceModel == "" && in.initialDecision.Reason == translate.ReasonUserForceModel {
-		// runTurnLoop already validated and readmitted a strict force-model pin;
-		// preserve that exception when rebuilding the request for state routing.
+	if in.initialDecision.Reason == translate.ReasonUserForceModel {
+		// The validated decision carries the catalog ID separately from effort;
+		// the original request can still contain an effort-qualified model spec.
 		request.ForceModel = in.initialDecision.Model
 	}
 	in.subscriptionStateRequest = nil
