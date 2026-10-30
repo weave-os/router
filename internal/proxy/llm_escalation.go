@@ -101,7 +101,8 @@ func (s *Service) beginLLMEscalation(ctx context.Context, env *translate.Request
 	scope := sha256.Sum256([]byte(fmt.Sprintf("%s/%x/%s/%s/%d/%s", res.InstallationID, res.SessionKey, res.Strategy, mode, selection.Epoch, config.Digest)))
 	activation := escalationActivationID(ctx, res.InstallationID, fmt.Sprintf("%s/%s/%s/%d/%s", sessionCredentialIdentity(ctx, apiKeyID), res.Strategy, mode, selection.Epoch, config.Digest))
 	observation, err := env.EscalationObservation()
-	if original, ok := ctx.Value(nativeResponsesBodyContextKey{}).([]byte); ok {
+	original, nativeResponses := ctx.Value(nativeResponsesBodyContextKey{}).([]byte)
+	if nativeResponses {
 		observation, err = translate.ParseResponsesEscalationObservation(original)
 	}
 	if err != nil {
@@ -131,7 +132,7 @@ func (s *Service) beginLLMEscalation(ctx context.Context, env *translate.Request
 		return nil
 	}
 	observation.Messages = translate.WithoutEscalationDecorations(observation.Messages)
-	observation.CodexToolResults = env.SourceFormat() == translate.FormatOpenAIResponses && ClientIdentityFrom(ctx).ClientApp == ClientAppCodex
+	observation.CodexToolResults = nativeResponses && ClientIdentityFrom(ctx).ClientApp == ClientAppCodex
 	encoded, _ := json.Marshal(observation)
 	if len(encoded) > escalationHistoryMaxBytes {
 		observability.FromContext(ctx).Info("LLM escalation skipped", "reason", "history_too_large")

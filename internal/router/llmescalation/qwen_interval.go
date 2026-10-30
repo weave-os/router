@@ -121,14 +121,6 @@ func qwenToolCall(block translate.EscalationBlock) string {
 	return fmt.Sprintf("%s(%s)", name, qwenTruncate(qwenCompactJSON(block.ArgumentsJSON), 300))
 }
 
-// Anthropic tool results carry text parts; Responses outputs carry input_text.
-type qwenContentPartType string
-
-const (
-	qwenContentPartText      qwenContentPartType = "text"
-	qwenContentPartInputText qwenContentPartType = "input_text"
-)
-
 func qwenToolResult(block, call translate.EscalationBlock, codexToolResults bool) string {
 	var text string
 	if json.Unmarshal([]byte(block.ContentJSON), &text) != nil {
@@ -138,7 +130,9 @@ func qwenToolResult(block, call translate.EscalationBlock, codexToolResults bool
 		}
 		if json.Unmarshal([]byte(block.ContentJSON), &parts) == nil {
 			for _, part := range parts {
-				if qwenContentPartType(part.Type) == qwenContentPartText || qwenContentPartType(part.Type) == qwenContentPartInputText {
+				// Anthropic tool results carry text parts; Responses outputs carry input_text.
+				switch part.Type {
+				case string(translate.EscalationBlockText), "input_text":
 					text += part.Text
 				}
 			}
