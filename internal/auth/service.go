@@ -984,6 +984,38 @@ func (s *Service) ResolveAndStashUser(ctx context.Context, installationID, email
 	return s.withUserSettings(ctx, installationID, user.ID)
 }
 
+// ResolveAndStashKeyOwner upserts the router user for the authenticated owner
+// of a personal API key and stashes the ID on ctx. It is the fallback for
+// requests that assert no identity of their own, so a client-sent email or
+// account UUID always takes precedence over it. Never fails an authenticated
+// request — returns ctx unchanged on error.
+func (s *Service) ResolveAndStashKeyOwner(ctx context.Context, installationID, credentialSubjectID, displayName string) context.Context {
+	log := observability.FromContext(ctx)
+	if s.users == nil || installationID == "" || credentialSubjectID == "" {
+		return ctx
+	}
+	identityKey := "subject:" + credentialSubjectID
+	if cached, ok := s.userCache.Get(installationID, identityKey); ok {
+		return s.withUserSettings(ctx, installationID, cached)
+	}
+	var namePtr *string
+	if displayName != "" {
+		namePtr = &displayName
+	}
+	user, err := s.users.UpsertByCredentialSubject(ctx, UpsertUserByCredentialSubjectParams{
+		InstallationID:      installationID,
+		CredentialSubjectID: credentialSubjectID,
+		DisplayName:         namePtr,
+	})
+	if err != nil {
+		log.Warn("Failed to resolve router user for API key owner", "installation_id", installationID, "err", err)
+		return ctx
+	}
+	s.userCache.Set(installationID, identityKey, user.ID)
+	log.Debug("ResolveAndStashKeyOwner upsert ok", "installation_id", installationID, "user_id", user.ID)
+	return s.withUserSettings(ctx, installationID, user.ID)
+}
+
 func (s *Service) withUserSettings(ctx context.Context, installationID, routerUserID string) context.Context {
 	ctx = s.withUserClusterLists(ctx, installationID, routerUserID)
 	if RoutingPolicyFrom(ctx).Mode != "" && RoutingPolicyFrom(ctx).Mode != RoutingPolicyInherit {
