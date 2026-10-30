@@ -101,7 +101,8 @@ func (s *Service) beginLLMEscalation(ctx context.Context, env *translate.Request
 	scope := sha256.Sum256([]byte(fmt.Sprintf("%s/%x/%s/%s/%d/%s", res.InstallationID, res.SessionKey, res.Strategy, mode, selection.Epoch, config.Digest)))
 	activation := escalationActivationID(ctx, res.InstallationID, fmt.Sprintf("%s/%s/%s/%d/%s", sessionCredentialIdentity(ctx, apiKeyID), res.Strategy, mode, selection.Epoch, config.Digest))
 	observation, err := env.EscalationObservation()
-	if original, ok := ctx.Value(nativeResponsesBodyContextKey{}).([]byte); ok {
+	original, isNativeResponses := ctx.Value(nativeResponsesBodyContextKey{}).([]byte)
+	if isNativeResponses {
 		observation, err = translate.ParseResponsesEscalationObservation(original)
 	}
 	if err != nil {
@@ -131,6 +132,7 @@ func (s *Service) beginLLMEscalation(ctx context.Context, env *translate.Request
 		return nil
 	}
 	observation.Messages = translate.WithoutEscalationDecorations(observation.Messages)
+	observation.CodexToolResults = isNativeResponses && ClientIdentityFrom(ctx).ClientApp == ClientAppCodex
 	encoded, _ := json.Marshal(observation)
 	if len(encoded) > escalationHistoryMaxBytes {
 		observability.FromContext(ctx).Info("LLM escalation skipped", "reason", "history_too_large")
@@ -222,7 +224,7 @@ func (s *Service) completeLLMEscalation(ctx context.Context, res turnLoopResult,
 	judge := s.llmEscalationJudge
 	ready := true
 	if turn.session.Config.EffectiveClassifier() == flags.EscalationClassifierLLM {
-		transcript, ready = llmescalation.RenderQwenInterval(messages, turn.session.CompletedTurns+1)
+		transcript, ready = llmescalation.RenderQwenInterval(messages, turn.session.CompletedTurns+1, turn.observation.CodexToolResults)
 		judge = s.qwenEscalationJudge
 		if !ready {
 			observability.FromContext(ctx).Info("LLM escalation interval unavailable", "completed_turns", turn.session.CompletedTurns+1)
