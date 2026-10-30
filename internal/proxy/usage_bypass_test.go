@@ -560,7 +560,7 @@ func TestSubscriptionOnly_ServesOnSubscription_EvenAboveThreshold(t *testing.T) 
 	require.Len(t, p.proxyBodies, 1, "the turn must serve on the subscription exactly once")
 	assert.Contains(t, string(p.proxyBodies[0]), `"`+bypassRequestedMdl+`"`, "bypass must preserve the caller-requested model")
 	assert.Contains(t, rec.Body.String(), "credits are depleted", "the customer must see the depleted-credits warning")
-	assert.Contains(t, rec.Body.String(), "weave-router", "the warning must surface the top-up CTA")
+	assert.NotContains(t, rec.Body.String(), "organization/settings/weave-router", "a healthy subscription-backed turn carries no top-up CTA")
 }
 
 func TestSubscriptionOnly_UsageBilledOverage_BypassKeepsRequestedModel(t *testing.T) {
@@ -710,8 +710,8 @@ func TestSubscriptionOnly_NonBypassServedOnSub_Serves(t *testing.T) {
 	assert.True(t, p.proxyCreds[0].OAuth,
 		"a non-bypass turn must serve on the caller's own Claude subscription so billing debits $0")
 	assert.Contains(t, rec.Body.String(), "credits are depleted",
-		"a served-on-sub non-bypass turn must surface the depleted-credits warning + top-up CTA")
-	assert.Contains(t, rec.Body.String(), "weave-router", "the warning must surface the top-up CTA")
+		"a served-on-sub non-bypass turn must surface the depleted-credits warning")
+	assert.NotContains(t, rec.Body.String(), "organization/settings/weave-router", "a healthy subscription-backed turn carries no top-up CTA")
 }
 
 // TestSubscriptionOnly_NonBypassPaidRoute_Refuses402: a non-bypass turn that

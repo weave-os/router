@@ -312,33 +312,32 @@ func anthropicOAuthCredentialRejected(err error) bool {
 
 // topUpURL is the customer-facing page where org admins buy router credits.
 // Duplicated from middleware.TopUpURL (proxy can't import the middleware
-// adapter without an import cycle) so subscription-only warnings and the
-// credits-exhausted 402 can surface the CTA.
+// adapter without an import cycle) so the credits-exhausted 402 can surface
+// the CTA.
 const topUpURL = "https://app.workweave.ai/organization/settings/weave-router"
 
 // subscriptionOnlyWarningMarker is prepended to a subscription-only bypass
-// response so the customer sees why they're being served on their own plan and
-// how to restore full routing. The marker is emitted only when terminal
+// response so the customer sees which linked subscription serves the turn and
+// why paid fallback is off. It carries no top-up CTA: the turn is healthy. The
+// marker is emitted only when terminal
 // surfaces are enabled for the installation and request.
 const subscriptionOnlyWarningMarker = routingMarkerPrefix +
-	"your Weave router credits are depleted, so this turn is running on your own Anthropic subscription and paid model fallback is disabled. Add credits to restore full routing: " +
-	topUpURL + "\n\n"
+	"your linked Claude subscription is serving this turn. Weave credits are depleted, so paid fallback is unavailable.\n\n"
 
 // subscriptionOnlyWarningMarkerCodex is the Codex/OpenAI-surface counterpart to
 // subscriptionOnlyWarningMarker, prepended to a subscription-only turn served on
 // the caller's own ChatGPT (Codex) subscription.
 const subscriptionOnlyWarningMarkerCodex = routingMarkerPrefix +
-	"your Weave router credits are depleted, so this turn is running on your own ChatGPT (Codex) subscription and paid model fallback is disabled. Add credits to restore full routing: " +
-	topUpURL + "\n\n"
+	"your linked ChatGPT (Codex) subscription is serving this turn. Weave credits are depleted, so paid fallback is unavailable.\n\n"
 
 // subscriptionSpendCapWarningMarker is prepended to a subscription-only turn
 // a spend cap barred from paid capacity. The organization may still hold
 // credits, so it names the cap and carries no top-up CTA.
 const subscriptionSpendCapWarningMarker = routingMarkerPrefix +
-	"a Weave router spend cap has been reached, so this turn is running on your own Anthropic subscription and paid model fallback is disabled.\n\n"
+	"your linked Claude subscription is serving this turn. A configured spend cap blocks paid fallback.\n\n"
 
 const subscriptionSpendCapWarningMarkerCodex = routingMarkerPrefix +
-	"a Weave router spend cap has been reached, so this turn is running on your own ChatGPT (Codex) subscription and paid model fallback is disabled.\n\n"
+	"your linked ChatGPT (Codex) subscription is serving this turn. A configured spend cap blocks paid fallback.\n\n"
 
 // subscriptionFundingWarning keeps funding policy separate from notice encoding.
 type subscriptionFundingWarning struct {

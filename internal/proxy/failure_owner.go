@@ -117,7 +117,7 @@ func dispatchErrorKindOwner(kind DispatchErrorKind) FailureOwner {
 		DispatchErrorBanditUnavailable, DispatchErrorHMMUnavailable, DispatchErrorPolicyUnavailable,
 		DispatchErrorClusterUnavailable, DispatchErrorDecisionModelUnavailable, DispatchErrorClassifierUnavailable,
 		DispatchErrorPolicyPinUnavailable, DispatchErrorPlanTargetMismatch, DispatchErrorPlanUnresolvable,
-		DispatchErrorSpendLimitUnavailable, DispatchErrorSubscriptionPoolUnavailable,
+		DispatchErrorSpendLimitUnavailable, DispatchErrorSubscriptionPoolUnavailable, DispatchErrorQuotaVerificationUnavailable,
 		DispatchErrorTranslationIntrinsicallyIncompatible, DispatchErrorTranslationProviderUnavailable,
 		DispatchErrorRoutedModelIncompatible:
 		return FailureOwnerRouter
