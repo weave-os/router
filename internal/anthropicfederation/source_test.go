@@ -86,7 +86,7 @@ func TestExchangeCachesAndRefreshesWithFreshAssertion(t *testing.T) {
 
 func TestFederationExchangeSendsRequiredBetaHeaders(t *testing.T) {
 	client := &http.Client{Transport: transportFunc(func(request *http.Request) (*http.Response, error) {
-		assert.Equal(t, string(auth.AnthropicBetaOAuth)+","+string(auth.AnthropicBetaFederation), request.Header.Get("anthropic-beta"))
+		assert.Equal(t, "oauth-2025-04-20,oidc-federation-2026-04-01", request.Header.Get("anthropic-beta"))
 		return response(http.StatusOK, tokenResponse), nil
 	})}
 	source := anthropicfederation.NewSource(client, func(context.Context, string) (string, error) { return assertion(""), nil }, time.Now)

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"strings"
 
 	"github.com/google/uuid"
@@ -41,9 +42,9 @@ func ParseInstallationBindings(raw string) (map[string]auth.AnthropicFederationC
 // RequireInstallationBindings must be called before serving requests. It copies
 // the operator's allowlist so tenant configuration and cache entries cannot grant access.
 func (s *Source) RequireInstallationBindings(bindings map[string]auth.AnthropicFederationConfig) *Source {
-	s.bindings = make(map[string]auth.AnthropicFederationConfig, len(bindings))
-	for installationID, target := range bindings {
-		s.bindings[installationID] = target
+	s.bindings = maps.Clone(bindings)
+	if s.bindings == nil {
+		s.bindings = map[string]auth.AnthropicFederationConfig{}
 	}
 	return s
 }

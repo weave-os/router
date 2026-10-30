@@ -2413,11 +2413,11 @@ func buildAnthropicFederationTokenSource(deploymentMode server.DeploymentMode) a
 	if deploymentMode != server.DeploymentModeManaged {
 		return source
 	}
-	encodedBindings, err := base64.StdEncoding.DecodeString(config.GetOr("ROUTER_ANTHROPIC_FEDERATION_BINDINGS_B64", "e30="))
+	bindingsJSON, err := base64.StdEncoding.DecodeString(config.GetOr("ROUTER_ANTHROPIC_FEDERATION_BINDINGS_B64", "e30="))
 	if err != nil {
 		panic("invalid base64 managed Anthropic federation bindings")
 	}
-	bindings, err := anthropicfederation.ParseInstallationBindings(string(encodedBindings))
+	bindings, err := anthropicfederation.ParseInstallationBindings(string(bindingsJSON))
 	if err != nil {
 		panic(fmt.Errorf("invalid managed Anthropic federation configuration: %w", err))
 	}

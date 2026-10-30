@@ -40,8 +40,8 @@ func TestFederatedCredentialUsesBearerWithoutSubscriptionBehavior(t *testing.T) 
 	assert.Equal(t, "Bearer sk-ant-oat01-synthetic-workload-token", headers.Get("Authorization"))
 	assert.Empty(t, headers.Get("x-api-key"))
 	assert.Empty(t, headers.Get("X-Snowflake-Authorization-Token-Type"))
-	assert.Contains(t, headers.Get("anthropic-beta"), string(auth.AnthropicBetaOAuth))
-	assert.NotContains(t, headers.Get("anthropic-beta"), string(auth.AnthropicBetaFederation))
+	assert.Contains(t, headers.Get("anthropic-beta"), "oauth-2025-04-20")
+	assert.NotContains(t, headers.Get("anthropic-beta"), "oidc-federation-2026-04-01")
 	assert.JSONEq(t, payload, string(body))
 }
 
@@ -67,8 +67,8 @@ func TestFederatedCredentialSupportsPassthroughAndModelListing(t *testing.T) {
 			assert.Equal(t, "Bearer sk-ant-oat01-synthetic-workload-token", headers.Get("Authorization"))
 			assert.Empty(t, headers.Get("x-api-key"))
 			assert.Empty(t, headers.Get(auth.WIFTokenTypeHeader))
-			assert.Contains(t, headers.Get("anthropic-beta"), string(auth.AnthropicBetaOAuth))
-			assert.NotContains(t, headers.Get("anthropic-beta"), string(auth.AnthropicBetaFederation))
+			assert.Contains(t, headers.Get("anthropic-beta"), "oauth-2025-04-20")
+			assert.NotContains(t, headers.Get("anthropic-beta"), "oidc-federation-2026-04-01")
 		})
 	}
 }
