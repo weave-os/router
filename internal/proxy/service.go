@@ -3244,8 +3244,9 @@ func (s *Service) routeFor(ctx context.Context, req router.Request) (router.Deci
 	if err != nil {
 		return router.Decision{}, err
 	}
-	if auth.RoutingPassthroughFrom(ctx) {
-		return s.callerModelPassthroughDecision(ctx, req)
+	ctx, decision, passthrough, err := s.passthroughDecision(ctx, req)
+	if passthrough {
+		return decision, err
 	}
 	req = s.withPolicyRequestContext(ctx, req)
 	strategy := router.StrategyFromContext(ctx)

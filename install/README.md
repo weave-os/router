@@ -124,7 +124,8 @@ that file), since before passthrough every model was routed anyway. Later update
 keep whatever model the user picked, and select Weave Auto only when none is set. The row is `weave-auto[1m]`, so Claude Code budgets a 1M window: it sends `weave-auto` with the 1M-context beta, and the router routes it.
 `X-Weave-Model-Passthrough: 1` in `ANTHROPIC_CUSTOM_HEADERS` serves any other
 model Claude Code sends (a picker choice, `--model`, a subagent's model) as-is,
-without routing. `off` removes the row and the default; `on` restores them.
+without routing. A model the organization cannot serve as-is (outside its
+allowed models, excluded, or without a gateway alias) is routed instead. `off` removes the row and the default; `on` restores them.
 
 The router key lives in `ANTHROPIC_CUSTOM_HEADERS` so Claude Code can keep
 using its normal Anthropic auth (`Authorization` / `x-api-key`) for the

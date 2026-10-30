@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"weave-os/router/internal/auth"
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/observability/otel"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -103,6 +104,26 @@ func (s *Service) blindExperimentPassthroughDecision(ctx context.Context, req ro
 	}
 	decision, err := s.callerModelPassthroughDecision(ctx, req)
 	return decision, true, err
+}
+
+// passthroughDecision serves the requested model as-is when the request must
+// keep it. A client-picked model the installation cannot serve as-is routes
+// instead, unless a routing policy still requires passthrough.
+func (s *Service) passthroughDecision(ctx context.Context, req router.Request) (context.Context, router.Decision, bool, error) {
+	if !auth.RoutingPassthroughFrom(ctx) {
+		return ctx, router.Decision{}, false, nil
+	}
+	decision, err := s.callerModelPassthroughDecision(ctx, req)
+	if err == nil || !auth.ClientModelPassthroughFrom(ctx) {
+		return ctx, decision, true, err
+	}
+	observability.FromContext(ctx).Info("Client-selected model cannot be served as-is; routing instead", "model", req.RequestedModel, "err", err)
+	ctx = auth.WithoutClientModelPassthrough(ctx)
+	if !auth.RoutingPassthroughFrom(ctx) {
+		return ctx, router.Decision{}, false, nil
+	}
+	decision, err = s.callerModelPassthroughDecision(ctx, req)
+	return ctx, decision, true, err
 }
 
 func (s *Service) callerModelPassthroughDecision(ctx context.Context, req router.Request) (router.Decision, error) {

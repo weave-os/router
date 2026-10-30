@@ -15,6 +15,7 @@ import (
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
+	"weave-os/router/internal/router/cluster"
 	"weave-os/router/internal/router/sessionpin"
 	"weave-os/router/internal/subscriptions"
 	"weave-os/router/internal/translate"
@@ -268,4 +269,57 @@ func TestPickedModelSkipsManagedSubscriptionPoolByDefault(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, managed)
 	lease.Release()
+}
+
+func TestClientSelectedModelRoutesWhenNotServableAsIs(t *testing.T) {
+	routed := router.Decision{Provider: providers.ProviderAnthropic, Model: catalog.ModelIDClaudeHaiku45.String(), Reason: "cluster_argmax"}
+	envelope, err := translate.ParseAnthropic([]byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`))
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		name    string
+		request router.Request
+	}{
+		{name: "excluded", request: router.Request{
+			RequestedModel:   catalog.ModelIDClaudeSonnet46.String(),
+			EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
+			ExcludedModels:   map[string]struct{}{catalog.ModelIDClaudeSonnet46.String(): {}},
+		}},
+		{name: "no gateway alias", request: router.Request{
+			RequestedModel:   catalog.ModelIDClaudeSonnet46.String(),
+			GatewayProviders: map[string]struct{}{providers.ProviderAnthropicGateway: {}},
+		}},
+		{name: "unknown model", request: router.Request{
+			RequestedModel:   "claude-not-a-model",
+			EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			routerSpy := &blindExperimentRouterSpy{decision: routed}
+			service := NewService(routerSpy, nil, nil, false, nil, newStubPinStore(), false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
+
+			turn, err := service.runTurnLoop(auth.WithClientModelPassthrough(context.Background()), envelope, envelope.RoutingFeatures(false), "api-key", uuid.New(), "", http.Header{}, tc.request)
+
+			require.NoError(t, err)
+			assert.False(t, turn.CallerModelPassthrough)
+			assert.Equal(t, routed.Model, turn.Decision.Model)
+			assert.Equal(t, 1, routerSpy.routeCalls)
+		})
+	}
+}
+
+func TestClientSelectedModelKeepsPolicyPassthroughStrict(t *testing.T) {
+	routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
+	service := NewService(routerSpy, nil, nil, false, nil, nil, false, providers.ProviderAnthropic, catalog.ModelIDClaudeHaiku45.String(), nil)
+	authService := auth.NewService(nil, nil, nil, nil, nil, nil, time.Now).WithRoutingPolicies(routingPolicyStub{mode: auth.RoutingPolicyPassthrough}, nil)
+	ctx, err := authService.WithRoutingPolicy(context.Background(), "installation")
+	require.NoError(t, err)
+
+	_, err = service.routeFor(auth.WithClientModelPassthrough(ctx), router.Request{
+		RequestedModel:   catalog.ModelIDClaudeSonnet46.String(),
+		EnabledProviders: map[string]struct{}{providers.ProviderAnthropic: {}},
+		ExcludedModels:   map[string]struct{}{catalog.ModelIDClaudeSonnet46.String(): {}},
+	})
+
+	require.ErrorIs(t, err, cluster.ErrNoEligibleProvider)
+	assert.Equal(t, 0, routerSpy.routeCalls)
 }

@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"weave-os/router/internal/auth"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
@@ -907,14 +906,19 @@ func (s *Service) runTurnLoop(
 			req.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
 		}
 	}
-	if auth.RoutingPassthroughFrom(ctx) && !forceModelFound {
-		decision, err := s.callerModelPassthroughDecision(ctx, req)
+	if !forceModelFound {
+		var decision router.Decision
+		var passthrough bool
+		var err error
+		ctx, decision, passthrough, err = s.passthroughDecision(ctx, req)
 		if err != nil {
 			return res, err
 		}
-		res.Decision = decision
-		res.CallerModelPassthrough = true
-		return res, nil
+		if passthrough {
+			res.Decision = decision
+			res.CallerModelPassthrough = true
+			return res, nil
+		}
 	}
 	if res.Strategy == router.StrategyLLMClassifier {
 		return s.runClassifierTurn(ctx, req, res, threadSessionKey)

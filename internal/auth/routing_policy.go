@@ -52,6 +52,12 @@ func WithClientModelPassthrough(ctx context.Context) context.Context {
 	return context.WithValue(ctx, clientModelPassthroughContextKey{}, true)
 }
 
+// WithoutClientModelPassthrough routes a request whose picked model cannot be
+// served as-is, as it would have routed without the pick.
+func WithoutClientModelPassthrough(ctx context.Context) context.Context {
+	return context.WithValue(ctx, clientModelPassthroughContextKey{}, false)
+}
+
 // ClientModelPassthroughFrom reports whether the client selected the requested model.
 func ClientModelPassthroughFrom(ctx context.Context) bool {
 	selected, _ := ctx.Value(clientModelPassthroughContextKey{}).(bool)
