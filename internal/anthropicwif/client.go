@@ -82,7 +82,8 @@ func (c *Client) Token(ctx context.Context, key *auth.ExternalAPIKey) ([]byte, e
 	cacheKey := string(encodedKey)
 	if cached, ok := c.cache.Get(cacheKey); ok {
 		now := c.now()
-		if now.Before(cached.expiresAt.Add(-advisoryRefresh)) || (!cached.retryAt.IsZero() && now.Before(cached.retryAt)) {
+		safeUntil := cached.expiresAt.Add(-mandatoryRefresh)
+		if now.Before(cached.expiresAt.Add(-advisoryRefresh)) || (now.Before(safeUntil) && !cached.retryAt.IsZero() && now.Before(cached.retryAt)) {
 			return bytes.Clone(cached.token), nil
 		}
 	}
@@ -93,7 +94,8 @@ func (c *Client) Token(ctx context.Context, key *auth.ExternalAPIKey) ([]byte, e
 		cached, ok := c.cache.Get(cacheKey)
 		if ok {
 			now := c.now()
-			if now.Before(cached.expiresAt.Add(-advisoryRefresh)) || (!cached.retryAt.IsZero() && now.Before(cached.retryAt)) {
+			safeUntil := cached.expiresAt.Add(-mandatoryRefresh)
+			if now.Before(cached.expiresAt.Add(-advisoryRefresh)) || (now.Before(safeUntil) && !cached.retryAt.IsZero() && now.Before(cached.retryAt)) {
 				return cached.token, nil
 			}
 		}
