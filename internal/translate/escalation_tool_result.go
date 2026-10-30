@@ -60,10 +60,10 @@ func (block EscalationBlock) ToolResultFailed(call EscalationBlock, codexToolRes
 }
 
 func codexScriptFailed(contentJSON string) bool {
-	output := gjson.Parse(contentJSON)
-	fragments := []gjson.Result{output}
-	if output.IsArray() {
-		fragments = output.Array()
+	content := gjson.Parse(contentJSON)
+	fragments := []gjson.Result{content}
+	if content.IsArray() {
+		fragments = content.Array()
 		for index, fragment := range fragments {
 			if escalationWireType(fragment.Get("type").String()) != escalationWireInputText {
 				return false
