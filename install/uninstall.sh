@@ -924,7 +924,7 @@ if [ "$target" = "copilot" ]; then
       skill_dir="${skill_dir%/}"
       name="${skill_dir##*/}"
       [ -L "$skill_dir" ] && continue
-      [ -f "$skill_dir/SKILL.md" ] && [ ! -L "$skill_dir/SKILL.md" ] || continue
+      if [ ! -f "$skill_dir/SKILL.md" ] || [ -L "$skill_dir/SKILL.md" ]; then continue; fi
       grep -Fq "<!-- weave-router managed $name skill -->" "$skill_dir/SKILL.md" || continue
       rm -rf "$skill_dir"
     done

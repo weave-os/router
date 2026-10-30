@@ -76,8 +76,10 @@ for skill in force-model fm unforce-model ufm router-feedback rf router-off rout
   [ -f "$copilot_dir/skills/$skill/SKILL.md" ] || fail "missing /$skill skill"
 done
 [ -x "$copilot_dir/skills/force-model/scripts/emit.sh" ] || fail "force-model emit.sh not executable"
+# shellcheck disable=SC2016 # literal backticks
 grep -Fq '`/force-model <model-id>`' "$copilot_dir/skills/force-model/SKILL.md" || fail "skill still documents the Codex sigil"
 grep -Fq 'weave-router off --copilot' "$copilot_dir/skills/router-off/SKILL.md" || fail "router-off skill does not target --copilot"
+# shellcheck disable=SC2016 # literal $
 if grep -Rq -- '--codex\|\$force-model' "$copilot_dir/skills"; then fail "Codex-specific text left in Copilot skills"; fi
 [ ! -e "$copilot_dir/skills/disable-routing" ] || fail "Codex-only disable-routing installed for Copilot"
 

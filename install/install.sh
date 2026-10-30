@@ -1628,6 +1628,7 @@ install_copilot_skills() {
     mkdir -p "$dst_dir"
     body="$(<"$skill_src")"
     body="${body//\{\{SCOPE\}\}/$scope_args}"
+    # shellcheck disable=SC2016 # literal backticks and $ in the sed patterns
     printf '%s\n' "$body" | sed \
       -e 's/`\$\([a-z][a-z-]*\)/`\/\1/g' \
       -e 's/(or \$\([a-z][a-z-]*\))/(or \/\1)/g' \
