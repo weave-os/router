@@ -2,11 +2,14 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
+
+	"weave-os/router/internal/providers"
 )
 
 // ExternalAPIKey represents a customer-owned provider API key.
@@ -37,8 +40,14 @@ type ExternalAPIKey struct {
 	// AuthType is AuthTypeKeypairJWT or AuthTypeAzureEntra.
 	AuthAccount string
 	AuthUser    string
-	CreatedAt   time.Time
-	LastUsedAt  *time.Time
+	// Anthropic WIF identifies the federation rule and Anthropic principal;
+	// these fields are metadata only and never contain a token.
+	FederationRuleID string
+	OrganizationID   string
+	ServiceAccountID string
+	WorkspaceID      string
+	CreatedAt        time.Time
+	LastUsedAt       *time.Time
 	// Plaintext is populated after decrypt; never logged.
 	Plaintext []byte
 }
@@ -63,9 +72,13 @@ type CreateExternalAPIKeyParams struct {
 	AuthType               string
 	// AuthAccount and AuthUser identify the upstream principal; empty unless
 	// AuthType is AuthTypeKeypairJWT or AuthTypeAzureEntra.
-	AuthAccount *string
-	AuthUser    *string
-	CreatedBy   *string
+	AuthAccount      *string
+	AuthUser         *string
+	FederationRuleID *string
+	OrganizationID   *string
+	ServiceAccountID *string
+	WorkspaceID      *string
+	CreatedBy        *string
 }
 
 // AuthTypeBearer sends the secret verbatim; AuthTypeKeypairJWT signs a short-lived JWT with it;
@@ -78,7 +91,27 @@ const (
 	// AuthAccount is the tenant ID, AuthUser is the client ID.
 	AuthTypeAzureEntra = "azure_entra"
 	AuthTypeWIF        = "wif"
+	// AuthTypeAnthropicWIF exchanges a deployment-provided OIDC identity token
+	// for a short-lived Anthropic access token.
+	AuthTypeAnthropicWIF = "anthropic_wif"
 )
+
+// AnthropicWIFConfig is the non-secret metadata required by Claude's token
+// exchange. The identity token itself is supplied by the router deployment.
+type AnthropicWIFConfig struct {
+	FederationRuleID string
+	OrganizationID   string
+	ServiceAccountID string
+	WorkspaceID      string
+}
+
+// AnthropicWIFTokenSource mints a short-lived Claude access token for a key.
+type AnthropicWIFTokenSource interface {
+	Token(context.Context, *ExternalAPIKey) ([]byte, error)
+}
+
+// ErrAnthropicWIFUnavailable reports a missing or unusable Claude WIF source.
+var ErrAnthropicWIFUnavailable = errors.New("auth: Anthropic workload identity token is unavailable")
 
 // Identity header formats. IdentityFormatEmail sends the bare address;
 // IdentityFormatJSON sends a URL-encoded JSON property bag (display name, session, client app).
@@ -388,7 +421,7 @@ func NormalizeAuthType(authType string, account, user *string) (string, *string,
 		}
 		return normalized, &tenantID, &clientID, nil
 	}
-	if normalized == AuthTypeBearer || normalized == AuthTypeWIF {
+	if normalized == AuthTypeBearer || normalized == AuthTypeWIF || normalized == AuthTypeAnthropicWIF {
 		if upperAccount != "" || upperUser != "" {
 			return "", nil, nil, fmt.Errorf("%w: account and user apply to %s only", ErrInvalidKeypairAuth, AuthTypeKeypairJWT)
 		}
@@ -406,12 +439,51 @@ func NormalizeAuthType(authType string, account, user *string) (string, *string,
 	return AuthTypeKeypairJWT, &upperAccount, &upperUser, nil
 }
 
+// NormalizeAnthropicWIF validates the non-secret identifiers used by Claude's
+// federation exchange. WorkspaceID is optional because a rule may target the
+// service account's default workspace.
+func NormalizeAnthropicWIF(provider, authType string, cfg AnthropicWIFConfig) (AnthropicWIFConfig, error) {
+	if authType != AuthTypeAnthropicWIF {
+		return AnthropicWIFConfig{}, nil
+	}
+	if provider != providers.ProviderAnthropic {
+		return AnthropicWIFConfig{}, fmt.Errorf("%w: %s is only valid for anthropic", ErrInvalidAnthropicWIFAuth, AuthTypeAnthropicWIF)
+	}
+	for name, value := range map[string]string{
+		"federation rule ID": cfg.FederationRuleID,
+		"organization ID":    cfg.OrganizationID,
+		"service account ID": cfg.ServiceAccountID,
+	} {
+		if strings.TrimSpace(value) == "" {
+			return AnthropicWIFConfig{}, fmt.Errorf("%w: %s is required", ErrInvalidAnthropicWIFAuth, name)
+		}
+		if len(value) > maxKeypairFieldLength {
+			return AnthropicWIFConfig{}, fmt.Errorf("%w: %s is limited to %d characters", ErrInvalidAnthropicWIFAuth, name, maxKeypairFieldLength)
+		}
+	}
+	if len(cfg.WorkspaceID) > maxKeypairFieldLength {
+		return AnthropicWIFConfig{}, fmt.Errorf("%w: workspace ID is limited to %d characters", ErrInvalidAnthropicWIFAuth, maxKeypairFieldLength)
+	}
+	cfg.FederationRuleID = strings.TrimSpace(cfg.FederationRuleID)
+	cfg.OrganizationID = strings.TrimSpace(cfg.OrganizationID)
+	cfg.ServiceAccountID = strings.TrimSpace(cfg.ServiceAccountID)
+	cfg.WorkspaceID = strings.TrimSpace(cfg.WorkspaceID)
+	return cfg, nil
+}
+
 // trimmedValue returns the trimmed value behind s, or "" when s is nil.
 func trimmedValue(s *string) string {
 	if s == nil {
 		return ""
 	}
 	return strings.TrimSpace(*s)
+}
+
+func optionalString(value string) *string {
+	if value == "" {
+		return nil
+	}
+	return &value
 }
 
 // ExternalAPIKeyRepository manages external API keys in storage.

@@ -20,6 +20,10 @@ INSERT INTO router.model_router_external_api_keys (
     auth_type,
     auth_account,
     auth_user,
+    anthropic_federation_rule_id,
+    anthropic_organization_id,
+    anthropic_service_account_id,
+    anthropic_workspace_id,
     created_by
 )
 VALUES (
@@ -40,6 +44,10 @@ VALUES (
     @auth_type::text,
     sqlc.narg('auth_account')::text,
     sqlc.narg('auth_user')::text,
+    sqlc.narg('anthropic_federation_rule_id')::text,
+    sqlc.narg('anthropic_organization_id')::text,
+    sqlc.narg('anthropic_service_account_id')::text,
+    sqlc.narg('anthropic_workspace_id')::text,
     @created_by
 )
 RETURNING *;

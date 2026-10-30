@@ -236,6 +236,10 @@ export function ProviderKeysPanel() {
   const [authType, setAuthType] = useState<ProviderAuthType>("bearer");
   const [authAccount, setAuthAccount] = useState("");
   const [authUser, setAuthUser] = useState("");
+  const [federationRuleID, setFederationRuleID] = useState("");
+  const [organizationID, setOrganizationID] = useState("");
+  const [serviceAccountID, setServiceAccountID] = useState("");
+  const [workspaceID, setWorkspaceID] = useState("");
   const [aliasRows, setAliasRows] = useState<AliasRow[]>([]);
   const [catalogModels, setCatalogModels] = useState<DeployedModel[]>([]);
   const [editingAliases, setEditingAliases] = useState<string | null>(null);
@@ -292,7 +296,7 @@ export function ProviderKeysPanel() {
       .catch(() => setCatalogModels([]));
   }, []);
 
-  const taken = new Set<string>([...keys.map(k => k.provider), ...envKeyed]);
+  const taken = new Set<string>([...keys.map(k => k.provider), ...envKeyed.filter(p => p !== "anthropic")]);
   const available: Provider[] = PROVIDERS.filter(p => !taken.has(p));
   const provider: Provider | null =
     pickedProvider != null && available.includes(pickedProvider)
@@ -302,22 +306,27 @@ export function ProviderKeysPanel() {
   const baseURLRequired = provider != null && PROVIDERS_REQUIRING_BASE_URL.includes(provider);
   // Mirrors the server's normalization: a slash-only value normalizes away to nothing.
   const baseURLMissing = baseURLRequired && baseURL.trim().replace(/\/+$/, "") === "";
-  // Key-pair, workload-identity, and Entra auth are gateway-only credential shapes; the
-  // vendor providers authenticate with their own API keys.
-  const authTypeOffered = baseURLRequired;
-  const usingKeypair = authTypeOffered && authType === "keypair_jwt";
-  const usingWIF = authTypeOffered && authType === "wif";
-  const usingEntra = authTypeOffered && authType === "azure_entra";
+  const authTypeOffered = baseURLRequired || provider === "anthropic";
+  const deploymentAnthropicKey = provider === "anthropic" && envKeyed.includes("anthropic");
+  const effectiveAuthType: ProviderAuthType = deploymentAnthropicKey
+    ? "anthropic_wif"
+    : provider === "anthropic"
+      ? authType === "anthropic_wif" ? authType : "bearer"
+      : baseURLRequired && authType !== "anthropic_wif" ? authType : "bearer";
+  const usingKeypair = effectiveAuthType === "keypair_jwt";
+  const usingWIF = effectiveAuthType === "wif";
+  const usingEntra = effectiveAuthType === "azure_entra";
+  const usingAnthropicWIF = effectiveAuthType === "anthropic_wif";
   const keypairIncomplete = usingKeypair && (authAccount.trim() === "" || authUser.trim() === "");
   const entraIncomplete = usingEntra && (authAccount.trim() === "" || authUser.trim() === "");
-  // A WIF key carries no secret, so an empty key field is the expected state.
-  const keyMissing = !usingWIF && keyValue.trim() === "";
-  const saveDisabled = saving || keyMissing || baseURLMissing || keypairIncomplete || entraIncomplete;
+  const federationIncomplete = usingAnthropicWIF && [federationRuleID, organizationID, serviceAccountID].some(value => value.trim() === "");
+  const keyMissing = !usingWIF && !usingAnthropicWIF && keyValue.trim() === "";
+  const saveDisabled = saving || keyMissing || baseURLMissing || keypairIncomplete || entraIncomplete || federationIncomplete;
   // Pre-save discovery can only authenticate with a token sent as-is; derived
   // auth (key pair, WIF) needs the stored key, so those save first and fetch
   // from the saved entry.
   const fetchHint =
-    authTypeOffered && authType !== "bearer"
+    authTypeOffered && effectiveAuthType !== "bearer"
       ? "Save the key first, then fetch from the saved entry."
       : keyMissing
         ? "Enter the API key first."
@@ -325,7 +334,7 @@ export function ProviderKeysPanel() {
           ? "Enter the endpoint URL first."
           : null;
 
-  const canFetchNew = provider != null && authTypeOffered && authType === "bearer" && !keyMissing && !baseURLMissing;
+  const canFetchNew = provider != null && baseURLRequired && effectiveAuthType === "bearer" && !keyMissing && !baseURLMissing;
 
   // Discover models as soon as a usable key + URL are entered, so endpoint IDs
   // and auto-matched aliases appear without an extra click.
@@ -395,13 +404,21 @@ export function ProviderKeysPanel() {
     try {
       await api.providerKeys.upsert(
         provider,
-        usingWIF ? "" : keyValue.trim(),
+        usingWIF || usingAnthropicWIF ? "" : keyValue.trim(),
         name.trim() || undefined,
-        baseURL.trim() || undefined,
+        usingAnthropicWIF ? undefined : baseURL.trim() || undefined,
         aliasMapFrom(aliasRows),
-        usingKeypair || usingEntra
-          ? { type: authType, account: authAccount.trim(), user: authUser.trim() }
-          : { type: authTypeOffered ? authType : "bearer" },
+        usingAnthropicWIF
+          ? {
+              type: effectiveAuthType,
+              federationRuleID: federationRuleID.trim(),
+              organizationID: organizationID.trim(),
+              serviceAccountID: serviceAccountID.trim(),
+              workspaceID: workspaceID.trim() || undefined,
+            }
+          : usingKeypair || usingEntra
+            ? { type: effectiveAuthType, account: authAccount.trim(), user: authUser.trim() }
+            : { type: effectiveAuthType },
       );
       setKeyValue("");
       setName("");
@@ -409,6 +426,10 @@ export function ProviderKeysPanel() {
       setAuthType("bearer");
       setAuthAccount("");
       setAuthUser("");
+      setFederationRuleID("");
+      setOrganizationID("");
+      setServiceAccountID("");
+      setWorkspaceID("");
       setAliasRows([]);
       setNewEndpointModels(null);
       load();
@@ -458,8 +479,13 @@ export function ProviderKeysPanel() {
           <Card.Content>
             <form onSubmit={handleSave} className="space-y-3" autoComplete="off">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-[200px_1fr]">
-                <ProviderPicker value={provider} onChange={setPickedProvider} options={available} />
-                {usingWIF ? null : usingKeypair ? (
+                <ProviderPicker value={provider} onChange={value => {
+                  setPickedProvider(value);
+                  setAuthType("bearer");
+                  setKeyValue("");
+                  setBaseURL("");
+                }} options={available} />
+                {usingWIF || usingAnthropicWIF ? null : usingKeypair ? (
                   <div className="flex flex-col gap-1.5">
                     <label htmlFor="provider-private-key" className="text-xs font-medium text-foreground">
                       Private key (PEM)
@@ -505,16 +531,22 @@ export function ProviderKeysPanel() {
                     id="provider-auth-type"
                     name="provider-auth-type"
                     className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-                    value={authType}
+                    value={effectiveAuthType}
                     onChange={e => {
                       setAuthType(e.target.value as ProviderAuthType);
                       setKeyValue("");
                     }}
                   >
-                    <option value="bearer">Token (sent as-is)</option>
-                    <option value="keypair_jwt">Key pair (router signs a short-lived token)</option>
-                    <option value="wif">Workload identity (router attests its own identity)</option>
-                    <option value="azure_entra">Microsoft Entra (router mints a short-lived token)</option>
+                    {!deploymentAnthropicKey && <option value="bearer">Token (sent as-is)</option>}
+                    {provider === "anthropic" ? (
+                      <option value="anthropic_wif">Anthropic workload identity federation</option>
+                    ) : (
+                      <>
+                        <option value="keypair_jwt">Key pair (router signs a short-lived token)</option>
+                        <option value="wif">Workload identity (router attests its own identity)</option>
+                        <option value="azure_entra">Microsoft Entra (router mints a short-lived token)</option>
+                      </>
+                    )}
                   </select>
                   {usingWIF ? (
                     <Text className="text-2xs text-muted-foreground">
@@ -523,6 +555,20 @@ export function ProviderKeysPanel() {
                     </Text>
                   ) : null}
                 </div>
+              ) : null}
+              {usingAnthropicWIF ? (
+                <>
+                  <Text className="text-2xs text-muted-foreground">
+                    Create a federation rule in Claude Console that trusts this router&apos;s workload identity.
+                    The router exchanges that identity for short-lived Anthropic access tokens.
+                  </Text>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <Input label="Federation rule ID" name="federation-rule-id" value={federationRuleID} onChange={e => setFederationRuleID(e.target.value)} placeholder="fdrl_..." required />
+                    <Input label="Organization ID" name="anthropic-organization-id" value={organizationID} onChange={e => setOrganizationID(e.target.value)} required />
+                    <Input label="Service account ID" name="anthropic-service-account-id" value={serviceAccountID} onChange={e => setServiceAccountID(e.target.value)} placeholder="svac_..." required />
+                    <Input label="Workspace ID (optional)" name="anthropic-workspace-id" value={workspaceID} onChange={e => setWorkspaceID(e.target.value)} placeholder="wrkspc_..." />
+                  </div>
+                </>
               ) : null}
               {usingKeypair || usingEntra ? (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -552,23 +598,27 @@ export function ProviderKeysPanel() {
                   that token to Azure.
                 </Text>
               ) : null}
-              <Input
-                label={baseURLRequired ? "Endpoint URL" : "Endpoint URL (optional)"}
-                name="provider-base-url"
-                autoComplete="off"
-                data-1p-ignore
-                data-lpignore="true"
-                data-form-type="other"
-                placeholder="https://gateway.example.com/api"
-                value={baseURL}
-                onChange={e => setBaseURL(e.target.value)}
-                required={baseURLRequired}
-              />
-              <Text className="text-2xs text-muted-foreground">
-                {baseURLRequired
-                  ? "This provider has no default endpoint. Give the full base URL; the router appends the API path (e.g. /v1/messages)."
-                  : "Leave blank to use the provider's default endpoint. The router appends the API path (e.g. /v1/messages)."}
-              </Text>
+              {!usingAnthropicWIF && (
+                <>
+                  <Input
+                    label={baseURLRequired ? "Endpoint URL" : "Endpoint URL (optional)"}
+                    name="provider-base-url"
+                    autoComplete="off"
+                    data-1p-ignore
+                    data-lpignore="true"
+                    data-form-type="other"
+                    placeholder="https://gateway.example.com/api"
+                    value={baseURL}
+                    onChange={e => setBaseURL(e.target.value)}
+                    required={baseURLRequired}
+                  />
+                  <Text className="text-2xs text-muted-foreground">
+                    {baseURLRequired
+                      ? "This provider has no default endpoint. Give the full base URL; the router appends the API path (e.g. /v1/messages)."
+                      : "Leave blank to use the provider's default endpoint. The router appends the API path (e.g. /v1/messages)."}
+                  </Text>
+                </>
+              )}
               <Input
                 label="Name (optional)"
                 name="provider-key-label"
@@ -655,7 +705,7 @@ export function ProviderKeysPanel() {
                         )}
                       </div>
                       <p className="mt-0.5 font-mono text-2xs text-muted-foreground">
-                        {k.key_prefix}…{k.key_suffix}
+                        {k.auth_type === "anthropic_wif" ? `Anthropic WIF · ${k.service_account_id}` : `${k.key_prefix}…${k.key_suffix}`}
                         {k.base_url != null && k.base_url !== "" && (
                           <span className="ml-2 font-sans">· {k.base_url}</span>
                         )}

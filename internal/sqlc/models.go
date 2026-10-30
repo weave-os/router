@@ -401,7 +401,11 @@ type RouterModelRouterExternalAPIKey struct {
 	// Inbound client header names copied verbatim to this key's endpoint; NULL forwards nothing
 	ForwardedClientHeaders []string
 	// JSON baggage header forwarded to this key's endpoint with the resolved caller email under on-behalf-of; NULL forwards nothing
-	BaggageHeader *string
+	BaggageHeader             *string
+	AnthropicFederationRuleID *string
+	AnthropicOrganizationID   *string
+	AnthropicServiceAccountID *string
+	AnthropicWorkspaceID      *string
 }
 
 // Ordered upstream attempts per inference operation; joins to model_router_request_telemetry on (installation_id, request_id)

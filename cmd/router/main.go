@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/analytics"
+	"weave-os/router/internal/anthropicwif"
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
@@ -603,6 +604,7 @@ func main() {
 		WithBlindExperiments(repo.BlindExperiments, blindExperimentCache).
 		WithRoutingPolicies(repo.RoutingPolicies, routingPolicyCache).
 		WithWIFTokenSource(buildWIFTokenSource(logger)).
+		WithAnthropicWIFTokenSource(buildAnthropicWIFTokenSource()).
 		WithEntraTokenSource(buildEntraTokenSource(logger)).
 		WithFlagOverridesDisabled(flagOverridesDisabled).
 		WithSessionSpendCaps(billingSvc != nil)
@@ -1867,6 +1869,28 @@ func buildEntraTokenSource(logger *slog.Logger) auth.EntraTokenSource {
 		},
 	}
 	return entra.NewClientCredentialsSource(entraClient, time.Now)
+}
+
+// buildAnthropicWIFTokenSource is independent of Snowflake's ROUTER_WIF_* settings.
+func buildAnthropicWIFTokenSource() auth.AnthropicWIFTokenSource {
+	provider := strings.ToUpper(strings.TrimSpace(config.GetOr("ROUTER_ANTHROPIC_WIF_PROVIDER", "")))
+	var identity anthropicwif.IdentityTokenSource
+	switch provider {
+	case "":
+		return nil
+	case auth.WIFProviderGCP:
+		audience := config.GetOr("ROUTER_ANTHROPIC_WIF_AUDIENCE", "https://api.anthropic.com")
+		identity = wif.NewGoogleIdentityTokenSource(audience)
+	case auth.WIFProviderOIDC:
+		path := config.GetOr("ROUTER_ANTHROPIC_WIF_OIDC_TOKEN_FILE", "")
+		if strings.TrimSpace(path) == "" {
+			panic("ROUTER_ANTHROPIC_WIF_PROVIDER=OIDC requires ROUTER_ANTHROPIC_WIF_OIDC_TOKEN_FILE")
+		}
+		identity = wif.NewFileIdentityTokenSource(path)
+	default:
+		panic("Invalid ROUTER_ANTHROPIC_WIF_PROVIDER (expected GCP or OIDC)")
+	}
+	return anthropicwif.NewClient(nil, identity, time.Now)
 }
 
 // buildWIFTokenSource constructs the workload attestation source backing BYOK

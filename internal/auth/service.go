@@ -51,6 +51,9 @@ var ErrInvalidKeypairAuth = errors.New("auth: invalid keypair auth")
 // principal or client secret is unusable.
 var ErrInvalidEntraAuth = errors.New("auth: invalid Microsoft Entra auth")
 
+// ErrInvalidAnthropicWIFAuth reports invalid Claude federation configuration.
+var ErrInvalidAnthropicWIFAuth = errors.New("auth: invalid Anthropic workload identity configuration")
+
 type Clock func() time.Time
 
 const (
@@ -100,6 +103,10 @@ type Service struct {
 	// entraTokens is nil unless the deployment has an Entra token source;
 	// Azure Entra keys are then dropped rather than sent as client secrets.
 	entraTokens EntraTokenSource
+
+	// anthropicWIFTokens is nil unless Claude federation is configured;
+	// Anthropic WIF keys are then dropped rather than sent without a token.
+	anthropicWIFTokens AnthropicWIFTokenSource
 
 	// flagOverridesDisabled is the deployment-wide escape hatch
 	// (ROUTER_FLAG_OVERRIDES_DISABLED). When set, per-organization flag
@@ -193,6 +200,12 @@ func (s *Service) WithWIFTokenSource(src WIFTokenSource) *Service {
 // WithEntraTokenSource wires the source backing AuthTypeAzureEntra keys.
 func (s *Service) WithEntraTokenSource(src EntraTokenSource) *Service {
 	s.entraTokens = src
+	return s
+}
+
+// WithAnthropicWIFTokenSource wires Claude's RFC 7523 federation exchange.
+func (s *Service) WithAnthropicWIFTokenSource(src AnthropicWIFTokenSource) *Service {
+	s.anthropicWIFTokens = src
 	return s
 }
 
@@ -471,7 +484,10 @@ type UpsertExternalAPIKeyParams struct {
 	AuthType    string
 	AuthAccount *string
 	AuthUser    *string
-	CreatedBy   *string
+	// AnthropicWIF is non-secret Claude federation metadata. The token source is
+	// deployment-owned and is never supplied by the tenant.
+	AnthropicWIF AnthropicWIFConfig
+	CreatedBy    *string
 }
 
 // UpsertExternalAPIKey replaces the provider's key for the installation.
@@ -522,6 +538,16 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 			return nil, fmt.Errorf("%w: %s takes no key material", ErrInvalidKeypairAuth, AuthTypeWIF)
 		}
 	}
+	validatedAnthropicWIF, err := NormalizeAnthropicWIF(provider, authType, params.AnthropicWIF)
+	if err != nil {
+		return nil, err
+	}
+	if authType == AuthTypeAnthropicWIF && (rawKey != "" || normalizedBaseURL != nil || authAccount != nil || authUser != nil) {
+		return nil, fmt.Errorf("%w: %s accepts no key, base URL, or account fields", ErrInvalidAnthropicWIFAuth, AuthTypeAnthropicWIF)
+	}
+	if authType != AuthTypeAnthropicWIF && params.AnthropicWIF != (AnthropicWIFConfig{}) {
+		return nil, fmt.Errorf("%w: federation metadata requires %s", ErrInvalidAnthropicWIFAuth, AuthTypeAnthropicWIF)
+	}
 	if authType == AuthTypeAzureEntra {
 		if !providers.RequiresBaseURL(provider) {
 			return nil, fmt.Errorf("%w: %s does not accept Microsoft Entra credentials", ErrInvalidEntraAuth, provider)
@@ -546,9 +572,14 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 	}
 	// Generate external ID first so it binds into the ciphertext as AAD.
 	externalID := GenerateID("ekid")
-	ciphertext, err := s.encryptor.Encrypt([]byte(rawKey), externalID, provider)
-	if err != nil {
-		return nil, err
+	var ciphertext []byte
+	if authType == AuthTypeAnthropicWIF {
+		ciphertext = []byte{}
+	} else {
+		ciphertext, err = s.encryptor.Encrypt([]byte(rawKey), externalID, provider)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if err := s.externalKeys.SoftDeleteByProvider(ctx, installationID, provider); err != nil {
 		return nil, err
@@ -571,10 +602,14 @@ func (s *Service) UpsertExternalAPIKey(ctx context.Context, installationID strin
 		ForwardedClientHeaders: forwardedHeaders,
 		BaggageHeader:          baggageHeader,
 
-		AuthType:    authType,
-		AuthAccount: authAccount,
-		AuthUser:    authUser,
-		CreatedBy:   params.CreatedBy,
+		AuthType:         authType,
+		AuthAccount:      authAccount,
+		AuthUser:         authUser,
+		FederationRuleID: optionalString(validatedAnthropicWIF.FederationRuleID),
+		OrganizationID:   optionalString(validatedAnthropicWIF.OrganizationID),
+		ServiceAccountID: optionalString(validatedAnthropicWIF.ServiceAccountID),
+		WorkspaceID:      optionalString(validatedAnthropicWIF.WorkspaceID),
+		CreatedBy:        params.CreatedBy,
 	})
 	if err != nil {
 		return nil, err

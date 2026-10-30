@@ -10,6 +10,7 @@ This page is the exhaustive reference; the [README](../README.md) has the
 - [Provider API keys](#provider-api-keys)
   - [Key-pair auth](#key-pair-auth)
   - [Workload identity federation](#workload-identity-federation)
+  - [Anthropic workload identity federation](#anthropic-workload-identity-federation)
 - [Postgres](#postgres)
 - [Server](#server)
 - [Managed serving (`ROUTER_SERVING_*`)](#managed-serving-router_serving_)
@@ -353,6 +354,66 @@ fields reject the same request-critical header names as `identity_header`, and
 both are applied after the client's headers so nothing upstream-critical can be
 overwritten. Omit both to forward nothing.
 
+
+### Anthropic workload identity federation
+
+Use `auth_type: "anthropic_wif"` with the `anthropic` provider to connect a
+customer's Claude API service account without storing an API key. This is a
+separate mechanism from the Snowflake gateway's `auth_type: "wif"` above;
+`ROUTER_WIF_*`, Snowflake's `WIF.*` bearer format, and its token-type header
+remain unchanged.
+
+In [Claude Console](https://platform.claude.com/settings/workload-identity-federation),
+create an identity provider and federation rule that trusts the router's issuer,
+audience, and workload subject. Bind it to a service account with the required
+workspace access. Configure the **router deployment's** assertion source:
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `ROUTER_ANTHROPIC_WIF_PROVIDER` | *(none)* | `GCP` or `OIDC`. Unset disables Anthropic federation; invalid values abort boot. |
+| `ROUTER_ANTHROPIC_WIF_AUDIENCE` | `https://api.anthropic.com` | GCP identity-token audience; must match the customer's federation rule. |
+| `ROUTER_ANTHROPIC_WIF_OIDC_TOKEN_FILE` | *(none)* | Projected raw OIDC JWT file, required for `OIDC`; missing configuration aborts boot. |
+
+Then save the non-secret Claude identifiers using the dashboard's Anthropic
+workload identity option or the authenticated provider-key API:
+
+```json
+{
+  "provider": "anthropic",
+  "auth_type": "anthropic_wif",
+  "federation_rule_id": "fdrl_...",
+  "organization_id": "00000000-0000-0000-0000-000000000000",
+  "service_account_id": "svac_...",
+  "workspace_id": "wrkspc_..."
+}
+```
+
+`workspace_id` is optional. Send this body to `POST /admin/v1/provider-keys` on
+self-hosted routers. The dashboard and its admin API are self-hosted surfaces;
+managed deployments need their control plane to persist this configuration and
+enable the existing BYOK eligibility policy. Tenants cannot supply assertion
+files, audiences, token endpoints, API keys, or endpoint overrides in this mode.
+An existing deployment `ANTHROPIC_API_KEY` can coexist; a successfully resolved
+customer federation credential takes BYOK precedence.
+
+The router exchanges a fresh identity assertion at Anthropic's fixed
+`https://api.anthropic.com/v1/oauth/token` endpoint and sends the returned token
+as `Authorization: Bearer`. Assertions and access tokens are never stored in the
+database. Tokens are cached per credential and federation configuration, refreshed
+120 seconds before expiry, and refused within 30 seconds of expiry if refresh
+fails. Unresolvable federation credentials follow the existing BYOK failure path
+and are omitted from that request's credentials; normal routing eligibility and
+deployment credentials still apply.
+
+For OIDC files, the projecting runtime must provide a **new JWT for each
+exchange**, including across restarts and replicas. Anthropic normally rejects
+reuse of a `jti`; rereading an unrotated file does not make it fresh. Rotate well
+before the access token's refresh window, and avoid sharing single-use assertions
+between replicas. See [Anthropic's WIF guide](https://platform.claude.com/docs/en/manage-claude/workload-identity-federation).
+
+Federation tokens are API credentials, even when their prefix resembles a
+Claude subscription token. They do not enable subscription beta headers or
+Claude Code identity injection.
 
 ### Microsoft Entra client credentials
 

@@ -30,6 +30,10 @@ INSERT INTO router.model_router_external_api_keys (
     auth_type,
     auth_account,
     auth_user,
+    anthropic_federation_rule_id,
+    anthropic_organization_id,
+    anthropic_service_account_id,
+    anthropic_workspace_id,
     created_by
 )
 VALUES (
@@ -50,30 +54,38 @@ VALUES (
     $15::text,
     $16::text,
     $17::text,
-    $18
+    $18::text,
+    $19::text,
+    $20::text,
+    $21::text,
+    $22
 )
-RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header
+RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header, anthropic_federation_rule_id, anthropic_organization_id, anthropic_service_account_id, anthropic_workspace_id
 `
 
 type CreateExternalAPIKeyParams struct {
-	InstallationID         uuid.UUID
-	ExternalID             string
-	Provider               string
-	KeyCiphertext          []byte
-	KeyPrefix              string
-	KeySuffix              string
-	KeyFingerprint         string
-	Name                   *string
-	BaseURL                *string
-	ModelAliases           []byte
-	IdentityHeaderName     *string
-	IdentityHeaderFormat   *string
-	ForwardedClientHeaders []string
-	BaggageHeader          *string
-	AuthType               string
-	AuthAccount            *string
-	AuthUser               *string
-	CreatedBy              *string
+	InstallationID            uuid.UUID
+	ExternalID                string
+	Provider                  string
+	KeyCiphertext             []byte
+	KeyPrefix                 string
+	KeySuffix                 string
+	KeyFingerprint            string
+	Name                      *string
+	BaseURL                   *string
+	ModelAliases              []byte
+	IdentityHeaderName        *string
+	IdentityHeaderFormat      *string
+	ForwardedClientHeaders    []string
+	BaggageHeader             *string
+	AuthType                  string
+	AuthAccount               *string
+	AuthUser                  *string
+	AnthropicFederationRuleID *string
+	AnthropicOrganizationID   *string
+	AnthropicServiceAccountID *string
+	AnthropicWorkspaceID      *string
+	CreatedBy                 *string
 }
 
 // Creates a new external API key for an installation. The unique index on
@@ -98,6 +110,10 @@ type CreateExternalAPIKeyParams struct {
 //	    auth_type,
 //	    auth_account,
 //	    auth_user,
+//	    anthropic_federation_rule_id,
+//	    anthropic_organization_id,
+//	    anthropic_service_account_id,
+//	    anthropic_workspace_id,
 //	    created_by
 //	)
 //	VALUES (
@@ -118,9 +134,13 @@ type CreateExternalAPIKeyParams struct {
 //	    $15::text,
 //	    $16::text,
 //	    $17::text,
-//	    $18
+//	    $18::text,
+//	    $19::text,
+//	    $20::text,
+//	    $21::text,
+//	    $22
 //	)
-//	RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header
+//	RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header, anthropic_federation_rule_id, anthropic_organization_id, anthropic_service_account_id, anthropic_workspace_id
 func (q *Queries) CreateExternalAPIKey(ctx context.Context, arg CreateExternalAPIKeyParams) (RouterModelRouterExternalAPIKey, error) {
 	row := q.db.QueryRow(ctx, createExternalAPIKey,
 		arg.InstallationID,
@@ -140,6 +160,10 @@ func (q *Queries) CreateExternalAPIKey(ctx context.Context, arg CreateExternalAP
 		arg.AuthType,
 		arg.AuthAccount,
 		arg.AuthUser,
+		arg.AnthropicFederationRuleID,
+		arg.AnthropicOrganizationID,
+		arg.AnthropicServiceAccountID,
+		arg.AnthropicWorkspaceID,
 		arg.CreatedBy,
 	)
 	var i RouterModelRouterExternalAPIKey
@@ -168,12 +192,16 @@ func (q *Queries) CreateExternalAPIKey(ctx context.Context, arg CreateExternalAP
 		&i.DeletedBy,
 		&i.ForwardedClientHeaders,
 		&i.BaggageHeader,
+		&i.AnthropicFederationRuleID,
+		&i.AnthropicOrganizationID,
+		&i.AnthropicServiceAccountID,
+		&i.AnthropicWorkspaceID,
 	)
 	return i, err
 }
 
 const getActiveExternalAPIKeysForInstallation = `-- name: GetActiveExternalAPIKeysForInstallation :many
-SELECT id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header
+SELECT id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header, anthropic_federation_rule_id, anthropic_organization_id, anthropic_service_account_id, anthropic_workspace_id
 FROM router.model_router_external_api_keys
 WHERE installation_id = $1::uuid
   AND deleted_at IS NULL
@@ -183,7 +211,7 @@ ORDER BY provider, created_at DESC
 // Returns all active external API keys for an installation. Used by the auth
 // cache to populate the ExternalKeys map on cache miss.
 //
-//	SELECT id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header
+//	SELECT id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header, anthropic_federation_rule_id, anthropic_organization_id, anthropic_service_account_id, anthropic_workspace_id
 //	FROM router.model_router_external_api_keys
 //	WHERE installation_id = $1::uuid
 //	  AND deleted_at IS NULL
@@ -222,6 +250,10 @@ func (q *Queries) GetActiveExternalAPIKeysForInstallation(ctx context.Context, i
 			&i.DeletedBy,
 			&i.ForwardedClientHeaders,
 			&i.BaggageHeader,
+			&i.AnthropicFederationRuleID,
+			&i.AnthropicOrganizationID,
+			&i.AnthropicServiceAccountID,
+			&i.AnthropicWorkspaceID,
 		); err != nil {
 			return nil, err
 		}
@@ -307,7 +339,7 @@ SET model_aliases = $1::jsonb, updated_at = CURRENT_TIMESTAMP
 WHERE id = $2::uuid
   AND installation_id = $3::uuid
   AND deleted_at IS NULL
-RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header
+RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header, anthropic_federation_rule_id, anthropic_organization_id, anthropic_service_account_id, anthropic_workspace_id
 `
 
 type UpdateExternalAPIKeyModelAliasesParams struct {
@@ -325,7 +357,7 @@ type UpdateExternalAPIKeyModelAliasesParams struct {
 //	WHERE id = $2::uuid
 //	  AND installation_id = $3::uuid
 //	  AND deleted_at IS NULL
-//	RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header
+//	RETURNING id, installation_id, external_id, provider, key_ciphertext, key_prefix, key_suffix, key_fingerprint, name, last_used_at, created_at, updated_at, deleted_at, created_by, base_url, model_aliases, identity_header_name, identity_header_format, auth_type, auth_account, auth_user, deleted_by, forwarded_client_headers, baggage_header, anthropic_federation_rule_id, anthropic_organization_id, anthropic_service_account_id, anthropic_workspace_id
 func (q *Queries) UpdateExternalAPIKeyModelAliases(ctx context.Context, arg UpdateExternalAPIKeyModelAliasesParams) (RouterModelRouterExternalAPIKey, error) {
 	row := q.db.QueryRow(ctx, updateExternalAPIKeyModelAliases, arg.ModelAliases, arg.ID, arg.InstallationID)
 	var i RouterModelRouterExternalAPIKey
@@ -354,6 +386,10 @@ func (q *Queries) UpdateExternalAPIKeyModelAliases(ctx context.Context, arg Upda
 		&i.DeletedBy,
 		&i.ForwardedClientHeaders,
 		&i.BaggageHeader,
+		&i.AnthropicFederationRuleID,
+		&i.AnthropicOrganizationID,
+		&i.AnthropicServiceAccountID,
+		&i.AnthropicWorkspaceID,
 	)
 	return i, err
 }

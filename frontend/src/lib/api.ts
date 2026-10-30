@@ -112,7 +112,8 @@ export interface IssueAPIKeyResponse {
 // ProviderAuthType is how a BYOK key authenticates upstream. "wif" keys hold no
 // secret at all: the router presents its own workload attestation per request.
 // "azure_entra" stores an Entra client secret and mints a short-lived token.
-export type ProviderAuthType = "bearer" | "keypair_jwt" | "wif" | "azure_entra";
+// "anthropic_wif" exchanges the deployment identity for a Claude API token.
+export type ProviderAuthType = "bearer" | "keypair_jwt" | "wif" | "azure_entra" | "anthropic_wif";
 
 export interface ExternalKey {
   id: string;
@@ -135,6 +136,10 @@ export interface ExternalKey {
   // azure_entra. For azure_entra these are the tenant ID and client ID.
   auth_account?: string;
   auth_user?: string;
+  federation_rule_id?: string;
+  organization_id?: string;
+  service_account_id?: string;
+  workspace_id?: string;
   last_used_at: string | null;
   created_at: string;
 }
@@ -241,7 +246,15 @@ export const api = {
       name?: string,
       baseURL?: string,
       modelAliases?: Record<string, string>,
-      auth?: { type: ProviderAuthType; account?: string; user?: string },
+      auth?: {
+        type: ProviderAuthType;
+        account?: string;
+        user?: string;
+        federationRuleID?: string;
+        organizationID?: string;
+        serviceAccountID?: string;
+        workspaceID?: string;
+      },
     ) =>
       request<ExternalKey>("/provider-keys", {
         method: "POST",
@@ -254,6 +267,10 @@ export const api = {
           auth_type: auth?.type ?? "bearer",
           auth_account: auth?.account,
           auth_user: auth?.user,
+          federation_rule_id: auth?.federationRuleID,
+          organization_id: auth?.organizationID,
+          service_account_id: auth?.serviceAccountID,
+          workspace_id: auth?.workspaceID,
         }),
       }),
     // Replaces the alias map in place; the stored secret is untouched, so
