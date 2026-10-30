@@ -7,6 +7,7 @@ import (
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
+	"weave-os/router/internal/providers"
 	"weave-os/router/internal/proxy"
 
 	"github.com/gin-gonic/gin"
@@ -29,17 +30,22 @@ type updateExcludedProvidersRequest struct {
 	Excluded []string `json:"excluded"`
 }
 
-// deployedProvidersDTO returns distinct provider names from the deployed-models
-// registry, sorted, so GET and PUT responses can't drift apart.
+// deployedProvidersDTO returns the distinct provider names that may be excluded,
+// sorted, so GET and PUT responses can't drift apart. It includes provider
+// integrations registered by the binary even when the current deployed-models
+// registry has no row for that provider, so a user can still exclude a
+// BYOK/configured provider that no deployed model happens to be bound to.
 func deployedProvidersDTO(models DeployedModelsSource) []string {
 	seen := make(map[string]struct{})
-	out := make([]string, 0)
 	for _, e := range models.DefaultDeployedModels() {
-		if _, dup := seen[e.Provider]; dup {
-			continue
-		}
 		seen[e.Provider] = struct{}{}
-		out = append(out, e.Provider)
+	}
+	for p := range providers.APIKeyEnvVars {
+		seen[p] = struct{}{}
+	}
+	out := make([]string, 0, len(seen))
+	for p := range seen {
+		out = append(out, p)
 	}
 	sort.Strings(out)
 	return out
