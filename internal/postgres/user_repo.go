@@ -80,8 +80,7 @@ func (r *userRepo) UpsertByCredentialSubject(ctx context.Context, params auth.Up
 	if err != nil {
 		return nil, err
 	}
-	q := dbbudget.Queries(r.tx)
-	row, err := q.UpsertModelRouterUserByCredentialSubject(ctx, sqlc.UpsertModelRouterUserByCredentialSubjectParams{
+	row, err := dbbudget.Queries(r.tx).UpsertModelRouterUserByCredentialSubject(ctx, sqlc.UpsertModelRouterUserByCredentialSubjectParams{
 		InstallationID:      installationID,
 		CredentialSubjectID: credentialSubjectID,
 		DisplayName:         nullableTextArg(params.DisplayName),

@@ -998,14 +998,14 @@ func (s *Service) ResolveAndStashKeyOwner(ctx context.Context, installationID, c
 	if cached, ok := s.userCache.Get(installationID, identityKey); ok {
 		return s.withUserSettings(ctx, installationID, cached)
 	}
-	var namePtr *string
+	var optionalName *string
 	if displayName != "" {
-		namePtr = &displayName
+		optionalName = &displayName
 	}
 	user, err := s.users.UpsertByCredentialSubject(ctx, UpsertUserByCredentialSubjectParams{
 		InstallationID:      installationID,
 		CredentialSubjectID: credentialSubjectID,
-		DisplayName:         namePtr,
+		DisplayName:         optionalName,
 	})
 	if err != nil {
 		log.Warn("Failed to resolve router user for API key owner", "installation_id", installationID, "err", err)
