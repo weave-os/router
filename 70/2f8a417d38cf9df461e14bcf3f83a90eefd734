@@ -1,0 +1,31 @@
+internal/proxy/command_history_pin_test.go
+  s_6d50bad16855bd::t_49868b10251a69 1-19,25,31,36-60,74,76,82-84,86-87,91-92,94-96
+  s_6d50bad16855bd::t_4b65ab6c096d84 20-24,26-30,32-35,61-73,75,77-81,85,88-90,93
+internal/translate/AGENTS.md
+  s_6d50bad16855bd::t_7256e787bd6871 98,100-103
+internal/translate/command_history.go
+  s_6d50bad16855bd::t_c4885df7b586f2 17-20,56,69,106-116,191-197,216
+internal/translate/command_history_test.go
+  s_6d50bad16855bd::t_512aed41a64e0e 83-97,100,107,118-119,126,146-147,154,161-162,172-174
+  s_6d50bad16855bd::t_aec15e4cd2c3fb 59-60,68
+internal/translate/CLAUDE.md
+  s_6d50bad16855bd::t_40c7b8771b7c95 98,100-103
+internal/translate/command_history_internal_test.go
+  s_6d50bad16855bd::t_8fc45e03807265 18-19,37-41,43,54-55,71-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "702f8a417d38cf9df461e14bcf3f83a90eefd734",
+  "prompts": {},
+  "sessions": {
+    "s_6d50bad16855bd": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1758a-0316-7981-8e61-a57c35537a18",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Sam Coutts <sam@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,37 @@
+internal/observability/otel/environment.go
+  s_61b1cde474dcb0::t_ea487a5b973948 27-28,30
+  s_61b1cde474dcb0::t_288886a187bae1 12-13,21
+internal/observability/otel/environment_test.go
+  s_61b1cde474dcb0::t_ea487a5b973948 23,28
+internal/observability/service_name_internal_test.go
+  s_61b1cde474dcb0::t_99b4bebf4c2973 21
+  s_61b1cde474dcb0::t_bdd90cd99f4476 23,43,47
+  s_61b1cde474dcb0::t_288886a187bae1 4,10,24,33,42,44-46,48
+  s_61b1cde474dcb0::t_01167d30c26ce2 49-50
+cmd/router/main.go
+  s_61b1cde474dcb0::t_ea487a5b973948 1839-1843
+cmd/router-gateway/main.go
+  s_61b1cde474dcb0::t_99b4bebf4c2973 46-50
+internal/observability/logger.go
+  s_61b1cde474dcb0::t_288886a187bae1 153-156
+internal/observability/resource.go
+  s_61b1cde474dcb0::t_288886a187bae1 1-31
+cmd/router-gateway/telemetry_test.go
+  s_61b1cde474dcb0::t_99b4bebf4c2973 38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "22a84eb1fe4bf9d5a47568110eaa8552304efe32",
+  "prompts": {},
+  "sessions": {
+    "s_61b1cde474dcb0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1100f-68b7-7ad2-b1d9-0f8a40482812",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

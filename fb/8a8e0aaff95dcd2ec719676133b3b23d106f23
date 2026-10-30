@@ -1,0 +1,22 @@
+install/install.sh
+  s_5f31ec9147a0ee::t_32e3e142006247 2687-2688,2701
+install/tests/claude-status_test.sh
+  s_5f31ec9147a0ee::t_a0b0aa8e2eba39 30-34,67,69,71,128-129,134-135,141-142,146-147,155-156,160-168
+  s_5f31ec9147a0ee::t_32e3e142006247 157
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "fb8a8e0aaff95dcd2ec719676133b3b23d106f23",
+  "prompts": {},
+  "sessions": {
+    "s_5f31ec9147a0ee": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ead5-be69-7b21-9f07-9f8f1ea322ff",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
