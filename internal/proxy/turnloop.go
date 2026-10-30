@@ -741,7 +741,7 @@ func withAutomaticExclusions(req HardPinRequest, automaticExcluded map[string]st
 }
 
 func forcedPinEligible(pin sessionpin.Pin, req router.Request) bool {
-	return pinEligible(pin, req)
+	return pinEligible(pin, readmitForcedContextEstimate(req, pin.Model))
 }
 
 func forcedPinIneligibilityReason(pin sessionpin.Pin, req router.Request) string {

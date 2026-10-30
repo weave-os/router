@@ -30,6 +30,7 @@ func subscriptionStateModelsEnabled(ctx context.Context) bool {
 // subscriptionStateRequest preserves all request safety constraints while
 // narrowing eligibility. An empty configured state refuses rather than widening.
 func (s *Service) subscriptionStateRequest(ctx context.Context, req router.Request, models []string) (context.Context, router.Request) {
+	req = readmitForcedContextEstimate(req, req.ForceModel)
 	allowed := make(map[string]struct{})
 	for _, model := range models {
 		if _, excluded := req.ExcludedModels[model]; excluded {
