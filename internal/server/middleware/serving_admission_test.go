@@ -370,15 +370,17 @@ func TestDirectAdmissionRejectsOtherFleet(t *testing.T) {
 }
 
 func TestDirectConversationIDFallsBackToConversationFingerprint(t *testing.T) {
-	messages := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	messagesRequest := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 	firstTurn := []byte(`{"model":"auto","system":"turn one","messages":[{"role":"user","content":[{"type":"text","text":"<current_datetime>2026-10-30T15:40:06</current_datetime> fix the build"}]}]}`)
 	laterTurn := []byte(`{"model":"auto","system":"turn two","messages":[{"role":"user","content":[{"type":"text","text":"<current_datetime>2026-10-30T15:40:06</current_datetime> fix the build","cache_control":{"type":"ephemeral"}}]},{"role":"assistant","content":"ok"},{"role":"user","content":"next"}]}`)
 	otherConversation := []byte(`{"model":"auto","messages":[{"role":"user","content":"<current_datetime>2026-10-30T16:02:11</current_datetime> fix the build"}]}`)
 
-	first := directConversationID(messages, firstTurn)
+	first := directConversationID(messagesRequest, firstTurn)
 	require.NotEmpty(t, first, "session-less clients need a stable conversation identity")
-	assert.Equal(t, first, directConversationID(messages, laterTurn))
-	assert.NotEqual(t, first, directConversationID(messages, otherConversation))
+	assert.Equal(t, first, directConversationID(messagesRequest, laterTurn))
+	assert.NotEqual(t, first, directConversationID(messagesRequest, otherConversation))
+	stringOpener := []byte(`{"model":"auto","messages":[{"role":"user","content":"<current_datetime>2026-10-30T15:40:06</current_datetime> fix the build"}]}`)
+	assert.Equal(t, first, directConversationID(messagesRequest, stringOpener), "string and single-block openers must match")
 
 	responses := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
 	responsesTurn := []byte(`{"model":"auto","input":[{"role":"developer","content":"sys"},{"role":"user","content":[{"type":"input_text","text":"fix the build"}]}]}`)

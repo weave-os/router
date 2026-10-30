@@ -193,18 +193,18 @@ func firstUserMessageText(body []byte, surface ConversationSurface) string {
 	return text
 }
 
-// contentText ignores per-turn annotations such as cache_control.
+// contentText ignores per-turn annotations such as cache_control, and a lone text
+// block matches the same text sent as a plain string.
 func contentText(content gjson.Result) string {
 	if content.Type == gjson.String {
 		return content.String()
 	}
-	var text strings.Builder
+	var parts []string
 	content.ForEach(func(_, part gjson.Result) bool {
 		if value := part.Get("text"); value.Type == gjson.String {
-			text.WriteString(value.String())
-			text.WriteByte(0)
+			parts = append(parts, value.String())
 		}
 		return true
 	})
-	return text.String()
+	return strings.Join(parts, "\x00")
 }
