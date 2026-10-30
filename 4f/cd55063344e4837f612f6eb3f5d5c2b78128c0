@@ -1,0 +1,37 @@
+.github/workflows/test.yml
+  s_787cf7fc928eb8::t_5f2be41e7d7f9d 347
+install/npm/windows.test.js
+  s_787cf7fc928eb8::t_5f2be41e7d7f9d 56,77,81,107-109,209-213
+  s_787cf7fc928eb8::t_f2b9c1fefe7b6e 140,149,151,155-175,190-208
+.github/workflows/publish_npm.yml
+  s_787cf7fc928eb8::t_5f2be41e7d7f9d 69
+Makefile
+  s_787cf7fc928eb8::t_5f2be41e7d7f9d 68,70-71
+  s_787cf7fc928eb8::t_c428fe7bbe8347 12
+install/npm/bin.js
+  s_787cf7fc928eb8::t_0f76c0a05f1822 106,111
+install/npm/windows.js
+  s_787cf7fc928eb8::t_69a8d6838cdc49 52,55,132,153,161,345,349
+  s_787cf7fc928eb8::t_0f76c0a05f1822 12,122,131,133-138,150,152,348,350-353
+  s_787cf7fc928eb8::t_5f2be41e7d7f9d 21-22,24,70,72,111,125,139-149,151,198-202,220,303-304,309,416
+  s_787cf7fc928eb8::t_1e5807c9169dc4 7
+install/npm/package.json
+  s_787cf7fc928eb8::t_1a07f8dbed1926 82
+  s_787cf7fc928eb8::t_e8d5ddc1051d89 83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4fcd55063344e4837f612f6eb3f5d5c2b78128c0",
+  "prompts": {},
+  "sessions": {
+    "s_787cf7fc928eb8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11340-f757-7f13-811d-6144d7b9238b",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

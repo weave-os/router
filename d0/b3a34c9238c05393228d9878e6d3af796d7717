@@ -1,0 +1,18 @@
+docs/CONFIGURATION.md
+  h_b69b8da058dd5d 517,521-522
+internal/translate/force_model.go
+  h_b69b8da058dd5d 31-32,296-297,326
+internal/translate/force_model_test.go
+  h_b69b8da058dd5d 73-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "d0b3a34c9238c05393228d9878e6d3af796d7717",
+  "prompts": {},
+  "humans": {
+    "h_b69b8da058dd5d": {
+      "author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}
