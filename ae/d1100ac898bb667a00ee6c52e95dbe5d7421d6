@@ -1,0 +1,72 @@
+internal/sqlc/billing.sql.go
+  s_0280f2ea513fc4::t_25bde97fa5365b 432-441,444-446,449-451,458,467-469,471-480,483-485,488-490,493
+internal/billing/repo.go
+  s_0280f2ea513fc4::t_a3c2f676d385a3 70-72
+internal/auth/service_test.go
+  s_0280f2ea513fc4::t_1754bd54c8a791 65
+  s_0280f2ea513fc4::t_98af35de267cd3 56-64
+internal/auth/credential_subject_test.go
+  s_0280f2ea513fc4::t_1754bd54c8a791 39,41,43-58
+internal/api/admin/internal_session_issuers.go
+  s_0280f2ea513fc4::t_9f7f85e6c5c623 54-55
+  s_0280f2ea513fc4::t_4d9dbe2fc8364c 12,36-41,46
+  s_0280f2ea513fc4::t_98af35de267cd3 16-19
+  s_0280f2ea513fc4::t_4d22222c59aa40 52
+  s_b3b69cc74b98a7::t_137e85eeb2532b 53
+scripts/serving_admission_check/session_issuer_test.go
+  s_0280f2ea513fc4::t_d631936412d2c0 1-92
+internal/postgres/repository.go
+  s_0280f2ea513fc4::t_4d9dbe2fc8364c 382
+  s_0280f2ea513fc4::t_98af35de267cd3 374-381,383
+internal/auth/credential_subject.go
+  s_0280f2ea513fc4::t_4d9dbe2fc8364c 33-36,54-55,57
+db/queries/model_router_api_keys.sql
+  s_0280f2ea513fc4::t_4d9dbe2fc8364c 15-16,28-29
+internal/auth/session_token_test.go
+  s_0280f2ea513fc4::t_fa348b449808dc 428,453-454
+  s_0280f2ea513fc4::t_1754bd54c8a791 431,436,439,443-446
+  s_0280f2ea513fc4::t_9f7f85e6c5c623 96,99-100,103-104,426,450-452,455-458
+  s_0280f2ea513fc4::t_4d22222c59aa40 118-126,459
+  s_0280f2ea513fc4::t_acbc9e1a011468 97-98,101-102,427,429
+  s_b3b69cc74b98a7::t_479995e7813c37 460
+internal/sqlc/model_router_api_keys.sql.go
+  s_0280f2ea513fc4::t_98af35de267cd3 25-26,38-39,45-55,72-73,85-86,101
+internal/auth/session_token.go
+  s_0280f2ea513fc4::t_df405de4c76cda 43-44,180
+  s_0280f2ea513fc4::t_9f7f85e6c5c623 46-47,138-151
+  s_0280f2ea513fc4::t_4d9dbe2fc8364c 131-133,154,166,171,181,186
+  s_0280f2ea513fc4::t_98af35de267cd3 159-165,167
+  s_0280f2ea513fc4::t_8937bf990694dc 45,152
+internal/auth/api_key.go
+  s_0280f2ea513fc4::t_4d9dbe2fc8364c 89-90
+db/migrations/0139_session-issuer-subject.up.sql
+  s_0280f2ea513fc4::t_602ec0761e31cb 1-8
+db/migrations/0139_session-issuer-subject.down.sql
+  s_0280f2ea513fc4::t_602ec0761e31cb 1-13
+db/queries/billing.sql
+  s_0280f2ea513fc4::t_4d22222c59aa40 235-237,239-248,251-253,256-258
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "aed1100ac898bb667a00ee6c52e95dbe5d7421d6",
+  "prompts": {},
+  "sessions": {
+    "s_0280f2ea513fc4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18120-d748-7b91-84fc-295efde1a52f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
+    "s_b3b69cc74b98a7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a183dc-0335-7061-8db8-ac4d592ec835",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
