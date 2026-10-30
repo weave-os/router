@@ -119,6 +119,7 @@ const (
 	FailureNone                FailureCode = ""
 	FailureCapacity            FailureCode = "capacity"
 	FailureIntervalUnavailable FailureCode = "interval_unavailable"
+	FailureRecentUserPrompt    FailureCode = "recent_user_prompt"
 	FailureCallLimit           FailureCode = "call_limit"
 	FailureInFlight            FailureCode = "in_flight"
 	FailureStale               FailureCode = "stale"
