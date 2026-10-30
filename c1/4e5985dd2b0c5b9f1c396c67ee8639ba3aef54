@@ -1,0 +1,29 @@
+internal/router/cluster/scorer_test.go
+  s_5f4657d97c467a::t_8a542a1cb407b2 630-654
+internal/router/cluster/artifacts/v0.76/metadata.yaml
+  s_5f4657d97c467a::t_f33fb22d882c90 1
+internal/router/cluster/artifacts/v0.76/model_features.json
+  s_5f4657d97c467a::t_8420b867acabc7 3,478-493
+internal/router/cluster/artifacts/v0.76/model_registry.json
+  s_5f4657d97c467a::t_209e26ae8e1664 3
+internal/router/cluster/artifacts/v0.76/quality_means.json
+  s_5f4657d97c467a::t_2e7cbff39eb67e 63,101,121,141,161,181,201,221,241,261,281,301,321,341,361,381,401
+internal/router/cluster/artifacts/v0.76/rankings.json
+  s_5f4657d97c467a::t_b68306d8d65d5f 66,85-98,100-102,106,108-122,125-129,131-134,136-142,146,149-155,158,161,165,167-182,185-190,192-202,205-221,226,229-235,238-239,241,246,249-255,259,261,265-278,280-282,285-291,293-302,306,308-314,316-322,325-338,340-342,345-358,360-362,365-370,372-382,386,389-395,398-399,401
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "c14e5985dd2b0c5b9f1c396c67ee8639ba3aef54",
+  "prompts": {},
+  "sessions": {
+    "s_5f4657d97c467a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0fe2d-588a-7401-8e1a-94c9e0bae104",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+internal/proxy/requested_window_overflow_test.go
+  s_a7bb96c89d22ba::t_a43536085c467b 85-99
+  s_a7bb96c89d22ba::t_079d6e7c0233cd 81-84
+  s_a7bb96c89d22ba::t_c2f7b10d2e9e0e 100-101
+internal/proxy/service.go
+  s_a7bb96c89d22ba::t_079d6e7c0233cd 4860-4863
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "51e6d5fd66255305a8506581d5262ca6a14fbe6f",
+  "prompts": {},
+  "sessions": {
+    "s_a7bb96c89d22ba": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15fd8-5ae6-76c2-8d66-4db74b49d3f6",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

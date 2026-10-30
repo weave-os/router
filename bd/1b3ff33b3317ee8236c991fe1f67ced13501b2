@@ -1,0 +1,21 @@
+internal/proxy/slow_start.go
+  s_3572388cffa64c::t_1cbc990a409ed4 203
+internal/translate/codex_tool_timing.go
+  s_3572388cffa64c::t_1cbc990a409ed4 29,31,39,65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "bd1b3ff33b3317ee8236c991fe1f67ced13501b2",
+  "prompts": {},
+  "sessions": {
+    "s_3572388cffa64c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a17a54-77ab-7a33-940f-e488048f4452",
+        "model": "weave-auto"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

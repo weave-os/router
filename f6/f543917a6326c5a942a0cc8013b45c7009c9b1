@@ -1,0 +1,19 @@
+internal/translate/responses.go
+  s_4cd249a6e2e116::t_22ee161ec79d53 474-476
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "f6f543917a6326c5a942a0cc8013b45c7009c9b1",
+  "prompts": {},
+  "sessions": {
+    "s_4cd249a6e2e116": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "aa67b391-849b-473c-8bd2-f1c2b633482d",
+        "model": "moonshotai/kimi-k3"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
