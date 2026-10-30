@@ -128,9 +128,10 @@ def cmd_swe_run(args: argparse.Namespace, load: ConfigLoader) -> int:
             f"# checkout {args.checkout}: {swe_together.UPSTREAM_REPO} at {swe_together.UPSTREAM_REVISION}"
             f" + {swe_together.VERSIONS_PATCH.name}"
         )
+        print("# each trial also gets the router key as its harness's provider key (Anthropic or OpenAI)")
         for command in commands:
             env = " ".join(f"{name}={shlex.quote(value)}" for name, value in command.env.items())
-            print(f"{env} {command.api_key_env_name}=$ROUTER_KEY {shlex.join(command.argv)}")
+            print(f"{env} {shlex.join(command.argv)}")
         return 0
     swe_together.run_matrix(
         commands, router_api_key=require_secret(config.router.api_key_env), run_dir=run_dir, workers=args.workers
@@ -165,11 +166,11 @@ def cmd_tb_run(args: argparse.Namespace, load: ConfigLoader) -> int:
         for arm in terminal_bench.parse_quality_arms(args.arms)
     ]
     if args.dry_run:
+        print("# harbor reads the router key from the variable [router] api_key_env names in bench.toml")
         for job in jobs:
             print(f"\n## arm {job.arm.name} (pin: {job.arm.force_model or 'none, router policy'})")
             print(f"# writes {job.config_path}:")
             print("\n".join(f"#   {line}" for line in job.config_text.splitlines()))
-            print(f'export {AGENT_API_KEY_ENV}="${config.router.api_key_env}"')
             print(shlex.join(job.argv))
         return 0
     env = {name: value for name, value in os.environ.items() if name not in INHERITED_ENV_TO_CLEAR}
