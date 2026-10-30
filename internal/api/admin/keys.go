@@ -182,16 +182,17 @@ type externalKeyResponse struct {
 	ForwardedClientHeaders []string          `json:"forwarded_client_headers,omitempty"`
 	BaggageHeader          string            `json:"baggage_header,omitempty"`
 
-	AuthType    string     `json:"auth_type,omitempty"`
-	AuthAccount string     `json:"auth_account,omitempty"`
-	AuthUser    string     `json:"auth_user,omitempty"`
-	LastUsedAt  *time.Time `json:"last_used_at"`
-	CreatedAt   time.Time  `json:"created_at"`
+	AuthType         auth.AuthType                   `json:"auth_type,omitempty"`
+	FederationConfig *auth.AnthropicFederationConfig `json:"federation_config,omitempty"`
+	AuthAccount      string                          `json:"auth_account,omitempty"`
+	AuthUser         string                          `json:"auth_user,omitempty"`
+	LastUsedAt       *time.Time                      `json:"last_used_at"`
+	CreatedAt        time.Time                       `json:"created_at"`
 }
 
 type upsertExternalKeyRequest struct {
 	Provider string `json:"provider" binding:"required"`
-	// Key is required for every auth type but "wif", which carries no secret;
+	// Federation modes carry no stored secret;
 	// the binding can't express that, so the emptiness check lives below.
 	Key  string  `json:"key"`
 	Name *string `json:"name"`
@@ -208,11 +209,11 @@ type upsertExternalKeyRequest struct {
 	// ForwardedClientHeaders and BaggageHeader configure client-header passthrough to this endpoint.
 	ForwardedClientHeaders []string `json:"forwarded_client_headers"`
 	BaggageHeader          *string  `json:"baggage_header"`
-	// AuthType is "bearer" (default), "keypair_jwt" (Key is RSA; router signs a short-lived JWT
-	// for AuthAccount/AuthUser), or "wif" (no secret; router attests its own workload identity).
-	AuthType    string  `json:"auth_type"`
-	AuthAccount *string `json:"auth_account"`
-	AuthUser    *string `json:"auth_user"`
+	// AuthType selects stored-secret, gateway, or native Anthropic federation authentication.
+	AuthType         auth.AuthType                   `json:"auth_type"`
+	FederationConfig *auth.AnthropicFederationConfig `json:"federation_config"`
+	AuthAccount      *string                         `json:"auth_account"`
+	AuthUser         *string                         `json:"auth_user"`
 }
 
 func toExternalKeyResponse(k *auth.ExternalAPIKey) externalKeyResponse {
@@ -229,11 +230,12 @@ func toExternalKeyResponse(k *auth.ExternalAPIKey) externalKeyResponse {
 		ForwardedClientHeaders: k.ForwardedClientHeaders,
 		BaggageHeader:          k.BaggageHeader,
 
-		AuthType:    k.AuthType,
-		AuthAccount: k.AuthAccount,
-		AuthUser:    k.AuthUser,
-		LastUsedAt:  k.LastUsedAt,
-		CreatedAt:   k.CreatedAt,
+		AuthType:         k.AuthType,
+		FederationConfig: k.FederationConfig,
+		AuthAccount:      k.AuthAccount,
+		AuthUser:         k.AuthUser,
+		LastUsedAt:       k.LastUsedAt,
+		CreatedAt:        k.CreatedAt,
 	}
 }
 
@@ -269,7 +271,7 @@ func UpsertExternalKeyHandler(authSvc *auth.Service, models DeployedModelsSource
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Provider and key are required."})
 			return
 		}
-		if req.Key == "" && req.AuthType != auth.AuthTypeWIF {
+		if req.Key == "" && req.AuthType != auth.AuthTypeWIF && req.AuthType != auth.AuthTypeAnthropicWIF {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Provider and key are required."})
 			return
 		}
@@ -297,15 +299,16 @@ func UpsertExternalKeyHandler(authSvc *auth.Service, models DeployedModelsSource
 			ForwardedClientHeaders: req.ForwardedClientHeaders,
 			BaggageHeader:          req.BaggageHeader,
 
-			AuthType:    req.AuthType,
-			AuthAccount: req.AuthAccount,
-			AuthUser:    req.AuthUser,
+			AuthType:         req.AuthType,
+			FederationConfig: req.FederationConfig,
+			AuthAccount:      req.AuthAccount,
+			AuthUser:         req.AuthUser,
 		})
 		if err != nil {
 			if errors.Is(err, auth.ErrUnknownModel) || errors.Is(err, auth.ErrInvalidModelAlias) ||
 				errors.Is(err, auth.ErrInvalidIdentityHeader) || errors.Is(err, auth.ErrInvalidForwardedHeader) ||
 				errors.Is(err, auth.ErrInvalidKeypairAuth) ||
-				errors.Is(err, auth.ErrInvalidEntraAuth) {
+				errors.Is(err, auth.ErrInvalidEntraAuth) || errors.Is(err, auth.ErrInvalidAnthropicFederation) {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return
 			}

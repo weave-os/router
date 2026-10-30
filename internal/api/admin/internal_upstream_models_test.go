@@ -77,6 +77,15 @@ func TestInternalListUpstreamModelsHandler_UnmintableCredentialIs502(t *testing.
 	assert.Equal(t, http.StatusBadGateway, rec.Code)
 }
 
+func TestInternalListUpstreamModelsHandler_FederationFailureIs503(t *testing.T) {
+	key := &auth.ExternalAPIKey{ID: "ext-federation", InstallationID: testInstallationID, Provider: providers.ProviderAnthropic, AuthType: auth.AuthTypeAnthropicWIF}
+	engine := internalUpstreamModelsEngine(upstreamModelsAuthService([]*auth.ExternalAPIKey{key}), nil)
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, internalUpstreamModelsRequest(t, testInstallationID, key.ID))
+	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	assert.Contains(t, rec.Body.String(), "authentication history")
+}
+
 func TestInternalListUpstreamModelsHandler_KeyOfAnotherInstallationIs404(t *testing.T) {
 	key := &auth.ExternalAPIKey{
 		ID:             "ext-1",

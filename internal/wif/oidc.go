@@ -22,12 +22,21 @@ func NewFileTokenSource(path string) *FileTokenSource {
 
 // Attestation returns the Snowflake-shaped OIDC credential.
 func (s *FileTokenSource) Attestation(ctx context.Context) ([]byte, error) {
-	if err := ctx.Err(); err != nil {
+	token, err := ReadIdentityToken(ctx, s.path)
+	if err != nil {
 		return nil, err
 	}
-	raw, err := os.ReadFile(s.path)
-	if err != nil {
-		return nil, fmt.Errorf("read OIDC token file: %w", err)
+	return auth.WIFCredential(auth.WIFProviderOIDC, token)
+}
+
+// ReadIdentityToken reopens the projected file so every exchange sees rotation.
+func ReadIdentityToken(ctx context.Context, path string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
 	}
-	return auth.WIFCredential(auth.WIFProviderOIDC, strings.TrimSpace(string(raw)))
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read OIDC token file: %w", err)
+	}
+	return strings.TrimSpace(string(raw)), nil
 }

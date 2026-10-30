@@ -13,6 +13,7 @@ import (
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/providers/httputil"
 	"weave-os/router/internal/requestcontext"
@@ -260,14 +261,14 @@ var errInboundSubscriptionRelay = errors.New("refusing to relay inbound Claude s
 
 // setAuth resolves credentials in precedence order: resolved per-request
 // credential (subscription/BYOK/client), deployment key, then client-sent auth
-// headers. A subscription OAuth credential authenticates via Authorization:
-// Bearer and must NOT send x-api-key; everything else uses x-api-key.
+// headers. Subscription and federated API credentials use Authorization:
+// Bearer; API key credentials use x-api-key.
 //
 // The passthrough tier scrubs router-issued Bearer tokens via
 // httputil.SanitizeInboundAuthHeader before relaying inbound auth upstream.
 func (c *Client) setAuth(ctx context.Context, upstream *http.Request, inbound *http.Request) {
 	if creds := requestcontext.CredentialsFromContext(ctx); creds != nil {
-		if creds.OAuth || c.authScheme == AuthBearer {
+		if creds.OAuth || creds.AuthType == auth.AuthTypeAnthropicWIF || c.authScheme == AuthBearer {
 			upstream.Header.Set("authorization", "Bearer "+string(creds.APIKey))
 			return
 		}

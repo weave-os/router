@@ -67,6 +67,11 @@ func ListUpstreamModelsHandler(authSvc *auth.Service, proxySvc *proxy.Service) g
 				c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "Provider key not found."})
 				return
 			}
+			if errors.Is(err, auth.ErrAnthropicFederationUnavailable) {
+				observability.FromGin(c).Error("Anthropic federation failed during model discovery", "external_api_key_id", id, "err", err)
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "Could not obtain an Anthropic workload token. Check the federation settings and Claude Console authentication history."})
+				return
+			}
 			if errors.Is(err, auth.ErrUpstreamCredentialUnavailable) {
 				c.AbortWithStatusJSON(http.StatusBadGateway, gin.H{"error": "Could not resolve this key's upstream credential."})
 				return

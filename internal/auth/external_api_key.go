@@ -32,7 +32,8 @@ type ExternalAPIKey struct {
 	// caller's email under on-behalf-of; empty forwards nothing.
 	BaggageHeader string
 	// AuthType is how Plaintext authenticates upstream; see AuthType* constants.
-	AuthType string
+	AuthType         AuthType
+	FederationConfig *AnthropicFederationConfig
 	// AuthAccount and AuthUser identify the upstream principal; empty unless
 	// AuthType is AuthTypeKeypairJWT or AuthTypeAzureEntra.
 	AuthAccount string
@@ -60,7 +61,8 @@ type CreateExternalAPIKeyParams struct {
 	// ForwardedClientHeaders and BaggageHeader configure client-header passthrough; nil forwards nothing.
 	ForwardedClientHeaders []string
 	BaggageHeader          *string
-	AuthType               string
+	FederationConfig       *AnthropicFederationConfig
+	AuthType               AuthType
 	// AuthAccount and AuthUser identify the upstream principal; empty unless
 	// AuthType is AuthTypeKeypairJWT or AuthTypeAzureEntra.
 	AuthAccount *string
@@ -68,16 +70,18 @@ type CreateExternalAPIKeyParams struct {
 	CreatedBy   *string
 }
 
-// AuthTypeBearer sends the secret verbatim; AuthTypeKeypairJWT signs a short-lived JWT with it;
-// AuthTypeWIF stores no secret and attests the router's own workload identity per request;
-// AuthTypeAzureEntra exchanges the secret for a short-lived Microsoft Entra bearer token.
+// AuthType selects how a stored provider credential authenticates upstream.
+type AuthType string
+
 const (
-	AuthTypeBearer     = "bearer"
-	AuthTypeKeypairJWT = "keypair_jwt"
+	AuthTypeBearer     AuthType = "bearer"
+	AuthTypeKeypairJWT AuthType = "keypair_jwt"
 	// AuthTypeAzureEntra exchanges the stored client secret for a short-lived Entra token;
 	// AuthAccount is the tenant ID, AuthUser is the client ID.
-	AuthTypeAzureEntra = "azure_entra"
-	AuthTypeWIF        = "wif"
+	AuthTypeAzureEntra AuthType = "azure_entra"
+	AuthTypeWIF        AuthType = "wif"
+	// AuthTypeAnthropicWIF exchanges an OIDC assertion for a native Anthropic API token.
+	AuthTypeAnthropicWIF AuthType = "anthropic_wif"
 )
 
 // Identity header formats. IdentityFormatEmail sends the bare address;
@@ -368,8 +372,8 @@ const maxKeypairFieldLength = 255
 // NormalizeAuthType validates authType with its account/user pair. Empty defaults to bearer;
 // keypair_jwt uppercases principal fields; azure_entra preserves the tenant and client IDs;
 // wif accepts neither because the attestation names the principal.
-func NormalizeAuthType(authType string, account, user *string) (string, *string, *string, error) {
-	normalized := strings.ToLower(strings.TrimSpace(authType))
+func NormalizeAuthType(authType AuthType, account, user *string) (AuthType, *string, *string, error) {
+	normalized := AuthType(strings.ToLower(strings.TrimSpace(string(authType))))
 	// An account locator carries its region as dotted suffixes; the JWT claims
 	// want the bare locator. Org-qualified identifiers are hyphenated and unaffected.
 	upperAccount, _, _ := strings.Cut(strings.ToUpper(trimmedValue(account)), ".")
@@ -388,7 +392,7 @@ func NormalizeAuthType(authType string, account, user *string) (string, *string,
 		}
 		return normalized, &tenantID, &clientID, nil
 	}
-	if normalized == AuthTypeBearer || normalized == AuthTypeWIF {
+	if normalized == AuthTypeBearer || normalized == AuthTypeWIF || normalized == AuthTypeAnthropicWIF {
 		if upperAccount != "" || upperUser != "" {
 			return "", nil, nil, fmt.Errorf("%w: account and user apply to %s only", ErrInvalidKeypairAuth, AuthTypeKeypairJWT)
 		}

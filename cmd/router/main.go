@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"weave-os/router/internal/analytics"
+	"weave-os/router/internal/anthropicfederation"
 	"weave-os/router/internal/api/admin"
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
@@ -603,6 +604,7 @@ func main() {
 		WithBlindExperiments(repo.BlindExperiments, blindExperimentCache).
 		WithRoutingPolicies(repo.RoutingPolicies, routingPolicyCache).
 		WithWIFTokenSource(buildWIFTokenSource(logger)).
+		WithAnthropicFederationTokenSource(buildAnthropicFederationTokenSource()).
 		WithEntraTokenSource(buildEntraTokenSource(logger)).
 		WithFlagOverridesDisabled(flagOverridesDisabled).
 		WithSessionSpendCaps(billingSvc != nil)
@@ -2395,4 +2397,14 @@ func runEscalationSweep(ctx context.Context, store escalationStateSweeper) {
 			cancel()
 		}
 	}
+}
+
+func buildAnthropicFederationTokenSource() auth.AnthropicFederationTokenSource {
+	tokenFile := config.GetOr("ANTHROPIC_IDENTITY_TOKEN_FILE", "")
+	identityToken := wif.GoogleIdentityToken
+	if tokenFile != "" {
+		identityToken = func(ctx context.Context, _ string) (string, error) { return wif.ReadIdentityToken(ctx, tokenFile) }
+	}
+	client := &http.Client{Timeout: 15 * time.Second}
+	return anthropicfederation.NewSource(client, identityToken, time.Now)
 }

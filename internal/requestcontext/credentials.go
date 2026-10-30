@@ -18,9 +18,9 @@ import (
 	"github.com/tidwall/sjson"
 )
 
-// SubscriptionTokenPrefix marks a Claude subscription (Claude.ai OAuth)
-// bearer. Matches the "oat" stem to cover both sk-ant-oat- and the
-// real-world sk-ant-oat01-… shapes.
+// SubscriptionTokenPrefix recognizes client subscription-shaped bearers.
+// Workload API tokens share this prefix and must use explicit federation
+// configuration rather than the client subscription extraction path.
 const SubscriptionTokenPrefix = "sk-ant-oat"
 
 // ChatGPTAccountIDHeader is the header Codex sends alongside a ChatGPT
@@ -65,7 +65,7 @@ type Credentials struct {
 	BaggageHeader          string
 	// AuthType is the BYOK key's auth mode (see auth.AuthType*). APIKey already holds
 	// the derived credential; this tells the adapter how the upstream must read it.
-	AuthType string
+	AuthType auth.AuthType
 	// PrincipalID names the upstream account this credential authenticates as,
 	// independent of the bytes in APIKey: a workload-identity or keypair-JWT
 	// credential mints a fresh short-lived bearer per request, so the key is no
