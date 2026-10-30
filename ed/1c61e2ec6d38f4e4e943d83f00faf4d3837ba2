@@ -1,0 +1,94 @@
+internal/sqlc/models.go
+  s_2d33071feb5300::t_bea7f002712dbe 404-408
+internal/auth/upstream_secrets.go
+  s_2d33071feb5300::t_aafe5db724690c 17,70-74,83
+internal/auth/external_api_key.go
+  s_2d33071feb5300::t_15877e6f032b03 43-50,75-81,94-96,99-113
+  s_2d33071feb5300::t_123787369213b1 424,482-486
+  s_2d33071feb5300::t_00550f390b6993 11-12,449
+  s_2d33071feb5300::t_d3b5104f9d19e7 442-448,451-457,459-460,462-464,466-473,487
+  s_6fb0c058bf39a8::t_f9871d80bedf90 5,114-115,450,458,461,465,488
+internal/auth/anthropic_wif_test.go
+  s_2d33071feb5300::t_28d8d491e22a78 1-25,27-80,82-92
+  s_6fb0c058bf39a8::t_8ee67601ca48c8 26,81
+internal/anthropicwif/client_test.go
+  s_2d33071feb5300::t_28d8d491e22a78 1-159,161-162,164-175
+  s_6fb0c058bf39a8::t_8af03a56bb835b 160,163
+internal/postgres/anthropic_wif_test.go
+  s_2d33071feb5300::t_bea7f002712dbe 1-24
+internal/api/admin/keys.go
+  s_2d33071feb5300::t_bd6940ec8ccdf2 215-222,239-247,283,287-288
+  s_2d33071feb5300::t_a4837abaeec3c7 185-193,198,289,307-310,316
+frontend/src/components/settings/ProviderKeysPanel.tsx
+  s_2d33071feb5300::t_cc6d3e5520be21 239-242,299,309-319,322-324,329,337,407,409,411,419-421,429-432,482-488,534,540-549,559-571,708
+  s_2d33071feb5300::t_bd6940ec8ccdf2 412-418,601-621
+  s_2d33071feb5300::t_3fd00b07133276 572
+cmd/router/anthropic_wif_test.go
+  s_2d33071feb5300::t_ab667d0515ebd9 1-42
+internal/requestcontext/wif_forwarding_test.go
+  s_2d33071feb5300::t_28d8d491e22a78 44
+cmd/router/main.go
+  s_2d33071feb5300::t_127322aba64d0c 24,607,1874-1893
+  s_6fb0c058bf39a8::t_0c12bd0e4ab553 1894-1895
+internal/anthropicwif/client.go
+  s_2d33071feb5300::t_127322aba64d0c 1-78,81-153,155-164
+  s_2d33071feb5300::t_bea7f002712dbe 79-80,154
+frontend/src/lib/api.ts
+  s_2d33071feb5300::t_bd6940ec8ccdf2 115,249-257
+  s_2d33071feb5300::t_cc6d3e5520be21 116,139-142,270-273
+internal/api/admin/anthropic_wif_test.go
+  s_2d33071feb5300::t_bea7f002712dbe 1-54,56-63
+  s_6fb0c058bf39a8::t_9c28569e9a399e 55
+internal/wif/identity.go
+  s_2d33071feb5300::t_127322aba64d0c 1-60
+internal/wif/identity_test.go
+  s_2d33071feb5300::t_28d8d491e22a78 1-26
+docs/CONFIGURATION.md
+  s_2d33071feb5300::t_bea7f002712dbe 13,358-416
+  s_2d33071feb5300::t_92c80aca45a054 417
+internal/providers/anthropic/client.go
+  s_2d33071feb5300::t_127322aba64d0c 16,271
+  s_2d33071feb5300::t_bd6940ec8ccdf2 264-265
+internal/providers/anthropic/wif_test.go
+  s_2d33071feb5300::t_28d8d491e22a78 1-52
+internal/sqlc/model_router_external_api_keys.sql.go
+  s_2d33071feb5300::t_bea7f002712dbe 33-36,57-61,63,67-88,113-116,137-141,143,163-166,195-198,204,214,253-256,342,360,389-392
+internal/auth/service.go
+  s_2d33071feb5300::t_e120054dcaa138 487-490,541-545,547-548,550,608-611
+  s_2d33071feb5300::t_aafe5db724690c 107-110
+  s_2d33071feb5300::t_8bee552c34eaf5 206-211
+  s_2d33071feb5300::t_127322aba64d0c 575-582
+  s_6fb0c058bf39a8::t_59879d8249c74a 54-56,546,549,605-607,612
+db/migrations/0139_anthropic-wif-auth.down.sql
+  s_2d33071feb5300::t_11e54d357eff03 1-16
+db/migrations/0139_anthropic-wif-auth.up.sql
+  s_2d33071feb5300::t_e4aadfe4eb1749 1-25
+db/queries/model_router_external_api_keys.sql
+  s_2d33071feb5300::t_726315cb04a735 23-26,47-50
+internal/postgres/external_api_key_repo.go
+  s_6fb0c058bf39a8::t_2d440fab9944be 57-64,198-205
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ed1c61e2ec6d38f4e4e943d83f00faf4d3837ba2",
+  "prompts": {},
+  "sessions": {
+    "s_2d33071feb5300": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18e94-744a-7141-91dc-6f39035909e9",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    },
+    "s_6fb0c058bf39a8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18e03-263f-7e81-b2f5-731759eebea9",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
