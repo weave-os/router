@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"net/http"
 
 	"weave-os/router/internal/providers"
@@ -36,11 +37,11 @@ func quotaVerificationOutcomes(err error) (verificationUnavailable, authoritativ
 	if quotaVerificationCauseOf(err) {
 		return true, false
 	}
-	if isUpstreamOutcome(err) || err == context.Canceled {
+	if isUpstreamOutcome(err) || errors.Is(err, context.Canceled) {
 		return false, true
 	}
 	var children []error
-	switch wrapped := err.(type) {
+	switch wrapped := err.(type) { //nolint:errorlint // inspects this node only; errors.As would see through to nested causes
 	case interface{ Unwrap() []error }:
 		children = wrapped.Unwrap()
 	case interface{ Unwrap() error }:
@@ -58,11 +59,11 @@ func quotaVerificationOutcomes(err error) (verificationUnavailable, authoritativ
 // failure or the upstream response carrying it, not a join that merely
 // contains one.
 func quotaVerificationCauseOf(err error) bool {
-	switch typed := err.(type) {
+	switch typed := err.(type) { //nolint:errorlint // inspects this node only; errors.As would see through to nested causes
 	case *providers.QuotaVerificationUnavailableError:
 		return true
 	case *providers.UpstreamErrorResponse:
-		_, ok := typed.Cause.(*providers.QuotaVerificationUnavailableError)
+		_, ok := typed.Cause.(*providers.QuotaVerificationUnavailableError) //nolint:errorlint // inspects this node only; errors.As would see through to nested causes
 		return ok
 	case *providers.UpstreamStatusError:
 		return quotaVerificationCauseOf(typed.Cause)
@@ -71,7 +72,7 @@ func quotaVerificationCauseOf(err error) bool {
 }
 
 func isUpstreamOutcome(err error) bool {
-	switch err.(type) {
+	switch err.(type) { //nolint:errorlint // inspects this node only; errors.As would see through to nested causes
 	case *providers.UpstreamErrorResponse, *providers.UpstreamStatusError:
 		return true
 	}
