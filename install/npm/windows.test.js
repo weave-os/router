@@ -229,6 +229,19 @@ test("Claude attribution defaults on, and --no-attribution removes only the Weav
   assert.deepEqual(readClaudeSettings(home).attribution, { custom: "keep" });
 });
 
+test("a Claude reinstall keeps a PR attribution the user changed", async () => {
+  const home = path.join(temporaryHome, "attribution-custom-pr");
+  await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
+  const settingsPath = path.join(home, ".claude", "settings.json");
+  const settings = readClaudeSettings(home);
+  settings.attribution.pr = "User-owned PR";
+  fs.writeFileSync(settingsPath, JSON.stringify(settings));
+  await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
+  const claude = readClaudeSettings(home);
+  assert.equal(claude.attribution.pr, "User-owned PR");
+  assert.match(claude.attribution.commit, /^Co-Authored-By: Weave Router/);
+});
+
 test("a Claude attribution opt-out survives reinstalls without the flag", async () => {
   const home = path.join(temporaryHome, "attribution-opt-out");
   await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl, "--no-attribution"]);

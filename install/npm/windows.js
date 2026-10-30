@@ -234,7 +234,7 @@ function installClaude(paths, baseUrl, key, email, attribution) {
   }
   settings.env.ENABLE_TOOL_SEARCH = "true";
   if (attribution && (ownsAttribution || (settings.attribution == null && !optedOutOfAttribution))) {
-    settings.attribution = { ...(settings.attribution || {}), ...claudeAttribution };
+    settings.attribution = { ...claudeAttribution, ...settings.attribution, commit: claudeAttribution.commit };
   } else if (!attribution && ownsAttribution) {
     delete settings.attribution.commit;
     if (settings.attribution.pr === claudeAttribution.pr) delete settings.attribution.pr;
