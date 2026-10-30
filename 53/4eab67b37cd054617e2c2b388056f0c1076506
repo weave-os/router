@@ -1,0 +1,25 @@
+cmd/router/main.go
+  s_036252735f5740::t_a0db1587373655 89,1156,1608,1618,1667
+cmd/router/startup.go
+  s_036252735f5740::t_add136bc74d473 8,20-32,46-48,50,57
+cmd/router/startup_inference_test.go
+  s_036252735f5740::t_11e6af0263c033 32,48,167
+cmd/router/startup_test.go
+  s_036252735f5740::t_efd4d39676a503 88,101,109,124,141,145-146,155,165,167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "534eab67b37cd054617e2c2b388056f0c1076506",
+  "prompts": {},
+  "sessions": {
+    "s_036252735f5740": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a11c60-2f79-7361-a8d7-dd1119b87495",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

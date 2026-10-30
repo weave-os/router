@@ -1,0 +1,30 @@
+internal/proxy/marker_internal_test.go
+  s_029d93d2ec1187::t_f5c4f103418f72 22,25-27,31-32,35,43-46
+  s_029d93d2ec1187::t_3de6683fdd329e 34,49,52,55
+internal/proxy/service.go
+  s_dd20e2005ebfcb::t_ec11d23ea1e655 789,791,793,801,803,816-820
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b977ef25f6ce6aa42a1b7353a75286c2b0933340",
+  "prompts": {},
+  "sessions": {
+    "s_029d93d2ec1187": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "01a179b9-fc61-7e53-96af-b4da8c743ad5",
+        "model": "unknown"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_dd20e2005ebfcb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a179b9-fc61-7e53-96af-b4da8c743ad5",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

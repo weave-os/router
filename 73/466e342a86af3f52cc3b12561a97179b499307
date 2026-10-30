@@ -1,0 +1,96 @@
+internal/providers/httputil/egress.go
+  s_1e72010a163b11::t_3cf1011f299e12 170
+  s_1e72010a163b11::t_19cc2fecaa0ee5 166
+  s_1e72010a163b11::t_38ca641be82d6b 174-176,182-186
+  s_1e72010a163b11::t_2705f60e9ebd56 4,8-10,15-17,24-165,167-169,171-173,177-181,187-190
+  s_1e72010a163b11::t_22ac0c7a5ab0b5 191
+internal/providers/anthropic/redirect_test.go
+  s_1e72010a163b11::t_75b29cd0bd5075 52-57,59,63,67,69
+internal/auth/admin_test.go
+  s_1e72010a163b11::t_38ca641be82d6b 145-146
+internal/auth/external_api_key.go
+  s_1e72010a163b11::t_38ca641be82d6b 7,346-347,353-362
+  s_1e72010a163b11::t_de8df0d7280be5 93-146,169,227-250,254-257,263-278,338-340,343,345,348
+  s_1e72010a163b11::t_0001c9b63cdf04 363-364
+docs/CONFIGURATION.md
+  s_1e72010a163b11::t_313d8377b7ca6e 397,399
+internal/providers/openaicompat/cortex_catalog_test.go
+  s_1e72010a163b11::t_48d807034ef45f 11,13-14,55-57,67-69
+internal/proxy/identity_forwarding.go
+  s_1e72010a163b11::t_48d807034ef45f 25
+internal/proxy/credentials.go
+  s_1e72010a163b11::t_4ab3f826ee492b 133
+internal/providers/openaicompat/redirect_test.go
+  s_1e72010a163b11::t_48d807034ef45f 82
+  s_1e72010a163b11::t_fdc62a6ede08ca 86
+internal/api/admin/internal_upstream_models.go
+  s_1e72010a163b11::t_313d8377b7ca6e 51
+internal/providers/openaicompat/list_models_test.go
+  s_1e72010a163b11::t_8a0c789d97dfba 10,18-24,35,51,68,86,105,127
+internal/api/admin/upstream_models.go
+  s_1e72010a163b11::t_313d8377b7ca6e 9,44,80,87-88,93-96,99
+internal/providers/anthropic/list_models.go
+  s_1e72010a163b11::t_1126445ccf6e33 13,37,39-43,48-57,59,61-62,64,71,73-76,84,87,127-131,133,144,146-149,154,157
+internal/auth/service.go
+  s_1e72010a163b11::t_6245ea0e95b17f 355-365
+cmd/router/main.go
+  s_1e72010a163b11::t_ce12583efe992b 38
+  s_1e72010a163b11::t_313d8377b7ca6e 161-165,212,271,290,301,314,324,333,342,353,368-369,390,404-406,423,566
+internal/providers/openaicompat/client.go
+  s_1e72010a163b11::t_6a9be862c5d1ce 79-81
+  s_1e72010a163b11::t_93aea22520e036 82,114-123,129,133,139-140,143-144,149,152-155
+internal/api/admin/upstream_models_test.go
+  s_1e72010a163b11::t_b00286c567a44c 174-195,204-205,215
+internal/providers/model_list_parse_test.go
+  s_1e72010a163b11::t_c7f61c3765d36e 32-35,37-40
+.env.example
+  s_1e72010a163b11::t_313d8377b7ca6e 80-85,91-92
+internal/providers/model_lister.go
+  s_1e72010a163b11::t_2705f60e9ebd56 3-14
+internal/providers/openaicompat/azure_internal_test.go
+  s_1e72010a163b11::t_48d807034ef45f 43
+README.md
+  s_1e72010a163b11::t_313d8377b7ca6e 95-99,104
+internal/auth/external_api_key_test.go
+  s_1e72010a163b11::t_38ca641be82d6b 37-50,54,57-98,100-109,111-113
+  s_1e72010a163b11::t_febd58b0f14fdf 99,110
+internal/providers/model_list_parse.go
+  s_1e72010a163b11::t_93aea22520e036 15-36
+internal/providers/anthropic/client.go
+  s_1e72010a163b11::t_93aea22520e036 48-52,96,127-130
+  s_1e72010a163b11::t_6a9be862c5d1ce 93-95
+internal/proxy/header_forwarding_test.go
+  s_1e72010a163b11::t_ce12583efe992b 174
+  s_1e72010a163b11::t_b00286c567a44c 170-173,175-240
+  s_1e72010a163b11::t_e55c4eb4422ada 4
+internal/api/admin/keys_test.go
+  s_1e72010a163b11::t_b00286c567a44c 593-612
+internal/providers/httputil/egress_test.go
+  s_1e72010a163b11::t_62e84c184a2c5d 263,265-267
+  s_1e72010a163b11::t_54892428a5fd15 4-5,8-11,15-16,21-26,103-262,264,268-312,321-356
+  s_1e72010a163b11::t_ce12583efe992b 313-320
+internal/proxy/header_forwarding.go
+  s_1e72010a163b11::t_4ab3f826ee492b 7,29-30,47,49,71-73,78,91-93,106-143
+  s_1e72010a163b11::t_5b74b9a1d99840 144
+internal/providers/openaicompat/list_models.go
+  s_1e72010a163b11::t_6a9be862c5d1ce 38
+  s_1e72010a163b11::t_1126445ccf6e33 9,12,26-35,39,41,43,45,48,55-58,60-74,95,105,107-110,115,118
+internal/providers/anthropic/list_models_test.go
+  s_1e72010a163b11::t_8a0c789d97dfba 11,18-24,35,52,79,92,112,138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "73466e342a86af3f52cc3b12561a97179b499307",
+  "prompts": {},
+  "sessions": {
+    "s_1e72010a163b11": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0854a-7409-7623-aabb-5a53e2c6ceb2",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
