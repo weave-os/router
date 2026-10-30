@@ -35,7 +35,7 @@ func TestWriteJSONChunkPreservesFragmentedSSE(t *testing.T) {
 
 func TestWriteJSONChunkMatchesStandardHTMLEscape(t *testing.T) {
 	inputs := [][]byte{
-		[]byte(`{"text":"<script>& \" ' &lt;","large":9007199254740993}`),
+		[]byte(`{"text":"<script>& \" ' &lt;&amp;&#34;&#39;","large":9007199254740993}`),
 		[]byte("data: {\"text\":\"☃\u2028\u2029\"}\n\n"),
 		{0xff, '<', 0xe2, 0x80},
 	}
