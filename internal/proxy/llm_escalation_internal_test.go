@@ -289,6 +289,37 @@ func TestQwenEscalationReadsCodexToolOutcomesFromNativeResponses(t *testing.T) {
 	}
 }
 
+func TestQwenEscalationSkipsHarnessSideRequests(t *testing.T) {
+	service := (&Service{}).
+		WithLLMEscalation(&llmEscalationStoreStub{}, nil).
+		WithQwenEscalation(&blockingEscalationJudge{}).
+		WithEscalationConfiguration(nil, nil, false)
+	overrides := flags.Overrides{Strings: map[flags.Key]string{
+		flags.KeyEscalationActiveClassifier: string(flags.EscalationClassifierLLM),
+	}}
+	suggestion, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5-5","messages":[{"role":"user","content":"fix it"},{"role":"assistant","content":"done"},{"role":"user","content":"[SUGGESTION MODE: Suggest what the user might naturally type next into Claude Code.]"}]}`))
+	require.NoError(t, err)
+	review, err := translate.ParseOpenAI([]byte(`{"model":"gpt-5","messages":[{"role":"user","content":"The following is the Codex agent history"}]}`))
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		name   string
+		env    *translate.RequestEnvelope
+		native []byte
+	}{
+		{name: "claude code prompt suggestion", env: suggestion},
+		{name: "codex auto review", env: review, native: []byte(`{"model":"codex-auto-review","input":[{"role":"user","content":"The following is the Codex agent history"}]}`)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := flags.WithOverrides(router.WithStrategy(context.Background(), router.StrategyHMMEmbedding), overrides)
+			if tc.native != nil {
+				ctx = context.WithValue(ctx, nativeResponsesBodyContextKey{}, tc.native)
+			}
+			requestResult := turnLoopResult{Strategy: router.StrategyHMMEmbedding, InstallationID: uuid.New(), TurnType: turntype.MainLoop}
+			require.Nil(t, service.beginLLMEscalation(ctx, tc.env, router.Request{}, &requestResult, "test-key"))
+		})
+	}
+}
+
 func TestSwitchyardEscalationReadinessReflectsDisabledRollout(t *testing.T) {
 	configuration := &escalationConfigurationStub{selection: llmescalation.Selection{InstallationID: "installation", Active: flags.EscalationClassifierSwitchyard}}
 	service := (&Service{}).
