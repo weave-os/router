@@ -19,12 +19,13 @@ import (
 )
 
 const (
-	tokenURL         = "https://api.anthropic.com/v1/oauth/token"
-	grantType        = "urn:ietf:params:oauth:grant-type:jwt-bearer"
-	exchangeTimeout  = 10 * time.Second
-	maxResponseBytes = 64 * 1024
-	advisoryRefresh  = 120 * time.Second
-	mandatoryRefresh = 30 * time.Second
+	tokenURL          = "https://api.anthropic.com/v1/oauth/token"
+	grantType         = "urn:ietf:params:oauth:grant-type:jwt-bearer"
+	exchangeTimeout   = 10 * time.Second
+	maxResponseBytes  = 64 * 1024
+	advisoryRefresh   = 120 * time.Second
+	mandatoryRefresh  = 30 * time.Second
+	refreshRetryDelay = 5 * time.Second
 )
 
 // IdentityTokenSource supplies a fresh, unwrapped OIDC JWT on every exchange.
@@ -36,6 +37,7 @@ type IdentityTokenSource interface {
 type cachedToken struct {
 	token     []byte
 	expiresAt time.Time
+	retryAt   time.Time
 }
 
 // Client caches access tokens separately for each stored federation configuration.
@@ -69,9 +71,6 @@ func (c *Client) Token(ctx context.Context, key *auth.ExternalAPIKey) ([]byte, e
 	if c.identity == nil {
 		return nil, auth.ErrAnthropicWIFUnavailable
 	}
-	if key == nil {
-		return nil, auth.ErrAnthropicWIFUnavailable
-	}
 	cfg, err := auth.NormalizeAnthropicWIF(key.Provider, auth.AuthTypeAnthropicWIF, auth.AnthropicWIFConfig{
 		FederationRuleID: key.FederationRuleID, OrganizationID: key.OrganizationID,
 		ServiceAccountID: key.ServiceAccountID, WorkspaceID: key.WorkspaceID,
@@ -81,20 +80,28 @@ func (c *Client) Token(ctx context.Context, key *auth.ExternalAPIKey) ([]byte, e
 	}
 	encodedKey, _ := json.Marshal([]string{key.ID, cfg.FederationRuleID, cfg.OrganizationID, cfg.ServiceAccountID, cfg.WorkspaceID})
 	cacheKey := string(encodedKey)
-	if cached, ok := c.cache.Get(cacheKey); ok && c.now().Before(cached.expiresAt.Add(-advisoryRefresh)) {
-		return bytes.Clone(cached.token), nil
+	if cached, ok := c.cache.Get(cacheKey); ok {
+		now := c.now()
+		if now.Before(cached.expiresAt.Add(-advisoryRefresh)) || (!cached.retryAt.IsZero() && now.Before(cached.retryAt)) {
+			return bytes.Clone(cached.token), nil
+		}
 	}
 	// One caller cancelling must not abort the shared exchange for other waiters.
 	inflight := c.group.DoChan(cacheKey, func() (any, error) {
 		exchangeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), exchangeTimeout)
 		defer cancel()
 		cached, ok := c.cache.Get(cacheKey)
-		if ok && c.now().Before(cached.expiresAt.Add(-advisoryRefresh)) {
-			return cached.token, nil
+		if ok {
+			now := c.now()
+			if now.Before(cached.expiresAt.Add(-advisoryRefresh)) || (!cached.retryAt.IsZero() && now.Before(cached.retryAt)) {
+				return cached.token, nil
+			}
 		}
 		refreshed, err := c.exchange(exchangeCtx, cfg)
 		if err != nil {
 			if ok && c.now().Before(cached.expiresAt.Add(-mandatoryRefresh)) {
+				cached.retryAt = c.now().Add(refreshRetryDelay)
+				c.cache.Add(cacheKey, cached)
 				return cached.token, nil
 			}
 			return nil, err
