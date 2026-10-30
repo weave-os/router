@@ -340,7 +340,7 @@ func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 
 		content := item.Get("content")
 		if content.Type == gjson.String {
-			stripped := responsesTerminalBadgePattern.ReplaceAllString(content.Str, "")
+			stripped := stripResponsesTerminalBadges(content.Str)
 			if stripped == content.Str {
 				newItemRaws = append(newItemRaws, item.Raw)
 				continue
@@ -374,7 +374,7 @@ func StripRoutingBadgeFromResponsesInput(body []byte) ([]byte, error) {
 			switch part.Get("type").Str {
 			case "input_text", "output_text", "text":
 				text := part.Get("text").Str
-				stripped := responsesTerminalBadgePattern.ReplaceAllString(text, "")
+				stripped := stripResponsesTerminalBadges(text)
 				if stripped != text {
 					newPart, err := replaceResponsesField(part.Raw, "text", stripped)
 					if err != nil {

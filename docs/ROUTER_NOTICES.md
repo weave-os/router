@@ -47,6 +47,13 @@ their wording. Other notice prose carries an invisible router-owned prefix. The
 Messages, Responses and Gemini ingress cleaners share these recognition rules;
 provider thinking, signatures, tools and usage stay outside notice cleanup.
 
+Terminal Responses clients replay provenance-marked model announcements. Their
+last replayed selection controls same-model notice suppression, independently of
+the server's completed-turn history. An eager notice may already be visible when
+a request resumes before its predecessor completes; a sibling agent sharing a
+legacy session key must not change which model this client has seen. Selection
+history is read before cleanup and is never forwarded to providers as context.
+
 `NoticeModelSelection` and `NoticeFundingWarning` share the delivery API and
 sinks. Funding policy stays in proxy, using the billing reason and subscription
 family to select the existing copy and once-per-conversation replay key. Messages
