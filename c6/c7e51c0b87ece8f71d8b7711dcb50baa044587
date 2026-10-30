@@ -1,0 +1,33 @@
+internal/proxy/turnloop.go
+  s_94765651191c19::t_6de2e0cb0e6320 1267,2280-2284
+  s_e233791b365e2c::t_a468b6e146cfb2 2285-2286
+internal/proxy/two_model_recovery_internal_test.go
+  s_94765651191c19::t_6de2e0cb0e6320 207-228
+internal/proxy/force_model_session_internal_test.go
+  s_94765651191c19::t_6de2e0cb0e6320 28-45,241-247,251,265-266
+  s_94765651191c19::t_9e11a55949b81e 221
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c6c7e51c0b87ece8f71d8b7711dcb50baa044587",
+  "prompts": {},
+  "sessions": {
+    "s_94765651191c19": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a12197-dfec-7960-a46a-5d1af1c61247",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_e233791b365e2c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1219c-dbbb-7f52-a17c-1e4b013b9cd9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

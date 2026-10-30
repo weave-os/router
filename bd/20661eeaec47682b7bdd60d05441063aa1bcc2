@@ -1,0 +1,19 @@
+internal/observability/logger.go
+  s_61b1cde474dcb0::t_5d12663d5db1d7 154-155
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "bd20661eeaec47682b7bdd60d05441063aa1bcc2",
+  "prompts": {},
+  "sessions": {
+    "s_61b1cde474dcb0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1100f-68b7-7ad2-b1d9-0f8a40482812",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}
