@@ -182,16 +182,17 @@ type externalKeyResponse struct {
 	ForwardedClientHeaders []string          `json:"forwarded_client_headers,omitempty"`
 	BaggageHeader          string            `json:"baggage_header,omitempty"`
 
-	AuthType    string     `json:"auth_type,omitempty"`
-	AuthAccount string     `json:"auth_account,omitempty"`
-	AuthUser    string     `json:"auth_user,omitempty"`
-	LastUsedAt  *time.Time `json:"last_used_at"`
-	CreatedAt   time.Time  `json:"created_at"`
+	AuthType         auth.AuthType                   `json:"auth_type,omitempty"`
+	FederationConfig *auth.AnthropicFederationConfig `json:"federation_config,omitempty"`
+	AuthAccount      string                          `json:"auth_account,omitempty"`
+	AuthUser         string                          `json:"auth_user,omitempty"`
+	LastUsedAt       *time.Time                      `json:"last_used_at"`
+	CreatedAt        time.Time                       `json:"created_at"`
 }
 
 type upsertExternalKeyRequest struct {
 	Provider string `json:"provider" binding:"required"`
-	// Key is required for every auth type but "wif", which carries no secret;
+	// Federation modes carry no stored secret;
 	// the binding can't express that, so the emptiness check lives below.
 	Key  string  `json:"key"`
 	Name *string `json:"name"`
@@ -208,11 +209,11 @@ type upsertExternalKeyRequest struct {
 	// ForwardedClientHeaders and BaggageHeader configure client-header passthrough to this endpoint.
 	ForwardedClientHeaders []string `json:"forwarded_client_headers"`
 	BaggageHeader          *string  `json:"baggage_header"`
-	// AuthType is "bearer" (default), "keypair_jwt" (Key is RSA; router signs a short-lived JWT
-	// for AuthAccount/AuthUser), or "wif" (no secret; router attests its own workload identity).
-	AuthType    string  `json:"auth_type"`
-	AuthAccount *string `json:"auth_account"`
-	AuthUser    *string `json:"auth_user"`
+	// AuthType selects stored-secret, gateway, or native Anthropic federation authentication.
+	AuthType         auth.AuthType                   `json:"auth_type"`
+	FederationConfig *auth.AnthropicFederationConfig `json:"federation_config"`
+	AuthAccount      *string                         `json:"auth_account"`
+	AuthUser         *string                         `json:"auth_user"`
 }
 
 func toExternalKeyResponse(k *auth.ExternalAPIKey) externalKeyResponse {
@@ -229,11 +230,12 @@ func toExternalKeyResponse(k *auth.ExternalAPIKey) externalKeyResponse {
 		ForwardedClientHeaders: k.ForwardedClientHeaders,
 		BaggageHeader:          k.BaggageHeader,
 
-		AuthType:    k.AuthType,
-		AuthAccount: k.AuthAccount,
-		AuthUser:    k.AuthUser,
-		LastUsedAt:  k.LastUsedAt,
-		CreatedAt:   k.CreatedAt,
+		AuthType:         k.AuthType,
+		FederationConfig: k.FederationConfig,
+		AuthAccount:      k.AuthAccount,
+		AuthUser:         k.AuthUser,
+		LastUsedAt:       k.LastUsedAt,
+		CreatedAt:        k.CreatedAt,
 	}
 }
 
@@ -269,17 +271,14 @@ func UpsertExternalKeyHandler(authSvc *auth.Service, models DeployedModelsSource
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Provider and key are required."})
 			return
 		}
-		if req.Key == "" && req.AuthType != auth.AuthTypeWIF {
+		if req.Key == "" && req.AuthType != auth.AuthTypeWIF && req.AuthType != auth.AuthTypeAnthropicWIF {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Provider and key are required."})
 			return
 		}
-		// A provider configured via the deployment's env var (e.g. ANTHROPIC_API_KEY)
-		// must not be shadowed by a dashboard BYOK key — credential resolution
-		// prefers BYOK, so the stored key would silently win on every outbound call.
-		// The frontend grays out env-keyed providers, but that guard is derived from
-		// GET /admin/v1/config and fails open if that fetch errors; this is the only
-		// backend enforcement. Mirrors the env-key check in ConfigHandler.
-		if config.GetOr(providers.APIKeyEnvVar(req.Provider), "") != "" {
+		// Federation is an explicit separate principal; static BYOK credentials
+		// must not silently shadow a deployment key.
+		anthropicFederation := req.Provider == providers.ProviderAnthropic && req.AuthType == auth.AuthTypeAnthropicWIF
+		if !anthropicFederation && config.GetOr(providers.APIKeyEnvVar(req.Provider), "") != "" {
 			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "Provider already configured via deployment environment variable. Remove the env var before adding a dashboard key."})
 			return
 		}
@@ -297,15 +296,16 @@ func UpsertExternalKeyHandler(authSvc *auth.Service, models DeployedModelsSource
 			ForwardedClientHeaders: req.ForwardedClientHeaders,
 			BaggageHeader:          req.BaggageHeader,
 
-			AuthType:    req.AuthType,
-			AuthAccount: req.AuthAccount,
-			AuthUser:    req.AuthUser,
+			AuthType:         req.AuthType,
+			FederationConfig: req.FederationConfig,
+			AuthAccount:      req.AuthAccount,
+			AuthUser:         req.AuthUser,
 		})
 		if err != nil {
 			if errors.Is(err, auth.ErrUnknownModel) || errors.Is(err, auth.ErrInvalidModelAlias) ||
 				errors.Is(err, auth.ErrInvalidIdentityHeader) || errors.Is(err, auth.ErrInvalidForwardedHeader) ||
 				errors.Is(err, auth.ErrInvalidKeypairAuth) ||
-				errors.Is(err, auth.ErrInvalidEntraAuth) {
+				errors.Is(err, auth.ErrInvalidEntraAuth) || errors.Is(err, auth.ErrInvalidAnthropicFederation) {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 				return
 			}
