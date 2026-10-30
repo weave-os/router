@@ -1,0 +1,83 @@
+bench/uv.lock
+  s_6e390844230ee6::t_98d52a6c847e2f 287,289,291,670,672,674,1264,1266,1268-1397
+frontend/package-lock.json
+  s_6e390844230ee6::t_ccfa308ace89d5 36,2751-2753,2799-2801,2819-2823,2902-2904,3412-3414,5113-5115,5488-5490,5492-5495,5811-5813,5830,5832,5969-5971,7303-7305
+frontend/package.json
+  s_6e390844230ee6::t_82b02b624334e1 39,44-46
+install/pi-router/package.json
+  s_6e390844230ee6::t_679c6266aa2025 24-25
+install/pi-router/pnpm-lock.yaml
+  s_6e390844230ee6::t_40345226e0c4a9 1-1300
+install/pi-router/pnpm-workspace.yaml
+  s_6e390844230ee6::t_685f7b90fe978b 1-6
+internal/observability/otel/usage.go
+  s_6e390844230ee6::t_e6b3e0ee96781d 87,98
+internal/proxy/cache_writer.go
+  s_6e390844230ee6::t_f3342ed709e5fb 6-7,34,47
+internal/proxy/cluster_overrides.go
+  s_6e390844230ee6::t_73f673636f621b 12
+internal/proxy/cost_response.go
+  s_6e390844230ee6::t_72453c353aa312 145-148,170
+internal/proxy/fallback.go
+  s_6e390844230ee6::t_6d304beda7e207 22,65,72,80,115,119,168,172,523,550
+internal/proxy/response_security_internal_test.go
+  s_6e390844230ee6::t_062449964a1a6a 1-62
+internal/proxy/responses_terminal_observer.go
+  s_6e390844230ee6::t_718c6e7e7f633b 48-51,56
+internal/proxy/service.go
+  s_6e390844230ee6::t_1a149386a4aa75 1161,1196,1307,1503,1645,1778,3580-3583,3608
+internal/proxy/subscription_model_access.go
+  s_6e390844230ee6::t_60a002437b4ec8 134
+internal/proxy/tokenizer_calibration.go
+  s_6e390844230ee6::t_ab9547029ba321 143
+internal/sse/chunked_writer.go
+  s_6e390844230ee6::t_aaecc7b54c0cc9 49
+internal/sse/keepalive.go
+  s_6e390844230ee6::t_956e0eb1c8b1ab 81,89
+internal/sse/response.go
+  s_6e390844230ee6::t_212cc62486d13b 1-37
+internal/sse/response_test.go
+  s_6e390844230ee6::t_0bfa0135477eb1 1-82
+internal/translate/anthropic_footer.go
+  s_6e390844230ee6::t_071d5dfd9d3c32 95,102
+internal/translate/anthropic_marker.go
+  s_6e390844230ee6::t_16f3e32ca7e301 63
+internal/translate/gemini_footer.go
+  s_6e390844230ee6::t_0019b0be916f53 65,71
+internal/translate/gemini_marker.go
+  s_6e390844230ee6::t_80841f865c1cda 39
+internal/translate/openai_footer.go
+  s_6e390844230ee6::t_e46b7149d75275 66,72
+internal/translate/openai_marker.go
+  s_6e390844230ee6::t_d68e99370a6fa2 63
+internal/translate/tool_name_writer.go
+  s_6e390844230ee6::t_75443a53eef750 66,99
+scripts/changed_non_go_files.sh
+  s_6e390844230ee6::t_2d9a23e8b96c4f 35
+scripts/changed_non_go_files_test.sh
+  s_6e390844230ee6::t_7bd974b5c2fde0 60-73
+sidecars/hmm/pyproject.toml
+  s_6e390844230ee6::t_bbff72c0d4dbe2 9,24-25,35,39,58
+sidecars/hmm/uv.lock
+  s_6e390844230ee6::t_1663a7ced4d854 10,21,90,92,94,120,127,129,131,395,404,406,411,415,417,419,516,522,524,585,597-598
+sidecars/task-domain/pyproject.toml
+  s_6e390844230ee6::t_df55062f9367df 14-16
+sidecars/task-domain/uv.lock
+  s_6e390844230ee6::t_ed765aa2d2217a 23-25,3342,3347,3349,3458,3465,3467,3472,3478,3480
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ae49a10b710f0fdae9a109239fde1508b5050ae3",
+  "prompts": {},
+  "sessions": {
+    "s_6e390844230ee6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18f0b-b6e5-7f52-9e3b-aaec7c99f301",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
