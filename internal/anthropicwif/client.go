@@ -66,7 +66,10 @@ func NewClient(client *http.Client, identity IdentityTokenSource, now auth.Clock
 }
 
 func (c *Client) Token(ctx context.Context, key *auth.ExternalAPIKey) ([]byte, error) {
-	if key == nil || c.identity == nil {
+	if c.identity == nil {
+		return nil, auth.ErrAnthropicWIFUnavailable
+	}
+	if key == nil {
 		return nil, auth.ErrAnthropicWIFUnavailable
 	}
 	cfg, err := auth.NormalizeAnthropicWIF(key.Provider, auth.AuthTypeAnthropicWIF, auth.AnthropicWIFConfig{

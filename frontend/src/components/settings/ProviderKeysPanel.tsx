@@ -308,11 +308,7 @@ export function ProviderKeysPanel() {
   const baseURLMissing = baseURLRequired && baseURL.trim().replace(/\/+$/, "") === "";
   const authTypeOffered = baseURLRequired || provider === "anthropic";
   const deploymentAnthropicKey = provider === "anthropic" && envKeyed.includes("anthropic");
-  const effectiveAuthType: ProviderAuthType = deploymentAnthropicKey
-    ? "anthropic_wif"
-    : provider === "anthropic"
-      ? authType === "anthropic_wif" ? authType : "bearer"
-      : baseURLRequired && authType !== "anthropic_wif" ? authType : "bearer";
+  const effectiveAuthType = deploymentAnthropicKey ? "anthropic_wif" : authType;
   const usingKeypair = effectiveAuthType === "keypair_jwt";
   const usingWIF = effectiveAuthType === "wif";
   const usingEntra = effectiveAuthType === "azure_entra";
