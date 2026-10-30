@@ -4,8 +4,6 @@ package anthropicfederation
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/sync/singleflight"
 	"weave-os/router/internal/auth"
@@ -27,6 +26,11 @@ const exchangeTimeout = 15 * time.Second
 const maxResponseBytes = 64 * 1024
 
 var errTemporaryExchange = errors.New("Anthropic token endpoint temporarily unavailable")
+
+type assertionKey struct {
+	issuer  string
+	tokenID string
+}
 
 type cachedToken struct {
 	token       []byte
@@ -43,7 +47,7 @@ type Source struct {
 	now           auth.Clock
 	mu            sync.Mutex
 	cache         *lru.Cache[string, cachedToken]
-	assertions    *lru.Cache[[32]byte, struct{}]
+	assertions    *lru.Cache[assertionKey, struct{}]
 	group         singleflight.Group
 }
 
@@ -53,7 +57,7 @@ func NewSource(client *http.Client, identityToken func(context.Context, string) 
 	isolatedClient := *client
 	isolatedClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	cache, _ := lru.New[string, cachedToken](1024)
-	assertions, _ := lru.New[[32]byte, struct{}](4096)
+	assertions, _ := lru.New[assertionKey, struct{}](4096)
 	return &Source{httpClient: observability.WrapHTTPClient(&isolatedClient), identityToken: identityToken, now: now, cache: cache, assertions: assertions}
 }
 
@@ -71,7 +75,7 @@ func (s *Source) Token(ctx context.Context, key *auth.ExternalAPIKey) ([]byte, e
 		return nil, auth.ErrInvalidAnthropicFederation
 	}
 	encoded, _ := json.Marshal(federation)
-	cacheKey := fmt.Sprintf("%x", sha256.Sum256(append([]byte(key.InstallationID+"\x00"+key.ID+"\x00"), encoded...)))
+	cacheKey := key.InstallationID + "\x00" + key.ID + "\x00" + string(encoded)
 	if token := s.cached(cacheKey); token != nil {
 		return token, nil
 	}
@@ -89,7 +93,10 @@ func (s *Source) Token(ctx context.Context, key *auth.ExternalAPIKey) ([]byte, e
 		defer s.mu.Unlock()
 		cached, exists := s.cache.Get(cacheKey)
 		if exists && s.now().Before(cached.mandatoryAt) && errors.Is(exchangeErr, errTemporaryExchange) {
-			cached.retryAt = minTime(s.now().Add(5*time.Second), cached.mandatoryAt)
+			cached.retryAt = s.now().Add(5 * time.Second)
+			if cached.mandatoryAt.Before(cached.retryAt) {
+				cached.retryAt = cached.mandatoryAt
+			}
 			s.cache.Add(cacheKey, cached)
 			return append([]byte(nil), cached.token...), nil
 		}
@@ -98,11 +105,11 @@ func (s *Source) Token(ctx context.Context, key *auth.ExternalAPIKey) ([]byte, e
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	case response := <-flight:
-		if response.Err != nil {
-			return nil, response.Err
+	case flightResult := <-flight:
+		if flightResult.Err != nil {
+			return nil, flightResult.Err
 		}
-		return append([]byte(nil), response.Val.([]byte)...), nil
+		return append([]byte(nil), flightResult.Val.([]byte)...), nil
 	}
 }
 
@@ -175,36 +182,29 @@ func (s *Source) exchange(ctx context.Context, federation *auth.AnthropicFederat
 // claimAssertion prevents replay of jti-bearing assertions, including after an
 // ambiguous transport failure. The IdP remains responsible for rotation across restarts.
 func (s *Source) claimAssertion(assertion string) error {
-	parts := strings.Split(assertion, ".")
-	if len(parts) != 3 || len(assertion) > 16*1024 {
+	if len(assertion) > 16*1024 {
 		return fmt.Errorf("%w: expected a raw OIDC JWT", auth.ErrAnthropicFederationUnavailable)
 	}
-	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-	var claims struct {
-		Issuer string `json:"iss"`
-		JTI    string `json:"jti"`
-	}
-	if err != nil || json.Unmarshal(payload, &claims) != nil {
+	// This parse is only a local replay guard. Anthropic verifies the signature
+	// and enforces the issuer and rule; these claims never authorize a request.
+	claims := jwt.RegisteredClaims{}
+	if _, _, err := new(jwt.Parser).ParseUnverified(assertion, &claims); err != nil {
 		return fmt.Errorf("%w: invalid identity assertion", auth.ErrAnthropicFederationUnavailable)
 	}
-	if claims.JTI == "" {
+	if claims.ID == "" {
 		return nil
 	}
-	fingerprint := sha256.Sum256([]byte(claims.Issuer + "\x00" + claims.JTI))
+	if len(claims.Issuer) > 2048 || len(claims.ID) > 2048 {
+		return fmt.Errorf("%w: assertion replay identifiers exceed the limit", auth.ErrAnthropicFederationUnavailable)
+	}
+	assertionID := assertionKey{issuer: claims.Issuer, tokenID: claims.ID}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.assertions.Contains(fingerprint) {
+	if s.assertions.Contains(assertionID) {
 		return fmt.Errorf("%w: %w: identity assertion was already used; rotate the projected token or mint a fresh assertion", auth.ErrAnthropicFederationUnavailable, errTemporaryExchange)
 	}
-	s.assertions.Add(fingerprint, struct{}{})
+	s.assertions.Add(assertionID, struct{}{})
 	return nil
-}
-
-func minTime(a, b time.Time) time.Time {
-	if a.Before(b) {
-		return a
-	}
-	return b
 }
 
 var _ auth.AnthropicFederationTokenSource = (*Source)(nil)

@@ -32,7 +32,9 @@ func federationKey() *auth.ExternalAPIKey {
 
 func assertion(jti string) string {
 	claims, _ := json.Marshal(map[string]string{"iss": "https://issuer.example.com", "sub": "synthetic-workload", "jti": jti})
-	return "header." + base64.RawURLEncoding.EncodeToString(claims) + ".signature"
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","kid":"synthetic"}`))
+	signature := base64.RawURLEncoding.EncodeToString([]byte("synthetic-signature"))
+	return header + "." + base64.RawURLEncoding.EncodeToString(claims) + "." + signature
 }
 
 func response(status int, body string) *http.Response {
