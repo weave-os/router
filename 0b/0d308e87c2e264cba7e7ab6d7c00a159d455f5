@@ -1,0 +1,19 @@
+internal/api/admin/internal_session_issuers_test.go
+  s_0280f2ea513fc4::t_70d0ebc4706c42 39
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0b0d308e87c2e264cba7e7ab6d7c00a159d455f5",
+  "prompts": {},
+  "sessions": {
+    "s_0280f2ea513fc4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18120-d748-7b91-84fc-295efde1a52f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,16 @@
+go.mod
+  h_16c9377d4ebc00 101
+go.sum
+  h_16c9377d4ebc00 300-301
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "7a577772e586e15eabed70a7eccbbb4b3e4d01c9",
+  "prompts": {},
+  "humans": {
+    "h_16c9377d4ebc00": {
+      "author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

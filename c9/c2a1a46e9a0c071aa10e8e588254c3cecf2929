@@ -1,0 +1,43 @@
+internal/proxy/sibling_failover.go
+  s_94765651191c19::t_9ccf638e1a7fd4 304-305,308,312
+  s_94765651191c19::t_ca6bf2b160ce1f 300-301
+  s_e233791b365e2c::t_b69b89db6aab6d 313-314
+internal/proxy/turnloop_arm_demotion_internal_test.go
+  s_94765651191c19::t_68a94c3f2b8999 47
+internal/proxy/turnloop.go
+  s_94765651191c19::t_96bd66761b2db5 323-325,1283-1284,1296-1297,2276-2280
+  s_94765651191c19::t_133a776367da7b 1267,1298
+  s_94765651191c19::t_976d5cfbc052ed 2281-2282
+internal/proxy/two_model_recovery_internal_test.go
+  s_94765651191c19::t_ef27659fd322ea 115-116,119-120,122,163-205
+  s_94765651191c19::t_6ea3f408f8230e 113-114,206
+internal/proxy/gemini.go
+  s_94765651191c19::t_371170aae65aa2 214-216
+internal/proxy/service.go
+  s_94765651191c19::t_de2c9ecc9c4dfb 556-559,3958-3960,7083-7085
+  s_94765651191c19::t_340c96f02baf2c 3050-3054
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c9c2a1a46e9a0c071aa10e8e588254c3cecf2929",
+  "prompts": {},
+  "sessions": {
+    "s_94765651191c19": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a12197-dfec-7960-a46a-5d1af1c61247",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    },
+    "s_e233791b365e2c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1219c-dbbb-7f52-a17c-1e4b013b9cd9",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

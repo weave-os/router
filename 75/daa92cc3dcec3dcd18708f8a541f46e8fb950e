@@ -1,0 +1,31 @@
+internal/billing/repo.go
+  s_0280f2ea513fc4::t_e23bd1c4805b04 71
+scripts/serving_admission_check/session_issuer_test.go
+  s_0280f2ea513fc4::t_e23bd1c4805b04 21,23,63-66,73,82
+internal/sqlc/billing.sql.go
+  s_0280f2ea513fc4::t_a27d73df7c22e9 467-468
+internal/auth/session_token_test.go
+  s_0280f2ea513fc4::t_e23bd1c4805b04 118,120,124
+internal/auth/api_key.go
+  s_0280f2ea513fc4::t_e23bd1c4805b04 89
+db/queries/billing.sql
+  s_0280f2ea513fc4::t_e23bd1c4805b04 235-236
+internal/auth/credential_subject.go
+  s_0280f2ea513fc4::t_e23bd1c4805b04 33,36,57
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "75daa92cc3dcec3dcd18708f8a541f46e8fb950e",
+  "prompts": {},
+  "sessions": {
+    "s_0280f2ea513fc4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18120-d748-7b91-84fc-295efde1a52f",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,28 @@
+internal/proxy/force_model.go
+  s_95f7e5f743e6e7::t_fd2f9fc5339566 158
+  s_95f7e5f743e6e7::t_4a7d15c2d94705 175-176,180-183
+  s_95f7e5f743e6e7::t_7e09e9dbd2ceea 162-163
+  s_95f7e5f743e6e7::t_7d3304104baf0f 148-151
+  s_95f7e5f743e6e7::t_3a7fb2a037fe4a 164
+internal/proxy/force_model_internal_test.go
+  s_95f7e5f743e6e7::t_fea3c9a7ce6637 200-248
+  s_95f7e5f743e6e7::t_43ce29357ab5f8 133-154
+  s_95f7e5f743e6e7::t_93a94a34f2b410 161-167
+  s_95f7e5f743e6e7::t_6fddf1d4ddcc7a 297
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "926ee1eb605943ad5fc27a73fa287746442c8ebf",
+  "prompts": {},
+  "sessions": {
+    "s_95f7e5f743e6e7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d0f60e33-6baa-4855-be36-610a5aedef36",
+        "model": "gpt-6-luna"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

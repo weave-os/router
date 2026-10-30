@@ -1,0 +1,24 @@
+install/opencode-weave/test/capture.test.ts
+  s_c2608be38ef25d::t_76473f7f7e0621 140-141
+install/install.sh
+  s_c2608be38ef25d::t_8dd258f7434039 4256-4258,4325,4328,4556-4570,4580,4582
+  s_c2608be38ef25d::t_33d211c3d61a4f 4581,4583
+install/opencode-weave/src/index.ts
+  s_c2608be38ef25d::t_76473f7f7e0621 48-50,63-65,185,189,205,248,266,657,670,677,687,693
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "b295890ce83cc4e003e5bf3c35b6efa4d6646e98",
+  "prompts": {},
+  "sessions": {
+    "s_c2608be38ef25d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ccaf-87ab-7112-900a-670858d3609c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}

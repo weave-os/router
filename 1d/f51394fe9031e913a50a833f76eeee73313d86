@@ -1,0 +1,42 @@
+.env.example
+  s_14682fca0edca7::t_1417ae3034768c 55
+  s_14682fca0edca7::t_4d7103963e7e15 56-57
+cmd/router/main.go
+  s_14682fca0edca7::t_4d7103963e7e15 9,608,2403,2410-2419,2421
+  s_14682fca0edca7::t_2672e6c7e87b06 2420,2422
+cmd/router/anthropic_federation_test.go
+  s_14682fca0edca7::t_5db4b01b846800 1-26,28
+  s_14682fca0edca7::t_4d7103963e7e15 27
+internal/anthropicfederation/bindings.go
+  s_14682fca0edca7::t_c89a473c51be44 1-49
+internal/api/admin/internal_upstream_models.go
+  s_14682fca0edca7::t_111399cd425c73 41
+internal/anthropicfederation/bindings_test.go
+  s_14682fca0edca7::t_1417ae3034768c 20,22-28,32-34,36-40,45-47,49,53-62,66-78
+  s_14682fca0edca7::t_df35de367fb448 1-19,21,29-31,35,41-44,48,50-52,63-65,79-80
+docs/CONFIGURATION.md
+  s_14682fca0edca7::t_4d7103963e7e15 376-377,398-400
+  s_14682fca0edca7::t_1417ae3034768c 375,378-394,397,406-407
+  s_14682fca0edca7::t_111399cd425c73 395-396
+  s_14682fca0edca7::t_5c692958f6a495 401-405
+internal/api/admin/upstream_models.go
+  s_14682fca0edca7::t_111399cd425c73 72
+internal/anthropicfederation/source.go
+  s_14682fca0edca7::t_3f600253277323 45,78-83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1df51394fe9031e913a50a833f76eeee73313d86",
+  "prompts": {},
+  "sessions": {
+    "s_14682fca0edca7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18ea6-05c9-7ad1-874e-a720bd132cbc",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

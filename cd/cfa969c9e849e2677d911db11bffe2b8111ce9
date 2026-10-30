@@ -1,0 +1,19 @@
+.github/workflows/weave-checks.yml
+  s_5f31ec9147a0ee::t_b21eb0dc358bf8 11-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "cdcfa969c9e849e2677d911db11bffe2b8111ce9",
+  "prompts": {},
+  "sessions": {
+    "s_5f31ec9147a0ee": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0ead5-be69-7b21-9f07-9f8f1ea322ff",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
