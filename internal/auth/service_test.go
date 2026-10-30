@@ -53,15 +53,16 @@ func (f *fakeAPIKeyRepository) Create(ctx context.Context, params auth.CreateAPI
 		return nil, errors.New("not used by these tests")
 	}
 	return &auth.APIKey{
-		ID:             params.ExternalID,
-		InstallationID: params.InstallationID,
-		ExternalID:     params.ExternalID,
-		Name:           params.Name,
-		KeyPrefix:      params.KeyPrefix,
-		KeyHash:        params.KeyHash,
-		KeySuffix:      params.KeySuffix,
-		Scope:          params.Scope,
-		CreatedBy:      params.CreatedBy,
+		ID:                  params.ExternalID,
+		InstallationID:      params.InstallationID,
+		ExternalID:          params.ExternalID,
+		Name:                params.Name,
+		KeyPrefix:           params.KeyPrefix,
+		KeyHash:             params.KeyHash,
+		KeySuffix:           params.KeySuffix,
+		Scope:               params.Scope,
+		CreatedBy:           params.CreatedBy,
+		CredentialSubjectID: params.CredentialSubjectID,
 	}, nil
 }
 
