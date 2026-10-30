@@ -874,8 +874,8 @@ func (s *Service) runTurnLoop(
 	if isolatedSearch {
 		req.ForceModel = ""
 		res.HardPinned = true
-		if auth.RoutingPassthroughFrom(ctx) {
-			decision, err := s.callerModelPassthroughDecision(ctx, req)
+		ctx, decision, passthrough, err := s.passthroughDecision(ctx, req)
+		if passthrough {
 			res.Decision = decision
 			res.CallerModelPassthrough = true
 			return res, err
