@@ -63,7 +63,7 @@ func TestSubscriptionOnly_OpenAI_ServesOnCodexSub(t *testing.T) {
 	assert.True(t, p.proxyCreds[0].OAuth, "the turn must be served on the caller's own Codex subscription so billing debits $0")
 	assert.Contains(t, rec.Body.String(), "credits are depleted", "the customer must see the depleted-credits warning")
 	assert.Contains(t, rec.Body.String(), "ChatGPT (Codex)", "the warning must name the Codex subscription")
-	assert.Contains(t, rec.Body.String(), "weave-router", "the warning must surface the top-up CTA")
+	assert.NotContains(t, rec.Body.String(), "organization/settings/weave-router", "a healthy subscription-backed turn carries no top-up CTA")
 }
 
 // TestSubscriptionOnly_OpenAI_PaidRoute_Refuses402: a Codex-covered request
