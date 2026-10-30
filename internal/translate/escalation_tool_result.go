@@ -18,7 +18,13 @@ const (
 // Anchor the whole header so command output cannot supply the exit verdict.
 var codexExecExitHeader = regexp.MustCompile(`^(?:Chunk ID: [^\r\n]+\n)?Wall time: [0-9]+(?:\.[0-9]+)? seconds\nProcess exited with code (-?[0-9]+)\n(?:Original token count: [0-9]+\n)?Output:(?:\n|$)`)
 
-// ToolResultFailed recognizes explicit protocol errors and Codex exec exit status.
+// Code-mode exec reports its script verdict first, then one fragment per
+// printed value. Nested commands print Codex's exec envelope, whose key order
+// is fixed, so only a fragment that starts with it can supply an exit status.
+var codexScriptHeader = regexp.MustCompile(`^Script (completed|failed|running with cell ID [0-9]+)\nWall time [0-9]+(?:\.[0-9]+)? seconds\nOutput:(?:\n|$)`)
+var codexScriptExitEnvelope = regexp.MustCompile(`^(?:Warning: truncated output \(original token count: [0-9]+\)\nTotal output lines: [0-9]+\n\n)?\{"chunk_id":"[^"\\]*","wall_time_seconds":[0-9.eE+-]+,"exit_code":(-?[0-9]+),`)
+
+// ToolResultFailed recognizes explicit protocol errors and Codex exec and code-mode exit status.
 // It leaves the observed wire untouched: replay digests must survive feature fixes.
 func (block EscalationBlock) ToolResultFailed(call EscalationBlock, codexToolResults bool) bool {
 	if block.IsError != nil {
@@ -28,6 +34,8 @@ func (block EscalationBlock) ToolResultFailed(call EscalationBlock, codexToolRes
 		return false
 	}
 	switch codexExecTool(call.Name) {
+	case codexCodeExec:
+		return codexScriptFailed(block.ContentJSON)
 	case codexExecCommand, codexWriteStdin:
 	default:
 		return false
@@ -49,4 +57,38 @@ func (block EscalationBlock) ToolResultFailed(call EscalationBlock, codexToolRes
 	}
 	exitCode, err := strconv.ParseInt(header[1], 10, 32)
 	return err == nil && exitCode != 0
+}
+
+func codexScriptFailed(contentJSON string) bool {
+	output := gjson.Parse(contentJSON)
+	fragments := []gjson.Result{output}
+	if output.IsArray() {
+		fragments = output.Array()
+		for index, fragment := range fragments {
+			if escalationWireType(fragment.Get("type").String()) != escalationWireInputText {
+				return false
+			}
+			fragments[index] = fragment.Get("text")
+		}
+	}
+	if len(fragments) == 0 || fragments[0].Type != gjson.String {
+		return false
+	}
+	header := codexScriptHeader.FindStringSubmatch(fragments[0].String())
+	if header == nil {
+		return false
+	}
+	if header[1] == "failed" {
+		return true
+	}
+	for _, fragment := range fragments[1:] {
+		envelope := codexScriptExitEnvelope.FindStringSubmatch(fragment.String())
+		if envelope == nil {
+			continue
+		}
+		if exitCode, err := strconv.ParseInt(envelope[1], 10, 32); err == nil && exitCode != 0 {
+			return true
+		}
+	}
+	return false
 }
