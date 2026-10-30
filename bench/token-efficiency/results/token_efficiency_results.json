@@ -1,0 +1,251 @@
+{
+ "schema_version": 1,
+ "measured": "2026-10-08/2026-10-22",
+ "work_ratios": {
+  "benchmark": "swe-together",
+  "status": "final",
+  "task_set_digest": "6b4c99b225a3f967e66a6541c3dad7c4aae4e7cbacb696f6dd6fa0e1cb067685",
+  "interval": "task bootstrap, 90%",
+  "note": "Weave's own measurement, 2026-10-08 to 2026-10-22: every cell ran the 9 core tasks x 2 attempts; cells carrying production traffic were extended to 25 tasks (15 for gpt-6.1-sol and gpt-5.6-sol). Values are rounded to two decimals as published.",
+  "rows": [
+   {
+    "harness": "claude-code",
+    "comparison_model": "claude-opus-5-5",
+    "served_model": "gpt-6-luna",
+    "native": false,
+    "tasks": 25,
+    "input": {
+     "point": 0.99,
+     "lower": 0.7,
+     "upper": 1.33
+    },
+    "output": {
+     "point": 1.47,
+     "lower": 1.04,
+     "upper": 1.94
+    },
+    "input_rule": "lower",
+    "output_rule": "lower",
+    "input_credited": 0.7,
+    "output_credited": 1.04,
+    "input_capped": 0.7,
+    "output_capped": 1.0
+   },
+   {
+    "harness": "claude-code",
+    "comparison_model": "claude-opus-5-5",
+    "served_model": "claude-haiku-5-5",
+    "native": true,
+    "tasks": 25,
+    "input": {
+     "point": 1.51,
+     "lower": 1.1,
+     "upper": 2.0
+    },
+    "output": {
+     "point": 0.92,
+     "lower": 0.64,
+     "upper": 1.22
+    },
+    "input_rule": "lower",
+    "output_rule": "point",
+    "input_credited": 1.1,
+    "output_credited": 0.92,
+    "input_capped": 1.0,
+    "output_capped": 0.92
+   },
+   {
+    "harness": "claude-code",
+    "comparison_model": "claude-opus-5-5",
+    "served_model": "claude-sonnet-5-5",
+    "native": true,
+    "tasks": 25,
+    "input": {
+     "point": 1.91,
+     "lower": 1.61,
+     "upper": 2.2
+    },
+    "output": {
+     "point": 1.69,
+     "lower": 1.45,
+     "upper": 1.89
+    },
+    "input_rule": "lower",
+    "output_rule": "lower",
+    "input_credited": 1.61,
+    "output_credited": 1.45,
+    "input_capped": 1.0,
+    "output_capped": 1.0
+   },
+   {
+    "harness": "claude-code",
+    "comparison_model": "claude-opus-5-5",
+    "served_model": "claude-sonnet-5",
+    "native": true,
+    "tasks": 25,
+    "input": {
+     "point": 0.76,
+     "lower": 0.62,
+     "upper": 0.89
+    },
+    "output": {
+     "point": 0.86,
+     "lower": 0.67,
+     "upper": 1.02
+    },
+    "input_rule": "point",
+    "output_rule": "point",
+    "input_credited": 0.76,
+    "output_credited": 0.86,
+    "input_capped": 0.76,
+    "output_capped": 0.86
+   },
+   {
+    "harness": "claude-code",
+    "comparison_model": "claude-opus-5-5",
+    "served_model": "claude-fable-5-1",
+    "native": true,
+    "tasks": 25,
+    "input": {
+     "point": 1.02,
+     "lower": 0.9,
+     "upper": 1.13
+    },
+    "output": {
+     "point": 1.1,
+     "lower": 0.97,
+     "upper": 1.23
+    },
+    "input_rule": "held",
+    "output_rule": "held",
+    "input_credited": 1.0,
+    "output_credited": 1.0,
+    "input_capped": 1.0,
+    "output_capped": 1.0
+   },
+   {
+    "harness": "claude-code",
+    "comparison_model": "claude-opus-5-5",
+    "served_model": "gpt-6.1-sol",
+    "native": false,
+    "tasks": 15,
+    "input": {
+     "point": 0.67,
+     "lower": 0.59,
+     "upper": 0.81
+    },
+    "output": {
+     "point": 1.01,
+     "lower": 0.92,
+     "upper": 1.23
+    },
+    "input_rule": "lower",
+    "output_rule": "lower",
+    "input_credited": 0.59,
+    "output_credited": 0.92,
+    "input_capped": 0.59,
+    "output_capped": 0.92
+   },
+   {
+    "harness": "codex",
+    "comparison_model": "gpt-6-astra",
+    "served_model": "gpt-6-luna",
+    "native": true,
+    "tasks": 25,
+    "input": {
+     "point": 0.91,
+     "lower": 0.65,
+     "upper": 1.27
+    },
+    "output": {
+     "point": 0.97,
+     "lower": 0.72,
+     "upper": 1.26
+    },
+    "input_rule": "point",
+    "output_rule": "point",
+    "input_credited": 0.91,
+    "output_credited": 0.97,
+    "input_capped": 0.91,
+    "output_capped": 0.97
+   },
+   {
+    "harness": "codex",
+    "comparison_model": "gpt-6-astra",
+    "served_model": "claude-opus-5-5",
+    "native": false,
+    "tasks": 25,
+    "input": {
+     "point": 0.53,
+     "lower": 0.41,
+     "upper": 0.72
+    },
+    "output": {
+     "point": 0.27,
+     "lower": 0.2,
+     "upper": 0.37
+    },
+    "input_rule": "lower",
+    "output_rule": "lower",
+    "input_credited": 0.41,
+    "output_credited": 0.2,
+    "input_capped": 0.41,
+    "output_capped": 0.2
+   },
+   {
+    "harness": "codex",
+    "comparison_model": "gpt-6-astra",
+    "served_model": "gpt-6.1-sol",
+    "native": true,
+    "tasks": 15,
+    "input": {
+     "point": 0.77,
+     "lower": 0.66,
+     "upper": 0.98
+    },
+    "output": {
+     "point": 0.77,
+     "lower": 0.71,
+     "upper": 0.86
+    },
+    "input_rule": "point",
+    "output_rule": "point",
+    "input_credited": 0.77,
+    "output_credited": 0.77,
+    "input_capped": 0.77,
+    "output_capped": 0.77
+   },
+   {
+    "harness": "codex",
+    "comparison_model": "gpt-6-astra",
+    "served_model": "gpt-5.6-sol",
+    "native": true,
+    "tasks": 15,
+    "input": {
+     "point": 0.42,
+     "lower": 0.29,
+     "upper": 0.58
+    },
+    "output": {
+     "point": 0.39,
+     "lower": 0.28,
+     "upper": 0.5
+    },
+    "input_rule": "point",
+    "output_rule": "point",
+    "input_credited": 0.42,
+    "output_credited": 0.39,
+    "input_capped": 0.42,
+    "output_capped": 0.39
+   }
+  ]
+ },
+ "quality_factors": {
+  "benchmark": "terminal-bench-4",
+  "status": "pending",
+  "task_set_digest": "7e92e0a388041e88dee47c9627445bb8ad6dfd092e3e846ae4434f2c17d04afd",
+  "interval": "task bootstrap, 90%",
+  "note": "Pending: a second batch of Terminal-Bench attempts is running; rows will be added from the combined run.",
+  "rows": []
+ }
+}
