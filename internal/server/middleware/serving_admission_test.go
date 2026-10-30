@@ -355,8 +355,8 @@ func TestDirectAdmissionRetainsPolicyAcrossWorkerCodeRelease(t *testing.T) {
 		})
 		require.Equal(t, http.StatusNoContent, response.Code, response.Body.String())
 	}
-	// No canonical session in this fixture: each turn must consult primary.
-	require.Equal(t, 2, primary.calls)
+	// The fixture sends no session ID; its first-message fingerprint lets turn two reuse the admission.
+	require.Equal(t, 1, primary.calls)
 }
 func TestDirectAdmissionRejectsOtherFleet(t *testing.T) {
 	cfg, admitted, _, _ := admissionMiddlewareFixture(t)
@@ -367,4 +367,25 @@ func TestDirectAdmissionRejectsOtherFleet(t *testing.T) {
 	cfg.Identity.Target = policyregistry.TargetInternal
 	response := runAdmissionMiddleware(t, cfg, admitted, func(c *gin.Context) { t.Fatal("cross-fleet dispatch") })
 	require.Equal(t, http.StatusForbidden, response.Code)
+}
+
+func TestDirectConversationIDFallsBackToConversationFingerprint(t *testing.T) {
+	messages := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	firstTurn := []byte(`{"model":"auto","system":"turn one","messages":[{"role":"user","content":[{"type":"text","text":"<current_datetime>2026-10-30T15:40:06</current_datetime> fix the build"}]}]}`)
+	laterTurn := []byte(`{"model":"auto","system":"turn two","messages":[{"role":"user","content":[{"type":"text","text":"<current_datetime>2026-10-30T15:40:06</current_datetime> fix the build","cache_control":{"type":"ephemeral"}}]},{"role":"assistant","content":"ok"},{"role":"user","content":"next"}]}`)
+	otherConversation := []byte(`{"model":"auto","messages":[{"role":"user","content":"<current_datetime>2026-10-30T16:02:11</current_datetime> fix the build"}]}`)
+
+	first := directConversationID(messages, firstTurn)
+	require.NotEmpty(t, first, "session-less clients need a stable conversation identity")
+	assert.Equal(t, first, directConversationID(messages, laterTurn))
+	assert.NotEqual(t, first, directConversationID(messages, otherConversation))
+
+	responses := httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	responsesTurn := []byte(`{"model":"auto","input":[{"role":"developer","content":"sys"},{"role":"user","content":[{"type":"input_text","text":"fix the build"}]}]}`)
+	require.NotEmpty(t, directConversationID(responses, responsesTurn))
+	assert.Equal(t, "prompt_cache_key:cache-1", directConversationID(responses, []byte(`{"model":"auto","prompt_cache_key":"cache-1","input":"fix the build"}`)))
+
+	explicit := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	explicit.Header.Set("Session-Id", "client-session")
+	assert.Equal(t, "client-session", directConversationID(explicit, firstTurn))
 }

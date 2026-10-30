@@ -1,9 +1,12 @@
 package requestcontext
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"strings"
 
 	"github.com/tidwall/gjson"
 )
@@ -148,4 +151,60 @@ func CanonicalConversationID(headers http.Header, body []byte, surface Conversat
 		return id
 	}
 	return BodySessionID(body, surface)
+}
+
+// ConversationFingerprint identifies a conversation whose client sends no session ID.
+// It prefers the client's prompt_cache_key, then a hash of the first user message's
+// text, which session-less harnesses resend unchanged on every turn. Callers scope the
+// result by credential, so identical openers only collide within one caller.
+func ConversationFingerprint(body []byte, surface ConversationSurface) string {
+	if surface == ConversationResponses || surface == ConversationChat {
+		if key := NormalizeClientIdentifier(gjson.GetBytes(body, "prompt_cache_key").String()); key != "" {
+			return "prompt_cache_key:" + key
+		}
+	}
+	opener := firstUserMessageText(body, surface)
+	if opener == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(opener))
+	return "first_user_message:" + hex.EncodeToString(sum[:])
+}
+
+func firstUserMessageText(body []byte, surface ConversationSurface) string {
+	messages, contentField := gjson.GetBytes(body, "messages"), "content"
+	switch surface {
+	case ConversationResponses:
+		messages = gjson.GetBytes(body, "input")
+		if messages.Type == gjson.String {
+			return messages.String()
+		}
+	case ConversationGemini:
+		messages, contentField = gjson.GetBytes(body, "contents"), "parts"
+	}
+	var text string
+	messages.ForEach(func(_, message gjson.Result) bool {
+		if message.Get("role").String() != "user" {
+			return true
+		}
+		text = contentText(message.Get(contentField))
+		return false
+	})
+	return text
+}
+
+// contentText ignores per-turn annotations such as cache_control.
+func contentText(content gjson.Result) string {
+	if content.Type == gjson.String {
+		return content.String()
+	}
+	var text strings.Builder
+	content.ForEach(func(_, part gjson.Result) bool {
+		if value := part.Get("text"); value.Type == gjson.String {
+			text.WriteString(value.String())
+			text.WriteByte(0)
+		}
+		return true
+	})
+	return text.String()
 }
