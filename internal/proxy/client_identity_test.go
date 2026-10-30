@@ -117,7 +117,7 @@ func TestNormalizeDisplayName_TrimsAndPassesUnicode(t *testing.T) {
 }
 
 func TestNormalizeDisplayName_DecodesLatin1Bytes(t *testing.T) {
-	assert.Equal(t, "Pálmi Þór Valgeirsson", proxy.NormalizeDisplayName("P\xe1lmi \xde\xf3r Valgeirsson"))
+	assert.Equal(t, "Ásta Þórsdóttir", proxy.NormalizeDisplayName("\xc1sta \xde\xf3rsd\xf3ttir"))
 }
 
 func TestNormalizeDisplayName_StripsControlBytes(t *testing.T) {
