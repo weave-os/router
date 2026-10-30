@@ -1,0 +1,48 @@
+Makefile
+  h_16c9377d4ebc00 45-49
+README.md
+  h_16c9377d4ebc00 180-184
+install/README.md
+  h_16c9377d4ebc00 144-156,281-308,329-354
+install/cc-statusline.sh
+  h_16c9377d4ebc00 162-174,244,273,276,284-286
+install/codex-skills/force-model/SKILL.md
+  h_16c9377d4ebc00 1-14
+install/codex-skills/router-feedback/SKILL.md
+  h_16c9377d4ebc00 1-14
+install/codex-skills/unforce-model/SKILL.md
+  h_16c9377d4ebc00 1-14
+install/directives.tsv
+  h_16c9377d4ebc00 1-12
+install/install.sh
+  h_16c9377d4ebc00 70-75,1365-1453,2568-2573,2603-2615,2635-2638,2643,2704,2713-2715,2768-2803,2810,3180-3192,3262,3291,3294,3302-3304
+install/npm/.gitignore
+  h_16c9377d4ebc00 3-4,8-9,11
+install/npm/package.json
+  h_16c9377d4ebc00 22-23
+install/npm/scripts/copy-installer.js
+  h_16c9377d4ebc00 14,23-25,59-85
+install/registry.sh
+  h_16c9377d4ebc00 1-81
+install/scripts/embed-registry.sh
+  h_16c9377d4ebc00 1-58
+install/tests/cc-statusline_test.sh
+  h_16c9377d4ebc00 303-306
+install/tests/packaging_test.sh
+  h_16c9377d4ebc00 1-116
+install/tests/registry_test.sh
+  h_16c9377d4ebc00 1-275
+install/uninstall.sh
+  h_16c9377d4ebc00 30-34,231,234-240,242-244,441,448-450,474-490,626,630-635,637-639
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "38984ca05b4221ea03ac54127e9ada1b7b8f5694",
+  "prompts": {},
+  "humans": {
+    "h_16c9377d4ebc00": {
+      "author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

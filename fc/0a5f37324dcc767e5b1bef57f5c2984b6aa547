@@ -1,0 +1,21 @@
+db/migrations/0058_routing-strategy-follow-deployment-default.up.sql
+  s_6ef6bf9534e72f::t_a6a125c2934383 1-30
+db/migrations/0058_routing-strategy-follow-deployment-default.down.sql
+  s_6ef6bf9534e72f::t_3e825daef821d0 1-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.23",
+  "base_commit_sha": "fc0a5f37324dcc767e5b1bef57f5c2984b6aa547",
+  "prompts": {},
+  "sessions": {
+    "s_6ef6bf9534e72f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "cdbe1a6d-849f-4d44-9008-8ac6b86f3586",
+        "model": "claude-opus-5"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

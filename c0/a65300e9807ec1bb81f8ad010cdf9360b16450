@@ -1,0 +1,94 @@
+internal/proxy/turnloop.go
+  s_4ce395f3414e84::t_56beaf98173e1c 820
+internal/subscriptions/entitlement/serving_profile.go
+  s_4ce395f3414e84::t_b9e7e42db31576 32-38
+  s_4ce395f3414e84::t_ab8c05efa53501 5-8
+  s_4ce395f3414e84::t_c093ad25a804a3 24-25,27-30
+  s_4ce395f3414e84::t_b6d6cefeaaba0c 31
+internal/subscriptions/entitlement/serving_profile_test.go
+  s_4ce395f3414e84::t_645793cfaacdec 16-19,23-26
+  s_4ce395f3414e84::t_9532a3f1d3992d 20-22
+internal/postgres/serving/admission_test.go
+  s_4ce395f3414e84::t_34163a55a3231c 25-31
+docs/SERVING_CONTROL.md
+  s_4ce395f3414e84::t_f3ba8c8e8a3dff 545-546,633-634
+internal/server/middleware/routing_knobs_override.go
+  s_4ce395f3414e84::t_56beaf98173e1c 82
+  s_4ce395f3414e84::t_fc2657719c83d2 12
+internal/policyregistry/serving_test.go
+  s_4ce395f3414e84::t_f09bfc0c610069 546,553-554
+  s_4ce395f3414e84::t_6d469b8bd1be11 21,506-522,524-545,547-552,555-556
+  s_4ce395f3414e84::t_62dba01f3e764d 445-449,462-468,470
+  s_4ce395f3414e84::t_fc2657719c83d2 523
+  s_4ce395f3414e84::t_b29a9f3c071a90 557-558
+internal/server/middleware/plan_owned_controls_test.go
+  s_4ce395f3414e84::t_d1ccca1fda0334 29-65,73-75
+  s_4ce395f3414e84::t_d62d36314ed06a 24,27-28,66-72,76-80,84-85,87,91,99-101,106
+docs/CONFIGURATION.md
+  s_4ce395f3414e84::t_a2bf2be8d076c9 589-593
+internal/proxy/force_cluster.go
+  s_4ce395f3414e84::t_56beaf98173e1c 56
+internal/policyregistry/serving_controller.go
+  s_4ce395f3414e84::t_5af88f12070bbc 327-329
+internal/server/middleware/force_effort_override.go
+  s_4ce395f3414e84::t_fc2657719c83d2 9
+  s_4ce395f3414e84::t_56beaf98173e1c 21
+internal/policyregistry/boost_default_admission_test.go
+  s_4ce395f3414e84::t_50afb8d610ac08 1-28
+internal/proxy/service.go
+  s_4ce395f3414e84::t_56beaf98173e1c 1026,1052,1134,1225,1330,1349,1370,1382,1384
+internal/proxy/plan_owned_controls_internal_test.go
+  s_4ce395f3414e84::t_caee7765bc26ac 78-90,95-101,103-105,131
+  s_4ce395f3414e84::t_efe00995949c74 102
+  s_4ce395f3414e84::t_179e61d4fa158b 30-33,106,124,137,173,188,207
+  s_4ce395f3414e84::t_b43d49d66fd4dd 91
+  s_4ce395f3414e84::t_e3818691ea9e94 107
+internal/policyregistry/test_plans_test.go
+  s_4ce395f3414e84::t_5ef5ddd9cb020c 85-87
+  s_4ce395f3414e84::t_74f682141c04fe 72
+  s_4ce395f3414e84::t_e30cbed63824b8 58-60,84
+internal/server/middleware/allowed_models_override.go
+  s_4ce395f3414e84::t_56beaf98173e1c 11,30
+internal/postgres/serving/admission.go
+  s_4ce395f3414e84::t_fc2657719c83d2 135-137
+  s_4ce395f3414e84::t_1009aa95080cea 244
+internal/server/middleware/policy_pin_override.go
+  s_4ce395f3414e84::t_56beaf98173e1c 27
+  s_4ce395f3414e84::t_fc2657719c83d2 9
+internal/policyregistry/serving_cohort_scopes_test.go
+  s_4ce395f3414e84::t_50458707cf0ae3 11,14-48
+  s_9bc6e679ddc44b::t_07c7a95d9f2273 49
+internal/proxy/CLAUDE.md
+  s_4ce395f3414e84::t_9aae5ef1349838 69-70,72-76
+internal/server/middleware/cluster_version_override.go
+  s_4ce395f3414e84::t_fc2657719c83d2 9
+  s_4ce395f3414e84::t_56beaf98173e1c 20
+internal/proxy/AGENTS.md
+  s_4ce395f3414e84::t_3c8ad3c1310c4d 69-70,72-76
+internal/server/middleware/router_strategy_override.go
+  s_4ce395f3414e84::t_ba1209410575a4 74-79,84-88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c0a65300e9807ec1bb81f8ad010cdf9360b16450",
+  "prompts": {},
+  "sessions": {
+    "s_4ce395f3414e84": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a188d2-a2d2-7853-b03f-d03bd31dd352",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_9bc6e679ddc44b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a188e8-730f-7fc0-a945-2ecf62e9f62d",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
