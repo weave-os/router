@@ -28,6 +28,21 @@ func HasOverrideFromContext(ctx context.Context) bool {
 	return b
 }
 
+type organizationPrepaidContextKeyT struct{}
+
+// WithOrganizationPrepaid marks a request admitted against the organization's
+// prepaid credit balance, so a paid turn can name Weave credits as its funding.
+func WithOrganizationPrepaid(ctx context.Context) context.Context {
+	return context.WithValue(ctx, organizationPrepaidContextKeyT{}, true)
+}
+
+// OrganizationPrepaidFromContext reports whether WithBalanceCheck admitted the
+// request against the organization's prepaid credit balance.
+func OrganizationPrepaidFromContext(ctx context.Context) bool {
+	admitted, _ := ctx.Value(organizationPrepaidContextKeyT{}).(bool)
+	return admitted
+}
+
 // subscriptionOnlyContextKeyT lives in billing (not middleware/proxy) so both
 // sides can reference it without a layering violation, mirroring
 // hasOverrideContextKeyT.

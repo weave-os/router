@@ -56,6 +56,7 @@ func TestAddRoutingFundingSource(t *testing.T) {
 		provider  string
 		model     string
 		want      string
+		absent    bool
 		oldSource string
 	}{
 		{
@@ -115,11 +116,26 @@ func TestAddRoutingFundingSource(t *testing.T) {
 			want:     "funded by your provider API key",
 		},
 		{
-			name:     "unknown source",
+			name:     "organization prepaid credits",
+			ctx:      billing.WithOrganizationPrepaid(context.Background()),
+			provider: providers.ProviderOpenAI,
+			model:    "gpt-6-luna",
+			want:     "funded by Weave credits",
+		},
+		{
+			name:     "unknown source shows no funding",
 			ctx:      context.Background(),
 			provider: providers.ProviderOpenAI,
 			model:    "gpt-6-luna",
-			want:     "funded by funding source unavailable",
+			absent:   true,
+		},
+		{
+			name:      "unknown source drops a stale funding label",
+			ctx:       context.Background(),
+			provider:  providers.ProviderOpenAI,
+			model:     "gpt-6-luna",
+			absent:    true,
+			oldSource: "Claude subscription",
 		},
 		{
 			name: "paid retry replaces subscription source",
@@ -142,6 +158,10 @@ func TestAddRoutingFundingSource(t *testing.T) {
 			text += "\n\n"
 			notice := translate.NewRouterNotice(translate.NoticeModelSelection, text, "gpt-6-luna", "")
 			got := addRoutingFundingSource(test.ctx, test.provider, test.model, notice)
+			if test.absent {
+				assert.Equal(t, "✦ **Weave Router** → gpt-6-luna · best pick for this turn\n\n", got.Text)
+				return
+			}
 			assert.Contains(t, got.Text, test.want)
 			if test.oldSource != "" {
 				assert.NotContains(t, got.Text, "funded by "+test.oldSource)
