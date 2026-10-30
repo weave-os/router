@@ -991,7 +991,7 @@ func (s *Service) ResolveAndStashUser(ctx context.Context, installationID, email
 // request — returns ctx unchanged on error.
 func (s *Service) ResolveAndStashKeyOwner(ctx context.Context, installationID, credentialSubjectID, displayName string) context.Context {
 	log := observability.FromContext(ctx)
-	if s.users == nil || installationID == "" || credentialSubjectID == "" {
+	if s.users == nil || installationID == "" {
 		return ctx
 	}
 	identityKey := "subject:" + credentialSubjectID
