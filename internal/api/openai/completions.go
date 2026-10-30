@@ -30,7 +30,7 @@ func ChatCompletionHandler(svc *proxy.Service, authSvc *auth.Service) gin.Handle
 		}
 
 		ctx := requestcontext.WithClientIdentity(c.Request.Context(), proxy.ClientIdentityFromHeaders(c.Request.Header))
-		ctx = proxy.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c))
+		ctx = proxy.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c), middleware.APIKeyFrom(c))
 		ctx, err = proxy.ResolveRoutingAssignment(ctx, authSvc, middleware.InstallationFrom(c))
 		if err != nil {
 			log.Error("Failed to resolve routing assignment", "installation_id", middleware.InstallationFrom(c).ID, "err", err)

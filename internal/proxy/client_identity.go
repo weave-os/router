@@ -71,10 +71,12 @@ func splitEvalClientApp(xApp string) (string, bool) {
 }
 
 // ResolveUserFromContext dispatches identity signals from ctx to
-// auth.Service.ResolveAndStashUser. No-op if deps are missing or both email
-// and account_uuid are empty — Claude CLI v2.1.x sends account_uuid only, so
-// gating on email alone would break that path.
-func ResolveUserFromContext(ctx context.Context, authSvc *auth.Service, installation *auth.Installation) context.Context {
+// auth.Service.ResolveAndStashUser. Either email or account_uuid is enough —
+// Claude CLI v2.1.x sends account_uuid only, so gating on email alone would
+// break that path. With neither (GitHub Copilot, Cursor, raw API calls), a
+// personal key attributes the request to its authenticated owner; a shared
+// key leaves the request unattributed.
+func ResolveUserFromContext(ctx context.Context, authSvc *auth.Service, installation *auth.Installation, apiKey *auth.APIKey) context.Context {
 	if _, ok := requestcontext.InternalTestIdentityFrom(ctx); ok {
 		return ctx
 	}
@@ -90,6 +92,9 @@ func ResolveUserFromContext(ctx context.Context, authSvc *auth.Service, installa
 	id := ClientIdentityFrom(ctx)
 	ctx = observability.WithClientSessionID(ctx, id.SessionID)
 	if id.Email == "" && id.AccountID == "" {
+		if apiKey != nil && apiKey.CredentialSubjectID != "" {
+			return authSvc.ResolveAndStashKeyOwner(ctx, installation.ID, apiKey.CredentialSubjectID, id.DisplayName)
+		}
 		log.Info("ResolveUserFromContext bailout",
 			"reason", "no_identity_signal",
 			"installation_id", installation.ID,
