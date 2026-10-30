@@ -425,27 +425,32 @@ Use your actual identifiers. `workspace_id` may be omitted only when the rule
 has a single enabled workspace; otherwise Anthropic requires it. `audience`
 defaults to `https://api.anthropic.com` and must match the rule. Do not send
 `key`, `auth_account`, or `auth_user`. Custom endpoints are rejected for this
-mode. A self-hosted provider configured through `ANTHROPIC_API_KEY` must have
-that environment variable removed before adding a dashboard credential.
+mode. A self-hosted deployment can retain `ANTHROPIC_API_KEY` while adding a
+federated Anthropic credential; when BYOK is selected, the federated credential
+takes precedence. An unresolved federation credential returns `503` rather than
+silently falling back to the deployment key.
 
 On Google compute with an attached service account, raw assertions are obtained
 from the Google identity credentials library for each exchange. For Kubernetes
 or another projected OIDC source, set `ANTHROPIC_IDENTITY_TOKEN_FILE` to the
-mounted token path; the file is reopened on every exchange. The router uses
+mounted token path; the file is reopened on every exchange and reads are bounded
+to 64 KiB. The JWT itself must be at most 16 KiB. The router uses
 per-credential federation configuration, not the Anthropic SDK's other
 `ANTHROPIC_FEDERATION_*` environment variables or credential precedence chain.
 Snowflake's `ROUTER_WIF_*` variables remain independent.
 
 The router sends the raw JWT to Anthropic's fixed `/v1/oauth/token` endpoint and
-uses the returned token with `Authorization: Bearer`. It sends no Snowflake
-headers, Claude subscription beta, or Claude Code identity prompt. Access tokens
+uses the returned token with `Authorization: Bearer`. The exchange carries the
+OAuth and OIDC federation beta headers; Anthropic API calls carry the OAuth beta
+header. The router sends no Snowflake headers or Claude Code identity prompt. Access tokens
 are cached separately by installation, key, rule, organization, service account,
 workspace, and audience. Concurrent refreshes share an exchange. Advisory
 refresh starts up to 120 seconds before expiry (20% for shorter tokens), with
 mandatory refresh up to 30 seconds before expiry (10% for shorter tokens).
 Temporary endpoint failures can use the still-valid cached token until mandatory
-refresh; failed mandatory refresh returns HTTP 503 rather than switching to a
-platform API key. A rejected exchange fails immediately.
+refresh; a selected Anthropic request with failed mandatory refresh returns HTTP
+503 rather than switching to a platform Anthropic API key. Unrelated providers
+remain available. A rejected exchange fails immediately.
 
 Assertions carrying `jti` must rotate before the next exchange. The router
 refuses to resend a previously attempted `jti` in its bounded process-local

@@ -2404,7 +2404,9 @@ func buildAnthropicFederationTokenSource(deploymentMode server.DeploymentMode) a
 	tokenFile := config.GetOr("ANTHROPIC_IDENTITY_TOKEN_FILE", "")
 	identityToken := wif.GoogleIdentityToken
 	if tokenFile != "" {
-		identityToken = func(ctx context.Context, _ string) (string, error) { return wif.ReadIdentityToken(ctx, tokenFile) }
+		identityToken = func(ctx context.Context, _ string) (string, error) {
+			return wif.ReadAnthropicIdentityToken(ctx, tokenFile)
+		}
 	}
 	client := &http.Client{Timeout: 15 * time.Second}
 	source := anthropicfederation.NewSource(client, identityToken, time.Now)

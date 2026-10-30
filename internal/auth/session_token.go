@@ -257,8 +257,7 @@ func (s *Service) VerifySessionToken(ctx context.Context, rawToken string, inclu
 	if !includeUpstreamKeys {
 		return issuer.Installation, issuer.APIKey, nil, issuer.ClusterModelLists, session, nil
 	}
-	resolved, err := s.resolveUpstreamSecrets(ctx, issuer.ExternalKeys)
-	return issuer.Installation, issuer.APIKey, resolved, issuer.ClusterModelLists, session, err
+	return issuer.Installation, issuer.APIKey, s.resolveUpstreamSecrets(ctx, issuer.ExternalKeys), issuer.ClusterModelLists, session, nil
 }
 
 func validCap(capMicros *int64) bool {

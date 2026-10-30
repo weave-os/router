@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -133,7 +135,11 @@ func (s *Source) cached(cacheKey string) []byte {
 func (s *Source) exchange(ctx context.Context, federation *auth.AnthropicFederationConfig, cacheKey string) ([]byte, error) {
 	assertion, err := s.identityToken(ctx, federation.Audience)
 	if err != nil {
-		return nil, fmt.Errorf("%w: acquire identity assertion: %w", auth.ErrAnthropicFederationUnavailable, err)
+		var networkError net.Error
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, fs.ErrNotExist) || errors.As(err, &networkError) {
+			return nil, fmt.Errorf("%w: %w: acquire identity assertion", auth.ErrAnthropicFederationUnavailable, errTemporaryExchange)
+		}
+		return nil, fmt.Errorf("%w: acquire identity assertion", auth.ErrAnthropicFederationUnavailable)
 	}
 	if err := s.claimAssertion(assertion); err != nil {
 		return nil, err
@@ -151,6 +157,7 @@ func (s *Source) exchange(ctx context.Context, federation *auth.AnthropicFederat
 		return nil, fmt.Errorf("%w: build exchange request", auth.ErrAnthropicFederationUnavailable)
 	}
 	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("anthropic-beta", string(auth.AnthropicBetaOAuth)+","+string(auth.AnthropicBetaFederation))
 	started := s.now()
 	response, err := s.httpClient.Do(request)
 	if err != nil {
@@ -179,9 +186,13 @@ func (s *Source) exchange(ctx context.Context, federation *auth.AnthropicFederat
 		return nil, fmt.Errorf("%w: invalid access token response", auth.ErrAnthropicFederationUnavailable)
 	}
 	lifetime := time.Duration(credential.ExpiresIn) * time.Second
+	mandatoryAt := started.Add(lifetime - min(30*time.Second, lifetime/10))
+	if !s.now().Before(mandatoryAt) {
+		return nil, fmt.Errorf("%w: access token is too close to expiry", auth.ErrAnthropicFederationUnavailable)
+	}
 	token := []byte(credential.AccessToken)
 	s.mu.Lock()
-	s.cache.Add(cacheKey, cachedToken{token: token, refreshAt: started.Add(lifetime - min(120*time.Second, lifetime/5)), mandatoryAt: started.Add(lifetime - min(30*time.Second, lifetime/10))})
+	s.cache.Add(cacheKey, cachedToken{token: token, refreshAt: started.Add(lifetime - min(120*time.Second, lifetime/5)), mandatoryAt: mandatoryAt})
 	s.mu.Unlock()
 	return append([]byte(nil), token...), nil
 }

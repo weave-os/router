@@ -52,16 +52,29 @@ func TestFederationValidationRejectsSecretsAndWrongProviders(t *testing.T) {
 	require.ErrorIs(t, err, auth.ErrInvalidAnthropicFederation)
 }
 
-func TestFederationFailureCannotFallBackToDeploymentCredentials(t *testing.T) {
-	key := &auth.ExternalAPIKey{ID: "federation-synthetic", InstallationID: "install_synthetic", Provider: providers.ProviderAnthropic, AuthType: auth.AuthTypeAnthropicWIF, FederationConfig: federationConfiguration()}
-	installation := &auth.Installation{ID: key.InstallationID, ExternalID: "org_synthetic", ByokEnabled: true}
-	rawKey := "rk_synthetic_federation_test"
-	apiKey := &auth.APIKey{ID: "key_synthetic", InstallationID: installation.ID, ExternalID: installation.ExternalID, KeyHash: auth.HashAPIKeySHA256(rawKey)}
-	svc := makeServiceWithExternalKeys(t, &fakeExternalAPIKeyRepo{keys: []*auth.ExternalAPIKey{key}}, fakeKeyRow{apiKey: apiKey, installation: installation}).WithAnthropicFederationTokenSource(federationSourceFunc(func(context.Context, *auth.ExternalAPIKey) ([]byte, error) { return nil, errors.New("exchange failed") }))
-	for range 2 {
-		_, _, credentials, _, err := svc.VerifyAPIKey(context.Background(), rawKey)
-		require.ErrorIs(t, err, auth.ErrAnthropicFederationUnavailable, "both cold and cached authentication must fail closed")
-		assert.Empty(t, credentials)
+func TestFederationFailureKeepsAnUnavailableCredentialMarker(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{name: "exchange failure", err: errors.New("exchange failed")},
+		{name: "empty token", err: nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			key := &auth.ExternalAPIKey{ID: "federation-synthetic", InstallationID: "install_synthetic", Provider: providers.ProviderAnthropic, AuthType: auth.AuthTypeAnthropicWIF, FederationConfig: federationConfiguration()}
+			installation := &auth.Installation{ID: key.InstallationID, ExternalID: "org_synthetic", ByokEnabled: true}
+			rawKey := "rk_synthetic_federation_test"
+			apiKey := &auth.APIKey{ID: "key_synthetic", InstallationID: installation.ID, ExternalID: installation.ExternalID, KeyHash: auth.HashAPIKeySHA256(rawKey)}
+			svc := makeServiceWithExternalKeys(t, &fakeExternalAPIKeyRepo{keys: []*auth.ExternalAPIKey{key}}, fakeKeyRow{apiKey: apiKey, installation: installation}).WithAnthropicFederationTokenSource(federationSourceFunc(func(context.Context, *auth.ExternalAPIKey) ([]byte, error) { return nil, tc.err }))
+			for range 2 {
+				_, _, credentials, _, err := svc.VerifyAPIKey(context.Background(), rawKey)
+				require.NoError(t, err)
+				require.Len(t, credentials, 1)
+				assert.ErrorIs(t, credentials[0].CredentialError, auth.ErrAnthropicFederationUnavailable)
+				assert.Empty(t, credentials[0].Plaintext)
+				assert.Nil(t, key.CredentialError, "the shared cache must not retain a request's failure")
+			}
+		})
 	}
 }
 
@@ -78,14 +91,16 @@ func TestFederationCredentialResolutionKeepsCacheAndEndpointIsolated(t *testing.
 	assert.Empty(t, key.BaseURL)
 }
 
-func TestDelegatedSessionPropagatesFederationFailure(t *testing.T) {
+func TestDelegatedSessionRetainsFederationFailureForSelectedProvider(t *testing.T) {
 	fixture := newSessionIssuerFixture(t)
 	_, keys := fixture.service(t)
 	external := &fakeExternalAPIKeyRepo{keys: []*auth.ExternalAPIKey{{ID: "ext-federation", InstallationID: fixture.inst.ID, Provider: providers.ProviderAnthropic, AuthType: auth.AuthTypeAnthropicWIF, FederationConfig: federationConfiguration()}}}
 	svc := auth.NewService(&fakeInstallationRepository{}, keys, external, nil, auth.NoOpAPIKeyCache{}, nil, func() time.Time { return sessionClock })
 	token := fixture.sign(t, fixture.claims(), nil)
-	_, _, _, _, _, err := svc.VerifySessionToken(context.Background(), token, true)
-	require.ErrorIs(t, err, auth.ErrAnthropicFederationUnavailable)
+	_, _, credentials, _, _, err := svc.VerifySessionToken(context.Background(), token, true)
+	require.NoError(t, err)
+	require.Len(t, credentials, 1)
+	assert.ErrorIs(t, credentials[0].CredentialError, auth.ErrAnthropicFederationUnavailable)
 	_, _, _, _, _, err = svc.VerifySessionToken(context.Background(), token, false)
 	require.NoError(t, err, "control-plane authentication does not need an upstream token")
 }

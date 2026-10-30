@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"weave-os/router/internal/auth"
@@ -69,4 +70,32 @@ func TestFileTokenSource_HonoursCancelledContext(t *testing.T) {
 
 	require.ErrorIs(t, err, context.Canceled,
 		"credential resolution runs on the request path — an abandoned request must not keep doing work")
+}
+
+func TestAnthropicIdentityTokenBoundsAndRereadsProjectedFile(t *testing.T) {
+	path := writeToken(t, " first.jwt.signature\n")
+	token, err := wif.ReadAnthropicIdentityToken(context.Background(), path)
+	require.NoError(t, err)
+	assert.Equal(t, "first.jwt.signature", token)
+
+	require.NoError(t, os.WriteFile(path, []byte("second.jwt.signature"), 0o600))
+	token, err = wif.ReadAnthropicIdentityToken(context.Background(), path)
+	require.NoError(t, err)
+	assert.Equal(t, "second.jwt.signature", token)
+
+	oversized := strings.Repeat("x", 64*1024+1)
+	require.NoError(t, os.WriteFile(path, []byte(oversized), 0o600))
+	_, err = wif.ReadAnthropicIdentityToken(context.Background(), path)
+	require.Error(t, err)
+	credential, err := wif.NewFileTokenSource(path).Attestation(context.Background())
+	require.NoError(t, err, "Snowflake retains its existing unbounded file behavior")
+	assert.Equal(t, "WIF.OIDC."+oversized, string(credential))
+
+	require.NoError(t, os.WriteFile(path, []byte(" \n"), 0o600))
+	_, err = wif.ReadAnthropicIdentityToken(context.Background(), path)
+	require.Error(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err = wif.ReadAnthropicIdentityToken(ctx, path)
+	require.ErrorIs(t, err, context.Canceled)
 }

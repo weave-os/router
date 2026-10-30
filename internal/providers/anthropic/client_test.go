@@ -245,7 +245,7 @@ func TestProxy_NonOAuthCredentialUsesAPIKey(t *testing.T) {
 
 	assert.Equal(t, "sk-ant-api-byok", gotAPIKey)
 	assert.Empty(t, gotAuth, "a non-OAuth credential authenticates via x-api-key, not Authorization")
-	assert.NotContains(t, gotBeta, "oauth-2025-04-20", "the oauth beta flag must only be added for subscription tokens")
+	assert.NotContains(t, gotBeta, "oauth-2025-04-20", "ordinary API keys must not claim the OAuth beta")
 }
 
 func TestRefusesUnresolvedInboundSubscriptionBearerOnEveryEntryPoint(t *testing.T) {

@@ -111,10 +111,6 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 		} else {
 			installation, apiKey, externalKeys, clusterModelLists, err = svc.VerifyAPIKey(authCtx, token)
 		}
-		if errors.Is(err, auth.ErrAnthropicFederationUnavailable) && byokRequiresOptIn && installation != nil && !installation.ByokEnabled {
-			err = nil
-			externalKeys = nil
-		}
 		if err != nil {
 			finishAuthSpan(authSpan, err)
 			handleAuthError(c, err)
@@ -299,12 +295,6 @@ func extractBearer(header string) string {
 }
 
 func handleAuthError(c *gin.Context, err error) {
-	if errors.Is(err, auth.ErrAnthropicFederationUnavailable) {
-		observability.FromGin(c).Error("Anthropic workload credential unavailable", "err", err)
-		c.Header("Retry-After", "5")
-		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "anthropic_federation_unavailable"})
-		return
-	}
 	logger := observability.FromGin(c)
 	switch {
 	case errors.Is(err, auth.ErrInvalidPrefix):

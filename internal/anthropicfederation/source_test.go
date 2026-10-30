@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -83,6 +84,16 @@ func TestExchangeCachesAndRefreshesWithFreshAssertion(t *testing.T) {
 	assert.Equal(t, 2, assertions)
 }
 
+func TestFederationExchangeSendsRequiredBetaHeaders(t *testing.T) {
+	client := &http.Client{Transport: transportFunc(func(request *http.Request) (*http.Response, error) {
+		assert.Equal(t, string(auth.AnthropicBetaOAuth)+","+string(auth.AnthropicBetaFederation), request.Header.Get("anthropic-beta"))
+		return response(http.StatusOK, tokenResponse), nil
+	})}
+	source := anthropicfederation.NewSource(client, func(context.Context, string) (string, error) { return assertion(""), nil }, time.Now)
+	_, err := source.Token(context.Background(), federationKey())
+	require.NoError(t, err)
+}
+
 func TestTemporaryRefreshFailureUsesCachedTokenUntilMandatoryWindow(t *testing.T) {
 	current := time.Date(2026, 10, 30, 0, 0, 0, 0, time.UTC)
 	calls := 0
@@ -107,6 +118,72 @@ func TestTemporaryRefreshFailureUsesCachedTokenUntilMandatoryWindow(t *testing.T
 	_, err = source.Token(context.Background(), federationKey())
 	require.ErrorIs(t, err, auth.ErrAnthropicFederationUnavailable)
 	assert.NotContains(t, err.Error(), "private provider diagnostic")
+}
+
+func TestIdentityTimeoutUsesCachedTokenUntilMandatoryWindow(t *testing.T) {
+	current := time.Date(2026, time.October, 30, 0, 0, 0, 0, time.UTC)
+	identityCalls, exchangeCalls := 0, 0
+	client := &http.Client{Transport: transportFunc(func(*http.Request) (*http.Response, error) {
+		exchangeCalls++
+		return response(http.StatusOK, tokenResponse), nil
+	})}
+	source := anthropicfederation.NewSource(client, func(context.Context, string) (string, error) {
+		identityCalls++
+		if identityCalls > 1 {
+			return "", context.DeadlineExceeded
+		}
+		return assertion(""), nil
+	}, func() time.Time { return current })
+	_, err := source.Token(context.Background(), federationKey())
+	require.NoError(t, err)
+	current = current.Add(480 * time.Second)
+	token, err := source.Token(context.Background(), federationKey())
+	require.NoError(t, err)
+	assert.Equal(t, "sk-ant-oat01-synthetic", string(token))
+	current = current.Add(90 * time.Second)
+	_, err = source.Token(context.Background(), federationKey())
+	require.ErrorIs(t, err, auth.ErrAnthropicFederationUnavailable)
+	assert.Equal(t, 1, exchangeCalls)
+}
+
+func TestMissingProjectedTokenUsesCachedTokenUntilMandatoryWindow(t *testing.T) {
+	current := time.Date(2026, time.October, 30, 0, 0, 0, 0, time.UTC)
+	identityCalls := 0
+	client := &http.Client{Transport: transportFunc(func(*http.Request) (*http.Response, error) { return response(http.StatusOK, tokenResponse), nil })}
+	source := anthropicfederation.NewSource(client, func(context.Context, string) (string, error) {
+		identityCalls++
+		if identityCalls > 1 {
+			return "", os.ErrNotExist
+		}
+		return assertion(""), nil
+	}, func() time.Time { return current })
+	_, err := source.Token(context.Background(), federationKey())
+	require.NoError(t, err)
+	current = current.Add(480 * time.Second)
+	_, err = source.Token(context.Background(), federationKey())
+	require.NoError(t, err)
+	current = current.Add(90 * time.Second)
+	_, err = source.Token(context.Background(), federationKey())
+	require.ErrorIs(t, err, auth.ErrAnthropicFederationUnavailable)
+}
+
+func TestRejectedExchangeDoesNotUseCachedToken(t *testing.T) {
+	current := time.Date(2026, time.October, 30, 0, 0, 0, 0, time.UTC)
+	calls := 0
+	client := &http.Client{Transport: transportFunc(func(*http.Request) (*http.Response, error) {
+		calls++
+		if calls > 1 {
+			return response(http.StatusUnauthorized, "synthetic auth rejection"), nil
+		}
+		return response(http.StatusOK, tokenResponse), nil
+	})}
+	source := anthropicfederation.NewSource(client, func(context.Context, string) (string, error) { return assertion(""), nil }, func() time.Time { return current })
+	_, err := source.Token(context.Background(), federationKey())
+	require.NoError(t, err)
+	current = current.Add(480 * time.Second)
+	_, err = source.Token(context.Background(), federationKey())
+	require.ErrorIs(t, err, auth.ErrAnthropicFederationUnavailable)
+	assert.Equal(t, 2, calls)
 }
 
 func TestCacheIsolatesInstallationAndFederationTarget(t *testing.T) {
@@ -204,7 +281,27 @@ func TestIdentityFailureDoesNotSendExchange(t *testing.T) {
 		t.Error("unexpected exchange")
 		return nil, errors.New("unexpected exchange")
 	})}
-	source := anthropicfederation.NewSource(client, func(context.Context, string) (string, error) { return "", errors.New("identity unavailable") }, time.Now)
+	source := anthropicfederation.NewSource(client, func(context.Context, string) (string, error) {
+		return "", errors.New("sensitive-assertion-in-upstream-error")
+	}, time.Now)
 	_, err := source.Token(context.Background(), federationKey())
 	require.ErrorIs(t, err, auth.ErrAnthropicFederationUnavailable)
+	assert.NotContains(t, err.Error(), "sensitive-assertion-in-upstream-error")
+}
+
+func TestExchangeRejectsTokenTooCloseToExpiry(t *testing.T) {
+	current := time.Date(2026, time.October, 30, 0, 0, 0, 0, time.UTC)
+	calls := 0
+	client := &http.Client{Transport: transportFunc(func(*http.Request) (*http.Response, error) {
+		calls++
+		current = current.Add(55 * time.Second)
+		return response(http.StatusOK, `{"access_token":"synthetic-token","token_type":"Bearer","expires_in":60}`), nil
+	})}
+	source := anthropicfederation.NewSource(client, func(context.Context, string) (string, error) { return assertion(""), nil }, func() time.Time { return current })
+	for range 2 {
+		_, err := source.Token(context.Background(), federationKey())
+		require.ErrorIs(t, err, auth.ErrAnthropicFederationUnavailable)
+		assert.Contains(t, err.Error(), "too close to expiry")
+	}
+	assert.Equal(t, 2, calls, "an unsafe token must not be cached")
 }

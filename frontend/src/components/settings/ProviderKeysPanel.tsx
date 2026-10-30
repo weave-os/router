@@ -27,6 +27,8 @@ const PROVIDERS = [
   "openai_gateway",
 ] as const;
 type Provider = (typeof PROVIDERS)[number];
+const ANTHROPIC_PROVIDER = "anthropic" satisfies Provider;
+const ANTHROPIC_FEDERATION = "anthropic_wif" satisfies ProviderAuthType;
 
 const PROVIDER_LABEL: Record<Provider, string> = {
   anthropic: "Anthropic",
@@ -318,7 +320,10 @@ export function ProviderKeysPanel() {
       .catch(() => setCatalogModels([]));
   }, []);
 
-  const taken = new Set<string>([...keys.map((k) => k.provider), ...envKeyed]);
+  const taken = new Set<string>([
+    ...keys.map((k) => k.provider),
+    ...envKeyed.filter((provider) => provider !== ANTHROPIC_PROVIDER),
+  ]);
   const available: Provider[] = PROVIDERS.filter((p) => !taken.has(p));
   const provider: Provider | null =
     pickedProvider != null && available.includes(pickedProvider)
@@ -328,19 +333,19 @@ export function ProviderKeysPanel() {
   const baseURLRequired = provider != null && PROVIDERS_REQUIRING_BASE_URL.includes(provider);
   // Mirrors the server's normalization: a slash-only value normalizes away to nothing.
   const baseURLMissing = baseURLRequired && baseURL.trim().replace(/\/+$/, "") === "";
-  // Key-pair, workload-identity, and Entra auth are gateway-only credential shapes; the
-  // vendor providers authenticate with their own API keys.
-  const nativeAnthropic = provider === "anthropic";
-  const usingFederation = nativeAnthropic && authType === "anthropic_wif";
+  const nativeAnthropic = provider === ANTHROPIC_PROVIDER;
+  const deploymentAnthropicKey = nativeAnthropic && envKeyed.includes(ANTHROPIC_PROVIDER);
+  const effectiveAuthType = deploymentAnthropicKey ? ANTHROPIC_FEDERATION : authType;
+  const usingFederation = nativeAnthropic && effectiveAuthType === ANTHROPIC_FEDERATION;
   const federationIncomplete =
     usingFederation &&
     (!federation.federation_rule_id.trim() ||
       !federation.organization_id.trim() ||
       !federation.service_account_id.trim());
   const authTypeOffered = baseURLRequired || nativeAnthropic;
-  const usingKeypair = baseURLRequired && authType === "keypair_jwt";
-  const usingWIF = baseURLRequired && authType === "wif";
-  const usingEntra = baseURLRequired && authType === "azure_entra";
+  const usingKeypair = baseURLRequired && effectiveAuthType === "keypair_jwt";
+  const usingWIF = baseURLRequired && effectiveAuthType === "wif";
+  const usingEntra = baseURLRequired && effectiveAuthType === "azure_entra";
   const keypairIncomplete = usingKeypair && (authAccount.trim() === "" || authUser.trim() === "");
   const entraIncomplete = usingEntra && (authAccount.trim() === "" || authUser.trim() === "");
   // A WIF key carries no secret, so an empty key field is the expected state.
@@ -356,7 +361,7 @@ export function ProviderKeysPanel() {
   // auth (key pair, WIF) needs the stored key, so those save first and fetch
   // from the saved entry.
   const fetchHint =
-    authTypeOffered && authType !== "bearer"
+    authTypeOffered && effectiveAuthType !== "bearer"
       ? "Save the key first, then fetch from the saved entry."
       : keyMissing
         ? "Enter the API key first."
@@ -365,7 +370,7 @@ export function ProviderKeysPanel() {
           : null;
 
   const canFetchNew =
-    provider != null && baseURLRequired && authType === "bearer" && !keyMissing && !baseURLMissing;
+    provider != null && baseURLRequired && effectiveAuthType === "bearer" && !keyMissing && !baseURLMissing;
 
   // Discover models as soon as a usable key + URL are entered, so endpoint IDs
   // and auto-matched aliases appear without an extra click.
@@ -440,9 +445,9 @@ export function ProviderKeysPanel() {
         usingFederation ? undefined : baseURL.trim() || undefined,
         aliasMapFrom(aliasRows),
         usingKeypair || usingEntra
-          ? { type: authType, account: authAccount.trim(), user: authUser.trim() }
+          ? { type: effectiveAuthType, account: authAccount.trim(), user: authUser.trim() }
           : {
-              type: usingFederation ? "anthropic_wif" : baseURLRequired ? authType : "bearer",
+              type: usingFederation ? ANTHROPIC_FEDERATION : baseURLRequired ? effectiveAuthType : "bearer",
               federationConfig: usingFederation
                 ? {
                     federation_rule_id: federation.federation_rule_id.trim(),
@@ -574,15 +579,15 @@ export function ProviderKeysPanel() {
                     id="provider-auth-type"
                     name="provider-auth-type"
                     className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm focus-visible:border-foreground/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-                    value={authType}
+                    value={effectiveAuthType}
                     onChange={(e) => {
                       setAuthType(e.target.value as ProviderAuthType);
                       setKeyValue("");
                     }}
                   >
-                    <option value="bearer">Token (sent as-is)</option>
+                    <option value="bearer" disabled={deploymentAnthropicKey}>Token (sent as-is)</option>
                     {nativeAnthropic ? (
-                      <option value="anthropic_wif">Anthropic workload identity</option>
+                      <option value={ANTHROPIC_FEDERATION}>Anthropic workload identity</option>
                     ) : (
                       <>
                         <option value="keypair_jwt">

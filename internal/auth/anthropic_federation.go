@@ -23,6 +23,14 @@ type AnthropicFederationConfig struct {
 // AnthropicFederationAudience is the default audience and the fixed API origin.
 const AnthropicFederationAudience = "https://api.anthropic.com"
 
+// AnthropicBeta names protocol flags required for OAuth and federation requests.
+type AnthropicBeta string
+
+const (
+	AnthropicBetaOAuth      AnthropicBeta = "oauth-2025-04-20"
+	AnthropicBetaFederation AnthropicBeta = "oidc-federation-2026-04-01"
+)
+
 // ErrInvalidAnthropicFederation marks rejected provider credential configuration.
 var ErrInvalidAnthropicFederation = errors.New("invalid Anthropic workload federation configuration")
 

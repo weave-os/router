@@ -2,16 +2,15 @@ package auth
 
 import (
 	"context"
-	"fmt"
 
 	"weave-os/router/internal/observability"
 )
 
 // resolveUpstreamSecrets replaces each key's Plaintext with its upstream credential.
-// Keys that fail to resolve are dropped — never sent as a raw key or empty bearer.
-func (s *Service) resolveUpstreamSecrets(ctx context.Context, keys []*ExternalAPIKey) ([]*ExternalAPIKey, error) {
+// Failed Anthropic federation is retained as a provider-scoped error; other failed keys are dropped.
+func (s *Service) resolveUpstreamSecrets(ctx context.Context, keys []*ExternalAPIKey) []*ExternalAPIKey {
 	if !anyDerivedAuth(keys) {
-		return keys, nil
+		return keys
 	}
 	resolved := make([]*ExternalAPIKey, 0, len(keys))
 	for _, key := range keys {
@@ -20,11 +19,16 @@ func (s *Service) resolveUpstreamSecrets(ctx context.Context, keys []*ExternalAP
 			continue
 		}
 		credential, err := s.upstreamCredential(ctx, key)
+		if err == nil && key.AuthType == AuthTypeAnthropicWIF && len(credential) == 0 {
+			err = ErrAnthropicFederationUnavailable
+		}
 		if err != nil {
 			observability.FromContext(ctx).Warn("Failed to resolve upstream credential for external API key",
 				"external_api_key_id", key.ID, "provider", key.Provider, "auth_type", key.AuthType, "err", err)
 			if key.AuthType == AuthTypeAnthropicWIF {
-				return nil, fmt.Errorf("%w: %w", ErrAnthropicFederationUnavailable, err)
+				unavailable := *key
+				unavailable.CredentialError = ErrAnthropicFederationUnavailable
+				resolved = append(resolved, &unavailable)
 			}
 			continue
 		}
@@ -37,7 +41,7 @@ func (s *Service) resolveUpstreamSecrets(ctx context.Context, keys []*ExternalAP
 		}
 		resolved = append(resolved, &withCredential)
 	}
-	return resolved, nil
+	return resolved
 }
 
 // ExternalAPIKeyWithCredential returns a BYOK key with Plaintext resolved (derived auth included),
@@ -51,11 +55,11 @@ func (s *Service) ExternalAPIKeyWithCredential(ctx context.Context, installation
 		if key.ID != id {
 			continue
 		}
-		resolved, err := s.resolveUpstreamSecrets(ctx, []*ExternalAPIKey{key})
-		if err != nil {
-			return nil, err
-		}
+		resolved := s.resolveUpstreamSecrets(ctx, []*ExternalAPIKey{key})
 		if len(resolved) == 0 || len(resolved[0].Plaintext) == 0 {
+			if len(resolved) > 0 && resolved[0].CredentialError != nil {
+				return nil, resolved[0].CredentialError
+			}
 			return nil, ErrUpstreamCredentialUnavailable
 		}
 		return resolved[0], nil

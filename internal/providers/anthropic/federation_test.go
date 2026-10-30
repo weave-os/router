@@ -40,7 +40,8 @@ func TestFederatedCredentialUsesBearerWithoutSubscriptionBehavior(t *testing.T) 
 	assert.Equal(t, "Bearer sk-ant-oat01-synthetic-workload-token", headers.Get("Authorization"))
 	assert.Empty(t, headers.Get("x-api-key"))
 	assert.Empty(t, headers.Get("X-Snowflake-Authorization-Token-Type"))
-	assert.NotContains(t, headers.Get("anthropic-beta"), "oauth-2025-04-20")
+	assert.Contains(t, headers.Get("anthropic-beta"), string(auth.AnthropicBetaOAuth))
+	assert.NotContains(t, headers.Get("anthropic-beta"), string(auth.AnthropicBetaFederation))
 	assert.JSONEq(t, payload, string(body))
 }
 
@@ -66,7 +67,26 @@ func TestFederatedCredentialSupportsPassthroughAndModelListing(t *testing.T) {
 			assert.Equal(t, "Bearer sk-ant-oat01-synthetic-workload-token", headers.Get("Authorization"))
 			assert.Empty(t, headers.Get("x-api-key"))
 			assert.Empty(t, headers.Get(auth.WIFTokenTypeHeader))
-			assert.NotContains(t, headers.Get("anthropic-beta"), "oauth-2025-04-20")
+			assert.Contains(t, headers.Get("anthropic-beta"), string(auth.AnthropicBetaOAuth))
+			assert.NotContains(t, headers.Get("anthropic-beta"), string(auth.AnthropicBetaFederation))
 		})
 	}
+}
+
+func TestUnavailableFederationNeverUsesDeploymentKey(t *testing.T) {
+	var upstreamCalls int
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer upstream.Close()
+	client := anthropic.NewClient("synthetic-platform-key", upstream.URL, anthropic.WithModelListHTTPClient(anthropicDiscoveryClient(t, upstream.URL)))
+	ctx := requestcontext.WithCredentials(context.Background(), &requestcontext.Credentials{AuthType: auth.AuthTypeAnthropicWIF, CredentialError: auth.ErrAnthropicFederationUnavailable})
+	prep := providers.PreparedRequest{Body: []byte(`{"model":"claude-opus-5-5"}`), Headers: make(http.Header)}
+	request := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	require.ErrorIs(t, client.Proxy(ctx, router.Decision{Model: "claude-opus-5-5"}, prep, httptest.NewRecorder(), request), auth.ErrAnthropicFederationUnavailable)
+	require.ErrorIs(t, client.Passthrough(ctx, prep, httptest.NewRecorder(), request), auth.ErrAnthropicFederationUnavailable)
+	_, err := client.ListModels(ctx)
+	require.ErrorIs(t, err, auth.ErrAnthropicFederationUnavailable)
+	assert.Zero(t, upstreamCalls)
 }

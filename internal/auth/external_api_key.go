@@ -34,6 +34,9 @@ type ExternalAPIKey struct {
 	// AuthType is how Plaintext authenticates upstream; see AuthType* constants.
 	AuthType         AuthType
 	FederationConfig *AnthropicFederationConfig
+	// CredentialError marks a failed derived credential for this request only.
+	// It must never be persisted or replaced by a deployment credential.
+	CredentialError error
 	// AuthAccount and AuthUser identify the upstream principal; empty unless
 	// AuthType is AuthTypeKeypairJWT or AuthTypeAzureEntra.
 	AuthAccount string

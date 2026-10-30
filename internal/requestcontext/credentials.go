@@ -66,6 +66,9 @@ type Credentials struct {
 	// AuthType is the BYOK key's auth mode (see auth.AuthType*). APIKey already holds
 	// the derived credential; this tells the adapter how the upstream must read it.
 	AuthType auth.AuthType
+	// CredentialError prevents an unavailable BYOK key from falling back to
+	// the deployment credential for that same provider.
+	CredentialError error
 	// PrincipalID names the upstream account this credential authenticates as,
 	// independent of the bytes in APIKey: a workload-identity or keypair-JWT
 	// credential mints a fresh short-lived bearer per request, so the key is no

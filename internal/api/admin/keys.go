@@ -275,13 +275,10 @@ func UpsertExternalKeyHandler(authSvc *auth.Service, models DeployedModelsSource
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "Provider and key are required."})
 			return
 		}
-		// A provider configured via the deployment's env var (e.g. ANTHROPIC_API_KEY)
-		// must not be shadowed by a dashboard BYOK key — credential resolution
-		// prefers BYOK, so the stored key would silently win on every outbound call.
-		// The frontend grays out env-keyed providers, but that guard is derived from
-		// GET /admin/v1/config and fails open if that fetch errors; this is the only
-		// backend enforcement. Mirrors the env-key check in ConfigHandler.
-		if config.GetOr(providers.APIKeyEnvVar(req.Provider), "") != "" {
+		// Federation is an explicit separate principal; static BYOK credentials
+		// must not silently shadow a deployment key.
+		anthropicFederation := req.Provider == providers.ProviderAnthropic && req.AuthType == auth.AuthTypeAnthropicWIF
+		if !anthropicFederation && config.GetOr(providers.APIKeyEnvVar(req.Provider), "") != "" {
 			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"error": "Provider already configured via deployment environment variable. Remove the env var before adding a dashboard key."})
 			return
 		}

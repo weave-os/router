@@ -872,8 +872,7 @@ func (s *Service) verifyAPIKey(ctx context.Context, rawToken string, includeUpst
 			if !includeUpstreamKeys {
 				return cached.Installation, cached.APIKey, nil, cached.ClusterModelLists, nil
 			}
-			resolved, err := s.resolveUpstreamSecrets(ctx, cached.ExternalKeys)
-			return cached.Installation, cached.APIKey, resolved, cached.ClusterModelLists, err
+			return cached.Installation, cached.APIKey, s.resolveUpstreamSecrets(ctx, cached.ExternalKeys), cached.ClusterModelLists, nil
 		}
 		// Malformed positive entry (nil APIKey): fall through to DB lookup.
 	}
@@ -921,8 +920,7 @@ func (s *Service) verifyAPIKey(ctx context.Context, rawToken string, includeUpst
 	}
 	s.fireMarkUsed(apiKey, installation)
 	s.fireMarkFirstRequestServed(apiKey.InstallationID)
-	resolved, err := s.resolveUpstreamSecrets(ctx, externalKeys)
-	return installation, apiKey, resolved, clusterModelLists, err
+	return installation, apiKey, s.resolveUpstreamSecrets(ctx, externalKeys), clusterModelLists, nil
 }
 
 // ResolveAndStashUser upserts a router user and stashes the ID on ctx. Email
