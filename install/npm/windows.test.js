@@ -73,6 +73,7 @@ test("the native installer writes each client's config and keeps existing settin
   assert.equal(claude.env.ANTHROPIC_BASE_URL, baseUrl);
   assert.match(claude.env.ANTHROPIC_CUSTOM_HEADERS, /rk_test_native_windows/);
   assert.match(claude.env.ANTHROPIC_CUSTOM_HEADERS, /X-Custom: keep/);
+  assert.deepEqual(claude.attribution, { commit: "original commit", custom: "keep" });
   const codexConfig = fs.readFileSync(path.join(temporaryHome, ".codex", "config.toml"), "utf8");
   assert.match(codexConfig, /model = "gpt-4.1"/);
   assert.match(codexConfig, /model_provider = "weave"/);
@@ -209,6 +210,49 @@ test("the Windows wrapper probes Git Bash without profile or BASH_ENV banners", 
   const installerCall = spawnCalls.find((call) => call.args.includes("C:\\package\\uninstall.sh"));
   assert.equal(installerCall.executable, gitBash);
   assert.deepEqual(Array.from(installerCall.args), ["C:\\package\\uninstall.sh", "--claude"]);
+});
+
+function readClaudeSettings(home) {
+  return JSON.parse(fs.readFileSync(path.join(home, ".claude", "settings.json"), "utf8"));
+}
+
+test("Claude attribution defaults on, and --no-attribution removes only the Weave lines", async () => {
+  const home = path.join(temporaryHome, "attribution-default");
+  await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
+  assert.match(readClaudeSettings(home).attribution.commit, /^Co-Authored-By: Weave Router/);
+
+  const settingsPath = path.join(home, ".claude", "settings.json");
+  const settings = readClaudeSettings(home);
+  settings.attribution.custom = "keep";
+  fs.writeFileSync(settingsPath, JSON.stringify(settings));
+  await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl, "--no-attribution"]);
+  assert.deepEqual(readClaudeSettings(home).attribution, { custom: "keep" });
+});
+
+test("a Claude reinstall keeps a PR attribution the user changed", async () => {
+  const home = path.join(temporaryHome, "attribution-custom-pr");
+  await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
+  const settingsPath = path.join(home, ".claude", "settings.json");
+  const settings = readClaudeSettings(home);
+  settings.attribution.pr = "User-owned PR";
+  fs.writeFileSync(settingsPath, JSON.stringify(settings));
+  await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
+  const claude = readClaudeSettings(home);
+  assert.equal(claude.attribution.pr, "User-owned PR");
+  assert.match(claude.attribution.commit, /^Co-Authored-By: Weave Router/);
+});
+
+test("a Claude attribution opt-out survives reinstalls without the flag", async () => {
+  const home = path.join(temporaryHome, "attribution-opt-out");
+  await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl, "--no-attribution"]);
+  assert.equal(readClaudeSettings(home).attribution, undefined);
+  await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
+  const claude = readClaudeSettings(home);
+  assert.equal(claude.attribution, undefined);
+  assert.equal(claude.env.ANTHROPIC_BASE_URL, baseUrl);
+
+  await runInstallerAt(home, ["--uninstall", "--claude"]);
+  assert.equal(readClaudeSettings(home).attribution, undefined);
 });
 
 test("native installer rejects control characters in email headers", async () => {
