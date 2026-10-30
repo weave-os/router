@@ -24,7 +24,7 @@ async function main() {
   ({ patch: patchToml } = await import("@decimalturn/toml-patch"));
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
-    console.log("Usage: npx @weave-os/router [--claude|--codex|--opencode|--pi] [--scope user|project] [--dir PATH] [--base-url URL] [--email EMAIL] [--return-url URL] [--non-interactive] [--uninstall]");
+    console.log("Usage: npx @weave-os/router [--claude|--codex|--opencode|--pi] [--scope user|project] [--dir PATH] [--base-url URL] [--email EMAIL] [--return-url URL] [--non-interactive] [--no-attribution] [--uninstall]");
     console.log("On Windows, install and uninstall run natively in Node.js; no Git Bash or jq is needed.");
     return;
   }
@@ -71,7 +71,7 @@ async function main() {
 
   const email = options.email || process.env.WEAVE_USER_EMAIL || "";
   if (/[\x00-\x1f\x7f]/.test(email)) throw new Error("Email must not contain control characters.");
-  if (target === "claude") installClaude(paths, baseUrl, key, email);
+  if (target === "claude") installClaude(paths, baseUrl, key, email, options.attribution);
   else if (target === "codex") installCodex(paths, baseUrl, key, email);
   else if (target === "opencode") installOpenCode(paths, baseUrl, key, email);
   else installPi(paths, baseUrl, key, email);
@@ -115,12 +115,13 @@ function openInBrowser(url) {
 }
 
 function parseArgs(args) {
-  const options = { mode: "install", scope: "user", target: null, nonInteractive: false, explicitDirectory: false, help: false };
+  const options = { mode: "install", scope: "user", target: null, nonInteractive: false, explicitDirectory: false, help: false, attribution: true };
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
     if (["--claude", "--codex", "--opencode", "--pi"].includes(arg)) options.target = arg.slice(2);
     else if (arg === "--uninstall") options.mode = "uninstall";
     else if (arg === "--non-interactive") options.nonInteractive = true;
+    else if (arg === "--no-attribution") options.attribution = false;
     else if (arg === "--local") options.baseUrl = "http://localhost:8080";
     else if (arg === "-h" || arg === "--help") options.help = true;
     else if (["--scope", "--dir", "--base-url", "--email", "--return-url"].includes(arg)) {
@@ -216,8 +217,11 @@ function stripClaudeWeaveAuto(layer) {
   if (!Object.keys(layer.modelPicker).length) delete layer.modelPicker;
 }
 
-function installClaude(paths, baseUrl, key, email) {
+function installClaude(paths, baseUrl, key, email, attribution) {
   const settings = readJson(paths.config);
+  // Same rule as install.sh: an install without our attribution block is an opt-out that reinstalls keep.
+  const ownsAttribution = String(settings.attribution?.commit || "").startsWith("Co-Authored-By: Weave Router");
+  const optedOutOfAttribution = Object.hasOwn(settings.env || {}, "ANTHROPIC_BASE_URL") && settings.attribution == null;
   const localSettings = paths.localConfig ? readJson(paths.localConfig) : null;
   const state = readJson(paths.state);
   state.env ||= Object.fromEntries(["ANTHROPIC_BASE_URL", "ENABLE_TOOL_SEARCH"].map((field) => [field, { exists: Object.hasOwn(settings.env || {}, field), value: settings.env?.[field] }]));
@@ -256,7 +260,13 @@ function installClaude(paths, baseUrl, key, email) {
     modelSettings.model = claudeWeaveAutoModel;
     if (modelSettings.env) delete modelSettings.env.ANTHROPIC_MODEL;
   } else if (modelUnset || modelSettings.model === "weave-auto") modelSettings.model = claudeWeaveAutoModel;
-  settings.attribution = { ...(settings.attribution || {}), ...claudeAttribution };
+  if (attribution && (ownsAttribution || (settings.attribution == null && !optedOutOfAttribution))) {
+    settings.attribution = { ...claudeAttribution, ...settings.attribution, commit: claudeAttribution.commit };
+  } else if (!attribution && ownsAttribution) {
+    delete settings.attribution.commit;
+    if (settings.attribution.pr === claudeAttribution.pr) delete settings.attribution.pr;
+    if (!Object.keys(settings.attribution).length) delete settings.attribution;
+  }
   writeJson(paths.config, settings);
   if (paths.localConfig) writeJson(paths.localConfig, localSettings);
   writeJson(paths.state, state);
