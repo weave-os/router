@@ -1023,7 +1023,7 @@ func installationSubscriptionModelsWhenInactiveFromContext(ctx context.Context) 
 // set: the installation policy allowlist further narrowed by a request-level
 // AllowedModelsHeader subset when one is present. Nil = no policy.
 func allowedModelsForRequest(ctx context.Context) map[string]struct{} {
-	if planOwnedServingRequest(ctx) && !subscriptionStateModelsEnabled(ctx) {
+	if planHasDedicatedServingPolicy(ctx) && !subscriptionStateModelsEnabled(ctx) {
 		return nil
 	}
 	policy := installationAllowedModelSet(ctx)
@@ -1049,7 +1049,7 @@ func allowedModelsForRequest(ctx context.Context) map[string]struct{} {
 // selects it.
 func installationAllowedModelSet(ctx context.Context) map[string]struct{} {
 	var allowed map[string]struct{}
-	if !planOwnedServingRequest(ctx) || subscriptionStateModelsEnabled(ctx) {
+	if !planHasDedicatedServingPolicy(ctx) || subscriptionStateModelsEnabled(ctx) {
 		if base := installationAllowedModelsFromContext(ctx); len(base) > 0 {
 			allowed = modelSet(base)
 		}
@@ -1131,7 +1131,7 @@ func hideTerminalSurfacesForRequest(ctx context.Context) bool {
 // wins; otherwise the authed installation's persisted preference applies;
 // otherwise nil leaves the scorer on its tuned bundle defaults.
 func routingKnobsForRequest(ctx context.Context) *router.Overrides {
-	if planOwnedServingRequest(ctx) {
+	if planHasDedicatedServingPolicy(ctx) {
 		return nil
 	}
 	if k := router.RoutingKnobsFromContext(ctx); k != nil {
@@ -1222,7 +1222,7 @@ func (s *Service) productIneligibleModels(ctx context.Context) map[string]struct
 }
 
 func installationExcludedProvidersFromContext(ctx context.Context) []string {
-	if planOwnedServingRequest(ctx) && !subscriptionStateModelsEnabled(ctx) {
+	if planHasDedicatedServingPolicy(ctx) && !subscriptionStateModelsEnabled(ctx) {
 		return nil
 	}
 	v := ctx.Value(InstallationExcludedProvidersContextKey{})
@@ -1327,7 +1327,7 @@ func installationPreferredModelsFromContext(ctx context.Context) []string {
 // installationFastModeModelsFromContext returns the per-installation fast-mode
 // opt-in list stashed on ctx by the auth middleware, or nil when none is present.
 func installationFastModeModelsFromContext(ctx context.Context) []string {
-	if planOwnedServingRequest(ctx) {
+	if planHasDedicatedServingPolicy(ctx) {
 		return nil
 	}
 	v := ctx.Value(InstallationFastModeModelsContextKey{})
@@ -1346,7 +1346,7 @@ func (s *Service) preferredModelsForRequest(ctx context.Context) []string {
 	if subscriptionStateModelsEnabled(ctx) {
 		preferred = slices.Clone(installationSubscriptionModelsWhenActiveFromContext(ctx))
 	}
-	if planOwnedServingRequest(ctx) {
+	if planHasDedicatedServingPolicy(ctx) {
 		return preferred
 	}
 	for _, model := range installationPreferredModelsFromContext(ctx) {
@@ -1367,7 +1367,7 @@ func (s *Service) preferredModelsForRequest(ctx context.Context) []string {
 // choosing models for their own tiers is not the installation reshaping the
 // plan's roster.
 func clusterArmOverridesForRequest(ctx context.Context) map[string][]string {
-	if planOwnedServingRequest(ctx) {
+	if planHasDedicatedServingPolicy(ctx) {
 		if !flags.BoolOr(ctx, flags.KeyPlanUserClusterLists, false) {
 			return nil
 		}
@@ -1379,9 +1379,27 @@ func clusterArmOverridesForRequest(ctx context.Context) map[string][]string {
 	return mergeClusterOverrides(keyScoped, userScoped)
 }
 
-func planOwnedServingRequest(ctx context.Context) bool {
+// memberSelectedModel reports whether model is in one of the member's own
+// per-tier selections under an organization that opted in with
+// plan_user_cluster_lists. Such a pick is the member's explicit choice, so a
+// linked subscription's funding preference does not swap it for a model the
+// subscription covers. A turn with no paid capacity behind it (subscription-only
+// for any reason but linked-first) keeps the swap: the pick could not be served.
+func memberSelectedModel(ctx context.Context, model string) bool {
+	if !flags.BoolOr(ctx, flags.KeyPlanUserClusterLists, false) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
+		return false
+	}
+	for _, models := range auth.UserClusterModelListsFrom(ctx) {
+		if slices.Contains(models, model) {
+			return true
+		}
+	}
+	return false
+}
+
+func planHasDedicatedServingPolicy(ctx context.Context) bool {
 	identity, managed := requestcontext.ServingIdentityFromContext(ctx)
-	return managed && identity.Plan != ""
+	return managed && entitlement.PlanHasServingProfile(entitlement.Plan(identity.Plan))
 }
 
 // contextWindowOutputReserve is the minimum tokens reserved for the model's

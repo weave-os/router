@@ -586,11 +586,20 @@ key) for the lane to have a key.
 ## Member tier selections on plans
 
 `plan_user_cluster_lists` is an organization-only boolean flag override
-(Admin → Router → Flags), default `false`. Max/Boost plan requests normally
-ignore every per-cluster model list. When on, each member's own per-cluster
-selection applies again on that organization's plan requests; the
-installation's key-scoped cluster lists stay ignored, and `excluded_models`
-still applies.
+(Admin → Router → Flags), default `false`. Max requests normally ignore every
+per-cluster model list. When on, each member's own per-cluster selection applies
+again to Max; the installation's key-scoped cluster lists stay ignored, and
+`excluded_models` still applies. Boost uses the default roster and ordinary
+per-cluster model lists.
+
+The flag also keeps a member's selection when a linked Claude/Codex
+subscription is preferred for funding. If the routed model is one the member
+selected and no linked subscription can serve it, the turn is served on paid
+capacity instead of being re-routed to a model the subscription covers. This
+applies only when a paid binding can serve the pick (for example, not when the
+OpenRouter overflow lane is on and the model has no OpenRouter binding). Turns
+with no paid capacity behind them (credits depleted or spend cap reached) still
+serve on the subscription.
 
 ## Provider and model exclusions
 

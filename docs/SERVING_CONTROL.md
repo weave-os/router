@@ -542,7 +542,8 @@ reuse the already-published candidate and publish only the set and proposal.
 | `profile` | Register or change only `profile_key`'s policy; preserve default, all other profiles and exact code candidate/binding. `source_candidate` names shared code. |
 | `router` | Move all customers together to the source image/provenance and one new worker revision; retain effective policies, requirements and classifier. |
 | `classifier` | Reuse the worker and effective policies; validate the new classifier against every roster. |
-| `full` / `custom` | Existing forward profile-preservation rules apply; full promotion reuses the exact source candidate. |
+| `full` | Preserve the complete profile inventory; full promotion reuses the exact source candidate. |
+| `custom` | Use the exact reviewed selection set. It may retire only the legacy Boost profile key while preserving every remaining lane's exact policy. |
 | `rollback` | Restore the exact previously activated selection set on the same target. This may restore code as well as configuration. |
 
 To roll back only a roster while retaining current code, publish a `roster` or
@@ -629,7 +630,8 @@ creates only the short-lived grant and never changes entitlements or issues keys
 
 Stable, Max and Boost are typed test selectors, separate from subscription plans.
 Every test targets `prod/stable`; enrollment authorizes access without projecting
-the ordinary internal lane. Max/Boost reuse their server-owned profile keys.
+the ordinary internal lane. Max uses its server-owned profile; Boost uses the
+target's default policy while retaining Boost as the test billing identity.
 Preparation re-resolves the preview, and each admission checks the grant digest,
 current eligibility, single bound session, expiry/revocation and exact retained
 activation/profile/policy. There is no fallback to a current head.

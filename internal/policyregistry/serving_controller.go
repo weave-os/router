@@ -11,6 +11,7 @@ import (
 
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/hmm/rosterdata"
+	"weave-os/router/internal/subscriptions/entitlement"
 )
 
 // ServingStore is shared by admission, proposal validation and the single activation controller.
@@ -324,6 +325,9 @@ func (c *ServingController) validateProposal(ctx context.Context, proposal Propo
 	for key, lane := range previous.Profiles {
 		next, exists := set.Profiles[key]
 		if !exists {
+			if proposal.Scope == ChangeCustom && key == entitlement.LegacyBoostProfileKey {
+				continue
+			}
 			return errors.New("registered profile keys cannot be removed")
 		}
 		if proposal.Scope != ChangeProfile && !sameLaneProfile(lane.Profile, next.Profile) {

@@ -27,6 +27,10 @@ func boostPlanOwnedContext() context.Context {
 	return planOwnedContextFor(entitlement.PlanBoost)
 }
 
+func boostDefaultRoutingContext() context.Context {
+	return context.WithValue(boostPlanOwnedContext(), InstallationAllowedModelsContextKey{}, []string(nil))
+}
+
 func planOwnedContextFor(plan entitlement.Plan) context.Context {
 	alpha := 0.9
 	ctx := requestcontext.WithServingIdentity(context.Background(), requestcontext.ServingIdentity{Plan: string(plan)})
@@ -71,23 +75,34 @@ func TestPlanOwnedServingAppliesMemberClusterListsOnlyWhenFlagged(t *testing.T) 
 		{name: "flag on keeps only the member list", flags: enabled, member: member, want: member},
 		{name: "flag on without a member list", flags: enabled},
 	}
-	for planName, plan := range map[string]entitlement.Plan{"max": entitlement.PlanMax, "boost": entitlement.PlanBoost} {
-		for _, tc := range cases {
-			t.Run(planName+"/"+tc.name, func(t *testing.T) {
-				t.Parallel()
-				ctx := flags.WithOverrides(planOwnedContextFor(plan), flags.Overrides{Bools: tc.flags})
-				if tc.member != nil {
-					ctx = context.WithValue(ctx, auth.UserClusterModelListsContextKey{}, tc.member)
-				}
-				got := clusterArmOverridesForRequest(ctx)
-				if tc.want == nil {
-					assert.Nil(t, got)
-					return
-				}
-				assert.Equal(t, tc.want, got)
-			})
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := flags.WithOverrides(planOwnedContextFor(entitlement.PlanMax), flags.Overrides{Bools: tc.flags})
+			if tc.member != nil {
+				ctx = context.WithValue(ctx, auth.UserClusterModelListsContextKey{}, tc.member)
+			}
+			got := clusterArmOverridesForRequest(ctx)
+			if tc.want == nil {
+				assert.Nil(t, got)
+				return
+			}
+			assert.Equal(t, tc.want, got)
+		})
 	}
+}
+
+func TestBoostServingUsesDefaultRoutingControls(t *testing.T) {
+	t.Parallel()
+
+	ctx := boostPlanOwnedContext()
+	assert.Contains(t, allowedModelsForRequest(ctx), "customer-allowed")
+	assert.Equal(t, []string{"customer-provider"}, installationExcludedProvidersFromContext(ctx))
+	assert.Equal(t, []string{"customer-fast"}, installationFastModeModelsFromContext(ctx))
+	assert.Equal(t, *router.RoutingKnobsFromContext(ctx), *routingKnobsForRequest(ctx))
+	assert.Equal(t, []string{"customer-preferred"}, (&Service{}).preferredModelsForRequest(ctx))
+	assert.Equal(t, map[string][]string{"cluster": {"customer-arm"}}, clusterArmOverridesForRequest(ctx))
+	assert.False(t, planHasDedicatedServingPolicy(ctx))
 }
 
 func TestPlanOwnedServingHonorsCustomerExcludedModels(t *testing.T) {
@@ -106,20 +121,20 @@ func TestPlanOwnedServingHonorsCustomerExcludedModels(t *testing.T) {
 func TestBoostServingAllowsForceModelHeader(t *testing.T) {
 	t.Parallel()
 
-	request, err := http.NewRequestWithContext(boostPlanOwnedContext(), http.MethodPost, "http://router.test/v1/messages", nil)
+	request, err := http.NewRequestWithContext(boostDefaultRoutingContext(), http.MethodPost, "http://router.test/v1/messages", nil)
 	require.NoError(t, err)
 	request.Header.Set(ForceModelHeader, "claude-opus-5")
 
 	ctx, forced, err := (&Service{}).applyForceModelHeader(request.Context(), request, uuid.Nil, [sessionpin.SessionKeyLen]byte{})
 	require.NoError(t, err)
 	assert.Equal(t, "claude-opus-5", forced)
-	assert.True(t, planOwnedServingRequest(ctx))
+	assert.False(t, planHasDedicatedServingPolicy(ctx))
 }
 
 func TestBoostServingHeaderForceModelCarriesEffortSameTurn(t *testing.T) {
 	t.Parallel()
 
-	request, err := http.NewRequestWithContext(boostPlanOwnedContext(), http.MethodPost, "http://router.test/v1/messages", nil)
+	request, err := http.NewRequestWithContext(boostDefaultRoutingContext(), http.MethodPost, "http://router.test/v1/messages", nil)
 	require.NoError(t, err)
 	request.Header.Set(ForceModelHeader, "sol:medium")
 
@@ -155,7 +170,7 @@ func TestBoostServingKeepsLegacyForceModelPinActive(t *testing.T) {
 	}
 	svc := &Service{pinStore: store}
 
-	pin, active, noStoredState := svc.loadPinWithStoreState(boostPlanOwnedContext(), sessionKey, role)
+	pin, active, noStoredState := svc.loadPinWithStoreState(boostDefaultRoutingContext(), sessionKey, role)
 
 	assert.Equal(t, "claude-opus-5", pin.Model)
 	assert.True(t, active)
@@ -170,7 +185,7 @@ func TestBoostServingAppliesForceModelCommand(t *testing.T) {
 	forceKey := [sessionpin.SessionKeyLen]byte{3}
 
 	forcedModel, message, err := svc.applyForceModelCommand(
-		boostPlanOwnedContext(), translate.ForceModelResult{Model: "sol"}, uuid.New(), threadKey, forceKey,
+		boostDefaultRoutingContext(), translate.ForceModelResult{Model: "sol"}, uuid.New(), threadKey, forceKey,
 	)
 	require.NoError(t, err)
 	assert.Equal(t, "gpt-6.1-sol", forcedModel)
@@ -189,7 +204,7 @@ func TestBoostServingRoutesExplicitForceModel(t *testing.T) {
 	svc := &Service{}
 
 	result, err := svc.runTurnLoop(
-		boostPlanOwnedContext(), env, features, "api-key", uuid.New(), "", nil,
+		boostDefaultRoutingContext(), env, features, "api-key", uuid.New(), "", nil,
 		router.Request{RequestedModel: features.Model, ForceModel: "sol"},
 	)
 	require.NoError(t, err)
