@@ -116,6 +116,10 @@ func TestNormalizeDisplayName_TrimsAndPassesUnicode(t *testing.T) {
 	assert.Equal(t, "", proxy.NormalizeDisplayName("   "))
 }
 
+func TestNormalizeDisplayName_DecodesLatin1Bytes(t *testing.T) {
+	assert.Equal(t, "Pálmi Þór Valgeirsson", proxy.NormalizeDisplayName("P\xe1lmi \xde\xf3r Valgeirsson"))
+}
+
 func TestNormalizeDisplayName_StripsControlBytes(t *testing.T) {
 	// CR/LF + control bytes must be dropped so the value can't break log
 	// lines or smuggle extra HTTP headers. Surrounding visible chars stay.

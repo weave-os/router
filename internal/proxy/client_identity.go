@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"unicode/utf8"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
@@ -261,6 +262,14 @@ func NormalizeDisplayName(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" || len(s) > MaxDisplayNameLen {
 		return ""
+	}
+	// Node clients (Claude Code) send header values as Latin-1 bytes, not UTF-8.
+	if !utf8.ValidString(s) {
+		latin1 := make([]rune, len(s))
+		for i := range len(s) {
+			latin1[i] = rune(s[i])
+		}
+		s = string(latin1)
 	}
 	var b strings.Builder
 	b.Grow(len(s))
