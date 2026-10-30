@@ -6,6 +6,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"golang.org/x/text/encoding/charmap"
+
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/requestcontext"
@@ -265,11 +267,9 @@ func NormalizeDisplayName(s string) string {
 	}
 	// Node clients (Claude Code) send header values as Latin-1 bytes, not UTF-8.
 	if !utf8.ValidString(s) {
-		latin1 := make([]rune, len(s))
-		for i := range len(s) {
-			latin1[i] = rune(s[i])
+		if decoded, err := charmap.ISO8859_1.NewDecoder().String(s); err == nil {
+			s = decoded
 		}
-		s = string(latin1)
 	}
 	var b strings.Builder
 	b.Grow(len(s))
