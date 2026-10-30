@@ -14,7 +14,7 @@ import (
 )
 
 func TestWriteJSONChunkPreservesFragmentedSSE(t *testing.T) {
-	const payload = "data: {\"text\":\"</script><script>&☃\",\"large\":9007199254740993}\n\n"
+	const payload = "id: turn<a&b>\nevent: custom<event>&\ndata: {\"text\":\"</script><script>&☃\",\"large\":9007199254740993}\n\n"
 	for split := 0; split <= len(payload); split++ {
 		t.Run(fmt.Sprint(split), func(t *testing.T) {
 			sink := httptest.NewRecorder()
@@ -24,11 +24,9 @@ func TestWriteJSONChunkPreservesFragmentedSSE(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, len(chunk), consumed)
 			}
-			require.NotContains(t, sink.Body.String(), "<script>")
-			_, rewritten := sse.ParseEvent(sink.Body.Bytes())
-			_, original := sse.ParseEvent([]byte(payload))
-			require.JSONEq(t, string(original), string(rewritten))
+			require.Equal(t, payload, sink.Body.String())
 			require.Equal(t, "text/event-stream", sink.Result().Header.Get("Content-Type"))
+			require.Equal(t, "nosniff", sink.Result().Header.Get("X-Content-Type-Options"))
 		})
 	}
 }

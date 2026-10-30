@@ -31,10 +31,14 @@ func PrepareJSONResponse(w http.ResponseWriter) {
 	w.Header().Del("Content-Length")
 }
 
-// WriteJSONChunk forwards JSON or SSE bytes with HTML-safe JSON escaping.
+// WriteJSONChunk keeps SSE metadata intact and HTML-escapes JSON responses.
 // It reports consumed input bytes, since escaping can expand the wire bytes.
 func WriteJSONChunk(w http.ResponseWriter, chunk []byte) (int, error) {
 	PrepareJSONResponse(w)
+	if w.Header().Get("Content-Type") == "text/event-stream" {
+		w.Header().Set("Content-Type", "text/event-stream")
+		return w.Write(chunk)
+	}
 	escaped := htmlToJSONEscapes.Replace(html.EscapeString(string(chunk)))
 	written, err := w.Write([]byte(escaped))
 	if err != nil {
