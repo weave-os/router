@@ -105,4 +105,30 @@ func testLatestClientAnnouncement(t *testing.T) {
 func TestRoutingAnnouncementReplay(t *testing.T) {
 	t.Run("overlapping requests", testRoutingAnnouncementOverlap)
 	t.Run("client announcement history", testLatestClientAnnouncement)
+	t.Run("sidecar announcement history", testSidecarClientAnnouncement)
+}
+
+func testSidecarClientAnnouncement(t *testing.T) {
+	const marker = "✦ **Weave Router** → Delegating work with gpt-6-luna\n↳ label: delegated_work"
+	decision := router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-6-luna", Reason: "test",
+		Metadata: &router.RoutingMetadata{DisplayMarker: marker},
+	}
+	var history []string
+	for turn := range 2 {
+		provider := &fakeProvider{proxyResponse: responsesTextUpstream}
+		svc := openAIChatServiceWithDecision(provider, decision, nil)
+		rec := httptest.NewRecorder()
+		require.NoError(t, svc.ProxyOpenAIResponses(announcementReplayContext(), announcementReplayBody(t, history...), rec,
+			httptest.NewRequest(http.MethodPost, "/v1/responses", nil)))
+		text := strings.Join(responsesTextDeltas(t, rec.Body.Bytes()), "")
+		assert.Contains(t, text, "cached answer")
+		if turn == 0 {
+			require.Contains(t, text, "Delegating work with gpt-6-luna")
+			history = []string{text}
+		} else {
+			assert.NotContains(t, text, "Weave Router", "replaying a sidecar announcement must suppress an unchanged selection")
+		}
+		require.Len(t, provider.proxyBodies, 1)
+		assert.NotContains(t, string(provider.proxyBodies[0]), "Delegating work with", "sidecar replay must be removed before dispatch")
+	}
 }

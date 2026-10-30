@@ -73,6 +73,7 @@ func announcedResponsesModel(text string) string {
 		for _, prefix := range []string{"✦ **Weave Router** → ", "**Weave Router** — "} {
 			if selection, ok := strings.CutPrefix(owned, prefix); ok {
 				line, _, _ := strings.Cut(selection, "\n")
+				line = strings.TrimPrefix(line, "Delegating work with ")
 				fields := strings.Fields(line)
 				if len(fields) > 0 {
 					model = fields[0]

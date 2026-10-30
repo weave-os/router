@@ -13,6 +13,7 @@ func TestLastAnnouncedResponsesModel(t *testing.T) {
 	const first = codexResponsesBadgeSentinelForTest + "✦ **Weave Router** → first-model · best pick for this turn\n\n"
 	const second = codexResponsesBadgeSentinelForTest + "✦ **Weave Router** → second-model · request classified as low difficulty\n\n"
 	const warning = codexResponsesBadgeSentinelForTest + "A funding warning.\n\n"
+	const delegated = codexResponsesBadgeSentinelForTest + "✦ **Weave Router** → Delegating work with moonshotai/kimi-k2.7-code\n↳ label: delegated_work\n\n"
 	assistant := func(content any) map[string]any {
 		return map[string]any{"type": "message", "role": "assistant", "content": content}
 	}
@@ -43,6 +44,10 @@ func TestLastAnnouncedResponsesModel(t *testing.T) {
 		{name: "ignore missing model", input: []any{assistant(codexResponsesBadgeSentinelForTest + "✦ **Weave Router** → \n\nprovider answer")}},
 		{name: "legacy notice", input: []any{assistant(codexResponsesBadgeSentinelForTest + "**Weave Router** — first-model ← old-model\n\n")}, want: "first-model"},
 		{name: "keep effort identity", input: []any{assistant(codexResponsesBadgeSentinelForTest + "✦ **Weave Router** → first-model:high\n\n")}, want: "first-model:high"},
+		{name: "sidecar delegation", input: []any{assistant(delegated)}, want: "moonshotai/kimi-k2.7-code"},
+		{name: "sidecar after canonical notice", input: []any{assistant(first), assistant(delegated)}, want: "moonshotai/kimi-k2.7-code"},
+		{name: "canonical notice after sidecar", input: []any{assistant(delegated), assistant(second)}, want: "second-model"},
+		{name: "unmarked sidecar prose", input: []any{assistant("✦ **Weave Router** → Delegating work with moonshotai/kimi-k2.7-code\n\n")}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			body, err := json.Marshal(map[string]any{"input": test.input})
