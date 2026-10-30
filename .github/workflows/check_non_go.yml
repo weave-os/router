@@ -44,9 +44,7 @@ jobs:
         with:
           node-version: 24.12.0
           cache: npm
-          cache-dependency-path: |
-            frontend/package-lock.json
-            install/pi-router/package-lock.json
+          cache-dependency-path: frontend/package-lock.json
 
       - name: Typecheck dashboard
         if: steps.changes.outputs.typescript_frontend == 'true'
@@ -60,8 +58,8 @@ jobs:
         if: steps.changes.outputs.typescript_pi == 'true'
         working-directory: install/pi-router
         run: |
-          npm ci --ignore-scripts --no-audit --no-fund
-          npm run typecheck
+          npx --yes pnpm@11.27.1 install --frozen-lockfile --ignore-scripts
+          npx --yes pnpm@11.27.1 run typecheck
 
       - name: Install ShellCheck 0.10.0
         if: steps.changes.outputs.shell == 'true'
