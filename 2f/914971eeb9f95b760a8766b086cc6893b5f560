@@ -1,0 +1,66 @@
+internal/subscriptions/entitlement/service.go
+  s_6a1b135ff3cb3e::t_a0ff8d2954438c 109
+internal/proxy/spend_limit_internal_test.go
+  s_6a1b135ff3cb3e::t_11ed8aba8751f6 180-189
+internal/proxy/subscriber_telemetry.go
+  s_6a1b135ff3cb3e::t_a0ff8d2954438c 109-111
+internal/server/server.go
+  s_6a1b135ff3cb3e::t_fd72551f1a2768 145-146
+  s_6a1b135ff3cb3e::t_14e98a879f6780 149
+internal/server/middleware/subscriber_product_scope_test.go
+  s_6a1b135ff3cb3e::t_14e98a879f6780 37,119
+  s_6a1b135ff3cb3e::t_5eab66fece4d72 86-99
+internal/flags/flags.go
+  s_6a1b135ff3cb3e::t_a0ff8d2954438c 107,150,172-175
+  s_6a1b135ff3cb3e::t_0f26b851b9322d 176-177
+internal/proxy/subscriber_telemetry_internal_test.go
+  s_6a1b135ff3cb3e::t_5eab66fece4d72 78-81
+  s_70b56a85a6aa32::t_c5b332cd45f8a1 77
+cmd/router/main.go
+  s_6a1b135ff3cb3e::t_a0ff8d2954438c 1169,1448
+internal/server/middleware/subscriber_allowance_dispatch_test.go
+  s_6a1b135ff3cb3e::t_14e98a879f6780 34
+internal/server/middleware/balance_check_test.go
+  s_6a1b135ff3cb3e::t_11ed8aba8751f6 39-40,43-44,59-60
+  s_6a1b135ff3cb3e::t_10d44c445bdac5 36-38
+internal/server/middleware/subscriber_allowance.go
+  s_6a1b135ff3cb3e::t_a0ff8d2954438c 11,63-69,80,90,92,106,129,187-189,192,194-195,218
+  s_6a1b135ff3cb3e::t_fd72551f1a2768 29-33,57
+  s_6a1b135ff3cb3e::t_14e98a879f6780 34
+  s_6a1b135ff3cb3e::t_f16cf63a09289a 200-202
+internal/server/middleware/subscriber_allowance_test.go
+  s_6a1b135ff3cb3e::t_d95dac6d02b502 206,209,212
+  s_6a1b135ff3cb3e::t_478a626526216e 219-220
+  s_6a1b135ff3cb3e::t_e9301f46a28a65 204
+  s_6a1b135ff3cb3e::t_24815238681565 14
+  s_6a1b135ff3cb3e::t_11ed8aba8751f6 235-241,243-259,261-263,266,268-271,273-283,285-313,317-327
+  s_6a1b135ff3cb3e::t_bcb48bfd20c875 225,228,232
+  s_6a1b135ff3cb3e::t_14e98a879f6780 157
+  s_6a1b135ff3cb3e::t_fd72551f1a2768 427,434,486,493-494
+  s_6a1b135ff3cb3e::t_4aa5e0ed922249 333,336-337,343-346,358-374,377
+  s_70b56a85a6aa32::t_a9cec891297955 375-376,378-383
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "2f914971eeb9f95b760a8766b086cc6893b5f560",
+  "prompts": {},
+  "sessions": {
+    "s_6a1b135ff3cb3e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c545-c92b-76e1-bab4-121903979af4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_70b56a85a6aa32": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0c35a-6d1a-7012-ad5f-ffe2b7871c3c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

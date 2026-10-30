@@ -1,0 +1,21 @@
+frontend/src/components/settings/ProviderKeysPanel.tsx
+  s_2d33071feb5300::t_f0d625595121ba 311
+internal/anthropicwif/client.go
+  s_2d33071feb5300::t_40564ce7ad1211 69-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "50c567572f6d15ae6527e784e56457a10e00f944",
+  "prompts": {},
+  "sessions": {
+    "s_2d33071feb5300": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18e94-744a-7141-91dc-6f39035909e9",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+internal/sqlc/models.go
+  s_a1467ed99b7a6c::t_79e5826afcdc81 387-389
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "c6ff492c7095faf7ca95089973be357de14dac2d",
+  "prompts": {},
+  "sessions": {
+    "s_a1467ed99b7a6c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a084a5-8cf0-78e2-92d2-f2d22a5b9baa",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
