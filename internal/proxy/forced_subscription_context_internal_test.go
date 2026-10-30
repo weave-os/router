@@ -27,16 +27,16 @@ import (
 
 func TestForcedSubscriptionContextEstimatePreservesHardExclusions(t *testing.T) {
 	for _, scenario := range []struct {
-		name       string
-		forced     bool
-		estimate   bool
-		unsigned   bool
-		wantServed bool
+		name            string
+		forced          bool
+		estimate        bool
+		unsignedHistory bool
+		wantServed      bool
 	}{
 		{name: "forced estimate delegates to provider", forced: true, estimate: true, wantServed: true},
 		{name: "automatic estimate still excludes", estimate: true},
 		{name: "explicit policy exclusion still excludes", forced: true},
-		{name: "unsigned history still excludes", forced: true, estimate: true, unsigned: true},
+		{name: "unsigned history still excludes", forced: true, estimate: true, unsignedHistory: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			request := router.Request{
@@ -49,7 +49,7 @@ func TestForcedSubscriptionContextEstimatePreservesHardExclusions(t *testing.T) 
 			if scenario.estimate {
 				request.ContextWindowExcludedModels = modelSet([]string{gatewayCompactionOpusModel})
 			}
-			if scenario.unsigned {
+			if scenario.unsignedHistory {
 				request.UnsignedHistoryExcludedModels = modelSet([]string{gatewayCompactionOpusModel})
 			}
 			_, narrowed := (&Service{}).subscriptionStateRequest(context.Background(), request, []string{gatewayCompactionOpusModel})
@@ -63,18 +63,20 @@ func TestForcedSubscriptionContextEstimatePreservesHardExclusions(t *testing.T) 
 
 func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 	for _, scenario := range []struct {
-		name      string
-		transient bool
-		overflow  bool
-		direct    bool
+		name               string
+		transient          bool
+		overflow           bool
+		directSubscription bool
+		forceWithEffort    bool
 	}{
 		{name: "estimate exceeds window but provider accepts"},
-		{name: "direct subscription survives estimated overflow", direct: true},
+		{name: "direct subscription survives estimated overflow", directSubscription: true},
+		{name: "effort-qualified force header survives estimated overflow", forceWithEffort: true},
 		{name: "transient provider failure retries same model", transient: true},
 		{name: "real overflow allows compaction and continuation", overflow: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
-			var models, credentials, apiKeys, contents []string
+			var models, credentials, apiKeys, contents, efforts []string
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				body, err := io.ReadAll(r.Body)
 				if err != nil {
@@ -85,6 +87,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 				models = append(models, gjson.GetBytes(body, "model").String())
 				credentials = append(credentials, r.Header.Get("Authorization"))
 				apiKeys = append(apiKeys, r.Header.Get("x-api-key"))
+				efforts = append(efforts, gjson.GetBytes(body, "output_config.effort").String())
 				content := gjson.GetBytes(body, "messages.0.content")
 				if content.IsArray() {
 					var text strings.Builder
@@ -128,7 +131,7 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 			ctx = context.WithValue(ctx, ManagedSubscriptionProvidersContextKey{}, map[auth.SubscriptionProvider]struct{}{auth.SubscriptionProviderClaude: {}})
 			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenActiveContextKey{}, []string{gatewayCompactionOpusModel})
 			ctx = context.WithValue(ctx, InstallationSubscriptionModelsWhenInactiveContextKey{}, []string{gatewayCompactionOpusModel})
-			if scenario.direct {
+			if scenario.directSubscription {
 				ctx = context.WithValue(ctx, AnthropicSubscriptionContextKey{}, "sk-ant-oat01-synthetic-token")
 			}
 
@@ -142,7 +145,11 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 				})
 				require.NoError(t, err)
 				recorder := httptest.NewRecorder()
-				err = svc.ProxyMessages(WithManagedSubscriptionUsage(ctx), body, recorder, httptest.NewRequest(http.MethodPost, routePathMessages, strings.NewReader(string(body))))
+				request := httptest.NewRequest(http.MethodPost, routePathMessages, strings.NewReader(string(body)))
+				if scenario.forceWithEffort {
+					request.Header.Set(ForceModelHeader, gatewayCompactionOpusModel+":high")
+				}
+				err = svc.ProxyMessages(WithManagedSubscriptionUsage(ctx), body, recorder, request)
 				return recorder, err
 			}
 
@@ -181,10 +188,13 @@ func TestForcedSubscriptionContextEstimateReachesAnthropic(t *testing.T) {
 					continue
 				}
 				wantCredential := "Bearer synthetic-token"
-				if scenario.direct {
+				if scenario.directSubscription {
 					wantCredential = "Bearer sk-ant-oat01-synthetic-token"
 				}
 				assert.Equal(t, wantCredential, credentials[i], "context estimation must not force a paid attempt")
+				if scenario.forceWithEffort {
+					assert.Equal(t, "high", efforts[i], "canonicalizing the model must preserve the requested wire effort")
+				}
 			}
 			assert.True(t, largeHistory == contents[0], "the router must let the provider count the original history (sent %d bytes)", len(contents[0]))
 		})
