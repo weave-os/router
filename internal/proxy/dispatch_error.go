@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"weave-os/router/internal/auth"
 	"weave-os/router/internal/billing"
 	"weave-os/router/internal/dispatch"
 	"weave-os/router/internal/providers"
@@ -35,6 +36,7 @@ const (
 	DispatchErrorUpstreamStatus
 	DispatchErrorNotImplemented
 	DispatchErrorProviderNotConfigured
+	DispatchErrorAnthropicFederationUnavailable
 	DispatchErrorRequestNotJSONObject
 	DispatchErrorResponsesChatCompletionsBody
 	DispatchErrorNoEligibleProvider
@@ -119,6 +121,8 @@ func ClassifyDispatchError(err error) (DispatchErrorClass, bool) {
 	var compactionUnservable *CompactionUnservableError
 	var allowanceSpent *IncludedAllowanceSpentError
 	switch {
+	case errors.Is(err, auth.ErrAnthropicFederationUnavailable):
+		return DispatchErrorClass{Kind: DispatchErrorAnthropicFederationUnavailable, Status: http.StatusServiceUnavailable, Message: "Anthropic workload federation is unavailable.", RetryAfter: true}, true
 	case errors.Is(err, policy.ErrClassifierWarming):
 		return DispatchErrorClass{Kind: DispatchErrorPolicyUnavailable, Status: http.StatusServiceUnavailable,
 			Message: policy.ErrClassifierWarming.Error(), RetryAfter: true, LogLevel: "warn", LogMessage: "Classifier warming"}, true

@@ -72,15 +72,15 @@ func ApplyIdentityHeader(ctx context.Context, upstream *http.Request) {
 type ExternalAPIKeysContextKey struct{}
 
 // BuildCredentialsMap builds provider -> Credentials from external keys.
-// Empty-plaintext entries are dropped so the scorer doesn't route to a
-// provider whose upstream call would 401.
+// Empty-plaintext entries are dropped except explicit provider-scoped failures,
+// which prevent fallback to a deployment credential.
 func BuildCredentialsMap(keys []*auth.ExternalAPIKey) map[string]*Credentials {
 	if len(keys) == 0 {
 		return nil
 	}
 	m := make(map[string]*Credentials, len(keys))
 	for _, key := range keys {
-		if len(key.Plaintext) == 0 {
+		if len(key.Plaintext) == 0 && key.CredentialError == nil {
 			continue
 		}
 		m[key.Provider] = &Credentials{
@@ -94,6 +94,7 @@ func BuildCredentialsMap(keys []*auth.ExternalAPIKey) map[string]*Credentials {
 			ForwardedClientHeaders: append([]string(nil), key.ForwardedClientHeaders...),
 			BaggageHeader:          key.BaggageHeader,
 			AuthType:               key.AuthType,
+			CredentialError:        key.CredentialError,
 			// The key row, not its plaintext: a WIF or keypair-JWT key's
 			// Plaintext is a per-request bearer. AuthAccount/AuthUser are
 			// folded in so repointing a key at another upstream account is

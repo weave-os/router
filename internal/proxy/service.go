@@ -6647,9 +6647,9 @@ func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvide
 		}
 	}
 	for _, k := range externalKeysFromContext(ctx) {
-		// Empty plaintext must not enroll the provider — argmax would pick
-		// it and the upstream call would 401 with no auth header.
-		if len(k.Plaintext) == 0 {
+		// Explicit failures stay eligible so selecting that provider returns
+		// its credential error instead of using a deployment key.
+		if len(k.Plaintext) == 0 && k.CredentialError == nil {
 			continue
 		}
 		out[k.Provider] = struct{}{}
