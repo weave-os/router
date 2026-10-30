@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Weave Router installer for Claude Code, Codex, opencode, and pi.
+# Weave Router installer for Claude Code, Codex, opencode, pi, and GitHub Copilot CLI.
 #
 # Configures Claude Code (default), the OpenAI Codex CLI (`--codex`),
 # opencode (`--opencode`), or pi (`--pi`) to permanently route through the
@@ -46,6 +46,8 @@
 #   npx @weave-os/router status                            # router + native client status
 #   npx @weave-os/router --opencode                       # install for opencode
 #   npx @weave-os/router --pi                              # install for pi
+#   npx @weave-os/router --copilot                         # add Weave Router to GitHub Copilot CLI's /model picker
+#   npx @weave-os/router --copilot --wire openai           # same, over the OpenAI Responses API
 #   npx @weave-os/router --pi --lsp go,typescript          # also install language servers for pi's lsp tool
 #                                                             (go/typescript/python/rust; needs that language's toolchain)
 #   npx @weave-os/router --scope project                  # commit-with-team install
@@ -140,6 +142,10 @@ router_key_header="X-Weave-Router-Key"
 # prompt for the choice.
 target="claude"
 target_explicit="false"
+# Wire format the Copilot CLI provider speaks to the router: anthropic
+# (/v1/messages) or openai (/v1/responses).
+copilot_wire="anthropic"
+copilot_wire_explicit="false"
 
 # Operation mode. "install" (default) writes/refreshes config. "update" is a
 # never-prompting install that reuses the key already on disk. "off"/"on"/
@@ -224,6 +230,7 @@ uninstall_cmd() {
     codex)    cmd="$cmd --codex" ;;
     opencode) cmd="$cmd --opencode" ;;
     pi)       cmd="$cmd --pi" ;;
+    copilot)  cmd="$cmd --copilot" ;;
   esac
   [ "$scope" = "project" ] && cmd="$cmd --scope project"
   [ -n "$install_dir" ] && cmd="$cmd --dir $(printf '%q' "$install_dir")"
@@ -269,6 +276,7 @@ print_banner() {
     codex)    target_label="Codex installer" ;;
     opencode) target_label="opencode installer" ;;
     pi)       target_label="pi installer" ;;
+    copilot)  target_label="GitHub Copilot CLI installer" ;;
     *)        target_label="Claude Code installer" ;;
   esac
   printf '\n'
@@ -390,6 +398,7 @@ Set up
   $npx --claude | --codex       install for Claude Code or Codex
   $npx setup --claude --codex   install for both (one key prompt)
   $npx --opencode | --pi        install for opencode or pi
+  $npx --copilot                add Weave Router to Copilot CLI's /model picker
 
 Every day
   $npx status                   is each tool routed, signed in, working?
@@ -1503,6 +1512,140 @@ resolve_user_name() {
   printf '%s' "$candidate"
 }
 
+# write_copilot_providers merges a managed `weave` provider and its `weave/auto`
+# model into GitHub Copilot CLI's providers.json. Copilot lists providers.json
+# models in /model next to the GitHub-hosted ones, so nothing replaces
+# Copilot's own endpoint (unlike COPILOT_PROVIDER_BASE_URL, which switches the
+# whole CLI into single-provider BYOK mode). Other providers and models are kept.
+# The router authenticates off X-Weave-Router-Key, so no apiKey is set: Copilot
+# would forward it as x-api-key / Authorization, which the router reads as BYOK.
+# chmod 600 — the headers hold the key.
+#
+# Usage: write_copilot_providers <providers_file> <base_url> <api_key> [user_email] [user_name]
+write_copilot_providers() {
+  local config_file="$1" block_url="$2" block_key="$3" block_email="${4:-}" block_name="${5:-}"
+  local provider model merged
+  provider="$(jq -n \
+    --arg url "$block_url" \
+    --arg wire "$copilot_wire" \
+    --arg key "$block_key" \
+    --arg email "$block_email" \
+    --arg name "$block_name" '
+    {
+      name: "weave",
+      headers: (
+        {"X-Weave-Router-Key": $key, "X-App": "copilot"}
+        | (if $email != "" then . + {"X-Weave-User-Email": $email} else . end)
+        | (if $name  != "" then . + {"X-Weave-User-Name":  $name } else . end)
+      )
+    }
+    + (if $wire == "openai"
+       then {type: "openai", baseUrl: ($url + "/v1"), wireApi: "responses"}
+       else {type: "anthropic", baseUrl: $url} end)
+  ')"
+  # modelId names a well-known Copilot model so the CLI applies its tool-use
+  # and prompting defaults; the router still picks the real model every turn.
+  model="$(jq -n --arg wire "$copilot_wire" '
+    {
+      id: "auto",
+      provider: "weave",
+      name: "Weave Router",
+      modelId: (if $wire == "openai" then "gpt-5.4" else "claude-sonnet-4" end),
+      maxPromptTokens: 400000,
+      maxOutputTokens: 32000
+    }
+  ')"
+  if [ -f "$config_file" ]; then
+    merged="$(jq --argjson provider "$provider" --argjson model "$model" '
+      .providers = ([(.providers // [])[] | select(.name != "weave")] + [$provider])
+      | .models = ([(.models // [])[] | select(.provider != "weave")] + [$model])
+    ' "$config_file")"
+  else
+    merged="$(jq -n --argjson provider "$provider" --argjson model "$model" \
+      '{providers: [$provider], models: [$model]}')"
+  fi
+  (umask 077 && printf '%s\n' "$merged" >"$config_file")
+  chmod 600 "$config_file"
+}
+
+# set_copilot_default_model makes weave/auto Copilot's default model and parks
+# whatever default was there before, so off/uninstall can put it back.
+set_copilot_default_model() {
+  local current="" direct="" merged
+  if [ -f "$copilot_settings_file" ]; then
+    current="$(jq -r '.model // empty' "$copilot_settings_file" 2>/dev/null || true)"
+  fi
+  if [ -f "$copilot_parked_file" ]; then
+    direct="$(jq -r '.direct_model // empty' "$copilot_parked_file" 2>/dev/null || true)"
+  fi
+  case "$current" in ""|weave/*) ;; *) direct="$current" ;; esac
+  jq -n --arg direct "$direct" '{direct_model: $direct, router_model: "weave/auto"}' >"$copilot_parked_file"
+  chmod 600 "$copilot_parked_file"
+  if [ -f "$copilot_settings_file" ]; then
+    merged="$(jq '.model = "weave/auto"' "$copilot_settings_file")"
+  else
+    merged="$(jq -n '{model: "weave/auto"}')"
+  fi
+  printf '%s\n' "$merged" >"$copilot_settings_file"
+}
+
+# copilot_skill_names lists the router directives installed as Copilot skills.
+# Copilot exposes ~/.copilot/skills/<name> as /<name>, so Codex's skill bodies
+# are reused with the sigil and client names rewritten. Codex-only toggles and
+# skills that depend on Codex session state are excluded.
+copilot_skill_names() {
+  weave_registry_skill_assets codex | grep -vxE 'disable-routing|router-session|router-models|models' || true
+}
+
+# install_copilot_skills installs each router directive as a Copilot skill.
+install_copilot_skills() {
+  local canonical candidate skill_src dst_dir dst_file emit_src scope_args body
+  scope_args=""
+  [ -n "$install_dir" ] && scope_args=" --dir $(printf '%q' "$install_dir")"
+  while IFS= read -r canonical; do
+    [ -n "$canonical" ] || continue
+    skill_src=""
+    for candidate in \
+      "$script_dir/codex-skills/$canonical/SKILL.md" \
+      "$script_dir/../codex-skills/$canonical/SKILL.md"
+    do
+      [ -f "$candidate" ] || continue
+      skill_src="$candidate"
+      break
+    done
+    [ -n "$skill_src" ] || continue
+    grep -Fq "<!-- weave-router managed $canonical skill -->" "$skill_src" || continue
+    dst_dir="$copilot_dir/skills/$canonical"
+    dst_file="$dst_dir/SKILL.md"
+    if [ -L "$copilot_dir/skills" ] || [ -L "$dst_dir" ] || [ -L "$dst_file" ] || [ -L "$dst_dir/scripts" ] || [ -L "$dst_dir/scripts/emit.sh" ]; then
+      warn "Copilot skill path contains a symlink; leaving /$canonical untouched."
+      continue
+    fi
+    if [ -e "$dst_file" ] && { [ ! -f "$dst_file" ] || ! grep -Fq "<!-- weave-router managed $canonical skill -->" "$dst_file"; }; then
+      warn "A user-owned Copilot $canonical skill already exists at $dst_file; leaving it untouched."
+      continue
+    fi
+    mkdir -p "$dst_dir"
+    body="$(<"$skill_src")"
+    body="${body//\{\{SCOPE\}\}/$scope_args}"
+    printf '%s\n' "$body" | sed \
+      -e 's/`\$\([a-z][a-z-]*\)/`\/\1/g' \
+      -e 's/(or \$\([a-z][a-z-]*\))/(or \/\1)/g' \
+      -e 's/--codex/--copilot/g' \
+      -e 's/`codex` launch/`copilot` launch/g' \
+      -e 's/Codex/Copilot CLI/g' >"$dst_file"
+    emit_src="${skill_src%/SKILL.md}/scripts/emit.sh"
+    if [ -f "$emit_src" ]; then
+      mkdir -p "$dst_dir/scripts"
+      cp "$emit_src" "$dst_dir/scripts/emit.sh"
+      chmod +x "$dst_dir/scripts/emit.sh"
+    fi
+  done <<EOF
+$(copilot_skill_names)
+EOF
+  ok "Copilot skills installed: $(copilot_skill_names | sed 's/^/\//' | tr '\n' ' ' | sed 's/ $//')"
+}
+
 # ---------- uninstall delegation ----------
 #
 # `--uninstall` flips this script into a thin shim for uninstall.sh: the
@@ -1616,6 +1759,14 @@ while [ $# -gt 0 ]; do
       ;;
     --pi)
       target="pi"; target_explicit="true"; shift
+      ;;
+    --copilot)
+      target="copilot"; target_explicit="true"; shift
+      ;;
+    --wire)
+      copilot_wire="${2:-}"; shift 2
+      [ "$copilot_wire" = "anthropic" ] || [ "$copilot_wire" = "openai" ] || { err "--wire must be 'anthropic' or 'openai'."; exit 2; }
+      copilot_wire_explicit="true"
       ;;
     --lsp)
       lsp_langs="${2:-}"; shift 2
@@ -1802,7 +1953,7 @@ if [ "$mode" != "install" ] && [ "$mode" != "update" ]; then
     if [ "$mode" = "models" ]; then
       err "'models' requires an explicit client: --claude or --codex."
     else
-      err "'$mode' requires an explicit client: --claude, --codex, or --opencode."
+      err "'$mode' requires an explicit client: --claude, --codex, --opencode, or --copilot."
     fi
     exit 2
   fi
@@ -1849,6 +2000,17 @@ if [ "$mode" != "install" ] && [ "$mode" != "update" ] && [ "$target" = "pi" ]; 
   exit 2
 fi
 
+if [ "$copilot_wire_explicit" = "true" ] && [ "$target" != "copilot" ]; then
+  err "--wire only applies to --copilot."
+  exit 2
+fi
+# Copilot CLI reads providers.json from the user's COPILOT_HOME only, and the
+# file holds the router key in plain text, so there is no project scope.
+if [ "$target" = "copilot" ] && [ "$scope" = "project" ]; then
+  err "--copilot installs in user scope only (Copilot CLI has no project-level providers.json). Drop --scope project, or use --dir for a throwaway COPILOT_HOME."
+  exit 2
+fi
+
 if [ -z "$base_url" ]; then
   base_url="$DEFAULT_BASE_URL"
 fi
@@ -1869,13 +2031,15 @@ if [ "$target_explicit" = "false" ] && [ "$non_interactive" = "false" ] && [ -r 
   printf "  %s2)%s Codex        %s— patches ~/.codex/config.toml (or <repo>/.codex/)%s\n" "$C_BRAND" "$C_RESET" "$C_DIM" "$C_RESET"
   printf "  %s3)%s opencode     %s— patches ~/.config/opencode/opencode.json (or <repo>/opencode.json)%s\n" "$C_BRAND" "$C_RESET" "$C_DIM" "$C_RESET"
   printf "  %s4)%s pi           %s— patches ~/.pi/agent/models.json + settings.json (or <repo>/.pi/)%s\n" "$C_BRAND" "$C_RESET" "$C_DIM" "$C_RESET"
-  printf "Choose %s[1/2/3/4]%s (default %s1%s): " "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
+  printf "  %s5)%s Copilot CLI  %s— adds weave/auto to ~/.copilot/providers.json (/model picker)%s\n" "$C_BRAND" "$C_RESET" "$C_DIM" "$C_RESET"
+  printf "Choose %s[1/2/3/4/5]%s (default %s1%s): " "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
   read -r target_choice </dev/tty || target_choice=""
   case "${target_choice:-1}" in
     1|""|claude|c|C)  target="claude" ;;
     2|codex|x|X)      target="codex" ;;
     3|opencode|o|O)   target="opencode" ;;
     4|pi|p|P)         target="pi" ;;
+    5|copilot|g|G)    target="copilot" ;;
     *) err "Invalid choice: $target_choice."; exit 2 ;;
   esac
 fi
@@ -1894,7 +2058,7 @@ fi
 # they keep the user-scope default unless the caller explicitly selects a
 # project scope. Non-interactive installs (CI, `curl | sh --non-interactive`)
 # silently use the "user" default.
-if [ "$mode" = "install" ] && [ -z "$install_dir" ] && [ "$scope_explicit" = "false" ] && [ "$non_interactive" = "false" ] && [ -r /dev/tty ]; then
+if [ "$mode" = "install" ] && [ -z "$install_dir" ] && [ "$scope_explicit" = "false" ] && [ "$non_interactive" = "false" ] && [ "$target" != "copilot" ] && [ -r /dev/tty ]; then
   # Per-target paths so the prompt text matches what actually gets written.
   case "$target" in
     codex)
@@ -1985,7 +2149,7 @@ fi
 # payloads with jq regardless of which client's config supplied the endpoint,
 # so require it there too rather than dying mid-render on `jq: command not
 # found`. Installing Codex itself still needs no jq.
-if [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" ] \
+if [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" ] || [ "$target" = "copilot" ] \
    || { [ "$mode" = "models" ] && [ "$target" = "codex" ]; }; then
   ensure_jq
 fi
@@ -2026,6 +2190,12 @@ case "$target" in
     if ! command -v pi >/dev/null 2>&1; then
       warn "'pi' not found on PATH. Install with 'npm install -g @mariozechner/pi-coding-agent', then re-run this script."
       warn "Continuing — models.json/settings.json will be written and take effect once pi is installed."
+    fi
+    ;;
+  copilot)
+    if ! command -v copilot >/dev/null 2>&1; then
+      warn "'copilot' not found on PATH. Install with 'npm install -g @github/copilot', then re-run this script."
+      warn "Continuing — providers.json will be written and take effect once Copilot CLI is installed."
     fi
     ;;
 esac
@@ -2306,6 +2476,23 @@ elif [ "$target" = "pi" ]; then
   fi
 
   mkdir -p "$pi_dir"
+elif [ "$target" = "copilot" ]; then
+  # Copilot CLI reads $COPILOT_HOME (default ~/.copilot). --dir is a throwaway
+  # COPILOT_HOME, launched with COPILOT_HOME=<dir>/.copilot.
+  if [ -n "$install_dir" ]; then
+    copilot_dir="$install_dir/.copilot"
+  else
+    copilot_dir="${COPILOT_HOME:-$settings_base/.copilot}"
+  fi
+  copilot_providers_file="$copilot_dir/providers.json"
+  copilot_settings_file="$copilot_dir/settings.json"
+  copilot_parked_file="$copilot_dir/.weave-parked.json"
+  # providers.json holds the router key, so never write it through a link.
+  refuse_if_symlink "$copilot_dir"
+  refuse_if_symlink "$copilot_providers_file"
+  refuse_if_symlink "$copilot_settings_file"
+  refuse_if_symlink "$copilot_parked_file"
+  mkdir -p "$copilot_dir"
 else
   # opencode discovers config in this order: $XDG_CONFIG_HOME/opencode/opencode.json
   # (or ~/.config/opencode/opencode.json) for user scope, and opencode.json /
@@ -2480,6 +2667,14 @@ read_pi_key() {
   printf '%s' "$key"
 }
 
+# read_copilot_key prints the router key from the managed `weave` provider in
+# Copilot CLI's providers.json, or nothing.
+read_copilot_key() {
+  key_source_is_own "$copilot_providers_file" || return 0
+  jq -r '[(.providers // [])[] | select(.name == "weave") | .headers["X-Weave-Router-Key"] // empty][0] // empty' \
+    "$copilot_providers_file" 2>/dev/null || true
+}
+
 # read_installed_key prints the router key this install already has on disk, or
 # nothing, for whichever client is being installed. Reading it back is what makes
 # a re-run painless — see the token-handling section below. Defined up here
@@ -2498,6 +2693,7 @@ models_config_file_for_target() {
     codex)    printf '%s' "$codex_config_file" ;;
     opencode) printf '%s' "$opencode_config_file" ;;
     pi)       printf '%s' "$pi_models_file" ;;
+    copilot)  printf '%s' "$copilot_providers_file" ;;
   esac
 }
 
@@ -2533,6 +2729,7 @@ read_installed_key() {
     codex)    read_codex_key "$codex_config_file" ;;
     opencode) read_opencode_key "$opencode_config_file" ;;
     pi)       read_pi_key ;;
+    copilot)  read_copilot_key ;;
   esac
 }
 
@@ -2647,6 +2844,13 @@ resolve_installed_endpoint() {
       if key_source_is_own "$pi_models_file"; then
         found="$(json_get "$pi_models_file" '.providers.weave.baseUrl')"
       fi
+      ;;
+    copilot)
+      if key_source_is_own "$copilot_providers_file"; then
+        found="$(jq -r '[(.providers // [])[] | select(.name == "weave") | .baseUrl // empty][0] // empty' "$copilot_providers_file" 2>/dev/null || true)"
+      fi
+      found="${found%/}"
+      found="${found%/v1}"
       ;;
   esac
   printf '%s' "${found%/}"
@@ -3162,6 +3366,64 @@ toggle_opencode() {
       chmod 600 "$parked"
       gitignore_add ".weave-parked.json"
       ok "opencode is ${C_BOLD}on${C_RESET} (default model $router_model via the Weave Router). Takes effect on your next opencode run."
+      report_client_event on
+      ;;
+  esac
+}
+
+# toggle_copilot flips Copilot CLI's default model between weave/auto and the
+# model it had before. The weave provider stays in providers.json either way,
+# so weave/auto remains selectable from /model while off.
+toggle_copilot() {
+  local current="" direct="" has_weave="false" on="false" merged
+  if [ -f "$copilot_settings_file" ]; then
+    current="$(json_get "$copilot_settings_file" '.model')"
+  fi
+  if [ -f "$copilot_parked_file" ]; then
+    direct="$(json_get "$copilot_parked_file" '.direct_model')"
+  fi
+  if [ -f "$copilot_providers_file" ] \
+     && [ "$(jq -r '[(.providers // [])[] | select(.name == "weave")] | length > 0' "$copilot_providers_file" 2>/dev/null || true)" = "true" ]; then
+    has_weave="true"
+  fi
+  case "$current" in weave/*) on="true" ;; esac
+
+  case "$mode" in
+    status)
+      if [ "$on" = "true" ]; then
+        ok "Copilot CLI: ${C_BOLD}on${C_RESET} — default model is $current (via the Weave Router)."
+      elif [ "$has_weave" = "true" ]; then
+        ok "Copilot CLI: ${C_BOLD}off${C_RESET} — weave/auto is still in /model. Run 'on --copilot' to make it the default."
+      else
+        info "Copilot CLI: not configured for the router. Run the installer first."
+      fi
+      ;;
+    off)
+      if [ "$on" != "true" ]; then
+        if [ "$has_weave" = "true" ]; then ok "Copilot CLI is already off — nothing to do."; else info "Copilot CLI isn't configured for the router. Run the installer first."; fi
+        return 0
+      fi
+      if [ -n "$direct" ]; then
+        merged="$(jq --arg model "$direct" '.model = $model' "$copilot_settings_file")"
+      else
+        merged="$(jq 'del(.model)' "$copilot_settings_file")"
+      fi
+      printf '%s\n' "$merged" >"$copilot_settings_file"
+      if [ -n "$direct" ]; then
+        ok "Copilot CLI is ${C_BOLD}off${C_RESET} — default model restored to $direct. weave/auto stays in /model."
+      else
+        ok "Copilot CLI is ${C_BOLD}off${C_RESET} — back to Copilot's default model. weave/auto stays in /model."
+      fi
+      report_client_event off
+      ;;
+    on)
+      if [ "$on" = "true" ]; then ok "Copilot CLI is already on — nothing to do."; return 0; fi
+      if [ "$has_weave" != "true" ]; then
+        warn "Copilot CLI isn't configured for the router. Run the installer first."
+        return 0
+      fi
+      set_copilot_default_model
+      ok "Copilot CLI is ${C_BOLD}on${C_RESET} (default model weave/auto via the Weave Router). Takes effect on your next copilot run."
       report_client_event on
       ;;
   esac
@@ -3891,6 +4153,25 @@ status_problem() {
 # run_router_status prints one block per client configured in this scope, each
 # problem followed by the command that fixes it. It describes saved config, not
 # a running session.
+# print_copilot_status_row reports Copilot CLI only when a weave provider is
+# installed, so the status of users without Copilot is unchanged.
+print_copilot_status_row() {
+  local cdir providers settings model
+  if [ -n "$install_dir" ]; then cdir="$install_dir/.copilot"; else cdir="${COPILOT_HOME:-$settings_base/.copilot}"; fi
+  providers="$cdir/providers.json"
+  settings="$cdir/settings.json"
+  [ -f "$providers" ] && [ ! -L "$providers" ] || return 0
+  [ "$(jq -r '[(.providers // [])[] | select(.name == "weave")] | length > 0' "$providers" 2>/dev/null || true)" = "true" ] || return 0
+  model="$(json_get "$settings" '.model')"
+  case "$model" in
+    weave/*) printf '  %sCopilot CLI%s  on, default model %s %s(%s)%s\n' "$C_BOLD" "$C_RESET" "$model" "$C_DIM" "$cdir" "$C_RESET" ;;
+    *)
+      printf '  %sCopilot CLI%s  off, weave/auto is in /model but not the default\n' "$C_BOLD" "$C_RESET"
+      printf '      %sturn on:%s %s on --copilot\n' "$C_DIM" "$C_RESET" "npx $npm_package_name"
+      ;;
+  esac
+}
+
 run_router_status() {
   local npx="npx $npm_package_name" scope_flags="" redacted_key key_ok="false"
   local claude_state claude_endpoint codex_state codex_endpoint last_turn
@@ -4003,6 +4284,7 @@ run_router_status() {
       printf '  %sCodex%s        not set up %s(add it: %s --codex%s)%s\n' "$C_BOLD" "$C_RESET" "$C_DIM" "$npx" "$scope_flags" "$C_RESET"
       ;;
   esac
+  print_copilot_status_row
 
   if [ -z "$api_key" ]; then
     :
@@ -4191,6 +4473,7 @@ if [ "$mode" != "install" ] && [ "$mode" != "update" ]; then
     claude)   toggle_claude ;;
     codex)    toggle_codex ;;
     opencode) toggle_opencode ;;
+    copilot)  toggle_copilot ;;
   esac
   exit 0
 fi
@@ -4656,6 +4939,7 @@ rewrite_installed_key() {
       printf '%s\n' "$key" >"$pi_key_file"
       chmod 600 "$pi_key_file"
       ;;
+    copilot) write_copilot_providers "$copilot_providers_file" "$base_url" "$key" "$user_email" "$user_name" ;;
   esac
 }
 
@@ -5898,6 +6182,35 @@ if [ "$target" = "codex" ]; then
   else
     finish_install "Codex" codex
   fi
+  exit 0
+fi
+
+# ---------- copilot install path (dispatch + exit before the Claude-only writes) ----------
+
+if [ "$target" = "copilot" ]; then
+  # A re-install or update keeps the wire format already installed unless
+  # --wire picks a new one.
+  if [ "$copilot_wire_explicit" != "true" ] && [ -f "$copilot_providers_file" ] \
+     && [ "$(jq -r '[(.providers // [])[] | select(.name == "weave") | .type][0] // empty' "$copilot_providers_file" 2>/dev/null || true)" = "openai" ]; then
+    copilot_wire="openai"
+  fi
+  write_copilot_providers "$copilot_providers_file" "$base_url" "$api_key" "$user_email" "$user_name"
+  ok "Copilot CLI provider weave/auto written to $copilot_providers_file ($copilot_wire wire)"
+  set_copilot_default_model
+  ok "Copilot CLI default model set to weave/auto in $copilot_settings_file"
+  install_copilot_skills
+
+  verify_install
+
+  announce_done "GitHub Copilot CLI"
+  if [ "$mode" = "install" ] && [ "$quiet" != "true" ]; then
+    info "GitHub models stay available: switch any time with /model in Copilot CLI."
+    info "Router directives are Copilot skills: /force-model <id>, /unforce-model, /rf <feedback>, /router-off, /router-on."
+  fi
+  if [ -n "$install_dir" ]; then
+    info "Run Copilot CLI with COPILOT_HOME=$copilot_dir copilot so it picks up this config."
+  fi
+  [ "$mode" = "update" ] || print_uninstall_hint
   exit 0
 fi
 
