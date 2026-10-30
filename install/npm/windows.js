@@ -77,7 +77,7 @@ async function main() {
   if (target === "claude") installClaude(paths, baseUrl, key, email, options.attribution);
   else if (target === "codex") installCodex(paths, baseUrl, key, email);
   else if (target === "opencode") installOpenCode(paths, baseUrl, key, email);
-  else if (target === "copilot") installCopilot(paths, baseUrl, key, email, options.wire || "anthropic");
+  else if (target === "copilot") installCopilot(paths, baseUrl, key, email, options.wire);
   else installPi(paths, baseUrl, key, email);
   console.log(`Weave Router configured for ${target} at ${paths.config}.`);
   if (!options.returnUrl) return;
@@ -307,8 +307,10 @@ function installOpenCode(paths, baseUrl, key, email) {
 
 // Copilot CLI lists providers.json models in /model next to its GitHub models,
 // so the router is a selectable model rather than a replacement base URL.
-function installCopilot(paths, baseUrl, key, email, wire) {
+function installCopilot(paths, baseUrl, key, email, requestedWire) {
   const providers = readJson(paths.config);
+  const installedWire = (providers.providers || []).find((entry) => entry.name === "weave")?.type === "openai" ? "openai" : "anthropic";
+  const wire = requestedWire || installedWire;
   const headers = { "X-Weave-Router-Key": key, "X-App": "copilot", ...(email ? { "X-Weave-User-Email": email } : {}) };
   const provider = wire === "openai"
     ? { name: "weave", type: "openai", baseUrl: `${baseUrl}/v1`, wireApi: "responses", headers }
@@ -396,7 +398,9 @@ function uninstall(paths, target) {
     if (!(providers.providers || []).some((entry) => entry.name === "weave")) return;
     providers.providers = (providers.providers || []).filter((entry) => entry.name !== "weave");
     providers.models = (providers.models || []).filter((entry) => entry.provider !== "weave");
-    writeJson(paths.config, providers);
+    const { providers: remainingProviders, models: remainingModels, ...otherFields } = providers;
+    if (!remainingProviders.length && !remainingModels.length && !Object.keys(otherFields).length) fs.rmSync(paths.config, { force: true });
+    else writeJson(paths.config, providers);
     if (fs.existsSync(paths.settings)) {
       const settings = readJson(paths.settings);
       if (typeof settings.model === "string" && settings.model.startsWith("weave/")) {

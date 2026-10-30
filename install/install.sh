@@ -1599,7 +1599,7 @@ copilot_skill_names() {
 
 # install_copilot_skills installs each router directive as a Copilot skill.
 install_copilot_skills() {
-  local canonical candidate skill_src dst_dir dst_file emit_src scope_args body
+  local canonical candidate skill_src dst_dir dst_file emit_src scope_args body installed=""
   scope_args=""
   [ -n "$install_dir" ] && scope_args=" --dir $(printf '%q' "$install_dir")"
   while IFS= read -r canonical; do
@@ -1641,10 +1641,15 @@ install_copilot_skills() {
       cp "$emit_src" "$dst_dir/scripts/emit.sh"
       chmod +x "$dst_dir/scripts/emit.sh"
     fi
+    installed="${installed:+$installed }/$canonical"
   done <<EOF
 $(copilot_skill_names)
 EOF
-  ok "Copilot skills installed: $(copilot_skill_names | sed 's/^/\//' | tr '\n' ' ' | sed 's/ $//')"
+  if [ -n "$installed" ]; then
+    ok "Copilot skills installed: $installed"
+  else
+    skip "Copilot skills not installed (no skill files next to this installer; use the npx installer for /force-model and friends)."
+  fi
 }
 
 # ---------- uninstall delegation ----------
@@ -2050,6 +2055,11 @@ fi
 # not a bare "Install scope:" line. Target prompt above already finalized
 # $target, so the banner's per-target label reflects the user's choice.
 # Toggle verbs stay terse — skip the banner so `status` prints one clean line.
+if [ "$target" = "copilot" ] && [ "$scope" = "project" ]; then
+  err "--copilot installs in user scope only (Copilot CLI has no project-level providers.json). Drop --scope project, or use --dir for a throwaway COPILOT_HOME."
+  exit 2
+fi
+
 [ "$mode" = "install" ] && print_banner
 
 # ---------- interactive scope prompt ----------
@@ -4157,15 +4167,15 @@ status_problem() {
 # print_copilot_status_row reports Copilot CLI only when a weave provider is
 # installed, so the status of users without Copilot is unchanged.
 print_copilot_status_row() {
-  local cdir providers settings model
-  if [ -n "$install_dir" ]; then cdir="$install_dir/.copilot"; else cdir="${COPILOT_HOME:-$settings_base/.copilot}"; fi
-  providers="$cdir/providers.json"
-  settings="$cdir/settings.json"
+  local copilot_dir providers settings model
+  if [ -n "$install_dir" ]; then copilot_dir="$install_dir/.copilot"; else copilot_dir="${COPILOT_HOME:-$settings_base/.copilot}"; fi
+  providers="$copilot_dir/providers.json"
+  settings="$copilot_dir/settings.json"
   [ -f "$providers" ] && [ ! -L "$providers" ] || return 0
   [ "$(jq -r '[(.providers // [])[] | select(.name == "weave")] | length > 0' "$providers" 2>/dev/null || true)" = "true" ] || return 0
   model="$(json_get "$settings" '.model')"
   case "$model" in
-    weave/*) printf '  %sCopilot CLI%s  on, default model %s %s(%s)%s\n' "$C_BOLD" "$C_RESET" "$model" "$C_DIM" "$cdir" "$C_RESET" ;;
+    weave/*) printf '  %sCopilot CLI%s  on, default model %s %s(%s)%s\n' "$C_BOLD" "$C_RESET" "$model" "$C_DIM" "$copilot_dir" "$C_RESET" ;;
     *)
       printf '  %sCopilot CLI%s  off, weave/auto is in /model but not the default\n' "$C_BOLD" "$C_RESET"
       printf '      %sturn on:%s %s on --copilot\n' "$C_DIM" "$C_RESET" "npx $npm_package_name"

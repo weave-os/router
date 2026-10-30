@@ -143,6 +143,9 @@ test("native Copilot install adds weave/auto beside existing providers and unins
   providers = JSON.parse(fs.readFileSync(path.join(copilotDirectory, "providers.json"), "utf8"));
   assert.equal(providers.providers.find((entry) => entry.name === "weave").baseUrl, `${baseUrl}/v1`);
   assert.equal(providers.providers.filter((entry) => entry.name === "weave").length, 1);
+  await runInstallerAt(home, ["--copilot", "--non-interactive", "--base-url", baseUrl], env);
+  providers = JSON.parse(fs.readFileSync(path.join(copilotDirectory, "providers.json"), "utf8"));
+  assert.equal(providers.providers.find((entry) => entry.name === "weave").type, "openai");
   await runInstallerAt(home, ["--uninstall", "--copilot"], env);
   providers = JSON.parse(fs.readFileSync(path.join(copilotDirectory, "providers.json"), "utf8"));
   assert.deepEqual(providers.providers.map((entry) => entry.name), ["ollama"]);
@@ -150,6 +153,10 @@ test("native Copilot install adds weave/auto beside existing providers and unins
   const settings = JSON.parse(fs.readFileSync(path.join(copilotDirectory, "settings.json"), "utf8"));
   assert.equal(settings.model, "claude-sonnet-5");
   assert.equal(settings.banner, "never");
+  const freshHome = path.join(temporaryHome, "copilot-fresh");
+  await runInstallerAt(freshHome, ["--copilot", "--non-interactive", "--base-url", baseUrl], env);
+  await runInstallerAt(freshHome, ["--uninstall", "--copilot"], env);
+  assert.equal(fs.existsSync(path.join(freshHome, ".copilot", "providers.json")), false);
 });
 
 test("uninstalling an absent target does not create configuration files", async () => {
