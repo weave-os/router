@@ -70,6 +70,8 @@ tsconfig.tsbuildinfo
 eval/results/
 scripts/results/
 results/
+# Published evidence tables of the token-efficiency kit.
+!bench/token-efficiency/results/
 .claude/settings.local.json
 .claude/.credentials.json
 .claude/cc-statusline.sh

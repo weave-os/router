@@ -7,6 +7,7 @@ Subcommands::
   weave-bench tap serve                      # OpenRouter recording tap
   weave-bench run <benchmark> [--arms a,b] [--smoke|--tasks ...] [--dry-run]
   weave-bench report <benchmark> <run-id> [--no-analytics] [--tap-records PATH]
+  weave-bench efficiency ...                 # token-efficiency savings kit (bench/token-efficiency/)
 
 No subcommand spends money unless it is ``run`` without ``--dry-run``.
 """
@@ -26,6 +27,7 @@ from weave_bench.analytics import AnalyticsUnavailable, DecisionRow, fetch_rows,
 from weave_bench.arms import ArmSpec, parse_arms
 from weave_bench.benchmarks import PINS, Benchmark
 from weave_bench.config import BenchConfig, load_config, require_secret
+from weave_bench.efficiency import cli as efficiency_cli
 from weave_bench.fetch import fetch_atlas
 from weave_bench.harbor_command import job_name
 from weave_bench.launch import LaunchPlan, plan, render_dry_run, run_job
@@ -257,6 +259,8 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--analytics-ndjson", type=Path, default=None, help="replay a saved export instead of fetching")
     report.add_argument("--tap-records", type=Path, default=None)
     report.set_defaults(func=cmd_report)
+
+    efficiency_cli.register(subparsers, _add_common, run_id_arg, _load)
 
     return parser
 
