@@ -31,8 +31,9 @@ type qwenTurn struct {
 // (turns whose responses the router could not record) still renders correctly.
 // A history behind the counter has been compacted and cannot be given fresh turn
 // numbers without changing the evidence semantics of the training set.
-func RenderQwenInterval(messages []translate.EscalationMessage, completedTurns int64) (string, bool) {
+func RenderQwenInterval(messages []translate.EscalationMessage, completedTurns int64, codexToolResults bool) (string, bool) {
 	turns := make([]qwenTurn, 0)
+	toolCalls := make(map[string]translate.EscalationBlock)
 	var inboundText, inboundResults []string
 	for _, message := range messages {
 		switch message.Role {
@@ -45,7 +46,7 @@ func RenderQwenInterval(messages []translate.EscalationMessage, completedTurns i
 						userParts = append(userParts, block.Text)
 					}
 				case translate.EscalationBlockToolResult:
-					inboundResults = append(inboundResults, qwenToolResult(block))
+					inboundResults = append(inboundResults, qwenToolResult(block, toolCalls[block.CallID], codexToolResults))
 				}
 			}
 			if text := qwenTruncate(strings.Join(userParts, "\n"), 1500); text != "" {
@@ -62,6 +63,7 @@ func RenderQwenInterval(messages []translate.EscalationMessage, completedTurns i
 				case translate.EscalationBlockText:
 					turn.assistant = append(turn.assistant, block.Text)
 				case translate.EscalationBlockToolCall:
+					toolCalls[block.ID] = block
 					turn.toolCalls = append(turn.toolCalls, qwenToolCall(block))
 				}
 			}
@@ -119,7 +121,15 @@ func qwenToolCall(block translate.EscalationBlock) string {
 	return fmt.Sprintf("%s(%s)", name, qwenTruncate(qwenCompactJSON(block.ArgumentsJSON), 300))
 }
 
-func qwenToolResult(block translate.EscalationBlock) string {
+// Anthropic tool results carry text parts; Responses outputs carry input_text.
+type qwenContentPartType string
+
+const (
+	qwenContentPartText      qwenContentPartType = "text"
+	qwenContentPartInputText qwenContentPartType = "input_text"
+)
+
+func qwenToolResult(block, call translate.EscalationBlock, codexToolResults bool) string {
 	var text string
 	if json.Unmarshal([]byte(block.ContentJSON), &text) != nil {
 		var parts []struct {
@@ -128,7 +138,7 @@ func qwenToolResult(block translate.EscalationBlock) string {
 		}
 		if json.Unmarshal([]byte(block.ContentJSON), &parts) == nil {
 			for _, part := range parts {
-				if part.Type == string(translate.EscalationBlockText) {
+				if qwenContentPartType(part.Type) == qwenContentPartText || qwenContentPartType(part.Type) == qwenContentPartInputText {
 					text += part.Text
 				}
 			}
@@ -138,7 +148,7 @@ func qwenToolResult(block translate.EscalationBlock) string {
 		}
 	}
 	marker := qwenToolResultOK
-	if block.IsError != nil && *block.IsError {
+	if block.ToolResultFailed(call, codexToolResults) {
 		marker = qwenToolResultError
 	}
 	return fmt.Sprintf("[%s] %s", marker, qwenTruncate(text, 400))
