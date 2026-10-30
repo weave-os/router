@@ -109,9 +109,9 @@ func TestRoutingAnnouncementReplay(t *testing.T) {
 }
 
 func testSidecarClientAnnouncement(t *testing.T) {
-	const marker = "✦ **Weave Router** → Delegating work with gpt-6-luna\n↳ label: delegated_work"
+	const delegationAnnouncement = "✦ **Weave Router** → Delegating work with gpt-6-luna\n↳ label: delegated_work"
 	decision := router.Decision{Provider: providers.ProviderOpenAI, Model: "gpt-6-luna", Reason: "test",
-		Metadata: &router.RoutingMetadata{DisplayMarker: marker},
+		Metadata: &router.RoutingMetadata{DisplayMarker: delegationAnnouncement},
 	}
 	var history []string
 	for turn := range 2 {
