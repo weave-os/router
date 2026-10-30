@@ -108,7 +108,7 @@ type TokenEfficiencyQualityFactor struct {
 }
 
 // TokenEfficiencyEvidence is the control plane's applied measurements, mirrored into the
-// router.token_efficiency_* tables (migration 0139).
+// router.token_efficiency_* tables (migration 0140).
 type TokenEfficiencyEvidence struct {
 	Ratios         []TokenEfficiencyRatio
 	QualityFactors []TokenEfficiencyQualityFactor
