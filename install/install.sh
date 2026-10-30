@@ -7243,14 +7243,11 @@ write_claude_settings() {
               | map(if (.hooks | type) == "array" then .hooks |= map(select((.command // "" | tostring | test("cc-statusline\\.sh\"? --prompt-hook( |$)")) | not)) else . end) | map(select((.hooks | type) != "array" or (.hooks | length) > 0)))
             + $b.hooks.UserPromptSubmit))
          else . end)
-      | (($a.attribution.commit // "") | startswith("Co-Authored-By: Weave Router")) as $ours
-      | (($a.env // {} | has("ANTHROPIC_BASE_URL")) and $a.attribution == null) as $opted_out
-      | (if $b.attribution and ($ours or ($a.attribution == null and ($opted_out | not)))
-           then .attribution = $b.attribution
-         elif ($b.attribution | not) and $ours then
-           .attribution |= (del(.commit)
-             | if .pr == "🤖 Generated with [Weave Router](https://router.workweave.ai)" then del(.pr) else . end)
-           | (if (.attribution | length) == 0 then del(.attribution) else . end)
+      | (if (($a.attribution? | type) == "object"
+              and $a.attribution.commit == ""
+              and $a.attribution.pr == "")
+         then .
+         elif $b.attribution then .attribution = $b.attribution
          else . end)
     ' "$settings_file" "$tmp_patch")"
     printf '%s\n' "$merged" >"$settings_file"
