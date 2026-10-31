@@ -385,7 +385,7 @@ if [ "$target" = "claude-desktop" ]; then
         if ! security remove-trusted-cert "$desktop_shim_dir/ca.pem" \
           || ! security delete-certificate -Z "$(openssl x509 -noout -fingerprint -sha1 -in "$desktop_shim_dir/ca.pem" | sed 's/.*=//; s/://g')" \
             "$HOME/Library/Keychains/login.keychain-db" >/dev/null; then
-          warn "Could not remove the proxy certificate from your login keychain; delete \"Weave Router Claude Desktop proxy\" in Keychain Access."
+          desktop_shim_ca_left="true"
         fi
       fi
       while IFS= read -r service; do
@@ -398,7 +398,7 @@ if [ "$target" = "claude-desktop" ]; then
       desktop_shim_ca_store="/usr/local/share/ca-certificates/weave-router-claude-desktop.crt"
       if [ -f "$desktop_shim_ca_store" ] && cmp -s "$desktop_shim_dir/ca.pem" "$desktop_shim_ca_store"; then
         if ! { sudo rm -f "$desktop_shim_ca_store" && sudo update-ca-certificates --fresh >/dev/null; }; then
-          warn "Could not remove $desktop_shim_ca_store from the system trust store."
+          desktop_shim_ca_left="true"
         fi
       fi
       if [ "$(gsettings get org.gnome.system.proxy autoconfig-url 2>/dev/null)" = "'$desktop_shim_pac'" ]; then
@@ -407,7 +407,10 @@ if [ "$target" = "claude-desktop" ]; then
       fi
       ;;
   esac
-  if [ -d "$desktop_shim_dir" ]; then
+  # Keep ca.pem and the config while the OS still trusts the CA, so a rerun can remove it.
+  if [ "${desktop_shim_ca_left:-}" = "true" ]; then
+    warn "Could not remove the proxy certificate from the OS trust store (a cancelled password prompt?). Rerun: npx @weave-os/router --uninstall --claude-desktop"
+  elif [ -d "$desktop_shim_dir" ]; then
     refuse_if_symlink "$desktop_shim_dir"
     rm -rf "$desktop_shim_dir"
     rmdir "$(dirname "$desktop_shim_dir")" 2>/dev/null || true

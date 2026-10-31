@@ -329,6 +329,10 @@ this install sets up three things:
    the proxy. An auto-proxy that's already set is left alone; the installer
    prints the one rule to add to it instead.
 
+Cowork is covered only when its agent runs on the computer. When Desktop can't
+start Cowork's local VM (for example on a Mac without virtualization), it runs
+the task in Anthropic's cloud, which no local proxy can see.
+
 You stay signed in to Claude, so subscription routing, cloud sessions and
 Remote Control keep working. Expect one password prompt (keychain trust on
 macOS, sudo for the network setting or trust store), then quit and reopen

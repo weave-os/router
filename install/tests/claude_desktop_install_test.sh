@@ -42,6 +42,7 @@ printf '%s %s\n' "\$tool" "\$*" >>"$calls"
 case "\$tool \$1" in
   "sudo "*) exit 0 ;;
   "security verify-cert") exit 1 ;;
+  "security remove-trusted-cert") [ -z "\${FAKE_TRUST_REMOVAL_FAILS:-}" ] || exit 1 ;;
   "networksetup -listallnetworkservices") printf 'An asterisk (*) denotes that a network service is disabled.\nWi-Fi\n*Old VPN\n' ;;
   "networksetup -getautoproxyurl") printf 'URL: %s\nEnabled: No\n' "\$(cat "$state/pac" 2>/dev/null || echo '(null)')" ;;
   "networksetup -setautoproxyurl") printf '%s' "\$3" >"$state/pac" ;;
@@ -119,7 +120,8 @@ grep -Fq 'if (host === "api.anthropic.com") return "PROXY 127.0.0.1:47821";' <<<
 
 # macOS: launchd agent, login-keychain trust, and the auto-proxy on enabled services.
 reset_os
-install_desktop env FAKE_UNAME=Darwin >/dev/null 2>&1 || fail "macOS install failed"
+out="$(install_desktop env FAKE_UNAME=Darwin 2>&1)" || fail "macOS install failed: $out"
+grep -Fq "password dialog" <<<"$out" || fail "--non-interactive macOS install did not warn about the trust dialog: $out"
 grep -Fq "<string>ai.workweave.router-desktop-shim</string>" "$plist" || fail "launchd plist missing its label"
 grep -Eq "^launchctl bootstrap gui/[0-9]+ $plist$" "$calls" || fail "launchd agent not bootstrapped: $(cat "$calls")"
 grep -Fq "security add-trusted-cert -r trustRoot -k $home/Library/Keychains/login.keychain-db $shim_dir/ca.pem" "$calls" || fail "CA not trusted in the login keychain"
@@ -153,6 +155,13 @@ run bash "$uninstaller" --claude-desktop --dir "$work/project" >/dev/null 2>&1 |
 if run bash "$installer" off --claude-desktop --non-interactive >/dev/null 2>&1; then
   fail "off --claude-desktop should be rejected"
 fi
+
+# A cancelled keychain prompt keeps ca.pem and the config so a rerun can remove the CA.
+out="$(run env FAKE_UNAME=Darwin FAKE_TRUST_REMOVAL_FAILS=1 bash "$uninstaller" --claude-desktop 2>&1)" || fail "macOS uninstall with a cancelled prompt failed: $out"
+[ -f "$shim_dir/ca.pem" ] || fail "uninstall deleted the CA it could not untrust"
+[ -f "$config" ] || fail "uninstall deleted the config a rerun needs"
+grep -Fq "Rerun: npx @weave-os/router --uninstall --claude-desktop" <<<"$out" || fail "no rerun hint: $out"
+install_desktop env FAKE_UNAME=Darwin >/dev/null 2>&1 || fail "macOS reinstall failed"
 
 : >"$calls"
 run env FAKE_UNAME=Darwin bash "$uninstaller" --claude-desktop >/dev/null 2>&1 || fail "macOS uninstall failed"

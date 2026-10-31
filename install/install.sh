@@ -6429,7 +6429,11 @@ trust_desktop_shim_ca() {
       if security verify-cert -c "$desktop_shim_dir/leaf.pem" -p ssl -s api.anthropic.com >/dev/null 2>&1; then
         return 0
       fi
-      info "macOS will ask for your password to trust the api.anthropic.com certificate."
+      if [ "$non_interactive" = "true" ]; then
+        warn "macOS shows a password dialog to trust the api.anthropic.com certificate, even with --non-interactive; the install waits for it. Push the CA with device management first to skip it (see install/README.md)."
+      else
+        info "macOS will ask for your password to trust the api.anthropic.com certificate."
+      fi
       if ! security add-trusted-cert -r trustRoot -k "$HOME/Library/Keychains/login.keychain-db" "$desktop_shim_dir/ca.pem"; then
         err "Could not trust $desktop_shim_dir/ca.pem in your login keychain."
         exit 1
@@ -6502,7 +6506,7 @@ if [ "$target" = "claude-desktop" ]; then
 
   announce_done "Claude Desktop"
   if [ "$mode" = "install" ] && [ "$quiet" != "true" ]; then
-    printf "\n%sNext:%s quit and reopen Claude Desktop. New Code and Cowork sessions go through Weave Router; you stay signed in to Claude.\n" "$C_BOLD" "$C_RESET"
+    printf "\n%sNext:%s quit and reopen Claude Desktop. New Code sessions, and Cowork tasks that run on this computer, go through Weave Router; Cowork tasks running in Anthropic's cloud do not. You stay signed in to Claude.\n" "$C_BOLD" "$C_RESET"
   fi
   [ "$mode" = "update" ] || print_uninstall_hint
   exit 0
