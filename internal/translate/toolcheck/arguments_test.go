@@ -20,7 +20,7 @@ func TestArgumentDocumentPreservesCleanInput(t *testing.T) {
 
 func TestArgumentDocumentNormalizationPreservesDuplicateDeletionOrder(t *testing.T) {
 	raw := `{"x":"","x":"keep","x":""}`
-	got, actions := normalizeArgs(raw, nil)
+	got, actions := normalizeEmptyOptionals(raw, nil)
 
 	assert.Equal(t, `{"x":""}`, got)
 	assert.Equal(t, []string{"drop_empty_optional", "drop_empty_optional"}, actions)
@@ -283,15 +283,15 @@ func TestNormalizeLargeFirstMemberMatchesSJSON(t *testing.T) {
 	large := `"` + strings.Repeat("x", 8192) + `"`
 	for _, fixture := range []struct{ args, key string }{
 		{`{"optional":"","large":` + large + `}`, "optional"},
-		{" \n{ \"optional\" : null , \"large\" : " + large + " }\r\n", "optional"},
+		{" \n{ \"optional\" : \"\" , \"large\" : " + large + " }\r\n", "optional"},
 		{`{"x":"","x":` + large + `}`, "x"},
-		{`{"a.b":null,"large":` + large + `}`, "a.b"},
+		{`{"a.b":"","large":` + large + `}`, "a.b"},
 		{`{"\u00e9":"","large":` + large + `}`, "é"},
-		{`{"optional":null` + strings.Repeat(" ", 8192) + `}`, "optional"},
+		{`{"optional":""` + strings.Repeat(" ", 8192) + `}`, "optional"},
 	} {
 		want, err := sjson.Delete(fixture.args, argumentOraclePath([]string{fixture.key}))
 		require.NoError(t, err)
-		got, actions := normalizeArgs(fixture.args, nil)
+		got, actions := normalizeEmptyOptionals(fixture.args, nil)
 		assert.Equal(t, want, got)
 		assert.Len(t, actions, 1)
 	}

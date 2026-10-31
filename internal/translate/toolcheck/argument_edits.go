@@ -37,45 +37,49 @@ func (document *argumentDocument) delete(path []string) (changed, ok bool) {
 	if i < 0 {
 		return false, true
 	}
-	member := &parent.objectMembers[i]
+	parent.deleteMember(i)
+	return true, true
+}
+
+func (node *argumentNode) deleteMember(i int) {
+	member := &node.objectMembers[i]
 	member.deleted = true
 	if member.previousLive < 0 {
-		parent.firstLive = member.nextLive
+		node.firstLive = member.nextLive
 		if member.nextLive >= 0 {
-			next := &parent.objectMembers[member.nextLive]
+			next := &node.objectMembers[member.nextLive]
 			next.leadingGap = nil
 			next.memberPrefix = next.memberPrefix[strings.IndexByte(next.memberPrefix, ',')+1:]
 		}
 	} else {
-		parent.objectMembers[member.previousLive].nextLive = member.nextLive
+		node.objectMembers[member.previousLive].nextLive = member.nextLive
 		comma := strings.IndexByte(member.memberPrefix, ',')
 		gap := member.leadingGap
 		if comma > 0 {
 			gap = joinArgumentGaps(gap, &argumentGap{raw: member.memberPrefix[:comma]})
 		}
 		if member.nextLive >= 0 {
-			next := &parent.objectMembers[member.nextLive]
+			next := &node.objectMembers[member.nextLive]
 			next.leadingGap = joinArgumentGaps(gap, next.leadingGap)
 		} else {
-			parent.trailingGap = joinArgumentGaps(gap, parent.trailingGap)
+			node.trailingGap = joinArgumentGaps(gap, node.trailingGap)
 		}
 	}
 	if member.nextLive >= 0 {
-		parent.objectMembers[member.nextLive].previousLive = member.previousLive
+		node.objectMembers[member.nextLive].previousLive = member.previousLive
 	} else {
-		parent.lastLive = member.previousLive
+		node.lastLive = member.previousLive
 	}
-	if parent.memberIndex != nil {
-		positions := parent.memberIndex[key]
+	if node.memberIndex != nil {
+		positions := node.memberIndex[member.key]
 		if member.next < 0 {
-			delete(parent.memberIndex, key)
+			delete(node.memberIndex, member.key)
 		} else {
 			positions.first = member.next
-			parent.memberIndex[key] = positions
+			node.memberIndex[member.key] = positions
 		}
 	}
-	parent.markChanged()
-	return true, true
+	node.markChanged()
 }
 
 func (node *argumentNode) deleteArrayElement(target string) (changed, ok bool) {

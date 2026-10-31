@@ -3,9 +3,9 @@
 // safe failure modes, replacing prior per-failure patches (#284, #293,
 // #327/#333, #339) with one layered pipeline:
 //
-//  1. normalize — drop empty-string/null OPTIONAL params (gpt-5.x Responses
-//     failure mode; required params untouched)
-//  2. parse     — minimal repair for malformed argument JSON
+//  1. parse     — minimal repair for malformed argument JSON
+//  2. normalize — drop root empty-string optionals and nested nonnullable
+//     optional null placeholders; preserve required and nullable values
 //  3. validate  — Draft-7 validation against the original schema
 //  4. repair    — validation-error-driven safe coercions, re-validated
 //
@@ -87,8 +87,7 @@ type toolSchema struct {
 	// compiled is nil when the schema could not be compiled (fail-open:
 	// the tool is then uncheckable and args pass through normalize only).
 	compiled *jsonschema.Schema
-	// required is the set of required top-level parameter names; the
-	// normalize pass only drops params NOT in this set.
+	// required protects root parameters from the legacy empty-string cleanup.
 	required map[string]struct{}
 }
 
@@ -120,6 +119,11 @@ func Compile(toolsRaw []byte) *Validator {
 			return true
 		})
 		ts.compiled = compileSchema(name, schema)
+		if root := normalizationRootSchema(ts.compiled); root != nil {
+			for _, name := range root.Required {
+				ts.required[name] = struct{}{}
+			}
+		}
 		tools[name] = ts
 		return true
 	})
@@ -226,7 +230,12 @@ func (v *Validator) Check(name, argsJSON string) Verdict {
 
 	// Runs even when schema-valid: the client's own tool validation is
 	// stricter than JSON Schema (e.g. Read rejects pages:"" that {type:string} accepts).
-	args, normActions := normalizeArgs(args, ts.required)
+	if canNormalizeRootOptionals(ts.compiled) {
+		var normActions []string
+		args, normActions = normalizeEmptyOptionals(args, ts.required)
+		actions = append(actions, normActions...)
+	}
+	args, normActions := normalizeNullOptionals(args, ts.compiled)
 	actions = append(actions, normActions...)
 
 	if ts.compiled == nil {
@@ -306,36 +315,29 @@ func validate(schema *jsonschema.Schema, args string) (verr error) {
 	return schema.Validate(instance)
 }
 
-// normalizeArgs drops top-level OPTIONAL params whose value is "" or null.
-// Empty-string optionals are the gpt-5.x /chat-era failure mode (#339);
-// null optionals come from strictified schemas that force every param
-// present. Required params are never touched, so a genuinely-missing one
-// still surfaces downstream.
-func normalizeArgs(args string, required map[string]struct{}) (out string, actions []string) {
+// normalizeEmptyOptionals preserves the root-only host compatibility cleanup:
+// some clients reject optional pages:"" even when their JSON Schema accepts it.
+func normalizeEmptyOptionals(args string, required map[string]struct{}) (out string, actions []string) {
 	parsed := gjson.Parse(args)
 	if !parsed.IsObject() {
 		return args, nil
 	}
-	type optionalMember struct {
-		key       string
-		valueType gjson.Type
-	}
-	var first optionalMember
+	var first string
 	firstValueEnd := 0
 	firstIsRootMember := false
-	var optional []optionalMember
+	var optional []string
 	found := false
 	memberCount := 0
 	parsed.ForEach(func(key, value gjson.Result) bool {
 		memberCount++
-		if (value.Type != gjson.String || value.Str != "") && value.Type != gjson.Null {
+		if value.Type != gjson.String || value.Str != "" {
 			return true
 		}
 		if _, req := required[key.Str]; req {
 			return true
 		}
 		if !found {
-			first, found = optionalMember{key.Str, value.Type}, true
+			first, found = key.Str, true
 			firstValueEnd = value.Index + len(value.Raw)
 			firstIsRootMember = memberCount == 1
 			return true
@@ -343,7 +345,7 @@ func normalizeArgs(args string, required map[string]struct{}) (out string, actio
 		if optional == nil {
 			optional = append(optional, first)
 		}
-		optional = append(optional, optionalMember{key.Str, value.Type})
+		optional = append(optional, key.Str)
 		return true
 	})
 	if !found {
@@ -352,31 +354,24 @@ func normalizeArgs(args string, required map[string]struct{}) (out string, actio
 	if optional == nil {
 		// SJSON's string API copies the output twice. GJSON's first-member
 		// spans let a large literal deletion retain the single-copy path.
-		if len(args) >= 512 && firstIsRootMember && first.key != "" && mutationKey(first.key) == first.key && !argumentLibraryPath([]string{first.key}) {
+		if len(args) >= 512 && firstIsRootMember && first != "" && mutationKey(first) == first && !argumentLibraryPath([]string{first}) {
 			out = removeFirstArgumentMember(args, parsed.Index, firstValueEnd)
 		} else {
 			var err error
-			out, err = sjson.Delete(args, argumentMutationPath([]string{first.key}))
+			out, err = sjson.Delete(args, argumentMutationPath([]string{first}))
 			if err != nil {
 				return args, nil
 			}
 		}
-		if first.valueType == gjson.String {
-			return out, []string{"drop_empty_optional"}
-		}
-		return out, []string{"drop_null_optional"}
+		return out, []string{"drop_empty_optional"}
 	}
 	document := newArgumentDocument(args)
 	document.rootMemberCapacity = memberCount
 	for _, member := range optional {
-		if _, ok := document.delete([]string{member.key}); !ok {
+		if _, ok := document.delete([]string{member}); !ok {
 			continue
 		}
-		if member.valueType == gjson.String {
-			actions = append(actions, "drop_empty_optional")
-		} else {
-			actions = append(actions, "drop_null_optional")
-		}
+		actions = append(actions, "drop_empty_optional")
 	}
 	return document.materialize(), actions
 }
