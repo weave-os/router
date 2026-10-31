@@ -263,6 +263,9 @@ while [ $# -gt 0 ]; do
     --copilot)
       target="copilot"; target_explicit="true"; shift
       ;;
+    --claude-desktop)
+      target="claude-desktop"; target_explicit="true"; shift
+      ;;
     --claude)
       # No-op selector for symmetry with --codex / --opencode and install.sh's
       # --claude. Lets `./install.sh --uninstall --claude` (which forwards
@@ -299,6 +302,7 @@ client_label() {
     claude) printf 'Claude Code' ;;
     codex)  printf 'Codex' ;;
     copilot) printf 'Copilot CLI' ;;
+    claude-desktop) printf 'Claude Desktop' ;;
     *)      printf '%s' "$1" ;;
   esac
 }
@@ -318,7 +322,7 @@ if [ "$target_explicit" = "false" ] && [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] \
   fi
   removed=""
   failed=""
-  for client in claude codex opencode pi copilot; do
+  for client in claude codex opencode pi copilot claude-desktop; do
     child_status=0
     WEAVE_UNINSTALL_ALL_CHILD=1 bash "$uninstall_self" "${uninstall_args[@]+"${uninstall_args[@]}"}" "--$client" || child_status=$?
     case "$child_status" in
@@ -330,7 +334,7 @@ if [ "$target_explicit" = "false" ] && [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] \
   [ -z "$uninstall_self_tmp" ] || rm -f "$uninstall_self_tmp"
   printf '\n'
   if [ -z "$removed" ] && [ -z "$failed" ]; then
-    info "Weave Router isn't configured for Claude Code, Codex, opencode, pi or Copilot CLI here (scope=$scope); nothing to remove."
+    info "Weave Router isn't configured for Claude Code, Codex, opencode, pi, Copilot CLI or Claude Desktop here (scope=$scope); nothing to remove."
   fi
   [ -z "$removed" ] || ok "Removed Weave Router from: $removed."
   if [ -n "$failed" ]; then
@@ -343,6 +347,34 @@ fi
 if [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] && { [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" ] || [ "$target" = "copilot" ]; } && ! command -v jq >/dev/null 2>&1; then
   err "jq is required for the $target uninstall path."
   exit 1
+fi
+
+# Claude Desktop runs through a local proxy service (see install.sh); remove the
+# service, its certificate and the stored router key.
+if [ "$target" = "claude-desktop" ]; then
+  desktop_shim_dir="${install_dir:-$HOME}/.weave-router/desktop-shim"
+  desktop_shim_plist="$HOME/Library/LaunchAgents/ai.workweave.router-desktop-shim.plist"
+  desktop_shim_unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/weave-router-desktop-shim.service"
+  skip_if_not_installed "$desktop_shim_dir/config.json" 'router_base_url' "$desktop_shim_plist" "$desktop_shim_unit"
+  if [ -f "$desktop_shim_plist" ]; then
+    launchctl bootout "gui/$(id -u)/ai.workweave.router-desktop-shim" >/dev/null 2>&1 || true
+    rm -f "$desktop_shim_plist"
+    ok "Removed $desktop_shim_plist"
+  fi
+  if [ -f "$desktop_shim_unit" ]; then
+    systemctl --user disable --now weave-router-desktop-shim.service >/dev/null 2>&1 || true
+    rm -f "$desktop_shim_unit"
+    systemctl --user daemon-reload >/dev/null 2>&1 || true
+    ok "Removed $desktop_shim_unit"
+  fi
+  if [ -d "$desktop_shim_dir" ]; then
+    refuse_if_symlink "$desktop_shim_dir"
+    rm -rf "$desktop_shim_dir"
+    rmdir "$(dirname "$desktop_shim_dir")" 2>/dev/null || true
+    ok "Removed $desktop_shim_dir"
+  fi
+  info "Also delete HTTPS_PROXY and NODE_EXTRA_CA_CERTS from Claude Desktop's local environment (Code > Local > gear), then start a new session."
+  exit 0
 fi
 
 # ---------- lifecycle report ----------
