@@ -1638,14 +1638,6 @@ func replaceSSEEventData(raw, data, rewrittenData []byte) []byte {
 	return rewritten
 }
 
-func (t *ResponsesWriter) backfillNativeTerminalOutput(event, data []byte) []byte {
-	backfilled, changed := t.nativeDoneItems.Backfill(data, "response.output")
-	if !changed {
-		return event
-	}
-	return replaceSSEEventData(event, data, backfilled)
-}
-
 func (t *ResponsesWriter) writeNativeEvent(eventType string, sequence int64, payload map[string]any) error {
 	payload["type"] = eventType
 	payload["sequence_number"] = sequence
@@ -1744,7 +1736,9 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 		itemType = responsesItemType(root.Get("item.type").Str)
 		t.nativeDoneItems.Observe(root)
 		if eventType == responsesCompleted || eventType == responsesIncomplete {
-			event = t.backfillNativeTerminalOutput(event, data)
+			if backfilled, changed := t.nativeDoneItems.Backfill(data, "response.output"); changed {
+				event = replaceSSEEventData(event, data, backfilled)
+			}
 		}
 	}
 	if !t.passthroughBadge {

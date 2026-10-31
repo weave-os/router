@@ -307,10 +307,12 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		reqBody = stripCodexUnsupportedParams(reqBody)
 		if !gjson.GetBytes(reqBody, "stream").Bool() {
 			// The Codex backend 400s unless stream is true.
-			if streamed, err := sjson.SetBytes(reqBody, "stream", true); err == nil {
-				reqBody = streamed
-				collectCodexResponse = true
+			streamed, err := sjson.SetBytes(reqBody, "stream", true)
+			if err != nil {
+				return fmt.Errorf("force Codex stream: %w", err)
 			}
+			reqBody = streamed
+			collectCodexResponse = true
 		}
 	} else if prep.Endpoint == providers.EndpointResponses {
 		// Only the direct api.openai.com Responses path needs the clamp; the

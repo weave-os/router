@@ -332,8 +332,8 @@ func TestProxy_ResponsesMaxEffortUnchangedWithCodexCred(t *testing.T) {
 // The Codex backend only streams, so a non-streaming Responses caller (the
 // Copilot SDK default) must get the terminal snapshot back as one JSON body.
 func TestProxy_CodexSubscriptionServesNonStreamingCaller(t *testing.T) {
-	for _, stream := range []string{``, `,"stream":false`} {
-		t.Run("stream="+stream, func(t *testing.T) {
+	for _, extraBodyField := range []string{``, `,"stream":false`} {
+		t.Run("stream="+extraBodyField, func(t *testing.T) {
 			var gotBody []byte
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if serveSyntheticCodexQuota(w, r) {
@@ -359,7 +359,7 @@ func TestProxy_CodexSubscriptionServesNonStreamingCaller(t *testing.T) {
 				codexCtx("eyJhbGciOiJ-codex-jwt", "acct-12345"),
 				router.Decision{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI},
 				providers.PreparedRequest{
-					Body:     []byte(`{"model":"gpt-5.6-sol","input":[{"role":"user","content":"Paris backwards"}]` + stream + `}`),
+					Body:     []byte(`{"model":"gpt-5.6-sol","input":[{"role":"user","content":"Paris backwards"}]` + extraBodyField + `}`),
 					Endpoint: providers.EndpointResponses,
 					Headers:  make(http.Header),
 				},

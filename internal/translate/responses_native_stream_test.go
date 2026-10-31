@@ -211,11 +211,11 @@ func TestResponsesWriter_NativeAttemptResetPreservesSyntheticPrelude(t *testing.
 // The Codex backend streams every item but ends with an empty
 // response.completed snapshot; SDK clients read their answer from that snapshot.
 func TestResponsesWriter_NativeEmptyTerminalOutputBackfilledFromDoneItems(t *testing.T) {
-	for _, display := range []bool{false, true} {
+	for _, withBadge := range []bool{false, true} {
 		for _, status := range []nativeTerminalStatus{nativeCompletedStatus, nativeIncompleteStatus} {
-			t.Run(fmt.Sprintf("display=%t/%s", display, status), func(t *testing.T) {
-				w, rec := newNativeStreamWriter(display)
-				if display {
+			t.Run(fmt.Sprintf("badge=%t/%s", withBadge, status), func(t *testing.T) {
+				w, rec := newNativeStreamWriter(withBadge)
+				if withBadge {
 					w.SetBadgeText(passthroughTestMarker)
 				}
 				native := nativeStreamFrame(`{"type":"response.created","sequence_number":0,"response":{"id":"resp_native","status":"in_progress","output":[]}}`) +

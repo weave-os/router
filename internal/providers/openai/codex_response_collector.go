@@ -2,7 +2,7 @@ package openai
 
 import (
 	"bytes"
-	"errors"
+	"fmt"
 	"net/http"
 
 	"weave-os/router/internal/sse"
@@ -11,7 +11,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-var errCodexStreamWithoutTerminal = errors.New("Codex stream ended without a terminal response")
+var errCodexStreamWithoutTerminal = fmt.Errorf("%w: Codex stream ended without a terminal response", translate.ErrStreamIncomplete)
 
 // codexResponseCollector serves a non-streaming Responses caller from the Codex
 // backend, which only streams: it consumes the SSE events and writes the
@@ -23,6 +23,9 @@ type codexResponseCollector struct {
 	items    translate.ResponsesItemSnapshot
 	response []byte
 	sawEvent bool
+
+	onOutputProgress    func()
+	onReasoningProgress func()
 }
 
 func newCodexResponseCollector(w http.ResponseWriter) *codexResponseCollector {
@@ -32,6 +35,36 @@ func newCodexResponseCollector(w http.ResponseWriter) *codexResponseCollector {
 func (c *codexResponseCollector) Header() http.Header { return c.w.Header() }
 
 func (c *codexResponseCollector) WriteHeader(code int) { c.status = code }
+
+// ArmOutputProgress arms the output-stall watchdog on the upstream stream even
+// though the caller receives one buffered body.
+func (c *codexResponseCollector) ArmOutputProgress(mark func()) bool {
+	c.onOutputProgress = mark
+	return true
+}
+
+func (c *codexResponseCollector) ArmReasoningProgress(mark func()) bool {
+	c.onReasoningProgress = mark
+	return true
+}
+
+func (c *codexResponseCollector) markProgress(root gjson.Result) {
+	mark := c.onOutputProgress
+	switch root.Get("type").Str {
+	case "response.reasoning_summary_text.delta", "response.reasoning_text.delta":
+		mark = c.onReasoningProgress
+	case "response.output_item.added", "response.output_item.done":
+		if root.Get("item.type").Str == "reasoning" {
+			mark = c.onReasoningProgress
+		}
+	case "response.output_text.delta", "response.function_call_arguments.delta", "response.function_call_arguments.done":
+	default:
+		return
+	}
+	if mark != nil {
+		mark()
+	}
+}
 
 func (c *codexResponseCollector) Write(p []byte) (int, error) {
 	c.pending = append(c.pending, p...)
@@ -53,6 +86,7 @@ func (c *codexResponseCollector) observe(event []byte) {
 	root := gjson.ParseBytes(payload)
 	c.sawEvent = true
 	c.items.Observe(root)
+	c.markProgress(root)
 	switch root.Get("type").Str {
 	case "response.completed", "response.incomplete":
 		c.response = []byte(root.Get("response").Raw)

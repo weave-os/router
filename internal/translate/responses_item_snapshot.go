@@ -46,13 +46,13 @@ func (s *ResponsesItemSnapshot) Backfill(payload []byte, path string) ([]byte, b
 		items = append(items, string(s.items[index]))
 	}
 	backfilled, err := sjson.SetRawBytes(payload, path, []byte("["+strings.Join(items, ",")+"]"))
+	// Unreachable in practice: path already resolved to an array in payload.
 	if err != nil {
 		return payload, false
 	}
 	return backfilled, true
 }
 
-// Reset forgets every observed item.
 func (s *ResponsesItemSnapshot) Reset() {
 	s.items = nil
 }
