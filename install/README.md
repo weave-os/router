@@ -306,6 +306,83 @@ npx @weave-os/router off --copilot                # restore the previous default
 npx @weave-os/router --uninstall --copilot        # remove provider, model, skills
 ```
 
+### GitHub Copilot SDK (custom provider)
+
+Apps built on the Copilot SDK (`@github/copilot-sdk` for Node, `github-copilot-sdk`
+for Python) can use the router as a custom (BYOK) provider. There is no installer
+step: the app passes the router as `provider` when it creates a session, with the
+signed-in user's own router key and identity headers. Every request then carries
+that user's key and email, so attribution, caps and stats are per user. Provider
+`headers` go on every model request; `requestHeaders` (`request_headers` in
+Python) on `send`/`sendAndWait` adds headers for one turn.
+
+Node, Anthropic wire (`POST <baseUrl>/v1/messages`):
+
+```js
+import { CopilotClient, approveAll } from "@github/copilot-sdk";
+
+const client = new CopilotClient({ useLoggedInUser: false });
+const session = await client.createSession({
+  model: "auto", // required with a custom provider; the router picks the model
+  provider: {
+    type: "anthropic",
+    baseUrl: "https://router.workweave.ai",
+    headers: {
+      "X-Weave-Router-Key": user.routerKey, // this user's rk_... key
+      "X-Weave-User-Email": user.email,
+      "X-Weave-User-Name": user.name,
+      "X-App": "copilot",
+    },
+  },
+  onPermissionRequest: approveAll,
+});
+const reply = await session.sendAndWait({ prompt: "Summarize this repo" });
+```
+
+Python, OpenAI Responses wire (`POST <base_url>/responses`), with the key sent as
+`Authorization: Bearer rk_...`, which the router accepts as well:
+
+```python
+from copilot import CopilotClient
+from copilot.session import PermissionHandler
+
+async with CopilotClient() as client:
+    async with await client.create_session(
+        model="auto",
+        provider={
+            "type": "openai",
+            "wire_api": "responses",
+            "base_url": "https://router.workweave.ai/v1",
+            "bearer_token": user.router_key,
+            "headers": {
+                "X-Weave-User-Email": user.email,
+                "X-Weave-User-Name": user.name,
+                "X-App": "copilot",
+            },
+        },
+        on_permission_request=PermissionHandler.approve_all,
+    ) as session:
+        reply = await session.send_and_wait("Summarize this repo")
+```
+
+Either wire works in either language (`wireApi`/`bearerToken`/`bearerTokenProvider`
+in Node, `wire_api`/`bearer_token`/`bearer_token_provider` in Python), streaming
+or not, and tool calls round-trip normally.
+
+Limitations:
+
+- Routing markers ride in the assistant text on the Anthropic wire. On the
+  Responses wire, turns served by an OpenAI model stream through verbatim
+  without one.
+- Prompt directives (`/force-model`, `/fm`, `/force-parent`, `/unforce-model`,
+  `/ufm`, `/router-feedback`, `/rf`, `/router-session` and a bare
+  `/router-models`) work as plain prompt text because the router answers them.
+  `/router-off`, `/router-on`, `/router-status` and the `/router-models` forms
+  that change settings are handled by the installed clients and do nothing in an
+  SDK app; to bypass the router, create the session without it.
+
+||||||| 5249e152
+
 ### Claude Desktop (`--claude-desktop`)
 
 Covers Claude Desktop's **Code** tab and **Cowork**. Desktop sets

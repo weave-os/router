@@ -328,3 +328,83 @@ func TestProxy_ResponsesMaxEffortUnchangedWithCodexCred(t *testing.T) {
 
 	assert.Equal(t, body, gotBody, "the Codex backend understands 'max' natively; the body must not be altered")
 }
+
+// The Codex backend only streams, so a non-streaming Responses caller (the
+// Copilot SDK default) must get the terminal snapshot back as one JSON body.
+func TestProxy_CodexSubscriptionServesNonStreamingCaller(t *testing.T) {
+	for _, extraBodyField := range []string{``, `,"stream":false`} {
+		t.Run("stream="+extraBodyField, func(t *testing.T) {
+			var gotBody []byte
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if serveSyntheticCodexQuota(w, r) {
+					return
+				}
+				gotBody, _ = io.ReadAll(r.Body)
+				if !gjson.GetBytes(gotBody, "stream").Bool() {
+					w.WriteHeader(http.StatusBadRequest)
+					_, _ = io.WriteString(w, `{"detail":"Stream must be set to true"}`)
+					return
+				}
+				_, _ = io.WriteString(w, "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_1\",\"status\":\"in_progress\",\"output\":[]}}\n\n")
+				_, _ = io.WriteString(w, "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"output_index\":0,\"delta\":\"siraP\"}\n\n")
+				_, _ = io.WriteString(w, "event: response.output_item.done\ndata: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"id\":\"msg_1\",\"type\":\"message\",\"role\":\"assistant\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"text\":\"siraP\"}]}}\n\n")
+				_, _ = io.WriteString(w, "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"object\":\"response\",\"status\":\"completed\",\"output\":[],\"usage\":{\"input_tokens\":3,\"output_tokens\":2}}}\n\n")
+			}))
+			defer upstream.Close()
+
+			c := NewClient("deployment-key", upstream.URL)
+			c.codexBaseURL = upstream.URL
+			rec := httptest.NewRecorder()
+			err := c.Proxy(
+				codexCtx("eyJhbGciOiJ-codex-jwt", "acct-12345"),
+				router.Decision{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI},
+				providers.PreparedRequest{
+					Body:     []byte(`{"model":"gpt-5.6-sol","input":[{"role":"user","content":"Paris backwards"}]` + extraBodyField + `}`),
+					Endpoint: providers.EndpointResponses,
+					Headers:  make(http.Header),
+				},
+				rec,
+				httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader("")),
+			)
+			require.NoError(t, err)
+
+			assert.True(t, gjson.GetBytes(gotBody, "stream").Bool(), "the Codex backend 400s unless stream is true")
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+			body := rec.Body.Bytes()
+			require.True(t, gjson.ValidBytes(body), "caller asked for one JSON body, got %q", body)
+			assert.Equal(t, "resp_1", gjson.GetBytes(body, "id").String())
+			assert.Equal(t, "completed", gjson.GetBytes(body, "status").String())
+			assert.Equal(t, "siraP", gjson.GetBytes(body, "output.0.content.0.text").String())
+			assert.Equal(t, int64(2), gjson.GetBytes(body, "usage.output_tokens").Int())
+		})
+	}
+}
+
+func TestProxy_CodexSubscriptionStreamingCallerStillStreams(t *testing.T) {
+	const frames = "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_1\",\"status\":\"completed\",\"output\":[]}}\n\n"
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if serveSyntheticCodexQuota(w, r) {
+			return
+		}
+		_, _ = io.WriteString(w, frames)
+	}))
+	defer upstream.Close()
+
+	c := NewClient("deployment-key", upstream.URL)
+	c.codexBaseURL = upstream.URL
+	rec := httptest.NewRecorder()
+	err := c.Proxy(
+		codexCtx("eyJhbGciOiJ-codex-jwt", "acct-12345"),
+		router.Decision{Model: "gpt-5.6-sol", Provider: providers.ProviderOpenAI},
+		providers.PreparedRequest{
+			Body:     []byte(`{"model":"gpt-5.6-sol","input":"hi","stream":true}`),
+			Endpoint: providers.EndpointResponses,
+			Headers:  make(http.Header),
+		},
+		rec,
+		httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader("")),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, frames, rec.Body.String())
+}
