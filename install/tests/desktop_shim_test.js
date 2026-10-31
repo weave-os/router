@@ -240,13 +240,20 @@ test("desktop shim", async (t) => {
     assert.equal(FindProxyForURL("https://claude.ai/", "claude.ai"), "DIRECT");
   });
 
-  await t.test("peerUid finds the OS user of the connecting process", async () => {
+  await t.test("peerUid matches the full loopback 4-tuple, not just ports", async () => {
     const server = net.createServer();
     const port = await listen(server);
     const client = net.connect(port, "127.0.0.1");
     const [accepted] = await once(server, "connection");
     const uid = await new Promise((resolve) => shim.peerUid(accepted, resolve));
     assert.equal(uid, process.getuid());
+    const sameClientPortOtherAddress = {
+      remoteAddress: "127.0.0.2",
+      remotePort: accepted.remotePort,
+      localAddress: accepted.localAddress,
+      localPort: accepted.localPort,
+    };
+    assert.equal(await new Promise((resolve) => shim.peerUid(sameClientPortOtherAddress, resolve)), null);
     client.destroy();
     server.close();
   });

@@ -60,26 +60,31 @@ function routesToRouter(req) {
 // user's router key, so it only serves that user's processes. peerUid finds
 // the OS user owning the client end of a loopback connection.
 function peerUid(socket, callback) {
-  const clientPort = socket.remotePort;
-  const proxyPort = socket.localPort;
+  // Match the whole 4-tuple: another user can reuse the owner's source port
+  // from a different loopback address such as 127.0.0.2.
   if (process.platform === "linux") {
-    const hexPort = (port) => `:${port.toString(16).toUpperCase().padStart(4, "0")}`;
-    for (const table of ["/proc/net/tcp", "/proc/net/tcp6"]) {
-      if (!fs.existsSync(table)) continue;
-      for (const row of fs.readFileSync(table, "utf8").split("\n").slice(1)) {
-        const [, local, remote, , , , , uid] = row.trim().split(/\s+/);
-        if (local?.endsWith(hexPort(clientPort)) && remote?.endsWith(hexPort(proxyPort))) return callback(Number(uid));
-      }
+    // /proc/net/tcp writes IPv4 endpoints as little-endian hex, e.g. 0100007F:B8CD.
+    const procEndpoint = (address, port) => {
+      const octets = address.replace(/^::ffff:/, "").split(".").reverse();
+      const ip = octets.map((octet) => Number(octet).toString(16).padStart(2, "0")).join("");
+      return `${ip}:${port.toString(16).padStart(4, "0")}`.toUpperCase();
+    };
+    const client = procEndpoint(socket.remoteAddress, socket.remotePort);
+    const proxy = procEndpoint(socket.localAddress, socket.localPort);
+    for (const row of fs.readFileSync("/proc/net/tcp", "utf8").split("\n").slice(1)) {
+      const [, local, remote, , , , , uid] = row.trim().split(/\s+/);
+      if (local === client && remote === proxy) return callback(Number(uid));
     }
     return callback(null);
   }
   // lsof without root lists only the caller's own processes, so another
   // user's client is simply not found.
-  execFile("lsof", ["-nP", "-a", `-iTCP:${clientPort}`, "-sTCP:ESTABLISHED", "-Fun"], (_err, out = "") => {
+  const connection = `n${socket.remoteAddress}:${socket.remotePort}->${socket.localAddress}:${socket.localPort}`;
+  execFile("lsof", ["-nP", "-a", `-iTCP:${socket.remotePort}`, "-sTCP:ESTABLISHED", "-Fun"], (_err, out = "") => {
     let uid = null;
     for (const line of out.split("\n")) {
       if (line.startsWith("u")) uid = Number(line.slice(1));
-      if (line.startsWith("n") && line.includes(`:${clientPort}->`) && line.endsWith(`:${proxyPort}`)) return callback(uid);
+      if (line === connection) return callback(uid);
     }
     callback(null);
   });
