@@ -263,6 +263,9 @@ while [ $# -gt 0 ]; do
     --copilot)
       target="copilot"; target_explicit="true"; shift
       ;;
+    --claude-desktop)
+      target="claude-desktop"; target_explicit="true"; shift
+      ;;
     --claude)
       # No-op selector for symmetry with --codex / --opencode and install.sh's
       # --claude. Lets `./install.sh --uninstall --claude` (which forwards
@@ -299,6 +302,7 @@ client_label() {
     claude) printf 'Claude Code' ;;
     codex)  printf 'Codex' ;;
     copilot) printf 'Copilot CLI' ;;
+    claude-desktop) printf 'Claude Desktop' ;;
     *)      printf '%s' "$1" ;;
   esac
 }
@@ -318,7 +322,7 @@ if [ "$target_explicit" = "false" ] && [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] \
   fi
   removed=""
   failed=""
-  for client in claude codex opencode pi copilot; do
+  for client in claude codex opencode pi copilot claude-desktop; do
     child_status=0
     WEAVE_UNINSTALL_ALL_CHILD=1 bash "$uninstall_self" "${uninstall_args[@]+"${uninstall_args[@]}"}" "--$client" || child_status=$?
     case "$child_status" in
@@ -330,7 +334,7 @@ if [ "$target_explicit" = "false" ] && [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] \
   [ -z "$uninstall_self_tmp" ] || rm -f "$uninstall_self_tmp"
   printf '\n'
   if [ -z "$removed" ] && [ -z "$failed" ]; then
-    info "Weave Router isn't configured for Claude Code, Codex, opencode, pi or Copilot CLI here (scope=$scope); nothing to remove."
+    info "Weave Router isn't configured for Claude Code, Codex, opencode, pi, Copilot CLI or Claude Desktop here (scope=$scope); nothing to remove."
   fi
   [ -z "$removed" ] || ok "Removed Weave Router from: $removed."
   if [ -n "$failed" ]; then
@@ -343,6 +347,77 @@ fi
 if [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] && { [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" ] || [ "$target" = "copilot" ]; } && ! command -v jq >/dev/null 2>&1; then
   err "jq is required for the $target uninstall path."
   exit 1
+fi
+
+# Claude Desktop runs through a local proxy service (see install.sh); remove the
+# service, its certificate and the stored router key.
+if [ "$target" = "claude-desktop" ]; then
+  if [ "$scope" = "project" ]; then
+    [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] || exit 3
+    err "--claude-desktop installs in user scope only; drop --scope project."
+    exit 2
+  fi
+  desktop_shim_dir="${install_dir:-$HOME}/.weave-router/desktop-shim"
+  desktop_shim_config="$desktop_shim_dir/config.json"
+  desktop_shim_plist="$HOME/Library/LaunchAgents/ai.workweave.router-desktop-shim.plist"
+  desktop_shim_unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/weave-router-desktop-shim.service"
+  skip_if_not_installed "$desktop_shim_config" 'router_base_url'
+  # The service files live under $HOME whatever --dir says; only remove the ones
+  # that run this install's config.
+  desktop_shim_config_xml="$(printf '%s' "$desktop_shim_config" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')"
+  if [ -f "$desktop_shim_plist" ] && grep -Fq "<string>$desktop_shim_config_xml</string>" "$desktop_shim_plist"; then
+    launchctl bootout "gui/$(id -u)/ai.workweave.router-desktop-shim" >/dev/null 2>&1 || true
+    rm -f "$desktop_shim_plist"
+    ok "Removed $desktop_shim_plist"
+  fi
+  if [ -f "$desktop_shim_unit" ] && grep -Fq "\"$desktop_shim_config\"" "$desktop_shim_unit"; then
+    systemctl --user disable --now weave-router-desktop-shim.service >/dev/null 2>&1 || true
+    rm -f "$desktop_shim_unit"
+    systemctl --user daemon-reload >/dev/null 2>&1 || true
+    ok "Removed $desktop_shim_unit"
+  fi
+  # Undo the trusted certificate and the auto-proxy, but only where they are this install's.
+  desktop_shim_pac="http://127.0.0.1:$(jq -r '.listen_port // 47821' "$desktop_shim_config" 2>/dev/null || echo 47821)/proxy.pac"
+  case "$(uname -s)" in
+    Darwin)
+      if [ -f "$desktop_shim_dir/ca.pem" ] \
+        && security find-certificate -c "Weave Router Claude Desktop proxy" "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1; then
+        if ! security remove-trusted-cert "$desktop_shim_dir/ca.pem" \
+          || ! security delete-certificate -Z "$(openssl x509 -noout -fingerprint -sha1 -in "$desktop_shim_dir/ca.pem" | sed 's/.*=//; s/://g')" \
+            "$HOME/Library/Keychains/login.keychain-db" >/dev/null; then
+          desktop_shim_ca_left="true"
+        fi
+      fi
+      while IFS= read -r service; do
+        if [ "$(networksetup -getautoproxyurl "$service" | sed -n 's/^URL: //p')" = "$desktop_shim_pac" ]; then
+          sudo networksetup -setautoproxystate "$service" off
+        fi
+      done < <(networksetup -listallnetworkservices | tail -n +2 | grep -v '^\*')
+      ;;
+    Linux)
+      desktop_shim_ca_store="/usr/local/share/ca-certificates/weave-router-claude-desktop.crt"
+      if [ -f "$desktop_shim_ca_store" ] && cmp -s "$desktop_shim_dir/ca.pem" "$desktop_shim_ca_store"; then
+        if ! { sudo rm -f "$desktop_shim_ca_store" && sudo update-ca-certificates --fresh >/dev/null; }; then
+          desktop_shim_ca_left="true"
+        fi
+      fi
+      if [ "$(gsettings get org.gnome.system.proxy autoconfig-url 2>/dev/null)" = "'$desktop_shim_pac'" ]; then
+        gsettings set org.gnome.system.proxy mode 'none'
+        gsettings reset org.gnome.system.proxy autoconfig-url
+      fi
+      ;;
+  esac
+  # Keep ca.pem and the config while the OS still trusts the CA, so a rerun can remove it.
+  if [ "${desktop_shim_ca_left:-}" = "true" ]; then
+    warn "Could not remove the proxy certificate from the OS trust store (a cancelled password prompt?). Rerun: npx @weave-os/router --uninstall --claude-desktop"
+  elif [ -d "$desktop_shim_dir" ]; then
+    refuse_if_symlink "$desktop_shim_dir"
+    rm -rf "$desktop_shim_dir"
+    rmdir "$(dirname "$desktop_shim_dir")" 2>/dev/null || true
+    ok "Removed $desktop_shim_dir"
+  fi
+  info "Quit and reopen Claude Desktop so new sessions go direct to Anthropic."
+  exit 0
 fi
 
 # ---------- lifecycle report ----------

@@ -19,6 +19,7 @@
     "windows.js",
     "install.sh",
     "uninstall.sh",
+    "desktop-shim.js",
     "cc-statusline.sh",
     "codex-status.sh",
     "codex-toggle.sh",
