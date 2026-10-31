@@ -4546,16 +4546,18 @@ if [ "$mode" = "update" ] && [ "$base_url_explicit" != "true" ]; then
 fi
 
 # Claude Desktop re-installs keep the proxy's endpoint, and a first install
-# takes the endpoint and key from the Claude Code CLI install: a key is only
-# admitted on its own serving fleet, so the hosted default can reject it.
+# takes the endpoint and key from the Claude Code CLI install (or the copy
+# `off --claude` parked): a key is only admitted on its own serving fleet, so
+# the hosted default can reject it.
 desktop_cli_key=""
 if [ "$target" = "claude-desktop" ] && [ "$base_url_explicit" != "true" ] && [ -z "${WEAVE_ROUTER_URL:-}" ]; then
   installed_base="$(resolve_installed_endpoint)"
-  cli_settings_file="$settings_base/.claude/settings.json"
-  if [ -z "$installed_base" ] && router_shaped_url "$(json_get "$cli_settings_file" '.env.ANTHROPIC_BASE_URL')"; then
+  for cli_settings_file in "$settings_base/.claude/settings.json" "$settings_base/.claude/.weave-parked.json"; do
+    [ -z "$installed_base" ] || break
+    router_shaped_url "$(json_get "$cli_settings_file" '.env.ANTHROPIC_BASE_URL')" || continue
     installed_base="$(json_get "$cli_settings_file" '.env.ANTHROPIC_BASE_URL')"
     desktop_cli_key="$(read_claude_key "$cli_settings_file")"
-  fi
+  done
   [ -z "$installed_base" ] || base_url="$(strip_trailing_slashes "$installed_base")"
 fi
 

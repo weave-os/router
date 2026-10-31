@@ -65,7 +65,7 @@ fail() {
 }
 
 run() {
-  env -u WEAVE_ROUTER_KEY -u XDG_CONFIG_HOME -u WEAVE_DESKTOP_CERT_DIR HOME="$home" PATH="$test_path" NO_COLOR=1 "$@"
+  env -u WEAVE_ROUTER_KEY -u WEAVE_ROUTER_URL -u XDG_CONFIG_HOME -u WEAVE_DESKTOP_CERT_DIR HOME="$home" PATH="$test_path" NO_COLOR=1 "$@"
 }
 
 install_desktop() {
@@ -125,6 +125,16 @@ cli_config="$cli_home/.weave-router/desktop-shim/config.json"
 [ "$(jq -r '.router_base_url' "$cli_config")" = "http://127.0.0.1:9" ] || fail "Claude Code's endpoint not reused: $(jq -r '.router_base_url' "$cli_config")"
 [ "$(jq -r '.router_key' "$cli_config")" = "rk_cli_test" ] || fail "Claude Code's router key not reused"
 cmp -s "$cli_home/.claude/settings.json" "$work/cli-settings.before" || fail "Claude Code settings.json was touched"
+
+# After `off --claude`, the endpoint and key live in the parked sidecar.
+parked_home="$work/parked-home"
+mkdir -p "$parked_home/.claude"
+jq -n '{env: {ANTHROPIC_BASE_URL: "https://api.anthropic.com"}}' >"$parked_home/.claude/settings.json"
+jq -n '{env: {ANTHROPIC_BASE_URL: "http://127.0.0.1:9", ANTHROPIC_CUSTOM_HEADERS: "X-Weave-Router-Key: rk_parked_test"}}' >"$parked_home/.claude/.weave-parked.json"
+run env HOME="$parked_home" bash "$installer" --claude-desktop --non-interactive --email dev@example.com >/dev/null 2>&1 || fail "install next to a parked Claude Code install failed"
+parked_config="$parked_home/.weave-router/desktop-shim/config.json"
+[ "$(jq -r '.router_base_url' "$parked_config")" = "http://127.0.0.1:9" ] || fail "parked Claude Code endpoint not reused: $(jq -r '.router_base_url' "$parked_config")"
+[ "$(jq -r '.router_key' "$parked_config")" = "rk_parked_test" ] || fail "parked Claude Code router key not reused"
 
 # An auto-proxy someone else set is left alone and the rule to add is printed.
 reset_os
