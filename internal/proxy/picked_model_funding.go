@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"strings"
 
 	"weave-os/router/internal/auth"
 	"weave-os/router/internal/providers"
@@ -23,6 +24,20 @@ func withPickedModelFunding(ctx context.Context, servedAsIs bool, provider strin
 	if !servedAsIs {
 		return auth.WithoutClientModelPassthrough(ctx)
 	}
+	return fundOnOwnPlan(ctx, provider)
+}
+
+// withCodexPickFunding funds a Codex /model pick served as selected the same
+// way as a client-picked model.
+func withCodexPickFunding(ctx context.Context, servedModel, provider string) context.Context {
+	selected, _, _ := strings.Cut(codexSelectedModel(ctx), ":")
+	if selected == "" || selected != servedModel {
+		return ctx
+	}
+	return fundOnOwnPlan(ctx, provider)
+}
+
+func fundOnOwnPlan(ctx context.Context, provider string) context.Context {
 	if creditFallback, _ := ctx.Value(InstallationPickedModelCreditFallbackContextKey{}).(bool); creditFallback {
 		return ctx
 	}

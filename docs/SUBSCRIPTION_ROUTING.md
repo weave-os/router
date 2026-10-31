@@ -52,7 +52,8 @@ a login for the served provider it funds like a routed request (the managed
 pool's included quota, then Weave credits). The installation setting
 `picked_model_credit_fallback_enabled` restores the routed funding rules for
 picks. A picked model the installation cannot serve as-is is routed instead and
-funds as routed traffic.
+funds as routed traffic. A Codex `/model` pick (`X-Weave-Codex-Native-Model-Pin: 1`)
+served as selected funds the same way.
 
 Native OpenAI Codex and Anthropic adapters accept subscription OAuth credentials.
 Anthropic-compatible bearer gateways do not advertise native Claude subscription

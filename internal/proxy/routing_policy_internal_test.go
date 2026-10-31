@@ -289,6 +289,18 @@ func TestPickedCodexModelMaySpendOwnCredits(t *testing.T) {
 	assert.False(t, requestcontext.SubscriptionExtraUsageFrom(withPickedModelFunding(ctx, false, providers.ProviderOpenAI)))
 }
 
+func TestCodexPickFundsOnOwnPlan(t *testing.T) {
+	selected := withCodexSelectedModel(context.WithValue(context.Background(), OpenAISubscriptionContextKey{}, "codex-jwt"), "gpt-6-astra", []byte(`{"reasoning":{"effort":"high"}}`))
+	creditFallback := context.WithValue(selected, InstallationPickedModelCreditFallbackContextKey{}, true)
+
+	served := withCodexPickFunding(selected, "gpt-6-astra", providers.ProviderOpenAI)
+	assert.True(t, pickedModelOnOwnPlan(served))
+	assert.True(t, requestcontext.SubscriptionExtraUsageFrom(served))
+	assert.False(t, pickedModelOnOwnPlan(withCodexPickFunding(selected, "gpt-6.1-sol", providers.ProviderOpenAI)), "a pick the router did not serve funds like routed traffic")
+	assert.False(t, pickedModelOnOwnPlan(withCodexPickFunding(creditFallback, "gpt-6-astra", providers.ProviderOpenAI)))
+	assert.False(t, pickedModelOnOwnPlan(withCodexPickFunding(context.Background(), "gpt-6-astra", providers.ProviderOpenAI)), "launch models are not picks")
+}
+
 func TestPickedModelWithoutOwnLoginUsesManagedPool(t *testing.T) {
 	leaser := &scriptedSubscriptionLeaser{leases: []subscriptions.Lease{{AccountID: "opaque-a", AccessToken: "token-a"}}}
 	svc := newServiceWithProviders(t, nil).WithManagedSubscriptions(leaser)
