@@ -160,7 +160,7 @@ func dropUnsupportedCacheControlFields(body []byte, firstParty bool, beta string
 	}
 	dropped := false
 	_ = forEachAnthropicCacheBlock(request, func(block map[string]any) error {
-		policy, _ := block["cache_control"].(map[string]any)
+		policy := block["cache_control"].(map[string]any)
 		for field, prefix := range firstPartyCacheControlBetas {
 			if _, ok := policy[field]; !ok {
 				continue
