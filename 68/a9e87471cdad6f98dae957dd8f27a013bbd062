@@ -1,0 +1,163 @@
+internal/proxy/fallback.go
+  s_731acdf047322b::t_8cf52f7c8bde83 181,217
+internal/proxy/dispatch_plan_test.go
+  s_731acdf047322b::t_bb32ff7a6bf02a 36,151,162,165-167,177,179
+internal/proxy/usage_bypass_terminal_test.go
+  s_731acdf047322b::t_1edab3eb4a59bf 1-43
+internal/translate/responses_to_openai_chat_writer.go
+  s_731acdf047322b::t_f41f0b804e875d 93-94,226-228,239-242,309-315,591-596,645-652,831-832,835-836
+  s_731acdf047322b::t_5e0dce5e10bf14 48,92,828-830,833-834,865-866
+internal/translate/notice.go
+  s_731acdf047322b::t_9b6837675b5e21 12,82,84,105-107,113,168,179-180,206-207,210-211,214,242-334
+internal/translate/terminal_failure_delivery_test.go
+  s_731acdf047322b::t_d635b20e151dcb 1-352
+internal/translate/notice_terminal_test.go
+  s_731acdf047322b::t_05625963a3c517 1-246
+internal/translate/gemini_stream.go
+  s_731acdf047322b::t_29662f2dfc0028 6,30-41,54-59,64-72,133-138,146-160,172-178,180-183,207-210,247-249,254-278,331,335-337,342
+  s_731acdf047322b::t_e5414433a6293c 279-281,328-329,332-334,338-341
+internal/translate/stream_observation.go
+  s_731acdf047322b::t_580e2f93253dd0 1-22,32-53,59-62,64-93,99-118,122-267
+  s_731acdf047322b::t_5132db756e926d 29,54-58,63,94-98,119-121
+  s_731acdf047322b::t_353cc2ad78e891 23-28,30-31
+internal/proxy/stream_terminal_observer_internal_test.go
+  s_731acdf047322b::t_fab6f6cb3fe742 30,132-253
+  s_731acdf047322b::t_0fa9cac51a4639 75,114-131,254
+  s_731acdf047322b::t_290197a2e65862 4-5,10,34-51
+internal/translate/responses_to_anthropic_writer.go
+  s_731acdf047322b::t_417bf995bb94a2 337-338,736-737,740,812-816,819,1130-1131
+  s_731acdf047322b::t_3ef0dc3650a3f3 52-54,104-109,247-249,258-261,335-336,339-341,735,738-739,817-818,1128-1129,1132-1134,1162-1163
+internal/translate/stream.go
+  s_731acdf047322b::t_2c5f11167da6d4 869-874,890-893,901-914,935-940,942-945,971-974,1011-1013,1018,1020-1023,1038-1056,1105
+  s_731acdf047322b::t_e321a4b1b403fe 110-115,121-124,135-140,142-145,170-173,210-212,217-234
+  s_731acdf047322b::t_aedced388ae066 42-46,49-54,235,457-459,583,620,625-630,1057,1106-1107
+internal/translate/stream_observation_test.go
+  s_731acdf047322b::t_53143939f8d11a 1-4,6-87
+  s_731acdf047322b::t_a7fb8ebe885269 88-90,93-114,117-137,139,141-144,179-180
+  s_731acdf047322b::t_1033d1d3dd178b 146-150,159-163,165-170,172-178
+  s_731acdf047322b::t_04575009d2941a 91-92,115-116,138,140,151-158
+  s_731acdf047322b::t_fa813cb3c9167c 5,145,164,171
+internal/translate/responses_failure.go
+  s_731acdf047322b::t_c7494c68d6f3ab 17-22,24,34-35
+  s_731acdf047322b::t_b6a79d7aa5ed7d 23,25-33,36
+internal/api/anthropic/messages.go
+  s_731acdf047322b::t_88b682d7e0cbf1 69
+internal/api/gemini/generate_content.go
+  s_731acdf047322b::t_19aaa7a69f0ed3 68
+internal/api/openai/completions.go
+  s_731acdf047322b::t_7d63bf35927747 43
+internal/api/openai/responses.go
+  s_731acdf047322b::t_ccf7dd09cf2bd3 47
+internal/proxy/AGENTS.md
+  s_731acdf047322b::t_3b6d93ef030ee2 42,312,316
+internal/proxy/CLAUDE.md
+  s_731acdf047322b::t_fb9fa37e963081 42,312,316
+internal/proxy/arm_demotion_internal_test.go
+  s_731acdf047322b::t_ea4fe6fb42121c 897-898,903,923,925-934
+internal/proxy/beta_internal_test.go
+  s_731acdf047322b::t_1a28f9e4da0a27 104,108-115,716-717,824-825
+internal/proxy/codex_title_gen_internal_test.go
+  s_731acdf047322b::t_e4efb59ed7bff8 35-40,42-43
+internal/proxy/context_overflow_internal_test.go
+  s_731acdf047322b::t_a3c42c42ef53fd 4,291-292,297-298
+internal/proxy/context_overflow_test.go
+  s_731acdf047322b::t_a52f337b3f45a3 33-34,50-55
+internal/proxy/cost_response_test.go
+  s_731acdf047322b::t_cdbe13f49cddd1 4,12,54-55
+internal/proxy/decision_span_embed_test.go
+  s_731acdf047322b::t_ec6ebe2cf778be 48-50,52-55
+internal/proxy/dispatch_error.go
+  s_731acdf047322b::t_9f0b83acfb8dc5 76-77,96
+internal/proxy/dispatch_plan.go
+  s_731acdf047322b::t_ac8fd83ca6b037 93,103,277
+internal/proxy/fallback_test.go
+  s_731acdf047322b::t_6d256eba6ecdca 430,476,503,552,580,625,662,671,703,829,1137-1144,1147-1166,1208-1214
+internal/proxy/fastmode_internal_test.go
+  s_731acdf047322b::t_e8e25316cef01e 278,291
+internal/proxy/funding_notice_regression_internal_test.go
+  s_731acdf047322b::t_786054b67ae5a1 57-59,147
+internal/proxy/gemini.go
+  s_731acdf047322b::t_d4b54b5dc71464 26,42-44,102,333-334,337-340,352
+internal/proxy/gemini_test.go
+  s_731acdf047322b::t_86dfe5290ddb9f 35-36,51,80,133
+internal/proxy/linked_first_test.go
+  s_731acdf047322b::t_73b8d59994c311 300-304
+internal/proxy/native_stream_terminal_integration_test.go
+  s_731acdf047322b::t_803501cdf0fc32 163-250
+internal/proxy/openai_cyber_refusal_integration_test.go
+  s_731acdf047322b::t_306cbc367fc94a 280-282
+internal/proxy/openai_pool_flush_latch_test.go
+  s_731acdf047322b::t_b66866e6e15b4a 29,66-76
+internal/proxy/outcome_telemetry_test.go
+  s_731acdf047322b::t_c04dbf39975f6e 24,49-54
+internal/proxy/responses_native_finish_reason_test.go
+  s_731acdf047322b::t_eb84e727b9496d 126,132-159
+internal/proxy/responses_reasoning_progress_integration_test.go
+  s_731acdf047322b::t_b4c4d3770ef539 261-265
+internal/proxy/responses_sparse_terminal_test.go
+  s_731acdf047322b::t_6afc391809f8de 17,73-83
+internal/proxy/responses_terminal_observer.go
+  s_731acdf047322b::t_44e544d946fd2f 41,97,99-104,108,119-143
+internal/proxy/responses_terminal_observer_internal_test.go
+  s_731acdf047322b::t_edebd36a46c55a 195-196,209-236
+internal/proxy/routing_prelude.go
+  s_731acdf047322b::t_2b503b9bfe5657 22-25
+internal/proxy/service.go
+  s_731acdf047322b::t_0426b5e27c5f42 3389-3390,3397-3403,3606-3608,3693,4556,4569,4676,4684,4745,4816,4864-4868,4870,4878-4881,4943,4969-4971,4973,4983-4984,4986,5013,5025,5045,5048-5050,5052,5058,5060,5073-5074,5134-5141,5143,5151,5153,6760-6765,6789-6791,6849,7586,7603,7605-7606,7614-7619,7630-7639,7750,7815,7955-7959,7966,7970-7973,8012,8015-8017,8021,8051-8058,8062,8068,8071,8121-8128,8130,8136,8138,8145,8201-8208,8210,8218,8220,8598-8601,8670-8671,8686,8688,8692-8693,8695
+internal/proxy/service_session_pin_test.go
+  s_731acdf047322b::t_e6de5d53f6ba89 1092-1099,1105,1396
+internal/proxy/stream_cut_internal_test.go
+  s_731acdf047322b::t_2d9b3ab777876d 123-124,131-132
+internal/proxy/stream_terminal_observer.go
+  s_731acdf047322b::t_35275d3b0dc005 15,17,20,22,24,27-28,30,38-39,90,93,96-97,102-105,107-108,111-123
+internal/proxy/subscription_budget_abort_test.go
+  s_731acdf047322b::t_15a24e9e7c8cbd 53,61,75-76
+internal/proxy/subscription_model_access_internal_test.go
+  s_731acdf047322b::t_6dcd1072c66a8b 32,50,65
+internal/proxy/subscription_pool_stream_error_test.go
+  s_731acdf047322b::t_2cca5f942f1fbd 20,23,57-60,63-65,98-101
+internal/proxy/surface_purpose_test.go
+  s_731acdf047322b::t_befbd397230280 81,90-98
+internal/proxy/terminal_delivery.go
+  s_731acdf047322b::t_7aa44ffb7ac6fa 1-209
+internal/proxy/terminal_delivery_internal_test.go
+  s_731acdf047322b::t_6951dfb64c8297 1-146
+internal/proxy/usage_bypass.go
+  s_731acdf047322b::t_54f8d7c2fd300f 507-513,543-544,546,549-555,560,562-568,595,606,647-648
+internal/proxy/usage_bypass_internal_test.go
+  s_731acdf047322b::t_74cfd41dbfafc8 346,360-365
+internal/proxy/usage_bypass_test.go
+  s_731acdf047322b::t_0ab516380375e5 133
+internal/translate/nameless_tool_call_test.go
+  s_731acdf047322b::t_9c9bbdeb400bf1 83
+internal/translate/notice_sink.go
+  s_731acdf047322b::t_48dfa256aa37d9 131-135,137-141,143,146,148,213-218
+internal/translate/responses.go
+  s_731acdf047322b::t_98f46f4b89503d 17,651-657,859-864,872-874,885-886,1148-1153,1166,1178-1180,1189-1191,1735,1917,1985-1990,1996-1998,2084
+internal/translate/responses_context_overflow_test.go
+  s_731acdf047322b::t_379dd08a6ff07a 4,16-41
+internal/translate/responses_progress.go
+  s_731acdf047322b::t_a9d689b524f352 13,15,29,45-48
+internal/translate/stream_think_test.go
+  s_731acdf047322b::t_871a9a8d6f9caf 58
+internal/translate/terminal_failure.go
+  s_731acdf047322b::t_e50313fb54d71c 1-302
+internal/translate/terminal_failure_adapter_test.go
+  s_731acdf047322b::t_5889e35ab2dbea 1-140
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "68a9e87471cdad6f98dae957dd8f27a013bbd062",
+  "prompts": {},
+  "sessions": {
+    "s_731acdf047322b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15b23-c841-7b82-88af-b6f978d77487",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": null
+    }
+  }
+}

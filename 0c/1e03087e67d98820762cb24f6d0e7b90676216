@@ -1,0 +1,39 @@
+internal/proxy/blind_experiment_internal_test.go
+  s_28c8815db4c15b::t_9176f0dd2fd6b4 151-152
+internal/auth/blind_experiment_cache.go
+  s_28c8815db4c15b::t_8ed74f2f18e6e9 33,45,50-52,68,117
+  s_28c8815db4c15b::t_6353fd41cd7936 54
+internal/proxy/service.go
+  s_28c8815db4c15b::t_53137a648b4f41 4781-4785,4823-4849,4851
+  s_28c8815db4c15b::t_599244ce4fcab1 4850
+  s_28c8815db4c15b::t_f05c23d53f4089 4852-4853
+internal/proxy/blind_experiment.go
+  s_28c8815db4c15b::t_9176f0dd2fd6b4 35-38
+internal/auth/service.go
+  s_28c8815db4c15b::t_6353fd41cd7936 69-79,81-85
+  s_28c8815db4c15b::t_aa4dc3d1295e3c 855-872,877-881
+  s_28c8815db4c15b::t_2f2d47e3d16878 16,80
+cmd/router/main.go
+  s_28c8815db4c15b::t_2a19d4cac1aa71 462
+internal/auth/blind_experiment_test.go
+  s_28c8815db4c15b::t_2a19d4cac1aa71 38,53,68,102,122
+  s_28c8815db4c15b::t_b2fdfab28c9700 135-149
+internal/proxy/turnloop_internal_test.go
+  s_28c8815db4c15b::t_53137a648b4f41 222,247-248
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "0c1e03087e67d98820762cb24f6d0e7b90676216",
+  "prompts": {},
+  "sessions": {
+    "s_28c8815db4c15b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0832c-78ed-7dc3-829b-0f975789e8e8",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

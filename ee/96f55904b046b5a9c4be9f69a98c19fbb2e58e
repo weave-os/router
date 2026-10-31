@@ -1,0 +1,59 @@
+internal/proxy/stream_cut_internal_test.go
+  s_8c07cbaac32551::t_47d69614bcadad 8
+  s_8c07cbaac32551::t_af7b09c67ea98d 86-93
+internal/dispatch/executor_test.go
+  s_8c07cbaac32551::t_8c1a70efc295ca 172-185
+internal/providers/httputil/httputil_test.go
+  s_8c07cbaac32551::t_f4ce644cdb05ed 217-237
+internal/dispatch/executor.go
+  s_8c07cbaac32551::t_86bded55d1a9ef 282-286
+internal/proxy/turn_error_class.go
+  s_8c07cbaac32551::t_83a24b8037564e 39-41
+internal/proxy/arm_demotion.go
+  s_8c07cbaac32551::t_4960a05b802874 140-144,147-151,154-155,157-158,160-161
+  s_8c07cbaac32551::t_9532f58b1eaabb 145-146
+  s_8c07cbaac32551::t_89533a5f903e9a 152-153,156,159
+internal/proxy/rescued_failure_demotion_internal_test.go
+  s_8c07cbaac32551::t_94cb792331e74c 173,195
+  s_8c07cbaac32551::t_499e318bfd70ca 174-194,196-203
+  s_8c07cbaac32551::t_2071377924a69c 170-172
+internal/providers/httputil/httputil.go
+  s_8c07cbaac32551::t_1e339b4cc9fe86 296-298,301-302,309-317,319,322-323,327
+  s_8c07cbaac32551::t_1da564b89a1595 328-338
+internal/proxy/arm_demotion_internal_test.go
+  s_8c07cbaac32551::t_4290e27f8cc8ce 106-160
+internal/proxy/sibling_failover_internal_test.go
+  s_8c07cbaac32551::t_a4abd3d4c8e217 153,160
+  s_8c07cbaac32551::t_28d9b1e1ce7e12 151-152,154-155
+  s_8c07cbaac32551::t_13ce38b9d7bd9d 48-68
+internal/proxy/service.go
+  s_8c07cbaac32551::t_70fed838f12e42 5193,7965
+  s_8c07cbaac32551::t_774f1674253c23 4519,7486
+internal/proxy/held_pin_rescue_internal_test.go
+  s_8c07cbaac32551::t_fa0cdfcec8981f 119
+  s_8c07cbaac32551::t_5490b3862c1753 157
+  s_8c07cbaac32551::t_e14b9e83d549b3 1-15,17-28,31-35,39-44,77-82,84-97,102-118,120-123,147,158
+  s_8c07cbaac32551::t_7af7ed8c86623e 16,29-30,36-38,45-76
+  s_8c07cbaac32551::t_318ef0132cbdf7 83,124-146,148-156
+  s_8c07cbaac32551::t_d9fada71c289d2 98-101
+internal/proxy/sibling_failover.go
+  s_8c07cbaac32551::t_774f1674253c23 18-26,331
+internal/router/sessionpin/store.go
+  s_8c07cbaac32551::t_4960a05b802874 127-130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "ee96f55904b046b5a9c4be9f69a98c19fbb2e58e",
+  "prompts": {},
+  "sessions": {
+    "s_8c07cbaac32551": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f88e-2dbc-7912-b3cf-34aa1988b388",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

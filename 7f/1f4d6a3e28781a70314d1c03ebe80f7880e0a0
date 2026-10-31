@@ -1,0 +1,64 @@
+internal/proxy/gemini.go
+  s_2ab2e0fccef46f::t_7df24b4655448f 388-391
+internal/providers/openaicompat/client.go
+  s_2ab2e0fccef46f::t_e9c4dd5849d7ed 406-410
+internal/providers/google/native_client.go
+  s_2ab2e0fccef46f::t_e9c4dd5849d7ed 124,134-138
+internal/proxy/turn_logs.go
+  s_2ab2e0fccef46f::t_37fcf1c2ea970a 400,407
+  s_2ab2e0fccef46f::t_2c122569400c41 443-444
+  s_2ab2e0fccef46f::t_cabcabf7007d37 29
+  s_2ab2e0fccef46f::t_346d0403ddaa11 318,323-325,328,335-336,338,349,364-368,386-387,389
+  s_2ab2e0fccef46f::t_e9c4dd5849d7ed 395-398,401
+  s_2ab2e0fccef46f::t_4bee8d1333765f 262-271
+  s_2ab2e0fccef46f::t_0ac578d71adaa3 258,260,321,341-342,353-354,385,388,390-394,399,402-406,408-413,431,453-454,458-461,463,465,467,469,471,473,477-479
+  s_2ab2e0fccef46f::t_743cb82a17a789 261
+internal/providers/provider.go
+  s_2ab2e0fccef46f::t_7df24b4655448f 308-310
+  s_2ab2e0fccef46f::t_e9c4dd5849d7ed 327-331
+  s_2ab2e0fccef46f::t_4ac41f77df5d9e 311,337-339,347-364
+  s_2ab2e0fccef46f::t_cf5d7c7dfe6ecc 340-346
+  s_2ab2e0fccef46f::t_c2f8d6b8c0dc4d 365-366
+internal/providers/openai/client.go
+  s_2ab2e0fccef46f::t_e9c4dd5849d7ed 379-383
+internal/providers/httputil/errors.go
+  s_2ab2e0fccef46f::t_7df24b4655448f 124-129
+  s_2ab2e0fccef46f::t_f8ddfc08122c03 93-94
+internal/proxy/service.go
+  s_2ab2e0fccef46f::t_7c15d92020a6a0 7993-7995,8240
+  s_2ab2e0fccef46f::t_c00752bcb0ec61 153-154
+internal/providers/anthropic/client.go
+  s_2ab2e0fccef46f::t_e9c4dd5849d7ed 420-424
+internal/providers/httputil/errors_test.go
+  s_2ab2e0fccef46f::t_871fbe774fa82f 52,64-66
+  s_2ab2e0fccef46f::t_a58bb2f13e4d0c 123-126
+  s_bc03126290f366::t_34a2f457ae9c98 122
+internal/proxy/turn_logs_internal_test.go
+  s_2ab2e0fccef46f::t_482441b8aa0bd8 306-310,349-351,361-392
+  s_2ab2e0fccef46f::t_34bae4b283e2fa 4,13
+  s_2ab2e0fccef46f::t_d53389c02ba2df 393
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7f1f4d6a3e28781a70314d1c03ebe80f7880e0a0",
+  "prompts": {},
+  "sessions": {
+    "s_2ab2e0fccef46f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10d99-4510-78b0-a5ab-bc86051e40fd",
+        "model": "gpt-6-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_bc03126290f366": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a10d97-5346-7f92-9ace-ac5df6dfed5d",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

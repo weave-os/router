@@ -1,0 +1,38 @@
+internal/router/switchpolicy/policy_test.go
+  s_33522dee49bf01::t_98132063dba6bc 1-20,24-141,153-157,159,185-247,255-263,281,285-297
+  s_33522dee49bf01::t_58e4cb8f8018da 142-152,273-274
+  s_33522dee49bf01::t_9abbb96d016fa5 158,160-184
+  s_33522dee49bf01::t_ff5cb745bf3a55 21-23,264-272,275-280,282-284
+  s_33522dee49bf01::t_748e38efbc176f 248-254
+cmd/replay-switch-policy/main_test.go
+  s_33522dee49bf01::t_3631703643c647 23,25-26,33-34,63
+  s_33522dee49bf01::t_7c09967d242cc3 1-22,27-32,35-62,64-159
+  s_33522dee49bf01::t_09df550ae725ec 24
+internal/router/switchpolicy/policy.go
+  s_33522dee49bf01::t_98132063dba6bc 148,206-208
+  s_33522dee49bf01::t_ff5cb745bf3a55 73-80
+  s_33522dee49bf01::t_9abbb96d016fa5 89,161,164-167,185-189
+  s_33522dee49bf01::t_34ea03b09bf0d7 1-72,81-88,90-147,149-160,162-163,168-184,190-205,209-245
+docs/HMM_GO_SELECTION.md
+  s_33522dee49bf01::t_58e4cb8f8018da 94-147
+cmd/replay-switch-policy/main.go
+  s_33522dee49bf01::t_9abbb96d016fa5 140
+  s_33522dee49bf01::t_d49495aea94357 1-43,48-55,68-139,141-217
+  s_33522dee49bf01::t_ff5cb745bf3a55 44-47,56-67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "d8100398bc67c36bd3af589b928c74c3e5574f8a",
+  "prompts": {},
+  "sessions": {
+    "s_33522dee49bf01": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18eb0-0355-7522-a7c9-ac571ae84fba",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

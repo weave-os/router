@@ -1,0 +1,51 @@
+bench/tests/test_efficiency_results.py
+  s_29aee27fb6d00d::t_e3bc00eaeedcee 5,13-14,17-18,25,94-104,108-109,112,119-153
+bench/tests/test_efficiency_runners.py
+  s_29aee27fb6d00d::t_1cdfc43beff1ba 4-5,14,23,25-27,29,59,95-108,110,129-150,152-167,196-198,209,213-215,218-221,223,225-227,230,233-248
+bench/token-efficiency/README.md
+  s_29aee27fb6d00d::t_7b025b3218138a 78-80,159-166,179-180,266,269-271,277-278,304-307,367,371-372
+bench/weave_bench/efficiency/cli.py
+  s_29aee27fb6d00d::t_4a50ab43d85b9c 49-50,96,103-104,112,116,127-130,200-207,210,212-213,215,225-226,237-240,243-244,281-310,313-315
+bench/weave_bench/efficiency/estimates.py
+  s_29aee27fb6d00d::t_d243f393c2e09f 109
+bench/weave_bench/efficiency/pin_path.py
+  s_29aee27fb6d00d::t_59128916d1710b 1-64
+bench/weave_bench/efficiency/pin_proxy.py
+  s_29aee27fb6d00d::t_cc366477f77a2b 19,29,66-68,74-87
+bench/weave_bench/efficiency/pooling.py
+  s_29aee27fb6d00d::t_779b4dd00d05bc 71,83,143
+bench/weave_bench/efficiency/quality.py
+  s_29aee27fb6d00d::t_80c29bdbeba3a1 117-118,133,137,139,141-143
+bench/weave_bench/efficiency/results.py
+  s_246ffb093e877e::t_a7683784d674b6 10,17-18,62-63,65-68,70-71,76-77,79-82,93-95,110,113,119,126,136,147,223-224,235-237
+bench/weave_bench/efficiency/savings.py
+  s_29aee27fb6d00d::t_9b9cd87ea9f17d 44-48
+bench/weave_bench/efficiency/swe_together.py
+  s_29aee27fb6d00d::t_e5025e75e39f66 9-14,23,32-34,50,74,81-86,90,98,104,109,115,117,123,132,149,158,187,195-196,204-207,215,218-219,224-228,232,238,240-241,264-265,267-279
+bench/weave_bench/efficiency/terminal_bench.py
+  s_29aee27fb6d00d::t_85953410aafdd6 48-50,176,225,255-261,265-272,275-277,279-284
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fb5fb9d3bae4fbe6d14031abf41b3f021ff3dad9",
+  "prompts": {},
+  "sessions": {
+    "s_246ffb093e877e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "07d947d2-9a43-4479-8bd0-2dee4392d4d0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    },
+    "s_29aee27fb6d00d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "334c31dc-6e6f-44da-90d5-bb62eb3cf18b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

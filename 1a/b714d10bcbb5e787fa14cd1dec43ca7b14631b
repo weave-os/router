@@ -1,0 +1,103 @@
+cmd/router/main.go
+  s_14682fca0edca7::t_a5333878d1ab1b 2407-2409
+internal/proxy/service.go
+  s_14682fca0edca7::t_1f0fbd895a7fac 6636-6637
+  s_14682fca0edca7::t_f1ad4549e5f80a 6638
+internal/wif/oidc.go
+  s_14682fca0edca7::t_a5333878d1ab1b 6,44-65
+  s_33522dee49bf01::t_f5f39b8f4e365a 66
+internal/auth/upstream_secrets.go
+  s_14682fca0edca7::t_f1ad4549e5f80a 29-31,44,58,60-62
+  s_14682fca0edca7::t_1f0fbd895a7fac 10
+  s_14682fca0edca7::t_ca729393aa96b9 22-24
+  s_14682fca0edca7::t_fd6ba3b6cee77d 11,13
+internal/requestcontext/credentials.go
+  s_14682fca0edca7::t_f1ad4549e5f80a 69-71
+frontend/src/components/settings/ProviderKeysPanel.tsx
+  s_14682fca0edca7::t_621f97074a5dec 30-31,323-326,336-339,346-348,364,373,448,450,582,588,590
+internal/api/admin/keys_test.go
+  s_14682fca0edca7::t_2aa2ce8da0854a 328,418-432
+  s_14682fca0edca7::t_b2d329a8338d49 433-434
+internal/auth/external_api_key.go
+  s_14682fca0edca7::t_f1ad4549e5f80a 37-39
+internal/providers/anthropic/federation_test.go
+  s_14682fca0edca7::t_9afc828ca695f8 43-44,70-71
+  s_14682fca0edca7::t_ee0db66e82c1fa 75-92
+internal/providers/AGENTS.md
+  s_14682fca0edca7::t_1f0fbd895a7fac 42
+internal/anthropicfederation/source_test.go
+  s_14682fca0edca7::t_ca729393aa96b9 89
+  s_14682fca0edca7::t_9afc828ca695f8 123-131,135-146,187-188
+  s_14682fca0edca7::t_42601459169cf6 155-157,175-177
+  s_14682fca0edca7::t_a88481680b60eb 87-88,90-96
+  s_14682fca0edca7::t_1f0fbd895a7fac 132-134
+  s_14682fca0edca7::t_2aa2ce8da0854a 284-286,289-306
+  s_14682fca0edca7::t_2f4b8759c4097f 11,147-154,158-174,178-186
+internal/api/admin/keys.go
+  s_14682fca0edca7::t_a5333878d1ab1b 278-281
+internal/anthropicfederation/source.go
+  s_14682fca0edca7::t_f1ad4549e5f80a 12,138,140-141,160
+  s_14682fca0edca7::t_a5333878d1ab1b 142,189-192,195
+  s_14682fca0edca7::t_2f4b8759c4097f 11,139
+docs/CONFIGURATION.md
+  s_14682fca0edca7::t_e350ba5deb09dc 428-431,436-437
+  s_14682fca0edca7::t_1f0fbd895a7fac 443-445,451-453
+internal/auth/anthropic_federation.go
+  s_14682fca0edca7::t_f1ad4549e5f80a 26-33
+internal/auth/anthropic_federation_test.go
+  s_14682fca0edca7::t_b8e1dac5a63647 56,58-77
+  s_14682fca0edca7::t_9afc828ca695f8 55,94,100-103
+  s_14682fca0edca7::t_cf8aea28aeea9f 57
+internal/proxy/credentials.go
+  s_14682fca0edca7::t_1f0fbd895a7fac 75-76
+  s_14682fca0edca7::t_f1ad4549e5f80a 83,97
+internal/server/middleware/federation_test.go
+  s_14682fca0edca7::t_a88481680b60eb 56-76
+  s_14682fca0edca7::t_9afc828ca695f8 14,24,26,38-47
+internal/proxy/federation_isolation_internal_test.go
+  s_14682fca0edca7::t_6f2435a6460ff3 54-89
+  s_14682fca0edca7::t_ee0db66e82c1fa 1-53
+internal/wif/oidc_test.go
+  s_14682fca0edca7::t_2aa2ce8da0854a 7,74-100
+  s_33522dee49bf01::t_37ecc1be265298 101
+internal/proxy/dispatch_error.go
+  s_14682fca0edca7::t_f1ad4549e5f80a 9,39,124-125
+internal/providers/anthropic/client.go
+  s_14682fca0edca7::t_f1ad4549e5f80a 252-253,305-307,358-360,504-506
+internal/providers/CLAUDE.md
+  s_14682fca0edca7::t_1f0fbd895a7fac 42
+internal/providers/anthropic/client_test.go
+  s_14682fca0edca7::t_ca729393aa96b9 248
+internal/proxy/failure_owner.go
+  s_14682fca0edca7::t_c26270df7b9023 116
+internal/providers/anthropic/list_models.go
+  s_14682fca0edca7::t_f1ad4549e5f80a 35-37,71
+internal/auth/service.go
+  s_14682fca0edca7::t_f9a308c6c4fd54 875,923
+internal/auth/session_token.go
+  s_14682fca0edca7::t_8928b58ea0189b 260
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1ab714d10bcbb5e787fa14cd1dec43ca7b14631b",
+  "prompts": {},
+  "sessions": {
+    "s_14682fca0edca7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18ea6-05c9-7ad1-874e-a720bd132cbc",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_33522dee49bf01": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18eb0-0355-7522-a7c9-ac571ae84fba",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}

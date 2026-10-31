@@ -1,0 +1,41 @@
+docs/CONFIGURATION.md
+  s_980914d43580db::t_5c35c8720fd634 420
+internal/proxy/AGENTS.md
+  s_980914d43580db::t_e4458fc8889660 42
+internal/proxy/CLAUDE.md
+  s_980914d43580db::t_0e55524fc23609 42
+internal/proxy/client_budget_internal_test.go
+  s_980914d43580db::t_ca63da5ded4be8 108-116
+internal/proxy/compaction.go
+  s_980914d43580db::t_8f658dda6cf437 50-51,114,253-259,269,289,293,298
+internal/proxy/compaction_test.go
+  s_980914d43580db::t_1d6a4195d2c332 286-297,326-327,334-335,338-341,349
+internal/proxy/dispatch_error.go
+  s_980914d43580db::t_891a7c68a1a230 305
+internal/translate/crossformat_request_test.go
+  s_980914d43580db::t_fc63b34a037080 4,2049-2056,2058,2060,2064-2065,2068-2069,2077-2079,2081-2085
+internal/translate/envelope.go
+  s_980914d43580db::t_c96b53b91c68cb 894
+internal/translate/features.go
+  s_980914d43580db::t_d56565c8a37df7 65-66,80-81,93-94,97-109,111,113-130,133-136,139,143,148
+internal/translate/features_internal_test.go
+  s_980914d43580db::t_2f1f51bf7f23ee 4-5,112-117,124-126,133-134,138-159,162,168
+internal/translate/openai_reasoning_signature.go
+  s_980914d43580db::t_5c555d680a930f 84-94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.4",
+  "base_commit_sha": "e16a854abc4dc255139ebbefcb8591d01eec904b",
+  "prompts": {},
+  "sessions": {
+    "s_980914d43580db": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "ae5ab8c5-50a9-4ae6-930a-ff22188bfb75",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "munir-weave <munir@workweave.ai>"
+    }
+  }
+}

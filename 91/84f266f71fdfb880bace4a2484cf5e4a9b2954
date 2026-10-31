@@ -1,0 +1,21 @@
+internal/router/breaker/breaker.go
+  s_820054ea85251d::t_2f16873cbb6257 229,246,253,260,283,290,293,301-304,403-406
+internal/proxy/overload_breaker_internal_test.go
+  s_820054ea85251d::t_2f16873cbb6257 389
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9184f266f71fdfb880bace4a2484cf5e4a9b2954",
+  "prompts": {},
+  "sessions": {
+    "s_820054ea85251d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15795-f71b-71b3-a470-34c0f2ed2beb",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Drew Bailey <drew@workweave.ai>"
+    }
+  }
+}

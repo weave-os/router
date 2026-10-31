@@ -1,0 +1,21 @@
+internal/router/hmm/selection/domain.go
+  s_78314889e48d65::t_bd7d84e4884c68 179,184,187
+internal/api/admin/internal_task_domain_preview.go
+  s_78314889e48d65::t_bd7d84e4884c68 79,81-95,142,148
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2fd072728278e42da2ab7bb5edf11d6e0d6462df",
+  "prompts": {},
+  "sessions": {
+    "s_78314889e48d65": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "80f6f84c-7250-4cb3-a86b-83d9b0c00d7d",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Samir Amin <aminsamir45@gmail.com>"
+    }
+  }
+}
