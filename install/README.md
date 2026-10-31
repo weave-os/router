@@ -16,6 +16,7 @@ npx @weave-os/router --claude                     # Claude Code, user scope
 npx @weave-os/router --codex                      # Codex, user scope
 npx @weave-os/router --opencode                   # opencode, user scope
 npx @weave-os/router --copilot                    # GitHub Copilot CLI: adds weave/auto to /model
+npx @weave-os/router --claude-desktop             # Claude Desktop (Code tab and Cowork), through a local proxy
 npx @weave-os/router --claude --return-url https://app.example.com/onboarding # continue after a verified install
 
 # Project scope — only when running inside this repo:
@@ -379,6 +380,77 @@ Limitations:
   and `/router-models` are client-side toggles in the installed clients and do
   nothing in an SDK app; to bypass the router, create the session without it.
 
+||||||| 5249e152
+
+### Claude Desktop (`--claude-desktop`)
+
+Covers Claude Desktop's **Code** tab and **Cowork**. Desktop sets
+`ANTHROPIC_BASE_URL` to Anthropic for both, and ignores the `settings.json` route
+`--claude` uses. Both do follow the OS proxy and the OS certificate store, so
+this install sets up three things:
+
+1. **A local proxy** (`desktop-shim.js`, no dependencies) on `127.0.0.1:47821`,
+   run at login by launchd (macOS) or systemd `--user` (Linux). It terminates TLS
+   for `api.anthropic.com` only. Messages API calls (`/v1/messages*`) whose user
+   agent names Desktop's Code tab (`claude-desktop`) or Cowork (`local-agent`) go
+   to the router with `X-Weave-Router-Key`. Everything else, including other
+   apps' `api.anthropic.com` traffic and Desktop's sign-in, passes through to
+   Anthropic unchanged. Every other host is tunneled untouched.
+2. **A certificate for `api.anthropic.com`**, trusted by the OS (login keychain
+   on macOS, `/usr/local/share/ca-certificates` on Linux). The installer makes
+   a CA that name constraints limit to `api.anthropic.com`, signs one leaf with
+   it, and deletes the CA key.
+3. **The OS auto-proxy** pointed at the proxy's PAC file
+   (`http://127.0.0.1:47821/proxy.pac`), which sends only `api.anthropic.com` to
+   the proxy. An auto-proxy that's already set is left alone; the installer
+   prints the one rule to add to it instead.
+
+Cowork is covered only when its agent runs on the computer. When Desktop can't
+start Cowork's local VM (for example on a Mac without virtualization), it runs
+the task in Anthropic's cloud, which no local proxy can see.
+
+You stay signed in to Claude, so subscription routing, cloud sessions and
+Remote Control keep working. Expect one password prompt (keychain trust on
+macOS, sudo for the network setting or trust store), then quit and reopen
+Claude Desktop.
+
+```bash
+npx @weave-os/router --claude-desktop             # install or refresh
+npx @weave-os/router --uninstall --claude-desktop # remove the proxy, trust and auto-proxy
+```
+
+| Path | Contents |
+| ---- | -------- |
+| `~/.weave-router/desktop-shim/desktop-shim.js` | Copy of the proxy. |
+| `~/.weave-router/desktop-shim/config.json` | Router URL, router key and listen port (`$WEAVE_DESKTOP_SHIM_PORT` overrides 47821). Mode `0600`. |
+| `~/.weave-router/desktop-shim/ca.pem`, `leaf.pem`, `leaf-key.pem` | The certificate pair. Re-installs keep a still-valid pair. |
+| `~/Library/LaunchAgents/ai.workweave.router-desktop-shim.plist` or `~/.config/systemd/user/weave-router-desktop-shim.service` | Runs the proxy at login. |
+
+Loopback is shared by every account on the machine, so the proxy only serves
+processes of the OS user who installed it (checked per connection through
+`/proc/net/tcp` on Linux and `lsof` on macOS) and refuses the rest with 403.
+
+#### Rolling out to an organization
+
+The same three pieces map onto standard device-management payloads:
+
+1. **Certificate:** generate one name-constrained pair for the fleet (run the
+   installer once and copy `ca.pem`, `leaf.pem`, `leaf-key.pem` from
+   `~/.weave-router/desktop-shim/`), then push `ca.pem` as a trusted root
+   (macOS: a Certificate payload).
+2. **Auto-proxy:** push `http://127.0.0.1:47821/proxy.pac` as the proxy
+   auto-config URL (macOS: the Proxies payload's `ProxyAutoConfigURLString`), or
+   add the printed rule to your existing PAC file.
+3. **Proxy:** run the installer as each user with the shared pair and their key:
+
+   ```bash
+   WEAVE_ROUTER_KEY=rk_... WEAVE_DESKTOP_CERT_DIR=/path/to/pair \
+     npx @weave-os/router --claude-desktop --non-interactive
+   ```
+
+   With the certificate already trusted and the PAC already set, the installer
+   only writes the config and starts the service, with no prompts.
+
 ## Flags
 
 | Flag                       | Default                       | Meaning                                                                |
@@ -387,6 +459,7 @@ Limitations:
 | `--codex`                  | (target picker if interactive) | Skip the target picker; install for the OpenAI Codex CLI.              |
 | `--opencode`               | (target picker if interactive) | Skip the target picker; install for opencode.                          |
 | `--copilot`                | (target picker if interactive) | Skip the target picker; add `weave/auto` to GitHub Copilot CLI (user scope only). |
+| `--claude-desktop`         | (target picker if interactive) | Skip the target picker; route Claude Desktop's Code tab and Cowork through a local proxy (user scope only). |
 | `--wire anthropic\|openai` | `anthropic`                   | Copilot only: the API format Copilot uses to reach the router.          |
 | `--scope user\|project`    | interactive prompt (default `user`) | User-level install (everywhere) vs project-level (this repo only).      |
 | `--local`                  | off                           | Shortcut for the bundled docker-compose router (`localhost:8080`).      |
@@ -772,6 +845,7 @@ npx @weave-os/router --uninstall                       # every client it configu
 npx @weave-os/router --uninstall --claude              # Claude Code only
 npx @weave-os/router --uninstall --codex               # Codex, user scope
 npx @weave-os/router --uninstall --opencode            # opencode, user scope
+npx @weave-os/router --uninstall --claude-desktop      # Claude Desktop proxy
 npx @weave-os/router --uninstall --scope project       # every client, in the repo
 npx @weave-os/router --uninstall --codex --scope project
 npx @weave-os/router --uninstall --opencode --scope project
