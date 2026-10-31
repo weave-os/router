@@ -231,6 +231,7 @@ uninstall_cmd() {
     opencode) cmd="$cmd --opencode" ;;
     pi)       cmd="$cmd --pi" ;;
     copilot)  cmd="$cmd --copilot" ;;
+    claude-desktop) cmd="$cmd --claude-desktop" ;;
   esac
   [ "$scope" = "project" ] && cmd="$cmd --scope project"
   [ -n "$install_dir" ] && cmd="$cmd --dir $(printf '%q' "$install_dir")"
@@ -277,6 +278,7 @@ print_banner() {
     opencode) target_label="opencode installer" ;;
     pi)       target_label="pi installer" ;;
     copilot)  target_label="GitHub Copilot CLI installer" ;;
+    claude-desktop) target_label="Claude Desktop installer" ;;
     *)        target_label="Claude Code installer" ;;
   esac
   printf '\n'
@@ -399,6 +401,7 @@ Set up
   $npx setup --claude --codex   install for both (one key prompt)
   $npx --opencode | --pi        install for opencode or pi
   $npx --copilot                add Weave Router to Copilot CLI's /model picker
+  $npx --claude-desktop         route Claude Desktop's Code tab (local proxy)
 
 Every day
   $npx status                   is each tool routed, signed in, working?
@@ -1778,6 +1781,9 @@ while [ $# -gt 0 ]; do
       lsp_langs="${2:-}"; shift 2
       [ -n "$lsp_langs" ] || { err "--lsp requires a comma-separated language list (go,typescript,python,rust)."; exit 2; }
       ;;
+    --claude-desktop)
+      target="claude-desktop"; target_explicit="true"; shift
+      ;;
     --claude)
       # No-op selector for symmetry with --codex / --opencode. Useful in
       # pipelines that want to skip the interactive picker without depending
@@ -2016,6 +2022,16 @@ if [ "$target" = "copilot" ] && [ "$scope" = "project" ]; then
   err "--copilot installs in user scope only (Copilot CLI has no project-level providers.json). Drop --scope project, or use --dir for a throwaway COPILOT_HOME."
   exit 2
 fi
+# Claude Desktop is configured through a local proxy service, not a settings
+# file, so there is nothing to toggle or scope per repo.
+if [ "$target" = "claude-desktop" ] && [ "$mode" != "install" ] && [ "$mode" != "update" ]; then
+  err "Toggle verbs (off/on/status) aren't supported for --claude-desktop. Remove HTTPS_PROXY from Claude Desktop's local environment to go direct, or run 'npx $npm_package_name --uninstall --claude-desktop'."
+  exit 2
+fi
+if [ "$target" = "claude-desktop" ] && [ "$scope" = "project" ]; then
+  err "--claude-desktop installs in user scope only. Drop --scope project."
+  exit 2
+fi
 
 if [ -z "$base_url" ]; then
   base_url="$DEFAULT_BASE_URL"
@@ -2069,7 +2085,7 @@ fi
 # they keep the user-scope default unless the caller explicitly selects a
 # project scope. Non-interactive installs (CI, `curl | sh --non-interactive`)
 # silently use the "user" default.
-if [ "$mode" = "install" ] && [ -z "$install_dir" ] && [ "$scope_explicit" = "false" ] && [ "$non_interactive" = "false" ] && [ "$target" != "copilot" ] && [ -r /dev/tty ]; then
+if [ "$mode" = "install" ] && [ -z "$install_dir" ] && [ "$scope_explicit" = "false" ] && [ "$non_interactive" = "false" ] && [ "$target" != "copilot" ] && [ "$target" != "claude-desktop" ] && [ -r /dev/tty ]; then
   # Per-target paths so the prompt text matches what actually gets written.
   case "$target" in
     codex)
@@ -2160,7 +2176,7 @@ fi
 # payloads with jq regardless of which client's config supplied the endpoint,
 # so require it there too rather than dying mid-render on `jq: command not
 # found`. Installing Codex itself still needs no jq.
-if [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" ] || [ "$target" = "copilot" ] \
+if [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" ] || [ "$target" = "copilot" ] || [ "$target" = "claude-desktop" ] \
    || { [ "$mode" = "models" ] && [ "$target" = "codex" ]; }; then
   ensure_jq
 fi
@@ -2202,6 +2218,10 @@ case "$target" in
       warn "'pi' not found on PATH. Install with 'npm install -g @mariozechner/pi-coding-agent', then re-run this script."
       warn "Continuing — models.json/settings.json will be written and take effect once pi is installed."
     fi
+    ;;
+  claude-desktop)
+    require_cmd node    "the proxy runs on Node.js 18+: https://nodejs.org"
+    require_cmd openssl "macOS: preinstalled; Linux: install openssl from your package manager"
     ;;
   copilot)
     if ! command -v copilot >/dev/null 2>&1; then
@@ -2437,6 +2457,11 @@ if [ "$target" = "claude" ]; then
   if [ "$statusline_install" = "true" ]; then
     mkdir -p "$statusline_dir"
   fi
+elif [ "$target" = "claude-desktop" ]; then
+  desktop_shim_dir="$settings_base/.weave-router/desktop-shim"
+  desktop_shim_config="$desktop_shim_dir/config.json"
+  mkdir -p "$desktop_shim_dir"
+  chmod 700 "$desktop_shim_dir"
 elif [ "$target" = "codex" ]; then
   # Codex CLI reads config from ~/.codex/config.toml by default. For project
   # scope we write to <repo>/.codex/config.toml; the user invokes Codex with
@@ -2741,6 +2766,7 @@ read_installed_key() {
     opencode) read_opencode_key "$opencode_config_file" ;;
     pi)       read_pi_key ;;
     copilot)  read_copilot_key ;;
+    claude-desktop) json_get "$desktop_shim_config" '.router_key' ;;
   esac
 }
 
@@ -2819,6 +2845,10 @@ resolve_installed_endpoint() {
   case "$target" in
     claude)
       resolve_installed_base_url
+      return 0
+      ;;
+    claude-desktop)
+      json_get "$desktop_shim_config" '.router_base_url'
       return 0
       ;;
     codex)
@@ -4951,6 +4981,10 @@ rewrite_installed_key() {
       chmod 600 "$pi_key_file"
       ;;
     copilot) write_copilot_providers "$copilot_providers_file" "$base_url" "$key" "$user_email" "$user_name" ;;
+    claude-desktop)
+      write_desktop_shim_config "$key"
+      start_desktop_shim_service
+      ;;
   esac
 }
 
@@ -6193,6 +6227,284 @@ if [ "$target" = "codex" ]; then
   else
     finish_install "Codex" codex
   fi
+  exit 0
+fi
+
+# ---------- Claude Desktop install path (dispatch + exit before the Claude-only writes) ----------
+#
+# Claude Desktop sets ANTHROPIC_BASE_URL to Anthropic for its Code tab and
+# Cowork sessions, so the settings.json route the CLI uses never reaches them.
+# Both do take the OS proxy and the OS certificate store. So this path:
+#   1. runs desktop-shim.js as a login service on 127.0.0.1,
+#   2. trusts a certificate that can only vouch for api.anthropic.com,
+#   3. points the OS auto-proxy at the shim's PAC file, which sends only
+#      api.anthropic.com to the shim.
+# The shim sends Desktop's Messages API calls to the router and passes the rest
+# to Anthropic, so the user's Claude sign-in and subscription are untouched.
+
+desktop_shim_service_name="weave-router-desktop-shim"
+desktop_shim_launchd_label="ai.workweave.router-desktop-shim"
+
+desktop_shim_proxy_url() {
+  printf 'http://127.0.0.1:%s' "$desktop_shim_port"
+}
+
+desktop_shim_source() {
+  local candidate
+  [ -n "$script_dir" ] || return 1
+  for candidate in "$script_dir/desktop-shim.js" "$script_dir/../desktop-shim.js"; do
+    if [ -f "$candidate" ]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# write_desktop_shim_certs makes a CA that may only sign api.anthropic.com,
+# signs one leaf with it, then deletes the CA key so nothing else can ever be
+# minted from the CA that Claude Code is told to trust. Re-runs keep a still
+# valid pair, because Desktop's saved NODE_EXTRA_CA_CERTS points at ca.pem.
+write_desktop_shim_certs() {
+  local dir="$desktop_shim_dir" tmp
+  # An organization can hand every machine the same IT-made pair instead, and
+  # trust that CA through its device management.
+  if [ -n "${WEAVE_DESKTOP_CERT_DIR:-}" ]; then
+    cp "$WEAVE_DESKTOP_CERT_DIR/ca.pem" "$WEAVE_DESKTOP_CERT_DIR/leaf.pem" "$dir/"
+    (umask 077 && cp "$WEAVE_DESKTOP_CERT_DIR/leaf-key.pem" "$dir/leaf-key.pem")
+    return 0
+  fi
+  if [ -f "$dir/ca.pem" ] && [ -f "$dir/leaf.pem" ] && [ -f "$dir/leaf-key.pem" ] \
+     && openssl verify -CAfile "$dir/ca.pem" "$dir/leaf.pem" >/dev/null 2>&1 \
+     && openssl x509 -checkend 2592000 -noout -in "$dir/leaf.pem" >/dev/null 2>&1; then
+    return 0
+  fi
+  tmp="$(mktemp -d)"
+  cat >"$tmp/ca.cnf" <<'CNF'
+[req]
+distinguished_name = dn
+prompt = no
+x509_extensions = v3_ca
+[dn]
+CN = Weave Router Claude Desktop proxy
+[v3_ca]
+basicConstraints = critical,CA:TRUE,pathlen:0
+keyUsage = critical,keyCertSign,cRLSign
+nameConstraints = critical,permitted;DNS:api.anthropic.com
+subjectKeyIdentifier = hash
+CNF
+  cat >"$tmp/leaf.ext" <<'EXT'
+basicConstraints = critical,CA:FALSE
+keyUsage = critical,digitalSignature,keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = DNS:api.anthropic.com
+authorityKeyIdentifier = keyid
+EXT
+  if ! {
+    openssl req -x509 -newkey rsa:2048 -nodes -days 825 -config "$tmp/ca.cnf" \
+      -keyout "$tmp/ca-key.pem" -out "$tmp/ca.pem" \
+    && openssl req -newkey rsa:2048 -nodes -subj "/CN=api.anthropic.com" \
+      -keyout "$tmp/leaf-key.pem" -out "$tmp/leaf.csr" \
+    && openssl x509 -req -days 825 -in "$tmp/leaf.csr" -CA "$tmp/ca.pem" -CAkey "$tmp/ca-key.pem" \
+      -set_serial "0x$(openssl rand -hex 16)" -extfile "$tmp/leaf.ext" -out "$tmp/leaf.pem"
+  } >/dev/null 2>&1; then
+    rm -rf "$tmp"
+    err "openssl could not create the Claude Desktop proxy certificate."
+    exit 1
+  fi
+  (umask 077 && cp "$tmp/leaf-key.pem" "$dir/leaf-key.pem")
+  cp "$tmp/leaf.pem" "$dir/leaf.pem"
+  cp "$tmp/ca.pem" "$dir/ca.pem"
+  rm -rf "$tmp"
+  ok "Created a local certificate for api.anthropic.com in $dir"
+}
+
+write_desktop_shim_config() {
+  local key="$1" tmp
+  tmp="$(mktemp "$desktop_shim_dir/config.json.XXXXXX")"
+  chmod 600 "$tmp"
+  jq -n \
+    --arg base "$base_url" \
+    --arg key "$key" \
+    --argjson port "$desktop_shim_port" \
+    --arg cert "$desktop_shim_dir/leaf.pem" \
+    --arg cert_key "$desktop_shim_dir/leaf-key.pem" \
+    '{listen_host: "127.0.0.1", listen_port: $port, router_base_url: $base, router_key: $key, cert_file: $cert, key_file: $cert_key}' >"$tmp"
+  mv "$tmp" "$desktop_shim_config"
+}
+
+xml_escape() {
+  printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
+}
+
+start_desktop_shim_service() {
+  local node_bin shim="$desktop_shim_dir/desktop-shim.js"
+  node_bin="$(command -v node)"
+  case "$(uname -s)" in
+    Darwin)
+      local plist="$HOME/Library/LaunchAgents/$desktop_shim_launchd_label.plist" uid
+      local xml_node xml_shim xml_config xml_log
+      uid="$(id -u)"
+      xml_node="$(xml_escape "$node_bin")"
+      xml_shim="$(xml_escape "$shim")"
+      xml_config="$(xml_escape "$desktop_shim_config")"
+      xml_log="$(xml_escape "$desktop_shim_dir/proxy.log")"
+      mkdir -p "$(dirname "$plist")"
+      cat >"$plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>$desktop_shim_launchd_label</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$xml_node</string>
+    <string>$xml_shim</string>
+    <string>$xml_config</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>$xml_log</string>
+  <key>StandardErrorPath</key>
+  <string>$xml_log</string>
+</dict>
+</plist>
+PLIST
+      launchctl bootout "gui/$uid/$desktop_shim_launchd_label" >/dev/null 2>&1 || true
+      if ! launchctl bootstrap "gui/$uid" "$plist"; then
+        err "launchctl could not start the Claude Desktop proxy from $plist."
+        exit 1
+      fi
+      ok "Claude Desktop proxy runs at login (launchd $desktop_shim_launchd_label)"
+      ;;
+    Linux)
+      local unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user" unit
+      unit="$unit_dir/$desktop_shim_service_name.service"
+      mkdir -p "$unit_dir"
+      cat >"$unit" <<UNIT
+[Unit]
+Description=Weave Router proxy for Claude Desktop
+
+[Service]
+ExecStart="$node_bin" "$shim" "$desktop_shim_config"
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target
+UNIT
+      if systemctl --user daemon-reload >/dev/null 2>&1 \
+         && systemctl --user enable "$desktop_shim_service_name.service" >/dev/null 2>&1 \
+         && systemctl --user restart "$desktop_shim_service_name.service" >/dev/null 2>&1; then
+        ok "Claude Desktop proxy runs at login (systemd --user $desktop_shim_service_name)"
+      else
+        warn "systemctl --user could not start $unit. Start the proxy yourself: \"$node_bin\" \"$shim\" \"$desktop_shim_config\""
+      fi
+      ;;
+    *)
+      err "--claude-desktop supports macOS and Linux."
+      exit 1
+      ;;
+  esac
+}
+
+wait_for_desktop_shim() {
+  local _
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    curl -fsS --noproxy '*' --max-time 1 "$(desktop_shim_proxy_url)/health" >/dev/null 2>&1 && return 0
+    sleep 0.25
+  done
+  return 1
+}
+
+desktop_shim_ca_store="/usr/local/share/ca-certificates/weave-router-claude-desktop.crt"
+
+trust_desktop_shim_ca() {
+  case "$(uname -s)" in
+    Darwin)
+      if security verify-cert -c "$desktop_shim_dir/leaf.pem" -p ssl -s api.anthropic.com >/dev/null 2>&1; then
+        return 0
+      fi
+      info "macOS will ask for your password to trust the api.anthropic.com certificate."
+      if ! security add-trusted-cert -r trustRoot -k "$HOME/Library/Keychains/login.keychain-db" "$desktop_shim_dir/ca.pem"; then
+        err "Could not trust $desktop_shim_dir/ca.pem in your login keychain."
+        exit 1
+      fi
+      ;;
+    Linux)
+      cmp -s "$desktop_shim_dir/ca.pem" "$desktop_shim_ca_store" && return 0
+      info "sudo is needed to add the api.anthropic.com certificate to the system trust store."
+      if ! { sudo install -m 644 "$desktop_shim_dir/ca.pem" "$desktop_shim_ca_store" && sudo update-ca-certificates >/dev/null; }; then
+        err "Could not add $desktop_shim_dir/ca.pem to the system trust store."
+        exit 1
+      fi
+      ;;
+  esac
+  ok "Trusted the proxy's api.anthropic.com certificate"
+}
+
+# set_desktop_system_proxy leaves an auto-proxy someone else set alone: the PAC
+# rule to add to it is printed instead.
+set_desktop_system_proxy() {
+  local pac rule service current
+  pac="http://127.0.0.1:$desktop_shim_port/proxy.pac"
+  rule="if (host === \"api.anthropic.com\") return \"PROXY 127.0.0.1:$desktop_shim_port\";"
+  case "$(uname -s)" in
+    Darwin)
+      while IFS= read -r service; do
+        current="$(networksetup -getautoproxyurl "$service" | sed -n 's/^URL: //p')"
+        [ "$current" = "$pac" ] && continue
+        if [ -n "$current" ] && [ "$current" != "(null)" ]; then
+          warn "$service already uses the auto-proxy $current. Add this rule to it: $rule"
+          continue
+        fi
+        sudo networksetup -setautoproxyurl "$service" "$pac"
+      done < <(networksetup -listallnetworkservices | tail -n +2 | grep -v '^\*')
+      ;;
+    Linux)
+      current="$(gsettings get org.gnome.system.proxy autoconfig-url)"
+      if [ "$(gsettings get org.gnome.system.proxy mode)" != "'none'" ] && [ "$current" != "'$pac'" ]; then
+        warn "A system proxy is already set. Add this rule to its PAC file: $rule"
+        return 0
+      fi
+      gsettings set org.gnome.system.proxy autoconfig-url "$pac"
+      gsettings set org.gnome.system.proxy mode 'auto'
+      ;;
+  esac
+  ok "System auto-proxy sends api.anthropic.com to $(desktop_shim_proxy_url)"
+}
+
+if [ "$target" = "claude-desktop" ]; then
+  desktop_shim_port="${WEAVE_DESKTOP_SHIM_PORT:-$(json_get "$desktop_shim_config" '.listen_port')}"
+  desktop_shim_port="${desktop_shim_port:-47821}"
+  if ! desktop_shim_src="$(desktop_shim_source)"; then
+    err "desktop-shim.js is missing next to the installer. Install with 'npx $npm_package_name --claude-desktop'."
+    exit 1
+  fi
+  cp "$desktop_shim_src" "$desktop_shim_dir/desktop-shim.js"
+  write_desktop_shim_certs
+  write_desktop_shim_config "$api_key"
+  ok "Proxy config written to $desktop_shim_config"
+  start_desktop_shim_service
+  if wait_for_desktop_shim; then
+    ok "Claude Desktop proxy is listening on $(desktop_shim_proxy_url)"
+  else
+    warn "The Claude Desktop proxy isn't answering on $(desktop_shim_proxy_url) yet. Check $desktop_shim_dir/proxy.log (macOS) or 'journalctl --user -u $desktop_shim_service_name' (Linux)."
+  fi
+  trust_desktop_shim_ca
+  set_desktop_system_proxy
+
+  verify_install
+
+  announce_done "Claude Desktop"
+  if [ "$mode" = "install" ] && [ "$quiet" != "true" ]; then
+    printf "\n%sNext:%s quit and reopen Claude Desktop. New Code and Cowork sessions go through Weave Router; you stay signed in to Claude.\n" "$C_BOLD" "$C_RESET"
+  fi
+  [ "$mode" = "update" ] || print_uninstall_hint
   exit 0
 fi
 
