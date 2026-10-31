@@ -118,6 +118,17 @@ explicitly to its managed Codex config.
 | `<repo>/.claude/settings.local.json`| ❌ ignored | Stores your local `ANTHROPIC_CUSTOM_HEADERS` router-key header and any other per-teammate overrides. |
 | `<repo>/.claude/.credentials.json`  | ❌ ignored | CC's per-user credentials cache.                               |
 
+The installer also adds a **Weave Auto** row to Claude Code's `/model` picker
+(`modelPicker`, Claude Code 2.1.242+) and selects it (in project scope this goes in
+`settings.local.json`). The first install that adds the passthrough header below
+selects Weave Auto even over a saved `model` (and drops `env.ANTHROPIC_MODEL` from
+that file), since before passthrough every model was routed anyway. Later updates
+keep whatever model the user picked, and select Weave Auto only when none is set. The row is `weave-auto[1m]`, so Claude Code budgets a 1M window: it sends `weave-auto` with the 1M-context beta, and the router routes it.
+`X-Weave-Model-Passthrough: 1` in `ANTHROPIC_CUSTOM_HEADERS` serves any other
+model Claude Code sends (a picker choice, `--model`, a subagent's model) as-is,
+without routing. A model the organization cannot serve as-is (outside its
+allowed models, excluded, or without a gateway alias) is routed instead. `off` removes the row and the default; `on` restores them.
+
 The router key lives in `ANTHROPIC_CUSTOM_HEADERS` so Claude Code can keep
 using its normal Anthropic auth (`Authorization` / `x-api-key`) for the
 logged-in user's Team/Pro/Max/individual plan.

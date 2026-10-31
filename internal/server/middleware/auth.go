@@ -200,6 +200,9 @@ func withAPIKey(svc *auth.Service, byokRequiresOptIn bool, serving ...*ServingAd
 			if installation.SubscriptionRoutingDisabled {
 				ctx = context.WithValue(ctx, proxy.InstallationSubscriptionRoutingDisabledContextKey{}, true)
 			}
+			if installation.PickedModelCreditFallbackEnabled {
+				ctx = context.WithValue(ctx, proxy.InstallationPickedModelCreditFallbackContextKey{}, true)
+			}
 			if installation.HideTerminalSurfaces {
 				ctx = context.WithValue(ctx, proxy.InstallationHideTerminalSurfacesContextKey{}, true)
 			}
