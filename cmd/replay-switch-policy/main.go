@@ -56,7 +56,7 @@ type summary struct {
 	Version                  switchpolicy.Version        `json:"policy_version"`
 	Config                   switchpolicy.Config         `json:"config"`
 	InputSHA256              string                      `json:"input_sha256"`
-	Sessions                 int                         `json:"pin_buckets"`
+	PinBuckets               int                         `json:"pin_buckets"`
 	Observations             int                         `json:"observations"`
 	ObservedTransitions      int                         `json:"observed_transitions"`
 	CandidateTransitions     int                         `json:"candidate_transitions"`
@@ -77,9 +77,6 @@ type traceRecord struct {
 }
 
 func replay(input io.Reader, trace io.Writer, config switchpolicy.Config) (summary, error) {
-	if err := config.Validate(); err != nil {
-		return summary{}, err
-	}
 	hash := sha256.New()
 	decoder := json.NewDecoder(io.TeeReader(input, hash))
 	decoder.DisallowUnknownFields()
@@ -91,6 +88,7 @@ func replay(input io.Reader, trace io.Writer, config switchpolicy.Config) (summa
 		Version: switchpolicy.VersionAgreementV1, Config: config,
 		Reasons: make(map[switchpolicy.Reason]int),
 		Limitations: []string{
+			"Every pin bucket starts empty with no incumbent or prior votes; mid-session suffixes cold-start instead of continuing the existing session.",
 			"Classifier proposals and request timing are held fixed; alternative model outputs are not generated.",
 			"Pin state is serialized in input order; distributed database interleavings are not reproduced.",
 			"Input must supply request-compatible proposals and explicit recovery or intent overrides.",
@@ -153,7 +151,7 @@ func replay(input io.Reader, trace io.Writer, config switchpolicy.Config) (summa
 	if output.Observations == 0 {
 		return summary{}, errors.New("input contains no observations")
 	}
-	output.Sessions = len(pins)
+	output.PinBuckets = len(pins)
 	output.InputSHA256 = hex.EncodeToString(hash.Sum(nil))
 	for target, requests := range counts {
 		output.CandidateCounts = append(output.CandidateCounts, targetCount{Target: target, Requests: requests})
@@ -191,7 +189,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 		return fmt.Errorf("open replay input: %w", err)
 	}
 	defer input.Close()
-	var trace io.Writer = io.Discard
+	trace := io.Discard
 	if *tracePath != "" {
 		file, err := os.OpenFile(*tracePath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err != nil {

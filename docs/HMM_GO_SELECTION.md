@@ -139,6 +139,14 @@ of conversation content. Observations must be unique and ordered by timestamp
 within each full pin key and role. Traces are private files created without
 overwriting; the summary includes the input hash and coverage counts.
 
+Every pin bucket starts with empty state: no incumbent, pending votes, or prior
+revision is loaded. Its first eligible proposal becomes the initial model
+immediately, without waiting for the upgrade/downgrade vote count. Continuation
+analysis therefore requires history from pin creation. A mid-session suffix is
+treated as a new bucket, not as a continuation of the existing model; its choices
+and transition counts can differ. An explicit starting-state input is not
+supported, and every emitted summary discloses this cold-start boundary.
+
 The command serializes state and holds proposals and request timing fixed. It
 does not generate alternative model outputs, reclassify future requests, replay
 distributed database scheduling, or estimate quality, billing, or latency.

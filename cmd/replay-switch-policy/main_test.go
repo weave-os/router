@@ -68,7 +68,7 @@ func TestReplayPartitionsStateAndUsesActualPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if output.Sessions != 3 || output.Observations != 8 || output.CandidateTransitions != 1 || output.ObservedTransitions != 2 || output.ChangedRequests != 4 {
+	if output.PinBuckets != 3 || output.Observations != 8 || output.CandidateTransitions != 1 || output.ObservedTransitions != 2 || output.ChangedRequests != 4 {
 		t.Fatalf("unexpected partitioned replay: %+v", output)
 	}
 	if output.Reasons[switchpolicy.ReasonInitial] != 3 || output.Reasons[switchpolicy.ReasonAgreement] != 4 || output.Reasons[switchpolicy.ReasonSwitch] != 1 {
@@ -87,6 +87,48 @@ func TestReplayPartitionsStateAndUsesActualPolicy(t *testing.T) {
 		if row.ID != rows[i].ID || row.Decision.Version != switchpolicy.VersionAgreementV1 {
 			t.Fatalf("trace %d does not describe the input decision: %+v", i, row)
 		}
+	}
+}
+
+func TestReplaySuffixStartsWithoutIncumbent(t *testing.T) {
+	rows := []record{
+		syntheticRecord("initial", "session", escalation.Low, catalog.ModelGPT6Luna, 0),
+		syntheticRecord("upgrade-1", "session", escalation.High, modelSol, 1),
+		syntheticRecord("upgrade-2", "session", escalation.High, modelSol, 2),
+		syntheticRecord("upgrade-3", "session", escalation.High, modelSol, 3),
+	}
+	config := switchpolicy.Config{MinimumConfidence: .5, UpgradeVotes: 3, DowngradeVotes: 5}
+	var fullTrace, suffixTrace bytes.Buffer
+	full, err := replay(bytes.NewReader(encodeRecords(t, rows...)), &fullTrace, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	suffix, err := replay(bytes.NewReader(encodeRecords(t, rows[1:]...)), &suffixTrace, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if full.CandidateTransitions != 1 || full.QualifiedHigherGroupHeld != 2 || suffix.CandidateTransitions != 0 || suffix.QualifiedHigherGroupHeld != 0 {
+		t.Fatalf("full history and a cold-started suffix must have different agreement state: full=%+v suffix=%+v", full, suffix)
+	}
+	var first, fullUpgrade, suffixUpgrade traceRecord
+	decoder := json.NewDecoder(&fullTrace)
+	if err := decoder.Decode(&first); err != nil {
+		t.Fatal(err)
+	}
+	if err := decoder.Decode(&fullUpgrade); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.NewDecoder(&suffixTrace).Decode(&suffixUpgrade); err != nil {
+		t.Fatal(err)
+	}
+	if fullUpgrade.Decision.Reason != switchpolicy.ReasonAgreement || fullUpgrade.Decision.Next.Current.Target.Model != catalog.ModelGPT6Luna {
+		t.Fatalf("full-history upgrade must wait on its incumbent: %+v", fullUpgrade)
+	}
+	if suffixUpgrade.ID != fullUpgrade.ID || suffixUpgrade.Decision.Reason != switchpolicy.ReasonInitial || suffixUpgrade.Decision.Next.Current.Target.Model != modelSol {
+		t.Fatalf("same request starts a new model when preceding history is absent: %+v", suffixUpgrade)
+	}
+	if !strings.Contains(strings.Join(suffix.Limitations, " "), "mid-session suffixes cold-start") {
+		t.Fatal("summary must disclose the empty starting-state boundary")
 	}
 }
 
