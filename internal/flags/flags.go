@@ -311,7 +311,7 @@ var Registry = []Definition{
 		Key:            KeyAuthoritativeUpgradeSlidingThreshold,
 		EnvVar:         "ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD",
 		Kind:           KindBool,
-		Description:    "Upgrade a session pin by probability bands that bypass the confidence floor: from low/medium, maximum at 0.3-0.5 serves high and >=0.5 maximum; from low, high at 0.3-0.5 serves medium and >=0.5 high, medium >=0.3 serves medium; from medium, high needs >=0.4; from high, maximum needs >=0.5. Below a band the existing upgrade gates decide. Off by default.",
+		Description:    "Upgrade directly to the predicted class when its probability clears a threshold: from low, medium/high/maximum need >=0.3; from medium, high needs >=0.4 and maximum >=0.3; from high, maximum needs >=0.5. Accepted upgrades bypass the confidence floor without changing the classifier ranking. Below the threshold the existing upgrade gates decide. Off by default.",
 		OrgOverridable: true,
 	},
 	{

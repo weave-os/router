@@ -51,45 +51,36 @@ func Higher(base, floor Group) Group {
 	return base
 }
 
-// Sliding upgrade threshold bands: a partial vote for a higher class steps
-// toward it, a majority vote reaches it.
 const (
-	slidingStepProbability         = 0.30
-	slidingFullProbability         = 0.50
-	slidingMediumToHighProbability = 0.40
+	slidingMinimumProbability       = 0.30
+	slidingHighToMaximumProbability = 0.50
+	slidingMediumToHighProbability  = 0.40
 )
 
-// SlidingThresholdTarget maps a classification above a session's pinned group
-// to the group the session moves to. covered is false for transitions the
-// sliding threshold does not define; an empty target means it does not move
-// the session.
+// SlidingThresholdTarget admits an upgrade to the classified group, never an
+// intermediate group. Confidence controls whether to switch, not which class
+// the selector ranks first. An empty target leaves the existing gates in charge;
+// covered is false for transitions without a sliding threshold.
 func SlidingThresholdTarget(pinned, classified Group, probability float64) (target Group, covered bool) {
+	var threshold float64
 	switch {
 	case classified == Maximum && (pinned == Low || pinned == Medium):
-		return slidingBand(probability, High, Maximum), true
+		threshold = slidingMinimumProbability
 	case classified == Maximum && pinned == High:
-		return slidingBand(probability, "", Maximum), true
+		threshold = slidingHighToMaximumProbability
 	case classified == High && pinned == Low:
-		return slidingBand(probability, Medium, High), true
+		threshold = slidingMinimumProbability
 	case classified == High && pinned == Medium:
-		if probability >= slidingMediumToHighProbability {
-			return High, true
-		}
-		return "", true
+		threshold = slidingMediumToHighProbability
 	case classified == Medium && pinned == Low:
-		return slidingBand(probability, Medium, Medium), true
+		threshold = slidingMinimumProbability
+	default:
+		return "", false
 	}
-	return "", false
-}
-
-func slidingBand(probability float64, step, full Group) Group {
-	switch {
-	case probability >= slidingFullProbability:
-		return full
-	case probability >= slidingStepProbability:
-		return step
+	if probability >= threshold {
+		return classified, true
 	}
-	return ""
+	return "", true
 }
 
 // Constraint carries classifier intent without overriding user/provider restrictions.

@@ -224,8 +224,8 @@ type Service struct {
 	// hmmUpgradeConfidenceThreshold keeps the pin. Env
 	// ROUTER_AUTHORITATIVE_DOWNGRADE_GATE, off by default.
 	authoritativeDowngradeGate bool
-	// authoritativeUpgradeSlidingThreshold lets an upgrade inside a per-group
-	// probability band (escalation.SlidingThresholdTarget) bypass the confidence
+	// authoritativeUpgradeSlidingThreshold lets an upgrade above a per-group
+	// probability threshold (escalation.SlidingThresholdTarget) bypass the confidence
 	// floor. Env ROUTER_AUTHORITATIVE_UPGRADE_SLIDING_THRESHOLD, off by default.
 	authoritativeUpgradeSlidingThreshold bool
 	// hmmDowngradeHysteresisTurns is how many consecutive authoritative-per-turn

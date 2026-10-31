@@ -97,8 +97,8 @@ type Request struct {
 	// continuation has no user text to classify and escalation is active.
 	PreviousPolicyGroup escalation.Group
 	// SlidingThresholdPinGroup is the session pin's group on an authoritative
-	// turn with the sliding threshold on; selection steps toward a higher
-	// classified group.
+	// turn with the sliding threshold on. It controls upgrade admission without
+	// changing the classifier's ranked groups.
 	SlidingThresholdPinGroup escalation.Group
 
 	RequestedModel string
