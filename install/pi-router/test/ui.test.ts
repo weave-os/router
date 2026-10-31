@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { aggregateSavings } from "../src/savings.js";
 import { clearLoomUi, installLoomUi, registerWooly, updateRouterStatus } from "../src/ui.js";
 
 function uiHarness(mode: "tui" | "rpc" | "json" | "print" | undefined, hasUI: boolean) {
@@ -57,7 +56,6 @@ test("Pi 0.74 TUI starts without Wooly and toggles it for the session", async ()
 	installLoomUi(ctx);
 	updateRouterStatus(ctx, {
 		requestedModel: "claude-sonnet-4-6",
-		savings: aggregateSavings([]),
 	});
 
 	assert.equal(values().title, "Loom · Weave Router");
@@ -86,11 +84,17 @@ test("modern non-TUI modes do not receive terminal components", async () => {
 	await toggleWooly();
 	updateRouterStatus(ctx, {
 		requestedModel: "claude-sonnet-4-6",
-		savings: aggregateSavings([]),
 	});
 
 	assert.equal(values().title, undefined);
 	assert.equal(values().header, undefined);
 	assert.equal(values().widget, undefined);
-	assert.equal(values().status, "WEAVE ROUTER — claude-sonnet-4-6 · awaiting route · saved —");
+	assert.equal(values().status, "WEAVE ROUTER — claude-sonnet-4-6 · awaiting route");
+
+	updateRouterStatus(ctx, {
+		requestedModel: "claude-sonnet-4-6",
+		routedModel: "moonshotai/kimi-k2.7",
+		sessionSavings: { savingsUsd: 1.234, baselineLabel: "Opus 5.5" },
+	});
+	assert.equal(values().status, "WEAVE ROUTER — moonshotai/kimi-k2.7 ← claude-sonnet-4-6 · saved $1.23 vs Opus 5.5");
 });

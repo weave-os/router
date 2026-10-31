@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { registerRoutedModel } from "../src/routed-model.js";
+import { formatSessionSavings, parseSessionSavings } from "../src/session-savings.js";
 import {
 	aggregateSavings,
 	createSavingsEntry,
-	formatSavings,
 	isSavingsEntryData,
 	normalizeModelId,
 	SAVINGS_ENTRY_TYPE,
@@ -57,7 +57,8 @@ test("unknown swapped models are explicit instead of fabricated zero savings", (
 	assert.equal(entry.priced, false);
 	assert.equal(entry.savingsUsd, undefined);
 	assert.deepEqual(entry.unpricedModels, ["private-model"]);
-	assert.equal(formatSavings(aggregateSavings([entry])), "saved — · 1 unpriced");
+	assert.equal(aggregateSavings([entry]).pricedResponses, 0);
+	assert.equal(aggregateSavings([entry]).unpricedResponses, 1);
 });
 
 test("negative deltas render as added cost", () => {
@@ -65,7 +66,7 @@ test("negative deltas render as added cost", () => {
 		{ requestedModel: "claude-haiku-4-5", routedModel: "claude-opus-4-8" },
 		usage,
 	);
-	assert.equal(formatSavings(aggregateSavings([entry])), "extra $4.00");
+	assert.equal(aggregateSavings([entry]).totalSavingsUsd, -4);
 });
 
 test("aggregates restored entry data and rejects malformed entries", () => {
@@ -81,7 +82,7 @@ test("aggregates restored entry data and rejects malformed entries", () => {
 	assert.equal(aggregate.pricedResponses, 1);
 	assert.equal(aggregate.unpricedResponses, 1);
 	assert.equal(aggregate.lastEntry, second);
-	assert.equal(formatSavings(aggregate), "saved $2.05 · 1 unpriced");
+	assert.ok(Math.abs(aggregate.totalSavingsUsd - 2.05) < 1e-12);
 	assert.equal(isSavingsEntryData(first), true);
 	assert.equal(isSavingsEntryData({ ...first, usage: { input: -1 } }), false);
 });
@@ -99,12 +100,26 @@ test("persists routed-response savings in RPC mode", async () => {
 			appended.push({ customType, data });
 		},
 	} as unknown as ExtensionAPI;
-	registerRoutedModel(pi);
+	const costRequests: string[] = [];
+	const request = (async (url: string | URL | Request) => {
+		costRequests.push(String(url));
+		if (costRequests.length === 1) return new Response("{}", { status: 404 });
+		return Response.json({
+			session_id: "session-rpc",
+			savings_usd: 9.99,
+			normalized_savings_usd: 1.25,
+			savings_baseline_model: "claude-opus-5-5",
+			savings_baseline_label: "Opus 5.5",
+		});
+	}) as typeof fetch;
+	process.env.WEAVE_ROUTER_KEY = "rk_synthetic";
+	process.env.WEAVE_ROUTER_URL = "http://router.invalid";
+	registerRoutedModel(pi, request);
 	const ctx = {
 		mode: "rpc",
 		hasUI: true,
 		model: { id: "claude-sonnet-4-6" },
-		sessionManager: { getBranch: () => [] },
+		sessionManager: { getBranch: () => [], getSessionId: () => "session-rpc" },
 		ui: {
 			notify() {},
 			setStatus(_key: string, value: string | undefined) {
@@ -126,7 +141,7 @@ test("persists routed-response savings in RPC mode", async () => {
 		},
 		ctx,
 	);
-	assert.equal(statuses.at(-1), "WEAVE ROUTER — moonshotai/kimi-k2.7 ← claude-sonnet-4-6 · saved —");
+	assert.equal(statuses.at(-1), "WEAVE ROUTER — moonshotai/kimi-k2.7 ← claude-sonnet-4-6");
 	await handlers.get("turn_end")?.(
 		{
 			type: "turn_end",
@@ -147,5 +162,21 @@ test("persists routed-response savings in RPC mode", async () => {
 	assert.equal(saved.data.routedModel, "moonshotai/kimi-k2.7");
 	assert.equal(saved.data.provider, "openrouter");
 	assert.equal(saved.data.decision, "automatic");
-	assert.equal(statuses.at(-1), "WEAVE ROUTER — moonshotai/kimi-k2.7 ← claude-sonnet-4-6 · saved $2.05");
+	await new Promise((resolve) => setImmediate(resolve));
+	assert.deepEqual(costRequests, ["http://router.invalid/v1/sessions/session-rpc/cost", "http://router.invalid/v1/sessions/session-rpc/cost"]);
+	assert.equal(statuses.at(-1), "WEAVE ROUTER — moonshotai/kimi-k2.7 ← claude-sonnet-4-6 · saved $1.25 vs Opus 5.5");
+	delete process.env.WEAVE_ROUTER_KEY;
+	delete process.env.WEAVE_ROUTER_URL;
+});
+
+test("session savings come only from the router's normalized figure", () => {
+	const body = { session_id: "s1", savings_usd: 9.99, normalized_savings_usd: -0.4, savings_baseline_label: "Opus 5.5" };
+	const parsed = parseSessionSavings(body, "s1");
+	assert.deepEqual(parsed, { savingsUsd: -0.4, baselineLabel: "Opus 5.5" });
+	assert.equal(formatSessionSavings({ savingsUsd: -0.4, baselineLabel: "Opus 5.5" }), "cost $0.40 more than Opus 5.5");
+	assert.equal(formatSessionSavings({ savingsUsd: 0.004, baselineLabel: "GPT-6.1 Sol" }), "saved <$0.01 vs GPT-6.1 Sol");
+	assert.equal(formatSessionSavings({ savingsUsd: 0, baselineLabel: "Opus 5.5" }), "no savings yet vs Opus 5.5");
+	assert.equal(parseSessionSavings({ session_id: "s1", savings_usd: 9.99 }, "s1"), undefined);
+	assert.equal(parseSessionSavings(body, "other-session"), undefined);
+	assert.equal(parseSessionSavings({ ...body, savings_baseline_label: "\u001b[31mOpus" }, "s1"), undefined);
 });

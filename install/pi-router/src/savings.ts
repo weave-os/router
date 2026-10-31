@@ -173,19 +173,3 @@ export function formatMoney(amount: number): string {
 	if (absolute > 0 && absolute < 0.005) return "<$0.01";
 	return `$${absolute.toFixed(2)}`;
 }
-
-export function formatSavings(aggregate: SavingsAggregate): string {
-	let clause: string;
-	if (aggregate.pricedResponses === 0) {
-		clause = "saved —";
-	} else if (aggregate.totalSavingsUsd < 0) {
-		clause = `extra ${formatMoney(aggregate.totalSavingsUsd)}`;
-	} else {
-		clause = `saved ${formatMoney(aggregate.totalSavingsUsd)}`;
-	}
-	if (aggregate.unpricedResponses > 0) {
-		const suffix = aggregate.unpricedResponses === 1 ? "1 unpriced" : `${aggregate.unpricedResponses} unpriced`;
-		return `${clause} · ${suffix}`;
-	}
-	return clause;
-}

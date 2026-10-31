@@ -155,6 +155,7 @@ func (r *TelemetryRepo) InsertRequestTelemetry(ctx context.Context, p proxy.Inse
 		TtftMs:                                   p.TTFTMs,
 		CacheCreationTokens:                      p.CacheCreationTokens,
 		CacheCreation1hTokens:                    p.CacheCreation1hTokens,
+		BaselineWarmPrefillTokens:                p.BaselineWarmPrefillTokens,
 		CacheReadTokens:                          p.CacheReadTokens,
 		ReasoningTokens:                          p.ReasoningTokens,
 		Speed:                                    stringPtrOrNil(p.Speed),
@@ -828,7 +829,17 @@ func (r *TelemetryRepo) GetSessionCost(ctx context.Context, installationID, sess
 	if row.SessionID == nil {
 		return proxy.SessionCost{}, proxy.ErrSessionCostNotFound
 	}
+	turns, err := sessionSavingsTurns(ctx, q, id, sessionID)
+	if err != nil {
+		return proxy.SessionCost{}, err
+	}
+	evidence, err := tokenEfficiencyEvidence(ctx, q)
+	if err != nil {
+		return proxy.SessionCost{}, err
+	}
 	return proxy.SessionCost{
+		SavingsTurns:           turns,
+		TokenEfficiency:        evidence,
 		SessionID:              *row.SessionID,
 		RequestCount:           row.RequestCount,
 		ActualCostUSDMicros:    row.ActualInputCostUsd + row.ActualOutputCostUsd,
@@ -1056,4 +1067,78 @@ func (r *TelemetryRepo) GetTelemetryBySessionSequence(ctx context.Context, insta
 		Strategy:         derefString(row.Strategy),
 		Timestamp:        row.Timestamp.Time,
 	}, nil
+}
+
+func sessionSavingsTurns(ctx context.Context, q *sqlc.Queries, installationID uuid.UUID, sessionID string) ([]proxy.SessionSavingsTurn, error) {
+	rows, err := q.GetSessionSavingsTurns(ctx, sqlc.GetSessionSavingsTurnsParams{InstallationID: installationID, SessionID: sessionID})
+	if err != nil {
+		return nil, err
+	}
+	turns := make([]proxy.SessionSavingsTurn, 0, len(rows))
+	for _, row := range rows {
+		turns = append(turns, proxy.SessionSavingsTurn{
+			Timestamp:                 row.Timestamp.Time,
+			ClientApp:                 row.ClientApp,
+			RequestedModel:            row.RequestedModel,
+			DecisionModel:             row.DecisionModel,
+			DecisionProvider:          row.DecisionProvider,
+			DecisionReason:            row.DecisionReason,
+			InputTokens:               row.InputTokens,
+			OutputTokens:              row.OutputTokens,
+			CacheCreationTokens:       row.CacheCreationTokens,
+			CacheReadTokens:           row.CacheReadTokens,
+			BaselineWarmPrefillTokens: row.BaselineWarmPrefillTokens,
+			ActualCostUSDMicros:       row.ActualCostUsd,
+			SubscriptionServed:        row.SubscriptionServed,
+		})
+	}
+	return turns, nil
+}
+
+func tokenEfficiencyEvidence(ctx context.Context, q *sqlc.Queries) (proxy.TokenEfficiencyEvidence, error) {
+	baselines := proxy.SavingsBaselineModels()
+	ratioRows, err := q.ListTokenEfficiencyRatios(ctx, baselines)
+	if err != nil {
+		return proxy.TokenEfficiencyEvidence{}, err
+	}
+	factorRows, err := q.ListTokenEfficiencyQualityFactors(ctx, baselines)
+	if err != nil {
+		return proxy.TokenEfficiencyEvidence{}, err
+	}
+	var evidence proxy.TokenEfficiencyEvidence
+	for _, row := range ratioRows {
+		evidence.Ratios = append(evidence.Ratios, proxy.TokenEfficiencyRatio{
+			Harness:       row.Harness,
+			BaselineModel: row.BaselineModel,
+			ServedModel:   row.ServedModel,
+			InputPoint:    row.InputPoint,
+			InputLower:    row.InputLower,
+			OutputPoint:   row.OutputPoint,
+			OutputLower:   row.OutputLower,
+			Native:        row.Native,
+			Validity:      tokenEfficiencyValidity(row.ValidFrom, row.ValidTo),
+		})
+	}
+	for _, row := range factorRows {
+		evidence.QualityFactors = append(evidence.QualityFactors, proxy.TokenEfficiencyQualityFactor{
+			Harness:               row.Harness,
+			BaselineModel:         row.BaselineModel,
+			RouterPassRateLower:   row.RouterPassRateLower,
+			BaselinePassRateUpper: row.BaselinePassRateUpper,
+			Validity:              tokenEfficiencyValidity(row.ValidFrom, row.ValidTo),
+		})
+	}
+	return evidence, nil
+}
+
+// tokenEfficiencyValidity maps NULL and ±infinity bounds to open ends.
+func tokenEfficiencyValidity(from, to pgtype.Timestamptz) proxy.TokenEfficiencyValidity {
+	return proxy.TokenEfficiencyValidity{From: finiteTimestamptz(from), To: finiteTimestamptz(to)}
+}
+
+func finiteTimestamptz(t pgtype.Timestamptz) *time.Time {
+	if !t.Valid || t.InfinityModifier != pgtype.Finite {
+		return nil
+	}
+	return &t.Time
 }

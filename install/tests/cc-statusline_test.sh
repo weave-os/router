@@ -273,19 +273,19 @@ JSONL
 out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
   WEAVE_ROUTER_BASE_URL="file://$c/display-settings.json" \
   render "$c/cc.sh" "$c/cache" "file://$upstream" deepseek/deepseek-v4-pro "$c/duplicate.jsonl")"
-check_contains "more expensive transcript preserves a signed comparison" "$out" "cost ~\$0.08 more than deepseek/deepseek-v4-pro this session"
+check_not_contains "transcript prices alone do not state a comparison" "$out" "this session"
 check_not_contains "content-block copies do not display token totals" "$out" " in / "
 
 jq -c '.message.usage = {input_tokens:100,output_tokens:20}' "$c/duplicate.jsonl" > "$c/tiny-difference.jsonl"
 out="$(WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic \
   WEAVE_ROUTER_BASE_URL="file://$c/display-settings.json" \
   render "$c/cc.sh" "$c/cache" "file://$upstream" deepseek/deepseek-v4-pro "$c/tiny-difference.jsonl")"
-check_contains "sub-cent negative comparison keeps its sign" "$out" "cost <\$0.01 more than deepseek/deepseek-v4-pro this session"
+check_not_contains "sub-cent transcript difference states no comparison" "$out" "this session"
 
 # Pin the hypothetical price comparison independently of routing verification.
 c="$work/c1"; mkdir -p "$c/cache"; make_installed "$c/cc.sh"
 out="$(render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL")"
-check_contains "priced selection reports the estimated difference" "$out" "saved ~\$0.08 this session"
+check_not_contains "priced selection without router savings states no comparison" "$out" "this session"
 check_contains "priced selection still names the routed model" "$out" "deepseek/deepseek-v4-pro"
 check "priced selection writes no miss stamp" "$(count_stamps "$c/cache" .miss.)" 0
 
@@ -293,7 +293,7 @@ for sentinel_model in '<synthetic>' weave-router; do
   jq -cn --arg model "$sentinel_model" '{type:"assistant",message:{id:"msg_control",model:$model,usage:{input_tokens:5000,output_tokens:3000}}}' > "$c/sentinel.jsonl"
   cat "$transcript" >> "$c/sentinel.jsonl"
   out="$(WEAVE_STATUSLINE_UPDATE=0 render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL" "$c/sentinel.jsonl")"
-  check_contains "$sentinel_model does not poison later inference estimates" "$out" "saved ~\$0.08 this session"
+  check_contains "$sentinel_model followed by inference still names the routed model" "$out" "deepseek/deepseek-v4-pro"
   check_not_contains "$sentinel_model followed by inference does not display token totals" "$out" " in / "
   check_not_contains "$sentinel_model followed by inference does not show a routing warning" "$out" "routing unverified"
 
@@ -314,12 +314,41 @@ out="$(WEAVE_STATUSLINE_UPDATE=0 render "$c/cc.sh" "$c/cache" "file://$upstream"
 check_not_contains "unpriced inference still prevents a session estimate" "$out" "this session"
 
 out="$(WEAVE_STATUSLINE_UPDATE=0 render "$c/cc.sh" "$c/cache" "file://$upstream" deepseek/deepseek-v4-pro)"
-check_contains "same priced model retains a zero comparison" "$out" "no savings yet this session"
+check_not_contains "same priced model states no local comparison" "$out" "this session"
+
+# Session savings come from the router's normalized figure, never transcript prices.
+c="$work/c-normalized"; mkdir -p "$c/cache"; make_installed "$c/cc.sh"
+render_session() { # render_session <cost_body>
+  echo "{\"session_id\":\"session-normalized\",\"model\":{\"id\":\"$STALE_MODEL\"},\"transcript_path\":\"$transcript\"}" \
+    | WEAVE_STATUSLINE_UPDATE=0 WEAVE_ROUTER_KEY=rk_synthetic WEAVE_ROUTER_BASE_URL="file://$1" \
+      XDG_CACHE_HOME="$c/cache" WEAVE_STATUSLINE_URL="file://$upstream" bash "$c/cc.sh" 2>&1 \
+    | sed 's/\x1b\[[0-9;]*m//g'
+}
+normalized_cache_has() { grep -qs "$1" "$c"/cache/weave-router/claude-context/*-session-normalized.json; }
+for scenario in "1.234|saved ~\$1.23 vs Opus 5.5 this session" "-0.4|cost ~\$0.40 more than Opus 5.5 this session" "0.004|saved <\$0.01 vs Opus 5.5 this session"; do
+  value="${scenario%%|*}"; expected="${scenario#*|}"
+  jq -cn --argjson v "$value" '{session_id:"session-normalized",savings_usd:9.99,normalized_savings_usd:$v,savings_baseline_model:"claude-opus-5-5",savings_baseline_label:"Opus 5.5"}' > "$c/cost-$value.json"
+  render_session "$c/cost-$value.json" >/dev/null
+  if wait_for 10 normalized_cache_has "\"normalized_savings_usd\":$value"; then
+    out="$(render_session "$c/cost-$value.json")"
+    check_contains "normalized savings $value renders against the comparison model" "$out" "$expected"
+  else
+    no "normalized savings $value reaches the cache" "cached cost body" "missing after 10s"
+  fi
+done
+jq -cn '{session_id:"session-normalized",savings_usd:9.99,requested_cost_usd:10}' > "$c/cost-unmeasured.json"
+render_session "$c/cost-unmeasured.json" >/dev/null
+if wait_for 10 normalized_cache_has '"requested_cost_usd":10'; then
+  out="$(render_session "$c/cost-unmeasured.json")"
+  check_not_contains "a router without normalized savings hides the clause" "$out" "this session"
+else
+  no "unmeasured cost body reaches the cache" "cached cost body" "missing after 10s"
+fi
 
 # Cache-heavy routes must price each side with its own catalog multiplier.
 c="$work/c-cache"; mkdir -p "$c/cache"; make_installed "$c/cc.sh"
 out="$(render "$c/cc.sh" "$c/cache" "file://$upstream" "gpt-5.4-pro" "$cache_transcript")"
-check_contains "cache reads use per-model multipliers" "$out" "saved ~\$29.75 this session"
+check_not_contains "cache-heavy transcript states no local comparison" "$out" "this session"
 
 # The bug this path exists for: an unpriced selection renders $0.00, and the
 # script restores the missing comparison instead of waiting out the interval.
@@ -330,7 +359,7 @@ check_not_contains "unpriced selection does not invent a price comparison" "$out
 if wait_for 20 grep -q "\"$STALE_MODEL\":" "$c/cc.sh"; then
   ok "unpriced selection refreshes the on-disk copy"
   out="$(render "$c/cc.sh" "$c/cache" "file://$upstream" "$STALE_MODEL")"
-  check_contains "next turn reports the estimated difference" "$out" "saved ~\$0.08 this session"
+  check_contains "next turn still names the routed model" "$out" "deepseek/deepseek-v4-pro"
 else
   no "unpriced selection refreshes the on-disk copy" "price entries restored" "still missing after 20s"
 fi
