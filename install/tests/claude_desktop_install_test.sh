@@ -92,7 +92,7 @@ grep -Fq "<string>ai.workweave.router-desktop-shim</string>" "$plist" || fail "l
 grep -Fq "<string>$config</string>" "$plist" || fail "launchd plist does not pass the config"
 grep -Eq "^launchctl bootstrap gui/[0-9]+ $plist$" "$calls" || fail "launchd agent not bootstrapped: $(cat "$calls")"
 
-# Paths are XML-escaped in the plist.
+# launchd rejects a malformed plist, so a HOME containing & or < must still parse.
 odd_home="$work/odd&<home"
 mkdir -p "$odd_home"
 run env HOME="$odd_home" FAKE_UNAME=Darwin WEAVE_ROUTER_KEY=rk_desktop_test bash "$installer" --claude-desktop --non-interactive \
@@ -100,7 +100,7 @@ run env HOME="$odd_home" FAKE_UNAME=Darwin WEAVE_ROUTER_KEY=rk_desktop_test bash
 python3 -c 'import plistlib, sys; plistlib.load(open(sys.argv[1], "rb"))' \
   "$odd_home/Library/LaunchAgents/ai.workweave.router-desktop-shim.plist" || fail "plist with & and < in paths does not parse"
 
-# A project-scope or unrelated --dir uninstall leaves the user's Desktop proxy alone.
+# Uninstall must leave another install's Desktop proxy and service files intact.
 mkdir -p "$work/project"
 run bash "$uninstaller" --scope project --dir "$work/project" >/dev/null 2>&1 || true
 [ -f "$config" ] || fail "project-scope uninstall removed the Desktop proxy"
