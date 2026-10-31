@@ -150,6 +150,14 @@ func validateAnthropicCacheControl(v any) (anthropicCacheControlTTL, error) {
 			if value == anthropicCacheTTLWire1h {
 				ttl = anthropicCacheControlTTL1h
 			}
+		case "scope":
+			if value, ok := value.(string); !ok || value == "" {
+				return anthropicCacheControlTTL5m, fmt.Errorf("%w: scope must be a string", ErrAnthropicCacheControlInvalid)
+			}
+		case "evict_on_complete":
+			if _, ok := value.(bool); !ok {
+				return anthropicCacheControlTTL5m, fmt.Errorf("%w: evict_on_complete must be a boolean", ErrAnthropicCacheControlInvalid)
+			}
 		default:
 			return anthropicCacheControlTTL5m, fmt.Errorf("%w: unsupported field %q", ErrAnthropicCacheControlInvalid, key)
 		}

@@ -89,6 +89,26 @@ func TestAnthropicSameFormat_RejectsExplicitTTLOrderViolation(t *testing.T) {
 	require.ErrorIs(t, err, translate.ErrAnthropicCacheControlInvalid)
 }
 
+// Claude Code sends these first-party fields when it talks to api.anthropic.com
+// directly (prompt-caching-scope and prompt-caching-evict betas).
+func TestAnthropicSameFormat_PreservesFirstPartyCacheControlFields(t *testing.T) {
+	policy := map[string]any{"type": "ephemeral", "ttl": "1h", "scope": "global", "evict_on_complete": true}
+	body := []byte(`{"model":"claude-opus-4-8","max_tokens":1024,"system":[{"type":"text","text":"sys","cache_control":{"type":"ephemeral","ttl":"1h","scope":"global","evict_on_complete":true}}],"messages":[{"role":"user","content":"hi"}]}`)
+	out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{TargetModel: "claude-opus-4-8", Capabilities: router.Lookup("claude-opus-4-8")})
+
+	system := out["system"].([]any)
+	require.Len(t, system, 1)
+	assert.Equal(t, policy, system[0].(map[string]any)["cache_control"])
+}
+
+func TestAnthropicSameFormat_RejectsMalformedCacheControlScope(t *testing.T) {
+	body := []byte(`{"model":"claude-opus-4-8","max_tokens":1024,"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral","scope":1}}]}]}`)
+	env, err := translate.ParseAnthropic(body)
+	require.NoError(t, err)
+	_, err = env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-8", Capabilities: router.Lookup("claude-opus-4-8")})
+	require.ErrorIs(t, err, translate.ErrAnthropicCacheControlInvalid)
+}
+
 func TestAnthropicSameFormat_ToolCacheControlCountsTowardCapacity(t *testing.T) {
 	// 1 tool + 3 system = 4 breakpoints; router must not inject a fifth.
 	body := []byte(`{"model":"claude-opus-4-8","max_tokens":1024,` +
