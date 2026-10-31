@@ -131,6 +131,72 @@ func TestTranslationPlan_BroadSemanticRequirementOnlyFiltersInEnforce(t *testing
 	requireExclusion(t, enforce, "prompt_cache_control_native_required", providers.ProviderOpenAI, true)
 }
 
+func TestTranslationPlan_ParallelToolLimitExcludesGemini(t *testing.T) {
+	req := router.Request{
+		EnabledProviders: map[string]struct{}{
+			providers.ProviderAnthropic: {},
+			providers.ProviderOpenAI:    {},
+			providers.ProviderGoogle:    {},
+		},
+		TranslationRequirements: router.TranslationRequirements{
+			SourceFormat:      router.WireFormatOpenAI,
+			Endpoint:          router.EndpointOpenAIChat,
+			FunctionTools:     true,
+			ParallelToolLimit: true,
+		},
+	}
+	off := compatibilityService(TranslationCompatibilityOff).planTranslation(req)
+	shadow := compatibilityService(TranslationCompatibilityShadow).planTranslation(req)
+	enforce := compatibilityService(TranslationCompatibilityEnforce).planTranslation(req)
+
+	assert.Equal(t, req.EnabledProviders, off.EnabledProviders)
+	assert.Equal(t, req.EnabledProviders, shadow.EnabledProviders, "shadow mode must preserve the pre-change candidate set")
+	requireExclusion(t, shadow, "parallel_tool_limit_unsupported", providers.ProviderGoogle, false)
+	assert.Equal(t, map[string]struct{}{
+		providers.ProviderAnthropic: {},
+		providers.ProviderOpenAI:    {},
+	}, enforce.EnabledProviders, "both families that carry the limit stay eligible")
+	requireExclusion(t, enforce, "parallel_tool_limit_unsupported", providers.ProviderGoogle, true)
+	assert.False(t, enforce.Unavailable)
+}
+
+func TestTranslationPlan_ParallelToolLimitComposesWithNativeRequirement(t *testing.T) {
+	plan := compatibilityService(TranslationCompatibilityEnforce).planTranslation(router.Request{
+		EnabledProviders: map[string]struct{}{
+			providers.ProviderAnthropic: {},
+			providers.ProviderOpenAI:    {},
+			providers.ProviderGoogle:    {},
+		},
+		TranslationRequirements: router.TranslationRequirements{
+			SourceFormat:       router.WireFormatAnthropic,
+			Endpoint:           router.EndpointAnthropicMessages,
+			PromptCacheControl: true,
+			ParallelToolLimit:  true,
+		},
+	})
+
+	assert.Equal(t, map[string]struct{}{providers.ProviderAnthropic: {}}, plan.EnabledProviders)
+	assert.Equal(t, providers.FamilyAnthropic, plan.TargetFamily)
+}
+
+func TestApplyTranslationPlan_ParallelToolLimitWithOnlyGemini(t *testing.T) {
+	svc := &Service{
+		clients:                      dispatch.NewClients(map[string]providers.Client{providers.ProviderGoogle: nil}),
+		translationCompatibilityMode: TranslationCompatibilityEnforce,
+	}
+	_, err := svc.applyTranslationPlan(context.Background(), router.Request{
+		EnabledProviders: map[string]struct{}{providers.ProviderGoogle: {}},
+		TranslationRequirements: router.TranslationRequirements{
+			SourceFormat:      router.WireFormatOpenAI,
+			Endpoint:          router.EndpointOpenAIChat,
+			FunctionTools:     true,
+			ParallelToolLimit: true,
+		},
+	})
+
+	assert.ErrorIs(t, err, ErrTranslationCompatibleProviderUnavailable)
+}
+
 func TestTranslationPlan_NativeSearchAlwaysFiltersToSourceProvider(t *testing.T) {
 	for _, mode := range []TranslationCompatibilityMode{
 		TranslationCompatibilityOff,

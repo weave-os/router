@@ -49,6 +49,9 @@ type TranslationRequirements struct {
 	StructuredOutput   bool
 	PromptCacheControl bool
 	UsageDetail        bool
+	// ParallelToolLimit is an explicit one-tool-call-per-turn limit on a
+	// request that declares tools.
+	ParallelToolLimit bool
 
 	// NativeOnly requires the source wire family and endpoint to reach the
 	// upstream unchanged. It is used for currently unrepresentable unions,
@@ -60,7 +63,7 @@ type TranslationRequirements struct {
 func (r TranslationRequirements) IsZero() bool {
 	return r.SourceFormat == "" && r.Endpoint == "" && !r.FunctionTools && !r.CustomTools &&
 		!r.ReasoningReplay && !r.ReasoningSignature && !r.Images && !r.Audio && !r.Files &&
-		!r.CitationsOrSearch && !r.StructuredOutput && !r.PromptCacheControl && !r.UsageDetail && !r.NativeOnly
+		!r.CitationsOrSearch && !r.StructuredOutput && !r.PromptCacheControl && !r.UsageDetail && !r.ParallelToolLimit && !r.NativeOnly
 }
 
 type Overrides struct {

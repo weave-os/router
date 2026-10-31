@@ -60,10 +60,13 @@ type TranslationPlan struct {
 // translationConstraint is the code-owned compatibility matrix entry for one
 // semantic. ExactProviders pins to a single adapter when a broader protocol
 // family has only one implementation (currently OpenAI Responses).
+// ExcludedFamilies is for a semantic several foreign families preserve: it
+// rules out only the families that cannot express it.
 type translationConstraint struct {
-	Code           string
-	TargetFamily   providers.TranslationFamily
-	ExactProviders map[string]struct{}
+	Code             string
+	TargetFamily     providers.TranslationFamily
+	ExactProviders   map[string]struct{}
+	ExcludedFamilies map[providers.TranslationFamily]struct{}
 }
 
 // responsesRequirementsContextKey carries the original Responses contract
@@ -208,6 +211,14 @@ func translationConstraints(req router.TranslationRequirements) ([]translationCo
 			return nil, false
 		}
 	}
+	// Anthropic carries the limit on tool_choice and OpenAI on
+	// parallel_tool_calls; Gemini has no equivalent.
+	if req.ParallelToolLimit {
+		constraints = append(constraints, translationConstraint{
+			Code:             "parallel_tool_limit_unsupported",
+			ExcludedFamilies: map[providers.TranslationFamily]struct{}{providers.FamilyGemini: {}},
+		})
+	}
 	return constraints, true
 }
 
@@ -265,6 +276,12 @@ func configuredProviders(candidates map[string]struct{}, configured map[string]s
 
 func supportsAllConstraints(provider string, constraints []translationConstraint) bool {
 	for _, constraint := range constraints {
+		if len(constraint.ExcludedFamilies) > 0 {
+			if _, excluded := constraint.ExcludedFamilies[providers.FamilyFor(provider)]; excluded {
+				return false
+			}
+			continue
+		}
 		if len(constraint.ExactProviders) > 0 {
 			if _, ok := constraint.ExactProviders[provider]; !ok {
 				return false
