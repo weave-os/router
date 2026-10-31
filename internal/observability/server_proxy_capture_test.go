@@ -53,3 +53,40 @@ func TestLogServerProxyRequestShapeSkipsOtherClients(t *testing.T) {
 	out := serveServerProxyShape(t, "copilot/1.0.105 (linux v24.22.1)", nil, `{"model":"auto"}`)
 	assert.NotContains(t, out, "Copilot proxy request shape")
 }
+
+func serveServerProxyResponse(t *testing.T, userAgent string, chunks ...string) (string, string) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	var buf strings.Builder
+	restore := swapDefaultLogger(t, &buf)
+	defer restore()
+
+	engine := gin.New()
+	engine.POST("/v1/chat/completions", func(c *gin.Context) {
+		defer observability.RecordServerProxyResponseID(c)()
+		for _, chunk := range chunks {
+			_, _ = c.Writer.WriteString(chunk)
+		}
+	})
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	req.Header.Set("User-Agent", userAgent)
+	rec := httptest.NewRecorder()
+	engine.ServeHTTP(rec, req)
+	return buf.String(), rec.Body.String()
+}
+
+func TestRecordServerProxyResponseIDLogsIDSplitAcrossWrites(t *testing.T) {
+	chunks := []string{`data: {"id":"chatcmpl-01`, `7a2be23e778731","object":"chat.completion.chunk"}` + "\n\n", `data: {"id":"chatcmpl-other"}` + "\n\n"}
+	out, body := serveServerProxyResponse(t, "copilot-api", chunks...)
+
+	assert.Equal(t, strings.Join(chunks, ""), body)
+	line := findLogLine(t, out, "Copilot proxy response id")
+	assert.Equal(t, "chatcmpl-017a2be23e778731", line["response_id"])
+}
+
+func TestRecordServerProxyResponseIDIgnoresOtherClients(t *testing.T) {
+	out, body := serveServerProxyResponse(t, "claude-cli/2.0", `data: {"id":"chatcmpl-x"}`)
+
+	assert.Equal(t, `data: {"id":"chatcmpl-x"}`, body)
+	assert.NotContains(t, out, "Copilot proxy response id")
+}
