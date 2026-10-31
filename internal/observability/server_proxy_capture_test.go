@@ -75,13 +75,24 @@ func serveServerProxyResponse(t *testing.T, userAgent string, chunks ...string) 
 	return buf.String(), rec.Body.String()
 }
 
-func TestRecordServerProxyResponseIDLogsIDSplitAcrossWrites(t *testing.T) {
-	chunks := []string{`data: {"id":"chatcmpl-01`, `7a2be23e778731","object":"chat.completion.chunk"}` + "\n\n", `data: {"id":"chatcmpl-other"}` + "\n\n"}
+func TestRecordServerProxyResponseIDLogsMarkerAndCompletionIDs(t *testing.T) {
+	chunks := []string{
+		`data: {"id":"chatcmpl-marker","object":"chat.completion.chunk"}` + "\n\n",
+		`data: {"id":"chatcmpl-01`, `7a2be23e778731","object":"chat.completion.chunk"}` + "\n\n",
+		`data: {"id":"chatcmpl-017a2be23e778731"}` + "\n\n",
+	}
 	out, body := serveServerProxyResponse(t, "copilot-api", chunks...)
 
 	assert.Equal(t, strings.Join(chunks, ""), body)
 	line := findLogLine(t, out, "Copilot proxy response id")
-	assert.Equal(t, "chatcmpl-017a2be23e778731", line["response_id"])
+	assert.Equal(t, []any{"chatcmpl-marker", "chatcmpl-017a2be23e778731"}, line["response_ids"])
+}
+
+func TestRecordServerProxyResponseIDAllowsJSONWhitespace(t *testing.T) {
+	out, _ := serveServerProxyResponse(t, "copilot-api", `{"id" : "resp_123", "object": "response"}`)
+
+	line := findLogLine(t, out, "Copilot proxy response id")
+	assert.Equal(t, []any{"resp_123"}, line["response_ids"])
 }
 
 func TestRecordServerProxyResponseIDIgnoresOtherClients(t *testing.T) {
