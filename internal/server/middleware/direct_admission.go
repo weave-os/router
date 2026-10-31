@@ -116,7 +116,10 @@ func directConversationID(r *http.Request, body []byte) string {
 			surface = requestcontext.ConversationGemini
 		}
 	}
-	return requestcontext.CanonicalConversationID(r.Header, body, surface)
+	if id := requestcontext.CanonicalConversationID(r.Header, body, surface); id != "" {
+		return id
+	}
+	return requestcontext.ConversationFingerprint(body, surface)
 }
 
 func directTestSurface(r *http.Request) bool {
