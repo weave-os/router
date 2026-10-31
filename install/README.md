@@ -346,8 +346,9 @@ npx @weave-os/router --uninstall --claude-desktop # remove the proxy, trust and 
 | `~/.weave-router/desktop-shim/ca.pem`, `leaf.pem`, `leaf-key.pem` | The certificate pair. Re-installs keep a still-valid pair. |
 | `~/Library/LaunchAgents/ai.workweave.router-desktop-shim.plist` or `~/.config/systemd/user/weave-router-desktop-shim.service` | Runs the proxy at login. |
 
-The proxy listens on loopback without authentication, so on a machine shared by
-several OS accounts, any of them can send Desktop-shaped requests through it.
+Loopback is shared by every account on the machine, so the proxy only serves
+processes of the OS user who installed it (checked per connection through
+`/proc/net/tcp` on Linux and `lsof` on macOS) and refuses the rest with 403.
 
 #### Rolling out to an organization
 

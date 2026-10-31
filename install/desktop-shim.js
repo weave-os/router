@@ -8,6 +8,7 @@
 
 "use strict";
 
+const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
 const https = require("node:https");
@@ -53,6 +54,35 @@ function routesToRouter(req) {
   const path = req.url;
   const isMessages = path === "/v1/messages" || path.startsWith("/v1/messages/") || path.startsWith("/v1/messages?");
   return isMessages && DESKTOP_USER_AGENT.test(req.headers["user-agent"] || "");
+}
+
+// Loopback is shared by every OS account and the proxy adds the installing
+// user's router key, so it only serves that user's processes. peerUid finds
+// the OS user owning the client end of a loopback connection.
+function peerUid(socket, callback) {
+  const clientPort = socket.remotePort;
+  const proxyPort = socket.localPort;
+  if (process.platform === "linux") {
+    const hexPort = (port) => `:${port.toString(16).toUpperCase().padStart(4, "0")}`;
+    for (const table of ["/proc/net/tcp", "/proc/net/tcp6"]) {
+      if (!fs.existsSync(table)) continue;
+      for (const row of fs.readFileSync(table, "utf8").split("\n").slice(1)) {
+        const [, local, remote, , , , , uid] = row.trim().split(/\s+/);
+        if (local?.endsWith(hexPort(clientPort)) && remote?.endsWith(hexPort(proxyPort))) return callback(Number(uid));
+      }
+    }
+    return callback(null);
+  }
+  // lsof without root lists only the caller's own processes, so another
+  // user's client is simply not found.
+  execFile("lsof", ["-nP", "-a", `-iTCP:${clientPort}`, "-sTCP:ESTABLISHED", "-Fun"], (_err, out = "") => {
+    let uid = null;
+    for (const line of out.split("\n")) {
+      if (line.startsWith("u")) uid = Number(line.slice(1));
+      if (line.startsWith("n") && line.includes(`:${clientPort}->`) && line.endsWith(`:${proxyPort}`)) return callback(uid);
+    }
+    callback(null);
+  });
 }
 
 function pacFile(port) {
@@ -140,6 +170,13 @@ function start(cfg) {
 
   proxy.on("connect", (req, socket, head) => {
     socket.on("error", () => socket.destroy());
+    peerUid(socket, (uid) => {
+      if (uid === process.getuid()) tunnel(req, socket, head);
+      else socket.end("HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n");
+    });
+  });
+
+  function tunnel(req, socket, head) {
     let target;
     try {
       target = new URL(`http://${req.url}`);
@@ -165,7 +202,7 @@ function start(cfg) {
     upstream.on("error", () => {
       socket.end("HTTP/1.1 502 Bad Gateway\r\n\r\n");
     });
-  });
+  }
 
   proxy.listen(cfg.port, cfg.host, () => {
     const address = proxy.address();
@@ -174,7 +211,7 @@ function start(cfg) {
   return proxy;
 }
 
-module.exports = { loadConfig, routesToRouter, start };
+module.exports = { loadConfig, peerUid, routesToRouter, start };
 
 if (require.main === module) {
   const file = process.argv[2];

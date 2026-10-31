@@ -240,6 +240,17 @@ test("desktop shim", async (t) => {
     assert.equal(FindProxyForURL("https://claude.ai/", "claude.ai"), "DIRECT");
   });
 
+  await t.test("peerUid finds the OS user of the connecting process", async () => {
+    const server = net.createServer();
+    const port = await listen(server);
+    const client = net.connect(port, "127.0.0.1");
+    const [accepted] = await once(server, "connection");
+    const uid = await new Promise((resolve) => shim.peerUid(accepted, resolve));
+    assert.equal(uid, process.getuid());
+    client.destroy();
+    server.close();
+  });
+
   await t.test("health endpoint answers", async () => {
     const res = await new Promise((resolve) => http.get({ host: "127.0.0.1", port: proxyPort, path: "/health" }, resolve));
     assert.equal(res.statusCode, 200);
