@@ -532,7 +532,7 @@ func (c *portableCodexResponsesConverter) convertMessageContent(content gjson.Re
 	if content.Type == gjson.String {
 		text := content.Str
 		if role == "assistant" {
-			text = responsesTerminalBadgePattern.ReplaceAllString(text, "")
+			text = stripResponsesTerminalBadges(text)
 			text = feedbackFooterPattern.ReplaceAllString(text, "")
 		}
 		if text == "" {
@@ -555,7 +555,7 @@ func (c *portableCodexResponsesConverter) convertMessageContent(content gjson.Re
 		case "input_text", "output_text", "text":
 			text := part.Get("text").Str
 			if role == "assistant" && firstAssistantText {
-				text = responsesTerminalBadgePattern.ReplaceAllString(text, "")
+				text = stripResponsesTerminalBadges(text)
 				firstAssistantText = false
 			}
 			if role == "assistant" {

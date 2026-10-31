@@ -9,7 +9,8 @@ This page is the exhaustive reference; the [README](../README.md) has the
 
 - [Provider API keys](#provider-api-keys)
   - [Key-pair auth](#key-pair-auth)
-  - [Workload identity federation](#workload-identity-federation)
+  - [Snowflake workload identity federation](#workload-identity-federation)
+  - [Anthropic workload identity federation](#anthropic-workload-identity-federation)
 - [Postgres](#postgres)
 - [Server](#server)
 - [Managed serving (`ROUTER_SERVING_*`)](#managed-serving-router_serving_)
@@ -275,6 +276,9 @@ Authorization: Bearer WIF.GCP.<attestation>
 X-Snowflake-Authorization-Token-Type: WORKLOAD_IDENTITY_FEDERATION
 ```
 
+This `wif` mode is specific to Snowflake-compatible gateways. Native Anthropic
+uses the separate `anthropic_wif` mode described below.
+
 The attestation source is deployment-wide, not per key, because it identifies
 the router process rather than a tenant:
 
@@ -353,6 +357,122 @@ fields reject the same request-critical header names as `identity_header`, and
 both are applied after the client's headers so nothing upstream-critical can be
 overwritten. Omit both to forward nothing.
 
+
+### Anthropic workload identity federation
+
+Use `auth_type: "anthropic_wif"` on the native `anthropic` provider to authenticate
+with the router's workload identity instead of storing an API key. This bills
+Anthropic API usage to the rule's workspace; it does not use a Claude subscription.
+Your clients continue authenticating to the router with their router keys.
+
+In the [Claude Console](https://platform.claude.com/settings/workload-identity-federation),
+connect the router's Google Cloud service account, or register your OIDC issuer.
+For Google Cloud, use issuer `https://accounts.google.com` with discovery, audience
+`https://api.anthropic.com`, and match the service account's numeric `sub` and
+`email` exactly. Add the target Anthropic service account to the intended workspace.
+See [Anthropic's GCP guide](https://platform.claude.com/docs/en/manage-claude/wif-providers/gcp).
+
+Managed deployments require operator-approved target bindings before federation
+can authenticate. Set `ROUTER_ANTHROPIC_FEDERATION_BINDINGS_B64` in the router worker's
+operator-owned deployment environment to a base64-encoded JSON object keyed by router
+installation UUID. Each value is the exact approved `federation_config`, including
+the rule, Anthropic organization, service account, workspace (or omission), and
+audience. For example:
+
+```json
+{"00000000-0000-0000-0000-000000000003":{
+  "federation_rule_id":"fdrl_example",
+  "organization_id":"00000000-0000-0000-0000-000000000001",
+  "service_account_id":"svac_example",
+  "workspace_id":"wrkspc_example",
+  "audience":"https://api.anthropic.com"
+}}
+```
+
+The operator must verify that the installation owner controls the Anthropic
+organization before adding a binding. Tenant-provided IDs are not evidence of
+ownership. An absent or empty map denies every managed federation request before
+minting an assertion or reading a cached token. Such denials have no Anthropic
+authentication-history entry because no exchange is sent. A tenant cannot change the
+operator's map through the provider-key API. Malformed bindings abort startup;
+changes require a new worker revision. The Weave release controller reads the operator-owned
+`router-internal/config/anthropic-federation-bindings.json` map by serving target,
+encodes it into the worker environment, and includes it in the immutable revision
+key. Approve changes to that private file before preparing the worker release. Its
+top-level keys are serving targets such as `staging` and `prod/stable`, each
+containing the installation map shown above. For urgent revocation, disable the
+Anthropic rule and retire workers retaining the old approval; a retained worker
+keeps the authorization snapshot it was released with. Self-hosted
+routers use their owner's identity and do not require this managed allowlist.
+
+Add the credential through **Settings → Provider keys → Anthropic → Anthropic
+workload identity**, or the self-hosted admin API:
+
+```bash
+curl -sS -b jar -X POST https://<router>/admin/v1/provider-keys \
+  -H 'content-type: application/json' \
+  -d '{"provider":"anthropic","auth_type":"anthropic_wif",
+       "federation_config":{
+         "federation_rule_id":"fdrl_example",
+         "organization_id":"00000000-0000-0000-0000-000000000001",
+         "service_account_id":"svac_example",
+         "workspace_id":"wrkspc_example",
+         "audience":"https://api.anthropic.com"
+       }}'
+```
+
+Use your actual identifiers. `workspace_id` may be omitted only when the rule
+has a single enabled workspace; otherwise Anthropic requires it. `audience`
+defaults to `https://api.anthropic.com` and must match the rule. Do not send
+`key`, `auth_account`, or `auth_user`. Custom endpoints are rejected for this
+mode. A self-hosted deployment can retain `ANTHROPIC_API_KEY` while adding a
+federated Anthropic credential; when BYOK is selected, the federated credential
+takes precedence. An unresolved federation credential returns `503` rather than
+silently falling back to the deployment key.
+
+On Google compute with an attached service account, raw assertions are obtained
+from the Google identity credentials library for each exchange. For Kubernetes
+or another projected OIDC source, set `ANTHROPIC_IDENTITY_TOKEN_FILE` to the
+mounted token path; the file is reopened on every exchange and reads are bounded
+to 64 KiB. The JWT itself must be at most 16 KiB. The router uses
+per-credential federation configuration, not the Anthropic SDK's other
+`ANTHROPIC_FEDERATION_*` environment variables or credential precedence chain.
+Snowflake's `ROUTER_WIF_*` variables remain independent.
+
+The router sends the raw JWT to Anthropic's fixed `/v1/oauth/token` endpoint and
+uses the returned token with `Authorization: Bearer`. The exchange carries the
+OAuth and OIDC federation beta headers; Anthropic API calls carry the OAuth beta
+header. The router sends no Snowflake headers or Claude Code identity prompt. Access tokens
+are cached separately by installation, key, rule, organization, service account,
+workspace, and audience. Concurrent refreshes share an exchange. Advisory
+refresh starts up to 120 seconds before expiry (20% for shorter tokens), with
+mandatory refresh up to 30 seconds before expiry (10% for shorter tokens).
+Temporary endpoint failures can use the still-valid cached token until mandatory
+refresh; a selected Anthropic request with failed mandatory refresh returns HTTP
+503 rather than switching to a platform Anthropic API key. Unrelated providers
+remain available. A rejected exchange fails immediately.
+
+Assertions carrying `jti` must rotate before the next exchange. The router
+refuses to resend a previously attempted `jti` in its bounded process-local
+cache, including after an ambiguous transport failure. Anthropic remains the
+replay-protection authority across restarts and cache eviction. Update a
+projected file well before refresh; a static token file is unsuitable for
+continuous operation when `jti` is present. Tokens without `jti` may be reused
+while valid. See [Anthropic's WIF reference](https://platform.claude.com/docs/en/manage-claude/wif-reference).
+
+After saving, fetch models from the saved credential to exercise federation
+under the router's identity, then make a minimal inference request. Check the
+federation rule's authentication history in the Claude Console and verify usage
+is attributed to the intended workspace. An API key working in the same
+organization does not establish that federation works. Raw inbound
+`sk-ant-oat01-...` tokens cannot be distinguished from Claude subscription tokens
+by their prefix; configure workload federation explicitly rather than passing
+such tokens through the client subscription path.
+
+Migration `0139` must be applied before the router and control plane use the
+new credential fields. Apply it through the normal release process. Rolling it
+back deletes Anthropic federation credential rows before restoring the old
+constraint; recreate those configurations after upgrading again.
 
 ### Microsoft Entra client credentials
 
@@ -586,11 +706,20 @@ key) for the lane to have a key.
 ## Member tier selections on plans
 
 `plan_user_cluster_lists` is an organization-only boolean flag override
-(Admin → Router → Flags), default `false`. Max/Boost plan requests normally
-ignore every per-cluster model list. When on, each member's own per-cluster
-selection applies again on that organization's plan requests; the
-installation's key-scoped cluster lists stay ignored, and `excluded_models`
-still applies.
+(Admin → Router → Flags), default `false`. Max requests normally ignore every
+per-cluster model list. When on, each member's own per-cluster selection applies
+again to Max; the installation's key-scoped cluster lists stay ignored, and
+`excluded_models` still applies. Boost uses the default roster and ordinary
+per-cluster model lists.
+
+The flag also keeps a member's selection when a linked Claude/Codex
+subscription is preferred for funding. If the routed model is one the member
+selected and no linked subscription can serve it, the turn is served on paid
+capacity instead of being re-routed to a model the subscription covers. This
+applies only when a paid binding can serve the pick (for example, not when the
+OpenRouter overflow lane is on and the model has no OpenRouter binding). Turns
+with no paid capacity behind them (credits depleted or spend cap reached) still
+serve on the subscription.
 
 ## Provider and model exclusions
 

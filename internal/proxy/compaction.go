@@ -4,7 +4,9 @@ import (
 	"context"
 	"slices"
 	"strings"
+	"time"
 
+	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
 	"weave-os/router/internal/router"
 	"weave-os/router/internal/router/catalog"
@@ -220,11 +222,20 @@ func (s *Service) compactionSessionModel(ctx context.Context, sessionKey [sessio
 	if s.pinStore == nil {
 		return "", "", false
 	}
-	threadPin, active := s.loadPin(ctx, sessionKey, role)
-	if !active {
-		threadPin = sessionpin.Pin{}
+	// Compaction follows the served model, not the classifier that chose it.
+	// Auxiliary requests can overwrite these rows under another strategy.
+	var served sessionpin.Pin
+	for _, pinRole := range []string{role, hmmHistoryRole(role)} {
+		pin, found, err := s.pinStore.Get(ctx, sessionKey, pinRole)
+		if err != nil {
+			observability.FromContext(ctx).Error("Compaction session history unavailable", "role", pinRole, "err", err)
+			continue
+		}
+		if !found || (pinRole == role && !pin.PinnedUntil.After(time.Now())) {
+			continue
+		}
+		served = latestServedPin(served, pin)
 	}
-	served := latestServedPin(threadPin, s.loadHMMHistory(ctx, sessionKey, role))
 	model = served.LastServedModel
 	if model == "" {
 		model = served.Model

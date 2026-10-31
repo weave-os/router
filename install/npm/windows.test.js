@@ -73,6 +73,10 @@ test("the native installer writes each client's config and keeps existing settin
   assert.equal(claude.env.ANTHROPIC_BASE_URL, baseUrl);
   assert.match(claude.env.ANTHROPIC_CUSTOM_HEADERS, /rk_test_native_windows/);
   assert.match(claude.env.ANTHROPIC_CUSTOM_HEADERS, /X-Custom: keep/);
+  assert.match(claude.env.ANTHROPIC_CUSTOM_HEADERS, /^X-Weave-Model-Passthrough: 1$/m);
+  assert.equal(claude.model, "weave-auto[1m]");
+  assert.equal(claude.modelPicker.options[0].model, "weave-auto[1m]");
+  assert.deepEqual(claude.attribution, { commit: "original commit", custom: "keep" });
   const codexConfig = fs.readFileSync(path.join(temporaryHome, ".codex", "config.toml"), "utf8");
   assert.match(codexConfig, /model = "gpt-4.1"/);
   assert.match(codexConfig, /model_provider = "weave"/);
@@ -98,6 +102,29 @@ test("native uninstall removes the managed Claude routing variables", async () =
   assert.equal(claude.attribution.commit, "original commit");
   assert.equal(claude.attribution.custom, "keep");
   assert.equal(claude.custom, true);
+  assert.equal(claude.model, undefined);
+  assert.equal(claude.modelPicker, undefined);
+});
+
+test("Claude moves a pre-passthrough model to Weave Auto once, then keeps the user's pick", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "weave-router-claude-model-"));
+  try {
+    const settingsPath = path.join(home, ".claude", "settings.json");
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(settingsPath, JSON.stringify({ model: "opus", modelPicker: { options: [{ model: "my-model" }] } }));
+    await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
+    const rolledOver = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    assert.equal(rolledOver.model, "weave-auto[1m]");
+    fs.writeFileSync(settingsPath, JSON.stringify({ ...rolledOver, model: "opus" }));
+    await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
+    const installed = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+    assert.equal(installed.model, "opus");
+    assert.deepEqual(installed.modelPicker.options.map((option) => option.model), ["weave-auto[1m]", "my-model"]);
+    await runInstallerAt(home, ["--uninstall", "--claude"]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(settingsPath, "utf8")).modelPicker, { options: [{ model: "my-model" }] });
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
 });
 
 test("native uninstall removes Codex, OpenCode, and pi router settings", async () => {
@@ -124,9 +151,45 @@ test("native uninstall removes Codex, OpenCode, and pi router settings", async (
   assert.deepEqual(piSettings.packages, ["npm:user-package"]);
 });
 
+test("native Copilot install adds weave/auto beside existing providers and uninstall restores the default", async () => {
+  const home = path.join(temporaryHome, "copilot-home");
+  const copilotDirectory = path.join(home, ".copilot");
+  fs.mkdirSync(copilotDirectory, { recursive: true });
+  fs.writeFileSync(path.join(copilotDirectory, "providers.json"), JSON.stringify({ providers: [{ name: "ollama", type: "openai", baseUrl: "http://localhost:11434/v1" }], models: [{ id: "qwen", provider: "ollama" }] }));
+  fs.writeFileSync(path.join(copilotDirectory, "settings.json"), JSON.stringify({ model: "claude-sonnet-5", banner: "never" }));
+  const env = { envOverrides: { COPILOT_HOME: "" } };
+  await runInstallerAt(home, ["--copilot", "--non-interactive", "--base-url", baseUrl], env);
+  let providers = JSON.parse(fs.readFileSync(path.join(copilotDirectory, "providers.json"), "utf8"));
+  const weave = providers.providers.find((entry) => entry.name === "weave");
+  assert.equal(weave.type, "anthropic");
+  assert.equal(weave.baseUrl, baseUrl);
+  assert.equal(weave.headers["X-App"], "copilot");
+  assert.equal(weave.apiKey, undefined);
+  assert.deepEqual(providers.models.map((entry) => `${entry.provider}/${entry.id}`), ["ollama/qwen", "weave/auto"]);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(copilotDirectory, "settings.json"), "utf8")).model, "weave/auto");
+  await runInstallerAt(home, ["--copilot", "--wire", "openai", "--non-interactive", "--base-url", baseUrl], env);
+  providers = JSON.parse(fs.readFileSync(path.join(copilotDirectory, "providers.json"), "utf8"));
+  assert.equal(providers.providers.find((entry) => entry.name === "weave").baseUrl, `${baseUrl}/v1`);
+  assert.equal(providers.providers.filter((entry) => entry.name === "weave").length, 1);
+  await runInstallerAt(home, ["--copilot", "--non-interactive", "--base-url", baseUrl], env);
+  providers = JSON.parse(fs.readFileSync(path.join(copilotDirectory, "providers.json"), "utf8"));
+  assert.equal(providers.providers.find((entry) => entry.name === "weave").type, "openai");
+  await runInstallerAt(home, ["--uninstall", "--copilot"], env);
+  providers = JSON.parse(fs.readFileSync(path.join(copilotDirectory, "providers.json"), "utf8"));
+  assert.deepEqual(providers.providers.map((entry) => entry.name), ["ollama"]);
+  assert.deepEqual(providers.models.map((entry) => entry.id), ["qwen"]);
+  const settings = JSON.parse(fs.readFileSync(path.join(copilotDirectory, "settings.json"), "utf8"));
+  assert.equal(settings.model, "claude-sonnet-5");
+  assert.equal(settings.banner, "never");
+  const freshHome = path.join(temporaryHome, "copilot-fresh");
+  await runInstallerAt(freshHome, ["--copilot", "--non-interactive", "--base-url", baseUrl], env);
+  await runInstallerAt(freshHome, ["--uninstall", "--copilot"], env);
+  assert.equal(fs.existsSync(path.join(freshHome, ".copilot", "providers.json")), false);
+});
+
 test("uninstalling an absent target does not create configuration files", async () => {
   const emptyHome = path.join(temporaryHome, "empty");
-  for (const target of ["claude", "codex", "opencode", "pi"]) await runInstallerAt(emptyHome, ["--uninstall", `--${target}`]);
+  for (const target of ["claude", "codex", "opencode", "pi", "copilot"]) await runInstallerAt(emptyHome, ["--uninstall", `--${target}`]);
   assert.equal(fs.existsSync(emptyHome), false);
 });
 
@@ -211,6 +274,73 @@ test("the Windows wrapper probes Git Bash without profile or BASH_ENV banners", 
   const installerCall = spawnCalls.find((call) => call.args.includes("C:\\package\\uninstall.sh"));
   assert.equal(installerCall.executable, gitBash);
   assert.deepEqual(Array.from(installerCall.args), ["C:\\package\\uninstall.sh", "--claude"]);
+});
+
+function readClaudeSettings(home) {
+  return JSON.parse(fs.readFileSync(path.join(home, ".claude", "settings.json"), "utf8"));
+}
+
+test("Claude attribution defaults on, and --no-attribution removes only the Weave lines", async () => {
+  const home = path.join(temporaryHome, "attribution-default");
+  await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
+  assert.match(readClaudeSettings(home).attribution.commit, /^Co-Authored-By: Weave Router/);
+
+  const settingsPath = path.join(home, ".claude", "settings.json");
+  const settings = readClaudeSettings(home);
+  settings.attribution.custom = "keep";
+  fs.writeFileSync(settingsPath, JSON.stringify(settings));
+  await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl, "--no-attribution"]);
+  assert.deepEqual(readClaudeSettings(home).attribution, { custom: "keep" });
+});
+
+test("a Claude reinstall keeps a PR attribution the user changed", async () => {
+  const home = path.join(temporaryHome, "attribution-custom-pr");
+  await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
+  const settingsPath = path.join(home, ".claude", "settings.json");
+  const settings = readClaudeSettings(home);
+  settings.attribution.pr = "User-owned PR";
+  fs.writeFileSync(settingsPath, JSON.stringify(settings));
+  await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
+  const claude = readClaudeSettings(home);
+  assert.equal(claude.attribution.pr, "User-owned PR");
+  assert.match(claude.attribution.commit, /^Co-Authored-By: Weave Router/);
+});
+
+const legacyPR = "🤖 Generated with [Weave Router](https://router.workweave.ai)";
+
+function seedLegacyAttribution(home) {
+  fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
+  fs.writeFileSync(path.join(home, ".claude", "settings.json"), JSON.stringify({ env: { ANTHROPIC_BASE_URL: "x" }, attribution: { commit: "Co-Authored-By: Weave Router <router@weaveos.com>", pr: legacyPR, custom: "keep" } }));
+}
+
+test("--no-attribution removes a PR link written before the weaveos.com move", async () => {
+  const home = path.join(temporaryHome, "attribution-legacy-pr-off");
+  seedLegacyAttribution(home);
+  await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl, "--no-attribution"]);
+  assert.deepEqual(readClaudeSettings(home).attribution, { custom: "keep" });
+});
+
+test("native uninstall removes a PR link written before the weaveos.com move", async () => {
+  const home = path.join(temporaryHome, "attribution-legacy-pr-uninstall");
+  await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
+  const settings = readClaudeSettings(home);
+  settings.attribution.pr = legacyPR;
+  fs.writeFileSync(path.join(home, ".claude", "settings.json"), JSON.stringify(settings));
+  await runInstallerAt(home, ["--uninstall", "--claude"]);
+  assert.equal(readClaudeSettings(home).attribution, undefined);
+});
+
+test("a Claude attribution opt-out survives reinstalls without the flag", async () => {
+  const home = path.join(temporaryHome, "attribution-opt-out");
+  await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl, "--no-attribution"]);
+  assert.equal(readClaudeSettings(home).attribution, undefined);
+  await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
+  const claude = readClaudeSettings(home);
+  assert.equal(claude.attribution, undefined);
+  assert.equal(claude.env.ANTHROPIC_BASE_URL, baseUrl);
+
+  await runInstallerAt(home, ["--uninstall", "--claude"]);
+  assert.equal(readClaudeSettings(home).attribution, undefined);
 });
 
 test("native installer rejects control characters in email headers", async () => {

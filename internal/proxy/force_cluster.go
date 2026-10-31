@@ -53,7 +53,7 @@ func (e *ForcedClusterUnsupportedStrategyError) Unwrap() error {
 // request's roster, so that check lives in the policy router; this is the one
 // half that can be answered — and refused — before paying for a round trip.
 func applyForceClusterHeader(ctx context.Context, r *http.Request) (string, error) {
-	if planOwnedServingRequest(ctx) {
+	if planHasDedicatedServingPolicy(ctx) {
 		return "", nil
 	}
 	label := strings.ToLower(strings.TrimSpace(r.Header.Get(ForceClusterHeader)))

@@ -11,12 +11,13 @@ const { stdin, stdout } = require("node:process");
 const TOML = require("smol-toml");
 const git = require("isomorphic-git");
 
-const defaultBaseUrl = process.env.WEAVE_ROUTER_URL || "https://router.workweave.ai";
+const defaultBaseUrl = process.env.WEAVE_ROUTER_URL || "https://router.weaveos.com";
 const packageName = process.env.WEAVE_ROUTER_NPM_PACKAGE || "@weave-os/router";
 const claudeAttribution = {
   commit: "Co-Authored-By: Weave Router <router@weaveos.com>",
-  pr: "🤖 Generated with [Weave Router](https://router.workweave.ai)",
+  pr: "🤖 Generated with [Weave Router](https://router.weaveos.com)",
 };
+const legacyAttributionPR = "🤖 Generated with [Weave Router](https://router.workweave.ai)";
 
 let patchToml;
 
@@ -24,7 +25,7 @@ async function main() {
   ({ patch: patchToml } = await import("@decimalturn/toml-patch"));
   const options = parseArgs(process.argv.slice(2));
   if (options.help) {
-    console.log("Usage: npx @weave-os/router [--claude|--codex|--opencode|--pi] [--scope user|project] [--dir PATH] [--base-url URL] [--email EMAIL] [--return-url URL] [--non-interactive] [--uninstall]");
+    console.log("Usage: npx @weave-os/router [--claude|--codex|--opencode|--pi|--copilot] [--wire anthropic|openai] [--scope user|project] [--dir PATH] [--base-url URL] [--email EMAIL] [--return-url URL] [--non-interactive] [--no-attribution] [--uninstall]");
     console.log("On Windows, install and uninstall run natively in Node.js; no Git Bash or jq is needed.");
     return;
   }
@@ -36,6 +37,8 @@ async function main() {
   if (!options.returnUrl && options.mode === "install" && process.env.WEAVE_ROUTER_RETURN_URL) {
     options.returnUrl = validReturnUrl(process.env.WEAVE_ROUTER_RETURN_URL, "WEAVE_ROUTER_RETURN_URL");
   }
+  if (options.target === "copilot" && options.scope === "project") throw new Error("--copilot installs in user scope only (Copilot CLI has no project-level providers.json).");
+  if (options.wire && options.target !== "copilot") throw new Error("--wire only applies to --copilot.");
   if (options.scope === "project" && !options.directory) {
     options.directory = findGitRoot(process.cwd());
     if (!options.directory) throw new Error("--scope project must run inside a git repo, or pass --dir <path>.");
@@ -43,6 +46,7 @@ async function main() {
 
   const root = path.resolve(options.directory || process.env.USERPROFILE || process.env.HOME);
   const target = options.target || (options.nonInteractive ? "claude" : await selectTarget());
+  if (target === "copilot" && options.scope === "project") throw new Error("--copilot installs in user scope only (Copilot CLI has no project-level providers.json).");
   const paths = configPaths(root, target, options.scope, options.explicitDirectory);
   for (const filePath of Object.values(paths).filter(Boolean)) {
     if (options.scope === "project") refuseSymlink(path.dirname(filePath));
@@ -71,9 +75,10 @@ async function main() {
 
   const email = options.email || process.env.WEAVE_USER_EMAIL || "";
   if (/[\x00-\x1f\x7f]/.test(email)) throw new Error("Email must not contain control characters.");
-  if (target === "claude") installClaude(paths, baseUrl, key, email);
+  if (target === "claude") installClaude(paths, baseUrl, key, email, options.attribution);
   else if (target === "codex") installCodex(paths, baseUrl, key, email);
   else if (target === "opencode") installOpenCode(paths, baseUrl, key, email);
+  else if (target === "copilot") installCopilot(paths, baseUrl, key, email, options.wire);
   else installPi(paths, baseUrl, key, email);
   console.log(`Weave Router configured for ${target} at ${paths.config}.`);
   if (!options.returnUrl) return;
@@ -115,14 +120,20 @@ function openInBrowser(url) {
 }
 
 function parseArgs(args) {
-  const options = { mode: "install", scope: "user", target: null, nonInteractive: false, explicitDirectory: false, help: false };
+  const options = { mode: "install", scope: "user", target: null, nonInteractive: false, explicitDirectory: false, help: false, attribution: true };
   for (let index = 0; index < args.length; index++) {
     const arg = args[index];
-    if (["--claude", "--codex", "--opencode", "--pi"].includes(arg)) options.target = arg.slice(2);
+    if (["--claude", "--codex", "--opencode", "--pi", "--copilot"].includes(arg)) options.target = arg.slice(2);
     else if (arg === "--uninstall") options.mode = "uninstall";
     else if (arg === "--non-interactive") options.nonInteractive = true;
+    else if (arg === "--no-attribution") options.attribution = false;
     else if (arg === "--local") options.baseUrl = "http://localhost:8080";
     else if (arg === "-h" || arg === "--help") options.help = true;
+    else if (arg === "--wire") {
+      const value = args[++index];
+      if (value !== "anthropic" && value !== "openai") throw new Error("--wire must be 'anthropic' or 'openai'.");
+      options.wire = value;
+    }
     else if (["--scope", "--dir", "--base-url", "--email", "--return-url"].includes(arg)) {
       const value = args[++index];
       if (!value) throw new Error(`${arg} requires a value.`);
@@ -154,6 +165,10 @@ function configPaths(root, target, scope, directory) {
       ? root
       : path.join(process.env.XDG_CONFIG_HOME || path.join(root, ".config"), "opencode");
     return { config: path.join(configDirectory, "opencode.json"), parked: path.join(configDirectory, ".weave-parked.json") };
+  }
+  if (target === "copilot") {
+    const copilotRoot = directory ? path.join(root, ".copilot") : process.env.COPILOT_HOME || path.join(root, ".copilot");
+    return { config: path.join(copilotRoot, "providers.json"), settings: path.join(copilotRoot, "settings.json"), parked: path.join(copilotRoot, ".weave-parked.json") };
   }
   const piRoot = path.join(root, ".pi", scope === "project" || directory ? "" : "agent");
   return { config: path.join(piRoot, "models.json"), settings: path.join(piRoot, "settings.json"), state: path.join(piRoot, ".weave-router-state.json") };
@@ -201,8 +216,26 @@ async function ensureProjectFilesPrivate(root, target) {
   return trackedProjectPaths;
 }
 
-function installClaude(paths, baseUrl, key, email) {
+// Claude Code sends a picker model ID verbatim (minus [1m], which it turns into
+// the 1M-context beta); the router routes only weave-auto and serves every other
+// model as-is (X-Weave-Model-Passthrough).
+const claudeWeaveAutoModel = "weave-auto[1m]";
+const isClaudeWeaveAuto = (model) => model === "weave-auto" || model === claudeWeaveAutoModel;
+const claudeWeaveAutoOption = { model: claudeWeaveAutoModel, label: "Weave Auto", description: "Weave picks the best model for each turn", behavesAs: "claude-opus-5-5" };
+
+function stripClaudeWeaveAuto(layer) {
+  if (isClaudeWeaveAuto(layer.model)) delete layer.model;
+  if (!layer.modelPicker || typeof layer.modelPicker !== "object") return;
+  layer.modelPicker.options = (layer.modelPicker.options || []).filter((option) => !isClaudeWeaveAuto(option?.model));
+  if (!layer.modelPicker.options.length) delete layer.modelPicker.options;
+  if (!Object.keys(layer.modelPicker).length) delete layer.modelPicker;
+}
+
+function installClaude(paths, baseUrl, key, email, attribution) {
   const settings = readJson(paths.config);
+  // Same rule as install.sh: an install without our attribution block is an opt-out that reinstalls keep.
+  const ownsAttribution = String(settings.attribution?.commit || "").startsWith("Co-Authored-By: Weave Router");
+  const optedOutOfAttribution = Object.hasOwn(settings.env || {}, "ANTHROPIC_BASE_URL") && settings.attribution == null;
   const localSettings = paths.localConfig ? readJson(paths.localConfig) : null;
   const state = readJson(paths.state);
   state.env ||= Object.fromEntries(["ANTHROPIC_BASE_URL", "ENABLE_TOOL_SEARCH"].map((field) => [field, { exists: Object.hasOwn(settings.env || {}, field), value: settings.env?.[field] }]));
@@ -213,11 +246,15 @@ function installClaude(paths, baseUrl, key, email) {
   };
   state.installedBaseUrl = baseUrl;
   const customHeaders = localSettings?.env?.ANTHROPIC_CUSTOM_HEADERS ?? settings.env?.ANTHROPIC_CUSTOM_HEADERS ?? "";
-  const previousHeaders = customHeaders.split("\n").filter((header) => !/^X-(?:Weave-Router-Key|Weave-User-Email|Weave-User-Name|App):/i.test(header));
+  // Before passthrough every model was routed, so a saved model was never a pin:
+  // move those installs (and new ones) to Weave Auto once, then keep the user's picks.
+  const weaveAutoRollout = ![settings, localSettings].some((layer) => /^X-Weave-Model-Passthrough:/im.test(layer?.env?.ANTHROPIC_CUSTOM_HEADERS || ""));
+  const previousHeaders = customHeaders.split("\n").filter((header) => !/^X-(?:Weave-Router-Key|Weave-User-Email|Weave-User-Name|Weave-Model-Passthrough|App):/i.test(header));
   const routerHeaders = [
     `X-Weave-Router-Key: ${key}`,
     ...(email ? [`X-Weave-User-Email: ${email}`] : []),
     "X-App: claude-code",
+    "X-Weave-Model-Passthrough: 1",
   ];
   settings.env ||= {};
   settings.env.ANTHROPIC_BASE_URL = baseUrl;
@@ -229,7 +266,21 @@ function installClaude(paths, baseUrl, key, email) {
     settings.env.ANTHROPIC_CUSTOM_HEADERS = [...previousHeaders, ...routerHeaders].filter(Boolean).join("\n");
   }
   settings.env.ENABLE_TOOL_SEARCH = "true";
-  settings.attribution = { ...(settings.attribution || {}), ...claudeAttribution };
+  const modelSettings = localSettings || settings;
+  const modelUnset = !process.env.ANTHROPIC_MODEL && [settings, localSettings, readJson(path.join(process.env.USERPROFILE || process.env.HOME, ".claude", "settings.json"))].every((layer) => !layer || (!Object.hasOwn(layer, "model") && !layer.env?.ANTHROPIC_MODEL));
+  modelSettings.modelPicker = { ...(modelSettings.modelPicker || {}) };
+  modelSettings.modelPicker.options = [claudeWeaveAutoOption, ...(modelSettings.modelPicker.options || []).filter((option) => !isClaudeWeaveAuto(option?.model))];
+  if (weaveAutoRollout) {
+    modelSettings.model = claudeWeaveAutoModel;
+    if (modelSettings.env) delete modelSettings.env.ANTHROPIC_MODEL;
+  } else if (modelUnset || modelSettings.model === "weave-auto") modelSettings.model = claudeWeaveAutoModel;
+  if (attribution && (ownsAttribution || (settings.attribution == null && !optedOutOfAttribution))) {
+    settings.attribution = { ...claudeAttribution, ...settings.attribution, commit: claudeAttribution.commit };
+  } else if (!attribution && ownsAttribution) {
+    delete settings.attribution.commit;
+    if ([claudeAttribution.pr, legacyAttributionPR].includes(settings.attribution.pr)) delete settings.attribution.pr;
+    if (!Object.keys(settings.attribution).length) delete settings.attribution;
+  }
   writeJson(paths.config, settings);
   if (paths.localConfig) writeJson(paths.localConfig, localSettings);
   writeJson(paths.state, state);
@@ -284,6 +335,29 @@ function installOpenCode(paths, baseUrl, key, email) {
   writeJson(paths.config, settings);
 }
 
+// Copilot CLI lists providers.json models in /model next to its GitHub models,
+// so the router is a selectable model rather than a replacement base URL.
+function installCopilot(paths, baseUrl, key, email, requestedWire) {
+  const providers = readJson(paths.config);
+  const installedWire = (providers.providers || []).find((entry) => entry.name === "weave")?.type === "openai" ? "openai" : "anthropic";
+  const wire = requestedWire || installedWire;
+  const headers = { "X-Weave-Router-Key": key, "X-App": "copilot", ...(email ? { "X-Weave-User-Email": email } : {}) };
+  const provider = wire === "openai"
+    ? { name: "weave", type: "openai", baseUrl: `${baseUrl}/v1`, wireApi: "responses", headers }
+    : { name: "weave", type: "anthropic", baseUrl, headers };
+  const model = { id: "auto", provider: "weave", name: "Weave Router", modelId: wire === "openai" ? "gpt-5.4" : "claude-sonnet-4", maxPromptTokens: 400000, maxOutputTokens: 32000 };
+  providers.providers = [...(providers.providers || []).filter((entry) => entry.name !== "weave"), provider];
+  providers.models = [...(providers.models || []).filter((entry) => entry.provider !== "weave"), model];
+  writeJson(paths.config, providers);
+  try { fs.chmodSync(paths.config, 0o600); } catch {}
+  const settings = readJson(paths.settings);
+  const parked = readJson(paths.parked);
+  const directModel = typeof settings.model === "string" && !settings.model.startsWith("weave/") ? settings.model : parked.direct_model || "";
+  writeJson(paths.parked, { direct_model: directModel, router_model: "weave/auto" });
+  settings.model = "weave/auto";
+  writeJson(paths.settings, settings);
+}
+
 function installPi(paths, baseUrl, key, email) {
   const models = readJson(paths.config);
   models.providers ||= {};
@@ -318,8 +392,9 @@ function uninstall(paths, target) {
     if (!fs.existsSync(paths.state) && ![settings.env?.ANTHROPIC_CUSTOM_HEADERS, localSettings?.env?.ANTHROPIC_CUSTOM_HEADERS].some((headers) => /^X-Weave-Router-Key:/m.test(headers || ""))) return;
     restoreField(settings.env, "ANTHROPIC_BASE_URL", state.env?.ANTHROPIC_BASE_URL, state.installedBaseUrl || settings.env?.ANTHROPIC_BASE_URL);
     restoreField(settings.env, "ENABLE_TOOL_SEARCH", state.env?.ENABLE_TOOL_SEARCH, "true");
+    for (const layer of [settings, localSettings]) if (layer) stripClaudeWeaveAuto(layer);
     const customHeaders = (headerBlock, originalAppHeaders) => {
-      const preservedHeaders = (headerBlock || "").split("\n").filter((header) => !/^X-Weave-(?:Router-Key|User-Email|User-Name):/i.test(header) && !/^X-App:\s*claude-code\s*$/i.test(header));
+      const preservedHeaders = (headerBlock || "").split("\n").filter((header) => !/^X-Weave-(?:Router-Key|User-Email|User-Name|Model-Passthrough):/i.test(header) && !/^X-App:\s*claude-code\s*$/i.test(header));
       if (!preservedHeaders.some((header) => /^X-App:/i.test(header))) preservedHeaders.push(...(originalAppHeaders || []));
       return preservedHeaders.filter(Boolean).join("\n");
     };
@@ -348,6 +423,25 @@ function uninstall(paths, target) {
     if (settings.model_providers && !Object.keys(settings.model_providers).length) delete settings.model_providers;
     writeToml(paths.config, settings);
     fs.rmSync(paths.state, { force: true });
+  } else if (target === "copilot") {
+    if (!fs.existsSync(paths.config)) return;
+    const providers = readJson(paths.config);
+    if (!(providers.providers || []).some((entry) => entry.name === "weave")) return;
+    providers.providers = (providers.providers || []).filter((entry) => entry.name !== "weave");
+    providers.models = (providers.models || []).filter((entry) => entry.provider !== "weave");
+    const { providers: remainingProviders, models: remainingModels, ...otherFields } = providers;
+    if (!remainingProviders.length && !remainingModels.length && !Object.keys(otherFields).length) fs.rmSync(paths.config, { force: true });
+    else writeJson(paths.config, providers);
+    if (fs.existsSync(paths.settings)) {
+      const settings = readJson(paths.settings);
+      if (typeof settings.model === "string" && settings.model.startsWith("weave/")) {
+        const directModel = readJson(paths.parked).direct_model;
+        if (directModel) settings.model = directModel;
+        else delete settings.model;
+        writeJson(paths.settings, settings);
+      }
+    }
+    fs.rmSync(paths.parked, { force: true });
   } else if (target === "opencode") {
     if (!fs.existsSync(paths.config)) return;
     const settings = readJson(paths.config);
@@ -378,7 +472,7 @@ function uninstall(paths, target) {
 }
 
 function restoreField(record, field, savedValue, installedValue) {
-  if (!record || record[field] !== installedValue) return;
+  if (!record || (record[field] !== installedValue && !(field === "pr" && record[field] === legacyAttributionPR))) return;
   if (savedValue?.exists) record[field] = savedValue.value;
   else delete record[field];
 }
@@ -395,6 +489,7 @@ function readInstalledKey(paths, target, trackedProjectPaths) {
     }
     if (target === "codex") return readToml(paths.config).model_providers?.weave?.http_headers?.["X-Weave-Router-Key"] || "";
     if (target === "opencode") return readJson(paths.config).provider?.weave?.options?.headers?.["X-Weave-Router-Key"] || "";
+    if (target === "copilot") return (readJson(paths.config).providers || []).find((entry) => entry.name === "weave")?.headers?.["X-Weave-Router-Key"] || "";
     return readJson(paths.config).providers?.weave?.headers?.["X-Weave-Router-Key"] || "";
   } catch { return ""; }
 }
@@ -402,8 +497,8 @@ function readInstalledKey(paths, target, trackedProjectPaths) {
 async function selectTarget() {
   const terminal = readline.createInterface({ input: stdin, output: stdout });
   try {
-    const answer = (await terminal.question("Install target: [1] Claude Code (default), [2] Codex, [3] OpenCode, [4] pi: ")).trim();
-    return ({ "": "claude", "1": "claude", "2": "codex", "3": "opencode", "4": "pi" })[answer] || (() => { throw new Error("Choose 1, 2, 3, or 4."); })();
+    const answer = (await terminal.question("Install target: [1] Claude Code (default), [2] Codex, [3] OpenCode, [4] pi, [5] Copilot CLI: ")).trim();
+    return ({ "": "claude", "1": "claude", "2": "codex", "3": "opencode", "4": "pi", "5": "copilot" })[answer] || (() => { throw new Error("Choose 1, 2, 3, 4, or 5."); })();
   } finally { terminal.close(); }
 }
 

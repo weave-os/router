@@ -30,7 +30,7 @@ const (
 	QwenReleaseName     = "qwen-finetuned-escalation-classifier"
 	QwenModelSHA256     = "620f908e24268bf9f116d533cc1d42f825f2a38599374c3db63c5db210b783d6"
 	QwenPromptSHA256    = "6fc829a3bc36d3f5c2cd2705ee28ba3d4f61dc5380313adf2012bfab22a8f9a0"
-	QwenRendererVersion = "five_turn_v2"
+	QwenRendererVersion = "five_turn_v3"
 	QwenProvider        = "modal"
 	QwenSchemaVersion   = "escalation_classifier_v1"
 )
@@ -119,6 +119,7 @@ const (
 	FailureNone                FailureCode = ""
 	FailureCapacity            FailureCode = "capacity"
 	FailureIntervalUnavailable FailureCode = "interval_unavailable"
+	FailureRecentUserPrompt    FailureCode = "recent_user_prompt"
 	FailureCallLimit           FailureCode = "call_limit"
 	FailureInFlight            FailureCode = "in_flight"
 	FailureStale               FailureCode = "stale"

@@ -132,6 +132,9 @@ func (r *ServingAdmissionRepo) Admit(ctx context.Context, installationID, apiKey
 			}
 			if err == nil {
 				projection.ProfileKey = uuidString(assignment.ProfileKey)
+				if projection.ProfileKey == entitlement.LegacyBoostProfileKey {
+					projection.ProfileKey = ""
+				}
 				projection.AssignmentGeneration = assignment.AssignmentGeneration
 			}
 		}
@@ -238,7 +241,7 @@ func subscriberPlanProjection(planValue string, version int64) (policyregistry.A
 	plan := entitlement.Plan(planValue)
 	profile, ok := entitlement.ServingProfileFor(plan)
 	if !ok || version <= 0 {
-		return policyregistry.AdmissionProjection{}, errors.New("active subscriber plan has no valid server-owned serving profile")
+		return policyregistry.AdmissionProjection{}, errors.New("active subscriber plan has no valid routing policy")
 	}
 	return policyregistry.AdmissionProjection{
 		ProfileKey:           profile.Key,

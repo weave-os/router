@@ -73,6 +73,11 @@ type Installation struct {
 	// subscription token exactly as before, so the prepaid billing path is
 	// unchanged. Defaults false -- preserves today's behavior.
 	SubscriptionRoutingDisabled bool
+	// PickedModelCreditFallbackEnabled lets a client-selected model (served
+	// as-is) fall back to Weave credits once the caller's own Claude/ChatGPT
+	// login cannot serve it. Defaults false: like the native client, a pick runs
+	// on that login's plan and then the provider's own extra usage.
+	PickedModelCreditFallbackEnabled bool
 	// RoutingStrategy is the canonical strategy selected for this installation.
 	// Existing installations default to the cluster scorer until allowlisted.
 	RoutingStrategy router.Strategy

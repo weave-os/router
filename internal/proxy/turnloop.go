@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"weave-os/router/internal/auth"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/inference"
 	"weave-os/router/internal/observability"
@@ -741,7 +740,7 @@ func withAutomaticExclusions(req HardPinRequest, automaticExcluded map[string]st
 }
 
 func forcedPinEligible(pin sessionpin.Pin, req router.Request) bool {
-	return pinEligible(pin, req)
+	return pinEligible(pin, readmitForcedContextEstimate(req, pin.Model))
 }
 
 func forcedPinIneligibilityReason(pin sessionpin.Pin, req router.Request) string {
@@ -817,7 +816,7 @@ func (s *Service) runTurnLoop(
 	if compatibilityErr != nil {
 		return turnLoopResult{}, compatibilityErr
 	}
-	if planOwnedServingRequest(ctx) {
+	if planHasDedicatedServingPolicy(ctx) {
 		// Plan-owned profiles ignore installation routing controls, but an
 		// explicit force-model choice remains a caller-owned override.
 		req.ForceCluster = ""
@@ -875,8 +874,8 @@ func (s *Service) runTurnLoop(
 	if isolatedSearch {
 		req.ForceModel = ""
 		res.HardPinned = true
-		if auth.RoutingPassthroughFrom(ctx) {
-			decision, err := s.callerModelPassthroughDecision(ctx, req)
+		ctx, decision, passthrough, err := s.passthroughDecision(ctx, req)
+		if passthrough {
 			res.Decision = decision
 			res.CallerModelPassthrough = true
 			return res, err
@@ -929,14 +928,19 @@ func (s *Service) runTurnLoop(
 			req.AutomaticExcludedModels = s.globalAutomaticExcludedModels(ctx)
 		}
 	}
-	if auth.RoutingPassthroughFrom(ctx) && !forceModelFound {
-		decision, err := s.callerModelPassthroughDecision(ctx, req)
+	if !forceModelFound {
+		var decision router.Decision
+		var passthrough bool
+		var err error
+		ctx, decision, passthrough, err = s.passthroughDecision(ctx, req)
 		if err != nil {
 			return res, err
 		}
-		res.Decision = decision
-		res.CallerModelPassthrough = true
-		return res, nil
+		if passthrough {
+			res.Decision = decision
+			res.CallerModelPassthrough = true
+			return res, nil
+		}
 	}
 	if res.Strategy == router.StrategyLLMClassifier {
 		return s.runClassifierTurn(ctx, req, res, threadSessionKey)
@@ -1195,7 +1199,7 @@ func (s *Service) runTurnLoop(
 			return res, nil
 		}
 
-		passthroughModel := s.baselineFor(req.RequestedModel)
+		passthroughModel := s.baselineFor(ctx, req.RequestedModel)
 		_, excluded := req.ExcludedModels[passthroughModel]
 		_, safetyExcluded := req.SafetyExcludedModels[passthroughModel]
 		_, allowlisted := req.AllowedModels[passthroughModel]

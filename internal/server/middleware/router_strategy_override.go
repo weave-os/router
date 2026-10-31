@@ -71,14 +71,21 @@ func WithRouterStrategyDefault(defaultStrategy router.Strategy, liveAvailability
 		identity, managedServing := requestcontext.ServingIdentityFromContext(c.Request.Context())
 		if managedServing && identity.Plan != "" {
 			profile, ok := entitlement.ServingProfileFor(entitlement.Plan(identity.Plan))
-			if !ok || !selectable(profile.Strategy) {
+			if !ok {
+				observability.FromGin(c).Error("Managed serving identity has an unknown subscriber plan", "plan", identity.Plan)
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "plan_routing_unavailable"})
+				return
+			}
+			if profile.Key != "" && !selectable(profile.Strategy) {
 				observability.FromGin(c).Error("Plan-owned routing profile strategy is unavailable", "plan", identity.Plan)
 				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": "plan_routing_unavailable"})
 				return
 			}
-			c.Request = c.Request.WithContext(router.WithStrategy(c.Request.Context(), profile.Strategy))
-			c.Next()
-			return
+			if profile.Key != "" {
+				c.Request = c.Request.WithContext(router.WithStrategy(c.Request.Context(), profile.Strategy))
+				c.Next()
+				return
+			}
 		}
 		switch {
 		case managedServing && (router.IsBetaStrategy(strategy) || strategy == ""):

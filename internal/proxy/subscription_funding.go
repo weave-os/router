@@ -81,6 +81,9 @@ func (s *Service) withSubscriptionFundingAuthorization(ctx context.Context, head
 		if !compatible {
 			return nil
 		}
+		if pickedModelOnOwnPlan(callCtx) {
+			return fmt.Errorf("%w: picked model runs on the caller's own plan", ErrSubscriptionPoolUnavailable)
+		}
 		refusal := clientAppRefusalFunding{counts: clientAppRefusalPaidFallback(callCtx), poolRefused: claudePoolRefusesClientApp(callCtx), clientApp: ClientIdentityFrom(callCtx).ClientApp}
 		if err := s.authorizeSubscriptionAPI(admissionCtx, pool, codexToken, claudeToken, refusal); err != nil {
 			observability.FromContext(callCtx).Warn("Blocked API inference without subscription quota-exhaustion evidence", "model", target.CatalogID, "provider", target.Provider, "subscription_provider", pool, "err", err)

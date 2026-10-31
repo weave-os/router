@@ -437,7 +437,7 @@ type Service struct {
 	feedbackSigner  *feedback.Signer
 	piHandoffSecret []byte
 	// feedbackBaseURL is the public origin of the feedback page (e.g.
-	// https://router.workweave.ai), trailing slash trimmed. Empty disables
+	// https://router.weaveos.com), trailing slash trimmed. Empty disables
 	// feedback-link header emission on proxied responses.
 	feedbackBaseURL string
 	// usageObserver records per-credential subscription rate-limit headroom from
@@ -510,6 +510,10 @@ type codexResponsesBodyContextKey struct{}
 // nativeResponsesBodyContextKey carries the caller's original /v1/responses
 // body (badge-stripped for Codex); which model needs it is only known post-routing.
 type nativeResponsesBodyContextKey struct{}
+
+type responsesLastAnnouncedModelContextKey struct{}
+
+type responsesReplayedModelContextKey struct{}
 
 // nativeResponsesReasoningHashContextKey preserves reasoning that only native
 // Responses dispatch can represent.
@@ -621,6 +625,10 @@ type InstallationUsageBypassContextKey struct{}
 // subscription credentials are excluded before dispatch.
 type InstallationSubscriptionRoutingDisabledContextKey struct{}
 
+// InstallationPickedModelCreditFallbackContextKey carries the installation's
+// opt-in (bool) to rescue client-selected models on Weave credits.
+type InstallationPickedModelCreditFallbackContextKey struct{}
+
 // InstallationHideTerminalSurfacesContextKey is the context key for the
 // installation's hide-terminal-surfaces toggle (bool; absent == false);
 // suppresses the routing marker, feedback footer, and feedback-link header.
@@ -721,6 +729,16 @@ func muteSlowStartFor(ctx context.Context, res turnLoopResult) {
 	if machineReadTurn(res) || res.HardPinned {
 		attemptTraceFromContext(ctx).muteSlowStart()
 	}
+}
+
+// announcementTurnFor falls back to the model the client last saw announced
+// when the server has no served-model history for the conversation, as for a
+// client that sends no session identity.
+func announcementTurnFor(res turnLoopResult, replayedModel string) turnLoopResult {
+	if res.PriorServedModel == "" {
+		res.PriorServedModel = replayedModel
+	}
+	return res
 }
 
 // routingMarkerFor builds the "brand → model · note" snippet emitted when the
@@ -1023,7 +1041,7 @@ func installationSubscriptionModelsWhenInactiveFromContext(ctx context.Context) 
 // set: the installation policy allowlist further narrowed by a request-level
 // AllowedModelsHeader subset when one is present. Nil = no policy.
 func allowedModelsForRequest(ctx context.Context) map[string]struct{} {
-	if planOwnedServingRequest(ctx) && !subscriptionStateModelsEnabled(ctx) {
+	if planHasDedicatedServingPolicy(ctx) && !subscriptionStateModelsEnabled(ctx) {
 		return nil
 	}
 	policy := installationAllowedModelSet(ctx)
@@ -1049,7 +1067,7 @@ func allowedModelsForRequest(ctx context.Context) map[string]struct{} {
 // selects it.
 func installationAllowedModelSet(ctx context.Context) map[string]struct{} {
 	var allowed map[string]struct{}
-	if !planOwnedServingRequest(ctx) || subscriptionStateModelsEnabled(ctx) {
+	if !planHasDedicatedServingPolicy(ctx) || subscriptionStateModelsEnabled(ctx) {
 		if base := installationAllowedModelsFromContext(ctx); len(base) > 0 {
 			allowed = modelSet(base)
 		}
@@ -1131,7 +1149,7 @@ func hideTerminalSurfacesForRequest(ctx context.Context) bool {
 // wins; otherwise the authed installation's persisted preference applies;
 // otherwise nil leaves the scorer on its tuned bundle defaults.
 func routingKnobsForRequest(ctx context.Context) *router.Overrides {
-	if planOwnedServingRequest(ctx) {
+	if planHasDedicatedServingPolicy(ctx) {
 		return nil
 	}
 	if k := router.RoutingKnobsFromContext(ctx); k != nil {
@@ -1156,7 +1174,7 @@ func (s *Service) safetyExcludedModels(env *translate.RequestEnvelope, outputRes
 	if len(overflowed) == 0 && len(geminiUnsigned) == 0 && len(advisorOutranking) == 0 {
 		return nil
 	}
-	out := make(map[string]struct{}, len(overflowed)+len(geminiUnsigned)+len(advisorOutranking))
+	out := make(map[string]struct{}, len(overflowed))
 	for _, models := range [][]string{overflowed, geminiUnsigned, advisorOutranking} {
 		for _, m := range models {
 			out[m] = struct{}{}
@@ -1191,7 +1209,7 @@ func (s *Service) excludedModelsFor(ctx context.Context, allowed map[string]stru
 	// Plan-owned serving drops the installation's positive routing controls,
 	// but an explicit exclusion is the customer's hard opt-out and always applies.
 	excluded := installationExcludedModelsFromContext(ctx)
-	out := make(map[string]struct{}, len(excluded)+len(ineligible))
+	out := make(map[string]struct{}, len(excluded))
 	for _, m := range excluded {
 		out[m] = struct{}{}
 	}
@@ -1222,7 +1240,7 @@ func (s *Service) productIneligibleModels(ctx context.Context) map[string]struct
 }
 
 func installationExcludedProvidersFromContext(ctx context.Context) []string {
-	if planOwnedServingRequest(ctx) && !subscriptionStateModelsEnabled(ctx) {
+	if planHasDedicatedServingPolicy(ctx) && !subscriptionStateModelsEnabled(ctx) {
 		return nil
 	}
 	v := ctx.Value(InstallationExcludedProvidersContextKey{})
@@ -1302,7 +1320,7 @@ func (s *Service) excludedProvidersForRequest(ctx context.Context) map[string]st
 	if len(sessionDisabled) == 0 {
 		return base
 	}
-	out := make(map[string]struct{}, len(base)+len(sessionDisabled))
+	out := make(map[string]struct{}, len(base))
 	for p := range base {
 		out[p] = struct{}{}
 	}
@@ -1327,7 +1345,7 @@ func installationPreferredModelsFromContext(ctx context.Context) []string {
 // installationFastModeModelsFromContext returns the per-installation fast-mode
 // opt-in list stashed on ctx by the auth middleware, or nil when none is present.
 func installationFastModeModelsFromContext(ctx context.Context) []string {
-	if planOwnedServingRequest(ctx) {
+	if planHasDedicatedServingPolicy(ctx) {
 		return nil
 	}
 	v := ctx.Value(InstallationFastModeModelsContextKey{})
@@ -1346,7 +1364,7 @@ func (s *Service) preferredModelsForRequest(ctx context.Context) []string {
 	if subscriptionStateModelsEnabled(ctx) {
 		preferred = slices.Clone(installationSubscriptionModelsWhenActiveFromContext(ctx))
 	}
-	if planOwnedServingRequest(ctx) {
+	if planHasDedicatedServingPolicy(ctx) {
 		return preferred
 	}
 	for _, model := range installationPreferredModelsFromContext(ctx) {
@@ -1367,7 +1385,7 @@ func (s *Service) preferredModelsForRequest(ctx context.Context) []string {
 // choosing models for their own tiers is not the installation reshaping the
 // plan's roster.
 func clusterArmOverridesForRequest(ctx context.Context) map[string][]string {
-	if planOwnedServingRequest(ctx) {
+	if planHasDedicatedServingPolicy(ctx) {
 		if !flags.BoolOr(ctx, flags.KeyPlanUserClusterLists, false) {
 			return nil
 		}
@@ -1379,9 +1397,27 @@ func clusterArmOverridesForRequest(ctx context.Context) map[string][]string {
 	return mergeClusterOverrides(keyScoped, userScoped)
 }
 
-func planOwnedServingRequest(ctx context.Context) bool {
+// memberSelectedModel reports whether model is in one of the member's own
+// per-tier selections under an organization that opted in with
+// plan_user_cluster_lists. Such a pick is the member's explicit choice, so a
+// linked subscription's funding preference does not swap it for a model the
+// subscription covers. A turn with no paid capacity behind it (subscription-only
+// for any reason but linked-first) keeps the swap: the pick could not be served.
+func memberSelectedModel(ctx context.Context, model string) bool {
+	if !flags.BoolOr(ctx, flags.KeyPlanUserClusterLists, false) || billing.SubscriptionOnlyFromContext(ctx) && !linkedFirst(ctx) {
+		return false
+	}
+	for _, models := range auth.UserClusterModelListsFrom(ctx) {
+		if slices.Contains(models, model) {
+			return true
+		}
+	}
+	return false
+}
+
+func planHasDedicatedServingPolicy(ctx context.Context) bool {
 	identity, managed := requestcontext.ServingIdentityFromContext(ctx)
-	return managed && identity.Plan != ""
+	return managed && entitlement.PlanHasServingProfile(entitlement.Plan(identity.Plan))
 }
 
 // contextWindowOutputReserve is the minimum tokens reserved for the model's
@@ -1480,7 +1516,7 @@ func excludeContextOverflowModels(est, sigSavings, outputReserve int, enabledPro
 			continue
 		}
 		if out == nil {
-			out = make(map[string]struct{}, len(excluded)+1)
+			out = make(map[string]struct{}, len(excluded))
 			for k := range excluded {
 				out[k] = struct{}{}
 			}
@@ -1622,7 +1658,7 @@ func excludeGemini3xOnUnsignedHistory(env *translate.RequestEnvelope, excluded, 
 			continue
 		}
 		if out == nil {
-			out = make(map[string]struct{}, len(excluded)+1)
+			out = make(map[string]struct{}, len(excluded))
 			for k := range excluded {
 				out[k] = struct{}{}
 			}
@@ -1755,7 +1791,7 @@ type suppressCodexModelContextKey struct{}
 
 func withSuppressedCodexModel(ctx context.Context, model string) context.Context {
 	previous, _ := ctx.Value(suppressCodexModelContextKey{}).(map[string]struct{})
-	models := make(map[string]struct{}, len(previous)+1)
+	models := make(map[string]struct{}, len(previous))
 	for id := range previous {
 		models[id] = struct{}{}
 	}
@@ -2623,9 +2659,27 @@ func (s *Service) WithSubAgentOverride(provider, model string) *Service {
 	return s
 }
 
-// baselineFor returns requested if it has a pricing entry, otherwise the
-// configured defaultBaselineModel (which may be "").
-func (s *Service) baselineFor(requested string) string {
+// clientRequestedModel resolves a routing model (weave-auto) to the native
+// model the client would otherwise be running, for the comparisons and
+// passthrough paths that need a concrete requested model. Claude Code's picker
+// row behaves as claude-opus-5-5; Codex launches on its bundled catalog's first model.
+func clientRequestedModel(ctx context.Context, requested string) string {
+	if !router.IsRoutingModel(requested) {
+		return requested
+	}
+	switch ClientIdentityFrom(ctx).ClientApp {
+	case ClientAppClaudeCode:
+		return "claude-opus-5-5"
+	case ClientAppCodex:
+		return "gpt-6.1-sol"
+	}
+	return requested
+}
+
+// baselineFor returns the client's requested model if it has a pricing entry,
+// otherwise the configured defaultBaselineModel (which may be "").
+func (s *Service) baselineFor(ctx context.Context, requested string) string {
+	requested = clientRequestedModel(ctx, requested)
 	if requested != "" {
 		if _, ok := catalog.PrimaryPriceFor(requested); ok {
 			return requested
@@ -3246,8 +3300,9 @@ func (s *Service) routeFor(ctx context.Context, req router.Request) (router.Deci
 	if err != nil {
 		return router.Decision{}, err
 	}
-	if auth.RoutingPassthroughFrom(ctx) {
-		return s.callerModelPassthroughDecision(ctx, req)
+	ctx, decision, passthrough, err := s.passthroughDecision(ctx, req)
+	if passthrough {
+		return decision, err
 	}
 	req = s.withPolicyRequestContext(ctx, req)
 	strategy := router.StrategyFromContext(ctx)
@@ -3557,7 +3612,10 @@ func newRefusalObserver(inner http.ResponseWriter) *refusalObserver {
 
 func (o *refusalObserver) Header() http.Header { return o.inner.Header() }
 
-func (o *refusalObserver) WriteHeader(status int) { o.inner.WriteHeader(status) }
+func (o *refusalObserver) WriteHeader(status int) {
+	sse.PrepareJSONResponse(o.inner)
+	o.inner.WriteHeader(status)
+}
 
 func (o *refusalObserver) Write(p []byte) (int, error) {
 	// Accumulate up to refusalScanCap so signals split across SSE chunks are caught.
@@ -3582,7 +3640,7 @@ func (o *refusalObserver) Write(p []byte) (int, error) {
 			o.category = refusalCategory(o.buf)
 		}
 	}
-	return o.inner.Write(p)
+	return sse.WriteJSONChunk(o.inner, p)
 }
 
 func (o *refusalObserver) Flush() {
@@ -3762,6 +3820,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// clients echo it back verbatim, so left in place it accumulates in
 	// upstream context every turn.
 	ctx = withSubscriptionOnlyWarningEcho(ctx, body)
+	replayedModel := translate.LastAnnouncedMessagesModel(body)
 	body, stripErr := stripRoutingMarkerFromMessages(body)
 	if stripErr != nil {
 		log.Error("Failed to strip routing marker from inbound messages", "err", stripErr)
@@ -4144,6 +4203,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		return routeErr
 	}
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
+	ctx = withPickedModelFunding(ctx, routeRes.CallerModelPassthrough, routeRes.Decision.Provider)
 	ctx = s.withTurnOverloadProbe(ctx, routeRes)
 	if preparingHandoff(ctx) {
 		return s.finishHandoffPreparation(ctx, w, env, req, routeRes)
@@ -4363,7 +4423,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					Build(),
 			})
 			otel.Flush(ctx)
-			log.Info("ProxyMessages cache hit", "requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "external_id", externalID, "total_ms", time.Since(requestStart).Milliseconds())
+			log.Info("ProxyMessages cache hit", "requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "external_id", externalID, "total_ms", time.Since(requestStart).Milliseconds())
 			return nil
 		}
 		s.recordSemanticCacheMiss(ctx)
@@ -4382,7 +4442,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		return err
 	}
 
-	reqPricing := otel.Lookup(s.baselineFor(feats.Model))
+	reqPricing := otel.Lookup(s.baselineFor(ctx, feats.Model))
 	actPricing := otel.Lookup(decision.Model)
 	reqDecisionPricing := reqPricing.ForInputTokens(feats.Tokens)
 	actDecisionPricing := actPricing.ForInputTokens(feats.Tokens)
@@ -4567,7 +4627,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// request body. Zero for Anthropic-native passthrough.
 	var reqStats providers.RequestMutationStats
 
-	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
+	announcementTurn := announcementTurnFor(routeRes, replayedModel)
+	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, announcementTurn, routingMarkerFor(announcementTurn), decision.Model, ""))
 	muteSlowStartFor(ctx, routeRes)
 	fundingCtx := ctx
 	if CredentialsFromContext(fundingCtx) == nil {
@@ -4707,7 +4768,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					if providers.OutputExcludesReasoning(d.Provider) {
 						responsesTranslator.SetUsageOutputBasis(providerusage.OutputExcludesReasoning)
 					}
-					responsesTranslator.SetClientInputTokenScale(clientInputTokenScale(routeRes, d.Provider, feats.Model))
+					responsesTranslator.SetClientInputTokenScale(clientInputTokenScale(routeRes, d.Provider, clientRequestedModel(ctx, feats.Model)))
 					if err := responsesTranslator.Prelude(env.Stream()); err != nil {
 						return fmt.Errorf("emit Anthropic routing marker: %w", err), func(err error) error { return err }
 					}
@@ -4723,7 +4784,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 					if providers.OutputExcludesReasoning(d.Provider) {
 						chatTranslator.SetUsageOutputBasis(providerusage.OutputExcludesReasoning)
 					}
-					chatTranslator.SetClientInputTokenScale(clientInputTokenScale(routeRes, d.Provider, feats.Model))
+					chatTranslator.SetClientInputTokenScale(clientInputTokenScale(routeRes, d.Provider, clientRequestedModel(ctx, feats.Model)))
 					if err := chatTranslator.Prelude(env.Stream()); err != nil {
 						return fmt.Errorf("emit Anthropic routing marker: %w", err), func(err error) error { return err }
 					}
@@ -4905,7 +4966,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// the prompt fits its context window (a larger-window routed model can
 	// carry a prompt the baseline would 400 as "prompt is too long").
 	// Computed pre-dispatch so the primary dispatch defers its exhaustion flush.
-	baselineModel := s.baselineFor(feats.Model)
+	baselineModel := s.baselineFor(ctx, feats.Model)
 	baselineCatalog, baselineKnown := catalog.ByID(baselineModel)
 	_, explicitRequestedModel := catalog.ByID(req.RequestedModel)
 	_, anthropicExcluded := s.excludedProvidersForRequest(ctx)[providers.ProviderAnthropic]
@@ -5015,7 +5076,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// A compaction turn is how the client recovers from overflow; answering it
 	// with prompt-too-long would fail the compaction itself.
 	requestedWindowPassed := routeRes.TurnType != turntype.Compaction &&
-		pastRequestedWindow(feats.Model, decision.Model, overflowEstimate, outputReserve)
+		pastRequestedWindow(clientRequestedModel(ctx, feats.Model), decision.Model, overflowEstimate, outputReserve)
 	flushErrAsAnthropic := func(w http.ResponseWriter, err error) {
 		err = asRequestedWindowOverflow(err, requestedWindowPassed, preludeBuf.Committed())
 		if env.Stream() && preludeBuf.PreludeSent() {
@@ -5583,7 +5644,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
 	usageMods := extractor.UsageModifiers()
-	baselineWarmPrefill := routeRes.baselineWarmPrefillTokens(requestStart, cacheCreation, cacheRead, decision.Model, s.baselineFor(feats.Model), req.HistoryTruncated)
+	baselineWarmPrefill := routeRes.baselineWarmPrefillTokens(requestStart, cacheCreation, cacheRead, decision.Model, s.baselineFor(ctx, feats.Model), req.HistoryTruncated)
 	requestedInputCost := catalog.CounterfactualInputCost(in, cacheCreation, cacheRead, baselineWarmPrefill, reqPricing, decision.Provider, usageMods)
 	if responseBuffer != nil && proxyErr == nil {
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead, usageMods))
@@ -5912,7 +5973,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 		streamCut.noteCut(proxyErr)
 	}
 	servedCredentialSource, servedSubscriptionTier := s.servedCredentialLogValues(ctx)
-	log.Info("ProxyMessages complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", failoverUsed, "failover_attempted", failoverAttempted, "subscription_failover", subscriptionFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "context_estimate_tokens", overflowEstimate, "has_tools", feats.HasTools, "message_count", feats.MessageCount, "last_kind", feats.LastKind, "last_preview", s.zdrLogField(ctx, feats.LastPreview), "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), "failure_owner", turnFailureOwnerFor(ctx, proxyErr, classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks)), "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(proxyErr)), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "resp_refusal", refusalObs.refused, "resp_refusal_category", refusalObs.category, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "last_tool_use_name", terminalToolUse.Name, "last_tool_use_input_bytes", terminalToolUse.InputBytes, "ended_on_tool_use", endedOnToolUse, "tool_error_counts", toolErrorTally, "text_only_turn_nudged", respSummary.TextOnlyTurnNudged, "stop_reason_demoted", respSummary.StopReasonDemoted, "suppressed_tool_calls", respSummary.SuppressedToolCalls, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "cc_only_tools_stripped", reqStats.CCOnlyToolsStripped, "cc_task_reminders_stripped", reqStats.CCTaskRemindersStripped, "gemini_reminder_injected", reqStats.GeminiReminderInjected, "gemini_validated_tool_mode", reqStats.GeminiValidatedToolMode, "resp_output_tokens", respSummary.OutputTokens, "resp_reasoning_tokens", extractor.ReasoningTokens(), "prelude_committed", preludeBuf.Committed(), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned, "credential_source", servedCredentialSource, "subscription_tier", servedSubscriptionTier}, append(append(append(armStrikeLogFieldsWithPrimaryReason(armDemoted, armDemotionReasonValue, rescuedArmDemoted, rescuedArmDemotionReason), plannerLogFields(routeRes)...), streamCut.completionLogFields()...), rateLimit.completionLogFields()...)...), downgradeShadowLogFields(routeRes)...)...)
+	log.Info("ProxyMessages complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", failoverUsed, "failover_attempted", failoverAttempted, "subscription_failover", subscriptionFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "context_estimate_tokens", overflowEstimate, "has_tools", feats.HasTools, "message_count", feats.MessageCount, "last_kind", feats.LastKind, "last_preview", s.zdrLogField(ctx, feats.LastPreview), "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), "failure_owner", turnFailureOwnerFor(ctx, proxyErr, classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks)), "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(proxyErr)), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "resp_refusal", refusalObs.refused, "resp_refusal_category", refusalObs.category, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "last_tool_use_name", terminalToolUse.Name, "last_tool_use_input_bytes", terminalToolUse.InputBytes, "ended_on_tool_use", endedOnToolUse, "tool_error_counts", toolErrorTally, "text_only_turn_nudged", respSummary.TextOnlyTurnNudged, "stop_reason_demoted", respSummary.StopReasonDemoted, "suppressed_tool_calls", respSummary.SuppressedToolCalls, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "cc_only_tools_stripped", reqStats.CCOnlyToolsStripped, "cc_task_reminders_stripped", reqStats.CCTaskRemindersStripped, "gemini_reminder_injected", reqStats.GeminiReminderInjected, "gemini_validated_tool_mode", reqStats.GeminiValidatedToolMode, "resp_output_tokens", respSummary.OutputTokens, "resp_reasoning_tokens", extractor.ReasoningTokens(), "prelude_committed", preludeBuf.Committed(), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned, "credential_source", servedCredentialSource, "subscription_tier", servedSubscriptionTier}, append(append(append(armStrikeLogFieldsWithPrimaryReason(armDemoted, armDemotionReasonValue, rescuedArmDemoted, rescuedArmDemotionReason), plannerLogFields(routeRes)...), streamCut.completionLogFields()...), rateLimit.completionLogFields()...)...), downgradeShadowLogFields(routeRes)...)...)
 	policyRespBody, policyRespTrunc := capturedResponse(policyOutcomeCap)
 	var policyResp *policyOutcomeResponse
 	if policyOutcomeCap != nil {
@@ -6613,9 +6674,9 @@ func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvide
 		}
 	}
 	for _, k := range externalKeysFromContext(ctx) {
-		// Empty plaintext must not enroll the provider — argmax would pick
-		// it and the upstream call would 401 with no auth header.
-		if len(k.Plaintext) == 0 {
+		// Explicit failures stay eligible so selecting that provider returns
+		// its credential error instead of using a deployment key.
+		if len(k.Plaintext) == 0 && k.CredentialError == nil {
 			continue
 		}
 		out[k.Provider] = struct{}{}
@@ -7158,6 +7219,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	clientID := ClientIdentityFrom(ctx)
 
 	ctx = withSubscriptionOnlyWarningEcho(ctx, body)
+	replayedModel := translate.LastAnnouncedMessagesModel(body)
+	if replayedModel == "" {
+		replayedModel, _ = ctx.Value(responsesReplayedModelContextKey{}).(string)
+	}
 	strippedBody, stripErr := stripRoutingMarkerFromMessages(body)
 	if stripErr != nil {
 		log.Error("Failed to strip routing marker from OpenAI messages", "err", stripErr)
@@ -7473,6 +7538,8 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 		return err
 	}
 	ctx = requestcontext.WithCallerModelPassthrough(ctx, routeRes.CallerModelPassthrough)
+	ctx = withPickedModelFunding(ctx, routeRes.CallerModelPassthrough, routeRes.Decision.Provider)
+	ctx = withCodexPickFunding(ctx, routeRes.Decision.Model, routeRes.Decision.Provider)
 	ctx = s.withTurnOverloadProbe(ctx, routeRes)
 	if len(routeRes.SessionDisabledProviders) > 0 {
 		ctx = context.WithValue(ctx, SessionDisabledProvidersContextKey{}, routeRes.SessionDisabledProviders)
@@ -7536,7 +7603,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 					Build(),
 			})
 			otel.Flush(ctx)
-			log.Info("ProxyOpenAIChatCompletion cache hit", "requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "external_id", externalID, "total_ms", time.Since(requestStart).Milliseconds())
+			log.Info("ProxyOpenAIChatCompletion cache hit", "requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "external_id", externalID, "total_ms", time.Since(requestStart).Milliseconds())
 			return nil
 		}
 		s.recordSemanticCacheMiss(ctx)
@@ -7553,7 +7620,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	setContextEstimateHeaders(w.Header(), env.ContextOverflowTokenEstimate(), outputReserveOAI)
 	s.setFeedbackLinkHeader(ctx, w, installationID, externalID, requestID, auth.UserIDFrom(ctx))
 
-	reqPricing := otel.Lookup(s.baselineFor(feats.Model))
+	reqPricing := otel.Lookup(s.baselineFor(ctx, feats.Model))
 	actPricing := otel.Lookup(decision.Model)
 	reqDecisionPricing := reqPricing.ForInputTokens(feats.Tokens)
 	actDecisionPricing := actPricing.ForInputTokens(feats.Tokens)
@@ -7687,7 +7754,11 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	clientSink, escalationCapture = s.captureEscalationResponse(clientSink, routeRes)
 	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
 
-	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
+	announcementTurn := announcementTurnFor(routeRes, replayedModel)
+	if announcedModel, ok := ctx.Value(responsesLastAnnouncedModelContextKey{}).(string); ok {
+		announcementTurn.PriorServedModel = announcedModel
+	}
+	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, announcementTurn, routingMarkerFor(announcementTurn), decision.Model, ""))
 	muteSlowStartFor(ctx, routeRes)
 	fundingCtx := ctx
 	if CredentialsFromContext(fundingCtx) == nil {
@@ -8770,7 +8841,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	in, out := extractor.Tokens()
 	cacheCreation, cacheRead := extractor.CacheTokens()
 	usageMods := extractor.UsageModifiers()
-	baselineWarmPrefill := routeRes.baselineWarmPrefillTokens(requestStart, cacheCreation, cacheRead, decision.Model, s.baselineFor(feats.Model), routeRequest.HistoryTruncated)
+	baselineWarmPrefill := routeRes.baselineWarmPrefillTokens(requestStart, cacheCreation, cacheRead, decision.Model, s.baselineFor(ctx, feats.Model), routeRequest.HistoryTruncated)
 	requestedInputCost := catalog.CounterfactualInputCost(in, cacheCreation, cacheRead, baselineWarmPrefill, reqPricing, decision.Provider, usageMods)
 	if !env.Stream() && proxyErr == nil {
 		setRouterCostHeaders(w.Header(), routerResponseCostFromPricing(actPricing, decision.Provider, in, out, cacheCreation, cacheRead, usageMods))
@@ -9052,7 +9123,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	}
 
 	servedCredentialSource, servedSubscriptionTier := s.servedCredentialLogValues(ctx)
-	log.Info("ProxyOpenAIChatCompletion complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", failoverUsed, "failover_attempted", failoverAttempted, "subscription_failover", codexFailoverUsed || claudeFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), "failure_owner", turnFailureOwnerFor(ctx, proxyErr, classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks)), "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(proxyErr)), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned, "credential_source", servedCredentialSource, "subscription_tier", servedSubscriptionTier}, append(append(armStrikeLogFieldsWithPrimaryReason(armDemotedOAI, armDemotionReasonOAI, rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI), plannerLogFields(routeRes)...), rateLimit.completionLogFields()...)...), downgradeShadowLogFields(routeRes)...)...)
+	log.Info("ProxyOpenAIChatCompletion complete", append(append([]any{"requested_model", feats.Model, "baseline_model", s.baselineFor(ctx, feats.Model), "decision_model", decision.Model, "decision_provider", decision.Provider, "primary_provider", primaryProvider, "primary_model", primaryModel, "fallback_attempts", winnerIdx, "failover_used", failoverUsed, "failover_attempted", failoverAttempted, "subscription_failover", codexFailoverUsed || claudeFailoverUsed, "decision_reason", decision.Reason, "requested_tier", routeRes.RequestedTier.String(), "decision_tier", catalog.TierFor(decision.Model).String(), "embedded_tokens", len(promptText) / 4, "total_input_tokens", feats.Tokens, "has_tools", feats.HasTools, "embed_input", embedInput, "cross_format", crossFormat, "sticky_hit", stickyHit, "pin_tier", pinTier, "turn_type", string(tt), "route_ms", routeMs, "proxy_ms", proxyMs, "proxy_err", proxyErr, "error_class", classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks), "failure_owner", turnFailureOwnerFor(ctx, proxyErr, classifyTurnError(proxyErr, respSummary.StopReason, respSummary.InvalidToolArgsBlocks)), "upstream_err_body", s.zdrLogField(ctx, providers.UpstreamErrorBodyMessage(proxyErr)), "upstream_status", upstreamStatus(proxyErr), "upstream_finish_reason", respSummary.UpstreamFinishReason, "resp_stop_reason", respSummary.StopReason, "stop_reason_promoted", respSummary.StopReasonPromoted, "tool_use_blocks", respSummary.ToolUseBlocks, "invalid_tool_args_blocks", respSummary.InvalidToolArgsBlocks, "tool_call_invalid_blocks", len(respSummary.ToolCallIssues), "routing_marker", marker, "prior_served_model", routeRes.PriorServedModel, "hard_pinned", routeRes.HardPinned, "credential_source", servedCredentialSource, "subscription_tier", servedSubscriptionTier}, append(append(armStrikeLogFieldsWithPrimaryReason(armDemotedOAI, armDemotionReasonOAI, rescuedArmDemotedOAI, rescuedArmDemotionReasonOAI), plannerLogFields(routeRes)...), rateLimit.completionLogFields()...)...), downgradeShadowLogFields(routeRes)...)...)
 	s.reportPolicyOutcome(ctx, routeRes, decision, effortServed, finalProvider, fastServed, feats.Tokens, in, out, cacheCreation, cacheRead, usageMods, routeMs, proxyMs, proxyErr, nil)
 
 	// Subscription-only mode disables paid failover by pinning dispatch to the
@@ -9113,6 +9184,7 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 	conversionBody := body
 	var err error
 	if terminalResponses {
+		ctx = context.WithValue(ctx, responsesLastAnnouncedModelContextKey{}, translate.LastAnnouncedResponsesModel(body))
 		nativeBody, err = stripResponsesTerminalArtifacts(body)
 		if err != nil {
 			return err
@@ -9124,6 +9196,8 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		if err != nil {
 			return err
 		}
+	} else {
+		ctx = context.WithValue(ctx, responsesReplayedModelContextKey{}, translate.LastReplayedResponsesModel(body))
 	}
 	conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(conversionBody, translate.ResponsesConversionOptions{
 		PortableCodex: portableCodex,

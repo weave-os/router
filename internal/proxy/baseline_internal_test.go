@@ -10,22 +10,33 @@ import (
 func TestBaselineFor(t *testing.T) {
 	t.Run("known model returns itself", func(t *testing.T) {
 		s := &Service{defaultBaselineModel: "claude-sonnet-4-5"}
-		assert.Equal(t, "claude-opus-4-7", s.baselineFor("claude-opus-4-7"))
+		assert.Equal(t, "claude-opus-4-7", s.baselineFor(context.Background(), "claude-opus-4-7"))
 	})
 
 	t.Run("unknown model returns baseline", func(t *testing.T) {
 		s := &Service{defaultBaselineModel: "claude-sonnet-4-5"}
-		assert.Equal(t, "claude-sonnet-4-5", s.baselineFor("weave-router"))
+		assert.Equal(t, "claude-sonnet-4-5", s.baselineFor(context.Background(), "weave-router"))
 	})
 
 	t.Run("empty model returns baseline", func(t *testing.T) {
 		s := &Service{defaultBaselineModel: "claude-sonnet-4-5"}
-		assert.Equal(t, "claude-sonnet-4-5", s.baselineFor(""))
+		assert.Equal(t, "claude-sonnet-4-5", s.baselineFor(context.Background(), ""))
+	})
+
+	t.Run("weave-auto compares against the client's own default", func(t *testing.T) {
+		s := &Service{defaultBaselineModel: "claude-sonnet-4-5"}
+		claudeCode := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppClaudeCode})
+		codex := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCodex})
+		cursor := context.WithValue(context.Background(), ClientIdentityContextKey{}, ClientIdentity{ClientApp: ClientAppCursor})
+		assert.Equal(t, "claude-opus-5-5", s.baselineFor(claudeCode, "weave-auto"))
+		assert.Equal(t, "gpt-6.1-sol", s.baselineFor(codex, "weave-auto"))
+		assert.Equal(t, "claude-sonnet-4-5", s.baselineFor(cursor, "weave-auto"))
+		assert.Equal(t, "claude-sonnet-5", s.baselineFor(claudeCode, "claude-sonnet-5"))
 	})
 
 	t.Run("unknown model with no baseline returns empty", func(t *testing.T) {
 		s := &Service{}
-		assert.Equal(t, "", s.baselineFor("weave-router"))
+		assert.Equal(t, "", s.baselineFor(context.Background(), "weave-router"))
 	})
 }
 

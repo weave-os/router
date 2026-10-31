@@ -56,3 +56,17 @@ func (s *GoogleTokenSource) credentials() (*gauth.Credentials, error) {
 	s.creds = creds
 	return creds, nil
 }
+
+// GoogleIdentityToken obtains a raw assertion for a federation exchange without
+// sharing Snowflake's audience or its local token cache.
+func GoogleIdentityToken(ctx context.Context, audience string) (string, error) {
+	creds, err := idtoken.NewCredentials(&idtoken.Options{Audience: audience})
+	if err != nil {
+		return "", fmt.Errorf("build federation identity credentials: %w", err)
+	}
+	token, err := creds.Token(ctx)
+	if err != nil {
+		return "", fmt.Errorf("obtain federation identity token: %w", err)
+	}
+	return token.Value, nil
+}

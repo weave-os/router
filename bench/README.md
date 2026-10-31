@@ -13,7 +13,9 @@ the router is whatever URL you configure, task definitions are fetched from
 their official sources, and router-billed cost comes from the
 public [analytics export](../docs/ANALYTICS_EXPORT.md).
 
-Claude Code harnesses are out of scope for now (Codex only).
+Claude Code harnesses are out of scope for these comparisons (Codex only).
+The token-efficiency savings measurement, which covers Claude Code and Codex,
+has its own kit: [token-efficiency/](token-efficiency/README.md).
 
 ## What is in the box
 

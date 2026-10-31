@@ -74,6 +74,9 @@ test-install: ## Run offline installer regression tests (after make setup-instal
 	@bash install/tests/claude-status_test.sh
 	@bash install/tests/codex_install_test.sh
 	@bash install/tests/opencode_install_test.sh
+	@bash install/tests/copilot_install_test.sh
+	@bash install/tests/claude_desktop_install_test.sh
+	@node --test install/tests/desktop_shim_test.js
 	@python3 -m unittest discover -s install/pi-router/test -p 'test_*.py'
 	@bash install/tests/codex-status_test.sh
 	@bash install/tests/codex-toggle_test.sh
@@ -88,6 +91,7 @@ test-install: ## Run offline installer regression tests (after make setup-instal
 	@bash install/tests/packaging_test.sh
 	@bash install/tests/tool_search_test.sh
 	@bash install/tests/context_window_test.sh
+	@bash install/tests/claude_weave_auto_test.sh
 	@bash install/tests/client_events_test.sh
 
 embed-registry: ## Re-embed install/directives.tsv + registry.sh into install.sh

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"weave-os/router/internal/providers"
+	"weave-os/router/internal/requestcontext"
 	"weave-os/router/internal/router"
 )
 
@@ -169,5 +170,33 @@ func TestCodexExtraCreditsPreservesWindowlessPlans(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestCodexExtraCreditsAllowedPerRequest(t *testing.T) {
+	for _, allowed := range []bool{false, true} {
+		t.Run(fmt.Sprint(allowed), func(t *testing.T) {
+			inference := 0
+			client := NewClient("unused-deployment-key", "")
+			client.http = &http.Client{Transport: creditsRoundTripper(func(r *http.Request) (*http.Response, error) {
+				if r.URL.Path == "/backend-api/wham/usage" {
+					return creditsResponse(200, `{"rate_limit":{"allowed":false,"limit_reached":true,"primary_window":{"used_percent":100}},"credits":{"has_credits":true,"balance":"2"}}`), nil
+				}
+				inference++
+				return creditsResponse(200, `{"id":"synthetic"}`), nil
+			})}
+			ctx := codexCtx("synthetic-token", "synthetic-account")
+			if allowed {
+				ctx = requestcontext.WithSubscriptionExtraUsage(ctx)
+			}
+			err := creditsProxy(client, ctx)
+			if allowed {
+				require.NoError(t, err)
+				require.Equal(t, 1, inference)
+			} else {
+				require.Error(t, err)
+				require.Zero(t, inference)
+			}
+		})
 	}
 }

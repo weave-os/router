@@ -13,7 +13,8 @@ const ConversationDigestLen = 16
 
 // ServingConversationDigest preserves legacy beta preference key bytes for shared credentials.
 // Personal credentials supply the stable subject identity instead of the rotating key ID.
-// No ID means no persisted binding; callers must not substitute a first-message hash.
+// No ID means no persisted binding. Direct admission supplies
+// requestcontext.ConversationFingerprint for clients that send no session ID.
 func ServingConversationDigest(credentialIdentity, clientSessionID string) ([ConversationDigestLen]byte, bool) {
 	var digest [ConversationDigestLen]byte
 	if credentialIdentity == "" || clientSessionID == "" {

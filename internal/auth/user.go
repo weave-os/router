@@ -54,12 +54,21 @@ type UpsertUserByAccountUUIDParams struct {
 	DisplayName       *string
 }
 
+// UpsertUserByCredentialSubjectParams is the input to UserRepository.UpsertByCredentialSubject.
+type UpsertUserByCredentialSubjectParams struct {
+	InstallationID      string
+	CredentialSubjectID string
+	DisplayName         *string
+}
+
 // UserRepository is the data-access port for end-user identities.
 type UserRepository interface {
 	// UpsertByEmail finds-or-creates a row keyed on (installation_id, email).
 	UpsertByEmail(ctx context.Context, params UpsertUserParams) (*User, error)
 	// UpsertByAccountUUID finds-or-creates an email-NULL row keyed on (installation_id, claude_account_uuid).
 	UpsertByAccountUUID(ctx context.Context, params UpsertUserByAccountUUIDParams) (*User, error)
+	// UpsertByCredentialSubject finds-or-creates an email-NULL, account-NULL row keyed on (installation_id, credential_subject_id).
+	UpsertByCredentialSubject(ctx context.Context, params UpsertUserByCredentialSubjectParams) (*User, error)
 	// Get and ListForInstallation have no caller today; natural extension point
 	// for a future per-installation users admin view (cf. APIKeyRepository.ListForInstallation).
 	Get(ctx context.Context, id string) (*User, error)

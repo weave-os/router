@@ -140,7 +140,7 @@ func (s *Service) excludeObservedOverflowModels(ctx context.Context, req router.
 	if res.ContextEstimate <= 0 || len(res.TokenizerCalibration.Observations) == 0 {
 		return req, nil
 	}
-	candidates := make(map[string]struct{}, len(s.availableModels)+len(req.CustomBindings))
+	candidates := make(map[string]struct{}, len(s.availableModels))
 	for model := range s.availableModels {
 		candidates[model] = struct{}{}
 	}

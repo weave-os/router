@@ -113,7 +113,7 @@ func streamFailureOwner(class streamFailureClass) FailureOwner {
 // upstreamStatusOwner instead.
 func dispatchErrorKindOwner(kind DispatchErrorKind) FailureOwner {
 	switch kind {
-	case DispatchErrorSubscriptionPoolExhausted, DispatchErrorNotImplemented, DispatchErrorProviderNotConfigured, DispatchErrorRLPolicyUnavailable,
+	case DispatchErrorSubscriptionPoolExhausted, DispatchErrorNotImplemented, DispatchErrorProviderNotConfigured, DispatchErrorAnthropicFederationUnavailable, DispatchErrorRLPolicyUnavailable,
 		DispatchErrorBanditUnavailable, DispatchErrorHMMUnavailable, DispatchErrorPolicyUnavailable,
 		DispatchErrorClusterUnavailable, DispatchErrorDecisionModelUnavailable, DispatchErrorClassifierUnavailable,
 		DispatchErrorPolicyPinUnavailable, DispatchErrorPlanTargetMismatch, DispatchErrorPlanUnresolvable,
