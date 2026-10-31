@@ -268,7 +268,7 @@
      "lower": 0.5051,
      "upper": 0.7146
     },
-    "pass_rate_penalty": 1.46,
+    "pass_rate_penalty": 1.459918,
     "router": {
      "solved": 74,
      "graded": 132,
@@ -312,7 +312,7 @@
      "lower": 0.4697,
      "upper": 0.7121
     },
-    "pass_rate_penalty": 1.716,
+    "pass_rate_penalty": 1.715411,
     "router": {
      "solved": 64,
      "graded": 132,
@@ -353,7 +353,7 @@
      "lower": 0.4848,
      "upper": 0.7273
     },
-    "pass_rate_penalty": 1.754,
+    "pass_rate_penalty": 1.754033,
     "router": {
      "solved": 64,
      "graded": 132,

@@ -68,7 +68,8 @@ def test_committed_results_validate_and_render() -> None:
 def test_committed_penalties_follow_from_the_published_pass_rates() -> None:
     for row in read_results(RESULTS)["quality_factors"]["rows"]:
         penalty = capped_pass_rate_penalty(Interval(**row["baseline_pass_rate"]), Interval(**row["router_pass_rate"]))
-        assert row["pass_rate_penalty"] == round(penalty, 3)
+        # Published penalties come from unrounded pass rates; the stored intervals are rounded to 4 decimals.
+        assert row["pass_rate_penalty"] == pytest.approx(penalty, abs=1e-3)
 
 
 def test_committed_factors_follow_from_the_published_intervals() -> None:
