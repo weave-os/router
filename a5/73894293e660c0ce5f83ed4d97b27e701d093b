@@ -1,0 +1,49 @@
+internal/proxy/service.go
+  s_49ced6f07c756e::t_869466faa9f64b 227-228
+docs/CONFIGURATION.md
+  s_14682fca0edca7::t_a0a31250be134e 665
+internal/flags/flags.go
+  s_14682fca0edca7::t_28b420bc1adba9 314
+internal/proxy/sliding_threshold_internal_test.go
+  s_49ced6f07c756e::t_94366ec4d4333b 1-112
+internal/router/escalation/escalation.go
+  s_49ced6f07c756e::t_735c6d5d102693 55-57,60-63,65,68,70,72,74,76-78,80-81,83
+internal/router/escalation/sliding_threshold_test.go
+  s_49ced6f07c756e::t_b148186598274a 1-42
+internal/router/policy/sidecar_router.go
+  s_6e390844230ee6::t_bdb4acc8857fb5 461,465
+internal/router/router.go
+  s_14682fca0edca7::t_88d05fe0e0f308 100-101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a573894293e660c0ce5f83ed4d97b27e701d093b",
+  "prompts": {},
+  "sessions": {
+    "s_14682fca0edca7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18ea6-05c9-7ad1-874e-a720bd132cbc",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_49ced6f07c756e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18fd7-d898-7121-b75b-0f8e4394e9dc",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    },
+    "s_6e390844230ee6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18f0b-b6e5-7f52-9e3b-aaec7c99f301",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
