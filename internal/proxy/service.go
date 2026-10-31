@@ -513,6 +513,8 @@ type nativeResponsesBodyContextKey struct{}
 
 type responsesLastAnnouncedModelContextKey struct{}
 
+type responsesReplayedModelContextKey struct{}
+
 // nativeResponsesReasoningHashContextKey preserves reasoning that only native
 // Responses dispatch can represent.
 type nativeResponsesReasoningHashContextKey struct{}
@@ -723,6 +725,16 @@ func muteSlowStartFor(ctx context.Context, res turnLoopResult) {
 	if machineReadTurn(res) || res.HardPinned {
 		attemptTraceFromContext(ctx).muteSlowStart()
 	}
+}
+
+// announcementTurnFor falls back to the model the client last saw announced
+// when the server has no served-model history for the conversation, as for a
+// client that sends no session identity.
+func announcementTurnFor(res turnLoopResult, replayedModel string) turnLoopResult {
+	if res.PriorServedModel == "" {
+		res.PriorServedModel = replayedModel
+	}
+	return res
 }
 
 // routingMarkerFor builds the "brand → model · note" snippet emitted when the
@@ -3789,6 +3801,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// clients echo it back verbatim, so left in place it accumulates in
 	// upstream context every turn.
 	ctx = withSubscriptionOnlyWarningEcho(ctx, body)
+	replayedModel := translate.LastAnnouncedMessagesModel(body)
 	body, stripErr := stripRoutingMarkerFromMessages(body)
 	if stripErr != nil {
 		log.Error("Failed to strip routing marker from inbound messages", "err", stripErr)
@@ -4594,7 +4607,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// request body. Zero for Anthropic-native passthrough.
 	var reqStats providers.RequestMutationStats
 
-	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
+	announcementTurn := announcementTurnFor(routeRes, replayedModel)
+	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, announcementTurn, routingMarkerFor(announcementTurn), decision.Model, ""))
 	muteSlowStartFor(ctx, routeRes)
 	fundingCtx := ctx
 	if CredentialsFromContext(fundingCtx) == nil {
@@ -7186,6 +7200,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	clientID := ClientIdentityFrom(ctx)
 
 	ctx = withSubscriptionOnlyWarningEcho(ctx, body)
+	replayedModel := translate.LastAnnouncedMessagesModel(body)
+	if replayedModel == "" {
+		replayedModel, _ = ctx.Value(responsesReplayedModelContextKey{}).(string)
+	}
 	strippedBody, stripErr := stripRoutingMarkerFromMessages(body)
 	if stripErr != nil {
 		log.Error("Failed to strip routing marker from OpenAI messages", "err", stripErr)
@@ -7715,7 +7733,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	clientSink, escalationCapture = s.captureEscalationResponse(clientSink, routeRes)
 	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
 
-	announcementTurn := routeRes
+	announcementTurn := announcementTurnFor(routeRes, replayedModel)
 	if announcedModel, ok := ctx.Value(responsesLastAnnouncedModelContextKey{}).(string); ok {
 		announcementTurn.PriorServedModel = announcedModel
 	}
@@ -9158,6 +9176,8 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		if err != nil {
 			return err
 		}
+	} else {
+		ctx = context.WithValue(ctx, responsesReplayedModelContextKey{}, translate.LastReplayedResponsesModel(body))
 	}
 	conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(conversionBody, translate.ResponsesConversionOptions{
 		PortableCodex: portableCodex,
