@@ -23,7 +23,7 @@ test_path="$fake_bin:$PATH"
 run_hosted_install() {
   HOME="$home" PATH="$test_path" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
     bash "$installer" --codex --scope user --quiet \
-      --base-url https://router.workweave.ai
+      --base-url https://router.weaveos.com
 }
 
 run_install() {
@@ -255,7 +255,7 @@ cat >"$config" <<'MISPLACED'
 model_provider = "weave"
 
 [model_providers.weave]
-base_url = "https://router.workweave.ai/v1"
+base_url = "https://router.weaveos.com/v1"
 model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 MISPLACED
@@ -351,7 +351,7 @@ enabled = true
 trusted_hash = "sha256:deadbeef"
 
 [model_providers.weave]
-base_url = "https://router.workweave.ai/v1"
+base_url = "https://router.weaveos.com/v1"
 name = "Weave Router"
 requires_openai_auth = true
 wire_api = "responses"
@@ -456,7 +456,7 @@ HOME="$home" PATH="$test_path" NO_COLOR=1 bash "$installer" on --codex --scope u
 # again. The offline validation failure confirms that the install was found.
 login_out="$(HOME="$home" PATH="$test_path" NO_COLOR=1 \
   bash "$installer" login codex --scope user 2>&1 || true)"
-printf '%s' "$login_out" | grep -Fq 'Could not reach the router at https://router.workweave.ai' \
+printf '%s' "$login_out" | grep -Fq 'Could not reach the router at https://router.weaveos.com' \
   || fail "login codex did not validate an install whose markers Codex had dropped"
 
 # The key reader has to accept both spellings of the header name: our writer
@@ -466,7 +466,7 @@ printf '%s' "$login_out" | grep -Fq 'Could not reach the router at https://route
 seed_codex_normalized_config
 HOME="$home" PATH="$test_path" NO_COLOR=1 WEAVE_ROUTER_KEY="" \
   bash "$installer" --codex --scope user --quiet --non-interactive \
-    --base-url https://router.workweave.ai </dev/null >/dev/null 2>&1 \
+    --base-url https://router.weaveos.com </dev/null >/dev/null 2>&1 \
   || fail "re-install could not reuse the key from a Codex-rewritten config"
 grep -Fq 'rk_normalized_key' "$config" \
   || fail "re-install replaced the router key already in a Codex-rewritten config"
@@ -532,7 +532,7 @@ cat >"$config" <<TOML
 model_provider = "weave"
 
 [model_providers.weave]
-base_url = "https://router.workweave.ai/v1"
+base_url = "https://router.weaveos.com/v1"
 
 [model_providers.weave.http_headers]
 X-Weave-Router-Key = "rk_prior"
@@ -614,7 +614,7 @@ cat >"$config" <<TOML
 model_provider = "weave"
 
 [model_providers.weave]
-base_url = "https://router.workweave.ai/v1"
+base_url = "https://router.weaveos.com/v1"
 
 [[hooks.SessionStart]]
 [[hooks.SessionStart.hooks]]
@@ -658,7 +658,7 @@ cat >"$config" <<TOML
 model_provider = "weave"
 
 [model_providers.weave]
-base_url = "https://router.workweave.ai/v1"
+base_url = "https://router.weaveos.com/v1"
 
 [[hooks.UserPromptSubmit]]
 [[hooks.UserPromptSubmit.hooks]]
@@ -686,7 +686,7 @@ cat >"$config" <<TOML
 model_provider = "weave"
 
 [model_providers.weave]
-base_url = "https://router.workweave.ai/v1"
+base_url = "https://router.weaveos.com/v1"
 
 [[hooks.UserPromptSubmit]]
 [[hooks.UserPromptSubmit.hooks]]
@@ -714,7 +714,7 @@ cat >"$config" <<TOML
 model_provider = "weave"
 
 [model_providers.weave]
-base_url = "https://router.workweave.ai/v1"
+base_url = "https://router.weaveos.com/v1"
 
 [[hooks.SessionStart]]
 [[hooks.SessionStart.hooks]]
@@ -752,7 +752,7 @@ cat >"$config" <<TOML
 model_provider = "weave"
 
 [model_providers.weave]
-base_url = "https://router.workweave.ai/v1"
+base_url = "https://router.weaveos.com/v1"
 
 [[hooks.UserPromptSubmit]]
 [[hooks.UserPromptSubmit.hooks]]
@@ -800,7 +800,7 @@ cat >"$config" <<TOML
 model_provider = "weave"
 
 [model_providers.weave]
-base_url = "https://router.workweave.ai/v1"
+base_url = "https://router.weaveos.com/v1"
 
 [[hooks.UserPromptSubmit]]
 [[hooks.UserPromptSubmit.hooks]]
@@ -829,7 +829,7 @@ git -C "$proj_repo" config user.email test@example.com
 git -C "$proj_repo" config user.name test
 ( cd "$proj_repo" && HOME="$proj_home" PATH="$test_path" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
     bash "$installer" --codex --scope project --quiet \
-      --base-url https://router.workweave.ai >/dev/null 2>&1 )
+      --base-url https://router.weaveos.com >/dev/null 2>&1 )
 
 for entry in \
   ".codex/config.toml" \

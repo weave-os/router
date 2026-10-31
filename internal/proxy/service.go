@@ -437,7 +437,7 @@ type Service struct {
 	feedbackSigner  *feedback.Signer
 	piHandoffSecret []byte
 	// feedbackBaseURL is the public origin of the feedback page (e.g.
-	// https://router.workweave.ai), trailing slash trimmed. Empty disables
+	// https://router.weaveos.com), trailing slash trimmed. Empty disables
 	// feedback-link header emission on proxied responses.
 	feedbackBaseURL string
 	// usageObserver records per-credential subscription rate-limit headroom from

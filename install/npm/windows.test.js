@@ -278,6 +278,30 @@ test("a Claude reinstall keeps a PR attribution the user changed", async () => {
   assert.match(claude.attribution.commit, /^Co-Authored-By: Weave Router/);
 });
 
+const legacyPR = "🤖 Generated with [Weave Router](https://router.workweave.ai)";
+
+function seedLegacyAttribution(home) {
+  fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
+  fs.writeFileSync(path.join(home, ".claude", "settings.json"), JSON.stringify({ env: { ANTHROPIC_BASE_URL: "x" }, attribution: { commit: "Co-Authored-By: Weave Router <router@weaveos.com>", pr: legacyPR, custom: "keep" } }));
+}
+
+test("--no-attribution removes a PR link written before the weaveos.com move", async () => {
+  const home = path.join(temporaryHome, "attribution-legacy-pr-off");
+  seedLegacyAttribution(home);
+  await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl, "--no-attribution"]);
+  assert.deepEqual(readClaudeSettings(home).attribution, { custom: "keep" });
+});
+
+test("native uninstall removes a PR link written before the weaveos.com move", async () => {
+  const home = path.join(temporaryHome, "attribution-legacy-pr-uninstall");
+  await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
+  const settings = readClaudeSettings(home);
+  settings.attribution.pr = legacyPR;
+  fs.writeFileSync(path.join(home, ".claude", "settings.json"), JSON.stringify(settings));
+  await runInstallerAt(home, ["--uninstall", "--claude"]);
+  assert.equal(readClaudeSettings(home).attribution, undefined);
+});
+
 test("a Claude attribution opt-out survives reinstalls without the flag", async () => {
   const home = path.join(temporaryHome, "attribution-opt-out");
   await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl, "--no-attribution"]);
