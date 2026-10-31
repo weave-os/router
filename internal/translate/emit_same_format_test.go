@@ -91,22 +91,57 @@ func TestAnthropicSameFormat_RejectsExplicitTTLOrderViolation(t *testing.T) {
 
 // Claude Code sends these first-party fields when it talks to api.anthropic.com
 // directly (prompt-caching-scope and prompt-caching-evict betas).
-func TestAnthropicSameFormat_PreservesFirstPartyCacheControlFields(t *testing.T) {
-	policy := map[string]any{"type": "ephemeral", "ttl": "1h", "scope": "global", "evict_on_complete": true}
+func TestAnthropicSameFormat_FirstPartyCacheControlFields(t *testing.T) {
 	body := []byte(`{"model":"claude-opus-4-8","max_tokens":1024,"system":[{"type":"text","text":"sys","cache_control":{"type":"ephemeral","ttl":"1h","scope":"global","evict_on_complete":true}}],"messages":[{"role":"user","content":"hi"}]}`)
-	out := parseAndEmit(t, body, "anthropic", translate.EmitOptions{TargetModel: "claude-opus-4-8", Capabilities: router.Lookup("claude-opus-4-8")})
-
-	system := out["system"].([]any)
-	require.Len(t, system, 1)
-	assert.Equal(t, policy, system[0].(map[string]any)["cache_control"])
+	bothBetas := "prompt-caching-scope-2026-01-05,prompt-caching-evict-2026-05-12"
+	cases := []struct {
+		name     string
+		provider string
+		beta     string
+		want     map[string]any
+	}{
+		{"anthropic with both betas keeps both", providers.ProviderAnthropic, bothBetas, map[string]any{"type": "ephemeral", "ttl": "1h", "scope": "global", "evict_on_complete": true}},
+		{"anthropic drops a field without its beta", providers.ProviderAnthropic, "prompt-caching-scope-2026-01-05", map[string]any{"type": "ephemeral", "ttl": "1h", "scope": "global"}},
+		{"gateway drops both", providers.ProviderAnthropicGateway, bothBetas, map[string]any{"type": "ephemeral", "ttl": "1h"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			env, err := translate.ParseAnthropic(body)
+			require.NoError(t, err)
+			p, err := env.PrepareAnthropic(http.Header{"Anthropic-Beta": {tc.beta}}, translate.EmitOptions{TargetModel: "claude-opus-4-8", TargetProvider: tc.provider, Capabilities: router.Lookup("claude-opus-4-8")})
+			require.NoError(t, err)
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(p.Body, &out))
+			system := out["system"].([]any)
+			require.Len(t, system, 1)
+			assert.Equal(t, tc.want, system[0].(map[string]any)["cache_control"])
+		})
+	}
 }
 
-func TestAnthropicSameFormat_RejectsMalformedCacheControlScope(t *testing.T) {
-	body := []byte(`{"model":"claude-opus-4-8","max_tokens":1024,"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":{"type":"ephemeral","scope":1}}]}]}`)
-	env, err := translate.ParseAnthropic(body)
-	require.NoError(t, err)
-	_, err = env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-8", Capabilities: router.Lookup("claude-opus-4-8")})
-	require.ErrorIs(t, err, translate.ErrAnthropicCacheControlInvalid)
+func TestAnthropicSameFormat_ValidatesFirstPartyCacheControlFields(t *testing.T) {
+	cases := []struct {
+		policy string
+		valid  bool
+	}{
+		{`{"type":"ephemeral","scope":"global"}`, true},
+		{`{"type":"ephemeral","evict_on_complete":false}`, true},
+		{`{"type":"ephemeral","scope":""}`, false},
+		{`{"type":"ephemeral","scope":1}`, false},
+		{`{"type":"ephemeral","evict_on_complete":"yes"}`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.policy, func(t *testing.T) {
+			env, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-4-8","max_tokens":1024,"messages":[{"role":"user","content":[{"type":"text","text":"hi","cache_control":` + tc.policy + `}]}]}`))
+			require.NoError(t, err)
+			_, err = env.PrepareAnthropic(http.Header{}, translate.EmitOptions{TargetModel: "claude-opus-4-8", TargetProvider: providers.ProviderAnthropic, Capabilities: router.Lookup("claude-opus-4-8")})
+			if tc.valid {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, translate.ErrAnthropicCacheControlInvalid)
+			}
+		})
+	}
 }
 
 func TestAnthropicSameFormat_ToolCacheControlCountsTowardCapacity(t *testing.T) {

@@ -64,6 +64,10 @@ func (e *RequestEnvelope) PrepareAnthropic(in http.Header, opts EmitOptions) (pr
 	if err != nil {
 		return providers.PreparedRequest{}, err
 	}
+	body, err = dropUnsupportedCacheControlFields(body, opts.TargetProvider == providers.ProviderAnthropic, in.Get("anthropic-beta"))
+	if err != nil {
+		return providers.PreparedRequest{}, err
+	}
 	body, err = normalizeAnthropicFinalAssistant(body)
 	if err != nil {
 		return providers.PreparedRequest{}, fmt.Errorf("normalize anthropic final assistant: %w", err)

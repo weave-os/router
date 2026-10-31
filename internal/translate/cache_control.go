@@ -1,9 +1,11 @@
 package translate
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/tidwall/gjson"
 )
@@ -80,19 +82,46 @@ const (
 	anthropicCacheTTLWire1h = "1h"
 )
 
+// forEachAnthropicCacheBlock visits every tool, system and message content
+// block that carries a cache_control, in prompt order.
+func forEachAnthropicCacheBlock(request map[string]any, visit func(block map[string]any) error) error {
+	visitBlocks := func(blocks any) error {
+		list, _ := blocks.([]any)
+		for _, block := range list {
+			object, ok := block.(map[string]any)
+			if !ok {
+				continue
+			}
+			if _, exists := object["cache_control"]; !exists {
+				continue
+			}
+			if err := visit(object); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := visitBlocks(request["tools"]); err != nil {
+		return err
+	}
+	if err := visitBlocks(request["system"]); err != nil {
+		return err
+	}
+	messages, _ := request["messages"].([]any)
+	for _, message := range messages {
+		object, _ := message.(map[string]any)
+		if err := visitBlocks(object["content"]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func validateAnthropicCacheControls(request map[string]any) (int, error) {
 	count := 0
 	seenFiveMinuteTTL := false
-	visit := func(block any) error {
-		object, ok := block.(map[string]any)
-		if !ok {
-			return nil
-		}
-		policy, exists := object["cache_control"]
-		if !exists {
-			return nil
-		}
-		ttl, err := validateAnthropicCacheControl(policy)
+	err := forEachAnthropicCacheBlock(request, func(block map[string]any) error {
+		ttl, err := validateAnthropicCacheControl(block["cache_control"])
 		if err != nil {
 			return err
 		}
@@ -104,33 +133,54 @@ func validateAnthropicCacheControls(request map[string]any) (int, error) {
 		}
 		count++
 		return nil
-	}
-	if tools, ok := request["tools"].([]any); ok {
-		for _, tool := range tools {
-			if err := visit(tool); err != nil {
-				return 0, err
-			}
-		}
-	}
-	if system, ok := request["system"].([]any); ok {
-		for _, block := range system {
-			if err := visit(block); err != nil {
-				return 0, err
-			}
-		}
-	}
-	if messages, ok := request["messages"].([]any); ok {
-		for _, message := range messages {
-			object, _ := message.(map[string]any)
-			blocks, _ := object["content"].([]any)
-			for _, block := range blocks {
-				if err := visit(block); err != nil {
-					return 0, err
-				}
-			}
-		}
+	})
+	if err != nil {
+		return 0, err
 	}
 	return count, nil
+}
+
+// firstPartyCacheControlBetas maps the cache_control fields only first-party
+// Anthropic accepts to the anthropic-beta prefix that enables each one.
+var firstPartyCacheControlBetas = map[string]string{
+	"scope":             "prompt-caching-scope-",
+	"evict_on_complete": "prompt-caching-evict-",
+}
+
+// dropUnsupportedCacheControlFields removes first-party cache_control fields
+// the target would reject: all of them on gateways, and on Anthropic any field
+// whose beta the client did not send.
+func dropUnsupportedCacheControlFields(body []byte, firstParty bool, beta string) ([]byte, error) {
+	if !bytes.Contains(body, []byte(`"scope"`)) && !bytes.Contains(body, []byte(`"evict_on_complete"`)) {
+		return body, nil
+	}
+	var request map[string]any
+	if err := json.Unmarshal(body, &request); err != nil {
+		return nil, fmt.Errorf("decode Anthropic cache policy: %w", err)
+	}
+	dropped := false
+	_ = forEachAnthropicCacheBlock(request, func(block map[string]any) error {
+		policy, _ := block["cache_control"].(map[string]any)
+		for field, prefix := range firstPartyCacheControlBetas {
+			if _, ok := policy[field]; !ok {
+				continue
+			}
+			if firstParty && joinKept(beta, func(token string) bool { return strings.HasPrefix(token, prefix) }) != "" {
+				continue
+			}
+			delete(policy, field)
+			dropped = true
+		}
+		return nil
+	})
+	if !dropped {
+		return body, nil
+	}
+	encoded, err := json.Marshal(request)
+	if err != nil {
+		return nil, fmt.Errorf("encode Anthropic cache policy: %w", err)
+	}
+	return encoded, nil
 }
 
 func validateAnthropicCacheControl(v any) (anthropicCacheControlTTL, error) {
