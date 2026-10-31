@@ -300,10 +300,18 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		path = "/v1/responses"
 	}
 	reqBody := rewriteModelField(prep.Body, c.modelIDMap)
+	collectCodexResponse := false
 	if useCodex {
 		baseURL = c.codexBaseURL
 		path = codexResponsesPath
 		reqBody = stripCodexUnsupportedParams(reqBody)
+		if !gjson.GetBytes(reqBody, "stream").Bool() {
+			// The Codex backend 400s unless stream is true.
+			if streamed, err := sjson.SetBytes(reqBody, "stream", true); err == nil {
+				reqBody = streamed
+				collectCodexResponse = true
+			}
+		}
 	} else if prep.Endpoint == providers.EndpointResponses {
 		// Only the direct api.openai.com Responses path needs the clamp; the
 		// Codex backend branch above understands "max" natively.
@@ -329,6 +337,9 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	requestcontext.ApplyForwardedClientHeaders(ctx, upstream, r.Header)
 	if v := r.Header.Get("Accept"); v != "" {
 		upstream.Header.Set("Accept", v)
+	}
+	if collectCodexResponse {
+		upstream.Header.Set("Accept", "text/event-stream")
 	}
 	// Set after the prep.Headers copy so these can't be clobbered.
 	if useCodex {
@@ -407,6 +418,11 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 		}
 	}
 
+	var collector *codexResponseCollector
+	if collectCodexResponse {
+		collector = newCodexResponseCollector(w)
+		w = collector
+	}
 	providers.CopyUpstreamHeaders(w, resp)
 	w.WriteHeader(resp.StatusCode)
 	status := resp.StatusCode
@@ -480,6 +496,9 @@ func (c *Client) Proxy(ctx context.Context, decision router.Decision, prep provi
 	}
 	if streamErr == nil && terminalResponseError != nil {
 		streamErr = terminalResponseError
+	}
+	if streamErr == nil && collector != nil {
+		streamErr = collector.finish()
 	}
 	switch {
 	case errors.Is(streamErr, httputil.ErrUpstreamIdleTimeout), errors.Is(streamErr, httputil.ErrUpstreamOutputStall):

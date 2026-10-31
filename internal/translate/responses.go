@@ -696,6 +696,7 @@ type ResponsesWriter struct {
 	sawToolCall                 bool
 	hasUpstreamOutput           bool
 	nativeHeldEvents            [][]byte
+	nativeDoneItems             ResponsesItemSnapshot
 	nativeFooterCommit          bool
 	finalized                   bool
 	nativeEmptyRejected         bool
@@ -861,6 +862,7 @@ func (t *ResponsesWriter) ResetAttempt() {
 	t.nativeLastSequenceSet = t.nativePreludeCreated
 	t.hasUpstreamOutput = false
 	t.nativeHeldEvents = nil
+	t.nativeDoneItems.Reset()
 	t.sawToolCall = false
 	t.completedEmitted = false
 	t.nativeEmptyRejected = false
@@ -1620,6 +1622,10 @@ func (t *ResponsesWriter) rewriteNativeEventWith(raw []byte, shiftFields bool) [
 	if !changed {
 		return raw
 	}
+	return replaceSSEEventData(raw, data, rewrittenData)
+}
+
+func replaceSSEEventData(raw, data, rewrittenData []byte) []byte {
 	offset := bytes.Index(raw, data)
 	if offset < 0 {
 		return raw
@@ -1630,6 +1636,14 @@ func (t *ResponsesWriter) rewriteNativeEventWith(raw []byte, shiftFields bool) [
 	rewritten = append(rewritten, rewrittenData...)
 	rewritten = append(rewritten, raw[offset+len(data):]...)
 	return rewritten
+}
+
+func (t *ResponsesWriter) backfillNativeTerminalOutput(event, data []byte) []byte {
+	backfilled, changed := t.nativeDoneItems.Backfill(data, "response.output")
+	if !changed {
+		return event
+	}
+	return replaceSSEEventData(event, data, backfilled)
 }
 
 func (t *ResponsesWriter) writeNativeEvent(eventType string, sequence int64, payload map[string]any) error {
@@ -1728,6 +1742,10 @@ func (t *ResponsesWriter) writeNativeResponsesEvent(event, delimiter []byte) err
 		}
 		eventType = responsesEventType(root.Get("type").Str)
 		itemType = responsesItemType(root.Get("item.type").Str)
+		t.nativeDoneItems.Observe(root)
+		if eventType == responsesCompleted || eventType == responsesIncomplete {
+			event = t.backfillNativeTerminalOutput(event, data)
+		}
 	}
 	if !t.passthroughBadge {
 		return t.writeNativeResponsesFrame(event, delimiter)
