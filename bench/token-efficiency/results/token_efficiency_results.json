@@ -242,10 +242,137 @@
  },
  "quality_factors": {
   "benchmark": "terminal-bench-4",
-  "status": "pending",
+  "status": "final",
   "task_set_digest": "7e92e0a388041e88dee47c9627445bb8ad6dfd092e3e846ae4434f2c17d04afd",
   "interval": "task bootstrap, 90%",
-  "note": "Pending: a second batch of Terminal-Bench attempts is running; rows will be added from the combined run.",
-  "rows": []
+  "note": "Run tb4eff-combined-20261031: 33 tasks x 4 attempts per arm, Claude Code 2.1.280, Codex 0.150.0. Catalog costs rounded to whole dollars. Per-trial cost comes from the router sessions whose start and end sit nearest the trial's, within 60 s. A graded trial with no matched session stays in the pass rate at $0 (1 in cc-router); attempts that errored before the verifier are ungraded. Served mix counts successful router turns, including turns from cancelled or ungraded attempts.",
+  "rows": [
+   {
+    "harness": "claude-code",
+    "baseline_model": "claude-opus-5-5",
+    "router_arm": "cc-router",
+    "baseline_arm": "cc-opus-5-5",
+    "tasks": 33,
+    "kept_rate": {
+     "point": 0.854,
+     "lower": 0.355,
+     "upper": 1.149
+    },
+    "router_pass_rate": {
+     "point": 0.5606,
+     "lower": 0.4318,
+     "upper": 0.697
+    },
+    "baseline_pass_rate": {
+     "point": 0.6111,
+     "lower": 0.5051,
+     "upper": 0.7146
+    },
+    "pass_rate_penalty": 1.46,
+    "router": {
+     "solved": 74,
+     "graded": 132,
+     "attempts": 133,
+     "catalog_cost_usd": 352,
+     "missing_telemetry": 1
+    },
+    "baseline": {
+     "solved": 80,
+     "graded": 129,
+     "attempts": 132,
+     "catalog_cost_usd": 552,
+     "missing_telemetry": 0
+    },
+    "router_served_mix": {
+     "gpt-6.1-sol": 4224,
+     "claude-opus-5-5": 3910,
+     "gpt-6-luna": 2115,
+     "claude-sonnet-5-5": 113,
+     "claude-sonnet-5": 55
+    }
+   },
+   {
+    "harness": "codex",
+    "baseline_model": "gpt-6-astra",
+    "router_arm": "cx-router",
+    "baseline_arm": "cx-astra",
+    "tasks": 33,
+    "kept_rate": {
+     "point": 0.966,
+     "lower": 0.921,
+     "upper": 1.0
+    },
+    "router_pass_rate": {
+     "point": 0.4848,
+     "lower": 0.3485,
+     "upper": 0.6136
+    },
+    "baseline_pass_rate": {
+     "point": 0.5909,
+     "lower": 0.4697,
+     "upper": 0.7121
+    },
+    "pass_rate_penalty": 1.716,
+    "router": {
+     "solved": 64,
+     "graded": 132,
+     "attempts": 132,
+     "catalog_cost_usd": 91,
+     "missing_telemetry": 0
+    },
+    "baseline": {
+     "solved": 78,
+     "graded": 132,
+     "attempts": 132,
+     "catalog_cost_usd": 678,
+     "missing_telemetry": 0
+    },
+    "router_served_mix": {
+     "gpt-6.1-sol": 5229,
+     "gpt-6-luna": 2133
+    }
+   },
+   {
+    "harness": "codex",
+    "baseline_model": "gpt-6.1-sol",
+    "router_arm": "cx-router",
+    "baseline_arm": "cx-sol-6-1",
+    "tasks": 33,
+    "kept_rate": {
+     "point": 0.369,
+     "lower": -0.481,
+     "upper": 0.858
+    },
+    "router_pass_rate": {
+     "point": 0.4848,
+     "lower": 0.3485,
+     "upper": 0.6136
+    },
+    "baseline_pass_rate": {
+     "point": 0.6061,
+     "lower": 0.4848,
+     "upper": 0.7273
+    },
+    "pass_rate_penalty": 1.754,
+    "router": {
+     "solved": 64,
+     "graded": 132,
+     "attempts": 132,
+     "catalog_cost_usd": 91,
+     "missing_telemetry": 0
+    },
+    "baseline": {
+     "solved": 80,
+     "graded": 132,
+     "attempts": 132,
+     "catalog_cost_usd": 128,
+     "missing_telemetry": 0
+    },
+    "router_served_mix": {
+     "gpt-6.1-sol": 5229,
+     "gpt-6-luna": 2133
+    }
+   }
+  ]
  }
 }
