@@ -51,36 +51,54 @@ func Higher(base, floor Group) Group {
 	return base
 }
 
+// Sliding upgrade threshold bands: a partial vote for a higher class steps
+// toward it, a majority vote reaches it.
 const (
-	slidingMinimumProbability       = 0.30
-	slidingHighToMaximumProbability = 0.50
-	slidingMediumToHighProbability  = 0.40
+	slidingStepProbability         = 0.30
+	slidingFullProbability         = 0.50
+	slidingMediumToHighProbability = 0.40
 )
 
-// SlidingThresholdTarget admits an upgrade to the classified group, never an
-// intermediate group. Confidence controls whether to switch, not which class
-// the selector ranks first. An empty target leaves the existing gates in charge;
-// covered is false for transitions without a sliding threshold.
+// SlidingThresholdTarget maps a classification above a session's pinned group
+// to the group the session moves to. covered is false for transitions the
+// sliding threshold does not define; an empty target means it does not move
+// the session.
 func SlidingThresholdTarget(pinned, classified Group, probability float64) (target Group, covered bool) {
-	var threshold float64
-	switch {
-	case classified == Maximum && (pinned == Low || pinned == Medium):
-		threshold = slidingMinimumProbability
-	case classified == Maximum && pinned == High:
-		threshold = slidingHighToMaximumProbability
-	case classified == High && pinned == Low:
-		threshold = slidingMinimumProbability
-	case classified == High && pinned == Medium:
-		threshold = slidingMediumToHighProbability
-	case classified == Medium && pinned == Low:
-		threshold = slidingMinimumProbability
-	default:
+	thresholds, covered := SlidingThresholdsFor(pinned, classified)
+	if !covered {
 		return "", false
 	}
-	if probability >= threshold {
+	if probability >= thresholds.FullProbability {
 		return classified, true
 	}
+	if probability >= thresholds.StepProbability {
+		return thresholds.StepGroup, true
+	}
 	return "", true
+}
+
+// SlidingUpgradeThresholds exposes the same bounds to selection and its explanation.
+type SlidingUpgradeThresholds struct {
+	StepGroup       Group
+	StepProbability float64
+	FullProbability float64
+}
+
+// SlidingThresholdsFor returns the configured bands without evaluating a vote.
+func SlidingThresholdsFor(pinned, classified Group) (SlidingUpgradeThresholds, bool) {
+	switch {
+	case classified == Maximum && (pinned == Low || pinned == Medium):
+		return SlidingUpgradeThresholds{High, slidingStepProbability, slidingFullProbability}, true
+	case classified == Maximum && pinned == High:
+		return SlidingUpgradeThresholds{"", slidingFullProbability, slidingFullProbability}, true
+	case classified == High && pinned == Low:
+		return SlidingUpgradeThresholds{Medium, slidingStepProbability, slidingFullProbability}, true
+	case classified == High && pinned == Medium:
+		return SlidingUpgradeThresholds{High, slidingMediumToHighProbability, slidingMediumToHighProbability}, true
+	case classified == Medium && pinned == Low:
+		return SlidingUpgradeThresholds{Medium, slidingStepProbability, slidingStepProbability}, true
+	}
+	return SlidingUpgradeThresholds{}, false
 }
 
 // Constraint carries classifier intent without overriding user/provider restrictions.

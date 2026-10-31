@@ -25,6 +25,9 @@ type SelectionInput struct {
 	ClassOrder         []string
 	ClassProbabilities map[string]float64
 	ForcedGroup        string
+	// LeadGroup is tried before the classifier's ranking, which stays the
+	// fallback and rescue order; ForcedGroup takes precedence.
+	LeadGroup          string
 	CandidateRosterIDs []string
 	QualityBias        *float64
 	PreferredModels    []string

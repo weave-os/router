@@ -458,12 +458,16 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		}
 		originalSelectionInput := selectionInputFor(strategy, executionMode, req, res, resolved)
 		originalSelectionInput.RosterSHA256 = pin.RosterSHA256
-		selectionInput, decision, constrained := constrainEscalation(req, originalSelectionInput, resolved)
+		slidingInput := slidingThresholdGroupInput(req, originalSelectionInput)
+		selectionInput, decision, constrained := constrainEscalation(req, slidingInput, resolved)
 		escalationDecision = decision
 		pick, selectErr := r.selectEscalationArm(ctx, req, selectionInput, resolved, constrained)
 		for selectErr != nil && constrained && errors.Is(selectErr, ErrNoEligibleArm) {
-			selectionInput, escalationDecision, constrained = fallbackEscalation(req, originalSelectionInput, resolved, escalationDecision)
+			selectionInput, escalationDecision, constrained = fallbackEscalation(req, slidingInput, resolved, escalationDecision)
 			pick, selectErr = r.selectEscalationArm(ctx, req, selectionInput, resolved, constrained)
+		}
+		if slidingInput.LeadGroup != "" && !constrained && pick.Group == slidingInput.LeadGroup {
+			overrideReasonSuffix = ":sliding_threshold"
 		}
 		if selectErr != nil {
 			if errors.Is(selectErr, router.ErrPolicyPinUnavailable) {
@@ -634,6 +638,10 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		replayTrace = &traceCopy
 	}
 
+	var classificationProbability *float64
+	if probability, scored := res.ClassProbabilities[res.PredictedLabel]; scored {
+		classificationProbability = &probability
+	}
 	observability.FromContext(ctx).Info("Policy router decided",
 		"strategy", strategy,
 		"execution_mode", executionMode,
@@ -642,6 +650,10 @@ func (r *SidecarRouter) Route(ctx context.Context, req router.Request) (router.D
 		"provider", binding.Provider,
 		"arm_id", binding.ArmID,
 		"roster_model", overrideRosterID,
+		"classified_group", res.PredictedLabel,
+		"classification_probability", classificationProbability,
+		"selected_group", res.PolicyGroup,
+		"selection_override_reason", selectionTrace.OverrideReason,
 		"score", res.Score,
 	)
 	rescueGroups := EscalatingRescueGroups(res.PolicyGroup, req.ForceCluster, res.RankedFallback)

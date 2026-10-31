@@ -8,7 +8,7 @@ import (
 	"weave-os/router/internal/router/escalation"
 )
 
-func TestSlidingThresholdTargetsPredictedGroup(t *testing.T) {
+func TestSlidingThresholdPreservesIntermediateBands(t *testing.T) {
 	for _, test := range []struct {
 		name        string
 		pinned      escalation.Group
@@ -18,11 +18,11 @@ func TestSlidingThresholdTargetsPredictedGroup(t *testing.T) {
 		covered     bool
 	}{
 		{"low to high below threshold", escalation.Low, escalation.High, 0.299, "", true},
-		{"low to high at threshold", escalation.Low, escalation.High, 0.30, escalation.High, true},
-		{"low to high partial confidence", escalation.Low, escalation.High, 0.38, escalation.High, true},
+		{"low to high at threshold", escalation.Low, escalation.High, 0.30, escalation.Medium, true},
+		{"low to high partial confidence", escalation.Low, escalation.High, 0.38, escalation.Medium, true},
 		{"low to high majority", escalation.Low, escalation.High, 0.50, escalation.High, true},
-		{"low to maximum at threshold", escalation.Low, escalation.Maximum, 0.30, escalation.Maximum, true},
-		{"medium to maximum at threshold", escalation.Medium, escalation.Maximum, 0.30, escalation.Maximum, true},
+		{"low to maximum at threshold", escalation.Low, escalation.Maximum, 0.30, escalation.High, true},
+		{"medium to maximum at threshold", escalation.Medium, escalation.Maximum, 0.30, escalation.High, true},
 		{"high to maximum below threshold", escalation.High, escalation.Maximum, 0.499, "", true},
 		{"high to maximum at threshold", escalation.High, escalation.Maximum, 0.50, escalation.Maximum, true},
 		{"medium to high below threshold", escalation.Medium, escalation.High, 0.399, "", true},

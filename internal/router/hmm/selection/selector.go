@@ -54,6 +54,8 @@ func SelectorWithDomainEvidence(roster *rosterdata.Roster, evidence *DomainEvide
 				return policy.SelectionPick{}, fmt.Errorf("forced group %q is absent from policy: %w", input.ForcedGroup, ErrNoEligibleArm)
 			}
 			rankedGroups = []string{input.ForcedGroup}
+		} else if index := slices.Index(rankedGroups, input.LeadGroup); input.LeadGroup != "" && index > 0 {
+			rankedGroups = append([]string{input.LeadGroup}, append(rankedGroups[:index], rankedGroups[index+1:]...)...)
 		}
 		groups := make([]Group, 0, len(rankedGroups))
 		for _, group := range rankedGroups {
