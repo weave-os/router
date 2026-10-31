@@ -64,15 +64,24 @@ async function listen(server) {
   return server.address().port;
 }
 
-async function connectTunnel(proxyPort, authority) {
-  const req = http.request({ host: "127.0.0.1", port: proxyPort, method: "CONNECT", path: authority });
+const PROXY_TOKEN = "t0ken";
+const PROXY_AUTH = `Basic ${Buffer.from(`weave:${PROXY_TOKEN}`).toString("base64")}`;
+
+async function connectStatus(proxyPort, authority, proxyAuth) {
+  const headers = proxyAuth ? { "proxy-authorization": proxyAuth } : {};
+  const req = http.request({ host: "127.0.0.1", port: proxyPort, method: "CONNECT", path: authority, headers });
   req.end();
   const [res, socket] = await once(req, "connect");
-  assert.equal(res.statusCode, 200);
+  return { status: res.statusCode, socket };
+}
+
+async function connectTunnel(proxyPort, authority) {
+  const { status, socket } = await connectStatus(proxyPort, authority, PROXY_AUTH);
+  assert.equal(status, 200);
   return socket;
 }
 
-async function viaProxy(proxyPort, ca, { method = "GET", reqPath, headers = {}, body }) {
+async function openRequest(proxyPort, ca, { method = "GET", reqPath, headers = {}, body }) {
   const socket = await connectTunnel(proxyPort, "api.anthropic.com:443");
   const tlsSocket = tls.connect({ socket, servername: "api.anthropic.com", ca });
   await once(tlsSocket, "secureConnect");
@@ -83,6 +92,17 @@ async function viaProxy(proxyPort, ca, { method = "GET", reqPath, headers = {}, 
   if (body) req.write(body);
   req.end();
   const [res] = await once(req, "response");
+  return { res, tlsSocket };
+}
+
+function withTimeout(promise, ms, what) {
+  let timer;
+  const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${what} did not happen within ${ms}ms`)), ms); });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+async function viaProxy(proxyPort, ca, options) {
+  const { res, tlsSocket } = await openRequest(proxyPort, ca, options);
   const chunks = [];
   for await (const chunk of res) chunks.push({ at: Date.now(), text: chunk.toString() });
   tlsSocket.destroy();
@@ -93,9 +113,19 @@ test("desktop shim", async (t) => {
   makeCerts();
   const ca = fs.readFileSync(path.join(work, "ca.pem"));
 
+  let heldStreamClosed;
+  const heldStreamClosedPromise = new Promise((resolve) => { heldStreamClosed = resolve; });
   const router = recordingServer((req, res) => {
     res.writeHead(200, { "content-type": "text/event-stream" });
     res.write("event: message_start\n\n");
+    if (req.url.includes("hold")) {
+      res.on("close", heldStreamClosed);
+      return;
+    }
+    if (req.url.includes("cut")) {
+      setTimeout(() => res.socket.destroy(), 50);
+      return;
+    }
     setTimeout(() => res.end("event: message_stop\n\n"), 300);
   });
   const anthropic = recordingServer((req, res) => {
@@ -112,6 +142,7 @@ test("desktop shim", async (t) => {
     listen_port: 0,
     router_base_url: `http://127.0.0.1:${routerPort}/prefix`,
     router_key: "rk_desktop_test",
+    proxy_token: PROXY_TOKEN,
     anthropic_origin: `http://127.0.0.1:${anthropicPort}`,
     cert_file: path.join(work, "leaf.pem"),
     key_file: path.join(work, "leaf-key.pem"),
@@ -138,12 +169,12 @@ test("desktop shim", async (t) => {
     assert.equal(res.statusCode, 200);
     assert.equal(text, "event: message_start\n\nevent: message_stop\n\n");
     assert.ok(chunks.length >= 2 && chunks.at(-1).at - chunks[0].at >= 200, "first SSE event was buffered until the stream ended");
-    const got = router.seen.at(-1);
-    assert.equal(got.url, "/prefix/v1/messages?beta=true");
-    assert.equal(got.headers["x-weave-router-key"], "rk_desktop_test");
-    assert.equal(got.headers.authorization, "Bearer sk-ant-oat-subscription");
-    assert.equal(got.headers.host, `127.0.0.1:${routerPort}`);
-    assert.equal(got.body, '{"model":"claude-sonnet-5","stream":true}');
+    const routerRequest = router.seen.at(-1);
+    assert.equal(routerRequest.url, "/prefix/v1/messages?beta=true");
+    assert.equal(routerRequest.headers["x-weave-router-key"], "rk_desktop_test");
+    assert.equal(routerRequest.headers.authorization, "Bearer sk-ant-oat-subscription");
+    assert.equal(routerRequest.headers.host, `127.0.0.1:${routerPort}`);
+    assert.equal(routerRequest.body, '{"model":"claude-sonnet-5","stream":true}');
     assert.equal(anthropic.seen.length, 0);
   });
 
@@ -155,10 +186,10 @@ test("desktop shim", async (t) => {
   await t.test("everything else on api.anthropic.com goes to Anthropic without the router key", async () => {
     const { text } = await viaProxy(proxyPort, ca, { reqPath: "/api/oauth/profile", headers: { authorization: "Bearer sk-ant-oat-subscription" } });
     assert.equal(text, '{"ok":true}');
-    const got = anthropic.seen.at(-1);
-    assert.equal(got.url, "/api/oauth/profile");
-    assert.equal(got.headers["x-weave-router-key"], undefined);
-    assert.equal(got.headers.authorization, "Bearer sk-ant-oat-subscription");
+    const anthropicRequest = anthropic.seen.at(-1);
+    assert.equal(anthropicRequest.url, "/api/oauth/profile");
+    assert.equal(anthropicRequest.headers["x-weave-router-key"], undefined);
+    assert.equal(anthropicRequest.headers.authorization, "Bearer sk-ant-oat-subscription");
   });
 
   await t.test("other hosts are tunneled untouched", async () => {
@@ -167,6 +198,33 @@ test("desktop shim", async (t) => {
     const [data] = await once(socket, "data");
     assert.equal(data.toString(), "ping");
     socket.destroy();
+  });
+
+  await t.test("CONNECT without the proxy token is refused", async () => {
+    for (const proxyAuth of [undefined, `Basic ${Buffer.from("weave:wrong").toString("base64")}`]) {
+      const { status, socket } = await connectStatus(proxyPort, "api.anthropic.com:443", proxyAuth);
+      assert.equal(status, 407);
+      socket.destroy();
+    }
+  });
+
+  await t.test("stopping a streamed answer cancels the router request", async () => {
+    const { res, tlsSocket } = await openRequest(proxyPort, ca, { method: "POST", reqPath: "/v1/messages?hold", body: "{}" });
+    await once(res, "data");
+    tlsSocket.destroy();
+    await withTimeout(heldStreamClosedPromise, 2000, "router-side close after Stop");
+  });
+
+  await t.test("a router stream cut mid-answer fails the client response", async () => {
+    const { res, tlsSocket } = await openRequest(proxyPort, ca, { method: "POST", reqPath: "/v1/messages?cut", body: "{}" });
+    const finished = new Promise((resolve) => {
+      res.on("close", resolve);
+      res.on("error", () => {});
+      res.resume();
+    });
+    await withTimeout(finished, 2000, "client response close after upstream cut");
+    assert.equal(res.complete, false);
+    tlsSocket.destroy();
   });
 
   await t.test("health endpoint answers", async () => {

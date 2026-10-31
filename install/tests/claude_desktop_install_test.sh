@@ -73,7 +73,9 @@ grep -Fq "ExecStart=\"$(command -v node)\" \"$shim_dir/desktop-shim.js\" \"$conf
 grep -Fq "systemctl --user enable weave-router-desktop-shim.service" "$calls" || fail "service not enabled"
 grep -Fq "systemctl --user restart weave-router-desktop-shim.service" "$calls" || fail "service not (re)started"
 [ ! -e "$home/.claude/settings.json" ] || fail "Claude Code settings.json was touched"
-grep -Fq "HTTPS_PROXY=http://127.0.0.1:47821" <<<"$out" || fail "Desktop env lines not printed: $out"
+token="$(jq -r '.proxy_token' "$config")"
+[[ "$token" =~ ^[0-9a-f]{48}$ ]] || fail "proxy token missing or malformed: $token"
+grep -Fq "HTTPS_PROXY=http://weave:$token@127.0.0.1:47821" <<<"$out" || fail "Desktop env lines not printed with the proxy token: $out"
 grep -Fq "NODE_EXTRA_CA_CERTS=$shim_dir/ca.pem" <<<"$out" || fail "CA path not printed: $out"
 
 # A re-install reuses the stored key and keeps the CA Desktop already trusts.
@@ -81,6 +83,7 @@ ca_before="$(cat "$shim_dir/ca.pem")"
 install_desktop >/dev/null 2>&1 || fail "re-install without a key in env failed"
 [ "$(jq -r '.router_key' "$config")" = "rk_desktop_test" ] || fail "re-install lost the stored key"
 [ "$(cat "$shim_dir/ca.pem")" = "$ca_before" ] || fail "re-install replaced the trusted CA"
+[ "$(jq -r '.proxy_token' "$config")" = "$token" ] || fail "re-install changed the proxy token Desktop was given"
 
 # macOS runs the proxy as a launchd agent instead.
 : >"$calls"
@@ -88,6 +91,22 @@ install_desktop env FAKE_UNAME=Darwin >/dev/null 2>&1 || fail "macOS install fai
 grep -Fq "<string>ai.workweave.router-desktop-shim</string>" "$plist" || fail "launchd plist missing its label"
 grep -Fq "<string>$config</string>" "$plist" || fail "launchd plist does not pass the config"
 grep -Eq "^launchctl bootstrap gui/[0-9]+ $plist$" "$calls" || fail "launchd agent not bootstrapped: $(cat "$calls")"
+
+# Paths are XML-escaped in the plist.
+odd_home="$work/odd&<home"
+mkdir -p "$odd_home"
+run env HOME="$odd_home" FAKE_UNAME=Darwin WEAVE_ROUTER_KEY=rk_desktop_test bash "$installer" --claude-desktop --non-interactive \
+  --base-url http://127.0.0.1:9 --email dev@example.com >/dev/null 2>&1 || fail "install under an odd HOME failed"
+python3 -c 'import plistlib, sys; plistlib.load(open(sys.argv[1], "rb"))' \
+  "$odd_home/Library/LaunchAgents/ai.workweave.router-desktop-shim.plist" || fail "plist with & and < in paths does not parse"
+
+# A project-scope or unrelated --dir uninstall leaves the user's Desktop proxy alone.
+mkdir -p "$work/project"
+run bash "$uninstaller" --scope project --dir "$work/project" >/dev/null 2>&1 || true
+[ -f "$config" ] || fail "project-scope uninstall removed the Desktop proxy"
+run bash "$uninstaller" --claude-desktop --dir "$work/project" >/dev/null 2>&1 || true
+[ -f "$unit" ] || fail "--dir uninstall removed the systemd unit of another install"
+[ -f "$plist" ] || fail "--dir uninstall removed the launchd plist of another install"
 
 if run bash "$installer" off --claude-desktop --non-interactive >/dev/null 2>&1; then
   fail "off --claude-desktop should be rejected"

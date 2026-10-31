@@ -6318,10 +6318,15 @@ write_desktop_shim_config() {
     --arg base "$base_url" \
     --arg key "$key" \
     --argjson port "$desktop_shim_port" \
+    --arg token "$desktop_shim_token" \
     --arg cert "$desktop_shim_dir/leaf.pem" \
     --arg cert_key "$desktop_shim_dir/leaf-key.pem" \
-    '{listen_host: "127.0.0.1", listen_port: $port, router_base_url: $base, router_key: $key, cert_file: $cert, key_file: $cert_key}' >"$tmp"
+    '{listen_host: "127.0.0.1", listen_port: $port, router_base_url: $base, router_key: $key, proxy_token: $token, cert_file: $cert, key_file: $cert_key}' >"$tmp"
   mv "$tmp" "$desktop_shim_config"
+}
+
+xml_escape() {
+  printf '%s' "$1" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'
 }
 
 start_desktop_shim_service() {
@@ -6330,7 +6335,12 @@ start_desktop_shim_service() {
   case "$(uname -s)" in
     Darwin)
       local plist="$HOME/Library/LaunchAgents/$desktop_shim_launchd_label.plist" uid
+      local xml_node xml_shim xml_config xml_log
       uid="$(id -u)"
+      xml_node="$(xml_escape "$node_bin")"
+      xml_shim="$(xml_escape "$shim")"
+      xml_config="$(xml_escape "$desktop_shim_config")"
+      xml_log="$(xml_escape "$desktop_shim_dir/proxy.log")"
       mkdir -p "$(dirname "$plist")"
       cat >"$plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -6341,18 +6351,18 @@ start_desktop_shim_service() {
   <string>$desktop_shim_launchd_label</string>
   <key>ProgramArguments</key>
   <array>
-    <string>$node_bin</string>
-    <string>$shim</string>
-    <string>$desktop_shim_config</string>
+    <string>$xml_node</string>
+    <string>$xml_shim</string>
+    <string>$xml_config</string>
   </array>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
   <true/>
   <key>StandardOutPath</key>
-  <string>$desktop_shim_dir/proxy.log</string>
+  <string>$xml_log</string>
   <key>StandardErrorPath</key>
-  <string>$desktop_shim_dir/proxy.log</string>
+  <string>$xml_log</string>
 </dict>
 </plist>
 PLIST
@@ -6403,17 +6413,12 @@ wait_for_desktop_shim() {
   return 1
 }
 
-print_desktop_next_steps() {
-  printf "\n%sNext:%s in Claude Desktop, open %sCode%s, hover over your computer under %sLocal%s in the environment selector, click the gear, add these two lines, and select %sSave changes%s:\n\n" \
-    "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
-  printf "  HTTPS_PROXY=%s\n" "$(desktop_shim_proxy_url)"
-  printf "  NODE_EXTRA_CA_CERTS=%s\n\n" "$desktop_shim_dir/ca.pem"
-  printf "Then start a new local session. You stay signed in to Claude; only model calls go through Weave Router.\n"
-}
-
 if [ "$target" = "claude-desktop" ]; then
   desktop_shim_port="${WEAVE_DESKTOP_SHIM_PORT:-$(json_get "$desktop_shim_config" '.listen_port')}"
   desktop_shim_port="${desktop_shim_port:-47821}"
+  # Desktop keeps the HTTPS_PROXY line it was given, so re-installs keep the token.
+  desktop_shim_token="$(json_get "$desktop_shim_config" '.proxy_token')"
+  [ -n "$desktop_shim_token" ] || desktop_shim_token="$(openssl rand -hex 24)"
   if ! desktop_shim_src="$(desktop_shim_source)"; then
     err "desktop-shim.js is missing next to the installer. Install with 'npx $npm_package_name --claude-desktop'."
     exit 1
@@ -6433,7 +6438,11 @@ if [ "$target" = "claude-desktop" ]; then
 
   announce_done "Claude Desktop"
   if [ "$mode" = "install" ] && [ "$quiet" != "true" ]; then
-    print_desktop_next_steps
+    printf "\n%sNext:%s in Claude Desktop, open %sCode%s and the environment selector. Click the gear on your computer under %sLocal%s (or choose %sNew environment%s > %sLocal%s), add these two lines as environment variables, and save:\n\n" \
+      "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
+    printf "  HTTPS_PROXY=http://weave:%s@127.0.0.1:%s\n" "$desktop_shim_token" "$desktop_shim_port"
+    printf "  NODE_EXTRA_CA_CERTS=%s\n\n" "$desktop_shim_dir/ca.pem"
+    printf "Then start a new local session from it. You stay signed in to Claude; only model calls go through Weave Router.\n"
   fi
   [ "$mode" = "update" ] || print_uninstall_hint
   exit 0

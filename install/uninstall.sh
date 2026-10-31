@@ -352,16 +352,25 @@ fi
 # Claude Desktop runs through a local proxy service (see install.sh); remove the
 # service, its certificate and the stored router key.
 if [ "$target" = "claude-desktop" ]; then
+  if [ "$scope" = "project" ]; then
+    [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] || exit 3
+    err "--claude-desktop installs in user scope only; drop --scope project."
+    exit 2
+  fi
   desktop_shim_dir="${install_dir:-$HOME}/.weave-router/desktop-shim"
+  desktop_shim_config="$desktop_shim_dir/config.json"
   desktop_shim_plist="$HOME/Library/LaunchAgents/ai.workweave.router-desktop-shim.plist"
   desktop_shim_unit="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/weave-router-desktop-shim.service"
-  skip_if_not_installed "$desktop_shim_dir/config.json" 'router_base_url' "$desktop_shim_plist" "$desktop_shim_unit"
-  if [ -f "$desktop_shim_plist" ]; then
+  skip_if_not_installed "$desktop_shim_config" 'router_base_url'
+  # The service files live under $HOME whatever --dir says; only remove the ones
+  # that run this install's config.
+  desktop_shim_config_xml="$(printf '%s' "$desktop_shim_config" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g')"
+  if [ -f "$desktop_shim_plist" ] && grep -Fq "<string>$desktop_shim_config_xml</string>" "$desktop_shim_plist"; then
     launchctl bootout "gui/$(id -u)/ai.workweave.router-desktop-shim" >/dev/null 2>&1 || true
     rm -f "$desktop_shim_plist"
     ok "Removed $desktop_shim_plist"
   fi
-  if [ -f "$desktop_shim_unit" ]; then
+  if [ -f "$desktop_shim_unit" ] && grep -Fq "\"$desktop_shim_config\"" "$desktop_shim_unit"; then
     systemctl --user disable --now weave-router-desktop-shim.service >/dev/null 2>&1 || true
     rm -f "$desktop_shim_unit"
     systemctl --user daemon-reload >/dev/null 2>&1 || true

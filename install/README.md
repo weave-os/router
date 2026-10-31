@@ -324,19 +324,24 @@ User scope only, macOS and Linux, needs Node.js 18+ and `openssl`.
 | Path | What the installer does |
 | ---- | ----------------------- |
 | `~/.weave-router/desktop-shim/desktop-shim.js` | Copy of the proxy (no dependencies). |
-| `~/.weave-router/desktop-shim/config.json` | Router URL, router key and listen port (`127.0.0.1:47821`, or `$WEAVE_DESKTOP_SHIM_PORT`). Mode `0600`. |
+| `~/.weave-router/desktop-shim/config.json` | Router URL, router key, listen port (`127.0.0.1:47821`, or `$WEAVE_DESKTOP_SHIM_PORT`) and a random proxy token. Mode `0600`. The proxy refuses `CONNECT` without that token, so other OS users on the machine can't spend your key through loopback. Re-installs keep the token. |
 | `~/.weave-router/desktop-shim/ca.pem`, `leaf.pem`, `leaf-key.pem` | A CA limited by name constraints to `api.anthropic.com`, and the one leaf it signed. The CA key is deleted right after signing. Re-installs keep a still-valid pair. |
 | `~/Library/LaunchAgents/ai.workweave.router-desktop-shim.plist` (macOS) or `~/.config/systemd/user/weave-router-desktop-shim.service` (Linux) | Runs the proxy at login. |
 
 Desktop stores its local environment encrypted, so the installer can't write
-it. After installing, open **Code** in Claude Desktop, hover over your computer
-under **Local** in the environment selector, click the gear, add the two lines
-the installer prints, select **Save changes**, and start a new session:
+it. After installing, open **Code** in Claude Desktop and the environment
+selector. Click the gear on your computer under **Local**, or, when there is no
+gear, choose **New environment** > **Local**. Add the two lines the installer
+prints as environment variables, save, and start a new session from it:
 
 ```text
-HTTPS_PROXY=http://127.0.0.1:47821
+HTTPS_PROXY=http://weave:<token>@127.0.0.1:47821
 NODE_EXTRA_CA_CERTS=/Users/<you>/.weave-router/desktop-shim/ca.pem
 ```
+
+On Linux, Desktop can only save these when a Secret Service keyring (for
+example gnome-keyring) is unlocked; without one it shows "Couldn't save this
+environment's variables".
 
 Use the local environment editor or a saved local environment, not
 `~/.claude/settings.json`: Claude Code ignores a settings value for a variable

@@ -7,6 +7,7 @@
 
 "use strict";
 
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
 const https = require("node:https");
@@ -15,6 +16,7 @@ const tls = require("node:tls");
 
 const INTERCEPT_HOST = "api.anthropic.com";
 const ROUTER_KEY_HEADER = "x-weave-router-key";
+const PROXY_USER = "weave";
 const HOP_BY_HOP = new Set([
   "connection",
   "keep-alive",
@@ -28,20 +30,21 @@ const HOP_BY_HOP = new Set([
 ]);
 
 function loadConfig(file) {
-  const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+  const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
   for (const field of ["router_base_url", "cert_file", "key_file"]) {
-    if (typeof raw[field] !== "string" || raw[field] === "") {
+    if (typeof parsed[field] !== "string" || parsed[field] === "") {
       throw new Error(`${file}: missing ${field}`);
     }
   }
   return {
-    host: raw.listen_host || "127.0.0.1",
-    port: Number(raw.listen_port ?? 47821),
-    router: new URL(raw.router_base_url),
-    routerKey: typeof raw.router_key === "string" ? raw.router_key : "",
-    anthropic: new URL(raw.anthropic_origin || `https://${INTERCEPT_HOST}`),
-    cert: fs.readFileSync(raw.cert_file),
-    key: fs.readFileSync(raw.key_file),
+    host: parsed.listen_host || "127.0.0.1",
+    port: Number(parsed.listen_port ?? 47821),
+    router: new URL(parsed.router_base_url),
+    routerKey: typeof parsed.router_key === "string" ? parsed.router_key : "",
+    proxyToken: typeof parsed.proxy_token === "string" ? parsed.proxy_token : "",
+    anthropic: new URL(parsed.anthropic_origin || `https://${INTERCEPT_HOST}`),
+    cert: fs.readFileSync(parsed.cert_file),
+    key: fs.readFileSync(parsed.key_file),
   };
 }
 
@@ -49,9 +52,13 @@ function routesToRouter(path) {
   return path === "/v1/messages" || path.startsWith("/v1/messages/") || path.startsWith("/v1/messages?");
 }
 
-function upstreamPath(base, path) {
-  const prefix = base.pathname.replace(/\/+$/, "");
-  return prefix + path;
+// Loopback is shared by every OS user on the machine, so the proxy only adds
+// the router key for clients that know the per-install token in HTTPS_PROXY.
+function proxyAuthorized(cfg, header) {
+  if (!cfg.proxyToken) return true;
+  const expected = Buffer.from(`Basic ${Buffer.from(`${PROXY_USER}:${cfg.proxyToken}`).toString("base64")}`);
+  const presented = Buffer.from(header || "");
+  return presented.length === expected.length && crypto.timingSafeEqual(presented, expected);
 }
 
 function forward(cfg, req, res) {
@@ -71,7 +78,7 @@ function forward(cfg, req, res) {
       hostname: target.hostname,
       port: target.port || (target.protocol === "http:" ? 80 : 443),
       method: req.method,
-      path: upstreamPath(target, req.url),
+      path: target.pathname.replace(/\/+$/, "") + req.url,
       headers,
     },
     (upstreamRes) => {
@@ -79,13 +86,19 @@ function forward(cfg, req, res) {
       for (const [name, value] of Object.entries(upstreamRes.headers)) {
         if (!HOP_BY_HOP.has(name)) out[name] = value;
       }
-      res.writeHead(upstreamRes.statusCode || 502, out);
+      res.writeHead(upstreamRes.statusCode, out);
       res.flushHeaders();
+      // A body cut off mid-stream must reach Desktop as a broken response, not
+      // a connection that silently stays open.
+      upstreamRes.on("close", () => {
+        if (!upstreamRes.complete) res.destroy();
+      });
       upstreamRes.pipe(res);
     },
   );
   upstream.setNoDelay(true);
   upstream.on("error", (err) => {
+    if (res.destroyed) return;
     console.error(`${req.method} ${req.url} -> ${target.host}: ${err.message}`);
     if (!res.headersSent) {
       res.writeHead(502, { "content-type": "application/json" });
@@ -97,7 +110,10 @@ function forward(cfg, req, res) {
       res.destroy(err);
     }
   });
-  req.on("aborted", () => upstream.destroy());
+  // Desktop's Stop closes the response; stop the upstream generation with it.
+  res.on("close", () => {
+    if (!res.writableFinished) upstream.destroy();
+  });
   req.pipe(upstream);
 }
 
@@ -116,19 +132,24 @@ function start(cfg) {
   });
 
   proxy.on("connect", (req, socket, head) => {
-    const [host, port] = splitHostPort(req.url);
     socket.on("error", () => socket.destroy());
+    if (!proxyAuthorized(cfg, req.headers["proxy-authorization"])) {
+      socket.end(`HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="weave-router"\r\nContent-Length: 0\r\n\r\n`);
+      return;
+    }
+    const target = new URL(`http://${req.url}`);
+    const host = target.hostname.replace(/^\[|\]$/g, "");
     if (host === INTERCEPT_HOST) {
       socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-      if (head && head.length) socket.unshift(head);
+      if (head.length) socket.unshift(head);
       const tlsSocket = new tls.TLSSocket(socket, { isServer: true, secureContext, ALPNProtocols: ["http/1.1"] });
       tlsSocket.on("error", () => tlsSocket.destroy());
       intercepted.emit("connection", tlsSocket);
       return;
     }
-    const upstream = net.connect(port, host, () => {
+    const upstream = net.connect(Number(target.port) || 443, host, () => {
       socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
-      if (head && head.length) upstream.write(head);
+      if (head.length) upstream.write(head);
       upstream.pipe(socket);
       socket.pipe(upstream);
     });
@@ -142,12 +163,6 @@ function start(cfg) {
     console.log(`Weave Router desktop proxy listening on ${address.address}:${address.port}, router ${cfg.router.origin}`);
   });
   return proxy;
-}
-
-function splitHostPort(authority) {
-  const idx = authority.lastIndexOf(":");
-  if (idx === -1) return [authority, 443];
-  return [authority.slice(0, idx).replace(/^\[|\]$/g, ""), Number(authority.slice(idx + 1)) || 443];
 }
 
 module.exports = { loadConfig, routesToRouter, start };
