@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Regression tests for the Claude Desktop install, re-install, and uninstall
-# lifecycle: a local proxy service with its own api.anthropic.com certificate
-# and the router key, and no change to Claude Code's settings.json.
+# lifecycle: a local proxy service, an api.anthropic.com certificate trusted by
+# the OS, and the OS auto-proxy pointed at the proxy's PAC file. Claude Code's
+# settings.json is never touched.
 
 set -euo pipefail
 
@@ -13,8 +14,9 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 home="$work/home"
 fake_bin="$work/bin"
+state="$work/state"
 calls="$work/calls.log"
-mkdir -p "$home" "$fake_bin"
+mkdir -p "$home" "$fake_bin" "$state"
 : >"$calls"
 
 cat >"$fake_bin/curl" <<'FAKE_CURL'
@@ -31,8 +33,25 @@ while [ $# -gt 0 ]; do
   esac
 done
 FAKE_CURL
-for tool in systemctl launchctl; do
-  printf '#!/usr/bin/env bash\nprintf "%s %%s\\n" "$*" >>"%s"\n' "$tool" "$calls" >"$fake_bin/$tool"
+# The OS tools record their calls; networksetup and gsettings also keep state
+# so the installer and uninstaller see what was set before.
+cat >"$fake_bin/fake-os-tool" <<FAKE_OS
+#!/usr/bin/env bash
+tool="\$(basename "\$0")"
+printf '%s %s\n' "\$tool" "\$*" >>"$calls"
+case "\$tool \$1" in
+  "sudo "*) exit 0 ;;
+  "security verify-cert") exit 1 ;;
+  "networksetup -listallnetworkservices") printf 'An asterisk (*) denotes that a network service is disabled.\nWi-Fi\n*Old VPN\n' ;;
+  "networksetup -getautoproxyurl") printf 'URL: %s\nEnabled: No\n' "\$(cat "$state/pac" 2>/dev/null || echo '(null)')" ;;
+  "networksetup -setautoproxyurl") printf '%s' "\$3" >"$state/pac" ;;
+  "gsettings get") if [ "\$3" = mode ]; then cat "$state/mode" 2>/dev/null || echo "'none'"; else echo "'\$(cat "$state/pac" 2>/dev/null)'"; fi ;;
+  "gsettings set") if [ "\$3" = mode ]; then echo "'\$4'" >"$state/mode"; else printf '%s' "\$4" >"$state/pac"; fi ;;
+esac
+exit 0
+FAKE_OS
+for tool in systemctl launchctl security networksetup gsettings sudo; do
+  ln -s fake-os-tool "$fake_bin/$tool"
 done
 # shellcheck disable=SC2016 # expands inside the fake, not here
 printf '#!/usr/bin/env bash\nprintf "%%s\\n" "${FAKE_UNAME:-Linux}"\n' >"$fake_bin/uname"
@@ -45,17 +64,23 @@ fail() {
 }
 
 run() {
-  env -u WEAVE_ROUTER_KEY -u XDG_CONFIG_HOME HOME="$home" PATH="$test_path" NO_COLOR=1 "$@"
+  env -u WEAVE_ROUTER_KEY -u XDG_CONFIG_HOME -u WEAVE_DESKTOP_CERT_DIR HOME="$home" PATH="$test_path" NO_COLOR=1 "$@"
 }
 
 install_desktop() {
   run "$@" bash "$installer" --claude-desktop --non-interactive --base-url http://127.0.0.1:9 --email dev@example.com
 }
 
+reset_os() {
+  : >"$calls"
+  rm -f "$state/pac" "$state/mode"
+}
+
 shim_dir="$home/.weave-router/desktop-shim"
 config="$shim_dir/config.json"
 unit="$home/.config/systemd/user/weave-router-desktop-shim.service"
 plist="$home/Library/LaunchAgents/ai.workweave.router-desktop-shim.plist"
+pac_url="http://127.0.0.1:47821/proxy.pac"
 
 out="$(install_desktop env WEAVE_ROUTER_KEY=rk_desktop_test 2>&1)" || fail "install failed: $out"
 
@@ -70,27 +95,36 @@ openssl x509 -in "$shim_dir/ca.pem" -noout -ext nameConstraints | grep -q 'DNS:a
 [ ! -e "$shim_dir/ca-key.pem" ] || fail "CA private key was left on disk"
 cmp -s "$script_dir/../desktop-shim.js" "$shim_dir/desktop-shim.js" || fail "proxy script not copied next to its config"
 grep -Fq "ExecStart=\"$(command -v node)\" \"$shim_dir/desktop-shim.js\" \"$config\"" "$unit" || fail "systemd unit does not run the proxy: $(cat "$unit")"
-grep -Fq "systemctl --user enable weave-router-desktop-shim.service" "$calls" || fail "service not enabled"
 grep -Fq "systemctl --user restart weave-router-desktop-shim.service" "$calls" || fail "service not (re)started"
+grep -Fq "sudo install -m 644 $shim_dir/ca.pem /usr/local/share/ca-certificates/weave-router-claude-desktop.crt" "$calls" || fail "CA not added to the system trust store: $(cat "$calls")"
+grep -Fq "sudo update-ca-certificates" "$calls" || fail "system trust store not refreshed"
+[ "$(cat "$state/pac")" = "$pac_url" ] || fail "GNOME auto-proxy not pointed at the PAC"
+[ "$(cat "$state/mode")" = "'auto'" ] || fail "GNOME proxy mode not set to auto"
 [ ! -e "$home/.claude/settings.json" ] || fail "Claude Code settings.json was touched"
-token="$(jq -r '.proxy_token' "$config")"
-[[ "$token" =~ ^[0-9a-f]{48}$ ]] || fail "proxy token missing or malformed: $token"
-grep -Fq "HTTPS_PROXY=http://weave:$token@127.0.0.1:47821" <<<"$out" || fail "Desktop env lines not printed with the proxy token: $out"
-grep -Fq "NODE_EXTRA_CA_CERTS=$shim_dir/ca.pem" <<<"$out" || fail "CA path not printed: $out"
+grep -Fq "quit and reopen Claude Desktop" <<<"$out" || fail "next step not printed: $out"
 
-# A re-install reuses the stored key and keeps the CA Desktop already trusts.
+# A re-install reuses the stored key and keeps the CA the OS already trusts.
 ca_before="$(cat "$shim_dir/ca.pem")"
 install_desktop >/dev/null 2>&1 || fail "re-install without a key in env failed"
 [ "$(jq -r '.router_key' "$config")" = "rk_desktop_test" ] || fail "re-install lost the stored key"
 [ "$(cat "$shim_dir/ca.pem")" = "$ca_before" ] || fail "re-install replaced the trusted CA"
-[ "$(jq -r '.proxy_token' "$config")" = "$token" ] || fail "re-install changed the proxy token Desktop was given"
 
-# macOS runs the proxy as a launchd agent instead.
-: >"$calls"
+# An auto-proxy someone else set is left alone and the rule to add is printed.
+reset_os
+echo "'auto'" >"$state/mode"
+printf 'http://corp.example/proxy.pac' >"$state/pac"
+out="$(install_desktop 2>&1)" || fail "install next to a corporate PAC failed: $out"
+[ "$(cat "$state/pac")" = "http://corp.example/proxy.pac" ] || fail "corporate PAC was replaced"
+grep -Fq 'if (host === "api.anthropic.com") return "PROXY 127.0.0.1:47821";' <<<"$out" || fail "PAC rule not printed: $out"
+
+# macOS: launchd agent, login-keychain trust, and the auto-proxy on enabled services.
+reset_os
 install_desktop env FAKE_UNAME=Darwin >/dev/null 2>&1 || fail "macOS install failed"
 grep -Fq "<string>ai.workweave.router-desktop-shim</string>" "$plist" || fail "launchd plist missing its label"
-grep -Fq "<string>$config</string>" "$plist" || fail "launchd plist does not pass the config"
 grep -Eq "^launchctl bootstrap gui/[0-9]+ $plist$" "$calls" || fail "launchd agent not bootstrapped: $(cat "$calls")"
+grep -Fq "security add-trusted-cert -r trustRoot -k $home/Library/Keychains/login.keychain-db $shim_dir/ca.pem" "$calls" || fail "CA not trusted in the login keychain"
+grep -Fq "sudo networksetup -setautoproxyurl Wi-Fi $pac_url" "$calls" || fail "auto-proxy not set on Wi-Fi: $(cat "$calls")"
+! grep -Fq "Old VPN" "$calls" || fail "auto-proxy set on a disabled service"
 
 # launchd rejects a malformed plist, so a HOME containing & or < must still parse.
 odd_home="$work/odd&<home"
@@ -99,6 +133,14 @@ run env HOME="$odd_home" FAKE_UNAME=Darwin WEAVE_ROUTER_KEY=rk_desktop_test bash
   --base-url http://127.0.0.1:9 --email dev@example.com >/dev/null 2>&1 || fail "install under an odd HOME failed"
 python3 -c 'import plistlib, sys; plistlib.load(open(sys.argv[1], "rb"))' \
   "$odd_home/Library/LaunchAgents/ai.workweave.router-desktop-shim.plist" || fail "plist with & and < in paths does not parse"
+
+# An organization can supply its own certificate pair.
+org_certs="$work/org-certs"
+mkdir -p "$org_certs"
+cp "$shim_dir/ca.pem" "$shim_dir/leaf.pem" "$shim_dir/leaf-key.pem" "$org_certs/"
+printf '# org marker\n' >>"$org_certs/ca.pem"
+install_desktop env WEAVE_DESKTOP_CERT_DIR="$org_certs" >/dev/null 2>&1 || fail "install with WEAVE_DESKTOP_CERT_DIR failed"
+cmp -s "$org_certs/ca.pem" "$shim_dir/ca.pem" || fail "organization CA not used"
 
 # Uninstall must leave another install's Desktop proxy and service files intact.
 mkdir -p "$work/project"
@@ -113,17 +155,21 @@ if run bash "$installer" off --claude-desktop --non-interactive >/dev/null 2>&1;
 fi
 
 : >"$calls"
-run bash "$uninstaller" --claude-desktop >/dev/null 2>&1 || fail "uninstall failed"
-[ ! -e "$shim_dir" ] || fail "proxy dir left behind"
-[ ! -e "$unit" ] || fail "systemd unit left behind"
-[ ! -e "$plist" ] || fail "launchd plist left behind"
-grep -Fq "systemctl --user disable --now weave-router-desktop-shim.service" "$calls" || fail "systemd service not stopped"
+run env FAKE_UNAME=Darwin bash "$uninstaller" --claude-desktop >/dev/null 2>&1 || fail "macOS uninstall failed"
+grep -Fq "security remove-trusted-cert $shim_dir/ca.pem" "$calls" || fail "keychain trust not removed"
+grep -Fq "sudo networksetup -setautoproxystate Wi-Fi off" "$calls" || fail "auto-proxy not turned off"
 grep -Eq "^launchctl bootout gui/[0-9]+/ai.workweave.router-desktop-shim$" "$calls" || fail "launchd agent not stopped"
+[ ! -e "$shim_dir" ] || fail "proxy dir left behind"
+[ ! -e "$plist" ] || fail "launchd plist left behind"
 
-# A bare --uninstall finds and removes the Desktop install too.
+# Linux uninstall reverts the GNOME auto-proxy, and a bare --uninstall finds the install.
+reset_os
 install_desktop env WEAVE_ROUTER_KEY=rk_desktop_test >/dev/null 2>&1 || fail "second install failed"
 out="$(run bash "$uninstaller" 2>&1)" || fail "bare uninstall failed: $out"
 grep -Fq "Claude Desktop" <<<"$out" || fail "bare uninstall did not report Claude Desktop: $out"
+[ "$(cat "$state/mode")" = "'none'" ] || fail "GNOME proxy mode not reset"
+grep -Fq "systemctl --user disable --now weave-router-desktop-shim.service" "$calls" || fail "systemd service not stopped"
 [ ! -e "$shim_dir" ] || fail "bare uninstall left the proxy dir"
+[ ! -e "$unit" ] || fail "systemd unit left behind"
 
 echo "claude_desktop_install_test: ok"

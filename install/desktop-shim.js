@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-// Local HTTPS proxy for Claude Desktop's Code tab. Desktop forces
-// ANTHROPIC_BASE_URL to Anthropic, but honors HTTPS_PROXY, so this proxy
-// terminates TLS for api.anthropic.com only and sends Messages API calls to the
-// Weave Router with the router key added. Every other request, and every other
-// host, goes through untouched, so Desktop's own sign-in keeps working.
+// Local HTTPS proxy for Claude Desktop's Code tab and Cowork. Desktop forces
+// ANTHROPIC_BASE_URL to Anthropic, but gives both the OS proxy (here, the PAC
+// file served at /proxy.pac) and the OS certificate store. This proxy terminates
+// TLS for api.anthropic.com only and sends Desktop's Messages API calls to the
+// Weave Router with the router key added. Everything else, including other apps'
+// api.anthropic.com traffic and every other host, passes through untouched.
 
 "use strict";
 
-const crypto = require("node:crypto");
 const fs = require("node:fs");
 const http = require("node:http");
 const https = require("node:https");
@@ -16,7 +16,9 @@ const tls = require("node:tls");
 
 const INTERCEPT_HOST = "api.anthropic.com";
 const ROUTER_KEY_HEADER = "x-weave-router-key";
-const PROXY_USER = "weave";
+// Claude Code's user agent names its entrypoint: "claude-desktop" for the Code
+// tab, "local-agent" for Cowork.
+const DESKTOP_USER_AGENT = /[(,]\s*(claude-desktop|local-agent)(?![\w-])/;
 const HOP_BY_HOP = new Set([
   "connection",
   "keep-alive",
@@ -41,28 +43,28 @@ function loadConfig(file) {
     port: Number(parsed.listen_port ?? 47821),
     router: new URL(parsed.router_base_url),
     routerKey: typeof parsed.router_key === "string" ? parsed.router_key : "",
-    proxyToken: typeof parsed.proxy_token === "string" ? parsed.proxy_token : "",
     anthropic: new URL(parsed.anthropic_origin || `https://${INTERCEPT_HOST}`),
     cert: fs.readFileSync(parsed.cert_file),
     key: fs.readFileSync(parsed.key_file),
   };
 }
 
-function routesToRouter(path) {
-  return path === "/v1/messages" || path.startsWith("/v1/messages/") || path.startsWith("/v1/messages?");
+function routesToRouter(req) {
+  const path = req.url;
+  const isMessages = path === "/v1/messages" || path.startsWith("/v1/messages/") || path.startsWith("/v1/messages?");
+  return isMessages && DESKTOP_USER_AGENT.test(req.headers["user-agent"] || "");
 }
 
-// Loopback is shared by every OS user on the machine, so the proxy only adds
-// the router key for clients that know the per-install token in HTTPS_PROXY.
-function proxyAuthorized(cfg, header) {
-  if (!cfg.proxyToken) return true;
-  const expected = Buffer.from(`Basic ${Buffer.from(`${PROXY_USER}:${cfg.proxyToken}`).toString("base64")}`);
-  const presented = Buffer.from(header || "");
-  return presented.length === expected.length && crypto.timingSafeEqual(presented, expected);
+function pacFile(port) {
+  return `function FindProxyForURL(url, host) {
+  if (host === "${INTERCEPT_HOST}") return "PROXY 127.0.0.1:${port}";
+  return "DIRECT";
+}
+`;
 }
 
 function forward(cfg, req, res) {
-  const toRouter = routesToRouter(req.url);
+  const toRouter = routesToRouter(req);
   const target = toRouter ? cfg.router : cfg.anthropic;
   const headers = {};
   for (const [name, value] of Object.entries(req.headers)) {
@@ -122,6 +124,11 @@ function start(cfg) {
   const secureContext = tls.createSecureContext({ cert: cfg.cert, key: cfg.key });
 
   const proxy = http.createServer((req, res) => {
+    if (req.method === "GET" && req.url === "/proxy.pac") {
+      res.writeHead(200, { "content-type": "application/x-ns-proxy-autoconfig" });
+      res.end(pacFile(proxy.address().port));
+      return;
+    }
     if (req.method === "GET" && req.url === "/health") {
       res.writeHead(200, { "content-type": "text/plain" });
       res.end("ok\n");
@@ -133,10 +140,6 @@ function start(cfg) {
 
   proxy.on("connect", (req, socket, head) => {
     socket.on("error", () => socket.destroy());
-    if (!proxyAuthorized(cfg, req.headers["proxy-authorization"])) {
-      socket.end(`HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="weave-router"\r\nContent-Length: 0\r\n\r\n`);
-      return;
-    }
     const target = new URL(`http://${req.url}`);
     const host = target.hostname.replace(/^\[|\]$/g, "");
     if (host === INTERCEPT_HOST) {

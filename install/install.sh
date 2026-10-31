@@ -6232,13 +6232,15 @@ fi
 
 # ---------- Claude Desktop install path (dispatch + exit before the Claude-only writes) ----------
 #
-# Claude Desktop's Code tab forces ANTHROPIC_BASE_URL to Anthropic and blanks
-# ANTHROPIC_CUSTOM_HEADERS, so the settings.json route the CLI uses never
-# reaches it. Desktop does pass HTTPS_PROXY and NODE_EXTRA_CA_CERTS from its
-# local environment editor through to Claude Code, so this path runs
-# desktop-shim.js as a login service: it terminates TLS for api.anthropic.com
-# with a certificate made here and sends only Messages API calls to the router.
-# Desktop's own sign-in, and so the user's Claude subscription, is untouched.
+# Claude Desktop sets ANTHROPIC_BASE_URL to Anthropic for its Code tab and
+# Cowork sessions, so the settings.json route the CLI uses never reaches them.
+# Both do take the OS proxy and the OS certificate store. So this path:
+#   1. runs desktop-shim.js as a login service on 127.0.0.1,
+#   2. trusts a certificate that can only vouch for api.anthropic.com,
+#   3. points the OS auto-proxy at the shim's PAC file, which sends only
+#      api.anthropic.com to the shim.
+# The shim sends Desktop's Messages API calls to the router and passes the rest
+# to Anthropic, so the user's Claude sign-in and subscription are untouched.
 
 desktop_shim_service_name="weave-router-desktop-shim"
 desktop_shim_launchd_label="ai.workweave.router-desktop-shim"
@@ -6265,6 +6267,13 @@ desktop_shim_source() {
 # valid pair, because Desktop's saved NODE_EXTRA_CA_CERTS points at ca.pem.
 write_desktop_shim_certs() {
   local dir="$desktop_shim_dir" tmp
+  # An organization can hand every machine the same IT-made pair instead, and
+  # trust that CA through its device management.
+  if [ -n "${WEAVE_DESKTOP_CERT_DIR:-}" ]; then
+    cp "$WEAVE_DESKTOP_CERT_DIR/ca.pem" "$WEAVE_DESKTOP_CERT_DIR/leaf.pem" "$dir/"
+    (umask 077 && cp "$WEAVE_DESKTOP_CERT_DIR/leaf-key.pem" "$dir/leaf-key.pem")
+    return 0
+  fi
   if [ -f "$dir/ca.pem" ] && [ -f "$dir/leaf.pem" ] && [ -f "$dir/leaf-key.pem" ] \
      && openssl verify -CAfile "$dir/ca.pem" "$dir/leaf.pem" >/dev/null 2>&1 \
      && openssl x509 -checkend 2592000 -noout -in "$dir/leaf.pem" >/dev/null 2>&1; then
@@ -6318,10 +6327,9 @@ write_desktop_shim_config() {
     --arg base "$base_url" \
     --arg key "$key" \
     --argjson port "$desktop_shim_port" \
-    --arg token "$desktop_shim_token" \
     --arg cert "$desktop_shim_dir/leaf.pem" \
     --arg cert_key "$desktop_shim_dir/leaf-key.pem" \
-    '{listen_host: "127.0.0.1", listen_port: $port, router_base_url: $base, router_key: $key, proxy_token: $token, cert_file: $cert, key_file: $cert_key}' >"$tmp"
+    '{listen_host: "127.0.0.1", listen_port: $port, router_base_url: $base, router_key: $key, cert_file: $cert, key_file: $cert_key}' >"$tmp"
   mv "$tmp" "$desktop_shim_config"
 }
 
@@ -6413,12 +6421,70 @@ wait_for_desktop_shim() {
   return 1
 }
 
+desktop_shim_pac_url() {
+  printf 'http://127.0.0.1:%s/proxy.pac' "$desktop_shim_port"
+}
+
+desktop_shim_ca_store="/usr/local/share/ca-certificates/weave-router-claude-desktop.crt"
+
+trust_desktop_shim_ca() {
+  case "$(uname -s)" in
+    Darwin)
+      if security verify-cert -c "$desktop_shim_dir/leaf.pem" -p ssl -s api.anthropic.com >/dev/null 2>&1; then
+        return 0
+      fi
+      info "macOS will ask for your password to trust the api.anthropic.com certificate."
+      if ! security add-trusted-cert -r trustRoot -k "$HOME/Library/Keychains/login.keychain-db" "$desktop_shim_dir/ca.pem"; then
+        err "Could not trust $desktop_shim_dir/ca.pem in your login keychain."
+        exit 1
+      fi
+      ;;
+    Linux)
+      cmp -s "$desktop_shim_dir/ca.pem" "$desktop_shim_ca_store" && return 0
+      info "sudo is needed to add the api.anthropic.com certificate to the system trust store."
+      if ! { sudo install -m 644 "$desktop_shim_dir/ca.pem" "$desktop_shim_ca_store" && sudo update-ca-certificates >/dev/null; }; then
+        err "Could not add $desktop_shim_dir/ca.pem to the system trust store."
+        exit 1
+      fi
+      ;;
+  esac
+  ok "Trusted the proxy's api.anthropic.com certificate"
+}
+
+# set_desktop_system_proxy leaves an auto-proxy someone else set alone: the PAC
+# rule to add to it is printed instead.
+set_desktop_system_proxy() {
+  local pac rule service current
+  pac="$(desktop_shim_pac_url)"
+  rule="if (host === \"api.anthropic.com\") return \"PROXY 127.0.0.1:$desktop_shim_port\";"
+  case "$(uname -s)" in
+    Darwin)
+      while IFS= read -r service; do
+        current="$(networksetup -getautoproxyurl "$service" | sed -n 's/^URL: //p')"
+        [ "$current" = "$pac" ] && continue
+        if [ -n "$current" ] && [ "$current" != "(null)" ]; then
+          warn "$service already uses the auto-proxy $current. Add this rule to it: $rule"
+          continue
+        fi
+        sudo networksetup -setautoproxyurl "$service" "$pac"
+      done < <(networksetup -listallnetworkservices | tail -n +2 | grep -v '^\*')
+      ;;
+    Linux)
+      current="$(gsettings get org.gnome.system.proxy autoconfig-url)"
+      if [ "$(gsettings get org.gnome.system.proxy mode)" != "'none'" ] && [ "$current" != "'$pac'" ]; then
+        warn "A system proxy is already set. Add this rule to its PAC file: $rule"
+        return 0
+      fi
+      gsettings set org.gnome.system.proxy autoconfig-url "$pac"
+      gsettings set org.gnome.system.proxy mode 'auto'
+      ;;
+  esac
+  ok "System auto-proxy sends api.anthropic.com to $(desktop_shim_proxy_url)"
+}
+
 if [ "$target" = "claude-desktop" ]; then
   desktop_shim_port="${WEAVE_DESKTOP_SHIM_PORT:-$(json_get "$desktop_shim_config" '.listen_port')}"
   desktop_shim_port="${desktop_shim_port:-47821}"
-  # Desktop keeps the HTTPS_PROXY line it was given, so re-installs keep the token.
-  desktop_shim_token="$(json_get "$desktop_shim_config" '.proxy_token')"
-  [ -n "$desktop_shim_token" ] || desktop_shim_token="$(openssl rand -hex 24)"
   if ! desktop_shim_src="$(desktop_shim_source)"; then
     err "desktop-shim.js is missing next to the installer. Install with 'npx $npm_package_name --claude-desktop'."
     exit 1
@@ -6433,16 +6499,14 @@ if [ "$target" = "claude-desktop" ]; then
   else
     warn "The Claude Desktop proxy isn't answering on $(desktop_shim_proxy_url) yet. Check $desktop_shim_dir/proxy.log (macOS) or 'journalctl --user -u $desktop_shim_service_name' (Linux)."
   fi
+  trust_desktop_shim_ca
+  set_desktop_system_proxy
 
   verify_install
 
   announce_done "Claude Desktop"
   if [ "$mode" = "install" ] && [ "$quiet" != "true" ]; then
-    printf "\n%sNext:%s in Claude Desktop, open %sCode%s and the environment selector. Click the gear on your computer under %sLocal%s (or choose %sNew environment%s > %sLocal%s), add these two lines as environment variables, and save:\n\n" \
-      "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET" "$C_BOLD" "$C_RESET"
-    printf "  HTTPS_PROXY=http://weave:%s@127.0.0.1:%s\n" "$desktop_shim_token" "$desktop_shim_port"
-    printf "  NODE_EXTRA_CA_CERTS=%s\n\n" "$desktop_shim_dir/ca.pem"
-    printf "Then start a new local session from it. You stay signed in to Claude; only model calls go through Weave Router.\n"
+    printf "\n%sNext:%s quit and reopen Claude Desktop. New Code and Cowork sessions go through Weave Router; you stay signed in to Claude.\n" "$C_BOLD" "$C_RESET"
   fi
   [ "$mode" = "update" ] || print_uninstall_hint
   exit 0

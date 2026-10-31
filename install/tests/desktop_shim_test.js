@@ -1,6 +1,6 @@
-// Behavior tests for install/desktop-shim.js: Messages API calls through the
-// CONNECT proxy reach the router with the router key, everything else reaches
-// Anthropic untouched, and other hosts are tunneled byte-for-byte.
+// Behavior tests for install/desktop-shim.js: Claude Desktop's Messages API
+// calls through the CONNECT proxy reach the router with the router key, every
+// other request reaches Anthropic untouched, and other hosts are tunneled.
 
 "use strict";
 
@@ -17,6 +17,9 @@ const test = require("node:test");
 const tls = require("node:tls");
 
 const shim = require("../desktop-shim.js");
+
+const CODE_TAB_UA = "claude-cli/2.1.309 (external, claude-desktop, agent-sdk/0.3.309)";
+const COWORK_UA = "claude-cli/2.1.309 (external, local-agent, agent-sdk/0.3.309)";
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "desktop-shim-test-"));
 process.on("exit", () => fs.rmSync(work, { recursive: true, force: true }));
@@ -64,20 +67,11 @@ async function listen(server) {
   return server.address().port;
 }
 
-const PROXY_TOKEN = "t0ken";
-const PROXY_AUTH = `Basic ${Buffer.from(`weave:${PROXY_TOKEN}`).toString("base64")}`;
-
-async function connectStatus(proxyPort, authority, proxyAuth) {
-  const headers = proxyAuth ? { "proxy-authorization": proxyAuth } : {};
-  const req = http.request({ host: "127.0.0.1", port: proxyPort, method: "CONNECT", path: authority, headers });
+async function connectTunnel(proxyPort, authority) {
+  const req = http.request({ host: "127.0.0.1", port: proxyPort, method: "CONNECT", path: authority });
   req.end();
   const [res, socket] = await once(req, "connect");
-  return { status: res.statusCode, socket };
-}
-
-async function connectTunnel(proxyPort, authority) {
-  const { status, socket } = await connectStatus(proxyPort, authority, PROXY_AUTH);
-  assert.equal(status, 200);
+  assert.equal(res.statusCode, 200);
   return socket;
 }
 
@@ -142,7 +136,6 @@ test("desktop shim", async (t) => {
     listen_port: 0,
     router_base_url: `http://127.0.0.1:${routerPort}/prefix`,
     router_key: "rk_desktop_test",
-    proxy_token: PROXY_TOKEN,
     anthropic_origin: `http://127.0.0.1:${anthropicPort}`,
     cert_file: path.join(work, "leaf.pem"),
     key_file: path.join(work, "leaf-key.pem"),
@@ -159,11 +152,11 @@ test("desktop shim", async (t) => {
     echo.close();
   });
 
-  await t.test("Messages API calls go to the router with the router key and stream", async () => {
+  await t.test("Code tab Messages calls go to the router with the router key and stream", async () => {
     const { res, chunks, text } = await viaProxy(proxyPort, ca, {
       method: "POST",
       reqPath: "/v1/messages?beta=true",
-      headers: { authorization: "Bearer sk-ant-oat-subscription", "content-type": "application/json", "x-weave-router-key": "rk_spoofed" },
+      headers: { "user-agent": CODE_TAB_UA, authorization: "Bearer sk-ant-oat-subscription", "content-type": "application/json", "x-weave-router-key": "rk_spoofed" },
       body: '{"model":"claude-sonnet-5","stream":true}',
     });
     assert.equal(res.statusCode, 200);
@@ -178,13 +171,23 @@ test("desktop shim", async (t) => {
     assert.equal(anthropic.seen.length, 0);
   });
 
-  await t.test("token counting goes to the router too", async () => {
-    await viaProxy(proxyPort, ca, { method: "POST", reqPath: "/v1/messages/count_tokens?beta=true", body: "{}" });
+  await t.test("Cowork token counting goes to the router too", async () => {
+    await viaProxy(proxyPort, ca, { method: "POST", reqPath: "/v1/messages/count_tokens?beta=true", headers: { "user-agent": COWORK_UA }, body: "{}" });
     assert.equal(router.seen.at(-1).url, "/prefix/v1/messages/count_tokens?beta=true");
   });
 
+  await t.test("Messages calls from other apps go to Anthropic without the router key", async () => {
+    for (const userAgent of ["claude-cli/2.1.309 (external, cli)", "claude-cli/2.1.309 (external, claude-desktop-3p)", "anthropic-sdk-python"]) {
+      const before = router.seen.length;
+      const { text } = await viaProxy(proxyPort, ca, { method: "POST", reqPath: "/v1/messages", headers: { "user-agent": userAgent }, body: "{}" });
+      assert.equal(text, '{"ok":true}');
+      assert.equal(router.seen.length, before, `${userAgent} reached the router`);
+      assert.equal(anthropic.seen.at(-1).headers["x-weave-router-key"], undefined);
+    }
+  });
+
   await t.test("everything else on api.anthropic.com goes to Anthropic without the router key", async () => {
-    const { text } = await viaProxy(proxyPort, ca, { reqPath: "/api/oauth/profile", headers: { authorization: "Bearer sk-ant-oat-subscription" } });
+    const { text } = await viaProxy(proxyPort, ca, { reqPath: "/api/oauth/profile", headers: { "user-agent": CODE_TAB_UA, authorization: "Bearer sk-ant-oat-subscription" } });
     assert.equal(text, '{"ok":true}');
     const anthropicRequest = anthropic.seen.at(-1);
     assert.equal(anthropicRequest.url, "/api/oauth/profile");
@@ -200,23 +203,15 @@ test("desktop shim", async (t) => {
     socket.destroy();
   });
 
-  await t.test("CONNECT without the proxy token is refused", async () => {
-    for (const proxyAuth of [undefined, `Basic ${Buffer.from("weave:wrong").toString("base64")}`]) {
-      const { status, socket } = await connectStatus(proxyPort, "api.anthropic.com:443", proxyAuth);
-      assert.equal(status, 407);
-      socket.destroy();
-    }
-  });
-
   await t.test("stopping a streamed answer cancels the router request", async () => {
-    const { res, tlsSocket } = await openRequest(proxyPort, ca, { method: "POST", reqPath: "/v1/messages?hold", body: "{}" });
+    const { res, tlsSocket } = await openRequest(proxyPort, ca, { method: "POST", reqPath: "/v1/messages?hold", headers: { "user-agent": CODE_TAB_UA }, body: "{}" });
     await once(res, "data");
     tlsSocket.destroy();
     await withTimeout(heldStreamClosedPromise, 2000, "router-side close after Stop");
   });
 
   await t.test("a router stream cut mid-answer fails the client response", async () => {
-    const { res, tlsSocket } = await openRequest(proxyPort, ca, { method: "POST", reqPath: "/v1/messages?cut", body: "{}" });
+    const { res, tlsSocket } = await openRequest(proxyPort, ca, { method: "POST", reqPath: "/v1/messages?cut", headers: { "user-agent": CODE_TAB_UA }, body: "{}" });
     const finished = new Promise((resolve) => {
       res.on("close", resolve);
       res.on("error", () => {});
@@ -225,6 +220,15 @@ test("desktop shim", async (t) => {
     await withTimeout(finished, 2000, "client response close after upstream cut");
     assert.equal(res.complete, false);
     tlsSocket.destroy();
+  });
+
+  await t.test("the PAC file sends only api.anthropic.com to the proxy", async () => {
+    const res = await new Promise((resolve) => http.get({ host: "127.0.0.1", port: proxyPort, path: "/proxy.pac" }, resolve));
+    let pac = "";
+    for await (const chunk of res) pac += chunk;
+    const FindProxyForURL = new Function(`${pac}; return FindProxyForURL;`)();
+    assert.equal(FindProxyForURL("https://api.anthropic.com/v1/messages", "api.anthropic.com"), `PROXY 127.0.0.1:${proxyPort}`);
+    assert.equal(FindProxyForURL("https://claude.ai/", "claude.ai"), "DIRECT");
   });
 
   await t.test("health endpoint answers", async () => {

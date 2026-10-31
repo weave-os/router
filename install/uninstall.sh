@@ -376,13 +376,41 @@ if [ "$target" = "claude-desktop" ]; then
     systemctl --user daemon-reload >/dev/null 2>&1 || true
     ok "Removed $desktop_shim_unit"
   fi
+  # Undo the trusted certificate and the auto-proxy, but only where they are this install's.
+  desktop_shim_pac="http://127.0.0.1:$(jq -r '.listen_port // 47821' "$desktop_shim_config" 2>/dev/null || echo 47821)/proxy.pac"
+  case "$(uname -s)" in
+    Darwin)
+      if [ -f "$desktop_shim_dir/ca.pem" ]; then
+        security remove-trusted-cert "$desktop_shim_dir/ca.pem" >/dev/null 2>&1 || true
+        security delete-certificate -Z "$(openssl x509 -noout -fingerprint -sha1 -in "$desktop_shim_dir/ca.pem" | sed 's/.*=//; s/://g')" \
+          "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1 || true
+      fi
+      while IFS= read -r service; do
+        if [ "$(networksetup -getautoproxyurl "$service" | sed -n 's/^URL: //p')" = "$desktop_shim_pac" ]; then
+          sudo networksetup -setautoproxystate "$service" off
+        fi
+      done < <(networksetup -listallnetworkservices | tail -n +2 | grep -v '^\*')
+      ;;
+    Linux)
+      desktop_shim_ca_store="/usr/local/share/ca-certificates/weave-router-claude-desktop.crt"
+      if [ -f "$desktop_shim_ca_store" ] && cmp -s "$desktop_shim_dir/ca.pem" "$desktop_shim_ca_store"; then
+        sudo rm -f "$desktop_shim_ca_store"
+        sudo update-ca-certificates --fresh >/dev/null || true
+      fi
+      if [ "$(gsettings get org.gnome.system.proxy autoconfig-url 2>/dev/null)" = "'$desktop_shim_pac'" ]; then
+        gsettings set org.gnome.system.proxy mode 'none'
+        gsettings reset org.gnome.system.proxy autoconfig-url
+      fi
+      ;;
+  esac
+  ok "Removed the proxy's certificate trust and auto-proxy setting"
   if [ -d "$desktop_shim_dir" ]; then
     refuse_if_symlink "$desktop_shim_dir"
     rm -rf "$desktop_shim_dir"
     rmdir "$(dirname "$desktop_shim_dir")" 2>/dev/null || true
     ok "Removed $desktop_shim_dir"
   fi
-  info "Also delete HTTPS_PROXY and NODE_EXTRA_CA_CERTS from Claude Desktop's local environment (Code > Local > gear), then start a new session."
+  info "Quit and reopen Claude Desktop so new sessions go direct to Anthropic."
   exit 0
 fi
 

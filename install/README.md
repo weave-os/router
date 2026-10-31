@@ -16,7 +16,7 @@ npx @weave-os/router --claude                     # Claude Code, user scope
 npx @weave-os/router --codex                      # Codex, user scope
 npx @weave-os/router --opencode                   # opencode, user scope
 npx @weave-os/router --copilot                    # GitHub Copilot CLI: adds weave/auto to /model
-npx @weave-os/router --claude-desktop             # Claude Desktop's Code tab, through a local proxy
+npx @weave-os/router --claude-desktop             # Claude Desktop (Code tab and Cowork), through a local proxy
 npx @weave-os/router --claude --return-url https://app.example.com/onboarding # continue after a verified install
 
 # Project scope — only when running inside this repo:
@@ -308,54 +308,67 @@ npx @weave-os/router --uninstall --copilot        # remove provider, model, skil
 
 ### Claude Desktop (`--claude-desktop`)
 
-Claude Desktop's Code tab sets `ANTHROPIC_BASE_URL` to Anthropic and clears
-`ANTHROPIC_CUSTOM_HEADERS` for every local session, and Claude Code ignores
-those keys in `settings.json` there, so the `--claude` install never reaches
-it. Desktop does pass `HTTPS_PROXY` and `NODE_EXTRA_CA_CERTS` from its local
-environment editor to Claude Code. So this install runs a small local proxy
-that terminates TLS for `api.anthropic.com` only, sends `/v1/messages*` to the
-router with `X-Weave-Router-Key` added, and passes everything else (sign-in,
-usage, telemetry) to Anthropic unchanged. Desktop keeps its Claude sign-in, so
-subscription routing, cloud sessions and Remote Control keep working. Every
-other host is tunneled untouched.
+Covers Claude Desktop's **Code** tab and **Cowork**. Desktop sets
+`ANTHROPIC_BASE_URL` to Anthropic for both, and ignores the `settings.json` route
+`--claude` uses. Both do follow the OS proxy and the OS certificate store, so
+this install sets up three things:
 
-User scope only, macOS and Linux, needs Node.js 18+ and `openssl`.
+1. **A local proxy** (`desktop-shim.js`, no dependencies) on `127.0.0.1:47821`,
+   run at login by launchd (macOS) or systemd `--user` (Linux). It terminates TLS
+   for `api.anthropic.com` only. Messages API calls (`/v1/messages*`) whose user
+   agent names Desktop's Code tab (`claude-desktop`) or Cowork (`local-agent`) go
+   to the router with `X-Weave-Router-Key`. Everything else, including other
+   apps' `api.anthropic.com` traffic and Desktop's sign-in, passes through to
+   Anthropic unchanged. Every other host is tunneled untouched.
+2. **A certificate for `api.anthropic.com`**, trusted by the OS (login keychain
+   on macOS, `/usr/local/share/ca-certificates` on Linux). The installer makes
+   a CA that name constraints limit to `api.anthropic.com`, signs one leaf with
+   it, and deletes the CA key.
+3. **The OS auto-proxy** pointed at the proxy's PAC file
+   (`http://127.0.0.1:47821/proxy.pac`), which sends only `api.anthropic.com` to
+   the proxy. An auto-proxy that's already set is left alone; the installer
+   prints the one rule to add to it instead.
 
-| Path | What the installer does |
-| ---- | ----------------------- |
-| `~/.weave-router/desktop-shim/desktop-shim.js` | Copy of the proxy (no dependencies). |
-| `~/.weave-router/desktop-shim/config.json` | Router URL, router key, listen port (`127.0.0.1:47821`, or `$WEAVE_DESKTOP_SHIM_PORT`) and a random proxy token. Mode `0600`. The proxy refuses `CONNECT` without that token, so other OS users on the machine can't spend your key through loopback. Re-installs keep the token. |
-| `~/.weave-router/desktop-shim/ca.pem`, `leaf.pem`, `leaf-key.pem` | A CA limited by name constraints to `api.anthropic.com`, and the one leaf it signed. The CA key is deleted right after signing. Re-installs keep a still-valid pair. |
-| `~/Library/LaunchAgents/ai.workweave.router-desktop-shim.plist` (macOS) or `~/.config/systemd/user/weave-router-desktop-shim.service` (Linux) | Runs the proxy at login. |
-
-Desktop stores its local environment encrypted, so the installer can't write
-it. After installing, open **Code** in Claude Desktop and the environment
-selector. Click the gear on your computer under **Local**, or, when there is no
-gear, choose **New environment** > **Local**. Add the two lines the installer
-prints as environment variables, save, and start a new session from it:
-
-```text
-HTTPS_PROXY=http://weave:<token>@127.0.0.1:47821
-NODE_EXTRA_CA_CERTS=/Users/<you>/.weave-router/desktop-shim/ca.pem
-```
-
-On Linux, Desktop can only save these when a Secret Service keyring (for
-example gnome-keyring) is unlocked; without one it shows "Couldn't save this
-environment's variables".
-
-Use the local environment editor or a saved local environment, not
-`~/.claude/settings.json`: Claude Code ignores a settings value for a variable
-Desktop already sets, and Desktop sets `NODE_EXTRA_CA_CERTS` itself when the OS
-trust store has extra CAs. Commands Claude runs in those sessions inherit
-`HTTPS_PROXY` too; their traffic is tunneled through unchanged, but it needs the
-proxy running.
+You stay signed in to Claude, so subscription routing, cloud sessions and
+Remote Control keep working. Expect one password prompt (keychain trust on
+macOS, sudo for the network setting or trust store), then quit and reopen
+Claude Desktop.
 
 ```bash
-npx @weave-os/router --claude-desktop             # install or refresh the proxy
-npx @weave-os/router --uninstall --claude-desktop # stop and remove it
+npx @weave-os/router --claude-desktop             # install or refresh
+npx @weave-os/router --uninstall --claude-desktop # remove the proxy, trust and auto-proxy
 ```
 
-To go direct again, delete the two lines from Desktop's local environment.
+| Path | Contents |
+| ---- | -------- |
+| `~/.weave-router/desktop-shim/desktop-shim.js` | Copy of the proxy. |
+| `~/.weave-router/desktop-shim/config.json` | Router URL, router key and listen port (`$WEAVE_DESKTOP_SHIM_PORT` overrides 47821). Mode `0600`. |
+| `~/.weave-router/desktop-shim/ca.pem`, `leaf.pem`, `leaf-key.pem` | The certificate pair. Re-installs keep a still-valid pair. |
+| `~/Library/LaunchAgents/ai.workweave.router-desktop-shim.plist` or `~/.config/systemd/user/weave-router-desktop-shim.service` | Runs the proxy at login. |
+
+The proxy listens on loopback without authentication, so on a machine shared by
+several OS accounts, any of them can send Desktop-shaped requests through it.
+
+#### Rolling out to an organization
+
+The same three pieces map onto standard device-management payloads:
+
+1. **Certificate:** generate one name-constrained pair for the fleet (run the
+   installer once and copy `ca.pem`, `leaf.pem`, `leaf-key.pem` from
+   `~/.weave-router/desktop-shim/`), then push `ca.pem` as a trusted root
+   (macOS: a Certificate payload).
+2. **Auto-proxy:** push `http://127.0.0.1:47821/proxy.pac` as the proxy
+   auto-config URL (macOS: the Proxies payload's `ProxyAutoConfigURLString`), or
+   add the printed rule to your existing PAC file.
+3. **Proxy:** run the installer as each user with the shared pair and their key:
+
+   ```bash
+   WEAVE_ROUTER_KEY=rk_... WEAVE_DESKTOP_CERT_DIR=/path/to/pair \
+     npx @weave-os/router --claude-desktop --non-interactive
+   ```
+
+   With the certificate already trusted and the PAC already set, the installer
+   only writes the config and starts the service, with no prompts.
 
 ## Flags
 
@@ -365,7 +378,7 @@ To go direct again, delete the two lines from Desktop's local environment.
 | `--codex`                  | (target picker if interactive) | Skip the target picker; install for the OpenAI Codex CLI.              |
 | `--opencode`               | (target picker if interactive) | Skip the target picker; install for opencode.                          |
 | `--copilot`                | (target picker if interactive) | Skip the target picker; add `weave/auto` to GitHub Copilot CLI (user scope only). |
-| `--claude-desktop`         | (target picker if interactive) | Skip the target picker; run the local proxy for Claude Desktop's Code tab (user scope only). |
+| `--claude-desktop`         | (target picker if interactive) | Skip the target picker; route Claude Desktop's Code tab and Cowork through a local proxy (user scope only). |
 | `--wire anthropic\|openai` | `anthropic`                   | Copilot only: the API format Copilot uses to reach the router.          |
 | `--scope user\|project`    | interactive prompt (default `user`) | User-level install (everywhere) vs project-level (this repo only).      |
 | `--local`                  | off                           | Shortcut for the bundled docker-compose router (`localhost:8080`).      |
