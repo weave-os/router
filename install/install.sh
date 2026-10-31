@@ -108,6 +108,23 @@
 set -euo pipefail
 export PATH="$PATH:$HOME/.weave/bin"
 
+# Windows' bundled curl (Schannel) fails TLS outright when the certificate
+# revocation servers are unreachable, which is typical behind corporate proxies
+# (CRYPT_E_NO_REVOCATION_CHECK). --ssl-revoke-best-effort keeps the check but
+# tolerates that, matching what OpenSSL-backed curl already does.
+curl_uses_schannel=false
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*)
+    command curl -V 2>/dev/null | grep -qi schannel && curl_uses_schannel=true ;;
+esac
+curl() {
+  if [ "$curl_uses_schannel" = "true" ]; then
+    command curl --ssl-revoke-best-effort "$@"
+  else
+    command curl "$@"
+  fi
+}
+
 # ---------- defaults ----------
 
 # The public hosted Weave Router URL. Override with --base-url for self-hosted.
@@ -5182,6 +5199,23 @@ install_codex_status_script() {
 set -euo pipefail
 export PATH="$PATH:$HOME/.weave/bin"
 
+# Windows' bundled curl (Schannel) fails TLS outright when the certificate
+# revocation servers are unreachable, which is typical behind corporate proxies
+# (CRYPT_E_NO_REVOCATION_CHECK). --ssl-revoke-best-effort keeps the check but
+# tolerates that, matching what OpenSSL-backed curl already does.
+curl_uses_schannel=false
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*)
+    command curl -V 2>/dev/null | grep -qi schannel && curl_uses_schannel=true ;;
+esac
+curl() {
+  if [ "$curl_uses_schannel" = "true" ]; then
+    command curl --ssl-revoke-best-effort "$@"
+  else
+    command curl "$@"
+  fi
+}
+
 # ---------- background self-refresh ----------
 #
 # Codex runs this helper on SessionStart and after every turn. Once per
@@ -6406,6 +6440,23 @@ if [ "${1:-}" = "--prompt-hook" ]; then
   weave_router_status_hook "$@" || true
   exit 0
 fi
+
+# Windows' bundled curl (Schannel) fails TLS outright when the certificate
+# revocation servers are unreachable, which is typical behind corporate proxies
+# (CRYPT_E_NO_REVOCATION_CHECK). --ssl-revoke-best-effort keeps the check but
+# tolerates that, matching what OpenSSL-backed curl already does.
+curl_uses_schannel=false
+case "$(uname -s 2>/dev/null)" in
+  MINGW*|MSYS*|CYGWIN*)
+    command curl -V 2>/dev/null | grep -qi schannel && curl_uses_schannel=true ;;
+esac
+curl() {
+  if [ "$curl_uses_schannel" = "true" ]; then
+    command curl --ssl-revoke-best-effort "$@"
+  else
+    command curl "$@"
+  fi
+}
 
 # ---------- background self-refresh ----------
 #
