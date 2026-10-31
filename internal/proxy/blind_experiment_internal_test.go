@@ -177,6 +177,22 @@ func TestCallerModelPassthroughResolvesDatedAlias(t *testing.T) {
 	assert.Equal(t, "claude-haiku-4-5-20251001", decision.Model)
 }
 
+func TestCallerModelPassthroughServesWeaveAutoOnTheClientDefault(t *testing.T) {
+	service := NewService(nil, nil, nil, false, nil, nil, false,
+		providers.ProviderAnthropic, "claude-haiku-4-5", nil)
+	enabled := map[string]struct{}{providers.ProviderAnthropic: {}, providers.ProviderOpenAI: {}}
+	for clientApp, want := range map[string]string{ClientAppClaudeCode: "claude-opus-5-5", ClientAppCodex: "gpt-6.1-sol"} {
+		ctx := context.WithValue(blindExperimentContext(auth.BlindExperimentArmPassthrough),
+			ClientIdentityContextKey{}, ClientIdentity{ClientApp: clientApp})
+
+		decision, _, err := service.blindExperimentPassthroughDecision(ctx,
+			router.Request{RequestedModel: "weave-auto", EnabledProviders: enabled})
+
+		require.NoError(t, err, "a control-arm %s user on Weave Auto must still be served", clientApp)
+		assert.Equal(t, want, decision.Model)
+	}
+}
+
 func TestCallerModelPassthroughHonorsExcludedModels(t *testing.T) {
 	routerSpy := &blindExperimentRouterSpy{err: errors.New("scorer must not run")}
 	service := NewService(routerSpy, nil, nil, false, nil, nil, false,

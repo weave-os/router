@@ -88,6 +88,7 @@ func toAuthInstallation(row sqlc.RouterModelRouterInstallation) *auth.Installati
 		UsageBypassEnabled:             row.UsageBypassEnabled,
 		UsageBypassThreshold:           row.UsageBypassThreshold,
 		SubscriptionRoutingDisabled:    row.SubscriptionRoutingDisabled,
+		PickedModelSubscriptionEnabled: row.PickedModelSubscriptionEnabled,
 		RoutingStrategy:                router.Strategy(derefString(row.RoutingStrategy)),
 		RoutingRolloutID:               derefString(row.RoutingRolloutID),
 		PolicyShadowStrategy:           router.Strategy(derefString(row.PolicyShadowStrategy)),

@@ -490,6 +490,7 @@ type RouterModelRouterInstallation struct {
 	SubscriptionStateModelsEnabled         bool
 	ModelsExcludedWhenSubscriptionActive   []string
 	ModelsExcludedWhenSubscriptionInactive []string
+	PickedModelSubscriptionEnabled         bool
 }
 
 type RouterModelRouterRequestTelemetry struct {
