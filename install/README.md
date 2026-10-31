@@ -161,7 +161,7 @@ an Owner to enable Remote Control. If it still fails with routing off, follow
 [Anthropic's current troubleshooting](https://code.claude.com/docs/en/remote-control#troubleshooting)
 for subscription/auth eligibility, admin settings, organization policy,
 cloud-provider routing, and network access. See also
-[Weave's Remote Control troubleshooting](https://docs.workweave.ai/router/troubleshooting#claude-code-remote-control).
+[Weave's Remote Control troubleshooting](https://docs.weaveos.com/router/troubleshooting#claude-code-remote-control).
 
 ### Codex (`--codex`)
 
@@ -390,7 +390,7 @@ Limitations:
 | `--wire anthropic\|openai` | `anthropic`                   | Copilot only: the API format Copilot uses to reach the router.          |
 | `--scope user\|project`    | interactive prompt (default `user`) | User-level install (everywhere) vs project-level (this repo only).      |
 | `--local`                  | off                           | Shortcut for the bundled docker-compose router (`localhost:8080`).      |
-| `--base-url <url>`         | `https://router.workweave.ai` | Override the router endpoint. Use for self-hosted / custom port.        |
+| `--base-url <url>`         | `https://router.weaveos.com` | Override the router endpoint. Use for self-hosted / custom port.        |
 | `--email <email>`          | auto-detected                 | Set the router identity email and skip the email prompt.                |
 | `--return-url <url>`       | off                           | Open the URL in the default browser after `/health` and `/validate` both succeed. |
 | `--non-interactive`        | off                           | Fail if `$WEAVE_ROUTER_KEY` isn't set instead of prompting. Defaults target to Claude Code so existing CI pipelines don't shift semantics. |
@@ -707,7 +707,7 @@ leaves the router nothing to pick — re-enable rather than empty it out.
 Editing requires a router that serves the model-selection API (self-hosted and
 local routers do). The Weave-hosted router keeps model selection with the
 organization instead, so there `models` lists what the router can pick from and
-points you at <https://router.workweave.ai/models>. If your
+points you at <https://router.weaveos.com/models>. If your
 deployment pins the lists via `ROUTER_EXCLUDED_MODELS` /
 `ROUTER_EXCLUDED_PROVIDERS`, the router refuses the edit and says so — clear the
 env var to make the setting editable.

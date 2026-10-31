@@ -358,7 +358,8 @@ fi
 # install, and never supplies a key; a checkout-supplied endpoint never
 # receives one (same gates as install.sh's key_source_is_own and
 # models_endpoint_is_trusted).
-HOSTED_BASE_URL="https://router.workweave.ai"
+HOSTED_BASE_URL="https://router.weaveos.com"
+LEGACY_HOSTED_BASE_URL="https://router.workweave.ai"
 ROUTER_KEY_HEADER="X-Weave-Router-Key"
 
 uninstall_json_get() {
@@ -439,7 +440,7 @@ report_claude_uninstall_event() {
   done
   [ -n "$key" ] || return 0
   local trusted="false"
-  if [ "$endpoint" = "${HOSTED_BASE_URL%/}" ] || [ "$base_src" = "$key_src" ]; then
+  if [ "$endpoint" = "${HOSTED_BASE_URL%/}" ] || [ "$endpoint" = "${LEGACY_HOSTED_BASE_URL%/}" ] || [ "$base_src" = "$key_src" ]; then
     trusted="true"
   elif [ -n "$local_settings_file" ] && [ -f "$local_settings_file" ] && [ ! -L "$local_settings_file" ]; then
     marked="$(uninstall_json_get "$local_settings_file" '.env.WEAVE_ROUTER_BASE_URL')"
@@ -1350,7 +1351,8 @@ if [ -f "$settings_file" ]; then
     | (if ((.attribution.commit == "Co-Authored-By: Weave Router <router@weaveos.com>"
               or .attribution.commit == "Co-Authored-By: Weave Router <router@workweave.ai>"
               or .attribution.commit == "Co-Authored-By: Weave Router <noreply@workweave.ai>")
-              and .attribution.pr == "🤖 Generated with [Weave Router](https://router.workweave.ai)")
+              and (.attribution.pr == "🤖 Generated with [Weave Router](https://router.weaveos.com)"
+                   or .attribution.pr == "🤖 Generated with [Weave Router](https://router.workweave.ai)"))
          then del(.attribution) else . end)
   ' "$settings_file")"
   printf '%s\n' "$cleaned" >"$settings_file"
