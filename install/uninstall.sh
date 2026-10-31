@@ -380,10 +380,13 @@ if [ "$target" = "claude-desktop" ]; then
   desktop_shim_pac="http://127.0.0.1:$(jq -r '.listen_port // 47821' "$desktop_shim_config" 2>/dev/null || echo 47821)/proxy.pac"
   case "$(uname -s)" in
     Darwin)
-      if [ -f "$desktop_shim_dir/ca.pem" ]; then
-        security remove-trusted-cert "$desktop_shim_dir/ca.pem" >/dev/null 2>&1 || true
-        security delete-certificate -Z "$(openssl x509 -noout -fingerprint -sha1 -in "$desktop_shim_dir/ca.pem" | sed 's/.*=//; s/://g')" \
-          "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1 || true
+      if [ -f "$desktop_shim_dir/ca.pem" ] \
+        && security find-certificate -c "Weave Router Claude Desktop proxy" "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1; then
+        if ! security remove-trusted-cert "$desktop_shim_dir/ca.pem" \
+          || ! security delete-certificate -Z "$(openssl x509 -noout -fingerprint -sha1 -in "$desktop_shim_dir/ca.pem" | sed 's/.*=//; s/://g')" \
+            "$HOME/Library/Keychains/login.keychain-db" >/dev/null; then
+          warn "Could not remove the proxy certificate from your login keychain; delete \"Weave Router Claude Desktop proxy\" in Keychain Access."
+        fi
       fi
       while IFS= read -r service; do
         if [ "$(networksetup -getautoproxyurl "$service" | sed -n 's/^URL: //p')" = "$desktop_shim_pac" ]; then
@@ -394,8 +397,9 @@ if [ "$target" = "claude-desktop" ]; then
     Linux)
       desktop_shim_ca_store="/usr/local/share/ca-certificates/weave-router-claude-desktop.crt"
       if [ -f "$desktop_shim_ca_store" ] && cmp -s "$desktop_shim_dir/ca.pem" "$desktop_shim_ca_store"; then
-        sudo rm -f "$desktop_shim_ca_store"
-        sudo update-ca-certificates --fresh >/dev/null || true
+        if ! { sudo rm -f "$desktop_shim_ca_store" && sudo update-ca-certificates --fresh >/dev/null; }; then
+          warn "Could not remove $desktop_shim_ca_store from the system trust store."
+        fi
       fi
       if [ "$(gsettings get org.gnome.system.proxy autoconfig-url 2>/dev/null)" = "'$desktop_shim_pac'" ]; then
         gsettings set org.gnome.system.proxy mode 'none'
@@ -403,7 +407,6 @@ if [ "$target" = "claude-desktop" ]; then
       fi
       ;;
   esac
-  ok "Removed the proxy's certificate trust and auto-proxy setting"
   if [ -d "$desktop_shim_dir" ]; then
     refuse_if_symlink "$desktop_shim_dir"
     rm -rf "$desktop_shim_dir"

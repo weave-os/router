@@ -140,7 +140,13 @@ function start(cfg) {
 
   proxy.on("connect", (req, socket, head) => {
     socket.on("error", () => socket.destroy());
-    const target = new URL(`http://${req.url}`);
+    let target;
+    try {
+      target = new URL(`http://${req.url}`);
+    } catch {
+      socket.end("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n");
+      return;
+    }
     const host = target.hostname.replace(/^\[|\]$/g, "");
     if (host === INTERCEPT_HOST) {
       socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");

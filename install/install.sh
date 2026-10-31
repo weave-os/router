@@ -6421,10 +6421,6 @@ wait_for_desktop_shim() {
   return 1
 }
 
-desktop_shim_pac_url() {
-  printf 'http://127.0.0.1:%s/proxy.pac' "$desktop_shim_port"
-}
-
 desktop_shim_ca_store="/usr/local/share/ca-certificates/weave-router-claude-desktop.crt"
 
 trust_desktop_shim_ca() {
@@ -6455,7 +6451,7 @@ trust_desktop_shim_ca() {
 # rule to add to it is printed instead.
 set_desktop_system_proxy() {
   local pac rule service current
-  pac="$(desktop_shim_pac_url)"
+  pac="http://127.0.0.1:$desktop_shim_port/proxy.pac"
   rule="if (host === \"api.anthropic.com\") return \"PROXY 127.0.0.1:$desktop_shim_port\";"
   case "$(uname -s)" in
     Darwin)

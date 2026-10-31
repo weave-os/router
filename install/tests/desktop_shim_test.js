@@ -18,8 +18,8 @@ const tls = require("node:tls");
 
 const shim = require("../desktop-shim.js");
 
-const CODE_TAB_UA = "claude-cli/2.1.309 (external, claude-desktop, agent-sdk/0.3.309)";
-const COWORK_UA = "claude-cli/2.1.309 (external, local-agent, agent-sdk/0.3.309)";
+const CODE_TAB_USER_AGENT = "claude-cli/2.1.309 (external, claude-desktop, agent-sdk/0.3.309)";
+const COWORK_USER_AGENT = "claude-cli/2.1.309 (external, local-agent, agent-sdk/0.3.309)";
 
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "desktop-shim-test-"));
 process.on("exit", () => fs.rmSync(work, { recursive: true, force: true }));
@@ -156,7 +156,7 @@ test("desktop shim", async (t) => {
     const { res, chunks, text } = await viaProxy(proxyPort, ca, {
       method: "POST",
       reqPath: "/v1/messages?beta=true",
-      headers: { "user-agent": CODE_TAB_UA, authorization: "Bearer sk-ant-oat-subscription", "content-type": "application/json", "x-weave-router-key": "rk_spoofed" },
+      headers: { "user-agent": CODE_TAB_USER_AGENT, authorization: "Bearer sk-ant-oat-subscription", "content-type": "application/json", "x-weave-router-key": "rk_spoofed" },
       body: '{"model":"claude-sonnet-5","stream":true}',
     });
     assert.equal(res.statusCode, 200);
@@ -172,7 +172,7 @@ test("desktop shim", async (t) => {
   });
 
   await t.test("Cowork token counting goes to the router too", async () => {
-    await viaProxy(proxyPort, ca, { method: "POST", reqPath: "/v1/messages/count_tokens?beta=true", headers: { "user-agent": COWORK_UA }, body: "{}" });
+    await viaProxy(proxyPort, ca, { method: "POST", reqPath: "/v1/messages/count_tokens?beta=true", headers: { "user-agent": COWORK_USER_AGENT }, body: "{}" });
     assert.equal(router.seen.at(-1).url, "/prefix/v1/messages/count_tokens?beta=true");
   });
 
@@ -187,7 +187,7 @@ test("desktop shim", async (t) => {
   });
 
   await t.test("everything else on api.anthropic.com goes to Anthropic without the router key", async () => {
-    const { text } = await viaProxy(proxyPort, ca, { reqPath: "/api/oauth/profile", headers: { "user-agent": CODE_TAB_UA, authorization: "Bearer sk-ant-oat-subscription" } });
+    const { text } = await viaProxy(proxyPort, ca, { reqPath: "/api/oauth/profile", headers: { "user-agent": CODE_TAB_USER_AGENT, authorization: "Bearer sk-ant-oat-subscription" } });
     assert.equal(text, '{"ok":true}');
     const anthropicRequest = anthropic.seen.at(-1);
     assert.equal(anthropicRequest.url, "/api/oauth/profile");
@@ -203,15 +203,24 @@ test("desktop shim", async (t) => {
     socket.destroy();
   });
 
+  await t.test("a malformed CONNECT gets a 400 and the proxy keeps serving", async () => {
+    const req = http.request({ host: "127.0.0.1", port: proxyPort, method: "CONNECT", path: "a%20b:1" });
+    req.end();
+    const [res, socket] = await once(req, "connect");
+    assert.equal(res.statusCode, 400);
+    socket.destroy();
+    (await connectTunnel(proxyPort, `127.0.0.1:${echoPort}`)).destroy();
+  });
+
   await t.test("stopping a streamed answer cancels the router request", async () => {
-    const { res, tlsSocket } = await openRequest(proxyPort, ca, { method: "POST", reqPath: "/v1/messages?hold", headers: { "user-agent": CODE_TAB_UA }, body: "{}" });
+    const { res, tlsSocket } = await openRequest(proxyPort, ca, { method: "POST", reqPath: "/v1/messages?hold", headers: { "user-agent": CODE_TAB_USER_AGENT }, body: "{}" });
     await once(res, "data");
     tlsSocket.destroy();
     await withTimeout(heldStreamClosedPromise, 2000, "router-side close after Stop");
   });
 
   await t.test("a router stream cut mid-answer fails the client response", async () => {
-    const { res, tlsSocket } = await openRequest(proxyPort, ca, { method: "POST", reqPath: "/v1/messages?cut", headers: { "user-agent": CODE_TAB_UA }, body: "{}" });
+    const { res, tlsSocket } = await openRequest(proxyPort, ca, { method: "POST", reqPath: "/v1/messages?cut", headers: { "user-agent": CODE_TAB_USER_AGENT }, body: "{}" });
     const finished = new Promise((resolve) => {
       res.on("close", resolve);
       res.on("error", () => {});
