@@ -1,0 +1,21 @@
+internal/anthropicfederation/source.go
+  s_7a6bb536e6cd97::t_9c60c3a7119c38 16,30-34,50,60,78,96-99,108-110,112,185,188-191,194,197-200,203,206
+internal/anthropicfederation/source_test.go
+  s_7a6bb536e6cd97::t_8c30cc081b40cc 35-37
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "f170b756a6b20dd4b189449eaf93cea1cb289acc",
+  "prompts": {},
+  "sessions": {
+    "s_7a6bb536e6cd97": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a18ebe-ae48-76a1-aa24-00372bf3a919",
+        "model": "gpt-6.1-sol"
+      },
+      "human_author": "steventohme <steven@workweave.ai>"
+    }
+  }
+}
