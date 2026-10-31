@@ -971,4 +971,73 @@ if [ -f "$config" ] && grep -Fq 'base_url = "http://127.0.0.1:41984/v1"' "$confi
   fail "failed classifier probe modified the Codex provider"
 fi
 
+# API-key logins never fetch /models, so the installer ships Codex's bundled
+# catalog plus weave-auto; ChatGPT logins keep the router's live catalog.
+catalog_home="$work/catalog-home"
+catalog_bin="$work/catalog-bin"
+mkdir -p "$catalog_home/.codex" "$catalog_bin"
+cp "$fake_bin/curl" "$catalog_bin/curl"
+cat >"$catalog_bin/codex" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  --version) echo "codex-cli ${FAKE_CODEX_VERSION:-1.0.0}" ;;
+  "debug models --bundled") [ -z "${FAKE_CODEX_BUNDLED_FAIL:-}" ] || exit 1; printf '%s\n' '{"models":[{"slug":"gpt-x-luna","context_window":100000},{"slug":"gpt-x-sol","context_window":272000}]}' ;;
+  "login status") echo "Logged in using an API key" ;;
+  *) exit 0 ;;
+esac
+SH
+chmod +x "$catalog_bin/codex"
+catalog_config="$catalog_home/.codex/config.toml"
+catalog_file="$catalog_home/.codex/weave-router-models.json"
+catalog_install() {
+  HOME="$catalog_home" PATH="$catalog_bin:$PATH" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
+    bash "$installer" --codex --scope user --quiet --base-url http://localhost:8080 >/dev/null 2>&1
+}
+printf '%s\n' '{"auth_mode":"apikey","OPENAI_API_KEY":"sk-test"}' >"$catalog_home/.codex/auth.json"
+catalog_install
+[ "$(jq -r '[.models[].slug] | join(",")' "$catalog_file")" = "gpt-x-luna,gpt-x-sol,weave-auto" ] \
+  || fail "API-key catalog must keep the bundled models and add weave-auto"
+[ "$(jq -r '.models[] | select(.slug == "weave-auto") | .context_window' "$catalog_file")" = "272000" ] \
+  || fail "weave-auto must inherit the -sol model's metadata"
+grep -Fxq "model_catalog_json = \"$catalog_file\"" "$catalog_config" \
+  || fail "API-key install did not point Codex at the catalog"
+catalog_install
+[ "$(grep -c '^model_catalog_json' "$catalog_config")" = "1" ] || fail "reinstall duplicated model_catalog_json"
+FAKE_CODEX_BUNDLED_FAIL=1 catalog_install
+if [ ! -f "$catalog_file" ] || ! grep -q '^model_catalog_json' "$catalog_config"; then
+  fail "a failed catalog rebuild dropped the working catalog"
+fi
+catalog_status="$(HOME="$catalog_home" PATH="$catalog_bin:$PATH" FAKE_CODEX_VERSION=2.0.0 NO_COLOR=1 \
+  bash "$installer" status --codex --scope user 2>&1 || true)"
+grep -Fq "weave-auto's model details" <<<"$catalog_status" \
+  || fail "status must flag a catalog built by another Codex version"
+catalog_status="$(HOME="$catalog_home" PATH="$catalog_bin:$PATH" NO_COLOR=1 \
+  bash "$installer" status --codex --scope user 2>&1 || true)"
+if grep -Fq "weave-auto's model details" <<<"$catalog_status"; then
+  fail "status flagged a fresh catalog"
+fi
+own_catalog_home="$work/own-catalog-home"
+mkdir -p "$own_catalog_home/.codex"
+cp "$catalog_home/.codex/auth.json" "$own_catalog_home/.codex/auth.json"
+printf '%s\n' 'model_catalog_json = "/opt/my-models.json"' >"$own_catalog_home/.codex/config.toml"
+HOME="$own_catalog_home" PATH="$catalog_bin:$PATH" WEAVE_ROUTER_KEY="rk_test_key" NO_COLOR=1 \
+  bash "$installer" --codex --scope user --quiet --base-url http://localhost:8080 >/dev/null 2>&1
+[ "$(grep -c '^model_catalog_json' "$own_catalog_home/.codex/config.toml")" = "1" ] \
+  || fail "install replaced the user's own model_catalog_json"
+[ ! -e "$own_catalog_home/.codex/weave-router-models.json" ] || fail "install wrote a catalog over the user's own"
+catalog_status="$(HOME="$own_catalog_home" PATH="$catalog_bin:$PATH" NO_COLOR=1 \
+  bash "$installer" status --codex --scope user 2>&1 || true)"
+if grep -Fq "weave-auto's model details" <<<"$catalog_status"; then
+  fail "status flagged a user-owned catalog"
+fi
+printf '%s\n' '{"auth_mode":"chatgpt","tokens":{}}' >"$catalog_home/.codex/auth.json"
+catalog_install
+[ ! -e "$catalog_file" ] || fail "ChatGPT login kept the static catalog"
+if grep -q '^model_catalog_json' "$catalog_config"; then fail "ChatGPT login kept model_catalog_json"; fi
+printf '%s\n' '{"auth_mode":"apikey","OPENAI_API_KEY":"sk-test"}' >"$catalog_home/.codex/auth.json"
+catalog_install
+HOME="$catalog_home" PATH="$catalog_bin:$PATH" NO_COLOR=1 bash "$uninstaller" --codex --scope user >/dev/null 2>&1
+[ ! -e "$catalog_file" ] || fail "uninstall left the catalog behind"
+if grep -q '^model_catalog_json' "$catalog_config" 2>/dev/null; then fail "uninstall left model_catalog_json"; fi
+
 echo "Codex installer routing regression tests passed"

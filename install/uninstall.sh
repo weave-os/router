@@ -679,9 +679,11 @@ strip_codex_block() {
     !in_section && /^[[:space:]]*#[[:space:]]*model[[:space:]]*=[[:space:]]*"weave-auto".*weave-router: off/ { next }
     !in_section && /^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"weave"[[:space:]]*$/ { next }
     !in_section && /^[[:space:]]*model[[:space:]]*=[[:space:]]*"weave-auto"[[:space:]]*$/ { next }
+    !in_section && /^[[:space:]]*model_catalog_json[[:space:]]*=.*weave-router-models\.json"/ { next }
     { print }
   ' "$config_file" >"$tmp"
   mv "$tmp" "$config_file"
+  rm -f "$(dirname "$config_file")/weave-router-models.json" "$(dirname "$config_file")/weave-router-models.json.version"
   local owned_helpers=()
   while IFS= read -r owned_helper; do
     [ -n "$owned_helper" ] && owned_helpers+=("$owned_helper")
