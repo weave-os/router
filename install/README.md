@@ -343,6 +343,10 @@ npx @weave-os/router --claude-desktop             # install or refresh
 npx @weave-os/router --uninstall --claude-desktop # remove the proxy, trust and auto-proxy
 ```
 
+Without `--base-url`, the proxy uses the router endpoint and key from your
+Claude Code install (`~/.claude/settings.json`) when there is one, so it lands
+on the same fleet as the CLI. Re-runs keep the endpoint the proxy already uses.
+
 | Path | Contents |
 | ---- | -------- |
 | `~/.weave-router/desktop-shim/desktop-shim.js` | Copy of the proxy. |

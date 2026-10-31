@@ -403,7 +403,7 @@ Set up
   $npx setup --claude --codex   install for both (one key prompt)
   $npx --opencode | --pi        install for opencode or pi
   $npx --copilot                add Weave Router to Copilot CLI's /model picker
-  $npx --claude-desktop         route Claude Desktop's Code tab (local proxy)
+  $npx --claude-desktop         route Claude Desktop's Code tab and Cowork (local proxy)
 
 Every day
   $npx status                   is each tool routed, signed in, working?
@@ -2027,7 +2027,7 @@ fi
 # Claude Desktop is configured through a local proxy service, not a settings
 # file, so there is nothing to toggle or scope per repo.
 if [ "$target" = "claude-desktop" ] && [ "$mode" != "install" ] && [ "$mode" != "update" ]; then
-  err "Toggle verbs (off/on/status) aren't supported for --claude-desktop. Remove HTTPS_PROXY from Claude Desktop's local environment to go direct, or run 'npx $npm_package_name --uninstall --claude-desktop'."
+  err "Toggle verbs (off/on/status) aren't supported for --claude-desktop. Run 'npx $npm_package_name --uninstall --claude-desktop' to go direct."
   exit 2
 fi
 if [ "$target" = "claude-desktop" ] && [ "$scope" = "project" ]; then
@@ -4545,6 +4545,20 @@ if [ "$mode" = "update" ] && [ "$base_url_explicit" != "true" ]; then
   fi
 fi
 
+# Claude Desktop re-installs keep the proxy's endpoint, and a first install
+# takes the endpoint and key from the Claude Code CLI install: a key is only
+# admitted on its own serving fleet, so the hosted default can reject it.
+desktop_cli_key=""
+if [ "$target" = "claude-desktop" ] && [ "$base_url_explicit" != "true" ] && [ -z "${WEAVE_ROUTER_URL:-}" ]; then
+  installed_base="$(resolve_installed_endpoint)"
+  cli_settings_file="$settings_base/.claude/settings.json"
+  if [ -z "$installed_base" ] && router_shaped_url "$(json_get "$cli_settings_file" '.env.ANTHROPIC_BASE_URL')"; then
+    installed_base="$(json_get "$cli_settings_file" '.env.ANTHROPIC_BASE_URL')"
+    desktop_cli_key="$(read_claude_key "$cli_settings_file")"
+  fi
+  [ -z "$installed_base" ] || base_url="$(strip_trailing_slashes "$installed_base")"
+fi
+
 if [ "$mode" = "install" ]; then
   [ "$quiet" = "true" ] || info "scope=${C_BOLD}${scope}${C_RESET}  target=${C_BOLD}${target}${C_RESET}  base_url=${C_BOLD}${base_url}${C_RESET}"
 else
@@ -4582,6 +4596,7 @@ prompt_for_key() {
 api_key=""
 installed_key=""
 [ "$rotate_key" = "true" ] || installed_key="$(read_installed_key)"
+[ -n "$installed_key" ] || [ "$rotate_key" = "true" ] || installed_key="$desktop_cli_key"
 
 if [ -n "${WEAVE_ROUTER_KEY:-}" ]; then
   api_key="$WEAVE_ROUTER_KEY"
@@ -6267,7 +6282,7 @@ desktop_shim_source() {
 # write_desktop_shim_certs makes a CA that may only sign api.anthropic.com,
 # signs one leaf with it, then deletes the CA key so nothing else can ever be
 # minted from the CA that Claude Code is told to trust. Re-runs keep a still
-# valid pair, because Desktop's saved NODE_EXTRA_CA_CERTS points at ca.pem.
+# valid pair, because the OS already trusts ca.pem.
 write_desktop_shim_certs() {
   local dir="$desktop_shim_dir" tmp
   # An organization can hand every machine the same IT-made pair instead, and
