@@ -17,6 +17,7 @@ type fakeUserRepo struct {
 	mu             sync.Mutex
 	upserts        []auth.UpsertUserParams
 	accountUpserts []auth.UpsertUserByAccountUUIDParams
+	subjectUpserts []auth.UpsertUserByCredentialSubjectParams
 	user           *auth.User
 	err            error
 }
@@ -35,6 +36,16 @@ func (f *fakeUserRepo) UpsertByAccountUUID(ctx context.Context, params auth.Upse
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.accountUpserts = append(f.accountUpserts, params)
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.user, nil
+}
+
+func (f *fakeUserRepo) UpsertByCredentialSubject(ctx context.Context, params auth.UpsertUserByCredentialSubjectParams) (*auth.User, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.subjectUpserts = append(f.subjectUpserts, params)
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -340,4 +351,60 @@ func TestResolveAndStashUser_NoClusterRepoStashesNothing(t *testing.T) {
 
 	assert.Equal(t, "user-42", auth.UserIDFrom(ctx))
 	assert.Nil(t, auth.UserClusterModelListsFrom(ctx))
+}
+
+func TestResolveAndStashKeyOwner_UpsertsBySubjectAndCaches(t *testing.T) {
+	repo := &fakeUserRepo{user: &auth.User{ID: "user-owner"}}
+	svc := auth.NewService(
+		&fakeInstallationRepository{},
+		&fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}},
+		nil,
+		repo,
+		auth.NoOpAPIKeyCache{},
+		auth.NewLRUUserCache(8, 5*time.Minute),
+		frozenClock(),
+	)
+
+	ctx := svc.ResolveAndStashKeyOwner(context.Background(), "inst-1", "61f77e74-0000-4000-8000-000000000001", "Alice Liddell")
+	require.Equal(t, "user-owner", auth.UserIDFrom(ctx))
+	require.Len(t, repo.subjectUpserts, 1)
+	assert.Equal(t, "inst-1", repo.subjectUpserts[0].InstallationID)
+	assert.Equal(t, "61f77e74-0000-4000-8000-000000000001", repo.subjectUpserts[0].CredentialSubjectID)
+	require.NotNil(t, repo.subjectUpserts[0].DisplayName)
+	assert.Equal(t, "Alice Liddell", *repo.subjectUpserts[0].DisplayName)
+	assert.Empty(t, repo.upserts)
+	assert.Empty(t, repo.accountUpserts)
+
+	ctx = svc.ResolveAndStashKeyOwner(context.Background(), "inst-1", "61f77e74-0000-4000-8000-000000000001", "")
+	assert.Equal(t, "user-owner", auth.UserIDFrom(ctx))
+	assert.Len(t, repo.subjectUpserts, 1, "cache hit must not upsert again")
+}
+
+func TestResolveAndStashKeyOwner_SubjectCacheIsSeparateFromAccountCache(t *testing.T) {
+	repo := &fakeUserRepo{user: &auth.User{ID: "user-1"}}
+	svc := auth.NewService(
+		&fakeInstallationRepository{},
+		&fakeAPIKeyRepository{byHash: map[string]fakeKeyRow{}},
+		nil,
+		repo,
+		auth.NoOpAPIKeyCache{},
+		auth.NewLRUUserCache(8, 5*time.Minute),
+		frozenClock(),
+	)
+	const sharedUUID = "2c2aace8-82e9-4cb1-8d1f-2f822da43177"
+
+	svc.ResolveAndStashUser(context.Background(), "inst-1", "", sharedUUID, "")
+	svc.ResolveAndStashKeyOwner(context.Background(), "inst-1", sharedUUID, "")
+
+	assert.Len(t, repo.accountUpserts, 1)
+	assert.Len(t, repo.subjectUpserts, 1, "an account-UUID cache entry must not answer a credential-subject lookup")
+}
+
+func TestResolveAndStashKeyOwner_RepoErrorLeavesRequestUnattributed(t *testing.T) {
+	repo := &fakeUserRepo{err: errors.New("db down")}
+	svc := makeServiceWithUsers(t, repo)
+
+	ctx := svc.ResolveAndStashKeyOwner(context.Background(), "inst-1", "61f77e74-0000-4000-8000-000000000001", "")
+
+	assert.Equal(t, "", auth.UserIDFrom(ctx))
 }

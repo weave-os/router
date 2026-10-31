@@ -767,6 +767,8 @@ type RouterModelRouterUser struct {
 	DeletedAt         pgtype.Timestamp
 	// Free-form user display name (typically git user.name) carried on the X-Weave-User-Name request header. Nullable: requests without the header leave the column NULL; existing rows are not back-filled.
 	DisplayName *string
+	// Authenticated owner of the personal API key that carried a request with no client-asserted identity. Set only on rows created for such requests (email and claude_account_uuid NULL).
+	CredentialSubjectID pgtype.UUID
 }
 
 type RouterModelRouterUserClusterModelList struct {
