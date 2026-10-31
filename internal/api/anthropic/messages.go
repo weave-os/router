@@ -55,7 +55,7 @@ func MessagesHandler(svc *proxy.Service, authSvc *auth.Service) gin.HandlerFunc 
 		ctx := stashClientIdentity(c.Request.Context(), c.Request.Header, body)
 		// Skip identity upsert for agent-shadow eval requests to avoid mutating production router-user state.
 		if _, agentShadow := proxy.AgentShadowEvalFromContext(ctx); !agentShadow {
-			ctx = proxy.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c))
+			ctx = proxy.ResolveUserFromContext(ctx, authSvc, middleware.InstallationFrom(c), middleware.APIKeyFrom(c))
 			ctx, err = proxy.ResolveRoutingAssignment(ctx, authSvc, middleware.InstallationFrom(c))
 			if err != nil {
 				log.Error("Failed to resolve routing assignment", "installation_id", middleware.InstallationFrom(c).ID, "err", err)

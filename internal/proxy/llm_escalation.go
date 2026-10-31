@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/tidwall/gjson"
 	"weave-os/router/internal/flags"
 	"weave-os/router/internal/observability"
 	"weave-os/router/internal/providers"
@@ -101,7 +102,18 @@ func (s *Service) beginLLMEscalation(ctx context.Context, env *translate.Request
 	scope := sha256.Sum256([]byte(fmt.Sprintf("%s/%x/%s/%s/%d/%s", res.InstallationID, res.SessionKey, res.Strategy, mode, selection.Epoch, config.Digest)))
 	activation := escalationActivationID(ctx, res.InstallationID, fmt.Sprintf("%s/%s/%s/%d/%s", sessionCredentialIdentity(ctx, apiKeyID), res.Strategy, mode, selection.Epoch, config.Digest))
 	observation, err := env.EscalationObservation()
-	if original, ok := ctx.Value(nativeResponsesBodyContextKey{}).([]byte); ok {
+	original, isNativeResponses := ctx.Value(nativeResponsesBodyContextKey{}).([]byte)
+	model := env.Model()
+	if isNativeResponses {
+		model = gjson.GetBytes(original, "model").String()
+	}
+	// Side requests share the session key but are not agent turns; counting
+	// them pushes the turn counter past the history and blinds the classifier.
+	if turntype.IsSideRequest(model, env.LastUserMessage().Text) {
+		observability.FromContext(ctx).Info("LLM escalation skipped", "reason", "side_request")
+		return nil
+	}
+	if isNativeResponses {
 		observation, err = translate.ParseResponsesEscalationObservation(original)
 	}
 	if err != nil {
@@ -131,6 +143,7 @@ func (s *Service) beginLLMEscalation(ctx context.Context, env *translate.Request
 		return nil
 	}
 	observation.Messages = translate.WithoutEscalationDecorations(observation.Messages)
+	observation.CodexToolResults = isNativeResponses && ClientIdentityFrom(ctx).ClientApp == ClientAppCodex
 	encoded, _ := json.Marshal(observation)
 	if len(encoded) > escalationHistoryMaxBytes {
 		observability.FromContext(ctx).Info("LLM escalation skipped", "reason", "history_too_large")
@@ -222,11 +235,18 @@ func (s *Service) completeLLMEscalation(ctx context.Context, res turnLoopResult,
 	judge := s.llmEscalationJudge
 	ready := true
 	if turn.session.Config.EffectiveClassifier() == flags.EscalationClassifierLLM {
-		transcript, ready = llmescalation.RenderQwenInterval(messages, turn.session.CompletedTurns+1)
+		transcript, ready = llmescalation.RenderQwenInterval(messages, turn.session.CompletedTurns+1, turn.observation.CodexToolResults)
 		judge = s.qwenEscalationJudge
 		if !ready {
 			observability.FromContext(ctx).Info("LLM escalation interval unavailable", "completed_turns", turn.session.CompletedTurns+1)
 		}
+	}
+	intervalFailure := llmescalation.FailureNone
+	if !ready {
+		intervalFailure = llmescalation.FailureIntervalUnavailable
+	} else if llmescalation.TurnsSinceUserPrompt(messages) < llmescalation.MinTurnsAfterUserPrompt {
+		ready = false
+		intervalFailure = llmescalation.FailureRecentUserPrompt
 	}
 	capacity := false
 	if ready {
@@ -237,10 +257,6 @@ func (s *Service) completeLLMEscalation(ctx context.Context, res turnLoopResult,
 		}
 	}
 	completionCtx, cancelCompletion := context.WithTimeout(context.WithoutCancel(ctx), llmEscalationBookkeepingTimeout)
-	intervalFailure := llmescalation.FailureNone
-	if !ready {
-		intervalFailure = llmescalation.FailureIntervalUnavailable
-	}
 	completion, err := s.llmEscalationStore.Complete(completionCtx, llmescalation.CompleteRequest{Session: turn.session, Boundary: turn.boundary, RequestID: turn.requestID, Capacity: capacity, IntervalFailure: intervalFailure})
 	cancelCompletion()
 	if err != nil || completion.Job == nil {

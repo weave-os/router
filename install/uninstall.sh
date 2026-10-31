@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Weave Router uninstaller for Claude Code, Codex, opencode, and pi.
+# Weave Router uninstaller for Claude Code, Codex, opencode, pi, and GitHub Copilot CLI.
 #
 # Without a client flag, every client with Weave Router config is uninstalled
 # in turn. --claude removes the env vars, statusLine, and local
@@ -20,6 +20,7 @@
 #   npx @workweave/router --uninstall --codex                    # Codex, user scope
 #   npx @workweave/router --uninstall --opencode                 # opencode, user scope
 #   npx @workweave/router --uninstall --pi                       # pi, user scope
+#   npx @workweave/router --uninstall --copilot                  # GitHub Copilot CLI (providers.json, skills)
 #   npx @workweave/router --uninstall --scope project            # run inside the repo
 #   npx @workweave/router --uninstall --dir /tmp/test            # --dir alone (user scope, .weave/)
 #   npx @workweave/router --uninstall --scope project --dir /tmp # --dir + project scope (.claude/)
@@ -266,6 +267,9 @@ while [ $# -gt 0 ]; do
     --pi)
       target="pi"; target_explicit="true"; shift
       ;;
+    --copilot)
+      target="copilot"; target_explicit="true"; shift
+      ;;
     --claude)
       # No-op selector for symmetry with --codex / --opencode and install.sh's
       # --claude. Lets `./install.sh --uninstall --claude` (which forwards
@@ -301,6 +305,7 @@ client_label() {
   case "$1" in
     claude) printf 'Claude Code' ;;
     codex)  printf 'Codex' ;;
+    copilot) printf 'Copilot CLI' ;;
     *)      printf '%s' "$1" ;;
   esac
 }
@@ -320,7 +325,7 @@ if [ "$target_explicit" = "false" ] && [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] \
   fi
   removed=""
   failed=""
-  for client in claude codex opencode pi; do
+  for client in claude codex opencode pi copilot; do
     child_status=0
     WEAVE_UNINSTALL_ALL_CHILD=1 bash "$uninstall_self" "${uninstall_args[@]+"${uninstall_args[@]}"}" "--$client" || child_status=$?
     case "$child_status" in
@@ -332,7 +337,7 @@ if [ "$target_explicit" = "false" ] && [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] \
   [ -z "$uninstall_self_tmp" ] || rm -f "$uninstall_self_tmp"
   printf '\n'
   if [ -z "$removed" ] && [ -z "$failed" ]; then
-    info "Weave Router isn't configured for Claude Code, Codex, opencode or pi here (scope=$scope); nothing to remove."
+    info "Weave Router isn't configured for Claude Code, Codex, opencode, pi or Copilot CLI here (scope=$scope); nothing to remove."
   fi
   [ -z "$removed" ] || ok "Removed Weave Router from: $removed."
   if [ -n "$failed" ]; then
@@ -342,7 +347,7 @@ if [ "$target_explicit" = "false" ] && [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] \
   exit 0
 fi
 
-if [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] && { [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" ]; } && ! command -v jq >/dev/null 2>&1; then
+if [ -z "${WEAVE_UNINSTALL_ALL_CHILD:-}" ] && { [ "$target" = "claude" ] || [ "$target" = "opencode" ] || [ "$target" = "pi" ] || [ "$target" = "copilot" ]; } && ! command -v jq >/dev/null 2>&1; then
   err "jq is required for the $target uninstall path."
   exit 1
 fi
@@ -360,7 +365,8 @@ fi
 # install, and never supplies a key; a checkout-supplied endpoint never
 # receives one (same gates as install.sh's key_source_is_own and
 # models_endpoint_is_trusted).
-HOSTED_BASE_URL="https://router.workweave.ai"
+HOSTED_BASE_URL="https://router.weaveos.com"
+LEGACY_HOSTED_BASE_URL="https://router.workweave.ai"
 ROUTER_KEY_HEADER="X-Weave-Router-Key"
 
 uninstall_json_get() {
@@ -441,7 +447,7 @@ report_claude_uninstall_event() {
   done
   [ -n "$key" ] || return 0
   local trusted="false"
-  if [ "$endpoint" = "${HOSTED_BASE_URL%/}" ] || [ "$base_src" = "$key_src" ]; then
+  if [ "$endpoint" = "${HOSTED_BASE_URL%/}" ] || [ "$endpoint" = "${LEGACY_HOSTED_BASE_URL%/}" ] || [ "$base_src" = "$key_src" ]; then
     trusted="true"
   elif [ -n "$local_settings_file" ] && [ -f "$local_settings_file" ] && [ ! -L "$local_settings_file" ]; then
     marked="$(uninstall_json_get "$local_settings_file" '.env.WEAVE_ROUTER_BASE_URL')"
@@ -868,6 +874,74 @@ EOF
   exit 0
 fi
 
+# ---------- copilot uninstall path ----------
+
+if [ "$target" = "copilot" ]; then
+  # Mirrors install.sh: user scope only; --dir is a throwaway COPILOT_HOME.
+  if [ -n "$install_dir" ]; then
+    install_dir="$(cd "$install_dir" 2>/dev/null && pwd || echo "$install_dir")"
+    copilot_dir="$install_dir/.copilot"
+  else
+    copilot_dir="${COPILOT_HOME:-$HOME/.copilot}"
+  fi
+  copilot_providers_file="$copilot_dir/providers.json"
+  copilot_settings_file="$copilot_dir/settings.json"
+  copilot_parked_file="$copilot_dir/.weave-parked.json"
+  for path in "$copilot_dir" "$copilot_providers_file" "$copilot_settings_file" "$copilot_parked_file"; do
+    refuse_if_symlink "$path"
+  done
+  skip_if_not_installed "$copilot_providers_file" '"name": *"weave"' "$copilot_parked_file"
+
+  if [ -f "$copilot_providers_file" ]; then
+    report_uninstall_event copilot \
+      "$(jq -r '[(.providers // [])[] | select(.name == "weave") | .baseUrl // empty][0] // empty' "$copilot_providers_file" 2>/dev/null | sed 's#/v1$##')" \
+      "$(jq -r '[(.providers // [])[] | select(.name == "weave") | .headers["X-Weave-Router-Key"] // empty][0] // empty' "$copilot_providers_file" 2>/dev/null)" || true
+    cleaned="$(jq '
+      .providers = [(.providers // [])[] | select(.name != "weave")]
+      | .models = [(.models // [])[] | select(.provider != "weave")]
+    ' "$copilot_providers_file")"
+    if [ "$(printf '%s' "$cleaned" | jq '(.providers | length) + (.models | length) + (del(.providers, .models) | length)')" = "0" ]; then
+      rm -f "$copilot_providers_file"
+      ok "Removed empty $copilot_providers_file"
+    else
+      printf '%s\n' "$cleaned" >"$copilot_providers_file"
+      chmod 600 "$copilot_providers_file"
+      ok "Removed the weave provider from $copilot_providers_file"
+    fi
+  else
+    info "No Copilot CLI providers.json at $copilot_providers_file (already uninstalled?)"
+  fi
+
+  if [ -f "$copilot_settings_file" ]; then
+    direct_model=""
+    [ -f "$copilot_parked_file" ] && direct_model="$(jq -r '.direct_model // empty' "$copilot_parked_file" 2>/dev/null || true)"
+    cleaned="$(jq --arg direct "$direct_model" '
+      if ((.model // "") | startswith("weave/"))
+      then (if $direct != "" then .model = $direct else del(.model) end)
+      else . end
+    ' "$copilot_settings_file")"
+    printf '%s\n' "$cleaned" >"$copilot_settings_file"
+    ok "Restored Copilot CLI default model in $copilot_settings_file${direct_model:+ ($direct_model)}"
+  fi
+  rm -f "$copilot_parked_file"
+
+  # Only remove skills that still carry our ownership marker.
+  if [ -d "$copilot_dir/skills" ] && [ ! -L "$copilot_dir/skills" ]; then
+    for skill_dir in "$copilot_dir"/skills/*/; do
+      [ -d "$skill_dir" ] || continue
+      skill_dir="${skill_dir%/}"
+      name="${skill_dir##*/}"
+      [ -L "$skill_dir" ] && continue
+      if [ ! -f "$skill_dir/SKILL.md" ] || [ -L "$skill_dir/SKILL.md" ]; then continue; fi
+      grep -Fq "<!-- weave-router managed $name skill -->" "$skill_dir/SKILL.md" || continue
+      rm -rf "$skill_dir"
+    done
+    rmdir "$copilot_dir/skills" 2>/dev/null || true
+    ok "Removed Weave Router Copilot skills"
+  fi
+  exit 0
+fi
+
 # ---------- pi uninstall path ----------
 
 if [ "$target" = "pi" ]; then
@@ -1284,7 +1358,8 @@ if [ -f "$settings_file" ]; then
     | (if ((.attribution.commit == "Co-Authored-By: Weave Router <router@weaveos.com>"
               or .attribution.commit == "Co-Authored-By: Weave Router <router@workweave.ai>"
               or .attribution.commit == "Co-Authored-By: Weave Router <noreply@workweave.ai>")
-              and .attribution.pr == "🤖 Generated with [Weave Router](https://router.workweave.ai)")
+              and (.attribution.pr == "🤖 Generated with [Weave Router](https://router.weaveos.com)"
+                   or .attribution.pr == "🤖 Generated with [Weave Router](https://router.workweave.ai)"))
          then del(.attribution) else . end)
   ' "$settings_file")"
   printf '%s\n' "$cleaned" >"$settings_file"

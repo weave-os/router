@@ -112,7 +112,16 @@ export interface IssueAPIKeyResponse {
 // ProviderAuthType is how a BYOK key authenticates upstream. "wif" keys hold no
 // secret at all: the router presents its own workload attestation per request.
 // "azure_entra" stores an Entra client secret and mints a short-lived token.
-export type ProviderAuthType = "bearer" | "keypair_jwt" | "wif" | "azure_entra";
+// "anthropic_wif" exchanges workload assertions using per-key federation settings.
+export type ProviderAuthType = "bearer" | "keypair_jwt" | "wif" | "azure_entra" | "anthropic_wif";
+
+export interface AnthropicFederationConfig {
+  federation_rule_id: string;
+  organization_id: string;
+  service_account_id: string;
+  workspace_id?: string;
+  audience?: string;
+}
 
 export interface ExternalKey {
   id: string;
@@ -131,6 +140,7 @@ export interface ExternalKey {
   // (the secret is an Entra client secret used to mint a short-lived token);
   // absent means bearer.
   auth_type?: ProviderAuthType;
+  federation_config?: AnthropicFederationConfig;
   // Principal a minted token is issued for; present only with keypair_jwt or
   // azure_entra. For azure_entra these are the tenant ID and client ID.
   auth_account?: string;
@@ -229,8 +239,7 @@ export const api = {
     // Soft-deletes the named key and issues a replacement in one round-trip.
     // The previous token stops working immediately. Carries forward the
     // previous key's name server-side.
-    rotate: (id: string) =>
-      request<IssueAPIKeyResponse>(`/keys/${id}/rotate`, { method: "POST" }),
+    rotate: (id: string) => request<IssueAPIKeyResponse>(`/keys/${id}/rotate`, { method: "POST" }),
     delete: (id: string) => request<void>(`/keys/${id}`, { method: "DELETE" }),
   },
   providerKeys: {
@@ -241,7 +250,12 @@ export const api = {
       name?: string,
       baseURL?: string,
       modelAliases?: Record<string, string>,
-      auth?: { type: ProviderAuthType; account?: string; user?: string },
+      auth?: {
+        type: ProviderAuthType;
+        account?: string;
+        user?: string;
+        federationConfig?: AnthropicFederationConfig;
+      },
     ) =>
       request<ExternalKey>("/provider-keys", {
         method: "POST",
@@ -252,6 +266,7 @@ export const api = {
           base_url: baseURL,
           model_aliases: modelAliases,
           auth_type: auth?.type ?? "bearer",
+          federation_config: auth?.federationConfig,
           auth_account: auth?.account,
           auth_user: auth?.user,
         }),

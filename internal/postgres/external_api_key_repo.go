@@ -36,6 +36,13 @@ func (r *ExternalAPIKeyRepo) Create(ctx context.Context, params auth.CreateExter
 		return nil, err
 	}
 
+	federation, err := json.Marshal(params.FederationConfig)
+	if err != nil {
+		return nil, fmt.Errorf("encode federation configuration: %w", err)
+	}
+	if params.FederationConfig == nil {
+		federation = nil
+	}
 	q := dbbudget.Queries(r.tx)
 	row, err := q.CreateExternalAPIKey(ctx, sqlc.CreateExternalAPIKeyParams{
 		InstallationID: installationUUID,
@@ -54,10 +61,11 @@ func (r *ExternalAPIKeyRepo) Create(ctx context.Context, params auth.CreateExter
 		ForwardedClientHeaders: params.ForwardedClientHeaders,
 		BaggageHeader:          params.BaggageHeader,
 
-		AuthType:    params.AuthType,
-		AuthAccount: params.AuthAccount,
-		AuthUser:    params.AuthUser,
-		CreatedBy:   params.CreatedBy,
+		AuthType:         string(params.AuthType),
+		FederationConfig: federation,
+		AuthAccount:      params.AuthAccount,
+		AuthUser:         params.AuthUser,
+		CreatedBy:        params.CreatedBy,
 	})
 	if err != nil {
 		return nil, err
@@ -191,7 +199,7 @@ func toExternalAPIKey(row sqlc.RouterModelRouterExternalAPIKey) (*auth.ExternalA
 		ForwardedClientHeaders: row.ForwardedClientHeaders,
 		BaggageHeader:          derefString(row.BaggageHeader),
 
-		AuthType:    row.AuthType,
+		AuthType:    auth.AuthType(row.AuthType),
 		AuthAccount: derefString(row.AuthAccount),
 		AuthUser:    derefString(row.AuthUser),
 		CreatedAt:   timestampOrZero(row.CreatedAt),
@@ -201,6 +209,11 @@ func toExternalAPIKey(row sqlc.RouterModelRouterExternalAPIKey) (*auth.ExternalA
 	if len(row.ModelAliases) > 0 {
 		if err := json.Unmarshal(row.ModelAliases, &key.ModelAliases); err != nil {
 			return nil, fmt.Errorf("decode model aliases for key %s: %w", key.ID, err)
+		}
+	}
+	if len(row.FederationConfig) > 0 {
+		if err := json.Unmarshal(row.FederationConfig, &key.FederationConfig); err != nil {
+			return nil, fmt.Errorf("decode federation configuration for key %s: %w", key.ID, err)
 		}
 	}
 	return key, nil

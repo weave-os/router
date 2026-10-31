@@ -437,7 +437,7 @@ type Service struct {
 	feedbackSigner  *feedback.Signer
 	piHandoffSecret []byte
 	// feedbackBaseURL is the public origin of the feedback page (e.g.
-	// https://router.workweave.ai), trailing slash trimmed. Empty disables
+	// https://router.weaveos.com), trailing slash trimmed. Empty disables
 	// feedback-link header emission on proxied responses.
 	feedbackBaseURL string
 	// usageObserver records per-credential subscription rate-limit headroom from
@@ -512,6 +512,8 @@ type codexResponsesBodyContextKey struct{}
 type nativeResponsesBodyContextKey struct{}
 
 type responsesLastAnnouncedModelContextKey struct{}
+
+type responsesReplayedModelContextKey struct{}
 
 // nativeResponsesReasoningHashContextKey preserves reasoning that only native
 // Responses dispatch can represent.
@@ -727,6 +729,16 @@ func muteSlowStartFor(ctx context.Context, res turnLoopResult) {
 	if machineReadTurn(res) || res.HardPinned {
 		attemptTraceFromContext(ctx).muteSlowStart()
 	}
+}
+
+// announcementTurnFor falls back to the model the client last saw announced
+// when the server has no served-model history for the conversation, as for a
+// client that sends no session identity.
+func announcementTurnFor(res turnLoopResult, replayedModel string) turnLoopResult {
+	if res.PriorServedModel == "" {
+		res.PriorServedModel = replayedModel
+	}
+	return res
 }
 
 // routingMarkerFor builds the "brand → model · note" snippet emitted when the
@@ -1171,7 +1183,7 @@ func (s *Service) safetyExcludedModels(env *translate.RequestEnvelope, outputRes
 	if len(overflowed) == 0 && len(geminiUnsigned) == 0 && len(advisorOutranking) == 0 {
 		return nil
 	}
-	out := make(map[string]struct{}, len(overflowed)+len(geminiUnsigned)+len(advisorOutranking))
+	out := make(map[string]struct{}, len(overflowed))
 	for _, models := range [][]string{overflowed, geminiUnsigned, advisorOutranking} {
 		for _, m := range models {
 			out[m] = struct{}{}
@@ -1206,7 +1218,7 @@ func (s *Service) excludedModelsFor(ctx context.Context, allowed map[string]stru
 	// Plan-owned serving drops the installation's positive routing controls,
 	// but an explicit exclusion is the customer's hard opt-out and always applies.
 	excluded := installationExcludedModelsFromContext(ctx)
-	out := make(map[string]struct{}, len(excluded)+len(ineligible))
+	out := make(map[string]struct{}, len(excluded))
 	for _, m := range excluded {
 		out[m] = struct{}{}
 	}
@@ -1317,7 +1329,7 @@ func (s *Service) excludedProvidersForRequest(ctx context.Context) map[string]st
 	if len(sessionDisabled) == 0 {
 		return base
 	}
-	out := make(map[string]struct{}, len(base)+len(sessionDisabled))
+	out := make(map[string]struct{}, len(base))
 	for p := range base {
 		out[p] = struct{}{}
 	}
@@ -1513,7 +1525,7 @@ func excludeContextOverflowModels(est, sigSavings, outputReserve int, enabledPro
 			continue
 		}
 		if out == nil {
-			out = make(map[string]struct{}, len(excluded)+1)
+			out = make(map[string]struct{}, len(excluded))
 			for k := range excluded {
 				out[k] = struct{}{}
 			}
@@ -1655,7 +1667,7 @@ func excludeGemini3xOnUnsignedHistory(env *translate.RequestEnvelope, excluded, 
 			continue
 		}
 		if out == nil {
-			out = make(map[string]struct{}, len(excluded)+1)
+			out = make(map[string]struct{}, len(excluded))
 			for k := range excluded {
 				out[k] = struct{}{}
 			}
@@ -1788,7 +1800,7 @@ type suppressCodexModelContextKey struct{}
 
 func withSuppressedCodexModel(ctx context.Context, model string) context.Context {
 	previous, _ := ctx.Value(suppressCodexModelContextKey{}).(map[string]struct{})
-	models := make(map[string]struct{}, len(previous)+1)
+	models := make(map[string]struct{}, len(previous))
 	for id := range previous {
 		models[id] = struct{}{}
 	}
@@ -3609,7 +3621,10 @@ func newRefusalObserver(inner http.ResponseWriter) *refusalObserver {
 
 func (o *refusalObserver) Header() http.Header { return o.inner.Header() }
 
-func (o *refusalObserver) WriteHeader(status int) { o.inner.WriteHeader(status) }
+func (o *refusalObserver) WriteHeader(status int) {
+	sse.PrepareJSONResponse(o.inner)
+	o.inner.WriteHeader(status)
+}
 
 func (o *refusalObserver) Write(p []byte) (int, error) {
 	// Accumulate up to refusalScanCap so signals split across SSE chunks are caught.
@@ -3634,7 +3649,7 @@ func (o *refusalObserver) Write(p []byte) (int, error) {
 			o.category = refusalCategory(o.buf)
 		}
 	}
-	return o.inner.Write(p)
+	return sse.WriteJSONChunk(o.inner, p)
 }
 
 func (o *refusalObserver) Flush() {
@@ -3814,6 +3829,7 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// clients echo it back verbatim, so left in place it accumulates in
 	// upstream context every turn.
 	ctx = withSubscriptionOnlyWarningEcho(ctx, body)
+	replayedModel := translate.LastAnnouncedMessagesModel(body)
 	body, stripErr := stripRoutingMarkerFromMessages(body)
 	if stripErr != nil {
 		log.Error("Failed to strip routing marker from inbound messages", "err", stripErr)
@@ -4619,7 +4635,8 @@ func (s *Service) ProxyMessages(ctx context.Context, body []byte, w http.Respons
 	// request body. Zero for Anthropic-native passthrough.
 	var reqStats providers.RequestMutationStats
 
-	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, routeRes, routingMarkerFor(routeRes), decision.Model, ""))
+	announcementTurn := announcementTurnFor(routeRes, replayedModel)
+	marker := suppressMarkerIfRequested(ctx, r.Header, modelSelectionMarkerForRequest(ctx, announcementTurn, routingMarkerFor(announcementTurn), decision.Model, ""))
 	muteSlowStartFor(ctx, routeRes)
 	fundingCtx := ctx
 	if CredentialsFromContext(fundingCtx) == nil {
@@ -6665,9 +6682,9 @@ func (s *Service) enabledProvidersForRequest(ctx context.Context, surfaceProvide
 		}
 	}
 	for _, k := range externalKeysFromContext(ctx) {
-		// Empty plaintext must not enroll the provider — argmax would pick
-		// it and the upstream call would 401 with no auth header.
-		if len(k.Plaintext) == 0 {
+		// Explicit failures stay eligible so selecting that provider returns
+		// its credential error instead of using a deployment key.
+		if len(k.Plaintext) == 0 && k.CredentialError == nil {
 			continue
 		}
 		out[k.Provider] = struct{}{}
@@ -7210,6 +7227,10 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	clientID := ClientIdentityFrom(ctx)
 
 	ctx = withSubscriptionOnlyWarningEcho(ctx, body)
+	replayedModel := translate.LastAnnouncedMessagesModel(body)
+	if replayedModel == "" {
+		replayedModel, _ = ctx.Value(responsesReplayedModelContextKey{}).(string)
+	}
 	strippedBody, stripErr := stripRoutingMarkerFromMessages(body)
 	if stripErr != nil {
 		log.Error("Failed to strip routing marker from OpenAI messages", "err", stripErr)
@@ -7739,7 +7760,7 @@ func (s *Service) ProxyOpenAIChatCompletion(ctx context.Context, body []byte, w 
 	clientSink, escalationCapture = s.captureEscalationResponse(clientSink, routeRes)
 	contentSink, contentCap := s.maybeCaptureResponse(ctx, clientSink)
 
-	announcementTurn := routeRes
+	announcementTurn := announcementTurnFor(routeRes, replayedModel)
 	if announcedModel, ok := ctx.Value(responsesLastAnnouncedModelContextKey{}).(string); ok {
 		announcementTurn.PriorServedModel = announcedModel
 	}
@@ -9181,6 +9202,8 @@ func (s *Service) ProxyOpenAIResponses(ctx context.Context, body []byte, w http.
 		if err != nil {
 			return err
 		}
+	} else {
+		ctx = context.WithValue(ctx, responsesReplayedModelContextKey{}, translate.LastReplayedResponsesModel(body))
 	}
 	conversion, err := translate.ConvertResponsesToChatCompletionsWithOptions(conversionBody, translate.ResponsesConversionOptions{
 		PortableCodex: portableCodex,

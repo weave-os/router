@@ -149,9 +149,45 @@ test("native uninstall removes Codex, OpenCode, and pi router settings", async (
   assert.deepEqual(piSettings.packages, ["npm:user-package"]);
 });
 
+test("native Copilot install adds weave/auto beside existing providers and uninstall restores the default", async () => {
+  const home = path.join(temporaryHome, "copilot-home");
+  const copilotDirectory = path.join(home, ".copilot");
+  fs.mkdirSync(copilotDirectory, { recursive: true });
+  fs.writeFileSync(path.join(copilotDirectory, "providers.json"), JSON.stringify({ providers: [{ name: "ollama", type: "openai", baseUrl: "http://localhost:11434/v1" }], models: [{ id: "qwen", provider: "ollama" }] }));
+  fs.writeFileSync(path.join(copilotDirectory, "settings.json"), JSON.stringify({ model: "claude-sonnet-5", banner: "never" }));
+  const env = { envOverrides: { COPILOT_HOME: "" } };
+  await runInstallerAt(home, ["--copilot", "--non-interactive", "--base-url", baseUrl], env);
+  let providers = JSON.parse(fs.readFileSync(path.join(copilotDirectory, "providers.json"), "utf8"));
+  const weave = providers.providers.find((entry) => entry.name === "weave");
+  assert.equal(weave.type, "anthropic");
+  assert.equal(weave.baseUrl, baseUrl);
+  assert.equal(weave.headers["X-App"], "copilot");
+  assert.equal(weave.apiKey, undefined);
+  assert.deepEqual(providers.models.map((entry) => `${entry.provider}/${entry.id}`), ["ollama/qwen", "weave/auto"]);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(copilotDirectory, "settings.json"), "utf8")).model, "weave/auto");
+  await runInstallerAt(home, ["--copilot", "--wire", "openai", "--non-interactive", "--base-url", baseUrl], env);
+  providers = JSON.parse(fs.readFileSync(path.join(copilotDirectory, "providers.json"), "utf8"));
+  assert.equal(providers.providers.find((entry) => entry.name === "weave").baseUrl, `${baseUrl}/v1`);
+  assert.equal(providers.providers.filter((entry) => entry.name === "weave").length, 1);
+  await runInstallerAt(home, ["--copilot", "--non-interactive", "--base-url", baseUrl], env);
+  providers = JSON.parse(fs.readFileSync(path.join(copilotDirectory, "providers.json"), "utf8"));
+  assert.equal(providers.providers.find((entry) => entry.name === "weave").type, "openai");
+  await runInstallerAt(home, ["--uninstall", "--copilot"], env);
+  providers = JSON.parse(fs.readFileSync(path.join(copilotDirectory, "providers.json"), "utf8"));
+  assert.deepEqual(providers.providers.map((entry) => entry.name), ["ollama"]);
+  assert.deepEqual(providers.models.map((entry) => entry.id), ["qwen"]);
+  const settings = JSON.parse(fs.readFileSync(path.join(copilotDirectory, "settings.json"), "utf8"));
+  assert.equal(settings.model, "claude-sonnet-5");
+  assert.equal(settings.banner, "never");
+  const freshHome = path.join(temporaryHome, "copilot-fresh");
+  await runInstallerAt(freshHome, ["--copilot", "--non-interactive", "--base-url", baseUrl], env);
+  await runInstallerAt(freshHome, ["--uninstall", "--copilot"], env);
+  assert.equal(fs.existsSync(path.join(freshHome, ".copilot", "providers.json")), false);
+});
+
 test("uninstalling an absent target does not create configuration files", async () => {
   const emptyHome = path.join(temporaryHome, "empty");
-  for (const target of ["claude", "codex", "opencode", "pi"]) await runInstallerAt(emptyHome, ["--uninstall", `--${target}`]);
+  for (const target of ["claude", "codex", "opencode", "pi", "copilot"]) await runInstallerAt(emptyHome, ["--uninstall", `--${target}`]);
   assert.equal(fs.existsSync(emptyHome), false);
 });
 
@@ -266,6 +302,30 @@ test("a Claude reinstall keeps a PR attribution the user changed", async () => {
   const claude = readClaudeSettings(home);
   assert.equal(claude.attribution.pr, "User-owned PR");
   assert.match(claude.attribution.commit, /^Co-Authored-By: Weave Router/);
+});
+
+const legacyPR = "🤖 Generated with [Weave Router](https://router.workweave.ai)";
+
+function seedLegacyAttribution(home) {
+  fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
+  fs.writeFileSync(path.join(home, ".claude", "settings.json"), JSON.stringify({ env: { ANTHROPIC_BASE_URL: "x" }, attribution: { commit: "Co-Authored-By: Weave Router <router@weaveos.com>", pr: legacyPR, custom: "keep" } }));
+}
+
+test("--no-attribution removes a PR link written before the weaveos.com move", async () => {
+  const home = path.join(temporaryHome, "attribution-legacy-pr-off");
+  seedLegacyAttribution(home);
+  await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl, "--no-attribution"]);
+  assert.deepEqual(readClaudeSettings(home).attribution, { custom: "keep" });
+});
+
+test("native uninstall removes a PR link written before the weaveos.com move", async () => {
+  const home = path.join(temporaryHome, "attribution-legacy-pr-uninstall");
+  await runInstallerAt(home, ["--claude", "--non-interactive", "--base-url", baseUrl]);
+  const settings = readClaudeSettings(home);
+  settings.attribution.pr = legacyPR;
+  fs.writeFileSync(path.join(home, ".claude", "settings.json"), JSON.stringify(settings));
+  await runInstallerAt(home, ["--uninstall", "--claude"]);
+  assert.equal(readClaudeSettings(home).attribution, undefined);
 });
 
 test("a Claude attribution opt-out survives reinstalls without the flag", async () => {

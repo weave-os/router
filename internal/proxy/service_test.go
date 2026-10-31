@@ -691,7 +691,7 @@ func TestService_ProxyOpenAIResponses_EmitsRoutingMarkerForCodex(t *testing.T) {
 
 			require.NoError(t, svc.ProxyOpenAIResponses(ctx, body, rec, req))
 
-			marker := "✦ **Weave Router** → deepseek/deepseek-v4-pro · " + markerReasonBestPickForTest + " · funded by funding source unavailable"
+			marker := "✦ **Weave Router** → deepseek/deepseek-v4-pro · " + markerReasonBestPickForTest
 			deltas := responsesTextDeltas(t, rec.Body.Bytes())
 			require.NotEmpty(t, deltas)
 			assert.Equal(t, codexBadgeSentinelForTest+marker+"\n\n", deltas[0])

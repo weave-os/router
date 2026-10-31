@@ -15,6 +15,7 @@ npx @weave-os/router
 npx @weave-os/router --claude                     # Claude Code, user scope
 npx @weave-os/router --codex                      # Codex, user scope
 npx @weave-os/router --opencode                   # opencode, user scope
+npx @weave-os/router --copilot                    # GitHub Copilot CLI: adds weave/auto to /model
 npx @weave-os/router --claude --return-url https://app.example.com/onboarding # continue after a verified install
 
 # Project scope — only when running inside this repo:
@@ -171,7 +172,7 @@ an Owner to enable Remote Control. If it still fails with routing off, follow
 [Anthropic's current troubleshooting](https://code.claude.com/docs/en/remote-control#troubleshooting)
 for subscription/auth eligibility, admin settings, organization policy,
 cloud-provider routing, and network access. See also
-[Weave's Remote Control troubleshooting](https://docs.workweave.ai/router/troubleshooting#claude-code-remote-control).
+[Weave's Remote Control troubleshooting](https://docs.weaveos.com/router/troubleshooting#claude-code-remote-control).
 
 ### Codex (`--codex`)
 
@@ -285,6 +286,36 @@ The `--scope project` step only needs to run once per checkout (re-run if
 `cc-statusline.sh` is updated upstream; the re-run reuses your installed key,
 so no key paste is needed).
 
+### GitHub Copilot CLI (`--copilot`)
+
+Weave Router shows up as a selectable model in Copilot CLI, the same way GitHub's
+own routed models do. Nothing replaces Copilot's endpoint:
+`COPILOT_PROVIDER_BASE_URL` would switch the whole CLI into single-provider BYOK
+mode and hide the GitHub models, so the installer uses Copilot's persistent
+provider registry instead. GitHub models stay in `/model`, and you can switch
+between them and `weave/auto` at any time.
+
+User scope only. Copilot reads `providers.json` from `$COPILOT_HOME` (default
+`~/.copilot`), and the file holds the router key in plain text.
+
+| Path                          | Purpose |
+| ----------------------------- | ------- |
+| `~/.copilot/providers.json`   | Merges a `weave` provider and a `weave/auto` model named "Weave Router". Headers carry `X-Weave-Router-Key` plus the identity headers (`X-Weave-User-Email`, `X-Weave-User-Name`, `X-App: copilot`). No `apiKey` is set, so Copilot never forwards the router key as an upstream credential. Other providers and models are kept. Mode `0600`, and a symlink is refused. |
+| `~/.copilot/settings.json`    | Sets `model` to `weave/auto`. The previous default is parked in `~/.copilot/.weave-parked.json` so `off` and uninstall can restore it. |
+| `~/.copilot/skills/<name>/`   | Router directives as Copilot skills: `/force-model` (`/fm`), `/force-parent`, `/unforce-model` (`/ufm`), `/router-feedback` (`/rf`), `/router-off`, `/router-on`, `/router-status`. Only skills that carry the managed marker are written or removed. |
+
+`--wire anthropic` (the default) talks to the router over `/v1/messages`, the
+router's native format, so routing markers render in the transcript.
+`--wire openai` uses the OpenAI Responses API at `<base-url>/v1` instead. A
+re-install or `update` keeps the installed wire unless `--wire` is passed.
+
+```bash
+npx @weave-os/router --copilot                    # install
+copilot --model weave/auto                        # or pick "Weave Router" in /model
+npx @weave-os/router off --copilot                # restore the previous default; weave/auto stays in /model
+npx @weave-os/router --uninstall --copilot        # remove provider, model, skills
+```
+
 ## Flags
 
 | Flag                       | Default                       | Meaning                                                                |
@@ -292,9 +323,11 @@ so no key paste is needed).
 | `--claude`                 | (target picker if interactive) | Skip the target picker; install for Claude Code.                       |
 | `--codex`                  | (target picker if interactive) | Skip the target picker; install for the OpenAI Codex CLI.              |
 | `--opencode`               | (target picker if interactive) | Skip the target picker; install for opencode.                          |
+| `--copilot`                | (target picker if interactive) | Skip the target picker; add `weave/auto` to GitHub Copilot CLI (user scope only). |
+| `--wire anthropic\|openai` | `anthropic`                   | Copilot only: the API format Copilot uses to reach the router.          |
 | `--scope user\|project`    | interactive prompt (default `user`) | User-level install (everywhere) vs project-level (this repo only).      |
 | `--local`                  | off                           | Shortcut for the bundled docker-compose router (`localhost:8080`).      |
-| `--base-url <url>`         | `https://router.workweave.ai` | Override the router endpoint. Use for self-hosted / custom port.        |
+| `--base-url <url>`         | `https://router.weaveos.com` | Override the router endpoint. Use for self-hosted / custom port.        |
 | `--email <email>`          | auto-detected                 | Set the router identity email and skip the email prompt.                |
 | `--return-url <url>`       | off                           | Open the URL in the default browser after `/health` and `/validate` both succeed. |
 | `--non-interactive`        | off                           | Fail if `$WEAVE_ROUTER_KEY` isn't set instead of prompting. Defaults target to Claude Code so existing CI pipelines don't shift semantics. |
@@ -531,6 +564,9 @@ installer owns the config file.
   (`npx @weave-os/router off|on|status --opencode`).
 - **Codex** uses `$name` skills because Codex reserves `/…` for built-ins; each
   skill sends the leading-space prompt form.
+- **Copilot CLI** gets the Codex skill set as Copilot skills, invoked with `/`
+  (Copilot exposes `~/.copilot/skills/<name>` as `/<name>`). The Codex-only
+  `disable-routing`, `router-session`, and `router-models` are not installed.
 - **pi** implements `/fm` and `/ufm` in the `@weave-os/router` extension rather
   than through installed files; the registry asserts its names match.
 - **Cursor** exposes no command or skill file this installer owns, so its
@@ -555,6 +591,8 @@ What each `off` does (and `on` reverses byte-for-byte):
   block stays. Takes effect on the next `codex` run.
 - **opencode** — swaps the top-level `weave/...` model for the direct model
   parked during install; `provider.weave` stays. Next `opencode` run.
+- **Copilot CLI** — puts back the default model parked during install;
+  `weave/auto` stays selectable in `/model`. Next `copilot` run.
 
 **Cursor** has no config file we own — its base URL lives in Cursor's own
 settings UI. To toggle it, open **Settings → Models → Override OpenAI Base
@@ -606,7 +644,7 @@ leaves the router nothing to pick — re-enable rather than empty it out.
 Editing requires a router that serves the model-selection API (self-hosted and
 local routers do). The Weave-hosted router keeps model selection with the
 organization instead, so there `models` lists what the router can pick from and
-points you at <https://router.workweave.ai/models>. If your
+points you at <https://router.weaveos.com/models>. If your
 deployment pins the lists via `ROUTER_EXCLUDED_MODELS` /
 `ROUTER_EXCLUDED_PROVIDERS`, the router refuses the edit and says so — clear the
 env var to make the setting editable.

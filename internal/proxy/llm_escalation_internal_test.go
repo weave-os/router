@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http/httptest"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -254,6 +255,72 @@ func TestQwenEscalationDoesNotRequireSwitchyardActiveRollout(t *testing.T) {
 	require.True(t, turn.active)
 }
 
+func TestQwenEscalationReadsCodexToolOutcomesFromNativeResponses(t *testing.T) {
+	configuration := &escalationConfigurationStub{selection: llmescalation.Selection{InstallationID: "installation", Epoch: 2}}
+	service := (&Service{}).
+		WithLLMEscalation(&llmEscalationStoreStub{}, nil).
+		WithQwenEscalation(&blockingEscalationJudge{}).
+		WithEscalationConfiguration(configuration, nil, false)
+	_, err := service.UpdateEscalationSelection(context.Background(), "installation", llmescalation.SelectionUpdate{Active: flags.EscalationClassifierLLM, Cadence: 3, Epoch: 2})
+	require.NoError(t, err)
+	overrides := flags.Overrides{Strings: map[flags.Key]string{
+		flags.KeyEscalationActiveClassifier: string(flags.EscalationClassifierLLM),
+	}}
+	native := []byte(`{"model":"gpt-5","input":[{"role":"user","content":"start"}]}`)
+	env, err := translate.ParseOpenAI([]byte(`{"model":"gpt-5","messages":[{"role":"user","content":"start"}]}`))
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name  string
+		app   string
+		codex bool
+	}{
+		{name: "codex", app: ClientAppCodex, codex: true},
+		{name: "other client", app: ClientAppClaudeCode, codex: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := flags.WithOverrides(router.WithStrategy(context.Background(), router.StrategyHMMEmbedding), overrides)
+			ctx = context.WithValue(ctx, nativeResponsesBodyContextKey{}, native)
+			ctx = context.WithValue(ctx, ClientIdentityContextKey{}, ClientIdentity{ClientApp: tc.app})
+			requestResult := turnLoopResult{Strategy: router.StrategyHMMEmbedding, InstallationID: uuid.New(), TurnType: turntype.MainLoop}
+			turn := service.beginLLMEscalation(ctx, env, router.Request{}, &requestResult, "test-key")
+			require.NotNil(t, turn)
+			require.Equal(t, tc.codex, turn.observation.CodexToolResults)
+		})
+	}
+}
+
+func TestQwenEscalationSkipsHarnessSideRequests(t *testing.T) {
+	service := (&Service{}).
+		WithLLMEscalation(&llmEscalationStoreStub{}, nil).
+		WithQwenEscalation(&blockingEscalationJudge{}).
+		WithEscalationConfiguration(nil, nil, false)
+	overrides := flags.Overrides{Strings: map[flags.Key]string{
+		flags.KeyEscalationActiveClassifier: string(flags.EscalationClassifierLLM),
+	}}
+	suggestion, err := translate.ParseAnthropic([]byte(`{"model":"claude-opus-5-5","messages":[{"role":"user","content":"fix it"},{"role":"assistant","content":"done"},{"role":"user","content":"[SUGGESTION MODE: Suggest what the user might naturally type next into Claude Code.]"}]}`))
+	require.NoError(t, err)
+	review, err := translate.ParseOpenAI([]byte(`{"model":"gpt-5","messages":[{"role":"user","content":"The following is the Codex agent history"}]}`))
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		name   string
+		env    *translate.RequestEnvelope
+		native []byte
+	}{
+		{name: "claude code prompt suggestion", env: suggestion},
+		{name: "codex auto review", env: review, native: []byte(`{"model":"codex-auto-review","input":[{"role":"user","content":"The following is the Codex agent history"}]}`)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := flags.WithOverrides(router.WithStrategy(context.Background(), router.StrategyHMMEmbedding), overrides)
+			if tc.native != nil {
+				ctx = context.WithValue(ctx, nativeResponsesBodyContextKey{}, tc.native)
+			}
+			requestResult := turnLoopResult{Strategy: router.StrategyHMMEmbedding, InstallationID: uuid.New(), TurnType: turntype.MainLoop}
+			require.Nil(t, service.beginLLMEscalation(ctx, tc.env, router.Request{}, &requestResult, "test-key"))
+		})
+	}
+}
+
 func TestSwitchyardEscalationReadinessReflectsDisabledRollout(t *testing.T) {
 	configuration := &escalationConfigurationStub{selection: llmescalation.Selection{InstallationID: "installation", Active: flags.EscalationClassifierSwitchyard}}
 	service := (&Service{}).
@@ -293,6 +360,43 @@ func TestQwenEscalationRecordsUnavailableIntervalSeparatelyFromCapacity(t *testi
 	require.Equal(t, 1, store.completeCalls)
 	require.Equal(t, llmescalation.FailureIntervalUnavailable, store.completionRequest.IntervalFailure)
 	require.False(t, store.completionRequest.Capacity)
+}
+
+func TestLLMEscalationSkipsCheckpointsUntilAgentActsOnLatestPrompt(t *testing.T) {
+	prompt := func(text string) translate.EscalationMessage {
+		return translate.EscalationMessage{Role: translate.EscalationRoleUser, Blocks: []translate.EscalationBlock{{Type: translate.EscalationBlockText, Text: text}}}
+	}
+	toolResult := translate.EscalationMessage{Role: translate.EscalationRoleUser, Blocks: []translate.EscalationBlock{{Type: translate.EscalationBlockToolResult, ContentJSON: `"ok"`}}}
+	act := translate.EscalationMessage{Role: translate.EscalationRoleAssistant, Blocks: []translate.EscalationBlock{{Type: translate.EscalationBlockToolCall, Name: "Bash", ArgumentsJSON: `{"command":"make test"}`}}}
+	history := []translate.EscalationMessage{prompt("fix the build"), act}
+	for range 10 {
+		history = append(history, toolResult, act)
+	}
+	const toolCallResponse = `{"id":"response","content":[{"type":"tool_use","id":"call","name":"Bash","input":{"command":"make test"}}],"stop_reason":"tool_use"}`
+
+	for _, tc := range []struct {
+		name    string
+		latest  translate.EscalationMessage
+		failure llmescalation.FailureCode
+	}{
+		{name: "new prompt", latest: prompt("use the staging config instead"), failure: llmescalation.FailureRecentUserPrompt},
+		{name: "tool loop", latest: toolResult, failure: llmescalation.FailureNone},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &llmEscalationStoreStub{}
+			service := (&Service{}).WithLLMEscalation(store, nil).WithQwenEscalation(&blockingEscalationJudge{})
+			turn := &llmEscalationTurn{
+				observation: translate.EscalationObservation{Messages: append(slices.Clone(history), tc.latest)},
+				session:     llmescalation.Session{CompletedTurns: 11, Config: llmescalation.Config{Cadence: 3, Classifier: flags.EscalationClassifierLLM}},
+			}
+			capture := newCaptureWriter(httptest.NewRecorder(), escalationHistoryMaxBytes)
+			_, err := capture.Write([]byte(toolCallResponse))
+			require.NoError(t, err)
+			service.completeLLMEscalation(context.Background(), turnLoopResult{llmEscalation: turn}, nil, capture, translate.EscalationResponseAnthropic)
+			require.Equal(t, 1, store.completeCalls)
+			require.Equal(t, tc.failure, store.completionRequest.IntervalFailure)
+		})
+	}
 }
 
 func TestLLMEscalationActiveRolloutGateAppliesToRequestOverrides(t *testing.T) {

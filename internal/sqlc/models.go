@@ -402,6 +402,8 @@ type RouterModelRouterExternalAPIKey struct {
 	ForwardedClientHeaders []string
 	// JSON baggage header forwarded to this key's endpoint with the resolved caller email under on-behalf-of; NULL forwards nothing
 	BaggageHeader *string
+	// Non-secret Anthropic federation rule, organization, service account, workspace and audience identifiers
+	FederationConfig []byte
 }
 
 // Ordered upstream attempts per inference operation; joins to model_router_request_telemetry on (installation_id, request_id)
@@ -766,6 +768,8 @@ type RouterModelRouterUser struct {
 	DeletedAt         pgtype.Timestamp
 	// Free-form user display name (typically git user.name) carried on the X-Weave-User-Name request header. Nullable: requests without the header leave the column NULL; existing rows are not back-filled.
 	DisplayName *string
+	// Authenticated owner of the personal API key that carried a request with no client-asserted identity. Set only on rows created for such requests (email and claude_account_uuid NULL).
+	CredentialSubjectID pgtype.UUID
 }
 
 type RouterModelRouterUserClusterModelList struct {

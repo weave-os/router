@@ -13,6 +13,10 @@ import (
 const routerNoticeSentinel = "\u2063\u2060\u2063\u2060"
 const legacyRoutingMarkerExpression = `✦ \*\*Weave Router\*\* → .*?\n\n`
 
+// Some clients trim trailing whitespace from a text block that holds only the
+// marker, so its blank-line terminator does not survive replay.
+const trimmedRoutingMarkerExpression = `\A(?:` + routerNoticeSentinel + `)?✦ \*\*Weave Router\*\* → [^\n]*\z`
+
 // RescueDetailPrefix opens the paragraph a rescue badge appends to name the
 // failed attempt; replay cleanup removes it together with the badge.
 const RescueDetailPrefix = "↳ switched: "
@@ -26,6 +30,8 @@ const legacyNoticeExpression = `(?:\*\*WEAVE ROUTER\*\* — .*?\n\n|✦ \*\*WEAV
 
 var routerOwnedNoticePattern = regexp.MustCompile(`(?s)(?:` + regexp.QuoteMeta(routerNoticeSentinel) + `.*?\n\n|` + legacyRoutingMarkerExpression + `)` + rescueDetailExpression)
 
+var replayedNoticePattern = regexp.MustCompile(`(?s)(?:` + regexp.QuoteMeta(routerNoticeSentinel) + `.*?\n\n|` + legacyRoutingMarkerExpression + `|` + trimmedRoutingMarkerExpression + `)` + rescueDetailExpression)
+
 func IsRouterNoticeText(text string) bool {
 	return routerOwnedNoticePattern.MatchString(text)
 }
@@ -34,6 +40,16 @@ func IsRouterNoticeText(text string) bool {
 // replay cleanup removes it. Provider completion history can lag an eager notice
 // or belong to a concurrent agent sharing the caller's session identifier.
 func LastAnnouncedResponsesModel(body []byte) string {
+	return lastAnnouncedResponsesModel(body, responsesTerminalBadgePattern)
+}
+
+// LastReplayedResponsesModel is LastAnnouncedResponsesModel for clients without
+// terminal surfaces, whose history may also carry the unmarked legacy wording.
+func LastReplayedResponsesModel(body []byte) string {
+	return lastAnnouncedResponsesModel(body, replayedAnnouncementPattern)
+}
+
+func lastAnnouncedResponsesModel(body []byte, pattern *regexp.Regexp) string {
 	items := gjson.GetBytes(body, "input").Array()
 	for i := len(items) - 1; i >= 0; i-- {
 		item := items[i]
@@ -42,14 +58,14 @@ func LastAnnouncedResponsesModel(body []byte) string {
 		}
 		content := item.Get("content")
 		if content.Type == gjson.String {
-			if model := announcedResponsesModel(content.Str); model != "" {
+			if model := announcedModel(content.Str, pattern); model != "" {
 				return model
 			}
 		}
 		for _, part := range content.Array() {
 			switch part.Get("type").Str {
 			case "input_text", "output_text", "text":
-				if model := announcedResponsesModel(part.Get("text").Str); model != "" {
+				if model := announcedModel(part.Get("text").Str, pattern); model != "" {
 					return model
 				}
 			default:
@@ -62,10 +78,42 @@ func LastAnnouncedResponsesModel(body []byte) string {
 	return ""
 }
 
-func announcedResponsesModel(text string) string {
+// replayedAnnouncementPattern matches a leading router notice on Messages and
+// Chat history, whose model announcements keep the unmarked legacy wording.
+var replayedAnnouncementPattern = regexp.MustCompile(`(?s)\A(?:` + regexp.QuoteMeta(routerNoticeSentinel) + `.*?\n\n|` + legacyRoutingMarkerExpression + `|` + trimmedRoutingMarkerExpression + `)` + rescueDetailExpression)
+
+// LastAnnouncedMessagesModel returns the model named by the latest routing
+// announcement leading an assistant message in Messages or Chat history. Read
+// it before replay cleanup removes the evidence.
+func LastAnnouncedMessagesModel(body []byte) string {
+	messages := gjson.GetBytes(body, "messages").Array()
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Get("role").Str != "assistant" {
+			continue
+		}
+		if model := announcedModel(firstAssistantText(messages[i].Get("content")), replayedAnnouncementPattern); model != "" {
+			return model
+		}
+	}
+	return ""
+}
+
+func firstAssistantText(content gjson.Result) string {
+	if content.Type == gjson.String {
+		return content.Str
+	}
+	for _, block := range content.Array() {
+		if block.Get("type").Str == "text" {
+			return block.Get("text").Str
+		}
+	}
+	return ""
+}
+
+func announcedModel(text string, pattern *regexp.Regexp) string {
 	model := ""
 	for {
-		span := responsesTerminalBadgePattern.FindStringIndex(text)
+		span := pattern.FindStringIndex(text)
 		if span == nil {
 			return model
 		}

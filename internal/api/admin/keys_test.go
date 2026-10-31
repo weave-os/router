@@ -325,7 +325,7 @@ func (f *fakeExternalAPIKeyRepo) Create(_ context.Context, params auth.CreateExt
 	f.created++
 	f.createdBase = params.BaseURL
 	f.createdAliases = params.ModelAliases
-	key := &auth.ExternalAPIKey{ID: params.ExternalID, Provider: params.Provider, ModelAliases: params.ModelAliases}
+	key := &auth.ExternalAPIKey{ID: params.ExternalID, Provider: params.Provider, ModelAliases: params.ModelAliases, AuthType: params.AuthType, FederationConfig: params.FederationConfig}
 	if params.IdentityHeader != nil {
 		f.createdIdentityHeader = *params.IdentityHeader
 		key.IdentityHeader = *params.IdentityHeader
@@ -413,6 +413,23 @@ func TestUpsertExternalKeyHandler_RejectsEnvShadowedProvider(t *testing.T) {
 		"a provider with a deployment env key must not accept a dashboard BYOK key")
 	assert.Equal(t, 0, repo.created,
 		"the BYOK key must not be persisted when the env guard fires")
+}
+
+func TestUpsertExternalKeyHandler_AllowsFederationAlongsideDeploymentKey(t *testing.T) {
+	t.Setenv(providers.APIKeyEnvVar(providers.ProviderAnthropic), "synthetic-deployment-key")
+	repo := &fakeExternalAPIKeyRepo{}
+	body, err := json.Marshal(map[string]any{
+		"provider":  providers.ProviderAnthropic,
+		"auth_type": auth.AuthTypeAnthropicWIF,
+		"federation_config": auth.AnthropicFederationConfig{
+			FederationRuleID: "fdrl_synthetic", OrganizationID: "00000000-0000-0000-0000-000000000001", ServiceAccountID: "svac_synthetic",
+		},
+	})
+	require.NoError(t, err)
+	rec := postProviderKeyBody(upsertKeyEngine(newUpsertKeyService(repo)), body)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	assert.Equal(t, 1, repo.created)
+	assert.Contains(t, rec.Body.String(), "fdrl_synthetic")
 }
 
 func TestUpsertExternalKeyHandler_AllowsProviderWithoutEnvKey(t *testing.T) {

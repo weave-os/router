@@ -19,7 +19,7 @@ That writes `~/.pi/agent/models.json` (the `weave` provider), adds
 the key in `~/.pi/agent/.weave_router_key`. pi auto-installs `@weave-os/router`
 from npm on next start and loads this extension via its `pi.extensions` field.
 Plain `pi` then connects to the installed endpoint, normally
-`https://router.workweave.ai`; it does not start a local Python proxy.
+`https://router.weaveos.com`; it does not start a local Python proxy.
 
 ## What it does
 
