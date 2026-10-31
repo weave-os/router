@@ -23,16 +23,16 @@
 A drop-in proxy for Anthropic, OpenAI, and Gemini that picks the best model
 for *every* request: using a tiny on-box embedder, not a vibes-based prompt.
 
-[![Weave Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fapp.workweave.ai%2Fapi%2Frepository%2Fbadge%2Forg_QWsHDcRQWQEs6RpkdEZrlFK8%2F1222789989%2Fhttps%253A%252F%252Fgithub.com&cacheSeconds=3600)](https://app.workweave.ai/reports/repository/org_QWsHDcRQWQEs6RpkdEZrlFK8/https%3A%2F%2Fgithub.com/1222789989)
+[![Weave Badge](https://img.shields.io/endpoint?url=https%3A%2F%2Fapp.weaveos.com%2Fapi%2Frepository%2Fbadge%2Forg_QWsHDcRQWQEs6RpkdEZrlFK8%2F1222789989%2Fhttps%253A%252F%252Fgithub.com&cacheSeconds=3600)](https://app.weaveos.com/reports/repository/org_QWsHDcRQWQEs6RpkdEZrlFK8/https%3A%2F%2Fgithub.com/1222789989)
 [![Go](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go)](go.mod)
 [![Tests](https://github.com/weave-os/router/actions/workflows/test.yml/badge.svg)](https://github.com/weave-os/router/actions/workflows/test.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Managed deployment](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Frouter.workweave.ai%2Fv1%2Fversion&query=%24.display&label=managed%20deployment&color=EC6341&cacheSeconds=1800)](https://github.com/weave-os/router/deployments)
+[![Managed deployment](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Frouter.weaveos.com%2Fv1%2Fversion&query=%24.display&label=managed%20deployment&color=EC6341&cacheSeconds=1800)](https://github.com/weave-os/router/deployments)
 
 
 [![#1 Product of the Day on Product Hunt](https://api.producthunt.com/widgets/embed-image/v1/top-post-badge.svg?post_id=1247729&theme=light&period=daily)](https://www.producthunt.com/posts/weave-router-2-0?embed=true&utm_source=badge-top-post-badge&utm_medium=badge&utm_campaign=badge-weave-router-2-0)
 
-*Built by [Weave](https://www.workweave.ai): The #1 engineering intelligence platform,
+*Built by [Weave](https://weaveos.com): The #1 engineering intelligence platform,
 loved by Robinhood, PostHog, Reducto, and hundreds of others.*
 
 </div>
